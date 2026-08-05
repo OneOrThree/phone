@@ -42,7 +42,8 @@ function fmtFocus(minutes: number): string {
   return m === 0 ? `${h}시간` : `${h}시간 ${m}분`;
 }
 
-// 위임 대상 행 — 표시 전용 MemberTile과 달리 **탭 가능·단일 선택 하이라이트**가 필요해 자체로 둔다.
+// 위임 대상 행 — MemberTile은 탭이 통계 비교로 고정돼(GROMO-1200) **단일 선택 하이라이트**를 붙일 수
+// 없어 자체로 둔다.
 interface TransferRowProps {
   member: GroupDetailMemberResponse;
   selected: boolean;
