@@ -5071,11 +5071,13 @@
           },
           "dailyScreenTimeGoalMinutes": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 1440
           },
           "dailyFocusTimeGoalMinutes": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 1440
           },
           "countryCode": {
             "type": "string",
@@ -5684,11 +5686,13 @@
           },
           "dailyScreenTimeGoalMinutes": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 1440
           },
           "dailyFocusTimeGoalMinutes": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 1440
           },
           "countryCode": {
             "type": "string",
@@ -5727,7 +5731,8 @@
         "properties": {
           "dailyScreenTimeGoalMinutes": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 1440
           }
         },
         "required": [
@@ -5771,7 +5776,8 @@
         "properties": {
           "dailyFocusTimeGoalMinutes": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 1440
           }
         },
         "required": [
