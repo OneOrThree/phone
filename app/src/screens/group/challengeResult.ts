@@ -12,10 +12,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { localDateStr, yesterdayStr } from '@/utils/localDate';
-import type { GroupChallengeResponse, MissionCategory, MissionType } from '@/types/dto/group';
+import type {
+  ChallengeMemberProgress,
+  GroupChallengeResponse,
+  MissionCategory,
+  MissionType,
+} from '@/types/dto/group';
 import { categoryLabel, missionLabel } from './components/challengeLabel';
 
-// 모달 한 장이 그릴 결과 — 명단은 닉네임만 쓴다(모달은 표현 전용, 계산은 여기서 끝낸다).
+// 모달 한 장이 그릴 결과 — 모달은 표현 전용이고 계산은 여기서 끝낸다.
+//
+// 결과 명단 한 줄 — 이름과 함께 판정 근거(기록 분)를 들고 간다 (GROMO-1191).
+// progressMinutes는 3상을 그대로 옮긴다: FOCUS는 통계가 없어도 0, SCREEN_TIME 미집계는 null.
+// **0과 null을 뭉개면 '0분 집중'과 '미집계'가 같은 칸으로 보인다**(카드 진행 리스트와 같은 규칙).
+export interface ChallengeResultMember {
+  // 렌더 키 — 닉네임은 그룹 안에서 유일하다는 보장이 없다. 카드 진행 리스트도 userId 를 쓴다.
+  userId: string;
+  nickname: string;
+  progressMinutes: number | null;
+}
+
 export interface ChallengeResultCandidate {
   challengeId: string;
   // 결과의 기준일(YYYY-MM-DD) — 가드 키와 표시 날짜에 함께 쓴다.
@@ -24,10 +40,13 @@ export interface ChallengeResultCandidate {
   missionCategory: MissionCategory;
   // 챌린지 한 줄 요약(카드·시트와 같은 문장 — challengeLabel).
   label: string;
+  // 판정 기준(분). 목표를 모르는 챌린지(구 창·durationMinutes null)는 null —
+  // 이때 표기는 분모를 지어내지 않고 기록 분만 적는다.
+  goalMinutes: number | null;
   // 달성(achieved=true) · 미달성(false) · 집계 중(null) 명단 — 3상을 뭉개지 않는다.
-  achievers: string[];
-  failed: string[];
-  pending: string[];
+  achievers: ChallengeResultMember[];
+  failed: ChallengeResultMember[];
+  pending: ChallengeResultMember[];
   // 내 결과 — GA4 achieved 파라미터용. 명단에 내가 없으면 null.
   myAchieved: boolean | null;
   memberCount: number;
@@ -56,6 +75,20 @@ function createdDateStr(createdAt: string): string {
 //     여기서 모달을 띄우고 가드를 태우면 확정 결과를 영영 보여줄 수 없어, 확정이 하나라도
 //     생길 때까지 미룬다(다음 조회가 다시 판단한다).
 //   · 기준일보다 뒤에 만들어진 챌린지 — 존재하지 않던 날의 "전원 미달성"을 만들지 않는다.
+// 판정값이 같은 사람만 모아 표시용 줄로 옮긴다 — 순서는 서버가 준 그대로(카드 진행 리스트와 동일).
+function members(
+  progress: ChallengeMemberProgress[],
+  achieved: boolean | null,
+): ChallengeResultMember[] {
+  return progress
+    .filter((p) => p.achieved === achieved)
+    .map((p) => ({
+      userId: p.userId,
+      nickname: p.nickname,
+      progressMinutes: p.progressMinutes,
+    }));
+}
+
 function toCandidate(
   c: GroupChallengeResponse,
   date: string,
@@ -72,9 +105,10 @@ function toCandidate(
     missionType: c.missionType,
     missionCategory: c.missionCategory,
     label: missionLabel(c) ?? categoryLabel(c),
-    achievers: progress.filter((p) => p.achieved === true).map((p) => p.nickname),
-    failed: progress.filter((p) => p.achieved === false).map((p) => p.nickname),
-    pending: progress.filter((p) => p.achieved === null).map((p) => p.nickname),
+    goalMinutes: c.durationMinutes,
+    achievers: members(progress, true),
+    failed: members(progress, false),
+    pending: members(progress, null),
     myAchieved: mine ? mine.achieved : null,
     memberCount: progress.length,
     hadBet: !!c.bet,

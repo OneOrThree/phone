@@ -23,7 +23,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
-import type { ChallengeResultCandidate } from '../challengeResult';
+import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
+import {
+  UNMEASURED,
+  progressFraction,
+  progressFractionA11y,
+  unmeasuredA11y,
+} from './progressFormat';
 
 // 내 결과별 헤드라인 — 리그 결과 화면의 caption/title 위계를 따른다.
 // 내 결과가 아직 없으면(집계 중·명단에 없음) 중립 문구로 떨어뜨린다.
@@ -57,28 +63,62 @@ function monthDay(date: string): string {
   return m ? `${Number(m[2])}월 ${Number(m[3])}일` : date;
 }
 
+// 판정 근거 한 조각 — 카드 진행 리스트와 **같은 조각**을 쓴다(progressFormat).
+// 달성자에게도 분을 적는 것이 카드와 다른 점이자 이 화면의 본체다 — 카드는 '달성 ✓'로 갈음한다.
+function minutesText(progressMinutes: number | null, goalMinutes: number | null): string {
+  if (progressMinutes === null) return UNMEASURED;
+  return progressFraction(progressMinutes, goalMinutes);
+}
+
+// 스크린리더는 행을 한 덩어리로 읽는다 — 이름과 근거가 따로 읽히면 누구 기록인지 잃는다.
+function minutesA11yLabel(
+  nickname: string,
+  progressMinutes: number | null,
+  goalMinutes: number | null,
+): string {
+  if (progressMinutes === null) return unmeasuredA11y(nickname);
+  return progressFractionA11y(nickname, progressMinutes, goalMinutes);
+}
+
 // 명단 한 묶음(달성/미달성/집계 중) — 비어 있으면 묶음째 그리지 않는다.
+// 사람당 한 행이다(GROMO-1191) — 근거 분을 붙이면서 한 줄 이어붙이기(join)를 걷어냈다.
 function NameSection({
   title,
   icon,
   color,
-  names,
+  members,
+  goalMinutes,
 }: {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  names: string[];
+  members: ChallengeResultMember[];
+  goalMinutes: number | null;
 }) {
-  if (names.length === 0) return null;
+  if (members.length === 0) return null;
   return (
     <View style={s.section}>
       <View style={s.sectionHead}>
         <Ionicons name={icon} size={15} color={color} />
         <Text style={[s.sectionTitle, { color }]}>
-          {title} {names.length}
+          {title} {members.length}
         </Text>
       </View>
-      <Text style={s.sectionNames}>{names.join(' · ')}</Text>
+      <View style={s.memberRows}>
+        {members.map((m) => (
+          <View
+            key={m.userId}
+            style={s.memberRow}
+            accessible
+            accessibilityLabel={minutesA11yLabel(m.nickname, m.progressMinutes, goalMinutes)}
+          >
+            <Text style={s.memberName} numberOfLines={1}>
+              {m.nickname}
+            </Text>
+            <Text style={s.memberMinutes}>{minutesText(m.progressMinutes, goalMinutes)}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -162,19 +202,22 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                 title="달성"
                 icon="checkmark-circle"
                 color={T.night.green}
-                names={result.achievers}
+                members={result.achievers}
+                goalMinutes={result.goalMinutes}
               />
               <NameSection
                 title="미달성"
                 icon="close-circle"
                 color={T.night.muted}
-                names={result.failed}
+                members={result.failed}
+                goalMinutes={result.goalMinutes}
               />
               <NameSection
                 title="집계 중"
                 icon="hourglass-outline"
                 color={T.night.gold}
-                names={result.pending}
+                members={result.pending}
+                goalMinutes={result.goalMinutes}
               />
             </ScrollView>
 
@@ -235,11 +278,23 @@ const s = StyleSheet.create({
   section: { alignItems: 'center', marginBottom: T.space.md },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   sectionTitle: { ...T.text.caption, fontWeight: '700' },
-  sectionNames: {
-    ...T.text.body,
-    color: T.night.cream,
-    textAlign: 'center',
-    marginTop: 2,
+
+  // 이름 | 근거 분 — 카드 진행 리스트(progressRow)와 같은 배치다: 이름 왼쪽, 분 오른쪽.
+  // 행마다 가운데 정렬하면 이름 길이만큼 분이 좌우로 흔들려 세로로 훑을 수 없다(PR #493 리뷰).
+  // 폭은 화면 전체가 아니라 읽기 좋은 상한까지만 벌리고, 그 덩어리를 가운데 둔다.
+  memberRows: { alignSelf: 'center', width: '100%', maxWidth: 260 },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: T.space.sm,
+    marginTop: 4,
+  },
+  memberName: { ...T.text.body, color: T.night.cream, flexShrink: 1 },
+  memberMinutes: {
+    ...T.text.caption,
+    color: T.night.muted,
+    fontVariant: ['tabular-nums'],
   },
 
   betHint: {

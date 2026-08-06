@@ -75,6 +75,7 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
     missionType: 'DURATION' as const,
     missionCategory: 'FOCUS' as const,
     label: '하루 60분 집중',
+    goalMinutes: 60,
     memberCount: 4,
     // 내기가 걸렸던 결과로 둔다 — 정산 안내 한 줄까지 함께 확인해야 하기 때문.
     hadBet: true,
@@ -82,8 +83,14 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
   if (kind === 'challengeAchieved') {
     return {
       ...base,
-      achievers: ['나', '수빈', '민지'],
-      failed: ['지훈'],
+      // 목표를 넘긴 정도를 사람마다 다르게 둔다 — 근거 분(GROMO-1191)이 붙는 자리라
+      // 전부 같은 값이면 표기가 제대로 보이는지 알 수 없다.
+      achievers: [
+        { userId: 'u-me', nickname: '나', progressMinutes: 72 },
+        { userId: 'u-subin', nickname: '수빈', progressMinutes: 60 },
+        { userId: 'u-minji', nickname: '민지', progressMinutes: 145 },
+      ],
+      failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 23 }],
       pending: [],
       myAchieved: true,
     };
@@ -91,20 +98,32 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
   if (kind === 'challengeFailed') {
     return {
       ...base,
-      achievers: ['수빈', '민지'],
-      failed: ['나', '지훈'],
+      achievers: [
+        { userId: 'u-subin', nickname: '수빈', progressMinutes: 61 },
+        { userId: 'u-minji', nickname: '민지', progressMinutes: 88 },
+      ],
+      // 0분(아예 안 함)과 아깝게 놓친 경우를 같이 둔다 — 둘 다 미달성이지만 읽히는 맛이 다르다.
+      failed: [
+        { userId: 'u-me', nickname: '나', progressMinutes: 59 },
+        { userId: 'u-jihun', nickname: '지훈', progressMinutes: 0 },
+      ],
       pending: [],
       myAchieved: false,
     };
   }
   // 집계 중 — 스크린타임은 클라 보고가 도착해야 확정돼 3상이 실제로 섞인다(계약 §2).
+  // 미보고는 progressMinutes가 null이라 '—'로 비고, 0분(진짜 안 씀)과 칸이 갈린다.
   return {
     ...base,
     missionCategory: 'SCREEN_TIME',
     label: '하루 120분 스크린타임',
-    achievers: ['수빈'],
-    failed: ['지훈'],
-    pending: ['나', '민지'],
+    goalMinutes: 120,
+    achievers: [{ userId: 'u-subin', nickname: '수빈', progressMinutes: 34 }],
+    failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 210 }],
+    pending: [
+      { userId: 'u-me', nickname: '나', progressMinutes: null },
+      { userId: 'u-minji', nickname: '민지', progressMinutes: null },
+    ],
     myAchieved: null,
   };
 }
