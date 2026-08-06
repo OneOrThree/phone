@@ -299,9 +299,11 @@ export default function FocusResultScreen() {
   // 후에 도착할 수 있고, 도착하면 구독으로 재렌더된다. 오늘 날짜 판정만 유효(자정 넘김 방어).
   const rawVerdict = useSyncExternalStore(subscribeSessionSaveVerdict, getSessionSaveVerdict);
   const verdict = rawVerdict?.date === today ? rawVerdict : null;
-  // 획득 시간조각(재화) — 세션 저장 응답 기준(GROMO 재화). 목표 보너스(goalRewardCoins>0)도 합산.
+  // 획득 시간조각(재화) — 세션 저장 응답의 **세션 보상만**. 목표 보너스(goalRewardCoins)는 홈의
+  // 목표 달성 축하 모달이 단독으로 표시한다(GROMO-1193) — 예전엔 여기 합산되고 모달에도 또 떠서,
+  // 같은 지급 1건이 두 화면에 두 번 보였다(지급은 1회라 잔액은 정상).
   // 응답 도착 전이거나 서버 미지급이면 0 → 배지 미표기.
-  const rewardCoins = (verdict?.awardedCoins ?? 0) + Math.max(verdict?.goalRewardCoins ?? 0, 0);
+  const rewardCoins = verdict?.awardedCoins ?? 0;
   // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
   // 오늘 값은 max(서버 집계, 방금 세션 분, 저장 응답의 그날 누적)로 바닥을 깔고, 주간 합계에도
   // 그 차이만큼 더해 결과 화면이 0/이전 값으로 보이지 않게 한다(이중 집계 없음 — max라 서버

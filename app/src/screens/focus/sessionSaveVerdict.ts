@@ -15,8 +15,10 @@ export interface SessionSaveVerdict {
   // 이 세션 저장으로 지급된 시간조각(서버 응답). 결과 화면 +N ⏳ 연출용. 미구현/미도착 시 undefined.
   // ⚠️ 뽀모도로는 블록마다 저장돼 응답이 여러 번 오지만, 아래 단조증가 가드로 '가장 큰 누적'을 실은
   // 응답만 남는다 — 즉 여기 재화도 그 응답 1건 기준이라 블록별 합산이 아니다(BE 지급 설계에 맞춰 재검토).
+  // 목표 달성 보너스(goalRewardCoins)는 여기 싣지 않는다(GROMO-1193) — 결과 화면에 합산하면
+  // 홈의 목표 축하 모달과 같은 지급을 두 번 보여준다. 잔액 정정(reconcileSessionAward)은
+  // 서버 응답에서 직접 합산하므로 이 판정과 무관하다.
   awardedCoins?: number;
-  goalRewardCoins?: number; // 목표 달성 보너스 시간조각(>0일 때만 표기)
 }
 
 let current: SessionSaveVerdict | null = null;
@@ -48,7 +50,6 @@ export function publishSessionSaveVerdict(res: FocusSessionSaveResponse): void {
     dayTotalFocusSeconds: res.dayTotalFocusSeconds,
     streakQualifiedToday: res.streakQualifiedToday,
     awardedCoins: res.awardedCoins,
-    goalRewardCoins: res.goalRewardCoins,
   };
   if (
     current &&
