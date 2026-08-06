@@ -48,12 +48,24 @@ export async function deleteFocusTag(tagId: string): Promise<void> {
   await api.delete(`/api/v1/tag/${tagId}`);
 }
 
+// 세션 저장을 앱 전역에서 **한 번에 하나씩** 보내는 체인(GROMO-1049).
+//
+// 응답의 balanceAfter 는 '그 트랜잭션 시점'의 잔액이라 순서가 뒤바뀌면 오래된 값이 최신을 덮는다 —
+// 백그라운드 리플레이가 여러 블록 경계를 한꺼번에 정산하면 저장이 동시에 떠 응답이 역순으로 올 수
+// 있다(코덱스 리뷰 P1). 요청을 직렬화하면 응답 순서가 곧 커밋 순서라 역전 자체가 성립하지 않는다.
+// 세션 저장은 블록당 1회로 드물어 직렬화 비용이 무시할 만하다.
+let saveChain: Promise<unknown> = Promise.resolve();
+
 // POST /api/v1/focus-session — 집중 세션 저장. 응답은 그날 누적·스트릭 서버 판정(GROMO-806).
-export async function saveFocusSession(
-  body: FocusSessionRequest,
-): Promise<FocusSessionSaveResponse> {
-  const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
-  return data;
+// 앞선 저장이 끝난 뒤에 보낸다(위 saveChain) — 실패해도 체인은 이어진다.
+export function saveFocusSession(body: FocusSessionRequest): Promise<FocusSessionSaveResponse> {
+  const run = saveChain.then(async () => {
+    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
+    return data;
+  });
+  // 체인은 실패해도 끊기지 않게 삼키고, 호출자에겐 실패를 그대로 전파한다.
+  saveChain = run.catch(() => {});
+  return run;
 }
 
 // POST /api/v1/focus-session/start — 라이브 세션 시작(진행 중 레코드 생성, GROMO-873).

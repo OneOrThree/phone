@@ -590,11 +590,14 @@ export default function FocusSessionScreen() {
               // 달리 날짜 가드 없이 항상 반영한다. 구서버(awardedCoins 없음)면 낙관 유지.
               // 집중 목표 첫 달성 보너스(goalRewardCoins, GROMO-1039)도 같은 저장 트랜잭션의
               // 서버 지급이라 합산 — 빼면 다음 refresh까지 보너스가 화면에 안 보인다.
+              // balanceAfter(GROMO-1049)가 오면 그 잔액 정본이 우선 — 낙관 가산과 진행 중 조회의
+              // 순서를 따질 필요가 없다. 없으면 아래 합산 차액으로 폴백.
               reconcileSessionAward(
                 newCoins,
                 typeof res?.awardedCoins === 'number'
                   ? res.awardedCoins + (res.goalRewardCoins ?? 0)
                   : undefined,
+                res?.balanceAfter,
               );
               // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
               // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가

@@ -97,11 +97,14 @@ export function OrphanFocusSettler() {
         // 서버는 endedAt−startedAt으로 집중초를 재계산하므로 rec.elapsed 기반 낙관치와
         // 어긋날 수 있다 — 그 차이도 여기서 흡수된다. 집중 목표 첫 달성 보너스
         // (goalRewardCoins, GROMO-1039)도 같은 저장 트랜잭션 지급이라 합산.
+        // balanceAfter(GROMO-1049)가 오면 그 잔액 정본이 우선 — 콜드 스타트의 마운트 조회와
+        // 겹쳐도 순서를 따질 필요가 없다. 없으면 아래 합산 차액으로 폴백.
         reconcileSessionAward(
           settledInPreviousRun ? 0 : coins,
           typeof res?.awardedCoins === 'number'
             ? res.awardedCoins + (res.goalRewardCoins ?? 0)
             : undefined,
+          res?.balanceAfter,
         );
       } catch {
         // 업로드 실패 — 대기열(GROMO-614)로 인계해 앱 시작·포그라운드 복귀마다 재시도.
