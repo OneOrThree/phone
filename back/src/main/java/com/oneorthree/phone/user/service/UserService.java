@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -43,6 +44,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -87,13 +89,14 @@ public class UserService {
             user.setCountryCode(body.getCountryCode());
         }
 
+        LocalDate today = todayOf(user);
         UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        screenSettings.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+        screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
 
         UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        focusSettings.setDailyFocusTimeGoalMinutes(body.getDailyFocusTimeGoalMinutes());
+        focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
     }
 
     @Transactional
@@ -115,13 +118,21 @@ public class UserService {
         if (body.getDailyScreenTimeGoalMinutes() != null) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            screenSettings.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+            screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), todayOf(user));
         }
         if (body.getDailyFocusTimeGoalMinutes() != null) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            focusSettings.setDailyFocusTimeGoalMinutes(body.getDailyFocusTimeGoalMinutes());
+            focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), todayOf(user));
         }
+    }
+
+    /**
+     * 목표 이력(GROMO-1049)의 기준일 — 유저 country_code 파생 존의 오늘.
+     * 지급·판정이 유저 로컬 날짜 버킷을 쓰므로 발효일도 같은 기준이어야 어긋나지 않는다.
+     */
+    private LocalDate todayOf(User user) {
+        return LocalDate.now(CountryZoneResolver.resolve(user.getCountryCode()));
     }
 
     @Transactional
@@ -224,18 +235,22 @@ public class UserService {
 
     @Transactional
     public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        settings.setDailyScreenTimeGoalMinutes(dailyScreenTimeGoalMinutes);
+        settings.changeGoal(dailyScreenTimeGoalMinutes, todayOf(user));
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
     }
 
     @Transactional
     public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        settings.setDailyFocusTimeGoalMinutes(dailyFocusTimeGoalMinutes);
+        settings.changeGoal(dailyFocusTimeGoalMinutes, todayOf(user));
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
     }

@@ -551,6 +551,9 @@ class UserServiceTest {
     @DisplayName("집중 목표 수정 성공 → focus settings 에 반영")
     void updateFocusTimeGoalSuccess() {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        // 목표 이력(GROMO-1049)의 발효일을 유저 로컬 기준으로 잡으려 유저를 함께 조회한다.
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+                .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         userService.updateFocusTimeGoal(USER_ID, 90);
@@ -561,6 +564,8 @@ class UserServiceTest {
     @Test
     @DisplayName("집중 목표 수정 - 설정 없음 → UserException(NOT_FOUND)")
     void updateFocusTimeGoalNotFound() {
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+                .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateFocusTimeGoal(USER_ID, 90))
@@ -573,6 +578,8 @@ class UserServiceTest {
     @DisplayName("집중 목표 수정 → GOAL_SET(goal_type=focus_time, goal_minutes) 발행")
     void updateFocusTimeGoalEmitsGoalSet() {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+                .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         userService.updateFocusTimeGoal(USER_ID, 90);
@@ -587,6 +594,8 @@ class UserServiceTest {
     @DisplayName("스크린타임 목표 수정 → 값 반영 + GOAL_SET(goal_type=screen_time, goal_minutes) 발행")
     void updateScreenTimeGoalEmitsGoalSet() {
         UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+                .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         userService.updateScreenTimeGoal(USER_ID, 120);
