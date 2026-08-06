@@ -146,6 +146,22 @@ describe('ChallengeResultModal 5분 관용치 고지', () => {
     expect(screen.getByText('55/60분', { includeHiddenElements: true })).toBeOnTheScreen();
   });
 
+  // 구 창 챌린지(durationMinutes 없음)도 서버는 자기 목표에 관용치를 그대로 적용한다 —
+  // 앱이 분모를 몰라도 고지는 여전히 참이라 **의도적으로** 세운다(PR #494 리뷰로 고정).
+  test('목표를 모르는 창형 집중에도 고지를 세운다 — 분모 없는 표기와 함께', async () => {
+    const result = {
+      ...candidate(true),
+      goalMinutes: null,
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
+      failed: [],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    // 분모는 지어내지 않는다(1191 규칙 그대로) — 고지가 표기 규칙을 바꾸지 않는다.
+    expect(screen.getByText('55분', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.queryByText('55/60분', { includeHiddenElements: true })).toBeNull();
+  });
+
   test('DURATION 결과에는 고지가 없다(정확 임계 — 관용치가 없다)', async () => {
     await render(
       <ChallengeResultModal
