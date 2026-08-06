@@ -68,9 +68,29 @@ class GoalChangeHistoryTest {
 
         settings.changeGoal(30, TODAY);
 
-        // 어제(8/5)는 어제 발효된 60, 그저께(8/4)는 이력 밖이라 근사값(60)을 쓴다 — 지급 창이 [어제, 오늘]이라 무관
         assertThat(settings.goalMinutesOn(YESTERDAY)).isEqualTo(60);
         assertThat(settings.goalMinutesOn(TODAY)).isEqualTo(30);
+    }
+
+    /**
+     * previous 는 '가장 최근 변경 직전 값'일 뿐이라 하루 창 밖에서는 무관한 값이다(코드리뷰).
+     * 지연 업로드 세션은 임의 과거 날짜로 들어오고 달성 판정에는 지급 창이 걸려 있지 않으므로,
+     * 창 밖 날짜까지 previous 로 판정하면 오래된 세션이 최근 목표로 재단된다.
+     */
+    @Test
+    @DisplayName("발효일보다 이틀 이상 이전 날짜는 previous 를 쓰지 않고 현재값으로 근사한다")
+    void datesOutsideOneDayWindow_fallBackToCurrentGoal() {
+        UserScreenTimeSettings settings = screenSettings(180);
+        // 8/5에 120으로, 8/6에 30으로 — 연속 변경 후 previous 는 120(=8/5 값)만 남는다
+        settings.changeGoal(120, YESTERDAY);
+        settings.changeGoal(30, TODAY);
+
+        // 8/4 세션이 지연 업로드되면? 그날 목표는 180이었지만 서버는 모른다 —
+        // previous(120)로 판정하면 무관한 값이므로 현재값(30)으로 근사한다.
+        assertThat(settings.goalMinutesOn(TODAY.minusDays(2))).isEqualTo(30);
+        assertThat(settings.goalMinutesOn(TODAY.minusDays(10))).isEqualTo(30);
+        // 창 안(어제)은 그대로 previous 적용
+        assertThat(settings.goalMinutesOn(YESTERDAY)).isEqualTo(120);
     }
 
     @Test

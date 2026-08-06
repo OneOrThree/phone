@@ -71,9 +71,16 @@ public class UserFocusTimeSettings {
 
     /**
      * 주어진 날짜에 유효했던 목표(분). 이력이 없으면 현재값으로 근사한다(기존 유저·미변경 유저).
+     *
+     * <p>previous 는 <b>발효일 직전 하루</b>에만 적용한다(코드리뷰). 이 필드는 '가장 최근 변경
+     * 직전 값'일 뿐이라, 며칠 연속 목표를 바꾼 뒤 오래된 날짜를 물으면 무관한 최근 목표를 돌려준다.
+     * 지연 업로드 세션은 임의 과거 날짜로 들어올 수 있고 달성 판정에는 지급 창([어제, 오늘])이
+     * 걸려 있지 않으므로, 1일 유효 창 밖은 알 수 없다고 보고 현재값으로 근사한다(기존 동작).</p>
      */
     public int goalMinutesOn(LocalDate date) {
-        if (goalEffectiveFrom != null && previousGoalMinutes != null && date.isBefore(goalEffectiveFrom)) {
+        if (goalEffectiveFrom != null && previousGoalMinutes != null
+                && date.isBefore(goalEffectiveFrom)
+                && !date.isBefore(goalEffectiveFrom.minusDays(1))) {
             return previousGoalMinutes;
         }
         return dailyFocusTimeGoalMinutes;
