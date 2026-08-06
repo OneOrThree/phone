@@ -522,11 +522,11 @@ describe('세션 보상 — 서버 지급 전환', () => {
     expect(screen.getByTestId('coins')).toHaveTextContent('107');
   });
 
-  // 정정은 차액 방식이다 — 뽀모도로처럼 블록 저장이 겹칠 때 전체 잔액을 덮어쓰면 아직 저장
-  // 안 된 다른 블록의 낙관 가산이 지워진다. 블록별 정정이 서로를 건드리지 않아야 한다.
-  // 정정 직후 재조회도 같은 함정을 밟을 수 있어(서버는 블록1만 반영), 아직 확정 안 된 블록2의
-  // 낙관분을 응답에 얹어 보존한다.
-  test('겹친 블록들의 정정은 서로의 낙관 가산을 지우지 않는다', async () => {
+  // 정정은 차액 방식이다 — 블록별 정정이 서로의 낙관 가산을 덮지 않아야 한다.
+  // 다만 정정 직후 재조회는 서버 정본을 그대로 싣는다: 아직 저장 안 된 블록2의 낙관분은
+  // 서버가 모르므로 여기서 잠깐 빠지고, 블록2가 저장·확정될 때 같은 방식으로 정확해진다.
+  // (미확정분을 로컬에 들고 있으면 확정이 영영 오지 않는 큐 경로에서 누수가 된다 — 코덱스 리뷰 P1)
+  test('겹친 블록들의 정정은 차액만 반영하고, 재조회는 서버 정본을 싣는다', async () => {
     mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
 
@@ -535,9 +535,39 @@ describe('세션 보상 — 서버 지급 전환', () => {
     await act(async () => {
       addCoinsFn(7); // 블록1 낙관
       addCoinsFn(5); // 블록2 낙관 (저장 진행 중)
-      reconcileFn(7, 8); // 블록1 저장 응답 — 블록2의 +5는 그대로여야 한다
+      reconcileFn(7, 8); // 블록1 저장 응답 — 차액 +1만 반영(113)한 뒤 재조회가 정본으로 맞춘다
     });
-    expect(screen.getByTestId('coins')).toHaveTextContent('113'); // 108(서버) + 5(미확정 블록2)
+    expect(screen.getByTestId('coins')).toHaveTextContent('108');
+
+    // 블록2가 저장되면 그 확정의 재조회가 블록2까지 반영된 정본을 가져온다.
+    mockGet.mockResolvedValueOnce({ data: 113 } as never);
+    await act(async () => {
+      reconcileFn(5, 5);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('113');
+  });
+
+  // 업로드 실패 → pendingFocusUploads 큐 경로는 저장에 성공해도 응답을 버려 reconcile 을
+  // 부르지 않는다(코덱스 리뷰 P1). 미확정 낙관분을 로컬에 들고 있었다면 그 금액이 영구히 남아
+  // 이후 모든 확정 재조회에 더해진다 — 들고 있는 상태가 없어야 이 누수가 원천 차단된다.
+  test('확정이 오지 않은 낙관 가산은 이후 재조회에 누적되지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    // 세션A: 낙관 +7 후 업로드 실패 → 큐로 넘어가 reconcile 이 오지 않는다.
+    await act(async () => {
+      addCoinsFn(7);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    // 큐가 나중에 성공해 서버 잔액에는 반영됐다(107). 이제 세션B가 +5 지급되고 확정된다.
+    mockGet.mockResolvedValueOnce({ data: 112 } as never);
+    await act(async () => {
+      addCoinsFn(5);
+      reconcileFn(5, 5);
+    });
+    // 서버 정본 112 그대로 — 세션A의 낡은 7이 다시 더해져 119가 되면 안 된다.
+    expect(screen.getByTestId('coins')).toHaveTextContent('112');
   });
 });
 
