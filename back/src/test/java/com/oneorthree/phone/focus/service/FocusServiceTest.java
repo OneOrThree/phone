@@ -809,6 +809,32 @@ class FocusServiceTest {
         assertThat(response.awardedCoins()).isEqualTo(59);
     }
 
+    /**
+     * GROMO-1049: 응답에 <b>지급까지 반영된 잔액 정본</b>을 싣는다.
+     *
+     * <p>앱은 저장 응답을 기다리는 동안 화면 잔액을 미리 올리는데(낙관 가산), 그때 떠 있던
+     * {@code GET /currency} 응답이 지급 전 스냅샷인지 후인지 앱이 알 수 없어 낙관분이 지워지거나
+     * 이중으로 더해졌다. 지급을 수행한 이 트랜잭션이 잔액을 함께 주면 앱은 추측할 필요가 없다.</p>
+     */
+    @Test
+    @DisplayName("세션 저장 응답에 지급 후 잔액 정본(balanceAfter)을 싣는다")
+    void saveFocusSessionReturnsBalanceAfter() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder().id(SESSION_ID).build());
+        // 지급이 반영된 뒤의 원장 잔액
+        given(currencyLedgerService.balanceOf(user)).willReturn(1059);
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 30);
+
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        assertThat(response.balanceAfter()).isEqualTo(1059);
+    }
+
     @Test
     @DisplayName("집중 60초(1분) 미만 세션 저장 → 코인 미지급(credit 미호출) + awardedCoins=0")
     void saveFocusSessionShortSessionNoAward() {

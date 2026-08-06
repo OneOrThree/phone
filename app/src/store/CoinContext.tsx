@@ -49,7 +49,16 @@ interface CoinContextValue {
   // optimisticAmount = 이 세션에 대해 **이번 실행에서** addCoins로 미리 올린 값(없으면 0).
   // awardedCoins가 숫자가 아니면(구버전 서버 빈 바디) 정정하지 않고 낙관 계산을 유지한다 —
   // 앱-서버 보상 공식이 어긋나 잔차가 남아도 다음 refresh(서버 잔액 재조회)가 교정한다.
-  reconcileSessionAward: (optimisticAmount: number, awardedCoins: number | undefined) => void;
+  // balanceAfter(서버가 실어 준 지급 후 잔액 정본, GROMO-1049)가 오면 그 값을 그대로 세팅한다 —
+  // 이때 optimisticAmount·awardedCoins는 무시된다(추측이 필요 없다). 없으면 위 차액 정정으로 폴백.
+  reconcileSessionAward: (
+    optimisticAmount: number,
+    awardedCoins: number | undefined,
+    balanceAfter?: number,
+  ) => void;
+  // 서버가 지급을 수행한 응답에 실어 준 잔액 정본을 반영한다(GROMO-1049) — 대기열 재전송처럼
+  // 지급 정정 맥락이 없는 곳에서 잔액만 맞출 때 쓴다.
+  applyServerBalance: (balance: number) => void;
   isOwned: (itemId: string) => boolean;
   buyItem: (itemId: string, price: number) => Promise<boolean>;
 }
@@ -170,9 +179,29 @@ export function CoinProvider({ children }: { children: ReactNode }) {
     setCoins((prev) => prev + amount);
   }
 
-  // 차액만 반영한다(전체 재조회 아님) — 뽀모도로처럼 블록 저장이 여러 건 겹칠 때 전체 잔액을
-  // 덮어쓰면 아직 저장 안 된 다른 블록의 낙관 가산이 지워진다. 차액 방식은 블록별로 독립이다.
-  function reconcileSessionAward(optimisticAmount: number, awardedCoins: number | undefined) {
+  // 서버가 실어 준 잔액 정본을 그대로 반영한다(GROMO-1049) — 지급을 수행한 트랜잭션이 계산한
+  // 값이라 '이 스냅샷이 지급 전인가 후인가'라는 모호성이 없다. 세대를 올려 이보다 먼저 시작된
+  // 조회(그 모호성을 가진 응답)는 버린다.
+  function applyServerBalance(balance: number) {
+    awardEpochRef.current += 1;
+    setCoins(balance);
+    setCoinsLoaded(true);
+    coinsVersionRef.current += 1;
+    setCoinsVersion(coinsVersionRef.current);
+  }
+
+  function reconcileSessionAward(
+    optimisticAmount: number,
+    awardedCoins: number | undefined,
+    balanceAfter?: number,
+  ) {
+    // 잔액 정본이 오면 추측할 게 없다 — 낙관 가산이 얼마였든, 진행 중 조회가 언제 도착하든 무관.
+    if (typeof balanceAfter === 'number') {
+      applyServerBalance(balanceAfter);
+      return;
+    }
+    // 폴백(구버전 서버) — 차액만 반영한다. 뽀모도로처럼 블록 저장이 겹칠 때 전체 잔액을 덮어쓰면
+    // 아직 저장 안 된 다른 블록의 낙관 가산이 지워지므로, 차액 방식으로 블록별 독립을 지킨다.
     if (typeof awardedCoins !== 'number') return;
     // 서버가 이 세션의 지급을 확정했다 — 이보다 먼저 시작된 조회의 스냅샷은 지급 전/후가
     // 모호하므로 세대를 올려 무효화한다(위 awardEpochRef 주석). diff가 0이어도 올린다 —
@@ -210,6 +239,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
         refresh,
         addCoins,
         reconcileSessionAward,
+        applyServerBalance,
         isOwned,
         buyItem,
       }}
