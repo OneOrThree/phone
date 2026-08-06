@@ -116,6 +116,13 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 콜드 스타트의 마운트 refresh × 고아 정산 동시 실행). 세대가 다르면 응답을 버린다 —
   // 시퀀스 가드(위)는 조회끼리의 순서만 지켜 주므로 이 모호성은 따로 막아야 한다.
   const awardEpochRef = useRef(0);
+  // 낙관 가산(addCoins)의 누적 총액(단조증가). 조회가 떠 있는 동안 들어온 가산은 서버 스냅샷에
+  // 아직 없으므로, 응답을 적용할 때 **조회 시작 이후의 증가분만큼 더해** 보존한다(GROMO-1049).
+  // 세대(awardEpoch)처럼 응답을 통째로 버리면 콜드 스타트에서 기저 잔액을 통째로 잃는다 —
+  // 마운트 refresh가 끝나기 전에 고아 정산이 +7을 얹으면 화면이 서버잔액+7이 아니라 0+7이 된다
+  // (코덱스 리뷰 P1). 저장이 이미 끝나 서버 잔액에 가산분이 반영된 경우는
+  // reconcileSessionAward가 세대를 올려 그 응답을 버리므로 이중 가산이 되지 않는다.
+  const optimisticTotalRef = useRef(0);
 
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
@@ -123,13 +130,15 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++refreshSeqRef.current;
     const epoch = awardEpochRef.current;
+    const optimisticAtStart = optimisticTotalRef.current;
     try {
       const res = await api.get<number>('/api/v1/currency');
       // 뒤이어 시작된 조회가 있거나(seq) 조회 시작 후 서버 지급 정정이 반영됐으면(epoch)
       // 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
       // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
       if (seq !== refreshSeqRef.current || epoch !== awardEpochRef.current) return false;
-      setCoins(res.data);
+      // 조회 중 들어온 낙관 가산은 이 스냅샷에 없다 — 서버 잔액 위에 그 증가분을 얹는다.
+      setCoins(res.data + (optimisticTotalRef.current - optimisticAtStart));
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
@@ -167,11 +176,10 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }, [bucket, ownedItemIds]);
 
   function addCoins(amount: number) {
-    // 낙관 가산도 세대를 올린다(GROMO-1049) — 가산 **이전에 시작된** 조회의 응답은 가산 전 잔액이라,
-    // 그대로 반영하면 방금 더한 금액을 지워 지급액이 화면에서 사라진다(다음 성공 refresh까지).
-    // 콜드 스타트의 마운트 refresh × 고아 정산(OrphanFocusSettler)이 실제 도달 경로다.
-    // reconcileSessionAward와 같은 이유·같은 수단이며, 여기가 비어 있어 그 구간만 열려 있었다.
-    awardEpochRef.current += 1;
+    // 누적 총액을 함께 올려, 지금 떠 있는 조회가 응답을 적용할 때 이 가산분을 얹게 한다
+    // (GROMO-1049). 이게 없으면 가산 이전에 시작된 조회가 가산 전 잔액을 그대로 실어
+    // 방금 더한 금액을 지운다 — 콜드 스타트의 마운트 refresh × 고아 정산이 실제 도달 경로다.
+    optimisticTotalRef.current += amount;
     setCoins((prev) => prev + amount);
   }
 

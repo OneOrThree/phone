@@ -368,8 +368,11 @@ describe('세션 보상 — 서버 지급 전환', () => {
   // 같은 경합의 나머지 절반(GROMO-1049) — 정정(reconcile)이 아니라 **낙관 가산(addCoins)** 이
   // 조회 중에 끼어드는 구간. 세션 저장 응답이 오기 전에 화면부터 올려두는 게 낙관 가산인데,
   // 그동안 떠 있던 조회가 가산 전 잔액을 들고 도착하면 지급액이 화면에서 사라진다.
-  // 도달 경로: 콜드 스타트의 마운트 refresh × OrphanFocusSettler 의 addCoins.
-  test('낙관 가산 전에 시작된 조회의 응답은 가산을 덮지 않는다', async () => {
+  //
+  // 정정과 달리 응답을 **버리면 안 된다** — 낙관 가산은 순수 로컬이라 서버 스냅샷과 배타적이지
+  // 않고, 버리면 아직 반영 못 한 기저 잔액까지 통째로 잃는다(아래 콜드 스타트 케이스).
+  // 서버 잔액 위에 '조회 시작 이후의 가산분'을 얹는 게 정답이다.
+  test('낙관 가산 전에 시작된 조회는 서버 잔액 위에 가산분을 얹어 반영한다', async () => {
     mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
 
@@ -391,10 +394,48 @@ describe('세션 보상 — 서버 지급 전환', () => {
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('107');
 
-    // A가 이제야 가산 전 스냅샷(100)을 들고 도착 — 반영하면 +7이 증발한다. 버려야 한다.
+    // A가 이제야 가산 전 스냅샷(100)을 들고 도착 — 100 + 7 로 적용해야 +7이 살아남는다.
     await act(async () => {
       finishA({ data: 100 });
-      await expect(pendingA).resolves.toBe(false);
+      await expect(pendingA).resolves.toBe(true);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  // 코덱스 리뷰 P1의 실제 시나리오 — 위 테스트는 renderProvider()가 마운트 refresh를 먼저
+  // 흘려보내 기저 잔액이 이미 화면에 있는 상태였다. 진짜 콜드 스타트는 **마운트 refresh가 끝나기
+  // 전에** 고아 정산이 도는 순서다. 이때 응답을 버리면 coins가 초기값 0에서 출발해 0+7=7이 되고,
+  // 서버 잔액 100이 통째로 사라진다(reconcile 차액도 0이라 복구 안 됨).
+  test('콜드 스타트 — 마운트 조회가 끝나기 전 낙관 가산이 와도 기저 잔액을 잃지 않는다', async () => {
+    let finishMount: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishMount = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    // 마운트 refresh를 **미해결 상태로** 두고 렌더한다(renderProvider와 달리 흘리지 않는다).
+    await render(
+      <CoinProvider>
+        <Probe />
+      </CoinProvider>,
+    );
+
+    // 아직 서버 잔액이 안 왔다 — 화면은 0(미상).
+    await act(async () => {
+      addCoinsFn(7);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('7');
+
+    // 이제 마운트 조회가 서버 잔액 100을 들고 도착 — 100 + 7 = 107 이어야 한다.
+    await act(async () => {
+      finishMount({ data: 100 });
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    // 뒤이은 저장 응답 정정(낙관 7 = 서버 지급 7)은 차액 0이라 잔액을 건드리지 않는다.
+    await act(async () => {
+      reconcileFn(7, 7);
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('107');
   });
