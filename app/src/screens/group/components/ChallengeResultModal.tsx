@@ -26,6 +26,7 @@ import { T, withAlpha } from '@/constants/theme';
 import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
 import {
   UNMEASURED,
+  WINDOW_FOCUS_TOLERANCE_NOTICE,
   progressFraction,
   progressFractionA11y,
   unmeasuredA11y,
@@ -196,8 +197,25 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             <Text style={s.label}>{result.label}</Text>
             <Text style={s.date}>{monthDay(result.date)} 결과</Text>
 
-            {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다 */}
-            <ScrollView style={s.lists} showsVerticalScrollIndicator={false}>
+            {/* 창형 집중만 5분 관용치가 있다(GROMO-1217) — 근거 분(55/60분)이 달성 명단에서
+                모순으로 읽히지 않게, 명단(숫자)보다 먼저 판정 규칙을 알린다. 명단 안(스크롤)에
+                넣으면 규칙이 스크롤에 밀려 사라져 스크롤 밖 고정 자리에 세운다. */}
+            {result.missionType === 'TIME_WINDOW' && result.missionCategory === 'FOCUS' && (
+              <Text style={s.toleranceNotice} testID="group.challengeResult.toleranceNotice">
+                {WINDOW_FOCUS_TOLERANCE_NOTICE}
+              </Text>
+            )}
+
+            {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다.
+                1191부터 행이 인원수만큼 늘어난다 — 넘침을 숨기지 않도록 인디케이터를 켠다
+                (iOS는 다크 배경이라 white, Android는 잠깐 떴다 사라지지 않게 persistent). */}
+            <ScrollView
+              style={s.lists}
+              showsVerticalScrollIndicator
+              indicatorStyle="white"
+              persistentScrollbar
+              testID="group.challengeResult.lists"
+            >
               <NameSection
                 title="달성"
                 icon="checkmark-circle"
@@ -273,6 +291,14 @@ const s = StyleSheet.create({
 
   label: { ...T.text.subtitle, color: T.night.cream, textAlign: 'center' },
   date: { ...T.text.caption, color: T.night.muted, marginTop: 2, marginBottom: T.space.lg },
+
+  // 판정 규칙 고지 — 날짜와 같은 보조 캡션 결. 명단 직전의 고정 한 줄이다.
+  toleranceNotice: {
+    ...T.text.caption,
+    color: T.night.muted,
+    textAlign: 'center',
+    marginBottom: T.space.lg,
+  },
 
   lists: { alignSelf: 'stretch', flexGrow: 0, maxHeight: 220 },
   section: { alignItems: 'center', marginBottom: T.space.md },

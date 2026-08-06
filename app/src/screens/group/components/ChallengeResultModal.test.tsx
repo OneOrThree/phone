@@ -3,6 +3,7 @@
 // 스크린리더가 상태를 읽을 수 있는지를 고정한다. 크기·여백 같은 시각 품질은 QA 몫이라 보지 않는다.
 import { render, screen } from '@testing-library/react-native';
 import ChallengeResultModal from './ChallengeResultModal';
+import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import type { ChallengeResultCandidate } from '../challengeResult';
 
 function candidate(myAchieved: boolean | null): ChallengeResultCandidate {
@@ -119,5 +120,78 @@ describe('ChallengeResultModal 판정 근거', () => {
     expect(
       screen.getByLabelText('민지 아직 집계되지 않음', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
+  });
+});
+
+// 5분 관용치 고지(GROMO-1217) — 창형 집중은 목표에서 5분 모자라도 달성인데(서버
+// WindowFocusAggregator, 관용치 5분) 근거 분은 원값 그대로라, 고지가 없으면 달성 명단의
+// '55/60분'이 모순으로 읽힌다. 문구는 progressFormat의 공용 상수를 그대로 잠근다.
+describe('ChallengeResultModal 5분 관용치 고지', () => {
+  const NOTICE = WINDOW_FOCUS_TOLERANCE_NOTICE;
+  const notice = () =>
+    screen.queryByTestId('group.challengeResult.toleranceNotice', {
+      includeHiddenElements: true,
+    });
+
+  test('창형 집중(FOCUS×TIME_WINDOW)은 55/60 달성자가 모순으로 읽히지 않게 고지를 세운다', async () => {
+    // 정확한 회귀 재현 — 목표 60분에 55분 기록으로 달성 판정된 멤버.
+    const result = {
+      ...candidate(true),
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
+      failed: [],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    // 고지가 뜨고, 1191의 근거 분 행은 그대로 남는다(고지가 표기를 바꾸지 않는다).
+    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByText('55/60분', { includeHiddenElements: true })).toBeOnTheScreen();
+  });
+
+  test('DURATION 결과에는 고지가 없다(정확 임계 — 관용치가 없다)', async () => {
+    await render(
+      <ChallengeResultModal
+        result={{ ...candidate(true), missionType: 'DURATION' }}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(notice()).toBeNull();
+  });
+
+  test('SCREEN_TIME 창형 결과에는 고지가 없다(이하 판정 — 관용치가 없다)', async () => {
+    await render(
+      <ChallengeResultModal
+        result={{ ...candidate(true), missionCategory: 'SCREEN_TIME' as const }}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(notice()).toBeNull();
+  });
+
+  // 고지는 시각 전용 장식이 아니다 — 스크린리더도 같은 규칙을 들어야 "60분 중 55분"이
+  // 달성 섹션에서 모순으로 들리지 않는다. Text의 접근 가능한 본문으로 노출됨을 잠근다.
+  test('고지는 접근 가능한 텍스트로 읽히고, 기존 행 음성 안내는 그대로다', async () => {
+    const result = {
+      ...candidate(true),
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
+      failed: [],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('재영 60분 중 55분', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+});
+
+// 명단 넘침 신호(GROMO-1217) — 1191부터 행이 인원수만큼 늘어나는데 maxHeight에 잘려도
+// 인디케이터가 꺼져 있어 더 있는지 보이지 않았다. 인디케이터 프롭 3종을 잠근다.
+describe('ChallengeResultModal 명단 스크롤 인디케이터', () => {
+  test('세로 인디케이터를 켠다(iOS white·Android persistent)', async () => {
+    await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
+    const lists = screen.getByTestId('group.challengeResult.lists', {
+      includeHiddenElements: true,
+    });
+    expect(lists.props.showsVerticalScrollIndicator).toBe(true);
+    expect(lists.props.indicatorStyle).toBe('white');
+    expect(lists.props.persistentScrollbar).toBe(true);
   });
 });
