@@ -92,7 +92,7 @@ export function OrphanFocusSettler() {
         totalDistractionSeconds: 0,
       };
       try {
-        const res = await saveFocusSession(body);
+        const res = await saveFocusSession(body, userId);
         // 서버 지급액으로 낙관 가산 정정(B5a — 서버가 정본). 구서버(필드 없음)면 낙관 유지.
         // 서버는 endedAt−startedAt으로 집중초를 재계산하므로 rec.elapsed 기반 낙관치와
         // 어긋날 수 있다 — 그 차이도 여기서 흡수된다. 집중 목표 첫 달성 보너스

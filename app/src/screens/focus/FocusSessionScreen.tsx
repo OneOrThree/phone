@@ -582,7 +582,7 @@ export default function FocusSessionScreen() {
           };
           // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
           // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
-          return saveFocusSession(body).then(
+          return saveFocusSession(body, userId).then(
             // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
             // 구독으로 갱신된다.
             (res) => {

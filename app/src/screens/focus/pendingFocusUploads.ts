@@ -101,7 +101,7 @@ export async function flushPendingFocusUploads(
         continue;
       }
       try {
-        const res = await saveFocusSession(item.body);
+        const res = await saveFocusSession(item.body, item.userId);
         // 이 저장으로 서버 잔액이 바뀌었다 — 정본을 들고 나가 호출자가 화면에 반영하게 한다
         // (GROMO-1049). 예전엔 응답을 버려서, 대기열이 늦게 커밋한 지급이 다음 잔액 조회
         // 전까지 화면에 안 나타났다. 여러 건이면 마지막(가장 최신) 값이 정본이다.
