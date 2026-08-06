@@ -177,6 +177,10 @@ export function mockLastResult(): LeagueLastResultResponse {
     previousTierLevel: 3,
     newTierLevel: 4,
     focusSeconds: 172800, // 48h — 다음 티어(56h) 기준 '8시간 더' 문구 확인용
+    // 승급 보상 시간조각 — 화면이 서버 값만 신뢰하므로(GROMO-1193, 클라 공식 폴백 제거)
+    // 목 모드에서도 배지를 보려면 여기 실제 지급액이 있어야 한다. 서버 공식 기준
+    // 도달 티어 4(갓생러) = 200 (CurrencyRewardPolicy.leaguePromotionReward).
+    promotionBonusCoins: 200,
     acknowledged: mockLastResultAcknowledged,
   };
 }
