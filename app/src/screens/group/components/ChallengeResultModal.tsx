@@ -23,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
-import type { ChallengeResultCandidate } from '../challengeResult';
+import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
 
 // 내 결과별 헤드라인 — 리그 결과 화면의 caption/title 위계를 따른다.
 // 내 결과가 아직 없으면(집계 중·명단에 없음) 중립 문구로 떨어뜨린다.
@@ -57,28 +57,65 @@ function monthDay(date: string): string {
   return m ? `${Number(m[2])}월 ${Number(m[3])}일` : date;
 }
 
+// 판정 근거 한 조각 — "42/60분". 목표를 모르면(구 창 챌린지) 분모를 지어내지 않고 기록 분만,
+// 미집계(progressMinutes = null)면 0분으로 뭉개지 않고 "—"로 비운다(카드 진행 리스트와 같은 3상 규칙).
+const NOT_MEASURED = '—';
+
+function minutesText(progressMinutes: number | null, goalMinutes: number | null): string {
+  if (progressMinutes === null) return NOT_MEASURED;
+  return goalMinutes === null ? `${progressMinutes}분` : `${progressMinutes}/${goalMinutes}분`;
+}
+
+// 스크린리더는 행을 한 덩어리로 읽는다 — 이름과 근거가 따로 읽히면 누구 기록인지 잃는다.
+function minutesA11yLabel(
+  nickname: string,
+  progressMinutes: number | null,
+  goalMinutes: number | null,
+): string {
+  if (progressMinutes === null) return `${nickname}, 집계 중`;
+  return goalMinutes === null
+    ? `${nickname}, ${progressMinutes}분`
+    : `${nickname}, ${goalMinutes}분 중 ${progressMinutes}분`;
+}
+
 // 명단 한 묶음(달성/미달성/집계 중) — 비어 있으면 묶음째 그리지 않는다.
+// 사람당 한 행이다(GROMO-1191) — 근거 분을 붙이면서 한 줄 이어붙이기(join)를 걷어냈다.
 function NameSection({
   title,
   icon,
   color,
-  names,
+  members,
+  goalMinutes,
 }: {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  names: string[];
+  members: ChallengeResultMember[];
+  goalMinutes: number | null;
 }) {
-  if (names.length === 0) return null;
+  if (members.length === 0) return null;
   return (
     <View style={s.section}>
       <View style={s.sectionHead}>
         <Ionicons name={icon} size={15} color={color} />
         <Text style={[s.sectionTitle, { color }]}>
-          {title} {names.length}
+          {title} {members.length}
         </Text>
       </View>
-      <Text style={s.sectionNames}>{names.join(' · ')}</Text>
+      {members.map((m, i) => (
+        // 닉네임은 그룹 안에서 유일하다는 보장이 없어 인덱스를 함께 쓴다(명단 순서는 조회마다 고정).
+        <View
+          key={`${m.nickname}-${i}`}
+          style={s.memberRow}
+          accessible
+          accessibilityLabel={minutesA11yLabel(m.nickname, m.progressMinutes, goalMinutes)}
+        >
+          <Text style={s.memberName} numberOfLines={1}>
+            {m.nickname}
+          </Text>
+          <Text style={s.memberMinutes}>{minutesText(m.progressMinutes, goalMinutes)}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -162,19 +199,22 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                 title="달성"
                 icon="checkmark-circle"
                 color={T.night.green}
-                names={result.achievers}
+                members={result.achievers}
+                goalMinutes={result.goalMinutes}
               />
               <NameSection
                 title="미달성"
                 icon="close-circle"
                 color={T.night.muted}
-                names={result.failed}
+                members={result.failed}
+                goalMinutes={result.goalMinutes}
               />
               <NameSection
                 title="집계 중"
                 icon="hourglass-outline"
                 color={T.night.gold}
-                names={result.pending}
+                members={result.pending}
+                goalMinutes={result.goalMinutes}
               />
             </ScrollView>
 
@@ -235,11 +275,21 @@ const s = StyleSheet.create({
   section: { alignItems: 'center', marginBottom: T.space.md },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   sectionTitle: { ...T.text.caption, fontWeight: '700' },
-  sectionNames: {
-    ...T.text.body,
-    color: T.night.cream,
-    textAlign: 'center',
-    marginTop: 2,
+
+  // 이름 | 근거 분 — 이름은 길면 줄이고(flexShrink), 분은 항상 온전히 보이게 둔다.
+  // 폭을 화면 전체로 벌리지 않고 가운데 모아 기존 중앙 정렬 인상을 유지한다.
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: T.space.sm,
+    marginTop: 4,
+  },
+  memberName: { ...T.text.body, color: T.night.cream, flexShrink: 1 },
+  memberMinutes: {
+    ...T.text.caption,
+    color: T.night.muted,
+    fontVariant: ['tabular-nums'],
   },
 
   betHint: {

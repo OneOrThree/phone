@@ -82,12 +82,15 @@ describe('pickChallengeResults — 어제 결과', () => {
     });
 
     expect(out).toHaveLength(1);
+    // 명단은 이름만이 아니라 판정 근거(기록 분)를 함께 들고 온다(GROMO-1191).
+    // 미집계는 0분으로 뭉개지 않고 null 그대로 — 모달이 '—'로 비울 수 있어야 한다.
     expect(out[0]).toMatchObject({
       challengeId: 'c1',
       date: YESTERDAY,
-      achievers: ['나'],
-      failed: ['수빈'],
-      pending: ['민지'],
+      goalMinutes: 60,
+      achievers: [{ nickname: '나', progressMinutes: 70 }],
+      failed: [{ nickname: '수빈', progressMinutes: 20 }],
+      pending: [{ nickname: '민지', progressMinutes: null }],
       myAchieved: true,
       memberCount: 3,
       hadBet: false,
@@ -223,7 +226,8 @@ describe('1회 노출 가드', () => {
     missionType: 'DURATION',
     missionCategory: 'FOCUS',
     label: '하루 60분 집중',
-    achievers: ['나'],
+    goalMinutes: 60,
+    achievers: [{ nickname: '나', progressMinutes: 70 }],
     failed: [],
     pending: [],
     myAchieved: true,
