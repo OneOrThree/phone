@@ -270,6 +270,69 @@ class UserServiceTest {
     }
 
     /**
+     * 국가와 목표를 <b>동시에</b> 바꿔도 두 단계 전 목표가 보존돼야 한다(코드리뷰).
+     *
+     * <p>정렬을 거치지 않고 곧바로 changeGoal 을 부르면, 발효일이 새 로컬 오늘과 달라 '오늘의 첫
+     * 변경'으로 취급돼 previous 가 직전 목표로 덮인다. 그러면 아직 지급 창 안에 있는 그 전날이
+     * 두 단계 전 목표(A) 대신 직전 목표(B)로 판정된다.</p>
+     */
+    @Test
+    @DisplayName("국가+목표 동시 변경에서도 두 단계 전 목표가 보존된다")
+    void updateProfileCountryAndGoal_keepsPriorHistory() {
+        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build(); // A = 180
+        // KR '오늘'에 A→B(60) 변경 — 발효일은 GB 기준으론 내일(미래)이 되는 상황을 만든다.
+        LocalDate gbToday = LocalDate.now(CountryZoneResolver.resolve("GB"));
+        screen.changeGoal(60, gbToday.plusDays(1)); // previous=180(A), 발효일=미래
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        // 국가가 바뀌면 집중 설정도 정렬 대상이라 함께 읽는다.
+        given(userFocusTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserFocusTimeSettings.builder().userId(USER_ID).build()));
+
+        // 국가(GB)와 목표(C=30)를 한 번에 바꾼다.
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, 30, null, "GB"));
+
+        assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(30);
+        assertThat(screen.getGoalEffectiveFrom()).isEqualTo(gbToday);
+        // 핵심 — 어제는 여전히 A(180)로 판정돼야 한다. B(60)로 덮였다면 지급이 어긋난다.
+        assertThat(screen.goalMinutesOn(gbToday.minusDays(1))).isEqualTo(180);
+    }
+
+    /**
+     * 로컬 날짜가 <b>앞으로</b> 가는 국가 변경(GB→KR)도 정렬 대상이다(코드리뷰).
+     *
+     * <p>전환은 옛 존의 '오늘'에 있었는데 새 존에서는 그 날이 이미 어제다. 발효일을 그대로 두면
+     * 그날의 지연 리포트가 새 목표로 판정되는데, 클라는 옛 목표로 계산해 보냈다.</p>
+     */
+    @Test
+    @DisplayName("로컬 날짜가 앞으로 가면 옛 존 오늘의 전환을 새 로컬 오늘로 옮긴다")
+    void updateProfileCountryOnly_movesSameDayTransitionForward() {
+        User user = User.builder().id(USER_ID).countryCode("GB").build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
+        // 전환이 '옛 존(GB) 오늘'에 일어났다.
+        LocalDate gbToday = LocalDate.now(CountryZoneResolver.resolve("GB"));
+        screen.changeGoal(60, gbToday); // previous=180, 발효일=GB 오늘
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserFocusTimeSettings.builder().userId(USER_ID).build()));
+
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, "KR"));
+
+        LocalDate krToday = LocalDate.now(CountryZoneResolver.resolve("KR"));
+        // 새 존 오늘로 옮겨졌다. (KR·GB 날짜가 같은 시간대에 실행되면 무변화 — 그때도 정합은 유지)
+        assertThat(screen.getGoalEffectiveFrom()).isEqualTo(krToday);
+        assertThat(screen.getPreviousGoalMinutes()).isEqualTo(180);
+        // 옛 존 오늘이 새 존에서 어제가 됐다면, 그날은 옛 목표로 판정돼야 한다.
+        if (krToday.isAfter(gbToday)) {
+            assertThat(screen.goalMinutesOn(gbToday)).isEqualTo(180);
+        }
+    }
+
+    /**
      * 이미 지난 발효일은 건드리지 않는다(코드리뷰) — 닉네임 저장 흐름이 countryCode 를 늘 함께
      * 보내므로, 과거 발효일까지 오늘로 당기면 목표를 바꾸고 며칠 뒤 닉네임만 고쳐도 그 사이의
      * 날들이 '변경 전'으로 잘못 라벨링돼 지급이 옛 목표로 나간다.

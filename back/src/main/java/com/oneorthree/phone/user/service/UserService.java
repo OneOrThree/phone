@@ -111,6 +111,9 @@ public class UserService {
             }
             user.setNickname(body.getNickname());
         }
+        // 국가 변경 전 존 기준 오늘 — 변경을 반영하기 **전에** 잡아 둔다(코드리뷰). 목표 이력 정렬은
+        // '옛 로컬 오늘'과 '새 로컬 오늘'을 모두 알아야 임의의 과거 전환을 건드리지 않고 옮길 수 있다.
+        LocalDate previousLocalToday = todayOf(user);
         if (body.getCountryCode() != null) {
             user.setCountryCode(body.getCountryCode());
         }
@@ -119,28 +122,32 @@ public class UserService {
         // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
         // 다른 쪽은 직전 목표로 판정된다. 국가 변경을 먼저 반영한 뒤 계산하는 것도 setupProfile 과 동일.
         LocalDate today = todayOf(user);
-        // 국가가 바뀌면 목표를 안 바꿔도 발효일을 새 로컬 오늘로 맞춘다(코드리뷰) — 목표 필드가
-        // 빠진 국가-only PATCH 에서는 changeGoal 이 아예 안 불려, 로컬 날짜가 뒤로 갈 때(KR→GB)
-        // 발효일이 미래로 남고 새 로컬 오늘이 직전 목표로 판정된다.
-        // 정렬은 realignEffectiveDate 로 한다 — changeGoal 을 현재값으로 부르면 previous 가 현재값으로
-        // 덮여 진짜 직전 목표가 사라진다(코드리뷰 후속).
+        // 국가가 바뀌면 목표를 안 바꿔도 발효일을 정렬한다 — 목표 필드가 빠진 국가-only PATCH 에서는
+        // changeGoal 이 아예 안 불려, 로컬 날짜가 움직인 만큼 발효일이 어긋난 채 남는다.
+        // 정렬은 realignEffectiveDate 로만 한다 — changeGoal 을 현재값으로 부르면 previous 가 현재값으로
+        // 덮여 진짜 직전 목표가 사라진다.
+        // 목표가 함께 온 경우에도 **정렬을 먼저** 거친다(코드리뷰 후속) — 국가+목표 동시 변경에서
+        // 곧바로 changeGoal 을 부르면 발효일이 새 로컬 오늘과 달라 previous 가 덮이고, 아직 지급 창
+        // 안에 있는 그 전날이 두 단계 전 목표 대신 직전 목표로 판정된다.
         boolean countryChanged = body.getCountryCode() != null;
         if (body.getDailyScreenTimeGoalMinutes() != null || countryChanged) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            if (countryChanged) {
+                screenSettings.realignEffectiveDate(previousLocalToday, today);
+            }
             if (body.getDailyScreenTimeGoalMinutes() != null) {
                 screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
-            } else {
-                screenSettings.realignEffectiveDate(today);
             }
         }
         if (body.getDailyFocusTimeGoalMinutes() != null || countryChanged) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+            if (countryChanged) {
+                focusSettings.realignEffectiveDate(previousLocalToday, today);
+            }
             if (body.getDailyFocusTimeGoalMinutes() != null) {
                 focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
-            } else {
-                focusSettings.realignEffectiveDate(today);
             }
         }
     }
