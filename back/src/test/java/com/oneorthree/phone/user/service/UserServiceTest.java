@@ -1,6 +1,7 @@
 package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -49,6 +50,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.List;
@@ -233,16 +235,22 @@ class UserServiceTest {
     /**
      * 국가만 바꾸는 PATCH 에서도 목표 이력의 발효일을 새 로컬 오늘로 맞춰야 한다(코드리뷰) —
      * 안 맞추면 로컬 날짜가 뒤로 갈 때(KR→GB) 발효일이 미래로 남아 새 로컬 오늘이 직전 목표로
-     * 판정된다. 목표값 자체는 건드리지 않는다.
+     * 판정된다. 단, 목표를 바꾼 게 아니므로 <b>직전 목표는 그대로 보존</b>해야 한다 —
+     * changeGoal 을 현재값으로 부르면 previous 가 덮여 아직 지급 창 안에 있는 그 전날이
+     * 틀린 목표로 지급된다(코드리뷰 후속).
      */
     @Test
-    @DisplayName("국가만 바꿔도 두 설정의 목표 발효일이 새 로컬 오늘로 정렬된다")
-    void updateProfileCountryOnly_realignsGoalEffectiveDates() {
+    @DisplayName("국가만 바꾸면 발효일만 옮기고 직전 목표는 보존한다")
+    void updateProfileCountryOnly_realignsDateButKeepsPreviousGoal() {
         User user = User.builder().id(USER_ID).countryCode("KR").build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
                 .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
                 .userId(USER_ID).dailyFocusTimeGoalMinutes(120).build();
+        // 이미 목표를 바꿔 이력이 있는 상태 — 발효일은 미래(내일)로 둬서 정렬이 실제로 일어나게 한다.
+        LocalDate tomorrow = LocalDate.now(CountryZoneResolver.resolve("GB")).plusDays(1);
+        screen.changeGoal(60, tomorrow); // previous=180
+        focus.changeGoal(30, tomorrow); // previous=120
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
@@ -250,14 +258,15 @@ class UserServiceTest {
         // 목표 필드 없이 국가만 변경
         userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, "GB"));
 
-        // 목표값은 그대로, 발효일만 채워졌다(정렬됨).
-        assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(180);
-        assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(120);
-        assertThat(screen.getGoalEffectiveFrom()).isNotNull();
-        assertThat(focus.getGoalEffectiveFrom()).isNotNull();
-        // 이력이 정렬됐어도 직전 목표 == 현재 목표라 판정에는 영향이 없다.
-        assertThat(screen.goalMinutesOn(screen.getGoalEffectiveFrom().minusDays(1))).isEqualTo(180);
-        assertThat(focus.goalMinutesOn(focus.getGoalEffectiveFrom().minusDays(1))).isEqualTo(120);
+        LocalDate today = LocalDate.now(CountryZoneResolver.resolve("GB"));
+        // 현재 목표는 그대로, 발효일은 새 로컬 오늘로 당겨졌다.
+        assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(60);
+        assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(30);
+        assertThat(screen.getGoalEffectiveFrom()).isEqualTo(today);
+        assertThat(focus.getGoalEffectiveFrom()).isEqualTo(today);
+        // 핵심 — 직전 목표가 보존돼 어제가 여전히 옛 목표로 판정된다.
+        assertThat(screen.goalMinutesOn(today.minusDays(1))).isEqualTo(180);
+        assertThat(focus.goalMinutesOn(today.minusDays(1))).isEqualTo(120);
     }
 
     @Test

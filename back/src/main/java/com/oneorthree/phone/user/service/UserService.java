@@ -121,22 +121,27 @@ public class UserService {
         LocalDate today = todayOf(user);
         // 국가가 바뀌면 목표를 안 바꿔도 발효일을 새 로컬 오늘로 맞춘다(코드리뷰) — 목표 필드가
         // 빠진 국가-only PATCH 에서는 changeGoal 이 아예 안 불려, 로컬 날짜가 뒤로 갈 때(KR→GB)
-        // 발효일이 미래로 남고 새 로컬 오늘이 직전 목표로 판정된다. 목표값은 현재값 그대로 넘겨
-        // 이력만 정렬한다(previous == current 가 되어 판정에 영향이 없다).
+        // 발효일이 미래로 남고 새 로컬 오늘이 직전 목표로 판정된다.
+        // 정렬은 realignEffectiveDate 로 한다 — changeGoal 을 현재값으로 부르면 previous 가 현재값으로
+        // 덮여 진짜 직전 목표가 사라진다(코드리뷰 후속).
         boolean countryChanged = body.getCountryCode() != null;
         if (body.getDailyScreenTimeGoalMinutes() != null || countryChanged) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            Integer requested = body.getDailyScreenTimeGoalMinutes();
-            screenSettings.changeGoal(
-                    requested != null ? requested : screenSettings.getDailyScreenTimeGoalMinutes(), today);
+            if (body.getDailyScreenTimeGoalMinutes() != null) {
+                screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
+            } else {
+                screenSettings.realignEffectiveDate(today);
+            }
         }
         if (body.getDailyFocusTimeGoalMinutes() != null || countryChanged) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            Integer requested = body.getDailyFocusTimeGoalMinutes();
-            focusSettings.changeGoal(
-                    requested != null ? requested : focusSettings.getDailyFocusTimeGoalMinutes(), today);
+            if (body.getDailyFocusTimeGoalMinutes() != null) {
+                focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
+            } else {
+                focusSettings.realignEffectiveDate(today);
+            }
         }
     }
 

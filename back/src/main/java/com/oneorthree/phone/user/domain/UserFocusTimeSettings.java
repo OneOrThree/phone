@@ -73,6 +73,19 @@ public class UserFocusTimeSettings {
     }
 
     /**
+     * 목표는 그대로 두고 발효일만 새 로컬 오늘로 옮긴다(코드리뷰) — 국가 변경으로 유저 로컬 날짜가
+     * 움직였을 때 쓴다.
+     *
+     * <p>{@link #changeGoal}을 현재값으로 부르면 previousGoalMinutes 가 현재값으로 덮여 <b>진짜
+     * 직전 목표가 사라진다</b>. 목표를 바꾼 게 아니므로 이력은 건드리지 않는다.</p>
+     */
+    public void realignEffectiveDate(LocalDate today) {
+        if (goalEffectiveFrom != null && !goalEffectiveFrom.isEqual(today)) {
+            goalEffectiveFrom = today;
+        }
+    }
+
+    /**
      * 주어진 날짜에 유효했던 목표(분). 이력이 없으면 현재값으로 근사한다(기존 유저·미변경 유저).
      *
      * <p>previous 는 <b>발효일 직전 하루</b>에만 적용한다(코드리뷰). 이 필드는 '가장 최근 변경
