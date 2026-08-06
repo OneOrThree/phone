@@ -272,10 +272,12 @@ describe('세션 보상 — 서버 지급 전환', () => {
   });
 
   test('awardedCoins가 있으면 낙관 가산을 서버 지급액으로 정정한다', async () => {
-    mockGet.mockResolvedValue({ data: 100 } as never);
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
 
     // 낙관 +7 → 서버는 이 세션에 9를 지급했다(공식 어긋남) — 최종 반영은 서버 값 9여야 한다.
+    // 정정 직후 재조회는 지급이 반영된 서버 잔액(109)을 받는다.
+    mockGet.mockResolvedValueOnce({ data: 109 } as never);
     await act(async () => {
       addCoinsFn(7);
       reconcileFn(7, 9);
@@ -295,9 +297,10 @@ describe('세션 보상 — 서버 지급 전환', () => {
   });
 
   test('낙관 가산 없이 저장된 세션(고아 재시도)은 지급액이 통째로 반영된다', async () => {
-    mockGet.mockResolvedValue({ data: 100 } as never);
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
 
+    mockGet.mockResolvedValueOnce({ data: 109 } as never);
     await act(async () => {
       reconcileFn(0, 9);
     });
@@ -325,6 +328,8 @@ describe('세션 보상 — 서버 지급 전환', () => {
     });
 
     // 고아 재시도 런의 지급 반영 — 낙관분 없이 +7 (서버 잔액은 이제 107).
+    // 정정 직후 재조회는 지급이 반영된 잔액을 받는다.
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
     await act(async () => {
       reconcileFn(0, 7);
     });
@@ -353,6 +358,7 @@ describe('세션 보상 — 서버 지급 전환', () => {
       refreshFn();
     });
 
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
     await act(async () => {
       reconcileFn(0, 7); // 화면 107
     });
@@ -366,13 +372,16 @@ describe('세션 보상 — 서버 지급 전환', () => {
   });
 
   // 같은 경합의 나머지 절반(GROMO-1049) — 정정(reconcile)이 아니라 **낙관 가산(addCoins)** 이
-  // 조회 중에 끼어드는 구간. 세션 저장 응답이 오기 전에 화면부터 올려두는 게 낙관 가산인데,
-  // 그동안 떠 있던 조회가 가산 전 잔액을 들고 도착하면 지급액이 화면에서 사라진다.
+  // 조회 중에 끼어드는 구간.
   //
-  // 정정과 달리 응답을 **버리면 안 된다** — 낙관 가산은 순수 로컬이라 서버 스냅샷과 배타적이지
-  // 않고, 버리면 아직 반영 못 한 기저 잔액까지 통째로 잃는다(아래 콜드 스타트 케이스).
-  // 서버 잔액 위에 '조회 시작 이후의 가산분'을 얹는 게 정답이다.
-  test('낙관 가산 전에 시작된 조회는 서버 잔액 위에 가산분을 얹어 반영한다', async () => {
+  // 이 구간은 클라만으로는 정확히 풀 수 없다: 서버 잔액 응답에 시점 정보가 없어, 진행 중이던
+  // 조회의 스냅샷이 지급 **전**인지 **후**인지 알 방법이 없다. 어느 쪽으로 보정해도 반대쪽이 틀린다
+  // (지급 전으로 보고 더하면 지급 후 응답에서 이중 가산, 지급 후로 보고 버리면 콜드 스타트에서
+  // 기저 잔액 손실 — 둘 다 코덱스 리뷰 P1로 지적됐다).
+  //
+  // 그래서 조회 응답은 손대지 않고 그대로 반영하되, **서버가 지급을 확정한 순간**(reconcile)에
+  // 잔액을 한 번 더 받아 교정한다. 그 시점의 서버 잔액은 지급을 확실히 포함한다.
+  test('낙관 가산이 조회에 덮여도 확정 시 재조회로 교정된다', async () => {
     mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
 
@@ -384,9 +393,8 @@ describe('세션 보상 — 서버 지급 전환', () => {
           finishA = resolve as (v: { data: number }) => void;
         }) as never,
     );
-    let pendingA: Promise<boolean> = Promise.resolve(false);
     await act(async () => {
-      pendingA = refreshFn();
+      refreshFn();
     });
 
     await act(async () => {
@@ -394,18 +402,56 @@ describe('세션 보상 — 서버 지급 전환', () => {
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('107');
 
-    // A가 이제야 가산 전 스냅샷(100)을 들고 도착 — 100 + 7 로 적용해야 +7이 살아남는다.
+    // A가 가산 전 스냅샷(100)을 들고 도착 — 여기서는 +7이 잠깐 사라진다(허용).
     await act(async () => {
       finishA({ data: 100 });
-      await expect(pendingA).resolves.toBe(true);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('100');
+
+    // 저장 응답 도착 = 서버가 지급을 확정 → 재조회가 지급 포함 잔액(107)을 가져온다.
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
+    await act(async () => {
+      reconcileFn(7, 7);
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('107');
   });
 
-  // 코덱스 리뷰 P1의 실제 시나리오 — 위 테스트는 renderProvider()가 마운트 refresh를 먼저
-  // 흘려보내 기저 잔액이 이미 화면에 있는 상태였다. 진짜 콜드 스타트는 **마운트 refresh가 끝나기
-  // 전에** 고아 정산이 도는 순서다. 이때 응답을 버리면 coins가 초기값 0에서 출발해 0+7=7이 되고,
-  // 서버 잔액 100이 통째로 사라진다(reconcile 차액도 0이라 복구 안 됨).
+  // 반대 순서 — 서버가 저장 커밋 **후에** 잔액을 읽어 응답에 이미 지급이 포함된 경우.
+  // 여기서 낙관분을 또 더하면 114가 된다(코덱스 리뷰 P1). 응답을 그대로 쓰고 재조회로 확정한다.
+  test('조회 응답에 이미 지급이 포함돼 있어도 이중 가산되지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    await act(async () => {
+      refreshFn();
+    });
+
+    await act(async () => {
+      addCoinsFn(7);
+    });
+
+    // A의 스냅샷이 저장 커밋 후라 이미 107이다 — 낙관분을 더하면 114가 된다.
+    await act(async () => {
+      finishA({ data: 107 });
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
+    await act(async () => {
+      reconcileFn(7, 7);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  // 콜드 스타트 — 마운트 조회가 끝나기 전에 고아 정산이 도는 순서(코덱스 리뷰 P1).
+  // 응답을 버리는 방식이었다면 coins가 0에서 출발해 0+7=7이 되고 서버 잔액 100을 통째로 잃는다.
   test('콜드 스타트 — 마운트 조회가 끝나기 전 낙관 가산이 와도 기저 잔액을 잃지 않는다', async () => {
     let finishMount: (v: { data: number }) => void = () => {};
     mockGet.mockImplementationOnce(
@@ -421,19 +467,19 @@ describe('세션 보상 — 서버 지급 전환', () => {
       </CoinProvider>,
     );
 
-    // 아직 서버 잔액이 안 왔다 — 화면은 0(미상).
     await act(async () => {
       addCoinsFn(7);
     });
     expect(screen.getByTestId('coins')).toHaveTextContent('7');
 
-    // 이제 마운트 조회가 서버 잔액 100을 들고 도착 — 100 + 7 = 107 이어야 한다.
+    // 마운트 조회가 서버 잔액 100을 들고 도착 — 기저가 살아야 한다.
     await act(async () => {
       finishMount({ data: 100 });
     });
-    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+    expect(screen.getByTestId('coins')).toHaveTextContent('100');
 
-    // 뒤이은 저장 응답 정정(낙관 7 = 서버 지급 7)은 차액 0이라 잔액을 건드리지 않는다.
+    // 확정 시 재조회로 지급까지 반영된 정본을 받는다.
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
     await act(async () => {
       reconcileFn(7, 7);
     });
@@ -448,7 +494,7 @@ describe('세션 보상 — 서버 지급 전환', () => {
       addCoinsFn(7);
     });
 
-    // 가산 뒤 새로 시작한 조회 — 서버 정본(107)이 그대로 실려야 한다(영구 폐기 아님).
+    // 가산 뒤 새로 시작한 조회 — 서버 정본(107)이 그대로 실려야 한다.
     mockGet.mockResolvedValueOnce({ data: 107 } as never);
     let result = false;
     await act(async () => {
@@ -478,16 +524,20 @@ describe('세션 보상 — 서버 지급 전환', () => {
 
   // 정정은 차액 방식이다 — 뽀모도로처럼 블록 저장이 겹칠 때 전체 잔액을 덮어쓰면 아직 저장
   // 안 된 다른 블록의 낙관 가산이 지워진다. 블록별 정정이 서로를 건드리지 않아야 한다.
+  // 정정 직후 재조회도 같은 함정을 밟을 수 있어(서버는 블록1만 반영), 아직 확정 안 된 블록2의
+  // 낙관분을 응답에 얹어 보존한다.
   test('겹친 블록들의 정정은 서로의 낙관 가산을 지우지 않는다', async () => {
-    mockGet.mockResolvedValue({ data: 100 } as never);
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
 
+    // 정정 직후 재조회가 받는 서버 잔액 — 블록1(+8)만 반영됐고 블록2는 아직 저장 전이다.
+    mockGet.mockResolvedValueOnce({ data: 108 } as never);
     await act(async () => {
       addCoinsFn(7); // 블록1 낙관
       addCoinsFn(5); // 블록2 낙관 (저장 진행 중)
       reconcileFn(7, 8); // 블록1 저장 응답 — 블록2의 +5는 그대로여야 한다
     });
-    expect(screen.getByTestId('coins')).toHaveTextContent('113'); // 100 + 8 + 5
+    expect(screen.getByTestId('coins')).toHaveTextContent('113'); // 108(서버) + 5(미확정 블록2)
   });
 });
 

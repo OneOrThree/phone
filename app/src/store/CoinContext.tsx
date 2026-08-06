@@ -116,29 +116,28 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 콜드 스타트의 마운트 refresh × 고아 정산 동시 실행). 세대가 다르면 응답을 버린다 —
   // 시퀀스 가드(위)는 조회끼리의 순서만 지켜 주므로 이 모호성은 따로 막아야 한다.
   const awardEpochRef = useRef(0);
-  // 낙관 가산(addCoins)의 누적 총액(단조증가). 조회가 떠 있는 동안 들어온 가산은 서버 스냅샷에
-  // 아직 없으므로, 응답을 적용할 때 **조회 시작 이후의 증가분만큼 더해** 보존한다(GROMO-1049).
-  // 세대(awardEpoch)처럼 응답을 통째로 버리면 콜드 스타트에서 기저 잔액을 통째로 잃는다 —
-  // 마운트 refresh가 끝나기 전에 고아 정산이 +7을 얹으면 화면이 서버잔액+7이 아니라 0+7이 된다
-  // (코덱스 리뷰 P1). 저장이 이미 끝나 서버 잔액에 가산분이 반영된 경우는
-  // reconcileSessionAward가 세대를 올려 그 응답을 버리므로 이중 가산이 되지 않는다.
-  const optimisticTotalRef = useRef(0);
+  // 아직 서버 확정을 못 받은 낙관 가산의 합(GROMO-1049). addCoins로 늘고 reconcileSessionAward로
+  // 그 세션 몫만큼 준다. 확정 직후 재조회에서 이 값을 더해, **아직 저장 안 된 다른 블록**의 가산이
+  // 서버 잔액에 덮이지 않게 한다 — 뽀모도로는 블록마다 저장돼 확정이 시차를 두고 온다.
+  const pendingOptimisticRef = useRef(0);
 
   // 서버에서 잔액 로드. 실패해도 던지지 않는다 — 잔액은 화면을 막을 값이 아니고,
   // 다음 refresh(시트 오픈 등)에서 자연 재시도된다. 다만 **조용히 삼키지는 않는다**:
   // coinsLoaded를 false로 되돌려 '지금 쥔 값은 못 믿는다'를 소비자가 알 수 있게 한다(F1).
-  const refresh = useCallback(async (): Promise<boolean> => {
+  // keepPendingOptimistic: 응답에 **미확정 낙관 가산**(pendingOptimisticRef)을 얹을지.
+  // 확정 직후 재조회(reconcileSessionAward)에서만 true다 — 그 응답은 방금 확정된 지급을 포함하지만
+  // 아직 저장 안 된 다른 블록의 가산은 없어서, 그대로 쓰면 그 블록들의 낙관 가산이 지워진다.
+  // 공개 시그니처는 () => Promise<boolean> 그대로다(선택 인자라 호환).
+  const refresh = useCallback(async (keepPendingOptimistic = false): Promise<boolean> => {
     const seq = ++refreshSeqRef.current;
     const epoch = awardEpochRef.current;
-    const optimisticAtStart = optimisticTotalRef.current;
     try {
       const res = await api.get<number>('/api/v1/currency');
       // 뒤이어 시작된 조회가 있거나(seq) 조회 시작 후 서버 지급 정정이 반영됐으면(epoch)
       // 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
       // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
       if (seq !== refreshSeqRef.current || epoch !== awardEpochRef.current) return false;
-      // 조회 중 들어온 낙관 가산은 이 스냅샷에 없다 — 서버 잔액 위에 그 증가분을 얹는다.
-      setCoins(res.data + (optimisticTotalRef.current - optimisticAtStart));
+      setCoins(res.data + (keepPendingOptimistic ? pendingOptimisticRef.current : 0));
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
@@ -176,10 +175,8 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }, [bucket, ownedItemIds]);
 
   function addCoins(amount: number) {
-    // 누적 총액을 함께 올려, 지금 떠 있는 조회가 응답을 적용할 때 이 가산분을 얹게 한다
-    // (GROMO-1049). 이게 없으면 가산 이전에 시작된 조회가 가산 전 잔액을 그대로 실어
-    // 방금 더한 금액을 지운다 — 콜드 스타트의 마운트 refresh × 고아 정산이 실제 도달 경로다.
-    optimisticTotalRef.current += amount;
+    // 서버 확정 전까지 미확정분으로 들고 있는다 — 확정 직후 재조회가 이 값을 보존한다.
+    pendingOptimisticRef.current += amount;
     setCoins((prev) => prev + amount);
   }
 
@@ -191,8 +188,16 @@ export function CoinProvider({ children }: { children: ReactNode }) {
     // 모호하므로 세대를 올려 무효화한다(위 awardEpochRef 주석). diff가 0이어도 올린다 —
     // 모호성은 차액 크기가 아니라 '지급이 끼어들었다'는 사실에서 온다.
     awardEpochRef.current += 1;
+    pendingOptimisticRef.current = Math.max(0, pendingOptimisticRef.current - optimisticAmount);
     const diff = awardedCoins - optimisticAmount;
     if (diff !== 0) setCoins((prev) => prev + diff);
+    // 확정 직후 정본을 한 번 더 받아온다(GROMO-1049) — 낙관 가산과 겹친 조회의 응답은 그 스냅샷이
+    // 지급 전인지 후인지 알 수 없어(서버 잔액에 시점 정보가 없다) 어느 쪽으로 보정해도 한쪽이 틀린다:
+    // 지급 전으로 보고 더하면 지급 후 응답에서 이중 가산되고(코덱스 리뷰 P1), 지급 후로 보고 버리면
+    // 콜드 스타트에서 기저 잔액을 잃는다. 확정된 지금은 서버 잔액이 이 지급을 확실히 포함하므로,
+    // 다시 물어보는 게 가장 단순하고 항상 정확하다. 남은 미확정분은 위에서 뺀 뒤라 그대로 얹는다.
+    // 실패해도 무시한다 — 잔액은 화면을 막는 값이 아니고 다음 포커스 refresh가 교정한다.
+    refresh(true);
   }
 
   function isOwned(itemId: string) {
