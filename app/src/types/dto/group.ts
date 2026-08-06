@@ -186,6 +186,12 @@ export interface GroupChallengeResponse {
   createdAt: string; // ISO 문자열
   canParticipate: boolean;
   memberProgress: ChallengeMemberProgress[] | null;
+  // 휴면 여부(GROMO-1201) — 지금 OPEN 내기가 없고 과거 내기 이력은 있는 챌린지(서버 조회 시점
+  // 파생, CANCELED 이력 포함). 마지막 참가자가 철회해도 서버는 챌린지를 지우지 않는다 —
+  // 목록에 남되 이 플래그로 카드 표시(휴면 칩·캡션)만 가른다.
+  // ⚠️ optional인 이유: 이 필드를 모르는 구서버가 존재한다(아래 bet과 같은 관행) — undefined는
+  //    '휴면 아님'이 아니라 '휴면을 모르는 서버'다. 앱은 === true일 때만 배지를 그린다.
+  dormant?: boolean;
   // ── 내기(3차, docs/back/group-bet-plan.md §2-3) ──
   // 백엔드가 병행 구현 중이라 **아직 필드 자체가 없는 서버**가 존재한다(배포 순서 무관 동작이 원칙,
   // GroupSummaryResponse.isPrivate와 같은 관행) — 그래서 optional이면서 null도 받는다.
