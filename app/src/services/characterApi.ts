@@ -8,6 +8,8 @@ import { api } from '@/services/api';
 interface ModerationApiResponse {
   allowed: boolean;
   flaggedCategories: string[];
+  // 서버가 검사를 못 해 fail-closed로 막았는지(GROMO-1197). 필드가 없는 구 서버는 undefined.
+  unavailable?: boolean;
 }
 
 export interface ModerationResult {
@@ -15,8 +17,10 @@ export interface ModerationResult {
   allowed: boolean;
   // 서버가 지적한 위반 카테고리(예: 'nsfw'). 검사 불가면 빈 배열.
   flaggedCategories: string[];
-  // 검사 자체가 불가능했는지(네트워크/타임아웃/비2xx). true면 "위반"이 아니라 "확인 실패"라
-  // UI가 안내 문구를 구분할 수 있다. 정상 판정(allowed=true/false)일 땐 false.
+  // 검사 자체가 불가능했는지. true면 "위반"이 아니라 "확인 실패"라 UI가 안내 문구를 구분할 수 있다.
+  // 두 경로가 있다: 앱이 응답을 못 받은 경우(네트워크/타임아웃/비2xx)와, 서버는 응답했지만
+  // 검사를 못 해 fail-closed로 막은 경우(키 미설정·OpenAI 장애·타임아웃, GROMO-1197).
+  // 후자는 서버가 200 + allowed:false 를 주므로 예전엔 '유해 판정'과 구분되지 않았다.
   unavailable: boolean;
 }
 
@@ -31,7 +35,8 @@ export async function moderateImage(base64: string): Promise<ModerationResult> {
     return {
       allowed: data.allowed === true,
       flaggedCategories: data.flaggedCategories ?? [],
-      unavailable: false,
+      // 서버가 사유를 알려주면 그대로 쓴다. 필드가 없는 구 서버는 undefined → false(기존 동작 유지).
+      unavailable: data.unavailable === true,
     };
   } catch {
     // 검사 결과를 신뢰할 수 없으면 통과시키지 않는다(fail-safe 차단).

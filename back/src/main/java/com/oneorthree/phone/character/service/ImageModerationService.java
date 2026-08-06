@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -28,11 +27,13 @@ public class ImageModerationService {
     public ImageModerationResponse moderate(UUID userId, ImageModerationRequest request) {
         try {
             OpenAiModerationResult result = openAiModerationClient.moderate(request.image());
-            return new ImageModerationResponse(!result.flagged(), result.flaggedCategories());
+            return ImageModerationResponse.judged(!result.flagged(), result.flaggedCategories());
         } catch (Exception e) {
             // fail-closed — 검사를 못 하면 안전하게 차단한다. 남용 추적을 위해 userId·원인을 남긴다.
+            // 차단하되 '유해 판정'이 아니라 '검사 불가'임을 앱에 알린다(GROMO-1197) — 서버 사정으로
+            // 막힌 것을 사진 잘못으로 안내하면 정상 사진을 올린 사용자가 영문을 모른다.
             log.warn("이미지 모더레이션 실패 — fail-closed 차단, userId={}", userId, e);
-            return new ImageModerationResponse(false, List.of());
+            return ImageModerationResponse.failClosed();
         }
     }
 }
