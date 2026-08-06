@@ -93,7 +93,8 @@ public class FriendService {
     }
 
     // 친구 요청 생성. 자기자신·중복·이미친구 검증 후 PENDING insert,
-    // 단 내가 보냈던 REJECTED 요청이 있으면 그 row를 PENDING으로 재전환(쿨다운은 GROMO-475).
+    // 단 내가 보냈던 행이 남아 있으면 재사용한다 — soft delete 행은 복원(GROMO-719),
+    // REJECTED 행은 PENDING 재전환(쿨다운은 GROMO-475).
     @Transactional
     public void createRequest(UUID me, UUID targetUserId) {
         if (me.equals(targetUserId)) {
@@ -112,7 +113,23 @@ public class FriendService {
             }
         }
 
-        // unique(from,to) 충돌 회피: 내가 보냈던 (me→target) REJECTED row가 있으면 재전환
+        // unique(from,to) 충돌 회피 1: 내가 보냈던 (me→target) soft delete 행이 있으면 복원해 재사용 (GROMO-719).
+        // 친구 삭제(deleteFriend)는 status=ACCEPTED 를 남긴 채 deletedAt 만 찍는데, 이 행을 안 되살리면
+        // save() 가 unique(from,to) 와 충돌해 409 로 죽고 그 방향은 영영 요청 불가가 된다.
+        // deletedAt 을 status 보다 먼저 봐야 한다 — 삭제된 REJECTED 행이 아래 재전환 분기로 빠지면
+        // reopen() 이 deletedAt 을 안 지워 PENDING 인데도 목록·수락 경로에서 안 보이는 유령 요청이 된다.
+        Friendship myDeleted = pair.stream()
+                .filter(f -> f.getFromUser().getId().equals(me) && f.getDeletedAt() != null)
+                .findFirst()
+                .orElse(null);
+        if (myDeleted != null) {
+            myDeleted.restore();
+            onRequestCreated(myDeleted.getId(), me, targetUserId, true);
+            return;
+        }
+
+        // unique(from,to) 충돌 회피 2: 내가 보냈던 (me→target) REJECTED row가 있으면 재전환.
+        // 위 복원 분기가 삭제 행을 먼저 걷어가므로 여기 도달하는 내 방향 행은 항상 deletedAt == null 이다.
         Friendship myRejected = pair.stream()
                 .filter(f -> f.getFromUser().getId().equals(me)
                         && f.getStatus() == FriendshipStatus.REJECTED)
@@ -145,6 +162,11 @@ public class FriendService {
     }
 
     // 요청 수락 — 수신자(toUser)만 가능. PENDING → ACCEPTED.
+    // 상태 계약은 거절과 비대칭이다 (GROMO-719 오너 결정):
+    //   - 수락은 전 상태 관용 — REJECTED → ACCEPTED 는 "거절했다 뒤늦게 수락" UX 로 의도된 전이라 허용하고
+    //     알린다("거절했던 요청을 뒤늦게 수락하면 알린다" 계약). ACCEPTED → ACCEPTED 는 멱등(무알림).
+    //   - 거절은 PENDING 한정(rejectRequest) — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 를
+    //     우회해 조용히 증발하기 때문. 수락은 관계를 늘리는 방향이라 관용해도 그런 파괴 경로가 없다.
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
@@ -163,11 +185,17 @@ public class FriendService {
         }
     }
 
-    // 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED.
+    // 요청 거절 — 수신자(toUser)만 가능. PENDING → REJECTED 만 허용 (GROMO-719).
+    // 수락과 달리 상태를 검사한다 — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 없이
+    // (삭제 절차·검증을 우회해) 조용히 증발하고, 이후 재요청의 REJECTED 재전환 분기로 되살아나기까지 한다.
     // 거절은 알리지 않는다 (GROMO-1090) — 거절 통보는 관계상 부담이라 스코프에서 뺐다.
     @Transactional
     public void rejectRequest(UUID me, UUID requestId) {
-        getReceivedRequest(me, requestId).reject();
+        Friendship friendship = getReceivedRequest(me, requestId);
+        if (friendship.getStatus() != FriendshipStatus.PENDING) {
+            throw new FriendException(FriendErrorCode.INVALID_REQUEST_STATUS);
+        }
+        friendship.reject();
     }
 
     // 친구 삭제 — ACCEPTED 관계를 양측 누구나 soft delete.
