@@ -18,6 +18,7 @@ import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.service.GroupBetService;
 import com.oneorthree.phone.user.domain.SocialAccount;
 import com.oneorthree.phone.user.domain.StatVisibility;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -44,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -67,6 +69,7 @@ public class UserService {
     private final OccupationInfoRepository occupationInfoRepository;
     private final FriendshipRepository friendshipRepository;
     private final PinnedUserRepository pinnedUserRepository;
+    private final GroupBetService groupBetService;
     private final UserActivityEventLogger userActivityEventLogger;
 
     @Transactional
@@ -131,6 +134,14 @@ public class UserService {
         User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
+        // 활성 멤버십 스냅샷 (GROMO-801) — 아래 A-2 자동 종료가 is_left 를 세우면 활성 조회에서
+        // 빠지므로, 종료될 solo 방장 그룹의 OPEN 내기까지 정리하려면 변경 전에 떠 둔다.
+        // 그룹 id 오름차순 고정: 여러 그룹에 걸친 두 탈퇴가 서로 반대 순서로 내기 행을 잠그는
+        // AB-BA 데드락을 막는다(releaseFromOpenBets 내부의 잠금 순서 고정과 같은 규율).
+        List<GroupMember> memberships = groupMemberRepository.findByUser(user).stream()
+                .sorted(Comparator.comparing(membership -> membership.getGroup().getId()))
+                .toList();
+
         // A-2: 계정 탈퇴 시 방장으로 남은 그룹 처리. 혼자 있는(활성 멤버 1명) 소유 그룹은 자동
         // 종료(ENDED)하고, 다른 멤버가 남은 소유 그룹이 있으면 위임이 필요하므로 아래에서 막는다.
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
@@ -142,6 +153,25 @@ public class UserService {
 
         if (groupRepository.existsGroupOwnedBy(userId)) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
+        }
+
+        // OPEN 내기 해제 + 멤버십 이탈 (GROMO-801) — 그룹 탈퇴(GroupMemberService.withdrawGroup)와
+        // 같은 순서(내기 해제 → leave)를 같은 트랜잭션에서 밟는다. 정리하지 않으면 탈퇴자가
+        // is_left=false 유령 멤버로 남아 정원 한 자리를 영구히 차지하고, OPEN 내기 판돈은
+        // 에스크로에 묶인 채 소각된다(GroupBetSettler 는 탈퇴자 지급을 스킵한다).
+        //
+        // 순서 제약: 해제 환불이 이 유저의 지갑에 입금되므로 반드시 아래
+        // userWalletRepository.deleteById 보다 먼저 실행해야 한다 — 지갑을 먼저 지우면 환불이
+        // NOT_FOUND 로 터진다. 친구 정리(friendships 락 구간)보다도 앞이라 "락 보유 구간을
+        // 줄인다" 규율과도 어긋나지 않는다.
+        for (GroupMember membership : memberships) {
+            groupBetService.releaseFromOpenBets(user, membership.getGroup());
+        }
+        for (GroupMember membership : memberships) {
+            // solo 방장 멤버십은 위 A-2 블록이 이미 leave + close 했다 — 이중 처리하지 않는다.
+            if (!membership.isLeft()) {
+                membership.leave();
+            }
         }
 
         focusSessionRepository.nullifyUser(userId);
@@ -170,12 +200,18 @@ public class UserService {
         // 개인정보 파기 + 소프트딜리트 (GROMO-635) — 하드 삭제 시 다수 FK(NOT NULL: social_accounts·focus_tags·
         // user_items·currency_transactions·group_members·league_arena_users 등) 위반으로 409(이력 있는 유저 탈퇴 불가).
         // → user row 는 남겨 소프트딜리트, 소셜연동·PII 만 파기. 집중 이력은 위 nullify 로 익명화.
-        socialAccountRepository.deleteByUserId(userId);   // 소셜 연동 삭제 → 재로그인 차단 + provider_id 파기
         user.setNickname(null);
         user.setDeviceToken(null);
         user.setRefreshTokenHash(null);
         user.setCountryCode(null);
         user.setDeleted(true);
+
+        // 소셜 연동 삭제(재로그인 차단 + provider_id 파기)는 반드시 맨 끝이다 (GROMO-801) — 이 벌크
+        // DELETE 는 clearAutomatically 로 영속성 컨텍스트를 비우므로, 이 뒤에 엔티티를 고치면 전부
+        // 조용히 유실된다(실제로 위 PII 파기·소프트딜리트가 이 호출 뒤에 있어 커밋되지 않고 있었다).
+        // flushAutomatically 가 여기까지 쌓인 변경(내기 해제 환불·멤버십 이탈·지갑 삭제·PII 파기)을
+        // 먼저 밀어 넣은 뒤에 컨텍스트를 비운다.
+        socialAccountRepository.deleteByUserId(userId);
     }
 
     public UserProfileResponse getProfile(UUID userId) {
