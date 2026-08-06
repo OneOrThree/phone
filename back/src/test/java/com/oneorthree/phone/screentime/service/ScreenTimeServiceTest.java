@@ -3,11 +3,14 @@ package com.oneorthree.phone.screentime.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
+import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
@@ -426,5 +429,39 @@ class ScreenTimeServiceTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    /**
+     * GROMO-1049: 어제분 마감 지급은 <b>어제 유효했던 목표</b>로 금액을 산정한다.
+     *
+     * <p>앱은 어제 목표로 달성을 판정하고 그 금액을 축하 모달에 표시하는데, 서버가 현재 목표로 산정하면
+     * 목표를 바꾼 다음 날 "보인 금액 ≠ 받은 금액"이 된다.</p>
+     */
+    @Test
+    @DisplayName("목표를 바꾼 다음 날 어제분 마감 → 직전 목표로 지급액을 산정한다")
+    void creditsYesterdayGoalUsingPreviousGoal() {
+        LocalDate today = LocalDate.now(ZONE);
+        LocalDate yesterday = today.minusDays(1);
+        Instant yesterdayAt = yesterday.atStartOfDay(ZONE).toInstant();
+
+        User user = normalUser();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, yesterday)).willReturn(Optional.empty());
+        given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
+                .willAnswer(i -> i.getArgument(0));
+        // 어제까지 목표 180분 → 오늘 60분으로 변경
+        UserScreenTimeSettings settings = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
+        settings.changeGoal(60, today);
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+
+        int expected = CurrencyRewardPolicy.screenTimeGoalReward(180);
+        // 두 목표의 지급액이 같으면 이 테스트가 아무것도 검증하지 못한다 — 전제부터 고정한다.
+        assertThat(expected).isNotEqualTo(CurrencyRewardPolicy.screenTimeGoalReward(60));
+
+        screenTimeService.saveScreenTimeTx(USER_ID, request(true, 150, yesterdayAt, true));
+
+        verify(currencyLedgerService).credit(user, CurrencyTransactionType.SCREEN_TIME_GOAL, expected,
+                "stGoal:" + USER_ID + ":" + yesterday);
     }
 }

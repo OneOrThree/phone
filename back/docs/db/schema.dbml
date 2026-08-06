@@ -255,6 +255,9 @@ Table user_focus_time_settings [note: '유저별 포커스 타임 목표 설정 
 
   daily_focus_time_goal_minutes integer     [not null, default: 0, note: '포커스 목표(분 이상)']
 
+  previous_goal_minutes          integer     [note: '직전 목표(분) — 오늘 첫 변경 직전 값 = 어제 유효했던 목표 (GROMO-1049)']
+  goal_effective_from            date        [note: '현재 목표 발효일(유저 로컬). 이 날짜 이전 날은 previous 를 쓴다']
+
   updated_at                     timestamptz
   deleted_at                     timestamptz [note: '탈퇴 시각 (소프트 딜리트 감사 로그용)']
 }
@@ -264,6 +267,9 @@ Table user_screen_time_settings [note: '유저별 스크린타임 권한·목표
 
   is_screen_time_permission_granted boolean  [not null, default: false, note: 'iOS 스크린타임 권한 동의 여부']
   daily_screen_time_goal_minutes integer     [not null, default: 0, note: '스크린타임 목표(분 이내)']
+
+  previous_goal_minutes          integer     [note: '직전 목표(분) — 오늘 첫 변경 직전 값 = 어제 유효했던 목표 (GROMO-1049)']
+  goal_effective_from            date        [note: '현재 목표 발효일(유저 로컬). 이 날짜 이전 날은 previous 를 쓴다']
 
   updated_at                     timestamptz
   deleted_at                     timestamptz [note: '탈퇴 시각 (소프트 딜리트 감사 로그용)']
