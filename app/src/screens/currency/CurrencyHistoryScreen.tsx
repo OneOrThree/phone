@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { CURRENCY } from '@/constants/currency';
@@ -22,7 +22,6 @@ import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
 // ⚠️ 서버 amount는 항상 양수(절대값)라 부호는 type으로 유도한다(dto/currency.ts 주석 참고).
 
 // 거래 사유(enum name) → 한글 라벨. 서버 CurrencyTransactionType 기준.
-// 미발행 확장 타입(FOCUS_GOAL 등)은 백엔드가 아직 내리지 않지만, 도착 시 라벨이 비지 않게 미리 매핑해 둔다.
 const REASON_LABEL: Record<string, string> = {
   SESSION_COMPLETE: '집중 완료',
   STREAK_BONUS: '연속 공부 보너스',
@@ -30,7 +29,6 @@ const REASON_LABEL: Record<string, string> = {
   BET_STAKE: '내기 참가비',
   BET_PAYOUT: '내기 정산',
   BET_REFUND: '내기 환불',
-  // 서버 확장 대비(현재 미발행)
   FOCUS_GOAL: '집중 목표 달성',
   SCREEN_TIME_GOAL: '스크린타임 목표 달성',
   LEAGUE_TIER_BONUS: '리그 승급 보상',
@@ -61,23 +59,27 @@ export default function CurrencyHistoryScreen() {
   const [status, setStatus] = useState<Status>('loading');
   const [transactions, setTransactions] = useState<CurrencyTransaction[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setStatus('loading');
-    getCurrencyTransactions()
-      .then((list) => {
-        if (cancelled) return;
-        setTransactions(list);
-        setStatus('ready');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setStatus('error');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 잔액과 같은 주기로 다시 불러온다(GROMO-1193) — 마운트 1회만 로드하면 화면을 다시 열었을 때
+  // '갱신된 잔액 + 낡은 내역'이 나란히 뜬다(잔액은 위 useRefreshCoinsOnFocus가 매번 갱신).
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setStatus('loading');
+      getCurrencyTransactions()
+        .then((list) => {
+          if (cancelled) return;
+          setTransactions(list);
+          setStatus('ready');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setStatus('error');
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
