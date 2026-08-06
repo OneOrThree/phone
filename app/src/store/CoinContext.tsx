@@ -167,6 +167,11 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }, [bucket, ownedItemIds]);
 
   function addCoins(amount: number) {
+    // 낙관 가산도 세대를 올린다(GROMO-1049) — 가산 **이전에 시작된** 조회의 응답은 가산 전 잔액이라,
+    // 그대로 반영하면 방금 더한 금액을 지워 지급액이 화면에서 사라진다(다음 성공 refresh까지).
+    // 콜드 스타트의 마운트 refresh × 고아 정산(OrphanFocusSettler)이 실제 도달 경로다.
+    // reconcileSessionAward와 같은 이유·같은 수단이며, 여기가 비어 있어 그 구간만 열려 있었다.
+    awardEpochRef.current += 1;
     setCoins((prev) => prev + amount);
   }
 

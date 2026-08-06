@@ -365,6 +365,58 @@ describe('세션 보상 — 서버 지급 전환', () => {
     expect(screen.getByTestId('coins')).toHaveTextContent('107');
   });
 
+  // 같은 경합의 나머지 절반(GROMO-1049) — 정정(reconcile)이 아니라 **낙관 가산(addCoins)** 이
+  // 조회 중에 끼어드는 구간. 세션 저장 응답이 오기 전에 화면부터 올려두는 게 낙관 가산인데,
+  // 그동안 떠 있던 조회가 가산 전 잔액을 들고 도착하면 지급액이 화면에서 사라진다.
+  // 도달 경로: 콜드 스타트의 마운트 refresh × OrphanFocusSettler 의 addCoins.
+  test('낙관 가산 전에 시작된 조회의 응답은 가산을 덮지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    // 가산 전 잔액(100)을 물고 있는 조회 A — 응답 전에 고아 정산이 낙관 가산을 넣는다.
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    let pendingA: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      pendingA = refreshFn();
+    });
+
+    await act(async () => {
+      addCoinsFn(7);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    // A가 이제야 가산 전 스냅샷(100)을 들고 도착 — 반영하면 +7이 증발한다. 버려야 한다.
+    await act(async () => {
+      finishA({ data: 100 });
+      await expect(pendingA).resolves.toBe(false);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  test('낙관 가산 이후에 시작된 조회는 정상 반영된다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    await act(async () => {
+      addCoinsFn(7);
+    });
+
+    // 가산 뒤 새로 시작한 조회 — 서버 정본(107)이 그대로 실려야 한다(영구 폐기 아님).
+    mockGet.mockResolvedValueOnce({ data: 107 } as never);
+    let result = false;
+    await act(async () => {
+      result = await refreshFn();
+    });
+    expect(result).toBe(true);
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
   test('정정 이후에 시작된 조회는 정상 반영된다', async () => {
     mockGet.mockResolvedValueOnce({ data: 100 } as never);
     await renderProvider();
