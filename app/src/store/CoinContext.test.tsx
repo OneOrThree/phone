@@ -395,6 +395,26 @@ describe('잔액 정본(balanceAfter)', () => {
     expect(screen.getByTestId('coins')).toHaveTextContent('142');
   });
 
+  // 소비자(PendingFocusUploader)가 effect 의존성에 넣는다 — 매 렌더 새로 만들어지면 코인 상태가
+  // 바뀔 때마다 대기열 flush 가 다시 돌아, 실패분 재전송이 '앱 시작·포그라운드 복귀'라는 원래
+  // 트리거를 벗어난다(코덱스 리뷰). 큐에 최대 50건이 쌓여 있으면 그만큼 재전송이 반복된다.
+  test('applyServerBalance 는 리렌더에도 같은 함수 참조를 유지한다', async () => {
+    mockGet.mockResolvedValue({ data: 100 } as never);
+    await renderProvider();
+    const first = applyServerBalanceFn;
+
+    // 코인 상태를 바꿔 리렌더를 유발한다.
+    await act(async () => {
+      addCoinsFn(7);
+    });
+    expect(applyServerBalanceFn).toBe(first);
+
+    await act(async () => {
+      applyServerBalanceFn(200);
+    });
+    expect(applyServerBalanceFn).toBe(first);
+  });
+
   test('정본이 없으면(구버전 서버) 기존 차액 정정으로 폴백한다', async () => {
     mockGet.mockResolvedValue({ data: 100 } as never);
     await renderProvider();

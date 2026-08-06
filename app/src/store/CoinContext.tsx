@@ -182,13 +182,18 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 서버가 실어 준 잔액 정본을 그대로 반영한다(GROMO-1049) — 지급을 수행한 트랜잭션이 계산한
   // 값이라 '이 스냅샷이 지급 전인가 후인가'라는 모호성이 없다. 세대를 올려 이보다 먼저 시작된
   // 조회(그 모호성을 가진 응답)는 버린다.
-  function applyServerBalance(balance: number) {
+  //
+  // useCallback 으로 고정한다(코덱스 리뷰) — 소비자(PendingFocusUploader)가 effect 의존성에
+  // 넣는데, 매 렌더 새로 만들면 코인 상태가 바뀔 때마다 대기열 flush 가 다시 돌아
+  // 실패분 재전송이 '앱 시작·포그라운드 복귀'라는 원래 트리거를 벗어난다.
+  // setState·ref 는 안정적이라 의존성이 없다.
+  const applyServerBalance = useCallback((balance: number) => {
     awardEpochRef.current += 1;
     setCoins(balance);
     setCoinsLoaded(true);
     coinsVersionRef.current += 1;
     setCoinsVersion(coinsVersionRef.current);
-  }
+  }, []);
 
   function reconcileSessionAward(
     optimisticAmount: number,
