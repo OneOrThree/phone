@@ -375,7 +375,7 @@ Table group_challenges [note: '그룹 챌린지 (집중/스크린타임 미션).
 
 Table group_challenge_durations [note: 'DURATION 챌린지 상세 (group_challenges 1:1, type=DURATION 만). 타입별 필드 분리(CTI)로 NULL 오염 방지'] {
   challenge_id     uuid    [pk, note: 'FK → group_challenges.id (1:1). type=DURATION 챌린지만']
-  duration_minutes integer [not null, note: '누적 달성 목표 시간(분)']
+  duration_minutes integer [not null, note: '누적 달성 목표 시간(분). CHECK 1 ≤ x ≤ 1440 — 하루(1440분) 초과 목표는 달성 불가능이라 금지(GROMO-1205). migration V27']
 }
 
 Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challenges 1:1, type=TIME_WINDOW 만). 타입별 필드 분리(CTI)로 NULL 오염 방지. 창은 매일 반복 시간대 — 저장된 Instant 는 KST time-of-day 앵커로 해석'] {
@@ -404,7 +404,7 @@ Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TI
   }
 }
 
-Table group_challenge_bets [note: '그룹 챌린지 내기. 챌린지당·날짜당 1개. 그룹원 누구나 개설하고 개설자는 자동 참가한다. 판돈은 서버 허용값 {10,30,50,100}. migration V19·V20'] {
+Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라 같은 날짜 재개설 허용(GROMO-1201). 그룹원 누구나 개설하고 개설자는 자동 참가한다. migration V19·V20·V27'] {
   id              uuid             [pk]
 
   group_id        uuid             [not null, note: 'FK → groups.id (조회 시 그룹 스코프 검증용 비정규화)']
@@ -421,7 +421,7 @@ Table group_challenge_bets [note: '그룹 챌린지 내기. 챌린지당·날짜
   updated_at      timestamptz      [not null]
 
   indexes {
-    (challenge_id, bet_date) [unique, note: '챌린지당·날짜당 내기 1개 — 동시 개설의 최후 방어선']
+    (challenge_id, bet_date) [unique, name: 'uq_group_challenge_bets_challenge_bet_date_active', note: '부분 유니크(WHERE status <> CANCELED) — 비취소 내기는 챌린지당·날짜당 1개, 동시 개설의 최후 방어선. 취소 행은 계수에서 빠져 같은 날짜 재개설을 허용한다(V19 전체 유니크를 V27 에서 교체)']
     (status, bet_date) [note: '일 배치(04:00 KST)의 status=OPEN AND bet_date < 오늘 스캔']
   }
 }

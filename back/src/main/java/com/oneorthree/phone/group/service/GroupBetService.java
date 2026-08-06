@@ -28,6 +28,7 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -135,19 +136,32 @@ public class GroupBetService {
             requireWindowStillOpen(target, betDate);
         }
 
-        if (groupChallengeBetRepository.existsByChallengeIdAndBetDate(challengeId, betDate)) {
+        // 취소(CANCELED)는 "없던 일" — 같은 날짜 재개설을 막지 않는다(GROMO-1201). 비취소 내기만
+        // 중복으로 본다. 레이스의 최후 방어선은 V27 부분 유니크 인덱스(아래 catch 로 강하)다.
+        if (groupChallengeBetRepository.existsByChallengeIdAndBetDateAndStatusNot(
+                challengeId, betDate, GroupBetStatus.CANCELED)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
         }
         requireEligibleToStake(target, user, betDate);
 
-        GroupChallengeBet bet = groupChallengeBetRepository.save(GroupChallengeBet.builder()
-                .group(group)
-                .challenge(challenge)
-                .creatorUser(user)
-                .stake(stake)
-                .betDate(betDate)
-                .status(GroupBetStatus.OPEN)
-                .build());
+        GroupChallengeBet bet;
+        try {
+            // saveAndFlush — INSERT 를 지금 내보내야 부분 유니크 위반이 이 try 안에서 잡힌다
+            // (save 만 하면 위반이 커밋 시점에 터져 아래 강하를 지나친다).
+            bet = groupChallengeBetRepository.saveAndFlush(GroupChallengeBet.builder()
+                    .group(group)
+                    .challenge(challenge)
+                    .creatorUser(user)
+                    .stake(stake)
+                    .betDate(betDate)
+                    .status(GroupBetStatus.OPEN)
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            // 사전 검사와 동시 개설이 겹친 레이스 — 부분 유니크(비취소 챌린지·날짜당 1개) 위반을
+            // 결정적인 409 로 강하한다(GroupChallengeService 의 CHALLENGE_DUPLICATE 강하와 같은 관행).
+            // 이 시점엔 판돈이 아직 걷히지 않았다(stakeIn 전)라 되돌릴 돈도 없다.
+            throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
+        }
         stakeIn(bet, user);
 
         log.info("내기 개설 — betId={}, challengeId={}, betDate={}, stake={}, creator={}",
@@ -497,8 +511,12 @@ public class GroupBetService {
         if (date == null || challengeIds.isEmpty()) {
             return Map.of();
         }
+        // 취소는 "없던 일"이라 CANCELED 만 뺀다 — 오늘·과거의 정산 결과(SETTLED·FORFEITED·REFUNDED)는
+        // 그날의 사실이라 계속 실어야 한다. 앱 결과 모달이 어제 날짜 조회의 내기 존재 여부(hadBet)로
+        // 판정하므로 OPEN 으로 좁히면 어제의 정산 내기가 사라져 결과 모달이 침묵한다(GROMO-1201).
         List<GroupChallengeBet> bets = new ArrayList<>(
-                groupChallengeBetRepository.findByChallengeIdInAndBetDate(challengeIds, date));
+                groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
+                        challengeIds, date, GroupBetStatus.CANCELED));
         if (date.equals(today())) {
             Set<UUID> covered = bets.stream()
                     .map(bet -> bet.getChallenge().getId())
@@ -507,7 +525,8 @@ public class GroupBetService {
                     .filter(challengeId -> !covered.contains(challengeId))
                     .toList();
             if (!uncovered.isEmpty()) {
-                // OPEN 만 싣는다 — 취소된 내일 내기는 "없던 일"이라 카드에 세울 자격이 없다.
+                // 내일 폴백은 OPEN 만 싣는다 — 아직 시작도 안 한 판이라 정산 결과가 있을 수 없고,
+                // 취소된 내일 내기는 "없던 일"이라 카드에 세울 자격이 없다.
                 bets.addAll(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatus(
                         uncovered, date.plusDays(1), GroupBetStatus.OPEN));
             }

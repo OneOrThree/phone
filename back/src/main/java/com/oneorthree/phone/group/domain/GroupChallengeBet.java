@@ -11,7 +11,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -28,13 +27,13 @@ import java.util.UUID;
  * 그룹 챌린지 내기 — 챌린지 하나의 특정 날짜({@code betDate})에 걸린 판.
  *
  * <p>대상은 목표분이 있는 모든 챌린지다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW 4조합
- * (창은 목표분이 있는 것만). 챌린지당·날짜당 1개이며, 유니크 제약이 동시 개설의 최후 방어선이다.
+ * (창은 목표분이 있는 것만). <b>비취소</b> 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라
+ * 같은 날짜 재개설을 막지 않는다(GROMO-1201). 동시 개설의 최후 방어선은 V27 부분 유니크 인덱스
+ * ({@code WHERE status <> 'CANCELED'})인데, JPA 가 부분 인덱스를 표현할 수 없어 여기엔
+ * {@code @UniqueConstraint} 를 두지 않는다(실 SQL 검증은 {@code GroupChallengeV27MigrationTest}).
  */
 @Entity
-@Table(name = "group_challenge_bets",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_group_challenge_bets_challenge_bet_date",
-                columnNames = {"challenge_id", "bet_date"}))
+@Table(name = "group_challenge_bets")
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

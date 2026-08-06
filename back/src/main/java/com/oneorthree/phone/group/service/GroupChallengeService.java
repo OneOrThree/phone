@@ -83,6 +83,8 @@ public class GroupChallengeService {
 
     private static final int SECONDS_PER_DAY = 86_400;
     private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
+    /** 일 목표(DURATION) 상한 — 하루는 1440분(GROMO-1205). DB 는 V27 CHECK 가 같은 값으로 최후 방어한다. */
+    private static final int MAX_DURATION_GOAL_MINUTES = 1_440;
 
     /**
      * 그룹 챌린지 목록. {@code date} 를 주면 멤버별 당일 진행률({@code memberProgress})을 함께 채운다.
@@ -131,6 +133,13 @@ public class GroupChallengeService {
                 challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
 
+        // 휴면 배지(GROMO-1201) — 내기 이력이 있는 챌린지 id 도 IN 절 1회로 배치 조회한다(N+1 없음).
+        // date 없는 하위 호환 조회는 현재 내기(bets)를 싣지 않아 OPEN 여부를 판정할 수 없으므로
+        // 계산하지 않는다(항상 false) — 그 클라이언트는 dormant 필드 자체를 모른다.
+        Set<UUID> challengeIdsWithBetHistory = date == null
+                ? Set.of()
+                : Set.copyOf(groupChallengeBetRepository.findChallengeIdsWithAnyBet(challengeIds));
+
         return challenges.stream()
                 .map(c -> {
                     GroupChallengeDuration duration = durations.get(c.getId());
@@ -149,9 +158,24 @@ public class GroupChallengeService {
                             .memberProgress(memberProgressOf(c, duration, window, progress))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
+                            .dormant(isDormant(c.getId(), challengeIdsWithBetHistory, bets))
                             .build();
                 })
                 .toList();
+    }
+
+    /**
+     * 휴면 판정(GROMO-1201, 계약 §2) — 내기 이력은 있는데(status 무관, 취소 포함) 지금 걸린 OPEN
+     * 내기가 없다. {@code bets} 맵에는 정산이 끝난 오늘 내기도 실리므로(결과 모달 보호) 키 존재
+     * 여부가 아니라 status 로 OPEN 을 가려낸다. 내일 폴백 내기는 OPEN 만 실리니 자연히 휴면이 아니다.
+     */
+    private boolean isDormant(UUID challengeId, Set<UUID> challengeIdsWithBetHistory,
+            Map<UUID, GroupBetResponse> bets) {
+        if (!challengeIdsWithBetHistory.contains(challengeId)) {
+            return false;
+        }
+        GroupBetResponse bet = bets.get(challengeId);
+        return bet == null || bet.getStatus() != GroupBetStatus.OPEN;
     }
 
     /** 응답 durationMinutes — DURATION 은 일 목표, TIME_WINDOW 는 창 내 목표(V20, 목표 없는 구 창은 null). */
@@ -446,7 +470,10 @@ public class GroupChallengeService {
         }
 
         if (request.getMissionType() == MissionType.DURATION) {
-            if (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0) {
+            // 상한 1440 — 하루보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205). TIME_WINDOW 는
+            // validateTimeWindowParams 의 "창 길이 이내" 검증이 이미 같은 성격의 상한을 건다.
+            if (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0
+                    || request.getDurationMinutes() > MAX_DURATION_GOAL_MINUTES) {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
         } else if (request.getMissionType() == MissionType.TIME_WINDOW) {

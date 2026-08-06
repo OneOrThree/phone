@@ -36,8 +36,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 내기 스키마의 실 SQL 제약 검증 — 애플리케이션 가드가 뚫려도 DB 가 막아야 하는 지점들.
  *
  * <p>동시 개설·동시 참가는 서비스의 exists 검사만으로는 레이스를 막지 못한다(검사와 삽입 사이가 열려
- * 있다). 정산 재실행의 이중 지급도 마찬가지로 멱등키 유니크가 최후 방어선이다. 그래서 세 유니크
- * 제약이 실제 Postgres 에 존재하는지를 여기서 확인한다.
+ * 있다). 정산 재실행의 이중 지급도 마찬가지로 멱등키 유니크가 최후 방어선이다. 그래서 참가·멱등키
+ * 유니크가 실제 Postgres 에 존재하는지를 여기서 확인한다. 단, 개설 중복을 막는 (challenge_id,
+ * bet_date) 는 V27 에서 <b>부분 유니크 인덱스</b>(취소 제외)가 됐고 JPA 로 표현할 수 없어 엔티티
+ * 어노테이션에서 빠졌다 — ci 스키마엔 없으므로 그 검증은 {@code GroupChallengeV27MigrationTest} 가
+ * Flyway 체인으로 맡는다.
  *
  * <p><b>ci 프로파일 주의</b>: 스키마는 Flyway 가 아니라 엔티티 create-drop 으로 만들어진다
  * ({@code application-ci.yml}). 유니크 제약은 엔티티에 선언돼 있어 그대로 생성되지만
@@ -105,14 +108,9 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
                 .build());
     }
 
-    @Test
-    @DisplayName("(challenge_id, bet_date) 유니크 — 같은 챌린지·같은 날짜 내기 2건은 DB 가 막는다")
-    void rejectsDuplicateBetForSameChallengeAndDate() {
-        groupChallengeBetRepository.saveAndFlush(betOf(betDate));
-
-        assertThatThrownBy(() -> groupChallengeBetRepository.saveAndFlush(betOf(betDate)))
-                .isInstanceOf(DataIntegrityViolationException.class);
-    }
+    // "(challenge_id, bet_date) 중복 차단" 테스트는 V27 에서 GroupChallengeV27MigrationTest 로
+    // 이관됐다 — 제약이 부분 유니크 인덱스(WHERE status <> CANCELED)가 되면서 엔티티 어노테이션이
+    // 사라져, create-drop 으로 만드는 ci 스키마에는 그 제약 자체가 존재하지 않기 때문이다.
 
     @Test
     @DisplayName("날짜가 다르면 같은 챌린지라도 내기를 각각 걸 수 있다")
@@ -120,8 +118,42 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
         groupChallengeBetRepository.saveAndFlush(betOf(betDate));
         groupChallengeBetRepository.saveAndFlush(betOf(betDate.plusDays(1)));
 
-        assertThat(groupChallengeBetRepository.findByChallengeIdInAndBetDate(
-                List.of(challenge.getId()), betDate)).hasSize(1);
+        assertThat(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
+                List.of(challenge.getId()), betDate, GroupBetStatus.CANCELED)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("날짜 배치 로드 — CANCELED 만 빠지고 정산 결과(SETTLED 등)는 실린다 (결과 모달 hadBet 보호)")
+    void findByDateExcludesOnlyCanceled() {
+        GroupChallenge canceledOnly = anotherChallenge();
+        GroupChallenge settledOnly = anotherChallenge();
+        GroupChallengeBet open = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
+        groupChallengeBetRepository.saveAndFlush(betOf(canceledOnly, betDate, GroupBetStatus.CANCELED));
+        GroupChallengeBet settled = groupChallengeBetRepository.saveAndFlush(
+                betOf(settledOnly, betDate, GroupBetStatus.SETTLED));
+
+        List<GroupChallengeBet> found = groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
+                List.of(challenge.getId(), canceledOnly.getId(), settledOnly.getId()),
+                betDate, GroupBetStatus.CANCELED);
+
+        assertThat(found)
+                .extracting(GroupChallengeBet::getId)
+                .containsExactlyInAnyOrder(open.getId(), settled.getId());
+    }
+
+    @Test
+    @DisplayName("내기 이력 챌린지 조회 — 취소 이력만 있어도 잡힌다(휴면 배지), 이력 없는 챌린지는 빠진다")
+    void findChallengeIdsWithAnyBetIncludesCanceledOnlyHistory() {
+        GroupChallenge canceledOnly = anotherChallenge();
+        GroupChallenge fresh = anotherChallenge();
+        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.SETTLED));
+        groupChallengeBetRepository.saveAndFlush(betOf(canceledOnly, betDate, GroupBetStatus.CANCELED));
+
+        List<UUID> found = groupChallengeBetRepository.findChallengeIdsWithAnyBet(
+                List.of(challenge.getId(), canceledOnly.getId(), fresh.getId()));
+
+        // lastSettledBet(정산 3종)을 재사용하면 취소 이력만 있는 챌린지가 빠진다 — 별도 쿼리인 이유.
+        assertThat(found).containsExactlyInAnyOrder(challenge.getId(), canceledOnly.getId());
     }
 
     @Test

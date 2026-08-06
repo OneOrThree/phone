@@ -13,6 +13,7 @@ import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
+import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
@@ -797,6 +798,95 @@ class GroupChallengeServiceTest {
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
 
+    // ── getChallenges: 휴면 배지 dormant (GROMO-1201) ──────────────────────
+
+    /** 휴면 판정 테스트 공통 셋업 — 멤버 없는 그룹의 챌린지 1개를 date 와 함께 조회한다. */
+    private GroupChallenge givenChallengeListForDormant() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(List.of(challenge));
+        return challenge;
+    }
+
+    /** loadCurrentBets 결과 스텁용 최소 응답 — 휴면 판정은 status(OPEN 여부)만 본다. */
+    private GroupBetResponse betResponseOf(GroupBetStatus status) {
+        return GroupBetResponse.builder().betId(UUID.randomUUID()).status(status).build();
+    }
+
+    @Test
+    @DisplayName("내기 이력이 있고 지금 OPEN 내기가 없으면 dormant=true — 취소 이력만 있어도 이력이다")
+    void getChallengesMarksDormantWhenHistoryExistsWithoutOpenBet() {
+        givenChallengeListForDormant();
+        // 이력 조회는 status 무관(CANCELED 포함) — 취소 이력만 있는 챌린지도 여기 잡힌다.
+        given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
+        // loadCurrentBets 는 스텁하지 않는다 → 빈 맵 = 현재 걸린 내기 없음.
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        assertThat(result.get(0).isDormant()).isTrue();
+    }
+
+    @Test
+    @DisplayName("내기 이력이 없는 새 챌린지는 dormant=false — 시작 전 상태를 휴면으로 오표시하지 않는다")
+    void getChallengesDoesNotMarkDormantForFreshChallenge() {
+        givenChallengeListForDormant();
+        given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of());
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        assertThat(result.get(0).isDormant()).isFalse();
+    }
+
+    @Test
+    @DisplayName("OPEN 내기가 걸려 있으면 dormant=false — 내일 폴백으로 실린 OPEN 내기도 같다")
+    void getChallengesDoesNotMarkDormantWhenOpenBetExists() {
+        givenChallengeListForDormant();
+        given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
+        given(groupBetService.loadCurrentBets(any(), any(), any(), any()))
+                .willReturn(Map.of(CHALLENGE_ID, betResponseOf(GroupBetStatus.OPEN)));
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        assertThat(result.get(0).isDormant()).isFalse();
+    }
+
+    @Test
+    @DisplayName("정산이 끝난 오늘 내기만 있으면 dormant=true — bets 맵 존재가 아니라 OPEN 여부로 판정한다")
+    void getChallengesMarksDormantWhenTodayBetAlreadySettled() {
+        givenChallengeListForDormant();
+        given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
+        // 오늘·과거 조회는 CANCELED 만 빼므로(결과 모달 보호) 정산된 내기가 bets 맵에 실려 온다 —
+        // 키 존재로 판정하면 이 케이스가 휴면에서 빠진다.
+        given(groupBetService.loadCurrentBets(any(), any(), any(), any()))
+                .willReturn(Map.of(CHALLENGE_ID, betResponseOf(GroupBetStatus.SETTLED)));
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        assertThat(result.get(0).isDormant()).isTrue();
+    }
+
+    @Test
+    @DisplayName("date 없는 하위 호환 조회는 dormant 를 계산하지 않는다 — 항상 false, 이력 조회도 안 나간다")
+    void getChallengesWithoutDateSkipsDormant() {
+        givenChallengeListForDormant();
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, null);
+
+        // 현재 내기(bets)를 싣지 않는 조회라 OPEN 여부를 판정할 수 없다 — 오표시 대신 항상 false.
+        assertThat(result.get(0).isDormant()).isFalse();
+        verify(groupChallengeBetRepository, never()).findChallengeIdsWithAnyBet(any());
+    }
+
     // ── createChallenge ───────────────────────────────────────────────────
 
     @Test
@@ -1106,6 +1196,64 @@ class GroupChallengeServiceTest {
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+    }
+
+    @Test
+    @DisplayName("DURATION durationMinutes 가 1440 초과(1441·999999) → GroupException(INVALID_MISSION_PARAMS)")
+    void createChallengeRejectsDurationOverOneDay() {
+        // given: OWNER + DURATION — 하루(1440분)보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+
+        for (int minutes : new int[] {1441, 999_999}) {
+            given(request.getDurationMinutes()).willReturn(minutes);
+
+            // when & then
+            assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                    .isInstanceOf(GroupException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("DURATION durationMinutes 1440(하루 전체) 경계는 허용 — V27 CHECK 와 같은 상한이다")
+    void createChallengeAllowsFullDayDurationBoundary() {
+        // given: OWNER + DURATION + durationMinutes = 1440(경계)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(1440);
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then: 경계값이 그대로 상세에 저장된다
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+        ArgumentCaptor<GroupChallengeDuration> durationCaptor =
+                ArgumentCaptor.forClass(GroupChallengeDuration.class);
+        verify(groupChallengeDurationRepository).save(durationCaptor.capture());
+        assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(1440);
     }
 
     @Test

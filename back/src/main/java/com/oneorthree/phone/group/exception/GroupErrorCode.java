@@ -35,7 +35,8 @@ public enum GroupErrorCode {
     BET_FOCUS_ONLY(HttpStatus.BAD_REQUEST, "집중 시간 챌린지에만 내기를 걸 수 있어요"),
     BET_INVALID_STAKE(HttpStatus.BAD_REQUEST, "참가비는 1~1,000코인 사이로 입력해 주세요"),
     BET_NOT_FOUND(HttpStatus.NOT_FOUND, "내기를 찾을 수 없어요"),
-    BET_ALREADY_EXISTS(HttpStatus.CONFLICT, "오늘 이 챌린지에는 이미 내기가 있어요"),
+    // 문구는 날짜 중립 — 내일 내기(GROMO-1103)·취소 후 재개설(GROMO-1201)이 생기며 "오늘"이 틀려졌다.
+    BET_ALREADY_EXISTS(HttpStatus.CONFLICT, "이 날짜에는 이미 내기가 있어요"),
     BET_CLOSED(HttpStatus.CONFLICT, "참가할 수 있는 시간이 지났어요"),
     BET_ALREADY_JOINED(HttpStatus.CONFLICT, "이미 참가한 내기예요"),
     BET_ALREADY_ACHIEVED(HttpStatus.CONFLICT, "이미 목표를 달성해서 참가할 수 없어요"),
