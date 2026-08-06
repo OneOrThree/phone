@@ -115,15 +115,19 @@ public class UserService {
             user.setCountryCode(body.getCountryCode());
         }
 
+        // 날짜는 한 번만 구해 두 설정에 같은 값을 넘긴다(코드리뷰) — 각자 todayOf 를 부르면
+        // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
+        // 다른 쪽은 직전 목표로 판정된다. 국가 변경을 먼저 반영한 뒤 계산하는 것도 setupProfile 과 동일.
+        LocalDate today = todayOf(user);
         if (body.getDailyScreenTimeGoalMinutes() != null) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), todayOf(user));
+            screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
         }
         if (body.getDailyFocusTimeGoalMinutes() != null) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), todayOf(user));
+            focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
         }
     }
 

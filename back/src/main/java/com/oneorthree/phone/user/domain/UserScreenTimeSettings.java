@@ -68,7 +68,10 @@ public class UserScreenTimeSettings {
      * @param today          유저 로컬 기준 오늘
      */
     public void changeGoal(int newGoalMinutes, LocalDate today) {
-        if (goalEffectiveFrom == null || goalEffectiveFrom.isBefore(today)) {
+        // 발효일이 today 와 '다르면' 새 전환으로 본다(코드리뷰) — isBefore 만 보면 국가 변경으로
+        // 로컬 날짜가 뒤로 갈 때(KR→GB) 미래로 남은 발효일을 '오늘 이미 바꿈'으로 오인해,
+        // 새 로컬 오늘이 previous 로 판정되는 구간이 생긴다.
+        if (goalEffectiveFrom == null || !goalEffectiveFrom.isEqual(today)) {
             previousGoalMinutes = dailyScreenTimeGoalMinutes;
             goalEffectiveFrom = today;
         }

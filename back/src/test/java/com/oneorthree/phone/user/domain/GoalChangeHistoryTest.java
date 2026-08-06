@@ -93,6 +93,24 @@ class GoalChangeHistoryTest {
         assertThat(settings.goalMinutesOn(YESTERDAY)).isEqualTo(120);
     }
 
+    /**
+     * 국가 변경으로 유저 로컬 날짜가 뒤로 갈 수 있다(KR→GB). 이때 발효일이 today 보다 미래로
+     * 남는데, isBefore 만 보면 '오늘 이미 바꿈'으로 오인해 previous 를 보존하지 않는다(코드리뷰).
+     */
+    @Test
+    @DisplayName("발효일이 미래로 남아 있어도(국가 변경으로 로컬 날짜가 뒤로 감) 새 전환으로 보존한다")
+    void effectiveDateInFuture_treatedAsNewTransition() {
+        UserScreenTimeSettings settings = screenSettings(180);
+        settings.changeGoal(120, TODAY);
+
+        // 국가가 바뀌어 로컬 '오늘'이 어제로 물러난 상태에서 목표를 다시 바꾼다.
+        settings.changeGoal(60, YESTERDAY);
+
+        // 보존이 일어났어야 새 로컬 오늘(어제)이 현재값으로 판정된다.
+        assertThat(settings.goalMinutesOn(YESTERDAY)).isEqualTo(60);
+        assertThat(settings.getPreviousGoalMinutes()).isEqualTo(120);
+    }
+
     @Test
     @DisplayName("집중 목표도 같은 규칙으로 동작한다")
     void focusSettings_followSameRule() {
