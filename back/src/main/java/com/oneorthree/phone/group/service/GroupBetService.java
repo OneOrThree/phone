@@ -312,6 +312,10 @@ public class GroupBetService {
      * ({@link #joinBet})와 같은 잠금을 잡으므로 "정산이 참가자를 읽는 사이의 행 삭제·환불"이나
      * "단독 확인 → 자동 취소 사이의 참가 끼어들기" 같은 레이스가 원천 차단된다. 잠금 후 status
      * 재확인에서 이미 종료된 내기는 건드리지 않는다(정산 결과 존중).
+     *
+     * <p><b>불변식: 그룹 상태(ENDED 등)를 보지 않는다</b> — 내기 status 만이 게이트다. 계정 탈퇴
+     * ({@code UserService.withdraw}, GROMO-801)가 solo 방장 그룹을 {@code close()} 한 <b>뒤에</b>
+     * 이 메서드를 호출하는 것이 이 불변식에 기대므로, 그룹 상태 검사를 새로 넣으면 안 된다.
      */
     @Transactional
     public void releaseFromOpenBets(User user, Group group) {
