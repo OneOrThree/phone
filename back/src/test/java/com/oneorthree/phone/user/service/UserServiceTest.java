@@ -179,6 +179,11 @@ class UserServiceTest {
     void updateProfilePartial() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        // 국가가 바뀌면 목표 이력의 발효일을 새 로컬 오늘로 정렬하므로 두 설정을 함께 읽는다(GROMO-1049).
+        given(userScreenTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserScreenTimeSettings.builder().userId(USER_ID).build()));
+        given(userFocusTimeSettingsRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserFocusTimeSettings.builder().userId(USER_ID).build()));
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
                 "새닉네임", null, null, "US");
@@ -223,6 +228,36 @@ class UserServiceTest {
 
         assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(150);
         assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(60);
+    }
+
+    /**
+     * 국가만 바꾸는 PATCH 에서도 목표 이력의 발효일을 새 로컬 오늘로 맞춰야 한다(코드리뷰) —
+     * 안 맞추면 로컬 날짜가 뒤로 갈 때(KR→GB) 발효일이 미래로 남아 새 로컬 오늘이 직전 목표로
+     * 판정된다. 목표값 자체는 건드리지 않는다.
+     */
+    @Test
+    @DisplayName("국가만 바꿔도 두 설정의 목표 발효일이 새 로컬 오늘로 정렬된다")
+    void updateProfileCountryOnly_realignsGoalEffectiveDates() {
+        User user = User.builder().id(USER_ID).countryCode("KR").build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(120).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+
+        // 목표 필드 없이 국가만 변경
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest(null, null, null, "GB"));
+
+        // 목표값은 그대로, 발효일만 채워졌다(정렬됨).
+        assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(180);
+        assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(120);
+        assertThat(screen.getGoalEffectiveFrom()).isNotNull();
+        assertThat(focus.getGoalEffectiveFrom()).isNotNull();
+        // 이력이 정렬됐어도 직전 목표 == 현재 목표라 판정에는 영향이 없다.
+        assertThat(screen.goalMinutesOn(screen.getGoalEffectiveFrom().minusDays(1))).isEqualTo(180);
+        assertThat(focus.goalMinutesOn(focus.getGoalEffectiveFrom().minusDays(1))).isEqualTo(120);
     }
 
     @Test

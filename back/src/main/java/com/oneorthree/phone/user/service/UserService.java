@@ -119,15 +119,24 @@ public class UserService {
         // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
         // 다른 쪽은 직전 목표로 판정된다. 국가 변경을 먼저 반영한 뒤 계산하는 것도 setupProfile 과 동일.
         LocalDate today = todayOf(user);
-        if (body.getDailyScreenTimeGoalMinutes() != null) {
+        // 국가가 바뀌면 목표를 안 바꿔도 발효일을 새 로컬 오늘로 맞춘다(코드리뷰) — 목표 필드가
+        // 빠진 국가-only PATCH 에서는 changeGoal 이 아예 안 불려, 로컬 날짜가 뒤로 갈 때(KR→GB)
+        // 발효일이 미래로 남고 새 로컬 오늘이 직전 목표로 판정된다. 목표값은 현재값 그대로 넘겨
+        // 이력만 정렬한다(previous == current 가 되어 판정에 영향이 없다).
+        boolean countryChanged = body.getCountryCode() != null;
+        if (body.getDailyScreenTimeGoalMinutes() != null || countryChanged) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
+            Integer requested = body.getDailyScreenTimeGoalMinutes();
+            screenSettings.changeGoal(
+                    requested != null ? requested : screenSettings.getDailyScreenTimeGoalMinutes(), today);
         }
-        if (body.getDailyFocusTimeGoalMinutes() != null) {
+        if (body.getDailyFocusTimeGoalMinutes() != null || countryChanged) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
+            Integer requested = body.getDailyFocusTimeGoalMinutes();
+            focusSettings.changeGoal(
+                    requested != null ? requested : focusSettings.getDailyFocusTimeGoalMinutes(), today);
         }
     }
 
