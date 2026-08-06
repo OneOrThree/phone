@@ -13,6 +13,7 @@
 //     창 길이 초과 차단, 칩↔입력 단일 소스, 창 축소 시 클램프 동기화.
 //  7) 자정 걸침 창 허용 + '내일부터 적용' 안내(GROMO-1110) — 서버는 start==end만 거부하므로
 //     앱도 같은 선을 긋고, 창 길이는 서버 windowLengthMinutes와 같은 규칙으로 잰다.
+//  8) 접근성·전송 중 잠금(GROMO-1204) — 잠긴 컨트롤은 이유까지 읽히고, 전송 중엔 폼 전체가 잠긴다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -693,6 +694,151 @@ describe('내일부터 적용 안내', () => {
       GROUP_ID,
       expect.objectContaining({ missionType: 'TIME_WINDOW' }),
     );
+    expect(onCreated).toHaveBeenCalled();
+  });
+});
+
+// GROMO-1204 — 접근성 + 전송 중 폼 전체 잠금. TouchableOpacity는 disabled를
+// accessibilityState로 올려 주지 않아 명시해야 스크린리더가 잠금을 안다. 텍스트 노드 press는
+// RNTL이 상위 touchable의 disabled로 막아 주지만, 신뢰 채널은 prop 단언이다(BetSheet 테스트 규격).
+describe('접근성 · 전송 중 잠금', () => {
+  test('잠긴 방식 세그먼트는 역할·잠김·이유까지 읽힌다', async () => {
+    await renderSheet([{ category: 'FOCUS', type: 'DURATION' }]);
+
+    const locked = screen.getByTestId('group.challenge.type.DURATION');
+    expect(locked).toHaveProp('accessibilityRole', 'button');
+    expect(locked).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true, selected: false }),
+    );
+    expect(locked).toHaveProp('accessibilityLabel', '매일 목표');
+    expect(locked).toHaveProp('accessibilityHint', '이미 만든 조합이에요');
+
+    // 초기 선택이 비어 있는 조합(시간대)으로 온다 — 선택 상태도 읽힌다.
+    // 잠기지 않은 옵션엔 잠긴 이유 힌트가 붙지 않는다.
+    const open = screen.getByTestId('group.challenge.type.TIME_WINDOW');
+    expect(open).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
+    expect(open.props.accessibilityHint).toBeUndefined();
+  });
+
+  test('잠긴 카테고리 세그먼트도 같은 규격으로 읽힌다', async () => {
+    await renderSheet([
+      { category: 'FOCUS', type: 'DURATION' },
+      { category: 'FOCUS', type: 'TIME_WINDOW' },
+    ]);
+
+    const locked = screen.getByTestId('group.challenge.category.FOCUS');
+    expect(locked).toHaveProp('accessibilityRole', 'button');
+    expect(locked).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true, selected: false }),
+    );
+    expect(locked).toHaveProp('accessibilityLabel', '집중 시간');
+    expect(locked).toHaveProp('accessibilityHint', '이미 만든 조합이에요');
+    expect(screen.getByTestId('group.challenge.category.SCREEN_TIME')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
+  });
+
+  test('창 길이를 넘는 칩은 단위 라벨·잠김·이유까지 읽힌다', async () => {
+    await renderSheet();
+    await press('시간대');
+    // 종료를 10시로 — 창 09:00~10:00 = 60분. 120·180 칩이 잠긴다.
+    await pressNth('10시', 1);
+
+    const locked = screen.getByTestId('group.challenge.duration.120');
+    expect(locked).toHaveProp('accessibilityRole', 'button');
+    expect(locked).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true, selected: false }),
+    );
+    expect(locked).toHaveProp('accessibilityLabel', '120분');
+    expect(locked).toHaveProp('accessibilityHint', '시간대보다 길어요');
+
+    const open = screen.getByTestId('group.challenge.duration.60');
+    expect(open).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true, disabled: false }),
+    );
+    expect(open.props.accessibilityHint).toBeUndefined();
+  });
+
+  // 전송 중 폼을 안 잠그면: 60분으로 보낸 뒤 120분을 누르면 서버엔 60이 간 채 화면만 120이
+  // 된다 — 성공 후 사용자는 자기가 120분 챌린지를 만들었다고 오인한다(BetSheet과 같은 근거).
+  test('전송 중에는 세그먼트·칩·직접 입력이 전부 잠기고 처리 중 안내가 뜬다', async () => {
+    let settle: (v: CreateChallengeResponse) => void = () => {};
+    mockCreateChallenge.mockReturnValue(
+      new Promise<CreateChallengeResponse>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    await renderSheet();
+    await press('만들기');
+
+    // 처리 중 안내(BetSheet과 같은 문구) + 폼 전체 disabled prop.
+    expect(screen.getByText('처리 중이에요…')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.challenge.category.SCREEN_TIME')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true }),
+    );
+    expect(screen.getByTestId('group.challenge.type.TIME_WINDOW')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true }),
+    );
+    expect(screen.getByTestId('group.challenge.duration.120')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true }),
+    );
+    // 전송 중 잠금은 조합 점유가 아니다 — 잠긴 이유 힌트는 붙지 않는다(처리 중 안내가 받는다).
+    expect(
+      screen.getByTestId('group.challenge.category.SCREEN_TIME').props.accessibilityHint,
+    ).toBeUndefined();
+
+    // 눌러도 선택이 바뀌지 않는다 — disabled가 press를 막는다.
+    await press('스크린타임');
+    expect(screen.getByTestId('group.challenge.category.SCREEN_TIME')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: false }),
+    );
+    await press('120분');
+    const input = screen.getByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('60');
+    // 직접 입력도 잠긴다 — editable prop이 신뢰 채널이다.
+    expect(input).toHaveProp('editable', false);
+
+    await act(async () => {
+      settle({ id: 'c1', nonParticipants: [] });
+    });
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  // DrumPicker엔 잠금 prop이 없어 휠 영역을 pointerEvents로 걷는다 — 창이 바뀌면 사라질
+  // '내일부터' 안내가 전송 중 휠 탭에도 그대로면 창이 잠겨 있다는 뜻이다.
+  test('전송 중에는 창 시각 휠도 막힌다(휠 영역 pointerEvents 잠금)', async () => {
+    mockNowSeconds.mockReturnValue(13 * 3600); // 기본 창 09:00~12:00이 이미 지난 시각
+    let settle: (v: CreateChallengeResponse) => void = () => {};
+    mockCreateChallenge.mockReturnValue(
+      new Promise<CreateChallengeResponse>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    await renderSheet();
+    await press('시간대');
+    expect(screen.getByTestId('group.challenge.tomorrowNote')).toBeOnTheScreen();
+    await press('만들기');
+
+    // 종료를 23시로 늘리면 창이 아직 안 지난 게 되어 안내가 사라져야 하지만 —
+    // 전송 중엔 휠이 막혀 창이 그대로다(안내 유지).
+    await pressNth('23시', 1);
+    expect(screen.getByTestId('group.challenge.tomorrowNote')).toBeOnTheScreen();
+
+    await act(async () => {
+      settle({ id: 'c1', nonParticipants: [] });
+    });
     expect(onCreated).toHaveBeenCalled();
   });
 });

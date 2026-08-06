@@ -103,6 +103,15 @@ const NON_PARTICIPANT_MESSAGE = '일부 멤버는 스크린타임 권한이 없�
 // 이미 있는 조합을 고를 수 없는 이유 — 세그먼트 아래 한 줄로 알린다.
 const TAKEN_CAPTION = '이미 있는 종류·방식은 기존 챌린지를 삭제해야 다시 만들 수 있어요';
 const ALL_TAKEN_CAPTION = '모든 종류의 챌린지가 이미 있어요';
+// 잠긴 세그먼트가 스크린리더에 읽어 줄 이유(GROMO-1204) — TAKEN_CAPTION과 같은 사실의 요약이다.
+// accessibilityHint는 이 시트가 앱 최초 도입 — 눈으로는 흐림+캡션으로 아는 잠금 이유를
+// 스크린리더도 알 수 있게 한다. 조합 점유일 때만 단다(전송 중 잠금은 처리 중 안내가 받는다).
+const TAKEN_HINT = '이미 만든 조합이에요';
+// 창 길이 초과로 잠긴 칩의 이유 — durationOverWindowCaption의 첫 문장과 같은 결이다.
+const CHIP_OVER_WINDOW_HINT = '시간대보다 길어요';
+// 전송 중 안내 — BetSheet와 같은 문구·자리(CTA 아래 한 줄). 폼 전체가 잠긴 동안
+// 멈춘 화면으로 보이지 않게 한다.
+const SUBMITTING_CAPTION = '처리 중이에요…';
 // 직접 입력 검증 안내 — 범위 밖이면 CTA를 막고 사유를 인라인으로 적는다(막다른 상태 금지).
 // 문구 결은 내기 시트의 참가비 안내("1~1,000코인 사이로 입력해 주세요")와 맞춘다.
 const DURATION_RANGE_CAPTION = '목표 시간은 1~1,440분 사이로 입력해 주세요';
@@ -303,7 +312,8 @@ export default function ChallengeComposeSheet({
   }
 
   async function submit() {
-    // 생성 중 중복 탭 방지 — 판정은 ref로만 한다(submitting은 스피너·disabled 표시 전용).
+    // 생성 중 중복 탭 방지 — 판정은 ref로만 한다(submitting은 스피너·처리 중 안내와
+    // 폼 전체 잠금(세그먼트·칩 disabled, 입력 editable, 휠 pointerEvents) 표시 전용).
     // durationMinutes null 검사는 타입 좁히기용 — durationValid가 이미 배제한다.
     if (submitLock.current || allTaken || !durationValid || durationMinutes === null) return;
     submitLock.current = true;
@@ -357,8 +367,16 @@ export default function ChallengeComposeSheet({
               key={opt.value}
               style={[s.segBtn, on ? s.segBtnOn : null]}
               activeOpacity={0.8}
-              disabled={taken}
+              disabled={taken || submitting}
               onPress={() => pickCategory(opt.value)}
+              // TouchableOpacity는 disabled를 accessibilityState로 올려 주지 않는다 — 명시한다.
+              // selected는 기존 on 의미 그대로다(잠긴 옵션은 선택 아님으로 읽힌다 — 눈에 보이는
+              // 세그먼트 강조와 같은 판정을 스크린리더에도 준다).
+              accessibilityRole="button"
+              accessibilityState={{ selected: on, disabled: taken || submitting }}
+              accessibilityLabel={opt.label}
+              accessibilityHint={taken ? TAKEN_HINT : undefined}
+              testID={`group.challenge.category.${opt.value}`}
             >
               <Text style={[s.segText, on ? s.segTextOn : null, taken ? s.segTextOff : null]}>
                 {opt.label}
@@ -378,8 +396,13 @@ export default function ChallengeComposeSheet({
               key={opt.value}
               style={[s.segBtn, on ? s.segBtnOn : null]}
               activeOpacity={0.8}
-              disabled={taken}
+              disabled={taken || submitting}
               onPress={() => setMissionType(opt.value)}
+              // 카테고리 세그먼트와 같은 규격 — 잠금(disabled)과 이유(hint)까지 읽힌다.
+              accessibilityRole="button"
+              accessibilityState={{ selected: on, disabled: taken || submitting }}
+              accessibilityLabel={opt.label}
+              accessibilityHint={taken ? TAKEN_HINT : undefined}
               testID={`group.challenge.type.${opt.value}`}
             >
               <Text style={[s.segText, on ? s.segTextOn : null, taken ? s.segTextOff : null]}>
@@ -396,7 +419,9 @@ export default function ChallengeComposeSheet({
       {isWindow && (
         <>
           <Text style={s.label}>시간대 설정 (한국 시간 기준)</Text>
-          <View style={s.windowRow}>
+          {/* DrumPicker엔 잠금 prop이 없다(집중 목표 화면과 공유하는 부품 — API를 늘리지 않는다).
+              전송 중엔 휠 영역의 터치를 통째로 걷어 창 시각이 뒤바뀌지 않게 한다(GROMO-1204). */}
+          <View style={s.windowRow} pointerEvents={submitting ? 'none' : 'auto'}>
             <View style={s.windowCol}>
               <DrumPicker
                 items={HOUR_ITEMS}
@@ -451,8 +476,14 @@ export default function ChallengeComposeSheet({
               key={m}
               style={[s.chip, on ? s.chipOn : null, off ? s.chipOffBox : null]}
               activeOpacity={0.8}
-              disabled={off}
+              disabled={off || submitting}
               onPress={() => setDurationText(String(m))}
+              // 숫자만 읽히면 무엇을 고르는 자리인지 알 수 없다 — 단위(분)까지 라벨에 싣는다.
+              // 잠긴 이유 힌트는 창 길이 초과일 때만(전송 중 잠금은 처리 중 안내가 받는다).
+              accessibilityRole="button"
+              accessibilityState={{ selected: on, disabled: off || submitting }}
+              accessibilityLabel={`${m}분`}
+              accessibilityHint={off ? CHIP_OVER_WINDOW_HINT : undefined}
               testID={`group.challenge.duration.${m}`}
             >
               <Text style={[s.chipText, on ? s.chipTextOn : null, off ? s.chipTextOff : null]}>
@@ -472,6 +503,9 @@ export default function ChallengeComposeSheet({
           // 어긋나지 않게 한다. 홑 "0"은 치는 중간 상태라 남긴다(범위 안내가 받는다).
           onChangeText={(v) => setDurationText(v.replace(/\D+/g, '').replace(/^0+(?=\d)/, ''))}
           keyboardType="number-pad"
+          // 전송 중 입력 잠금(GROMO-1204) — 60을 보낸 뒤 120으로 고치면 서버엔 60이 간 채
+          // 화면만 120이 되어, 사용자가 만든 값을 오인한다(BetSheet editable과 같은 근거).
+          editable={!submitting}
           maxLength={4}
           placeholder={`직접 입력 (${DURATION_MIN}~${DURATION_MAX}분)`}
           placeholderTextColor={T.inkMuted}
@@ -507,6 +541,10 @@ export default function ChallengeComposeSheet({
           <Text style={s.submitText}>만들기</Text>
         )}
       </TouchableOpacity>
+
+      {/* 전송 중엔 CTA도 딤 탭도 폼 입력도 막혀 있다 — 멈춘 화면이 아님을 한 줄로 알린다
+          (BetSheet와 같은 문구·자리). */}
+      {submitting && <Text style={s.submittingCaption}>{SUBMITTING_CAPTION}</Text>}
 
       {/* 키보드 보정 여백(안드로이드 전용) — iOS는 SheetShell이 패널째 올린다. */}
       {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}
@@ -618,4 +656,12 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
+  // 전송 중 안내 — CTA 바로 아래 가운데 한 줄(BetSheet와 같은 규격).
+  submittingCaption: {
+    ...T.text.caption,
+    fontWeight: '500',
+    color: T.inkMuted,
+    textAlign: 'center',
+    marginTop: T.space.sm,
+  },
 });
