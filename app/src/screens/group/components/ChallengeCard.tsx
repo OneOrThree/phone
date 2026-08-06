@@ -19,6 +19,12 @@ import { todayStr } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
 import { categoryLabel, missionLabel } from './challengeLabel';
+import {
+  UNMEASURED,
+  progressFraction,
+  progressFractionA11y,
+  unmeasuredA11y,
+} from './progressFormat';
 import LastBetResultSheet from './LastBetResultSheet';
 
 // 챌린지 카드(그룹방 챌린지 섹션 1장) — 명세 docs/app/group-plan-2.md §3-2.
@@ -80,20 +86,19 @@ function monthDay(betDate: string): string {
 }
 
 // 멤버 한 명의 진행 표기 — 위 3상 규칙 그대로.
+// 미집계·기록 분 조각은 결과 모달과 공유한다(progressFormat) — 달성 표기만 여기 고유다.
 function progressText(p: ChallengeMemberProgress, durationMinutes: number | null): string {
-  if (p.progressMinutes === null) return '—';
+  if (p.progressMinutes === null) return UNMEASURED;
   if (p.achieved) return '달성 ✓';
-  return durationMinutes ? `${p.progressMinutes}/${durationMinutes}분` : `${p.progressMinutes}분`;
+  return progressFraction(p.progressMinutes, durationMinutes);
 }
 
 // 행 전체를 한 덩어리로 읽히게 한다 — 안 묶으면 VoiceOver가 닉네임과 진행을 따로 읽고
 // '—'를 "대시"로 발음해 미집계라는 뜻이 전달되지 않는다.
 function progressA11y(p: ChallengeMemberProgress, durationMinutes: number | null): string {
-  if (p.progressMinutes === null) return `${p.nickname} 아직 집계되지 않음`;
+  if (p.progressMinutes === null) return unmeasuredA11y(p.nickname);
   if (p.achieved) return `${p.nickname} 달성`;
-  return durationMinutes
-    ? `${p.nickname} ${durationMinutes}분 중 ${p.progressMinutes}분`
-    : `${p.nickname} ${p.progressMinutes}분`;
+  return progressFractionA11y(p.nickname, p.progressMinutes, durationMinutes);
 }
 
 // 내기 시트를 어떤 모드로 열 것인가 — 개설(아직 내기 없음) / 참가(OPEN 내기에 합류).

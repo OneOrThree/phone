@@ -13,8 +13,8 @@ function candidate(myAchieved: boolean | null): ChallengeResultCandidate {
     missionCategory: 'FOCUS',
     label: '오전 9시까지 집중',
     goalMinutes: 60,
-    achievers: [{ nickname: '재영', progressMinutes: 72 }],
-    failed: [{ nickname: '수빈', progressMinutes: 23 }],
+    achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 72 }],
+    failed: [{ userId: 'u2', nickname: '수빈', progressMinutes: 23 }],
     pending: [],
     myAchieved,
     memberCount: 2,
@@ -78,7 +78,7 @@ describe('ChallengeResultModal 판정 근거', () => {
       ...candidate(null),
       achievers: [],
       failed: [],
-      pending: [{ nickname: '민지', progressMinutes: null }],
+      pending: [{ userId: 'u3', nickname: '민지', progressMinutes: null }],
     };
     await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
     expect(shown('—')).toBeOnTheScreen();
@@ -90,7 +90,7 @@ describe('ChallengeResultModal 판정 근거', () => {
     const result = {
       ...candidate(true),
       goalMinutes: null,
-      achievers: [{ nickname: '재영', progressMinutes: 72 }],
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 72 }],
       failed: [],
     };
     await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
@@ -99,10 +99,25 @@ describe('ChallengeResultModal 판정 근거', () => {
   });
 
   // 이름과 분이 따로 읽히면 누구 기록인지 잃는다 — 행 전체를 한 덩어리로 읽어야 한다.
+  // 문구는 카드 진행 리스트와 **같은 조각**을 쓴다(progressFormat) — 같은 상태를 두 화면이
+  // 다른 문장으로 읽어 주던 것을 통일했다(PR #493 리뷰).
   test('스크린리더는 행을 한 덩어리로 읽는다', async () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
     expect(
-      screen.getByLabelText('재영, 60분 중 72분', { includeHiddenElements: true }),
+      screen.getByLabelText('재영 60분 중 72분', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+
+  test('미집계 행은 뜻을 말로 옮겨 읽는다 — VoiceOver는 —를 "대시"로 발음한다', async () => {
+    const result = {
+      ...candidate(null),
+      achievers: [],
+      failed: [],
+      pending: [{ userId: 'u3', nickname: '민지', progressMinutes: null }],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    expect(
+      screen.getByLabelText('민지 아직 집계되지 않음', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
   });
 });

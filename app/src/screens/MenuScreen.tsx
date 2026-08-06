@@ -86,11 +86,11 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
       // 목표를 넘긴 정도를 사람마다 다르게 둔다 — 근거 분(GROMO-1191)이 붙는 자리라
       // 전부 같은 값이면 표기가 제대로 보이는지 알 수 없다.
       achievers: [
-        { nickname: '나', progressMinutes: 72 },
-        { nickname: '수빈', progressMinutes: 60 },
-        { nickname: '민지', progressMinutes: 145 },
+        { userId: 'u-me', nickname: '나', progressMinutes: 72 },
+        { userId: 'u-subin', nickname: '수빈', progressMinutes: 60 },
+        { userId: 'u-minji', nickname: '민지', progressMinutes: 145 },
       ],
-      failed: [{ nickname: '지훈', progressMinutes: 23 }],
+      failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 23 }],
       pending: [],
       myAchieved: true,
     };
@@ -99,13 +99,13 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
     return {
       ...base,
       achievers: [
-        { nickname: '수빈', progressMinutes: 61 },
-        { nickname: '민지', progressMinutes: 88 },
+        { userId: 'u-subin', nickname: '수빈', progressMinutes: 61 },
+        { userId: 'u-minji', nickname: '민지', progressMinutes: 88 },
       ],
       // 0분(아예 안 함)과 아깝게 놓친 경우를 같이 둔다 — 둘 다 미달성이지만 읽히는 맛이 다르다.
       failed: [
-        { nickname: '나', progressMinutes: 59 },
-        { nickname: '지훈', progressMinutes: 0 },
+        { userId: 'u-me', nickname: '나', progressMinutes: 59 },
+        { userId: 'u-jihun', nickname: '지훈', progressMinutes: 0 },
       ],
       pending: [],
       myAchieved: false,
@@ -118,11 +118,11 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
     missionCategory: 'SCREEN_TIME',
     label: '하루 120분 스크린타임',
     goalMinutes: 120,
-    achievers: [{ nickname: '수빈', progressMinutes: 34 }],
-    failed: [{ nickname: '지훈', progressMinutes: 210 }],
+    achievers: [{ userId: 'u-subin', nickname: '수빈', progressMinutes: 34 }],
+    failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 210 }],
     pending: [
-      { nickname: '나', progressMinutes: null },
-      { nickname: '민지', progressMinutes: null },
+      { userId: 'u-me', nickname: '나', progressMinutes: null },
+      { userId: 'u-minji', nickname: '민지', progressMinutes: null },
     ],
     myAchieved: null,
   };

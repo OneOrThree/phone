@@ -26,6 +26,8 @@ import { categoryLabel, missionLabel } from './components/challengeLabel';
 // progressMinutes는 3상을 그대로 옮긴다: FOCUS는 통계가 없어도 0, SCREEN_TIME 미집계는 null.
 // **0과 null을 뭉개면 '0분 집중'과 '미집계'가 같은 칸으로 보인다**(카드 진행 리스트와 같은 규칙).
 export interface ChallengeResultMember {
+  // 렌더 키 — 닉네임은 그룹 안에서 유일하다는 보장이 없다. 카드 진행 리스트도 userId 를 쓴다.
+  userId: string;
   nickname: string;
   progressMinutes: number | null;
 }
@@ -80,7 +82,11 @@ function members(
 ): ChallengeResultMember[] {
   return progress
     .filter((p) => p.achieved === achieved)
-    .map((p) => ({ nickname: p.nickname, progressMinutes: p.progressMinutes }));
+    .map((p) => ({
+      userId: p.userId,
+      nickname: p.nickname,
+      progressMinutes: p.progressMinutes,
+    }));
 }
 
 function toCandidate(

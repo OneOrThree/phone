@@ -24,6 +24,12 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
 import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
+import {
+  UNMEASURED,
+  progressFraction,
+  progressFractionA11y,
+  unmeasuredA11y,
+} from './progressFormat';
 
 // 내 결과별 헤드라인 — 리그 결과 화면의 caption/title 위계를 따른다.
 // 내 결과가 아직 없으면(집계 중·명단에 없음) 중립 문구로 떨어뜨린다.
@@ -57,13 +63,11 @@ function monthDay(date: string): string {
   return m ? `${Number(m[2])}월 ${Number(m[3])}일` : date;
 }
 
-// 판정 근거 한 조각 — "42/60분". 목표를 모르면(구 창 챌린지) 분모를 지어내지 않고 기록 분만,
-// 미집계(progressMinutes = null)면 0분으로 뭉개지 않고 "—"로 비운다(카드 진행 리스트와 같은 3상 규칙).
-const NOT_MEASURED = '—';
-
+// 판정 근거 한 조각 — 카드 진행 리스트와 **같은 조각**을 쓴다(progressFormat).
+// 달성자에게도 분을 적는 것이 카드와 다른 점이자 이 화면의 본체다 — 카드는 '달성 ✓'로 갈음한다.
 function minutesText(progressMinutes: number | null, goalMinutes: number | null): string {
-  if (progressMinutes === null) return NOT_MEASURED;
-  return goalMinutes === null ? `${progressMinutes}분` : `${progressMinutes}/${goalMinutes}분`;
+  if (progressMinutes === null) return UNMEASURED;
+  return progressFraction(progressMinutes, goalMinutes);
 }
 
 // 스크린리더는 행을 한 덩어리로 읽는다 — 이름과 근거가 따로 읽히면 누구 기록인지 잃는다.
@@ -72,10 +76,8 @@ function minutesA11yLabel(
   progressMinutes: number | null,
   goalMinutes: number | null,
 ): string {
-  if (progressMinutes === null) return `${nickname}, 집계 중`;
-  return goalMinutes === null
-    ? `${nickname}, ${progressMinutes}분`
-    : `${nickname}, ${goalMinutes}분 중 ${progressMinutes}분`;
+  if (progressMinutes === null) return unmeasuredA11y(nickname);
+  return progressFractionA11y(nickname, progressMinutes, goalMinutes);
 }
 
 // 명단 한 묶음(달성/미달성/집계 중) — 비어 있으면 묶음째 그리지 않는다.
@@ -102,20 +104,21 @@ function NameSection({
           {title} {members.length}
         </Text>
       </View>
-      {members.map((m, i) => (
-        // 닉네임은 그룹 안에서 유일하다는 보장이 없어 인덱스를 함께 쓴다(명단 순서는 조회마다 고정).
-        <View
-          key={`${m.nickname}-${i}`}
-          style={s.memberRow}
-          accessible
-          accessibilityLabel={minutesA11yLabel(m.nickname, m.progressMinutes, goalMinutes)}
-        >
-          <Text style={s.memberName} numberOfLines={1}>
-            {m.nickname}
-          </Text>
-          <Text style={s.memberMinutes}>{minutesText(m.progressMinutes, goalMinutes)}</Text>
-        </View>
-      ))}
+      <View style={s.memberRows}>
+        {members.map((m) => (
+          <View
+            key={m.userId}
+            style={s.memberRow}
+            accessible
+            accessibilityLabel={minutesA11yLabel(m.nickname, m.progressMinutes, goalMinutes)}
+          >
+            <Text style={s.memberName} numberOfLines={1}>
+              {m.nickname}
+            </Text>
+            <Text style={s.memberMinutes}>{minutesText(m.progressMinutes, goalMinutes)}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -276,12 +279,14 @@ const s = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   sectionTitle: { ...T.text.caption, fontWeight: '700' },
 
-  // 이름 | 근거 분 — 이름은 길면 줄이고(flexShrink), 분은 항상 온전히 보이게 둔다.
-  // 폭을 화면 전체로 벌리지 않고 가운데 모아 기존 중앙 정렬 인상을 유지한다.
+  // 이름 | 근거 분 — 카드 진행 리스트(progressRow)와 같은 배치다: 이름 왼쪽, 분 오른쪽.
+  // 행마다 가운데 정렬하면 이름 길이만큼 분이 좌우로 흔들려 세로로 훑을 수 없다(PR #493 리뷰).
+  // 폭은 화면 전체가 아니라 읽기 좋은 상한까지만 벌리고, 그 덩어리를 가운데 둔다.
+  memberRows: { alignSelf: 'center', width: '100%', maxWidth: 260 },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     gap: T.space.sm,
     marginTop: 4,
   },
