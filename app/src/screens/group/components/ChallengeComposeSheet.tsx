@@ -420,7 +420,9 @@ export default function ChallengeComposeSheet({
         <>
           <Text style={s.label}>시간대 설정 (한국 시간 기준)</Text>
           {/* DrumPicker엔 잠금 prop이 없다(집중 목표 화면과 공유하는 부품 — API를 늘리지 않는다).
-              전송 중엔 휠 영역의 터치를 통째로 걷어 창 시각이 뒤바뀌지 않게 한다(GROMO-1204). */}
+              전송 중엔 휠 영역의 **새 터치**를 차단한다(GROMO-1204) — 단, pointerEvents="none"은
+              이미 시작된 플링(모멘텀) 감속까지 멈추지는 못한다. 그래도 전송값은 submit()이
+              탭 시점 값을 클로저로 캡처하므로 감속 끝에 창 표시가 바뀌어도 요청 바디는 안전하다. */}
           <View style={s.windowRow} pointerEvents={submitting ? 'none' : 'auto'}>
             <View style={s.windowCol}>
               <DrumPicker
