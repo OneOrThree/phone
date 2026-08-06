@@ -60,7 +60,7 @@ export function GoalCelebrationModal({
           }}
         >
           <View style={s.streakBox}>
-            <Ionicons name="ribbon" size={15} color={T.accentDeep} />
+            <Ionicons name="flame" size={15} color={T.accentDeep} />
             <Text style={s.streakText}>
               연속 목표달성 <Text style={s.streakDays}>{goalStreakDays}일</Text>
             </Text>
