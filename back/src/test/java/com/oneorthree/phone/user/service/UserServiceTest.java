@@ -269,6 +269,38 @@ class UserServiceTest {
         assertThat(focus.goalMinutesOn(today.minusDays(1))).isEqualTo(120);
     }
 
+    /**
+     * 이미 지난 발효일은 건드리지 않는다(코드리뷰) — 닉네임 저장 흐름이 countryCode 를 늘 함께
+     * 보내므로, 과거 발효일까지 오늘로 당기면 목표를 바꾸고 며칠 뒤 닉네임만 고쳐도 그 사이의
+     * 날들이 '변경 전'으로 잘못 라벨링돼 지급이 옛 목표로 나간다.
+     */
+    @Test
+    @DisplayName("이미 지난 발효일은 국가 변경에도 그대로 둔다")
+    void updateProfileCountryOnly_keepsPastEffectiveDate() {
+        User user = User.builder().id(USER_ID).countryCode("GB").build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder()
+                .userId(USER_ID).dailyScreenTimeGoalMinutes(180).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(120).build();
+        // 며칠 전(5일 전)에 목표를 바꿔 둔 상태 — 그 이후 날들은 이미 새 목표가 적용된다.
+        LocalDate changedAt = LocalDate.now(CountryZoneResolver.resolve("GB")).minusDays(5);
+        screen.changeGoal(60, changedAt);
+        focus.changeGoal(30, changedAt);
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+
+        // 닉네임 저장 흐름은 countryCode 를 늘 함께 보낸다(ProfileEditScreen)
+        userService.updateProfile(USER_ID, new UserProfileUpdateRequest("새닉", null, null, "GB"));
+
+        LocalDate today = LocalDate.now(CountryZoneResolver.resolve("GB"));
+        // 발효일이 당겨지지 않아 어제는 여전히 '변경 후'(새 목표)로 판정된다.
+        assertThat(screen.getGoalEffectiveFrom()).isEqualTo(changedAt);
+        assertThat(focus.getGoalEffectiveFrom()).isEqualTo(changedAt);
+        assertThat(screen.goalMinutesOn(today.minusDays(1))).isEqualTo(60);
+        assertThat(focus.goalMinutesOn(today.minusDays(1))).isEqualTo(30);
+    }
+
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void updateProfileUserNotFound() {
