@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -41,6 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -100,8 +102,8 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(savedUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(savedUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -132,8 +134,8 @@ class AuthServiceTest {
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(existingAccount));
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(existingUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(existingUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -158,8 +160,8 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(savedUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(savedUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -182,8 +184,8 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.APPLE, "apple-sub"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(savedUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(savedUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -217,8 +219,8 @@ class AuthServiceTest {
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(deletedAccount));
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(existingUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(existingUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -248,8 +250,8 @@ class AuthServiceTest {
         given(userRepository.save(any(User.class))).willReturn(User.builder().id(USER_ID).build());
         given(socialAccountRepository.save(any(SocialAccount.class)))
                 .willThrow(new DataIntegrityViolationException("uq_social_accounts_provider_id"));
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(existingUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(existingUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -268,7 +270,7 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("로그인 도중 탈퇴가 먼저 커밋되면 — 공유 락 재검증이 삭제를 관측하고 NOT_FOUND, 토큰 미발급 (GROMO-801)")
+    @DisplayName("로그인 도중 탈퇴가 먼저 커밋되면 — 배타 락 재검증이 삭제를 관측하고 NOT_FOUND, 토큰 미발급 (GROMO-801)")
     void socialLoginRejectsUserWithdrawnMidFlight() {
         // 소셜 계정 로드 시점엔 살아 있었지만, 토큰 발급 전에 탈퇴(배타 락)가 커밋된 레이스.
         // 재검증 없이 진행하면 refreshTokenHash 세팅의 full-row UPDATE 가 stale User 로
@@ -279,8 +281,8 @@ class AuthServiceTest {
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.of(existingAccount));
-        // 공유 락 재검증이 탈퇴를 관측 — 활성 조회 빈 결과
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+        // 배타 락 재검증이 탈퇴를 관측 — 활성 조회 빈 결과
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.socialLogin(Provider.KAKAO, "kakao-token", null))
                 .isInstanceOf(UserException.class)
@@ -305,9 +307,11 @@ class AuthServiceTest {
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
         given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(GUEST_ID)).willReturn(Optional.of(guestUser));
+        // 게스트 로드가 곧 배타 락 조회다 (GROMO-801 codex 2·4차) — setGuest(false) 등 변경보다 락이
+        // 먼저여야 하고, 잠그는 대상은 활성 게스트 행뿐이다(isGuest 술어 — 계정 전환 2행 잠금 교착 방지).
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
         given(jwtProvider.generateAccessToken(GUEST_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(GUEST_ID)).willReturn("refresh-token");
 
@@ -346,7 +350,7 @@ class AuthServiceTest {
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
         given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
 
         // when & then — 업그레이드 거부, 게스트 상태 유지, 연동/저장 없음
         assertThatThrownBy(() ->
@@ -366,13 +370,13 @@ class AuthServiceTest {
         given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
         given(jwtProvider.extractType("deleted-guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
-        // 탈퇴 유저는 활성 유저 조회에서 제외돼 게스트 업그레이드 대상이 아니다.
-        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.empty());
+        // 탈퇴 유저는 활성 게스트 조회(배타 락)에서 제외돼 게스트 업그레이드 대상이 아니다.
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(savedUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(savedUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -380,8 +384,42 @@ class AuthServiceTest {
                 authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer deleted-guest-jwt");
 
         assertThat(response.isNewUser()).isTrue();
-        verify(userRepository).findByIdAndIsDeletedFalse(GUEST_ID);
+        // 게스트 로드는 게스트 한정 배타 락 조회여야 한다 — 락 없는 활성 조회·raw findById 는 쓰지 않는다 (GROMO-801)
+        verify(userRepository).findActiveGuestByIdForUpdate(GUEST_ID);
+        verify(userRepository, never()).findByIdAndIsDeletedFalse(GUEST_ID);
         verify(userRepository, never()).findById(GUEST_ID);
+    }
+
+    @Test
+    @DisplayName("게스트 승격 락은 변경보다 먼저다 — 승격 분기에서 락 조회 후에야 연동 저장이 실행된다 (GROMO-801 codex 2차·claude 권고)")
+    void guestUpgradeLockPrecedesMutation() {
+        // 락이 뒤(토큰 발급 전 재검증)에만 있으면 setGuest(false)·소셜 연동 저장이 먼저 실행되고,
+        // 재검증 쿼리 직전 auto-flush 가 그 언버전 UPDATE 를 락 획득 전에 내보내 탈퇴를 덮어쓴다.
+        // 실제 게스트로 승격 분기를 태워, 락 조회가 mutation(연동 저장)보다 앞임을 순서로 고정한다
+        // (빈 결과 스텁이면 신규 가입 분기로 빠져 이 순서를 아무것도 증명하지 못한다 — claude 권고).
+        User guestUser = User.builder().id(GUEST_ID).isGuest(true).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(jwtProvider.generateAccessToken(GUEST_ID)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(GUEST_ID)).willReturn("refresh-token");
+
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt");
+
+        // 승격 분기를 실제로 탔다 — 재활용(신규 아님)·isGuest 해제·새 User 저장 없음
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(guestUser.isGuest()).isFalse();
+        verify(userRepository, never()).save(any(User.class));
+        // 락 조회(게스트 한정 배타 락)가 mutation(소셜 연동 저장)보다 앞이다
+        InOrder lockFirst = inOrder(userRepository, socialAccountRepository);
+        lockFirst.verify(userRepository).findActiveGuestByIdForUpdate(GUEST_ID);
+        lockFirst.verify(socialAccountRepository).save(any(SocialAccount.class));
     }
 
     @Test
@@ -396,8 +434,8 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(savedUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(savedUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
@@ -421,8 +459,8 @@ class AuthServiceTest {
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(공유 락) 스텁 (GROMO-801)
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(savedUser));
+        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(savedUser));
         given(jwtProvider.generateAccessToken(USER_ID)).willReturn("access-token");
         given(jwtProvider.generateRefreshToken(USER_ID)).willReturn("refresh-token");
 
