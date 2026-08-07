@@ -139,12 +139,11 @@ export default function GroupCreateScreen() {
         Alert.alert('로그인이 필요해요', '로그인 정보가 만료됐어요. 다시 로그인해주세요.', [
           {
             text: '확인',
-            onPress: () => {
-              // 트리 리셋 전에 이탈 차단부터 푼다 — beforeRemove 가드가 로그아웃과 싸우지 않게.
-              // triggerLogout은 버튼 핸들러 안에서 — 먼저 부르면 트리 언마운트로 Alert도 사라진다.
-              submittingRef.current = false;
-              triggerLogout();
-            },
+            // 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 이 화면의
+            // beforeRemove 가드와 무관하고, submittingRef는 submit()의 finally가 이미 풀었다
+            // (#530 claude 리뷰). 버튼 핸들러에서 부르는 건 사용자가 안내를 읽고 확인한 뒤
+            // 세션을 정리하는 UX 순서일 뿐이다.
+            onPress: () => triggerLogout(),
           },
         ]);
         return;
