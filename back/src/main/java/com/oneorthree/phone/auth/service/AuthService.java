@@ -32,7 +32,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,13 +113,11 @@ public class AuthService {
         CallerToken caller = resolveCaller(authorizationHeader);
 
         try {
-            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim(),
-                    caller.issuedAt());
+            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim());
         } catch (DataIntegrityViolationException e) {
             // 소셜 계정 경쟁에서 진 요청 — 승자가 만든 계정으로 새 트랜잭션에서 1회 재시도(present 분기로 정상 로그인).
             // 가입 시 nickname 을 세팅하지 않으므로 여기서 잡히는 DIVE 는 (provider, provider_id) 위반뿐이다.
-            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim(),
-                    caller.issuedAt());
+            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim());
         }
     }
 
@@ -129,8 +126,8 @@ public class AuthService {
      * guestClaim 은 요청 AT 의 guest 클레임(발급 시점 게스트 여부) — 클레임 없는 구 토큰은 null 이고,
      * 호출부는 null 을 비게스트로 간주한다(현행 폴백 유지, 점진 적용).
      */
-    private record CallerToken(UUID userId, Boolean guestClaim, Instant issuedAt) {
-        private static final CallerToken ANONYMOUS = new CallerToken(null, null, null);
+    private record CallerToken(UUID userId, Boolean guestClaim) {
+        private static final CallerToken ANONYMOUS = new CallerToken(null, null);
     }
 
     /**
@@ -156,8 +153,7 @@ public class AuthService {
         // guest 클레임은 토큰을 파싱하는 여기서 함께 뽑아 loginOrRegister 로 넘긴다 (GROMO-1229) —
         // 신규 가입 폴백에서 정식 "계정 전환"(비게스트 AT)과 "이미 승격된 게스트의 패자 요청"을
         // 구분하는 유일한 신호다 (DB 상태만으로는 두 경우가 동일하게 보인다).
-        return new CallerToken(jwtProvider.extractUserId(token), jwtProvider.extractIsGuest(token),
-                jwtProvider.extractIssuedAt(token));
+        return new CallerToken(jwtProvider.extractUserId(token), jwtProvider.extractIsGuest(token));
     }
 
     /**
@@ -175,7 +171,7 @@ public class AuthService {
      */
     @Transactional
     public SocialLoginResponse loginOrRegister(Provider provider, String providerId, UUID currentUserId,
-                                               Boolean callerGuestClaim, Instant callerTokenIssuedAt) {
+                                               Boolean callerGuestClaim) {
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
 
@@ -209,18 +205,13 @@ public class AuthService {
                 // 게스트가 이미 다른 계정에 연동된 소셜로 업그레이드 시도 → 거부(게스트 유지)
                 throw new AuthException(AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED);
             }
-            // 승격 경쟁 패자 가드는 이 분기에도 걸어야 한다 (codex R3) — 단, **시간 게이팅** 필수
-            // (claude 리뷰): 판별 신호(클레임 true ∧ 활성 비게스트)에는 "언제 승격됐나"가 없어서,
-            // 오래됐지만 유효한 게스트 AT 로 예전부터 있던 다른 자기 계정에 재로그인하는 정당한
-            // 요청과 진짜 레이스 패자가 상태만으로는 동일하다. 이 AT 발급(iat) **이후에 생긴**
-            // 소셜 연동만 이 요청과 시간상 겹치는 승격 레이스의 산물일 수 있으므로 그 경우에만
-            // 409 로 막는다 — iat 이전부터 있던 연동으로의 로그인(소유는 소셜 토큰 검증이 이미
-            // 증명)은 종전대로 통과. 본인(= 방금 승격된 계정) 소유면 자가치유 로그인(codex R1).
-            if (isConcurrentlyPromotedGuest(currentUserId, callerGuestClaim)
-                    && !socialAccount.get().getUser().getId().equals(currentUserId)
-                    && isLinkedAfter(socialAccount.get(), callerTokenIssuedAt)) {
-                throw new AuthException(AuthErrorCode.GUEST_ALREADY_PROMOTED);
-            }
+            // 승격 패자 가드를 이 분기에는 **걸지 않는다** (결정 D17·D18, 리뷰 5라운드 결론).
+            // "승격된 게스트 클레임 + 선재 타 계정" 상태는 ① 진짜 동시 승격 레이스의 패자와
+            // ② 오래됐지만 유효한 게스트 AT 로 예전부터 있던 다른 자기 계정에 재로그인하는 정당한
+            // 요청이 서버 관점에서 구분 불가능하고(시간 신호 시도는 대상 계정의 createdAt 이 레이스와
+            // 무인과라 실패 — claude 리뷰), 이 분기의 통과 결말은 호출자가 소셜 토큰 검증으로 소유를
+            // 증명한 계정 로그인이라 유령 계정이 아니다(게스트 데이터도 승격 계정에 무손실). 차단은
+            // 더 흔한 정당 케이스를 깨뜨리므로 fail-open — 유령 방지는 아래 폴백 분기 가드가 맡는다.
             user = socialAccount.get().getUser();
             isNewUser = false;
         } else if (guestUser != null) {
@@ -310,15 +301,6 @@ public class AuthService {
                         .isPresent();
     }
 
-    /**
-     * 소셜 연동이 이 요청의 AT 발급(iat) 이후에 생겼는가 — present 분기 패자 가드의 시간 게이팅
-     * (claude 리뷰). iat 나 createdAt 이 없으면 false = 가드 미적용(종전 동작 유지, fail-open) —
-     * 가드의 목적이 유령/오도 방지이지 로그인 차단 확대가 아니기 때문이다.
-     */
-    private boolean isLinkedAfter(SocialAccount account, Instant callerTokenIssuedAt) {
-        return callerTokenIssuedAt != null && account.getCreatedAt() != null
-                && account.getCreatedAt().isAfter(callerTokenIssuedAt);
-    }
 
     @Transactional
     public GuestLoginResponse guestLogin() {

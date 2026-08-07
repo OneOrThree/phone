@@ -18,7 +18,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -70,14 +69,11 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
             Provider.LINE, "line-race-1229");
 
     private UUID guestId;
-    private Instant tokenIssuedAt;
 
     @BeforeEach
     void setUp() {
         // 승격 경로는 부속 테이블을 건드리지 않으므로 게스트 행만 만든다 (side rows 불필요)
         guestId = userRepository.save(User.builder().isGuest(true).build()).getId();
-        // 게스트 AT 발급 시각 재현 — 이후 생기는 소셜 연동은 전부 iat 이후라 시간 게이팅을 통과한다
-        tokenIssuedAt = Instant.now();
     }
 
     @AfterEach
@@ -108,10 +104,8 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
             PROVIDER_IDS.forEach((provider, providerId) -> calls.add(pool.submit(() -> {
                 await(startTogether);
                 try {
-                    // 게스트 AT 로 온 요청 재현 — guest 클레임 true (게스트 발급 경로),
-                    // iat 는 게스트 생성 직후 = 모든 연동보다 앞선 시각(시간 게이팅 통과 조건)
-                    successes.add(authService.loginOrRegister(
-                            provider, providerId, guestId, true, tokenIssuedAt));
+                    // 게스트 AT 로 온 요청 재현 — guest 클레임 true (게스트 발급 경로)
+                    successes.add(authService.loginOrRegister(provider, providerId, guestId, true));
                 } catch (AuthException e) {
                     conflicts.add(e);
                 }

@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Date;
 import java.util.UUID;
 
@@ -79,21 +78,6 @@ public class JwtProvider {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get(CLAIM_GUEST, Boolean.class);
-    }
-
-    /**
-     * 토큰 발급 시각(iat) — 승격 패자 판별의 시간 게이팅에 쓴다 (GROMO-1229, claude 리뷰).
-     * "이 토큰이 발급된 뒤에 생긴 소셜 연동"만 동시 승격 레이스의 산물일 수 있다.
-     * iat 이 없는 비정상 토큰은 null — 호출부는 게이팅을 건너뛴다(가드 미적용 = 종전 동작).
-     */
-    public Instant extractIssuedAt(String token) {
-        Date issuedAt = Jwts.parser()
-                .verifyWith(secretKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getIssuedAt();
-        return issuedAt == null ? null : issuedAt.toInstant();
     }
 
     public UUID extractUserId(String token) {
