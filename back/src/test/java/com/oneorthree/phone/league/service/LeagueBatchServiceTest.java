@@ -18,7 +18,6 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
-import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,8 +57,6 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     UserWalletRepository userWalletRepository;
     @Autowired
     DailyFocusStatRepository dailyFocusStatRepository;
-    @Autowired
-    EntityManager entityManager;
 
     @BeforeEach
     void saveTierConfigs() {
@@ -241,7 +238,9 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         assertThat(resultUserIds).hasSize(activeUserCount)
                 .containsExactlyInAnyOrderElementsOf(activeUsers.stream().map(User::getId).toList());
         assertThat(resultUserIds).doesNotContain(deleted.getId());
-        assertThat(entityManager.contains(activeUsers.get(0))).isFalse();
+        // 삭제 유저는 집계 자체에서 빠지므로 skip/failed 어느 버킷에도 잡히지 않는다.
+        assertThat(summary.skippedMemberCount()).isZero();
+        assertThat(summary.failedMemberCount()).isZero();
     }
 
     private User saveUser(String nickname, int tierLevel, boolean deleted) {
