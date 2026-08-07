@@ -557,18 +557,18 @@ describe('에러 분기', () => {
     expect(mockJoinBet).toHaveBeenCalledTimes(1);
   });
 
-  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도,
-  // **취소·정산된 내기의 같은 날 재개설**(v1 불가 확정 — 유니크가 행을 남긴다)일 수도 있다.
-  // '이미 열려 있어요'만 말하면 취소 직후엔 재조회해도 내기가 안 보여 거짓말이 된다.
-  test('BET_ALREADY_EXISTS — 진행 중·재개설 불가 두 사실을 모두 덮는 문구로 알리고 닫는다', async () => {
+  // 취소(CANCELED)된 내기는 신서버(1201/#498)에선 이 코드를 만들 수 없다 — 재개설이 성공한다.
+  // 구서버(V28 이전)는 취소 행으로도 409를 내면서 카드에선 걸러 주므로 '참가' 약속은 걸 수 없다
+  // (codex 리뷰) — 존재 사실 + 새로고침 안내까지만, 양쪽 서버에서 참인 문장으로 말한다.
+  test('BET_ALREADY_EXISTS — 이미 열려 있음을 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
     await renderSheet('create');
     await submit();
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '오늘은 내기를 열 수 없어요',
-      '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
+      '이미 오늘 내기가 열려 있어요',
+      '이미 오늘 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -584,6 +584,11 @@ describe('에러 분기', () => {
 
     expect(mockRefresh).toHaveBeenCalled();
   });
+
+  // '취소된 날짜 재개설 성공'의 앱 레벨 테스트는 두지 않는다(codex 리뷰) — 취소는 서버가
+  // 카드 응답에서 걸러 앱은 bet: null 로만 관측하므로, 컴포넌트 층에선 일반 개설 성공과
+  // 구별되는 입력이 없다(중복 테스트가 된다). 재개설 허용 규칙은 서버 GroupBetServiceTest
+  // ("취소된 내기만 있는 날짜엔 재개설 허용")가 잠근다.
 
   test('BET_ALREADY_ACHIEVED — 카드와 같은 사유 문구로 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -1141,8 +1146,8 @@ describe('마감 후 내일 내기', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(2);
     expect(alertSpy).toHaveBeenCalledWith(
-      '내일 내기를 열 수 없어요',
-      '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
+      '이미 내일 내기가 열려 있어요',
+      '이미 내일 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -1158,8 +1163,8 @@ describe('마감 후 내일 내기', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(1);
     expect(alertSpy).toHaveBeenCalledWith(
-      '내일 내기를 열 수 없어요',
-      '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
+      '이미 내일 내기가 열려 있어요',
+      '이미 내일 내기가 있어요. 새로고침해서 최신 상태를 확인해 주세요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
