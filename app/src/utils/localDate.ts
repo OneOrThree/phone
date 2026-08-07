@@ -107,3 +107,12 @@ export function yesterdayStrKst(): string {
 export function kstDateStr(date: Date): string {
   return dateStrKstAfter(0, date.getTime());
 }
+
+// 로컬 '오늘'과 KST '오늘'이 같은 달력 날짜인가 — 서버(KST 버킷) 값과 로컬 누적을 병합하는
+// 지점들의 공용 동축 게이트(GROMO-1236 P2 6라운드: 결과 화면·홈·통계 4곳).
+// 측정 축은 로컬 소유(FocusContext 하루 누적 등) — 축이 갈린 날(KST가 로컬보다 하루 앞/뒤)은
+// 로컬 누적이 다른 KST 날짜의 몫이라 서버 KST 버킷 값과 합치지 않는다.
+// KR(KST) 기기는 항상 true라 행동 불변.
+export function kstLocalSameDay(): boolean {
+  return todayStrKst() === todayStr();
+}

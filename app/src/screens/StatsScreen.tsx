@@ -27,6 +27,7 @@ import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { fmtMinutes, hms } from '@/utils/timeFormat';
+import { kstLocalSameDay } from '@/utils/localDate';
 import { PERIOD_TABS, periodKey, heatmapBars, kstTodayDate, mergeCardOrder } from './stats/format';
 import { SectionCard } from './stats/SectionCard';
 import { CompareWeek, ComparePeriod } from './stats/Compare';
@@ -191,7 +192,9 @@ export default function StatsScreen() {
           }
         >
           <Text style={cs.bigStat}>
-            {period === 'DAY'
+            {/* 일 탭의 라이브 초 표시는 로컬 누적(측정 축) — 축이 갈린 날은 다른 KST 날짜 몫이라
+                서버 일 집계(KST)로 대체한다(kstLocalSameDay, GROMO-1236 P2 6라운드. KR 기기 불변) */}
+            {period === 'DAY' && kstLocalSameDay()
               ? hms(todayFocusSeconds)
               : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
           </Text>
@@ -203,8 +206,9 @@ export default function StatsScreen() {
               key={period}
               period={period}
               myMinutes={
-                // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분), 월=서버 기간 집계
-                period === 'DAY'
+                // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분, 동축일 때만 — 위와
+                // 같은 게이트), 월=서버 기간 집계
+                period === 'DAY' && kstLocalSameDay()
                   ? Math.round(todayFocusSeconds / 60)
                   : (data.focus?.totalFocusMinutes ?? 0)
               }

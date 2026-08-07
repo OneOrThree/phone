@@ -3,6 +3,7 @@
 // 시간대는 jest.config.js에서 Asia/Seoul 고정.
 import {
   kstDateStr,
+  kstLocalSameDay,
   localDateStr,
   todayStr,
   todayStrKst,
@@ -116,5 +117,20 @@ describe('yesterdayStrKst / kstDateStr', () => {
     expect(yesterdayStrKst()).toBe('2026-07-31');
     jest.setSystemTime(new Date('2026-01-01T09:00:00+09:00'));
     expect(yesterdayStrKst()).toBe('2025-12-31');
+  });
+});
+
+// 병합 동축 게이트(GROMO-1236 P2 6라운드) — 러너 TZ가 Asia/Seoul 고정이라 false 분기(비KST
+// 기기)는 값으로 재현할 수 없다: 여기서는 정의(todayStrKst===todayStr)와 KST 자정 경계에서의
+// 안정성만 잠근다. 소비처의 축 자체는 각 화면의 게이트 주석 + celebrationDayKey 축 테스트가 담당.
+describe('kstLocalSameDay', () => {
+  test('KST 러너에선 항상 true — 정의상 todayStrKst()===todayStr()와 일치한다', () => {
+    expect(kstLocalSameDay()).toBe(true);
+    expect(kstLocalSameDay()).toBe(todayStrKst() === todayStr());
+  });
+
+  test('KST 자정 직후(UTC 전날 시각)에도 두 축이 같이 넘어가 true', () => {
+    jest.setSystemTime(new Date('2026-07-16T00:30:00+09:00'));
+    expect(kstLocalSameDay()).toBe(true);
   });
 });
