@@ -724,6 +724,51 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("요청 목록 — 응답 createdAt 의 소스는 행의 updatedAt(요청 사이클 시작 시각)이다 (GROMO-719)")
+    void getRequests_mapsUpdatedAtAsRequestTime() {
+        // 재전환·복원은 행을 재사용해 createdAt 에 원래 관계의 시각이 남는다(@CreationTimestamp 는
+        // insert 생성이라 갱신 불가). PENDING 행의 마지막 변경 시각(updatedAt)이 곧 재요청 시점이다.
+        Instant originalCreatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        Instant reRequestedAt = Instant.parse("2026-08-01T00:00:00Z");
+        Friendship req = Friendship.builder()
+                .fromUser(target).toUser(me)
+                .status(FriendshipStatus.PENDING)
+                .createdAt(originalCreatedAt)
+                .updatedAt(reRequestedAt)
+                .build();
+        given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(req));
+
+        List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
+
+        assertThat(requests).singleElement().satisfies(r ->
+                assertThat(r.getCreatedAt()).isEqualTo(reRequestedAt));
+    }
+
+    @Test
+    @DisplayName("요청 목록 — updatedAt 이 null 인 행은 createdAt 으로 폴백한다, null 을 내보내지 않는다 (GROMO-719)")
+    void getRequests_fallsBackToCreatedAtWhenUpdatedAtIsNull() {
+        // V1 스키마는 updated_at null 을 허용하고 Hibernate 밖에서 삽입된 행(부하테스트 시드 등)은
+        // 실제로 비어 있다 — 소스 전환이 그 행들의 시각을 null 로 만들면 안 된다(codex 리뷰).
+        Instant originalCreatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        Friendship req = Friendship.builder()
+                .fromUser(target).toUser(me)
+                .status(FriendshipStatus.PENDING)
+                .createdAt(originalCreatedAt)
+                .updatedAt(null)
+                .build();
+        given(userRepository.findByIdAndIsDeletedFalse(meId)).willReturn(Optional.of(me));
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(req));
+
+        List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
+
+        assertThat(requests).singleElement().satisfies(r ->
+                assertThat(r.getCreatedAt()).isEqualTo(originalCreatedAt));
+    }
+
+    @Test
     @DisplayName("요청 목록 — 티어는 users.tier_level 기반 LeagueTierLookup 에서 도출 (GROMO-814)")
     void getRequests_restoresTierLevel_fromLeagueLookup() {
         Friendship req = friendship(target, me, FriendshipStatus.PENDING);
