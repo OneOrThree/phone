@@ -6941,6 +6941,9 @@
           },
           "lastSettledBet": {
             "$ref": "#/components/schemas/GroupBetResultResponse"
+          },
+          "dormant": {
+            "type": "boolean"
           }
         }
       },
