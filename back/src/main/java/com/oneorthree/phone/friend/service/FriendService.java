@@ -317,7 +317,11 @@ public class FriendService {
                             .userId(other.getId())
                             .nickname(other.getNickname())
                             .tierLevel(tierLevels.get(other.getId()))
-                            .createdAt(f.getCreatedAt())
+                            // 요청 시각의 소스는 updatedAt — 행 재사용(복원·재전환) 시 createdAt 은 원래
+                            // 관계의 시각이 남는다(@CreationTimestamp 가 insert 생성이라 갱신 불가,
+                            // Friendship.reopen() 주석). 이 목록은 PENDING 만 실으므로 마지막 변경 시각이
+                            // 곧 요청 사이클 시작 시각이다 — 신규 insert·재전환·복원 세 경로 모두 (GROMO-719).
+                            .createdAt(f.getUpdatedAt())
                             .build();
                 })
                 .toList();
