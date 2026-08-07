@@ -73,6 +73,10 @@ const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 �
 const BET_LEFT_CAPTION = '내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요';
 // 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼('취소')과 같은 동사로 말한다.
 const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으로 돌아왔어요';
+// 휴면 챌린지(GROMO-1201) — OPEN 내기가 없고 과거 내기 이력만 남았다. 서버는 마지막 참가자가
+// 철회해도 챌린지를 지우지 않고 남겨 두므로(백엔드 테스트가 잠근다) 카드가 사유를 한 줄로 말한다.
+// 배지 문구 '휴면'은 계약 §2 고정 — '비활성'은 INACTIVE 노출 대비 예약어라 쓰지 않는다.
+const DORMANT_CAPTION = '참가자가 없어요';
 // 창(TIME_WINDOW) 시각의 해석 시간대 — 계약 §1: 저장된 창 시각은 Asia/Seoul 벽시계다.
 // 서버 "HH:mm:ss"와 현재를 같은 벽시계 공간에서 비교한다(challengeTime 유틸 관례).
 const KST_ZONE = 'Asia/Seoul';
@@ -121,8 +125,9 @@ export interface ChallengeCardProps {
   // 영역 자체는 그대로 둔다 — 사라졌다 나타나면 방금 한 일이 취소된 것처럼 보인다.
   betLocked?: boolean;
   // 카드가 서버 상태를 바꾼 직후(철회·취소 성공) 호출 — 부모가 챌린지 목록을 재조회한다.
-  // 마지막 참가자가 철회하면 서버가 챌린지까지 지우므로(GROMO-1112 계약 §3) 재조회 없이는
-  // 이미 없는 챌린지의 카드가 다음 자연 재조회(포커스 복귀·당겨서 새로고침)까지 남는다.
+  // 마지막 참가자가 철회해도 서버는 내기만 CANCELED로 닫고 챌린지는 남긴다(GROMO-1201 휴면) —
+  // 재조회 없이는 닫힌 내기·휴면 표시가 다음 자연 재조회(포커스 복귀·당겨서 새로고침)까지
+  // 낡은 모습으로 남는다.
   // ⚠️ 미전달이면 낙관 반영만으로 버틴다 — 다음 자연 재조회가 도착하면 그 응답이 낙관을 덮는다
   //    (아래 seenChallengeRef). 늦게 도착해도 표시가 어긋나지 않는다.
   onBetChanged?: () => void;
@@ -247,13 +252,22 @@ export default function ChallengeCard({
   // 참가 철회 가능 조건(계약 §4) — 참가 중 && OPEN && **시작 전**. 개설자·단독이어도 시작 전이면
   // 철회가 우선이다(GROMO-1102 — 단독 개설자가 철회하면 서버가 내기를 자동 CANCELED 하므로
   // 옛 취소의 의미가 보존된다). '시작 전' 판정은 서버와 같은 기준이다(계약 §4):
-  //   TIME_WINDOW → 내일 이후 내기는 항상 전, 오늘 내기는 KST 벽시계 < 창 시작 시각일 때만
+  //   TIME_WINDOW → 내일 이후 내기는 항상 전, 오늘 내기는 KST 벽시계 < 창 시작 시각일 때만.
+  //                 **과거 날짜 내기는 항상 시작 후다**(GROMO-1208) — 서버는 창 시작을 내기
+  //                 날짜(bet_date)에 앵커해 판정한다(GroupBetService.requireBeforeStart). 자정
+  //                 걸침 창(예: 22:00~01:00)의 어제 내기를 오늘 00:30에 초만 비교하면(1800 <
+  //                 79200) 앱 혼자 '시작 전'으로 읽어 철회를 세우고 서버는 BET_LEAVE_CLOSED로
+  //                 튕긴다 — 취소 carve-out이 !leavable 뒤라 어느 버튼도 못 서는 dead-end였다.
+  //                 (betDate·todayStr의 날짜축이 기기 로컬인 이슈는 후속 — 여기선 축만 맞춘다)
   //   DURATION   → 내기 날짜가 내일 이후일 때만(당일은 하루 집계가 이미 진행 중이라 불가)
   // 판정이 어긋난 레이스는 서버가 정본으로 끝낸다(BET_LEAVE_CLOSED로 돌아온다).
+  // 경계는 서버와 같은 strict `<`다(서버 !isBefore와 대우) — 창 시작 정각은 이미 시작이다.
+  const isPastBet = betDate < todayStr();
   const beforeStart = isWindow
-    ? isFutureBet ||
-      (challenge.windowStart !== null &&
-        nowSecondsInZone(KST_ZONE) < timeStrToSeconds(challenge.windowStart))
+    ? !isPastBet &&
+      (isFutureBet ||
+        (challenge.windowStart !== null &&
+          nowSecondsInZone(KST_ZONE) < timeStrToSeconds(challenge.windowStart)))
     : isFutureBet;
   const leavable =
     bet !== null && !leftByMe && bet.status === 'OPEN' && bet.myJoined && beforeStart;
@@ -275,9 +289,10 @@ export default function ChallengeCard({
   // 철회 직후에도 이 내기에 다시 들어갈 수 있는가(GROMO-1112) — 한 번 빠지면 재참여 동선이
   // 사라지던 문제를 낙관 반영 안에서 되살린다. 조건 3가지:
   //   kind === 'leave' : 취소(cancelBet)는 내기를 통째로 닫는 동작이라 들어갈 자리가 없다
-  //   betMembers > 1   : 남은 참가자가 있어야 서버가 내기를 유지한다. 마지막 참가자였으면
-  //                      서버가 내기를 CANCELED로 닫고 챌린지까지 지운다(계약 §3) — 재조회하면
-  //                      카드 자체가 목록에서 빠지므로 여기서 참가 버튼을 세우면 안 된다.
+  //   betMembers > 1   : 남은 참가자가 있어야 재참여할 OPEN 내기가 남는다. 마지막 참가자였으면
+  //                      서버가 내기를 CANCELED로 닫아 들어갈 자리 자체가 없다(챌린지는 지우지
+  //                      않고 휴면으로 남긴다 — GROMO-1201) — 여기서 참가 버튼을 세우면 닫힌
+  //                      내기로 들어가는 요청만 만든다.
   //   OPEN·betOpenable : 마감된 내기·끝난 챌린지에는 들어갈 수 없다(② 분기와 같은 기준 —
   //                      두 조건을 맞춰 둬야 rejoinable인데 ②가 안 서는 구멍이 생기지 않는다)
   // 참가 자체의 잠금(이미 달성·초과, betLocked)은 ② 분기와 같은 판정을 그대로 쓴다.
@@ -301,8 +316,8 @@ export default function ChallengeCard({
     try {
       if (groupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 문구로.
       await leaveBet(groupId, betId);
-      // 마지막 참가자의 철회는 서버가 내기를 CANCELED로 닫고 **챌린지까지 지운다**
-      // (GROMO-1112 계약 §3 — 아무도 참여하지 않는 챌린지 정리). 그 경우에만 기존
+      // 마지막 참가자의 철회는 서버가 내기를 CANCELED로 닫는다 — 챌린지는 지우지 않고
+      // 휴면으로 남긴다(GROMO-1201, 백엔드 테스트가 잠근다). 내기가 닫히는 그 경우에만 기존
       // '내기 취소' 계측을 발행한다(이벤트 의미 보존). 참가만 빠지는 철회는 대응 이벤트가 없다 —
       // analyticsEvents는 이 배치 소유권 밖이라 신설하지 않는다(성공 시에만 발행 규칙은 동일).
       if (participantsCount === 1) {
@@ -311,8 +326,9 @@ export default function ChallengeCard({
       // 환불 반영은 서버가 정본이라 잔액을 다시 받는다.
       refreshCoins();
       setClosedBet({ betId, kind: 'leave' });
-      // 부모 재조회 — 마지막 참가자의 철회는 서버가 챌린지까지 지우므로(계약 §3) 재조회해야
-      // 카드가 목록에서 빠진다. 남은 참가자가 있으면 낙관 반영과 같은 결과가 돌아온다.
+      // 부모 재조회 — 마지막 참가자의 철회는 내기가 CANCELED로 닫히고 챌린지가 휴면이 되므로
+      // 재조회해야 카드가 최신 상태(닫힌 내기·휴면 배지)로 갈아 끼워진다. 남은 참가자가 있으면
+      // 낙관 반영과 같은 결과가 돌아온다.
       onBetChanged?.();
     } catch (e) {
       switch (groupErrorCode(e)) {
@@ -429,6 +445,10 @@ export default function ChallengeCard({
               (문장 안에서는 `하루 60분 집중`처럼 짧은 쪽을 쓴다) */}
           {label ?? categoryLabel(challenge)}
         </Text>
+        {/* 휴면 칩(GROMO-1201) — OPEN 내기가 없고 과거 내기 이력만 남은 챌린지. 서버가 지우는
+            대신 표시로 가른다. undefined(휴면을 모르는 구서버)·false엔 아무것도 그리지 않는다.
+            상태('참여 중')가 아니라 중립 표기라 '내일 시작' 칩 규격(betTomorrowTag)을 그대로 쓴다. */}
+        {challenge.dormant === true && <Text style={s.betTomorrowTag}>휴면</Text>}
         {/* 방장 전용 삭제 X(GROMO-1101) — 서버도 방장 전용이라(NOT_OWNER 403) 비방장에겐
             그리지 않는다. 시각 28pt + hitSlop 8로 터치 타깃 44pt를 채운다 — 카드 본체가
             비터치라 확장 히트영역이 다른 버튼과 겹치지 않는다(내기 영역은 카드 하단이다). */}
@@ -497,8 +517,8 @@ export default function ChallengeCard({
         <View style={s.betArea}>
           {leftByMe && !rejoinable && bet !== null ? (
             // ⓪ 방금 내가 빠졌는데 **다시 들어갈 자리가 없다** — 취소(내기를 통째로 닫았다)이거나
-            //    마지막 참가자의 철회(서버가 내기를 CANCELED로 닫고 챌린지까지 지운다, 계약 §3)
-            //    이거나 끝난 챌린지다. 영역을 비우면 방금 한 일이 사라진 것처럼 보이므로
+            //    마지막 참가자의 철회(서버가 내기를 CANCELED로 닫는다 — 챌린지는 휴면으로
+            //    남는다, GROMO-1201)이거나 끝난 챌린지다. 영역을 비우면 방금 한 일이 사라진 것처럼 보이므로
             //    자리 캡션을 남긴다. 남은 인원이 있는(그러나 챌린지가 끝난) 경우에는 내기 정보도
             //    내 몫을 뺀 값으로 그린다(pot = stake × 인원 계약).
             //    재참여할 수 있는 철회는 이 분기로 오지 않는다 — 아래 ②가 참가 진입점을 세운다.
@@ -610,6 +630,9 @@ export default function ChallengeCard({
               {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
             </View>
           )}
+          {/* 휴면 사유 한 줄(GROMO-1201) — 칩만으로는 '휴면'이 왜인지 알 수 없다. 새 내기가
+              서면 서버가 휴면을 해제하므로 개설 진입점('내기 걸기')은 그대로 살려 둔다. */}
+          {challenge.dormant === true && <Text style={s.caption}>{DORMANT_CAPTION}</Text>}
         </View>
       )}
 
