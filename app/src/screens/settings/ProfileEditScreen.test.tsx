@@ -1,9 +1,10 @@
-// ProfileEditScreen(프로필 편집) 닉네임 실시간 중복확인 테스트 — GROMO-1215.
+// ProfileEditScreen(프로필 편집) 닉네임 실시간 중복확인 테스트 — GROMO-1215·GROMO-1231.
 //
 // 이 화면의 계약:
 //  1) 형식(2~10자) 통과 + 현재값과 다른 입력만 디바운스(350ms) 후 checkNickname을 부른다.
-//  2) available=true → '사용 가능해요', false → '이미 사용 중인 닉네임이에요'.
-//  3) 확인 실패(네트워크·구서버 404)는 기존 낙관 표시('사용 가능해요')로 폴백한다.
+//  2) available=true → 초록 체크 + '사용 가능해요', false → '이미 사용 중인 닉네임이에요'.
+//  3) 확인 실패(네트워크·구서버 404, unknown)는 중립 안내로 분리한다 — 초록 체크·'사용
+//     가능해요'로 오인시키지 않는다(GROMO-1231). 저장은 계속 허용(409가 최종 방어).
 //  4) 저장 409(NICKNAME_DUPLICATE)는 계속 Alert로 정확히 안내한다(GROMO-639 무회귀) —
 //     체크 응답이 stale해도 이 경로가 최종 방어다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
@@ -160,13 +161,44 @@ describe('실시간 중복확인', () => {
     expect(screen.queryByText('이미 사용 중인 닉네임이에요')).toBeNull();
   });
 
-  test('체크 실패(네트워크·구서버)는 기존 낙관 표시로 폴백한다 — 저장 409가 최종 방어', async () => {
+  test('체크 실패(네트워크·구서버)는 중립 안내로 분리한다 — available 오인 금지(GROMO-1231)', async () => {
     mockCheckNickname.mockRejectedValue(new Error('network down'));
     await renderScreen();
 
     await typeAndSettle('새닉네임');
     expect(mockCheckNickname).toHaveBeenCalled();
+    expect(
+      await screen.findByText('지금은 중복을 확인할 수 없어요 · 저장할 때 확인돼요'),
+    ).toBeOnTheScreen();
+    // 종전 낙관 폴백(초록 체크 + '사용 가능해요')로 확인 완료처럼 보이면 안 된다.
+    expect(screen.queryByText('사용 가능해요')).toBeNull();
+    expect(screen.queryByTestId('profileEdit.nickname.availableIcon')).toBeNull();
+    // 저장 가드는 무변경 — unknown이어도 CTA는 살아 있다(저장 409가 최종 방어).
+    expect(screen.getByText('검사 및 저장')).toBeOnTheScreen();
+  });
+
+  test('초록 체크는 available 판정 후에만 붙는다 — idle·입력 직후엔 없다(GROMO-1231)', async () => {
+    mockCheckNickname.mockResolvedValue({ available: true });
+    await renderScreen();
+
+    // 초기 렌더(미변경·idle) — 초록 체크도 '사용 가능해요'도 없다.
+    expect(screen.queryByText('사용 가능해요')).toBeNull();
+    expect(screen.queryByTestId('profileEdit.nickname.availableIcon')).toBeNull();
+
+    // 유효 입력 직후(디바운스 경과 전) — '확인 중…'만 보이고 초록은 아직 없다.
+    // available·unknown·idle이 한 분기에 뭉쳐 있던 시절의 '첫 프레임 초록 스침' 회귀 고정.
+    await act(async () => {
+      fireEvent.changeText(screen.getByPlaceholderText('닉네임을 입력해 주세요'), '새닉네임');
+    });
+    expect(screen.queryByText('사용 가능해요')).toBeNull();
+    expect(screen.queryByTestId('profileEdit.nickname.availableIcon')).toBeNull();
+
+    // available 판정이 도착해야 비로소 초록 체크 + 문구가 붙는다.
+    await act(async () => {
+      jest.advanceTimersByTime(CHECK_DEBOUNCE_MS);
+    });
     expect(await screen.findByText('사용 가능해요')).toBeOnTheScreen();
+    expect(screen.getByTestId('profileEdit.nickname.availableIcon')).toBeOnTheScreen();
   });
 });
 

@@ -22,7 +22,8 @@ import { T } from '@/constants/theme';
 
 // 프로필 편집 — 닉네임 입력 + 캐릭터 스킨 그리드(이번엔 미구현 → 딤 오버레이 '준비 중').
 // 닉네임은 로컬 형식검사(2~10자 & 현재값과 다름) 통과 시 실시간 중복확인(GROMO-1215,
-// useNicknameCheck)을 부른다. 확인 실패·구서버는 기존 낙관 표시로 폴백 — 저장 409가 최종 방어.
+// useNicknameCheck)을 부른다. 확인 실패·구서버(unknown)는 중립 안내로 분리해 available로
+// 오인시키지 않는다(GROMO-1231) — 저장 409가 최종 방어라 저장은 계속 허용한다.
 const NICK_MIN = 2;
 const NICK_MAX = 10;
 // 스킨 그리드 자리채움 타일 수(가짜 3칸) — 딤 처리되어 상호작용은 없음.
@@ -107,7 +108,10 @@ export default function ProfileEditScreen() {
 
       {/* 검증 안내 — 형식(2~10자) 위반은 로컬 가이드가 선행, 통과하면 실시간 중복확인 결과로
           '확인 중…'/'사용 가능해요'/'이미 사용 중' 을 구분한다(GROMO-1215).
-          확인 실패·구서버(unknown)는 기존 낙관 표시('사용 가능해요')로 폴백 — 저장 409가 최종 방어(GROMO-639). */}
+          초록 체크는 available일 때만 그린다 — unknown(확인 실패·구서버)은 중립 안내로 분리해
+          확인 완료로 오인시키지 않는다(GROMO-1231). idle(디바운스 effect가 checking을 심기 전
+          첫 프레임)은 아무것도 그리지 않는다 — available과 뭉쳐 있던 시절의 '초록 한 틱 스침'도
+          이 분리로 함께 해소된다. 저장 409가 최종 방어인 설계는 그대로다. */}
       {valid ? (
         checkStatus === 'checking' ? (
           <View style={s.hintRow}>
@@ -119,12 +123,20 @@ export default function ProfileEditScreen() {
             <Ionicons name="alert-circle" size={15} color={T.dangerInk} />
             <Text style={[s.hintText, { color: T.dangerInk }]}>이미 사용 중인 닉네임이에요</Text>
           </View>
-        ) : (
+        ) : checkStatus === 'available' ? (
           <View style={s.hintRow}>
-            <Ionicons name="checkmark-circle" size={15} color={T.successInk} />
+            {/* testID — '초록 체크는 available일 때만' 계약을 테스트가 집을 수 있게(GROMO-1231). */}
+            <Ionicons
+              testID="profileEdit.nickname.availableIcon"
+              name="checkmark-circle"
+              size={15}
+              color={T.successInk}
+            />
             <Text style={[s.hintText, { color: T.successInk }]}>사용 가능해요</Text>
           </View>
-        )
+        ) : checkStatus === 'unknown' ? (
+          <Text style={s.hintPlaceholder}>지금은 중복을 확인할 수 없어요 · 저장할 때 확인돼요</Text>
+        ) : null
       ) : changed && !validLength ? (
         <View style={s.hintRow}>
           <Ionicons name="alert-circle" size={15} color={T.dangerInk} />
