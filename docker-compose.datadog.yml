@@ -6,7 +6,9 @@
 #
 # 반드시 overlay(-f 두 개)로 실행 — dev 의 app-network·app·db 와 같은 프로젝트/네트워크를 공유해야
 # app 이 datadog-agent:8126 으로 트레이스를 보내고, Agent 가 app:9091 을 OpenMetrics 로 스크레이프한다.
-# cd.yml 은 `up -d app`(dev 파일만) 이므로 이 overlay 와 간섭 없음.
+# cd.yml(main push 배포)은 이 overlay 와 간섭한다 — 같은 프로젝트의 같은 서비스(app)를 재생성하므로,
+# dev 파일 단독으로 up 하면 아래 app override(-javaagent·DD_* env·라벨)가 통째로 벗겨진다.
+# 그래서 cd.yml 은 gromo-datadog-agent 기동 여부를 감지해 켜져 있으면 이 파일을 함께 물린다 (GROMO-1233).
 services:
   datadog-agent:
     image: gcr.io/datadoghq/agent:7

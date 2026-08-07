@@ -19,6 +19,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      # Datadog 오버레이를 보존해 배포할 때만 쓰인다 (아래 감지 스텝 참고) — OFF 상태면 미사용.
+      DD_API_KEY: ${{ secrets.DD_API_KEY }}
+      DD_SITE: us5.datadoghq.com
     steps:
       - uses: actions/checkout@v4
 
@@ -62,12 +66,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # dev-datadog.yml 로 Datadog 을 켜 둔 상태면 그 배선(-javaagent·DD_* env·통합 서비스 태그 라벨)을
+      # 배포 후에도 유지한다 (GROMO-1233). dev 파일 단독으로 app 을 재생성하면 datadog 오버레이의 app
+      # override 가 통째로 벗겨져, Agent 는 살아 있는데 트레이스만 끊기고 로그 service 태그가 컨테이너명
+      # (phone-app)으로 폴백되는 상태가 됐다.
+      # 배포가 Datadog 을 강제로 켜지는 않는다 — 켜져 있던 상태만 보존해 수동 토글(up/down) 의미를 지킨다.
+      - name: Datadog 오버레이 감지
+        run: |
+          if [ -z "$(docker ps -q -f 'name=^gromo-datadog-agent$')" ]; then
+            echo "COMPOSE_FILES=-f docker-compose.dev.yml" >> $GITHUB_ENV
+            echo "Datadog OFF — dev 파일 단독으로 배포"
+          elif [ -z "${DD_API_KEY}" ]; then
+            # docker-compose.datadog.yml 은 DD_API_KEY 를 `:?` 로 fail-fast 한다. 키가 비면 compose 파싱
+            # 단계에서 배포 전체가 죽으므로, 관측 배선이 배포를 막지 않도록 오버레이를 포기하고 경고만 남긴다.
+            echo "COMPOSE_FILES=-f docker-compose.dev.yml" >> $GITHUB_ENV
+            echo "::warning::Datadog Agent 는 기동 중이나 DD_API_KEY 미설정 — APM 오버레이 없이 배포한다(트레이스 끊김)"
+          else
+            echo "COMPOSE_FILES=-f docker-compose.dev.yml -f docker-compose.datadog.yml" >> $GITHUB_ENV
+            echo "Datadog ON — APM 오버레이를 포함해 배포"
+          fi
+
       - name: Docker Compose 배포
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker compose -f docker-compose.dev.yml up -d app
-          docker compose -f docker-compose.dev.yml ps
+          docker compose $COMPOSE_FILES up -d app
+          docker compose $COMPOSE_FILES ps
 
       - name: 헬스체크
         run: |
@@ -81,7 +105,7 @@ jobs:
             fi
             echo "대기 중... ($((i*5))s)"
           done
-          docker compose -f docker-compose.dev.yml logs app
+          docker compose $COMPOSE_FILES logs app
           exit 1
 
       - name: 배포 실패 리포트
