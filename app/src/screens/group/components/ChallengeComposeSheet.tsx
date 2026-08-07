@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Keyboard,
@@ -302,6 +303,12 @@ export default function ChallengeComposeSheet({
   // 커밋 후 현재 목표분이 창보다 길어지면 창 길이로 당긴다(칩 스냅의 일반화 — 칩 값이면
   // 그 칩이 켜진다) — 초과 값이 남은 채 CTA만 막히는 상태를 만들지 않는다.
   function commitWindow(start: number, end: number) {
+    // 전송 중 도달한 휠 onChange 무시(코덱스 리뷰) — pointerEvents="none"은 새 터치만 막고,
+    // 이미 시작된 플링(모멘텀) 감속의 onChange는 여기까지 온다. 전송값은 submit()이 탭 시점
+    // 값을 클로저로 캡처해 안전하지만, 표시가 감속 끝 값으로 바뀌면 자기가 만든 창을 오인한다 —
+    // 표시·전송이 어긋나는 창을 여기서 닫는다. 판정은 잠금 ref가 기준이다(submitting state는
+    // 같은 틱에선 아직 이전 값이다).
+    if (submitLock.current || submitting) return;
     if (start === end) return;
     setWindowStart(start);
     setWindowEnd(end);
@@ -318,6 +325,11 @@ export default function ChallengeComposeSheet({
     if (submitLock.current || allTaken || !durationValid || durationMinutes === null) return;
     submitLock.current = true;
     setSubmitting(true);
+    // 처리 중임을 스크린리더에 능동 안내(코덱스 리뷰) — 캡션 텍스트 삽입만으로는 TalkBack/
+    // VoiceOver 어느 쪽도 자동으로 읽지 않는다. announceForAccessibility가 iOS·안드로이드
+    // 양쪽에서 즉시 읽히는 크로스플랫폼 채널이다. accessibilityLiveRegion은 안드로이드 전용인
+    // 데다 announce와 겹치면 같은 문구가 두 번 읽혀 채널을 이 하나로 둔다.
+    AccessibilityInfo.announceForAccessibility(SUBMITTING_CAPTION);
     setErrorMsg(null);
     try {
       const body: CreateChallengeRequest = isWindow
@@ -420,9 +432,9 @@ export default function ChallengeComposeSheet({
         <>
           <Text style={s.label}>시간대 설정 (한국 시간 기준)</Text>
           {/* DrumPicker엔 잠금 prop이 없다(집중 목표 화면과 공유하는 부품 — API를 늘리지 않는다).
-              전송 중엔 휠 영역의 **새 터치**를 차단한다(GROMO-1204) — 단, pointerEvents="none"은
-              이미 시작된 플링(모멘텀) 감속까지 멈추지는 못한다. 그래도 전송값은 submit()이
-              탭 시점 값을 클로저로 캡처하므로 감속 끝에 창 표시가 바뀌어도 요청 바디는 안전하다. */}
+              전송 중엔 휠 영역의 **새 터치**를 차단한다(GROMO-1204). pointerEvents="none"이
+              못 멈추는 이미 시작된 플링(모멘텀) 감속의 onChange는 commitWindow의 잠금 가드가
+              무시한다 — 화면 표시와 전송값(탭 시점 클로저 캡처)이 어긋나지 않는다. */}
           <View style={s.windowRow} pointerEvents={submitting ? 'none' : 'auto'}>
             <View style={s.windowCol}>
               <DrumPicker

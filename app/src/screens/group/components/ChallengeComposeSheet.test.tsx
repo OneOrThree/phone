@@ -15,7 +15,7 @@
 //     앱도 같은 선을 긋고, 창 길이는 서버 windowLengthMinutes와 같은 규칙으로 잰다.
 //  8) 접근성·전송 중 잠금(GROMO-1204) — 잠긴 컨트롤은 이유까지 읽히고, 전송 중엔 폼 전체가 잠긴다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { AccessibilityInfo, Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
@@ -840,5 +840,53 @@ describe('접근성 · 전송 중 잠금', () => {
       settle({ id: 'c1', nonParticipants: [] });
     });
     expect(onCreated).toHaveBeenCalled();
+  });
+
+  // pointerEvents="none"은 새 터치만 막는다 — 전송 직전에 시작된 플링(모멘텀) 감속의
+  // onChange는 전송 중에도 도달한다(코덱스 리뷰). 호출부(commitWindow)의 잠금 가드가 이를
+  // 무시하는지 검증한다 — RNTL press는 pointerEvents에 막혀 이 경로를 지나지 못하므로,
+  // 휠 항목의 onPress를 직접 호출해 '감속 중 도달한 onChange'를 흉내 낸다.
+  test('전송 중 도달한 휠 onChange(플링 감속)는 무시된다 — 표시·전송값이 어긋나지 않는다', async () => {
+    mockNowSeconds.mockReturnValue(13 * 3600); // 기본 창 09:00~12:00이 이미 지난 시각
+    let settle: (v: CreateChallengeResponse) => void = () => {};
+    mockCreateChallenge.mockReturnValue(
+      new Promise<CreateChallengeResponse>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    await renderSheet();
+    await press('시간대');
+    expect(screen.getByTestId('group.challenge.tomorrowNote')).toBeOnTheScreen();
+    await press('만들기');
+
+    // 종료 시 휠(두 번째 시 휠)의 23시 onChange가 pointerEvents를 우회해 도달한다 —
+    // 가드가 없으면 창이 09:00~23:00이 되어 '내일부터' 안내가 사라진다.
+    const endHour23 = screen.getAllByText('23시')[1];
+    await act(async () => {
+      endHour23.props.onPress();
+    });
+    expect(screen.getByTestId('group.challenge.tomorrowNote')).toBeOnTheScreen();
+
+    await act(async () => {
+      settle({ id: 'c1', nonParticipants: [] });
+    });
+    // 전송값도 탭 시점 값 그대로다.
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ windowEnd: `${todayStr()}T12:00:00+09:00` }),
+    );
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  // 캡션 텍스트 삽입만으로는 TalkBack/VoiceOver가 읽지 않는다 — 전송 시작을 능동 안내한다.
+  test('전송 시작을 announceForAccessibility로 스크린리더에 능동 안내한다', async () => {
+    const announceSpy = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockImplementation(() => {});
+    await renderSheet();
+    expect(announceSpy).not.toHaveBeenCalled();
+
+    await press('만들기');
+    expect(announceSpy).toHaveBeenCalledWith('처리 중이에요…');
   });
 });
