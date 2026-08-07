@@ -63,6 +63,28 @@ class GroupMemberRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("countByGroupIdIn → 탈퇴 유저(is_deleted)는 세지 않는다 — 상세 멤버 목록과 같은 기준 (GROMO-1220)")
+    void countByGroupIdInExcludesDeletedUsers() {
+        // given: 활성 멤버 1명 + 유령 멤버십(탈퇴 유저인데 is_left=false, #497 이전 탈퇴 재현) 1명
+        Group group = groupRepository.save(Group.builder().name("방").maxMembers(10).build());
+        User active = userRepository.save(User.builder().nickname("활성").build());
+        User ghost = userRepository.save(User.builder().isDeleted(true).build());   // nickname 파기(null)
+
+        groupMemberRepository.save(GroupMember.builder().user(active).group(group).build());
+        groupMemberRepository.save(GroupMember.builder().user(ghost).group(group).build());
+        groupMemberRepository.flush();
+
+        // when
+        Map<UUID, Long> counts = groupMemberRepository.countByGroupIdIn(List.of(group.getId())).stream()
+                .collect(Collectors.toMap(
+                        GroupMemberRepository.GroupMemberCount::getGroupId,
+                        GroupMemberRepository.GroupMemberCount::getMemberCount));
+
+        // then: 유령이 카운트에 남으면 목록(탈퇴자 제외)과 "2명인데 1명 타일"로 어긋난다
+        assertThat(counts).containsOnly(Map.entry(group.getId(), 1L));
+    }
+
+    @Test
     @DisplayName("findByUser → group 을 함께 로드한다 (LAZY 프록시로 두면 그룹 수만큼 SELECT 가 더 나간다)")
     void findByUserFetchesGroup() {
         // given: 한 유저가 여러 그룹에 가입

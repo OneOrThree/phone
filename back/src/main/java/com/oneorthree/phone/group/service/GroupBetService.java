@@ -92,6 +92,14 @@ public class GroupBetService {
     private static final List<GroupBetStatus> HISTORY_STATUSES =
             List.of(GroupBetStatus.SETTLED, GroupBetStatus.REFUNDED, GroupBetStatus.FORFEITED);
 
+    /**
+     * 탈퇴 유저 표시 문구 (GROMO-1220, 결정 D1) — 탈퇴는 소프트딜리트라 nickname 이 파기(null)되는데,
+     * 정산 명단·히스토리는 참가 행이 이력으로 영구 보존되어 빈 닉네임이 그대로 노출된다. 명단에서
+     * <b>제거하지 않고 치환만</b> 하는 이유: pot = stake × 원본 participants.size() 라(계약 §1)
+     * 행을 빼면 인원·금액이 실제 정산과 어긋난다.
+     */
+    static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 사용자";
+
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupRepository groupRepository;
@@ -599,10 +607,12 @@ public class GroupBetService {
                     // 버튼을 오늘 달성 사실로 잘못 잠근다(서버 joinBet 은 bet_date 기준이라 허용).
                     .myAchievedNow(bet.getBetDate().equals(date)
                             && myAchievedByChallengeId.getOrDefault(challengeId, false))
+                    // 탈퇴자 닉네임 치환(GROMO-1220) — 신규 탈퇴자는 releaseFromAllOpenBets 가 OPEN
+                    // 내기에서 해제하지만, 그 정리가 없던 시절(#497 이전)의 유령 참가 행 방어다.
                     .participants(participants.stream()
                             .map(p -> GroupBetParticipantResponse.builder()
                                     .userId(p.getUser().getId())
-                                    .nickname(p.getUser().getNickname())
+                                    .nickname(displayNickname(p.getUser()))
                                     .build())
                             .toList())
                     .build());
@@ -715,18 +725,31 @@ public class GroupBetService {
         return new GroupBetHistorySliceResponse(content, size, slice.hasNext(), nextCursor);
     }
 
-    /** 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})과 히스토리 공용. */
+    /**
+     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})과 히스토리 공용.
+     * 탈퇴자는 닉네임만 {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
+     * 명단·인원수·pot 은 정산 당시 사실이라 절대 불변이다(계약 §1).
+     */
     private List<GroupBetResultParticipantResponse> toResultParticipants(
             List<GroupChallengeBetParticipant> participants) {
         return participants.stream()
                 .map(p -> GroupBetResultParticipantResponse.builder()
                         .userId(p.getUser().getId())
-                        .nickname(p.getUser().getNickname())
+                        .nickname(displayNickname(p.getUser()))
                         .achieved(p.getAchieved())
                         .payout(p.getPayout())
                         .progressMinutes(p.getProgressMinutes())
                         .build())
                 .toList();
+    }
+
+    /**
+     * 명단 표시용 닉네임 — 탈퇴자(is_deleted, PII 파기로 nickname=null)는 고정 문구로 치환한다.
+     * 탈퇴자 처리를 <b>출력(명단) 층에서만</b> 하는 계약(§1)의 단일 지점이다 — 조회 리포지토리
+     * ({@code findByBetIdIn})나 정산·해제 경로에 필터를 넣으면 팟 계산·환불이 틀어진다.
+     */
+    private static String displayNickname(User user) {
+        return user.isDeleted() ? WITHDRAWN_USER_NICKNAME : user.getNickname();
     }
 
     private Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet(

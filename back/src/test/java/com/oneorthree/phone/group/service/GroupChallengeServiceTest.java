@@ -323,6 +323,37 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("진행률 행에서 탈퇴자는 제외된다 — 그룹 상세 멤버 목록과 같은 인원 (GROMO-1220)")
+    void getChallengesExcludesWithdrawnMembersFromProgress() {
+        // #497 이전 탈퇴자의 유령 멤버십(is_left=false 잔존) — 통계는 탈퇴 시 nullify 돼 값도 없다.
+        // 필터가 없으면 빈 닉네임에 진행률 0/null 인 행이 카드에 남는다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
+        User ghost = User.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000dd"))
+                .isGuest(false).isDeleted(true).build();
+        List<GroupMember> members = List.of(
+                groupMemberOf(user, group, GroupMemberRole.OWNER),
+                groupMemberOf(ghost, group, GroupMemberRole.MEMBER));
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(List.of(challenge));
+        given(groupMemberRepository.findByGroup(group)).willReturn(members);
+        givenDurationDetail(60);
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress)
+                .extracting(ChallengeMemberProgressResponse::getUserId)
+                .containsExactly(USER_ID);
+    }
+
+    @Test
     @DisplayName("SCREEN_TIME/DURATION + date → 목표 이하면 달성, 통계 없는 멤버는 null(판정 불가)")
     void getChallengesFillsScreenTimeProgress() {
         // given: 목표 60분 · 둘 다 권한 동의 · 재영은 50분 사용(달성) · 수빈은 통계 행 없음(판정 불가)
@@ -1169,6 +1200,47 @@ class GroupChallengeServiceTest {
         assertThat(response.getNonParticipants()).hasSize(1);
         assertThat(response.getNonParticipants().get(0).getUserId()).isEqualTo(deniedId);
         assertThat(response.getNonParticipants().get(0).getNickname()).isEqualTo("미동의");
+    }
+
+    @Test
+    @DisplayName("탈퇴자는 비참여자 목록에 오르지 않는다 — 독려 대상은 라이브 멤버뿐 (GROMO-1220)")
+    void createScreenTimeChallengeExcludesWithdrawnFromNonParticipants() {
+        // 유령 멤버십의 탈퇴자는 권한 행이 삭제돼 미동의로 잡힌다 — 필터가 없으면 빈 닉네임
+        // 비참여자로 노출된다.
+        User owner = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group))
+                .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.SCREEN_TIME);
+        given(request.getDurationMinutes()).willReturn(30);
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.SCREEN_TIME)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        UUID deniedId = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
+        User denied = User.builder().id(deniedId).nickname("미동의").build();
+        User ghost = User.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000dd"))
+                .isGuest(false).isDeleted(true).build();
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
+                groupMemberOf(denied, group, GroupMemberRole.MEMBER),
+                groupMemberOf(ghost, group, GroupMemberRole.MEMBER)));
+        given(userScreenTimeSettingsRepository.findAllById(any()))
+                .willReturn(List.of(settings(deniedId, false)));
+
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // 살아 있는 미동의 멤버만 남는다 — 탈퇴자는 목록에서 빠진다.
+        assertThat(response.getNonParticipants())
+                .extracting(CreateChallengeResponse.NonParticipantDto::getUserId)
+                .containsExactly(deniedId);
     }
 
     @Test

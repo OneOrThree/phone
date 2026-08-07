@@ -68,8 +68,13 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
 
     // 그룹별 멤버 수 일괄 집계 — 목록/검색이 그룹마다 findByGroup(group).size() 로 엔티티를 통째로
     // 로드하던 N+1 을 IN 집계 1회로 대체한다. 멤버가 0인 그룹은 행 자체가 없으므로 호출측이 0으로 채운다.
+    // 탈퇴 유저(is_deleted)도 세지 않는다(GROMO-1220) — 상세 멤버 목록·정원 판정(GroupService.
+    // activeMembersOf)과 같은 기준이어야 "목록 N명 · 카운트 N+1명" 불일치가 안 생긴다. 집계라
+    // 서비스 스트림 필터를 태울 수 없어 이 쿼리만 예외적으로 유저 조인 필터를 건다(소비처는
+    // getMyGroups·searchGroups 뿐 — 정산·환불 경로와 무관).
     @Query("SELECT gm.group.id AS groupId, COUNT(gm) AS memberCount FROM GroupMember gm"
-            + " WHERE gm.group.id IN :groupIds AND gm.isLeft = false GROUP BY gm.group.id")
+            + " WHERE gm.group.id IN :groupIds AND gm.isLeft = false AND gm.user.isDeleted = false"
+            + " GROUP BY gm.group.id")
     List<GroupMemberCount> countByGroupIdIn(@Param("groupIds") Collection<UUID> groupIds);
 
     /** {@link #countByGroupIdIn} 결과 행 — 그룹 id 와 그 그룹의 멤버 수. */

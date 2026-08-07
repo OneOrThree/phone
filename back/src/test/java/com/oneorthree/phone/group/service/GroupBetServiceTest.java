@@ -18,6 +18,8 @@ import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetResultParticipantResponse;
+import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
@@ -1090,6 +1092,64 @@ class GroupBetServiceTest {
 
         // OPEN 으로 좁히면 여기서 내기가 사라져 앱 결과 모달이 hadBet=false 로 오판한다.
         assertThat(bets.get(CHALLENGE_ID).getStatus()).isEqualTo(GroupBetStatus.SETTLED);
+    }
+
+    // ── 탈퇴자 명단 치환 (GROMO-1220, D1) ────────────────────────────────
+
+    /** 탈퇴 유저의 참가 행 — 소프트딜리트로 nickname 은 파기(null)됐고 is_deleted=true 다. */
+    private GroupChallengeBetParticipant withdrawnParticipantOf(GroupChallengeBet target) {
+        return GroupChallengeBetParticipant.builder()
+                .id(OTHER_PARTICIPANT_ID)
+                .bet(target)
+                .user(User.builder().id(OTHER_USER_ID).isGuest(false).isDeleted(true).build())
+                .build();
+    }
+
+    @Test
+    @DisplayName("정산 명단의 탈퇴자 닉네임은 '탈퇴한 사용자'로 치환된다 — 명단·인원·pot 은 불변 (GROMO-1220, D1)")
+    void loadLastSettledBetsMasksWithdrawnUserNickname() {
+        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, today().minusDays(1));
+        given(groupChallengeBetRepository.findLatestSettledByChallengeIds(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(settled));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(settled, USER_ID), withdrawnParticipantOf(settled)));
+
+        Map<UUID, GroupBetResultResponse> results =
+                groupBetService.loadLastSettledBets(List.of(CHALLENGE_ID));
+
+        GroupBetResultResponse response = results.get(CHALLENGE_ID);
+        // 계약 §1 — 행 제거·pot 재계산 금지: pot = stake(30) × 원본 인원(2) 그대로다.
+        assertThat(response.getPot()).isEqualTo(60);
+        assertThat(response.getResults()).hasSize(2);
+        assertThat(response.getResults())
+                .extracting(GroupBetResultParticipantResponse::getUserId)
+                .containsExactly(USER_ID, OTHER_USER_ID);
+        // 치환은 탈퇴자 행에만 — 활성 참가자 닉네임은 건드리지 않는다.
+        assertThat(response.getResults().get(1).getNickname())
+                .isEqualTo(GroupBetService.WITHDRAWN_USER_NICKNAME);
+        assertThat(response.getResults().get(0).getNickname())
+                .isNotEqualTo(GroupBetService.WITHDRAWN_USER_NICKNAME);
+    }
+
+    @Test
+    @DisplayName("진행 중 내기의 참가자 명단도 탈퇴자를 치환한다 — 해제 전 유령 참가 행 방어 (GROMO-1220)")
+    void loadCurrentBetsMasksWithdrawnParticipantNickname() {
+        GroupChallengeBet open = bet(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
+                List.of(CHALLENGE_ID), today(), GroupBetStatus.CANCELED))
+                .willReturn(List.of(open));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(participantOf(open, USER_ID), withdrawnParticipantOf(open)));
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of());
+
+        GroupBetResponse response = bets.get(CHALLENGE_ID);
+        // 여기서도 제거가 아니라 치환이다 — pot(stake × 인원)이 실제 에스크로 금액과 어긋나면 안 된다.
+        assertThat(response.getPot()).isEqualTo(60);
+        assertThat(response.getParticipants()).hasSize(2);
+        assertThat(response.getParticipants().get(1).getNickname())
+                .isEqualTo(GroupBetService.WITHDRAWN_USER_NICKNAME);
     }
 
     @Test
