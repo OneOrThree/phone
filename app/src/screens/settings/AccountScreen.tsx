@@ -1,13 +1,5 @@
-import { useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Modal,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
@@ -15,8 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import type { V2RootStackParamList } from '@/navigation/types';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
+import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { getSocialLinks, unlinkSocialAccount, withdraw } from '@/services/userApi';
-import { getMyGroups } from '@/services/groupApi';
+import { getMyGroups, groupErrorCode } from '@/services/groupApi';
 import { triggerLogout, triggerRelogin } from '@/services/api';
 import {
   kakaoLogin,
@@ -36,7 +29,7 @@ import {
 import type { Provider, SocialLinkResponse } from '@/types/dto/user';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { LoginResult } from '@/types/api';
-import { T, withAlpha } from '@/constants/theme';
+import { T } from '@/constants/theme';
 
 // 계정 설정 화면 — 소셜 로그인/연동 + 로그아웃 + 회원 탈퇴.
 // 게스트(useUser().isGuest === true)일 땐 카카오·애플·구글 '로그인' 버튼으로 계정 전환을 유도하되
@@ -87,6 +80,15 @@ const PROVIDERS: {
   },
 ];
 
+// 탈퇴 플로우 카드 모달 상태 머신 — 셋 중 하나만 열린다(동시 노출 불가, GROMO-1210).
+//   confirm            : 탈퇴 재확인(파괴적 동작)
+//   hostBlocked        : 방장 블록 — 위임 대상 그룹으로 유도
+//   hostBlockedNoList  : 방장 블록 — 위임 대상을 못 찾음(목록 0개·조회 실패) → 일반 안내
+type WithdrawModalState =
+  | { kind: 'confirm' }
+  | { kind: 'hostBlocked'; count: number; target: { groupId: string; name: string } }
+  | { kind: 'hostBlockedNoList' };
+
 export default function AccountScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { isGuest: isGuestCtx } = useUser();
@@ -94,7 +96,7 @@ export default function AccountScreen() {
   // 연동 목록(로딩 전 null). 재진입마다 최신화.
   const [links, setLinks] = useState<SocialLinkResponse[] | null>(null);
   const [busy, setBusy] = useState<Method | null>(null); // 게스트 로그인 진행 중인 provider
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawModal, setWithdrawModal] = useState<WithdrawModalState | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
 
   const loadLinks = useCallback(async () => {
@@ -198,7 +200,7 @@ export default function AccountScreen() {
     ]);
   };
 
-  // 회원 탈퇴 실행 — 성공 시 로그아웃까지. 방장(400)이면 안내 후 모달 닫기.
+  // 회원 탈퇴 실행 — 성공 시 로그아웃까지. 방장 블록(HOST_WITHDRAW)이면 카드 모달로 위임 유도.
   const handleWithdraw = async () => {
     if (withdrawing) return;
     setWithdrawing(true);
@@ -206,12 +208,11 @@ export default function AccountScreen() {
       await withdraw();
       logWithdrawalConfirmed(); // 탈퇴 API 성공 시에만 — 로그아웃(setUserId null) 전에 발행
       await clearLastAuthProvider(); // GROMO-602: 탈퇴 시에만 마지막 provider 초기화(로그아웃은 유지)
-      setWithdrawOpen(false);
+      setWithdrawModal(null);
       triggerLogout();
     } catch (e) {
-      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-      setWithdrawOpen(false);
-      if (status === 400) {
+      // §3-2: status가 아니라 서버 에러 code로 분기 — 무관한 400은 아래 일반 오류로 떨어진다.
+      if (groupErrorCode(e) === 'HOST_WITHDRAW') {
         // A-2: 방장으로 남아 있는 그룹이 있어 탈퇴가 막혔다. 위임이 필요한 그룹으로 유도한다.
         // 1인 소유 그룹은 서버가 탈퇴와 함께 자동 종료하므로 위임 대상이 아니다 — 다중 멤버 소유 그룹만
         // 남는다. 그룹이 여러 개면 하나씩 위임하고 다시 탈퇴를 눌러 반복한다(그룹 수만큼).
@@ -221,35 +222,84 @@ export default function AccountScreen() {
             (g) => g.role === 'OWNER' && g.currentMembers > 1,
           );
         } catch {
-          // 목록 조회 실패는 아래 일반 안내로 떨어뜨린다.
+          // 목록 조회 실패는 아래 일반 안내(hostBlockedNoList)로 떨어뜨린다.
         }
         if (ownedGroups.length > 0) {
           const target = ownedGroups[0];
-          Alert.alert(
-            '먼저 방장을 넘겨주세요',
-            `방장으로 있는 그룹이 ${ownedGroups.length}개 있어요.\n"${target.name}"의 방장을 넘기고 다시 탈퇴해 주세요.`,
-            [
-              { text: '나중에', style: 'cancel' },
-              {
-                text: '방장 넘기러 가기',
-                onPress: () =>
-                  navigation.navigate('GroupOwnerTransfer', {
-                    groupId: target.groupId,
-                    source: 'account',
-                  }),
-              },
-            ],
-          );
+          setWithdrawModal({
+            kind: 'hostBlocked',
+            count: ownedGroups.length,
+            target: { groupId: target.groupId, name: target.name },
+          });
         } else {
-          Alert.alert('탈퇴할 수 없어요', '그룹 방장은 위임 후 탈퇴할 수 있어요.');
+          setWithdrawModal({ kind: 'hostBlockedNoList' });
         }
       } else {
+        setWithdrawModal(null);
         Alert.alert('오류', '회원 탈퇴에 실패했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       setWithdrawing(false);
     }
   };
+
+  const closeWithdrawModal = () => setWithdrawModal(null);
+
+  // 카드 모달은 단일 인스턴스로 상태에 따라 내용만 바꾼다 — confirm→블록 안내가 같은 모달의
+  // 내용 교체가 되어 iOS의 연속 present/dismiss 경합(뒤 모달이 안 뜨는 문제)이 없다.
+  // 닫힘 페이드아웃 동안 내용이 confirm으로 되튀지 않게 마지막 내용을 ref로 유지한다.
+  const lastModalRef = useRef<WithdrawModalState>({ kind: 'confirm' });
+  if (withdrawModal !== null) lastModalRef.current = withdrawModal;
+  const shownModal = withdrawModal ?? lastModalRef.current;
+
+  // 상태별 카드 내용 — 문구는 기존 네이티브 Alert에서 그대로 이식(계약: 카피 정본, GROMO-1210).
+  let withdrawCard: {
+    title: string;
+    body: string;
+    primaryLabel: string;
+    onPrimary: () => void;
+    primaryDisabled?: boolean;
+    destructive?: boolean;
+    secondaryLabel?: string;
+    testID: string;
+  };
+  switch (shownModal.kind) {
+    case 'hostBlocked': {
+      const { count, target } = shownModal;
+      withdrawCard = {
+        title: '먼저 방장을 넘겨주세요',
+        body: `방장으로 있는 그룹이 ${count}개 있어요.\n"${target.name}"의 방장을 넘기고 다시 탈퇴해 주세요.`,
+        primaryLabel: '방장 넘기러 가기',
+        onPrimary: () => {
+          setWithdrawModal(null);
+          navigation.navigate('GroupOwnerTransfer', { groupId: target.groupId, source: 'account' });
+        },
+        secondaryLabel: '나중에',
+        testID: 'account.withdraw.hostBlocked',
+      };
+      break;
+    }
+    case 'hostBlockedNoList':
+      withdrawCard = {
+        title: '탈퇴할 수 없어요',
+        body: '그룹 방장은 위임 후 탈퇴할 수 있어요.',
+        primaryLabel: '확인',
+        onPrimary: closeWithdrawModal,
+        testID: 'account.withdraw.blocked',
+      };
+      break;
+    default:
+      withdrawCard = {
+        title: '정말 떠나시겠어요?',
+        body: '탈퇴하면 쌓아온 집중 기록·티어가 모두 사라지고 되돌릴 수 없어요.',
+        primaryLabel: '탈퇴할게요',
+        onPrimary: handleWithdraw,
+        primaryDisabled: withdrawing,
+        destructive: true,
+        secondaryLabel: '더 머물래요',
+        testID: 'account.withdraw.confirm',
+      };
+  }
 
   // 소셜 유저의 연동 목록 → 표시 구성(설정에 없는 provider는 기본 아이콘으로 방어).
   const linkedProviders = (links ?? []).map((l) => {
@@ -303,7 +353,7 @@ export default function AccountScreen() {
               iconBg={T.accentAltBg}
               label="회원 탈퇴"
               danger
-              onPress={() => setWithdrawOpen(true)}
+              onPress={() => setWithdrawModal({ kind: 'confirm' })}
             />
           </SettingsSection>
         </>
@@ -344,48 +394,19 @@ export default function AccountScreen() {
               iconBg={T.accentAltBg}
               label="회원 탈퇴"
               danger
-              onPress={() => setWithdrawOpen(true)}
+              onPress={() => setWithdrawModal({ kind: 'confirm' })}
             />
           </SettingsSection>
         </>
       )}
 
-      {/* 회원 탈퇴 확인 모달 — 반투명 오버레이 + 흰 카드(파괴적 동작 재확인) */}
-      <Modal
-        visible={withdrawOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setWithdrawOpen(false)}
-      >
-        <View style={s.overlay}>
-          <TouchableOpacity
-            style={s.backdrop}
-            activeOpacity={1}
-            onPress={() => setWithdrawOpen(false)}
-          />
-          <View style={s.card}>
-            <Text style={s.cardTitle}>정말 떠나시겠어요?</Text>
-            <Text style={s.cardBody}>
-              탈퇴하면 쌓아온 집중 기록·티어가 모두 사라지고 되돌릴 수 없어요.
-            </Text>
-            <TouchableOpacity
-              style={[s.dangerBtn, withdrawing ? s.btnDisabled : null]}
-              activeOpacity={0.85}
-              disabled={withdrawing}
-              onPress={handleWithdraw}
-            >
-              <Text style={s.dangerBtnText}>탈퇴할게요</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.stayBtn}
-              activeOpacity={0.7}
-              onPress={() => setWithdrawOpen(false)}
-            >
-              <Text style={s.stayBtnText}>더 머물래요</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* 탈퇴 플로우 카드 모달 — 재확인(파괴적)·방장 블록 안내를 한 인스턴스로 전환(GROMO-1210) */}
+      <ConfirmCardModal
+        visible={withdrawModal !== null}
+        onRequestClose={closeWithdrawModal}
+        onSecondary={closeWithdrawModal}
+        {...withdrawCard}
+      />
     </SettingsScaffold>
   );
 }
@@ -405,32 +426,4 @@ const s = StyleSheet.create({
     marginTop: T.space.lg,
   },
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
-
-  // 모달 — 리그 오버레이와 같던 스크림 값(전용 토큰 없음, 원본 ProfileSheet는 GROMO-940에서 폐기) + 중앙 흰 카드
-  overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: T.paperLight,
-    borderWidth: 1,
-    borderColor: T.paperAlt,
-    borderRadius: 20,
-    paddingHorizontal: T.space.xxl,
-    paddingTop: T.space.xxl,
-    paddingBottom: T.space.md,
-  },
-  cardTitle: { ...T.text.heading, color: T.ink },
-  cardBody: { ...T.text.body, color: T.inkSub, marginTop: T.space.md },
-  dangerBtn: {
-    marginTop: T.space.xl,
-    backgroundColor: T.accentAlt,
-    borderRadius: 14,
-    paddingVertical: T.space.lg,
-    alignItems: 'center',
-  },
-  btnDisabled: { opacity: 0.5 },
-  dangerBtnText: { ...T.text.subtitle, color: T.white },
-  stayBtn: { paddingVertical: T.space.lg, alignItems: 'center' },
-  stayBtnText: { ...T.text.label, color: T.inkSub },
 });
