@@ -30,6 +30,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // (탈퇴, 소셜 로그인/게스트 승격의 refreshTokenHash·isGuest 갱신). 공유 락으로 읽고 나중에 UPDATE
     // 하면, 같은 행을 잡은 두 트랜잭션이 서로의 공유 락 해제를 기다리며 락 승급 교착으로 죽는다.
     // users 행을 읽기만 하는 트랜잭션(관계·멤버십·내기 생성)은 아래 공유 락으로 병렬성을 지킨다.
+    //
+    // READ COMMITTED 재평가 전제 (GROMO-1230) — 이 배타 락과 아래 공유 락(findActiveByIdForShare)의
+    // "빈 결과 = 탈퇴 확정" 논증이 공유하는 메커니즘. READ COMMITTED 에서 락 대기에 걸린 조회는 상대
+    // 트랜잭션이 커밋하면 잠금을 얻은 뒤 그 행의 **최신 커밋 버전으로 WHERE 술어를 재평가**한다
+    // (Postgres EvalPlanQual). 그래서 탈퇴(is_deleted=true)와 경합해도 스냅샷의 옛 활성 행이 아니라
+    // 빈 결과를 돌려받고, 호출측은 그것을 "탈퇴가 먼저 커밋됐다"로 읽고 skip/404 한다
+    // (리그 정산 LeagueUserSettler, 그룹 위임·강퇴 GroupMemberService 등이 전부 이 전제 위에 있다).
+    // 격리 수준을 REPEATABLE READ 이상으로 올리면 같은 경합이 재평가 대신 직렬화 오류로 터지므로
+    // 이 논증들은 그대로 성립하지 않는다 — 격리 수준을 바꾸려면 락 논증 전면 재검토가 필요하다.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
     Optional<User> findActiveByIdForUpdate(@Param("id") UUID id);
@@ -67,7 +76,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     // 관계·멤버십·내기 생성 등 users 행을 **읽기만 하는** 트랜잭션의 활성 검증 + 공유 락 (GROMO-801).
     // 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 위 배타 락(탈퇴)하고만 직렬화된다.
-    // 탈퇴가 먼저 커밋되면 잠금 해제 후 조건을 재평가해 is_deleted=true 를 보고 빈 결과가 된다.
+    // 탈퇴가 먼저 커밋되면 잠금 해제 후 조건을 재평가해 is_deleted=true 를 보고 빈 결과가 된다
+    // (READ COMMITTED 재평가 전제 — findActiveByIdForUpdate 주석 참고).
     // 주의: 같은 트랜잭션이 이후 users 행을 UPDATE 한다면 이 락을 쓰면 안 된다(승급 교착) —
     // 그 경우 위 findActiveByIdForUpdate 로 처음부터 배타 락을 잡는다 (락 선택 원칙 참고).
     @Lock(LockModeType.PESSIMISTIC_READ)

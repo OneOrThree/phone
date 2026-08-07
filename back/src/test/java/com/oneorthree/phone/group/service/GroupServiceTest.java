@@ -232,6 +232,22 @@ class GroupServiceTest {
                         .challengeId(CHALLENGE_ID).durationMinutes(durationMinutes).build()));
     }
 
+    /**
+     * GROMO-1206: TIME_WINDOW 대표 챌린지(ACTIVE) + 창 상세 스텁 — 상세/오버뷰의
+     * windowStart/windowEnd "HH:mm:ss" 계약 테스트가 공용한다 (GROMO-1230).
+     */
+    private void givenRepresentativeTimeWindowChallenge(
+            Group group, MissionCategory category, Instant windowStartAt, Instant windowEndAt) {
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
+                .category(category).status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
+                group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
+        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
+                Optional.of(GroupChallengeWindow.builder()
+                        .challengeId(CHALLENGE_ID).windowStartAt(windowStartAt).windowEndAt(windowEndAt).build()));
+    }
+
     // ── 정상 생성 ─────────────────────────────────────────────────────────
 
     @Test
@@ -850,21 +866,12 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
-        Instant start = Instant.parse("2026-07-10T04:00:00Z");
-        Instant end = Instant.parse("2026-07-10T06:30:00Z");
-        GroupChallenge challenge = GroupChallenge.builder()
-                .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
-                .category(MissionCategory.SCREEN_TIME).status(GroupChallengeStatus.ACTIVE).build();
-
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
-        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
-                group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
-                Optional.of(GroupChallengeWindow.builder()
-                        .challengeId(CHALLENGE_ID).windowStartAt(start).windowEndAt(end).build()));
+        givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
+                Instant.parse("2026-07-10T04:00:00Z"), Instant.parse("2026-07-10T06:30:00Z"));
 
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
@@ -885,21 +892,12 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
-        Instant start = Instant.parse("2026-07-10T13:00:00Z");
-        Instant end = Instant.parse("2026-07-10T16:00:00Z");
-        GroupChallenge challenge = GroupChallenge.builder()
-                .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
-                .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE).build();
-
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
-        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
-                group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
-                Optional.of(GroupChallengeWindow.builder()
-                        .challengeId(CHALLENGE_ID).windowStartAt(start).windowEndAt(end).build()));
+        givenRepresentativeTimeWindowChallenge(group, MissionCategory.FOCUS,
+                Instant.parse("2026-07-10T13:00:00Z"), Instant.parse("2026-07-10T16:00:00Z"));
 
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
@@ -1120,6 +1118,35 @@ class GroupServiceTest {
         assertThat(response.getCode()).isNull();
         assertThat(response.getCodeExpiresAt()).isNull();
         assertThat(response.isPrivate()).isFalse();
+    }
+
+    @Test
+    @DisplayName("상세 TIME_WINDOW 대표 챌린지 → windowStart/windowEnd 는 KST 벽시계 \"HH:mm:ss\" 문자열")
+    void getGroupDetailTimeWindowMission() {
+        // given — 오버뷰(getGroupOverviewTimeWindowMission)와 같은 계약을 상세에도 잠근다
+        //   (GROMO-1206, 두 응답이 같은 단일 출구 timeOfDayString 을 쓴다). 04:00Z = 13:00 KST,
+        //   06:30Z = 15:30 KST.
+        User member = userWithNickname(USER_ID, "멤버");
+        Group group = Group.builder().id(GROUP_ID).name("그룹")
+                .maxMembers(10).status(GroupStatus.WAITING).build();
+        GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
+        givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
+                Instant.parse("2026-07-10T04:00:00Z"), Instant.parse("2026-07-10T06:30:00Z"));
+
+        // when
+        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
+
+        // then — Instant ISO 가 아니라 "HH:mm:ss" 다. ISO 로 새면 앱 timeStrToSeconds 가 조용히 NaN.
+        assertThat(response.getMissionCategory()).isEqualTo(MissionCategory.SCREEN_TIME);
+        assertThat(response.getMissionType()).isEqualTo(MissionType.TIME_WINDOW);
+        assertThat(response.getWindowStart()).isEqualTo("13:00:00");
+        assertThat(response.getWindowEnd()).isEqualTo("15:30:00");
+        assertThat(response.getDurationMinutes()).isNull();
     }
 
     @Test

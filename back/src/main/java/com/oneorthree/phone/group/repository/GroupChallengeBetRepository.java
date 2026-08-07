@@ -177,6 +177,16 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      * <p>엔티티 세터가 아니라 벌크 UPDATE 인 이유: CAS 뒤의 영속 엔티티는 {@code status} 가 갱신 전
      * (OPEN) 그대로인데, 세터로 엔티티를 더럽히면 커밋 플러시가 전 컬럼 UPDATE 를 내보내 CAS 가 쓴
      * 종료 status 를 OPEN 으로 되돌린다 — 돈이 걸린 전이를 지우는 사고라 컨텍스트를 우회한다.
+     *
+     * <p>반환이 {@code int}(영향 행 수)가 아니라 {@code void} 인 이유 (GROMO-1230): 직전에 같은
+     * 트랜잭션에서 성공한 CAS 가 이 행의 존재를 이미 증명했고, WHERE 는 PK 뿐이며 내기 행에 DELETE
+     * 경로가 없다 — 0행이 될 수 있는 시나리오가 없어 행 수 검사는 죽은 코드가 된다. CAS 밖에서
+     * 부르면 이 논증이 무너지므로, 호출은 반드시 CAS 성공 트랜잭션 안이어야 한다(위 계약).
+     *
+     * <p>{@code goalMinutes} 의 범위(음수·상한)를 여기서 재검증하지 않는 이유: 값은
+     * {@code GroupBetJudge.Target} 이 챌린지 상세에서 도출한 것으로, 생성 시점 서비스 검증
+     * (INVALID_MISSION_PARAMS, 1~1440)과 DB CHECK(duration 은 V28, 창 목표는 V20)가 이미 범위를
+     * 보장한다 — 저장 단계의 재검증은 검증 규칙의 두 번째 사본만 만든다.
      */
     @Modifying
     @Query("UPDATE GroupChallengeBet b SET b.goalMinutes = :goalMinutes WHERE b.id = :id")
