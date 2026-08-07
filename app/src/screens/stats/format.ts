@@ -55,7 +55,10 @@ export function tenMinuteFocusSlots(
 // 세션을 로컬 자정 경계로 분할해 각 조각을 해당 날짜의 요일 칼럼(월=0..일=6)에 담는다 — 자정을
 // 넘긴 세션도 다음날 칼럼에 이어서 보인다(리뷰 반영). 위치는 벽시계 시:분 기준 — 자정 경과 ms
 // 나눗셈은 DST 전환일에 시각과 어긋난다(tenMinuteFocusSlots와 동일 취지, 리뷰 반영).
-// weekStartMs(주 시작 월요일 00:00) 이전 조각은 버린다 — 전주 일요일에서 넘어온 세션은 월요일 몫만 남긴다.
+// weekStartMs(주 시작 월요일 00:00 '순간' — KST 축, GROMO-1236) 이전 구간은 담지 않는다: 전부
+// 이전인 조각은 버리고, 경계를 걸친 조각은 시작을 주 시작으로 잘라 주 내 몫만 남긴다. 비KST
+// 기기에선 KST 주 시작이 로컬 자정과 어긋나 조각 중간에 올 수 있기 때문(P2 5라운드 — 종전
+// '시작 >= 주 시작' 통과/통폐기는 걸친 조각의 주 내 몫을 통째로 잃었다).
 export interface WeekFocusBlock {
   col: number; // 0=월 .. 6=일
   startMin: number; // 그날 벽시계 기준 시작(분)
@@ -77,13 +80,17 @@ export function weekdayFocusBlocks(
       // 조각 끝 = 세션 끝 vs 다음날 로컬 자정 중 이른 쪽
       const nextMid = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
       const pieceEnd = Math.min(end, nextMid);
-      if (t >= weekStartMs) {
-        const startMin = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+      // 주 시작을 걸친 조각은 시작을 주 시작으로 클립 — 조각은 로컬 하루 안이라 클립해도 같은
+      // 날짜(요일·자정 기준)를 유지한다(상단 주석 참고)
+      const clipped = Math.max(t, weekStartMs);
+      if (pieceEnd > clipped) {
+        const cd = new Date(clipped);
+        const startMin = cd.getHours() * 60 + cd.getMinutes() + cd.getSeconds() / 60;
         const e = new Date(pieceEnd);
         const endMin =
           pieceEnd === nextMid ? 1440 : e.getHours() * 60 + e.getMinutes() + e.getSeconds() / 60;
         if (endMin > startMin) {
-          const dow = d.getDay(); // 0=일..6=토
+          const dow = cd.getDay(); // 0=일..6=토
           out.push({ col: dow === 0 ? 6 : dow - 1, startMin, endMin, tagId: sn.focusTagId });
         }
       }

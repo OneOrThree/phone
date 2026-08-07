@@ -217,10 +217,11 @@ export default function FocusResultScreen() {
         if ((await readPendingCelebration())?.date === today) return;
         const stats = await getTodayStats().catch(() => null);
         const goalMin = stats ? stats.focus.goalMinutes : Math.round(userGoalSeconds / 60);
-        const todayMin = Math.max(
-          stats?.focus.todayMinutes ?? 0,
-          Math.floor(todayFocusSeconds / 60),
-        );
+        // 측정 축은 로컬 소유(FocusContext 하루 누적) — KST가 로컬보다 하루 앞선 시각엔 로컬
+        // 누적이 다른 KST 날짜의 몫이라 KST 집계와 합치지 않는다(GROMO-1236 P2 5라운드).
+        // KR 기기는 두 축이 항상 같은 날이라 행동 불변.
+        const localAccumMin = todayStrKst() === today ? Math.floor(todayFocusSeconds / 60) : 0;
+        const todayMin = Math.max(stats?.focus.todayMinutes ?? 0, localAccumMin);
         const achieved =
           goalMin > 0 && ((stats?.focus.goalAchieved ?? false) || todayMin >= goalMin);
         if (!achieved) return;
@@ -317,9 +318,12 @@ export default function FocusResultScreen() {
   // 추정 폴백(응답 도착 전·업로드 실패 시)은 기존대로 — 서버와 로컬 하루 누적(FocusContext,
   // 방금 세션 포함) 중 큰 값을 내림으로 판정. 세션 단건만 보면 '서버 5분+이번 6분' 같은 합산
   // 도달을 업로드 레이스에서 놓친다(PR 227 리뷰). 반올림 금지 — 9분 30초가 10분으로 인정되는 문제.
+  // 측정 축은 로컬 소유 — 축이 갈린 날(로컬≠KST)은 로컬 누적을 KST 셀 값과 합치지 않는다
+  // (목표 판정 이펙트와 동일 게이트, GROMO-1236 P2 5라운드. KR 기기는 항상 동축이라 행동 불변).
+  const localAccumMin = today === todayLocal ? Math.floor(todayFocusSeconds / 60) : 0;
   const todayStreakDone =
     (verdict?.streakQualifiedToday ?? false) ||
-    Math.max(serverToday, Math.floor(todayFocusSeconds / 60)) >= STREAK_MIN_DAILY_MINUTES;
+    Math.max(serverToday, localAccumMin) >= STREAK_MIN_DAILY_MINUTES;
   // 주간 스트릭 완성(GROMO-667) — 월~일 7칸 모두 하루 10분 기준 충족.
   // 미래 요일은 셀이 없어 자동으로 false — 사실상 일요일 세션 완료 시에만 참이 된다.
   const weekStreakComplete =

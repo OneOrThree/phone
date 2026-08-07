@@ -82,11 +82,9 @@ export function CalendarCard({
     const key = p.days[0];
     if (requestedRef.current.has(key)) return;
     requestedRef.current.add(key);
-    const last = p.days[p.days.length - 1];
-    // 페이지 days가 KST 축이 되면서(P2) 미래 방지 클램프도 같은 축 — 1차의 cap(로컬)/anchor(KST)
-    // 분리는 그리드 이전으로 소멸했다. 한 축이라 '집계 기준일 겸용'이 다시 안전하다.
-    const cap = todayStrKst();
-    const anchor = last > cap ? cap : last;
+    // 기준일 = 기간 마지막 날. 이 이펙트는 과거 페이지(offset<=-1)에서만 돌고 페이지가 KST 앵커라
+    // last는 항상 KST 오늘 이전 — 미래 클램프(구 cap/anchor)는 도달 불가여서 제거했다(P2 5라운드).
+    const anchor = p.days[p.days.length - 1];
     getFocusPeriodStats(period, undefined, anchor)
       .then((stats) => {
         if (mountedRef.current)
