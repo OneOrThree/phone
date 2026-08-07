@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import NicknameStep from './NicknameStep';
 import { checkNickname } from '@/services/userApi';
+import { CHECK_DEBOUNCE_MS } from '@/hooks/useNicknameCheck';
 import { INITIAL_ONBOARDING_DATA } from '@/screens/onboarding/types';
 import type { V2OnboardingData } from '@/screens/onboarding/types';
 
@@ -31,8 +32,7 @@ jest.mock('@/services/userApi', () => ({
 
 const mockCheckNickname = checkNickname as jest.MockedFunction<typeof checkNickname>;
 
-// useNicknameCheck의 디바운스와 같은 값 — 가짜 타이머를 이만큼 감아 체크를 발화시킨다.
-const CHECK_DEBOUNCE_MS = 350;
+// 디바운스 값은 useNicknameCheck에서 import — 가짜 타이머를 이만큼 감아 체크를 발화시킨다.
 
 const onNext = jest.fn();
 

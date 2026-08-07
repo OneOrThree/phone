@@ -11,6 +11,7 @@ import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ProfileEditScreen from './ProfileEditScreen';
 import { checkNickname, updateProfile } from '@/services/userApi';
+import { CHECK_DEBOUNCE_MS } from '@/hooks/useNicknameCheck';
 
 // SettingsScaffold가 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
 jest.mock('react-native-safe-area-context', () => ({
@@ -43,8 +44,7 @@ jest.mock('@/services/userApi', () => ({
 const mockCheckNickname = checkNickname as jest.MockedFunction<typeof checkNickname>;
 const mockUpdateProfile = updateProfile as jest.MockedFunction<typeof updateProfile>;
 
-// useNicknameCheck의 디바운스와 같은 값 — 가짜 타이머를 이만큼 감아 체크를 발화시킨다.
-const CHECK_DEBOUNCE_MS = 350;
+// 디바운스 값은 useNicknameCheck에서 import — 가짜 타이머를 이만큼 감아 체크를 발화시킨다.
 
 function axiosErrorWith(status: number): AxiosError {
   const config = { headers: new AxiosHeaders() };
@@ -129,6 +129,35 @@ describe('실시간 중복확인', () => {
     await typeAndSettle('기존닉');
     expect(mockCheckNickname).not.toHaveBeenCalled();
     expect(screen.getByText('2~10자로 정할 수 있어요')).toBeOnTheScreen();
+  });
+
+  test('먼저 보낸 요청이 늦게 도착해도 최신 입력의 판정을 덮지 못한다 — 세대 무효화 회귀', async () => {
+    // 요청 1('첫째닉')은 응답을 붙잡아 두고, 요청 2('둘째닉')는 즉시 available로 응답시킨다.
+    // 네트워크가 순서를 뒤집는 실전 시나리오 — 세대(seq) 무효화가 깨지면 뒤늦게 도착한
+    // 요청 1의 taken이 최신 입력의 '사용 가능해요'를 덮는다(claude 리뷰 제안 회귀 고정).
+    let resolveFirst!: (v: { available: boolean }) => void;
+    mockCheckNickname
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            resolveFirst = res;
+          }),
+      )
+      .mockResolvedValueOnce({ available: true });
+    await renderScreen();
+
+    await typeAndSettle('첫째닉'); // 요청 1 발사 — 응답 보류
+    await typeAndSettle('둘째닉'); // 요청 2 발사 — 즉시 available
+    expect(mockCheckNickname).toHaveBeenNthCalledWith(1, '첫째닉');
+    expect(mockCheckNickname).toHaveBeenNthCalledWith(2, '둘째닉');
+    expect(await screen.findByText('사용 가능해요')).toBeOnTheScreen();
+
+    // 뒤늦게 요청 1이 taken으로 도착 — 최신 판정('둘째닉' 사용 가능)을 덮으면 안 된다.
+    await act(async () => {
+      resolveFirst({ available: false });
+    });
+    expect(screen.getByText('사용 가능해요')).toBeOnTheScreen();
+    expect(screen.queryByText('이미 사용 중인 닉네임이에요')).toBeNull();
   });
 
   test('체크 실패(네트워크·구서버)는 기존 낙관 표시로 폴백한다 — 저장 409가 최종 방어', async () => {

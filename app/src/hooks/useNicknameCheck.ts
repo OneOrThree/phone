@@ -13,7 +13,8 @@ import { checkNickname } from '@/services/userApi';
 export type NicknameCheckStatus = 'idle' | 'checking' | 'available' | 'taken' | 'unknown';
 
 // 검색 화면들(GroupFindSheet·FriendAddScreen)의 디바운스 관례와 같은 값.
-const CHECK_DEBOUNCE_MS = 350;
+// 테스트가 import해 가짜 타이머를 감는다 — 값이 바뀌어도 한 곳만 고치면 된다.
+export const CHECK_DEBOUNCE_MS = 350;
 
 export function useNicknameCheck(nickname: string, enabled: boolean): NicknameCheckStatus {
   const [status, setStatus] = useState<NicknameCheckStatus>('idle');
