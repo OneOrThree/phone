@@ -223,11 +223,16 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
      * 강제한다. 배리어가 열렸다 = 모든 워커가 펜스를 실행 중이다 = 선행 작업이 워커를 점유하고
      * 있지 않다(FIFO 큐라 선행 작업은 펜스보다 먼저 뽑힌다). 카운터(getTaskCount 근사치)도 시간
      * 휴리스틱(during 유지)도 쓰지 않는 정확한 완료 신호다 — GROMO-1228 codex 3라운드.
-     * 전제 2가지: 큐가 포화되면 드롭 정책이 펜스를 버려 타임아웃으로 실패한다(테스트 부하에선
-     * 비현실적), 풀 크기가 바뀌면 maxPoolSize 를 따라간다.
+     * 전제 2가지: ① 큐가 포화되면 드롭 정책이 펜스를 버려 타임아웃으로 실패한다(테스트 부하에선
+     * 비현실적) ② <b>corePoolSize == maxPoolSize</b> — 코어 미만이면 추가 워커는 큐 포화 시에만
+     * 떠서(ThreadPoolExecutor.execute 규칙) 배리어가 영원히 안 열린다. 아래 사전조건 단언이
+     * 풀 설정 변경 시 "원인 불명 10초 타임아웃" 대신 명시적 실패를 준다(claude 리뷰 4라운드).
      */
     private void awaitPushQuiescent() {
         ThreadPoolTaskExecutor pool = (ThreadPoolTaskExecutor) pushExecutor;
+        assertThat(pool.getCorePoolSize())
+                .as("정지 펜스 전제 — 코어 미만 워커는 큐 포화 시에만 떠서 배리어가 못 열린다")
+                .isEqualTo(pool.getMaxPoolSize());
         int workers = pool.getMaxPoolSize();
         CyclicBarrier allWorkersOnFence = new CyclicBarrier(workers);
         List<Future<?>> fences = new ArrayList<>();
