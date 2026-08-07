@@ -251,6 +251,11 @@ export interface LastSettledBetResult {
   nickname: string;
   achieved: boolean | null;
   payout: number | null;
+  // 정산 판정에 쓴 실측 분 — 정산 시점 스냅샷(GROMO-1207, 서버 옵션 C). 3상을 뭉개지 않는다:
+  //   undefined = 필드 자체를 모르는 구서버 — 근거 표기를 **아예 그리지 않는다**(기존 레이아웃 불변)
+  //   null      = 신서버지만 과거 정산분(백필 불가·안 함) — 미집계 '—' 표기
+  //   number    = 실측 분 — '52/60분' 표기(progressFormat 조각)
+  progressMinutes?: number | null;
 }
 
 // 이 챌린지의 가장 최근 정산 내기(카드 하단 '지난 내기' 1줄 + 탭 시 결과 상세).
@@ -260,6 +265,11 @@ export interface LastSettledBet {
   pot: number;
   status: GroupBetStatus;
   results: LastSettledBetResult[];
+  // 정산 시점의 목표 분 스냅샷(GROMO-1207) — 조회 시점의 durationMinutes와 다를 수 있다(목표 수정
+  // 대비 스냅샷이 정본). progressMinutes와 같은 3상: undefined=구서버, null=과거 정산분·목표 없던
+  // 구 창(TIME_WINDOW). 표기에서는 falsy(undefined·null·0)면 분모를 생략한다('52분') —
+  // progressFraction의 규칙 그대로(0 목표는 '72/0분'이라는 읽을 수 없는 표기가 된다, 티켓 1205).
+  goalMinutes?: number | null;
 }
 
 // POST /groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(개설자 자동 참가·판돈 즉시 차감).

@@ -11,12 +11,20 @@
 // 표기 규칙은 Alert 시절 그대로 물려받는다:
 //   · payout은 '받은 금액'이라 그대로 쓰면 판돈 낸 사실이 지워진다 → 손익(payout - stake)으로.
 //   · achieved·payout null(미판정)은 0으로 뭉개지 않는다 — '미판정'으로 따로 적는다(F7).
+// 여기에 참가자별 판정 근거(정산에 쓴 기록/목표 분)를 얹는다(GROMO-1207) — 결과 모달(1191)과
+// 같은 progressFormat 조각을 쓰고, 필드를 모르는 구서버(undefined)에서는 아예 그리지 않는다.
 // 캐릭터는 신규 제작 없이 ChallengeResultModal의 앱 공용 에셋 3종을 재사용한다(GROMO-1087 관행)
 // — 내 결과(달성/미달성/미판정·명단 밖)에 따라 고른다.
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import type { LastSettledBet, LastSettledBetResult } from '@/types/dto/group';
+import {
+  UNMEASURED,
+  progressFraction,
+  progressFractionA11y,
+  unmeasuredA11y,
+} from './progressFormat';
 
 // 'YYYY-MM-DD' → '7월 31일' (ChallengeCard.monthDay와 같은 표기 — 형식이 다르면 원문 유지).
 function monthDay(betDate: string): string {
@@ -63,12 +71,28 @@ function deltaText(r: LastSettledBetResult, stake: number): string {
   return `${delta > 0 ? '+' : ''}${delta}`;
 }
 
+// 판정 근거(정산에 쓴 기록 분) — ChallengeResultModal.minutesText와 **같은 조각**(progressFormat,
+// GROMO-1191의 규칙 그대로): 기록 null → '—'(미집계 — 0으로 뭉개지 않는다), 목표 falsy → 분모 생략.
+// undefined(필드를 모르는 구서버)는 호출 전에 걸러진다 — 근거 표기 자체를 그리지 않는다.
+function basisText(progressMinutes: number | null, goalMinutes: number | null): string {
+  if (progressMinutes === null) return UNMEASURED;
+  return progressFraction(progressMinutes, goalMinutes);
+}
+
 // 행 전체를 한 덩어리로 읽는다 — 따로 읽히면 '—'가 "대시"로 발음돼 미판정이라는 뜻이 사라진다
 // (ChallengeCard.progressA11y와 같은 이유).
-function rowA11y(r: LastSettledBetResult, stake: number): string {
-  if (r.payout === null || r.achieved === null) return `${r.nickname} 미판정`;
+// 근거가 있으면(신서버) 닉네임 자리를 progressFormat의 a11y 조각으로 바꾼다 — 조각이 닉네임을
+// 포함하므로('재영 60분 중 52분') 이름·근거·판정·손익이 한 문장으로 이어진다.
+function rowA11y(r: LastSettledBetResult, stake: number, goalMinutes: number | null): string {
+  const head =
+    r.progressMinutes === undefined
+      ? r.nickname
+      : r.progressMinutes === null
+        ? unmeasuredA11y(r.nickname)
+        : progressFractionA11y(r.nickname, r.progressMinutes, goalMinutes);
+  if (r.payout === null || r.achieved === null) return `${head} 미판정`;
   const delta = r.payout - stake;
-  return `${r.nickname} ${r.achieved ? '달성' : '미달성'}, ${delta >= 0 ? '' : '마이너스 '}${Math.abs(delta)}코인`;
+  return `${head} ${r.achieved ? '달성' : '미달성'}, ${delta >= 0 ? '' : '마이너스 '}${Math.abs(delta)}코인`;
 }
 
 export interface LastBetResultSheetProps {
@@ -84,6 +108,9 @@ export default function LastBetResultSheet({
   onClose,
 }: LastBetResultSheetProps) {
   const banner = statusBanner(lastBet.status);
+  // 분모(목표 분)는 정산 시점 스냅샷 — undefined(구서버)와 null(과거분·구 창)은 표기상 같은
+  // '분모 생략'이라 여기서 null로 합친다. 근거 행 자체의 렌더 여부는 progressMinutes가 가른다.
+  const goalMinutes = lastBet.goalMinutes ?? null;
   const myResult = myUserId ? lastBet.results.find((r) => r.userId === myUserId) : undefined;
   const character =
     myResult === undefined || myResult.achieved === null || myResult.payout === null
@@ -144,12 +171,19 @@ export default function LastBetResultSheet({
               key={r.userId}
               style={[s.row, isMe && s.rowMe]}
               accessible
-              accessibilityLabel={rowA11y(r, lastBet.stake)}
+              accessibilityLabel={rowA11y(r, lastBet.stake, goalMinutes)}
               testID={`group.bet.result.row.${r.userId}`}
             >
               <Text style={[s.nickname, isMe && s.nicknameMe]} numberOfLines={1}>
                 {r.nickname}
               </Text>
+              {/* 판정 근거(기록/목표 분, GROMO-1207) — undefined는 필드를 모르는 구서버라
+               **아예 그리지 않는다**(기존 레이아웃 그대로). 결과 모달(1191)과 같은 조각·같은 결. */}
+              {r.progressMinutes !== undefined && (
+                <Text style={s.basis} testID={`group.bet.result.basis.${r.userId}`}>
+                  {basisText(r.progressMinutes, goalMinutes)}
+                </Text>
+              )}
               <Text
                 style={[
                   s.verdict,
@@ -237,6 +271,9 @@ const s = StyleSheet.create({
   rowMe: { backgroundColor: T.accentBg, borderRadius: 8 },
   nickname: { ...T.text.caption, fontWeight: '600', color: T.inkSub, flex: 1 },
   nicknameMe: { color: T.accentDeep, fontWeight: '700' },
+  // 판정 근거 분 — 결과 모달 memberMinutes와 같은 결(보조 캡션·tabular-nums). 판정 라벨보다
+  // 흐리게 둔다 — 근거는 판정을 보조하는 숫자지 그 자체가 결론이 아니다.
+  basis: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, fontVariant: ['tabular-nums'] },
   verdict: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
   verdictDone: { color: T.successInk },
   verdictPending: { color: T.inkFaint, fontWeight: '500' },

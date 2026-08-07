@@ -113,6 +113,64 @@ describe('인별 결과 행', () => {
   });
 });
 
+// 판정 근거(GROMO-1207) — 정산에 쓴 기록/목표 분. 결과 모달(1191)과 같은 progressFormat 조각.
+// 3상: undefined(구서버)=미렌더 · null(과거 정산분)='—' 미집계 · number='52/60분'.
+describe('판정 근거(기록/목표 분)', () => {
+  test('실측 분 + 목표 분이면 기록/목표를 적고 행 라벨에 근거가 들어간다', async () => {
+    await renderSheet({
+      goalMinutes: 60,
+      results: [
+        { userId: 'u1', nickname: '재영', achieved: true, payout: 45, progressMinutes: 72 },
+        { userId: 'u2', nickname: '수빈', achieved: false, payout: 0, progressMinutes: 52 },
+      ],
+    });
+
+    expect(screen.getByText('72/60분')).toBeOnTheScreen();
+    expect(screen.getByText('52/60분')).toBeOnTheScreen();
+    // 행 전체가 한 덩어리 라벨 — 이름·근거·판정·손익이 한 문장으로 읽힌다.
+    expect(screen.getByLabelText('재영 60분 중 72분 달성, 15코인')).toBeOnTheScreen();
+    expect(screen.getByLabelText('수빈 60분 중 52분 미달성, 마이너스 30코인')).toBeOnTheScreen();
+  });
+
+  test('기록 null(과거 정산분·미집계)은 —로 적고 음성은 "아직 집계되지 않음"으로 읽는다', async () => {
+    await renderSheet({
+      goalMinutes: 60,
+      results: [
+        { userId: 'u1', nickname: '재영', achieved: false, payout: 0, progressMinutes: null },
+      ],
+    });
+
+    expect(screen.getByTestId('group.bet.result.basis.u1')).toHaveTextContent('—');
+    // '—'를 "대시"로 읽지 않게 — unmeasuredA11y 문구가 행 라벨에 들어간다.
+    expect(
+      screen.getByLabelText('재영 아직 집계되지 않음 미달성, 마이너스 30코인'),
+    ).toBeOnTheScreen();
+  });
+
+  test('목표 분이 null(목표 없던 구 창)이면 분모를 지어내지 않고 기록 분만 적는다', async () => {
+    await renderSheet({
+      goalMinutes: null,
+      results: [
+        { userId: 'u1', nickname: '재영', achieved: true, payout: 45, progressMinutes: 52 },
+      ],
+    });
+
+    expect(screen.getByText('52분')).toBeOnTheScreen();
+    expect(screen.queryByText('52/0분')).toBeNull();
+    expect(screen.getByLabelText('재영 52분 달성, 15코인')).toBeOnTheScreen();
+  });
+
+  test('undefined(필드를 모르는 구서버)면 근거 행을 아예 그리지 않는다 — 기존 레이아웃 그대로', async () => {
+    await renderSheet(); // 기본 픽스처엔 progressMinutes·goalMinutes가 없다(구서버 응답)
+
+    expect(screen.queryByTestId('group.bet.result.basis.u1')).toBeNull();
+    expect(screen.queryByTestId('group.bet.result.basis.u2')).toBeNull();
+    expect(screen.queryByTestId('group.bet.result.basis.u3')).toBeNull();
+    // 행 라벨도 기존 문장 그대로 — 근거 조각이 끼어들지 않는다.
+    expect(screen.getByLabelText('재영 달성, 15코인')).toBeOnTheScreen();
+  });
+});
+
 describe('상태 배너(승자 0명의 결말)', () => {
   test('REFUNDED면 전원 환불을 못 박는다 — 손익 0이 "잃었다"로 읽히지 않게', async () => {
     await renderSheet({
