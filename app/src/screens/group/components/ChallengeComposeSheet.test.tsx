@@ -22,7 +22,7 @@ import { createChallenge } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { todayStr } from '@/utils/localDate';
 import { nowSecondsInZone } from '@/utils/challengeTime';
-import type { CreateChallengeResponse, MissionCategory } from '@/types/dto/group';
+import type { CreateChallengeResponse } from '@/types/dto/group';
 
 // SheetShell이 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
 jest.mock('react-native-safe-area-context', () => ({
@@ -87,11 +87,11 @@ function axiosErrorWith(status: number, code?: string): AxiosError {
   });
 }
 
-async function renderSheet(existing: (MissionCategory | ExistingChallengeCombo)[] = []) {
+async function renderSheet(existing: ExistingChallengeCombo[] = []) {
   const result = await render(
     <ChallengeComposeSheet
       groupId={GROUP_ID}
-      existingCategories={existing}
+      existingCombos={existing}
       onClose={onClose}
       onCreated={onCreated}
     />,
@@ -613,16 +613,41 @@ describe('이미 있는 조합', () => {
     expect(mockCreateChallenge).not.toHaveBeenCalled();
   });
 
-  // 현재 부모(GroupRoomScreen — A3 전유)는 카테고리 문자열만 넘긴다 — 구 만들기 경로가
-  // DURATION만 만들었으므로 DURATION 점유로 해석한다(오독은 서버 CHALLENGE_DUPLICATE가 받는다).
-  test('하위 호환: 카테고리 문자열은 DURATION 점유로 해석한다', async () => {
-    await renderSheet(['FOCUS']);
+  // 그룹 생성이 챌린지를 만들지 않게 된 뒤(D18)로 '창형만 있는 카테고리'가 실제로 생긴다 —
+  // 예전 문자열 하위 호환(카테고리 = DURATION 점유 해석)이 남아 있으면 이 경우 매트릭스가
+  // 100% 반전됐다(되는 매일 목표가 잠기고, 409가 확정된 시간대가 열린다 — GROMO-1222).
+  test('창형만 있는 카테고리는 매일 목표가 열려 초기 선택으로 오고 제출된다', async () => {
+    await renderSheet([{ category: 'FOCUS', type: 'TIME_WINDOW' }]);
     await press('만들기');
 
-    // FOCUS×매일 목표가 차 있다고 보고, 비어 있는 FOCUS×시간대로 초기 선택이 온다.
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
-      expect.objectContaining({ missionCategory: 'FOCUS', missionType: 'TIME_WINDOW' }),
+      expect.objectContaining({ missionCategory: 'FOCUS', missionType: 'DURATION' }),
+    );
+  });
+
+  test('두 카테고리 모두 창형만 있으면 매일 목표는 양쪽 다 열려 있다', async () => {
+    await renderSheet([
+      { category: 'FOCUS', type: 'TIME_WINDOW' },
+      { category: 'SCREEN_TIME', type: 'TIME_WINDOW' },
+    ]);
+
+    // 초기 선택은 비어 있는 FOCUS×매일 목표 — 방식 세그먼트가 잠겨 있지 않다.
+    expect(screen.getByTestId('group.challenge.type.DURATION')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: false, selected: true }),
+    );
+    // 스크린타임으로 바꿔도 매일 목표는 열려 있다 — 점유된 것은 창형뿐이다.
+    await press('스크린타임');
+    expect(screen.getByTestId('group.challenge.type.DURATION')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: false, selected: true }),
+    );
+
+    await press('만들기');
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ missionCategory: 'SCREEN_TIME', missionType: 'DURATION' }),
     );
   });
 });

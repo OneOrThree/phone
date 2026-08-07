@@ -22,6 +22,7 @@ import {
   groupErrorCode,
 } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import { todayStr } from '@/utils/localDate';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/types/dto/group';
@@ -83,11 +84,12 @@ const CATEGORY_CAPTION: Record<MissionCategory, string> = {
 };
 
 // 시간대(TIME_WINDOW) 안내 — 계약이 문구까지 고정한 두 줄(contract.md §2 앱 UI 계약).
-// FOCUS 창은 판정에 5분 관용치가 있고(서버 WINDOW_FOCUS_TOLERANCE), SCREEN_TIME 창은
+// FOCUS 창은 판정에 5분 관용치가 있고(서버 WINDOW_FOCUS_TOLERANCE_MINUTES), SCREEN_TIME 창은
 // 15분 눈금 측정이라 오차·누락이 구조적으로 존재한다 — 돈이 걸릴 수 있는 판정 기준이라
 // 만들기 전에 고지한다.
-const WINDOW_FOCUS_CAPTION =
-  '매일 정한 시간대 안에서 목표 시간 이상 집중하면 달성이에요. 목표에서 5분 모자라도 달성으로 인정돼요';
+// 관용치 문장은 progressFormat의 WINDOW_FOCUS_TOLERANCE_NOTICE를 합성한다(GROMO-1224) —
+// 결과 모달의 고지와 글자 하나까지 같아야 하는 문장이라 소스를 하나만 둔다.
+const WINDOW_FOCUS_CAPTION = `매일 정한 시간대 안에서 목표 시간 이상 집중하면 달성이에요. ${WINDOW_FOCUS_TOLERANCE_NOTICE}`;
 const WINDOW_SCREEN_TIME_CAPTION =
   '매일 정한 시간대 안에서 스크린타임을 목표 이하로 유지하면 달성이에요. ' +
   '권한을 허용한 멤버만 참여해요. ' +
@@ -128,8 +130,9 @@ function createErrorMessage(e: unknown): string {
       return '사라진 그룹이에요.';
     case 'MEMBER_ONLY':
       return '그룹원만 이용할 수 있어요.';
-    // 그룹 생성이 대표 챌린지를 항상 하나 만들기 때문에 이 충돌은 예외가 아니라 기본 상태다 —
-    // 공통 문구로 떨어뜨리면 "다시 시도"를 반복해도 영원히 같은 실패만 본다.
+    // 그룹 생성은 더는 챌린지를 만들지 않는다(D18) — 그래도 목록 조회 뒤 다른 방장이 같은
+    // 조합을 먼저 만드는 레이스에선 매트릭스를 뚫고 이 409가 온다. 공통 문구로 떨어뜨리면
+    // "다시 시도"를 반복해도 영원히 같은 실패만 보므로 전용 분기를 유지한다.
     // ACTIVE_CHALLENGE_EXISTS(구서버)와 CHALLENGE_DUPLICATE(V20 유니크 인덱스)는 같은 사실이다.
     case 'ACTIVE_CHALLENGE_EXISTS':
     case CHALLENGE_DUPLICATE:
@@ -171,15 +174,11 @@ export interface ExistingChallengeCombo {
 
 export interface ChallengeComposeSheetProps {
   groupId: string;
-  // 이 그룹에 이미 있는(ACTIVE) 챌린지 — 부모가 challenges에서 파생해 넘긴다.
-  // 서버가 카테고리×방식 중복을 409(CHALLENGE_DUPLICATE)로 막으므로, 애초에 실패할 조합을
-  // 고를 수 없게 한다.
-  // ⚠️ 하위 호환 유니온: 현재 부모(GroupRoomScreen — A3 전유라 이 배치에서 못 바꾼다)는
-  //    카테고리 문자열만 넘긴다. 문자열은 {category, type: 'DURATION'}으로 해석한다 —
-  //    구 만들기 경로가 DURATION만 만들었기 때문이다. 이 해석이 틀리는 경우(창형만 있는
-  //    카테고리)는 서버 CHALLENGE_DUPLICATE 분기가 받아 낸다. 부모가 조합 객체를 넘기기
-  //    시작하면(후속 1줄) 매트릭스가 정확해진다.
-  existingCategories: (MissionCategory | ExistingChallengeCombo)[];
+  // 이 그룹에 이미 있는(ACTIVE) 챌린지의 (카테고리, 방식) 조합 — 부모(GroupRoomScreen)가
+  // challenges에서 파생해 넘긴다. 서버의 중복 판정 단위가 정확히 이 조합이다 —
+  // (그룹, 카테고리, 방식) 기준 V20 부분 유니크 인덱스 uq_group_challenges_active_cat_type이
+  // 409(CHALLENGE_DUPLICATE)로 막으므로, 애초에 실패할 조합을 고를 수 없게 매트릭스를 잠근다.
+  existingCombos: ExistingChallengeCombo[];
   onClose: () => void;
   // 생성 성공 — 부모가 시트를 닫고 챌린지 목록을 재조회한다.
   onCreated: () => void;
@@ -187,16 +186,12 @@ export interface ChallengeComposeSheetProps {
 
 export default function ChallengeComposeSheet({
   groupId,
-  existingCategories,
+  existingCombos,
   onClose,
   onCreated,
 }: ChallengeComposeSheetProps) {
-  // 조합 매트릭스로 정규화 — 문자열(구 부모)은 DURATION 점유로 해석한다(위 prop 주석).
-  const takenCombos = existingCategories.map(
-    (e): ExistingChallengeCombo => (typeof e === 'string' ? { category: e, type: 'DURATION' } : e),
-  );
   const isTaken = (category: MissionCategory, type: MissionType): boolean =>
-    takenCombos.some((c) => c.category === category && c.type === type);
+    existingCombos.some((c) => c.category === category && c.type === type);
   const categoryFullyTaken = (category: MissionCategory): boolean =>
     TYPE_OPTIONS.every((t) => isTaken(category, t.value));
   // 만들 수 있는 조합이 하나도 없다 — 세그먼트를 전부 잠그고 CTA도 막는다.
@@ -424,7 +419,7 @@ export default function ChallengeComposeSheet({
           );
         })}
       </View>
-      {takenCombos.length > 0 && (
+      {existingCombos.length > 0 && (
         <Text style={s.takenCaption}>{allTaken ? ALL_TAKEN_CAPTION : TAKEN_CAPTION}</Text>
       )}
 

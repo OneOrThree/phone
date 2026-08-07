@@ -692,11 +692,13 @@ export default function GroupRoomScreen({
   const members = detail?.members ?? [];
   const noticeList = notices ?? [];
   const challengeList = challenges ?? [];
-  // 만들기 시트가 '이미 있는 종류'를 못 고르게 하는 근거 — 서버는 같은 카테고리의 ACTIVE 챌린지가
-  // 있으면 409로 튕긴다. 종료된 챌린지는 다시 만들 수 있으므로 ACTIVE만 센다.
-  const existingCategories = challengeList
+  // 만들기 시트가 '이미 있는 (카테고리, 방식) 조합'을 못 고르게 하는 근거 — 서버의 중복 판정
+  // 단위가 이 조합이다(V20 부분 유니크 인덱스 — 같은 조합의 ACTIVE가 있으면 409). 카테고리만
+  // 넘기면 창형만 있는 카테고리에서 매트릭스가 반전된다(GROMO-1222 — 되는 매일 목표가 잠기고
+  // 409가 확정된 시간대가 열린다). 종료된 챌린지는 다시 만들 수 있으므로 ACTIVE만 센다.
+  const existingCombos = challengeList
     .filter((c) => c.status === 'ACTIVE')
-    .map((c) => c.missionCategory);
+    .map((c) => ({ category: c.missionCategory, type: c.missionType }));
   // 섹션 실패 표시는 '한 번도 못 받음'뿐 아니라 '빈 목록 + 갱신 실패'에도 세운다 —
   // 빈 상태 문구가 뜨면 서버 상태를 못 받았다는 사실이 화면에서 완전히 사라진다.
   const noticeFailed = noticeError && noticeList.length === 0;
@@ -816,7 +818,7 @@ export default function GroupRoomScreen({
         <View style={s.sectionHead}>
           <Text style={s.sectionTitle}>챌린지</Text>
           {/* 조회 실패 중에는 이 진입점도 함께 막는다 — 아래 빈 상태의 '만들기'만 막으면
-              existingCategories가 빈 배열인 채로 시트가 열려, 서버에 이미 있는 종류를 고를 수
+              existingCombos가 빈 배열인 채로 시트가 열려, 서버에 이미 있는 조합을 고를 수
               있게 되고 생성은 ACTIVE_CHALLENGE_EXISTS로 확정 실패한다. */}
           {isOwner && !challengeFailed && (
             <TouchableOpacity
@@ -955,7 +957,7 @@ export default function GroupRoomScreen({
       {composeOpen && !inviteOpen && (
         <ChallengeComposeSheet
           groupId={groupId}
-          existingCategories={existingCategories}
+          existingCombos={existingCombos}
           onClose={() => setComposeOpen(false)}
           onCreated={() => {
             // 전환 전 그룹의 시트가 늦게 완료를 알리면 무시 — 새 그룹의 시트 상태를 건드리거나
