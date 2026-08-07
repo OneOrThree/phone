@@ -68,14 +68,6 @@ public class CurrencyLedgerService {
         return true;
     }
 
-    /**
-     * 현재 잔액. 지급·차감을 수행한 트랜잭션이 응답에 잔액 정본을 실을 때 쓴다(GROMO-1049) —
-     * 앱이 별도 조회로 잔액을 다시 물으면 그 스냅샷이 지급 전인지 후인지 알 수 없어 경합이 생긴다.
-     */
-    public int balanceOf(User user) {
-        return wallet(user).getBalance();
-    }
-
     private boolean alreadyApplied(CurrencyTransactionType type, String idempotencyKey) {
         if (!currencyTransactionRepository.existsByIdempotencyKey(idempotencyKey)) {
             return false;

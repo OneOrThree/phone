@@ -1,8 +1,6 @@
 // focus 도메인 API 래퍼 (FocusController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, getUserIdFromToken } from '@/services/api';
-import { STORAGE_KEYS } from '@/types/storage';
+import { api } from '@/services/api';
 import type {
   FocusTagResponse,
   FocusTagSetupRequest,
@@ -50,49 +48,12 @@ export async function deleteFocusTag(tagId: string): Promise<void> {
   await api.delete(`/api/v1/tag/${tagId}`);
 }
 
-// 세션 저장을 앱 전역에서 **한 번에 하나씩** 보내는 체인(GROMO-1049).
-//
-// 응답의 balanceAfter 는 '그 트랜잭션 시점'의 잔액이라 순서가 뒤바뀌면 오래된 값이 최신을 덮는다 —
-// 백그라운드 리플레이가 여러 블록 경계를 한꺼번에 정산하면 저장이 동시에 떠 응답이 역순으로 올 수
-// 있다(코덱스 리뷰 P1). 요청을 직렬화하면 응답 순서가 곧 커밋 순서라 역전 자체가 성립하지 않는다.
-// 세션 저장은 블록당 1회로 드물어 직렬화 비용이 무시할 만하다.
-let saveChain: Promise<unknown> = Promise.resolve();
-
-// 지금 로그인된 계정(JWT sub). 저장이 체인에서 대기하는 동안 계정이 바뀌었는지 판별하는 데 쓴다.
-async function currentAccountId(): Promise<string | null> {
-  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-  return token ? getUserIdFromToken(token) : null;
-}
-
-// 계정이 바뀌어 전송을 취소했을 때 던진다 — 호출부는 이 실패를 받아 **저장을 시작한 계정**으로
-// 대기열에 넣는다(그래야 나중에 그 계정으로만 올라간다).
-export class FocusSaveAccountChangedError extends Error {
-  constructor() {
-    super('세션 저장 취소 — 대기 중 계정이 전환됨');
-    this.name = 'FocusSaveAccountChangedError';
-  }
-}
-
 // POST /api/v1/focus-session — 집중 세션 저장. 응답은 그날 누적·스트릭 서버 판정(GROMO-806).
-// 앞선 저장이 끝난 뒤에 보낸다(위 saveChain) — 실패해도 체인은 이어진다.
-//
-// ownerUserId: 이 저장을 시작한 계정. 직렬화 때문에 전송까지 대기가 생기는데, 그 사이 계정이
-// 바뀌면 api 인터셉터가 **전송 시점의 토큰**을 붙여 옛 계정의 세션·보상이 새 계정에 커밋된다
-// (코덱스 리뷰 P1). 전송 직전에 대조해 다르면 보내지 않는다.
-export function saveFocusSession(
+export async function saveFocusSession(
   body: FocusSessionRequest,
-  ownerUserId: string | null,
 ): Promise<FocusSessionSaveResponse> {
-  const run = saveChain.then(async () => {
-    if ((await currentAccountId()) !== ownerUserId) {
-      throw new FocusSaveAccountChangedError();
-    }
-    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
-    return data;
-  });
-  // 체인은 실패해도 끊기지 않게 삼키고, 호출자에겐 실패를 그대로 전파한다.
-  saveChain = run.catch(() => {});
-  return run;
+  const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
+  return data;
 }
 
 // POST /api/v1/focus-session/start — 라이브 세션 시작(진행 중 레코드 생성, GROMO-873).
