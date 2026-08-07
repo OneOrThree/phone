@@ -68,6 +68,8 @@ class GroupChallengeV28MigrationTest {
         // V19 전체 유니크는 이름으로 드롭됐고, 대체 인덱스가 dbml 과 같은 이름으로 존재한다.
         assertThat(constraintExists(jdbcTemplate, "uq_group_challenge_bets_challenge_bet_date")).isFalse();
         assertThat(indexExists(jdbcTemplate, "uq_group_challenge_bets_challenge_bet_date_active")).isTrue();
+        // 휴면 이력 조회(challenge_id IN, CANCELED 포함)용 일반 인덱스 — 부분 유니크로는 못 탄다.
+        assertThat(indexExists(jdbcTemplate, "idx_group_challenge_bets_challenge_id")).isTrue();
     }
 
     @Test
@@ -98,6 +100,35 @@ class GroupChallengeV28MigrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertDuration(jdbcTemplate, insertChallenge(jdbcTemplate), 0))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("범위 밖 기존 행(999999·0)이 있어도 V28 은 실패하지 않고 경계값(1440·1)으로 클램프한다")
+    void clampsOutOfRangeDurationsBeforeAddingCheck() {
+        // V27 까지만 올린 스키마에 상한 없는 시절의 버그 데이터를 재현한다 — plain CHECK 는 기존 행을
+        // 즉시 검증하므로, 클램프가 없으면 V28 이 여기서 실패해 배포(부팅)가 막힌다.
+        migrate(MigrationVersion.fromVersion("27"));
+        JdbcTemplate jdbcTemplate = jdbcTemplate();
+        insertGroupAndUser(jdbcTemplate);
+        UUID tooBig = insertChallenge(jdbcTemplate);
+        UUID tooSmall = insertChallenge(jdbcTemplate);
+        UUID inRange = insertChallenge(jdbcTemplate);
+        insertDuration(jdbcTemplate, tooBig, 999_999);
+        insertDuration(jdbcTemplate, tooSmall, 0);
+        insertDuration(jdbcTemplate, inRange, 60);
+
+        migrate();
+
+        // 초과 목표는 어차피 달성 불가능한 버그 데이터 — 삭제(상세 유실) 대신 경계값으로 보존한다.
+        assertThat(durationOf(jdbcTemplate, tooBig)).isEqualTo(1440);
+        assertThat(durationOf(jdbcTemplate, tooSmall)).isEqualTo(1);
+        assertThat(durationOf(jdbcTemplate, inRange)).isEqualTo(60);
+    }
+
+    private Integer durationOf(JdbcTemplate jdbcTemplate, UUID challengeId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT duration_minutes FROM group_challenge_durations WHERE challenge_id = ?",
+                Integer.class, challengeId);
     }
 
     private boolean constraintExists(JdbcTemplate jdbcTemplate, String name) {
@@ -144,10 +175,14 @@ class GroupChallengeV28MigrationTest {
     }
 
     private void migrate() {
+        migrate(MigrationVersion.LATEST);
+    }
+
+    private void migrate(MigrationVersion target) {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
-                .target(MigrationVersion.LATEST)
+                .target(target)
                 .load()
                 .migrate();
     }

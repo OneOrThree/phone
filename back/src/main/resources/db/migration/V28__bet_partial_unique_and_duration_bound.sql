@@ -20,9 +20,21 @@ CREATE UNIQUE INDEX uq_group_challenge_bets_challenge_bet_date_active
     ON public.group_challenge_bets (challenge_id, bet_date)
     WHERE status <> 'CANCELED';
 
+-- 휴면 배지(dormant) 이력 조회용 — "이 챌린지에 내기가 한 번이라도 있었나"(status 무관, CANCELED
+-- 포함)를 challenge_id IN 으로 묻는다. 부분 유니크는 CANCELED 를 빼고, (status, bet_date)는
+-- challenge_id 선두가 아니라 어느 쪽도 못 탄다 — 그래서 일부러 partial 이 아닌 일반 인덱스다.
+CREATE INDEX idx_group_challenge_bets_challenge_id
+    ON public.group_challenge_bets (challenge_id);
+
 -- ── 2) 일 목표분 상한 CHECK ──────────────────────────────────────────
--- plain CHECK 는 기존 행도 즉시 검증한다 — dev DB 는 리셋 가능이라 범위 밖 행 정리는 하지 않는다
--- (forward-only 수용). 하한 1 도 함께 명시해 창 목표분 CHECK(V20)와 같은 성격의 가드로 둔다.
+-- CHECK 추가 전에 범위 밖 기존 행을 경계값으로 클램프한다 — plain CHECK 는 기존 행을 즉시
+-- 검증하므로, 위반 행이 하나라도 있으면 이 마이그레이션이 실패해 배포(부팅)가 막힌다.
+-- 1440 초과 목표는 어차피 달성 불가능한 버그 데이터라 상한 클램프가 의미 보존에 가장 가깝다
+-- (삭제하면 챌린지 상세가 유실돼 조회가 깨진다).
+UPDATE public.group_challenge_durations SET duration_minutes = 1440 WHERE duration_minutes > 1440;
+UPDATE public.group_challenge_durations SET duration_minutes = 1 WHERE duration_minutes < 1;
+
+-- 하한 1 도 함께 명시해 창 목표분 CHECK(V20)와 같은 성격의 가드로 둔다.
 ALTER TABLE public.group_challenge_durations
     ADD CONSTRAINT group_challenge_durations_duration_minutes_check
         CHECK (duration_minutes BETWEEN 1 AND 1440);

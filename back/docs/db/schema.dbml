@@ -428,6 +428,7 @@ Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 
 
   indexes {
     (challenge_id, bet_date) [unique, name: 'uq_group_challenge_bets_challenge_bet_date_active', note: '부분 유니크(WHERE status <> CANCELED) — 비취소 내기는 챌린지당·날짜당 1개, 동시 개설의 최후 방어선. 취소 행은 계수에서 빠져 같은 날짜 재개설을 허용한다(V19 전체 유니크를 V28 에서 교체)']
+    challenge_id [name: 'idx_group_challenge_bets_challenge_id', note: '휴면 배지(dormant) 이력 조회(challenge_id IN, status 무관·CANCELED 포함)용 일반 인덱스 — 부분 유니크는 CANCELED 를 빼고 (status, bet_date)는 선두가 달라 못 탄다. migration V28']
     (status, bet_date) [note: '일 배치(04:00 KST)의 status=OPEN AND bet_date < 오늘 스캔']
   }
 }
