@@ -447,6 +447,28 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("판정 티어는 락으로 잡은 유저 행이 정본 — 낡은 스냅샷 tierLevel 은 무시된다")
+    void settleUsesLockedTierNotSnapshotTier() {
+        User user = saveUser("lockedTierAuthority", 2, false);
+        flushFixtures();
+        Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
+                .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
+        // 교차 주차 레이스의 결정적 재현(라운드4 P1) — 페이지 스냅샷은 tier 1 로 낡았지만,
+        // 그 사이 다른 주차 정산이 커밋한(즉 락으로 다시 읽으면 보이는) 티어는 2 다.
+        LeagueRankingRow staleRow =
+                new LeagueRankingRow(user.getId(), "lockedTierAuthority", 1, 100_800);
+
+        assertThat(leagueUserSettler.settle(staleRow, PREVIOUS_WEEK_START, tierConfigs))
+                .isEqualTo(LeagueUserSettler.SettleOutcome.SETTLED);
+
+        // 스냅샷(tier 1) 기준이면 (1→2)로 남았을 것 — 락 정본(tier 2) 기준 (2→3) 승급이어야 한다.
+        LeagueWeeklyResult result = leagueWeeklyResultRepository
+                .findTopByUserIdOrderByCreatedAtDesc(user.getId()).orElseThrow();
+        assertResult(result, LeagueWeeklyResultType.PROMOTED, 2, 3, 100_800);
+        assertThat(user.getTierLevel()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("settler 2회 호출 — 2회차는 ALREADY_SETTLED 를 반환하고 아무 mutation 도 없다")
     void settlerSecondCallReturnsAlreadySettledWithoutMutation() {
         User user = saveUser("settleTwice", 1, false);
@@ -460,7 +482,7 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
                 .isEqualTo(LeagueUserSettler.SettleOutcome.SETTLED);
         leagueWeeklyResultRepository.flush();
 
-        // 2회차 row 는 1회차가 올린 라이브 tier(2)를 그대로 재현 — 가드가 없으면 2→3 연쇄 승급 경로다.
+        // 2회차 — 가드가 없으면 락으로 읽은 라이브 tier(2)로 다시 굴려 2→3 연쇄 승급이 나는 경로다.
         LeagueRankingRow rerunRow = new LeagueRankingRow(user.getId(), user.getNickname(), 2, 50_400);
         assertThat(leagueUserSettler.settle(rerunRow, PREVIOUS_WEEK_START, tierConfigs))
                 .isEqualTo(LeagueUserSettler.SettleOutcome.ALREADY_SETTLED);
