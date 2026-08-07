@@ -1704,7 +1704,7 @@ class GroupServiceTest {
         GroupMember targetMember = GroupMember.builder().user(target).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
@@ -1737,7 +1737,7 @@ class GroupServiceTest {
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
+        given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
 
@@ -1754,7 +1754,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
-        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
+        given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -1768,7 +1768,7 @@ class GroupServiceTest {
     void transferOwnerGroupNotFound() {
         // given
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
+        given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
@@ -1786,7 +1786,7 @@ class GroupServiceTest {
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findById(TARGET_USER_ID)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());

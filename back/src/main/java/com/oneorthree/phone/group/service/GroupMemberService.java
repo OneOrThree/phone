@@ -40,7 +40,12 @@ public class GroupMemberService {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
 
-        User targetUser = userRepository.findById(targetUserId)
+        // 위임 대상은 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 락 없는 findById 면 대상의 계정
+        // 탈퇴(유저 행 배타 락)와 직렬화되지 않는다. 탈퇴가 owner 검사·멤버십 leave 를 끝낸 뒤 이
+        // 위임이 flush 되면 GroupMember 에 @Version 이 없어 full-row UPDATE 가 is_left=false 를
+        // 되살리며 role=OWNER 를 세워, 탈퇴한 유저가 오너인(그리고 전 오너는 이미 강등된) 그룹이
+        // 남는다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
+        User targetUser = userRepository.findActiveByIdForShare(targetUserId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         Group group = groupRepository.findById(groupId)
