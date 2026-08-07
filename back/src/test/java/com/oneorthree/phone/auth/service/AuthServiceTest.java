@@ -539,6 +539,34 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("판별 재조회가 찾은 소셜 계정이 다른 유저 소유면 자가치유가 아니다 → GUEST_ALREADY_PROMOTED (GROMO-1229 codex R2)")
+    void concurrentPromotionRequeryRejectsForeignAccount() {
+        // 다른-소셜 경쟁의 패자 + 제3의 요청이 같은 (provider, providerId)를 **다른 계정**에 선점한
+        // 조합 — 재조회 결과로 그냥 로그인하면 게스트 데이터가 어디로 승격됐는지 숨긴 채 다른
+        // 계정에 앉히는 조용한 계정 이동이 된다. 소유자(= 승격된 본인)일 때만 자가치유한다.
+        User promotedUser = User.builder().id(GUEST_ID).isGuest(false).build();
+        User foreignUser = User.builder().id(USER_ID).isGuest(false).build();
+        SocialAccount foreignAccount = SocialAccount.builder()
+                .user(foreignUser).provider(Provider.KAKAO).providerId("12345").build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty(), Optional.of(foreignAccount)); // 1차 empty → 재조회는 타인 계정
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.GUEST_ALREADY_PROMOTED);
+        verify(userRepository, never()).save(any(User.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean());
+    }
+
+    @Test
     @DisplayName("guest 클레임 없는 구 토큰은 비게스트로 간주 → 판별 조회 없이 현행 신규 가입 폴백 유지 (GROMO-1229 점진 적용)")
     void legacyTokenWithoutGuestClaimKeepsFallback() {
         User savedUser = User.builder().id(USER_ID).build();

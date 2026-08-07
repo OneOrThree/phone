@@ -236,14 +236,17 @@ public class AuthService {
                             .isPresent()) {
                 // 같은 소셜 동시 승격의 패자는 에러가 아니다 (codex R1) — 메서드 첫 조회 때는 승자의
                 // 커밋 전이라 socialAccount 가 비었지만, 게스트 락 대기를 지나온 지금은 같은
-                // (provider, providerId) 가 승자 손에 붙어 있을 수 있다. 재조회해서 있으면 그 계정
-                // (= 방금 승격된 본인 계정)으로 정상 로그인 — 종전 유니크 위반 → DIVE 재시도가
-                // 만들던 자가치유와 같은 결말이다. 재조회도 비어 있어야 진짜 다른-소셜 경쟁의
-                // 패자이므로 그때만 409 로 끊는다.
-                SocialAccount promotedAccount = socialAccountRepository
+                // (provider, providerId) 가 승자 손에 붙어 있을 수 있다. 재조회해서 **승격된 본인
+                // 계정에 붙어 있으면** 그 계정으로 정상 로그인 — 종전 유니크 위반 → DIVE 재시도가
+                // 만들던 자가치유와 같은 결말이다. 소유자 검증(codex R2): 재조회가 찾은 계정이 다른
+                // 유저 소유면(다른-소셜 패자 + 제3의 요청이 같은 소셜을 다른 계정에 선점) 자가치유가
+                // 아니라 조용한 계정 이동이 된다 — 게스트 데이터가 어디로 승격됐는지 숨긴 채 다른
+                // 계정에 앉히므로, 그 경우도 409 로 알리고 다음 로그인이 정식 present 분기를 타게 한다.
+                user = socialAccountRepository
                         .findByProviderAndProviderId(provider, providerId)
+                        .filter(account -> account.getUser().getId().equals(currentUserId))
+                        .map(SocialAccount::getUser)
                         .orElseThrow(() -> new AuthException(AuthErrorCode.GUEST_ALREADY_PROMOTED));
-                user = promotedAccount.getUser();
                 isNewUser = false;
             } else {
                 User newUser = userRepository.save(User.builder().build());
