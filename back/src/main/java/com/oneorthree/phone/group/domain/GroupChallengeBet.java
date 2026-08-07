@@ -73,6 +73,16 @@ public class GroupChallengeBet {
     @Column(name = "settled_at")
     private Instant settledAt;
 
+    /**
+     * 정산 시점의 목표 분 스냅샷(GROMO-1207) — 결과 표시의 분모. 챌린지 목표는 정산 뒤에도 바뀔 수
+     * 있어 참조가 아니라 값으로 박제한다. 쓰기는 <b>정산 경로만</b> 한다 — CAS 성공 트랜잭션이
+     * {@code GroupChallengeBetRepository.recordGoalMinutes}(벌크 UPDATE)로 기록하며, 엔티티 세터를
+     * 두지 않는 이유는 status 전이 소유권 주석(아래)과 같다. OPEN·CANCELED 와 V29 이전 정산 행은
+     * null 이고, 앱은 null 을 "목표 미기록"으로 그린다.
+     */
+    @Column(name = "goal_minutes")
+    private Integer goalMinutes;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

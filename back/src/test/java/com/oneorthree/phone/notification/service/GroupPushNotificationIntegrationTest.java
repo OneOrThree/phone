@@ -173,7 +173,8 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     private void participant(GroupChallengeBet bet, User user, Boolean achieved, Integer payout) {
         GroupChallengeBetParticipant saved = groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
-        saved.recordSettlement(Boolean.TRUE.equals(achieved), payout == null ? 0 : payout);
+        // 푸시 발송에는 정산 근거(progressMinutes)가 필요 없다 — V29 이전 정산 행과 같은 null 로 둔다.
+        saved.recordSettlement(Boolean.TRUE.equals(achieved), payout == null ? 0 : payout, null);
     }
 
     private List<NotificationSentLog> logsOf(String type, User... users) {

@@ -239,6 +239,11 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         return groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus();
     }
 
+    /** 정산 근거 스냅샷(GROMO-1207) — DB 재조회로 읽는다(정산의 벌크 UPDATE 는 엔티티 캐시를 우회한다). */
+    private Integer goalMinutesOf(GroupChallengeBet bet) {
+        return groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getGoalMinutes();
+    }
+
     private List<GroupChallengeBetParticipant> participantsOf(GroupChallengeBet bet) {
         return groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId()));
     }
@@ -279,12 +284,16 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         groupBetSettlementService.settleDueBets(today, MissionCategory.FOCUS);
 
         assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.SETTLED);
+        // 판정 근거(GROMO-1207)도 창 클리핑 집계값 그대로다 — 카드 진행률과 같은 소스라는 계약의 증거.
         assertThat(participantsOf(bet))
                 .extracting(p -> p.getUser().getId(), GroupChallengeBetParticipant::getAchieved,
-                        GroupChallengeBetParticipant::getPayout)
+                        GroupChallengeBetParticipant::getPayout,
+                        GroupChallengeBetParticipant::getProgressMinutes)
                 .containsExactlyInAnyOrder(
-                        tuple(inTolerance.getId(), true, STAKE * 2),
-                        tuple(outOfTolerance.getId(), false, 0));
+                        tuple(inTolerance.getId(), true, STAKE * 2, GOAL_MINUTES - 5),
+                        tuple(outOfTolerance.getId(), false, 0, GOAL_MINUTES - 6));
+        // 창형의 목표 스냅샷 = 창 내 목표분(V20 duration_minutes).
+        assertThat(goalMinutesOf(bet)).isEqualTo(GOAL_MINUTES);
     }
 
     @Test
@@ -366,13 +375,17 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         groupBetSettlementService.settleDueBets(today, MissionCategory.SCREEN_TIME);
 
         assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.SETTLED);
+        // 판정 근거(GROMO-1207): 미보고(silent)는 0 이 아니라 null 로 남는다 — "0분 사용"과
+        // "미계측"을 구분해야 앱이 '—' 를 그린다. FOCUS 무기록이 0 으로 확정되는 것과 다른 지점.
         assertThat(participantsOf(bet))
                 .extracting(p -> p.getUser().getId(), GroupChallengeBetParticipant::getAchieved,
-                        GroupChallengeBetParticipant::getPayout)
+                        GroupChallengeBetParticipant::getPayout,
+                        GroupChallengeBetParticipant::getProgressMinutes)
                 .containsExactlyInAnyOrder(
-                        tuple(under.getId(), true, STAKE * 3),
-                        tuple(over.getId(), false, 0),
-                        tuple(silent.getId(), false, 0));
+                        tuple(under.getId(), true, STAKE * 3, GOAL_MINUTES),
+                        tuple(over.getId(), false, 0, GOAL_MINUTES + 1),
+                        tuple(silent.getId(), false, 0, null));
+        assertThat(goalMinutesOf(bet)).isEqualTo(GOAL_MINUTES);
     }
 
     @Test

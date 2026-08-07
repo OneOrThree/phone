@@ -4,6 +4,8 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -166,6 +168,61 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     /** CAS 실패(0행) 시 "누가 어떤 상태로 끝냈는지" 를 엔티티 캐시 없이 다시 읽는다. */
     @Query("SELECT b.status FROM GroupChallengeBet b WHERE b.id = :id")
     Optional<GroupBetStatus> findStatusById(@Param("id") UUID id);
+
+    /**
+     * 정산 근거 스냅샷(GROMO-1207) — 정산이 판정에 쓴 목표 분을 내기 행에 박제한다.
+     * {@link #compareAndSetSettled} 에 <b>성공한 트랜잭션만</b> 호출한다 — 이 컬럼의 유일한 쓰기
+     * 지점이다(취소 경로는 근거가 없어 null 그대로 둔다).
+     *
+     * <p>엔티티 세터가 아니라 벌크 UPDATE 인 이유: CAS 뒤의 영속 엔티티는 {@code status} 가 갱신 전
+     * (OPEN) 그대로인데, 세터로 엔티티를 더럽히면 커밋 플러시가 전 컬럼 UPDATE 를 내보내 CAS 가 쓴
+     * 종료 status 를 OPEN 으로 되돌린다 — 돈이 걸린 전이를 지우는 사고라 컨텍스트를 우회한다.
+     */
+    @Modifying
+    @Query("UPDATE GroupChallengeBet b SET b.goalMinutes = :goalMinutes WHERE b.id = :id")
+    void recordGoalMinutes(@Param("id") UUID id, @Param("goalMinutes") int goalMinutes);
+
+    /**
+     * 내기 히스토리 첫 페이지(GROMO-1207) — 챌린지의 정산 결과 3종을 {@code bet_date} 내림차순으로
+     * 슬라이스한다. status 는 호출측이 (SETTLED, REFUNDED, FORFEITED) 를 넘긴다 — CANCELED(취소)는
+     * "없던 일"이라 이력에도 실리지 않는다({@link #findLatestSettledByChallengeIds} 와 같은 규칙).
+     *
+     * <p>커서 유무로 메서드를 가른다 — Focus 세션 선례의 {@code (:cursor IS NULL OR …)} 단일
+     * 쿼리를 날짜 커서에 그대로 쓰면 Postgres 가 홀로 선 {@code ? IS NULL} 파라미터의 타입을
+     * 정하지 못해 실행이 깨진다(could not determine data type). UUID 커서는 Hibernate 가 타입을
+     * 입혀 우연히 통과했을 뿐이라, 여기서는 분기를 쿼리 밖(서비스)으로 꺼낸다.
+     */
+    @Query("SELECT b FROM GroupChallengeBet b WHERE b.challenge.id = :challengeId "
+            + "AND b.status IN :statuses ORDER BY b.betDate DESC")
+    Slice<GroupChallengeBet> findSettledHistoryFirstPage(
+            @Param("challengeId") UUID challengeId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            Pageable pageable);
+
+    /**
+     * 내기 히스토리 다음 페이지(GROMO-1207) — 커서 날짜보다 과거만. 정렬·커서 축이
+     * {@code bet_date} 단독인데도 안전한 이유: V28 부분 유니크가 비취소 내기를 챌린지당·날짜당
+     * 1개로 보장해 이 결과 집합에는 동률이 없다 — tie-break 컬럼 없이 strict {@code <} 만으로
+     * 결정적이다({@code FocusSessionRepository.findSessionsByCursor} 선례).
+     */
+    @Query("SELECT b FROM GroupChallengeBet b WHERE b.challenge.id = :challengeId "
+            + "AND b.status IN :statuses AND b.betDate < :cursorDate "
+            + "ORDER BY b.betDate DESC")
+    Slice<GroupChallengeBet> findSettledHistoryAfterCursor(
+            @Param("challengeId") UUID challengeId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("cursorDate") LocalDate cursorDate,
+            Pageable pageable);
+
+    /**
+     * 히스토리 커서 해석 — 커서(직전 페이지 마지막 항목의 betId)가 <b>이 챌린지의</b> 내기일 때만
+     * 그 {@code bet_date} 를 돌려준다. 챌린지 스코프를 함께 거는 이유는 남의 챌린지 내기 id 를
+     * 커서로 넘겨 임의 날짜 필터를 만드는 것을 막기 위해서다.
+     */
+    @Query("SELECT b.betDate FROM GroupChallengeBet b WHERE b.id = :id AND b.challenge.id = :challengeId")
+    Optional<LocalDate> findBetDateByIdAndChallengeId(
+            @Param("id") UUID id,
+            @Param("challengeId") UUID challengeId);
 
     /**
      * 일 배치 대상 — 어제까지의 미정산 내기 id. 엔티티가 아니라 id 만 뽑는 이유는 내기 단위로

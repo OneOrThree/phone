@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.api;
 import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetHistorySliceResponse;
 import com.oneorthree.phone.group.service.GroupBetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -13,15 +14,17 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-@Tag(name = "Group Bet", description = "그룹 챌린지 내기 (개설/참가). 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드")
+@Tag(name = "Group Bet", description = "그룹 챌린지 내기 (개설/참가/히스토리). 현재 판 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -116,5 +119,30 @@ public class GroupBetController {
     ) {
         groupBetService.leaveBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "챌린지 내기 히스토리 조회",
+            description = "챌린지의 정산 완료 내기(SETTLED·REFUNDED·FORFEITED)를 bet_date 내림차순으로"
+                    + " keyset 커서 페이지네이션해 돌려준다. CANCELED(취소)는 '없던 일'이라 실리지 않는다."
+                    + " cursor 는 직전 페이지 마지막 항목의 betId(생략 시 첫 페이지), size 는 1~100."
+                    + " 항목의 goalMinutes·참가자별 progressMinutes 는 정산 시점 판정 근거 스냅샷이며,"
+                    + " 근거 저장 이전(V29 미만) 정산 건은 null 이다(앱은 '—'·분모 생략으로 표시)."
+                    + " 이력은 그룹원 전체가 열람할 수 있다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "조회 성공"),
+        @ApiResponse(responseCode = "400", description = "INVALID_PAGE_REQUEST(size 범위 밖)"),
+        @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+        @ApiResponse(responseCode = "404",
+                description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님)")
+    })
+    @GetMapping("/groups/{groupId}/challenges/{challengeId}/bets")
+    public ResponseEntity<GroupBetHistorySliceResponse> getBetHistory(
+            @PathVariable UUID groupId,
+            @PathVariable UUID challengeId,
+            @RequestParam(required = false) UUID cursor,
+            @RequestParam int size,
+            @LoginUser UUID userId
+    ) {
+        return ResponseEntity.ok(groupBetService.getBetHistory(groupId, challengeId, userId, cursor, size));
     }
 }

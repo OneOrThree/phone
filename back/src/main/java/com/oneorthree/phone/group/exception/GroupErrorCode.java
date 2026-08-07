@@ -12,6 +12,8 @@ public enum GroupErrorCode {
 
     // 잘못된 입력 및 요청
     INVALID_MISSION_PARAMS(HttpStatus.BAD_REQUEST, "미션 파라미터가 유효하지 않습니다."),
+    // 내기 히스토리 페이지네이션(GROMO-1207) — FocusErrorCode.INVALID_PAGE_REQUEST 와 같은 성격.
+    INVALID_PAGE_REQUEST(HttpStatus.BAD_REQUEST, "유효하지 않은 페이지 요청입니다."),
     NOT_FOUND(HttpStatus.NOT_FOUND, "원하는 그룹을 찾을 수 없습니다."),
     WRONG_PASSWORD(HttpStatus.UNAUTHORIZED, "비밀번호가 일치하지 않습니다."),
 
