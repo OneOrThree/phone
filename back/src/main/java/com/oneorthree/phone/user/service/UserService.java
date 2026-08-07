@@ -41,6 +41,7 @@ import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -73,16 +74,19 @@ public class UserService {
     private final GroupBetService groupBetService;
     private final UserActivityEventLogger userActivityEventLogger;
 
+    // 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
+    // 이 상수·헬퍼를 공유해 "체크는 통과했는데 저장은 거절" 같은 어긋남을 막는다.
+    // DTO bean validation 에 기대지 않는 이유: 저장 경로가 둘로 흩어져 있어 어노테이션만으로는
+    // 규칙이 갈라지기 쉽고, 검증 주체를 서비스 한 곳으로 고정하는 편이 안전하다.
+    private static final int NICKNAME_MIN_LENGTH = 2;
+    private static final int NICKNAME_MAX_LENGTH = 10;
+
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        // 닉네임 중복 방지 (GROMO-584) — 사전 검사로 409, 동시 요청 레이스는 DB 유니크 제약이 최종 방어
-        if (userRepository.existsByNicknameAndIdNot(body.getNickname(), userId)) {
-            throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
-        }
-        user.setNickname(body.getNickname());
+        changeNickname(user, body.getNickname());
         if (body.getOccupation() != null) {
             requireActiveOccupation(body.getOccupation());
             user.setOccupation(body.getOccupation());
@@ -106,12 +110,10 @@ public class UserService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
+        // PATCH 의미론 유지 — null 은 "변경 안 함". 빈문자열·공백-only 는 changeNickname 의
+        // 형식 검증(2~10자)이 400 으로 차단한다 (GROMO-1215 — 이전엔 "" 가 그대로 저장되는 구멍).
         if (body.getNickname() != null) {
-            // 본인 제외 중복 검사 — 자기 닉네임 재사용은 허용 (GROMO-584)
-            if (userRepository.existsByNicknameAndIdNot(body.getNickname(), userId)) {
-                throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
-            }
-            user.setNickname(body.getNickname());
+            changeNickname(user, body.getNickname());
         }
         if (body.getCountryCode() != null) {
             user.setCountryCode(body.getCountryCode());
@@ -144,6 +146,56 @@ public class UserService {
             } else {
                 focusSettings.realignEffectiveDate(today);
             }
+        }
+    }
+
+    /**
+     * 닉네임 사용 가능 여부 판정 (GROMO-1215) — 저장 경로(changeNickname)와 같은 규칙을 공유한다.
+     * 형식 위반(trim 후 2~10자 밖·빈문자열·null)은 예외 없이 false 로 답한다 — 앱이 로컬 형식검사를
+     * 선행해 문구를 구분하고, 서버 판정은 중복 여부의 최종 답이라는 계약(항상 200).
+     * 본인 제외(AndIdNot) 조회라 자기 자신의 현재 닉네임은 true — 프로필 편집에서 그대로 저장이
+     * "사용 불가"로 뜨지 않는다. 탈퇴자는 nickname=null 로 즉시 해방되므로(withdraw 의 PII 파기)
+     * 별도 제외 조건이 필요 없고, nickname = ? 동등 비교는 null 행과 매치되지 않아 안전하다.
+     *
+     * @param userId      판정 기준 유저(본인) ID
+     * @param rawNickname 검사할 닉네임 원문(trim 전)
+     * @return 사용 가능하면 true
+     */
+    public boolean isNicknameAvailable(UUID userId, String rawNickname) {
+        String nickname = rawNickname == null ? "" : rawNickname.trim();
+        if (!hasValidNicknameLength(nickname)) {
+            return false;
+        }
+        return !userRepository.existsByNicknameAndIdNot(nickname, userId);
+    }
+
+    private static boolean hasValidNicknameLength(String trimmedNickname) {
+        return trimmedNickname.length() >= NICKNAME_MIN_LENGTH
+                && trimmedNickname.length() <= NICKNAME_MAX_LENGTH;
+    }
+
+    /**
+     * 닉네임 변경의 단일 저장 경로 (GROMO-1215) — setup(POST)·update(PATCH)가 함께 쓴다.
+     * ① 형식(trim 후 2~10자) 위반 → 400 NICKNAME_INVALID
+     * ② 본인 제외 사전 중복 검사 → 409 NICKNAME_DUPLICATE (GROMO-584)
+     * ③ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname 유니크 제약 위반을
+     * flush 시점에 잡아 같은 409 NICKNAME_DUPLICATE 로 강하한다(GroupChallengeService 의
+     * saveAndFlush catch 선례). 커밋 시점까지 미루면 전역 폴백(DATA_INTEGRITY_VIOLATION)으로
+     * 새어 클라이언트가 원인을 구분할 수 없다.
+     */
+    private void changeNickname(User user, String rawNickname) {
+        String nickname = rawNickname == null ? "" : rawNickname.trim();
+        if (!hasValidNicknameLength(nickname)) {
+            throw new UserException(UserErrorCode.NICKNAME_INVALID);
+        }
+        if (userRepository.existsByNicknameAndIdNot(nickname, user.getId())) {
+            throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
+        }
+        user.setNickname(nickname);
+        try {
+            userRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
         }
     }
 

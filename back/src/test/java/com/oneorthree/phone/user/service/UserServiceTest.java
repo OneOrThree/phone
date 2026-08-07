@@ -51,6 +51,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDate;
 import java.time.Instant;
@@ -65,6 +66,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -316,6 +318,165 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
+    // ── 닉네임 규칙·중복확인 (GROMO-1215) ──────────────────────────────────
+
+    @Test
+    @DisplayName("닉네임 체크 — 미사용 닉네임 → available=true, trim 후 본인 제외로 조회")
+    void nicknameCheckAvailable() {
+        given(userRepository.existsByNicknameAndIdNot("새닉네임", USER_ID)).willReturn(false);
+
+        assertThat(userService.isNicknameAvailable(USER_ID, " 새닉네임 ")).isTrue();
+
+        // trim 된 값으로, 본인(userId) 제외 조건으로 조회했는지 — 저장 경로와 같은 규칙
+        verify(userRepository).existsByNicknameAndIdNot("새닉네임", USER_ID);
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 타인이 쓰는 닉네임 → available=false")
+    void nicknameCheckDuplicateUnavailable() {
+        given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
+
+        assertThat(userService.isNicknameAvailable(USER_ID, "남의닉")).isFalse();
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 자기 자신의 현재 닉네임 → available=true (본인 행 제외라 중복 아님)")
+    void nicknameCheckSelfNicknameAvailable() {
+        // 프로필 편집에서 자기 닉네임 그대로 저장이 "사용 불가"로 뜨면 안 된다 —
+        // existsByNicknameAndIdNot 이 본인 행을 제외하므로 false 가 온다.
+        given(userRepository.existsByNicknameAndIdNot("내닉네임", USER_ID)).willReturn(false);
+
+        assertThat(userService.isNicknameAvailable(USER_ID, "내닉네임")).isTrue();
+
+        verify(userRepository).existsByNicknameAndIdNot("내닉네임", USER_ID);
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 형식 위반(1자·11자·공백-only·null) → DB 조회 없이 available=false")
+    void nicknameCheckFormatViolationsUnavailable() {
+        assertThat(userService.isNicknameAvailable(USER_ID, "가")).isFalse();
+        assertThat(userService.isNicknameAvailable(USER_ID, "가".repeat(11))).isFalse();
+        assertThat(userService.isNicknameAvailable(USER_ID, "   ")).isFalse();
+        assertThat(userService.isNicknameAvailable(USER_ID, null)).isFalse();
+
+        verify(userRepository, never()).existsByNicknameAndIdNot(any(), any());
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 경계값 2자·10자는 형식 통과 → 중복 검사까지 진행")
+    void nicknameCheckBoundaryLengthsValid() {
+        given(userRepository.existsByNicknameAndIdNot("가나", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameAndIdNot("가".repeat(10), USER_ID)).willReturn(false);
+
+        assertThat(userService.isNicknameAvailable(USER_ID, "가나")).isTrue();
+        assertThat(userService.isNicknameAvailable(USER_ID, "가".repeat(10))).isTrue();
+    }
+
+    @Test
+    @DisplayName("셋업 — 닉네임은 trim 되어 저장된다 (검사 규칙과 저장 값 일치)")
+    void setupProfileTrimsNickname() {
+        User user = User.builder().id(USER_ID).build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
+
+        userService.setupProfile(USER_ID, new UserProfileSetupRequest(" 조재영 ", null, 120, 90, "KR"));
+
+        assertThat(user.getNickname()).isEqualTo("조재영");
+    }
+
+    @Test
+    @DisplayName("셋업 — 형식 위반 닉네임(1자) → NICKNAME_INVALID, 중복 검사·저장 안 함")
+    void setupProfileInvalidNicknameRejected() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.setupProfile(
+                USER_ID, new UserProfileSetupRequest("가", null, 120, 90, "KR")))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_INVALID);
+        assertThat(user.getNickname()).isNull();
+        verify(userRepository, never()).existsByNicknameAndIdNot(any(), any());
+    }
+
+    @Test
+    @DisplayName("PATCH — 빈문자열 닉네임 → NICKNAME_INVALID, 기존 닉네임 유지 (회귀: 이전엔 \"\" 가 저장됐다)")
+    void updateProfileEmptyNicknameBlocked() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest("", null, null, null)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_INVALID);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
+    }
+
+    @Test
+    @DisplayName("PATCH — 공백-only 닉네임 → NICKNAME_INVALID, 기존 닉네임 유지")
+    void updateProfileBlankNicknameBlocked() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest("   ", null, null, null)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_INVALID);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
+    }
+
+    @Test
+    @DisplayName("PATCH — 11자 닉네임 → NICKNAME_INVALID (검사 API 와 같은 상한)")
+    void updateProfileTooLongNicknameBlocked() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest("가".repeat(11), null, null, null)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_INVALID);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
+    }
+
+    @Test
+    @DisplayName("PATCH — 사전 검사 통과 후 유니크 제약 위반(TOCTOU 레이스) → NICKNAME_DUPLICATE 로 강하")
+    void updateProfileToctouRaceDegradesToNicknameDuplicate() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
+        // 체크와 저장 사이에 다른 유저가 같은 닉네임을 커밋 → flush 에서 uq_users_nickname 위반
+        willThrow(new DataIntegrityViolationException("uq_users_nickname"))
+                .given(userRepository).flush();
+
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest("경합닉", null, null, null)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
+    }
+
+    @Test
+    @DisplayName("셋업 — 유니크 제약 위반(TOCTOU 레이스) → NICKNAME_DUPLICATE 로 강하")
+    void setupProfileToctouRaceDegradesToNicknameDuplicate() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
+        willThrow(new DataIntegrityViolationException("uq_users_nickname"))
+                .given(userRepository).flush();
+
+        assertThatThrownBy(() -> userService.setupProfile(
+                USER_ID, new UserProfileSetupRequest("경합닉", null, 120, 90, "KR")))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_DUPLICATE);
     }
 
     // ── withdraw ──────────────────────────────────────────────────────────
