@@ -27,6 +27,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
@@ -51,6 +52,44 @@ class UserControllerTest {
 
     @MockitoBean
     private UserService userService;
+
+    @Test
+    @DisplayName("닉네임 체크 GET → 200 {available:true}, 로그인 유저 기준 판정 (GROMO-1215)")
+    void checkNicknameReturnsAvailableTrue() throws Exception {
+        given(userService.isNicknameAvailable(LOGIN_USER_ID, "멋진닉")).willReturn(true);
+
+        mockMvc.perform(get("/api/v1/users/nickname/check")
+                        .param("nickname", "멋진닉")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 중복/형식 위반도 200 {available:false} (4xx 분기 없음)")
+    void checkNicknameReturnsAvailableFalseWith200() throws Exception {
+        given(userService.isNicknameAvailable(LOGIN_USER_ID, "가")).willReturn(false);
+
+        mockMvc.perform(get("/api/v1/users/nickname/check")
+                        .param("nickname", "가")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — 파라미터 누락도 200 {available:false} (항상 200 계약)")
+    void checkNicknameMissingParamStillReturns200() throws Exception {
+        given(userService.isNicknameAvailable(eq(LOGIN_USER_ID), isNull())).willReturn(false);
+
+        mockMvc.perform(get("/api/v1/users/nickname/check")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andDo(print());
+    }
 
     @Test
     @DisplayName("디바이스 토큰 등록 성공 → 204")
