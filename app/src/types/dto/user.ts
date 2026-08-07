@@ -115,6 +115,12 @@ export interface UserProfileResponse {
   nightEndTime?: string; // 'HH:mm'
 }
 
+// GET /users/nickname/check 응답 — 닉네임 사용 가능 여부(GROMO-1215).
+// 항상 200 — 형식 위반(trim 후 2~10자 밖)도 available=false로 온다(별도 4xx 없음).
+export interface NicknameCheckResponse {
+  available: boolean;
+}
+
 // GET /users/me/social-links 응답 — 연동된 소셜 계정.
 export interface SocialLinkResponse {
   provider: string; // Provider enum 명칭

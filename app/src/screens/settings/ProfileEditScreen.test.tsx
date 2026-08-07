@@ -1,0 +1,175 @@
+// ProfileEditScreen(프로필 편집) 닉네임 실시간 중복확인 테스트 — GROMO-1215.
+//
+// 이 화면의 계약:
+//  1) 형식(2~10자) 통과 + 현재값과 다른 입력만 디바운스(350ms) 후 checkNickname을 부른다.
+//  2) available=true → '사용 가능해요', false → '이미 사용 중인 닉네임이에요'.
+//  3) 확인 실패(네트워크·구서버 404)는 기존 낙관 표시('사용 가능해요')로 폴백한다.
+//  4) 저장 409(NICKNAME_DUPLICATE)는 계속 Alert로 정확히 안내한다(GROMO-639 무회귀) —
+//     체크 응답이 stale해도 이 경로가 최종 방어다.
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Alert } from 'react-native';
+import { AxiosError, AxiosHeaders } from 'axios';
+import ProfileEditScreen from './ProfileEditScreen';
+import { checkNickname, updateProfile } from '@/services/userApi';
+
+// SettingsScaffold가 useSafeAreaInsets를 쓴다 — 테스트 트리엔 SafeAreaProvider가 없어 고정값으로 대체한다.
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
+}));
+
+const mockGoBack = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ goBack: mockGoBack }),
+}));
+
+const mockSetNickname = jest.fn();
+// 원본 닉네임 홀더 — 테스트가 바꿔 끼울 수 있게 mutable로 둔다(BetSheet 패턴).
+const mockUser = { nickname: '기존닉' as string | null, setNickname: mockSetNickname };
+jest.mock('@/store/UserContext', () => ({
+  useUser: () => mockUser,
+}));
+
+// expo-localization 네이티브 모듈 회피 — 국가코드는 전송 바디 검증에만 쓴다.
+jest.mock('@/utils/deviceLocale', () => ({
+  getDeviceCountryCode: () => 'KR',
+}));
+
+jest.mock('@/services/userApi', () => ({
+  checkNickname: jest.fn(),
+  updateProfile: jest.fn(),
+}));
+
+const mockCheckNickname = checkNickname as jest.MockedFunction<typeof checkNickname>;
+const mockUpdateProfile = updateProfile as jest.MockedFunction<typeof updateProfile>;
+
+// useNicknameCheck의 디바운스와 같은 값 — 가짜 타이머를 이만큼 감아 체크를 발화시킨다.
+const CHECK_DEBOUNCE_MS = 350;
+
+function axiosErrorWith(status: number): AxiosError {
+  const config = { headers: new AxiosHeaders() };
+  return new AxiosError('request failed', 'ERR_BAD_REQUEST', config, null, {
+    status,
+    statusText: '',
+    headers: {},
+    config,
+    data: { code: 'NICKNAME_DUPLICATE', message: '...' },
+  });
+}
+
+// RTL v14의 render는 async다 — 반드시 await한다.
+async function renderScreen() {
+  const result = await render(<ProfileEditScreen />);
+  await act(async () => {});
+  return result;
+}
+
+// 닉네임을 치고 디바운스가 지나 체크가 발화할 때까지 기다린다(GroupFindSheet 패턴).
+async function typeAndSettle(text: string) {
+  await act(async () => {
+    fireEvent.changeText(screen.getByPlaceholderText('닉네임을 입력해 주세요'), text);
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(CHECK_DEBOUNCE_MS);
+  });
+}
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  jest.clearAllMocks();
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockUser.nickname = '기존닉';
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+describe('실시간 중복확인', () => {
+  test('디바운스가 지나야 체크를 부르고, available이면 사용 가능해요를 띄운다', async () => {
+    mockCheckNickname.mockResolvedValue({ available: true });
+    await renderScreen();
+
+    await act(async () => {
+      fireEvent.changeText(screen.getByPlaceholderText('닉네임을 입력해 주세요'), '새닉네임');
+    });
+    // 디바운스 전 — 아직 부르지 않고 '확인 중…'만 보인다.
+    await act(async () => {
+      jest.advanceTimersByTime(CHECK_DEBOUNCE_MS - 1);
+    });
+    expect(mockCheckNickname).not.toHaveBeenCalled();
+    expect(screen.getByText('확인 중…')).toBeOnTheScreen();
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(mockCheckNickname).toHaveBeenCalledWith('새닉네임');
+    expect(await screen.findByText('사용 가능해요')).toBeOnTheScreen();
+  });
+
+  test('available=false면 이미 사용 중 문구를 띄운다', async () => {
+    mockCheckNickname.mockResolvedValue({ available: false });
+    await renderScreen();
+
+    await typeAndSettle('중복닉');
+    expect(await screen.findByText('이미 사용 중인 닉네임이에요')).toBeOnTheScreen();
+  });
+
+  test('형식 위반(2자 미만)은 서버 호출 없이 로컬 문구가 뜬다', async () => {
+    await renderScreen();
+
+    await typeAndSettle('새');
+    expect(mockCheckNickname).not.toHaveBeenCalled();
+    expect(screen.getByText('2~10자로 입력해 주세요')).toBeOnTheScreen();
+  });
+
+  test('현재값과 같은 입력은 체크하지 않는다', async () => {
+    await renderScreen();
+
+    await typeAndSettle('기존닉');
+    expect(mockCheckNickname).not.toHaveBeenCalled();
+    expect(screen.getByText('2~10자로 정할 수 있어요')).toBeOnTheScreen();
+  });
+
+  test('체크 실패(네트워크·구서버)는 기존 낙관 표시로 폴백한다 — 저장 409가 최종 방어', async () => {
+    mockCheckNickname.mockRejectedValue(new Error('network down'));
+    await renderScreen();
+
+    await typeAndSettle('새닉네임');
+    expect(mockCheckNickname).toHaveBeenCalled();
+    expect(await screen.findByText('사용 가능해요')).toBeOnTheScreen();
+  });
+});
+
+describe('저장 409 경로(무회귀)', () => {
+  test('저장이 409로 실패하면 이미 사용 중 Alert를 띄운다 — 체크가 stale해도 최종 방어', async () => {
+    // 체크는 통과(available)했지만 저장 시점엔 이미 선점된 경우.
+    mockCheckNickname.mockResolvedValue({ available: true });
+    mockUpdateProfile.mockRejectedValue(axiosErrorWith(409));
+    await renderScreen();
+
+    await typeAndSettle('새닉네임');
+    await act(async () => {
+      fireEvent.press(screen.getByText('검사 및 저장'));
+    });
+
+    expect(mockUpdateProfile).toHaveBeenCalledWith({ nickname: '새닉네임', countryCode: 'KR' });
+    expect(Alert.alert).toHaveBeenCalledWith('저장 실패', '이미 사용 중인 닉네임이에요');
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockSetNickname).not.toHaveBeenCalled();
+  });
+
+  test('저장 성공이면 컨텍스트 반영 후 뒤로 간다', async () => {
+    mockCheckNickname.mockResolvedValue({ available: true });
+    mockUpdateProfile.mockResolvedValue(undefined);
+    await renderScreen();
+
+    await typeAndSettle('새닉네임');
+    await act(async () => {
+      fireEvent.press(screen.getByText('검사 및 저장'));
+    });
+
+    expect(mockSetNickname).toHaveBeenCalledWith('새닉네임');
+    expect(mockGoBack).toHaveBeenCalled();
+  });
+});
