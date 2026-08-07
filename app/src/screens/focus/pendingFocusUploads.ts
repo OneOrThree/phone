@@ -70,16 +70,23 @@ let flushing = false;
 //
 // 3단계 구조: (1) 락 안에서 스냅샷 읽기 → (2) 락 밖에서 업로드 시도 →
 // (3) 락 안에서 큐를 다시 읽어(그 사이 enqueue된 새 항목 보존) 처리된 항목만 빼고 재저장.
-export async function flushPendingFocusUploads(currentUserId: string | null): Promise<void> {
-  if (flushing) return;
+//
+// 반환값: 이 flush 로 커밋된 저장의 **잔액 정본**(마지막 성공 응답의 balanceAfter). 커밋한 게
+// 없거나 구버전 서버라 값이 없으면 null. 호출자(PendingFocusUploader)가 화면 잔액에 반영한다 —
+// 대기열이 늦게 커밋한 지급이 다음 잔액 조회 전까지 화면에 안 나타나던 문제(GROMO-1049).
+export async function flushPendingFocusUploads(
+  currentUserId: string | null,
+): Promise<number | null> {
+  if (flushing) return null;
   flushing = true;
+  let lastBalanceAfter: number | null = null;
   try {
     // 1단계 — 스냅샷 읽기 (락 안)
     let snapshot: PendingFocusUpload[] = [];
     await serialize(async () => {
       snapshot = await readQueue();
     });
-    if (snapshot.length === 0) return;
+    if (snapshot.length === 0) return null;
 
     // 2단계 — 업로드 시도 (락 밖). 성공(제거)·폐기 대상을 직렬화 문자열로 수집하고,
     // 실패분은 수집하지 않아 큐에 남긴다.
@@ -94,13 +101,17 @@ export async function flushPendingFocusUploads(currentUserId: string | null): Pr
         continue;
       }
       try {
-        await saveFocusSession(item.body);
+        const res = await saveFocusSession(item.body);
+        // 이 저장으로 서버 잔액이 바뀌었다 — 정본을 들고 나가 호출자가 화면에 반영하게 한다
+        // (GROMO-1049). 예전엔 응답을 버려서, 대기열이 늦게 커밋한 지급이 다음 잔액 조회
+        // 전까지 화면에 안 나타났다. 여러 건이면 마지막(가장 최신) 값이 정본이다.
+        if (typeof res?.balanceAfter === 'number') lastBalanceAfter = res.balanceAfter;
         settled.push(JSON.stringify(item)); // 성공 — 제거
       } catch {
         // 실패 — 유지, 다음 flush에서 재시도
       }
     }
-    if (settled.length === 0) return;
+    if (settled.length === 0) return lastBalanceAfter;
 
     // 3단계 — 재조정 (락 안). 내용이 같은 중복 항목은 처리한 개수만큼만 제거한다.
     await serialize(async () => {
@@ -114,6 +125,7 @@ export async function flushPendingFocusUploads(currentUserId: string | null): Pr
       });
       await writeQueue(next);
     });
+    return lastBalanceAfter;
   } finally {
     flushing = false;
   }

@@ -809,6 +809,32 @@ class FocusServiceTest {
         assertThat(response.awardedCoins()).isEqualTo(59);
     }
 
+    /**
+     * GROMO-1049: 응답에 <b>지급까지 반영된 잔액 정본</b>을 싣는다.
+     *
+     * <p>앱은 저장 응답을 기다리는 동안 화면 잔액을 미리 올리는데(낙관 가산), 그때 떠 있던
+     * {@code GET /currency} 응답이 지급 전 스냅샷인지 후인지 앱이 알 수 없어 낙관분이 지워지거나
+     * 이중으로 더해졌다. 지급을 수행한 이 트랜잭션이 잔액을 함께 주면 앱은 추측할 필요가 없다.</p>
+     */
+    @Test
+    @DisplayName("세션 저장 응답에 지급 후 잔액 정본(balanceAfter)을 싣는다")
+    void saveFocusSessionReturnsBalanceAfter() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder().id(SESSION_ID).build());
+        // 지급이 반영된 뒤의 원장 잔액
+        given(currencyLedgerService.balanceOf(user)).willReturn(1059);
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 30);
+
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        assertThat(response.balanceAfter()).isEqualTo(1059);
+    }
+
     @Test
     @DisplayName("집중 60초(1분) 미만 세션 저장 → 코인 미지급(credit 미호출) + awardedCoins=0")
     void saveFocusSessionShortSessionNoAward() {
@@ -1186,6 +1212,63 @@ class FocusServiceTest {
         verify(dailyFocusStatRepository).save(captor.capture());
         assertThat(captor.getValue().getTotalFocusSeconds()).isEqualTo(60 * 60);
         assertThat(captor.getValue().isFocusTimeGoalAchieved()).isTrue();
+    }
+
+    /**
+     * T4-2(GROMO-1049): 거대 목표에서도 짧은 세션이 '달성'으로 뒤집히지 않는다.
+     *
+     * <p>goal*60 을 int 로 곱하면 Integer.MAX_VALUE 목표가 -60 으로 랩어라운드해
+     * {@code 3600 >= -60} 이 성립, 60분 세션이 '무한대 목표 달성'이 됐다. long 승격으로 막는다.
+     * (입력 상한 @Max(1440) 이 새 값은 막지만, 이미 저장된 값·다른 경로 방어는 판정 쪽에 있어야 한다.)</p>
+     */
+    @Test
+    @DisplayName("T4-2: goal=Integer.MAX_VALUE → 60분 세션이 달성으로 판정되지 않는다(오버플로 방어)")
+    void saveFocusStat_hugeGoal_doesNotOverflowIntoAchieved() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(Integer.MAX_VALUE).build();
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        assertThat(captor.getValue().isFocusTimeGoalAchieved()).isFalse();
+    }
+
+    /**
+     * T4-3(GROMO-1049): 목표를 바꾼 뒤에도 그날(statDate)에 유효했던 목표로 판정한다.
+     *
+     * <p>어제 목표 120분 → 오늘 60분으로 변경한 상태에서 어제 날짜 세션(60분)이 올라오면,
+     * 현재 목표(60)로 판정하면 달성이지만 어제 기준(120)으로는 미달성이어야 한다.</p>
+     */
+    @Test
+    @DisplayName("T4-3: 목표 변경 후 어제 세션 → 어제 목표(120분)로 판정해 미달성")
+    void saveFocusStat_usesGoalEffectiveOnStatDate() {
+        User user = User.builder().id(USER_ID).build();
+        LocalDate statDate = LocalDate.of(2026, 6, 23);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(statDate)))
+                .willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        // 어제(6/23)까지 목표 120분 → 오늘(6/24) 60분으로 변경
+        UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(120).build();
+        settings.changeGoal(60, LocalDate.of(2026, 6, 24));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        // 6/23 60분 세션 — 현재 목표(60)로는 달성, 어제 목표(120)로는 미달성
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        assertThat(captor.getValue().isFocusTimeGoalAchieved()).isFalse();
     }
 
     /** T5: UserFocusTimeSettings row 없음(목표 미설정) → 예외 없이 정상 완료, focusGoalAchieved=false 유지 */

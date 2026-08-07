@@ -56,6 +56,11 @@ export interface FocusSessionSaveResponse {
   // 이 세션으로 집중 목표를 처음 달성했을 때의 보너스 지급액(전이 없으면 0, GROMO-1039) —
   // 같은 저장 트랜잭션의 서버 지급이라 잔액 정정 시 awardedCoins와 합산해 반영한다.
   goalRewardCoins?: number;
+  // 이 저장 트랜잭션 반영 후 **잔액 정본**(GROMO-1049). 지급이 0이어도 현재 잔액이 실린다.
+  // 이 값이 있으면 낙관 가산·차액 계산 없이 그대로 세팅하면 된다 — 앱이 잔액을 따로 조회하면
+  // 그 응답이 지급 전 스냅샷인지 후인지 알 수 없어 낙관분이 지워지거나 이중으로 더해진다.
+  // ⚠️ optional — 구버전 서버는 이 필드가 없어, 없으면 기존 차액 정정으로 폴백한다.
+  balanceAfter?: number;
 }
 
 // GET /focus-session content 항목 — 집중 세션 단건.

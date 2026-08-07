@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -43,6 +44,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -87,13 +89,14 @@ public class UserService {
             user.setCountryCode(body.getCountryCode());
         }
 
+        LocalDate today = todayOf(user);
         UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        screenSettings.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+        screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
 
         UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        focusSettings.setDailyFocusTimeGoalMinutes(body.getDailyFocusTimeGoalMinutes());
+        focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
     }
 
     @Transactional
@@ -112,16 +115,42 @@ public class UserService {
             user.setCountryCode(body.getCountryCode());
         }
 
-        if (body.getDailyScreenTimeGoalMinutes() != null) {
+        // 날짜는 한 번만 구해 두 설정에 같은 값을 넘긴다(코드리뷰) — 각자 todayOf 를 부르면
+        // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
+        // 다른 쪽은 직전 목표로 판정된다. 국가 변경을 먼저 반영한 뒤 계산하는 것도 setupProfile 과 동일.
+        LocalDate today = todayOf(user);
+        // 국가가 바뀌면 목표를 안 바꿔도 발효일을 새 로컬 오늘로 맞춘다(코드리뷰) — 목표 필드가
+        // 빠진 국가-only PATCH 에서는 changeGoal 이 아예 안 불려, 로컬 날짜가 뒤로 갈 때(KR→GB)
+        // 발효일이 미래로 남고 새 로컬 오늘이 직전 목표로 판정된다.
+        // 정렬은 realignEffectiveDate 로 한다 — changeGoal 을 현재값으로 부르면 previous 가 현재값으로
+        // 덮여 진짜 직전 목표가 사라진다(코드리뷰 후속).
+        boolean countryChanged = body.getCountryCode() != null;
+        if (body.getDailyScreenTimeGoalMinutes() != null || countryChanged) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            screenSettings.setDailyScreenTimeGoalMinutes(body.getDailyScreenTimeGoalMinutes());
+            if (body.getDailyScreenTimeGoalMinutes() != null) {
+                screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
+            } else {
+                screenSettings.realignEffectiveDate(today);
+            }
         }
-        if (body.getDailyFocusTimeGoalMinutes() != null) {
+        if (body.getDailyFocusTimeGoalMinutes() != null || countryChanged) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            focusSettings.setDailyFocusTimeGoalMinutes(body.getDailyFocusTimeGoalMinutes());
+            if (body.getDailyFocusTimeGoalMinutes() != null) {
+                focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
+            } else {
+                focusSettings.realignEffectiveDate(today);
+            }
         }
+    }
+
+    /**
+     * 목표 이력(GROMO-1049)의 기준일 — 유저 country_code 파생 존의 오늘.
+     * 지급·판정이 유저 로컬 날짜 버킷을 쓰므로 발효일도 같은 기준이어야 어긋나지 않는다.
+     */
+    private LocalDate todayOf(User user) {
+        return LocalDate.now(CountryZoneResolver.resolve(user.getCountryCode()));
     }
 
     @Transactional
@@ -224,18 +253,22 @@ public class UserService {
 
     @Transactional
     public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        settings.setDailyScreenTimeGoalMinutes(dailyScreenTimeGoalMinutes);
+        settings.changeGoal(dailyScreenTimeGoalMinutes, todayOf(user));
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
     }
 
     @Transactional
     public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        settings.setDailyFocusTimeGoalMinutes(dailyFocusTimeGoalMinutes);
+        settings.changeGoal(dailyFocusTimeGoalMinutes, todayOf(user));
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
     }

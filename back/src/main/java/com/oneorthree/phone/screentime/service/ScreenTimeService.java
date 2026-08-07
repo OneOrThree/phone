@@ -147,8 +147,9 @@ public class ScreenTimeService {
      * 스크린타임 목표 달성 지급(GROMO-395) — 목표 달성 false→true 전이 순간 1회. 사용 상한(분)이 빡셀수록
      * 큰 금액을 산정하고 멱등키 {@code stGoal:{userId}:{date}}(날짜별 1회) 로 정산 트랜잭션에 함께 기입한다.
      *
-     * <p>상한은 현재 설정({@link UserScreenTimeSettings#getDailyScreenTimeGoalMinutes()})을 쓴다 — 달성 판정은
-     * 클라(당시 목표)를 신뢰하지만 서버는 과거 날짜의 당시 상한을 몰라 현재값으로 근사한다. 상한 미설정(≤0)이면
+     * <p>상한은 <b>그날 유효했던 목표</b>({@link UserScreenTimeSettings#goalMinutesOn(LocalDate)})를 쓴다
+     * (GROMO-1049) — 달성 판정은 클라(당시 목표)를 신뢰하는데 금액만 현재값으로 산정하면 목표를 바꾼 뒤
+     * 앱이 보여준 금액과 실제 지급액이 어긋난다. 이력이 없는 유저는 현재값으로 근사한다. 상한 미설정(≤0)이면
      * 지급하지 않는다(공식은 0 을 최상위 구간으로 처리하므로 미설정 유저 과지급을 막기 위한 가드).
      */
     private void creditScreenTimeGoal(User user, LocalDate date) {
@@ -163,7 +164,7 @@ public class ScreenTimeService {
             return;
         }
         int limitMinutes = userScreenTimeSettingsRepository.findById(user.getId())
-                .map(UserScreenTimeSettings::getDailyScreenTimeGoalMinutes)
+                .map(s -> s.goalMinutesOn(date))
                 .orElse(0);
         if (limitMinutes <= 0) {
             return;

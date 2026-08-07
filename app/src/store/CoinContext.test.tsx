@@ -28,7 +28,12 @@ let refreshFn: () => Promise<boolean> = async () => false;
 // 렌더를 거치지 않고 읽는 '지금 이 순간의 버전' — 비동기 콜백(BetSheet의 400 처리)이 쓰는 값이다.
 let latestVersionFn: () => number = () => 0;
 let addCoinsFn: (amount: number) => void = () => {};
-let reconcileFn: (optimisticAmount: number, awardedCoins: number | undefined) => void = () => {};
+let reconcileFn: (
+  optimisticAmount: number,
+  awardedCoins: number | undefined,
+  balanceAfter?: number,
+) => void = () => {};
+let applyServerBalanceFn: (balance: number) => void = () => {};
 let buyItemFn: (itemId: string, price: number) => Promise<boolean> = async () => false;
 
 function Probe() {
@@ -40,12 +45,14 @@ function Probe() {
     refresh,
     addCoins,
     reconcileSessionAward,
+    applyServerBalance,
     buyItem,
   } = useCoins();
   refreshFn = refresh;
   latestVersionFn = latestCoinsVersion;
   addCoinsFn = addCoins;
   reconcileFn = reconcileSessionAward;
+  applyServerBalanceFn = applyServerBalance;
   buyItemFn = buyItem;
   return (
     <>
@@ -259,6 +266,167 @@ describe('refresh', () => {
 // 민팅 악용 벡터라 서버가 no-op으로 폐쇄했고, 지급은 세션 저장 트랜잭션이 수행한다.
 // 여기서 잠그는 것: ① addCoins가 서버를 다시 부르기 시작하지 않는다(낙관 가산만),
 // ② 저장 응답의 awardedCoins(서버 정본) 유/무 분기 — 있으면 그 값으로 정정, 없으면 낙관 유지.
+// 서버가 지급 트랜잭션 안에서 계산한 잔액 정본(balanceAfter, GROMO-1049).
+// 이 값이 오면 '진행 중이던 조회의 스냅샷이 지급 전인가 후인가'를 추측할 필요가 없다 —
+// 그 추측으로 풀려던 네 갈래(응답 폐기 / 델타 가산 / 미확정분 누수 / 큐 경로)가 전부 사라진다.
+describe('잔액 정본(balanceAfter)', () => {
+  test('정본이 오면 낙관 가산·차액과 무관하게 그 값으로 확정된다', async () => {
+    mockGet.mockResolvedValue({ data: 100 } as never);
+    await renderProvider();
+
+    await act(async () => {
+      addCoinsFn(7); // 낙관 107
+      // 서버는 이 세션에 9를 지급했고 잔액은 109다 — 낙관치(7)·차액과 무관하게 109여야 한다.
+      reconcileFn(7, 9, 109);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('109');
+    expect(screen.getByTestId('loaded')).toHaveTextContent('yes');
+  });
+
+  // 지급 전 스냅샷이 늦게 도착하는 순서 — 예전에는 이게 낙관분을 지웠다.
+  test('정본 확정 전에 시작된 조회는 지급 전 잔액을 들고 와도 무시된다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    let pendingA: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      pendingA = refreshFn();
+    });
+
+    await act(async () => {
+      addCoinsFn(7);
+      reconcileFn(7, 7, 107); // 정본 확정
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    await act(async () => {
+      finishA({ data: 100 }); // 지급 전 스냅샷 — 버려야 한다
+      await expect(pendingA).resolves.toBe(false);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  // 지급 후 스냅샷이 늦게 도착하는 순서 — 예전에는 이게 이중 가산을 만들었다.
+  test('정본 확정 전에 시작된 조회가 지급 후 잔액을 들고 와도 이중 가산되지 않는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    await act(async () => {
+      refreshFn();
+    });
+
+    await act(async () => {
+      addCoinsFn(7);
+      reconcileFn(7, 7, 107);
+    });
+
+    await act(async () => {
+      finishA({ data: 107 });
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  // 콜드 스타트 — 마운트 조회가 끝나기 전에 고아 정산이 정본을 들고 온다.
+  test('콜드 스타트 — 마운트 조회 완료 전에 정본이 와도 그 값으로 확정된다', async () => {
+    let finishMount: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishMount = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    await render(
+      <CoinProvider>
+        <Probe />
+      </CoinProvider>,
+    );
+
+    await act(async () => {
+      addCoinsFn(7);
+      reconcileFn(7, 7, 107);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+
+    // 마운트 조회가 이제야 지급 전 잔액을 들고 도착 — 기저 손실도 이중 가산도 없어야 한다.
+    await act(async () => {
+      finishMount({ data: 100 });
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('107');
+  });
+
+  // 대기열이 늦게 커밋한 지급 — 정정 맥락 없이 잔액만 맞춘다.
+  test('applyServerBalance는 정본을 그대로 싣고 진행 중 조회를 무효화한다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 100 } as never);
+    await renderProvider();
+
+    let finishA: (v: { data: number }) => void = () => {};
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishA = resolve as (v: { data: number }) => void;
+        }) as never,
+    );
+    await act(async () => {
+      refreshFn();
+    });
+
+    await act(async () => {
+      applyServerBalanceFn(142); // 큐가 커밋한 저장의 잔액 정본
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('142');
+
+    await act(async () => {
+      finishA({ data: 100 });
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('142');
+  });
+
+  // 소비자(PendingFocusUploader)가 effect 의존성에 넣는다 — 매 렌더 새로 만들어지면 코인 상태가
+  // 바뀔 때마다 대기열 flush 가 다시 돌아, 실패분 재전송이 '앱 시작·포그라운드 복귀'라는 원래
+  // 트리거를 벗어난다(코덱스 리뷰). 큐에 최대 50건이 쌓여 있으면 그만큼 재전송이 반복된다.
+  test('applyServerBalance 는 리렌더에도 같은 함수 참조를 유지한다', async () => {
+    mockGet.mockResolvedValue({ data: 100 } as never);
+    await renderProvider();
+    const first = applyServerBalanceFn;
+
+    // 코인 상태를 바꿔 리렌더를 유발한다.
+    await act(async () => {
+      addCoinsFn(7);
+    });
+    expect(applyServerBalanceFn).toBe(first);
+
+    await act(async () => {
+      applyServerBalanceFn(200);
+    });
+    expect(applyServerBalanceFn).toBe(first);
+  });
+
+  test('정본이 없으면(구버전 서버) 기존 차액 정정으로 폴백한다', async () => {
+    mockGet.mockResolvedValue({ data: 100 } as never);
+    await renderProvider();
+
+    await act(async () => {
+      addCoinsFn(7);
+      reconcileFn(7, 9, undefined);
+    });
+    expect(screen.getByTestId('coins')).toHaveTextContent('109');
+  });
+});
+
 describe('세션 보상 — 서버 지급 전환', () => {
   test('addCoins는 낙관 가산만 하고 /currency/earn을 호출하지 않는다', async () => {
     mockGet.mockResolvedValue({ data: 100 } as never);

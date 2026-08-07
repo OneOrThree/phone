@@ -37,7 +37,6 @@ import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
-import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserStreakService;
@@ -283,7 +282,9 @@ public class FocusService {
                     userId, body.getStartedAt(), body.getEndedAt());
             int dayTotal = dailyFocusStatRepository.findByUserAndDate(user, statDate)
                     .map(DailyFocusStat::getTotalFocusSeconds).orElse(0);
-            return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0, 0);
+            // 재업로드라 지급은 없지만 잔액 정본은 실어 준다 — 대기열 재전송이 이 응답으로 잔액을 맞춘다.
+            return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0, 0,
+                    currencyLedgerService.balanceOf(user));
         }
 
         // GROMO-733: POST 는 완료(종료 시각 포함) 통째 저장 — status=COMPLETED 로 세팅해 'ACTIVE 로 남던' 부정합을 교정한다.
@@ -313,8 +314,10 @@ public class FocusService {
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), statDate);
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
+        // balanceAfter 는 지급까지 반영된 잔액 정본(GROMO-1049) — 앱이 진행 중이던 잔액 조회의
+        // 시점을 추측하지 않고 이 값을 그대로 쓰게 한다.
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
-                awardedCoins, result.goalRewardCoins());
+                awardedCoins, result.goalRewardCoins(), currencyLedgerService.balanceOf(user));
     }
 
     /**
@@ -534,9 +537,12 @@ public class FocusService {
             dayTotalFocusSeconds = stat.getTotalFocusSeconds();
             // isFocusTimeGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
             if (!stat.isFocusTimeGoalAchieved()) {
+                // GROMO-1049: 그날(statDate)에 유효했던 목표로 판정·지급한다 — 어제 세션을 오늘 올릴 때
+                // 오늘 바뀐 목표로 재단되던 문제. 판정과 금액이 같은 goal 을 쓰므로 여기 한 곳이면 정합.
                 int goal = userFocusTimeSettingsRepository.findById(userId)
-                        .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
-                if (goal > 0 && stat.getTotalFocusSeconds() >= goal * 60) {
+                        .map(s -> s.goalMinutesOn(statDate)).orElse(0);
+                // (long) 승격 — int 곱은 goal 이 3천5백만 분을 넘으면 음수로 뒤집혀 0초 세션도 달성이 된다.
+                if (goal > 0 && stat.getTotalFocusSeconds() >= (long) goal * 60) {
                     stat.setFocusTimeGoalAchieved(true);
                     // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
                     logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
@@ -547,8 +553,8 @@ public class FocusService {
             // INSERT 경로: isFocusTimeGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
             // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
             int goal = userFocusTimeSettingsRepository.findById(userId)
-                    .map(UserFocusTimeSettings::getDailyFocusTimeGoalMinutes).orElse(0);
-            boolean goalAchieved = goal > 0 && addedSeconds >= goal * 60;
+                    .map(s -> s.goalMinutesOn(statDate)).orElse(0);
+            boolean goalAchieved = goal > 0 && addedSeconds >= (long) goal * 60;
             dailyFocusStatRepository.save(DailyFocusStat.builder()
                     .user(user)
                     .date(statDate)

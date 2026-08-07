@@ -15,7 +15,6 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { T, withAlpha } from '@/constants/theme';
 import { CURRENCY } from '@/constants/currency';
-import { leaguePromotionReward } from '@/utils/currencyRewards';
 import { tierByLevel } from '@/constants/tiers';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -46,12 +45,10 @@ export default function LeagueResultScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const { type, fromLevel, toLevel, weekHours, weekStartAt, promotionBonusCoins } = route.params;
   const cfg = TYPE_CFG[type];
-  // 승급 보상 시간조각 — 서버가 실어 보낸 값(promotionBonusCoins)을 우선 쓰되, 아직 서버가 안 보내면
-  // 도달 티어(toLevel)로 같은 공식(utils/currencyRewards)을 클라에서 계산해 폴백한다(BE 머지 전에도 표기).
-  const bonusCoins =
-    promotionBonusCoins && promotionBonusCoins > 0
-      ? promotionBonusCoins
-      : leaguePromotionReward(toLevel);
+  // 승급 보상 시간조각 — 서버가 실어 보낸 값만 쓴다(GROMO-1193). 클라 공식 폴백은 BE 머지 전
+  // 임시 조치였는데, BE가 값을 내리는 지금은 **서버가 진짜 0을 준 경우**(지급 실패·미지급)에도
+  // 공식으로 금액을 지어내 유령 배지를 띄운다.
+  const bonusCoins = promotionBonusCoins ?? 0;
   const showBonus = type === 'promote' && bonusCoins > 0;
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때

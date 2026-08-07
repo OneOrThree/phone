@@ -131,8 +131,9 @@ class FocusControllerTest {
     @DisplayName("POST /focus-session → 201 + body(dayTotalFocusSeconds·streakQualifiedToday·awardedCoins)")
     void saveFocusSessionReturns201WithBody() throws Exception {
         given(focusService.saveFocusSession(any(), any()))
-                // 4-arg: awardedCoins=66(세션 지급, #417) + goalRewardCoins=0(목표 지급 없음, 이 브랜치)
-                .willReturn(new FocusSessionSaveResponse(660, true, 66, 0));
+                // awardedCoins=66(세션 지급, #417) + goalRewardCoins=0(목표 지급 없음)
+                // + balanceAfter=166(지급까지 반영된 잔액 정본, GROMO-1049)
+                .willReturn(new FocusSessionSaveResponse(660, true, 66, 0, 166));
 
         String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"endedAt\":\"2026-06-23T01:11:00Z\","
                 + "\"totalDistractionSeconds\":0}";
@@ -145,6 +146,8 @@ class FocusControllerTest {
                 .andExpect(jsonPath("$.streakQualifiedToday").value(true))
                 // currency 폐쇄(서버 지급 전환): 지급 코인이 additive 필드로 실린다 — 구앱은 무시, 신앱은 잔액 반영
                 .andExpect(jsonPath("$.awardedCoins").value(66))
+                // 잔액 정본(GROMO-1049) — 앱이 이 값으로 확정해 낙관 가산 × 진행 중 조회 경합을 없앤다
+                .andExpect(jsonPath("$.balanceAfter").value(166))
                 .andDo(print());
     }
 
