@@ -83,8 +83,11 @@ jobs:
         run: |
           docker compose $COMPOSE_FILES ps
           echo "== app 헬스체크 (APM -javaagent 기동 실패 조기 탐지) =="
+          # 60초(12회)로는 `up --build` + -javaagent 콜드스타트를 못 기다려, 정상 기동한 7/16·7/24 실행이
+          # 둘 다 failure 로 표시됐다(트레이서는 붙었는데 워크플로만 빨간불 → "Datadog 안 켜졌다" 오독).
+          # cd.yml 이 같은 이유로 150초까지 늘린 선례가 있고(GROMO-1068), 여기는 빌드까지 겸하므로 180초. (GROMO-1233)
           ok=0
-          for i in $(seq 1 12); do
+          for i in $(seq 1 36); do
             sleep 5
             if curl -sf http://localhost:8080/health >/dev/null; then ok=1; echo "app OK"; break; fi
             echo "대기... ($((i*5))s)"
