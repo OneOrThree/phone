@@ -18,6 +18,7 @@ public class JwtProvider {
     public static final String TYPE_REFRESH = "refresh";
 
     private static final String CLAIM_TYPE = "type";
+    private static final String CLAIM_GUEST = "guest";
 
     private final SecretKey secretKey;
     private final long accessExpiration;
@@ -37,12 +38,14 @@ public class JwtProvider {
         this.refreshExpiration = refreshExpiration;
     }
 
-    public String generateAccessToken(UUID userId) {
-        return buildToken(userId, accessExpiration, TYPE_ACCESS);
+    // isGuest 는 **발급 시점**의 유저 상태다 (GROMO-1229) — 게스트 로그인 경로만 true 를 싣고,
+    // 소셜 로그인·승격 직후·리프레시 재발급은 그 시점 유저 상태(비게스트면 false)를 싣는다.
+    public String generateAccessToken(UUID userId, boolean isGuest) {
+        return buildToken(userId, accessExpiration, TYPE_ACCESS, isGuest);
     }
 
-    public String generateRefreshToken(UUID userId) {
-        return buildToken(userId, refreshExpiration, TYPE_REFRESH);
+    public String generateRefreshToken(UUID userId, boolean isGuest) {
+        return buildToken(userId, refreshExpiration, TYPE_REFRESH, isGuest);
     }
 
     /**
@@ -59,6 +62,22 @@ public class JwtProvider {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get(CLAIM_TYPE, String.class);
+    }
+
+    /**
+     * 토큰의 guest 클레임(발급 시점 게스트 여부)을 반환한다 (GROMO-1229).
+     *
+     * <p>클레임이 없는 구 토큰은 {@code null} 을 반환한다 — type 클레임의 "구 토큰 null" 처리와 동형이되,
+     * 호출부(AuthService)는 null 을 <b>비게스트로 간주</b>해 현행 동작을 유지한다(점진 적용, D3).
+     * 서명·만료가 무효면 JwtException 이 전파되므로 호출부는 isTokenValid 통과 후에 호출한다.
+     */
+    public Boolean extractIsGuest(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get(CLAIM_GUEST, Boolean.class);
     }
 
     public UUID extractUserId(String token) {
@@ -85,11 +104,12 @@ public class JwtProvider {
         }
     }
 
-    private String buildToken(UUID userId, long expirationSeconds, String type) {
+    private String buildToken(UUID userId, long expirationSeconds, String type, boolean isGuest) {
         Date now = new Date();
         return Jwts.builder()
                 .subject(userId.toString())
                 .claim(CLAIM_TYPE, type)
+                .claim(CLAIM_GUEST, isGuest)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + expirationSeconds * 1000))
                 .signWith(secretKey)
