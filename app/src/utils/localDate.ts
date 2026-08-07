@@ -108,11 +108,15 @@ export function kstDateStr(date: Date): string {
   return dateStrKstAfter(0, date.getTime());
 }
 
-// 로컬 '오늘'과 KST '오늘'이 같은 달력 날짜인가 — 서버(KST 버킷) 값과 로컬 누적을 병합하는
-// 지점들의 공용 동축 게이트(GROMO-1236 P2 6라운드: 결과 화면·홈·통계 4곳).
-// 측정 축은 로컬 소유(FocusContext 하루 누적 등) — 축이 갈린 날(KST가 로컬보다 하루 앞/뒤)은
-// 로컬 누적이 다른 KST 날짜의 몫이라 서버 KST 버킷 값과 합치지 않는다.
-// KR(KST) 기기는 항상 true라 행동 불변.
+// 기기가 지금 KST 축 위에 있는가(UTC+9) — 서버(KST 버킷) 값과 로컬 누적을 병합하는 지점들의
+// 공용 동축 게이트(GROMO-1236 P2 6라운드: 결과 화면·홈·통계 4곳).
+// 측정 축은 로컬 소유(FocusContext 하루 누적 등) — 동축이 아니면 로컬 누적을 서버 KST 버킷
+// 값과 합치지 않는다.
+// 조건은 날짜 라벨 비교가 아니라 **오프셋 일치**다(P2 7라운드): 라벨이 같아도 경계가 다르면
+// 인접 버킷 시간이 섞인다 — 예: 시드니 월요일 02:00 = KST 월요일 00:00, 두 축 모두 '월요일'이라
+// 라벨은 같지만 로컬 누적엔 로컬 월요일 00~02시(=KST 일요일 몫)가 이미 들어 있다. 오프셋이
+// 일치하면 두 자정이 정확히 겹쳐 누적 경계 == 서버 버킷 경계(라벨 비교는 불필요해진다).
+// KST는 DST 없음 — KR 기기는 항상 -540이라 행동 불변.
 export function kstLocalSameDay(): boolean {
-  return todayStrKst() === todayStr();
+  return new Date().getTimezoneOffset() === -540;
 }
