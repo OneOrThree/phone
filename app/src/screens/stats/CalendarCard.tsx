@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
-import { localDateStr, todayStr } from '@/utils/localDate';
+import { localDateStr, todayStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
 import { calendarPage, grassLevel } from './format';
 import { CAL_RAMP, WEEK_DAYS } from './constants';
@@ -62,7 +62,7 @@ export function CalendarCard({
     [],
   );
 
-  const todayKey = todayStr();
+  const todayKey = todayStr(); // 로컬 유지 — 오늘 셀 하이라이트는 기기 체감 축(GROMO-1236 분류 C)
   const page = calendarPage(period, offset);
   const pageKey = page.days[0];
   const shown = offset === 0 ? (cells ?? undefined) : pastCells[pageKey];
@@ -81,8 +81,11 @@ export function CalendarCard({
     if (requestedRef.current.has(key)) return;
     requestedRef.current.add(key);
     const last = p.days[p.days.length - 1];
+    // cap/anchor 분리(GROMO-1236) — 미래 여부 판정(cap)은 페이지 days와 같은 로컬 달력 축,
+    // API로 나가는 기준일(anchor)은 서버 버킷 축(KST). 클램프가 필요할 때만 KST 오늘로 치환한다
+    // (과거 기간의 last는 축 무관한 달력 날짜라 그대로 보낸다).
     const cap = todayStr();
-    const anchor = last > cap ? cap : last; // 기간 마지막 날(미래 방지 클램프) — 집계 기준일 겸용
+    const anchor = last > cap ? todayStrKst() : last;
     getFocusPeriodStats(period, undefined, anchor)
       .then((stats) => {
         if (mountedRef.current)

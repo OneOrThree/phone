@@ -9,7 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { T } from '@/constants/theme';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
 import { getHeatmap } from '@/services/statsApi';
-import { localDateStr, todayStr } from '@/utils/localDate';
+import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { dayNum, type StatBar } from './format';
 import { LineChart } from './charts';
 import { cs } from './cardStyles';
@@ -38,8 +38,10 @@ export function MonthWeeklyChart({
         const dow = monthFirst.getDay(); // 0=일..6=토
         const weekStart0 = new Date(monthFirst);
         weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
-        // 조회는 이달 1일부터 — 첫 주에 낀 전월 날짜를 받으면 총계 히어로(월 집계)와 합이 어긋난다
-        const cells = await getHeatmap(localDateStr(monthFirst), todayStr()).catch(
+        // 조회는 이달 1일부터 — 첫 주에 낀 전월 날짜를 받으면 총계 히어로(월 집계)와 합이 어긋난다.
+        // from(monthFirst)은 화면이 보여주는 '이번 달'(기기 체감 축)이라 로컬 유지, to는 서버 KST
+        // 버킷 상한이라 KST 오늘(GROMO-1236 — 로컬 오늘을 보내면 비KST 기기에서 최신 하루가 빈다).
+        const cells = await getHeatmap(localDateStr(monthFirst), todayStrKst()).catch(
           () => [] as HeatmapCellResponse[],
         );
         if (cancelled) return;

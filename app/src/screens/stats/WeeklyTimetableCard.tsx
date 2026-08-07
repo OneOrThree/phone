@@ -20,6 +20,7 @@ import { useTimetableShareCapture } from './useTimetableShareCapture';
 // 주간 타임라인 카드 — '오늘 타임테이블'(FocusTimetableCard)과 동일하게 공유하기(캡처→Share) 버튼 제공(GROMO-778).
 export function WeeklyTimetableCard() {
   // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
+  // 파일명 날짜는 로컬 유지 — 저장하는 기기의 체감 날짜가 정본(GROMO-1236 분류 C)
   const makeFileName = useCallback(
     () => `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
     [],

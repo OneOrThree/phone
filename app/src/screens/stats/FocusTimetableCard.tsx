@@ -23,6 +23,7 @@ const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 // iOS 공유 시트로 내보낸다(react-native-view-shot, GROMO-762).
 export function FocusTimetableCard() {
   // 공유 파일명 — 예: 260711_타임테이블.png (사진 저장 시엔 이름이 남지 않음)
+  // 파일명 날짜는 로컬 유지 — 저장하는 기기의 체감 날짜가 정본(GROMO-1236 분류 C)
   const makeFileName = useCallback(() => `${todayStr().slice(2).replace(/-/g, '')}_타임테이블`, []);
   // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(GROMO-1070)
   const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =

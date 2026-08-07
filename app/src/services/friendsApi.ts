@@ -1,5 +1,5 @@
 import { api } from '@/services/api';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   FriendRequestResponse,
   FriendResponse,
@@ -10,11 +10,12 @@ import type {
 // 친구·핀 API 래퍼 — 백엔드 FriendController(/api/v1/friends*)·PinController(/api/v1/pins*) 대응.
 // api(axios)는 비2xx에서 throw — 호출부에서 try/catch로 분기한다(409=중복 등).
 
-// date(클라 로컬 오늘)를 주면 GROMO-658 확장 서버가 focusTimeMinutes(오늘 집중분)를 포함해 준다.
-// 확장 배포 전 서버는 파라미터를 무시하므로 항상 보내도 안전.
+// date를 주면 GROMO-658 확장 서버가 focusTimeMinutes(오늘 집중분)를 포함해 준다.
+// 서버는 이 값을 KST 일별 버킷에 그대로 조회하므로 KST 오늘을 보낸다(GROMO-1236 —
+// 비KST 기기에서 로컬 날짜를 보내면 하루 오귀속). 확장 배포 전 서버는 파라미터를 무시.
 export async function fetchFriends(): Promise<FriendResponse[]> {
   const { data } = await api.get<FriendResponse[]>('/api/v1/friends', {
-    params: { date: todayStr() },
+    params: { date: todayStrKst() },
   });
   return data;
 }
@@ -60,10 +61,11 @@ export async function deleteFriend(friendUserId: string): Promise<void> {
 
 // 핀한 유저 — 리그·친구 공용(GROMO-609), 친구 아닌 유저 포함. 오늘 집중분·집중중 여부 포함.
 // 세션 그리드의 라이브 값 임시 보강에도 사용.
-// date는 서버 필수(GROMO-643 — '오늘 집중분' 기준 클라 로컬 날짜). 미전송 시 400.
+// date는 서버 필수(GROMO-643 — '오늘 집중분' 기준일). 미전송 시 400. 축은 KST(GROMO-1236 —
+// fetchFriends와 동일 이유).
 export async function fetchPinnedFriends(): Promise<PinnedFriendResponse[]> {
   const { data } = await api.get<PinnedFriendResponse[]>('/api/v1/pins', {
-    params: { date: todayStr() },
+    params: { date: todayStrKst() },
   });
   return data;
 }

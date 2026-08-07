@@ -1,5 +1,5 @@
 // 통계 화면(GROMO-604) 포맷·집계 헬퍼. 순수 함수만 — UI/네트워크 없음.
-import { localDateStr, todayStr } from '@/utils/localDate';
+import { localDateStr, todayStr, todayStrKst } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 import { FOCUS_COLOR } from './constants';
 
@@ -137,28 +137,39 @@ function weekDateKeys(): string[] {
   });
 }
 
+// 'YYYY-MM-DD' → 그 달력 날짜의 로컬 Date(정오) — KST 날짜 문자열에 대해 요일·일수 산술만 하기
+// 위한 파싱. 파트 생성자라 시간대 변환이 끼지 않고, 정오 고정은 DST 자정 부재/중복에도 안전.
+function dateFromStr(s: string): Date {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d, 12);
+}
+
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
 // DAY=오늘, WEEK=이번 주 월요일~오늘(서버 /stats/focus WEEK와 동일 구간 — 리뷰 반영), MONTH=이달 1일~오늘.
+// 축은 KST(GROMO-1236) — 서버 일별 버킷이 KST라 from/to 둘 다 KST 오늘에서 파생해야 한 축이 된다
+// (to만 바꾸면 비KST 기기에서 주/월 시작이 하루 어긋난 반쪽 이전이 된다).
 export function heatmapRange(period: StatsPeriod): { from: string; to: string } {
-  const to = todayStr();
+  const to = todayStrKst();
   if (period === 'DAY') return { from: to, to };
-  const now = new Date();
+  const kstToday = dateFromStr(to); // KST '오늘'의 달력 날짜 — 로컬 new Date()를 쓰면 축이 갈린다
   if (period === 'WEEK') {
-    const dow = now.getDay(); // 0=일..6=토
+    const dow = kstToday.getDay(); // 0=일..6=토
     const toMonday = dow === 0 ? -6 : 1 - dow;
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + toMonday);
+    const monday = new Date(kstToday);
+    monday.setDate(kstToday.getDate() + toMonday);
     return { from: localDateStr(monday), to };
   }
-  return { from: localDateStr(new Date(now.getFullYear(), now.getMonth(), 1)), to };
+  return { from: localDateStr(new Date(kstToday.getFullYear(), kstToday.getMonth(), 1)), to };
 }
 
 // 최근 7일 범위 [오늘-6, 오늘] — 타 유저 heatmap(getUserStats, 서버가 최근 7일 고정)과 같은 창으로
-// 비교할 때 사용(주간 월~오늘과 다름에 주의).
+// 비교할 때 사용(주간 월~오늘과 다름에 주의). 축은 KST(GROMO-1236) — 존재 이유가
+// getUserStats(기본값 KST 오늘)와의 구간 정합이므로 같은 축이어야 한다.
 export function rollingWeekRange(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(now);
-  from.setDate(now.getDate() - 6);
-  return { from: localDateStr(from), to: todayStr() };
+  const to = todayStrKst();
+  const from = dateFromStr(to);
+  from.setDate(from.getDate() - 6);
+  return { from: localDateStr(from), to };
 }
 
 // 주/월 캘린더(GROMO-974) 한 페이지 — 그리드가 그릴 날짜 목록과 내비게이션 라벨.
@@ -229,7 +240,7 @@ export function heatmapBars(
   cells: HeatmapCellResponse[],
   pick: (c: HeatmapCellResponse) => number,
 ): StatBar[] {
-  const today = todayStr();
+  const today = todayStr(); // 로컬 유지 — current/future는 화면 강조 플래그(기기 체감 축, GROMO-1236 분류 C)
   if (period === 'WEEK') {
     // 월~일 7칸을 미리 기재 — 서버 히트맵은 월~오늘까지만 오므로 없는 날은 0,
     // 아직 안 온 요일은 future(라벨만 표시, 선·점 없음)로 채운다
@@ -288,7 +299,7 @@ export function firstStartPoints(
   byDay: Map<string, number>,
 ): StartTimePoint[] {
   const now = new Date();
-  const today = todayStr();
+  const today = todayStr(); // 로컬 유지 — current/future는 화면 강조 플래그(기기 체감 축, GROMO-1236 분류 C)
   if (period === 'WEEK') {
     return weekDateKeys().map((key, i) => ({
       label: WEEKDAY[(i + 1) % 7], // 월~일

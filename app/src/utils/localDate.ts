@@ -34,10 +34,15 @@ export function yesterdayStr(): string {
 // ── KST(Asia/Seoul) 고정 버전 ──────────────────────────────────────────
 // 서버는 내기·챌린지·창 사용분 보고의 날짜 판정이 전부 KST 고정이다(내기 계약 §1·§3) — 기기
 // 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 날짜로 나가 BET_CLOSED·오귀속을 맞는다.
-// 내기·챌린지 조회 기준일·창 보고처럼 "서버의 오늘/어제/내일"이 필요한 자리는 이 버전을 쓴다
-// (GROMO-1219에서 그 축을 전부 이쪽으로 옮겼다). 남은 todayStr 사용처는 화면·측정처럼 기기
-// 체감이 정본인 축(dayChange·FocusContext 등)이라 그대로 로컬 유지 — 통계·친구·리그 API의
-// 기준일은 후속 티켓 범위다.
+// "서버의 오늘/어제/내일"이 필요한 자리는 전부 이 버전을 쓴다: 내기·챌린지 조회 기준일·창 보고
+// (GROMO-1219)에 이어 통계·친구·리그 API의 date 파라미터와 히트맵 from/to도 이전 완료
+// (GROMO-1236 — statsApi·userApi.getUserStats·friendsApi·leagueApi.getMyRanking·
+// stats/format.heatmapRange·rollingWeekRange). 남은 todayStr(로컬) 사용처는 기기 체감이 정본인
+// 축뿐이다: 화면 표시(오늘 하이라이트·current/future 플래그·공유 파일명), 측정/저장
+// (dayChange·FocusContext 등), dev fixture.
+// 알려진 한계: 서버 버킷 존은 country_code 파생(CountryZoneResolver — KR/JP/GB만 매핑, 그 외
+// UTC 폴백)이라 country_code가 KR이 아닌 유저는 서버 버킷이 KST가 아닐 수 있다. 클라는 KST를
+// 정본 축으로 보내는 것으로 통일한다(주 사용층 KR 기준 — 완전 해소는 서버 존 협상 필요).
 // Intl 미지원/오류 시 로컬 폴백 — challengeTime.nowSecondsInZone과 같은 관례다.
 // 날짜 이동은 setDate가 아니라 절대 ms 가산이다: Date는 절대 시각이라 +86_400_000ms 후를 KST로
 // 포맷하면 정확히 KST 다음 날이 된다(KST는 DST가 없다).

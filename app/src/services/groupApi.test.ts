@@ -28,7 +28,7 @@ import {
 } from './groupApi';
 import { api } from '@/services/api';
 import { logGroupChallengeDeleted } from '@/services/analyticsEvents';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 
 jest.mock('@/services/api', () => ({
   api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
@@ -109,11 +109,12 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/overview`);
   });
 
-  // date는 서버 필수 파라미터라 누락 시 400 — 기본값은 클라 로컬 날짜다(§3-1-1).
-  test('GET /{groupId} — date 기본값은 오늘(로컬)', async () => {
+  // date는 서버 필수 파라미터라 누락 시 400 — 기본값은 KST 오늘이다(GROMO-1219,
+  // 서버 판정 축과 동일. §3-1-1의 '로컬' 서술은 1219 이전의 것).
+  test('GET /{groupId} — date 기본값은 오늘(KST)', async () => {
     await getGroupDetail(GROUP_ID);
     expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}`, {
-      params: { date: todayStr() },
+      params: { date: todayStrKst() },
     });
   });
 
