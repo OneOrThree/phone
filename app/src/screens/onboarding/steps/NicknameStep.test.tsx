@@ -4,7 +4,7 @@
 //  1) 형식(2~10자) 통과분만 디바운스(350ms) 후 checkNickname을 부른다 — 형식 위반은
 //     서버 호출 없이 로컬 문구가 선행한다.
 //  2) available=true → '사용 가능해요', false → '이미 사용 중인 닉네임이에요'.
-//  3) 확인 실패(네트워크·구서버 404)는 기존 힌트('가입 완료 시 확인')로 폴백한다 —
+//  3) 확인 실패(네트워크·구서버 404)는 중립 기본 힌트(길이 안내, GROMO-1212)로 폴백한다 —
 //     최종 판정은 가입 확정 409가 맡는다.
 //  4) 가입 확정 실패(serverError, 409 경로)는 체크 결과보다 우선 표시된다 — 무회귀.
 import { useState } from 'react';
@@ -113,14 +113,14 @@ describe('실시간 중복확인', () => {
     expect(screen.getByText('닉네임은 2~10자로 입력해 주세요')).toBeOnTheScreen();
   });
 
-  test('체크 실패(네트워크·구서버)는 기존 힌트로 폴백한다 — 가입 확정 409가 최종 방어', async () => {
+  test('체크 실패(네트워크·구서버)는 중립 기본 힌트로 폴백한다 — 가입 확정 409가 최종 방어', async () => {
     mockCheckNickname.mockRejectedValue(new Error('network down'));
     await renderStep();
 
     await typeAndSettle('재영');
     expect(mockCheckNickname).toHaveBeenCalled();
-    // 낙관 폴백 — 판정 문구 없이 기본 힌트(가입 완료 시 확인)로 돌아간다.
-    expect(await screen.findByText('2~10자 · 중복 여부는 가입 완료 시 확인돼요')).toBeOnTheScreen();
+    // 낙관 폴백 — 판정 문구 없이 중립 기본 힌트(길이 안내)로 돌아간다.
+    expect(await screen.findByText('2~10자로 정할 수 있어요')).toBeOnTheScreen();
     expect(screen.queryByText('사용 가능해요')).not.toBeOnTheScreen();
     expect(screen.queryByText('이미 사용 중인 닉네임이에요')).not.toBeOnTheScreen();
   });
