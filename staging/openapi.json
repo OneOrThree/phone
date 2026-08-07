@@ -3208,6 +3208,49 @@
         }
       }
     },
+    "/api/v1/users/nickname/check": {
+      "get": {
+        "tags": [
+          "user"
+        ],
+        "summary": "닉네임 사용 가능 여부 확인",
+        "description": "닉네임이 사용 가능한지 판정한다 (GROMO-1215). 항상 200 + {available: boolean} — 형식 위반(trim 후 2~10자 밖·빈문자열)도 available\u003dfalse 로 내려간다(별도 4xx 없음). 본인 제외 중복 검사라 자기 자신의 현재 닉네임은 available\u003dtrue.",
+        "operationId": "checkNickname",
+        "parameters": [
+          {
+            "name": "nickname",
+            "in": "query",
+            "description": "검사할 닉네임(trim 전 원문). 미전달 시 available\u003dfalse",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "판정 성공 — available 로 사용 가능 여부 반환",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NicknameCheckResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 없음",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NicknameCheckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/social-links": {
       "get": {
         "tags": [
@@ -6064,6 +6107,14 @@
           "rank": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "NicknameCheckResponse": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
           }
         }
       },
