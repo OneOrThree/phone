@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -137,6 +138,23 @@ public class LeagueRankingQueryRepository {
         if (cursorExclusive != null) {
             parameters.addValue("cursorExclusive", cursorExclusive);
         }
+        return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
+    }
+
+    /**
+     * 지정 유저들만의 정산용 집계 (GROMO-1239 재개 시 userIds 지정 경로). 기존 정산 쿼리의 골격
+     * (WEEKLY_TOTALS — 활성·비게스트 필터 포함)을 그대로 재사용하고 id IN 필터만 더한다.
+     * 탈퇴/게스트 유저를 지정하면 결과에서 조용히 빠진다 — 정산 대상이 아니기 때문이다.
+     */
+    public List<LeagueRankingRow> findWeeklyTotalsForUsers(LocalDate fromDate, LocalDate toDate,
+                                                            Collection<UUID> userIds) {
+        validateRange(fromDate, toDate);
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        String sql = WEEKLY_TOTALS + " AND u.id IN (:userIds)\n" + GROUP_BY_USER + " ORDER BY u.id ASC";
+        MapSqlParameterSource parameters = rangeParameters(fromDate, toDate)
+                .addValue("userIds", List.copyOf(userIds));
         return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
     }
 

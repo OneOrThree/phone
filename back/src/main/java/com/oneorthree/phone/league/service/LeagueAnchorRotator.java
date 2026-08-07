@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalInt;
 
 /**
  * 주차 anchor 회전(재실행 가드 → 이전 anchor 마감 → 신규 anchor 생성)을 유저 정산 루프와 분리된
@@ -38,6 +39,28 @@ public class LeagueAnchorRotator {
         if (leagueArenaRepository.existsByStartedAt(newWeekStart)) {
             throw new LeagueException(LeagueErrorCode.BATCH_ALREADY_RUN);
         }
+        return doRotate(now, newWeekStart);
+    }
+
+    /**
+     * 정산 재개(GROMO-1239) 전용 관용 진입점 — 이번 주차 anchor 가 이미 있으면 회전 없이 건너뛴다.
+     * 기본 run 경로(스케줄러 포함)의 BATCH_ALREADY_RUN 시맨틱은 {@link #rotate} 가 그대로 유지한다.
+     *
+     * <p>동시 재개 둘이 exists 를 함께 통과하는 레이스는 uq_league_arenas_started_at(V15) 유니크
+     * 제약이 늦은 쪽을 터뜨려 막는다 — 동시 최초 run 과 같은 노출이라 여기서 더 좁히지 않는다.
+     *
+     * @return 회전했으면 마감한 이전 ACTIVE anchor 수, anchor 가 이미 있어 건너뛰었으면 empty
+     */
+    @Transactional
+    public OptionalInt rotateIfAbsent(Instant now, Instant newWeekStart) {
+        if (leagueArenaRepository.existsByStartedAt(newWeekStart)) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(doRotate(now, newWeekStart));
+    }
+
+    // 회전 본체 — 두 진입점의 가드 통과 후 공통 경로. private 자기 호출이라 호출자의 트랜잭션에 묶인다.
+    private int doRotate(Instant now, Instant newWeekStart) {
         List<LeagueArena> previousActiveAnchors = leagueArenaRepository
                 .findByStatusAndStartedAtBefore(LeagueArenaStatus.ACTIVE, newWeekStart);
         previousActiveAnchors.forEach(arena -> arena.end(now));

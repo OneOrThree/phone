@@ -52,6 +52,19 @@ public class LeagueUserSettler {
     static final int MIN_TIER_LEVEL = 1;
     static final int MAX_TIER_LEVEL = 5;
 
+    /**
+     * settle 한 건의 처리 결과 (GROMO-1239) — boolean 두 갈래로는 "이미 정산됨"을 표현할 수 없어
+     * 세 갈래 enum 으로 넓혔다({@code GroupBetSettler.SettleResult} 선례).
+     */
+    public enum SettleOutcome {
+        /** 이번 호출로 3-mutation(티어 갱신·승급 보너스·결과 저장)이 실제 적용됐다. */
+        SETTLED,
+        /** 집계 스냅샷 이후 탈퇴가 먼저 커밋된 유저 — 정상 흐름의 skip. */
+        SKIPPED_WITHDRAWN,
+        /** 이 주차 완료 마커(league_weekly_results 행)가 이미 있다 — 재실행 멱등 skip. */
+        ALREADY_SETTLED
+    }
+
     private final UserRepository userRepository;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final CurrencyLedgerService currencyLedgerService;
@@ -59,19 +72,35 @@ public class LeagueUserSettler {
     /**
      * 유저 한 명을 정산한다 — 결과 저장·티어 갱신·승급 보너스까지 이 트랜잭션 하나에 묶인다.
      *
+     * <p><b>재실행 멱등 가드 (GROMO-1239)</b> — 락 취득 직후, 어떤 mutation 보다 먼저 완료 마커
+     * (league_weekly_results 의 (user_id, week_start_at) 행)를 재확인한다. 오케스트레이터의 페이지
+     * 단위 선조회는 빠른 경로일 뿐이고, 락 안에서의 이 단건 재확인이 동시성 정본이다 — 동시 재실행이
+     * 같은 유저를 잡아도 늦은 쪽이 락 대기 후 여기서 ALREADY_SETTLED 로 빠진다. 가드 없이 진행하면
+     * {@code row.tierLevel()} 이 <b>라이브 users.tier_level</b> 이라 이미 승급한 티어로 판정을 다시
+     * 굴려 연쇄 승급(래칫)이 나고, 유니크 제약 위반이 flush 에서 터져 트랜잭션 전체가 롤백되며 전원
+     * failed 로 집계되는 사고 구조가 된다. 유니크 제약 자체는 최후 방어선으로 유지한다.
+     *
      * @param row               정산 대상 집계 행(배치 페이지 조회 시점 스냅샷)
      * @param previousWeekStart 정산 대상 주차의 시작(KST 월요일 00:00 Instant) — 결과 키
      * @param tierConfigs       배치 시작 시 1~5 전부 검증된 티어 설정 표
-     * @return 정산을 적용했으면 true, 탈퇴가 먼저 커밋된 유저라 건너뛰었으면 false
+     * @return 정산을 적용했으면 {@link SettleOutcome#SETTLED}, 탈퇴가 먼저 커밋된 유저면
+     *         {@link SettleOutcome#SKIPPED_WITHDRAWN}, 이 주차가 이미 정산된 유저면
+     *         {@link SettleOutcome#ALREADY_SETTLED}
      */
     @Transactional
-    public boolean settle(LeagueRankingRow row, Instant previousWeekStart,
-                          Map<Integer, LeagueTierConfig> tierConfigs) {
+    public SettleOutcome settle(LeagueRankingRow row, Instant previousWeekStart,
+                                Map<Integer, LeagueTierConfig> tierConfigs) {
         Optional<User> activeUser = userRepository.findActiveByIdForUpdate(row.userId());
         if (activeUser.isEmpty()) {
             // 집계 스냅샷 이후 탈퇴가 먼저 커밋된 유저 — 정상 흐름이므로 예외가 아니라 skip 이다.
             log.info("리그 정산 스킵 — 집계 후 탈퇴한 유저. userId={}", row.userId());
-            return false;
+            return SettleOutcome.SKIPPED_WITHDRAWN;
+        }
+        if (leagueWeeklyResultRepository.existsByUserIdAndWeekStartAt(row.userId(), previousWeekStart)) {
+            // 재실행 멱등 가드 — 락을 쥔 뒤의 재확인이라 동시 재실행에도 정확히 한 번만 정산된다.
+            log.info("리그 정산 스킵 — 이미 정산된 주차. userId={}, weekStartAt={}",
+                    row.userId(), previousWeekStart);
+            return SettleOutcome.ALREADY_SETTLED;
         }
         User user = activeUser.get();
 
@@ -106,7 +135,7 @@ public class LeagueUserSettler {
                 .result(result)
                 .focusSeconds(row.totalFocusSeconds())
                 .build());
-        return true;
+        return SettleOutcome.SETTLED;
     }
 
     private LeagueWeeklyResultType decideResult(

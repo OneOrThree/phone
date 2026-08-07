@@ -1,8 +1,11 @@
 package com.oneorthree.phone.league.service;
 
 import com.oneorthree.phone.common.support.RepositoryTestBase;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
+import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.league.domain.LeagueArena;
 import com.oneorthree.phone.league.domain.LeagueArenaStatus;
+import com.oneorthree.phone.league.domain.LeagueRankingRow;
 import com.oneorthree.phone.league.domain.LeagueTierConfig;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.domain.LeagueWeeklyResultType;
@@ -46,7 +49,11 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     @Autowired
     LeagueBatchService leagueBatchService;
     @Autowired
+    LeagueUserSettler leagueUserSettler;
+    @Autowired
     LeagueArenaRepository leagueArenaRepository;
+    @Autowired
+    CurrencyTransactionRepository currencyTransactionRepository;
     @Autowired
     LeagueTierConfigRepository leagueTierConfigRepository;
     @Autowired
@@ -241,6 +248,99 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
         // 삭제 유저는 집계 자체에서 빠지므로 skip/failed 어느 버킷에도 잡히지 않는다.
         assertThat(summary.skippedMemberCount()).isZero();
         assertThat(summary.failedMemberCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("완주한 주차의 resume — 전원 alreadySettled 로 건너뛰고 티어 래칫·보너스 재지급이 없다")
+    void resumeAfterCompletedRunIsIdempotent() {
+        User promoted = saveUser("resumeIdempotent", 1, false);
+        saveStat(promoted, PREVIOUS_MONDAY, 50_400);
+        flushFixtures();
+        leagueBatchService.runWeeklyBatch(BATCH_NOW);
+        assertThat(promoted.getTierLevel()).isEqualTo(2);
+
+        LeagueBatchSummaryResponse resumed = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null);
+
+        // 가드가 없으면 라이브 tier(2)로 판정을 다시 굴려 연쇄 승급이 나거나 유니크 위반으로 failed 가 된다.
+        assertThat(resumed.settledMemberCount()).isZero();
+        assertThat(resumed.alreadySettledMemberCount()).isEqualTo(1);
+        assertThat(resumed.failedMemberCount()).isZero();
+        assertThat(resumed.endedArenaCount()).isZero();
+        assertThat(resumed.createdArenaCount()).isZero();
+        assertThat(userRepository.findById(promoted.getId()).orElseThrow().getTierLevel()).isEqualTo(2);
+        assertThat(leagueWeeklyResultRepository.count()).isEqualTo(1);
+        assertThat(bonusCountOf(promoted)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("anchor 없이 resume 하면 run 과 동일하게 회전부터 수행한다 — 409 없는 완결 시맨틱")
+    void resumeWithoutAnchorRotatesLikeRun() {
+        LeagueBatchSummaryResponse summary = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null);
+
+        assertThat(summary.createdArenaCount()).isEqualTo(1);
+        assertThat(leagueArenaRepository.existsByStartedAt(BATCH_NOW)).isTrue();
+        assertThat(summary.settledMemberCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("userIds 표적 resume — 지정 유저만 정산하고 나머지는 건드리지 않는다")
+    void resumeWithUserIdsSettlesOnlyTargets() {
+        User target = saveUser("resumeTarget", 1, false);
+        User untouched = saveUser("resumeUntouched", 1, false);
+        saveStat(target, PREVIOUS_MONDAY, 50_400);
+        saveStat(untouched, PREVIOUS_MONDAY, 50_400);
+        flushFixtures();
+        // rotate 직후 크래시로 정산이 전혀 안 된 상황 재현 — anchor 만 선커밋돼 있다.
+        saveAnchor(BATCH_NOW, LeagueArenaStatus.ACTIVE);
+
+        LeagueBatchSummaryResponse first =
+                leagueBatchService.resumeWeeklyBatch(BATCH_NOW, List.of(target.getId()));
+
+        assertThat(first.settledMemberCount()).isEqualTo(1);
+        assertThat(first.alreadySettledMemberCount()).isZero();
+        assertThat(first.endedArenaCount()).isZero();
+        assertThat(first.createdArenaCount()).isZero();
+        assertThat(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(target.getId()))
+                .isPresent();
+        assertThat(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(untouched.getId()))
+                .isEmpty();
+        assertThat(untouched.getTierLevel()).isEqualTo(1);
+
+        // 같은 표적으로 한 번 더 — 완료 마커가 있으니 alreadySettled 로만 집계된다.
+        LeagueBatchSummaryResponse second =
+                leagueBatchService.resumeWeeklyBatch(BATCH_NOW, List.of(target.getId()));
+        assertThat(second.settledMemberCount()).isZero();
+        assertThat(second.alreadySettledMemberCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("settler 2회 호출 — 2회차는 ALREADY_SETTLED 를 반환하고 아무 mutation 도 없다")
+    void settlerSecondCallReturnsAlreadySettledWithoutMutation() {
+        User user = saveUser("settleTwice", 1, false);
+        saveStat(user, PREVIOUS_MONDAY, 50_400);
+        flushFixtures();
+        Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
+                .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
+        LeagueRankingRow row = new LeagueRankingRow(user.getId(), user.getNickname(), 1, 50_400);
+
+        assertThat(leagueUserSettler.settle(row, PREVIOUS_WEEK_START, tierConfigs))
+                .isEqualTo(LeagueUserSettler.SettleOutcome.SETTLED);
+        leagueWeeklyResultRepository.flush();
+
+        // 2회차 row 는 1회차가 올린 라이브 tier(2)를 그대로 재현 — 가드가 없으면 2→3 연쇄 승급 경로다.
+        LeagueRankingRow rerunRow = new LeagueRankingRow(user.getId(), user.getNickname(), 2, 50_400);
+        assertThat(leagueUserSettler.settle(rerunRow, PREVIOUS_WEEK_START, tierConfigs))
+                .isEqualTo(LeagueUserSettler.SettleOutcome.ALREADY_SETTLED);
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getTierLevel()).isEqualTo(2);
+        assertThat(leagueWeeklyResultRepository.count()).isEqualTo(1);
+        assertThat(bonusCountOf(user)).isEqualTo(1);
+    }
+
+    private long bonusCountOf(User user) {
+        return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user).stream()
+                .filter(transaction -> transaction.getType() == CurrencyTransactionType.LEAGUE_TIER_BONUS)
+                .count();
     }
 
     private User saveUser(String nickname, int tierLevel, boolean deleted) {

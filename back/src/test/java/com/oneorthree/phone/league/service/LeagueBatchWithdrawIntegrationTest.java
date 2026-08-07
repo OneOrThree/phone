@@ -129,10 +129,10 @@ class LeagueBatchWithdrawIntegrationTest extends IntegrationTestBase {
                 leaver.getId(), leaver.getNickname(), 1, TIER_ONE_PROMOTION_SECONDS);
         userService.withdraw(leaver.getId());
 
-        boolean settled = leagueUserSettler.settle(
+        LeagueUserSettler.SettleOutcome outcome = leagueUserSettler.settle(
                 staleRow, leagueWeek.previousWeekStart(BATCH_NOW), tierConfigs());
 
-        assertThat(settled).isFalse();
+        assertThat(outcome).isEqualTo(LeagueUserSettler.SettleOutcome.SKIPPED_WITHDRAWN);
         // 결과·티어 변경·승급 보너스 어느 것도 남지 않는다.
         assertThat(leagueWeeklyResultRepository.findTopByUserIdOrderByCreatedAtDesc(leaver.getId()))
                 .isEmpty();
