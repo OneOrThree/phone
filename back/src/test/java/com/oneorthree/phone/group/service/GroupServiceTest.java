@@ -21,6 +21,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.group.domain.GroupStatus;
+import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.group.domain.GroupAnnouncement;
 import com.oneorthree.phone.group.domain.GroupChallenge;
@@ -231,7 +232,7 @@ class GroupServiceTest {
     void createGroupSuccess() {
         // given
         CreateGroupRequest request = durationRequest("1234", null, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         given(passwordEncoder.encode("1234")).willReturn("hashed-pw");
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
@@ -270,7 +271,7 @@ class GroupServiceTest {
     @DisplayName("isPrivate=true 생성 → 비공개 그룹으로 저장")
     void createGroupPrivate() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -287,7 +288,7 @@ class GroupServiceTest {
     @DisplayName("isPrivate 미전송(기본값) → 공개 그룹으로 저장")
     void createGroupDefaultsToPublic() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -305,7 +306,7 @@ class GroupServiceTest {
     void createGroupDefaultsMaxMembers() {
         // given
         CreateGroupRequest request = durationRequest(null, null, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_ID);
 
@@ -323,7 +324,7 @@ class GroupServiceTest {
     void createGroupWithoutPassword() {
         // given
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_ID);
 
@@ -344,23 +345,43 @@ class GroupServiceTest {
     void createGroupRejectsGuest() {
         // given
         User guest = User.builder().isGuest(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest));
 
         // when & then
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 60)))
-                .isInstanceOf(GroupException.class);
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
         verify(groupRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("존재하지 않는 유저 → GroupException")
+    @DisplayName("유저 없음·탈퇴 선커밋 → UserException(NOT_FOUND), 그룹 저장 안 함 (D9 — 종전 GUEST_FORBIDDEN 오분류 정정)")
     void createGroupUserNotFound() {
-        // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        // given: 없는 유저와 탈퇴가 먼저 커밋된 유저는 공유 락 조회에서 똑같이 빈 결과다
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
-        // when & then
+        // when & then: joinGroup 등 형제 경로와 같은 404 — 부작용(그룹 저장) 없음
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 60)))
-                .isInstanceOf(GroupException.class);
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+        verify(groupRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("createGroup 은 요청자를 공유 락으로 로드한다 — 계정 탈퇴 배타 락과 직렬화 (GROMO-1226)")
+    void createGroupLoadsUserWithSharedLock() {
+        // 락 없는 findById 면 탈퇴의 정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를
+        // 빠져나가, 탈퇴자가 OWNER 인 is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 불가).
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
+        givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
+
+        groupService.createGroup(USER_ID, durationRequest(null, 5, 60));
+
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
     }
 
     // D18: 그룹 생성 단계의 미션 파라미터 검증(INVALID_MISSION_PARAMS)은 폐지됐다 —
@@ -373,7 +394,7 @@ class GroupServiceTest {
     void createGroupRetriesOnCodeCollision() {
         // given: 첫 코드는 충돌(이미 존재), 두 번째는 사용 가능
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
         given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.empty());
         givenSaveReturnsGroupWithId(GROUP_ID);
@@ -391,7 +412,7 @@ class GroupServiceTest {
     void createGroupFailsAfterMaxRetries() {
         // given: 항상 충돌
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true);
         given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.empty());
 
@@ -407,7 +428,7 @@ class GroupServiceTest {
     void createGroupExpiresStaleCollidingCode() {
         // given: 첫 코드 충돌 + 그 코드는 이미 만료 → expire() 대상, 두 번째 코드는 사용 가능
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
         GroupJoinCode expiredCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "OLDCODE1",
                 Instant.now().minus(1, ChronoUnit.HOURS));
@@ -427,7 +448,7 @@ class GroupServiceTest {
     void createGroupKeepsActiveCollidingCode() {
         // given: 첫 코드 충돌 + 그 코드는 아직 유효(미래 만료) → 상태 유지, 두 번째 코드는 사용 가능
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
         GroupJoinCode activeCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "LIVECODE",
                 Instant.now().plus(1, ChronoUnit.HOURS));
@@ -1505,7 +1526,7 @@ class GroupServiceTest {
     void createGroupRejectedAtLimit() {
         // given
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.countByUser(user)).willReturn(10L);
 
         // when & then
@@ -1742,7 +1763,7 @@ class GroupServiceTest {
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
         GroupMember targetMember = GroupMember.builder().user(target).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
@@ -1760,7 +1781,7 @@ class GroupServiceTest {
     @DisplayName("게스트 → GUEST_FORBIDDEN")
     void transferOwnerGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_USER_ID, USER_ID))
@@ -1775,7 +1796,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
@@ -1792,7 +1813,7 @@ class GroupServiceTest {
         User user = userWithNickname(USER_ID, "비멤버");
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
@@ -1806,7 +1827,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
     void transferOwnerGroupNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(userWithNickname(TARGET_USER_ID, "대상")));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
@@ -1824,7 +1845,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(userRepository.findActiveByIdForShare(TARGET_USER_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
