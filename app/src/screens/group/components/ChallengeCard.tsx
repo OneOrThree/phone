@@ -657,6 +657,9 @@ export default function ChallengeCard({
         <LastBetResultSheet
           lastBet={lastBet}
           myUserId={myUserId}
+          // FOCUS 창의 5분 관용치 안내 판단용(GROMO-1207) — 결과 모달과 같은 조건.
+          missionType={challenge.missionType}
+          missionCategory={challenge.missionCategory}
           onClose={() => setLastBetOpen(false)}
         />
       )}
