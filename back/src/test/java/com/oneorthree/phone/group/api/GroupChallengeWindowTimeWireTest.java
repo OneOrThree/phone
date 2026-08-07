@@ -170,6 +170,27 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("패턴은 맞지만 값이 범위 밖(\"99:99\") → 같은 400 INVALID_MISSION_PARAMS, 저장 안 함")
+    void patternMatchedButOutOfRangeMapsToInvalidMissionParams() throws Exception {
+        // 판별 패턴(\d{2}:\d{2})을 통과한 뒤 LocalTime.parse 가 던지는 두 번째 수렴 경로 —
+        // 형식 오류가 어느 분기에서 터지든 INVALID_MISSION_PARAMS 하나로 모인다는 계약의 나머지 절반.
+        mockMvc.perform(post("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "durationMinutes":60,"windowStart":"99:99","windowEnd":"12:00:00"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_MISSION_PARAMS"));
+
+        mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
     @DisplayName("자정 걸침 창(시작 > 종료) → 시각이 그대로 보존돼 저장·응답된다")
     void midnightCrossingPreserved() throws Exception {
         UUID challengeId = postWindowChallenge("22:00:00", "01:00:00", 180);
