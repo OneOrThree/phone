@@ -198,6 +198,11 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         return groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus();
     }
 
+    /** 정산 근거 스냅샷(GROMO-1207) — DB 재조회로 읽는다(정산의 벌크 UPDATE 는 엔티티 캐시를 우회한다). */
+    private Integer goalMinutesOf(GroupChallengeBet bet) {
+        return groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getGoalMinutes();
+    }
+
     private List<GroupChallengeBetParticipant> participantsOf(GroupChallengeBet bet) {
         return groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId()));
     }
@@ -233,7 +238,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("정산 결과가 참가자 행에 기록된다 — achieved/payout")
+    @DisplayName("정산 결과가 참가자 행에 기록된다 — achieved/payout + 판정 근거 progressMinutes(GROMO-1207)")
     void recordsSettlementOnParticipantRows() {
         User winner = stakedUser("승자");
         User loser = stakedUser("패자");
@@ -243,12 +248,16 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
 
         groupBetSettlementService.settleDueBets(today);
 
+        // 판정에 쓴 실측 분이 그대로 남는다 — 결과 모달의 "기록/목표" 근거(GROMO-1207).
         assertThat(participantsOf(bet))
                 .extracting(p -> p.getUser().getId(), GroupChallengeBetParticipant::getAchieved,
-                        GroupChallengeBetParticipant::getPayout)
+                        GroupChallengeBetParticipant::getPayout,
+                        GroupChallengeBetParticipant::getProgressMinutes)
                 .containsExactlyInAnyOrder(
-                        tuple(winner.getId(), true, STAKE * 2),
-                        tuple(loser.getId(), false, 0));
+                        tuple(winner.getId(), true, STAKE * 2, GOAL_MINUTES + 60),
+                        tuple(loser.getId(), false, 0, 0));
+        // 목표 분 스냅샷은 내기 행에 박제된다 — 챌린지 목표가 뒤에 바뀌어도 판정 근거는 보존된다.
+        assertThat(goalMinutesOf(bet)).isEqualTo(GOAL_MINUTES);
     }
 
     @Test
@@ -343,11 +352,14 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         assertThat(transactionsOf(b, CurrencyTransactionType.BET_REFUND)).isEmpty();
         assertThat(transactionsOf(a, CurrencyTransactionType.BET_PAYOUT)).isEmpty();
         assertThat(transactionsOf(b, CurrencyTransactionType.BET_PAYOUT)).isEmpty();
-        // 판정 결과는 참가자 행에 남는다 — 전원 미달성·payout 0.
+        // 판정 결과는 참가자 행에 남는다 — 전원 미달성·payout 0. 몰수(FORFEITED) 분기도 판정
+        // 근거(progressMinutes·goalMinutes)를 기록한다 — "왜 전원 몰수였나"의 증거다(GROMO-1207).
         assertThat(participantsOf(bet))
                 .extracting(GroupChallengeBetParticipant::getAchieved,
-                        GroupChallengeBetParticipant::getPayout)
-                .containsExactlyInAnyOrder(tuple(false, 0), tuple(false, 0));
+                        GroupChallengeBetParticipant::getPayout,
+                        GroupChallengeBetParticipant::getProgressMinutes)
+                .containsExactlyInAnyOrder(tuple(false, 0, 10), tuple(false, 0, 0));
+        assertThat(goalMinutesOf(bet)).isEqualTo(GOAL_MINUTES);
     }
 
     @Test

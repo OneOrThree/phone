@@ -5,6 +5,7 @@ import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
@@ -130,7 +131,10 @@ public class GroupBetSettler {
             return new SettleResult(current, false);
         }
 
-        apply(bet, participants, distribution);
+        // 정산 근거 스냅샷(GROMO-1207) — CAS 를 이긴 트랜잭션만 여기 온다. 판정에 쓴 목표 분을
+        // 내기 행에 박제한다(챌린지 목표가 뒤에 바뀌어도 "그때 왜 이렇게 판정했나"가 보존된다).
+        groupChallengeBetRepository.recordGoalMinutes(betId, target.goalMinutes());
+        apply(bet, participants, distribution, evidenceMinutes(target, participants, progressMinutes));
 
         log.info("내기 정산 완료 — betId={}, betDate={}, category={}, type={}, status={}, pot={}, 참가자={}",
                 betId, bet.getBetDate(), target.category(), bet.getChallenge().getType(),
@@ -138,10 +142,32 @@ public class GroupBetSettler {
         return new SettleResult(distribution.status(), true);
     }
 
+    /**
+     * 정산 근거로 저장할 참가자별 실측 분(GROMO-1207) — 판정({@code entries})이 실제로 쓴 값
+     * 그대로다. FOCUS 의 무기록(null)은 판정이 0분으로 본 것이므로 0 으로 확정해 저장하고,
+     * SCREEN_TIME 의 미보고(null)는 "미계측"이라 null 그대로 남긴다(0분 사용과 구분 — 앱 "—" 표시).
+     */
+    private Map<UUID, Integer> evidenceMinutes(
+            GroupBetJudge.Target target,
+            List<GroupChallengeBetParticipant> participants,
+            Map<UUID, Integer> progressMinutes) {
+        Map<UUID, Integer> evidence = new HashMap<>();
+        for (GroupChallengeBetParticipant participant : participants) {
+            UUID userId = participant.getUser().getId();
+            Integer minutes = progressMinutes.get(userId);
+            if (minutes == null && target.category() == MissionCategory.FOCUS) {
+                minutes = 0;
+            }
+            evidence.put(userId, minutes);
+        }
+        return evidence;
+    }
+
     private void apply(
             GroupChallengeBet bet,
             List<GroupChallengeBetParticipant> participants,
-            GroupBetPayoutCalculator.Distribution distribution) {
+            GroupBetPayoutCalculator.Distribution distribution,
+            Map<UUID, Integer> evidenceMinutes) {
         Map<UUID, GroupChallengeBetParticipant> byUserId = new HashMap<>();
         participants.forEach(p -> byUserId.put(p.getUser().getId(), p));
 
@@ -150,7 +176,8 @@ public class GroupBetSettler {
             // 팟은 아무에게도 가지 않고 소멸하므로 원장에는 어떤 기입도 남지 않는다 — 차감(BET_STAKE)
             // 기록만 남는 것이 몰수의 원장 표현이다. 로그 포맷은 ops 모니터링(B4)과 정렬된 고정 문구다.
             distribution.payouts().forEach(payout ->
-                    byUserId.get(payout.userId()).recordSettlement(payout.achieved(), payout.amount()));
+                    byUserId.get(payout.userId()).recordSettlement(payout.achieved(), payout.amount(),
+                            evidenceMinutes.get(payout.userId())));
             log.info("내기 몰수 — betId={}, pot={} 소멸", bet.getId(), distribution.pot());
             return;
         }
@@ -162,7 +189,8 @@ public class GroupBetSettler {
                 .toList();
         for (GroupBetPayoutCalculator.Payout payout : ordered) {
             GroupChallengeBetParticipant participant = byUserId.get(payout.userId());
-            participant.recordSettlement(payout.achieved(), payout.amount());
+            participant.recordSettlement(payout.achieved(), payout.amount(),
+                    evidenceMinutes.get(payout.userId()));
             if (payout.amount() <= 0) {
                 continue;
             }

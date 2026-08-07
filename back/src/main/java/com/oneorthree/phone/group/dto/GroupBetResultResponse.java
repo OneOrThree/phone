@@ -21,5 +21,12 @@ public class GroupBetResultResponse {
     private int pot;
     private GroupBetStatus status;
 
+    /**
+     * 정산 시점의 목표 분 스냅샷(GROMO-1207) — 참가자별 {@code progressMinutes} 의 분모.
+     * null = 미기록(V29 이전 정산) — 앱은 분모를 생략해 그리므로 항상 직렬화한다
+     * ({@code @JsonInclude(NON_NULL)} 금지, 계약 §1).
+     */
+    private Integer goalMinutes;
+
     private List<GroupBetResultParticipantResponse> results;
 }

@@ -410,7 +410,7 @@ Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TI
   }
 }
 
-Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라 같은 날짜 재개설 허용(GROMO-1201). 그룹원 누구나 개설하고 개설자는 자동 참가한다. migration V19·V20·V28'] {
+Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라 같은 날짜 재개설 허용(GROMO-1201). 그룹원 누구나 개설하고 개설자는 자동 참가한다. migration V19·V20·V28·V29'] {
   id              uuid             [pk]
 
   group_id        uuid             [not null, note: 'FK → groups.id (조회 시 그룹 스코프 검증용 비정규화)']
@@ -422,6 +422,7 @@ Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 
 
   status          group_bet_status [not null, note: 'OPEN / SETTLED / REFUNDED / FORFEITED / CANCELED']
   settled_at      timestamptz      [note: '정산 시각 (배치 확정). OPEN 이면 null']
+  goal_minutes    integer          [note: '정산 시점의 목표 분 스냅샷(GROMO-1207) — 결과 모달의 분모. 챌린지 목표가 뒤에 바뀌어도 판정 근거는 보존된다. 쓰기는 정산 경로(GroupBetSettler)뿐, OPEN·CANCELED·V29 이전 정산 행은 null. migration V29']
 
   created_at      timestamptz      [not null, default: `now()`]
   updated_at      timestamptz      [not null]
@@ -433,7 +434,7 @@ Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 
   }
 }
 
-Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참가 즉시 차감(에스크로)되고 achieved/payout 은 정산 시 기록된다. migration V19'] {
+Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. migration V19·V29'] {
   id         uuid        [pk]
 
   bet_id     uuid        [not null, note: 'FK → group_challenge_bets.id']
@@ -441,6 +442,7 @@ Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참�
 
   achieved   boolean     [note: '정산 시 기록 — daily_focus_stats(bet_date) 분 ≥ 챌린지 duration_minutes. 정산 전이면 null']
   payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 승자 0명일 때의 환불금. 정산 전이면 null']
+  progress_minutes integer [note: '정산 판정에 쓴 실측 분(GROMO-1207). FOCUS 무기록은 0, SCREEN_TIME 미보고는 null(미계측 — 앱 "—" 표시). 정산 전·V29 이전 정산 행도 null. migration V29']
 
   created_at timestamptz [not null, default: `now()`]
 

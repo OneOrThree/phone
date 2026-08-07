@@ -57,14 +57,27 @@ public class GroupChallengeBetParticipant {
     @Column(name = "payout")
     private Integer payout;
 
+    /**
+     * 정산 시 기록(GROMO-1207) — 판정에 실제로 쓴 실측 분. FOCUS 무기록은 0(판정도 0으로 봤다),
+     * SCREEN_TIME 미보고는 null(미계측 — 앱이 "—" 로 그린다). 정산 전·V29 이전 정산 행도 null 이라
+     * {@code achieved}/{@code payout} 처럼 "아직 판정 안 됨"과 값 0 이 구분된다.
+     */
+    @Column(name = "progress_minutes")
+    private Integer progressMinutes;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** 정산 결과 기록. 재실행은 내기 status 가드로 막으므로 여기서는 덮어쓰기만 한다. */
-    public void recordSettlement(boolean achieved, int payout) {
+    /**
+     * 정산 결과 기록. 재실행은 내기 status 가드로 막으므로 여기서는 덮어쓰기만 한다.
+     *
+     * @param progressMinutes 판정에 쓴 실측 분 — 미계측(SCREEN_TIME 미보고)이면 null
+     */
+    public void recordSettlement(boolean achieved, int payout, Integer progressMinutes) {
         this.achieved = achieved;
         this.payout = payout;
+        this.progressMinutes = progressMinutes;
     }
 
     /**

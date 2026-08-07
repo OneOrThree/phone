@@ -11,6 +11,8 @@ import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetHistoryItemResponse;
+import com.oneorthree.phone.group.dto.GroupBetHistorySliceResponse;
 import com.oneorthree.phone.group.dto.GroupBetParticipantResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultParticipantResponse;
@@ -29,6 +31,8 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -74,6 +78,19 @@ public class GroupBetService {
      */
     static final int MIN_STAKE = 1;
     static final int MAX_STAKE = 1000;
+
+    /** 내기 히스토리 페이지 크기 상한 — 집중 세션 슬라이스({@code FocusService})와 같은 값. */
+    static final int MAX_HISTORY_PAGE_SIZE = 100;
+
+    /**
+     * 히스토리에 실리는 status — 정산 결과 3종만. CANCELED 는 "없던 일"이라 이력에서도 뺀다
+     * ({@code findLatestSettledByChallengeIds} 의 허용 목록과 같은 규칙). REFUNDED 는 정산이 더는
+     * 만들지 않는 deprecated 상태지만 기존 데이터가 남아 있어 <b>조회·표시 경로는 계속 다뤄야
+     * 한다</b>({@link GroupBetStatus#REFUNDED} 주석) — 그 조회 경로가 바로 여기라 경고를 끈다.
+     */
+    @SuppressWarnings("deprecation")
+    private static final List<GroupBetStatus> HISTORY_STATUSES =
+            List.of(GroupBetStatus.SETTLED, GroupBetStatus.REFUNDED, GroupBetStatus.FORFEITED);
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -620,17 +637,96 @@ public class GroupBetService {
                     .stake(bet.getStake())
                     .pot(bet.getStake() * participants.size())
                     .status(bet.getStatus())
-                    .results(participants.stream()
-                            .map(p -> GroupBetResultParticipantResponse.builder()
-                                    .userId(p.getUser().getId())
-                                    .nickname(p.getUser().getNickname())
-                                    .achieved(p.getAchieved())
-                                    .payout(p.getPayout())
-                                    .build())
-                            .toList())
+                    .goalMinutes(bet.getGoalMinutes())
+                    .results(toResultParticipants(participants))
                     .build());
         });
         return result;
+    }
+
+    /**
+     * 내기 히스토리(GROMO-1207) — 챌린지의 정산 완료 내기(SETTLED·REFUNDED·FORFEITED)를
+     * {@code bet_date} 내림차순 keyset 커서로 페이지네이션한다. 봉투는
+     * {@code FocusSessionSliceResponse} 선례(content/size/hasNext/nextCursor)와 같다.
+     *
+     * <p>권한은 다른 내기 경로와 동일하다 — 게스트 {@code GUEST_FORBIDDEN}, 비그룹원
+     * {@code MEMBER_ONLY}. 이력은 그룹원 전체가 열람한다(오너 결정, 계약 §2-1207).
+     *
+     * <p>커서는 직전 페이지 마지막 항목의 {@code betId} 다 — 서버가 그 내기의 {@code bet_date} 로
+     * 해석해 strict {@code <} keyset 을 만든다. V28 부분 유니크가 비취소 내기를 챌린지·날짜당
+     * 1개로 보장하므로 날짜 단독 축에 동률이 없다.
+     */
+    public GroupBetHistorySliceResponse getBetHistory(
+            UUID groupId, UUID challengeId, UUID userId, UUID cursor, int size) {
+        if (size < 1 || size > MAX_HISTORY_PAGE_SIZE) {
+            throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
+        }
+        // requireActiveUser(공유 락)를 쓰지 않는 이유: 이 클래스 기본 트랜잭션이 readOnly 라 Postgres 가
+        // FOR SHARE 를 거절하고(read-only 에서 행 잠금 불가 — CI 실측), 애초에 잠글 이유도 없다 —
+        // 공유 락은 읽은 값이 변경(참가 생성·해제)의 근거가 될 때 탈퇴와 직렬화하려는 장치인데,
+        // 히스토리는 아무것도 변경하지 않아 stale 하게 읽혀도 결과가 조회 한 번에 그친다.
+        // 활성·게스트 검증 자체는 락 없는 조회로 동일하게 수행한다.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+        Group group = requireGroupMembership(user, groupId);
+        // 삭제된 챌린지의 히스토리는 진입점(챌린지 카드)이 없다 — 조회 경로 공통 규칙대로 404.
+        groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        Slice<GroupChallengeBet> slice;
+        if (cursor == null) {
+            slice = groupChallengeBetRepository.findSettledHistoryFirstPage(
+                    challengeId, HISTORY_STATUSES, PageRequest.of(0, size));
+        } else {
+            // 커서는 챌린지 스코프로 해석 — 남의 챌린지 내기 id 로 임의 날짜 필터를 만들 수 없다.
+            LocalDate cursorDate = groupChallengeBetRepository
+                    .findBetDateByIdAndChallengeId(cursor, challengeId)
+                    .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+            slice = groupChallengeBetRepository.findSettledHistoryAfterCursor(
+                    challengeId, HISTORY_STATUSES, cursorDate, PageRequest.of(0, size));
+        }
+        List<GroupChallengeBet> pageBets = slice.getContent();
+        // 참가자는 페이지 전체를 IN 1회로 배치 로드한다(N+1 금지) — 조회 조립 공용 헬퍼.
+        Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet =
+                pageBets.isEmpty() ? Map.of() : participantsByBet(pageBets);
+
+        List<GroupBetHistoryItemResponse> content = pageBets.stream()
+                .map(bet -> {
+                    List<GroupChallengeBetParticipant> participants =
+                            participantsByBet.getOrDefault(bet.getId(), List.of());
+                    return GroupBetHistoryItemResponse.builder()
+                            .betId(bet.getId())
+                            .betDate(bet.getBetDate())
+                            .stake(bet.getStake())
+                            .pot(bet.getStake() * participants.size())
+                            .status(bet.getStatus())
+                            .settledAt(bet.getSettledAt())
+                            .goalMinutes(bet.getGoalMinutes())
+                            .results(toResultParticipants(participants))
+                            .build();
+                })
+                .toList();
+        UUID nextCursor = slice.hasNext() && !pageBets.isEmpty()
+                ? pageBets.get(pageBets.size() - 1).getId()
+                : null;
+        return new GroupBetHistorySliceResponse(content, size, slice.hasNext(), nextCursor);
+    }
+
+    /** 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})과 히스토리 공용. */
+    private List<GroupBetResultParticipantResponse> toResultParticipants(
+            List<GroupChallengeBetParticipant> participants) {
+        return participants.stream()
+                .map(p -> GroupBetResultParticipantResponse.builder()
+                        .userId(p.getUser().getId())
+                        .nickname(p.getUser().getNickname())
+                        .achieved(p.getAchieved())
+                        .payout(p.getPayout())
+                        .progressMinutes(p.getProgressMinutes())
+                        .build())
+                .toList();
     }
 
     private Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet(
