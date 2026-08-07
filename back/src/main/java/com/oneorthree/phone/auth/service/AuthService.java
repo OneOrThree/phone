@@ -110,38 +110,50 @@ public class AuthService {
             throw new IllegalArgumentException("지원하지 않는 소셜 로그인 제공자입니다: " + provider);
         }
         String providerId = client.getProviderId(token);
-        UUID currentUserId = resolveCurrentUserId(authorizationHeader);
+        CallerToken caller = resolveCaller(authorizationHeader);
 
         try {
-            return self.loginOrRegister(provider, providerId, currentUserId);
+            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim());
         } catch (DataIntegrityViolationException e) {
             // 소셜 계정 경쟁에서 진 요청 — 승자가 만든 계정으로 새 트랜잭션에서 1회 재시도(present 분기로 정상 로그인).
             // 가입 시 nickname 을 세팅하지 않으므로 여기서 잡히는 DIVE 는 (provider, provider_id) 위반뿐이다.
-            return self.loginOrRegister(provider, providerId, currentUserId);
+            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim());
         }
     }
 
     /**
-     * Authorization 헤더에서 현재 로그인(게스트) 사용자 id 를 선택적으로 추출한다.
-     * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 empty(=신규 가입 흐름). JwtFilter 를 바꾸지 않기 위해
-     * 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
+     * Authorization 헤더에서 추출한 현재 호출자 정보 (GROMO-1229).
+     * guestClaim 은 요청 AT 의 guest 클레임(발급 시점 게스트 여부) — 클레임 없는 구 토큰은 null 이고,
+     * 호출부는 null 을 비게스트로 간주한다(현행 폴백 유지, 점진 적용).
+     */
+    private record CallerToken(UUID userId, Boolean guestClaim) {
+        private static final CallerToken ANONYMOUS = new CallerToken(null, null);
+    }
+
+    /**
+     * Authorization 헤더에서 현재 로그인(게스트) 사용자 id·guest 클레임을 선택적으로 추출한다.
+     * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 ANONYMOUS(=신규 가입 흐름). JwtFilter 를 바꾸지 않기
+     * 위해 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
      */
     // access 타입만 인정한다 (GROMO-714) — /auth/* 는 JwtFilter 화이트리스트라 필터의 타입 가드를 타지 않는다.
     // 여기가 무제한이면 서명만 유효한 refresh 토큰(또는 type 없는 구 토큰)으로도 게스트를 소셜 계정으로 승격시켜
     // 새 토큰을 받아갈 수 있어, refresh 토큰에 non-refresh 용도가 생기고 fail-closed 컷오버가 뚫린다.
     // 게스트는 원래 자신의 access 토큰을 헤더로 보내므로 access 를 요구해도 정상 흐름은 그대로다.
-    private UUID resolveCurrentUserId(String authorizationHeader) {
+    private CallerToken resolveCaller(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
-            return null;
+            return CallerToken.ANONYMOUS;
         }
         String token = authorizationHeader.substring(7);
         if (!jwtProvider.isTokenValid(token)) {
-            return null;
+            return CallerToken.ANONYMOUS;
         }
         if (!JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
-            return null;
+            return CallerToken.ANONYMOUS;
         }
-        return jwtProvider.extractUserId(token);
+        // guest 클레임은 토큰을 파싱하는 여기서 함께 뽑아 loginOrRegister 로 넘긴다 (GROMO-1229) —
+        // 신규 가입 폴백에서 정식 "계정 전환"(비게스트 AT)과 "이미 승격된 게스트의 패자 요청"을
+        // 구분하는 유일한 신호다 (DB 상태만으로는 두 경우가 동일하게 보인다).
+        return new CallerToken(jwtProvider.extractUserId(token), jwtProvider.extractIsGuest(token));
     }
 
     /**
@@ -152,9 +164,14 @@ public class AuthService {
      * - 소셜 계정 미존재 → 기존 게스트 User 를 재활용(isGuest=false + SocialAccount 부착)해 게스트가 쌓은
      *   FK 데이터를 보존한다. 부속 테이블(createUserSideRows)은 게스트 생성 시 이미 만들어졌으므로 재호출하지 않는다.
      * currentUserId 가 없거나 게스트가 아니면 기존 동작(신규 소셜은 새 User 생성).
+     *
+     * callerGuestClaim 은 요청 AT 의 guest 클레임(발급 시점 게스트 여부, GROMO-1229) — true 이면서
+     * 게스트 락 조회가 비고 그 유저가 활성 비게스트로 존재하면, 동시 다른-소셜 승격 경쟁의 패자로
+     * 판정해 신규 가입 폴백 대신 GUEST_ALREADY_PROMOTED 로 거절한다. 구 토큰(null)은 비게스트 간주.
      */
     @Transactional
-    public SocialLoginResponse loginOrRegister(Provider provider, String providerId, UUID currentUserId) {
+    public SocialLoginResponse loginOrRegister(Provider provider, String providerId, UUID currentUserId,
+                                               Boolean callerGuestClaim) {
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
 
@@ -188,6 +205,13 @@ public class AuthService {
                 // 게스트가 이미 다른 계정에 연동된 소셜로 업그레이드 시도 → 거부(게스트 유지)
                 throw new AuthException(AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED);
             }
+            // 승격 패자 가드를 이 분기에는 **걸지 않는다** (결정 D17·D18, 리뷰 5라운드 결론).
+            // "승격된 게스트 클레임 + 선재 타 계정" 상태는 ① 진짜 동시 승격 레이스의 패자와
+            // ② 오래됐지만 유효한 게스트 AT 로 예전부터 있던 다른 자기 계정에 재로그인하는 정당한
+            // 요청이 서버 관점에서 구분 불가능하고(시간 신호 시도는 대상 계정의 createdAt 이 레이스와
+            // 무인과라 실패 — claude 리뷰), 이 분기의 통과 결말은 호출자가 소셜 토큰 검증으로 소유를
+            // 증명한 계정 로그인이라 유령 계정이 아니다(게스트 데이터도 승격 계정에 무손실). 차단은
+            // 더 흔한 정당 케이스를 깨뜨리므로 fail-open — 유령 방지는 아래 폴백 분기 가드가 맡는다.
             user = socialAccount.get().getUser();
             isNewUser = false;
         } else if (guestUser != null) {
@@ -201,15 +225,34 @@ public class AuthService {
             user = guestUser;
             isNewUser = false;
         } else {
-            User newUser = userRepository.save(User.builder().build());
-            socialAccountRepository.save(SocialAccount.builder()
-                    .user(newUser)
-                    .provider(provider)
-                    .providerId(providerId)
-                    .build());
-            createUserSideRows(newUser.getId());
-            user = newUser;
-            isNewUser = true;
+            // 동시 다른-소셜 승격 경쟁의 패자 차단 (GROMO-1229, D3) — 이대로 신규 가입 폴백을 타면
+            // 닉네임 null 의 빈 유령 계정이 조용히 생긴다. 판별 논증은 isConcurrentlyPromotedGuest 참고.
+            if (isConcurrentlyPromotedGuest(currentUserId, callerGuestClaim)) {
+                // 같은 소셜 동시 승격의 패자는 에러가 아니다 (codex R1) — 메서드 첫 조회 때는 승자의
+                // 커밋 전이라 socialAccount 가 비었지만, 게스트 락 대기를 지나온 지금은 같은
+                // (provider, providerId) 가 승자 손에 붙어 있을 수 있다. 재조회해서 **승격된 본인
+                // 계정에 붙어 있으면** 그 계정으로 정상 로그인 — 종전 유니크 위반 → DIVE 재시도가
+                // 만들던 자가치유와 같은 결말이다. 소유자 검증(codex R2): 재조회가 찾은 계정이 다른
+                // 유저 소유면(다른-소셜 패자 + 제3의 요청이 같은 소셜을 다른 계정에 선점) 자가치유가
+                // 아니라 조용한 계정 이동이 된다 — 게스트 데이터가 어디로 승격됐는지 숨긴 채 다른
+                // 계정에 앉히므로, 그 경우도 409 로 알리고 다음 로그인이 정식 present 분기를 타게 한다.
+                user = socialAccountRepository
+                        .findByProviderAndProviderId(provider, providerId)
+                        .filter(account -> account.getUser().getId().equals(currentUserId))
+                        .map(SocialAccount::getUser)
+                        .orElseThrow(() -> new AuthException(AuthErrorCode.GUEST_ALREADY_PROMOTED));
+                isNewUser = false;
+            } else {
+                User newUser = userRepository.save(User.builder().build());
+                socialAccountRepository.save(SocialAccount.builder()
+                        .user(newUser)
+                        .provider(provider)
+                        .providerId(providerId)
+                        .build());
+                createUserSideRows(newUser.getId());
+                user = newUser;
+                isNewUser = true;
+            }
         }
 
         // 탈퇴 직렬화 (GROMO-801, codex 리뷰) — 기존 소셜 유저 분기는 유저를 락 없이 로드하므로,
@@ -225,8 +268,9 @@ public class AuthService {
         user = userRepository.findActiveByIdForUpdate(user.getId())
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        String accessToken = jwtProvider.generateAccessToken(user.getId());
-        String refreshToken = jwtProvider.generateRefreshToken(user.getId());
+        // guest 클레임은 발급 시점 상태 (GROMO-1229) — 승격 직후·소셜 로그인은 isGuest=false 라 비게스트 토큰이 나간다.
+        String accessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());
+        String refreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
         // RT 원본은 응답으로만 내려가고 DB 에는 해시만 남긴다 — DB 유출 시 재사용 차단 (GROMO-713)
         user.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
 
@@ -241,13 +285,31 @@ public class AuthService {
         return new SocialLoginResponse(accessToken, refreshToken, isNewUser);
     }
 
+    /**
+     * 동시 승격 경쟁의 <b>패자</b>인가 (GROMO-1229) — 게스트로 발급된 AT(guest 클레임 true)로 왔는데
+     * 그 유저가 이미 활성 <b>비게스트</b>다 = 다른 요청이 방금 이 게스트를 승격 커밋했다. 정식
+     * "계정 전환"(비게스트 AT)은 클레임이 false/null 이라 걸리지 않는다 — DB 상태만으로는 두 경우가
+     * 동일해서 발급 시점 클레임이 유일한 판별 신호다. 호출 전제: 게스트 락 조회가 빈 뒤(= guestUser
+     * null)에만 부른다. 판별 조회는 <b>무락</b> — 현재 유저 행까지 잠그면 users 2행 잠금이 되어
+     * 게스트 한정 락의 교착 방지 논증(findActiveGuestByIdForUpdate 주석, codex 리뷰 4차)이 깨진다.
+     * 유저가 없거나 탈퇴면 false — 탈퇴 게스트의 유효 토큰 → 신규 가입 폴백은 의도된 동작.
+     */
+    private boolean isConcurrentlyPromotedGuest(UUID currentUserId, Boolean callerGuestClaim) {
+        return Boolean.TRUE.equals(callerGuestClaim) && currentUserId != null
+                && userRepository.findByIdAndIsDeletedFalse(currentUserId)
+                        .filter(caller -> !caller.isGuest())
+                        .isPresent();
+    }
+
+
     @Transactional
     public GuestLoginResponse guestLogin() {
         User newUser = userRepository.save(User.builder().isGuest(true).build());
         createUserSideRows(newUser.getId());
 
-        String accessToken = jwtProvider.generateAccessToken(newUser.getId());
-        String refreshToken = jwtProvider.generateRefreshToken(newUser.getId());
+        // 게스트 발급 경로 — guest=true 클레임을 실어, 승격 후 이 토큰으로 오는 요청을 판별한다 (GROMO-1229)
+        String accessToken = jwtProvider.generateAccessToken(newUser.getId(), newUser.isGuest());
+        String refreshToken = jwtProvider.generateRefreshToken(newUser.getId(), newUser.isGuest());
         newUser.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
 
         // 게스트 생성은 항상 신규 가입
@@ -276,7 +338,8 @@ public class AuthService {
         User user = userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken))
                 .orElseThrow(() -> new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN));
 
-        String newAccessToken = jwtProvider.generateAccessToken(user.getId());
+        // 재발급도 재발급 시점 유저 상태로 — 게스트가 승격한 뒤 갱신한 AT 는 guest=false 가 된다 (GROMO-1229)
+        String newAccessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());
         return new TokenRefreshResponse(newAccessToken);
     }
 

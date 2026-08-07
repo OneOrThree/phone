@@ -128,7 +128,7 @@ public abstract class InviteLinkTestSupport extends IntegrationTestBase {
     // ── HTTP 헬퍼 ────────────────────────────────────────────────────────
 
     protected String bearer(User user) {
-        return "Bearer " + jwtProvider.generateAccessToken(user.getId());
+        return "Bearer " + jwtProvider.generateAccessToken(user.getId(), user.isGuest());
     }
 
     /** 실제 유입과 같은 경로로 클릭 1건을 만든다(랜딩 GET). */

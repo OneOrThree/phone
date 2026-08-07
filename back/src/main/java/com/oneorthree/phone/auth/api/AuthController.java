@@ -32,7 +32,10 @@ public class AuthController {
     @Operation(summary = "구글 로그인", description = "Google id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Google 토큰")
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Google 토큰"),
+        @ApiResponse(responseCode = "409",
+                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
+                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
     })
     @PostMapping("/auth/google")
     public ResponseEntity<SocialLoginResponse> googleLogin(
@@ -44,7 +47,10 @@ public class AuthController {
     @Operation(summary = "라인 로그인", description = "LINE Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 LINE 토큰")
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 LINE 토큰"),
+        @ApiResponse(responseCode = "409",
+                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
+                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
     })
     @PostMapping("/auth/line")
     public ResponseEntity<SocialLoginResponse> lineLogin(
@@ -56,7 +62,10 @@ public class AuthController {
     @Operation(summary = "인스타그램 로그인", description = "Instagram Access Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Instagram 토큰")
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Instagram 토큰"),
+        @ApiResponse(responseCode = "409",
+                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
+                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
     })
     @PostMapping("/auth/instagram")
     public ResponseEntity<SocialLoginResponse> instagramLogin(
@@ -69,7 +78,10 @@ public class AuthController {
             description = "Facebook(Meta) Limited Login id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 Facebook 토큰")
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 Facebook 토큰"),
+        @ApiResponse(responseCode = "409",
+                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
+                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
     })
     @PostMapping("/auth/facebook")
     public ResponseEntity<SocialLoginResponse> facebookLogin(
@@ -81,7 +93,10 @@ public class AuthController {
     @Operation(summary = "카카오 로그인", description = "카카오 Access Token → AT + RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰")
+        @ApiResponse(responseCode = "401", description = "유효하지 않은 카카오 토큰"),
+        @ApiResponse(responseCode = "409",
+                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
+                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
     })
     @PostMapping("/auth/kakao")
     public ResponseEntity<SocialLoginResponse> kakaoLogin(
@@ -93,7 +108,10 @@ public class AuthController {
     @Operation(summary = "애플 로그인", description = "Apple Identity Token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "로그인 성공"),
-        @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패")
+        @ApiResponse(responseCode = "401", description = "Identity Token 검증 실패"),
+        @ApiResponse(responseCode = "409",
+                description = "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) "
+                        + "또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)")
     })
     @PostMapping("/auth/apple")
     public ResponseEntity<SocialLoginResponse> appleLogin(
