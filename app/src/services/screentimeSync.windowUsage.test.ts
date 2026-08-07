@@ -1,10 +1,18 @@
 // 창 사용분 계산·업로드(그룹 챌린지 확장 A4) 테스트.
-// ① 버킷 차 계산 순수 함수 — 경계 정렬(±15분 눈금)·자정 걸침·빈 타임라인·×15 변환 금지 락
-// ② syncWindowUsage — 구 바이너리 가드(세션당 1회 계측)·최종 보고 1회 멱등·중간 보고
-//    무변화 스킵·업로드 실패 재시도.
-// 시각은 jest.setSystemTime으로 고정한다(러너 TZ는 jest.config.js가 KST로 고정).
+// ① 버킷 차 계산 순수 함수 — 경계 정렬(±15분 눈금)·세그먼트 합산·빈 타임라인·×15 변환 금지 락
+// ② localDaySegments — 로컬-일 세그먼트 분할(자정 정각 경계 포함, GROMO-1242)
+// ③ syncWindowUsage — 구 바이너리 가드(세션당 1회 계측)·최종 보고 1회 멱등·중간 보고
+//    무변화 스킵·업로드 실패 재시도·비KST 로컬 축 조회·보존 게이트(부분합 금지).
+// 시각은 jest.setSystemTime으로 고정한다(러너 TZ는 jest.config.js가 KST로 고정). 비KST 기기는
+// 프로세스 TZ를 못 바꾸므로 localDateStr(로컬 축의 단일 주입점)을 spyOn으로 치환해 시뮬레이션한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { computeWindowUsedMinutes, cumulativeMinutesAt, syncWindowUsage } from './screentimeSync';
+import {
+  computeWindowUsedMinutes,
+  cumulativeMinutesAt,
+  localDaySegments,
+  syncWindowUsage,
+} from './screentimeSync';
+import { localDateStr } from '@/utils/localDate';
 import ScreenTimeModule, { nativeSupportsUsageBucketEvents } from '@/services/ScreenTimeModule';
 import type { UsageBucketEvent } from '@/services/ScreenTimeModule';
 import { getChallenges, getMyGroups } from '@/services/groupApi';
@@ -38,15 +46,24 @@ jest.mock('@/services/analyticsEvents', () => ({
   logScreentimeWindowReported: jest.fn(),
   logScreentimeWindowUnsupported: jest.fn(),
 }));
-// 축 분리 검증(GROMO-1219) — 창 보고는 KST 축(todayStrKst·yesterdayStrKst·kstDateStr, 실물)만
-// 불러야 한다. **로컬 버전은 일부러 엉뚱한 날짜**라, 코드가 로컬 축을 부르면 putWindowUsage의
-// date·타임라인 dayKey 단언이 곧장 어긋나 드러난다(러너 TZ가 KST라 값만으론 축이 안 갈린다).
-jest.mock('@/utils/localDate', () => ({
-  ...jest.requireActual('@/utils/localDate'),
-  todayStr: jest.fn(() => '2000-01-02'),
-  yesterdayStr: jest.fn(() => '2000-01-01'),
-}));
+// 축 분리 검증(GROMO-1219) — 창 보고 date는 KST 축(todayStrKst·yesterdayStrKst·kstDateStr,
+// 실물)만 불러야 한다. **todayStr/yesterdayStr는 일부러 엉뚱한 날짜(독극물)**라, 코드가 그쪽을
+// 부르면 putWindowUsage의 date·타임라인 dayKey 단언이 곧장 어긋나 드러난다(러너 TZ가 KST라
+// 값만으론 축이 안 갈린다). localDateStr는 네이티브 조회 dayKey의 **정당한 로컬 축 주입점**
+// (GROMO-1242) — 기본은 실물 위임, 비KST 시뮬레이션 테스트만 mockImplementation으로 치환한다.
+jest.mock('@/utils/localDate', () => {
+  const actual = jest.requireActual('@/utils/localDate');
+  return {
+    __esModule: true,
+    ...actual,
+    localDateStr: jest.fn((d: Date) => actual.localDateStr(d)),
+    todayStr: jest.fn(() => '2000-01-02'),
+    yesterdayStr: jest.fn(() => '2000-01-01'),
+  };
+});
 
+const actualLocalDate = jest.requireActual('@/utils/localDate');
+const mockLocalDateStr = localDateStr as jest.Mock;
 const mockSupports = nativeSupportsUsageBucketEvents as jest.Mock;
 const mockGetEvents = ScreenTimeModule.getUsageBucketEvents as jest.Mock;
 const mockGetMyGroups = getMyGroups as jest.Mock;
@@ -100,11 +117,22 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   mockSupports.mockReturnValue(true);
   mockGetEvents.mockResolvedValue([]);
+  // 비KST 시뮬레이션 테스트가 남긴 치환을 실물 위임으로 복구 — clearAllMocks는 구현을 지우지
+  // 않으므로 매 테스트 기본 구현을 다시 심는다.
+  mockLocalDateStr.mockImplementation((d: Date) => actualLocalDate.localDateStr(d));
 });
 
 afterEach(() => {
   jest.useRealTimers();
 });
+
+// 비KST 기기 시뮬레이션 — 로컬 축의 단일 주입점인 localDateStr만 치환한다(스펙 설계).
+// 러너 TZ가 KST 고정이라 '다음 로컬 자정' 재물질화(new Date(y,m-1,d+1))는 KST 자정 instant로
+// 계산된다 — 그래서 이 가짜 축은 실존 TZ의 재현이 아니라 '조회 dayKey·경계가 localDateStr
+// 산출값을 따라가는지'(축 배선)를 검증하는 합성 축이다.
+function fakeLocalAxis(impl: (date: Date) => string): void {
+  mockLocalDateStr.mockImplementation(impl);
+}
 
 describe('cumulativeMinutesAt — T 시점 하루 누적 사용분', () => {
   const events = [
@@ -130,18 +158,85 @@ describe('cumulativeMinutesAt — T 시점 하루 누적 사용분', () => {
   });
 });
 
-describe('computeWindowUsedMinutes — 창 사용분(버킷 차)', () => {
-  test('빈 타임라인 = 0', () => {
+describe('localDaySegments — 로컬-일 세그먼트 분할(GROMO-1242)', () => {
+  // 러너 TZ가 KST라 실물 localDateStr의 로컬 = KST — 여기서는 분할 산법(자정 경계·정각 처리)만
+  // 검증하고, 비KST 축 배선은 아래 syncWindowUsage 테스트에서 spyOn 주입으로 검증한다.
+  test('같은 로컬 일 안의 창 = 세그먼트 1개', () => {
     expect(
-      computeWindowUsedMinutes({
-        startDayEvents: [],
-        startAtSec: epochSec('2026-08-02', '09:00'),
-        endAtSec: epochSec('2026-08-02', '12:00'),
-      }),
-    ).toBe(0);
+      localDaySegments(epochSec('2026-08-02', '09:00'), epochSec('2026-08-02', '12:00')),
+    ).toEqual([
+      {
+        dayKey: '2026-08-02',
+        fromSec: epochSec('2026-08-02', '09:00'),
+        toSec: epochSec('2026-08-02', '12:00'),
+      },
+    ]);
   });
 
-  test('단일일 창 — f(끝) − f(시작), ±15분 눈금 경계 정렬', () => {
+  test('자정 걸침 창 = 로컬 자정에서 2개로 갈라진다', () => {
+    expect(
+      localDaySegments(epochSec('2026-08-01', '23:00'), epochSec('2026-08-02', '01:00')),
+    ).toEqual([
+      {
+        dayKey: '2026-08-01',
+        fromSec: epochSec('2026-08-01', '23:00'),
+        toSec: epochSec('2026-08-02', '00:00'),
+      },
+      {
+        dayKey: '2026-08-02',
+        fromSec: epochSec('2026-08-02', '00:00'),
+        toSec: epochSec('2026-08-02', '01:00'),
+      },
+    ]);
+  });
+
+  test('자정 정각 경계 — 정각 시작은 그날 키, 정각 종료는 빈 세그먼트를 만들지 않는다', () => {
+    // 시작이 자정 정각이면 그 시각은 이미 새 날 키다(네이티브 gregorianDayString과 동일 귀속).
+    expect(
+      localDaySegments(epochSec('2026-08-02', '00:00'), epochSec('2026-08-02', '01:00')),
+    ).toEqual([
+      {
+        dayKey: '2026-08-02',
+        fromSec: epochSec('2026-08-02', '00:00'),
+        toSec: epochSec('2026-08-02', '01:00'),
+      },
+    ]);
+    // 종료가 자정 정각이면 첫날 세그먼트 하나로 끝난다 — [자정, 자정] 길이 0 세그먼트 금지.
+    expect(
+      localDaySegments(epochSec('2026-08-01', '23:00'), epochSec('2026-08-02', '00:00')),
+    ).toEqual([
+      {
+        dayKey: '2026-08-01',
+        fromSec: epochSec('2026-08-01', '23:00'),
+        toSec: epochSec('2026-08-02', '00:00'),
+      },
+    ]);
+  });
+
+  test('빈 구간(start == end) = 세그먼트 없음', () => {
+    expect(
+      localDaySegments(epochSec('2026-08-02', '09:00'), epochSec('2026-08-02', '09:00')),
+    ).toEqual([]);
+  });
+});
+
+describe('computeWindowUsedMinutes — 창 사용분(세그먼트별 버킷 차 합산)', () => {
+  test('빈 타임라인 = 0 (세그먼트 없음도 0)', () => {
+    expect(
+      computeWindowUsedMinutes({
+        segments: [
+          {
+            events: [],
+            fromSec: epochSec('2026-08-02', '09:00'),
+            toSec: epochSec('2026-08-02', '12:00'),
+          },
+        ],
+      }),
+    ).toBe(0);
+    expect(computeWindowUsedMinutes({ segments: [] })).toBe(0);
+  });
+
+  test('단일 세그먼트 창 — f(끝) − f(시작), ±15분 눈금 경계 정렬', () => {
     const events = [
       ev('2026-08-02', '08:45', 120), // 창 시작 직전 마지막 발화 — 기준값
       ev('2026-08-02', '09:15', 135),
@@ -150,9 +245,13 @@ describe('computeWindowUsedMinutes — 창 사용분(버킷 차)', () => {
     ];
     expect(
       computeWindowUsedMinutes({
-        startDayEvents: events,
-        startAtSec: epochSec('2026-08-02', '09:00'),
-        endAtSec: epochSec('2026-08-02', '12:00'),
+        segments: [
+          {
+            events,
+            fromSec: epochSec('2026-08-02', '09:00'),
+            toSec: epochSec('2026-08-02', '12:00'),
+          },
+        ],
       }),
     ).toBe(60); // 180 − 120
   });
@@ -161,46 +260,81 @@ describe('computeWindowUsedMinutes — 창 사용분(버킷 차)', () => {
     const events = [ev('2026-08-02', '10:00', 45)];
     expect(
       computeWindowUsedMinutes({
-        startDayEvents: events,
-        startAtSec: epochSec('2026-08-02', '09:00'),
-        endAtSec: epochSec('2026-08-02', '12:00'),
+        segments: [
+          {
+            events,
+            fromSec: epochSec('2026-08-02', '09:00'),
+            toSec: epochSec('2026-08-02', '12:00'),
+          },
+        ],
       }),
-    ).toBe(45);
+    ).toBe(45); // 시작 이전 발화 없음 = 기준 0
   });
 
-  test('자정 걸침 창 — 2일 키 조합([시작~자정] + [자정~끝])', () => {
+  test('자정 걸침 창 — 2세그먼트 합산([시작~자정] + [자정~끝])', () => {
     expect(
       computeWindowUsedMinutes({
-        startDayEvents: [ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)],
-        startAtSec: epochSec('2026-08-01', '23:00'),
-        endAtSec: epochSec('2026-08-02', '01:00'),
-        midnightSec: epochSec('2026-08-02', '00:00'),
-        nextDayEvents: [ev('2026-08-02', '00:20', 20)],
+        segments: [
+          {
+            events: [ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)],
+            fromSec: epochSec('2026-08-01', '23:00'),
+            toSec: epochSec('2026-08-02', '00:00'),
+          },
+          {
+            events: [ev('2026-08-02', '00:20', 20)],
+            fromSec: epochSec('2026-08-02', '00:00'),
+            toSec: epochSec('2026-08-02', '01:00'),
+          },
+        ],
       }),
     ).toBe(50); // (330 − 300) + 20 — 다음날 키는 0부터 다시 시작
   });
 
-  test('자정 걸침 창을 자정 전에 중간 측정하면 첫째 날 구간만', () => {
+  test('자정 걸침 창을 자정 전에 중간 측정하면 첫째 날 세그먼트만 들어온다', () => {
+    // E'가 자정 이전이면 localDaySegments가 세그먼트를 첫날 하나만 만든다 — 그 결과 형태 그대로.
     expect(
       computeWindowUsedMinutes({
-        startDayEvents: [ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)],
-        startAtSec: epochSec('2026-08-01', '23:00'),
-        endAtSec: epochSec('2026-08-01', '23:40'), // now < 자정
-        midnightSec: epochSec('2026-08-02', '00:00'),
-        nextDayEvents: [],
+        segments: [
+          {
+            events: [ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)],
+            fromSec: epochSec('2026-08-01', '23:00'),
+            toSec: epochSec('2026-08-01', '23:40'), // now < 자정
+          },
+        ],
       }),
     ).toBe(30);
   });
 
-  test('역행 값 방어 — 음수는 0으로 클램프', () => {
-    // bucket 단조 증가가 계약이지만, 기록이 어긋나도 음수를 서버로 보내지 않는다.
+  test('역행 값 방어 — 세그먼트별 음수는 0으로 클램프', () => {
+    // bucket 단조 증가가 계약이지만, 기록이 어긋나도 음수를 서버로 보내지 않는다(세그먼트 단위
+    // 클램프 — 증가 없는 세그먼트는 0으로만 잡히고 다른 세그먼트의 합을 깎지 않는다).
     expect(
       computeWindowUsedMinutes({
-        startDayEvents: [ev('2026-08-02', '08:00', 100)],
-        startAtSec: epochSec('2026-08-02', '09:00'),
-        endAtSec: epochSec('2026-08-02', '12:00'),
+        segments: [
+          {
+            events: [ev('2026-08-02', '08:00', 100)],
+            fromSec: epochSec('2026-08-02', '09:00'),
+            toSec: epochSec('2026-08-02', '12:00'),
+          },
+        ],
       }),
     ).toBe(0);
+    expect(
+      computeWindowUsedMinutes({
+        segments: [
+          {
+            events: [ev('2026-08-01', '22:00', 100)], // 창 구간 내 증가 없음 → 0
+            fromSec: epochSec('2026-08-01', '23:00'),
+            toSec: epochSec('2026-08-02', '00:00'),
+          },
+          {
+            events: [ev('2026-08-02', '00:20', 20)],
+            fromSec: epochSec('2026-08-02', '00:00'),
+            toSec: epochSec('2026-08-02', '01:00'),
+          },
+        ],
+      }),
+    ).toBe(20);
   });
 });
 
@@ -401,5 +535,110 @@ describe('syncWindowUsage — 보고', () => {
     mockGetEvents.mockRejectedValue(new Error('native')); // 조회 실패 ≠ 발화 없음
     await syncWindowUsage(USER_ID);
     expect(mockPut).not.toHaveBeenCalled();
+  });
+});
+
+describe('syncWindowUsage — 비KST 로컬 축·보존 게이트(GROMO-1242)', () => {
+  test('비KST 기기 — KST 창이 로컬 이틀에 걸치면 두 로컬 dayKey를 조회해 세그별 delta를 합산한다', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 1, 30)); // 어제(KST) 23시 창 종료 후
+    await setupHappyPath(windowChallenge('23:00:00', '01:00:00'));
+    // 가짜 로컬 축: KST 8/2 자정 전은 '2026-08-01', 이후는 '2026-08-03' — 자정 이후의 로컬
+    // 날짜가 KST 날짜('2026-08-02')와 다른 기기. 조회 키가 KST 산법(nextDateStr)이 아니라
+    // localDateStr 산출을 따라가는지 검증한다.
+    const kstMidnightMs = epochSec('2026-08-02', '00:00') * 1000;
+    fakeLocalAxis((d) => (d.getTime() < kstMidnightMs ? '2026-08-01' : '2026-08-03'));
+    mockGetEvents.mockImplementation((dayKey: string) => {
+      if (dayKey === '2026-08-01') {
+        // 첫째 로컬 일: 창 시작 전 300 → 자정까지 330 (delta 30)
+        return Promise.resolve([ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)]);
+      }
+      if (dayKey === '2026-08-03') {
+        // 둘째 로컬 일: 독립 누적(자정 리셋 후 0부터) → 창 끝(01:00)까지 40 (delta 40)
+        return Promise.resolve([ev('2026-08-02', '00:40', 40), ev('2026-08-02', '01:10', 55)]);
+      }
+      return Promise.resolve([]);
+    });
+
+    await syncWindowUsage(USER_ID);
+
+    // 보고 date는 KST 축 그대로, 사용분은 로컬 세그먼트 합산 — 축 분리.
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      date: '2026-08-01', // KST 창 기준 날짜(finalKey·보고 축 불변)
+      usedMinutes: 70, // (330−300) + 40
+      measuredAt: new Date().toISOString(),
+    });
+    expect(mockGetEvents).toHaveBeenCalledWith('2026-08-01');
+    expect(mockGetEvents).toHaveBeenCalledWith('2026-08-03');
+    expect(mockGetEvents).not.toHaveBeenCalledWith('2026-08-02'); // KST 다음날 키 조회 금지
+  });
+
+  test('보존 게이트 — 필요 dayKey가 로컬 어제 미만이면 그 창 전체를 skip(putWindowUsage 미호출)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0)); // 두 창 모두 종료 후
+    await setupHappyPath(); // 09:00~12:00
+    // 가짜 로컬 축(합성): 어제(KST) 창 시각은 '2026-07-30', 로컬 어제(now−1일)는 '2026-07-31',
+    // 오늘(KST) 창 시각은 '2026-08-01' — 어제 창의 필요 키('2026-07-30')가 보존 하한
+    // ('2026-07-31') 미만이 되도록 구성한다(네이티브가 이미 지운 키 = 빈 배열 = 0분 함정).
+    const aug1NoonMs = epochSec('2026-08-01', '12:00') * 1000;
+    const kstMidnightMs = epochSec('2026-08-02', '00:00') * 1000;
+    fakeLocalAxis((d) => {
+      if (d.getTime() < aug1NoonMs) return '2026-07-30';
+      if (d.getTime() < kstMidnightMs) return '2026-07-31';
+      return '2026-08-01';
+    });
+    mockGetEvents.mockImplementation((dayKey: string) => {
+      if (dayKey === '2026-08-01') {
+        return Promise.resolve([ev('2026-08-02', '10:00', 45)]);
+      }
+      // 보존 창 밖 키는 네이티브가 빈 배열을 준다 — 이것이 0분으로 새면 과소 보고.
+      return Promise.resolve([]);
+    });
+
+    await syncWindowUsage(USER_ID);
+
+    // 어제(KST '2026-08-01') 창은 통째로 skip — 부분합(0분) 보고 금지. 오늘 창만 보고된다.
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      date: '2026-08-02',
+      usedMinutes: 45,
+      measuredAt: new Date().toISOString(),
+    });
+    expect(mockGetEvents).not.toHaveBeenCalledWith('2026-07-30'); // 게이트가 조회 전에 자른다
+  });
+
+  test('세그먼트 하나가 null이면 전체 skip — 부분합을 보고하지 않고 다음 sync가 재시도한다', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0));
+    await setupHappyPath(windowChallenge('23:00:00', '01:00:00')); // 어제 창만 대상(오늘 창은 시작 전)
+    mockGetEvents.mockImplementation((dayKey: string) => {
+      if (dayKey === '2026-08-01') {
+        return Promise.resolve([ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)]);
+      }
+      return Promise.reject(new Error('native')); // 둘째 세그먼트 키 조회 실패
+    });
+
+    await syncWindowUsage(USER_ID);
+    // 첫 세그먼트(30분)가 있어도 부분합은 금지 — 보고 자체가 나가면 안 된다.
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(mockGetEvents).toHaveBeenCalledWith('2026-08-01');
+    expect(mockGetEvents).toHaveBeenCalledWith('2026-08-02');
+
+    // 다음 sync — 둘째 키도 읽히면 그때 전체 합으로 최종 보고된다(재시도 보존).
+    mockGetEvents.mockImplementation((dayKey: string) => {
+      if (dayKey === '2026-08-01') {
+        return Promise.resolve([ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)]);
+      }
+      if (dayKey === '2026-08-02') {
+        return Promise.resolve([ev('2026-08-02', '00:20', 20)]);
+      }
+      return Promise.resolve([]);
+    });
+    await syncWindowUsage(USER_ID);
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      date: '2026-08-01',
+      usedMinutes: 50, // (330−300) + 20
+      measuredAt: new Date().toISOString(),
+    });
+    expect(mockLogReported).toHaveBeenCalledWith({ minutes: 50, is_final: true });
   });
 });
