@@ -39,7 +39,10 @@ function lastBet(over: Partial<LastSettledBet> = {}): LastSettledBet {
 function renderSheet(
   over: Partial<LastSettledBet> = {},
   myUserId: string | null = 'u1',
-  mission: { missionType?: 'TIME_WINDOW' | 'DURATION'; missionCategory?: 'FOCUS' | 'SCREEN_TIME' } = {},
+  mission: {
+    missionType?: 'TIME_WINDOW' | 'DURATION';
+    missionCategory?: 'FOCUS' | 'SCREEN_TIME';
+  } = {},
 ) {
   return render(
     <LastBetResultSheet
@@ -154,9 +157,7 @@ describe('판정 근거(기록/목표 분)', () => {
 
     expect(screen.getByTestId('group.bet.result.basis.u1')).toHaveTextContent('—');
     // '—'를 "대시"로 읽지 않게 — 확정 부재 문구가 행 라벨에 들어가고, 판정과 쉼표로 끊는다.
-    expect(
-      screen.getByLabelText('재영 판정 기록 없음, 미달성, 마이너스 30코인'),
-    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('재영 판정 기록 없음, 미달성, 마이너스 30코인')).toBeOnTheScreen();
   });
 
   test('목표 분이 null(목표 없던 구 창)이면 분모를 지어내지 않고 기록 분만 적는다', async () => {
