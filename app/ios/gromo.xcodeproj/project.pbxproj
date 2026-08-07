@@ -459,7 +459,7 @@
 				D40D483E2FE111110058301C /* Embed Foundation Extensions */,
 				4261F91123AE239D0B5AB59F /* [CP-User] [RNFB] Core Configuration */,
 				DF907560358940B0B58BF496 /* Upload Debug Symbols to Sentry */,
-				658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (Debug=dev / Release=prod) */,
+				658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (APP_ENV=dev|prod, 기본 dev) */,
 			);
 			buildRules = (
 			);
@@ -792,7 +792,7 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-gromo/expo-configure-project.sh\"\n";
 		};
-		658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (Debug=dev / Release=prod) */ = {
+		658925CEDCD1D9118A4CB91E /* Firebase 환경별 plist 주입 (APP_ENV=dev|prod, 기본 dev) */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -802,14 +802,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Firebase 환경별 plist 주입 (Debug=dev / Release=prod)";
+			name = "Firebase 환경별 plist 주입 (APP_ENV=dev|prod, 기본 dev)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n\n# gromo — Firebase 환경별 GoogleService-Info.plist 주입 (수동 관리 native 프로젝트)\n# Debug 빌드 → dev(gromo-dev), 그 외(Release) → prod(gromo-prod)\n# 원본: app/ios/GoogleService-Info-dev.plist / GoogleService-Info-prod.plist (gitignore — 팀원은 별도 전달받아 배치)\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  ENV_NAME=\"dev\"\nelse\n  ENV_NAME=\"prod\"\nfi\n\nSRC=\"${SRCROOT}/GoogleService-Info-${ENV_NAME}.plist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/GoogleService-Info.plist\"\n\nif [ ! -f \"${SRC}\" ]; then\n  echo \"error: Firebase plist 없음 → ${SRC}\" >&2\n  echo \"error: app/ios/ 에 GoogleService-Info-dev.plist / -prod.plist 를 배치하세요 (팀 시크릿).\" >&2\n  exit 1\nfi\n\necho \"note: Firebase(${ENV_NAME}) plist 주입 → GoogleService-Info.plist\"\n/bin/cp \"${SRC}\" \"${DEST}\"\n";
+			shellScript = "set -e\n\n# gromo — Firebase 환경별 GoogleService-Info.plist 주입 (수동 관리 native 프로젝트)\n# 환경 선택 기준은 APP_ENV(없으면 EXPO_PUBLIC_ENV, 그래도 없으면 dev) — android/app/build.gradle 과 같은 축이다.\n# 빌드 configuration(Debug/Release)으로 고르면 안 된다: fastlane beta 와 scripts/e2e.sh 는 dev 서버를\n# 보면서도 Release 로 빌드하므로, 앱만 prod 파베에 등록돼 dev 서버 푸시가 전부 SENDER_ID_MISMATCH 로\n# 실패한다(GROMO-1234).\n# 원본: app/ios/GoogleService-Info-dev.plist / GoogleService-Info-prod.plist (gitignore — 팀원은 별도 전달받아 배치)\nENV_NAME=\"${APP_ENV:-${EXPO_PUBLIC_ENV:-dev}}\"\n\nif [ \"${ENV_NAME}\" != \"dev\" ] && [ \"${ENV_NAME}\" != \"prod\" ]; then\n  echo \"error: 알 수 없는 Firebase 환경 → '${ENV_NAME}' (APP_ENV/EXPO_PUBLIC_ENV 는 dev 또는 prod)\" >&2\n  exit 1\nfi\n\nSRC=\"${SRCROOT}/GoogleService-Info-${ENV_NAME}.plist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/GoogleService-Info.plist\"\n\nif [ ! -f \"${SRC}\" ]; then\n  echo \"error: Firebase plist 없음 → ${SRC}\" >&2\n  echo \"error: app/ios/ 에 GoogleService-Info-dev.plist / -prod.plist 를 배치하세요 (팀 시크릿).\" >&2\n  exit 1\nfi\n\necho \"note: Firebase(${ENV_NAME}) plist 주입 → GoogleService-Info.plist\"\n/bin/cp \"${SRC}\" \"${DEST}\"\n";
 			showEnvVarsInLog = 0;
 		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {

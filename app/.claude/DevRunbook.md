@@ -249,7 +249,20 @@ ASC_KEY_PATH=/절대/경로/AuthKey_XXXXXX.p8
 - p12(`.p12`)는 더블클릭으로 키체인에 설치, 프로파일(`.mobileprovision`)도 더블클릭으로 설치.
 - 자세한 서명/프로파일 발급 흐름은 [CLAUDE.md](./CLAUDE.md)의 "On-device signing / provisioning" 참고.
 
-#### (5) (선택) alias 등록 — 어디서든 `testflight`
+#### (5) Firebase 설정 파일(plist) 배치 — 없으면 빌드가 멈춘다
+
+`app/ios/`에 **두 파일 다** 두어야 한다 (`.gitignore` — git이 아닌 별도 채널로 재영에게 받는다):
+
+| 파일                            | Firebase 프로젝트 | 쓰이는 때                           |
+| ------------------------------- | ----------------- | ----------------------------------- |
+| `GoogleService-Info-dev.plist`  | `gromo-dev-de87e` | Xcode 로컬 빌드 · `./testflight.sh` |
+| `GoogleService-Info-prod.plist` | prod 파베         | `./testflight.sh release`           |
+
+빌드 페이즈("Firebase 환경별 plist 주입")가 **`APP_ENV`(없으면 `EXPO_PUBLIC_ENV`, 그래도 없으면 `dev`)** 를 보고 둘 중 하나를 앱 번들의 `GoogleService-Info.plist`로 복사한다 — 안드로이드 `build.gradle`과 같은 기준이다. 해당 파일이 없으면 `error: Firebase plist 없음`으로 빌드가 실패한다.
+
+> ⚠️ **서버와 Firebase는 같은 환경끼리 붙어야 한다.** dev 서버에 붙은 앱이 prod 파베 토큰을 들고 있으면 푸시가 전부 `SENDER_ID_MISMATCH`로 실패한다. `testflight.sh`가 두 축을 함께 맞춰주므로, 수동 `xcodebuild`로 릴리즈를 만들 때만 `APP_ENV`를 직접 지정하면 된다.
+
+#### (6) (선택) alias 등록 — 어디서든 `testflight`
 
 ```bash
 echo 'alias testflight="/Users/soobin/phone/app/ios/testflight.sh"' >> ~/.zshrc
@@ -265,9 +278,10 @@ cd app/ios
 
 `testflight.sh`가 하는 일:
 
-1. **API 서버 강제** — 릴리즈는 항상 프로덕션 서버(`https://api.oneorthree.world`)로 고정 (2026-07-20 dev/prod 분리 이후; 이전엔 dev 서버였음). 셸에 export한 `EXPO_PUBLIC_API_URL`이 로컬 `.env`/`.env.production`보다 우선하므로, **개발용 로컬 백엔드 주소가 릴리즈 번들에 박히는 사고를 막는다** (dev 서버로 올리려면 `TESTFLIGHT_API_URL=https://oneorthree.dev.mooo.com ./testflight.sh`).
-2. **Pods 동기화** — `Podfile.lock`↔`Pods/Manifest.lock`이 어긋날 때만 `pod install` (평소엔 건너뜀).
-3. **`bundle exec fastlane beta`** 실행 → 빌드번호 갱신 → archive(`.ipa`) → TestFlight 업로드.
+1. **API 서버 강제** — 레인별 기본값을 셸에 export한다: `beta`(테스트 업로드) → dev 서버(`https://oneorthree.dev.mooo.com`), `release`(심사 제출) → prod 서버(`https://api.oneorthree.world`). export한 `EXPO_PUBLIC_API_URL`이 로컬 `.env`/`.env.production`보다 우선하므로 **개발용 로컬 백엔드 주소가 릴리즈 번들에 박히는 사고를 막는다**. 특정 서버로 강제하려면 `TESTFLIGHT_API_URL=<주소> ./testflight.sh [레인]`.
+2. **환경 축 정렬** — 위 서버에 맞춰 `EXPO_PUBLIC_ENV`(Sentry·GA4·Datadog 태그)와 `APP_ENV`(Firebase plist 선택)를 같은 값으로 export한다. 즉 **서버·관측 태그·파베가 항상 한 환경으로 묶인다**.
+3. **Pods 동기화** — `Podfile.lock`↔`Pods/Manifest.lock`이 어긋날 때만 `pod install` (평소엔 건너뜀).
+4. **`bundle exec fastlane <레인>`** 실행 → 빌드번호 갱신 → archive(`.ipa`) → TestFlight 업로드.
 
 `fastlane beta` 레인(`fastlane/Fastfile`) 상세:
 

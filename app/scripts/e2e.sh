@@ -40,7 +40,9 @@ if [ "${E2E_SKIP_BUILD:-0}" != "1" ]; then
   # Release는 .env.production(운영 URL)을 읽으므로, 셸 env가 .env 파일보다 우선하는 성질을
   # 의도적으로 써서 dev URL을 주입한다 (7/20 사고의 메커니즘을 역이용).
   # EXPO_PUBLIC_E2E=1 — App.tsx의 hot-updater OTA 게이트 우회 (스테일 번들 오염 방지).
-  (cd "$IOS_DIR" && EXPO_PUBLIC_API_URL="$API_URL" EXPO_PUBLIC_E2E=1 xcodebuild \
+  # APP_ENV=dev — Firebase plist 주입 페이즈가 읽는 값. e2e는 항상 dev 서버 대상이므로 dev 로 고정한다
+  # (셸에 APP_ENV=prod 가 남아 있어도 e2e 빌드가 prod 파베로 넘어가지 않게).
+  (cd "$IOS_DIR" && EXPO_PUBLIC_API_URL="$API_URL" EXPO_PUBLIC_E2E=1 APP_ENV=dev xcodebuild \
     -workspace gromo.xcworkspace -scheme gromo -configuration Release \
     -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath build/e2e -quiet build)

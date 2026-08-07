@@ -45,6 +45,12 @@ else
 fi
 echo "🏷️  ENV 태그: $EXPO_PUBLIC_ENV"
 
+# Firebase(GoogleService-Info.plist) 선택 축도 같은 값으로 맞춘다 — Xcode 빌드 페이즈가 APP_ENV 를
+# 읽어 dev/prod plist 를 주입한다(안드로이드 build.gradle 과 동일 기준). 이 export 가 빠지면 beta 가
+# dev 서버에 붙은 채 prod 파베로 등록돼 푸시가 SENDER_ID_MISMATCH 로 죽는다(GROMO-1234).
+export APP_ENV="$EXPO_PUBLIC_ENV"
+echo "🔥 Firebase 프로젝트: $APP_ENV"
+
 # Datadog RUM 키(GROMO-928) — 전송 주소 성격이라 비밀값 아님. dev/prod 는 RUM env 태그로 구분되므로
 # 단일 RUM 앱(gromo-app) 값을 로컬 .env 상태와 무관하게 항상 빌드에 인라인한다.
 export EXPO_PUBLIC_DATADOG_APPLICATION_ID="44a4f021-ed4d-4134-b59d-63a40e37c2ff"
