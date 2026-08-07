@@ -702,28 +702,35 @@ public class GroupService {
 
     private RepresentativeMission toRepresentativeMission(GroupChallenge challenge) {
         Integer durationMinutes = null;
-        Instant windowStart = null;
-        Instant windowEnd = null;
+        String windowStart = null;
+        String windowEnd = null;
         if (challenge.getType() == MissionType.DURATION) {
             durationMinutes = groupChallengeDurationRepository.findById(challenge.getId())
                     .map(GroupChallengeDuration::getDurationMinutes)
                     .orElse(null);
         } else if (challenge.getType() == MissionType.TIME_WINDOW) {
+            // GROMO-1206: 저장 Instant → KST 벽시계 "HH:mm:ss" — /challenges 응답과 같은
+            // 단일 출구(WindowFocusAggregator.timeOfDayString)를 쓴다. 별도 zone 변환 신설 금지.
             Optional<GroupChallengeWindow> window = groupChallengeWindowRepository.findById(challenge.getId());
-            windowStart = window.map(GroupChallengeWindow::getWindowStartAt).orElse(null);
-            windowEnd = window.map(GroupChallengeWindow::getWindowEndAt).orElse(null);
+            windowStart = window.map(GroupChallengeWindow::getWindowStartAt)
+                    .map(WindowFocusAggregator::timeOfDayString).orElse(null);
+            windowEnd = window.map(GroupChallengeWindow::getWindowEndAt)
+                    .map(WindowFocusAggregator::timeOfDayString).orElse(null);
         }
         return new RepresentativeMission(
                 challenge.getCategory(), challenge.getType(), durationMinutes, windowStart, windowEnd);
     }
 
-    /** 상세/오버뷰 JSON 계약(missionCategory/missionType/durationMinutes/windowStart/windowEnd) 유지용 뷰. */
+    /**
+     * 상세/오버뷰 JSON 계약(missionCategory/missionType/durationMinutes/windowStart/windowEnd) 유지용 뷰.
+     * 창 시각은 KST 벽시계 "HH:mm:ss" 문자열이다(GROMO-1206).
+     */
     private record RepresentativeMission(
             MissionCategory missionCategory,
             MissionType missionType,
             Integer durationMinutes,
-            Instant windowStart,
-            Instant windowEnd) {
+            String windowStart,
+            String windowEnd) {
 
         private static final RepresentativeMission EMPTY = new RepresentativeMission(null, null, null, null, null);
     }

@@ -7,7 +7,6 @@ import com.oneorthree.phone.group.domain.MissionType;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.time.Instant;
 import java.util.UUID;
 
 @Getter
@@ -19,8 +18,10 @@ public class GroupOverviewResponse {
     private MissionCategory missionCategory;
     private MissionType missionType;
     private Integer durationMinutes;
-    private Instant windowStart;
-    private Instant windowEnd;
+    // 창 시각 — KST 벽시계 "HH:mm:ss" 문자열(GROMO-1206, /challenges 응답과 동일 계약).
+    // 변환은 WindowFocusAggregator.timeOfDayString 단일 출구를 쓴다. 시작 ≥ 종료면 자정 걸침 창.
+    private String windowStart;
+    private String windowEnd;
     private int maxMembers;
     private int memberCount;
     private GroupStatus status;

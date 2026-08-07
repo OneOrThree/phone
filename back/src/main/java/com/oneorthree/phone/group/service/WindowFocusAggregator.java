@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -36,6 +37,9 @@ public class WindowFocusAggregator {
     public static final int WINDOW_FOCUS_TOLERANCE_MINUTES = 5;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    /** 응답 표기 포맷 — {@link #timeOfDayString} 전용. */
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final FocusSessionRepository focusSessionRepository;
 
@@ -84,5 +88,14 @@ public class WindowFocusAggregator {
      */
     public static LocalTime timeOfDay(Instant instant) {
         return LocalTime.ofInstant(instant, KST);
+    }
+
+    /**
+     * 창 Instant 의 응답 표기 — {@link #timeOfDay} 결과를 {@code "HH:mm:ss"} 문자열로 포맷한다.
+     * {@code /challenges} 목록과 그룹 상세·오버뷰(GROMO-1206)가 같은 문자열을 내보내는 단일 출구다 —
+     * 응답 경로마다 zone 변환을 새로 만들지 말고 반드시 이 메서드를 거칠 것.
+     */
+    public static String timeOfDayString(Instant instant) {
+        return timeOfDay(instant).format(TIME_FORMATTER);
     }
 }
