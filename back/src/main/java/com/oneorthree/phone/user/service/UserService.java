@@ -180,6 +180,9 @@ public class UserService {
      * ② 락 규율(GROMO-801, UserRepository 락 선택 원칙) — 여기서 users 행을 변경하므로 이
      * 트랜잭션은 "users 행 변경 = 처음부터 배타 락(findActiveByIdForUpdate)" 분류에 해당한다.
      * 공유 락(ForShare)으로 로드한 트랜잭션에서 이 메서드를 부르면 락 승급 교착 대상이 된다.
+     * 단, 현재 호출부(setupProfile·updateProfile)는 <b>무락 로드</b>(findByIdAndIsDeletedFalse)라
+     * 승급 교착 이전에 이미 이 규율 밖이다 — 정정은 별도 티켓 몫이고, 이 경고는 그때의 목표
+     * 상태(배타 락 로드)를 기록한다.
      */
     private void changeNickname(User user, String rawNickname) {
         String nickname = rawNickname == null ? "" : rawNickname.trim();
