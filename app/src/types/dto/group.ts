@@ -68,6 +68,8 @@ export interface GroupOverviewResponse {
   missionCategory: MissionCategory | null;
   missionType: MissionType | null;
   durationMinutes: number | null;
+  // 창 시각 — 이제 항상 KST 벽시계 "HH:mm:ss"(GROMO-1206, /challenges와 동일 계약).
+  // 구서버는 Instant ISO를 내려줬다 — 표시는 GroupInviteSheet의 regex 추출(HH:mm)이 흡수한다.
   windowStart: string | null;
   windowEnd: string | null;
   maxMembers: number;
@@ -104,6 +106,7 @@ export interface GroupDetailResponse {
   missionCategory: MissionCategory | null;
   missionType: MissionType | null;
   durationMinutes: number | null;
+  // 창 시각 — 이제 항상 KST 벽시계 "HH:mm:ss"(GROMO-1206, /challenges와 동일 계약). 구서버는 Instant ISO.
   windowStart: string | null;
   windowEnd: string | null;
   maxMembers: number;
