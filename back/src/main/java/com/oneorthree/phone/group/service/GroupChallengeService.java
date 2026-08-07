@@ -48,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -460,6 +461,9 @@ public class GroupChallengeService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
+        // TIME_WINDOW 창 시각 — 요청 문자열을 저장 Instant 로 파싱한 결과(DURATION 이면 null 유지).
+        Instant windowStartAt = null;
+        Instant windowEndAt = null;
         if (request.getMissionType() == MissionType.DURATION) {
             // 상한 1440 — 하루보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205). TIME_WINDOW 는
             // validateTimeWindowParams 의 "창 길이 이내" 검증이 이미 같은 성격의 상한을 건다.
@@ -468,7 +472,9 @@ public class GroupChallengeService {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
         } else if (request.getMissionType() == MissionType.TIME_WINDOW) {
-            validateTimeWindowParams(request);
+            windowStartAt = parseWindowTimeParam(request.getWindowStart());
+            windowEndAt = parseWindowTimeParam(request.getWindowEnd());
+            validateTimeWindowParams(windowStartAt, windowEndAt, request.getDurationMinutes());
         } else {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
@@ -480,7 +486,7 @@ public class GroupChallengeService {
             throw new GroupException(GroupErrorCode.CHALLENGE_DUPLICATE);
         }
         if (request.getMissionType() == MissionType.TIME_WINDOW) {
-            rejectCrossCategoryWindowOverlap(group, request);
+            rejectCrossCategoryWindowOverlap(group, request.getMissionCategory(), windowStartAt, windowEndAt);
         }
 
         GroupChallenge savedChallenge;
@@ -504,8 +510,8 @@ public class GroupChallengeService {
         } else {
             groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                     .challenge(savedChallenge)
-                    .windowStartAt(request.getWindowStart())
-                    .windowEndAt(request.getWindowEnd())
+                    .windowStartAt(windowStartAt)
+                    .windowEndAt(windowEndAt)
                     .durationMinutes(request.getDurationMinutes())
                     .build());
         }
@@ -542,25 +548,37 @@ public class GroupChallengeService {
     }
 
     /**
-     * TIME_WINDOW 파라미터 검증 — 창 시각(필수, 0길이 금지)과 창 내 목표(durationMinutes 필수,
-     * 0 < x ≤ 창 길이 분).
+     * 창 시각 요청 파라미터 파싱 — "HH:mm:ss"(신앱)·ISO Instant(구앱) 이중 수용(GROMO-1225).
+     * 실제 해석은 {@link WindowFocusAggregator#parseRequestTime} 단일 입구가 하고, 여기서는 누락(null)과
+     * 형식 오류를 기존 INVALID_MISSION_PARAMS 로 매핑만 한다(신규 에러 코드 없음).
+     */
+    private Instant parseWindowTimeParam(String value) {
+        if (value == null) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+        try {
+            return WindowFocusAggregator.parseRequestTime(value);
+        } catch (DateTimeParseException e) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+    }
+
+    /**
+     * TIME_WINDOW 파라미터 검증 — 창 시각(0길이 금지)과 창 내 목표(durationMinutes 필수,
+     * 0 < x ≤ 창 길이 분). 누락·형식 오류는 {@link #parseWindowTimeParam} 이 먼저 거른다.
      *
      * <p>창은 매일 반복 시간대다. 저장 Instant 는 Asia/Seoul 벽시계 시각(time-of-day)만 의미를 갖고
      * (응답 변환 {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어
      * 조합한다({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
      * 시작 > 종료는 자정 걸침 창(D 시작 ~ D+1 종료)으로 허용한다.
      */
-    private void validateTimeWindowParams(CreateChallengeRequest request) {
-        if (request.getWindowStart() == null || request.getWindowEnd() == null) {
-            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-        }
-        LocalTime start = timeOfDay(request.getWindowStart());
-        LocalTime end = timeOfDay(request.getWindowEnd());
+    private void validateTimeWindowParams(Instant windowStartAt, Instant windowEndAt, Integer goal) {
+        LocalTime start = timeOfDay(windowStartAt);
+        LocalTime end = timeOfDay(windowEndAt);
         // 같은 시각은 0길이인지 24시간인지 모호해 거부한다.
         if (start.equals(end)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
-        Integer goal = request.getDurationMinutes();
         if (goal == null || goal <= 0 || goal > windowLengthMinutes(start, end)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
@@ -574,11 +592,12 @@ public class GroupChallengeService {
      * 같은 카테고리 행은 중복 검사(CHALLENGE_DUPLICATE)가 담당하므로 건너뛴다.
      * 맞닿음(끝==시작)은 겹침이 아니다(종전 겹침 검사와 동일).
      */
-    private void rejectCrossCategoryWindowOverlap(Group group, CreateChallengeRequest request) {
-        LocalTime start = timeOfDay(request.getWindowStart());
-        LocalTime end = timeOfDay(request.getWindowEnd());
+    private void rejectCrossCategoryWindowOverlap(Group group, MissionCategory category,
+            Instant windowStartAt, Instant windowEndAt) {
+        LocalTime start = timeOfDay(windowStartAt);
+        LocalTime end = timeOfDay(windowEndAt);
         for (GroupChallengeWindow existing : groupChallengeWindowRepository.findActiveByGroupForUpdate(group)) {
-            if (existing.getChallenge().getCategory() == request.getMissionCategory()) {
+            if (existing.getChallenge().getCategory() == category) {
                 continue;
             }
             if (dailyWindowsOverlap(start, end,
