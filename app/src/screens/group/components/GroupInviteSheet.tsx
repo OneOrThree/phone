@@ -94,19 +94,14 @@ function readIsMember(ov: GroupOverviewResponse): boolean {
 }
 
 // 서버 시각 문자열 → 화면에 쓸 'HH:mm'.
-// windowStart/windowEnd는 GroupChallengeWindow가 **UTC Instant**로 들고 있어 ISO 문자열로 내려온다
-// ("2026-08-01T00:00:00Z"). 문자열을 그대로 자르면 KST(UTC+9)에서 9시간 어긋난 목표가 보이므로
-// 날짜가 붙은 ISO 값은 Date로 파싱해 기기 로컬 시각으로 옮긴다.
-// 날짜 없는 벽시계 문자열('09:00:00' — 구 계약)은 Date 파싱이 엔진마다 달라 파싱하지 않고
-// 기존대로 HH:mm만 뽑는다. 어느 쪽도 아니면 원문 유지.
+// windowStart/windowEnd는 서버가 KST 벽시계 "HH:mm:ss"로 내려준다(GROMO-1206 — /challenges와
+// 동일 계약). 벽시계 문자열은 Date 파싱이 엔진마다 달라 파싱하지 않고 HH:mm만 뽑는다.
+// 이 regex 추출은 구서버(Instant ISO를 내려주던 전환기)의 방어선이기도 하다 — ISO가 와도
+// 원문에서 HH:mm을 그대로 뽑아 UTC 시각이 찍힐지언정 화면이 깨지진 않는다.
+// 종전의 'ISO면 Date로 파싱해 기기 로컬로 변환' 분기는 제거했다 — 창은 KST 고정 개념이라
+// 비KST 기기에서 초대 프리뷰만 기기 로컬 시각으로 표시되던 버그가 이 제거로 함께 사라졌다.
+// 어느 패턴도 아니면 원문 유지.
 function hhmm(v: string): string {
-  if (/\d{4}-\d{2}-\d{2}/.test(v)) {
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    }
-  }
   return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
 }
 

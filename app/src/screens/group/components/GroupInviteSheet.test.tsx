@@ -265,10 +265,28 @@ describe('프리뷰 조회 분기', () => {
     expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
   });
 
-  // windowStart/windowEnd는 서버가 UTC Instant로 들고 있어 ISO 문자열로 온다.
-  // 문자열을 그대로 자르면 KST 기기에서 9시간 어긋난 시간대가 초대장에 찍힌다.
-  // (jest.config.js가 TZ=Asia/Seoul을 고정하므로 이 기대값이 곧 KST 변환 검증이다.)
-  test('시간대 미션은 UTC 원문이 아니라 기기 로컬 시각으로 보여준다', async () => {
+  // windowStart/windowEnd는 서버가 KST 벽시계 "HH:mm:ss"로 내려준다(GROMO-1206 —
+  // /challenges와 동일 계약). 기기 시간대와 무관하게 이 문자열의 HH:mm이 그대로 찍혀야 한다 —
+  // 종전의 'ISO면 기기 로컬로 변환' 분기가 되살아나면 비KST 기기에서 초대장만 딴 시각을 보여준다.
+  test('시간대 미션은 서버 벽시계 "HH:mm:ss"를 그대로 HH:mm으로 보여준다', async () => {
+    mockGetGroupOverview.mockResolvedValue(
+      overview({
+        missionType: 'TIME_WINDOW',
+        durationMinutes: null,
+        windowStart: '06:00:00',
+        windowEnd: '08:30:00',
+      }),
+    );
+    await renderSheet();
+
+    expect(await screen.findByText('매일 06:00~08:30 집중')).toBeOnTheScreen();
+  });
+
+  // 구서버 전환기 방어 — Instant ISO를 내려주던 서버가 아직 있다. regex 추출이 이 조합을
+  // 흡수한다: UTC 원문의 HH:mm이 찍힐지언정(전환기 한정 열화) 기기 로컬로 변환하지 않고,
+  // 화면도 깨지지 않는다. 구버전 앱 + 신서버 조합도 같은 regex 폴백이 "HH:mm:ss"를 흡수한다.
+  // (jest.config.js가 TZ=Asia/Seoul을 고정한다 — 기기 로컬 변환이 되살아나면 06:00으로 갈라져 깨진다.)
+  test('구서버의 ISO 창 시각은 기기 로컬 변환 없이 원문 HH:mm으로 흡수한다', async () => {
     mockGetGroupOverview.mockResolvedValue(
       overview({
         missionType: 'TIME_WINDOW',
@@ -279,7 +297,7 @@ describe('프리뷰 조회 분기', () => {
     );
     await renderSheet();
 
-    expect(await screen.findByText('매일 06:00~08:30 집중')).toBeOnTheScreen();
+    expect(await screen.findByText('매일 21:00~23:30 집중')).toBeOnTheScreen();
   });
 
   // 스크린타임은 목표의 방향이 집중과 반대다(이하). 이 시트는 참여를 결정하는 유일한 정보

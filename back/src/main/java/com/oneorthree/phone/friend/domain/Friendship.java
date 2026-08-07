@@ -73,7 +73,11 @@ public class Friendship {
         this.status = FriendshipStatus.REJECTED;
     }
 
-    // REJECTED 상태의 기존 요청을 재요청으로 되살림 (REJECTED → PENDING)
+    // REJECTED 상태의 기존 요청을 재요청으로 되살림 (REJECTED → PENDING).
+    // ⚠ createdAt 은 여기서 갱신하지 않는다(못 한다) — @CreationTimestamp 는 insert 생성 프로퍼티라
+    // Hibernate 6 가 UPDATE SQL 에서 컬럼을 제외하므로, 수동 대입은 더티체킹에 잡혀도 조용히 버려진다.
+    // 재요청 시점은 이 UPDATE 가 갱신하는 updatedAt(@UpdateTimestamp)이 담당한다 — PENDING 행의
+    // 마지막 변경 시각 = 요청 사이클 시작 시각. 응답 매핑은 getRequests 참고 (GROMO-719).
     public void reopen() {
         this.status = FriendshipStatus.PENDING;
     }
@@ -86,6 +90,7 @@ public class Friendship {
     // 소프트 삭제된 행을 재요청으로 되살림 — unique(from_user_id, to_user_id) 때문에
     // 같은 방향의 새 행을 insert 할 수 없어 기존 행을 재사용한다(GroupMember.rejoin() 과 같은 패턴).
     // 삭제 전 상태(ACCEPTED·REJECTED)와 무관하게 새 요청이므로 PENDING 으로 초기화한다. (GROMO-719)
+    // ⚠ createdAt 은 원래 관계의 시각 그대로 남는다 — 갱신 불가 사유와 대안(updatedAt)은 reopen() 주석 참고.
     public void restore() {
         this.deletedAt = null;
         this.status = FriendshipStatus.PENDING;

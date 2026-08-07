@@ -3,6 +3,7 @@ package com.oneorthree.phone.friend.service;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.friend.domain.Friendship;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
+import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -83,6 +85,41 @@ class FriendRequestRestoreIntegrationTest extends IntegrationTestBase {
         assertThat(friendshipRepository.findAcceptedBetween(userX, userY)).isPresent();
         // 방향별 1행 재사용 — 복원이 insert 대신 기존 행을 되살렸다는 증거
         assertThat(friendshipRepository.findPair(userX, userY)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("복원된 재요청은 수신자 요청 목록에 재요청 시점으로 보인다 — 원래 관계의 createdAt 노출 금지")
+    void restoredRequest_showsFreshRequestTimeInReceivedList() {
+        // 응답 createdAt 의 소스는 updatedAt 이다 — 행의 createdAt 은 @CreationTimestamp(insert 생성)라
+        // UPDATE 에서 제외돼 갱신할 수 없고, 복원 UPDATE 가 갱신하는 updatedAt 이 재요청 시점을 담는다.
+        // @UpdateTimestamp 생성값이 실제 UPDATE 에 실려 DB 까지 가는지는 실 DB 로만 증명된다 —
+        // getRequests 는 새 트랜잭션에서 DB 를 다시 읽는다.
+        befriend(userX, userY);
+        friendService.deleteFriend(userX.getId(), userY.getId());
+
+        Instant beforeReRequest = Instant.now();
+        friendService.createRequest(userX.getId(), userY.getId());
+
+        List<FriendRequestResponse> received = friendService.getRequests(userY.getId(), "received");
+        assertThat(received).singleElement().satisfies(r -> {
+            assertThat(r.getUserId()).isEqualTo(userX.getId());
+            // 원래 관계를 맺을 때의 시각(재요청 이전)이 아니라 재요청 시점이어야 한다
+            assertThat(r.getCreatedAt()).isAfterOrEqualTo(beforeReRequest);
+        });
+    }
+
+    @Test
+    @DisplayName("신규 요청(insert)도 요청 목록 시각이 요청 시점이다 — updatedAt 소스 전환의 무회귀 확인")
+    void freshRequest_showsRequestTimeInReceivedList() {
+        // 신규 insert 는 @CreationTimestamp·@UpdateTimestamp 가 같은 시점에 생성돼 소스 전환의 영향이 없다.
+        Instant beforeRequest = Instant.now();
+        friendService.createRequest(userX.getId(), userY.getId());
+
+        List<FriendRequestResponse> received = friendService.getRequests(userY.getId(), "received");
+        assertThat(received).singleElement().satisfies(r -> {
+            assertThat(r.getUserId()).isEqualTo(userX.getId());
+            assertThat(r.getCreatedAt()).isNotNull().isAfterOrEqualTo(beforeRequest);
+        });
     }
 
     // ── 픽스처 ──────────────────────────────────────────────────────────

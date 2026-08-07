@@ -748,14 +748,15 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 대표 챌린지 → windowStart/windowEnd 는 window 상세에서 채움")
+    @DisplayName("TIME_WINDOW 대표 챌린지 → windowStart/windowEnd 는 KST 벽시계 \"HH:mm:ss\" 문자열")
     void getGroupOverviewTimeWindowMission() {
-        // given
+        // given — 저장은 UTC Instant, 응답은 KST 벽시계(GROMO-1206, /challenges 와 동일 계약).
+        //   04:00Z = 13:00 KST, 06:30Z = 15:30 KST.
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
-        Instant start = Instant.parse("2026-07-10T13:00:00Z");
-        Instant end = Instant.parse("2026-07-10T15:00:00Z");
+        Instant start = Instant.parse("2026-07-10T04:00:00Z");
+        Instant end = Instant.parse("2026-07-10T06:30:00Z");
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
                 .category(MissionCategory.SCREEN_TIME).status(GroupChallengeStatus.ACTIVE).build();
@@ -773,12 +774,44 @@ class GroupServiceTest {
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
 
-        // then
+        // then — Instant ISO 가 아니라 "HH:mm:ss" 다. ISO 로 새면 앱 timeStrToSeconds 가 조용히 NaN.
         assertThat(result.getMissionCategory()).isEqualTo(MissionCategory.SCREEN_TIME);
         assertThat(result.getMissionType()).isEqualTo(MissionType.TIME_WINDOW);
-        assertThat(result.getWindowStart()).isEqualTo(start);
-        assertThat(result.getWindowEnd()).isEqualTo(end);
+        assertThat(result.getWindowStart()).isEqualTo("13:00:00");
+        assertThat(result.getWindowEnd()).isEqualTo("15:30:00");
         assertThat(result.getDurationMinutes()).isNull();
+    }
+
+    @Test
+    @DisplayName("자정 걸침 창 → 날짜 없이 벽시계만 남아 시작 ≥ 종료 문자열로 내려간다")
+    void getGroupOverviewMidnightCrossingWindow() {
+        // given — 13:00Z = 22:00 KST(당일), 16:00Z = 01:00 KST(익일). 응답엔 날짜가 없으므로
+        //   "22:00:00" > "01:00:00" 이 자정 걸침의 유일한 신호다(WindowFocusAggregator 해석과 동일).
+        User user = normalUser();
+        Group group = Group.builder().id(GROUP_ID).name("그룹")
+                .maxMembers(10).status(GroupStatus.WAITING).build();
+        Instant start = Instant.parse("2026-07-10T13:00:00Z");
+        Instant end = Instant.parse("2026-07-10T16:00:00Z");
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
+                .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE).build();
+
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+        given(groupChallengeRepository.findFirstByGroupAndStatusAndDeletedAtIsNullOrderByCreatedAtAsc(
+                group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
+        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
+                Optional.of(GroupChallengeWindow.builder()
+                        .challengeId(CHALLENGE_ID).windowStartAt(start).windowEndAt(end).build()));
+
+        // when
+        GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
+
+        // then
+        assertThat(result.getWindowStart()).isEqualTo("22:00:00");
+        assertThat(result.getWindowEnd()).isEqualTo("01:00:00");
     }
 
     @Test

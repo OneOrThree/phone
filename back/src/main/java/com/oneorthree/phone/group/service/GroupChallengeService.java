@@ -48,7 +48,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,8 +77,6 @@ public class GroupChallengeService {
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final WindowFocusAggregator windowFocusAggregator;
     private final ApplicationEventPublisher eventPublisher;
-
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private static final int SECONDS_PER_DAY = 86_400;
     private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
@@ -689,8 +686,9 @@ public class GroupChallengeService {
     }
 
     // TIME_WINDOW 상세의 Instant를 Asia/Seoul 벽시계 기준 "HH:mm:ss" 문자열로 변환 (GROMO-1100 KST 해석 통일).
+    // 그룹 상세·오버뷰(GroupService, GROMO-1206)와 같은 단일 출구(timeOfDayString)를 쓴다.
     private String toLocalTimeString(Instant instant) {
-        return timeOfDay(instant).format(TIME_FORMATTER);
+        return WindowFocusAggregator.timeOfDayString(instant);
     }
 
     // 창 시각 추출은 WindowFocusAggregator.timeOfDay 단일 기준을 공유한다(검증·겹침·집계·응답 변환 동일).
