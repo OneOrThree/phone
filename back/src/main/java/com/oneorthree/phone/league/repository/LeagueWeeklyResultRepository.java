@@ -43,7 +43,10 @@ public interface LeagueWeeklyResultRepository extends JpaRepository<LeagueWeekly
      *
      * @return 실제로 확인 처리된 행 수(0 또는 1)
      */
-    @Modifying(clearAutomatically = true)
+    // flushAutomatically 도 함께 켠다 (GROMO-801 예방) — flush 없이 clear 만 하면 그 시점까지의
+    // 미flush 변경이 통째로 버려진다(SocialAccountRepository.deleteByUserId 에서 실제 유실 발생).
+    // 지금 이 트랜잭션엔 미flush 변경이 없어 무해하지만, 같은 모양의 지뢰를 남기지 않는다.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE LeagueWeeklyResult r
             SET r.acknowledgedAt = :now

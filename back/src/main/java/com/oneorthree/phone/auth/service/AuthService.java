@@ -17,6 +17,8 @@ import com.oneorthree.phone.user.domain.UserFocusTimeSettings;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
@@ -196,6 +198,16 @@ public class AuthService {
             user = newUser;
             isNewUser = true;
         }
+
+        // 탈퇴 직렬화 (GROMO-801, codex 리뷰) — 위 분기들은 유저를 락 없이 로드하므로, 조회와 토큰
+        // 발급 사이에 탈퇴(유저 행 배타 락)가 커밋되면 아래 refreshTokenHash 세팅의 full-row UPDATE 가
+        // stale User 로 is_deleted=false·구 PII 를 되살리고 발급된 토큰이 유효하게 남는다. 토큰 상태를
+        // 바꾸기 전에 같은 행의 공유 락을 잡아 직렬화한다 — 탈퇴가 먼저 커밋됐으면 여기서 삭제를
+        // 관측하고 기존 탈퇴 유저 차단 계약대로 NOT_FOUND 로 거절된다(재로그인 시 소셜 연동 행이
+        // 이미 지워져 있어 정상적인 신규 가입 흐름을 탄다). 신규 가입·게스트 승격 분기는 이
+        // 트랜잭션이 방금 만들거나 활성 확인한 행을 다시 읽을 뿐이라 동작이 달라지지 않는다.
+        user = userRepository.findActiveByIdForShare(user.getId())
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         String accessToken = jwtProvider.generateAccessToken(user.getId());
         String refreshToken = jwtProvider.generateRefreshToken(user.getId());

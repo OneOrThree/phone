@@ -32,6 +32,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -53,6 +54,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1201,5 +1203,51 @@ class GroupBetServiceTest {
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CANCEL_HAS_OTHERS);
         assertNoRefundIssued();
+    }
+
+    // ── 계정 탈퇴 일괄 해제 (GROMO-801) ──────────────────────────────────
+
+    @Test
+    @DisplayName("계정 탈퇴 일괄 해제 — 전 그룹의 내기 행 잠금을 전부 확보한 뒤에만 환불이 시작된다 (codex 리뷰)")
+    void releaseFromAllOpenBetsLocksEveryBetBeforeMovingMoney() {
+        // 그룹 단위 순차 해제(잠금→환불→잠금→환불)는 앞 그룹 환불로 지갑 행 잠금을 쥔 채 다음
+        // 그룹의 내기 잠금을 기다리게 되어, 반대 순서로 잠그는 정산기와 AB-BA 교착이 된다 —
+        // 유저 스코프 해제는 반드시 "전 내기 잠금 → 환불" 2단계여야 한다.
+        User leaver = User.builder().id(USER_ID).isGuest(false).build();
+        User creator = User.builder().id(OTHER_USER_ID).isGuest(false).build();
+        User third = User.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-000000000003")).isGuest(false).build();
+        UUID otherBetId = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
+        // 서로 다른 그룹의 내기 2건 — 해제 로직은 그룹·챌린지를 참조하지 않는다(불변식).
+        GroupChallengeBet firstBet = GroupChallengeBet.builder()
+                .id(BET_ID).creatorUser(creator).stake(30)
+                .betDate(today()).status(GroupBetStatus.OPEN).build();
+        GroupChallengeBet secondBet = GroupChallengeBet.builder()
+                .id(otherBetId).creatorUser(creator).stake(30)
+                .betDate(today()).status(GroupBetStatus.OPEN).build();
+        given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
+                .willReturn(List.of(BET_ID, otherBetId));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(firstBet));
+        given(groupChallengeBetRepository.findByIdForUpdate(otherBetId)).willReturn(Optional.of(secondBet));
+        // 참가자 3명(탈퇴자·개설자·제3자) — 탈퇴자 이탈 후에도 2명이 남아 자동 취소 없이 환불만 나간다.
+        for (GroupChallengeBet bet : List.of(firstBet, secondBet)) {
+            given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId())))
+                    .willReturn(List.of(
+                            GroupChallengeBetParticipant.builder().bet(bet).user(leaver).build(),
+                            GroupChallengeBetParticipant.builder().bet(bet).user(creator).build(),
+                            GroupChallengeBetParticipant.builder().bet(bet).user(third).build()));
+        }
+        given(currencyLedgerService.credit(
+                eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString()))
+                .willReturn(true);
+
+        groupBetService.releaseFromAllOpenBets(leaver);
+
+        // 잠금 2건이 모두 끝난 뒤에야 환불 2건이 나간다 — 잠금 사이에 환불이 끼면 여기서 깨진다.
+        InOrder lockThenMoney = inOrder(groupChallengeBetRepository, currencyLedgerService);
+        lockThenMoney.verify(groupChallengeBetRepository).findByIdForUpdate(BET_ID);
+        lockThenMoney.verify(groupChallengeBetRepository).findByIdForUpdate(otherBetId);
+        lockThenMoney.verify(currencyLedgerService, times(2))
+                .credit(eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString());
     }
 }

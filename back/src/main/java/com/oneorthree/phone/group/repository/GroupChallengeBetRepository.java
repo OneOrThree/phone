@@ -60,6 +60,17 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
             @Param("groupId") UUID groupId,
             @Param("userId") UUID userId);
 
+    /**
+     * 계정 탈퇴 연동 대상(GROMO-801) — 유저가 참가 중인 OPEN 내기 id 를 <b>그룹 무관 전수</b> 조회.
+     * 멤버십을 경유하지 않는 이유: 강퇴(kick)는 참가 행·판돈을 정산용으로 남기므로,
+     * is_left=true 라 활성 멤버십이 없는 유저도 OPEN 내기의 참가자일 수 있다.
+     * id 오름차순은 전 그룹에 걸친 잠금 순서 고정(데드락 예방) — 위 그룹 스코프 조회와 같은 규율.
+     */
+    @Query("SELECT b.id FROM GroupChallengeBet b, GroupChallengeBetParticipant p "
+            + "WHERE p.bet = b AND p.user.id = :userId "
+            + "AND b.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY b.id")
+    List<UUID> findOpenBetIdsByParticipantUserId(@Param("userId") UUID userId);
+
     /** 조회 조립용 — 챌린지 목록의 해당 날짜 내기를 IN 절 1회로 배치 로드한다(N+1 방지). */
     List<GroupChallengeBet> findByChallengeIdInAndBetDate(Collection<UUID> challengeIds, LocalDate betDate);
 
