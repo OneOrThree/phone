@@ -11,7 +11,8 @@
 // 날짜가 지나면 값이 쓸모없어지므로 어제보다 오래된 마커는 기록 시점에 정리한다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { localDateStr, yesterdayStr } from '@/utils/localDate';
+import { kstDateStr, yesterdayStrKst } from '@/utils/localDate';
+import { nowSecondsInZone } from '@/utils/challengeTime';
 import type {
   ChallengeMemberProgress,
   GroupChallengeResponse,
@@ -19,6 +20,9 @@ import type {
   MissionType,
 } from '@/types/dto/group';
 import { categoryLabel, missionLabel } from './components/challengeLabel';
+
+// 창 종료 판정의 벽시계 축 — 서버가 창 시각을 KST로 고정한다(ChallengeCard의 KST_ZONE과 같은 결).
+const KST_ZONE = 'Asia/Seoul';
 
 // 모달 한 장이 그릴 결과 — 모달은 표현 전용이고 계산은 여기서 끝낸다.
 //
@@ -63,10 +67,11 @@ function windowEndSeconds(v: string | null | undefined): number | null {
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] ?? 0);
 }
 
-// createdAt(ISO) → 로컬 날짜 문자열. 파싱이 깨지면 앞 10글자(YYYY-MM-DD) 폴백.
+// createdAt(ISO) → KST 날짜 문자열 — 기준일(date)이 서버 KST 축이라 같은 축으로 비교해야
+// "기준일보다 뒤에 만들어졌다" 판정이 어긋나지 않는다(GROMO-1219). 파싱이 깨지면 앞 10글자 폴백.
 function createdDateStr(createdAt: string): string {
   const d = new Date(createdAt);
-  return Number.isNaN(d.getTime()) ? createdAt.slice(0, 10) : localDateStr(d);
+  return Number.isNaN(d.getTime()) ? createdAt.slice(0, 10) : kstDateStr(d);
 }
 
 // 챌린지 하나 + 기준일 → 모달 후보. 결과가 없으면 null:
@@ -134,7 +139,9 @@ export function pickChallengeResults(args: {
   myUserId: string | null;
 }): ChallengeResultCandidate[] {
   const { today, yesterday, todayDate, yesterdayDate, now = new Date(), myUserId } = args;
-  const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  // 창 종료 판정은 KST 벽시계다(GROMO-1219) — windowEnd가 그룹 타임존(KST) 시각이라 기기 로컬
+  // 벽시계와 비교하면 비KST 기기에서 아직 안 끝난 창을 끝난 것으로(또는 반대로) 읽는다.
+  const nowSec = nowSecondsInZone(KST_ZONE, now);
 
   // 오늘 창이 이미 끝난 창형 — 오늘 date 결과. 자정에 걸친 창(start > end)은 계약 밖이라
   // end 시각만으로 판정한다(창은 하루 안에서 끝나는 것이 생성 규칙).
@@ -189,7 +196,8 @@ export function markChallengeResultSeen(challengeId: string, date: string): void
 
 async function writeSeenGuard(challengeId: string, date: string): Promise<void> {
   await AsyncStorage.setItem(guardKey(challengeId, date), '1');
-  const min = yesterdayStr();
+  // 가드 키의 date가 KST 축이므로 prune 기준(어제)도 같은 축이다(GROMO-1219).
+  const min = yesterdayStrKst();
   const prefix = `${STORAGE_KEYS.challengeResultSeen}:`;
   const stale = (await AsyncStorage.getAllKeys()).filter(
     (key) => key.startsWith(prefix) && key.slice(key.lastIndexOf(':') + 1) < min,

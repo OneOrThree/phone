@@ -22,7 +22,7 @@ import {
   getGroupDetail,
   joinBet,
 } from '@/services/groupApi';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -102,15 +102,18 @@ jest.mock('@/services/groupApi', () => ({
   joinBet: jest.fn(),
 }));
 
-// 날짜 경계를 테스트가 직접 옮긴다. localDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
-// 실물을 쓴다(challengeResult.ts). KST 버전은 BetSheet의 내기 생성 경로가 쓴다(GROMO-1097 —
-// bet_date는 서버 KST 판정) — 여기 목은 같은 날로 고정한다.
+// 날짜 경계를 테스트가 직접 옮긴다. kstDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
+// 실물을 쓴다(challengeResult.ts). 조회 기준일·내기 생성 경로는 전부 KST 버전이다(GROMO-1219 —
+// 서버 날짜 판정이 KST 고정). **로컬 버전은 일부러 다른 날짜로 고정한다** — 코드가 로컬 축을
+// 부르면 date 단언이 하루 어긋나 곧장 드러난다(축 분리 검증).
 jest.mock('@/utils/localDate', () => ({
-  todayStr: jest.fn(() => '2026-08-01'),
-  yesterdayStr: jest.fn(() => '2026-07-31'),
+  todayStr: jest.fn(() => '2026-07-31'),
+  yesterdayStr: jest.fn(() => '2026-07-30'),
   todayStrKst: jest.fn(() => '2026-08-01'),
+  yesterdayStrKst: jest.fn(() => '2026-07-31'),
   tomorrowStrKst: jest.fn(() => '2026-08-02'),
   localDateStr: jest.requireActual('@/utils/localDate').localDateStr,
+  kstDateStr: jest.requireActual('@/utils/localDate').kstDateStr,
 }));
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
@@ -119,8 +122,8 @@ const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallen
 const mockDeleteChallenge = deleteChallenge as jest.MockedFunction<typeof deleteChallenge>;
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
-const mockTodayStr = todayStr as jest.MockedFunction<typeof todayStr>;
-const mockYesterdayStr = jest.requireMock('@/utils/localDate').yesterdayStr as jest.Mock;
+const mockTodayStrKst = todayStrKst as jest.MockedFunction<typeof todayStrKst>;
+const mockYesterdayStrKst = jest.requireMock('@/utils/localDate').yesterdayStrKst as jest.Mock;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
@@ -248,8 +251,8 @@ beforeEach(async () => {
   // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
   await AsyncStorage.clear();
   mockFocusEntries.length = 0;
-  mockTodayStr.mockReturnValue('2026-08-01');
-  mockYesterdayStr.mockReturnValue('2026-07-31');
+  mockTodayStrKst.mockReturnValue('2026-08-01');
+  mockYesterdayStrKst.mockReturnValue('2026-07-31');
   // 챌린지는 대부분의 케이스에서 관심사가 아니다 — 빈 목록을 기본값으로 깔아 둔다.
   mockGetChallenges.mockResolvedValue([]);
   mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
@@ -401,7 +404,7 @@ describe('포그라운드 복귀', () => {
     expect(mockGetGroupDetail).toHaveBeenCalledTimes(1);
 
     // 자정을 넘겨 복귀 — '오늘 집중분'의 기준일이 바뀌었으니 반드시 다시 부른다.
-    mockTodayStr.mockReturnValue('2026-08-02');
+    mockTodayStrKst.mockReturnValue('2026-08-02');
     await foreground();
     expect(mockGetGroupDetail).toHaveBeenLastCalledWith(GROUP_ID, '2026-08-02');
   });
@@ -814,6 +817,43 @@ describe('내기 배선', () => {
     await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 오늘 내기가 열려 있어요',
+      '최신 상태예요. 참가하려면 다시 열어주세요.',
+    );
+    expect(mockCreateBet).not.toHaveBeenCalled();
+  });
+
+  // 서버는 오늘 내기가 없으면 **내일** OPEN 내기를 폴백으로 내려줄 수 있다(계약 §3 응답 보수) —
+  // 그때 '오늘 내기가 열려 있어요'는 거짓이다(GROMO-1219, 결정 D10). KST 오늘과 bet.date를
+  // 비교해 문구를 가른다(#512가 확정한 결: '이미 {오늘/내일} 내기가 열려 있어요').
+  test('개설 시트를 연 사이 열린 내기가 내일 폴백이면 "내일" 문구로 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await press('내기 걸기');
+    expect(screen.getByText('내기 열기')).toBeOnTheScreen();
+
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        bet: {
+          betId: 'b10',
+          date: '2026-08-02', // KST 오늘(2026-08-01)보다 뒤 — 내일 폴백 내기
+          stake: 50,
+          pot: 50,
+          status: 'OPEN',
+          myJoined: false,
+          myAchievedNow: false,
+          participants: [{ userId: 'u2', nickname: '수빈' }],
+        },
+      }),
+    ]);
+    await foreground();
+
+    await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '이미 내일 내기가 열려 있어요',
       '최신 상태예요. 참가하려면 다시 열어주세요.',
     );
     expect(mockCreateBet).not.toHaveBeenCalled();

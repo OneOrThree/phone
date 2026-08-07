@@ -10,10 +10,24 @@ import {
 import type { GroupChallengeResponse } from '@/types/dto/group';
 
 // 가드 정리(prune)의 기준(어제)이 실제 시계를 타면 픽스처 날짜가 미래/과거로 흔들린다 — 고정한다.
+// prune의 축은 KST다(GROMO-1219 — 가드 키의 date가 KST 축). **로컬 버전은 일부러 다른 날짜**라,
+// 코드가 로컬 축(yesterdayStr)을 부르면 prune 단언이 어긋나 곧장 드러난다(축 분리 검증).
 jest.mock('@/utils/localDate', () => ({
   ...jest.requireActual('@/utils/localDate'),
-  yesterdayStr: jest.fn(() => '2026-07-31'),
+  yesterdayStr: jest.fn(() => '2026-07-30'),
+  yesterdayStrKst: jest.fn(() => '2026-07-31'),
 }));
+
+// 창 종료 판정의 벽시계 축(KST) 호출을 단언하기 위한 스파이 — 동작은 실물 그대로다
+// (러너 TZ가 KST라 값은 로컬과 같지만, **어느 축을 불렀는지**는 호출 인자로 잠근다).
+jest.mock('@/utils/challengeTime', () => ({
+  ...jest.requireActual('@/utils/challengeTime'),
+  nowSecondsInZone: jest.fn((...args: unknown[]) =>
+    jest.requireActual('@/utils/challengeTime').nowSecondsInZone(...args),
+  ),
+}));
+const mockNowSecondsInZone = jest.requireMock('@/utils/challengeTime')
+  .nowSecondsInZone as jest.Mock;
 
 const TODAY = '2026-08-01';
 const YESTERDAY = '2026-07-31';
@@ -165,6 +179,12 @@ describe('pickChallengeResults — 창형 당일 결과(창 endAt < now)', () =>
 
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ date: TODAY, myAchieved: true });
+  });
+
+  test('창 종료 판정의 벽시계는 기기 로컬이 아니라 KST다(GROMO-1219)', () => {
+    mockNowSecondsInZone.mockClear();
+    pick({ today: [windowChallenge('12:00:00')] });
+    expect(mockNowSecondsInZone).toHaveBeenCalledWith('Asia/Seoul', NOW);
   });
 
   test('창이 아직 안 끝났으면(endAt ≥ now) 어제 결과를 쓴다 — 경계 포함', () => {

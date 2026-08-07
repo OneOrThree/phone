@@ -33,7 +33,7 @@ import {
   logGroupRoomViewed,
 } from '@/services/analyticsEvents';
 import { issueInviteLink } from '@/services/inviteLinkApi';
-import { todayStr, yesterdayStr } from '@/utils/localDate';
+import { todayStrKst, yesterdayStrKst } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -113,9 +113,15 @@ function staleBetSheetAlert(
     if (challenge.status !== 'ACTIVE') {
       return ['끝난 챌린지예요', '종료된 챌린지에는 내기를 열 수 없어요.'];
     }
-    return live === null
-      ? null
-      : ['이미 오늘 내기가 열려 있어요', '최신 상태예요. 참가하려면 다시 열어주세요.'];
+    if (live === null) return null;
+    // 서버는 오늘 내기가 없으면 **내일** OPEN 내기를 폴백으로 내려줄 수 있다(계약 §3 응답 보수) —
+    // 그때 '오늘'이라고 말하면 거짓이다. bet.date와 KST 오늘을 비교해 문구를 가른다(GROMO-1219,
+    // BetSheet.sentTomorrow와 같은 결). date가 없으면(구서버) 조회일(오늘) 내기로 간주한다(DTO 주석).
+    const liveTomorrow = (live.date ?? todayStrKst()) > todayStrKst();
+    return [
+      liveTomorrow ? '이미 내일 내기가 열려 있어요' : '이미 오늘 내기가 열려 있어요',
+      '최신 상태예요. 참가하려면 다시 열어주세요.',
+    ];
   }
   // 참가 모드에서는 구버전 응답(undefined)도 이 검사에 함께 걸린다 — live가 null로 뭉개지면서
   // '내기가 바뀌었어요'로 닫히기 때문에 따로 분기를 두지 않는다.
@@ -303,10 +309,12 @@ export default function GroupRoomScreen({
     // 무효화하고 이전 그룹 데이터를 새 화면에 되씌운다. 시작조차 하지 않는다(코덱스 리뷰).
     if (renderedGroupIdRef.current !== groupId) return false;
     const seq = ++requestSeqRef.current;
-    const date = todayStr();
+    // 기준일은 서버 판정 축과 같은 KST다(GROMO-1219) — 진행률·내기·결과의 날짜 판정이 전부
+    // 서버 KST 고정이라, 기기 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 조회가 된다.
+    const date = todayStrKst();
     // 어제 챌린지 1콜 합류(A3) — 결과 모달의 소스다. 판정은 조회-시 계산이라(계약 "판정 vs 정산
     // 분리") 어제 date로 부르면 자정에 확정된 결과가 그대로 온다. 실패해도 화면 무영향(allSettled).
-    const yesterday = yesterdayStr();
+    const yesterday = yesterdayStrKst();
     setError(false);
     const [detailResult, noticeResult, challengeResult, resultChallengeResult] =
       await Promise.allSettled([
@@ -469,7 +477,7 @@ export default function GroupRoomScreen({
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      if (focusedRef.current || loadedDateRef.current !== todayStr()) reload();
+      if (focusedRef.current || loadedDateRef.current !== todayStrKst()) reload();
     });
     return () => sub.remove();
   }, [reload]);

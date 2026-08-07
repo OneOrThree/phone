@@ -2,12 +2,14 @@
 // todayStr/tomorrowStr/yesterdayStr가 new Date()를 쓰므로 fake timers로 '오늘'을 고정한다.
 // 시간대는 jest.config.js에서 Asia/Seoul 고정.
 import {
+  kstDateStr,
   localDateStr,
   todayStr,
   todayStrKst,
   tomorrowStr,
   tomorrowStrKst,
   yesterdayStr,
+  yesterdayStrKst,
 } from './localDate';
 
 const NOW = new Date('2026-07-15T09:00:00+09:00');
@@ -87,5 +89,32 @@ describe('todayStrKst / tomorrowStrKst', () => {
     expect(tomorrowStrKst()).toBe('2026-08-01');
     jest.setSystemTime(new Date('2026-12-31T09:00:00+09:00'));
     expect(tomorrowStrKst()).toBe('2027-01-01');
+  });
+});
+
+// GROMO-1219에서 추가된 KST 짝 — 어제(yesterdayStrKst)와 임의 Date 포맷(kstDateStr).
+describe('yesterdayStrKst / kstDateStr', () => {
+  test('고정된 오늘 기준 — KST 환경에선 로컬 버전과 같다', () => {
+    expect(yesterdayStrKst()).toBe('2026-07-14');
+    expect(kstDateStr(NOW)).toBe('2026-07-15');
+  });
+
+  test('KST 자정 직후 — UTC 기준이면 전날인 시각에도 KST 어제다', () => {
+    // KST 00:30 = UTC 전날 15:30 — UTC 축이면 어제가 이틀 전으로 밀린다.
+    jest.setSystemTime(new Date('2026-07-16T00:30:00+09:00'));
+    expect(yesterdayStrKst()).toBe('2026-07-15');
+  });
+
+  test('kstDateStr — KST 자정 직후 Date는 UTC로는 전날이지만 KST 날짜를 돌려준다', () => {
+    // 2026-07-15T15:30:00Z = KST 2026-07-16 00:30 — toISOString 축이면 전날이 된다.
+    expect(kstDateStr(new Date('2026-07-15T15:30:00Z'))).toBe('2026-07-16');
+    expect(kstDateStr(new Date('2026-07-16T00:30:00+09:00'))).toBe('2026-07-16');
+  });
+
+  test('월초·연초의 어제는 이전 달·이전 해다', () => {
+    jest.setSystemTime(new Date('2026-08-01T09:00:00+09:00'));
+    expect(yesterdayStrKst()).toBe('2026-07-31');
+    jest.setSystemTime(new Date('2026-01-01T09:00:00+09:00'));
+    expect(yesterdayStrKst()).toBe('2025-12-31');
   });
 });
