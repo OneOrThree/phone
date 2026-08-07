@@ -2376,6 +2376,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) 또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLoginResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2428,6 +2438,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) 또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLoginResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2473,6 +2493,16 @@
           },
           "401": {
             "description": "유효하지 않은 Instagram 토큰",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLoginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) 또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)",
             "content": {
               "*/*": {
                 "schema": {
@@ -2554,6 +2584,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) 또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLoginResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2606,6 +2646,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) 또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLoginResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2651,6 +2701,16 @@
           },
           "401": {
             "description": "Identity Token 검증 실패",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SocialLoginResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "게스트 승격 충돌 — 이미 다른 계정에 연동된 소셜 계정(SOCIAL_ACCOUNT_ALREADY_LINKED) 또는 이미 다른 계정으로 승격된 게스트(GUEST_ALREADY_PROMOTED)",
             "content": {
               "*/*": {
                 "schema": {
