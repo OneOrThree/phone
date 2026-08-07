@@ -661,7 +661,16 @@ public class GroupBetService {
         if (size < 1 || size > MAX_HISTORY_PAGE_SIZE) {
             throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
         }
-        User user = requireActiveUser(userId);
+        // requireActiveUser(공유 락)를 쓰지 않는 이유: 이 클래스 기본 트랜잭션이 readOnly 라 Postgres 가
+        // FOR SHARE 를 거절하고(read-only 에서 행 잠금 불가 — CI 실측), 애초에 잠글 이유도 없다 —
+        // 공유 락은 읽은 값이 변경(참가 생성·해제)의 근거가 될 때 탈퇴와 직렬화하려는 장치인데,
+        // 히스토리는 아무것도 변경하지 않아 stale 하게 읽혀도 결과가 조회 한 번에 그친다.
+        // 활성·게스트 검증 자체는 락 없는 조회로 동일하게 수행한다.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
         Group group = requireGroupMembership(user, groupId);
         // 삭제된 챌린지의 히스토리는 진입점(챌린지 카드)이 없다 — 조회 경로 공통 규칙대로 404.
         groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
