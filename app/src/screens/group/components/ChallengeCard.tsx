@@ -1,5 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import {
@@ -18,6 +20,7 @@ import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { categoryLabel, missionLabel } from './challengeLabel';
 import {
   UNMEASURED,
@@ -108,6 +111,15 @@ function progressA11y(p: ChallengeMemberProgress, durationMinutes: number | null
 // 내기 시트를 어떤 모드로 열 것인가 — 개설(아직 내기 없음) / 참가(OPEN 내기에 합류).
 export type BetSheetMode = 'create' | 'join';
 
+// '지난 내기' 영역이 지금 무엇을 열고 있나(GROMO-1221) — 시트와 히스토리 화면 push는 배타다.
+//   null                : 아무것도 안 열림
+//   { kind: 'last' }    : 지난 내기 결과 시트(GROMO-1099)가 떠 있다
+//   { kind: 'history' } : 시트를 걷고 히스토리 화면 push 대기 — 커밋 후 이펙트가 소비한다.
+// boolean 두 개가 아니라 유니온 하나인 이유: 시트 열림과 push가 동시에 참이 될 조합 자체를
+// 타입에서 없앤다 — 네이티브 모달(SheetShell asModal)이 뜬 채로 push 하면 새 화면이 모달
+// 아래 깔리거나 전환이 씹히는 플랫폼 이슈가 있어 '닫힌 뒤 push'가 불변식이다.
+type LastBetView = { kind: 'last' } | { kind: 'history' } | null;
+
 export interface ChallengeCardProps {
   challenge: GroupChallengeResponse;
   // 내가 방장인가 — 롱프레스 삭제 진입점을 여는 조건.
@@ -158,8 +170,27 @@ export default function ChallengeCard({
   );
   // 철회·취소가 공유하는 연타 락 — 두 진입점은 배타 노출이라 같은 락 하나로 충분하다.
   const leaveLock = useRef(false);
-  // 지난 내기 결과 시트(GROMO-1099) — 데이터는 challenge.lastSettledBet 그대로, 열림만 카드가 쥔다.
-  const [lastBetOpen, setLastBetOpen] = useState(false);
+  // 지난 내기 결과 시트(GROMO-1099) + 히스토리 push(GROMO-1221) — 데이터는
+  // challenge.lastSettledBet 그대로, 열림 상태만 카드가 쥔다(유니온 근거는 타입 주석).
+  const [lastBetView, setLastBetView] = useState<LastBetView>(null);
+  // 히스토리 화면 push — 카드가 직접 navigation을 쥔다. 부모(GroupRoomScreen)는 형제
+  // 워크스트림 전유라 콜백을 늘리지 않는다(철회의 groupId 역참조와 같은 이유). groupId도
+  // 같은 이유로 prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 꺼낸다.
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // push는 **이펙트에서** 한다 — 'history'로 바뀐 커밋에서 시트(네이티브 모달)가 이미
+  // 언마운트된 뒤에 navigate가 나가므로 '시트가 열린 채 push 금지' 불변식이 렌더 구조로
+  // 보장된다(콜백에서 곧장 navigate 하면 같은 프레임에 모달 해제와 push가 겹친다).
+  useEffect(() => {
+    if (lastBetView?.kind !== 'history') return;
+    setLastBetView(null);
+    const groupId = challengeGroupId(challenge.id);
+    if (groupId === null) {
+      // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·취소와 같은 공통 문구 결.
+      Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해주세요.');
+      return;
+    }
+    navigation.navigate('GroupBetHistory', { groupId, challengeId: challenge.id });
+  }, [lastBetView, challenge.id, navigation]);
 
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -642,7 +673,7 @@ export default function ChallengeCard({
       {betSupported && lastBet !== null && (
         <TouchableOpacity
           activeOpacity={0.7}
-          onPress={() => setLastBetOpen(true)}
+          onPress={() => setLastBetView({ kind: 'last' })}
           hitSlop={8}
           accessibilityRole="button"
           testID={`group.bet.last.${challenge.id}`}
@@ -653,14 +684,16 @@ export default function ChallengeCard({
         </TouchableOpacity>
       )}
 
-      {lastBetOpen && lastBet !== null && (
+      {lastBetView?.kind === 'last' && lastBet !== null && (
         <LastBetResultSheet
           lastBet={lastBet}
           myUserId={myUserId}
           // FOCUS 창의 5분 관용치 안내 판단용(GROMO-1207) — 결과 모달과 같은 조건.
           missionType={challenge.missionType}
           missionCategory={challenge.missionCategory}
-          onClose={() => setLastBetOpen(false)}
+          // 전체 이력 진입(GROMO-1221) — 시트를 걷고 push 대기로 전환한다(위 이펙트가 소비).
+          onOpenHistory={() => setLastBetView({ kind: 'history' })}
+          onClose={() => setLastBetView(null)}
         />
       )}
     </View>

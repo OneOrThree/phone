@@ -15,6 +15,7 @@ import {
   GroupCreateScreen,
   GroupRoomRouteScreen,
   NoticeScreen,
+  GroupBetHistoryScreen,
   GroupSettingsScreen,
   GroupProfileEditScreen,
   GroupMemberManageScreen,
@@ -123,6 +124,8 @@ export function RootNavigator() {
         <Stack.Screen name="GroupCreate" component={GroupCreateScreen} />
         <Stack.Screen name="GroupRoom" component={GroupRoomRouteScreen} />
         <Stack.Screen name="GroupNotice" component={NoticeScreen} />
+        {/* 내기 히스토리(GROMO-1221) — 챌린지 카드 위 지난 내기 결과 시트에서 push */}
+        <Stack.Screen name="GroupBetHistory" component={GroupBetHistoryScreen} />
         {/* 그룹 운영(3차) — 방장 전용. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 관리 허브이며
             여기서 위임·멤버관리·공지권한으로 갈라진다 */}
         <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />

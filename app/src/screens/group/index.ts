@@ -6,6 +6,8 @@ export { default as GroupScreen } from './GroupScreen';
 export { default as GroupCreateScreen } from './GroupCreateScreen';
 export { default as GroupRoomRouteScreen } from './GroupRoomRouteScreen';
 export { default as NoticeScreen } from './NoticeScreen';
+// 내기 히스토리(GROMO-1221) — 지난 내기 결과 시트 '지난 기록 더보기'에서 push 되는 라우트.
+export { default as GroupBetHistoryScreen } from './GroupBetHistoryScreen';
 // 그룹 운영(3차) — 방장 전용 라우트 화면들. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 허브다.
 export { default as GroupSettingsScreen } from './GroupSettingsScreen';
 export { default as GroupProfileEditScreen } from './GroupProfileEditScreen';

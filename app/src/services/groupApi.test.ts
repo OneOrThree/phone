@@ -13,6 +13,7 @@ import {
   deleteAnnouncement,
   deleteChallenge,
   getAnnouncements,
+  getBetHistory,
   getChallenges,
   getGroupDetail,
   getGroupOverview,
@@ -198,6 +199,27 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     await leaveBet(GROUP_ID, BET_ID);
     expect(mockApi.delete).toHaveBeenCalledWith(
       `/api/v1/groups/${GROUP_ID}/bets/${BET_ID}/participation`,
+    );
+  });
+
+  // 내기 히스토리(GROMO-1221) — GET이 개설 POST와 같은 경로라(#510 계약) 쿼리 직렬화가 계약의
+  // 전부다: size는 서버 필수(누락 시 프레임워크 400)라 항상 실리고, cursor는 첫 페이지에선
+  // 키 자체가 직렬화되지 않아야 한다(undefined — 빈 문자열 커서는 서버가 UUID 파싱 400).
+  test('GET /{groupId}/challenges/{challengeId}/bets — size 필수·cursor는 있을 때만', async () => {
+    mockApi.get.mockResolvedValue({
+      data: { content: [], size: 20, hasNext: false, nextCursor: null },
+    });
+
+    await getBetHistory(GROUP_ID, CHALLENGE_ID, { size: 20 });
+    expect(mockApi.get).toHaveBeenCalledWith(
+      `/api/v1/groups/${GROUP_ID}/challenges/${CHALLENGE_ID}/bets`,
+      { params: { cursor: undefined, size: 20 } },
+    );
+
+    await getBetHistory(GROUP_ID, CHALLENGE_ID, { cursor: BET_ID, size: 20 });
+    expect(mockApi.get).toHaveBeenLastCalledWith(
+      `/api/v1/groups/${GROUP_ID}/challenges/${CHALLENGE_ID}/bets`,
+      { params: { cursor: BET_ID, size: 20 } },
     );
   });
 

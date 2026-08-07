@@ -46,6 +46,12 @@ jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
+// 히스토리 push(GROMO-1221) — 카드가 useNavigation을 직접 쥔다(부모는 형제 워크스트림 전유).
+// 실제 스택 없이 navigate 호출만 붙잡는다(NoticeScreen.test의 홀더 관행).
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
 // 철회 버튼의 '시작 전' 판정이 시간에 기댄다 — '오늘'과 KST 벽시계를 테스트가 직접 고정한다.
 // 카드의 날짜축은 서버 판정과 같은 KST다(GROMO-1219) — **로컬 버전은 일부러 다른 날짜**라,
 // 코드가 로컬 축(todayStr)을 부르면 오늘/내일/과거 판정이 어긋나 곧장 드러난다(축 분리 검증).
@@ -904,6 +910,49 @@ describe('지난 내기', () => {
       fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
     });
     expect(screen.getByText('미판정')).toBeOnTheScreen();
+  });
+});
+
+// 히스토리 진입(GROMO-1221) — 시트의 '지난 기록 더보기'가 '시트 닫기 → 화면 push'로 배타
+// 전환된다. 열림 상태가 유니온({kind:'last'}|{kind:'history'})이라 둘이 동시에 참일 수 없고,
+// push는 시트가 언마운트된 커밋 뒤(이펙트)에만 나간다 — 모달이 뜬 채 push 금지가 계약이다.
+describe('지난 기록 더보기 → 히스토리 push', () => {
+  test('시트가 닫힌 뒤에야 navigate가 나간다 — 열린 채 push 금지', async () => {
+    // navigate가 불리는 그 순간, 시트는 이미 트리에서 내려가 있어야 한다(커밋 후 이펙트 보장).
+    mockNavigate.mockImplementationOnce(() => {
+      expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
+    });
+    await renderCard({ bet: null, lastSettledBet: lastSettledBet() });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    expect(screen.getByTestId('group.bet.result.sheet')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.result.history'));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('GroupBetHistory', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+    });
+    expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
+  });
+
+  test('groupId 캐시 미적중이면 push 대신 공통 실패 문구 — 반쪽 파라미터로 화면을 열지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockChallengeGroupId.mockReturnValue(null);
+    await renderCard({ bet: null, lastSettledBet: lastSettledBet() });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.result.history'));
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith('기록을 열 수 없어요', '잠시 후 다시 시도해주세요.');
   });
 });
 

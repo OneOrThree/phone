@@ -16,6 +16,7 @@ import type {
   CreateGroupRequest,
   CreateGroupResponse,
   GroupAnnouncementResponse,
+  GroupBetHistorySliceResponse,
   GroupChallengeResponse,
   GroupDetailResponse,
   GroupOverviewResponse,
@@ -39,6 +40,9 @@ export const BET_NOT_OPEN = 'BET_NOT_OPEN'; // 409 이미 정산·취소된 내�
 // 참가 철회(챌린지 개선 배치, contract.md §4 — W4 신설 코드).
 export const BET_NOT_JOINED = 'BET_NOT_JOINED'; // 409 참가 이력 없음
 export const BET_LEAVE_CLOSED = 'BET_LEAVE_CLOSED'; // 409 시작 이후(집계 진행 중)
+// 내기 히스토리(GROMO-1221, 서버 계약 #510/GROMO-1207).
+export const BET_NOT_FOUND = 'BET_NOT_FOUND'; // 404 커서가 이 챌린지의 내기가 아님(무효 커서)
+export const INVALID_PAGE_REQUEST = 'INVALID_PAGE_REQUEST'; // 400 size 범위 밖(1~100)
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -265,6 +269,26 @@ export async function joinBet(groupId: string, betId: string): Promise<void> {
 // 에러: BET_CANCEL_FORBIDDEN(403) · BET_CANCEL_HAS_OTHERS(409) · BET_NOT_OPEN(409).
 export async function cancelBet(groupId: string, betId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}`);
+}
+
+// GET /api/v1/groups/{groupId}/challenges/{challengeId}/bets?cursor&size — 내기 히스토리
+// (GROMO-1221, 서버 계약 #510 그대로). 정산 완료 3종(SETTLED·REFUNDED·FORFEITED)만 bet_date
+// 내림차순으로 내려온다 — CANCELED는 이력에서 제외, 앱 재정렬 금지.
+// size는 서버 **필수**(1~100, 누락 시 프레임워크 400)라 호출부(화면)가 상수로 고정해 항상 싣는다.
+// cursor는 직전 페이지 마지막 항목의 betId — 생략하면 첫 페이지(getFocusSessions와 같은 keyset 결).
+// 에러: INVALID_PAGE_REQUEST(400) · BET_NOT_FOUND(404 무효 커서 — 화면은 기존 페이지를 유지하고
+// 인라인으로만 알린다) · 첫 페이지 404(NOT_FOUND)는 전면 에러.
+export async function getBetHistory(
+  groupId: string,
+  challengeId: string,
+  page: { cursor?: string; size: number },
+): Promise<GroupBetHistorySliceResponse> {
+  const { data } = await api.get<GroupBetHistorySliceResponse>(
+    `/api/v1/groups/${groupId}/challenges/${challengeId}/bets`,
+    // cursor가 undefined면 axios가 키를 직렬화하지 않는다 — 첫 페이지 요청에 빈 cursor가 실리지 않는다.
+    { params: { cursor: page.cursor, size: page.size } },
+  );
+  return data;
 }
 
 // DELETE /api/v1/groups/{groupId}/bets/{betId}/participation — 내기 참가 철회(계약 §4), 204.
