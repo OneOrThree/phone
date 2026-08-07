@@ -195,6 +195,16 @@ describe('pickChallengeResults — 창형 당일 결과(창 endAt < now)', () =>
     expect(out).toHaveLength(0);
   });
 
+  // 결과 모달의 5분 관용치 고지(GROMO-1217)는 후보의 missionType×missionCategory로 조건을
+  // 건다 — 후보가 이 두 필드를 응답 그대로 들고 오지 않으면 고지가 조용히 사라진다.
+  test('후보는 missionType·missionCategory를 응답 그대로 들고 온다(관용치 고지의 근거)', () => {
+    const out = pick({ today: [windowChallenge('12:00:00')], yesterday: null });
+    expect(out[0]).toMatchObject({ missionType: 'TIME_WINDOW', missionCategory: 'FOCUS' });
+
+    const duration = pick({ yesterday: [challenge()] });
+    expect(duration[0]).toMatchObject({ missionType: 'DURATION', missionCategory: 'FOCUS' });
+  });
+
   test('어제 조회가 실패(null)해도 오늘 창 종료 결과는 만든다 — 부분 실패 무영향', () => {
     const out = pick({ today: [windowChallenge('12:00:00')], yesterday: null });
     expect(out).toHaveLength(1);

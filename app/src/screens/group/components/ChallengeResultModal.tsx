@@ -26,6 +26,7 @@ import { T, withAlpha } from '@/constants/theme';
 import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
 import {
   UNMEASURED,
+  WINDOW_FOCUS_TOLERANCE_NOTICE,
   progressFraction,
   progressFractionA11y,
   unmeasuredA11y,
@@ -68,6 +69,51 @@ function monthDay(date: string): string {
 function minutesText(progressMinutes: number | null, goalMinutes: number | null): string {
   if (progressMinutes === null) return UNMEASURED;
   return progressFraction(progressMinutes, goalMinutes);
+}
+
+// iOS 유휴 넘침 단서(코덱스 리뷰 P2) — iOS 세로 인디케이터는 **스크롤 중에만** 보이고
+// persistentScrollbar는 안드로이드 전용이라, 가만히 있는 사용자는 maxHeight에 잘린 명단이
+// 더 있는지 알 수 없다. 레이아웃(가시 높이)과 컨텐츠 높이가 **둘 다 확정된 뒤 실제로 넘칠
+// 때만** flashScrollIndicators로 한 번 깜빡여 단서를 준다 — 넘치지 않는데 깜빡이면 그게
+// 오신호고, 한쪽 높이만 알고 판단하면 넘침을 놓치거나 지어낸다(onLayout·onContentSizeChange
+// 도착 순서는 보장되지 않는다). 같은 컨텐츠 높이에는 한 번만 깜빡인다 — 레이아웃 재통지
+// (회전 등)마다 반복되면 안내가 소음이 된다. 컨텐츠가 바뀌면(결과 큐 진행) 다시 한 번.
+export function createListOverflowFlasher(flash: () => void): {
+  onLayout: (height: number) => void;
+  onContentSizeChange: (height: number) => void;
+  reset: () => void;
+} {
+  let layoutHeight = 0; // 0 = 아직 미확정 — 미확정 상태에서는 판단하지 않는다
+  let contentHeight = 0;
+  let flashedForContentHeight = 0; // 마지막으로 깜빡인 컨텐츠 높이 — 중복 깜빡임 방지
+  const maybeFlash = () => {
+    if (
+      layoutHeight > 0 &&
+      contentHeight > layoutHeight &&
+      flashedForContentHeight !== contentHeight
+    ) {
+      flashedForContentHeight = contentHeight;
+      flash();
+    }
+  };
+  return {
+    onLayout: (height: number) => {
+      layoutHeight = height;
+      maybeFlash();
+    },
+    onContentSizeChange: (height: number) => {
+      contentHeight = height;
+      maybeFlash();
+    },
+    // 결과(result)가 갈릴 때 부른다 — 중복 가드만 풀고 **이미 아는 높이로 즉시 재판정**한다.
+    // 결과 큐가 같은 모달 인스턴스로 진행되는데(GroupRoomScreen) 멤버·섹션 수가 같으면 렌더
+    // 높이가 그대로라 onContentSizeChange가 다시 오지 않는다 — 높이를 지워 버리면 두 번째
+    // 결과의 넘침 단서가 영영 안 나간다(코덱스 리뷰 P2 2차).
+    reset: () => {
+      flashedForContentHeight = 0;
+      maybeFlash();
+    },
+  };
 }
 
 // 스크린리더는 행을 한 덩어리로 읽는다 — 이름과 근거가 따로 읽히면 누구 기록인지 잃는다.
@@ -136,6 +182,18 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
         ? HEADLINE.failed
         : HEADLINE.pending;
 
+  // 명단 넘침의 유휴 단서 — ref 인스턴스의 flashScrollIndicators를 조건 로직(팩토리)에 넘긴다.
+  const listRef = useRef<ScrollView>(null);
+  const overflowFlasher = useRef(
+    createListOverflowFlasher(() => listRef.current?.flashScrollIndicators()),
+  ).current;
+
+  // 결과 키가 바뀌면(큐 진행) 중복 가드를 리셋 — 높이가 같아 사이즈 이벤트가 안 와도
+  // 새 결과의 넘침 단서가 다시 나간다. 첫 마운트에는 높이 미확정이라 no-op이다.
+  useEffect(() => {
+    overflowFlasher.reset();
+  }, [result.challengeId, result.date, overflowFlasher]);
+
   // 등장 연출 — 카드 팝인 하나만 쓴다(리그 화면의 다단계 연출은 풀스크린 화면 몫).
   // 결과가 넘어가며(큐) 같은 모달이 내용만 갈릴 때도 다시 팝 되도록 결과 키에 묶는다.
   const pop = useRef(new Animated.Value(0)).current;
@@ -196,8 +254,29 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             <Text style={s.label}>{result.label}</Text>
             <Text style={s.date}>{monthDay(result.date)} 결과</Text>
 
-            {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다 */}
-            <ScrollView style={s.lists} showsVerticalScrollIndicator={false}>
+            {/* 창형 집중만 5분 관용치가 있다(GROMO-1217) — 근거 분(55/60분)이 달성 명단에서
+                모순으로 읽히지 않게, 명단(숫자)보다 먼저 판정 규칙을 알린다. 명단 안(스크롤)에
+                넣으면 규칙이 스크롤에 밀려 사라져 스크롤 밖 고정 자리에 세운다. */}
+            {result.missionType === 'TIME_WINDOW' && result.missionCategory === 'FOCUS' && (
+              <Text style={s.toleranceNotice} testID="group.challengeResult.toleranceNotice">
+                {WINDOW_FOCUS_TOLERANCE_NOTICE}
+              </Text>
+            )}
+
+            {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다.
+                1191부터 행이 인원수만큼 늘어난다 — 넘침을 숨기지 않도록 인디케이터를 켜고
+                (iOS는 다크 배경이라 white, Android는 잠깐 떴다 사라지지 않게 persistent),
+                iOS는 유휴 상태에선 인디케이터가 안 보여 넘침 확정 시 한 번 깜빡인다(위 팩토리). */}
+            <ScrollView
+              ref={listRef}
+              style={s.lists}
+              showsVerticalScrollIndicator
+              indicatorStyle="white"
+              persistentScrollbar
+              onLayout={(e) => overflowFlasher.onLayout(e.nativeEvent.layout.height)}
+              onContentSizeChange={(_w, h) => overflowFlasher.onContentSizeChange(h)}
+              testID="group.challengeResult.lists"
+            >
               <NameSection
                 title="달성"
                 icon="checkmark-circle"
@@ -273,6 +352,14 @@ const s = StyleSheet.create({
 
   label: { ...T.text.subtitle, color: T.night.cream, textAlign: 'center' },
   date: { ...T.text.caption, color: T.night.muted, marginTop: 2, marginBottom: T.space.lg },
+
+  // 판정 규칙 고지 — 날짜와 같은 보조 캡션 결. 명단 직전의 고정 한 줄이다.
+  toleranceNotice: {
+    ...T.text.caption,
+    color: T.night.muted,
+    textAlign: 'center',
+    marginBottom: T.space.lg,
+  },
 
   lists: { alignSelf: 'stretch', flexGrow: 0, maxHeight: 220 },
   section: { alignItems: 'center', marginBottom: T.space.md },

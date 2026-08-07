@@ -1,9 +1,16 @@
 // 챌린지 결과 모달 — 헤드라인 그림 계약(GROMO-1087).
 // 시스템 이모지에서 캐릭터 에셋으로 갈아탔으므로, 세 결과 상태가 각각 정해진 에셋을 쓰고
 // 스크린리더가 상태를 읽을 수 있는지를 고정한다. 크기·여백 같은 시각 품질은 QA 몫이라 보지 않는다.
-import { render, screen } from '@testing-library/react-native';
-import ChallengeResultModal from './ChallengeResultModal';
+import { ScrollView } from 'react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import ChallengeResultModal, { createListOverflowFlasher } from './ChallengeResultModal';
+import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import type { ChallengeResultCandidate } from '../challengeResult';
+
+// jest 프리셋의 ScrollView 목은 flashScrollIndicators를 **프로토타입 공유 jest.fn**으로
+// 둔다(@react-native/jest-preset mockComponent.instanceMethods) — ref 인스턴스를 밖에서
+// 잡을 수 없어도, 이 공유 목으로 컴포넌트 배선의 실제 호출을 관찰할 수 있다.
+const flashScrollIndicators = ScrollView.prototype.flashScrollIndicators as unknown as jest.Mock;
 
 function candidate(myAchieved: boolean | null): ChallengeResultCandidate {
   return {
@@ -119,5 +126,198 @@ describe('ChallengeResultModal 판정 근거', () => {
     expect(
       screen.getByLabelText('민지 아직 집계되지 않음', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
+  });
+});
+
+// 5분 관용치 고지(GROMO-1217) — 창형 집중은 목표에서 5분 모자라도 달성인데(서버
+// WindowFocusAggregator, 관용치 5분) 근거 분은 원값 그대로라, 고지가 없으면 달성 명단의
+// '55/60분'이 모순으로 읽힌다. 문구는 progressFormat의 공용 상수를 그대로 잠근다.
+describe('ChallengeResultModal 5분 관용치 고지', () => {
+  const NOTICE = WINDOW_FOCUS_TOLERANCE_NOTICE;
+  const notice = () =>
+    screen.queryByTestId('group.challengeResult.toleranceNotice', {
+      includeHiddenElements: true,
+    });
+
+  test('창형 집중(FOCUS×TIME_WINDOW)은 55/60 달성자가 모순으로 읽히지 않게 고지를 세운다', async () => {
+    // 정확한 회귀 재현 — 목표 60분에 55분 기록으로 달성 판정된 멤버.
+    const result = {
+      ...candidate(true),
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
+      failed: [],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    // 고지가 뜨고, 1191의 근거 분 행은 그대로 남는다(고지가 표기를 바꾸지 않는다).
+    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByText('55/60분', { includeHiddenElements: true })).toBeOnTheScreen();
+  });
+
+  // 구 창 챌린지(durationMinutes 없음)도 서버는 자기 목표에 관용치를 그대로 적용한다 —
+  // 앱이 분모를 몰라도 고지는 여전히 참이라 **의도적으로** 세운다(PR #494 리뷰로 고정).
+  test('목표를 모르는 창형 집중에도 고지를 세운다 — 분모 없는 표기와 함께', async () => {
+    const result = {
+      ...candidate(true),
+      goalMinutes: null,
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
+      failed: [],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    // 분모는 지어내지 않는다(1191 규칙 그대로) — 고지가 표기 규칙을 바꾸지 않는다.
+    expect(screen.getByText('55분', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.queryByText('55/60분', { includeHiddenElements: true })).toBeNull();
+  });
+
+  test('DURATION 결과에는 고지가 없다(정확 임계 — 관용치가 없다)', async () => {
+    await render(
+      <ChallengeResultModal
+        result={{ ...candidate(true), missionType: 'DURATION' }}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(notice()).toBeNull();
+  });
+
+  test('SCREEN_TIME 창형 결과에는 고지가 없다(이하 판정 — 관용치가 없다)', async () => {
+    await render(
+      <ChallengeResultModal
+        result={{ ...candidate(true), missionCategory: 'SCREEN_TIME' as const }}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(notice()).toBeNull();
+  });
+
+  // 고지는 시각 전용 장식이 아니다 — 스크린리더도 같은 규칙을 들어야 "60분 중 55분"이
+  // 달성 섹션에서 모순으로 들리지 않는다. Text의 접근 가능한 본문으로 노출됨을 잠근다.
+  test('고지는 접근 가능한 텍스트로 읽히고, 기존 행 음성 안내는 그대로다', async () => {
+    const result = {
+      ...candidate(true),
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
+      failed: [],
+    };
+    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
+    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('재영 60분 중 55분', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+});
+
+// 명단 넘침 신호(GROMO-1217) — 1191부터 행이 인원수만큼 늘어나는데 maxHeight에 잘려도
+// 인디케이터가 꺼져 있어 더 있는지 보이지 않았다. 인디케이터 프롭 3종을 잠근다.
+describe('ChallengeResultModal 명단 스크롤 인디케이터', () => {
+  const lists = () =>
+    screen.getByTestId('group.challengeResult.lists', { includeHiddenElements: true });
+
+  test('세로 인디케이터를 켠다(iOS white·Android persistent)', async () => {
+    await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
+    expect(lists().props.showsVerticalScrollIndicator).toBe(true);
+    expect(lists().props.indicatorStyle).toBe('white');
+    expect(lists().props.persistentScrollbar).toBe(true);
+  });
+
+  const flashCalls = () => flashScrollIndicators.mock.calls.length;
+
+  beforeEach(() => {
+    flashScrollIndicators.mockClear();
+  });
+
+  // iOS는 유휴 상태에선 인디케이터가 안 보인다 — 넘침 확정 시 깜빡임이 실제 네이티브
+  // 커맨드까지 나가는지를 잠근다. 호출 조건의 경계는 아래 팩토리 단위 테스트가 잠근다
+  // (ref 인스턴스는 밖에서 관찰할 수 없어 로직을 분리했다 — 코덱스 리뷰 P2).
+  test('넘침이 확정되면 flashScrollIndicators가 실제로 호출된다', async () => {
+    await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
+    await fireEvent(lists(), 'layout', { nativeEvent: { layout: { height: 220 } } });
+    expect(flashCalls()).toBe(0); // 컨텐츠 미확정 — 아직 판단하지 않는다
+    await fireEvent(lists(), 'contentSizeChange', 260, 400); // 넘침 확정
+    expect(flashCalls()).toBe(1);
+  });
+
+  // 결과 큐가 같은 모달 인스턴스로 진행된다(GroupRoomScreen) — 멤버 수가 같아 렌더 높이가
+  // 그대로면 onContentSizeChange가 다시 오지 않으므로, 결과 키 변경이 리셋 경로를 타서
+  // 두 번째 결과에도 넘침 단서가 나가야 한다(코덱스 리뷰 P2 2차).
+  test('높이가 같은 다음 결과로 갈리면 사이즈 이벤트 없이도 다시 깜빡인다', async () => {
+    const view = await render(
+      <ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />,
+    );
+    const listsInView = () =>
+      view.getByTestId('group.challengeResult.lists', { includeHiddenElements: true });
+    await fireEvent(listsInView(), 'layout', { nativeEvent: { layout: { height: 220 } } });
+    await fireEvent(listsInView(), 'contentSizeChange', 260, 400);
+    expect(flashCalls()).toBe(1);
+    // 같은 높이의 다른 결과 — 사이즈 이벤트를 다시 쏘지 않는다(실기기에서 안 오는 상황 재현).
+    await view.rerender(
+      <ChallengeResultModal
+        result={{ ...candidate(true), challengeId: 'c2' }}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(flashCalls()).toBe(2);
+  });
+});
+
+// iOS 유휴 넘침 단서의 호출 조건(코덱스 리뷰 P2) — 넘칠 때만, 확정된 뒤에만, 같은 컨텐츠엔
+// 한 번만 깜빡인다. 넘치지 않는데 깜빡이면 그 자체가 오신호다.
+describe('createListOverflowFlasher — flash 호출 조건', () => {
+  test('레이아웃·컨텐츠 높이가 둘 다 확정되고 넘칠 때만 깜빡인다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220); // 컨텐츠 미확정 — 아직 판단하지 않는다
+    expect(flash).not.toHaveBeenCalled();
+    flasher.onContentSizeChange(400); // 넘침 확정
+    expect(flash).toHaveBeenCalledTimes(1);
+  });
+
+  test('도착 순서가 반대여도(컨텐츠 → 레이아웃) 확정 시점에 깜빡인다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onContentSizeChange(400); // 레이아웃 미확정
+    expect(flash).not.toHaveBeenCalled();
+    flasher.onLayout(220);
+    expect(flash).toHaveBeenCalledTimes(1);
+  });
+
+  test('넘치지 않으면(딱 맞음 포함) 깜빡이지 않는다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(220); // 딱 맞음 — 넘침 아님
+    flasher.onContentSizeChange(180); // 여유
+    expect(flash).not.toHaveBeenCalled();
+  });
+
+  test('같은 컨텐츠엔 한 번만 — 레이아웃 재통지(회전 등)로 반복 깜빡이지 않는다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(400);
+    flasher.onLayout(220); // 같은 컨텐츠, 레이아웃 재통지
+    expect(flash).toHaveBeenCalledTimes(1);
+    flasher.onContentSizeChange(500); // 결과 큐 진행 — 컨텐츠가 바뀌면 새 단서
+    expect(flash).toHaveBeenCalledTimes(2);
+  });
+
+  // 높이 기준 dedup의 사각지대(코덱스 P2 2차) — 멤버 수가 같은 결과가 연속되면 높이가
+  // 그대로라 사이즈 이벤트가 다시 오지 않는다. reset이 아는 높이로 즉시 재판정해야 한다.
+  test('reset은 중복 가드만 풀고 아는 높이로 즉시 재판정한다 — 같은 높이의 결과 교체', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(400);
+    expect(flash).toHaveBeenCalledTimes(1);
+    flasher.reset(); // 결과 교체 — 사이즈 이벤트 없이도 다시 깜빡인다
+    expect(flash).toHaveBeenCalledTimes(2);
+  });
+
+  test('reset 시점에 넘치지 않거나 높이 미확정이면 깜빡이지 않는다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.reset(); // 첫 마운트 — 높이 미확정, no-op
+    expect(flash).not.toHaveBeenCalled();
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(180); // 넘치지 않는 명단
+    flasher.reset(); // 결과가 갈려도 넘침이 없으면 오신호를 만들지 않는다
+    expect(flash).not.toHaveBeenCalled();
   });
 });
