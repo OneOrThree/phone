@@ -55,6 +55,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             + " WHERE u.id = :id AND u.isDeleted = false AND u.deviceToken = :invalidToken")
     int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
 
+    // 게스트 승격(loginOrRegister) 전용 — 활성 **게스트** 행만 배타 락으로 잠근다 (GROMO-801, codex 리뷰 4차).
+    // isGuest 술어가 쿼리 안에 있는 이유: 비게스트 인증 상태로 다른 소셜 계정에 로그인하는 "계정 전환"
+    // 에서 (버려질) 현재 유저 A 까지 잠그면 트랜잭션 하나가 users 2행(현재 A + 로그인 대상 B)을 잠가,
+    // 역방향 전환 2건이 A→B / B→A 순서로 교착할 수 있다. 게스트만 잠그면 ① 승격 트랜잭션은 대상이
+    // 곧 본인이라 자기 1행만 잠그고 ② 비게스트 전환은 이 조회가 0행(락 없음) → 이후 재검증이 대상 B
+    // 1행만 잠근다 — 어떤 로그인 트랜잭션도 users 2행을 잠그지 않으므로 잠금 순서 문제가 원천 제거된다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false AND u.isGuest = true")
+    Optional<User> findActiveGuestByIdForUpdate(@Param("id") UUID id);
+
     // 관계·멤버십·내기 생성 등 users 행을 **읽기만 하는** 트랜잭션의 활성 검증 + 공유 락 (GROMO-801).
     // 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 위 배타 락(탈퇴)하고만 직렬화된다.
     // 탈퇴가 먼저 커밋되면 잠금 해제 후 조건을 재평가해 is_deleted=true 를 보고 빈 결과가 된다.

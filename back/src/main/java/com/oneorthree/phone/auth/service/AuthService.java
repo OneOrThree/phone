@@ -173,8 +173,12 @@ public class AuthService {
         //    UPDATE(isGuest·refreshTokenHash) 승급을 기다리며 교착한다 — 이 트랜잭션은 users 행을
         //    변경하므로 처음부터 배타 락이 원칙이다(UserRepository 락 선택 원칙). 탈퇴와의 직렬화
         //    성질은 배타 락에서도 그대로고, 탈퇴 선커밋 게스트는 빈 결과 → 신규 가입 흐름을 탄다.
+        //  · 잠그는 대상은 **활성 게스트 행뿐**이다(isGuest 술어, codex 리뷰 4차) — 비게스트 인증
+        //    상태의 계정 전환에서 (버려질) 현재 유저까지 잠그면 users 2행(현재+대상) 잠금이 되어
+        //    역방향 전환 2건이 교착한다. 게스트 한정이면 어떤 로그인도 users 1행만 잠근다
+        //    (승격 = 본인 행, 전환 = 대상 행) — 논증은 findActiveGuestByIdForUpdate 주석 참고.
         User guestUser = currentUserId == null ? null
-                : userRepository.findActiveByIdForUpdate(currentUserId).filter(User::isGuest).orElse(null);
+                : userRepository.findActiveGuestByIdForUpdate(currentUserId).orElse(null);
 
         boolean isNewUser;
         User user;
