@@ -224,13 +224,14 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
   });
 
   // TIME_WINDOW 생성(확장 배치) — 창 시각·목표분이 additive로 실린다.
+  // 창 시각은 "HH:mm:ss" KST 벽시계다(GROMO-1225 — 종전 ISO Instant 합성 폐기).
   test('POST /{groupId}/challenges — 창 생성 바디(windowStart/End)를 그대로 보낸다', async () => {
     const body = {
       missionCategory: 'FOCUS' as const,
       missionType: 'TIME_WINDOW' as const,
       durationMinutes: 60,
-      windowStart: '2026-08-02T09:00:00+09:00',
-      windowEnd: '2026-08-02T12:00:00+09:00',
+      windowStart: '09:00:00',
+      windowEnd: '12:00:00',
     };
     await createChallenge(GROUP_ID, body);
     expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, body);

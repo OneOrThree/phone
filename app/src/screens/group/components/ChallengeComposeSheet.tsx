@@ -23,7 +23,6 @@ import {
 } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
-import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/types/dto/group';
 
@@ -36,7 +35,7 @@ import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/typ
 // 그대로 따른다 — 같은 값을 고르는 자리가 달라 보이면 안 된다.
 //
 // ⚠️ 전송 계약(계약 §2): TIME_WINDOW는 durationMinutes 필수(0 < x ≤ 창 길이) +
-//    windowStart/windowEnd(ISO, KST 앵커 — 서버는 시각만 읽는 '매일 반복 시간대'다).
+//    windowStart/windowEnd("HH:mm:ss" KST 벽시계 — 서버의 '매일 반복 시간대', GROMO-1225).
 // ⚠️ 동시 활성 제한은 **카테고리×방식 조합당 1개**(그룹당 최대 4개, V20 유니크 인덱스) —
 //    조합 매트릭스로 세그먼트를 잠근다. 서버가 막는 조합을 애초에 못 고르게 한다.
 // ⚠️ SCREEN_TIME 생성 시 응답 nonParticipants에 권한 미허용 멤버가 담겨 온다 —
@@ -160,11 +159,11 @@ function hhmmOf(minutesOfDay: number): string {
   return `${h}:${m}`;
 }
 
-// 창 시각 → ISO Instant 문자열. 날짜는 의미가 없고(서버는 KST 시각만 읽는다 — 계약 설계 보정
-// '매일 반복 시간대') 오프셋을 +09:00으로 못 박아 기기 타임존과 무관하게 KST 시각이 보존되게 한다.
-// 날짜부도 KST 오늘로 통일한다(GROMO-1219) — 서버가 무시하는 값이지만 로컬 축이 섞이지 않게.
-function kstWindowInstant(minutesOfDay: number): string {
-  return `${todayStrKst()}T${hhmmOf(minutesOfDay)}:00+09:00`;
+// 창 시각 → "HH:mm:ss" KST 벽시계 문자열(GROMO-1225). 서버가 원래 읽는 값(매일 반복
+// time-of-day)만 그대로 보낸다 — 종전의 ISO Instant 합성(날짜부 + +09:00 오프셋)은 서버가
+// 버리는 날짜를 앱이 만들어 보내는 우회였다. 상수 문자열이라 기기 타임존과 무관하다.
+function windowTimeOf(minutesOfDay: number): string {
+  return `${hhmmOf(minutesOfDay)}:00`;
 }
 
 // 이미 있는(ACTIVE) 챌린지 — 조합(카테고리×방식) 잠금의 근거.
@@ -333,8 +332,8 @@ export default function ChallengeComposeSheet({
             missionCategory,
             missionType,
             durationMinutes,
-            windowStart: kstWindowInstant(windowStart),
-            windowEnd: kstWindowInstant(windowEnd),
+            windowStart: windowTimeOf(windowStart),
+            windowEnd: windowTimeOf(windowEnd),
           }
         : { missionCategory, missionType, durationMinutes };
       const { nonParticipants } = await createChallenge(groupId, body);

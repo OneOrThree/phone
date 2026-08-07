@@ -2,8 +2,9 @@
 // 확장 계약 docs/app/challenge-impl-2026-08/contract.md §2.
 //
 // 여기서 잠그는 것:
-//  1) 전송 계약. DURATION은 종전 그대로, TIME_WINDOW는 durationMinutes + KST 앵커(+09:00)
-//     windowStart/windowEnd가 함께 나간다 — 오프셋이 빠지면 해외 기기에서 창이 통째로 밀린다.
+//  1) 전송 계약. DURATION은 종전 그대로, TIME_WINDOW는 durationMinutes + "HH:mm:ss" KST
+//     벽시계 windowStart/windowEnd가 함께 나간다(GROMO-1225) — 상수 문자열이라 기기 타임존과
+//     무관하고, 날짜·오프셋을 붙인 종전 ISO 합성이 되살아나면 여기서 잡는다.
 //  2) 비활성화 매트릭스는 **카테고리×방식 조합**이다(V20 — 조합당 1개, 그룹당 최대 4개).
 //     카테고리 단위로 잠그면 일형이 있는 카테고리에 창형을 만들 수 없게 된다.
 //  3) 계약이 문구까지 고정한 시간대 안내 2종(FOCUS 관용치 · SCREEN_TIME 측정 한계).
@@ -20,7 +21,6 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
-import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeResponse } from '@/types/dto/group';
 
@@ -156,7 +156,7 @@ describe('전송값', () => {
     });
   });
 
-  test('시간대를 고르면 KST 앵커(+09:00) 창 시각이 함께 나간다 — 기본 09:00~12:00', async () => {
+  test('시간대를 고르면 "HH:mm:ss" 창 시각이 함께 나간다 — 기본 09:00~12:00', async () => {
     await renderSheet();
     await press('시간대');
     await press('만들기');
@@ -165,8 +165,8 @@ describe('전송값', () => {
       missionCategory: 'FOCUS',
       missionType: 'TIME_WINDOW',
       durationMinutes: 60,
-      windowStart: `${todayStrKst()}T09:00:00+09:00`,
-      windowEnd: `${todayStrKst()}T12:00:00+09:00`,
+      windowStart: '09:00:00',
+      windowEnd: '12:00:00',
     });
   });
 
@@ -181,8 +181,8 @@ describe('전송값', () => {
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
       expect.objectContaining({
-        windowStart: `${todayStrKst()}T13:00:00+09:00`,
-        windowEnd: `${todayStrKst()}T15:00:00+09:00`,
+        windowStart: '13:00:00',
+        windowEnd: '15:00:00',
       }),
     );
   });
@@ -199,8 +199,8 @@ describe('전송값', () => {
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
       expect.objectContaining({
-        windowStart: `${todayStrKst()}T09:00:00+09:00`,
-        windowEnd: `${todayStrKst()}T08:00:00+09:00`,
+        windowStart: '09:00:00',
+        windowEnd: '08:00:00',
       }),
     );
   });
@@ -214,7 +214,7 @@ describe('전송값', () => {
 
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
-      expect.objectContaining({ windowEnd: `${todayStrKst()}T12:00:00+09:00` }),
+      expect.objectContaining({ windowEnd: '12:00:00' }),
     );
   });
 
@@ -316,8 +316,8 @@ describe('목표 시간 직접 입력', () => {
       missionCategory: 'FOCUS',
       missionType: 'TIME_WINDOW',
       durationMinutes: 90,
-      windowStart: `${todayStrKst()}T09:00:00+09:00`,
-      windowEnd: `${todayStrKst()}T12:00:00+09:00`,
+      windowStart: '09:00:00',
+      windowEnd: '12:00:00',
     });
   });
 
@@ -898,7 +898,7 @@ describe('접근성 · 전송 중 잠금', () => {
     // 전송값도 탭 시점 값 그대로다.
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
-      expect.objectContaining({ windowEnd: `${todayStrKst()}T12:00:00+09:00` }),
+      expect.objectContaining({ windowEnd: '12:00:00' }),
     );
     expect(onCreated).toHaveBeenCalled();
   });
