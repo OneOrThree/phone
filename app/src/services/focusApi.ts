@@ -58,10 +58,11 @@ export async function deleteFocusTag(tagId: string): Promise<void> {
 // 직렬화 비용이 무시할 만하다.
 let saveChain: Promise<unknown> = Promise.resolve();
 
-// 지금 로그인된 계정(JWT sub). 저장이 체인에서 대기하는 동안 계정이 바뀌었는지 판별하는 데 쓴다.
-async function currentAccountId(): Promise<string | null> {
+// 지금 저장된 액세스 토큰과 그 주인(JWT sub). 저장이 체인에서 대기하는 동안 계정이 바뀌었는지
+// 판별하고, **검증한 그 토큰 그대로** 요청에 실어 보내는 데 쓴다.
+async function currentAccessToken(): Promise<{ token: string | null; accountId: string | null }> {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-  return token ? getUserIdFromToken(token) : null;
+  return { token, accountId: token ? getUserIdFromToken(token) : null };
 }
 
 // 계정이 바뀌어 전송을 취소했을 때 던진다 — 호출부는 이 실패를 받아 **저장을 시작한 계정**으로
@@ -78,16 +79,22 @@ export class FocusSaveAccountChangedError extends Error {
 //
 // ownerUserId: 이 저장을 시작한 계정. 직렬화 때문에 전송까지 대기가 생기는데, 그 사이 계정이
 // 바뀌면 api 인터셉터가 **전송 시점의 토큰**을 붙여 옛 계정의 세션·보상이 새 계정에 커밋된다.
-// 전송 직전에 대조해 다르면 보내지 않는다.
+// 전송 직전에 대조하고, **검증한 그 토큰을 직접 실어** 보낸다 — 대조와 전송 사이에 계정이 바뀌어도
+// 인터셉터가 새 토큰으로 갈아끼우지 못하게(코덱스 리뷰 P1). 401 재발급 재시도도 끈다: 재발급
+// 토큰은 전환된 계정 것일 수 있어 재시도가 곧 계정 오귀속이 된다. 실패하면 대기열로 간다.
 export function saveFocusSession(
   body: FocusSessionRequest,
   ownerUserId: string | null,
 ): Promise<FocusSessionSaveResponse> {
   const run = saveChain.then(async () => {
-    if ((await currentAccountId()) !== ownerUserId) {
+    const { token, accountId } = await currentAccessToken();
+    if (accountId !== ownerUserId) {
       throw new FocusSaveAccountChangedError();
     }
-    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
+    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      _noAuthRetry: true,
+    } as Parameters<typeof api.post>[2]);
     return data;
   });
   // 체인은 실패해도 끊기지 않게 삼키고, 호출자에겐 실패를 그대로 전파한다.

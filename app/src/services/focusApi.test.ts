@@ -98,3 +98,16 @@ test('대기 중 계정이 바뀌면 전송하지 않고 취소한다', async ()
   // POST 는 첫 요청 1회만 나갔다.
   expect(mockPost).toHaveBeenCalledTimes(1);
 });
+
+// 대조와 전송 사이에도 틈이 있다 — 인터셉터는 **전송 시점에** 저장소를 다시 읽으므로, 그 사이
+// 계정이 바뀌면 검사를 통과하고도 새 계정으로 커밋된다(코덱스 리뷰 P1).
+// 그래서 검증한 토큰을 요청에 직접 싣고, 401 재발급 재시도도 끈다(재발급 토큰은 전환된 계정 것일 수 있다).
+test('검증한 계정의 토큰을 요청에 직접 실어 보낸다', async () => {
+  mockPost.mockResolvedValueOnce({ data: { awardedCoins: 7 } } as never);
+
+  await saveFocusSession(body('2026-08-07T01:00:00Z'), OWNER);
+
+  const [, , config] = mockPost.mock.calls[0];
+  expect(config?.headers?.Authorization).toBe(`Bearer ${OWNER}`);
+  expect((config as { _noAuthRetry?: boolean })?._noAuthRetry).toBe(true);
+});

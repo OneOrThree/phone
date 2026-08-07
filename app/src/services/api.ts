@@ -133,6 +133,12 @@ if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
 }
 
 api.interceptors.request.use(async (config) => {
+  // 호출부가 토큰을 명시했으면 그대로 둔다(GROMO-1049) — 세션 저장처럼 **어느 계정 것인지 검증한 뒤**
+  // 보내는 요청이 있는데, 여기서 매번 저장소를 다시 읽으면 검증 시점과 전송 시점 사이에 계정이
+  // 바뀌었을 때 옛 계정의 기록이 새 계정으로 커밋된다(코덱스 리뷰 P1).
+  if (config.headers.Authorization) {
+    return config;
+  }
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -142,6 +148,9 @@ api.interceptors.request.use(async (config) => {
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
+  // 401 재발급 재시도를 건너뛴다 — 특정 계정으로 보내야 하는 요청은 재발급 토큰이 **전환된 계정**
+  // 것일 수 있어, 재시도가 곧 계정 오귀속이 된다(GROMO-1049). 그냥 실패시켜 대기열로 보낸다.
+  _noAuthRetry?: boolean;
 }
 
 api.interceptors.response.use(
@@ -149,7 +158,7 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as RetriableConfig | undefined;
 
-    if (error.response?.status === 401 && original && !original._retry) {
+    if (error.response?.status === 401 && original && !original._retry && !original._noAuthRetry) {
       original._retry = true;
       try {
         const newToken = await refreshAccessToken();
