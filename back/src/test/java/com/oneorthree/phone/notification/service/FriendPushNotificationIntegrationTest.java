@@ -146,8 +146,15 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     void acceptRequest_twice_sendsOnce() {
         // acceptRequest 는 현재 상태를 검사하지 않고 ACCEPTED 를 덮어쓴다. 이벤트 발행을 실제 상태
         // 전이로 제한하지 않으면 클라 재시도·연타가 그대로 두 번째 푸시가 된다(@codex 리뷰).
+        long completedBase = completedNotificationTasks();
+        long submittedBase = submittedNotificationTasks();
         friendService.createRequest(sender.getId(), receiver.getId());
         awaitFriendRequestPushLogged();
+        // 요청 작업의 **완료**까지 기다려 유휴 기준선을 만든다 — DB 가시성(커밋은 작업 본체 안)은
+        // 완료 카운터 증가(작업 리턴 후)보다 앞설 수 있어, 여기서 끊지 않으면 요청 작업의 뒤늦은
+        // 완료가 아래 델타 대기를 대신 만족시켜 수락 작업 완료 전에 단언이 달린다(codex 리뷰).
+        // DB 행이 보이는 시점엔 작업이 실행 중(isLocked) 아니면 완료라 제출 수 읽기도 안전하다.
+        awaitNotificationsDrained(completedBase, submittedBase);
         UUID requestId = pendingRequestId();
 
         long completedBefore = completedNotificationTasks();
@@ -170,8 +177,13 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     void rejectRequest_sendsNothing() {
         // 요청 푸시가 먼저 남을 때까지 기다린다 — 발송이 비동기라, 거절이 먼저 커밋되면 요청 푸시가
         // "이미 처리된 요청" 으로 생략될 수 있다(그 자체는 정상 동작이지만 아래 단정이 흔들린다).
+        long completedBase = completedNotificationTasks();
+        long submittedBase = submittedNotificationTasks();
         friendService.createRequest(sender.getId(), receiver.getId());
         awaitFriendRequestPushLogged();
+        // 요청 작업의 완료까지 기준선으로 확보 — 사유는 acceptRequest_twice_sendsOnce 의 주석 참조
+        // (요청 작업의 뒤늦은 완료가 아래 델타 대기를 대신 만족시키는 것 차단, codex 리뷰).
+        awaitNotificationsDrained(completedBase, submittedBase);
 
         long completedBefore = completedNotificationTasks();
         long submittedBefore = submittedNotificationTasks();
