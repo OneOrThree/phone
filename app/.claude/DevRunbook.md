@@ -279,7 +279,7 @@ cd app/ios
 `testflight.sh`가 하는 일:
 
 1. **API 서버 강제** — 레인별 기본값을 셸에 export한다: `beta`(테스트 업로드) → dev 서버(`https://oneorthree.dev.mooo.com`), `release`(심사 제출) → prod 서버(`https://api.oneorthree.world`). export한 `EXPO_PUBLIC_API_URL`이 로컬 `.env`/`.env.production`보다 우선하므로 **개발용 로컬 백엔드 주소가 릴리즈 번들에 박히는 사고를 막는다**. 특정 서버로 강제하려면 `TESTFLIGHT_API_URL=<주소> ./testflight.sh [레인]`.
-2. **환경 축 정렬** — 위 서버에 맞춰 `EXPO_PUBLIC_ENV`(Sentry·GA4·Datadog 태그)와 `APP_ENV`(Firebase plist 선택)를 같은 값으로 export한다. 즉 **서버·관측 태그·파베가 항상 한 환경으로 묶인다**.
+2. **환경 축 정렬** — `EXPO_PUBLIC_ENV`(Sentry·GA4·Datadog 태그)와 `APP_ENV`(Firebase plist 선택)를 하나의 값으로 함께 export한다. 즉 **서버·관측 태그·파베가 항상 한 환경으로 묶인다**. 결정 우선순위는 `TESTFLIGHT_ENV` 명시 > API 주소 매칭(대소문자·끝 슬래시 정규화 후 비교) > `dev`(로컬 백엔드 등 그 외 전부). 서버는 그대로 두고 환경 축만 바꾸려면 `TESTFLIGHT_ENV=prod ./testflight.sh`.
 3. **Pods 동기화** — `Podfile.lock`↔`Pods/Manifest.lock`이 어긋날 때만 `pod install` (평소엔 건너뜀).
 4. **`bundle exec fastlane <레인>`** 실행 → 빌드번호 갱신 → archive(`.ipa`) → TestFlight 업로드.
 
