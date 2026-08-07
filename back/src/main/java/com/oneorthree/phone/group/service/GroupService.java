@@ -107,12 +107,11 @@ public class GroupService {
 
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
-        // 1) 게스트 검증
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.GUEST_FORBIDDEN));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        // 1) 활성 검증 + 공유 락 (GROMO-1226) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)의
+        //    정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를 빠져나가, 탈퇴자가 OWNER 인
+        //    is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 모두 불가 = 복구 불능). 유저 부재를
+        //    GUEST_FORBIDDEN(403)으로 오분류하던 것도 형제 경로(joinGroup)와 같은 404 로 정정(D9).
+        User user = requireActiveUser(userId);
 
         // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
         ensureJoinedGroupLimit(user);
@@ -239,16 +238,9 @@ public class GroupService {
 
     @Transactional
     public void joinGroup(UUID groupId, UUID userId, JoinGroupRequest request) {
-        // 1. 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 계정 탈퇴(withdraw)는 유저 행 배타 락
-        //    아래에서 멤버십을 정리하는데, 여기가 락 없는 findById 면 탈퇴의 정리 스캔 이후·커밋
-        //    이전에 낀 가입(재가입 포함)이 정리를 빠져나가 유령 멤버십으로 남는다. 공유 락끼리는
-        //    충돌하지 않아 동시 가입은 그대로 병렬이고, 탈퇴 배타 락하고만 직렬화된다 — 탈퇴가
-        //    먼저 커밋되면 is_deleted=true 를 보고 기존 계약대로 NOT_FOUND 로 거절된다.
-        User user = userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        // 1. 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 근거는 requireActiveUser Javadoc.
+        //    탈퇴의 정리 스캔 이후·커밋 이전에 낀 가입(재가입 포함)이 유령 멤버십으로 남는 것을 막는다.
+        User user = requireActiveUser(userId);
 
         // 2. 그룹 조회 → NOT_FOUND
         Group group = groupRepository.findById(groupId)
@@ -664,6 +656,28 @@ public class GroupService {
                         }
                     });
         }
+    }
+
+    /**
+     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1226) — 그룹 생성·참여처럼
+     * users 행을 <b>읽기만 하고</b> 그 값을 변경(멤버십 저장)의 근거로 쓰는 트랜잭션의 요청자 로드.
+     * 락 없는 findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아
+     * 탈퇴의 정리 스캔 이후·커밋 이전에 낀 변경이 유령(탈퇴자 소유 그룹·멤버십)으로 남는다.
+     * 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
+     * is_deleted=true 를 보고 NOT_FOUND(404) 로 거절된다. 게스트는 GUEST_FORBIDDEN(403).
+     *
+     * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
+     * {@code @Transactional(readOnly = true)} 라 Postgres 가 FOR SHARE 를 거절한다
+     * (read-only 에서 행 잠금 불가 — {@code GroupBetService.getBetHistory} 주석 참조).
+     * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
+     */
+    private User requireActiveUser(UUID userId) {
+        User user = userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+        return user;
     }
 
     /**
