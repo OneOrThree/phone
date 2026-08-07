@@ -164,14 +164,17 @@ public class AuthService {
         }
 
         // 현재 호출자가 게스트인 경우에만 업그레이드 분기 대상 (비게스트/미존재는 null → 기존 흐름).
-        // 처음부터 공유 락으로 로드한다 (GROMO-801, codex 리뷰 2차) — 락을 토큰 발급 직전 재검증에만
-        // 두면 승격 분기의 setGuest(false)·소셜 연동 저장이 이미 실행된 뒤라, 재검증 쿼리 직전의
-        // auto-flush 가 그 언버전 full-row UPDATE 를 락 획득 전에 내보낸다. 탈퇴가 먼저 커밋된
-        // 상태라면 그 flush 가 is_deleted=true 를 덮어쓰고 stale PII 를 되살린 뒤, 재검증은 "활성"을
-        // 관측해 토큰까지 발급된다. 변경 전에 락을 잡으면 탈퇴와 직렬화되고, 탈퇴 선커밋 게스트는
-        // 여기서 빈 결과 → 업그레이드가 아닌 신규 가입 흐름을 탄다.
+        // 처음부터 **배타 락**으로 로드한다 (GROMO-801, codex 리뷰 2·3차).
+        //  · 락이 토큰 발급 직전 재검증에만 있으면 승격 분기의 setGuest(false)·소셜 연동 저장이 이미
+        //    실행된 뒤라, 재검증 쿼리 직전의 auto-flush 가 그 언버전 full-row UPDATE 를 락 획득 전에
+        //    내보낸다 — 탈퇴가 먼저 커밋됐으면 그 flush 가 is_deleted=true 를 덮어쓰고 재검증은
+        //    "활성"을 관측해 토큰까지 발급된다. 변경 전에 락이 먼저다.
+        //  · 공유 락이면 같은 게스트를 동시에 승격하는 두 요청이 둘 다 FOR SHARE 를 쥔 채 users
+        //    UPDATE(isGuest·refreshTokenHash) 승급을 기다리며 교착한다 — 이 트랜잭션은 users 행을
+        //    변경하므로 처음부터 배타 락이 원칙이다(UserRepository 락 선택 원칙). 탈퇴와의 직렬화
+        //    성질은 배타 락에서도 그대로고, 탈퇴 선커밋 게스트는 빈 결과 → 신규 가입 흐름을 탄다.
         User guestUser = currentUserId == null ? null
-                : userRepository.findActiveByIdForShare(currentUserId).filter(User::isGuest).orElse(null);
+                : userRepository.findActiveByIdForUpdate(currentUserId).filter(User::isGuest).orElse(null);
 
         boolean isNewUser;
         User user;
@@ -205,14 +208,17 @@ public class AuthService {
             isNewUser = true;
         }
 
-        // 탈퇴 직렬화 (GROMO-801, codex 리뷰) — 위 분기들은 유저를 락 없이 로드하므로, 조회와 토큰
-        // 발급 사이에 탈퇴(유저 행 배타 락)가 커밋되면 아래 refreshTokenHash 세팅의 full-row UPDATE 가
-        // stale User 로 is_deleted=false·구 PII 를 되살리고 발급된 토큰이 유효하게 남는다. 토큰 상태를
-        // 바꾸기 전에 같은 행의 공유 락을 잡아 직렬화한다 — 탈퇴가 먼저 커밋됐으면 여기서 삭제를
-        // 관측하고 기존 탈퇴 유저 차단 계약대로 NOT_FOUND 로 거절된다(재로그인 시 소셜 연동 행이
-        // 이미 지워져 있어 정상적인 신규 가입 흐름을 탄다). 신규 가입·게스트 승격 분기는 이
-        // 트랜잭션이 방금 만들거나 활성 확인한 행을 다시 읽을 뿐이라 동작이 달라지지 않는다.
-        user = userRepository.findActiveByIdForShare(user.getId())
+        // 탈퇴 직렬화 (GROMO-801, codex 리뷰) — 기존 소셜 유저 분기는 유저를 락 없이 로드하므로,
+        // 조회와 토큰 발급 사이에 탈퇴(유저 행 배타 락)가 커밋되면 아래 refreshTokenHash 세팅의
+        // full-row UPDATE 가 stale User 로 is_deleted=false·구 PII 를 되살리고 발급된 토큰이 유효하게
+        // 남는다. 토큰 상태를 바꾸기 전에 같은 행을 잠가 직렬화한다 — 탈퇴가 먼저 커밋됐으면 여기서
+        // 삭제를 관측하고 기존 탈퇴 유저 차단 계약대로 NOT_FOUND 로 거절된다(재로그인 시 소셜 연동
+        // 행이 이미 지워져 있어 정상적인 신규 가입 흐름을 탄다).
+        // 배타 락인 이유(codex 리뷰 3차와 같은 패턴 선제 적용): 이 트랜잭션은 곧 users 행을
+        // UPDATE 하므로, 공유 락이면 같은 계정의 동시 로그인 2건이 둘 다 FOR SHARE 를 쥔 채 승급을
+        // 기다리며 교착한다. 게스트 승격·신규 가입 분기는 위에서 이미 배타 락을 쥐었거나 이
+        // 트랜잭션이 방금 만든 행이라, 같은 행 재조회일 뿐 동작이 달라지지 않는다.
+        user = userRepository.findActiveByIdForUpdate(user.getId())
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         String accessToken = jwtProvider.generateAccessToken(user.getId());

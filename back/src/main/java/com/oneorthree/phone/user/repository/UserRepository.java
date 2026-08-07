@@ -25,6 +25,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // withdraw 는 friendships·pinned_users 를 스캔해 정리한 뒤 is_deleted 를 세우는데, READ COMMITTED 에서
     // 그 사이 다른 트랜잭션이 아직 커밋 안 된 is_deleted=true 를 못 보고 새 친구요청·핀을 끼워 넣으면
     // 정리를 통과해 유령 관계가 남는다. 탈퇴 시작 시점에 대상 행을 잠가 관계 생성과 직렬화한다.
+    //
+    // 락 선택 원칙 (codex 리뷰 3차) — **그 트랜잭션이 users 행을 변경하면 처음부터 이 배타 락**을 쓴다
+    // (탈퇴, 소셜 로그인/게스트 승격의 refreshTokenHash·isGuest 갱신). 공유 락으로 읽고 나중에 UPDATE
+    // 하면, 같은 행을 잡은 두 트랜잭션이 서로의 공유 락 해제를 기다리며 락 승급 교착으로 죽는다.
+    // users 행을 읽기만 하는 트랜잭션(관계·멤버십·내기 생성)은 아래 공유 락으로 병렬성을 지킨다.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
     Optional<User> findActiveByIdForUpdate(@Param("id") UUID id);
@@ -50,9 +55,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             + " WHERE u.id = :id AND u.isDeleted = false AND u.deviceToken = :invalidToken")
     int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
 
-    // 관계 생성(친구 요청·핀) 대상 유저의 활성 검증 + 공유 락 (GROMO-801).
+    // 관계·멤버십·내기 생성 등 users 행을 **읽기만 하는** 트랜잭션의 활성 검증 + 공유 락 (GROMO-801).
     // 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 위 배타 락(탈퇴)하고만 직렬화된다.
     // 탈퇴가 먼저 커밋되면 잠금 해제 후 조건을 재평가해 is_deleted=true 를 보고 빈 결과가 된다.
+    // 주의: 같은 트랜잭션이 이후 users 행을 UPDATE 한다면 이 락을 쓰면 안 된다(승급 교착) —
+    // 그 경우 위 findActiveByIdForUpdate 로 처음부터 배타 락을 잡는다 (락 선택 원칙 참고).
     @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
     Optional<User> findActiveByIdForShare(@Param("id") UUID id);
