@@ -6725,12 +6725,10 @@
             "format": "int32"
           },
           "windowStart": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           },
           "windowEnd": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           },
           "maxMembers": {
             "type": "integer",
@@ -6812,12 +6810,10 @@
             "format": "int32"
           },
           "windowStart": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           },
           "windowEnd": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           },
           "maxMembers": {
             "type": "integer",
