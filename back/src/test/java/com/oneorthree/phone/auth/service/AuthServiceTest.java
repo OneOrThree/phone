@@ -567,22 +567,27 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("처음부터 존재하던 타인 계정의 소셜로 온 승격 패자도 present 분기에서 409 — 조용한 계정 이동 차단 (GROMO-1229 codex R3)")
+    @DisplayName("AT 발급 이후 타인 계정에 생긴 소셜 연동으로 온 승격 패자는 present 분기에서 409 — 조용한 계정 이동 차단 (GROMO-1229 codex R3)")
     void presentBranchRejectsForeignAccountForPromotedLoser() {
         // 무경쟁이었다면 guestUser 가 살아 있어 SOCIAL_ACCOUNT_ALREADY_LINKED(게스트 유지)로 거부됐을
         // 요청 — 대기 중 승격이 커밋되면 guestUser 가 비어 present 분기로 흘러 타인 계정 토큰을 받는
-        // 구멍이 있었다. 승격 패자 가드는 present 분기에도 걸려야 한다.
+        // 구멍이 있었다. 가드는 이 AT 발급(iat) **이후에 생긴** 연동에만 발동한다(시간 게이팅 —
+        // claude 리뷰: iat 이전부터 있던 연동으로의 재로그인은 레이스가 아니라 정당한 접근).
+        Instant issuedAt = Instant.parse("2026-08-07T00:00:00Z");
         User promotedUser = User.builder().id(GUEST_ID).isGuest(false).build();
         User foreignUser = User.builder().id(USER_ID).isGuest(false).build();
-        SocialAccount preExisting = SocialAccount.builder()
-                .user(foreignUser).provider(Provider.KAKAO).providerId("12345").build();
+        SocialAccount linkedAfterToken = SocialAccount.builder()
+                .user(foreignUser).provider(Provider.KAKAO).providerId("12345")
+                .createdAt(issuedAt.plusSeconds(60)) // iat 이후 생성 = 이 요청과 겹치는 레이스 창
+                .build();
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-                .willReturn(Optional.of(preExisting)); // 첫 조회부터 존재(선점 아님, 원래 있던 계정)
+                .willReturn(Optional.of(linkedAfterToken));
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
         given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractIssuedAt("guest-jwt")).willReturn(issuedAt);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
 
@@ -592,6 +597,41 @@ class AuthServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.GUEST_ALREADY_PROMOTED);
         // 타인 계정 토큰 미발급 — 다음 로그인(비게스트 AT/무토큰)은 정식 present 분기로 정상 전환된다
         verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("iat 이전부터 있던 타인 계정 소셜 재로그인은 승격 후에도 정상 통과 — 시간 게이팅 (GROMO-1229 claude 리뷰)")
+    void presentBranchAllowsPreExistingAccountAfterPromotion() {
+        // 반례 시나리오: 게스트 AT 발급 → 정상 승격(레이스 아님) → 아직 유효한 구 게스트 AT 를 든 채
+        // 예전부터 존재하던 다른 소셜 계정(소유는 소셜 토큰 검증이 증명)으로 재로그인. 시간 게이팅이
+        // 없으면 이 정당한 로그인이 409 로 오차단된다 — 연동이 iat 이전에 생겼으면 레이스일 수 없다.
+        Instant issuedAt = Instant.parse("2026-08-07T00:00:00Z");
+        User promotedUser = User.builder().id(GUEST_ID).isGuest(false).build();
+        User accountOwner = User.builder().id(USER_ID).isGuest(false).build();
+        SocialAccount preExisting = SocialAccount.builder()
+                .user(accountOwner).provider(Provider.KAKAO).providerId("12345")
+                .createdAt(issuedAt.minusSeconds(3600)) // iat 이전부터 존재 — 레이스와 무관
+                .build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.of(preExisting));
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractIssuedAt("guest-jwt")).willReturn(issuedAt);
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(accountOwner));
+        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
+
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt");
+
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
