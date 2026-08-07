@@ -7,6 +7,7 @@ import { todayStr } from '@/utils/localDate';
 import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
+  NicknameCheckResponse,
   NotificationSettingsRequest,
   OccupationResponse,
   OccupationUpdateRequest,
@@ -35,6 +36,16 @@ export async function updateProfile(body: UserProfileUpdateRequest): Promise<voi
 // GET /api/v1/users/me — 본인 프로필 조회.
 export async function getMyProfile(): Promise<UserProfileResponse> {
   const { data } = await api.get<UserProfileResponse>('/api/v1/users/me');
+  return data;
+}
+
+// GET /api/v1/users/nickname/check?nickname= — 닉네임 사용 가능 여부 실시간 확인(GROMO-1215).
+// 항상 200 {available} — 형식 위반도 available=false로 온다. 문구 구분은 호출부의
+// 로컬 형식검사(2~10자)가 선행하고, 이 응답은 중복 여부의 답으로만 읽는다.
+export async function checkNickname(nickname: string): Promise<NicknameCheckResponse> {
+  const { data } = await api.get<NicknameCheckResponse>('/api/v1/users/nickname/check', {
+    params: { nickname },
+  });
   return data;
 }
 

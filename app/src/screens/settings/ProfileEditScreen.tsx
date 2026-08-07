@@ -16,11 +16,13 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { useUser } from '@/store/UserContext';
 import { updateProfile } from '@/services/userApi';
+import { useNicknameCheck } from '@/hooks/useNicknameCheck';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { T } from '@/constants/theme';
 
 // 프로필 편집 — 닉네임 입력 + 캐릭터 스킨 그리드(이번엔 미구현 → 딤 오버레이 '준비 중').
-// 닉네임은 클라 검증만(2~10자 & 현재값과 다름). 실시간 서버 중복검사 API가 없어 저장 시 확정한다.
+// 닉네임은 로컬 형식검사(2~10자 & 현재값과 다름) 통과 시 실시간 중복확인(GROMO-1215,
+// useNicknameCheck)을 부른다. 확인 실패·구서버는 기존 낙관 표시로 폴백 — 저장 409가 최종 방어.
 const NICK_MIN = 2;
 const NICK_MAX = 10;
 // 스킨 그리드 자리채움 타일 수(가짜 3칸) — 딤 처리되어 상호작용은 없음.
@@ -40,6 +42,11 @@ export default function ProfileEditScreen() {
   const changed = trimmed !== original;
   const valid = validLength && changed; // 저장 가능(유효+변경)
   const canSave = valid && !saving;
+
+  // 실시간 중복확인 — 형식 통과+변경된 값만 검사한다(형식 위반은 로컬 문구가 선행).
+  // taken이어도 저장은 잠그지 않는다 — 검사 응답이 stale할 수 있어(남이 닉네임을 비웠거나
+  // 선점) 최종 판정은 저장 409(NICKNAME_DUPLICATE)에 맡긴다.
+  const checkStatus = useNicknameCheck(trimmed, valid);
 
   // 저장 — updateProfile 성공 시 컨텍스트 반영 후 뒤로. 실패(중복 등)는 Alert.
   const onSave = async () => {
@@ -98,13 +105,26 @@ export default function ProfileEditScreen() {
         </Text>
       </View>
 
-      {/* 검증 안내 — 형식(2~10자)+변경 시 '사용 가능해요'(낙관적 표시), 변경했는데 길이 미달이면 가이드.
-          실제 중복 검사는 서버 검증 API가 없어 '검사 및 저장' 버튼으로 저장 시 확정한다 (GROMO-639). */}
+      {/* 검증 안내 — 형식(2~10자) 위반은 로컬 가이드가 선행, 통과하면 실시간 중복확인 결과로
+          '확인 중…'/'사용 가능해요'/'이미 사용 중' 을 구분한다(GROMO-1215).
+          확인 실패·구서버(unknown)는 기존 낙관 표시('사용 가능해요')로 폴백 — 저장 409가 최종 방어(GROMO-639). */}
       {valid ? (
-        <View style={s.hintRow}>
-          <Ionicons name="checkmark-circle" size={15} color={T.successInk} />
-          <Text style={[s.hintText, { color: T.successInk }]}>사용 가능해요</Text>
-        </View>
+        checkStatus === 'checking' ? (
+          <View style={s.hintRow}>
+            <ActivityIndicator size="small" color={T.inkMuted} />
+            <Text style={[s.hintText, { color: T.inkMuted }]}>확인 중…</Text>
+          </View>
+        ) : checkStatus === 'taken' ? (
+          <View style={s.hintRow}>
+            <Ionicons name="alert-circle" size={15} color={T.dangerInk} />
+            <Text style={[s.hintText, { color: T.dangerInk }]}>이미 사용 중인 닉네임이에요</Text>
+          </View>
+        ) : (
+          <View style={s.hintRow}>
+            <Ionicons name="checkmark-circle" size={15} color={T.successInk} />
+            <Text style={[s.hintText, { color: T.successInk }]}>사용 가능해요</Text>
+          </View>
+        )
       ) : changed && !validLength ? (
         <View style={s.hintRow}>
           <Ionicons name="alert-circle" size={15} color={T.dangerInk} />

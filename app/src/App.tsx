@@ -90,8 +90,8 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
 // (1) POST /users/me — 프로필 설정: nickname → nickname,
 //     usageGoalMinutes(W12) → dailyScreenTimeGoalMinutes,
 //     dailyFocusMinutes(W12) → dailyFocusTimeGoalMinutes.
-//     닉네임 중복이면 409(NICKNAME_DUPLICATE) — 온보딩 닉네임 화면은 로그인 전이라
-//     실시간 중복확인 API를 못 부르므로 여기가 유일한 중복 검증 지점이다(GROMO-618).
+//     닉네임 중복이면 409(NICKNAME_DUPLICATE) — 닉네임 스텝이 실시간 중복확인(GROMO-1215)을
+//     하지만 검사 응답은 stale할 수 있어, 여기 409가 중복 검증의 최종 방어다(GROMO-618).
 //     실패를 삼키지 않고 결과를 돌려줘 OnboardingFlow가 재입력/재시도를 처리한다.
 // (2) PATCH /users/me/screen-time-permission — 스크린타임 권한 허용 여부(W10).
 //     프로필 셋업 요청엔 권한 필드가 없어 별도 엔드포인트로 보낸다.

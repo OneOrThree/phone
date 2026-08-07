@@ -2,14 +2,16 @@ import { View, Text, TextInput, StyleSheet } from 'react-native';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
 import { logOnboardingNicknameSubmitted } from '@/services/analyticsEvents';
+import { useNicknameCheck } from '@/hooks/useNicknameCheck';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // 닉네임 — 온보딩 마지막 스텝(캐릭터 소개·누끼 체험 뒤). 입력 후 곧바로 가입 확정을 트리거한다.
 // 캐릭터 첫 노출은 앞선 character_intro 스텝이 전담 — 이 화면은 이름 입력만 받는다.
-// 중복 검증: 실시간 중복확인 API가 서버에 없어(중간 로그인은 마쳤지만) 여기선 형식(2~10자,
-// 프로필 편집과 동일)만 검사하고, 실제 중복은 가입 확정(POST /users/me → 409
-// NICKNAME_DUPLICATE) 시점에 확정된다. 서버 검증에 실패하면 OnboardingFlow가 이 화면을
-// serverError와 함께 그대로 유지해 재입력/재시도를 받는다.
+// 중복 검증: 형식(2~10자, 프로필 편집과 동일)은 로컬이 먼저 거르고, 통과하면 실시간
+// 중복확인(GROMO-1215, useNicknameCheck — 중간 로그인을 마친 뒤라 토큰이 있다)을 부른다.
+// 확인 실패·구서버는 기존 힌트(가입 완료 시 확인)로 폴백하고, 최종 판정은 가입 확정
+// (POST /users/me → 409 NICKNAME_DUPLICATE)이 맡는다. 서버 검증에 실패하면
+// OnboardingFlow가 이 화면을 serverError와 함께 그대로 유지해 재입력/재시도를 받는다.
 const NICK_MIN = 2;
 const NICK_MAX = 10;
 
@@ -28,6 +30,11 @@ export default function NicknameStep({
   const nickname = data.nickname;
   const trimmed = nickname.trim();
   const validLength = trimmed.length >= NICK_MIN && trimmed.length <= NICK_MAX;
+
+  // 실시간 중복확인 — 형식 통과분만 검사(형식 위반은 아래 로컬 문구가 선행).
+  // taken이어도 CTA는 잠그지 않는다 — 검사 응답이 stale할 수 있어 최종 판정은
+  // 가입 확정의 409가 맡고, 그 실패는 serverError로 되돌아온다.
+  const checkStatus = useNicknameCheck(trimmed, validLength && !submitting);
 
   return (
     <StepScaffold
@@ -67,13 +74,21 @@ export default function NicknameStep({
           {nickname.length}/{NICK_MAX}
         </Text>
       </View>
-      {/* 검증 안내 — 서버 실패 메시지 > 형식 가이드 > 기본 힌트 순. */}
+      {/* 검증 안내 — 서버 실패 메시지 > 형식 가이드 > 중복확인 결과 > 기본 힌트 순.
+          unknown(확인 실패·구서버)은 기본 힌트로 폴백 — '가입 완료 시 확인' 문구가
+          그대로 최종 방어(409) 경로를 안내한다(GROMO-1215). */}
       {serverError ? (
         <Text style={s.errorText}>{serverError}</Text>
       ) : nickname.length > 0 && !validLength ? (
         <Text style={s.errorText}>
           닉네임은 {NICK_MIN}~{NICK_MAX}자로 입력해 주세요
         </Text>
+      ) : checkStatus === 'taken' ? (
+        <Text style={s.errorText}>이미 사용 중인 닉네임이에요</Text>
+      ) : checkStatus === 'available' ? (
+        <Text style={s.successText}>사용 가능해요</Text>
+      ) : checkStatus === 'checking' ? (
+        <Text style={s.hintText}>확인 중…</Text>
       ) : (
         <Text style={s.hintText}>
           {NICK_MIN}~{NICK_MAX}자 · 중복 여부는 가입 완료 시 확인돼요
@@ -104,6 +119,12 @@ const s = StyleSheet.create({
   errorText: {
     ...T.text.caption,
     color: T.dangerInk,
+    marginTop: T.space.sm,
+    marginLeft: T.space.xs,
+  },
+  successText: {
+    ...T.text.caption,
+    color: T.successInk,
     marginTop: T.space.sm,
     marginLeft: T.space.xs,
   },
