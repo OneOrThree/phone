@@ -36,6 +36,14 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * 리그 주간 정산 배치의 시나리오 검증 — 단, 이 테스트는 {@link RepositoryTestBase} 의 주변
+ * {@code @Transactional} 안에서 돌기 때문에 {@code LeagueAnchorRotator.rotate}·
+ * {@code LeagueUserSettler.settle}(전파 REQUIRED)이 테스트 트랜잭션에 <b>합류</b>한다 —
+ * 프로덕션의 건별 커밋/롤백 경계는 여기서 관측할 수 없다. 그 경계(유저 단위 롤백·커밋 가시성)에
+ * 의존하는 단언은 {@link LeagueBatchWithdrawIntegrationTest}(IntegrationTestBase, 주변 트랜잭션
+ * 없음 — 그 클래스 자바독 참조)에 둘 것.
+ */
 class LeagueBatchServiceTest extends RepositoryTestBase {
 
     private static final Instant BATCH_NOW = Instant.parse("2026-07-12T15:00:00Z");

@@ -573,7 +573,6 @@ class AuthServiceTest {
         // 서버 관점에서 구분 불가능하고(시간 신호 시도는 대상 계정 createdAt 이 레이스와 무인과라
         // 실패), 통과 결말은 소셜 토큰 검증으로 소유가 증명된 계정 로그인이라 유령이 아니다.
         // present 분기에 승격 패자 가드를 되살리면 이 테스트가 깨진다 — 되살리려면 D17·D18 재론부터.
-        User promotedUser = User.builder().id(GUEST_ID).isGuest(false).build();
         User accountOwner = User.builder().id(USER_ID).isGuest(false).build();
         SocialAccount preExisting = SocialAccount.builder()
                 .user(accountOwner).provider(Provider.KAKAO).providerId("12345")

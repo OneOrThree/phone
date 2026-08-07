@@ -236,6 +236,13 @@ public class AuthService {
                 // 유저 소유면(다른-소셜 패자 + 제3의 요청이 같은 소셜을 다른 계정에 선점) 자가치유가
                 // 아니라 조용한 계정 이동이 된다 — 게스트 데이터가 어디로 승격됐는지 숨긴 채 다른
                 // 계정에 앉히므로, 그 경우도 409 로 알리고 다음 로그인이 정식 present 분기를 타게 한다.
+                //
+                // fail-closed 비대칭 (D17·D18·D20) — 이 분기는 모호성에 닫는다: 무관한 제3의 요청이
+                // 같은 (provider, providerId)를 다른 계정에 선점한 경우와 진짜 레이스 패자가 서버
+                // 관점에서 구분 불가능해 둘 다 409 로 묶는다(드문 정당 로그인이 차단되는 비용 수용).
+                // present 분기(위 fail-open 서술)와는 의도된 비대칭이다 — 무가드 대안의 비용이 다르다:
+                // 여기선 닉네임 null 의 유령 계정이 생기고, 저기선 소셜 토큰으로 소유가 증명된 로그인이
+                // 통과할 뿐이다. fail-open 논증 자체는 present 분기 주석이 정본 — 여기 중복하지 않는다.
                 user = socialAccountRepository
                         .findByProviderAndProviderId(provider, providerId)
                         .filter(account -> account.getUser().getId().equals(currentUserId))
