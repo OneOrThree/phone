@@ -5414,6 +5414,10 @@
           "goalRewardCoins": {
             "type": "integer",
             "format": "int32"
+          },
+          "balanceAfter": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
