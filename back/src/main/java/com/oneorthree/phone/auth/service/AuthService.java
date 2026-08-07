@@ -205,6 +205,15 @@ public class AuthService {
                 // 게스트가 이미 다른 계정에 연동된 소셜로 업그레이드 시도 → 거부(게스트 유지)
                 throw new AuthException(AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED);
             }
+            // 승격 경쟁 패자 가드는 이 분기에도 걸어야 한다 (codex R3) — 처음부터 존재하던 타인
+            // 계정의 소셜로 온 게스트는 무경쟁이면 위 ALREADY_LINKED 로 거부(게스트 유지)됐을
+            // 요청인데, 대기 중 승격이 커밋되면 guestUser 가 비어 이 분기로 흘러 타인 계정의
+            // 토큰을 받는다 — 게스트 데이터가 어디로 갔는지 숨긴 채 계정이 바뀌는 조용한 이동이다.
+            // 본인(= 방금 승격된 계정) 소유의 소셜이면 자가치유 로그인(codex R1)이므로 통과시킨다.
+            if (isConcurrentlyPromotedGuest(currentUserId, callerGuestClaim)
+                    && !socialAccount.get().getUser().getId().equals(currentUserId)) {
+                throw new AuthException(AuthErrorCode.GUEST_ALREADY_PROMOTED);
+            }
             user = socialAccount.get().getUser();
             isNewUser = false;
         } else if (guestUser != null) {
@@ -218,22 +227,9 @@ public class AuthService {
             user = guestUser;
             isNewUser = false;
         } else {
-            // 동시 다른-소셜 승격 경쟁의 패자 차단 (GROMO-1229, D3): 게스트로 발급된 AT(guest 클레임
-            // true)로 왔는데 위 게스트 락 조회가 비었고(락 해제 후 술어 재평가에서 is_guest=false),
-            // 그 유저가 활성 **비게스트**로 존재한다면 — 다른 요청이 방금 이 게스트를 다른 소셜로
-            // 승격 커밋한 것이다. 이대로 신규 가입 폴백을 타면 닉네임 null 의 빈 유령 계정이 조용히
-            // 생기므로 409 로 끊는다. 정식 "계정 전환"(비게스트 AT 로 새 소셜 로그인)은 클레임이
-            // false/null 이라 걸리지 않는다 — DB 상태만으로는 두 경우를 구분할 수 없어 발급 시점
-            // 클레임을 신호로 쓴다.
-            // 판별 조회는 **무락** findByIdAndIsDeletedFalse 여야 한다 — 여기서 현재 유저 행까지
-            // 잠그면 이 트랜잭션이 users 2행(현재 + 아래 재검증 대상)을 잠가, 게스트 한정 락의
-            // "어떤 로그인도 users 1행만 잠근다" 교착 방지 논증(findActiveGuestByIdForUpdate 주석,
-            // codex 리뷰 4차)이 깨진다. 판별은 읽기뿐이라 락이 필요 없다.
-            // 유저가 없거나 탈퇴면 기존 폴백 유지 — 탈퇴 게스트의 유효 토큰 → 신규 가입은 의도된 동작.
-            if (Boolean.TRUE.equals(callerGuestClaim) && currentUserId != null
-                    && userRepository.findByIdAndIsDeletedFalse(currentUserId)
-                            .filter(caller -> !caller.isGuest())
-                            .isPresent()) {
+            // 동시 다른-소셜 승격 경쟁의 패자 차단 (GROMO-1229, D3) — 이대로 신규 가입 폴백을 타면
+            // 닉네임 null 의 빈 유령 계정이 조용히 생긴다. 판별 논증은 isConcurrentlyPromotedGuest 참고.
+            if (isConcurrentlyPromotedGuest(currentUserId, callerGuestClaim)) {
                 // 같은 소셜 동시 승격의 패자는 에러가 아니다 (codex R1) — 메서드 첫 조회 때는 승자의
                 // 커밋 전이라 socialAccount 가 비었지만, 게스트 락 대기를 지나온 지금은 같은
                 // (provider, providerId) 가 승자 손에 붙어 있을 수 있다. 재조회해서 **승격된 본인
@@ -289,6 +285,22 @@ public class AuthService {
                 Map.of("is_new_user", isNewUser, "method", provider.name().toLowerCase()));
 
         return new SocialLoginResponse(accessToken, refreshToken, isNewUser);
+    }
+
+    /**
+     * 동시 승격 경쟁의 <b>패자</b>인가 (GROMO-1229) — 게스트로 발급된 AT(guest 클레임 true)로 왔는데
+     * 그 유저가 이미 활성 <b>비게스트</b>다 = 다른 요청이 방금 이 게스트를 승격 커밋했다. 정식
+     * "계정 전환"(비게스트 AT)은 클레임이 false/null 이라 걸리지 않는다 — DB 상태만으로는 두 경우가
+     * 동일해서 발급 시점 클레임이 유일한 판별 신호다. 호출 전제: 게스트 락 조회가 빈 뒤(= guestUser
+     * null)에만 부른다. 판별 조회는 <b>무락</b> — 현재 유저 행까지 잠그면 users 2행 잠금이 되어
+     * 게스트 한정 락의 교착 방지 논증(findActiveGuestByIdForUpdate 주석, codex 리뷰 4차)이 깨진다.
+     * 유저가 없거나 탈퇴면 false — 탈퇴 게스트의 유효 토큰 → 신규 가입 폴백은 의도된 동작.
+     */
+    private boolean isConcurrentlyPromotedGuest(UUID currentUserId, Boolean callerGuestClaim) {
+        return Boolean.TRUE.equals(callerGuestClaim) && currentUserId != null
+                && userRepository.findByIdAndIsDeletedFalse(currentUserId)
+                        .filter(caller -> !caller.isGuest())
+                        .isPresent();
     }
 
     @Transactional
