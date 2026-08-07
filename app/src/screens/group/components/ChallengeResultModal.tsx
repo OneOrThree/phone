@@ -71,6 +71,42 @@ function minutesText(progressMinutes: number | null, goalMinutes: number | null)
   return progressFraction(progressMinutes, goalMinutes);
 }
 
+// iOS 유휴 넘침 단서(코덱스 리뷰 P2) — iOS 세로 인디케이터는 **스크롤 중에만** 보이고
+// persistentScrollbar는 안드로이드 전용이라, 가만히 있는 사용자는 maxHeight에 잘린 명단이
+// 더 있는지 알 수 없다. 레이아웃(가시 높이)과 컨텐츠 높이가 **둘 다 확정된 뒤 실제로 넘칠
+// 때만** flashScrollIndicators로 한 번 깜빡여 단서를 준다 — 넘치지 않는데 깜빡이면 그게
+// 오신호고, 한쪽 높이만 알고 판단하면 넘침을 놓치거나 지어낸다(onLayout·onContentSizeChange
+// 도착 순서는 보장되지 않는다). 같은 컨텐츠 높이에는 한 번만 깜빡인다 — 레이아웃 재통지
+// (회전 등)마다 반복되면 안내가 소음이 된다. 컨텐츠가 바뀌면(결과 큐 진행) 다시 한 번.
+export function createListOverflowFlasher(flash: () => void): {
+  onLayout: (height: number) => void;
+  onContentSizeChange: (height: number) => void;
+} {
+  let layoutHeight = 0; // 0 = 아직 미확정 — 미확정 상태에서는 판단하지 않는다
+  let contentHeight = 0;
+  let flashedForContentHeight = 0; // 마지막으로 깜빡인 컨텐츠 높이 — 중복 깜빡임 방지
+  const maybeFlash = () => {
+    if (
+      layoutHeight > 0 &&
+      contentHeight > layoutHeight &&
+      flashedForContentHeight !== contentHeight
+    ) {
+      flashedForContentHeight = contentHeight;
+      flash();
+    }
+  };
+  return {
+    onLayout: (height: number) => {
+      layoutHeight = height;
+      maybeFlash();
+    },
+    onContentSizeChange: (height: number) => {
+      contentHeight = height;
+      maybeFlash();
+    },
+  };
+}
+
 // 스크린리더는 행을 한 덩어리로 읽는다 — 이름과 근거가 따로 읽히면 누구 기록인지 잃는다.
 function minutesA11yLabel(
   nickname: string,
@@ -136,6 +172,12 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
       : result.myAchieved === false
         ? HEADLINE.failed
         : HEADLINE.pending;
+
+  // 명단 넘침의 유휴 단서 — ref 인스턴스의 flashScrollIndicators를 조건 로직(팩토리)에 넘긴다.
+  const listRef = useRef<ScrollView>(null);
+  const overflowFlasher = useRef(
+    createListOverflowFlasher(() => listRef.current?.flashScrollIndicators()),
+  ).current;
 
   // 등장 연출 — 카드 팝인 하나만 쓴다(리그 화면의 다단계 연출은 풀스크린 화면 몫).
   // 결과가 넘어가며(큐) 같은 모달이 내용만 갈릴 때도 다시 팝 되도록 결과 키에 묶는다.
@@ -207,13 +249,17 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
             )}
 
             {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다.
-                1191부터 행이 인원수만큼 늘어난다 — 넘침을 숨기지 않도록 인디케이터를 켠다
-                (iOS는 다크 배경이라 white, Android는 잠깐 떴다 사라지지 않게 persistent). */}
+                1191부터 행이 인원수만큼 늘어난다 — 넘침을 숨기지 않도록 인디케이터를 켜고
+                (iOS는 다크 배경이라 white, Android는 잠깐 떴다 사라지지 않게 persistent),
+                iOS는 유휴 상태에선 인디케이터가 안 보여 넘침 확정 시 한 번 깜빡인다(위 팩토리). */}
             <ScrollView
+              ref={listRef}
               style={s.lists}
               showsVerticalScrollIndicator
               indicatorStyle="white"
               persistentScrollbar
+              onLayout={(e) => overflowFlasher.onLayout(e.nativeEvent.layout.height)}
+              onContentSizeChange={(_w, h) => overflowFlasher.onContentSizeChange(h)}
               testID="group.challengeResult.lists"
             >
               <NameSection

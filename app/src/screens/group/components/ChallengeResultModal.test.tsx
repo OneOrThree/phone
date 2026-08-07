@@ -1,8 +1,8 @@
 // 챌린지 결과 모달 — 헤드라인 그림 계약(GROMO-1087).
 // 시스템 이모지에서 캐릭터 에셋으로 갈아탔으므로, 세 결과 상태가 각각 정해진 에셋을 쓰고
 // 스크린리더가 상태를 읽을 수 있는지를 고정한다. 크기·여백 같은 시각 품질은 QA 몫이라 보지 않는다.
-import { render, screen } from '@testing-library/react-native';
-import ChallengeResultModal from './ChallengeResultModal';
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import ChallengeResultModal, { createListOverflowFlasher } from './ChallengeResultModal';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import type { ChallengeResultCandidate } from '../challengeResult';
 
@@ -201,13 +201,66 @@ describe('ChallengeResultModal 5분 관용치 고지', () => {
 // 명단 넘침 신호(GROMO-1217) — 1191부터 행이 인원수만큼 늘어나는데 maxHeight에 잘려도
 // 인디케이터가 꺼져 있어 더 있는지 보이지 않았다. 인디케이터 프롭 3종을 잠근다.
 describe('ChallengeResultModal 명단 스크롤 인디케이터', () => {
+  const lists = () =>
+    screen.getByTestId('group.challengeResult.lists', { includeHiddenElements: true });
+
   test('세로 인디케이터를 켠다(iOS white·Android persistent)', async () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
-    const lists = screen.getByTestId('group.challengeResult.lists', {
-      includeHiddenElements: true,
-    });
-    expect(lists.props.showsVerticalScrollIndicator).toBe(true);
-    expect(lists.props.indicatorStyle).toBe('white');
-    expect(lists.props.persistentScrollbar).toBe(true);
+    expect(lists().props.showsVerticalScrollIndicator).toBe(true);
+    expect(lists().props.indicatorStyle).toBe('white');
+    expect(lists().props.persistentScrollbar).toBe(true);
+  });
+
+  // iOS는 유휴 상태에선 인디케이터가 안 보인다 — 넘침 확정 시 깜빡임 핸들러가 배선되어
+  // 있어야 한다. 호출 조건 자체는 아래 팩토리 단위 테스트가 잠근다(ref 인스턴스는 밖에서
+  // 관찰할 수 없어 로직을 분리했다 — 코덱스 리뷰 P2).
+  test('넘침 판정 핸들러(onLayout·onContentSizeChange)가 배선되어 크래시 없이 동작한다', async () => {
+    await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
+    expect(typeof lists().props.onLayout).toBe('function');
+    expect(typeof lists().props.onContentSizeChange).toBe('function');
+    fireEvent(lists(), 'layout', { nativeEvent: { layout: { height: 220 } } });
+    fireEvent(lists(), 'contentSizeChange', 260, 400); // 넘침 — flash 경로까지 통과해야 한다
+  });
+});
+
+// iOS 유휴 넘침 단서의 호출 조건(코덱스 리뷰 P2) — 넘칠 때만, 확정된 뒤에만, 같은 컨텐츠엔
+// 한 번만 깜빡인다. 넘치지 않는데 깜빡이면 그 자체가 오신호다.
+describe('createListOverflowFlasher — flash 호출 조건', () => {
+  test('레이아웃·컨텐츠 높이가 둘 다 확정되고 넘칠 때만 깜빡인다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220); // 컨텐츠 미확정 — 아직 판단하지 않는다
+    expect(flash).not.toHaveBeenCalled();
+    flasher.onContentSizeChange(400); // 넘침 확정
+    expect(flash).toHaveBeenCalledTimes(1);
+  });
+
+  test('도착 순서가 반대여도(컨텐츠 → 레이아웃) 확정 시점에 깜빡인다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onContentSizeChange(400); // 레이아웃 미확정
+    expect(flash).not.toHaveBeenCalled();
+    flasher.onLayout(220);
+    expect(flash).toHaveBeenCalledTimes(1);
+  });
+
+  test('넘치지 않으면(딱 맞음 포함) 깜빡이지 않는다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(220); // 딱 맞음 — 넘침 아님
+    flasher.onContentSizeChange(180); // 여유
+    expect(flash).not.toHaveBeenCalled();
+  });
+
+  test('같은 컨텐츠엔 한 번만 — 레이아웃 재통지(회전 등)로 반복 깜빡이지 않는다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(400);
+    flasher.onLayout(220); // 같은 컨텐츠, 레이아웃 재통지
+    expect(flash).toHaveBeenCalledTimes(1);
+    flasher.onContentSizeChange(500); // 결과 큐 진행 — 컨텐츠가 바뀌면 새 단서
+    expect(flash).toHaveBeenCalledTimes(2);
   });
 });
