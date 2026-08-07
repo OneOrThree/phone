@@ -275,6 +275,29 @@ export interface LastSettledBet {
   goalMinutes?: number | null;
 }
 
+// ── 내기 히스토리(GROMO-1221 — 서버 계약은 #510/GROMO-1207 그대로) ──
+// GET /groups/{groupId}/challenges/{challengeId}/bets?cursor&size 의 항목.
+// LastSettledBet과 같은 구조에 목록 식별용 betId(다음 페이지 커서로도 쓴다)·settledAt을 더한
+// 것이다(서버 GroupBetHistoryItemResponse 미러). status는 정산 결과 3종(SETTLED·REFUNDED·
+// FORFEITED)만 실린다 — CANCELED는 '없던 일'이라 이력에서 제외된다(서버 HISTORY_STATUSES 계약).
+// 타입은 GroupBetStatus 그대로 둔다 — 모르는 상태가 와도 화면이 else 강하로 버티는 관행과 짝.
+export type GroupBetHistoryItem = LastSettledBet & {
+  betId: string; // UUID — 목록 key이자 keyset 커서(직전 페이지 마지막 항목의 것을 넘긴다)
+  // 정산 시각(Instant ISO). DB 컬럼이 nullable이라(V19) null도 받는다 — 표기는 betDate가 정본.
+  settledAt: string | null;
+};
+
+// 커서(keyset) 슬라이스 봉투 — FocusSessionSliceResponse(content/size/hasNext/nextCursor)와
+// 같은 선례다. 정렬은 bet_date 내림차순(최신 정산 먼저), 앱 재정렬 금지.
+// ⚠️ 다음 페이지 종료 판정은 hasNext·nextCursor **둘 다** 본다 — 서버는 hasNext=false면
+//    nextCursor를 null로 주지만, 한쪽만 보면 계약이 어긋난 응답에서 무한 재호출이 된다.
+export interface GroupBetHistorySliceResponse {
+  content: GroupBetHistoryItem[];
+  size: number; // 요청 페이지 크기 그대로 반향
+  hasNext: boolean;
+  nextCursor: string | null; // 마지막 항목 betId. hasNext=false면 null
+}
+
 // POST /groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(개설자 자동 참가·판돈 즉시 차감).
 export interface CreateBetRequest {
   stake: number; // 1~1000 정수 — 범위 밖은 서버가 BET_INVALID_STAKE

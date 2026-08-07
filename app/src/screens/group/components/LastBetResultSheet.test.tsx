@@ -288,6 +288,31 @@ describe('상태 배너(승자 0명의 결말)', () => {
   });
 });
 
+// 히스토리 진입점(GROMO-1221) — 시트는 무상태 유지라 화면 전환을 콜백으로만 올린다.
+describe('지난 기록 더보기', () => {
+  test('onOpenHistory가 있으면 진입점이 서고 탭하면 콜백이 불린다', async () => {
+    const onOpenHistory = jest.fn();
+    await render(
+      <LastBetResultSheet
+        lastBet={lastBet()}
+        myUserId="u1"
+        onOpenHistory={onOpenHistory}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('group.bet.result.history'));
+    expect(onOpenHistory).toHaveBeenCalledTimes(1);
+    // 진입점 탭이 닫기(onClose)를 겸하지 않는다 — 닫기→push 배타 전환은 카드(호출부)가 쥔다.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test('onOpenHistory가 없으면 진입점을 그리지 않는다 — 눌러도 아무 일 없는 버튼 금지', async () => {
+    await renderSheet();
+    expect(screen.queryByTestId('group.bet.result.history')).toBeNull();
+  });
+});
+
 // 캐릭터는 내 결과를 따라간다 — 신규 그림 없이 ChallengeResultModal의 공용 에셋 3종 재사용.
 describe('캐릭터', () => {
   test.each([
