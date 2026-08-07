@@ -266,7 +266,11 @@ public class GroupChallengeService {
             return null;
         }
 
-        List<GroupMember> members = groupMemberRepository.findByGroup(group);
+        // 탈퇴자 제외(GROMO-1220) — 진행률 행이 그룹 상세 멤버 목록과 같은 인원이어야 한다.
+        // 탈퇴자 통계는 이미 nullify(익명화)돼 값도 없다 — 빈 닉네임에 null 진행률 행만 남던 것을 걷어낸다.
+        List<GroupMember> members = groupMemberRepository.findByGroup(group).stream()
+                .filter(member -> !member.getUser().isDeleted())
+                .toList();
         List<User> users = members.stream().map(GroupMember::getUser).toList();
         if (users.isEmpty()) {
             return new ProgressSnapshot(members, Map.of(), Map.of(), Map.of(), Map.of());
@@ -508,8 +512,10 @@ public class GroupChallengeService {
 
         List<CreateChallengeResponse.NonParticipantDto> nonParticipants;
         if (request.getMissionCategory() == MissionCategory.SCREEN_TIME) {
+            // 탈퇴자 제외(GROMO-1220) — 미참여자 안내는 라이브 멤버 대상이다(탈퇴자는 독려 대상이 아니다).
             List<User> members = groupMemberRepository.findByGroup(group).stream()
                     .map(GroupMember::getUser)
+                    .filter(u -> !u.isDeleted())
                     .toList();
             Set<UUID> grantedUserIds = grantedScreenTimeUserIds(members);
             nonParticipants = members.stream()

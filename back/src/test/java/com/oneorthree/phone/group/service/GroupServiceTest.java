@@ -180,6 +180,13 @@ class GroupServiceTest {
         return User.builder().isGuest(false).build();
     }
 
+    /** 탈퇴 유저(GROMO-1220) — 소프트딜리트로 nickname 은 파기(null)됐고 is_deleted=true. 유령 멤버십 주인. */
+    private User withdrawnUser() {
+        return User.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000dd"))
+                .isGuest(false).isDeleted(true).build();
+    }
+
     // GROMO-672: 참가 코드는 이제 Group 이 아니라 GroupJoinCode(1:1) 소유.
     //   code/codeExpiresAt 인자는 매핑 소스인 GroupJoinCode 를 통해 검증한다(joinCodeFor).
     private Group groupWithCode(UUID id, String code, Instant codeExpiresAt) {
@@ -620,6 +627,28 @@ class GroupServiceTest {
         assertThat(group.isPrivate()).isFalse();
     }
 
+    @Test
+    @DisplayName("maxMembers 축소 검증의 현원도 탈퇴자를 제외한다 — 유령 자리 때문에 축소가 막히지 않는다 (GROMO-1220)")
+    void updateGroupMaxMembersIgnoresWithdrawnGhosts() {
+        User owner = userWithNickname(USER_ID, "방장");
+        Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
+                .status(GroupStatus.WAITING).build();
+        GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        // 활성 1(방장) + 유령 1 — 실인원은 1명이라 max=1 로 줄일 수 있어야 한다.
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
+                ownerMember, GroupMember.builder().user(withdrawnUser()).group(group).build()));
+
+        UpdateGroupRequest request = new UpdateGroupRequest();
+        ReflectionTestUtils.setField(request, "maxMembers", 1);
+
+        groupService.updateGroup(GROUP_ID, USER_ID, request);
+
+        assertThat(group.getMaxMembers()).isEqualTo(1);
+    }
+
     // ── getGroupDetail 멤버 리더보드 정렬 (A-8) ───────────────────────────
 
     @Test
@@ -664,6 +693,30 @@ class GroupServiceTest {
         given(row.getUserId()).willReturn(userId);
         given(row.getTotalSeconds()).willReturn(seconds);
         return row;
+    }
+
+    @Test
+    @DisplayName("그룹 상세 멤버 목록은 탈퇴자를 제외한다 — 빈 닉네임 타일이 남지 않는다 (GROMO-1220)")
+    void getGroupDetailExcludesWithdrawnMembers() {
+        User me = userWithNickname(USER_ID, "나");
+        Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
+                .status(GroupStatus.WAITING).build();
+        GroupMember gmMe = GroupMember.builder().user(me).group(group).role(GroupMemberRole.OWNER).build();
+        GroupMember ghost = GroupMember.builder().user(withdrawnUser()).group(group)
+                .role(GroupMemberRole.MEMBER).build();
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(me));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, ghost));
+
+        GroupDetailResponse response =
+                groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
+
+        // 오버뷰 memberCount·정원 판정과 같은 기준이라 "N명인데 N-1 타일" 불일치가 없다.
+        assertThat(response.getMembers())
+                .extracting(GroupDetailMemberResponse::getUserId)
+                .containsExactly(USER_ID);
     }
 
     @Test
@@ -766,6 +819,27 @@ class GroupServiceTest {
         assertThat(result.getMissionCategory()).isEqualTo(MissionCategory.FOCUS);
         assertThat(result.getMissionType()).isEqualTo(MissionType.DURATION);
         assertThat(result.getDurationMinutes()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("오버뷰 memberCount 도 탈퇴자를 제외한다 — 상세 멤버 목록·정원 판정과 같은 기준 (GROMO-1220)")
+    void getGroupOverviewExcludesWithdrawnMembers() {
+        User user = normalUser();
+        Group group = Group.builder().id(GROUP_ID).name("스터디룸")
+                .maxMembers(10).status(GroupStatus.WAITING).build();
+        GroupMember member = GroupMember.builder().user(user).group(group).build();
+        GroupMember ghost = GroupMember.builder().user(withdrawnUser()).group(group).build();
+
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, ghost));
+        givenRepresentativeDurationChallenge(group, 60);
+
+        GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
+
+        // 카운트가 유령을 세면 상세 타일 수와 어긋난다("2명인데 1명 타일").
+        assertThat(result.getMemberCount()).isEqualTo(1);
     }
 
     @Test
@@ -1417,9 +1491,10 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("꽉찬방")
                 .maxMembers(2).status(GroupStatus.WAITING).build();
+        // 정원 판정이 user.isDeleted 를 읽으므로(GROMO-1220) 활성(비탈퇴) 유저를 채워 둔다.
         List<GroupMember> members = List.of(
-                GroupMember.builder().build(),
-                GroupMember.builder().build()
+                GroupMember.builder().user(User.builder().build()).build(),
+                GroupMember.builder().user(User.builder().build()).build()
         );
 
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -1431,6 +1506,26 @@ class GroupServiceTest {
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
         verify(groupMemberRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("탈퇴자 유령 멤버십은 정원을 차지하지 않는다 — 유령 1 + 활성 1, max 2 → 가입 허용 (GROMO-1220)")
+    void joinGroupReclaimsWithdrawnGhostSeat() {
+        // #497 이전 탈퇴자는 is_left=false 로 남아 findByGroup 에 그대로 잡힌다 — 정원 판정이
+        // 탈퇴 여부를 안 보면 유령이 한 자리를 영구히 차지해 산 사람이 못 들어온다(자리 회수는 의도된 효과).
+        User user = normalUser();
+        Group group = Group.builder().id(GROUP_ID).name("한자리남은방")
+                .maxMembers(2).status(GroupStatus.WAITING).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
+                GroupMember.builder().user(User.builder().build()).build(),   // 활성
+                GroupMember.builder().user(withdrawnUser()).build()));        // 유령(탈퇴)
+
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        verify(groupMemberRepository).save(any(GroupMember.class));
     }
 
     @Test
@@ -1898,6 +1993,26 @@ class GroupServiceTest {
                         tuple(USER_ID, "방장", true),
                         tuple(TARGET_USER_ID, "허용멤버", true),
                         tuple(plainId, "일반멤버", false));
+    }
+
+    @Test
+    @DisplayName("설정 조회 announcementGrants 도 탈퇴자를 제외한다 — 빈 닉네임 행 방지 (GROMO-1220)")
+    void getGroupSettingsExcludesWithdrawnMembers() {
+        User owner = userWithNickname(USER_ID, "방장");
+        Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
+        GroupMember ownerMember = ownerMemberOf(owner, group);
+        GroupMember ghost = memberWithPermission(withdrawnUser(), group, GroupAnnouncementGrant.DISALLOW);
+
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, ghost));
+
+        GroupSettingsResponse response = groupService.getGroupSettings(GROUP_ID, USER_ID);
+
+        assertThat(response.getAnnouncementGrants())
+                .extracting(GroupSettingsResponse.AnnouncementGrant::getUserId)
+                .containsExactly(USER_ID);
     }
 
     @Test

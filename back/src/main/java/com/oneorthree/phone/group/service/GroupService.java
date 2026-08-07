@@ -213,6 +213,20 @@ public class GroupService {
                 .toList();
     }
 
+    /**
+     * 라이브 뷰의 활성 멤버 — 이탈(is_left)에 더해 <b>탈퇴 유저(is_deleted)를 제외</b>한 단일 기준
+     * (GROMO-1220). 탈퇴자는 nickname 이 파기(null)돼 목록에 빈 타일로 뜨고 정원 한 자리를 차지한다
+     * — #497(GROMO-801) 이전 탈퇴자의 유령 멤버십(is_left=false 잔존)은 V30 백필이 정리하지만,
+     * 조회 층도 같은 기준으로 방어한다. 멤버 목록·정원 판정·설정 뷰가 전부 이 헬퍼를 타야
+     * "N명인데 N-1 타일" 불일치가 안 생긴다({@code countByGroupIdIn} 집계도 같은 기준).
+     * {@code findByGroup} 이 user 를 EntityGraph 로 함께 로드하므로 추가 쿼리는 없다.
+     */
+    private List<GroupMember> activeMembersOf(Group group) {
+        return groupMemberRepository.findByGroup(group).stream()
+                .filter(member -> !member.getUser().isDeleted())
+                .toList();
+    }
+
     /** 그룹 id 목록의 멤버 수를 집계 쿼리 1회로 조회한다. 멤버가 0인 그룹은 결과에 없으므로 호출측이 0으로 채운다. */
     private Map<UUID, Integer> memberCountsOf(List<UUID> groupIds) {
         if (groupIds.isEmpty()) {
@@ -262,8 +276,8 @@ public class GroupService {
         // (활성 멤버는 위 ALREADY_MEMBER 로 끝나므로 상한에 걸리지 않는다. 재가입은 활성 카운트가 늘어 상한 적용)
         ensureJoinedGroupLimit(user);
 
-        // 4. 정원 확인 → ROOM_FULL (활성 멤버만 카운트)
-        if (group.getMaxMembers() <= groupMemberRepository.findByGroup(group).size()) {
+        // 4. 정원 확인 → ROOM_FULL (활성 멤버만 카운트 — 탈퇴자 유령 자리는 회수한다, GROMO-1220)
+        if (group.getMaxMembers() <= activeMembersOf(group).size()) {
             throw new GroupException(GroupErrorCode.ROOM_FULL);
         }
 
@@ -400,7 +414,8 @@ public class GroupService {
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
 
-        int memberCount = groupMemberRepository.findByGroup(group).size();
+        // 탈퇴자 제외(GROMO-1220) — 정원 판정(joinGroup)·상세 멤버 목록과 같은 기준.
+        int memberCount = activeMembersOf(group).size();
 
         // GROMO-674: 미션 정보는 대표 챌린지(최신 ACTIVE)에서 조회
         RepresentativeMission mission = resolveRepresentativeMission(group);
@@ -468,7 +483,8 @@ public class GroupService {
         GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
 
-        List<GroupMember> groupMembers = groupMemberRepository.findByGroup(group);
+        // 탈퇴자 제외(GROMO-1220) — 빈 닉네임 타일 방지 + 프로필 조회 404(ProfileService)와 정합.
+        List<GroupMember> groupMembers = activeMembersOf(group);
 
         List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
         // GROMO-643: 클라 로컬 날짜(date)로 오늘 집계 조회 (UTC 산정 제거)
@@ -554,7 +570,8 @@ public class GroupService {
         }
 
         if (request.getMaxMembers() != null) {
-            int currentCount = groupMemberRepository.findByGroup(group).size();
+            // 현원도 탈퇴자 제외(GROMO-1220) — 유령 자리 때문에 정원 축소가 막히지 않아야 한다.
+            int currentCount = activeMembersOf(group).size();
             if (request.getMaxMembers() < 1 || request.getMaxMembers() < currentCount) {
                 throw new GroupException(GroupErrorCode.MAX_MEMBERS_TOO_SMALL);
             }
@@ -598,8 +615,9 @@ public class GroupService {
 
         // A-4: 전 활성 멤버의 공지 작성 권한 뷰. 방장은 항상 granted=true(토글 불가),
         // 그 외 멤버는 announcement_permission=ALLOW 여부로 granted 를 채운다.
+        // 탈퇴자 제외(GROMO-1220) — 상세 멤버 목록과 같은 기준(빈 닉네임 행 방지).
         List<GroupSettingsResponse.AnnouncementGrant> announcementGrants =
-                groupMemberRepository.findByGroup(group).stream()
+                activeMembersOf(group).stream()
                         .map(m -> GroupSettingsResponse.AnnouncementGrant.builder()
                                 .userId(m.getUser().getId())
                                 .nickname(m.getUser().getNickname())
@@ -642,7 +660,8 @@ public class GroupService {
                             UpdateGroupSettingsRequest.AnnouncementGrant::getUserId,
                             UpdateGroupSettingsRequest.AnnouncementGrant::isGranted,
                             (a, b) -> b));
-            groupMemberRepository.findByGroup(group).stream()
+            // 탈퇴자 제외(GROMO-1220) — 설정 조회(getGroupSettings)에 안 뜨는 유저는 반영 대상도 아니다.
+            activeMembersOf(group).stream()
                     .filter(member -> member.getRole() != GroupMemberRole.OWNER)
                     .forEach(member -> {
                         Boolean granted = grantByUserId.get(member.getUser().getId());
