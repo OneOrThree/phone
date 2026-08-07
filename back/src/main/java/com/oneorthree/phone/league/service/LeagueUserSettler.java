@@ -62,7 +62,12 @@ public class LeagueUserSettler {
         /** 집계 스냅샷 이후 탈퇴가 먼저 커밋된 유저 — 정상 흐름의 skip. */
         SKIPPED_WITHDRAWN,
         /** 이 주차 완료 마커(league_weekly_results 행)가 이미 있다 — 재실행 멱등 skip. */
-        ALREADY_SETTLED
+        ALREADY_SETTLED,
+        /**
+         * 대상 주차보다 <b>늦은</b> 주차 결과가 이미 있다 — 과거 주차 소급(backfill) 금지 skip.
+         * 티어 체인이 이미 전진한 유저라 지금 과거 주를 정산하면 순서가 어긋난다(아래 settle 자바독).
+         */
+        SKIPPED_SUPERSEDED
     }
 
     private final UserRepository userRepository;
@@ -80,12 +85,21 @@ public class LeagueUserSettler {
      * 굴려 연쇄 승급(래칫)이 나고, 유니크 제약 위반이 flush 에서 터져 트랜잭션 전체가 롤백되며 전원
      * failed 로 집계되는 사고 구조가 된다. 유니크 제약 자체는 최후 방어선으로 유지한다.
      *
+     * <p><b>과거 주차 소급(backfill) 순서 논증</b> — 대상 주차보다 <b>늦은</b> 주차 결과가 이미 있는
+     * 유저도 같은 조회 한 번으로 걸러 SKIPPED_SUPERSEDED 로 스킵한다. 늦은 주차 결과는 그 시점의
+     * 라이브 티어에서 계산된 것이므로, 지금 과거 주 W 를 소급하면 ① 이미 전진한 오늘의 티어를 W 의
+     * "이전 티어"로 삼아 승급/강등을 겹쳐 굴리고(잘못된 기준·연쇄 승급) ② 승급 보너스도 잘못된
+     * 티어 기준으로 이중 지급된다. 실제 복구 대상(그 주 정산에 실패한 유저)은 늦은 주차 결과가
+     * 없다 — 있다면 이미 다음 주차가 그 유저를 (그때의 티어로) 정산해 체인을 이어간 것이므로
+     * W 소급은 어느 경우든 체인을 오염시킨다. 따라서 이 스킵이 정확히 옳은 동작이다.
+     *
      * @param row               정산 대상 집계 행(배치 페이지 조회 시점 스냅샷)
      * @param previousWeekStart 정산 대상 주차의 시작(KST 월요일 00:00 Instant) — 결과 키
      * @param tierConfigs       배치 시작 시 1~5 전부 검증된 티어 설정 표
      * @return 정산을 적용했으면 {@link SettleOutcome#SETTLED}, 탈퇴가 먼저 커밋된 유저면
      *         {@link SettleOutcome#SKIPPED_WITHDRAWN}, 이 주차가 이미 정산된 유저면
-     *         {@link SettleOutcome#ALREADY_SETTLED}
+     *         {@link SettleOutcome#ALREADY_SETTLED}, 더 늦은 주차가 이미 정산된 유저면
+     *         {@link SettleOutcome#SKIPPED_SUPERSEDED}
      */
     @Transactional
     public SettleOutcome settle(LeagueRankingRow row, Instant previousWeekStart,
@@ -96,11 +110,21 @@ public class LeagueUserSettler {
             log.info("리그 정산 스킵 — 집계 후 탈퇴한 유저. userId={}", row.userId());
             return SettleOutcome.SKIPPED_WITHDRAWN;
         }
-        if (leagueWeeklyResultRepository.existsByUserIdAndWeekStartAt(row.userId(), previousWeekStart)) {
-            // 재실행 멱등 가드 — 락을 쥔 뒤의 재확인이라 동시 재실행에도 정확히 한 번만 정산된다.
-            log.info("리그 정산 스킵 — 이미 정산된 주차. userId={}, weekStartAt={}",
-                    row.userId(), previousWeekStart);
-            return SettleOutcome.ALREADY_SETTLED;
+        // 재실행 멱등 가드 — 락을 쥔 뒤의 재확인이라 동시 재실행에도 정확히 한 번만 정산된다.
+        // 대상 주차와 그 이후를 한 번의 인덱스 조회로 판정한다(같음=기정산, 큼=늦은 주차가 선정산).
+        Optional<Instant> latestSettledWeek = leagueWeeklyResultRepository
+                .findLatestSettledWeekOnOrAfter(row.userId(), previousWeekStart);
+        if (latestSettledWeek.isPresent()) {
+            if (latestSettledWeek.get().equals(previousWeekStart)) {
+                log.info("리그 정산 스킵 — 이미 정산된 주차. userId={}, weekStartAt={}",
+                        row.userId(), previousWeekStart);
+                return SettleOutcome.ALREADY_SETTLED;
+            }
+            // 과거 주차 소급 금지(이 메서드 자바독의 순서 논증) — 티어 체인이 이미 이 주차를 지나갔다.
+            log.info("리그 정산 스킵 — 더 늦은 주차가 이미 정산됨(소급 금지). userId={}, "
+                    + "weekStartAt={}, latestSettledWeek={}",
+                    row.userId(), previousWeekStart, latestSettledWeek.get());
+            return SettleOutcome.SKIPPED_SUPERSEDED;
         }
         User user = activeUser.get();
 

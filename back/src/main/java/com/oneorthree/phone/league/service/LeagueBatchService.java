@@ -186,6 +186,9 @@ public class LeagueBatchService {
                     case SETTLED -> counters.settled++;
                     case SKIPPED_WITHDRAWN -> counters.skipped++;
                     case ALREADY_SETTLED -> counters.alreadySettled++;
+                    // 소급 금지 skip 도 "이 유저는 재실행이 건드리면 안 됨" 축이라 already 로 접는다
+                    // (응답 필드 최소화). 구분이 필요하면 settler 의 "소급 금지" info 로그로 추적한다.
+                    case SKIPPED_SUPERSEDED -> counters.alreadySettled++;
                 }
             } catch (RuntimeException e) {
                 // 이 유저만 롤백된 상태다. 다른 유저 정산을 막지 않도록 삼키고 기록만 남긴다.

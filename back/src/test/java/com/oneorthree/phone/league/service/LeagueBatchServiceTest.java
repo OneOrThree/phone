@@ -398,6 +398,55 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("늦은 주차가 이미 정산된 유저는 과거 주차 소급을 건너뛰고, 아닌 유저만 정산한다")
+    void resumeSkipsSupersededUserButSettlesOthers() {
+        // advanced: W+1(2033-07-10T15:00Z 키) 결과가 이미 있는 유저 — 티어 체인이 전진했다.
+        // 소급하면 라이브 tier(2)를 W 의 "이전 티어"로 삼아 승급을 겹쳐 굴리게 된다(라운드3 P1).
+        User advanced = saveUser("resumeSuperseded", 2, false);
+        // pending: W 정산에 실패했고 W+1 도 정산한 적 없는 유저 — 실제 복구 대상.
+        User pending = saveUser("resumePending", 1, false);
+        saveStat(advanced, RESUME_PREVIOUS_MONDAY, 50_400);
+        saveStat(pending, RESUME_PREVIOUS_MONDAY, 50_400);
+        flushFixtures();
+        leagueWeeklyResultRepository.save(LeagueWeeklyResult.builder()
+                .user(advanced)
+                .weekStartAt(RESUME_NOW)
+                .previousTierLevel(1)
+                .newTierLevel(2)
+                .result(LeagueWeeklyResultType.PROMOTED)
+                .focusSeconds(60_000)
+                .build());
+        leagueWeeklyResultRepository.flush();
+        saveAnchor(RESUME_NOW, LeagueArenaStatus.ACTIVE);
+
+        // settler 단독 호출로 신규 outcome 을 못박는다 — 요약에서는 already 로 접히기 때문.
+        Map<Integer, LeagueTierConfig> tierConfigs = leagueTierConfigRepository.findAll().stream()
+                .collect(Collectors.toMap(LeagueTierConfig::getTierLevel, Function.identity()));
+        assertThat(leagueUserSettler.settle(
+                new LeagueRankingRow(advanced.getId(), "resumeSuperseded", 2, 50_400),
+                RESUME_PREVIOUS_WEEK_START, tierConfigs))
+                .isEqualTo(LeagueUserSettler.SettleOutcome.SKIPPED_SUPERSEDED);
+
+        LeagueBatchSummaryResponse summary = leagueBatchService.resumeWeeklyBatch(
+                RESUME_NOW, RESUME_PREVIOUS_WEEK_START,
+                List.of(advanced.getId(), pending.getId()));
+
+        assertThat(summary.settledMemberCount()).isEqualTo(1);
+        assertThat(summary.alreadySettledMemberCount()).isEqualTo(1);
+        assertThat(summary.failedMemberCount()).isZero();
+        // advanced 불변 — W 결과 행 없음·티어 2 유지·보너스 신규 지급 없음(체인 오염 차단).
+        assertThat(leagueWeeklyResultRepository.findUserIdsByWeekStartAtAndUserIdIn(
+                RESUME_PREVIOUS_WEEK_START, List.of(advanced.getId()))).isEmpty();
+        assertThat(advanced.getTierLevel()).isEqualTo(2);
+        assertThat(bonusCountOf(advanced)).isZero();
+        // pending 은 W 키로 정산 완료 — 늦은 주차 결과가 없는 유저만이 소급 복구 대상이다.
+        LeagueWeeklyResult pendingResult = leagueWeeklyResultRepository
+                .findTopByUserIdOrderByCreatedAtDesc(pending.getId()).orElseThrow();
+        assertThat(pendingResult.getWeekStartAt()).isEqualTo(RESUME_PREVIOUS_WEEK_START);
+        assertThat(pending.getTierLevel()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("settler 2회 호출 — 2회차는 ALREADY_SETTLED 를 반환하고 아무 mutation 도 없다")
     void settlerSecondCallReturnsAlreadySettledWithoutMutation() {
         User user = saveUser("settleTwice", 1, false);
