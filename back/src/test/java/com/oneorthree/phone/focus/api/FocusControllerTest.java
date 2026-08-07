@@ -132,7 +132,7 @@ class FocusControllerTest {
     void saveFocusSessionReturns201WithBody() throws Exception {
         given(focusService.saveFocusSession(any(), any()))
                 // awardedCoins=66(세션 지급, #417) + goalRewardCoins=0(목표 지급 없음)
-                .willReturn(new FocusSessionSaveResponse(660, true, 66, 0));
+                .willReturn(new FocusSessionSaveResponse(660, true, 66, 0, 166));
 
         String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"endedAt\":\"2026-06-23T01:11:00Z\","
                 + "\"totalDistractionSeconds\":0}";

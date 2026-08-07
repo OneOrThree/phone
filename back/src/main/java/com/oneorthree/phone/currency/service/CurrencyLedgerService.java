@@ -68,6 +68,14 @@ public class CurrencyLedgerService {
         return true;
     }
 
+    /**
+     * 현재 잔액. 세션 저장 응답의 balanceAfter(구 번들 호환 필드)를 채우는 데 쓴다 — 현재 앱은
+     * 잔액을 GET /currency 재조회로 받으므로 신규 소비처를 늘리지 않는다.
+     */
+    public int balanceOf(User user) {
+        return wallet(user).getBalance();
+    }
+
     private boolean alreadyApplied(CurrencyTransactionType type, String idempotencyKey) {
         if (!currencyTransactionRepository.existsByIdempotencyKey(idempotencyKey)) {
             return false;

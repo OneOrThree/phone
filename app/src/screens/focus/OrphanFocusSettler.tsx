@@ -88,7 +88,7 @@ export function OrphanFocusSettler() {
         totalDistractionSeconds: 0,
       };
       try {
-        await saveFocusSession(body);
+        await saveFocusSession(body, userId);
         // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).
         refreshCoins();
       } catch {

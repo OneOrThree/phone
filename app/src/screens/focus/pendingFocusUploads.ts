@@ -99,7 +99,7 @@ export async function flushPendingFocusUploads(currentUserId: string | null): Pr
         continue;
       }
       try {
-        await saveFocusSession(item.body);
+        await saveFocusSession(item.body, item.userId);
         // 이 저장으로 서버 잔액이 바뀌었다 — 호출자가 잔액을 다시 받아오게 알린다(GROMO-1049).
         committed = true;
         settled.push(JSON.stringify(item)); // 성공 — 제거
