@@ -21,8 +21,8 @@ export const UNMEASURED = '—';
  * "UI 안내 문구와 짝"을 명시하므로 값이 바뀌면 이 문장도 함께 바꾼다). 이 고지가 없으면
  * 결과 모달의 근거 분(예: 55/60분)이 달성 명단에서 모순으로 읽힌다.
  *
- * 같은 사실이 ChallengeComposeSheet의 WINDOW_FOCUS_CAPTION에 인라인 문장으로도 있다 —
- * 그쪽 인라인 문구와의 일원화는 후속 티켓.
+ * ChallengeComposeSheet의 WINDOW_FOCUS_CAPTION도 이 상수를 합성해 쓴다(GROMO-1224) —
+ * 이 문장을 바꾸면 만들기 시트의 고지도 함께 바뀐다.
  *
  * DURATION(정확 임계)·SCREEN_TIME(이하 판정)에는 관용치가 없다 — 이 문구를 붙이지 않는다.
  */

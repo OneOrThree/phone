@@ -432,7 +432,7 @@ describe('챌린지 섹션', () => {
     expect(screen.queryByText('아직 챌린지가 없어요')).toBeNull();
     // 만들기 진입점도 세우지 않는다 — 서버에 이미 있는 챌린지면 중복 생성으로 튕긴다.
     // 빈 상태의 '챌린지 만들기'뿐 아니라 **헤더의 ＋도 함께** 막아야 한다. 하나만 막으면
-    // existingCategories가 빈 배열인 채 시트가 열려 이미 있는 종류를 고를 수 있게 된다.
+    // existingCombos가 빈 배열인 채 시트가 열려 이미 있는 조합을 고를 수 있게 된다.
     expect(screen.queryByText('챌린지 만들기')).toBeNull();
     expect(screen.queryByTestId('group.challenge.add')).toBeNull();
   });
@@ -501,6 +501,40 @@ describe('챌린지 섹션', () => {
     expect(screen.getByText('아직 챌린지가 없어요')).toBeOnTheScreen();
     expect(screen.queryByText('챌린지 만들기')).toBeNull();
     expect(screen.queryByTestId('group.challenge.add')).toBeNull();
+  });
+
+  // GROMO-1222 — 시트로 넘기는 파생이 (카테고리, 방식) **조합**을 보존하는지 잠근다. 카테고리만
+  // 넘기면 창형만 있는 카테고리에서 매트릭스가 반전된다(되는 매일 목표가 잠기고, 409가 확정된
+  // 시간대가 초기 선택으로 온다). 종료(INACTIVE) 챌린지는 다시 만들 수 있으므로 점유로 세지 않는다.
+  test('창형 챌린지만 있으면 만들기 시트의 매일 목표는 열려 있다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([
+      challenge({
+        id: 'c1',
+        missionType: 'TIME_WINDOW',
+        windowStart: '2026-08-01T09:00:00+09:00',
+        windowEnd: '2026-08-01T12:00:00+09:00',
+      }),
+      // 종료된 매일 목표 챌린지 — ACTIVE가 아니므로 조합 점유가 아니다.
+      challenge({ id: 'c2', status: 'INACTIVE' }),
+    ]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.add'));
+    });
+
+    // 매일 목표는 열려 초기 선택으로 온다 — 카테고리만 넘기던 파생에선 여기가 잠긴다.
+    expect(screen.getByTestId('group.challenge.type.DURATION')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: false, selected: true }),
+    );
+    // 실제로 점유된 조합(FOCUS×시간대)은 잠긴다 — 조합이 그대로 건너간 증거다.
+    expect(screen.getByTestId('group.challenge.type.TIME_WINDOW')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: true, selected: false }),
+    );
   });
 
   test('방장이 카드의 X 버튼으로 삭제하면 목록을 재조회한다', async () => {
