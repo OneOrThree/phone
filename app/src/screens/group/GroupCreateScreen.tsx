@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { triggerLogout } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
@@ -130,6 +131,22 @@ export default function GroupCreateScreen() {
           '더 이상 만들 수 없어요',
           `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
         );
+        return;
+      // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정. 유효 JWT라
+      // 401 인터셉터도 안 타고, 재시도로 절대 안 풀린다. 유일한 탈출구가 재로그인이라
+      // 취소 없는 단일 확인으로 로그아웃 유도(AccountScreen 탈퇴 성공 경로의 triggerLogout 선례).
+      case 'NOT_FOUND':
+        Alert.alert('로그인이 필요해요', '로그인 정보가 만료됐어요. 다시 로그인해주세요.', [
+          {
+            text: '확인',
+            onPress: () => {
+              // 트리 리셋 전에 이탈 차단부터 푼다 — beforeRemove 가드가 로그아웃과 싸우지 않게.
+              // triggerLogout은 버튼 핸들러 안에서 — 먼저 부르면 트리 언마운트로 Alert도 사라진다.
+              submittingRef.current = false;
+              triggerLogout();
+            },
+          },
+        ]);
         return;
       default: {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
