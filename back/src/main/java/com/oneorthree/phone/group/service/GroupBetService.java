@@ -640,8 +640,18 @@ public class GroupBetService {
         return LocalDate.ofInstant(Instant.now(), KST);
     }
 
+    /**
+     * 활성 검증 + 공유 락 (GROMO-801, codex 리뷰 2차) — 락 없는 findById 면 계정 탈퇴(유저 행 배타
+     * 락)와 직렬화되지 않아, 탈퇴의 참가자 스냅샷({@link #releaseFromAllOpenBets}) 이후에 커밋된
+     * 참가가 정리에서 빠진다 — 탈퇴자 참가 행·지갑 없음·정산 스킵으로 팟이 오염되는, 그 정리가
+     * 막으려던 바로 그 상태다. 참가 생성(createBet·joinBet)이 필수 대상이지만 헬퍼 전체에 건다:
+     * ① 유저 락이 모든 경로의 <b>첫</b> 잠금이라(user → 내기 행 → 지갑) 기존 잠금 순서 규율과
+     * 역전이 없고 ② 취소·철회는 내기 행 잠금으로 이미 탈퇴 정리와 직렬화되지만 공유 락끼리는
+     * 병렬이라 추가 비용이 미미하며 ③ 탈퇴 유저의 잔여 토큰 접근을 네 경로 모두 표준 NOT_FOUND
+     * 로 거절하게 된다(종전 findById 는 is_deleted 를 보지 않았다). 탈퇴가 먼저 커밋되면 빈 결과.
+     */
     private User requireActiveUser(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);

@@ -163,9 +163,15 @@ public class AuthService {
             socialAccount.get().setDeletedAt(null);
         }
 
-        // 현재 호출자가 게스트인 경우에만 업그레이드 분기 대상 (비게스트/미존재는 null → 기존 흐름)
+        // 현재 호출자가 게스트인 경우에만 업그레이드 분기 대상 (비게스트/미존재는 null → 기존 흐름).
+        // 처음부터 공유 락으로 로드한다 (GROMO-801, codex 리뷰 2차) — 락을 토큰 발급 직전 재검증에만
+        // 두면 승격 분기의 setGuest(false)·소셜 연동 저장이 이미 실행된 뒤라, 재검증 쿼리 직전의
+        // auto-flush 가 그 언버전 full-row UPDATE 를 락 획득 전에 내보낸다. 탈퇴가 먼저 커밋된
+        // 상태라면 그 flush 가 is_deleted=true 를 덮어쓰고 stale PII 를 되살린 뒤, 재검증은 "활성"을
+        // 관측해 토큰까지 발급된다. 변경 전에 락을 잡으면 탈퇴와 직렬화되고, 탈퇴 선커밋 게스트는
+        // 여기서 빈 결과 → 업그레이드가 아닌 신규 가입 흐름을 탄다.
         User guestUser = currentUserId == null ? null
-                : userRepository.findByIdAndIsDeletedFalse(currentUserId).filter(User::isGuest).orElse(null);
+                : userRepository.findActiveByIdForShare(currentUserId).filter(User::isGuest).orElse(null);
 
         boolean isNewUser;
         User user;
