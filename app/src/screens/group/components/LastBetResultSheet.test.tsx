@@ -160,6 +160,29 @@ describe('판정 근거(기록/목표 분)', () => {
     expect(screen.getByLabelText('재영 52분 달성, 15코인')).toBeOnTheScreen();
   });
 
+  test('미집계(null)+미판정(payout null) 조합 — 쉼표로 끊어 읽는다, 미확정 둘을 잇지 않는다', async () => {
+    // '아직 집계되지 않음 미판정'처럼 접속어 없이 이어지면 한 문장으로 어색하다(claude 리뷰).
+    await renderSheet({
+      goalMinutes: 60,
+      results: [
+        { userId: 'u1', nickname: '재영', achieved: null, payout: null, progressMinutes: null },
+      ],
+    });
+
+    expect(screen.getByLabelText('재영 아직 집계되지 않음, 미판정')).toBeOnTheScreen();
+  });
+
+  test('실측(number)+미판정(payout null) 조합 — 근거 뒤 미판정도 쉼표로 끊는다', async () => {
+    await renderSheet({
+      goalMinutes: 60,
+      results: [
+        { userId: 'u1', nickname: '재영', achieved: null, payout: null, progressMinutes: 52 },
+      ],
+    });
+
+    expect(screen.getByLabelText('재영 60분 중 52분, 미판정')).toBeOnTheScreen();
+  });
+
   test('undefined(필드를 모르는 구서버)면 근거 행을 아예 그리지 않는다 — 기존 레이아웃 그대로', async () => {
     await renderSheet(); // 기본 픽스처엔 progressMinutes·goalMinutes가 없다(구서버 응답)
 

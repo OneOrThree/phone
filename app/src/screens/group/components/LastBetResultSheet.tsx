@@ -90,7 +90,12 @@ function rowA11y(r: LastSettledBetResult, stake: number, goalMinutes: number | n
       : r.progressMinutes === null
         ? unmeasuredA11y(r.nickname)
         : progressFractionA11y(r.nickname, r.progressMinutes, goalMinutes);
-  if (r.payout === null || r.achieved === null) return `${head} 미판정`;
+  // 근거 조각이 붙었을 때(head ≠ 닉네임)의 미판정은 쉼표로 끊는다 — '아직 집계되지 않음 미판정'
+  // 처럼 미확정 상태 둘이 접속어 없이 이어지면 한 문장으로 어색하다(claude 리뷰).
+  // undefined(구서버) 경로는 쉼표 없이 기존 문장 그대로 — 바이트 동일성 유지.
+  if (r.payout === null || r.achieved === null) {
+    return head === r.nickname ? `${head} 미판정` : `${head}, 미판정`;
+  }
   const delta = r.payout - stake;
   return `${head} ${r.achieved ? '달성' : '미달성'}, ${delta >= 0 ? '' : '마이너스 '}${Math.abs(delta)}코인`;
 }
