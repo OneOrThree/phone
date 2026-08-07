@@ -45,7 +45,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalTime;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -134,14 +133,6 @@ public class UserService {
         User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        // 활성 멤버십 스냅샷 (GROMO-801) — 아래 A-2 자동 종료가 is_left 를 세우면 활성 조회에서
-        // 빠지므로, 종료될 solo 방장 그룹의 OPEN 내기까지 정리하려면 변경 전에 떠 둔다.
-        // 그룹 id 오름차순 고정: 여러 그룹에 걸친 두 탈퇴가 서로 반대 순서로 내기 행을 잠그는
-        // AB-BA 데드락을 막는다(releaseFromOpenBets 내부의 잠금 순서 고정과 같은 규율).
-        List<GroupMember> memberships = groupMemberRepository.findByUser(user).stream()
-                .sorted(Comparator.comparing(membership -> membership.getGroup().getId()))
-                .toList();
-
         // A-2: 계정 탈퇴 시 방장으로 남은 그룹 처리. 혼자 있는(활성 멤버 1명) 소유 그룹은 자동
         // 종료(ENDED)하고, 다른 멤버가 남은 소유 그룹이 있으면 위임이 필요하므로 아래에서 막는다.
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
@@ -155,23 +146,25 @@ public class UserService {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
 
-        // OPEN 내기 해제 + 멤버십 이탈 (GROMO-801) — 그룹 탈퇴(GroupMemberService.withdrawGroup)와
-        // 같은 순서(내기 해제 → leave)를 같은 트랜잭션에서 밟는다. 정리하지 않으면 탈퇴자가
-        // is_left=false 유령 멤버로 남아 정원 한 자리를 영구히 차지하고, OPEN 내기 판돈은
+        // OPEN 내기 일괄 해제 (GROMO-801) — 그룹 탈퇴(GroupMemberService.withdrawGroup)와 같은
+        // 순서(내기 해제 → leave)를 같은 트랜잭션에서 밟는다. 해제하지 않으면 OPEN 내기 판돈이
         // 에스크로에 묶인 채 소각된다(GroupBetSettler 는 탈퇴자 지급을 스킵한다).
+        // 멤버십이 아니라 유저 스코프인 이유(codex 리뷰): ① 강퇴자는 활성 멤버십이 없어도 참가·
+        // 판돈이 남아 있다(kickMember 는 정산에 맡긴다) ② 그룹 단위 순차 해제는 앞 그룹 환불로
+        // 지갑 잠금을 쥔 채 다음 그룹 내기 잠금을 기다려 정산기와 AB-BA 교착이 된다 — 전 그룹의
+        // 내기 행을 bet id 오름차순으로 전부 잠근 뒤에만 돈이 움직인다(releaseFromAllOpenBets).
         //
         // 순서 제약: 해제 환불이 이 유저의 지갑에 입금되므로 반드시 아래
         // userWalletRepository.deleteById 보다 먼저 실행해야 한다 — 지갑을 먼저 지우면 환불이
         // NOT_FOUND 로 터진다. 친구 정리(friendships 락 구간)보다도 앞이라 "락 보유 구간을
         // 줄인다" 규율과도 어긋나지 않는다.
-        for (GroupMember membership : memberships) {
-            groupBetService.releaseFromOpenBets(user, membership.getGroup());
-        }
-        for (GroupMember membership : memberships) {
-            // solo 방장 멤버십은 위 A-2 블록이 이미 leave + close 했다 — 이중 처리하지 않는다.
-            if (!membership.isLeft()) {
-                membership.leave();
-            }
+        groupBetService.releaseFromAllOpenBets(user);
+
+        // 활성 멤버십 이탈 (GROMO-801) — 안 하면 탈퇴자가 is_left=false 유령 멤버로 남아 멤버
+        // 목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다. solo 방장 멤버십은 위
+        // A-2 블록이 이미 leave 했으므로 이 활성 조회에 다시 잡히지 않는다.
+        for (GroupMember membership : groupMemberRepository.findByUser(user)) {
+            membership.leave();
         }
 
         focusSessionRepository.nullifyUser(userId);

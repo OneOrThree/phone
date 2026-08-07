@@ -41,8 +41,8 @@ import static org.assertj.core.api.Assertions.tuple;
  * 판돈이 에스크로에 묶이지 않는지를 실 DB 로 고정한다.
  *
  * <p>{@code UserService.withdraw} 가 그룹 탈퇴 경로({@code GroupMemberService.withdrawGroup})와
- * 같은 해제({@code releaseFromOpenBets}) → leave 순서를 밟는 것이 핵심이라, 원장 멱등키까지
- * 그룹 탈퇴 연동과 같은 포맷({@code bet:{betId}:refund:{userId}})이어야 한다.
+ * 같은 해제({@code releaseFromAllOpenBets, 유저 스코프}) → leave 순서를 밟는 것이 핵심이라,
+ * 원장 멱등키까지 그룹 탈퇴 연동과 같은 포맷({@code bet:{betId}:refund:{userId}})이어야 한다.
  */
 class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
 
@@ -201,6 +201,40 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(BALANCE_AFTER_STAKE);
         assertThat(userWalletRepository.findById(third.getId()).orElseThrow().getBalance())
                 .isEqualTo(BALANCE_AFTER_STAKE);
+    }
+
+    @Test
+    @DisplayName("강퇴된 멤버의 계정 탈퇴 — 활성 멤버십이 없어도 참가 중인 OPEN 내기는 해제·환불된다 (codex 리뷰)")
+    void kickedMemberWithdrawalStillReleasesOpenBet() {
+        // kickMember 는 참가·판돈을 정산용으로 남긴다(지갑 생존 전제). 그 유저가 계정을 탈퇴하면
+        // 지갑이 삭제되므로, 멤버십(is_left=false) 경유로만 해제하면 강퇴자의 판돈이 소각된다 —
+        // 유저 스코프 해제가 멤버십 상태와 무관하게 참가 행을 집는지를 실 DB 로 고정한다.
+        memberUser("방장", GroupMemberRole.OWNER);
+        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
+        User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
+        User kicked = memberUser("강퇴자", GroupMemberRole.MEMBER);
+        GroupChallengeBet bet = openBet(creator);
+        participant(bet, creator);
+        participant(bet, kicked);
+        participant(bet, third);
+        GroupMember kickedMembership = groupMemberRepository.findAnyByUserAndGroup(kicked, group).orElseThrow();
+        kickedMembership.kick();
+        groupMemberRepository.save(kickedMembership);
+
+        userService.withdraw(kicked.getId());
+
+        // 남은 참가자 2명 — 내기는 계속되고 강퇴자 참가 행만 빠진다
+        assertThat(groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus())
+                .isEqualTo(GroupBetStatus.OPEN);
+        assertThat(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId())))
+                .extracting(p -> p.getUser().getId())
+                .containsExactlyInAnyOrder(creator.getId(), third.getId());
+        // 판돈은 소각되지 않고 지갑 삭제 전에 환불 원장이 기입된다
+        assertThat(refundsOf(kicked))
+                .extracting(CurrencyTransaction::getAmount, CurrencyTransaction::getIdempotencyKey)
+                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + kicked.getId()));
+        assertThat(userRepository.findById(kicked.getId()).orElseThrow().isDeleted()).isTrue();
+        assertThat(userWalletRepository.findById(kicked.getId())).isEmpty();
     }
 
     @Test

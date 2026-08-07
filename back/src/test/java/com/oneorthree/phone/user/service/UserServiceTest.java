@@ -298,12 +298,7 @@ class UserServiceTest {
     @DisplayName("탈퇴가 막히면(방장) 친구·핀 정리도, 내기 해제·멤버십 이탈도 일어나지 않는다 (GROMO-801)")
     void withdrawHostForbiddenSkipsFriendCleanup() {
         User user = User.builder().id(USER_ID).build();
-        Group otherGroup = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000bb"))
-                .status(GroupStatus.WAITING).build();
-        GroupMember memberMembership = GroupMember.builder()
-                .user(user).group(otherGroup).role(GroupMemberRole.MEMBER).build();
         given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
-        given(groupMemberRepository.findByUser(user)).willReturn(List.of(memberMembership));
         given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(true);
 
         assertThatThrownBy(() -> userService.withdraw(USER_ID))
@@ -312,8 +307,8 @@ class UserServiceTest {
         verify(friendshipRepository, never()).findActiveByUserId(any());
         verify(pinnedUserRepository, never()).deleteAllInvolving(any());
         // HOST_WITHDRAW 가드가 내기 해제·멤버십 이탈보다 앞이라 새 정리도 전부 중단된다
-        verify(groupBetService, never()).releaseFromOpenBets(any(), any());
-        assertThat(memberMembership.isLeft()).isFalse();
+        verify(groupBetService, never()).releaseFromAllOpenBets(any());
+        verify(groupMemberRepository, never()).findByUser(any());
     }
 
     @Test
@@ -350,8 +345,6 @@ class UserServiceTest {
                 .user(user).group(soloGroup).role(GroupMemberRole.OWNER).build();
 
         given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
-        // 자동 종료 전에 뜬 스냅샷이라 종료될 solo 그룹도 내기 해제 대상에 포함된다 (GROMO-801)
-        given(groupMemberRepository.findByUser(user)).willReturn(List.of(ownerMembership));
         given(groupMemberRepository.findActiveOwnerMembershipsByUserId(USER_ID))
                 .willReturn(List.of(ownerMembership));
         // 활성 멤버가 방장 1명뿐 → 자동 종료 대상
@@ -366,8 +359,9 @@ class UserServiceTest {
         assertThat(ownerMembership.isLeft()).isTrue();
         assertThat(user.isDeleted()).isTrue();
         verify(socialAccountRepository).deleteByUserId(USER_ID);
-        // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 해제는 반드시 호출된다
-        verify(groupBetService).releaseFromOpenBets(user, soloGroup);
+        // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제가
+        // 멤버십·그룹 상태와 무관하게 반드시 호출된다
+        verify(groupBetService).releaseFromAllOpenBets(user);
     }
 
     @Test
@@ -388,9 +382,8 @@ class UserServiceTest {
 
         userService.withdraw(USER_ID);
 
-        // 그룹마다 OPEN 내기 해제 — 안 하면 판돈이 에스크로에 묶인 채 소각된다
-        verify(groupBetService).releaseFromOpenBets(user, groupA);
-        verify(groupBetService).releaseFromOpenBets(user, groupB);
+        // 유저 스코프 일괄 해제 — 안 하면 판돈이 에스크로에 묶인 채 소각된다 (강퇴자 참가분 포함)
+        verify(groupBetService).releaseFromAllOpenBets(user);
         // MEMBER 멤버십도 이탈 마킹 — 안 하면 nickname null 유령이 정원을 차지한다
         assertThat(membershipA.isLeft()).isTrue();
         assertThat(membershipB.isLeft()).isTrue();
@@ -401,18 +394,13 @@ class UserServiceTest {
     @DisplayName("내기 해제는 지갑 삭제보다 먼저다 — 해제 환불이 지갑에 입금되므로 순서가 뒤집히면 터진다 (GROMO-801)")
     void withdrawReleasesBetsBeforeWalletDeletion() {
         User user = User.builder().id(USER_ID).build();
-        Group group = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000cc"))
-                .status(GroupStatus.WAITING).build();
-        GroupMember membership = GroupMember.builder()
-                .user(user).group(group).role(GroupMemberRole.MEMBER).build();
         given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
-        given(groupMemberRepository.findByUser(user)).willReturn(List.of(membership));
         given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
 
         userService.withdraw(USER_ID);
 
         InOrder order = inOrder(groupBetService, userWalletRepository);
-        order.verify(groupBetService).releaseFromOpenBets(user, group);
+        order.verify(groupBetService).releaseFromAllOpenBets(user);
         order.verify(userWalletRepository).deleteById(USER_ID);
     }
 

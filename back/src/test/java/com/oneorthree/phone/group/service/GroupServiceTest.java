@@ -1206,7 +1206,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = openGroup();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1221,13 +1221,32 @@ class GroupServiceTest {
     }
 
     @Test
+    @DisplayName("joinGroup 은 유저를 공유 락으로 로드한다 — 계정 탈퇴 배타 락과 직렬화 (GROMO-801 codex 리뷰)")
+    void joinGroupLoadsUserWithSharedLock() {
+        // 락 없는 findById 로 로드하면 탈퇴(유저 행 배타 락)의 정리 스캔 이후·커밋 이전에 낀 가입이
+        // 정리를 빠져나가 유령 멤버십으로 남는다. 공유 락 조회는 탈퇴하고만 직렬화되고, 탈퇴가 먼저
+        // 커밋된 유저는 is_deleted 필터로 기존 계약(NOT_FOUND)대로 거절된다.
+        User user = normalUser();
+        Group group = openGroup();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
+    }
+
+    @Test
     @DisplayName("비밀번호 그룹 올바른 비밀번호로 참가 성공")
     void joinGroupSuccessWithPassword() {
         // given
         User user = normalUser();
         Group group = passwordGroup();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1245,7 +1264,7 @@ class GroupServiceTest {
     void joinGroupGuestForbidden() {
         // given
         User guest = User.builder().isGuest(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
@@ -1257,7 +1276,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → GroupException NOT_FOUND")
     void joinGroupNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
@@ -1273,7 +1292,7 @@ class GroupServiceTest {
         Group group = openGroup();
         GroupMember existing = GroupMember.builder().user(user).group(group).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(existing));
 
@@ -1293,7 +1312,7 @@ class GroupServiceTest {
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
         left.leave();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(left));
@@ -1318,7 +1337,7 @@ class GroupServiceTest {
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
         kicked.kick();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(kicked));
@@ -1343,7 +1362,7 @@ class GroupServiceTest {
                 GroupMember.builder().build()
         );
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
@@ -1361,7 +1380,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = passwordGroup();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1377,7 +1396,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 userId → UserException")
     void joinGroupUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
@@ -1392,7 +1411,7 @@ class GroupServiceTest {
         // given: 이미 9개 소속 → 이번 참가로 10개
         User user = normalUser();
         Group group = openGroup();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.countByUser(user)).willReturn(9L);
@@ -1411,7 +1430,7 @@ class GroupServiceTest {
         // given: 상한(10) 도달
         User user = normalUser();
         Group group = openGroup();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.countByUser(user)).willReturn(10L);
@@ -1430,7 +1449,7 @@ class GroupServiceTest {
         // given: 10개 소속이면서 그중 한 곳에 다시 참가 시도 — 소속 수가 늘지 않으므로 상한 사유가 아니다
         User user = normalUser();
         Group group = openGroup();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(GroupMember.builder().user(user).group(group).build()));
@@ -1466,7 +1485,7 @@ class GroupServiceTest {
     /** 참여가 성공 경로를 타도록 공통 스텁을 깐다. */
     private User givenJoinableGroup(Group group) {
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(group.getId())).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());

@@ -248,6 +248,42 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
         assertThat(found).isSorted();
     }
 
+    @Test
+    @DisplayName("계정 탈퇴 대상 조회(유저 스코프) — 그룹 무관하게 참가 중 OPEN 내기 전부, id 오름차순 (GROMO-801)")
+    void findsOpenBetIdsAcrossGroupsForParticipant() {
+        // 멤버십이 아니라 참가 행 기준이라 그룹 경계·is_left 상태와 무관해야 한다(강퇴자 판돈 보호).
+        Group otherGroup = groupRepository.saveAndFlush(Group.builder().name("다른방").build());
+        GroupChallenge otherGroupChallenge = groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
+                .group(otherGroup)
+                .category(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .build());
+        GroupChallengeBet mine = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
+        GroupChallengeBet mineInOtherGroup = groupChallengeBetRepository.saveAndFlush(
+                GroupChallengeBet.builder()
+                        .group(otherGroup)
+                        .challenge(otherGroupChallenge)
+                        .creatorUser(user)
+                        .stake(30)
+                        .betDate(betDate)
+                        .status(GroupBetStatus.OPEN)
+                        .build());
+        GroupChallengeBet settled = groupChallengeBetRepository.saveAndFlush(
+                betOf(challenge, betDate.minusDays(1), GroupBetStatus.SETTLED));
+        for (GroupChallengeBet bet : List.of(mine, mineInOtherGroup, settled)) {
+            groupChallengeBetParticipantRepository.saveAndFlush(
+                    GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+        }
+        // 참가하지 않은 OPEN 내기는 대상이 아니다.
+        groupChallengeBetRepository.saveAndFlush(
+                betOf(anotherChallenge(), betDate, GroupBetStatus.OPEN));
+
+        List<UUID> found = groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(user.getId());
+
+        assertThat(found).containsExactlyInAnyOrder(mine.getId(), mineInOtherGroup.getId());
+        assertThat(found).isSorted();
+    }
+
     // ── 정산 게이트 CAS ──────────────────────────────────────────────────
 
     @Test
