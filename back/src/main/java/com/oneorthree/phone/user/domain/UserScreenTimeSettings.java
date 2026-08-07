@@ -79,37 +79,6 @@ public class UserScreenTimeSettings {
     }
 
     /**
-     * 목표는 그대로 두고 발효일만 새 로컬 오늘로 옮긴다 — 국가 변경으로 유저 로컬 날짜가
-     * 움직였을 때, 목표 변경과 무관하게 먼저 호출한다.
-     *
-     * <p>{@link #changeGoal}을 현재값으로 부르는 방식은 쓰지 않는다 — previousGoalMinutes 가
-     * 현재값으로 덮여 <b>진짜 직전 목표가 사라진다</b>(120→60 변경 직후 국가를 바꾸면 previous 가
-     * 60이 돼, 아직 지급 창 안에 있는 그 전날이 60으로 지급된다).</p>
-     *
-     * <p>옮기는 대상은 딱 둘이다(코드리뷰) — <b>임의의 과거 전환은 건드리지 않는다</b>.
-     * 닉네임 저장이 countryCode 를 늘 함께 보내는 탓에, 며칠 전 전환까지 오늘로 당기면 그 사이
-     * 날들이 '변경 전'으로 잘못 라벨링된다.</p>
-     * <ul>
-     *   <li><b>미래로 남은 발효일</b> — 로컬 날짜가 뒤로 간 경우(KR→GB). 그대로 두면 새 로컬 오늘이
-     *       직전 목표로 판정된다.</li>
-     *   <li><b>옛 존의 '오늘'에 일어난 전환</b> — 로컬 날짜가 앞으로 간 경우(GB→KR). 전환은 옛 존
-     *       오늘에 있었는데 새 존에서는 그 날이 이미 어제라, 그대로 두면 그날의 지연 리포트가 새
-     *       목표로 판정된다(클라는 옛 목표로 계산해 보냈다).</li>
-     * </ul>
-     *
-     * @param oldLocalToday 국가 변경 <b>전</b> 존 기준 오늘(국가가 안 바뀌었으면 newLocalToday 와 같다)
-     * @param newLocalToday 국가 변경 <b>후</b> 존 기준 오늘
-     */
-    public void realignEffectiveDate(LocalDate oldLocalToday, LocalDate newLocalToday) {
-        if (goalEffectiveFrom == null) {
-            return;
-        }
-        if (goalEffectiveFrom.isAfter(newLocalToday) || goalEffectiveFrom.isEqual(oldLocalToday)) {
-            goalEffectiveFrom = newLocalToday;
-        }
-    }
-
-    /**
      * 주어진 날짜에 유효했던 목표(분). 이력이 없으면 현재값으로 근사한다(기존 유저·미변경 유저).
      *
      * <p>previous 는 <b>발효일 직전 하루</b>에만 적용한다(코드리뷰). 이 필드는 '가장 최근 변경
