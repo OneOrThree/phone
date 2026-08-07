@@ -506,6 +506,39 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("같은 소셜 동시 승격의 패자는 에러가 아니라 승자(=본인) 계정으로 정상 로그인한다 (GROMO-1229 codex R1)")
+    void concurrentPromotionSameSocialLoserLogsIntoPromotedAccount() {
+        // 두 기기가 같은 게스트 AT 로 **같은** (provider, providerId)에 동시 로그인한 패자 —
+        // 첫 조회는 승자 커밋 전이라 empty, 게스트 락 대기를 지나온 뒤의 재조회는 승자가 붙인
+        // 계정을 본다. 종전엔 유니크 위반 → DIVE 재시도가 만들던 자가치유 결말과 같아야 한다.
+        // 409 로 끊으면 같은 기기 더블탭까지 에러가 되는 회귀다(codex R1).
+        User promotedUser = User.builder().id(GUEST_ID).isGuest(false).build();
+        SocialAccount winnerAccount = SocialAccount.builder()
+                .user(promotedUser).provider(Provider.KAKAO).providerId("12345").build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.empty(), Optional.of(winnerAccount)); // 1차 empty → 판별 재조회 present
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(GUEST_ID)).willReturn(Optional.of(promotedUser));
+        given(userRepository.findActiveByIdForUpdate(GUEST_ID)).willReturn(Optional.of(promotedUser));
+        given(jwtProvider.generateAccessToken(GUEST_ID, false)).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
+
+        SocialLoginResponse response =
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt");
+
+        // 승자 계정(= 방금 승격된 본인)으로 정상 로그인 — 신규 아님, 유령 계정 없음
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+    }
+
+    @Test
     @DisplayName("guest 클레임 없는 구 토큰은 비게스트로 간주 → 판별 조회 없이 현행 신규 가입 폴백 유지 (GROMO-1229 점진 적용)")
     void legacyTokenWithoutGuestClaimKeepsFallback() {
         User savedUser = User.builder().id(USER_ID).build();

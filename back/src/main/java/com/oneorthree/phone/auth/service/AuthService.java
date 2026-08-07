@@ -234,17 +234,28 @@ public class AuthService {
                     && userRepository.findByIdAndIsDeletedFalse(currentUserId)
                             .filter(caller -> !caller.isGuest())
                             .isPresent()) {
-                throw new AuthException(AuthErrorCode.GUEST_ALREADY_PROMOTED);
+                // 같은 소셜 동시 승격의 패자는 에러가 아니다 (codex R1) — 메서드 첫 조회 때는 승자의
+                // 커밋 전이라 socialAccount 가 비었지만, 게스트 락 대기를 지나온 지금은 같은
+                // (provider, providerId) 가 승자 손에 붙어 있을 수 있다. 재조회해서 있으면 그 계정
+                // (= 방금 승격된 본인 계정)으로 정상 로그인 — 종전 유니크 위반 → DIVE 재시도가
+                // 만들던 자가치유와 같은 결말이다. 재조회도 비어 있어야 진짜 다른-소셜 경쟁의
+                // 패자이므로 그때만 409 로 끊는다.
+                SocialAccount promotedAccount = socialAccountRepository
+                        .findByProviderAndProviderId(provider, providerId)
+                        .orElseThrow(() -> new AuthException(AuthErrorCode.GUEST_ALREADY_PROMOTED));
+                user = promotedAccount.getUser();
+                isNewUser = false;
+            } else {
+                User newUser = userRepository.save(User.builder().build());
+                socialAccountRepository.save(SocialAccount.builder()
+                        .user(newUser)
+                        .provider(provider)
+                        .providerId(providerId)
+                        .build());
+                createUserSideRows(newUser.getId());
+                user = newUser;
+                isNewUser = true;
             }
-            User newUser = userRepository.save(User.builder().build());
-            socialAccountRepository.save(SocialAccount.builder()
-                    .user(newUser)
-                    .provider(provider)
-                    .providerId(providerId)
-                    .build());
-            createUserSideRows(newUser.getId());
-            user = newUser;
-            isNewUser = true;
         }
 
         // 탈퇴 직렬화 (GROMO-801, codex 리뷰) — 기존 소셜 유저 분기는 유저를 락 없이 로드하므로,
