@@ -13,8 +13,9 @@ import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
-import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -82,10 +83,10 @@ public class EquipmentServiceTest {
     }
 
     @Test
-    @DisplayName("아이템 장착 성공")
+    @DisplayName("아이템 장착 성공 — 요청자는 공유 락 활성 조회로 로드한다 (GROMO-1237 락 규율)")
     void equipSuccess() {
         // given
-        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepo.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.of(userItem));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
@@ -97,13 +98,16 @@ public class EquipmentServiceTest {
         // then
         assertThat(result.getItem().getName()).isEqualTo(item.getName());
         assertThat(result.getSlotType()).isEqualTo(SlotType.HAIR.name());
+        // 락 규율 (GROMO-1237): 변경 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        verify(userRepo).findActiveByIdForShare(USER_ID);
+        verify(userRepo, never()).findById(USER_ID);
     }
 
     @Test
     @DisplayName("아이템 장착 성공 → ITEM_EQUIPPED(slot_type·item_type·grade·acquired_at) 발행 — 명시 userId 오버로드")
     void equipEmitsItemEquipped() {
         // given
-        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepo.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.of(userItem));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.empty());
@@ -125,7 +129,7 @@ public class EquipmentServiceTest {
     @DisplayName("보유하지 않은 아이템 장착 시 예외 + ITEM_EQUIPPED 미발행")
     void equipFailNotOwned() {
         // given
-        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepo.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(itemRepo.findById(ITEM_ID)).willReturn(Optional.of(item));
         given(userItemRepo.findByUserAndItem(user, item)).willReturn(Optional.empty());
 
@@ -137,15 +141,16 @@ public class EquipmentServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 유저 장착 시 예외")
+    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 장착 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void equipFailUserNotFound() {
         // given
-        given(userRepo.findById(USER_ID_99)).willReturn(Optional.empty());
+        given(userRepo.findActiveByIdForShare(USER_ID_99)).willReturn(Optional.empty());
 
-        // when + then
+        // when + then — EntityNotFoundException(핸들러 미등록 → 500) 대신 404 로 통일됐다.
         assertThatThrownBy(() -> equipmentService.equip(USER_ID_99, ITEM_ID))
-                .isInstanceOf(EntityNotFoundException.class)
-                .hasMessage("유저를 찾을 수 없습니다.");
+                .isInstanceOf(UserException.class)
+                .extracting(e -> ((UserException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
     @Test
@@ -158,7 +163,7 @@ public class EquipmentServiceTest {
                 .build();
         equipment.equip(item);
 
-        given(userRepo.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepo.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(characterEquipmentRepo.findByUserAndSlotType(user, SlotType.HAIR)).willReturn(Optional.of(equipment));
 
         // when

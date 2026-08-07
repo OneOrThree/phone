@@ -4,6 +4,8 @@ import com.oneorthree.phone.item.dto.UserItemResponse;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -43,11 +45,27 @@ public class InventoryService {
      */
     @Transactional
     public void grantItem(UUID userId, UUID itemId) {
-        userRepository.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
+        requireActiveUser(userId);
         itemRepository.findById(itemId)
                 .orElseThrow(() -> new EntityNotFoundException("아이템을 찾을 수 없습니다."));
 
         userItemRepository.grantIfNotExists(userId, itemId);
+    }
+
+    /**
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1237) — 아이템 지급처럼 users 행은 <b>읽기만
+     * 하고</b> user_items 를 insert 하는 변경 트랜잭션의 요청자 로드. 결과를 버리는 존재 확인이던
+     * 기존 findById 를 락 조회로 바꿔 계정 탈퇴(유저 행 배타 락)와 직렬화한다 — 탈퇴가 먼저
+     * 커밋되면 READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404). 예외는 기존
+     * EntityNotFoundException(핸들러 미등록 → 500) 대신 다른 서비스와 동일한
+     * UserException(NOT_FOUND, 404)으로 통일한다(GROMO-1237).
+     *
+     * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
+     * {@code @Transactional(readOnly = true)} 라 Postgres 가 read-only 트랜잭션의 FOR SHARE 를
+     * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
+     */
+    private void requireActiveUser(UUID userId) {
+        userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 }

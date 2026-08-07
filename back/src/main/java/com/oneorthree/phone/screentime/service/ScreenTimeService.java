@@ -86,9 +86,9 @@ public class ScreenTimeService {
      */
     @Transactional
     public void saveScreenTimeTx(UUID userId, ScreenTimeRequest request) {
-        // 1. 유저 조회
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        // 1. 유저 조회 — 활성 검증 + 공유 락. 외부 래퍼(saveScreenTime)는 NOT_SUPPORTED 라 락은
+        //    attempt(saveScreenTimeTx)별 트랜잭션 스코프다(정상 — 재시도마다 새로 잡고 커밋 시 풀린다).
+        User user = requireActiveUser(userId);
 
         // 2. reportedAt → 유저 country_code 파생 ZoneId 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
         LocalDate date = resolveLocalDate(user, request);
@@ -141,6 +141,21 @@ public class ScreenTimeService {
             creditScreenTimeGoal(user, date);
             emitGoalAchievedAfterCommit(userId, date, actualMinutes);
         }
+    }
+
+    /**
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1237) — 일별 스크린타임 upsert·지급처럼 users
+     * 행은 <b>읽기만 하는</b> 변경 트랜잭션의 요청자 로드. 락 없는 findById 는 계정 탈퇴
+     * (UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아 탈퇴의 정리 스캔 이후·커밋 이전에
+     * 낀 저장이 유령(탈퇴자 명의 일 집계 행)으로 남는다. 공유 락끼리는 충돌하지 않아 동시 요청은
+     * 그대로 병렬이고, 탈퇴가 먼저 커밋되면 READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404).
+     *
+     * <p><b>readOnly 트랜잭션에서는 쓰지 말 것</b> — Postgres 는 read-only 트랜잭션의 FOR SHARE 를
+     * 거절한다. 쓰기 트랜잭션({@code @Transactional})을 연 변경 경로 전용이다.
+     */
+    private User requireActiveUser(UUID userId) {
+        return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
     /**

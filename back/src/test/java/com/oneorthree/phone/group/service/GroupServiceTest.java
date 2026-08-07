@@ -501,7 +501,7 @@ class GroupServiceTest {
         GroupMember member1 = GroupMember.builder().user(user).group(group1).role(GroupMemberRole.OWNER).build();
         GroupMember member2 = GroupMember.builder().user(user).group(group2).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUser(user)).willReturn(List.of(member1, member2));
         // 멤버 수는 그룹마다가 아니라 IN 집계 1회로 조회한다 (N+1 제거)
         given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID, GROUP_ID_2)))
@@ -532,6 +532,11 @@ class GroupServiceTest {
         assertThat(second.getRole()).isEqualTo(GroupMemberRole.MEMBER);
         assertThat(second.getStatus()).isEqualTo(GroupStatus.ACTIVE);
         assertThat(second.isPrivate()).isTrue();
+
+        // 락 규율 (GROMO-1237): 순수 읽기(readOnly)는 무락 활성 검증 — 락 조회·무필터 findById 금지.
+        verify(userRepository).findByIdAndIsDeletedFalse(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
+        verify(userRepository, never()).findActiveByIdForShare(USER_ID);
     }
 
     @Test
@@ -539,7 +544,7 @@ class GroupServiceTest {
     void getMyGroupsEmpty() {
         // given
         User user = normalUser();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUser(user)).willReturn(List.of());
 
         // when
@@ -553,7 +558,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException")
     void getMyGroupsUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.getMyGroups(USER_ID))
@@ -609,7 +614,7 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
                 .status(GroupStatus.WAITING).isPrivate(false).build();
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
 
@@ -620,6 +625,9 @@ class GroupServiceTest {
         groupService.updateGroup(GROUP_ID, USER_ID, request);
 
         assertThat(group.isPrivate()).isTrue();
+        // 락 규율 (GROMO-1237): 그룹 수정(변경) 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
     }
 
     @Test
@@ -629,7 +637,7 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
                 .status(GroupStatus.WAITING).isPrivate(false).build();
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(member));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
 
@@ -650,7 +658,7 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
                 .status(GroupStatus.WAITING).build();
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         // 활성 1(방장) + 유령 1 — 실인원은 1명이라 max=1 로 줄일 수 있어야 한다.
@@ -681,7 +689,7 @@ class GroupServiceTest {
         GroupMember gmMid = GroupMember.builder().user(mid).group(group).role(GroupMemberRole.MEMBER).build();
         GroupMember gmTop = GroupMember.builder().user(top).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(me));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(me));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
         // 삽입 순서는 누적과 무관(정렬 자체를 검증) — 나(낮음)·중간·최상 순으로 넣는다
@@ -721,7 +729,7 @@ class GroupServiceTest {
         GroupMember ghost = GroupMember.builder().user(withdrawnUser()).group(group)
                 .role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(me));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(me));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, ghost));
@@ -817,7 +825,7 @@ class GroupServiceTest {
         GroupMember member = GroupMember.builder().user(user).group(group).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member));
         givenRepresentativeDurationChallenge(group, 60);
@@ -847,7 +855,7 @@ class GroupServiceTest {
         GroupMember ghost = GroupMember.builder().user(withdrawnUser()).group(group).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(member, ghost));
         givenRepresentativeDurationChallenge(group, 60);
@@ -867,7 +875,7 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
@@ -893,7 +901,7 @@ class GroupServiceTest {
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.FOCUS,
@@ -916,7 +924,7 @@ class GroupServiceTest {
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
@@ -940,7 +948,7 @@ class GroupServiceTest {
                 .maxMembers(5).status(GroupStatus.WAITING).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
@@ -970,7 +978,7 @@ class GroupServiceTest {
                 .maxMembers(10).status(GroupStatus.WAITING).build();
 
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID, USER_ID))
@@ -988,7 +996,7 @@ class GroupServiceTest {
         GroupMember owner = GroupMember.builder().user(user).group(group).role(GroupMemberRole.OWNER).build();
         GroupJoinCode joinCode = joinCodeFor(group, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(owner));
         given(groupJoinCodeRepository.findById(GROUP_ID)).willReturn(Optional.of(joinCode));
@@ -1011,7 +1019,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
 
@@ -1027,7 +1035,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -1041,7 +1049,7 @@ class GroupServiceTest {
     void renewGroupCodeGuestForbidden() {
         // given
         User guest = User.builder().isGuest(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest));
 
         // when & then
         assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
@@ -1052,7 +1060,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
     void renewGroupCodeGroupNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
@@ -1075,7 +1083,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "INVITE01", null);
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
@@ -1106,7 +1114,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(member));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
@@ -1131,7 +1139,7 @@ class GroupServiceTest {
                 .maxMembers(10).status(GroupStatus.WAITING).build();
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(member));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
@@ -1158,7 +1166,7 @@ class GroupServiceTest {
                 .maxMembers(10).status(GroupStatus.WAITING).isPrivate(true).build();
         GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(member));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
@@ -1177,7 +1185,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -1190,7 +1198,7 @@ class GroupServiceTest {
     @DisplayName("게스트 → GUEST_FORBIDDEN")
     void getGroupDetailGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3)))
@@ -1201,7 +1209,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
     void getGroupDetailGroupNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
@@ -2002,7 +2010,7 @@ class GroupServiceTest {
         GroupMember plainMember = memberWithPermission(
                 userWithNickname(plainId, "일반멤버"), group, GroupAnnouncementGrant.DISALLOW);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group))
@@ -2030,7 +2038,7 @@ class GroupServiceTest {
         GroupMember ownerMember = ownerMemberOf(owner, group);
         GroupMember ghost = memberWithPermission(withdrawnUser(), group, GroupAnnouncementGrant.DISALLOW);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, ghost));
@@ -2058,7 +2066,7 @@ class GroupServiceTest {
         GroupMember revokeeMember = memberWithPermission(revokee, group, GroupAnnouncementGrant.ALLOW);
         GroupMember untouchedMember = memberWithPermission(untouched, group, GroupAnnouncementGrant.ALLOW);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group))
@@ -2086,7 +2094,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = ownerMemberOf(owner, group);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
 
@@ -2107,7 +2115,7 @@ class GroupServiceTest {
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
         GroupMember ownerMember = ownerMemberOf(owner, group);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
 
@@ -2130,7 +2138,7 @@ class GroupServiceTest {
         GroupMember ownerMember = ownerMemberOf(owner, group);
         GroupMember grantedMember = memberWithPermission(granted, group, GroupAnnouncementGrant.ALLOW);
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(ownerMember));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember, grantedMember));

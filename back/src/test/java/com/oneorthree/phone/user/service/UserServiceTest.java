@@ -139,7 +139,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
@@ -152,12 +152,16 @@ class UserServiceTest {
         assertThat(user.getCountryCode()).isEqualTo("KR");
         assertThat(screen.getDailyScreenTimeGoalMinutes()).isEqualTo(120);
         assertThat(focus.getDailyFocusTimeGoalMinutes()).isEqualTo(90);
+        // 락 규율 (GROMO-1237): users 행 변경 트랜잭션은 처음부터 배타 락 — 무락 로드 금지(승급 교착 방지).
+        verify(userRepository).findActiveByIdForUpdate(USER_ID);
+        verify(userRepository, never()).findByIdAndIsDeletedFalse(USER_ID);
+        verify(userRepository, never()).findActiveByIdForShare(USER_ID);
     }
 
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void setupProfileUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.setupProfile(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -169,7 +173,7 @@ class UserServiceTest {
     @DisplayName("셋업 시 닉네임 중복 → UserException(NICKNAME_DUPLICATE), setNickname 미반영")
     void setupProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.existsByNicknameAndIdNot("중복닉", USER_ID)).willReturn(true);
 
         UserProfileSetupRequest body = new UserProfileSetupRequest(
@@ -188,7 +192,7 @@ class UserServiceTest {
     @DisplayName("부분 수정 → null 필드는 무시하고 전달된 필드만 갱신")
     void updateProfilePartial() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
                 "새닉네임", null, null, "US");
 
@@ -202,7 +206,7 @@ class UserServiceTest {
     @DisplayName("수정 시 타인이 쓰는 닉네임 → UserException(NICKNAME_DUPLICATE), 기존 닉네임 유지")
     void updateProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
@@ -221,7 +225,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
@@ -237,7 +241,7 @@ class UserServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void updateProfileUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateProfile(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -305,7 +309,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
         UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(screen));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(focus));
 
@@ -318,7 +322,7 @@ class UserServiceTest {
     @DisplayName("셋업 — 형식 위반 닉네임(1자) → NICKNAME_INVALID, 중복 검사·저장 안 함")
     void setupProfileInvalidNicknameRejected() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         assertThatThrownBy(() -> userService.setupProfile(
                 USER_ID, new UserProfileSetupRequest("가", null, 120, 90, "KR")))
@@ -333,7 +337,7 @@ class UserServiceTest {
     @DisplayName("PATCH — 빈문자열 닉네임 → NICKNAME_INVALID, 기존 닉네임 유지 (회귀: 이전엔 \"\" 가 저장됐다)")
     void updateProfileEmptyNicknameBlocked() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         assertThatThrownBy(() -> userService.updateProfile(
                 USER_ID, new UserProfileUpdateRequest("", null, null, null)))
@@ -347,7 +351,7 @@ class UserServiceTest {
     @DisplayName("PATCH — 공백-only 닉네임 → NICKNAME_INVALID, 기존 닉네임 유지")
     void updateProfileBlankNicknameBlocked() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         assertThatThrownBy(() -> userService.updateProfile(
                 USER_ID, new UserProfileUpdateRequest("   ", null, null, null)))
@@ -361,7 +365,7 @@ class UserServiceTest {
     @DisplayName("PATCH — 11자 닉네임 → NICKNAME_INVALID (검사 API 와 같은 상한)")
     void updateProfileTooLongNicknameBlocked() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         assertThatThrownBy(() -> userService.updateProfile(
                 USER_ID, new UserProfileUpdateRequest("가".repeat(11), null, null, null)))
@@ -375,7 +379,7 @@ class UserServiceTest {
     @DisplayName("PATCH — 사전 검사 통과 후 유니크 제약 위반(TOCTOU 레이스) → NICKNAME_DUPLICATE 로 강하")
     void updateProfileToctouRaceDegradesToNicknameDuplicate() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
         // 체크와 저장 사이에 다른 유저가 같은 닉네임을 커밋 → flush 에서 uq_users_nickname 위반
         willThrow(new DataIntegrityViolationException("uq_users_nickname"))
@@ -392,7 +396,7 @@ class UserServiceTest {
     @DisplayName("셋업 — 유니크 제약 위반(TOCTOU 레이스) → NICKNAME_DUPLICATE 로 강하")
     void setupProfileToctouRaceDegradesToNicknameDuplicate() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
         willThrow(new DataIntegrityViolationException("uq_users_nickname"))
                 .given(userRepository).flush();
@@ -489,7 +493,7 @@ class UserServiceTest {
     void softDeletedUserBlockedOnUpdate() {
         // 탈퇴 유저는 deleted_at 세팅 → findByIdAndDeletedAtIsNull 빈 결과. 잔여 액세스토큰으로 재호출해도 차단됨.
         given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.CIVIL_SERVANT)).willReturn(true);
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.CIVIL_SERVANT))
                 .isInstanceOf(UserException.class)
@@ -682,7 +686,7 @@ class UserServiceTest {
     @DisplayName("디바이스 토큰 등록 → user.deviceToken 갱신")
     void registerDeviceToken() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         userService.registerDeviceToken(USER_ID, "apns-device-token");
 
@@ -693,7 +697,7 @@ class UserServiceTest {
     @DisplayName("디바이스 토큰 해제 → user.deviceToken null (등록 케이스와 대칭)")
     void clearDeviceToken() {
         User user = User.builder().id(USER_ID).deviceToken("fcm-registration-token").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         userService.clearDeviceToken(USER_ID);
 
@@ -703,7 +707,7 @@ class UserServiceTest {
     @Test
     @DisplayName("디바이스 토큰 해제 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void clearDeviceTokenUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.clearDeviceToken(USER_ID))
                 .isInstanceOf(UserException.class)
@@ -714,7 +718,7 @@ class UserServiceTest {
     @Test
     @DisplayName("디바이스 토큰 등록 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void registerDeviceTokenUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.registerDeviceToken(USER_ID, "apns-device-token"))
                 .isInstanceOf(UserException.class)
@@ -729,7 +733,7 @@ class UserServiceTest {
     void updateOccupationSuccess() {
         User user = User.builder().id(USER_ID).build();
         given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.UNIVERSITY)).willReturn(true);
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         userService.updateOccupation(USER_ID, Occupation.UNIVERSITY);
 
@@ -740,7 +744,7 @@ class UserServiceTest {
     @DisplayName("occupation 저장 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void updateOccupationUserNotFound() {
         given(occupationInfoRepository.existsByCodeAndDeletedAtIsNull(Occupation.UNIVERSITY)).willReturn(true);
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateOccupation(USER_ID, Occupation.UNIVERSITY))
                 .isInstanceOf(UserException.class)
@@ -766,19 +770,23 @@ class UserServiceTest {
     void updateFocusTimeGoalSuccess() {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
         // 목표 이력(GROMO-1049)의 발효일을 유저 로컬 기준으로 잡으려 유저를 함께 조회한다.
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+        given(userRepository.findActiveByIdForShare(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
         userService.updateFocusTimeGoal(USER_ID, 90);
 
         assertThat(settings.getDailyFocusTimeGoalMinutes()).isEqualTo(90);
+        // 락 규율 (GROMO-1237): users 는 읽기만(설정 테이블만 변경) — 공유 락, 배타 락·무락 로드 금지.
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findActiveByIdForUpdate(USER_ID);
+        verify(userRepository, never()).findByIdAndIsDeletedFalse(USER_ID);
     }
 
     @Test
     @DisplayName("집중 목표 수정 - 설정 없음 → UserException(NOT_FOUND)")
     void updateFocusTimeGoalNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+        given(userRepository.findActiveByIdForShare(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
@@ -792,7 +800,7 @@ class UserServiceTest {
     @DisplayName("집중 목표 수정 → GOAL_SET(goal_type=focus_time, goal_minutes) 발행")
     void updateFocusTimeGoalEmitsGoalSet() {
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+        given(userRepository.findActiveByIdForShare(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
@@ -808,7 +816,7 @@ class UserServiceTest {
     @DisplayName("스크린타임 목표 수정 → 값 반영 + GOAL_SET(goal_type=screen_time, goal_minutes) 발행")
     void updateScreenTimeGoalEmitsGoalSet() {
         UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID))
+        given(userRepository.findActiveByIdForShare(USER_ID))
                 .willReturn(Optional.of(User.builder().id(USER_ID).build()));
         given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
 
@@ -825,7 +833,7 @@ class UserServiceTest {
     @DisplayName("공개 범위 수정 → user.statVisibility 반영 + STAT_VISIBILITY_UPDATED(visibility) 발행")
     void updateStatVisibilityEmitsEvent() {
         User user = User.builder().id(USER_ID).build(); // 기본값 FRIENDS
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
 
         userService.updateStatVisibility(USER_ID, StatVisibility.PUBLIC);
 
@@ -837,7 +845,7 @@ class UserServiceTest {
     @Test
     @DisplayName("공개 범위 수정 - 존재하지 않는 유저 → UserException(NOT_FOUND), 이벤트 미발행")
     void updateStatVisibilityUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateStatVisibility(USER_ID, StatVisibility.PUBLIC))
                 .isInstanceOf(UserException.class)
@@ -1003,7 +1011,7 @@ class UserServiceTest {
                 .user(user).provider(Provider.APPLE).providerId("apple-sub").build();
         SocialAccount googleAccount = SocialAccount.builder()
                 .user(user).provider(Provider.GOOGLE).providerId("google-sub").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         // 비관적 잠금 쿼리가 활성 연동 전체를 반환 — count·대상 계정 확보를 원자적으로 수행
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
                 .willReturn(List.of(appleAccount, googleAccount));
@@ -1022,7 +1030,7 @@ class UserServiceTest {
         User user = User.builder().id(USER_ID).build();
         SocialAccount googleAccount = SocialAccount.builder()
                 .user(user).provider(Provider.GOOGLE).providerId("google-sub").build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
                 .willReturn(List.of(googleAccount));
 
@@ -1038,7 +1046,7 @@ class UserServiceTest {
     @DisplayName("미연동 provider 해제 시도 → UserException(SOCIAL_ACCOUNT_NOT_FOUND) 404")
     void unlinkSocialAccountNotLinkedThrows404() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         // KAKAO 연동 없음 — 빈 리스트 반환
         given(socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user))
                 .willReturn(List.of());
@@ -1052,7 +1060,7 @@ class UserServiceTest {
     @Test
     @DisplayName("unlinkSocialAccount - 존재하지 않는 유저 → UserException(NOT_FOUND)")
     void unlinkSocialAccountUserNotFound() {
-        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.unlinkSocialAccount(USER_ID, Provider.APPLE))
                 .isInstanceOf(UserException.class)

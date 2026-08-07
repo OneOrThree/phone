@@ -952,7 +952,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + DURATION + durationMinutes>0 + FOCUS(비 SCREEN_TIME)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -980,6 +980,9 @@ class GroupChallengeServiceTest {
         assertThat(durationCaptor.getValue().getChallenge()).isEqualTo(saved);
         assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(30);
         verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+        // 락 규율 (GROMO-1237): 챌린지 생성(변경) 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
     }
 
     @Test
@@ -988,7 +991,7 @@ class GroupChallengeServiceTest {
         // given: DURATION 생성 성공 경로와 동일
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1020,7 +1023,7 @@ class GroupChallengeServiceTest {
         // given: 같은 (카테고리, 타입) 활성 챌린지가 이미 있어 사전 검사에서 강하
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1047,7 +1050,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + TIME_WINDOW + start<end + FOCUS + 창 내 목표 120분(창 길이 540분 이내)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1088,7 +1091,7 @@ class GroupChallengeServiceTest {
         // given: 시각(time-of-day) 기준 시작 > 종료 — D 22:00 ~ D+1 01:00 창
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1119,7 +1122,7 @@ class GroupChallengeServiceTest {
         // given: 창 시각은 유효하지만 창 내 목표분이 없다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1144,7 +1147,7 @@ class GroupChallengeServiceTest {
         // given: 09:00~12:00 = 180분 창에 목표 181분
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1169,7 +1172,7 @@ class GroupChallengeServiceTest {
         // given: SCREEN_TIME + 멤버 중 일부 isScreenTimePermissionGranted()=false
         User owner = member(); // screenTimePermissionGranted = false 지만 OWNER 본인
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group))
                 .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
@@ -1210,7 +1213,7 @@ class GroupChallengeServiceTest {
         // 비참여자로 노출된다.
         User owner = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group))
                 .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
@@ -1248,7 +1251,7 @@ class GroupChallengeServiceTest {
     @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
     void createChallengeGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, null))
@@ -1263,7 +1266,7 @@ class GroupChallengeServiceTest {
         // given: 멤버지만 role != OWNER
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
@@ -1281,7 +1284,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + DURATION + durationMinutes = 0
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1303,7 +1306,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + DURATION — 하루(1440분)보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1329,7 +1332,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + DURATION + durationMinutes = 1440(경계)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1361,7 +1364,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + TIME_WINDOW + windowStart null (mock 기본값) → 파라미터 누락
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1383,7 +1386,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + TIME_WINDOW + end == start
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1407,7 +1410,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + DURATION + 동일 (카테고리, 타입)에 ACTIVE 챌린지 존재
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1434,7 +1437,7 @@ class GroupChallengeServiceTest {
         // given: exists 는 false(스텁 기본값)인데 saveAndFlush 가 V20 부분 유니크 위반을 던진다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1487,7 +1490,7 @@ class GroupChallengeServiceTest {
         // given: SCREEN_TIME 활성 창형 [09:00~12:00] 이 있는 그룹에 FOCUS 창형 [10:00~11:00] 생성 시도
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1511,7 +1514,7 @@ class GroupChallengeServiceTest {
         // given: SCREEN_TIME [09:00~12:00] 뒤에 딱 붙는 FOCUS [12:00~13:00]
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1539,7 +1542,7 @@ class GroupChallengeServiceTest {
         // 새 창은 자정을 안 걸치지만 기존 창의 [00:00~02:00) 구간과 겹친다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1563,7 +1566,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + 해당 그룹의 챌린지 존재
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1586,7 +1589,7 @@ class GroupChallengeServiceTest {
         // 중복 검사는 deletedAt IS NULL 조건이 붙은 exists 라 삭제분이 잡히지 않는다(스텁 기본값 false).
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1615,7 +1618,7 @@ class GroupChallengeServiceTest {
         // given: 멤버지만 role != OWNER
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
@@ -1633,7 +1636,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + 챌린지 존재 + 그 챌린지에 오늘자 OPEN 내기
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1657,7 +1660,7 @@ class GroupChallengeServiceTest {
         // given: OWNER + 챌린지 존재 + OPEN 내기 없음(정산 완료 이력만 있는 상태)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1680,7 +1683,7 @@ class GroupChallengeServiceTest {
         // given: OWNER 지만 챌린지 없음
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -1699,7 +1702,7 @@ class GroupChallengeServiceTest {
     /** 보고 성공 경로 공통 셋업 — 멤버 + SCREEN_TIME×TIME_WINDOW 챌린지. */
     private GroupChallenge givenReportableChallenge(User user, Group group, MissionCategory category,
             MissionType type) {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
@@ -1781,7 +1784,7 @@ class GroupChallengeServiceTest {
         // given: 멤버십 없음
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -1797,7 +1800,7 @@ class GroupChallengeServiceTest {
     @DisplayName("게스트 보고 → GUEST_FORBIDDEN")
     void reportWindowUsageGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
@@ -1813,7 +1816,7 @@ class GroupChallengeServiceTest {
         // given: 챌린지 조회가 비어 있다(soft delete 포함)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));

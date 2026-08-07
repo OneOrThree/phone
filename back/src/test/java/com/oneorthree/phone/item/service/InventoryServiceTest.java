@@ -81,7 +81,8 @@ public class InventoryServiceTest {
         // given
         User user = User.builder().nickname("테스터").build();
         Item item = Item.builder().name("모자").slotType(SlotType.HAIR).grade("COMMON").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        // GROMO-1237: 지급(변경) 경로는 공유 락 활성 조회를 쓴다(락 규율).
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(itemRepository.findById(ITEM_ID)).willReturn(Optional.of(item));
 
         // when

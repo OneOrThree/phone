@@ -59,8 +59,9 @@ class CharacterGenerationServiceTest {
                 .build();
     }
 
+    // GROMO-1237: 쿼터 경로는 trial 앵커 UPDATE 가능성이 있어 배타 락 조회를 쓴다(락 규율).
     private void givenUser(User user) {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
     }
 
     private void givenWindowCount(long count) {
@@ -137,5 +138,17 @@ class CharacterGenerationServiceTest {
         service.getQuota(USER_ID);
 
         verify(userRepository, never()).initCharacterTrialAnchorAt(any(), any());
+    }
+
+    @Test
+    @DisplayName("쿼터 조회는 배타 락 조회를 쓴다 — 무락 findById 금지 (GROMO-1237 락 규율)")
+    void getQuotaLoadsUserWithExclusiveLock() {
+        givenUser(user(Instant.now().minus(3, ChronoUnit.DAYS)));
+
+        service.getQuota(USER_ID);
+
+        // 앵커 lazy 초기화가 users 행을 UPDATE 할 수 있으므로 처음부터 배타 락(승급 교착 방지).
+        verify(userRepository).findActiveByIdForUpdate(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
     }
 }
