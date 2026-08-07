@@ -1,6 +1,7 @@
 // v2 루트 스택 파라미터 — 탭(Main) 위에 상세 화면을 얹는 구조.
 // 별도 파일로 분리해 화면 ↔ 네비게이터 순환 import을 피한다.
 import type { FocusTimerMode, PomodoroConfig } from '@/screens/focus/types';
+import type { MissionCategory, MissionType } from '@/types/dto/group';
 
 export type V2RootStackParamList = {
   Main: undefined; // 4탭 + FAB
@@ -70,6 +71,10 @@ export type V2RootStackParamList = {
   GroupBetHistory: {
     groupId: string;
     challengeId: string;
+    // FOCUS 창 5분 관용치 안내 판단용(#527 리뷰) — 시트(LastBetResultSheet)와 같은 조건·문구.
+    // 옵셔널: 미션 메타 없는 진입점 호환 — 없으면 안내 없이 그린다(없는 정보를 지어내지 않는다).
+    missionType?: MissionType;
+    missionCategory?: MissionCategory;
   }; // 챌린지 내기 히스토리 — 지난 내기 결과 시트 '지난 기록 더보기'에서 진입 (GROMO-1221)
 
   // 그룹 운영(3차) — 그룹방 ⋯ 가 GroupSettings(관리 허브)로 직행한다(팝업 메뉴 폐지).

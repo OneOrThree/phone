@@ -16,6 +16,7 @@ import { T } from '@/constants/theme';
 import { BET_NOT_FOUND, getBetHistory, groupErrorCode } from '@/services/groupApi';
 import type { GroupBetHistoryItem, LastSettledBetResult } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './components/progressFormat';
 import {
   basisText,
   deltaText,
@@ -39,17 +40,22 @@ import {
 //   · 다음 페이지 404(BET_NOT_FOUND, 무효 커서)는 이미 받은 페이지를 **유지**하고 꼬리에
 //     인라인으로만 알린다 — 화면 전체를 에러로 뒤집으면 잘 읽던 이력이 통째로 사라진다.
 //     같은 커서 재시도는 항상 404라 페이지네이션 자체를 접는다(계약 §2-1221).
+//   · 일시 실패(코드 없는 500 등)는 **자동 재시도하지 않는다**(#527 codex 리뷰 P1) — footer가
+//     스피너↔문구로 바뀌며 content 높이가 변하면 FlatList가 스크롤 없이 onEndReached를 다시
+//     쏠 수 있어, 지속 실패에서 요청 무한 루프가 된다. 재개는 수동('다시 시도' 탭)과
+//     새로고침 성공 두 갈래뿐이다.
 //   · 첫 페이지 404(NOT_FOUND)는 전면 에러 — 그룹·챌린지가 사라진 것이라 볼 게 없다.
 // 표기(판정·손익·근거·음성)는 LastBetResultSheet의 조각을 그대로 import 한다 — 같은 데이터를
-// 두 자리에서 그리므로 규칙이 갈라지면 안 된다.
+// 두 자리에서 그리므로 규칙이 갈라지면 안 된다. FOCUS 창의 5분 관용치 안내도 시트와 같은
+// 조건·같은 문구다(목록 상단 한 줄) — 근거 분(55/60분)이 달성 옆에서 모순으로 읽히지 않게.
 
 // 페이지 크기 — size는 서버 필수 파라미터(1~100, 누락 시 프레임워크 400)라 앱이 상수로
 // 고정한다(계약 §2-1221 '앱 상수 고정, 예: 20').
 const PAGE_SIZE = 20;
 
-// 다음 페이지 실패 인라인 문구 — 무효 커서(재시도 무의미)와 일시 실패(재시도 가능)를 가른다.
+// 다음 페이지 실패 인라인 문구 — 무효 커서(재시도 무의미)와 일시 실패(수동 재시도)를 가른다.
 const MORE_DEAD_NOTICE = '지난 기록을 더 불러올 수 없어요';
-const MORE_RETRY_NOTICE = '지난 기록을 더 불러오지 못했어요. 스크롤하면 다시 시도해요';
+const MORE_FAILED_NOTICE = '지난 기록을 더 불러오지 못했어요';
 
 type HistoryRoute = RouteProp<V2RootStackParamList, 'GroupBetHistory'>;
 
@@ -68,7 +74,7 @@ function listErrorMessage(e: unknown): string {
 export default function GroupBetHistoryScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { groupId, challengeId } = useRoute<HistoryRoute>().params;
+  const { groupId, challengeId, missionType, missionCategory } = useRoute<HistoryRoute>().params;
 
   const [items, setItems] = useState<GroupBetHistoryItem[] | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -79,8 +85,10 @@ export default function GroupBetHistoryScreen() {
     nextCursor: null,
   });
   const [loadingMore, setLoadingMore] = useState(false);
-  // 다음 페이지 실패 인라인(꼬리 배너) — 받은 이력은 그대로 두고 사실만 알린다.
-  const [moreNotice, setMoreNotice] = useState<string | null>(null);
+  // 다음 페이지 일시 실패(#527 P1) — onEndReached 경로를 잠근다. 자동 재시도는 footer 높이
+  // 변화 → onEndReached 재발화의 되먹임으로 무한 요청 루프가 되므로, 해제는 '다시 시도' 탭과
+  // 새로고침(첫 페이지 재조회) 성공 두 갈래뿐이다.
+  const [moreFailed, setMoreFailed] = useState(false);
   // 무효 커서(BET_NOT_FOUND) — 같은 커서로는 몇 번을 다시 불러도 404라 페이지네이션을 접는다.
   // 당겨서 새로고침(첫 페이지 재조회)이 커서를 새로 받으면 다시 풀린다.
   const [historyDead, setHistoryDead] = useState(false);
@@ -92,21 +100,31 @@ export default function GroupBetHistoryScreen() {
   // onEndReached 연발 락 — state(loadingMore)는 리렌더 뒤에야 보여 같은 틱 중복 호출을 못
   // 막는다(ChallengeCard.leaveLock과 같은 이유).
   const moreLock = useRef(false);
+  // 첫 페이지 조회 진행 중 표시(#527 P2) — 이 동안 loadMore를 통째로 차단한다. seq 캡처만으로는
+  // 부족하다: 새로고침이 시작된 **뒤에** 발화한 onEndReached는 최신 seq를 캡처한 채 옛
+  // pageEnd 커서로 나가므로, 새 첫 페이지 뒤에 옛 커서의 페이지가 그대로 이어붙는다.
+  const firstPageInFlight = useRef(false);
 
   // 첫 페이지 조회 — 진입·새로고침·'다시 시도' 공용. 성공하면 커서 상태까지 통째로 새로 시작한다.
   const fetchFirstPage = useCallback(async (): Promise<void> => {
     const seq = ++requestSeqRef.current;
+    firstPageInFlight.current = true;
     setErrorMsg(null);
     try {
       const slice = await getBetHistory(groupId, challengeId, { size: PAGE_SIZE });
       if (seq !== requestSeqRef.current) return;
       setItems(slice.content);
       setPageEnd({ hasNext: slice.hasNext, nextCursor: slice.nextCursor });
-      setMoreNotice(null);
+      // 커서를 새로 받았다 — 다음 페이지 잠금(일시 실패·무효 커서)을 모두 푼다.
+      setMoreFailed(false);
       setHistoryDead(false);
     } catch (e) {
       if (seq !== requestSeqRef.current) return;
       setErrorMsg(listErrorMessage(e));
+    } finally {
+      // stale로 끝난 조회(그 사이 더 새 조회가 시작됨)는 잠금을 풀지 않는다 — 그 조회의
+      // finally가 자기 몫을 푼다. 여기서 풀면 새 조회가 도는 동안 loadMore가 새어 나간다.
+      if (seq === requestSeqRef.current) firstPageInFlight.current = false;
     }
   }, [groupId, challengeId]);
 
@@ -126,9 +144,16 @@ export default function GroupBetHistoryScreen() {
     setRefreshing(false);
   }, [fetchFirstPage]);
 
-  // 다음 페이지 — onEndReached 전용. 종료 조건(hasNext·nextCursor 둘 다)은 파일 머리 주석.
-  async function loadMore() {
+  // 다음 페이지 — onEndReached·'다시 시도' 탭 공용. 종료 조건(hasNext·nextCursor 둘 다)은
+  // 파일 머리 주석. fromRetry는 '다시 시도' 탭 전용 — moreFailed 잠금만 우회하고 나머지
+  // 가드(중복·무효 커서·첫 페이지 진행 중)는 그대로 받는다.
+  async function loadMore(fromRetry = false) {
     if (items === null || moreLock.current || historyDead) return;
+    // 첫 페이지 조회(새로고침·전면 재시도)가 도는 동안은 다음 페이지를 잡지 않는다(#527 P2) —
+    // 지금 쥔 pageEnd는 곧 교체될 옛 커서라, 나가면 새 첫 페이지 뒤에 옛 페이지가 이어붙는다.
+    if (firstPageInFlight.current) return;
+    // 일시 실패 뒤의 onEndReached는 무시한다(#527 P1) — 자동 재시도 금지(위 state 주석).
+    if (moreFailed && !fromRetry) return;
     const { hasNext, nextCursor } = pageEnd;
     if (!hasNext || !nextCursor) return;
     const seq = requestSeqRef.current;
@@ -143,16 +168,15 @@ export default function GroupBetHistoryScreen() {
       if (seq !== requestSeqRef.current) return;
       setItems((prev) => [...(prev ?? []), ...slice.content]);
       setPageEnd({ hasNext: slice.hasNext, nextCursor: slice.nextCursor });
-      setMoreNotice(null);
+      setMoreFailed(false);
     } catch (e) {
       if (seq !== requestSeqRef.current) return;
       if (groupErrorCode(e) === BET_NOT_FOUND) {
         // 무효 커서(그 내기가 삭제되는 등) — 받은 페이지는 그대로 두고 페이지네이션만 접는다.
         setHistoryDead(true);
-        setMoreNotice(MORE_DEAD_NOTICE);
       } else {
-        // 일시 실패(네트워크 등) — 커서를 보존해 다음 onEndReached가 같은 페이지를 재시도한다.
-        setMoreNotice(MORE_RETRY_NOTICE);
+        // 일시 실패(네트워크 등) — 커서는 보존하되 재개는 수동('다시 시도' 탭)뿐이다.
+        setMoreFailed(true);
       }
     } finally {
       moreLock.current = false;
@@ -277,6 +301,17 @@ export default function GroupBetHistoryScreen() {
 
   const list = items ?? [];
 
+  // FOCUS 창의 5분 관용치 안내(#527 P3) — 시트(LastBetResultSheet.showToleranceNotice)와 같은
+  // 조건·같은 문구: FOCUS×TIME_WINDOW이고 **실측 분이 실제로 그려질 때만**(구서버 undefined·
+  // 과거분 null뿐이면 모순될 숫자 자체가 없다). 미션 메타는 route param(옵셔널)이라 메타 없는
+  // 구 진입점에서는 안내 없이 그린다 — 없는 정보를 지어내지 않는다.
+  const showToleranceNotice =
+    missionType === 'TIME_WINDOW' &&
+    missionCategory === 'FOCUS' &&
+    list.some((item) => item.results.some((r) => typeof r.progressMinutes === 'number'));
+  // 새로고침 실패 인라인(목록이 있을 때만) — 전면 에러 조건에 안 걸리는 무음 실패를 알린다.
+  const refreshBanner = errorMsg !== null && list.length > 0 ? errorMsg : null;
+
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.betHistory.screen">
       {header}
@@ -297,10 +332,19 @@ export default function GroupBetHistoryScreen() {
         // 무한 스크롤 — 끝에서 다음 페이지(keyset). 종료·중복·404 규칙은 loadMore가 쥔다.
         onEndReached={() => loadMore()}
         onEndReachedThreshold={0.4}
-        // 목록이 이미 있는 상태의 새로고침 실패는 전면 에러 조건에 걸리지 않아 무음이 된다 —
-        // 리스트 상단 인라인 배너로 알린다(NoticeScreen과 같은 규격·같은 이유).
+        // 목록 상단: 새로고침 실패 인라인(NoticeScreen과 같은 규격·같은 이유) + FOCUS 창
+        // 관용치 안내(숫자보다 먼저 판정 규칙 — 시트가 명단 앞에 두는 것과 같은 순서).
         ListHeaderComponent={
-          errorMsg !== null && list.length > 0 ? <Text style={s.notice}>{errorMsg}</Text> : null
+          refreshBanner !== null || showToleranceNotice ? (
+            <View style={s.headerNotices}>
+              {refreshBanner !== null && <Text style={s.notice}>{refreshBanner}</Text>}
+              {showToleranceNotice && (
+                <Text style={s.toleranceNotice} testID="group.betHistory.toleranceNotice">
+                  {WINDOW_FOCUS_TOLERANCE_NOTICE}
+                </Text>
+              )}
+            </View>
+          ) : null
         }
         // 빈 목록 + 재조회 실패는 '기록이 없다'가 아니라 '모른다' — 에러+다시 시도로 바꾼다.
         ListEmptyComponent={
@@ -313,7 +357,8 @@ export default function GroupBetHistoryScreen() {
             </View>
           )
         }
-        // 꼬리: 다음 페이지 로딩 스피너 / 실패 인라인 — 받은 이력 위에 얹지 않고 끝에만 붙인다.
+        // 꼬리: 다음 페이지 로딩 스피너 / 무효 커서 고지 / 일시 실패 + 수동 재시도 버튼(#527 P1).
+        // 받은 이력 위에 얹지 않고 끝에만 붙인다.
         ListFooterComponent={
           loadingMore ? (
             <ActivityIndicator
@@ -321,10 +366,23 @@ export default function GroupBetHistoryScreen() {
               style={s.footerLoading}
               testID="group.betHistory.more.loading"
             />
-          ) : moreNotice !== null ? (
+          ) : historyDead ? (
             <Text style={s.notice} testID="group.betHistory.more.notice">
-              {moreNotice}
+              {MORE_DEAD_NOTICE}
             </Text>
+          ) : moreFailed ? (
+            <View style={s.moreFailRow}>
+              <Text style={s.notice}>{MORE_FAILED_NOTICE}</Text>
+              <TouchableOpacity
+                onPress={() => loadMore(true)}
+                activeOpacity={0.7}
+                hitSlop={8}
+                accessibilityRole="button"
+                testID="group.betHistory.more.retry"
+              >
+                <Text style={s.moreRetryText}>다시 시도</Text>
+              </TouchableOpacity>
+            </View>
           ) : null
         }
         renderItem={({ item }) => renderBetCard(item)}
@@ -383,6 +441,17 @@ const s = StyleSheet.create({
   // 인라인 배너(새로고침 실패·다음 페이지 실패) — NoticeScreen s.notice와 같은 규격.
   notice: { ...T.text.caption, color: T.dangerInk },
   footerLoading: { marginTop: T.space.md },
+  headerNotices: { gap: T.space.xs },
+  // 관용치 안내 — 시트 toleranceNotice와 같은 결(보조 톤 캡션·중앙 정렬).
+  toleranceNotice: { ...T.text.caption, color: T.inkMuted, textAlign: 'center' },
+  // 일시 실패 꼬리 — 문구와 수동 재시도 버튼 한 줄. 밑줄은 '탭 가능한 캡션' 관례.
+  moreFailRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  moreRetryText: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.accent,
+    textDecorationLine: 'underline',
+  },
 
   listContent: { paddingHorizontal: T.space.xl, paddingTop: T.space.xs, gap: T.space.md },
   listEmptyContent: { flexGrow: 1 },

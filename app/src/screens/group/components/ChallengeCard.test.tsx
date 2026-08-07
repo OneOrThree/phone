@@ -933,9 +933,13 @@ describe('지난 기록 더보기 → 히스토리 push', () => {
     });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
+    // 미션 메타(missionType·missionCategory)도 함께 넘긴다(#527 리뷰) — 히스토리 화면의
+    // FOCUS 창 관용치 안내 판단용. 카드 픽스처의 값이 그대로 실려야 한다.
     expect(mockNavigate).toHaveBeenCalledWith('GroupBetHistory', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      missionType: 'DURATION',
+      missionCategory: 'FOCUS',
     });
     expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
   });

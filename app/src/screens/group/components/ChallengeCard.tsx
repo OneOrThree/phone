@@ -189,8 +189,14 @@ export default function ChallengeCard({
       Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해주세요.');
       return;
     }
-    navigation.navigate('GroupBetHistory', { groupId, challengeId: challenge.id });
-  }, [lastBetView, challenge.id, navigation]);
+    navigation.navigate('GroupBetHistory', {
+      groupId,
+      challengeId: challenge.id,
+      // FOCUS 창 관용치 안내 판단용(#527 리뷰) — 시트에 내려주는 것과 같은 카드의 미션 메타.
+      missionType: challenge.missionType,
+      missionCategory: challenge.missionCategory,
+    });
+  }, [lastBetView, challenge.id, challenge.missionType, challenge.missionCategory, navigation]);
 
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;

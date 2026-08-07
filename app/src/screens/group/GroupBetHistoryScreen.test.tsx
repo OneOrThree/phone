@@ -22,15 +22,22 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
+const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const CHALLENGE_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+
+// route params 홀더 — 관용치 안내 테스트가 미션 메타를 갈아끼운다(beforeEach가 기본값으로 되돌린다).
 const mockNav = { goBack: jest.fn() };
+const mockRoute = {
+  params: { groupId: GROUP_ID, challengeId: CHALLENGE_ID } as {
+    groupId: string;
+    challengeId: string;
+    missionType?: 'TIME_WINDOW' | 'DURATION';
+    missionCategory?: 'FOCUS' | 'SCREEN_TIME';
+  },
+};
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ goBack: mockNav.goBack }),
-  useRoute: () => ({
-    params: {
-      groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55',
-      challengeId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66',
-    },
-  }),
+  useRoute: () => mockRoute,
 }));
 
 // groupApi가 삭제 계측 경유로 파이어베이스 네이티브 모듈을 당긴다 — jest엔 없다(NoticeScreen.test 관행).
@@ -42,9 +49,6 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 const mockGetBetHistory = getBetHistory as jest.MockedFunction<typeof getBetHistory>;
-
-const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
-const CHALLENGE_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 
 // 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
 function axiosErrorWith(status: number, code?: string): AxiosError {
@@ -96,6 +100,7 @@ async function reachEnd() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetBetHistory.mockResolvedValue(slice());
+  mockRoute.params = { groupId: GROUP_ID, challengeId: CHALLENGE_ID };
 });
 
 describe('3상(로딩/에러/빈)', () => {
@@ -265,8 +270,31 @@ describe('다음 페이지 404(BET_NOT_FOUND) 인라인', () => {
 
     expect(mockGetBetHistory).toHaveBeenCalledTimes(2); // 첫 페이지 + 실패한 다음 페이지 1회뿐
   });
+});
 
-  test('일시 실패(코드 없는 500 등)는 커서를 보존해 다음 끝 도달에 재시도한다', async () => {
+// 일시 실패(코드 없는 500 등)의 재개는 **수동뿐**이다(#527 codex 리뷰 P1) — footer 갱신이
+// content 높이를 바꾸면 FlatList가 스크롤 없이 onEndReached를 재발화할 수 있어, 자동 재시도는
+// 지속 실패에서 요청 무한 루프가 된다.
+describe('다음 페이지 일시 실패 — 자동 재시도 금지', () => {
+  test('실패 후 onEndReached 연발은 추가 요청을 만들지 않는다 — 다시 시도 버튼만 남는다', async () => {
+    mockGetBetHistory
+      .mockResolvedValueOnce(slice({ hasNext: true, nextCursor: 'b1' }))
+      .mockRejectedValueOnce(axiosErrorWith(500));
+    await renderScreen();
+
+    await reachEnd();
+    // 받은 이력은 유지 + 수동 재시도 진입점.
+    expect(screen.getByText('7월 31일')).toBeOnTheScreen();
+    expect(screen.getByText('지난 기록을 더 불러오지 못했어요')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.betHistory.more.retry')).toBeOnTheScreen();
+
+    // footer 높이 변화가 유발할 수 있는 재발화를 흉내 — 자동 재시도가 없으니 요청도 없다.
+    await reachEnd();
+    await reachEnd();
+    expect(mockGetBetHistory).toHaveBeenCalledTimes(2); // 첫 페이지 + 실패한 다음 페이지뿐
+  });
+
+  test("'다시 시도' 탭이 같은 커서로 1회 재요청한다 — 성공하면 버튼이 걷히고 이어붙는다", async () => {
     mockGetBetHistory
       .mockResolvedValueOnce(slice({ hasNext: true, nextCursor: 'b1' }))
       .mockRejectedValueOnce(axiosErrorWith(500))
@@ -274,17 +302,113 @@ describe('다음 페이지 404(BET_NOT_FOUND) 인라인', () => {
         slice({ content: [historyItem({ betId: 'b2', betDate: '2026-07-30' })] }),
       );
     await renderScreen();
-
     await reachEnd();
-    expect(screen.getByTestId('group.betHistory.more.notice')).toBeOnTheScreen();
 
-    await reachEnd();
-    // 같은 커서로 재시도해 성공 — 배너가 걷히고 페이지가 이어붙는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.betHistory.more.retry'));
+    });
+
+    expect(mockGetBetHistory).toHaveBeenCalledTimes(3);
     expect(mockGetBetHistory).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
       cursor: 'b1',
       size: 20,
     });
     expect(screen.getByText('7월 30일')).toBeOnTheScreen();
-    expect(screen.queryByTestId('group.betHistory.more.notice')).toBeNull();
+    expect(screen.queryByTestId('group.betHistory.more.retry')).toBeNull();
+  });
+});
+
+describe('새로고침 × 다음 페이지 레이스', () => {
+  test('첫 페이지 재조회가 도는 동안 onEndReached는 무시된다 — 옛 커서 이어붙임 방지', async () => {
+    // 새로고침이 시작된 뒤의 onEndReached는 최신 seq를 캡처한 채 **옛 pageEnd 커서**로
+    // 나가므로 seq 검사를 통과해 새 첫 페이지 뒤에 옛 페이지가 이어붙는다(#527 P2) —
+    // firstPageInFlight가 통째로 막는 것을 잠근다.
+    let resolveRefresh: (v: GroupBetHistorySliceResponse) => void = () => {};
+    mockGetBetHistory
+      .mockResolvedValueOnce(slice({ hasNext: true, nextCursor: 'b1' }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<GroupBetHistorySliceResponse>((r) => {
+            resolveRefresh = r;
+          }),
+      );
+    await renderScreen();
+
+    // 당겨서 새로고침 시작 — 응답은 붙잡아 둔다(RefreshControl 트리거는 GroupRoomScreen.test 관행).
+    const refreshControl = (
+      screen.getByTestId('group.betHistory.list').props as {
+        refreshControl: { props: { onRefresh: () => void } };
+      }
+    ).refreshControl;
+    await act(async () => {
+      refreshControl.props.onRefresh();
+    });
+
+    await reachEnd();
+    // 첫 페이지 + 새로고침뿐 — 옛 커서(b1)로 나가는 다음 페이지 요청이 없다.
+    expect(mockGetBetHistory).toHaveBeenCalledTimes(2);
+
+    // 새로고침이 끝나면 커서가 새로 잡혀 페이지네이션이 정상 재개된다.
+    await act(async () => {
+      resolveRefresh(slice({ hasNext: false, nextCursor: null }));
+    });
+    await reachEnd();
+    expect(mockGetBetHistory).toHaveBeenCalledTimes(2); // hasNext=false — 재개할 다음 페이지가 없다
+  });
+});
+
+// FOCUS 창의 5분 관용치 안내(#527 P3) — 시트와 같은 조건(FOCUS×TIME_WINDOW + 실측 분이 실제로
+// 그려질 때만)·같은 문구(WINDOW_FOCUS_TOLERANCE_NOTICE). 미션 메타는 route param(옵셔널)이다.
+describe('FOCUS 창 관용치 안내', () => {
+  test('FOCUS×TIME_WINDOW + 실측 분이 있으면 목록 상단에 안내가 선다', async () => {
+    mockRoute.params = {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+      missionType: 'TIME_WINDOW',
+      missionCategory: 'FOCUS',
+    };
+    await renderScreen();
+
+    expect(screen.getByTestId('group.betHistory.toleranceNotice')).toHaveTextContent(
+      '목표에서 5분 모자라도 달성으로 인정돼요',
+    );
+  });
+
+  test('DURATION이면 안내가 없다 — 관용치는 FOCUS 창 전용', async () => {
+    mockRoute.params = {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+      missionType: 'DURATION',
+      missionCategory: 'FOCUS',
+    };
+    await renderScreen();
+    expect(screen.queryByTestId('group.betHistory.toleranceNotice')).toBeNull();
+  });
+
+  test('미션 메타 없는 진입(구 호환)에는 안내가 없다 — 없는 정보를 지어내지 않는다', async () => {
+    await renderScreen(); // 기본 params — 메타 없음
+    expect(screen.queryByTestId('group.betHistory.toleranceNotice')).toBeNull();
+  });
+
+  test('FOCUS 창이어도 실측 분이 하나도 없으면(전부 null) 안내가 없다 — 모순될 숫자가 없다', async () => {
+    mockRoute.params = {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+      missionType: 'TIME_WINDOW',
+      missionCategory: 'FOCUS',
+    };
+    mockGetBetHistory.mockResolvedValueOnce(
+      slice({
+        content: [
+          historyItem({
+            results: [
+              { userId: 'u1', nickname: '재영', achieved: true, payout: 45, progressMinutes: null },
+            ],
+          }),
+        ],
+      }),
+    );
+    await renderScreen();
+    expect(screen.queryByTestId('group.betHistory.toleranceNotice')).toBeNull();
   });
 });
