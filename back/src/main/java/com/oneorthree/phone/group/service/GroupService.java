@@ -239,8 +239,12 @@ public class GroupService {
 
     @Transactional
     public void joinGroup(UUID groupId, UUID userId, JoinGroupRequest request) {
-        // 1. 게스트 검증
-        User user = userRepository.findById(userId)
+        // 1. 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 계정 탈퇴(withdraw)는 유저 행 배타 락
+        //    아래에서 멤버십을 정리하는데, 여기가 락 없는 findById 면 탈퇴의 정리 스캔 이후·커밋
+        //    이전에 낀 가입(재가입 포함)이 정리를 빠져나가 유령 멤버십으로 남는다. 공유 락끼리는
+        //    충돌하지 않아 동시 가입은 그대로 병렬이고, 탈퇴 배타 락하고만 직렬화된다 — 탈퇴가
+        //    먼저 커밋되면 is_deleted=true 를 보고 기존 계약대로 NOT_FOUND 로 거절된다.
+        User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);

@@ -326,12 +326,39 @@ public class GroupBetService {
      * ({@link #joinBet})와 같은 잠금을 잡으므로 "정산이 참가자를 읽는 사이의 행 삭제·환불"이나
      * "단독 확인 → 자동 취소 사이의 참가 끼어들기" 같은 레이스가 원천 차단된다. 잠금 후 status
      * 재확인에서 이미 종료된 내기는 건드리지 않는다(정산 결과 존중).
+     *
+     * <p><b>불변식: 그룹 상태(ENDED 등)를 보지 않는다</b> — 내기 status 만이 게이트다. 계정 탈퇴
+     * ({@code UserService.withdraw}, GROMO-801)가 solo 방장 그룹을 {@code close()} 한 <b>뒤에</b>
+     * 이 메서드를 호출하는 것이 이 불변식에 기대므로, 그룹 상태 검사를 새로 넣으면 안 된다.
      */
     @Transactional
     public void releaseFromOpenBets(User user, Group group) {
-        List<UUID> betIds = groupChallengeBetRepository
-                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId());
+        releaseBets(groupChallengeBetRepository
+                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId()), user);
+    }
 
+    /**
+     * 계정 탈퇴 연동(GROMO-801) — 탈퇴자가 참가 중인 <b>모든 그룹</b>의 OPEN 내기를 한 번에
+     * 정리한다. {@code UserService.withdraw} 가 탈퇴와 같은 트랜잭션에서 호출한다.
+     *
+     * <p>그룹·멤버십 스코프가 아니라 <b>참가 행 스코프</b>인 이유 두 가지:
+     * <ul>
+     *   <li>강퇴({@code kickMember})는 참가·판돈을 정산용으로 남기므로, 활성 멤버십이 없는
+     *       강퇴자도 OPEN 내기의 참가자다 — 멤버십 경유 조회로는 놓치고 판돈이 소각된다</li>
+     *   <li>그룹 단위 순차 해제는 앞 그룹의 환불로 지갑 행 잠금을 쥔 채 다음 그룹의 내기 잠금을
+     *       기다리게 되어, 반대 순서로 잠그는 정산기와 AB-BA 교착이 된다 — 전 그룹의 대상 내기
+     *       행을 bet id 오름차순으로 전부 잠근 뒤에만 돈을 움직인다</li>
+     * </ul>
+     *
+     * <p>{@link #releaseFromOpenBets(User, Group)} 와 같은 2단계 잠금 규율·불변식(그룹 상태
+     * 불참조)을 공유한다.
+     */
+    @Transactional
+    public void releaseFromAllOpenBets(User user) {
+        releaseBets(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(user.getId()), user);
+    }
+
+    private void releaseBets(List<UUID> betIds, User user) {
         // 1단계: 대상 내기 행을 id 오름차순으로 전부 잠근다 — 지갑 쓰기 없이 잠금만. 내기 하나를
         // 정리(지갑 쓰기)한 채로 다음 내기 잠금을 기다리면, 그 내기를 이미 잠근 참가/정산이 이쪽이
         // 쥔 지갑을 기다리는 AB-BA 데드락이 된다. 모든 경로의 잠금 순서를 "내기 행(전부) → 지갑"으로

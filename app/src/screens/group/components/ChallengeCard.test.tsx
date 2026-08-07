@@ -48,9 +48,12 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 // 철회 버튼의 '시작 전' 판정이 시간에 기댄다 — '오늘'과 KST 벽시계를 테스트가 직접 고정한다.
 jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') }));
+// KST 벽시계는 기본 10:00 — 자정 걸침 창(GROMO-1208) 시나리오만 값을 바꾼다(BetSheet.test 관행).
+// 되돌리기는 beforeEach가 맡는다 — 안 되돌리면 뒤 테스트가 조용히 00:30 세계에서 돈다.
+let mockNowSec = 10 * 3600;
 jest.mock('@/utils/challengeTime', () => ({
   ...jest.requireActual('@/utils/challengeTime'),
-  nowSecondsInZone: jest.fn(() => 10 * 3600), // KST 10:00:00 고정
+  nowSecondsInZone: jest.fn(() => mockNowSec),
 }));
 
 const mockLeaveBet = leaveBet as jest.MockedFunction<typeof leaveBet>;
@@ -140,6 +143,7 @@ async function renderCard(over: Partial<GroupChallengeResponse> = {}, betLocked 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockNowSec = 10 * 3600; // KST 10:00 — 시각을 바꾼 테스트가 남긴 값을 되돌린다.
   mockLeaveBet.mockResolvedValue(undefined);
   mockCancelBet.mockResolvedValue(undefined);
   mockChallengeGroupId.mockReturnValue(GROUP_ID);
@@ -1134,7 +1138,8 @@ describe('참가 철회', () => {
   test('철회 성공은 부모 재조회를 태운다 — 실패하면 태우지 않는다', async () => {
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     const onBetChanged = jest.fn();
-    // 마지막 참가자가 빠지면 서버가 챌린지까지 지운다(계약 §3) — 재조회해야 카드가 목록에서 빠진다.
+    // 마지막 참가자가 빠지면 내기가 CANCELED로 닫히고 챌린지는 휴면으로 남는다(GROMO-1201) —
+    // 재조회해야 카드가 닫힌 내기·휴면 상태로 갱신된다.
     await renderJoined(
       { participants: [{ userId: 'u1', nickname: '재영' }], pot: 30 },
       {},
@@ -1182,8 +1187,8 @@ describe('참가 철회', () => {
     expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
     // 아무도 남지 않았다 — 유지해 그릴 내기 정보 행이 없다.
     expect(screen.queryByText(/적립금/)).toBeNull();
-    // 재참여 진입점도 세우지 않는다 — 서버가 내기를 닫고 챌린지까지 지운다(계약 §3).
-    // 재조회하면 카드 자체가 목록에서 빠진다.
+    // 재참여 진입점도 세우지 않는다 — 내기가 CANCELED로 닫혀 들어갈 OPEN 내기가 없다.
+    // 챌린지는 지워지지 않고 휴면으로 남는다(GROMO-1201) — 재조회하면 휴면 카드로 갱신된다.
     expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
   });
 
@@ -1240,10 +1245,13 @@ describe('당일 단독 개설자 취소 carve-out', () => {
       ...over,
     });
 
-  function renderSolo(betOver: Partial<GroupChallengeBet> = {}) {
+  function renderSolo(
+    betOver: Partial<GroupChallengeBet> = {},
+    challengeOver: Partial<GroupChallengeResponse> = {},
+  ) {
     return render(
       <ChallengeCard
-        challenge={challenge({ bet: soloCreatorBet(betOver) })}
+        challenge={challenge({ bet: soloCreatorBet(betOver), ...challengeOver })}
         isOwner={false}
         myUserId="u1"
         onDelete={onDelete}
@@ -1251,6 +1259,18 @@ describe('당일 단독 개설자 취소 carve-out', () => {
       />,
     );
   }
+
+  // 창(TIME_WINDOW) 챌린지 오버라이드 — carve-out의 '시작 전' 판정은 창에선 벽시계 비교다.
+  const windowChallenge = (
+    windowStart: string,
+    windowEnd: string,
+  ): Partial<GroupChallengeResponse> => ({
+    missionType: 'TIME_WINDOW',
+    durationMinutes: 60,
+    windowStart,
+    windowEnd,
+    memberProgress: null,
+  });
 
   test('당일 내기의 단독 개설자에겐 철회 대신 취소 버튼이 보인다', async () => {
     await renderSolo();
@@ -1262,6 +1282,29 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     await renderSolo({ date: '2026-08-02' });
     expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('오늘 창 내기 — 창 시작 전(10:00 < 11:00)이면 철회가 우선, 취소는 없다', async () => {
+    await renderSolo({}, windowChallenge('11:00:00', '13:00:00'));
+    expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('오늘 창 내기 — 창 시작 후(10:00 ≥ 09:00)면 취소 carve-out이 선다', async () => {
+    await renderSolo({}, windowChallenge('09:00:00', '11:00:00'));
+    expect(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  // GROMO-1208 회귀 고정 — 자정 걸침 창(22:00~01:00)의 **어제** 내기를 00:30에 보면, 초만
+  // 비교(1800 < 79200)하던 옛 판정은 '시작 전'으로 읽어 철회를 세웠고(서버는 창 시작을
+  // bet_date에 앵커해 BET_LEAVE_CLOSED로 거절) 취소는 !leavable 뒤라 어느 버튼도 못 서는
+  // dead-end였다. 과거 날짜 내기는 항상 시작 후다 — 취소 carve-out이 선다.
+  test('자정 걸침 창의 어제 내기 — 철회 대신 취소가 서서 dead-end가 풀린다', async () => {
+    mockNowSec = 0.5 * 3600; // KST 00:30 — 어제 22시에 시작된 창이 아직 흐르는 시각.
+    await renderSolo({ date: '2026-07-31' }, windowChallenge('22:00:00', '01:00:00'));
+    expect(screen.queryByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeOnTheScreen();
   });
 
   test('타 참가자가 있거나 개설자가 아니면(모르면) 취소도 없다', async () => {
@@ -1335,5 +1378,35 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     );
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
     expect(screen.queryByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+  });
+});
+
+// 휴면 배지(GROMO-1201) — 마지막 참가자가 철회해도 서버는 챌린지를 지우지 않고 남긴다.
+// OPEN 내기가 없고 과거 이력만 있는 챌린지에 dormant=true가 내려오면 카드가 칩·캡션으로
+// 표시만 가른다. 문구는 계약 §2 고정('휴면' — '비활성'은 INACTIVE 대비 예약).
+describe('휴면 배지', () => {
+  test('dormant=true면 휴면 칩과 참가자 없음 캡션을 그린다', async () => {
+    await renderCard({ dormant: true, bet: null, lastSettledBet: lastSettledBet() });
+    expect(screen.getByText('휴면')).toBeOnTheScreen();
+    expect(screen.getByText('참가자가 없어요')).toBeOnTheScreen();
+  });
+
+  test('dormant를 모르는 구서버(undefined)·false에는 아무것도 그리지 않는다', async () => {
+    // 필드가 아예 없는 구서버 — undefined는 '휴면 아님'이 아니라 '휴면을 모르는 서버'다.
+    await renderCard({ bet: null });
+    expect(screen.queryByText('휴면')).toBeNull();
+    expect(screen.queryByText('참가자가 없어요')).toBeNull();
+
+    await renderCard({ dormant: false, bet: null });
+    expect(screen.queryByText('휴면')).toBeNull();
+    expect(screen.queryByText('참가자가 없어요')).toBeNull();
+  });
+
+  test('휴면이어도 내기 걸기는 눌린다 — 새 내기가 서면 서버가 휴면을 해제한다', async () => {
+    await renderCard({ dormant: true, bet: null });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
+    });
+    expect(onOpenBet).toHaveBeenCalledWith('create');
   });
 });

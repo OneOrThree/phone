@@ -124,6 +124,13 @@ class FriendServiceTest {
         return Friendship.builder().fromUser(from).toUser(to).status(status).build();
     }
 
+    // soft delete 된 관계 행 — deleteFriend(status 유지 + deletedAt 기록) 이후 상태 재현용 (GROMO-719)
+    private Friendship deletedFriendship(User from, User to, FriendshipStatus status) {
+        Friendship f = friendship(from, to, status);
+        f.softDelete(Instant.now());
+        return f;
+    }
+
     // ── createRequest ──────────────────────────────────────
 
     @Test
@@ -242,6 +249,62 @@ class FriendServiceTest {
 
         assertThat(rejected.getStatus()).isEqualTo(FriendshipStatus.PENDING);
         verify(friendshipRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — 삭제했던 친구에 재요청하면 soft delete 행을 PENDING으로 복원(insert 없음) (GROMO-719)")
+    void createRequest_softDeletedFriend_restoresRow() {
+        // deleteFriend 는 status=ACCEPTED 를 남긴 채 deletedAt 만 찍는다 — 이 행을 복원하지 않고
+        // save() 로 가면 unique(from,to) 충돌로 409 가 나고 그 방향은 영영 요청 불가가 된다.
+        Friendship deleted = deletedFriendship(me, target, FriendshipStatus.ACCEPTED);
+        given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(deleted));
+
+        friendService.createRequest(meId, targetId);
+
+        assertThat(deleted.getStatus()).isEqualTo(FriendshipStatus.PENDING);
+        assertThat(deleted.getDeletedAt()).isNull();
+        verify(friendshipRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — soft delete 된 REJECTED 행도 재전환이 아니라 복원으로 되살린다 (GROMO-719)")
+    void createRequest_softDeletedRejected_restoresRow() {
+        // REJECTED 재전환(reopen) 분기로 빠지면 deletedAt 이 남아 PENDING 인데도 목록·수락 경로에서
+        // 안 보이는 유령 요청이 된다 — deletedAt 을 먼저 보는 복원 분기가 이겨야 한다.
+        Friendship deleted = deletedFriendship(me, target, FriendshipStatus.REJECTED);
+        given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(deleted));
+
+        friendService.createRequest(meId, targetId);
+
+        assertThat(deleted.getStatus()).isEqualTo(FriendshipStatus.PENDING);
+        assertThat(deleted.getDeletedAt()).isNull();
+        verify(friendshipRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("친구 요청 생성 — 복원 경로도 재전환과 같게 reopened=true 로 로깅·푸시 발행 (GROMO-719)")
+    void createRequest_restored_emitsReopenedTrueAndPushEvent() {
+        // 복원도 수신자 입장에선 새로 도착한 요청이다 — 재전환(reopen)과 같은 후처리 경로를 탄다.
+        Friendship deleted = deletedFriendship(me, target, FriendshipStatus.ACCEPTED);
+        given(userRepository.findActiveByIdForShare(meId)).willReturn(Optional.of(me));
+        given(userRepository.findActiveByIdForShare(targetId)).willReturn(Optional.of(target));
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(deleted));
+
+        friendService.createRequest(meId, targetId);
+
+        verify(userActivityEventLogger).log(UserActivityEvent.FRIEND_REQUEST_SENT,
+                Map.of("to_user_id", targetId.toString(), "reopened", true));
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue()).isInstanceOfSatisfying(FriendRequestSentEvent.class, event -> {
+            // 복원은 기존 행을 되살리므로 그 행의 id 가 실려야 한다 — 소비 측이 상태를 다시 본다.
+            assertThat(event.requestId()).isEqualTo(deleted.getId());
+            assertThat(event.receiverUserId()).isEqualTo(targetId);
+        });
     }
 
     @Test
@@ -501,6 +564,33 @@ class FriendServiceTest {
         friendService.rejectRequest(meId, requestId);
 
         verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("요청 거절 — ACCEPTED 관계에는 INVALID_REQUEST_STATUS(409), 상태 불변 (GROMO-719)")
+    void rejectRequest_accepted_throwsInvalidStatus() {
+        // 거절은 PENDING 한정이다 — ACCEPTED 에 통하면 친구 관계가 deleteFriend 를 우회해 조용히 증발한다.
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.ACCEPTED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.rejectRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.INVALID_REQUEST_STATUS);
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("요청 거절 — 이미 REJECTED 인 요청도 INVALID_REQUEST_STATUS(409) (GROMO-719)")
+    void rejectRequest_alreadyRejected_throwsInvalidStatus() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.REJECTED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.rejectRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.INVALID_REQUEST_STATUS);
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.REJECTED);
     }
 
     // ── deleteFriend ───────────────────────────────────────

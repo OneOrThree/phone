@@ -79,7 +79,7 @@ class GroupMemberServiceTest {
                 .user(target).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findById(TARGET_ID)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.of(targetMember));
@@ -90,6 +90,24 @@ class GroupMemberServiceTest {
         // then: 역할 교체 (GROMO-676 — groups.host_id 폐기, role 이 방장의 단일 원천)
         assertThat(hostMember.getRole()).isEqualTo(GroupMemberRole.MEMBER);
         assertThat(targetMember.getRole()).isEqualTo(GroupMemberRole.OWNER);
+        // 위임 대상은 공유 락 로드여야 한다 (GROMO-801) — 락 없는 findById 면 대상의 계정 탈퇴와
+        // 직렬화되지 않아, 탈퇴한 유저가 오너로 되살아나는 레이스가 열린다.
+        verify(userRepository).findActiveByIdForShare(TARGET_ID);
+        verify(userRepository, never()).findById(TARGET_ID);
+    }
+
+    @Test
+    @DisplayName("위임 대상이 이미 탈퇴한 유저 → UserException(NOT_FOUND), 역할 변경 없음 (GROMO-801)")
+    void transferOwnerRejectsWithdrawnTarget() {
+        User owner = User.builder().id(OWNER_ID).build();
+        given(userRepository.findById(OWNER_ID)).willReturn(Optional.of(owner));
+        // 탈퇴가 먼저 커밋된 대상 — 활성 조회(공유 락)가 빈 결과를 돌려준다
+        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
     @Test
@@ -126,7 +144,7 @@ class GroupMemberServiceTest {
         User owner = User.builder().id(OWNER_ID).build();
         User target = User.builder().id(TARGET_ID).build();
         given(userRepository.findById(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findById(TARGET_ID)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
@@ -147,7 +165,7 @@ class GroupMemberServiceTest {
                 .user(owner).group(group).role(GroupMemberRole.MEMBER).build();
 
         given(userRepository.findById(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findById(TARGET_ID)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
 
@@ -169,7 +187,7 @@ class GroupMemberServiceTest {
                 .user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
         given(userRepository.findById(OWNER_ID)).willReturn(Optional.of(owner));
-        given(userRepository.findById(TARGET_ID)).willReturn(Optional.of(target));
+        given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.of(target));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group)).willReturn(Optional.of(hostMember));
         given(groupMemberRepository.findByUserAndGroup(target, group)).willReturn(Optional.empty());

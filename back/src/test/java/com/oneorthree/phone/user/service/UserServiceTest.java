@@ -17,6 +17,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.service.GroupBetService;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.user.domain.Occupation;
 import com.oneorthree.phone.user.domain.Provider;
@@ -46,6 +47,7 @@ import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -63,6 +65,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -120,6 +123,9 @@ class UserServiceTest {
 
     @Mock
     private GroupMemberRepository groupMemberRepository;
+
+    @Mock
+    private GroupBetService groupBetService;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
@@ -365,7 +371,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("탈퇴가 막히면(방장) 친구·핀 정리도 일어나지 않는다 (GROMO-801)")
+    @DisplayName("탈퇴가 막히면(방장) 친구·핀 정리도, 내기 해제·멤버십 이탈도 일어나지 않는다 (GROMO-801)")
     void withdrawHostForbiddenSkipsFriendCleanup() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
@@ -376,6 +382,9 @@ class UserServiceTest {
 
         verify(friendshipRepository, never()).findActiveByUserId(any());
         verify(pinnedUserRepository, never()).deleteAllInvolving(any());
+        // HOST_WITHDRAW 가드가 내기 해제·멤버십 이탈보다 앞이라 새 정리도 전부 중단된다
+        verify(groupBetService, never()).releaseFromAllOpenBets(any());
+        verify(groupMemberRepository, never()).findByUser(any());
     }
 
     @Test
@@ -403,7 +412,7 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("A-2 혼자 있는 소유 그룹은 탈퇴와 함께 자동 종료(ENDED)되고 탈퇴가 성공한다")
+    @DisplayName("A-2 혼자 있는 소유 그룹은 탈퇴와 함께 자동 종료(ENDED)되고 그 그룹의 OPEN 내기도 해제된다")
     void withdrawAutoEndsSoloOwnedGroup() {
         User user = User.builder().id(USER_ID).build();
         Group soloGroup = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000aa"))
@@ -426,6 +435,49 @@ class UserServiceTest {
         assertThat(ownerMembership.isLeft()).isTrue();
         assertThat(user.isDeleted()).isTrue();
         verify(socialAccountRepository).deleteByUserId(USER_ID);
+        // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제가
+        // 멤버십·그룹 상태와 무관하게 반드시 호출된다
+        verify(groupBetService).releaseFromAllOpenBets(user);
+    }
+
+    @Test
+    @DisplayName("탈퇴 시 MEMBER 멤버십 — 그룹마다 OPEN 내기를 해제하고 leave 로 유령 멤버를 남기지 않는다 (GROMO-801)")
+    void withdrawReleasesBetsAndLeavesMemberMemberships() {
+        User user = User.builder().id(USER_ID).build();
+        Group groupA = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000a1"))
+                .status(GroupStatus.WAITING).build();
+        Group groupB = Group.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000a2"))
+                .status(GroupStatus.WAITING).build();
+        GroupMember membershipA = GroupMember.builder()
+                .user(user).group(groupA).role(GroupMemberRole.MEMBER).build();
+        GroupMember membershipB = GroupMember.builder()
+                .user(user).group(groupB).role(GroupMemberRole.MEMBER).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(groupMemberRepository.findByUser(user)).willReturn(List.of(membershipA, membershipB));
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
+
+        userService.withdraw(USER_ID);
+
+        // 유저 스코프 일괄 해제 — 안 하면 판돈이 에스크로에 묶인 채 소각된다 (강퇴자 참가분 포함)
+        verify(groupBetService).releaseFromAllOpenBets(user);
+        // MEMBER 멤버십도 이탈 마킹 — 안 하면 nickname null 유령이 정원을 차지한다
+        assertThat(membershipA.isLeft()).isTrue();
+        assertThat(membershipB.isLeft()).isTrue();
+        assertThat(user.isDeleted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("내기 해제는 지갑 삭제보다 먼저다 — 해제 환불이 지갑에 입금되므로 순서가 뒤집히면 터진다 (GROMO-801)")
+    void withdrawReleasesBetsBeforeWalletDeletion() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.existsGroupOwnedBy(USER_ID)).willReturn(false);
+
+        userService.withdraw(USER_ID);
+
+        InOrder order = inOrder(groupBetService, userWalletRepository);
+        order.verify(groupBetService).releaseFromAllOpenBets(user);
+        order.verify(userWalletRepository).deleteById(USER_ID);
     }
 
     @Test
