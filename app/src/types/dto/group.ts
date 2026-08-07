@@ -293,8 +293,9 @@ export interface CreateChallengeRequest {
   missionCategory: MissionCategory;
   missionType: MissionType;
   durationMinutes: number; // 하루/창 목표(분)
-  // TIME_WINDOW 전용 — ISO-8601 Instant 문자열. 서버는 이 값을 KST 시각(time-of-day) 앵커로
-  // 해석한다(계약 설계 보정 — '매일 반복 시간대'). 앱은 +09:00 오프셋을 명시해 보낸다.
+  // TIME_WINDOW 전용 — "HH:mm:ss" KST 벽시계 문자열(GROMO-1225). 서버가 읽는 값이
+  // '매일 반복 시간대'(time-of-day)라 날짜·오프셋 없이 시각만 보낸다.
+  // (구앱 하위 호환: 서버는 종전 ISO Instant도 이중 수용한다.)
   windowStart?: string;
   windowEnd?: string;
 }
