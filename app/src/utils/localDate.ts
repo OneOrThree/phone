@@ -49,15 +49,34 @@ export function yesterdayStr(): string {
 // Intl 미지원/오류 시 로컬 폴백 — challengeTime.nowSecondsInZone과 같은 관례다.
 // 날짜 이동은 setDate가 아니라 절대 ms 가산이다: Date는 절대 시각이라 +86_400_000ms 후를 KST로
 // 포맷하면 정확히 KST 다음 날이 된다(KST는 DST가 없다).
+
+// KST 포매터는 모듈 스코프 1회 생성 캐시 — Intl.DateTimeFormat 생성은 로케일 데이터를 물어
+// 비싸서, 레코드당 생성하면(kstDateStr를 세션 수백 건에 맵핑) JS 스레드가 눈에 띄게 멈춘다
+// (PR #531 P2). 생성 실패(Intl/타임존 미지원)도 1회만 판정해 null로 캐시 — 이후 호출은 곧장
+// 로컬 폴백을 탄다.
+let kstDateFormat: Intl.DateTimeFormat | null | undefined;
+function getKstDateFormat(): Intl.DateTimeFormat | null {
+  if (kstDateFormat === undefined) {
+    try {
+      kstDateFormat = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+    } catch {
+      kstDateFormat = null;
+    }
+  }
+  return kstDateFormat;
+}
+
 function dateStrKstAfter(days: number, base: number = Date.now()): string {
   const target = new Date(base + days * 86_400_000);
+  const fmt = getKstDateFormat();
+  if (fmt == null) return localDateStr(target);
   try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(target);
+    const parts = fmt.formatToParts(target);
     const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
     const y = get('year');
     const m = get('month');

@@ -286,20 +286,38 @@ export const dayNum = (y: number, monthIdx: number, d: number) =>
 
 // 임의 시각 → KST 벽시계 자정 경과 분 — dailyFirstStartMinutes 전용.
 // Intl 실패 시 로컬 폴백 — localDate.ts의 KST 헬퍼와 같은 관례.
+// 포매터는 모듈 스코프 1회 생성 캐시(레코드당 생성은 세션 수백 건에서 JS 스레드 멈춤 —
+// PR #531 P2, localDate.ts와 동일 패턴). 생성 실패도 1회만 판정해 null 캐시.
+let kstTimeFormat: Intl.DateTimeFormat | null | undefined;
+function getKstTimeFormat(): Intl.DateTimeFormat | null {
+  if (kstTimeFormat === undefined) {
+    try {
+      kstTimeFormat = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Seoul',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    } catch {
+      kstTimeFormat = null;
+    }
+  }
+  return kstTimeFormat;
+}
+
 function kstMinutesOfDay(d: Date): number {
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Seoul',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(d);
-    const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? NaN);
-    const h = get('hour');
-    const m = get('minute');
-    if (Number.isFinite(h) && Number.isFinite(m)) return (h % 24) * 60 + m;
-  } catch {
-    // 아래 로컬 폴백
+  const fmt = getKstTimeFormat();
+  if (fmt != null) {
+    try {
+      const parts = fmt.formatToParts(d);
+      const get = (type: string): number =>
+        Number(parts.find((p) => p.type === type)?.value ?? NaN);
+      const h = get('hour');
+      const m = get('minute');
+      if (Number.isFinite(h) && Number.isFinite(m)) return (h % 24) * 60 + m;
+    } catch {
+      // 아래 로컬 폴백
+    }
   }
   return d.getHours() * 60 + d.getMinutes();
 }
