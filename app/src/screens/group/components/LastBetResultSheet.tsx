@@ -340,8 +340,6 @@ const s = StyleSheet.create({
   rowMe: { backgroundColor: T.accentBg, borderRadius: 8 },
   nickname: { ...T.text.caption, fontWeight: '600', color: T.inkSub, flex: 1 },
   nicknameMe: { color: T.accentDeep, fontWeight: '700' },
-  // 판정 근거 분 — 결과 모달 memberMinutes와 같은 결(보조 캡션·tabular-nums). 판정 라벨보다
-  // 흐리게 둔다 — 근거는 판정을 보조하는 숫자지 그 자체가 결론이 아니다.
   // 판정 규칙 고지 — 결과 모달 toleranceNotice와 같은 역할(명단 직전 고정 한 줄). 이 시트는
   // 밝은 배경이라 색만 시트의 보조 톤(inkMuted)을 쓴다.
   toleranceNotice: {
@@ -350,6 +348,8 @@ const s = StyleSheet.create({
     textAlign: 'center',
     marginBottom: T.space.sm,
   },
+  // 판정 근거 분 — 결과 모달 memberMinutes와 같은 결(보조 캡션·tabular-nums). 판정 라벨보다
+  // 흐리게 둔다 — 근거는 판정을 보조하는 숫자지 그 자체가 결론이 아니다.
   basis: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, fontVariant: ['tabular-nums'] },
   verdict: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
   verdictDone: { color: T.successInk },
