@@ -23,10 +23,17 @@ cd "$(dirname "$0")"
 # node 가 PATH 에 없으면 보강(일부 셸 환경 대비)
 command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/Cellar/node@24/24.17.0/bin:$PATH"
 
-# 릴리즈(TestFlight)는 항상 프로덕션 서버로 — 로컬 .env(개발용 로컬 백엔드)를 덮어쓴다.
-# (Expo 는 셸에 export 된 EXPO_PUBLIC_* 가 .env/.env.production 보다 우선 적용됨)
-# dev 서버로 올려야 할 때만 TESTFLIGHT_API_URL=https://oneorthree.dev.mooo.com ./testflight.sh
-export EXPO_PUBLIC_API_URL="${TESTFLIGHT_API_URL:-https://api.oneorthree.world}"
+# 서버 대상: beta(테스트 업로드)는 dev, release(심사 제출)는 prod 를 기본으로 한다.
+# 로컬 .env(개발용 로컬 백엔드)를 덮어쓴다 — Expo 는 셸에 export 된 EXPO_PUBLIC_* 가
+# .env/.env.production 보다 우선 적용됨. 특정 서버로 강제하려면 TESTFLIGHT_API_URL 로 오버라이드:
+#   TESTFLIGHT_API_URL=https://api.oneorthree.world ./testflight.sh          (beta 를 prod 로)
+#   TESTFLIGHT_API_URL=https://oneorthree.dev.mooo.com ./testflight.sh release (release 를 dev 로)
+if [[ "$LANE" == "release" ]]; then
+  DEFAULT_API_URL="https://api.oneorthree.world"
+else
+  DEFAULT_API_URL="https://oneorthree.dev.mooo.com"
+fi
+export EXPO_PUBLIC_API_URL="${TESTFLIGHT_API_URL:-$DEFAULT_API_URL}"
 echo "🌐 API 서버: $EXPO_PUBLIC_API_URL"
 
 # 환경 태그(EXPO_PUBLIC_ENV)도 API 대상에 맞춰 강제 — 로컬 .env의 dev 값이 릴리즈 번들에
