@@ -69,8 +69,8 @@ public class CurrencyLedgerService {
     }
 
     /**
-     * 현재 잔액. 지급·차감을 수행한 트랜잭션이 응답에 잔액 정본을 실을 때 쓴다(GROMO-1049) —
-     * 앱이 별도 조회로 잔액을 다시 물으면 그 스냅샷이 지급 전인지 후인지 알 수 없어 경합이 생긴다.
+     * 현재 잔액. 세션 저장 응답의 balanceAfter(구 번들 호환 필드)를 채우는 데 쓴다 — 현재 앱은
+     * 잔액을 GET /currency 재조회로 받으므로 신규 소비처를 늘리지 않는다.
      */
     public int balanceOf(User user) {
         return wallet(user).getBalance();

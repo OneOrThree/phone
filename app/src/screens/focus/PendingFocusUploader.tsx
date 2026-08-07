@@ -9,15 +9,15 @@ import { flushPendingFocusUploads } from './pendingFocusUploads';
 // 현재 로그인 userId를 넘겨 다른 계정이 적립한 항목은 업로드하지 않고 버리게 한다.
 export function PendingFocusUploader() {
   const { userId } = useUser();
-  const { applyServerBalance } = useCoins();
+  const { refresh: refreshCoins } = useCoins();
 
   useEffect(() => {
-    // 대기열이 커밋한 저장의 잔액 정본을 화면에 반영한다(GROMO-1049) — 예전엔 응답을 버려서,
-    // 늦게 올라간 세션의 지급이 다음 잔액 조회 전까지 화면에 나타나지 않았다.
+    // 대기열이 실제로 저장을 커밋했으면 서버 잔액을 다시 받는다(GROMO-1049) — 예전엔 응답을
+    // 버려서, 늦게 올라간 세션의 지급이 다음 잔액 조회 전까지 화면에 나타나지 않았다.
     const flush = () => {
       flushPendingFocusUploads(userId)
-        .then((balanceAfter) => {
-          if (typeof balanceAfter === 'number') applyServerBalance(balanceAfter);
+        .then((committed) => {
+          if (committed) refreshCoins();
         })
         .catch(() => {});
     };
@@ -26,7 +26,7 @@ export function PendingFocusUploader() {
       if (state === 'active') flush();
     });
     return () => sub.remove();
-  }, [userId, applyServerBalance]);
+  }, [userId, refreshCoins]);
 
   return null;
 }

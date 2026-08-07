@@ -120,7 +120,7 @@ export default function FocusSessionScreen() {
   const isLandscape = width > height;
   const { userId, nickname } = useUser();
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
-  const { addCoins, reconcileSessionAward } = useCoins();
+  const { refresh: refreshCoins } = useCoins();
   const { subjects, addFocusToSubject } = useSubjects();
   // 장착된 커스텀(누끼) 캐릭터 URI — 있으면 세션·스냅샷 캡처에 반영, 없으면 기존 study 포즈 유지.
   const { activeSource } = useCharacter();
@@ -251,10 +251,10 @@ export default function FocusSessionScreen() {
   // completed를 이미 발행했는지 — 완료 게이트와 finish 두 경로의 이중 발행 방지(코덱스 리뷰)
   const completedLoggedRef = useRef(false);
   const startedAtRef = useRef(new Date().toISOString());
-  // 서버 업로드 정산 마커 — 이미 정산(로컬·코인·서버 업로드)된 집중초/코인, 미정산 구간 시작 시각.
+  // 서버 업로드 정산 마커 — 이미 정산(로컬 적립·서버 업로드)된 집중초와 미정산 구간 시작 시각.
   // 뽀모도로는 집중 블록마다, 그 외 모드는 종료 시 한 번 정산한다.
+  // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라 앱이 미리 계산하지 않는다.
   const settledSecondsRef = useRef(0);
-  const settledCoinsRef = useRef(0);
   const settleAtRef = useRef(startedAtRef.current);
   // 내 그리드 셀 오늘 몫 집계(GROMO-932) — todayFocusSeconds는 FocusProvider 마운트 시에만
   // 날짜를 확인해 세션이 자정을 넘기면 어제 누적이 남는다. 렌더 시점 스냅샷으로 걷어내는
@@ -538,11 +538,6 @@ export default function FocusSessionScreen() {
       const startedAt = settleAtRef.current;
       // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
       settledSecondsRef.current = elapsed;
-      // 서버 지급률(집중 60초당 1코인 — FocusService.sessionRewardCoins, 오스카 결정)에 정렬한
-      // 낙관 계산. 어긋나면 저장 응답 정정에서 눈에 띄게 출렁인다(구 10초당 1코인은 6배 과대).
-      const totalCoins = Math.floor(elapsed / 60);
-      const newCoins = totalCoins - settledCoinsRef.current;
-      settledCoinsRef.current = totalCoins;
       settleAtRef.current = endedAt;
       AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
       // 로컬/과목 적립 — 둘 다 '오늘' 기준 스토어라, 리플레이가 자정을 넘겨 정산하는 어제
@@ -557,7 +552,6 @@ export default function FocusSessionScreen() {
         }
         gridSettledTodayRef.current.seconds += delta;
       }
-      if (newCoins > 0) addCoins(newCoins);
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
       // 블록을 정산하는 즉시 마커를 닫고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
@@ -582,23 +576,14 @@ export default function FocusSessionScreen() {
           };
           // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
           // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
-          return saveFocusSession(body).then(
+          return saveFocusSession(body, userId).then(
             // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
             // 구독으로 갱신된다.
             (res) => {
-              // 서버 지급액으로 낙관 가산 정정(B5a) — 코인은 all-time이라 아래 스트릭 판정과
-              // 달리 날짜 가드 없이 항상 반영한다. 구서버(awardedCoins 없음)면 낙관 유지.
-              // 집중 목표 첫 달성 보너스(goalRewardCoins, GROMO-1039)도 같은 저장 트랜잭션의
-              // 서버 지급이라 합산 — 빼면 다음 refresh까지 보너스가 화면에 안 보인다.
-              // balanceAfter(GROMO-1049)가 오면 그 잔액 정본이 우선 — 낙관 가산과 진행 중 조회의
-              // 순서를 따질 필요가 없다. 없으면 아래 합산 차액으로 폴백.
-              reconcileSessionAward(
-                newCoins,
-                typeof res?.awardedCoins === 'number'
-                  ? res.awardedCoins + (res.goalRewardCoins ?? 0)
-                  : undefined,
-                res?.balanceAfter,
-              );
+              // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049) — 화면에 미리 올려 두고
+              // 맞추는 방식은 '진행 중이던 조회가 지급 전인지 후인지'를 앱이 알 수 없어 성립하지
+              // 않았다. 조회끼리는 CoinContext 의 시퀀스 가드가 순서를 잡아 준다.
+              refreshCoins();
               // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
               // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가
               // 가드에 걸려 오늘의 진짜 판정까지 막는다(대기열 flush 미발행과 같은 규칙, 코덱스 리뷰).
@@ -615,8 +600,7 @@ export default function FocusSessionScreen() {
     [
       addFocusSeconds,
       addFocusToSubject,
-      addCoins,
-      reconcileSessionAward,
+      refreshCoins,
       cancelLiveSession,
       subjectId,
       subjectName,

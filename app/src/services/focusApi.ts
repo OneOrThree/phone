@@ -1,6 +1,8 @@
 // focus 도메인 API 래퍼 (FocusController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-import { api } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api, getUserIdFromToken } from '@/services/api';
+import { STORAGE_KEYS } from '@/types/storage';
 import type {
   FocusTagResponse,
   FocusTagSetupRequest,
@@ -48,19 +50,51 @@ export async function deleteFocusTag(tagId: string): Promise<void> {
   await api.delete(`/api/v1/tag/${tagId}`);
 }
 
-// 세션 저장을 앱 전역에서 **한 번에 하나씩** 보내는 체인(GROMO-1049).
+// 세션 저장을 앱 전역에서 **한 번에 하나씩** 보내는 체인.
 //
-// 응답의 balanceAfter 는 '그 트랜잭션 시점'의 잔액이라 순서가 뒤바뀌면 오래된 값이 최신을 덮는다 —
-// 백그라운드 리플레이가 여러 블록 경계를 한꺼번에 정산하면 저장이 동시에 떠 응답이 역순으로 올 수
-// 있다(코덱스 리뷰 P1). 요청을 직렬화하면 응답 순서가 곧 커밋 순서라 역전 자체가 성립하지 않는다.
-// 세션 저장은 블록당 1회로 드물어 직렬화 비용이 무시할 만하다.
+// 동시에 보내면 서버가 같은 UserWallet 을 낙관락(@Version)으로 갱신하다 충돌해, 한쪽이 409 로
+// 실패하며 세션·통계·지급이 통째로 롤백된다(코덱스 리뷰 P1). 뽀모도로가 실드 해제 후 여러 블록
+// 경계를 한꺼번에 정산할 때 실제로 동시 요청이 나간다. 세션 저장은 블록당 1회로 드물어
+// 직렬화 비용이 무시할 만하다.
 let saveChain: Promise<unknown> = Promise.resolve();
+
+// 지금 저장된 액세스 토큰과 그 주인(JWT sub). 저장이 체인에서 대기하는 동안 계정이 바뀌었는지
+// 판별하고, **검증한 그 토큰 그대로** 요청에 실어 보내는 데 쓴다.
+async function currentAccessToken(): Promise<{ token: string | null; accountId: string | null }> {
+  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  return { token, accountId: token ? getUserIdFromToken(token) : null };
+}
+
+// 계정이 바뀌어 전송을 취소했을 때 던진다 — 호출부는 이 실패를 받아 **저장을 시작한 계정**으로
+// 대기열에 넣는다(그래야 나중에 그 계정으로만 올라간다).
+export class FocusSaveAccountChangedError extends Error {
+  constructor() {
+    super('세션 저장 취소 — 대기 중 계정이 전환됨');
+    this.name = 'FocusSaveAccountChangedError';
+  }
+}
 
 // POST /api/v1/focus-session — 집중 세션 저장. 응답은 그날 누적·스트릭 서버 판정(GROMO-806).
 // 앞선 저장이 끝난 뒤에 보낸다(위 saveChain) — 실패해도 체인은 이어진다.
-export function saveFocusSession(body: FocusSessionRequest): Promise<FocusSessionSaveResponse> {
+//
+// ownerUserId: 이 저장을 시작한 계정. 직렬화 때문에 전송까지 대기가 생기는데, 그 사이 계정이
+// 바뀌면 api 인터셉터가 **전송 시점의 토큰**을 붙여 옛 계정의 세션·보상이 새 계정에 커밋된다.
+// 전송 직전에 대조하고, **검증한 그 토큰을 직접 실어** 보낸다 — 대조와 전송 사이에 계정이 바뀌어도
+// 인터셉터가 새 토큰으로 갈아끼우지 못하게(코덱스 리뷰 P1). 401 재발급 재시도도 끈다: 재발급
+// 토큰은 전환된 계정 것일 수 있어 재시도가 곧 계정 오귀속이 된다. 실패하면 대기열로 간다.
+export function saveFocusSession(
+  body: FocusSessionRequest,
+  ownerUserId: string | null,
+): Promise<FocusSessionSaveResponse> {
   const run = saveChain.then(async () => {
-    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body);
+    const { token, accountId } = await currentAccessToken();
+    if (accountId !== ownerUserId) {
+      throw new FocusSaveAccountChangedError();
+    }
+    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      _noAuthRetry: true,
+    } as Parameters<typeof api.post>[2]);
     return data;
   });
   // 체인은 실패해도 끊기지 않게 삼키고, 호출자에겐 실패를 그대로 전파한다.

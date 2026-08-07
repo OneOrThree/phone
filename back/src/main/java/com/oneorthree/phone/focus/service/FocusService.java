@@ -282,7 +282,6 @@ public class FocusService {
                     userId, body.getStartedAt(), body.getEndedAt());
             int dayTotal = dailyFocusStatRepository.findByUserAndDate(user, statDate)
                     .map(DailyFocusStat::getTotalFocusSeconds).orElse(0);
-            // 재업로드라 지급은 없지만 잔액 정본은 실어 준다 — 대기열 재전송이 이 응답으로 잔액을 맞춘다.
             return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0, 0,
                     currencyLedgerService.balanceOf(user));
         }
@@ -314,8 +313,7 @@ public class FocusService {
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), statDate);
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
-        // balanceAfter 는 지급까지 반영된 잔액 정본(GROMO-1049) — 앱이 진행 중이던 잔액 조회의
-        // 시점을 추측하지 않고 이 값을 그대로 쓰게 한다.
+        // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
                 awardedCoins, result.goalRewardCoins(), currencyLedgerService.balanceOf(user));
     }
