@@ -83,6 +83,8 @@ public class GroupChallengeService {
 
     private static final int SECONDS_PER_DAY = 86_400;
     private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
+    /** 일 목표(DURATION) 상한 — 하루는 1440분(GROMO-1205). DB 는 V28 CHECK 가 같은 값으로 최후 방어한다. */
+    private static final int MAX_DURATION_GOAL_MINUTES = 1_440;
 
     /**
      * 그룹 챌린지 목록. {@code date} 를 주면 멤버별 당일 진행률({@code memberProgress})을 함께 채운다.
@@ -131,6 +133,16 @@ public class GroupChallengeService {
                 challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
 
+        // 휴면 배지(GROMO-1201) — 이력·OPEN 보유 챌린지 id 를 각각 IN 절 1회로 배치 조회한다(N+1 없음).
+        // OPEN 판정을 요청 date 스코프의 bets 맵에 얹지 않는 이유: 요청 날짜가 서버 KST 내기 날짜와
+        // 다르면(기기 로컬 오늘, 결과 모달의 과거 날짜 조회) 오늘의 OPEN 내기가 맵에 없어 참가 가능한
+        // 챌린지를 휴면으로 오판한다. 날짜 무관 status 조회라 date 없는 하위 호환 조회에서도 계산한다
+        // (구클라는 dormant 필드를 몰라 무해).
+        Set<UUID> challengeIdsWithBetHistory =
+                Set.copyOf(groupChallengeBetRepository.findChallengeIdsWithAnyBet(challengeIds));
+        Set<UUID> challengeIdsWithOpenBet =
+                Set.copyOf(groupChallengeBetRepository.findChallengeIdsWithOpenBet(challengeIds));
+
         return challenges.stream()
                 .map(c -> {
                     GroupChallengeDuration duration = durations.get(c.getId());
@@ -149,6 +161,8 @@ public class GroupChallengeService {
                             .memberProgress(memberProgressOf(c, duration, window, progress))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
+                            .dormant(challengeIdsWithBetHistory.contains(c.getId())
+                                    && !challengeIdsWithOpenBet.contains(c.getId()))
                             .build();
                 })
                 .toList();
@@ -446,7 +460,10 @@ public class GroupChallengeService {
         }
 
         if (request.getMissionType() == MissionType.DURATION) {
-            if (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0) {
+            // 상한 1440 — 하루보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205). TIME_WINDOW 는
+            // validateTimeWindowParams 의 "창 길이 이내" 검증이 이미 같은 성격의 상한을 건다.
+            if (request.getDurationMinutes() == null || request.getDurationMinutes() <= 0
+                    || request.getDurationMinutes() > MAX_DURATION_GOAL_MINUTES) {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
         } else if (request.getMissionType() == MissionType.TIME_WINDOW) {

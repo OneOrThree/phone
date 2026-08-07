@@ -19,7 +19,13 @@ import java.util.UUID;
 
 public interface GroupChallengeBetRepository extends JpaRepository<GroupChallengeBet, UUID> {
 
-    boolean existsByChallengeIdAndBetDate(UUID challengeId, LocalDate betDate);
+    /**
+     * 개설 중복 사전 검사 — 같은 챌린지·같은 날짜의 <b>비취소</b> 내기 존재 여부. 호출측은 status 에
+     * CANCELED 를 넘긴다: 취소는 "없던 일"이라 같은 날짜 재개설을 막지 않는다(GROMO-1201).
+     * 레이스의 최후 방어선은 V28 부분 유니크 인덱스(비취소만 계수)다.
+     */
+    boolean existsByChallengeIdAndBetDateAndStatusNot(
+            UUID challengeId, LocalDate betDate, GroupBetStatus status);
 
     /** 챌린지 삭제 가드 — 진행 중(OPEN) 내기가 걸려 있는 챌린지는 지울 수 없다. */
     boolean existsByChallengeIdAndStatus(UUID challengeId, GroupBetStatus status);
@@ -71,8 +77,35 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
             + "AND b.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY b.id")
     List<UUID> findOpenBetIdsByParticipantUserId(@Param("userId") UUID userId);
 
-    /** 조회 조립용 — 챌린지 목록의 해당 날짜 내기를 IN 절 1회로 배치 로드한다(N+1 방지). */
-    List<GroupChallengeBet> findByChallengeIdInAndBetDate(Collection<UUID> challengeIds, LocalDate betDate);
+    /**
+     * 조회 조립용 — 챌린지 목록의 해당 날짜 내기를 IN 절 1회로 배치 로드한다(N+1 방지). 호출측은
+     * status 에 CANCELED 를 넘겨 <b>취소만</b> 뺀다 — 취소는 "없던 일"이지만 정산 결과
+     * (SETTLED·FORFEITED·REFUNDED)는 그날의 사실이라 계속 실려야 한다. 앱 결과 모달이 어제 날짜
+     * 조회의 내기 존재 여부({@code hadBet})로 판정하므로 OPEN 으로 좁히면 안 된다(GROMO-1201).
+     */
+    List<GroupChallengeBet> findByChallengeIdInAndBetDateAndStatusNot(
+            Collection<UUID> challengeIds, LocalDate betDate, GroupBetStatus status);
+
+    /**
+     * 휴면 배지(GROMO-1201) 판정용 — 주어진 챌린지 중 내기 이력이 한 번이라도 있는 챌린지 id 를
+     * IN 절 1회로 배치 조회한다. status 무관(CANCELED 포함) — 기준이 "걸어 본 적 있음"이라, 정산
+     * 3종만 보는 {@link #findLatestSettledByChallengeIds} 를 재사용하면 취소 이력만 있는 챌린지가
+     * 이력 없음으로 오판된다.
+     */
+    @Query("SELECT DISTINCT b.challenge.id FROM GroupChallengeBet b WHERE b.challenge.id IN :challengeIds")
+    List<UUID> findChallengeIdsWithAnyBet(@Param("challengeIds") Collection<UUID> challengeIds);
+
+    /**
+     * 휴면 배지(GROMO-1201) 판정용 — 주어진 챌린지 중 <b>OPEN 내기가 걸려 있는</b> 챌린지 id 를
+     * IN 절 1회로 배치 조회한다. 일부러 <b>날짜 무관</b>이다: 요청 {@code date} 스코프의 bets 맵으로
+     * 판정하면 요청 날짜가 서버 KST 내기 날짜와 다를 때(기기 로컬 오늘, 결과 모달의 과거 날짜 조회)
+     * 오늘의 OPEN 내기가 맵에 없어 참가 가능한 챌린지를 휴면으로 오판한다. OPEN 은 오늘·내일에만
+     * 존재할 수 있어(전일자는 배치가 정산) 날짜 없이 status 만으로 "지금 걸린 판"과 동치다.
+     * V28 의 challenge_id 일반 인덱스를 탄다.
+     */
+    @Query("SELECT DISTINCT b.challenge.id FROM GroupChallengeBet b WHERE b.challenge.id IN :challengeIds "
+            + "AND b.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN")
+    List<UUID> findChallengeIdsWithOpenBet(@Param("challengeIds") Collection<UUID> challengeIds);
 
     /**
      * 조회 조립용 — 내일 폴백({@code GroupBetService.loadCurrentBets}, 계약 §3 응답 보수):
@@ -90,8 +123,9 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      * 남긴다 — 그래서 결과는 챌린지 수만큼으로 고정된다. 전건을 끌어와 애플리케이션에서 추리면
      * 정산 이력이 쌓일수록(챌린지당 하루 1건) 그룹 상세 조회가 통째로 무거워진다.
      *
-     * <p>(challenge_id, bet_date) 유니크 제약이 있어 동률이 없으므로 선택은 항상 결정적이다.
-     * JPQL 로는 표현할 수 없어 네이티브 쿼리로 둔다.
+     * <p>V28 부분 유니크(비취소 내기는 챌린지당·날짜당 1개) 아래에서 CANCELED 는 같은 날짜에 공존할
+     * 수 있지만, 이 쿼리는 정산 3종(비취소)만 허용하므로 챌린지·날짜당 최대 1행이다 — 동률이 없어
+     * 선택은 항상 결정적이다. JPQL 로는 표현할 수 없어 네이티브 쿼리로 둔다.
      *
      * <p>status 는 정산 결과 3종만 허용 목록으로 명시한다 — {@code <> 'OPEN'} 이면 CANCELED(취소)가
      * "지난 내기"로 노출되는데, 구앱은 CANCELED 를 몰라 정산 결과처럼 오표시한다. 취소는 결과가
