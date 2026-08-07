@@ -557,18 +557,18 @@ describe('에러 분기', () => {
     expect(mockJoinBet).toHaveBeenCalledTimes(1);
   });
 
-  // 누가 먼저 열었는지는 앱이 알 수 없다 — 성공 직후 재조회 전에 다시 누른 **본인**일 수도,
-  // **취소·정산된 내기의 같은 날 재개설**(v1 불가 확정 — 유니크가 행을 남긴다)일 수도 있다.
-  // '이미 열려 있어요'만 말하면 취소 직후엔 재조회해도 내기가 안 보여 거짓말이 된다.
-  test('BET_ALREADY_EXISTS — 진행 중·재개설 불가 두 사실을 모두 덮는 문구로 알리고 닫는다', async () => {
+  // 취소(CANCELED)된 내기는 이 코드를 만들 수 없다(1201/#498 — 유니크가 CANCELED를 제외해
+  // 같은 날 재개설이 성공한다). 이 409의 뜻은 "오늘 활성 내기 존재" 하나 — 존재 사실과
+  // 참가 안내만 말한다(계약 §2, 정책 설명 금지).
+  test('BET_ALREADY_EXISTS — 이미 열려 있음을 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_ALREADY_EXISTS'));
     await renderSheet('create');
     await submit();
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '오늘은 내기를 열 수 없어요',
-      '이미 오늘 내기가 있어요. 진행 중이면 새로고침 후 참가할 수 있고, 취소했거나 끝난 내기는 오늘 다시 열 수 없어요.',
+      '이미 오늘 내기가 열려 있어요',
+      '이미 오늘 내기가 있어요. 새로고침 후 참가할 수 있어요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -583,6 +583,20 @@ describe('에러 분기', () => {
     await submit();
 
     expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  // 취소된 내기가 있던 날짜의 재개설 — 서버가 CANCELED를 목록과 유니크 양쪽에서 걸러
+  // (V28 부분 유니크, 서버는 GroupBetServiceTest:519가 잠금) 카드엔 bet: null로 오고
+  // 개설도 그대로 성공한다. 앱 레벨의 '날짜 잠김'이 되살아나면 이 테스트가 깨진다.
+  test('취소된 내기가 있던 날짜에도 재개설이 성공한다', async () => {
+    await renderSheet('create'); // bet: null — 취소된 내기는 서버가 걸러 카드에 없다
+    await submit();
+
+    expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      stake: 10,
+      date: '2026-08-01',
+    });
+    expect(onDone).toHaveBeenCalled();
   });
 
   test('BET_ALREADY_ACHIEVED — 카드와 같은 사유 문구로 알리고 닫는다', async () => {
@@ -1141,7 +1155,7 @@ describe('마감 후 내일 내기', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(2);
     expect(alertSpy).toHaveBeenCalledWith(
-      '내일 내기를 열 수 없어요',
+      '이미 내일 내기가 열려 있어요',
       '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
     );
     expect(onDone).toHaveBeenCalled();
@@ -1158,7 +1172,7 @@ describe('마감 후 내일 내기', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(1);
     expect(alertSpy).toHaveBeenCalledWith(
-      '내일 내기를 열 수 없어요',
+      '이미 내일 내기가 열려 있어요',
       '이미 내일 내기가 있어요. 새로고침 후 참가할 수 있어요.',
     );
     expect(onDone).toHaveBeenCalled();
