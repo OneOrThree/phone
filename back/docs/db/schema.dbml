@@ -387,8 +387,8 @@ Table group_challenge_durations [note: 'DURATION 챌린지 상세 (group_challen
 
 Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challenges 1:1, type=TIME_WINDOW 만). 타입별 필드 분리(CTI)로 NULL 오염 방지. 창은 매일 반복 시간대 — 저장된 Instant 는 KST time-of-day 앵커로 해석'] {
   challenge_id     uuid        [pk, note: 'FK → group_challenges.id (1:1). type=TIME_WINDOW 챌린지만']
-  window_start_at  timestamptz [not null, note: '수행 지정 시간대 시작 (UTC)']
-  window_end_at    timestamptz [not null, note: '수행 지정 시간대 종료 (UTC)']
+  window_start_at  timestamptz [not null, note: '수행 지정 시간대 시작 — KST 벽시계 시각(time-of-day)만 의미. 신규 저장분은 날짜부를 1970-01-01(KST, EPOCH 앵커)로 고정(GROMO-1225); 기존 행 날짜부는 앱 송신 당시 날짜로 남지만 해석은 시각뿐이라 동치']
+  window_end_at    timestamptz [not null, note: '수행 지정 시간대 종료 — 해석·EPOCH 앵커는 window_start_at 과 동일. 시각 기준 시작 > 종료면 자정 걸침 창(D 시작 ~ D+1 종료)']
   duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
 }
 

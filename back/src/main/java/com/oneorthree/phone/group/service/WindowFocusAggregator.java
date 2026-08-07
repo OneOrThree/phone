@@ -10,9 +10,11 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +42,9 @@ public class WindowFocusAggregator {
 
     /** 응답 표기 포맷 — {@link #timeOfDayString} 전용. */
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    /** 신형 요청 표기 판별 — "HH:mm" 또는 "HH:mm:ss"(GROMO-1225). 이 꼴이 아니면 구앱 ISO Instant 로 간주한다. */
+    private static final Pattern REQUEST_TIME_PATTERN = Pattern.compile("\\d{2}:\\d{2}(:\\d{2})?");
 
     private final FocusSessionRepository focusSessionRepository;
 
@@ -88,6 +93,29 @@ public class WindowFocusAggregator {
      */
     public static LocalTime timeOfDay(Instant instant) {
         return LocalTime.ofInstant(instant, KST);
+    }
+
+    /**
+     * 창 시각 요청 문자열의 <b>파싱 입구</b>(GROMO-1225) — 응답 {@link #timeOfDayString} 와 대칭인 단일 변환점.
+     * 요청 경로마다 파싱을 새로 만들지 말고 반드시 이 메서드를 거칠 것.
+     *
+     * <p>신앱은 {@code "HH:mm:ss"}(또는 {@code "HH:mm"})를, 구앱은 ISO Instant
+     * ({@code 2026-08-05T09:00:00+09:00} 꼴)를 보낸다 — 이중 수용해 같은 KST 벽시계 시각으로 수렴시킨다.
+     * 구앱 경로는 기존 {@link #timeOfDay} 를 그대로 경유하므로 종전 저장 의미(Instant 의 KST 시각)가
+     * 바이트 단위로 보존된다.
+     *
+     * <p><b>저장 앵커</b>: 반환 Instant 의 날짜부는 {@link LocalDate#EPOCH}(1970-01-01, KST)로 고정한다.
+     * 저장 Instant 는 어차피 시각(time-of-day)만 의미를 갖는다({@link #timeOfDay}) — 날짜부를 상수로
+     * 고정하면 "날짜부는 무의미" 가 데이터 자체에 드러난다. 기존 행(앱 송신 당시 날짜부)은 재해석 없이
+     * 그대로 호환된다.
+     *
+     * @throws DateTimeParseException 두 형식 모두 아닐 때 — 호출부가 INVALID_MISSION_PARAMS 로 매핑한다
+     */
+    public static Instant parseRequestTime(String value) {
+        LocalTime time = REQUEST_TIME_PATTERN.matcher(value).matches()
+                ? LocalTime.parse(value)
+                : timeOfDay(Instant.parse(value));
+        return LocalDate.EPOCH.atTime(time).atZone(KST).toInstant();
     }
 
     /**

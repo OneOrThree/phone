@@ -257,10 +257,13 @@ public class GroupController {
     }
 
     @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환."
-            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 창(시작 > 종료) 허용.")
+            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 창(시작 > 종료) 허용."
+            + " windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) —"
+            + " 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "챌린지 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "파라미터 누락 / TIME_WINDOW durationMinutes 누락·범위 위반"),
+            @ApiResponse(responseCode = "400", description = "파라미터 누락 / TIME_WINDOW durationMinutes 누락·범위 위반"
+                    + " / windowStart·windowEnd 형식 오류(INVALID_MISSION_PARAMS)"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
             @ApiResponse(responseCode = "404", description = "그룹 없음"),
             @ApiResponse(responseCode = "409", description = "카테고리×타입 활성 중복(CHALLENGE_DUPLICATE)"
