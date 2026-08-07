@@ -55,6 +55,8 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
 
     // 두 유저 사이 페어 양방향 조회 — (a→b) / (b→a) 모두 포함.
     // createRequest 의 중복·이미친구·REJECTED 재전환 판정용 (정렬: 최신 updatedAt 우선).
+    // ⚠️ deletedAt 필터를 넣지 말 것 — createRequest 의 소프트삭제 행 복원 분기(GROMO-719)가
+    // 삭제 행까지 돌려받는 데 의존한다. 필터가 생기면 재요청이 insert 로 빠져 F1(409)이 재발한다.
     @Query("SELECT f FROM Friendship f"
             + " WHERE (f.fromUser = :a AND f.toUser = :b)"
             + " OR (f.fromUser = :b AND f.toUser = :a)"

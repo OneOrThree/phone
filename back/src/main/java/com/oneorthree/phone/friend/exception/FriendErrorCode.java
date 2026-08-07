@@ -12,6 +12,7 @@ public enum FriendErrorCode {
     // 비즈니스 로직상 충돌
     ALREADY_FRIEND(HttpStatus.CONFLICT, "이미 친구인 유저입니다."),
     REQUEST_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 보낸 친구 요청이 있습니다."),
+    INVALID_REQUEST_STATUS(HttpStatus.CONFLICT, "이미 처리된 요청입니다."),
 
     // 권한
     NOT_REQUEST_RECEIVER(HttpStatus.FORBIDDEN, "요청 수신자만 수락/거절할 수 있습니다."),

@@ -82,4 +82,12 @@ public class Friendship {
     public void softDelete(Instant now) {
         this.deletedAt = now;
     }
+
+    // 소프트 삭제된 행을 재요청으로 되살림 — unique(from_user_id, to_user_id) 때문에
+    // 같은 방향의 새 행을 insert 할 수 없어 기존 행을 재사용한다(GroupMember.rejoin() 과 같은 패턴).
+    // 삭제 전 상태(ACCEPTED·REJECTED)와 무관하게 새 요청이므로 PENDING 으로 초기화한다. (GROMO-719)
+    public void restore() {
+        this.deletedAt = null;
+        this.status = FriendshipStatus.PENDING;
+    }
 }
