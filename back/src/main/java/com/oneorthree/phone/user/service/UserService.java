@@ -123,29 +123,19 @@ public class UserService {
         // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
         // 다른 쪽은 직전 목표로 판정된다. 국가 변경을 먼저 반영한 뒤 계산하는 것도 setupProfile 과 동일.
         LocalDate today = todayOf(user);
-        // 국가가 바뀌면 목표를 안 바꿔도 발효일을 새 로컬 오늘로 맞춘다(코드리뷰) — 목표 필드가
-        // 빠진 국가-only PATCH 에서는 changeGoal 이 아예 안 불려, 로컬 날짜가 뒤로 갈 때(KR→GB)
-        // 발효일이 미래로 남고 새 로컬 오늘이 직전 목표로 판정된다.
-        // 정렬은 realignEffectiveDate 로 한다 — changeGoal 을 현재값으로 부르면 previous 가 현재값으로
-        // 덮여 진짜 직전 목표가 사라진다(코드리뷰 후속).
-        boolean countryChanged = body.getCountryCode() != null;
-        if (body.getDailyScreenTimeGoalMinutes() != null || countryChanged) {
+        // 국가 변경(시간대 이동)은 목표 이력 정렬 대상이 아니다 — 발효일은 바꾼 시점의 유저 로컬
+        // 날짜로 남겨 둔다. 나라를 옮기면 그 하루가 어긋날 수 있지만, 그걸 맞추려던 정렬 로직이
+        // 오히려 평범한 프로필 수정(닉네임 저장이 countryCode 를 늘 함께 보낸다)까지 건드려
+        // 지급을 틀리게 했다(코드리뷰 4회). 목표를 실제로 바꿀 때만 이력을 남긴다.
+        if (body.getDailyScreenTimeGoalMinutes() != null) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            if (body.getDailyScreenTimeGoalMinutes() != null) {
-                screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
-            } else {
-                screenSettings.realignEffectiveDate(today);
-            }
+            screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
         }
-        if (body.getDailyFocusTimeGoalMinutes() != null || countryChanged) {
+        if (body.getDailyFocusTimeGoalMinutes() != null) {
             UserFocusTimeSettings focusSettings = userFocusTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-            if (body.getDailyFocusTimeGoalMinutes() != null) {
-                focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
-            } else {
-                focusSettings.realignEffectiveDate(today);
-            }
+            focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
         }
     }
 
