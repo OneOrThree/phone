@@ -606,7 +606,7 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   user_id              uuid              [not null, note: 'FK → users.id']
   group_id             uuid              [not null, note: 'FK → groups.id']
 
-  role                 group_member_role [not null, default: 'MEMBER', note: '방장 여부']
+  role                 group_member_role [not null, default: 'MEMBER', note: '방장 여부. 유령 방장(V30 이탈 처리)만 남아 활성 OWNER 가 없던 그룹은 V31 백필이 최고참 활성 멤버를 승계(GROMO-1243, created_at·id 오름차순)']
   status               group_member_status [not null, default: 'INACTIVE', note: '그룹 활동 (챌린지, 포커스) 진행 여부']
 
   announcement_permission group_announcement_grant [not null, default: 'DISALLOW', note: '멤버 단위 공지 작성 권한, 방장은 제외']
