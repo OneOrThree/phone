@@ -4,7 +4,6 @@ import com.oneorthree.phone.common.support.TestPostgres;
 import com.oneorthree.phone.friend.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.service.FriendService;
-import com.oneorthree.phone.notification.config.NotificationAsyncConfig;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -15,21 +14,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ThreadPoolExecutor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * 커밋 이후 발송이 <b>커넥션을 두 개 동시에 물지 않는지</b>를 실증한다 (GROMO-1090, @codex 리뷰 P1).
@@ -67,9 +64,6 @@ class FriendPushConnectionUsageTest {
     UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Autowired
     NotificationSentLogRepository notificationSentLogRepository;
-    @Autowired
-    @Qualifier(NotificationAsyncConfig.PUSH_EXECUTOR)
-    Executor pushExecutor;
 
     private final List<User> users = new ArrayList<>();
 
@@ -92,26 +86,16 @@ class FriendPushConnectionUsageTest {
         User receiver = pushableUser("받는사람");
 
         friendService.createRequest(sender.getId(), receiver.getId());
-        awaitNotificationsDrained();
 
-        assertThat(notificationSentLogRepository.findByTypeAndUserIdInSince(
-                NotificationSentLog.TYPE_FRIEND_REQUEST, List.of(receiver.getId()), Instant.EPOCH))
-                .as("풀 크기 1에서도 발송 기록이 남아야 한다 — 남지 않으면 커넥션을 두 개 요구한 것이다")
-                .hasSize(1);
-    }
-
-    private void awaitNotificationsDrained() {
-        ThreadPoolExecutor pool = ((ThreadPoolTaskExecutor) pushExecutor).getThreadPoolExecutor();
-        long deadline = System.currentTimeMillis() + 10_000;
-        while (pool.getCompletedTaskCount() < pool.getTaskCount()
-                && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("발송 대기 중 인터럽트", e);
-            }
-        }
+        // 발송 완료는 DB 사후조건으로 직접 기다린다. executor 의 getTaskCount() 는 문서화된 근사치라
+        // 워커가 큐에서 작업을 꺼낸 직후(락 획득 전) 창에서 과소 계수돼, completed 와 교차 비교하는
+        // 폴링은 조기 탈출할 수 있다 — FriendPushNotificationIntegrationTest 의 GROMO-1228 플레이크와
+        // 같은 결함 구조라 여기서도 카운터 폴링 자체를 걷어냈다. (풀 1개 컨텍스트라 10초 여유 유지)
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(notificationSentLogRepository.findByTypeAndUserIdInSince(
+                        NotificationSentLog.TYPE_FRIEND_REQUEST, List.of(receiver.getId()), Instant.EPOCH))
+                        .as("풀 크기 1에서도 발송 기록이 남아야 한다 — 남지 않으면 커넥션을 두 개 요구한 것이다")
+                        .hasSize(1));
     }
 
     private User pushableUser(String nickname) {

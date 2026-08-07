@@ -22,6 +22,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -31,6 +32,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * 친구 요청·수락 푸시의 <b>커밋 게이트</b> 통합 테스트 (GROMO-1090) — 실 DB + ci 프로파일의 NoOp 포트.
@@ -93,14 +95,15 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     @DisplayName("친구 요청이 커밋되면 받은 쪽에 발송 기록이 남는다")
     void createRequest_committed_sendsToReceiver() {
         friendService.createRequest(sender.getId(), receiver.getId());
-        awaitNotificationsDrained();
 
-        List<NotificationSentLog> logs = sentLogs(NotificationSentLog.TYPE_FRIEND_REQUEST);
-        assertThat(logs).singleElement()
-                .satisfies(sentLog -> {
-                    assertThat(sentLog.getUserId()).isEqualTo(receiver.getId());
-                    assertThat(sentLog.getTargetUserId()).isEqualTo(sender.getId());
-                });
+        // 발송은 별도 스레드라 긍정 단정은 DB 사후조건을 직접 기다린다 — executor 카운터 교차 비교는
+        // 조기 탈출 창이 있어 신뢰할 수 없다(awaitNotificationsDrained 주석, GROMO-1228).
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_REQUEST)).singleElement()
+                        .satisfies(sentLog -> {
+                            assertThat(sentLog.getUserId()).isEqualTo(receiver.getId());
+                            assertThat(sentLog.getTargetUserId()).isEqualTo(sender.getId());
+                        }));
     }
 
     @Test
@@ -125,17 +128,17 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
     @DisplayName("수락이 커밋되면 요청을 보냈던 쪽에 발송 기록이 남는다")
     void acceptRequest_committed_sendsToRequester() {
         friendService.createRequest(sender.getId(), receiver.getId());
-        awaitNotificationsDrained();
+        awaitFriendRequestPushLogged();
 
         friendService.acceptRequest(receiver.getId(), pendingRequestId());
-        awaitNotificationsDrained();
 
-        List<NotificationSentLog> logs = sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED);
-        assertThat(logs).singleElement()
-                .satisfies(sentLog -> {
-                    assertThat(sentLog.getUserId()).isEqualTo(sender.getId());
-                    assertThat(sentLog.getTargetUserId()).isEqualTo(receiver.getId());
-                });
+        // 긍정 단정은 DB 사후조건을 직접 기다린다 (createRequest_committed_sendsToReceiver 와 같은 이유)
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED)).singleElement()
+                        .satisfies(sentLog -> {
+                            assertThat(sentLog.getUserId()).isEqualTo(sender.getId());
+                            assertThat(sentLog.getTargetUserId()).isEqualTo(receiver.getId());
+                        }));
     }
 
     @Test
@@ -144,26 +147,37 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
         // acceptRequest 는 현재 상태를 검사하지 않고 ACCEPTED 를 덮어쓴다. 이벤트 발행을 실제 상태
         // 전이로 제한하지 않으면 클라 재시도·연타가 그대로 두 번째 푸시가 된다(@codex 리뷰).
         friendService.createRequest(sender.getId(), receiver.getId());
-        awaitNotificationsDrained();
+        awaitFriendRequestPushLogged();
         UUID requestId = pendingRequestId();
 
+        long completedBefore = completedNotificationTasks();
+        long submittedBefore = submittedNotificationTasks();
         friendService.acceptRequest(receiver.getId(), requestId);
         friendService.acceptRequest(receiver.getId(), requestId);
-        awaitNotificationsDrained();
+        awaitNotificationsDrained(completedBefore, submittedBefore);
 
+        // untilAsserted(hasSize(1)) 로 바꾸면 안 된다 — 첫 발송이 남는 순간 통과해, 지연 도착하는
+        // 두 번째 발송(회귀)을 놓친다. 제출분 전부 완료를 보장한 뒤에야 "정확히 1건" 단언이 유효하다.
+        // 드레인의 제출 수 스냅샷이 과소 계수 창에 걸린 극히 드문 경우를 대비해, 보장된 1건이
+        // 실제로 남을 때까지는 별도로 기다린다(정상 코드에선 두 번째 작업 자체가 없어 개수는 안정).
+        await().atMost(Duration.ofSeconds(5))
+                .until(() -> !sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED).isEmpty());
         assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED)).hasSize(1);
     }
 
     @Test
     @DisplayName("거절은 어느 쪽에도 알리지 않는다")
     void rejectRequest_sendsNothing() {
-        // 요청 푸시를 먼저 비운다 — 발송이 비동기라, 비우지 않으면 거절이 먼저 커밋돼 요청 푸시가
+        // 요청 푸시가 먼저 남을 때까지 기다린다 — 발송이 비동기라, 거절이 먼저 커밋되면 요청 푸시가
         // "이미 처리된 요청" 으로 생략될 수 있다(그 자체는 정상 동작이지만 아래 단정이 흔들린다).
         friendService.createRequest(sender.getId(), receiver.getId());
-        awaitNotificationsDrained();
+        awaitFriendRequestPushLogged();
 
+        long completedBefore = completedNotificationTasks();
+        long submittedBefore = submittedNotificationTasks();
         friendService.rejectRequest(receiver.getId(), pendingRequestId());
-        awaitNotificationsDrained();
+        // 거절이 뭔가를 제출했다면(회귀) 그 완료까지 기다린 뒤에 "안 나갔다"를 단언한다.
+        awaitNotificationsDrained(completedBefore, submittedBefore);
 
         assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_ACCEPTED)).isEmpty();
         // 요청 시점의 1건 외에 늘어나지 않는다
@@ -199,26 +213,40 @@ class FriendPushNotificationIntegrationTest extends IntegrationTestBase {
         return pending.get(0).getId();
     }
 
-    /** 제출된 발송 작업이 전부 끝날 때까지 기다린다. 제출은 커밋 스레드에서 동기로 일어나 경합이 없다. */
-    private void awaitNotificationsDrained() {
-        ThreadPoolExecutor pool = ((ThreadPoolTaskExecutor) pushExecutor).getThreadPoolExecutor();
-        long deadline = System.currentTimeMillis() + 5_000;
-        while (pool.getCompletedTaskCount() < pool.getTaskCount()
-                && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("발송 대기 중 인터럽트", e);
-            }
-        }
-        assertThat(pool.getCompletedTaskCount())
-                .as("5초 안에 발송 작업이 끝나야 한다")
-                .isEqualTo(pool.getTaskCount());
+    /** 요청 푸시가 DB에 남을 때까지 기다린다 — 후속 상태 전이 커밋이 요청 푸시를 생략시키는 경합 차단. */
+    private void awaitFriendRequestPushLogged() {
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(sentLogs(NotificationSentLog.TYPE_FRIEND_REQUEST)).hasSize(1));
+    }
+
+    /**
+     * 스냅샷 이후 제출된 발송 작업이 전부 완료될 때까지 기다린다.
+     *
+     * <p><b>{@code getCompletedTaskCount()} 와 {@code getTaskCount()} 를 같은 시점에 교차 비교하지 말
+     * 것 — GROMO-1228 플레이크의 원인.</b> {@code getTaskCount()} 는 문서화된 근사치라, 워커가 큐에서
+     * 작업을 꺼낸 직후(워커 락 획득 전) 짧은 창에서는 그 작업이 큐에도 실행 중에도 계수되지 않는다.
+     * 이 창에서 읽으면 일시적으로 {@code completed == taskCount} 가 되어 "다 끝났다"로 오판하고,
+     * 단언 시점엔 창이 닫혀 {@code expected <N+1> but was <N>} 로 터진다. 그래서 여기서는
+     * ① 제출 직전 완료 수를 스냅샷하고 ② 제출 수 델타만큼 완료가 늘 때까지만 기다린다 —
+     * {@code getCompletedTaskCount()} 는 JDK 가 단조 증가를 보장하는 유일한 카운터라 이 비교는
+     * 창의 영향을 받지 않는다. 제출 수 델타는 제출이 커밋 스레드에서 동기로 끝난 직후 읽는다.
+     */
+    private void awaitNotificationsDrained(long completedBefore, long submittedBefore) {
+        long submitted = submittedNotificationTasks() - submittedBefore;
+        await().atMost(Duration.ofSeconds(5))
+                .until(() -> completedNotificationTasks() - completedBefore >= submitted);
+    }
+
+    private long completedNotificationTasks() {
+        return pushPool().getCompletedTaskCount();
     }
 
     private long submittedNotificationTasks() {
-        return ((ThreadPoolTaskExecutor) pushExecutor).getThreadPoolExecutor().getTaskCount();
+        return pushPool().getTaskCount();
+    }
+
+    private ThreadPoolExecutor pushPool() {
+        return ((ThreadPoolTaskExecutor) pushExecutor).getThreadPoolExecutor();
     }
 
     private List<NotificationSentLog> sentLogs(String type) {
