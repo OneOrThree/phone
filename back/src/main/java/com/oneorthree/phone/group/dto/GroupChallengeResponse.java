@@ -50,9 +50,10 @@ public class GroupChallengeResponse {
 
     /**
      * 휴면 챌린지 배지(GROMO-1201) — 내기 이력은 있는데(status 무관, 취소 포함) 지금 걸린 OPEN 내기가
-     * 없으면 true. 이력 없는 새 챌린지는 항상 false 이고, date 없는 하위 호환 조회는 현재 내기를 싣지
-     * 않아 판정하지 않는다(false). primitive 라 항상 직렬화된다 — 앱은 3상 관례상
-     * {@code dormant?: boolean} optional 로 받아 구서버 undefined 를 흡수한다(additive).
+     * 없으면 true. 이력 없는 새 챌린지는 항상 false. OPEN 판정은 요청 {@code date} 와 무관한 status
+     * 조회라 과거 날짜 조회·date 없는 하위 호환 조회에서도 같은 값이 나온다. primitive 라 항상
+     * 직렬화된다 — 앱은 3상 관례상 {@code dormant?: boolean} optional 로 받아 구서버 undefined 를
+     * 흡수한다(additive).
      */
     private boolean dormant;
 }

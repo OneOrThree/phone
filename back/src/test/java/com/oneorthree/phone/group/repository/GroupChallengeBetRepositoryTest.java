@@ -157,6 +157,20 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
+    @DisplayName("OPEN 보유 챌린지 조회 — 날짜 무관 status 기반이라 내일 내기도 잡히고, 정산만 남은 챌린지는 빠진다")
+    void findChallengeIdsWithOpenBetIsDateAgnostic() {
+        GroupChallenge settledOnly = anotherChallenge();
+        // 내일 날짜 OPEN — 요청 date 스코프와 무관하게 "지금 걸린 판"으로 잡혀야 휴면 오판이 없다.
+        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate.plusDays(1), GroupBetStatus.OPEN));
+        groupChallengeBetRepository.saveAndFlush(betOf(settledOnly, betDate, GroupBetStatus.SETTLED));
+
+        List<UUID> found = groupChallengeBetRepository.findChallengeIdsWithOpenBet(
+                List.of(challenge.getId(), settledOnly.getId()));
+
+        assertThat(found).containsExactly(challenge.getId());
+    }
+
+    @Test
     @DisplayName("(bet_id, user_id) 유니크 — 같은 내기에 같은 유저 2번 참가는 DB 가 막는다(동시 참가 레이스 최후 방어)")
     void rejectsDuplicateParticipant() {
         GroupChallengeBet bet = groupChallengeBetRepository.saveAndFlush(betOf(betDate));

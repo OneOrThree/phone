@@ -29,6 +29,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.domain.GroupAnnouncementGrant;
@@ -138,6 +139,11 @@ class GroupServiceTest {
     // (Mockito 기본값) 내기와 무관한 이 테스트들은 bet/lastSettledBet 을 null 로 본다.
     @Mock
     private GroupBetService groupBetService;
+
+    // 휴면 배지(GROMO-1201) 이력·OPEN 조회용 — 날짜 무관이라 date=null 조회에서도 불린다.
+    // 스텁이 없으면 빈 리스트(Mockito 기본값) = 이력 없음 → dormant 는 항상 false 로 남는다.
+    @Mock
+    private GroupChallengeBetRepository groupChallengeBetRepository;
 
     @Mock
     private GroupInviteLinkRepository groupInviteLinkRepository;

@@ -96,6 +96,18 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     List<UUID> findChallengeIdsWithAnyBet(@Param("challengeIds") Collection<UUID> challengeIds);
 
     /**
+     * 휴면 배지(GROMO-1201) 판정용 — 주어진 챌린지 중 <b>OPEN 내기가 걸려 있는</b> 챌린지 id 를
+     * IN 절 1회로 배치 조회한다. 일부러 <b>날짜 무관</b>이다: 요청 {@code date} 스코프의 bets 맵으로
+     * 판정하면 요청 날짜가 서버 KST 내기 날짜와 다를 때(기기 로컬 오늘, 결과 모달의 과거 날짜 조회)
+     * 오늘의 OPEN 내기가 맵에 없어 참가 가능한 챌린지를 휴면으로 오판한다. OPEN 은 오늘·내일에만
+     * 존재할 수 있어(전일자는 배치가 정산) 날짜 없이 status 만으로 "지금 걸린 판"과 동치다.
+     * V28 의 challenge_id 일반 인덱스를 탄다.
+     */
+    @Query("SELECT DISTINCT b.challenge.id FROM GroupChallengeBet b WHERE b.challenge.id IN :challengeIds "
+            + "AND b.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN")
+    List<UUID> findChallengeIdsWithOpenBet(@Param("challengeIds") Collection<UUID> challengeIds);
+
+    /**
      * 조회 조립용 — 내일 폴백({@code GroupBetService.loadCurrentBets}, 계약 §3 응답 보수):
      * 오늘 내기가 없는 챌린지의 내일 OPEN 내기만 배치 로드한다. status 를 함께 거는 이유는
      * 취소된 내일 내기까지 카드에 세우지 않기 위해서다(취소는 "없던 일" — lastSettledBet 의

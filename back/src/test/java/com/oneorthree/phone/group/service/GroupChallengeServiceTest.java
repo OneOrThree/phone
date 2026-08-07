@@ -826,7 +826,8 @@ class GroupChallengeServiceTest {
         // 이력 조회는 status 무관(CANCELED 포함) — 취소 이력만 있는 챌린지도 여기 잡힌다.
         given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
                 .willReturn(List.of(CHALLENGE_ID));
-        // loadCurrentBets 는 스텁하지 않는다 → 빈 맵 = 현재 걸린 내기 없음.
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of());
 
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
 
@@ -846,13 +847,14 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("OPEN 내기가 걸려 있으면 dormant=false — 내일 폴백으로 실린 OPEN 내기도 같다")
+    @DisplayName("OPEN 내기가 걸려 있으면 dormant=false — 내일 내기(오늘 조회의 폴백 대상)도 같다")
     void getChallengesDoesNotMarkDormantWhenOpenBetExists() {
         givenChallengeListForDormant();
         given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
                 .willReturn(List.of(CHALLENGE_ID));
-        given(groupBetService.loadCurrentBets(any(), any(), any(), any()))
-                .willReturn(Map.of(CHALLENGE_ID, betResponseOf(GroupBetStatus.OPEN)));
+        // OPEN 조회는 날짜 무관이라 오늘 내기든 내일 내기든 여기 잡힌다.
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
 
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
 
@@ -860,13 +862,15 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("정산이 끝난 오늘 내기만 있으면 dormant=true — bets 맵 존재가 아니라 OPEN 여부로 판정한다")
+    @DisplayName("정산이 끝난 오늘 내기만 있으면 dormant=true — bets 맵 존재가 아니라 OPEN 보유로 판정한다")
     void getChallengesMarksDormantWhenTodayBetAlreadySettled() {
         givenChallengeListForDormant();
         given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
                 .willReturn(List.of(CHALLENGE_ID));
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of());
         // 오늘·과거 조회는 CANCELED 만 빼므로(결과 모달 보호) 정산된 내기가 bets 맵에 실려 온다 —
-        // 키 존재로 판정하면 이 케이스가 휴면에서 빠진다.
+        // 맵 키 존재로 판정하면 이 케이스가 휴면에서 빠진다. 판정은 bets 맵과 무관해야 한다.
         given(groupBetService.loadCurrentBets(any(), any(), any(), any()))
                 .willReturn(Map.of(CHALLENGE_ID, betResponseOf(GroupBetStatus.SETTLED)));
 
@@ -876,15 +880,37 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("date 없는 하위 호환 조회는 dormant 를 계산하지 않는다 — 항상 false, 이력 조회도 안 나간다")
-    void getChallengesWithoutDateSkipsDormant() {
+    @DisplayName("과거 날짜 조회에서도 오늘 OPEN 내기 보유 챌린지는 dormant=false — 판정은 요청 date 와 무관하다")
+    void getChallengesDoesNotMarkDormantOnPastDateQueryWhenOpenBetExists() {
         givenChallengeListForDormant();
+        given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
+        // 결과 모달의 어제 날짜 조회 — date 스코프 bets 맵에는 오늘 OPEN 내기가 실리지 않는다.
+        // OPEN 판정을 bets 맵에 얹으면 참가 가능한 챌린지가 휴면으로 오판된다(회귀 고정).
+        given(groupBetService.loadCurrentBets(any(), any(), any(), any())).willReturn(Map.of());
+
+        List<GroupChallengeResponse> result =
+                groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY.minusDays(1));
+
+        assertThat(result.get(0).isDormant()).isFalse();
+    }
+
+    @Test
+    @DisplayName("date 없는 하위 호환 조회에서도 dormant 는 계산된다 — OPEN 판정이 날짜 무관이라 가능하다")
+    void getChallengesComputesDormantWithoutDate() {
+        givenChallengeListForDormant();
+        given(groupChallengeBetRepository.findChallengeIdsWithAnyBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of());
 
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, null);
 
-        // 현재 내기(bets)를 싣지 않는 조회라 OPEN 여부를 판정할 수 없다 — 오표시 대신 항상 false.
-        assertThat(result.get(0).isDormant()).isFalse();
-        verify(groupChallengeBetRepository, never()).findChallengeIdsWithAnyBet(any());
+        // 예전에는 bets 맵 부재를 이유로 미계산(false)했지만, OPEN 조회가 status 기반이 되면서 그
+        // 근거가 소멸했다 — date 를 안 보내는 구클라는 dormant 필드를 몰라 어느 값이든 무해하다.
+        assertThat(result.get(0).isDormant()).isTrue();
     }
 
     // ── createChallenge ───────────────────────────────────────────────────

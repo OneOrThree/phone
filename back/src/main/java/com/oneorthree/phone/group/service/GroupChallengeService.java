@@ -133,12 +133,15 @@ public class GroupChallengeService {
                 challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
 
-        // 휴면 배지(GROMO-1201) — 내기 이력이 있는 챌린지 id 도 IN 절 1회로 배치 조회한다(N+1 없음).
-        // date 없는 하위 호환 조회는 현재 내기(bets)를 싣지 않아 OPEN 여부를 판정할 수 없으므로
-        // 계산하지 않는다(항상 false) — 그 클라이언트는 dormant 필드 자체를 모른다.
-        Set<UUID> challengeIdsWithBetHistory = date == null
-                ? Set.of()
-                : Set.copyOf(groupChallengeBetRepository.findChallengeIdsWithAnyBet(challengeIds));
+        // 휴면 배지(GROMO-1201) — 이력·OPEN 보유 챌린지 id 를 각각 IN 절 1회로 배치 조회한다(N+1 없음).
+        // OPEN 판정을 요청 date 스코프의 bets 맵에 얹지 않는 이유: 요청 날짜가 서버 KST 내기 날짜와
+        // 다르면(기기 로컬 오늘, 결과 모달의 과거 날짜 조회) 오늘의 OPEN 내기가 맵에 없어 참가 가능한
+        // 챌린지를 휴면으로 오판한다. 날짜 무관 status 조회라 date 없는 하위 호환 조회에서도 계산한다
+        // (구클라는 dormant 필드를 몰라 무해).
+        Set<UUID> challengeIdsWithBetHistory =
+                Set.copyOf(groupChallengeBetRepository.findChallengeIdsWithAnyBet(challengeIds));
+        Set<UUID> challengeIdsWithOpenBet =
+                Set.copyOf(groupChallengeBetRepository.findChallengeIdsWithOpenBet(challengeIds));
 
         return challenges.stream()
                 .map(c -> {
@@ -158,24 +161,11 @@ public class GroupChallengeService {
                             .memberProgress(memberProgressOf(c, duration, window, progress))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
-                            .dormant(isDormant(c.getId(), challengeIdsWithBetHistory, bets))
+                            .dormant(challengeIdsWithBetHistory.contains(c.getId())
+                                    && !challengeIdsWithOpenBet.contains(c.getId()))
                             .build();
                 })
                 .toList();
-    }
-
-    /**
-     * 휴면 판정(GROMO-1201, 계약 §2) — 내기 이력은 있는데(status 무관, 취소 포함) 지금 걸린 OPEN
-     * 내기가 없다. {@code bets} 맵에는 정산이 끝난 오늘 내기도 실리므로(결과 모달 보호) 키 존재
-     * 여부가 아니라 status 로 OPEN 을 가려낸다. 내일 폴백 내기는 OPEN 만 실리니 자연히 휴면이 아니다.
-     */
-    private boolean isDormant(UUID challengeId, Set<UUID> challengeIdsWithBetHistory,
-            Map<UUID, GroupBetResponse> bets) {
-        if (!challengeIdsWithBetHistory.contains(challengeId)) {
-            return false;
-        }
-        GroupBetResponse bet = bets.get(challengeId);
-        return bet == null || bet.getStatus() != GroupBetStatus.OPEN;
     }
 
     /** 응답 durationMinutes — DURATION 은 일 목표, TIME_WINDOW 는 창 내 목표(V20, 목표 없는 구 창은 null). */
