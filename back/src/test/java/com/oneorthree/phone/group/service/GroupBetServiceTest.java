@@ -26,6 +26,8 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -178,10 +180,10 @@ class GroupBetServiceTest {
         return request;
     }
 
-    /** 유저·그룹원 검증까지 통과하는 공통 스텁. */
+    /** 유저·그룹원 검증까지 통과하는 공통 스텁 — 유저 로드는 공유 락 조회다 (GROMO-801). */
     private User givenMember() {
         User user = member();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
         given(groupMemberRepository.findByUserAndGroup(any(), any()))
                 .willReturn(Optional.of(GroupMember.builder()
@@ -572,7 +574,7 @@ class GroupBetServiceTest {
     @Test
     @DisplayName("게스트는 개설 불가 → GUEST_FORBIDDEN")
     void createBetRejectsGuest() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
 
         assertThatThrownBy(() ->
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
@@ -584,7 +586,7 @@ class GroupBetServiceTest {
     @Test
     @DisplayName("그룹원이 아니면 개설 불가 → MEMBER_ONLY")
     void createBetRejectsNonMember() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(member()));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(member()));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
         given(groupMemberRepository.findByUserAndGroup(any(), any())).willReturn(Optional.empty());
 
@@ -592,6 +594,20 @@ class GroupBetServiceTest {
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
+        assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("탈퇴한 유저의 참가 시도 — 공유 락 활성 조회가 빈 결과 → NOT_FOUND, 판돈 미차감 (GROMO-801 codex 2차)")
+    void joinBetRejectsWithdrawnUser() {
+        // 락 없는 findById 로 로드하면 탈퇴(배타 락)의 참가자 스냅샷 이후 커밋된 참가가 정리에서
+        // 빠져, 지갑 없는 참가 행이 팟을 오염시킨다 — 공유 락 조회는 탈퇴와 직렬화되고,
+        // 탈퇴가 먼저 커밋된 유저는 여기서 거절된다.
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, BET_ID, USER_ID))
+                .isInstanceOf(UserException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.NOT_FOUND);
         assertNoStakeCharged();
     }
 
