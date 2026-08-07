@@ -1,11 +1,8 @@
 // heatmapRange·rollingWeekRange 축 테스트(GROMO-1236) — 서버 히트맵 조회 범위는 from/to 모두
 // KST 축이어야 한다. 러너 TZ가 KST라 값으론 로컬/KST가 안 갈리므로, 로컬 todayStr를 독극물로
-// 목킹해 로컬 축 호출을 즉시 드러낸다(서비스 축 테스트와 동일 패턴). C계층(heatmapBars·
-// firstStartPoints의 current/future 플래그)은 로컬 유지가 정답이라 이 파일에서 다루지 않는다
-// — 값 검증은 format.test.ts가 담당한다.
-//
-// 주의: 이 목은 파일 단위라 format.test.ts와 분리했다 — 거기선 로컬 유지 함수들이 실물
-// todayStr를 써야 한다.
+// 목킹해 로컬 축 호출을 즉시 드러낸다(서비스 축 테스트와 동일 패턴). 여기선 todayStrKst가
+// **실물**이라 Intl 경유 KST 자정 경계까지 검증한다. 그리드·마커의 앵커 축(P2에서 KST로 이전)은
+// todayStrKst를 센티널로 목킹하는 format.gridAxis.test.ts가 잠근다. 값 검증은 format.test.ts.
 import { heatmapRange, rollingWeekRange } from './format';
 
 jest.mock('@/utils/localDate', () => ({

@@ -1,5 +1,5 @@
 // 통계 화면(GROMO-604) 포맷·집계 헬퍼. 순수 함수만 — UI/네트워크 없음.
-import { localDateStr, todayStr, todayStrKst } from '@/utils/localDate';
+import { kstDateStr, localDateStr, todayStrKst } from '@/utils/localDate';
 import type { HeatmapCellResponse, StatsPeriod } from '@/types/dto/stats';
 import { FOCUS_COLOR } from './constants';
 
@@ -121,9 +121,10 @@ export function periodKey(period: StatsPeriod): 'day' | 'week' | 'month' {
 // 요일 라벨(일=0..토=6) — 첫 시작 차트·공유 이미지 날짜 헤더 등 공용.
 export const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
-// 이번 주 월~일 7일의 로컬 날짜 키('YYYY-MM-DD') — 요일별 차트들이 남은 요일까지 미리 그릴 때 공용.
+// 이번 주 월~일 7일의 날짜 키('YYYY-MM-DD') — 요일별 차트들이 남은 요일까지 미리 그릴 때 공용.
+// 축은 KST(GROMO-1236 P2) — 서버 heatmap 셀(KST 버킷)과 키가 일치해야 값이 제 요일 칸에 붙는다.
 function weekDateKeys(): string[] {
-  const now = new Date();
+  const now = kstTodayDate();
   const dow = now.getDay(); // 0=일..6=토
   const monday = new Date(
     now.getFullYear(),
@@ -142,6 +143,14 @@ function weekDateKeys(): string[] {
 function dateFromStr(s: string): Date {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d, 12);
+}
+
+// KST '오늘'의 달력 날짜 Date — 통계 그리드·마커의 공용 앵커(GROMO-1236 P2 리뷰 반영).
+// 데이터(서버 heatmap 셀)가 KST 버킷이므로 그것을 그리는 페이지·주 키·오늘 마커도 같은 축에서
+// 파생해야 한다 — new Date()(로컬)로 만들면 비KST 기기에서 조회한 KST 주가 표시 중인 로컬 주
+// 밖에 떨어져 캘린더가 비어 보인다. 이후 산술은 이 Date에 대한 달력 산술로만 한다.
+export function kstTodayDate(): Date {
+  return dateFromStr(todayStrKst());
 }
 
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
@@ -182,8 +191,10 @@ export interface CalendarPage {
 
 // offset: 0=이번 기간, -1=지난 기간 … (미래 넘김 없음 — 양수는 쓰지 않는다).
 // 주차 라벨은 그 주 월요일이 속한 달 기준, 1일이 낀 주(월요일 시작)가 1주차.
+// 앵커는 KST 오늘(GROMO-1236 P2) — 페이지가 로컬 주/월이면 heatmapRange로 조회한 KST 셀이
+// 표시 범위 밖에 떨어져(예: LA 일요일 아침 = KST 월요일) 캘린더가 비어 보인다.
 export function calendarPage(period: 'WEEK' | 'MONTH', offset: number): CalendarPage {
-  const now = new Date();
+  const now = kstTodayDate();
   if (period === 'WEEK') {
     const dow = now.getDay(); // 0=일..6=토
     const monday = new Date(
@@ -240,7 +251,10 @@ export function heatmapBars(
   cells: HeatmapCellResponse[],
   pick: (c: HeatmapCellResponse) => number,
 ): StatBar[] {
-  const today = todayStr(); // 로컬 유지 — current/future는 화면 강조 플래그(기기 체감 축, GROMO-1236 분류 C)
+  // current/future 마커는 셀 날짜(KST 버킷)와 직접 비교되는 데이터 결합 마커라 KST 축이다
+  // (GROMO-1236 P2 — 1차의 '로컬 유지(체감 축)' 분류를 대체: 데이터와 다른 축의 마커는
+  // 비KST 기기에서 오늘 칸을 비켜 찍힌다).
+  const today = todayStrKst();
   if (period === 'WEEK') {
     // 월~일 7칸을 미리 기재 — 서버 히트맵은 월~오늘까지만 오므로 없는 날은 0,
     // 아직 안 온 요일은 future(라벨만 표시, 선·점 없음)로 채운다
@@ -270,14 +284,37 @@ export function heatmapBars(
 export const dayNum = (y: number, monthIdx: number, d: number) =>
   Math.floor(Date.UTC(y, monthIdx, d) / 86400e3);
 
-// 세션 목록 → 일별 첫 세션 시작 시각(로컬 자정 경과 분). key = 'YYYY-MM-DD'(로컬).
+// 임의 시각 → KST 벽시계 자정 경과 분 — dailyFirstStartMinutes 전용.
+// Intl 실패 시 로컬 폴백 — localDate.ts의 KST 헬퍼와 같은 관례.
+function kstMinutesOfDay(d: Date): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Seoul',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+    const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? NaN);
+    const h = get('hour');
+    const m = get('minute');
+    if (Number.isFinite(h) && Number.isFinite(m)) return (h % 24) * 60 + m;
+  } catch {
+    // 아래 로컬 폴백
+  }
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+// 세션 목록 → 일별 첫 세션 시작 시각(자정 경과 분). key = 'YYYY-MM-DD'(KST — GROMO-1236 P2:
+// 점을 그리는 그리드(weekDateKeys·월 주 분할)가 KST 버킷이라 데이터 키도 같은 축이어야 점이
+// 제 칸에 붙는다). 분도 KST 벽시계 — 로컬 분은 비KST 기기에서 KST 하루 안을 자정 wrap으로
+// 넘나들어 '첫 시작' 최소값 비교가 시간 순서와 어긋난다(KR 기기에선 종전과 동일 값).
 export function dailyFirstStartMinutes(sessions: { startedAt: string }[]): Map<string, number> {
   const byDay = new Map<string, number>();
   for (const s of sessions) {
     const d = new Date(s.startedAt);
     if (Number.isNaN(d.getTime())) continue;
-    const key = localDateStr(d);
-    const minutes = d.getHours() * 60 + d.getMinutes();
+    const key = kstDateStr(d);
+    const minutes = kstMinutesOfDay(d);
     const prev = byDay.get(key);
     if (prev === undefined || minutes < prev) byDay.set(key, minutes);
   }
@@ -298,8 +335,10 @@ export function firstStartPoints(
   period: StatsPeriod,
   byDay: Map<string, number>,
 ): StartTimePoint[] {
-  const now = new Date();
-  const today = todayStr(); // 로컬 유지 — current/future는 화면 강조 플래그(기기 체감 축, GROMO-1236 분류 C)
+  // 그리드 키(weekDateKeys·월 주 분할)와 마커 모두 KST 앵커 — heatmapBars와 같은 이유
+  // (GROMO-1236 P2, 1차의 '로컬 유지' 분류 대체). byDay 키도 같은 축(dailyFirstStartMinutes).
+  const now = kstTodayDate();
+  const today = todayStrKst();
   if (period === 'WEEK') {
     return weekDateKeys().map((key, i) => ({
       label: WEEKDAY[(i + 1) % 7], // 월~일

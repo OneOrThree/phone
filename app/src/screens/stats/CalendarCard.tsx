@@ -17,9 +17,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
-import { localDateStr, todayStr, todayStrKst } from '@/utils/localDate';
+import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
-import { calendarPage, grassLevel } from './format';
+import { calendarPage, grassLevel, kstTodayDate } from './format';
 import { CAL_RAMP, WEEK_DAYS } from './constants';
 
 interface Props {
@@ -62,7 +62,9 @@ export function CalendarCard({
     [],
   );
 
-  const todayKey = todayStr(); // 로컬 유지 — 오늘 셀 하이라이트는 기기 체감 축(GROMO-1236 분류 C)
+  // 오늘 하이라이트·미래/과거 판정은 그리드(KST 페이지)와 같은 축(GROMO-1236 P2 — 1차의
+  // '로컬 유지' 분류 대체: 페이지가 KST인데 마커만 로컬이면 비KST 기기에서 오늘 링이 비켜 찍힌다)
+  const todayKey = todayStrKst();
   const page = calendarPage(period, offset);
   const pageKey = page.days[0];
   const shown = offset === 0 ? (cells ?? undefined) : pastCells[pageKey];
@@ -81,11 +83,10 @@ export function CalendarCard({
     if (requestedRef.current.has(key)) return;
     requestedRef.current.add(key);
     const last = p.days[p.days.length - 1];
-    // cap/anchor 분리(GROMO-1236) — 미래 여부 판정(cap)은 페이지 days와 같은 로컬 달력 축,
-    // API로 나가는 기준일(anchor)은 서버 버킷 축(KST). 클램프가 필요할 때만 KST 오늘로 치환한다
-    // (과거 기간의 last는 축 무관한 달력 날짜라 그대로 보낸다).
-    const cap = todayStr();
-    const anchor = last > cap ? todayStrKst() : last;
+    // 페이지 days가 KST 축이 되면서(P2) 미래 방지 클램프도 같은 축 — 1차의 cap(로컬)/anchor(KST)
+    // 분리는 그리드 이전으로 소멸했다. 한 축이라 '집계 기준일 겸용'이 다시 안전하다.
+    const cap = todayStrKst();
+    const anchor = last > cap ? cap : last;
     getFocusPeriodStats(period, undefined, anchor)
       .then((stats) => {
         if (mountedRef.current)
@@ -134,7 +135,9 @@ export function CalendarCard({
   // 정확히 역산할 수 있고(joinKey), 같으면 '가입이 현재 기간 시작 이전'이라는 사실만 안다(경계 미상).
   // joinKey를 알면 모든 페이지에서 가입 전 날짜를 중립 처리 — 서버가 요청 범위 전체를 0분 셀로
   // 채워 과거 페이지의 가입 전 날짜가 '0분=달성'으로 보이는 문제 방지(코드리뷰 반영).
-  const now = new Date();
+  // 가입 경계 역산도 KST 앵커 — elapsedDays는 서버(KST 일 버킷) 집계고, 역산 결과(joinKey)는
+  // KST 페이지 날짜들과 비교되므로 같은 축이어야 한다(GROMO-1236 P2).
+  const now = kstTodayDate();
   const todayCol = (now.getDay() + 6) % 7; // 0=월..6=일
   const periodElapsed = period === 'WEEK' ? todayCol + 1 : now.getDate();
   const joinKey =

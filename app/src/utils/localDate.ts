@@ -37,9 +37,12 @@ export function yesterdayStr(): string {
 // "서버의 오늘/어제/내일"이 필요한 자리는 전부 이 버전을 쓴다: 내기·챌린지 조회 기준일·창 보고
 // (GROMO-1219)에 이어 통계·친구·리그 API의 date 파라미터와 히트맵 from/to도 이전 완료
 // (GROMO-1236 — statsApi·userApi.getUserStats·friendsApi·leagueApi.getMyRanking·
-// stats/format.heatmapRange·rollingWeekRange). 남은 todayStr(로컬) 사용처는 기기 체감이 정본인
-// 축뿐이다: 화면 표시(오늘 하이라이트·current/future 플래그·공유 파일명), 측정/저장
-// (dayChange·FocusContext 등), dev fixture.
+// stats/format.heatmapRange·rollingWeekRange). 통계 화면의 **데이터 결합 그리드/마커**(캘린더
+// 페이지·주 키·current/future 플래그·오늘 하이라이트 — stats/format.kstTodayDate 앵커)도 KST다
+// (PR #531 P2: 데이터가 KST 버킷이면 그리는 축도 같아야 셀·마커가 제 칸에 붙는다).
+// 남은 todayStr(로컬) 사용처는 두 부류뿐이다: ① 진짜 코스메틱(공유 파일명·dev fixture —
+// 서버로 안 나가고 데이터와 비교되지 않는 값) ② 측정/저장(dayChange·FocusContext·
+// SubjectContext 등 — 기기 로컬이 정본 축).
 // 알려진 한계: 서버 버킷 존은 country_code 파생(CountryZoneResolver — KR/JP/GB만 매핑, 그 외
 // UTC 폴백)이라 country_code가 KR이 아닌 유저는 서버 버킷이 KST가 아닐 수 있다. 클라는 KST를
 // 정본 축으로 보내는 것으로 통일한다(주 사용층 KR 기준 — 완전 해소는 서버 존 협상 필요).
