@@ -36,9 +36,19 @@ function lastBet(over: Partial<LastSettledBet> = {}): LastSettledBet {
   };
 }
 
-function renderSheet(over: Partial<LastSettledBet> = {}, myUserId: string | null = 'u1') {
+function renderSheet(
+  over: Partial<LastSettledBet> = {},
+  myUserId: string | null = 'u1',
+  mission: { missionType?: 'TIME_WINDOW' | 'DURATION'; missionCategory?: 'FOCUS' | 'SCREEN_TIME' } = {},
+) {
   return render(
-    <LastBetResultSheet lastBet={lastBet(over)} myUserId={myUserId} onClose={onClose} />,
+    <LastBetResultSheet
+      lastBet={lastBet(over)}
+      myUserId={myUserId}
+      missionType={mission.missionType}
+      missionCategory={mission.missionCategory}
+      onClose={onClose}
+    />,
   );
 }
 
@@ -132,7 +142,9 @@ describe('판정 근거(기록/목표 분)', () => {
     expect(screen.getByLabelText('수빈 60분 중 52분 미달성, 마이너스 30코인')).toBeOnTheScreen();
   });
 
-  test('기록 null(과거 정산분·미집계)은 —로 적고 음성은 "아직 집계되지 않음"으로 읽는다', async () => {
+  test('기록 null(과거 정산분)은 —로 적고 음성은 "판정 기록 없음"으로 읽는다 — 대기가 아니라 영구 부재', async () => {
+    // '아직 집계되지 않음'(진행 리스트 문구)을 쓰면 정산 끝난 행에서 '나중에 나타날 수
+    // 있음'으로 오독된다(codex 리뷰) — 스냅샷은 백필되지 않는다(group.ts 계약 주석).
     await renderSheet({
       goalMinutes: 60,
       results: [
@@ -141,9 +153,9 @@ describe('판정 근거(기록/목표 분)', () => {
     });
 
     expect(screen.getByTestId('group.bet.result.basis.u1')).toHaveTextContent('—');
-    // '—'를 "대시"로 읽지 않게 — unmeasuredA11y 문구가 행 라벨에 들어간다.
+    // '—'를 "대시"로 읽지 않게 — 확정 부재 문구가 행 라벨에 들어가고, 판정과 쉼표로 끊는다.
     expect(
-      screen.getByLabelText('재영 아직 집계되지 않음 미달성, 마이너스 30코인'),
+      screen.getByLabelText('재영 판정 기록 없음, 미달성, 마이너스 30코인'),
     ).toBeOnTheScreen();
   });
 
@@ -160,8 +172,8 @@ describe('판정 근거(기록/목표 분)', () => {
     expect(screen.getByLabelText('재영 52분 달성, 15코인')).toBeOnTheScreen();
   });
 
-  test('미집계(null)+미판정(payout null) 조합 — 쉼표로 끊어 읽는다, 미확정 둘을 잇지 않는다', async () => {
-    // '아직 집계되지 않음 미판정'처럼 접속어 없이 이어지면 한 문장으로 어색하다(claude 리뷰).
+  test('기록 없음(null)+미판정(payout null) 조합 — 쉼표로 끊어 읽는다, 상태 둘을 잇지 않는다', async () => {
+    // '판정 기록 없음 미판정'처럼 접속어 없이 이어지면 한 문장으로 어색하다(claude·codex 리뷰).
     await renderSheet({
       goalMinutes: 60,
       results: [
@@ -169,7 +181,7 @@ describe('판정 근거(기록/목표 분)', () => {
       ],
     });
 
-    expect(screen.getByLabelText('재영 아직 집계되지 않음, 미판정')).toBeOnTheScreen();
+    expect(screen.getByLabelText('재영 판정 기록 없음, 미판정')).toBeOnTheScreen();
   });
 
   test('실측(number)+미판정(payout null) 조합 — 근거 뒤 미판정도 쉼표로 끊는다', async () => {
@@ -181,6 +193,54 @@ describe('판정 근거(기록/목표 분)', () => {
     });
 
     expect(screen.getByLabelText('재영 60분 중 52분, 미판정')).toBeOnTheScreen();
+  });
+
+  test('FOCUS 창 + 실측 분이 그려지면 관용치 안내를 명단 앞에 세운다 — 55/60분·달성 모순 방지', async () => {
+    // 결과 모달(1217)과 같은 조건·같은 문구(codex 리뷰).
+    await renderSheet(
+      {
+        goalMinutes: 60,
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: true, payout: 45, progressMinutes: 55 },
+        ],
+      },
+      'u1',
+      { missionType: 'TIME_WINDOW', missionCategory: 'FOCUS' },
+    );
+
+    expect(screen.getByTestId('group.bet.result.toleranceNotice')).toHaveTextContent(
+      '목표에서 5분 모자라도 달성으로 인정돼요',
+    );
+  });
+
+  test('DURATION 미션이면 관용치 안내가 없다 — 관용치는 FOCUS 창 전용', async () => {
+    await renderSheet(
+      {
+        goalMinutes: 60,
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: true, payout: 45, progressMinutes: 72 },
+        ],
+      },
+      'u1',
+      { missionType: 'DURATION', missionCategory: 'FOCUS' },
+    );
+
+    expect(screen.queryByTestId('group.bet.result.toleranceNotice')).toBeNull();
+  });
+
+  test('FOCUS 창이어도 실측 분이 없으면(구서버·과거분) 관용치 안내가 없다 — 모순될 숫자가 없다', async () => {
+    await renderSheet(
+      {
+        goalMinutes: 60,
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: true, payout: 45, progressMinutes: null },
+        ],
+      },
+      'u1',
+      { missionType: 'TIME_WINDOW', missionCategory: 'FOCUS' },
+    );
+
+    expect(screen.queryByTestId('group.bet.result.toleranceNotice')).toBeNull();
   });
 
   test('undefined(필드를 모르는 구서버)면 근거 행을 아예 그리지 않는다 — 기존 레이아웃 그대로', async () => {
