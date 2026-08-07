@@ -73,16 +73,16 @@
       "description": "스크린 타임 목표 달성 저장 API"
     },
     {
+      "name": "Group Bet",
+      "description": "그룹 챌린지 내기 (개설/참가/히스토리). 현재 판 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드"
+    },
+    {
       "name": "InviteLink(public)",
       "description": "무인증 초대 링크 — 랜딩·deferred 매치"
     },
     {
       "name": "character",
       "description": "누끼(캐릭터) 생성 쿼터 API"
-    },
-    {
-      "name": "Group Bet",
-      "description": "그룹 챌린지 내기 (개설/참가). 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드"
     },
     {
       "name": "notification-test",
@@ -1303,6 +1303,94 @@
       }
     },
     "/api/v1/groups/{groupId}/challenges/{challengeId}/bets": {
+      "get": {
+        "tags": [
+          "Group Bet"
+        ],
+        "summary": "챌린지 내기 히스토리 조회",
+        "description": "챌린지의 정산 완료 내기(SETTLED·REFUNDED·FORFEITED)를 bet_date 내림차순으로 keyset 커서 페이지네이션해 돌려준다. CANCELED(취소)는 \u0027없던 일\u0027이라 실리지 않는다. cursor 는 직전 페이지 마지막 항목의 betId(생략 시 첫 페이지), size 는 1~100. 항목의 goalMinutes·참가자별 progressMinutes 는 정산 시점 판정 근거 스냅샷이며, 근거 저장 이전(V29 미만) 정산 건은 null 이다(앱은 \u0027—\u0027·분모 생략으로 표시). 이력은 그룹원 전체가 열람할 수 있다.",
+        "operationId": "getBetHistory",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupBetHistorySliceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_PAGE_REQUEST(size 범위 밖)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupBetHistorySliceResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupBetHistorySliceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupBetHistorySliceResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "Group Bet"
@@ -6896,6 +6984,10 @@
           "payout": {
             "type": "integer",
             "format": "int32"
+          },
+          "progressMinutes": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -6923,6 +7015,10 @@
               "FORFEITED",
               "CANCELED"
             ]
+          },
+          "goalMinutes": {
+            "type": "integer",
+            "format": "int32"
           },
           "results": {
             "type": "array",
@@ -6991,6 +7087,73 @@
           },
           "dormant": {
             "type": "boolean"
+          }
+        }
+      },
+      "GroupBetHistoryItemResponse": {
+        "type": "object",
+        "properties": {
+          "betId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "betDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SETTLED",
+              "REFUNDED",
+              "FORFEITED",
+              "CANCELED"
+            ]
+          },
+          "settledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "goalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBetResultParticipantResponse"
+            }
+          }
+        }
+      },
+      "GroupBetHistorySliceResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBetHistoryItemResponse"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "hasNext": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
