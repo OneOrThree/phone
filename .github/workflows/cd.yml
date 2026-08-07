@@ -96,8 +96,10 @@ jobs:
       - name: 헬스체크
         run: |
           echo "앱 기동 대기 중..."
-          # 60초(12회)는 7/24 성공 때도 55초 턱걸이였음 — 부팅이 늘며 초과, 150초로 확장 (GROMO-1068)
-          for i in $(seq 1 30); do
+          # 60초는 7/24에도 55초 턱걸이 → 150초 확장(GROMO-1068). 1233으로 Datadog APM 오버레이가
+          # 보존되면서 dd-trace 부착 부팅이 150초마저 초과(8/7 오탐 — 앱은 컷오프 직후 정상 기동),
+          # 300초로 재확장 (GROMO-1235)
+          for i in $(seq 1 60); do
             sleep 5
             if curl -sf http://localhost:8080/health; then
               echo "헬스체크 통과"
