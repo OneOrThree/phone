@@ -20,7 +20,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeResponse } from '@/types/dto/group';
 
@@ -165,8 +165,8 @@ describe('전송값', () => {
       missionCategory: 'FOCUS',
       missionType: 'TIME_WINDOW',
       durationMinutes: 60,
-      windowStart: `${todayStr()}T09:00:00+09:00`,
-      windowEnd: `${todayStr()}T12:00:00+09:00`,
+      windowStart: `${todayStrKst()}T09:00:00+09:00`,
+      windowEnd: `${todayStrKst()}T12:00:00+09:00`,
     });
   });
 
@@ -181,8 +181,8 @@ describe('전송값', () => {
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
       expect.objectContaining({
-        windowStart: `${todayStr()}T13:00:00+09:00`,
-        windowEnd: `${todayStr()}T15:00:00+09:00`,
+        windowStart: `${todayStrKst()}T13:00:00+09:00`,
+        windowEnd: `${todayStrKst()}T15:00:00+09:00`,
       }),
     );
   });
@@ -199,8 +199,8 @@ describe('전송값', () => {
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
       expect.objectContaining({
-        windowStart: `${todayStr()}T09:00:00+09:00`,
-        windowEnd: `${todayStr()}T08:00:00+09:00`,
+        windowStart: `${todayStrKst()}T09:00:00+09:00`,
+        windowEnd: `${todayStrKst()}T08:00:00+09:00`,
       }),
     );
   });
@@ -214,7 +214,7 @@ describe('전송값', () => {
 
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
-      expect.objectContaining({ windowEnd: `${todayStr()}T12:00:00+09:00` }),
+      expect.objectContaining({ windowEnd: `${todayStrKst()}T12:00:00+09:00` }),
     );
   });
 
@@ -316,8 +316,8 @@ describe('목표 시간 직접 입력', () => {
       missionCategory: 'FOCUS',
       missionType: 'TIME_WINDOW',
       durationMinutes: 90,
-      windowStart: `${todayStr()}T09:00:00+09:00`,
-      windowEnd: `${todayStr()}T12:00:00+09:00`,
+      windowStart: `${todayStrKst()}T09:00:00+09:00`,
+      windowEnd: `${todayStrKst()}T12:00:00+09:00`,
     });
   });
 
@@ -898,7 +898,7 @@ describe('접근성 · 전송 중 잠금', () => {
     // 전송값도 탭 시점 값 그대로다.
     expect(mockCreateChallenge).toHaveBeenCalledWith(
       GROUP_ID,
-      expect.objectContaining({ windowEnd: `${todayStr()}T12:00:00+09:00` }),
+      expect.objectContaining({ windowEnd: `${todayStrKst()}T12:00:00+09:00` }),
     );
     expect(onCreated).toHaveBeenCalled();
   });

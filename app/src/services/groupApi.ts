@@ -6,7 +6,7 @@
 import axios from 'axios';
 import { api } from '@/services/api';
 import { logGroupChallengeDeleted, type GroupJoinMethod } from '@/services/analyticsEvents';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   CreateAnnouncementRequest,
   CreateBetRequest,
@@ -90,10 +90,11 @@ export async function getGroupOverview(groupId: string): Promise<GroupOverviewRe
 }
 
 // GET /api/v1/groups/{groupId}?date — 그룹 상세(그룹원만).
-// date는 서버 필수 파라미터라 누락 시 400. 멤버 '오늘 집중분'의 기준일이므로 클라 로컬 날짜를 보낸다(§3-1-1).
+// date는 서버 필수 파라미터라 누락 시 400. 멤버 '오늘 집중분'의 기준일이며 서버가 KST로
+// 판정하므로 KST 날짜를 보낸다(§3-1-1, GROMO-1219).
 export async function getGroupDetail(groupId: string, date?: string): Promise<GroupDetailResponse> {
   const { data } = await api.get<GroupDetailResponse>(`/api/v1/groups/${groupId}`, {
-    params: { date: date ?? todayStr() },
+    params: { date: date ?? todayStrKst() },
   });
   return data;
 }
@@ -192,7 +193,7 @@ export function challengeGroupId(challengeId: string): string | null {
 // GET /api/v1/groups/{groupId}/challenges?date — 챌린지 목록(그룹원만).
 // date는 서버 **선택** 파라미터라 getGroupDetail과 달리 기본값을 채우지 않는다 —
 // date를 보낼 때만 memberProgress가 실리므로(안 보내면 null) 진행률이 필요한 화면이 명시적으로 넘긴다.
-// 멤버 진행률의 기준일이므로 넘길 때는 클라 로컬 날짜(todayStr())를 쓴다.
+// 멤버 진행률의 기준일이므로 넘길 때는 서버 판정 축과 같은 KST 날짜(todayStrKst())를 쓴다(GROMO-1219).
 export async function getChallenges(
   groupId: string,
   date?: string,
@@ -240,7 +241,7 @@ export async function deleteChallenge(groupId: string, challengeId: string): Pro
 
 // POST /api/v1/groups/{groupId}/challenges/{challengeId}/bets — 내기 개설(그룹원 누구나).
 // 개설자는 자동 참가하고 판돈이 즉시 차감된다(에스크로) — 계약 docs/back/group-bet-plan.md §2-1.
-// date는 내기의 기준일이라 클라 로컬 날짜를 그대로 싣는다(챌린지 진행률 기준일과 같은 날).
+// date는 내기의 기준일 — 서버가 KST로 판정하므로 호출부(BetSheet)가 KST 날짜(todayStrKst())를 싣는다.
 export async function createBet(
   groupId: string,
   challengeId: string,

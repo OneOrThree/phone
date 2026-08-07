@@ -15,7 +15,7 @@ import {
 } from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
 import { categoryLabel, missionLabel } from './challengeLabel';
@@ -221,8 +221,8 @@ export default function ChallengeCard({
   // 내기 기준일 — 'YYYY-MM-DD'는 사전순이 곧 시간순이다. 철회의 '시작 전' 판정·'내일 시작' 배지·
   // 미래 내기 잠금 해제가 같이 쓴다. 서버가 오늘 내기가 없으면 내일 내기를 폴백으로 내려줄 수
   // 있고(계약 §3 응답 보수, W2), bet.date가 없으면(구서버) 조회일(오늘) 내기로 간주한다(DTO 주석).
-  const betDate = bet?.date ?? todayStr();
-  const isFutureBet = betDate > todayStr();
+  const betDate = bet?.date ?? todayStrKst();
+  const isFutureBet = betDate > todayStrKst();
   // 참가 진입점 잠금 — FOCUS는 서버가 준 bet.myAchievedNow(이미 달성), SCREEN_TIME은 내 진행
   // 행의 확정 패배다. 스크린타임의 myAchievedNow는 표시용 잠정값이라 잠금에 쓰지 않는다(DTO 주석).
   // ⚠️ 미래(내일) 내기는 오늘 진행률 스냅샷으로 잠그지 않는다(#473 리뷰) — 내일의 집중·사용량은
@@ -258,11 +258,11 @@ export default function ChallengeCard({
   //                 걸침 창(예: 22:00~01:00)의 어제 내기를 오늘 00:30에 초만 비교하면(1800 <
   //                 79200) 앱 혼자 '시작 전'으로 읽어 철회를 세우고 서버는 BET_LEAVE_CLOSED로
   //                 튕긴다 — 취소 carve-out이 !leavable 뒤라 어느 버튼도 못 서는 dead-end였다.
-  //                 (betDate·todayStr의 날짜축이 기기 로컬인 이슈는 후속 — 여기선 축만 맞춘다)
+  //                 (오늘/과거 판정의 날짜축도 서버와 같은 KST다 — GROMO-1219에서 통일)
   //   DURATION   → 내기 날짜가 내일 이후일 때만(당일은 하루 집계가 이미 진행 중이라 불가)
   // 판정이 어긋난 레이스는 서버가 정본으로 끝낸다(BET_LEAVE_CLOSED로 돌아온다).
   // 경계는 서버와 같은 strict `<`다(서버 !isBefore와 대우) — 창 시작 정각은 이미 시작이다.
-  const isPastBet = betDate < todayStr();
+  const isPastBet = betDate < todayStrKst();
   const beforeStart = isWindow
     ? !isPastBet &&
       (isFutureBet ||

@@ -19,7 +19,14 @@ import {
 } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
-import { todayStr, yesterdayStr, localDateStr } from '@/utils/localDate';
+import {
+  todayStr,
+  yesterdayStr,
+  localDateStr,
+  todayStrKst,
+  yesterdayStrKst,
+  kstDateStr,
+} from '@/utils/localDate';
 import { timeStrToSeconds } from '@/utils/challengeTime';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
@@ -547,17 +554,17 @@ export function computeWindowUsedMinutes(p: {
   return segmentMinutes(p.startDayEvents, p.startAtSec, p.endAtSec);
 }
 
-// 'YYYY-MM-DD' 로컬 자정 epoch초 + 하루 중 초 오프셋 — 창 경계 시각의 epoch초를 만든다.
+// 'YYYY-MM-DD' **KST 자정** epoch초 + 하루 중 초 오프셋 — 창 경계 시각의 epoch초를 만든다.
+// 창 날짜·시각은 서버가 KST로 판정하므로(GROMO-1219) 앵커도 KST다 — 로컬 자정을 쓰면 비KST
+// 기기에서 창 경계가 몇 시간씩 밀려 남의 시간대 사용분을 보고한다. KST는 DST가 없어 고정
+// 오프셋(+09:00) 파싱으로 충분하다(useLeagueRanking의 KST_OFFSET_MS와 같은 근거).
 function epochSecAt(dateStr: string, secondsOfDay: number): number {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return Math.floor(new Date(y, m - 1, d).getTime() / 1000) + secondsOfDay;
+  return Date.parse(`${dateStr}T00:00:00+09:00`) / 1000 + secondsOfDay;
 }
 
+// 'YYYY-MM-DD' → KST 기준 다음 날. epochSecAt과 같은 축이어야 자정 걸침 창의 경계가 이어진다.
 function nextDateStr(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const t = new Date(y, m - 1, d);
-  t.setDate(t.getDate() + 1);
-  return localDateStr(t);
+  return kstDateStr(new Date(Date.parse(`${dateStr}T00:00:00+09:00`) + 86_400_000));
 }
 
 // 창 보고 상태 — 최종 보고 1회 보장(finals)과 중간 보고 무변화 스킵(last)에 쓴다.
@@ -625,13 +632,20 @@ export async function syncWindowUsage(userId: string): Promise<void> {
   const now = new Date();
   const nowSec = Math.floor(now.getTime() / 1000);
   const measuredAt = now.toISOString();
-  const today = todayStr();
-  const yesterday = yesterdayStr();
+  // 창 보고의 date 키는 서버 판정 축과 같은 KST다(GROMO-1219) — putWindowUsage의 date·finals
+  // 마커·prune 기준까지 전부 이 축을 탄다. 일일 스크린타임 업로드(syncScreenTimeUsage)의
+  // 로컬 축과는 별개다(그쪽은 reportedAt 정오 instant가 날짜 오귀속을 막는다 — 파일 상단 주석).
+  const today = todayStrKst();
+  const yesterday = yesterdayStrKst();
   const state = await readWindowReportState(userId);
   let stateDirty = false;
 
   // 날짜 키별 타임라인은 1회만 읽는다. 조회 실패(null)는 빈 배열과 구분한다 — 실패를 0분으로
   // 보고하면 창 내기 오달성이 되므로, 그 챌린지는 이번 sync에서 건너뛰고 다음에 재시도한다.
+  // ⚠️ 타임라인의 dayKey·버킷 누적 리셋은 네이티브가 **기기 로컬** 날짜로 적재한다(익스텐션
+  //    appendBucketEvent — 계약 §1 변경 금지 축). KST 기기에선 같은 축이라 정확하고, 비KST
+  //    기기는 KST 키 조회가 로컬 적재 키와 어긋날 수 있다 — 측정 축 자체가 로컬인 네이티브
+  //    한계로 수용한다(보고 date·창 경계를 서버 KST 축에 맞춘 것이 GROMO-1219의 범위다).
   const eventsCache = new Map<string, UsageBucketEvent[] | null>();
   const getEvents = async (dayKey: string): Promise<UsageBucketEvent[] | null> => {
     if (eventsCache.has(dayKey)) return eventsCache.get(dayKey) ?? null;

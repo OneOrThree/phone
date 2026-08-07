@@ -78,10 +78,16 @@ jest.mock('@/services/groupApi', () => ({
   withdrawGroup: jest.fn(),
 }));
 
+// 방 화면·카드·결과 모달의 날짜축은 KST다(GROMO-1219) — 로컬 버전은 일부러 다른 날짜로 고정해
+// 로컬 축 호출이 섞이면 날짜 단언이 어긋나 드러나게 한다(GroupRoomScreen.test와 같은 결).
 jest.mock('@/utils/localDate', () => ({
-  todayStr: jest.fn(() => '2026-08-01'),
-  yesterdayStr: jest.fn(() => '2026-07-31'),
+  todayStr: jest.fn(() => '2026-07-31'),
+  yesterdayStr: jest.fn(() => '2026-07-30'),
+  todayStrKst: jest.fn(() => '2026-08-01'),
+  yesterdayStrKst: jest.fn(() => '2026-07-31'),
+  tomorrowStrKst: jest.fn(() => '2026-08-02'),
   localDateStr: jest.requireActual('@/utils/localDate').localDateStr,
+  kstDateStr: jest.requireActual('@/utils/localDate').kstDateStr,
 }));
 
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;

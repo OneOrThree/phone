@@ -38,6 +38,14 @@ jest.mock('@/services/analyticsEvents', () => ({
   logScreentimeWindowReported: jest.fn(),
   logScreentimeWindowUnsupported: jest.fn(),
 }));
+// 축 분리 검증(GROMO-1219) — 창 보고는 KST 축(todayStrKst·yesterdayStrKst·kstDateStr, 실물)만
+// 불러야 한다. **로컬 버전은 일부러 엉뚱한 날짜**라, 코드가 로컬 축을 부르면 putWindowUsage의
+// date·타임라인 dayKey 단언이 곧장 어긋나 드러난다(러너 TZ가 KST라 값만으론 축이 안 갈린다).
+jest.mock('@/utils/localDate', () => ({
+  ...jest.requireActual('@/utils/localDate'),
+  todayStr: jest.fn(() => '2000-01-02'),
+  yesterdayStr: jest.fn(() => '2000-01-01'),
+}));
 
 const mockSupports = nativeSupportsUsageBucketEvents as jest.Mock;
 const mockGetEvents = ScreenTimeModule.getUsageBucketEvents as jest.Mock;
@@ -359,6 +367,32 @@ describe('syncWindowUsage — 보고', () => {
       measuredAt: new Date().toISOString(),
     });
     expect(mockLogReported).toHaveBeenCalledWith({ minutes: 50, is_final: false });
+  });
+
+  // 자정 걸침 창의 종료 경계 — 창 끝(KST 다음 날 01:00)의 epoch가 KST 자정 앵커(epochSecAt)로
+  // 계산된다(GROMO-1219). 어제 창은 최종 보고가 되고, 오늘 창(23시 시작 전)은 아직 대상이 아니다.
+  test('자정 걸침 창 종료 후 — 어제 창을 최종 보고하고 오늘 창은 시작 전이라 건너뛴다', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 1, 30)); // 어제 23시 창 종료(01:00) 후
+    await setupHappyPath(windowChallenge('23:00:00', '01:00:00'));
+    mockGetEvents.mockImplementation((dayKey: string) => {
+      if (dayKey === '2026-08-01') {
+        return Promise.resolve([ev('2026-08-01', '22:00', 300), ev('2026-08-01', '23:30', 330)]);
+      }
+      if (dayKey === '2026-08-02') {
+        // 창 안(~01:00) 40분 + 창 밖(01:10) 발화 — 종료 경계가 밀리면 55분으로 부푼다.
+        return Promise.resolve([ev('2026-08-02', '00:40', 40), ev('2026-08-02', '01:10', 55)]);
+      }
+      return Promise.resolve([]);
+    });
+
+    await syncWindowUsage(USER_ID);
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
+      date: '2026-08-01',
+      usedMinutes: 70, // (330−300) + 40
+      measuredAt: new Date().toISOString(),
+    });
+    expect(mockLogReported).toHaveBeenCalledWith({ minutes: 70, is_final: true });
   });
 
   test('타임라인 조회 실패는 0분으로 보고하지 않고 건너뛴다', async () => {

@@ -23,7 +23,7 @@ import {
 } from '@/services/groupApi';
 import { logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeRequest, MissionCategory, MissionType } from '@/types/dto/group';
 
@@ -162,8 +162,9 @@ function hhmmOf(minutesOfDay: number): string {
 
 // 창 시각 → ISO Instant 문자열. 날짜는 의미가 없고(서버는 KST 시각만 읽는다 — 계약 설계 보정
 // '매일 반복 시간대') 오프셋을 +09:00으로 못 박아 기기 타임존과 무관하게 KST 시각이 보존되게 한다.
+// 날짜부도 KST 오늘로 통일한다(GROMO-1219) — 서버가 무시하는 값이지만 로컬 축이 섞이지 않게.
 function kstWindowInstant(minutesOfDay: number): string {
-  return `${todayStr()}T${hhmmOf(minutesOfDay)}:00+09:00`;
+  return `${todayStrKst()}T${hhmmOf(minutesOfDay)}:00+09:00`;
 }
 
 // 이미 있는(ACTIVE) 챌린지 — 조합(카테고리×방식) 잠금의 근거.

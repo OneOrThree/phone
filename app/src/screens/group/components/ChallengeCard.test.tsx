@@ -47,7 +47,12 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 // 철회 버튼의 '시작 전' 판정이 시간에 기댄다 — '오늘'과 KST 벽시계를 테스트가 직접 고정한다.
-jest.mock('@/utils/localDate', () => ({ todayStr: jest.fn(() => '2026-08-01') }));
+// 카드의 날짜축은 서버 판정과 같은 KST다(GROMO-1219) — **로컬 버전은 일부러 다른 날짜**라,
+// 코드가 로컬 축(todayStr)을 부르면 오늘/내일/과거 판정이 어긋나 곧장 드러난다(축 분리 검증).
+jest.mock('@/utils/localDate', () => ({
+  todayStr: jest.fn(() => '2026-07-31'),
+  todayStrKst: jest.fn(() => '2026-08-01'),
+}));
 // KST 벽시계는 기본 10:00 — 자정 걸침 창(GROMO-1208) 시나리오만 값을 바꾼다(BetSheet.test 관행).
 // 되돌리기는 beforeEach가 맡는다 — 안 되돌리면 뒤 테스트가 조용히 00:30 세계에서 돈다.
 let mockNowSec = 10 * 3600;
