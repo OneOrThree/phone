@@ -321,7 +321,10 @@ public class FriendService {
                             // 관계의 시각이 남는다(@CreationTimestamp 가 insert 생성이라 갱신 불가,
                             // Friendship.reopen() 주석). 이 목록은 PENDING 만 실으므로 마지막 변경 시각이
                             // 곧 요청 사이클 시작 시각이다 — 신규 insert·재전환·복원 세 경로 모두 (GROMO-719).
-                            .createdAt(f.getUpdatedAt())
+                            // createdAt 폴백: V1 스키마가 updated_at null 을 허용하고 Hibernate 밖에서
+                            // 삽입된 행(부하테스트 시드 등)은 실제로 비어 있다 — null 을 그대로 내보내지
+                            // 않는다. 앱 생성 행은 @UpdateTimestamp 가 insert 부터 채워 폴백을 안 탄다.
+                            .createdAt(f.getUpdatedAt() != null ? f.getUpdatedAt() : f.getCreatedAt())
                             .build();
                 })
                 .toList();
