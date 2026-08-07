@@ -172,6 +172,17 @@ public class UserService {
      * flush 시점에 잡아 같은 409 NICKNAME_DUPLICATE 로 강하한다(GroupChallengeService 의
      * saveAndFlush catch 선례). 커밋 시점까지 미루면 전역 폴백(DATA_INTEGRITY_VIOLATION)으로
      * 새어 클라이언트가 원인을 구분할 수 없다.
+     *
+     * <p>⚠ 이 메서드는 트랜잭션의 <b>첫 mutation 지점</b>이어야 한다 (GROMO-1230). 두 가지 이유다:
+     * ① 위 flush() 는 닉네임만 골라 내보내지 못하고 트랜잭션에 쌓인 더티 상태 전부를 밀어낸다 —
+     * 앞선 다른 변경이 있으면 그쪽의 제약 위반까지 이 catch 가 409 NICKNAME_DUPLICATE 로 오인
+     * 강하한다. 호출측(setup/updateProfile)이 닉네임을 다른 변경보다 먼저 처리하는 순서를 지킬 것.
+     * ② 락 규율(GROMO-801, UserRepository 락 선택 원칙) — 여기서 users 행을 변경하므로 이
+     * 트랜잭션은 "users 행 변경 = 처음부터 배타 락(findActiveByIdForUpdate)" 분류에 해당한다.
+     * 공유 락(ForShare)으로 로드한 트랜잭션에서 이 메서드를 부르면 락 승급 교착 대상이 된다.
+     * 단, 현재 호출부(setupProfile·updateProfile)는 <b>무락 로드</b>(findByIdAndIsDeletedFalse)라
+     * 승급 교착 이전에 이미 이 규율 밖이다 — 정정은 별도 티켓 몫이고, 이 경고는 그때의 목표
+     * 상태(배타 락 로드)를 기록한다.
      */
     private void changeNickname(User user, String rawNickname) {
         String nickname = rawNickname == null ? "" : rawNickname.trim();
