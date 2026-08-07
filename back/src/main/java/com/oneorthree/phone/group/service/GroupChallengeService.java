@@ -83,7 +83,7 @@ public class GroupChallengeService {
 
     private static final int SECONDS_PER_DAY = 86_400;
     private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
-    /** 일 목표(DURATION) 상한 — 하루는 1440분(GROMO-1205). DB 는 V27 CHECK 가 같은 값으로 최후 방어한다. */
+    /** 일 목표(DURATION) 상한 — 하루는 1440분(GROMO-1205). DB 는 V28 CHECK 가 같은 값으로 최후 방어한다. */
     private static final int MAX_DURATION_GOAL_MINUTES = 1_440;
 
     /**

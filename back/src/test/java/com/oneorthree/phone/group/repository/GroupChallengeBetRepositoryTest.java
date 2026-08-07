@@ -38,8 +38,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>동시 개설·동시 참가는 서비스의 exists 검사만으로는 레이스를 막지 못한다(검사와 삽입 사이가 열려
  * 있다). 정산 재실행의 이중 지급도 마찬가지로 멱등키 유니크가 최후 방어선이다. 그래서 참가·멱등키
  * 유니크가 실제 Postgres 에 존재하는지를 여기서 확인한다. 단, 개설 중복을 막는 (challenge_id,
- * bet_date) 는 V27 에서 <b>부분 유니크 인덱스</b>(취소 제외)가 됐고 JPA 로 표현할 수 없어 엔티티
- * 어노테이션에서 빠졌다 — ci 스키마엔 없으므로 그 검증은 {@code GroupChallengeV27MigrationTest} 가
+ * bet_date) 는 V28 에서 <b>부분 유니크 인덱스</b>(취소 제외)가 됐고 JPA 로 표현할 수 없어 엔티티
+ * 어노테이션에서 빠졌다 — ci 스키마엔 없으므로 그 검증은 {@code GroupChallengeV28MigrationTest} 가
  * Flyway 체인으로 맡는다.
  *
  * <p><b>ci 프로파일 주의</b>: 스키마는 Flyway 가 아니라 엔티티 create-drop 으로 만들어진다
@@ -108,7 +108,7 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
                 .build());
     }
 
-    // "(challenge_id, bet_date) 중복 차단" 테스트는 V27 에서 GroupChallengeV27MigrationTest 로
+    // "(challenge_id, bet_date) 중복 차단" 테스트는 V28 에서 GroupChallengeV28MigrationTest 로
     // 이관됐다 — 제약이 부분 유니크 인덱스(WHERE status <> CANCELED)가 되면서 엔티티 어노테이션이
     // 사라져, create-drop 으로 만드는 ci 스키마에는 그 제약 자체가 존재하지 않기 때문이다.
 

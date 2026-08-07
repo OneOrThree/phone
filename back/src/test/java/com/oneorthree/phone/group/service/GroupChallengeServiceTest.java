@@ -1225,7 +1225,7 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("DURATION durationMinutes 1440(하루 전체) 경계는 허용 — V27 CHECK 와 같은 상한이다")
+    @DisplayName("DURATION durationMinutes 1440(하루 전체) 경계는 허용 — V28 CHECK 와 같은 상한이다")
     void createChallengeAllowsFullDayDurationBoundary() {
         // given: OWNER + DURATION + durationMinutes = 1440(경계)
         User user = member();

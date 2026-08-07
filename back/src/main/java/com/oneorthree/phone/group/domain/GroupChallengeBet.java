@@ -28,9 +28,9 @@ import java.util.UUID;
  *
  * <p>대상은 목표분이 있는 모든 챌린지다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW 4조합
  * (창은 목표분이 있는 것만). <b>비취소</b> 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라
- * 같은 날짜 재개설을 막지 않는다(GROMO-1201). 동시 개설의 최후 방어선은 V27 부분 유니크 인덱스
+ * 같은 날짜 재개설을 막지 않는다(GROMO-1201). 동시 개설의 최후 방어선은 V28 부분 유니크 인덱스
  * ({@code WHERE status <> 'CANCELED'})인데, JPA 가 부분 인덱스를 표현할 수 없어 여기엔
- * {@code @UniqueConstraint} 를 두지 않는다(실 SQL 검증은 {@code GroupChallengeV27MigrationTest}).
+ * {@code @UniqueConstraint} 를 두지 않는다(실 SQL 검증은 {@code GroupChallengeV28MigrationTest}).
  */
 @Entity
 @Table(name = "group_challenge_bets")

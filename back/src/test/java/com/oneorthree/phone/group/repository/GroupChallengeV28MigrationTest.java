@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V27 마이그레이션의 실 SQL 검증 — 내기 (challenge_id, bet_date) 부분 유니크(취소 제외, GROMO-1201)와
+ * V28 마이그레이션의 실 SQL 검증 — 내기 (challenge_id, bet_date) 부분 유니크(취소 제외, GROMO-1201)와
  * 일 목표분 상한 CHECK(GROMO-1205).
  *
  * <p><b>여기가 이 제약의 유일한 DB 검증 지점이다.</b> JPA 는 부분 유니크 인덱스를 표현할 수 없어
@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 인덱스가 아예 없다 — 그래서 {@code GroupChallengeV20MigrationTest} 와 같은 방식으로 전용
  * 컨테이너에 Flyway 체인을 실제로 돌려 검증한다.
  */
-class GroupChallengeV27MigrationTest {
+class GroupChallengeV28MigrationTest {
 
     /**
      * 이 클래스 전용 컨테이너. 공용 {@code TestPostgres} 는 다른 테스트 클래스들이 공유하는 Spring 컨텍스트의

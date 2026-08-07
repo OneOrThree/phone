@@ -137,7 +137,7 @@ public class GroupBetService {
         }
 
         // 취소(CANCELED)는 "없던 일" — 같은 날짜 재개설을 막지 않는다(GROMO-1201). 비취소 내기만
-        // 중복으로 본다. 레이스의 최후 방어선은 V27 부분 유니크 인덱스(아래 catch 로 강하)다.
+        // 중복으로 본다. 레이스의 최후 방어선은 V28 부분 유니크 인덱스(아래 catch 로 강하)다.
         if (groupChallengeBetRepository.existsByChallengeIdAndBetDateAndStatusNot(
                 challengeId, betDate, GroupBetStatus.CANCELED)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);

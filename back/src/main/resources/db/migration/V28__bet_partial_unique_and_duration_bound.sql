@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════
--- V27 — 내기 재개설 허용(취소 제외 부분 유니크) + 일 목표분 상한 (GROMO-1201 · GROMO-1205)
+-- V28 — 내기 재개설 허용(취소 제외 부분 유니크) + 일 목표분 상한 (GROMO-1201 · GROMO-1205)
 -- ════════════════════════════════════════════════════════════════════
 -- 1) (challenge_id, bet_date) 전체 유니크 → status <> CANCELED 부분 유니크로 교체.
 --    취소는 "없던 일"인데 전체 유니크가 취소 행까지 계수해 같은 날짜 재개설이 DB 에서 막혔다.
@@ -15,7 +15,7 @@ ALTER TABLE public.group_challenge_bets
 
 -- 비취소 내기는 챌린지당·날짜당 1개 — 동시 개설의 최후 방어선은 그대로 DB 다.
 -- JPA 는 부분 인덱스를 표현할 수 없어 엔티티 @UniqueConstraint 는 제거됐다. 따라서 ci 프로파일
--- (create-drop) 스키마에는 이 제약이 없다 — 실 SQL 검증은 GroupChallengeV27MigrationTest 가 맡는다.
+-- (create-drop) 스키마에는 이 제약이 없다 — 실 SQL 검증은 GroupChallengeV28MigrationTest 가 맡는다.
 CREATE UNIQUE INDEX uq_group_challenge_bets_challenge_bet_date_active
     ON public.group_challenge_bets (challenge_id, bet_date)
     WHERE status <> 'CANCELED';

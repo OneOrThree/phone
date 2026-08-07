@@ -538,7 +538,7 @@ class GroupBetServiceTest {
         givenFocusDuration(10);
         given(groupChallengeBetRepository.existsByChallengeIdAndBetDateAndStatusNot(
                 CHALLENGE_ID, today(), GroupBetStatus.CANCELED)).willReturn(false);
-        // 검사와 삽입 사이에 다른 개설이 먼저 커밋된 판 — V27 부분 유니크가 INSERT 를 거절한다.
+        // 검사와 삽입 사이에 다른 개설이 먼저 커밋된 판 — V28 부분 유니크가 INSERT 를 거절한다.
         // 강하 없이는 앱이 결정적 409(BET_ALREADY_EXISTS) 대신 공통 DATA_INTEGRITY_VIOLATION 을 받는다.
         given(groupChallengeBetRepository.saveAndFlush(any())).willThrow(
                 new DataIntegrityViolationException("uq_group_challenge_bets_challenge_bet_date_active"));
