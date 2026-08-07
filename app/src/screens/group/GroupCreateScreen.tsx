@@ -136,16 +136,23 @@ export default function GroupCreateScreen() {
       // 401 인터셉터도 안 타고, 재시도로 절대 안 풀린다. 유일한 탈출구가 재로그인이라
       // 취소 없는 단일 확인으로 로그아웃 유도(AccountScreen 탈퇴 성공 경로의 triggerLogout 선례).
       case 'NOT_FOUND':
-        Alert.alert('로그인이 필요해요', '로그인 정보가 만료됐어요. 다시 로그인해주세요.', [
-          {
-            text: '확인',
-            // 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 이 화면의
-            // beforeRemove 가드와 무관하고, submittingRef는 submit()의 finally가 이미 풀었다
-            // (#530 claude 리뷰). 버튼 핸들러에서 부르는 건 사용자가 안내를 읽고 확인한 뒤
-            // 세션을 정리하는 UX 순서일 뿐이다.
-            onPress: () => triggerLogout(),
-          },
-        ]);
+        Alert.alert(
+          '로그인이 필요해요',
+          '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+          [
+            {
+              text: '확인',
+              // 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 이 화면의
+              // beforeRemove 가드와 무관하고, submittingRef는 submit()의 finally가 이미 풀었다
+              // (#530 claude 리뷰). 버튼 핸들러에서 부르는 건 사용자가 안내를 읽고 확인한 뒤
+              // 세션을 정리하는 UX 순서일 뿐이다.
+              onPress: () => triggerLogout(),
+            },
+            // 단일 탈출구 강제 — iOS는 바깥 탭 닫기가 없지만, 취소 불가 의도를 명시해 두면
+            // 안드로이드 지원 시 백 버튼 무콜백 닫힘(로그아웃 미실행 잔류)을 막는다(#530 codex).
+          ],
+          { cancelable: false },
+        );
         return;
       default: {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
