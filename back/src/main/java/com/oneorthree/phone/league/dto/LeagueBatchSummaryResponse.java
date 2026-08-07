@@ -7,7 +7,7 @@ import java.time.Instant;
 // alreadySettledMemberCount: 이 주차 완료 마커가 이미 있어 건너뛴 유저 수(GROMO-1239 재실행 멱등 —
 //   정상 흐름. 기본 최초 실행에서는 항상 0),
 // failedMemberCount: 건별 트랜잭션이 예외로 롤백된 유저 수(비정상 — 실패 요약 로그로 추적),
-// createdArenaCount: 이번 실행이 만든 anchor 수(재개(resume)가 기존 anchor 를 재사용하면 0)
+// createdArenaCount: 이번 실행이 만든 anchor 수 — run=1, resume=0(재개는 회전하지 않는다)
 public record LeagueBatchSummaryResponse(
         Instant weekStartAt,
         int endedArenaCount,

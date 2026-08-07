@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -66,26 +67,52 @@ public class LeagueBatchController {
         return ResponseEntity.ok(leagueBatchService.runWeeklyBatch());
     }
 
-    @Operation(summary = "리그 주간 배치 재개(멱등 재실행)",
-            description = "크래시·부분 실패로 남은 미정산 유저를 마저 정산한다(GROMO-1239). 이번 주차 "
-                    + "anchor 가 이미 있어도 409 없이 정산 루프만 재진입하고, 기정산 유저는 완료 마커 "
-                    + "(league_weekly_results 유니크 행) 기준 alreadySettledMemberCount 로 건너뛴다 — "
-                    + "티어 재적용·보너스 이중 지급 없이 몇 번을 호출해도 안전하다(멱등). anchor 가 "
-                    + "아직 없으면 run 과 동일하게 회전부터 수행한다. userIds 를 지정하면 그 유저들만 "
-                    + "표적 정산한다(실패 유저 복구용 — 탈퇴·게스트는 조용히 제외). "
+    @Operation(summary = "리그 주간 배치 재개(멱등 재실행 — 회전 없음)",
+            description = "크래시·부분 실패로 남은 미정산 유저를 마저 정산한다(GROMO-1239). 절대 "
+                    + "회전하지 않는다 — 대상 주차 run 이 커밋한 가드 anchor(주차 종료 경계 시각)가 "
+                    + "없으면 409(BATCH_NOT_RUN)로 거부하니 최초 실행은 /league/batch/run 을 쓴다. "
+                    + "기정산 유저는 완료 마커(league_weekly_results 유니크 행) 기준 "
+                    + "alreadySettledMemberCount 로 건너뛴다 — 티어 재적용·보너스 이중 지급 없이 몇 "
+                    + "번을 호출해도 안전하다(멱등). 두 모드: ① weekStartAt 생략 = 호출 시각 기준 "
+                    + "직전 KST 주차 재개, ② weekStartAt 지정(정산 대상 주차의 KST 월요일 00:00 "
+                    + "ISO instant, 예: 2026-08-02T15:00:00Z) = 다음 주차가 이미 회전한 뒤에도 그 "
+                    + "과거 주차를 복구. 주차 종료 후 가입한 유저는 대상에서 제외된다(가입 컷오프). "
+                    + "userIds 를 지정하면 그 유저들만 표적 정산한다(실패 유저 복구용 — 탈퇴·게스트· "
+                    + "컷오프 제외자는 조용히 빠진다). "
                     + "X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "재개 실행 성공(잔여 0명 포함 — 409 없음)"),
+        @ApiResponse(responseCode = "200", description = "재개 실행 성공(잔여 0명 포함)"),
+        @ApiResponse(responseCode = "400",
+                description = "weekStartAt 이 ISO instant 가 아니거나 KST 월요일 00:00 경계가 아님 "
+                        + "(INVALID_WEEK_START)"),
         @ApiResponse(responseCode = "403", description = "관리자 키 누락/불일치 (BATCH_KEY_INVALID)"),
+        @ApiResponse(responseCode = "409",
+                description = "대상 주차의 배치가 실행된 적 없음 (BATCH_NOT_RUN) — /run 사용"),
         @ApiResponse(responseCode = "503", description = "서버에 관리자 키 미설정 (BATCH_KEY_NOT_CONFIGURED)")
     })
     @PostMapping("/league/batch/resume")
     public ResponseEntity<LeagueBatchSummaryResponse> resumeWeeklyBatch(
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey,
+            @Parameter(description = "정산 대상 주차 시작 — KST 월요일 00:00 ISO instant (생략 시 직전 주차)")
+            @RequestParam(required = false) String weekStartAt,
             @Parameter(description = "표적 정산할 유저 id 목록 (생략 시 전체 순회)")
             @RequestParam(required = false) List<UUID> userIds) {
         requireAdminKey(adminKey);
-        return ResponseEntity.ok(leagueBatchService.resumeWeeklyBatch(Instant.now(), userIds));
+        return ResponseEntity.ok(
+                leagueBatchService.resumeWeeklyBatch(Instant.now(), parseWeekStartAt(weekStartAt), userIds));
+    }
+
+    // 스프링 바인더 대신 직접 파싱 — 형식 오류를 프레임워크 400 이 아니라 INVALID_WEEK_START 로
+    // 통일해 운영자가 월요일 경계 오류와 같은 문구 축에서 원인을 읽게 한다.
+    private Instant parseWeekStartAt(String weekStartAt) {
+        if (weekStartAt == null || weekStartAt.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(weekStartAt);
+        } catch (DateTimeParseException e) {
+            throw new LeagueException(LeagueErrorCode.INVALID_WEEK_START);
+        }
     }
 
     // 비교는 MessageDigest.isEqual — String.equals 는 첫 불일치 문자에서 끊겨 응답 시간으로

@@ -129,7 +129,7 @@ class LeagueBatchResumeIntegrationTest extends IntegrationTestBase {
 
         // 실패 원인(지갑 부재)을 복구한 뒤 resume — 운영 복구 절차 그대로.
         userWalletRepository.save(UserWallet.builder().userId(failedFirst.getId()).build());
-        LeagueBatchSummaryResponse resumed = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null);
+        LeagueBatchSummaryResponse resumed = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null, null);
 
         // 요약 정합 — 기정산 1명은 alreadySettled, 실패했던 1명만 settled, anchor 재사용.
         assertThat(resumed.settledMemberCount()).isEqualTo(1);
@@ -153,7 +153,7 @@ class LeagueBatchResumeIntegrationTest extends IntegrationTestBase {
         assertThat(bonusCountOf(failedFirst)).isEqualTo(1);
 
         // 한 번 더 resume — 전원 마커 skip, 아무 변화 없음(멱등 종결 상태).
-        LeagueBatchSummaryResponse third = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null);
+        LeagueBatchSummaryResponse third = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null, null);
         assertThat(third.settledMemberCount()).isZero();
         assertThat(third.alreadySettledMemberCount()).isEqualTo(2);
         assertThat(bonusCountOf(settledFirst)).isEqualTo(1);

@@ -46,6 +46,18 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     private static final LocalDate PREVIOUS_MONDAY = LocalDate.of(2026, 7, 6);
     private static final LocalDate PREVIOUS_SUNDAY = LocalDate.of(2026, 7, 12);
 
+    // 재개(resume) 테스트 전용 먼 미래 주차 (GROMO-1239) — resume 은 가입 컷오프(주차 종료 경계
+    // 이후 가입자 제외)를 걸므로, 실제 벽시계로 생성되는 픽스처 유저(created_at=지금)가 대상에
+    // 남으려면 경계가 미래여야 한다. 2033-07-11(월) 00:00 KST 주차를 쓴다.
+    private static final Instant RESUME_NOW = Instant.parse("2033-07-10T15:00:00Z");
+    private static final Instant RESUME_PREVIOUS_WEEK_START = Instant.parse("2033-07-03T15:00:00Z");
+    private static final LocalDate RESUME_PREVIOUS_MONDAY = LocalDate.of(2033, 7, 4);
+
+    // 가입 컷오프 검증용 먼 과거 주차 — 픽스처 유저(created_at=지금)가 전원 "주차 종료 후 가입"이 된다.
+    private static final Instant PAST_WEEK_START = Instant.parse("2020-07-05T15:00:00Z");
+    private static final Instant PAST_WEEK_BOUNDARY = Instant.parse("2020-07-12T15:00:00Z");
+    private static final LocalDate PAST_MONDAY = LocalDate.of(2020, 7, 6);
+
     @Autowired
     LeagueBatchService leagueBatchService;
     @Autowired
@@ -254,12 +266,13 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     @DisplayName("완주한 주차의 resume — 전원 alreadySettled 로 건너뛰고 티어 래칫·보너스 재지급이 없다")
     void resumeAfterCompletedRunIsIdempotent() {
         User promoted = saveUser("resumeIdempotent", 1, false);
-        saveStat(promoted, PREVIOUS_MONDAY, 50_400);
+        saveStat(promoted, RESUME_PREVIOUS_MONDAY, 50_400);
         flushFixtures();
-        leagueBatchService.runWeeklyBatch(BATCH_NOW);
+        leagueBatchService.runWeeklyBatch(RESUME_NOW);
         assertThat(promoted.getTierLevel()).isEqualTo(2);
 
-        LeagueBatchSummaryResponse resumed = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null);
+        LeagueBatchSummaryResponse resumed =
+                leagueBatchService.resumeWeeklyBatch(RESUME_NOW, null, null);
 
         // 가드가 없으면 라이브 tier(2)로 판정을 다시 굴려 연쇄 승급이 나거나 유니크 위반으로 failed 가 된다.
         assertThat(resumed.settledMemberCount()).isZero();
@@ -273,13 +286,36 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("anchor 없이 resume 하면 run 과 동일하게 회전부터 수행한다 — 409 없는 완결 시맨틱")
-    void resumeWithoutAnchorRotatesLikeRun() {
-        LeagueBatchSummaryResponse summary = leagueBatchService.resumeWeeklyBatch(BATCH_NOW, null);
+    @DisplayName("가드 anchor 가 없는 주차의 resume 은 BATCH_NOT_RUN — 회전도, 어떤 기록도 하지 않는다")
+    void resumeWithoutGuardAnchorIsRejected() {
+        User user = saveUser("resumeNoAnchor", 1, false);
+        saveStat(user, RESUME_PREVIOUS_MONDAY, 50_400);
+        flushFixtures();
 
-        assertThat(summary.createdArenaCount()).isEqualTo(1);
-        assertThat(leagueArenaRepository.existsByStartedAt(BATCH_NOW)).isTrue();
-        assertThat(summary.settledMemberCount()).isZero();
+        // 전체 재개·표적 재개 모두 같은 전제 가드를 지나야 한다 — 표적 재개가 anchor 를 만들고
+        // 지정 유저만 정산하면 이후 스케줄 run 이 409 에 막혀 나머지 전원이 영구 미정산된다(P1).
+        assertThatThrownBy(() -> leagueBatchService.resumeWeeklyBatch(RESUME_NOW, null, null))
+                .isInstanceOf(LeagueException.class)
+                .extracting(exception -> ((LeagueException) exception).getErrorCode())
+                .isEqualTo(LeagueErrorCode.BATCH_NOT_RUN);
+        assertThatThrownBy(() -> leagueBatchService.resumeWeeklyBatch(
+                        RESUME_NOW, null, List.of(user.getId())))
+                .isInstanceOf(LeagueException.class)
+                .extracting(exception -> ((LeagueException) exception).getErrorCode())
+                .isEqualTo(LeagueErrorCode.BATCH_NOT_RUN);
+        assertThat(leagueArenaRepository.count()).isZero();
+        assertThat(leagueWeeklyResultRepository.count()).isZero();
+        assertThat(user.getTierLevel()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("weekStartAt 이 KST 월요일 00:00 경계가 아니면 INVALID_WEEK_START")
+    void resumeRejectsNonMondayWeekStart() {
+        assertThatThrownBy(() -> leagueBatchService.resumeWeeklyBatch(
+                        RESUME_NOW, RESUME_PREVIOUS_WEEK_START.plusSeconds(3_600), null))
+                .isInstanceOf(LeagueException.class)
+                .extracting(exception -> ((LeagueException) exception).getErrorCode())
+                .isEqualTo(LeagueErrorCode.INVALID_WEEK_START);
     }
 
     @Test
@@ -287,14 +323,14 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
     void resumeWithUserIdsSettlesOnlyTargets() {
         User target = saveUser("resumeTarget", 1, false);
         User untouched = saveUser("resumeUntouched", 1, false);
-        saveStat(target, PREVIOUS_MONDAY, 50_400);
-        saveStat(untouched, PREVIOUS_MONDAY, 50_400);
+        saveStat(target, RESUME_PREVIOUS_MONDAY, 50_400);
+        saveStat(untouched, RESUME_PREVIOUS_MONDAY, 50_400);
         flushFixtures();
-        // rotate 직후 크래시로 정산이 전혀 안 된 상황 재현 — anchor 만 선커밋돼 있다.
-        saveAnchor(BATCH_NOW, LeagueArenaStatus.ACTIVE);
+        // rotate 직후 크래시로 정산이 전혀 안 된 상황 재현 — 가드 anchor 만 선커밋돼 있다.
+        saveAnchor(RESUME_NOW, LeagueArenaStatus.ACTIVE);
 
         LeagueBatchSummaryResponse first =
-                leagueBatchService.resumeWeeklyBatch(BATCH_NOW, List.of(target.getId()));
+                leagueBatchService.resumeWeeklyBatch(RESUME_NOW, null, List.of(target.getId()));
 
         assertThat(first.settledMemberCount()).isEqualTo(1);
         assertThat(first.alreadySettledMemberCount()).isZero();
@@ -308,9 +344,57 @@ class LeagueBatchServiceTest extends RepositoryTestBase {
 
         // 같은 표적으로 한 번 더 — 완료 마커가 있으니 alreadySettled 로만 집계된다.
         LeagueBatchSummaryResponse second =
-                leagueBatchService.resumeWeeklyBatch(BATCH_NOW, List.of(target.getId()));
+                leagueBatchService.resumeWeeklyBatch(RESUME_NOW, null, List.of(target.getId()));
         assertThat(second.settledMemberCount()).isZero();
         assertThat(second.alreadySettledMemberCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("다음 주차 회전 후에도 weekStartAt 지정 resume 이 그 과거 주차를 정확히 정산한다")
+    void resumeExplicitPastWeekSettlesThatWeek() {
+        User user = saveUser("resumePastWeek", 1, false);
+        saveStat(user, RESUME_PREVIOUS_MONDAY, 50_400);
+        flushFixtures();
+        // 대상 주차의 가드 anchor + 그 다음 주차 anchor — 한 주가 더 회전해 버린 뒤의 복구 상황.
+        saveAnchor(RESUME_NOW, LeagueArenaStatus.ACTIVE);
+        Instant weekLater = Instant.parse("2033-07-17T15:00:00Z");
+        saveAnchor(weekLater, LeagueArenaStatus.ACTIVE);
+
+        // now 기준 직전 주차는 이미 다른 주(2033-07-11주) — 명시 weekStartAt 이 없으면 엉뚱한
+        // 주차를 재개하게 되는 시점(P2-2)에서, 명시 파라미터로 원래 주차를 복구한다.
+        LeagueBatchSummaryResponse summary = leagueBatchService.resumeWeeklyBatch(
+                weekLater, RESUME_PREVIOUS_WEEK_START, List.of(user.getId()));
+
+        assertThat(summary.settledMemberCount()).isEqualTo(1);
+        LeagueWeeklyResult result = leagueWeeklyResultRepository
+                .findTopByUserIdOrderByCreatedAtDesc(user.getId()).orElseThrow();
+        assertThat(result.getWeekStartAt()).isEqualTo(RESUME_PREVIOUS_WEEK_START);
+        assertResult(result, LeagueWeeklyResultType.PROMOTED, 1, 2, 50_400);
+        assertThat(user.getTierLevel()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("주차 종료 후 가입한 유저는 resume 대상에서 제외된다 — 존재하지 않던 주의 0초 결과 조작 방지")
+    void resumeExcludesUsersCreatedAfterSettledWeek() {
+        // 먼 과거 주차를 재개 — 픽스처 유저의 created_at(지금)은 주차 종료 경계(2020-07-12) 이후라
+        // 전원 "그 주에 존재하지 않았던 가입자"다.
+        User lateSignup = saveUser("resumeLateSignup", 1, false);
+        saveStat(lateSignup, PAST_MONDAY, 50_400);
+        flushFixtures();
+        saveAnchor(PAST_WEEK_BOUNDARY, LeagueArenaStatus.ACTIVE);
+
+        LeagueBatchSummaryResponse fullResume =
+                leagueBatchService.resumeWeeklyBatch(RESUME_NOW, PAST_WEEK_START, null);
+        LeagueBatchSummaryResponse targetedResume = leagueBatchService.resumeWeeklyBatch(
+                RESUME_NOW, PAST_WEEK_START, List.of(lateSignup.getId()));
+
+        // 전체 순회·표적 조회 두 경로 모두 컷오프가 걸린다 — 결과 행도 티어 변화도 없어야 한다.
+        assertThat(fullResume.settledMemberCount()).isZero();
+        assertThat(fullResume.alreadySettledMemberCount()).isZero();
+        assertThat(fullResume.failedMemberCount()).isZero();
+        assertThat(targetedResume.settledMemberCount()).isZero();
+        assertThat(leagueWeeklyResultRepository.count()).isZero();
+        assertThat(lateSignup.getTierLevel()).isEqualTo(1);
     }
 
     @Test
