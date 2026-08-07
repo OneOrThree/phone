@@ -81,6 +81,7 @@ function minutesText(progressMinutes: number | null, goalMinutes: number | null)
 export function createListOverflowFlasher(flash: () => void): {
   onLayout: (height: number) => void;
   onContentSizeChange: (height: number) => void;
+  reset: () => void;
 } {
   let layoutHeight = 0; // 0 = 아직 미확정 — 미확정 상태에서는 판단하지 않는다
   let contentHeight = 0;
@@ -102,6 +103,14 @@ export function createListOverflowFlasher(flash: () => void): {
     },
     onContentSizeChange: (height: number) => {
       contentHeight = height;
+      maybeFlash();
+    },
+    // 결과(result)가 갈릴 때 부른다 — 중복 가드만 풀고 **이미 아는 높이로 즉시 재판정**한다.
+    // 결과 큐가 같은 모달 인스턴스로 진행되는데(GroupRoomScreen) 멤버·섹션 수가 같으면 렌더
+    // 높이가 그대로라 onContentSizeChange가 다시 오지 않는다 — 높이를 지워 버리면 두 번째
+    // 결과의 넘침 단서가 영영 안 나간다(코덱스 리뷰 P2 2차).
+    reset: () => {
+      flashedForContentHeight = 0;
       maybeFlash();
     },
   };
@@ -178,6 +187,12 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
   const overflowFlasher = useRef(
     createListOverflowFlasher(() => listRef.current?.flashScrollIndicators()),
   ).current;
+
+  // 결과 키가 바뀌면(큐 진행) 중복 가드를 리셋 — 높이가 같아 사이즈 이벤트가 안 와도
+  // 새 결과의 넘침 단서가 다시 나간다. 첫 마운트에는 높이 미확정이라 no-op이다.
+  useEffect(() => {
+    overflowFlasher.reset();
+  }, [result.challengeId, result.date, overflowFlasher]);
 
   // 등장 연출 — 카드 팝인 하나만 쓴다(리그 화면의 다단계 연출은 풀스크린 화면 몫).
   // 결과가 넘어가며(큐) 같은 모달이 내용만 갈릴 때도 다시 팝 되도록 결과 키에 묶는다.

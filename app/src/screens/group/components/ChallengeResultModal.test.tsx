@@ -1,10 +1,16 @@
 // 챌린지 결과 모달 — 헤드라인 그림 계약(GROMO-1087).
 // 시스템 이모지에서 캐릭터 에셋으로 갈아탔으므로, 세 결과 상태가 각각 정해진 에셋을 쓰고
 // 스크린리더가 상태를 읽을 수 있는지를 고정한다. 크기·여백 같은 시각 품질은 QA 몫이라 보지 않는다.
+import { ScrollView } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import ChallengeResultModal, { createListOverflowFlasher } from './ChallengeResultModal';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import type { ChallengeResultCandidate } from '../challengeResult';
+
+// jest 프리셋의 ScrollView 목은 flashScrollIndicators를 **프로토타입 공유 jest.fn**으로
+// 둔다(@react-native/jest-preset mockComponent.instanceMethods) — ref 인스턴스를 밖에서
+// 잡을 수 없어도, 이 공유 목으로 컴포넌트 배선의 실제 호출을 관찰할 수 있다.
+const flashScrollIndicators = ScrollView.prototype.flashScrollIndicators as unknown as jest.Mock;
 
 function candidate(myAchieved: boolean | null): ChallengeResultCandidate {
   return {
@@ -211,15 +217,43 @@ describe('ChallengeResultModal 명단 스크롤 인디케이터', () => {
     expect(lists().props.persistentScrollbar).toBe(true);
   });
 
-  // iOS는 유휴 상태에선 인디케이터가 안 보인다 — 넘침 확정 시 깜빡임 핸들러가 배선되어
-  // 있어야 한다. 호출 조건 자체는 아래 팩토리 단위 테스트가 잠근다(ref 인스턴스는 밖에서
-  // 관찰할 수 없어 로직을 분리했다 — 코덱스 리뷰 P2).
-  test('넘침 판정 핸들러(onLayout·onContentSizeChange)가 배선되어 크래시 없이 동작한다', async () => {
+  const flashCalls = () => flashScrollIndicators.mock.calls.length;
+
+  beforeEach(() => {
+    flashScrollIndicators.mockClear();
+  });
+
+  // iOS는 유휴 상태에선 인디케이터가 안 보인다 — 넘침 확정 시 깜빡임이 실제 네이티브
+  // 커맨드까지 나가는지를 잠근다. 호출 조건의 경계는 아래 팩토리 단위 테스트가 잠근다
+  // (ref 인스턴스는 밖에서 관찰할 수 없어 로직을 분리했다 — 코덱스 리뷰 P2).
+  test('넘침이 확정되면 flashScrollIndicators가 실제로 호출된다', async () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
-    expect(typeof lists().props.onLayout).toBe('function');
-    expect(typeof lists().props.onContentSizeChange).toBe('function');
-    fireEvent(lists(), 'layout', { nativeEvent: { layout: { height: 220 } } });
-    fireEvent(lists(), 'contentSizeChange', 260, 400); // 넘침 — flash 경로까지 통과해야 한다
+    await fireEvent(lists(), 'layout', { nativeEvent: { layout: { height: 220 } } });
+    expect(flashCalls()).toBe(0); // 컨텐츠 미확정 — 아직 판단하지 않는다
+    await fireEvent(lists(), 'contentSizeChange', 260, 400); // 넘침 확정
+    expect(flashCalls()).toBe(1);
+  });
+
+  // 결과 큐가 같은 모달 인스턴스로 진행된다(GroupRoomScreen) — 멤버 수가 같아 렌더 높이가
+  // 그대로면 onContentSizeChange가 다시 오지 않으므로, 결과 키 변경이 리셋 경로를 타서
+  // 두 번째 결과에도 넘침 단서가 나가야 한다(코덱스 리뷰 P2 2차).
+  test('높이가 같은 다음 결과로 갈리면 사이즈 이벤트 없이도 다시 깜빡인다', async () => {
+    const view = await render(
+      <ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />,
+    );
+    const listsInView = () =>
+      view.getByTestId('group.challengeResult.lists', { includeHiddenElements: true });
+    await fireEvent(listsInView(), 'layout', { nativeEvent: { layout: { height: 220 } } });
+    await fireEvent(listsInView(), 'contentSizeChange', 260, 400);
+    expect(flashCalls()).toBe(1);
+    // 같은 높이의 다른 결과 — 사이즈 이벤트를 다시 쏘지 않는다(실기기에서 안 오는 상황 재현).
+    await view.rerender(
+      <ChallengeResultModal
+        result={{ ...candidate(true), challengeId: 'c2' }}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(flashCalls()).toBe(2);
   });
 });
 
@@ -262,5 +296,28 @@ describe('createListOverflowFlasher — flash 호출 조건', () => {
     expect(flash).toHaveBeenCalledTimes(1);
     flasher.onContentSizeChange(500); // 결과 큐 진행 — 컨텐츠가 바뀌면 새 단서
     expect(flash).toHaveBeenCalledTimes(2);
+  });
+
+  // 높이 기준 dedup의 사각지대(코덱스 P2 2차) — 멤버 수가 같은 결과가 연속되면 높이가
+  // 그대로라 사이즈 이벤트가 다시 오지 않는다. reset이 아는 높이로 즉시 재판정해야 한다.
+  test('reset은 중복 가드만 풀고 아는 높이로 즉시 재판정한다 — 같은 높이의 결과 교체', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(400);
+    expect(flash).toHaveBeenCalledTimes(1);
+    flasher.reset(); // 결과 교체 — 사이즈 이벤트 없이도 다시 깜빡인다
+    expect(flash).toHaveBeenCalledTimes(2);
+  });
+
+  test('reset 시점에 넘치지 않거나 높이 미확정이면 깜빡이지 않는다', () => {
+    const flash = jest.fn();
+    const flasher = createListOverflowFlasher(flash);
+    flasher.reset(); // 첫 마운트 — 높이 미확정, no-op
+    expect(flash).not.toHaveBeenCalled();
+    flasher.onLayout(220);
+    flasher.onContentSizeChange(180); // 넘치지 않는 명단
+    flasher.reset(); // 결과가 갈려도 넘침이 없으면 오신호를 만들지 않는다
+    expect(flash).not.toHaveBeenCalled();
   });
 });
