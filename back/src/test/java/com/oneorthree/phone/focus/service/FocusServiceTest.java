@@ -1471,9 +1471,9 @@ class FocusServiceTest {
     @DisplayName("806-④: PATCH 종료 응답 — 5분 미달 → dayTotalFocusSeconds=300, streakQualifiedToday=false")
     void endFocusSession_responseHasStreakFields_belowThreshold() {
         User user = User.builder().id(USER_ID).build();
-        Instant end5m = Instant.parse("2026-06-23T01:05:00Z");   // START=01:00 → 5분
+        Instant end5m = withinClampWindow(10);                    // 클램프 창 안
         FocusSession session = FocusSession.builder()
-                .id(SESSION_ID).user(user).startedAt(START).build();
+                .id(SESSION_ID).user(user).startedAt(end5m.minusSeconds(300)).build();   // 5분 세션
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, end5m)).willReturn(1);
@@ -1932,7 +1932,8 @@ class FocusServiceTest {
     @Test
     @DisplayName("라이브 세션 시작 성공 → endedAt null 로 저장, 생성 id 반환")
     void startFocusSessionSuccess() {
-        // given
+        // given: startedAt 은 클램프 창(과거 5분) 안 = 그대로 수용 (GROMO-1214)
+        Instant startedAt = withinClampWindow(30);
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -1943,9 +1944,9 @@ class FocusServiceTest {
                         .id(sessionId)
                         .user(user)
                         .focusTag(tag)
-                        .startedAt(START)
+                        .startedAt(startedAt)
                         .build());
-        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
+        FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, startedAt);
 
         // when
         FocusSessionStartResponse response = focusService.startFocusSession(USER_ID, body);
@@ -1954,9 +1955,9 @@ class FocusServiceTest {
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
         assertThat(captor.getValue().getEndedAt()).isNull();
-        assertThat(captor.getValue().getStartedAt()).isEqualTo(START);
+        assertThat(captor.getValue().getStartedAt()).isEqualTo(startedAt);
         assertThat(response.sessionId()).isEqualTo(sessionId);
-        assertThat(response.startedAt()).isEqualTo(START);
+        assertThat(response.startedAt()).isEqualTo(startedAt);
         // 시작 시엔 통계·스트릭 미반영
         verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
@@ -2058,26 +2059,34 @@ class FocusServiceTest {
 
     private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
 
+    // GROMO-1214: 마커 경로(start/PATCH)는 클라 시각을 [now-5분, now] 창으로 클램프한다 — 고정 과거 시각
+    // (START/END)을 그대로 보내면 서버 시각으로 대체돼 스텁이 어긋난다. 마커 테스트는 창 안의 값을 쓴다.
+    private static Instant withinClampWindow(int secondsAgo) {
+        return Instant.now().minusSeconds(secondsAgo);
+    }
+
     @Test
     @DisplayName("라이브 세션 종료 성공 → endedAt 채움 + 통계·스트릭 귀속, 요약 반환")
     void endFocusSessionSuccess() {
-        // given: 본인 소유 진행 중 세션
+        // given: 본인 소유 진행 중 세션 (endedAt 은 클램프 창 안 = 그대로 수용)
+        Instant endedAt = withinClampWindow(10);
+        Instant startedAt = endedAt.minusSeconds(3600);
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
-                .id(SESSION_ID).user(user).startedAt(START).build();
+                .id(SESSION_ID).user(user).startedAt(startedAt).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 30, null);
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, endedAt, 30, null);
 
         // when
         FocusSessionEndResponse response = focusService.endFocusSession(USER_ID, body);
 
         // then: 세션에 endedAt·방해지표 반영(더티 체킹)
-        assertThat(session.getEndedAt()).isEqualTo(END);
+        assertThat(session.getEndedAt()).isEqualTo(endedAt);
         assertThat(session.getTotalDistractionSeconds()).isEqualTo(30);
         // 완료 귀속(통계·스트릭·이벤트)
         verify(dailyFocusStatRepository).save(any(DailyFocusStat.class));
@@ -2093,16 +2102,17 @@ class FocusServiceTest {
     @DisplayName("종료 성사 → 관리 엔티티 end() 더티 flush 로 status=COMPLETED 전이(GROMO-733)")
     void endFocusSessionTransitionsToCompleted() {
         // given: 본인 소유 진행 중(ACTIVE) 세션, 조건부 종료 성사(row=1)
+        Instant endedAt = withinClampWindow(10);
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
-                .id(SESSION_ID).user(user).startedAt(START).build();
+                .id(SESSION_ID).user(user).startedAt(endedAt.minusSeconds(3600)).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, endedAt, 0, null);
 
         // when
         focusService.endFocusSession(USER_ID, body);
@@ -2114,17 +2124,17 @@ class FocusServiceTest {
     /**
      * T3-KST-END (GROMO-803): 라이브 PATCH 종료도 country_code(KR) 존(KST) 로컬 날짜로 버킷팅된다.
      * saveFocusSession 의 saveFocusStat_krUser_bucketsByKstDate 를 endFocusSession 경로로 미러링한다.
-     * 시나리오: endedAt = 2026-07-12T20:00:00Z = 2026-07-13 05:00 KST → statDate 2026-07-13.
-     * 과거 UTC 기준이었다면 07-12 로 귀속됐을 것 — 종료 경로의 존 전환을 확증한다.
-     * (기존 종료 테스트는 스트릭 날짜를 any() 로만 검증했다 — 여기선 eq(07-13) 로 못 박는다.)
+     *
+     * <p>GROMO-1214 로 PATCH 의 endedAt 이 서버 수신 시각 창으로 클램프되면서 고정 시각(20:00Z)을 심을 수
+     * 없게 됐다 — 창 안의 실시간 값으로 바꾸고, 버킷 날짜를 그 값의 KST 로컬 날짜와 대조한다.
+     * (UTC였다면 다른 날짜가 되는 고정 시각 대비는 POST 쌍둥이 테스트 saveFocusStat_krUser_bucketsByKstDate 가 유지.)
      */
     @Test
-    @DisplayName("T3-KST-END(GROMO-803): KR 유저 라이브 종료 endedAt 20:00Z(=05:00 KST 익일) → statDate=07-13 (UTC였다면 07-12)")
+    @DisplayName("T3-KST-END(GROMO-803): KR 유저 라이브 종료 → statDate 는 endedAt 의 KST 로컬 날짜(UTC 아님)")
     void endFocusSession_krUser_bucketsByKstDate() {
-        Instant startedAt = Instant.parse("2026-07-12T19:30:00Z");
-        Instant endedAt = Instant.parse("2026-07-12T20:00:00Z");   // = 2026-07-13 05:00 KST
-        LocalDate kstDate = LocalDate.of(2026, 7, 13);
-        LocalDate utcDate = LocalDate.of(2026, 7, 12);
+        Instant endedAt = withinClampWindow(30);
+        Instant startedAt = endedAt.minusSeconds(1800);
+        LocalDate kstDate = endedAt.atZone(CountryZoneResolver.resolve("KR")).toLocalDate();
 
         // given: KR 유저의 본인 소유 진행 중(ACTIVE) 세션 + 조건부 종료 성사(row=1)
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
@@ -2143,12 +2153,11 @@ class FocusServiceTest {
         // when
         focusService.endFocusSession(USER_ID, body);
 
-        // then: DailyFocusStat 은 KST 로컬 날짜(07-13)로 버킷팅 — UTC(07-12)가 아님
+        // then: DailyFocusStat 은 KST 로컬 날짜로 버킷팅
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
         assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
-        assertThat(captor.getValue().getDate()).isNotEqualTo(utcDate);
-        // 스트릭도 같은 statDate(07-13)로 갱신 — any() 가 아니라 eq(07-13) 로 확증
+        // 스트릭도 같은 statDate 로 갱신 — any() 가 아니라 eq(kstDate) 로 확증
         verify(userStreakService).updateOnSessionComplete(eq(krUser), eq(kstDate));
     }
 
@@ -2258,13 +2267,14 @@ class FocusServiceTest {
     @Test
     @DisplayName("endedAt < startedAt → FocusException(INVALID_DATE_RANGE)")
     void endFocusSessionInvalidDateRange() {
-        // given: endedAt(START) 이 startedAt(END) 보다 앞섬
+        // given: 둘 다 클램프 창 안이지만 endedAt 이 startedAt 보다 앞섬(클램프로 가려지지 않는 진짜 역전)
+        Instant startedAt = withinClampWindow(60);
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
-                .id(SESSION_ID).user(user).startedAt(END).build();
+                .id(SESSION_ID).user(user).startedAt(startedAt).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, START, 0, null);
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, startedAt.minusSeconds(60), 0, null);
 
         // when & then
         assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
@@ -2278,24 +2288,177 @@ class FocusServiceTest {
     @DisplayName("종료 시 focusTagId 지정 → 태그 보정(applyTag)")
     void endFocusSessionAppliesTag() {
         // given: 시작 시 태그 없던 세션에 종료 시 본인 태그 지정
+        Instant endedAt = withinClampWindow(10);
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         FocusSession session = FocusSession.builder()
-                .id(SESSION_ID).user(user).startedAt(START).build();
+                .id(SESSION_ID).user(user).startedAt(endedAt.minusSeconds(3600)).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
-        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, TAG_ID);
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, endedAt, 0, TAG_ID);
 
         // when
         focusService.endFocusSession(USER_ID, body);
 
         // then: 세션에 태그가 보정됨
         assertThat(session.getFocusTag()).isEqualTo(tag);
+    }
+
+    // ── PATCH 종료 지급 + 클라 시각 클램프 (GROMO-1214) ──────────────────────
+    // 앱이 'cancel + POST' 를 'PATCH' 로 전환하면 라이브 마커 종료가 유일한 세션 지급처가 된다.
+
+    @Test
+    @DisplayName("1214-①: PATCH 종료 → 세션 코인 지급(SESSION_COMPLETE, 멱등키 focus:{id}:reward), 금액은 POST 와 동일")
+    void endFocusSessionAwardsSessionCoins() {
+        // given: 1시간 세션 + 방해 30초 → 집중 3570초 → floor(3570/60) = 59코인 (POST 쌍둥이 saveFocusSessionAwardsCoins 와 같은 값)
+        Instant endedAt = withinClampWindow(10);
+        Instant startedAt = endedAt.minusSeconds(3600);
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(startedAt).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        // when
+        FocusSessionEndResponse response =
+                focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, endedAt, 30, null));
+
+        // then: 마커 세션 id 기반 멱등키로 지급 + 응답에 지급액
+        verify(currencyLedgerService).credit(user, CurrencyTransactionType.SESSION_COMPLETE, 59,
+                "focus:" + SESSION_ID + ":reward");
+        assertThat(response.awardedCoins()).isEqualTo(59);
+        // POST 와 지급 공식이 한 곳(sessionRewardCoins)으로 모였는지 — 같은 구간이면 같은 금액
+        assertThat(FocusService.sessionRewardCoins(startedAt, endedAt, 30, Instant.now())).isEqualTo(59);
+    }
+
+    @Test
+    @DisplayName("1214-②: PATCH 응답에 awardedCoins·goalRewardCoins·balanceAfter 가 실린다(POST 응답과 동일 필드)")
+    void endFocusSessionResponseCarriesRewardFields() {
+        // given: 1시간 세션 + 하루 목표 60분 → 목표 첫 달성(false→true)으로 목표 보상 10코인(1시간 티어)
+        Instant endedAt = withinClampWindow(10);
+        Instant startedAt = endedAt.minusSeconds(3600);
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(startedAt).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(UserFocusTimeSettings.builder()
+                .userId(USER_ID).dailyFocusTimeGoalMinutes(60).build()));
+        given(currencyLedgerService.balanceOf(user)).willReturn(137);
+
+        // when
+        FocusSessionEndResponse response =
+                focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, endedAt, 0, null));
+
+        // then
+        assertThat(response.awardedCoins()).isEqualTo(60);
+        assertThat(response.goalRewardCoins()).isEqualTo(10);
+        assertThat(response.balanceAfter()).isEqualTo(137);
+    }
+
+    @Test
+    @DisplayName("1214-③: 이중 PATCH → 두 번째는 409(SESSION_ALREADY_ENDED)이고 코인은 한 번만 지급")
+    void endFocusSessionDoublePatchPaysOnce() {
+        // given: 첫 PATCH 는 조건부 UPDATE 성사(1), 두 번째는 이미 종료돼 0행
+        Instant endedAt = withinClampWindow(10);
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(endedAt.minusSeconds(3600)).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1, 0);
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, endedAt, 0, null);
+
+        // when: 같은 세션을 두 번 종료
+        focusService.endFocusSession(USER_ID, body);
+
+        // then: 두 번째는 409 이고 지급은 1회뿐(원자 가드가 이중 지급을 막는다)
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
+        verify(currencyLedgerService, times(1))
+                .credit(eq(user), eq(CurrencyTransactionType.SESSION_COMPLETE), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("1214-④: 12시간 전으로 조작한 startedAt → 서버 수신 시각으로 대체(시간 뻥튀기 차단)")
+    void startFocusSessionClampsBackdatedStartedAt() {
+        // given: 창(과거 5분) 밖의 startedAt
+        Instant backdated = Instant.now().minus(Duration.ofHours(12));
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        Instant before = Instant.now();
+        FocusSessionStartResponse response =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, backdated));
+
+        // then: 저장·응답 모두 서버 시각 — 조작한 12시간은 반영되지 않는다
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getStartedAt()).isAfterOrEqualTo(before);
+        assertThat(response.startedAt()).isAfterOrEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("1214-⑤: 미래로 조작한 endedAt → 서버 수신 시각으로 대체")
+    void endFocusSessionClampsFutureEndedAt() {
+        // given: 1시간 뒤 endedAt (미래는 0분도 허용하지 않는다)
+        Instant future = Instant.now().plus(Duration.ofHours(1));
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(Instant.now().minusSeconds(600)).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        // when
+        Instant before = Instant.now();
+        FocusSessionEndResponse response =
+                focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, future, 0, null));
+
+        // then: DB 종료 UPDATE·엔티티·응답 모두 서버 시각(미래 미반영)
+        ArgumentCaptor<Instant> endedAtCaptor = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).endSessionIfActive(eq(SESSION_ID), endedAtCaptor.capture());
+        assertThat(endedAtCaptor.getValue()).isAfterOrEqualTo(before).isBefore(future);
+        assertThat(session.getEndedAt()).isEqualTo(endedAtCaptor.getValue());
+        assertThat(response.endedAt()).isEqualTo(endedAtCaptor.getValue());
+    }
+
+    @Test
+    @DisplayName("1214-⑥: 클램프 창 — 과거 5분 이내·현재는 그대로 수용, 창 밖(과거 5분 초과·미래·null)은 now")
+    void clampToServerNowAcceptsValuesInsideWindow() {
+        Instant now = Instant.parse("2026-08-08T10:00:00Z");
+        // 창 안: 그대로 수용 (정상 클라 회귀 방지)
+        assertThat(FocusService.clampToServerNow(now, now)).isEqualTo(now);
+        assertThat(FocusService.clampToServerNow(now.minusSeconds(60), now)).isEqualTo(now.minusSeconds(60));
+        // 경계(정확히 5분 전)는 포함
+        Instant fiveMinutesAgo = now.minus(Duration.ofMinutes(5));
+        assertThat(FocusService.clampToServerNow(fiveMinutesAgo, now)).isEqualTo(fiveMinutesAgo);
+        // 창 밖: now 로 대체
+        assertThat(FocusService.clampToServerNow(fiveMinutesAgo.minusSeconds(1), now)).isEqualTo(now);
+        assertThat(FocusService.clampToServerNow(now.plusSeconds(1), now)).isEqualTo(now);
+        assertThat(FocusService.clampToServerNow(null, now)).isEqualTo(now);
     }
 
     // ── sweepOrphanSessions — orphan 자동 종료(GROMO-610) ────────────────────

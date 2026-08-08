@@ -133,7 +133,8 @@ public class FocusController {
 
     @Operation(summary = "Focus Session 시작(라이브)",
             description = "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 "
-                    + "이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속.")
+                    + "이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속. "
+                    + "startedAt 이 서버 수신 시각 기준 [-5분, 0] 창을 벗어나면 서버 시각으로 대체한다(GROMO-1214).")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "시작 성공"),
         @ApiResponse(responseCode = "401", description = "인증 필요"),
@@ -150,7 +151,9 @@ public class FocusController {
 
     @Operation(summary = "Focus Session 종료(라이브)",
             description = "진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리한다. endedAt 생략 시 서버 수신 시각. "
-                    + "완료 시점에 통계·스트릭이 귀속된다. 이미 종료된 세션 재요청은 409.")
+                    + "완료 시점에 통계·스트릭·세션 보상 코인(집중 1분당 1코인)이 귀속되고 응답에 지급액이 실린다. "
+                    + "endedAt 이 서버 수신 시각 기준 [-5분, 0] 창을 벗어나면 서버 시각으로 대체한다(GROMO-1214). "
+                    + "이미 종료된 세션 재요청은 409.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "종료 성공"),
         @ApiResponse(responseCode = "400", description = "sessionId 누락·endedAt < startedAt"),

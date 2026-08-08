@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { captureRef } from 'react-native-view-shot';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -24,10 +25,10 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
 import { T, withAlpha } from '@/constants/theme';
-import { saveFocusSession, startFocusSession, cancelFocusSession } from '@/services/focusApi';
+import { startFocusSession, cancelFocusSession } from '@/services/focusApi';
 import type { FocusType } from '@/types/dto/focus';
 import { ensureFocusTagId } from './tagSync';
-import { enqueuePendingFocusUpload } from './pendingFocusUploads';
+import { uploadFocusBlock } from './uploadFocusBlock';
 import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
@@ -60,6 +61,7 @@ import {
   logFocusMenuOpened,
   logFocusViewChanged,
   logFocusOrientationChanged,
+  logFocusMarkerStartFailed,
   type FocusViewName,
 } from '@/services/analyticsEvents';
 
@@ -331,7 +333,19 @@ export default function FocusSessionScreen() {
             if (liveStartPromiseRef.current === promise) liveIdRef.current = res.sessionId;
             return res.sessionId;
           },
-          () => null,
+          (e: unknown) => {
+            // 마커 시작 실패는 종전까지 조용히 삼켜져 비율조차 몰랐다 — 계측만 남기고 세션은
+            // 그대로 진행한다(GROMO-1214). 마커가 없으면 종료가 POST 폴백으로 간다.
+            const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+            logFocusMarkerStartFailed({
+              reason: axios.isAxiosError(e)
+                ? status != null
+                  ? `http_${status}`
+                  : 'network'
+                : 'unknown',
+            });
+            return null;
+          },
         );
       liveStartPromiseRef.current = promise;
       return promise;
@@ -489,21 +503,26 @@ export default function FocusSessionScreen() {
     };
   }, [subjectName, subjectId]);
 
+  // 마커 id 하나를 취소로 닫는다. 취소 실패 시 id를 버리지 않고 보관 — 재시도
+  // (flushPendingCancels)로 닫는다(코덱스 리뷰). PATCH 종료가 실패해 마커가 열린 채
+  // 남았을 때 uploadFocusBlock이 뒤처리로 부르는 지점이기도 하다(GROMO-1214).
+  const cancelMarkerId = useCallback(
+    (sessionId: string) =>
+      cancelFocusSession({ sessionId }).catch(() => {
+        pendingCancelIdsRef.current.add(sessionId);
+      }),
+    [],
+  );
+
   // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
-  // settleFocusBlock의 완주 저장(POST)이 별도로 담당하므로 취소해도 기록은 잃지 않는다.
+  // settleFocusBlock의 업로드가 별도로 담당하므로 취소해도 기록은 잃지 않는다.
   // 실패(오프라인 등)해도 서버 고아 스윕이 정리하므로 fire-and-forget.
   const cancelLiveSession = useCallback(() => {
     const livePromise = liveStartPromiseRef.current;
     liveIdRef.current = null;
     liveStartPromiseRef.current = Promise.resolve(null);
     livePromise
-      .then((sessionId) => {
-        if (sessionId == null) return;
-        // 취소 실패 시 id를 버리지 않고 보관 — 재시도(flushPendingCancels)로 닫는다(코덱스 리뷰)
-        return cancelFocusSession({ sessionId }).catch(() => {
-          pendingCancelIdsRef.current.add(sessionId);
-        });
-      })
+      .then((sessionId) => (sessionId != null ? cancelMarkerId(sessionId) : undefined))
       // 이 취소의 성패가 확정된 뒤 밀린 취소를 재시도 — finish의 flush가 진행 중이던 마지막
       // 취소보다 먼저 돌아 실패분을 놓치는 순서 경합 방지(코덱스 리뷰). 체인은 언마운트 후에도
       // 살아 있어 정지 직후 화면을 떠나도 재시도가 한 번은 돈다.
@@ -511,7 +530,7 @@ export default function FocusSessionScreen() {
         if (pendingCancelIdsRef.current.size > 0) flushPendingCancels();
       })
       .catch(() => {});
-  }, [flushPendingCancels]);
+  }, [cancelMarkerId, flushPendingCancels]);
 
   // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
   // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
@@ -579,15 +598,22 @@ export default function FocusSessionScreen() {
       }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
-      // 블록을 정산하는 즉시 마커를 닫고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
-      cancelLiveSession();
+      // 블록을 정산하는 즉시 마커 참조를 떼고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
+      // 종전과 달리 여기서 취소(cancel)하지 않는다 — 이 마커는 아래 업로드가 PATCH로 '종료'해
+      // 시간·코인을 귀속시킬 대상이다(GROMO-1214). 취소로 버리면 그 지급 경로가 사라진다.
+      // PATCH를 못 태우거나 실패한 경우에만 uploadFocusBlock이 cancelMarkerId로 닫는다.
+      const livePromise = liveStartPromiseRef.current;
+      liveIdRef.current = null;
+      liveStartPromiseRef.current = Promise.resolve(null);
       // 서버 업로드 — 이번 집중 블록 구간만. 과목명을 서버 태그로 매칭/생성해 tagId를 실어 보낸다
       // (과목별 통계 집계용 — 매칭 실패 시 null = 미분류). 업로드 실패 시 대기열에 남겨
       // 재시도(GROMO-614) — 로컬 적립은 이미 반영돼 그냥 버리면 서버와 불일치. 대기열 바디에도
       // 해석된 tagId를 실어 재시도 시 과목이 유지되게 한다.
-      ensureFocusTagId(subjectName, userId)
-        .catch(() => null)
-        .then((focusTagId) => {
+      Promise.all([
+        ensureFocusTagId(subjectName, userId).catch(() => null),
+        livePromise.catch(() => null),
+      ])
+        .then(([focusTagId, sessionId]) => {
           const body = {
             focusTagId,
             subject: subjectName,
@@ -595,33 +621,36 @@ export default function FocusSessionScreen() {
             endedAt,
             distractionCount: 0,
             totalDistractionSeconds: 0,
-            // 완주 저장에도 세션 유형을 전파 — 마커(취소됨)에만 실으면 RANGE/POMODORO가
+            // 완주 저장에도 세션 유형을 전파 — 마커에만 실으면 RANGE/POMODORO가
             // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
             focusType: FOCUS_TYPE_BY_MODE[mode],
             // 날짜별 집중초(GROMO-1252 ①) — 서버는 [startedAt, endedAt]만으로는 일시정지가 자정을
             // 걸친 블록의 날짜별 몫을 알 수 없다. 서버가 날짜별 벽시계 몫을 상한으로 클램프해 받는다.
             focusSecondsByDate,
           };
-          // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
-          // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
-          return saveFocusSession(body, userId).then(
-            // 저장 성공 — 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
-            // 구독으로 갱신된다.
-            (res) => {
-              // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049) — 화면에 미리 올려 두고
-              // 맞추는 방식은 '진행 중이던 조회가 지급 전인지 후인지'를 앱이 알 수 없어 성립하지
-              // 않았다. 조회끼리는 CoinContext 의 시퀀스 가드가 순서를 잡아 준다.
-              refreshCoins();
-              // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
-              // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가
-              // 가드에 걸려 오늘의 진짜 판정까지 막는다(대기열 flush 미발행과 같은 규칙, 코덱스 리뷰).
-              if (localDateStr(new Date(endedAt)) === todayStr()) publishSessionSaveVerdict(res);
-            },
-            // 저장 실패 — 대기열행(발행 없음). 결과 화면은 기존 추정 판정으로 폴백.
-            () => {
-              enqueuePendingFocusUpload(body, userId).catch(() => {});
-            },
-          );
+          // 업로드는 실패·대기열 인계까지 안에서 끝낸다 — 여기서 던지지 않으므로, 아래 발행
+          // 콜백에서 예외가 나도 이미 서버에 저장된 세션이 대기열에 재적재되지 않는다(PR 250 리뷰).
+          return uploadFocusBlock({
+            sessionId,
+            body,
+            userId,
+            onMarkerStillOpen: cancelMarkerId,
+          }).then((result) => {
+            // 저장 실패(대기열행)면 발행 없음 — 결과 화면은 기존 추정 판정으로 폴백.
+            if (result.status !== 'saved') return;
+            // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049) — 화면에 미리 올려 두고
+            // 맞추는 방식은 '진행 중이던 조회가 지급 전인지 후인지'를 앱이 알 수 없어 성립하지
+            // 않았다. 조회끼리는 CoinContext 의 시퀀스 가드가 순서를 잡아 준다.
+            refreshCoins();
+            // 서버 스트릭 판정을 결과 화면에 전달(GROMO-807). 결과 화면이 먼저 떠 있어도
+            // 구독으로 갱신된다. PATCH 응답도 같은 필드를 실어 주므로 경로 구분 없이 쓴다.
+            // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
+            // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가
+            // 가드에 걸려 오늘의 진짜 판정까지 막는다(대기열 flush 미발행과 같은 규칙, 코덱스 리뷰).
+            if (localDateStr(new Date(endedAt)) === todayStr()) {
+              publishSessionSaveVerdict(result.response);
+            }
+          });
         })
         .catch(() => {});
     },
@@ -629,7 +658,7 @@ export default function FocusSessionScreen() {
       addFocusSeconds,
       addFocusToSubject,
       refreshCoins,
-      cancelLiveSession,
+      cancelMarkerId,
       subjectId,
       subjectName,
       userId,

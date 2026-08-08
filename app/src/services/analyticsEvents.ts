@@ -147,6 +147,15 @@ export function logFocusSessionAbandoned(p: { elapsed_seconds: number; reason: s
   track('focus_session_abandoned', p);
 }
 
+// 라이브 마커 시작 실패(GROMO-1214) — POST /focus-session/start가 실패해 마커 없이 흘러간 세션.
+// 마커가 없으면 종료가 PATCH 대신 종전 POST로 폴백해 '서버 발급 마커를 거친 지급' 보장이 빠지므로,
+// '마커 없는 세션' 비율을 보고 거부 정책 도입 여부를 판단한다(정책은 데이터를 보고 나중에).
+// reason: 실패 버킷만 — 'network'(응답 없음) | 'http_<status>' | 'unknown'.
+// 원문 메시지는 PII·고카디널리티 위험으로 금지(로그인 실패 계측과 같은 규칙).
+export function logFocusMarkerStartFailed(p: { reason: string }): void {
+  track('focus_marker_start_failed', p);
+}
+
 // 집중 태그(과목) 생성/수정/삭제.
 export function logFocusTagCreated(): void {
   track('focus_tag_created');

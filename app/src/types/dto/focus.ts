@@ -62,6 +62,9 @@ export interface FocusSessionSaveResponse {
   // 이 세션으로 집중 목표를 처음 달성했을 때의 보너스 지급액(전이 없으면 0, GROMO-1039) —
   // 같은 저장 트랜잭션의 서버 지급이라 잔액 정정 시 awardedCoins와 합산해 반영한다.
   goalRewardCoins?: number;
+  // 이 저장 반영 후 잔액. 현재 앱은 읽지 않는다 — 잔액은 GET /currency 재조회로 통일했다(GROMO-1049).
+  // 서버가 롤링 호환용으로 계속 실어 주므로 계약만 명시한다.
+  balanceAfter?: number;
 }
 
 // GET /focus-session content 항목 — 집중 세션 단건.
@@ -107,4 +110,31 @@ export interface FocusSessionStartResponse {
 // PATCH /focus-session/cancel — 진행 중 세션 취소 요청(통계 미귀속, 성공은 204 빈 바디).
 export interface FocusSessionCancelRequest {
   sessionId: string; // UUID
+}
+
+// PATCH /focus-session — 라이브 마커 '종료' 요청(GROMO-1214). 마커를 취소로 버리고 별개의
+// POST로 시간을 새로 만들던 종전 경로 대신, **서버가 발급한 마커 id를 거쳐야만** 시간·코인이
+// 귀속되게 한다. 이미 종료/취소/자동마감(AUTO_CLOSED)된 세션 재요청은 409.
+export interface FocusSessionEndRequest {
+  sessionId: string; // UUID — POST /focus-session/start 응답의 마커 id
+  // 종료 시각(생략 시 서버 수신 시각).
+  // ⚠️ 서버가 [now−5분, now] 창으로 클램프한다(FocusService.clampToServerNow) — 창 밖 값은
+  //    서버 수신 시각으로 올라가 구간이 부풀려지므로, 앱은 '방금 끝난' 블록만 이 경로로 보낸다.
+  endedAt?: string; // Instant, ISO 문자열
+  totalDistractionSeconds?: number; // 미지정 시 0
+  focusTagId?: string | null; // 시작 시 미지정한 태그 보정용. null이면 마커의 기존 태그 유지
+}
+
+// PATCH /focus-session — 종료 응답(200). 지급 필드(awardedCoins·goalRewardCoins·balanceAfter)는
+// POST 응답과 **필드명·타입·의미가 완전히 동일**해서 두 경로의 소비처(스트릭 판정 발행 등)를
+// 그대로 공유한다. POST 쪽과 달리 전 필드 non-null 확정 계약이라 optional을 걷어낸다.
+export interface FocusSessionEndResponse extends FocusSessionSaveResponse {
+  sessionId: string; // UUID
+  startedAt: string; // 마커의 시작 시각 — 서버가 클램프한 값
+  endedAt: string; // 종료 시각 — 서버가 클램프한 값
+  durationSeconds: number; // endedAt − startedAt
+  totalDistractionSeconds: number;
+  awardedCoins: number;
+  goalRewardCoins: number;
+  balanceAfter: number;
 }

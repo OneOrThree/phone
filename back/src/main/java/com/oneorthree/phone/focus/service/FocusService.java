@@ -84,6 +84,11 @@ public class FocusService {
     // 세션 저장·통계는 종전대로 수용(클라 신뢰 기존 정책) — 상한은 '지급'에만 적용한다.
     private static final long MAX_REWARDED_SESSION_SECONDS = ORPHAN_TIMEOUT.toSeconds();
 
+    // GROMO-1214: 클라가 보낸 시각을 수용하는 창 = 서버 수신 시각 기준 [now-5분, now]. 라이브 마커 경로
+    // (start/PATCH)에만 적용한다 — 이 창을 벗어난 값은 서버 시각으로 대체해 startedAt 을 과거로,
+    // endedAt 을 미래로 조작한 시간 뻥튀기를 차단한다. 5분은 정상 클라의 시계 오차·네트워크 지연 여유분.
+    private static final Duration CLIENT_CLOCK_TOLERANCE = Duration.ofMinutes(5);
+
     // GROMO-1252: 자정 분할이 만들 수 있는 날짜 조각 수 상한. POST 는 클라 시각을 신뢰하므로 startedAt 을
     // 몇 년 전으로 조작한 세션이 날짜 수만큼 일별 upsert(행 잠금 포함)를 만들어 한 트랜잭션을 부풀릴 수 있다.
     // 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않는다 — 상한 초과분은 마지막 조각에 합쳐
@@ -322,12 +327,8 @@ public class FocusService {
         // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
         // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을, 위의 재업로드 스킵이 행 재생성을 막는다.
         // 지갑 변경·원장 기입은 이 저장 트랜잭션에 함께 묶인다(credit 전파 REQUIRED).
-        int awardedCoins = sessionRewardCoins(body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), now);
-        if (awardedCoins > 0) {
-            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
-                    "focus:" + saved.getId() + ":reward");
-        }
+        int awardedCoins = creditSessionReward(user, saved.getId(), body.getStartedAt(), body.getEndedAt(),
+                body.getTotalDistractionSeconds());
 
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
@@ -360,6 +361,49 @@ public class FocusService {
         long focusedSeconds = Duration.between(startedAt, effectiveEnd).getSeconds() - totalDistractionSeconds;
         long rewardedSeconds = Math.min(focusedSeconds, MAX_REWARDED_SESSION_SECONDS);
         return (int) Math.max(0, rewardedSeconds / SESSION_REWARD_UNIT_SECONDS);
+    }
+
+    /**
+     * 클라가 보낸 시각을 서버 수신 시각 창으로 클램프한다 (GROMO-1214).
+     *
+     * <p>수용 창은 {@code [now - CLIENT_CLOCK_TOLERANCE, now]} — 미래는 1초도 허용하지 않고, 과거는 5분까지만
+     * 그대로 쓴다. 창 밖(또는 null)이면 {@code now} 로 대체한다. 변조 앱이 startedAt 을 몇 시간 전으로,
+     * endedAt 을 몇 시간 뒤로 보내 시간·코인을 부풀리는 경로를 닫는 게 목적이다.
+     *
+     * <p><b>마커 경로(POST /focus-session/start · PATCH /focus-session) 전용</b> — POST /focus-session
+     * (완료 통째 저장)의 저장 값에는 적용하지 않는다. 그쪽 재업로드 멱등은 앱이 보낸 startedAt/endedAt 이
+     * 그대로 저장되는 것을 전제로 {@code existsByUserAndStartedAtAndEndedAtAndStatus} 로 중복을 잡는데,
+     * 클램프로 값이 바뀌면 같은 세션 재전송이 dedup 을 빠져나가 이중 계상된다. POST 의 위조 방어는
+     * 종전대로 {@link #sessionRewardCoins} 의 '지급에만 적용되는' 미래 클램프·12h 캡이 담당한다.
+     *
+     * <p><b>부작용(수용)</b>: 오프라인으로 세션을 시작해 5분 넘게 지난 뒤 마커를 만들면 그 앞 구간은 버려진다.
+     * 오프라인 세션은 앱이 종전 POST 경로로 올린다.
+     */
+    static Instant clampToServerNow(Instant clientValue, Instant now) {
+        if (clientValue == null || clientValue.isAfter(now)
+                || clientValue.isBefore(now.minus(CLIENT_CLOCK_TOLERANCE))) {
+            return now;
+        }
+        return clientValue;
+    }
+
+    /**
+     * 세션 보상 코인 지급 — POST(완료 통째 저장)·PATCH(라이브 마커 종료) 공용 (GROMO-1214).
+     *
+     * <p>지급률·상한({@link #sessionRewardCoins})과 멱등키 형태({@code focus:{sessionId}:reward})를 한 곳에
+     * 모아 두 경로가 같은 계산을 두 벌 갖지 않게 한다. PATCH 는 {@code endSessionIfActive} 원자 가드가
+     * 이중 종료를 409 로 막으므로 세션 1건당 지급도 1회다.
+     *
+     * @return 이번 호출로 지급한 코인(0 이면 미지급 — credit 자체를 호출하지 않는다)
+     */
+    private int creditSessionReward(User user, UUID sessionId, Instant startedAt, Instant endedAt,
+                                    int totalDistractionSeconds) {
+        int awardedCoins = sessionRewardCoins(startedAt, endedAt, totalDistractionSeconds, Instant.now());
+        if (awardedCoins > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
+                    "focus:" + sessionId + ":reward");
+        }
+        return awardedCoins;
     }
 
     /**
@@ -471,7 +515,8 @@ public class FocusService {
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
         User user = requireActiveUser(userId);
 
-        Instant startedAt = body.startedAt() != null ? body.startedAt() : Instant.now();
+        // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
+        Instant startedAt = clampToServerNow(body.startedAt(), Instant.now());
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
 
         // GROMO-733: focus_type 인입 — null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
@@ -500,7 +545,9 @@ public class FocusService {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
-        Instant endedAt = body.endedAt() != null ? body.endedAt() : Instant.now();
+        // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
+        // 클램프 후에 역전 검사를 한다(과거로 조작된 endedAt 은 now 로 올라가 정상 종료가 된다).
+        Instant endedAt = clampToServerNow(body.endedAt(), Instant.now());
         if (endedAt.isBefore(session.getStartedAt())) {
             throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
         }
@@ -519,6 +566,11 @@ public class FocusService {
             session.applyTag(tag);
         }
 
+        // GROMO-1214: 라이브 마커 종료도 POST 와 동일하게 세션 보상을 지급한다(같은 헬퍼 = 같은 지급률·캡·멱등키).
+        // 앱이 cancel+POST 를 PATCH 로 전환하면 이 경로가 유일한 세션 지급처가 된다 — 빠져 있으면 코인이 0이 된다.
+        int awardedCoins = creditSessionReward(user, session.getId(), session.getStartedAt(), endedAt,
+                body.totalDistractionSeconds());
+
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         Instant statEnd = statEnd(endedAt, Instant.now());
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
@@ -529,10 +581,11 @@ public class FocusService {
                 body.totalDistractionSeconds(), secondsByDate);
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
-        // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 추가(additive).
+        // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
                 durationSeconds, body.totalDistractionSeconds(),
-                result.dayTotalFocusSeconds(), result.streakQualifiedToday());
+                result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
+                awardedCoins, result.goalRewardCoins(), currencyLedgerService.balanceOf(user));
     }
 
     /**
