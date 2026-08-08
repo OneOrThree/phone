@@ -416,6 +416,7 @@ public class StatsService {
             Instant sliceEnd = statEnd.isBefore(windowEnd) ? statEnd : windowEnd;
             // 창이 통째로 미래(클라가 미래 date 를 보내 windowEnd < fromInstant)면 음수가 되므로 0 으로 바닥친다.
             long secs = Math.max(0, Duration.between(sliceStart, sliceEnd).getSeconds());
+            secs = minusDistraction(secs, s);
             // GROMO-673: 태그는 user_focus_tags. 버킷 키는 user_focus_tags.id, 이름은 defaultTag.name.
             UserFocusTag tag = s.getFocusTag();
             if (tag == null || tag.getDeletedAt() != null) {
@@ -447,5 +448,27 @@ public class StatsService {
         items.sort(Comparator.comparingInt(CategoryFocusStatsResponse.CategoryItem::totalFocusMinutes).reversed());
 
         return new CategoryFocusStatsResponse(period, from, to, totalMinutes, items);
+    }
+
+    /**
+     * 창으로 클리핑한 겹침 초에서 그 세션의 <b>방해 비율</b>만큼을 뺀다 (GROMO-1214 코드리뷰 ⑥).
+     *
+     * <p>{@code 기여분 = 겹침초 × (1 − totalDistractionSeconds / (endedAt − startedAt))}, 하한 0.
+     * ⑤에서 사전집계({@code daily_focus_stats.total_focus_seconds})가 방해 초를 뺀 순수 집중 시간이 되면서,
+     * 원시 겹침 길이를 쓰던 by-category 는 일시정지가 낀 세션에서 총합보다 커졌다. ⑤의 조각 비례 배분·
+     * 창 집계({@code FocusSessionRepository.sumOverlapSecondsInWindow})와 <b>같은 공식</b>이라 세 경로가
+     * 자연히 정합한다 — 세션이 창에 통째로 들어오면 기여분은 정확히 {@code 구간 − 방해초}가 된다.
+     *
+     * <p>비율은 클리핑 전 <b>전체 세션 길이</b> 기준이다(방해 초에 타임스탬프가 없어 어디서 났는지 모르므로
+     * 세션 전체에 고르게 퍼져 있다고 본다). 길이가 0 인 세션은 겹침도 0 이라 그대로 0.
+     */
+    private static long minusDistraction(long overlapSeconds, FocusSession session) {
+        long duration = Duration.between(session.getStartedAt(), session.getEndedAt()).getSeconds();
+        if (duration <= 0 || session.getTotalDistractionSeconds() <= 0) {
+            return overlapSeconds;
+        }
+        long distraction = Math.round(
+                (double) overlapSeconds * session.getTotalDistractionSeconds() / duration);
+        return Math.max(0, overlapSeconds - distraction);
     }
 }

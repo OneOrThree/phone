@@ -110,6 +110,9 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // GROMO-1252(코드리뷰 P1): endedAt-포함 윈도우 → **겹침(overlap) 윈도우**로 전환. 종전엔 endedAt 이 창 안인
     // 세션만 골라 세션 전체 길이를 더해, 자정을 걸친 세션이 종료일에 전량 귀속됐다(사전집계 DailyFocusStat 는
     // splitByLocalDay 로 날짜별로 쪼개는데 by-category 만 안 쪼개져 같은 화면의 총합과 과목별 합이 어긋났다).
+    // GROMO-1214 코드리뷰 ⑥: 호출측(StatsService)은 클리핑한 겹침에서 방해 비율만큼 더 깎는다 —
+    // daily_focus_stats.total_focus_seconds 가 순수 집중 시간이 됐으므로 같은 기준을 써야 총합과 맞는다
+    // (sumOverlapSecondsInWindow 의 SQL 차감과 동일 공식).
     // 이제 창과 겹치는 세션을 모두 반환하고, 호출측(StatsService)이 세션 기여분을 창으로 클리핑해 더한다
     // (sumOverlapSecondsInWindow 의 LEAST/GREATEST 클리핑과 같은 결. 여기서 클리핑하지 않는 이유는
     //  태그별 그룹핑에 focusTag·defaultTag 페치가 필요해 엔티티를 그대로 넘기기 때문).
@@ -180,16 +183,27 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      *
      * <p>세션을 창 경계로 클리핑(LEAST/GREATEST)해 겹친 구간만 계수한다. ACTIVE(미종료)는 ended_at IS NULL
      * 로, CANCELED·AUTO_CLOSED 는 status 로 제외 — findCompletedSessionsOverlappingPeriod 등 다른 집계 쿼리와 동일
-     * 관례. 창 판정은 세션 겹침 길이 기준이라 방해시간(total_distraction_seconds)은 차감하지 않는다.
-     * ⚠️ GROMO-1214 코드리뷰로 {@code daily_focus_stats.total_focus_seconds} 는 방해 초를 <b>차감</b>하도록
-     * 바뀌었다(순수 집중 시간). 이 창 집계와 by-category({@link #findCompletedSessionsOverlappingPeriod})는
-     * 여전히 원시 겹침 길이라 기준이 갈린다 — 일시정지가 낀 세션에서 창/과목별 합이 일별 총합보다 커진다.
-     * 정합을 맞추려면 세션 길이 대비 방해 비율로 겹침을 깎아야 해서 별도 티켓으로 둔다.
+     * 관례.
+     *
+     * <p><b>방해 초 차감(GROMO-1214 코드리뷰 ⑥)</b>: 겹침 길이를 그 세션의 방해 비율만큼 깎는다 —
+     * {@code 기여분 = 겹침초 × (1 − total_distraction_seconds / (ended_at − started_at))}, 하한 0.
+     * ⑤에서 {@code daily_focus_stats.total_focus_seconds} 가 순수 집중 시간이 되면서, 원시 겹침 길이를
+     * 쓰던 이 창 집계는 일시정지가 낀 세션에서 일별 총합보다 커졌다. ⑤의 조각 비례 배분과 같은 규칙이라
+     * 두 경로가 자연히 정합한다({@link com.oneorthree.phone.stats.service.StatsService} by-category 도 동일).
+     * ⚠️ 이 값이 그룹 챌린지 달성 판정 → 내기 정산을 가른다 — 일시정지 시간으로 창을 통과하던 게 잘못이었다.
+     *
+     * <p>비율 계산은 SQL 에 둔다(유저별 GROUP BY 집계를 DB 에서 끝내는 기존 설계 유지 — 세션 행을 전부
+     * 가져와 Java 에서 깎으면 그룹 인원×세션 수만큼 전송이 늘고, 이 집계는 카드 진행률·정산·창 종료
+     * 알림에서 반복 호출된다). {@code EXTRACT(EPOCH ...)} 가 numeric 이라 나눗셈이 정수 절삭되지 않고,
+     * 0초 세션은 {@code NULLIF}→{@code COALESCE} 로 비율 0 이 된다. 최종 {@code bigint} 캐스트에서만 반올림.
      * LEAST/GREATEST + EXTRACT(EPOCH) 조합은 JPQL 로 표현할 수 없어 네이티브로 둔다
      * (그룹 챌린지 WindowFocusAggregator 전용).
      */
     @Query(value = "SELECT s.user_id AS \"userId\", "
-            + "CAST(SUM(EXTRACT(EPOCH FROM (LEAST(s.ended_at, :winEnd) - GREATEST(s.started_at, :winStart)))) "
+            + "CAST(SUM(GREATEST(0, "
+            + "EXTRACT(EPOCH FROM (LEAST(s.ended_at, :winEnd) - GREATEST(s.started_at, :winStart))) "
+            + "* (1 - COALESCE(s.total_distraction_seconds "
+            + "/ NULLIF(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)), 0), 0)))) "
             + "AS bigint) AS \"overlapSeconds\" "
             + "FROM focus_sessions s "
             + "WHERE s.user_id IN (:userIds) "

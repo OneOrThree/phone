@@ -16,6 +16,7 @@ import { todayStr } from '@/utils/localDate';
 jest.mock('@/screens/focus/focusRestore', () => ({
   fetchTodayFocusRestore: jest.fn().mockResolvedValue({ sessions: null, tags: null }),
   sessionFocusSeconds: () => 0,
+  sessionTodayFocusSeconds: () => 0,
 }));
 
 const DAY = 24 * 3600;

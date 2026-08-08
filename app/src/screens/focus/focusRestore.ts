@@ -1,11 +1,13 @@
 // 재로그인 복원용 — 오늘 세션을 서버에서 받아 집중초를 합산한다(GROMO-677).
 // 업로드(settleFocusBlock)가 집중 블록 구간 [startedAt, endedAt]만 실어 보내므로
-// endedAt - startedAt = 그 블록의 집중초. 여기서는 '오늘에 걸친' 세션을 모으기만 한다 —
+// (endedAt − startedAt) − totalDistractionSeconds = 그 블록의 집중초(GROMO-1214 코드리뷰 ⑥ —
+// 구간에는 일시정지가 섞여 있어 방해 초를 빼야 서버 집계와 같다). 여기서는 '오늘에 걸친' 세션을 모으기만 한다 —
 // 서버 조회(/focus-session)는 startedAt 필터라 자정 걸친 세션이 잘리므로, 어제 자정부터
 // 받아와 endedAt이 오늘(로컬 자정 이후)인 것만 남긴다(리뷰 반영). 자정을 걸친 세션은 어제 몫이
 // 섞여 있으니, '오늘 집중'으로 적립하는 쪽(FocusContext·SubjectContext)은 세션 전체 길이가
-// 아니라 todayOverlapSeconds로 오늘 몫만 더한다(GROMO-1252).
+// 아니라 sessionTodayFocusSeconds로 오늘 몫만 더한다(GROMO-1252).
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
+import { todayOverlapSeconds } from '@/utils/localDate';
 import type { FocusSessionResponse, FocusTagResponse } from '@/types/dto/focus';
 
 export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]> {
@@ -17,12 +19,33 @@ export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]>
   return all.filter((s) => Date.parse(s.endedAt) >= midnight.getTime());
 }
 
-// 세션 1건의 집중초(구간 전체 길이) — 시계가 뒤로 간 비정상 레코드는 0 처리.
+// 세션 기여분에서 방해(일시정지) 비율만큼을 뺀다(GROMO-1214 코드리뷰 ⑥).
+//   기여분 = 겹침초 × (1 − totalDistractionSeconds / (endedAt − startedAt)), 하한 0
+// 서버가 daily_focus_stats·by-category·챌린지 창 집계에서 쓰는 것과 **같은 공식**이다. 앱이
+// 세션 구간을 그대로 합하면(종전) 일시정지 시간만큼 부풀어, 서버가 확정한 값(리그 주간 랭킹·
+// 홈 오늘 집중)과 어긋난다. 세션 전체가 대상이면 기여분은 정확히 '구간 − 방해초'가 된다.
+function minusDistraction(overlapSeconds: number, s: FocusSessionResponse): number {
+  const duration = (Date.parse(s.endedAt) - Date.parse(s.startedAt)) / 1000;
+  if (!(duration > 0) || !(s.totalDistractionSeconds > 0)) return overlapSeconds;
+  return Math.max(
+    0,
+    overlapSeconds - Math.round((overlapSeconds * s.totalDistractionSeconds) / duration),
+  );
+}
+
+// 세션 1건의 집중초(구간 전체 − 방해초) — 시계가 뒤로 간 비정상 레코드는 0 처리.
 // 날짜로 자르지 않는 값이다: 최장 세션(LongestSessionStat)·리그 주간 합산처럼 세션 자체의
-// 길이가 필요한 곳 전용. '오늘 몫'이 필요하면 todayOverlapSeconds를 쓴다(GROMO-1252).
+// 길이가 필요한 곳 전용. '오늘 몫'이 필요하면 sessionTodayFocusSeconds를 쓴다(GROMO-1252).
 export function sessionFocusSeconds(s: FocusSessionResponse): number {
   const ms = Date.parse(s.endedAt) - Date.parse(s.startedAt);
-  return ms > 0 ? Math.floor(ms / 1000) : 0;
+  return ms > 0 ? minusDistraction(Math.floor(ms / 1000), s) : 0;
+}
+
+// 세션 1건의 '오늘 몫' 집중초 — 자정을 걸친 세션은 오늘 겹침만 세고(GROMO-1252), 거기서
+// 방해 비율만큼을 뺀다(GROMO-1214 ⑥). 재로그인 복원(FocusContext·SubjectContext) 전용 —
+// 두 컨텍스트가 같은 함수를 써야 과목 합 == 홈 총합이 유지된다.
+export function sessionTodayFocusSeconds(s: FocusSessionResponse): number {
+  return minusDistraction(todayOverlapSeconds(s.startedAt, s.endedAt), s);
 }
 
 // 복원 스냅샷(오늘 세션+태그) 통합 조회(GROMO-920) — Focus·Subject 컨텍스트가 각자 조회하면
