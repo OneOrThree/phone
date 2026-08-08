@@ -42,7 +42,10 @@ import java.util.Optional;
  * {@code UserService.withdraw} 는 같은 {@code findActiveByIdForUpdate} 로 유저 행을 먼저 잠근
  * 뒤에야 user_wallets 를 지우므로, 이 트랜잭션이 락을 쥔 시점에 지갑은 반드시 살아 있다 — 승급
  * 보너스 credit 이 지갑 NOT_FOUND 로 터질 수 없다. 잠금 순서도 양쪽 다 "유저 행 → 지갑"이라
- * 교착이 없다.
+ * 교착이 없다. 단, 이 논증은 {@code UserService.withdraw}(유저 행 배타 락 → user_wallets
+ * deleteById)가 user_wallets 의 <b>유일한 삭제 경로</b>라는 현재 상태에 의존하는 불변식이다 —
+ * GDPR retention→purge 배치({@code User.isDeleted} 주석, GROMO-671) 구현 시 같은 락 규율
+ * (유저 행 배타 락 선취득 후 지갑 삭제)을 따르지 않으면 조용히 깨진다. 그 시점에 반드시 재확인할 것.
  */
 @Slf4j
 @Service
