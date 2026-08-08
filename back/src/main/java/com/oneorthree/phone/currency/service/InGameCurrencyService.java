@@ -40,7 +40,8 @@ public class InGameCurrencyService {
     @todo 페이지네이션 필요함 나중에
      */
     public List<TransactionsResponse> getCurrencyTransactions(UUID userId) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user)
@@ -66,8 +67,7 @@ public class InGameCurrencyService {
 
     @Transactional
     public void spendCurrency(UUID userId, CurrencyTransactionType type, int amount) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
 
         if (type != CurrencyTransactionType.PURCHASE) {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
@@ -81,5 +81,21 @@ public class InGameCurrencyService {
                 .amount(amount)
                 .type(type)
                 .build());
+    }
+
+    /**
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1237) — 지갑 차감·원장 기입처럼 users 행은
+     * <b>읽기만 하고</b> 돈을 움직이는 변경 트랜잭션의 요청자 로드. 락 없는 findById 는 계정 탈퇴
+     * (UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아 탈퇴의 정리 스캔 이후·커밋 이전에
+     * 낀 변경이 유령(탈퇴자 명의 원장 행)으로 남는다. 공유 락끼리는 충돌하지 않아 동시 요청은
+     * 그대로 병렬이고, 탈퇴가 먼저 커밋되면 READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404).
+     *
+     * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
+     * {@code @Transactional(readOnly = true)} 라 Postgres 가 read-only 트랜잭션의 FOR SHARE 를
+     * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
+     */
+    private User requireActiveUser(UUID userId) {
+        return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 }

@@ -149,7 +149,7 @@ class FocusServiceTest {
         UUID tagId2 = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
         UserFocusTag tag1 = userFocusTag(TAG_ID, user, "공부");
         UserFocusTag tag2 = userFocusTag(tagId2, user, "운동");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByUserAndDeletedAtIsNull(user)).willReturn(List.of(tag1, tag2));
 
         // when
@@ -165,7 +165,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getFocusTagsUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> focusService.getFocusTags(USER_ID))
@@ -202,7 +202,7 @@ class FocusServiceTest {
     void getDefaultTagsFallbackToUserOccupation() {
         // given: 파라미터 null → 유저의 저장 occupation(LABOR_ATTORNEY) 사용
         User user = User.builder().id(USER_ID).occupation(Occupation.LABOR_ATTORNEY).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.LABOR_ATTORNEY))
                 .willReturn(List.of(
                         OccupationDefaultTag.builder().occupation(Occupation.LABOR_ATTORNEY)
@@ -221,7 +221,7 @@ class FocusServiceTest {
     void getDefaultTagsOccupationRequired() {
         // given: 파라미터 null + 유저 occupation 미설정(온보딩 미완료)
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
 
         // when & then
         assertThatThrownBy(() -> focusService.getDefaultTags(USER_ID, null))
@@ -233,7 +233,7 @@ class FocusServiceTest {
     @Test
     @DisplayName("기본 태그 조회(미지정) — 유저 없음 → UserException(NOT_FOUND)")
     void getDefaultTagsUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> focusService.getDefaultTags(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -249,7 +249,7 @@ class FocusServiceTest {
         // given: '공부' default_tag 미존재 → 새로 생성 후 UserFocusTag 채택
         User user = User.builder().id(USER_ID).build();
         DefaultTag defaultTag = DefaultTag.builder().name("공부").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(defaultTagRepository.findByName("공부")).willReturn(Optional.empty());
         given(defaultTagRepository.save(any(DefaultTag.class))).willReturn(defaultTag);
         given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, defaultTag))
@@ -269,6 +269,9 @@ class FocusServiceTest {
         verify(userFocusTagRepository).save(captor.capture());
         assertThat(captor.getValue().getUser()).isEqualTo(user);
         assertThat(captor.getValue().getDefaultTag()).isEqualTo(defaultTag);
+        // 락 규율 (GROMO-1237): 태그 채택(변경) 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
     }
 
     @Test
@@ -277,7 +280,7 @@ class FocusServiceTest {
         // given: '공부' default_tag 이미 존재 → 재사용, 새 UserFocusTag 채택
         User user = User.builder().id(USER_ID).build();
         DefaultTag existing = DefaultTag.builder().name("공부").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(existing));
         given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, existing))
                 .willReturn(Optional.empty());
@@ -301,7 +304,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         DefaultTag existing = DefaultTag.builder().name("공부").build();
         UserFocusTag alreadyAdopted = userFocusTag(TAG_ID, user, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(existing));
         given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, existing))
                 .willReturn(Optional.of(alreadyAdopted));
@@ -321,7 +324,7 @@ class FocusServiceTest {
         // given: save 가 id 채워진 UserFocusTag 를 반환
         User user = User.builder().id(USER_ID).build();
         DefaultTag defaultTag = DefaultTag.builder().name("공부").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(defaultTagRepository.findByName("공부")).willReturn(Optional.of(defaultTag));
         given(userFocusTagRepository.findByUserAndDefaultTagAndDeletedAtIsNull(user, defaultTag))
                 .willReturn(Optional.empty());
@@ -340,7 +343,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void setupFocusTagUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
         FocusTagSetupRequest body = new FocusTagSetupRequest("공부");
 
         // when & then
@@ -526,7 +529,7 @@ class FocusServiceTest {
                 .user(user).focusTag(null)
                 .startedAt(START).endedAt(END)
                 .totalDistractionSeconds(0).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         // 첫 페이지(cursor=null) — id DESC 정렬 결과 2건, 다음 페이지 있음
         given(focusSessionRepository.findSessionsByCursor(
                 eq(user), any(Instant.class), any(Instant.class), isNull(), any(Pageable.class)))
@@ -550,7 +553,7 @@ class FocusServiceTest {
         FocusSession only = FocusSession.builder()
                 .id(LAST_ID).user(user)
                 .startedAt(START).endedAt(END).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findSessionsByCursor(
                 eq(user), any(Instant.class), any(Instant.class), isNull(), any(Pageable.class)))
                 .willReturn(new SliceImpl<>(List.of(only), PageRequest.of(0, 20), false));
@@ -566,7 +569,7 @@ class FocusServiceTest {
     void getFocusSessionsPassesCursor() {
         User user = User.builder().id(USER_ID).build();
         UUID cursor = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findSessionsByCursor(
                 eq(user), any(Instant.class), any(Instant.class), eq(cursor), any(Pageable.class)))
                 .willReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
@@ -604,7 +607,7 @@ class FocusServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getFocusSessionsUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID, FROM, TO, null, 20))
                 .isInstanceOf(UserException.class)
@@ -620,7 +623,7 @@ class FocusServiceTest {
         // given: 유효한 시간 + 본인 소유 태그
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         // DailyFocusStat upsert 경로 설정 (신규 insert)
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -647,7 +650,7 @@ class FocusServiceTest {
     void saveFocusSessionSetsCompletedStatus() {
         // given: 완료(종료 시각 포함) 세션을 통째 저장
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -667,7 +670,7 @@ class FocusServiceTest {
     void saveFocusSessionPersistsFocusType() {
         // given: focusType=RANGE
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -687,7 +690,7 @@ class FocusServiceTest {
     void saveFocusSessionDefaultsFocusTypeToInfinite() {
         // given: 기존 4-arg 생성자(focusType 미지정)
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -707,7 +710,7 @@ class FocusServiceTest {
     void saveFocusSessionWithoutTag() {
         // given: focusTagId == null
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         // DailyFocusStat upsert 경로 설정 (신규 insert)
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -727,7 +730,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void saveFocusSessionUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
         FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
 
         // when & then
@@ -743,7 +746,7 @@ class FocusServiceTest {
     void saveFocusSessionNullTime() {
         // given: 유저는 존재하지만 startedAt/endedAt 이 null
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         FocusSessionRequest body = new FocusSessionRequest(null, null, null, 0);
 
         // when & then
@@ -757,7 +760,7 @@ class FocusServiceTest {
     void saveFocusSessionEndBeforeStart() {
         // given: endedAt < startedAt
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         FocusSessionRequest body = new FocusSessionRequest(null, END, START, 0);
 
         // when & then
@@ -773,7 +776,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
@@ -792,7 +795,7 @@ class FocusServiceTest {
     void saveFocusSessionAwardsCoins() {
         // given: 1시간(3600초) 세션, 방해 30초 → 집중 3570초 → floor(3570/60) = 59코인
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -815,7 +818,7 @@ class FocusServiceTest {
     void saveFocusSessionShortSessionNoAward() {
         // given: 59초 세션 → floor(59/60) = 0
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -881,7 +884,7 @@ class FocusServiceTest {
     void saveFocusSessionSkipsDuplicateReupload() {
         // 앱 업로드 대기열이 응답 유실 시 같은 바디를 재전송 — 행 재생성으로 멱등키가 무력화되는 걸 막는 경로.
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
                 user, START, END, FocusSessionStatus.COMPLETED)).willReturn(true);
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
@@ -908,7 +911,7 @@ class FocusServiceTest {
         // given: START~END = 3600초, 본인 소유 태그
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -931,7 +934,7 @@ class FocusServiceTest {
     void saveFocusSessionLogsWithoutFocusTagId() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -955,7 +958,7 @@ class FocusServiceTest {
         Instant startedAt = Instant.parse("2026-06-22T23:55:00Z");
         Instant endedAt = Instant.parse("2026-06-23T00:05:00Z");
         User user = User.builder().id(USER_ID).build();   // countryCode 미설정 → UTC 폴백
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -975,7 +978,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionRequest body = new FocusSessionRequest(TAG_ID, START, END, 30);
 
@@ -993,7 +996,7 @@ class FocusServiceTest {
     void saveFocusStat_newDate_firstSession_createsNewRow() {
         // START=01:00Z, END=02:00Z → 60분, endedAt UTC date = 2026-06-23
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1020,7 +1023,7 @@ class FocusServiceTest {
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
                 .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(1).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1049,7 +1052,7 @@ class FocusServiceTest {
         LocalDate endedAtUtcDate = LocalDate.of(2026, 7, 6);
 
         User user = User.builder().id(USER_ID).build();   // countryCode 미설정 → UTC 폴백
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(endedAtUtcDate)))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1078,7 +1081,7 @@ class FocusServiceTest {
         LocalDate utcDate = LocalDate.of(2026, 7, 12);
 
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(krUser));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(krUser), eq(kstDate)))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1114,7 +1117,7 @@ class FocusServiceTest {
         LocalDate screenTimeDate = instant.atZone(CountryZoneResolver.resolve(krUser.getCountryCode()))
                 .toLocalDate();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(krUser));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1143,7 +1146,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
 
         // 1건째: 신규 insert → 30초 (과거엔 0분)
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(date)))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1172,7 +1175,7 @@ class FocusServiceTest {
     void saveFocusStat_afterAccumulation_achievesGoal_setsFlagTrue() {
         // START=01:00Z, END=02:00Z → 60분 세션, goal=60 → 60>=60 → 달성
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1200,7 +1203,7 @@ class FocusServiceTest {
     @DisplayName("T4-2: goal=Integer.MAX_VALUE → 60분 세션이 달성으로 판정되지 않는다(오버플로 방어)")
     void saveFocusStat_hugeGoal_doesNotOverflowIntoAchieved() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1227,7 +1230,7 @@ class FocusServiceTest {
     void saveFocusStat_usesGoalEffectiveOnStatDate() {
         User user = User.builder().id(USER_ID).build();
         LocalDate statDate = LocalDate.of(2026, 6, 23);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(statDate)))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1251,7 +1254,7 @@ class FocusServiceTest {
     @DisplayName("T5: UserFocusTimeSettings row 없음 → 예외 없음, focusGoalAchieved=false 유지")
     void saveFocusStat_noSettingsRow_skipsFlagSetting() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1271,7 +1274,7 @@ class FocusServiceTest {
     @DisplayName("T6: goal=0 설정 → 달성 플래그 세팅 스킵, focusGoalAchieved=false")
     void saveFocusStat_goalIsZero_skipsFlagSetting() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1297,7 +1300,7 @@ class FocusServiceTest {
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(LocalDate.of(2026, 6, 23))
                 .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(5).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1320,7 +1323,7 @@ class FocusServiceTest {
                 .isFocusTimeGoalAchieved(false).build();
         // 추가 세션: START=01:00Z ~ 01:30Z → 30분
         Instant end30 = Instant.parse("2026-06-23T01:30:00Z");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
@@ -1346,7 +1349,7 @@ class FocusServiceTest {
                 .user(user).date(LocalDate.of(2026, 6, 23))
                 .totalFocusSeconds(60 * 60).sessionCount(1).totalDistractionSeconds(0)
                 .isFocusTimeGoalAchieved(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
@@ -1367,7 +1370,7 @@ class FocusServiceTest {
         // 신규 row, 5분(300초) 세션 → dayTotal=300 < 600 → 스트릭 미갱신
         Instant end5m = Instant.parse("2026-06-23T01:05:00Z");   // START=01:00 → 5분
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1386,7 +1389,7 @@ class FocusServiceTest {
     void streakGate_twoSessionsReachThreshold_updatesOnSecond() {
         LocalDate date = LocalDate.of(2026, 6, 23);
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
 
         // 1회차: 신규 row 5분(300초) → dayTotal=300 < 600 → 미갱신
@@ -1421,7 +1424,7 @@ class FocusServiceTest {
         // 기존 누적 30분(1800초) → 이미 인정된 날. 추가 60분 세션 → dayTotal=90분 >= 600 → 재호출.
         DailyFocusStat existing = DailyFocusStat.builder()
                 .user(user).date(date).totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(0).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(date)))
                 .willReturn(Optional.of(existing));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1443,7 +1446,7 @@ class FocusServiceTest {
         Instant startedAt = Instant.parse("2026-06-22T23:55:00Z");
         Instant endedAt = Instant.parse("2026-06-23T00:05:00Z");
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
@@ -1464,7 +1467,7 @@ class FocusServiceTest {
         Instant end5m = Instant.parse("2026-06-23T01:05:00Z");   // START=01:00 → 5분
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, end5m)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -1487,7 +1490,7 @@ class FocusServiceTest {
     void saveFocusStat_insertPath_goalAchieved_emitsEvent() {
         // goal=60, START~END = 60분 세션 → 신규 row 즉시 달성
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1512,7 +1515,7 @@ class FocusServiceTest {
                 .totalFocusSeconds(30 * 60).sessionCount(1).totalDistractionSeconds(0)
                 .isFocusTimeGoalAchieved(false).build();
         Instant end30 = Instant.parse("2026-06-23T01:30:00Z");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
         UserFocusTimeSettings settings = UserFocusTimeSettings.builder()
@@ -1531,7 +1534,7 @@ class FocusServiceTest {
     void saveFocusStat_goalNotReached_doesNotEmit() {
         // goal=120, 60분 세션 → 미달
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1554,7 +1557,7 @@ class FocusServiceTest {
                 .user(user).date(LocalDate.of(2026, 6, 23))
                 .totalFocusSeconds(60 * 60).sessionCount(1).totalDistractionSeconds(0)
                 .isFocusTimeGoalAchieved(true).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.of(existing));
 
@@ -1569,7 +1572,7 @@ class FocusServiceTest {
     @DisplayName("E5: goal=0 → DAILY_FOCUS_GOAL_ACHIEVED 미발행")
     void saveFocusStat_goalZero_doesNotEmit() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(eq(user), eq(LocalDate.of(2026, 6, 23))))
                 .willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -1591,7 +1594,7 @@ class FocusServiceTest {
         // given
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
         given(focusSessionRepository.save(any(FocusSession.class)))
@@ -1623,7 +1626,7 @@ class FocusServiceTest {
     void startFocusSessionDefaultsStartedAt() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, null);
 
@@ -1642,7 +1645,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void startFocusSessionUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START);
 
         // when & then
@@ -1660,7 +1663,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
 
@@ -1679,7 +1682,7 @@ class FocusServiceTest {
     void startFocusSessionPersistsFocusType() {
         // given: 요청에 focusType=POMODORO
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, FocusType.POMODORO);
 
@@ -1697,7 +1700,7 @@ class FocusServiceTest {
     void startFocusSessionDefaultsFocusTypeToInfinite() {
         // given: 요청 focusType=null
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, null);
 
@@ -1721,7 +1724,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -1752,7 +1755,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -1786,7 +1789,7 @@ class FocusServiceTest {
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(krUser).startedAt(startedAt).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(krUser));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
         // 버킷 조회는 KST 날짜(07-13)로 이뤄져야 한다 — 신규 insert 경로
@@ -1816,7 +1819,7 @@ class FocusServiceTest {
         Instant recentStart = Instant.now().minusSeconds(60);
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(recentStart).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(1);
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
@@ -1837,7 +1840,7 @@ class FocusServiceTest {
     void endFocusSessionNotFound() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
@@ -1856,7 +1859,7 @@ class FocusServiceTest {
         User other = User.builder().id(OTHER_USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(other).startedAt(START).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
 
@@ -1875,7 +1878,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 0, null);
@@ -1895,7 +1898,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, END, 30, null);
@@ -1918,7 +1921,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(END).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, START, 0, null);
 
@@ -1938,7 +1941,7 @@ class FocusServiceTest {
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
         FocusSession session = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(START).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
         given(focusSessionRepository.endSessionIfActive(SESSION_ID, END)).willReturn(1);
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));

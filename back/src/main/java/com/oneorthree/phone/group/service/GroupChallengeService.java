@@ -91,7 +91,8 @@ public class GroupChallengeService {
      *             null 이면 진행률을 계산하지 않는다(기존 클라이언트 호환).
      */
     public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
@@ -444,11 +445,7 @@ public class GroupChallengeService {
 
     @Transactional
     public CreateChallengeResponse createChallenge(UUID groupId, UUID userId, CreateChallengeRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        User user = requireActiveUser(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -640,11 +637,7 @@ public class GroupChallengeService {
 
     @Transactional
     public void deleteChallenge(UUID groupId, UUID challengeId, UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        User user = requireActiveUser(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -682,11 +675,7 @@ public class GroupChallengeService {
      */
     @Transactional
     public void reportWindowUsage(UUID groupId, UUID challengeId, UUID userId, WindowUsageReportRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        User user = requireActiveUser(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -719,5 +708,27 @@ public class GroupChallengeService {
     // 창 시각 추출은 WindowFocusAggregator.timeOfDay 단일 기준을 공유한다(검증·겹침·집계·응답 변환 동일).
     private static LocalTime timeOfDay(Instant instant) {
         return WindowFocusAggregator.timeOfDay(instant);
+    }
+
+    /**
+     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1237) — 챌린지 생성·삭제·창 사용분
+     * 보고처럼 users 행은 <b>읽기만 하고</b> 그룹 상태를 변경하는 트랜잭션의 요청자 로드. 락 없는
+     * findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아 탈퇴한 방장의
+     * 그룹 상태 변경(createGroup #516 과 같은 계열)이나 (challenge, user, date) upsert 유령 행이
+     * 남을 수 있다. 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
+     * READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404). 게스트는 기존 가드 그대로
+     * GUEST_FORBIDDEN(403).
+     *
+     * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
+     * {@code @Transactional(readOnly = true)} 라 Postgres 가 read-only 트랜잭션의 FOR SHARE 를
+     * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
+     */
+    private User requireActiveUser(UUID userId) {
+        User user = userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        if (user.isGuest()) {
+            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
+        }
+        return user;
     }
 }

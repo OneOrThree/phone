@@ -49,8 +49,7 @@ public class CharacterGenerationService {
      */
     @Transactional
     public CharacterQuotaResponse getQuota(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
         Instant now = Instant.now();
         return computeQuota(user, ensureTrialAnchor(user, now), now);
     }
@@ -71,8 +70,7 @@ public class CharacterGenerationService {
      */
     @Transactional
     public CharacterQuotaResponse recordGeneration(UUID userId, UUID clientGenerationId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
 
         // ① 유저별 advisory lock — 동시 record 를 직렬화한다. 트랜잭션 커밋/롤백 시 자동 해제(xact 스코프).
         acquireUserLock(userId);
@@ -97,6 +95,23 @@ public class CharacterGenerationService {
                 .clientGenerationId(clientGenerationId)
                 .build());
         return computeQuota(user, anchor, now);
+    }
+
+    /**
+     * 활성 검증 + 배타 락 (GROMO-801 락 규율, GROMO-1237) — 쿼터 조회·기록 트랜잭션의 요청자 로드.
+     * 두 경로 모두 {@link #ensureTrialAnchor} 가 users 행을 UPDATE(트라이얼 앵커 초회 세팅)할 수 있어
+     * "users 행을 변경하는 트랜잭션 = 처음부터 배타 락(findActiveByIdForUpdate)" 분류다 — 공유 락으로
+     * 읽고 나중에 UPDATE 하면 같은 행을 잡은 두 트랜잭션이 서로의 공유 락 해제를 기다리는 락 승급
+     * 교착이 된다(UserRepository 락 선택 원칙). 탈퇴(배타 락)가 먼저 커밋되면 READ COMMITTED
+     * 재평가로 빈 결과 → NOT_FOUND(404).
+     *
+     * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
+     * {@code @Transactional(readOnly = true)} 라 Postgres 가 read-only 트랜잭션의 행 잠금을 거절한다.
+     * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 경로 전용이다.
+     */
+    private User requireActiveUser(UUID userId) {
+        return userRepository.findActiveByIdForUpdate(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
     /** 유저별 PostgreSQL advisory lock 획득(트랜잭션 스코프). userId 를 hashtext 로 bigint 키에 매핑. */

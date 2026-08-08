@@ -13,6 +13,8 @@ import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -87,7 +89,7 @@ class GroupAnnouncementServiceTest {
         // given: 요청자 OWNER, 그룹/멤버 존재
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
@@ -105,6 +107,9 @@ class GroupAnnouncementServiceTest {
         assertThat(saved.getUser()).isEqualTo(user);
         assertThat(saved.getTitle()).isEqualTo("제목");
         assertThat(saved.getContent()).isEqualTo("내용");
+        // 락 규율 (GROMO-1237): 공지 생성(변경) 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        verify(userRepository).findActiveByIdForShare(USER_ID);
+        verify(userRepository, never()).findById(USER_ID);
     }
 
     @Test
@@ -113,7 +118,7 @@ class GroupAnnouncementServiceTest {
         // given: 일반 멤버지만 announcement_permission=ALLOW (GROMO-676)
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(memberWithPermission(user, group, GroupAnnouncementGrant.ALLOW)));
@@ -131,7 +136,7 @@ class GroupAnnouncementServiceTest {
     @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
     void createAnnouncementGuestForbidden() {
         // given: 게스트 유저
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(true)));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user(true)));
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -149,7 +154,7 @@ class GroupAnnouncementServiceTest {
         // given: 그룹은 있으나 멤버가 아님
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -168,7 +173,7 @@ class GroupAnnouncementServiceTest {
         // given: 일반 멤버 + announcement_permission=DISALLOW(기본값)
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
@@ -191,7 +196,7 @@ class GroupAnnouncementServiceTest {
         // given: 멤버 + 공지 2개(최신순)
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
@@ -224,7 +229,7 @@ class GroupAnnouncementServiceTest {
     @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
     void getAnnouncementsGuestForbidden() {
         // given: 게스트 유저
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(true)));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user(true)));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -239,7 +244,7 @@ class GroupAnnouncementServiceTest {
         // given: 그룹은 있으나 멤버가 아님
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -250,6 +255,19 @@ class GroupAnnouncementServiceTest {
                 .isEqualTo(GroupErrorCode.MEMBER_ONLY);
     }
 
+    @Test
+    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 → UserException(NOT_FOUND) (GROMO-1237 활성 필터)")
+    void getAnnouncementsUserNotFound() {
+        // given: 무락 활성 조회가 빈 결과 — 탈퇴자 토큰 차단
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NOT_FOUND);
+    }
+
     // ── updateAnnouncement ────────────────────────────────────────────────
 
     @Test
@@ -258,7 +276,7 @@ class GroupAnnouncementServiceTest {
         // given: OWNER + 해당 그룹의 공지 존재
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
@@ -285,7 +303,7 @@ class GroupAnnouncementServiceTest {
         // given: 일반 멤버 + announcement_permission=DISALLOW (공지 조회 전에 권한에서 막힘)
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
@@ -305,7 +323,7 @@ class GroupAnnouncementServiceTest {
         // given: 권한 있으나 공지 미존재
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
@@ -329,7 +347,7 @@ class GroupAnnouncementServiceTest {
         // given: OWNER + 공지 존재
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));
@@ -353,7 +371,7 @@ class GroupAnnouncementServiceTest {
         // given: 일반 멤버 + announcement_permission=DISALLOW
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
@@ -372,7 +390,7 @@ class GroupAnnouncementServiceTest {
         // given: 권한 있으나 공지 미존재
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.OWNER)));

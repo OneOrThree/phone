@@ -158,7 +158,8 @@ public class GroupService {
     }
 
     public List<GroupSummaryResponse> getMyGroups(UUID userId) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
@@ -409,7 +410,8 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        User user = userRepository.findById(userId)
+        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
@@ -446,12 +448,8 @@ public class GroupService {
     @Deprecated
     @Transactional
     public RenewGroupCodeResponse renewGroupCode(UUID groupId, UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        // Deprecated 지만 변경 트랜잭션이므로 락 규율은 동일하게 적용 (GROMO-1237).
+        User user = requireActiveUser(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -470,7 +468,8 @@ public class GroupService {
     }
 
     public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {
@@ -550,11 +549,7 @@ public class GroupService {
 
     @Transactional
     public void updateGroup(UUID groupId, UUID userId, UpdateGroupRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        User user = requireActiveUser(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -598,7 +593,8 @@ public class GroupService {
     }
 
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -633,12 +629,7 @@ public class GroupService {
 
     @Transactional
     public void updateGroupSettings(UUID groupId, UUID userId, UpdateGroupSettingsRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+        User user = requireActiveUser(userId);
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));

@@ -83,7 +83,9 @@ public class UserService {
 
     @Transactional
     public void setupProfile(UUID userId, UserProfileSetupRequest body) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행(닉네임·직군·국가)을 변경하는 트랜잭션 — 처음부터 배타 락 (GROMO-801 락 선택 원칙,
+        // GROMO-1237). 공유 락으로 읽고 나중에 UPDATE 하면 락 승급 교착 대상이 된다.
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         changeNickname(user, body.getNickname());
@@ -107,7 +109,8 @@ public class UserService {
 
     @Transactional
     public void updateProfile(UUID userId, UserProfileUpdateRequest body) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행(닉네임·국가)을 변경할 수 있는 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         // PATCH 의미론 유지 — null 은 "변경 안 함". 빈문자열·공백-only 는 changeNickname 의
@@ -180,9 +183,8 @@ public class UserService {
      * ② 락 규율(GROMO-801, UserRepository 락 선택 원칙) — 여기서 users 행을 변경하므로 이
      * 트랜잭션은 "users 행 변경 = 처음부터 배타 락(findActiveByIdForUpdate)" 분류에 해당한다.
      * 공유 락(ForShare)으로 로드한 트랜잭션에서 이 메서드를 부르면 락 승급 교착 대상이 된다.
-     * 단, 현재 호출부(setupProfile·updateProfile)는 <b>무락 로드</b>(findByIdAndIsDeletedFalse)라
-     * 승급 교착 이전에 이미 이 규율 밖이다 — 정정은 별도 티켓 몫이고, 이 경고는 그때의 목표
-     * 상태(배타 락 로드)를 기록한다.
+     * 현재 호출부(setupProfile·updateProfile)는 배타 락 로드(findActiveByIdForUpdate)로 목표
+     * 상태에 도달했다(GROMO-1237) — flush() 는 배타 락과 호환이라 동작 변화가 없다.
      */
     private void changeNickname(User user, String rawNickname) {
         String nickname = rawNickname == null ? "" : rawNickname.trim();
@@ -319,7 +321,8 @@ public class UserService {
      */
     @Transactional
     public void updateStatVisibility(UUID userId, StatVisibility statVisibility) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행(stat_visibility) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setStatVisibility(statVisibility);
         userActivityEventLogger.log(UserActivityEvent.STAT_VISIBILITY_UPDATED,
@@ -335,7 +338,8 @@ public class UserService {
 
     @Transactional
     public void updateScreenTimeGoal(UUID userId, int dailyScreenTimeGoalMinutes) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -346,7 +350,8 @@ public class UserService {
 
     @Transactional
     public void updateFocusTimeGoal(UUID userId, int dailyFocusTimeGoalMinutes) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행은 읽기만(country_code → 오늘 계산)하고 설정 테이블만 변경 — 공유 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -358,7 +363,8 @@ public class UserService {
     @Transactional
     public void updateOccupation(UUID userId, Occupation occupation) {
         requireActiveOccupation(occupation);
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행(occupation) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setOccupation(occupation);
     }
@@ -373,7 +379,8 @@ public class UserService {
 
     @Transactional
     public void registerDeviceToken(UUID userId, String deviceToken) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setDeviceToken(deviceToken);
     }
@@ -381,7 +388,8 @@ public class UserService {
     // 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
     @Transactional
     public void clearDeviceToken(UUID userId) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
+        User user = userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         user.setDeviceToken(null);
     }
@@ -406,7 +414,10 @@ public class UserService {
      */
     @Transactional
     public void unlinkSocialAccount(UUID userId, Provider provider) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        // users 행은 읽기만 하고 social_accounts 만 변경 — 공유 락 (GROMO-801, GROMO-1237).
+        // 잠금 순서는 user → social_accounts 로 withdraw(배타 락 → social 정리)와 동일 방향이라
+        // AB-BA 교착이 없다. 탈퇴가 먼저 커밋되면 재평가로 빈 결과 → NOT_FOUND(404).
+        User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         // 비관적 잠금으로 활성 연동 전체 조회 — count와 대상 계정을 한 번에 확보해 원자성 보장
         List<SocialAccount> activeAccounts = socialAccountRepository.findAllByUserAndDeletedAtIsNullForUpdate(user);

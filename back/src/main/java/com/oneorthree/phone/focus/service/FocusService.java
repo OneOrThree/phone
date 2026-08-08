@@ -93,7 +93,8 @@ public class FocusService {
     private final CurrencyLedgerService currencyLedgerService;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         // GROMO-673: 유저가 채택한 태그(user_focus_tags) 목록. id 는 user_focus_tags.id, 이름은 defaultTag.name.
@@ -113,7 +114,8 @@ public class FocusService {
     public OccupationDefaultTagsResponse getDefaultTags(UUID userId, Occupation occupation) {
         Occupation resolved = occupation;
         if (resolved == null) {
-            User user = userRepository.findById(userId)
+            // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+            User user = userRepository.findByIdAndIsDeletedFalse(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
             resolved = user.getOccupation();
             if (resolved == null) {
@@ -133,8 +135,7 @@ public class FocusService {
 
     @Transactional
     public void setupFocusTag(UUID userId, FocusTagSetupRequest body) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
 
         // GROMO-673: 태그 정체성은 default_tags(글로벌 재사용 단위). 이름으로 find-or-create 후
         // 유저 채택 레코드(user_focus_tags)를 생성한다. 이미 채택한 태그면 unique(user, default_tag)로 멱등.
@@ -230,7 +231,8 @@ public class FocusService {
             throw new FocusException(FocusErrorCode.INVALID_PAGE_REQUEST);
         }
 
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         Slice<FocusSession> slice = focusSessionRepository
@@ -255,8 +257,7 @@ public class FocusService {
 
     @Transactional
     public FocusSessionSaveResponse saveFocusSession(UUID userId, FocusSessionRequest body) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
 
         if (body.getStartedAt() == null || body.getEndedAt() == null) {
             throw new IllegalArgumentException("시작/종료 시간은 필수입니다");
@@ -359,8 +360,7 @@ public class FocusService {
      */
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
 
         Instant startedAt = body.startedAt() != null ? body.startedAt() : Instant.now();
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
@@ -382,8 +382,7 @@ public class FocusService {
      */
     @Transactional
     public FocusSessionEndResponse endFocusSession(UUID userId, FocusSessionEndRequest body) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+        User user = requireActiveUser(userId);
 
         FocusSession session = focusSessionRepository.findById(body.sessionId())
                 .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
@@ -480,6 +479,23 @@ public class FocusService {
             closed += focusSessionRepository.markAutoClosedIfOpen(session.getId(), cappedEnd);
         }
         return closed;
+    }
+
+    /**
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1237) — 태그 채택·세션 저장/시작/종료처럼
+     * users 행은 <b>읽기만 하고</b> 유저 소유 자원(user_focus_tags·focus_sessions·일 집계·코인 지급)을
+     * 변경하는 트랜잭션의 요청자 로드. 락 없는 findById 는 계정 탈퇴(UserService.withdraw, 유저 행
+     * 배타 락)와 직렬화되지 않아 탈퇴의 정리 스캔 이후·커밋 이전에 낀 변경이 유령(탈퇴자 명의 태그·
+     * 세션)으로 남는다. 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저
+     * 커밋되면 READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404).
+     *
+     * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
+     * {@code @Transactional(readOnly = true)} 라 Postgres 가 read-only 트랜잭션의 FOR SHARE 를
+     * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
+     */
+    private User requireActiveUser(UUID userId) {
+        return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
     /** 태그 id(user_focus_tags.id)로 소유 태그를 조회(없으면 null 반환, 미소유면 FORBIDDEN). POST/PATCH 공용. */
