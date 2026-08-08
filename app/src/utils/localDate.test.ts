@@ -5,6 +5,7 @@ import {
   kstDateStr,
   kstLocalSameDay,
   localDateStr,
+  todayOverlapSeconds,
   todayStr,
   todayStrKst,
   tomorrowStr,
@@ -117,6 +118,47 @@ describe('yesterdayStrKst / kstDateStr', () => {
     expect(yesterdayStrKst()).toBe('2026-07-31');
     jest.setSystemTime(new Date('2026-01-01T09:00:00+09:00'));
     expect(yesterdayStrKst()).toBe('2025-12-31');
+  });
+});
+
+// 자정 걸친 세션의 '오늘 몫' 분할(GROMO-1252) — 종료 시각만 보고 세션 전체를 오늘에 적립하던
+// 버그의 회귀 방지. 고정된 오늘은 2026-07-15(KST), 즉 창은 07-15 00:00 ~ 07-16 00:00이다.
+describe('todayOverlapSeconds', () => {
+  test('같은 날 안에서 끝난 구간은 전체 초 — 기존 동작 회귀 방지', () => {
+    expect(todayOverlapSeconds('2026-07-15T07:00:00+09:00', '2026-07-15T08:30:00+09:00')).toBe(
+      5400,
+    );
+  });
+
+  test('자정을 걸친 구간은 오늘 몫만 — 어제 22:00~오늘 01:00 → 3600', () => {
+    expect(todayOverlapSeconds('2026-07-14T22:00:00+09:00', '2026-07-15T01:00:00+09:00')).toBe(
+      3600,
+    );
+  });
+
+  test('완전히 어제인 구간은 0', () => {
+    expect(todayOverlapSeconds('2026-07-14T10:00:00+09:00', '2026-07-14T12:00:00+09:00')).toBe(0);
+  });
+
+  test('완전히 내일인 구간은 0 — 기기 시계가 앞으로 어긋난 경우 방어', () => {
+    expect(todayOverlapSeconds('2026-07-16T01:00:00+09:00', '2026-07-16T03:00:00+09:00')).toBe(0);
+  });
+
+  test('오늘 자정에 딱 끝나는 구간은 0, 자정에 딱 시작하는 구간은 전체', () => {
+    // [어제 23:00, 오늘 00:00) — 겹치는 순간이 없다
+    expect(todayOverlapSeconds('2026-07-14T23:00:00+09:00', '2026-07-15T00:00:00+09:00')).toBe(0);
+    expect(todayOverlapSeconds('2026-07-15T00:00:00+09:00', '2026-07-15T00:10:00+09:00')).toBe(600);
+  });
+
+  test('다음 자정을 넘어간 구간은 오늘 끝(다음 자정)에서 잘린다', () => {
+    expect(todayOverlapSeconds('2026-07-15T23:00:00+09:00', '2026-07-16T02:00:00+09:00')).toBe(
+      3600,
+    );
+  });
+
+  test('역전 구간·파싱 실패는 0', () => {
+    expect(todayOverlapSeconds('2026-07-15T08:00:00+09:00', '2026-07-15T07:00:00+09:00')).toBe(0);
+    expect(todayOverlapSeconds('nope', '2026-07-15T07:00:00+09:00')).toBe(0);
   });
 });
 

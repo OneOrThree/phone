@@ -7,7 +7,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
-import { todayStr, localDateStr } from '@/utils/localDate';
+import { todayOverlapSeconds } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import { cancelStaleCompletionNotifications } from './completionNotification';
@@ -71,12 +71,14 @@ export function OrphanFocusSettler() {
         rec = { ...rec, settledLocally: true };
         stored = JSON.stringify(rec);
         await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
-        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 세션이 오늘 기록일 때만 반영한다
-        // (자정 넘겨 재실행 시 어제 세션이 오늘로 안 잡히게).
-        // 날짜 규칙은 FocusContext/SubjectContext와 동일(localDate=KST 자정 기준).
-        if (localDateStr(new Date(rec.updatedAt)) === todayStr()) {
-          addFocusSeconds(focused);
-          addFocusToSubject(rec.subjectId, focused);
+        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 구간 [startedAt, updatedAt] 중 오늘 몫만
+        // 반영한다(GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을
+        // 걸친 세션의 어제 몫까지 오늘로 들어왔다). elapsed는 tick 기준(일시정지 제외)이라
+        // 벽시계 겹침보다 클 수 없게 클램프한다. 날짜 축은 로컬 자정(FocusContext/SubjectContext와 동일).
+        const todaySeconds = Math.min(focused, todayOverlapSeconds(rec.startedAt, rec.updatedAt));
+        if (todaySeconds > 0) {
+          addFocusSeconds(todaySeconds);
+          addFocusToSubject(rec.subjectId, todaySeconds);
         }
       }
       const body = {

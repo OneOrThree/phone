@@ -40,7 +40,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { todayStr, localDateStr } from '@/utils/localDate';
+import { todayStr, localDateStr, todayOverlapSeconds } from '@/utils/localDate';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -540,17 +540,19 @@ export default function FocusSessionScreen() {
       settledSecondsRef.current = elapsed;
       settleAtRef.current = endedAt;
       AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
-      // 로컬/과목 적립 — 둘 다 '오늘' 기준 스토어라, 리플레이가 자정을 넘겨 정산하는 어제
-      // 블록(endedAt이 오늘 아님)은 반영하지 않는다(고아 정산과 동일 규칙, 코덱스 리뷰).
-      // 코인은 all-time이라 항상 반영.
-      if (localDateStr(new Date(endedAt)) === todayStr()) {
-        addFocusSeconds(delta);
-        addFocusToSubject(subjectId, delta);
+      // 로컬/과목 적립 — 둘 다 '오늘' 기준 스토어라, 구간 [startedAt, endedAt] 중 오늘 몫만
+      // 반영한다(GROMO-1252 — 종전엔 endedAt 하루만 보고 delta 전체를 오늘에 꽂아, 자정을
+      // 걸친 블록의 어제 몫까지 오늘로 들어왔다). delta는 tick 기준(일시정지·뽀모도로 휴식은
+      // 빠짐)이라 벽시계 겹침보다 클 수 없게 클램프한다. 코인은 all-time이라 항상 반영.
+      const todaySeconds = Math.min(delta, todayOverlapSeconds(startedAt, endedAt));
+      if (todaySeconds > 0) {
+        addFocusSeconds(todaySeconds);
+        addFocusToSubject(subjectId, todaySeconds);
         // 내 그리드 셀 오늘 몫에도 같은 귀속 규칙으로 누적 — 리플레이가 렌더 전에 정산해도 안전
         if (gridSettledTodayRef.current.day !== todayStr()) {
           gridSettledTodayRef.current = { day: todayStr(), seconds: 0 };
         }
-        gridSettledTodayRef.current.seconds += delta;
+        gridSettledTodayRef.current.seconds += todaySeconds;
       }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.

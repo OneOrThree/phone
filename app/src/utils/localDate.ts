@@ -31,6 +31,24 @@ export function yesterdayStr(): string {
   return localDateStr(t);
 }
 
+// 구간 [startISO, endISO] 중 '오늘'(로컬 자정~다음 자정) 몫 초 — 자정을 걸친 집중 세션을
+// 날짜별로 나눠 적립하기 위한 교집합(GROMO-1252). 종료 시각만 보고 세션 전체를 오늘에 꽂으면
+// 전날 몫까지 오늘로 들어온다. 서버도 같은 규칙(자정 경계 분할)으로 날짜 버킷을 나눈다.
+// 다음 자정은 setDate로 구한다 — DST 전환일은 하루가 23/25시간이라 +24h 고정 더하기는
+// 어긋난다(stats/format.tenMinuteFocusSlots와 같은 취지).
+// 축은 기기 로컬이다 — 이 값의 소비처(홈 '오늘 집중'·과목별 누적)가 로컬 자정 리셋 스토어라,
+// 저장 축과 분할 축이 같아야 한다(위 KST 주석의 ② 측정/저장 부류).
+// 파싱 실패(NaN)·역전 구간은 비교가 전부 false가 되어 0.
+export function todayOverlapSeconds(startISO: string, endISO: string): number {
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayStart.getDate() + 1);
+  const from = Math.max(Date.parse(startISO), dayStart.getTime());
+  const to = Math.min(Date.parse(endISO), dayEnd.getTime());
+  return to > from ? Math.floor((to - from) / 1000) : 0;
+}
+
 // ── KST(Asia/Seoul) 고정 버전 ──────────────────────────────────────────
 // 서버는 내기·챌린지·창 사용분 보고의 날짜 판정이 전부 KST 고정이다(내기 계약 §1·§3) — 기기
 // 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 날짜로 나가 BET_CLOSED·오귀속을 맞는다.

@@ -15,7 +15,7 @@ import java.util.Map;
 /**
  * 세션 완료 시 집중 스트릭(연속 일수) 갱신.
  *
- * <p>날짜 기준은 UTC(endedAt 기준) — DailyFocusStat 집계 관례와 동일.
+ * <p>날짜 기준은 유저 country_code 존 로컬 날짜 — DailyFocusStat 집계 관례와 동일(GROMO-803).
  * 조회 경로(StatsService.getStreak)는 건드리지 않고 쓰기 로직만 이 서비스가 소유한다.
  */
 @Service
@@ -38,6 +38,10 @@ public class UserStreakService {
      *   <li>sessionDate < lastSessionDate (과거 세션 소급 저장) → 무변화, 미발행 (방어)</li>
      * </ul>
      * 공통: lastSessionDate = max(기존, sessionDate), longestStreakCount = max(longestStreakCount, streakCount).
+     *
+     * <p><b>호출 순서가 계약이다 (GROMO-1252)</b>: 위 4번째 규칙대로 lastSessionDate 이하 날짜는 조용히 무시된다.
+     * 자정을 걸친 세션처럼 한 요청이 여러 날짜를 갱신할 때는 <b>반드시 날짜 오름차순</b>으로 호출해야 한다
+     * (오늘을 먼저 넣으면 어제 호출이 무시된다).
      *
      * <p>동시성: 동시 INSERT race 는 user_id unique 제약이 정합성을 보장한다
      * (실패 건은 클라 재시도 — DailyFocusStat upsert 의 INSERT-INSERT 방어와 동일).
