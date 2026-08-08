@@ -713,6 +713,13 @@ class ScreenTimeModule: NSObject {
     // 캐릭터 스냅샷(base64 PNG)을 App Group 컨테이너에 저장.
     // Live Activity(Widget)와 가림막(ShieldConfiguration)이 이 파일을 읽어 표시한다.
     // 익스텐션 메모리 예산이 빡빡하므로 저장 전에 최대 256px로 다운스케일한다.
+    //
+    // GROMO-1199: 다운스케일 전에 투명 여백을 잘라 실제 비율로 정규화한다.
+    // 캡처 원본은 정사각 박스(CharacterImage: size×size + contain)라 비정사각 캐릭터
+    // (누끼는 물론 309×340인 기본 마스코트도)는 여백이 같이 구워진다. 가림막은 아이콘을
+    // 후처리 없이 그대로 OS에 넘기므로, 여백이 남으면 아이콘 자리를 여백이 차지해
+    // 캐릭터만 작게 보였다. 원천에서 잘라 두면 가림막·Live Activity가 모두 해결되고,
+    // 256px 예산도 여백이 아니라 캐릭터에 쓰여 더 선명해진다.
     @objc func saveCharacterSnapshot(
         _ base64: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -729,17 +736,22 @@ class ScreenTimeModule: NSObject {
             return
         }
 
+        let trimmed = trimmingTransparentEdges(image)
+
         // 긴 변 256px 초과 시 축소(스케일 1로 렌더해 @3x 부풀림 방지)
         let maxSide: CGFloat = 256
-        let longest = max(image.size.width, image.size.height)
-        var output = image
+        let longest = max(trimmed.size.width, trimmed.size.height)
+        var output = trimmed
         if longest > maxSide, longest > 0 {
             let ratio = maxSide / longest
-            let newSize = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            let newSize = CGSize(
+                width: trimmed.size.width * ratio,
+                height: trimmed.size.height * ratio
+            )
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             output = UIGraphicsImageRenderer(size: newSize, format: format).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: newSize))
+                trimmed.draw(in: CGRect(origin: .zero, size: newSize))
             }
         }
 

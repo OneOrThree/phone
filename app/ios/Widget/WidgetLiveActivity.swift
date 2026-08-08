@@ -50,53 +50,9 @@ private let diGold = Palette.night.gold
 // App Group 공유 컨테이너 ID — 실드/메인 앱과 동일하게 focusCharacter.png를 여기서 읽는다.
 private let appGroupId = "group.com.oneorthree.gromo"
 
-// 투명 여백 잘라내기(GROMO-1081) — 알파 바운딩 박스로 크롭한다.
-// 메인 앱은 캐릭터를 정사각 박스(CharacterImage: size×size + contain)로 캡처하므로,
-// 세로로 긴 누끼 캐릭터는 스냅샷 좌우에 투명 여백이 붙은 채 저장된다. 이 여백을 남겨 두면
-// 이미지 비율이 항상 1:1로 보여 프레임을 아무리 세로로 키워도 짧은 변에 갇힌다.
-// 전부 투명하거나 비트맵을 못 만들면 원본을 그대로 돌려준다(표시 자체는 절대 실패하지 않게).
-private func trimmingTransparentEdges(_ image: UIImage) -> UIImage {
-    guard let cg = image.cgImage, cg.width > 0, cg.height > 0 else { return image }
-    let w = cg.width
-    let h = cg.height
-    let bytesPerRow = w * 4
-    var pixels = [UInt8](repeating: 0, count: bytesPerRow * h)
-    let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-        guard
-            let base = buffer.baseAddress,
-            let ctx = CGContext(
-                data: base,
-                width: w,
-                height: h,
-                bitsPerComponent: 8,
-                bytesPerRow: bytesPerRow,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-        else { return false }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return true
-    }
-    guard drawn else { return image }
-
-    // 알파가 남아 있는 픽셀의 최소/최대 좌표. 임계값 8은 안티에일리어싱 잔여를 여백으로 본다.
-    let threshold: UInt8 = 8
-    var minX = w, minY = h, maxX = -1, maxY = -1
-    for y in 0..<h {
-        let row = y * bytesPerRow
-        for x in 0..<w where pixels[row + x * 4 + 3] > threshold {
-            if x < minX { minX = x }
-            if x > maxX { maxX = x }
-            if y < minY { minY = y }
-            if y > maxY { maxY = y }
-        }
-    }
-    guard maxX >= minX, maxY >= minY else { return image }
-
-    let rect = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
-    guard let cropped = cg.cropping(to: rect) else { return image }
-    return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
-}
+// 투명 여백 트림(GROMO-1081)은 ios/Shared/ImageTrim.swift로 옮겼다(GROMO-1199) —
+// 실드도 같은 처리가 필요해 공용화했다. 스냅샷은 이제 저장 시점에 이미 트림되므로
+// 여기 호출은 구버전이 남긴 스냅샷 파일에 대한 방어로만 동작한다(이미 트림된 이미지는 그대로).
 
 // 캐릭터 이미지 뷰 — 세션 시작 시 메인 앱이 App Group 컨테이너에 저장한 커스텀 캐릭터
 // (focusCharacter.png, captureRef로 구운 투명 PNG)를 우선 사용하고, 없으면 위젯 번들 기본
