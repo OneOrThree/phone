@@ -55,6 +55,7 @@ import org.springframework.data.domain.SliceImpl;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1620,6 +1621,67 @@ class FocusServiceTest {
         verify(dailyFocusStatRepository, times(1)).save(captor.capture());
         assertThat(captor.getValue().getDate()).isEqualTo(LocalDate.of(2026, 7, 12));
         assertThat(captor.getValue().getTotalFocusSeconds()).isEqualTo(60 * 60);
+    }
+
+    // ── 미래 endedAt 클램프 (GROMO-1252 코드리뷰 P1) ────────────────────────
+    // 클램프가 없으면 '방금 시작해 내일 끝나는' 위조 세션이 오늘 자정까지의 초를 오늘 조각에 채워
+    // 오늘 스트릭·집중목표 지급을 즉시 달성시킨다(creditFocusGoal 의 미래 날짜 가드는 statDate 가 오늘이라 무력).
+
+    /**
+     * 1252-⑤: 미래 endedAt 위조 세션 — 통계 귀속은 서버 now 까지만. 실제 경과 5분만 오늘에 쌓이므로
+     * 스트릭(10분)·목표(60분) 어느 쪽도 달성되지 않는다. 저장되는 세션 행의 endedAt 은 앱이 보낸 값 그대로여야
+     * 재업로드 중복 검사(existsByUserAndStartedAtAndEndedAtAndStatus)가 성립한다.
+     */
+    @Test
+    @DisplayName("1252-⑤: 미래 endedAt(내일) 세션 → 오늘 통계는 실경과 5분만, 스트릭·목표 지급 없음(세션 행 endedAt 은 원본 유지)")
+    void futureEndedAt_clampedForStatsOnly() {
+        Instant now = Instant.now();
+        Instant startedAt = now.minusSeconds(300);       // 실제로는 5분짜리 세션
+        Instant forgedEnd = now.plusSeconds(24 * 3600);  // 내일 끝난다고 위조
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        LocalDate todayKst = now.atZone(ZoneId.of("Asia/Seoul")).toLocalDate();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(
+                UserFocusTimeSettings.builder().userId(USER_ID).dailyFocusTimeGoalMinutes(60).build()));
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, forgedEnd, 0));
+
+        // 오늘 조각 하나만, 실경과(≈300초)만 적립 — 자정까지의 초가 들어오지 않는다
+        ArgumentCaptor<DailyFocusStat> statCaptor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository, times(1)).save(statCaptor.capture());
+        DailyFocusStat stat = statCaptor.getValue();
+        assertThat(stat.getDate()).isEqualTo(todayKst);
+        assertThat(stat.getTotalFocusSeconds()).isBetween(295, 310);
+        assertThat(stat.isFocusTimeGoalAchieved()).isFalse();
+        // 스트릭(10분 미만)·목표 지급 없음
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+        verify(currencyLedgerService, never()).credit(any(), eq(CurrencyTransactionType.FOCUS_GOAL), anyInt(), any());
+        assertThat(response.goalRewardCoins()).isZero();
+        // 세션 원본 행은 클램프하지 않는다 — 재업로드 멱등(구간 일치 조회)이 깨지면 이중 계상된다
+        ArgumentCaptor<FocusSession> sessionCaptor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(sessionCaptor.capture());
+        assertThat(sessionCaptor.getValue().getEndedAt()).isEqualTo(forgedEnd);
+    }
+
+    /** 1252-⑥: 구간이 통째로 미래인 세션 — 조각이 하나도 없어야 한다(음수 초·유령 row 방지). */
+    @Test
+    @DisplayName("1252-⑥: startedAt·endedAt 이 모두 미래 → 일 집계 row 미생성, 스트릭 미갱신")
+    void whollyFutureSession_producesNoStatSlices() {
+        Instant now = Instant.now();
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
+
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, new FocusSessionRequest(
+                null, now.plusSeconds(3600), now.plusSeconds(7200), 0));
+
+        verify(dailyFocusStatRepository, never()).save(any(DailyFocusStat.class));
+        verify(dailyFocusStatRepository, never()).findByUserAndDateForUpdate(any(), any());
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+        assertThat(response.dayTotalFocusSeconds()).isZero();
+        assertThat(response.streakQualifiedToday()).isFalse();
     }
 
     // ── DAILY_FOCUS_GOAL_ACHIEVED 이벤트 (GROMO-395 커밋 4) ─────────────────

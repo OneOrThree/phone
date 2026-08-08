@@ -24,7 +24,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // status NOT IN (CANCELED, AUTO_CLOSED) — 사용자 취소(CANCELED)와 orphan 자동 종료(AUTO_CLOSED)를 모두 배제.
     // 라이브 세션 배선(GROMO-873)에선 세션 1건이 라이브 레코드(종료 시 CANCELED·강제종료 시 AUTO_CLOSED)와
     // 완료 저장(POST /focus-session) 2줄로 남는데, 라이브 레코드의 두 종단 상태를 모두 걸러야 이중집계가 없다.
-    // findCompletedSessionsInPeriod 등 다른 집계 쿼리와 동일한 NOT IN(CANCELED, AUTO_CLOSED) 관례.
+    // findCompletedSessionsOverlappingPeriod 등 다른 집계 쿼리와 동일한 NOT IN(CANCELED, AUTO_CLOSED) 관례.
     // ⚠️ ACTIVE(진행 중 라이브 레코드)는 여기서 제외하지 않아 목록에 남는다. 현재는 프론트 3개 소비처가
     //    endedAt(IS NULL) 을 Date.parse → NaN 비교로 방어적으로 걸러(합산 제외) 이중집계가 없다
     //    (focusRestore.ts:15, useLeagueRanking.ts:79, stats/format.ts). 다만 GROMO-873이 '라이브 행을 두고
@@ -55,7 +55,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 지금 집중 중(라이브) 세션 배치 조회 — userId 기반(FocusLiveInfoLookup 공용, GROMO-822).
     // 친구 목록 isFocusing·시작시각·태그명 도출용. User 기반 findByUserInAndEndedAtIsNull(핀 친구용)의 userId·태그 페치 확장판.
     // focusTag(user_focus_tags)와 그 defaultTag 를 LEFT JOIN FETCH 로 함께 로딩(태그명 매핑 N+1 방지 —
-    // findCompletedSessionsInPeriod 관례).
+    // findCompletedSessionsOverlappingPeriod 관례).
     // startedAt >= liveSince: 미종료여도 orphan 타임아웃(12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 버려진 세션은
     // '라이브'에서 제외한다(findUserIdsWithLiveSession, GROMO-841 과 동일 기준). 이 응답이 focusStartedAt 을 노출하므로
     // 하한이 없으면 12시간 전 시작한 죽은 세션이 '집중 중'으로 보인다.
@@ -77,7 +77,8 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // '오늘 집중 여부' 판정용.
     // endedAt 이 [from,to) 에 든 세션만(취소·orphan 자동종료 제외). DailyFocusStat.date(country_code 로컬 버킷)와 달리
     // 절대시각 endedAt 윈도우라 타임존에 견고하고(비-KST 유저도 정확), 자정 넘겨 끝난 세션도 종료일 기준으로 포함된다.
-    // (findCompletedSessionsInPeriod 와 동일한 endedAt-윈도우 + status 필터 관례.)
+    // (다른 집계 쿼리와 동일한 status 필터 관례. 단 윈도우는 '종료일 귀속'이 목적이라 endedAt 기준 그대로 두고,
+    //  by-category(findCompletedSessionsOverlappingPeriod)처럼 겹침으로 바꾸지 않는다.)
     @Query("SELECT DISTINCT s.user.id FROM FocusSession s "
             + "WHERE s.user.id IN :userIds AND s.endedAt >= :from AND s.endedAt < :to "
             + "AND s.status NOT IN ("
@@ -97,8 +98,14 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     List<UUID> findUserIdsWithLiveSession(@Param("userIds") Collection<UUID> userIds,
                                           @Param("liveSince") Instant liveSince);
 
-    // 기간 내 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
-    // GROMO-671(커밋3): local_date 컬럼 제거로 endedAt(UTC) [from,to) 윈도우 기준으로 조회한다.
+    // 기간과 겹치는 완료 세션 집계용 전체 조회 — 카테고리별 집중 통계(GROMO-524).
+    // GROMO-671(커밋3): local_date 컬럼 제거로 절대시각 윈도우 기준으로 조회한다.
+    // GROMO-1252(코드리뷰 P1): endedAt-포함 윈도우 → **겹침(overlap) 윈도우**로 전환. 종전엔 endedAt 이 창 안인
+    // 세션만 골라 세션 전체 길이를 더해, 자정을 걸친 세션이 종료일에 전량 귀속됐다(사전집계 DailyFocusStat 는
+    // splitByLocalDay 로 날짜별로 쪼개는데 by-category 만 안 쪼개져 같은 화면의 총합과 과목별 합이 어긋났다).
+    // 이제 창과 겹치는 세션을 모두 반환하고, 호출측(StatsService)이 세션 기여분을 창으로 클리핑해 더한다
+    // (sumOverlapSecondsInWindow 의 LEAST/GREATEST 클리핑과 같은 결. 여기서 클리핑하지 않는 이유는
+    //  태그별 그룹핑에 focusTag·defaultTag 페치가 필요해 엔티티를 그대로 넘기기 때문).
     // 취소(CANCELED) 세션은 제외(과거 deleted_at IS NULL 을 status 기반으로 전환).
     // GROMO-804: orphan 자동 종료(AUTO_CLOSED) 세션도 제외한다. orphan 은 endedAt 이 채워져 이 윈도우에 걸리지만
     // 통계 미반영 세션이므로, 여기서 걸러야 사전집계 /stats/focus 와 by-category 총합이 일치한다.
@@ -111,14 +118,14 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "LEFT JOIN FETCH ft.defaultTag "
             + "WHERE s.user = :user "
             + "AND s.endedAt IS NOT NULL "
-            + "AND s.endedAt >= :from "
-            + "AND s.endedAt < :to "
+            + "AND s.endedAt > :from "
+            + "AND s.startedAt < :to "
             + "AND s.status NOT IN ("
             + "com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
             + "com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED)")
-    List<FocusSession> findCompletedSessionsInPeriod(@Param("user") User user,
-                                                     @Param("from") Instant from,
-                                                     @Param("to") Instant to);
+    List<FocusSession> findCompletedSessionsOverlappingPeriod(@Param("user") User user,
+                                                              @Param("from") Instant from,
+                                                              @Param("to") Instant to);
 
     @Modifying
     @Query("UPDATE FocusSession f SET f.user = null WHERE f.user.id = :userId")
@@ -158,7 +165,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 창(TIME_WINDOW) 클리핑 집계 — [winStart, winEnd) 와 겹치는 완료 세션의 겹침 길이(초) 합을 유저별로 구한다.
      *
      * <p>세션을 창 경계로 클리핑(LEAST/GREATEST)해 겹친 구간만 계수한다. ACTIVE(미종료)는 ended_at IS NULL
-     * 로, CANCELED·AUTO_CLOSED 는 status 로 제외 — findCompletedSessionsInPeriod 등 다른 집계 쿼리와 동일
+     * 로, CANCELED·AUTO_CLOSED 는 status 로 제외 — findCompletedSessionsOverlappingPeriod 등 다른 집계 쿼리와 동일
      * 관례. 창 판정은 세션 겹침 길이 기준이라 방해시간(total_distraction_seconds)은 차감하지 않는다
      * (daily_focus_stats.total_focus_seconds 도 startedAt~endedAt 원시 길이 누적으로 미차감 — 동일 기준).
      * LEAST/GREATEST + EXTRACT(EPOCH) 조합은 JPQL 로 표현할 수 없어 네이티브로 둔다

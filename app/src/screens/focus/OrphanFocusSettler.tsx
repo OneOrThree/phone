@@ -7,7 +7,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
-import { todayOverlapSeconds } from '@/utils/localDate';
+import { todayOverlapSeconds, todayStr } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import { cancelStaleCompletionNotifications } from './completionNotification';
@@ -71,11 +71,19 @@ export function OrphanFocusSettler() {
         rec = { ...rec, settledLocally: true };
         stored = JSON.stringify(rec);
         await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
-        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 구간 [startedAt, updatedAt] 중 오늘 몫만
-        // 반영한다(GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을
-        // 걸친 세션의 어제 몫까지 오늘로 들어왔다). elapsed는 tick 기준(일시정지 제외)이라
-        // 벽시계 겹침보다 클 수 없게 클램프한다. 날짜 축은 로컬 자정(FocusContext/SubjectContext와 동일).
-        const todaySeconds = Math.min(focused, todayOverlapSeconds(rec.startedAt, rec.updatedAt));
+        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 이 세션의 집중초 중 오늘 몫만 반영한다
+        // (GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을 걸친
+        // 세션의 어제 몫까지 오늘로 들어왔다). 근거는 레코드가 남긴 날짜별 집중초 —
+        // 세션 화면과 같은 규칙(집중 tick의 날짜)이다(blockToday.ts 주석 참고).
+        // 구간 [startedAt, updatedAt] 겹침 폴백은 필드가 없는 구버전 레코드 전용 — 일시정지가
+        // 자정을 걸친 블록은 그 경로에서 여전히 과다 계상될 수 있다(어제 몫이 오늘로).
+        // 날짜 축은 로컬 자정(FocusContext/SubjectContext와 동일).
+        const todaySeconds =
+          rec.focusDay != null && rec.focusDaySeconds != null
+            ? rec.focusDay === todayStr()
+              ? Math.min(focused, rec.focusDaySeconds)
+              : 0
+            : Math.min(focused, todayOverlapSeconds(rec.startedAt, rec.updatedAt));
         if (todaySeconds > 0) {
           addFocusSeconds(todaySeconds);
           addFocusToSubject(rec.subjectId, todaySeconds);

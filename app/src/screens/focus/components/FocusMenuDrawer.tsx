@@ -26,12 +26,14 @@ export function FocusMenuDrawer({
   open: boolean;
   onClose: () => void;
   liveSubjectId: string; // 진행 중 세션의 과목
-  liveSeconds: number; // 진행 중 세션의 집중 초(정지 전이라 아직 저장 안 됨)
+  // 아직 정산 안 된 집중 초 중 '오늘' 몫(GROMO-1252) — 자정을 걸친 세션의 어제 몫은 빠져 있고,
+  // 이미 정산된 블록(뽀모도로)도 빠져 있다. 그래서 저장분에 그대로 더하면 된다.
+  liveSeconds: number;
 }) {
   const insets = useSafeAreaInsets();
   const { todayFocusSeconds } = useFocus();
   const { subjects } = useSubjects();
-  // 저장은 세션 정지 시에만 일어나므로, 진행 중 경과를 표시값에 실시간 합산한다.
+  // 저장(정산)은 블록 단위라, 아직 정산 안 된 오늘 몫을 표시값에 실시간 합산한다.
   const rows = subjects.map((x) =>
     x.id === liveSubjectId ? { ...x, accumulatedSeconds: x.accumulatedSeconds + liveSeconds } : x,
   );
