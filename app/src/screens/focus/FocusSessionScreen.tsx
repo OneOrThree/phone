@@ -757,6 +757,9 @@ export default function FocusSessionScreen() {
   // 앞서 있어, 복귀 리플레이의 경계 시각(leftAt + i초)이 그만큼 당겨진다(코덱스 리뷰).
   // 리플레이는 이 스냅샷에서 시작하고, 복귀 시 setSession이 전진분을 통째로 덮어쓴다.
   const leftSessionRef = useRef<SessionState | null>(null);
+  // 이 세션에서 지금까지 인정한 이탈 크레딧 누적(GROMO-1253). 상한이 '복귀 1회당'이면
+  // 백그라운드 왕복을 반복할 때마다 8시간씩 새로 붙어 하루 24시간을 넘긴다(34시간 신고 사례).
+  const awayCreditedRef = useRef(0);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -794,7 +797,9 @@ export default function FocusSessionScreen() {
           // 실드 세션 — 딴짓이 차단된 상태였으므로 자리 비운 시간을 집중으로 인정(전진).
           // 전진분은 즉시 저장 — 다음 5초 주기 저장 전에 강제 종료되면
           // 방금 인정한 시간이 고아 정산 대상에서 통째로 빠진다.
-          const credit = Math.min(away, AWAY_CREDIT_CAP_S);
+          // 상한은 세션 누적 기준 — 복귀 1회당이면 왕복 횟수만큼 곱해진다(GROMO-1253)
+          const credit = Math.min(away, Math.max(0, AWAY_CREDIT_CAP_S - awayCreditedRef.current));
+          awayCreditedRef.current += credit;
           // 리플레이는 이탈 시점 스냅샷에서 시작 — 서스펜드 전에 더 돈 tick으로 sessionRef가
           // 앞서 있어도 경계 시각(leftAt + i초)과 어긋나지 않는다. 그 tick 전진분은 아래
           // setSession(cur)이 덮어써 이중 계상 없음(settledSecondsRef 단조 가드도 동일 방어).
