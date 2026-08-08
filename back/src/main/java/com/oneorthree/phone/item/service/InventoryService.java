@@ -30,8 +30,10 @@ public class InventoryService {
      * todo 조회 성능 개선
      */
     public List<UserItemResponse> getInventory(UUID userId) {
-        User user = userRepository.findById(userId)
-                        .orElseThrow(() -> new EntityNotFoundException("유저를 찾을 수 없습니다."));
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        // 예외도 변경 경로와 동일하게 UserException(NOT_FOUND, 404)으로 통일.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                        .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return userItemRepository.findByUser(user)
                 .stream()

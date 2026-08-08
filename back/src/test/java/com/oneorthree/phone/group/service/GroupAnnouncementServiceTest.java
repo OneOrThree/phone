@@ -194,7 +194,7 @@ class GroupAnnouncementServiceTest {
         // given: 멤버 + 공지 2개(최신순)
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(member(user, group, GroupMemberRole.MEMBER)));
@@ -227,7 +227,7 @@ class GroupAnnouncementServiceTest {
     @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
     void getAnnouncementsGuestForbidden() {
         // given: 게스트 유저
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(true)));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user(true)));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -242,7 +242,7 @@ class GroupAnnouncementServiceTest {
         // given: 그룹은 있으나 멤버가 아님
         User user = user(false);
         Group group = group();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 

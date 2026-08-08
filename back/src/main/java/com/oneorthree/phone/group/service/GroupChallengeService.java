@@ -91,7 +91,8 @@ public class GroupChallengeService {
      *             null 이면 진행률을 계산하지 않는다(기존 클라이언트 호환).
      */
     public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         if (user.isGuest()) {

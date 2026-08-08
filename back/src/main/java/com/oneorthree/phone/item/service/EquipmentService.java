@@ -34,12 +34,13 @@ public class EquipmentService {
     private final UserItemRepository userItemRepository;
     private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
-    private String notFoundUser = "유저를 찾을 수 없습니다.";
 
     // 유저 캐릭터 전체 장착 상태 조회
     public List<CharacterEquipmentResponse> getEquipment(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException(notFoundUser));
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        // 예외도 변경 경로와 동일하게 UserException(NOT_FOUND, 404)으로 통일.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         return characterEquipmentRepository.findByUser(user)
                 .stream()
                 .map(CharacterEquipmentResponse::from)

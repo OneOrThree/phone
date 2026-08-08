@@ -1230,7 +1230,7 @@ class GroupServiceTest {
                 .id(ANNOUNCEMENT_ID).group(group).title("공지1").content("내용1")
                 .createdAt(Instant.now()).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupAnnouncementRepository.findByGroupOrderByCreatedAtDesc(group)).willReturn(List.of(ann));
@@ -1251,7 +1251,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -1264,7 +1264,7 @@ class GroupServiceTest {
     @DisplayName("게스트 → GUEST_FORBIDDEN")
     void getAnnouncementsGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
@@ -1275,7 +1275,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
     void getAnnouncementsGroupNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
@@ -1297,7 +1297,7 @@ class GroupServiceTest {
                 .category(MissionCategory.FOCUS).status(GroupChallengeStatus.ACTIVE)
                 .createdAt(Instant.now()).build();
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(member));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
@@ -1324,7 +1324,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = groupWithCode(GROUP_ID, "CODE1234", Instant.now().plus(1, ChronoUnit.HOURS));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -1337,7 +1337,7 @@ class GroupServiceTest {
     @DisplayName("게스트 → GUEST_FORBIDDEN")
     void getChallengesGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(User.builder().isGuest(true).build()));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
@@ -1348,7 +1348,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → NOT_FOUND")
     void getChallengesGroupNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then

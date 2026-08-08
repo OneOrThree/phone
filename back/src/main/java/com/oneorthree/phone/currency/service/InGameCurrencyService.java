@@ -40,7 +40,8 @@ public class InGameCurrencyService {
     @todo 페이지네이션 필요함 나중에
      */
     public List<TransactionsResponse> getCurrencyTransactions(UUID userId) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         return currencyTransactionRepository.findByUserOrderByCreatedAtDesc(user)

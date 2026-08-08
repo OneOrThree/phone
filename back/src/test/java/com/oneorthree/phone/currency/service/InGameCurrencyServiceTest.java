@@ -82,7 +82,7 @@ class InGameCurrencyServiceTest {
     @DisplayName("거래내역 조회 성공 → 최신순 TransactionsResponse 매핑")
     void getCurrencyTransactionsSuccess() {
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
 
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         Instant earlier = Instant.parse("2025-12-31T00:00:00Z");
@@ -108,7 +108,7 @@ class InGameCurrencyServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getCurrencyTransactionsUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> inGameCurrencyService.getCurrencyTransactions(USER_ID))
                 .isInstanceOf(UserException.class)

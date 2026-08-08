@@ -161,7 +161,7 @@ class GroupChallengeServiceTest {
         // given: 멤버 + FOCUS(DURATION) / SCREEN_TIME(TIME_WINDOW) 챌린지 혼합
         User user = member(); // screenTimePermissionGranted = false
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
@@ -227,7 +227,7 @@ class GroupChallengeServiceTest {
     @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
     void getChallengesGuestForbidden() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(guest()));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(guest()));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
@@ -242,7 +242,7 @@ class GroupChallengeServiceTest {
         // given: 유저·그룹은 존재하지만 멤버십 없음
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
 
@@ -262,7 +262,7 @@ class GroupChallengeServiceTest {
                 groupMemberOf(user, group, GroupMemberRole.OWNER),
                 groupMemberOf(other, group, GroupMemberRole.MEMBER));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
@@ -337,7 +337,7 @@ class GroupChallengeServiceTest {
                 groupMemberOf(user, group, GroupMemberRole.OWNER),
                 groupMemberOf(ghost, group, GroupMemberRole.MEMBER));
 
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
         given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
@@ -812,7 +812,7 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
@@ -836,7 +836,7 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));

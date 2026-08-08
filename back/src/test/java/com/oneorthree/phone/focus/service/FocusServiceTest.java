@@ -149,7 +149,7 @@ class FocusServiceTest {
         UUID tagId2 = UUID.fromString("00000000-0000-0000-0000-0000000000a2");
         UserFocusTag tag1 = userFocusTag(TAG_ID, user, "공부");
         UserFocusTag tag2 = userFocusTag(tagId2, user, "운동");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByUserAndDeletedAtIsNull(user)).willReturn(List.of(tag1, tag2));
 
         // when
@@ -165,7 +165,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getFocusTagsUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> focusService.getFocusTags(USER_ID))
@@ -202,7 +202,7 @@ class FocusServiceTest {
     void getDefaultTagsFallbackToUserOccupation() {
         // given: 파라미터 null → 유저의 저장 occupation(LABOR_ATTORNEY) 사용
         User user = User.builder().id(USER_ID).occupation(Occupation.LABOR_ATTORNEY).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(occupationDefaultTagRepository.findByOccupationOrderBySortOrderAsc(Occupation.LABOR_ATTORNEY))
                 .willReturn(List.of(
                         OccupationDefaultTag.builder().occupation(Occupation.LABOR_ATTORNEY)
@@ -221,7 +221,7 @@ class FocusServiceTest {
     void getDefaultTagsOccupationRequired() {
         // given: 파라미터 null + 유저 occupation 미설정(온보딩 미완료)
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
 
         // when & then
         assertThatThrownBy(() -> focusService.getDefaultTags(USER_ID, null))
@@ -233,7 +233,7 @@ class FocusServiceTest {
     @Test
     @DisplayName("기본 태그 조회(미지정) — 유저 없음 → UserException(NOT_FOUND)")
     void getDefaultTagsUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> focusService.getDefaultTags(USER_ID, null))
                 .isInstanceOf(UserException.class)
@@ -529,7 +529,7 @@ class FocusServiceTest {
                 .user(user).focusTag(null)
                 .startedAt(START).endedAt(END)
                 .totalDistractionSeconds(0).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         // 첫 페이지(cursor=null) — id DESC 정렬 결과 2건, 다음 페이지 있음
         given(focusSessionRepository.findSessionsByCursor(
                 eq(user), any(Instant.class), any(Instant.class), isNull(), any(Pageable.class)))
@@ -553,7 +553,7 @@ class FocusServiceTest {
         FocusSession only = FocusSession.builder()
                 .id(LAST_ID).user(user)
                 .startedAt(START).endedAt(END).build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findSessionsByCursor(
                 eq(user), any(Instant.class), any(Instant.class), isNull(), any(Pageable.class)))
                 .willReturn(new SliceImpl<>(List.of(only), PageRequest.of(0, 20), false));
@@ -569,7 +569,7 @@ class FocusServiceTest {
     void getFocusSessionsPassesCursor() {
         User user = User.builder().id(USER_ID).build();
         UUID cursor = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findSessionsByCursor(
                 eq(user), any(Instant.class), any(Instant.class), eq(cursor), any(Pageable.class)))
                 .willReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
@@ -607,7 +607,7 @@ class FocusServiceTest {
     @Test
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void getFocusSessionsUserNotFound() {
-        given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> focusService.getFocusSessions(USER_ID, FROM, TO, null, 20))
                 .isInstanceOf(UserException.class)

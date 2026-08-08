@@ -93,7 +93,8 @@ public class FocusService {
     private final CurrencyLedgerService currencyLedgerService;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         // GROMO-673: 유저가 채택한 태그(user_focus_tags) 목록. id 는 user_focus_tags.id, 이름은 defaultTag.name.
@@ -113,7 +114,8 @@ public class FocusService {
     public OccupationDefaultTagsResponse getDefaultTags(UUID userId, Occupation occupation) {
         Occupation resolved = occupation;
         if (resolved == null) {
-            User user = userRepository.findById(userId)
+            // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+            User user = userRepository.findByIdAndIsDeletedFalse(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
             resolved = user.getOccupation();
             if (resolved == null) {
@@ -229,7 +231,8 @@ public class FocusService {
             throw new FocusException(FocusErrorCode.INVALID_PAGE_REQUEST);
         }
 
-        User user = userRepository.findById(userId)
+        // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         Slice<FocusSession> slice = focusSessionRepository

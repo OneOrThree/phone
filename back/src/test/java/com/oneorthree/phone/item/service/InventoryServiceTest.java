@@ -7,8 +7,9 @@ import com.oneorthree.phone.item.service.InventoryService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.item.repository.ItemRepository;
 import com.oneorthree.phone.item.repository.UserItemRepository;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
-import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -52,7 +53,7 @@ public class InventoryServiceTest {
     void getInventorySuccess() {
         // given
         User user = User.builder().nickname("테스터").build();
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(userItemRepository.findByUser(user)).willReturn(List.of());
 
         // when
@@ -64,15 +65,16 @@ public class InventoryServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 유저 인벤토리 조회 시 예외")
+    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 인벤토리 조회 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
     void getInventoryFailUserNotFound() {
         // given
-        given(userRepository.findById(USER_ID_99)).willReturn(Optional.empty());
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID_99)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> inventoryService.getInventory(USER_ID_99))
-                .isInstanceOf(EntityNotFoundException.class)
-                .hasMessage("유저를 찾을 수 없습니다.");
+                .isInstanceOf(UserException.class)
+                .extracting(e -> ((UserException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
     @Test
