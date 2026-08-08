@@ -783,7 +783,10 @@ export default function FocusSessionScreen() {
 
       // 복귀 — 자리 비운 시간 계산 (leftAtMs는 리플레이 경계 시각 복원용으로 보관)
       const leftAtMs = leftAtRef.current;
-      const away = Math.round((Date.now() - leftAtMs) / 1000);
+      // 하한 0 — 백그라운드 중 기기 시계가 뒤로 가면(수동 변경·NTP 보정) 음수가 된다. 그대로 두면
+      // 실드 크레딧 잔량이 되레 늘고(코드리뷰), 카운트다운은 `display - away`로 남은 시간이 늘어난다.
+      // 소비처가 넷이라 계산 지점에서 한 번에 막는다.
+      const away = Math.max(0, Math.round((Date.now() - leftAtMs) / 1000));
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
       // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)

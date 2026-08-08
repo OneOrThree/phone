@@ -27,7 +27,9 @@ const FocusContext = createContext<FocusContextValue | null>(null);
 // 하루 총 집중시간의 물리적 상한(GROMO-1253). 적립 경로가 늘어도 여기서 한 번에 막는다 —
 // 하루 24시간을 넘는 값은 어떤 경로로 들어와도 버그다. 저장분 로드에도 적용해
 // 이미 부푼 기기 값이 다음 자정까지 남지 않게 한다.
-const DAY_SECONDS = 24 * 3600;
+// SubjectContext 도 같은 상한을 쓴다 — 총합만 막으면 과목별 누적이 부푼 채 남아
+// 도넛이 어긋나고, 그 과목을 지울 때 총합에서 24시간 넘는 값을 빼 0으로 떨어진다(코드리뷰).
+export const DAY_SECONDS = 24 * 3600;
 
 interface SavedFocus {
   todayFocusSeconds?: number;

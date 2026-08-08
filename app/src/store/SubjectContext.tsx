@@ -15,6 +15,7 @@ import { todayStr } from '@/utils/localDate';
 import { subscribeDayChange } from '@/utils/dayChange';
 import { syncTagCreated, syncTagRenamed, syncTagDeleted } from '@/screens/focus/tagSync';
 import { fetchTodayFocusRestore, sessionFocusSeconds } from '@/screens/focus/focusRestore';
+import { DAY_SECONDS } from '@/store/FocusContext';
 import type { Subject } from '@/screens/focus/types';
 
 // 과목 목록 + 과목별 '오늘' 집중시간을 로컬에 저장·관리하는 store.
@@ -103,7 +104,8 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
               color: x.color ?? PALETTE[i % PALETTE.length],
               // 날짜가 바뀌었거나(자정 지남) 구버전(날짜 없음)이면 오늘 집중시간만 0으로 리셋.
               // 과목 목록·이름·색·순서는 유지.
-              accumulatedSeconds: sameDay ? x.accumulatedSeconds : 0,
+              // 하루 상한 클램프(GROMO-1253 코드리뷰) — 34시간이 찍힌 기기의 과목별 값도 함께 정리한다.
+              accumulatedSeconds: sameDay ? Math.min(DAY_SECONDS, x.accumulatedSeconds) : 0,
             };
           }),
         );
@@ -215,7 +217,9 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     rolloverIfNeeded();
     setSubjects((prev) =>
       prev.map((x) =>
-        x.id === id ? { ...x, accumulatedSeconds: x.accumulatedSeconds + seconds } : x,
+        x.id === id
+          ? { ...x, accumulatedSeconds: Math.min(DAY_SECONDS, x.accumulatedSeconds + seconds) }
+          : x,
       ),
     );
   }
