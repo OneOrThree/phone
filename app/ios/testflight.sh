@@ -28,22 +28,44 @@ command -v node >/dev/null 2>&1 || export PATH="/opt/homebrew/Cellar/node@24/24.
 # .env/.env.production 보다 우선 적용됨. 특정 서버로 강제하려면 TESTFLIGHT_API_URL 로 오버라이드:
 #   TESTFLIGHT_API_URL=https://api.oneorthree.world ./testflight.sh          (beta 를 prod 로)
 #   TESTFLIGHT_API_URL=https://oneorthree.dev.mooo.com ./testflight.sh release (release 를 dev 로)
+#   TESTFLIGHT_ENV=prod ./testflight.sh   (서버 주소와 무관하게 환경 축을 직접 지정)
+PROD_API_URL="https://api.oneorthree.world"
+DEV_API_URL="https://oneorthree.dev.mooo.com"
 if [[ "$LANE" == "release" ]]; then
-  DEFAULT_API_URL="https://api.oneorthree.world"
+  DEFAULT_API_URL="$PROD_API_URL"
 else
-  DEFAULT_API_URL="https://oneorthree.dev.mooo.com"
+  DEFAULT_API_URL="$DEV_API_URL"
 fi
 export EXPO_PUBLIC_API_URL="${TESTFLIGHT_API_URL:-$DEFAULT_API_URL}"
 echo "🌐 API 서버: $EXPO_PUBLIC_API_URL"
 
-# 환경 태그(EXPO_PUBLIC_ENV)도 API 대상에 맞춰 강제 — 로컬 .env의 dev 값이 릴리즈 번들에
-# 인라인되면 Sentry·GA4·Datadog 태그가 전부 dev로 오염된다(코덱스 리뷰). prod 서버=prod, 그 외=dev.
-if [[ "$EXPO_PUBLIC_API_URL" == "https://api.oneorthree.world" ]]; then
-  export EXPO_PUBLIC_ENV="prod"
+# 환경 축 결정 — 이 한 값이 관측 태그(EXPO_PUBLIC_ENV)와 Firebase plist(APP_ENV)를 동시에 정한다.
+# 우선순위: TESTFLIGHT_ENV 명시 > API URL 매칭 > dev(로컬 백엔드 등 그 외 전부).
+# URL 매칭은 표기 차이(대소문자·끝 슬래시)를 정규화한 뒤 비교한다 — 정확 일치로 보면
+# "https://api.oneorthree.world/" 같은 동등 표기가 dev 로 분류돼, prod 서버에 붙은 채 dev 파베로
+# 빌드되어 푸시가 다시 SENDER_ID_MISMATCH 로 죽는다(코덱스 리뷰).
+canon_url() { printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | sed -E 's#/+$##'; }
+if [[ -n "${TESTFLIGHT_ENV:-}" ]]; then
+  TARGET_ENV="$TESTFLIGHT_ENV"
+elif [[ "$(canon_url "$EXPO_PUBLIC_API_URL")" == "$(canon_url "$PROD_API_URL")" ]]; then
+  TARGET_ENV="prod"
 else
-  export EXPO_PUBLIC_ENV="dev"
+  TARGET_ENV="dev"
 fi
+if [[ "$TARGET_ENV" != "dev" && "$TARGET_ENV" != "prod" ]]; then
+  echo "❌ TESTFLIGHT_ENV 는 dev 또는 prod 만 가능합니다 (현재: $TARGET_ENV)" >&2
+  exit 1
+fi
+
+# 관측 태그 — 로컬 .env의 dev 값이 릴리즈 번들에 인라인되면 Sentry·GA4·Datadog 태그가 오염된다(코덱스 리뷰).
+export EXPO_PUBLIC_ENV="$TARGET_ENV"
 echo "🏷️  ENV 태그: $EXPO_PUBLIC_ENV"
+
+# Firebase(GoogleService-Info.plist) 선택 축 — Xcode 빌드 페이즈가 APP_ENV 를 읽어 plist 를 주입한다
+# (안드로이드 build.gradle 과 동일 기준). 이 export 가 빠지면 서버와 파베가 갈라져 푸시가
+# SENDER_ID_MISMATCH 로 죽는다(GROMO-1234).
+export APP_ENV="$TARGET_ENV"
+echo "🔥 Firebase 프로젝트: $APP_ENV"
 
 # Datadog RUM 키(GROMO-928) — 전송 주소 성격이라 비밀값 아님. dev/prod 는 RUM env 태그로 구분되므로
 # 단일 RUM 앱(gromo-app) 값을 로컬 .env 상태와 무관하게 항상 빌드에 인라인한다.
