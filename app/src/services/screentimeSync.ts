@@ -511,12 +511,15 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
 // N1 타임라인(getUsageBucketEvents)의 bucket은 원시 threshold 눈금이 아니라 '베이스+눈금'
 // **하루 누적 환산분**(단조 증가)이다 — 분 단위 값을 그대로 쓰고 ×15 같은 변환은 금지(N1 계약).
 // 임의 시각 T의 누적 사용분 f(T) = T 이하 마지막 발화의 bucket(창 시작 이전 발화 없으면 0).
-// 창 사용분 = f(창 끝) − f(창 시작). 자정 걸침 창(start > end)은 날짜 키가 갈리므로
-// [시작~자정]을 시작일 키로, [자정~끝]을 다음날 키로 나눠 합산한다(다음날 키는 0부터 다시 시작).
+// 타임라인의 날짜 키·하루 누적 리셋은 **기기 로컬** 자정 기준이다(익스텐션 gregorianDayString —
+// 계약 §1 변경 금지 축). 그래서 창 사용분은 창 [S, E']를 로컬-일 세그먼트로 쪼개
+// Σ(f(to)−f(from))로 합산한다 — 로컬 자정마다 누적이 0부터 다시 시작하므로 세그먼트별 차분의
+// 합이 곧 창 전체 사용분이다(GROMO-1242).
 //
-// 창(windowStart/End "HH:mm:ss")은 '매일 반복 시간대'다(계약 ⚠️ 설계 보정 — KST 앵커). 앱은
-// 기기 로컬 벽시계로 날짜 D의 창을 조합한다 — 서버 판정 기준(KST)과 같으려면 기기가 KST여야
-// 하며, 타 시간대 기기는 ±오프셋 오차를 수용한다(클라 신뢰 데이터라는 한계 안에 포함).
+// 축 분리(GROMO-1219 → GROMO-1242): 창(windowStart/End "HH:mm:ss")은 '매일 반복 시간대'고
+// 서버 판정 축은 KST다 — 창 경계 epoch·보고 date는 KST 앵커로 만들고, 네이티브 조회 dayKey·
+// 세그먼트 경계(자정)만 로컬 축을 탄다. 비KST 기기에서도 조회 키가 적재 키와 일치해
+// #521 잔차였던 키 불일치 과소 측정이 해소된다.
 
 // T(epoch초) 시점의 하루 누적 사용분 — T 이하 마지막 발화의 bucket, 발화 없으면 0.
 // bucket이 단조 증가라 '마지막 발화'의 값이 곧 최댓값이지만, 기록 순서가 어긋나도 안전하게 최대로 잡는다.
@@ -533,25 +536,47 @@ function segmentMinutes(events: UsageBucketEvent[], fromSec: number, toSec: numb
   return Math.max(0, cumulativeMinutesAt(events, toSec) - cumulativeMinutesAt(events, fromSec));
 }
 
-// 창 사용분 계산(순수 함수 — 단위 테스트 대상). endAtSec에는 창 종료와 '지금' 중 이른 쪽을
-// 넘긴다(창 진행 중 중간 보고). 자정 걸침 창이면 midnightSec(다음날 0시)·nextDayEvents를 준다.
-export function computeWindowUsedMinutes(p: {
-  startDayEvents: UsageBucketEvent[]; // 창 시작 날짜 키의 타임라인
-  startAtSec: number;
-  endAtSec: number;
-  midnightSec?: number; // 자정 걸침 창의 경계(다음날 0시 epoch초)
-  nextDayEvents?: UsageBucketEvent[]; // 자정 걸침 창의 다음날 키 타임라인
-}): number {
-  if (p.midnightSec != null) {
-    // 아직 자정 전이면 다음날 구간은 0 — 첫째 날 구간만 [시작, min(끝, 자정)]로 계산한다.
-    const firstEnd = Math.min(p.endAtSec, p.midnightSec);
-    const nextPart =
-      p.endAtSec > p.midnightSec
-        ? segmentMinutes(p.nextDayEvents ?? [], p.midnightSec, p.endAtSec)
-        : 0;
-    return segmentMinutes(p.startDayEvents, p.startAtSec, firstEnd) + nextPart;
+// [startSec, endSec] 구간을 **기기 로컬** 날짜 경계(자정)로 쪼갠 세그먼트 목록(GROMO-1242).
+// 네이티브 타임라인은 익스텐션이 기기 로컬 날짜로 적재·리셋하므로(gregorianDayString — 계약 §1
+// 변경 금지 축) 조회 dayKey와 구간 경계는 반드시 이 로컬 축을 타야 한다.
+//  · dayKey는 localDateStr 경유 — 익스텐션 gregorianDayString과 같은 결과(DST 포함)를 낸다.
+//    (todayStr/yesterdayStr 금지 — 로컬 축 주입점을 localDateStr 하나로 통일한다.)
+//  · 다음 로컬 자정은 dayKey를 파싱해 setDate 산법(new Date(y, m-1, d+1))으로 재물질화한다 —
+//    epoch에 +86_400_000 가산은 DST 날(23/25h)에 경계가 어긋나므로 금지. 로컬 생성자는 자정이
+//    존재하지 않는 TZ(DST 점프)도 유효 instant로 정규화한다.
+//  · 종료 판정은 epoch 비교(boundary >= endSec) — 일수 카운트 없음. <24h 창은 최대 2세그먼트.
+export function localDaySegments(
+  startSec: number,
+  endSec: number,
+): { dayKey: string; fromSec: number; toSec: number }[] {
+  const segments: { dayKey: string; fromSec: number; toSec: number }[] = [];
+  let cursor = startSec;
+  while (cursor < endSec) {
+    const dayKey = localDateStr(new Date(cursor * 1000));
+    const [y, m, d] = dayKey.split('-').map(Number);
+    const boundarySec = Math.floor(new Date(y, m - 1, d + 1).getTime() / 1000);
+    if (boundarySec >= endSec || boundarySec <= cursor) {
+      // 마지막 세그먼트. boundary가 전진하지 않는 비정상(로컬 축 불일치)도 여기로 수렴시켜
+      // 무한 루프를 막는다 — 실기기에선 '다음 로컬 자정 > cursor'가 항상 성립한다.
+      segments.push({ dayKey, fromSec: cursor, toSec: endSec });
+      break;
+    }
+    segments.push({ dayKey, fromSec: cursor, toSec: boundarySec });
+    cursor = boundarySec;
   }
-  return segmentMinutes(p.startDayEvents, p.startAtSec, p.endAtSec);
+  return segments;
+}
+
+// 창 사용분 계산(순수 함수 — 단위 테스트 대상). localDaySegments가 쪼갠 세그먼트마다 해당
+// 로컬 dayKey의 타임라인을 붙여 넘기면, 세그먼트별 f(to) − f(from)을 합산한다. 로컬 자정마다
+// 누적이 0부터 다시 시작하므로 차분의 합이 곧 창 전체 사용분이다. 자정 정각 발화는 네이티브가
+// 다음날 키에 적재하고(그 시점 누적은 리셋 직후라 ≈0) f(from)의 기준값으로만 쓰여 무해하다.
+export function computeWindowUsedMinutes(p: {
+  segments: { events: UsageBucketEvent[]; fromSec: number; toSec: number }[];
+}): number {
+  let total = 0;
+  for (const seg of p.segments) total += segmentMinutes(seg.events, seg.fromSec, seg.toSec);
+  return total;
 }
 
 // 'YYYY-MM-DD' **KST 자정** epoch초 + 하루 중 초 오프셋 — 창 경계 시각의 epoch초를 만든다.
@@ -589,12 +614,15 @@ async function readWindowReportState(userId: string): Promise<WindowReportState>
   }
 }
 
-async function writeWindowReportState(state: WindowReportState, yesterday: string): Promise<void> {
+async function writeWindowReportState(
+  state: WindowReportState,
+  yesterdayKst: string, // prune 기준 — 보고 date와 같은 KST 축(계약 §5)
+): Promise<void> {
   // 어제보다 오래된 항목은 다시 볼 일이 없다(타임라인 2일 보존과 동일 창) — 정리해 크기를 묶는다.
   const pruned: WindowReportState = {
     userId: state.userId,
-    finals: state.finals.filter((key) => key.slice(key.lastIndexOf(':') + 1) >= yesterday),
-    last: Object.fromEntries(Object.entries(state.last).filter(([, v]) => v.date >= yesterday)),
+    finals: state.finals.filter((key) => key.slice(key.lastIndexOf(':') + 1) >= yesterdayKst),
+    last: Object.fromEntries(Object.entries(state.last).filter(([, v]) => v.date >= yesterdayKst)),
   };
   await AsyncStorage.setItem(STORAGE_KEYS.screentimeWindowReports, JSON.stringify(pruned));
 }
@@ -635,17 +663,23 @@ export async function syncWindowUsage(userId: string): Promise<void> {
   // 창 보고의 date 키는 서버 판정 축과 같은 KST다(GROMO-1219) — putWindowUsage의 date·finals
   // 마커·prune 기준까지 전부 이 축을 탄다. 일일 스크린타임 업로드(syncScreenTimeUsage)의
   // 로컬 축과는 별개다(그쪽은 reportedAt 정오 instant가 날짜 오귀속을 막는다 — 파일 상단 주석).
-  const today = todayStrKst();
-  const yesterday = yesterdayStrKst();
+  const todayKst = todayStrKst();
+  const yesterdayKst = yesterdayStrKst();
+  // 네이티브 보존 하한 = 로컬 어제(cleanupOldBucketEvents가 로컬 어제 미만 키를 삭제) — 로컬
+  // 축이므로 localDateStr로 직접 계산한다(세그먼트 dayKey와 같은 단일 주입점 유지, yesterdayStr
+  // 금지). setDate 산법 — +86_400_000 가산은 DST 날에 어긋난다.
+  const localYesterdayDate = new Date(now);
+  localYesterdayDate.setDate(localYesterdayDate.getDate() - 1);
+  const retentionFloorDayKey = localDateStr(localYesterdayDate);
   const state = await readWindowReportState(userId);
   let stateDirty = false;
 
   // 날짜 키별 타임라인은 1회만 읽는다. 조회 실패(null)는 빈 배열과 구분한다 — 실패를 0분으로
   // 보고하면 창 내기 오달성이 되므로, 그 챌린지는 이번 sync에서 건너뛰고 다음에 재시도한다.
-  // ⚠️ 타임라인의 dayKey·버킷 누적 리셋은 네이티브가 **기기 로컬** 날짜로 적재한다(익스텐션
-  //    appendBucketEvent — 계약 §1 변경 금지 축). KST 기기에선 같은 축이라 정확하고, 비KST
-  //    기기는 KST 키 조회가 로컬 적재 키와 어긋날 수 있다 — 측정 축 자체가 로컬인 네이티브
-  //    한계로 수용한다(보고 date·창 경계를 서버 KST 축에 맞춘 것이 GROMO-1219의 범위다).
+  // 타임라인 dayKey는 **기기 로컬** 축이다(익스텐션 appendBucketEvent — 계약 §1 변경 금지 축).
+  // KST 창을 localDaySegments로 로컬-일 세그먼트로 쪼개 각 세그먼트의 로컬 dayKey를 조회하므로
+  // 비KST 기기에서도 조회 키가 적재 키와 일치한다(#521 잔차였던 키 불일치 과소 측정 —
+  // GROMO-1242에서 로컬-일 세그먼트 병합으로 해소).
   const eventsCache = new Map<string, UsageBucketEvent[] | null>();
   const getEvents = async (dayKey: string): Promise<UsageBucketEvent[] | null> => {
     if (eventsCache.has(dayKey)) return eventsCache.get(dayKey) ?? null;
@@ -672,56 +706,65 @@ export async function syncWindowUsage(userId: string): Promise<void> {
 
       // 어제 창(놓친 최종 보고 — 타임라인 2일 보존 안이라 복구 가능) → 오늘 창 순서로 처리.
       // 그제 이전 창은 타임라인이 지워져 복구 불가 — 미보고=미달성 수용(계약 명시 한계).
-      for (const date of [yesterday, today]) {
-        const windowStartSec = epochSecAt(date, startSec);
+      for (const kstDate of [yesterdayKst, todayKst]) {
+        // ── KST 축: 창 경계 epoch·보고 date·finals 마커 전부 서버 판정 축(GROMO-1219 유지).
+        const windowStartSec = epochSecAt(kstDate, startSec);
         const windowEndSec = crossing
-          ? epochSecAt(nextDateStr(date), endSec)
-          : epochSecAt(date, endSec);
+          ? epochSecAt(nextDateStr(kstDate), endSec)
+          : epochSecAt(kstDate, endSec);
         if (nowSec < windowStartSec) continue; // 창 시작 전 — 보고할 것 없음
         const isFinal = nowSec >= windowEndSec;
-        const finalKey = `${c.id}:${date}`;
+        const finalKey = `${c.id}:${kstDate}`;
         if (isFinal && state.finals.includes(finalKey)) continue; // 최종 보고 완료 — 1회만
 
-        const startDayEvents = await getEvents(date);
-        if (startDayEvents == null) continue; // 타임라인 조회 실패 — 다음 sync에서 재시도
-        let midnightSec: number | undefined;
-        let nextDayEvents: UsageBucketEvent[] | undefined;
-        if (crossing) {
-          midnightSec = epochSecAt(nextDateStr(date), 0);
-          if (nowSec > midnightSec) {
-            const next = await getEvents(nextDateStr(date));
-            if (next == null) continue;
-            nextDayEvents = next;
+        // ── 로컬 축(조회 전용): KST 창 [S, E']를 로컬-일 세그먼트로 쪼개 각 로컬 dayKey의
+        // 타임라인에서 구간분을 합산한다(GROMO-1242 — 파일 상단 주석의 축 분리).
+        const measureEndSec = Math.min(nowSec, windowEndSec);
+        const segments = localDaySegments(windowStartSec, measureEndSec);
+
+        // 보존 게이트 — 필요한 로컬 dayKey가 하나라도 보존 하한(로컬 어제) 미만이면 그
+        // (챌린지, 날짜) 전체를 건너뛴다. 지워진 키는 빈 배열로 돌아와 0분으로 잡히므로,
+        // 부분합을 보고하면 과소 보고(=SCREEN_TIME 창 내기 허위 달성)가 재생산된다.
+        // 전체 미보고는 '미보고=미달성 수용' 정책(위 주석·계약 명시 한계)과 정합이다.
+        if (segments.some((seg) => seg.dayKey < retentionFloorDayKey)) continue;
+
+        // 어느 세그먼트든 조회 실패(null)면 그 (챌린지, 날짜)를 통째로 건너뛴다 — 부분합 보고
+        // 금지(보존 게이트와 같은 이유). 다음 sync가 재시도한다.
+        const segmentsWithEvents: { events: UsageBucketEvent[]; fromSec: number; toSec: number }[] =
+          [];
+        let readFailed = false;
+        for (const seg of segments) {
+          const events = await getEvents(seg.dayKey);
+          if (events == null) {
+            readFailed = true;
+            break;
           }
+          segmentsWithEvents.push({ events, fromSec: seg.fromSec, toSec: seg.toSec });
         }
-        const used = computeWindowUsedMinutes({
-          startDayEvents,
-          startAtSec: windowStartSec,
-          endAtSec: Math.min(nowSec, windowEndSec),
-          midnightSec,
-          nextDayEvents,
-        });
+        if (readFailed) continue;
+
+        const used = computeWindowUsedMinutes({ segments: segmentsWithEvents });
         const usedMinutes = Math.min(1440, Math.max(0, used)); // 서버 검증 범위(0~1440) 클램프
         // 중간 보고는 값이 그대로면 스킵(15분 눈금이라 대부분 그대로다). 최종 보고는 값이 같아도
         // 1회 보낸다 — 서버의 '최종까지 보고된 창'과 '중간에 멈춘 창'이 같게 수렴하도록.
         if (
           !isFinal &&
-          state.last[c.id]?.date === date &&
+          state.last[c.id]?.date === kstDate &&
           state.last[c.id]?.minutes === usedMinutes
         ) {
           continue;
         }
         try {
-          await putWindowUsage(group.groupId, c.id, { date, usedMinutes, measuredAt });
+          await putWindowUsage(group.groupId, c.id, { date: kstDate, usedMinutes, measuredAt });
         } catch {
           continue; // 실패 무시 — upsert 멱등, 다음 sync가 최신값으로 재시도
         }
         logScreentimeWindowReported({ minutes: usedMinutes, is_final: isFinal });
         if (isFinal) state.finals.push(finalKey);
-        else state.last[c.id] = { date, minutes: usedMinutes };
+        else state.last[c.id] = { date: kstDate, minutes: usedMinutes };
         stateDirty = true;
       }
     }
   }
-  if (stateDirty) await writeWindowReportState(state, yesterday);
+  if (stateDirty) await writeWindowReportState(state, yesterdayKst);
 }
