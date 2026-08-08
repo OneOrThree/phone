@@ -25,6 +25,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -80,6 +81,35 @@ public class EquipmentServiceTest {
                 .paymentType(PriceType.CURRENCY)
                 .build();
         userItem = new UserItem(UUID.randomUUID(), user, item, ACQUIRED_AT, false);
+    }
+
+    @Test
+    @DisplayName("장착 상태 조회 성공 — 순수 읽기는 무락 활성 조회로 로드한다 (GROMO-1237 락 규율)")
+    void getEquipmentSuccess() {
+        // given
+        given(userRepo.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(characterEquipmentRepo.findByUser(user)).willReturn(List.of());
+
+        // when
+        List<CharacterEquipmentResponse> result = equipmentService.getEquipment(USER_ID);
+
+        // then
+        assertThat(result).isEmpty();
+        verify(userRepo).findByIdAndIsDeletedFalse(USER_ID);
+        verify(userRepo, never()).findById(USER_ID);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 장착 상태 조회 시 UserException NOT_FOUND (GROMO-1237 예외 통일)")
+    void getEquipmentFailUserNotFound() {
+        // given
+        given(userRepo.findByIdAndIsDeletedFalse(USER_ID_99)).willReturn(Optional.empty());
+
+        // when + then — EntityNotFoundException(핸들러 미등록 → 500) 대신 404 로 통일됐다.
+        assertThatThrownBy(() -> equipmentService.getEquipment(USER_ID_99))
+                .isInstanceOf(UserException.class)
+                .extracting(e -> ((UserException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.NOT_FOUND);
     }
 
     @Test
