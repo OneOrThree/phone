@@ -39,7 +39,9 @@
  *   <li>{@code GET /stats/streak} — UserStreak 조회.</li>
  *   <li>{@code GET /stats/today} — DailyFocusStat/DailyScreenTimeStat + 현재 목표로 재계산(사전집계).</li>
  *   <li>{@code GET /stats/focus} — DailyFocusStat 초합 → 분 환산(사전집계), 직전 구간 delta.</li>
- *   <li>{@code GET /stats/by-category} — FocusSession <b>실시간</b> 집계(endedAt country_code 존 윈도우, 태그별; GROMO-803).</li>
+ *   <li>{@code GET /stats/by-category} — FocusSession <b>실시간</b> 집계(country_code 존 윈도우, 태그별; GROMO-803).
+ *       <b>GROMO-1252</b>: 창과 <b>겹치는</b> 세션을 모두 골라 기여분을 창으로 클리핑해 더한다(종전엔 endedAt 이
+ *       창 안인 세션의 전체 길이를 더해, 자정을 걸친 세션에서 사전집계 총합과 과목별 합이 어긋났다).</li>
  *   <li>{@code GET /stats/screen-time} — DailyScreenTimeStat 합산(사전집계), 목표 달성 정보.</li>
  * </ul>
  *

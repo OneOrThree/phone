@@ -40,8 +40,10 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -1067,7 +1069,7 @@ class StatsServiceTest {
         );
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(sessions);
 
         // when
@@ -1100,7 +1102,7 @@ class StatsServiceTest {
         );
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(sessions);
 
         CategoryFocusStatsResponse response =
@@ -1131,7 +1133,7 @@ class StatsServiceTest {
         );
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(sessions);
 
         CategoryFocusStatsResponse response =
@@ -1151,7 +1153,7 @@ class StatsServiceTest {
     void getFocusStatsByCategoryEmptyPeriod() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(List.of());
 
         CategoryFocusStatsResponse response =
@@ -1172,7 +1174,7 @@ class StatsServiceTest {
         );
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(sessions);
 
         CategoryFocusStatsResponse response =
@@ -1199,7 +1201,7 @@ class StatsServiceTest {
         );
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(sessions);
 
         CategoryFocusStatsResponse response =
@@ -1211,20 +1213,73 @@ class StatsServiceTest {
         assertThat(response.items().get(2).totalFocusMinutes()).isEqualTo(20);  // tagA
     }
 
+    /**
+     * GROMO-1252(코드리뷰 P1): 자정을 걸친 세션은 창 겹침분만 계수해야 사전집계(DailyFocusStat 날짜별 분할)와
+     * 같은 화면에서 총합·과목별 합이 맞는다. 종전엔 endedAt 이 창 안이면 세션 전체 길이를 종료일에 몰아 넣었다.
+     */
+    @Test
+    @DisplayName("카테고리별 — 자정 걸친 세션은 창 겹침분만 계수(DailyFocusStat 날짜별 분할과 정합, GROMO-1252)")
+    void getFocusStatsByCategoryClipsMidnightSpanningSession() {
+        // KR 유저 DAY(2026-07-03) 창 = 07-02T15:00Z ~ 07-03T15:00Z (KST 자정).
+        // 세션: 07-02 23:00 KST(14:00Z) ~ 07-03 10:00 KST(01:00Z) = 총 11h.
+        // → 07-03 몫은 겹침분 10h 뿐(07-02 몫 1h 은 전날 집계). 종전 동작이면 11h 전부가 07-03 에 잡혔다.
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        List<FocusSession> sessions = List.of(session(
+                Instant.parse("2026-07-02T14:00:00Z"), Instant.parse("2026-07-03T01:00:00Z"), tagA));
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(10 * 60);
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(10 * 60);
+    }
+
+    /** GROMO-1252: 미래 endedAt 위조 세션은 창 상단이 now 로 클램프돼 실경과분만 잡힌다(사전집계와 동일 기준). */
+    @Test
+    @DisplayName("카테고리별 — 미래 endedAt 세션은 now 까지만 계수(오늘 창, GROMO-1252)")
+    void getFocusStatsByCategoryClampsFutureEndedAtToNow() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        Instant now = Instant.now();
+        LocalDate todayKst = now.atZone(kst).toLocalDate();
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        // 1시간 전에 시작해 5시간 뒤에 끝난다고 위조 → 인정될 몫은 (창 시작~now) 뿐. 클램프가 없으면 6시간(자정 클립).
+        Instant startedAt = now.minusSeconds(3600);
+        List<FocusSession> sessions = List.of(session(startedAt, now.plusSeconds(5 * 3600), tagA));
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, todayKst);
+
+        // 기대치 = max(오늘 자정, startedAt) ~ now (자정 직후 실행 시 창 하단이 이긴다). ±1분은 실행 지연 여유.
+        Instant dayStart = todayKst.atStartOfDay(kst).toInstant();
+        long expected = Duration.between(startedAt.isAfter(dayStart) ? startedAt : dayStart, now).getSeconds() / 60;
+        assertThat(response.totalFocusMinutes()).isBetween((int) expected, (int) expected + 1);
+    }
+
     @Test
     @DisplayName("카테고리별 DAY(countryCode=null) — endedAt 윈도우가 폴백 존(Asia/Seoul) 자정 기준 (GROMO-803/1252)")
     void getFocusStatsByCategoryDayBounds() {
         // countryCode 없는 유저 → 폴백 존(Asia/Seoul, GROMO-1252). KR 유저와 같은 윈도우가 나온다.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(List.of());
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
 
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
-        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
+        verify(focusSessionRepository).findCompletedSessionsOverlappingPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
 
         // GROMO-803: endedAt 존 윈도우 — 유저 존 미지정이라 Asia/Seoul 폴백. FIXED_TODAY=2026-07-03
         // → KST 자정 = 2026-07-02T15:00Z ~ 2026-07-03T15:00Z (UTC 폴백이었다면 00:00Z ~ 00:00Z).
@@ -1239,7 +1294,7 @@ class StatsServiceTest {
         // 일별 버킷(DailyFocusStat)이 KST 로컬 날짜가 됐으므로 by-category 윈도우도 같은 존으로 열려야 경계 세션이 정합.
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(krUser), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
                 .willReturn(List.of());
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
@@ -1247,7 +1302,7 @@ class StatsServiceTest {
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository)
-                .findCompletedSessionsInPeriod(eq(krUser), fromCaptor.capture(), toCaptor.capture());
+                .findCompletedSessionsOverlappingPeriod(eq(krUser), fromCaptor.capture(), toCaptor.capture());
 
         // KST 자정 경계 — UTC(00:00Z)가 아니라 전날 15:00Z ~ 당일 15:00Z
         assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-07-02T15:00:00Z"));
@@ -1260,13 +1315,13 @@ class StatsServiceTest {
         // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29. countryCode 없음 → Asia/Seoul 폴백.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(List.of());
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.WEEK, FIXED_TODAY);
 
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
-        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
+        verify(focusSessionRepository).findCompletedSessionsOverlappingPeriod(eq(user), fromCaptor.capture(), any());
 
         // 06-29 00:00 KST = 06-28T15:00Z
         assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-06-28T15:00:00Z"));
@@ -1278,13 +1333,13 @@ class StatsServiceTest {
         // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01. countryCode 없음 → Asia/Seoul 폴백.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
-        given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
                 .willReturn(List.of());
 
         statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.MONTH, FIXED_TODAY);
 
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
-        verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
+        verify(focusSessionRepository).findCompletedSessionsOverlappingPeriod(eq(user), fromCaptor.capture(), any());
 
         // 07-01 00:00 KST = 06-30T15:00Z
         assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-06-30T15:00:00Z"));

@@ -51,6 +51,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -564,6 +565,9 @@ public class FocusService {
      *       {@code sessionCount}·{@code totalDistractionSeconds}(타임스탬프가 없어 쪼갤 수 없다) → 시작일에만</li>
      * </ul>
      *
+     * <p><b>미래 endedAt 클램프</b>: 분할 전에 종료 시각을 서버 {@code now} 로 클램프한다(통계 귀속 전용 —
+     * 저장된 세션 행은 앱이 보낸 값 그대로). 상세는 아래 구현 주석 참조.
+     *
      * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
      *         그리고 이 세션이 유발한 목표 지급액 합
      */
@@ -583,7 +587,20 @@ public class FocusService {
         // ── DailyFocusStat upsert: statDate(country_code 존 로컬 날짜 버킷, GROMO-803) 기준 (user, date) 멱등 누적 ──
         // GROMO-1252: 자정을 걸친 세션은 날짜별 조각으로 나눠 각 날짜에 가산한다. 반드시 오름차순 순회 —
         // 스트릭은 lastSessionDate 보다 뒤인 날짜만 받아 오늘을 먼저 넣으면 어제 조각이 조용히 무시된다.
-        NavigableMap<LocalDate, Integer> secondsByDate = splitByLocalDay(startedAt, endedAt, zone);
+        //
+        // 미래 endedAt 위조 방어(코드리뷰 P1) — 클라가 보낸 endedAt 이 미래면 통계 귀속용으로만 서버 now 로 클램프한다.
+        // 클램프가 없으면 '지금 시작해 내일 끝나는' 위조 세션이 오늘 자정까지의 초를 오늘 조각에 채워
+        // 오늘 스트릭·집중목표 지급을 즉시 달성시킨다(creditFocusGoal 의 미래 날짜 가드는 조각의 statDate 가
+        // 오늘이라 걸리지 않는다). 지급 경로 sessionRewardCoins 는 이미 같은 클램프를 한다.
+        // ⚠️ 저장되는 세션 원본 행(endedAt)은 절대 건드리지 않는다 — POST 재업로드 중복 검사
+        //    (existsByUserAndStartedAtAndEndedAtAndStatus)가 '앱이 보낸 값 그대로 저장'을 전제하므로,
+        //    저장값을 바꾸면 재전송이 중복 검사를 빠져나가 이중 계상된다.
+        // 구간이 통째로 미래(startedAt > now)면 조각을 하나도 만들지 않는다(음수 초 방지).
+        Instant now = Instant.now();
+        Instant statEnd = endedAt.isAfter(now) ? now : endedAt;
+        NavigableMap<LocalDate, Integer> secondsByDate = statEnd.isBefore(startedAt)
+                ? Collections.emptyNavigableMap()
+                : splitByLocalDay(startedAt, statEnd, zone);
 
         // 집중 목표 달성 지급액 — 아래 false→true 전이에서만 채워진다(전이 없으면 0). 날짜별 멱등키라 조각마다 가능.
         int goalRewardCoins = 0;
