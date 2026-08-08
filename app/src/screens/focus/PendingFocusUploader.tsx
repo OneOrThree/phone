@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
 import { flushPendingFocusUploads } from './pendingFocusUploads';
+import { flushPendingMarkerCancels } from './pendingMarkerCancels';
 
 // 업로드 실패로 대기열에 남은 집중 세션 재전송(GROMO-614) — 앱 시작 1회 + 포그라운드 복귀마다.
 // (PendingGoalApplier와 같은 트리거. flush 내부에서 실패분은 대기열에 남아 다음 기회에 재시도.)
@@ -20,6 +21,9 @@ export function PendingFocusUploader() {
           if (committed) refreshCoins();
         })
         .catch(() => {});
+      // 취소 실패로 열린 채 남은 라이브 마커도 같은 시점에 닫는다(GROMO-1214 코드리뷰) — 화면(세션)은
+      // 이미 떠났으므로 여기 말고는 재시도할 곳이 없고, 방치하면 친구 화면에 12h(서버 스윕)까지 '집중 중'.
+      flushPendingMarkerCancels().catch(() => {});
     };
     flush();
     const sub = AppState.addEventListener('change', (state) => {

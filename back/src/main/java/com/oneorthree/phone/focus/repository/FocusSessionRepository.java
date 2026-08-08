@@ -14,6 +14,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID> {
@@ -48,6 +49,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 세션 행 기반 멱등키(focus:{id}:reward)가 재생성돼 이중 지급이 된다 — insert 전에 이걸로 걸러 스킵한다.
     boolean existsByUserAndStartedAtAndEndedAtAndStatus(User user, Instant startedAt, Instant endedAt,
                                                         FocusSessionStatus status);
+
+    // GROMO-1214 코드리뷰: 마커 id 기준 재업로드 멱등 판정 — 위 (startedAt, endedAt) 완전일치 검사는
+    // 기기 시계가 서버와 어긋난 클라를 못 잡는다. 마커 경로는 서버가 시각을 클램프해 저장하므로, PATCH 가
+    // 커밋된 뒤 응답만 유실돼 POST 로 폴백하면 저장값(클램프된 서버 시각)과 폴백 바디(기기 시각)가 달라
+    // dedup 을 빠져나가 통계·코인이 두 번 들어간다. 폴백 바디에 실린 마커 id 로 '이미 완료된 마커'를 먼저 거른다.
+    boolean existsByIdAndUserAndStatus(UUID id, User user, FocusSessionStatus status);
 
     // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
@@ -138,6 +145,13 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Query("UPDATE FocusSession s SET s.endedAt = :endedAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int endSessionIfActive(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
+
+    // GROMO-1214 코드리뷰: endSessionIfActive 가 실패(row=0)했을 때 409 의 원인을 가르기 위한 상태 재조회.
+    // 이미 로드한 엔티티(findById)는 UPDATE 이전 스냅샷이라, 그 사이 다른 트랜잭션이 CANCELED 로 바꿔도
+    // ACTIVE 로 보인다 — 그리고 findById 재호출은 1차 캐시가 흡수해 DB 를 다시 읽지 않는다.
+    // 엔티티가 아닌 스칼라(status) JPQL 은 캐시를 우회해 DB 값을 그대로 읽는다. 409 경로에서만 도는 추가 쿼리 1회.
+    @Query("SELECT s.status FROM FocusSession s WHERE s.id = :id")
+    Optional<FocusSessionStatus> findStatusById(@Param("id") UUID id);
 
     // 원자적 조건부 orphan 자동 종료(GROMO-804) — 아직 미종료(endedAt IS NULL)인 경우에만 AUTO_CLOSED 로 마감한다.
     // 반환값(영향 row 수)이 1이면 이 스윕이 종료를 성사시킨 것이고, 0이면 그 사이 유저 PATCH(endSessionIfActive)가

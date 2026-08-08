@@ -298,8 +298,17 @@ public class FocusService {
         // 지급·통계가 중복되므로, 같은 (user, 구간) 완료 세션이 있으면 저장·통계·지급 전부를 스킵하고
         // 현재 상태만 응답한다(재시도 클라는 성공 응답을 받아 대기열에서 제거). 유니크 제약이 없어 완전 동시
         // 요청 레이스는 남지만, 대기열 재시도는 순차 실행이라 실효 경로는 이걸로 닫힌다.
-        boolean duplicated = focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
-                user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
+        //
+        // GROMO-1214 코드리뷰(기기 시계 스큐): 구간 완전일치 검사만으로는 마커 폴백을 못 잡는다. 마커 경로는
+        // 서버가 시각을 클램프해 저장하므로, PATCH 가 커밋된 뒤 응답만 유실돼 앱이 POST 로 폴백하면 저장값
+        // (서버 시각)과 폴백 바디(기기 시각)가 어긋나 dedup 을 통과해 버린다. 폴백 바디가 실어 보낸 마커 id 로
+        // '이미 완료된 마커'를 먼저 거른다. 취소·자동마감 마커(SESSION_DISCARDED 폴백)는 COMPLETED 가 아니라
+        // 이 검사에 걸리지 않는다 — 통계 미반영분이라 그대로 새로 저장돼야 맞다.
+        boolean duplicated = (body.getSessionId() != null
+                && focusSessionRepository.existsByIdAndUserAndStatus(
+                        body.getSessionId(), user, FocusSessionStatus.COMPLETED))
+                || focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
+                        user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
         if (duplicated) {
             log.info("완료 세션 재업로드 스킵 — 동일 구간 세션 존재. userId={}, startedAt={}, endedAt={}",
                     userId, body.getStartedAt(), body.getEndedAt());
@@ -557,7 +566,19 @@ public class FocusService {
         // 영향 row=0(이미 종료됨)이면 409 로 recordCompletion 을 스킵한다. → 종료를 성사시킨 요청만 통계 1회 반영.
         int updated = focusSessionRepository.endSessionIfActive(body.sessionId(), endedAt);
         if (updated == 0) {
-            throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
+            // GROMO-1214 코드리뷰: 409 의 원인을 구분해 돌려준다. 앱은 PATCH 실패 후 POST 폴백 여부를 이걸로 가른다.
+            //   COMPLETED(또는 상태 미상) → SESSION_ALREADY_ENDED: 통계·지급이 이미 커밋됐다. 폴백하면 이중 지급.
+            //   CANCELED / AUTO_CLOSED  → SESSION_DISCARDED: 통계에 한 번도 반영되지 않은 마커다
+            //       (status NOT IN (CANCELED, AUTO_CLOSED) 집계 관례). 폴백하지 않으면 그 세션 시간이 영구 유실된다.
+            // 판정은 위에서 로드한 엔티티가 아니라 DB 재조회(findStatusById)로 한다 — 그 엔티티는 UPDATE 이전
+            // 스냅샷이라 동시 취소를 못 보고, 그러면 살릴 수 있는 세션을 ALREADY_ENDED 로 돌려보내 시간이 유실된다.
+            // 상태를 못 읽으면(행 소실 등) 이중 지급을 피하는 쪽인 ALREADY_ENDED 로 떨어진다.
+            boolean discarded = focusSessionRepository.findStatusById(body.sessionId())
+                    .filter(s -> s == FocusSessionStatus.CANCELED || s == FocusSessionStatus.AUTO_CLOSED)
+                    .isPresent();
+            throw new FocusException(discarded
+                    ? FocusErrorCode.SESSION_DISCARDED
+                    : FocusErrorCode.SESSION_ALREADY_ENDED);
         }
 
         UserFocusTag tag = session.getFocusTag();

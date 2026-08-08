@@ -153,7 +153,8 @@ public class FocusController {
             description = "진행 중(endedAt NULL) 세션에 종료 시각을 채워 완료 처리한다. endedAt 생략 시 서버 수신 시각. "
                     + "완료 시점에 통계·스트릭·세션 보상 코인(집중 1분당 1코인)이 귀속되고 응답에 지급액이 실린다. "
                     + "endedAt 이 서버 수신 시각 기준 [-5분, 0] 창을 벗어나면 서버 시각으로 대체한다(GROMO-1214). "
-                    + "이미 종료된 세션 재요청은 409.")
+                    + "이미 종료된 세션 재요청은 409 — 코드로 원인을 가른다: SESSION_ALREADY_ENDED(이미 완료, "
+                    + "통계·지급 커밋됨) / SESSION_DISCARDED(취소·자동마감, 통계 미반영이라 앱이 POST 로 폴백 가능).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "종료 성공"),
         @ApiResponse(responseCode = "400", description = "sessionId 누락·endedAt < startedAt"),

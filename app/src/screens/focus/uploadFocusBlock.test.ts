@@ -5,12 +5,14 @@
 //  1) 마커 id가 있으면 PATCH로 종료한다 — 마커를 취소로 버리지 않는다(취소 위임 미호출).
 //     버리면 '서버 발급 마커를 거쳐야만 지급'이라는 이 티켓의 목적 자체가 사라진다.
 //  2) 마커가 없으면(오프라인 시작 등) 종전 POST 경로 그대로 — 시간이 통째로 유실되면 안 된다.
-//  3) PATCH가 409(이미 종료/자동마감)면 **POST로 폴백하지 않는다**. 409에는 '이중 PATCH(이미
-//     지급됨)'와 '12h 자동마감'이 구분 불가로 섞여 있어, 폴백하면 전자에서 코인·통계가 두 번
-//     들어간다. 후자의 시간 손실은 서버가 이미 정책으로 확정한 것이라 이중 지급보다 낫다.
+//  3) PATCH 409의 **원인별 분기**(코드리뷰): SESSION_ALREADY_ENDED(이미 완료 = 통계·코인 커밋됨)면
+//     POST로 폴백하지 않는다(폴백하면 이중 지급). SESSION_DISCARDED(취소·자동마감 = 통계 미반영)면
+//     폴백해서 그 시간을 살린다(안 하면 세션이 영구 유실).
 //  4) 오프라인이면 대기열에 **POST 바디만** 들어가고, 재전송이 이중 계상을 만들지 않는다.
 //     (대기열에 PATCH를 넣으면 재전송 시점의 endedAt이 서버 클램프 창 밖이라 now로 올라가
 //      구간이 부풀려진다 — 그래서 큐는 POST 전용이다.)
+//  5) 마커가 있었던 블록의 POST 폴백 바디에는 **마커 id가 실린다** — 기기 시계 스큐로 서버가
+//     클램프해 저장한 구간과 앱 타임스탬프가 어긋나도 서버가 id로 이중 계상을 막을 수 있게.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveFocusSession, endFocusSession } from '@/services/focusApi';
 import { uploadFocusBlock } from './uploadFocusBlock';
@@ -30,13 +32,14 @@ const USER = 'u1';
 const NOW = new Date('2026-07-15T22:00:00+09:00');
 
 // axios 에러 모양만 흉내 — axios.isAxiosError는 isAxiosError===true 만 본다.
-function axiosError(status?: number): Error {
+// code는 서버 ErrorResponse.code(FocusErrorCode 이름) — 409의 원인을 가르는 값.
+function axiosError(status?: number, code?: string): Error {
   const e = new Error('요청 실패') as Error & {
     isAxiosError: boolean;
-    response?: { status: number };
+    response?: { status: number; data?: { code: string } };
   };
   e.isAxiosError = true;
-  if (status != null) e.response = { status };
+  if (status != null) e.response = { status, data: code != null ? { code } : undefined };
   return e;
 }
 
@@ -147,10 +150,10 @@ describe('마커가 없으면 종전 POST', () => {
 });
 
 describe('PATCH 실패 폴백', () => {
-  // 이 테스트가 잠그는 게 이 티켓에서 제일 중요하다 — 409에 POST 폴백을 (도로) 붙이면
-  // 이중 PATCH 케이스에서 세션 행이 새로 생겨 코인·통계가 두 번 들어간다.
-  test('409(이미 종료·자동마감)면 POST를 부르지 않고 성공으로 끝낸다', async () => {
-    mockEnd.mockRejectedValue(axiosError(409));
+  // 이 테스트가 잠그는 게 이 티켓에서 제일 중요하다 — 이미 완료된 마커의 409에 POST 폴백을
+  // (도로) 붙이면 이중 PATCH 케이스에서 세션 행이 새로 생겨 코인·통계가 두 번 들어간다.
+  test('409 SESSION_ALREADY_ENDED(이미 완료)면 POST를 부르지 않고 성공으로 끝낸다', async () => {
+    mockEnd.mockRejectedValue(axiosError(409, 'SESSION_ALREADY_ENDED'));
     mockSave.mockResolvedValue(saveRes);
     const onMarkerStillOpen = jest.fn();
 
@@ -167,8 +170,39 @@ describe('PATCH 실패 폴백', () => {
     expect(result).toEqual({ status: 'alreadyEnded' });
   });
 
-  test('409는 대기열에도 남기지 않는다 — 재시도할 게 없다', async () => {
+  test('코드 없는 409(구버전 서버)도 종전대로 성공 처리 — 폴백 금지', async () => {
     mockEnd.mockRejectedValue(axiosError(409));
+    mockSave.mockResolvedValue(saveRes);
+
+    const result = await uploadFocusBlock({ sessionId: 'marker-1', body: body(), userId: USER });
+
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: 'alreadyEnded' });
+  });
+
+  // 안드로이드 시스템 뒤로가기 → 언마운트 취소 → 4분 안에 재실행하면 고아 정산이 그 '취소된'
+  // 마커에 PATCH를 쏜다. 여기서 성공 처리하면 그 세션의 서버 통계·코인이 영구 유실된다.
+  test('409 SESSION_DISCARDED(취소·자동마감)면 POST로 폴백해 시간을 살린다', async () => {
+    mockEnd.mockRejectedValue(axiosError(409, 'SESSION_DISCARDED'));
+    mockSave.mockResolvedValue(saveRes);
+    const onMarkerStillOpen = jest.fn();
+
+    const result = await uploadFocusBlock({
+      sessionId: 'marker-1',
+      body: body(),
+      userId: USER,
+      onMarkerStillOpen,
+    });
+
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+    expect(mockSave).toHaveBeenCalledTimes(1); // ← 폴백 필수
+    // 마커는 이미 닫혀 있다 — 취소를 또 위임하면 안 된다
+    expect(onMarkerStillOpen).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: 'saved', response: saveRes });
+  });
+
+  test('409는 대기열에도 남기지 않는다 — 재시도할 게 없다', async () => {
+    mockEnd.mockRejectedValue(axiosError(409, 'SESSION_ALREADY_ENDED'));
 
     await uploadFocusBlock({ sessionId: 'marker-1', body: body(), userId: USER });
 
@@ -183,6 +217,31 @@ describe('PATCH 실패 폴백', () => {
 
     expect(mockSave).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ status: 'saved', response: saveRes });
+  });
+
+  // 기기 시계 스큐 방어 — 서버는 마커 구간을 자기 시각으로 클램프해 저장하므로, PATCH가 커밋된 뒤
+  // 응답만 유실돼 POST로 폴백하면 (startedAt, endedAt) 완전일치 중복 검사가 못 잡는다.
+  // 폴백 바디에 마커 id를 실어 서버가 '이미 완료된 마커'를 id로 거를 수 있게 한다.
+  test('마커가 있던 블록의 POST 폴백 바디에는 마커 id가 실린다(대기열 항목도 동일)', async () => {
+    mockEnd.mockRejectedValue(axiosError()); // 응답 유실(네트워크 실패)
+    mockSave.mockResolvedValue(saveRes);
+
+    await uploadFocusBlock({
+      sessionId: 'marker-1',
+      body: body(),
+      userId: USER,
+      onMarkerStillOpen: jest.fn(),
+    });
+
+    expect(mockSave).toHaveBeenCalledWith({ ...body(), sessionId: 'marker-1' }, USER);
+  });
+
+  test('마커가 없던 블록의 POST 바디에는 sessionId가 붙지 않는다', async () => {
+    mockSave.mockResolvedValue(saveRes);
+
+    await uploadFocusBlock({ sessionId: null, body: body(), userId: USER });
+
+    expect(mockSave).toHaveBeenCalledWith(body(), USER);
   });
 
   test('네트워크 실패면 마커가 열린 채일 수 있어 취소를 위임하고 POST로 폴백한다', async () => {
@@ -216,7 +275,9 @@ describe('오프라인 — 대기열 인계와 재전송', () => {
 
     expect(result).toEqual({ status: 'queued' });
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusPendingUploads);
-    expect(JSON.parse(raw ?? '[]')).toEqual([{ userId: USER, body: body() }]);
+    expect(JSON.parse(raw ?? '[]')).toEqual([
+      { userId: USER, body: { ...body(), sessionId: 'marker-1' } },
+    ]);
   });
 
   test('재전송은 POST 1회만 나가고 큐가 비워져 다음 flush가 이중 계상하지 않는다', async () => {
@@ -231,7 +292,7 @@ describe('오프라인 — 대기열 인계와 재전송', () => {
 
     expect(mockEnd).not.toHaveBeenCalledTimes(2); // 큐는 PATCH를 재시도하지 않는다
     expect(mockSave).toHaveBeenCalledTimes(1);
-    expect(mockSave).toHaveBeenCalledWith(body(), USER);
+    expect(mockSave).toHaveBeenCalledWith({ ...body(), sessionId: 'marker-1' }, USER);
     expect(await AsyncStorage.getItem(STORAGE_KEYS.focusPendingUploads)).toBeNull();
 
     // 두 번째 flush — 보낼 게 없어야 한다(재전송 이중 계상 방지)

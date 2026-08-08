@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -213,7 +214,7 @@ class FocusControllerTest {
                 .willReturn(new FocusSessionEndResponse(sessionId,
                         Instant.parse("2026-07-12T14:50:00Z"),
                         Instant.parse("2026-07-12T15:15:00Z"),
-                        1500L, 0, 300, false));
+                        1500L, 0, 300, false, 0, 0, 0));
 
         String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-07-12T15:15:00Z\","
                 + "\"totalDistractionSeconds\":0,\"focusSecondsByDate\":{\"2026-07-13\":300}}";
@@ -228,6 +229,41 @@ class FocusControllerTest {
         verify(focusService).endFocusSession(any(), captor.capture());
         assertThat(captor.getValue().focusSecondsByDate())
                 .containsExactlyInAnyOrderEntriesOf(Map.of(LocalDate.of(2026, 7, 13), 300));
+    }
+
+    // ── 1214-②: 방해 초 음수 차단(돈 경로) ───────────────────────────────────
+    // 지급 공식이 (endedAt − startedAt) − totalDistractionSeconds 라, 음수를 보내면 집중초가 늘어나
+    // 방금 발급한 몇 초짜리 마커로도 12시간 캡(720코인)까지 긁을 수 있었다. 같은 값이 방해 통계에도 그대로 저장된다.
+
+    @Test
+    @DisplayName("1214-②: PATCH /focus-session — totalDistractionSeconds 음수 → 400, 서비스 미호출")
+    void endFocusSessionRejectsNegativeDistraction() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-06-23T01:05:00Z\","
+                + "\"totalDistractionSeconds\":-43200}";
+
+        mockMvc.perform(patch("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+        verify(focusService, never()).endFocusSession(any(), any());
+    }
+
+    @Test
+    @DisplayName("1214-②: POST /focus-session — totalDistractionSeconds 음수 → 400, 서비스 미호출")
+    void saveFocusSessionRejectsNegativeDistraction() throws Exception {
+        String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"endedAt\":\"2026-06-23T01:11:00Z\","
+                + "\"totalDistractionSeconds\":-43200}";
+
+        mockMvc.perform(post("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+        verify(focusService, never()).saveFocusSession(any(), any());
     }
 
     // ── focus_type 인입 + 취소 API (GROMO-733) ───────────────────────────────

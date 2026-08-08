@@ -39,7 +39,7 @@ export interface FocusSessionRequest {
   startedAt: string; // Instant, ISO 문자열
   endedAt: string; // Instant, ISO 문자열
   distractionCount: number;
-  totalDistractionSeconds: number;
+  totalDistractionSeconds: number; // ⚠️ 서버 검증 0 이상 24시간 이하 — 음수는 400(GROMO-1214 코드리뷰)
   focusType?: FocusType; // GROMO-733 additive — 미지정 시 서버가 INFINITE 기본(고아 정산 등 모드 미상 경로)
   // GROMO-1252 additive — 이 세션의 날짜별 집중초(로컬 날짜 "YYYY-MM-DD" → 초).
   // 업로드 구간엔 일시정지 공백이 섞여 있어 서버가 벽시계 자정으로 쪼개면 자정을 걸친 세션의
@@ -47,6 +47,10 @@ export interface FocusSessionRequest {
   // 미지정·빈 맵이면 서버가 종전대로 벽시계 분할로 폴백한다. 서버는 값을 무검증 수용하지 않는다 —
   // 날짜별 벽시계 몫을 상한으로 클램프하고 세션 구간과 겹치지 않는 날짜는 버린다.
   focusSecondsByDate?: Record<string, number>;
+  // 이 POST가 라이브 마커의 폴백일 때 그 마커 id(GROMO-1214 코드리뷰, additive). 서버가 '이미 완료된
+  // 마커'를 id로 걸러 이중 계상을 막는다 — 기기 시계 스큐로 서버 클램프 값과 앱 타임스탬프가 어긋나면
+  // (startedAt, endedAt) 완전일치 중복 검사가 못 잡기 때문. 구버전 서버는 이 필드를 무시한다.
+  sessionId?: string; // UUID
 }
 
 // POST /focus-session — 집중 세션 저장 응답(GROMO-806). 세션 반영 후 그날 누적·스트릭 인정 여부.

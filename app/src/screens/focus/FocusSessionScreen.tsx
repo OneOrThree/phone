@@ -25,10 +25,11 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
 import { T, withAlpha } from '@/constants/theme';
-import { startFocusSession, cancelFocusSession } from '@/services/focusApi';
+import { startFocusSession } from '@/services/focusApi';
 import type { FocusType } from '@/types/dto/focus';
 import { ensureFocusTagId } from './tagSync';
 import { uploadFocusBlock } from './uploadFocusBlock';
+import { cancelMarker, flushPendingMarkerCancels } from './pendingMarkerCancels';
 import { publishSessionSaveVerdict } from './sessionSaveVerdict';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
@@ -282,17 +283,11 @@ export default function FocusSessionScreen() {
   // 순서대로 처리된다.
   const liveIdRef = useRef<string | null>(null);
   const liveStartPromiseRef = useRef<Promise<string | null>>(Promise.resolve(null));
-  // 취소 실패한 마커 id 보관 — 회전 중 버리면 옛 마커가 열린 채 남아 친구 화면에 옛 블록
-  // 시작부터의 '집중 중'으로 되살아난다(코덱스 리뷰). 새 마커 시작·앱 복귀·종료 시 재시도하고,
-  // 그래도 남으면 서버 고아 스윕(12h)이 최후 보루.
-  const pendingCancelIdsRef = useRef<Set<string>>(new Set());
-  const flushPendingCancels = useCallback(() => {
-    for (const sessionId of [...pendingCancelIdsRef.current]) {
-      cancelFocusSession({ sessionId })
-        .then(() => pendingCancelIdsRef.current.delete(sessionId))
-        .catch(() => {});
-    }
-  }, []);
+  // 취소 실패한 마커 id는 AsyncStorage 대기열(pendingMarkerCancels)에 남긴다 — 회전 중 버리면 옛 마커가
+  // 열린 채 남아 친구 화면에 옛 블록 시작부터의 '집중 중'으로 되살아난다(코덱스 리뷰). 종전엔 화면 ref에만
+  // 담아, 정산 직후 화면을 떠나면(finish는 업로드를 기다리지 않는다) 재시도가 영영 안 돌았다(GROMO-1214
+  // 코드리뷰). 이제 새 마커 시작·앱 복귀·종료에 더해 **다음 실행·포그라운드 복귀**(PendingFocusUploader)
+  // 에서도 재시도하고, 그래도 남으면 서버 고아 스윕(12h)이 최후 보루.
   // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 마커 오픈을 재개 시점까지 유예(코덱스 리뷰)
   const markerDeferredRef = useRef(false);
 
@@ -320,7 +315,7 @@ export default function FocusSessionScreen() {
   const startLiveSession = useCallback(
     (startedAt: string) => {
       // 회전 시점 = 연결이 살아있을 가능성이 큰 시점 — 밀린 취소부터 재시도(코덱스 리뷰)
-      flushPendingCancels();
+      flushPendingMarkerCancels().catch(() => {});
       const promise = ensureFocusTagId(subjectName, userId)
         .catch(() => null)
         .then((focusTagId) =>
@@ -350,7 +345,7 @@ export default function FocusSessionScreen() {
       liveStartPromiseRef.current = promise;
       return promise;
     },
-    [subjectName, userId, mode, flushPendingCancels],
+    [subjectName, userId, mode],
   );
 
   // 세션 진입 시 첫 마커 등록 — 이후 블록 정산마다 닫히고(마커 회전, settleFocusBlock 참고),
@@ -503,34 +498,21 @@ export default function FocusSessionScreen() {
     };
   }, [subjectName, subjectId]);
 
-  // 마커 id 하나를 취소로 닫는다. 취소 실패 시 id를 버리지 않고 보관 — 재시도
-  // (flushPendingCancels)로 닫는다(코덱스 리뷰). PATCH 종료가 실패해 마커가 열린 채
-  // 남았을 때 uploadFocusBlock이 뒤처리로 부르는 지점이기도 하다(GROMO-1214).
-  const cancelMarkerId = useCallback(
-    (sessionId: string) =>
-      cancelFocusSession({ sessionId }).catch(() => {
-        pendingCancelIdsRef.current.add(sessionId);
-      }),
-    [],
-  );
-
   // 라이브 마커 마감 — 취소(통계 미귀속)로 닫아 친구 화면의 '집중 중'을 끈다. 시간 저장은
   // settleFocusBlock의 업로드가 별도로 담당하므로 취소해도 기록은 잃지 않는다.
-  // 실패(오프라인 등)해도 서버 고아 스윕이 정리하므로 fire-and-forget.
+  // 실패해도 cancelMarker가 대기열에 남겨 다음 실행·포그라운드에 재시도하므로 fire-and-forget.
   const cancelLiveSession = useCallback(() => {
     const livePromise = liveStartPromiseRef.current;
     liveIdRef.current = null;
     liveStartPromiseRef.current = Promise.resolve(null);
     livePromise
-      .then((sessionId) => (sessionId != null ? cancelMarkerId(sessionId) : undefined))
+      .then((sessionId) => (sessionId != null ? cancelMarker(sessionId) : undefined))
       // 이 취소의 성패가 확정된 뒤 밀린 취소를 재시도 — finish의 flush가 진행 중이던 마지막
       // 취소보다 먼저 돌아 실패분을 놓치는 순서 경합 방지(코덱스 리뷰). 체인은 언마운트 후에도
       // 살아 있어 정지 직후 화면을 떠나도 재시도가 한 번은 돈다.
-      .then(() => {
-        if (pendingCancelIdsRef.current.size > 0) flushPendingCancels();
-      })
+      .then(() => flushPendingMarkerCancels())
       .catch(() => {});
-  }, [cancelMarkerId, flushPendingCancels]);
+  }, []);
 
   // finish를 거치지 않는 언마운트(안드로이드 시스템 back 등)에서도 마커를 닫는다 — 안 닫으면
   // 서버 스윕(12h)까지 친구 화면에 '집중 중'으로 남는다(코덱스 리뷰). 정상 종료는 finish/완료
@@ -601,7 +583,7 @@ export default function FocusSessionScreen() {
       // 블록을 정산하는 즉시 마커 참조를 떼고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
       // 종전과 달리 여기서 취소(cancel)하지 않는다 — 이 마커는 아래 업로드가 PATCH로 '종료'해
       // 시간·코인을 귀속시킬 대상이다(GROMO-1214). 취소로 버리면 그 지급 경로가 사라진다.
-      // PATCH를 못 태우거나 실패한 경우에만 uploadFocusBlock이 cancelMarkerId로 닫는다.
+      // PATCH를 못 태우거나 실패한 경우에만 uploadFocusBlock이 cancelMarker로 닫는다.
       const livePromise = liveStartPromiseRef.current;
       liveIdRef.current = null;
       liveStartPromiseRef.current = Promise.resolve(null);
@@ -634,7 +616,7 @@ export default function FocusSessionScreen() {
             sessionId,
             body,
             userId,
-            onMarkerStillOpen: cancelMarkerId,
+            onMarkerStillOpen: cancelMarker,
           }).then((result) => {
             // 저장 실패(대기열행)면 발행 없음 — 결과 화면은 기존 추정 판정으로 폴백.
             if (result.status !== 'saved') return;
@@ -654,16 +636,7 @@ export default function FocusSessionScreen() {
         })
         .catch(() => {});
     },
-    [
-      addFocusSeconds,
-      addFocusToSubject,
-      refreshCoins,
-      cancelMarkerId,
-      subjectId,
-      subjectName,
-      userId,
-      mode,
-    ],
+    [addFocusSeconds, addFocusToSubject, refreshCoins, subjectId, subjectName, userId, mode],
   );
 
   // 정상 완료 계측(GROMO-1004) 1회 발행 — 완료 게이트(done 시점)와 finish(정지 버튼)가 공유한다.
@@ -711,7 +684,7 @@ export default function FocusSessionScreen() {
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
         cancelLiveSession();
         // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
-        flushPendingCancels();
+        flushPendingMarkerCancels().catch(() => {});
       } finally {
         // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
         // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
@@ -722,7 +695,6 @@ export default function FocusSessionScreen() {
     [
       settleFocusBlock,
       cancelLiveSession,
-      flushPendingCancels,
       flushViewDwell,
       flushOrientationDwell,
       logCompletedOnce,
@@ -847,7 +819,7 @@ export default function FocusSessionScreen() {
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
       // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
-      flushPendingCancels();
+      flushPendingMarkerCancels().catch(() => {});
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
@@ -961,7 +933,6 @@ export default function FocusSessionScreen() {
     settleFocusBlock,
     startLiveSession,
     cancelLiveSession,
-    flushPendingCancels,
     creditFocusTick,
   ]);
 

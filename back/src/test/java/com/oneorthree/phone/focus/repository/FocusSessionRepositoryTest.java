@@ -297,6 +297,36 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
     }
 
+    // ── findStatusById — 409 원인 판정용 상태 재조회 (GROMO-1214 코드리뷰) ──
+
+    /**
+     * endFocusSession 은 findById 로 엔티티를 로드한 뒤 조건부 UPDATE 를 쏘고, 실패(row=0)하면 409 의 원인을
+     * 상태로 가른다. 그런데 <b>로드한 엔티티는 UPDATE 이전 스냅샷</b>이고 findById 재호출은 1차 캐시가
+     * 흡수해 DB 를 다시 읽지 않는다 — 그대로 쓰면 동시 취소를 못 보고, 살릴 수 있는 세션을
+     * SESSION_ALREADY_ENDED 로 돌려보내 시간이 영구 유실된다. 이 테스트가 그 전제(스칼라 JPQL 은
+     * 캐시를 우회해 DB 값을 읽는다)를 잠근다.
+     */
+    @Test
+    @DisplayName("findStatusById — 엔티티를 로드한 뒤 벌크 취소가 나가도 clear 없이 DB 실제 상태(CANCELED)를 읽는다")
+    void findStatusByIdReadsDbNotStaleEntity() {
+        // given: 진행 중 세션을 영속성 컨텍스트에 올려 둔 상태(= endFocusSession 의 findById 시점)
+        FocusSession open = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        FocusSession loaded = focusSessionRepository.findById(open.getId()).orElseThrow();
+
+        // when: 그 사이 취소가 벌크 UPDATE 로 성사(로드한 엔티티는 여전히 ACTIVE 로 보인다)
+        focusSessionRepository.cancelSessionIfActive(open.getId(), Instant.parse("2026-07-03T00:30:00Z"));
+        focusSessionRepository.flush();
+
+        // then: 캐시된 엔티티는 낡았지만, 스칼라 조회는 DB 값을 그대로 읽는다(clear() 없이)
+        assertThat(loaded.getStatus()).isEqualTo(FocusSessionStatus.ACTIVE);
+        assertThat(focusSessionRepository.findStatusById(open.getId()))
+                .contains(FocusSessionStatus.CANCELED);
+    }
+
     // ── findLiveSessionsByUserIdIn (GROMO-822 FocusLiveInfoLookup 공용) ──
 
     @Test

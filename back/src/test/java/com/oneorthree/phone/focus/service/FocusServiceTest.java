@@ -909,6 +909,52 @@ class FocusServiceTest {
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
     }
 
+    /**
+     * GROMO-1214 코드리뷰(기기 시계 스큐) — 마커 폴백 POST 는 마커 id 로도 중복이 걸려야 한다.
+     *
+     * <p>기기 시계가 서버와 어긋나면 서버가 클램프해 저장한 마커 구간(서버 시각)과 폴백 바디의
+     * 타임스탬프(기기 시각)가 달라 (startedAt, endedAt) 완전일치 검사를 그대로 빠져나간다 —
+     * PATCH 가 커밋됐는데 응답만 유실된 폴백에서 통계·코인이 두 번 들어갔다.
+     */
+    @Test
+    @DisplayName("1214-③: 이미 COMPLETED 인 마커 id 를 실은 POST 폴백 → 구간이 달라도 저장·지급 스킵")
+    void saveFocusSessionSkipsWhenMarkerAlreadyCompleted() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        // 구간 기준 중복 검사는 '스큐 때문에' 못 잡는 상황(스텁 없음 = false) — 마커 id 검사만 걸린다
+        given(focusSessionRepository.existsByIdAndUserAndStatus(
+                SESSION_ID, user, FocusSessionStatus.COMPLETED)).willReturn(true);
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, null, SESSION_ID);
+
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        assertThat(response.awardedCoins()).isZero();
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(currencyLedgerService, never()).credit(any(), any(), anyInt(), any());
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("1214-③: 취소·자동마감 마커의 폴백 POST(마커가 COMPLETED 아님) → 정상 저장·지급")
+    void saveFocusSessionSavesWhenMarkerNotCompleted() {
+        // SESSION_DISCARDED 폴백 경로 — 그 마커는 통계에 한 번도 반영되지 않았으므로 새로 저장돼야 한다.
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.existsByIdAndUserAndStatus(
+                SESSION_ID, user, FocusSessionStatus.COMPLETED)).willReturn(false);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, null, SESSION_ID);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        verify(focusSessionRepository).save(any(FocusSession.class));
+    }
+
     // ── saveFocusSession — 이벤트 payload·스트릭 연동 (GROMO-395) ──────────
 
     @Test
@@ -2239,6 +2285,77 @@ class FocusServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    /**
+     * GROMO-1214 코드리뷰 ① — 409 의 원인을 코드로 갈라 준다.
+     *
+     * <p>취소(CANCELED)·자동마감(AUTO_CLOSED) 마커는 통계·지급에 한 번도 반영되지 않은 상태다
+     * (집계 관례가 status NOT IN (CANCELED, AUTO_CLOSED)). 이걸 '이미 종료됨'과 같은 409 로 뭉뚱그리면
+     * 앱이 POST 폴백을 못 해 그 세션 시간이 영구 유실된다(안드로이드 시스템 뒤로가기 → 4분 내 재실행 시
+     * 고아 정산이 취소된 마커에 PATCH 를 쏘는 실제 경로).
+     *
+     * <p>판정은 DB 재조회(findStatusById)로 한다 — findById 로 로드한 엔티티는 UPDATE 이전 스냅샷이라
+     * 동시 취소를 못 본다.
+     */
+    @Test
+    @DisplayName("1214-①: 취소된 마커 종료 시도 → FocusException(SESSION_DISCARDED) — 앱이 POST 폴백 가능")
+    void endFocusSessionCanceledMarkerIsDiscarded() {
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
+        given(focusSessionRepository.findStatusById(SESSION_ID))
+                .willReturn(Optional.of(FocusSessionStatus.CANCELED));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, null);
+
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_DISCARDED);
+        // 폐기 마커도 통계·지급은 절대 건드리지 않는다(폴백 POST 가 새로 저장할 몫)
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+        verify(currencyLedgerService, never()).credit(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("1214-①: 자동마감(AUTO_CLOSED) 마커 종료 시도 → SESSION_DISCARDED")
+    void endFocusSessionAutoClosedMarkerIsDiscarded() {
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
+        given(focusSessionRepository.findStatusById(SESSION_ID))
+                .willReturn(Optional.of(FocusSessionStatus.AUTO_CLOSED));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, null);
+
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_DISCARDED);
+    }
+
+    @Test
+    @DisplayName("1214-①: 이미 COMPLETED 인 마커는 SESSION_ALREADY_ENDED — 앱이 폴백하면 이중 지급이라 구분 유지")
+    void endFocusSessionCompletedMarkerIsAlreadyEnded() {
+        User user = User.builder().id(USER_ID).build();
+        FocusSession session = FocusSession.builder()
+                .id(SESSION_ID).user(user).startedAt(START).endedAt(END).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
+        given(focusSessionRepository.endSessionIfActive(eq(SESSION_ID), any())).willReturn(0);
+        given(focusSessionRepository.findStatusById(SESSION_ID))
+                .willReturn(Optional.of(FocusSessionStatus.COMPLETED));
+        FocusSessionEndRequest body = new FocusSessionEndRequest(SESSION_ID, null, 0, null);
+
+        assertThatThrownBy(() -> focusService.endFocusSession(USER_ID, body))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.SESSION_ALREADY_ENDED);
     }
 
     @Test
