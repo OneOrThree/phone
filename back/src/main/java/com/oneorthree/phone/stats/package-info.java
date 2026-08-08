@@ -11,9 +11,14 @@
  *       {@code FocusService.recordCompletion} 이 공통 귀속:
  *       <ul>
  *         <li>{@code DailyFocusStat} upsert — (user, date) 비관적 락 후 초 단위 += 누적(GROMO-642).
- *             버킷 날짜 = {@code statDate(endedAt, zone)} = endedAt 의 country_code 존 로컬 날짜
- *             (GROMO-803 — 스크린타임 561과 동일 기준. countryCode null·미지원은 UTC 폴백).</li>
- *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, statDate)} (같은 트랜잭션).</li>
+ *             버킷 날짜 = country_code 존 로컬 날짜
+ *             (GROMO-803 — 스크린타임 561과 동일 기준. countryCode null·미지원은 Asia/Seoul 폴백).
+ *             <b>GROMO-1252</b>: 자정을 걸친 세션은 {@code splitByLocalDay} 로 로컬 자정에서 잘라
+ *             날짜별로 나눠 가산한다(세션 행·세션 보상 코인은 1건/1회 유지, {@code sessionCount}·
+ *             {@code totalDistractionSeconds} 는 시작일에만).</li>
+ *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, statDate)} (같은 트랜잭션).
+ *             자정 분할 시 <b>날짜 오름차순</b>으로 호출한다(스트릭이 과거 날짜를 무시하므로 순서가 계약).
+ *             인정 기준(10분)은 <b>쪼갠 뒤</b> 날짜별 누적으로 판정한다.</li>
  *         <li>리그 — ACTIVE 아레나 멤버면 주간 누적 집중 초 반영(GROMO-646/665).</li>
  *       </ul>
  *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며, GROMO-804 로 상태를
@@ -46,7 +51,7 @@
  *   </tr>
  *   <tr>
  *     <td>날짜 기준</td>
- *     <td>쓰기 버킷 = endedAt country_code 존(GROMO-803, 561과 정합)</td>
+ *     <td>쓰기 버킷 = country_code 존 로컬 날짜, 자정 걸치면 날짜별 분할(GROMO-803/1252, 561과 정합)</td>
  *     <td>쓰기 버킷 = country_code 존(GROMO-561)</td>
  *     <td>조회 {@code date} = 클라 로컬(GROMO-643)</td>
  *   </tr>
@@ -74,7 +79,8 @@
  * <ul>
  *   <li><b>803</b> — <b>해소됨</b>: 집중 쓰기 날짜 기준을 UTC → country_code 존으로 통일(스크린타임과 정합).
  *       by-category 조회 윈도우도 같은 존으로 정합. <b>forward-only</b> — 기존 UTC 버킷 row 는 재집계하지 않음.
- *       <b>수용 한계</b>: 미지원 국가·{@code countryCode==null} 은 UTC 폴백이라 자정 경계 오귀속 가능(YAGNI).
+ *       <b>수용 한계</b>: 미지원 국가·{@code countryCode==null} 은 Asia/Seoul 폴백이라(GROMO-1252)
+ *       KR 밖 유저는 자정 경계 오귀속 가능(YAGNI — 서비스가 KR 중심).
  *       여행/국가변경으로 디바이스 존 ≠ country 존인 경우도 country 존 기준으로 귀속(코드 미처리, 문서 수용).
  *       <p><b>forward-only 컷오버 아티팩트(수용)</b> — 아래 두 불일치는 PR 리뷰에서 제기됐으나, 변경이
  *       forward-only 이고 현재 DB 가 리셋 가능한 개발용이라 <b>수용</b>한다(소급 보정 안 함).

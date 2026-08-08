@@ -220,7 +220,7 @@ public class ScreenTimeService {
 
     /**
      * reportedAt(Instant)을 유저 country_code 파생 ZoneId 기준 로컬 날짜로 환산한다.
-     * country_code 가 null·미지원이면 UTC 로 폴백한다(CountryZoneResolver).
+     * country_code 가 null·미지원이면 Asia/Seoul 로 폴백한다(CountryZoneResolver, GROMO-1252).
      */
     private LocalDate resolveLocalDate(User user, ScreenTimeRequest request) {
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());

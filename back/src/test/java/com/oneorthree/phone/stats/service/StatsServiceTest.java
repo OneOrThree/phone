@@ -1212,9 +1212,9 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("카테고리별 DAY(countryCode=null) — endedAt 윈도우 [today 00:00, today+1 00:00) UTC 폴백 (GROMO-803)")
+    @DisplayName("카테고리별 DAY(countryCode=null) — endedAt 윈도우가 폴백 존(Asia/Seoul) 자정 기준 (GROMO-803/1252)")
     void getFocusStatsByCategoryDayBounds() {
-        // countryCode 없는 유저 → UTC 폴백. KR 존 시프트는 getFocusStatsByCategoryDayBoundsKstZone 참고.
+        // countryCode 없는 유저 → 폴백 존(Asia/Seoul, GROMO-1252). KR 유저와 같은 윈도우가 나온다.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
@@ -1226,9 +1226,10 @@ class StatsServiceTest {
         ArgumentCaptor<Instant> toCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), toCaptor.capture());
 
-        // GROMO-803: endedAt 존 윈도우 — 유저 존 미지정이라 UTC 폴백. FIXED_TODAY=2026-07-03.
-        assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-07-03T00:00:00Z"));
-        assertThat(toCaptor.getValue()).isEqualTo(Instant.parse("2026-07-04T00:00:00Z"));
+        // GROMO-803: endedAt 존 윈도우 — 유저 존 미지정이라 Asia/Seoul 폴백. FIXED_TODAY=2026-07-03
+        // → KST 자정 = 2026-07-02T15:00Z ~ 2026-07-03T15:00Z (UTC 폴백이었다면 00:00Z ~ 00:00Z).
+        assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-07-02T15:00:00Z"));
+        assertThat(toCaptor.getValue()).isEqualTo(Instant.parse("2026-07-03T15:00:00Z"));
     }
 
     @Test
@@ -1254,9 +1255,9 @@ class StatsServiceTest {
     }
 
     @Test
-    @DisplayName("카테고리별 WEEK(countryCode=null) — endedAt from=이번 주 월요일 00:00 UTC 폴백 (GROMO-803)")
+    @DisplayName("카테고리별 WEEK(countryCode=null) — endedAt from=이번 주 월요일 00:00 폴백 존(KST) (GROMO-803/1252)")
     void getFocusStatsByCategoryWeekBounds() {
-        // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29. countryCode 없음 → UTC 폴백.
+        // FIXED_TODAY=2026-07-03(금요일) → 이번 주 월요일=2026-06-29. countryCode 없음 → Asia/Seoul 폴백.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
@@ -1267,13 +1268,14 @@ class StatsServiceTest {
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
-        assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-06-29T00:00:00Z"));
+        // 06-29 00:00 KST = 06-28T15:00Z
+        assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-06-28T15:00:00Z"));
     }
 
     @Test
-    @DisplayName("카테고리별 MONTH(countryCode=null) — endedAt from=이번 달 1일 00:00 UTC 폴백 (GROMO-803)")
+    @DisplayName("카테고리별 MONTH(countryCode=null) — endedAt from=이번 달 1일 00:00 폴백 존(KST) (GROMO-803/1252)")
     void getFocusStatsByCategoryMonthBounds() {
-        // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01. countryCode 없음 → UTC 폴백.
+        // FIXED_TODAY=2026-07-03 → 이번 달 1일=2026-07-01. countryCode 없음 → Asia/Seoul 폴백.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsInPeriod(eq(user), any(), any()))
@@ -1284,7 +1286,8 @@ class StatsServiceTest {
         ArgumentCaptor<Instant> fromCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).findCompletedSessionsInPeriod(eq(user), fromCaptor.capture(), any());
 
-        assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-07-01T00:00:00Z"));
+        // 07-01 00:00 KST = 06-30T15:00Z
+        assertThat(fromCaptor.getValue()).isEqualTo(Instant.parse("2026-06-30T15:00:00Z"));
     }
 
     // ── getFocusAverage (GROMO-753) ───────────────────────────────────────
