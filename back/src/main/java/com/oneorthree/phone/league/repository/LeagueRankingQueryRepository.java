@@ -10,7 +10,10 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -137,6 +140,64 @@ public class LeagueRankingQueryRepository {
         if (cursorExclusive != null) {
             parameters.addValue("cursorExclusive", cursorExclusive);
         }
+        return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
+    }
+
+    // 재개(resume) 전용 가입 컷오프 술어 (GROMO-1239) — 정산 대상 주차가 끝난 뒤(경계 이후) 가입한
+    // 유저는 그 주차에 존재하지 않았으므로 0초 STAY 결과가 조작되면 안 된다. created_at 이 NULL 인
+    // 레거시 행은 경계 이전 존재로 간주해 포함한다(초기 데이터 — 컷오프로 새로 배제할 근거가 없다).
+    private static final String CREATED_BEFORE_CONDITION =
+            " AND (u.created_at IS NULL OR u.created_at < :createdBefore)\n";
+
+    /**
+     * 재개(resume) 전용 정산 집계 페이지 (GROMO-1239) — {@link #findWeeklyTotalsForSettlement} 와
+     * 같은 골격에 가입 컷오프({@code createdBefore} = 정산 주차 종료 경계)만 더한 변형이다.
+     * 스케줄 run 이 쓰는 원본 쿼리는 바이트 단위로 건드리지 않는다.
+     */
+    public List<LeagueRankingRow> findWeeklyTotalsForResume(LocalDate fromDate, LocalDate toDate,
+                                                             UUID cursorExclusive, int limit,
+                                                             Instant createdBefore) {
+        validateRange(fromDate, toDate);
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        if (createdBefore == null) {
+            throw new IllegalArgumentException("createdBefore must not be null");
+        }
+
+        String cursorCondition = cursorExclusive == null ? "" : " AND u.id > :cursorExclusive\n";
+        String sql = WEEKLY_TOTALS + cursorCondition + CREATED_BEFORE_CONDITION + GROUP_BY_USER
+                + " ORDER BY u.id ASC LIMIT :limit";
+        MapSqlParameterSource parameters = rangeParameters(fromDate, toDate)
+                .addValue("limit", limit)
+                .addValue("createdBefore", Timestamp.from(createdBefore));
+        if (cursorExclusive != null) {
+            parameters.addValue("cursorExclusive", cursorExclusive);
+        }
+        return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
+    }
+
+    /**
+     * 지정 유저들만의 정산용 집계 (GROMO-1239 재개 시 userIds 지정 경로). 기존 정산 쿼리의 골격
+     * (WEEKLY_TOTALS — 활성·비게스트 필터 포함)을 그대로 재사용하고 id IN 필터와 가입 컷오프만
+     * 더한다. 탈퇴/게스트/경계 이후 가입 유저를 지정하면 결과에서 조용히 빠진다 — 정산 대상이
+     * 아니기 때문이다.
+     */
+    public List<LeagueRankingRow> findWeeklyTotalsForUsers(LocalDate fromDate, LocalDate toDate,
+                                                            Collection<UUID> userIds,
+                                                            Instant createdBefore) {
+        validateRange(fromDate, toDate);
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        if (createdBefore == null) {
+            throw new IllegalArgumentException("createdBefore must not be null");
+        }
+        String sql = WEEKLY_TOTALS + " AND u.id IN (:userIds)\n" + CREATED_BEFORE_CONDITION
+                + GROUP_BY_USER + " ORDER BY u.id ASC";
+        MapSqlParameterSource parameters = rangeParameters(fromDate, toDate)
+                .addValue("userIds", List.copyOf(userIds))
+                .addValue("createdBefore", Timestamp.from(createdBefore));
         return jdbcTemplate.query(sql, parameters, this::mapRankingRow);
     }
 

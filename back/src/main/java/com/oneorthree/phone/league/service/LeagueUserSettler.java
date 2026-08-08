@@ -55,6 +55,24 @@ public class LeagueUserSettler {
     static final int MIN_TIER_LEVEL = 1;
     static final int MAX_TIER_LEVEL = 5;
 
+    /**
+     * settle 한 건의 처리 결과 (GROMO-1239) — boolean 두 갈래로는 "이미 정산됨"을 표현할 수 없어
+     * 세 갈래 enum 으로 넓혔다({@code GroupBetSettler.SettleResult} 선례).
+     */
+    public enum SettleOutcome {
+        /** 이번 호출로 3-mutation(티어 갱신·승급 보너스·결과 저장)이 실제 적용됐다. */
+        SETTLED,
+        /** 집계 스냅샷 이후 탈퇴가 먼저 커밋된 유저 — 정상 흐름의 skip. */
+        SKIPPED_WITHDRAWN,
+        /** 이 주차 완료 마커(league_weekly_results 행)가 이미 있다 — 재실행 멱등 skip. */
+        ALREADY_SETTLED,
+        /**
+         * 대상 주차보다 <b>늦은</b> 주차 결과가 이미 있다 — 과거 주차 소급(backfill) 금지 skip.
+         * 티어 체인이 이미 전진한 유저라 지금 과거 주를 정산하면 순서가 어긋난다(아래 settle 자바독).
+         */
+        SKIPPED_SUPERSEDED
+    }
+
     private final UserRepository userRepository;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
     private final CurrencyLedgerService currencyLedgerService;
@@ -62,23 +80,72 @@ public class LeagueUserSettler {
     /**
      * 유저 한 명을 정산한다 — 결과 저장·티어 갱신·승급 보너스까지 이 트랜잭션 하나에 묶인다.
      *
-     * @param row               정산 대상 집계 행(배치 페이지 조회 시점 스냅샷)
+     * <p><b>재실행 멱등 가드 (GROMO-1239)</b> — 락 취득 직후, 어떤 mutation 보다 먼저 완료 마커
+     * (league_weekly_results 의 (user_id, week_start_at) 행)를 재확인한다. 오케스트레이터의 페이지
+     * 단위 선조회는 빠른 경로일 뿐이고, 락 안에서의 이 단건 재확인이 동시성 정본이다 — 동시 재실행이
+     * 같은 유저를 잡아도 늦은 쪽이 락 대기 후 여기서 ALREADY_SETTLED 로 빠진다. 가드 없이 진행하면
+     * 이미 승급이 반영된 티어로 판정을 다시 굴려 연쇄 승급(래칫)이 나고, 유니크 제약 위반이 flush
+     * 에서 터져 트랜잭션 전체가 롤백되며 전원 failed 로 집계되는 사고 구조가 된다. 유니크 제약
+     * 자체는 최후 방어선으로 유지한다.
+     *
+     * <p><b>티어 정본 = 락으로 잡은 행 (교차 주차 레이스)</b> — 판정 기준 티어는 스냅샷
+     * {@code row.tierLevel()} 이 아니라 락 취득 후의 {@code user.getTierLevel()} 이다. 스냅샷 티어는
+     * 페이지 조회 시점 값이라 <b>락 대기 중의 커밋을 놓친다</b>: 예컨대 새 주차 run 이 스냅샷을 뜬
+     * 뒤 과거 주차 resume 이 먼저 락을 잡아 승급(T→T+1)을 커밋하면, 새 주차 run 은 위 마커 가드
+     * (대상 주차 <b>이상</b>만 조회)로는 그 과거 주차 결과를 못 보고 진행하는데, 이때 스냅샷 티어
+     * T 를 쓰면 이전 티어 기록·티어 덮어쓰기가 모두 어긋난다. 락으로 잡은 행을 다시 읽으면 어떤
+     * 인터리빙에서도 두 번째로 락을 잡는 쪽이 커밋된 진실 위에서 판정하므로 이 계열의 스냅샷
+     * 낡음(stale) 문제가 통째로 사라진다. tierConfigs 는 배치 시작 시 1~5 전부 검증되므로 어떤
+     * 티어를 읽어도 설정 조회는 안전하다.
+     *
+     * <p><b>과거 주차 소급(backfill) 순서 논증</b> — 대상 주차보다 <b>늦은</b> 주차 결과가 이미 있는
+     * 유저도 같은 조회 한 번으로 걸러 SKIPPED_SUPERSEDED 로 스킵한다. 늦은 주차 결과는 그 시점의
+     * 라이브 티어에서 계산된 것이므로, 지금 과거 주 W 를 소급하면 ① 이미 전진한 오늘의 티어를 W 의
+     * "이전 티어"로 삼아 승급/강등을 겹쳐 굴리고(잘못된 기준·연쇄 승급) ② 승급 보너스도 잘못된
+     * 티어 기준으로 이중 지급된다. 실제 복구 대상(그 주 정산에 실패한 유저)은 늦은 주차 결과가
+     * 없다 — 있다면 이미 다음 주차가 그 유저를 (그때의 티어로) 정산해 체인을 이어간 것이므로
+     * W 소급은 어느 경우든 체인을 오염시킨다. 따라서 이 스킵이 정확히 옳은 동작이다.
+     *
+     * @param row               정산 대상 집계 행(배치 페이지 조회 시점 스냅샷) — userId·focusSeconds
+     *                          만 쓴다. tierLevel 스냅샷은 낡을 수 있어 무시한다(위 "티어 정본" 문단)
      * @param previousWeekStart 정산 대상 주차의 시작(KST 월요일 00:00 Instant) — 결과 키
      * @param tierConfigs       배치 시작 시 1~5 전부 검증된 티어 설정 표
-     * @return 정산을 적용했으면 true, 탈퇴가 먼저 커밋된 유저라 건너뛰었으면 false
+     * @return 정산을 적용했으면 {@link SettleOutcome#SETTLED}, 탈퇴가 먼저 커밋된 유저면
+     *         {@link SettleOutcome#SKIPPED_WITHDRAWN}, 이 주차가 이미 정산된 유저면
+     *         {@link SettleOutcome#ALREADY_SETTLED}, 더 늦은 주차가 이미 정산된 유저면
+     *         {@link SettleOutcome#SKIPPED_SUPERSEDED}
      */
     @Transactional
-    public boolean settle(LeagueRankingRow row, Instant previousWeekStart,
-                          Map<Integer, LeagueTierConfig> tierConfigs) {
+    public SettleOutcome settle(LeagueRankingRow row, Instant previousWeekStart,
+                                Map<Integer, LeagueTierConfig> tierConfigs) {
         Optional<User> activeUser = userRepository.findActiveByIdForUpdate(row.userId());
         if (activeUser.isEmpty()) {
             // 집계 스냅샷 이후 탈퇴가 먼저 커밋된 유저 — 정상 흐름이므로 예외가 아니라 skip 이다.
             log.info("리그 정산 스킵 — 집계 후 탈퇴한 유저. userId={}", row.userId());
-            return false;
+            return SettleOutcome.SKIPPED_WITHDRAWN;
+        }
+        // 재실행 멱등 가드 — 락을 쥔 뒤의 재확인이라 동시 재실행에도 정확히 한 번만 정산된다.
+        // 대상 주차와 그 이후를 한 번의 인덱스 조회로 판정한다(같음=기정산, 큼=늦은 주차가 선정산).
+        Optional<Instant> latestSettledWeek = leagueWeeklyResultRepository
+                .findLatestSettledWeekOnOrAfter(row.userId(), previousWeekStart);
+        if (latestSettledWeek.isPresent()) {
+            if (latestSettledWeek.get().equals(previousWeekStart)) {
+                log.info("리그 정산 스킵 — 이미 정산된 주차. userId={}, weekStartAt={}",
+                        row.userId(), previousWeekStart);
+                return SettleOutcome.ALREADY_SETTLED;
+            }
+            // 과거 주차 소급 금지(이 메서드 자바독의 순서 논증) — 티어 체인이 이미 이 주차를 지나갔다.
+            log.info("리그 정산 스킵 — 더 늦은 주차가 이미 정산됨(소급 금지). userId={}, "
+                    + "weekStartAt={}, latestSettledWeek={}",
+                    row.userId(), previousWeekStart, latestSettledWeek.get());
+            return SettleOutcome.SKIPPED_SUPERSEDED;
         }
         User user = activeUser.get();
 
-        int previousTierLevel = row.tierLevel();
+        // 티어 정본은 스냅샷(row.tierLevel())이 아니라 락으로 잡은 유저 행이다 — 스냅샷은 페이지
+        // 조회 시점 값이라, 락 대기 중에 커밋된 다른 주차 정산(예: 과거 주차 resume 의 승급)을
+        // 놓친다. 락을 두 번째로 잡는 쪽이 항상 커밋된 진실 위에서 판정하도록 여기서 다시 읽는다.
+        int previousTierLevel = user.getTierLevel();
         LeagueTierConfig config = tierConfigs.get(previousTierLevel);
         if (config == null) {
             // 배치 시작 시 1~5 전부 검증하므로 정상 흐름에선 불가능 — 이 유저만 롤백시킨다.
@@ -109,7 +176,7 @@ public class LeagueUserSettler {
                 .result(result)
                 .focusSeconds(row.totalFocusSeconds())
                 .build());
-        return true;
+        return SettleOutcome.SETTLED;
     }
 
     private LeagueWeeklyResultType decideResult(
