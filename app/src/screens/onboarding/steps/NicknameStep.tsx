@@ -9,17 +9,19 @@ import type { StepProps } from '@/screens/onboarding/types';
 // 캐릭터 첫 노출은 앞선 character_intro 스텝이 전담 — 이 화면은 이름 입력만 받는다.
 // 중복 검증: 형식(2~10자, 프로필 편집과 동일)은 로컬이 먼저 거르고, 통과하면 실시간
 // 중복확인(GROMO-1215, useNicknameCheck — 중간 로그인을 마친 뒤라 토큰이 있다)을 부른다.
-// 확인 실패·구서버(unknown)는 중립 기본 힌트(가입 완료 시 확인)를 명시 분기로 그려
+// 확인 실패·구서버(unknown)는 중립 기본 힌트(길이 안내)를 명시 분기로 그려
 // available로 오인시키지 않고(GROMO-1231), 최종 판정은 가입 확정
 // (POST /users/me → 409 NICKNAME_DUPLICATE)이 맡는다. 서버 검증에 실패하면
 // OnboardingFlow가 이 화면을 serverError와 함께 그대로 유지해 재입력/재시도를 받는다.
 const NICK_MIN = 2;
 const NICK_MAX = 10;
 
-// 기본 힌트 — idle과 unknown(명시 분기)이 같은 문구를 공유한다. '가입 완료 시 확인'이
-// 최종 방어(409) 경로를 그대로 안내하므로 unknown에도 참이다. 문구를 갈라야 한다면
+// 기본 힌트 — idle과 unknown(명시 분기)이 같은 중립 문구를 공유한다. 판정을 암시하지
+// 않는 길이 안내라 unknown을 available로 오인시키지 않는다(GROMO-1231 규칙 충족).
+// 종전 '가입 완료 시 확인' 문구는 GROMO-1215가 실시간 중복확인을 붙이며 거짓이 되어
+// GROMO-1212에서 프로필 편집과 같은 중립 문구로 교체했다. 문구를 갈라야 한다면
 // "unknown을 available로 오인시키지 않는다" 규칙(GROMO-1231)부터 다시 확인할 것.
-const BASE_HINT = `${NICK_MIN}~${NICK_MAX}자 · 중복 여부는 가입 완료 시 확인돼요`;
+const BASE_HINT = `${NICK_MIN}~${NICK_MAX}자로 정할 수 있어요`;
 
 interface NicknameStepProps extends StepProps {
   serverError?: string | null; // 가입 확정 시 서버 검증 실패(중복·일시 오류) 메시지
@@ -82,7 +84,8 @@ export default function NicknameStep({
       </View>
       {/* 검증 안내 — 서버 실패 메시지 > 형식 가이드 > 중복확인 결과 > 기본 힌트 순.
           unknown(확인 실패·구서버)은 명시 분기로 중립 기본 힌트를 그린다 — available로
-          오인 금지 규칙(GROMO-1231)을 코드 구조로 드러낸 것으로, 표시 결과는 종전과 같다. */}
+          오인 금지 규칙(GROMO-1231)을 코드 구조로 드러낸 것. 이때 중복 여부의 최종 방어는
+          가입 확정 409를 받은 OnboardingFlow의 serverError 처리다. */}
       {serverError ? (
         <Text style={s.errorText}>{serverError}</Text>
       ) : nickname.length > 0 && !validLength ? (
@@ -96,7 +99,7 @@ export default function NicknameStep({
       ) : checkStatus === 'checking' ? (
         <Text style={s.hintText}>확인 중…</Text>
       ) : checkStatus === 'unknown' ? (
-        // 중립 폴백 — 판정 문구 없이 기본 힌트로. 동작 불변, 의도만 분기로 표현(GROMO-1231).
+        // 중립 폴백 — 판정 문구 없이 기본 힌트로(GROMO-1231). 중복은 가입 확정 409가 최종 방어.
         <Text style={s.hintText}>{BASE_HINT}</Text>
       ) : (
         // idle — 검사할 이유가 없는 상태(형식 미충족·빈 입력)의 기본 힌트.
