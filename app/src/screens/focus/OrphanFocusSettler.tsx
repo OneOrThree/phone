@@ -93,13 +93,23 @@ export function OrphanFocusSettler() {
       // 날렸다(by-category 통계에 '미분류'로 들어감). 세션 정산과 같은 규칙으로 이름→서버 태그를
       // 매칭/생성한다. 실패하면 종전대로 null(미분류) — ensureFocusTagId가 내부에서 삼킨다.
       const focusTagId = await ensureFocusTagId(rec.subjectName, userId);
+      // 방해초(GROMO-1214 코드리뷰) — 세션 화면은 일시정지를 직접 세지만 라이브 레코드엔 그 값이
+      // 없다. 대신 구간 벽시계에서 집중초를 빼 역산한다: elapsed는 집중 tick에서만 오르므로
+      // (updatedAt − startedAt) − elapsed = 이 구간의 '집중하지 않은' 초(대부분 일시정지)다.
+      // 0을 보내면 그 시간이 통째로 집중으로 지급·집계된다. 서버 검증 상한(24h)으로 자른다.
+      const spanSeconds = Math.round(
+        (Date.parse(rec.updatedAt) - Date.parse(rec.startedAt)) / 1000,
+      );
+      const totalDistractionSeconds = Number.isFinite(spanSeconds)
+        ? Math.min(24 * 3600, Math.max(0, spanSeconds - focused))
+        : 0;
       const body = {
         focusTagId,
         subject: rec.subjectName,
         startedAt: rec.startedAt,
         endedAt: rec.updatedAt,
         distractionCount: 0,
-        totalDistractionSeconds: 0,
+        totalDistractionSeconds,
         // 날짜별 집중초(GROMO-1252 ①) — 레코드에 있으면 서버 벽시계 분할 대신 이 분포로 귀속된다.
         // 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
         focusSecondsByDate: rec.focusDays,

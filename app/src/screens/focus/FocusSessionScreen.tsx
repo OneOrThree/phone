@@ -44,6 +44,7 @@ import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { todayStr, localDateStr } from '@/utils/localDate';
 import { newBlockToday, creditTick, blockTodaySeconds } from './blockToday';
+import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds } from './blockPause';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -260,9 +261,17 @@ export default function FocusSessionScreen() {
   // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라 앱이 미리 계산하지 않는다.
   const settledSecondsRef = useRef(0);
   const settleAtRef = useRef(startedAtRef.current);
-  // 미정산 블록의 날짜별 집중초(GROMO-1252) — 정산 적립·그리드 셀·메뉴 드로어의 '오늘 몫'이자,
-  // 업로드 페이로드의 focusSecondsByDate. 벽시계 겹침이 아니라 집중 tick의 날짜로 세는 이유는
-  // blockToday.ts 주석 참고.
+  // 이 블록의 수동 일시정지 누적(방해초, GROMO-1214 코드리뷰) — 규칙·근거는 blockPause.ts 주석 참고.
+  const blockPauseRef = useRef(newBlockPause());
+  // 정산 블록의 시작점을 옮기면서 방해 카운터도 함께 리셋한다 — settleAt을 옮기는 모든 지점이
+  // 곧 '새 블록 시작'이라, 그 전에 쌓인 일시정지는 이전 블록 몫(이미 정산에 실렸거나 정산 구간
+  // 밖)이라 넘어오면 안 된다.
+  const startBlockAt = useCallback((at: string) => {
+    settleAtRef.current = at;
+    blockPauseRef.current = newBlockPause(blockPauseRef.current);
+  }, []);
+  // 미정산 블록의 집중초 중 '오늘' 몫(GROMO-1252 코드리뷰) — 정산 적립·그리드 셀·메뉴 드로어
+  // 공용. 벽시계 겹침이 아니라 집중 tick의 날짜로 세는 이유는 blockToday.ts 주석 참고.
   const blockTodayRef = useRef(newBlockToday());
   const creditFocusTick = useCallback((at?: Date) => {
     blockTodayRef.current = creditTick(blockTodayRef.current, at);
@@ -555,9 +564,12 @@ export default function FocusSessionScreen() {
       if (delta <= 0) return;
       const endedAt = endedAtOverride ?? new Date().toISOString();
       const startedAt = settleAtRef.current;
+      // 이 블록의 방해초 — 아직 안 닫힌 정지 구간(정지 중 정지 버튼으로 종료)까지 포함한다.
+      const totalDistractionSeconds = blockPauseSeconds(blockPauseRef.current);
+      const distractionCount = blockPauseRef.current.count;
       // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
       settledSecondsRef.current = elapsed;
-      settleAtRef.current = endedAt;
+      startBlockAt(endedAt);
       AsyncStorage.removeItem(STORAGE_KEYS.focusLiveSession).catch(() => {});
       // 로컬/과목 적립 — 둘 다 '오늘' 기준 스토어라, 이 블록의 집중초 중 오늘 몫만 반영한다
       // (GROMO-1252 — 종전엔 endedAt 하루만 보고 delta 전체를 오늘에 꽂아, 자정을 걸친 블록의
@@ -601,8 +613,10 @@ export default function FocusSessionScreen() {
             subject: subjectName,
             startedAt,
             endedAt,
-            distractionCount: 0,
-            totalDistractionSeconds: 0,
+            // 이 블록의 수동 일시정지 — 서버가 지급(코인)·일별 통계에서 이만큼 뺀다.
+            // 블록마다 그 블록 몫만 싣는다(세션 누적을 매 블록에 중복으로 실으면 과다 차감).
+            distractionCount,
+            totalDistractionSeconds,
             // 완주 저장에도 세션 유형을 전파 — 마커에만 실으면 RANGE/POMODORO가
             // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
             focusType: FOCUS_TYPE_BY_MODE[mode],
@@ -636,7 +650,16 @@ export default function FocusSessionScreen() {
         })
         .catch(() => {});
     },
-    [addFocusSeconds, addFocusToSubject, refreshCoins, subjectId, subjectName, userId, mode],
+    [
+      addFocusSeconds,
+      addFocusToSubject,
+      refreshCoins,
+      startBlockAt,
+      subjectId,
+      subjectName,
+      userId,
+      mode,
+    ],
   );
 
   // 정상 완료 계측(GROMO-1004) 1회 발행 — 완료 게이트(done 시점)와 finish(정지 버튼)가 공유한다.
@@ -767,7 +790,7 @@ export default function FocusSessionScreen() {
     if (prev === 'focus' && cur === 'break') {
       settleFocusBlock();
     } else if (prev === 'break' && cur === 'focus') {
-      settleAtRef.current = new Date().toISOString();
+      startBlockAt(new Date().toISOString());
       if (pausedRef.current) {
         // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 지금 열면 대기 내내
         // 친구 화면에 '집중 중'이 흐른다. 마커는 재개 시점에 연다(코덱스 리뷰).
@@ -777,7 +800,7 @@ export default function FocusSessionScreen() {
         startLiveSession(settleAtRef.current);
       }
     }
-  }, [session.phase, settleFocusBlock, startLiveSession]);
+  }, [session.phase, settleFocusBlock, startLiveSession, startBlockAt]);
 
   // 이탈 감지 — background 진입 시각을 기록해두고, 복귀 시 자리 비운 시간으로 판정한다.
   const leftAtRef = useRef<number | null>(null);
@@ -863,7 +886,7 @@ export default function FocusSessionScreen() {
               settleFocusBlock(boundaryAt);
             } else if (cur.phase === 'break' && next.phase === 'focus') {
               crossed = true;
-              settleAtRef.current = boundaryAt;
+              startBlockAt(boundaryAt);
               startLiveSession(boundaryAt);
             }
             cur = next;
@@ -879,7 +902,7 @@ export default function FocusSessionScreen() {
             // 유실돼 12h 스윕까지 '집중 중'으로 되살아나지 않게 명시적으로 닫는다(코덱스 리뷰).
             // settle이 이미 회전했다면 참조가 비어 no-op.
             cancelLiveSession();
-            settleAtRef.current = new Date().toISOString();
+            startBlockAt(new Date().toISOString());
             startLiveSession(settleAtRef.current);
           }
           if (crossed) {
@@ -934,6 +957,7 @@ export default function FocusSessionScreen() {
     startLiveSession,
     cancelLiveSession,
     creditFocusTick,
+    startBlockAt,
   ]);
 
   // 일시정지/재개 토글 — 새 상태에 맞춰 계측. 상태 업데이터 안이 아니라 여기서 발행(중복 방지).
@@ -941,18 +965,23 @@ export default function FocusSessionScreen() {
     const next = !pausedRef.current;
     setPaused(next);
     if (next) {
+      // 방해초(GROMO-1214 코드리뷰) — 정지 시작 시각을 찍고 횟수를 센다. 여기(유저 조작)에서만
+      // 연다: 휴식 만료 복귀가 만드는 '일시정지 대기'는 아래 markerDeferred 분기가 정산 구간
+      // 자체를 재개 시점으로 밀어 이미 제외되므로, 방해초로 또 빼면 이중 차감이다.
+      blockPauseRef.current = pauseStart(blockPauseRef.current);
       logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
     } else {
+      blockPauseRef.current = pauseEnd(blockPauseRef.current);
       // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
       // 정산 기준(settleAt)도 재개 시점으로 — 대기 동안은 경과초가 멈춰 있어 안전(코덱스 리뷰).
       if (markerDeferredRef.current) {
         markerDeferredRef.current = false;
-        settleAtRef.current = new Date().toISOString();
+        startBlockAt(new Date().toISOString());
         startLiveSession(settleAtRef.current);
       }
       logFocusSessionResumed();
     }
-  }, [startLiveSession]);
+  }, [startLiveSession, startBlockAt]);
 
   // 정지 버튼(사용자 수동 종료) — 유저가 직접 마친 세션이므로 모드 무관 completed로 계측한다
   // (GROMO-1004, abandoned는 이탈 타임아웃 전용 — finish 안에서 발행). completed 인자는 별점

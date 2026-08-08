@@ -180,8 +180,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      *
      * <p>세션을 창 경계로 클리핑(LEAST/GREATEST)해 겹친 구간만 계수한다. ACTIVE(미종료)는 ended_at IS NULL
      * 로, CANCELED·AUTO_CLOSED 는 status 로 제외 — findCompletedSessionsOverlappingPeriod 등 다른 집계 쿼리와 동일
-     * 관례. 창 판정은 세션 겹침 길이 기준이라 방해시간(total_distraction_seconds)은 차감하지 않는다
-     * (daily_focus_stats.total_focus_seconds 도 startedAt~endedAt 원시 길이 누적으로 미차감 — 동일 기준).
+     * 관례. 창 판정은 세션 겹침 길이 기준이라 방해시간(total_distraction_seconds)은 차감하지 않는다.
+     * ⚠️ GROMO-1214 코드리뷰로 {@code daily_focus_stats.total_focus_seconds} 는 방해 초를 <b>차감</b>하도록
+     * 바뀌었다(순수 집중 시간). 이 창 집계와 by-category({@link #findCompletedSessionsOverlappingPeriod})는
+     * 여전히 원시 겹침 길이라 기준이 갈린다 — 일시정지가 낀 세션에서 창/과목별 합이 일별 총합보다 커진다.
+     * 정합을 맞추려면 세션 길이 대비 방해 비율로 겹침을 깎아야 해서 별도 티켓으로 둔다.
      * LEAST/GREATEST + EXTRACT(EPOCH) 조합은 JPQL 로 표현할 수 없어 네이티브로 둔다
      * (그룹 챌린지 WindowFocusAggregator 전용).
      */

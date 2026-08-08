@@ -1060,7 +1060,8 @@ class FocusServiceTest {
         ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
         verify(dailyFocusStatRepository).save(captor.capture());
         DailyFocusStat stat = captor.getValue();
-        assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60);
+        // GROMO-1214 코드리뷰: totalFocusSeconds 는 방해 초를 뺀 순수 집중 시간(3600-30)
+        assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60 - 30);
         assertThat(stat.getSessionCount()).isEqualTo(1);
         assertThat(stat.getTotalDistractionSeconds()).isEqualTo(30);
         assertThat(stat.isFocusTimeGoalAchieved()).isFalse();
@@ -1535,6 +1536,107 @@ class FocusServiceTest {
         verify(userStreakService, never()).updateOnSessionComplete(any(), any());
     }
 
+    // ── 방해(일시정지) 초 차감 (GROMO-1214 코드리뷰 ⑤) ──────────────────────
+    // 앱이 늘 0을 보내던 시절엔 일시정지가 통째로 집중으로 지급·집계됐다. 앱이 실제 값을 싣기 시작하면서
+    // totalFocusSeconds 도 '순수 집중 시간'이 되도록 차감한다(지급 sessionRewardCoins 는 원래 차감했다).
+
+    @Test
+    @DisplayName("1214-⑤: 방해 초는 totalFocusSeconds 에서 빠지고, 코인도 차감 후 집중초로만 지급")
+    void distraction_subtractedFromDailyStatAndCoins() {
+        // 1시간 구간 + 방해 600초(10분 일시정지) → 순수 집중 3000초, 코인 floor(3000/60)=50
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 600));
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        // 집중초는 차감 후, 방해초는 별도 컬럼에 그대로
+        assertThat(captor.getValue().getTotalFocusSeconds()).isEqualTo(3000);
+        assertThat(captor.getValue().getTotalDistractionSeconds()).isEqualTo(600);
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(3000);
+        assertThat(response.awardedCoins()).isEqualTo(50);
+    }
+
+    /**
+     * 방해 초는 타임스탬프가 없어 날짜별로 정확히 못 나눈다 → 조각 길이에 비례 배분하고
+     * 마지막 조각이 잔여를 흡수해 총합을 보존한다.
+     * 07-12 16:29 KST ~ 07-13 00:29 KST = 8h(28800초) → 27060초 + 1740초 조각.
+     * 방해 600초 → 27060*600/28800 = 563(내림), 마지막 조각 = 600-563 = 37.
+     */
+    @Test
+    @DisplayName("1214-⑤: 자정 분할 — 방해 초가 조각 길이에 비례 배분되고 합이 정확히 보존된다")
+    void distraction_proratedAcrossMidnightSlices() {
+        Instant startedAt = Instant.parse("2026-07-12T07:29:00Z");
+        Instant endedAt = Instant.parse("2026-07-12T15:29:00Z");
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 600));
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository, times(2)).save(captor.capture());
+        List<DailyFocusStat> saved = captor.getAllValues();
+        assertThat(saved.get(0).getTotalDistractionSeconds()).isEqualTo(563);
+        assertThat(saved.get(1).getTotalDistractionSeconds()).isEqualTo(37);
+        // 방해 합 = 원본(잔여 흡수로 반올림 손실 없음), 집중 합 = 구간 − 방해
+        assertThat(saved.get(0).getTotalDistractionSeconds() + saved.get(1).getTotalDistractionSeconds())
+                .isEqualTo(600);
+        assertThat(saved.get(0).getTotalFocusSeconds()).isEqualTo(27060 - 563);
+        assertThat(saved.get(1).getTotalFocusSeconds()).isEqualTo(1740 - 37);
+        assertThat(saved.get(0).getTotalFocusSeconds() + saved.get(1).getTotalFocusSeconds())
+                .isEqualTo(28800 - 600);
+    }
+
+    @Test
+    @DisplayName("1214-⑤: 스트릭 10분 게이트는 차감 후 누적으로 판정 — 12분 세션 + 방해 3분이면 미인정")
+    void distraction_streakGateUsesNetSeconds() {
+        // 720초 구간 − 방해 180초 = 540초 < STREAK_MIN_SECONDS(600) → 스트릭 미갱신
+        Instant endedAt = START.plusSeconds(720);
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, endedAt, 180));
+
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(540);
+        assertThat(response.streakQualifiedToday()).isFalse();
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    @Test
+    @DisplayName("1214-⑤: 방해 초가 구간보다 커도 집중초는 음수가 아니라 0")
+    void distraction_neverGoesNegative() {
+        // 60초 구간에 방해 600초(있을 수 없는 조합이지만 하한 0 을 잠근다)
+        Instant endedAt = START.plusSeconds(60);
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+        FocusSessionSaveResponse response =
+                focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, endedAt, 600));
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository).save(captor.capture());
+        assertThat(captor.getValue().getTotalFocusSeconds()).isZero();
+        assertThat(response.awardedCoins()).isZero();
+    }
+
     // ── 자정 걸친 세션의 날짜별 분할 (GROMO-1252) ──────────────────────────
     // 종전엔 endedAt 하나의 로컬 날짜에 구간 전체를 가산해 전날 몫이 통째로 사라졌다(prod 실측 10.7h 오귀속).
 
@@ -1564,16 +1666,18 @@ class FocusServiceTest {
         // 날짜 오름차순(시작일 먼저) — 스트릭이 과거 날짜를 무시하므로 순서 자체가 계약이다
         assertThat(saved.get(0).getDate()).isEqualTo(LocalDate.of(2026, 7, 12));
         assertThat(saved.get(1).getDate()).isEqualTo(LocalDate.of(2026, 7, 13));
-        assertThat(saved.get(0).getTotalFocusSeconds()).isEqualTo(7 * 3600 + 31 * 60);
-        assertThat(saved.get(1).getTotalFocusSeconds()).isEqualTo(29 * 60);
-        // 합 = 원본 구간 (증발·부풀림 없음)
+        // GROMO-1214 코드리뷰: 조각 초에서 그 조각 몫의 방해 초를 뺀 순수 집중 시간이 누적된다
+        // (42초를 27060:1740 으로 비례 배분 → 39 + 3). 분할 자체(7h31m/29m)는 그대로.
+        assertThat(saved.get(0).getTotalFocusSeconds()).isEqualTo(7 * 3600 + 31 * 60 - 39);
+        assertThat(saved.get(1).getTotalFocusSeconds()).isEqualTo(29 * 60 - 3);
+        // 합 = 원본 구간 − 방해 초 (증발·부풀림 없음)
         assertThat(saved.get(0).getTotalFocusSeconds() + saved.get(1).getTotalFocusSeconds())
-                .isEqualTo((int) Duration.between(startedAt, endedAt).getSeconds());
-        // sessionCount·방해초는 시작일(첫 조각)에만
+                .isEqualTo((int) Duration.between(startedAt, endedAt).getSeconds() - 42);
+        // sessionCount 는 시작일(첫 조각)에만, 방해초는 조각 길이 비례 배분(합은 보존)
         assertThat(saved.get(0).getSessionCount()).isEqualTo(1);
-        assertThat(saved.get(0).getTotalDistractionSeconds()).isEqualTo(42);
         assertThat(saved.get(1).getSessionCount()).isZero();
-        assertThat(saved.get(1).getTotalDistractionSeconds()).isZero();
+        assertThat(saved.get(0).getTotalDistractionSeconds()).isEqualTo(39);
+        assertThat(saved.get(1).getTotalDistractionSeconds()).isEqualTo(3);
         // 세션 원본 행은 쪼개지 않는다 — 재업로드 멱등(구간 일치 조회)이 그대로 성립해야 한다
         verify(focusSessionRepository, times(1)).save(any(FocusSession.class));
     }
@@ -1597,11 +1701,12 @@ class FocusServiceTest {
         verify(dailyFocusStatRepository, times(1)).save(captor.capture());
         DailyFocusStat stat = captor.getValue();
         assertThat(stat.getDate()).isEqualTo(date);
-        assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60);
+        // GROMO-1214 코드리뷰: 방해 초 차감 후(3600-30)
+        assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60 - 30);
         assertThat(stat.getSessionCount()).isEqualTo(1);
         assertThat(stat.getTotalDistractionSeconds()).isEqualTo(30);
         verify(userStreakService, times(1)).updateOnSessionComplete(krUser, date);
-        assertThat(response.dayTotalFocusSeconds()).isEqualTo(60 * 60);
+        assertThat(response.dayTotalFocusSeconds()).isEqualTo(60 * 60 - 30);
     }
 
     /**

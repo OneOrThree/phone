@@ -704,11 +704,22 @@ public class FocusService {
      * <p><b>GROMO-1252 — 자정 분할</b>: 날짜별 조각({@code secondsByDate} — 앱 분포 또는 벽시계 분할,
      * {@link #resolveSecondsByDate})으로 나눠 적립한다. 분할되는 것과 안 되는 것:
      * <ul>
-     *   <li>날짜별로 나눔: {@code totalFocusSeconds}, 목표 달성 판정·지급(멱등키가 날짜별이라 어제·오늘
-     *       둘 다 채우면 양쪽 다 지급), 스트릭(그 날짜 누적이 10분 이상인 날만 인정 — 쪼갠 뒤 미달이면 미인정)</li>
+     *   <li>날짜별로 나눔: {@code totalFocusSeconds}, {@code totalDistractionSeconds}, 목표 달성 판정·지급
+     *       (멱등키가 날짜별이라 어제·오늘 둘 다 채우면 양쪽 다 지급), 스트릭(그 날짜 누적이 10분 이상인
+     *       날만 인정 — 쪼갠 뒤 미달이면 미인정)</li>
      *   <li>나누지 않음: 세션 원본 행(1건 유지 → 재업로드 멱등 그대로), 세션 보상 코인(멱등키가 세션 기준),
-     *       {@code sessionCount}·{@code totalDistractionSeconds}(타임스탬프가 없어 쪼갤 수 없다) → 시작일에만</li>
+     *       {@code sessionCount}(세션 1건은 어디까지나 1건) → 시작일에만</li>
      * </ul>
+     *
+     * <p><b>GROMO-1214 코드리뷰 — 방해 초 차감</b>: {@code totalFocusSeconds} 는 <b>순수 집중 시간</b>이다.
+     * 조각 길이(벽시계)에서 그 조각 몫의 방해 초를 빼서 누적한다. 종전엔 빼지 않아 앱이 일시정지 시간을
+     * 실어 보내기 시작하면 통계만 부풀고 지급({@link #sessionRewardCoins}, 이미 차감)과 어긋났다.
+     * 방해 초는 타임스탬프가 없어 정확히 못 나누므로 <b>조각 길이에 비례 배분</b>하고, 마지막 조각이
+     * 반올림 잔여를 흡수해 총합을 정확히 보존한다. 조각 초를 넘는 방해는 하한 0 으로 자른다.
+     * 스트릭 10분 게이트·목표 달성 판정은 모두 <b>차감 후</b> 누적으로 이뤄진다.
+     *
+     * <p><b>미래 endedAt 클램프</b>: 분할 전에 종료 시각을 서버 {@code now} 로 클램프한다(통계 귀속 전용 —
+     * 저장된 세션 행은 앱이 보낸 값 그대로). 상세는 아래 구현 주석 참조.
      *
      * @param secondsByDate 날짜 오름차순 조각(호출부가 {@link #resolveSecondsByDate} 로 만들어 넘긴다)
      * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
@@ -738,16 +749,28 @@ public class FocusService {
         int dayTotalFocusSeconds = 0;
         boolean streakQualifiedToday = false;
         boolean firstSlice = true;
+        // 방해 초 비례 배분용(GROMO-1214 코드리뷰) — 총 벽시계와 지금까지 배분한 양.
+        int totalWallSeconds = secondsByDate.values().stream().mapToInt(Integer::intValue).sum();
+        int distractionAllocated = 0;
+        int sliceIndex = 0;
 
         for (Map.Entry<LocalDate, Integer> slice : secondsByDate.entrySet()) {
             LocalDate statDate = slice.getKey();
-            // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
-            int addedSeconds = slice.getValue();
-            // 세션 1건은 어디까지나 1건 — 시작일(첫 조각)에만 계수한다. 방해 초도 타임스탬프가 없어
-            // 조각에 배분할 수 없으므로 시작일에 전량 귀속한다(GROMO-1252).
+            int wallSeconds = slice.getValue();
+            // 세션 1건은 어디까지나 1건 — 시작일(첫 조각)에만 계수한다(GROMO-1252).
             int addedSessionCount = firstSlice ? 1 : 0;
-            int addedDistractionSeconds = firstSlice ? totalDistractionSeconds : 0;
             firstSlice = false;
+            // 방해 초는 타임스탬프가 없어 날짜별로 정확히 못 나눈다 — 조각 길이에 비례 배분하고,
+            // 마지막 조각이 반올림 잔여를 흡수해 총합을 정확히 보존한다(조각이 1개면 곧 전량).
+            // 조각이 2개 이상이면 totalWallSeconds > 0 이 보장돼 0 나눗셈이 없다.
+            sliceIndex++;
+            int addedDistractionSeconds = sliceIndex == secondsByDate.size()
+                    ? totalDistractionSeconds - distractionAllocated
+                    : (int) ((long) totalDistractionSeconds * wallSeconds / totalWallSeconds);
+            distractionAllocated += addedDistractionSeconds;
+            // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
+            // GROMO-1214 코드리뷰: 누적하는 건 '순수 집중 초' = 조각 벽시계 − 그 조각 몫의 방해 초(하한 0).
+            int addedSeconds = Math.max(0, wallSeconds - addedDistractionSeconds);
 
             // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
             // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
