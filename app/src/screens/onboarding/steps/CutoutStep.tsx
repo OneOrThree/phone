@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react';
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
@@ -131,25 +131,32 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
 
           {/* 생성기 — NavigationContainer가 필요 없는 RN Modal로 띄운다. 닫기는 상단 X 버튼. */}
           <Modal visible={modalOpen} animationType="slide" onRequestClose={closeCreator}>
-            <SafeAreaView style={s.modalRoot} edges={['top', 'bottom']}>
-              <View style={s.modalBar}>
-                <Text style={s.modalTitle}>사진에서 캐릭터 만들기</Text>
-                <TouchableOpacity
-                  onPress={closeCreator}
-                  style={s.modalClose}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                >
-                  <Ionicons name="close" size={24} color={T.ink} />
-                </TouchableOpacity>
-              </View>
-              <View style={s.modalBody}>
-                <CharacterCreator
-                  userId={userId}
-                  onSaved={handleSaved}
-                  onUnavailable={() => setModerationUnavailable(true)}
-                />
-              </View>
-            </SafeAreaView>
+            {/* RN Modal은 별도 네이티브 window라 바깥(App.tsx)의 SafeAreaProvider가 주는 inset이
+                안쪽까지 오지 않는다 — edges를 줘도 top이 0으로 잡혀 제목·닫기 버튼이 상태바와
+                겹친다(GROMO-1211). 특히 다른 앱에서 돌아와 '◀ 앱이름' 표시로 상태바가 커진
+                상태에서 두드러진다. Provider를 Modal 안에 다시 두면 이 window에서 실제 inset을
+                측정한다(safe-area-context 공식 권장, react-navigation도 모달에 같은 처리). */}
+            <SafeAreaProvider>
+              <SafeAreaView style={s.modalRoot} edges={['top', 'bottom']}>
+                <View style={s.modalBar}>
+                  <Text style={s.modalTitle}>사진에서 캐릭터 만들기</Text>
+                  <TouchableOpacity
+                    onPress={closeCreator}
+                    style={s.modalClose}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <Ionicons name="close" size={24} color={T.ink} />
+                  </TouchableOpacity>
+                </View>
+                <View style={s.modalBody}>
+                  <CharacterCreator
+                    userId={userId}
+                    onSaved={handleSaved}
+                    onUnavailable={() => setModerationUnavailable(true)}
+                  />
+                </View>
+              </SafeAreaView>
+            </SafeAreaProvider>
           </Modal>
         </>
       ) : (
