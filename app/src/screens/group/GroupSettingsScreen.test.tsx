@@ -209,23 +209,24 @@ describe('그룹 나가기', () => {
     alertSpy.mockRestore();
   });
 
-  test('방장이 나가려다 실패하면 위임 화면으로 유도한다(HOST_WITHDRAW)', async () => {
+  test('방장이 나가려다 실패하면 위임 카드 모달로 유도한다(HOST_WITHDRAW)', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(409, 'HOST_WITHDRAW'));
     await renderScreen();
 
     await pressLeaveAndConfirm(alertSpy);
 
-    expect(alertSpy).toHaveBeenLastCalledWith(
-      '방장은 바로 나갈 수 없어요',
-      '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
-      expect.arrayContaining([expect.objectContaining({ text: '방장 넘기고 나가기' })]),
-    );
+    // 네이티브 Alert 강하 없이 앱 컨셉 카드 모달이 뜬다(GROMO-1210) — 문구는 기존 그대로.
+    expect(screen.getByTestId('group.settings.hostBlocked')).toBeOnTheScreen();
+    expect(screen.getByText('방장은 바로 나갈 수 없어요')).toBeOnTheScreen();
+    expect(
+      screen.getByText('그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.'),
+    ).toBeOnTheScreen();
+    // Alert는 나가기 확인(나갈까요?) 한 번뿐 — 블록 안내가 Alert로 새지 않는다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
     await act(async () => {
-      alertSpy.mock.calls
-        .at(-1)?.[2]
-        ?.find((b: { text?: string }) => b.text === '방장 넘기고 나가기')
-        ?.onPress?.();
+      fireEvent.press(screen.getByTestId('group.settings.hostBlocked.primary'));
     });
     expect(mockNavigate).toHaveBeenCalledWith('GroupOwnerTransfer', {
       groupId: GROUP_ID,

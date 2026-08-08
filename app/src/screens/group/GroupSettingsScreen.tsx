@@ -13,6 +13,7 @@ import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
@@ -45,6 +46,8 @@ export default function GroupSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
+  const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
 
   // 요청 시퀀스 — 겹친 조회 중 늦게 온 이전 응답이 최신을 덮지 않게 한다(그룹 3화면 공통 패턴).
   const requestSeqRef = useRef(0);
@@ -89,19 +92,8 @@ export default function GroupSettingsScreen() {
     } catch (e) {
       switch (groupErrorCode(e)) {
         case 'HOST_WITHDRAW':
-          // A-2: 방장은 바로 나갈 수 없다 — 위임 화면으로 유도(위임 직후 자동 나가기까지).
-          Alert.alert(
-            '방장은 바로 나갈 수 없어요',
-            '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
-            [
-              { text: '취소', style: 'cancel' },
-              {
-                text: '방장 넘기고 나가기',
-                onPress: () =>
-                  navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' }),
-              },
-            ],
-          );
+          // A-2: 방장은 바로 나갈 수 없다 — 카드 모달로 위임 화면 유도(위임 직후 자동 나가기까지).
+          setHostBlockedOpen(true);
           break;
         case 'NOT_FOUND':
         case 'MEMBER_ONLY':
@@ -243,6 +235,22 @@ export default function GroupSettingsScreen() {
     <SafeAreaView style={s.root} edges={['top']} testID="group.settings.screen">
       {header}
       {body}
+
+      {/* 방장 블록 안내 — 문구는 기존 Alert에서 그대로 이식(카피 정본, GROMO-1210) */}
+      <ConfirmCardModal
+        visible={hostBlockedOpen}
+        title="방장은 바로 나갈 수 없어요"
+        body="그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요."
+        primaryLabel="방장 넘기고 나가기"
+        onPrimary={() => {
+          setHostBlockedOpen(false);
+          navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' });
+        }}
+        secondaryLabel="취소"
+        onSecondary={() => setHostBlockedOpen(false)}
+        onRequestClose={() => setHostBlockedOpen(false)}
+        testID="group.settings.hostBlocked"
+      />
     </SafeAreaView>
   );
 }
