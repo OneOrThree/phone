@@ -9,9 +9,11 @@ import type { StatsPeriod } from '@/types/dto/stats';
 import { getAllFocusSessions } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { axisCeil, fmtAxis, fmtHm } from '@/utils/timeFormat';
+import { localDateStr } from '@/utils/localDate';
 import {
   dailyFirstStartMinutes,
   firstStartPoints,
+  kstTodayDate,
   type StatBar,
   type StartTimePoint,
 } from './format';
@@ -159,17 +161,21 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
       (async () => {
         // 조회 시작점: 주=이번 주 월요일, 월=이달 1일이 낀 주의 월요일('N월 주별' 차트와 동일 구간).
         // 서버 /focus-session은 startedAt 필터라 '그날 시작한 세션'과 정확히 일치한다.
-        const now = new Date();
+        // 축은 KST(GROMO-1236 P2) — 점 버킷(dailyFirstStartMinutes)·그리드가 KST 일이므로 조회
+        // 하한도 KST 월요일 자정 '순간'이어야 경계 세션이 빠지지 않는다. +09:00 고정 오프셋은
+        // KST가 DST 없는 존이라 안전.
+        const kstToday = kstTodayDate();
         const from = new Date(
-          period === 'WEEK' ? now : new Date(now.getFullYear(), now.getMonth(), 1),
+          period === 'WEEK' ? kstToday : new Date(kstToday.getFullYear(), kstToday.getMonth(), 1),
         );
         const dow = from.getDay(); // 0=일..6=토
         from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
-        from.setHours(0, 0, 0, 0);
+        const fromInstant = new Date(`${localDateStr(from)}T00:00:00+09:00`);
         // 조회 실패 → 빈 차트("아직 기록이 없어요")로 표시
-        const all = await getAllFocusSessions(from.toISOString(), new Date().toISOString()).catch(
-          () => [] as FocusSessionResponse[],
-        );
+        const all = await getAllFocusSessions(
+          fromInstant.toISOString(),
+          new Date().toISOString(),
+        ).catch(() => [] as FocusSessionResponse[]);
         if (cancelled) return;
         setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
       })();

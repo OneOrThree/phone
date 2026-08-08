@@ -41,11 +41,12 @@ import { PressableScale } from '@/components/PressableScale';
 import { fabWindowRect } from '@/components/TabBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { todayStr } from '@/utils/localDate';
+import { kstLocalSameDay, todayStr } from '@/utils/localDate';
 import { playTapSound } from '@/utils/sound';
 import { getTodayStats, getStreak } from '@/services/statsApi';
 import { hasUnread, subscribeInbox } from '@/services/notificationInbox';
 import {
+  celebrationDayKey,
   readPendingCelebration,
   clearPendingCelebration,
   subscribeCelebration,
@@ -298,8 +299,11 @@ export default function HomeScreen() {
       try {
         const data = await getTodayStats();
         setTodayStats(data);
-        // 계측도 실제 표시값과 동일 기준 — 서버·로컬 최댓값 병합(아래 focusValueSeconds와 같은 규칙).
-        return Math.max(data.focus.todayMinutes, Math.round(todayFocusSecondsRef.current / 60));
+        // 계측도 실제 표시값과 동일 기준 — 서버·로컬 최댓값 병합(아래 focusValueSeconds와 같은
+        // 규칙·같은 동축 게이트: 축이 갈린 날은 로컬 누적이 다른 KST 날짜 몫이라 합치지 않는다).
+        return kstLocalSameDay()
+          ? Math.max(data.focus.todayMinutes, Math.round(todayFocusSecondsRef.current / 60))
+          : data.focus.todayMinutes;
       } catch {
         // 네트워크/인증 실패 → 아래 로컬 폴백
       }
@@ -314,7 +318,9 @@ export default function HomeScreen() {
   const checkGoalCelebration = useCallback(async () => {
     const p = await readPendingCelebration();
     if (!p) return;
-    if (p.date !== todayStr()) {
+    // 예약 date는 결과 화면이 celebrationDayKey(KST — 달성 판정 버킷 축)로 쓴다 — 비교도 같은
+    // 키(GROMO-1236 P2 6라운드, 체인 전체 한 축). 아래 스크린타임 축하는 측정 축(로컬) 체인이라 별개.
+    if (p.date !== celebrationDayKey()) {
       clearPendingCelebration().catch(() => {});
       return;
     }
@@ -445,8 +451,12 @@ export default function HomeScreen() {
   // 없을 수 있고, 서버는 분 내림 집계라 1분 미만 세션은 영영 0이다. 결과 화면과 동일하게
   // max(서버, 로컬 누적)로 바닥을 깔아 홈 복귀 직후에도 방금 세션이 보이게 한다
   // (이중 집계 없음 — max라 서버 반영 후엔 서버값 그대로). 목표는 서버값 우선, 없으면 온보딩 목표.
+  // 병합은 동축일 때만(kstLocalSameDay, GROMO-1236 P2 6라운드) — 측정 축은 로컬 소유라 축이
+  // 갈린 날의 로컬 누적은 다른 KST 날짜 몫이다. 서버 미확보 시 로컬 폴백은 종전대로(측정 단독 표시).
   const focusValueSeconds = todayStats
-    ? Math.max(todayStats.focus.todayMinutes * 60, todayFocusSeconds)
+    ? kstLocalSameDay()
+      ? Math.max(todayStats.focus.todayMinutes * 60, todayFocusSeconds)
+      : todayStats.focus.todayMinutes * 60
     : todayFocusSeconds;
   const focusGoalSeconds = todayStats ? todayStats.focus.goalMinutes * 60 : goalSeconds;
 

@@ -69,6 +69,7 @@ type ChallengeResultPreviewKind = 'challengeAchieved' | 'challengeFailed' | 'cha
 
 function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResultCandidate {
   // 날짜는 실제 노출과 같은 '어제' — 모달의 'M/D 결과' 표기가 실전과 같은 모양으로 보인다.
+  // dev fixture라 로컬 유지 — 서버로 나가지 않는 미리보기 값(GROMO-1236 분류 C).
   const base = {
     challengeId: `preview-${kind}`,
     date: yesterdayStr(),

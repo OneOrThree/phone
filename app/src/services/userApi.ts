@@ -3,7 +3,7 @@
 // (예외: deleteDeviceToken — 세션 정리용이라 인터셉터 없는 bare axios를 쓴다. 아래 주석 참고.)
 import axios from 'axios';
 import { api, API_URL } from '@/services/api';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
@@ -126,11 +126,12 @@ export async function getPublicProfile(userId: string): Promise<PublicProfileRes
 }
 
 // GET /api/v1/users/{userId}/stats — 타 유저 통계 조회(본인·친구·전체공개면 상세).
-// date는 서버 필수 파라미터(GROMO-643 — '오늘'·최근 7일 기준을 클라 로컬 날짜로 산정).
-// 미전송 시 400으로 상세 통계 전체가 떨어지므로 기본값으로 항상 로컬 오늘을 채운다.
+// date는 서버 필수 파라미터(GROMO-643 — '오늘'·최근 7일의 기준일). 미전송 시 400으로 상세 통계
+// 전체가 떨어진다. 서버는 이 값을 KST 일별 버킷에 그대로 조회하므로 기본값은 KST 오늘이다
+// (GROMO-1236 — 비KST 기기에서 로컬 날짜를 보내면 하루 오귀속).
 export async function getUserStats(
   userId: string,
-  date: string = todayStr(),
+  date: string = todayStrKst(),
 ): Promise<UserStatsResponse> {
   const { data } = await api.get<UserStatsResponse>(`/api/v1/users/${userId}/stats`, {
     params: { date },

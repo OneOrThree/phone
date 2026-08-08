@@ -3,6 +3,7 @@
 // 시간대는 jest.config.js에서 Asia/Seoul 고정.
 import {
   kstDateStr,
+  kstLocalSameDay,
   localDateStr,
   todayStr,
   todayStrKst,
@@ -116,5 +117,23 @@ describe('yesterdayStrKst / kstDateStr', () => {
     expect(yesterdayStrKst()).toBe('2026-07-31');
     jest.setSystemTime(new Date('2026-01-01T09:00:00+09:00'));
     expect(yesterdayStrKst()).toBe('2025-12-31');
+  });
+});
+
+// 병합 동축 게이트(GROMO-1236 P2 6→7라운드) — 조건은 날짜 **라벨** 비교가 아니라 **오프셋**
+// 일치다: 라벨이 같아도 자정 경계가 다르면(예: 시드니 월 02:00 = KST 월 00:00 — 라벨 둘 다
+// '월요일') 로컬 누적에 인접 KST 버킷 몫이 이미 섞여 있다. 오프셋이 -540이면 두 자정이 정확히
+// 겹쳐 누적 경계 == 서버 버킷 경계. 러너 TZ가 Asia/Seoul 고정이라 false 분기(비KST 기기)는
+// 값으로 재현할 수 없다 — 여기서는 오프셋 정의와 자정 경계 안정성만 잠근다. 소비처의 축 자체는
+// 각 화면의 게이트 주석 + celebrationDayKey 축 테스트가 담당.
+describe('kstLocalSameDay', () => {
+  test('KST 러너에선 항상 true — 정의는 기기 오프셋 == KST(-540)다', () => {
+    expect(kstLocalSameDay()).toBe(true);
+    expect(kstLocalSameDay()).toBe(new Date().getTimezoneOffset() === -540);
+  });
+
+  test('KST 자정 직후(UTC 전날 시각)에도 오프셋은 그대로라 true', () => {
+    jest.setSystemTime(new Date('2026-07-16T00:30:00+09:00'));
+    expect(kstLocalSameDay()).toBe(true);
   });
 });

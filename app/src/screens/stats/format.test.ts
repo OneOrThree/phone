@@ -181,6 +181,38 @@ describe('weekdayFocusBlocks', () => {
     );
     expect(blocks).toEqual([]);
   });
+
+  // 비KST 기기에선 주 시작(KST 자정 '순간')이 로컬 자정과 어긋나 조각 중간에 온다(GROMO-1236 P2
+  // 5라운드) — 월요일 10:00를 주 시작으로 두어 그 상황을 재현한다.
+  test('주 시작이 조각 중간이면 걸친 조각은 시작을 잘라 주 내 몫만 담는다', () => {
+    const midWeekStart = new Date('2026-07-13T10:00:00+09:00').getTime();
+    const blocks = weekdayFocusBlocks(
+      [
+        {
+          startedAt: '2026-07-13T09:00:00+09:00',
+          endedAt: '2026-07-13T11:00:00+09:00',
+          focusTagId: 't1',
+        },
+      ],
+      midWeekStart,
+    );
+    expect(blocks).toEqual([{ col: 0, startMin: 600, endMin: 660, tagId: 't1' }]);
+  });
+
+  test('주 시작 이전에 끝난 조각은 통째로 버린다', () => {
+    const midWeekStart = new Date('2026-07-13T10:00:00+09:00').getTime();
+    const blocks = weekdayFocusBlocks(
+      [
+        {
+          startedAt: '2026-07-13T08:00:00+09:00',
+          endedAt: '2026-07-13T09:30:00+09:00',
+          focusTagId: null,
+        },
+      ],
+      midWeekStart,
+    );
+    expect(blocks).toEqual([]);
+  });
 });
 
 describe('dayNum', () => {

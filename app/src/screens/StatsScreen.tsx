@@ -27,7 +27,8 @@ import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { useFocus } from '@/store/FocusContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { fmtMinutes, hms } from '@/utils/timeFormat';
-import { PERIOD_TABS, periodKey, heatmapBars, mergeCardOrder } from './stats/format';
+import { kstLocalSameDay } from '@/utils/localDate';
+import { PERIOD_TABS, periodKey, heatmapBars, kstTodayDate, mergeCardOrder } from './stats/format';
 import { SectionCard } from './stats/SectionCard';
 import { CompareWeek, ComparePeriod } from './stats/Compare';
 import { PasserCompareChart } from './stats/PasserCompareChart';
@@ -103,7 +104,9 @@ export default function StatsScreen() {
 
   // 카드 목록(현재 탭) — push 순서가 기본 순서(기존 렌더 순서 그대로). key는 순서 저장(AsyncStorage)에
   // 쓰이므로 바꾸면 유저가 저장한 순서와 어긋난다(GROMO-762).
-  const month = new Date().getMonth() + 1;
+  // 월 카드 제목의 'N월'은 데이터(KST 월 집계·MonthWeeklyChart)와 같은 축 — 로컬 시계 월은
+  // 비KST 기기의 월 경계 시간대에 데이터와 다른 달을 가리킨다(GROMO-1236 P2 5라운드, 라벨 정렬).
+  const month = kstTodayDate().getMonth() + 1;
   const cards: { key: string; node: ReactNode }[] = [];
 
   // 첫 진입 스포트라이트 투어(GROMO-652) — 총/과목별 카드를 차례로 비추고, 화면 밖이면
@@ -189,7 +192,9 @@ export default function StatsScreen() {
           }
         >
           <Text style={cs.bigStat}>
-            {period === 'DAY'
+            {/* 일 탭의 라이브 초 표시는 로컬 누적(측정 축) — 축이 갈린 날은 다른 KST 날짜 몫이라
+                서버 일 집계(KST)로 대체한다(kstLocalSameDay, GROMO-1236 P2 6라운드. KR 기기 불변) */}
+            {period === 'DAY' && kstLocalSameDay()
               ? hms(todayFocusSeconds)
               : fmtMinutes(data.focus?.totalFocusMinutes ?? 0)}
           </Text>
@@ -201,8 +206,9 @@ export default function StatsScreen() {
               key={period}
               period={period}
               myMinutes={
-                // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분), 월=서버 기간 집계
-                period === 'DAY'
+                // 내 값은 위 큰 숫자와 동일 소스 — 일=로컬 오늘 누적(초→분, 동축일 때만 — 위와
+                // 같은 게이트), 월=서버 기간 집계
+                period === 'DAY' && kstLocalSameDay()
                   ? Math.round(todayFocusSeconds / 60)
                   : (data.focus?.totalFocusMinutes ?? 0)
               }

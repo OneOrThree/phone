@@ -9,8 +9,13 @@ import { T } from '@/constants/theme';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 import { useSubjects } from '@/store/SubjectContext';
-import { todayStr } from '@/utils/localDate';
-import { subjectColorForTag, weekdayFocusBlocks, type WeekFocusBlock } from './format';
+import { localDateStr, todayStr } from '@/utils/localDate';
+import {
+  kstTodayDate,
+  subjectColorForTag,
+  weekdayFocusBlocks,
+  type WeekFocusBlock,
+} from './format';
 import { SectionCard } from './SectionCard';
 import { WEEK_DAYS } from './constants';
 import { cs } from './cardStyles';
@@ -20,6 +25,7 @@ import { useTimetableShareCapture } from './useTimetableShareCapture';
 // 주간 타임라인 카드 — '오늘 타임테이블'(FocusTimetableCard)과 동일하게 공유하기(캡처→Share) 버튼 제공(GROMO-778).
 export function WeeklyTimetableCard() {
   // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
+  // 파일명 날짜는 로컬 유지 — 저장하는 기기의 체감 날짜가 정본(GROMO-1236 분류 C)
   const makeFileName = useCallback(
     () => `${todayStr().slice(2).replace(/-/g, '')}_주간타임라인`,
     [],
@@ -68,18 +74,19 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        // 이번 주 월요일 00:00(로컬)부터 지금까지. 전주 일요일에서 자정을 넘어온 세션의 월요일 몫도
-        // 담기 위해 하루 전부터 받고(LongestSessionStat과 동일 방식), 주 시작 이전 조각은 헬퍼가 버린다.
+        // 이번 주는 KST 월요일 00:00 '순간'부터 지금까지(GROMO-1236 P2 4라운드) — 같은 화면의
+        // 주간 총계·히트맵이 KST 주라, 선별 창이 로컬 주면 비KST 기기에서 서로 다른 주를 담는다.
+        // 블록의 요일 칼럼·세로 위치(벽시계)는 세션 타임스탬프 표시 축이라 종전대로 로컬.
+        // +09:00 고정 오프셋은 KST가 DST 없는 존이라 안전(FirstStartChart와 동일).
         const now = new Date();
-        const dow = now.getDay(); // 0=일..6=토
-        const monday = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate() + (dow === 0 ? -6 : 1 - dow),
-        );
-        monday.setHours(0, 0, 0, 0);
-        const from = new Date(monday);
-        from.setDate(from.getDate() - 1);
+        const kstNow = kstTodayDate();
+        const dow = kstNow.getDay(); // 0=일..6=토
+        const monday = new Date(kstNow);
+        monday.setDate(kstNow.getDate() + (dow === 0 ? -6 : 1 - dow));
+        const weekStart = new Date(`${localDateStr(monday)}T00:00:00+09:00`);
+        // 전주 일요일에서 자정을 넘어온 세션의 월요일 몫도 담기 위해 하루 전부터 받고
+        // (LongestSessionStat과 동일 방식), 주 시작 이전 조각은 헬퍼가 버린다.
+        const from = new Date(weekStart.getTime() - 86_400_000);
         const [sessions, tags] = await Promise.all([
           getAllFocusSessions(from.toISOString(), now.toISOString()).catch(
             () => [] as FocusSessionResponse[],
@@ -88,7 +95,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
         ]);
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
-        setBlocks(weekdayFocusBlocks(sessions, monday.getTime()));
+        setBlocks(weekdayFocusBlocks(sessions, weekStart.getTime()));
         // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
         onLoaded?.();
       })();

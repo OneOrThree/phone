@@ -9,8 +9,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { T } from '@/constants/theme';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
 import { getHeatmap } from '@/services/statsApi';
-import { localDateStr, todayStr } from '@/utils/localDate';
-import { dayNum, type StatBar } from './format';
+import { localDateStr, todayStrKst } from '@/utils/localDate';
+import { dayNum, kstTodayDate, type StatBar } from './format';
 import { LineChart } from './charts';
 import { cs } from './cardStyles';
 
@@ -32,14 +32,17 @@ export function MonthWeeklyChart({
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        const now = new Date();
+        // '이번 달'도 KST 앵커(GROMO-1236 P2 리뷰 반영) — 로컬 이달 1일(from)은 월 경계에서
+        // 로컬이 KST보다 앞선 기기일 때 from > to(KST 오늘)가 돼 서버 400 → catch → 월 전체가
+        // 0으로 그려진다. 한 축(KST)에서 파생하면 from<=to가 항상 성립한다.
+        const now = kstTodayDate();
         const monthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
         // 이달 1일이 속한 주의 월요일 — 주차 인덱스·가로축 라벨의 기준점(예: 7월 첫 주 = 6/29~7/5)
         const dow = monthFirst.getDay(); // 0=일..6=토
         const weekStart0 = new Date(monthFirst);
         weekStart0.setDate(monthFirst.getDate() - (dow === 0 ? 6 : dow - 1));
         // 조회는 이달 1일부터 — 첫 주에 낀 전월 날짜를 받으면 총계 히어로(월 집계)와 합이 어긋난다
-        const cells = await getHeatmap(localDateStr(monthFirst), todayStr()).catch(
+        const cells = await getHeatmap(localDateStr(monthFirst), todayStrKst()).catch(
           () => [] as HeatmapCellResponse[],
         );
         if (cancelled) return;

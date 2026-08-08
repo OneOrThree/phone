@@ -18,13 +18,18 @@ import type {
   StreakResponse,
   HeatmapCellResponse,
 } from '@/types/dto/stats';
-import { localDateStr, todayStr } from '@/utils/localDate';
+import { kstLocalSameDay, localDateStr, todayStr, todayStrKst } from '@/utils/localDate';
+import { kstTodayDate } from '@/screens/stats/format';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useSubjects } from '@/store/SubjectContext';
 import { fmtMinutes, fmtHm, axisCeil, fmtAxis } from '@/utils/timeFormat';
-import { hms } from './format';
+import { hms, thisWeekDates } from './format';
 import { fetchFocusAverage, fetchFriendsAverage } from '@/services/compareAverages';
-import { readPendingCelebration, schedulePendingCelebration } from '@/services/goalCelebration';
+import {
+  celebrationDayKey,
+  readPendingCelebration,
+  schedulePendingCelebration,
+} from '@/services/goalCelebration';
 import { maybeRequestReview } from '@/services/storeReview';
 import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
@@ -91,17 +96,6 @@ function parsePoppedMarkers(raw: string | null): Set<string> {
     // 구버전 단일 'userId:날짜' 값은 아래에서 그대로 마이그레이션한다.
   }
   return new Set([raw]);
-}
-
-// 이번 주 월~일 날짜('YYYY-MM-DD') 배열.
-function thisWeekDates(): string[] {
-  const now = new Date();
-  const dow = now.getDay(); // 0=일..6=토
-  const toMonday = dow === 0 ? -6 : 1 - dow;
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + toMonday);
-  return Array.from({ length: 7 }, (_, i) =>
-    localDateStr(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)),
-  );
 }
 
 export default function FocusResultScreen() {
@@ -187,7 +181,7 @@ export default function FocusResultScreen() {
       .then((st) => {
         if (!cancelled) setStreak(st);
       });
-    getHeatmap(days[0], todayStr())
+    getHeatmap(days[0], todayStrKst()) // 주 키(days)와 같은 KST 축 — 서버 버킷 상한(GROMO-1236 P2)
       .catch(() => null)
       .then((cells) => {
         if (cancelled) return;
@@ -219,16 +213,19 @@ export default function FocusResultScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const today = todayStr();
-        if ((await AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratedDate)) === today) return;
+        // 하루 1회 축하 가드 키 — 달성 판정 버킷(KST)과 같은 축(celebrationDayKey, GROMO-1236 P2
+        // 6라운드: 로컬 키는 한 KST 하루가 로컬 이틀에 걸릴 때 같은 달성을 두 번 축하했다.
+        // 예약·완료 기록·홈 비교까지 체인 전체가 이 키로 통일).
+        const dayKey = celebrationDayKey();
+        if ((await AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratedDate)) === dayKey) return;
         // 오늘 예약이 이미 있으면 재판정 불필요
-        if ((await readPendingCelebration())?.date === today) return;
+        if ((await readPendingCelebration())?.date === dayKey) return;
         const stats = await getTodayStats().catch(() => null);
         const goalMin = stats ? stats.focus.goalMinutes : Math.round(userGoalSeconds / 60);
-        const todayMin = Math.max(
-          stats?.focus.todayMinutes ?? 0,
-          Math.floor(todayFocusSeconds / 60),
-        );
+        // 측정 축은 로컬 소유(FocusContext 하루 누적) — 축이 갈린 날은 로컬 누적을 KST 집계와
+        // 합치지 않는다(kstLocalSameDay 공용 게이트, GROMO-1236 P2 5→6라운드. KR 기기는 행동 불변).
+        const localAccumMin = kstLocalSameDay() ? Math.floor(todayFocusSeconds / 60) : 0;
+        const todayMin = Math.max(stats?.focus.todayMinutes ?? 0, localAccumMin);
         const achieved =
           goalMin > 0 && ((stats?.focus.goalAchieved ?? false) || todayMin >= goalMin);
         if (!achieved) return;
@@ -236,7 +233,9 @@ export default function FocusResultScreen() {
         // 장기 스트릭을 최대 61일로 잘라먹는다(PR 225 리뷰). 창 안이 전부 달성이면 다음 창을
         // 이어 조회하고, 빈 날을 만나면 멈춘다. 상한 12창(약 2년) — 과호출 방지.
         let days = 1; // 오늘(방금 달성)
-        const cursor = new Date();
+        // 연속 달성일 계산은 heatmap(KST 일 버킷) 읽기 — 커서·조회 창도 KST 달력 날짜로 후진해야
+        // 비KST 기기에서 하루씩 어긋난 셀을 읽지 않는다(GROMO-1236 P2).
+        const cursor = kstTodayDate();
         cursor.setDate(cursor.getDate() - 1);
         const CHUNK_DAYS = 60;
         const MAX_CHUNKS = 12;
@@ -259,15 +258,22 @@ export default function FocusResultScreen() {
           }
           if (gapFound) break;
         }
-        await schedulePendingCelebration({ date: today, days, goalMinutes: goalMin });
+        await schedulePendingCelebration({ date: dayKey, days, goalMinutes: goalMin });
       } catch {
         // 판정 실패 시 축하 생략 — 다음 결과 화면 진입에서 재판정된다
       }
     })();
   }, [todayFocusSeconds, userGoalSeconds]);
 
-  const today = todayStr();
+  // 데이터 결합 키(heatmap 셀·주간 막대·오늘 값·미래 판정)는 KST — 서버 버킷·주간 합계와 같은
+  // 축이어야 비KST 기기에서 헤더 합계와 막대가 갈라지지 않는다(GROMO-1236 P2).
+  const today = todayStrKst();
   const days = thisWeekDates();
+  // 세션 저장 판정(verdict) 유효성 비교만 로컬 축 — sessionSaveVerdict가 로컬 날짜로 발행하는
+  // 측정 축 값이라 같은 축끼리 비교한다(강제 이전 금지, GROMO-1236 P2 6라운드에서 재확인).
+  // ✓ 팝 dedup 마커는 6라운드에 KST(today)로 이전 — 판정(todayStreakDone)이 KST 셀 기준이라
+  // 로컬 키면 한 KST 하루가 로컬 이틀에 걸릴 때 팝이 두 번 재생됐다.
+  const todayLocal = todayStr();
   // 오늘 ✓ 팝(GROMO-667) — 오늘 스트릭이 '채워지는 순간'의 결과 화면에서만 카드 노출+팝(하루 1회)
   const [todayPop, setTodayPop] = useState(false);
   // 주간 완성 추가 연출 — 축하 모달(종이폭죽은 모달 오버레이 안에서 동시에). ✓ 팝은 todayPop 담당.
@@ -298,7 +304,7 @@ export default function FocusResultScreen() {
   // 세션 저장 응답의 서버 판정 구독(GROMO-807) — 업로드가 fire-and-forget이라 결과 화면 진입
   // 후에 도착할 수 있고, 도착하면 구독으로 재렌더된다. 오늘 날짜 판정만 유효(자정 넘김 방어).
   const rawVerdict = useSyncExternalStore(subscribeSessionSaveVerdict, getSessionSaveVerdict);
-  const verdict = rawVerdict?.date === today ? rawVerdict : null;
+  const verdict = rawVerdict?.date === todayLocal ? rawVerdict : null;
   // 획득 시간조각(재화) — 세션 저장 응답의 **세션 보상만**. 목표 보너스(goalRewardCoins)는 홈의
   // 목표 달성 축하 모달이 단독으로 표시한다(GROMO-1193) — 예전엔 여기 합산되고 모달에도 또 떠서,
   // 같은 지급 1건이 두 화면에 두 번 보였다(지급은 1회라 잔액은 정상).
@@ -318,9 +324,12 @@ export default function FocusResultScreen() {
   // 추정 폴백(응답 도착 전·업로드 실패 시)은 기존대로 — 서버와 로컬 하루 누적(FocusContext,
   // 방금 세션 포함) 중 큰 값을 내림으로 판정. 세션 단건만 보면 '서버 5분+이번 6분' 같은 합산
   // 도달을 업로드 레이스에서 놓친다(PR 227 리뷰). 반올림 금지 — 9분 30초가 10분으로 인정되는 문제.
+  // 측정 축은 로컬 소유 — 축이 갈린 날(로컬≠KST)은 로컬 누적을 KST 셀 값과 합치지 않는다
+  // (kstLocalSameDay 공용 게이트, GROMO-1236 P2 5→6라운드. KR 기기는 항상 동축이라 행동 불변).
+  const localAccumMin = kstLocalSameDay() ? Math.floor(todayFocusSeconds / 60) : 0;
   const todayStreakDone =
     (verdict?.streakQualifiedToday ?? false) ||
-    Math.max(serverToday, Math.floor(todayFocusSeconds / 60)) >= STREAK_MIN_DAILY_MINUTES;
+    Math.max(serverToday, localAccumMin) >= STREAK_MIN_DAILY_MINUTES;
   // 주간 스트릭 완성(GROMO-667) — 월~일 7칸 모두 하루 10분 기준 충족.
   // 미래 요일은 셀이 없어 자동으로 false — 사실상 일요일 세션 완료 시에만 참이 된다.
   const weekStreakComplete =
@@ -350,7 +359,7 @@ export default function FocusResultScreen() {
       if (cancelled) return;
       // 마커는 계정별('userId:날짜') 집합 — 같은 날 B 계정이 팝을 재생해도 A 계정의
       // 마커를 덮어쓰지 않아, A로 돌아왔을 때 두 번째 팝이 재생되지 않는다(코덱스 리뷰).
-      const todayMarker = `${userId ?? 'guest'}:${today}`;
+      const todayMarker = `${userId ?? 'guest'}:${today}`; // 날짜 = KST(판정 버킷 축 — 상단 todayLocal 주석)
       const persistedMarkers = parsePoppedMarkers(poppedMarkerRaw);
       const firstPopToday =
         !poppedMarkersMemory.has(todayMarker) && !persistedMarkers.has(todayMarker);

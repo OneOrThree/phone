@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { getMyGroups, getGroupDetail } from '@/services/groupApi';
-import { todayStr } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type { LiveGridMember } from './components/LiveFocusGrid';
 
 // 집중 세션 '그룹' 페이지용 데이터(F2) — 내가 참여한 '그룹별로' 멤버 목록을 반환한다.
@@ -41,7 +41,9 @@ export function useSessionGroups({
     try {
       const myGroups = await getMyGroups();
       // 기준일은 한 번만 계산해 병렬 호출에 공유 — 자정 경계에서 그룹별 '오늘 집중분' 기준일이 어긋나지 않게.
-      const today = todayStr();
+      // 축은 KST — getGroupDetail의 기본값(todayStrKst, GROMO-1219)과 동일. 종전 todayStr()는
+      // KST 기본값을 로컬로 오버라이드하던 1219 잔여 버그(GROMO-1236에서 정정).
+      const today = todayStrKst();
       // 그룹별 상세 병렬 조회 — 일부 그룹 실패는 그 그룹만 건너뛰고 나머지는 살린다.
       const details = await Promise.allSettled(
         myGroups.map((g) => getGroupDetail(g.groupId, today)),
