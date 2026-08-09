@@ -9,12 +9,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T, withAlpha } from '@/constants/theme';
+import { springify } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
 import { useLeagueRanking } from './useLeagueRanking';
@@ -61,12 +64,25 @@ const MY_STRIP_SPACE = 70;
 // 포디움 메달 그라데이션 (1·2·3위 — 골드/실버/브론즈, 밝은 쪽→진한 쪽)
 const MEDAL_GRAD = [T.medalGrad.gold, T.medalGrad.silver, T.medalGrad.bronze];
 
+// 포디움 칸 — 순위가 바뀌면 칸끼리 자리를 맞바꾼다(GROMO-1381).
+// 칸 자체가 터치 대상이라 래퍼를 새로 끼우지 않고 TouchableOpacity를 그대로 애니메이션
+// 컴포넌트로 만든다(노드 수 불변 → testID 셀렉터 계약 유지).
+// ⚠️ 랭킹 행의 rankSwap을 여기 쓰지 않는다. rankSwap은 **세로 목록** 전용이다 — 위/아래 이동을
+//    보고 좌우로 비껴가게 만드는데, 포디움은 가로 배치라 두 칸이 이미 좌우로 지나간다.
+//    여기 필요한 것은 자리 이동을 그대로 따라가는 기본 트랜지션 + 같은 스프링 토큰이다.
+const AnimatedPodiumCol = Animated.createAnimatedComponent(TouchableOpacity);
+// 랭킹 행(rankSwap)과 같은 스프링 토큰. 모듈 상수로 두어 매 렌더 새 빌더가 만들어지지 않게 한다.
+// (springify 헬퍼는 빌더 **인스턴스**를 받는다 — LinearTransition.createInstance()와 같은 값이다.)
+const PODIUM_LAYOUT = springify(new LinearTransition());
+
 type TabKey = 'league' | 'friend';
 const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' };
 
 export default function LeagueScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // '동작 줄이기' 게이트 — 포디움 재정렬 트랜지션을 끈다(랭킹 행은 RankRowShell이 따로 쥔다).
+  const m = useMotion();
 
   const [tab, setTab] = useState<TabKey>('league');
   // 현재 선택한 리그 — null이면 기본(내 시험). 제목 드롭다운에서 전체/다른 시험으로 전환
@@ -358,7 +374,13 @@ export default function LeagueScreen() {
             />
           }
         >
-          {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ── */}
+          {/* ── Top3 포디움 (2위·1위·3위 배치, 1위 가운데 상단) ──
+               칸의 key는 userId라 순위가 바뀌면 **같은 노드가 자리를 옮긴다** → layout 트랜지션이
+               성립한다(메달 번호·1위 여백은 자리에 붙는 값이라 즉시 갈아끼워진다).
+               ⚠️ 포디움↔목록 **경계를 넘는 이동(3위↔4위)은 이번 범위 밖이다.** 4위 행과 3위 칸은
+                  서로 다른 컴포넌트라 노드가 언마운트/리마운트되고, 레이아웃 트랜지션은 살아남은
+                  노드에만 성립한다. 같은 노드로 잇자면 포디움과 목록을 한 트리로 합쳐야 하는데
+                  그건 이 배치가 감당할 구조 변경이 아니다 — 그 경우는 지금처럼 툭 바뀐다(후속). */}
           {showPodium && (
             <View style={s.podium}>
               {[1, 0, 2]
@@ -368,8 +390,9 @@ export default function LeagueScreen() {
                   const isMe = member.userId === MY_USER_ID;
                   const first = i === 0;
                   return (
-                    <TouchableOpacity
+                    <AnimatedPodiumCol
                       key={member.userId}
+                      layout={m.css(PODIUM_LAYOUT)}
                       style={[s.podiumCol, first ? s.podiumColFirst : null]}
                       activeOpacity={0.85}
                       onPress={() => openProfile(member)}
@@ -451,7 +474,7 @@ export default function LeagueScreen() {
                           />
                         </TouchableOpacity>
                       )}
-                    </TouchableOpacity>
+                    </AnimatedPodiumCol>
                   );
                 })}
             </View>

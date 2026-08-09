@@ -184,6 +184,34 @@ export default function LeagueResultScreen() {
     //    대기 값은 delayRef로 타이머를 걸 때의 최신 값을 읽고, 축하는 celebratedRef로 1회만 낸다.
   }, [type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
 
+  // '동작 줄이기'가 **재생 도중** 켜진 경우 — 위 시퀀스 effect는 다시 돌지 않고(의존성에서 뺐다),
+  // delayRef는 **앞으로 새로 만들 단계**의 대기만 줄인다. 이미 시작된 delay·timing·spring은
+  // 그대로 끝까지 돈다. 그래서 여기서 진행 중인 것을 세우고 최종 상태로 점프시킨다.
+  //
+  // ⚠️ **꺼짐 → 켜짐 전이에서만** 동작한다(첫 실행은 건너뛴다). useReduceMotion은 비동기 조회가
+  //    끝나기 전 구간을 보수적으로 true로 읽으므로, 마운트 시점의 true까지 '즉시 완료'로 처리하면
+  //    설정을 켜지 않은 사용자도 확정(true→false) 전에 연출을 통째로 잃는다.
+  // ⚠️ 축하 피드백은 재발행하지 않는다 — celebratedRef가 이미 서 있으면 건너뛴다. 다만 진행 중이던
+  //    뱃지 전환을 세우면 그 완료 콜백이 finished:false로 끝나 승급 축하 경로가 **끊기므로**,
+  //    아직 안 냈다면 여기서 한 번 낸다(정책 D7 — 축하는 reduce에서도 유지되고 파티클만 생략된다.
+  //    파티클 생략은 ConfettiBurst가 스스로 처리하므로 여기서 분기하지 않는다).
+  const prevReduceRef = useRef(m.reduce);
+  useEffect(() => {
+    const turnedOn = !prevReduceRef.current && m.reduce;
+    prevReduceRef.current = m.reduce;
+    if (!turnedOn) return;
+    // 모든 값의 목표는 1이다(뱃지 전환·티어명 팝·타이틀 팝·하단 안내). 이미 끝난 뒤라면 no-op.
+    [badgeAnim, titleAnim, nameAnim, line3].forEach((v) => {
+      v.stopAnimation();
+      v.setValue(1);
+    });
+    setShowTo(true);
+    if (type === 'promote' && !celebratedRef.current) {
+      celebratedRef.current = true;
+      hapticSuccess();
+    }
+  }, [m.reduce, type, badgeAnim, titleAnim, nameAnim, line3]);
+
   // 뱃지 전환 보간 — 이전 티어(fade out·축소) → 결과 티어(fade in·팝)
   const fromOpacity = badgeAnim.interpolate({
     inputRange: [0, 0.5],
