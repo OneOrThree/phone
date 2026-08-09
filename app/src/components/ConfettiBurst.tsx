@@ -13,6 +13,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { useMotion } from '@/hooks/useMotion';
+import { M } from '@/constants/motion';
 import { T } from '@/constants/theme';
 
 // 종이폭죽 오버레이(GROMO-667) — 모달 등장 직후 위에서 흩뿌려진다. obstacle(모달 카드)을
@@ -77,7 +78,14 @@ function TiltPiece({
         const x = spec.finalX + shift;
         if (x < cardLeft - 4 || x > cardRight + 4) {
           fallen.value = 1;
-          fallY.value = withTiming(screenH, { duration: 900, easing: Easing.in(Easing.quad) });
+          // reduceMotion: M.never — 이 컴포넌트는 reduce가 꺼져 있을 때만 마운트되지만,
+          // reanimated 기본값(정적 System 플래그)은 '켠 채 시작했다 끈' 사용자에게 여전히
+          // 걸린다. 그러면 조각이 떨어지지 않고 그 자리에 멈춘다.
+          fallY.value = withTiming(screenH, {
+            duration: 900,
+            easing: Easing.in(Easing.quad),
+            reduceMotion: M.never,
+          });
         }
       }
     },
