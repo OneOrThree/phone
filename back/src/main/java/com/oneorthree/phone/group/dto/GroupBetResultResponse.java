@@ -10,7 +10,10 @@ import java.util.List;
 /**
  * 이 챌린지의 가장 최근 정산 내기 — 카드의 "지난 내기" 한 줄용. 정산 이력이 없으면 필드가 null 이다.
  *
- * <p>{@code status} 는 {@code SETTLED}(분배) 또는 {@code REFUNDED}(달성자 0명 전원 환불)다.
+ * <p>{@code status} 는 정산 결과 3종이다 — {@code SETTLED}(달성자에게 분배) ·
+ * {@code FORFEITED}(승자 0명, 팟 몰수·소멸) · {@code REFUNDED}(정산 불가로 회차 무효화, 전원 환불).
+ * CANCELED 는 "없던 일"이라 이 줄에 오지 않는다({@code findLatestSettledByChallengeIds} 의 허용
+ * 목록과 같은 규칙). 종전 주석은 몰수 룰 도입 전 문구라 {@code FORFEITED} 가 빠져 있었다.
  */
 @Getter
 @Builder

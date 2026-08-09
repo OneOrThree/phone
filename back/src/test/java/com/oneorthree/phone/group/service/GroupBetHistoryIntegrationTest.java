@@ -184,7 +184,6 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
 
     @Test
     @DisplayName("status 필터 — 정산 결과 3종(SETTLED·REFUNDED·FORFEITED)만 실리고 OPEN·CANCELED 는 빠진다")
-    @SuppressWarnings("deprecation") // REFUNDED — 정산이 더는 만들지 않지만 기존 데이터 조회는 계속 다룬다
     void includesSettlementResultsOnlyExcludingOpenAndCanceled() {
         settledBet(GroupBetStatus.SETTLED, BASE_DATE);
         settledBet(GroupBetStatus.REFUNDED, BASE_DATE.minusDays(1));

@@ -49,12 +49,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
- * 내기 취소·그룹 탈퇴 연동 통합 테스트 — 환불이 <b>정확히 한 번</b>, 그리고 정산 배치와 겹쳐도
+ * 내기 취소·그룹 탈퇴 연동 통합 테스트 — 환불이 <b>정확히 한 번</b>, 그리고 정산 배치·철회와 겹쳐도
  * 돈이 한 경로로만 움직이는지를 실 DB 로 고정한다.
  *
  * <p>{@code @Transactional} 을 붙이지 않는 이유는 {@link GroupBetSettlementIntegrationTest} 와 같다
  * — 레이스 시나리오는 커밋(별도 스레드의 별도 트랜잭션)을 전제한다. 테스트 데이터는
  * {@code @AfterEach} 에서 직접 지운다.
+ *
+ * <p><b>날짜 기준은 KST 다</b>(GROMO-1258). 탈퇴 해제가 "시작 전 회차만" 건드리게 되면서
+ * {@code bet_date} 가 시스템 존이 아니라 서비스와 같은 KST 로 해석돼야 판정이 일치한다 — UTC CI 에서
+ * {@code LocalDate.now()} 로 잡은 "내일"은 KST 로는 오늘(=이미 시작)일 수 있다.
  */
 class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
 
@@ -85,6 +89,7 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
     @Autowired
     UserWalletRepository userWalletRepository;
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int GOAL_MINUTES = 120;
     private static final int STAKE = 30;
     /** 판돈 차감 후 잔액. 참가 시점에 이미 STAKE 만큼 빠져 있는 상태를 재현한다. */
@@ -161,9 +166,20 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
         return bet;
     }
 
-    private void participant(GroupChallengeBet bet, User user) {
-        groupChallengeBetParticipantRepository.save(
+    /** @return 저장된 참가 행 — 환불 멱등키의 축이라(GROMO-1258) 테스트도 id 를 알아야 한다. */
+    private GroupChallengeBetParticipant participant(GroupChallengeBet bet, User user) {
+        return groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+    }
+
+    /** 서비스와 같은 기준의 오늘(KST). */
+    private LocalDate today() {
+        return LocalDate.now(KST);
+    }
+
+    /** 아직 시작하지 않은 회차 날짜 — DURATION 은 자정이 시작점이라 "KST 내일"이 시작 전이다. */
+    private LocalDate beforeStart() {
+        return today().plusDays(1);
     }
 
     private void focusStat(User user, LocalDate date, int minutes) {
@@ -349,12 +365,14 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
     // ── 그룹 탈퇴 연동 ──────────────────────────────────────────────────
 
     @Test
-    @DisplayName("참가자 탈퇴 — 참가 행 삭제 + 본인 환불, 남은 참가자가 2명 이상이면 내기는 계속된다")
+    @DisplayName("시작 전 회차 참가자 탈퇴 — 참가 행 삭제 + 본인 환불, 남은 참가자가 2명 이상이면 내기는 계속된다")
     void withdrawDetachesAndRefundsParticipant() {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
         User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
-        GroupChallengeBet bet = openBet(creator, LocalDate.now());
+        // 날짜가 "오늘"에서 "KST 내일"로 바뀌었다(GROMO-1258): 탈퇴 환불은 이제 시작 전 회차 전용이고,
+        // DURATION 의 당일 회차는 자정에 이미 시작된 판이라 환불 대상이 아니다(정책 §C8).
+        GroupChallengeBet bet = openBet(creator, beforeStart());
         participant(bet, creator);
         participant(bet, leaver);
         participant(bet, third);
@@ -377,11 +395,11 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("참가자 탈퇴로 개설자 혼자 남으면 — 자동 취소 + 개설자도 환불된다")
+    @DisplayName("시작 전 회차에서 참가자 탈퇴로 개설자 혼자 남으면 — 자동 취소 + 개설자도 환불된다")
     void withdrawAutoCancelsWhenCreatorLeftAlone() {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
-        GroupChallengeBet bet = openBet(creator, LocalDate.now());
+        GroupChallengeBet bet = openBet(creator, beforeStart());
         participant(bet, creator);
         participant(bet, leaver);
 
@@ -399,12 +417,12 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("개설자 탈퇴 — 내기 전체 취소 + 전원 환불")
+    @DisplayName("시작 전 회차의 개설자 탈퇴 — 내기 전체 취소 + 전원 환불")
     void creatorWithdrawalCancelsBetAndRefundsEveryone() {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User joinerA = memberUser("참가자A", GroupMemberRole.MEMBER);
         User joinerB = memberUser("참가자B", GroupMemberRole.MEMBER);
-        GroupChallengeBet bet = openBet(creator, LocalDate.now());
+        GroupChallengeBet bet = openBet(creator, beforeStart());
         participant(bet, creator);
         participant(bet, joinerA);
         participant(bet, joinerB);
@@ -419,41 +437,81 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("탈퇴자가 참가한 OPEN 내기가 여러 개면 전부 정리된다")
+    @DisplayName("탈퇴자가 참가한 OPEN 내기가 여러 개면 — 시작 전 회차만 정리되고 시작된 회차는 남는다")
     void withdrawReleasesEveryOpenBet() {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
         User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
-        // 내기 1 — 탈퇴 후에도 2명이 남아 계속된다.
-        GroupChallengeBet continuing = openBet(creator, LocalDate.now().minusDays(1));
-        participant(continuing, creator);
-        participant(continuing, leaver);
-        participant(continuing, third);
-        // 내기 2 — 탈퇴자가 빠지면 개설자 혼자라 자동 취소된다.
-        GroupChallengeBet autoCanceled = openBet(creator, LocalDate.now());
+        // 내기 1 — 이미 시작된(전일자) 회차. GROMO-1258 이전에는 이것도 환불됐다(기대를 뒤집었다).
+        GroupChallengeBet started = openBet(creator, today().minusDays(1));
+        participant(started, creator);
+        participant(started, leaver);
+        participant(started, third);
+        // 내기 2 — 시작 전(KST 내일). 탈퇴자가 빠지면 개설자 혼자라 자동 취소된다.
+        GroupChallengeBet autoCanceled = openBet(creator, beforeStart());
         participant(autoCanceled, creator);
         participant(autoCanceled, leaver);
 
         groupMemberService.withdrawGroup(group.getId(), leaver.getId());
 
-        assertThat(statusOf(continuing)).isEqualTo(GroupBetStatus.OPEN);
+        // 시작된 회차는 참가 행·판돈이 그대로 남아 정산 대상이다(정책 §C8).
+        assertThat(statusOf(started)).isEqualTo(GroupBetStatus.OPEN);
+        assertThat(participantsOf(started))
+                .extracting(p -> p.getUser().getId())
+                .containsExactlyInAnyOrder(creator.getId(), leaver.getId(), third.getId());
         assertThat(statusOf(autoCanceled)).isEqualTo(GroupBetStatus.CANCELED);
-        // 탈퇴자는 내기마다 각각 환불받는다(멱등키가 betId 스코프라 서로 충돌하지 않는다).
-        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
-        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isEqualTo(2);
+        // 환불은 시작 전 회차 1건뿐 — 종전에는 2건(STAKE * 2)이었다.
+        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
         assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
     }
 
     @Test
-    @DisplayName("탈퇴 ↔ 정산 배치 동시 실행 — 행 잠금으로 직렬화되어 환불과 지급이 겹치지 않는다")
-    void withdrawAndSettleRaceMovesMoneyOnce() throws Exception {
+    @DisplayName("시작된 회차 탈퇴 — 참가 행이 남고 환불도 없다. 이후 정산이 탈퇴자를 정상 판정한다")
+    void withdrawKeepsStartedBetForSettlement() {
+        // 기대 반전(GROMO-1258): 종전에는 releaseBets 에 시작 시각 가드가 없어 전일자 내기도 탈퇴로
+        // 환불됐고, 그것이 "질 것 같으면 그룹을 나간다"는 우회로였다. 이제 시작된 회차는 손대지 않고
+        // 정산이 그대로 판정한다 — 그룹을 나가도 계정·지갑은 살아 있으므로 지급도 정상 동작한다.
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
-        LocalDate betDate = LocalDate.now().minusDays(1);
+        LocalDate betDate = today().minusDays(1);
         GroupChallengeBet bet = openBet(creator, betDate);
         participant(bet, creator);
         participant(bet, leaver);
-        // 탈퇴자만 달성 — 정산이 이기면 탈퇴자가 팟(60) 전액을 받고, 탈퇴가 이기면 환불(30)만 받는다.
+        // 탈퇴자만 달성 — 판정이 살아 있다면 팟(60) 전액이 탈퇴자에게 간다.
+        focusStat(leaver, betDate, GOAL_MINUTES);
+
+        groupMemberService.withdrawGroup(group.getId(), leaver.getId());
+
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.OPEN);
+        assertThat(participantsOf(bet))
+                .extracting(p -> p.getUser().getId())
+                .containsExactlyInAnyOrder(creator.getId(), leaver.getId());
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isZero();
+        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE);
+        // 그룹 탈퇴 자체는 성공한다 — 막지 않는다.
+        assertThat(groupMemberRepository.findByGroup(group))
+                .extracting(m -> m.getUser().getId())
+                .doesNotContain(leaver.getId());
+
+        groupBetSettler.settle(bet.getId());
+
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.SETTLED);
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_PAYOUT)).isEqualTo(1);
+        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
+        assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE);
+    }
+
+    @Test
+    @DisplayName("탈퇴 ↔ 정산 배치 동시 실행 — 시작된 회차는 탈퇴가 손대지 않아 정산만 돈을 움직인다")
+    void withdrawAndSettleRaceMovesMoneyOnce() throws Exception {
+        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
+        User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
+        LocalDate betDate = today().minusDays(1);
+        GroupChallengeBet bet = openBet(creator, betDate);
+        participant(bet, creator);
+        participant(bet, leaver);
+        // 탈퇴자만 달성 — 정산이 팟(60) 전액을 탈퇴자에게 준다.
         focusStat(leaver, betDate, GOAL_MINUTES);
 
         CyclicBarrier startTogether = new CyclicBarrier(2);
@@ -473,27 +531,70 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
             pool.shutdownNow();
         }
 
-        long refunds = countOf(leaver, CurrencyTransactionType.BET_REFUND);
-        long payouts = countOf(leaver, CurrencyTransactionType.BET_PAYOUT);
-        GroupBetStatus finalStatus = statusOf(bet);
-        if (finalStatus == GroupBetStatus.CANCELED) {
-            // 탈퇴가 먼저 — 탈퇴자 환불 + 개설자 단독이라 자동 취소·환불. 정산은 스킵됐다.
-            assertThat(refunds).isEqualTo(1);
-            assertThat(payouts).isZero();
-            assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
-            assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
-        } else {
-            // 정산이 먼저 — 탈퇴자가 승자로 팟 전액을 받고, 탈퇴 연동은 OPEN 이 아니라 손대지 않았다.
-            assertThat(finalStatus).isEqualTo(GroupBetStatus.SETTLED);
-            assertThat(payouts).isEqualTo(1);
-            assertThat(refunds).isZero();
-            assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
-            assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE);
-        }
-        // 어느 쪽이든 탈퇴 자체는 완료돼 있어야 한다.
+        // 기대 반전(GROMO-1258): 종전에는 "탈퇴가 먼저면 CANCELED + 환불" 분기가 정답이었다. 이제
+        // 전일자 회차는 시작된 판이라 탈퇴 연동이 아예 건너뛰므로, 어느 순서로 들어와도 종착지는
+        // 하나뿐이다 — 정산이 판정하고 지급한다. 행 잠금 직렬화 자체는 그대로 검증된다.
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.SETTLED);
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_PAYOUT)).isEqualTo(1);
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isZero();
+        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
+        assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE);
+        // 탈퇴 자체는 완료돼 있어야 한다.
         assertThat(groupMemberRepository.findByGroup(group))
                 .extracting(m -> m.getUser().getId())
                 .doesNotContain(leaver.getId());
+    }
+
+    @Test
+    @DisplayName("철회 ↔ 그룹 탈퇴 강제 인터리빙 — 같은 참가 행의 환불은 정확히 한 번뿐이다 (E5 회귀 락)")
+    void leaveAndWithdrawRaceRefundsExactlyOnce() throws Exception {
+        // 이 조합의 테스트가 저장소에 아예 없어서 이중 환불이 프로덕션까지 갔다(정책 §C9).
+        // 재현: ① 탈퇴가 대상 betId 를 잠금 <b>전에</b> 평문 SELECT 로 뽑고 ② 그 사이 철회가 참가 행을
+        // 지우며 환불을 커밋한 뒤 ③ 탈퇴가 잠금을 얻어 "필터 0건"을 무시하고 또 환불한다.
+        // 멱등키 축까지 갈려 있어(:leave-refund:{pid} vs :refund:{uid}) 원장 유니크도 무력했다.
+        User creator = memberUser("개설자", GroupMemberRole.MEMBER);
+        User leaver = memberUser("철회탈퇴자", GroupMemberRole.MEMBER);
+        User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
+        // 시작 전(KST 내일) 회차여야 철회·탈퇴 두 경로가 모두 살아 있어 인터리빙이 성립한다.
+        GroupChallengeBet bet = openBet(creator, beforeStart());
+        participant(bet, creator);
+        participant(bet, leaver);
+        participant(bet, third);
+
+        CyclicBarrier startTogether = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> withdrawCall = pool.submit(() -> {
+                await(startTogether);
+                groupMemberService.withdrawGroup(group.getId(), leaver.getId());
+            });
+            Future<?> leaveCall = pool.submit(() -> {
+                await(startTogether);
+                try {
+                    groupBetService.leaveBet(group.getId(), bet.getId(), leaver.getId());
+                } catch (GroupException e) {
+                    // 탈퇴가 먼저 끝났으면 참가 행이 없거나(BET_NOT_JOINED) 멤버십이 빠져
+                    // (MEMBER_ONLY) 거절되는 것이 정상이다.
+                    assertThat(e.getErrorCode())
+                            .isIn(GroupErrorCode.BET_NOT_JOINED, GroupErrorCode.MEMBER_ONLY);
+                }
+            });
+            withdrawCall.get(30, TimeUnit.SECONDS);
+            leaveCall.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 핵심 단언 — 어느 경로가 이겼든 환불 기입은 정확히 1건이다.
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
+        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        // 참가 행은 정확히 한 번 사라지고 나머지 2명은 그대로다 — 내기도 유지된다.
+        assertThat(statusOf(bet)).isEqualTo(GroupBetStatus.OPEN);
+        assertThat(participantsOf(bet))
+                .extracting(p -> p.getUser().getId())
+                .containsExactlyInAnyOrder(creator.getId(), third.getId());
+        assertThat(balanceOf(creator)).isEqualTo(BALANCE_AFTER_STAKE);
+        assertThat(balanceOf(third)).isEqualTo(BALANCE_AFTER_STAKE);
     }
 
     private void await(CyclicBarrier barrier) {

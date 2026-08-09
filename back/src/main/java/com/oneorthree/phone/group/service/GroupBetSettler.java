@@ -209,12 +209,17 @@ public class GroupBetSettler {
                 continue;
             }
             currencyLedgerService.credit(user, CurrencyTransactionType.BET_PAYOUT, payout.amount(),
-                    payoutKey(bet.getId(), payout.userId(), false));
+                    payoutKey(bet.getId(), payout.userId()));
         }
     }
 
-    /** 멱등키 컨벤션 — 지급/환불. 판돈 차감 키는 {@link GroupBetService#stakeKey}. */
-    static String payoutKey(UUID betId, UUID userId, boolean refunded) {
-        return "bet:" + betId + (refunded ? ":refund:" : ":payout:") + userId;
+    /**
+     * 멱등키 컨벤션 — 정산 <b>지급</b> 전용. 축이 유저인 이유는 지급이 내기당 유저 1회뿐이기
+     * 때문이다. 환불 키 분기({@code refunded} 플래그)는 GROMO-1258 에서 걷어냈다 — 환불은 축이
+     * 참가 행이라 성질이 다르고, 생성 지점도 {@link GroupBetService#refundKey} 하나로 모았다.
+     * 판돈 차감 키는 {@link GroupBetService#stakeKey}.
+     */
+    static String payoutKey(UUID betId, UUID userId) {
+        return "bet:" + betId + ":payout:" + userId;
     }
 }

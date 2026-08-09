@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.GroupStatus;
@@ -16,6 +17,7 @@ import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,7 +45,12 @@ import static org.assertj.core.api.Assertions.tuple;
  *
  * <p>{@code UserService.withdraw} 가 그룹 탈퇴 경로({@code GroupMemberService.withdrawGroup})와
  * 같은 해제({@code releaseFromAllOpenBets, 유저 스코프}) → leave 순서를 밟는 것이 핵심이라,
- * 원장 멱등키까지 그룹 탈퇴 연동과 같은 포맷({@code bet:{betId}:refund:{userId}})이어야 한다.
+ * 원장 멱등키까지 그룹 탈퇴 연동과 같은 포맷({@code bet:{betId}:refund:{participantId}})이어야 한다.
+ * 축이 유저에서 <b>참가 행</b>으로 바뀐 것은 GROMO-1258 — 차감 키와 같은 축이라야 원장 유니크가
+ * 철회 × 탈퇴 교차 환불을 막는다(정책 §C9).
+ *
+ * <p>내기 날짜가 "KST 내일"인 이유도 같은 티켓이다 — 탈퇴 환불은 이제 <b>시작 전</b> 회차 전용이고
+ * (정책 §C8), DURATION 의 당일 회차는 자정에 이미 시작된 판이라 해제 대상이 아니다.
  */
 class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
 
@@ -55,6 +63,8 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     @Autowired
     GroupChallengeRepository groupChallengeRepository;
     @Autowired
+    GroupChallengeDurationRepository groupChallengeDurationRepository;
+    @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
     @Autowired
     GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
@@ -65,6 +75,8 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     @Autowired
     UserWalletRepository userWalletRepository;
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final int GOAL_MINUTES = 120;
     private static final int STAKE = 30;
     /** 판돈 차감 후 잔액. 참가 시점에 이미 STAKE 만큼 빠져 있는 상태를 재현한다. */
     private static final int BALANCE_AFTER_STAKE = 70;
@@ -83,6 +95,10 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
                 .build());
+        // 목표(duration) 행이 필요해졌다(GROMO-1258) — 해제가 "시작 전인가"를 판정하려면 챌린지 목표를
+        // 해석할 수 있어야 하고, 해석 불가면 보수적으로 "시작됨"으로 보아 해제를 건너뛴다.
+        groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
+                .challenge(challenge).durationMinutes(GOAL_MINUTES).build());
     }
 
     @AfterEach
@@ -92,6 +108,8 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         bets.forEach(b -> groupChallengeBetParticipantRepository
                 .deleteAll(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(b.getId()))));
         groupChallengeBetRepository.deleteAll(bets);
+        groupChallengeDurationRepository.findById(challenge.getId())
+                .ifPresent(groupChallengeDurationRepository::delete);
         groupChallengeRepository.delete(challenge);
         // 탈퇴는 멤버십 행을 지우지 않고 is_left=true 로 마킹만 하므로, 활성 조회가 아니라
         // findAnyByUserAndGroup 으로 소프트삭제 행까지 지워야 유저 삭제가 FK 를 위반하지 않는다.
@@ -119,21 +137,23 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         return user;
     }
 
+    /** 시작 전(KST 내일) OPEN 내기 — 탈퇴 해제·환불의 대상이 되는 유일한 상태다(정책 §C8). */
     private GroupChallengeBet openBet(User creator) {
         GroupChallengeBet bet = groupChallengeBetRepository.save(GroupChallengeBet.builder()
                 .group(group)
                 .challenge(challenge)
                 .creatorUser(creator)
                 .stake(STAKE)
-                .betDate(LocalDate.now())
+                .betDate(LocalDate.now(KST).plusDays(1))
                 .status(GroupBetStatus.OPEN)
                 .build());
         bets.add(bet);
         return bet;
     }
 
-    private void participant(GroupChallengeBet bet, User user) {
-        groupChallengeBetParticipantRepository.save(
+    /** @return 저장된 참가 행 — 환불 멱등키의 축이라 테스트도 id 를 알아야 한다(GROMO-1258). */
+    private GroupChallengeBetParticipant participant(GroupChallengeBet bet, User user) {
+        return groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
     }
 
@@ -171,7 +191,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
         GroupChallengeBet bet = openBet(creator);
         participant(bet, creator);
-        participant(bet, leaver);
+        GroupChallengeBetParticipant leaverRow = participant(bet, leaver);
         participant(bet, third);
 
         userService.withdraw(leaver.getId());
@@ -186,7 +206,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         // (지갑은 탈퇴로 삭제되지만 원장은 남는다 — 판돈이 소각되지 않았다는 증거)
         assertThat(refundsOf(leaver))
                 .extracting(CurrencyTransaction::getAmount, CurrencyTransaction::getIdempotencyKey)
-                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + leaver.getId()));
+                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + leaverRow.getId()));
         // 멤버십은 이탈 마킹 — 활성 목록에서 빠져 정원 한 자리가 돌아온다
         assertThat(groupMemberRepository.findAnyByUserAndGroup(leaver, group).orElseThrow().isLeft())
                 .isTrue();
@@ -215,7 +235,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         User kicked = memberUser("강퇴자", GroupMemberRole.MEMBER);
         GroupChallengeBet bet = openBet(creator);
         participant(bet, creator);
-        participant(bet, kicked);
+        GroupChallengeBetParticipant kickedRow = participant(bet, kicked);
         participant(bet, third);
         GroupMember kickedMembership = groupMemberRepository.findAnyByUserAndGroup(kicked, group).orElseThrow();
         kickedMembership.kick();
@@ -232,7 +252,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         // 판돈은 소각되지 않고 지갑 삭제 전에 환불 원장이 기입된다
         assertThat(refundsOf(kicked))
                 .extracting(CurrencyTransaction::getAmount, CurrencyTransaction::getIdempotencyKey)
-                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + kicked.getId()));
+                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + kickedRow.getId()));
         assertThat(userRepository.findById(kicked.getId()).orElseThrow().isDeleted()).isTrue();
         assertThat(userWalletRepository.findById(kicked.getId())).isEmpty();
     }
@@ -242,7 +262,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     void soloOwnerWithdrawalClosesGroupAndCancelsOpenBet() {
         User soloOwner = memberUser("나홀로방장", GroupMemberRole.OWNER);
         GroupChallengeBet bet = openBet(soloOwner);
-        participant(bet, soloOwner);
+        GroupChallengeBetParticipant ownerRow = participant(bet, soloOwner);
 
         userService.withdraw(soloOwner.getId());
 
@@ -256,7 +276,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(GroupBetStatus.CANCELED);
         assertThat(refundsOf(soloOwner))
                 .extracting(CurrencyTransaction::getIdempotencyKey)
-                .containsExactly("bet:" + bet.getId() + ":refund:" + soloOwner.getId());
+                .containsExactly("bet:" + bet.getId() + ":refund:" + ownerRow.getId());
         assertThat(userRepository.findById(soloOwner.getId()).orElseThrow().isDeleted()).isTrue();
         assertThat(userWalletRepository.findById(soloOwner.getId())).isEmpty();
     }

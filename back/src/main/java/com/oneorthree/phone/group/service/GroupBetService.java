@@ -55,15 +55,22 @@ import java.util.stream.Stream;
  * 그룹 챌린지 내기의 개설·참가와 조회용 조립.
  *
  * <p>정산은 {@link GroupBetSettlementService}(배치 진입점)와 {@link GroupBetSettler}(내기 단위
- * 트랜잭션)가 맡는다 — 여기서는 유저 요청 경로만 다룬다.
+ * 트랜잭션)가 맡는다 — 여기서는 유저 요청 경로와, 그 경로들과 <b>환불 키·잠금 규율을 공유해야만
+ * 하는</b> 처분 하나({@link #refundFrozenBet} — 24h 동결 자동 환불)를 다룬다.
  *
  * <p>참가비 차감은 {@link CurrencyLedgerService#debit} 로 하며 멱등키
  * {@code bet:{betId}:stake:{participantId}} 를 함께 남긴다 — 축이 유저가 아니라 <b>참가 행</b>인
- * 이유는 {@link #stakeIn} 참고(계약 §2-2, GROMO-1112). 철회 환불도 같은 축의
- * {@code bet:{betId}:leave-refund:{participantId}} 를 쓴다. 정산 지급·환불 키
- * ({@code :payout:}/{@code :refund:})는 내기당 1회뿐이라 유저 축 그대로다
- * ({@link GroupBetSettler#payoutKey}). 잔액은 {@code UserWallet} 의 @Version 낙관락이,
- * 중복 참가·중복 개설은 DB 유니크 제약이 각각 최후 방어선이다.
+ * 이유는 {@link #stakeIn} 참고(계약 §2-2, GROMO-1112).
+ *
+ * <p><b>환불도 같은 축이다</b>(GROMO-1258) — 취소·철회·탈퇴 연동·24h 자동 환불이 전부
+ * {@code bet:{betId}:refund:{participantId}} 하나를 쓴다({@link #refundKey}). 차감과 1:1 로
+ * 대응하므로 "한 번 걷힌 참가 행은 어떤 경로로든 정확히 한 번만 돌아온다"를 원장 유니크
+ * ({@code uq_currency_transactions_idempotency_key})가 경로와 무관하게 보장한다(정책 §C9).
+ * 종전에는 철회만 {@code :leave-refund:{participantId}} 로 축이 갈려 있어 두 키가 서로를 못 막았고,
+ * 철회 × 그룹 탈퇴가 겹치면 같은 판돈이 두 번 나갔다. 정산 지급 키({@code :payout:{userId}})는
+ * 내기당 유저 1회뿐이라 유저 축 그대로다({@link GroupBetSettler#payoutKey}). 잔액은
+ * {@code UserWallet} 의 @Version 낙관락이, 중복 참가·중복 개설은 DB 유니크 제약이 각각
+ * 최후 방어선이다.
  */
 @Slf4j
 @Service
@@ -84,11 +91,10 @@ public class GroupBetService {
 
     /**
      * 히스토리에 실리는 status — 정산 결과 3종만. CANCELED 는 "없던 일"이라 이력에서도 뺀다
-     * ({@code findLatestSettledByChallengeIds} 의 허용 목록과 같은 규칙). REFUNDED 는 정산이 더는
-     * 만들지 않는 deprecated 상태지만 기존 데이터가 남아 있어 <b>조회·표시 경로는 계속 다뤄야
-     * 한다</b>({@link GroupBetStatus#REFUNDED} 주석) — 그 조회 경로가 바로 여기라 경고를 끈다.
+     * ({@code findLatestSettledByChallengeIds} 의 허용 목록과 같은 규칙). REFUNDED 는 24h 동결
+     * 자동 환불({@link #refundFrozenBet}, 정책 §E1)이 만드는 현역 상태다 — GROMO-1258 이전에는
+     * 생성 코드가 없는 레거시라 deprecated 였다.
      */
-    @SuppressWarnings("deprecation")
     private static final List<GroupBetStatus> HISTORY_STATUSES =
             List.of(GroupBetStatus.SETTLED, GroupBetStatus.REFUNDED, GroupBetStatus.FORFEITED);
 
@@ -233,8 +239,8 @@ public class GroupBetService {
      * 허용한다. 진입 조회가 행 잠금이라 참가(joinBet)와 직렬화된다 — 잠금 없이는 "단독 확인 →
      * 취소" 사이에 참가가 끼어들어 방금 취소된 내기에 참가자의 판돈이 묶인다. 상태 전이는 정산과
      * 같은 CAS 게이트를 지난다 — 검증과 전이 사이에 정산 배치가 먼저 끝냈으면 CAS 가 0행을
-     * 돌려주고, 이 취소는 {@code BET_NOT_OPEN} 으로 거절된다(환불 없음). 환불 멱등키가 정산 환불과
-     * 같은 포맷({@code bet:{betId}:refund:{userId}})이라 이중 환불은 원장 유니크가 최후 방어한다.
+     * 돌려주고, 이 취소는 {@code BET_NOT_OPEN} 으로 거절된다(환불 없음). 환불 멱등키는 모든 환불
+     * 경로가 공유하는 참가 행 축({@link #refundKey})이라 이중 환불은 원장 유니크가 최후 방어한다.
      */
     @Transactional
     public void cancelBet(UUID groupId, UUID betId, UUID userId) {
@@ -261,7 +267,17 @@ public class GroupBetService {
         if (claimed == 0) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-        refundStake(bet, user);
+        // 환불 키의 축이 참가 행이므로(GROMO-1258) 개설자 본인 행을 집어 돌려준다. 행이 없다는 것은
+        // 걷힌 판돈도 없다는 뜻이라 환불 대상이 아니다 — 위 "타인 참가 없음" 검사를 통과한 채로 이
+        // 상태가 되려면 참가자 0명이어야 하는데, 마지막 참가자 철회가 이미 CANCELED 로 닫으므로
+        // 정상 흐름에는 없다(방어적 분기).
+        participants.stream()
+                .filter(p -> p.getUser().getId().equals(userId))
+                .findFirst()
+                .ifPresentOrElse(
+                        mine -> refundParticipant(bet, mine),
+                        () -> log.warn("내기 취소 — 개설자 참가 행이 없어 환불 없이 닫는다. betId={}, userId={}",
+                                betId, userId));
 
         log.info("내기 취소 — betId={}, challengeId={}, userId={}, stake={} 환불",
                 betId, bet.getChallenge().getId(), userId, bet.getStake());
@@ -280,8 +296,8 @@ public class GroupBetService {
      * <p>정산 배치는 전일자만 집고 철회는 미래 시작만 허용하므로 날짜 게이트만으로도 서로
      * 배타적이지만, 진입 조회를 행 잠금으로 두어 참가·취소·정산·탈퇴 연동과 구조적으로 직렬화한다.
      * 마지막 참가자의 CANCELED 전이는 정산·취소와 같은 CAS 게이트({@link #claimCanceled})를
-     * 지나고, 환불 멱등키는 차감과 같은 축(참가 행 id)의 철회 전용 키
-     * ({@code bet:{betId}:leave-refund:{participantId}})라 이중 환불은 원장 유니크가 최후 방어한다.
+     * 지나고, 환불 멱등키는 차감과 같은 축(참가 행 id)의 공용 환불 키({@link #refundKey})라
+     * 이중 환불은 원장 유니크가 최후 방어한다.
      */
     @Transactional
     public void leaveBet(UUID groupId, UUID betId, UUID userId) {
@@ -307,33 +323,49 @@ public class GroupBetService {
         if (lastParticipant) {
             claimCanceled(bet);
         }
-        refundLeftStake(bet, user, mine.getId());
+        refundParticipant(bet, mine);
         log.info("내기 참가 철회 — betId={}, userId={}, stake={} 환불, 자동취소={}",
                 betId, userId, bet.getStake(), lastParticipant);
     }
 
     /**
-     * 시작 전 가드(철회 전용) — TIME_WINDOW 는 창 시작 시각, DURATION 은 날짜 경계(KST)가 시작점이다.
+     * 시작 전 가드(철회) — 판정은 {@link #isBeforeStart} 가 하고 여기서는 거절만 한다.
      * 목표를 해석할 수 없는 내기는 개설 게이트({@code resolve})가 이미 막았으므로 여기 도달하면
-     * 데이터가 깨진 것이다 — 개설·참가와 같은 코드로 방어적으로 거절한다.
-     *
-     * <p>DURATION 분기({@code betDate > 오늘})는 개설 게이트가 오늘만 허용하는 현행 코드에선 도달
-     * 불가다 — 내일 개설을 여는 티켓 1103(내기 날짜 게이트 확대)과 짝으로 배포되는 전제이며,
-     * 그 전까지 DURATION 철회는 항상 {@code BET_LEAVE_CLOSED}로 떨어지는 것이 의도된 동작이다.
+     * 데이터가 깨진 것이다 — 개설·참가와 같은 코드로 방어적으로 거절한다(탈퇴 연동은 예외 대신
+     * 스킵한다 — {@link #releaseBets}).
      */
     private void requireBeforeStart(GroupChallengeBet bet) {
         GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
                 .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
-        Optional<Instant> opensAt = groupBetJudge.windowOpensAt(target, bet.getBetDate());
-        if (opensAt.isPresent()) {
-            if (!Instant.now().isBefore(opensAt.get())) {
-                throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
-            }
-            return;
-        }
-        if (!bet.getBetDate().isAfter(today())) {
+        if (!isBeforeStart(target, bet)) {
             throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
+    }
+
+    /**
+     * "이 회차는 아직 시작 전인가" — TIME_WINDOW 는 창 시작 시각, DURATION 은 날짜 경계(KST)가
+     * 시작점이다. 철회({@link #requireBeforeStart})와 그룹·계정 탈퇴 연동({@link #releaseBets})이
+     * <b>같은 판정</b>을 공유해야 한다(GROMO-1258): 갈라지면 "철회는 막혔는데 그룹을 나가면
+     * 환불된다"는 우회로가 생겨 §C8("시작한 회차에서는 어떤 경로로도 참가비를 뺄 수 없다")과
+     * 손실 회피 설계가 통째로 무력화된다.
+     *
+     * <p>목표를 해석할 수 없으면 <b>시작된 것으로 본다</b>(false). 시작 여부를 모르는 채 환불하는
+     * 것보다 에스크로에 남기는 쪽이 안전하고, 그렇게 묶인 판돈은 24h 자동 환불
+     * ({@link #refundFrozenBet}, 정책 §E1)이 최후에 풀어 준다.
+     */
+    private boolean isBeforeStart(GroupChallengeBet bet) {
+        return groupBetJudge.resolve(bet.getChallenge())
+                .map(target -> isBeforeStart(target, bet))
+                .orElse(false);
+    }
+
+    private boolean isBeforeStart(GroupBetJudge.Target target, GroupChallengeBet bet) {
+        Optional<Instant> opensAt = groupBetJudge.windowOpensAt(target, bet.getBetDate());
+        if (opensAt.isPresent()) {
+            return Instant.now().isBefore(opensAt.get());
+        }
+        // DURATION 은 하루 전체가 판이라 자정이 시작점이다 — 당일 내기는 이미 집계가 돌고 있다.
+        return bet.getBetDate().isAfter(today());
     }
 
     /**
@@ -398,6 +430,17 @@ public class GroupBetService {
 
         // 2단계: 잠금이 전부 확보된 뒤에만 돈을 움직인다(참가 해제·환불·자동 취소).
         for (GroupChallengeBet bet : lockedOpenBets) {
+            // 이미 시작된 회차는 손대지 않는다(정책 §C8, GROMO-1258) — 참가 행·판돈을 그대로 두어
+            // 정산 대상으로 남긴다(판정도 지급도 그대로, 명단에는 WITHDRAWN_USER_NICKNAME 로 표기).
+            // 종전에는 여기에 시작 시각 가드가 아예 없어, "지는 판이 시작된 뒤 그룹을 나가면 전액
+            // 환불"이라는 우회로로 철회 가드(requireBeforeStart)가 통째로 무력화됐다.
+            // 예외가 아니라 스킵인 이유: 탈퇴 자체는 막지 않는다 — 던지면 "지는 판이 하나라도 있으면
+            // 그룹을 못 나간다"가 되고, 계정 탈퇴 경로에서는 탈퇴가 통째로 실패한다.
+            if (!isBeforeStart(bet)) {
+                log.info("내기 탈퇴 연동 스킵 — 이미 시작된 회차라 정산 대상으로 남긴다. "
+                        + "betId={}, betDate={}, userId={}", bet.getId(), bet.getBetDate(), user.getId());
+                continue;
+            }
             List<GroupChallengeBetParticipant> participants =
                     groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId()));
             if (bet.getCreatorUser().getId().equals(user.getId())) {
@@ -417,7 +460,7 @@ public class GroupBetService {
         claimCanceled(bet);
         participants.stream()
                 .sorted(Comparator.comparing(p -> p.getUser().getId()))
-                .forEach(p -> refundStake(bet, p.getUser()));
+                .forEach(p -> refundParticipant(bet, p));
         log.info("내기 자동 취소 — 개설자 그룹 탈퇴. betId={}, creatorId={}, 환불 {}명",
                 bet.getId(), bet.getCreatorUser().getId(), participants.size());
     }
@@ -425,9 +468,20 @@ public class GroupBetService {
     /** 일반 참가자 탈퇴 — 참가 행 삭제 + 본인 환불. 개설자 혼자 남으면 자동 취소까지. */
     private void detachAndRefund(
             GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants, User leaver) {
-        participants.stream()
+        // 잠금 확보 후의 참가 행 재검증(GROMO-1258) — 대상 betId 는 잠금 <b>전에</b> 평문 SELECT 로
+        // 뽑히므로(releaseFromOpenBets/releaseFromAllOpenBets), 그 사이에 같은 유저의 철회(leaveBet)가
+        // 먼저 커밋되면 이 시점의 참가 행은 이미 없다. 종전에는 필터가 0건이어도 무조건 환불해
+        // 같은 판돈이 두 번 나갔다(원장에는 축이 다른 두 키가 정상 기입으로 남아 탐지도 안 됐다).
+        // 해제할 참가 행이 없으면 이 내기는 통째로 건너뛴다 — 이 탈퇴가 풀어 줄 판돈이 없다.
+        Optional<GroupChallengeBetParticipant> mine = participants.stream()
                 .filter(p -> p.getUser().getId().equals(leaver.getId()))
-                .forEach(groupChallengeBetParticipantRepository::delete);
+                .findFirst();
+        if (mine.isEmpty()) {
+            log.info("내기 참가 해제 스킵 — 잠금 시점에 참가 행이 없다(철회가 먼저 커밋됨). "
+                    + "betId={}, userId={}", bet.getId(), leaver.getId());
+            return;
+        }
+        groupChallengeBetParticipantRepository.delete(mine.get());
 
         List<GroupChallengeBetParticipant> remaining = participants.stream()
                 .filter(p -> !p.getUser().getId().equals(leaver.getId()))
@@ -435,7 +489,7 @@ public class GroupBetService {
         boolean creatorAlone = remaining.size() == 1
                 && remaining.get(0).getUser().getId().equals(bet.getCreatorUser().getId());
         if (!creatorAlone) {
-            refundStake(bet, leaver);
+            refundParticipant(bet, mine.get());
             log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
                     bet.getId(), leaver.getId(), bet.getStake());
             return;
@@ -445,13 +499,60 @@ public class GroupBetService {
         // 탈퇴자 UUID 가 더 클 때 지갑 잠금이 내림차순이 되어, 오름차순으로 도는 다른 지갑-다중
         // 경로(전원 환불·정산 지급·반대 방향 탈퇴)와 교차 데드락이 성립한다 (PR #427 리뷰).
         claimCanceled(bet);
-        Stream.of(leaver, remaining.get(0).getUser())
-                .sorted(Comparator.comparing(User::getId))
-                .forEach(u -> refundStake(bet, u));
+        Stream.of(mine.get(), remaining.get(0))
+                .sorted(Comparator.comparing(p -> p.getUser().getId()))
+                .forEach(p -> refundParticipant(bet, p));
         log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
                 bet.getId(), leaver.getId(), bet.getStake());
         log.info("내기 자동 취소 — 참가자 이탈로 개설자 단독. betId={}, creatorId={}",
                 bet.getId(), bet.getCreatorUser().getId());
+    }
+
+    // ── 24h 동결 자동 환불 (정책 §E1, GROMO-1258) ────────────────────────
+
+    /**
+     * 정산이 하루 넘게 성공하지 못한 회차를 <b>무효화하고 전원 환불</b>한다 — 한 건 처분.
+     * 대상 선정과 반복은 {@link GroupBetFreezeMonitor} 가 하고, 여기서는 건별 트랜잭션으로
+     * 격리해 처분만 한다({@link GroupBetSettler#settle} 과 같은 격리 규율 — 한 건이 터져도
+     * 나머지가 계속된다). 정산이 만들 수 없는 유일한 상태 {@link GroupBetStatus#REFUNDED} 로 닫는다.
+     *
+     * <p><b>"정산은 되돌리지 않는다"(§B8)와 충돌하지 않는다</b> — 정산된 건을 되돌리는 게 아니라
+     * <b>정산 자체가 불가능한 건</b>(참가자 유실 · 챌린지 목표 유실 · 분배 불변식 위반)을 닫는
+     * 것이다. 이 셋은 매일 같은 지점에서 실패하므로 재시도만으로는 영원히 풀리지 않고, 종전에는
+     * 사람이 재배포로 개입하지 않는 한 참가비가 무기한 동결됐다(prod 수동 트리거조차 없었다).
+     * "참가비는 어떤 경우에도 영원히 묶이지 않는다"를 사람이 아니라 시스템이 보장하게 하는 장치다.
+     *
+     * <p>잠금 규율은 다른 돈 경로와 같다: 내기 행(FOR UPDATE) → 지갑(userId 오름차순). 상태 전이는
+     * 정산·취소와 같은 CAS 게이트라 정산 배치와 동시에 돌아도 한쪽만 돈을 움직이고, 재실행은
+     * status(OPEN 아님)에서 1차로, 환불 멱등키({@link #refundKey})에서 2차로 걸러진다.
+     *
+     * @return 이번 호출이 실제로 회차를 닫고 환불했으면 true. 이미 종료됐거나 CAS 에서 밀렸으면 false
+     */
+    @Transactional
+    public boolean refundFrozenBet(UUID betId) {
+        Optional<GroupChallengeBet> locked = groupChallengeBetRepository.findByIdForUpdate(betId)
+                .filter(GroupChallengeBet::isOpen);
+        if (locked.isEmpty()) {
+            return false;
+        }
+        GroupChallengeBet bet = locked.get();
+        List<GroupChallengeBetParticipant> participants =
+                groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
+        int claimed = groupChallengeBetRepository.compareAndSetSettled(
+                betId, GroupBetStatus.REFUNDED, Instant.now());
+        if (claimed == 0) {
+            log.info("내기 24h 동결 환불 스킵 — 다른 트랜잭션이 먼저 종료시켰다. betId={}", betId);
+            return false;
+        }
+        // 참가 행은 그대로 둔다 — 명단·인원수는 그날의 사실이고, 판정 결과(achieved/payout)가
+        // 비어 있는 것이 "판정하지 못한 채 닫혔다"의 표현이다(취소 경로와 같은 관례).
+        participants.stream()
+                .sorted(Comparator.comparing(p -> p.getUser().getId()))
+                .forEach(p -> refundParticipant(bet, p));
+        log.warn("내기 24h 동결 자동 환불 — 정산 불가로 회차를 무효화한다. "
+                        + "betId={}, betDate={}, stake={}, 환불 {}명",
+                betId, bet.getBetDate(), bet.getStake(), participants.size());
+        return true;
     }
 
     /**
@@ -470,21 +571,12 @@ public class GroupBetService {
     }
 
     /**
-     * 판돈 환불(취소·그룹 탈퇴 연동) — 정산 환불과 같은 멱등키 포맷이라 같은 유저에게 어떤 경로로든
-     * 두 번 환불되지 않는다. 내기당 1회뿐인 종료 경로라 회차 축이 필요 없다(계약 §2-2).
+     * 판돈 환불의 <b>단일 지점</b>(GROMO-1258) — 취소·철회·탈퇴 연동·24h 자동 환불이 전부 여기로
+     * 모인다. 멱등키의 축이 차감과 같은 참가 행 id({@link #refundKey})라 "걷힌 회차 : 돌려준 회차"가
+     * 1:1 로 대응하고, 경로가 겹쳐도 원장 유니크가 두 번째 기입을 거절한다.
      */
-    private void refundStake(GroupChallengeBet bet, User user) {
-        applyRefund(bet, user, GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
-    }
-
-    /**
-     * 참가 철회 환불 — 차감과 같은 축(참가 행 id)의 <b>철회 전용</b> 키를 쓴다. 회차마다 키가
-     * 달라지므로 "참가 → 철회 → 재참여"를 반복해도 매 회차가 정확히 한 번 걷히고 한 번 돌아간다.
-     * 정산 환불 키({@code :refund:{userId}})를 공유하던 시절에는 철회가 그 키를 미리 써 버려,
-     * 재참여 후 전원 환불 정산이 오면 그 유저만 환불이 조용히 스킵됐다.
-     */
-    private void refundLeftStake(GroupChallengeBet bet, User user, UUID participantId) {
-        applyRefund(bet, user, leaveRefundKey(bet.getId(), participantId));
+    private void refundParticipant(GroupChallengeBet bet, GroupChallengeBetParticipant participant) {
+        applyRefund(bet, participant.getUser(), refundKey(bet.getId(), participant.getId()));
     }
 
     /**
@@ -760,9 +852,17 @@ public class GroupBetService {
         return "bet:" + betId + ":stake:" + participantId;
     }
 
-    /** 멱등키 컨벤션 — 참가 철회 환불. 차감과 같은 축이라 참가 회차별로 유일하다. */
-    static String leaveRefundKey(UUID betId, UUID participantId) {
-        return "bet:" + betId + ":leave-refund:" + participantId;
+    /**
+     * 멱등키 컨벤션 — 판돈 환불. 차감({@link #stakeKey})과 <b>같은 축</b>(참가 행 id)이라 "참가 →
+     * 철회 → 재참여" 회차가 키 수준에서 갈리고, 회차마다 정확히 한 번 걷혀 한 번 돌아간다.
+     *
+     * <p>취소·철회·탈퇴 연동·24h 자동 환불이 <b>전부 이 키 하나</b>를 쓰는 것이 핵심이다
+     * (GROMO-1258). 종전에는 철회만 {@code :leave-refund:{participantId}} 로 축이 갈려 있어
+     * 원장 유니크가 교차 경로를 막지 못했고, 철회 × 그룹 탈퇴가 겹치면 같은 참가 행의 판돈이
+     * 두 번 환불됐다(정책 §C9). 정산 지급 키는 유저 축 그대로다({@link GroupBetSettler#payoutKey}).
+     */
+    static String refundKey(UUID betId, UUID participantId) {
+        return "bet:" + betId + ":refund:" + participantId;
     }
 
     static LocalDate today() {

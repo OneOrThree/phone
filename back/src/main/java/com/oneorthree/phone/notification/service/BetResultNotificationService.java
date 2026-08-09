@@ -37,8 +37,10 @@ import java.util.stream.Collectors;
  * (type={@code BET_RESULT}, target_user_id={@code betId})이고, 실제로 발송이 성사된 건만 기록하기
  * 때문에 앞선 실행에서 못 나간 건은 뒤 실행이 자연스럽게 재시도한다.
  *
- * <p>대상 상태는 (SETTLED, FORFEITED) 뿐이다. CANCELED 는 "결과" 가 아니라 없던 일이라 알리지 않고,
- * REFUNDED 는 몰수 룰 도입 이후 정산이 만들지 않는 레거시 상태다.
+ * <p>대상 상태는 (SETTLED, FORFEITED) 뿐이다. CANCELED 는 "결과" 가 아니라 없던 일이라 알리지 않는다.
+ * REFUNDED 는 GROMO-1258 에서 "정산 불가 회차 무효화 + 전원 환불"로 되살아났지만 <b>이 푸시의 대상은
+ * 아니다</b> — 발송 문구가 승패·지급액을 전제로 짜여 있어 판정 없는 회차를 그대로 실을 수 없다.
+ * 앱 결과 모달은 정책 §D3 대로 이미 다루므로 유저가 침묵 속에 남지는 않는다(푸시 편입은 후속).
  */
 @Slf4j
 @Service

@@ -863,7 +863,7 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("취소 성공 — CAS 로 CANCELED 전이 + 판돈 환불(멱등키 bet:{betId}:refund:{userId})")
+    @DisplayName("취소 성공 — CAS 로 CANCELED 전이 + 판돈 환불(멱등키 bet:{betId}:refund:{participantId})")
     void cancelBetRefundsStake() {
         givenMember();
         GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today());
@@ -876,8 +876,10 @@ class GroupBetServiceTest {
 
         groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID);
 
+        // 환불 키의 축이 유저에서 참가 행으로 바뀌었다(GROMO-1258) — 차감 키와 같은 축이라야
+        // 원장 유니크가 취소·철회·탈퇴 교차 환불을 막는다.
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":refund:" + USER_ID));
+                eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
     }
 
     @Test
@@ -895,7 +897,7 @@ class GroupBetServiceTest {
         groupBetService.cancelBet(GROUP_ID, BET_ID, USER_ID);
 
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":refund:" + USER_ID));
+                eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
     }
 
     @Test
@@ -1199,9 +1201,10 @@ class GroupBetServiceTest {
         groupBetService.leaveBet(GROUP_ID, BET_ID, USER_ID);
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
-        // 철회 환불은 차감과 같은 축(참가 행)의 전용 키다 — 정산 환불 키와 겹치지 않는다(계약 §2-2).
+        // 환불 키는 차감과 같은 축(참가 행)이고, 취소·탈퇴 연동과 <b>같은</b> 키다(GROMO-1258) —
+        // 축이 갈려 있던 시절엔 원장 유니크가 철회 × 탈퇴 교차 환불을 막지 못했다.
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
+                eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
         // 남은 참가자가 있으므로 내기는 닫지 않는다 — 개설자 철회여도 마찬가지다(creatorUserId 는 이력).
         verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
         // 철회는 챌린지를 건드리지 않는다 — 판이 하루 비었다고 그룹 공용 미션을 지우지 않는다.
@@ -1226,7 +1229,7 @@ class GroupBetServiceTest {
         verify(groupChallengeBetRepository)
                 .compareAndSetSettled(eq(BET_ID), eq(GroupBetStatus.CANCELED), any());
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
+                eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
     }
 
     @Test
@@ -1247,7 +1250,7 @@ class GroupBetServiceTest {
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(any(), any());
         // 내기 자체의 취소·환불은 그대로 일어난다.
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
+                eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
     }
 
     @Test
@@ -1319,7 +1322,7 @@ class GroupBetServiceTest {
 
         verify(groupChallengeBetParticipantRepository).delete(mine);
         verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
-                eq("bet:" + BET_ID + ":leave-refund:" + PARTICIPANT_ID));
+                eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
     }
 
     @Test
@@ -1369,6 +1372,13 @@ class GroupBetServiceTest {
 
     // ── 계정 탈퇴 일괄 해제 (GROMO-801) ──────────────────────────────────
 
+    /** 탈퇴 해제 대상 내기 — 시작 전(내일) DURATION. 챌린지·그룹은 해제 로직이 안 보는 축이다. */
+    private GroupChallengeBet releasableBet(UUID betId, User creator) {
+        return GroupChallengeBet.builder()
+                .id(betId).challenge(focusChallenge()).creatorUser(creator).stake(30)
+                .betDate(today().plusDays(1)).status(GroupBetStatus.OPEN).build();
+    }
+
     @Test
     @DisplayName("계정 탈퇴 일괄 해제 — 전 그룹의 내기 행 잠금을 전부 확보한 뒤에만 환불이 시작된다 (codex 리뷰)")
     void releaseFromAllOpenBetsLocksEveryBetBeforeMovingMoney() {
@@ -1381,12 +1391,11 @@ class GroupBetServiceTest {
                 .id(UUID.fromString("00000000-0000-0000-0000-000000000003")).isGuest(false).build();
         UUID otherBetId = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
         // 서로 다른 그룹의 내기 2건 — 해제 로직은 그룹·챌린지를 참조하지 않는다(불변식).
-        GroupChallengeBet firstBet = GroupChallengeBet.builder()
-                .id(BET_ID).creatorUser(creator).stake(30)
-                .betDate(today()).status(GroupBetStatus.OPEN).build();
-        GroupChallengeBet secondBet = GroupChallengeBet.builder()
-                .id(otherBetId).creatorUser(creator).stake(30)
-                .betDate(today()).status(GroupBetStatus.OPEN).build();
+        // 날짜가 "내일"인 이유(GROMO-1258): 해제는 이제 시작 전 회차만 건드린다. 당일 DURATION 은
+        // 이미 시작된 판이라 스킵되므로, 잠금 순서 락을 계속 검증하려면 시작 전 회차여야 한다.
+        GroupChallengeBet firstBet = releasableBet(BET_ID, creator);
+        GroupChallengeBet secondBet = releasableBet(otherBetId, creator);
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
         given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
                 .willReturn(List.of(BET_ID, otherBetId));
         given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(firstBet));
@@ -1395,7 +1404,8 @@ class GroupBetServiceTest {
         for (GroupChallengeBet bet : List.of(firstBet, secondBet)) {
             given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId())))
                     .willReturn(List.of(
-                            GroupChallengeBetParticipant.builder().bet(bet).user(leaver).build(),
+                            GroupChallengeBetParticipant.builder()
+                                    .id(PARTICIPANT_ID).bet(bet).user(leaver).build(),
                             GroupChallengeBetParticipant.builder().bet(bet).user(creator).build(),
                             GroupChallengeBetParticipant.builder().bet(bet).user(third).build()));
         }
@@ -1411,5 +1421,111 @@ class GroupBetServiceTest {
         lockThenMoney.verify(groupChallengeBetRepository).findByIdForUpdate(otherBetId);
         lockThenMoney.verify(currencyLedgerService, times(2))
                 .credit(eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString());
+    }
+
+    @Test
+    @DisplayName("탈퇴 해제 — 이미 시작된 회차는 예외 없이 스킵된다(참가 행·판돈 보존, 정책 §C8)")
+    void releaseSkipsStartedBetWithoutThrowing() {
+        // 종전에는 releaseBets 에 시작 시각 가드가 아예 없어, 지는 판이 시작된 뒤 그룹을 나가면
+        // 전액 환불됐다 — 철회 가드(requireBeforeStart)를 통째로 우회하는 구멍이었다(GROMO-1258).
+        User leaver = User.builder().id(USER_ID).isGuest(false).build();
+        User creator = User.builder().id(OTHER_USER_ID).isGuest(false).build();
+        GroupChallengeBet startedBet = GroupChallengeBet.builder()
+                .id(BET_ID).challenge(focusChallenge()).creatorUser(creator).stake(30)
+                .betDate(today()).status(GroupBetStatus.OPEN).build();
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
+        given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
+                .willReturn(List.of(BET_ID));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(startedBet));
+
+        groupBetService.releaseFromAllOpenBets(leaver);
+
+        // 탈퇴 자체는 성공(예외 없음)하되 돈도 참가 행도 움직이지 않는다 — 정산 대상으로 남는다.
+        assertNoRefundIssued();
+        verify(groupChallengeBetParticipantRepository, never()).delete(any());
+        verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
+        // 참가자 조회조차 하지 않는다 — 스킵은 잠금 직후에 끝난다.
+        verify(groupChallengeBetParticipantRepository, never()).findByBetIdIn(any());
+    }
+
+    @Test
+    @DisplayName("탈퇴 해제 — 잠금 시점에 참가 행이 없으면(철회가 먼저 커밋) 환불 없이 그 내기를 건너뛴다")
+    void releaseSkipsBetWhenParticipantRowAlreadyGone() {
+        // 대상 betId 는 잠금 전에 평문 SELECT 로 뽑히므로, 그 사이 같은 유저의 철회가 커밋되면
+        // 참가 행이 사라진다. 종전에는 필터가 0건이어도 무조건 환불해 이중 환불이 됐다(GROMO-1258).
+        User leaver = User.builder().id(USER_ID).isGuest(false).build();
+        User creator = User.builder().id(OTHER_USER_ID).isGuest(false).build();
+        GroupChallengeBet bet = releasableBet(BET_ID, creator);
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
+        given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
+                .willReturn(List.of(BET_ID));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(bet));
+        // 탈퇴자 행은 이미 없다 — 개설자 행만 남은 상태.
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(GroupChallengeBetParticipant.builder()
+                        .id(OTHER_PARTICIPANT_ID).bet(bet).user(creator).build()));
+
+        groupBetService.releaseFromAllOpenBets(leaver);
+
+        assertNoRefundIssued();
+        verify(groupChallengeBetParticipantRepository, never()).delete(any());
+        // 개설자 단독으로 보고 자동 취소해서도 안 된다 — 이 탈퇴가 만든 상태가 아니다.
+        verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
+    }
+
+    // ── 24h 동결 자동 환불 (정책 §E1, GROMO-1258) ────────────────────────
+
+    @Test
+    @DisplayName("동결 회차 자동 환불 — REFUNDED CAS 전이 + 참가 행 축 멱등키로 전원 환불")
+    void refundFrozenBetClosesBetAndRefundsEveryone() {
+        User creator = member();
+        User other = User.builder().id(OTHER_USER_ID).isGuest(false).build();
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today().minusDays(3));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(
+                        GroupChallengeBetParticipant.builder()
+                                .id(PARTICIPANT_ID).bet(bet).user(creator).build(),
+                        GroupChallengeBetParticipant.builder()
+                                .id(OTHER_PARTICIPANT_ID).bet(bet).user(other).build()));
+        given(groupChallengeBetRepository.compareAndSetSettled(
+                eq(BET_ID), eq(GroupBetStatus.REFUNDED), any())).willReturn(1);
+
+        assertThat(groupBetService.refundFrozenBet(BET_ID)).isTrue();
+
+        verify(currencyLedgerService).credit(eq(creator), eq(CurrencyTransactionType.BET_REFUND),
+                eq(30), eq("bet:" + BET_ID + ":refund:" + PARTICIPANT_ID));
+        verify(currencyLedgerService).credit(eq(other), eq(CurrencyTransactionType.BET_REFUND),
+                eq(30), eq("bet:" + BET_ID + ":refund:" + OTHER_PARTICIPANT_ID));
+        // 참가 행은 남긴다 — 명단·인원수는 그날의 사실이다.
+        verify(groupChallengeBetParticipantRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("동결 회차 자동 환불 — 이미 종료된 내기는 CAS 도 환불도 없이 false")
+    void refundFrozenBetSkipsClosedBet() {
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID))
+                .willReturn(Optional.of(bet(GroupBetStatus.SETTLED, today().minusDays(3))));
+
+        assertThat(groupBetService.refundFrozenBet(BET_ID)).isFalse();
+
+        verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
+        assertNoRefundIssued();
+    }
+
+    @Test
+    @DisplayName("동결 회차 자동 환불 — CAS 에서 밀리면(정산이 먼저 성공) 환불하지 않는다")
+    void refundFrozenBetYieldsToConcurrentSettlement() {
+        GroupChallengeBet bet = bet(GroupBetStatus.OPEN, today().minusDays(3));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(bet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(GroupChallengeBetParticipant.builder()
+                        .id(PARTICIPANT_ID).bet(bet).user(member()).build()));
+        given(groupChallengeBetRepository.compareAndSetSettled(
+                eq(BET_ID), eq(GroupBetStatus.REFUNDED), any())).willReturn(0);
+
+        assertThat(groupBetService.refundFrozenBet(BET_ID)).isFalse();
+
+        assertNoRefundIssued();
     }
 }

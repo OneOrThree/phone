@@ -168,15 +168,17 @@ public class NotificationScheduler {
         }
     }
 
-    // 판돈 동결 감지 (B4 ops) — 09:00 KST. 정산 배치가 조용히 죽으면 에스크로된 판돈이 묶인 채
-    // 아무 로그도 남지 않는다. 유저 발송이 아니라 운영 로그지만, 크론 트리거를 한곳에 모으는 이 파일의
-    // 역할(트리거/로직 분리)에 맞춰 여기에 둔다 — 로직은 group 도메인의 GroupBetFreezeMonitor 소유.
+    // 판돈 동결 감지 + 24h 자동 환불 (B4 ops · 정책 §E1) — 09:00 KST. 정산 배치가 조용히 죽으면
+    // 에스크로된 판돈이 묶인 채 아무 로그도 남지 않는다. 감지만 하던 종전(GROMO-1258 이전)에는
+    // 영구 실패 건이 사람 개입 없이는 영원히 안 풀렸다 — 이제 24h 를 넘긴 회차는 무효화·전원 환불한다.
+    // 유저 발송이 아니라 운영 작업이지만, 크론 트리거를 한곳에 모으는 이 파일의 역할(트리거/로직
+    // 분리)에 맞춰 여기에 둔다 — 로직은 group 도메인의 GroupBetFreezeMonitor 소유.
     @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Seoul")
     public void detectFrozenBets() {
         try {
-            groupBetFreezeMonitor.detectFrozenBets();
+            groupBetFreezeMonitor.sweepFrozenBets();
         } catch (Exception e) {
-            log.error("판돈 동결 감지 스케줄 실패", e);
+            log.error("판돈 동결 감지·자동 환불 스케줄 실패", e);
         }
     }
 }
