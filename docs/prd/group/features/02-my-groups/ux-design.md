@@ -1,14 +1,14 @@
-# UX (Design) — 내 그룹 캐러셀: 카드 플립 · 방 요약 · 탐색
+# Feature UX — 내 그룹 캐러셀: 카드 플립 · 방 요약 · 탐색
 
 | 항목      | 내용                                                                                                                                                       |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 상위      | [prd.md](./prd.md) · [information-architecture.md](./information-architecture.md)                                                                                                                      |
-| 하위      | [high-level-design.md](./high-level-design.md) (구조) · [low-level-design.md](./low-level-design.md) (구현 치수)                                                                                                 |
+| 상위      | [그룹 IA](../../information-architecture.md) · [Feature PRD](./prd.md) · [Feature IA](./information-architecture.md)                                                                                    |
+| 하위      | [high-level-design.md](./high-level-design.md) (시스템 경계) · [low-level-design.md](./low-level-design.md) (상태·복구·검증)                                                                                     |
 | 정본 HTML | [ux.html](./ux.html) — 단일 카드 플립 UX                                                                                   |
 | 상태      | **v1.1** — 단일 플립 카드 · 개인 로컬 `내 카드 아이콘` · 공용 `ReorderHandle` · 계정별 로컬 순서 · 기존 전역 리그 라이브 합성 · 그룹 카드 첫 노출 코치마크 |
 | 작성일    | 2026-08-08                                                                                                                                                 |
 
-이 문서는 **사용자가 무엇을 보고, 어떤 상태에서 무엇을 조작하는가**를 규정한다. 실제 픽셀 치수·스냅 파라미터·인터폴레이션 계수는 [low-level-design.md](./low-level-design.md)에 고정한다.
+이 문서는 **사용자가 무엇을 보고, 어떤 상태에서 무엇을 조작하는가**와 시각·모션 기준을 규정한다. 상태 전이·실패 복구·검증 기준은 [low-level-design.md](./low-level-design.md)가 담당한다.
 
 > **근거 수준:** 현재 실제 행동 표본은 0명이고 `is_deleted=false AND is_guest=false` 리그 조회 대상은 100명 미만이다. 이 문서는 이 규모에서 기존 전역 리그 top100을 재사용하는 단일 UX와 출시 전 품질 기준을 정하지만, 사용성이나 사업 효과가 입증되었다고 보지 않는다. “소속감·재방문·집중 전환이 좋아진다”처럼 사용자 효능을 단정하지 않으며, 출시 전 형성평가에서는 명백한 막힘과 오류를 찾는 데 집중한다.
 
