@@ -1,4 +1,5 @@
-import { StyleSheet } from 'react-native';
+import { createContext, useContext, type ReactNode } from 'react';
+import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { pulse } from '@/constants/motion';
 import { T } from '@/constants/theme';
@@ -27,6 +28,13 @@ import { useMotion } from '@/hooks/useMotion';
 // 참고: 버튼 안의 pending `ActivityIndicator`는 그대로 둔다. 스켈레톤은 **콘텐츠 자리표시자
 // 전용**이고, 스피너는 "내 조작이 처리 중"이라는 다른 의미다.
 
+// ⚠️ **펄스는 묶음당 하나다.** 블록마다 무한 CSS 애니메이션을 돌리면 통계 화면(카드 8~12장)
+//    에서만 그만큼의 루프가 동시에 돌아, "화면당 무한 루프 1개" 상한(IA 강도 등급표)을 구조적으로
+//    위반한다. 조상에 펄스가 이미 걸려 있으면 하위 블록은 **정적으로** 그린다 —
+//    같은 불투명도를 공유하므로 눈에는 똑같이 보인다(codex 리뷰).
+//    여러 장을 한 번에 띄우는 화면은 `<SkeletonGroup>`으로 감싼다.
+const PulsedByAncestor = createContext(false);
+
 // 텍스트 한 줄의 높이 — T.text.body(16pt) 본문의 글자 상자 높이에 맞춘 값.
 const LINE_H = 14;
 // 마지막 줄만 짧게 — 문단 끝은 원래 오른쪽이 비어 있다. 전부 꽉 찬 블록은 표처럼 보인다.
@@ -46,13 +54,49 @@ interface SkeletonProps {
 /** 단일 블록 자리표시자. 아바타·썸네일·수치 한 칸 등 낱개 요소에 쓴다. */
 export function Skeleton({ w, h, radius = 8, testID }: SkeletonProps) {
   const m = useMotion();
+  // 조상이 이미 펄스 중이면 여기서 또 돌리지 않는다 — 루프 하나로 묶음 전체가 같이 숨 쉰다.
+  const pulsed = useContext(PulsedByAncestor);
   return (
     <Animated.View
       testID={testID}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[s.block, { width: w, height: h, borderRadius: radius }, m.css(pulse)]}
+      style={[
+        s.block,
+        { width: w, height: h, borderRadius: radius },
+        pulsed ? undefined : m.css(pulse),
+      ]}
     />
+  );
+}
+
+/**
+ * 스켈레톤 묶음. **여러 장을 한 화면에 띄울 때 반드시 이걸로 감싼다** — 펄스를 이 한 겹에만
+ * 걸고 하위 블록은 정적으로 그려, 무한 루프가 화면당 1개로 유지된다.
+ *
+ * ⚠️ 감싸지 않으면 블록 수만큼 루프가 돈다. 통계 화면(카드 8~12장)이 바로 그 경우다.
+ */
+export function SkeletonGroup({
+  children,
+  style,
+  testID,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+}) {
+  const m = useMotion();
+  return (
+    <PulsedByAncestor.Provider value>
+      <Animated.View
+        testID={testID}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[style, m.css(pulse)]}
+      >
+        {children}
+      </Animated.View>
+    </PulsedByAncestor.Provider>
   );
 }
 
@@ -63,19 +107,17 @@ interface SkeletonTextProps {
   testID?: string;
 }
 
-/** 여러 줄 텍스트 자리표시자. 마지막 줄은 짧게 그려 문단처럼 보이게 한다. */
+/**
+ * 여러 줄 텍스트 자리표시자. 마지막 줄은 짧게 그려 문단처럼 보이게 한다.
+ * 줄이 곧 묶음이라 스스로 `SkeletonGroup`이다 — 5줄이어도 루프는 하나다.
+ */
 export function SkeletonText({ lines, gap = T.space.sm, testID }: SkeletonTextProps) {
   return (
-    <Animated.View
-      testID={testID}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[s.textWrap, { gap }]}
-    >
+    <SkeletonGroup testID={testID} style={[s.textWrap, { gap }]}>
       {Array.from({ length: Math.max(lines, 0) }, (_, i) => (
         <Skeleton key={i} w={i === lines - 1 ? LAST_LINE_W : '100%'} h={LINE_H} radius={6} />
       ))}
-    </Animated.View>
+    </SkeletonGroup>
   );
 }
 
