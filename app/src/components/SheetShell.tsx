@@ -126,6 +126,8 @@ export function SheetShell({
   keyboardHeightRef.current = keyboardHeight;
   const reduceRef = useRef(m.reduce);
   reduceRef.current = m.reduce;
+  // 드래그 시작 시점의 패널 위치 — 등장·복귀 스프링이 도는 중에 잡아도 이어서 끌리게 한다.
+  const dragStartYRef = useRef(0);
 
   // 패널 세로 위치. 등장·드래그·퇴장이 **같은 값**을 쓴다(정책 D4).
   // 초기값은 화면 높이 — 패널은 그보다 클 수 없으므로 측정 전 한 프레임도 보이지 않는다.
@@ -208,10 +210,20 @@ export function SheetShell({
       // 아래로(세로 우세) 끌기 시작할 때만 응답을 가져간다 — 시트 안 스크롤/입력과 충돌하지 않게
       // 그랩바 영역에만 붙인다.
       onMoveShouldSetPanResponder: (_, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      // ⚠️ 제스처 시작 시점의 패널 위치를 붙잡는다. g.dy는 **이번 터치 시작점부터의 누적
+      //    이동량**이지 translateY의 델타가 아니라서, 이 캡처가 없으면 translateY가 0이 아닌
+      //    상태(등장 스프링이 아직 도는 중 · release 후 복귀 스프링이 도는 중)에서 그랩바를 잡는
+      //    순간 패널이 g.dy(≈0) 자리로 **순간이동**한다. 같은 shared value를 쓰는 것만으로는
+      //    인터럽트가 성립하지 않는다 — 절대값으로 덮어쓰면 이전 위치가 사라진다(claude 리뷰).
+      onPanResponderGrant: () => {
+        dragStartYRef.current = translateY.value;
+      },
       onPanResponderMove: (_, g) => {
         // 퇴장이 시작된 뒤의 잔여 이벤트가 패널을 도로 끌어올리지 않게 막는다.
         if (closingRef.current) return;
-        if (g.dy > 0) translateY.value = g.dy;
+        // 위로는 끌리지 않는다(0 미만 방지) — 시트는 아래로만 닫힌다.
+        const next = dragStartYRef.current + g.dy;
+        if (next > 0) translateY.value = next;
       },
       onPanResponderRelease: (_, g) => {
         // dismissible=false(예: 저장 중)면 임계치와 무관하게 항상 제자리로 되돌린다 — 화면 밖으로
