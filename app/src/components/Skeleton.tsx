@@ -86,13 +86,16 @@ export function SkeletonGroup({
   testID?: string;
 }) {
   const m = useMotion();
+  // ⚠️ 그룹도 조상을 확인한다. 그러지 않으면 바깥 그룹 안에 SkeletonText(스스로 그룹)가 들어갈 때
+  //    부모와 자식에서 루프가 각각 돌아 상한이 다시 깨진다(codex 리뷰).
+  const pulsed = useContext(PulsedByAncestor);
   return (
     <PulsedByAncestor.Provider value>
       <Animated.View
         testID={testID}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        style={[style, m.css(pulse)]}
+        style={[style, pulsed ? undefined : m.css(pulse)]}
       >
         {children}
       </Animated.View>

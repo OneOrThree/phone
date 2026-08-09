@@ -1,4 +1,4 @@
-import { Easing, cubicBezier } from 'react-native-reanimated';
+import { Easing, ReduceMotion, cubicBezier } from 'react-native-reanimated';
 import type {
   CSSAnimationProperties,
   CSSAnimationTimingFunction,
@@ -214,11 +214,25 @@ type SpringifiableBuilder = {
   damping(v: number): SpringifiableBuilder;
   stiffness(v: number): SpringifiableBuilder;
   mass(v: number): SpringifiableBuilder;
+  reduceMotion(v: ReduceMotion): SpringifiableBuilder;
 };
 
 export function springify<B extends SpringifiableBuilder>(
   builder: B,
   s: SpringParams = M.spring.snappy,
 ): B {
-  return builder.springify().damping(s.damping).stiffness(s.stiffness).mass(s.mass) as B;
+  return (
+    builder
+      .springify()
+      .damping(s.damping)
+      .stiffness(s.stiffness)
+      .mass(s.mass)
+      // ⚠️ 내장 reduce-motion 게이트를 **명시적으로 끈다** (정책 D6).
+      //    레이아웃 빌더의 기본값은 ReduceMotion.System인데, 그건 reanimated가 모듈 로드 시 1회
+      //    계산하는 **정적** 플래그다. '동작 줄이기'를 켠 채로 앱을 켰다가 실행 중에 끄면
+      //    useMotion은 반응해서 layout prop을 다시 내주지만 이 정적 플래그가 애니메이션을 계속
+      //    억제한다 — 앱 안에 '동작 줄이기' 진실이 둘 생긴다.
+      //    켜고 끄는 판단은 useMotion 한 곳만 한다(codex 리뷰).
+      .reduceMotion(ReduceMotion.Never) as B
+  );
 }
