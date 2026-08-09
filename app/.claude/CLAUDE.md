@@ -17,10 +17,17 @@ Read in this order when you first pick up the project:
 Other work logs: see `.claude/*_WorkLog.md` — one per feature; the set grows, so
 glob instead of trusting any list here.
 
+### Team-shared feature docs (repo-root `docs/`)
+
+Team-facing feature docs — **PRD · policy · IA · high-level/low-level design ·
+diagrams** per feature — live in the repo-root `docs/prd/<feature>/` (tracked in
+git; see `docs/README.md`). Anything meant for teammates goes there, not in the
+local-only folders below.
+
 ### Planning/design reference docs (`app/.docs/`)
 
 Original planning/design source docs live in `app/.docs/`. **This folder is in `.gitignore`
-(local-only)** — they're working references, not for external sharing.
+(local-only)** — personal working references, not for external sharing.
 
 | Doc                                      | Purpose                                                                  |
 | ---------------------------------------- | ------------------------------------------------------------------------ |
