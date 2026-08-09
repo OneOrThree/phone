@@ -13,6 +13,7 @@ import {
   pulse,
   staggerDelay,
   transition,
+  type SpringParams,
 } from './motion';
 
 describe('M.dur', () => {
@@ -86,7 +87,9 @@ describe('M.spring', () => {
 
   // ζ = c / (2√(km)). press는 얕은 오버슛 1회(과소감쇠), snappy는 거의 튀지 않아야 한다.
   it('press는 과소감쇠, snappy는 press보다 덜 튄다', () => {
-    const zeta = ({ damping: c, stiffness: k, mass: m }: (typeof M.spring)['press']) =>
+    // ⚠️ `(typeof M.spring)['press']`로 쓰면 안 된다 — M이 as const라 damping이 리터럴 14로
+    //    좁혀져서 snappy를 넘길 수 없다. 네 프리셋의 합집합인 SpringParams를 써야 한다.
+    const zeta = ({ damping: c, stiffness: k, mass: m }: SpringParams) =>
       c / (2 * Math.sqrt(k * m));
     expect(zeta(M.spring.press)).toBeLessThan(1);
     expect(zeta(M.spring.press)).toBeGreaterThan(0.4);
