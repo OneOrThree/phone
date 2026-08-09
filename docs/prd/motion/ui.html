@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gromo 모션 — 화면 적용 시안</title>
+
+<style>
+  /* 팔레트는 app/src/constants/theme.ts (T)를 그대로 미러링한다. */
+  :root {
+    --bg: #f4f5f8;
+    --surface: #ffffff;
+    --surface-2: #f5f6f9;
+    --track: #f1f2f6;
+    --chip: #f1f2f8;
+    --ink: #1c1e22;
+    --ink-sub: #667085;
+    --ink-muted: #9aa0a8;
+    --line: #eaebee;
+    --divider: #f1f2f5;
+    --accent: #5e6ad2;
+    --accent-deep: #4a53b8;
+    --accent-light: #afb5e9;
+    --accent-soft: #eef0fb;
+    --accent-line: #dde0f3;
+    --green: #5ea269;
+    --green-bg: #ecf5ee;
+    --flame: #e8452c;
+    --gold: #e0a83f;
+    --silver: #b8b0a3;
+    --bronze: #c58f5a;
+    /* 집중 세션(다크) — T.night */
+    --n-top: #2a2e45;
+    --n-bottom: #1a1d2e;
+    --n-cream: #d9dcf0;
+    --n-muted: #8b90a8;
+    --n-gold: #b7bcf0;
+    --n-green: #7fcb8e;
+    --phone-shadow: rgba(30, 35, 64, 0.13);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #15182a;
+      --surface: #1e2236;
+      --surface-2: #262b42;
+      --track: #2c3149;
+      --chip: #2a3049;
+      --ink: #dfe2f2;
+      --ink-sub: #a1a7c2;
+      --ink-muted: #7d84a0;
+      --line: #2f3450;
+      --divider: #2a2f49;
+      --accent: #afb5e9;
+      --accent-deep: #c8ccf2;
+      --accent-light: #8f97d8;
+      --accent-soft: #272c45;
+      --accent-line: #3a4064;
+      --green: #7fcb8e;
+      --green-bg: #24352b;
+      --phone-shadow: rgba(0, 0, 0, 0.45);
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #15182a;
+    --surface: #1e2236;
+    --surface-2: #262b42;
+    --track: #2c3149;
+    --chip: #2a3049;
+    --ink: #dfe2f2;
+    --ink-sub: #a1a7c2;
+    --ink-muted: #7d84a0;
+    --line: #2f3450;
+    --divider: #2a2f49;
+    --accent: #afb5e9;
+    --accent-deep: #c8ccf2;
+    --accent-light: #8f97d8;
+    --accent-soft: #272c45;
+    --accent-line: #3a4064;
+    --green: #7fcb8e;
+    --green-bg: #24352b;
+    --phone-shadow: rgba(0, 0, 0, 0.45);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo',
+      'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono {
+    font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 100px; }
+
+  header.doc { padding: 44px 0 20px; }
+  header.doc h1 {
+    font-size: 30px; font-weight: 800; letter-spacing: -0.6px; margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  header.doc p { margin: 0; color: var(--ink-sub); max-width: 64ch; }
+  .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--ink-muted);
+  }
+
+  .bar {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 12px 0; margin-bottom: 26px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar .spacer { flex: 1; }
+
+  button {
+    font: inherit; color: inherit; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface);
+    border-radius: 9px; padding: 7px 13px; font-size: 13.5px; font-weight: 600;
+    transition: border-color 120ms ease-out;
+  }
+  button:hover { border-color: var(--accent-line); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) button.primary { color: #1a1d2e; }
+  }
+  :root[data-theme='dark'] button.primary { color: #1a1d2e; }
+  button[aria-pressed='true'] {
+    background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-deep);
+  }
+
+  /* ── 갤러리 ── */
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 26px;
+  }
+  .slot { display: flex; flex-direction: column; gap: 12px; }
+  .slot .cap { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .slot .cap h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.2px; }
+  .slot .cap .grade {
+    font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 20px;
+    background: var(--accent-soft); color: var(--accent-deep); border: 1px solid var(--accent-line);
+  }
+  .slot .desc { font-size: 13px; color: var(--ink-sub); margin: 0; }
+  .slot .desc b { color: var(--ink); font-weight: 600; }
+
+  /* ── 폰 프레임 ── */
+  .phone {
+    position: relative;
+    width: 100%; max-width: 300px; aspect-ratio: 300 / 600;
+    margin: 0 auto;
+    border-radius: 30px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    overflow: hidden;
+    box-shadow: 0 14px 34px -18px var(--phone-shadow);
+    font-size: 12px;
+  }
+  .phone.night { background: var(--n-bottom); border-color: #333955; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .scroll { flex: 1; overflow: hidden; padding: 12px 12px 0; display: flex; flex-direction: column; gap: 9px; }
+
+  /* 상단바 */
+  .topbar {
+    display: flex; align-items: center; gap: 7px;
+    padding: 14px 13px 6px;
+  }
+  .avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); flex: none;
+  }
+  .topbar .nick { font-weight: 700; font-size: 12.5px; }
+  .topbar .rankbadge {
+    margin-left: auto; font-size: 10.5px; font-weight: 700;
+    background: var(--accent-soft); color: var(--accent-deep);
+    border: 1px solid var(--accent-line); border-radius: 20px; padding: 1px 7px;
+  }
+  .bell { width: 16px; height: 16px; border-radius: 4px; background: var(--track); flex: none; }
+
+  /* 카드 */
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 11px 12px;
+    will-change: transform, opacity;
+  }
+  .card .ttl { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .card .ttl .sub { color: var(--ink-muted); font-weight: 600; font-size: 10.5px; }
+  .chips { margin-left: auto; display: flex; gap: 5px; }
+  .chip {
+    display: flex; align-items: center; gap: 3px;
+    background: var(--chip); border-radius: 20px; padding: 2px 7px;
+    font-size: 10px; font-weight: 700; color: var(--ink-sub);
+  }
+  .dot-coin { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-light); flex: none; }
+  .dot-flame { width: 8px; height: 8px; border-radius: 50%; background: var(--flame); flex: none; }
+
+  .metric { display: flex; flex-direction: column; gap: 5px; margin-bottom: 9px; }
+  .metric:last-child { margin-bottom: 0; }
+  .metric .row { display: flex; align-items: baseline; gap: 6px; }
+  .metric .name { font-size: 11px; color: var(--ink-sub); font-weight: 600; }
+  .metric .val { font-size: 16px; font-weight: 800; letter-spacing: -0.4px; margin-left: auto; }
+  .metric .goal { font-size: 10px; color: var(--ink-muted); }
+  .bar-track { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0%; border-radius: 4px; background: var(--accent); }
+  .bar-fill.green { background: var(--green); }
+
+  /* 캐릭터 룸 */
+  .room {
+    flex: none; height: 168px; margin: 4px 12px 0;
+    border-radius: 16px; background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    display: grid; place-items: center; position: relative;
+    will-change: transform, opacity;
+  }
+  .char {
+    width: 66px; height: 84px; border-radius: 34px 34px 22px 22px;
+    background: var(--accent); position: relative;
+  }
+  .char::before, .char::after {
+    content: ''; position: absolute; top: 30px; width: 7px; height: 9px;
+    border-radius: 4px; background: var(--surface);
+  }
+  .char::before { left: 16px; }
+  .char::after { right: 16px; }
+  .room .pill {
+    position: absolute; bottom: 10px;
+    font-size: 10px; font-weight: 700; color: var(--accent-deep);
+    background: var(--surface); border: 1px solid var(--accent-line);
+    border-radius: 20px; padding: 3px 10px;
+  }
+
+  /* 탭바 */
+  .tabbar {
+    flex: none; position: relative; height: 54px; margin: 0 10px 10px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 20px; display: flex; align-items: center;
+  }
+  .tabbar .tab {
+    flex: 1; text-align: center; font-size: 10px; font-weight: 700;
+    color: var(--ink-muted); z-index: 2; position: relative;
+  }
+  .tabbar .tab.on { color: var(--accent-deep); }
+  .tabbar .pill {
+    position: absolute; top: 8px; left: 0; width: 46px; height: 38px;
+    border-radius: 19px; background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    will-change: transform;
+  }
+  .tabbar .fab {
+    position: absolute; left: 50%; top: -14px; margin-left: -19px;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--accent); z-index: 3;
+    box-shadow: 0 6px 14px -6px var(--accent);
+  }
+
+  /* 스켈레톤 */
+  .skel { background: var(--track); border-radius: 6px; }
+
+  /* 차트 */
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 62px; }
+  .bars .b {
+    flex: 1; background: var(--accent); border-radius: 4px 4px 2px 2px;
+    transform-origin: bottom; will-change: transform;
+  }
+  .bars .b.dim { background: var(--accent-light); }
+
+  /* 집중 세션 */
+  .night-screen { padding: 0; color: var(--n-cream); }
+  .night-head { padding: 16px 14px 0; display: flex; align-items: center; gap: 6px; }
+  .night-head .subj { font-size: 12px; font-weight: 700; color: var(--n-cream); }
+  .night-head .ph {
+    margin-left: auto; font-size: 10px; font-weight: 700; color: var(--n-bottom);
+    background: var(--n-gold); border-radius: 20px; padding: 2px 8px;
+  }
+  .ringwrap { flex: 1; display: grid; place-items: center; }
+  .ringbox { position: relative; width: 172px; height: 172px; }
+  .ringbox svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ringbox .time {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 30px; font-weight: 800; letter-spacing: -1px; color: var(--n-cream);
+  }
+  .night-ctl { display: flex; gap: 8px; padding: 0 16px 18px; }
+  .night-ctl .b {
+    flex: 1; text-align: center; padding: 10px; border-radius: 12px;
+    background: rgba(255, 255, 255, 0.09); font-size: 11px; font-weight: 700;
+    color: var(--n-cream); will-change: transform;
+  }
+  .dots { display: flex; gap: 5px; justify-content: center; padding-bottom: 14px; }
+  .dots i {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--n-muted);
+    display: block; transition: none;
+  }
+  .dots i.on { background: var(--n-gold); }
+
+  /* 리그 */
+  .podium { display: flex; align-items: flex-end; gap: 7px; padding: 4px 0 8px; }
+  .podium .p { flex: 1; text-align: center; }
+  .podium .p .head {
+    width: 30px; height: 30px; border-radius: 50%; margin: 0 auto 4px;
+    background: var(--accent-light);
+  }
+  .podium .p .base {
+    border-radius: 8px 8px 0 0; background: var(--accent-soft);
+    border: 1px solid var(--accent-line); border-bottom: none;
+    font-size: 10px; font-weight: 800; padding: 4px 0;
+  }
+  .podium .p1 .base { height: 46px; }
+  .podium .p2 .base { height: 34px; }
+  .podium .p3 .base { height: 28px; }
+  .podium .p1 .head { background: var(--gold); }
+  .podium .p2 .head { background: var(--silver); }
+  .podium .p3 .head { background: var(--bronze); }
+
+  .rank {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 11px; padding: 7px 10px; margin-bottom: 6px;
+    will-change: transform, opacity;
+  }
+  /* 기록이 곧 막대 — 순위표가 그대로 가로 막대그래프가 된다 */
+  .rank .fill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+    background: var(--accent-soft);
+  }
+  .rank.me .fill { background: var(--accent-line); }
+  .rank .no, .rank .who, .rank .time { position: relative; z-index: 1; }
+  .rank .no { font-size: 11px; font-weight: 800; width: 16px; color: var(--ink-sub); }
+  .rank .who { font-size: 11.5px; font-weight: 700; }
+  .rank .time { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--accent-deep); }
+  .rank.me { background: var(--accent-soft); border-color: var(--accent-line); }
+
+  /* 시트 · 딤 · 토스트 */
+  .dim { position: absolute; inset: 0; background: rgba(26, 29, 46, 0.42); opacity: 0; }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: var(--surface); border: 1px solid var(--line); border-bottom: none;
+    border-radius: 20px 20px 0 0; padding: 9px 14px 20px;
+    transform: translateY(110%); will-change: transform;
+  }
+  .grabber { width: 34px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 10px; }
+  .sheet .opt {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 10px; border-radius: 11px; margin-bottom: 6px;
+    background: var(--surface-2); font-size: 11.5px; font-weight: 700;
+  }
+  .sheet .opt.sel { background: var(--accent-soft); border: 1px solid var(--accent-line); color: var(--accent-deep); }
+  .toast {
+    position: absolute; left: 12px; right: 12px; bottom: 16px;
+    background: var(--ink); color: var(--bg);
+    border-radius: 12px; padding: 10px 13px;
+    font-size: 11.5px; font-weight: 600;
+    opacity: 0; transform: translateY(14px); will-change: transform, opacity;
+  }
+
+  /* 축하 */
+  .celebrate { position: absolute; inset: 0; display: grid; place-items: center; }
+  .celcard {
+    width: 78%; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 18px; padding: 18px 14px; text-align: center;
+    will-change: transform, opacity; opacity: 0;
+  }
+  .celcard .tier {
+    width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 10px;
+    background: linear-gradient(160deg, #f7d97e, #d9962a);
+  }
+  .celcard h3 { margin: 0 0 4px; font-size: 15px; font-weight: 800; letter-spacing: -0.3px; }
+  .celcard p { margin: 0; font-size: 11px; color: var(--ink-sub); }
+  .celcard .bonus {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
+    background: var(--accent-soft); color: var(--accent-deep);
+    border: 1px solid var(--accent-line); border-radius: 20px;
+    padding: 3px 10px; font-size: 11px; font-weight: 800;
+  }
+  .confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .confetti i {
+    position: absolute; display: block; width: 6px; height: 9px; border-radius: 1px;
+    will-change: transform; opacity: 0;
+  }
+
+  .callout {
+    border: 1px solid var(--accent-line); background: var(--accent-soft);
+    border-radius: 12px; padding: 14px 16px; font-size: 13.5px; margin: 26px 0 0;
+  }
+  .callout strong { color: var(--accent-deep); }
+
+  footer.doc {
+    margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--ink-sub);
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="doc">
+    <div class="eyebrow">docs/prd/motion · 화면 적용 시안</div>
+    <h1>모션이 얹힌 앱은 이렇게 보인다</h1>
+    <p>
+      <a href="animate.html">animate.html</a>이 값 하나하나를 재는 계측기라면, 여기는 그 값이
+      실제 화면에 붙었을 때의 전체 인상을 본다. 확정된 톤(<span class="mono">spring.press
+      d14/s300/m0.65</span>)과 토큰이 그대로 적용돼 있다.
+    </p>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="playAll">전체 재생</button>
+    <button id="reduceBtn" aria-pressed="false">동작 줄이기</button>
+    <span class="spacer"></span>
+    <button id="themeBtn">테마 전환</button>
+  </div>
+
+  <div class="gallery">
+    <!-- ══ 홈 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>홈</h2><span class="grade">등급 2 · 1</span>
+        <button data-play="home" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        카드가 <b>60ms 간격</b>으로 올라오고, 진행바가 채워지고, 코인·연속일이 카운트업된다.
+        지금은 셋 다 즉시 표시다. <b>탭 복귀 시에는 재생하지 않는다.</b>
+      </p>
+      <div class="phone" id="pHome">
+        <div class="screen">
+          <div class="topbar">
+            <div class="avatar"></div>
+            <div class="nick">재영</div>
+            <div class="rankbadge">골드 · 12위</div>
+            <div class="bell"></div>
+          </div>
+          <div class="room" data-enter>
+            <div class="char"></div>
+            <div class="pill">캐릭터 변경</div>
+          </div>
+          <div class="scroll">
+            <div class="card" data-enter>
+              <div class="ttl">오늘 <span class="sub">Today</span>
+                <div class="chips">
+                  <div class="chip"><i class="dot-coin"></i><span class="mono" data-num="1240">0</span></div>
+                  <div class="chip"><i class="dot-flame"></i>연속 <span class="mono" data-num="14">0</span>일</div>
+                </div>
+              </div>
+              <div class="metric">
+                <div class="row">
+                  <span class="name">공부 집중</span>
+                  <span class="val mono" data-num="3.24" data-fmt="hm">0시간 00분</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" data-bar="0.72"></div></div>
+                <span class="goal">목표 4시간 30분</span>
+              </div>
+              <div class="metric">
+                <div class="row">
+                  <span class="name">핸드폰 사용</span>
+                  <span class="val mono">1시간 48분</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill green" data-bar="0.45"></div></div>
+                <span class="goal">목표 4시간</span>
+              </div>
+            </div>
+            <div class="card" data-enter>
+              <div class="ttl">이번 주 <span class="sub">Week</span></div>
+              <div class="bars">
+                <div class="b" style="height:38%"></div><div class="b" style="height:64%"></div>
+                <div class="b" style="height:48%"></div><div class="b dim" style="height:82%"></div>
+                <div class="b" style="height:56%"></div><div class="b dim" style="height:30%"></div>
+                <div class="b" style="height:70%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="pill" id="homePill"></div>
+            <div class="tab on">홈</div><div class="tab">리그</div>
+            <div class="fab"></div>
+            <div class="tab">그룹</div><div class="tab">전체</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 통계 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>통계 — 스켈레톤</h2><span class="grade">등급 1 · 2</span>
+        <button data-play="stats" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        지금은 카드마다 <b>독립 스피너 8개</b>가 제각각 튄다. 스켈레톤이 같은 리듬으로 맥박치다가
+        도착 순서대로 콘텐츠로 바뀐다. <b>치수가 같아 레이아웃 점프가 없다.</b>
+      </p>
+      <div class="phone" id="pStats">
+        <div class="screen">
+          <div class="topbar"><div class="nick" style="font-size:15px">통계</div></div>
+          <div class="scroll" id="statsBody"></div>
+          <div class="tabbar">
+            <div class="pill" style="transform:translateX(9px)"></div>
+            <div class="tab on">홈</div><div class="tab">리그</div>
+            <div class="fab"></div>
+            <div class="tab">그룹</div><div class="tab">전체</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 집중 세션 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>집중 세션 — 진행 링</h2><span class="grade">등급 1</span>
+        <button data-play="focus" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        1560줄짜리 화면에 <b>진행 어포던스가 없다</b> — 카운트다운·뽀모도로가 숫자만 바뀐다.
+        링은 남은 시간을 보여주고, 페이즈가 바뀔 때 크로스페이드 + 햅틱이 붙는다.
+      </p>
+      <div class="phone night" id="pFocus">
+        <div class="screen night-screen">
+          <div class="night-head">
+            <span class="subj">수학 · 미적분</span>
+            <span class="ph" id="focusPhase">집중</span>
+          </div>
+          <div class="ringwrap">
+            <div class="ringbox">
+              <svg viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="43" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="7"/>
+                <circle id="focusRing" cx="50" cy="50" r="43" fill="none" stroke="#b7bcf0"
+                        stroke-width="7" stroke-linecap="round"
+                        stroke-dasharray="270.2" stroke-dashoffset="270.2"/>
+              </svg>
+              <div class="time mono" id="focusTime">25:00</div>
+            </div>
+          </div>
+          <div class="dots" id="focusDots">
+            <i class="on"></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="night-ctl">
+            <div class="b" id="focusPause">일시정지</div>
+            <div class="b" style="background:rgba(255,255,255,.16)">종료</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 리그 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>리그 — 진입 · 재정렬</h2><span class="grade">등급 2 · 1</span>
+        <button data-play="league" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        행 배경이 기록만큼 차오르는 <b>가로 막대그래프</b>다. 순위가 오르면 막대가 먼저 자라고,
+        두 행이 <b>서로 옆으로 비껴가며 자리를 맞바꾼다</b> — 세로로만 지나가면 리스트가 다시
+        그려진 것처럼 보인다. 네 번의 스왑을 <b>같은 호흡으로 연달아</b>.
+      </p>
+      <div class="phone" id="pLeague">
+        <div class="screen">
+          <div class="topbar"><div class="nick" style="font-size:15px">리그</div>
+            <div class="rankbadge">골드</div></div>
+          <div class="scroll">
+            <div class="podium" data-enter>
+              <div class="p p2"><div class="head"></div><div class="base">2</div></div>
+              <div class="p p1"><div class="head"></div><div class="base">1</div></div>
+              <div class="p p3"><div class="head"></div><div class="base">3</div></div>
+            </div>
+            <div id="leagueList"></div>
+          </div>
+          <div class="tabbar">
+            <div class="pill" id="leaguePill" style="transform:translateX(9px)"></div>
+            <div class="tab">홈</div><div class="tab on">리그</div>
+            <div class="fab"></div>
+            <div class="tab">그룹</div><div class="tab">전체</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 시트 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>바텀시트 — 최대 레버리지</h2><span class="grade">등급 1</span>
+        <button data-play="sheet" style="margin-left:auto">열기 / 닫기</button>
+      </div>
+      <p class="desc">
+        <b>시트 14곳이 공유하는 한 컴포넌트다.</b> 지금은 딤과 패널이 동시에 즉시 나타난다.
+        패널은 <span class="mono">spring.snappy</span>로 올라오고 딤은 220ms 페이드 —
+        따로 도는 게 핵심이다.
+      </p>
+      <div class="phone" id="pSheet">
+        <div class="screen">
+          <div class="topbar"><div class="nick" style="font-size:15px">집중 시작</div></div>
+          <div class="scroll">
+            <div class="card"><div class="ttl">과목 선택</div>
+              <div class="opt-line skel" style="height:11px;margin-bottom:7px"></div>
+              <div class="opt-line skel" style="height:11px;width:72%"></div>
+            </div>
+            <div class="card"><div class="ttl">오늘 기록</div>
+              <div class="bars">
+                <div class="b" style="height:40%"></div><div class="b dim" style="height:70%"></div>
+                <div class="b" style="height:52%"></div><div class="b" style="height:64%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="dim" id="sheetDim"></div>
+          <div class="sheet" id="sheetPanel">
+            <div class="grabber"></div>
+            <div style="font-size:12.5px;font-weight:800;margin-bottom:9px">타이머 방식</div>
+            <div class="opt sel">카운트업 — 흐른 시간을 잰다</div>
+            <div class="opt">카운트다운 — 목표 시간까지</div>
+            <div class="opt">뽀모도로 — 25분 + 5분</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 축하 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>승급 축하 + 토스트</h2><span class="grade">등급 3</span>
+        <button data-play="celebrate" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        목표 달성 모달은 이미 최고 수준인데 <b>리그 승급엔 컨페티가 없다.</b> 같은
+        <span class="mono">ConfettiBurst</span>를 재사용해 평준화한다. 아래 토스트는 캐릭터 장착
+        성공 — 지금은 시스템 알럿이다.
+      </p>
+      <div class="phone" id="pCel">
+        <div class="screen">
+          <div class="topbar"><div class="nick" style="font-size:15px">리그 결과</div></div>
+          <div class="scroll"></div>
+          <div class="confetti" id="confetti"></div>
+          <div class="celebrate">
+            <div class="celcard" id="celCard">
+              <div class="tier"></div>
+              <h3>골드로 승급했어요</h3>
+              <p>이번 주 12위 · 상위 8%</p>
+              <div class="bonus">+<span class="mono" data-num="250">0</span> 시간조각</div>
+            </div>
+          </div>
+          <div class="toast" id="celToast">캐릭터를 변경했어요</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>이 시안이 보여주지 않는 것.</strong> 브라우저는 RN과 프레임 예산이 다르고, 리퀴드
+    글래스·블러가 얹힌 실제 표면에서는 같은 값도 다르게 읽힌다. 무엇보다 <strong>반복 노출</strong>이
+    빠져 있다 — 홈은 하루에 열 번 넘게 보는 화면이라 여기서 "적당하다"고 느낀 연출도 사흘 뒤엔
+    지연으로만 읽힐 수 있다. 그래서 홈 카드 stagger는 첫 마운트에서만 재생한다.
+  </div>
+
+  <footer class="doc">
+    <p>
+      세트: <a href="prd.md">PRD</a> · <a href="policy.md">정책</a> ·
+      <a href="information-architecture.md">IA</a> · <a href="high-level-design.md">HLD</a> ·
+      <a href="low-level-design.md">LLD</a> · <a href="animate.html">animate.html</a>
+    </p>
+  </footer>
+</div>
+
+<script>
+  (() => {
+    'use strict';
+
+    /* 토큰 — motion.ts 로 들어갈 값과 동일 */
+    const M = {
+      dur: { press: 110, quick: 220, base: 350, slow: 600, entrance: 800, celebrate: 1200 },
+      curve: {
+        standard: [0.2, 0, 0, 1],
+        out: [0.25, 0.46, 0.45, 0.94],
+        glide: [0.3, 1.15, 0.5, 1],
+        overshoot: [0.34, 1.56, 0.64, 1],
+      },
+      spring: {
+        press: { damping: 14, stiffness: 300, mass: 0.65 },
+        snappy: { damping: 20, stiffness: 260, mass: 0.9 },
+        bouncy: { damping: 13, stiffness: 180, mass: 0.9 },
+        gentle: { damping: 16, stiffness: 120, mass: 1.0 },
+      },
+      stagger: { tight: 40, base: 60, loose: 90 },
+      staggerMaxSteps: 6,
+    };
+    let REDUCE = false;
+
+    const $ = (s, r = document) => r.querySelector(s);
+    const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+    function bezier([x1, y1, x2, y2]) {
+      const A = (a, b) => 1 - 3 * b + 3 * a;
+      const B = (a, b) => 3 * b - 6 * a;
+      const C = (a) => 3 * a;
+      const calc = (t, a, b) => ((A(a, b) * t + B(a, b)) * t + C(a)) * t;
+      const slope = (t, a, b) => 3 * A(a, b) * t * t + 2 * B(a, b) * t + C(a);
+      return (x) => {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        let t = x;
+        for (let i = 0; i < 8; i++) {
+          const d = slope(t, x1, x2);
+          if (d === 0) break;
+          const e = calc(t, x1, x2) - x;
+          if (Math.abs(e) < 1e-6) break;
+          t -= e / d;
+        }
+        return calc(t, y1, y2);
+      };
+    }
+    const EASE = {
+      standard: bezier(M.curve.standard),
+      out: bezier(M.curve.out),
+      glide: bezier(M.curve.glide),
+      overshoot: bezier(M.curve.overshoot),
+    };
+
+    /* 스프링 적분 — animate.html과 같은 물리 */
+    function springTrace({ damping: c, stiffness: k, mass: m }, from, to, maxMs = 2200) {
+      const dt = 1 / 480, stepMs = dt * 1000;
+      let x = from, v = 0, t = 0;
+      const out = [{ t: 0, v: x }];
+      const eps = Math.abs(to - from) * 0.001 || 0.0005;
+      while (t < maxMs) {
+        v += ((-k * (x - to) - c * v) / m) * dt;
+        x += v * dt;
+        t += stepMs;
+        out.push({ t, v: x });
+        if (Math.abs(x - to) < eps && Math.abs(v) < eps * 12) break;
+      }
+      return out;
+    }
+    const SP = {
+      snappy: springTrace(M.spring.snappy, 1, 0),
+      bouncy: springTrace(M.spring.bouncy, 0, 1),
+      press: springTrace(M.spring.press, 0.96, 1),
+    };
+
+    function play(ms, onFrame, onDone) {
+      if (REDUCE) { onFrame(1); onDone && onDone(); return; }
+      const t0 = performance.now();
+      const tick = (now) => {
+        const p = Math.min(1, (now - t0) / ms);
+        onFrame(p);
+        if (p < 1) requestAnimationFrame(tick);
+        else onDone && onDone();
+      };
+      requestAnimationFrame(tick);
+    }
+    function playTrace(tr, apply, onDone) {
+      if (REDUCE) { apply(tr[tr.length - 1].v); onDone && onDone(); return; }
+      const total = tr[tr.length - 1].t;
+      play(total, (p) => apply(tr[Math.round(p * (tr.length - 1))].v), onDone);
+    }
+    const delay = (ms) => (REDUCE ? 0 : ms);
+    const stagger = (i) => (REDUCE ? 0 : Math.min(i, M.staggerMaxSteps) * M.stagger.base);
+
+    /* enterUp — 카드 진입 공통 */
+    function enterUp(el, i) {
+      if (REDUCE) { el.style.opacity = '1'; el.style.transform = 'none'; return; }
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(12px)';
+      setTimeout(() => {
+        play(M.dur.base, (p) => {
+          const e = EASE.standard(p);
+          el.style.opacity = String(e);
+          el.style.transform = `translateY(${12 * (1 - e)}px)`;
+        });
+      }, stagger(i));
+    }
+
+    function countUp(el) {
+      const to = Number(el.dataset.num);
+      const fmt = el.dataset.fmt;
+      const render = (v) =>
+        (el.textContent = fmt === 'hm'
+          ? `${Math.floor(v)}시간 ${String(Math.round((v % 1) * 60)).padStart(2, '0')}분`
+          : Math.round(v).toLocaleString('ko-KR'));
+      if (REDUCE) { render(to); return; }
+      play(M.dur.slow, (p) => render(to * EASE.out(p)));
+    }
+
+    function fillBar(el, extraDelay = 0) {
+      const to = Number(el.dataset.bar) * 100;
+      el.style.width = '0%';
+      setTimeout(() => play(M.dur.slow, (p) => (el.style.width = `${to * EASE.standard(p)}%`)),
+        delay(extraDelay));
+    }
+
+    /* ══ 홈 ══ */
+    let homePlayed = false;
+    function playHome() {
+      const root = $('#pHome');
+      $$('[data-enter]', root).forEach((el, i) => enterUp(el, i));
+      $$('[data-num]', root).forEach((el) => setTimeout(() => countUp(el), delay(200)));
+      $$('[data-bar]', root).forEach((el, i) => fillBar(el, 160 + i * 90));
+      // 차트 막대 — growUp
+      $$('.bars .b', root).forEach((b, i) => {
+        if (REDUCE) { b.style.transform = 'none'; return; }
+        b.style.transform = 'scaleY(0)';
+        setTimeout(() => play(M.dur.entrance, (p) =>
+          (b.style.transform = `scaleY(${EASE.overshoot(p)})`)), stagger(i) + delay(220));
+      });
+      // 탭바 알약 — 홈 자리
+      const pill = $('#homePill');
+      const w = root.querySelector('.tabbar').clientWidth;
+      pill.style.transform = `translateX(${w * 0.11}px)`;
+      homePlayed = true;
+    }
+
+    /* ══ 통계 ══ */
+    const STATS = [
+      { h: 76, title: '집중 시간 추이' },
+      { h: 92, title: '과목별 비중' },
+      { h: 68, title: '주간 캘린더' },
+      { h: 84, title: '또래 비교' },
+    ];
+    function renderStats(mode) {
+      const box = $('#statsBody');
+      box.innerHTML = STATS.map((c, i) =>
+        mode === 'skel'
+          ? `<div class="card" style="height:${c.h}px">
+               <div class="skel" style="height:11px;width:44%;margin-bottom:9px"></div>
+               <div class="skel" style="height:${c.h - 44}px"></div>
+             </div>`
+          : `<div class="card" data-si="${i}" style="height:${c.h}px">
+               <div class="ttl">${c.title}</div>
+               <div class="bars" style="height:${c.h - 44}px">
+                 ${[52, 74, 40, 88, 61, 35, 70].map((v, j) =>
+                   `<div class="b${j % 3 === 1 ? ' dim' : ''}" style="height:${v}%"></div>`).join('')}
+               </div>
+             </div>`
+      ).join('');
+      return box;
+    }
+    let statsTimer = null;
+    function playStats() {
+      clearTimeout(statsTimer);
+      const box = renderStats('skel');
+      const skels = $$('.skel', box);
+      if (REDUCE) {
+        skels.forEach((s) => (s.style.opacity = '1'));
+      } else {
+        // 펄스 — 도착 전까지만 돈다
+        const t0 = performance.now();
+        let live = true;
+        const loop = (now) => {
+          if (!live) return;
+          const ph = ((now - t0) % 2400) / 1200;
+          const o = 0.45 + 0.55 * (ph <= 1 ? ph : 2 - ph);
+          skels.forEach((s) => (s.style.opacity = String(o)));
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+        statsTimer = setTimeout(() => (live = false), 1500);
+      }
+      statsTimer = setTimeout(() => {
+        const b2 = renderStats('real');
+        $$('.card', b2).forEach((c, i) => enterUp(c, i));
+        $$('.bars .b', b2).forEach((b, i) => {
+          if (REDUCE) return;
+          b.style.transform = 'scaleY(0)';
+          setTimeout(() => play(M.dur.entrance, (p) =>
+            (b.style.transform = `scaleY(${EASE.overshoot(p)})`)), stagger(i % 7) + 120);
+        });
+      }, delay(1500));
+    }
+
+    /* ══ 집중 세션 ══ */
+    const CIRC = 270.2;
+    let focusTimer = [];
+    function playFocus() {
+      focusTimer.forEach(clearTimeout);
+      focusTimer = [];
+      const ring = $('#focusRing');
+      const time = $('#focusTime');
+      const phase = $('#focusPhase');
+      const dots = $$('#focusDots i');
+      phase.textContent = '집중';
+      phase.style.background = 'var(--n-gold)';
+      phase.style.opacity = '1'; // 이전 재생이 크로스페이드 중에 끊겼을 때 반투명으로 굳는 것 방지
+      ring.style.stroke = '#b7bcf0';
+      dots.forEach((d, i) => d.classList.toggle('on', i === 0));
+
+      // 25:00 → 00:00 을 4초로 압축해 보여준다(시연용)
+      const total = REDUCE ? 0 : 4000;
+      play(total || 1, (p) => {
+        ring.style.strokeDashoffset = String(CIRC * (1 - p));
+        const left = Math.round(1500 * (1 - p));
+        time.textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+      }, () => {
+        // 페이즈 전환 — 크로스페이드 + 도트 이동
+        focusTimer.push(setTimeout(() => {
+          const swap = () => {
+            phase.textContent = '휴식';
+            phase.style.background = 'var(--n-green)';
+            dots.forEach((d, i) => d.classList.toggle('on', i <= 1));
+            ring.style.stroke = '#7fcb8e';
+            ring.style.strokeDashoffset = String(CIRC);
+          };
+          if (REDUCE) { swap(); return; }
+          play(M.dur.quick, (p) => (phase.style.opacity = String(1 - EASE.standard(p))), () => {
+            swap();
+            play(M.dur.quick, (p) => (phase.style.opacity = String(EASE.standard(p))));
+          });
+        }, delay(220)));
+      });
+
+      // 일시정지 버튼 — 확정된 press 스프링
+      const pauseBtn = $('#focusPause');
+      focusTimer.push(setTimeout(() => {
+        if (REDUCE) return;
+        play(M.dur.press, (p) => (pauseBtn.style.transform = `scale(${1 + (0.96 - 1) * EASE.out(p)})`),
+          () => playTrace(SP.press, (v) => (pauseBtn.style.transform = `scale(${v})`)));
+      }, delay(1200)));
+    }
+
+    /* ══ 리그 ══ */
+    const BAR_MAX = 2100; // 막대 100% 기준(분) — 35시간
+    const LEAGUE_BASE = [
+      { n: '민서', m: 1930 },
+      { n: '지훈', m: 1844 },
+      { n: '수빈', m: 1710 },
+      { n: '하늘', m: 1575 },
+      { n: '재영', m: 1480, me: true },
+    ];
+    // 한 칸 오를 때마다 갱신되는 내 기록(분). 바로 위 사람을 앞지르는 값이라야 상승이 납득된다.
+    const CLIMB = [1612, 1738, 1855, 1932];
+    const SWAP_GAP = 300; // 슉-슉-슉 — 완급 없이 같은 호흡으로 연달아
+    const SWAP_LEAD = 90; // 기록이 오르고 자리가 바뀌기까지
+    const hm = (m) => `${Math.floor(m / 60)}시간 ${String(m % 60).padStart(2, '0')}분`;
+    let leagueTimers = [];
+
+    function renderLeague() {
+      $('#leagueList').innerHTML = LEAGUE_BASE.map((r, i) =>
+        `<div class="rank${r.me ? ' me' : ''}">
+           <span class="fill" style="width:${(r.m / BAR_MAX) * 100}%"></span>
+           <span class="no">${i + 4}</span><span class="who">${r.n}</span>
+           <span class="time mono">${hm(r.m)}</span>
+         </div>`).join('');
+    }
+    renderLeague();
+
+    // 한 칸 상승 = 두 행의 자리 맞교환.
+    //  · DOM 노드를 재생성하지 않고 순서만 옮겨야 FLIP이 성립한다(노드 동일성 유지).
+    //  · 세로로만 지나가면 두 행이 겹쳐 "리스트가 다시 그려진 것"처럼 보인다.
+    //    올라가는 행은 왼쪽, 밀려나는 행은 오른쪽으로 살짝 부풀렸다 돌아오게 해 서로 비껴가게 한다.
+    function swapWithAbove(list, idx) {
+      const rows = [...list.children];
+      if (idx < 1 || idx >= rows.length) return;
+      const rising = rows[idx];
+      const falling = rows[idx - 1];
+      const before = new Map([rising, falling].map((r) => [r, r.getBoundingClientRect().top]));
+      list.insertBefore(rising, falling);
+      // 번호는 자리에 붙는 값이라 순서가 바뀌면 다시 매긴다
+      [...list.children].forEach((el, i) => (el.querySelector('.no').textContent = String(i + 4)));
+      if (REDUCE) return;
+      rising.style.zIndex = '2';
+      falling.style.zIndex = '1';
+      [[rising, -9], [falling, 9]].forEach(([el, amp]) => {
+        const dy = before.get(el) - el.getBoundingClientRect().top;
+        if (!dy) return;
+        playTrace(springTrace(M.spring.snappy, 1, 0), (v) => {
+          const t = Math.max(0, Math.min(1, 1 - v));   // 0 → 1 진행률
+          const arc = Math.sin(t * Math.PI);            // 중간에 최대, 양끝 0
+          const lift = el === rising ? 1 + arc * 0.03 : 1 - arc * 0.02;
+          el.style.transform =
+            `translate(${arc * amp}px, ${dy * v}px) scale(${lift})`;
+        }, () => { el.style.transform = ''; el.style.zIndex = ''; });
+      });
+    }
+
+    function playLeague() {
+      leagueTimers.forEach(clearTimeout);
+      leagueTimers = [];
+      const root = $('#pLeague');
+      $$('[data-enter]', root).forEach((el, i) => enterUp(el, i));
+      renderLeague();
+      const list = $('#leagueList');
+      $$('.rank', list).forEach((el, i) => enterUp(el, i + 1));
+
+      // 맨 아래에서 맨 위까지 한 칸씩 연달아. 여러 칸을 한 번에 뛰면 과정이 사라진다.
+      let idx = LEAGUE_BASE.findIndex((r) => r.me);
+      let at = 560;
+      CLIMB.forEach((mins) => {
+        const fireAt = at;
+        leagueTimers.push(setTimeout(() => {
+          const me = list.querySelector('.rank.me');
+          if (!me) return;
+          // 기록이 먼저 오르고(막대가 자라고), 그다음 자리가 바뀐다
+          me.querySelector('.time').textContent = hm(mins);
+          const fill = me.querySelector('.fill');
+          const from = parseFloat(fill.style.width) || 0;
+          const to = (mins / BAR_MAX) * 100;
+          if (REDUCE) fill.style.width = `${to}%`;
+          else play(M.dur.quick, (p) => {
+            const e = EASE.standard(p);
+            fill.style.width = `${from + (to - from) * e}%`;
+          });
+          leagueTimers.push(setTimeout(() => {
+            swapWithAbove(list, idx);
+            idx -= 1;
+          }, delay(SWAP_LEAD)));
+        }, delay(fireAt)));
+        at += SWAP_LEAD + SWAP_GAP;
+      });
+    }
+
+    /* ══ 시트 ══ */
+    let sheetOpen = false;
+    function toggleSheet() {
+      const panel = $('#sheetPanel');
+      const dim = $('#sheetDim');
+      sheetOpen = !sheetOpen;
+      if (REDUCE) {
+        panel.style.transform = sheetOpen ? 'translateY(0%)' : 'translateY(110%)';
+        dim.style.opacity = sheetOpen ? '1' : '0';
+        return;
+      }
+      if (sheetOpen) {
+        playTrace(SP.snappy, (v) => (panel.style.transform = `translateY(${v * 110}%)`));
+        play(M.dur.quick, (p) => (dim.style.opacity = String(EASE.standard(p))));
+      } else {
+        play(M.dur.quick, (p) => {
+          const e = EASE.standard(p);
+          panel.style.transform = `translateY(${e * 110}%)`;
+          dim.style.opacity = String(1 - e);
+        });
+      }
+    }
+
+    /* ══ 축하 ══ */
+    const CONF_COLORS = ['#5e6ad2', '#afb5e9', '#e0a83f', '#5ea269', '#c2705a'];
+    let celTimer = [];
+    function playCelebrate() {
+      celTimer.forEach(clearTimeout);
+      celTimer = [];
+      const card = $('#celCard');
+      const box = $('#confetti');
+      const toast = $('#celToast');
+
+      // 카드 팝 — bouncy
+      card.style.opacity = '1';
+      if (REDUCE) {
+        card.style.transform = 'none';
+      } else {
+        playTrace(SP.bouncy, (v) => (card.style.transform = `scale(${0.86 + 0.14 * v})`));
+      }
+      $$('[data-num]', card).forEach((el) => celTimer.push(setTimeout(() => countUp(el), delay(320))));
+
+      // 컨페티 — reduce면 아예 렌더하지 않는다(정책 D7)
+      box.innerHTML = '';
+      if (!REDUCE) {
+        const W = box.clientWidth, H = box.clientHeight;
+        for (let i = 0; i < 26; i++) {
+          const el = document.createElement('i');
+          el.style.background = CONF_COLORS[i % CONF_COLORS.length];
+          el.style.left = `${8 + Math.random() * (W - 16)}px`;
+          el.style.top = '-14px';
+          box.appendChild(el);
+          const drift = (Math.random() - 0.5) * 70;
+          const spin = 240 + Math.random() * 520;
+          const dur = 1500 + Math.random() * 900;
+          const d = Math.random() * 320;
+          celTimer.push(setTimeout(() => {
+            el.style.opacity = '1';
+            play(dur, (p) => {
+              const y = H * 1.15 * (p * p * 0.72 + p * 0.28); // 중력 가속 근사
+              el.style.transform = `translate(${drift * p}px, ${y}px) rotate(${spin * p}deg)`;
+              if (p > 0.82) el.style.opacity = String(1 - (p - 0.82) / 0.18);
+            });
+          }, d));
+        }
+      }
+
+      // 토스트 — 축하가 잦아든 뒤
+      celTimer.push(setTimeout(() => {
+        if (REDUCE) {
+          toast.style.opacity = '1';
+          toast.style.transform = 'none';
+        } else {
+          playTrace(SP.snappy, (v) => {
+            toast.style.transform = `translateY(${v * 20}px)`;
+            toast.style.opacity = String(1 - v);
+          });
+        }
+        celTimer.push(setTimeout(() => {
+          if (REDUCE) { toast.style.opacity = '0'; return; }
+          play(M.dur.quick, (p) => {
+            const e = EASE.standard(p);
+            toast.style.opacity = String(1 - e);
+            toast.style.transform = `translateY(${12 * e}px)`;
+          });
+        }, 2200));
+      }, delay(1600)));
+    }
+
+    /* ══ 배선 ══ */
+    const players = {
+      home: playHome, stats: playStats, focus: playFocus,
+      league: playLeague, sheet: toggleSheet, celebrate: playCelebrate,
+    };
+    $$('[data-play]').forEach((b) => b.addEventListener('click', () => players[b.dataset.play]()));
+
+    $('#playAll').addEventListener('click', () => {
+      playHome(); playStats(); playFocus(); playLeague();
+      if (!sheetOpen) toggleSheet();
+      playCelebrate();
+    });
+
+    $('#reduceBtn').addEventListener('click', (e) => {
+      REDUCE = !REDUCE;
+      e.currentTarget.setAttribute('aria-pressed', String(REDUCE));
+      e.currentTarget.textContent = REDUCE ? '동작 줄이기 · 켜짐' : '동작 줄이기';
+    });
+
+    $('#themeBtn').addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme');
+      const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+      const now = cur || (sysDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', now === 'dark' ? 'light' : 'dark');
+    });
+
+    // 첫 진입 — 화면에 들어오면 한 번 재생(홈은 1회만: 실제 앱 규칙과 같다)
+    const seen = new WeakSet();
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (!en.isIntersecting || seen.has(en.target)) return;
+        seen.add(en.target);
+        const key = en.target.dataset.auto;
+        if (key === 'home' && homePlayed) return;
+        players[key] && players[key]();
+      });
+    }, { threshold: 0.35 });
+    [['pHome', 'home'], ['pStats', 'stats'], ['pFocus', 'focus'], ['pLeague', 'league'],
+     ['pCel', 'celebrate']].forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.dataset.auto = key;
+      io.observe(el);
+    });
+  })();
+</script>
+</body>
+</html>
