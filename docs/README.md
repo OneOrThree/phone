@@ -10,6 +10,7 @@
 ```
 docs/
 ├── README.md                          # 이 파일
+├── jira-conventions.md                # 지라 4축 규약 (컴포넌트·라벨·에픽·릴리스)
 └── prd/
     └── <기능-이름>/                    # 예: challenge, focus-session
         ├── prd.md                     # PRD — 문제 정의·목표·요구사항
@@ -20,6 +21,9 @@ docs/
         ├── ux.html                    # UX 시안 (있으면)
         └── diagrams/                  # 다이어그램 (형식 자유)
 ```
+
+기능 문서가 아닌 **팀 전체 규약**은 `docs/` 최상위에 둔다 — 현재 `jira-conventions.md`
+(티켓을 어떤 컴포넌트·에픽·릴리스로 분류하는지) 하나다.
 
 - 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-session`, `invite-link`).
 - 문서가 다 갖춰질 필요는 없다 — 있는 것부터 커밋하고 점진적으로 채운다.
