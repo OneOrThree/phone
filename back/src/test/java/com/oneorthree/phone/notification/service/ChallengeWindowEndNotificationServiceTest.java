@@ -298,10 +298,12 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("자정을 걸치는 창(23:00~01:00)은 어제 시작분의 종료를 오늘 새벽에 잡는다")
-    void detectsMidnightCrossingWindow() {
+    @DisplayName("자정 직전에 끝난 어제 창(23:50)은 자정을 넘긴 틱(00:10)이 어제 날짜 후보로 잡는다")
+    void detectsYesterdayWindowEndedJustBeforeMidnight() {
+        // 창 자체는 자정을 걸치지 않지만(정책 §A6-1) 감지 폭(30분)은 걸친다. 오늘 날짜만 후보로
+        // 두면 오늘 23:50 은 아직 미래라 걸러지고, 어제 23:50 종료분이 통째로 샌다.
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, kstTimeOf(23, 0), kstTimeOf(1, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(22, 0), kstTimeOf(23, 50)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         givenNoSentLogs();
@@ -309,7 +311,7 @@ class ChallengeWindowEndNotificationServiceTest {
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
 
         PushDispatchSummaryResponse summary =
-                service().sendWindowEndNotifications(kst(2026, 8, 2, 1, 10));
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 0, 10));
 
         assertThat(summary.sentCount()).isEqualTo(1);
     }

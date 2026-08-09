@@ -40,7 +40,8 @@ public class GroupChallengeWindow {
     @Column(name = "window_start", nullable = false)
     private LocalTime windowStart;
 
-    // 수행 지정 시간대 종료 — 해석 기준은 windowStart 와 동일. 시작 > 종료면 자정 걸침 창(D 시작 ~ D+1 종료).
+    // 수행 지정 시간대 종료 — 해석 기준은 windowStart 와 동일. 항상 windowStart 보다 뒤다:
+    // 창은 자정을 걸칠 수 없고(정책 §A6-1), V32 CHECK (window_start < window_end) 가 최후 방어선이다.
     @Column(name = "window_end", nullable = false)
     private LocalTime windowEnd;
 

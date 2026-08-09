@@ -396,8 +396,8 @@ Table group_challenge_durations [note: 'DURATION 챌린지 상세 (group_challen
 Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challenges 1:1, type=TIME_WINDOW 만). 타입별 필드 분리(CTI)로 NULL 오염 방지. 창은 활성 요일마다 반복되는 KST 벽시계 시간대'] {
   challenge_id     uuid        [pk, note: 'FK → group_challenges.id (1:1). type=TIME_WINDOW 챌린지만']
   window_start     time        [not null, note: '수행 지정 시간대 시작 — KST 벽시계 시각. V32 이전에는 "날짜부는 무의미"라는 규약을 얹은 timestamptz 였고 UTC 로 읽는 순간 9시간 어긋났다(GROMO-1100) — 타입을 time 으로 낮춰 규약을 스키마에 새겼다. 전환 백필은 Asia/Seoul 존으로 캐스팅한다 — AT TIME ZONE 을 빼면 UTC 로 읽혀 9시간 어긋난다. migration V32(GROMO-1263)']
-  window_end       time        [not null, note: '수행 지정 시간대 종료 — 해석 기준은 window_start 와 동일. 시작 > 종료면 자정 걸침 창(D 시작 ~ D+1 종료)']
-  duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
+  window_end       time        [not null, note: '수행 지정 시간대 종료 — 해석 기준은 window_start 와 동일. CHECK (window_start < window_end) — 창은 자정을 걸칠 수 없다(정책 §A6-1, 결정 N25): 요일이 회차를 가르는 축인데 회차가 요일 경계를 넘으면 판정일·겹침검사·정산 귀속이 모호해진다. 0길이(시작 == 종료)도 같은 조건으로 함께 막힌다. 레거시 걸침 행은 window_end 를 23:59 로 클램프해 살렸고 목표분도 창 길이로 함께 줄였다. migration V32']
+  duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x ≤ 창 길이(§A6-2, 창 길이는 서비스 검증). null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
 }
 
 Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert, 마지막 값 승리)'] {

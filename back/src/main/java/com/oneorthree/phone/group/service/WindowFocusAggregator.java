@@ -22,9 +22,11 @@ import java.util.stream.Collectors;
  *
  * <p>카드 진행률·myAchievedNow(B2a)와 정산 판정(B2b)이 <b>같은 소스</b>를 쓰도록 분리한 순수 컴포넌트다.
  *
- * <p><b>창 해석(KST 앵커)</b>: TIME_WINDOW 는 매일 반복 시간대다. 저장된 window_start/window_end 는
- * Asia/Seoul 벽시계 시각({@code time}, V32)이고, 날짜 D 의 실제 창은 D(KST)에 그 시각을 얹어 조합한다.
- * 시작 ≥ 종료면 자정 걸침 창 — D 의 시작 ~ D+1 의 종료로 해석한다.
+ * <p><b>창 해석(KST 앵커)</b>: TIME_WINDOW 는 활성 요일마다 반복되는 시간대다. 저장된
+ * window_start/window_end 는 Asia/Seoul 벽시계 시각({@code time}, V32)이고, 날짜 D 의 실제 창은
+ * D(KST)에 그 시각을 얹어 조합한다. <b>창은 자정을 걸칠 수 없으므로</b>(정책 §A6-1, 결정 N25 —
+ * 생성 검증과 V32 CHECK 가 시작 &lt; 종료를 강제한다) 시작·종료가 모두 같은 날짜 D 에 얹힌다.
+ * 시간 모델 어디에도 D+1 이 등장하지 않는다.
  *
  * <p><b>판정 기준</b>: 창 판정은 세션 겹침 길이 기준이다(방해시간 미차감 — daily_focus_stats 의
  * total_focus_seconds 도 미차감이라 동일 기준). ACTIVE(미종료)·CANCELED·AUTO_CLOSED 세션은 제외한다.
@@ -75,9 +77,9 @@ public class WindowFocusAggregator {
         return startOn(date, window.getWindowStart());
     }
 
-    /** 날짜 D 의 창 종료 Instant — 시작 < 종료면 D, 아니면(자정 걸침) D+1 의 종료 시각. */
+    /** 날짜 D 의 창 종료 Instant — D(KST) + 종료 시각. 자정 걸침이 없으니 종료일도 항상 D 다. */
     public Instant windowEndOn(LocalDate date, GroupChallengeWindow window) {
-        return endOn(date, window.getWindowStart(), window.getWindowEnd());
+        return endOn(date, window.getWindowEnd());
     }
 
     /** 회차일 D 의 창 시작 — 저장된 KST 벽시계 시각을 D 에 얹는다. */
@@ -85,10 +87,14 @@ public class WindowFocusAggregator {
         return date.atTime(start).atZone(KST).toInstant();
     }
 
-    /** 회차일 D 의 창 종료 — 시작 < 종료면 D, 아니면(자정 걸침) D+1 에 얹는다. */
-    public static Instant endOn(LocalDate date, LocalTime start, LocalTime end) {
-        LocalDate endDate = start.isBefore(end) ? date : date.plusDays(1);
-        return endDate.atTime(end).atZone(KST).toInstant();
+    /**
+     * 회차일 D 의 창 종료 — 종료일은 <b>항상</b> D 다(정책 §A6-1).
+     *
+     * <p>자정 걸침을 허용하던 시절에는 {@code start.isBefore(end) ? date : date.plusDays(1)} 분기가
+     * 있었고, 그래서 시작 시각까지 인자로 받아야 했다. 걸침이 금지되면서 분기도 인자도 사라졌다.
+     */
+    public static Instant endOn(LocalDate date, LocalTime end) {
+        return date.atTime(end).atZone(KST).toInstant();
     }
 
     /**

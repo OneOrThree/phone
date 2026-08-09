@@ -158,13 +158,13 @@ class GroupChallengeV32MigrationTest {
     }
 
     @Test
-    @DisplayName("자정 걸침 창(22:00~01:00)도 시작 > 종료 관계 그대로 전환된다")
-    void preservesMidnightCrossingWindowThroughConversion() {
+    @DisplayName("레거시 자정 걸침 창(22:00~01:00)은 23:59 로 잘려 살아남고 목표분도 창 길이로 함께 클램프된다")
+    void clampsMidnightCrossingWindowAndItsGoal() {
         migrate(MigrationVersion.fromVersion("31"));
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroupAndUser(jdbcTemplate);
         UUID challengeId = insertLegacyChallenge(jdbcTemplate);
-        // 13:00Z = 22:00 KST(당일), 16:00Z = 01:00 KST(익일) — 날짜부가 갈려도 시각만 남으면 걸침이 보존돼야 한다.
+        // 13:00Z = 22:00 KST(당일), 16:00Z = 01:00 KST(익일) — 걸침이 허용이던 시절의 180분 창.
         jdbcTemplate.update(
                 "INSERT INTO group_challenge_windows"
                         + " (challenge_id, window_start_at, window_end_at, duration_minutes)"
@@ -175,8 +175,30 @@ class GroupChallengeV32MigrationTest {
 
         migrate();
 
+        // 삭제가 아니라 클램프다 — 창 행은 챌린지의 1:1 상세(CTI)라 지우면 반쪽 챌린지가 남는다.
         assertThat(timeOf(jdbcTemplate, "window_start", challengeId)).isEqualTo(LocalTime.of(22, 0));
-        assertThat(timeOf(jdbcTemplate, "window_end", challengeId)).isEqualTo(LocalTime.of(1, 0));
+        assertThat(timeOf(jdbcTemplate, "window_end", challengeId)).isEqualTo(LocalTime.of(23, 59));
+        // 창이 180분 → 119분으로 줄었으니 목표 120분도 따라 줄어야 한다. 안 그러면
+        // "창 119분인데 목표 120분" 이라는 달성 불가 챌린지가 남는다(정책 §A6-2).
+        assertThat(goalOf(jdbcTemplate, challengeId)).isEqualTo(119);
+    }
+
+    @Test
+    @DisplayName("전환 후 CHECK (window_start < window_end) 가 서서 자정 걸침·0길이 INSERT 를 막는다")
+    void rejectsMidnightCrossingAndZeroLengthWindowsAfterMigration() {
+        migrate();
+        JdbcTemplate jdbcTemplate = jdbcTemplate();
+        insertGroupAndUser(jdbcTemplate);
+
+        // 자정 걸침(22:00~01:00) — 요일이 회차를 가르는 축이라 회차가 요일 경계를 넘으면 안 된다(정책 §A6-1).
+        assertThatThrownBy(() -> insertWindow(jdbcTemplate, LocalTime.of(22, 0), LocalTime.of(1, 0), 60))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        // 0길이(시작 == 종료)도 같은 조건 하나로 함께 닫힌다.
+        assertThatThrownBy(() -> insertWindow(jdbcTemplate, LocalTime.of(9, 0), LocalTime.of(9, 0), 1))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        // 심야 챌린지의 대체 경로 — 자정 앞에서 끊으면 통과한다.
+        insertWindow(jdbcTemplate, LocalTime.of(22, 0), LocalTime.of(23, 59), 60);
     }
 
     // ── GROMO-1264 stake 상한 ─────────────────────────────────────────
@@ -298,6 +320,21 @@ class GroupChallengeV32MigrationTest {
         return jdbcTemplate.queryForObject(
                 "SELECT " + column + " FROM group_challenge_windows WHERE challenge_id = ?",
                 LocalTime.class, challengeId);
+    }
+
+    private Integer goalOf(JdbcTemplate jdbcTemplate, UUID challengeId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT duration_minutes FROM group_challenge_windows WHERE challenge_id = ?",
+                Integer.class, challengeId);
+    }
+
+    /** V32 이후 스키마 — 창 시각은 time 이다. 상세는 챌린지와 1:1(PK)이라 매번 새 챌린지를 만든다. */
+    private void insertWindow(JdbcTemplate jdbcTemplate, LocalTime start, LocalTime end, int goal) {
+        UUID challengeId = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", 127);
+        jdbcTemplate.update(
+                "INSERT INTO group_challenge_windows"
+                        + " (challenge_id, window_start, window_end, duration_minutes) VALUES (?, ?, ?, ?)",
+                challengeId, start, end, goal);
     }
 
     private Integer stakeOf(JdbcTemplate jdbcTemplate, UUID betId) {

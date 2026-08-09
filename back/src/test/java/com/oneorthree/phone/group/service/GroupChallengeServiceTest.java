@@ -1101,9 +1101,37 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 자정 걸침 창(22:00~01:00) → 창 길이 180분으로 계산돼 생성 허용")
-    void createTimeWindowChallengeAllowsMidnightCrossing() {
-        // given: 시각(time-of-day) 기준 시작 > 종료 — D 22:00 ~ D+1 01:00 창
+    @DisplayName("TIME_WINDOW 자정 걸침 창(22:00~01:00) → GroupException(INVALID_MISSION_PARAMS), 저장 안 함")
+    void createTimeWindowChallengeRejectsMidnightCrossing() {
+        // given: 시각(time-of-day) 기준 시작 > 종료. 걸침은 금지다(정책 §A6-1, 결정 N25) —
+        // 요일이 회차를 가르는 축인데 회차가 요일 경계를 넘으면 판정일·겹침검사·정산 귀속이 모호해진다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        // missionCategory 는 스텁하지 않는다 — 창 시각 검증에서 먼저 튕겨 읽히지 않는다.
+        CreateChallengeRequest request = challengeRequestMock();
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getWindowStart()).willReturn("22:00:00");
+        given(request.getWindowEnd()).willReturn("01:00:00");
+        given(request.getDurationMinutes()).willReturn(180);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+        verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 심야 창(22:00~23:59) → 창 길이 119분으로 계산돼 생성 허용")
+    void createTimeWindowChallengeAllowsLateNightWindowBeforeMidnight() {
+        // given: 자정 걸침 금지의 대가로 남은 심야 경로(정책 §A6-1 「대가」) — 자정 앞에서 끊는다.
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -1115,8 +1143,8 @@ class GroupChallengeServiceTest {
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getWindowStart()).willReturn("22:00:00");
-        given(request.getWindowEnd()).willReturn("01:00:00");
-        given(request.getDurationMinutes()).willReturn(180);   // 정확히 창 길이 = 경계 허용
+        given(request.getWindowEnd()).willReturn("23:59:00");
+        given(request.getDurationMinutes()).willReturn(119);   // 정확히 창 길이 = 경계 허용
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
@@ -1564,20 +1592,20 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("자정 걸침 창끼리의 교차도 하루 경계 전개로 잡는다 → CHALLENGE_WINDOW_OVERLAP")
-    void createChallengeDetectsMidnightCrossingOverlap() {
-        // given: SCREEN_TIME [23:00~02:00](자정 걸침) 이 있는데 FOCUS [01:00~03:00] 생성 시도 —
-        // 새 창은 자정을 안 걸치지만 기존 창의 [00:00~02:00) 구간과 겹친다
+    @DisplayName("심야 창끼리의 교차도 단일 구간 비교로 잡는다 → CHALLENGE_WINDOW_OVERLAP")
+    void createChallengeDetectsLateNightOverlap() {
+        // given: SCREEN_TIME [22:00~23:59] 이 있는데 FOCUS [23:30~23:59] 생성 시도.
+        // 자정 걸침이 금지되면서(§A6-1) 창은 하루 안의 구간 하나다 — 2×2 전개 없이 단순 비교로 잡힌다.
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
-        givenActiveWindow(group, MissionCategory.SCREEN_TIME, LocalTime.of(23, 0), LocalTime.of(2, 0));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, LocalTime.of(22, 0), LocalTime.of(23, 59));
 
         CreateChallengeRequest request =
-                windowRequest(MissionCategory.FOCUS, "2026-01-01T01:00:00+09:00", "2026-01-01T03:00:00+09:00", 30);
+                windowRequest(MissionCategory.FOCUS, "2026-01-01T23:30:00+09:00", "2026-01-01T23:59:00+09:00", 29);
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))

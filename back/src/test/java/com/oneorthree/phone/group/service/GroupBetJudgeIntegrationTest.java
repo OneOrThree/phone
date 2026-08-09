@@ -120,20 +120,21 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("자정 걸침 창(22:00~01:00) 의 D일 마감은 D+1 01:00 KST — 그래서 D 당일엔 가드가 닫지 않는다")
-    void midnightCrossingWindowClosesNextDay() {
+    @DisplayName("심야 창(22:00~23:59) 의 D일 마감도 같은 날 D 안이다 — 창이 자정을 걸치지 않으므로")
+    void lateNightWindowStillClosesOnTheSameDate() {
+        // 걸침을 허용하던 시절에는 22:00~01:00 창의 D일 마감이 D+1 01:00 이라, D 당일 내내
+        // 참가 가드가 닫지 않고 자정의 날짜 게이트가 대신 마감하는 사각이 있었다. 자정 걸침
+        // 금지(§A6-1)로 그 사각이 사라진다 — 마감은 항상 회차일 안의 시각이다.
         GroupChallenge challenge = saveWindowChallenge(
-                MissionCategory.FOCUS, "22:00:00", "01:00:00", GOAL_MINUTES);
+                MissionCategory.FOCUS, "22:00:00", "23:59:00", GOAL_MINUTES);
         GroupBetJudge.Target target = groupBetJudge.resolve(challenge).orElseThrow();
 
-        // 2026-08-02 01:00 KST = 2026-08-01T16:00Z — 날짜 D(08-01) 의 어느 시각보다도 뒤다.
+        // 2026-08-01 23:59 KST = 2026-08-01T14:59Z — 날짜 D(08-01) 안이다.
         Instant closesAt = groupBetJudge.windowClosesAt(target, DATE).orElseThrow();
-        assertThat(closesAt).isEqualTo(Instant.parse("2026-08-01T16:00:00Z"));
+        assertThat(closesAt).isEqualTo(Instant.parse("2026-08-01T14:59:00Z"));
 
-        // D 의 마지막 순간(23:59:59 KST = 14:59:59Z)조차 마감보다 이르다 → 개설·참가 가드
-        // (requireWindowStillOpen)는 betDate == 오늘 인 동안 절대 걸리지 않는다. 실질 마감은
-        // 자정에 날짜 게이트가 넘어가면서 처리되므로, 창의 마지막 1시간은 새 참가를 받지 않는다.
-        assertThat(Instant.parse("2026-08-01T14:59:59Z")).isBefore(closesAt);
+        // D 의 마지막 순간(23:59:59 KST = 14:59:59Z)은 마감보다 뒤다 → 가드가 실제로 닫는다.
+        assertThat(Instant.parse("2026-08-01T14:59:59Z")).isAfter(closesAt);
     }
 
     @Test

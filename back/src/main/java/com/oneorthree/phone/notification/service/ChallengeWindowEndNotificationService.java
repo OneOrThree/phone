@@ -39,7 +39,8 @@ import java.util.UUID;
  *
  * <p>창은 매일 반복되는 시간대다(계약 §설계 보정). 날짜 D 의 실제 창 경계는
  * {@link WindowFocusAggregator#windowEndOn} 이 유일한 소스이며(진행률·정산과 같은 해석),
- * 자정을 걸치는 창은 D 시작 ~ D+1 종료로 전개된다. 그래서 감지 후보 날짜를 어제·오늘 둘로 잡는다.
+ * 창은 자정을 걸치지 않으므로 종료도 항상 D 안이다(정책 §A6-1). 그래도 감지 후보 날짜는
+ * <b>어제·오늘 둘</b>이다 — 감지 폭(30분)이 자정을 넘기 때문이다({@link #justEndedAt} 참고).
  *
  * <p>감지 이후(그룹원 조회·dedup·발송·이력 기록)는 {@link ChallengeEndPushDispatcher} 가 맡는다 —
  * 일 마감 푸시({@link ChallengeDurationEndNotificationService})와 같은 규칙을 쓰기 위함이다.
@@ -143,8 +144,11 @@ public class ChallengeWindowEndNotificationService {
     }
 
     /**
-     * 오늘(KST) 창 종료가 방금 지났는지. 자정을 걸치는 창은 어제 시작분의 종료가 오늘 새벽이므로
-     * 어제·오늘 두 날짜를 모두 후보로 본다. 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
+     * 창 종료가 방금 지났는지. 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
+     *
+     * <p><b>어제·오늘 두 날짜를 모두 후보로 본다.</b> 창 자체는 자정을 걸치지 않지만(정책 §A6-1)
+     * 감지 폭(30분)은 걸친다 — 23:50 에 끝난 어제 창은 00:10 틱에서 오늘 날짜로는 잡히지 않는다
+     * (오늘 23:50 은 아직 미래라 걸러진다). 어제 후보가 없으면 자정 직전 종료 창이 통째로 샌다.
      */
     private Optional<Instant> justEndedAt(GroupChallenge challenge, GroupChallengeWindow window,
             Instant now) {

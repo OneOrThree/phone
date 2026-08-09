@@ -385,8 +385,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("자정 걸침 창의 전일자 내기(배치 전 OPEN 잔존) → 창이 이미 시작돼 BET_LEAVE_CLOSED")
-    void startedMidnightCrossingWindowBetCannotBeLeft() {
+    @DisplayName("창형 전일자 내기(배치 전 OPEN 잔존) → 창이 이미 시작돼 BET_LEAVE_CLOSED")
+    void startedWindowBetOfPreviousDateCannotBeLeft() {
         // KST 07:00~10:00 창 — 전일자 내기의 창 시작은 이미 과거다.
         GroupChallenge windowed = windowChallenge(LocalTime.of(7, 0), LocalTime.of(10, 0));
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);

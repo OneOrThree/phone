@@ -1,7 +1,8 @@
 -- ════════════════════════════════════════════════════════════════════
 -- V32 — 챌린지 스키마 기반 공사
 --   GROMO-1260 요일 반복(repeat_days) · GROMO-1261 started_at/ended_at ·
---   GROMO-1263 창 시각 time 전환 · GROMO-1264 stake 상한 CHECK ·
+--   GROMO-1263 창 시각 time 전환 (+ 정책 §A6 창 자정 걸침 금지 · 결정 N25, 티켓 미발행) ·
+--   GROMO-1264 stake 상한 CHECK ·
 --   GROMO-1265 members 잔재 컬럼 제거 · GROMO-1266 usage_date NOT NULL ·
 --   GROMO-1267 total_screen_time_minutes nullable
 -- ════════════════════════════════════════════════════════════════════
@@ -67,6 +68,41 @@ ALTER TABLE public.group_challenge_windows
 -- _at 접미사는 시점(Instant)을 뜻하므로 time 컬럼에는 맞지 않는다. LLD §1.1 이름으로 정렬한다.
 ALTER TABLE public.group_challenge_windows RENAME COLUMN window_start_at TO window_start;
 ALTER TABLE public.group_challenge_windows RENAME COLUMN window_end_at TO window_end;
+
+-- ── 3-b) 창은 자정을 걸칠 수 없다 (정책 §A6-1) ────────────────────────
+-- 종전에는 시작 ≥ 종료를 "자정 걸침 창(D 시작 ~ D+1 종료)"으로 해석했다. 오너가 이를 금지로
+-- 뒤집었다(결정 N25): 요일이 회차를 가르는 축인데(V32 §1 repeat_days) 회차가 요일 경계를 넘으면
+-- 판정일·겹침검사·정산 귀속이 전부 모호해진다 — 비활성 요일에 판정이 돌아가고, 연속 활성일의
+-- 꼬리와 머리가 같은 시간대에 겹치며, 참가 마감이 "그날"의 어느 쪽인지 매번 되물어야 한다.
+--
+-- 레거시 걸침 행의 처분은 **23:59 로 자르고 살린다**(오너 확정). 삭제하지 않는 이유: 창 행은
+-- 챌린지의 1:1 상세(CTI)라 지우면 type=TIME_WINDOW 챌린지가 상세 없는 반쪽으로 남는다.
+-- LEAST 로 시작도 함께 당기는 이유는 방어다 — 시작이 23:59 이후인 병적인 행(23:59:30 등)까지
+-- 종료만 23:59 로 자르면 시작 ≥ 종료가 그대로 남아 아래 CHECK 가 실패하고 부팅이 막힌다.
+-- 23:58 은 "23:59 앞에서 0 이 아닌 창을 남기는 가장 늦은 시작"이다.
+UPDATE public.group_challenge_windows
+SET window_start = LEAST(window_start, time '23:58'),
+    window_end   = time '23:59'
+WHERE window_start >= window_end;
+
+-- 창을 잘랐으면 목표분도 함께 줄여야 한다 — 22:00~01:00(180분) 창의 목표 150분을 그대로 두면
+-- 창은 119분인데 목표가 150분인 **달성 불가 챌린지**가 남는다(정책 §A6-2: 0 < 목표 ≤ 창 길이).
+-- 자르지 않은 행도 함께 훑는다: 창 길이 검증이 서비스 코드에만 있던 시절의 초과 행을 여기서 정리한다.
+-- GREATEST(1, …) 는 duration_minutes > 0 CHECK(V20)의 방어 — 1분 미만짜리 병적인 창에서
+-- 내림이 0 이 되면 그 CHECK 가 대신 터진다. 그런 창은 애초에 §A6-2 를 만족시킬 수 없다.
+UPDATE public.group_challenge_windows
+SET duration_minutes =
+        GREATEST(1, floor(EXTRACT(EPOCH FROM (window_end - window_start)) / 60)::int)
+WHERE duration_minutes IS NOT NULL
+  AND duration_minutes > floor(EXTRACT(EPOCH FROM (window_end - window_start)) / 60)::int;
+
+-- plain CHECK 는 기존 행을 즉시 검증한다 — 위 두 클램프가 **반드시 먼저**여야 하고, 위반 행이
+-- 하나라도 남으면 이 마이그레이션이 실패해 배포(부팅)가 막힌다(§순서 규약).
+-- 같은 시각(0길이)도 여기서 함께 막힌다: 종전 검증은 시작 == 종료만 거부했는데, `<` 하나로
+-- 0길이와 자정 걸침이 동시에 닫힌다(서비스 검증도 같은 단일 조건으로 정렬 — GroupChallengeService).
+ALTER TABLE public.group_challenge_windows
+    ADD CONSTRAINT group_challenge_windows_window_order_check
+        CHECK (window_start < window_end);
 
 -- ── 4) 참가비 상한 DB CHECK (GROMO-1264) ──────────────────────────────
 -- V19 는 CHECK (stake > 0) 만 걸었고 상한 1000 은 서비스 상수(GroupBetService)로만 존재했다 —

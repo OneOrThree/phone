@@ -893,10 +893,10 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("자정 걸침 창 → 날짜 없이 벽시계만 남아 시작 ≥ 종료 문자열로 내려간다")
-    void getGroupOverviewMidnightCrossingWindow() {
-        // given — 22:00 시작 ~ 01:00 종료. 응답엔 날짜가 없으므로
-        //   "22:00:00" > "01:00:00" 이 자정 걸침의 유일한 신호다(WindowFocusAggregator 해석과 동일).
+    @DisplayName("심야 창(22:00~23:59) → 날짜 없이 벽시계 문자열만 내려간다")
+    void getGroupOverviewLateNightWindow() {
+        // given — 22:00 시작 ~ 23:59 종료. 창은 자정을 걸칠 수 없으므로(정책 §A6-1) 심야 챌린지는
+        //   자정 앞에서 끊는다. 응답엔 날짜가 없고 KST 벽시계 "HH:mm:ss" 만 있다.
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
@@ -905,14 +905,14 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.FOCUS,
-                LocalTime.of(22, 0), LocalTime.of(1, 0));
+                LocalTime.of(22, 0), LocalTime.of(23, 59));
 
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
 
         // then
         assertThat(result.getWindowStart()).isEqualTo("22:00:00");
-        assertThat(result.getWindowEnd()).isEqualTo("01:00:00");
+        assertThat(result.getWindowEnd()).isEqualTo("23:59:00");
     }
 
     @Test

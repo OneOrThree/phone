@@ -80,7 +80,6 @@ public class GroupChallengeService {
     private final WindowFocusAggregator windowFocusAggregator;
     private final ApplicationEventPublisher eventPublisher;
 
-    private static final int SECONDS_PER_DAY = 86_400;
     private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
     /** 일 목표(DURATION) 상한 — 하루는 1440분(GROMO-1205). DB 는 V28 CHECK 가 같은 값으로 최후 방어한다. */
     private static final int MAX_DURATION_GOAL_MINUTES = 1_440;
@@ -590,16 +589,21 @@ public class GroupChallengeService {
     }
 
     /**
-     * TIME_WINDOW 파라미터 검증 — 창 시각(0길이 금지)과 창 내 목표(durationMinutes 필수,
-     * 0 < x ≤ 창 길이 분). 누락·형식 오류는 {@link #parseWindowTimeParam} 이 먼저 거른다.
+     * TIME_WINDOW 파라미터 검증 — 창 시각(<b>시작 &lt; 종료</b>)과 창 내 목표(durationMinutes 필수,
+     * 0 &lt; x ≤ 창 길이 분). 누락·형식 오류는 {@link #parseWindowTimeParam} 이 먼저 거른다.
      *
      * <p>창은 요일마다 반복되는 시간대다. 저장값은 Asia/Seoul 벽시계 시각({@code time}, V32)이고
      * 날짜별 실제 창은 KST 날짜에 그 시각을 얹어 조합한다({@link WindowFocusAggregator}).
-     * 시작 > 종료는 자정 걸침 창(D 시작 ~ D+1 종료)으로 허용한다.
+     *
+     * <p><b>창은 자정을 걸칠 수 없다</b>(정책 §A6-1, 결정 N25). 요일이 회차를 가르는 축인데
+     * 회차가 요일 경계를 넘으면 판정일·겹침검사·정산 귀속이 전부 모호해진다 — {@code 월 22:00~01:00}
+     * 은 화요일에 끝나고, 화요일이 비활성이면 활성이 아닌 날에 판정이 돌아간다. 심야 챌린지는
+     * {@code 22:00~23:59} 처럼 자정 앞에서 끊거나 자정 이후를 다음 날 요일의 별도 챌린지로 만든다.
+     * DB 도 같은 조건을 강제한다({@code group_challenge_windows_window_order_check}, V32).
      */
     private void validateTimeWindowParams(LocalTime start, LocalTime end, Integer goal) {
-        // 같은 시각은 0길이인지 24시간인지 모호해 거부한다.
-        if (start.equals(end)) {
+        // 단일 조건 하나로 0길이(시작 == 종료)와 자정 걸침(시작 > 종료)이 함께 닫힌다.
+        if (!start.isBefore(end)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
         if (goal == null || goal <= 0 || goal > windowLengthMinutes(start, end)) {
@@ -627,35 +631,23 @@ public class GroupChallengeService {
         }
     }
 
-    /** 매일 반복 창 [s, e) 두 개의 겹침 — 자정 걸침을 하루 경계에서 두 구간으로 전개해 선형 비교한다. */
+    /**
+     * 매일 반복 창 [s, e) 두 개의 겹침 — 하루 안의 초 구간끼리 선형 비교한다.
+     *
+     * <p>자정 걸침 금지(§A6-1)가 이 함수를 절반으로 줄였다. 걸치는 창을 허용하던 시절에는 한 창이
+     * {@code [s, 86400)} + {@code [0, e)} 두 구간으로 쪼개져 2×2 중첩 루프가 필요했고, "D+1 쪽
+     * 구간도 회차일 D 의 몫이라 요일 마스크는 D 기준으로만 비교해야 한다"는 주의사항이 따라붙었다.
+     * 이제는 구간 하나 대 하나이고, 요일 마스크가 어느 날 것인지 되물을 일도 없다.
+     */
     private static boolean dailyWindowsOverlap(LocalTime aStart, LocalTime aEnd,
             LocalTime bStart, LocalTime bEnd) {
-        for (int[] a : daySegments(aStart, aEnd)) {
-            for (int[] b : daySegments(bStart, bEnd)) {
-                if (a[0] < b[1] && b[0] < a[1]) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return aStart.toSecondOfDay() < bEnd.toSecondOfDay()
+                && bStart.toSecondOfDay() < aEnd.toSecondOfDay();
     }
 
-    /** [시작, 끝) 초 구간 전개 — 시작 ≥ 끝(자정 걸침·레거시 동일 시각)은 [s, 86400) + [0, e) 두 구간. */
-    private static List<int[]> daySegments(LocalTime start, LocalTime end) {
-        int s = start.toSecondOfDay();
-        int e = end.toSecondOfDay();
-        if (s < e) {
-            return List.of(new int[] {s, e});
-        }
-        return List.of(new int[] {s, SECONDS_PER_DAY}, new int[] {0, e});
-    }
-
-    /** 창 길이(분) — 자정 걸침이면 하루를 넘겨 계산한다(예: 22:00~01:00 = 180분). */
+    /** 창 길이(분) — 창이 자정을 걸치지 않으므로 하루 안의 단순 차다(§A6-1). */
     private static int windowLengthMinutes(LocalTime start, LocalTime end) {
-        int s = start.toSecondOfDay();
-        int e = end.toSecondOfDay();
-        int seconds = s < e ? e - s : SECONDS_PER_DAY - s + e;
-        return seconds / 60;
+        return (end.toSecondOfDay() - start.toSecondOfDay()) / 60;
     }
 
     /**

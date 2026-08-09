@@ -196,19 +196,41 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("자정 걸침 창(시작 > 종료) → 시각이 그대로 보존돼 저장·응답된다")
-    void midnightCrossingPreserved() throws Exception {
-        UUID challengeId = postWindowChallenge("22:00:00", "01:00:00", 180);
+    @DisplayName("자정 걸침 창(22:00~01:00) → 400 INVALID_MISSION_PARAMS, 저장 안 함")
+    void midnightCrossingRejected() throws Exception {
+        // 창은 자정을 걸칠 수 없다(정책 §A6-1, 결정 N25). 요일이 회차를 가르는 축인데 회차가 요일
+        // 경계를 넘으면 판정일·겹침검사·정산 귀속이 전부 모호해진다.
+        mockMvc.perform(post("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":["MON","WED","FRI"],
+                                 "durationMinutes":60,"windowStart":"22:00:00","windowEnd":"01:00:00"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_MISSION_PARAMS"));
 
-        // 저장: 시각 기준 시작 > 종료(자정 걸침)가 그대로 남는다 — 날짜가 없으니 이것이 유일한 신호다.
+        mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    @DisplayName("심야 창은 자정 앞에서 끊으면 통과한다 — 22:00~23:59 왕복")
+    void lateNightWindowStoppingBeforeMidnightRoundTrips() throws Exception {
+        // 자정 걸침 금지의 대가로 남은 유일한 심야 경로(정책 §A6-1 「대가」).
+        UUID challengeId = postWindowChallenge("22:00:00", "23:59:00", 119);
+
         GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
         assertThat(saved.getWindowStart()).isEqualTo(LocalTime.of(22, 0));
-        assertThat(saved.getWindowEnd()).isEqualTo(LocalTime.of(1, 0));
+        assertThat(saved.getWindowEnd()).isEqualTo(LocalTime.of(23, 59));
 
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].windowStart").value("22:00:00"))
-                .andExpect(jsonPath("$[0].windowEnd").value("01:00:00"));
+                .andExpect(jsonPath("$[0].windowEnd").value("23:59:00"));
     }
 }
