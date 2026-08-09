@@ -1,0 +1,2500 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#ffffff" />
+<title>내 그룹 v0.8 — 카드 플립 방 요약</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --accent:#5E6AD2;
+    --accentLight:#AFB5E9;
+    --accentDeep:#4A53B8;
+    --accentBg:#EEF0FB;
+    --ink:#171A21;
+    --inkSub:#5E6675;
+    --inkMuted:#8B93A1;
+    --paper:#FFFFFF;
+    --paperAlt:#F4F5F8;
+    --line:#E5E7EC;
+    --lineStrong:#CFD3DC;
+    --positive:#16775A;
+    --positiveBg:#E7F5EF;
+    --shadow:#232843;
+    --tab:74px;
+    --cardW:342px;
+    --cardH:560px;
+  }
+
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;min-height:100%;}
+  button,input{font:inherit;}
+  button{border:0;}
+  body{
+    min-height:100vh;
+    padding:32px 16px;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    color:var(--ink);
+    background:#0D1016;
+    font-family:"IBM Plex Sans KR","Pretendard Variable","Apple SD Gothic Neo",sans-serif;
+  }
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .sr-only{
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0;
+  }
+
+  /* 폰 프레임 */
+  .phone{
+    width:390px;height:800px;position:relative;overflow:hidden;
+    display:flex;flex-direction:column;background:var(--paper);border-radius:44px;
+    box-shadow:0 30px 80px rgba(0,0,0,.54),0 0 0 11px #1B1D24,0 0 0 13px #2A2D38;
+  }
+  .statusbar{
+    height:52px;padding:0 26px 8px;display:flex;align-items:flex-end;justify-content:space-between;
+    color:var(--ink);font-family:"Manrope",sans-serif;font-size:14px;font-weight:800;
+  }
+  .statusbar .right{font-size:12px;letter-spacing:.08em;}
+  .app-header{padding:6px 20px 10px;display:flex;align-items:center;justify-content:space-between;z-index:3;}
+  .app-header h1{margin:0;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-.035em;}
+  .order-save-error{
+    margin:0 20px 8px;padding:9px 11px;border:1px solid rgba(196,61,69,.2);border-radius:11px;
+    color:#9D3038;background:#FFF2F3;font-size:11px;line-height:1.4;
+  }
+  .header-actions{display:flex;gap:10px;}
+  .icon-button{
+    width:44px;height:44px;display:grid;place-items:center;border:1px solid var(--line);
+    border-radius:50%;color:var(--inkSub);background:var(--paper);cursor:pointer;
+    transition:background-color .16s ease,transform .16s ease,border-color .16s ease;
+  }
+  .icon-button.primary{color:#fff;background:var(--accentDeep);border-color:var(--accentDeep);}
+  .icon-button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .icon-button:active{transform:scale(.94);background:var(--paperAlt);}
+  .icon-button.primary:active{background:#3F47A0;}
+  button:focus-visible,.front-toggle:focus-visible + .front-focus-ring{
+    outline:3px solid rgba(94,106,210,.34);outline-offset:3px;
+  }
+
+  /* 캐러셀: 바깥 shell이 peek scale, 안쪽 flipper가 rotateY를 담당한다. */
+  .carousel{
+    flex:1;min-height:0;position:relative;
+  }
+  .track{
+    width:100%;height:100%;display:flex;align-items:center;gap:12px;
+    padding:6px 24px calc(var(--tab) + 6px);overflow-x:auto;overflow-y:hidden;
+    scrollbar-width:none;cursor:grab;user-select:none;-webkit-user-select:none;
+    touch-action:pan-y;overscroll-behavior-x:contain;
+  }
+  .track::-webkit-scrollbar{display:none;}
+  .track.dragging{cursor:grabbing;scroll-behavior:auto;}
+  .card-shell{
+    width:var(--cardW);height:var(--cardH);flex:0 0 auto;position:relative;
+    perspective:1400px;transform-origin:center;
+  }
+  .card-reorder-layer,.card-peek-layer{
+    width:100%;height:100%;position:relative;transform-style:preserve-3d;
+  }
+  .card-reorder-layer{--sort-x:0px;transform:translate3d(var(--sort-x),0,0);will-change:transform;}
+  .card-peek-layer{--peek-scale:1;transform:scale(var(--peek-scale));transform-origin:center;will-change:transform,opacity;}
+  .track.sorting{cursor:grabbing;overflow-x:hidden;}
+  .card-shell.is-lifting{z-index:8;}
+  .card-shell.is-lifting .card-peek-layer{opacity:1!important;filter:drop-shadow(0 18px 22px rgba(35,40,67,.26));}
+  .card-shell.sort-target .card-face,.card-shell.sort-target .find-card{
+    box-shadow:0 0 0 3px var(--accent),0 18px 40px rgba(35,40,67,.18);
+  }
+  .card-flipper{
+    width:100%;height:100%;position:relative;transform-style:preserve-3d;
+    transition:transform .32s cubic-bezier(.2,.72,.24,1);
+  }
+  .card-shell.is-flipped .card-flipper{transform:rotateY(180deg);}
+  .card-face{
+    position:absolute;inset:0;overflow:hidden;border-radius:22px;
+    -webkit-backface-visibility:hidden;backface-visibility:hidden;
+  }
+  .card-front{
+    display:flex;flex-direction:column;background:var(--paper);
+    border:1px solid var(--line);box-shadow:0 18px 40px rgba(35,40,67,.14);
+  }
+  .card-back{
+    display:flex;flex-direction:column;transform:rotateY(180deg);
+    color:var(--ink);background:var(--paper);border:1px solid var(--lineStrong);
+    box-shadow:0 20px 46px rgba(35,40,67,.20);
+  }
+  .front-focus-ring{
+    position:absolute;inset:4px;border:3px solid transparent;border-radius:19px;
+    pointer-events:none;z-index:7;
+  }
+  .front-toggle{
+    position:absolute;inset:0;z-index:6;width:100%;height:100%;
+    cursor:pointer;background:transparent;border-radius:22px;
+  }
+  .reorder-handle{
+    position:absolute;right:10px;top:9px;z-index:8;width:44px;height:44px;padding:0;
+    display:grid;place-items:center;border:1px solid rgba(255,255,255,.56);border-radius:14px;
+    color:#58617A;background:rgba(255,255,255,.88);box-shadow:0 4px 14px rgba(35,40,67,.12);
+    backdrop-filter:blur(8px);cursor:grab;touch-action:none;
+  }
+  .reorder-handle:active{cursor:grabbing;transform:scale(.94);background:#fff;}
+  .reorder-grip{width:20px;height:28px;display:block;fill:currentColor;}
+
+  /* 앞면: 모든 그룹은 인디고 배경을 공유하고, 이 기기의 개인 카드 아이콘으로 구분한다. */
+  .front-art{
+    height:52%;position:relative;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;background:var(--accent);
+  }
+  .front-art::after{
+    content:"";position:absolute;left:-8%;right:-8%;bottom:-46px;height:104px;
+    border-radius:50% 50% 0 0/100% 100% 0 0;background:rgba(255,255,255,.10);
+  }
+  .privacy{
+    position:absolute;left:15px;top:15px;z-index:2;height:32px;padding:0 12px;
+    display:flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.28);
+    border-radius:16px;color:#fff;background:rgba(19,23,35,.26);
+    backdrop-filter:blur(8px);font-size:12.5px;font-weight:700;
+  }
+  .privacy svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .group-mark{
+    width:142px;height:142px;position:relative;z-index:1;display:grid;place-items:center;
+    border:1px solid rgba(255,255,255,.30);border-radius:50%;
+    background:rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.30);
+  }
+  .group-mark::before{
+    content:"";position:absolute;inset:13px;border:1px dashed rgba(255,255,255,.28);border-radius:50%;
+  }
+  .group-emoji{
+    position:relative;z-index:1;font-size:68px;line-height:1;
+    filter:drop-shadow(0 7px 12px rgba(35,40,67,.18));
+  }
+  .front-meta{flex:1;padding:19px 20px 20px;display:flex;flex-direction:column;gap:11px;}
+  .name-row{display:flex;align-items:flex-start;gap:9px;}
+  .group-name{
+    min-width:0;flex:1;font-size:24px;line-height:1.24;font-weight:700;letter-spacing:-.04em;
+    display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .owner-chip{
+    flex:0 0 auto;height:30px;margin-top:1px;padding:0 11px;display:flex;align-items:center;gap:5px;
+    border-radius:15px;color:var(--accentDeep);background:var(--accentBg);font-size:12.5px;font-weight:700;
+  }
+  .owner-chip svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .group-desc{
+    color:var(--inkSub);font-size:14px;line-height:1.5;letter-spacing:-.015em;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .front-footer{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .member-pill{
+    height:34px;padding:0 11px;display:flex;align-items:center;gap:6px;border-radius:11px;
+    color:var(--accentDeep);background:var(--accentBg);font-family:"Manrope",sans-serif;font-size:13px;font-weight:800;
+  }
+  .member-pill svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .flip-label{display:flex;align-items:center;gap:6px;color:var(--inkSub);font-size:12.5px;font-weight:700;}
+  .flip-label svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+
+  /* 뒷면: 전체 방을 복제하지 않고 오늘 필요한 상태를 한 장에 압축한다. */
+  .back-head{
+    min-height:96px;padding:14px 14px 14px 12px;display:grid;
+    grid-template-columns:48px minmax(0,1fr) 48px;align-items:center;gap:7px;
+    color:#fff;background:var(--accentDeep);
+  }
+  .back-icon{
+    width:48px;height:48px;display:grid;place-items:center;border-radius:50%;
+    color:#fff;background:rgba(255,255,255,.14);cursor:pointer;
+    transition:background-color .16s ease,transform .16s ease;
+  }
+  .back-icon:active{transform:scale(.94);background:rgba(255,255,255,.24);}
+  .back-icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .back-title{min-width:0;}
+  .back-title strong{
+    display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:17px;line-height:1.3;font-weight:700;letter-spacing:-.025em;
+  }
+  .back-title span{display:block;margin-top:4px;color:rgba(255,255,255,.78);font-size:12px;font-weight:600;}
+  .back-body{flex:1;min-height:0;padding:17px 19px 16px;display:flex;flex-direction:column;}
+  .eyebrow{
+    color:var(--inkSub);font-size:11.5px;line-height:1.3;font-weight:700;letter-spacing:.04em;
+  }
+  .live-summary{min-height:42px;display:flex;align-items:center;}
+  .live-status{
+    min-height:36px;padding:0 13px;display:flex;align-items:center;gap:8px;border-radius:12px;
+    color:var(--positive);background:var(--positiveBg);font-size:15px;font-weight:800;white-space:nowrap;
+  }
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--positive);box-shadow:0 0 0 4px rgba(22,119,90,.11);}
+  .section-rule{height:1px;margin:13px 0 11px;background:var(--line);}
+  .challenge-list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .section-label{color:var(--inkSub);font-size:11.5px;font-weight:700;letter-spacing:.035em;}
+  .challenge-count{color:var(--accentDeep);font-size:11.5px;font-weight:800;}
+  .compact-challenge-list{margin-top:7px;display:flex;flex-direction:column;gap:6px;}
+  .compact-challenge{
+    min-height:39px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;gap:9px;border:1px solid var(--line);border-radius:10px;background:var(--paperAlt);
+  }
+  .compact-challenge strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.3;}
+  .compact-challenge span{color:var(--accentDeep);font-size:10.5px;font-weight:800;white-space:nowrap;}
+  .compact-empty{margin-top:7px;color:var(--inkSub);font-size:12px;}
+  .notice{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:start;gap:9px;}
+  .notice-tag{color:var(--accentDeep);font-size:11.5px;font-weight:700;}
+  .notice-text{
+    min-width:0;color:var(--ink);font-size:12.5px;line-height:1.45;font-weight:600;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .member-row{display:flex;align-items:center;gap:9px;}
+  .member-copy{flex:0 0 auto;}
+  .member-copy strong{display:block;font-family:"Manrope",sans-serif;font-size:13px;font-weight:800;}
+  .member-copy span{display:block;margin-top:2px;color:var(--inkSub);font-size:10.5px;}
+  .avatar-stack{min-width:0;flex:1;display:flex;padding-left:5px;}
+  .avatar{
+    width:32px;height:32px;margin-left:-5px;display:grid;place-items:center;
+    border:2px solid var(--paper);border-radius:50%;color:#fff;background:hsl(var(--hue) 43% 47%);
+    font-size:10.5px;font-weight:700;
+  }
+  .invite-action{
+    min-width:68px;height:48px;padding:0 9px;display:flex;align-items:center;justify-content:center;gap:5px;
+    color:var(--accentDeep);background:transparent;border-radius:10px;cursor:pointer;
+    font-size:11.5px;font-weight:700;
+  }
+  .invite-action:active{background:var(--accentBg);}
+  .invite-action svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .back-actions{margin-top:auto;display:grid;grid-template-columns:1fr 108px;gap:8px;padding-top:12px;}
+  .focus-action,.room-action{
+    height:50px;border-radius:14px;cursor:pointer;font-size:13px;font-weight:700;
+    transition:transform .16s ease,background-color .16s ease;
+  }
+  .focus-action{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    color:#fff;background:var(--accentDeep);
+  }
+  .focus-action:active,.room-action:active{transform:scale(.97);}
+  .focus-action:disabled{cursor:wait;opacity:.72;}
+  .focus-action svg{width:16px;height:16px;fill:currentColor;}
+  .room-action{color:var(--inkSub);background:var(--paperAlt);}
+  .spinner{
+    width:15px;height:15px;border:2px solid rgba(255,255,255,.35);
+    border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* 마지막 찾기 카드 */
+  .find-shell{perspective:none;}
+  .find-card{
+    width:100%;height:100%;padding:30px;display:flex;align-items:center;justify-content:center;
+    border:1.5px dashed var(--lineStrong);border-radius:22px;color:var(--ink);background:var(--paperAlt);
+  }
+  .find-inner{display:flex;flex-direction:column;align-items:center;text-align:center;}
+  .find-mark{
+    width:72px;height:72px;display:grid;place-items:center;border:1px solid var(--line);
+    border-radius:50%;color:var(--accentDeep);background:var(--paper);
+  }
+  .find-mark svg{width:31px;height:31px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .find-title{margin-top:19px;font-size:18px;font-weight:700;letter-spacing:-.025em;}
+  .find-copy{margin-top:7px;color:var(--inkSub);font-size:13px;line-height:1.5;}
+  .find-card button{
+    min-width:128px;height:48px;margin-top:22px;border-radius:14px;color:#fff;
+    background:var(--accentDeep);cursor:pointer;font-size:13.5px;font-weight:700;
+  }
+
+  /* 페이지 인디케이터 */
+  .dots{
+    position:absolute;left:20px;right:20px;bottom:calc(var(--tab) + 18px);
+    display:flex;align-items:center;justify-content:center;gap:4px;z-index:4;
+  }
+  .dot{
+    width:44px;height:44px;flex:0 0 44px;padding:0;display:grid;place-items:center;background:transparent;cursor:pointer;
+  }
+  .dot::after{content:"";width:7px;height:7px;border-radius:4px;background:var(--lineStrong);transition:width .2s ease,background-color .2s ease;}
+  .dot[aria-current="true"]::after{width:20px;background:var(--accent);}
+  .count-pill{
+    position:absolute;left:50%;bottom:calc(var(--tab) + 18px);transform:translateX(-50%);
+    display:none;padding:5px 11px;border-radius:12px;color:var(--inkSub);background:var(--paperAlt);
+    font-family:"Manrope",sans-serif;font-size:11px;font-weight:800;z-index:4;
+  }
+
+  /* 하단 앱 내비게이션 */
+  .tabbar{
+    position:absolute;left:16px;right:16px;bottom:14px;z-index:14;height:60px;
+    display:flex;align-items:center;justify-content:space-around;
+    border:1px solid var(--line);border-radius:22px;color:var(--inkMuted);background:var(--paper);
+    box-shadow:0 8px 28px rgba(35,40,67,.14);font-size:11px;font-weight:700;
+    transition:opacity .2s ease,transform .28s cubic-bezier(.2,.72,.24,1);
+  }
+  .tab-item{
+    min-width:52px;height:48px;padding:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:4px;color:inherit;background:transparent;cursor:pointer;
+  }
+  .tab-item i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.52;}
+  .tab-item.active{color:var(--accentDeep);}
+  .tab-fab{
+    width:52px;height:52px;margin-top:-16px;display:grid;place-items:center;border-radius:50%;
+    color:#fff;background:var(--accentDeep);box-shadow:0 7px 18px rgba(74,83,184,.38);cursor:pointer;
+  }
+  .tab-fab svg{width:17px;height:17px;fill:currentColor;}
+  .tab-fab:active{transform:scale(.94);}
+  .section-tabbar{
+    position:absolute;left:16px;right:16px;bottom:14px;z-index:15;height:60px;padding:4px 5px;
+    display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:2px;
+    border:1px solid var(--line);border-radius:30px;background:var(--paper);
+    box-shadow:0 8px 30px rgba(35,40,67,.16);opacity:0;pointer-events:none;
+    transform:translateY(14px) scale(.97);transition:opacity .2s ease,transform .28s cubic-bezier(.2,.72,.24,1);
+  }
+  .context-back{
+    width:50px;height:50px;display:grid;place-items:center;border-radius:50%;
+    color:var(--inkSub);background:var(--paperAlt);cursor:pointer;
+  }
+  .context-tabset{height:52px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;}
+  .context-back svg,.context-tab svg{
+    width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+  }
+  .context-tab{
+    min-width:0;height:52px;padding:2px 0 0;border-radius:16px;background:transparent;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    color:var(--inkMuted);font-size:10.5px;font-weight:700;white-space:nowrap;cursor:pointer;
+  }
+  .context-tab[aria-selected="true"]{color:var(--accentDeep);background:var(--accentBg);}
+  .phone.group-context .global-nav{opacity:0;pointer-events:none;transform:translateY(14px) scale(.97);}
+  .phone.group-context .section-tabbar{opacity:1;pointer-events:auto;transform:translateY(0) scale(1);}
+
+  /* 그룹 내부 목적지는 카드 모음이 아니라 위계가 분명한 평면 리스트로 보여준다. */
+  .group-section-panel{
+    flex:1;min-height:0;overflow-y:auto;padding:8px 20px calc(var(--tab) + 18px);background:var(--paper);
+  }
+  .group-section-panel[hidden]{display:none;}
+  .section-intro{padding:4px 0 19px;border-bottom:1px solid var(--line);}
+  .section-kicker{font-size:12px;font-weight:700;color:var(--accentDeep);letter-spacing:.035em;}
+  .section-intro h2{margin:5px 0 0;font-size:25px;line-height:1.25;font-weight:700;letter-spacing:-.04em;}
+  .section-intro p{margin:7px 0 0;color:var(--inkSub);font-size:13.5px;line-height:1.5;}
+  .section-list{display:flex;flex-direction:column;}
+  .section-row{min-height:76px;padding:13px 0;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);}
+  .section-avatar{width:44px;height:44px;display:grid;place-items:center;flex:0 0 auto;border-radius:50%;background:var(--accentBg);font-size:21px;}
+  .section-copy{min-width:0;flex:1;}
+  .section-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14.5px;}
+  .section-copy span{display:block;margin-top:4px;color:var(--inkSub);font-size:12px;line-height:1.4;}
+  .section-action,.section-quiet{min-height:42px;padding:0 13px;border-radius:12px;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .section-action{color:#fff;background:var(--accentDeep);}
+  .section-quiet{color:var(--inkSub);background:var(--paperAlt);}
+  .section-pair{display:flex;gap:6px;}
+  .topic-strip{display:flex;gap:7px;overflow-x:auto;padding:14px 0 3px;scrollbar-width:none;}
+  .topic-strip::-webkit-scrollbar{display:none;}
+  .topic-chip{height:36px;padding:0 14px;border:1px solid var(--line);border-radius:18px;color:var(--inkSub);background:var(--paper);font-size:12.5px;font-weight:700;white-space:nowrap;}
+  .topic-chip.on{border-color:var(--accent);color:var(--accentDeep);background:var(--accentBg);}
+  .section-search{height:46px;margin-top:15px;padding:0 13px;display:flex;align-items:center;gap:8px;border-radius:14px;background:var(--paperAlt);}
+  .section-search svg{width:18px;height:18px;fill:none;stroke:var(--inkMuted);stroke-width:2;}
+  .section-search input{min-width:0;flex:1;border:0;outline:0;color:var(--ink);background:transparent;font-size:14px;}
+  .feed-row{position:relative;padding:17px 0 17px 30px;border-bottom:1px solid var(--line);}
+  .feed-row::before{content:"";position:absolute;left:7px;top:22px;width:9px;height:9px;border:3px solid var(--paper);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--accentLight);}
+  .feed-row strong{font-size:14px;line-height:1.45;}
+  .feed-row p{margin:4px 0 0;color:var(--inkSub);font-size:12.5px;line-height:1.45;}
+  .feed-row time{display:block;margin-top:6px;color:var(--inkMuted);font-size:11.5px;}
+  .phone.section-content-active .carousel{display:none;}
+  .phone.section-content-active .header-actions{visibility:hidden;}
+
+  /* 방 전체 보기: 카드 요약에서 하나의 상세 목적지로 push한다. */
+  .room-view{
+    position:absolute;inset:0;z-index:12;display:flex;flex-direction:column;
+    color:var(--ink);background:var(--paper);box-shadow:-12px 0 38px rgba(35,40,67,.22);
+    transform:translateX(100%);transition:transform .34s cubic-bezier(.2,.72,.24,1);
+  }
+  .room-view.on{transform:translateX(0);}
+  .room-view-head{
+    min-height:128px;padding:22px 16px 18px;display:flex;align-items:center;gap:11px;color:#fff;
+    background:var(--accent);
+  }
+  .room-nav-button{
+    width:44px;height:44px;flex:0 0 auto;display:grid;place-items:center;border-radius:50%;
+    color:#fff;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.25);cursor:pointer;
+  }
+  .room-nav-button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;}
+  .room-view-title{min-width:0;flex:1;}
+  .room-view-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:20px;letter-spacing:-.03em;}
+  .room-view-title span{display:block;margin-top:4px;color:rgba(255,255,255,.84);font-size:12.5px;font-weight:600;}
+  .room-view-body{flex:1;overflow-y:auto;padding:20px 20px calc(var(--tab) + 18px);}
+  .room-section{padding:24px 0;border-bottom:1px solid var(--line);}
+  .room-section:last-child{border-bottom:0;}
+  .room-section-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;}
+  .room-section-head h3{margin:0;color:var(--inkSub);font-size:12px;letter-spacing:.045em;}
+  .room-section-head button{min-height:44px;margin:-12px 0;padding:0 0 0 16px;color:var(--accentDeep);background:transparent;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .room-notice-row{padding:13px 0;border-top:1px solid var(--line);}
+  .room-notice-row:first-of-type{padding-top:0;border-top:0;}
+  .room-notice-row strong{display:block;font-size:14px;line-height:1.45;}
+  .room-notice-row span{display:block;margin-top:5px;color:var(--inkSub);font-size:11.5px;}
+  .room-challenge-list{display:flex;flex-direction:column;gap:10px;}
+  .room-challenge-card{padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:var(--paperAlt);}
+  .room-challenge-head{display:flex;align-items:center;gap:9px;}
+  .room-challenge-icon{width:26px;height:26px;display:grid;place-items:center;border-radius:9px;color:var(--accentDeep);background:var(--accentBg);font-size:14px;}
+  .room-challenge-icon svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  .room-challenge-head strong{min-width:0;flex:1;font-size:13px;line-height:1.35;}
+  .room-challenge-delete{width:36px;height:36px;margin:-5px -7px -5px 0;border-radius:50%;color:var(--inkSub);background:transparent;font-size:18px;cursor:pointer;}
+  .room-challenge-caption{margin:6px 0 0;color:var(--inkSub);font-size:10.5px;line-height:1.45;}
+  .room-challenge-progress{margin-top:10px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px;}
+  .room-challenge-progress div{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11.5px;}
+  .room-challenge-progress div.me{margin:0 -6px;padding:4px 6px;border-radius:8px;color:var(--accentDeep);background:var(--accentBg);font-weight:700;}
+  .room-challenge-progress span:last-child{font-weight:700;white-space:nowrap;}
+  .room-challenge-empty{color:var(--inkSub);font-size:12.5px;}
+  .room-members{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 10px;}
+  .room-member{min-width:0;text-align:center;}
+  .room-member-avatar{width:56px;height:56px;margin:0 auto;display:grid;place-items:center;position:relative;border:1px solid var(--line);border-radius:50%;color:#fff;background:hsl(var(--memberHue) 46% 50%);font-weight:700;}
+  .room-member.me .room-member-avatar{box-shadow:0 0 0 3px var(--accentBg);border-color:var(--accent);}
+  .room-member.me .room-member-avatar::after{content:"나";position:absolute;right:-5px;top:-5px;padding:2px 5px;border:2px solid #fff;border-radius:8px;color:#fff;background:var(--accent);font-size:9px;}
+  .room-member strong{display:block;margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}
+  .room-member span{display:block;margin-top:2px;color:var(--inkSub);font-size:10.5px;}
+  .room-member-invite{
+    min-height:82px;display:flex;flex-direction:column;align-items:center;gap:7px;border:0;
+    color:var(--accentDeep);background:transparent;cursor:pointer;font-size:12px;font-weight:700;
+  }
+  .room-member-invite-icon{
+    width:56px;height:56px;display:grid;place-items:center;border:1px solid var(--line);
+    border-radius:50%;color:var(--accentDeep);background:var(--paperAlt);font-size:24px;font-weight:500;
+  }
+  .room-member-invite:disabled{color:var(--inkMuted);cursor:default;}
+  .room-member-invite:disabled .room-member-invite-icon{color:var(--inkMuted);}
+
+  /* main의 GroupSettingsScreen: 바텀시트가 아닌 전체 화면 route다. */
+  .group-options-scrim,.confirm-scrim{
+    position:absolute;inset:0;opacity:0;pointer-events:none;background:rgba(18,21,29,.42);
+    transition:opacity .22s ease;
+  }
+  .group-options-scrim{display:none;}
+  .confirm-scrim.on{opacity:1;pointer-events:auto;}
+  .group-options-sheet{
+    position:absolute;inset:0;z-index:23;overflow-y:auto;
+    padding:calc(14px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
+    border-radius:0;background:var(--paperAlt);
+    transform:translateX(105%);transition:transform .3s cubic-bezier(.2,.72,.24,1);
+  }
+  .group-options-sheet.on{transform:translateX(0);}
+  .options-grabber{display:none;}
+  .options-head{display:flex;align-items:center;gap:12px;}
+  .options-title{min-width:0;flex:1;}
+  .options-title h2{margin:0;font-size:19px;letter-spacing:-.03em;}
+  .options-section{margin:22px 0 8px;color:var(--ink);font-size:13px;font-weight:800;}
+  .options-section:empty{display:none;}
+  .options-close{
+    order:-1;width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--line);
+    border-radius:18px;color:var(--inkSub);background:var(--paper);font-size:28px;line-height:1;cursor:pointer;
+  }
+  .options-list{display:grid;gap:10px;}
+  .option-row{
+    width:100%;min-height:64px;padding:12px 14px;display:flex;align-items:center;gap:10px;
+    border:1px solid var(--line);border-radius:14px;color:var(--ink);background:var(--paper);text-align:left;cursor:pointer;
+  }
+  .option-copy{min-width:0;flex:1;}
+  .option-copy strong{display:block;font-size:14px;}
+  .option-copy span{display:block;margin-top:3px;color:var(--inkSub);font-size:11.5px;}
+  .option-value{color:var(--inkSub);font-size:12px;font-weight:700;}
+  .option-chevron{color:var(--inkMuted);font-size:20px;}
+  .option-row.danger{margin-top:4px;color:#C43D45;}
+
+  /* 그룹 프로필과 개인 카드 아이콘 편집은 같은 전환·미리보기 문법을 공유한다. */
+  .profile-edit-sheet{
+    position:absolute;inset:0;z-index:24;overflow-y:auto;
+    padding:calc(14px + env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom));
+    background:var(--paperAlt);transform:translateX(105%);
+    transition:transform .3s cubic-bezier(.2,.72,.24,1);
+  }
+  .profile-edit-sheet.on{transform:translateX(0);}
+  .profile-edit-head{display:flex;align-items:center;gap:12px;}
+  .profile-edit-head h2{margin:0;font-size:19px;letter-spacing:-.03em;}
+  .profile-edit-back{
+    width:36px;height:36px;display:grid;place-items:center;border:1px solid var(--line);
+    border-radius:18px;color:var(--inkSub);background:var(--paper);font-size:28px;line-height:1;cursor:pointer;
+  }
+  .profile-preview{
+    min-height:174px;margin:20px 0;padding:16px;display:grid;place-items:center;position:relative;overflow:hidden;
+    border-radius:22px;color:#fff;background:var(--accent);box-shadow:0 14px 30px rgba(66,76,181,.18);
+  }
+  .profile-preview::after{
+    content:"";position:absolute;left:-12%;right:-12%;bottom:-52%;height:74%;
+    border-radius:50% 50% 0 0;background:rgba(255,255,255,.12);
+  }
+  .profile-preview-label{position:absolute;left:16px;top:14px;color:rgba(255,255,255,.78);font-size:11px;font-weight:700;}
+  .profile-preview-emoji{
+    width:82px;height:82px;display:grid;place-items:center;position:relative;z-index:1;
+    border:1px solid rgba(255,255,255,.45);border-radius:50%;background:rgba(255,255,255,.1);font-size:42px;
+  }
+  .profile-preview-name{
+    position:absolute;left:16px;right:16px;bottom:15px;z-index:1;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:800;text-align:center;
+  }
+  .profile-edit-form{display:flex;flex-direction:column;gap:18px;}
+  .profile-field{display:flex;flex-direction:column;gap:8px;}
+  .profile-field-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
+  .profile-field-head strong{font-size:13px;}
+  .profile-field-head span{color:var(--inkSub);font-size:11px;}
+  .profile-help{margin:0;color:var(--inkSub);font-size:11.5px;line-height:1.5;}
+  .profile-textarea{height:82px;padding-top:13px;resize:none;line-height:1.45;}
+  .profile-row{
+    min-height:54px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;
+    border:1px solid var(--line);border-radius:14px;background:var(--paper);
+  }
+  .profile-row-label{font-size:13px;font-weight:700;}
+  .profile-stepper{display:flex;align-items:center;gap:12px;}
+  .profile-stepper button{
+    width:34px;height:34px;border:1px solid var(--line);border-radius:50%;color:var(--accentDeep);
+    background:var(--paperAlt);cursor:pointer;font-size:20px;
+  }
+  .profile-stepper button:disabled{opacity:.35;cursor:default;}
+  .profile-member-value{min-width:34px;text-align:center;font-size:13px;font-weight:800;}
+  .profile-save{
+    height:50px;margin-top:2px;border-radius:15px;color:#fff;background:var(--accentDeep);
+    cursor:pointer;font-size:14px;font-weight:800;
+  }
+  .profile-save:disabled{color:var(--inkMuted);background:var(--line);cursor:default;}
+  .profile-status{min-height:18px;margin:-8px 0 0;color:var(--accentDeep);font-size:11.5px;text-align:center;}
+
+  .confirm-scrim{z-index:24;}
+  .confirm-dialog{
+    position:absolute;left:28px;right:28px;top:50%;z-index:25;padding:20px;border-radius:20px;
+    background:var(--paper);box-shadow:0 18px 60px rgba(18,21,29,.30);opacity:0;pointer-events:none;
+    transform:translateY(-46%) scale(.96);transition:opacity .18s ease,transform .22s ease;
+  }
+  .confirm-dialog.on{opacity:1;pointer-events:auto;transform:translateY(-50%) scale(1);}
+  .confirm-dialog h2{margin:0;font-size:19px;letter-spacing:-.03em;}
+  .confirm-dialog p{margin:8px 0 18px;color:var(--inkSub);font-size:13px;line-height:1.5;}
+  .confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .confirm-actions button{height:46px;border-radius:13px;font-weight:700;cursor:pointer;}
+  .confirm-cancel{color:var(--inkSub);background:var(--paperAlt);}
+  .confirm-danger{color:#fff;background:#C43D45;}
+
+  /* 그룹 만들기: 서버 요청과 분리된 내 카드 아이콘 초깃값을 함께 고른다. */
+  .create-scrim{
+    position:absolute;inset:0;z-index:26;opacity:0;pointer-events:none;
+    background:rgba(18,21,29,.46);transition:opacity .24s ease;
+  }
+  .create-scrim.on{opacity:1;pointer-events:auto;}
+  .create-sheet{
+    position:absolute;left:0;right:0;bottom:0;z-index:27;max-height:86%;
+    padding:0 20px calc(20px + env(safe-area-inset-bottom));overflow-y:auto;
+    border-radius:24px 24px 0 0;background:var(--paper);box-shadow:0 -14px 44px rgba(35,40,67,.26);
+    transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.72,.24,1);
+  }
+  .create-sheet.on{transform:translateY(0);}
+  .create-head{display:flex;align-items:flex-start;gap:10px;}
+  .create-title{min-width:0;flex:1;}
+  .create-title h2{margin:0;font-size:21px;letter-spacing:-.035em;}
+  .create-title p{margin:5px 0 0;color:var(--inkSub);font-size:12.5px;line-height:1.45;}
+  .create-close{width:44px;height:44px;margin-top:-7px;border-radius:50%;color:var(--inkSub);background:transparent;cursor:pointer;font-size:22px;}
+  .create-form{display:flex;flex-direction:column;gap:18px;margin-top:18px;}
+  .create-field{display:flex;flex-direction:column;gap:8px;}
+  .create-label{font-size:13px;font-weight:700;}
+  .create-input{
+    width:100%;height:48px;padding:0 14px;border:1px solid var(--lineStrong);border-radius:14px;
+    outline:0;color:var(--ink);background:var(--paper);font-size:15px;
+  }
+  .create-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(94,106,210,.14);}
+  .create-error{min-height:18px;margin:-4px 0 0;color:#C43D45;font-size:11.5px;}
+  .emoji-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;}
+  .emoji-choice{
+    aspect-ratio:1;display:grid;place-items:center;border:1px solid var(--line);border-radius:13px;
+    color:var(--ink);background:var(--paperAlt);cursor:pointer;font-size:25px;
+  }
+  .emoji-choice[aria-pressed="true"],.emoji-choice[aria-checked="true"]{
+    border-color:var(--accent);background:var(--accentBg);
+    box-shadow:0 0 0 2px rgba(94,106,210,.16);
+  }
+  .privacy-picker{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .privacy-choice{
+    height:46px;border:1px solid var(--line);border-radius:13px;color:var(--inkSub);
+    background:var(--paperAlt);cursor:pointer;font-size:13px;font-weight:700;
+  }
+  .privacy-choice[aria-pressed="true"]{border-color:var(--accent);color:var(--accentDeep);background:var(--accentBg);}
+  .create-submit{
+    height:50px;border-radius:15px;color:#fff;background:var(--accentDeep);
+    cursor:pointer;font-size:14px;font-weight:700;
+  }
+
+  /* 그룹 찾기 시트 */
+  .scrim{
+    position:absolute;inset:0;z-index:20;opacity:0;pointer-events:none;
+    background:rgba(18,21,29,.42);transition:opacity .24s ease;
+  }
+  .scrim.on{opacity:1;pointer-events:auto;}
+  .sheet{
+    position:absolute;left:0;right:0;bottom:0;z-index:21;max-height:76%;padding:0 20px calc(20px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;border-radius:24px 24px 0 0;background:var(--paper);
+    box-shadow:0 -14px 44px rgba(35,40,67,.24);transform:translateY(105%);
+    transition:transform .32s cubic-bezier(.2,.72,.24,1);
+  }
+  .sheet.on{transform:translateY(0);}
+  .sheet-handle{width:42px;height:5px;margin:10px auto 8px;border-radius:3px;background:var(--lineStrong);}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between;}
+  .sheet h2{margin:0;font-size:19px;font-weight:700;letter-spacing:-.025em;}
+  .sheet-close{width:44px;height:44px;border-radius:50%;color:var(--inkSub);background:transparent;cursor:pointer;font-size:22px;}
+  .search-box{
+    height:48px;margin:8px 0 14px;padding:0 14px;display:flex;align-items:center;gap:9px;
+    border:1px solid var(--line);border-radius:14px;background:var(--paperAlt);
+  }
+  .search-box svg{width:18px;height:18px;fill:none;stroke:var(--inkMuted);stroke-width:2;stroke-linecap:round;}
+  .search-box input{min-width:0;flex:1;border:0;outline:0;color:var(--ink);background:transparent;font-size:15px;}
+  .result-label{margin:0 2px 8px;color:var(--inkSub);font-size:12px;font-weight:700;}
+  .results{overflow-y:auto;display:flex;flex-direction:column;}
+  .result-row{min-height:58px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);}
+  .result-row:first-child{border-top:0;}
+  .result-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;}
+  .result-count{color:var(--inkSub);font-family:"Manrope",sans-serif;font-size:11.5px;font-weight:700;}
+  .join-button{height:38px;padding:0 14px;border-radius:11px;color:#fff;background:var(--accentDeep);cursor:pointer;font-size:12px;font-weight:700;}
+  .joined{padding:0 4px;color:var(--accentDeep);font-size:12px;font-weight:700;}
+  .empty-result{padding:30px 0;text-align:center;color:var(--inkSub);font-size:13px;}
+
+  .toast{
+    position:absolute;left:50%;bottom:112px;z-index:30;max-width:calc(100% - 40px);
+    padding:9px 14px;border-radius:12px;color:#fff;background:rgba(23,26,33,.90);
+    transform:translate(-50%,8px);opacity:0;pointer-events:none;
+    transition:opacity .2s ease,transform .2s ease;font-size:12.5px;font-weight:600;white-space:nowrap;
+  }
+  .toast.on{opacity:1;transform:translate(-50%,0);}
+
+  /* 목업 바깥 설명 */
+  .caption{max-width:430px;color:#C8CCDA;text-align:center;font-size:13px;line-height:1.55;}
+  .caption strong{color:#fff;}
+  .caption a{color:#B9C0FF;text-decoration-thickness:1px;text-underline-offset:3px;}
+  .controls{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;}
+  .controls button{
+    min-height:40px;padding:0 14px;border:1px solid #353A4B;border-radius:10px;
+    color:#E8EAF3;background:#222631;cursor:pointer;font-size:12.5px;font-weight:700;
+  }
+  .controls button.on{border-color:var(--accent);color:#fff;background:var(--accentDeep);}
+
+  @media (hover:hover){
+    .icon-button:hover{background:var(--paperAlt);border-color:var(--lineStrong);}
+    .icon-button.primary:hover{background:#3F47A0;border-color:#3F47A0;}
+    .front-toggle:hover ~ .front-focus-ring{border-color:rgba(255,255,255,.20);}
+    .find-card button:hover,.join-button:hover,.focus-action:hover{background:#3F47A0;}
+    .room-action:hover{background:#E9EAF0;}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;}
+    .card-reorder-layer,.card-peek-layer{transition:none!important;}
+    .card-flipper{transform:none!important;transition:none;}
+    .card-face{transform:none;transition:opacity .12s ease;}
+    .card-back{opacity:0;pointer-events:none;}
+    .card-shell.is-flipped .card-front{opacity:0;pointer-events:none;}
+    .card-shell.is-flipped .card-back{opacity:1;pointer-events:auto;}
+    .sheet,.scrim,.create-sheet,.create-scrim,.toast,.section-tabbar,.tabbar,.room-view,.group-options-sheet,.profile-edit-sheet,.group-options-scrim,.confirm-dialog,.confirm-scrim{transition-duration:.12s;}
+  }
+
+  @media (max-width:480px){
+    body{padding:0;background:var(--paper);overscroll-behavior:none;}
+    .stage{width:100%;gap:0;}
+    .phone{
+      width:100vw;height:100vh;height:100dvh;padding-top:env(safe-area-inset-top);
+      border-radius:0;box-shadow:none;--tab:calc(74px + env(safe-area-inset-bottom));
+      --cardW:calc(100vw - 48px);--cardH:min(64vh,620px);--cardH:min(64dvh,620px);
+    }
+    .statusbar,.caption,.controls{display:none;}
+    .app-header{padding:8px 20px 9px;}
+    .tabbar,.section-tabbar{bottom:calc(14px + env(safe-area-inset-bottom));}
+  }
+</style>
+</head>
+<body>
+  <main class="stage">
+    <section class="phone" id="phone" aria-label="GROMO 내 그룹 카드 플립 목업">
+      <div class="statusbar" aria-hidden="true"><span>9:41</span><span class="right">••• 5G 56</span></div>
+
+      <header class="app-header">
+        <h1 id="carouselTitle">내 그룹</h1>
+        <div class="header-actions">
+          <button class="icon-button" id="findButton" type="button" aria-label="그룹 찾기">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          </button>
+          <button class="icon-button primary" id="createButton" type="button" aria-label="그룹 만들기">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </header>
+      <p class="order-save-error" id="orderSaveError" role="status" aria-live="polite" hidden>순서를 저장하지 못했어요. 앱을 다시 열면 이전 순서로 돌아갈 수 있어요.</p>
+      <p class="order-save-error" id="cardEmojiSaveError" role="status" aria-live="polite" hidden>내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.</p>
+
+      <div class="carousel" id="carousel" role="region" aria-roledescription="carousel" aria-labelledby="carouselTitle">
+        <div class="track" id="track" aria-live="off"><!-- JS 렌더 --></div>
+        <div class="dots" id="dots" role="group" aria-label="그룹 페이지 선택"></div>
+        <div class="count-pill" id="countPill" aria-hidden="true"></div>
+      </div>
+      <section class="group-section-panel" id="sectionPanel" aria-live="polite" hidden></section>
+
+      <nav class="tabbar global-nav" id="globalNav" aria-label="주요 메뉴">
+        <button class="tab-item" type="button"><i></i>홈</button>
+        <button class="tab-item" type="button"><i></i>리그</button>
+        <button class="tab-fab" id="tabFab" type="button" aria-label="집중 시작">
+          <svg viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg>
+        </button>
+        <button class="tab-item active" id="globalGroupTab" type="button" aria-current="page"><i></i>그룹</button>
+        <button class="tab-item" type="button"><i></i>전체</button>
+      </nav>
+      <nav class="section-tabbar" id="sectionNav" aria-label="그룹 메뉴" aria-hidden="true" inert>
+        <button class="context-back" id="groupContextBack" type="button" aria-label="주요 메뉴로 돌아가기">
+          <svg viewBox="0 0 24 24"><path d="m15 19-7-7 7-7"/></svg>
+        </button>
+        <div class="context-tabset" role="tablist" aria-label="그룹 화면">
+          <button class="context-tab" type="button" role="tab" id="groupTabMine" data-group-section="mine" aria-selected="true" aria-controls="carousel">
+            <svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 20c0-3 2-5 5-5s5 2 5 5M12 20c0-2.7 1.7-4.5 4-4.5 2.8 0 4.5 1.8 4.5 4.5"/></svg><span>내 그룹</span>
+          </button>
+          <button class="context-tab" type="button" role="tab" id="groupTabInvites" data-group-section="invites" aria-selected="false" aria-controls="sectionPanel" tabindex="-1">
+            <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.6-5 6-5M18 12v7M14.5 15.5h7"/></svg><span>초대</span>
+          </button>
+          <button class="context-tab" type="button" role="tab" id="groupTabDiscover" data-group-section="discover" aria-selected="false" aria-controls="sectionPanel" tabindex="-1">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></svg><span>발견</span>
+          </button>
+          <button class="context-tab" type="button" role="tab" id="groupTabFeed" data-group-section="feed" aria-selected="false" aria-controls="sectionPanel" tabindex="-1">
+            <svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3z"/><path d="M9 9h6M9 12h4"/></svg><span>피드</span>
+          </button>
+        </div>
+      </nav>
+
+      <section class="room-view" id="roomView" aria-labelledby="roomViewName" aria-hidden="true" inert>
+        <header class="room-view-head">
+          <button class="room-nav-button" id="roomViewBack" type="button" aria-label="카드로 돌아가기">
+            <svg viewBox="0 0 24 24"><path d="m15 19-7-7 7-7"/></svg>
+          </button>
+          <div class="room-view-title">
+            <strong id="roomViewName"></strong>
+            <span id="roomViewMeta"></span>
+          </div>
+          <button class="room-nav-button" id="roomViewOptions" type="button" aria-label="그룹 설정">
+            <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+          </button>
+        </header>
+        <div class="room-view-body" id="roomViewBody"></div>
+      </section>
+
+      <div class="group-options-scrim" id="groupOptionsScrim"></div>
+      <section class="group-options-sheet" id="groupOptionsSheet" role="region" aria-labelledby="groupOptionsTitle" aria-hidden="true" inert>
+        <div class="options-head">
+          <div class="options-title">
+            <h2 id="groupOptionsTitle">그룹 설정</h2>
+          </div>
+          <button class="options-close" id="groupOptionsClose" type="button" aria-label="뒤로">‹</button>
+        </div>
+        <p class="options-section" id="groupOptionsMeta"></p>
+        <div class="options-list" id="groupOptionsList"></div>
+      </section>
+
+      <section class="profile-edit-sheet" id="profileEditSheet" role="region" aria-labelledby="profileEditTitle" aria-hidden="true" inert>
+        <header class="profile-edit-head">
+          <button class="profile-edit-back" id="profileEditBack" type="button" aria-label="그룹 설정으로 돌아가기">‹</button>
+          <h2 id="profileEditTitle">그룹 프로필 설정</h2>
+        </header>
+        <div class="profile-preview" aria-label="그룹 카드 미리보기">
+          <span class="profile-preview-label">카드 미리보기</span>
+          <span class="profile-preview-emoji" id="profilePreviewEmoji" role="img"></span>
+          <strong class="profile-preview-name" id="profilePreviewName"></strong>
+        </div>
+        <form class="profile-edit-form" id="profileEditForm">
+          <label class="profile-field">
+            <span class="create-label">그룹 이름</span>
+            <input class="create-input" id="profileName" type="text" maxlength="50" autocomplete="off" />
+          </label>
+          <label class="profile-field">
+            <span class="create-label">소개</span>
+            <textarea class="create-input profile-textarea" id="profileDescription" maxlength="200"></textarea>
+          </label>
+          <section class="profile-field" aria-labelledby="profileMembersLabel">
+            <span class="create-label" id="profileMembersLabel">정원</span>
+            <div class="profile-row">
+              <span class="profile-row-label">최대 인원</span>
+              <div class="profile-stepper">
+                <button id="profileMembersMinus" type="button" aria-label="정원 줄이기">−</button>
+                <output class="profile-member-value" id="profileMembers"></output>
+                <button id="profileMembersPlus" type="button" aria-label="정원 늘리기">＋</button>
+              </div>
+            </div>
+            <p class="profile-help" id="profileMembersHelp"></p>
+          </section>
+          <section class="profile-field">
+            <span class="create-label" id="profilePrivacyLabel">공개 범위</span>
+            <div class="privacy-picker" id="profilePrivacyPicker" role="group" aria-labelledby="profilePrivacyLabel">
+              <button class="privacy-choice" type="button" data-profile-private="false">공개방</button>
+              <button class="privacy-choice" type="button" data-profile-private="true">비밀방</button>
+            </div>
+          </section>
+          <button class="profile-save" id="profileSave" type="submit" disabled>변경사항 저장</button>
+          <p class="profile-status" id="profileStatus" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="profile-edit-sheet" id="cardEmojiEditSheet" role="region" aria-labelledby="cardEmojiEditTitle" aria-hidden="true" inert>
+        <header class="profile-edit-head">
+          <button class="profile-edit-back" id="cardEmojiEditBack" type="button" aria-label="그룹 설정으로 돌아가기">‹</button>
+          <h2 id="cardEmojiEditTitle">내 카드 아이콘</h2>
+        </header>
+        <div class="profile-preview" aria-label="내 그룹 카드 미리보기">
+          <span class="profile-preview-label">내 카드 미리보기</span>
+          <span class="profile-preview-emoji" id="cardEmojiPreview" role="img"></span>
+          <strong class="profile-preview-name" id="cardEmojiPreviewName"></strong>
+        </div>
+        <form class="profile-edit-form" id="cardEmojiEditForm">
+          <section class="profile-field">
+            <div class="profile-field-head">
+              <strong id="cardEmojiPickerLabel">내 카드 아이콘</strong>
+              <span>개인 설정</span>
+            </div>
+            <div class="emoji-picker" id="cardEmojiPicker" role="radiogroup" aria-labelledby="cardEmojiPickerLabel" aria-describedby="cardEmojiPickerHelp"></div>
+            <p class="profile-help" id="cardEmojiPickerHelp">이 기기에서 나에게만 보여요. 다른 멤버의 카드에는 영향을 주지 않아요.</p>
+          </section>
+          <button class="profile-save" id="cardEmojiSave" type="submit" disabled>이 아이콘 사용</button>
+          <p class="profile-status" id="cardEmojiStatus" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <div class="confirm-scrim" id="confirmScrim"></div>
+      <section class="confirm-dialog" id="confirmDialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmDescription" aria-hidden="true" inert>
+        <h2 id="confirmTitle"></h2>
+        <p id="confirmDescription"></p>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="confirmCancel" type="button">취소</button>
+          <button class="confirm-danger" id="confirmDanger" type="button"></button>
+        </div>
+      </section>
+
+      <div class="create-scrim" id="createScrim"></div>
+      <section class="create-sheet" id="createSheet" role="dialog" aria-modal="true" aria-labelledby="createTitle" aria-hidden="true" inert>
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="create-head">
+          <div class="create-title">
+            <h2 id="createTitle">그룹 만들기</h2>
+            <p>그룹은 함께 쓰고, 카드 아이콘은 내 기기에서만 바뀌어요.</p>
+          </div>
+          <button class="create-close" id="createClose" type="button" aria-label="그룹 만들기 닫기">×</button>
+        </div>
+        <form class="create-form" id="createForm" novalidate>
+          <div class="create-field">
+            <span class="create-label" id="emojiLabel">내 카드 아이콘</span>
+            <div class="emoji-picker" id="emojiPicker" role="radiogroup" aria-labelledby="emojiLabel" aria-describedby="createEmojiHelp"></div>
+            <p class="profile-help" id="createEmojiHelp">이 기기에서 나에게만 보여요.</p>
+          </div>
+          <label class="create-field">
+            <span class="create-label">그룹 이름</span>
+            <input class="create-input" id="createName" type="text" maxlength="30" placeholder="예: 매일 아침 딥워크" autocomplete="off" />
+            <span class="create-error" id="createError" role="alert"></span>
+          </label>
+          <div class="create-field">
+            <span class="create-label" id="privacyLabel">공개 범위</span>
+            <div class="privacy-picker" id="privacyPicker" role="group" aria-labelledby="privacyLabel">
+              <button class="privacy-choice" type="button" data-private="false" aria-pressed="true">공개방</button>
+              <button class="privacy-choice" type="button" data-private="true" aria-pressed="false">비밀방</button>
+            </div>
+          </div>
+          <button class="create-submit" type="submit">그룹 만들기</button>
+        </form>
+      </section>
+
+      <div class="scrim" id="scrim"></div>
+      <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" aria-hidden="true" inert>
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-head">
+          <h2 id="sheetTitle">그룹 찾기</h2>
+          <button class="sheet-close" id="sheetClose" type="button" aria-label="그룹 찾기 닫기">×</button>
+        </div>
+        <label class="search-box">
+          <span class="sr-only">그룹 이름</span>
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input id="query" type="search" placeholder="그룹 이름으로 검색" autocomplete="off" />
+        </label>
+        <div class="result-label" id="resultLabel">공개 그룹</div>
+        <div class="results" id="results"></div>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <p class="sr-only" id="liveRegion" aria-live="polite"></p>
+    </section>
+
+    <p class="caption">
+      <strong>v0.8 · 카드 탭 → 같은 자리에서 뒤집기 → 바로 행동.</strong>
+	      앞면을 짧게 누르면 같은 카드가 뒤집히고, 좌우로 끌면 다른 그룹으로 이동합니다.
+	      모든 카드는 같은 인디고 배경을 쓰고, 내 기기에 저장된 개인 카드 아이콘으로 구분합니다.
+	      방장과 멤버 모두 그룹 설정의 ‘내 카드 아이콘’에서 자신에게만 보이는 이모지를 바꿀 수 있습니다.
+	      바꾼 카드 순서는 이 브라우저에 저장되어 새로고침 뒤에도 유지됩니다.
+	      뒷면의 집중 중 인원은 전역 리그 원본 응답과 그룹 멤버 ID를 합쳐 계산하고, main의 챌린지 목록을 함께 보여 줍니다. 우상단 핸들은 공용 reorder handle 모듈로 렌더링합니다.
+    </p>
+    <div class="controls" aria-label="목업 데이터 개수">
+      <button id="count1" type="button">그룹 1개</button>
+      <button id="count5" type="button" class="on">그룹 5개</button>
+      <button id="count10" type="button">그룹 10개</button>
+    </div>
+  </main>
+
+<script src="ux-shared.js"></script>
+<script>
+  const ICON = {
+    lock:`<svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>`,
+    globe:`<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18"/></svg>`,
+    users:`<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.6-5 6-5s6 1.8 6 5M16 6.5a3 3 0 0 1 0 5.8M17 15c2.6.3 4 1.9 4 4.5"/></svg>`,
+    rotate:`<svg viewBox="0 0 24 24"><path d="M4 8h6V2"/><path d="M20 16h-6v6"/><path d="M5.8 17.2A8 8 0 0 0 19.5 14M18.2 6.8A8 8 0 0 0 4.5 10"/></svg>`,
+    crown:`<svg viewBox="0 0 24 24"><path d="m4 8 4 3 4-7 4 7 4-3-2 10H6z"/></svg>`,
+    invite:`<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.6-5 6-5 1.2 0 2.3.2 3.2.7M18 13v7M14.5 16.5h7"/></svg>`,
+    flag:`<svg viewBox="0 0 24 24"><path d="M6 21V4m0 1h11l-2 4 2 4H6"/></svg>`,
+    phone:`<svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M10 5h4M11 18.5h2"/></svg>`
+  };
+  const { reorderHandle } = window.GromoMockupShared;
+  const EMOJI_CHOICES = ["🌅","📚","💻","⚡","🧘","🎨","🏃","✍️","🧠","🎯","🌿","🔥"];
+  const EMOJI_LABELS = {"🌅":"해돋이","📚":"책","💻":"노트북","⚡":"번개","🧘":"명상","🎨":"팔레트","🏃":"달리기","✍️":"글쓰기","🧠":"두뇌","🎯":"목표","🌿":"잎사귀","🔥":"불꽃"};
+  function normalizedEmoji(value){return EMOJI_CHOICES.includes(value) ? value : "🎯";}
+
+	  const DEMO_USER_ID = "demo-user";
+	  const GROUPS = [
+	    {
+	      id:"group-morning-6",
+	      name:"새벽 6시 기상 집중단",cur:7,max:10,owner:true,priv:false,
+	      desc:"매일 아침 인증하고 첫 집중을 함께 시작해요.",
+	      challenges:[
+	        {id:"morning-daily",label:"하루 60분 집중",status:"ACTIVE",progress:[{name:"나",value:"42/60분",me:true},{name:"수빈",value:"달성 ✓"},{name:"재영",value:"31/60분"}]},
+	        {id:"morning-window",label:"매일 06:00~08:00 30분 집중",status:"ACTIVE",progress:[{name:"나",value:"18/30분",me:true},{name:"지민",value:"달성 ✓"}]}
+	      ],
+	      notice:"이번 주 인증은 일요일 자정까지예요.",members:["나","수빈","재영","지민","현우","서연","민준"]
+	    },
+	    {
+	      id:"group-toeic-900",
+	      name:"토익 900 스터디",cur:5,max:8,owner:false,priv:true,
+	      desc:"파트별 문제 풀이와 오답 공유로 3개월 안에 완주해요.",
+	      challenges:[
+	        {id:"toeic-focus",label:"하루 50분 집중",status:"ACTIVE",progress:[{name:"나",value:"35/50분",me:true},{name:"하윤",value:"달성 ✓"},{name:"도윤",value:"22/50분"}]}
+	      ],
+	      notice:"금요일 모의고사 링크를 공지에 올렸어요.",members:["나","하윤","도윤","시우","예린"]
+	    },
+	    {
+	      id:"group-developer-flow",
+	      name:"개발자 몰입 클럽",cur:9,max:10,owner:true,priv:false,
+	      desc:"사이드 프로젝트와 CS 공부를 딥워크로 밀어붙이는 모임.",
+	      challenges:[
+	        {id:"dev-duration",label:"하루 90분 집중",status:"ACTIVE",progress:[{name:"나",value:"72/90분",me:true},{name:"재영",value:"달성 ✓"},{name:"지민",value:"61/90분"}]},
+	        {id:"dev-window",label:"매일 21:00~23:00 60분 집중",status:"ACTIVE",progress:[{name:"나",value:"28/60분",me:true},{name:"민준",value:"44/60분"}]}
+	      ],
+	      notice:"목요일 21시 코드리뷰 세션이 있어요.",members:["나","재영","지민","민준","서연","하윤","도윤","시우","예린"]
+	    },
+	    {
+	      id:"group-exam-sprint",
+	      name:"전공 시험 대비 벼락치기 모임",cur:3,max:6,owner:false,priv:true,
+	      desc:"시험 2주 전, 밤샘 대신 짧고 진한 집중을 함께 인증해요.",
+	      challenges:[
+	        {id:"exam-focus",label:"하루 120분 집중",status:"ACTIVE",progress:[{name:"나",value:"86/120분",me:true},{name:"현우",value:"달성 ✓"},{name:"지민",value:"77/120분"}]}
+	      ],
+	      notice:"과목별 예상문제를 자료함에 정리했어요.",members:["나","현우","지민"]
+	    },
+	    {
+	      id:"group-yoga-meditation",
+	      name:"요가 · 명상 루틴",cur:4,max:10,owner:true,priv:false,
+	      desc:"하루 20분 움직이고 호흡하며 몸과 마음을 정돈해요.",
+	      challenges:[
+	        {id:"yoga-focus",label:"하루 20분 집중",status:"ACTIVE",progress:[{name:"나",value:"9/20분",me:true},{name:"수빈",value:"달성 ✓"},{name:"서연",value:"12/20분"}]}
+	      ],
+	      notice:"이번 주말은 30분 긴 루틴으로 진행해요.",members:["나","수빈","서연","예린"]
+	    },
+	    {
+	      id:"group-design-portfolio",
+	      name:"디자인 포트폴리오 챌린지",cur:6,max:10,owner:false,priv:false,
+	      desc:"매주 한 작업물을 끝내며 포트폴리오를 실제로 채워요.",
+	      challenges:[
+	        {id:"design-focus",label:"하루 80분 집중",status:"ACTIVE",progress:[{name:"나",value:"54/80분",me:true},{name:"수빈",value:"달성 ✓"},{name:"서연",value:"48/80분"}]}
+	      ],
+	      notice:"수요일 밤 10시에 중간 피드백을 나눠요.",members:["나","수빈","서연","지민","도윤","예린"]
+	    },
+	    {
+	      id:"group-morning-running",
+	      name:"아침 러닝 크루",cur:8,max:10,owner:true,priv:true,
+	      desc:"주 3회 아침 러닝을 인증하고 거리와 페이스를 나눠요.",
+	      challenges:[
+	        {id:"running-window",label:"매일 06:00~08:00 30분 집중",status:"ACTIVE",progress:[{name:"나",value:"24/30분",me:true},{name:"민준",value:"달성 ✓"},{name:"도윤",value:"16/30분"}]}
+	      ],
+	      notice:"토요일 합동 러닝은 여의나루에서 만나요.",members:["나","민준","도윤","시우","하윤","현우","재영","예린"]
+	    },
+	    {
+	      id:"group-writing-100",
+	      name:"글쓰기 100일",cur:2,max:5,owner:false,priv:true,
+	      desc:"짧아도 매일 한 편, 꾸준히 쓰는 감각을 함께 만들어요.",
+	      challenges:[
+	        {id:"writing-focus",label:"하루 30분 집중",status:"ACTIVE",progress:[{name:"나",value:"19/30분",me:true},{name:"서연",value:"달성 ✓"}]}
+	      ],
+	      notice:"오늘의 글감은 ‘미뤄둔 대화’예요.",members:["나","서연"]
+	    },
+	    {
+	      id:"group-coding-daily",
+	      name:"코딩테스트 매일 1문제",cur:10,max:10,owner:false,priv:false,
+	      desc:"하루 한 문제를 풀고 풀이를 리뷰하는 취업 준비 방.",
+	      challenges:[
+	        {id:"coding-duration",label:"하루 60분 집중",status:"ACTIVE",progress:[{name:"나",value:"달성 ✓",me:true},{name:"수빈",value:"53/60분"},{name:"재영",value:"46/60분"}]},
+	        {id:"coding-screen",label:"하루 120분 스크린타임",status:"ACTIVE",caption:"오늘 스크린타임을 목표 이하로 유지해요",progress:[{name:"나",value:"76/120분",me:true},{name:"지민",value:"—"}]}
+	      ],
+	      notice:"오늘 22시에 위상정렬 풀이 리뷰가 있어요.",members:["나","수빈","재영","지민","현우","서연","민준","하윤","도윤","시우"]
+	    },
+	    {
+	      id:"group-exam-final-100",
+	      name:"수능 D-100 파이널",cur:5,max:10,owner:true,priv:true,
+	      desc:"과목별 진도를 공유하며 남은 100일의 순공 시간을 쌓아요.",
+	      challenges:[
+	        {id:"final-focus",label:"하루 180분 집중",status:"ACTIVE",progress:[{name:"나",value:"142/180분",me:true},{name:"지민",value:"달성 ✓"},{name:"하윤",value:"119/180분"}]}
+	      ],
+	      notice:"일요일 저녁에 주간 계획을 함께 점검해요.",members:["나","지민","하윤","도윤","예린"]
+	    }
+  ];
+
+	  // 정적 목업의 API 조합:
+	  // - 그룹 상세는 멤버 userId만 제공한다.
+	  // - category 없는 GET /league/me/ranking 원본(top 100)이 userId별 live 상태를 제공한다.
+	  // 실제 앱도 화면용 12명 slice 훅이 아니라 이 원본 응답과 그룹 멤버 ID를 join한다.
+	  const mockNicknames = [...new Set(GROUPS.flatMap(group=>group.members))];
+	  const mockUserIdByNickname = new Map(mockNicknames.map((nickname,index)=>[
+	    nickname,nickname === "나" ? DEMO_USER_ID : `demo-league-user-${index}`
+	  ]));
+	  const mockFocusingNicknames = new Set(["수빈","재영","지민","민준","서연","하윤","도윤"]);
+	  GROUPS.forEach(group=>{
+	    group.detailMembers = group.members.map(nickname=>({
+	      userId:mockUserIdByNickname.get(nickname),nickname
+	    }));
+	  });
+	  // 출시 전제: eligible user < 100. 90명부터 전환 경고, 응답 100행이면 coverage-unknown으로
+	  // 숫자를 만들지 않고 그룹 전용 live 계약/pagination 전환 TODO를 실행한다.
+	  const LEAGUE_LIVE_ROWS = mockNicknames.map((nickname,index)=>({
+	    rank:index + 1,
+	    userId:mockUserIdByNickname.get(nickname),
+	    nickname,
+	    isFocusing:mockFocusingNicknames.has(nickname)
+	  }));
+	  const leagueLiveByUserId = new Map(LEAGUE_LIVE_ROWS.map(row=>[row.userId,row]));
+
+  const PUBLIC_GROUPS = [
+    {name:"아침형 인간 프로젝트",cur:6,max:10,joined:false},
+    {name:"토익 900 스터디",cur:5,max:8,joined:true},
+    {name:"백엔드 개발 스터디",cur:9,max:10,joined:false},
+    {name:"미라클 모닝 5시",cur:3,max:10,joined:false},
+    {name:"전공책 완독 챌린지",cur:7,max:12,joined:false},
+    {name:"헬스 · 운동 인증방",cur:8,max:10,joined:false}
+  ];
+
+  const track = document.getElementById("track");
+  const dots = document.getElementById("dots");
+  const countPill = document.getElementById("countPill");
+  const liveRegion = document.getElementById("liveRegion");
+	  const ORDER_STORAGE_KEY = "gromo:groups:cardOrder:v1";
+  const CARD_EMOJI_STORAGE_KEY = "gromo:groups:cardEmoji:v1";
+  // 정적 fixture는 성공한 전체 GET /groups 응답을 나타낸다. 실패·부분 응답이면 reconcile하지 않는다.
+  const DID_LOAD_FULL_GROUPS = true;
+  // 목업은 개인화가 보이도록 최초 1회만 로컬 fixture를 심는다. 제품의 미설정 기본값은 🎯다.
+  const DEMO_CARD_EMOJI_SEED = ["🌅","📚","💻","⚡","🧘","🎨","🏃","✍️","🧠","🎯"];
+  const DOT_HIT_W = 44;
+  const DOT_GAP = 4;
+  const INDICATOR_SIDE_GUTTER = 20;
+  let groupCount = 5;
+  let drag = null;
+  let programmatic = false;
+  let activeIndex = 0;
+  let announcedIndex = -1;
+	  let indicatorUsesDots = true;
+	  function stableGroupId(index){return GROUPS[index]?.id || null;}
+	  function groupStorageId(groupRef){
+	    if(typeof groupRef === "number")return stableGroupId(groupRef);
+	    return typeof groupRef === "string" && GROUPS.some(group=>group.id === groupRef) ? groupRef : null;
+	  }
+  function loadDeckOrder(){
+    const serverIds = GROUPS.map(group=>group.id);
+    try{
+      const parsed = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) || "{}");
+      const stored = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed[DEMO_USER_ID]
+        : [];
+      const kept = Array.isArray(stored)
+        ? [...new Set(stored.filter(id=>typeof id === "string" && serverIds.includes(id)))]
+        : [];
+      const reconciled = DID_LOAD_FULL_GROUPS
+        ? [...kept,...serverIds.filter(id=>!kept.includes(id))]
+        : (kept.length ? kept : serverIds);
+      return reconciled
+        .map(id=>GROUPS.findIndex(group=>group.id === id));
+    }catch{return GROUPS.map((_,index)=>index);}
+  }
+  function persistDeckOrder(){
+    const error = document.getElementById("orderSaveError");
+    try{
+      const raw = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) || "{}");
+      const allUsers = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+      allUsers[DEMO_USER_ID] = deckOrder.map(stableGroupId).filter(Boolean);
+      localStorage.setItem(ORDER_STORAGE_KEY,JSON.stringify(allUsers));
+      error.hidden = true;
+      return true;
+    }catch{
+      error.hidden = false;
+      return false;
+    }
+  }
+  let deckOrder = loadDeckOrder();
+
+  function loadCardEmojiStore(){
+    const serverIds = new Set(GROUPS.map(group=>group.id));
+    const seeded = Object.fromEntries(
+      DEMO_CARD_EMOJI_SEED.map((emoji,index)=>[stableGroupId(index),emoji]).filter(([id])=>Boolean(id))
+    );
+    let allUsers = {};
+    let current = seeded;
+    let needsRepair = false;
+    let hadUserBucket = false;
+    try{
+      const raw = localStorage.getItem(CARD_EMOJI_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      allUsers = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      hadUserBucket = Boolean(allUsers[DEMO_USER_ID]
+        && typeof allUsers[DEMO_USER_ID] === "object"
+        && !Array.isArray(allUsers[DEMO_USER_ID]));
+      current = hadUserBucket
+        ? allUsers[DEMO_USER_ID]
+        : (raw ? {} : seeded);
+    }catch{
+      // 손상된 값은 화면에서는 안전한 기본값으로 복구하고, 복구 쓰기는 별도로 시도한다.
+      allUsers = {};
+      current = {};
+      needsRepair = true;
+    }
+    let migratedLegacyKey = false;
+    const migratedEntries = Object.entries(current).map(([id,emoji])=>{
+      if(/^\d+$/.test(id)){
+        const migratedId = stableGroupId(Number(id));
+        if(migratedId){migratedLegacyKey = true;return [migratedId,emoji];}
+      }
+      return [id,emoji];
+    });
+    const validEntries = migratedEntries.filter(([,emoji])=>EMOJI_CHOICES.includes(emoji));
+    const reconciled = Object.fromEntries(
+      validEntries.filter(([id])=>!DID_LOAD_FULL_GROUPS || serverIds.has(id))
+    );
+    needsRepair = needsRepair
+      || migratedLegacyKey
+      || validEntries.length !== Object.keys(current).length
+      || (DID_LOAD_FULL_GROUPS && validEntries.length !== Object.keys(reconciled).length)
+      || !hadUserBucket;
+    const repairedStore = {...allUsers,[DEMO_USER_ID]:reconciled};
+    if(needsRepair){
+      try{
+        localStorage.setItem(CARD_EMOJI_STORAGE_KEY,JSON.stringify(repairedStore));
+      }catch{
+        // 복구 쓰기가 실패해도 이미 읽은 정상 값과 현재 UI는 버리지 않는다. 다음 활성화 때 재시도한다.
+        document.getElementById("cardEmojiSaveError").hidden = false;
+      }
+    }
+    return {allUsers:repairedStore,current:reconciled};
+  }
+  const loadedCardEmojiStore = loadCardEmojiStore();
+  let cardEmojiStore = loadedCardEmojiStore.allUsers;
+  let cardEmojiByGroup = loadedCardEmojiStore.current;
+  function cardEmojiFor(groupRef){
+    const id = groupStorageId(groupRef);
+    return normalizedEmoji(id ? cardEmojiByGroup[id] : undefined);
+  }
+  function writeCardEmojiStore(){
+    const error = document.getElementById("cardEmojiSaveError");
+    try{
+      localStorage.setItem(CARD_EMOJI_STORAGE_KEY,JSON.stringify(cardEmojiStore));
+      error.hidden = true;
+      return true;
+    }catch{
+      error.hidden = false;
+      return false;
+    }
+  }
+  function persistCardEmoji(groupRef,emoji){
+    const id = groupStorageId(groupRef);
+    if(!id)return false;
+    cardEmojiByGroup = {...cardEmojiByGroup,[id]:normalizedEmoji(emoji)};
+    cardEmojiStore = {...cardEmojiStore,[DEMO_USER_ID]:cardEmojiByGroup};
+    return writeCardEmojiStore();
+  }
+  function retryCardEmojiWrite(){
+    const error = document.getElementById("cardEmojiSaveError");
+    if(error.hidden || !writeCardEmojiStore())return;
+    if(cardEmojiEditorOpen() && cardEmojiGroupId !== null){
+      // 재시도 중 사용자가 고른 새 draft는 보존하고, 실제로 쓴 값만 base로 삼는다.
+      cardEmojiBase = cardEmojiFor(cardEmojiGroupId);
+      cardEmojiStatus.textContent = "";
+      syncCardEmojiEditor();
+    }
+  }
+  window.addEventListener("pageshow",retryCardEmojiWrite);
+  document.addEventListener("visibilitychange",()=>{
+    if(!document.hidden)retryCardEmojiWrite();
+  });
+
+  function privacyMarkup(group){
+    return `<span class="privacy" aria-hidden="true">${group.priv ? ICON.lock : ICON.globe}${group.priv ? "비밀방" : "공개방"}</span>`;
+  }
+
+  function avatarMarkup(names){
+    return names.slice(0,5).map((name,index)=>
+      `<span class="avatar" style="--hue:${215 + index * 39}" aria-hidden="true">${name === "나" ? "나" : name.slice(0,1)}</span>`
+    ).join("");
+  }
+
+  function challengeRows(group){
+    return Array.isArray(group.challenges) ? group.challenges : [];
+  }
+
+  function myChallengeProgress(challenge){
+    return challenge.progress?.find(row=>row.me)?.value || "진행률 보기";
+  }
+
+  function compactChallengeMarkup(group){
+    const rows = challengeRows(group);
+    if(!rows.length)return `<p class="compact-empty">아직 챌린지가 없어요.</p>`;
+    return `<div class="compact-challenge-list">${rows.map(challenge=>`
+      <div class="compact-challenge">
+        <strong>${challenge.label}</strong>
+        <span>${myChallengeProgress(challenge)}</span>
+      </div>`).join("")}</div>`;
+  }
+
+  function focusingCount(group){
+    return group.detailMembers.filter(member=>leagueLiveByUserId.get(member.userId)?.isFocusing === true).length;
+  }
+
+  function groupCard(group,index,totalPages,position,totalGroups){
+    const label = `${group.name}, ${group.priv ? "비밀방" : "공개방"}, ${group.owner ? "방장, " : ""}${group.cur}/${group.max}명, ${position + 1}번째 총 ${totalPages}개`;
+    const challenges = challengeRows(group);
+    const liveCount = focusingCount(group);
+    return `
+      <article class="card-shell group-shell" data-index="${index}" role="group" aria-roledescription="슬라이드" aria-label="${label}" aria-posinset="${position + 1}" aria-setsize="${totalGroups}">
+        <div class="card-reorder-layer">
+          <div class="card-peek-layer">
+            <div class="card-flipper">
+          <section class="card-face card-front" aria-hidden="false">
+            <div class="front-art">
+              ${privacyMarkup(group)}
+              ${reorderHandle({label:`${group.name} 카드 드래그 순서 변경, 현재 ${position + 1}/${totalGroups}`})}
+              <span class="group-mark" aria-hidden="true"><span class="group-emoji">${cardEmojiFor(index)}</span></span>
+            </div>
+            <div class="front-meta" aria-hidden="true">
+              <div class="name-row">
+                <strong class="group-name">${group.name}</strong>
+                ${group.owner ? `<span class="owner-chip">${ICON.crown}방장</span>` : ""}
+              </div>
+              <span class="group-desc">${group.desc}</span>
+              <div class="front-footer">
+                <span class="member-pill">${ICON.users}${group.cur}/${group.max}</span>
+                <span class="flip-label">${ICON.rotate}뒤집어 방 보기</span>
+              </div>
+            </div>
+            <button class="front-toggle" type="button" data-action="flip" aria-expanded="false" aria-controls="room-summary-${index}" aria-label="${group.name}, 내 카드 아이콘 ${EMOJI_LABELS[cardEmojiFor(index)]}, ${group.priv ? "비밀방" : "공개방"}, ${group.owner ? "방장, " : ""}${group.cur}/${group.max}명, 방 요약 보기"></button>
+            <span class="front-focus-ring" aria-hidden="true"></span>
+          </section>
+
+          <section class="card-face card-back" id="room-summary-${index}" aria-hidden="true" inert>
+            <header class="back-head">
+              <button class="back-icon turn-back" type="button" data-action="front" aria-label="${group.name} 카드 앞면 보기">
+                ${ICON.rotate}
+              </button>
+              <div class="back-title">
+                <strong>${group.name}</strong>
+                <span>${group.priv ? "비밀방" : "공개방"} · ${group.cur}/${group.max}명</span>
+              </div>
+              <button class="back-icon" type="button" data-action="settings" aria-label="${group.name} 그룹 설정">
+                <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+              </button>
+            </header>
+            <div class="back-body">
+	              <section class="live-summary" aria-label="현재 ${liveCount}명 집중 중">
+	                <span class="live-status"><i class="live-dot"></i>${liveCount}명 집중 중</span>
+              </section>
+
+              <div class="section-rule"></div>
+
+              <section aria-label="챌린지 ${challenges.length}개">
+                <div class="challenge-list-head">
+                  <span class="section-label">챌린지</span>
+                  <strong class="challenge-count">${challenges.length}개</strong>
+                </div>
+                ${compactChallengeMarkup(group)}
+              </section>
+
+              <div class="section-rule"></div>
+
+              <section class="notice" aria-label="최신 공지">
+                <span class="notice-tag">공지</span>
+                <span class="notice-text">${group.notice}</span>
+              </section>
+
+              <div class="section-rule"></div>
+
+              <section class="member-row" aria-label="멤버 ${group.cur}명">
+                <div class="member-copy"><strong>${group.cur}/${group.max}</strong><span>함께하는 멤버</span></div>
+                <div class="avatar-stack">${avatarMarkup(group.members)}</div>
+                ${group.cur < group.max ? `<button class="invite-action" type="button" data-action="invite">${ICON.invite}초대</button>` : ""}
+              </section>
+
+              <div class="back-actions">
+                <button class="focus-action" type="button" data-action="focus">
+                  <svg viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg>
+                  <span>이 그룹으로 집중</span>
+                </button>
+                <button class="room-action" type="button" data-action="room">방 전체 보기</button>
+              </div>
+            </div>
+          </section>
+            </div>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function findCard(totalPages){
+    return `
+      <article class="card-shell find-shell" data-find="true" data-index="${totalPages - 1}" role="group" aria-roledescription="슬라이드" aria-label="더 볼 그룹이 없어요, 그룹 찾기, ${totalPages}번째 총 ${totalPages}개">
+        <div class="card-reorder-layer">
+          <div class="card-peek-layer">
+            <section class="find-card">
+              <div class="find-inner">
+                <span class="find-mark">${ICON.globe}</span>
+                <strong class="find-title">더 볼 그룹이 없어요</strong>
+                <span class="find-copy">관심 있는 공개 그룹을 찾아<br>새로 들어가 보세요.</span>
+                <button type="button" data-action="find-card">그룹 찾기</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function visibleOrder(){return deckOrder.slice(0,groupCount);}
+  function indicatorAvailableWidth(){
+    const laidOut = dots.getBoundingClientRect().width;
+    if(laidOut > 0)return laidOut;
+    const containerW = document.getElementById("carousel").getBoundingClientRect().width
+      || document.getElementById("phone").getBoundingClientRect().width || 390;
+    return Math.max(0,containerW - INDICATOR_SIDE_GUTTER * 2);
+  }
+  function syncIndicatorMode(totalPages){
+    const required = totalPages * DOT_HIT_W + Math.max(0,totalPages - 1) * DOT_GAP;
+    indicatorUsesDots = required <= indicatorAvailableWidth();
+    dots.style.display = indicatorUsesDots ? "flex" : "none";
+    countPill.style.display = indicatorUsesDots ? "none" : "block";
+    countPill.textContent = `${activeIndex + 1} / ${totalPages}`;
+  }
+  function drawDeck(anchorId=null,focusHandle=false){
+    const totalPages = groupCount + 1;
+    track.innerHTML = visibleOrder().map((id,position)=>groupCard(GROUPS[id],id,totalPages,position,groupCount)).join("") + findCard(totalPages);
+    dots.innerHTML = Array.from({length:totalPages},(_,index)=>
+      `<button class="dot" type="button" data-page="${index}" aria-label="${index + 1}번째 페이지" aria-current="${index === 0}"></button>`
+    ).join("");
+    activeIndex = 0;
+    announcedIndex = -1;
+    track.scrollLeft = 0;
+    syncIndicatorMode(totalPages);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      if(anchorId !== null){
+        const position = visibleOrder().indexOf(anchorId);
+        if(position >= 0){
+          goTo(position,"auto");
+          if(focusHandle)setTimeout(()=>track.querySelector(`.group-shell[data-index="${anchorId}"] .reorder-handle`)?.focus(),30);
+        }
+      }else update();
+    }));
+  }
+  function render(count){
+    groupCount = Math.max(1,Math.min(10,count));
+    drawDeck();
+    document.querySelectorAll(".controls [id^='count']").forEach(button=>button.classList.remove("on"));
+    document.getElementById(`count${groupCount}`)?.classList.add("on");
+  }
+
+  function cards(){return [...track.querySelectorAll(".card-shell")];}
+  function nearestIndex(){
+    const midpoint = track.scrollLeft + track.clientWidth / 2;
+    let nearest = 0;
+    let distance = Infinity;
+    cards().forEach((card,index)=>{
+      const cardMid = card.offsetLeft + card.offsetWidth / 2;
+      const nextDistance = Math.abs(cardMid - midpoint);
+      if(nextDistance < distance){distance = nextDistance;nearest = index;}
+    });
+    return nearest;
+  }
+  function offsetFor(index){
+    const card = cards()[index];
+    return card.offsetLeft + card.offsetWidth / 2 - track.clientWidth / 2;
+  }
+  function goTo(index,behavior="smooth"){
+    const target = Math.max(0,Math.min(cards().length - 1,index));
+    programmatic = true;
+    track.scrollTo({left:offsetFor(target),behavior});
+    clearTimeout(goTo.timer);
+    goTo.timer = setTimeout(()=>{programmatic = false;update();},380);
+  }
+
+  function setFaceState(shell,flipped,moveFocus=false){
+    const front = shell.querySelector(".card-front");
+    const back = shell.querySelector(".card-back");
+    const toggle = shell.querySelector(".front-toggle");
+    if(!front || !back || !toggle)return;
+    shell.classList.toggle("is-flipped",flipped);
+    front.setAttribute("aria-hidden",String(flipped));
+    back.setAttribute("aria-hidden",String(!flipped));
+    toggle.setAttribute("aria-expanded",String(flipped));
+    if(flipped){
+      front.inert = true;
+      back.inert = false;
+      liveRegion.textContent = `${GROUPS[Number(shell.dataset.index)].name} 방 정보가 펼쳐졌어요.`;
+      if(moveFocus)setTimeout(()=>back.querySelector(".turn-back")?.focus(),330);
+    }else{
+      front.inert = false;
+      back.inert = true;
+      if(moveFocus)setTimeout(()=>toggle.focus(),40);
+    }
+    syncTabStops();
+  }
+  function resetFlips(except=null){
+    track.querySelectorAll(".group-shell.is-flipped").forEach(shell=>{
+      if(shell !== except)setFaceState(shell,false,false);
+    });
+  }
+  function flipCard(shell){
+    if(!shell || shell.dataset.find)return;
+    resetFlips(shell);
+    setFaceState(shell,true,true);
+  }
+  function showFront(shell){setFaceState(shell,false,true);}
+
+  function syncTabStops(){
+    cards().forEach((card,index)=>{
+      const isActive = index === activeIndex;
+      card.setAttribute("aria-hidden",String(!isActive));
+      card.querySelectorAll("button").forEach(button=>{
+        const face = button.closest(".card-face");
+        const faceHidden = face?.getAttribute("aria-hidden") === "true";
+        button.tabIndex = isActive && !faceHidden ? 0 : -1;
+      });
+    });
+  }
+
+  // 카드 뒷면은 요약, 이 화면은 공지·챌린지·멤버를 모두 보는 실제 목적지다.
+  const roomView = document.getElementById("roomView");
+  const roomViewBody = document.getElementById("roomViewBody");
+  let roomViewGroupId = null;
+  let roomReturnTarget = null;
+  let routeBackSelf = false;
+
+  function roomMemberMarkup(group){
+    const members = group.members.map((name,index)=>`
+      <div class="room-member${index === 0 ? " me" : ""}">
+        <span class="room-member-avatar" style="--memberHue:${210 + index * 37}">${name === "나" ? "나" : name.slice(0,1)}</span>
+        <strong>${name}</strong>
+        <span>${index === 0 ? "오늘 1시간 36분" : `오늘 ${Math.max(12,78 - index * 9)}분`}</span>
+      </div>`).join("");
+    const full = group.cur >= group.max;
+    return `${members}<button class="room-member-invite" type="button" data-room-action="invite" ${full ? "disabled" : ""}>
+      <span class="room-member-invite-icon" aria-hidden="true">＋</span>
+      <span>${full ? "정원 가득" : "초대"}</span>
+    </button>`;
+  }
+  function roomChallengeMarkup(group){
+    const challenges = challengeRows(group);
+    if(!challenges.length)return `<p class="room-challenge-empty">아직 챌린지가 없어요.</p>`;
+    return `<div class="room-challenge-list">${challenges.map(challenge=>`
+      <article class="room-challenge-card">
+        <div class="room-challenge-head">
+          <span class="room-challenge-icon">${challenge.category === "SCREEN_TIME" ? ICON.phone : ICON.flag}</span>
+          <strong>${challenge.label}</strong>
+          ${group.owner ? `<button class="room-challenge-delete" type="button" data-room-action="challenge-delete" aria-label="${challenge.label} 챌린지 삭제">×</button>` : ""}
+        </div>
+        ${challenge.caption ? `<p class="room-challenge-caption">${challenge.caption}</p>` : ""}
+        ${challenge.progress?.length ? `<div class="room-challenge-progress">${challenge.progress.map(row=>`
+          <div class="${row.me ? "me" : ""}"><span>${row.name}</span><span>${row.value}</span></div>`).join("")}</div>` : `<p class="room-challenge-caption">이 챌린지는 진행률을 표시하지 않아요.</p>`}
+      </article>`).join("")}</div>`;
+  }
+  function roomViewMarkup(group){
+    return `
+      <section class="room-section" aria-labelledby="roomNoticeTitle">
+        <div class="room-section-head"><h3 id="roomNoticeTitle">공지</h3><button type="button" data-room-action="notices">모두 보기</button></div>
+        <div class="room-notice-row"><strong>${group.notice}</strong><span>2일 전</span></div>
+        <div class="room-notice-row"><strong>이번 주 집중 기록을 일요일 밤에 함께 돌아봐요.</strong><span>5일 전</span></div>
+      </section>
+      <section class="room-section" aria-labelledby="roomChallengeTitle">
+        <div class="room-section-head"><h3 id="roomChallengeTitle">챌린지</h3>${group.owner ? `<button type="button" data-room-action="challenge" aria-label="챌린지 만들기">＋</button>` : ""}</div>
+        ${roomChallengeMarkup(group)}
+      </section>
+      <section class="room-section" aria-labelledby="roomMembersTitle">
+        <div class="room-section-head"><h3 id="roomMembersTitle">멤버 ${group.cur}/${group.max}</h3></div>
+        <div class="room-members">${roomMemberMarkup(group)}</div>
+      </section>`;
+  }
+  function roomViewOpen(){return roomView.classList.contains("on");}
+  function openRoomView(id,source){
+    const group = GROUPS[id];
+    if(!group)return;
+    roomViewGroupId = id;
+    roomReturnTarget = source || track.querySelector(`.group-shell[data-index="${id}"] [data-action="room"]`);
+    document.getElementById("roomViewName").textContent = group.name;
+    document.getElementById("roomViewMeta").textContent = `${group.priv ? "비밀방" : "공개방"} · ${group.cur}/${group.max}명`;
+    document.getElementById("roomViewOptions").setAttribute("aria-label",`${group.name} 그룹 설정`);
+    roomViewBody.innerHTML = roomViewMarkup(group);
+    roomViewBody.scrollTop = 0;
+    document.querySelector(".app-header").inert = true;
+    document.getElementById("orderSaveError").inert = true;
+    document.getElementById("cardEmojiSaveError").inert = true;
+    document.getElementById("carousel").inert = true;
+    roomView.inert = false;
+    roomView.setAttribute("aria-hidden","false");
+    roomView.classList.add("on");
+    history.pushState({flipRoomId:id},"",location.href);
+    setTimeout(()=>document.getElementById("roomViewBack").focus({preventScroll:true}),240);
+  }
+  function closeRoomView(fromPop=false){
+    if(!roomViewOpen())return;
+    roomView.classList.remove("on");
+    roomView.setAttribute("aria-hidden","true");
+    roomView.inert = true;
+    document.querySelector(".app-header").inert = false;
+    document.getElementById("orderSaveError").inert = false;
+    document.getElementById("cardEmojiSaveError").inert = false;
+    document.getElementById("carousel").inert = false;
+    const returnTarget = roomReturnTarget;
+    roomViewGroupId = null;
+    setTimeout(()=>returnTarget?.focus({preventScroll:true}),220);
+    if(!fromPop && history.state?.flipRoomId !== undefined){
+      routeBackSelf = true;
+      history.back();
+    }
+  }
+
+  // 역할 기반 그룹 설정: 방장은 관리 도구, 일반 멤버는 개인 설정과 나가기를 본다.
+  const groupOptionsSheet = document.getElementById("groupOptionsSheet");
+  const groupOptionsScrim = document.getElementById("groupOptionsScrim");
+  const groupOptionsList = document.getElementById("groupOptionsList");
+  const confirmDialog = document.getElementById("confirmDialog");
+  const confirmScrim = document.getElementById("confirmScrim");
+  let optionsGroupId = null;
+  let optionsReturnTarget = null;
+
+  function trapModalFocus(container,event){
+    if(event.key !== "Tab")return;
+    const items = [...container.querySelectorAll('button:not([disabled]),[href],input:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+      .filter(element=>element.getClientRects().length);
+    if(!items.length)return;
+    const first = items[0], last = items.at(-1);
+    if(event.shiftKey && document.activeElement === first){last.focus();event.preventDefault();}
+    else if(!event.shiftKey && document.activeElement === last){first.focus();event.preventDefault();}
+  }
+  function optionsOpen(){return groupOptionsSheet.classList.contains("on");}
+  function optionRow(action,title,description,value=""){
+    return `<button class="option-row" type="button" data-option="${action}">
+      <span class="option-copy"><strong>${title}</strong><span>${description}</span></span>
+      ${value ? `<span class="option-value">${value}</span>` : ""}<span class="option-chevron" aria-hidden="true">›</span>
+    </button>`;
+	  }
+	  function optionsMarkup(group){
+      const personalIcon = optionRow("cardEmoji","내 카드 아이콘","이 기기에서 나에게만 보여요",cardEmojiFor(optionsGroupId));
+	    if(group.owner)return `${personalIcon}
+	      ${optionRow("profile","그룹 프로필 설정하기","이름·소개·정원·공개 설정")}
+	      ${optionRow("transfer","방장 넘기기","다른 멤버에게 방장 권한 이전")}
+	      ${optionRow("members","멤버 관리","멤버를 확인하고 내보내기",`${group.cur}/${group.max}`)}
+	      ${optionRow("noticePermission","공지 권한","공지 작성 권한 관리")}
+	      <button class="option-row danger" type="button" data-option="danger"><span class="option-copy"><strong>그룹 나가기</strong><span>방장을 넘긴 뒤 나갈 수 있어요</span></span></button>`;
+	    return `${personalIcon}<button class="option-row danger" type="button" data-option="danger"><span class="option-copy"><strong>그룹 나가기</strong><span>내 기록은 그룹 순위에서 제외돼요</span></span></button>`;
+  }
+  function setOptionsBackgroundInert(value){
+    document.querySelectorAll(".caption,.controls").forEach(element=>{element.inert = value;});
+    const behind = roomViewOpen()
+      ? [roomView,document.getElementById("globalNav"),document.getElementById("sectionNav")]
+      : [document.querySelector(".app-header"),document.getElementById("orderSaveError"),document.getElementById("cardEmojiSaveError"),document.getElementById("carousel"),document.getElementById("globalNav"),document.getElementById("sectionNav")];
+    behind.forEach(element=>{
+      if(!element)return;
+      if(value)element.inert = true;
+      else if(element === roomView)element.inert = false;
+      else element.inert = element.getAttribute("aria-hidden") === "true";
+    });
+  }
+  function openGroupOptions(id,source){
+    const group = GROUPS[id];
+    if(!group)return;
+    optionsGroupId = id;
+    optionsReturnTarget = source;
+    document.getElementById("groupOptionsMeta").textContent = group.owner ? "개인 설정 · 그룹 관리" : "개인 설정";
+    groupOptionsList.innerHTML = optionsMarkup(group);
+    setOptionsBackgroundInert(true);
+    groupOptionsSheet.inert = false;
+    groupOptionsSheet.setAttribute("aria-hidden","false");
+    groupOptionsScrim.classList.add("on");
+    groupOptionsSheet.classList.add("on");
+    history.pushState({...history.state,flipOptionsId:id},"",location.href);
+    setTimeout(()=>document.getElementById("groupOptionsClose").focus({preventScroll:true}),180);
+  }
+  function hideGroupOptions(restoreBackground=true){
+    groupOptionsScrim.classList.remove("on");
+    groupOptionsSheet.classList.remove("on");
+    groupOptionsSheet.setAttribute("aria-hidden","true");
+    groupOptionsSheet.inert = true;
+    if(restoreBackground)setOptionsBackgroundInert(false);
+  }
+  function closeGroupOptions(fromPop=false){
+    if(!optionsOpen())return;
+    hideGroupOptions(true);
+    const target = optionsReturnTarget;
+    setTimeout(()=>target?.focus({preventScroll:true}),180);
+    if(!fromPop && history.state?.flipOptionsId !== undefined){
+      routeBackSelf = true;
+      history.back();
+    }
+  }
+
+  // 방장 전용 그룹 프로필 편집 — 개인 카드 아이콘과 분리된 공용 정보만 다룬다.
+  const profileEditSheet = document.getElementById("profileEditSheet");
+  const profileEditForm = document.getElementById("profileEditForm");
+  const profilePreviewEmoji = document.getElementById("profilePreviewEmoji");
+  const profilePreviewName = document.getElementById("profilePreviewName");
+  const profileName = document.getElementById("profileName");
+  const profileDescription = document.getElementById("profileDescription");
+  const profileMembers = document.getElementById("profileMembers");
+  const profileMembersMinus = document.getElementById("profileMembersMinus");
+  const profileMembersPlus = document.getElementById("profileMembersPlus");
+  const profilePrivacyPicker = document.getElementById("profilePrivacyPicker");
+  const profileSave = document.getElementById("profileSave");
+  const profileStatus = document.getElementById("profileStatus");
+  let profileGroupId = null;
+  let profileBase = null;
+  let profileDraft = null;
+  let profileSaving = false;
+
+  function profileOpen(){return profileEditSheet.classList.contains("on");}
+  function profileSnapshot(group){
+    return {
+      name:group.name,description:group.desc || "",
+      maxMembers:group.max,isPrivate:Boolean(group.priv)
+    };
+  }
+  function sameProfile(a,b){
+    return Boolean(a && b) && a.name.trim() === b.name.trim()
+      && a.description.trim() === b.description.trim() && a.maxMembers === b.maxMembers
+      && a.isPrivate === b.isPrivate;
+  }
+  function syncProfileForm(){
+    if(profileGroupId === null || !profileDraft)return;
+    const group = GROUPS[profileGroupId];
+    const localEmoji = cardEmojiFor(profileGroupId);
+    profilePreviewEmoji.textContent = localEmoji;
+    profilePreviewEmoji.setAttribute("aria-label",`${EMOJI_LABELS[localEmoji]} 내 카드 아이콘`);
+    profilePreviewName.textContent = profileDraft.name.trim() || group.name;
+    profileMembers.textContent = `${profileDraft.maxMembers}명`;
+    profileMembersMinus.disabled = profileSaving || profileDraft.maxMembers <= group.cur;
+    profileMembersPlus.disabled = profileSaving || profileDraft.maxMembers >= 10;
+    document.getElementById("profileMembersHelp").textContent = `현재 멤버 ${group.cur}명 · 이보다 적게 정할 수 없어요.`;
+    profilePrivacyPicker.querySelectorAll("[data-profile-private]").forEach(button=>
+      button.setAttribute("aria-pressed",String((button.dataset.profilePrivate === "true") === profileDraft.isPrivate))
+    );
+    profileSave.disabled = profileSaving || !profileDraft.name.trim() || sameProfile(profileBase,profileDraft);
+    profileSave.textContent = profileSaving ? "저장 중…" : "변경사항 저장";
+  }
+  function openProfileEdit(){
+    const group = GROUPS[optionsGroupId];
+    if(!group?.owner)return;
+    profileGroupId = optionsGroupId;
+    profileBase = profileSnapshot(group);
+    profileDraft = {...profileBase};
+    profileSaving = false;
+    profileName.value = profileDraft.name;
+    profileDescription.value = profileDraft.description;
+    profileStatus.textContent = "";
+    syncProfileForm();
+    groupOptionsSheet.inert = true;
+    profileEditSheet.inert = false;
+    profileEditSheet.setAttribute("aria-hidden","false");
+    profileEditSheet.classList.add("on");
+    history.pushState({...history.state,flipProfileId:profileGroupId},"",location.href);
+    setTimeout(()=>document.getElementById("profileEditBack").focus({preventScroll:true}),180);
+  }
+  function closeProfileEdit(fromPop=false){
+    if(!profileOpen())return;
+    profileEditSheet.classList.remove("on");
+    profileEditSheet.setAttribute("aria-hidden","true");
+    profileEditSheet.inert = true;
+    groupOptionsSheet.inert = false;
+    profileGroupId = null;
+    profileBase = null;
+    profileDraft = null;
+    setTimeout(()=>groupOptionsList.querySelector('[data-option="profile"]')?.focus({preventScroll:true}),180);
+    if(!fromPop && history.state?.flipProfileId !== undefined){
+      routeBackSelf = true;
+      history.back();
+    }
+  }
+
+  profileName.addEventListener("input",()=>{
+    if(!profileDraft)return;
+    profileDraft.name = profileName.value;
+    profileStatus.textContent = "";
+    syncProfileForm();
+  });
+  profileDescription.addEventListener("input",()=>{
+    if(!profileDraft)return;
+    profileDraft.description = profileDescription.value;
+    profileStatus.textContent = "";
+    syncProfileForm();
+  });
+  profileMembersMinus.addEventListener("click",()=>{
+    if(!profileDraft)return;
+    profileDraft.maxMembers = Math.max(GROUPS[profileGroupId].cur,profileDraft.maxMembers - 1);
+    profileStatus.textContent = "";syncProfileForm();
+  });
+  profileMembersPlus.addEventListener("click",()=>{
+    if(!profileDraft)return;
+    profileDraft.maxMembers = Math.min(10,profileDraft.maxMembers + 1);
+    profileStatus.textContent = "";syncProfileForm();
+  });
+  profilePrivacyPicker.addEventListener("click",event=>{
+    const button = event.target.closest("[data-profile-private]");
+    if(!button || !profileDraft || profileSaving)return;
+    profileDraft.isPrivate = button.dataset.profilePrivate === "true";
+    profileStatus.textContent = "";syncProfileForm();
+  });
+  profileEditForm.addEventListener("submit",event=>{
+    event.preventDefault();
+    if(profileSave.disabled || profileGroupId === null)return;
+    profileSaving = true;profileStatus.textContent = "";syncProfileForm();
+    const savingGroupId = profileGroupId;
+    const saved = {...profileDraft,name:profileDraft.name.trim(),description:profileDraft.description.trim()};
+    setTimeout(()=>{
+      if(!profileOpen() || profileGroupId !== savingGroupId)return;
+      const group = GROUPS[savingGroupId];
+      group.name = saved.name;
+      group.desc = saved.description;
+      group.max = saved.maxMembers;
+      group.priv = saved.isPrivate;
+      profileBase = {...saved};
+      profileDraft = {...saved};
+      profileName.value = saved.name;
+      profileDescription.value = saved.description;
+      profileSaving = false;
+      groupOptionsList.innerHTML = optionsMarkup(group);
+      document.getElementById("groupOptionsTitle").textContent = "그룹 설정";
+      if(roomViewOpen() && roomViewGroupId === savingGroupId){
+        document.getElementById("roomViewName").textContent = group.name;
+        document.getElementById("roomViewMeta").textContent = `${group.priv ? "비밀방" : "공개방"} · ${group.cur}/${group.max}명`;
+        roomViewBody.innerHTML = roomViewMarkup(group);
+      }
+      drawDeck(savingGroupId);
+      setOptionsBackgroundInert(true);
+      groupOptionsSheet.inert = true;
+      profileStatus.textContent = "그룹 프로필을 저장했어요.";
+      liveRegion.textContent = `${group.name} 그룹 프로필을 변경했습니다.`;
+      flash("그룹 프로필을 변경했어요.");
+      syncProfileForm();
+    },520);
+  });
+  document.getElementById("profileEditBack").addEventListener("click",()=>closeProfileEdit());
+
+  // OWNER·MEMBER 공통 개인 설정 — 서버 그룹 데이터는 건드리지 않고 이 계정·기기에만 저장한다.
+  const cardEmojiEditSheet = document.getElementById("cardEmojiEditSheet");
+  const cardEmojiEditForm = document.getElementById("cardEmojiEditForm");
+  const cardEmojiPicker = document.getElementById("cardEmojiPicker");
+  const cardEmojiPreview = document.getElementById("cardEmojiPreview");
+  const cardEmojiPreviewName = document.getElementById("cardEmojiPreviewName");
+  const cardEmojiSave = document.getElementById("cardEmojiSave");
+  const cardEmojiStatus = document.getElementById("cardEmojiStatus");
+  let cardEmojiGroupId = null;
+  let cardEmojiBase = "🎯";
+  let cardEmojiDraft = "🎯";
+
+  function cardEmojiEditorOpen(){return cardEmojiEditSheet.classList.contains("on");}
+  function renderCardEmojiPicker(){
+    cardEmojiPicker.innerHTML = EMOJI_CHOICES.map(emoji=>
+      `<button class="emoji-choice" type="button" role="radio" data-card-emoji="${emoji}" aria-label="${EMOJI_LABELS[emoji]}" aria-checked="${emoji === cardEmojiDraft}" tabindex="${emoji === cardEmojiDraft ? 0 : -1}">${emoji}</button>`
+    ).join("");
+  }
+  function syncCardEmojiEditor(){
+    if(cardEmojiGroupId === null)return;
+    cardEmojiPreview.textContent = cardEmojiDraft;
+    cardEmojiPreview.setAttribute("aria-label",`${EMOJI_LABELS[cardEmojiDraft]} 내 카드 아이콘 미리보기`);
+    cardEmojiPreviewName.textContent = GROUPS[cardEmojiGroupId].name;
+    cardEmojiSave.disabled = cardEmojiDraft === cardEmojiBase;
+  }
+  function openCardEmojiEditor(){
+    if(optionsGroupId === null || !GROUPS[optionsGroupId])return;
+    cardEmojiGroupId = optionsGroupId;
+    cardEmojiBase = cardEmojiFor(cardEmojiGroupId);
+    cardEmojiDraft = cardEmojiBase;
+    cardEmojiStatus.textContent = "";
+    renderCardEmojiPicker();
+    syncCardEmojiEditor();
+    groupOptionsSheet.inert = true;
+    cardEmojiEditSheet.inert = false;
+    cardEmojiEditSheet.setAttribute("aria-hidden","false");
+    cardEmojiEditSheet.classList.add("on");
+    history.pushState({...history.state,flipCardEmojiId:cardEmojiGroupId},"",location.href);
+    setTimeout(()=>document.getElementById("cardEmojiEditBack").focus({preventScroll:true}),180);
+  }
+  function closeCardEmojiEditor(fromPop=false){
+    if(!cardEmojiEditorOpen())return;
+    cardEmojiEditSheet.classList.remove("on");
+    cardEmojiEditSheet.setAttribute("aria-hidden","true");
+    cardEmojiEditSheet.inert = true;
+    groupOptionsSheet.inert = false;
+    cardEmojiGroupId = null;
+    setTimeout(()=>groupOptionsList.querySelector('[data-option="cardEmoji"]')?.focus({preventScroll:true}),180);
+    if(!fromPop && history.state?.flipCardEmojiId !== undefined){
+      routeBackSelf = true;
+      history.back();
+    }
+  }
+  cardEmojiPicker.addEventListener("click",event=>{
+    const button = event.target.closest("[data-card-emoji]");
+    if(!button)return;
+    cardEmojiDraft = normalizedEmoji(button.dataset.cardEmoji);
+    cardEmojiPicker.querySelectorAll("[data-card-emoji]").forEach(choice=>{
+      choice.setAttribute("aria-checked",String(choice === button));
+      choice.tabIndex = choice === button ? 0 : -1;
+    });
+    cardEmojiStatus.textContent = "";
+    syncCardEmojiEditor();
+  });
+  cardEmojiPicker.addEventListener("keydown",event=>{
+    if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key))return;
+    const choices = [...cardEmojiPicker.querySelectorAll("[data-card-emoji]")];
+    const current = choices.indexOf(event.target.closest("[data-card-emoji]"));
+    if(current < 0)return;
+    event.preventDefault();
+    const step = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const next = choices[(current + step + choices.length) % choices.length];
+    next.focus();next.click();
+  });
+  cardEmojiEditForm.addEventListener("submit",event=>{
+    event.preventDefault();
+    if(cardEmojiSave.disabled || cardEmojiGroupId === null)return;
+    const savingGroupId = cardEmojiGroupId;
+    const saved = persistCardEmoji(savingGroupId,cardEmojiDraft);
+    drawDeck(savingGroupId);
+    groupOptionsList.innerHTML = optionsMarkup(GROUPS[savingGroupId]);
+    if(!saved){
+      cardEmojiStatus.textContent = "내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.";
+      return;
+    }
+    cardEmojiBase = cardEmojiDraft;
+    closeCardEmojiEditor();
+  });
+  document.getElementById("cardEmojiEditBack").addEventListener("click",()=>closeCardEmojiEditor());
+
+	  function confirmOpen(){
+	    const group = GROUPS[optionsGroupId];
+	    hideGroupOptions(false);
+	    const label = "그룹 나가기";
+	    document.getElementById("confirmTitle").textContent = `${label}할까요?`;
+	    document.getElementById("confirmDescription").textContent = group.owner
+	      ? "방장은 그룹을 이어갈 멤버에게 방장을 넘긴 뒤 나갈 수 있어요."
+	      : "내 집중 기록이 그룹 순위에서 제외되고, 다시 참여하려면 초대가 필요할 수 있어요.";
+    document.getElementById("confirmDanger").textContent = label;
+    confirmDialog.inert = false;
+    confirmDialog.setAttribute("aria-hidden","false");
+    confirmScrim.classList.add("on");
+    confirmDialog.classList.add("on");
+    setTimeout(()=>document.getElementById("confirmCancel").focus({preventScroll:true}),40);
+  }
+  function closeConfirm(fromPop=false,completed=false){
+    if(!confirmDialog.classList.contains("on"))return;
+    const group = GROUPS[optionsGroupId];
+    confirmScrim.classList.remove("on");
+    confirmDialog.classList.remove("on");
+    confirmDialog.setAttribute("aria-hidden","true");
+    confirmDialog.inert = true;
+    setOptionsBackgroundInert(false);
+	    if(completed)flash(group.owner ? "방장 넘기기 화면을 열었어요." : "그룹 나가기 요청을 확인했어요.");
+    else setTimeout(()=>optionsReturnTarget?.focus({preventScroll:true}),80);
+    if(!fromPop && history.state?.flipOptionsId !== undefined){
+      routeBackSelf = true;
+      history.back();
+    }
+  }
+
+  function update(){
+    const list = cards();
+    if(!list.length)return;
+    const midpoint = track.scrollLeft + track.clientWidth / 2;
+    let nearest = 0;
+    let best = Infinity;
+    list.forEach((card,index)=>{
+      const center = card.offsetLeft + card.offsetWidth / 2;
+      const distance = Math.min(1,Math.abs(center - midpoint) / card.offsetWidth);
+      const peekLayer = card.querySelector(".card-peek-layer");
+      peekLayer.style.setProperty("--peek-scale",(1 - distance * .075).toFixed(3));
+      peekLayer.style.opacity = (1 - distance * .38).toFixed(3);
+      if(Math.abs(center - midpoint) < best){best = Math.abs(center - midpoint);nearest = index;}
+    });
+    if(nearest !== activeIndex){
+      activeIndex = nearest;
+      resetFlips();
+    }
+    const total = list.length;
+    if(indicatorUsesDots){
+      [...dots.children].forEach((dot,index)=>dot.setAttribute("aria-current",String(index === activeIndex)));
+    }else{
+      countPill.textContent = `${activeIndex + 1} / ${total}`;
+    }
+    syncTabStops();
+    if(announcedIndex !== activeIndex && !drag){
+      announcedIndex = activeIndex;
+      const card = list[activeIndex];
+      liveRegion.textContent = card.dataset.find
+        ? `마지막 페이지, 그룹 찾기, ${activeIndex + 1}/${total}`
+        : `${GROUPS[Number(card.dataset.index)].name}, ${activeIndex + 1}/${total}`;
+    }
+  }
+
+  // 카드 순서 변경은 우상단 전용 핸들의 직접 드래그만 받는다.
+  let reorderDrag = null;
+  function moveDeckItem(id,targetPosition,focusHandle=false){
+    const from = visibleOrder().indexOf(id);
+    const to = Math.max(0,Math.min(groupCount - 1,targetPosition));
+    if(from < 0 || from === to)return false;
+    const absoluteFrom = deckOrder.indexOf(id);
+    deckOrder.splice(absoluteFrom,1);
+    deckOrder.splice(to,0,id);
+    persistDeckOrder();
+    drawDeck(id,focusHandle);
+    const announcement = `${GROUPS[id].name} 카드를 ${to + 1}번째로 이동했습니다.`;
+    liveRegion.textContent = announcement;
+    setTimeout(()=>{liveRegion.textContent = announcement;},430);
+    flash(`${GROUPS[id].name} · ${to + 1}번째로 이동`);
+    return true;
+  }
+  track.addEventListener("pointerdown",event=>{
+    const handle = event.target.closest(".reorder-handle");
+    if(!handle || (event.button && event.button !== 0))return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const card = handle.closest(".group-shell");
+    const id = Number(card.dataset.index);
+    const from = visibleOrder().indexOf(id);
+    reorderDrag = {
+      pointerId:event.pointerId,handle,card,id,from,target:from,
+      startX:event.clientX,startScroll:track.scrollLeft,moved:0
+    };
+    resetFlips();
+    track.classList.add("sorting");
+    card.classList.add("is-lifting");
+    handle.setPointerCapture(event.pointerId);
+    liveRegion.textContent = `${GROUPS[id].name} 카드, 현재 ${from + 1}번째. 좌우로 끌어 순서를 바꿉니다.`;
+  },true);
+  track.addEventListener("pointermove",event=>{
+    if(!reorderDrag || event.pointerId !== reorderDrag.pointerId)return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const deltaX = event.clientX - reorderDrag.startX;
+    reorderDrag.moved = deltaX;
+    const travel = deltaX + (track.scrollLeft - reorderDrag.startScroll);
+    const step = reorderDrag.card.offsetWidth + 12;
+    // 우상단 handle에서 오른쪽 화면 끝까지의 거리는 카드 한 장보다 짧다.
+    // 시각 이동은 실제 delta를 유지하고, 드롭 슬롯만 viewport 기준의 짧은 단위로 판정한다.
+    const dropUnit = Math.min(step,Math.max(64,track.clientWidth * .22));
+    reorderDrag.target = Math.max(0,Math.min(groupCount - 1,reorderDrag.from + Math.round(travel / dropUnit)));
+    reorderDrag.card.querySelector(".card-reorder-layer").style.setProperty("--sort-x",`${deltaX}px`);
+    track.querySelectorAll(".sort-target").forEach(card=>card.classList.remove("sort-target"));
+    const targetId = visibleOrder()[reorderDrag.target];
+    if(targetId !== reorderDrag.id)track.querySelector(`.group-shell[data-index="${targetId}"]`)?.classList.add("sort-target");
+  },true);
+  function endReorder(event,commit=true){
+    if(!reorderDrag || event.pointerId !== reorderDrag.pointerId)return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const snapshot = reorderDrag;
+    reorderDrag = null;
+    track.classList.remove("sorting");
+    snapshot.card.classList.remove("is-lifting");
+    snapshot.card.querySelector(".card-reorder-layer").style.setProperty("--sort-x","0px");
+    track.querySelectorAll(".sort-target").forEach(card=>card.classList.remove("sort-target"));
+    const wasDrag = Math.abs(snapshot.moved) > 7;
+    if(commit && wasDrag)moveDeckItem(snapshot.id,snapshot.target,false);
+  }
+  track.addEventListener("pointerup",event=>endReorder(event,true),true);
+  track.addEventListener("pointercancel",event=>endReorder(event,false),true);
+  track.addEventListener("click",event=>{
+    const handle = event.target.closest(".reorder-handle");
+    if(!handle)return;
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  track.addEventListener("keydown",event=>{
+    const handle = event.target.closest(".reorder-handle");
+    if(!handle || !["ArrowLeft","ArrowRight"].includes(event.key))return;
+    event.preventDefault();
+    event.stopPropagation();
+    const id = Number(handle.closest(".group-shell").dataset.index);
+    moveDeckItem(id,visibleOrder().indexOf(id) + (event.key === "ArrowLeft" ? -1 : 1),true);
+  });
+
+  track.addEventListener("pointerdown",event=>{
+    if(event.button && event.button !== 0)return;
+    if(event.target.closest(".reorder-handle") || reorderDrag)return;
+    const backButton = event.target.closest(".card-back button");
+    const findButton = event.target.closest(".find-card button");
+    if(backButton || findButton)return;
+    const card = event.target.closest(".card-shell");
+    if(!card)return;
+    drag = {
+      pointerId:event.pointerId,startX:event.clientX,lastX:event.clientX,startY:event.clientY,
+      startScroll:track.scrollLeft,startIndex:nearestIndex(),moved:0,velocity:0,card,
+      onFront:Boolean(event.target.closest(".card-front"))
+    };
+    track.classList.add("dragging");
+    track.setPointerCapture(event.pointerId);
+  });
+  track.addEventListener("pointermove",event=>{
+    if(!drag)return;
+    const deltaX = event.clientX - drag.startX;
+    drag.moved = deltaX;
+    drag.velocity = event.clientX - drag.lastX;
+    drag.lastX = event.clientX;
+    if(Math.abs(deltaX) > 6)resetFlips();
+    track.scrollLeft = drag.startScroll - deltaX;
+  });
+  function endDrag(){
+    if(!drag)return;
+    const snapshot = drag;
+    drag = null;
+    track.classList.remove("dragging");
+    const width = cards()[0].offsetWidth;
+    const threshold = width * .17;
+    const flick = Math.abs(snapshot.velocity) > 6;
+    let target = nearestIndex();
+    if(snapshot.moved <= -threshold || (flick && snapshot.velocity < 0))target = snapshot.startIndex + 1;
+    if(snapshot.moved >= threshold || (flick && snapshot.velocity > 0))target = snapshot.startIndex - 1;
+    const tapped = Math.abs(snapshot.moved) <= 6;
+    const tappedPosition = cards().indexOf(snapshot.card);
+    goTo(tapped ? tappedPosition : target);
+    if(tapped){
+      if(snapshot.card.dataset.find){
+        setTimeout(openSheet,180);
+      }else if(snapshot.onFront){
+        const wait = tappedPosition === snapshot.startIndex ? 20 : 350;
+        setTimeout(()=>flipCard(snapshot.card),wait);
+      }
+    }
+  }
+  track.addEventListener("pointerup",endDrag);
+  track.addEventListener("pointercancel",endDrag);
+
+  let scrollTimer;
+  track.addEventListener("scroll",()=>{
+    requestAnimationFrame(update);
+    if(drag || reorderDrag || programmatic)return;
+    resetFlips();
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(()=>goTo(nearestIndex()),110);
+  },{passive:true});
+
+  track.addEventListener("click",event=>{
+    const actionButton = event.target.closest("[data-action]");
+    if(!actionButton)return;
+    const action = actionButton.dataset.action;
+    const shell = actionButton.closest(".card-shell");
+    if(action === "flip"){
+      event.preventDefault();
+      if(event.detail === 0)flipCard(shell);
+      return;
+    }
+    if(action === "front"){showFront(shell);return;}
+    if(action === "find-card"){openSheet();return;}
+    if(action === "settings"){openGroupOptions(Number(shell.dataset.index),actionButton);return;}
+    if(action === "invite"){flash("초대 링크 만들기");return;}
+    if(action === "room"){openRoomView(Number(shell.dataset.index),actionButton);return;}
+    if(action === "focus"){
+      const label = actionButton.querySelector("span");
+      actionButton.disabled = true;
+      actionButton.querySelector("svg")?.remove();
+      actionButton.insertAdjacentHTML("afterbegin",`<i class="spinner"></i>`);
+      label.textContent = "집중 준비 중…";
+      setTimeout(()=>{
+        flash(`${GROUPS[Number(shell.dataset.index)].name}으로 집중 시작`);
+        actionButton.disabled = false;
+        actionButton.innerHTML = `<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg><span>이 그룹으로 집중</span>`;
+      },850);
+    }
+  });
+
+  document.getElementById("roomViewBack").addEventListener("click",()=>closeRoomView());
+  document.getElementById("roomViewOptions").addEventListener("click",event=>{
+    openGroupOptions(roomViewGroupId,event.currentTarget);
+  });
+  roomViewBody.addEventListener("click",event=>{
+    const action = event.target.closest("[data-room-action]")?.dataset.roomAction;
+    if(!action)return;
+	    const messages = {
+	      invite:"초대 링크를 복사했어요.",
+	      notices:"공지 전체 목록을 열었어요.",
+	      challenge:"챌린지 만들기를 열었어요.",
+	      "challenge-delete":"챌린지 삭제 확인을 열었어요.",
+	      members:"멤버 관리 화면을 열었어요."
+	    };
+    flash(messages[action]);
+  });
+  document.getElementById("groupOptionsClose").addEventListener("click",()=>closeGroupOptions());
+  groupOptionsScrim.addEventListener("click",()=>closeGroupOptions());
+  groupOptionsList.addEventListener("click",event=>{
+    const row = event.target.closest("[data-option]");
+    if(!row)return;
+    const action = row.dataset.option;
+    if(action === "danger"){confirmOpen();return;}
+	    if(action === "cardEmoji"){openCardEmojiEditor();return;}
+	    if(action === "profile"){openProfileEdit();return;}
+	    const messages = {
+	      transfer:"방장 넘기기 화면을 열었어요.",
+	      members:"멤버 관리 화면을 열었어요.",
+	      noticePermission:"공지 권한 화면을 열었어요."
+	    };
+    flash(messages[action]);
+  });
+  document.getElementById("confirmCancel").addEventListener("click",()=>closeConfirm());
+  document.getElementById("confirmDanger").addEventListener("click",()=>closeConfirm(false,true));
+  confirmScrim.addEventListener("click",()=>closeConfirm());
+
+  dots.addEventListener("click",event=>{
+    const button = event.target.closest("[data-page]");
+    if(!button)return;
+    resetFlips();
+    goTo(Number(button.dataset.page));
+  });
+
+  window.addEventListener("keydown",event=>{
+    if(cardEmojiEditorOpen()){
+      trapModalFocus(cardEmojiEditSheet,event);
+      if(event.key === "Escape"){closeCardEmojiEditor();event.preventDefault();}
+      return;
+    }
+    if(profileOpen()){
+      trapModalFocus(profileEditSheet,event);
+      if(event.key === "Escape"){closeProfileEdit();event.preventDefault();}
+      return;
+    }
+    if(createSheet.classList.contains("on")){
+      trapModalFocus(createSheet,event);
+      if(event.key === "Escape"){closeCreate();event.preventDefault();}
+      return;
+    }
+    if(confirmDialog.classList.contains("on")){
+      trapModalFocus(confirmDialog,event);
+      if(event.key === "Escape"){closeConfirm();event.preventDefault();}
+      return;
+    }
+    if(optionsOpen()){
+      trapModalFocus(groupOptionsSheet,event);
+      if(event.key === "Escape"){closeGroupOptions();event.preventDefault();}
+      return;
+    }
+    if(roomViewOpen()){
+      if(event.key === "Escape"){closeRoomView();event.preventDefault();}
+      return;
+    }
+    if(document.getElementById("sheet").classList.contains("on")){
+      if(event.key === "Escape")closeSheet();
+      return;
+    }
+    if(event.target.closest("input,textarea"))return;
+    if(event.key === "ArrowRight"){resetFlips();goTo(activeIndex + 1);event.preventDefault();}
+    if(event.key === "ArrowLeft"){resetFlips();goTo(activeIndex - 1);event.preventDefault();}
+    if(event.key === "Escape"){
+      const flipped = track.querySelector(".group-shell.is-flipped");
+      if(flipped)showFront(flipped);
+      else if(document.getElementById("phone").classList.contains("group-context"))exitGroupContext();
+    }
+  });
+
+  window.addEventListener("popstate",()=>{
+    if(routeBackSelf){routeBackSelf = false;return;}
+    if(cardEmojiEditorOpen()){closeCardEmojiEditor(true);return;}
+    if(profileOpen()){closeProfileEdit(true);return;}
+    if(confirmDialog.classList.contains("on")){closeConfirm(true);return;}
+    if(optionsOpen()){closeGroupOptions(true);return;}
+    if(roomViewOpen())closeRoomView(true);
+  });
+
+  const createSheet = document.getElementById("createSheet");
+  const createScrim = document.getElementById("createScrim");
+  const createName = document.getElementById("createName");
+  const createError = document.getElementById("createError");
+  const emojiPicker = document.getElementById("emojiPicker");
+  const privacyPicker = document.getElementById("privacyPicker");
+  let selectedEmoji = "🎯";
+  let selectedPrivate = false;
+
+  function renderEmojiPicker(){
+    emojiPicker.innerHTML = EMOJI_CHOICES.map(emoji=>
+      `<button class="emoji-choice" type="button" role="radio" data-emoji="${emoji}" aria-label="${EMOJI_LABELS[emoji]}" aria-checked="${emoji === selectedEmoji}" tabindex="${emoji === selectedEmoji ? 0 : -1}">${emoji}</button>`
+    ).join("");
+  }
+  function setCreateBackgroundInert(value){
+    document.querySelectorAll(".caption,.controls").forEach(element=>{element.inert = value;});
+    document.querySelector(".app-header").inert = value;
+    document.getElementById("orderSaveError").inert = value;
+    document.getElementById("cardEmojiSaveError").inert = value;
+    document.getElementById("carousel").inert = value;
+    globalNav.inert = value || globalNav.getAttribute("aria-hidden") === "true";
+    sectionNav.inert = value || sectionNav.getAttribute("aria-hidden") === "true";
+  }
+  function openCreate(){
+    if(groupCount >= 10){flash("그룹은 최대 10개까지 만들 수 있어요.");return;}
+    selectedEmoji = "🎯";
+    selectedPrivate = false;
+    createName.value = "";
+    createError.textContent = "";
+    renderEmojiPicker();
+    privacyPicker.querySelectorAll("[data-private]").forEach(button=>
+      button.setAttribute("aria-pressed",String(button.dataset.private === "false"))
+    );
+    setCreateBackgroundInert(true);
+    createSheet.inert = false;
+    createSheet.setAttribute("aria-hidden","false");
+    createScrim.classList.add("on");
+    createSheet.classList.add("on");
+    setTimeout(()=>emojiPicker.querySelector('[aria-checked="true"]')?.focus({preventScroll:true}),180);
+  }
+  function closeCreate(){
+    if(!createSheet.classList.contains("on"))return;
+    createScrim.classList.remove("on");
+    createSheet.classList.remove("on");
+    createSheet.setAttribute("aria-hidden","true");
+    createSheet.inert = true;
+    setCreateBackgroundInert(false);
+    setTimeout(()=>document.getElementById("createButton").focus({preventScroll:true}),180);
+  }
+  emojiPicker.addEventListener("click",event=>{
+    const button = event.target.closest("[data-emoji]");
+    if(!button)return;
+    selectedEmoji = button.dataset.emoji;
+    emojiPicker.querySelectorAll("[data-emoji]").forEach(choice=>{
+      choice.setAttribute("aria-checked",String(choice === button));
+      choice.tabIndex = choice === button ? 0 : -1;
+    });
+  });
+  emojiPicker.addEventListener("keydown",event=>{
+    if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key))return;
+    const choices = [...emojiPicker.querySelectorAll("[data-emoji]")];
+    const current = choices.indexOf(event.target.closest("[data-emoji]"));
+    if(current < 0)return;
+    event.preventDefault();
+    const step = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const next = choices[(current + step + choices.length) % choices.length];
+    next.focus();next.click();
+  });
+  privacyPicker.addEventListener("click",event=>{
+    const button = event.target.closest("[data-private]");
+    if(!button)return;
+    selectedPrivate = button.dataset.private === "true";
+    privacyPicker.querySelectorAll("[data-private]").forEach(choice=>
+      choice.setAttribute("aria-pressed",String(choice === button))
+    );
+  });
+  document.getElementById("createForm").addEventListener("submit",event=>{
+    event.preventDefault();
+    const name = createName.value.trim().replace(/[<>]/g,"");
+    if(!name){
+      createError.textContent = "그룹 이름을 입력해 주세요.";
+      createName.focus();
+      return;
+    }
+	    const id = GROUPS.length;
+	    const stableId = `local-group-${Date.now()}-${id}`;
+	    GROUPS.push({
+		      id:stableId,name,cur:1,max:10,owner:true,priv:selectedPrivate,
+		      desc:"같은 목표를 가진 멤버와 집중을 시작해요.",
+		      challenges:[],
+		      notice:"그룹이 만들어졌어요. 첫 공지를 남겨보세요.",members:["나"],
+		      detailMembers:[{userId:DEMO_USER_ID,nickname:"나"}]
+	    });
+    const emojiStored = persistCardEmoji(id,selectedEmoji);
+    deckOrder.splice(groupCount,0,id);
+    persistDeckOrder();
+    groupCount += 1;
+    closeCreate();
+    drawDeck(id);
+    document.querySelectorAll(".controls [id^='count']").forEach(button=>button.classList.remove("on"));
+    if(!emojiStored)liveRegion.textContent = `${name} 그룹을 만들었지만 내 카드 아이콘은 이 기기에 저장하지 못했습니다.`;
+    flash(`${name} 그룹을 만들었어요.`);
+  });
+  document.getElementById("createButton").addEventListener("click",openCreate);
+  document.getElementById("createClose").addEventListener("click",closeCreate);
+  createScrim.addEventListener("click",closeCreate);
+  createName.addEventListener("input",()=>{createError.textContent = "";});
+
+  const sheet = document.getElementById("sheet");
+  const scrim = document.getElementById("scrim");
+  const query = document.getElementById("query");
+  const results = document.getElementById("results");
+  const resultLabel = document.getElementById("resultLabel");
+  function renderResults(){
+    const term = query.value.trim();
+    const list = term ? PUBLIC_GROUPS.filter(group=>group.name.includes(term)) : PUBLIC_GROUPS;
+    resultLabel.textContent = term ? "검색 결과" : "공개 그룹";
+    results.innerHTML = list.length ? list.map(group=>`
+      <div class="result-row">
+        <span class="result-name">${group.name}</span>
+        <span class="result-count">${group.cur}/${group.max}</span>
+        ${group.joined ? `<span class="joined">참여 중</span>` : `<button class="join-button" type="button">참여</button>`}
+      </div>`).join("") : `<div class="empty-result">‘${term}’ 검색 결과가 없어요.</div>`;
+  }
+  function openSheet(){
+    renderResults();
+    sheet.inert = false;
+    scrim.classList.add("on");
+    sheet.classList.add("on");
+    sheet.setAttribute("aria-hidden","false");
+    document.getElementById("sheetClose").focus({preventScroll:true});
+    document.getElementById("phone").scrollTop = 0;
+  }
+  function closeSheet(){
+    scrim.classList.remove("on");
+    sheet.classList.remove("on");
+    sheet.setAttribute("aria-hidden","true");
+    sheet.inert = true;
+    query.blur();
+    document.getElementById("findButton").focus();
+  }
+  document.getElementById("findButton").addEventListener("click",openSheet);
+  document.getElementById("sheetClose").addEventListener("click",closeSheet);
+  scrim.addEventListener("click",closeSheet);
+  query.addEventListener("input",renderResults);
+  results.addEventListener("click",event=>{
+    if(event.target.closest(".join-button"))flash("그룹 참여 요청을 보냈어요.");
+  });
+
+  const toast = document.getElementById("toast");
+  function flash(message){
+    toast.textContent = message;
+    toast.classList.add("on");
+    clearTimeout(flash.timer);
+    flash.timer = setTimeout(()=>toast.classList.remove("on"),1200);
+  }
+
+  // 글로벌 그룹 탭을 누르면 별도 그룹 경험으로 들어간다. 두 바의 아이콘 의미는 섞지 않는다.
+  const phone = document.getElementById("phone");
+  const globalNav = document.getElementById("globalNav");
+  const sectionNav = document.getElementById("sectionNav");
+  const sectionPanel = document.getElementById("sectionPanel");
+  const carouselTitle = document.getElementById("carouselTitle");
+  const SECTION_TITLES = {mine:"내 그룹",invites:"받은 초대",discover:"그룹 발견",feed:"그룹 피드"};
+  function sectionMarkup(section){
+    if(section === "invites")return `
+      <div class="section-intro">
+        <span class="section-kicker">초대 2개</span>
+        <h2>같이 해보자는 제안</h2>
+        <p>누가 초대했는지와 그룹 분위기를 먼저 보고 결정하세요.</p>
+      </div>
+      <div class="section-list">
+        <div class="section-row">
+          <span class="section-avatar">📐</span>
+          <span class="section-copy"><strong>디자인 시스템 같이 읽기</strong><span>서연님 초대 · 멤버 6/10 · 공개방</span></span>
+          <span class="section-pair"><button class="section-quiet" data-section-action="decline">나중에</button><button class="section-action" data-section-action="accept">참여</button></span>
+        </div>
+        <div class="section-row">
+          <span class="section-avatar">🌙</span>
+          <span class="section-copy"><strong>야간 자격증 집중반</strong><span>민준님 초대 · 멤버 4/8 · 비밀방</span></span>
+          <span class="section-pair"><button class="section-quiet" data-section-action="decline">나중에</button><button class="section-action" data-section-action="accept">참여</button></span>
+        </div>
+      </div>`;
+    if(section === "discover")return `
+      <div class="section-intro">
+        <span class="section-kicker">이번 주 추천</span>
+        <h2>내 리듬과 맞는 그룹</h2>
+        <p>집중 시간대와 최근 활동이 비슷한 공개 그룹부터 골랐어요.</p>
+      </div>
+      <label class="section-search">
+        <span class="sr-only">공개 그룹 검색</span>
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input type="search" placeholder="목표나 과목으로 검색" />
+      </label>
+      <div class="topic-strip" aria-label="그룹 주제">
+        <button class="topic-chip on" type="button">추천</button><button class="topic-chip" type="button">시험</button><button class="topic-chip" type="button">개발</button><button class="topic-chip" type="button">운동</button>
+      </div>
+      <div class="section-list">
+        <div class="section-row"><span class="section-avatar">🧠</span><span class="section-copy"><strong>딥워크 90분 클럽</strong><span>오늘 12명 활동 · 멤버 18/24</span></span><button class="section-action" data-section-action="join">살펴보기</button></div>
+        <div class="section-row"><span class="section-avatar">📖</span><span class="section-copy"><strong>하루 한 챕터</strong><span>내 집중 시간대와 86% 일치 · 멤버 9/12</span></span><button class="section-action" data-section-action="join">살펴보기</button></div>
+        <div class="section-row"><span class="section-avatar">🏃</span><span class="section-copy"><strong>출근 전 5km</strong><span>이번 주 인증 31개 · 멤버 7/10</span></span><button class="section-action" data-section-action="join">살펴보기</button></div>
+      </div>`;
+    return `
+      <div class="section-intro">
+        <span class="section-kicker">오늘의 활동</span>
+        <h2>함께 만든 변화</h2>
+        <p>내 그룹에서 생긴 집중·챌린지·공지 소식을 시간순으로 모았어요.</p>
+      </div>
+      <div class="section-list">
+        <article class="feed-row"><strong>수빈님이 아침 집중 90분을 마쳤어요.</strong><p>새벽 6시 기상 집중단 · 오늘 목표 달성</p><time>12분 전</time></article>
+        <article class="feed-row"><strong>주 20시간 순공 챌린지가 68%에 도달했어요.</strong><p>멤버 5명이 오늘 기록을 더했어요.</p><time>1시간 전</time></article>
+        <article class="feed-row"><strong>새 공지가 올라왔어요.</strong><p>“이번 주 인증은 일요일 자정까지예요.”</p><time>어제</time></article>
+      </div>`;
+  }
+  function setGroupSection(section){
+    const isMine = section === "mine";
+    if(!isMine)resetFlips();
+    phone.classList.toggle("section-content-active",!isMine);
+    carouselTitle.textContent = SECTION_TITLES[section];
+    sectionPanel.hidden = isMine;
+    sectionPanel.setAttribute("role","tabpanel");
+    const tabs = [...sectionNav.querySelectorAll('[role="tab"]')];
+    tabs.forEach(tab=>{
+      const selected = tab.dataset.groupSection === section;
+      tab.setAttribute("aria-selected",String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if(selected)sectionPanel.setAttribute("aria-labelledby",tab.id);
+    });
+    if(!isMine){
+      sectionPanel.innerHTML = sectionMarkup(section);
+      sectionPanel.scrollTop = 0;
+    }
+  }
+  function enterGroupContext(){
+    phone.classList.add("group-context");
+    globalNav.setAttribute("aria-hidden","true");
+    globalNav.inert = true;
+    sectionNav.setAttribute("aria-hidden","false");
+    sectionNav.inert = false;
+    setGroupSection("mine");
+    setTimeout(()=>document.getElementById("groupTabMine").focus(),220);
+  }
+  function exitGroupContext(){
+    setGroupSection("mine");
+    phone.classList.remove("group-context");
+    sectionNav.setAttribute("aria-hidden","true");
+    sectionNav.inert = true;
+    globalNav.setAttribute("aria-hidden","false");
+    globalNav.inert = false;
+    setTimeout(()=>document.getElementById("globalGroupTab").focus(),180);
+  }
+  document.getElementById("globalGroupTab").addEventListener("click",enterGroupContext);
+  document.getElementById("groupContextBack").addEventListener("click",exitGroupContext);
+  sectionNav.addEventListener("click",event=>{
+    const tab = event.target.closest('[role="tab"]');
+    if(tab)setGroupSection(tab.dataset.groupSection);
+  });
+  sectionNav.addEventListener("keydown",event=>{
+    const tab = event.target.closest('[role="tab"]');
+    if(!tab || !["ArrowLeft","ArrowRight","Home","End"].includes(event.key))return;
+    const tabs = [...sectionNav.querySelectorAll('[role="tab"]')];
+    let next = tabs.indexOf(tab);
+    if(event.key === "ArrowLeft")next = (next - 1 + tabs.length) % tabs.length;
+    if(event.key === "ArrowRight")next = (next + 1) % tabs.length;
+    if(event.key === "Home")next = 0;
+    if(event.key === "End")next = tabs.length - 1;
+    event.preventDefault();event.stopPropagation();
+    tabs[next].focus();
+    setGroupSection(tabs[next].dataset.groupSection);
+  });
+  sectionPanel.addEventListener("click",event=>{
+    const action = event.target.closest("[data-section-action]");
+    if(action)flash(action.dataset.sectionAction === "accept" ? "그룹에 참여했어요" : action.dataset.sectionAction === "decline" ? "초대를 보관했어요" : "그룹 미리보기 열기");
+    const chip = event.target.closest(".topic-chip");
+    if(chip){
+      sectionPanel.querySelectorAll(".topic-chip").forEach(item=>item.classList.remove("on"));
+      chip.classList.add("on");
+    }
+  });
+
+  document.getElementById("tabFab").addEventListener("click",()=>{
+    const shell = cards()[activeIndex];
+    const group = GROUPS[Number(shell?.dataset.index)];
+    flash(group && shell.classList.contains("is-flipped") ? `${group.name}으로 집중 시작` : "집중 시작 → FocusCategory");
+  });
+  document.getElementById("count1").addEventListener("click",()=>render(1));
+  document.getElementById("count5").addEventListener("click",()=>render(5));
+  document.getElementById("count10").addEventListener("click",()=>render(10));
+
+  const requestedCount = Number(new URLSearchParams(location.search).get("n"));
+  render(Number.isFinite(requestedCount) && requestedCount >= 1 ? Math.floor(requestedCount) : 5);
+  window.addEventListener("resize",()=>{
+    syncIndicatorMode(cards().length);
+    update();
+  });
+</script>
+</body>
+</html>
