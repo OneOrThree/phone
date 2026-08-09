@@ -5,8 +5,15 @@
 //     규칙은 "가용 집중초가 전부 오늘 발생했다"고 가정해 어제 몫까지 오늘로 넣었다.
 //  2) 라이브(미정산) 값도 자정을 넘기면 오늘 몫만 남는다. 세션을 끝내야 값이 줄어드는
 //     역전(65분 → 5분)이 생기지 않게.
-import { newBlockToday, creditTick, blockTodaySeconds, type BlockToday } from './blockToday';
+import {
+  newBlockToday,
+  creditTick,
+  creditTicks,
+  blockTodaySeconds,
+  type BlockToday,
+} from './blockToday';
 import { localDateStr } from '@/utils/localDate';
+import { resetServerZone, setServerZone } from '@/utils/serverZone';
 
 // jest.config.js가 TZ=Asia/Seoul로 고정 — 로컬 자정 = KST 자정.
 const at = (iso: string) => new Date(`${iso}+09:00`);
@@ -118,4 +125,65 @@ it('⑤ 이탈 스냅샷은 이후 tick에 오염되지 않아 리플레이가 �
   const replayed = runTicks(snapshot, '2026-08-08T10:01:00', 10);
   expect(replayed.local['2026-08-08']).toBe(70);
   expect(replayed.server['2026-08-08']).toBe(70);
+});
+
+// GROMO-1252 6차 ④ — 백그라운드 복귀 리플레이가 tick마다 이걸 부르면 최대 28,800회라 JS 스레드가
+// 멈춘다. 묶음 적립으로 바꾸되 날짜 귀속 결과는 tick별 호출과 **정확히 같아야** 한다.
+describe('creditTicks — 묶음 적립 결과는 tick별 적립과 동일하다', () => {
+  afterEach(() => {
+    resetServerZone();
+  });
+
+  // 같은 구간을 두 방식으로 적립해 대조한다. firstAt은 첫 tick 시각(= start + 1초).
+  const bothWays = (startISO: string, seconds: number, base: BlockToday = newBlockToday()) => ({
+    perTick: runTicks(base, startISO, seconds),
+    batched: creditTicks(base, new Date(at(startISO).getTime() + 1000), seconds),
+  });
+
+  it('하루 안 / 자정 걸침 / 자정 정각 위상 모두 같다', () => {
+    // 하루 안
+    let r = bothWays('2026-08-08T10:00:00', 600);
+    expect(r.batched).toEqual(r.perTick);
+    // 자정 걸침
+    r = bothWays('2026-08-07T23:50:00', 1200);
+    expect(r.batched).toEqual(r.perTick);
+    expect(r.batched.local).toEqual({ '2026-08-07': 600, '2026-08-08': 600 });
+    // 위상 — 첫 tick이 자정 정각(덮은 1초는 전날 마지막 초)
+    r = bothWays('2026-08-07T23:59:59', 2);
+    expect(r.batched).toEqual(r.perTick);
+    expect(r.batched.local).toEqual({ '2026-08-07': 1, '2026-08-08': 1 });
+    // 1개·0개
+    r = bothWays('2026-08-08T10:00:00', 1);
+    expect(r.batched).toEqual(r.perTick);
+    expect(creditTicks(newBlockToday(), at('2026-08-08T10:00:00'), 0)).toEqual(newBlockToday());
+  });
+
+  it('기존 누적 위에 더해도 같다(정산 전 여러 묶음)', () => {
+    const base = runTicks(newBlockToday(), '2026-08-07T23:55:00', 120);
+    const r = bothWays('2026-08-08T00:10:00', 300, base);
+    expect(r.batched).toEqual(r.perTick);
+    expect(base.local).toEqual({ '2026-08-07': 120 }); // 불변 갱신 유지(⑤ 되감기 전제)
+  });
+
+  it('두 축의 자정이 다른 존(GB)에서도 같다 — 축마다 갈리는 지점이 다르다', () => {
+    setServerZone('Europe/London');
+    // KST 08-08 07:50 = 런던 08-07 23:50(BST). 서버 축은 여기서, 로컬(KST) 축은 KST 자정에서 갈린다.
+    const r = bothWays('2026-08-08T07:50:00', 1200);
+    expect(r.batched).toEqual(r.perTick);
+    expect(r.batched.server).toEqual({ '2026-08-07': 600, '2026-08-08': 600 });
+    expect(r.batched.local).toEqual({ '2026-08-08': 1200 });
+  });
+
+  it('8시간(28,800 tick) 묶음 — 결과가 같고 Intl 포맷 호출이 tick 수에 비례하지 않는다', () => {
+    setServerZone('Europe/London');
+    const perTick = runTicks(newBlockToday(), '2026-08-08T20:00:00', 8 * 3600);
+
+    const spy = jest.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts');
+    const batched = creditTicks(newBlockToday(), at('2026-08-08T20:00:01'), 8 * 3600);
+
+    expect(batched).toEqual(perTick);
+    // 종전엔 tick마다 1회(28,800). 이제 날짜 경계 이분탐색뿐이라 수십 회.
+    expect(spy.mock.calls.length).toBeLessThan(100);
+    spy.mockRestore();
+  });
 });

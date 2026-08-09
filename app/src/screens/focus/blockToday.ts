@@ -46,13 +46,53 @@ export function newBlockToday(): BlockToday {
 
 // 집중 tick 1초 적립. at은 tick이 발생한 시각(1초의 끝).
 export function creditTick(state: BlockToday, at: Date = new Date()): BlockToday {
-  const covered = new Date(at.getTime() - 1000);
-  const localDay = localDateStr(covered);
-  const serverDay = zoneDateStr(covered, getServerZone());
+  return creditTicks(state, at, 1);
+}
+
+// 연속 tick n개(1초 간격) 일괄 적립 — 백그라운드 복귀 리플레이 전용(GROMO-1252 코드리뷰 6차 ④).
+// firstAt은 첫 tick의 시각, 이후 tick은 +1초씩이라 덮은 초는 [firstAt−1s, firstAt−1s+n초).
+// 실드 세션이 8시간 백그라운드에 있다 복귀하면 tick이 28,800개다. tick마다 이걸 부르면
+// Intl.DateTimeFormat.formatToParts(zoneDateStr) 28,800회 + 객체 스프레드 57,600회가 setSession
+// 전에 JS 스레드에서 돌아 앱이 눈에 띄게 멈춘다.
+// 날짜는 시간순 단조라 런(run) 단위로 묶는다 — 8시간이면 날짜가 많아야 두 개라 포맷 호출이
+// 수만 회에서 수십 회로 준다. 귀속 결과(어느 날짜에 몇 초)는 per-tick과 정확히 같다.
+export function creditTicks(state: BlockToday, firstAt: Date, count: number): BlockToday {
+  if (count <= 0) return state;
+  const firstCoveredMs = firstAt.getTime() - 1000;
+  const zone = getServerZone();
   return {
-    local: { ...state.local, [localDay]: (state.local[localDay] ?? 0) + 1 },
-    server: { ...state.server, [serverDay]: (state.server[serverDay] ?? 0) + 1 },
+    local: addRuns(state.local, firstCoveredMs, count, (ms) => localDateStr(new Date(ms))),
+    server: addRuns(state.server, firstCoveredMs, count, (ms) => zoneDateStr(new Date(ms), zone)),
   };
+}
+
+// 연속 초 구간을 날짜별로 쪼개 누적. 날짜가 바뀌는 지점은 이분탐색으로 찾는다 —
+// 같은 날짜인지는 시각에 대해 단조(앞이 같으면 그 앞도 전부 같다)라 성립한다.
+function addRuns(
+  base: SecondsByDate,
+  firstMs: number,
+  count: number,
+  dayOf: (ms: number) => string,
+): SecondsByDate {
+  const out = { ...base };
+  let i = 0;
+  while (i < count) {
+    const day = dayOf(firstMs + i * 1000);
+    let last = count - 1; // day와 같은 날짜인 마지막 인덱스
+    if (dayOf(firstMs + last * 1000) !== day) {
+      let lo = i; // day와 같음(확정)
+      let hi = last; // day와 다름(확정)
+      while (lo + 1 < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (dayOf(firstMs + mid * 1000) === day) lo = mid;
+        else hi = mid;
+      }
+      last = lo;
+    }
+    out[day] = (out[day] ?? 0) + (last - i + 1);
+    i = last + 1;
+  }
+  return out;
 }
 
 // 오늘(기기 로컬) 몫 — 로컬 스토어(FocusContext·SubjectContext)가 '오늘' 하나만 보관하므로.

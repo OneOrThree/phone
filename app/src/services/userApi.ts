@@ -4,6 +4,7 @@
 import axios from 'axios';
 import { api, API_URL } from '@/services/api';
 import { todayStrKst } from '@/utils/localDate';
+import { setServerZone } from '@/utils/serverZone';
 import type {
   DeviceTokenRegisterRequest,
   FocusTimeGoalUpdateRequest,
@@ -29,8 +30,17 @@ export async function setupProfile(body: UserProfileSetupRequest): Promise<void>
 }
 
 // PATCH /api/v1/users/me — 유저 프로필 부분 수정.
+// countryCode를 보내면 서버 날짜 버킷 존(timeZone)이 함께 바뀐다(CountryZoneResolver) — 캐시된 존을
+// 갱신하지 않으면 GB 유저가 백필된 직후에도 앱은 재시작 전까지 Asia/Seoul 날짜 키를 만들어, 두 존의
+// 자정 근처 세션이 폐기·오귀속된다(GROMO-1252 6차 ②). PATCH는 204(본문 없음)라 프로필을 다시 읽어
+// 서버가 준 존 문자열을 그대로 쓴다 — country→zone 매핑 정본은 서버 한 곳(4차 결정) 그대로다.
+// 호출부(App.tsx 백필·ProfileEditScreen 저장)마다 붙이지 않고 여기서 한 번에 처리한다.
+// 재조회 실패는 삼킨다 — 존은 직전 값이 유지되고 다음 실행의 부트스트랩이 바로잡는다.
 export async function updateProfile(body: UserProfileUpdateRequest): Promise<void> {
   await api.patch('/api/v1/users/me', body);
+  if (!body.countryCode) return;
+  const profile = await getMyProfile().catch(() => null);
+  if (profile) setServerZone(profile.timeZone);
 }
 
 // GET /api/v1/users/me — 본인 프로필 조회.

@@ -170,15 +170,27 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * (daily_focus_stats.total_focus_seconds 도 startedAt~endedAt 원시 길이 누적으로 미차감 — 동일 기준).
      * LEAST/GREATEST + EXTRACT(EPOCH) 조합은 JPQL 로 표현할 수 없어 네이티브로 둔다
      * (그룹 챌린지 WindowFocusAggregator 전용).
+     *
+     * <p><b>종료측은 유효 종료(GROMO-1252 코드리뷰 6차 ①)</b>: 겹침 술어·LEAST 클리핑 양쪽이
+     * {@code COALESCE(stat_end_at, ended_at)} 을 쓴다. {@code ended_at} 은 재업로드 중복 검사 때문에 클라 값
+     * 그대로 저장하므로, 미래 종료로 위조한 세션의 <b>아직 경과하지 않은 꼬리</b>가 그대로 창에 계수됐다 —
+     * 이 값은 내기 정산(GroupBetJudge, 참가비 분배)과 챌린지 달성 판정에 쓰이는 돈 경로다. 완료 순간
+     * {@code min(ended_at, now)} 로 고정한 {@code stat_end_at} 으로 자르면 일별·과목별 통계와 같은 기준이 된다
+     * (레거시 행은 {@code stat_end_at} 이 NULL 이라 {@code ended_at} 폴백 — 종전 동작 그대로).
+     *
+     * <p>{@code GREATEST(0, ...)}: {@code stat_end_at} 은 서버 now 로 클램프되므로 <b>미래 started_at</b> 을
+     * 보낸 세션에선 {@code stat_end_at < started_at} 이 될 수 있다(started_at &gt; ended_at 은 400 으로 막지만
+     * 이쪽은 못 막는다). 그대로 두면 음수 겹침이 그 유저의 다른 세션 합에서 차감된다.
      */
     @Query(value = "SELECT s.user_id AS \"userId\", "
-            + "CAST(SUM(EXTRACT(EPOCH FROM (LEAST(s.ended_at, :winEnd) - GREATEST(s.started_at, :winStart)))) "
+            + "CAST(SUM(GREATEST(0, EXTRACT(EPOCH FROM "
+            + "(LEAST(COALESCE(s.stat_end_at, s.ended_at), :winEnd) - GREATEST(s.started_at, :winStart))))) "
             + "AS bigint) AS \"overlapSeconds\" "
             + "FROM focus_sessions s "
             + "WHERE s.user_id IN (:userIds) "
             + "AND s.status NOT IN ('CANCELED', 'AUTO_CLOSED') "
             + "AND s.ended_at IS NOT NULL "
-            + "AND s.ended_at > :winStart AND s.started_at < :winEnd "
+            + "AND COALESCE(s.stat_end_at, s.ended_at) > :winStart AND s.started_at < :winEnd "
             + "GROUP BY s.user_id", nativeQuery = true)
     List<WindowFocusOverlap> sumOverlapSecondsInWindow(@Param("userIds") Collection<UUID> userIds,
                                                        @Param("winStart") Instant winStart,

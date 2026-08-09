@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,16 +25,37 @@ class RequestSizeLimitFilterTest {
 
     private static final String FOCUS_PATH = "/api/v1/focus-session";
 
-    private MockHttpServletResponse callFocusFilter(int contentLength) throws Exception {
+    private static FilterRegistrationBean<RequestSizeLimitFilter> focusFilter() {
         FilterRegistrationBean<RequestSizeLimitFilter> bean =
                 new FilterConfig(null, null, null).focusSessionRequestSizeFilter();
         assertThat(bean.getUrlPatterns()).containsExactly(FOCUS_PATH);
+        return bean;
+    }
 
+    private MockHttpServletResponse callFocusFilter(int contentLength) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", FOCUS_PATH);
         request.setContent(new byte[contentLength]);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        bean.getFilter().doFilter(request, response, new MockFilterChain());
+        focusFilter().getFilter().doFilter(request, response, new MockFilterChain());
         return response;
+    }
+
+    /** Content-Length 를 감춘 chunked 요청 — 본문은 그대로 읽히지만 길이는 -1 이다. */
+    private static MockHttpServletRequest chunkedRequest(byte[] body) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", FOCUS_PATH) {
+            @Override
+            public int getContentLength() {
+                return -1;
+            }
+
+            @Override
+            public long getContentLengthLong() {
+                return -1;
+            }
+        };
+        request.setContent(body);
+        request.addHeader("Transfer-Encoding", "chunked");
+        return request;
     }
 
     @Test
@@ -49,6 +71,36 @@ class RequestSizeLimitFilterTest {
     @DisplayName("상한 이내 본문은 그대로 통과한다")
     void bodyWithinLimitPasses() throws Exception {
         assertThat(callFocusFilter(8 * 1024).getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+    }
+
+    /**
+     * GROMO-1252 6차 ③ — Content-Length 를 생략(chunked)하면 종전엔 -1 이 상한 비교를 통과해 임의 크기
+     * 본문이 그대로 Jackson 으로 들어갔다. 이제 상한+1 까지만 읽어 초과를 끊는다.
+     */
+    @Test
+    @DisplayName("chunked 대용량 본문 — Content-Length 가 없어도 413 으로 끊긴다")
+    void oversizedChunkedBodyIsRejected() throws Exception {
+        MockHttpServletRequest request = chunkedRequest(new byte[8 * 1024 + 1]);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        focusFilter().getFilter().doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+        assertThat(response.getContentAsString()).contains("PAYLOAD_TOO_LARGE");
+    }
+
+    @Test
+    @DisplayName("chunked 정상 본문 — 통과하고 뒤단이 본문을 그대로 다시 읽는다")
+    void chunkedBodyWithinLimitIsReplayable() throws Exception {
+        byte[] body = "{\"focusTagId\":null}".getBytes(StandardCharsets.UTF_8);
+        MockFilterChain chain = new MockFilterChain();
+
+        focusFilter().getFilter().doFilter(chunkedRequest(body), new MockHttpServletResponse(), chain);
+
+        // 필터가 본문을 미리 읽었지만 래퍼가 캐시해 둬 역직렬화가 같은 바이트를 다시 본다
+        HttpServletRequest passed = (HttpServletRequest) chain.getRequest();
+        assertThat(passed.getInputStream().readAllBytes()).isEqualTo(body);
+        assertThat(passed.getContentLengthLong()).isEqualTo(body.length);
     }
 
     /** 상한 근거 검증 — 엔트리 수 상한(32)을 꽉 채운 최악 본문도 8KiB 에 한참 못 미친다. */
