@@ -105,10 +105,14 @@ export function AnimatedCharacter({
     // ⚠️ reduceMotion: M.never — 이 호출은 useMotion의 timing을 거치지 않는 직접 호출이라
     //    reanimated 기본값(정적 System 플래그)이 그대로 걸린다. 그러면 '동작 줄이기'를 켠 채
     //    앱을 켰다가 끈 사용자는 앱 재시작 전까지 호흡이 멈춘 캐릭터를 본다.
+    // ⚠️ withRepeat도 다섯 번째 인자로 게이트를 받는다 — 안쪽 withTiming만 막으면 반복
+    //    래퍼가 기본값(정적 System 플래그)을 그대로 쓴다(codex 리뷰 계보).
     breath.value = withRepeat(
       withTiming(1, { duration, easing: Easing.inOut(Easing.quad), reduceMotion: M.never }),
       -1,
       true,
+      undefined,
+      M.never,
     );
   }, [breath, duration, m.reduce, active]);
 
