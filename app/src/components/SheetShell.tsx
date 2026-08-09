@@ -160,8 +160,17 @@ export function SheetShell({
     dimProgress.value = 1;
   }, [m.reduce, translateY, dimProgress]);
 
+  // ⚠️ 퇴장 **시작 시점**의 onClose를 붙잡아 뒀다가 완료 시 그걸 부른다.
+  //    onCloseRef는 매 렌더 갱신되므로(제출 중 무력화 등을 위해 PanResponder가 최신값을 읽어야
+  //    한다), 완료 콜백에서 ref를 다시 읽으면 **220ms 사이에 바뀐 다른 콜백**이 실행된다.
+  //    실제 사고: 그룹 초대 A를 닫는 중에 초대 B가 도착하면 onClose prop이 B를 캡처한 함수로
+  //    교체되고, 그게 실행되면서 방금 온 B가 버퍼에서 지워졌다(codex 리뷰).
+  //    "닫기를 요청한 그 시점의 의도"를 실행하는 게 맞다.
+  const pendingCloseRef = useRef<(() => void) | null>(null);
   const fireClose = useCallback(() => {
-    onCloseRef.current();
+    const fn = pendingCloseRef.current ?? onCloseRef.current;
+    pendingCloseRef.current = null;
+    fn();
   }, []);
 
   // 퇴장 시작. 딤 탭·그랩바 릴리스·시트 안 CTA가 전부 이 하나를 지난다.
@@ -169,6 +178,7 @@ export function SheetShell({
   requestCloseRef.current = () => {
     if (!dismissibleRef.current || closingRef.current) return;
     closingRef.current = true;
+    pendingCloseRef.current = onCloseRef.current;
     // '동작 줄이기'에서는 퇴장을 재생하지 않고 즉시 닫는다(설계 §4.1).
     if (reduceRef.current) {
       fireClose();

@@ -268,4 +268,31 @@ describe("'동작 줄이기'", () => {
     await press('sheetShell.dim');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // ⚠️ 회귀 방어(codex 리뷰) — onCloseRef는 매 렌더 갱신된다(제출 중 무력화 등을 위해
+  //    PanResponder가 최신값을 읽어야 하므로). 그런데 퇴장 220ms 사이에 부모가 다른 onClose를
+  //    넘기면 완료 콜백이 **나중 것**을 실행한다. 실제 사고: 그룹 초대 A를 닫는 중 초대 B가
+  //    도착하면 B를 캡처한 콜백이 실행되며 방금 온 B가 버퍼에서 지워졌다.
+  //    닫기를 요청한 그 시점의 콜백을 붙잡아 둬야 한다.
+  test('퇴장 도중 onClose가 교체돼도 요청 시점의 콜백을 부른다', async () => {
+    const first = jest.fn();
+    const second = jest.fn();
+    const view = await render(
+      <SheetShell onClose={first}>
+        <Text>내용</Text>
+      </SheetShell>,
+    );
+    await act(async () => {});
+    await reportPanelHeight(400);
+    await press('sheetShell.dim');
+    // 퇴장이 도는 사이에 부모가 새 콜백을 넘긴다
+    await view.rerender(
+      <SheetShell onClose={second}>
+        <Text>내용</Text>
+      </SheetShell>,
+    );
+    await settleExit();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).not.toHaveBeenCalled();
+  });
 });
