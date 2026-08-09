@@ -573,7 +573,13 @@ export default function FocusResultScreen() {
                           style={[
                             s.bar,
                             { height: h, backgroundColor: isToday ? T.accent : T.sand },
-                            m.css(growUp(i)),
+                            // ⚠️ heatmap이 도착한 뒤에 애니메이션을 **처음** 붙인다.
+                            //    프리셋은 참조 캐싱이라 같은 객체를 계속 돌려주므로, 빈 데이터로
+                            //    먼저 붙여 두면 높이 0에서 이미 시작한 CSS 애니메이션이 데이터
+                            //    갱신 때 재시작되지 않는다. 응답이 마지막 막대의 종료(약 1.16초)
+                            //    보다 늦으면 과거 요일 막대가 0에서 완성 높이로 툭 튄다
+                            //    (codex 리뷰). cellsLoaded를 게이트로 쓴다.
+                            cellsLoaded ? m.css(growUp(i)) : undefined,
                           ]}
                         />
                       </View>
