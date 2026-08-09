@@ -77,6 +77,7 @@ erDiagram
         timestamptz settle_after "정산 가능 시각"
         timestamptz settled_at
         int settle_attempts "재시도 횟수"
+        timestamptz next_attempt_at "백오프 — 이 시각 전엔 재시도 대상 아님 (null=즉시)"
     }
     GROUP_CHALLENGE_BET_PARTICIPANTS {
         uuid id PK "멱등키의 축"
@@ -111,7 +112,7 @@ erDiagram
 | `group_challenge_bets` | `CHECK (stake BETWEEN 1 AND 3000)` | **상한을 DB가 강제한다** (서비스 상수만으로는 우회 경로가 생긴다) |
 | `group_challenge_bet_sessions` | `UNIQUE (bet_id, session_date)` | 회차 중복 개설 방어 |
 | `group_challenge_bet_sessions` | `CHECK (stake BETWEEN 1 AND 3000)` | 박제값도 동일 제약 |
-| `group_challenge_bet_sessions` | `INDEX (status, settle_after)` | 정산 대상 스캔 |
+| `group_challenge_bet_sessions` | `INDEX (status, settle_after, next_attempt_at)` | 정산 대상 스캔 (백오프 포함) |
 | `group_challenge_bet_sessions` | `INDEX (group_id, session_date)` | 카드 조립 |
 | `group_challenge_bet_participants` | `UNIQUE (session_id, user_id)` | 중복 참가 방어 |
 | `currency_transactions` | `UNIQUE (idempotency_key)` | 이중 차감/지급 최후 방어 |
@@ -322,12 +323,19 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 
 #### `POST /groups/{groupId}/challenges/{challengeId}/end` — 그룹장 전용
 
-**204**. `status=ENDED`, `ended_at=now()`.
+**204**. `status=ENDED`, `ended_at=now()`. **챌린지 행 `FOR UPDATE`를 먼저 잡고** OPEN 회차를
+검사·전이한다 — 삭제와 같은 직렬화다.
 
 | 조건 | 에러 |
 |---|---|
 | OPEN 회차 존재 (**예약된 미래 회차 포함**) | `CHALLENGE_END_BLOCKED` 409 |
 | 이미 ENDED | 멱등 — 204 |
+
+> **왜 종료도 배타 락인가**: 참여 경로의 `ensureSession`은 챌린지 행 `FOR SHARE`로 활성을 확인한
+> 뒤 회차·참가를 넣는다(§2.2). 종료가 락 없이 돌면 그 **미커밋 회차를 못 보고** OPEN 없음으로
+> 판정해 `ENDED`를 확정하고, 뒤이어 참가가 커밋돼 **종료된 챌린지에 참가비가 걸린다**. 삭제는
+> 이미 `FOR UPDATE`로 막았는데(§2.1) 종료만 빠져 있으면 같은 구멍이 한쪽에 남는다 — 다만 종료
+> 쪽은 환불 루프가 없어 결과가 더 나쁘다(무효화도 환불도 안 된 고아 회차).
 
 > 누군가 "이번 주 전부"로 금요일까지 예약해 두면 그룹장은 **금요일 정산이 끝나야** 종료할 수
 > 있다. 남의 돈이 걸린 회차를 그룹장이 접을 수 없게 하는 것이 맞다. 에러 문구가 언제까지
@@ -749,7 +757,10 @@ enum RemainderRule {
 void onFocusRecorded(UUID userId, LocalDate kstDate) {
     for (var p : participantRepo.findOpenByUserAndDate(userId, kstDate)) {
         if (Boolean.TRUE.equals(p.getAchieved())) continue;      // 이미 확정
-        Target t = targetOf(p.getSession());
+        // 정산과 같은 회차 락을 먼저 잡는다 — 잠금 순서(회차 → 지갑)와 동일 (§5.4)
+        var s = sessionRepo.findByIdForUpdate(p.getSessionId()).orElseThrow();
+        if (s.getStatus() != OPEN) continue;                     // 이미 정산됨 — 건드리지 않는다
+        Target t = targetOf(s);
         Integer m = judge.progressMinutes(t, kstDate, List.of(userId)).get(userId);
         if (BetJudge.isAchieved(t, m)) {
             p.confirmWin(m, Instant.now());                       // achieved=true (불가역)
@@ -761,6 +772,13 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
 
 **조기 확정은 되돌리지 않는다.** 목표분이 나중에 올라가도(A7) 회차 박제값으로 판정했으므로
 번복 사유가 없다.
+
+> **정산과 같은 회차 락을 잡는 이유**: 이 경로가 락 없이 참가 행을 읽고 바꾸면 정산과 경합한다 —
+> `settle()`이 락을 쥔 채 "미달성"으로 판정해 지급을 끝낸 **뒤에** 이 트랜잭션이 커밋되면
+> `achieved=true`가 지급 결과를 덮어써 **저장된 결과와 실제 지급이 어긋난다**(정산은 불가역이라
+> 되돌릴 수도 없다). 회차 락을 먼저 잡으면 둘 중 하나만 성립한다: 정산이 커밋된 집중 기록을
+> 보거나, 조기 확정이 정산 전에 끝나거나. 락 획득 후 `status != OPEN`이면 이미 정산된
+> 회차이므로 **아무것도 하지 않는다**.
 
 **전원 확정 시 즉시 정산 — 단 참가 마감 이후에만.**
 
@@ -807,7 +825,7 @@ void settle(UUID sessionId, SettleTrigger trigger) {
     if (s.getStatus() != OPEN) return;                            // 순차 재실행 스킵
     if (trigger != EARLY                                          // 조기 정산만 그레이스 우회 (§5.1)
         && Instant.now().isBefore(s.getSettleAfter())) return;    // 그레이스 미경과
-    if (trigger != EARLY && s.isWindowed()                        // 창 겹침 ACTIVE 세션 대기 (N37)
+    if (trigger != EARLY && s.isWindowed() && s.getCategory() == FOCUS   // FOCUS 창형만 (N37)
         && focusSessionRepo.existsActiveOverlapping(userIdsOf(s), windowOf(s))) return;
 
     var participants = participantRepo.findBySessionId(sessionId); // 락 이후 읽기
@@ -842,13 +860,18 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 > 이유: 정산 후 취소되면 "취소 세션 제외" 관례가 깨지는데 정산은 되돌릴 수 없다 — 가짜
 > 세션을 걸쳐두고 정산 직후 취소하는 악용이 열린다. `EARLY`는 전원 확정 후라 승패가 이미
 > 닫혔고 잔여 순위만 시점값 수용(N32) — 대기하지 않는다.
+>
+> **대기는 `FOCUS × TIME_WINDOW`에만 건다.** `SCREEN_TIME` 창형의 판정 소스는 클라가 보고한
+> 사용분(`group_challenge_members`)이라 **집중 세션과 무관**하다. 카테고리를 안 가리면
+> 참가자 중 누가 마침 집중 중이라는 이유로 준비된 스크린타임 정산이 밀리고, 세션이 길면
+> 24h 자동 환불까지 갈 수 있다 — 대기가 오히려 돈을 되돌린다.
 
 #### 트랜잭션 경계
 
 | 경계 | 범위 |
 |---|---|
 | 회차 1건 = 트랜잭션 1개 | 실패해도 다른 회차에 영향 없음 |
-| 조기 확정 | 집중 세션 저장 트랜잭션에 편승 (푸시는 AFTER_COMMIT) |
+| 조기 확정 | 집중 세션 저장 트랜잭션에 편승 — **회차 행 락을 먼저 잡는다**(§5.1), 푸시는 AFTER_COMMIT |
 | `join-week` | **전체가 한 트랜잭션** — 부분 성공을 만들지 않는다 |
 
 #### 실패와 재시도
@@ -860,7 +883,8 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 // 끝에 풀리고, 정산·지급의 원자 경계가 사라진다.
 @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
 void retryDueSessions() {
-    for (var s : sessionRepo.findDue(Instant.now())) {            // status=OPEN AND settle_after ≤ now
+    // status=OPEN AND settle_after ≤ now AND (next_attempt_at IS NULL OR next_attempt_at ≤ now)
+    for (var s : sessionRepo.findDue(Instant.now())) {
         try {                                                     // 실패는 건별 격리 (E3) —
             if (Duration.between(s.getSettleAfter(), Instant.now()).toHours() >= 24) {
                 settlement.refundAll(s.getId());                  // REFUNDED — 정산 시도보다 먼저!
@@ -869,13 +893,25 @@ void retryDueSessions() {
                 settlement.settle(s.getId(), CRON);
             }
         } catch (Exception e) {
-            sessionRepo.incrementAttempts(s.getId());             // @Modifying UPDATE — 아래 참조
+            // 시도 횟수 +1 과 다음 시도 시각을 같은 UPDATE 로 기록 (@Modifying — 아래 참조)
+            sessionRepo.recordFailure(s.getId(), nextAttemptAt(s.getSettleAttempts() + 1));
         }
     }
 }
+
+/** 백오프 단계 — 5m · 15m · 1h · 4h, 이후 4h 고정. 24h 상한은 settle_after 기준으로 별도. */
+static Instant nextAttemptAt(int attempts) {
+    Duration d = switch (attempts) {
+        case 1 -> Duration.ofMinutes(5);
+        case 2 -> Duration.ofMinutes(15);
+        case 3 -> Duration.ofHours(1);
+        default -> Duration.ofHours(4);
+    };
+    return Instant.now().plus(d);
+}
 ```
 
-백오프는 `settle_attempts`로 근사한다(5m 크론 × 시도 횟수 임계). 24h는 `settle_after` 기준이다.
+24h는 `settle_after` 기준이다 — 백오프 단계와 무관하게 시각으로 끊는다.
 
 > **`refundAll`도 같은 격리 경계 안이다** — try 밖에 두면 첫 항목의 환불이 지갑 충돌 등으로
 > 계속 실패할 때 루프가 통째로 끊겨, **뒤의 무관한 회차들까지** 정산·환불이 밀린다.
@@ -884,6 +920,11 @@ void retryDueSessions() {
 > **시도 횟수는 리포지토리 UPDATE로 올린다** — 이 스케줄러 빈은 의도적으로 무트랜잭션이라
 > `findDue`가 돌려준 엔티티는 detached다. `s.incrementAttempts()`처럼 필드만 바꾸면 flush될
 > 트랜잭션이 없어 **영영 저장되지 않고**, 백오프가 전진하지 못해 5분마다 무한 재시도한다.
+>
+> **`next_attempt_at`을 저장해야 백오프가 실재한다** — 횟수만 올리고 `findDue`가 그걸 안 보면
+> 선택 술어는 여전히 "OPEN이고 `settle_after` 지난 전부"라, 문서에 적힌 5m·15m·1h·4h 단계가
+> **한 번도 발동하지 않는다**(5분마다 계속 재시도 = 장애 난 의존성을 계속 때린다). 실패 시각에
+> 다음 시도 시각을 계산해 함께 쓰고, 선택에서 그 시각을 지난 회차만 집는다.
 
 > **24h 검사를 정산 시도보다 먼저 하는 이유**: 검사가 catch 블록 안에만 있으면 ① 스케줄러가
 > 24h 넘게 죽었다 살아난 경우(예외가 난 적이 없다) ② 데드라인 직후 의존성이 회복된 경우,
