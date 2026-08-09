@@ -5583,6 +5583,13 @@
               "RANGE",
               "POMODORO"
             ]
+          },
+          "focusSecondsByDate": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         }
       },
@@ -6058,6 +6065,13 @@
           "focusTagId": {
             "type": "string",
             "format": "uuid"
+          },
+          "focusSecondsByDate": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         },
         "required": [
@@ -6293,6 +6307,9 @@
             "type": "string"
           },
           "occupation": {
+            "type": "string"
+          },
+          "timeZone": {
             "type": "string"
           }
         }
@@ -7379,6 +7396,13 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "focusSecondsByDate": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         }
       },
