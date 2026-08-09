@@ -1,0 +1,85 @@
+// 집중 세션 세로 예산 — 기기 × 글자 배율 조합에서 겹침이 생기지 않는지 못을 박는다(GROMO-1381).
+//
+// 이 계산은 두 번 회귀했다. ① 기기 높이를 안 보고 고정 pt를 썼다가 667pt 기기에서 캐릭터가
+// 링을 뚫었고 ② 그걸 고친 뒤에도 시스템 글자 배율을 안 봐서, 글자를 키운 사용자에게는 확대된
+// 숫자가 다시 링을 뚫었다(둘 다 codex 리뷰). 눈으로 세는 계산이라 표로 잠근다.
+//
+// ⚠️ 애니메이션이 아니라 **레이아웃 산수**라 단언해도 되는 영역이다(정책 D14의 금지 대상 아님).
+import { focusReadoutLayout, RING_STROKE } from './readoutLayout';
+
+// 지원 하한부터 최신까지. availH = 화면 높이 − 안전영역(상·하).
+const DEVICES: { name: string; w: number; availH: number }[] = [
+  { name: 'SE2/SE3/8 (667)', w: 375, availH: 667 - 20 - 0 },
+  { name: '13 mini (812)', w: 375, availH: 812 - 50 - 34 },
+  { name: 'iPhone 15 (852)', w: 393, availH: 852 - 59 - 34 },
+  { name: '15 Pro Max (932)', w: 430, availH: 932 - 62 - 34 },
+];
+
+// 표준 Dynamic Type 밴드(약 0.82~1.35)와 접근성 밴드(그 위)를 함께 본다.
+const SCALES = [1.0, 1.15, 1.35, 2.0, 3.1];
+
+// hms()는 항상 8글자 + tabular-nums라 폭이 내용과 무관하다. readoutLayout이 쓰는 것과 같은 계수.
+const TIMER_W_PER_PT = 3.85;
+const renderedTimerWidth = (fontSize: number, fontScale: number) =>
+  fontSize * fontScale * TIMER_W_PER_PT;
+
+describe('focusReadoutLayout — 기기 × 글자 배율', () => {
+  test.each(DEVICES)('$name: 링을 그리면 숫자가 링 안에 들어간다 (모든 배율)', ({ w, availH }) => {
+    for (const fontScale of SCALES) {
+      const l = focusReadoutLayout(availH, w, fontScale, true);
+      if (!l.showRing) continue; // 링을 포기한 배치는 폭 제약 자체가 없다
+      const inner = l.ringSize - 2 * RING_STROKE;
+      expect(renderedTimerWidth(l.timerFontSize, fontScale)).toBeLessThanOrEqual(inner);
+    }
+  });
+
+  test.each(DEVICES)('$name: 캐릭터와 링이 세로 예산 안에 함께 들어간다', ({ w, availH }) => {
+    for (const fontScale of SCALES) {
+      const l = focusReadoutLayout(availH, w, fontScale, true);
+      // 링 밖 고정 요소(프레임 165 + 리드아웃 105)를 뺀 나머지가 둘이 쓸 수 있는 전부다.
+      const budget = availH - (165 + 105 + 48 * (fontScale - 1));
+      expect(l.charSize + l.ringSize).toBeLessThanOrEqual(budget);
+    }
+  });
+
+  test.each(DEVICES)('$name: 링은 화면 폭을 넘지 않는다', ({ w, availH }) => {
+    for (const fontScale of SCALES) {
+      const l = focusReadoutLayout(availH, w, fontScale, true);
+      expect(l.ringSize).toBeLessThanOrEqual(w);
+    }
+  });
+
+  test('배율이 오르면 캐릭터가 줄어 링에 자리를 내준다 — 숫자를 깎지 않는다', () => {
+    const { availH, w } = { availH: 759, w: 393 }; // iPhone 15
+    const base = focusReadoutLayout(availH, w, 1.0, true);
+    const large = focusReadoutLayout(availH, w, 1.35, true);
+    expect(large.showRing).toBe(true);
+    // 링은 커지고 캐릭터는 줄어든다(장식이 기능에 양보한다).
+    expect(large.ringSize).toBeGreaterThan(base.ringSize);
+    expect(large.charSize).toBeLessThan(base.charSize);
+    // 지정 fontSize는 유지 — 시스템 배율이 그대로 곱해져 실제로 더 크게 그려진다.
+    expect(large.timerFontSize).toBe(base.timerFontSize);
+  });
+
+  test('접근성 배율에서는 링을 포기하고 숫자만 남긴다', () => {
+    for (const { availH, w } of DEVICES) {
+      expect(focusReadoutLayout(availH, w, 2.0, true).showRing).toBe(false);
+      expect(focusReadoutLayout(availH, w, 3.1, true).showRing).toBe(false);
+    }
+  });
+
+  test('카운트업은 배율과 무관하게 링 없이 기본 타이머 크기를 쓴다', () => {
+    for (const fontScale of SCALES) {
+      const l = focusReadoutLayout(647, 375, fontScale, false);
+      expect(l.showRing).toBe(false);
+      expect(l.ringSize).toBe(0);
+      expect(l.timerFontSize).toBe(52);
+    }
+  });
+
+  test('가장 작은 지원 기기의 표준 배율에서도 캐릭터가 쓸 만한 크기로 남는다', () => {
+    const l = focusReadoutLayout(647, 375, 1.0, true);
+    expect(l.showRing).toBe(true);
+    expect(l.charSize).toBeGreaterThanOrEqual(120);
+  });
+});

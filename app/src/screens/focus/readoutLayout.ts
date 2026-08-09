@@ -1,0 +1,116 @@
+// 집중 세션(세로)의 '캐릭터 + 진행 링' 세로 예산 계산 (GROMO-1381).
+//
+// 화면 모듈에서 떼어 낸 **순수 함수**다. FocusSessionScreen을 import 하면 서비스·컨텍스트 체인이
+// 통째로 딸려와 jest에서 못 돌리는데, 여기 로직은 기기·글자 배율 조합마다 못을 박아야 하는
+// 산수라서 따로 둔다.
+//
+// ── 왜 계산이 필요한가 ────────────────────────────────────────────────────────────────
+// 링과 캐릭터를 각각 고정 크기로 두면 667pt 기기(SE·8)에서 둘의 합(460)이 남는 공간(약 371)을
+// 넘어 캐릭터가 링·페이지 도트와 겹친다. 게다가 Text의 allowFontScaling 기본값 때문에 시스템
+// '글자 크기'를 키운 사용자에게는 타이머가 **다시 확대**되어 고정 pt 링을 뚫고 나간다(codex 리뷰).
+//
+// ── 무엇을 양보시키는가 (접근성 판단) ──────────────────────────────────────────────────
+// 타이머 숫자에는 maxFontSizeMultiplier를 **걸지 않는다.** 이 화면에서 사용자가 실제로 읽어야
+// 하는 정보는 남은 시간 하나이고, 링은 같은 값을 한 번 더 그린 **장식**이다. 숫자를 잘라
+// 링을 지키면 "글자를 키운 사용자에게만 이 화면이 예외"가 되는데, 그건 접근성 설정을 무시하는 것과
+// 같다. 그래서 양보 순서를 뒤집었다:
+//   ① 배율이 오르면 링이 숫자 폭에 맞춰 **커진다**
+//   ② 커진 만큼 캐릭터가 줄어 값을 치른다(장식이 기능에 자리를 내준다)
+//   ③ 캐릭터가 최소치도 못 받으면 **링을 포기**하고 숫자만 남긴다 — 카운트업이 이미 쓰는 배치라
+//      새 레이아웃이 아니다. 진행률은 숫자로 계속 읽을 수 있으므로 정보 손실이 없다.
+
+import { T } from '@/constants/theme';
+
+/** 링 두께. 얇게 두는 이유는 가운데 타이머 숫자가 주인공이기 때문. */
+export const RING_STROKE = 6;
+/** 링 안쪽 여백 — 숫자가 획에 닿아 보이지 않을 최소치. */
+const RING_PAD = 6;
+
+const BASE_CHAR = 230;
+const BASE_RING = 230;
+/** 이보다 작아지면 캐릭터가 '있으나 마나'가 된다 — 그 아래로는 링을 포기한다. */
+const MIN_CHAR = 120;
+/** 안전 하한. 현재 지원 기기(≥667pt)·표준 배율에선 걸리지 않는다. */
+const MIN_FIT = 0.62;
+
+/**
+ * 타이머 문자열의 폭 ÷ 지정 fontSize.
+ * hms()는 항상 8글자(HH:MM:SS)이고 tabular-nums라 문자열 내용과 무관하게 폭이 같다.
+ * 52pt에서 약 200pt를 실측해 얻은 값이다.
+ */
+const TIMER_W_PER_PT = 3.85;
+
+// 세로 고정 요소(실측): topBar 52(36 + paddingVertical 8×2) + dots 23(7 + 8×2)
+//                     + controls 90(60 + paddingBottom 30)
+const CHROME_FRAME = 165;
+// readout 안에서 링/숫자 **밖**의 높이. 글자 배율에 따라 커지는 '글자 몫'을 따로 들고 있는다.
+//   링 있음: paddingBottom 20 + 세트배지 34 + 과목명 30 + 세트도트 21 = 105 (글자 몫 ≈ 48)
+//           (뽀모도로 = 최악. 모드가 바뀌어도 캐릭터 크기가 흔들리지 않게 이 값으로 통일한다)
+//   링 없음: paddingBottom 20 + 과목명 30                             = 50  (글자 몫 ≈ 22)
+const READOUT_RING = { total: 105, text: 48 };
+const READOUT_PLAIN = { total: 50, text: 22 };
+
+export interface ReadoutLayout {
+  /** 링을 그릴 수 있는가. false면 숫자만 있는 배치(카운트업과 동일)로 내려간다. */
+  showRing: boolean;
+  /** 페이저 캐릭터 한 변(pt). 캡처 스냅샷 해상도이기도 하다. */
+  charSize: number;
+  /** 링 바깥 지름(pt). showRing=false면 0. */
+  ringSize: number;
+  /** 타이머 지정 fontSize(pt). 시스템 배율은 여기에 **곱해져서** 그려진다. */
+  timerFontSize: number;
+}
+
+function solve(availableH: number, fontScale: number, withRing: boolean): ReadoutLayout {
+  const chrome = withRing ? READOUT_RING : READOUT_PLAIN;
+  // 배율이 1보다 작아도 예산을 늘려 잡지 않는다 — 작은 글자로 얻은 여유는 그냥 여백으로 둔다.
+  const grow = Math.max(fontScale, 1) - 1;
+  const budgetH = Math.max(0, availableH - (CHROME_FRAME + chrome.total + chrome.text * grow));
+  const need = withRing ? BASE_CHAR + BASE_RING : BASE_CHAR;
+  const fit = Math.min(1, Math.max(MIN_FIT, budgetH / need));
+
+  if (!withRing) {
+    // 링이 없으면 폭 제약도 없다 — 타이머는 기본 크기를 그대로 쓴다(기존 카운트업 동작).
+    return {
+      showRing: false,
+      charSize: Math.floor(BASE_CHAR * fit),
+      ringSize: 0,
+      timerFontSize: T.text.timer.fontSize,
+    };
+  }
+
+  const timerFontSize = Math.floor(T.text.timer.fontSize * fit);
+  // 실제로 그려지는 폭 = 지정 크기 × 시스템 배율. 링은 이걸 반드시 품어야 한다.
+  const renderedW = timerFontSize * fontScale * TIMER_W_PER_PT;
+  const ringSize = Math.max(
+    Math.floor(BASE_RING * fit),
+    Math.ceil(renderedW) + 2 * RING_STROKE + 2 * RING_PAD,
+  );
+  // 링이 커진 만큼은 캐릭터가 낸다.
+  const charSize = Math.floor(Math.min(BASE_CHAR * fit, budgetH - ringSize));
+  return { showRing: true, charSize, ringSize, timerFontSize };
+}
+
+/** 링이 가로로 쓸 수 있는 폭 — 화면 폭에서 리드아웃 좌우 여백(T.space.xxl×2)을 뺀 값. */
+const H_MARGIN = 48;
+
+/**
+ * @param availableH 안전 영역(노치·홈 인디케이터)을 뺀 실제 가용 높이
+ * @param availableW 화면 폭 — 배율이 큰 기기에서 링이 가로로도 넘치지 않게 함께 본다
+ * @param fontScale  시스템 글자 배율 (`useWindowDimensions().fontScale`)
+ * @param wantRing   진행률이 정의되는 모드인가 (카운트업은 목표가 없어 false)
+ */
+export function focusReadoutLayout(
+  availableH: number,
+  availableW: number,
+  fontScale: number,
+  wantRing: boolean,
+): ReadoutLayout {
+  if (!wantRing) return solve(availableH, fontScale, false);
+  const ringed = solve(availableH, fontScale, true);
+  // 링 배치를 쓰려면 세로(캐릭터가 최소치 이상)와 가로(링이 화면 폭 안) 둘 다 만족해야 한다.
+  // 하나라도 못 지키면 숫자만 남기는 배치로 내려간다 — 정보는 숫자에 그대로 남는다.
+  const fitsV = ringed.charSize >= MIN_CHAR;
+  const fitsH = ringed.ringSize <= Math.max(0, availableW - H_MARGIN);
+  return fitsV && fitsH ? ringed : solve(availableH, fontScale, false);
+}

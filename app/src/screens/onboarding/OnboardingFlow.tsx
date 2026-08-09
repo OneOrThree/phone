@@ -76,10 +76,24 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 가입 확정(신규 유저) 실패 상태 — 닉네임 화면에 에러를 띄운다. 입력을 고치면 지운다.
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // 스텝 전환 크로스페이드(GROMO-1381) — 아래 래퍼에 stepKey를 걸어 화면이 바뀔 때마다
-  // 새로 마운트시키고 fadeIn을 다시 태운다(CSS 애니메이션은 참조 동등성으로 재시작을 판단하므로
-  // 같은 프리셋 객체만으로는 다시 돌지 않는다). 뷰를 새로 끼우지 않고 기존 래퍼를 승격만 했다 —
-  // Maestro 셀렉터(스텝 testID)는 전부 StepScaffold 안쪽이라 트리 계약은 그대로다.
+  // 화면 전환 **페이드 인**(GROMO-1381). 래퍼에 stepKey를 걸어 화면이 바뀔 때마다 새로
+  // 마운트시키고 fadeIn을 다시 태운다(CSS 애니메이션은 참조 동등성으로 재시작을 판단하므로
+  // 같은 프리셋 객체만으로는 다시 돌지 않는다).
+  //
+  // ⚠️ 이름이 '크로스페이드'가 아니다 — React가 이전 노드를 즉시 언마운트하므로 퇴장 페이드는
+  //    없다(codex 리뷰). 진짜 크로스페이드(두 스텝을 겹쳐 유지)는 **의도적으로 채택하지 않았다**:
+  //    스텝들이 마운트 시 부수효과를 낸다(FocusCategoryStep의 추천 과목 조회, ScreenTimePermissionStep의
+  //    권한 요청, YesterdayScreenTimeStep의 분석 연출 가드 타이머, NicknameStep의 입력 포커스).
+  //    220ms 동안 두 스텝이 동시에 살아 있으면 이것들이 겹쳐 발화하고 포커스 순서도 흔들린다 —
+  //    온보딩은 첫인상 화면이자 Maestro 커버리지가 가장 많은 곳이라 그 위험을 지지 않는다.
+  //
+  //    단방향 페이드가 '배경 번쩍임'으로 보이지 않는 근거: 앱은 라이트 모드 고정이고
+  //    (app.config.js userInterfaceStyle:'light' · Info.plist UIUserInterfaceStyle:Light)
+  //    루트 뷰와 StepScaffold·LoginScreen의 배경이 모두 T.paper(#FFFFFF)다. 즉 뒤에 드러나는
+  //    것은 '다른 색'이 아니라 같은 흰 종이이고, 보이는 변화는 내용의 불투명도뿐이다.
+  //
+  // 뷰를 새로 끼우지 않고 기존 래퍼를 승격만 했다 — Maestro 셀렉터(스텝 testID)는 전부
+  // StepScaffold 안쪽이라 트리 계약은 그대로다.
   const m = useMotion();
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
@@ -251,8 +265,16 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         };
 
   // 중간 로그인 화면 — 자체 전체화면 레이아웃(진행바 없음).
+  // 스텝과 **같은 페이드**로 들어온다(codex 리뷰) — 같은 흐름 안에서 어떤 전환은 페이드고
+  // 어떤 전환만 툭 바뀌면 그 불일치가 하드컷 하나보다 더 어색하다.
+  // ⚠️ 뒤로가기 제스처(swipeBack)는 붙이지 않는다 — 로그인에서 이전 설득 화면으로 되돌아가지
+  //    않는 기존 동작을 그대로 둔다(여기에 붙이면 backFloor가 0이라 스와이프가 열려 버린다).
   if (node.kind === 'login') {
-    return <LoginScreen onLogin={onMidFlowLogin} isOnboarding />;
+    return (
+      <Animated.View key={stepKey} style={[styles.flex, m.css(fadeIn())]}>
+        <LoginScreen onLogin={onMidFlowLogin} isOnboarding />
+      </Animated.View>
+    );
   }
 
   // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.
