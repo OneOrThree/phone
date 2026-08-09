@@ -334,3 +334,69 @@ export interface CreateChallengeResponse {
   id: string;
   nonParticipants: CreateChallengeNonParticipant[];
 }
+
+// ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, N43·N53) ───────────────────
+// 서버는 이 배치에서 병렬 구현 중이다 — shape의 정본은 docs/prd/challenge/low-level-design.md §2.
+
+// 회차(bet session) 상태. UNUSED(참가 0명 마감)는 결과·내역·알림에서 제외된다(N52) —
+// /me/challenge-results에는 실리지 않지만, 모르는 상태가 와도 화면이 죽지 않게 유니온에 둔다.
+export type BetSessionStatus = 'OPEN' | 'SETTLED' | 'FORFEITED' | 'VOIDED' | 'REFUNDED' | 'UNUSED';
+
+// VOIDED 회차의 무효 사유(N33) — 사유 없이 VOIDED 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다.
+export type BetSessionVoidReason = 'SHORT_PARTICIPANTS' | 'CHALLENGE_DELETED';
+
+// GET /me/challenge-results의 인별 정산 결과 한 줄. LastSettledBetResult와 같은 3상 규칙 —
+// achieved·payout null = 미판정(부분 정산 실패), progressMinutes null = 미집계(0분 아님).
+export interface MyChallengeResultRow {
+  userId: string;
+  nickname: string; // 탈퇴 멤버는 서버가 "탈퇴한 사용자"로 치환해 내려준다(LLD §2.1)
+  achieved: boolean | null;
+  payout: number | null;
+  progressMinutes: number | null;
+}
+
+// GET /me/challenge-results?since=&limit= 항목 — 내가 참가자인 정산 완료 회차(그룹 무관).
+// 결과 모달 큐의 유일한 소스(N53). 삭제된 챌린지의 회차는 서버가 제외한다(FR-44-4·N48 —
+// 삭제 환불은 BET_VOID_REFUND 푸시가 알린다). 최근 30일·최대 10건.
+export interface MyChallengeResultEntry {
+  sessionId: string;
+  groupId: string;
+  groupName: string; // 그룹방을 못 읽어도(탈퇴) 이름은 보여준다
+  challengeId: string;
+  challengeDeleted: boolean; // 계약상 항상 false — 방어적으로만 읽는다
+  challengeEnded: boolean; // ENDED 챌린지의 회차도 실린다(N38→N53)
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  stake: number;
+  pot: number;
+  status: BetSessionStatus; // SETTLED | FORFEITED | VOIDED | REFUNDED
+  voidReason: BetSessionVoidReason | null; // VOIDED만
+  goalMinutes: number | null; // 미션 스냅샷 — null이면 분모를 지어내지 않는다
+  myAchieved: boolean | null;
+  myPayout: number | null;
+  results: MyChallengeResultRow[];
+}
+
+export interface MyChallengeResultsResponse {
+  results: MyChallengeResultEntry[];
+}
+
+// GET /me/bet-sessions?status=OPEN 항목 — 내가 참가비를 건 진행 중 회차(그룹 무관).
+// 창 사용분 보고 대상 탐색축(N43) — 탈퇴·챌린지 종료 뒤에도 시작된 회차엔 보고해야 한다.
+// 미션 스냅샷을 싣는 이유: 챌린지 행 조인이 불가능한 상황(종료·삭제)이 이 API의 존재 이유다.
+export interface MyOpenBetSession {
+  sessionId: string;
+  groupId: string;
+  challengeId: string;
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  missionCategory: MissionCategory;
+  missionType: MissionType;
+  goalMinutes: number | null;
+  windowStart: string | null; // "HH:mm(:ss)" KST — TIME_WINDOW만(같은 날 최대 23:59, 자정 걸침 없음 — N25)
+  windowEnd: string | null;
+  closesAt: string; // ISO instant — 보고 마감 판단용
+  settleAfter: string; // ISO instant
+}
+
+export interface MyBetSessionsResponse {
+  sessions: MyOpenBetSession[];
+}

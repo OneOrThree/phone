@@ -24,6 +24,10 @@ import type {
   GroupSettingsResponse,
   GroupSummaryResponse,
   MissionCategory,
+  MyBetSessionsResponse,
+  MyChallengeResultEntry,
+  MyChallengeResultsResponse,
+  MyOpenBetSession,
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
@@ -298,6 +302,34 @@ export async function getBetHistory(
 // 시작 전 철회는 이 함수, 시작 후의 개설자 단독 취소는 기존 cancelBet — 카드가 배타 조건으로 나눠 쓴다.
 export async function leaveBet(groupId: string, betId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}/participation`);
+}
+
+// ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, 서버 병렬 구현 중) ──────────
+
+// GET /api/v1/me/challenge-results?since=&limit= — 내 정산 완료 회차(그룹 무관, N53).
+// 결과 모달 큐의 유일한 소스다 — 카드 조회(getChallenges)와 분리됐다: 탈퇴자도 자기 결과를
+// 봐야 하고(C8), 안 본 결과 여럿이 최신 1건으로 접히면 안 된다. 최근 30일·최대 10건은 서버 계약.
+// 방어: results 키가 없거나 배열이 아니면 빈 배열 — 큐가 없을 뿐 화면은 무영향.
+export async function getMyChallengeResults(page?: {
+  since?: string;
+  limit?: number;
+}): Promise<MyChallengeResultEntry[]> {
+  const { data } = await api.get<MyChallengeResultsResponse>(
+    '/api/v1/me/challenge-results',
+    // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
+    { params: { since: page?.since, limit: page?.limit } },
+  );
+  return Array.isArray(data?.results) ? data.results : [];
+}
+
+// GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).
+// screentimeSync의 창 사용분 보고 대상 탐색축 — 그룹 목록 순회로는 탈퇴자·종료된 챌린지의
+// 진행 중 회차를 못 찾는다(탈퇴 즉시 목록에서 사라진다).
+export async function getMyOpenBetSessions(): Promise<MyOpenBetSession[]> {
+  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
+    params: { status: 'OPEN' },
+  });
+  return Array.isArray(data?.sessions) ? data.sessions : [];
 }
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.

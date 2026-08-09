@@ -14,9 +14,10 @@ const CHALLENGE_ID = 'c1';
 
 test('PUT /{groupId}/challenges/{challengeId}/window-usage — 바디를 그대로 보낸다', async () => {
   mockApi.put.mockResolvedValue({ data: undefined });
+  // 필드명은 LLD §2.1 계약 — usageDate·progressMinutes·measuredAt(N34 역전 판정 축).
   const body = {
-    date: '2026-08-02',
-    usedMinutes: 45,
+    usageDate: '2026-08-02',
+    progressMinutes: 45,
     measuredAt: '2026-08-02T04:00:00.000Z',
   };
   await putWindowUsage(GROUP_ID, CHALLENGE_ID, body);

@@ -24,6 +24,7 @@ import {
   getAnnouncements,
   getChallenges,
   getGroupDetail,
+  getMyChallengeResults,
   groupErrorCode,
 } from '@/services/groupApi';
 import {
@@ -33,13 +34,14 @@ import {
   logGroupRoomViewed,
 } from '@/services/analyticsEvents';
 import { issueInviteLink } from '@/services/inviteLinkApi';
-import { todayStrKst, yesterdayStrKst } from '@/utils/localDate';
+import { todayStrKst } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
   GroupDetailMemberResponse,
   GroupDetailResponse,
   GroupSummaryResponse,
+  MyChallengeResultEntry,
 } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { buildInviteShareMessage } from './inviteShare';
@@ -220,8 +222,8 @@ export default function GroupRoomScreen({
   // '내기 이전' 모습이라 다시 누르면 같은 내기를 또 열려 한다. 시트가 한 번에 하나뿐이라
   // 챌린지별 플래그 대신 화면 단위 하나로 둔다.
   const [betBusy, setBetBusy] = useState(false);
-  // 챌린지 결과 모달 큐 — load()가 어제/오늘(창 종료) 결과에서 미노출분을 골라 채운다.
-  // 맨 앞 한 장만 띄우고, 닫으면 다음 장으로 넘어간다(가드 키가 챌린지×날짜 단위라 큐도 그 단위).
+  // 챌린지 결과 모달 큐 — load()가 /me/challenge-results(참가자 스코프, N53)에서 미노출분을
+  // 골라 채운다. 맨 앞 한 장만 띄우고, 닫으면 다음 장으로(가드 키가 세션 단위라 큐도 그 단위).
   const [resultQueue, setResultQueue] = useState<ChallengeResultCandidate[]>([]);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
@@ -312,17 +314,18 @@ export default function GroupRoomScreen({
     // 기준일은 서버 판정 축과 같은 KST다(GROMO-1219) — 진행률·내기·결과의 날짜 판정이 전부
     // 서버 KST 고정이라, 기기 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 조회가 된다.
     const date = todayStrKst();
-    // 어제 챌린지 1콜 합류(A3) — 결과 모달의 소스다. 판정은 조회-시 계산이라(계약 "판정 vs 정산
-    // 분리") 어제 date로 부르면 자정에 확정된 결과가 그대로 온다. 실패해도 화면 무영향(allSettled).
-    const yesterday = yesterdayStrKst();
     setError(false);
-    const [detailResult, noticeResult, challengeResult, resultChallengeResult] =
-      await Promise.allSettled([
+    // 결과 모달의 소스는 참가자 스코프 /me/challenge-results 1콜이다(GROMO-1279 · N53) —
+    // 어제 date 챌린지 재조회로 결과를 역산하던 구 구조는 폐기(challengeResult.ts 파일 주석).
+    // 게스트(userId 없음)는 참가 회차가 있을 수 없어 부르지 않는다. 실패해도 화면 무영향(allSettled).
+    const [detailResult, noticeResult, challengeResult, myResultsResult] = await Promise.allSettled(
+      [
         getGroupDetail(groupId, date),
         getAnnouncements(groupId),
         getChallenges(groupId, date),
-        getChallenges(groupId, yesterday),
-      ]);
+        userId ? getMyChallengeResults() : Promise.resolve<MyChallengeResultEntry[]>([]),
+      ],
+    );
     if (seq !== requestSeqRef.current) return false;
 
     if (detailResult.status === 'fulfilled') {
@@ -381,39 +384,27 @@ export default function GroupRoomScreen({
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
 
-    // ── 챌린지 결과 모달 후보 산출(A3) — 성공한 조회만으로 계산한다(부분 실패 무영향). ──
+    // ── 챌린지 결과 모달 후보 산출(GROMO-1279) — 성공한 조회만으로 계산한다(부분 실패 무영향). ──
     // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
-    const todayList =
-      challengeResult.status === 'fulfilled' && Array.isArray(challengeResult.value)
-        ? challengeResult.value
+    const resultEntries =
+      myResultsResult.status === 'fulfilled' && Array.isArray(myResultsResult.value)
+        ? myResultsResult.value
         : null;
-    const resultList =
-      resultChallengeResult.status === 'fulfilled' && Array.isArray(resultChallengeResult.value)
-        ? resultChallengeResult.value
-        : null;
-    if (todayList !== null || resultList !== null) {
-      const candidates = pickChallengeResults({
-        today: todayList,
-        yesterday: resultList,
-        todayDate: date,
-        yesterdayDate: yesterday,
-        myUserId: userId ?? null,
-      });
+    if (resultEntries !== null && userId) {
+      const candidates = pickChallengeResults(resultEntries);
       if (candidates.length > 0) {
-        const unseen = await filterUnseenChallengeResults(candidates);
+        const unseen = await filterUnseenChallengeResults(userId, candidates);
         // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
         if (seq !== requestSeqRef.current) return false;
         // 푸시가 지목한 챌린지는 **1회 가드를 건너뛰고** 큐 앞자리에 세운다(GROMO-1088) —
         // 사용자가 알림을 직접 탭한 명시적 요청이라, 앱을 먼저 열어 이미 본 결과여도 응해야 한다.
-        // 후보에 없으면(아직 집계 전·판정 미확정) 소비하지 않고 다음 조회로 넘긴다.
+        // 후보에 없으면(아직 정산 전) 소비하지 않고 다음 조회로 넘긴다.
         const focusId = focusPendingRef.current;
         const focused = focusId ? candidates.filter((c) => c.challengeId === focusId) : [];
         if (focused.length > 0) focusPendingRef.current = null;
         const next = [
           ...focused,
-          ...unseen.filter(
-            (c) => !focused.some((f) => f.challengeId === c.challengeId && f.date === c.date),
-          ),
+          ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
         ];
         setResultQueue((prev) => {
           // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
@@ -425,11 +416,8 @@ export default function GroupRoomScreen({
           //    가려져 있던 결과는 노출 마커가 없어 unseen에 그대로 남으므로 next에서 잃지 않는다.
           const head = prev[0];
           if (!head) return next;
-          if (resultShownKeyRef.current !== `${head.challengeId}:${head.date}`) return next;
-          return [
-            head,
-            ...next.filter((c) => c.challengeId !== head.challengeId || c.date !== head.date),
-          ];
+          if (resultShownKeyRef.current !== head.sessionId) return next;
+          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
         });
       }
     }
@@ -539,20 +527,23 @@ export default function GroupRoomScreen({
   // 가드를 닫을 때 기록하면 모달이 떠 있는 사이의 재조회가 같은 결과를 큐에 또 넣는다.
   useEffect(() => {
     if (!resultVisible || currentResult === null) return;
-    const key = `${currentResult.challengeId}:${currentResult.date}`;
+    const key = currentResult.sessionId;
     if (resultShownKeyRef.current === key) return;
     resultShownKeyRef.current = key;
     resultShownAtRef.current = Date.now();
-    markChallengeResultSeen(currentResult.challengeId, currentResult.date);
+    // 가드 키는 계정 스코프다(IA §8) — userId 없이는 큐 자체가 만들어지지 않아(load의 userId
+    // 가드) 여기 도달하지 않지만, 방어적으로 있을 때만 기록한다.
+    if (userId) markChallengeResultSeen(userId, currentResult.sessionId, currentResult.date);
     logGroupChallengeResultShown({
-      mission_type: currentResult.missionType,
-      mission_category: currentResult.missionCategory,
-      // null(집계 중)은 파라미터를 아예 싣지 않는다 — false(미달성)와 뭉개지 않는다.
+      // 소스가 /me/challenge-results로 바뀌며(N53) 미션 메타가 응답에 없다 — 대신 정산 결말을
+      // 싣는다(무산·환불 노출도 이 이벤트가 세야 한다).
+      status: currentResult.status,
+      // null(미판정)은 파라미터를 아예 싣지 않는다 — false(미달성)와 뭉개지 않는다.
       achieved: currentResult.myAchieved ?? undefined,
       achiever_count: currentResult.achievers.length,
       member_count: currentResult.memberCount,
     });
-  }, [resultVisible, currentResult]);
+  }, [resultVisible, currentResult, userId]);
 
   const onResultClose = useCallback(() => {
     const shownAt = resultShownAtRef.current;
