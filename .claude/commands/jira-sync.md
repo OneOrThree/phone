@@ -10,7 +10,7 @@ PRD 기반 Jira 티켓 자동 생성: **$ARGUMENTS**
 
 ### 1. 인자 파싱
 `$ARGUMENTS`에서 다음을 파싱한다:
-- PRD 파일 경로 (없으면 `docs/superpowers/specs/` 아래 가장 최근 `*-prd.md` 또는 `*-sprint*-prd.md` 자동 선택)
+- PRD 파일 경로 (없으면 팀 공유 `docs/*/prd.md` → 개인 스크래치 `.docs/superpowers/specs/`의 최근 `*-prd.md`/`*-sprint*-prd.md` 순으로 자동 선택)
 - `--label <값>` → 기본값 `BE`
 - `--release <값>` → 기본값 `0.0.4`
 

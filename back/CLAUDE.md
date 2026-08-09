@@ -54,6 +54,13 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 - `./gradlew jacocoTestReport` — coverage report.
 - Local helper: `./test-local.sh` spins up a throwaway `postgres:16-alpine` container, runs the tests, then tears it down.
 
+## Docs
+
+Team-shared feature docs (per-feature PRD · IA · high-level/low-level design) live
+in the **repo-root `docs/`** (tracked; see `docs/README.md`). `back/docs/` stays
+local-only planning scratch — except the tracked `back/docs/db/` schema whitelist
+(GROMO-735).
+
 ## Database changes
 
 Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
