@@ -39,7 +39,10 @@ export function TimerMethodSheet({
   const [picked, setPicked] = useState<FocusTimerMode | null>(null);
   const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // '동작 줄이기'면 알약이 미끄러지지 않고 누른 행에 즉시 나타난다(위치·표시 여부는 그대로).
-  // ⚠️ 아래 진행 타이머(SLIDE_MS + 60)는 손대지 않는다 — 세션 시작 흐름의 계약이다.
+  // ⚠️ 아래 진행 타이머(SLIDE_MS + 60)는 **알약이 미끄러지는 걸 보여주기 위한 대기**다.
+  //    그래서 m.delay()를 통과시킨다 — reduce면 알약이 이미 제자리에 있으므로 기다릴 게 없고,
+  //    게이트하지 않으면 빈 410ms 정지 화면이 남는다. 타이머 자체는 남으므로 세션 시작 흐름
+  //    (onSelect → navigate)의 순서 계약은 그대로다.
   const m = useMotion();
 
   // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
