@@ -21,7 +21,11 @@ interface Props {
 export function WeekStreakModal({ visible, onClose }: Props) {
   // 카드 위치·폭(오버레이 좌표) — 컨페티가 카드를 장애물로 취급할 때 사용. 최초 1회만 기록.
   const [cardRect, setCardRect] = useState<ConfettiObstacle | null>(null);
-  // 팝인이 끝났는가(GROMO-1381) — 캐릭터가 튀어 들어온 **뒤에** 색종이가 터진다.
+  // 캐릭터 그림이 실제로 올라왔는가(GROMO-1381) — 이 모달만 원래 이 게이트가 없었는데,
+  // 팝을 마운트 시점에 걸면 커스텀 누끼 디코딩이 늦을 때 안 보이는 사이 팝이 끝나 버린다.
+  // 다른 두 축하 모달(Goal·ScreenTime)과 같은 결함이라 같은 방식으로 막는다(codex 리뷰).
+  const [charReady, setCharReady] = useState(false);
+  // 팝인이 끝났는가 — 캐릭터가 튀어 들어온 **뒤에** 색종이가 터진다.
   // 같은 오버레이·같은 등장 순간이라는 기존 결정(위 주석)은 유지하고 박자만 나눈 것이다.
   const [popDone, setPopDone] = useState(false);
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
@@ -31,15 +35,17 @@ export function WeekStreakModal({ visible, onClose }: Props) {
   useEffect(() => {
     if (visible) hapticSuccess();
   }, [visible]);
-  // reduce여도 타이머는 남긴다(정책 D7) — 지연만 0이 된다. 없애면 게이트가 영영 안 열린다.
+  // 색종이는 팝이 시작(=charReady)한 뒤 팝 길이만큼 지나서. reduce여도 타이머는 남긴다(정책 D7) —
+  // 지연만 0이 된다. 없애면 게이트가 영영 안 열린다.
   useEffect(() => {
     if (!visible) {
       setPopDone(false);
       return undefined;
     }
+    if (!charReady) return undefined;
     const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
     return () => clearTimeout(t);
-  }, [visible, m]);
+  }, [visible, charReady, m]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -52,9 +58,15 @@ export function WeekStreakModal({ visible, onClose }: Props) {
           }}
         >
           {/* 팝 진입 — 카드에 overflow 제약이 없어 1.25배 오버슛이 잘리지 않는다.
-              호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다). */}
-          <Animated.View style={m.css(pop())}>
-            <CharacterImage size={104} sourceUri={activeSource ?? undefined} />
+              호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다).
+              ⚠️ 팝은 마운트가 아니라 그림이 실제로 올라온 뒤(onLoad) 시작한다 — 근거는
+              GoalCelebrationModal의 같은 자리 주석(codex 리뷰). */}
+          <Animated.View style={charReady ? m.css(pop()) : s.charPending}>
+            <CharacterImage
+              size={104}
+              sourceUri={activeSource ?? undefined}
+              onLoad={() => setCharReady(true)}
+            />
           </Animated.View>
           <Text style={s.title}>이번 주 스트릭 완성! 🎉</Text>
           <Text style={s.sub}>월요일부터 일요일까지 하루도 빠짐없이 채웠어요</Text>
@@ -75,6 +87,8 @@ export function WeekStreakModal({ visible, onClose }: Props) {
 
 const s = StyleSheet.create({
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  // 그림이 올라오기 전 — 자리(104)는 잡되 보이지 않게. opacity라 레이아웃은 그대로다.
+  charPending: { opacity: 0 },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
     alignSelf: 'stretch',

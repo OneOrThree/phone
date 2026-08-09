@@ -12,8 +12,9 @@ import {
   Vibration,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  type TextStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -117,8 +118,21 @@ function viewForPage(index: number, groupCount: number): FocusViewName {
 const LANDSCAPE_ENABLED = Platform.OS === 'ios';
 
 // ── 렌더 계층 전용 상수(GROMO-1381) — 아래 세션 로직과 무관하다 ──────────────────────
-// 진행 링 두께. 얇게 두는 이유는 가운데 52pt 타이머 숫자가 주인공이기 때문.
+// 진행 링 두께. 얇게 두는 이유는 가운데 타이머 숫자가 주인공이기 때문.
 const RING_STROKE = 6;
+// 캐릭터·링 기본 크기. 아래 uiScale이 작은 화면에서 **둘을 같은 비율로** 줄인다.
+const BASE_CHAR = 230;
+const BASE_RING = 230;
+// 세로 고정 요소 높이 합(실측) — 이 값을 빼고 남은 세로 공간을 캐릭터와 링이 나눠 쓴다.
+//   topBar 52(36 + paddingVertical 8×2) + dots 23(7 + 8×2) + controls 90(60 + paddingBottom 30)
+//   + readout의 링 밖 내용:
+//     뽀모도로 105 = paddingBottom 20 + 세트배지행 34 + 과목명 30 + 세트도트 21
+//     카운트업/다운 계열 50 = paddingBottom 20 + 과목명 30 (+카운트다운은 목표줄 22)
+// 링이 있는 모드는 뽀모도로(최악)를 기준으로 잡아 모드 간 캐릭터 크기가 흔들리지 않게 한다.
+const CHROME_WITH_RING = 276;
+const CHROME_PLAIN = 220;
+// 링 안 숫자가 읽히는 최소선. 현재 지원 기기(≥667pt)에선 걸리지 않고 안전 하한으로만 둔다.
+const MIN_UI_SCALE = 0.62;
 // 페이저 도트 — 활성 알약(너비 7→18)과 색이 값 변화를 부드럽게 따라가게 한다.
 const DOT_TRANSITION = transition({
   property: ['width', 'backgroundColor'],
@@ -141,6 +155,8 @@ export default function FocusSessionScreen() {
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
   const { width, height } = useWindowDimensions();
+  // 세로 레이아웃 예산 계산용 — 노치·홈 인디케이터를 뺀 실제 가용 높이를 알아야 한다(아래 uiScale).
+  const insets = useSafeAreaInsets();
   // 가로 판별 — 방향 전환에 따라 렌더만 분기한다(세션 로직은 방향과 무관, GROMO-973).
   const isLandscape = width > height;
   // 모션 게이트('동작 줄이기') — 이 화면에서는 렌더 계층에서만 쓴다(GROMO-1381).
@@ -1219,9 +1235,26 @@ export default function FocusSessionScreen() {
   };
 
   // ── 렌더 계층(GROMO-1381) — 아래 블록은 세션 로직에 전혀 관여하지 않는다 ──────────────
-  // 진행 링 지름 — 가운데에 52pt HH:MM:SS(약 200pt 폭)가 들어가야 해서 하한이 크고, 상한은
-  // 위 캐릭터(230)보다 커지지 않게 잡았다. 작은 기기에서만 하한까지 줄어든다.
-  const ringSize = Math.round(Math.min(230, Math.max(206, height * 0.27)));
+  // 세로 예산. 링과 캐릭터를 각각 고정 크기로 두면 667pt 기기(SE·8)에서 둘의 합(460)이
+  // 남는 공간(약 371)을 넘어 캐릭터가 링·페이지 도트와 겹친다(codex 리뷰). 화면 높이가 아니라
+  // **안전 영역을 뺀 실제 가용 높이**에서 고정 요소를 제하고, 남은 만큼 둘을 같은 비율로 줄인다.
+  const hasRing = mode !== 'countup'; // 카운트업은 목표가 없어 링 자체를 그리지 않는다
+  const availableH = Math.max(0, height - insets.top - insets.bottom);
+  const budgetH = Math.max(0, availableH - (hasRing ? CHROME_WITH_RING : CHROME_PLAIN));
+  const uiScale = Math.min(
+    1,
+    Math.max(MIN_UI_SCALE, budgetH / (hasRing ? BASE_CHAR + BASE_RING : BASE_CHAR)),
+  );
+  const charSize = Math.floor(BASE_CHAR * uiScale);
+  const ringSize = Math.floor(BASE_RING * uiScale);
+  // 링이 줄면 가운데 숫자도 같이 줄어야 한다 — hms()는 항상 8글자라 52pt에선 약 200pt를 차지해
+  // 줄어든 링을 뚫고 나간다. 자간·행높이도 같은 비율로 따라간다(폰트 메트릭 유지).
+  const timerFontSize = Math.floor(T.text.timer.fontSize * uiScale);
+  const timerTextStyle = {
+    fontSize: timerFontSize,
+    lineHeight: Math.round(timerFontSize * 1.08),
+    letterSpacing: T.text.timer.letterSpacing * uiScale,
+  };
 
   // 가로 — 플립 시계만 크게 보는 컴팩트 뷰(GROMO-973). 세션 상태·타이머는 위 훅들이 그대로 굴린다.
   // 자릿수는 세션 최대 길이로 판정 — 1시간 이상(뽀모도로가 시간 단위인 경우 포함)이면 HH:MM:SS, 아니면 MM:SS.
@@ -1299,11 +1332,14 @@ export default function FocusSessionScreen() {
                   한다(정책 D-22). ref 안쪽에 transform이 걸리면 아래 captureRef가 세로로 눌린
                   호흡 중간 프레임을 그대로 PNG로 구워 Live Activity·차폐 화면에 박아 버린다.
                   일시정지면 calm(주기 2600ms·얕은 진폭)으로 가라앉는다. reduce 처리는 컴포넌트 몫. */}
-              <AnimatedCharacter size={230} mood={paused ? 'calm' : 'idle'}>
-                {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
+              <AnimatedCharacter size={charSize} mood={paused ? 'calm' : 'idle'}>
+                {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터).
+                    ⚠️ charSize가 작은 화면에서 줄면 캡처 PNG 해상도도 함께 줄어든다. 기기 배율
+                    (@2x/@3x) 때문에 해상도는 원래도 460~690px로 흔들렸고, 축소 하한(≈370px)도
+                    위젯 실제 표시 크기보다 크다 — 별도 캡처 크기를 두지 않는다(보고 참고). */}
                 <View ref={charShotRef} collapsable={false}>
                   <CharacterImage
-                    size={230}
+                    size={charSize}
                     variant="study"
                     sourceUri={activeSource ?? undefined}
                   />
@@ -1390,7 +1426,7 @@ export default function FocusSessionScreen() {
             key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
             갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
         <Animated.View key={session.phase} style={[s.readout, m.css(fadeIn())]}>
-          {renderReadout(mode, session, goal, pomo, subjectName, ringSize)}
+          {renderReadout(mode, session, goal, pomo, subjectName, ringSize, timerTextStyle)}
         </Animated.View>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
@@ -1459,8 +1495,9 @@ export default function FocusSessionScreen() {
 // 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
 //
 // 진행 링(GROMO-1381) — '남은 시간'을 링으로도 읽게 한다. 숫자 텍스트는 링 가운데에 겹치되
-// 폰트·정렬(s.bigTime)은 그대로 승계한다.
+// 정렬·색·tabular-nums(s.bigTime)는 그대로 승계하고, 크기만 링에 맞춰 timerStyle로 덮는다.
 // ⚠️ 카운트업(무제한)에는 링을 그리지 않는다 — 목표가 없으면 진행률 자체가 정의되지 않는다.
+//    링이 없으니 폭 제약도 없어 timerStyle을 씌우지 않고 기본 52pt를 그대로 쓴다.
 // ⚠️ 링은 첫 마운트에 애니메이션이 없다(ProgressRing 헤더 주석). 이미 진행 중인 세션으로
 //    들어와도 남은 시간이 처음부터 정확히 그려진다 — 진입 연출은 호출부의 fadeIn이 담당한다.
 function renderReadout(
@@ -1470,6 +1507,7 @@ function renderReadout(
   pomo: { focusMin: number; breakMin: number; sets: number },
   subjectName: string,
   ringSize: number,
+  timerStyle: TextStyle,
 ) {
   if (mode === 'countup') {
     return (
@@ -1491,7 +1529,7 @@ function renderReadout(
           trackColor={withAlpha(T.night.cream, 0.18)}
           testID="focus.progress.ring"
         >
-          <Text style={s.bigTime}>{hms(session.display)}</Text>
+          <Text style={[s.bigTime, timerStyle]}>{hms(session.display)}</Text>
         </ProgressRing>
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
@@ -1518,7 +1556,7 @@ function renderReadout(
         trackColor={withAlpha(T.night.cream, 0.18)}
         testID="focus.progress.ring"
       >
-        <Text style={s.bigTime}>{hms(session.display)}</Text>
+        <Text style={[s.bigTime, timerStyle]}>{hms(session.display)}</Text>
       </ProgressRing>
       <View style={s.setDots}>
         {Array.from({ length: pomo.sets }).map((_, i) => (

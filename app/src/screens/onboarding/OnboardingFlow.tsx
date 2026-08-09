@@ -76,7 +76,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 가입 확정(신규 유저) 실패 상태 — 닉네임 화면에 에러를 띄운다. 입력을 고치면 지운다.
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // 스텝 전환 크로스페이드(GROMO-1381) — 아래 래퍼에 key={index}를 걸어 스텝이 바뀔 때마다
+  // 스텝 전환 크로스페이드(GROMO-1381) — 아래 래퍼에 stepKey를 걸어 화면이 바뀔 때마다
   // 새로 마운트시키고 fadeIn을 다시 태운다(CSS 애니메이션은 참조 동등성으로 재시작을 판단하므로
   // 같은 프리셋 객체만으로는 다시 돌지 않는다). 뷰를 새로 끼우지 않고 기존 래퍼를 승격만 했다 —
   // Maestro 셀렉터(스텝 testID)는 전부 StepScaffold 안쪽이라 트리 계약은 그대로다.
@@ -229,6 +229,14 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const node = sequence[index];
   const canBack = index > backFloor;
 
+  // 전환 페이드의 재시작 키(GROMO-1381) — 인덱스만으로는 부족하다. 스크린타임 거부 화면에서
+  // 재승인하면 screenTimeGranted가 false→true가 되면서 **인덱스는 그대로인 채 노드만**
+  // screentime_denied → yesterday_screentime으로 교체돼 페이드가 재생되지 않는다(codex 리뷰).
+  // 노드 정체성을 키에 섞어 그 교체도 새 화면으로 취급한다. 인덱스를 남겨 두는 이유는 종전
+  // 리마운트 집합을 그대로 포함시키기 위한 것 — 이 키로 늘어나는 리마운트는 위 교체 1건뿐이고,
+  // 그 경우엔 Component 자체가 달라 어차피 스텝 내부 상태가 보존되지 않는다.
+  const stepKey = `${index}:${node.kind === 'step' ? node.name : node.kind}`;
+
   // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전 3칸, 후 5칸 고정.
   // 과목 확인(subStep)은 칸 수에서 제외해 동적으로 끼어들어도 칸 수가 흔들리지 않는다
   // (집중카테고리와 같은 칸을 공유).
@@ -252,7 +260,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     return (
       <OnboardingProgressContext.Provider value={progress}>
         <Animated.View
-          key={index}
+          key={stepKey}
           style={[styles.flex, m.css(fadeIn())]}
           {...swipeBack.panHandlers}
         >
@@ -277,7 +285,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const Step = node.Component;
   return (
     <OnboardingProgressContext.Provider value={progress}>
-      <Animated.View key={index} style={[styles.flex, m.css(fadeIn())]} {...swipeBack.panHandlers}>
+      <Animated.View
+        key={stepKey}
+        style={[styles.flex, m.css(fadeIn())]}
+        {...swipeBack.panHandlers}
+      >
         <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
       </Animated.View>
     </OnboardingProgressContext.Provider>

@@ -92,8 +92,11 @@ export function GoalCelebrationModal({
           </View>
           {/* 팝 진입 — 카드에 overflow 제약이 없어 1.25배 오버슛이 잘리지 않는다.
               호흡(AnimatedCharacter)은 여기 쓰지 않는다: 무한 루프는 화면당 1개 상한이고,
-              축하 순간에 필요한 건 '들어오는 팝'이지 상시 생명 신호가 아니다. */}
-          <Animated.View style={m.css(pop())}>
+              축하 순간에 필요한 건 '들어오는 팝'이지 상시 생명 신호가 아니다.
+              ⚠️ 팝은 마운트가 아니라 **그림이 실제로 올라온 뒤**(onLoad) 시작한다 — 커스텀 누끼
+              디코딩이 600ms보다 늦으면 팝이 안 보이는 사이 끝나 캐릭터가 최종 크기로 툭 나타난다
+              (codex 리뷰). 그 전에는 opacity 0으로 접어 둬 '컸다가 줄어드는' 프레임도 없앤다. */}
+          <Animated.View style={charReady ? m.css(pop()) : s.charPending}>
             <CharacterImage
               size={104}
               sourceUri={activeSource ?? undefined}
@@ -128,6 +131,8 @@ export function GoalCelebrationModal({
 
 const s = StyleSheet.create({
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  // 그림이 올라오기 전 — 자리(104)는 잡되 보이지 않게. opacity라 레이아웃은 그대로다.
+  charPending: { opacity: 0 },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
     alignSelf: 'stretch',

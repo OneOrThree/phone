@@ -87,8 +87,10 @@ export function ScreenTimeCelebrationModal({
             </Text>
           </View>
           {/* 팝 진입 — 카드에 overflow 제약이 없어 1.25배 오버슛이 잘리지 않는다.
-              호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다). */}
-          <Animated.View style={m.css(pop())}>
+              호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다).
+              ⚠️ 팝은 마운트가 아니라 그림이 실제로 올라온 뒤(onLoad) 시작한다 — 근거는
+              GoalCelebrationModal의 같은 자리 주석(codex 리뷰). */}
+          <Animated.View style={charReady ? m.css(pop()) : s.charPending}>
             <CharacterImage
               size={104}
               sourceUri={activeSource ?? undefined}
@@ -126,6 +128,8 @@ export function ScreenTimeCelebrationModal({
 
 const s = StyleSheet.create({
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  // 그림이 올라오기 전 — 자리(104)는 잡되 보이지 않게. opacity라 레이아웃은 그대로다.
+  charPending: { opacity: 0 },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: withAlpha(T.night.bottom, 0.5) },
   card: {
     alignSelf: 'stretch',
