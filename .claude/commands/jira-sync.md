@@ -46,9 +46,12 @@ PRD 파일을 Read로 읽은 뒤 다음 규칙으로 티켓 후보를 추출한�
 2. DB 마이그레이션 섹션 (`## 5.` 또는 `마이그레이션` 키워드)이 있으면 단일 티켓으로 묶음
 3. 인프라/설정 항목 (APNs, Redis, 스케줄러 등)이 독립 섹션으로 있으면 포함
 
-**티켓 제목 포맷**: `[Domain] 동사형 한줄 설명`
-- Domain: Auth / Group / Item / Focus / League / AI / Infra 중 PRD 섹션에 맞게
+**티켓 제목 포맷**: `동사형 한줄 설명` — **대괄호 접두를 붙이지 않는다**
+- 도메인은 제목이 아니라 `도메인` 필드가 담는다 (`docs/jira-conventions.md`)
 - 동사: 구현 / 조회 API 구현 / 설정 API 구현 / 마이그레이션 / 연동
+
+**도메인**(필수): PRD 섹션에 맞는 값을 `도메인` 드롭다운에서 고른다.
+옵션은 아래 스크립트가 지라에서 조회한다 — 목록을 여기 하드코딩하지 않는다(늘어난다).
 
 **티켓 설명**: 해당 PRD 섹션의 핵심 내용 (엔드포인트, 비즈니스 로직 요약, 에러 케이스, 참고 섹션 번호)
 
@@ -57,9 +60,10 @@ PRD 파일을 Read로 읽은 뒤 다음 규칙으로 티켓 후보를 추출한�
 
 ```
 📋 생성 예정 Jira 티켓 (라벨: BE | 릴리즈: 0.0.4 | 이슈타입: 작업)
+   ※ 도메인은 티켓마다 개별 지정 — 비면 생성하지 않는다
 ──────────────────────────────────────────
- 1. [Auth] 애플 로그인 API 구현
- 2. [Auth] 게스트 로그인 API 구현
+ 1. 애플 로그인 API 구현            [도메인: 인증·계정]
+ 2. 게스트 로그인 API 구현          [도메인: 인증·계정]
  ...
 ──────────────────────────────────────────
 총 N개
@@ -81,18 +85,27 @@ label  = LABEL   # 파싱된 값
 ver_id = VERSION_ID  # 조회된 버전 ID
 type_id = TASK_TYPE_ID  # 조회된 작업 이슈타입 ID
 
+# 도메인 필드(필수) — 옵션 id 는 지라에서 조회한다. 규약: docs/jira-conventions.md
+DOMAIN_FIELD = "customfield_10342"
+_ctx = requests.get(f"{base}/field/{DOMAIN_FIELD}/context", auth=auth).json()["values"][0]["id"]
+DOMAIN_OPTS = {o["value"]: o["id"] for o in requests.get(
+    f"{base}/field/{DOMAIN_FIELD}/context/{_ctx}/option", auth=auth).json()["values"]}
+# Component 미러는 오너 스윕이 맞춘다 — 여기서 넣지 않는다
+
 def adf(text):
     return {"version":1,"type":"doc","content":[
         {"type":"paragraph","content":[{"type":"text","text":text}]}]}
 
-def create(summary, desc):
+def create(summary, desc, domain):
+    assert domain in DOMAIN_OPTS, f"도메인 '{domain}' 이 옵션에 없다: {sorted(DOMAIN_OPTS)}"
     r = requests.post(f"{base}/issue", auth=auth, json={"fields":{
         "project":      {"key": os.environ["JIRA_PROJECT_KEY"]},
         "issuetype":    {"id": type_id},
-        "summary":      summary,
+        "summary":      summary,          # 대괄호 접두 없음
         "description":  adf(desc),
         "labels":       [label],
-        "fixVersions":  [{"id": ver_id}]
+        "fixVersions":  [{"id": ver_id}],
+        DOMAIN_FIELD:   {"id": DOMAIN_OPTS[domain]},
     }})
     d = r.json()
     return d.get("key"), r.status_code
