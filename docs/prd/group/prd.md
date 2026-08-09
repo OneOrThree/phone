@@ -534,6 +534,4 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 - [LLD](./low-level-design.md)
 - [제품 목업](./ux.html)
 - [공용 reorder 목업 모듈](./ux-shared.js)
-- [PRD 비교 분석](../PRD-비교분석.md)
-- [PRD 작성 템플릿](../PRD-작성-템플릿.md)
 
