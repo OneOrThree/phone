@@ -4,7 +4,7 @@
 //    실제로 돌지 않는다. 여기서 잠그는 건 "reduce면 애니메이션 스타일이 아예 안 붙는다"와
 //    "testID가 래퍼에 전달된다" 두 가지뿐이다.
 import { render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { AnimatedCharacter } from './AnimatedCharacter';
 
 let mockReduce = false;
@@ -42,5 +42,22 @@ describe('AnimatedCharacter', () => {
     if (typeof image === 'string') throw new Error('캐릭터 이미지가 아니라 텍스트가 렌더됐다');
     expect(image.props.source).toBe(require('@/assets/character_happy.png'));
     expect(StyleSheet.flatten(image.props.style)).toMatchObject({ width: 216, height: 216 });
+  });
+
+  // ⚠️ 이 슬롯이 없으면 집중 세션이 이 컴포넌트를 못 쓴다 — captureRef가 호흡 transform
+  //    **안쪽**에 들어가 눌린 중간 프레임이 Live Activity에 구워지기 때문이다.
+  //    래퍼가 캡처 ref의 부모가 되는 구조를 만들 수 있어야 한다(codex 리뷰).
+  it('children을 주면 내부 CharacterImage 대신 그것을 호흡 래퍼 안에 그린다', async () => {
+    await render(
+      <AnimatedCharacter size={230} testID="focus.character">
+        <View testID="focus.character.shot" />
+      </AnimatedCharacter>,
+    );
+    const wrapper = screen.getByTestId('focus.character');
+    // 캡처 대상이 호흡 래퍼의 **자식**이어야 한다(부모가 아니라)
+    expect(screen.getByTestId('focus.character.shot')).toBeTruthy();
+    expect(wrapper.children).toHaveLength(1);
+    // children이 있으면 기본 CharacterImage는 그리지 않는다
+    expect(screen.queryByTestId('focus.character.image')).toBeNull();
   });
 });

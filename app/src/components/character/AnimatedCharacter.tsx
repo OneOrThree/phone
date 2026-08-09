@@ -20,7 +20,7 @@
 //
 // reduce('동작 줄이기')면 애니메이션 스타일을 아예 붙이지 않는다 — 정지 프레임 그대로다.
 
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -48,6 +48,7 @@ export function AnimatedCharacter({
   sourceUri,
   mood = 'idle',
   testID,
+  children,
 }: {
   size: number;
   variant?: CharacterVariant;
@@ -56,6 +57,23 @@ export function AnimatedCharacter({
   mood?: CharacterMood;
   /** 래퍼 뷰에 붙는다 — 캐릭터를 통째로 집는 셀렉터. */
   testID?: string;
+  /**
+   * 호흡 래퍼 **안쪽**에 그릴 내용. 주면 내부 `CharacterImage` 대신 이게 들어가고
+   * `size`·`variant`·`sourceUri`는 무시된다.
+   *
+   * ⚠️ 이 슬롯이 있는 이유 — 집중 세션은 캐릭터를 `captureRef`로 떠서 Live Activity·차폐
+   *    화면에 굽는다. 캡처 ref가 호흡 transform **안쪽**에 들어가면 눌린 중간 프레임이 그대로
+   *    구워지므로, 래퍼는 ref의 **부모**여야 한다. 슬롯이 없으면 그 구조를 만들 수 없어
+   *    호출부가 호흡 레시피를 손으로 복제하게 된다(codex 리뷰 · W-F 보고).
+   *
+   *    올바른 형태:
+   *      <AnimatedCharacter>
+   *        <View ref={charShotRef} collapsable={false}>
+   *          <CharacterImage size={230} variant="study" ... />
+   *        </View>
+   *      </AnimatedCharacter>
+   */
+  children?: ReactNode;
 }) {
   const m = useMotion();
   const { duration, ampY, ampX } = MOOD[mood];
@@ -83,7 +101,7 @@ export function AnimatedCharacter({
   return (
     // reduce면 스타일 자체를 붙이지 않는다 — 평범한 View가 되어 워클릿도 돌지 않는다.
     <Animated.View testID={testID} style={m.reduce ? undefined : breathStyle}>
-      <CharacterImage size={size} variant={variant} sourceUri={sourceUri} />
+      {children ?? <CharacterImage size={size} variant={variant} sourceUri={sourceUri} />}
     </Animated.View>
   );
 }
