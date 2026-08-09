@@ -8,6 +8,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { M } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 
@@ -64,8 +65,17 @@ export default function ScreenTimeAnalyzingOverlay({
     //    90%로 **역재생**된 뒤 다시 100%가 된다(codex 리뷰).
     progress.value = 0;
     progress.value = withSequence(
-      withTiming(0.9, { duration: FILL_MS, easing: Easing.linear }),
-      withDelay(HOLD_MS, withTiming(1, { duration: FINISH_MS, easing: Easing.out(Easing.cubic) })),
+      // reduceMotion: M.never — reanimated 기본값(정적 System 플래그)은 '동작 줄이기'를 켠 채
+      // 앱을 켰다가 끈 사용자에게 계속 걸려, 재시작 전까지 진행바가 아예 차오르지 않는다.
+      withTiming(0.9, { duration: FILL_MS, easing: Easing.linear, reduceMotion: M.never }),
+      withDelay(
+        HOLD_MS,
+        withTiming(1, {
+          duration: FINISH_MS,
+          easing: Easing.out(Easing.cubic),
+          reduceMotion: M.never,
+        }),
+      ),
     );
     // ⚠️ m.reduce를 의존성에 포함 — 재생 도중 설정이 켜져도 90%에서 굳지 않게 한다.
   }, [progress, m.reduce]);
