@@ -55,7 +55,11 @@ import { T, withAlpha } from '@/constants/theme';
 //    스택 화면(settings·focus·공지)은 탭바가 없으므로 기본형 그대로 쓴다.
 
 // 레이아웃 전 초기 위치 — 어떤 패널 높이보다 크게 잡아 측정 전 한 프레임도 보이지 않게 한다(§4.2).
-const PRELAYOUT_Y = 1000;
+// ⚠️ 상수 1000pt로 두면 안 된다. 패널 높이 상한이 화면의 85%이므로 화면이 1176pt를 넘는 기기·
+//    폴더블·큰 글꼴 환경에서는 1000pt를 내려도 패널 상단 일부가 화면에 남아, 첫 onLayout 전에
+//    흰 조각이 번쩍였다가 다시 올라오는 깜빡임이 생긴다(codex 리뷰). 화면 높이 자체를 쓴다 —
+//    패널은 그보다 클 수 없다.
+const prelayoutY = (windowHeight: number) => windowHeight;
 // 드래그가 딤을 얼마나 걷어내는가(0~1). 1이면 손을 놓기도 전에 배경이 완전히 드러나 이미 닫힌
 // 것처럼 보인다 — 절반 조금 넘게만 걷어 "닫히는 중"임을 알린다.
 const DIM_DRAG_FADE = 0.6;
@@ -124,7 +128,8 @@ export function SheetShell({
   reduceRef.current = m.reduce;
 
   // 패널 세로 위치. 등장·드래그·퇴장이 **같은 값**을 쓴다(정책 D4).
-  const translateY = useSharedValue(PRELAYOUT_Y);
+  // 초기값은 화면 높이 — 패널은 그보다 클 수 없으므로 측정 전 한 프레임도 보이지 않는다.
+  const translateY = useSharedValue(prelayoutY(windowHeight));
   // 딤 불투명도의 등장/퇴장 성분. 드래그 성분은 아래 useAnimatedStyle에서 곱해진다.
   const dimProgress = useSharedValue(0);
   // 측정된 패널 높이 — 등장 시작점이자 퇴장 목표점이다(추정값을 쓰지 않는 이유는 §4.2).

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import axios from 'axios';
 import { T } from '@/constants/theme';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
@@ -309,9 +309,7 @@ export default function GroupInviteSheet({
         <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={onLogin}>
           <Text style={s.primaryText}>로그인하고 참여하기</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>
-          <Text style={s.ghostText}>다음에 할게요</Text>
-        </TouchableOpacity>
+        <GhostCloseCta label="다음에 할게요" />
       </SheetShell>
     );
   }
@@ -322,9 +320,7 @@ export default function GroupInviteSheet({
       <SheetShell onClose={onClose} asModal>
         <Text style={s.title}>사라진 그룹이에요</Text>
         <Text style={s.desc}>초대 링크가 만료됐거나 그룹이 없어졌어요.</Text>
-        <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={onClose}>
-          <Text style={s.primaryText}>확인</Text>
-        </TouchableOpacity>
+        <PrimaryCloseCta label="확인" />
       </SheetShell>
     );
   }
@@ -342,9 +338,7 @@ export default function GroupInviteSheet({
         >
           <Text style={s.primaryText}>다시 시도</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>
-          <Text style={s.ghostText}>닫기</Text>
-        </TouchableOpacity>
+        <GhostCloseCta label="닫기" />
       </SheetShell>
     );
   }
@@ -410,10 +404,31 @@ export default function GroupInviteSheet({
           <Text style={s.primaryText}>참여하기</Text>
         )}
       </TouchableOpacity>
-      <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>
-        <Text style={s.ghostText}>닫기</Text>
-      </TouchableOpacity>
+      <GhostCloseCta label="닫기" />
     </SheetShell>
+  );
+}
+
+// 순수 닫기 CTA — useSheetClose()로 퇴장 애니메이션을 태운 뒤 부모 onClose를 부른다.
+// ⚠️ 별도 컴포넌트인 이유: SheetCloseContext는 SheetShell **안쪽**에서 제공되므로,
+//    SheetShell을 그리는 컴포넌트 자신은 useSheetClose()를 호출할 수 없다(자식이어야 한다).
+// ⚠️ 화면 전환이 따라붙는 CTA(로그인하러 가기·참여하기)는 이관 대상이 아니다 —
+//    전환은 즉시 일어나야 하고, 퇴장 220ms가 그만큼 지연시킨다.
+function GhostCloseCta({ label }: { label: string }) {
+  const close = useSheetClose();
+  return (
+    <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={close}>
+      <Text style={s.ghostText}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function PrimaryCloseCta({ label }: { label: string }) {
+  const close = useSheetClose();
+  return (
+    <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={close}>
+      <Text style={s.primaryText}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 

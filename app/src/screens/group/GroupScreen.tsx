@@ -131,7 +131,16 @@ export default function GroupScreen() {
     }, [fetchGroups]),
   );
 
-  const closeInvite = useCallback(() => {
+  // ⚠️ 시트 퇴장 애니메이션(220ms) **뒤에** 불린다. 그 사이 새 초대 링크가 도착해 시트 내용이
+  //    B로 바뀌었을 수 있는데, 확인 없이 지우면 방금 온 초대장이 조용히 증발한다(codex 리뷰).
+  //    닫기를 요청한 초대가 지금도 떠 있는 그 초대일 때만 버퍼를 비운다.
+  //    인자 없이 부르면 "무조건 닫기"다 — 참여 성공(onInviteJoined)처럼 어떤 초대가 떠 있든
+  //    시트를 내려야 하는 경로에서 쓴다.
+  const inviteRef = useRef(invite);
+  inviteRef.current = invite;
+  const closeInvite = useCallback((requested?: PendingInvite | null) => {
+    const current = inviteRef.current;
+    if (requested && current && current.slug !== requested.slug) return;
     clearPendingInvite();
     setInvite(null);
   }, []);
@@ -226,7 +235,7 @@ export default function GroupScreen() {
       groupId={invite.groupId}
       slug={invite.slug}
       entry={invite.entry}
-      onClose={closeInvite}
+      onClose={() => closeInvite(invite)}
       onJoined={onInviteJoined}
       onLogin={onInviteLogin}
     />
