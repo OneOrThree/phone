@@ -284,6 +284,12 @@ export function SheetShell({
   // 스프링을 걸면 높이 추정값도, 깜빡임도 없다.
   const onPanelLayout = (h: number): void => {
     panelHeight.value = h;
+    // ⚠️ 이미 닫는 중이면 등장을 시작하지 않는다. 첫 onLayout 전에 (아직 투명한) 딤을 빠르게
+    //    탭하거나 안드로이드 뒤로가기를 누르면 퇴장 withTiming이 먼저 걸리는데, 여기서
+    //    withSpring(0)을 대입하면 그 퇴장을 **취소**한다 → 완료 콜백이 finished=false라
+    //    onClose가 안 불리고, closingRef=true인 투명한 Modal이 화면 입력을 계속 가로막는다
+    //    (codex 리뷰).
+    if (closingRef.current) return;
     if (enteredRef.current) return;
     enteredRef.current = true;
     if (reduceRef.current) {
