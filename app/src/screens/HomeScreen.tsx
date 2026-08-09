@@ -247,7 +247,7 @@ export default function HomeScreen() {
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
   // 시간조각(재화) 잔액 — 오늘 카드 헤더 칩. 홈 포커스 시 서버 잔액 재조회(내기 차감·정산 반영).
-  const { coins, coinsLoaded } = useCoins();
+  const { coins } = useCoins();
   useRefreshCoinsOnFocus();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -584,10 +584,12 @@ export default function HomeScreen() {
               오늘 <Text style={s.cardTitleSub}>Today</Text>
             </Text>
             <View style={s.cardHeaderRight}>
-              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(모래시계 N). 미로드 시 중립 플레이스홀더(모래시계 –) */}
+              {/* 시간조각 잔액 칩 — 폭이 빠듯해 라벨 생략(모래시계 N). 미로드 시에도 '0'을 그대로 보여
+                  준다(GROMO-1073): 지갑은 가입 시 함께 생기므로 신규 유저의 정답도 0이고, 여기서
+                  '–'는 잔액을 잠금 판정에 쓰지 않는 자리라 정보 없는 기호일 뿐이다. */}
               <View style={s.streakChip}>
                 <CurrencyIcon size={11} />
-                <Text style={s.streakChipText}>{coinsLoaded ? coins.toLocaleString() : '–'}</Text>
+                <Text style={s.streakChipText}>{coins.toLocaleString()}</Text>
               </View>
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (

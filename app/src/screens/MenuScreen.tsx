@@ -228,7 +228,7 @@ export default function MenuScreen() {
   const { activeSource } = useCharacter();
   const insets = useSafeAreaInsets();
   // 시간조각(재화) 잔액 — 프로필 아래 행. 포커스 시 서버 잔액 재조회(내기 차감·정산 반영).
-  const { coins, coinsLoaded } = useCoins();
+  const { coins } = useCoins();
   useRefreshCoinsOnFocus();
 
   // 허브 행 우측 요약값 — 준비 시험 / 허용앱 개수 / 스크린타임 권한 상태.
@@ -328,14 +328,16 @@ export default function MenuScreen() {
           <Ionicons name="chevron-forward" size={18} color={T.inkMuted} />
         </TouchableOpacity>
 
-        {/* 시간조각(재화) 잔액 — 탭하면 거래 내역(CurrencyHistory). 포커스 시 잔액 refresh */}
+        {/* 시간조각(재화) 잔액 — 탭하면 거래 내역(CurrencyHistory). 포커스 시 잔액 refresh.
+            미로드 시에도 '0'으로 둔다(GROMO-1073) — 지갑은 가입 시 함께 생겨 신규 유저의
+            정답도 0이고, 이 행은 잔액으로 무엇도 막지 않는다(잠금 판정은 BetSheet 몫). */}
         <SettingsSection>
           <SettingsRow
             icon="hourglass-outline"
             iconColor={T.accentDeep}
             iconBg={T.accentBg}
             label={CURRENCY.label}
-            value={coinsLoaded ? `${coins.toLocaleString()}개` : '–'}
+            value={`${coins.toLocaleString()}개`}
             onPress={() => navigation.navigate('CurrencyHistory')}
           />
         </SettingsSection>
