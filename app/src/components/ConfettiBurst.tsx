@@ -92,12 +92,23 @@ function TiltPiece({
   );
 }
 
+// 시스템 '동작 줄이기'(정책 D7) — 44조각 × 3레이어가 도는 건 명백한 위반이라 파티클을 그리지
+// 않는다. ⚠️ 사라지는 건 파티클뿐이다: 축하 모달·햅틱·문구·수치는 호출부에 그대로 남는다.
+// 사용자가 끈 것은 움직임이지 보상이 아니다.
+//
+// ⚠️ 게이트가 **바깥 컴포넌트**에 있는 이유: 훅은 조건부로 호출할 수 없으므로 같은 컴포넌트
+//    안에서 `if (reduce) return null` 을 하면 useAnimatedSensor의 네이티브 중력 구독이 이미
+//    걸린 뒤다. 파티클이 하나도 안 보이는 동안에도 사용자가 모달을 닫을 때까지 센서가 계속
+//    돈다(codex 리뷰). 안쪽 컴포넌트를 아예 마운트하지 않아야 구독 자체가 생기지 않는다.
+//    재생 도중 설정이 켜져도 안쪽이 언마운트되며 구독이 함께 해제된다.
 export function ConfettiBurst({ obstacle }: Props) {
+  const { reduce } = useMotion();
+  if (reduce) return null;
+  return <ConfettiBurstInner obstacle={obstacle} />;
+}
+
+function ConfettiBurstInner({ obstacle }: Props) {
   const { width: W, height: H } = useWindowDimensions();
-  // 시스템 '동작 줄이기'(정책 D7) — 44조각 × 3레이어가 도는 건 명백한 위반이라 파티클을 그리지
-  // 않는다. ⚠️ 사라지는 건 파티클뿐이다: 축하 모달·햅틱·문구·수치는 호출부에 그대로 남는다.
-  // 사용자가 끈 것은 움직임이지 보상이 아니다.
-  const m = useMotion();
   // 기울임 감지 — 컨페티가 떠 있는 동안만 구독(언마운트 시 자동 해제)
   const gravity = useAnimatedSensor(SensorType.GRAVITY);
   // 미끄러짐 물리 — 매 프레임 중력 x를 적분(가속→속도→변위)해 공통 오프셋을 만든다.
@@ -105,7 +116,8 @@ export function ConfettiBurst({ obstacle }: Props) {
   // |g|<0.8(≈5°)은 정지 마찰로 취급해 속도를 감쇠 — 살짝 기울임엔 흐르지 않는다.
   const slide = useSharedValue(0);
   const slideVel = useSharedValue(0);
-  // autostart=false — reduce면 아무것도 안 그리므로 매 프레임 중력 적분을 돌릴 이유가 없다.
+  // 이 컴포넌트는 '동작 줄이기'가 꺼져 있을 때만 마운트되므로 프레임 콜백을 조건부로 끌 필요가
+  // 없다 — 켜지는 순간 통째로 언마운트된다.
   useFrameCallback((frame) => {
     const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
     const g = gravity.sensor.value.x;
@@ -115,7 +127,7 @@ export function ConfettiBurst({ obstacle }: Props) {
       slideVel.value = (slideVel.value + g * 260 * dt) * 0.995;
     }
     slide.value += slideVel.value * dt;
-  }, !m.reduce);
+  });
 
   // 조각 파라미터·궤적은 1회 생성(useMemo) — 최종 낙하 x가 카드 폭 안이면 '쌓임',
   // 카드 가장자리 14% 구간이면 '미끄러짐', 밖이면 '통과 낙하'로 분기한다.
@@ -232,9 +244,6 @@ export function ConfettiBurst({ obstacle }: Props) {
       };
     });
   }, [W, H, obstacle]);
-
-  // ⚠️ 훅은 전부 위에서 무조건 호출한 뒤 여기서 분기한다(훅 순서 계약).
-  if (m.reduce) return null;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">

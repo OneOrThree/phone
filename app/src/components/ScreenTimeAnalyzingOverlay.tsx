@@ -58,6 +58,11 @@ export default function ScreenTimeAnalyzingOverlay({
       progress.value = 1;
       return;
     }
+    // ⚠️ 시퀀스를 걸기 전에 0으로 되돌린다. useReduceMotion은 최초 비동기 조회가 끝나기 전
+    //    보수적으로 true를 돌려주므로, 콜드 스타트에서 이 오버레이가 일찍 뜨면 위 분기가 먼저
+    //    progress를 1로 만든다. 그 뒤 설정이 false로 확정되며 이 경로가 실행되면 100%에서
+    //    90%로 **역재생**된 뒤 다시 100%가 된다(codex 리뷰).
+    progress.value = 0;
     progress.value = withSequence(
       withTiming(0.9, { duration: FILL_MS, easing: Easing.linear }),
       withDelay(HOLD_MS, withTiming(1, { duration: FINISH_MS, easing: Easing.out(Easing.cubic) })),

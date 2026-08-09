@@ -376,7 +376,11 @@ export default function FocusResultScreen() {
             );
             setWeekModalVisible(true);
           },
-          firstPopToday ? 1200 : 400, // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms)
+          // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms).
+          // ⚠️ m.delay를 통과시킨다 — '동작 줄이기'면 팝 자체가 재생되지 않는데 대기만 남으면
+          //    정적 ✓를 보며 아무 일도 없는 1.2초를 기다리게 된다(codex 리뷰).
+          //    타이머 자체는 남으므로 주 1회 도장 기록·모달 노출 순서는 그대로다.
+          m.delay(firstPopToday ? 1200 : 400),
         ),
       );
     })();
@@ -384,7 +388,10 @@ export default function FocusResultScreen() {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
+    // m을 의존성에 넣는다 — reduce가 확정되기 전(useReduceMotion의 초기 조회는 비동기다)
+    // 이 effect가 먼저 도는 경우 재평가가 필요하다. celebrationStarted ref 가드가 있어
+    // 본문은 여전히 1회만 실행되므로 재실행이 마커를 중복 기록하지 않는다.
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId, m]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
