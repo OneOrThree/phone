@@ -23,7 +23,7 @@ import { recordAccessDay } from '@/services/storeReview';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
-import { setServerZone } from '@/utils/serverZone';
+import { resetServerZone, setServerZone } from '@/utils/serverZone';
 import { markOtaSplashShown } from '@/utils/otaGate';
 import { preloadTapSound } from '@/utils/sound';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -232,6 +232,9 @@ function App() {
     // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
     // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
     abortFocusRestore();
+    // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
+    // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
+    resetServerZone();
     // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.accessToken,
@@ -415,6 +418,9 @@ function App() {
       // 이전 계정 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — applyStoredSession의 스토리지
       // 클리어·새 계정 프로바이더 리마운트보다 먼저 실행되는 지점(코덱스 리뷰).
       abortFocusRestore();
+      // 이전 계정 서버 존 폐기(GROMO-1252 5차 ②) — 새 계정 프로필 조회가 실패해도 폴백(Asia/Seoul)에서
+      // 시작하도록. 성공하면 곧바로 postAuthSave의 setServerZone이 새 계정 존으로 덮어쓴다.
+      resetServerZone();
       await deleteDeviceToken(prevAccessToken).catch(() => {});
     });
   }, []);

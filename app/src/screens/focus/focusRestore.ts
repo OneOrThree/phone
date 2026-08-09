@@ -6,7 +6,8 @@
 // 섞여 있으니, '오늘 집중'으로 적립하는 쪽(FocusContext·SubjectContext)은 세션 전체 길이가
 // 아니라 todayRestoreSeconds로 오늘 몫만 더한다(GROMO-1252).
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
-import { kstLocalSameDay, todayOverlapSeconds, todayStr } from '@/utils/localDate';
+import { todayOverlapSeconds } from '@/utils/localDate';
+import { serverTodayStr, serverZoneAlignedWithLocal } from '@/utils/serverZone';
 import type { FocusSessionResponse, FocusTagResponse } from '@/types/dto/focus';
 
 export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]> {
@@ -32,13 +33,16 @@ export function sessionFocusSeconds(s: FocusSessionResponse): number {
 // 사전집계(DailyFocusStat)에 가산한 바로 그 값이라, 일시정지가 자정을 걸친 세션(23:50~23:55 집중 →
 // 일시정지 → 00:10~00:15 집중)에서 구간 겹침 추정(900초)이 아니라 실제 몫(300초)이 된다.
 //
-// 다만 서버 분포의 날짜 축은 서버 존(country_code 파생, 미지정·미지원은 Asia/Seoul)이고 이 값의 소비처는
-// 기기 로컬 자정 리셋 스토어다. 두 축이 어긋나면 인접 버킷 시간이 섞이므로, 기기가 KST 축 위에 있을 때만
-// (kstLocalSameDay — 홈·통계의 서버값 병합 게이트와 같은 규칙) 쓰고 그 외에는 종전 겹침 추정으로 폴백한다.
-// 남는 한계: country_code = GB 유저는 서버 축이 KST가 아니라 이 게이트가 잘못 열릴 수 있다(주 사용층 KR).
+// 다만 서버 분포의 날짜 축은 **서버 존**(프로필 응답의 timeZone — utils/serverZone)이고 이 값의 소비처는
+// 기기 로컬 자정 리셋 스토어다. 두 축이 어긋나면 인접 버킷 시간이 섞이므로, 경계가 겹칠 때만
+// (serverZoneAlignedWithLocal) 서버 분포를 쓰고 그 외에는 종전 겹침 추정으로 폴백한다.
+// 3·4차엔 게이트가 KST 하드코딩(kstLocalSameDay)이라 서버 존이 KST가 아닌 유저가 양쪽으로 틀렸다(5차 ①):
+// GB 유저 + 런던 기기는 게이트가 닫혀 정확한 분포를 버렸고, GB 유저 + KST 기기는 게이트가 열린 채
+// 런던 키 맵을 KST 날짜로 인덱싱했다. 이제 게이트가 서버 존 기준이고, 키도 같은 축(serverTodayStr)에서 뽑는다
+// — 게이트가 열렸다면 두 축의 벽시계가 같아 로컬 '오늘'과 같은 날짜 문자열이다.
 export function todayRestoreSeconds(s: FocusSessionResponse): number {
-  if (s.focusSecondsByDate && kstLocalSameDay()) {
-    return s.focusSecondsByDate[todayStr()] ?? 0;
+  if (s.focusSecondsByDate && serverZoneAlignedWithLocal()) {
+    return s.focusSecondsByDate[serverTodayStr()] ?? 0;
   }
   return todayOverlapSeconds(s.startedAt, s.endedAt);
 }

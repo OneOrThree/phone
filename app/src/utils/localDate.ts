@@ -108,6 +108,46 @@ export function zoneDateStr(date: Date, timeZone: string): string {
   }
 }
 
+// 존별 '날짜+시:분' 포매터 캐시 — 두 축의 벽시계 비교용(zoneSameWallClock). 키 ''는 기기 로컬.
+const wallClockFormatByZone = new Map<string, Intl.DateTimeFormat | null>();
+function getWallClockFormat(timeZone?: string): Intl.DateTimeFormat | null {
+  const key = timeZone ?? '';
+  const cached = wallClockFormatByZone.get(key);
+  if (cached !== undefined) return cached;
+  let fmt: Intl.DateTimeFormat | null;
+  try {
+    fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone, // undefined = 기기 로컬 존
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    });
+  } catch {
+    fmt = null;
+  }
+  wallClockFormatByZone.set(key, fmt);
+  return fmt;
+}
+
+// 지정 존의 벽시계가 기기 로컬 벽시계와 같은가 = 두 축의 **자정 경계가 겹치는가**
+// (GROMO-1252 5차 ① — kstLocalSameDay의 임의 존 일반화).
+// 날짜 라벨만 비교하면 라벨이 같아도 경계가 다른 축을 못 거른다(위 kstLocalSameDay 주석의 시드니 예) —
+// 그래서 '날짜+시:분'을 통째로 비교한다(오프셋이 30·45분 단위인 존까지 구분).
+// Intl 미지원·존 오류면 false(보수적) — 그 환경에선 zoneDateStr이 로컬로 폴백해 존 축 자체가 없다.
+export function zoneSameWallClock(timeZone: string, date: Date = new Date()): boolean {
+  const zoned = getWallClockFormat(timeZone);
+  const local = getWallClockFormat();
+  if (zoned == null || local == null) return false;
+  try {
+    return zoned.format(date) === local.format(date);
+  } catch {
+    return false;
+  }
+}
+
 function dateStrKstAfter(days: number, base: number = Date.now()): string {
   return zoneDateStr(new Date(base + days * 86_400_000), 'Asia/Seoul');
 }

@@ -57,8 +57,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 
 @Slf4j
@@ -73,7 +75,8 @@ public class FocusService {
     private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
     // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
-    private static final int STREAK_MIN_SECONDS = 600;
+    // 정본은 UserStreakService — 소급 재구성(5차 ③)이 같은 기준으로 과거 자격을 판정한다.
+    private static final int STREAK_MIN_SECONDS = UserStreakService.STREAK_MIN_SECONDS;
 
     // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 60초(1분)당 1코인. 앱은 floor(elapsed/10)로 적립했으나
     // (FocusSessionScreen.settleFocusBlock·OrphanFocusSettler), 서버 지급률은 오스카 결정으로 1분당 1코인으로
@@ -336,7 +339,7 @@ public class FocusService {
 
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), secondsByDate);
+                body.getTotalDistractionSeconds(), zone, secondsByDate);
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
@@ -395,11 +398,21 @@ public class FocusService {
      * <p>경계: 정확히 자정에 끝나는 세션은 그 시각이 속한 <b>전날</b> 조각으로 끝난다(초 0짜리 다음날 조각을
      * 만들지 않는다). 같은 날 안에서 끝나는 세션은 조각 1개로 종전과 동일하다.
      *
-     * <p><b>총합은 floor, 배분만 반올림 (코드리뷰 3차 ④·4차 ①)</b>: 조각마다 {@code Duration.getSeconds()} 로
-     * 잘라 더하면 양 끝에 밀리초가 있는 구간에서 총합이 1초 준다(23:50:00.500~00:10:00.500 = 1200초인데
-     * 599+600=1199). 반대로 구간 전체를 반올림하면 599.5초짜리 같은 날 세션이 600초가 돼 10분 문턱을
-     * 잘못 통과한다. 그래서 <b>구간 총합은 floor 로 확정</b>하고({@code Duration.getSeconds()} — 종전 의미),
-     * 그 정수를 자정 경계에서만 반올림으로 나눈다. 마지막 조각은 언제나 총합의 잔여라 조각 합 = 총합이다.
+     * <p><b>총합은 floor, 경계 배분은 올림 (코드리뷰 3차 ④·4차 ①·5차 ⑤)</b>: 세 조건을 동시에 만족해야 한다.
+     * <ol>
+     *   <li>구간 총합 = floor(duration) — 599.5초짜리 같은 날 세션이 600초가 돼 10분 문턱을 잘못 통과하면 안 된다.</li>
+     *   <li>조각 합 == 총합 — 조각마다 {@code Duration.getSeconds()} 로 잘라 더하면 양 끝에 밀리초가 있는
+     *       구간에서 총합이 1초 준다(23:50:00.500~00:10:00.500 = 1200초인데 599+600=1199).</li>
+     *   <li>조각(=클라 분포의 상한)이 <b>클라의 tick 경계 규약</b>과 어긋나면 안 된다 — 어긋나면 정상 분포가
+     *       클램프되어 초가 유실되고 그날 10분 문턱을 놓친다.</li>
+     * </ol>
+     * ①은 총합을 {@code Duration.getSeconds()}(floor)로 확정해, ②는 마지막 조각을 총합의 잔여로 둬서 만족한다.
+     * ③이 5차 수정점이다: 클라는 tick 1개를 '그 tick 이 덮은 1초의 <b>시작</b> 시각'의 날짜에 센다
+     * (앱 blockToday.creditTick). 시작 시각으로부터 k 번째 초는 {@code [start+(k−1)s, start+ks)} 이므로
+     * 경계 전 날짜에 속한 초의 개수는 {@code k−1 < Δ} 를 만족하는 k 의 수 = {@code ceil(Δ)}
+     * (Δ = 시작→경계 실수 초)다. 반올림이면 위상이 .5 를 넘는 순간(예: 23:50:00.800~00:10:00.800, Δ=599.2)
+     * 상한이 599 로 내려앉아 클라의 정당한 600 이 잘렸다 — 그래서 경계 누적은 <b>올림</b>으로 구한다.
+     * 총합을 넘지 않게 캡하므로 ①·②는 그대로 유지된다.
      */
     static NavigableMap<LocalDate, Integer> splitByLocalDay(Instant startedAt, Instant endedAt, ZoneId zone) {
         NavigableMap<LocalDate, Integer> secondsByDate = new TreeMap<>();
@@ -413,9 +426,10 @@ public class FocusService {
             // 상한(MAX_SPLIT_DAYS)에 닿으면 남은 구간을 이 조각에 몰아 총합을 보존한다.
             boolean splitHere = nextMidnight.isBefore(endedAt) && secondsByDate.size() < MAX_SPLIT_DAYS - 1;
             Instant sliceEnd = splitHere ? nextMidnight : endedAt;
-            // 경계까지의 누적 초(0.5초 반올림, 총합 초과 금지)의 차분 = 이 조각 몫. 마지막 조각은 잔여 전부.
+            // 경계까지의 누적 초(클라 tick 규약 = 올림, 총합 초과 금지)의 차분 = 이 조각 몫.
+            // 마지막 조각은 잔여 전부라 조각 합 == 총합.
             long cumulativeSeconds = splitHere
-                    ? Math.min(Math.floorDiv(Duration.between(startedAt, sliceEnd).toMillis() + 500, 1000),
+                    ? Math.min(Math.floorDiv(Duration.between(startedAt, sliceEnd).toMillis() + 999, 1000),
                             totalSeconds)
                     : totalSeconds;
             secondsByDate.merge(date, (int) (cumulativeSeconds - creditedSeconds), Integer::sum);
@@ -562,7 +576,7 @@ public class FocusService {
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.totalDistractionSeconds(), statEnd, toStoredSecondsByDate(secondsByDate));
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
-                body.totalDistractionSeconds(), secondsByDate);
+                body.totalDistractionSeconds(), zone, secondsByDate);
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 추가(additive).
@@ -672,13 +686,23 @@ public class FocusService {
      *       {@code sessionCount}·{@code totalDistractionSeconds}(타임스탬프가 없어 쪼갤 수 없다) → 시작일에만</li>
      * </ul>
      *
+     * <p><b>메타데이터 버킷 = 시작일 (코드리뷰 5차 ⑥)</b>: 클라 분포는 그날 tick 이 하나도 없으면 시작일 키를
+     * <b>생략</b>한다(23:50 시작 → 자정 넘겨 00:10 첫 tick = 다음날 키만). 그래서 '첫 조각'을 시작일로 보면
+     * 세션 1건과 방해초 전량이 다음날에 붙어 히트맵이 세션을 틀린 날짜로 표시했다. 이제 버킷을
+     * {@code startedAt} 에서 직접 파생해 집중초 조각과 <b>따로</b> upsert 한다 — 그 결과 시작일에
+     * {@code totalFocusSeconds = 0, sessionCount = 1} 행이 새로 생길 수 있고, 그게 사실 그대로다
+     * ("그날 세션을 시작했고 집중초는 자정 뒤에 쌓였다"). 조회는 모두 날짜 격자를 채워 응답하므로
+     * (heatmap 은 row 없는 날도 0 셀) 0초 행이 새 셀을 만들지도, 스트릭 판정을 바꾸지도 않는다
+     * (스트릭은 {@code user_streaks} 저장값이고 인정 게이트는 10분 누적이다).
+     *
+     * @param zone          유저 존(country_code 파생) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
      * @param secondsByDate 날짜 오름차순 조각(호출부가 {@link #resolveSecondsByDate} 로 만들어 넘긴다)
      * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
      *         그리고 이 세션이 유발한 목표 지급액 합
      */
     private RecordCompletionResult recordCompletion(User user, UUID userId, UserFocusTag tag,
                                   Instant startedAt, Instant endedAt, int totalDistractionSeconds,
-                                  NavigableMap<LocalDate, Integer> secondsByDate) {
+                                  ZoneId zone, NavigableMap<LocalDate, Integer> secondsByDate) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
         Map<String, Object> sessionPayload = new LinkedHashMap<>();
@@ -699,21 +723,28 @@ public class FocusService {
         // 응답 필드는 마지막(가장 늦은) 조각 = 종료일 기준 — 앱이 보는 "오늘" 누적.
         int dayTotalFocusSeconds = 0;
         boolean streakQualifiedToday = false;
-        boolean firstSlice = true;
+        // 세션 메타데이터(sessionCount·방해초)가 붙을 날짜 = 세션 시작일(위 '메타데이터 버킷').
+        LocalDate metaDate = statDate(startedAt, zone);
+        // upsert 대상 = 집중초 조각 날짜 ∪ 시작일. 조각이 하나도 없는 구간(구간 전체가 미래인 위조 세션 —
+        // resolveSecondsByDate 가 빈 맵)은 종전대로 아무 행도 만들지 않는다.
+        NavigableSet<LocalDate> statDates = new TreeSet<>(secondsByDate.keySet());
+        if (!statDates.isEmpty()) {
+            statDates.add(metaDate);
+        }
         // 스트릭 인정 날짜는 모아 두었다가 한 번에 넘긴다 (GROMO-1252 3차 ③) — 한 세션이 기여한 여러 날짜를
         // 낱개로 호출하면 소급 방향에서 오래된 쪽이 유실된다(어느 날짜부터 반영해야 하는지는
         // lastSessionDate 를 아는 UserStreakService 만 판단할 수 있다).
         List<LocalDate> streakQualifiedDates = new ArrayList<>();
 
-        for (Map.Entry<LocalDate, Integer> slice : secondsByDate.entrySet()) {
-            LocalDate statDate = slice.getKey();
+        for (LocalDate statDate : statDates) {
             // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
-            int addedSeconds = slice.getValue();
-            // 세션 1건은 어디까지나 1건 — 시작일(첫 조각)에만 계수한다. 방해 초도 타임스탬프가 없어
+            // 시작일에 tick 이 없으면(자정 직전 시작 → 첫 tick 은 다음날) 이 날 조각은 없다 — 0초 가산.
+            int addedSeconds = secondsByDate.getOrDefault(statDate, 0);
+            // 세션 1건은 어디까지나 1건 — 시작일에만 계수한다. 방해 초도 타임스탬프가 없어
             // 조각에 배분할 수 없으므로 시작일에 전량 귀속한다(GROMO-1252).
-            int addedSessionCount = firstSlice ? 1 : 0;
-            int addedDistractionSeconds = firstSlice ? totalDistractionSeconds : 0;
-            firstSlice = false;
+            boolean isMetaDate = statDate.equals(metaDate);
+            int addedSessionCount = isMetaDate ? 1 : 0;
+            int addedDistractionSeconds = isMetaDate ? totalDistractionSeconds : 0;
 
             // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
             // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)

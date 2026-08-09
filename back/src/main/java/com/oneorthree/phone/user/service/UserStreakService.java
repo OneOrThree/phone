@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserStreak;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
@@ -12,9 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -27,8 +30,28 @@ import java.util.TreeSet;
 @RequiredArgsConstructor
 public class UserStreakService {
 
+    /**
+     * 스트릭 인정 최소 누적 집중 초 = 10분 (GROMO-806). 판정 정본은 여기 하나 —
+     * {@code FocusService} 의 인정 게이트와 아래 소급 재구성이 같은 값을 써야 한다.
+     */
+    public static final int STREAK_MIN_SECONDS = 600;
+
+    /**
+     * 소급 재구성이 훑는 과거 일수 상한 (GROMO-1252 코드리뷰 5차 ③).
+     *
+     * <p>이 스캔은 오프라인 큐가 날짜별 업로드를 <b>나눠</b> 보낼 때 끊긴 연속 구간을 잇기 위한 것이다.
+     * 무제한으로 훑으면 스트릭이 긴 유저의 소급 1건이 수백 일치 {@code DailyFocusStat} 을 읽는다.
+     * 오프라인 백로그가 한 달을 넘길 정황이 없어(그보다 오래 밀린 세션은 스트릭보다 통계 문제) 30일로
+     * 자른다 — 조회는 이 구간 1회, 순회는 자격 없는 날에서 즉시 멈춘다.
+     */
+    private static final int MAX_BACKFILL_SCAN_DAYS = 30;
+
+    /** 소급 연장 change 라벨 — 한 요청 안 소급(apply)과 DailyFocusStat 재구성이 같은 라벨을 쓴다. */
+    private static final String CHANGE_BACKFILLED = "backfilled";
+
     private final UserStreakRepository userStreakRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final DailyFocusStatRepository dailyFocusStatRepository;
 
     /**
      * 세션 완료에 따른 스트릭 갱신 + 변화가 있을 때만 STREAK_UPDATED 발행.
@@ -63,6 +86,12 @@ public class UserStreakService {
      * 성립한다(미래를 뒤집으면 가장 늦은 날짜가 먼저 들어가 reset 으로 끊긴다). 소급 반영은
      * lastSessionDate 를 바꾸지 않으므로 두 그룹의 분류는 시작 시점 값 하나로 고정해도 안전하다.
      *
+     * <p><b>요청이 나뉘어 와도 (코드리뷰 5차 ③)</b>: 위 순서는 <b>한 호출에 실려 온</b> 날짜만 정렬한다.
+     * 오프라인 큐가 FIFO 로 따로 업로드하면(8~9 스트릭에 6 → 7 순서) 6 은 그때 이어지지 않아 무시되고,
+     * 7 이 구간을 7~9 로 늘린 뒤엔 6 이 다시 고려되지 않아 3 에 멈춘다(4 여야 함). 그래서 소급이 실제로
+     * 성사되면({@code backfilled}) {@link #extendFromDailyStats} 가 <b>이미 자격을 갖춘 인접 과거</b>를
+     * {@code DailyFocusStat} 에서 훑어 구간을 더 앞으로 늘린다.
+     *
      * <p>동시성: 동시 INSERT race 는 user_id unique 제약이 정합성을 보장한다
      * (실패 건은 클라 재시도 — DailyFocusStat upsert 의 INSERT-INSERT 방어와 동일).
      * UPDATE-UPDATE race 는 날짜 경계를 걸친 동시 저장에서만 의미가 있어 잠금 없이 단순 구현.
@@ -82,20 +111,62 @@ public class UserStreakService {
             streak = UserStreak.builder().user(user).build();
         }
 
+        boolean backfilled = false;
         for (LocalDate sessionDate : orderForApply(sessionDates, streak.getLastSessionDate())) {
             String change = apply(streak, sessionDate);
             if (change == null) {
                 continue;
             }
-            userActivityEventLogger.log(UserActivityEvent.STREAK_UPDATED,
-                    Map.of("streak_count", streak.getStreakCount(),
-                            "longest_streak", streak.getLongestStreakCount(),
-                            "change", change));
+            backfilled |= CHANGE_BACKFILLED.equals(change);
+            logStreakUpdated(streak, change);
+        }
+
+        // 소급이 성사됐을 때만 재구성 스캔 — 정상(오늘 세션) 완료 경로엔 조회가 늘지 않는다.
+        if (backfilled) {
+            extendFromDailyStats(user, streak);
         }
 
         if (isNew) {
             userStreakRepository.save(streak);
         }
+    }
+
+    /**
+     * 이미 자격을 갖춘 인접 과거로 연속 구간을 더 늘린다 (GROMO-1252 코드리뷰 5차 ③).
+     *
+     * <p>현재 구간 시작({@code lastSessionDate − (streakCount−1)}) 바로 앞날부터 하루씩 과거로 내려가며
+     * {@code DailyFocusStat.totalFocusSeconds >= }{@link #STREAK_MIN_SECONDS} 인 날을 잇는다. 판정 소스가
+     * 사전집계라 <b>차감·재집계가 반영된 현재 값</b>으로 자격을 본다(세션 단건 길이가 아니다).
+     * 첫 자격 미달 날에서 멈추므로 공백 너머까지 잇지 않고, {@link #MAX_BACKFILL_SCAN_DAYS} 로 조회를 자른다.
+     *
+     * <p>구간을 앞으로만 늘리므로 스트릭이 줄어들 수 없고(스캔 범위가 구간 시작 이전으로 한정),
+     * {@code lastSessionDate}(구간 끝)도 건드리지 않는다 — 조회 만료 판정은 끝 날짜 기준이다.
+     *
+     * <p>같은 트랜잭션에서 {@code FocusService} 가 방금 갱신한 {@code DailyFocusStat} 은 이 JPQL 조회의
+     * auto-flush 로 반영된 뒤 읽힌다 — 방금 도착한 소급 날짜도 자격 판정에 포함된다.
+     */
+    private void extendFromDailyStats(User user, UserStreak streak) {
+        LocalDate runStart = streak.getLastSessionDate().minusDays(Math.max(0, streak.getStreakCount() - 1));
+        LocalDate scanTo = runStart.minusDays(1);
+        Set<LocalDate> qualified = new HashSet<>(dailyFocusStatRepository.findQualifiedDates(
+                user, runStart.minusDays(MAX_BACKFILL_SCAN_DAYS), scanTo, STREAK_MIN_SECONDS));
+        int added = 0;
+        for (LocalDate probe = scanTo; qualified.contains(probe); probe = probe.minusDays(1)) {
+            added++;
+        }
+        if (added == 0) {
+            return;
+        }
+        streak.setStreakCount(streak.getStreakCount() + added);
+        streak.setLongestStreakCount(Math.max(streak.getLongestStreakCount(), streak.getStreakCount()));
+        logStreakUpdated(streak, CHANGE_BACKFILLED);
+    }
+
+    private void logStreakUpdated(UserStreak streak, String change) {
+        userActivityEventLogger.log(UserActivityEvent.STREAK_UPDATED,
+                Map.of("streak_count", streak.getStreakCount(),
+                        "longest_streak", streak.getLongestStreakCount(),
+                        "change", change));
     }
 
     /** 소급(≤ last)은 최신→과거, 미래는 과거→최신. 근거는 클래스 메서드 주석의 '반영 순서' 참고. */
@@ -135,7 +206,7 @@ public class UserStreakService {
                 return null;
             }
             streak.setStreakCount(streak.getStreakCount() + 1);
-            change = "backfilled";
+            change = CHANGE_BACKFILLED;
             // lastSessionDate 는 유지 — 구간의 '끝'은 그대로고 '시작'만 앞당겨졌다.
             // (조회 만료 판정 UserStreak.currentStreakAsOf 은 끝 날짜 기준이라 여기서 바꾸면 안 된다.)
         }

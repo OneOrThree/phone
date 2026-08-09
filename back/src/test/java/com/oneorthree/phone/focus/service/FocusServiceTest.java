@@ -1785,6 +1785,75 @@ class FocusServiceTest {
     }
 
     /**
+     * 1252-⑤(5차): 밀리초 위상이 .500 을 <b>넘는</b> 구간. 4차의 '경계 누적 반올림'은 위상 .800 에서
+     * 자정까지의 실제 duration 이 599.2초라 상한을 599 로 내려, 클라가 tick 규약대로 센 600 을 깎았다
+     * (1초 유실 + 전날 10분 문턱 실패). 상한은 클라와 같은 이산 tick 경계 규약(올림)으로 나와야 한다.
+     */
+    @Test
+    @DisplayName("1252-⑤: 위상 .800 자정 걸침 → 클라 분포 600/600 이 그대로 보존(599 로 깎이지 않음)")
+    void splitMidnight_millisPhaseOverHalf_keepsClientDistribution() {
+        Instant startedAt = Instant.parse("2026-07-12T14:50:00.800Z");   // 07-12 23:50:00.8 KST
+        Instant endedAt = Instant.parse("2026-07-12T15:10:00.800Z");     // 07-13 00:10:00.8 KST
+        User krUser = givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0, null,
+                Map.of(CROSS_D1, 600, CROSS_D2, 600)));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
+        // 반올림 상한(599)이면 전날이 10분 문턱을 놓쳐 CROSS_D2 만 인정됐다
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(CROSS_D1, CROSS_D2));
+    }
+
+    /** 1252-⑤(5차): 클라 분포가 없는 구버전 앱의 벽시계 폴백도 같은 규약 — 총합 floor(1200)은 그대로. */
+    @Test
+    @DisplayName("1252-⑤: 위상 .800 벽시계 폴백 → 600/600, 합 1200(총합 floor) 보존")
+    void splitMidnight_millisPhaseOverHalf_wallClockFallback() {
+        Instant startedAt = Instant.parse("2026-07-12T14:50:00.800Z");
+        Instant endedAt = Instant.parse("2026-07-12T15:10:00.800Z");
+        givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
+
+        Map<LocalDate, Integer> slices = savedSlices();
+        assertThat(slices).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
+        assertThat(slices.values().stream().mapToInt(Integer::intValue).sum())
+                .isEqualTo((int) Duration.between(startedAt, endedAt).getSeconds());
+    }
+
+    /**
+     * 1252-⑥(5차): 클라 분포는 그날 tick 이 하나도 없으면 <b>시작일 키를 생략</b>한다
+     * (23:50 시작 → 자정 넘겨 정지 → 00:10 첫 tick). '첫 조각 = 시작일' 가정이 깨져 세션 1건과 방해초
+     * 전량이 다음날에 붙었다 — 히트맵이 세션을 틀린 날짜로 표시한다. 메타데이터 버킷은 startedAt 에서
+     * 직접 파생해야 하고, 그 결과 시작일에 집중초 0 인 행이 새로 생기는 게 맞는 동작이다.
+     */
+    @Test
+    @DisplayName("1252-⑥: 시작일 조각이 없는 분포 → sessionCount·방해초는 시작일, 집중초는 다음날")
+    void sessionMetadata_attachesToStartDate_evenWhenStartDaySliceMissing() {
+        User krUser = givenKrUserWithEmptyStats();
+
+        // CROSS_START(07-12 23:50 KST) 시작이지만 tick 은 자정 뒤에만 발생 → 07-13 키 하나만 온다.
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, CROSS_START, CROSS_END, 42, null,
+                Map.of(CROSS_D2, 900)));
+
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository, times(2)).save(captor.capture());
+        List<DailyFocusStat> saved = captor.getAllValues();
+
+        // 시작일 행 — 집중초 0 이지만 '그날 세션을 시작했다'는 사실(세션 수·방해초)을 담는다
+        assertThat(saved.get(0).getDate()).isEqualTo(CROSS_D1);
+        assertThat(saved.get(0).getTotalFocusSeconds()).isZero();
+        assertThat(saved.get(0).getSessionCount()).isEqualTo(1);
+        assertThat(saved.get(0).getTotalDistractionSeconds()).isEqualTo(42);
+        // 다음날 행 — 집중초만. 세션 수·방해초가 여기 붙으면 히트맵이 세션을 하루 밀어 표시한다
+        assertThat(saved.get(1).getDate()).isEqualTo(CROSS_D2);
+        assertThat(saved.get(1).getTotalFocusSeconds()).isEqualTo(900);
+        assertThat(saved.get(1).getSessionCount()).isZero();
+        assertThat(saved.get(1).getTotalDistractionSeconds()).isZero();
+        // 0초짜리 시작일은 스트릭 자격이 없다(10분 미만) — 인정 날짜는 집중초가 쌓인 날뿐
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(CROSS_D2));
+    }
+
+    /**
      * 1252-⑤: 정확히 로컬 자정에 끝난 세션은 조각을 <b>전날</b>에 남긴다(0초짜리 다음날 조각 미생성).
      * 중복 업로드 응답의 조회 날짜를 endedAt 에서 직접 파생하면 최초 요청(전날)과 재시도(다음날)가
      * 다른 완료 판정을 발행한다 — 조각에 실제로 쓰인 마지막 날짜에서 파생해야 한다.
