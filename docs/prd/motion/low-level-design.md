@@ -64,20 +64,24 @@ import { Easing, cubicBezier } from 'react-native-reanimated';
 const OVERSHOOT = [0.34, 1.56, 0.64, 1] as const;
 const GLIDE = [0.3, 1.15, 0.5, 1] as const;
 const STANDARD = [0.2, 0, 0, 1] as const;
+// ⚠️ easeOutQuad 의 베지어 근사. CSS 키워드 'ease-out'(=0,0,0.58,1)이 아니다 —
+//    키워드를 쓰면 .fn(Easing.out(Easing.quad))과 다른 커브가 되어 쌍 계약이 깨진다.
+//    PressableScale 눌림이 쓰는 커브라 두 표현이 반드시 같아야 한다.
+const OUT_QUAD = [0.25, 0.46, 0.45, 0.94] as const;
 
 export const M = {
   dur: { press: 110, quick: 220, base: 350, slow: 600, entrance: 800, celebrate: 1200 },
 
   curve: {
     standard:  { css: cubicBezier(...STANDARD),  fn: Easing.bezier(...STANDARD) },
-    out:       { css: 'ease-out',                fn: Easing.out(Easing.quad) },
+    out:       { css: cubicBezier(...OUT_QUAD),  fn: Easing.out(Easing.quad) },
     linear:    { css: 'linear',                  fn: Easing.linear },
     glide:     { css: cubicBezier(...GLIDE),     fn: Easing.bezier(...GLIDE) },
     overshoot: { css: cubicBezier(...OVERSHOOT), fn: Easing.bezier(...OVERSHOOT) },
   },
 
   spring: {
-    press:  { damping: 14, stiffness: 300, mass: 0.65 }, // 버튼 복귀 — 최대 배율 1.006 · ≈230ms
+    press:  { damping: 14, stiffness: 300, mass: 0.65 }, // 버튼 복귀 — 이동량의 16% 초과 · 안착 ≈367ms(2% 허용대)
     snappy: { damping: 20, stiffness: 260, mass: 0.9  }, // 시트·패널·토스트
     bouncy: { damping: 13, stiffness: 180, mass: 0.9  }, // 배지·팝·축하
     gentle: { damping: 16, stiffness: 120, mass: 1.0  }, // 큰 요소 진입
@@ -114,6 +118,8 @@ export function enterUp(index = 0) {
 ```
 
 동일 패턴으로 `pop(delay)` · `fadeIn(delay)` · `pulse` · `transition(props)` 제공.
+
+**`growUp(index)` — 차트 막대 전용 별도 프리셋.** `enterUp`은 `M.dur.base`(350) 고정이라 차트에 못 쓴다. 차트는 `scaleY 0→1` + `M.dur.entrance`(800) + `transformOrigin:'bottom'` + `overshoot` 커브로 다르다. `FocusResultScreen`의 기존 `growUp`을 그대로 승격한 것이며, **duration을 인자로 받는 대신 프리셋을 나눈다** — 인자를 받으면 참조 캐시 키가 (index, duration) 쌍으로 늘어나 §2-4의 동등성 보장이 복잡해진다.
 
 ---
 
@@ -225,7 +231,7 @@ mount → entering → idle ⇄ dragging → closing → onClose()
 | `AnimatedNumber` | `value` `format?` `style?` `duration?` `testID?` | `accessibilityLabel`에 **최종 포맷값**. 중간 숫자를 읽지 않게 |
 | `ProgressBar` | `progress`(0~1) `color` `trackColor?` `height?` `radius?` `delay?` | `accessibilityRole="progressbar"` + `accessibilityValue={{ now, min:0, max:100 }}` |
 | `ProgressRing` | `size` `stroke` `progress` `color` `trackColor?` `children?` | 동일 |
-| `Toast` | (Context 경유) `message` `tone` `icon?` | `accessibilityLiveRegion="polite"` + `announceForAccessibility()` **필수** |
+| `Toast` | (Context 경유) `message` `tone` `icon?` | **플랫폼당 공지 경로 하나** — Android `accessibilityLiveRegion="polite"` / iOS `announceForAccessibility()`. 둘 다 걸면 Android에서 두 번 읽힌다 ([정책 D8](policy.md#d8)) |
 
 **`useToast()`**
 
@@ -246,23 +252,28 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 홈 | 집중·사용시간 진행바 | `ProgressBar` | slow | 120 | 1 |
 | 홈 | 코인·스트릭 칩 | `AnimatedNumber` | slow | 0 | 1 |
 | 통계 | 카드 8종 로딩 | `SkeletonCard` | 1200 loop | — | 1 |
-| 통계 | 차트 진입 | `enterUp(i)` | entrance | i × 60 | 2 |
+| 통계 | 차트 진입 | **`growUp(i)`** | entrance | i × 60 | 2 |
 | 집중 세션 | 카운트다운·뽀모도로 | `ProgressRing` | 연속 | — | 1 |
 | 집중 세션 | 페이즈 전환 | 크로스페이드 + `hapticMedium` | quick | 0 | 1 |
-| 집중 결과 | 주간 막대 | `enterUp` 계열(`growUp`) | entrance | i × 60 | 2 |
+| 집중 결과 | 주간 막대 | **`growUp(i)`** | entrance | i × 60 | 2 |
 | 집중 결과 | 스트릭 ✓ · 코인 | `pop` | slow | 400 | 3 |
 | 리그 | 순위 행 | `enterUp(i)` | base | i × 60 | 2 |
 | 리그 | 재정렬 | `LinearTransition` + `spring.snappy` | — | — | 1 |
-
-**리그 재정렬 — 한 칸씩 오른다** ([ui.html](ui.html) 리그 카드)
-- 여러 칸을 한 번에 뛰면 **결과만 남고 과정이 사라진다.** 3위→1위는 3→2, 2→1 두 단계로 나눠 재생하고 사이에 ~820ms를 둔다.
-- 자리가 바뀌기 **직전에 내 기록을 먼저 갱신**한다(~180ms). 바로 위 사람을 앞지르는 값이라야 상승이 납득된다.
-- 올라가는 행과 밀려나는 행이 **함께** 움직인다. 한쪽만 움직이면 겹쳐 보인다.
-- 순위 번호는 **자리에 붙는 값**이라 순서가 바뀔 때마다 다시 매긴다.
-- **전제: 행 노드의 동일성이 유지돼야 한다.** 순서만 바뀌고 노드가 재생성되면 애니메이션이 성립하지 않는다. ✅ 확인됨 — `LeagueScreen.tsx:369,517`이 이미 `key={m.userId}`를 쓴다(인덱스 키가 아님). 리스트가 `.map()`+`ScrollView`라 `itemLayoutAnimation` 대신 **행마다 `layout={LinearTransition…}`** 을 직접 붙이는 형태가 된다.
 | 리그 결과 | 승급 컨페티 | `ConfettiBurst` + `hapticSuccess` | celebrate | 시퀀스 후 | 3 |
 | 시트 전체 | 등장 | `spring.snappy` | ≈base | 0 | 1 |
 | 전역 | 토스트 | `spring.snappy` | quick | 0 | 1 |
+
+> ⚠️ **차트에 `enterUp`을 쓰지 않는다.** `enterUp`은 `M.dur.base`(350) 고정이고 duration 인자를 받지 않는다(참조 캐시 때문). 차트는 `scaleY`·`entrance`·`overshoot`가 다르므로 §2-1의 **`growUp` 프리셋**을 쓴다.
+
+**리그 재정렬 — 한 칸씩 스왑한다** (**타이밍 정본: [ui.html](ui.html) 리그 카드**. 문서와 어긋나면 시안이 맞다)
+
+- 맨 아래에서 맨 위까지 **한 칸씩 4단계.** 여러 칸을 한 번에 뛰면 결과만 남고 과정이 사라진다.
+- **호흡은 균일하다** — 스왑 간격 `300ms`, 기록 갱신 후 스왑까지 `90ms`. (초안의 "가속하다 마지막만 느리게"는 실제로 보면 부각되지 않아 폐기했다.)
+- 자리가 바뀌기 직전에 **내 기록과 막대가 먼저 자란다**(`M.dur.quick`). 바로 위 사람을 앞지르는 값이라야 상승이 납득된다.
+- **행 배경이 기록만큼 차오르는 가로 막대그래프**다. 순위표가 곧 그래프다.
+- 올라가는 행과 밀려나는 행이 **서로 옆으로 비껴간다** — 올라가는 쪽 `-9px`, 밀려나는 쪽 `+9px`, `sin` 궤적으로 양끝 0. 세로로만 지나가면 두 행이 겹쳐 "리스트가 다시 그려진 것"처럼 보인다. 올라가는 행은 `scale 1.03`으로 살짝 뜬다.
+- 순위 번호는 **자리에 붙는 값**이라 순서가 바뀔 때마다 다시 매긴다.
+- **전제: 행 노드의 동일성이 유지돼야 한다.** 순서만 바뀌고 노드가 재생성되면 애니메이션이 성립하지 않는다. ✅ 확인됨 — `LeagueScreen.tsx:369,517`이 이미 `key={m.userId}`를 쓴다(인덱스 키가 아님). 리스트가 `.map()`+`ScrollView`라 `itemLayoutAnimation` 대신 **행마다 `layout={LinearTransition…}`** 을 직접 붙이는 형태가 된다.
 
 > **홈 stagger는 첫 마운트에서만.** 탭 복귀 시 재생하면 앱이 느려 보인다. `useRef(false)` 가드로 1회만.
 
@@ -278,7 +289,7 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | `components/Skeleton.test.tsx` | reduce → `animationName` 부재 · a11y 숨김 |
 | `components/ProgressBar.test.tsx` | `progress=0.5` → 계산된 width 50% · a11y value |
 | `components/AnimatedNumber.test.tsx` | fake timer 후 최종 텍스트 · reduce면 첫 프레임 최종값 · a11y 라벨 |
-| `components/Toast.test.tsx` | 큐잉 순차 · 2200ms 자동 해제 · `announceForAccessibility` 호출 |
+| `components/Toast.test.tsx` | 큐잉 순차 · 2200ms 자동 해제 · **iOS에서만** `announceForAccessibility` 호출 / **Android에선 미호출**(`Platform.OS` 목킹) |
 | `components/SheetShell.test.tsx` | §4.4 기존 규칙 전부 + 퇴장 후 `onClose` + reduce 시 애니메이션 스타일 부재 |
 | `components/PressableScale.test.tsx` | **무수정 통과**가 톤 변경(PR2)의 안전망 |
 | 알럿 이관 지점별 | `Alert.alert` **미호출** + `show` 호출 |

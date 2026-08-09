@@ -745,6 +745,8 @@
       if (REDUCE) { onFrame(1); onDone && onDone(); return; }
       const t0 = performance.now();
       const tick = (now) => {
+        // 재생 도중 '동작 줄이기'가 켜지면 그 자리에서 최종 상태로 끊는다(반응형 계약).
+        if (REDUCE) { onFrame(1); onDone && onDone(); return; }
         const p = Math.min(1, (now - t0) / ms);
         onFrame(p);
         if (p < 1) requestAnimationFrame(tick);
@@ -851,6 +853,7 @@
         let live = true;
         const loop = (now) => {
           if (!live) return;
+          if (REDUCE) { skels.forEach((s) => (s.style.opacity = '1')); return; } // 재생 중 토글 대응
           const ph = ((now - t0) % 2400) / 1200;
           const o = 0.45 + 0.55 * (ph <= 1 ? ph : 2 - ph);
           skels.forEach((s) => (s.style.opacity = String(o)));
@@ -874,9 +877,15 @@
     /* ══ 집중 세션 ══ */
     const CIRC = 270.2;
     let focusTimer = [];
+    // 재생 세대 — 카운트다운(4초)이 도는 중에 다시 누르면 timeout 은 걷히지만 이미 돌던
+    // play() 의 rAF 는 못 멈춘다. 세대가 바뀐 콜백은 스스로 물러나게 해 두 재생이
+    // 같은 링·시간을 동시에 쓰는 것을 막는다.
+    let focusRun = 0;
     function playFocus() {
       focusTimer.forEach(clearTimeout);
       focusTimer = [];
+      const run = ++focusRun;
+      const stale = () => run !== focusRun;
       const ring = $('#focusRing');
       const time = $('#focusTime');
       const phase = $('#focusPhase');
@@ -890,12 +899,15 @@
       // 25:00 → 00:00 을 4초로 압축해 보여준다(시연용)
       const total = REDUCE ? 0 : 4000;
       play(total || 1, (p) => {
+        if (stale()) return;
         ring.style.strokeDashoffset = String(CIRC * (1 - p));
         const left = Math.round(1500 * (1 - p));
         time.textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
       }, () => {
+        if (stale()) return;
         // 페이즈 전환 — 크로스페이드 + 도트 이동
         focusTimer.push(setTimeout(() => {
+          if (stale()) return;
           const swap = () => {
             phase.textContent = '휴식';
             phase.style.background = 'var(--n-green)';
@@ -914,7 +926,7 @@
       // 일시정지 버튼 — 확정된 press 스프링
       const pauseBtn = $('#focusPause');
       focusTimer.push(setTimeout(() => {
-        if (REDUCE) return;
+        if (REDUCE || stale()) return;
         play(M.dur.press, (p) => (pauseBtn.style.transform = `scale(${1 + (0.96 - 1) * EASE.out(p)})`),
           () => playTrace(SP.press, (v) => (pauseBtn.style.transform = `scale(${v})`)));
       }, delay(1200)));
