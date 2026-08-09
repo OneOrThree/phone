@@ -48,6 +48,7 @@ erDiagram
         uuid user_id FK
         date usage_date "NOT NULL · KST"
         int progress_minutes "클라 보고 원본 0~1440"
+        timestamptz measured_at "클라 측정 시각 — 역전 보고 방어 (§2.1)"
     }
     GROUP_CHALLENGE_BETS {
         uuid id PK
@@ -69,6 +70,7 @@ erDiagram
         time window_start "미션 스냅샷 · 창형만"
         time window_end "미션 스냅샷 · 창형만"
         enum status "OPEN|SETTLED|FORFEITED|VOIDED|REFUNDED"
+        enum void_reason "VOIDED 사유 — SHORT_PARTICIPANTS|CHALLENGE_DELETED · 그 외 null"
         timestamptz starts_at "회차 시작 — 취소 기준"
         timestamptz join_closes_at "참가 마감"
         timestamptz closes_at "회차 종료"
@@ -217,19 +219,30 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
       ]
     }
   },
-  "lastSettledSession": {                // null = 정산된 회차 없음
-    "sessionId": "uuid",                 // 결과 모달 1회 가드의 키
+  "lastSettledSession": {                // null = 정산된 회차 없음 — 카드 "지난 결과" 표시용
+    "sessionId": "uuid",
     "sessionDate": "2026-08-08", "stake": 30, "pot": 90,
     "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED
+    "voidReason": null,                  // VOIDED만 — SHORT_PARTICIPANTS | CHALLENGE_DELETED
     "goalMinutes": 90,
-    "myJoined": true,                    // ← 결과 모달 대상 판정. false면 모달 안 띄운다
+    "myJoined": true,
     "myAchieved": true, "myPayout": 45,  // myJoined=false면 둘 다 null
     "results": [{ "userId": "uuid", "nickname": "민지",
                   "achieved": true, "payout": 45,
                   "progressMinutes": 102 }]
-  }
+  },
+  "mySettledSessions": [                 // 결과 모달 큐 — 내가 참가한 정산 완료 회차,
+    /* lastSettledSession과 같은 요소 스키마 */  // 회차일 내림차순 · 최대 10건
+  ]
 }]
 ```
+
+> **`lastSettledSession` vs `mySettledSessions`**: 전자는 카드의 "지난 결과 + 정산 근거"
+> 표시용 **그룹 기준 최신 1건**, 후자는 결과 모달 큐용 **내 참가 회차 목록**이다. 최신 1건으로
+> 모달을 만들면 ① 내가 참가 안 한 최신 회차가 그 앞의 내 결과를 가리고 ② 앱을 안 연 사이
+> 정산된 내 회차 여럿이 1건으로 접힌다. 1회 가드는 앱 로컬 seen set(`sessionId`)이 담당하고,
+> 서버는 seen 상태를 모른다. **10건 초과분은 버린다** — 열흘 넘게 안 본 결과까지 모달로
+> 줄 세우지 않는다(수용).
 
 > **`activeToday` / `nextSessionAt` 계약**: 둘은 **배타가 아니라 보완**이다.
 > `nextSessionAt`은 항상 **오늘을 제외한** 다음 활성일을 가리킨다(`RepeatSchedule.next()`).
@@ -243,7 +256,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 필드가 통째로 사라지면 3상이 2상으로 무너진다.
 
 > **탈퇴 멤버 가시성**: 라이브 뷰(`memberProgress` · `session.participants`)는 탈퇴 멤버를
-> **필터**하고, 정산 명단(`lastSettledSession.results`)은 명단·인원·`pot`을 보존하되 닉네임만
+> **필터**하고, 정산 명단(`lastSettledSession`·`mySettledSessions`의 `results`)은 명단·인원·`pot`을 보존하되 닉네임만
 > **"탈퇴한 사용자"** 로 치환한다. **단 탈퇴자가 시작된 회차의 참가자면 라이브에서도 보인다** —
 > 정산 대상으로 남기 때문이다(정책 C8).
 
@@ -270,15 +283,30 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 
 | 순 | 검사 | 에러 |
 |---|---|---|
-| 1 | 그룹 OWNER인가 (`findActiveByIdForShare`) | `CHALLENGE_FORBIDDEN` 403 |
+| 1 | 그룹 OWNER인가 — **그룹 행 `FOR UPDATE`**(생성 직렬화) · 요청자 유저 행은 801 규약대로 `FOR SHARE` | `CHALLENGE_FORBIDDEN` 403 |
 | 2 | `repeatDays` 비어있지 않은가 | `CHALLENGE_REPEAT_DAYS_REQUIRED` 400 |
 | 3 | 활성 4개 미만인가 | `CHALLENGE_LIMIT_EXCEEDED` 409 |
 | 4 | 하루형이면 같은 카테고리 활성 챌린지 없는가 | `CHALLENGE_ALREADY_EXISTS` 409 |
 | 5 | 창형: **`시작 < 종료`** (자정 걸침 금지 — `22:00~01:00` 거부) | `INVALID_MISSION_PARAMS` 400 |
-| 6 | 창형: `0 < 목표 ≤ 창 길이` | `INVALID_MISSION_PARAMS` 400 |
+| 6 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가** | `INVALID_MISSION_PARAMS` 400 |
 | 7 | 창형 SCREEN_TIME: 목표가 15분 배수 | `CHALLENGE_GOAL_NOT_ALIGNED` 400 |
 | 8 | 창형: 기존 창과 겹치지 않는가 (§3.5) | `CHALLENGE_WINDOW_OVERLAP` 409 |
 | 9 | 내기 켬: `1 ≤ stake ≤ 3000` | `BET_INVALID_STAKE` 400 |
+
+> **왜 생성만 배타 락인가**: 활성 4개 상한(3)·창 겹침(8)은 **그룹 전역** 불변식이라 공유 락으로는
+> 못 지킨다 — 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다(부분 유니크 제약은
+> 하루형 카테고리 중복(4)만 막는다). 그룹 행 `FOR UPDATE`로 생성을 직렬화한다. 생성은 그룹장
+> 전용의 드문 동작이라 경합 비용은 없다시피 하다. 조회는 기존대로 무락(§2.1).
+>
+> **왜 목표 하한이 관용치인가**: 창형 FOCUS 판정이 `분 ≥ 목표 − 5`(§3.2)라서 목표 1~5분이면
+> 문턱이 0 이하 — **0분도 자동 달성**이 된다. 내기라면 전원이 "이미 달성" 가드(§3.3)에 걸려
+> 아무도 참가하지 못한다. 관용치보다 큰 목표만 받는다.
+
+**생성 직후 당일 회차** — 오늘이 활성 요일이고 아직 참가 가능한 시각(하루형: 항상 / 창형: 창
+시작 전)이면 **생성 트랜잭션 안에서 `ensureSession(betId, 오늘)`을 함께 수행**한다. 회차 개설
+경로가 00:05 스케줄러와 `join-week` lazy뿐이면, 00:05 이후 만든 챌린지는 다음 날까지 오늘
+회차가 없다 — 카드에 `sessionId`가 비어 단건 참여가 막히고, 남은 회차가 오늘뿐이면
+`join-week` 버튼 숨김 규칙(§2.2)과 겹쳐 **참여 경로가 0**이 된다. (HLD §3.2)
 
 #### ~~`PATCH /groups/{groupId}/challenges/{challengeId}`~~ — **만들지 않는다**
 
@@ -311,12 +339,14 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 @Transactional
 void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
     requireOwner(groupId, ownerId);
-    var ch = challengeRepo.findActiveForUpdate(challengeId).orElseThrow();
+    var ch = challengeRepo.findByIdForUpdate(challengeId)     // 삭제된 행 포함 조회
+                          .orElseThrow(CHALLENGE_NOT_FOUND);
+    if (ch.isDeleted()) return;      // 이미 삭제됨 — 멱등 204 (활성만 조회하면 재시도가 예외로 빠진다)
 
     // ① OPEN 회차를 id 오름차순으로 전부 잠근 뒤 무효화 + 환불
     for (var s : sessionRepo.findOpenByChallengeIdForUpdate(challengeId)) {   // ORDER BY id
-        voidAndRefund(s);            // status=VOIDED, 멱등키 session:{sid}:refund:{participantId}
-    }
+        voidAndRefund(s, VoidReason.CHALLENGE_DELETED);   // status=VOIDED + 사유 기록,
+    }                                                     // 멱등키 session:{sid}:refund:{participantId}
     // ② 정산이 끝난 회차는 건드리지 않는다 (B8 정산 불가역)
     ch.softDelete();                 // deleted_at = now()
 }
@@ -352,7 +382,7 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 
 | 파라미터 | 필수 | 설명 |
 |---|---|---|
-| `cursor` | ✗ | 직전 페이지 마지막 `sessionId`(UUID). 서버가 `session_date`로 해석해 keyset을 잇는다 |
+| `cursor` | ✗ | 직전 페이지 마지막 `sessionId`(UUID). 서버가 **`(session_date, id)` 튜플**로 해석해 keyset을 잇는다 — 그룹 전체 조회라 같은 날짜에 회차가 최대 4개, 날짜만으로 자르면 페이지 경계의 같은 날 나머지가 스킵(또는 중복)된다 |
 | `size` | ✓ | 범위 밖이면 `INVALID_PAGE_REQUEST` 400 |
 | `challengeId` | ✗ | 특정 챌린지로 필터 (챌린지별 이력 화면이 이걸 쓴다) |
 
@@ -368,6 +398,8 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
     "goalMinutes": 90,
     "windowStart": "09:00", "windowEnd": "12:00",
     "stake": 30, "pot": 90, "status": "SETTLED",
+    "voidReason": null,                 // VOIDED만 — SHORT_PARTICIPANTS | CHALLENGE_DELETED
+                                        // (사유 없이 VOIDED 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다)
     "myPayout": 45, "myAchieved": true, "myProgressMinutes": 102,
     "achievedCount": 2, "participantCount": 3
   }],
@@ -384,7 +416,10 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 { "usageDate": "2026-08-10", "progressMinutes": 24, "measuredAt": "2026-08-10T14:03:00Z" }
 ```
 
-**204**. upsert 멱등 — 마지막 값이 이긴다. 서버는 범위(0~1440)만 검증한다(클라 신뢰).
+**204**. upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조용히 204로 무시**한다
+(`measured_at` 컬럼 저장·비교). "마지막 도착이 이긴다"로 두면 큐에 밀렸던 옛 재시도가 최신
+누적값을 낮은 값으로 덮어써 **정산 결과가 네트워크 도착 순서에 좌우**된다 — 돈 경로다.
+서버는 범위(0~1440)만 검증한다(클라 신뢰).
 **비활성 요일의 보고는 무시**한다 (`CHALLENGE_NOT_ACTIVE_TODAY` 대신 조용히 204 — 클라가
 요일을 잘못 계산해도 에러가 나면 안 된다).
 
@@ -410,7 +445,8 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 (`{ content, size, hasNext, nextCursor }`)
 
 - `cursor`는 **직전 페이지 마지막 항목의 `sessionId`(UUID)** — 날짜가 아니다. 서버가 그 회차의
-  `session_date`로 해석해 keyset을 잇는다. 첫 페이지는 생략.
+  `(session_date, id)` 튜플로 해석해 keyset을 잇는다 (`ORDER BY session_date DESC, id DESC` +
+  튜플 비교 — 같은 날짜 동률의 경계 스킵/중복 방지). 첫 페이지는 생략.
 - `size`는 **필수**. 범위 밖이면 `INVALID_PAGE_REQUEST` 400.
 - **종료된 챌린지도 조회된다** — 이력은 영구 보존이다.
 
@@ -426,7 +462,7 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 | `BET_ALREADY_FAILED` | 409 | **SCREEN_TIME** 이미 목표 초과 | 참여 |
 | `BET_NOT_OPEN` | 409 | 회차가 이미 종료 / CAS 레이스 패배 | 참여·취소 |
 | `BET_NOT_JOINED` | 409 | 참가자 아님 | 취소 |
-| `BET_LEAVE_CLOSED` | 409 | 회차 시작 후 + 참가 5분 경과, 또는 회차 종료 후 | 취소 |
+| `BET_LEAVE_CLOSED` | 409 | 취소 마감 경과 — 시작 전 참가는 회차 시작, 시작 후 참가는 참가+5분(회차 종료 상한) | 취소 |
 | `BET_INSUFFICIENT_BALANCE` | 409 | 잔액 부족 (join-week은 총액 기준) | 참여 |
 | `CHALLENGE_FORBIDDEN` | 403 | 그룹장 아님 | 생성·종료·삭제 |
 | `CHALLENGE_REPEAT_DAYS_REQUIRED` | 400 | 요일 미선택 | 생성 |
@@ -446,11 +482,15 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 ```java
 static final Duration LEAVE_GRACE = Duration.ofMinutes(5);
 
-/** 취소 마감 = min(회차 시작, 참가+5분 중 늦은 쪽, 회차 종료) */
+/**
+ * 취소 마감 — 시작 전 참가는 회차 시작까지, 시작 후 참가(하루형)만 참가+5분 유예(종료 상한).
+ * max(시작, 참가+5분)으로 쓰면 창 시작 직전 참가자가 시작 후 5분까지 취소할 수 있어
+ * "시작 후 환불 없음" 불변식이 깨진다 — 창 초반을 보고 발을 빼는 각도가 생긴다.
+ */
 static Instant leaveDeadline(BetSession s, BetParticipant p) {
+    if (p.getCreatedAt().isBefore(s.getStartsAt())) return s.getStartsAt();
     Instant graceEnd = p.getCreatedAt().plus(LEAVE_GRACE);
-    Instant later = s.getStartsAt().isAfter(graceEnd) ? s.getStartsAt() : graceEnd;
-    return later.isBefore(s.getClosesAt()) ? later : s.getClosesAt();
+    return graceEnd.isBefore(s.getClosesAt()) ? graceEnd : s.getClosesAt();
 }
 ```
 
@@ -706,6 +746,7 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
 if (Instant.now().isBefore(session.getJoinClosesAt())) return;   // ← 생략하면 안 된다
 if (participantRepo.countUnconfirmed(sessionId) > 0) return;
 events.publishAfterCommit(new SettleNowEvent(sessionId));
+// 핸들러: settle(sessionId, EARLY) — 그레이스 가드 우회 (§5.2)
 ```
 
 **참가 마감 가드가 없으면 회차가 조기에 닫힌다.** 하루형은 참가 마감이 자정(= 회차 종료)이라
@@ -716,31 +757,48 @@ events.publishAfterCommit(new SettleNowEvent(sessionId));
 하루형은 항상 회차 종료 시점에 정산된다 — 그래도 무해하다. 하루형 FOCUS의 `settle_after`가
 `closes_at`(자정)이라 어차피 그때가 가장 이른 시점이다.
 
+**조기 정산은 그레이스 가드를 우회해야 한다.** 창형 `settle_after`는 창 끝+30분(HLD §3)이고
+전원 확정은 창 진행 중에 일어나므로, `SettleNowEvent` 핸들러가 §5.2의 `now < settle_after`
+가드를 그대로 타면 조용히 return — **즉시 정산 경로가 영영 발동하지 않는다**(재스케줄도 없어
+결국 크론이 30분 뒤에 정산한다 = 이 절 전체가 죽은 약속). 그래서 `settle`은 트리거를 받아
+`EARLY`일 때만 그레이스를 건너뛴다. 참가 마감·전원 확정 가드는 위에서 이미 통과했다.
+**잔여 코인 순위는 조기 정산 시점의 진행분으로 확정**된다 — 이후 창 끝까지의 집중분은 순위에
+안 들어간다. 잔여는 `pot % 승자수`(참가자−1 코인 이하) 우수리라 수용한다.
+
 ### 5.2 회차 정산
 
 ```java
+enum SettleTrigger { CRON, EARLY, MANUAL }
+
 @Transactional
-void settle(UUID sessionId) {
+void settle(UUID sessionId, SettleTrigger trigger) {
     var s = sessionRepo.findByIdForUpdate(sessionId).orElseThrow();
     if (s.getStatus() != OPEN) return;                            // 순차 재실행 스킵
-    if (Instant.now().isBefore(s.getSettleAfter())) return;       // 그레이스 미경과
+    if (trigger != EARLY                                          // 조기 정산만 그레이스 우회 (§5.1)
+        && Instant.now().isBefore(s.getSettleAfter())) return;    // 그레이스 미경과
 
     var participants = participantRepo.findBySessionId(sessionId); // 락 이후 읽기
-    if (participants.size() < 2) { voidSession(s, participants); return; }
+    if (participants.size() < 2) { voidSession(s, participants, SHORT_PARTICIPANTS); return; }
 
     Target t = targetOf(s);
     var minutes = judge.progressMinutes(t, s.getSessionDate(), userIdsOf(participants));
     for (var p : participants) {
-        if (p.getAchieved() == null) {                            // 조기 확정 안 된 사람만
-            p.recordSettlement(BetJudge.isAchieved(t, minutes.get(p.getUserId())),
-                               0, minutes.get(p.getUserId()));
-        }
+        Integer m = minutes.get(p.getUserId());
+        boolean achieved = Boolean.TRUE.equals(p.getAchieved())   // 조기 확정은 불가역 —
+            || BetJudge.isAchieved(t, m);                         // 단 진행분은 전원 최종값으로 갱신
+        p.recordSettlement(achieved, 0, m);
     }
     var dist = PotDistributor.compute(s.getStake(), remainderRuleOf(t), entries(participants));
     if (!sessionRepo.compareAndSetSettled(sessionId, dist.status())) return;  // CAS
     payout(dist);                                                  // userId 오름차순
 }
 ```
+
+> **진행분을 전원 다시 재는 이유**: `achieved == null`인 사람만 갱신하면 조기 확정자의
+> `progressMinutes`가 **목표를 넘던 순간 값으로 박제**된다. 잔여 코인이 "성과 1위"에게 가는데
+> (§4), 자정 정산 시점엔 조기 확정자의 실제 최종 집중분이 더 클 수 있다 — 박제값으로 순위를
+> 매기면 잔여가 엉뚱한 승자에게 간다. `achieved` 플래그만 불가역이고 진행분은 정산 시점
+> 최종값이다.
 
 #### 트랜잭션 경계
 
@@ -753,22 +811,30 @@ void settle(UUID sessionId) {
 #### 실패와 재시도
 
 ```java
+// BetSettlementScheduler — BetSettlementService와 **다른 빈**.
+// 같은 빈에 두면 settle() 호출이 자기 호출(self-invocation)이라 @Transactional 프록시를 타지
+// 않는다 — 각 리포지토리 호출이 제각각 짧은 트랜잭션으로 돌아 findByIdForUpdate 락이 문장
+// 끝에 풀리고, 정산·지급의 원자 경계가 사라진다.
 @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
 void retryDueSessions() {
     for (var s : sessionRepo.findDue(Instant.now())) {            // status=OPEN AND settle_after ≤ now
-        try { settle(s.getId()); }
-        catch (Exception e) {
-            s.incrementAttempts();
-            if (Duration.between(s.getSettleAfter(), Instant.now()).toHours() >= 24) {
-                refundAll(s);                                     // REFUNDED — 최후 방어선
-                log.error("회차 자동 환불 — 24h 초과, sessionId={}, 환불={}명", s.getId(), n);
-            }
+        if (Duration.between(s.getSettleAfter(), Instant.now()).toHours() >= 24) {
+            settlement.refundAll(s.getId());                      // REFUNDED — 정산 시도보다 먼저!
+            log.error("회차 자동 환불 — 24h 초과, sessionId={}", s.getId());
+            continue;
         }
+        try { settlement.settle(s.getId(), CRON); }
+        catch (Exception e) { s.incrementAttempts(); }
     }
 }
 ```
 
 백오프는 `settle_attempts`로 근사한다(5m 크론 × 시도 횟수 임계). 24h는 `settle_after` 기준이다.
+
+> **24h 검사를 정산 시도보다 먼저 하는 이유**: 검사가 catch 블록 안에만 있으면 ① 스케줄러가
+> 24h 넘게 죽었다 살아난 경우(예외가 난 적이 없다) ② 데드라인 직후 의존성이 회복된 경우,
+> 첫 시도가 **성공해서 환불 대신 지급**이 나간다. N21("정산 24시간 초과 시 자동 전원 환불")과
+> 하드 SLO("24h 이상 미정산 OPEN = 0")는 예외 횟수가 아니라 **시각**에 걸린 약속이다.
 
 ### 5.3 멱등키
 
@@ -833,9 +899,12 @@ classDiagram
         +releaseSessions(groupId, userId) "탈퇴 연동"
     }
     class BetSettlementService {
-        +settle(sessionId)
-        +retryDueSessions()
-        -refundAll(session)
+        +settle(sessionId, trigger)
+        +refundAll(sessionId)
+    }
+    class BetSettlementScheduler {
+        <<별도 빈 — 자기 호출 방지>>
+        +retryDueSessions() "24h 초과는 환불 선처리"
     }
     class BetJudge {
         <<판정 유일 소유자>>
@@ -869,9 +938,14 @@ classDiagram
     GroupChallengeService --> WindowResolver
     BetSessionService --> RepeatSchedule
     GroupBetService --> BetJudge
+    BetSettlementScheduler --> BetSettlementService
     BetSettlementService --> BetJudge
     BetSettlementService --> PotDistributor
 ```
+
+**`BetSettlementScheduler`를 서비스와 분리한다** — 같은 빈의 `retryDueSessions() → settle()`은
+자기 호출이라 `@Transactional` 프록시를 우회한다(§5.2). 크론 진입점은 항상 별도 빈에서
+프록시를 통해 서비스를 부른다.
 
 **`GroupChallengeController` 신설.** 기존에는 `GroupController`의 21개 매핑에 챌린지 4개가
 섞여 있어 소유권 경계가 흐렸다.
@@ -885,7 +959,7 @@ classDiagram
 | `ChallengeComposeSheet.tsx` | 만들기 폼 | **요일 선택 추가** (기본값 없음) |
 | `BetJoinSheet.tsx` | 회차 참여 | 개설 모드 제거 · 하루형 진행분 공개 · "이번 주 전부" |
 | `ChallengeDeleteSheet.tsx` | 삭제 확인 | **신설** — 진행 중이면 경고 단계 1개 추가(수치 노출), 아니면 1단계. 버튼 `삭제`/`그만두기` |
-| `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — `lastSettledSession.myJoined`만 보면 된다. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
+| `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — 각 챌린지의 `mySettledSessions`를 합쳐 회차일 내림차순 정렬 후 로컬 seen set(`sessionId`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |
 | `pendingFocusUploads.ts` | 업로드 재시도 큐 | **사일런트 푸시 수신 시 flush 추가** |
 | `screentimeSync.ts` | 일·창 사용분 보고 | 비활성 요일 스킵 |

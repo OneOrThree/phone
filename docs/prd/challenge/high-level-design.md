@@ -126,19 +126,22 @@ sequenceDiagram
 
     U->>C: POST /challenges<br/>{category, type, repeatDays[], goal, window?, bet?}
     C->>S: create()
-    S->>DB: 그룹 OWNER 검증 (users FOR SHARE)
+    S->>DB: 그룹 OWNER 검증<br/>(요청자 users FOR SHARE — 801 규약<br/>· 그룹 행 FOR UPDATE — 생성 직렬화)
     S->>S: repeatDays 비어있으면 400
     S->>S: 활성 4개 상한 검사
     S->>S: 하루형이면 카테고리 중복 검사
     alt 창형
         S->>D: 시작 ≥ 종료면 400 (자정 걸침 금지)
-        S->>D: 목표분 0 < x ≤ 창 길이
+        S->>D: 목표분 0 < x ≤ 창 길이 (FOCUS는 목표 > 관용치 5분)
         S->>D: SCREEN_TIME이면 목표분 15분 배수
         S->>D: 기존 창과 (요일 ∩ ∧ 간격 < 15분) 검사
     end
     S->>DB: challenges + CTI 상세 INSERT
     opt 내기 켬
         S->>DB: bets INSERT (stake)
+        opt 오늘이 활성 요일 + 참가 가능 시각
+            S->>DB: ensureSession(betId, 오늘)
+        end
     end
     S->>S: 도메인 이벤트 발행 (AFTER_COMMIT)
     S-->>U: 201
@@ -147,12 +150,18 @@ sequenceDiagram
 **검증 순서가 곧 에러 우선순위**다. 권한 → 요일 → 상한 → 조합 → 창 파라미터 → 겹침.
 "왜 안 되는지"를 유저가 고칠 수 있는 순서로 알려준다.
 
+**생성은 그룹 행 배타 락으로 직렬화한다.** 활성 4개 상한과 창 겹침은 그룹 전역 불변식이라
+공유 락으로는 동시 생성 2건을 못 막는다 (LLD §2.1).
+
 ### 3.2 회차 개설 — lazy + 스케줄러 보증
 
 내기가 켜진 챌린지는 활성 요일이 오면 회차가 **자동으로** 선다. 개설 API가 없다.
 
-**개설 시점이 둘이다.** 스케줄러만 두면 "이번 주 남은 회차 전부" 예약이 성립하지 않는다 —
-월요일에 예약을 누르는 순간 수·금 회차 행이 **아직 존재하지 않기** 때문이다.
+**개설 시점이 셋이다.** ① 매일 00:05 스케줄러(보증장치) ② `join-week` lazy — 스케줄러만
+두면 "이번 주 남은 회차 전부" 예약이 성립하지 않는다. 월요일에 예약을 누르는 순간 수·금 회차
+행이 **아직 존재하지 않기** 때문이다. ③ **챌린지 생성 직후** — 오늘이 활성 요일이고 아직
+참가 가능한 시각이면 생성 트랜잭션에서 오늘 회차를 함께 만든다. 이게 없으면 00:05 이후 만든
+챌린지는 다음 날까지 오늘 회차가 없어 단건 참여가 막힌다 (LLD §2.1).
 
 ```mermaid
 sequenceDiagram
@@ -176,7 +185,7 @@ sequenceDiagram
     SV->>DB: 각 회차에 participant INSERT + 총액 차감
 ```
 
-**`ensureSession`이 단일 진입점**이다. `UNIQUE(bet_id, session_date)` 덕에 두 경로가 겹쳐도
+**`ensureSession`이 단일 진입점**이다. `UNIQUE(bet_id, session_date)` 덕에 세 경로가 겹쳐도
 안전하고, 스케줄러는 "아무도 예약하지 않은 회차"를 메우는 역할만 한다.
 
 **박제 시점 = 그 회차가 처음 만들어지는 시점.** 월요일에 주 전체를 예약하면 수·금 회차도
@@ -299,11 +308,12 @@ sequenceDiagram
     end
     J->>ST: 참가 마감됐고 전원 확정됐나?
     alt 둘 다 예
-        ST->>ST: settle(session)
+        ST->>ST: settle(session, EARLY)<br/>— 그레이스 가드 우회
     end
     Note over ST: 참가 마감 전이면 정산하지 않는다<br/>— 아직 들어올 사람이 있다
+    Note over ST: EARLY가 그레이스를 우회하지 않으면<br/>창형 settle_after(끝+30분)에 막혀<br/>조기 정산이 영영 발동하지 않는다 (LLD §5.1)
 
-    Note over ST: 또는 SessionScheduler가<br/>settle_after 경과 회차를 집는다
+    Note over ST: 또는 BetSettlementScheduler가<br/>settle_after 경과 회차를 집는다<br/>(별도 빈 — 자기 호출 방지, LLD §5.2)
     ST->>DB: session 행 FOR UPDATE
     ST->>ST: status == OPEN 확인
     ST->>DB: compareAndSetSettled (원자적 CAS)
@@ -333,12 +343,13 @@ sequenceDiagram
     participant DB as DB
 
     U->>S: DELETE /challenges/{cid}
-    S->>DB: OWNER 검증 · challenge FOR UPDATE
+    S->>DB: OWNER 검증 · challenge FOR UPDATE (삭제 행 포함)
+    Note over S: 이미 삭제됐으면 그대로 204<br/>— 재시도 멱등 (LLD §2.1)
     S->>DB: OPEN 회차 조회 (id 오름차순 FOR UPDATE)
     loop 회차마다
-        S->>B: voidAndRefund(session)
+        S->>B: voidAndRefund(session, CHALLENGE_DELETED)
         B->>DB: 잠금 후 참가 행 재조회
-        B->>DB: status=VOIDED · 환불<br/>멱등키 session:{sid}:refund:{participantId}
+        B->>DB: status=VOIDED · void_reason 기록 · 환불<br/>멱등키 session:{sid}:refund:{participantId}
     end
     Note over S: SETTLED / FORFEITED 회차는 건드리지 않는다<br/>— 정산 불가역 (B8)
     S->>DB: challenge.deleted_at = now()
@@ -546,10 +557,13 @@ flowchart TB
   월수금 챌린지 4개가 동시에 회차를 열어도 푸시는 하나다.
 - **감지와 발송을 분리**한다. 감지기는 후보만 만들고, 묶음·dedup·문구 조립은 한 곳에서 한다.
   각자 발송하면 규칙이 갈라진다.
-- **재훑기 + dedup** — "직전 발송 이후"를 상태로 들지 않고 최근 구간을 통째로 다시 훑는다.
-  발송 여부의 단일 소스가 `NotificationSentLog`이므로 슬롯이 겹쳐도 이중 발송이 없고,
-  앞선 실행의 실패는 자연히 재시도된다.
-- **발송 실패 시 이력을 남기지 않는다** → 다음 틱이 다시 집는다.
+- **재훑기 + 선점 dedup** — "직전 발송 이후"를 상태로 들지 않고 최근 구간을 통째로 다시 훑는다.
+  발송 여부의 단일 소스는 `NotificationSentLog`인데, **조회 후 발송·성공 후 기록** 순서로 두면
+  인스턴스가 둘이 되는 순간 "둘 다 로그 없음 확인 → 둘 다 발송"이 가능하고 이미 나간 푸시는
+  회수할 수 없다. 그래서 **발송 전에 슬롯 유니크 키로 `PENDING` 행을 INSERT해 선점**하고
+  (충돌 = 남이 선점 → 스킵), FCM 성공 시 `SENT`로 마킹한다.
+- **발송 실패 시 `PENDING` 행을 지운다** → 다음 틱이 다시 집는다 — 재시도는 그대로 산다.
+  (크론 자체의 중복 실행 방어는 policy §E4 — ShedLock, 티켓 565.)
 - **사일런트 푸시는 묶음을 타지 않는다.** 목적이 표시가 아니라 앱 기동이라 dedup 대상도 아니다.
   대상은 해당 회차 참가자로 한정한다.
 
@@ -586,15 +600,18 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    A["settle_after 경과"] --> B["정산 시도"]
+    A["settle_after 경과"] --> G{"24h 초과?"}
+    G -->|"예 — 정산 시도보다 먼저"| E["REFUNDED<br/>전원 전액 환불"]
+    G -->|아니오| B["정산 시도"]
     B -->|성공| C["SETTLED / FORFEITED"]
     B -->|실패| D["백오프 재시도<br/>5m · 15m · 1h · 4h"]
-    D -->|성공| C
-    D -->|24h 초과| E["REFUNDED<br/>전원 전액 환불"]
+    D --> A
     E --> F["🔴 error 로그 — SLO 위반"]
 ```
 
 **자동 환불이 최후 방어선**이다. 사람이 아니라 시스템이 "참가비 동결 0"을 보장한다.
+**24h 검사는 정산 시도보다 먼저다** — 검사가 실패 경로 안에만 있으면 스케줄러 장기 다운 후
+복구, 혹은 데드라인 직후 의존성 회복 시 첫 시도가 성공해 환불 대신 지급이 나간다 (LLD §5.2).
 정산된 건을 되돌리는 게 아니라 **정산 자체가 불가능한 건을 닫는 것**이므로 정산 불가역 원칙과
 충돌하지 않는다.
 

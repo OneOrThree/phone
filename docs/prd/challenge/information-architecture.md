@@ -341,6 +341,7 @@ flowchart TB
     OUT --> F5["memberProgress[] (3상)"]
     OUT --> F6["bet { enabled, stake, session }"]
     OUT --> F7["lastSettledSession (지난 결과 + 정산 근거)"]
+    OUT --> F8["mySettledSessions[] (결과 모달 큐 · 최대 10건)"]
 ```
 
 | 필드 | null이 뜻하는 것 |
@@ -350,7 +351,8 @@ flowchart TB
 | `memberProgress[].achieved` | 판정 불가 |
 | `bet` = `null` | 이 챌린지에 내기가 꺼져 있음 |
 | `bet.session` = `null` | 오늘 회차가 없음 (비활성 요일) → `nextSessionAt` 참조 |
-| `lastSettledSession` | 정산 이력 없음 (`VOIDED`는 제외) |
+| `lastSettledSession` | 정산 이력 없음 (`VOIDED` **포함** — K5 해소, FR-44-3 기준 통일) |
+| `mySettledSessions` = `[]` | 내가 참가한 정산 완료 회차 없음 |
 | `lastSettledSession.goalMinutes` · `results[].progressMinutes` | 미기록. 앱은 "—"로 그린다. **`0`(진짜 0분)과 다른 뜻** |
 
 > **금지**: `bet` 필드에 `@JsonInclude(NON_NULL)`을 붙이면 앱의 undefined/null 3상 판정
@@ -400,7 +402,7 @@ flowchart LR
 | 축 | 규칙 |
 |---|---|
 | **트리거** | 그룹방 `load()` 1회. 포그라운드 복귀로 재조회돼도 가드가 막는다 |
-| **대상** | 각 챌린지의 `lastSettledSession` 중 **내가 참가자였던 것** |
+| **대상** | 각 챌린지의 `mySettledSessions`(**내가 참가한** 정산 완료 회차, 최신순 최대 10건) 전부 |
 | **데이터** | **오늘 조회 1건**. 날짜를 따로 부르지 않는다 |
 | **순서** | `sessionDate` 내림차순 → 동률이면 챌린지 `startedAt` 순. 최근 것부터 |
 | **개수** | 순차 큐. 하나 닫으면 다음이 뜬다 |
@@ -409,10 +411,8 @@ flowchart LR
 ```mermaid
 flowchart TB
     L["그룹방 load()"] --> Q["getChallenges(gid, 오늘) — 1건"]
-    Q --> P["각 챌린지의 lastSettledSession 수집"]
-    P --> F1{"내가 참가자인가?<br/>results[]에 내 userId"}
-    F1 -->|아니오| X1["제외"]
-    F1 -->|예| F2{"이미 봤나?<br/>AsyncStorage 가드"}
+    Q --> P["각 챌린지의 mySettledSessions[] 평탄화"]
+    P --> F2{"이미 봤나?<br/>AsyncStorage 가드"}
     F2 -->|예| X2["제외"]
     F2 -->|아니오| Q2["큐에 추가"]
     Q2 --> S["sessionDate 내림차순 정렬"]
@@ -423,10 +423,12 @@ flowchart TB
 **챌린지마다 직전 회차일이 다르다** — 월수금 챌린지와 화목 챌린지가 공존하면 수요일 기준
 직전 회차가 각각 월/화요일이라 2건으로 못 덮는다.
 
-서버가 이미 `lastSettledSession`(회차일·목표·인별 결과)을 챌린지마다 실어주므로 **오늘 조회
-1건이면 충분하다.** 2건 조회는 그 필드가 없던 시절의 잔재였다.
+서버가 이미 `mySettledSessions`(회차일·목표·인별 결과, 내 참가 회차만)를 챌린지마다
+실어주므로 **오늘 조회 1건이면 충분하다.** 2건 조회는 그 필드가 없던 시절의 잔재였다.
+최신 1건(`lastSettledSession`)만으로는 큐가 성립하지 않는다 — 참가 안 한 최신 회차가
+내 결과를 가리고, 안 본 결과 여럿이 1건으로 접힌다 (policy §D3).
 
-**정산 전 회차는 자동으로 빠진다** — `lastSettledSession`에는 정산이 끝난 회차만 실린다.
+**정산 전 회차는 자동으로 빠진다** — `mySettledSessions`에는 정산이 끝난 회차만 실린다.
 스크린타임 하루형의 자정~익일 12:00 공백 구간이 이걸로 걸러진다.
 
 **무산·환불도 결과다**
@@ -435,7 +437,8 @@ flowchart TB
 |---|---|---|
 | `SETTLED` | ✅ | 인별 달성·손익 |
 | `FORFEITED` | ✅ | `아무도 달성하지 못해 적립금 90이 사라졌어요` |
-| `VOIDED` | ✅ | `참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요` |
+| `VOIDED` (`voidReason=SHORT_PARTICIPANTS`) | ✅ | `참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요` |
+| `VOIDED` (`voidReason=CHALLENGE_DELETED`) | ✅ | `챌린지가 삭제돼 무산됐어요 · 참가비는 돌려드렸어요` |
 | `REFUNDED` | ✅ | `정산이 지연돼 참가비를 돌려드렸어요` |
 
 돈이 움직였거나 **움직이지 않기로 확정된** 사건은 전부 알린다. 침묵하면 "내 코인 어디 갔지"가 된다.
@@ -444,7 +447,7 @@ flowchart TB
 
 - **내가 참가하지 않은 회차** — 남의 결과로 화면을 막지 않는다. 그룹 전체 달성 현황은
   카드에서 상시 보인다
-- **내기가 꺼진 챌린지** — `lastSettledSession`이 없다
+- **내기가 꺼진 챌린지** — `mySettledSessions`가 비어 있다
 - **이미 본 회차** — 세션 id 가드
 - **삭제된 챌린지의 회차** — 챌린지가 목록에서 빠져 응답에 없다. 삭제 시점의 환불은
   **푸시로 알린다**(모달 범위 밖)

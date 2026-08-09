@@ -1477,7 +1477,7 @@ html{scroll-behavior:smooth}
           <thead><tr><th>축</th><th>규칙</th></tr></thead>
           <tbody>
             <tr><td>트리거</td><td class="copy">그룹방 <code>load()</code> 1회. 포그라운드 복귀로 재조회돼도 가드가 막는다</td></tr>
-            <tr><td>대상</td><td class="copy">각 챌린지의 <code>lastSettledSession</code> 중 <b><code>myJoined = true</code></b></td></tr>
+            <tr><td>대상</td><td class="copy">각 챌린지의 <code>mySettledSessions</code>(<b>내가 참가한</b> 정산 완료 회차 · 최신순 최대 10건) 전부</td></tr>
             <tr><td>데이터</td><td class="copy"><b>오늘 조회 1건</b>. 날짜를 따로 부르지 않는다</td></tr>
             <tr><td>순서</td><td class="copy"><code>sessionDate</code> 내림차순 — 최근 것부터</td></tr>
             <tr><td>개수</td><td class="copy">순차 큐. 하나 닫으면 다음</td></tr>
@@ -1493,7 +1493,8 @@ html{scroll-behavior:smooth}
           <tbody>
             <tr><td><code>SETTLED</code></td><td class="copy">인별 달성 · 손익</td></tr>
             <tr><td><code>FORFEITED</code></td><td class="copy">아무도 달성하지 못해 적립금 90이 사라졌어요</td></tr>
-            <tr><td><code>VOIDED</code></td><td class="copy">참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요</td></tr>
+            <tr><td><code>VOIDED</code> (<code>voidReason=SHORT_PARTICIPANTS</code>)</td><td class="copy">참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요</td></tr>
+            <tr><td><code>VOIDED</code> (<code>voidReason=CHALLENGE_DELETED</code>)</td><td class="copy">챌린지가 삭제돼 무산됐어요 · 참가비는 돌려드렸어요</td></tr>
             <tr><td><code>REFUNDED</code></td><td class="copy">정산이 지연돼 참가비를 돌려드렸어요</td></tr>
           </tbody>
         </table>
@@ -1509,7 +1510,7 @@ html{scroll-behavior:smooth}
           <thead><tr><th>경우</th><th>왜</th></tr></thead>
           <tbody>
             <tr><td>내가 참가하지 않은 회차</td><td>남의 결과로 화면을 막지 않는다. 그룹 달성 현황은 카드에서 상시 보인다</td></tr>
-            <tr><td>내기가 꺼진 챌린지</td><td><code>lastSettledSession</code>이 없다</td></tr>
+            <tr><td>내기가 꺼진 챌린지</td><td><code>mySettledSessions</code>가 비어 있다</td></tr>
             <tr><td>정산 전 회차</td><td>정산된 것만 실린다 — 스크린타임 하루형의 12시간 공백이 자동으로 걸러진다</td></tr>
             <tr><td>이미 본 회차</td><td>세션 id 가드</td></tr>
             <tr><td>삭제된 챌린지의 회차</td><td>응답에 없다. 삭제 시점의 환불은 <b>푸시로</b> 알린다</td></tr>
@@ -1523,8 +1524,10 @@ html{scroll-behavior:smooth}
         <b>챌린지마다 직전 회차일이 다르다</b> — 월수금과 화목이 공존하면 수요일 기준 직전 회차가
         각각 월/화요일이라 2건으로 못 덮는다.
         <br><br>
-        서버가 이미 <code>lastSettledSession</code>을 챌린지마다 실어주므로 <b>오늘 조회 1건이면
-        끝난다.</b> 날짜 역산도, 자정 걸침 판정도 앱에서 사라진다.
+        서버가 이미 <code>mySettledSessions</code>(내가 참가한 정산 완료 회차 목록)를 챌린지마다
+        실어주므로 <b>오늘 조회 1건이면 끝난다.</b> 날짜 역산도, 자정 걸침 판정도 앱에서 사라진다.
+        최신 1건 필드로는 큐가 성립하지 않는다 — 참가 안 한 최신 회차가 내 결과를 가리고,
+        안 본 결과 여럿이 1건으로 접힌다.
       </div>
     </div>
   </div>
