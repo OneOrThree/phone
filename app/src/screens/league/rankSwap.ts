@@ -45,22 +45,30 @@ export const rankSwap: LayoutAnimationFunction = (values) => {
           ? withTiming(values.targetOriginX, {
               duration: M.dur.base,
               easing: M.curve.standard.fn,
+              reduceMotion: M.never,
             })
           : withSequence(
               withTiming(values.targetOriginX + amp, {
                 duration: ARC_MS,
                 easing: M.curve.standard.fn,
+                reduceMotion: M.never,
               }),
               withTiming(values.targetOriginX, {
                 duration: ARC_MS,
                 easing: M.curve.standard.fn,
+                reduceMotion: M.never,
               }),
             ),
       originY: withSpring(values.targetOriginY, M.spring.snappy),
-      width: withTiming(values.targetWidth, { duration: M.dur.base, easing: M.curve.standard.fn }),
+      width: withTiming(values.targetWidth, {
+        duration: M.dur.base,
+        easing: M.curve.standard.fn,
+        reduceMotion: M.never,
+      }),
       height: withTiming(values.targetHeight, {
         duration: M.dur.base,
         easing: M.curve.standard.fn,
+        reduceMotion: M.never,
       }),
     },
   };
