@@ -98,6 +98,11 @@ export default function LeagueResultScreen() {
   const [showTo, setShowTo] = useState(false);
   // 승급 축하 파티클 — 결과 뱃지가 완전히 도착한 뒤에만 터진다(시퀀스 후).
   const [celebrate, setCelebrate] = useState(false);
+  // ⚠️ m을 effect 의존성에 넣지 않는다 — 아래 시퀀스 effect 주석 참고. 대신 최신 delay를 ref로 읽는다.
+  const delayRef = useRef(m.delay);
+  delayRef.current = m.delay;
+  // 축하(햅틱·컨페티)는 화면당 1회. 시퀀스가 어떤 이유로 다시 돌더라도 보상 피드백은 반복하지 않는다.
+  const celebratedRef = useRef(false);
   // 조각이 전부 화면 밖으로 나가면 컨페티를 **언마운트**한다. 남겨 두면 조각이 안 보이는 뒤로도
   // 중력 센서 구독과 매 프레임 적분(useFrameCallback)이 CTA를 누를 때까지 계속 돈다(codex 리뷰).
   //
@@ -117,13 +122,13 @@ export default function LeagueResultScreen() {
     [badgeAnim, titleAnim, nameAnim, line3].forEach((v) => v.setValue(0));
     // 대기 시간(1100·300)·뱃지 전환 길이(2000·1200)·강등 지연(1500)은 연출 호흡이라 값을 그대로 둔다.
     // reduce일 때만 m.delay가 0으로 눌러 단계가 즉시 이어진다(타이머는 남는다).
-    const hold = Animated.delay(m.delay(hasTransition ? 1100 : 300));
+    const hold = Animated.delay(delayRef.current(hasTransition ? 1100 : 300));
     hold.start(({ finished }) => {
       if (!finished || cancelled) return;
       // 뱃지 전환/등장 시작 (배경 병렬) — 강등은 3단계라 더 길게·균등하게
       Animated.timing(badgeAnim, {
         toValue: 1,
-        duration: m.delay(demote ? 2000 : 1200),
+        duration: delayRef.current(demote ? 2000 : 1200),
         easing: demote ? Easing.inOut(Easing.ease) : Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }).start(({ finished: fb }) => {
@@ -132,10 +137,13 @@ export default function LeagueResultScreen() {
         // (파티클은 '동작 줄이기'에서 ConfettiBurst가 스스로 생략한다 — 여기서 다시 분기하지 않는다.)
         if (!fb || cancelled || type !== 'promote') return;
         setCelebrate(true);
-        hapticSuccess();
+        if (!celebratedRef.current) {
+          celebratedRef.current = true;
+          hapticSuccess();
+        }
       });
       // 결과 티어명 등장 — 승격·유지는 전환과 동시에, 강등은 결과(to) 뱃지가 뜨는 시점(≈1.5초)에 맞춰
-      Animated.delay(m.delay(demote ? 1500 : 0)).start(({ finished: f2 }) => {
+      Animated.delay(delayRef.current(demote ? 1500 : 0)).start(({ finished: f2 }) => {
         if (!f2 || cancelled) return;
         // 티어명(화살표/단일) 등장 — 레이아웃 페이드
         LayoutAnimation.configureNext(
@@ -170,9 +178,11 @@ export default function LeagueResultScreen() {
       cancelled = true;
       hold.stop();
     };
-    // ⚠️ m(=reduce)을 의존성에 넣는다 — 재생 도중 '동작 줄이기'가 켜졌을 때 중간 단계에서 굳지 않게
-    //    시퀀스를 처음부터 다시 태운다.
-  }, [type, hasTransition, demote, m, badgeAnim, titleAnim, nameAnim, line3]);
+    // ⚠️ m을 의존성에서 뺀다. 넣으면 '동작 줄이기'가 바뀔 때(초기 비동기 조회가 true→false로
+    //    확정되는 경우 포함) 이 effect가 다시 돌아 **이미 끝난 화면의 시퀀스를 처음부터 재생**하고,
+    //    승급이면 hapticSuccess·컨페티까지 다시 발생한다 — 보상 피드백이 중복된다(codex 리뷰).
+    //    대기 값은 delayRef로 타이머를 걸 때의 최신 값을 읽고, 축하는 celebratedRef로 1회만 낸다.
+  }, [type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
 
   // 뱃지 전환 보간 — 이전 티어(fade out·축소) → 결과 티어(fade in·팝)
   const fromOpacity = badgeAnim.interpolate({
