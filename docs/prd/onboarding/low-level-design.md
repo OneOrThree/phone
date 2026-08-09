@@ -60,6 +60,7 @@
 | `@/services/userApi` `getOccupations`·`checkNickname` / `@/services/focusApi` `getDefaultTags` | 직군·추천과목·닉네임 |
 | `@/hooks/useNicknameCheck` | 닉네임 실시간 중복확인(디바운스 350ms) |
 | `@/components/DurationDrumPicker` | 목표 5분 눈금 휠 |
+| `@/constants/goals` | 목표 선택 범위(집중·스크린타임 하한/상한) — 설정 화면과 공유 |
 | `@/screens/character/CharacterCreator` | 누끼 생성기(RN `Modal`로 호스팅) |
 | `@/utils/otaGate` `wasOtaSplashJustShown` | 스플래시 스킵 판정 |
 | `@/utils/haptics` | `hapticLight`(시작) · `hapticMedium`(스텝 전환) |
@@ -156,11 +157,17 @@ const progress =
 
 ## 4. 검증 규칙과 경계값
 
-### 4.1 목표 설정 (`GoalSettingStep.tsx:20-45`)
+### 4.1 목표 설정 (`GoalSettingStep.tsx:20-27`)
+
+범위는 설정 화면과 공유한다 — `@/constants/goals` 한 곳에만 있다 (GROMO-1255).
 
 ```typescript
-const FOCUS  = { min: 30, max: 1440 };  // 최대 24시간
-const SCREEN = { min: 30, max: 480 };   // 최대 8시간
+// @/constants/goals.ts
+export const GOAL_STEP_MINUTES = 5;
+export const FOCUS_GOAL_MINUTES = { min: 30, max: 24 * 60 };  // 30분~24시간
+export const USAGE_GOAL_MINUTES = { min: 30, max: 12 * 60 };  // 30분~12시간
+
+// GoalSettingStep.tsx
 const E2E = process.env.EXPO_PUBLIC_E2E === '1';
 const E2E_PREFILL = { focus: 720, screen: 240 };
 ```
@@ -173,17 +180,18 @@ const E2E_PREFILL = { focus: 720, screen: 240 };
 | CTA 잠금 | `ctaDisabled={!focusSet \|\| !screenSet}` + 잠긴 이유 한 줄 안내 |
 | 눈금 | `DurationDrumPicker` `MINUTE_STEP = 5` (분 휠 12칸: 0~55분) |
 | 클램프 | `Math.min(max, Math.max(min, h*60+m))`, 결과가 현재 `value`와 같으면 `onChange` 생략 → 휠이 되돌아감 |
-| 시 휠 칸 수 | `floor(max/60) + 1` → 집중 25칸, 스크린타임 9칸 |
+| 시 휠 칸 수 | `floor(max/60) + 1` → 집중 25칸, 스크린타임 13칸 |
 | 제출 | `update({dailyFocusMinutes, usageGoalMinutes})` 후 계측 2회 → `onNext()` |
 
-**설정 화면(`@/screens/settings/GoalsScreen.tsx:23-28`)과의 대조**
+**설정 화면(`@/screens/settings/GoalsScreen.tsx`)과의 대조** — 두 화면 모두 `@/constants/goals`를
+import하므로 값이 어긋날 수 없다. 예전에는 각자 선언해 아래 두 줄이 불일치했다(GROMO-1255).
 
 | | 온보딩 | 설정 | 상태 |
 |---|---|---|---|
-| 집중 하한 | **30분** | **5분** | 불일치 |
+| 집중 하한 | 30분 | 30분 | 일치 (설정 5분 → **30분**으로 맞춤) |
 | 집중 상한 | 1440분 | 1440분 | 일치 |
 | 스크린타임 하한 | 30분 | 30분 | 일치 |
-| 스크린타임 상한 | **480분(8h)** | **720분(12h)** | 불일치 — **GROMO-1255** |
+| 스크린타임 상한 | 720분(12h) | 720분(12h) | 일치 (온보딩 480분 → **720분**으로 맞춤) |
 | 눈금 | 5분 | 5분 | 일치 |
 
 ### 4.2 닉네임 (`NicknameStep.tsx:16-45`)
@@ -279,24 +287,22 @@ if (viewedStepsRef.current.has(step)) return;
 
 | # | 항목 | 근거 | 영향 |
 |---|---|---|---|
-| 1 | **목표 상·하한 불일치 (GROMO-1255)** — 온보딩 스크린타임 상한 480분 vs 설정 720분. 같은 성격으로 집중 하한 30분 vs 5분도 어긋남 | `GoalSettingStep.tsx:20-21` vs `GoalsScreen.tsx:23-27` | 온보딩에서 12시간을 못 고르고, 설정에서 5분 목표를 잡은 유저가 온보딩 기준으로는 불가능한 값을 갖는다. **12시간으로 통일 예정** |
-| 2 | **고아 스텝 5개** — `UsageGuessStep`·`LiveRankingStep`·`PhoneManageStep`·`NotificationPermissionStep`·`GromoStartStep`이 어디서도 import되지 않음 | `steps/` 전체 grep 결과 참조 0 | 죽은 코드. 특히 `yesterday_screentime`의 "추측과 얼마나 달랐나요?" 문구가 **존재하지 않는 앞 스텝**을 가리킨다 |
-| 3 | **죽은 필드 3종** — `guessedYesterdayMinutes`·`notificationGranted`(채우는 스텝 없음), `screenTimeSelectionConfigured`(쓰기만 하고 읽는 곳 없음) | `types.ts:12,14,21` | 타입이 실제보다 넓어 보임 |
-| 4 | **사문화된 저장 키 3개** — `gromo:selection:configured`·`:counts`·`:pendingCounts`는 코드베이스 전체에 읽기·쓰기 없음 | `types/storage.ts:52-54` | 온보딩 picker 결과가 JS 쪽에 전혀 기록되지 않아 설정 화면과 상태를 공유하지 못함 |
-| 5 | **`step_index` 상수가 실제 순서와 불일치** | §5 표 | GA4 퍼널을 `step_index`로 정의하면 순서가 뒤집힌다. `step_viewed` 속성 ID는 **프로덕션 미배포**라 콘솔에서 `step` 세분화가 아직 불가 |
-| 6 | **GA4 퍼널 사고 이력** — 더 이상 발행되지 않는 `shock` 이벤트를 닫힌 퍼널 단계로 잡아 100% 이탈로 보였고 2026-07-30 수정 | — | 퍼널 정의는 `analyticsEvents.ts`에 실재하는 이벤트만 사용 |
-| 7 | **재개 불가** — 수집 데이터가 인메모리라 강제종료 시 전부 소실 | `OnboardingFlow.tsx:66` | 스텝 11개를 처음부터. 권한·모니터 등록만 남는 비대칭 상태 |
-| 8 | **`UserContext.goalSecondsRef`가 `initialGoalSeconds`로 초기화되지 않음** — `useRef(3 * 3600)` 하드코딩 | `@/store/UserContext.tsx:60` | 현재 이 ref를 읽는 코드가 없어 무해하나, 소비처가 생기면 온보딩 목표와 무관한 3시간을 즉시 반환한다 |
-| 9 | **'나중에 할게요' = 거부** — 둘 다 `screenTimeGranted=false` | `ScreenTimePermissionStep.tsx:163-166` | 서버 `PATCH screen-time-permission`도 구분 못 함 |
-| 10 | **`SubjectCompareStep` 막대가 목업** — `BARS`/`SUBJECTS` 하드코딩, 파일 내 `TODO: 통계 연동 후 실데이터` | `SubjectCompareStep.tsx:17-24` | 로그인 전 화면이라 실데이터가 불가능한 구조적 제약. 설득 목적엔 충분하나 "A과목" 라벨이 그대로 노출 |
-| 11 | **기존 계정 수집값 무통보 폐기** | `App.tsx:342-382` | 재로그인 유저가 다시 고른 목표·과목·직군이 조용히 사라진다 |
-| 12 | **`E2E_PREFILL`이 코드에 상주** | `GoalSettingStep.tsx:26-27` | 운영 빌드엔 `EXPO_PUBLIC_E2E`가 없어 무해하지만, 플래그가 잘못 주입되면 목표 잠금이 통째로 풀린다 |
+| 1 | **고아 스텝 5개** — `UsageGuessStep`·`LiveRankingStep`·`PhoneManageStep`·`NotificationPermissionStep`·`GromoStartStep`이 어디서도 import되지 않음 | `steps/` 전체 grep 결과 참조 0 | 죽은 코드. 특히 `yesterday_screentime`의 "추측과 얼마나 달랐나요?" 문구가 **존재하지 않는 앞 스텝**을 가리킨다 |
+| 2 | **죽은 필드 3종** — `guessedYesterdayMinutes`·`notificationGranted`(채우는 스텝 없음), `screenTimeSelectionConfigured`(쓰기만 하고 읽는 곳 없음) | `types.ts:12,14,21` | 타입이 실제보다 넓어 보임 |
+| 3 | **사문화된 저장 키 3개** — `gromo:selection:configured`·`:counts`·`:pendingCounts`는 코드베이스 전체에 읽기·쓰기 없음 | `types/storage.ts:52-54` | 온보딩 picker 결과가 JS 쪽에 전혀 기록되지 않아 설정 화면과 상태를 공유하지 못함 |
+| 4 | **`step_index` 상수가 실제 순서와 불일치** | §5 표 | GA4 퍼널을 `step_index`로 정의하면 순서가 뒤집힌다. `step_viewed` 속성 ID는 **프로덕션 미배포**라 콘솔에서 `step` 세분화가 아직 불가 |
+| 5 | **GA4 퍼널 사고 이력** — 더 이상 발행되지 않는 `shock` 이벤트를 닫힌 퍼널 단계로 잡아 100% 이탈로 보였고 2026-07-30 수정 | — | 퍼널 정의는 `analyticsEvents.ts`에 실재하는 이벤트만 사용 |
+| 6 | **재개 불가** — 수집 데이터가 인메모리라 강제종료 시 전부 소실 | `OnboardingFlow.tsx:66` | 스텝 11개를 처음부터. 권한·모니터 등록만 남는 비대칭 상태 |
+| 7 | **`UserContext.goalSecondsRef`가 `initialGoalSeconds`로 초기화되지 않음** — `useRef(3 * 3600)` 하드코딩 | `@/store/UserContext.tsx:60` | 현재 이 ref를 읽는 코드가 없어 무해하나, 소비처가 생기면 온보딩 목표와 무관한 3시간을 즉시 반환한다 |
+| 8 | **'나중에 할게요' = 거부** — 둘 다 `screenTimeGranted=false` | `ScreenTimePermissionStep.tsx:163-166` | 서버 `PATCH screen-time-permission`도 구분 못 함 |
+| 9 | **`SubjectCompareStep` 막대가 목업** — `BARS`/`SUBJECTS` 하드코딩, 파일 내 `TODO: 통계 연동 후 실데이터` | `SubjectCompareStep.tsx:17-24` | 로그인 전 화면이라 실데이터가 불가능한 구조적 제약. 설득 목적엔 충분하나 "A과목" 라벨이 그대로 노출 |
+| 10 | **기존 계정 수집값 무통보 폐기** | `App.tsx:342-382` | 재로그인 유저가 다시 고른 목표·과목·직군이 조용히 사라진다 |
+| 11 | **`E2E_PREFILL`이 코드에 상주** | `GoalSettingStep.tsx:26-27` | 운영 빌드엔 `EXPO_PUBLIC_E2E`가 없어 무해하지만, 플래그가 잘못 주입되면 목표 잠금이 통째로 풀린다 |
 
 ---
 
 ## 7. 앞으로 변할 방향
 
-- **상수 단일화**: 목표 하한/상한/눈금을 `@/constants`로 올려 온보딩·설정이 같은 값을 import하면 §6-1이 구조적으로 재발하지 않는다. GROMO-1255 수정 시 함께 처리할 자리.
 - **W번호 제거**: 주석의 `W1~W15`와 `analyticsEvents.ts`의 `step_index` 리터럴을 걷어내고 `OnboardingStepName`을 유일한 스텝 식별자로 남긴다.
 - **고아 파일 처분**: 되살릴 스텝(자가 추측·알림 권한)과 지울 스텝(랭킹·핸드폰 관리·시작 히어로)을 갈라 결정한다. 되살린다면 `types.ts`의 죽은 필드가 함께 살아난다.
 - **재개(resume)**: `{index, data}` 스냅샷을 AsyncStorage에 두는 방식. 스텝 층은 무변경 — 단 `screenTimeGranted`는 복원이 아니라 `getAuthorizationStatus()` 재조회로 갱신해야 한다.

@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { DurationDrumPicker } from '@/components/DurationDrumPicker';
 import { T } from '@/constants/theme';
+import { FOCUS_GOAL_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
 import { formatDuration } from '@/screens/onboarding/format';
 import { logOnboardingGoalSubmitted } from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
@@ -17,8 +18,7 @@ import type { StepProps } from '@/screens/onboarding/types';
 // 화면의 '0시간'은 '아직 안 정함' 표시일 뿐 고를 수 있는 값이 아니다 — 0시간 목표는 허용하지
 // 않으므로(0이면 매일 자동 달성이 된다) 하한 30분을 그대로 둔다. 피커가 [min, max]로 클램프해
 // 주므로 사용자가 확정할 수 있는 최솟값은 항상 30분이다.
-const FOCUS = { min: 30, max: 1440 }; // 최대 24시간
-const SCREEN = { min: 30, max: 480 }; // 최대 8시간
+// 범위는 설정 > 개인 목표 수정과 공유한다 (@/constants/goals, GROMO-1255).
 
 // Maestro E2E 대본은 드럼 휠을 굴릴 수 없어 목표를 정할 방법이 없다 — 테스트 빌드에서만 예전
 // 기본값을 초기값으로 써서 '다음'이 열린 채로 시작한다. EXPO_PUBLIC_E2E=1은 scripts/e2e.sh가
@@ -80,8 +80,8 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
           </TouchableOpacity>
           {focusOpen ? (
             <DurationDrumPicker
-              minMinutes={FOCUS.min}
-              maxMinutes={FOCUS.max}
+              minMinutes={FOCUS_GOAL_MINUTES.min}
+              maxMinutes={FOCUS_GOAL_MINUTES.max}
               value={focusMin}
               onChange={(m) => update({ dailyFocusMinutes: m })}
             />
@@ -106,8 +106,8 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
           </TouchableOpacity>
           {screenOpen ? (
             <DurationDrumPicker
-              minMinutes={SCREEN.min}
-              maxMinutes={SCREEN.max}
+              minMinutes={USAGE_GOAL_MINUTES.min}
+              maxMinutes={USAGE_GOAL_MINUTES.max}
               value={screenMin}
               onChange={(m) => update({ usageGoalMinutes: m })}
             />
