@@ -44,7 +44,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -71,7 +70,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -928,8 +926,9 @@ class FocusServiceTest {
         // 선점 실패(row=0) = 마커가 이미 닫혔다. 구간 기준 중복 검사는 '스큐 때문에' 못 잡는 상황(스텁 없음 = false).
         given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
                 .willReturn(0);
-        given(focusSessionRepository.existsByIdAndUserAndStatus(
-                SESSION_ID, user, FocusSessionStatus.COMPLETED)).willReturn(true);
+        given(focusSessionRepository.findByIdAndUserForUpdate(SESSION_ID, user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID).user(user).status(FocusSessionStatus.COMPLETED).build()));
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
                 .willReturn(Optional.empty());
         FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, null, SESSION_ID);
@@ -950,8 +949,9 @@ class FocusServiceTest {
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
                 .willReturn(0);   // 이미 닫힌(취소·자동마감) 마커라 선점할 게 없다
-        given(focusSessionRepository.existsByIdAndUserAndStatus(
-                SESSION_ID, user, FocusSessionStatus.COMPLETED)).willReturn(false);
+        given(focusSessionRepository.findByIdAndUserForUpdate(SESSION_ID, user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID).user(user).status(FocusSessionStatus.CANCELED).build()));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
         given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
@@ -984,7 +984,7 @@ class FocusServiceTest {
         focusService.saveFocusSession(USER_ID, body);
 
         verify(focusSessionRepository).claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class));
-        verify(focusSessionRepository, never()).existsByIdAndUserAndStatus(any(), any(), any());
+        verify(focusSessionRepository, never()).findByIdAndUserForUpdate(any(), any());
         verify(focusSessionRepository).save(any(FocusSession.class));
     }
 
@@ -1070,7 +1070,7 @@ class FocusServiceTest {
         focusService.saveFocusSession(USER_ID, body);
 
         // then
-        verify(userStreakService).updateOnSessionComplete(user, LocalDate.of(2026, 6, 23));
+        verify(userStreakService).updateOnSessionComplete(user, List.of(LocalDate.of(2026, 6, 23)));
     }
 
     @Test
@@ -1200,7 +1200,7 @@ class FocusServiceTest {
         assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
         assertThat(captor.getValue().getDate()).isNotEqualTo(utcDate);
         // 집계 존 == 스트릭 존 — 같은 statDate(07-13)로 스트릭 갱신되어야 한다(경계 세션이 오늘 스트릭에 반영)
-        verify(userStreakService).updateOnSessionComplete(krUser, kstDate);
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(kstDate));
     }
 
     /**
@@ -1514,7 +1514,7 @@ class FocusServiceTest {
         FocusSessionSaveResponse response =
                 focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, start2, end6m, 0));
 
-        verify(userStreakService).updateOnSessionComplete(user, date);
+        verify(userStreakService).updateOnSessionComplete(user, List.of(date));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(660);
         assertThat(response.streakQualifiedToday()).isTrue();
     }
@@ -1537,7 +1537,7 @@ class FocusServiceTest {
                 focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
         // 게이트 통과(누적>=600) → 호출됨. "이미 인정된 날 무변화"는 UserStreakService.same-day 멱등이 담당.
-        verify(userStreakService).updateOnSessionComplete(user, date);
+        verify(userStreakService).updateOnSessionComplete(user, List.of(date));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(90 * 60);
         assertThat(response.streakQualifiedToday()).isTrue();
     }
@@ -1558,7 +1558,7 @@ class FocusServiceTest {
         FocusSessionSaveResponse response =
                 focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
 
-        verify(userStreakService).updateOnSessionComplete(user, LocalDate.of(2026, 6, 23));
+        verify(userStreakService).updateOnSessionComplete(user, List.of(LocalDate.of(2026, 6, 23)));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(600);
         assertThat(response.streakQualifiedToday()).isTrue();
     }
@@ -1755,7 +1755,7 @@ class FocusServiceTest {
         assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60 - 30);
         assertThat(stat.getSessionCount()).isEqualTo(1);
         assertThat(stat.getTotalDistractionSeconds()).isEqualTo(30);
-        verify(userStreakService, times(1)).updateOnSessionComplete(krUser, date);
+        verify(userStreakService, times(1)).updateOnSessionComplete(krUser, List.of(date));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(60 * 60 - 30);
     }
 
@@ -1765,8 +1765,8 @@ class FocusServiceTest {
      * 07-12 23:50 KST(14:50Z) ~ 07-13 00:15 KST(15:15Z) → 어제 10분(경계)·오늘 15분 → 양쪽 다 인정.
      */
     @Test
-    @DisplayName("1252-③: 자정 걸친 세션 스트릭 → 어제·오늘 둘 다 갱신, 호출 순서는 날짜 오름차순")
-    void splitMidnight_updatesStreakInAscendingDateOrder() {
+    @DisplayName("1252-③: 자정 걸친 세션 스트릭 → 인정 날짜를 한 번에 넘긴다(반영 순서는 스트릭 서비스가 결정)")
+    void splitMidnight_passesAllQualifiedDatesInOneCall() {
         Instant startedAt = Instant.parse("2026-07-12T14:50:00Z");   // 07-12 23:50 KST
         Instant endedAt = Instant.parse("2026-07-12T15:15:00Z");     // 07-13 00:15 KST
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
@@ -1777,9 +1777,10 @@ class FocusServiceTest {
 
         focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
 
-        InOrder ordered = inOrder(userStreakService);
-        ordered.verify(userStreakService).updateOnSessionComplete(krUser, LocalDate.of(2026, 7, 12));
-        ordered.verify(userStreakService).updateOnSessionComplete(krUser, LocalDate.of(2026, 7, 13));
+        // 낱개 호출이면 소급 방향(지연 업로드)에서 오래된 날짜가 유실된다(코드리뷰 3차 ③) —
+        // 어느 날짜부터 반영할지는 lastSessionDate 를 아는 UserStreakService 가 정한다.
+        verify(userStreakService, times(1)).updateOnSessionComplete(krUser,
+                List.of(LocalDate.of(2026, 7, 12), LocalDate.of(2026, 7, 13)));
     }
 
     /**
@@ -1915,6 +1916,182 @@ class FocusServiceTest {
                 Map.of(CROSS_D1, 300, CROSS_D2, 300)));
 
         assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 300, CROSS_D2, 300));
+        // 3차 ①: PATCH 로 완료한 세션 행에도 같은 분포가 남는다
+        assertThat(session.getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-12", 300, "2026-07-13", 300));
+    }
+
+    // ── gross / net 구분 (GROMO-1214 코드리뷰 3차 ①) ────────────────────────
+    //
+    // 앱 분포는 집중 tick 합이라 **이미 일시정지가 빠진 net** 이다. 거기서 방해초를 또 빼면
+    // 30분 집중 + 30분 일시정지 블록이 0초로 기록되고, 스트릭·목표 보상이 통째로 증발한다.
+
+    private Map<LocalDate, Integer> savedDistractionSlices() {
+        ArgumentCaptor<DailyFocusStat> captor = ArgumentCaptor.forClass(DailyFocusStat.class);
+        verify(dailyFocusStatRepository, atLeastOnce()).save(captor.capture());
+        return captor.getAllValues().stream()
+                .collect(Collectors.toMap(DailyFocusStat::getDate, DailyFocusStat::getTotalDistractionSeconds));
+    }
+
+    @Test
+    @DisplayName("1214-①(3차): 분포가 실려 오면 방해초를 빼지 않는다 — 30분 집중+30분 일시정지가 0초로 죽던 회귀")
+    void clientSecondsByDate_isNet_soDistractionIsNotSubtractedAgain() {
+        User krUser = givenKrUserWithEmptyStats();
+        // 10:00~11:00 KST(벽시계 3600) 중 절반이 일시정지 → 앱 분포는 net 1800.
+        Instant startedAt = Instant.parse("2026-07-12T01:00:00Z");
+        Instant endedAt = Instant.parse("2026-07-12T02:00:00Z");
+        LocalDate date = LocalDate.of(2026, 7, 12);
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 1800, null,
+                Map.of(date, 1800)));
+
+        // 이중 차감이면 1800-1800 = 0 이 된다.
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(date, 1800));
+        // 방해초 컬럼은 지표로 계속 쌓인다(집중초에서 빼지 않을 뿐).
+        assertThat(savedDistractionSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(date, 1800));
+        // 30분이라 스트릭도 살아 있다(0초였다면 미인정).
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(date));
+    }
+
+    @Test
+    @DisplayName("1214-①(3차): 분포 없는 벽시계 폴백에서만 방해초를 뺀다 — 저장 분포도 net 으로 남는다")
+    void wallClockFallback_subtractsDistractionAndStoresNet() {
+        givenKrUserWithEmptyStats();
+        Instant startedAt = Instant.parse("2026-07-12T01:00:00Z");
+        Instant endedAt = Instant.parse("2026-07-12T02:00:00Z");
+        LocalDate date = LocalDate.of(2026, 7, 12);
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 1800));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(date, 3600 - 1800));
+        assertThat(savedDistractionSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(date, 1800));
+        // 세션 행에 보관되는 분포도 net — 조회 집계(by-category)·앱 복원이 다시 빼면 안 되기 때문.
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-12", 1800));
+    }
+
+    @Test
+    @DisplayName("1214-①(3차): 자정 걸친 분포 + 방해초 → 집중초는 분포 그대로, 방해초만 조각 비례 배분")
+    void clientSecondsByDate_crossMidnight_allocatesDistractionOnly() {
+        givenKrUserWithEmptyStats();
+
+        // 벽시계 600/900, 앱 분포 300/300, 방해 900 → 집중초는 300/300 그대로, 방해는 450/450.
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, CROSS_START, CROSS_END, 900, null,
+                Map.of(CROSS_D1, 300, CROSS_D2, 300)));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 300, CROSS_D2, 300));
+        assertThat(savedDistractionSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 450, CROSS_D2, 450));
+    }
+
+    /**
+     * 1214-③(3차): 폐기 마커 폴백도 마커 행 잠금으로 직렬화된다.
+     *
+     * <p>선점(claimMarkerIfActive)이 0 행이면 잠금이 안 걸린 채 비원자적 구간 존재 조회만 남아, 타임아웃된
+     * 폴백 POST 와 큐 재시도가 둘 다 '완료 구간 없음'을 보고 각각 완료 행·통계·보상을 만들 수 있었다
+     * (유니크 제약 없음). 이제 상태 판정 자체를 {@code findByIdAndUserForUpdate}(PESSIMISTIC_WRITE)로 해
+     * 검사~INSERT 를 마커 단위로 직렬화한다.
+     */
+    @Test
+    @DisplayName("1214-③(3차): 폐기 마커 폴백 → 구간 중복 검사 **전에** 마커 행을 잠근다(동시 폴백 직렬화)")
+    void discardedMarkerFallback_locksMarkerBeforeDuplicateCheck() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(0);
+        given(focusSessionRepository.findByIdAndUserForUpdate(SESSION_ID, user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID).user(user).status(FocusSessionStatus.AUTO_CLOSED).build()));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, null, SESSION_ID);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        // 잠금 조회가 구간 중복 검사보다 먼저 — 이 순서라야 뒤선 재시도가 앞선 커밋을 보게 된다.
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(focusSessionRepository);
+        order.verify(focusSessionRepository).claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class));
+        order.verify(focusSessionRepository).findByIdAndUserForUpdate(SESSION_ID, user);
+        order.verify(focusSessionRepository).existsByUserAndStartedAtAndEndedAtAndStatus(
+                user, START, END, FocusSessionStatus.COMPLETED);
+        order.verify(focusSessionRepository).save(any(FocusSession.class));
+    }
+
+    @Test
+    @DisplayName("1214-③(3차): 직렬화 뒤 재시도 — 앞선 폴백이 만든 완료 구간이 보이면 저장·지급을 스킵한다")
+    void discardedMarkerFallback_secondAttemptSeesCommittedRowAndSkips() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(0);
+        given(focusSessionRepository.findByIdAndUserForUpdate(SESSION_ID, user))
+                .willReturn(Optional.of(FocusSession.builder()
+                        .id(SESSION_ID).user(user).status(FocusSessionStatus.CANCELED).build()));
+        // 잠금이 풀린 시점엔 앞선 트랜잭션의 완료 행이 이미 커밋돼 있다.
+        given(focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
+                user, START, END, FocusSessionStatus.COMPLETED)).willReturn(true);
+        given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
+                .willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, null, SESSION_ID);
+
+        FocusSessionSaveResponse response = focusService.saveFocusSession(USER_ID, body);
+
+        assertThat(response.awardedCoins()).isZero();
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(currencyLedgerService, never()).credit(any(), any(), anyInt(), any());
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
+    // ── 확정 분포 보관 + 밀리초 배분 (GROMO-1252 코드리뷰 3차 ①·④) ──────────
+
+    @Test
+    @DisplayName("1252-①(3차): 확정 분포를 세션 행에 함께 저장 — 조회 집계·앱 복원이 사전집계와 같은 귀속을 쓴다")
+    void savedSession_carriesResolvedSecondsByDate() {
+        givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, CROSS_START, CROSS_END, 0, null,
+                Map.of(CROSS_D1, 300, CROSS_D2, 300)));
+
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        // 사전집계에 가산한 값과 동일 — 저장 형태는 jsonb 라 ISO 문자열 키
+        assertThat(captor.getValue().getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-12", 300, "2026-07-13", 300));
+    }
+
+    /**
+     * 1252-④: 양 끝에 밀리초가 있는 구간. 조각마다 {@code Duration.getSeconds()} 로 절삭하면
+     * 599+600 = 1199 가 돼 총합이 1초 줄고, 클라 분포 600/600 이 599/600 으로 클램프돼
+     * 전날이 10분 스트릭 문턱을 놓친다. 누적 반올림 차분이라 총합이 보존돼야 한다.
+     */
+    @Test
+    @DisplayName("1252-④: 밀리초가 낀 자정 걸침(23:50:00.5~00:10:00.5) → 600/600, 합 1200 보존")
+    void splitMidnight_withMillis_preservesTotal() {
+        Instant startedAt = Instant.parse("2026-07-12T14:50:00.500Z");   // 07-12 23:50:00.5 KST
+        Instant endedAt = Instant.parse("2026-07-12T15:10:00.500Z");     // 07-13 00:10:00.5 KST
+        givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
+    }
+
+    @Test
+    @DisplayName("1252-④: 밀리초가 껴도 클라 분포 600/600 이 클램프로 깎이지 않아 전날 스트릭이 인정된다")
+    void splitMidnight_withMillis_clientDistributionNotClampedDown() {
+        Instant startedAt = Instant.parse("2026-07-12T14:50:00.500Z");
+        Instant endedAt = Instant.parse("2026-07-12T15:10:00.500Z");
+        User krUser = givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0, null,
+                Map.of(CROSS_D1, 600, CROSS_D2, 600)));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
+        // 절삭이면 CROSS_D1 이 599 로 깎여 10분 문턱(600)을 놓쳤다
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(CROSS_D1, CROSS_D2));
     }
 
     /**
@@ -2362,7 +2539,7 @@ class FocusServiceTest {
         verify(dailyFocusStatRepository).save(captor.capture());
         assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
         // 스트릭도 같은 statDate 로 갱신 — any() 가 아니라 eq(kstDate) 로 확증
-        verify(userStreakService).updateOnSessionComplete(eq(krUser), eq(kstDate));
+        verify(userStreakService).updateOnSessionComplete(eq(krUser), eq(List.of(kstDate)));
     }
 
     @Test

@@ -4,9 +4,11 @@ import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.user.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -54,7 +56,16 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // 기기 시계가 서버와 어긋난 클라를 못 잡는다. 마커 경로는 서버가 시각을 클램프해 저장하므로, PATCH 가
     // 커밋된 뒤 응답만 유실돼 POST 로 폴백하면 저장값(클램프된 서버 시각)과 폴백 바디(기기 시각)가 달라
     // dedup 을 빠져나가 통계·코인이 두 번 들어간다. 폴백 바디에 실린 마커 id 로 '이미 완료된 마커'를 먼저 거른다.
-    boolean existsByIdAndUserAndStatus(UUID id, User user, FocusSessionStatus status);
+    //
+    // GROMO-1214 코드리뷰 3차 ③: 존재 조회가 아니라 **행 잠금 조회**다. 선점(claimMarkerIfActive)이 0 행이면
+    // 그 마커는 이미 닫혔는데, 폐기(CANCELED/AUTO_CLOSED) 마커는 폴백이 새로 저장해야 하는 케이스다 —
+    // 종전엔 잠금 없이 상태만 읽어 '검사~INSERT' 가 비원자적이었고, 타임아웃된 폴백과 큐 재시도가 겹치면
+    // 둘 다 '완료 구간 없음'을 보고 각각 완료 행·통계·보상을 만들었다(유니크 제약 없음). 마커 행을 잠그면
+    // 같은 마커를 든 폴백들이 직렬화돼 뒤선 쪽이 앞선 커밋을 구간 중복 검사에서 보게 된다.
+    // user 조건은 남긴다 — 폴백 바디의 sessionId 는 클라 입력이라 남의 행을 잠그면 안 된다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM FocusSession s WHERE s.id = :id AND s.user = :user")
+    Optional<FocusSession> findByIdAndUserForUpdate(@Param("id") UUID id, @Param("user") User user);
 
     // 진행 중(미종료) 세션 — 핀 친구 isFocusing 판정용. endedAt IS NULL.
     List<FocusSession> findByUserInAndEndedAtIsNull(Collection<User> users);
@@ -207,6 +218,12 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 쓰던 이 창 집계는 일시정지가 낀 세션에서 일별 총합보다 커졌다. ⑤의 조각 비례 배분과 같은 규칙이라
      * 두 경로가 자연히 정합한다({@link com.oneorthree.phone.stats.service.StatsService} by-category 도 동일).
      * ⚠️ 이 값이 그룹 챌린지 달성 판정 → 내기 정산을 가른다 — 일시정지 시간으로 창을 통과하던 게 잘못이었다.
+     *
+     * <p><b>저장 분포를 안 쓰는 이유(GROMO-1214 코드리뷰 3차 ①)</b>: {@code focus_seconds_by_date} 는 날짜
+     * 단위라 하루 안의 임의 시간창(TIME_WINDOW)에는 못 쓴다. 그래서 여기만 벽시계 gross 에서 비율 차감을
+     * 유지한다 — 이 SQL 은 저장 분포를 읽지 않으므로 이중 차감이 아니다. 세션이 창에 통째로 들어오면
+     * 결과는 {@code 구간 − 방해초} = 저장 분포의 합이라 사전집계와 총합이 일치한다(창이 세션을 자르는
+     * 경우만 비례 근사 — 방해 초에 타임스탬프가 없어 불가피, 수용).
      *
      * <p>비율 계산은 SQL 에 둔다(유저별 GROUP BY 집계를 DB 에서 끝내는 기존 설계 유지 — 세션 행을 전부
      * 가져와 Java 에서 깎으면 그룹 인원×세션 수만큼 전송이 늘고, 이 집계는 카드 진행률·정산·창 종료

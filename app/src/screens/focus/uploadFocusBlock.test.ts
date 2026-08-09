@@ -99,12 +99,31 @@ describe('마커가 있으면 PATCH', () => {
         endedAt: body().endedAt,
         totalDistractionSeconds: 0,
         focusTagId: 'tag-1',
+        focusSecondsByDate: undefined,
       },
       USER,
     );
     expect(mockSave).not.toHaveBeenCalled();
     expect(onMarkerStillOpen).not.toHaveBeenCalled();
     expect(result).toEqual({ status: 'saved', response: endRes });
+  });
+
+  // GROMO-1252 3차 ② — PATCH가 분포를 빠뜨리면 온라인 종료로 끝난 자정 걸친 블록만 서버가
+  // 벽시계 분할로 되돌아가, 같은 블록이 POST 폴백이냐 PATCH냐에 따라 날짜별 목표·보상·스트릭이 갈린다.
+  test('PATCH 페이로드에 날짜별 집중초(focusSecondsByDate)가 실린다', async () => {
+    mockEnd.mockResolvedValue(endRes);
+    const byDate = { '2026-07-15': 900, '2026-07-16': 600 };
+
+    await uploadFocusBlock({
+      sessionId: 'marker-1',
+      body: { ...body(), focusSecondsByDate: byDate },
+      userId: USER,
+    });
+
+    expect(mockEnd).toHaveBeenCalledWith(
+      expect.objectContaining({ focusSecondsByDate: byDate }),
+      USER,
+    );
   });
 
   test('PATCH 응답은 POST 응답과 같은 판정 필드를 실어 그대로 소비된다', async () => {

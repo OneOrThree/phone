@@ -9,7 +9,7 @@ import {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { fetchTodayFocusRestore, sessionTodayFocusSeconds } from '@/screens/focus/focusRestore';
+import { fetchTodayFocusRestore, todayRestoreSeconds } from '@/screens/focus/focusRestore';
 import { todayStr } from '@/utils/localDate';
 import { subscribeDayChange } from '@/utils/dayChange';
 
@@ -79,10 +79,11 @@ export function FocusProvider({ children }: { children: ReactNode }) {
           if (sessions && tags) {
             const activeTagIds = new Set(tags.map((t) => t.tagId));
             // 세션 전체 길이가 아니라 '오늘 몫'만 더한다(GROMO-1252) — 자정을 걸친 세션은
-            // 어제 몫을 잘라내야 홈 총합이 서버 날짜 버킷과 같아진다.
+            // 어제 몫을 잘라내야 홈 총합이 서버 날짜 버킷과 같아진다. 몫 산정은
+            // todayRestoreSeconds(서버 확정 분포 우선, 없거나 축이 다르면 구간 겹침 폴백).
             const total = sessions
               .filter((s) => s.focusTagId === null || activeTagIds.has(s.focusTagId))
-              .reduce((acc, s) => acc + sessionTodayFocusSeconds(s), 0);
+              .reduce((acc, s) => acc + todayRestoreSeconds(s), 0);
             // 복원 대기 중 들어온 적립분(고아 정산 등)을 덮지 않도록 대입이 아니라 가산(리뷰 반영)
             if (total > 0) setTodayFocusSeconds((prev) => Math.min(DAY_SECONDS, prev + total));
           }

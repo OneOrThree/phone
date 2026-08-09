@@ -45,6 +45,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -1114,7 +1115,8 @@ class StatsServiceTest {
         UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
         Instant base = Instant.parse("2026-07-03T01:00:00Z");
         FocusSession paused = session(base, base.plusSeconds(3600), tagA);
-        paused.end(base.plusSeconds(3600), 900, base.plusSeconds(3600));
+        // 분포 미기록(레거시 row) — 이 경로만 벽시계 gross 에서 방해 비율을 뺀다(1214 3차 ①).
+        paused.end(base.plusSeconds(3600), 900, base.plusSeconds(3600), null);
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
@@ -1137,7 +1139,7 @@ class StatsServiceTest {
         // FIXED_TODAY(KST) 자정 = 전날 15:00Z. 세션 14:30Z~15:30Z → 창 안 겹침은 뒤쪽 30분.
         Instant windowStart = FIXED_TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant();
         FocusSession straddler = session(windowStart.minusSeconds(1800), windowStart.plusSeconds(1800), tagA);
-        straddler.end(windowStart.plusSeconds(1800), 720, windowStart.plusSeconds(1800));
+        straddler.end(windowStart.plusSeconds(1800), 720, windowStart.plusSeconds(1800), null);
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
@@ -1358,6 +1360,71 @@ class StatsServiceTest {
         Instant sliceStart = startedAt.isAfter(dayStart) ? startedAt : dayStart;
         long expected = Math.max(0, Duration.between(sliceStart, statEndAt).getSeconds()) / 60;
         assertThat(response.totalFocusMinutes()).isEqualTo((int) expected);
+    }
+
+    /**
+     * GROMO-1252 코드리뷰 3차 ①: 세션에 확정 분포(focus_seconds_by_date)가 있으면 by-category 도 그 값을 쓴다.
+     * 일시정지가 자정을 걸친 세션(23:50~23:55 집중 → 일시정지 → 00:10~00:15 집중)은 사전집계가 300/300 인데
+     * 벽시계 클리핑은 오늘 몫을 900 으로 세, 같은 화면의 총합(/stats/focus)과 과목별 합이 어긋났다.
+     */
+    @Test
+    @DisplayName("카테고리별 — 저장된 확정 분포가 있으면 벽시계 클리핑 대신 그 분포로 계수(사전집계와 일치)")
+    void getFocusStatsByCategoryUsesStoredSecondsByDate() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        LocalDate today = LocalDate.of(2026, 7, 13);
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        // 07-12 23:50 KST ~ 07-13 00:15 KST — 벽시계로는 오늘 몫 900초, 실제 집중은 300초.
+        FocusSession stored = FocusSession.builder()
+                .startedAt(LocalDate.of(2026, 7, 12).atTime(23, 50).atZone(kst).toInstant())
+                .endedAt(today.atTime(0, 15).atZone(kst).toInstant())
+                .focusTag(tagA)
+                .focusSecondsByDate(Map.of("2026-07-12", 300, "2026-07-13", 300))
+                .build();
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(List.of(stored));
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, today);
+
+        // 창(07-13) 밖인 07-12 몫은 빠지고 오늘 몫 300초 = 5분만 남는다(벽시계였다면 15분).
+        assertThat(response.totalFocusMinutes()).isEqualTo(5);
+        assertThat(response.items()).singleElement()
+                .satisfies(item -> assertThat(item.totalFocusMinutes()).isEqualTo(5));
+    }
+
+    /**
+     * GROMO-1214 코드리뷰 3차 ①: 저장된 확정 분포는 <b>이미 방해 초가 빠진 net</b> 이다
+     * (FocusService.resolveSecondsByDate 가 경로별로 처리해 net 으로 통일해 저장한다).
+     * 여기서 방해 비율을 또 빼면 이중 차감이라 사전집계(DailyFocusStat)보다 작아진다.
+     */
+    @Test
+    @DisplayName("1214-①(3차): 저장된 분포 경로는 방해초를 다시 빼지 않는다 — 이미 net")
+    void getFocusStatsByCategoryDoesNotSubtractDistractionFromStoredDistribution() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        LocalDate today = LocalDate.of(2026, 7, 13);
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        // 10:00~11:00 KST 벽시계 3600 중 절반이 일시정지 → 저장 분포는 net 1800.
+        FocusSession stored = FocusSession.builder()
+                .startedAt(today.atTime(10, 0).atZone(kst).toInstant())
+                .endedAt(today.atTime(11, 0).atZone(kst).toInstant())
+                .focusTag(tagA)
+                .totalDistractionSeconds(1800)
+                .focusSecondsByDate(Map.of("2026-07-13", 1800))
+                .build();
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(List.of(stored));
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, today);
+
+        // 이중 차감이면 1800 × (1 − 0.5) = 900초 = 15분이 된다.
+        assertThat(response.totalFocusMinutes()).isEqualTo(30);
     }
 
     @Test

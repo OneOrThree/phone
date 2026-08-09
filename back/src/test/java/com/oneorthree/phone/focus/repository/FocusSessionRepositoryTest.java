@@ -18,6 +18,7 @@ import org.springframework.data.domain.Slice;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -595,5 +596,40 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(slice.getContent())
                 .extracting(FocusSession::getId)
                 .containsExactlyInAnyOrder(active.getId(), completed.getId());
+    }
+
+    // ── 날짜별 확정 분포 jsonb 왕복 (GROMO-1252 코드리뷰 3차 ①) ─────────────
+
+    @Test
+    @DisplayName("focus_seconds_by_date — jsonb 컬럼에 날짜별 분포가 그대로 저장·복원된다")
+    void focusSecondsByDateRoundTripsThroughJsonb() {
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T14:50:00Z"))
+                .endedAt(Instant.parse("2026-07-03T15:15:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .focusSecondsByDate(Map.of("2026-07-03", 300, "2026-07-04", 300))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(focusSessionRepository.findById(saved.getId()).orElseThrow().getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-03", 300, "2026-07-04", 300));
+    }
+
+    @Test
+    @DisplayName("focus_seconds_by_date — 미기록(레거시) 세션은 null 로 남아 조회측이 폴백한다")
+    void focusSecondsByDateIsNullWhenAbsent() {
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(focusSessionRepository.findById(saved.getId()).orElseThrow().getFocusSecondsByDate())
+                .isNull();
     }
 }

@@ -14,7 +14,7 @@ import { T } from '@/constants/theme';
 import { todayStr } from '@/utils/localDate';
 import { subscribeDayChange } from '@/utils/dayChange';
 import { syncTagCreated, syncTagRenamed, syncTagDeleted } from '@/screens/focus/tagSync';
-import { fetchTodayFocusRestore, sessionTodayFocusSeconds } from '@/screens/focus/focusRestore';
+import { fetchTodayFocusRestore, todayRestoreSeconds } from '@/screens/focus/focusRestore';
 import { DAY_SECONDS } from '@/store/FocusContext';
 import type { Subject } from '@/screens/focus/types';
 
@@ -154,11 +154,12 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
                   // 세션 응답에 과목명 필드가 없어 tagId 일치분만 합산(리뷰 반영 — 구 s.subject 조건은
                   // 서버가 안 보내는 필드라 죽은 코드였음). 태그 매칭 실패(tagId=null) 세션은
                   // 홈 총합(FocusContext)에만 포함되고 과목별로는 귀속 불가.
-                  // 세션 전체 길이가 아니라 '오늘 몫'만 — 자정을 걸친 세션의 어제 몫은 제외하고
-                  // 방해초도 뺀다(GROMO-1252/1214, 서버 집계와 같은 공식이라 과목 합 == 총합 유지).
+                  // 세션 전체 길이가 아니라 '오늘 몫'만 — 자정을 걸친 세션의 어제 몫은 제외한다
+                  // (GROMO-1252/1214). 몫 산정은 todayRestoreSeconds(서버 확정 분포 우선, 폴백은
+                  // 겹침−방해 비율) — FocusContext 총합과 같은 규칙이라 과목 합 == 총합이 유지된다.
                   accumulatedSeconds: sessions
                     .filter((s) => s.focusTagId === t.tagId)
-                    .reduce((acc, s) => acc + sessionTodayFocusSeconds(s), 0),
+                    .reduce((acc, s) => acc + todayRestoreSeconds(s), 0),
                   color: PALETTE[i % PALETTE.length],
                 })),
               ),

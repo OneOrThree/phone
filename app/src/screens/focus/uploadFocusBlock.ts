@@ -59,6 +59,10 @@ export async function uploadFocusBlock(opts: {
             endedAt: body.endedAt,
             totalDistractionSeconds: body.totalDistractionSeconds,
             focusTagId: body.focusTagId,
+            // 날짜별 집중초도 함께 보낸다(GROMO-1252 3차 ②) — 빼먹으면 온라인 PATCH 로 끝난 자정
+            // 걸친 블록만 서버가 벽시계 분할로 되돌아가, 같은 블록이 POST 폴백이냐 PATCH냐에 따라
+            // 날짜별 목표·보상·스트릭이 갈린다. 서버 FocusSessionEndRequest 가 이미 받는 필드다.
+            focusSecondsByDate: body.focusSecondsByDate,
           },
           userId,
         );

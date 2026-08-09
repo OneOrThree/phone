@@ -9,6 +9,7 @@ import { useUser } from '@/store/UserContext';
 import { todayOverlapSeconds, todayStr } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
 import { uploadFocusBlock } from './uploadFocusBlock';
+import { cancelMarker } from './pendingMarkerCancels';
 import { ensureFocusTagId } from './tagSync';
 import { cancelStaleCompletionNotifications } from './completionNotification';
 
@@ -80,8 +81,8 @@ export function OrphanFocusSettler() {
         // 날짜 축은 로컬 자정(FocusContext/SubjectContext와 동일).
         const todaySeconds = Math.min(
           focused,
-          rec.focusDays != null
-            ? (rec.focusDays[todayStr()] ?? 0)
+          rec.focusDays?.local != null
+            ? (rec.focusDays.local[todayStr()] ?? 0)
             : todayOverlapSeconds(rec.startedAt, rec.updatedAt),
         );
         if (todaySeconds > 0) {
@@ -111,8 +112,9 @@ export function OrphanFocusSettler() {
         distractionCount: 0,
         totalDistractionSeconds,
         // 날짜별 집중초(GROMO-1252 ①) — 레코드에 있으면 서버 벽시계 분할 대신 이 분포로 귀속된다.
+        // 축은 KST(서버 귀속 축) — 로컬 축을 보내면 기기 존 ≠ 서버 존일 때 몫이 조용히 버려진다(②).
         // 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
-        focusSecondsByDate: rec.focusDays,
+        focusSecondsByDate: rec.focusDays?.kst,
       };
       // 강제종료 시 열린 채 남은 라이브 마커가 있으면 그 마커를 PATCH로 종료해 시간·코인을
       // 귀속시킨다(GROMO-1214). 마커가 없거나(구버전 레코드·오프라인 시작) 종료 시각이 서버
@@ -123,6 +125,14 @@ export function OrphanFocusSettler() {
         sessionId: rec.serverSessionId ?? null,
         body,
         userId,
+        // PATCH가 마커를 못 닫은 채 실패하면 취소를 영속화한다(GROMO-1214 코드리뷰 3차 ④) —
+        // 종전엔 이 콜백이 없어 POST만 큐에 넣고 라이브 레코드를 지웠다. 재시도 전에 계정이 바뀌면
+        // flushPendingFocusUploads가 옛 계정 업로드를 폐기해 업로드도 취소도 남지 않고,
+        // 친구 화면에 서버 스윕(12h)까지 '집중 중'으로 보인다. 세션 화면과 같은 규칙.
+        // 계정 스코프는 이 레코드의 소유자(위에서 현재 계정과 일치를 확인했다).
+        onMarkerStillOpen: (id) => {
+          cancelMarker(id, rec.userId ?? null).catch(() => {});
+        },
       });
       if (result.status === 'failed') return;
       // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).

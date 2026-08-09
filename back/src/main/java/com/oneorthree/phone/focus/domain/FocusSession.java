@@ -18,8 +18,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -77,6 +80,17 @@ public class FocusSession {
     // 모든 조회가 같은 값으로 자르게 한다. 레거시 row 는 null 이라 조회측이 endedAt 으로 폴백한다.
     private Instant statEndAt;
 
+    // GROMO-1252(코드리뷰 3차 ①): 완료 시점에 확정한 날짜별 집중 초 분포
+    // (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). 앱이 실어 보낸 분포를 날짜별 벽시계 몫으로 클램프한 결과이며,
+    // 앱이 안 보냈으면 벽시계 분할에서 방해 초를 뺀 값이다 — 사전집계 DailyFocusStat 에 가산한 값과 동일하다.
+    // ⚠️ 어느 경로든 **순수 집중 초(net, 일시정지 제외)** 로 통일해 저장한다(GROMO-1214 코드리뷰 3차 ①) —
+    // 읽는 쪽(by-category·앱 복원)이 방해 비율을 다시 빼면 이중 차감이다.
+    // 이걸 안 남기면 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 잘라 사전집계와 어긋난다
+    // (일시정지가 자정을 걸치면 300/300 vs 600/900). 레거시 row 는 null → 조회측이 벽시계로 폴백.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "focus_seconds_by_date")
+    private Map<String, Integer> focusSecondsByDate;
+
     @Builder.Default
     private int totalDistractionSeconds = 0;
 
@@ -90,10 +104,12 @@ public class FocusSession {
      * <p>GROMO-733: 완료 전이 시 status 를 COMPLETED 로 세팅한다. 벌크(endSessionIfActive)는 status-agnostic 하게
      * endedAt 만 원자 세팅하고, COMPLETED 는 이 관리 엔티티 더티 flush 로 정확히 반영한다.
      */
-    public void end(Instant endedAt, int totalDistractionSeconds, Instant statEndAt) {
+    public void end(Instant endedAt, int totalDistractionSeconds, Instant statEndAt,
+                    Map<String, Integer> focusSecondsByDate) {
         this.endedAt = endedAt;
         this.totalDistractionSeconds = totalDistractionSeconds;
         this.statEndAt = statEndAt;
+        this.focusSecondsByDate = focusSecondsByDate;
         this.status = FocusSessionStatus.COMPLETED;
     }
 
