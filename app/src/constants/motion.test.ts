@@ -77,11 +77,20 @@ describe('M.curve', () => {
 
 describe('M.spring', () => {
   it('4종 파라미터가 고정돼 있다', () => {
-    expect(M.spring).toEqual({
+    expect(M.spring).toMatchObject({
       press: { damping: 14, stiffness: 300, mass: 0.65 },
       snappy: { damping: 20, stiffness: 260, mass: 0.9 },
       bouncy: { damping: 13, stiffness: 180, mass: 0.9 },
       gentle: { damping: 16, stiffness: 120, mass: 1.0 },
+    });
+  });
+
+  // ⚠️ 내장 게이트(ReduceMotion.System)는 모듈 로드 시 1회 계산하는 **정적** 플래그다.
+  //    프리셋에 Never가 박혀 있지 않으면, '동작 줄이기'를 켠 채 앱을 켰다가 끈 사용자가
+  //    앱 재시작 전까지 모션이 죽은 화면을 본다. 켜고 끄는 판단은 useMotion만 한다(정책 D6).
+  it('모든 스프링이 내장 reduce-motion 게이트를 끈다', () => {
+    Object.values(M.spring).forEach((s) => {
+      expect(s.reduceMotion).toBe(M.never);
     });
   });
 
