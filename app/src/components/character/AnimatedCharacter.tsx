@@ -23,11 +23,13 @@
 import { useEffect, type ReactNode } from 'react';
 import Animated, {
   Easing,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { M } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { CharacterImage, type CharacterVariant } from './CharacterImage';
 
@@ -47,6 +49,7 @@ export function AnimatedCharacter({
   variant,
   sourceUri,
   mood = 'idle',
+  active = true,
   testID,
   children,
 }: {
@@ -55,6 +58,17 @@ export function AnimatedCharacter({
   /** 커스텀 누끼. 있으면 variant는 무시되고 호흡만 적용된다(CharacterImage 헤더 주석 참고). */
   sourceUri?: string;
   mood?: CharacterMood;
+  /**
+   * false면 호흡을 멈추고 정지 프레임으로 둔다. **탭 화면은 반드시 넘겨야 한다.**
+   *
+   * ⚠️ 탭 네비게이터는 `unmountOnBlur`가 없어 다른 탭으로 가도 홈이 마운트된 채 남는다.
+   *    그러면 보이지도 않는 캐릭터의 무한 루프가 **앱 세션 내내** UI 스레드를 먹는다
+   *    (codex 리뷰). "화면당 무한 루프 1개" 상한은 *보이는* 화면 기준이지, 마운트된 화면
+   *    전부를 세면 상한이 무의미해진다.
+   *    호출부에서 `useIsFocused()`를 넘긴다 — 이 컴포넌트가 직접 읽지 않는 이유는
+   *    네비게이터 밖(테스트·모달)에서도 쓸 수 있어야 하기 때문이다.
+   */
+  active?: boolean;
   /** 래퍼 뷰에 붙는다 — 캐릭터를 통째로 집는 셀렉터. */
   testID?: string;
   /**
@@ -82,16 +96,21 @@ export function AnimatedCharacter({
   // ⚠️ deps에 m.reduce가 들어가야 한다 — 재생 도중 '동작 줄이기'가 켜졌을 때 반쯤 눌린
   //    중간 프레임으로 굳는 것을 막는다(useMotion 헤더 주석).
   useEffect(() => {
-    if (m.reduce) {
+    if (m.reduce || !active) {
+      // 진행 중이던 반복을 끊고 정지 프레임으로 되돌린다 — 그냥 두면 중간 값에서 굳는다.
+      cancelAnimation(breath);
       breath.value = 0;
       return;
     }
+    // ⚠️ reduceMotion: M.never — 이 호출은 useMotion의 timing을 거치지 않는 직접 호출이라
+    //    reanimated 기본값(정적 System 플래그)이 그대로 걸린다. 그러면 '동작 줄이기'를 켠 채
+    //    앱을 켰다가 끈 사용자는 앱 재시작 전까지 호흡이 멈춘 캐릭터를 본다.
     breath.value = withRepeat(
-      withTiming(1, { duration, easing: Easing.inOut(Easing.quad) }),
+      withTiming(1, { duration, easing: Easing.inOut(Easing.quad), reduceMotion: M.never }),
       -1,
       true,
     );
-  }, [breath, duration, m.reduce]);
+  }, [breath, duration, m.reduce, active]);
 
   const breathStyle = useAnimatedStyle(() => ({
     transformOrigin: '50% 100%',
@@ -100,7 +119,7 @@ export function AnimatedCharacter({
 
   return (
     // reduce면 스타일 자체를 붙이지 않는다 — 평범한 View가 되어 워클릿도 돌지 않는다.
-    <Animated.View testID={testID} style={m.reduce ? undefined : breathStyle}>
+    <Animated.View testID={testID} style={m.reduce || !active ? undefined : breathStyle}>
       {children ?? <CharacterImage size={size} variant={variant} sourceUri={sourceUri} />}
     </Animated.View>
   );
