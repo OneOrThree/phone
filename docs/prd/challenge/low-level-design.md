@@ -354,14 +354,24 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
                           .orElseThrow(CHALLENGE_NOT_FOUND);
     if (ch.isDeleted()) return;      // 이미 삭제됨 — 멱등 204 (활성만 조회하면 재시도가 예외로 빠진다)
 
-    // ① OPEN 회차를 id 오름차순으로 전부 잠근 뒤 무효화 + 환불
-    for (var s : sessionRepo.findOpenByChallengeIdForUpdate(challengeId)) {   // ORDER BY id
-        voidAndRefund(s, VoidReason.CHALLENGE_DELETED);   // status=VOIDED + 사유 기록,
-    }                                                     // 멱등키 session:{sid}:refund:{participantId}
+    // ① OPEN 회차를 id 오름차순으로 전부 잠근다
+    var sessions = sessionRepo.findOpenByChallengeIdForUpdate(challengeId);   // ORDER BY id
+    // ② 지갑은 **트랜잭션 전체에서 한 번**, 전역 userId 오름차순으로 잠근다 (§5.4)
+    var userIds = sessions.stream().flatMap(s -> participantRepo.userIdsOf(s.getId()).stream())
+                          .distinct().sorted().toList();
+    walletRepo.lockAllForUpdate(userIds);
+    // ③ 무효화 + 환불 (멱등키 session:{sid}:refund:{participantId})
+    for (var s : sessions) voidAndRefund(s, VoidReason.CHALLENGE_DELETED);
     // ② 정산이 끝난 회차는 건드리지 않는다 (B8 정산 불가역)
     ch.softDelete();                 // deleted_at = now()
 }
 ```
+
+> **지갑 잠금은 회차 루프 안이 아니라 트랜잭션 앞에서 한 번에** 한다. 회차별
+> `voidAndRefund` 안에서만 정렬하면 **그 호출 안에서만** 오름차순이고 트랜잭션 전체로는
+> 순서가 깨진다 — 참가자가 겹치는 두 챌린지를 동시에 삭제하면 한쪽은 Z→A, 다른 쪽은 A→Z가
+> 되어 데드락으로 한쪽이 롤백된다. §5.4의 "여러 지갑은 `userId` 오름차순"은 **트랜잭션
+> 단위** 규약이다.
 
 > **lazy 개설과의 직렬화**: 참여 경로(`join-week`의 `ensureSession`, 단건 참여의 회차 조회)는
 > **챌린지 행 `FOR SHARE` + 활성 재확인** 후에만 진행한다 (§2.2). 이 락이 없으면 join-week이
@@ -435,7 +445,12 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 { "usageDate": "2026-08-10", "progressMinutes": 24, "measuredAt": "2026-08-10T14:03:00Z" }
 ```
 
-**204**. upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조용히 204로 무시**한다
+**204**. `measuredAt`은 **서버 시각 대비 +2분을 넘으면 거부**한다(`INVALID_MEASURED_AT` 400).
+기기 시계가 앞서 있으면 미래 타임스탬프가 저장되고, 그 뒤의 **정상 보고가 전부 "오래된 값"으로
+버려져** 낮은 사용분이 그대로 굳는다 — 스크린타임은 낮을수록 유리하므로 **오달성으로 이긴다**.
+클라 값을 신뢰하되 순서 결정권까지 무제한으로 주지는 않는다.
+
+upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조용히 204로 무시**한다
 (`measured_at` 컬럼 저장·비교). 클라에 재시도 큐는 없지만(실패 시 다음 sync가 **그 시점
 최신값**을 다시 보고 — `screentimeSync.ts`) 역전은 큐 없이도 생긴다: ① 포그라운드 sync와
 사일런트 푸시 트리거 sync(§6.2)가 경합해 낮은 값 요청이 나중에 처리되거나 ② 타임아웃으로
@@ -462,13 +477,34 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 > 빠졌으면 그 flush가 무의미해진다. 특히 탈퇴자는 그룹 기반 폴백이 없어 값이 `null`로 남고
 > **미보고 = 미달성**으로 정산된다 — N43이 막으려던 바로 그 결과다.
 
+#### `GET /me/bet-sessions?status=OPEN` — 내 OPEN 회차 (그룹 무관)
+
+N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 **탈퇴 후에도, 챌린지가 종료된
+뒤에도** 내가 참가비를 건 진행 중 회차를 찾을 수 있다.
+
+```jsonc
+{ "sessions": [{
+    "sessionId": "uuid", "groupId": "uuid", "challengeId": "uuid",
+    "sessionDate": "2026-08-10",
+    "missionCategory": "SCREEN_TIME", "missionType": "TIME_WINDOW",
+    "goalMinutes": 30, "windowStart": "22:00", "windowEnd": "24:00",  // 미션 스냅샷
+    "closesAt": "...", "settleAfter": "..."                            // 보고 마감 판단용
+}] }
+```
+
+- 조건: **내가 참가자**이고 회차가 `OPEN`. 그룹 멤버십은 보지 않는다.
+- 미션 스냅샷을 실어야 앱이 창 시각·목표를 알고 보고할 수 있다 — 챌린지 행 조인이 불가능한
+  상황(종료·삭제)이 이 API의 존재 이유다.
+- `screentimeSync.ts`가 이걸로 대상을 만들고 `window-usage`로 보고한다. **이 API가 없으면
+  N43은 권한만 열어둔 셈**이라 탈퇴자의 최종 보고 경로가 여전히 없다.
+
 ### 2.2 회차 참여
 
 | 메서드 | 경로 | 동작 |
 |---|---|---|
 | `POST` | `/groups/{gid}/sessions/{sid}/join` | 회차 참여 (즉시 차감) |
 | `POST` | `/groups/{gid}/challenges/{cid}/join-next` | **다음 활성일 회차 1건** 참여 (N45) — 회차를 lazy 생성(`ensureSession`)한 뒤 참가. 비활성 요일 카드의 참여 버튼이 쓴다 |
-| `POST` | `/groups/{gid}/challenges/{cid}/join-week` | 이번 주 남은 회차 전부 — **회차를 lazy 생성**(`ensureSession`)한 뒤 참가. 총액 선검사 · 전부 성공 or 전부 실패 |
+| `POST` | `/groups/{gid}/challenges/{cid}/join-week` | 이번 주 남은 회차 — **회차를 lazy 생성**(`ensureSession`)한 뒤 참가. 본문 `{ "sessionDates": ["2026-08-12", ...] }` **선택** — 생략하면 남은 활성일 전부, 주면 **그 날짜만**(부분 예약, §C2 「2일만 참여」). 총액 선검사 · 전부 성공 or 전부 실패 |
 | `DELETE` | `/groups/{gid}/sessions/{sid}/participation` | 참여 취소 (회차 시작 전) |
 | `GET` | `/groups/{gid}/challenge-history?challengeId=` | 회차 이력 — **그룹 단위** 엔드포인트의 필터 |
 
@@ -487,6 +523,10 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 
 **`join-week` 응답**: `{ "joined": [{"sessionId": "...", "sessionDate": "..."}], "totalStake": 90 }`
 
+- **부분 예약**: 잔액이 전부를 감당하지 못하면 UX가 「2일만 참여 (60코인)」 같은 축소 액션을
+  준다(ux §주간 시트). 그래서 본문의 `sessionDates`로 **대상 날짜를 지정**할 수 있다 — 주지
+  않으면 남은 활성일 전부다. 지정 날짜는 아래 대상 규칙(활성일·참여 가능)을 통과해야 하고,
+  하나라도 어긋나면 400(부분 성공을 만들지 않는다).
 - 대상은 `RepeatSchedule.remainingThisWeek(mask, 오늘)` — 오늘 포함, 그 주(월~일)의 남은 활성일.
   단 **배치에 담는 건 "지금 참여 가능한 미참가 회차"만이다** (N39): 오늘 회차가 이미 참가
   마감됐거나(창 시작 후) 자격 가드(§3.3)에 걸리면 **조용히 건너뛴다**. 전부-성공-or-전부-실패에
@@ -532,6 +572,8 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 | `CHALLENGE_END_BLOCKED` | 409 | OPEN 회차 존재 | 종료 |
 | `INVALID_MISSION_PARAMS` | 400 | 창 파라미터 무효 | 생성 |
 | `INVALID_PAGE_REQUEST` | 400 | `size` 범위 밖 | 이력 조회 |
+| `INVALID_MEASURED_AT` | 400 | `measuredAt`이 서버 시각 +2분 초과 (기기 시계 앞섬) | 창 사용분 보고 |
+| `INVALID_SESSION_DATES` | 400 | `join-week`의 지정 날짜가 활성일이 아니거나 참여 불가 | 주간 부분 예약 |
 | `GUEST_FORBIDDEN` | 403 | 게스트 | 전 경로 |
 | `CONCURRENT_UPDATE` | 409 | 낙관락 충돌 → 재시도 안내 | 전 경로 |
 
@@ -869,12 +911,22 @@ enum SettleTrigger { CRON, EARLY, MANUAL }
 void settle(UUID sessionId, SettleTrigger trigger) {
     var s = sessionRepo.findByIdForUpdate(sessionId).orElseThrow();
     if (s.getStatus() != OPEN) return;                            // 순차 재실행 스킵
-    if (trigger != EARLY                                          // 조기 정산만 그레이스 우회 (§5.1)
-        && Instant.now().isBefore(s.getSettleAfter())) return;    // 그레이스 미경과
-    if (trigger != EARLY && s.isWindowed() && s.getCategory() == FOCUS   // FOCUS 창형만 (N37)
-        && focusSessionRepo.existsActiveOverlapping(userIdsOf(s), windowOf(s))) return;
+
+    // ① 24h 데드라인은 **모든 진입점**에서 먼저 — 락 안이라 크론·수동·조기 어디로 와도 동일 (N21)
+    if (Instant.now().isAfter(s.getSettleAfter().plus(REFUND_DEADLINE))) { refundAll(s); return; }
 
     var participants = participantRepo.findBySessionId(sessionId); // 락 이후 읽기
+
+    if (trigger == EARLY) {
+        // ② EARLY 전제를 **락 안에서 재검증** — 리스너의 무락 검사는 낡았을 수 있다
+        if (Instant.now().isBefore(s.getJoinClosesAt())) return;
+        if (participants.stream().anyMatch(p -> p.getAchieved() == null)) return;
+    } else {
+        if (Instant.now().isBefore(s.getSettleAfter())) return;    // 그레이스 미경과
+        if (s.isWindowed() && s.getCategory() == FOCUS             // FOCUS 창형만 (N37)
+            && focusSessionRepo.existsActiveOverlapping(userIdsOf(s), windowOf(s))) return;
+    }
+
     if (participants.size() < 2) { voidSession(s, participants, SHORT_PARTICIPANTS); return; }
 
     Target t = targetOf(s);
@@ -891,6 +943,17 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 }
 ```
 
+> **EARLY 전제는 락 안에서 다시 본다**: 리스너의 전원 확정 검사(§5.1)는 **락 없이** 도는데,
+> 그 사이 참가 마감 직전의 `join`이 커밋될 수 있다 — 리스너는 그 미커밋 참가자를 못 보고
+> "전원 확정"으로 판단하고, `settle(EARLY)`는 join이 놓은 락을 받아 들어가 **방금 들어온
+> 미확정 참가자를 창이 끝나기도 전에 패배로 확정**한다. 락 안에서 `join_closes_at`·미확정 0을
+> 다시 확인하면 이 창이 닫힌다(재검증에 걸리면 그냥 return — 크론이 제때 정산한다).
+>
+> **24h 데드라인을 `settle` 안에 두는 이유**: 검사가 `retryDueSessions()`에만 있으면
+> **수동 트리거(MANUAL)** 가 그대로 우회한다 — 스케줄러 장애를 복구하려고 운영자가 부르는
+> 바로 그 상황이 24h를 넘긴 시점이라, 환불돼야 할 회차에 지급이 나간다(FR-45 위반).
+> 락을 쥔 정산 본체에 두면 어느 진입점으로 와도 같은 결론이다.
+>
 > **진행분을 전원 다시 재는 이유**: `achieved == null`인 사람만 갱신하면 조기 확정자의
 > `progressMinutes`가 **목표를 넘던 순간 값으로 박제**된다. 잔여 코인이 "성과 1위"에게 가는데
 > (§4), 자정 정산 시점엔 조기 확정자의 실제 최종 집중분이 더 클 수 있다 — 박제값으로 순위를
@@ -959,7 +1022,24 @@ static Instant nextAttemptAt(BetSession s, int attempts) {
     Instant deadline = s.getSettleAfter().plus(REFUND_DEADLINE);   // settle_after + 24h
     return next.isAfter(deadline) ? deadline : next;               // 데드라인에서 자른다
 }
+
+/** 참가 마감 시 인원 미달 무산 — 정산 그레이스를 기다리지 않는다 (N47 · FR-36). */
+@Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+void voidShortSessions() {
+    // status=OPEN AND join_closes_at ≤ now AND 참가자 < 2
+    for (var s : sessionRepo.findOpenPastJoinDeadlineWithFewParticipants(Instant.now())) {
+        try { settlement.voidIfShort(s.getId()); }                 // 락 안에서 인원 재확인 후 VOIDED
+        catch (Exception e) { log.warn("무산 처리 실패 — sessionId={}", s.getId(), e); }
+    }
+}
 ```
+
+> **인원 미달 무산은 참가 마감에 일어난다 (N47).** FR-36·HLD §3.6은 "참가 마감 시 2명 미만이면
+> 무산 + 전액 환불"인데 판정이 `settle()` 안에만 있으면, 창형은 **창 전체 + 그레이스 30분**
+> 동안 혼자 남은 참가자의 참가비가 묶이고 카드도 OPEN으로 남는다 — 문서가 약속한 즉시 환불
+> 상태가 화면에 안 나온다(기존 미해결 **K1**을 여기서 닫는다). 별도 크론이 참가 마감을 지난
+> 인원 미달 회차를 집어 즉시 환불하고, `settle()` 안의 `size() < 2` 가드는 **경합·크론 지연
+> 대비 안전망**으로 남긴다.
 
 24h는 `settle_after` 기준이다 — 백오프 단계와 무관하게 시각으로 끊는다.
 

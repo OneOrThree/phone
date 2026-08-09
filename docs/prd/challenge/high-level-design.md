@@ -553,12 +553,14 @@ flowchart TB
         C2["회차 종료 감지 (15분 크론)"]
         C3["정산 완료"]
         C4["정산 직전"]
+        C5["무효화 + 환불 커밋<br/>(삭제 · 인원 미달 · 24h)"]
     end
     subgraph det["감지 — 발송 후보 수집"]
         D1["ChallengeCreatedDetector"]
         D2["SessionOpenDetector"]
         D3["SessionEndDetector"]
         D4["SettlementResultDetector"]
+        D5["VoidRefundDetector<br/>무효화+환불 커밋 → BET_VOID_REFUND"]
     end
     subgraph agg["묶음 — (유저 × 그룹 × 시간슬롯)"]
         AG["NotificationBundler"]
@@ -573,6 +575,7 @@ flowchart TB
     C1 --> D2 --> AG
     C2 --> D3 --> AG
     C3 --> D4 --> AG
+    C5 --> D5 --> AG
     AG --> DED --> FCM
     C4 --> SIL --> FCM
 ```
@@ -616,6 +619,7 @@ flowchart TB
 | 당일 08:00 (**하루형**, N40) | 참여 모집 묶음 | 하루형의 시작−30분은 전날 23:30 — 회차 미생성(00:05 개설)과 조용한 시간에 **이중으로 막혀 영영 못 나간다**. 조용한 시간 직후 아침 슬롯으로 옮긴다. 하루형은 종일 참가라 "마지막"이 아니라 "시작" 리마인더다 |
 | 회차 종료 시점 | 종료 알림 (15분 크론 감지) | 창 종료 시각이 챌린지마다 달라 고정 크론으로 못 잡는다 |
 | `settle_after` − 15분 | **사일런트** | 큐가 비워질 시간을 남긴다 |
+| 무효화·환불 커밋 직후 | `BET_VOID_REFUND` | 돈이 돌아온 이유를 그 자리에서 알린다 — 삭제된 챌린지의 회차는 결과 모달에서 빠지므로(FR-44-4) 이 푸시가 **유일한 통지 경로**다 (K3 해소) |
 | 정산 직후 | 결과 묶음 | 결과가 확정되자마자. **조용한 시간이면 07:00으로 이월**(N44) — 하루형은 자정 정산이라 그대로 두면 결과 알림이 매번 소멸한다 |
 | 11:30 | 사일런트 (SCREEN_TIME 하루형) | 12:00 정산 전 마지막 보고 기회 |
 
