@@ -31,7 +31,7 @@ export interface LiveFocusSession {
   settledLocally?: boolean; // 고아 정산에서 로컬 적립(집중시간·과목·코인) 완료 — 업로드 재시도 시 중복 적립 방지
   serverSessionId?: string | null; // 서버 라이브 마커 세션 id(GROMO-873) — 강제종료 시 서버 스윕이 마감
   // 날짜별 집중초 스냅샷(GROMO-1252) — 고아 정산이 '오늘 몫'(local 축)을 고르는 근거이자
-  // 서버 업로드의 focusSecondsByDate(kst 축). 두 축을 나눠 두는 이유는 blockToday.ts 주석 참고.
+  // 서버 업로드의 focusSecondsByDate(server 축). 두 축을 나눠 두는 이유는 blockToday.ts 주석 참고.
   // 없으면(구버전 레코드) 구간 겹침으로 폴백한다.
   focusDays?: BlockToday;
 }

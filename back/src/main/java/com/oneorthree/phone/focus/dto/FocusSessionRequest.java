@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.dto;
 import com.oneorthree.phone.focus.domain.FocusType;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,6 +17,17 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class FocusSessionRequest {
+
+    /**
+     * {@link #focusSecondsByDate} 엔트리 수 상한 (GROMO-1252 코드리뷰 4차 ③).
+     *
+     * <p>인증된 클라가 임의로 큰 맵을 보내면 Jackson 이 키를 전부 {@code LocalDate} 로 만들고 서버가 그
+     * 전체를 순회한다 — 서버 벽시계 맵은 어차피 이 수로 캡되어 있어 초과분은 전량 폐기되는데 힙·CPU 만
+     * 태운다. 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않으므로 여유 있는 상한이다.
+     * 서버 분할 상한({@code FocusService.MAX_SPLIT_DAYS})이 이 값을 그대로 쓴다 — 정본은 여기 하나.
+     */
+    public static final int MAX_SECONDS_BY_DATE_ENTRIES = 32;
+
     UUID focusTagId;
     Instant startedAt;
     Instant endedAt;
@@ -43,7 +55,10 @@ public class FocusSessionRequest {
      * <p>null·빈 맵이면 서버가 종전대로 벽시계 분할({@code FocusService.splitByLocalDay})로 폴백한다 —
      * 구버전 앱 호환. 실려 온 값은 무검증 수용하지 않는다(날짜별 벽시계 몫으로 클램프 + 세션 구간과
      * 겹치지 않는 날짜 폐기 — {@code FocusService.resolveSecondsByDate}).
+     *
+     * <p>엔트리 수는 {@link #MAX_SECONDS_BY_DATE_ENTRIES} 개로 제한한다 — 초과 시 400.
      */
+    @Size(max = MAX_SECONDS_BY_DATE_ENTRIES)
     Map<LocalDate, Integer> focusSecondsByDate;
 
     /** 하위호환 — focusType·sessionId·focusSecondsByDate 미지정 기존 4-arg 호출부. */

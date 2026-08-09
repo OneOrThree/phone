@@ -45,7 +45,7 @@ jest.mock('@/store/CharacterContext', () => ({
 // 프로필 아래 시간조각(재화) 잔액 행이 useCoins/useRefreshCoinsOnFocus를 읽는다 — 테스트 트리엔
 // CoinProvider가 없다(이 화면은 결과 모달만 미리보는 dev 진입점이라 실제 잔액이 필요 없다).
 jest.mock('@/store/CoinContext', () => ({
-  useCoins: () => ({ coins: 0, coinsLoaded: true }),
+  useCoins: () => ({ coins: 0 }),
   useRefreshCoinsOnFocus: jest.fn(),
 }));
 

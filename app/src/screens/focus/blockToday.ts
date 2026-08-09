@@ -15,47 +15,95 @@
 // 틀린다(600/900). 날짜별 분포를 아는 건 앱뿐이라 업로드 페이로드(focusSecondsByDate)에 이 맵을
 // 그대로 실어 보낸다. 서버는 날짜별 벽시계 몫을 상한으로 클램프해 받는다.
 //
-// 왜 축이 둘인가(코드리뷰 3차 ②):
+// 왜 축이 둘인가(코드리뷰 3차 ②·4차 ②):
 // 같은 tick이라도 '어느 날'인지는 축마다 다르다.
-//   local — 기기 로컬 날짜. 유저가 보는 '오늘'이고, 로컬 적립 스토어(FocusContext·SubjectContext·
-//           내 그리드 셀)의 정본 축이다. 표시/로컬 적립은 반드시 이쪽.
-//   kst   — KST(Asia/Seoul) 날짜. 서버가 귀속에 쓰는 축이라 업로드 페이로드는 이쪽.
-// 서버 버킷 존은 country_code 파생(CountryZoneResolver)이고 미지정·미지원은 Asia/Seoul 폴백이라,
-// KR·JP(+09:00 동일)·미지정 유저는 KST 키가 서버 축과 정확히 일치한다. 로컬 축만 보내면 PDT 지역에
-// 있는 KR 유저처럼 기기 존 ≠ 서버 존인 경우 서버가 못 알아보는 날짜 키가 나가고, 그 몫이 조용히
-// 버려진다(검증 맵이 비어 있지 않아 벽시계 폴백도 안 탄다).
-// 남는 한계: country_code = GB(Europe/London) 유저는 서버 축이 KST가 아니라 여전히 어긋난다.
+//   local  — 기기 로컬 날짜. 유저가 보는 '오늘'이고, 로컬 적립 스토어(FocusContext·SubjectContext·
+//            내 그리드 셀)의 정본 축이다. 표시/로컬 적립은 반드시 이쪽.
+//   server — 서버가 귀속에 쓰는 존(프로필 응답의 timeZone — utils/serverZone)의 날짜. 업로드 전용.
+// 로컬 축만 보내면 PDT 지역에 있는 KR 유저처럼 기기 존 ≠ 서버 존인 경우 서버가 못 알아보는 날짜
+// 키가 나가고, 그 몫이 조용히 버려진다(검증 맵이 비어 있지 않아 벽시계 폴백도 안 탄다).
+// 3차엔 이 축을 KST로 하드코딩해 GB(Europe/London) 유저가 그대로 어긋났다 — 이제 서버가 내려준
+// 존을 쓴다. 매핑 정본은 서버 CountryZoneResolver 한 곳.
 //
 // 경계 규약: tick은 '지나간 1초의 끝'에 발생하므로 귀속 시각은 tick 시각 − 1초다. 23:59:59→00:00:00
 // 초는 [23:59:59, 00:00:00)이라 전날 몫 — 서버의 반열림 분할·todayOverlapSeconds와 같은 경계다
 // (안 맞추면 23:00~00:05 세션이 앱 301초·서버 300초로 갈린다).
-import { kstDateStr, localDateStr, todayStr } from '@/utils/localDate';
+import { localDateStr, todayStr, zoneDateStr } from '@/utils/localDate';
+import { getServerZone } from '@/utils/serverZone';
 
 // 날짜 "YYYY-MM-DD" → 그 날짜에 발생한 이 블록의 집중 초.
 export type SecondsByDate = Record<string, number>;
 
 export interface BlockToday {
   local: SecondsByDate; // 기기 로컬 날짜 축 — 표시·로컬 적립용
-  kst: SecondsByDate; // KST 날짜 축 — 서버 업로드용
+  server: SecondsByDate; // 서버 존 날짜 축 — 서버 업로드용
 }
 
 // 정산 직후(새 블록 시작) 상태.
 export function newBlockToday(): BlockToday {
-  return { local: {}, kst: {} };
+  return { local: {}, server: {} };
 }
 
 // 집중 tick 1초 적립. at은 tick이 발생한 시각(1초의 끝).
 export function creditTick(state: BlockToday, at: Date = new Date()): BlockToday {
-  const covered = new Date(at.getTime() - 1000);
-  const localDay = localDateStr(covered);
-  const kstDay = kstDateStr(covered);
+  return creditTicks(state, at, 1);
+}
+
+// 연속 tick n개(1초 간격) 일괄 적립 — 백그라운드 복귀 리플레이 전용(GROMO-1252 코드리뷰 6차 ④).
+// firstAt은 첫 tick의 시각, 이후 tick은 +1초씩이라 덮은 초는 [firstAt−1s, firstAt−1s+n초).
+// 실드 세션이 8시간 백그라운드에 있다 복귀하면 tick이 28,800개다. tick마다 이걸 부르면
+// Intl.DateTimeFormat.formatToParts(zoneDateStr) 28,800회 + 객체 스프레드 57,600회가 setSession
+// 전에 JS 스레드에서 돌아 앱이 눈에 띄게 멈춘다.
+// 날짜는 시간순 단조라 런(run) 단위로 묶는다 — 8시간이면 날짜가 많아야 두 개라 포맷 호출이
+// 수만 회에서 수십 회로 준다. 귀속 결과(어느 날짜에 몇 초)는 per-tick과 정확히 같다.
+export function creditTicks(state: BlockToday, firstAt: Date, count: number): BlockToday {
+  if (count <= 0) return state;
+  const firstCoveredMs = firstAt.getTime() - 1000;
+  const zone = getServerZone();
   return {
-    local: { ...state.local, [localDay]: (state.local[localDay] ?? 0) + 1 },
-    kst: { ...state.kst, [kstDay]: (state.kst[kstDay] ?? 0) + 1 },
+    local: addRuns(state.local, firstCoveredMs, count, (ms) => localDateStr(new Date(ms))),
+    server: addRuns(state.server, firstCoveredMs, count, (ms) => zoneDateStr(new Date(ms), zone)),
   };
+}
+
+// 연속 초 구간을 날짜별로 쪼개 누적. 날짜가 바뀌는 지점은 이분탐색으로 찾는다 —
+// 같은 날짜인지는 시각에 대해 단조(앞이 같으면 그 앞도 전부 같다)라 성립한다.
+function addRuns(
+  base: SecondsByDate,
+  firstMs: number,
+  count: number,
+  dayOf: (ms: number) => string,
+): SecondsByDate {
+  const out = { ...base };
+  let i = 0;
+  while (i < count) {
+    const day = dayOf(firstMs + i * 1000);
+    let last = count - 1; // day와 같은 날짜인 마지막 인덱스
+    if (dayOf(firstMs + last * 1000) !== day) {
+      let lo = i; // day와 같음(확정)
+      let hi = last; // day와 다름(확정)
+      while (lo + 1 < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (dayOf(firstMs + mid * 1000) === day) lo = mid;
+        else hi = mid;
+      }
+      last = lo;
+    }
+    out[day] = (out[day] ?? 0) + (last - i + 1);
+    i = last + 1;
+  }
+  return out;
 }
 
 // 오늘(기기 로컬) 몫 — 로컬 스토어(FocusContext·SubjectContext)가 '오늘' 하나만 보관하므로.
 export function blockTodaySeconds(state: BlockToday): number {
   return state.local[todayStr()] ?? 0;
+}
+
+// 서버가 이 업로드의 판정(그날 누적·스트릭)을 매긴 날짜 = 분포 맵의 마지막 비어있지 않은 날짜
+// (FocusService: secondsByDate.lastKey()). 맵이 비었으면 null — 서버가 벽시계 분할로 폴백한다.
+export function attributedDate(byDate: SecondsByDate | undefined): string | null {
+  if (!byDate) return null;
+  const dates = Object.keys(byDate).filter((date) => (byDate[date] ?? 0) > 0);
+  return dates.length > 0 ? dates.sort()[dates.length - 1] : null;
 }

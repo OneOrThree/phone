@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserStreak;
 import com.oneorthree.phone.user.repository.UserStreakRepository;
@@ -21,6 +22,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,6 +47,9 @@ class UserStreakServiceTest {
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
+
+    @Mock
+    private DailyFocusStatRepository dailyFocusStatRepository;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final User USER = User.builder().id(USER_ID).build();
@@ -236,6 +242,64 @@ class UserStreakServiceTest {
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
+    }
+
+    /**
+     * 1252-③(코드리뷰 5차): 같은 두 날이 <b>서로 다른 요청</b>으로 나뉘어 올라오는 경우(오프라인 큐 FIFO).
+     * orderForApply 는 한 호출 안의 날짜만 정렬하므로, 8~9 스트릭에 6 → 7 순서로 오면 6 은 그때 이어지지
+     * 않아 무시되고 7 이 구간을 7~9 로 늘린 뒤에도 6 이 다시 고려되지 않아 3 에 멈췄다(4 여야 함).
+     * 이제 소급이 성사되면 DailyFocusStat 에서 이미 자격을 갖춘 인접 과거를 훑어 구간을 재구성한다.
+     */
+    @Test
+    @DisplayName("1252-③: 소급이 요청별로 나뉘어 와도 먼저 온 과거 날짜가 살아난다(3 → 4)")
+    void splitRequestBackfillIsRebuiltFromDailyStats() {
+        LocalDate aug6 = TODAY.minusDays(3);
+        LocalDate aug7 = TODAY.minusDays(2);
+        UserStreak existing = streak(2, 2, TODAY);   // 구간 = [TODAY-1, TODAY] (= 8~9)
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+
+        // 1) Aug6 먼저 — Aug7 공백이 남아 있어 스트릭은 그대로(단, DailyFocusStat 은 이 날을 인정한다).
+        userStreakService.updateOnSessionComplete(USER, List.of(aug6));
+        assertThat(existing.getStreakCount()).isEqualTo(2);
+
+        // 2) Aug7 도착 — 구간 시작이 Aug7 로 앞당겨진 뒤(3), 이미 자격을 갖춘 Aug6 까지 재구성된다(4).
+        given(dailyFocusStatRepository.findQualifiedDates(eq(USER), any(LocalDate.class), eq(aug6), eq(600)))
+                .willReturn(List.of(aug6));
+        userStreakService.updateOnSessionComplete(USER, List.of(aug7));
+
+        assertThat(existing.getStreakCount()).isEqualTo(4);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(4);
+        // 구간의 '끝'은 그대로 — 앞당겨진 건 시작뿐.
+        assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
+        verify(userActivityEventLogger).log(UserActivityEvent.STREAK_UPDATED,
+                Map.of("streak_count", 4, "longest_streak", 4, "change", "backfilled"));
+    }
+
+    @Test
+    @DisplayName("1252-③: 재구성 스캔은 자격 없는 날에서 멈춘다(공백 너머는 잇지 않는다)")
+    void rebuildStopsAtFirstUnqualifiedDay() {
+        UserStreak existing = streak(1, 1, TODAY);
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+        // TODAY-2 는 자격이 있지만 그 사이 TODAY-3 이 비어 있다 → TODAY-1 소급 후 TODAY-2 까지만 이어진다.
+        given(dailyFocusStatRepository.findQualifiedDates(
+                eq(USER), any(LocalDate.class), eq(TODAY.minusDays(2)), eq(600)))
+                .willReturn(List.of(TODAY.minusDays(2), TODAY.minusDays(4)));
+
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(1)));
+
+        assertThat(existing.getStreakCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("1252-③: 소급이 없으면(연장·리셋만) DailyFocusStat 조회를 하지 않는다")
+    void forwardOnlyUpdateSkipsRebuildQuery() {
+        UserStreak existing = streak(2, 2, TODAY.minusDays(1));
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
+
+        verify(dailyFocusStatRepository, never())
+                .findQualifiedDates(any(), any(), any(), anyInt());
     }
 
     @Test

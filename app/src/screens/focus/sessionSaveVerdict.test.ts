@@ -118,3 +118,34 @@ describe('자정 넘김', () => {
     });
   });
 });
+
+// 판정 발행 게이트(GROMO-1252 코드리뷰 4차 ④) — 서버는 endedAt이 아니라 분포 맵의 마지막
+// 비어있지 않은 날짜로 판정한다. 자정 전에 집중하고 자정을 넘겨 일시정지한 뒤 tick 없이
+// 종료하면 맵엔 전날만 담기는데 endedAt은 오늘이라, endedAt 게이트는 어제 판정을 오늘 것으로
+// 발행해 버렸다(큰 어제 누적이 단조 가드에 걸려 이후 오늘 응답까지 막는다).
+describe('발행 게이트 — 귀속된 맵 날짜 기준', () => {
+  const TODAY = '2026-07-15';
+  const YESTERDAY = '2026-07-14';
+  const endedAtToday = new Date('2026-07-15T22:00:00+09:00').toISOString();
+
+  test('맵에 전날만 있으면 endedAt이 오늘이어도 오늘 판정이 아니다', () => {
+    expect(mod.isTodayVerdict({ [YESTERDAY]: 1800 }, endedAtToday)).toBe(false);
+
+    // 게이트를 통과하지 못하므로 판정이 발행되지 않는다(소비처는 추정 판정 폴백 유지).
+    if (mod.isTodayVerdict({ [YESTERDAY]: 1800 }, endedAtToday)) {
+      mod.publishSessionSaveVerdict(res(1800));
+    }
+    expect(mod.getSessionSaveVerdict()).toBeNull();
+  });
+
+  test('맵의 마지막 날짜가 오늘이면 발행한다(자정 걸친 세션도 오늘 조각이 있으면 오늘 판정)', () => {
+    expect(mod.isTodayVerdict({ [YESTERDAY]: 300, [TODAY]: 300 }, endedAtToday)).toBe(true);
+  });
+
+  test('맵이 없으면(구버전 경로·tick 0 — 서버 벽시계 폴백) 종전대로 endedAt 기준', () => {
+    const endedAtYesterday = new Date('2026-07-14T23:50:00+09:00').toISOString();
+    expect(mod.isTodayVerdict(undefined, endedAtToday)).toBe(true);
+    expect(mod.isTodayVerdict(undefined, endedAtYesterday)).toBe(false);
+    expect(mod.isTodayVerdict({}, endedAtYesterday)).toBe(false);
+  });
+});

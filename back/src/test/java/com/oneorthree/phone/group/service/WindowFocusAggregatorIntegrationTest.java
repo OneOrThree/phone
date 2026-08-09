@@ -74,16 +74,28 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
     }
 
     private void saveSession(User user, String startedAt, String endedAt, FocusSessionStatus status) {
-        saveSession(user, startedAt, endedAt, status, 0);
+        saveSession(user, startedAt, endedAt, null, status, 0);
+    }
+
+    /** statEndAt=null 이면 레거시 행(마이그레이션 이전) — 집계가 endedAt 으로 폴백해야 한다. */
+    private void saveSession(User user, String startedAt, String endedAt, String statEndAt,
+                             FocusSessionStatus status) {
+        saveSession(user, startedAt, endedAt, statEndAt, status, 0);
     }
 
     /** 방해(일시정지) 초가 있는 세션 — GROMO-1214 코드리뷰 ⑥ 차감 검증용. */
     private void saveSession(User user, String startedAt, String endedAt, FocusSessionStatus status,
             int totalDistractionSeconds) {
+        saveSession(user, startedAt, endedAt, null, status, totalDistractionSeconds);
+    }
+
+    private void saveSession(User user, String startedAt, String endedAt, String statEndAt,
+                             FocusSessionStatus status, int totalDistractionSeconds) {
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse(startedAt))
                 .endedAt(endedAt != null ? Instant.parse(endedAt) : null)
+                .statEndAt(statEndAt != null ? Instant.parse(statEndAt) : null)
                 .status(status)
                 .totalDistractionSeconds(totalDistractionSeconds)
                 .build());
@@ -231,6 +243,72 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
         Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(List.of(user.getId()), DATE, window);
 
         assertThat(minutes).containsEntry(user.getId(), 0);
+    }
+
+    /**
+     * GROMO-1252 6차 ① — 돈 경로 회귀. 미래 endedAt 으로 위조한 세션의 '아직 경과하지 않은 꼬리'가
+     * 창 집계(→ 내기 정산·챌린지 달성)에 계상되면 안 된다. 완료 시점에 고정한 stat_end_at 까지만 센다.
+     */
+    @Test
+    @DisplayName("미래 endedAt 위조 세션 — 창 집계는 stat_end_at 까지만 계수한다(미경과 꼬리 배제)")
+    void clipsForgedFutureEndAtStatEndAt() {
+        // given: 09:00~12:00 창(2026-08-01 KST → [00:00Z, 03:00Z)).
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+        User forger = saveUser("미래종료위조");
+        User legacy = saveUser("레거시폴백");
+        // 09:00 시작, endedAt 은 창을 통째로 덮는 12:00(=03:00Z)로 위조 — 실제 완료는 09:30(=00:30Z).
+        saveSession(forger, "2026-08-01T00:00:00Z", "2026-08-01T03:00:00Z", "2026-08-01T00:30:00Z",
+                FocusSessionStatus.COMPLETED);
+        // 같은 구간이지만 stat_end_at 이 없는 레거시 행 — 종전대로 endedAt(=창 끝)까지 180분.
+        saveSession(legacy, "2026-08-01T00:00:00Z", "2026-08-01T03:00:00Z", FocusSessionStatus.COMPLETED);
+
+        // when
+        Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(
+                List.of(forger.getId(), legacy.getId()), DATE, window);
+
+        // then: 위조 세션은 실제 경과한 30분만(종전엔 180분 = 달성 판정·정산 오염), 레거시는 폴백해 180분
+        assertThat(minutes)
+                .containsEntry(forger.getId(), 30)
+                .containsEntry(legacy.getId(), 180);
+    }
+
+    @Test
+    @DisplayName("stat_end_at 이 창 시작 이전이면 세션 자체가 제외된다(음수 겹침 없음)")
+    void excludesSessionWhoseStatEndPrecedesWindow() {
+        // given: 09:00~12:00 창. 08:00 시작·08:30 실제 완료인데 endedAt 만 13:00 으로 위조된 세션.
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+        User user = saveUser("창전종료");
+        saveSession(user, "2026-07-31T23:00:00Z", "2026-08-01T04:00:00Z", "2026-07-31T23:30:00Z",
+                FocusSessionStatus.COMPLETED);
+        // 같은 유저의 정상 세션 10:00~10:20 KST = 20분 — 음수 겹침이 여기서 차감되면 20분이 깨진다.
+        saveSession(user, "2026-08-01T01:00:00Z", "2026-08-01T01:20:00Z", "2026-08-01T01:20:00Z",
+                FocusSessionStatus.COMPLETED);
+
+        // when
+        Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(List.of(user.getId()), DATE, window);
+
+        // then
+        assertThat(minutes).containsEntry(user.getId(), 20);
+    }
+
+    @Test
+    @DisplayName("미래 started_at 세션 — 음수 겹침이 같은 유저의 다른 세션 합을 깎지 않는다")
+    void clampsNegativeOverlapToZero() {
+        // given: 09:00~12:00 창. started_at 이 11:00 인데 stat_end_at 은 서버 now 클램프로 10:00 인 세션
+        // (started_at > ended_at 은 400 으로 막히지만 '미래 started_at' 은 통과한다 → 겹침이 음수).
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+        User user = saveUser("미래시작");
+        saveSession(user, "2026-08-01T02:00:00Z", "2026-08-01T05:00:00Z", "2026-08-01T01:00:00Z",
+                FocusSessionStatus.COMPLETED);
+        // 정상 세션 09:10~09:40 KST = 30분
+        saveSession(user, "2026-08-01T00:10:00Z", "2026-08-01T00:40:00Z", "2026-08-01T00:40:00Z",
+                FocusSessionStatus.COMPLETED);
+
+        // when
+        Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(List.of(user.getId()), DATE, window);
+
+        // then: 음수(-60분) 없이 정상 세션 30분만
+        assertThat(minutes).containsEntry(user.getId(), 30);
     }
 
     @Test

@@ -1,22 +1,23 @@
-// 복원 적립의 '오늘 몫' 산정 — GROMO-1252 코드리뷰 3차 ① + GROMO-1214 코드리뷰 ⑥·3차 ①.
+// 복원 적립의 '오늘 몫' 산정 — GROMO-1252 코드리뷰 3차 ①·5차 ① + GROMO-1214 코드리뷰 ⑥·3차 ①.
 //
-// 두 경로가 단위가 다르다는 걸 잠근다:
+// 서버가 완료 시점에 확정한 날짜별 분포를 내려주므로, 복원 경로가 구간을 다시 벽시계로 자르던
+// 추정(일시정지가 자정을 걸치면 어제 몫까지 오늘로 들어옴)을 대체한다. 단 그 분포의 축은 서버 존이고
+// 소비처는 로컬 자정 리셋 스토어라, 두 축의 경계가 겹칠 때만 쓰고 아니면 겹침 추정으로 폴백한다.
+//
+// 두 경로가 단위가 다르다는 것도 함께 잠근다:
 //   서버 확정 분포(focusSecondsByDate)  → **이미 net**(일시정지 제외) → 방해초를 또 빼면 안 된다.
 //   구간 겹침 폴백(분포 없는 레거시 세션) → 벽시계 gross → 방해 비율만큼 뺀다.
 //     기여분 = 겹침초 × (1 − totalDistractionSeconds / (endedAt − startedAt)), 하한 0
-// 분포는 축이 서버 존이라 기기가 KST 축 위에 있을 때만 쓰고, 아니면 겹침 추정으로 폴백한다.
+//
+// 러너 TZ는 KST 고정(jest.config.js) = 기기 로컬은 항상 KST다. 그래서 서버 존만 바꿔 가며
+// '경계 일치/불일치'를 만든다.
 jest.mock('@/services/focusApi', () => ({
   getAllFocusSessions: jest.fn(),
   getFocusTags: jest.fn(),
 }));
-// 러너가 process.env.TZ 변경을 반영하지 않아(TZ=Asia/Seoul 고정) 동축 게이트만 대체한다.
-jest.mock('@/utils/localDate', () => ({
-  ...jest.requireActual('@/utils/localDate'),
-  kstLocalSameDay: jest.fn(() => true),
-}));
 
 import { sessionFocusSeconds, todayRestoreSeconds } from './focusRestore';
-import { kstLocalSameDay } from '@/utils/localDate';
+import { resetServerZone, setServerZone } from '@/utils/serverZone';
 import type { FocusSessionResponse } from '@/types/dto/focus';
 
 const session = (over: Partial<FocusSessionResponse> = {}): FocusSessionResponse => ({
@@ -45,7 +46,7 @@ function span(
 beforeEach(() => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-08-08T10:00:00+09:00'));
-  (kstLocalSameDay as jest.Mock).mockReturnValue(true);
+  resetServerZone(); // 기기(KST)와 경계가 겹치는 기본값
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -91,6 +92,14 @@ describe('todayRestoreSeconds — 서버 확정 분포(net)', () => {
     const s = session({ focusSecondsByDate: { '2026-08-07': 600 } });
     expect(todayRestoreSeconds(s)).toBe(0);
   });
+
+  it('서버 존이 KST가 아니어도 경계가 겹치면 그 축의 오늘 키를 쓴다 — 기기 KST + Asia/Tokyo', () => {
+    // 도쿄는 KST와 같은 UTC+9라 자정 경계가 정확히 겹친다 — 4차 게이트(오프셋 -540 고정)와 결과는
+    // 같지만, 이제 판정 근거가 '서버 존과의 경계 일치'라는 걸 고정한다.
+    setServerZone('Asia/Tokyo');
+    const s = session({ focusSecondsByDate: { '2026-08-07': 300, '2026-08-08': 300 } });
+    expect(todayRestoreSeconds(s)).toBe(300);
+  });
 });
 
 describe('todayRestoreSeconds — 구간 겹침 폴백(gross)', () => {
@@ -98,8 +107,10 @@ describe('todayRestoreSeconds — 구간 겹침 폴백(gross)', () => {
     expect(todayRestoreSeconds(session())).toBe(15 * 60);
   });
 
-  it('기기가 KST 축 위에 있지 않으면 서버 분포를 쓰지 않는다(축 불일치 방지)', () => {
-    (kstLocalSameDay as jest.Mock).mockReturnValue(false);
+  it('서버 존 경계가 기기 로컬과 어긋나면 서버 분포를 쓰지 않는다 — GB 유저 + KST 기기(5차 ①)', () => {
+    // 4차까지는 게이트가 KST 고정(kstLocalSameDay)이라 이 조합에서 게이트가 열린 채
+    // Europe/London 키 맵을 KST 날짜('2026-08-08')로 인덱싱했다.
+    setServerZone('Europe/London');
     const s = session({ focusSecondsByDate: { '2026-08-07': 300, '2026-08-08': 300 } });
     expect(todayRestoreSeconds(s)).toBe(15 * 60);
   });

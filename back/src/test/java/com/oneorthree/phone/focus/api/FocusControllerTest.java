@@ -266,6 +266,46 @@ class FocusControllerTest {
         verify(focusService, never()).saveFocusSession(any(), any());
     }
 
+    // 엔트리 수 상한(GROMO-1252 코드리뷰 4차 ③) — 인증된 클라가 임의로 큰 맵을 보내면 서버가
+    // 거의 다 버릴 값을 만들고 순회하느라 힙·CPU 를 먼저 태운다. 트러스트 바운더리에서 400 으로 자른다.
+
+    private static String secondsByDateJson(int entries) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < entries; i++) {
+            sb.append(i == 0 ? "" : ",").append("\"").append(LocalDate.of(2026, 1, 1).plusDays(i)).append("\":60");
+        }
+        return "{" + sb + "}";
+    }
+
+    @Test
+    @DisplayName("POST /focus-session — focusSecondsByDate 엔트리 33개(상한 32 초과) → 400")
+    void saveFocusSessionRejectsOversizedFocusSecondsByDate() throws Exception {
+        String body = "{\"startedAt\":\"2026-07-12T14:50:00Z\",\"endedAt\":\"2026-07-12T15:15:00Z\","
+                + "\"totalDistractionSeconds\":0,\"focusSecondsByDate\":" + secondsByDateJson(33) + "}";
+        mockMvc.perform(post("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isBadRequest());
+
+        verify(focusService, never()).saveFocusSession(any(), any());
+    }
+
+    @Test
+    @DisplayName("PATCH /focus-session — focusSecondsByDate 엔트리 33개(상한 32 초과) → 400")
+    void endFocusSessionRejectsOversizedFocusSecondsByDate() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-07-12T15:15:00Z\","
+                + "\"totalDistractionSeconds\":0,\"focusSecondsByDate\":" + secondsByDateJson(33) + "}";
+        mockMvc.perform(patch("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isBadRequest());
+
+        verify(focusService, never()).endFocusSession(any(), any());
+    }
+
     // ── focus_type 인입 + 취소 API (GROMO-733) ───────────────────────────────
 
     @Test

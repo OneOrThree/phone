@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.dto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -22,7 +23,7 @@ import java.util.UUID;
  * @param focusTagId              시작 시 미지정한 태그 보정용(user_focus_tags.id, 선택). 소유 태그여야 함
  * @param focusSecondsByDate      GROMO-1252: 날짜별 집중 초(로컬 날짜 → 초, 선택). 자정을 걸친 세션의 날짜별
  *                                귀속 근거 — null·빈 맵이면 서버 벽시계 분할로 폴백한다.
- *                                상세 계약은 {@link FocusSessionRequest#focusSecondsByDate} 참고
+ *                                상세 계약·엔트리 수 상한은 {@link FocusSessionRequest#focusSecondsByDate} 참고
  */
 public record FocusSessionEndRequest(
         @NotNull UUID sessionId,
@@ -34,7 +35,7 @@ public record FocusSessionEndRequest(
         @Max(value = 24 * 60 * 60, message = "하루 24시간을 넘을 수 없습니다")
         int totalDistractionSeconds,
         UUID focusTagId,
-        Map<LocalDate, Integer> focusSecondsByDate
+        @Size(max = FocusSessionRequest.MAX_SECONDS_BY_DATE_ENTRIES) Map<LocalDate, Integer> focusSecondsByDate
 ) {
     /** 하위호환 — focusSecondsByDate 미지정 기존 4-arg 호출부(null → 서버 벽시계 분할 폴백). */
     public FocusSessionEndRequest(UUID sessionId, Instant endedAt, int totalDistractionSeconds, UUID focusTagId) {

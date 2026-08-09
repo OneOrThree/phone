@@ -15,7 +15,8 @@
  *             (GROMO-803 — 스크린타임 561과 동일 기준. countryCode null·미지원은 Asia/Seoul 폴백).
  *             <b>GROMO-1252</b>: 자정을 걸친 세션은 {@code splitByLocalDay} 로 로컬 자정에서 잘라
  *             날짜별로 나눠 가산한다(세션 행·세션 보상 코인은 1건/1회 유지, {@code sessionCount}·
- *             {@code totalDistractionSeconds} 는 시작일에만). 앱이 날짜별 집중초를 실어 보내면 그 분포를
+ *             {@code totalDistractionSeconds} 는 시작일에만 — 버킷을 {@code startedAt} 에서 직접 파생하므로
+ *             시작일에 tick 이 없던 세션은 그날 집중초 0 인 행이 생긴다). 앱이 날짜별 집중초를 실어 보내면 그 분포를
  *             (날짜별 벽시계 몫을 상한으로 클램프해) 쓰고, 확정 분포는 {@code focus_sessions.focus_seconds_by_date}
  *             에 보관해 조회 집계(by-category)·앱 복원이 같은 귀속을 쓰게 한다.</li>
  *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, 인정 날짜들)} (같은 트랜잭션).

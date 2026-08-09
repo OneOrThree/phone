@@ -312,7 +312,9 @@ public class UserService {
                 focusSettings.getDailyFocusTimeGoalMinutes(),
                 user.getCountryCode(),
                 user.getStatVisibility() != null ? user.getStatVisibility().name() : null,
-                occupation
+                occupation,
+                // 서버 날짜 버킷 존 — 앱이 업로드 날짜 키를 같은 축으로 만들게 내려준다(GROMO-1252).
+                CountryZoneResolver.resolve(user.getCountryCode()).getId()
         );
     }
 

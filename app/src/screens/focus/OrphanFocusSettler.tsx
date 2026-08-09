@@ -112,9 +112,10 @@ export function OrphanFocusSettler() {
         distractionCount: 0,
         totalDistractionSeconds,
         // 날짜별 집중초(GROMO-1252 ①) — 레코드에 있으면 서버 벽시계 분할 대신 이 분포로 귀속된다.
-        // 축은 KST(서버 귀속 축) — 로컬 축을 보내면 기기 존 ≠ 서버 존일 때 몫이 조용히 버려진다(②).
-        // 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
-        focusSecondsByDate: rec.focusDays?.kst,
+        // 축은 서버 존(프로필 timeZone) — 로컬 축을 보내면 기기 존 ≠ 서버 존일 때 몫이 조용히
+        // 버려진다(②). 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
+        // 이 분포는 집중 tick만 센 net 이라 서버가 방해초를 또 빼지 않는다(GROMO-1214).
+        focusSecondsByDate: rec.focusDays?.server,
       };
       // 강제종료 시 열린 채 남은 라이브 마커가 있으면 그 마커를 PATCH로 종료해 시간·코인을
       // 귀속시킨다(GROMO-1214). 마커가 없거나(구버전 레코드·오프라인 시작) 종료 시각이 서버

@@ -225,16 +225,32 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
      * 결과는 {@code 구간 − 방해초} = 저장 분포의 합이라 사전집계와 총합이 일치한다(창이 세션을 자르는
      * 경우만 비례 근사 — 방해 초에 타임스탬프가 없어 불가피, 수용).
      *
+     * <p>클리핑은 유효 종료({@code COALESCE(stat_end_at, ended_at)})로 자르지만 <b>비율의 분모는 클라가 보낸
+     * {@code ended_at}</b> 그대로다 — 방해 초가 가리키는 구간이 그 업로드 구간이라서다. StatsService 의
+     * {@code minusDistraction} 과 정확히 같은 조합이라 두 경로가 계속 정합한다.
+     *
      * <p>비율 계산은 SQL 에 둔다(유저별 GROUP BY 집계를 DB 에서 끝내는 기존 설계 유지 — 세션 행을 전부
      * 가져와 Java 에서 깎으면 그룹 인원×세션 수만큼 전송이 늘고, 이 집계는 카드 진행률·정산·창 종료
      * 알림에서 반복 호출된다). {@code EXTRACT(EPOCH ...)} 가 numeric 이라 나눗셈이 정수 절삭되지 않고,
      * 0초 세션은 {@code NULLIF}→{@code COALESCE} 로 비율 0 이 된다. 최종 {@code bigint} 캐스트에서만 반올림.
      * LEAST/GREATEST + EXTRACT(EPOCH) 조합은 JPQL 로 표현할 수 없어 네이티브로 둔다
      * (그룹 챌린지 WindowFocusAggregator 전용).
+     *
+     * <p><b>종료측은 유효 종료(GROMO-1252 코드리뷰 6차 ①)</b>: 겹침 술어·LEAST 클리핑 양쪽이
+     * {@code COALESCE(stat_end_at, ended_at)} 을 쓴다. {@code ended_at} 은 재업로드 중복 검사 때문에 클라 값
+     * 그대로 저장하므로, 미래 종료로 위조한 세션의 <b>아직 경과하지 않은 꼬리</b>가 그대로 창에 계수됐다 —
+     * 이 값은 내기 정산(GroupBetJudge, 참가비 분배)과 챌린지 달성 판정에 쓰이는 돈 경로다. 완료 순간
+     * {@code min(ended_at, now)} 로 고정한 {@code stat_end_at} 으로 자르면 일별·과목별 통계와 같은 기준이 된다
+     * (레거시 행은 {@code stat_end_at} 이 NULL 이라 {@code ended_at} 폴백 — 종전 동작 그대로).
+     *
+     * <p>{@code GREATEST(0, ...)}: {@code stat_end_at} 은 서버 now 로 클램프되므로 <b>미래 started_at</b> 을
+     * 보낸 세션에선 {@code stat_end_at < started_at} 이 될 수 있다(started_at &gt; ended_at 은 400 으로 막지만
+     * 이쪽은 못 막는다). 그대로 두면 음수 겹침이 그 유저의 다른 세션 합에서 차감된다.
      */
     @Query(value = "SELECT s.user_id AS \"userId\", "
             + "CAST(SUM(GREATEST(0, "
-            + "EXTRACT(EPOCH FROM (LEAST(s.ended_at, :winEnd) - GREATEST(s.started_at, :winStart))) "
+            + "EXTRACT(EPOCH FROM (LEAST(COALESCE(s.stat_end_at, s.ended_at), :winEnd) "
+            + "- GREATEST(s.started_at, :winStart))) "
             + "* (1 - COALESCE(s.total_distraction_seconds "
             + "/ NULLIF(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)), 0), 0)))) "
             + "AS bigint) AS \"overlapSeconds\" "
@@ -242,7 +258,7 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "WHERE s.user_id IN (:userIds) "
             + "AND s.status NOT IN ('CANCELED', 'AUTO_CLOSED') "
             + "AND s.ended_at IS NOT NULL "
-            + "AND s.ended_at > :winStart AND s.started_at < :winEnd "
+            + "AND COALESCE(s.stat_end_at, s.ended_at) > :winStart AND s.started_at < :winEnd "
             + "GROUP BY s.user_id", nativeQuery = true)
     List<WindowFocusOverlap> sumOverlapSecondsInWindow(@Param("userIds") Collection<UUID> userIds,
                                                        @Param("winStart") Instant winStart,
