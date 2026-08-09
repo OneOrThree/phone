@@ -18,7 +18,7 @@ docs/
         ├── high-level-design.md       # HLD — 시스템 구성·컴포넌트 간 흐름·API 개요
         ├── low-level-design.md        # LLD — 상세 설계 (스키마·엔드포인트 명세·시퀀스)
         ├── ux.html                    # UX 시안 (있으면)
-        └── diagrams/                  # 다이어그램 — .drawio 원본 + .svg 익스포트 쌍
+        └── diagrams/                  # 다이어그램 (형식 자유)
 ```
 
 - 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-session`, `invite-link`).
@@ -35,10 +35,9 @@ docs/
 | `high-level-design.md` | 어떤 컴포넌트(앱·서버·DB·외부)가 어떻게 협력하는가? |
 | `low-level-design.md` | 정확히 어떤 테이블·API·로직으로 구현하는가? |
 
-## 컨벤션
+## 브랜치
 
-- 다이어그램은 `diagrams/`에 **draw.io 원본(.drawio)과 svg 익스포트를 쌍으로** 둔다
-  (svg는 GitHub에서 바로 보이는 렌더본). 문서 안 간단한 도식은 Mermaid도 가능.
-- DB 스키마의 정본은 `back/docs/db/schema.dbml` — LLD에는 해당 기능의 델타만 적고
-  정본 링크로 대신한다.
-- 문서 갱신은 코드 PR과 같은 브랜치에 담아도 되고, `doc/` 브랜치로 분리해도 된다.
+문서를 추가·수정할 때는 `doc/` 프리픽스 브랜치를 쓴다:
+
+- 신규 문서: `doc/prd-<기능이름>` (예: `doc/prd-challenge`)
+- 기존 문서 수정: `doc/fix-prd-<기능이름>` (예: `doc/fix-prd-challenge`)

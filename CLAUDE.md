@@ -49,6 +49,8 @@ Korean. Keep code identifiers (types, functions, variables) in English.
   work prepends `a`** (`afeat/`, `afix/`, `arefactor/`, `achore/`). Bare `feat/`·`fix/`·
   `refactor/`·`chore/` are reserved for cross-cutting/tooling work that is neither backend-
   nor app-specific. e.g. a backend refactor is `brefactor/`, never bare `refactor/`.
+  **Docs work** (`docs/`) uses the `doc/` prefix: new docs `doc/prd-<feature>`, edits
+  `doc/fix-prd-<feature>`.
 - **Commit / PR title**: `[TYPE] GROMO-#### 한 줄 요약` — TYPE ∈ `FEAT` / `FIX` / `CHORE` / `REFACTOR`, `GROMO-####` is the Jira ticket.
 - **PR body** follows `.github/pull_request_template.md`: Jira link, change type,
   summary, change details, and **DB schema changes** if any.
