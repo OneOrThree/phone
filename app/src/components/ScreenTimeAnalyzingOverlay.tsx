@@ -65,6 +65,9 @@ export default function ScreenTimeAnalyzingOverlay({
     //    90%로 **역재생**된 뒤 다시 100%가 된다(codex 리뷰).
     progress.value = 0;
     progress.value = withSequence(
+      // ⚠️ withSequence는 **첫 인자**로 게이트를 받는다(오버로드). 조합자마다 자리가 달라
+      //    (withDelay는 세 번째, withRepeat는 다섯 번째) 하나씩 확인해야 한다.
+      M.never,
       // reduceMotion: M.never — reanimated 기본값(정적 System 플래그)은 '동작 줄이기'를 켠 채
       // 앱을 켰다가 끈 사용자에게 계속 걸려, 재시작 전까지 진행바가 아예 차오르지 않는다.
       withTiming(0.9, { duration: FILL_MS, easing: Easing.linear, reduceMotion: M.never }),
