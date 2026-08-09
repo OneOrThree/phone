@@ -1225,7 +1225,7 @@
           "Group"
         ],
         "summary": "그룹 챌린지 생성",
-        "description": "OWNER만 생성 가능. 성공 시 201 반환. repeatDays(도는 요일, [\"MON\",\"WED\",\"FRI\"] 꼴) 필수 — 기본값 없음, 비면 400(GROMO-1260). TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 \u003c x ≤ 창 길이) 필수 — 자정 걸침 창(시작 \u003e 종료) 허용. windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) — 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.",
+        "description": "OWNER만 생성 가능. 성공 시 201 반환. repeatDays(도는 요일, [\"MON\",\"WED\",\"FRI\"] 꼴) 필수 — 기본값 없음, 비면 400(GROMO-1260). TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 \u003c x ≤ 창 길이) 필수. 창은 자정을 걸칠 수 없다 — windowStart \u003c windowEnd 가 아니면 400(INVALID_MISSION_PARAMS). windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) — 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.",
         "operationId": "createGroupChallenge",
         "parameters": [
           {
