@@ -72,12 +72,17 @@ import java.util.stream.Stream;
 public class GroupBetService {
 
     /**
-     * 참가비 허용 범위 — 정수 1~1000 (계약 §2, GROMO-1097). 고정 프리셋(10/30/50/100)에서
-     * 자유 입력으로 확대됐다 — 프리셋은 앱의 빠른 선택 칩으로만 남는다. 상한은 오입력·과몰입
-     * 방지용 정책 값이고, DB 제약은 {@code stake > 0} 그대로다(스키마 변경 없음).
+     * 참가비 허용 범위 — 정수 1~3000 (정책 §C1, 결정 N30). 고정 프리셋(10/30/50/100코인)에서
+     * 자유 입력으로 확대됐고, 상한도 종전 1000 에서 올랐다 — 프리셋은 앱의 빠른 선택 칩으로만
+     * 남되 절대값이 아니라 <b>상한 대비 비율</b>(10/30/50/100% = 300·900·1,500·3,000)로 정의된다.
+     * 그래서 상한이 또 바뀌어도 프리셋 정의는 그대로고 이 상수만 움직인다.
+     *
+     * <p>상한은 오입력·과몰입 방지용 정책 값이며, 같은 범위가 DB CHECK
+     * {@code stake BETWEEN 1 AND 3000} 으로도 서 있다(V32, GROMO-1264) — 배치·수동 SQL 처럼 이
+     * 서비스를 타지 않는 경로까지 막기 위한 이중 방어라 두 값은 반드시 함께 움직인다.
      */
     static final int MIN_STAKE = 1;
-    static final int MAX_STAKE = 1000;
+    static final int MAX_STAKE = 3000;
 
     /** 내기 히스토리 페이지 크기 상한 — 집중 세션 슬라이스({@code FocusService})와 같은 값. */
     static final int MAX_HISTORY_PAGE_SIZE = 100;

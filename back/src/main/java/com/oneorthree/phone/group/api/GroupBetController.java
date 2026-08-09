@@ -34,7 +34,7 @@ public class GroupBetController {
 
     @Operation(summary = "챌린지 내기 개설",
             description = "그룹원 누구나 개설 가능. 개설자는 자동 참가하고 판돈이 즉시 차감된다(에스크로)."
-                    + " 대상은 FOCUS + DURATION 챌린지뿐이며, date 는 KST 오늘, stake 는 10/30/50/100 만 허용."
+                    + " 대상은 FOCUS + DURATION 챌린지뿐이며, date 는 KST 오늘, stake 는 1~3,000 정수(정책 §C1)."
                     + " 개설 시점에 이미 목표를 달성했으면 거절된다.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "개설 성공"),

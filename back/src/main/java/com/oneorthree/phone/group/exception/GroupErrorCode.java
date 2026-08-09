@@ -35,7 +35,7 @@ public enum GroupErrorCode {
     // deprecated — 내기 대상이 전 조합(FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW)으로 확대돼 더는 발급하지
     // 않는다. 구앱이 이 코드 문자열로 분기하고 있어 값만 잔존시킨다(이름 변경 금지 규칙).
     BET_FOCUS_ONLY(HttpStatus.BAD_REQUEST, "집중 시간 챌린지에만 내기를 걸 수 있어요"),
-    BET_INVALID_STAKE(HttpStatus.BAD_REQUEST, "참가비는 1~1,000코인 사이로 입력해 주세요"),
+    BET_INVALID_STAKE(HttpStatus.BAD_REQUEST, "참가비는 1~3,000코인 사이로 입력해 주세요"),
     BET_NOT_FOUND(HttpStatus.NOT_FOUND, "내기를 찾을 수 없어요"),
     // 문구는 날짜 중립 — 내일 내기(GROMO-1103)·취소 후 재개설(GROMO-1201)이 생기며 "오늘"이 틀려졌다.
     BET_ALREADY_EXISTS(HttpStatus.CONFLICT, "이 날짜에는 이미 내기가 있어요"),

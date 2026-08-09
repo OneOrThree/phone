@@ -302,11 +302,11 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("참가비 범위(1~1000) 밖 — 0·1001·음수 → BET_INVALID_STAKE, 차감 없음")
+    @DisplayName("참가비 범위(1~3000) 밖 — 0·3001·음수 → BET_INVALID_STAKE, 차감 없음")
     void createBetRejectsStakeOutOfRange() {
         givenMember();
 
-        for (int stake : new int[] {0, 1001, -10}) {
+        for (int stake : new int[] {0, 3_001, -10}) {
             assertThatThrownBy(() ->
                     groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(stake, today())))
                     .isInstanceOf(GroupException.class)
@@ -316,7 +316,7 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("참가비 경계값 1·1000 은 허용 — 자유 입력 확대(계약 §2), 프리셋 밖 값도 그대로 저장된다")
+    @DisplayName("참가비 경계값 1·3000 은 허용 — 자유 입력 확대(정책 §C1), 프리셋 밖 값도 그대로 저장된다")
     void createBetAllowsStakeBoundaries() {
         givenMember();
         givenChallenge(focusChallenge());
@@ -327,13 +327,13 @@ class GroupBetServiceTest {
         given(groupChallengeBetRepository.saveAndFlush(any())).willReturn(bet(GroupBetStatus.OPEN, today()));
 
         groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(1, today()));
-        groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(1000, today()));
+        groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(3_000, today()));
 
         ArgumentCaptor<GroupChallengeBet> saved = ArgumentCaptor.forClass(GroupChallengeBet.class);
         verify(groupChallengeBetRepository, times(2)).saveAndFlush(saved.capture());
         assertThat(saved.getAllValues())
                 .extracting(GroupChallengeBet::getStake)
-                .containsExactly(1, 1000);
+                .containsExactly(1, 3_000);
     }
 
     @Test

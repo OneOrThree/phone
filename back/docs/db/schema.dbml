@@ -425,7 +425,7 @@ Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 
   challenge_id    uuid             [not null, note: 'FK → group_challenges.id']
   creator_user_id uuid             [not null, note: 'FK → users.id — 개설자(자동 참가)']
 
-  stake           integer          [not null, note: '1인 참가비(재화). pot = stake × 참가자 수. CHECK 1 ≤ x ≤ 1000 — 상한이 서비스 상수로만 있으면 배치·수동 SQL 이 우회한다. V19 의 CHECK (stake > 0) 을 교체. migration V32(GROMO-1264)']
+  stake           integer          [not null, note: '1인 참가비(재화). pot = stake × 참가자 수. CHECK 1 ≤ x ≤ 3000 — 상한이 서비스 상수로만 있으면 배치·수동 SQL 이 우회한다. 상한 3000 은 정책 §C1(결정 N30) · 앱 프리셋은 이 값의 10/30/50/100%. V19 의 CHECK (stake > 0) 을 교체. migration V32(GROMO-1264)']
   bet_date        date             [not null, note: '내기 대상 날짜(KST). 개설/참가는 오늘만 가능']
 
   status          group_bet_status [not null, note: 'OPEN / SETTLED / REFUNDED / FORFEITED / CANCELED']

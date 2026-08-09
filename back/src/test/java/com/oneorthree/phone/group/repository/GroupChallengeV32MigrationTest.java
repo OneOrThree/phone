@@ -204,7 +204,7 @@ class GroupChallengeV32MigrationTest {
     // ── GROMO-1264 stake 상한 ─────────────────────────────────────────
 
     @Test
-    @DisplayName("상한 밖 기존 stake(5000·0)는 경계값으로 클램프되고 이후 1~1000 만 통과한다")
+    @DisplayName("상한 밖 기존 stake(5000·0)는 경계값으로 클램프되고 이후 1~3000 만 통과한다")
     void clampsOutOfRangeStakesBeforeAddingCheck() {
         // 상한이 서비스 상수로만 있던 시절의 데이터를 재현한다 — plain CHECK 는 기존 행을 즉시 검증하므로
         // 클램프가 없으면 V32 가 여기서 실패해 배포(부팅)가 막힌다.
@@ -214,18 +214,22 @@ class GroupChallengeV32MigrationTest {
         UUID challengeId = insertLegacyChallenge(jdbcTemplate);
         UUID tooBig = insertBet(jdbcTemplate, challengeId, 5_000, LocalDate.of(2026, 8, 1));
         UUID inRange = insertBet(jdbcTemplate, challengeId, 30, LocalDate.of(2026, 8, 2));
+        // 종전 상한(1000)은 넘지만 새 상한(3000)은 안 넘는 행 — 상한이 올라가면서 클램프 대상에서
+        // 빠졌다. 값이 깎이지 않고 원본 그대로 남는 것이 의도한 결과다(V32 §4 주석).
+        UUID aboveOldCap = insertBet(jdbcTemplate, challengeId, 2_500, LocalDate.of(2026, 8, 9));
 
         migrate();
 
         // 내기 행은 코인이 오간 이력이라 삭제가 아니라 클램프다(정산 근거를 지우지 않는다).
-        assertThat(stakeOf(jdbcTemplate, tooBig)).isEqualTo(1_000);
+        assertThat(stakeOf(jdbcTemplate, tooBig)).isEqualTo(3_000);
         assertThat(stakeOf(jdbcTemplate, inRange)).isEqualTo(30);
+        assertThat(stakeOf(jdbcTemplate, aboveOldCap)).isEqualTo(2_500);
 
-        assertThatThrownBy(() -> insertBet(jdbcTemplate, challengeId, 1_001, LocalDate.of(2026, 8, 3)))
+        assertThatThrownBy(() -> insertBet(jdbcTemplate, challengeId, 3_001, LocalDate.of(2026, 8, 3)))
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertBet(jdbcTemplate, challengeId, 0, LocalDate.of(2026, 8, 4)))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        insertBet(jdbcTemplate, challengeId, 1_000, LocalDate.of(2026, 8, 5));
+        insertBet(jdbcTemplate, challengeId, 3_000, LocalDate.of(2026, 8, 5));
         insertBet(jdbcTemplate, challengeId, 1, LocalDate.of(2026, 8, 6));
     }
 
@@ -245,7 +249,7 @@ class GroupChallengeV32MigrationTest {
 
         assertThat(constraintExists(jdbcTemplate, "ck_legacy_renamed_stake")).isFalse();
         assertThat(constraintExists(jdbcTemplate, "group_challenge_bets_stake_check")).isTrue();
-        assertThatThrownBy(() -> insertBet(jdbcTemplate, challengeId, 1_001, LocalDate.of(2026, 8, 7)))
+        assertThatThrownBy(() -> insertBet(jdbcTemplate, challengeId, 3_001, LocalDate.of(2026, 8, 7)))
                 .isInstanceOf(DataIntegrityViolationException.class);
         // 같은 테이블의 status CHECK 는 살아 있어야 한다.
         assertThatThrownBy(() -> jdbcTemplate.update(

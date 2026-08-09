@@ -105,11 +105,18 @@ ALTER TABLE public.group_challenge_windows
         CHECK (window_start < window_end);
 
 -- ── 4) 참가비 상한 DB CHECK (GROMO-1264) ──────────────────────────────
--- V19 는 CHECK (stake > 0) 만 걸었고 상한 1000 은 서비스 상수(GroupBetService)로만 존재했다 —
+-- V19 는 CHECK (stake > 0) 만 걸었고 상한은 서비스 상수(GroupBetService)로만 존재했다 —
 -- 배치·수동 SQL·미래의 다른 진입점이 상한을 우회할 수 있어 DB 로 승격한다(정책 §C1).
+-- 상한은 3000 이다(오너 확정, 결정 N30). 종전 1000 에서 올린 값이라 이 CHECK 는 처음부터
+-- 3000 으로 선다 — 1000 으로 한 번 세웠다가 뒤이어 올리면 그 사이에 깎인 행이 되살아나지 않는다.
+-- 3000 은 앱 프리셋의 **기준점**이기도 하다: 프리셋 칩이 상한의 10/30/50/100%(300/900/1,500/3,000)로
+-- 정의돼 있어, 다음에 상한이 또 바뀌어도 프리셋 정의는 그대로고 이 숫자만 따라 움직인다.
 -- plain CHECK 는 기존 행을 즉시 검증하므로 범위 밖 행을 먼저 경계값으로 클램프한다(V28 선례).
 -- 삭제가 아니라 클램프인 이유: 내기 행은 코인이 오간 이력이라 지우면 정산 근거가 사라진다.
-UPDATE public.group_challenge_bets SET stake = 1000 WHERE stake > 1000;
+-- 상한이 올라간 만큼 클램프 대상은 줄어든다 — 종전 상한(1000)을 넘던 행도 3000 이하면 **원본
+-- 그대로 살아남는다**. 의도한 결과다: 그 행들은 서비스 상수를 우회해 들어왔을 뿐 실제로 코인이
+-- 오간 이력이고, 새 정책이 허용하는 범위 안이라면 굳이 깎아 정산 근거를 왜곡할 이유가 없다.
+UPDATE public.group_challenge_bets SET stake = 3000 WHERE stake > 3000;
 UPDATE public.group_challenge_bets SET stake = 1 WHERE stake < 1;
 
 -- V19 가 인라인 CHECK 로 만들어 제약명이 마이그레이션에 명시돼 있지 않다(자동명
@@ -136,7 +143,7 @@ END $$;
 
 ALTER TABLE public.group_challenge_bets
     ADD CONSTRAINT group_challenge_bets_stake_check
-        CHECK (stake BETWEEN 1 AND 1000);
+        CHECK (stake BETWEEN 1 AND 3000);
 
 -- ── 5) members 잔재 컬럼 제거 (GROMO-1265) ────────────────────────────
 -- is_achieved 는 GroupChallengeMemberRepository 의 네이티브 INSERT 가 더미 false 만 쓰고 읽는
