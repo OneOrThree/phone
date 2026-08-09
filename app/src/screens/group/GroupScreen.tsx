@@ -140,7 +140,9 @@ export default function GroupScreen() {
   inviteRef.current = invite;
   const closeInvite = useCallback((requested?: PendingInvite | null) => {
     const current = inviteRef.current;
-    if (requested && current && current.slug !== requested.slug) return;
+    // ⚠️ groupId로 식별한다. slug는 구형 초대 링크에서 null이라, 구형 링크 두 개가 220ms 안에
+    //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
+    if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
     setInvite(null);
   }, []);

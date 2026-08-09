@@ -19,6 +19,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, {
+  cancelAnimation,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -140,6 +141,12 @@ export function SheetShell({
   const enteredRef = useRef(false);
   // 퇴장 진행 중 — 딤 탭·드래그·CTA가 겹쳐 들어와도 onClose를 두 번 부르지 않게 한다.
   const closingRef = useRef(false);
+  // ⚠️ ref만으로는 **자식 입력**을 못 막는다. 종전에는 닫는 즉시 언마운트돼서 불가능했던 일이
+  //    퇴장 220ms 동안 가능해진다 — 예를 들어 초대 시트에서 '닫기'를 누른 직후 '참여하기'를
+  //    빠르게 누르거나 두 버튼을 멀티터치하면, 사용자가 닫기를 골랐는데도 서버에서 가입이
+  //    끝난다(codex 리뷰). 퇴장이 시작되면 패널의 pointerEvents를 끈다.
+  //    딤·그랩바는 이 껍데기가 내부에서 이미 게이트하므로 패널만 막으면 된다.
+  const [closing, setClosing] = useState(false);
 
   // 키보드 높이 추적(iOS만) — 안드로이드는 windowSoftInputMode가 처리하므로 건드리지 않는다.
   useEffect(() => {
@@ -180,6 +187,7 @@ export function SheetShell({
   requestCloseRef.current = () => {
     if (!dismissibleRef.current || closingRef.current) return;
     closingRef.current = true;
+    setClosing(true);
     pendingCloseRef.current = onCloseRef.current;
     // '동작 줄이기'에서는 퇴장을 재생하지 않고 즉시 닫는다(설계 §4.1).
     if (reduceRef.current) {
@@ -216,6 +224,10 @@ export function SheetShell({
       //    순간 패널이 g.dy(≈0) 자리로 **순간이동**한다. 같은 shared value를 쓰는 것만으로는
       //    인터럽트가 성립하지 않는다 — 절대값으로 덮어쓰면 이전 위치가 사라진다(claude 리뷰).
       onPanResponderGrant: () => {
+        // ⚠️ 진행 중인 스프링을 **멈춘 뒤** 위치를 캡처한다. 멈추지 않으면 UI 스레드의 스프링이
+        //    계속 전진하는데, 사용자가 잡은 채 잠깐 멈췄다 다시 움직이면 다음 move가 낡은
+        //    dragStartY를 기준으로 값을 덮어써 패널이 뒤로 튄다(codex 리뷰).
+        cancelAnimation(translateY);
         dragStartYRef.current = translateY.value;
       },
       onPanResponderMove: (_, g) => {
@@ -226,6 +238,12 @@ export function SheetShell({
         if (next > 0) translateY.value = next;
       },
       onPanResponderRelease: (_, g) => {
+        // ⚠️ 이미 퇴장 중이면 아무것도 하지 않는다. 안드로이드에서 그랩바를 잡은 채 하드웨어
+        //    뒤로가기로 닫기가 시작된 뒤 임계 미만에서 손을 놓으면, 아래 복귀 스프링이 진행 중인
+        //    퇴장 withTiming을 **취소**한다. 그러면 완료 콜백이 finished=false라 onClose가 불리지
+        //    않는데 closingRef는 true로 남고 딤은 이미 투명해져서, 이후 딤 탭·뒤로가기가 전부
+        //    무시되는 **닫을 수 없는 시트**가 된다(codex 리뷰).
+        if (closingRef.current) return;
         // dismissible=false(예: 저장 중)면 임계치와 무관하게 항상 제자리로 되돌린다 — 화면 밖으로
         // 밀어낸 뒤 no-op onClose로 언마운트되지 않아 시트가 박제되는 회귀를 막는다(리뷰 반영).
         if (dismissibleRef.current && (g.dy > CLOSE_DY || g.vy > CLOSE_VY)) {
@@ -304,6 +322,8 @@ export function SheetShell({
             m.css(panelAnimStyle),
           ]}
           onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}
+          // 퇴장이 시작되면 자식 입력을 막는다 — 위 closing 상태 주석 참고.
+          pointerEvents={closing ? 'none' : 'auto'}
           testID="sheetShell.panel"
         >
           {/* 상단 그랩바 — 잡고 아래로 끌면 닫힌다(뒤로가기가 없는 시트의 명시적 닫기 수단) */}
