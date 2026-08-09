@@ -28,6 +28,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { M } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { CharacterImage, type CharacterVariant } from './CharacterImage';
 
@@ -86,8 +87,11 @@ export function AnimatedCharacter({
       breath.value = 0;
       return;
     }
+    // ⚠️ reduceMotion: M.never — 이 호출은 useMotion의 timing을 거치지 않는 직접 호출이라
+    //    reanimated 기본값(정적 System 플래그)이 그대로 걸린다. 그러면 '동작 줄이기'를 켠 채
+    //    앱을 켰다가 끈 사용자는 앱 재시작 전까지 호흡이 멈춘 캐릭터를 본다.
     breath.value = withRepeat(
-      withTiming(1, { duration, easing: Easing.inOut(Easing.quad) }),
+      withTiming(1, { duration, easing: Easing.inOut(Easing.quad), reduceMotion: M.never }),
       -1,
       true,
     );
