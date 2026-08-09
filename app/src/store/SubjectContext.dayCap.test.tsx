@@ -17,13 +17,24 @@ jest.mock('@/screens/focus/focusRestore', () => ({
   sessionFocusSeconds: () => 0,
 }));
 
+// 삭제 테스트가 서버 태그 동기화를 타지 않게(fire-and-forget이라 결과엔 영향 없음)
+jest.mock('@/screens/focus/tagSync', () => ({
+  syncTagCreated: jest.fn(),
+  syncTagRenamed: jest.fn(),
+  syncTagDeleted: jest.fn(),
+}));
+
 const DAY = 24 * 3600;
 
 let addFn: (id: string, seconds: number) => void = () => {};
+let deleteFn: (id: string) => void = () => {};
+let rows: { id: string; accumulatedSeconds: number }[] = [];
 
 function Probe() {
-  const { subjects, addFocusToSubject } = useSubjects();
+  const { subjects, addFocusToSubject, deleteSubject } = useSubjects();
   addFn = addFocusToSubject;
+  deleteFn = deleteSubject;
+  rows = subjects;
   return <Text testID="sum">{subjects.reduce((a, x) => a + x.accumulatedSeconds, 0)}</Text>;
 }
 
@@ -37,15 +48,24 @@ async function renderProvider() {
   return result;
 }
 
-async function seed(accumulatedSeconds: number) {
+async function seedMany(values: number[]) {
   await AsyncStorage.setItem(
     STORAGE_KEYS.subjects,
     JSON.stringify({
-      subjects: [{ id: 's1', name: '노동법', accumulatedSeconds, color: '#000000' }],
+      subjects: values.map((accumulatedSeconds, i) => ({
+        id: `s${i + 1}`,
+        name: `과목${i + 1}`,
+        accumulatedSeconds,
+        color: '#000000',
+      })),
       date: todayStr(),
     }),
   );
 }
+
+const seed = (accumulatedSeconds: number) => seedMany([accumulatedSeconds]);
+
+const secondsOf = (id: string) => rows.find((x) => x.id === id)?.accumulatedSeconds ?? 0;
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -77,4 +97,39 @@ it('상한 아래에서는 그대로 더해진다', async () => {
   });
 
   expect(screen.getByTestId('sum')).toHaveTextContent('1800');
+});
+
+// 코드리뷰 2차 — 행별 클램프만으론 못 잡는 '여러 과목에 나뉜 부패'
+it('부패가 여러 과목에 나뉘어도 로드 시 합이 24시간으로 정규화되고 비율은 유지된다', async () => {
+  await seedMany([20 * 3600, 14 * 3600]); // 각각은 24h 미만이지만 합은 34h
+  await renderProvider();
+
+  expect(screen.getByTestId('sum')).toHaveTextContent(String(DAY));
+  expect(secondsOf('s1') / DAY).toBeCloseTo(20 / 34, 4);
+  expect(secondsOf('s2') / DAY).toBeCloseTo(14 / 34, 4);
+});
+
+it('적립은 행별이 아니라 과목 합 기준으로 상한에 걸린다', async () => {
+  await seedMany([12 * 3600, 11 * 3600]); // 합 23h — 여유는 1h뿐
+  await renderProvider();
+
+  await act(async () => {
+    addFn('s1', 5 * 3600);
+  });
+
+  expect(screen.getByTestId('sum')).toHaveTextContent(String(DAY));
+  expect(secondsOf('s1')).toBe(13 * 3600);
+});
+
+it('정규화 후 과목을 지워도 전역 총합과 남은 과목 합이 어긋나지 않는다', async () => {
+  await seedMany([20 * 3600, 14 * 3600]);
+  await renderProvider();
+
+  // 전역 총합(FocusContext)도 같은 상한이라 24h. 삭제 화면은 그 값에서 과목 누적을 뺀다.
+  const deleted = secondsOf('s2');
+  await act(async () => {
+    deleteFn('s2');
+  });
+
+  expect(screen.getByTestId('sum')).toHaveTextContent(String(Math.max(0, DAY - deleted)));
 });
