@@ -52,11 +52,25 @@ export const M = {
     // 버튼 복귀 — ζ 0.50, 이동량의 16% 오버슛 1회, 안착 ≈367ms(2% 허용대).
     // ⚠️ 오버슛 상한은 배율이 아니라 **이동량 대비 비율**이다. scaleTo가 깊을수록 최대 배율이
     //    커진다 — scaleTo 0.90 버튼은 1.016까지 튄다.
-    press: { damping: 14, stiffness: 300, mass: 0.65 },
-    snappy: { damping: 20, stiffness: 260, mass: 0.9 }, // 시트·패널·토스트 — 빠르고 오버슛 거의 없음
-    bouncy: { damping: 13, stiffness: 180, mass: 0.9 }, // 배지·팝·축하 전용
-    gentle: { damping: 16, stiffness: 120, mass: 1.0 }, // 큰 요소 진입 (온보딩 카드 승격)
+    // ⚠️ reduceMotion: Never가 프리셋에 박혀 있는 이유는 아래 M.never 주석 참고.
+    press: { damping: 14, stiffness: 300, mass: 0.65, reduceMotion: ReduceMotion.Never },
+    // 시트·패널·토스트 — 빠르고 오버슛 거의 없음
+    snappy: { damping: 20, stiffness: 260, mass: 0.9, reduceMotion: ReduceMotion.Never },
+    // 배지·팝·축하 전용
+    bouncy: { damping: 13, stiffness: 180, mass: 0.9, reduceMotion: ReduceMotion.Never },
+    // 큰 요소 진입 (온보딩 카드 승격)
+    gentle: { damping: 16, stiffness: 120, mass: 1.0, reduceMotion: ReduceMotion.Never },
   },
+
+  // ⚠️ **내장 reduce-motion 게이트를 끄는 값** (정책 D6).
+  //    reanimated의 withTiming·withSpring·레이아웃 빌더는 기본값이 ReduceMotion.System인데,
+  //    그건 모듈 로드 시 1회 계산하는 **정적** 플래그다. '동작 줄이기'를 켠 채 앱을 켰다가
+  //    실행 중에 끄면 useMotion은 반응해서 애니메이션을 다시 내주지만 그 정적 플래그가 계속
+  //    억제해, 앱을 재시작하기 전까지 모션이 죽은 것처럼 보인다.
+  //    켜고 끄는 판단은 useMotion 한 곳만 한다 — 앱 안에 '동작 줄이기' 진실이 둘이면 안 된다.
+  //    ⚠️ **withTiming을 직접 부를 땐 설정에 `reduceMotion: M.never`를 반드시 함께 넘긴다.**
+  //       (useMotion의 timing/spring을 쓰면 자동으로 붙는다.)
+  never: ReduceMotion.Never,
 
   stagger: { tight: 40, base: 60, loose: 90 },
   // 시차 총합 상한 — 항목 20개 리스트의 끝이 1.2초 뒤에 뜨는 참사 방지
