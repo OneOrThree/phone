@@ -60,4 +60,13 @@ describe('AnimatedCharacter', () => {
     // children이 있으면 기본 CharacterImage는 그리지 않는다
     expect(screen.queryByTestId('focus.character.image')).toBeNull();
   });
+
+  // ⚠️ 탭 네비게이터는 unmountOnBlur가 없어 다른 탭으로 가도 홈이 마운트된 채 남는다.
+  //    active를 안 넘기면 보이지도 않는 캐릭터의 무한 루프가 앱 세션 내내 돈다(codex 리뷰).
+  it('active=false면 호흡을 붙이지 않는다 — 포커스를 잃은 탭에서 루프가 남지 않게', async () => {
+    await render(<AnimatedCharacter size={216} active={false} testID="home.character" />);
+    const style = StyleSheet.flatten(screen.getByTestId('home.character').props.style);
+    expect(style?.transform).toBeUndefined();
+    expect(style?.transformOrigin).toBeUndefined();
+  });
 });
