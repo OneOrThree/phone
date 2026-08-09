@@ -7411,6 +7411,13 @@
           "totalDistractionSeconds": {
             "type": "integer",
             "format": "int32"
+          },
+          "focusSecondsByDate": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         }
       },
