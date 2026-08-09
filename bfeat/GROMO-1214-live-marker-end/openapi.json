@@ -6326,6 +6326,9 @@
           },
           "occupation": {
             "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
           }
         }
       },
