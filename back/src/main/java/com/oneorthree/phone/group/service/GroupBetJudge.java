@@ -173,10 +173,19 @@ public class GroupBetJudge {
         return minutes;
     }
 
-    /** 스크린타임도 유저·날짜당 1행이다. 중복 시 최댓값(= 더 많이 썼다고 보는 쪽)으로 방어한다. */
+    /**
+     * 스크린타임도 유저·날짜당 1행이다. 중복 시 최댓값(= 더 많이 썼다고 보는 쪽)으로 방어한다.
+     *
+     * <p><b>미집계(null) 행은 건너뛴다</b>(GROMO-1267) — 키가 없으면 {@link #isAchieved} 가 미보고로
+     * 보고 미달성 처리한다(정책 §B4). 0 으로 접으면 미보고가 "0분 사용 = 달성"으로 뒤집히고,
+     * {@code Map#merge} 는 null 값 자체를 NPE 로 거절한다.
+     */
     private Map<UUID, Integer> dailyScreenTimeMinutes(Collection<User> users, LocalDate date) {
         Map<UUID, Integer> minutes = new HashMap<>();
         for (DailyScreenTimeStat stat : dailyScreenTimeStatRepository.findByUserInAndDate(users, date)) {
+            if (stat.getTotalScreenTimeMinutes() == null) {
+                continue;
+            }
             minutes.merge(stat.getUser().getId(), stat.getTotalScreenTimeMinutes(), Integer::max);
         }
         return minutes;

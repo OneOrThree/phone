@@ -46,9 +46,15 @@ public class DailyScreenTimeStat {
     @Column(nullable = false)
     private LocalDate date;
 
-    @Builder.Default
+    /**
+     * 앱이 보고한 그날의 총 사용 분. <b>null = 미집계</b>이고 0 = 실제 0분 사용이다 (GROMO-1267, 정책 §B7).
+     *
+     * <p>스크린타임은 <b>적을수록 좋은</b> 축이라 미집계를 0 으로 접으면 미보고가 "0분 사용 = 달성"으로
+     * 뒤집힌다 — 돈이 걸린 판정에서 무위험 탈출구가 된다. 그래서 저장 단계에서부터 3상을 유지한다.
+     * 읽는 쪽은 null 을 <b>미달성/미표시</b>로 다뤄야 한다(합산에 0 으로 섞지 말 것).
+     */
     @Column(name = "total_screen_time_minutes")
-    private int totalScreenTimeMinutes = 0;
+    private Integer totalScreenTimeMinutes;
 
     @Builder.Default
     @Column(name = "is_screen_time_goal_achieved", nullable = false)

@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.time.Instant;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,8 +41,9 @@ class GroupChallengeRepositoryTest extends RepositoryTestBase {
     @Autowired
     EntityManager em;
 
-    private static final Instant WINDOW_START = Instant.parse("2026-08-01T09:00:00+09:00");
-    private static final Instant WINDOW_END = Instant.parse("2026-08-01T18:00:00+09:00");
+    // 창 시각은 KST 벽시계 time (V32) — 날짜부라는 무의미한 자유도가 스키마에서 사라졌다.
+    private static final LocalTime WINDOW_START = LocalTime.of(9, 0);
+    private static final LocalTime WINDOW_END = LocalTime.of(18, 0);
 
     private Group saveGroup() {
         return groupRepository.save(Group.builder().name("스터디룸").maxMembers(10).build());
@@ -57,12 +58,12 @@ class GroupChallengeRepositoryTest extends RepositoryTestBase {
         return challenge;
     }
 
-    private GroupChallenge saveWindowChallenge(Group group, Instant start, Instant end) {
+    private GroupChallenge saveWindowChallenge(Group group, LocalTime start, LocalTime end) {
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group).type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
                 .status(GroupChallengeStatus.ACTIVE).build());
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
-                .challenge(challenge).windowStartAt(start).windowEndAt(end).build());
+                .challenge(challenge).windowStart(start).windowEnd(end).build());
         return challenge;
     }
 

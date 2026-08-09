@@ -134,7 +134,7 @@ class ScreenTimeServiceTest {
         assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(80);
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
-                Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", 80));
+                Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", "80"));
         verify(notificationPort).notify(USER_ID, true);
     }
 
@@ -177,7 +177,7 @@ class ScreenTimeServiceTest {
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isTrue();
         assertThat(captor.getValue().isScreenTimeFinalized()).isTrue();
         verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
-                Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", 999));
+                Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", "999"));
         verify(notificationPort).notify(USER_ID, true);
     }
 
@@ -249,8 +249,8 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total 0 저장, flag 미설정, 이벤트·알림 미발사")
-    void interimNullActualMinutesStoresZeroAndNoFlag() {
+    @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total null(미집계) 저장, flag 미설정, 이벤트·알림 미발사")
+    void interimNullActualMinutesStoresNullAndNoFlag() {
         User user = normalUser();
         Instant todayAt = todayAt();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -263,7 +263,9 @@ class ScreenTimeServiceTest {
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(0); // null → 0
+        // GROMO-1267: 미집계는 null 로 남는다 — 0 으로 접으면 실제 "0분 사용"과 구분되지 않고,
+        // 스크린타임은 적을수록 좋은 축이라 미보고가 "달성"으로 뒤집힌다(정책 §B7).
+        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isNull();
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
         assertThat(captor.getValue().isScreenTimeFinalized()).isFalse();
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
@@ -428,7 +430,7 @@ class ScreenTimeServiceTest {
 
             verify(notificationPort).notify(USER_ID, true);
             verify(userActivityEventLogger).log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED,
-                    Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", 80));
+                    Map.of("date", PAST_DATE.toString(), "actual_screen_time_minutes", "80"));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }

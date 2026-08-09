@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -46,8 +47,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
 
     /** EPOCH 앵커 기대값 — 1970-01-01(KST) + 벽시계 시각. */
-    private static final Instant EPOCH_KST_09H = Instant.parse("1970-01-01T09:00:00+09:00");
-    private static final Instant EPOCH_KST_12H = Instant.parse("1970-01-01T12:00:00+09:00");
+    // V32: 창 시각은 KST 벽시계 time 이다 — EPOCH 날짜 앵커라는 우회가 필요 없어졌다.
+    private static final LocalTime KST_09H = LocalTime.of(9, 0);
+    private static final LocalTime KST_12H = LocalTime.of(12, 0);
 
     @Autowired
     private MockMvc mockMvc;
@@ -104,6 +106,7 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":["MON","WED","FRI"],
                                  "durationMinutes":%d,"windowStart":"%s","windowEnd":"%s"}
                                 """.formatted(goalMinutes, windowStart, windowEnd)))
                 .andExpect(status().isCreated())
@@ -119,10 +122,10 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
     void newFormatRoundTrip() throws Exception {
         UUID challengeId = postWindowChallenge("09:00:00", "12:00:00", 60);
 
-        // 저장: 날짜부는 EPOCH(KST)로 고정된다 — 의미는 KST 벽시계 시각뿐.
+        // 저장: KST 벽시계 시각 그대로(V32 — time 컬럼).
         GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
-        assertThat(saved.getWindowStartAt()).isEqualTo(EPOCH_KST_09H);
-        assertThat(saved.getWindowEndAt()).isEqualTo(EPOCH_KST_12H);
+        assertThat(saved.getWindowStart()).isEqualTo(KST_09H);
+        assertThat(saved.getWindowEnd()).isEqualTo(KST_12H);
 
         // 응답: 목록 조회가 같은 시각을 "HH:mm:ss" 로 돌려준다(왕복).
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
@@ -138,10 +141,10 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
         // 구앱이 보내던 형식 그대로 — +09:00 오프셋의 진짜 Instant 문자열.
         UUID challengeId = postWindowChallenge("2026-08-05T09:00:00+09:00", "2026-08-05T12:00:00+09:00", 60);
 
-        // 저장: 구형 경로도 timeOfDay(KST 시각)를 경유해 신형과 같은 EPOCH 앵커 Instant 로 수렴한다.
+        // 저장: 구형 경로도 timeOfDay(KST 시각)를 경유해 신형과 같은 LocalTime 으로 수렴한다.
         GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
-        assertThat(saved.getWindowStartAt()).isEqualTo(EPOCH_KST_09H);
-        assertThat(saved.getWindowEndAt()).isEqualTo(EPOCH_KST_12H);
+        assertThat(saved.getWindowStart()).isEqualTo(KST_09H);
+        assertThat(saved.getWindowEnd()).isEqualTo(KST_12H);
 
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
                         .header("Authorization", bearer()))
@@ -158,6 +161,7 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":["MON","WED","FRI"],
                                  "durationMinutes":60,"windowStart":"morning","windowEnd":"12:00:00"}
                                 """))
                 .andExpect(status().isBadRequest())
@@ -179,6 +183,7 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":["MON","WED","FRI"],
                                  "durationMinutes":60,"windowStart":"99:99","windowEnd":"12:00:00"}
                                 """))
                 .andExpect(status().isBadRequest())
@@ -195,10 +200,10 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
     void midnightCrossingPreserved() throws Exception {
         UUID challengeId = postWindowChallenge("22:00:00", "01:00:00", 180);
 
-        // 저장: 시작·종료 각각 독립 EPOCH 앵커 — 시각 기준 시작 > 종료(자정 걸침)가 그대로 남는다.
+        // 저장: 시각 기준 시작 > 종료(자정 걸침)가 그대로 남는다 — 날짜가 없으니 이것이 유일한 신호다.
         GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
-        assertThat(saved.getWindowStartAt()).isEqualTo(Instant.parse("1970-01-01T22:00:00+09:00"));
-        assertThat(saved.getWindowEndAt()).isEqualTo(Instant.parse("1970-01-01T01:00:00+09:00"));
+        assertThat(saved.getWindowStart()).isEqualTo(LocalTime.of(22, 0));
+        assertThat(saved.getWindowEnd()).isEqualTo(LocalTime.of(1, 0));
 
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
                         .header("Authorization", bearer()))

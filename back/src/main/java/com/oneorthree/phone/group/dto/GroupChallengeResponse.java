@@ -20,8 +20,17 @@ public class GroupChallengeResponse {
     /** DURATION: 하루 목표 분 · TIME_WINDOW: 창 내 목표 분(V20 additive — 목표 없는 구 창 챌린지는 null). */
     private Integer durationMinutes;
 
+    /**
+     * 도는 요일 (GROMO-1260 additive) — 3글자 ISO 약어 배열, 월→일 순. 예: {@code ["MON","WED","FRI"]}.
+     * 항상 1개 이상이다(DB CHECK {@code 1 ≤ repeat_days ≤ 127}). 요일 개념 도입 전 챌린지는
+     * V32 백필로 전 요일이다. 구앱은 이 필드를 몰라 무해하다.
+     */
+    private List<String> repeatDays;
+
     private String windowStart;
     private String windowEnd;
+
+    /** {@code ACTIVE} = 진행 중 · {@code INACTIVE} = <b>종료</b>(정책의 ENDED — 이름만 다르다). */
     private GroupChallengeStatus status;
     private Instant createdAt;
     private boolean canParticipate;

@@ -110,9 +110,9 @@ class GroupChallengeV28MigrationTest {
         migrate(MigrationVersion.fromVersion("27"));
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroupAndUser(jdbcTemplate);
-        UUID tooBig = insertChallenge(jdbcTemplate);
-        UUID tooSmall = insertChallenge(jdbcTemplate);
-        UUID inRange = insertChallenge(jdbcTemplate);
+        UUID tooBig = insertLegacyChallenge(jdbcTemplate);
+        UUID tooSmall = insertLegacyChallenge(jdbcTemplate);
+        UUID inRange = insertLegacyChallenge(jdbcTemplate);
         insertDuration(jdbcTemplate, tooBig, 999_999);
         insertDuration(jdbcTemplate, tooSmall, 0);
         insertDuration(jdbcTemplate, inRange, 60);
@@ -151,7 +151,19 @@ class GroupChallengeV28MigrationTest {
                 USER_ID);
     }
 
+    /** V32 이후 스키마용 — repeat_days·started_at 은 기본값이 없어 반드시 채워야 한다. */
     private UUID insertChallenge(JdbcTemplate jdbcTemplate) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO group_challenges"
+                        + " (id, group_id, type, category, status, repeat_days, started_at, created_at)"
+                        + " VALUES (?, ?, 'DURATION', 'FOCUS', 'INACTIVE', 127, now(), now())",
+                id, GROUP_ID);
+        return id;
+    }
+
+    /** V32 이전(여기서는 V27) 스키마용 — repeat_days·started_at 컬럼이 아직 없다. */
+    private UUID insertLegacyChallenge(JdbcTemplate jdbcTemplate) {
         UUID id = UUID.randomUUID();
         jdbcTemplate.update(
                 "INSERT INTO group_challenges (id, group_id, type, category, status, created_at)"

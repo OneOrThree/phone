@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -69,8 +70,8 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
         GroupChallenge challenge = saveChallenge(category, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.parse("2026-01-01T" + start + "+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T" + end + "+09:00"))
+                .windowStart(LocalTime.parse(start))
+                .windowEnd(LocalTime.parse(end))
                 .durationMinutes(goalMinutes)
                 .build());
         return challenge;

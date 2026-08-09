@@ -282,8 +282,8 @@ class ChallengeCreatedNotificationServiceTest {
         given(groupChallengeWindowRepository.findByChallengeIdIn(anyCollection()))
                 .willReturn(List.of(GroupChallengeWindow.builder()
                         .challengeId(CHALLENGE_ID).challenge(challenge)
-                        .windowStartAt(timeOfDay(LocalTime.of(21, 0)))
-                        .windowEndAt(timeOfDay(LocalTime.of(23, 30)))
+                        .windowStart(LocalTime.of(21, 0))
+                        .windowEnd(LocalTime.of(23, 30))
                         .durationMinutes(30)
                         .build()));
 

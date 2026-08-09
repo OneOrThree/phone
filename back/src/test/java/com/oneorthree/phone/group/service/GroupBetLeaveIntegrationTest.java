@@ -36,7 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -148,8 +148,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
         return user;
     }
 
-    /** 창형(FOCUS × TIME_WINDOW) 챌린지 — 창 시각은 저장 Instant 그대로(해석은 클래스 주석 참고). */
-    private GroupChallenge windowChallenge(OffsetDateTime windowStart, OffsetDateTime windowEnd) {
+    /** 창형(FOCUS × TIME_WINDOW) 챌린지 — 창 시각은 KST 벽시계 time 이다(V32). */
+    private GroupChallenge windowChallenge(LocalTime windowStart, LocalTime windowEnd) {
         GroupChallenge windowed = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.FOCUS)
@@ -157,8 +157,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
                 .build());
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(windowed)
-                .windowStartAt(windowStart.toInstant())
-                .windowEndAt(windowEnd.toInstant())
+                .windowStart(windowStart)
+                .windowEnd(windowEnd)
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         extraChallenges.add(windowed);
@@ -298,11 +298,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("창형 내일 내기 — 창 시작 전이므로 철회 허용")
     void windowBetTomorrowCanBeLeft() {
-        // 현행 해석: UTC 09:00~11:00 → KST 09:00~11:00 창. W1 해석: KST 18:00~20:00 창.
-        // 어느 해석이든 내일 창의 시작은 항상 미래라 결과가 같다.
-        GroupChallenge windowed = windowChallenge(
-                OffsetDateTime.parse("2026-01-01T18:00:00+09:00"),
-                OffsetDateTime.parse("2026-01-01T20:00:00+09:00"));
+        // KST 18:00~20:00 창 — 내일 창의 시작은 항상 미래다.
+        GroupChallenge windowed = windowChallenge(LocalTime.of(18, 0), LocalTime.of(20, 0));
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("철회자", GroupMemberRole.MEMBER);
         GroupChallengeBet bet = openBetOn(windowed, creator, today().plusDays(1));
@@ -390,11 +387,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("자정 걸침 창의 전일자 내기(배치 전 OPEN 잔존) → 창이 이미 시작돼 BET_LEAVE_CLOSED")
     void startedMidnightCrossingWindowBetCannotBeLeft() {
-        // 현행 해석: UTC 22:00→01:00 → KST 22:00~익일 01:00 자정 걸침 창. W1 해석으로는 KST
-        // 07:00~10:00 비걸침 창이 되지만, 전일자 내기의 창 시작은 어느 해석이든 과거라 결과가 같다.
-        GroupChallenge windowed = windowChallenge(
-                OffsetDateTime.parse("2026-01-02T07:00:00+09:00"),
-                OffsetDateTime.parse("2026-01-02T10:00:00+09:00"));
+        // KST 07:00~10:00 창 — 전일자 내기의 창 시작은 이미 과거다.
+        GroupChallenge windowed = windowChallenge(LocalTime.of(7, 0), LocalTime.of(10, 0));
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         GroupChallengeBet bet = openBetOn(windowed, creator, today().minusDays(1));
         participant(bet, creator);

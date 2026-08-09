@@ -113,7 +113,7 @@ public class StatsService {
                     f != null ? StatsUnits.secondsToMinutes(f.getTotalFocusSeconds()) : 0,   // GROMO-642: 초 → 분
                     f != null ? f.getSessionCount() : 0,
                     f != null && f.isFocusTimeGoalAchieved(),
-                    s != null ? s.getTotalScreenTimeMinutes() : 0,
+                    screenMinutesOrZero(s),
                     s != null && s.isScreenTimeGoalAchieved()));
         }
         return cells;
@@ -326,6 +326,7 @@ public class StatsService {
                         todayFailed = finalizedToday.get().isScreenTimeGoalAchieved() ? 0 : 1;
                     } else {
                         int todayMinutes = todayStats.stream()
+                                .filter(s -> s.getTotalScreenTimeMinutes() != null)
                                 .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
                         todayFailed = todayMinutes > goalMinutes ? 1 : 0;
                     }
@@ -365,8 +366,25 @@ public class StatsService {
     private int sumMinutesFromJoin(List<DailyScreenTimeStat> stats, LocalDate joinLocalDate) {
         return stats.stream()
                 .filter(s -> joinLocalDate == null || !s.getDate().isBefore(joinLocalDate))
+                // 미집계(null)는 합산에서 뺀다(GROMO-1267) — "보고 안 됨"을 0분 사용으로 세면
+                // 기간 합계가 실제보다 낮게 나오고, mapToInt 는 null 을 NPE 로 거절한다.
+                .filter(s -> s.getTotalScreenTimeMinutes() != null)
                 .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes)
                 .sum();
+    }
+
+    /**
+     * 히트맵 셀의 사용 분 — 행이 없거나 <b>미집계(null, GROMO-1267)</b>면 0.
+     *
+     * <p>히트맵은 "그날 얼마나 썼나"를 칠하는 표시용이라 미집계를 빈칸(0)으로 접는다.
+     * 판정 경로가 아니므로 3상을 유지할 이유가 없다 — 돈이 걸린 판정은 {@code GroupBetJudge} 가
+     * null 을 미달성으로 다룬다.
+     */
+    private static int screenMinutesOrZero(DailyScreenTimeStat stat) {
+        if (stat == null || stat.getTotalScreenTimeMinutes() == null) {
+            return 0;
+        }
+        return stat.getTotalScreenTimeMinutes();
     }
 
     /**

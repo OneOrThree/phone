@@ -111,8 +111,8 @@ class ChallengeWindowEndNotificationServiceTest {
         return GroupChallengeWindow.builder()
                 .challengeId(challenge.getId())
                 .challenge(challenge)
-                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
+                .windowStart(start)
+                .windowEnd(end)
                 .durationMinutes(60)
                 .build();
     }

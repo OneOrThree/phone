@@ -71,9 +71,9 @@ class GroupChallengeV20MigrationTest {
         assertThat(softDeleted(jdbcTemplate, otherCombo)).isFalse();
 
         // 부분 유니크: 같은 조합의 ACTIVE 재삽입은 거부, 다른 조합은 허용
-        assertThatThrownBy(() -> insertChallenge(jdbcTemplate, "DURATION", "FOCUS", Instant.now()))
+        assertThatThrownBy(() -> insertCurrentChallenge(jdbcTemplate, "DURATION", "FOCUS"))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        insertChallenge(jdbcTemplate, "DURATION", "SCREEN_TIME", Instant.now());
+        insertCurrentChallenge(jdbcTemplate, "DURATION", "SCREEN_TIME");
     }
 
     @Test
@@ -147,7 +147,7 @@ class GroupChallengeV20MigrationTest {
         migrate(MigrationVersion.LATEST);
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroup(jdbcTemplate);
-        UUID challengeId = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));
+        UUID challengeId = insertCurrentChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS");
 
         insertWindow(jdbcTemplate, challengeId, 120);
         assertThatThrownBy(() -> jdbcTemplate.update(
@@ -179,8 +179,20 @@ class GroupChallengeV20MigrationTest {
                 USER_ID);
     }
 
+    /** V19 시점 스키마용(= V32 이전) — repeat_days·started_at 컬럼이 아직 없다. */
     private UUID insertChallenge(JdbcTemplate jdbcTemplate, String type, String category, Instant createdAt) {
         return insertChallenge(jdbcTemplate, UUID.randomUUID(), type, category, createdAt);
+    }
+
+    /** LATEST(= V32 이후) 스키마용 — repeat_days·started_at 은 NOT NULL 이고 기본값이 없다. */
+    private UUID insertCurrentChallenge(JdbcTemplate jdbcTemplate, String type, String category) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO group_challenges"
+                        + " (id, group_id, type, category, status, repeat_days, started_at, created_at)"
+                        + " VALUES (?, ?, ?, ?, 'ACTIVE', 127, now(), now())",
+                id, GROUP_ID, type, category);
+        return id;
     }
 
     private UUID insertChallenge(JdbcTemplate jdbcTemplate, UUID id, String type, String category, Instant createdAt) {
@@ -200,18 +212,20 @@ class GroupChallengeV20MigrationTest {
     }
 
     private void insertMember(JdbcTemplate jdbcTemplate, UUID challengeId, LocalDate usageDate) {
+        // V32: is_achieved 잔재 컬럼은 제거됐다(GROMO-1265).
         jdbcTemplate.update(
                 "INSERT INTO group_challenge_members"
-                        + " (id, created_at, is_achieved, progress_minutes, group_challenge_id, user_id, usage_date)"
-                        + " VALUES (?, now(), false, 0, ?, ?, ?)",
+                        + " (id, created_at, progress_minutes, group_challenge_id, user_id, usage_date)"
+                        + " VALUES (?, now(), 0, ?, ?, ?)",
                 UUID.randomUUID(), challengeId, USER_ID, Date.valueOf(usageDate));
     }
 
     private void insertWindow(JdbcTemplate jdbcTemplate, UUID challengeId, Integer durationMinutes) {
+        // V32: 창 시각은 KST 벽시계 time 이고 컬럼명도 window_start/window_end 다(GROMO-1263).
         jdbcTemplate.update(
                 "INSERT INTO group_challenge_windows"
-                        + " (challenge_id, window_start_at, window_end_at, duration_minutes)"
-                        + " VALUES (?, now(), now() + interval '3 hour', ?)",
+                        + " (challenge_id, window_start, window_end, duration_minutes)"
+                        + " VALUES (?, time '09:00', time '12:00', ?)",
                 challengeId, durationMinutes);
     }
 

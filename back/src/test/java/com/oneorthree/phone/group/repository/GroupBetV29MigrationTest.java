@@ -72,7 +72,7 @@ class GroupBetV29MigrationTest {
         migrate(MigrationVersion.fromVersion("28"));
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroupAndUser(jdbcTemplate);
-        UUID betId = insertBet(jdbcTemplate, insertChallenge(jdbcTemplate));
+        UUID betId = insertBet(jdbcTemplate, insertLegacyChallenge(jdbcTemplate));
         insertParticipant(jdbcTemplate, betId);
 
         migrate(MigrationVersion.LATEST);
@@ -125,6 +125,18 @@ class GroupBetV29MigrationTest {
     }
 
     private UUID insertChallenge(JdbcTemplate jdbcTemplate) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                // V32: repeat_days·started_at 은 NOT NULL 이고 기본값이 없다.
+                "INSERT INTO group_challenges"
+                        + " (id, group_id, type, category, status, repeat_days, started_at, created_at)"
+                        + " VALUES (?, ?, 'DURATION', 'FOCUS', 'ACTIVE', 127, now(), now())",
+                id, GROUP_ID);
+        return id;
+    }
+
+    /** V32 이전(여기서는 V28) 스키마용 — repeat_days·started_at 컬럼이 아직 없다. */
+    private UUID insertLegacyChallenge(JdbcTemplate jdbcTemplate) {
         UUID id = UUID.randomUUID();
         jdbcTemplate.update(
                 "INSERT INTO group_challenges (id, group_id, type, category, status, created_at)"

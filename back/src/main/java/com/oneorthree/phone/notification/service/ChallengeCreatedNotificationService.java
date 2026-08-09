@@ -12,7 +12,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.service.WindowFocusAggregator;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -218,8 +217,8 @@ public class ChallengeCreatedNotificationService {
         if (window.isEmpty()) {
             return categoryLabel(challenge);
         }
-        String span = "매일 " + hhmm(window.get().getWindowStartAt())
-                + "~" + hhmm(window.get().getWindowEndAt()) + " ";
+        String span = "매일 " + hhmm(window.get().getWindowStart())
+                + "~" + hhmm(window.get().getWindowEnd()) + " ";
         Integer goal = window.get().getDurationMinutes();
         return goal != null ? span + goal + "분 " + what : span + what;
     }
@@ -229,12 +228,8 @@ public class ChallengeCreatedNotificationService {
         return challenge.getCategory() == MissionCategory.SCREEN_TIME ? "스크린타임" : "집중 시간";
     }
 
-    /**
-     * 창 시각 표기 — 저장된 Instant 에서 시각(time-of-day)만 뽑는다. 추출 기준은
-     * {@link WindowFocusAggregator#timeOfDay} 단일 소스를 공유한다(생성 검증·집계·응답 변환과 동일).
-     */
-    private static String hhmm(Instant instant) {
-        LocalTime time = WindowFocusAggregator.timeOfDay(instant);
+    /** 창 시각 표기 — 저장값이 이미 KST 벽시계 시각(V32)이라 zone 변환 없이 포맷만 한다. */
+    private static String hhmm(LocalTime time) {
         return time.format(HH_MM);
     }
 }

@@ -12,6 +12,7 @@ import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
@@ -151,8 +152,9 @@ public class GroupChallengeService {
                             .missionType(c.getType())
                             .missionCategory(c.getCategory())
                             .durationMinutes(durationMinutesOf(duration, window))
-                            .windowStart(window != null ? toLocalTimeString(window.getWindowStartAt()) : null)
-                            .windowEnd(window != null ? toLocalTimeString(window.getWindowEndAt()) : null)
+                            .repeatDays(RepeatSchedule.namesOf(c.getRepeatDays()))
+                            .windowStart(window != null ? toLocalTimeString(window.getWindowStart()) : null)
+                            .windowEnd(window != null ? toLocalTimeString(window.getWindowEnd()) : null)
                             .canParticipate(c.getCategory() == MissionCategory.FOCUS
                                     || screenTimePermissionGranted)
                             .status(c.getStatus())
@@ -300,7 +302,11 @@ public class GroupChallengeService {
                     .filter(u -> grantedUserIds.contains(u.getId()))
                     .toList();
             if (!participants.isEmpty()) {
+                // 미집계(total_screen_time_minutes IS NULL, GROMO-1267)는 맵에서 빼 progressMinutes = null
+                // (판정 불가)로 흘린다 — 0 으로 접으면 미보고가 "0분 사용 = 달성"으로 뒤집힌다(정책 §B7).
+                // Collectors.toMap 은 값이 null 이면 NPE 라 필터가 정합성 문제이기도 하다.
                 screenTimeMinutes = dailyScreenTimeStatRepository.findByUserInAndDate(participants, date).stream()
+                        .filter(s -> s.getTotalScreenTimeMinutes() != null)
                         .collect(Collectors.toMap(
                                 s -> s.getUser().getId(),
                                 DailyScreenTimeStat::getTotalScreenTimeMinutes));
@@ -355,9 +361,9 @@ public class GroupChallengeService {
      * DURATION 은 일 목표(duration 상세), TIME_WINDOW 는 창 내 목표(duration_minutes, V20)가 있어야 한다.
      * 목표 없는 구 창 챌린지는 현행대로 memberProgress = null(판정 불가)로 남는다.
      *
-     * <p>INACTIVE 는 이미 끝난 챌린지다(V2 마이그레이션이 레거시 {@code ENDED} 행을 INACTIVE 로 보존).
+     * <p>INACTIVE 는 이미 <b>종료</b>된 챌린지다({@link GroupChallengeStatus} — 이름만 INACTIVE 다).
      * 조회한 날짜의 "현재" 통계를 끝난 챌린지 목표와 대조하면 과거 챌린지의 진행률·달성 여부가 매일
-     * 바뀌어 보이므로 계산하지 않는다. 챌린지에 활동 기간(ended_at)이 없어 당시 진행률을 복원할 수도 없다.
+     * 바뀌어 보이므로 계산하지 않는다.
      */
     private boolean isProgressTarget(GroupChallenge challenge, GroupChallengeDuration duration,
             GroupChallengeWindow window) {
@@ -396,9 +402,8 @@ public class GroupChallengeService {
                     UUID memberId = member.getUser().getId();
                     // FOCUS 는 데이터가 없으면 "0분 집중"이 사실이지만(서버 데이터), SCREEN_TIME 은
                     // 데이터 미수집(미보고 포함)과 "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
-                    // 한계: null 은 "통계 행 없음/권한 미동의/미보고"까지만 덮는다. 앱이 actualScreenTimeMinutes
-                    // 없이 보고하면 ScreenTimeService 가 0 으로 저장해 실제 0분과 구분되지 않는다(쓰기 모델
-                    // 이슈 — 컬럼 nullable 화가 필요해 이 범위 밖).
+                    // null 이 덮는 범위: 통계 행 없음 · 권한 미동의 · 미보고 · **행은 있지만 미집계**
+                    // (total_screen_time_minutes IS NULL — GROMO-1267 로 쓰기 모델까지 3상이 됐다).
                     Integer progressMinutes;
                     if (windowType) {
                         progressMinutes = screenTime
@@ -458,9 +463,12 @@ public class GroupChallengeService {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
 
-        // TIME_WINDOW 창 시각 — 요청 문자열을 저장 Instant 로 파싱한 결과(DURATION 이면 null 유지).
-        Instant windowStartAt = null;
-        Instant windowEndAt = null;
+        // 요일 반복(GROMO-1260) — 기본값 없음. 하나도 안 고르면 400 이다(정책 §A3).
+        short repeatDays = parseRepeatDays(request.getRepeatDays());
+
+        // TIME_WINDOW 창 시각 — 요청 문자열을 KST 벽시계 시각으로 파싱한 결과(DURATION 이면 null 유지).
+        LocalTime windowStart = null;
+        LocalTime windowEnd = null;
         if (request.getMissionType() == MissionType.DURATION) {
             // 상한 1440 — 하루보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205). TIME_WINDOW 는
             // validateTimeWindowParams 의 "창 길이 이내" 검증이 이미 같은 성격의 상한을 건다.
@@ -469,9 +477,9 @@ public class GroupChallengeService {
                 throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
             }
         } else if (request.getMissionType() == MissionType.TIME_WINDOW) {
-            windowStartAt = parseWindowTimeParam(request.getWindowStart());
-            windowEndAt = parseWindowTimeParam(request.getWindowEnd());
-            validateTimeWindowParams(windowStartAt, windowEndAt, request.getDurationMinutes());
+            windowStart = parseWindowTimeParam(request.getWindowStart());
+            windowEnd = parseWindowTimeParam(request.getWindowEnd());
+            validateTimeWindowParams(windowStart, windowEnd, request.getDurationMinutes());
         } else {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
@@ -483,7 +491,7 @@ public class GroupChallengeService {
             throw new GroupException(GroupErrorCode.CHALLENGE_DUPLICATE);
         }
         if (request.getMissionType() == MissionType.TIME_WINDOW) {
-            rejectCrossCategoryWindowOverlap(group, request.getMissionCategory(), windowStartAt, windowEndAt);
+            rejectCrossCategoryWindowOverlap(group, request.getMissionCategory(), windowStart, windowEnd);
         }
 
         GroupChallenge savedChallenge;
@@ -492,6 +500,8 @@ public class GroupChallengeService {
                     .group(group)
                     .type(request.getMissionType())
                     .category(request.getMissionCategory())
+                    .repeatDays(repeatDays)
+                    .startedAt(Instant.now())
                     .build());
         } catch (DataIntegrityViolationException e) {
             // 사전 검사와 동시 생성이 겹친 레이스 — 부분 유니크(활성 카테고리×타입 1개) 위반으로 강하.
@@ -507,8 +517,8 @@ public class GroupChallengeService {
         } else {
             groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                     .challenge(savedChallenge)
-                    .windowStartAt(windowStartAt)
-                    .windowEndAt(windowEndAt)
+                    .windowStart(windowStart)
+                    .windowEnd(windowEnd)
                     .durationMinutes(request.getDurationMinutes())
                     .build());
         }
@@ -549,7 +559,7 @@ public class GroupChallengeService {
      * 실제 해석은 {@link WindowFocusAggregator#parseRequestTime} 단일 입구가 하고, 여기서는 누락(null)과
      * 형식 오류를 기존 INVALID_MISSION_PARAMS 로 매핑만 한다(신규 에러 코드 없음).
      */
-    private Instant parseWindowTimeParam(String value) {
+    private LocalTime parseWindowTimeParam(String value) {
         if (value == null) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
@@ -561,17 +571,33 @@ public class GroupChallengeService {
     }
 
     /**
+     * 요일 반복 요청 파싱 (GROMO-1260) — 표기는 {@code ["MON","WED","FRI"]}(3글자 ISO 약어, 전체 이름·
+     * 대소문자도 수용). 변환은 {@link RepeatSchedule#maskOf} 단일 입구를 거친다.
+     *
+     * <p><b>기본값을 두지 않는다</b> — 요일 미선택은 조용히 "매일"이 되는 대신 400 이다. "언제 도는지"를
+     * 반드시 의식하게 만드는 것이 정책의 요지다(§A3). 누락과 형식 오류는 앱이 다르게 안내해야 해서
+     * 에러 코드를 나눈다.
+     */
+    private short parseRepeatDays(List<String> requested) {
+        if (requested == null || requested.isEmpty()) {
+            throw new GroupException(GroupErrorCode.CHALLENGE_REPEAT_DAYS_REQUIRED);
+        }
+        try {
+            return (short) RepeatSchedule.maskOf(requested);
+        } catch (IllegalArgumentException e) {
+            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
+        }
+    }
+
+    /**
      * TIME_WINDOW 파라미터 검증 — 창 시각(0길이 금지)과 창 내 목표(durationMinutes 필수,
      * 0 < x ≤ 창 길이 분). 누락·형식 오류는 {@link #parseWindowTimeParam} 이 먼저 거른다.
      *
-     * <p>창은 매일 반복 시간대다. 저장 Instant 는 Asia/Seoul 벽시계 시각(time-of-day)만 의미를 갖고
-     * (응답 변환 {@link #toLocalTimeString} 과 동일 기준), 날짜별 실제 창은 KST 날짜에 그 시각을 얹어
-     * 조합한다({@link WindowFocusAggregator}). 그래서 비교도 Instant 가 아니라 시각으로 한다 —
+     * <p>창은 요일마다 반복되는 시간대다. 저장값은 Asia/Seoul 벽시계 시각({@code time}, V32)이고
+     * 날짜별 실제 창은 KST 날짜에 그 시각을 얹어 조합한다({@link WindowFocusAggregator}).
      * 시작 > 종료는 자정 걸침 창(D 시작 ~ D+1 종료)으로 허용한다.
      */
-    private void validateTimeWindowParams(Instant windowStartAt, Instant windowEndAt, Integer goal) {
-        LocalTime start = timeOfDay(windowStartAt);
-        LocalTime end = timeOfDay(windowEndAt);
+    private void validateTimeWindowParams(LocalTime start, LocalTime end, Integer goal) {
         // 같은 시각은 0길이인지 24시간인지 모호해 거부한다.
         if (start.equals(end)) {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
@@ -590,15 +616,12 @@ public class GroupChallengeService {
      * 맞닿음(끝==시작)은 겹침이 아니다(종전 겹침 검사와 동일).
      */
     private void rejectCrossCategoryWindowOverlap(Group group, MissionCategory category,
-            Instant windowStartAt, Instant windowEndAt) {
-        LocalTime start = timeOfDay(windowStartAt);
-        LocalTime end = timeOfDay(windowEndAt);
+            LocalTime start, LocalTime end) {
         for (GroupChallengeWindow existing : groupChallengeWindowRepository.findActiveByGroupForUpdate(group)) {
             if (existing.getChallenge().getCategory() == category) {
                 continue;
             }
-            if (dailyWindowsOverlap(start, end,
-                    timeOfDay(existing.getWindowStartAt()), timeOfDay(existing.getWindowEndAt()))) {
+            if (dailyWindowsOverlap(start, end, existing.getWindowStart(), existing.getWindowEnd())) {
                 throw new GroupException(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
             }
         }
@@ -633,6 +656,47 @@ public class GroupChallengeService {
         int e = end.toSecondOfDay();
         int seconds = s < e ? e - s : SECONDS_PER_DAY - s + e;
         return seconds / 60;
+    }
+
+    /**
+     * 챌린지 종료 (GROMO-1261, 정책 §A8) — 그룹장 전용. 카드에서 내려가고 판정·알림·회차가 멈추지만
+     * 이력은 남는다.
+     *
+     * <p><b>진행 중인 회차가 있으면 종료할 수 없다.</b> 남의 돈이 걸린 내기를 그룹장이 "조용히 마감"하는
+     * 경로를 주지 않는다 — 정말 접어야 하면 삭제를 쓰고 그때는 참가비가 전원에게 돌아간다. 그래서
+     * 삭제와 종료가 같은 가드를 공유하는 지금 상태는 과도기다(삭제 쪽 무효화+환불은 GROMO-1262 몫).
+     *
+     * <p>챌린지 행을 잠근 채 검사하는 이유는 삭제 경로와 같다 — 락이 없으면 "OPEN 내기 없음"을 본
+     * 직후 개설이 끼어들어 진행 중인 회차가 종료된 챌린지에 매달린다.
+     *
+     * <p>이미 종료된 챌린지는 <b>멱등</b>하게 성공한다(재시도·중복 탭이 409 를 맞지 않는다).
+     */
+    @Transactional
+    public void endChallenge(UUID groupId, UUID challengeId, UUID userId) {
+        User user = requireActiveUser(userId);
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        GroupMember groupMember = groupMemberRepository.findByUserAndGroup(user, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        if (groupMember.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOT_OWNER);
+        }
+
+        GroupChallenge groupChallenge = groupChallengeRepository
+                .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+
+        if (groupChallenge.isEnded()) {
+            return;
+        }
+        if (groupChallengeBetRepository.existsByChallengeIdAndStatus(challengeId, GroupBetStatus.OPEN)) {
+            throw new GroupException(GroupErrorCode.CHALLENGE_END_BLOCKED);
+        }
+
+        groupChallenge.end();
+        log.info("챌린지 종료 — groupId={}, challengeId={}, ownerId={}", groupId, challengeId, userId);
     }
 
     @Transactional
@@ -699,15 +763,10 @@ public class GroupChallengeService {
                 challengeId, userId, request.getDate(), request.getUsedMinutes(), request.getMeasuredAt());
     }
 
-    // TIME_WINDOW 상세의 Instant를 Asia/Seoul 벽시계 기준 "HH:mm:ss" 문자열로 변환 (GROMO-1100 KST 해석 통일).
+    // TIME_WINDOW 상세의 KST 벽시계 시각을 "HH:mm:ss" 문자열로 변환.
     // 그룹 상세·오버뷰(GroupService, GROMO-1206)와 같은 단일 출구(timeOfDayString)를 쓴다.
-    private String toLocalTimeString(Instant instant) {
-        return WindowFocusAggregator.timeOfDayString(instant);
-    }
-
-    // 창 시각 추출은 WindowFocusAggregator.timeOfDay 단일 기준을 공유한다(검증·겹침·집계·응답 변환 동일).
-    private static LocalTime timeOfDay(Instant instant) {
-        return WindowFocusAggregator.timeOfDay(instant);
+    private String toLocalTimeString(LocalTime time) {
+        return WindowFocusAggregator.timeOfDayString(time);
     }
 
     /**

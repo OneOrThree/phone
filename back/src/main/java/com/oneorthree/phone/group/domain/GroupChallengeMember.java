@@ -26,8 +26,8 @@ import java.util.UUID;
  * 그룹 챌린지 멤버별 클라 보고 원본값 — 스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 저장(V20 재활용).
  *
  * <p>판정(달성 여부)은 조회 시 계산한다 — 이 테이블은 클라가 보고한 원본값({@code progressMinutes})과
- * 보고 날짜({@code usageDate})만 담는다. {@code is_achieved}/{@code achieved_at} 은 쓰지 않는다
- * (GROMO-561 시절 스키마 잔재 — 값을 갱신하는 코드가 없다).
+ * 보고 날짜({@code usageDate})만 담는다. GROMO-561 시절 잔재였던 {@code is_achieved}·
+ * {@code achieved_at}·{@code deleted_at} 은 V32 에서 컬럼째 제거됐다(갱신하는 코드가 없었다).
  */
 @Entity
 @Table(
@@ -57,18 +57,10 @@ public class GroupChallengeMember {
     @Builder.Default
     private int progressMinutes = 0;
 
-    // 보고 날짜(KST 로컬, V20). 창 사용분 보고 경로는 항상 채운다 — NULL 은 레거시 행뿐.
-    @Column(name = "usage_date")
+    // 보고 날짜(KST 로컬, V20). NOT NULL (V32) — nullable 이면 UNIQUE (챌린지, 유저, 날짜) 가
+    // NULL 끼리 안 걸려 같은 (챌린지, 유저)로 행이 무한히 쌓인다. 레거시 NULL 행은 V32 가 삭제했다.
+    @Column(name = "usage_date", nullable = false)
     private LocalDate usageDate;
-
-    // 미사용 — 판정은 조회 시 계산이라 이 플래그를 갱신하지 않는다(스키마 잔재).
-    @Column(name = "is_achieved", nullable = false)
-    @Builder.Default
-    private boolean isAchieved = false;
-
-    // 미사용 — is_achieved 와 동일한 잔재.
-    @Column(name = "achieved_at")
-    private Instant achievedAt;
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
@@ -76,7 +68,4 @@ public class GroupChallengeMember {
 
     @UpdateTimestamp
     private Instant updatedAt;
-
-    // 소프트 딜리트 (삭제 시각)
-    private Instant deletedAt;
 }

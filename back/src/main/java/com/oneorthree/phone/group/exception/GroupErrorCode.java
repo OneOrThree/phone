@@ -62,6 +62,11 @@ public enum GroupErrorCode {
     CHALLENGE_DUPLICATE(HttpStatus.CONFLICT, "이미 같은 종류의 챌린지가 진행 중이에요"),
     // 포커스 창형과 스크린타임 창형의 시간대 교차 금지 — 같은 시간대 행동 하나로 내기 2개 중복 보상 차단.
     CHALLENGE_WINDOW_OVERLAP(HttpStatus.CONFLICT, "겹치는 시간대의 챌린지가 이미 있어요"),
+    // 요일 미선택(GROMO-1260) — 기본값을 두지 않는다. 형식 오류(알 수 없는 요일)는 INVALID_MISSION_PARAMS 다.
+    CHALLENGE_REPEAT_DAYS_REQUIRED(HttpStatus.BAD_REQUEST, "반복할 요일을 하나 이상 선택해 주세요"),
+    // 종료 차단(GROMO-1261) — 진행 중인 내기가 걸린 챌린지는 종료할 수 없다(정책 §A8).
+    // 삭제 차단(CHALLENGE_HAS_OPEN_BET)과 코드를 나눈 이유: 앱이 두 버튼에 다른 문구를 띄운다.
+    CHALLENGE_END_BLOCKED(HttpStatus.CONFLICT, "진행 중인 내기가 끝나야 종료할 수 있어요"),
 
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).
     // 트랜잭션 전체가 롤백된 일시 충돌이라 클라이언트가 재시도하면 풀린다. 구앱은 이 코드를 모르므로

@@ -99,9 +99,11 @@ public class ScreenTimeService {
         LocalDate today = Instant.now().atZone(zone).toLocalDate();
         boolean finalReport = Boolean.TRUE.equals(request.getIsFinal()) || date.isBefore(today);
 
-        // 4. 총 스크린타임(측정 데이터 누락 null → 0) + 클라 달성 결과.
-        int actualMinutes = request.getActualScreenTimeMinutes() != null
-                ? request.getActualScreenTimeMinutes() : 0;
+        // 4. 총 스크린타임 + 클라 달성 결과.
+        //    측정 데이터 누락(null)은 **null 그대로 저장**한다(GROMO-1267, 정책 §B7) — 0 으로 접으면
+        //    실제 "0분 사용"과 구분되지 않고, 스크린타임은 적을수록 좋은 축이라 미보고가 달성으로
+        //    뒤집힌다. 읽는 쪽(카드 진행률·내기 판정)이 null 을 미집계로 다룬다.
+        Integer actualMinutes = request.getActualScreenTimeMinutes();
         boolean clientAchieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
 
         // 5. daily_screen_time_stats upsert (user, date) — 멱등.
@@ -199,11 +201,13 @@ public class ScreenTimeService {
      * 트랜잭션에서만 {@code afterCommit} 으로 발사해 정확히 1회를 보장한다(진 트랜잭션은 롤백 → 미발사, 재시도는
      * wasAchieved=true 라 이 분기에 진입하지 않음). 트랜잭션 동기화가 비활성(단위 테스트 등)이면 즉시 발사한다.
      */
-    private void emitGoalAchievedAfterCommit(UUID userId, LocalDate date, int actualMinutes) {
+    private void emitGoalAchievedAfterCommit(UUID userId, LocalDate date, Integer actualMinutes) {
         Runnable emit = () -> {
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
-                    "actual_screen_time_minutes", actualMinutes));
+                    // 미집계(null)도 들어올 수 있고(GROMO-1267) Map.of 는 null 값을 거부한다 —
+                    // 이벤트 로그는 사람이 읽는 페이로드라 문자열("null")로 접는다.
+                    "actual_screen_time_minutes", String.valueOf(actualMinutes)));
             notificationPort.notify(userId, true);
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

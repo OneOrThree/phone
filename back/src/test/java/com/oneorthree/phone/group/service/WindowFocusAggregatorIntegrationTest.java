@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -67,8 +68,8 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
                 .status(GroupChallengeStatus.ACTIVE).build());
         return groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.parse("2026-01-01T" + startTime + "+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T" + endTime + "+09:00"))
+                .windowStart(LocalTime.parse(startTime))
+                .windowEnd(LocalTime.parse(endTime))
                 .durationMinutes(goalMinutes)
                 .build());
     }

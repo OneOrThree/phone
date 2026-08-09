@@ -132,8 +132,8 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         // 창 Instant 는 KST 벽시계 시각(time-of-day)만 의미를 갖고(GROMO-1100), 날짜 D 의 실제 창은 D(KST)에 얹는다.
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
+                .windowStart(start)
+                .windowEnd(end)
                 .durationMinutes(60)
                 .build());
         return challenge;
@@ -306,8 +306,8 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 .build());
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(focusWindow)
-                .windowStartAt(LocalDate.EPOCH.atTime(LocalTime.of(10, 0)).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(LocalTime.of(12, 0)).atZone(KST).toInstant())
+                .windowStart(LocalTime.of(10, 0))
+                .windowEnd(LocalTime.of(12, 0))
                 .durationMinutes(60)
                 .build());
 

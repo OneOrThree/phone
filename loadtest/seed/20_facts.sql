@@ -98,25 +98,33 @@ CROSS JOIN LATERAL (SELECT random() AS r) t
 ON CONFLICT DO NOTHING;
 
 -- 챌린지 (그룹×4 = 20만) — V5: 파라미터는 CTI 상세 테이블 소유
-INSERT INTO group_challenges (id, group_id, type, category, status, created_at)
+-- V32: repeat_days(요일 비트마스크, NOT NULL·1~127)와 started_at(NOT NULL) 추가 — 기본값이 없어
+--   시드가 직접 채운다. 127=매일 · 31=평일 로 섞어 요일 필터가 실제로 걸리는 데이터를 만든다.
+INSERT INTO group_challenges (id, group_id, type, category, status, repeat_days, started_at, created_at)
 SELECT md5('gch-'||g.n||'-'||i)::uuid, g.id,
        CASE WHEN (g.n + i) % 2 = 0 THEN 'DURATION' ELSE 'TIME_WINDOW' END,
        CASE WHEN (g.n + i) % 3 = 0 THEN 'SCREEN_TIME' ELSE 'FOCUS' END,
        CASE WHEN i = 4 AND g.status = 'ACTIVE' THEN 'ACTIVE' ELSE 'INACTIVE' END,
+       CASE WHEN (g.n + i) % 4 = 0 THEN 31 ELSE 127 END,
+       timestamptz '2026-07-01' - random() * interval '90 days',
        timestamptz '2026-07-01' - random() * interval '90 days'
 FROM seed_groups g CROSS JOIN generate_series(1, 4) i;
 
 INSERT INTO group_challenge_durations (challenge_id, duration_minutes)
 SELECT id, 30 + ((random()*6)::int)*15 FROM group_challenges WHERE type = 'DURATION';
 
-INSERT INTO group_challenge_windows (challenge_id, window_start_at, window_end_at)
-SELECT id, created_at + interval '7 hours', created_at + interval '11 hours'
+-- V32: 창 시각은 KST 벽시계 time 이다(timestamptz + interval 이 아니다).
+INSERT INTO group_challenge_windows (challenge_id, window_start, window_end)
+SELECT id, time '07:00', time '11:00'
 FROM group_challenges WHERE type = 'TIME_WINDOW';
 
 -- 챌린지 멤버 (챌린지×10 = 200만) — 그룹 멤버 공식의 부분집합이라 FK·유저 정합 보장
-INSERT INTO group_challenge_members (id, group_challenge_id, user_id, is_achieved, progress_minutes, created_at)
+-- V32: is_achieved 잔재 컬럼 제거 + usage_date NOT NULL. usage_date 는 (챌린지, 유저, 날짜) 유니크의
+--   축이라 ON CONFLICT DO NOTHING 이 실제로 그 유니크를 타게 하려면 반드시 채워야 한다.
+INSERT INTO group_challenge_members (id, group_challenge_id, user_id, usage_date, progress_minutes, created_at)
 SELECT md5('gcm-'||g.n||'-'||ci||'-'||i)::uuid, md5('gch-'||g.n||'-'||ci)::uuid, su.id,
-       random() < 0.5, (random()*120)::int,
+       date '2026-07-01' - (i % 7),
+       (random()*120)::int,
        timestamptz '2026-07-01' - random() * interval '60 days'
 FROM seed_groups g
 CROSS JOIN generate_series(1, 4) ci
