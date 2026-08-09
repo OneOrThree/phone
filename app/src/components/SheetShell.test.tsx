@@ -247,18 +247,21 @@ describe('시트 안 CTA — useSheetClose()', () => {
 });
 
 describe("'동작 줄이기'", () => {
-  test('애니메이션 스타일이 아예 붙지 않는다', async () => {
+  // ⚠️ 잠그는 건 "**애니메이션**이 없다"이지 "스타일이 없다"가 아니다(codex 리뷰).
+  //    손가락을 따라오는 transform은 시간 기반 애니메이션이 아니라 **직접 조작**이라,
+  //    떼면 패널이 꿈쩍도 않다가 임계를 넘는 순간 갑자기 사라진다. 딤도 드래그 진행률에
+  //    연동돼 있어 떼면 끌어도 배경이 그대로다.
+  test('직접 조작 스타일은 유지되고 등장은 즉시 최종 상태다', async () => {
     mockReduce.on = true;
     await renderShell();
     await reportPanelHeight(400);
-    // 패널에 transform이 없다 = 등장/드래그/퇴장 애니메이션 스타일이 빠졌다.
-    expect(panelStyle().transform).toBeUndefined();
-    // 딤도 마찬가지 — 불투명도 애니메이션 없이 스타일시트의 색만 남는다.
+    // transform은 붙어 있다 — 다만 등장 애니메이션 없이 이미 제자리(0)다.
+    expect(panelStyle().transform).toBeDefined();
     const dimStyle = Object.assign(
       {},
       ...[screen.getByTestId('sheetShell.dim').props.style].flat(Infinity).filter(Boolean),
     );
-    expect(dimStyle.opacity).toBeUndefined();
+    expect(dimStyle.opacity).toBeDefined();
   });
 
   test('닫기는 기다리지 않고 즉시 onClose를 부른다', async () => {

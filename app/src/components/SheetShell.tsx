@@ -252,6 +252,13 @@ export function SheetShell({
         const next = dragStartYRef.current + g.dy;
         if (next > 0) translateY.value = next;
       },
+      // ⚠️ 시스템 제스처 등이 터치를 가져가면 release가 아니라 이쪽이 불린다. 이게 없으면
+      //    등장 스프링을 grant에서 멈춰 둔 채 아무도 되돌리지 않아, 사용자가 끌지도 않았는데
+      //    시트가 등장 중간 위치에 영구히 멈춘다(codex 리뷰).
+      onPanResponderTerminate: () => {
+        if (closingRef.current) return;
+        translateY.value = reduceRef.current ? 0 : withSpring(0, SHEET_SETTLE);
+      },
       onPanResponderRelease: (_, g) => {
         // ⚠️ 이미 퇴장 중이면 아무것도 하지 않는다. 안드로이드에서 그랩바를 잡은 채 하드웨어
         //    뒤로가기로 닫기가 시작된 뒤 임계 미만에서 손을 놓으면, 아래 복귀 스프링이 진행 중인
@@ -326,7 +333,9 @@ export function SheetShell({
     <SheetCloseContext.Provider value={close}>
       <View style={StyleSheet.absoluteFill}>
         <AnimatedPressable
-          style={[s.dim, m.css(dimAnimStyle)]}
+          // ⚠️ 딤도 reduce에서 뗄 수 없다 — 드래그 진행률에 연동돼 있어서, 떼면 끌어도
+          //    배경이 그대로다. 등장·퇴장 성분은 위에서 즉시 대입되므로 애니메이션은 없다.
+          style={[s.dim, dimAnimStyle]}
           onPress={close}
           testID="sheetShell.dim"
         />
@@ -338,7 +347,12 @@ export function SheetShell({
               maxHeight: panelMaxHeight,
               paddingBottom: keyboardHeight > 0 ? T.space.lg : insets.bottom + 20,
             },
-            m.css(panelAnimStyle),
+            // ⚠️ **reduce여도 이 transform은 뗀 적이 없다.** 손가락을 따라오는 건 시간 기반
+            //    애니메이션이 아니라 직접 조작이다. m.css()로 떨어뜨리면 패널이 꿈쩍도 않다가
+            //    임계를 넘는 순간 갑자기 사라져, 사용자는 자기가 뭘 했는지 알 수 없게 된다
+            //    (codex 리뷰). 끄는 건 등장·복귀·퇴장 **애니메이션**뿐이고, 그건 위
+            //    reduceRef 분기가 이미 담당한다.
+            panelAnimStyle,
           ]}
           onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}
           // 퇴장이 시작되면 자식 입력을 막는다 — 위 closing 상태 주석 참고.
