@@ -78,7 +78,9 @@ const NOTICE_PREVIEW = 3;
 // StyleSheet의 실제 규격에서 계산한 것이라, 규격을 바꾸면 이 상수도 같이 고쳐야 한다.
 // 섹션 라벨 한 줄(T.text.label 15pt)
 const SK_LABEL_H = 18;
-// 공지/챌린지 카드 한 장: paddingVertical 12×2 + border 1×2 + 제목 18 + gap 2 + 날짜 16
+// 공지 미리보기 카드 한 장: paddingVertical 12×2 + border 1×2 + 제목 18 + gap 2 + 날짜 16.
+// 제목이 numberOfLines={1}이라 **한 장의 높이는 상수로 확정**된다(장수 1~3만 모른다).
+// ⚠️ 이 값을 챌린지 자리에 재사용하지 않는다 — 아래 로딩 분기 주석 참고.
 const SK_CARD_H = 62;
 // 멤버 타일 한 칸: paddingVertical 12×2 + border 1×2 + 아바타 44 + gap 4×3 + 텍스트 3줄(16×3)
 const SK_TILE_H = 130;
@@ -714,7 +716,7 @@ export default function GroupRoomScreen({
   // 헤더는 진짜 헤더를 그대로 세우고(위 headerRow — 백버튼·설정 진입이 접근성 트리에 살아 있어야
   // 한다), 공지 · 챌린지 · 멤버 그리드가 들어올 자리만 도착할 화면과 같은 여백·높이로 잡는다.
   // 데이터가 오면 이 분기가 통째로 사라져 펄스(무한 루프)도 함께 언마운트된다.
-  // 블록이 9개라 SkeletonGroup 한 겹에만 펄스를 건다 — 블록마다 돌리면 무한 루프가 9개가 되어
+  // 블록이 8개라 SkeletonGroup 한 겹에만 펄스를 건다 — 블록마다 돌리면 무한 루프가 8개가 되어
   // "화면당 1개" 상한을 구조적으로 위반한다(codex 리뷰).
   if (loading && !detail) {
     return (
@@ -726,10 +728,17 @@ export default function GroupRoomScreen({
               <Skeleton w={44} h={SK_LABEL_H} radius={6} />
             </View>
             <Skeleton w="100%" h={SK_CARD_H} radius={14} />
+            {/* 챌린지는 **자리표시자를 두지 않는다** — 라벨만 세운다(codex 리뷰).
+                ChallengeCard 한 장의 높이가 상수로 결정되지 않는다: 헤더 아래에 구분선 +
+                **참가자 수만큼의 진행 행**이 붙고, 내기 영역·측정 한계 문구는 있을 때만 붙는다.
+                게다가 로딩 중에는 챌린지가 몇 개인지도, 각 챌린지의 참가자가 몇 명인지도 알 수 없다
+                (그룹 인원 ≠ 챌린지 참가자). 공지 카드 높이(62)를 여기 재사용하면 데이터가 도착하는
+                순간 아래 멤버 섹션이 수십~수백 pt 밀려, 스켈레톤을 넣은 목적 자체를 거스른다.
+                추정 대신 비워 두면 어긋남은 '아래로 늘어나는' 방향뿐이라 이미 읽은 요소가
+                위로 튀어 오르지 않는다. */}
             <View style={s.sectionHead}>
               <Skeleton w={60} h={SK_LABEL_H} radius={6} />
             </View>
-            <Skeleton w="100%" h={SK_CARD_H} radius={14} />
             <View style={s.sectionHead}>
               <Skeleton w={44} h={SK_LABEL_H} radius={6} />
             </View>

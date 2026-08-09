@@ -162,6 +162,32 @@ describe('콜백', () => {
     expect(screen.getByTestId('cell2').props.onLayout).toBe(onLayout);
   });
 
+  // 진입 시차는 인덱스별로 캐싱된 스타일 객체이고 Reanimated CSS는 참조 동등성으로 재시작을
+  // 판단한다 — 재조회로 목록 순서가 바뀔 때 살아남은 카드가 이유 없이 다시 떠오르지 않도록
+  // 셀은 마운트 시점 인덱스를 붙들어야 한다.
+  // (reanimated가 CSS 프로퍼티를 style에서 걷어내므로 단언은 jestInlineStyle로 한다.)
+  test('셀 진입 시차는 마운트 시점 자리에 고정된다(목록 순서가 바뀌어도 재생 없음)', async () => {
+    await renderList([group()]);
+    const Cell = screen.getByTestId('group.list.items').props.CellRendererComponent;
+
+    const { rerender } = await render(
+      <Cell index={0} testID="cell">
+        <View />
+      </Cell>,
+    );
+    const delayOf = () => screen.getByTestId('cell').props.jestInlineStyle?.[1]?.animationDelay;
+    const mounted = delayOf();
+    expect(mounted).toBe('0ms');
+
+    await rerender(
+      <Cell index={3} testID="cell">
+        <View />
+      </Cell>,
+    );
+
+    expect(delayOf()).toBe(mounted);
+  });
+
   test('당겨서 새로고침 — 조회가 끝날 때까지만 인디케이터를 세운다', async () => {
     // 조회가 끝나는 시점을 테스트가 쥔다 — 인디케이터가 '도는 동안'과 '끝난 뒤'를 나눠 본다.
     let finish!: () => void;

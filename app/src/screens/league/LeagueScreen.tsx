@@ -9,18 +9,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T, withAlpha } from '@/constants/theme';
-import { enterUp } from '@/constants/motion';
-import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
-import { rankSwap } from './rankSwap';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
@@ -32,6 +28,7 @@ import { MY_USER_ID, type RankedMember } from './mock';
 import { hms, fmtMinutes } from './format';
 import type { FriendResponse } from '@/types/api';
 import { RankRow } from './components/RankRow';
+import { RankRowShell } from './components/RankRowShell';
 import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
@@ -70,8 +67,6 @@ const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' }
 export default function LeagueScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  // '동작 줄이기' 단일 게이트 — 진입 시차·재정렬 트랜지션을 한 곳에서 끈다.
-  const m = useMotion();
 
   const [tab, setTab] = useState<TabKey>('league');
   // 현재 선택한 리그 — null이면 기본(내 시험). 제목 드롭다운에서 전체/다른 시험으로 전환
@@ -224,7 +219,7 @@ export default function LeagueScreen() {
     // 여기 있던 LayoutAnimation.configureNext는 걷어냈다 (GROMO-1381 / 컨트랙트 §7).
     // LayoutAnimation은 JS 스레드·전역 스코프라 이 화면의 형제 뷰(포디움·스트립)까지 함께
     // 끌고 가고, 아래 랭킹 행이 쓰는 Reanimated 레이아웃 트랜지션과 같은 트리에서 충돌한다.
-    // 목록 재배치 연출은 행별 layout={rankSwap}이 대신 맡는다.
+    // 목록 재배치 연출은 행 껍데기(RankRowShell)의 layout 트랜지션이 대신 맡는다.
     setLeagueFilter(league);
     setLeagueMenuOpen(false);
     listRef.current?.scrollTo({ y: 0, animated: false });
@@ -520,19 +515,17 @@ export default function LeagueScreen() {
           </View>
 
           {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ──
-               행 컨테이너는 Animated.View다(래퍼를 새로 끼우지 않고 기존 뷰를 바꿨다).
-               · style   = 진입 시차(enterUp) — 마운트 1회.
-               · layout  = 순위가 바뀌어 행이 자리를 옮길 때의 스왑 궤적(./rankSwap).
-               key가 userId라 데이터 순서만 바뀌면 노드는 그대로 살아 자리를 옮긴다 —
+               행 껍데기(RankRowShell)가 곧 원래의 행 컨테이너다 — 진입 시차와 재정렬 궤적을
+               쥔다. key가 userId라 데이터 순서만 바뀌면 노드는 그대로 살아 자리를 옮긴다 —
                재정렬 연출이 성립하는 전제다(인덱스 키였다면 성립하지 않는다).
+               ⚠️ 껍데기가 진입 시차를 **마운트 시점 인덱스**로 고정하는 이유는 그 파일 주석 참고.
                순위 숫자는 자리에 붙는 값이라 visibleRanking 순서에서 매번 다시 매긴다. */}
           {listRows.map((row, i) => {
             const isMe = row.userId === MY_USER_ID;
             return (
-              <Animated.View
+              <RankRowShell
                 key={row.userId}
-                layout={m.css(rankSwap)}
-                style={m.css(enterUp(i))}
+                index={i}
                 onLayout={
                   isMe && !pinnedOnly
                     ? (e) => {
@@ -568,7 +561,7 @@ export default function LeagueScreen() {
                   onPress={() => openProfile(row)}
                   onPin={isMe ? undefined : () => togglePin(row.userId)}
                 />
-              </Animated.View>
+              </RankRowShell>
             );
           })}
           {/* 조회 실패 + 보여줄 목록 없음 — "아무도 없는 리그" 빈 상태로 오인되지 않게 에러+재시도로

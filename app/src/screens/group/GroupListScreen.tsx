@@ -70,6 +70,35 @@ interface CellProps {
   onFocusCapture?: unknown;
 }
 
+// 카드 진입 시차 — FlatList가 셀마다 두르는 래퍼 View를 Animated.View로 갈아끼운다.
+// 트리에 뷰를 **새로 끼우지 않으므로** testID 셀렉터(E2E) 계약이 그대로다.
+// 모듈 스코프 컴포넌트라 렌더마다 타입이 바뀌지 않는다 — 매 렌더 새 컴포넌트를 만들면 셀이
+// 통째로 리마운트되어 진입 애니메이션이 계속 다시 재생된다.
+//
+// ⚠️ 진입 시차 인덱스는 **마운트 시점 값으로 고정한다.** enterUp은 인덱스별 캐시라 참조가
+//    갈리고, Reanimated CSS는 참조 동등성으로 애니메이션 재시작을 판단한다. 목록은 재조회로
+//    갱신되고(생성·참여·나가기 뒤 서버 순서가 바뀔 수 있다) 셀은 groupId 키로 살아남으므로,
+//    인덱스를 그대로 넘기면 순서가 밀린 카드들이 이유 없이 다시 떠오른다(claude 리뷰 —
+//    리그 랭킹 행과 같은 결함이고, 여기 고치는 비용은 두 줄이다).
+// ⚠️ 얼리는 것은 enterUp의 **인자**다. m.css()는 매 렌더 통과시켜야 '동작 줄이기'가 반영된다.
+// index·children과, 호스트 뷰가 모르는 값(item·cellKey)만 꺼내고 나머지는 통째로 전달한다.
+function GroupListCell({
+  index,
+  children,
+  item: _item,
+  cellKey: _cellKey,
+  style,
+  ...rest
+}: CellProps) {
+  const m = useMotion();
+  const enterIndex = useRef(index).current;
+  return (
+    <Animated.View {...rest} style={[style, m.css(enterUp(enterIndex))]}>
+      {children}
+    </Animated.View>
+  );
+}
+
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   onSelect: (groupId: string) => void;
@@ -88,7 +117,6 @@ export default function GroupListScreen({
   onBack,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
-  const m = useMotion();
   const [refreshing, setRefreshing] = useState(false);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
@@ -109,21 +137,6 @@ export default function GroupListScreen({
       if (mountedRef.current) setRefreshing(false);
     }
   }, [onRefresh]);
-
-  // 카드 진입 시차 — FlatList가 셀마다 두르는 래퍼 View를 Animated.View로 갈아끼운다.
-  // 트리에 뷰를 **새로 끼우지 않으므로** testID 셀렉터(E2E) 계약이 그대로다.
-  // useCallback으로 참조를 고정하지 않으면 렌더마다 새 컴포넌트 타입이 되어 셀이 통째로
-  // 리마운트되고 진입 애니메이션이 계속 다시 재생된다.
-  const CellRenderer = useCallback(
-    // index·children·item만 꺼내고 나머지(style·onLayout·onFocusCapture…)는 그대로 넘긴다.
-    // item·cellKey는 호스트 뷰가 모르는 값이라 여기서 걸러 낸다(DOM에 흘리지 않는 것과 같은 이유).
-    ({ index, children, item: _item, cellKey: _cellKey, style, ...rest }: CellProps) => (
-      <Animated.View {...rest} style={[style, m.css(enterUp(index))]}>
-        {children}
-      </Animated.View>
-    ),
-    [m],
-  );
 
   return (
     <View style={s.root} testID="group.list">
@@ -148,7 +161,7 @@ export default function GroupListScreen({
         data={groups}
         keyExtractor={(item) => item.groupId}
         contentContainerStyle={s.listContent}
-        CellRendererComponent={CellRenderer}
+        CellRendererComponent={GroupListCell}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
