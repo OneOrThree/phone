@@ -18,7 +18,7 @@ import { AccessibilityInfo, Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
-import { logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeResponse } from '@/types/dto/group';
 
@@ -36,6 +36,7 @@ jest.mock('@/services/groupApi', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeCreated: jest.fn(),
+  logGroupBetEnabled: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
 }));
 
@@ -277,6 +278,25 @@ describe('전송값', () => {
     await pickDay('월');
     await press('만들기');
     expect(logGroupChallengeCreated).not.toHaveBeenCalled();
+  });
+
+  test('내기를 켠 생성은 group_bet_enabled를 함께 발행한다 — 지표의 유일한 소스 (PR #565 codex)', async () => {
+    await renderSheet();
+    await pickDay('월');
+    await typeStake('300');
+    await press('만들기');
+    expect(logGroupBetEnabled).toHaveBeenCalledWith({
+      stake: 300,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
+
+    // 참가비 없이 만들면 발행하지 않는다 — 내기 없는 생성은 켜짐 비율 분자가 아니다.
+    jest.clearAllMocks();
+    await renderSheet();
+    await pickDay('월');
+    await press('만들기');
+    expect(logGroupBetEnabled).not.toHaveBeenCalled();
   });
 });
 
@@ -605,6 +625,8 @@ describe('목표 시간 직접 입력', () => {
 
     const input = await screen.findByTestId('group.challenge.durationInput');
     expect(input.props.value).toBe('');
+    // 왜 막혔는지 화면에 남아야 한다(codex 리뷰) — 빈 값+잠긴 CTA만으로는 알 수 없다.
+    expect(screen.getByText('시간대가 최소 15분은 되어야 해요. 시간대를 늘려 주세요')).toBeTruthy();
   });
 });
 

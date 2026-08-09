@@ -21,7 +21,7 @@ import {
   createChallenge,
   groupErrorCode,
 } from '@/services/groupApi';
-import { logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type {
@@ -209,6 +209,11 @@ function createErrorMessage(e: unknown): string {
         '요일이 겹치는 다른 시간대 챌린지와 시간이 겹치거나 간격이 15분보다 좁아요. ' +
         '겹치지 않는 요일을 고르거나 시간대를 15분 이상 띄워 주세요.'
       );
+    // 시트를 연 뒤 다른 기기에서 그룹장이 위임되면 화면 권한 정보가 낡는다 — 서버는
+    // NOT_OWNER(403)로 거부하는데 이건 재시도로 풀리지 않는 영구 실패라 "잠시 후 다시"로
+    // 안내하면 거짓말이다(codex 리뷰, PR #565).
+    case 'NOT_OWNER':
+      return '그룹장만 챌린지를 만들 수 있어요. 그룹장이 바뀌었는지 확인해 주세요.';
     // 아래 4종은 클라가 선제 검증하므로 보통 오지 않는다 — 레이스·구클라 대비 전용 문구만 유지.
     case 'CHALLENGE_REPEAT_DAYS_REQUIRED':
       return '도는 요일을 하나 이상 골라 주세요.';
@@ -353,9 +358,18 @@ export default function ChallengeComposeSheet({
   //  · 하루형: 1 ≤ x ≤ 카테고리 상한(FOCUS 1,080 / SCREEN_TIME 720 — N51)
   //  · 창형: 0 < x ≤ 창 길이, SCREEN_TIME은 15분 배수(A6-3), FOCUS는 목표 > 5분(A6-4)
   // 빈 값은 치우는 중일 뿐이라 빨간 줄을 띄우지 않는다(CTA만 잠근다).
+  // 15분 미만 SCREEN_TIME 창엔 유효한 목표(15분 배수)가 아예 없다 — commitWindow가 목표를
+  // 비워두는데(빈 값 = 캡션 없이 CTA 잠금) 그러면 화면에 "왜 안 되는지"가 안 남는다. 목표
+  // 검증이 아니라 창 자체의 문제라 창 축에서 안내한다(codex 리뷰, PR #565).
+  const windowTooShortForStep =
+    isWindow && windowValid && missionCategory === 'SCREEN_TIME' && windowLength < SCREEN_TIME_STEP;
   let durationValid = false;
   let durationCaption: string | null = null;
-  if (durationMinutes !== null) {
+  if (windowTooShortForStep) {
+    // 값 입력 여부와 무관하게 이 안내가 이긴다 — "최대 10분" 같은 달성 불가능한 안내로 덮이면
+    // 사용자는 10을 넣고 또 막힌다.
+    durationCaption = `시간대가 최소 ${SCREEN_TIME_STEP}분은 되어야 해요. 시간대를 늘려 주세요`;
+  } else if (durationMinutes !== null) {
     if (!isWindow) {
       durationValid = durationMinutes >= 1 && durationMinutes <= DURATION_MAX[missionCategory];
       if (!durationValid) durationCaption = durationRangeCaption(missionCategory);
@@ -494,6 +508,14 @@ export default function ChallengeComposeSheet({
         duration_minutes: durationMinutes,
         has_window: isWindow,
       });
+      // 내기를 켠 생성이면 별도 이벤트 — 내기 켜짐 비율(PRD §5)의 유일한 측정 소스다(N26).
+      if (stake !== null) {
+        logGroupBetEnabled({
+          stake,
+          mission_type: missionType,
+          mission_category: missionCategory,
+        });
+      }
       // 안내는 시트가 닫힌 뒤에도 남는 Alert로 띄운다 — 시트 안 문구로 두면 곧 사라진다.
       if (nonParticipants.length > 0) {
         Alert.alert('챌린지를 만들었어요', NON_PARTICIPANT_MESSAGE);
