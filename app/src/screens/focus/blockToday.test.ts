@@ -56,7 +56,9 @@ it('일시정지가 자정을 걸치면 자정 이후 집중분만 오늘 몫', 
 
   expect(blockTodaySeconds(s)).toBe(300);
   // 업로드 페이로드(focusSecondsByDate)로 그대로 나가는 값 — 서버가 이 분포로 귀속한다.
-  expect(s).toEqual({ '2026-08-07': 300, '2026-08-08': 300 });
+  expect(s.kst).toEqual({ '2026-08-07': 300, '2026-08-08': 300 });
+  // 러너 TZ가 KST 고정이라 두 축이 같은 날짜로 떨어진다(축 분리 검증은 아래 '②' 테스트).
+  expect(s.local).toEqual(s.kst);
 });
 
 it('라이브 값은 자정이 지나면 오늘 몫만 남는다', () => {
@@ -76,7 +78,9 @@ it('④ 자정 정각 경계는 서버 벽시계 분할과 같은 날짜로 귀�
     ['2026-08-08T00:00:00', '2026-08-08T00:10:00', 600], // 정확히 자정에 시작한다
   ];
   for (const [startISO, endISO, seconds] of cases) {
-    expect(runTicks(newBlockToday(), startISO, seconds)).toEqual(wallClockSplit(startISO, endISO));
+    expect(runTicks(newBlockToday(), startISO, seconds).local).toEqual(
+      wallClockSplit(startISO, endISO),
+    );
   }
 });
 
@@ -96,4 +100,22 @@ it('정산하면 오늘 몫이 0에서 다시 시작한다', () => {
   // settleFocusBlock이 새 블록을 연다
   const next = runTicks(newBlockToday(), '2026-08-08T10:10:00', 120);
   expect(blockTodaySeconds(next)).toBe(120);
+});
+
+it('⑤ 이탈 스냅샷은 이후 tick에 오염되지 않아 리플레이가 되감을 수 있다', () => {
+  // 실드 세션은 background 이벤트 뒤 JS 정지 전까지 tick이 몇 번 더 돈다. 복귀 리플레이는
+  // 세션 상태를 이탈 시점(leftSessionRef)으로 되감고 그 구간을 다시 재생하므로, 날짜 맵도
+  // 함께 되감지 않으면 그 여분 tick이 두 번 적립된다(FocusSessionScreen.leftBlockTodayRef).
+  // 되감기가 성립하려면 creditTick이 불변 갱신이어야 한다 — 그 계약을 여기서 잠근다.
+  const left = runTicks(newBlockToday(), '2026-08-08T10:00:00', 60);
+  const snapshot = left; // = leftBlockTodayRef.current (이탈 시점)
+  const drifted = runTicks(left, '2026-08-08T10:01:00', 2); // 정지 전에 더 돈 tick 2개
+
+  expect(drifted.local['2026-08-08']).toBe(62);
+  expect(snapshot.local['2026-08-08']).toBe(60); // 스냅샷 무오염
+
+  // 복귀: 이탈 시점부터 10초를 리플레이. 되감으면 70, 안 되감으면 72(2초 이중 적립).
+  const replayed = runTicks(snapshot, '2026-08-08T10:01:00', 10);
+  expect(replayed.local['2026-08-08']).toBe(70);
+  expect(replayed.kst['2026-08-08']).toBe(70);
 });

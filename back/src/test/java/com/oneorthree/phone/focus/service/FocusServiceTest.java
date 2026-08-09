@@ -44,7 +44,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -71,7 +70,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -974,7 +972,7 @@ class FocusServiceTest {
         focusService.saveFocusSession(USER_ID, body);
 
         // then
-        verify(userStreakService).updateOnSessionComplete(user, LocalDate.of(2026, 6, 23));
+        verify(userStreakService).updateOnSessionComplete(user, List.of(LocalDate.of(2026, 6, 23)));
     }
 
     @Test
@@ -1103,7 +1101,7 @@ class FocusServiceTest {
         assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
         assertThat(captor.getValue().getDate()).isNotEqualTo(utcDate);
         // 집계 존 == 스트릭 존 — 같은 statDate(07-13)로 스트릭 갱신되어야 한다(경계 세션이 오늘 스트릭에 반영)
-        verify(userStreakService).updateOnSessionComplete(krUser, kstDate);
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(kstDate));
     }
 
     /**
@@ -1417,7 +1415,7 @@ class FocusServiceTest {
         FocusSessionSaveResponse response =
                 focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, start2, end6m, 0));
 
-        verify(userStreakService).updateOnSessionComplete(user, date);
+        verify(userStreakService).updateOnSessionComplete(user, List.of(date));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(660);
         assertThat(response.streakQualifiedToday()).isTrue();
     }
@@ -1440,7 +1438,7 @@ class FocusServiceTest {
                 focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0));
 
         // 게이트 통과(누적>=600) → 호출됨. "이미 인정된 날 무변화"는 UserStreakService.same-day 멱등이 담당.
-        verify(userStreakService).updateOnSessionComplete(user, date);
+        verify(userStreakService).updateOnSessionComplete(user, List.of(date));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(90 * 60);
         assertThat(response.streakQualifiedToday()).isTrue();
     }
@@ -1461,7 +1459,7 @@ class FocusServiceTest {
         FocusSessionSaveResponse response =
                 focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
 
-        verify(userStreakService).updateOnSessionComplete(user, LocalDate.of(2026, 6, 23));
+        verify(userStreakService).updateOnSessionComplete(user, List.of(LocalDate.of(2026, 6, 23)));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(600);
         assertThat(response.streakQualifiedToday()).isTrue();
     }
@@ -1554,7 +1552,7 @@ class FocusServiceTest {
         assertThat(stat.getTotalFocusSeconds()).isEqualTo(60 * 60);
         assertThat(stat.getSessionCount()).isEqualTo(1);
         assertThat(stat.getTotalDistractionSeconds()).isEqualTo(30);
-        verify(userStreakService, times(1)).updateOnSessionComplete(krUser, date);
+        verify(userStreakService, times(1)).updateOnSessionComplete(krUser, List.of(date));
         assertThat(response.dayTotalFocusSeconds()).isEqualTo(60 * 60);
     }
 
@@ -1564,8 +1562,8 @@ class FocusServiceTest {
      * 07-12 23:50 KST(14:50Z) ~ 07-13 00:15 KST(15:15Z) → 어제 10분(경계)·오늘 15분 → 양쪽 다 인정.
      */
     @Test
-    @DisplayName("1252-③: 자정 걸친 세션 스트릭 → 어제·오늘 둘 다 갱신, 호출 순서는 날짜 오름차순")
-    void splitMidnight_updatesStreakInAscendingDateOrder() {
+    @DisplayName("1252-③: 자정 걸친 세션 스트릭 → 인정 날짜를 한 번에 넘긴다(반영 순서는 스트릭 서비스가 결정)")
+    void splitMidnight_passesAllQualifiedDatesInOneCall() {
         Instant startedAt = Instant.parse("2026-07-12T14:50:00Z");   // 07-12 23:50 KST
         Instant endedAt = Instant.parse("2026-07-12T15:15:00Z");     // 07-13 00:15 KST
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
@@ -1576,9 +1574,10 @@ class FocusServiceTest {
 
         focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
 
-        InOrder ordered = inOrder(userStreakService);
-        ordered.verify(userStreakService).updateOnSessionComplete(krUser, LocalDate.of(2026, 7, 12));
-        ordered.verify(userStreakService).updateOnSessionComplete(krUser, LocalDate.of(2026, 7, 13));
+        // 낱개 호출이면 소급 방향(지연 업로드)에서 오래된 날짜가 유실된다(코드리뷰 3차 ③) —
+        // 어느 날짜부터 반영할지는 lastSessionDate 를 아는 UserStreakService 가 정한다.
+        verify(userStreakService, times(1)).updateOnSessionComplete(krUser,
+                List.of(LocalDate.of(2026, 7, 12), LocalDate.of(2026, 7, 13)));
     }
 
     /**
@@ -1711,6 +1710,58 @@ class FocusServiceTest {
                 Map.of(CROSS_D1, 300, CROSS_D2, 300)));
 
         assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 300, CROSS_D2, 300));
+        // 3차 ①: PATCH 로 완료한 세션 행에도 같은 분포가 남는다
+        assertThat(session.getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-12", 300, "2026-07-13", 300));
+    }
+
+    // ── 확정 분포 보관 + 밀리초 배분 (GROMO-1252 코드리뷰 3차 ①·④) ──────────
+
+    @Test
+    @DisplayName("1252-①(3차): 확정 분포를 세션 행에 함께 저장 — 조회 집계·앱 복원이 사전집계와 같은 귀속을 쓴다")
+    void savedSession_carriesResolvedSecondsByDate() {
+        givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, CROSS_START, CROSS_END, 0, null,
+                Map.of(CROSS_D1, 300, CROSS_D2, 300)));
+
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        // 사전집계에 가산한 값과 동일 — 저장 형태는 jsonb 라 ISO 문자열 키
+        assertThat(captor.getValue().getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-12", 300, "2026-07-13", 300));
+    }
+
+    /**
+     * 1252-④: 양 끝에 밀리초가 있는 구간. 조각마다 {@code Duration.getSeconds()} 로 절삭하면
+     * 599+600 = 1199 가 돼 총합이 1초 줄고, 클라 분포 600/600 이 599/600 으로 클램프돼
+     * 전날이 10분 스트릭 문턱을 놓친다. 누적 반올림 차분이라 총합이 보존돼야 한다.
+     */
+    @Test
+    @DisplayName("1252-④: 밀리초가 낀 자정 걸침(23:50:00.5~00:10:00.5) → 600/600, 합 1200 보존")
+    void splitMidnight_withMillis_preservesTotal() {
+        Instant startedAt = Instant.parse("2026-07-12T14:50:00.500Z");   // 07-12 23:50:00.5 KST
+        Instant endedAt = Instant.parse("2026-07-12T15:10:00.500Z");     // 07-13 00:10:00.5 KST
+        givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
+    }
+
+    @Test
+    @DisplayName("1252-④: 밀리초가 껴도 클라 분포 600/600 이 클램프로 깎이지 않아 전날 스트릭이 인정된다")
+    void splitMidnight_withMillis_clientDistributionNotClampedDown() {
+        Instant startedAt = Instant.parse("2026-07-12T14:50:00.500Z");
+        Instant endedAt = Instant.parse("2026-07-12T15:10:00.500Z");
+        User krUser = givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0, null,
+                Map.of(CROSS_D1, 600, CROSS_D2, 600)));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
+        // 절삭이면 CROSS_D1 이 599 로 깎여 10분 문턱(600)을 놓쳤다
+        verify(userStreakService).updateOnSessionComplete(krUser, List.of(CROSS_D1, CROSS_D2));
     }
 
     /**
@@ -2149,7 +2200,7 @@ class FocusServiceTest {
         assertThat(captor.getValue().getDate()).isEqualTo(kstDate);
         assertThat(captor.getValue().getDate()).isNotEqualTo(utcDate);
         // 스트릭도 같은 statDate(07-13)로 갱신 — any() 가 아니라 eq(07-13) 로 확증
-        verify(userStreakService).updateOnSessionComplete(eq(krUser), eq(kstDate));
+        verify(userStreakService).updateOnSessionComplete(eq(krUser), eq(List.of(kstDate)));
     }
 
     @Test

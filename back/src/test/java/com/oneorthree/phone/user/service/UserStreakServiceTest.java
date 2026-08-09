@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,7 +64,7 @@ class UserStreakServiceTest {
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.empty());
         given(userStreakRepository.save(any(UserStreak.class))).willAnswer(inv -> inv.getArgument(0));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         ArgumentCaptor<UserStreak> captor = ArgumentCaptor.forClass(UserStreak.class);
         verify(userStreakRepository).save(captor.capture());
@@ -82,7 +83,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(0, 0, null);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         assertThat(existing.getStreakCount()).isEqualTo(1);
         assertThat(existing.getLongestStreakCount()).isEqualTo(1);
@@ -99,7 +100,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(3, 3, TODAY.minusDays(1));
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         assertThat(existing.getStreakCount()).isEqualTo(4);
         assertThat(existing.getLongestStreakCount()).isEqualTo(4);
@@ -114,7 +115,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(3, 5, TODAY);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
         assertThat(existing.getLongestStreakCount()).isEqualTo(5);
@@ -128,7 +129,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(5, 5, TODAY.minusDays(2));
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         assertThat(existing.getStreakCount()).isEqualTo(1);
         assertThat(existing.getLongestStreakCount()).isEqualTo(5);
@@ -144,7 +145,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(3, 5, TODAY);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(4));
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(4)));
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
         assertThat(existing.getLongestStreakCount()).isEqualTo(5);
@@ -163,7 +164,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(1, 1, TODAY);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(1)));
 
         assertThat(existing.getStreakCount()).isEqualTo(2);
         assertThat(existing.getLongestStreakCount()).isEqualTo(2);
@@ -180,7 +181,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(3, 5, TODAY);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(1)));
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
@@ -191,16 +192,50 @@ class UserStreakServiceTest {
     void midnightSplitStreakIsOrderIndependent() {
         UserStreak ascending = streak(0, 0, null);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(ascending));
-        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(1)));
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         UserStreak descending = streak(0, 0, null);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(descending));
-        userStreakService.updateOnSessionComplete(USER, TODAY);
-        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(1)));
 
         assertThat(descending.getStreakCount()).isEqualTo(ascending.getStreakCount()).isEqualTo(2);
         assertThat(descending.getLastSessionDate()).isEqualTo(ascending.getLastSessionDate()).isEqualTo(TODAY);
+    }
+
+    /**
+     * 1252-③(코드리뷰 3차): 한 세션이 <b>두 날</b>을 소급 기여하는 경우. 종전엔 오름차순 낱개 호출이라
+     * 오래된 쪽이 유실됐다 — 구간 [TODAY-1, TODAY] 인 상태에서 TODAY-3·TODAY-2 지연 세션이 오면
+     * TODAY-3 이 먼저 들어가 무시되고(그때 구간 시작은 TODAY-1), TODAY-2 가 구간을 늘린 뒤엔
+     * TODAY-3 이 다시 고려되지 않아 3 에 멈췄다(4 여야 함).
+     */
+    @Test
+    @DisplayName("1252-③: 두 날을 소급 기여하는 세션 → 최신→과거 순 반영으로 둘 다 이어진다(4)")
+    void multiDayBackfillExtendsRunTwice() {
+        UserStreak existing = streak(2, 2, TODAY);   // 구간 = [TODAY-1, TODAY]
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+
+        // 오름차순으로 넘겨도(호출부 관례) 서비스가 소급 그룹을 최신→과거로 뒤집어 반영한다.
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(3), TODAY.minusDays(2)));
+
+        assertThat(existing.getStreakCount()).isEqualTo(4);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(4);
+        // 구간의 '끝'은 그대로 — 앞당겨진 건 시작뿐.
+        assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
+    }
+
+    /** 1252-③: 미래 방향(연장)은 종전 규칙 그대로 — 과거→최신 순이라야 첫 날짜가 reset 으로 끊기지 않는다. */
+    @Test
+    @DisplayName("1252-③: 자정 걸친 미래 두 날 → 연장으로 이어진다(reset 없음)")
+    void multiDayForwardExtendsRun() {
+        UserStreak existing = streak(1, 1, TODAY.minusDays(2));
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY.minusDays(1), TODAY));
+
+        assertThat(existing.getStreakCount()).isEqualTo(3);
+        assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
     }
 
     @Test
@@ -209,7 +244,7 @@ class UserStreakServiceTest {
         UserStreak existing = streak(2, 5, TODAY.minusDays(1));
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, List.of(TODAY));
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
         assertThat(existing.getLongestStreakCount()).isEqualTo(5);

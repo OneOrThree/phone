@@ -41,7 +41,7 @@ import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { todayStr, localDateStr } from '@/utils/localDate';
-import { newBlockToday, creditTick, blockTodaySeconds } from './blockToday';
+import { newBlockToday, creditTick, blockTodaySeconds, type BlockToday } from './blockToday';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -261,6 +261,11 @@ export default function FocusSessionScreen() {
   // 업로드 페이로드의 focusSecondsByDate. 벽시계 겹침이 아니라 집중 tick의 날짜로 세는 이유는
   // blockToday.ts 주석 참고.
   const blockTodayRef = useRef(newBlockToday());
+  // 이탈(background) 시점의 날짜 맵 스냅샷 — 복귀 리플레이가 세션 상태(leftSessionRef)를 되감는 만큼
+  // 날짜 맵도 되감아야 한다(GROMO-1252 코드리뷰 ⑤). 안 되감으면 background 이벤트 뒤 JS 정지 전까지
+  // 더 돈 tick이 리플레이에서 한 번 더 세져 업로드·로컬 양쪽이 부풀고, 자정을 걸친 블록에선 날짜별
+  // 벽시계 상한을 넘어 서버 클램프로 잘린다. 정산이 끼면(settleFocusBlock) 스냅샷은 버린다.
+  const leftBlockTodayRef = useRef<BlockToday | null>(null);
   const creditFocusTick = useCallback((at?: Date) => {
     blockTodayRef.current = creditTick(blockTodayRef.current, at);
   }, []);
@@ -563,11 +568,15 @@ export default function FocusSessionScreen() {
       // 어제 몫까지 오늘로 들어왔다). 몫은 벽시계 겹침이 아니라 집중 tick의 날짜로 센다 —
       // 겹침으로 클램프하면 일시정지가 자정을 걸칠 때 여전히 과다 계상된다(blockToday.ts 주석).
       // 코인은 all-time이라 항상 반영.
-      // 이 블록의 날짜별 집중초 — 서버 업로드에도 그대로 실어 보낸다(GROMO-1252 ①). 리셋 전에 붙든다.
-      const focusSecondsByDate = blockTodayRef.current;
-      const todaySeconds = Math.min(delta, blockTodaySeconds(focusSecondsByDate));
-      // 다음 블록은 endedAt부터 — 카운터도 0에서 다시 시작한다.
+      // 이 블록의 날짜별 집중초 — 서버 업로드엔 KST 축(서버 귀속 축)을 실어 보낸다(GROMO-1252 ①·②).
+      // 로컬 적립은 기기 로컬 축(유저가 보는 '오늘'). 리셋 전에 붙든다.
+      const blockToday = blockTodayRef.current;
+      const focusSecondsByDate = blockToday.kst;
+      const todaySeconds = Math.min(delta, blockTodaySeconds(blockToday));
+      // 다음 블록은 endedAt부터 — 카운터도 0에서 다시 시작한다. 이탈 스냅샷도 함께 버린다(⑤) —
+      // 정산이 이미 이 tick들을 적립했으므로 복귀 리플레이가 스냅샷을 되돌리면 이중 적립이다.
       blockTodayRef.current = newBlockToday();
+      leftBlockTodayRef.current = null;
       if (todaySeconds > 0) {
         addFocusSeconds(todaySeconds);
         addFocusToSubject(subjectId, todaySeconds);
@@ -797,6 +806,7 @@ export default function FocusSessionScreen() {
         leftAtRef.current = Date.now();
         leftPhaseRef.current = sessionRef.current.phase;
         leftSessionRef.current = sessionRef.current; // 리플레이 기준 스냅샷(leftAt과 짝)
+        leftBlockTodayRef.current = blockTodayRef.current; // 날짜 맵도 같은 시점으로 되감는다(코드리뷰 ⑤)
         saveLive(sessionRef.current.elapsed); // 여기서 꺼져도 이 시점까지는 정산되게
         // 실드 세션은 나가 있어도 집중 인정이라 이탈 알림 없음(폴백 세션만 경고)
         if (sessionRef.current.phase === 'focus' && !shieldedRef.current) {
@@ -836,6 +846,10 @@ export default function FocusSessionScreen() {
           // setSession(cur)이 덮어써 이중 계상 없음(settledSecondsRef 단조 가드도 동일 방어).
           let cur = leftSessionRef.current ?? sessionRef.current;
           leftSessionRef.current = null;
+          // 세션 상태를 되감는 만큼 날짜 맵도 이탈 시점으로 되돌린다 — 안 그러면 서스펜드 전에 더 돈
+          // tick이 리플레이에서 두 번 세진다(코드리뷰 ⑤). 정산이 끼었으면(스냅샷 null) 현재 값 유지.
+          if (leftBlockTodayRef.current != null) blockTodayRef.current = leftBlockTodayRef.current;
+          leftBlockTodayRef.current = null;
           let crossed = false;
           for (let i = 0; i < credit && !cur.done; i++) {
             const next = nextTick(cur);
