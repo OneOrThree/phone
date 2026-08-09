@@ -75,6 +75,10 @@ export default function ScreenTimeAnalyzingOverlay({
           easing: Easing.out(Easing.cubic),
           reduceMotion: M.never,
         }),
+        // ⚠️ withDelay도 세 번째 인자로 게이트를 받는다. 안 넘기면 기본값(정적 System)이 걸려
+        //    HOLD_MS 900ms가 통째로 생략되고, 진행바가 ANALYZE_MS보다 일찍 100%에 닿아
+        //    남은 시간 동안 멈춰 보인다(codex 리뷰).
+        M.never,
       ),
     );
     // ⚠️ m.reduce를 의존성에 포함 — 재생 도중 설정이 켜져도 90%에서 굳지 않게 한다.
