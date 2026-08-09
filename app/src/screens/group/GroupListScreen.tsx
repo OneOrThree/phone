@@ -50,14 +50,24 @@ const TAB_BAR_SPACE = 74;
  */
 export const GROUP_CARD_HEIGHT = 58;
 
-// FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것 중 우리가 쓰는 것만.
+// FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
-//  필요한 필드만 로컬 타입으로 둔다.)
+//  같은 모양을 로컬 타입으로 둔다.)
+//
+// ⚠️ **여기 있는 props는 하나도 떨어뜨리면 안 된다.** 특히 `onFocusCapture`는 VirtualizedList가
+//    마지막 포커스 셀을 기록해 가상화 렌더 영역 안에 유지하는 경로다 — 삼키면 스크롤·목록 갱신
+//    때 포커스된 카드가 재활용되면서 스크린리더/키보드 포커스를 잃는다(codex 리뷰).
+//    그래서 아래 구현은 index/children만 꺼내고 **나머지는 통째로 전달**한다.
 interface CellProps {
   index: number;
   children: ReactNode;
+  cellKey?: string;
+  item?: GroupSummaryResponse;
   style?: StyleProp<ViewStyle>;
   onLayout?: (event: LayoutChangeEvent) => void;
+  // 우리는 해석하지 않고 그대로 전달만 한다 — RN 내부 셀 타입의 FocusEvent는 DOM 계열이라
+  // 여기서 같은 이름으로 재선언하면 오히려 타입이 어긋난다.
+  onFocusCapture?: unknown;
 }
 
 export interface GroupListScreenProps {
@@ -105,8 +115,10 @@ export default function GroupListScreen({
   // useCallback으로 참조를 고정하지 않으면 렌더마다 새 컴포넌트 타입이 되어 셀이 통째로
   // 리마운트되고 진입 애니메이션이 계속 다시 재생된다.
   const CellRenderer = useCallback(
-    ({ index, children, style, onLayout }: CellProps) => (
-      <Animated.View style={[style, m.css(enterUp(index))]} onLayout={onLayout}>
+    // index·children·item만 꺼내고 나머지(style·onLayout·onFocusCapture…)는 그대로 넘긴다.
+    // item·cellKey는 호스트 뷰가 모르는 값이라 여기서 걸러 낸다(DOM에 흘리지 않는 것과 같은 이유).
+    ({ index, children, item: _item, cellKey: _cellKey, style, ...rest }: CellProps) => (
+      <Animated.View {...rest} style={[style, m.css(enterUp(index))]}>
         {children}
       </Animated.View>
     ),

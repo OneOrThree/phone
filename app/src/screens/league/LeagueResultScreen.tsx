@@ -36,6 +36,11 @@ const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
 // 뱃지 큰 일러스트는 tiers.ts image 공용. 전환형(승격·강등)은 이전→새 티어 크로스페이드,
 // 유지형은 전환 없이 현재 티어 단일 등장.
 
+// 컨페티가 실제로 화면에 남아 있는 시간(ms) — ConfettiBurst 조각의 최대 수명에서 계산했다.
+// 시작 지연 BASE_DELAY 250 + 흔들림 350 + 낙하 duration 최대 2500 = 3100, 여기에 여유 100.
+// 장애물(obstacle)을 주지 않으므로 조각은 전부 바닥까지 떨어지고 쌓이는 조각이 없다.
+const CONFETTI_LIFE_MS = 3200;
+
 // 타입별 연출 텍스트 — 티어·시간은 params 실데이터, 여기는 표시 문구만
 const TYPE_CFG = {
   promote: { caption: 'PROMOTED', title: '승격했어요!', cta: '새 리그 보러가기' },
@@ -93,6 +98,18 @@ export default function LeagueResultScreen() {
   const [showTo, setShowTo] = useState(false);
   // 승급 축하 파티클 — 결과 뱃지가 완전히 도착한 뒤에만 터진다(시퀀스 후).
   const [celebrate, setCelebrate] = useState(false);
+  // 조각이 전부 화면 밖으로 나가면 컨페티를 **언마운트**한다. 남겨 두면 조각이 안 보이는 뒤로도
+  // 중력 센서 구독과 매 프레임 적분(useFrameCallback)이 CTA를 누를 때까지 계속 돈다(codex 리뷰).
+  //
+  // ⚠️ 이 대기에는 m.delay()를 통과시키지 않는다 — 연출을 기다리는 호흡이 아니라 연출이 **끝나는
+  //    시각**이라, 0으로 눌리면 컨페티가 뜨자마자 사라진다. reduce에서는 ConfettiBurst가 스스로
+  //    렌더하지 않으므로 이 타이머가 헛돌아도 보이는 것이 없다.
+  useEffect(() => {
+    if (!celebrate) return undefined;
+    const t = setTimeout(() => setCelebrate(false), CONFETTI_LIFE_MS);
+    // 화면을 떠난 뒤에 타이머가 돌지 않게 반드시 걷는다.
+    return () => clearTimeout(t);
+  }, [celebrate]);
   useEffect(() => {
     let cancelled = false;
     setShowTo(false);
