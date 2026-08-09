@@ -32,6 +32,19 @@ PRD 기반 Jira 티켓 자동 생성: **$ARGUMENTS**
 - 이슈 타입 목록 → `작업`의 ID 추출
 - 버전 목록 → `--release` 인자에 해당하는 버전 ID 추출
 - 라벨 목록 → `--label` 라벨이 존재하는지 확인
+- **`도메인` 드롭다운 옵션** → 4단계 분류와 5단계 승인에 쓸 권위 있는 목록
+
+```python
+DOMAIN_FIELD = "customfield_10342"
+_ctx = requests.get(f"{base}/field/{DOMAIN_FIELD}/context", auth=auth).json()["values"][0]["id"]
+DOMAIN_OPTS = {o["value"]: o["id"] for o in requests.get(
+    f"{base}/field/{DOMAIN_FIELD}/context/{_ctx}/option", auth=auth).json()["values"]}
+print("도메인 옵션:", sorted(DOMAIN_OPTS))
+```
+
+**여기서 조회하는 이유**: 옵션이 추가·삭제·개명될 수 있다. 승인 뒤 생성 단계에서야
+알게 되면 배치 전체가 중단되고, 새로 생긴 옵션은 후보 분류에 반영조차 못 한다.
+**분류 전에 실제 목록을 보고, 그 목록 안에서만 고른다.**
 
 버전이 없으면:
 ```
@@ -50,8 +63,9 @@ PRD 파일을 Read로 읽은 뒤 다음 규칙으로 티켓 후보를 추출한�
 - 도메인은 제목이 아니라 `도메인` 필드가 담는다 (`docs/jira-conventions.md`)
 - 동사: 구현 / 조회 API 구현 / 설정 API 구현 / 마이그레이션 / 연동
 
-**도메인**(필수): PRD 섹션에 맞는 값을 `도메인` 드롭다운에서 고른다.
-옵션은 아래 스크립트가 지라에서 조회한다 — 목록을 여기 하드코딩하지 않는다(늘어난다).
+**도메인**(필수): **3단계에서 조회한 `DOMAIN_OPTS` 안에서만** 고른다.
+목록을 이 문서에 하드코딩하지 않는다 — 늘어나면 곧 낡는다.
+매칭되는 값이 없으면 임의로 고르지 말고 **사용자에게 물어본다.**
 
 **티켓 설명**: 해당 PRD 섹션의 핵심 내용 (엔드포인트, 비즈니스 로직 요약, 에러 케이스, 참고 섹션 번호)
 
@@ -85,12 +99,8 @@ label  = LABEL   # 파싱된 값
 ver_id = VERSION_ID  # 조회된 버전 ID
 type_id = TASK_TYPE_ID  # 조회된 작업 이슈타입 ID
 
-# 도메인 필드(필수) — 옵션 id 는 지라에서 조회한다. 규약: docs/jira-conventions.md
-DOMAIN_FIELD = "customfield_10342"
-_ctx = requests.get(f"{base}/field/{DOMAIN_FIELD}/context", auth=auth).json()["values"][0]["id"]
-DOMAIN_OPTS = {o["value"]: o["id"] for o in requests.get(
-    f"{base}/field/{DOMAIN_FIELD}/context/{_ctx}/option", auth=auth).json()["values"]}
-# Component 미러는 오너 스윕이 맞춘다 — 여기서 넣지 않는다
+# DOMAIN_FIELD · DOMAIN_OPTS 는 3단계에서 이미 조회했다 (재조회하지 않는다).
+# 규약: docs/jira-conventions.md · Component 미러는 오너 스윕이 맞춘다
 
 def adf(text):
     return {"version":1,"type":"doc","content":[
