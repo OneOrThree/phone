@@ -90,6 +90,10 @@ export default function FocusResultScreen() {
   const { focusSeconds, subjectName, completed } = params;
   const { subjects } = useSubjects();
   const m = useMotion();
+  // 연출 판정 effect가 재실행되면 안 되므로(아래 celebrationStarted 가드) m을 deps에 넣는 대신
+  // 최신 delay 함수를 ref로 읽는다.
+  const delayRef = useRef(m.delay);
+  delayRef.current = m.delay;
   // 목표 달성 판정용(GROMO-630) — 로컬 누적(오늘 전체)·로컬 목표. 서버 조회가 늦거나 실패해도 판정 가능.
   const { todayFocusSeconds } = useFocus();
   const { goalSeconds: userGoalSeconds, userId } = useUser();
@@ -380,7 +384,7 @@ export default function FocusResultScreen() {
           // ⚠️ m.delay를 통과시킨다 — '동작 줄이기'면 팝 자체가 재생되지 않는데 대기만 남으면
           //    정적 ✓를 보며 아무 일도 없는 1.2초를 기다리게 된다(codex 리뷰).
           //    타이머 자체는 남으므로 주 1회 도장 기록·모달 노출 순서는 그대로다.
-          m.delay(firstPopToday ? 1200 : 400),
+          delayRef.current(firstPopToday ? 1200 : 400),
         ),
       );
     })();
@@ -388,10 +392,13 @@ export default function FocusResultScreen() {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-    // m을 의존성에 넣는다 — reduce가 확정되기 전(useReduceMotion의 초기 조회는 비동기다)
-    // 이 effect가 먼저 도는 경우 재평가가 필요하다. celebrationStarted ref 가드가 있어
-    // 본문은 여전히 1회만 실행되므로 재실행이 마커를 중복 기록하지 않는다.
-  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId, m]);
+    // ⚠️ m을 **의존성에 넣지 않는다.** 이 effect는 celebrationStarted ref로 1회만 실행되는데,
+    //    첫 AsyncStorage 대기 중에 reduce가 확정되면(초기 조회는 비동기다) 재실행이 걸리면서
+    //    cleanup이 cancelled를 세워 진행 중이던 판정을 죽이고, 새 실행은 그 ref 가드에 막힌다.
+    //    결과는 그날의 팝 마커 미기록 + 주간 축하 모달 누락이다(codex 리뷰).
+    //    대신 delayRef로 **타이머를 걸는 시점의** 최신 값을 읽는다 — 그 시점은 await 이후라
+    //    reduce가 이미 확정돼 있다.
+  }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
