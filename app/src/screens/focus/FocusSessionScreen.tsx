@@ -14,13 +14,7 @@ import {
   type NativeScrollEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { captureRef } from 'react-native-view-shot';
@@ -29,6 +23,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
 import { ProgressRing } from '@/components/ProgressRing';
@@ -129,13 +124,6 @@ const DOT_TRANSITION = transition({
   property: ['width', 'backgroundColor'],
   duration: M.dur.quick,
 });
-// 캐릭터 호흡 톤 — components/character/AnimatedCharacter.tsx의 MOOD 표와 같은 값이다.
-// ⚠️ 프리미티브(AnimatedCharacter)를 그대로 쓰지 못하는 이유는 아래 렌더의 주석 참고
-//    (캡처 범위 charShotRef를 래퍼 '안쪽'에 끼울 슬롯이 없다).
-const BREATH = {
-  idle: { duration: 1400, ampY: 0.025, ampX: 0.012 },
-  calm: { duration: 2600, ampY: 0.014, ampX: 0.007 }, // 일시정지 — 느리고 얕게 가라앉는다
-} as const;
 
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
@@ -1230,31 +1218,7 @@ export default function FocusSessionScreen() {
     tagName: subjectName,
   };
 
-  // ── 렌더 계층(GROMO-1381) — 아래 두 블록은 세션 로직에 전혀 관여하지 않는다 ──────────
-  // 캐릭터 호흡. 일시정지면 calm(주기 2600ms·얕은 진폭)으로 바꿔 "가라앉은" 상태를 표현한다.
-  // ⚠️ deps에 m.reduce를 포함 — 재생 도중 '동작 줄이기'가 켜졌을 때 눌린 중간 프레임으로 굳는 것 방지.
-  const breathTone = paused ? BREATH.calm : BREATH.idle;
-  const breath = useSharedValue(0);
-  useEffect(() => {
-    if (m.reduce) {
-      breath.value = 0;
-      return;
-    }
-    breath.value = withRepeat(
-      withTiming(1, { duration: breathTone.duration, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true,
-    );
-  }, [breath, breathTone.duration, m.reduce]);
-  const breathStyle = useAnimatedStyle(() => ({
-    // 발이 바닥에 붙어 보이도록 원점을 아래 가운데로 두고 세로로만 늘린다(ObjectCharacter 레시피).
-    transformOrigin: '50% 100%',
-    transform: [
-      { scaleY: 1 + breathTone.ampY * breath.value },
-      { scaleX: 1 - breathTone.ampX * breath.value },
-    ],
-  }));
-
+  // ── 렌더 계층(GROMO-1381) — 아래 블록은 세션 로직에 전혀 관여하지 않는다 ──────────────
   // 진행 링 지름 — 가운데에 52pt HH:MM:SS(약 200pt 폭)가 들어가야 해서 하한이 크고, 상한은
   // 위 캐릭터(230)보다 커지지 않게 잡았다. 작은 기기에서만 하한까지 줄어든다.
   const ringSize = Math.round(Math.min(230, Math.max(206, height * 0.27)));
@@ -1331,13 +1295,11 @@ export default function FocusSessionScreen() {
         >
           <View style={[s.page, { width }]}>
             <View style={s.characterWrap}>
-              {/* 호흡 래퍼 — 반드시 charShotRef **바깥(부모)** 이어야 한다(GROMO-1381 정책 D-22).
-                  ref 안쪽에 transform이 걸리면 아래 captureRef가 세로로 눌린 호흡 중간 프레임을
-                  그대로 PNG로 구워 Live Activity·차폐 화면에 박아 버린다.
-                  ⚠️ 프리미티브 AnimatedCharacter를 쓰지 않은 이유도 이것이다 — 그 컴포넌트는
-                  CharacterImage를 직접 품는 구조라 캡처 뷰를 '안쪽'에 끼울 children 슬롯이 없다.
-                  모션 레시피(BREATH·breathStyle)는 AnimatedCharacter와 동일하다. */}
-              <Animated.View style={m.reduce ? undefined : breathStyle}>
+              {/* 호흡 래퍼 — children 슬롯에 캡처 뷰를 넣어 래퍼가 charShotRef의 **부모**가 되게
+                  한다(정책 D-22). ref 안쪽에 transform이 걸리면 아래 captureRef가 세로로 눌린
+                  호흡 중간 프레임을 그대로 PNG로 구워 Live Activity·차폐 화면에 박아 버린다.
+                  일시정지면 calm(주기 2600ms·얕은 진폭)으로 가라앉는다. reduce 처리는 컴포넌트 몫. */}
+              <AnimatedCharacter size={230} mood={paused ? 'calm' : 'idle'}>
                 {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
                 <View ref={charShotRef} collapsable={false}>
                   <CharacterImage
@@ -1346,7 +1308,7 @@ export default function FocusSessionScreen() {
                     sourceUri={activeSource ?? undefined}
                   />
                 </View>
-              </Animated.View>
+              </AnimatedCharacter>
             </View>
           </View>
           <View style={[s.page, { width }]}>
