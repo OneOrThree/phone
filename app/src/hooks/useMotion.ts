@@ -29,7 +29,8 @@ export type Motion = {
   reduce: boolean;
   /**
    * reduce면 애니메이션 없이 목표값을 그대로 돌려준다.
-   * ⚠️ JS 스레드 전용 — useAnimatedStyle·useAnimatedReaction·runOnUI 안에서 호출 금지.
+   * ⚠️ JS 스레드 전용 — useAnimatedStyle·useAnimatedProps·useAnimatedReaction·useDerivedValue·
+   *    runOnUI 안에서 호출 금지.
    *    (훅 반환값은 JS 클로저다. 워클릿 안에서 분기해야 하면 `reduce`를 shared value로 옮겨 읽을 것)
    */
   timing<V extends AnimatableValue>(to: V, cfg?: WithTimingConfig): V;
