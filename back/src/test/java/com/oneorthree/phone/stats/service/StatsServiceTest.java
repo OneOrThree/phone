@@ -1034,6 +1034,16 @@ class StatsServiceTest {
                 .build();
     }
 
+    /** FocusSession 빌더 헬퍼 — 통계 귀속용 유효 종료(stat_end_at)까지 지정(GROMO-1252 ②). */
+    private FocusSession session(Instant start, Instant end, Instant statEnd, UserFocusTag tag) {
+        return FocusSession.builder()
+                .startedAt(start)
+                .endedAt(end)
+                .statEndAt(statEnd)
+                .focusTag(tag)
+                .build();
+    }
+
     /** UserFocusTag 빌더 헬퍼 — id + name(defaultTag) + user. name 은 default_tags 를 감싼다. */
     private UserFocusTag userFocusTag(UUID id, String name, User user) {
         return UserFocusTag.builder()
@@ -1264,6 +1274,40 @@ class StatsServiceTest {
         Instant dayStart = todayKst.atStartOfDay(kst).toInstant();
         long expected = Duration.between(startedAt.isAfter(dayStart) ? startedAt : dayStart, now).getSeconds() / 60;
         assertThat(response.totalFocusMinutes()).isBetween((int) expected, (int) expected + 1);
+    }
+
+    /**
+     * GROMO-1252 코드리뷰 2차 ②: 미래 endedAt 세션은 조회 시점 now 가 아니라 <b>완료 시점에 고정된</b>
+     * stat_end_at 까지만 계수해야 한다. now 로 자르면 시간이 갈수록 위조 구간을 더 세고(내일이면 전량),
+     * 완료 시점에 고정되는 사전집계 DailyFocusStat 과 계속 벌어진다.
+     */
+    @Test
+    @DisplayName("카테고리별 — 미래 endedAt 세션은 완료 시점 stat_end_at 에서 멈춘다(시간이 지나도 안 늘어남)")
+    void getFocusStatsByCategoryUsesFrozenStatEndAt() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        Instant now = Instant.now();
+        LocalDate todayKst = now.atZone(kst).toLocalDate();
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        // 3시간 전 시작 → 2시간 전에 완료(그때 클램프된 stat_end_at)인데 endedAt 은 5시간 뒤로 위조됐다.
+        // 인정 몫은 1시간뿐 — endedAt 으로 자르면 (창 시작~now) 인 3시간이 잡히고 내일이면 더 커진다.
+        Instant startedAt = now.minusSeconds(3 * 3600);
+        Instant statEndAt = now.minusSeconds(2 * 3600);
+        List<FocusSession> sessions =
+                List.of(session(startedAt, now.plusSeconds(5 * 3600), statEndAt, tagA));
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(sessions);
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, todayKst);
+
+        // 창 하단(오늘 자정)이 startedAt 보다 늦을 수 있다(새벽 실행) — 그 경우만 몫이 줄어든다.
+        Instant dayStart = todayKst.atStartOfDay(kst).toInstant();
+        Instant sliceStart = startedAt.isAfter(dayStart) ? startedAt : dayStart;
+        long expected = Math.max(0, Duration.between(sliceStart, statEndAt).getSeconds()) / 60;
+        assertThat(response.totalFocusMinutes()).isEqualTo((int) expected);
     }
 
     @Test

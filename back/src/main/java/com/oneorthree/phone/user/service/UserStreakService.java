@@ -35,13 +35,18 @@ public class UserStreakService {
      *   <li>sessionDate == lastSessionDate → 무변화, 이벤트 미발행</li>
      *   <li>sessionDate == lastSessionDate + 1일 → streakCount + 1 (change=extended)</li>
      *   <li>sessionDate > lastSessionDate + 1일 → streakCount = 1 리셋 (change=reset)</li>
-     *   <li>sessionDate < lastSessionDate (과거 세션 소급 저장) → 무변화, 미발행 (방어)</li>
+     *   <li>sessionDate 가 현재 연속 구간 안 → 무변화, 미발행 (이미 계수된 날)</li>
+     *   <li>sessionDate == 연속 구간 시작 − 1일 → streakCount + 1 (change=backfilled, 소급 연장)</li>
+     *   <li>그보다 더 과거 → 무변화, 미발행 (공백이 남아 있어 이어지지 않는다)</li>
      * </ul>
      * 공통: lastSessionDate = max(기존, sessionDate), longestStreakCount = max(longestStreakCount, streakCount).
      *
-     * <p><b>호출 순서가 계약이다 (GROMO-1252)</b>: 위 4번째 규칙대로 lastSessionDate 이하 날짜는 조용히 무시된다.
-     * 자정을 걸친 세션처럼 한 요청이 여러 날짜를 갱신할 때는 <b>반드시 날짜 오름차순</b>으로 호출해야 한다
-     * (오늘을 먼저 넣으면 어제 호출이 무시된다).
+     * <p><b>소급 연장 (GROMO-1252 코드리뷰 ③)</b>: 종전엔 lastSessionDate 이하 날짜를 통째로 무시해,
+     * 오프라인 지연 업로드로 종료일이 이미 기록된 뒤 자정을 걸친 세션의 <b>어제 조각</b>이 들어오면
+     * DailyFocusStat 은 어제를 인정하는데 스트릭만 복구되지 않았다. 현재 연속 구간은
+     * {@code [lastSessionDate − (streakCount−1), lastSessionDate]} 이므로, 그 시작 바로 앞날이 자격을 갖추면
+     * 구간이 하루 뒤로 늘어난다(+1). 구간 안 날짜는 이미 계수돼 무변화 — 이중 가산이 없다.
+     * 덕분에 한 요청이 여러 날짜를 갱신할 때 <b>호출 순서에 무관</b>해졌다(종전의 오름차순 강제 계약 해소).
      *
      * <p>동시성: 동시 INSERT race 는 user_id unique 제약이 정합성을 보장한다
      * (실패 건은 클라 재시도 — DailyFocusStat upsert 의 INSERT-INSERT 방어와 동일).
@@ -60,23 +65,33 @@ public class UserStreakService {
         }
 
         LocalDate lastSessionDate = streak.getLastSessionDate();
-        if (lastSessionDate != null && !sessionDateUtc.isAfter(lastSessionDate)) {
-            // 같은 날 두 번째 세션(무변화) 또는 과거 세션 소급 저장(방어) → 이벤트 미발행
-            return;
-        }
-
         String change;
         if (lastSessionDate == null) {
             streak.setStreakCount(1);
+            streak.setLastSessionDate(sessionDateUtc);
             change = "started";
-        } else if (sessionDateUtc.equals(lastSessionDate.plusDays(1))) {
-            streak.setStreakCount(streak.getStreakCount() + 1);
-            change = "extended";
+        } else if (sessionDateUtc.isAfter(lastSessionDate)) {
+            if (sessionDateUtc.equals(lastSessionDate.plusDays(1))) {
+                streak.setStreakCount(streak.getStreakCount() + 1);
+                change = "extended";
+            } else {
+                streak.setStreakCount(1);
+                change = "reset";
+            }
+            streak.setLastSessionDate(sessionDateUtc);
         } else {
-            streak.setStreakCount(1);
-            change = "reset";
+            // 소급 도착(같은 날 재호출 / 자정 걸친 세션의 어제 조각 / 오프라인 지연 업로드).
+            // 현재 연속 구간 = [lastSessionDate − (streakCount−1), lastSessionDate].
+            // 구간 시작 바로 앞날이면 구간이 하루 뒤로 늘어나고, 그 외(구간 안·더 과거)는 무변화.
+            LocalDate runStart = lastSessionDate.minusDays(Math.max(0, streak.getStreakCount() - 1));
+            if (!sessionDateUtc.equals(runStart.minusDays(1))) {
+                return;
+            }
+            streak.setStreakCount(streak.getStreakCount() + 1);
+            change = "backfilled";
+            // lastSessionDate 는 유지 — 구간의 '끝'은 그대로고 '시작'만 앞당겨졌다.
+            // (조회 만료 판정 UserStreak.currentStreakAsOf 은 끝 날짜 기준이라 여기서 바꾸면 안 된다.)
         }
-        streak.setLastSessionDate(sessionDateUtc);
         streak.setLongestStreakCount(Math.max(streak.getLongestStreakCount(), streak.getStreakCount()));
 
         if (isNew) {

@@ -78,12 +78,12 @@ export function OrphanFocusSettler() {
         // 구간 [startedAt, updatedAt] 겹침 폴백은 필드가 없는 구버전 레코드 전용 — 일시정지가
         // 자정을 걸친 블록은 그 경로에서 여전히 과다 계상될 수 있다(어제 몫이 오늘로).
         // 날짜 축은 로컬 자정(FocusContext/SubjectContext와 동일).
-        const todaySeconds =
-          rec.focusDay != null && rec.focusDaySeconds != null
-            ? rec.focusDay === todayStr()
-              ? Math.min(focused, rec.focusDaySeconds)
-              : 0
-            : Math.min(focused, todayOverlapSeconds(rec.startedAt, rec.updatedAt));
+        const todaySeconds = Math.min(
+          focused,
+          rec.focusDays != null
+            ? (rec.focusDays[todayStr()] ?? 0)
+            : todayOverlapSeconds(rec.startedAt, rec.updatedAt),
+        );
         if (todaySeconds > 0) {
           addFocusSeconds(todaySeconds);
           addFocusToSubject(rec.subjectId, todaySeconds);
@@ -96,6 +96,9 @@ export function OrphanFocusSettler() {
         endedAt: rec.updatedAt,
         distractionCount: 0,
         totalDistractionSeconds: 0,
+        // 날짜별 집중초(GROMO-1252 ①) — 레코드에 있으면 서버 벽시계 분할 대신 이 분포로 귀속된다.
+        // 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
+        focusSecondsByDate: rec.focusDays,
       };
       try {
         await saveFocusSession(body, userId);

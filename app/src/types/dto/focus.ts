@@ -41,6 +41,12 @@ export interface FocusSessionRequest {
   distractionCount: number;
   totalDistractionSeconds: number;
   focusType?: FocusType; // GROMO-733 additive — 미지정 시 서버가 INFINITE 기본(고아 정산 등 모드 미상 경로)
+  // GROMO-1252 additive — 이 세션의 날짜별 집중초(로컬 날짜 "YYYY-MM-DD" → 초).
+  // 업로드 구간엔 일시정지 공백이 섞여 있어 서버가 벽시계 자정으로 쪼개면 자정을 걸친 세션의
+  // 날짜별 몫이 어긋난다(23:50~23:55 집중 → 일시정지 → 00:10~00:15 집중 = 300/300, 벽시계 600/900).
+  // 미지정·빈 맵이면 서버가 종전대로 벽시계 분할로 폴백한다. 서버는 값을 무검증 수용하지 않는다 —
+  // 날짜별 벽시계 몫을 상한으로 클램프하고 세션 구간과 겹치지 않는 날짜는 버린다.
+  focusSecondsByDate?: Record<string, number>;
 }
 
 // POST /focus-session — 집중 세션 저장 응답(GROMO-806). 세션 반영 후 그날 누적·스트릭 인정 여부.

@@ -391,9 +391,8 @@ public class StatsService {
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         Instant fromInstant = from.atStartOfDay(zone).toInstant();
         Instant toInstant = to.plusDays(1).atStartOfDay(zone).toInstant();
-        // GROMO-1252(코드리뷰 P1): 창 상단을 서버 now 로도 클램프한다 — 미래는 실집중일 수 없고, 사전집계
-        // DailyFocusStat 는 적립 시 이미 now 로 클램프하므로(FocusService.recordCompletion) 여기도 맞춰야
-        // 위조 endedAt 세션에서 총합과 과목별 합이 다시 어긋나지 않는다. 오늘이 포함된 창에서만 실효.
+        // GROMO-1252(코드리뷰 P1): 창 상단을 서버 now 로도 클램프한다 — 미래는 실집중일 수 없다.
+        // stat_end_at 이 없는 레거시 row(마이그레이션 이전 미래 endedAt 위조)를 여기서 막는 마지막 방어선.
         Instant now = Instant.now();
         Instant windowEnd = toInstant.isAfter(now) ? now : toInstant;
         List<FocusSession> sessions =
@@ -408,8 +407,13 @@ public class StatsService {
             // GROMO-1252(코드리뷰 P1): 창을 걸친 세션은 겹친 구간만 계수한다 — max(startedAt, from) ~
             // min(endedAt, windowEnd). 종전엔 세션 전체 길이를 종료일에 몰아 넣어, 자정을 걸친 세션에서
             // 사전집계(/stats/focus, 날짜별 분할)와 과목별 합이 어긋났다.
+            // GROMO-1252(코드리뷰 2차 ②): 종료측은 endedAt 이 아니라 완료 시점에 고정된 유효 종료
+            // (stat_end_at, 레거시 row 는 endedAt 폴백)로 자른다. endedAt 을 쓰면 미래 endedAt 위조 세션이
+            // 조회 시점 windowEnd 를 따라 시간이 갈수록 더 계수돼(내일이면 전량) 사전집계 DailyFocusStat
+            // (완료 시점 클램프로 고정)과 다시 어긋난다.
             Instant sliceStart = s.getStartedAt().isAfter(fromInstant) ? s.getStartedAt() : fromInstant;
-            Instant sliceEnd = s.getEndedAt().isBefore(windowEnd) ? s.getEndedAt() : windowEnd;
+            Instant statEnd = s.statEndOrEndedAt();
+            Instant sliceEnd = statEnd.isBefore(windowEnd) ? statEnd : windowEnd;
             // 창이 통째로 미래(클라가 미래 date 를 보내 windowEnd < fromInstant)면 음수가 되므로 0 으로 바닥친다.
             long secs = Math.max(0, Duration.between(sliceStart, sliceEnd).getSeconds());
             // GROMO-673: 태그는 user_focus_tags. 버킷 키는 user_focus_tags.id, 이름은 defaultTag.name.
