@@ -11,6 +11,7 @@ import {
   SettingsToggleRow,
 } from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { useToast } from '@/store/ToastContext';
 import { T } from '@/constants/theme';
 
 // SET·집중 중 허용 앱 관리 화면.
@@ -22,6 +23,7 @@ import { T } from '@/constants/theme';
 
 export default function AllowedAppsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const { show } = useToast();
 
   // 저장된 허용앱 선택 개수. null = 아직 로드 전.
   const [counts, setCounts] = useState<AppSelectionCounts | null>(null);
@@ -116,7 +118,8 @@ export default function AllowedAppsScreen() {
       ) {
         return;
       }
-      Alert.alert('허용앱 변경됨', `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요.`);
+      // 성공 통보(선택지 없음) → 토스트. 실패·확인 알럿은 Alert 그대로 둔다(정책 D8).
+      show({ message: `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요` });
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }
