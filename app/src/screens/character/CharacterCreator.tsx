@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -274,8 +275,13 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
     );
   }
 
+  // 무대(340 고정)+안내 배너+액션이 화면보다 길어질 수 있어 세로 스크롤을 허용한다. 배너는 상황에
+  // 따라 여러 줄·여러 개(에러 + 생성 성공 + 남은 횟수)가 겹쳐 뜨는데, 액션이 marginTop:'auto'로
+  // 바닥에 붙어 있어 작은 기기(SE 등)에서는 '저장' 버튼이 화면 밖으로 밀려 눌리지 않았다.
+  // contentContainer는 flexGrow:1 — 자리가 남을 때는 지금처럼 액션이 바닥에 붙고(레이아웃 동일),
+  // 모자랄 때만 스크롤이 생긴다.
   return (
-    <View style={s.flex1}>
+    <ScrollView style={s.flex1} contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
       {/* 무대 — 단색 배경 + 책상 띠 위에 캐릭터가 선다 */}
       <View style={s.stage}>
         <View style={s.desk} />
@@ -381,12 +387,14 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
           </>
         )}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   flex1: { flex: 1 },
+  // 스크롤 본문 — 자리가 남으면 뷰포트만큼 늘어나 actions의 marginTop:'auto'가 그대로 먹는다.
+  body: { flexGrow: 1 },
   stage: {
     height: STAGE_HEIGHT,
     borderRadius: 20,
