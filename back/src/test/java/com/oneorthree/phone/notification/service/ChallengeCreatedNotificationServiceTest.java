@@ -282,8 +282,8 @@ class ChallengeCreatedNotificationServiceTest {
         given(groupChallengeWindowRepository.findByChallengeIdIn(anyCollection()))
                 .willReturn(List.of(GroupChallengeWindow.builder()
                         .challengeId(CHALLENGE_ID).challenge(challenge)
-                        .windowStartAt(timeOfDay(LocalTime.of(21, 0)))
-                        .windowEndAt(timeOfDay(LocalTime.of(23, 30)))
+                        .windowStart(LocalTime.of(21, 0))
+                        .windowEnd(LocalTime.of(23, 30))
                         .durationMinutes(30)
                         .build()));
 
@@ -337,11 +337,6 @@ class ChallengeCreatedNotificationServiceTest {
 
     private static User user(UUID id) {
         return User.builder().id(id).nickname("유저").deviceToken("token-" + id).build();
-    }
-
-    /** 창 시각은 KST 벽시계 time-of-day 로 해석된다(WindowFocusAggregator.timeOfDay, GROMO-1100). */
-    private static Instant timeOfDay(LocalTime time) {
-        return LocalDate.EPOCH.atTime(time).atZone(ZoneId.of("Asia/Seoul")).toInstant();
     }
 
     private void givenChallenge(GroupChallenge challenge) {

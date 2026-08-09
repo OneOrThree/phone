@@ -111,8 +111,8 @@ class ChallengeWindowEndNotificationServiceTest {
         return GroupChallengeWindow.builder()
                 .challengeId(challenge.getId())
                 .challenge(challenge)
-                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
+                .windowStart(start)
+                .windowEnd(end)
                 .durationMinutes(60)
                 .build();
     }
@@ -298,10 +298,10 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("자정을 걸치는 창(23:00~01:00)은 어제 시작분의 종료를 오늘 새벽에 잡는다")
-    void detectsMidnightCrossingWindow() {
+    @DisplayName("심야 창(23:00~23:59)의 종료도 당일 안에서 잡힌다 — 자정 걸침 창은 V35 이후 존재하지 않는다")
+    void detectsLateNightWindowOnSameDay() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, kstTimeOf(23, 0), kstTimeOf(1, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(23, 0), kstTimeOf(23, 59)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         givenNoSentLogs();
@@ -309,7 +309,7 @@ class ChallengeWindowEndNotificationServiceTest {
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
 
         PushDispatchSummaryResponse summary =
-                service().sendWindowEndNotifications(kst(2026, 8, 2, 1, 10));
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 0, 10));
 
         assertThat(summary.sentCount()).isEqualTo(1);
     }

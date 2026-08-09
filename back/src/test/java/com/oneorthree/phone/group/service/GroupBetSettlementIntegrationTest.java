@@ -135,7 +135,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
                 .build());
         challenges.add(saved);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(goalMinutes).build());
+                .challenge(saved).category(MissionCategory.FOCUS).durationMinutes(goalMinutes).build());
         return saved;
     }
 

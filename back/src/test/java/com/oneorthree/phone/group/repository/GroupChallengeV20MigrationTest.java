@@ -45,6 +45,13 @@ class GroupChallengeV20MigrationTest {
     private static final UUID GROUP_ID = UUID.randomUUID();
     private static final UUID USER_ID = UUID.randomUUID();
 
+    /**
+     * 이 테스트의 종착 스키마 — V33 고정. V34+ 가 이 시대의 전제를 재정의한다(repeat_days·started_at
+     * NOT NULL, 창 컬럼 time 전환·개명, V20 부분 유니크 완화, V28 상한 CHECK 교체). 그 이후 규약은
+     * {@code GroupChallengeV34~V36MigrationTest} 가 잇고, 여기는 해당 마이그레이션 시대의 계약을 지킨다.
+     */
+    private static final MigrationVersion ERA_END = MigrationVersion.fromVersion("33");
+
     @BeforeEach
     void resetSchema() {
         JdbcTemplate jdbcTemplate = jdbcTemplate();
@@ -63,7 +70,7 @@ class GroupChallengeV20MigrationTest {
         UUID latest = insertChallenge(jdbcTemplate, "DURATION", "FOCUS", daysAgo(1));
         UUID otherCombo = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         assertThat(softDeleted(jdbcTemplate, oldest)).isTrue();
         assertThat(softDeleted(jdbcTemplate, middle)).isTrue();
@@ -89,7 +96,7 @@ class GroupChallengeV20MigrationTest {
         insertChallenge(jdbcTemplate, smaller, "DURATION", "FOCUS", sameCreatedAt);
         insertChallenge(jdbcTemplate, larger, "DURATION", "FOCUS", sameCreatedAt);
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         assertThat(softDeleted(jdbcTemplate, smaller)).isTrue();
         assertThat(softDeleted(jdbcTemplate, larger)).isFalse();
@@ -109,7 +116,7 @@ class GroupChallengeV20MigrationTest {
         jdbcTemplate.execute("ALTER TABLE group_challenge_bets"
                 + " RENAME CONSTRAINT group_challenge_bets_status_check TO ck_legacy_renamed_status");
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         insertBet(jdbcTemplate, challengeId, "FORFEITED", LocalDate.of(2026, 8, 1), 30);
         insertBet(jdbcTemplate, challengeId, "CANCELED", LocalDate.of(2026, 8, 2), 30);
@@ -132,7 +139,7 @@ class GroupChallengeV20MigrationTest {
         jdbcTemplate.execute("ALTER TABLE group_challenge_members"
                 + " RENAME CONSTRAINT ukiwe9880osh6noglltq8seipts TO uk_legacy_renamed_member");
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         // 날짜별 보고 1행 — 다른 날짜는 허용, 같은 (챌린지, 유저, 날짜) 는 거부
         insertMember(jdbcTemplate, challengeId, LocalDate.of(2026, 8, 1));
@@ -144,7 +151,7 @@ class GroupChallengeV20MigrationTest {
     @Test
     @DisplayName("창 목표분 — 양수만 허용하고 null 은 기존 창 챌린지(판정불가)로 남는다")
     void addsNullableWindowGoalWithPositiveCheck() {
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroup(jdbcTemplate);
         UUID challengeId = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));

@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -35,19 +36,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 창형 챌린지 생성의 <b>실 JSON 왕복</b> 검증(GROMO-1225) — 요청 windowStart/End 표기 통일.
+ * 창형 챌린지 생성의 <b>실 JSON 왕복</b> 검증(GROMO-1225 · GROMO-1406) — 요청 windowStart/End 표기 통일.
  *
- * <p>요청은 신형 {@code "HH:mm:ss"} 와 구앱 ISO Instant 를 이중 수용하고, 저장은 날짜부를
- * EPOCH(1970-01-01, KST)로 고정한 Instant, 응답은 종전 그대로 KST {@code "HH:mm:ss"} 다.
+ * <p>요청은 신형 {@code "HH:mm:ss"} 와 구앱 ISO Instant 를 이중 수용하고, 저장은 KST 벽시계
+ * {@code time}(V35) 그 자체, 응답은 종전 그대로 KST {@code "HH:mm:ss"} 다.
  * 이 경로는 Jackson 바인딩(문자열 파싱 입구)까지 포함해야 계약이 잠기므로 MockMvc 로
  * 실제 와이어 형식을 태운다 — 서비스 단위 테스트(mock 요청)로는 대체되지 않는 커버리지다.
  */
 @AutoConfigureMockMvc
 class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
 
-    /** EPOCH 앵커 기대값 — 1970-01-01(KST) + 벽시계 시각. */
-    private static final Instant EPOCH_KST_09H = Instant.parse("1970-01-01T09:00:00+09:00");
-    private static final Instant EPOCH_KST_12H = Instant.parse("1970-01-01T12:00:00+09:00");
+    /** 저장 기대값 — KST 벽시계 time 그 자체(V35, 종전 EPOCH 앵커 Instant 규약 폐기). */
+    private static final LocalTime KST_09H = LocalTime.of(9, 0);
+    private static final LocalTime KST_12H = LocalTime.of(12, 0);
 
     @Autowired
     private MockMvc mockMvc;
@@ -119,10 +120,10 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
     void newFormatRoundTrip() throws Exception {
         UUID challengeId = postWindowChallenge("09:00:00", "12:00:00", 60);
 
-        // 저장: 날짜부는 EPOCH(KST)로 고정된다 — 의미는 KST 벽시계 시각뿐.
+        // 저장: KST 벽시계 time 그대로다 — 날짜부 자체가 없다(V35).
         GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
-        assertThat(saved.getWindowStartAt()).isEqualTo(EPOCH_KST_09H);
-        assertThat(saved.getWindowEndAt()).isEqualTo(EPOCH_KST_12H);
+        assertThat(saved.getWindowStart()).isEqualTo(KST_09H);
+        assertThat(saved.getWindowEnd()).isEqualTo(KST_12H);
 
         // 응답: 목록 조회가 같은 시각을 "HH:mm:ss" 로 돌려준다(왕복).
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
@@ -138,10 +139,10 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
         // 구앱이 보내던 형식 그대로 — +09:00 오프셋의 진짜 Instant 문자열.
         UUID challengeId = postWindowChallenge("2026-08-05T09:00:00+09:00", "2026-08-05T12:00:00+09:00", 60);
 
-        // 저장: 구형 경로도 timeOfDay(KST 시각)를 경유해 신형과 같은 EPOCH 앵커 Instant 로 수렴한다.
+        // 저장: 구형 경로도 timeOfDay(KST 시각)를 경유해 신형과 같은 time 값으로 수렴한다.
         GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
-        assertThat(saved.getWindowStartAt()).isEqualTo(EPOCH_KST_09H);
-        assertThat(saved.getWindowEndAt()).isEqualTo(EPOCH_KST_12H);
+        assertThat(saved.getWindowStart()).isEqualTo(KST_09H);
+        assertThat(saved.getWindowEnd()).isEqualTo(KST_12H);
 
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
                         .header("Authorization", bearer()))
@@ -191,19 +192,72 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("자정 걸침 창(시작 > 종료) → 시각이 그대로 보존돼 저장·응답된다")
-    void midnightCrossingPreserved() throws Exception {
-        UUID challengeId = postWindowChallenge("22:00:00", "01:00:00", 180);
-
-        // 저장: 시작·종료 각각 독립 EPOCH 앵커 — 시각 기준 시작 > 종료(자정 걸침)가 그대로 남는다.
-        GroupChallengeWindow saved = groupChallengeWindowRepository.findById(challengeId).orElseThrow();
-        assertThat(saved.getWindowStartAt()).isEqualTo(Instant.parse("1970-01-01T22:00:00+09:00"));
-        assertThat(saved.getWindowEndAt()).isEqualTo(Instant.parse("1970-01-01T01:00:00+09:00"));
+    @DisplayName("자정 걸침 창(22:00~01:00, 시작 > 종료) → 400 INVALID_MISSION_PARAMS — §A6-1 되돌리기(GROMO-1406)")
+    void midnightCrossingRejected() throws Exception {
+        // 종전(PR #545 시점)에는 시각 보존 저장을 정상으로 고정했던 케이스다. N25 로 정책이 뒤집혀
+        // 걸침 창은 생성 자체가 거부된다 — 이 단언을 남겨 두면 다음 사람이 "자정 걸침은 지원 사양"
+        // 이라고 읽는다. 심야 챌린지는 22:00~23:59 처럼 자정 앞에서 끊는다.
+        mockMvc.perform(post("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "durationMinutes":180,"windowStart":"22:00:00","windowEnd":"01:00:00"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_MISSION_PARAMS"));
 
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].windowStart").value("22:00:00"))
-                .andExpect(jsonPath("$[0].windowEnd").value("01:00:00"));
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    @DisplayName("요일 왕복 — repeatDays [MON,WED,FRI] 요청이 응답에 같은 정렬로 돌아오고, 미전송은 매일로 채워진다")
+    void repeatDaysRoundTrip() throws Exception {
+        // 신앱: 요일 명시 — 마스크로 접혀 저장되고 응답에서 같은 배열로 복원된다(GROMO-1260).
+        MvcResult result = mockMvc.perform(post("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":["MON","WED","FRI"],
+                                 "durationMinutes":60,"windowStart":"09:00:00","windowEnd":"12:00:00"}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        createdChallengeIds.add(UUID.fromString(
+                JsonPath.read(result.getResponse().getContentAsString(), "$.id")));
+
+        mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].repeatDays").value(org.hamcrest.Matchers.contains("MON", "WED", "FRI")))
+                .andExpect(jsonPath("$[0].startedAt").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("repeatDays 미전송(구앱) → 매일(7요일 전부)로 저장·응답, 빈 배열(신앱 미선택) → 400")
+    void repeatDaysLegacyDefaultAndEmptyRejected() throws Exception {
+        // 구앱: 필드 미전송 — 서버가 매일(127)로 접는다.
+        postWindowChallenge("09:00:00", "12:00:00", 60);
+        mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].repeatDays").value(org.hamcrest.Matchers.contains(
+                        "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")));
+
+        // 신앱: 빈 배열 — 기본값 없음 원칙(§A3)대로 400.
+        mockMvc.perform(post("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":[],
+                                 "durationMinutes":60,"windowStart":"14:00:00","windowEnd":"16:00:00"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CHALLENGE_REPEAT_DAYS_REQUIRED"));
     }
 }

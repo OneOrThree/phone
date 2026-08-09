@@ -143,8 +143,10 @@ public class ChallengeWindowEndNotificationService {
     }
 
     /**
-     * 오늘(KST) 창 종료가 방금 지났는지. 자정을 걸치는 창은 어제 시작분의 종료가 오늘 새벽이므로
-     * 어제·오늘 두 날짜를 모두 후보로 본다. 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
+     * 오늘(KST) 창 종료가 방금 지났는지. 자정 걸침 금지(§A6-1 · GROMO-1406)로 창 종료는 항상
+     * 회차일 당일이지만, <b>감지 틱이 자정을 넘을 수 있다</b> — 23:59 에 끝난 창을 00:10 틱이
+     * 잡으려면 어제 날짜의 종료도 후보로 봐야 한다(창의 D+1 해석과는 무관한 틱 지연 보정).
+     * 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
      */
     private Optional<Instant> justEndedAt(GroupChallenge challenge, GroupChallengeWindow window,
             Instant now) {
