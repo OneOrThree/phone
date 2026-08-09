@@ -232,7 +232,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
                   "progressMinutes": 102 }]
   },
   "mySettledSessions": [                 // 결과 모달 큐 — 내가 참가한 정산 완료 회차,
-    /* lastSettledSession과 같은 요소 스키마 */  // 회차일 내림차순 · 최대 10건
+    /* lastSettledSession과 같은 요소 스키마 */  // 회차일 내림차순 · 최근 30일 · 최대 10건
   ]
 }]
 ```
@@ -241,8 +241,10 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 표시용 **그룹 기준 최신 1건**, 후자는 결과 모달 큐용 **내 참가 회차 목록**이다. 최신 1건으로
 > 모달을 만들면 ① 내가 참가 안 한 최신 회차가 그 앞의 내 결과를 가리고 ② 앱을 안 연 사이
 > 정산된 내 회차 여럿이 1건으로 접힌다. 1회 가드는 앱 로컬 seen set(`sessionId`)이 담당하고,
-> 서버는 seen 상태를 모른다. **10건 초과분은 버린다** — 열흘 넘게 안 본 결과까지 모달로
-> 줄 세우지 않는다(수용).
+> 서버는 seen 상태를 모른다. **최근 30일·최대 10건 초과분은 버린다** — 한 달 넘게 안 본
+> 결과까지 모달로 줄 세우지 않는다(수용). 30일 경계는 앱 seen 마커 프루닝(60일 — IA §8)보다
+> **짧아야 한다**: 서버가 마커 수명보다 오래된 회차를 계속 실어주면, 프루닝된 회차가 이미 본
+> 모달로 재생된다.
 
 > **`activeToday` / `nextSessionAt` 계약**: 둘은 **배타가 아니라 보완**이다.
 > `nextSessionAt`은 항상 **오늘을 제외한** 다음 활성일을 가리킨다(`RepeatSchedule.next()`).
@@ -352,6 +354,14 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 }
 ```
 
+> **lazy 개설과의 직렬화**: 참여 경로(`join-week`의 `ensureSession`, 단건 참여의 회차 조회)는
+> **챌린지 행 `FOR SHARE` + 활성 재확인** 후에만 진행한다 (§2.2). 이 락이 없으면 join-week이
+> 챌린지를 활성으로 읽고 아직 커밋하기 전에 삭제가 먼저 커밋될 수 있다 — 삭제의 OPEN 회차
+> 스캔(`FOR UPDATE`)은 **미커밋 lazy 회차를 볼 수 없어** 환불 루프에서 빠지고, 뒤이어 커밋된
+> 참가는 삭제된 챌린지에 참가비가 걸린 **고아 OPEN 회차**가 된다. 챌린지 행에서
+> `FOR UPDATE`(삭제) × `FOR SHARE`(참여)가 충돌해 직렬화되고, 참여 쪽은 락 획득 후 활성
+> 재확인으로 삭제 선행 커밋을 감지한다.
+
 **204**. 응답 없음. 앱은 삭제 후 목록을 다시 받는다.
 
 | 조건 | 결과 |
@@ -438,6 +448,12 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 **`join-week` 응답**: `{ "joined": [{"sessionId": "...", "sessionDate": "..."}], "totalStake": 90 }`
 
 - 대상은 `RepeatSchedule.remainingThisWeek(mask, 오늘)` — 오늘 포함, 그 주(월~일)의 남은 활성일.
+  단 **배치에 담는 건 "지금 참여 가능한 미참가 회차"만이다** (N39): 오늘 회차가 이미 참가
+  마감됐거나(창 시작 후) 자격 가드(§3.3)에 걸리면 **조용히 건너뛴다**. 전부-성공-or-전부-실패에
+  참여 불가능한 오늘을 그대로 담으면, 수요일 창 시작 후의 수/금 예약이 수요일에서 터져
+  **금요일 예약까지 롤백**된다 — "이미 참가는 스킵"과 같은 원리다.
+- `ensureSession`은 **챌린지 행 `FOR SHARE` + 활성 재확인** 후에만 회차를 만든다(단건 참여의
+  회차 조회도 동일) — 삭제와의 직렬화는 §2.1 DELETE 참조.
 - **남은 회차가 1개 이하면 앱이 버튼을 숨긴다** (단건 참여와 같아져 의미가 없다).
 - **미래 회차에는 무위험 참가 검사를 하지 않는다** — 진행분이 없어 "이미 달성/초과"가 성립 불가.
   오늘 회차에만 적용한다.
@@ -549,6 +565,10 @@ record Target(MissionCategory category, MissionType type, int goalMinutes,
 
 **모든 `date` 키는 KST다.** `CountryZoneResolver`는 이 경로에 등장하지 않는다.
 **초→분 변환은 `/ 60` 내림**. 유저·날짜당 1행이지만 중복 시 `Integer::max`로 방어.
+
+> **`sumOverlapSecondsInWindow`는 완료 세션만 계수**한다(`ended_at IS NOT NULL` + 취소·자동
+> 마감 status 제외 — 현행 쿼리 관례). 창을 걸쳐 아직 도는 세션은 0분으로 보이므로, **정산은
+> 창 겹침 ACTIVE 세션이 남아 있으면 대기**한다 (§5.2 N37).
 
 ### 3.2 판정 함수 — 유일한 소유자
 
@@ -745,12 +765,20 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
 **전원 확정 시 즉시 정산 — 단 참가 마감 이후에만.**
 
 ```java
-// confirmWin 후
-if (Instant.now().isBefore(session.getJoinClosesAt())) return;   // ← 생략하면 안 된다
-if (participantRepo.countUnconfirmed(sessionId) > 0) return;
-events.publishAfterCommit(new SettleNowEvent(sessionId));
-// 핸들러: settle(sessionId, EARLY) — 그레이스 가드 우회 (§5.2)
+// 전원 확정 검사는 confirmWin 트랜잭션 안이 아니라 AFTER_COMMIT 리스너에서 한다
+@TransactionalEventListener(phase = AFTER_COMMIT)      // confirmWin이 발행한 BetWonEvent
+void onBetWon(BetWonEvent e) {
+    var session = sessionRepo.findById(e.sessionId()).orElseThrow();
+    if (Instant.now().isBefore(session.getJoinClosesAt())) return;   // ← 생략하면 안 된다
+    if (participantRepo.countUnconfirmed(e.sessionId()) > 0) return; // 커밋된 상태 기준
+    settlement.settle(e.sessionId(), EARLY);           // 그레이스 가드 우회 (§5.2)
+}
 ```
+
+> **왜 트랜잭션 밖 검사인가**: 마지막 두 명이 **동시에** 확정되면, 각 트랜잭션 안의
+> `countUnconfirmed`가 서로의 미커밋 행을 미확정으로 보고 **둘 다 발행을 건너뛴다**(write
+> skew) — 이후 재검사 경로가 없어 조기 정산이 조용히 크론 대기로 강등된다. 커밋 후
+> 재검사면 늦게 커밋한 쪽 리스너가 반드시 전원 확정을 본다.
 
 **참가 마감 가드가 없으면 회차가 조기에 닫힌다.** 하루형은 참가 마감이 자정(= 회차 종료)이라
 "전원 확정"이 성립해도 **아직 들어올 사람이 남아 있다.** 오전에 참가자 2명이 모두 목표를
@@ -779,6 +807,8 @@ void settle(UUID sessionId, SettleTrigger trigger) {
     if (s.getStatus() != OPEN) return;                            // 순차 재실행 스킵
     if (trigger != EARLY                                          // 조기 정산만 그레이스 우회 (§5.1)
         && Instant.now().isBefore(s.getSettleAfter())) return;    // 그레이스 미경과
+    if (trigger != EARLY && s.isWindowed()                        // 창 겹침 ACTIVE 세션 대기 (N37)
+        && focusSessionRepo.existsActiveOverlapping(userIdsOf(s), windowOf(s))) return;
 
     var participants = participantRepo.findBySessionId(sessionId); // 락 이후 읽기
     if (participants.size() < 2) { voidSession(s, participants, SHORT_PARTICIPANTS); return; }
@@ -803,6 +833,16 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 > 매기면 잔여가 엉뚱한 승자에게 간다. `achieved` 플래그만 불가역이고 진행분은 정산 시점
 > 최종값이다.
 
+> **창 겹침 ACTIVE 세션 대기 (N37)**: `sumOverlapSecondsInWindow`는 **완료 세션만** 계수한다
+> (`ended_at IS NOT NULL` — 취소·자동마감 제외 관례, §3.1). 창을 걸쳐 **아직 도는** 세션
+> (11:30~13:00, 창 ~12:00)은 12:30 정산 시점에 창 안 30분이 0분으로 굳는다 — 정산은
+> 불가역(B8)이라 승자가 패자로 확정될 수 있다. 그래서 CRON/MANUAL 정산은 참가자의 창 겹침
+> ACTIVE 세션이 남아 있으면 **이번 틱을 스킵**하고 다음 5분 크론이 재시도한다 — 세션
+> 종료·자동 마감이 대기 상한이고 24h 환불이 최후 방어선이다. 잠정 클리핑으로 포함하지 않는
+> 이유: 정산 후 취소되면 "취소 세션 제외" 관례가 깨지는데 정산은 되돌릴 수 없다 — 가짜
+> 세션을 걸쳐두고 정산 직후 취소하는 악용이 열린다. `EARLY`는 전원 확정 후라 승패가 이미
+> 닫혔고 잔여 순위만 시점값 수용(N32) — 대기하지 않는다.
+
 #### 트랜잭션 경계
 
 | 경계 | 범위 |
@@ -821,18 +861,29 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
 void retryDueSessions() {
     for (var s : sessionRepo.findDue(Instant.now())) {            // status=OPEN AND settle_after ≤ now
-        if (Duration.between(s.getSettleAfter(), Instant.now()).toHours() >= 24) {
-            settlement.refundAll(s.getId());                      // REFUNDED — 정산 시도보다 먼저!
-            log.error("회차 자동 환불 — 24h 초과, sessionId={}", s.getId());
-            continue;
+        try {                                                     // 실패는 건별 격리 (E3) —
+            if (Duration.between(s.getSettleAfter(), Instant.now()).toHours() >= 24) {
+                settlement.refundAll(s.getId());                  // REFUNDED — 정산 시도보다 먼저!
+                log.error("회차 자동 환불 — 24h 초과, sessionId={}", s.getId());
+            } else {
+                settlement.settle(s.getId(), CRON);
+            }
+        } catch (Exception e) {
+            sessionRepo.incrementAttempts(s.getId());             // @Modifying UPDATE — 아래 참조
         }
-        try { settlement.settle(s.getId(), CRON); }
-        catch (Exception e) { s.incrementAttempts(); }
     }
 }
 ```
 
 백오프는 `settle_attempts`로 근사한다(5m 크론 × 시도 횟수 임계). 24h는 `settle_after` 기준이다.
+
+> **`refundAll`도 같은 격리 경계 안이다** — try 밖에 두면 첫 항목의 환불이 지갑 충돌 등으로
+> 계속 실패할 때 루프가 통째로 끊겨, **뒤의 무관한 회차들까지** 정산·환불이 밀린다.
+> "회차 1건 = 실패 격리 1건"(E3)은 환불 분기에도 적용된다.
+>
+> **시도 횟수는 리포지토리 UPDATE로 올린다** — 이 스케줄러 빈은 의도적으로 무트랜잭션이라
+> `findDue`가 돌려준 엔티티는 detached다. `s.incrementAttempts()`처럼 필드만 바꾸면 flush될
+> 트랜잭션이 없어 **영영 저장되지 않고**, 백오프가 전진하지 못해 5분마다 무한 재시도한다.
 
 > **24h 검사를 정산 시도보다 먼저 하는 이유**: 검사가 catch 블록 안에만 있으면 ① 스케줄러가
 > 24h 넘게 죽었다 살아난 경우(예외가 난 적이 없다) ② 데드라인 직후 의존성이 회복된 경우,
@@ -872,7 +923,6 @@ classDiagram
     class GroupChallengeController {
         +list(gid, date)
         +create(gid, req)
-        +patch(gid, cid, req)
         +end(gid, cid)
         +delete(gid, cid)
         +listEnded(gid, cursor, size)

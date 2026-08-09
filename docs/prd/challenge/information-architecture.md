@@ -618,7 +618,7 @@ flowchart TB
 
 | 키 | 형태 | 수명 | 용도 |
 |---|---|---|---|
-| `gromo:sessionResult:{sessionId}` | `'1'` | 30일 지나면 앱 시작 시 prune | 결과 모달 1회 노출 가드 |
+| `gromo:sessionResult:{sessionId}` | `'1'` | **60일** 지나면 앱 시작 시 prune — 서버 큐(`mySettledSessions`)가 **최근 30일** 경계라 마커가 항상 더 오래 산다. 30일 prune이면 주 1회 챌린지에서 마커가 먼저 지워진 회차가 **이미 본 모달로 재생**된다 | 결과 모달 1회 노출 가드 |
 | `gromo:screentime:windowReports` | `{userId, finals[], last{}}` | 어제 기준 prune | 창 보고 중복 방지 + 최종 1회 보장 |
 | `gromo:screentime:bucketMonitorRegistered` | `userId` | — | 버킷 모니터 소유자 확인 |
 | `gromo:focus:pendingUploads` | `[{userId, body}]` | 최대 50건 | 집중 세션 업로드 재시도 큐 (사일런트 푸시가 flush) |
