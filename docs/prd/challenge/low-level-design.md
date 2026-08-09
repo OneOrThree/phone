@@ -428,7 +428,7 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 **미션 스냅샷이 없으면 이 응답을 만들 수 없다.** 챌린지 행이 사라진 뒤 `challenge_id`로 조인하면
 빈 값이 나온다 — 그래서 §1.1에서 회차에 카테고리·방식·목표·창 시각을 복사해 둔다.
 
-#### `PUT /groups/{groupId}/challenges/{challengeId}/window-usage` — 멤버
+#### `PUT /groups/{groupId}/challenges/{challengeId}/window-usage` — 멤버 **+ 시작된 회차의 참가자**
 
 ```jsonc
 { "usageDate": "2026-08-10", "progressMinutes": 24, "measuredAt": "2026-08-10T14:03:00Z" }
@@ -443,6 +443,17 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 서버는 범위(0~1440)만 검증한다(클라 신뢰).
 **비활성 요일의 보고는 무시**한다 (`CHALLENGE_NOT_ACTIVE_TODAY` 대신 조용히 204 — 클라가
 요일을 잘못 계산해도 에러가 나면 안 된다).
+
+> **탈퇴자도 시작된 회차에는 보고할 수 있어야 한다 (N43).** C8·N19에 따라 **시작된 회차의
+> 참가자는 탈퇴해도 정산 대상으로 남는데**, 이 엔드포인트가 현재 그룹 멤버만 받으면 그 사람은
+> 마지막 창 사용분을 **영영 보낼 수 없다**. SCREEN_TIME은 미보고 = 미달성(§3.2)이라 목표를
+> 지켰어도 **패배로 확정**된다 — 돈이 걸린 채로.
+>
+> | 축 | 규칙 |
+> |---|---|
+> | 서버 권한 | 그룹 멤버 **또는** 해당 챌린지의 **OPEN 회차 참가자**면 받는다 |
+> | 앱 대상 탐색 | `getMyGroups()` → 그룹별 ACTIVE 챌린지 순회만으로는 못 찾는다(탈퇴 즉시 목록에서 사라지고, 종료된 챌린지의 진행 중 회차도 빠진다). **내 OPEN 회차 목록**을 축으로 대상을 만든다 |
+> | 종료 시점 | 회차가 닫히면(`closes_at` 경과) 보고 대상에서 빠진다 — 권한 확장은 진행 중 회차에 한정 |
 
 ### 2.2 회차 참여
 
@@ -883,7 +894,9 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 // 끝에 풀리고, 정산·지급의 원자 경계가 사라진다.
 @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
 void retryDueSessions() {
-    // status=OPEN AND settle_after ≤ now AND (next_attempt_at IS NULL OR next_attempt_at ≤ now)
+    // status=OPEN AND settle_after ≤ now
+    //   AND (next_attempt_at IS NULL OR next_attempt_at ≤ now       -- 백오프 경과분
+    //        OR settle_after ≤ now - 24h)                           -- 환불 대상은 백오프 무시
     for (var s : sessionRepo.findDue(Instant.now())) {
         try {                                                     // 실패는 건별 격리 (E3) —
             if (Duration.between(s.getSettleAfter(), Instant.now()).toHours() >= 24) {
@@ -894,24 +907,32 @@ void retryDueSessions() {
             }
         } catch (Exception e) {
             // 시도 횟수 +1 과 다음 시도 시각을 같은 UPDATE 로 기록 (@Modifying — 아래 참조)
-            sessionRepo.recordFailure(s.getId(), nextAttemptAt(s.getSettleAttempts() + 1));
+            sessionRepo.recordFailure(s.getId(), nextAttemptAt(s, s.getSettleAttempts() + 1));
         }
     }
 }
 
-/** 백오프 단계 — 5m · 15m · 1h · 4h, 이후 4h 고정. 24h 상한은 settle_after 기준으로 별도. */
-static Instant nextAttemptAt(int attempts) {
+/** 백오프 단계 — 5m · 15m · 1h · 4h, 이후 4h 고정. 단 24h 환불 데드라인을 넘기지 않는다. */
+static Instant nextAttemptAt(BetSession s, int attempts) {
     Duration d = switch (attempts) {
         case 1 -> Duration.ofMinutes(5);
         case 2 -> Duration.ofMinutes(15);
         case 3 -> Duration.ofHours(1);
         default -> Duration.ofHours(4);
     };
-    return Instant.now().plus(d);
+    Instant next = Instant.now().plus(d);
+    Instant deadline = s.getSettleAfter().plus(REFUND_DEADLINE);   // settle_after + 24h
+    return next.isAfter(deadline) ? deadline : next;               // 데드라인에서 자른다
 }
 ```
 
 24h는 `settle_after` 기준이다 — 백오프 단계와 무관하게 시각으로 끊는다.
+
+> **백오프가 24h 데드라인을 가리면 안 된다**: `next_attempt_at` 술어만 두면 백오프가 데드라인을
+> 건너뛴다 — `settle_after + 21h`에 실패하면 다음 시도가 `+25h`로 잡히고, **`+24h` 시점 스캔에
+> 그 회차가 없어** 참가비가 하드 SLO를 넘겨 동결된다. 두 겹으로 막는다: ① 다음 시도 시각을
+> 데드라인에서 **캡**하고 ② 선택 술어에 `settle_after ≤ now − 24h`를 **OR**로 넣어 백오프와
+> 무관하게 환불 대상을 집는다. N21은 시각에 걸린 약속이므로 어떤 재시도 정책도 이를 늦출 수 없다.
 
 > **`refundAll`도 같은 격리 경계 안이다** — try 밖에 두면 첫 항목의 환불이 지갑 충돌 등으로
 > 계속 실패할 때 루프가 통째로 끊겨, **뒤의 무관한 회차들까지** 정산·환불이 밀린다.
@@ -1056,7 +1077,7 @@ classDiagram
 | `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — 각 챌린지의 `mySettledSessions`를 합쳐 회차일 내림차순 정렬 후 로컬 seen set(`sessionId`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |
 | `pendingFocusUploads.ts` | 업로드 재시도 큐 | **사일런트 푸시 수신 시 flush 추가** |
-| `screentimeSync.ts` | 일·창 사용분 보고 | 비활성 요일 스킵 |
+| `screentimeSync.ts` | 일·창 사용분 보고 | 비활성 요일 스킵 · **보고 대상 탐색축 교체** — `getMyGroups()`→그룹별 ACTIVE 챌린지 순회에서 **내 OPEN 회차 목록** 기준으로 (탈퇴·챌린지 종료 후에도 진행 중 회차엔 보고해야 한다 — N43) |
 
 **사일런트 푸시 수신 배선**
 
