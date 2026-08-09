@@ -1114,7 +1114,7 @@ class StatsServiceTest {
         UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
         Instant base = Instant.parse("2026-07-03T01:00:00Z");
         FocusSession paused = session(base, base.plusSeconds(3600), tagA);
-        paused.end(base.plusSeconds(3600), 900);
+        paused.end(base.plusSeconds(3600), 900, base.plusSeconds(3600));
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
@@ -1137,7 +1137,7 @@ class StatsServiceTest {
         // FIXED_TODAY(KST) 자정 = 전날 15:00Z. 세션 14:30Z~15:30Z → 창 안 겹침은 뒤쪽 30분.
         Instant windowStart = FIXED_TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant();
         FocusSession straddler = session(windowStart.minusSeconds(1800), windowStart.plusSeconds(1800), tagA);
-        straddler.end(windowStart.plusSeconds(1800), 720);
+        straddler.end(windowStart.plusSeconds(1800), 720, windowStart.plusSeconds(1800));
 
         given(userRepository.getReferenceById(USER_ID)).willReturn(user);
         given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))

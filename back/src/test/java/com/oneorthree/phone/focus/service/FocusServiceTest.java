@@ -1854,11 +1854,14 @@ class FocusServiceTest {
     @DisplayName("1252-①: PATCH 종료 경로도 날짜별 분포를 그대로 쓴다")
     void endFocusSession_usesClientSecondsByDate() {
         User krUser = givenKrUserWithEmptyStats();
+        // endedAt 은 1214 의 clampToServerNow 창([now-5분, now]) 안이어야 그대로 수용된다 — 고정 과거 시각을
+        // 쓰면 서버 시각으로 대체돼 스텁과 어긋난다. startedAt(마커 생성분)은 클램프 대상이 아니라 그대로 둔다.
+        Instant endedAt = withinClampWindow(10);
         FocusSession session = FocusSession.builder().id(SESSION_ID).user(krUser).startedAt(CROSS_START).build();
         given(focusSessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session));
-        given(focusSessionRepository.endSessionIfActive(SESSION_ID, CROSS_END)).willReturn(1);
+        given(focusSessionRepository.endSessionIfActive(SESSION_ID, endedAt)).willReturn(1);
 
-        focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, CROSS_END, 0, null,
+        focusService.endFocusSession(USER_ID, new FocusSessionEndRequest(SESSION_ID, endedAt, 0, null,
                 Map.of(CROSS_D1, 300, CROSS_D2, 300)));
 
         assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 300, CROSS_D2, 300));
