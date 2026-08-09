@@ -342,6 +342,22 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 있다. 남의 돈이 걸린 회차를 그룹장이 접을 수 없게 하는 것이 맞다. 에러 문구가 언제까지
 > 기다려야 하는지 말한다 — <code>8/14(금) 회차가 끝나야 종료할 수 있어요</code>
 
+#### `GET /groups/{groupId}/challenges/{challengeId}/deletion-preview` — 그룹장 전용
+
+삭제 경고에 쓸 **영향 범위 프리플라이트** (N49 · 기존 미해결 **K11** 해소).
+
+```jsonc
+{ "openSessions": [                     // 예약된 미래 회차까지 전부
+    { "sessionDate": "2026-08-10", "participantCount": 3, "pot": 90 },
+    { "sessionDate": "2026-08-12", "participantCount": 2, "pot": 60 }
+  ],
+  "totalRefund": 150 }                  // 무효화 시 돌려줄 총액
+```
+
+카드 조회의 `bet.session`은 **오늘 회차 1건**뿐이라 `join-week`로 예약된 미래 회차가 빠진다 —
+그 상태로 경고를 그리면 그룹장이 **뒤에 걸린 남의 돈을 못 본 채** 삭제를 확정하게 된다.
+FR-12-1이 요구하는 "걸려 있는 **모든** OPEN 회차의 인원·적립금"은 이 응답으로 만든다.
+
 #### `DELETE /groups/{groupId}/challenges/{challengeId}` — 그룹장 전용
 
 **조건 없이 언제든 가능하다.** 진행 중인 회차가 있으면 무효화하고 전원에게 환불한다.
@@ -403,7 +419,7 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 |---|---|
 | 서버 게이트 | **없다** — `DELETE`는 확인 단계 수와 무관하게 조건 없이 받는다. 경고는 오탭 방어이지 권한 검사가 아니다 |
 | 수치 출처 | OPEN 회차의 `sessionDate` · `participants.length` · `pot` |
-| **미해결** | 카드 조회의 `bet.session`은 **오늘 회차 1건**뿐이라 주간 일괄 참여로 예약된 미래 OPEN 회차가 덮이지 않는다. 프리플라이트를 두는지 카드 응답을 늘리는지 미정 (PRD §4.0.7 K11) |
+| 수치 출처 | **`deletion-preview` 프리플라이트**(§2.1) — 예약된 미래 OPEN 회차까지 전부. 카드의 `bet.session`은 오늘 1건뿐이라 쓸 수 없다 (K11 해소 · N49) |
 
 #### `GET /groups/{groupId}/challenge-history`
 
@@ -457,6 +473,11 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 앱은 실패 처리했지만 요청이 서버에 지연 도착하는 경우. "마지막 도착이 이긴다"로 두면
 **정산 결과가 네트워크 도착 순서에 좌우**된다 — 돈 경로다.
 서버는 범위(0~1440)만 검증한다(클라 신뢰).
+**`usageDate`는 내가 참가한 그 챌린지의 `OPEN` 회차 날짜여야 한다.** 활성 요일인지만 보면
+클라가 **미래 활성일에 낮은 값을 미리 심을** 수 있고, 그 뒤 덮어쓰는 보고가 없으면 그대로
+정산에 쓰여 스크린타임 회차를 부당하게 이긴다. 회차가 없거나 이미 정산됐으면 조용히 204로
+무시한다(에러로 만들지 않는 이유는 아래와 같다).
+
 **비활성 요일의 보고는 무시**한다 (`CHALLENGE_NOT_ACTIVE_TODAY` 대신 조용히 204 — 클라가
 요일을 잘못 계산해도 에러가 나면 안 된다).
 
@@ -487,7 +508,7 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
     "sessionId": "uuid", "groupId": "uuid", "challengeId": "uuid",
     "sessionDate": "2026-08-10",
     "missionCategory": "SCREEN_TIME", "missionType": "TIME_WINDOW",
-    "goalMinutes": 30, "windowStart": "22:00", "windowEnd": "24:00",  // 미션 스냅샷
+    "goalMinutes": 30, "windowStart": "22:00", "windowEnd": "23:59",  // 미션 스냅샷 (같은 날 최대 23:59)
     "closesAt": "...", "settleAfter": "..."                            // 보고 마감 판단용
 }] }
 ```
@@ -557,6 +578,7 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
 | `BET_SESSION_NOT_FOUND` | 404 | 회차 없음 / 그룹 불일치 | 참여·취소 |
 | `BET_SESSION_CLOSED` | 409 | `now ≥ join_closes_at` (참가 마감) | 참여 |
 | `BET_ALREADY_JOINED` | 409 | 이미 참가 | 참여 |
+| `BET_SCREENTIME_PERMISSION_REQUIRED` | 409 | **SCREEN_TIME** 회차인데 스크린타임 권한 미허용 (N50) | 참여 |
 | `BET_ALREADY_ACHIEVED` | 409 | **FOCUS** 이미 달성 | 참여 |
 | `BET_ALREADY_FAILED` | 409 | **SCREEN_TIME** 이미 목표 초과 | 참여 |
 | `BET_NOT_OPEN` | 409 | 회차가 이미 종료 / CAS 레이스 패배 | 참여·취소 |
@@ -676,6 +698,15 @@ public static boolean isAchieved(Target t, Integer minutes) {
 > (§2.1 검증 7) 눈금과 경계를 정렬한다.
 
 ### 3.3 참가 자격 가드 — 방향이 반대다
+
+**권한 가드가 먼저다 (N50).** `join`·`join-next`·`join-week` **세 경로 모두**, SCREEN_TIME
+회차면 차감 전에 `UserScreenTimeSettings.screenTimePermissionGranted`를 확인하고 없으면
+`BET_SCREENTIME_PERMISSION_REQUIRED` 409로 막는다. 카드의 `canParticipate=false`는 **표시일
+뿐** 계약이 아니다 — 구버전 앱이나 권한을 방금 회수한 기기는 그대로 참가를 호출할 수 있고,
+그러면 **보고할 수단이 없는 사람이 참가비를 내고 미보고 = 미달성으로 확정 패배**한다.
+같은 트랜잭션에서 검사해야 차감과 원자적이다.
+
+
 
 ```java
 private void requireEligibleToStake(Target t, UUID userId, LocalDate date) {
