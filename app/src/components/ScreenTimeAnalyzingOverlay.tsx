@@ -8,6 +8,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 
 // 분석 연출 타이밍 — 기본 2초에 90%까지 리니어하게 찬 뒤, 마지막에 잠깐 멈춰 100%로.
@@ -15,6 +16,13 @@ import { T } from '@/constants/theme';
 // 익스텐션 내부 렌더라 로드 완료 신호가 JS로 오지 않아 진행바는 시간 기반이다.
 // 레이어를 실제로 걷는 시점은 화면마다 다르다 — 온보딩은 ANALYZE_MS 타이머로 CTA를
 // 노출하고, 홈 상세는 리포트가 다 그려지면 그 불투명 배경이 이 레이어를 덮는다.
+//
+// ⚠️ 아래 3개는 **모션 토큰(M.dur)으로 승격하지 않는다** (GROMO-1381 컨트랙트 §4).
+//    연출 시간이 아니라 네이티브 리포트 렌더를 기다리는 **가드 타임**이다. 모션 톤을 조정하려고
+//    M.dur을 손대는 날, 이 값까지 같이 움직이면 리포트가 다 그려지기 전에 레이어가 걷혀
+//    빈 화면이 노출된다. 톤과 무관한 값이므로 로컬 상수로 남긴다.
+// ⚠️ 같은 이유로 '동작 줄이기'에서도 **가드 타임 자체는 그대로 흐른다.** 없앨 수 있는 건
+//    진행바의 시각 효과뿐이다(ANALYZE_MS를 소비하는 호출부 타이머는 건드리지 않는다).
 const FILL_MS = 2000; // 0 → 90%
 const HOLD_MS = 900; // 90%에서 멈춤(가드 타임)
 const FINISH_MS = 300; // 90% → 100%
@@ -41,13 +49,21 @@ export default function ScreenTimeAnalyzingOverlay({
   covered = false,
 }: Props) {
   const progress = useSharedValue(0);
+  const m = useMotion();
 
   useEffect(() => {
+    // '동작 줄이기'면 차오르는 연출 없이 즉시 100%. 진행바는 "기다리는 중"의 표시일 뿐이고,
+    // 실제 대기는 호출부의 ANALYZE_MS 타이머가 담당하므로 여기를 즉시 채워도 흐름은 같다.
+    if (m.reduce) {
+      progress.value = 1;
+      return;
+    }
     progress.value = withSequence(
       withTiming(0.9, { duration: FILL_MS, easing: Easing.linear }),
       withDelay(HOLD_MS, withTiming(1, { duration: FINISH_MS, easing: Easing.out(Easing.cubic) })),
     );
-  }, [progress]);
+    // ⚠️ m.reduce를 의존성에 포함 — 재생 도중 설정이 켜져도 90%에서 굳지 않게 한다.
+  }, [progress, m.reduce]);
 
   const fill = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 

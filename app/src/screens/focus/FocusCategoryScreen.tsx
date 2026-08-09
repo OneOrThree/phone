@@ -28,6 +28,7 @@ import type { FocusTimerMode, PomodoroConfig, Subject } from './types';
 import { DraggableSubjectRows } from './components/DraggableSubjectRows';
 import { TimerMethodSheet } from './components/TimerMethodSheet';
 import { SLIDE_MS } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 import { CountdownSetupSheet } from './components/CountdownSetupSheet';
 import { PomodoroSetupSheet } from './components/PomodoroSetupSheet';
 import {
@@ -127,6 +128,9 @@ export default function FocusCategoryScreen() {
 
   // 다른 과목을 고르면 유리 알약 슬라이드(GROMO-848)가 보이도록 시트를 슬라이드 뒤에 연다.
   // 같은 과목 재탭은 이동이 없으니 바로 연다. 언마운트 시 예약 취소는 아래 useEffect.
+  // ⚠️ 알약을 실제로 그리는 건 DraggableSubjectRows다(glassSlide). 연출과 이 대기 타이머는
+  //    한 쌍이라 '동작 줄이기' 처리도 짝을 맞춰야 한다 — 아래 m.delay 참고.
+  const m = useMotion();
   const methodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 예약된 시트 열기 취소 — 어느 분기든 새 인터랙션(재탭·팝오버)이 시작되면 먼저 부른다.
   // 스테일 콜백이 남으면 닫은 시트가 뒤늦게 다시 열린다(코덱스 리뷰, PR 301).
@@ -146,10 +150,16 @@ export default function FocusCategoryScreen() {
       setSheet('method');
       return;
     }
-    methodTimer.current = setTimeout(() => {
-      methodTimer.current = null;
-      setSheet('method');
-    }, SLIDE_MS + 60);
+    // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
+    // 놓이므로 기다릴 연출이 없다. m.delay는 0을 돌려줄 뿐 setTimeout은 남으므로,
+    // 예약 취소(cancelPendingMethodSheet)·스테일 콜백 방어가 그대로 성립한다.
+    methodTimer.current = setTimeout(
+      () => {
+        methodTimer.current = null;
+        setSheet('method');
+      },
+      m.delay(SLIDE_MS + 60),
+    );
   }
 
   function editSubject(sub: Subject) {
@@ -256,12 +266,12 @@ export default function FocusCategoryScreen() {
         onOpenColor={(id, a) => {
           cancelPendingMethodSheet(); // 팝오버 위로 예약 시트가 뒤늦게 뜨는 것 방지
           setMenu(null);
-          setColorMenu((m) => (m?.id === id ? null : { id, ...a }));
+          setColorMenu((prev) => (prev?.id === id ? null : { id, ...a }));
         }}
         onOpenMenu={(id, a) => {
           cancelPendingMethodSheet();
           setColorMenu(null);
-          setMenu((m) => (m?.id === id ? null : { id, ...a }));
+          setMenu((prev) => (prev?.id === id ? null : { id, ...a }));
         }}
         footer={
           <>

@@ -16,6 +16,7 @@ import { playTapSound } from '@/utils/sound';
 import { hmsCompact } from '../format';
 import type { Subject } from '../types';
 import { glassSlide, glassPill } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 
 // 순수 RN(PanResponder+Animated) 드래그 정렬 리스트.
 // ⋮ 를 잡고 위아래로 움직이면 순서 변경. 화면 가장자리 근처로 끌면 자동 스크롤.
@@ -50,6 +51,8 @@ export function DraggableSubjectRows({
   // 화면이 SafeAreaView edges={['top']}이라 하단 인셋은 여기서 직접 챙긴다 —
   // 없으면 끝까지 스크롤해도 footer(새 과목 추가)가 홈 인디케이터에 가려 잘린다(GROMO-886).
   const insets = useSafeAreaInsets();
+  // '동작 줄이기'면 선택 알약이 미끄러지지 않고 활성 행에 즉시 놓인다(위치·표시는 그대로).
+  const m = useMotion();
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const viewportH = useRef(0); // 스크롤 보이는 높이
@@ -302,7 +305,7 @@ export function DraggableSubjectRows({
               s.glass,
               glassPill,
               { transform: [{ translateY: activeIndex * SLOT }] },
-              glassSlide,
+              m.css(glassSlide),
             ]}
           />
         )}

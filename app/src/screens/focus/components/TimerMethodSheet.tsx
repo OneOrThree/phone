@@ -6,6 +6,7 @@ import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
 import { SheetShell } from '@/components/SheetShell';
 import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
 const OPTIONS: {
@@ -37,6 +38,9 @@ export function TimerMethodSheet({
   >({});
   const [picked, setPicked] = useState<FocusTimerMode | null>(null);
   const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // '동작 줄이기'면 알약이 미끄러지지 않고 누른 행에 즉시 나타난다(위치·표시 여부는 그대로).
+  // ⚠️ 아래 진행 타이머(SLIDE_MS + 60)는 손대지 않는다 — 세션 시작 흐름의 계약이다.
+  const m = useMotion();
 
   // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
   useEffect(
@@ -53,7 +57,9 @@ export function TimerMethodSheet({
       return;
     }
     setPicked(mode);
-    proceedRef.current = setTimeout(() => onSelect(mode), SLIDE_MS + 60);
+    // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
+    // 놓이므로 기다릴 연출이 없다. m.delay는 0을 돌려줄 뿐 setTimeout은 남으므로 진행은 완주한다.
+    proceedRef.current = setTimeout(() => onSelect(mode), m.delay(SLIDE_MS + 60));
   };
 
   // 대기 위치는 첫 행 — 누르면 그 자리에서 누른 행으로 미끄러지며 나타난다
@@ -98,7 +104,7 @@ export function TimerMethodSheet({
                 height: glassRect.h,
                 transform: [{ translateY: glassRect.y }],
               },
-              glassSlide,
+              m.css(glassSlide),
             ]}
           />
         )}
