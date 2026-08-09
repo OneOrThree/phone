@@ -1,8 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { enterUp } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
@@ -28,6 +41,25 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 // 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
 const TAB_BAR_SPACE = 74;
 
+/**
+ * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
+ * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
+ * 아래 s.card의 minHeight로도 걸어 둔다 — 스켈레톤과 실제 카드가 **같은 값에 묶여 있어야**
+ * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
+ * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
+ */
+export const GROUP_CARD_HEIGHT = 58;
+
+// FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것 중 우리가 쓰는 것만.
+// (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
+//  필요한 필드만 로컬 타입으로 둔다.)
+interface CellProps {
+  index: number;
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  onLayout?: (event: LayoutChangeEvent) => void;
+}
+
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   onSelect: (groupId: string) => void;
@@ -46,6 +78,7 @@ export default function GroupListScreen({
   onBack,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
+  const m = useMotion();
   const [refreshing, setRefreshing] = useState(false);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
@@ -66,6 +99,19 @@ export default function GroupListScreen({
       if (mountedRef.current) setRefreshing(false);
     }
   }, [onRefresh]);
+
+  // 카드 진입 시차 — FlatList가 셀마다 두르는 래퍼 View를 Animated.View로 갈아끼운다.
+  // 트리에 뷰를 **새로 끼우지 않으므로** testID 셀렉터(E2E) 계약이 그대로다.
+  // useCallback으로 참조를 고정하지 않으면 렌더마다 새 컴포넌트 타입이 되어 셀이 통째로
+  // 리마운트되고 진입 애니메이션이 계속 다시 재생된다.
+  const CellRenderer = useCallback(
+    ({ index, children, style, onLayout }: CellProps) => (
+      <Animated.View style={[style, m.css(enterUp(index))]} onLayout={onLayout}>
+        {children}
+      </Animated.View>
+    ),
+    [m],
+  );
 
   return (
     <View style={s.root} testID="group.list">
@@ -90,6 +136,7 @@ export default function GroupListScreen({
         data={groups}
         keyExtractor={(item) => item.groupId}
         contentContainerStyle={s.listContent}
+        CellRendererComponent={CellRenderer}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
@@ -198,6 +245,8 @@ const s = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    // 로딩 스켈레톤과 같은 실루엣을 보장하는 하한 (위 GROUP_CARD_HEIGHT 주석 참고)
+    minHeight: GROUP_CARD_HEIGHT,
     gap: T.space.md,
     backgroundColor: T.paperAlt,
     borderWidth: 1,

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
-  LayoutAnimation,
   Modal,
   RefreshControl,
   ScrollView,
@@ -10,14 +9,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T, withAlpha } from '@/constants/theme';
+import { enterUp } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
 import { useUser } from '@/store/UserContext';
+import { rankSwap } from './rankSwap';
 import { useLeagueRanking } from './useLeagueRanking';
 import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
@@ -67,6 +70,8 @@ const TAB_LABEL: Record<TabKey, string> = { league: '리그', friend: '친구' }
 export default function LeagueScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // '동작 줄이기' 단일 게이트 — 진입 시차·재정렬 트랜지션을 한 곳에서 끈다.
+  const m = useMotion();
 
   const [tab, setTab] = useState<TabKey>('league');
   // 현재 선택한 리그 — null이면 기본(내 시험). 제목 드롭다운에서 전체/다른 시험으로 전환
@@ -169,7 +174,7 @@ export default function LeagueScreen() {
     myLeagueLabel ?? (rankingError && ranking.length === 0 ? intendedLeagueLabel : null);
   const filter = leagueFilter ?? myLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
-  const visibleRanking = isAll ? globalRanking : ranking.filter((m) => m.exam === filter);
+  const visibleRanking = isAll ? globalRanking : ranking.filter((r) => r.exam === filter);
   // 지금 보는 리스트의 조회 실패 여부 — 전체 탭은 전역 랭킹, 직군 탭은 직군 랭킹 기준 (GROMO-922)
   const visibleRankingError = isAll ? globalError : rankingError;
   // 실패 안내 표시 여부 — 실패했고 보여줄 목록도 없을 때만(기존 목록이 있으면 목록 유지)
@@ -182,7 +187,7 @@ export default function LeagueScreen() {
   const myTier = tierByLevel(tier.tierLevel ?? 1);
 
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
-  const myIdx = visibleRanking.findIndex((m) => m.userId === MY_USER_ID);
+  const myIdx = visibleRanking.findIndex((r) => r.userId === MY_USER_ID);
   const above = myIdx > 0 ? visibleRanking[myIdx - 1] : null;
 
   // 넛지 노출 — '내 순위 스트립'(▲ N위까지 M분)이 실제 순위와 함께 뜰 때(rank) 진입당 1회.
@@ -199,8 +204,8 @@ export default function LeagueScreen() {
   const showPodium = !pinnedOnly && top3.length > 0;
   // '핀한 사람만': 핀한 사람이 하나라도 있으면 나+핀을 함께 보여주고(나 대비 시간 차),
   // 하나도 없으면 나만 뜨지 않도록 비운다 (GROMO-636).
-  const hasPinned = visibleRanking.some((m) => pinned.has(m.userId));
-  const pinnedRows = visibleRanking.filter((m) => m.userId === MY_USER_ID || pinned.has(m.userId));
+  const hasPinned = visibleRanking.some((r) => pinned.has(r.userId));
+  const pinnedRows = visibleRanking.filter((r) => r.userId === MY_USER_ID || pinned.has(r.userId));
   const listRows = pinnedOnly ? (hasPinned ? pinnedRows : []) : visibleRanking.slice(3);
 
   function scrollToMyRow() {
@@ -216,7 +221,10 @@ export default function LeagueScreen() {
   function selectLeague(league: string) {
     // 이미 선택된 리그를 다시 누르면 계측 생략(탭 전환 가드와 동일 — 중복 발화 방지).
     if (league !== filter) logLeagueFilterSelected({ is_all: league === LEAGUE_ALL });
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // 여기 있던 LayoutAnimation.configureNext는 걷어냈다 (GROMO-1381 / 컨트랙트 §7).
+    // LayoutAnimation은 JS 스레드·전역 스코프라 이 화면의 형제 뷰(포디움·스트립)까지 함께
+    // 끌고 가고, 아래 랭킹 행이 쓰는 Reanimated 레이아웃 트랜지션과 같은 트리에서 충돌한다.
+    // 목록 재배치 연출은 행별 layout={rankSwap}이 대신 맡는다.
     setLeagueFilter(league);
     setLeagueMenuOpen(false);
     listRef.current?.scrollTo({ y: 0, animated: false });
@@ -224,7 +232,7 @@ export default function LeagueScreen() {
   }
 
   function togglePinnedOnly() {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // LayoutAnimation 제거 — 사유는 selectLeague 주석과 같다(컨트랙트 §7).
     setPinnedOnly((v) => !v);
   }
 
@@ -361,15 +369,15 @@ export default function LeagueScreen() {
               {[1, 0, 2]
                 .filter((i) => top3[i] != null)
                 .map((i) => {
-                  const m = top3[i];
-                  const isMe = m.userId === MY_USER_ID;
+                  const member = top3[i];
+                  const isMe = member.userId === MY_USER_ID;
                   const first = i === 0;
                   return (
                     <TouchableOpacity
-                      key={m.userId}
+                      key={member.userId}
                       style={[s.podiumCol, first ? s.podiumColFirst : null]}
                       activeOpacity={0.85}
-                      onPress={() => openProfile(m)}
+                      onPress={() => openProfile(member)}
                     >
                       <View style={s.podiumMedalCol}>
                         {first && (
@@ -406,43 +414,45 @@ export default function LeagueScreen() {
                         )}
                       </View>
                       <View style={s.podiumNameRow}>
-                        <TierBadge level={m.tierLevel} size={16} />
+                        <TierBadge level={member.tierLevel} size={16} />
                         <Text
                           style={[s.podiumName, isMe ? s.podiumNameMe : null]}
                           numberOfLines={1}
                         >
-                          {m.nickname}
+                          {member.nickname}
                         </Text>
-                        {m.isFocusing && <View style={s.podiumFocusDot} />}
+                        {member.isFocusing && <View style={s.podiumFocusDot} />}
                       </View>
                       {/* GROMO-810: Top3 도 집중 중이면 과목 + 초 단위 라이브 (랭킹 행과 동일 규칙) */}
-                      {m.isFocusing && m.focusStartedAt != null ? (
+                      {member.isFocusing && member.focusStartedAt != null ? (
                         <>
                           <Text style={s.podiumFocusTag} numberOfLines={1}>
-                            {m.focusTagName != null ? `${m.focusTagName} 집중 중` : '집중 중'}
+                            {member.focusTagName != null
+                              ? `${member.focusTagName} 집중 중`
+                              : '집중 중'}
                           </Text>
                           <LiveFocusTime
-                            baseSeconds={m.totalFocusSeconds}
-                            focusStartedAt={m.focusStartedAt}
+                            baseSeconds={member.totalFocusSeconds}
+                            focusStartedAt={member.focusStartedAt}
                             format={hms}
                             style={[s.podiumTime, s.podiumTimeFocusing]}
                           />
                         </>
                       ) : (
                         <Text style={s.podiumTime} allowFontScaling={false}>
-                          {hms(m.totalFocusSeconds)}
+                          {hms(member.totalFocusSeconds)}
                         </Text>
                       )}
                       {!isMe && (
                         <TouchableOpacity
                           style={s.podiumPin}
                           hitSlop={15}
-                          onPress={() => togglePin(m.userId)}
+                          onPress={() => togglePin(member.userId)}
                         >
                           <MaterialCommunityIcons
-                            name={pinned.has(m.userId) ? 'pin' : 'pin-outline'}
+                            name={pinned.has(member.userId) ? 'pin' : 'pin-outline'}
                             size={15}
-                            color={pinned.has(m.userId) ? T.accent : T.inkFaint}
+                            color={pinned.has(member.userId) ? T.accent : T.inkFaint}
                           />
                         </TouchableOpacity>
                       )}
@@ -509,12 +519,20 @@ export default function LeagueScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ── */}
-          {listRows.map((m) => {
-            const isMe = m.userId === MY_USER_ID;
+          {/* ── 랭킹 리스트 (기본: 4위~ / 핀 모드: 나+핀, 나 대비 차이) ──
+               행 컨테이너는 Animated.View다(래퍼를 새로 끼우지 않고 기존 뷰를 바꿨다).
+               · style   = 진입 시차(enterUp) — 마운트 1회.
+               · layout  = 순위가 바뀌어 행이 자리를 옮길 때의 스왑 궤적(./rankSwap).
+               key가 userId라 데이터 순서만 바뀌면 노드는 그대로 살아 자리를 옮긴다 —
+               재정렬 연출이 성립하는 전제다(인덱스 키였다면 성립하지 않는다).
+               순위 숫자는 자리에 붙는 값이라 visibleRanking 순서에서 매번 다시 매긴다. */}
+          {listRows.map((row, i) => {
+            const isMe = row.userId === MY_USER_ID;
             return (
-              <View
-                key={m.userId}
+              <Animated.View
+                key={row.userId}
+                layout={m.css(rankSwap)}
+                style={m.css(enterUp(i))}
                 onLayout={
                   isMe && !pinnedOnly
                     ? (e) => {
@@ -537,20 +555,20 @@ export default function LeagueScreen() {
                 }
               >
                 <RankRow
-                  rank={visibleRanking.indexOf(m) + 1}
-                  nickname={m.nickname}
-                  tierLevel={m.tierLevel}
-                  seconds={m.totalFocusSeconds}
+                  rank={visibleRanking.indexOf(row) + 1}
+                  nickname={row.nickname}
+                  tierLevel={row.tierLevel}
+                  seconds={row.totalFocusSeconds}
                   isMe={isMe}
-                  pinned={pinned.has(m.userId)}
-                  deltaSeconds={pinnedOnly && !isMe ? m.totalFocusSeconds - mySeconds : undefined}
-                  isFocusing={m.isFocusing}
-                  focusStartedAt={m.focusStartedAt}
-                  focusTagName={m.focusTagName}
-                  onPress={() => openProfile(m)}
-                  onPin={isMe ? undefined : () => togglePin(m.userId)}
+                  pinned={pinned.has(row.userId)}
+                  deltaSeconds={pinnedOnly && !isMe ? row.totalFocusSeconds - mySeconds : undefined}
+                  isFocusing={row.isFocusing}
+                  focusStartedAt={row.focusStartedAt}
+                  focusTagName={row.focusTagName}
+                  onPress={() => openProfile(row)}
+                  onPin={isMe ? undefined : () => togglePin(row.userId)}
                 />
-              </View>
+              </Animated.View>
             );
           })}
           {/* 조회 실패 + 보여줄 목록 없음 — "아무도 없는 리그" 빈 상태로 오인되지 않게 에러+재시도로

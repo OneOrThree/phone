@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   AppState,
   Platform,
@@ -17,6 +16,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { Skeleton } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
 import {
@@ -72,6 +72,18 @@ import { GroupRoomBottomBar, GROUP_BOTTOM_BAR_SPACE } from './components/GroupRo
 const COLS = 3;
 // 공지 섹션에 노출하는 최근 공지 수(나머지는 '모두보기')
 const NOTICE_PREVIEW = 3;
+
+// ── 최초 로딩 자리표시자 치수 ── (GROMO-1381)
+// 도착할 화면과 같은 자리를 잡아야 데이터가 왔을 때 레이아웃이 튀지 않는다. 값은 전부 아래
+// StyleSheet의 실제 규격에서 계산한 것이라, 규격을 바꾸면 이 상수도 같이 고쳐야 한다.
+// 제목 한 줄(T.text.title 26pt)의 글자 상자 높이
+const SK_TITLE_H = 30;
+// 섹션 라벨 한 줄(T.text.label 15pt)
+const SK_LABEL_H = 18;
+// 공지/챌린지 카드 한 장: paddingVertical 12×2 + border 1×2 + 제목 18 + gap 2 + 날짜 16
+const SK_CARD_H = 62;
+// 멤버 타일 한 칸: paddingVertical 12×2 + border 1×2 + 아바타 44 + gap 4×3 + 텍스트 3줄(16×3)
+const SK_TILE_H = 130;
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
 type GridCell =
@@ -667,13 +679,39 @@ export default function GroupRoomScreen({
     </TouchableOpacity>
   ) : null;
 
-  // ── 최초 로딩 — 중앙 스피너(§5-4) ──
+  // ── 최초 로딩 — 화면 실루엣 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
+  // 헤더 · 공지 · 챌린지 · 멤버 그리드가 들어올 자리를 도착할 화면과 같은 여백·높이로 미리 잡는다.
+  // 백버튼은 로딩 중에도 그대로 살아 있어야 목록으로 돌아갈 경로가 유지된다(기존 규칙).
+  // 데이터가 오면 이 분기가 통째로 사라져 펄스(무한 루프)도 함께 언마운트된다.
   if (loading && !detail) {
     return (
       <View style={s.fill}>
-        {!!backButton && <View style={s.backRow}>{backButton}</View>}
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
+        <View style={s.content} testID="group.room.skeleton">
+          <View style={s.header}>
+            {backButton}
+            <View style={s.headerLeft}>
+              <Skeleton w="55%" h={SK_TITLE_H} />
+            </View>
+            <Skeleton w={34} h={34} radius={17} />
+          </View>
+          <View style={s.sectionHead}>
+            <Skeleton w={44} h={SK_LABEL_H} radius={6} />
+          </View>
+          <Skeleton w="100%" h={SK_CARD_H} radius={14} />
+          <View style={s.sectionHead}>
+            <Skeleton w={60} h={SK_LABEL_H} radius={6} />
+          </View>
+          <Skeleton w="100%" h={SK_CARD_H} radius={14} />
+          <View style={s.sectionHead}>
+            <Skeleton w={44} h={SK_LABEL_H} radius={6} />
+          </View>
+          <View style={s.gridRow}>
+            {Array.from({ length: COLS }, (_, i) => (
+              <View key={i} style={s.gridPad}>
+                <Skeleton w="100%" h={SK_TILE_H} radius={14} />
+              </View>
+            ))}
+          </View>
         </View>
       </View>
     );

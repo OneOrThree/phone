@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { Skeleton } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, kickMember } from '@/services/groupApi';
 import { logGroupMemberKicked } from '@/services/analyticsEvents';
@@ -32,6 +25,12 @@ import type { V2RootStackParamList } from '@/navigation/types';
 //   붙는 자체 행(KickRow)을 둔다.
 
 type GroupMemberManageRoute = RouteProp<V2RootStackParamList, 'GroupMemberManage'>;
+
+// 로딩 자리표시자(GROMO-1381) — 아래 s.row 규격에서 계산한 실제 행 높이.
+// paddingVertical 12×2 + borderWidth 1×2 + 행 안에서 가장 높은 요소(강퇴 버튼 34) = 60.
+const ROW_H = 60;
+// 첫 화면에 들어오는 만큼만 그린다(화면당 동시 스켈레톤 상한 12).
+const SKELETON_ROWS = 4;
 
 // 강퇴 대상 한 행 — 닉네임 + 우측 '내보내기'(destructive). 진행 중이면 잠근다.
 interface KickRowProps {
@@ -173,13 +172,17 @@ export default function GroupMemberManageScreen() {
     </View>
   );
 
-  // ── 최초 로딩 — 중앙 스피너 ──
+  // ── 최초 로딩 — 멤버 행 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
+  // 행 높이가 규격으로 고정된 목록이라 실제 도착 화면과 같은 실루엣을 그릴 수 있다.
+  // 데이터가 오면 이 분기가 사라지며 펄스(무한 루프)도 함께 언마운트된다.
   if (members === null && !error) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.member.manage.screen">
         {header}
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
+        <View style={s.listContent} testID="group.member.manage.skeleton">
+          {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+            <Skeleton key={i} w="100%" h={ROW_H} radius={14} />
+          ))}
         </View>
       </SafeAreaView>
     );

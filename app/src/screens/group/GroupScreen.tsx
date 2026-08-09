@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { Skeleton, SkeletonCard } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -16,7 +17,7 @@ import {
   type PendingInvite,
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
-import GroupListScreen from './GroupListScreen';
+import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
@@ -35,6 +36,12 @@ import GroupInviteSheet from './components/GroupInviteSheet';
 
 // 플로팅 탭바가 가리는 하단 여백(리그·홈 화면과 동일 기준)
 const TAB_BAR_SPACE = 74;
+
+// 최초 로딩 자리표시자로 그릴 카드 수 — 첫 화면에 들어오는 만큼만(화면당 동시 스켈레톤 상한 12).
+const SKELETON_CARDS = 3;
+// 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
+// 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
+const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
@@ -276,8 +283,18 @@ export default function GroupScreen() {
   if (groups === null && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
+        {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 카드 3장으로, 도착할 화면과
+            같은 자리·같은 높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
+            펄스(무한 루프)도 함께 언마운트된다. */}
+        <View testID="group.list.skeleton">
+          <View style={s.skeletonHeader}>
+            <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
+          </View>
+          <View style={s.skeletonList}>
+            {Array.from({ length: SKELETON_CARDS }, (_, i) => (
+              <SkeletonCard key={i} height={GROUP_CARD_HEIGHT} />
+            ))}
+          </View>
         </View>
         {inviteSheet}
       </SafeAreaView>
@@ -356,7 +373,13 @@ const s = StyleSheet.create({
   // 탭 화면은 흰 캔버스 — 홈·리그·전체와 같은 배경이라야 탭 전환에서 배경이 튀지 않는다.
   // (그룹의 스택 화면 GroupCreate·GroupNotice는 FriendAdd·알림과 같은 T.bg를 유지한다.)
   root: { flex: 1, backgroundColor: T.paperLight },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // 로딩 자리표시자 — 여백은 GroupListScreen의 header·listContent와 같은 값이어야 자리가 맞는다.
+  skeletonHeader: {
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.md,
+  },
+  skeletonList: { paddingHorizontal: T.space.xl, gap: T.space.md },
   body: {
     flex: 1,
     alignItems: 'center',

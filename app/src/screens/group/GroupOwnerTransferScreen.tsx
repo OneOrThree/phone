@@ -13,7 +13,9 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { Skeleton } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
+import { useToast } from '@/store/ToastContext';
 import { getGroupDetail, groupErrorCode, transferOwner, withdrawGroup } from '@/services/groupApi';
 import { logGroupOwnerTransferred } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse, GroupDetailResponse } from '@/types/dto/group';
@@ -31,6 +33,14 @@ import type { V2RootStackParamList } from '@/navigation/types';
 // 재탭·재선택·뒤로가기를 모두 잠근다 — 위임은 되돌릴 수 없어 한 번만 나가야 한다.
 
 type GroupOwnerTransferRoute = RouteProp<V2RootStackParamList, 'GroupOwnerTransfer'>;
+
+// 로딩 자리표시자(GROMO-1381) — 아래 규격에서 계산한 실제 치수.
+// 안내 문구 한 줄(T.text.body 17pt, lineHeight 25)
+const GUIDE_H = 25;
+// 멤버 행: paddingVertical 12×2 + borderWidth 1.5×2 + 이름 18 + gap 2 + 보조 16 = 63
+const ROW_H = 63;
+// 첫 화면에 들어오는 만큼만 그린다(화면당 동시 스켈레톤 상한 12).
+const SKELETON_ROWS = 4;
 
 // 분 → '0분' / '45분' / '2시간' / '2시간 30분'. 누적 집중 시간(리더보드 지표)의 축약 표기 —
 // MemberTile.fmtFocus와 같은 규칙이지만 그 파일은 default export뿐이라 여기서 다시 둔다.
@@ -82,6 +92,8 @@ export default function GroupOwnerTransferScreen() {
   const { params } = useRoute<GroupOwnerTransferRoute>();
   const { groupId, source } = params;
   const { userId } = useUser();
+  // 성공 통보용 전역 토스트 — 화면 전환(goBack)을 넘어 살아남는다.
+  const { show } = useToast();
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -141,7 +153,10 @@ export default function GroupOwnerTransferScreen() {
         }
 
         // settings·account 공통 — 위임만 하고 이전 화면으로 돌아간다(허브·계정 화면이 재조회).
-        Alert.alert('방장을 넘겼어요', `${target.nickname}님이 새 방장이 되었어요.`);
+        // 성공 통보는 읽고 흘려도 되는 한 줄이라 확인 버튼이 필요한 Alert 대신 토스트로 알린다
+        // (GROMO-1381). ToastProvider가 NavigationContainer 바깥이라 바로 아래 goBack()으로
+        // 화면이 바뀌어도 배너는 살아남는다.
+        show({ message: `${target.nickname}님이 새 방장이 되었어요`, tone: 'success' });
         navigation.goBack();
       } catch (e) {
         // HTTP status가 아니라 code로 분기한다(§3-2). NOT_FOUND·MEMBER_ONLY는 방어적으로 나눈다.
@@ -159,7 +174,7 @@ export default function GroupOwnerTransferScreen() {
         setSubmitting(false);
       }
     },
-    [groupId, source, submitting, navigation],
+    [groupId, source, submitting, navigation, show],
   );
 
   // '넘기기' 탭 — 확인 Alert를 거친 뒤에만 위임한다(되돌릴 수 없는 동작).
@@ -190,13 +205,22 @@ export default function GroupOwnerTransferScreen() {
     </View>
   );
 
-  // ── 최초 로딩 — 중앙 스피너 ──
+  // ── 최초 로딩 — 안내 문구 + 멤버 행 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
+  // 행 높이가 규격으로 고정된 목록이라 도착 화면과 같은 실루엣을 그릴 수 있다.
+  // 데이터가 오면 이 분기가 사라지며 펄스(무한 루프)도 함께 언마운트된다.
   if (loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.owner.transfer.screen">
         {header}
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
+        <View style={s.scrollContent} testID="group.owner.transfer.skeleton">
+          <View style={s.skeletonGuide}>
+            <Skeleton w="70%" h={GUIDE_H} radius={6} />
+          </View>
+          <View style={s.list}>
+            {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+              <Skeleton key={i} w="100%" h={ROW_H} radius={14} />
+            ))}
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -324,6 +348,8 @@ const s = StyleSheet.create({
     marginTop: T.space.xs,
     marginBottom: T.space.lg,
   },
+  // 로딩 자리표시자의 안내 문구 자리 — 위 s.guide와 같은 위아래 여백이어야 목록이 밀리지 않는다.
+  skeletonGuide: { marginTop: T.space.xs, marginBottom: T.space.lg },
 
   list: { gap: T.space.sm },
   // 선택형 멤버 행 — 카드 표면 T.paperLight, 선택 시 accent 테두리 + 인디고 틴트로 하이라이트.
