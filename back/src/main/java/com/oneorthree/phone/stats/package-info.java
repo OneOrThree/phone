@@ -15,10 +15,12 @@
  *             (GROMO-803 — 스크린타임 561과 동일 기준. countryCode null·미지원은 Asia/Seoul 폴백).
  *             <b>GROMO-1252</b>: 자정을 걸친 세션은 {@code splitByLocalDay} 로 로컬 자정에서 잘라
  *             날짜별로 나눠 가산한다(세션 행·세션 보상 코인은 1건/1회 유지, {@code sessionCount}·
- *             {@code totalDistractionSeconds} 는 시작일에만).</li>
- *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, statDate)} (같은 트랜잭션).
- *             자정 분할 시 <b>날짜 오름차순</b>으로 호출한다(스트릭이 과거 날짜를 무시하므로 순서가 계약).
- *             인정 기준(10분)은 <b>쪼갠 뒤</b> 날짜별 누적으로 판정한다.</li>
+ *             {@code totalDistractionSeconds} 는 시작일에만). 앱이 날짜별 집중초를 실어 보내면 그 분포를
+ *             (날짜별 벽시계 몫을 상한으로 클램프해) 쓰고, 확정 분포는 {@code focus_sessions.focus_seconds_by_date}
+ *             에 보관해 조회 집계(by-category)·앱 복원이 같은 귀속을 쓰게 한다.</li>
+ *         <li>스트릭 — {@code UserStreakService.updateOnSessionComplete(user, 인정 날짜들)} (같은 트랜잭션).
+ *             자정 분할 시 인정 날짜를 <b>한 번에</b> 넘긴다(반영 순서는 스트릭 서비스가 결정 — 소급은
+ *             최신→과거, 미래는 과거→최신). 인정 기준(10분)은 <b>쪼갠 뒤</b> 날짜별 누적으로 판정한다.</li>
  *         <li>리그 — ACTIVE 아레나 멤버면 주간 누적 집중 초 반영(GROMO-646/665).</li>
  *       </ul>
  *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며, GROMO-804 로 상태를

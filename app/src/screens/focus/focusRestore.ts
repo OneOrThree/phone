@@ -4,8 +4,9 @@
 // 서버 조회(/focus-session)는 startedAt 필터라 자정 걸친 세션이 잘리므로, 어제 자정부터
 // 받아와 endedAt이 오늘(로컬 자정 이후)인 것만 남긴다(리뷰 반영). 자정을 걸친 세션은 어제 몫이
 // 섞여 있으니, '오늘 집중'으로 적립하는 쪽(FocusContext·SubjectContext)은 세션 전체 길이가
-// 아니라 todayOverlapSeconds로 오늘 몫만 더한다(GROMO-1252).
+// 아니라 todayRestoreSeconds로 오늘 몫만 더한다(GROMO-1252).
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
+import { kstLocalSameDay, todayOverlapSeconds, todayStr } from '@/utils/localDate';
 import type { FocusSessionResponse, FocusTagResponse } from '@/types/dto/focus';
 
 export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]> {
@@ -23,6 +24,23 @@ export async function fetchTodayFocusSessions(): Promise<FocusSessionResponse[]>
 export function sessionFocusSeconds(s: FocusSessionResponse): number {
   const ms = Date.parse(s.endedAt) - Date.parse(s.startedAt);
   return ms > 0 ? Math.floor(ms / 1000) : 0;
+}
+
+// 세션 1건이 '오늘'(기기 로컬 자정 기준)에 기여한 집중초 — 복원 적립(FocusContext 총합·과목별 누적) 전용.
+//
+// 서버가 완료 시점에 확정한 날짜별 분포(focusSecondsByDate)를 내려줬으면 그걸 쓴다(GROMO-1252 3차 ①) —
+// 사전집계(DailyFocusStat)에 가산한 바로 그 값이라, 일시정지가 자정을 걸친 세션(23:50~23:55 집중 →
+// 일시정지 → 00:10~00:15 집중)에서 구간 겹침 추정(900초)이 아니라 실제 몫(300초)이 된다.
+//
+// 다만 서버 분포의 날짜 축은 서버 존(country_code 파생, 미지정·미지원은 Asia/Seoul)이고 이 값의 소비처는
+// 기기 로컬 자정 리셋 스토어다. 두 축이 어긋나면 인접 버킷 시간이 섞이므로, 기기가 KST 축 위에 있을 때만
+// (kstLocalSameDay — 홈·통계의 서버값 병합 게이트와 같은 규칙) 쓰고 그 외에는 종전 겹침 추정으로 폴백한다.
+// 남는 한계: country_code = GB 유저는 서버 축이 KST가 아니라 이 게이트가 잘못 열릴 수 있다(주 사용층 KR).
+export function todayRestoreSeconds(s: FocusSessionResponse): number {
+  if (s.focusSecondsByDate && kstLocalSameDay()) {
+    return s.focusSecondsByDate[todayStr()] ?? 0;
+  }
+  return todayOverlapSeconds(s.startedAt, s.endedAt);
 }
 
 // 복원 스냅샷(오늘 세션+태그) 통합 조회(GROMO-920) — Focus·Subject 컨텍스트가 각자 조회하면

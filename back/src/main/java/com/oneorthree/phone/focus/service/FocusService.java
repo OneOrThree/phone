@@ -51,6 +51,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -252,7 +253,9 @@ public class FocusService {
                         session.getFocusTag() != null ? session.getFocusTag().getId() : null,
                         session.getStartedAt(),
                         session.getEndedAt(),
-                        session.getTotalDistractionSeconds()
+                        session.getTotalDistractionSeconds(),
+                        // GROMO-1252 3차 ①: 확정 분포를 함께 내려 앱 복원이 사전집계와 같은 귀속을 쓰게 한다.
+                        session.getFocusSecondsByDate()
                 ))
                 .toList();
 
@@ -315,6 +318,8 @@ public class FocusService {
                 .endedAt(body.getEndedAt())
                 // 통계 귀속용 유효 종료(GROMO-1252 ②) — 저장되는 endedAt 은 클라 값 그대로(중복 검사 전제).
                 .statEndAt(statEnd)
+                // 확정 분포도 함께 보관(GROMO-1252 ③차 ①) — 조회 집계·앱 복원이 사전집계와 같은 값을 쓴다.
+                .focusSecondsByDate(toStoredSecondsByDate(secondsByDate))
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
@@ -389,17 +394,26 @@ public class FocusService {
      *
      * <p>경계: 정확히 자정에 끝나는 세션은 그 시각이 속한 <b>전날</b> 조각으로 끝난다(초 0짜리 다음날 조각을
      * 만들지 않는다). 같은 날 안에서 끝나는 세션은 조각 1개로 종전과 동일하다.
+     *
+     * <p><b>밀리초 배분 (코드리뷰 3차 ④)</b>: 조각마다 {@code Duration.getSeconds()} 로 잘라 더하면 양 끝에
+     * 밀리초가 있는 구간에서 총합이 1초 준다(23:50:00.500~00:10:00.500 = 1200초인데 599+600=1199).
+     * 전날이 10분 스트릭 문턱을 놓칠 수 있는 손실이라, <b>시작점부터의 누적 초를 반올림</b>해 그 차분을
+     * 조각 값으로 쓴다 — 반올림 잔여는 다음 조각이 흡수하므로 조각 합 = 구간 총합(반올림)이 항상 성립한다.
      */
     static NavigableMap<LocalDate, Integer> splitByLocalDay(Instant startedAt, Instant endedAt, ZoneId zone) {
         NavigableMap<LocalDate, Integer> secondsByDate = new TreeMap<>();
         Instant cursor = startedAt;
+        long creditedSeconds = 0;
         while (true) {
             LocalDate date = cursor.atZone(zone).toLocalDate();
             Instant nextMidnight = date.plusDays(1).atStartOfDay(zone).toInstant();
             // 상한(MAX_SPLIT_DAYS)에 닿으면 남은 구간을 이 조각에 몰아 총합을 보존한다.
             boolean splitHere = nextMidnight.isBefore(endedAt) && secondsByDate.size() < MAX_SPLIT_DAYS - 1;
             Instant sliceEnd = splitHere ? nextMidnight : endedAt;
-            secondsByDate.merge(date, (int) Duration.between(cursor, sliceEnd).getSeconds(), Integer::sum);
+            // 누적 초(시작점 기준, 0.5초 반올림)의 차분 = 이 조각 몫. 절삭이 아니라 차분이라 총합이 보존된다.
+            long cumulativeSeconds = Math.floorDiv(Duration.between(startedAt, sliceEnd).toMillis() + 500, 1000);
+            secondsByDate.merge(date, (int) (cumulativeSeconds - creditedSeconds), Integer::sum);
+            creditedSeconds = cumulativeSeconds;
             if (!sliceEnd.isBefore(endedAt)) {
                 return secondsByDate;
             }
@@ -464,6 +478,22 @@ public class FocusService {
     }
 
     /**
+     * 확정 분포를 {@code focus_sessions.focus_seconds_by_date}(jsonb) 저장 형태로 바꾼다 (GROMO-1252 3차 ①).
+     *
+     * <p>키를 ISO 문자열("YYYY-MM-DD")로 낮추는 이유: jsonb 매핑은 Hibernate 기본 ObjectMapper 를 쓰는데
+     * JavaTimeModule 이 없어 {@code LocalDate} 맵 키를 직렬화/역직렬화하지 못한다. 조각이 없으면
+     * null 을 저장해 레거시 row 와 같은 폴백 경로를 타게 한다.
+     */
+    private static Map<String, Integer> toStoredSecondsByDate(NavigableMap<LocalDate, Integer> secondsByDate) {
+        if (secondsByDate.isEmpty()) {
+            return null;
+        }
+        Map<String, Integer> stored = new LinkedHashMap<>();
+        secondsByDate.forEach((date, seconds) -> stored.put(date.toString(), seconds));
+        return stored;
+    }
+
+    /**
      * 라이브 집중 세션 시작(GROMO-610) — startedAt 만 기록한 진행 중(endedAt NULL) 세션을 INSERT.
      * 통계·스트릭은 종료(PATCH) 시점에 귀속하므로 여기서는 건드리지 않는다.
      */
@@ -521,10 +551,10 @@ public class FocusService {
 
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         Instant statEnd = statEnd(endedAt, Instant.now());
-        // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
-        session.end(endedAt, body.totalDistractionSeconds(), statEnd);
         NavigableMap<LocalDate, Integer> secondsByDate = resolveSecondsByDate(
                 session.getStartedAt(), statEnd, zone, body.focusSecondsByDate());
+        // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
+        session.end(endedAt, body.totalDistractionSeconds(), statEnd, toStoredSecondsByDate(secondsByDate));
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds(), secondsByDate);
 
@@ -656,7 +686,7 @@ public class FocusService {
 
         // ── DailyFocusStat upsert: statDate(country_code 존 로컬 날짜 버킷, GROMO-803) 기준 (user, date) 멱등 누적 ──
         // GROMO-1252: 자정을 걸친 세션은 날짜별 조각으로 나눠 각 날짜에 가산한다. 오름차순 순회 —
-        // 스트릭 소급 보정(UserStreakService)이 순서 의존을 없앴지만, 이벤트 로그가 시간순으로 남게 유지한다.
+        // 이벤트 로그가 시간순으로 남는다.
 
         // 집중 목표 달성 지급액 — 아래 false→true 전이에서만 채워진다(전이 없으면 0). 날짜별 멱등키라 조각마다 가능.
         int goalRewardCoins = 0;
@@ -664,6 +694,10 @@ public class FocusService {
         int dayTotalFocusSeconds = 0;
         boolean streakQualifiedToday = false;
         boolean firstSlice = true;
+        // 스트릭 인정 날짜는 모아 두었다가 한 번에 넘긴다 (GROMO-1252 3차 ③) — 한 세션이 기여한 여러 날짜를
+        // 낱개로 호출하면 소급 방향에서 오래된 쪽이 유실된다(어느 날짜부터 반영해야 하는지는
+        // lastSessionDate 를 아는 UserStreakService 만 판단할 수 있다).
+        List<LocalDate> streakQualifiedDates = new ArrayList<>();
 
         for (Map.Entry<LocalDate, Integer> slice : secondsByDate.entrySet()) {
             LocalDate statDate = slice.getKey();
@@ -730,10 +764,14 @@ public class FocusService {
             // GROMO-1252: 판정은 '쪼갠 뒤' 그 날짜 누적 기준 — 23:55~00:05 처럼 양쪽 다 5분이면 양쪽 다 미인정.
             boolean sliceQualified = sliceDayTotal >= STREAK_MIN_SECONDS;
             if (sliceQualified) {
-                userStreakService.updateOnSessionComplete(user, statDate);
+                streakQualifiedDates.add(statDate);
             }
             dayTotalFocusSeconds = sliceDayTotal;
             streakQualifiedToday = sliceQualified;
+        }
+
+        if (!streakQualifiedDates.isEmpty()) {
+            userStreakService.updateOnSessionComplete(user, streakQualifiedDates);
         }
 
         return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday, goalRewardCoins);

@@ -45,6 +45,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -1308,6 +1309,39 @@ class StatsServiceTest {
         Instant sliceStart = startedAt.isAfter(dayStart) ? startedAt : dayStart;
         long expected = Math.max(0, Duration.between(sliceStart, statEndAt).getSeconds()) / 60;
         assertThat(response.totalFocusMinutes()).isEqualTo((int) expected);
+    }
+
+    /**
+     * GROMO-1252 코드리뷰 3차 ①: 세션에 확정 분포(focus_seconds_by_date)가 있으면 by-category 도 그 값을 쓴다.
+     * 일시정지가 자정을 걸친 세션(23:50~23:55 집중 → 일시정지 → 00:10~00:15 집중)은 사전집계가 300/300 인데
+     * 벽시계 클리핑은 오늘 몫을 900 으로 세, 같은 화면의 총합(/stats/focus)과 과목별 합이 어긋났다.
+     */
+    @Test
+    @DisplayName("카테고리별 — 저장된 확정 분포가 있으면 벽시계 클리핑 대신 그 분포로 계수(사전집계와 일치)")
+    void getFocusStatsByCategoryUsesStoredSecondsByDate() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        LocalDate today = LocalDate.of(2026, 7, 13);
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        // 07-12 23:50 KST ~ 07-13 00:15 KST — 벽시계로는 오늘 몫 900초, 실제 집중은 300초.
+        FocusSession stored = FocusSession.builder()
+                .startedAt(LocalDate.of(2026, 7, 12).atTime(23, 50).atZone(kst).toInstant())
+                .endedAt(today.atTime(0, 15).atZone(kst).toInstant())
+                .focusTag(tagA)
+                .focusSecondsByDate(Map.of("2026-07-12", 300, "2026-07-13", 300))
+                .build();
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(List.of(stored));
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, today);
+
+        // 창(07-13) 밖인 07-12 몫은 빠지고 오늘 몫 300초 = 5분만 남는다(벽시계였다면 15분).
+        assertThat(response.totalFocusMinutes()).isEqualTo(5);
+        assertThat(response.items()).singleElement()
+                .satisfies(item -> assertThat(item.totalFocusMinutes()).isEqualTo(5));
     }
 
     @Test
