@@ -37,13 +37,13 @@ Original planning/design source docs live in `app/.docs/`. **This folder is in `
 **[`app/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
 Folder map (그 README가 정본, 이 표는 요약):
 
-| Folder             | Purpose                                                                         |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `features/`        | 이관 후 잔여분(`challenge/` as-is 판)만 남음 — 기능 설계서는 팀 공유 `docs/prd/<기능>/`가 정본 |
-| `product/`         | Product-wide planning — 기획서, 기능명세, IA diagram, user funnel, event taxonomy |
-| `qa/` · `ops/`     | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)        |
-| `design/` · `marketing/` · `store/` · `presentations/` · `troubleshooting/` | 시안 · 마케팅 · 스토어 · 발표자료 · 트러블슈팅 |
-| `pr/` · `tickets/` · `archive/` | PR 초안 · 티켓 초안 · 지난 문서 보존(현행 아님)                     |
+| Folder                                                                      | Purpose                                                                                        |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `features/`                                                                 | 이관 후 잔여분(`challenge/` as-is 판)만 남음 — 기능 설계서는 팀 공유 `docs/prd/<기능>/`가 정본 |
+| `product/`                                                                  | Product-wide planning — 기획서, 기능명세, IA diagram, user funnel, event taxonomy              |
+| `qa/` · `ops/`                                                              | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)                      |
+| `design/` · `marketing/` · `store/` · `presentations/` · `troubleshooting/` | 시안 · 마케팅 · 스토어 · 발표자료 · 트러블슈팅                                                 |
+| `pr/` · `tickets/` · `archive/`                                             | PR 초안 · 티켓 초안 · 지난 문서 보존(현행 아님)                                                |
 
 > New docs go in one of these folders — **never at `.docs/` root**. 단 기능 설계서는 예외로
 > 팀 공유 `docs/prd/<기능-영문-kebab>/`에 만든다 (위 섹션).
