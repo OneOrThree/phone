@@ -454,7 +454,13 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 > |---|---|
 > | 서버 권한 | 그룹 멤버 **또는** 해당 챌린지의 **OPEN 회차 참가자**면 받는다 |
 > | 앱 대상 탐색 | `getMyGroups()` → 그룹별 ACTIVE 챌린지 순회만으로는 못 찾는다(탈퇴 즉시 목록에서 사라지고, 종료된 챌린지의 진행 중 회차도 빠진다). **내 OPEN 회차 목록**을 축으로 대상을 만든다 |
-> | 종료 시점 | 회차가 닫히면(`closes_at` 경과) 보고 대상에서 빠진다 — 권한 확장은 진행 중 회차에 한정 |
+> | 종료 시점 | **`closes_at`이 아니라 정산까지** 열어 둔다 — 회차가 `OPEN`인 동안(즉 `settle_after` 경과 후 정산이 끝나기 전까지 포함) 받는다. 정산 완료(`status != OPEN`) 후 도착분은 무시(B8 불가역) |
+>
+> **왜 `closes_at`에서 자르면 안 되나**: 창형 `settle_after`는 `closes_at + 30분`이고, 그
+> 그레이스는 애초에 **늦게 확정되는 창 데이터를 받으려고** 둔 것이다(N12). 게다가 사일런트
+> 푸시가 `settle_after − 15분`에 앱을 깨워 마지막 보고를 시키는데(FR-22), 대상에서 이미
+> 빠졌으면 그 flush가 무의미해진다. 특히 탈퇴자는 그룹 기반 폴백이 없어 값이 `null`로 남고
+> **미보고 = 미달성**으로 정산된다 — N43이 막으려던 바로 그 결과다.
 
 ### 2.2 회차 참여
 
@@ -781,16 +787,23 @@ enum RemainderRule {
 ```java
 // FocusSessionService가 세션 저장 후 호출 (같은 트랜잭션)
 void onFocusRecorded(UUID userId, LocalDate kstDate) {
-    for (var p : participantRepo.findOpenByUserAndDate(userId, kstDate)) {
-        if (Boolean.TRUE.equals(p.getAchieved())) continue;      // 이미 확정
-        // 정산과 같은 회차 락을 먼저 잡는다 — 잠금 순서(회차 → 지갑)와 동일 (§5.4)
-        var s = sessionRepo.findByIdForUpdate(p.getSessionId()).orElseThrow();
-        if (s.getStatus() != OPEN) continue;                     // 이미 정산됨 — 건드리지 않는다
+    var targets = participantRepo.findOpenByUserAndDate(userId, kstDate).stream()
+            .filter(p -> !Boolean.TRUE.equals(p.getAchieved()))   // 이미 확정 제외
+            .sorted(comparing(BetParticipant::getSessionId))      // §5.4 — id 오름차순
+            .toList();
+    // 회차 락을 **오름차순으로 전부 먼저** 잡는다 (정산·탈퇴 연동과 같은 순서 — 교차 데드락 방지)
+    var locked = targets.stream()
+            .map(p -> sessionRepo.findByIdForUpdate(p.getSessionId()).orElseThrow())
+            .collect(toMap(BetSession::getId, identity()));
+
+    for (var p : targets) {
+        var s = locked.get(p.getSessionId());
+        if (s.getStatus() != OPEN) continue;                      // 이미 정산됨 — 건드리지 않는다
         Target t = targetOf(s);
         Integer m = judge.progressMinutes(t, kstDate, List.of(userId)).get(userId);
         if (BetJudge.isAchieved(t, m)) {
             p.confirmWin(m, Instant.now());                       // achieved=true (불가역)
-            events.publish(new BetWonEvent(p.getId()));           // AFTER_COMMIT 푸시
+            events.publish(new BetWonEvent(s.getId(), p.getId()));  // AFTER_COMMIT — 회차·참가 둘 다
         }
     }
 }
@@ -798,6 +811,11 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
 
 **조기 확정은 되돌리지 않는다.** 목표분이 나중에 올라가도(A7) 회차 박제값으로 판정했으므로
 번복 사유가 없다.
+
+> **한 번에 여러 회차를 잠글 때는 `session.id` 오름차순**(§5.4). 유저가 같은 날 여러 챌린지에
+> 참가했을 수 있는데, 리포지토리 반환 순서대로 하나씩 잠그면 탈퇴 연동(`releaseSessions`)처럼
+> 오름차순으로 도는 경로와 **교차 데드락**이 난다(한쪽은 낮은 id를 쥐고 높은 id를 기다리고,
+> 이쪽은 그 반대). 대상 회차를 정렬해 **전부 잠근 뒤** 판정으로 들어간다.
 
 > **정산과 같은 회차 락을 잡는 이유**: 이 경로가 락 없이 참가 행을 읽고 바꾸면 정산과 경합한다 —
 > `settle()`이 락을 쥔 채 "미달성"으로 판정해 지급을 끝낸 **뒤에** 이 트랜잭션이 커밋되면
@@ -810,6 +828,8 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
 
 ```java
 // 전원 확정 검사는 confirmWin 트랜잭션 안이 아니라 AFTER_COMMIT 리스너에서 한다
+// BetWonEvent(sessionId, participantId) — 리스너가 회차를 조회하므로 **sessionId를 반드시 싣는다**
+// (participantId만 실으면 findById가 빈 결과 → 조기 정산이 영영 안 돈다)
 @TransactionalEventListener(phase = AFTER_COMMIT)      // confirmWin이 발행한 BetWonEvent
 void onBetWon(BetWonEvent e) {
     var session = sessionRepo.findById(e.sessionId()).orElseThrow();
