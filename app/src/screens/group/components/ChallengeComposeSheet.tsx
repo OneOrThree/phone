@@ -445,7 +445,10 @@ export default function ChallengeComposeSheet({
         missionCategory === 'SCREEN_TIME'
           ? Math.floor(length / SCREEN_TIME_STEP) * SCREEN_TIME_STEP
           : length;
-      setDurationText(String(snapped >= 1 ? snapped : length));
+      // SCREEN_TIME 창이 15분 미만이면 유효한 15분 배수 목표 자체가 없다 — length 폴백은
+      // 비눈금 값이라 CTA만 잠긴 채 남는다(지키려던 것과 정반대). 빈 값으로 비워 입력을
+      // 다시 받는다(빈 값은 에러 캡션 없이 CTA만 잠근다).
+      setDurationText(snapped >= 1 ? String(snapped) : '');
     }
   }
 

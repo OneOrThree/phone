@@ -591,6 +591,21 @@ describe('목표 시간 직접 입력', () => {
     const input = await screen.findByTestId('group.challenge.durationInput');
     expect(input.props.value).toBe('90');
   });
+
+  test('SCREEN_TIME 창이 15분 미만이면 목표를 비운다 — 비눈금 폴백 금지 (PR #565 리뷰)', async () => {
+    await renderSheet();
+    await press('스크린타임');
+    await press('시간대');
+    await pickDay('월');
+    await typeDuration('180');
+    // 창을 09:00~09:10(10분)으로 줄인다 — 유효한 15분 배수 목표가 존재하지 않는다.
+    // length(10) 폴백은 눈금 위반이라 CTA만 잠긴 채 남으므로 빈 값으로 비워야 한다.
+    await pressNth('10분', 1);
+    await pressNth('9시', 1);
+
+    const input = await screen.findByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('');
+  });
 });
 
 // FR-9-2(GROMO-1278) — 분 입력은 시간 환산을 병기한다. 240분이 4시간이라는 걸 암산하게 두지 않는다.
