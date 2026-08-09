@@ -35,14 +35,18 @@ export function WeekStreakModal({ visible, onClose }: Props) {
   useEffect(() => {
     if (visible) hapticSuccess();
   }, [visible]);
+  // 노출 단위 초기화(codex 리뷰) — 닫혀도 이 컴포넌트는 언마운트되지 않아 준비 플래그가
+  // 다음 노출까지 살아남는다. charReady를 이번 라운드에 새로 넣은 곳이라 같은 함정이 그대로
+  // 있었다. 근거·시점 판단은 GoalCelebrationModal의 같은 자리 주석 참고.
+  useEffect(() => {
+    if (visible) return;
+    setCharReady(false);
+    setPopDone(false);
+  }, [visible]);
   // 색종이는 팝이 시작(=charReady)한 뒤 팝 길이만큼 지나서. reduce여도 타이머는 남긴다(정책 D7) —
   // 지연만 0이 된다. 없애면 게이트가 영영 안 열린다.
   useEffect(() => {
-    if (!visible) {
-      setPopDone(false);
-      return undefined;
-    }
-    if (!charReady) return undefined;
+    if (!visible || !charReady) return undefined;
     const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
     return () => clearTimeout(t);
   }, [visible, charReady, m]);
@@ -61,10 +65,14 @@ export function WeekStreakModal({ visible, onClose }: Props) {
               호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다).
               ⚠️ 팝은 마운트가 아니라 그림이 실제로 올라온 뒤(onLoad) 시작한다 — 근거는
               GoalCelebrationModal의 같은 자리 주석(codex 리뷰). */}
-          <Animated.View style={charReady ? m.css(pop()) : s.charPending}>
+          <Animated.View
+            testID="weekStreak.character"
+            style={charReady ? m.css(pop()) : s.charPending}
+          >
             <CharacterImage
               size={104}
               sourceUri={activeSource ?? undefined}
+              testID="weekStreak.character.image"
               onLoad={() => setCharReady(true)}
             />
           </Animated.View>

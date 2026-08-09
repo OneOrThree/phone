@@ -61,15 +61,26 @@ export function GoalCelebrationModal({
   useEffect(() => {
     if (visible) hapticSuccess();
   }, [visible]);
+  // 노출 단위 초기화(codex 리뷰) — 이 모달은 닫혀도 **언마운트되지 않는다**. RN Modal은
+  // visible=false면 children만 통째로 언마운트하므로 다음 노출에서 CharacterImage는 새로
+  // 마운트돼 onLoad를 다시 준다. 그런데 준비 플래그는 바깥(이 컴포넌트)에 살아남아, 초기화하지
+  // 않으면 이전 노출의 true가 남는다 → 새 이미지의 onLoad를 기다리지 않고 팝·색종이가 즉시
+  // 시작돼, 누끼 디코딩이 600ms를 넘으면 "안 보이는 사이 팝이 끝나는" 문제가 그대로 재현된다.
+  // ⚠️ 초기화 시점은 '닫힐 때'다. onClose 콜백이 아니라 visible **prop**을 보고 있어서 CTA·딤·
+  //    시스템 백 어느 경로로 닫히든 여기 한 곳을 반드시 지난다 — 경로를 빠뜨릴 수가 없다.
+  //    '열 때 초기화'는 오히려 위험하다: 캐시된 이미지의 onLoad가 초기화 이펙트보다 먼저 도착하면
+  //    방금 올라온 true를 되돌려 팝이 영영 안 붙는다.
+  useEffect(() => {
+    if (visible) return;
+    setCharReady(false);
+    setUiIdle(false);
+    setPopDone(false);
+  }, [visible]);
   // 팝인 완료 → 색종이. reduce면 지연이 0이 되지만 **타이머 자체는 남긴다**(정책 D7) —
   // 없애면 색종이 게이트가 영영 열리지 않는다. (색종이 자체의 reduce 처리는 ConfettiBurst 담당)
   const charShown = charReady && uiIdle;
   useEffect(() => {
-    if (!visible) {
-      setPopDone(false);
-      return undefined;
-    }
-    if (!charShown) return undefined;
+    if (!visible || !charShown) return undefined;
     const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
     return () => clearTimeout(t);
   }, [visible, charShown, m]);
@@ -96,10 +107,14 @@ export function GoalCelebrationModal({
               ⚠️ 팝은 마운트가 아니라 **그림이 실제로 올라온 뒤**(onLoad) 시작한다 — 커스텀 누끼
               디코딩이 600ms보다 늦으면 팝이 안 보이는 사이 끝나 캐릭터가 최종 크기로 툭 나타난다
               (codex 리뷰). 그 전에는 opacity 0으로 접어 둬 '컸다가 줄어드는' 프레임도 없앤다. */}
-          <Animated.View style={charReady ? m.css(pop()) : s.charPending}>
+          <Animated.View
+            testID="goalCelebration.character"
+            style={charReady ? m.css(pop()) : s.charPending}
+          >
             <CharacterImage
               size={104}
               sourceUri={activeSource ?? undefined}
+              testID="goalCelebration.character.image"
               onLoad={() => setCharReady(true)}
             />
           </Animated.View>

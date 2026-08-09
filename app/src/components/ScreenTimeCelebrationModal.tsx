@@ -58,14 +58,19 @@ export function ScreenTimeCelebrationModal({
   useEffect(() => {
     if (visible) hapticSuccess();
   }, [visible]);
+  // 노출 단위 초기화(codex 리뷰) — 닫혀도 이 컴포넌트는 언마운트되지 않아 준비 플래그가
+  // 다음 노출까지 살아남는다. 초기화하지 않으면 새 이미지의 onLoad를 기다리지 않고 팝·색종이가
+  // 즉시 시작된다. 근거·시점 판단은 GoalCelebrationModal의 같은 자리 주석 참고.
+  useEffect(() => {
+    if (visible) return;
+    setCharReady(false);
+    setUiIdle(false);
+    setPopDone(false);
+  }, [visible]);
   // 팝인 완료 → 색종이. reduce여도 타이머는 남긴다(정책 D7) — 없애면 게이트가 안 열린다.
   const charShown = charReady && uiIdle;
   useEffect(() => {
-    if (!visible) {
-      setPopDone(false);
-      return undefined;
-    }
-    if (!charShown) return undefined;
+    if (!visible || !charShown) return undefined;
     const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
     return () => clearTimeout(t);
   }, [visible, charShown, m]);
@@ -90,10 +95,14 @@ export function ScreenTimeCelebrationModal({
               호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다).
               ⚠️ 팝은 마운트가 아니라 그림이 실제로 올라온 뒤(onLoad) 시작한다 — 근거는
               GoalCelebrationModal의 같은 자리 주석(codex 리뷰). */}
-          <Animated.View style={charReady ? m.css(pop()) : s.charPending}>
+          <Animated.View
+            testID="screenTimeCelebration.character"
+            style={charReady ? m.css(pop()) : s.charPending}
+          >
             <CharacterImage
               size={104}
               sourceUri={activeSource ?? undefined}
+              testID="screenTimeCelebration.character.image"
               onLoad={() => setCharReady(true)}
             />
           </Animated.View>
