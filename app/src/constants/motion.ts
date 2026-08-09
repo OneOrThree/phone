@@ -1,4 +1,4 @@
-import { Easing, cubicBezier } from 'react-native-reanimated';
+import { Easing, ReduceMotion, cubicBezier } from 'react-native-reanimated';
 import type {
   CSSAnimationProperties,
   CSSAnimationTimingFunction,
@@ -125,6 +125,23 @@ export function growUp(index = 0): CSSAnimationProperties {
   return growUpCache[i];
 }
 
+// ⚠️ delay를 키로 쓰는 캐시는 인자가 유한하다는 전제 위에 있다(enterUp/growUp은 index를
+//    staggerMaxSteps로 클램프해 배열로 캐싱하지만, 여기는 원시 ms 값이라 클램프할 축이 없다).
+//    호출부가 `pop(i * 80)` 같은 동적 값을 넘기기 시작하면 조용히 자란다 — 신호 없이 새는 걸
+//    막으려고 개발 빌드에서만 임계치를 넘을 때 한 번 경고한다(codex·claude 리뷰).
+//    상한(LRU 등)을 두지 않는 이유: 참조가 바뀌는 순간 애니메이션이 리셋되므로 "캐시가 있는데
+//    가끔 리셋된다"는 더 나쁜 실패 모드가 된다. 새는 걸 고치는 게 맞지 덮는 게 아니다.
+const CACHE_WARN_AT = 32;
+const warned = new Set<string>();
+function guardCacheSize(name: string, size: number): void {
+  if (!__DEV__ || size < CACHE_WARN_AT || warned.has(name)) return;
+  warned.add(name);
+  console.warn(
+    `[motion] ${name}() 캐시가 ${size}개를 넘었습니다. 동적 delay를 넘기는 호출부가 있는지 확인하세요 — ` +
+      '프리셋은 인자가 유한하다는 전제로 참조를 캐싱합니다.',
+  );
+}
+
 const popCache = new Map<number, CSSAnimationProperties>();
 
 /** 0에서 1.25까지 튀었다가 안착. 스트릭 ✓·배지·보상 순간 전용 (checkPop 승격). */
@@ -143,6 +160,7 @@ export function pop(delayMs = 0): CSSAnimationProperties {
       animationFillMode: 'backwards',
     };
     popCache.set(delayMs, cached);
+    guardCacheSize('pop', popCache.size);
   }
   return cached;
 }
@@ -161,6 +179,7 @@ export function fadeIn(delayMs = 0): CSSAnimationProperties {
       animationFillMode: 'backwards',
     };
     fadeInCache.set(delayMs, cached);
+    guardCacheSize('fadeIn', fadeInCache.size);
   }
   return cached;
 }
@@ -203,6 +222,7 @@ export function transition(opts: {
       ...(delay > 0 ? { transitionDelay: ms(delay) } : {}),
     };
     transitionCache.set(key, cached);
+    guardCacheSize('transition', transitionCache.size);
   }
   return cached;
 }
@@ -214,11 +234,25 @@ type SpringifiableBuilder = {
   damping(v: number): SpringifiableBuilder;
   stiffness(v: number): SpringifiableBuilder;
   mass(v: number): SpringifiableBuilder;
+  reduceMotion(v: ReduceMotion): SpringifiableBuilder;
 };
 
 export function springify<B extends SpringifiableBuilder>(
   builder: B,
   s: SpringParams = M.spring.snappy,
 ): B {
-  return builder.springify().damping(s.damping).stiffness(s.stiffness).mass(s.mass) as B;
+  return (
+    builder
+      .springify()
+      .damping(s.damping)
+      .stiffness(s.stiffness)
+      .mass(s.mass)
+      // ⚠️ 내장 reduce-motion 게이트를 **명시적으로 끈다** (정책 D6).
+      //    레이아웃 빌더의 기본값은 ReduceMotion.System인데, 그건 reanimated가 모듈 로드 시 1회
+      //    계산하는 **정적** 플래그다. '동작 줄이기'를 켠 채로 앱을 켰다가 실행 중에 끄면
+      //    useMotion은 반응해서 layout prop을 다시 내주지만 이 정적 플래그가 애니메이션을 계속
+      //    억제한다 — 앱 안에 '동작 줄이기' 진실이 둘 생긴다.
+      //    켜고 끄는 판단은 useMotion 한 곳만 한다(codex 리뷰).
+      .reduceMotion(ReduceMotion.Never) as B
+  );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { M, transition } from '@/constants/motion';
@@ -48,8 +49,24 @@ export function ProgressBar({
   const m = useMotion();
   // NaN(0으로 나눈 비율 등)이 그대로 style.width에 들어가면 막대가 사라진다 — 0으로 접는다.
   const clamped = Number.isFinite(progress) ? Math.min(Math.max(progress, 0), 1) : 0;
+
+  // ⚠️ CSS transition은 **이전 렌더와 값이 달라야** 실행된다. 첫 렌더부터 최종 폭으로 그리면
+  //    채우기 연출이 통째로 재생되지 않고 delay도 무시된다 — 그런데 "화면에 들어올 때 이미
+  //    계산된 진행률을 넘긴다"가 오히려 기본 사용 경로다. 그래서 첫 프레임만 0으로 그린 뒤
+  //    다음 프레임에 목표 폭으로 넘겨 전환을 발생시킨다.
+  //    requestAnimationFrame인 이유: useEffect의 setState는 같은 커밋에 묶여 네이티브가 0%를
+  //    한 번도 못 볼 수 있다. 실제 프레임 경계가 필요하다.
+  //    reduce면 이 2단계를 건너뛴다(전환 스타일이 없으니 0%가 한 프레임 보이기만 할 뿐이다).
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    if (entered) return;
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, [entered]);
+  const shown = entered || m.reduce ? clamped : 0;
+
   // 소수점 둘째 자리까지 — 부동소수 오차(0.1+0.2)로 '30.000000000000004%' 같은 값이 나가지 않게.
-  const widthPct = `${Math.round(clamped * 10000) / 100}%` as const;
+  const widthPct = `${Math.round(shown * 10000) / 100}%` as const;
   const cap = radius ?? height / 2;
 
   return (
