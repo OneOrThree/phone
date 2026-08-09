@@ -23,6 +23,8 @@ public class FocusSessionRequest {
     // 음수는 집중초를 부풀린다. PATCH(FocusSessionEndRequest)와 같은 범위로 맞춘다.
     @PositiveOrZero
     @Max(value = 24 * 60 * 60, message = "하루 24시간을 넘을 수 없습니다")
+    // 앱이 세는 건 수동 일시정지뿐이다 — 뽀모도로 휴식·실드 이탈 크레딧은 정산 구간 밖이라
+    // 여기 넣으면 이중 차감이 된다(app/screens/focus/blockPause.ts 헤더 주석이 정본).
     int totalDistractionSeconds;
     // GROMO-733: 세션 유형(INFINITE/RANGE/POMODORO, additive). null 이면 서비스에서 INFINITE 기본(하위호환).
     FocusType focusType;

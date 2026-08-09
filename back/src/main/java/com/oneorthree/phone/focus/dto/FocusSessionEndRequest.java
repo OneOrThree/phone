@@ -16,7 +16,9 @@ import java.util.UUID;
  *
  * @param sessionId               종료할 진행 중 세션 id(필수)
  * @param endedAt                 종료 시각(선택). null 이면 서버 수신 시각(Instant.now). startedAt 이후여야 함
- * @param totalDistractionSeconds 세션 중 누적 방해 초(선택, 미지정 시 0). 0 이상 24시간 이하
+ * @param totalDistractionSeconds 세션 중 누적 방해 초(선택, 미지정 시 0). 0 이상 24시간 이하.
+ *                                <b>앱이 세는 건 수동 일시정지뿐이다</b> — 뽀모도로 휴식·실드 이탈 크레딧은
+ *                                애초에 정산 구간 밖이라 여기 넣으면 이중 차감이 된다(app/screens/focus/blockPause.ts)
  * @param focusTagId              시작 시 미지정한 태그 보정용(user_focus_tags.id, 선택). 소유 태그여야 함
  * @param focusSecondsByDate      GROMO-1252: 날짜별 집중 초(로컬 날짜 → 초, 선택). 자정을 걸친 세션의 날짜별
  *                                귀속 근거 — null·빈 맵이면 서버 벽시계 분할로 폴백한다.
