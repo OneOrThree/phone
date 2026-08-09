@@ -6,7 +6,9 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { cubicBezier } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
+import { growUp, pop } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
@@ -52,33 +54,17 @@ const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 const BAR_H = 72;
 // GROMO-682: 스트릭(출석 ✓) 인정 최소 기준 — 하루 누적 10분
 const STREAK_MIN_DAILY_MINUTES = 10;
-// 진입 시 막대가 바닥부터 자라는 키프레임(GROMO-683) — height 애니메이션은 매 프레임
-// 레이아웃 패스를 유발하므로 scaleY 변환 사용(s.bar의 transformOrigin: 'bottom'과 조합).
-const growUp = { from: { transform: [{ scaleY: 0 }] } };
-// 막대별 진입 애니메이션 — 왼쪽부터 80ms 시차. fillMode backwards로 딜레이 동안
-// scaleY 0(접힌 상태)을 유지해 먼저 그려지는 튐 방지. 이징은 목표를 살짝 넘었다가
-// 자리 잡는 overshoot 곡선(easeOutBack) — 500ms ease-out은 너무 빨라 체감이 안 됐음.
-const barEnterAnim = (index: number) =>
-  ({
-    animationName: growUp,
-    animationDuration: '800ms',
-    animationDelay: `${index * 80}ms`,
-    animationTimingFunction: cubicBezier(0.34, 1.56, 0.64, 1),
-    animationFillMode: 'backwards',
-  }) as const;
-// 스트릭 ✓ 팝 모션(GROMO-667) — 그날 누적 10분을 처음 채운 결과 화면에서 '오늘 칸'에만 재생.
-// 요일 무관 동일 효과 — 일요일이라 주간까지 완성되면 이 팝에 이어 종이폭죽·모달이 붙는다.
-const checkPop = {
-  animationName: {
-    from: { transform: [{ scale: 0 }] },
-    '70%': { transform: [{ scale: 1.25 }] },
-    to: { transform: [{ scale: 1 }] },
-  },
-  animationDuration: '600ms',
-  animationDelay: '400ms',
-  animationTimingFunction: 'ease-out',
-  animationFillMode: 'backwards',
-} as const;
+// 진입 애니메이션은 전부 @/constants/motion 프리셋으로 이관했다(GROMO-1381).
+//   막대 진입  → growUp(i)  : scaleY 0→1, entrance(800ms), overshoot 커브, fillMode backwards.
+//                             s.bar의 transformOrigin: 'bottom'과 짝이다(height 대신 scaleY를
+//                             쓰는 이유 — 매 프레임 레이아웃 패스 회피, GROMO-683).
+//                             시차는 M.stagger.base(60ms)로 상향됐다(기존 80ms).
+//   ✓ 팝     → pop(400)    : scale 0→1.25→1, slow(600ms), 400ms 지연.
+//                             스트릭 ✓(GROMO-667)와 코인 배지가 같은 모션을 공유한다.
+// ⚠️ 프리셋은 모듈 스코프에 참조 캐싱돼 있어 인라인 호출해도 애니메이션이 리셋되지 않는다.
+//    (기존 barEnterAnim은 호출마다 새 객체를 만들었다 — 마운트 1회라 드러나지 않았을 뿐이다.)
+// ⚠️ 반드시 m.css()를 통과시킨다. CSS 애니메이션은 reduce-motion 내장 처리가 없다.
+const STREAK_POP_DELAY_MS = 400;
 
 // 오늘 ✓ 팝을 재생한 마커(프로세스 메모리, 'userId:날짜') — 연속 결과 화면이 AsyncStorage 쓰기
 // 완료 전에 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와
@@ -103,6 +89,7 @@ export default function FocusResultScreen() {
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusResult'>>();
   const { focusSeconds, subjectName, completed } = params;
   const { subjects } = useSubjects();
+  const m = useMotion();
   // 목표 달성 판정용(GROMO-630) — 로컬 누적(오늘 전체)·로컬 목표. 서버 조회가 늦거나 실패해도 판정 가능.
   const { todayFocusSeconds } = useFocus();
   const { goalSeconds: userGoalSeconds, userId } = useUser();
@@ -151,7 +138,7 @@ export default function FocusResultScreen() {
     fetchFocusAverage('CATEGORY', comparePeriod).then(put('category'));
     if (comparePeriod === 'MONTH') {
       getFocusPeriodStats('MONTH')
-        .then((m) => !compareUnmounted.current && setMonth(m))
+        .then((res) => !compareUnmounted.current && setMonth(res))
         .catch(() => {});
     }
   }, [comparePeriod]);
@@ -421,9 +408,9 @@ export default function FocusResultScreen() {
           <Text style={s.sub}>
             {firstTime ? '오늘 첫 걸음을 뗐어요 🎉' : `${subjectName} · 꾸준함이 쌓이고 있어요`}
           </Text>
-          {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 checkPop 재사용) */}
+          {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 pop 프리셋 재사용) */}
           {rewardCoins > 0 ? (
-            <Animated.View style={[s.coinBadge, checkPop]}>
+            <Animated.View style={[s.coinBadge, m.css(pop(STREAK_POP_DELAY_MS))]}>
               {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
               <Text
                 style={s.coinBadgeText}
@@ -516,7 +503,7 @@ export default function FocusResultScreen() {
                       <Ionicons name="checkmark" size={15} color={T.white} />
                     ) : null}
                     {popping ? (
-                      <Animated.View style={[s.dotPopFill, checkPop]}>
+                      <Animated.View style={[s.dotPopFill, m.css(pop(STREAK_POP_DELAY_MS))]}>
                         <Ionicons name="checkmark" size={15} color={T.white} />
                       </Animated.View>
                     ) : null}
@@ -572,7 +559,7 @@ export default function FocusResultScreen() {
                           style={[
                             s.bar,
                             { height: h, backgroundColor: isToday ? T.accent : T.sand },
-                            barEnterAnim(i),
+                            m.css(growUp(i)),
                           ]}
                         />
                       </View>
