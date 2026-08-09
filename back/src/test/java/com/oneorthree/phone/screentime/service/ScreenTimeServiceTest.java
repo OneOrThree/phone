@@ -340,14 +340,15 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("country_code null → UTC 폴백 기준 로컬 날짜")
-    void saveScreenTimeNullCountryFallsBackToUtc() {
+    @DisplayName("country_code null → Asia/Seoul 폴백 기준 로컬 날짜 (GROMO-1252)")
+    void saveScreenTimeNullCountryFallsBackToSeoul() {
         User user = User.builder().id(USER_ID).isGuest(false).build(); // countryCode null
-        Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z"); // UTC 로컬 날짜 01-01
-        LocalDate utcDate = LocalDate.of(2020, 1, 1);
+        // 2020-01-01T15:30:00Z == 2020-01-02 00:30 KST → 폴백 존(Asia/Seoul) 로컬 날짜 01-02
+        Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z");
+        LocalDate fallbackDate = LocalDate.of(2020, 1, 2);
 
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(dailyScreenTimeStatRepository.findByUserAndDate(user, utcDate))
+        given(dailyScreenTimeStatRepository.findByUserAndDate(user, fallbackDate))
                 .willReturn(Optional.empty());
         given(dailyScreenTimeStatRepository.save(any(DailyScreenTimeStat.class)))
                 .willAnswer(i -> i.getArgument(0));
@@ -356,7 +357,7 @@ class ScreenTimeServiceTest {
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getDate()).isEqualTo(utcDate);
+        assertThat(captor.getValue().getDate()).isEqualTo(fallbackDate);
     }
 
     // ── 에러 케이스 ────────────────────────────────────────────────────────

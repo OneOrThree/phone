@@ -522,6 +522,8 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
 
   started_at                timestamptz [not null, note: '세션 시작 시각']
   ended_at                  timestamptz [note: '세션 종료 시각 — 진행중(라이브) 세션이면 null (GROMO-610)']
+  stat_end_at               timestamptz [note: 'nullable — 통계 귀속용 유효 종료 = min(ended_at, 완료 시점 now). ended_at 은 재업로드 중복 검사 때문에 클라 값 그대로 저장하므로, 미래 endedAt 위조가 조회 시점마다 더 세지 않도록 완료 순간 클램프를 고정 보관 (GROMO-1252). 레거시 row 는 null → 조회측이 ended_at 폴백']
+  focus_seconds_by_date     jsonb       [note: 'nullable — 완료 시점에 확정한 날짜별 집중 초 (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). daily_focus_stats 에 가산한 값과 동일 (GROMO-1252). 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 자르지 않고 이 분포를 쓴다. 레거시 row 는 null → 조회측이 벽시계 클리핑 폴백']
 
   status                    focus_session_status [not null, default: 'ACTIVE', note: '세션 생명주기 (deleted_at 대체). 라이브 = ACTIVE. 부분 인덱스 idx_focus_sessions_live (user_id, started_at) WHERE status = ACTIVE']
 

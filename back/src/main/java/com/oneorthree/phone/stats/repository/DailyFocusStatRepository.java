@@ -55,6 +55,21 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
             @Param("date") LocalDate date);
 
     /**
+     * [from, to] 중 하루 누적 집중이 {@code minSeconds} 이상인(= 스트릭 자격을 갖춘) 날짜들
+     * (GROMO-1252 코드리뷰 5차 ③ — {@code UserStreakService} 의 소급 재구성 전용).
+     *
+     * <p>판정은 <b>차감·재집계가 반영된 현재</b> {@code totalFocusSeconds} 기준이다. 구간 상한은 호출측이
+     * 정한다(무제한 스캔 금지).
+     */
+    @Query("SELECT d.date FROM DailyFocusStat d "
+            + "WHERE d.user = :user AND d.date BETWEEN :from AND :to AND d.totalFocusSeconds >= :minSeconds")
+    List<LocalDate> findQualifiedDates(
+            @Param("user") User user,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("minSeconds") int minSeconds);
+
+    /**
      * [from, to] 구간의 totalFocusSeconds 합계를 반환한다(초 — GROMO-642).
      * 데이터 없는 구간은 COALESCE → 0 반환(null 처리 불필요).
      */

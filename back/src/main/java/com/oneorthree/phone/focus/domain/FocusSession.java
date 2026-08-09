@@ -18,8 +18,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -70,6 +73,22 @@ public class FocusSession {
     // 과거 nullable=false 였으나 '시작만 저장' 경로를 위해 NOT NULL 제거 — friend isFocusing 판정(endedAt IS NULL) 전제.
     private Instant endedAt;
 
+    // GROMO-1252(코드리뷰 2차 ②): 통계 귀속용 '유효 종료 시각' = min(endedAt, 완료 시점 서버 now).
+    // endedAt 은 클라가 보낸 값 그대로 저장해야 재업로드 중복 검사(existsByUserAndStartedAtAndEndedAtAndStatus)가
+    // 성립하는데, 미래 endedAt 위조 세션은 조회 시점 now 로 클리핑하는 by-category 가 시간이 갈수록 더 세게 된다
+    // (사전집계 DailyFocusStat 는 완료 시점 클램프라 고정) → 완료 순간의 클램프 결과를 여기 고정 보관해
+    // 모든 조회가 같은 값으로 자르게 한다. 레거시 row 는 null 이라 조회측이 endedAt 으로 폴백한다.
+    private Instant statEndAt;
+
+    // GROMO-1252(코드리뷰 3차 ①): 완료 시점에 확정한 날짜별 집중 초 분포
+    // (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). 앱이 실어 보낸 분포를 날짜별 벽시계 몫으로 클램프한 결과이며,
+    // 앱이 안 보냈으면 벽시계 분할 그대로다 — 사전집계 DailyFocusStat 에 가산한 값과 동일하다.
+    // 이걸 안 남기면 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 잘라 사전집계와 어긋난다
+    // (일시정지가 자정을 걸치면 300/300 vs 600/900). 레거시 row 는 null → 조회측이 벽시계로 폴백.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "focus_seconds_by_date")
+    private Map<String, Integer> focusSecondsByDate;
+
     @Builder.Default
     private int totalDistractionSeconds = 0;
 
@@ -83,10 +102,18 @@ public class FocusSession {
      * <p>GROMO-733: 완료 전이 시 status 를 COMPLETED 로 세팅한다. 벌크(endSessionIfActive)는 status-agnostic 하게
      * endedAt 만 원자 세팅하고, COMPLETED 는 이 관리 엔티티 더티 flush 로 정확히 반영한다.
      */
-    public void end(Instant endedAt, int totalDistractionSeconds) {
+    public void end(Instant endedAt, int totalDistractionSeconds, Instant statEndAt,
+                    Map<String, Integer> focusSecondsByDate) {
         this.endedAt = endedAt;
         this.totalDistractionSeconds = totalDistractionSeconds;
+        this.statEndAt = statEndAt;
+        this.focusSecondsByDate = focusSecondsByDate;
         this.status = FocusSessionStatus.COMPLETED;
+    }
+
+    /** 통계 귀속용 유효 종료 시각 — 미기록(레거시 row)이면 endedAt 으로 폴백한다(GROMO-1252). */
+    public Instant statEndOrEndedAt() {
+        return statEndAt != null ? statEndAt : endedAt;
     }
 
     /**

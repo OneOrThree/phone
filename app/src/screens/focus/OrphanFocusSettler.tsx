@@ -7,7 +7,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
 import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
-import { todayStr, localDateStr } from '@/utils/localDate';
+import { todayOverlapSeconds, todayStr } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
 import { cancelStaleCompletionNotifications } from './completionNotification';
@@ -71,12 +71,22 @@ export function OrphanFocusSettler() {
         rec = { ...rec, settledLocally: true };
         stored = JSON.stringify(rec);
         await AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, stored);
-        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 세션이 오늘 기록일 때만 반영한다
-        // (자정 넘겨 재실행 시 어제 세션이 오늘로 안 잡히게).
-        // 날짜 규칙은 FocusContext/SubjectContext와 동일(localDate=KST 자정 기준).
-        if (localDateStr(new Date(rec.updatedAt)) === todayStr()) {
-          addFocusSeconds(focused);
-          addFocusToSubject(rec.subjectId, focused);
+        // '오늘 집중'과 과목 누적은 둘 다 '오늘' 기준 → 이 세션의 집중초 중 오늘 몫만 반영한다
+        // (GROMO-1252 — 종전엔 updatedAt 하루만 보고 elapsed 전체를 오늘에 꽂아, 자정을 걸친
+        // 세션의 어제 몫까지 오늘로 들어왔다). 근거는 레코드가 남긴 날짜별 집중초 —
+        // 세션 화면과 같은 규칙(집중 tick의 날짜)이다(blockToday.ts 주석 참고).
+        // 구간 [startedAt, updatedAt] 겹침 폴백은 필드가 없는 구버전 레코드 전용 — 일시정지가
+        // 자정을 걸친 블록은 그 경로에서 여전히 과다 계상될 수 있다(어제 몫이 오늘로).
+        // 날짜 축은 로컬 자정(FocusContext/SubjectContext와 동일).
+        const todaySeconds = Math.min(
+          focused,
+          rec.focusDays?.local != null
+            ? (rec.focusDays.local[todayStr()] ?? 0)
+            : todayOverlapSeconds(rec.startedAt, rec.updatedAt),
+        );
+        if (todaySeconds > 0) {
+          addFocusSeconds(todaySeconds);
+          addFocusToSubject(rec.subjectId, todaySeconds);
         }
       }
       const body = {
@@ -86,6 +96,10 @@ export function OrphanFocusSettler() {
         endedAt: rec.updatedAt,
         distractionCount: 0,
         totalDistractionSeconds: 0,
+        // 날짜별 집중초(GROMO-1252 ①) — 레코드에 있으면 서버 벽시계 분할 대신 이 분포로 귀속된다.
+        // 축은 서버 존(프로필 timeZone) — 로컬 축을 보내면 기기 존 ≠ 서버 존일 때 몫이 조용히
+        // 버려진다(②). 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
+        focusSecondsByDate: rec.focusDays?.server,
       };
       try {
         await saveFocusSession(body, userId);

@@ -617,6 +617,22 @@ class UserServiceTest {
         assertThat(response.countryCode()).isEqualTo("KR");
         assertThat(response.statVisibility()).isEqualTo("FRIENDS"); // 기본값
         assertThat(response.occupation()).isEqualTo("UNIVERSITY"); // 준비 시험 enum name (GROMO-757)
+        assertThat(response.timeZone()).isEqualTo("Asia/Seoul"); // 서버 날짜 버킷 존 (GROMO-1252)
+    }
+
+    @Test
+    @DisplayName("GB 유저 프로필 → timeZone 은 Europe/London (앱 업로드 날짜 축의 정본, GROMO-1252)")
+    void getProfileReturnsUserZoneForGb() {
+        User user = User.builder().id(USER_ID).nickname("oscar").countryCode("GB").build();
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(userWalletRepository.findById(USER_ID))
+                .willReturn(Optional.of(UserWallet.builder().userId(USER_ID).balance(0).build()));
+        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(
+                UserScreenTimeSettings.builder().userId(USER_ID).dailyScreenTimeGoalMinutes(120).build()));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(
+                UserFocusTimeSettings.builder().userId(USER_ID).dailyFocusTimeGoalMinutes(90).build()));
+
+        assertThat(userService.getProfile(USER_ID).timeZone()).isEqualTo("Europe/London");
     }
 
     @Test

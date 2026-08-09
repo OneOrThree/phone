@@ -371,8 +371,12 @@ public class StatsService {
 
     /**
      * 카테고리(태그)별 집중 통계 조회 (실제 오늘 기준).
-     * 기간 내 완료된 세션을 태그별로 그룹핑하여 누적 집중 시간(분)과 전체 합계를 반환한다.
+     * 기간과 겹치는 완료 세션을 태그별로 그룹핑하여 누적 집중 시간(분)과 전체 합계를 반환한다.
      * 태그 없는 세션 및 소프트딜리트된 태그의 세션은 '미분류(untagged)' 버킷으로 집계.
+     *
+     * <p><b>GROMO-1252</b>: 세션 기여분은 사전집계({@code DailyFocusStat})와 <b>같은 날짜별 분포</b>로 센다 —
+     * 세션에 저장된 확정 분포가 있으면 그중 창에 든 날짜만, 없으면(레거시 row) 창으로 벽시계 클리핑한다
+     * ({@link #windowSeconds}). 같은 화면의 총합과 과목별 합이 맞으려면 귀속 기준이 같아야 한다.
      */
     public CategoryFocusStatsResponse getFocusStatsByCategory(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
@@ -384,12 +388,16 @@ public class StatsService {
 
         // GROMO-803: endedAt 윈도우도 유저 country_code 존 기준으로 정합 — [from 00:00, to+1 00:00) 반열림 구간.
         // 일별 버킷(DailyFocusStat)이 존 로컬 날짜가 됐으므로, by-category 윈도우도 같은 존으로 열어야 경계 세션이
-        // 두 집계에서 동일한 날에 귀속된다. countryCode null·미지원은 UTC 폴백(CountryZoneResolver).
+        // 두 집계에서 동일한 날에 귀속된다. countryCode null·미지원은 Asia/Seoul 폴백(CountryZoneResolver).
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         Instant fromInstant = from.atStartOfDay(zone).toInstant();
         Instant toInstant = to.plusDays(1).atStartOfDay(zone).toInstant();
+        // GROMO-1252(코드리뷰 P1): 창 상단을 서버 now 로도 클램프한다 — 미래는 실집중일 수 없다.
+        // stat_end_at 이 없는 레거시 row(마이그레이션 이전 미래 endedAt 위조)를 여기서 막는 마지막 방어선.
+        Instant now = Instant.now();
+        Instant windowEnd = toInstant.isAfter(now) ? now : toInstant;
         List<FocusSession> sessions =
-                focusSessionRepository.findCompletedSessionsInPeriod(user, fromInstant, toInstant);
+                focusSessionRepository.findCompletedSessionsOverlappingPeriod(user, fromInstant, windowEnd);
 
         // 태그별 집계 — Collectors.groupingBy 는 null 키 불가이므로 직접 누적 (GROMO-642: 세션별 분 내림 제거 → 초 누적)
         Map<UUID, Long> taggedSeconds = new LinkedHashMap<>();
@@ -397,7 +405,7 @@ public class StatsService {
         long untaggedSeconds = 0L;
 
         for (FocusSession s : sessions) {
-            long secs = Duration.between(s.getStartedAt(), s.getEndedAt()).getSeconds();
+            long secs = windowSeconds(s, from, to, fromInstant, windowEnd);
             // GROMO-673: 태그는 user_focus_tags. 버킷 키는 user_focus_tags.id, 이름은 defaultTag.name.
             UserFocusTag tag = s.getFocusTag();
             if (tag == null || tag.getDeletedAt() != null) {
@@ -429,5 +437,38 @@ public class StatsService {
         items.sort(Comparator.comparingInt(CategoryFocusStatsResponse.CategoryItem::totalFocusMinutes).reversed());
 
         return new CategoryFocusStatsResponse(period, from, to, totalMinutes, items);
+    }
+
+    /**
+     * 세션 1건이 조회 창 [from, to](유저 존 로컬 날짜)에 기여하는 집중 초.
+     *
+     * <p><b>GROMO-1252(코드리뷰 3차 ①)</b>: 완료 시점에 확정해 저장한 날짜별 분포
+     * ({@code focus_sessions.focus_seconds_by_date})가 있으면 그중 창에 든 날짜만 더한다 — 사전집계
+     * {@code DailyFocusStat} 에 가산한 바로 그 값이라 같은 화면의 총합과 과목별 합이 정확히 맞는다.
+     * 벽시계 클리핑으로 다시 계산하면 일시정지가 자정을 걸친 세션에서 어긋난다(300/300 vs 600/900).
+     *
+     * <p><b>폴백(분포 미기록 레거시 row)</b>: 종전대로 창과 겹친 구간만 계수한다 —
+     * max(startedAt, from) ~ min(유효 종료, windowEnd). 종료측은 endedAt 이 아니라 완료 시점에 고정된
+     * 유효 종료(stat_end_at, 그마저 없으면 endedAt)를 쓴다(코드리뷰 2차 ②) — endedAt 을 쓰면 미래 endedAt
+     * 위조 세션이 조회 시점 windowEnd 를 따라 시간이 갈수록 더 계수된다.
+     */
+    private static long windowSeconds(FocusSession s, LocalDate from, LocalDate to,
+                                      Instant fromInstant, Instant windowEnd) {
+        Map<String, Integer> byDate = s.getFocusSecondsByDate();
+        if (byDate != null) {
+            long sum = 0;
+            for (Map.Entry<String, Integer> entry : byDate.entrySet()) {
+                LocalDate date = LocalDate.parse(entry.getKey());
+                if (entry.getValue() != null && !date.isBefore(from) && !date.isAfter(to)) {
+                    sum += Math.max(0, entry.getValue());
+                }
+            }
+            return sum;
+        }
+        Instant sliceStart = s.getStartedAt().isAfter(fromInstant) ? s.getStartedAt() : fromInstant;
+        Instant statEnd = s.statEndOrEndedAt();
+        Instant sliceEnd = statEnd.isBefore(windowEnd) ? statEnd : windowEnd;
+        // 창이 통째로 미래(클라가 미래 date 를 보내 windowEnd < fromInstant)면 음수가 되므로 0 으로 바닥친다.
+        return Math.max(0, Duration.between(sliceStart, sliceEnd).getSeconds());
     }
 }

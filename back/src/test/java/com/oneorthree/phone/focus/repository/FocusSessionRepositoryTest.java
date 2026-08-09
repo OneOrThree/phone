@@ -18,11 +18,12 @@ import org.springframework.data.domain.Slice;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * FocusSessionRepository.findCompletedSessionsInPeriod JPQL 필터 통합 테스트.
+ * FocusSessionRepository.findCompletedSessionsOverlappingPeriod JPQL 필터 통합 테스트.
  *
  * <p>Mockito 서비스 테스트로 검증 불가한 DB 레벨 필터(status <> CANCELED, endedAt 윈도우)를
  * 실 PostgreSQL(Testcontainers)로 검증한다.
@@ -70,7 +71,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     // ── 취소(CANCELED) 세션 제외 ──────────────────────────────────────────
 
     @Test
-    @DisplayName("findCompletedSessionsInPeriod — status=CANCELED(소프트딜리트) 세션은 결과에서 제외")
+    @DisplayName("findCompletedSessionsOverlappingPeriod — status=CANCELED(소프트딜리트) 세션은 결과에서 제외")
     void excludesCanceledSessions() {
         // given: 활성 완료 세션 1개 + 취소된 완료 세션 1개 (둘 다 endedAt 이 윈도우 내)
         FocusSession active = focusSessionRepository.save(FocusSession.builder()
@@ -88,7 +89,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         focusSessionRepository.flush();
 
         // when
-        List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsOverlappingPeriod(user, FROM, TO);
 
         // then: 활성 세션만 반환, 취소 세션은 제외
         assertThat(result).hasSize(1);
@@ -98,7 +99,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     // ── orphan 자동 종료(AUTO_CLOSED) 세션 제외 (GROMO-804) ───────────────
 
     @Test
-    @DisplayName("findCompletedSessionsInPeriod — status=AUTO_CLOSED(orphan 자동 종료) 세션은 결과에서 제외")
+    @DisplayName("findCompletedSessionsOverlappingPeriod — status=AUTO_CLOSED(orphan 자동 종료) 세션은 결과에서 제외")
     void excludesAutoClosedSessions() {
         // given: 정상 완료 세션 1개 + orphan 자동 종료 세션 1개 (둘 다 endedAt 이 윈도우 내)
         FocusSession active = focusSessionRepository.save(FocusSession.builder()
@@ -116,7 +117,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         focusSessionRepository.flush();
 
         // when
-        List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsOverlappingPeriod(user, FROM, TO);
 
         // then: 정상 세션만 반환, AUTO_CLOSED 세션은 제외 (→ /stats/focus 사전집계와 by-category 총합 정합)
         assertThat(result).hasSize(1);
@@ -125,8 +126,32 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
 
     // ── 세션 귀속은 endedAt(UTC) 윈도우 기준 ─────────────────────────────
 
+    /**
+     * GROMO-1252(코드리뷰 P1): 창을 걸친(자정 넘긴) 세션은 endedAt 이 창 밖이어도 포함돼야 한다.
+     * 종전 endedAt-포함 윈도우에선 이 세션이 통째로 빠져 by-category 가 사전집계보다 적게 나왔다.
+     * (겹침분만 세는 클리핑은 호출측 StatsService 책임 — 여기선 '고르는지'만 본다.)
+     */
     @Test
-    @DisplayName("findCompletedSessionsInPeriod — endedAt 이 [from,to) 밖인 세션은 제외")
+    @DisplayName("findCompletedSessionsOverlappingPeriod — endedAt 이 창 밖이어도 겹치면 포함(자정 걸친 세션)")
+    void includesSessionOverlappingWindowEnd() {
+        // given: 07-03 23:00 시작 ~ 07-04 01:00 종료 — endedAt 은 TO(07-04 00:00Z) 밖이지만 창과 1시간 겹친다.
+        FocusSession spanning = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T23:00:00Z"))
+                .endedAt(Instant.parse("2026-07-04T01:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+
+        // when
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsOverlappingPeriod(user, FROM, TO);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(spanning.getId());
+    }
+
+    @Test
+    @DisplayName("findCompletedSessionsOverlappingPeriod — [from,to) 와 전혀 겹치지 않는 세션은 제외")
     void belongsToEndedAtWindow() {
         // given: endedAt UTC 가 07-03 윈도우 내인 세션 1개
         FocusSession inWindow = focusSessionRepository.save(FocusSession.builder()
@@ -143,7 +168,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         focusSessionRepository.flush();
 
         // when: 07-03 윈도우 기준 조회
-        List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsOverlappingPeriod(user, FROM, TO);
 
         // then: 윈도우 내 세션만 포함
         assertThat(result).hasSize(1);
@@ -203,7 +228,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     // ── COMPLETED 세션 포함 (GROMO-733) ──────────────────────────────────
 
     @Test
-    @DisplayName("findCompletedSessionsInPeriod — status=COMPLETED(정상 완료) 세션은 결과에 포함")
+    @DisplayName("findCompletedSessionsOverlappingPeriod — status=COMPLETED(정상 완료) 세션은 결과에 포함")
     void includesCompletedSessions() {
         // given: end() 로 COMPLETED 전이된 정상 완료 세션 (endedAt 윈도우 내)
         FocusSession completed = focusSessionRepository.save(FocusSession.builder()
@@ -215,7 +240,7 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         focusSessionRepository.flush();
 
         // when
-        List<FocusSession> result = focusSessionRepository.findCompletedSessionsInPeriod(user, FROM, TO);
+        List<FocusSession> result = focusSessionRepository.findCompletedSessionsOverlappingPeriod(user, FROM, TO);
 
         // then: COMPLETED 는 NOT IN(CANCELED, AUTO_CLOSED) 필터를 통과해 포함된다(이제 정상값)
         assertThat(result).hasSize(1);
@@ -467,5 +492,40 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(slice.getContent())
                 .extracting(FocusSession::getId)
                 .containsExactlyInAnyOrder(active.getId(), completed.getId());
+    }
+
+    // ── 날짜별 확정 분포 jsonb 왕복 (GROMO-1252 코드리뷰 3차 ①) ─────────────
+
+    @Test
+    @DisplayName("focus_seconds_by_date — jsonb 컬럼에 날짜별 분포가 그대로 저장·복원된다")
+    void focusSecondsByDateRoundTripsThroughJsonb() {
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T14:50:00Z"))
+                .endedAt(Instant.parse("2026-07-03T15:15:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .focusSecondsByDate(Map.of("2026-07-03", 300, "2026-07-04", 300))
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(focusSessionRepository.findById(saved.getId()).orElseThrow().getFocusSecondsByDate())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("2026-07-03", 300, "2026-07-04", 300));
+    }
+
+    @Test
+    @DisplayName("focus_seconds_by_date — 미기록(레거시) 세션은 null 로 남아 조회측이 폴백한다")
+    void focusSecondsByDateIsNullWhenAbsent() {
+        FocusSession saved = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(focusSessionRepository.findById(saved.getId()).orElseThrow().getFocusSecondsByDate())
+                .isNull();
     }
 }

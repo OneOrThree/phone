@@ -41,6 +41,14 @@ export interface FocusSessionRequest {
   distractionCount: number;
   totalDistractionSeconds: number;
   focusType?: FocusType; // GROMO-733 additive — 미지정 시 서버가 INFINITE 기본(고아 정산 등 모드 미상 경로)
+  // GROMO-1252 additive — 이 세션의 날짜별 집중초("YYYY-MM-DD" → 초).
+  // 업로드 구간엔 일시정지 공백이 섞여 있어 서버가 벽시계 자정으로 쪼개면 자정을 걸친 세션의
+  // 날짜별 몫이 어긋난다(23:50~23:55 집중 → 일시정지 → 00:10~00:15 집중 = 300/300, 벽시계 600/900).
+  // ⚠️ 날짜 축은 **KST**다(서버 귀속 축 — country_code 파생 존, 미지정·미지원은 Asia/Seoul 폴백).
+  // 기기 로컬 축으로 보내면 기기 존 ≠ 서버 존일 때 서버가 못 알아보는 키가 나가 그 몫이 버려진다.
+  // 미지정·빈 맵이면 서버가 종전대로 벽시계 분할로 폴백한다. 서버는 값을 무검증 수용하지 않는다 —
+  // 날짜별 벽시계 몫을 상한으로 클램프하고 세션 구간과 겹치지 않는 날짜는 버린다.
+  focusSecondsByDate?: Record<string, number>;
 }
 
 // POST /focus-session — 집중 세션 저장 응답(GROMO-806). 세션 반영 후 그날 누적·스트릭 인정 여부.
@@ -65,6 +73,11 @@ export interface FocusSessionResponse {
   startedAt: string; // Instant, ISO 문자열
   endedAt: string; // Instant, ISO 문자열. ⚠️ 진행 중 세션은 null로 오지만 getAllFocusSessions가 걸러낸다
   totalDistractionSeconds: number;
+  // GROMO-1252 additive — 서버가 완료 시점에 확정한 날짜별 집중초(서버 존 로컬 날짜 → 초).
+  // 사전집계(DailyFocusStat)에 가산한 값과 동일하다. 복원 경로가 구간을 다시 벽시계로 자르지 않고
+  // 이 분포를 쓰면 일시정지가 자정을 걸친 세션도 서버와 같은 몫이 된다.
+  // 분포 미기록(레거시) 세션·구버전 서버는 undefined → 호출측이 todayOverlapSeconds로 폴백한다.
+  focusSecondsByDate?: Record<string, number>;
 }
 
 // GET /focus-session — 커서(keyset) 페이지네이션 응답. 정렬은 UUID v7 id 내림차순(최신순).

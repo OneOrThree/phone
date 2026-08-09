@@ -51,10 +51,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.NavigableSet;
 import java.util.Optional;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 
 @Slf4j
@@ -69,7 +75,8 @@ public class FocusService {
     private static final Duration ORPHAN_TIMEOUT = Duration.ofHours(12);
 
     // GROMO-806: 스트릭 인정 최소 누적 집중 시간(초) = 10분. 그날 누적이 이 값 이상일 때만 스트릭을 갱신한다.
-    private static final int STREAK_MIN_SECONDS = 600;
+    // 정본은 UserStreakService — 소급 재구성(5차 ③)이 같은 기준으로 과거 자격을 판정한다.
+    private static final int STREAK_MIN_SECONDS = UserStreakService.STREAK_MIN_SECONDS;
 
     // currency 폐쇄(서버 지급 전환): 세션 보상 = 집중 60초(1분)당 1코인. 앱은 floor(elapsed/10)로 적립했으나
     // (FocusSessionScreen.settleFocusBlock·OrphanFocusSettler), 서버 지급률은 오스카 결정으로 1분당 1코인으로
@@ -80,6 +87,12 @@ public class FocusService {
     // 12h 상한으로 자동 마감), 위조 장시간 세션(startedAt 을 과거로 조작한 POST)의 대량 지급을 여기서 자른다.
     // 세션 저장·통계는 종전대로 수용(클라 신뢰 기존 정책) — 상한은 '지급'에만 적용한다.
     private static final long MAX_REWARDED_SESSION_SECONDS = ORPHAN_TIMEOUT.toSeconds();
+
+    // GROMO-1252: 자정 분할이 만들 수 있는 날짜 조각 수 상한. POST 는 클라 시각을 신뢰하므로 startedAt 을
+    // 몇 년 전으로 조작한 세션이 날짜 수만큼 일별 upsert(행 잠금 포함)를 만들어 한 트랜잭션을 부풀릴 수 있다.
+    // 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않는다 — 상한 초과분은 마지막 조각에 합쳐
+    // 총합은 보존한 채 작업량만 자른다. 업로드 맵 엔트리 상한(400 검증)과 같은 값을 쓴다(정본은 DTO).
+    private static final int MAX_SPLIT_DAYS = FocusSessionRequest.MAX_SECONDS_BY_DATE_ENTRIES;
 
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
@@ -243,7 +256,9 @@ public class FocusService {
                         session.getFocusTag() != null ? session.getFocusTag().getId() : null,
                         session.getStartedAt(),
                         session.getEndedAt(),
-                        session.getTotalDistractionSeconds()
+                        session.getTotalDistractionSeconds(),
+                        // GROMO-1252 3차 ①: 확정 분포를 함께 내려 앱 복원이 사전집계와 같은 귀속을 쓰게 한다.
+                        session.getFocusSecondsByDate()
                 ))
                 .toList();
 
@@ -269,7 +284,15 @@ public class FocusService {
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        LocalDate statDate = statDate(body.getEndedAt(), zone);
+        // 미래 endedAt 위조 클램프 + 날짜별 귀속 분포를 한 번만 구해 저장·통계·중복응답이 같은 값을 쓴다.
+        Instant now = Instant.now();
+        Instant statEnd = statEnd(body.getEndedAt(), now);
+        NavigableMap<LocalDate, Integer> secondsByDate = resolveSecondsByDate(
+                body.getStartedAt(), statEnd, zone, body.getFocusSecondsByDate());
+        // 응답의 "그날 누적"은 실제로 조각이 쓰인 마지막(가장 늦은) 날짜 기준 — endedAt 에서 직접 파생하면
+        // 정확히 자정에 끝난 세션에서 최초 저장(전날 조각)과 재업로드 응답(다음날)이 다른 날짜를 본다(코드리뷰 ⑤).
+        LocalDate statDate = secondsByDate.isEmpty()
+                ? statDate(body.getEndedAt(), zone) : secondsByDate.lastKey();
 
         // 재업로드 멱등(서버 지급 전환의 이중 지급 방어): 앱 업로드 대기열(pendingFocusUploads)은 응답이 유실되면
         // 서버가 이미 커밋한 세션을 같은 바디로 재전송한다. 매 POST 가 새 행을 만들면 행 기반 멱등키가 재생성돼
@@ -296,6 +319,10 @@ public class FocusService {
                 .focusType(body.getFocusType() != null ? body.getFocusType() : FocusType.INFINITE)
                 .startedAt(body.getStartedAt())
                 .endedAt(body.getEndedAt())
+                // 통계 귀속용 유효 종료(GROMO-1252 ②) — 저장되는 endedAt 은 클라 값 그대로(중복 검사 전제).
+                .statEndAt(statEnd)
+                // 확정 분포도 함께 보관(GROMO-1252 ③차 ①) — 조회 집계·앱 복원이 사전집계와 같은 값을 쓴다.
+                .focusSecondsByDate(toStoredSecondsByDate(secondsByDate))
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
@@ -304,7 +331,7 @@ public class FocusService {
         // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을, 위의 재업로드 스킵이 행 재생성을 막는다.
         // 지갑 변경·원장 기입은 이 저장 트랜잭션에 함께 묶인다(credit 전파 REQUIRED).
         int awardedCoins = sessionRewardCoins(body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), Instant.now());
+                body.getTotalDistractionSeconds(), now);
         if (awardedCoins > 0) {
             currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
                     "focus:" + saved.getId() + ":reward");
@@ -312,7 +339,7 @@ public class FocusService {
 
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), statDate);
+                body.getTotalDistractionSeconds(), zone, secondsByDate);
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
@@ -344,14 +371,146 @@ public class FocusService {
     }
 
     /**
-     * 일별 집중 집계·스트릭 귀속 버킷 날짜를 계산한다.
+     * 세션이 끝난 날(= 앱이 보는 "오늘")의 로컬 날짜.
      *
      * <p><b>기준: 유저 country_code 파생 존 로컬 날짜 (GROMO-803, screentime 561과 동일 기준).</b>
-     * endedAt(세션 종료 시각) 을 유저 국가 존({@link CountryZoneResolver})으로 환산한 로컬 날짜를 버킷으로 쓴다.
-     * countryCode 가 null·미지원이면 UTC 로 폴백한다(CountryZoneResolver). 스크린타임 저장 존과 정합.
+     * countryCode 가 null·미지원이면 Asia/Seoul 로 폴백한다(CountryZoneResolver). 스크린타임 저장 존과 정합.
+     *
+     * <p>GROMO-1252 이후 <b>집계 귀속</b>은 이 날짜 하나가 아니라 {@link #splitByLocalDay} 가 나눈 날짜별
+     * 조각으로 이뤄진다 — 이 헬퍼는 재업로드 응답의 "그날 누적" 조회처럼 종료일 하나만 필요한 곳에 쓴다.
      */
     private static LocalDate statDate(Instant endedAt, ZoneId zone) {
         return endedAt.atZone(zone).toLocalDate();
+    }
+
+    /**
+     * 세션 구간 [startedAt, endedAt] 을 유저 존의 로컬 자정 경계로 잘라 날짜별 초를 배분한다 (GROMO-1252).
+     *
+     * <p>종전엔 endedAt 하나의 로컬 날짜에 구간 전체를 가산해, 자정을 넘긴 세션은 전날 몫이 통째로 사라지고
+     * 다음날이 부풀었다(prod 실측 10.7h 오귀속).
+     *
+     * <p><b>반환은 날짜 오름차순({@link NavigableMap})</b> — 마지막 키가 곧 '앱이 보는 오늘'(응답의 그날 누적)이고,
+     * 이벤트 로그도 시간순으로 남는다.
+     *
+     * <p>일시정지 공백은 여기서 알 수 없다 — 앱이 날짜별 집중초를 실어 보내면 그쪽이 우선한다
+     * ({@link #resolveSecondsByDate}). 이 벽시계 분할은 그 값의 <b>상한</b>이자 구버전 앱 폴백이다.
+     *
+     * <p>경계: 정확히 자정에 끝나는 세션은 그 시각이 속한 <b>전날</b> 조각으로 끝난다(초 0짜리 다음날 조각을
+     * 만들지 않는다). 같은 날 안에서 끝나는 세션은 조각 1개로 종전과 동일하다.
+     *
+     * <p><b>총합은 floor, 경계 배분은 올림 (코드리뷰 3차 ④·4차 ①·5차 ⑤)</b>: 세 조건을 동시에 만족해야 한다.
+     * <ol>
+     *   <li>구간 총합 = floor(duration) — 599.5초짜리 같은 날 세션이 600초가 돼 10분 문턱을 잘못 통과하면 안 된다.</li>
+     *   <li>조각 합 == 총합 — 조각마다 {@code Duration.getSeconds()} 로 잘라 더하면 양 끝에 밀리초가 있는
+     *       구간에서 총합이 1초 준다(23:50:00.500~00:10:00.500 = 1200초인데 599+600=1199).</li>
+     *   <li>조각(=클라 분포의 상한)이 <b>클라의 tick 경계 규약</b>과 어긋나면 안 된다 — 어긋나면 정상 분포가
+     *       클램프되어 초가 유실되고 그날 10분 문턱을 놓친다.</li>
+     * </ol>
+     * ①은 총합을 {@code Duration.getSeconds()}(floor)로 확정해, ②는 마지막 조각을 총합의 잔여로 둬서 만족한다.
+     * ③이 5차 수정점이다: 클라는 tick 1개를 '그 tick 이 덮은 1초의 <b>시작</b> 시각'의 날짜에 센다
+     * (앱 blockToday.creditTick). 시작 시각으로부터 k 번째 초는 {@code [start+(k−1)s, start+ks)} 이므로
+     * 경계 전 날짜에 속한 초의 개수는 {@code k−1 < Δ} 를 만족하는 k 의 수 = {@code ceil(Δ)}
+     * (Δ = 시작→경계 실수 초)다. 반올림이면 위상이 .5 를 넘는 순간(예: 23:50:00.800~00:10:00.800, Δ=599.2)
+     * 상한이 599 로 내려앉아 클라의 정당한 600 이 잘렸다 — 그래서 경계 누적은 <b>올림</b>으로 구한다.
+     * 총합을 넘지 않게 캡하므로 ①·②는 그대로 유지된다.
+     */
+    static NavigableMap<LocalDate, Integer> splitByLocalDay(Instant startedAt, Instant endedAt, ZoneId zone) {
+        NavigableMap<LocalDate, Integer> secondsByDate = new TreeMap<>();
+        // 구간 총합(floor) — 조각들은 이 정수를 나눠 가질 뿐 늘리지 않는다.
+        long totalSeconds = Duration.between(startedAt, endedAt).getSeconds();
+        Instant cursor = startedAt;
+        long creditedSeconds = 0;
+        while (true) {
+            LocalDate date = cursor.atZone(zone).toLocalDate();
+            Instant nextMidnight = date.plusDays(1).atStartOfDay(zone).toInstant();
+            // 상한(MAX_SPLIT_DAYS)에 닿으면 남은 구간을 이 조각에 몰아 총합을 보존한다.
+            boolean splitHere = nextMidnight.isBefore(endedAt) && secondsByDate.size() < MAX_SPLIT_DAYS - 1;
+            Instant sliceEnd = splitHere ? nextMidnight : endedAt;
+            // 경계까지의 누적 초(클라 tick 규약 = 올림, 총합 초과 금지)의 차분 = 이 조각 몫.
+            // 마지막 조각은 잔여 전부라 조각 합 == 총합.
+            long cumulativeSeconds = splitHere
+                    ? Math.min(Math.floorDiv(Duration.between(startedAt, sliceEnd).toMillis() + 999, 1000),
+                            totalSeconds)
+                    : totalSeconds;
+            secondsByDate.merge(date, (int) (cumulativeSeconds - creditedSeconds), Integer::sum);
+            creditedSeconds = cumulativeSeconds;
+            if (!sliceEnd.isBefore(endedAt)) {
+                return secondsByDate;
+            }
+            cursor = sliceEnd;
+        }
+    }
+
+    /**
+     * 통계 귀속용 유효 종료 시각 — 미래 endedAt(클라 시각 위조·시계 오차)을 서버 {@code now} 로 클램프한다.
+     *
+     * <p>클램프가 없으면 '지금 시작해 내일 끝나는' 위조 세션이 오늘 자정까지의 초를 오늘 조각에 채워
+     * 오늘 스트릭·집중목표 지급을 즉시 달성시킨다. 지급 경로({@link #sessionRewardCoins})도 같은 클램프를 한다.
+     *
+     * <p>⚠️ 저장되는 세션 원본 행(endedAt)은 절대 이 값으로 바꾸지 않는다 — POST 재업로드 중복 검사
+     * ({@code existsByUserAndStartedAtAndEndedAtAndStatus})가 '앱이 보낸 값 그대로 저장'을 전제하므로,
+     * 저장값을 바꾸면 재전송이 중복 검사를 빠져나가 이중 계상된다. 대신 이 값을
+     * {@code focus_sessions.stat_end_at} 에 함께 남겨 조회 집계(by-category)가 조회 시점 now 가 아니라
+     * 완료 시점 클램프로 자르게 한다(GROMO-1252 ②).
+     */
+    private static Instant statEnd(Instant endedAt, Instant now) {
+        return endedAt.isAfter(now) ? now : endedAt;
+    }
+
+    /**
+     * 날짜별 집중 초 귀속 결정 (GROMO-1252 ①) — 앱이 실어 보낸 분포를 검증해 쓰고, 없으면 벽시계 분할로 폴백한다.
+     *
+     * <p><b>왜 앱 분포가 필요한가</b>: 업로드 구간 [startedAt, endedAt] 엔 일시정지 공백이 섞여 있어 벽시계로
+     * 쪼개면 날짜별 몫이 어긋난다 — 23:50~23:55 집중 → 일시정지 → 00:10~00:15 집중은 실제 300/300 인데
+     * 벽시계는 600/900 이다. 날짜별 분포를 아는 건 앱뿐이고 업로드엔 두 시각만 실려 있다.
+     *
+     * <p><b>위조 방어(무검증 수용 금지)</b>: 클라 값은 두 규칙으로 걸러진다.
+     * <ul>
+     *   <li>세션 구간과 겹치지 않는 날짜는 폐기 — 벽시계 분할에 없는 날짜 키는 그 세션이 닿지 않은 날이다.</li>
+     *   <li>각 날짜의 값은 <b>그 날짜의 벽시계 몫 이하</b>로 클램프 — 한 날짜에 그 세션이 머문 시간보다 많은
+     *       집중초는 존재할 수 없다. 날짜별 상한이라 총합도 자동으로 세션 구간을 넘지 못한다.</li>
+     * </ul>
+     * 필터 후 남는 게 없으면(전부 위조) 폴백과 같은 벽시계 분할로 돌아간다 — 위조로 얻을 게 없고(상한이 곧
+     * 벽시계), 클라 버그로 통계가 통째로 증발하지도 않는다.
+     *
+     * @param clientByDate 앱이 보낸 로컬 날짜 → 집중 초 (null·빈 맵이면 벽시계 분할)
+     */
+    static NavigableMap<LocalDate, Integer> resolveSecondsByDate(Instant startedAt, Instant statEnd, ZoneId zone,
+                                                                 Map<LocalDate, Integer> clientByDate) {
+        // 구간이 통째로 미래(startedAt > statEnd)면 조각을 하나도 만들지 않는다(음수 초 방지).
+        if (statEnd.isBefore(startedAt)) {
+            return Collections.emptyNavigableMap();
+        }
+        NavigableMap<LocalDate, Integer> wallClock = splitByLocalDay(startedAt, statEnd, zone);
+        if (clientByDate == null || clientByDate.isEmpty()) {
+            return wallClock;
+        }
+        NavigableMap<LocalDate, Integer> verified = new TreeMap<>();
+        for (Map.Entry<LocalDate, Integer> entry : clientByDate.entrySet()) {
+            Integer cap = entry.getKey() != null ? wallClock.get(entry.getKey()) : null;
+            Integer seconds = entry.getValue();
+            if (cap == null || seconds == null || seconds <= 0) {
+                continue;
+            }
+            verified.put(entry.getKey(), Math.min(seconds, cap));
+        }
+        return verified.isEmpty() ? wallClock : verified;
+    }
+
+    /**
+     * 확정 분포를 {@code focus_sessions.focus_seconds_by_date}(jsonb) 저장 형태로 바꾼다 (GROMO-1252 3차 ①).
+     *
+     * <p>키를 ISO 문자열("YYYY-MM-DD")로 낮추는 이유: jsonb 매핑은 Hibernate 기본 ObjectMapper 를 쓰는데
+     * JavaTimeModule 이 없어 {@code LocalDate} 맵 키를 직렬화/역직렬화하지 못한다. 조각이 없으면
+     * null 을 저장해 레거시 row 와 같은 폴백 경로를 타게 한다.
+     */
+    private static Map<String, Integer> toStoredSecondsByDate(NavigableMap<LocalDate, Integer> secondsByDate) {
+        if (secondsByDate.isEmpty()) {
+            return null;
+        }
+        Map<String, Integer> stored = new LinkedHashMap<>();
+        secondsByDate.forEach((date, seconds) -> stored.put(date.toString(), seconds));
+        return stored;
     }
 
     /**
@@ -410,11 +569,14 @@ public class FocusService {
             session.applyTag(tag);
         }
 
-        // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
-        session.end(endedAt, body.totalDistractionSeconds());
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        Instant statEnd = statEnd(endedAt, Instant.now());
+        NavigableMap<LocalDate, Integer> secondsByDate = resolveSecondsByDate(
+                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate());
+        // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
+        session.end(endedAt, body.totalDistractionSeconds(), statEnd, toStoredSecondsByDate(secondsByDate));
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
-                body.totalDistractionSeconds(), statDate(endedAt, zone));
+                body.totalDistractionSeconds(), zone, secondsByDate);
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 추가(additive).
@@ -515,10 +677,32 @@ public class FocusService {
      * 세션 완료 귀속 — FOCUS_SESSION_COMPLETED 로깅 + DailyFocusStat upsert(비관적 락) + 스트릭 갱신.
      * POST(완료 통째 저장)와 PATCH(라이브 종료)가 공유해 통계 로직을 한 곳으로 모은다.
      *
-     * @return 그날 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806)
+     * <p><b>GROMO-1252 — 자정 분할</b>: 날짜별 조각({@code secondsByDate} — 앱 분포 또는 벽시계 분할,
+     * {@link #resolveSecondsByDate})으로 나눠 적립한다. 분할되는 것과 안 되는 것:
+     * <ul>
+     *   <li>날짜별로 나눔: {@code totalFocusSeconds}, 목표 달성 판정·지급(멱등키가 날짜별이라 어제·오늘
+     *       둘 다 채우면 양쪽 다 지급), 스트릭(그 날짜 누적이 10분 이상인 날만 인정 — 쪼갠 뒤 미달이면 미인정)</li>
+     *   <li>나누지 않음: 세션 원본 행(1건 유지 → 재업로드 멱등 그대로), 세션 보상 코인(멱등키가 세션 기준),
+     *       {@code sessionCount}·{@code totalDistractionSeconds}(타임스탬프가 없어 쪼갤 수 없다) → 시작일에만</li>
+     * </ul>
+     *
+     * <p><b>메타데이터 버킷 = 시작일 (코드리뷰 5차 ⑥)</b>: 클라 분포는 그날 tick 이 하나도 없으면 시작일 키를
+     * <b>생략</b>한다(23:50 시작 → 자정 넘겨 00:10 첫 tick = 다음날 키만). 그래서 '첫 조각'을 시작일로 보면
+     * 세션 1건과 방해초 전량이 다음날에 붙어 히트맵이 세션을 틀린 날짜로 표시했다. 이제 버킷을
+     * {@code startedAt} 에서 직접 파생해 집중초 조각과 <b>따로</b> upsert 한다 — 그 결과 시작일에
+     * {@code totalFocusSeconds = 0, sessionCount = 1} 행이 새로 생길 수 있고, 그게 사실 그대로다
+     * ("그날 세션을 시작했고 집중초는 자정 뒤에 쌓였다"). 조회는 모두 날짜 격자를 채워 응답하므로
+     * (heatmap 은 row 없는 날도 0 셀) 0초 행이 새 셀을 만들지도, 스트릭 판정을 바꾸지도 않는다
+     * (스트릭은 {@code user_streaks} 저장값이고 인정 게이트는 10분 누적이다).
+     *
+     * @param zone          유저 존(country_code 파생) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
+     * @param secondsByDate 날짜 오름차순 조각(호출부가 {@link #resolveSecondsByDate} 로 만들어 넘긴다)
+     * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
+     *         그리고 이 세션이 유발한 목표 지급액 합
      */
     private RecordCompletionResult recordCompletion(User user, UUID userId, UserFocusTag tag,
-                                  Instant startedAt, Instant endedAt, int totalDistractionSeconds, LocalDate statDate) {
+                                  Instant startedAt, Instant endedAt, int totalDistractionSeconds,
+                                  ZoneId zone, NavigableMap<LocalDate, Integer> secondsByDate) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
         Map<String, Object> sessionPayload = new LinkedHashMap<>();
@@ -531,67 +715,100 @@ public class FocusService {
         userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
         // ── DailyFocusStat upsert: statDate(country_code 존 로컬 날짜 버킷, GROMO-803) 기준 (user, date) 멱등 누적 ──
-        // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
-        int addedSeconds = (int) Duration.between(startedAt, endedAt).getSeconds();
+        // GROMO-1252: 자정을 걸친 세션은 날짜별 조각으로 나눠 각 날짜에 가산한다. 오름차순 순회 —
+        // 이벤트 로그가 시간순으로 남는다.
 
-        // 집중 목표 달성 지급액 — 아래 false→true 전이에서만 채워진다(전이 없으면 0).
+        // 집중 목표 달성 지급액 — 아래 false→true 전이에서만 채워진다(전이 없으면 0). 날짜별 멱등키라 조각마다 가능.
         int goalRewardCoins = 0;
+        // 응답 필드는 마지막(가장 늦은) 조각 = 종료일 기준 — 앱이 보는 "오늘" 누적.
+        int dayTotalFocusSeconds = 0;
+        boolean streakQualifiedToday = false;
+        // 세션 메타데이터(sessionCount·방해초)가 붙을 날짜 = 세션 시작일(위 '메타데이터 버킷').
+        LocalDate metaDate = statDate(startedAt, zone);
+        // upsert 대상 = 집중초 조각 날짜 ∪ 시작일. 조각이 하나도 없는 구간(구간 전체가 미래인 위조 세션 —
+        // resolveSecondsByDate 가 빈 맵)은 종전대로 아무 행도 만들지 않는다.
+        NavigableSet<LocalDate> statDates = new TreeSet<>(secondsByDate.keySet());
+        if (!statDates.isEmpty()) {
+            statDates.add(metaDate);
+        }
+        // 스트릭 인정 날짜는 모아 두었다가 한 번에 넘긴다 (GROMO-1252 3차 ③) — 한 세션이 기여한 여러 날짜를
+        // 낱개로 호출하면 소급 방향에서 오래된 쪽이 유실된다(어느 날짜부터 반영해야 하는지는
+        // lastSessionDate 를 아는 UserStreakService 만 판단할 수 있다).
+        List<LocalDate> streakQualifiedDates = new ArrayList<>();
 
-        // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
-        // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
-        // GROMO-806: 스트릭 게이트·응답 필드용 — 이 세션 반영 후 그날 누적 집중 초.
-        int dayTotalFocusSeconds;
-        Optional<DailyFocusStat> existingStat = dailyFocusStatRepository.findByUserAndDateForUpdate(user, statDate);
-        if (existingStat.isPresent()) {
-            // 기존 row 누적 (+= 방식) — 더티 체킹으로 반영됨, 별도 save() 불필요
-            DailyFocusStat stat = existingStat.get();
-            stat.setTotalFocusSeconds(stat.getTotalFocusSeconds() + addedSeconds);
-            stat.setSessionCount(stat.getSessionCount() + 1);
-            stat.setTotalDistractionSeconds(stat.getTotalDistractionSeconds() + totalDistractionSeconds);
-            dayTotalFocusSeconds = stat.getTotalFocusSeconds();
-            // isFocusTimeGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
-            if (!stat.isFocusTimeGoalAchieved()) {
-                // GROMO-1049: 그날(statDate)에 유효했던 목표로 판정·지급한다 — 어제 세션을 오늘 올릴 때
-                // 오늘 바뀐 목표로 재단되던 문제. 판정과 금액이 같은 goal 을 쓰므로 여기 한 곳이면 정합.
+        for (LocalDate statDate : statDates) {
+            // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
+            // 시작일에 tick 이 없으면(자정 직전 시작 → 첫 tick 은 다음날) 이 날 조각은 없다 — 0초 가산.
+            int addedSeconds = secondsByDate.getOrDefault(statDate, 0);
+            // 세션 1건은 어디까지나 1건 — 시작일에만 계수한다. 방해 초도 타임스탬프가 없어
+            // 조각에 배분할 수 없으므로 시작일에 전량 귀속한다(GROMO-1252).
+            boolean isMetaDate = statDate.equals(metaDate);
+            int addedSessionCount = isMetaDate ? 1 : 0;
+            int addedDistractionSeconds = isMetaDate ? totalDistractionSeconds : 0;
+
+            // UPDATE-UPDATE lost update 방지(누적 연산): 비관적 쓰기 잠금으로 동시 세션 저장 시 += 누락 차단
+            // INSERT-INSERT 동시 삽입은 unique(user_id, date) 제약이 정합성 보장(오염 없음, 실패 건은 클라 재시도)
+            // GROMO-806: 스트릭 게이트·응답 필드용 — 이 조각 반영 후 그날 누적 집중 초.
+            int sliceDayTotal;
+            Optional<DailyFocusStat> existingStat = dailyFocusStatRepository.findByUserAndDateForUpdate(user, statDate);
+            if (existingStat.isPresent()) {
+                // 기존 row 누적 (+= 방식) — 더티 체킹으로 반영됨, 별도 save() 불필요
+                DailyFocusStat stat = existingStat.get();
+                stat.setTotalFocusSeconds(stat.getTotalFocusSeconds() + addedSeconds);
+                stat.setSessionCount(stat.getSessionCount() + addedSessionCount);
+                stat.setTotalDistractionSeconds(stat.getTotalDistractionSeconds() + addedDistractionSeconds);
+                sliceDayTotal = stat.getTotalFocusSeconds();
+                // isFocusTimeGoalAchieved: 이미 달성(true)이면 재판정 불필요 — 플래그 단방향이므로 조기 스킵
+                if (!stat.isFocusTimeGoalAchieved()) {
+                    // GROMO-1049: 그날(statDate)에 유효했던 목표로 판정·지급한다 — 어제 세션을 오늘 올릴 때
+                    // 오늘 바뀐 목표로 재단되던 문제. 판정과 금액이 같은 goal 을 쓰므로 여기 한 곳이면 정합.
+                    int goal = userFocusTimeSettingsRepository.findById(userId)
+                            .map(s -> s.goalMinutesOn(statDate)).orElse(0);
+                    // (long) 승격 — int 곱은 goal 이 3천5백만 분을 넘으면 음수로 뒤집혀 0초 세션도 달성이 된다.
+                    if (goal > 0 && stat.getTotalFocusSeconds() >= (long) goal * 60) {
+                        stat.setFocusTimeGoalAchieved(true);
+                        // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
+                        logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
+                        goalRewardCoins += creditFocusGoal(user, userId, goal, statDate);
+                    }
+                }
+            } else {
+                // INSERT 경로: isFocusTimeGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
+                // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
                 int goal = userFocusTimeSettingsRepository.findById(userId)
                         .map(s -> s.goalMinutesOn(statDate)).orElse(0);
-                // (long) 승격 — int 곱은 goal 이 3천5백만 분을 넘으면 음수로 뒤집혀 0초 세션도 달성이 된다.
-                if (goal > 0 && stat.getTotalFocusSeconds() >= (long) goal * 60) {
-                    stat.setFocusTimeGoalAchieved(true);
-                    // false→true 전이 순간 1회 발행 — 영속 플래그가 하루 1회를 보장 (GROMO-395)
-                    logDailyFocusGoalAchieved(statDate, stat.getTotalFocusSeconds() / 60, goal);
-                    goalRewardCoins = creditFocusGoal(user, userId, goal, statDate);
+                boolean goalAchieved = goal > 0 && addedSeconds >= (long) goal * 60;
+                dailyFocusStatRepository.save(DailyFocusStat.builder()
+                        .user(user)
+                        .date(statDate)
+                        .totalFocusSeconds(addedSeconds)
+                        .sessionCount(addedSessionCount)
+                        .totalDistractionSeconds(addedDistractionSeconds)
+                        .isFocusTimeGoalAchieved(goalAchieved)
+                        .build());
+                sliceDayTotal = addedSeconds;
+                if (goalAchieved) {
+                    // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
+                    logDailyFocusGoalAchieved(statDate, addedSeconds / 60, goal);
+                    goalRewardCoins += creditFocusGoal(user, userId, goal, statDate);
                 }
             }
-        } else {
-            // INSERT 경로: isFocusTimeGoalAchieved 판정을 builder에 포함시켜 INSERT 쿼리 1회로 줄임
-            // UserFocusTimeSettings row 없거나 goal=0이면 플래그 false 유지
-            int goal = userFocusTimeSettingsRepository.findById(userId)
-                    .map(s -> s.goalMinutesOn(statDate)).orElse(0);
-            boolean goalAchieved = goal > 0 && addedSeconds >= (long) goal * 60;
-            dailyFocusStatRepository.save(DailyFocusStat.builder()
-                    .user(user)
-                    .date(statDate)
-                    .totalFocusSeconds(addedSeconds)
-                    .sessionCount(1)
-                    .totalDistractionSeconds(totalDistractionSeconds)
-                    .isFocusTimeGoalAchieved(goalAchieved)
-                    .build());
-            dayTotalFocusSeconds = addedSeconds;
-            if (goalAchieved) {
-                // 신규 row 가 곧바로 달성 = false→true 전이와 동일 — 1회 발행 (GROMO-395)
-                logDailyFocusGoalAchieved(statDate, addedSeconds / 60, goal);
-                goalRewardCoins = creditFocusGoal(user, userId, goal, statDate);
+
+            // GROMO-806: 스트릭 인정 게이트 — 그날 누적 집중이 STREAK_MIN_SECONDS(10분) 이상일 때만 갱신한다.
+            // (예: 5분+6분 → 1회차 누적 300초<600 미갱신, 2회차 누적 660초>=600 갱신. 이미 인정된 날 재호출은
+            //  기존 same-day 멱등이 무변화를 보장.) 세션 저장·일별 집계와 같은 트랜잭션(원자적),
+            //  날짜 기준 동일(country_code 존 로컬 날짜, GROMO-803).
+            // GROMO-1252: 판정은 '쪼갠 뒤' 그 날짜 누적 기준 — 23:55~00:05 처럼 양쪽 다 5분이면 양쪽 다 미인정.
+            boolean sliceQualified = sliceDayTotal >= STREAK_MIN_SECONDS;
+            if (sliceQualified) {
+                streakQualifiedDates.add(statDate);
             }
+            dayTotalFocusSeconds = sliceDayTotal;
+            streakQualifiedToday = sliceQualified;
         }
 
-        // GROMO-806: 스트릭 인정 게이트 — 그날 누적 집중이 STREAK_MIN_SECONDS(10분) 이상일 때만 갱신한다.
-        // (예: 5분+6분 → 1회차 누적 300초<600 미갱신, 2회차 누적 660초>=600 갱신. 이미 인정된 날 재호출은
-        //  기존 same-day 멱등이 무변화를 보장.) 세션 저장·일별 집계와 같은 트랜잭션(원자적),
-        //  날짜 기준 동일(country_code 존 로컬 날짜, GROMO-803).
-        boolean streakQualifiedToday = dayTotalFocusSeconds >= STREAK_MIN_SECONDS;
-        if (streakQualifiedToday) {
-            userStreakService.updateOnSessionComplete(user, statDate);
+        if (!streakQualifiedDates.isEmpty()) {
+            userStreakService.updateOnSessionComplete(user, streakQualifiedDates);
         }
 
         return new RecordCompletionResult(dayTotalFocusSeconds, streakQualifiedToday, goalRewardCoins);
@@ -631,9 +848,10 @@ public class FocusService {
     /**
      * 세션 완료 귀속 결과(GROMO-806) — 세션완료 응답의 추가 필드로 노출한다.
      *
-     * @param dayTotalFocusSeconds  이 세션 반영 후 그날(statDate) 누적 집중 초
-     * @param streakQualifiedToday  그날 누적이 스트릭 인정 기준(10분) 이상이라 스트릭을 갱신했는지
-     * @param goalRewardCoins       이 세션으로 집중 목표를 처음 달성(false→true)했을 때의 지급액(전이 없으면 0)
+     * @param dayTotalFocusSeconds  이 세션 반영 후 <b>종료일</b> 누적 집중 초 (자정 분할 시 마지막 조각의 날짜)
+     * @param streakQualifiedToday  종료일 누적이 스트릭 인정 기준(10분) 이상이라 스트릭을 갱신했는지
+     * @param goalRewardCoins       이 세션으로 집중 목표를 처음 달성(false→true)했을 때의 지급액 합
+     *                              (전이 없으면 0. 자정 분할 시 어제·오늘 양쪽 지급의 합일 수 있다)
      */
     public record RecordCompletionResult(int dayTotalFocusSeconds, boolean streakQualifiedToday,
                                          int goalRewardCoins) {

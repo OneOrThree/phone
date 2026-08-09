@@ -28,6 +28,8 @@ import java.util.stream.Collectors;
  *
  * <p><b>판정 기준</b>: 창 판정은 세션 겹침 길이 기준이다(방해시간 미차감 — daily_focus_stats 의
  * total_focus_seconds 도 미차감이라 동일 기준). ACTIVE(미종료)·CANCELED·AUTO_CLOSED 세션은 제외한다.
+ * 겹침의 종료측은 완료 시점에 고정한 유효 종료(stat_end_at, 레거시 행은 ended_at 폴백)다 — 미래 종료로
+ * 위조한 세션의 미경과 꼬리가 내기 정산에 계상되지 않게(GROMO-1252 6차 ①, sumOverlapSecondsInWindow).
  * 달성 플래그만 {@link #WINDOW_FOCUS_TOLERANCE_MINUTES} 관용치를 적용하고(합 ≥ 목표 − 5분),
  * 진행률 표시값은 실측 그대로 둔다.
  */
