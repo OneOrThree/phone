@@ -1512,7 +1512,9 @@ function renderReadout(
   if (mode === 'countup') {
     return (
       <>
-        <Text style={s.roSubject}>{subjectName}</Text>
+        <Text style={s.roSubject} numberOfLines={1}>
+          {subjectName}
+        </Text>
         <Text style={s.bigTime}>{hms(session.display)}</Text>
       </>
     );
@@ -1520,7 +1522,9 @@ function renderReadout(
   if (mode === 'countdown') {
     return (
       <>
-        <Text style={s.roSubject}>{subjectName}</Text>
+        <Text style={s.roSubject} numberOfLines={1}>
+          {subjectName}
+        </Text>
         <ProgressRing
           size={ringSize}
           stroke={RING_STROKE}
@@ -1547,7 +1551,9 @@ function renderReadout(
           </Text>
         </View>
       </View>
-      <Text style={s.roSubject}>{session.phase === 'focus' ? subjectName : '휴식'}</Text>
+      <Text style={s.roSubject} numberOfLines={1}>
+        {session.phase === 'focus' ? subjectName : '휴식'}
+      </Text>
       <ProgressRing
         size={ringSize}
         stroke={RING_STROKE}
@@ -1608,6 +1614,9 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
+  // ⚠️ 호출부에서 numberOfLines={1}로 **한 줄로 고정**한다. 과목명은 사용자가 자유 입력하는
+  //    값이라 길면 줄바꿈되는데, 위 CHROME_WITH_RING 예산이 과목명을 30pt(한 줄)로 계산하므로
+  //    늘어난 줄만큼 캐릭터·링과 리드아웃이 다시 겹친다(codex 리뷰).
   roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,
