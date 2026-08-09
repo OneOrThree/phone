@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
@@ -13,6 +14,7 @@ import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
@@ -93,6 +95,8 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
     @Autowired
+    GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    @Autowired
     GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Autowired
     NotificationSentLogRepository notificationSentLogRepository;
@@ -153,27 +157,40 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         return challenge;
     }
 
-    private GroupChallengeBet settledBet(GroupBetStatus status) {
+    private GroupChallengeBetSession settledBet(GroupBetStatus status) {
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
                 .build());
-        return groupChallengeBetRepository.save(GroupChallengeBet.builder()
+        GroupChallengeBet config = groupChallengeBetRepository.save(GroupChallengeBet.builder()
                 .group(group)
                 .challenge(challenge)
-                .creatorUser(winner)
                 .stake(50)
-                .betDate(DAY.minusDays(1))
+                .enabled(true)
+                .build());
+        return groupChallengeBetSessionRepository.save(GroupChallengeBetSession.builder()
+                .bet(config)
+                .group(group)
+                .challenge(challenge)
+                .sessionDate(DAY.minusDays(1))
+                .stake(50)
+                .goalMinutes(60)
+                .missionCategory(MissionCategory.FOCUS)
+                .missionType(MissionType.DURATION)
                 .status(status)
+                .startsAt(DAY.minusDays(1).atStartOfDay(KST).toInstant())
+                .joinClosesAt(DAY.atStartOfDay(KST).toInstant())
+                .closesAt(DAY.atStartOfDay(KST).toInstant())
+                .settleAfter(DAY.atStartOfDay(KST).toInstant())
                 .settledAt(NOW.minusSeconds(3600))
                 .build());
     }
 
-    private void participant(GroupChallengeBet bet, User user, Boolean achieved, Integer payout) {
+    private void participant(GroupChallengeBetSession session, User user, Boolean achieved, Integer payout) {
         GroupChallengeBetParticipant saved = groupChallengeBetParticipantRepository.save(
-                GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
-        // 푸시 발송에는 정산 근거(progressMinutes)가 필요 없다 — V29 이전 정산 행과 같은 null 로 둔다.
+                GroupChallengeBetParticipant.builder().session(session).user(user).build());
+        // 푸시 발송에는 정산 근거(progressMinutes)가 필요 없다 — 스냅샷 이전 정산 행과 같은 null 로 둔다.
         saved.recordSettlement(Boolean.TRUE.equals(achieved), payout == null ? 0 : payout, null);
     }
 
@@ -185,7 +202,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     @Test
     @DisplayName("정산 결과 푸시 — 참가자 전원에게 1회, 재실행은 dedup 으로 0건 발송")
     void betResultSendsOnceAndDedupsOnRerun() {
-        GroupChallengeBet bet = settledBet(GroupBetStatus.SETTLED);
+        GroupChallengeBetSession bet = settledBet(GroupBetStatus.SETTLED);
         participant(bet, winner, true, 100);
         participant(bet, loser, false, 0);
 
@@ -208,7 +225,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     void betResultSkipsNotificationDisabledUser() {
         userNotificationSettingsRepository.save(UserNotificationSettings.builder()
                 .userId(loser.getId()).notificationEnabled(false).build());
-        GroupChallengeBet bet = settledBet(GroupBetStatus.FORFEITED);
+        GroupChallengeBetSession bet = settledBet(GroupBetStatus.FORFEITED);
         participant(bet, winner, false, 0);
         participant(bet, loser, false, 0);
 
@@ -224,7 +241,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     @Test
     @DisplayName("정산 결과 푸시 — quiet hours 경계: 06:59 는 미발송·무기록, 07:00 은 발송된다")
     void betResultRespectsQuietHoursBoundary() {
-        GroupChallengeBet bet = settledBet(GroupBetStatus.SETTLED);
+        GroupChallengeBetSession bet = settledBet(GroupBetStatus.SETTLED);
         participant(bet, winner, true, 100);
 
         PushDispatchSummaryResponse duringQuiet = betResultNotificationService
@@ -356,10 +373,11 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("정산 결과 푸시 — CANCELED 내기는 결과가 아니라 발송 대상에서 빠진다")
-    void betResultIgnoresCanceledBet() {
-        GroupChallengeBet canceled = settledBet(GroupBetStatus.CANCELED);
-        participant(canceled, winner, null, null);
+    @DisplayName("정산 결과 푸시 — UNUSED·VOIDED 회차는 결과가 아니라 발송 대상에서 빠진다(N52)")
+    void betResultIgnoresUnusedAndVoidedSessions() {
+        GroupChallengeBetSession unused = settledBet(GroupBetStatus.UNUSED);
+        GroupChallengeBetSession voided = settledBet(GroupBetStatus.VOIDED);
+        participant(voided, winner, null, null);
 
         PushDispatchSummaryResponse summary = betResultNotificationService.sendBetResultNotifications(NOW);
 

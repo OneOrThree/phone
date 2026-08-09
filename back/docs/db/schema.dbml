@@ -164,12 +164,19 @@ Enum currency_type {          // 재화 변동 유형 (구 currency_reason)
   BET_REFUND                  // 승자 0명 내기의 전원 환불 — 서버 주도
 }
 
-Enum group_bet_status {       // 그룹 챌린지 내기 상태 (group_challenge_bets.status)
-  OPEN                        // 참가 가능(당일). 일 배치가 정산 대상으로 훑는 유일한 상태
+Enum group_bet_status {       // 그룹 챌린지 내기 회차 상태 (group_challenge_bet_sessions.status — V39 2계층 재편)
+  OPEN                        // 참가 가능. 정산 배치가 훑는 유일한 상태
   SETTLED                     // 정산 완료 — 승자에게 분배
-  REFUNDED                    // 전원 환불로 종료 (구 규칙의 승자 0명 환불 이력 — V20 부터 승자 0명은 FORFEITED)
+  REFUNDED                    // 전원 환불로 종료 (구 승자 0명 환불 이력 + 24h 데드라인 자동 환불 N21 — 사유는 void_reason)
   FORFEITED                   // 승자 0명 → 전액 몰수·소멸 (V20)
-  CANCELED                    // 개설자 단독 취소 / 탈퇴 연동 자동 취소 → 판돈 환불 (V20)
+  VOIDED                      // 무산 — 환불 대상이 실제 1명 있는 경우 한정(N33·N52). 사유는 void_reason. V41
+  UNUSED                      // 참가자 0명 전용 종료(N52) — 결과·내역·알림 제외. V41. 구 CANCELED 는 V39 에서 소멸(행 삭제 = "없던 일")
+}
+
+Enum group_bet_void_reason {  // 회차 무산·환불 사유 (V41, GROMO-1404)
+  INSUFFICIENT_PARTICIPANTS   // 참가 마감 시점 인원 미달(2명 미만) — 참가 마감 크론(N47)
+  CHALLENGE_DELETED           // 그룹장 챌린지 삭제로 무효화·환불
+  REFUND_DEADLINE             // 정산 24h 데드라인 초과 자동 전원 환불(N21)
 }
 
 // 기타 (미사용 — 테이블/기능 미구현)
@@ -411,44 +418,70 @@ Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TI
   }
 }
 
-Table group_challenge_bets [note: '그룹 챌린지 내기. 비취소 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라 같은 날짜 재개설 허용(GROMO-1201). 그룹원 누구나 개설하고 개설자는 자동 참가한다. migration V19·V20·V28·V29'] {
+Table group_challenge_bets [note: '그룹 챌린지 내기 설정 — 챌린지 1:1 (V39 2계층 재편, GROMO-1262). "개설" 행위 소멸: 판(참가·판정·정산 단위)은 group_challenge_bet_sessions(회차)다. migration V19·V39·V40'] {
   id              uuid             [pk]
 
   group_id        uuid             [not null, note: 'FK → groups.id (조회 시 그룹 스코프 검증용 비정규화)']
-  challenge_id    uuid             [not null, note: 'FK → group_challenges.id']
-  creator_user_id uuid             [not null, note: 'FK → users.id — 개설자(자동 참가)']
+  challenge_id    uuid             [not null, unique, note: 'FK → group_challenges.id — 챌린지당 설정 1개 (uq_group_challenge_bets_challenge)']
 
-  stake           integer          [not null, note: '1인 판돈(재화). pot = stake × 참가자 수']
-  bet_date        date             [not null, note: '내기 대상 날짜(KST). 개설/참가는 오늘만 가능']
+  stake           integer          [not null, note: '1인 참가비. CHECK 1~3000 (V40, N30). 회차 개설 시점에 회차로 박제되므로 변경이 과거 회차를 흔들지 않는다']
+  enabled         boolean          [not null, default: true, note: '내기 켜짐 — 생성 시 결정, 이후 불변(끄려면 챌린지 삭제 후 재생성 — policy §A7·N26). V39']
 
-  status          group_bet_status [not null, note: 'OPEN / SETTLED / REFUNDED / FORFEITED / CANCELED']
-  settled_at      timestamptz      [note: '정산 시각 (배치 확정). OPEN 이면 null']
-  goal_minutes    integer          [note: '정산 시점의 목표 분 스냅샷(GROMO-1207) — 결과 모달의 분모. 챌린지 목표가 뒤에 바뀌어도 판정 근거는 보존된다. 쓰기는 정산 경로(GroupBetSettler)뿐, OPEN·CANCELED·V29 이전 정산 행은 null. migration V29']
+  created_at      timestamptz      [not null, default: `now()`]
+  updated_at      timestamptz      [not null]
+}
+
+Table group_challenge_bet_sessions [note: '내기 회차 — 챌린지가 실제 도는 하루(V39, GROMO-1262). 참가·판정·정산의 단위. 미션 스냅샷(카테고리·방식·목표분·창 시각·참가비)을 박제해 챌린지가 삭제돼도 내역 한 줄이 조인 없이 온전하다(GROMO-1263, N6-1). migration V39·V40·V41'] {
+  id              uuid             [pk, note: 'V39 백필은 구 내기 행 id 를 재사용 — 참가 행·원장 멱등키·알림 dedup 의 대상 id 가 안 흔들린다']
+
+  bet_id          uuid             [not null, note: 'FK → group_challenge_bets.id — 설정']
+  group_id        uuid             [not null, note: 'FK → groups.id — 내역이 그룹 소유라 비정규화']
+  challenge_id    uuid             [not null, note: 'FK → group_challenges.id — 소프트 삭제라 삭제 뒤에도 유효']
+
+  session_date    date             [not null, note: '회차 날짜(KST)']
+  stake           integer          [not null, note: '개설 시점 박제 참가비. CHECK 1~3000 (V40)']
+  goal_minutes    integer          [note: '개설 시점 박제 목표 분(스냅샷). null = V39 백필 이전(V29 미만) 정산 이력 — 앱 "—" 표시']
+  mission_category varchar(20)     [not null, note: '미션 스냅샷 — FOCUS / SCREEN_TIME']
+  mission_type    varchar(20)      [not null, note: '미션 스냅샷 — DURATION / TIME_WINDOW']
+  window_start    time             [note: '미션 스냅샷 — 창 시작(KST 벽시계, 창형만)']
+  window_end      time             [note: '미션 스냅샷 — 창 종료(KST 벽시계, 창형만)']
+
+  status          group_bet_status [not null, note: 'OPEN / SETTLED / REFUNDED / FORFEITED / VOIDED / UNUSED(V41)']
+  void_reason     group_bet_void_reason [note: 'VOIDED·24h 환불 사유(V41, N33·N52). 그 외 null']
+
+  starts_at       timestamptz      [not null, note: '회차 시작 — 참가 취소(시작 전) 기준. 하루형 00:00 KST · 창형 창 시작']
+  join_closes_at  timestamptz      [not null, note: '참가 마감(LLD §1.1) — 창형 창 시작 · 하루형 회차 종료. 강제는 신 참여 API(B4)']
+  closes_at       timestamptz      [not null, note: '회차 종료']
+  settle_after    timestamptz      [not null, note: '정산 가능 시각 — 창형 종료+30분(N12) · 하루형 FOCUS +1h · SCREEN_TIME +12h']
+  settled_at      timestamptz      [note: '정산(종료 전이) 시각. OPEN 이면 null']
+  settle_attempts integer          [not null, default: 0, note: '정산 재시도 횟수(백오프 — B4 배선)']
+  next_attempt_at timestamptz      [note: '다음 재시도 시각(백오프 — B4 배선). null = 즉시']
 
   created_at      timestamptz      [not null, default: `now()`]
   updated_at      timestamptz      [not null]
 
   indexes {
-    (challenge_id, bet_date) [unique, name: 'uq_group_challenge_bets_challenge_bet_date_active', note: '부분 유니크(WHERE status <> CANCELED) — 비취소 내기는 챌린지당·날짜당 1개, 동시 개설의 최후 방어선. 취소 행은 계수에서 빠져 같은 날짜 재개설을 허용한다(V19 전체 유니크를 V28 에서 교체)']
-    challenge_id [name: 'idx_group_challenge_bets_challenge_id', note: '휴면 배지(dormant) 이력 조회(challenge_id IN, status 무관·CANCELED 포함)용 일반 인덱스 — 부분 유니크는 CANCELED 를 빼고 (status, bet_date)는 선두가 달라 못 탄다. migration V28']
-    (status, bet_date) [note: '일 배치(04:00 KST)의 status=OPEN AND bet_date < 오늘 스캔']
+    (bet_id, session_date) [unique, name: 'uq_group_challenge_bet_sessions_bet_date', note: '하루 1회차 — 구 (챌린지,날짜) 부분 유니크(FR-7)는 V39 에서 폐기']
+    (status, settle_after, next_attempt_at) [name: 'idx_group_challenge_bet_sessions_settle_scan', note: '정산 대상 스캔(백오프 포함)']
+    (group_id, session_date) [name: 'idx_group_challenge_bet_sessions_group_date', note: '카드·그룹 내역 조립']
+    challenge_id [name: 'idx_group_challenge_bet_sessions_challenge_id', note: '히스토리·삭제 가드·휴면 배지']
   }
 }
 
-Table group_challenge_bet_participants [note: '내기 참가자. 판돈은 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. migration V19·V29'] {
+Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39'] {
   id         uuid        [pk]
 
-  bet_id     uuid        [not null, note: 'FK → group_challenge_bets.id']
+  session_id uuid        [not null, note: 'FK → group_challenge_bet_sessions.id (구 bet_id 를 V39 에서 리네임 — 값 보존)']
   user_id    uuid        [not null, note: 'FK → users.id']
 
-  achieved   boolean     [note: '정산 시 기록 — daily_focus_stats(bet_date) 분 ≥ 챌린지 duration_minutes. 정산 전이면 null']
-  payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 승자 0명일 때의 환불금. 정산 전이면 null']
-  progress_minutes integer [note: '정산 판정에 쓴 실측 분(GROMO-1207). FOCUS 무기록은 0, SCREEN_TIME 미보고는 null(미계측 — 앱 "—" 표시). 정산 전·V29 이전 정산 행도 null. migration V29']
+  achieved   boolean     [note: '정산 시 기록 — 판정 결과. 정산 전이면 null']
+  payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 환불금. 정산 전이면 null']
+  progress_minutes integer [note: '정산 판정에 쓴 실측 분(GROMO-1207). FOCUS 무기록은 0, SCREEN_TIME 미보고는 null(미계측 — 앱 "—" 표시)']
 
   created_at timestamptz [not null, default: `now()`]
 
   indexes {
-    (bet_id, user_id) [unique, note: '내기당 참가 1행 — 중복 참가 방어']
+    (session_id, user_id) [unique, name: 'uq_group_challenge_bet_participants_session_user', note: '회차당 참가 1행 — 중복 참가 방어']
   }
 }
 
@@ -887,11 +920,13 @@ Ref: group_challenge_windows.challenge_id - group_challenges.id
 Ref: group_challenge_members.group_challenge_id > group_challenges.id
 Ref: group_challenge_members.user_id > users.id
 
-// 챌린지 내기 (V19)
+// 챌린지 내기 (V19 · V39 2계층 재편)
 Ref: group_challenge_bets.group_id > groups.id
-Ref: group_challenge_bets.challenge_id > group_challenges.id
-Ref: group_challenge_bets.creator_user_id > users.id
-Ref: group_challenge_bet_participants.bet_id > group_challenge_bets.id
+Ref: group_challenge_bets.challenge_id - group_challenges.id
+Ref: group_challenge_bet_sessions.bet_id > group_challenge_bets.id
+Ref: group_challenge_bet_sessions.group_id > groups.id
+Ref: group_challenge_bet_sessions.challenge_id > group_challenges.id
+Ref: group_challenge_bet_participants.session_id > group_challenge_bet_sessions.id
 Ref: group_challenge_bet_participants.user_id > users.id
 
 // 포커스

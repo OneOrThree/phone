@@ -63,7 +63,7 @@ class GroupChallengeV20MigrationTest {
         UUID latest = insertChallenge(jdbcTemplate, "DURATION", "FOCUS", daysAgo(1));
         UUID otherCombo = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));
 
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("20"));
 
         assertThat(softDeleted(jdbcTemplate, oldest)).isTrue();
         assertThat(softDeleted(jdbcTemplate, middle)).isTrue();
@@ -89,7 +89,7 @@ class GroupChallengeV20MigrationTest {
         insertChallenge(jdbcTemplate, smaller, "DURATION", "FOCUS", sameCreatedAt);
         insertChallenge(jdbcTemplate, larger, "DURATION", "FOCUS", sameCreatedAt);
 
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("20"));
 
         assertThat(softDeleted(jdbcTemplate, smaller)).isTrue();
         assertThat(softDeleted(jdbcTemplate, larger)).isFalse();
@@ -109,7 +109,7 @@ class GroupChallengeV20MigrationTest {
         jdbcTemplate.execute("ALTER TABLE group_challenge_bets"
                 + " RENAME CONSTRAINT group_challenge_bets_status_check TO ck_legacy_renamed_status");
 
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("20"));
 
         insertBet(jdbcTemplate, challengeId, "FORFEITED", LocalDate.of(2026, 8, 1), 30);
         insertBet(jdbcTemplate, challengeId, "CANCELED", LocalDate.of(2026, 8, 2), 30);
@@ -132,7 +132,7 @@ class GroupChallengeV20MigrationTest {
         jdbcTemplate.execute("ALTER TABLE group_challenge_members"
                 + " RENAME CONSTRAINT ukiwe9880osh6noglltq8seipts TO uk_legacy_renamed_member");
 
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("20"));
 
         // 날짜별 보고 1행 — 다른 날짜는 허용, 같은 (챌린지, 유저, 날짜) 는 거부
         insertMember(jdbcTemplate, challengeId, LocalDate.of(2026, 8, 1));
@@ -144,7 +144,7 @@ class GroupChallengeV20MigrationTest {
     @Test
     @DisplayName("창 목표분 — 양수만 허용하고 null 은 기존 창 챌린지(판정불가)로 남는다")
     void addsNullableWindowGoalWithPositiveCheck() {
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("20"));
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroup(jdbcTemplate);
         UUID challengeId = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));
@@ -215,6 +215,7 @@ class GroupChallengeV20MigrationTest {
                 challengeId, durationMinutes);
     }
 
+    /** 검증 대상은 V20 시점의 역사다 — LATEST 로 올리면 V39(2계층 재편)가 구 스키마를 걷어가 버린다. */
     private void migrate(MigrationVersion target) {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())

@@ -50,7 +50,7 @@ class GroupBetV29MigrationTest {
     @Test
     @DisplayName("정산 근거 컬럼이 생기고 NULL 을 허용한다 — 근거 없는(V29 이전 규약) INSERT 도 통과")
     void addsNullableEvidenceColumns() {
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("29"));
         JdbcTemplate jdbcTemplate = jdbcTemplate();
 
         assertThat(columnNullable(jdbcTemplate, "group_challenge_bets", "goal_minutes"))
@@ -75,7 +75,7 @@ class GroupBetV29MigrationTest {
         UUID betId = insertBet(jdbcTemplate, insertChallenge(jdbcTemplate));
         insertParticipant(jdbcTemplate, betId);
 
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("29"));
 
         assertThat(evidenceOf(jdbcTemplate, betId)).containsExactly(null, null);
     }
@@ -83,7 +83,7 @@ class GroupBetV29MigrationTest {
     @Test
     @DisplayName("새 정산 규약의 값 저장이 성립한다 — goal_minutes·progress_minutes UPDATE 반영")
     void storesEvidenceValuesOnNewSettlements() {
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("29"));
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroupAndUser(jdbcTemplate);
         UUID betId = insertBet(jdbcTemplate, insertChallenge(jdbcTemplate));
@@ -150,6 +150,7 @@ class GroupBetV29MigrationTest {
                 UUID.randomUUID(), betId, USER_ID);
     }
 
+    /** 검증 대상은 V29 시점의 역사다 — LATEST 로 올리면 V39(2계층 재편)가 구 스키마를 걷어가 버린다. */
     private void migrate(MigrationVersion target) {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())

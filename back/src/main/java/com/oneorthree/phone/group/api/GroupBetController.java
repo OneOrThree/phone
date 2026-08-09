@@ -32,9 +32,11 @@ public class GroupBetController {
 
     private final GroupBetService groupBetService;
 
-    @Operation(summary = "챌린지 내기 개설",
-            description = "그룹원 누구나 개설 가능. 개설자는 자동 참가하고 판돈이 즉시 차감된다(에스크로)."
-                    + " 대상은 FOCUS + DURATION 챌린지뿐이며, date 는 KST 오늘, stake 는 10/30/50/100 만 허용."
+    @Operation(summary = "챌린지 내기 개설 (레거시 브리지)",
+            description = "2계층 재편(GROMO-1262) 후 '설정 보장 + 해당 날짜 회차 개설 + 본인 참가'로"
+                    + " 동작한다. 응답의 betId 는 회차 id 다(참가·취소 호출에 그대로 쓴다)."
+                    + " 그룹원 누구나 호출 가능하며 참가비가 즉시 차감된다(에스크로)."
+                    + " date 는 KST 오늘 또는 내일, stake 는 1~3000(GROMO-1264)."
                     + " 개설 시점에 이미 목표를 달성했으면 거절된다.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "개설 성공"),
