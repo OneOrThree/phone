@@ -193,6 +193,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
   "startedAt": "2026-08-01T02:11:00Z",
   "activeToday": true,                   // 오늘이 repeatDays에 있나
   "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. null 없음
+  "nextSessionJoined": false,            // 다음 회차를 이미 예약했나 (N45 버튼 상태 — 내기 켜짐일 때만 의미)
   "canParticipate": true,                // FOCUS면 항상 true, SCREEN_TIME은 권한 여부
   "memberProgress": [                    // null = 미계산 (date 없음 · 비활성 요일)
     { "userId": "uuid", "nickname": "민지",
@@ -460,9 +461,23 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 | 메서드 | 경로 | 동작 |
 |---|---|---|
 | `POST` | `/groups/{gid}/sessions/{sid}/join` | 회차 참여 (즉시 차감) |
+| `POST` | `/groups/{gid}/challenges/{cid}/join-next` | **다음 활성일 회차 1건** 참여 (N45) — 회차를 lazy 생성(`ensureSession`)한 뒤 참가. 비활성 요일 카드의 참여 버튼이 쓴다 |
 | `POST` | `/groups/{gid}/challenges/{cid}/join-week` | 이번 주 남은 회차 전부 — **회차를 lazy 생성**(`ensureSession`)한 뒤 참가. 총액 선검사 · 전부 성공 or 전부 실패 |
 | `DELETE` | `/groups/{gid}/sessions/{sid}/participation` | 참여 취소 (회차 시작 전) |
 | `GET` | `/groups/{gid}/challenge-history?challengeId=` | 회차 이력 — **그룹 단위** 엔드포인트의 필터 |
+
+**`join-next` 응답**: `{ "sessionId": "uuid", "sessionDate": "2026-08-12", "stake": 30 }`
+
+- 대상은 `RepeatSchedule.next(mask, 오늘)` — **오늘을 제외한** 다음 활성일 1건. 카드의
+  `nextSessionAt`과 같은 날짜다(같은 함수를 탄다 — 화면과 결제 대상이 어긋나면 안 된다).
+- **오늘 회차는 이 경로로 참여하지 않는다.** 오늘은 `bet.session.sessionId`가 있으므로 기존
+  단건 `join`을 쓴다 — 경로가 겹치면 "지금 내는 돈이 오늘 것인지 다음 것인지"가 흐려진다.
+- 회차 행이 없으면 `ensureSession`으로 만든 뒤 참가한다(`join-week`과 같은 진입점).
+  **삭제·종료와의 직렬화**(챌린지 행 `FOR SHARE` + 활성 재확인)도 동일하게 적용된다.
+- 이미 예약했으면 `BET_ALREADY_JOINED` 409 — 카드가 `nextSessionJoined`로 버튼을 미리 잠근다.
+- **무위험 참가 검사는 하지 않는다** — 미래 회차라 진행분이 없어 "이미 달성/초과"가 성립 불가
+  (§2.2 미래 회차 규칙과 같다).
+- 취소는 예약분 규칙 그대로 — **회차 시작까지** 가능하다(§2.2 `leaveDeadline`).
 
 **`join-week` 응답**: `{ "joined": [{"sessionId": "...", "sessionDate": "..."}], "totalStake": 90 }`
 
@@ -992,6 +1007,7 @@ classDiagram
     }
     class GroupBetController {
         +join(gid, sid)
+        +joinNext(gid, cid) "다음 활성일 1건 — N45"
         +joinWeek(gid, cid)
         +leave(gid, sid)
         +sessions(gid, cid, cursor, size)
@@ -1009,6 +1025,7 @@ classDiagram
     }
     class GroupBetService {
         +join(sid, userId)
+        +joinNext(cid, userId) "다음 활성일 1건 — ensureSession 후 참가"
         +joinWeek(cid, userId)
         +leave(sid, userId)
         +releaseSessions(groupId, userId) "탈퇴 연동"
@@ -1070,9 +1087,9 @@ classDiagram
 | 파일 | 책임 | 변경 |
 |---|---|---|
 | `GroupRoomScreen.tsx` | 응답 state · 시트 제어 · **참여/취소 API 호출** | 카드에서 API 호출을 회수 |
-| `ChallengeCard.tsx` | **표현만** · 콜백 위임 | `groupId` prop 명시 · 요일 배지 · 다음 회차 |
+| `ChallengeCard.tsx` | **표현만** · 콜백 위임 | `groupId` prop 명시 · 요일 배지 · 다음 회차 · **비활성 요일의 「다음 활성일 참여」 버튼**(`nextSessionJoined`로 상태 분기 — N45) |
 | `ChallengeComposeSheet.tsx` | 만들기 폼 | **요일 선택 추가** (기본값 없음) |
-| `BetJoinSheet.tsx` | 회차 참여 | 개설 모드 제거 · 하루형 진행분 공개 · "이번 주 전부" |
+| `BetJoinSheet.tsx` | 회차 참여 | 개설 모드 제거 · 하루형 진행분 공개 · "이번 주 전부" · **다음 활성일 단건 예약(`join-next`)** — 미래 회차라 진행분·경고 블록은 숨긴다 |
 | `ChallengeDeleteSheet.tsx` | 삭제 확인 | **신설** — 진행 중이면 경고 단계 1개 추가(수치 노출), 아니면 1단계. 버튼 `삭제`/`그만두기` |
 | `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — 각 챌린지의 `mySettledSessions`를 합쳐 회차일 내림차순 정렬 후 로컬 seen set(`sessionId`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |

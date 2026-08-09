@@ -336,7 +336,7 @@ flowchart TB
 
     OUT --> F1["missionType · missionCategory · durationMinutes"]
     OUT --> F2["repeatDays[] · windowStart / windowEnd (HH:mm, KST)"]
-    OUT --> F3["activeToday · nextSessionAt"]
+    OUT --> F3["activeToday · nextSessionAt · nextSessionJoined"]
     OUT --> F4["canParticipate"]
     OUT --> F5["memberProgress[] (3상)"]
     OUT --> F6["bet { enabled, stake, session }"]
@@ -350,7 +350,7 @@ flowchart TB
 | `memberProgress[].progressMinutes` | SCREEN_TIME 미집계 (**0분 아님**) |
 | `memberProgress[].achieved` | 판정 불가 |
 | `bet` = `null` | 이 챌린지에 내기가 꺼져 있음 |
-| `bet.session` = `null` | 오늘 회차가 없음 (비활성 요일) → `nextSessionAt` 참조 |
+| `bet.session` = `null` | 오늘 회차가 없음 (비활성 요일) → `nextSessionAt` + `nextSessionJoined`로 **다음 활성일 참여 버튼**을 그린다 (N45 · FR-31-1) |
 | `lastSettledSession` | 정산 이력 없음 (`VOIDED` **포함** — K5 해소, FR-44-3 기준 통일) |
 | `mySettledSessions` = `[]` | 내가 참가한 정산 완료 회차 없음 |
 | `lastSettledSession.goalMinutes` · `results[].progressMinutes` | 미기록. 앱은 "—"로 그린다. **`0`(진짜 0분)과 다른 뜻** |
@@ -553,7 +553,7 @@ flowchart LR
 | 자리 | 쓰지 않음 | 대신 |
 |---|---|---|
 | 참여 버튼 | `이번 회차 참여` | `오늘(월) 참여` |
-| 비활성 요일 | `다음 회차 수요일` | `다음은 수요일` |
+| 비활성 요일 | `다음 회차 수요일` | `다음은 수요일` · 버튼은 `8/12(수) 참여하기` (예약했으면 `8/12(수) 참여 중`) |
 | 결과 모달 | `8/10(월) 회차 결과` | `8/10(월) 결과` |
 | 마감 안내 | `회차 마감` | `오늘 마감` |
 | 주간 일괄 참여 | `이번 주 남은 회차 전부` | `이번 주 남은 날 전부` |
