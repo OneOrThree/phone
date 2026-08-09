@@ -5,9 +5,22 @@
 // ⚠️ 캔버스는 `plotW > 0`일 때만 그려진다 — jest에는 레이아웃 패스가 없어 onLayout이 저절로
 //    오지 않으므로 직접 발생시켜야 애니메이션 경로가 실제로 렌더된다.
 // ⚠️ 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다(워클릿이 목이라 거짓 안정감).
+import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { LineChart } from './charts';
+import { FirstStartChart, LineChart } from './charts';
+import { FIRST_START_BODY_H } from './constants';
 import type { StatBar } from './format';
+
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => cb(), [cb]);
+  },
+}));
+// 영영 끝나지 않는 조회 — '조회 중' 상태에 붙잡아 두고 높이만 본다
+jest.mock('@/services/focusApi', () => ({
+  getAllFocusSessions: jest.fn(() => new Promise(() => {})),
+}));
 
 const bars: StatBar[] = [
   { label: '월', value: 30, current: false, future: false },
@@ -38,5 +51,15 @@ describe('LineChart', () => {
     // 캔버스가 붙은 뒤에도 축 라벨·가로 라벨이 그대로 있어야 한다(격자·라벨은 애니메이션 밖)
     expect(screen.getByText('화')).toBeTruthy();
     expect(screen.getByText('수')).toBeTruthy();
+  });
+});
+
+describe('FirstStartChart 자체 조회 중', () => {
+  // 화면 스켈레톤이 완성 높이로 자리를 잡아 놨는데 카드가 마운트되며 작은 스피너만 그리면
+  // 카드가 수축했다 다시 확장한다 — 조회 중에도 완성 본문 높이를 예약해 점프를 없앤다(codex 리뷰).
+  test('완성 본문과 같은 높이를 예약한다', async () => {
+    await render(<FirstStartChart period="MONTH" />);
+    const style = StyleSheet.flatten(screen.getByTestId('stats.firstStart.loading').props.style);
+    expect(style.height).toBe(FIRST_START_BODY_H);
   });
 });

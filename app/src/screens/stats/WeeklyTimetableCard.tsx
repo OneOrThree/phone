@@ -1,7 +1,7 @@
 // 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 세션을 날짜별로 분할해 해당 요일
 // 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Line } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,7 +20,8 @@ import {
   type WeekFocusBlock,
 } from './format';
 import { SectionCard } from './SectionCard';
-import { WEEK_DAYS, WTT_BODY_H } from './constants';
+import { WEEK_DAYS, WTT_BODY_BLOCK_H, WTT_BODY_H } from './constants';
+import { CardBodyLoading } from './CardBodyLoading';
 import { cs } from './cardStyles';
 import { ShareBrandFooter } from './ShareBrandFooter';
 import { useTimetableShareCapture } from './useTimetableShareCapture';
@@ -111,11 +112,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
   );
 
   if (blocks === null) {
-    return (
-      <View style={cs.compareLoading}>
-        <ActivityIndicator color={T.accent} size="small" />
-      </View>
-    );
+    return <CardBodyLoading height={WTT_BODY_BLOCK_H} testID="stats.weeklyTimetable.loading" />;
   }
   // 기록이 없어도 표(요일 헤더 + 24시간 격자)는 그대로 그린다(GROMO-1082) — 텍스트로 대체하면
   // 이번 주에 아무 기록이 없다는 사실이 표로 보이지 않고, '불러오기 실패'와도 구분되지 않는다.

@@ -2,7 +2,7 @@
 // 첫 줄 오전 6시 → 다음날 새벽 5시까지 24줄. 격자는 항상 그려지고, 오늘 세션(GET /focus-session)이
 // 겹친 슬롯만 칠해진다(칠 농도 = 슬롯 내 집중 비율). 서버 집계 없이 세션 구간만으로 계산(GROMO-761).
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
@@ -12,7 +12,8 @@ import { useSubjects } from '@/store/SubjectContext';
 import { todayStr } from '@/utils/localDate';
 import { subjectColorForTag, tenMinuteFocusSlots, type FocusSlotSegment } from './format';
 import { SectionCard } from './SectionCard';
-import { FOCUS_COLOR, TT_CELL_H, TT_ROW_GAP, TT_ROWS } from './constants';
+import { FOCUS_COLOR, TT_BODY_BLOCK_H, TT_CELL_H, TT_ROW_GAP, TT_ROWS } from './constants';
+import { CardBodyLoading } from './CardBodyLoading';
 import { cs } from './cardStyles';
 import { ShareDayFrame } from './ShareDayFrame';
 import { useTimetableShareCapture } from './useTimetableShareCapture';
@@ -83,11 +84,7 @@ function FocusTimetable({ onLoaded }: { onLoaded?: () => void }) {
   );
 
   if (slots === null) {
-    return (
-      <View style={cs.compareLoading}>
-        <ActivityIndicator color={T.accent} size="small" />
-      </View>
-    );
+    return <CardBodyLoading height={TT_BODY_BLOCK_H} testID="stats.timetable.loading" />;
   }
 
   // 구간의 과목 색 — 공용 헬퍼(subjectColorForTag)로 tagId → 태그명 → 로컬 과목 색 매칭

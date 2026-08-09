@@ -52,23 +52,30 @@ const SHARE_BTN_H = T.space.md + lineH(T.text.caption.fontSize); // 28
 
 /** 세로축 차트 플롯 높이 — LineChart·FirstStartChart 공용(charts.tsx가 읽는다) */
 export const CHART_H = 120;
-/** 차트 블록 = 위 간격 + 플롯 + 가로 라벨 줄 */
-const CHART_BLOCK_H = T.space.lg + CHART_H + (T.space.sm + lineH(10)); // 156
+/** 차트 블록 = 위 간격 + 플롯 + 가로 라벨 줄 (LineChart 한 벌의 높이) */
+export const CHART_BLOCK_H = T.space.lg + CHART_H + (T.space.sm + lineH(10)); // 156
+/** 첫 시작 시각 차트 본문 = 차트 + 아래 안내 문구 */
+export const FIRST_START_BODY_H = CHART_BLOCK_H + HINT_H; // 184
 
 /** 과목별 도넛 지름 — CategoryDonut이 읽는다 */
 export const DONUT_SIZE = 132;
 /** 도넛 블록 = 위 간격 + 링(범례는 링보다 낮다) */
 const DONUT_BLOCK_H = T.space.sm + DONUT_SIZE; // 140
 
-/** 비교 블록(Compare) — 축 칩 한 줄 + '나 vs 평균' 막대 2세트 */
+/** '나 vs 평균' 막대 2세트(CompareBars) — 축 조회 중 이 높이를 예약한다 */
+export const COMPARE_BARS_H =
+  T.space.xs * 2 + // teaserPad
+  (lineH(T.text.caption.fontSize) + T.space.xs) * 2 + // 라벨 줄 2개 40
+  10 * 2 + // 트랙 2개 20
+  T.space.md; // 두 세트 사이 12
+// = 80
+
+/** 비교 블록(Compare) — 축 칩 한 줄 + 막대 2세트 */
 const COMPARE_H =
   T.space.lg + // s.compare marginTop
   (T.space.sm * 2 + lineH(T.text.caption.fontSize)) + // 칩 줄 32
   T.space.sm + // s.compare gap
-  (T.space.xs * 2 + // teaserPad
-    (lineH(T.text.caption.fontSize) + T.space.xs) * 2 + // 라벨 줄 2개 40
-    10 * 2 + // 트랙 2개 20
-    T.space.md); // 두 세트 사이 12
+  COMPARE_BARS_H;
 // = 136
 
 // ── 오늘 타임테이블(일) 격자 — FocusTimetableCard가 읽는다 ──
@@ -76,16 +83,15 @@ export const TT_CELL_H = 14;
 export const TT_ROW_GAP = 3;
 /** 오전 6시부터 24줄(한 줄 = 1시간) */
 export const TT_ROWS = 24;
-const TT_BLOCK_H = T.space.lg + (TT_ROWS * TT_CELL_H + (TT_ROWS - 1) * TT_ROW_GAP) + SHARE_BTN_H; // 449
+/** 격자 본문(범례 열 포함) — 오늘 세션 조회 중 이 높이를 예약한다 */
+export const TT_BODY_BLOCK_H = T.space.lg + (TT_ROWS * TT_CELL_H + (TT_ROWS - 1) * TT_ROW_GAP); // 421
+const TT_BLOCK_H = TT_BODY_BLOCK_H + SHARE_BTN_H; // 449
 
 // ── 요일별 타임테이블(주) — WeeklyTimetableCard가 읽는다 ──
 export const WTT_BODY_H = 400;
-const WTT_BLOCK_H =
-  T.space.sm +
-  lineH(12) +
-  T.space.xs + // 요일 헤더 26
-  WTT_BODY_H +
-  SHARE_BTN_H; // 454
+/** 요일 헤더 + 트랙 — 주간 세션 조회 중 이 높이를 예약한다(공유 버튼은 카드 몫이라 제외) */
+export const WTT_BODY_BLOCK_H = T.space.sm + lineH(12) + T.space.xs + WTT_BODY_H; // 426
+const WTT_BLOCK_H = WTT_BODY_BLOCK_H + SHARE_BTN_H; // 454
 
 // ── 캘린더(주·월) ──
 // ⚠️ 실제 셀은 `aspectRatio: 40/46`이라 높이가 **기기 폭에 따라 달라진다**. 상수로 못 묶는
@@ -119,8 +125,8 @@ const PASSER_BLOCK_H = T.space.xs * 2 + RADAR_SIZE + (T.space.md + lineH(11)); /
 /** 전 대비 행 2개(DeltaRow) */
 const DELTA_BLOCK_H = (T.space.sm * 2 + lineH(T.text.subtitle.fontSize)) * 2; // 78
 
-/** 최장 연속 집중 — 히어로 + 안내 문구 */
-const LONGEST_BLOCK_H = HERO_H + HINT_H; // 59
+/** 최장 연속 집중 — 히어로 + 안내 문구. 세션 조회 중에도 이 높이를 예약한다 */
+export const LONGEST_BODY_H = HERO_H + HINT_H; // 59
 
 /**
  * 첫 로딩 스켈레톤이 그릴 카드 목록(탭별 기본 순서 + 높이).
@@ -128,8 +134,17 @@ const LONGEST_BLOCK_H = HERO_H + HINT_H; // 59
  * ⚠️ 순서·구성은 `StatsScreen`의 `cards.push(...)` 순서와 같아야 한다. 저장된 순서
  *    (AsyncStorage)는 아직 로드되기 전이라 기본 순서로 그리는 게 맞다.
  * 동시 표시 개수는 일 7장 / 주·월 9장 — 저사양 기기 프레임 예산상 상한 12장 이내다.
+ *
+ * @param calendarRows 목표 달성 카드가 그릴 캘린더 행 수. 주는 항상 1이지만 **월은 달마다
+ *   5행이거나 6행**이다(1일 요일 + 말일에 따라. 예: 2026-08은 앞 빈칸 5 + 31일 = 6행).
+ *   호출부가 `calendarRowCount(period, 0)`(format.ts)로 구해 넘긴다 — 실제 그리드와 같은 식을
+ *   써야 도착 순간 한 행(≈52px)이 갑자기 늘어나지 않는다.
+ *   여기서 직접 구하지 않는 이유는 format.ts가 이미 이 모듈을 import하고 있어서다(순환 참조 회피).
  */
-export function skeletonCards(period: StatsPeriod): { key: string; height: number }[] {
+export function skeletonCards(
+  period: StatsPeriod,
+  calendarRows: number,
+): { key: string; height: number }[] {
   const cards: { key: string; height: number }[] = [
     { key: 'total', height: CARD_CHROME_H + HERO_H + COMPARE_H },
     {
@@ -137,8 +152,7 @@ export function skeletonCards(period: StatsPeriod): { key: string; height: numbe
       height:
         period === 'DAY'
           ? CARD_CHROME_H + STAMP_BLOCK_H
-          : // 주는 1행, 월은 5행(1일 요일에 따라 6행이 되는 달도 있다 — 흔한 5행에 맞춘다)
-            CARD_CHROME_H + calendarBlockH(period === 'WEEK' ? 1 : 5),
+          : CARD_CHROME_H + calendarBlockH(calendarRows),
     },
     { key: 'category', height: CARD_CHROME_H + DONUT_BLOCK_H },
   ];
@@ -156,11 +170,10 @@ export function skeletonCards(period: StatsPeriod): { key: string; height: numbe
   if (period !== 'DAY') {
     cards.push({
       key: 'firstStart',
-      height:
-        period === 'WEEK' ? CARD_CHROME_H + WTT_BLOCK_H : CARD_CHROME_H + CHART_BLOCK_H + HINT_H,
+      height: period === 'WEEK' ? CARD_CHROME_H + WTT_BLOCK_H : CARD_CHROME_H + FIRST_START_BODY_H,
     });
   }
-  cards.push({ key: 'longest', height: CARD_CHROME_H + LONGEST_BLOCK_H });
+  cards.push({ key: 'longest', height: CARD_CHROME_H + LONGEST_BODY_H });
   cards.push({ key: 'passer', height: CARD_CHROME_H + PASSER_BLOCK_H });
   cards.push({ key: 'delta', height: CARD_CHROME_H + DELTA_BLOCK_H });
   return cards;

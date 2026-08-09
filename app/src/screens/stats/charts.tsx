@@ -1,7 +1,7 @@
 // 통계 공용 차트 — 분량 축 선그래프(LineChart)와 첫 시작 시각 점 차트(FirstStartChart).
 // 세로축·격자·탭 말풍선 스캐폴딩(스타일)을 공유해 한 파일에 둔다.
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,7 +20,8 @@ import {
   type StatBar,
   type StartTimePoint,
 } from './format';
-import { CHART_H, FOCUS_COLOR } from './constants';
+import { CHART_H, FIRST_START_BODY_H, FOCUS_COLOR } from './constants';
+import { CardBodyLoading } from './CardBodyLoading';
 import { cs } from './cardStyles';
 
 // 진입 애니메이션을 걸려면 Animated 컴포넌트여야 한다 — 격자·라벨은 제자리에 둔 채
@@ -199,11 +200,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   );
 
   if (points === null) {
-    return (
-      <View style={cs.compareLoading}>
-        <ActivityIndicator color={T.accent} size="small" />
-      </View>
-    );
+    return <CardBodyLoading height={FIRST_START_BODY_H} testID="stats.firstStart.loading" />;
   }
 
   const vals = points.filter((p) => !p.future && p.minutes != null).map((p) => p.minutes as number);

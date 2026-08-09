@@ -22,7 +22,7 @@ import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats'
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
 import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
-import { calendarPage, grassLevel, kstTodayDate } from './format';
+import { calendarPage, calendarRows, grassLevel, kstTodayDate } from './format';
 import { CAL_RAMP, WEEK_DAYS } from './constants';
 
 interface Props {
@@ -168,14 +168,8 @@ export function CalendarCard({
     (c.screenTimeGoalAchieved ||
       (phoneGoalSet && date >= membershipFloor && c.actualScreenTimeMinutes === 0));
 
-  // 7칸 행으로 슬롯 분할 — 월은 1일 요일 정렬용 앞 빈 칸 + 마지막 행 채움 빈 칸
-  const slots: (string | null)[] = [
-    ...Array.from({ length: page.leadingBlanks }, () => null),
-    ...page.days,
-  ];
-  while (slots.length % 7 !== 0) slots.push(null);
-  const rows: (string | null)[][] = [];
-  for (let i = 0; i < slots.length; i += 7) rows.push(slots.slice(i, i + 7));
+  // 7칸 행으로 슬롯 분할 — 로딩 스켈레톤의 카드 높이도 같은 함수로 행 수를 구한다(format.ts).
+  const rows = calendarRows(period, offset);
 
   const renderCell = (date: string | null, idx: number) => {
     if (date == null) return <View key={`blank-${idx}`} style={s.cell} />;

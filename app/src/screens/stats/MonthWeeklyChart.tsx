@@ -4,15 +4,14 @@
 // 기재·미래 주는 선 미표시. 전용 집계 API 없이 파생 계산(GROMO-761). 지표(pick)·색만 바꿔
 // 공부시간/핸드폰 사용량이 공유한다. (하루 평균 전환 검토 후 주별 합계 유지 — 2026-07-11 결정기록)
 import { useCallback, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { T } from '@/constants/theme';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
 import { getHeatmap } from '@/services/statsApi';
 import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { dayNum, kstTodayDate, type StatBar } from './format';
 import { LineChart } from './charts';
-import { cs } from './cardStyles';
+import { CHART_BLOCK_H } from './constants';
+import { CardBodyLoading } from './CardBodyLoading';
 
 // 히트맵 셀 → 지표 추출기 — 렌더마다 재생성되지 않게 모듈 상수(훅 의존성 안정화)
 export const pickFocus = (c: HeatmapCellResponse) => c.totalFocusMinutes;
@@ -91,11 +90,7 @@ export function MonthWeeklyChart({
   );
 
   if (bars === null) {
-    return (
-      <View style={cs.compareLoading}>
-        <ActivityIndicator color={T.accent} size="small" />
-      </View>
-    );
+    return <CardBodyLoading height={CHART_BLOCK_H} testID="stats.monthWeekly.loading" />;
   }
   return <LineChart bars={bars} color={color} />;
 }

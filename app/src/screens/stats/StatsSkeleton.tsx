@@ -24,13 +24,17 @@ import { SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
 import { T } from '@/constants/theme';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { skeletonCards } from './constants';
+import { calendarRowCount } from './format';
 
 export function StatsSkeleton({ period }: { period: StatsPeriod }) {
+  // 목표 달성 카드의 캘린더 행 수 — **실제 그리드와 같은 함수**로 구한다(format.calendarRows).
+  // 월은 달마다 5행이거나 6행이라 상수로 박으면 도착 순간 한 행(≈52px)이 갑자기 늘어난다.
+  const rows = period === 'DAY' ? 0 : calendarRowCount(period, 0);
   return (
     // 목록 컨테이너를 SkeletonGroup으로 **교체**했다(새로 끼운 게 아니다) — 노드가 늘면
     // 스크롤 컨테이너와의 관계·치수가 흔들려 카드 높이 계측이 어긋난다.
     <SkeletonGroup testID="stats.skeleton" style={s.wrap}>
-      {skeletonCards(period).map((c) => (
+      {skeletonCards(period, rows).map((c) => (
         <SkeletonCard key={c.key} height={c.height} testID={`stats.skeleton.${c.key}`} />
       ))}
     </SkeletonGroup>

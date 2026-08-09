@@ -8,7 +8,8 @@
 import { StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { StatsSkeleton } from './StatsSkeleton';
-import { skeletonCards } from './constants';
+import { CAL_CELL_H, skeletonCards } from './constants';
+import { calendarRowCount } from './format';
 
 const HIDDEN = { includeHiddenElements: true } as const;
 
@@ -36,7 +37,7 @@ describe('StatsSkeleton', () => {
 
   test('카드 높이는 constants의 계산값이 그대로 스타일로 내려간다', async () => {
     await render(<StatsSkeleton period="WEEK" />);
-    for (const c of skeletonCards('WEEK')) {
+    for (const c of skeletonCards('WEEK', 1)) {
       const style = StyleSheet.flatten(
         screen.getByTestId(`stats.skeleton.${c.key}`, HIDDEN).props.style,
       );
@@ -46,7 +47,7 @@ describe('StatsSkeleton', () => {
   });
 
   test('주간 타임테이블 카드는 본문 높이(400)가 있어 다른 카드보다 확실히 높다', async () => {
-    const byKey = new Map(skeletonCards('WEEK').map((c) => [c.key, c.height]));
+    const byKey = new Map(skeletonCards('WEEK', 1).map((c) => [c.key, c.height]));
     // 실제 카드가 WTT_BODY_H(400)를 쓰므로 스켈레톤도 그만큼 커야 도착 순간 튀지 않는다
     expect(byKey.get('firstStart')).toBeGreaterThan(400);
     expect(byKey.get('firstStart')).toBeGreaterThan(byKey.get('delta') as number);
@@ -60,9 +61,38 @@ describe('StatsSkeleton', () => {
     const inline = (testID: string) =>
       StyleSheet.flatten(screen.getByTestId(testID, HIDDEN).props.jestInlineStyle);
     expect(inline('stats.skeleton').animationName).toBeDefined();
-    for (const c of skeletonCards('WEEK')) {
+    for (const c of skeletonCards('WEEK', 1)) {
       expect(inline(`stats.skeleton.${c.key}`).animationName).toBeUndefined();
     }
+  });
+
+  // 월 캘린더는 달마다 5행이거나 6행이다. 스켈레톤이 한쪽으로 박혀 있으면 데이터가 도착하는
+  // 순간 목표 달성 카드가 한 행(≈52px) 갑자기 커진다(codex 리뷰).
+  describe('월 목표 달성 카드 높이 — 실제 캘린더 행 수를 따른다', () => {
+    beforeAll(() => jest.useFakeTimers());
+    afterAll(() => jest.useRealTimers());
+
+    const goalHeight = () =>
+      skeletonCards('MONTH', calendarRowCount('MONTH', 0)).find((c) => c.key === 'goalAchieve')!
+        .height;
+
+    test('6행 달(2026-08: 앞 빈칸 5 + 31일)이 5행 달(2026-07)보다 한 행만큼 높다', () => {
+      jest.setSystemTime(new Date('2026-07-15T09:00:00+09:00'));
+      const fiveRows = goalHeight();
+      jest.setSystemTime(new Date('2026-08-10T09:00:00+09:00'));
+      const sixRows = goalHeight();
+      expect(calendarRowCount('MONTH', 0)).toBe(6);
+      expect(sixRows - fiveRows).toBe(CAL_CELL_H + 1); // 셀 한 행 + 행 사이 1px
+    });
+
+    test('렌더된 스켈레톤 카드에도 그 높이가 그대로 내려간다', async () => {
+      jest.setSystemTime(new Date('2026-08-10T09:00:00+09:00'));
+      await render(<StatsSkeleton period="MONTH" />);
+      const style = StyleSheet.flatten(
+        screen.getByTestId('stats.skeleton.goalAchieve', HIDDEN).props.style,
+      );
+      expect(style.height).toBe(goalHeight());
+    });
   });
 
   test('스크린리더 포커스에서 제외된다 — 내용 없는 자리표시자다', async () => {
