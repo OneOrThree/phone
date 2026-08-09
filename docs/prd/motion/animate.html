@@ -1,0 +1,1354 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gromo 모션 계측기</title>
+
+<style>
+  /* ── 토큰 ──────────────────────────────────────────────────────────
+     app/src/constants/theme.ts 의 T 팔레트를 그대로 미러링한다.
+     값을 바꾸지 말 것 — 이 문서의 목적은 앱과 같은 색으로 모션을 보는 것이다. */
+  :root {
+    --bg: #f4f5f8;
+    --surface: #ffffff;
+    --surface-2: #f5f6f9;
+    --track: #f1f2f6;
+    --ink: #1c1e22;
+    --ink-sub: #667085;
+    --ink-muted: #9aa0a8;
+    --line: #eaebee;
+    --accent: #5e6ad2;
+    --accent-deep: #4a53b8;
+    --accent-soft: #eef0fb;
+    --accent-line: #dde0f3;
+    --good: #5ea269;
+    --warn: #c2705a;
+    --shadow: 30 35 64;
+    --scope-grid: #e7e9f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #15182a;
+      --surface: #1e2236;
+      --surface-2: #262b42;
+      --track: #2c3149;
+      --ink: #dfe2f2;
+      --ink-sub: #a1a7c2;
+      --ink-muted: #7d84a0;
+      --line: #2f3450;
+      --accent: #afb5e9;
+      --accent-deep: #c8ccf2;
+      --accent-soft: #272c45;
+      --accent-line: #3a4064;
+      --good: #7fcb8e;
+      --warn: #dd9b86;
+      --shadow: 0 0 0;
+      --scope-grid: #2b3049;
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #15182a;
+    --surface: #1e2236;
+    --surface-2: #262b42;
+    --track: #2c3149;
+    --ink: #dfe2f2;
+    --ink-sub: #a1a7c2;
+    --ink-muted: #7d84a0;
+    --line: #2f3450;
+    --accent: #afb5e9;
+    --accent-deep: #c8ccf2;
+    --accent-soft: #272c45;
+    --accent-line: #3a4064;
+    --good: #7fcb8e;
+    --warn: #dd9b86;
+    --shadow: 0 0 0;
+    --scope-grid: #2b3049;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo',
+      'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wrap {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 0 20px 96px;
+  }
+
+  /* ── 머리말 ── */
+  header.doc {
+    padding: 44px 0 24px;
+  }
+  header.doc h1 {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.6px;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  header.doc p {
+    margin: 0;
+    color: var(--ink-sub);
+    max-width: 62ch;
+  }
+  .meta {
+    margin-top: 16px;
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+
+  /* ── 고정 컨트롤 바 ── */
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    margin-bottom: 24px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar .spacer {
+    flex: 1;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 9px;
+    padding: 7px 13px;
+    font-size: 13.5px;
+    font-weight: 600;
+    transition: border-color 120ms ease-out, background 120ms ease-out;
+  }
+  button:hover {
+    border-color: var(--accent-line);
+  }
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  :root[data-theme='dark'] button.primary,
+  .dark-primary {
+    color: #1a1d2e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) button.primary {
+      color: #1a1d2e;
+    }
+  }
+  button[aria-pressed='true'] {
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+    color: var(--accent-deep);
+  }
+
+  /* ── 벤치(계측 카드) ── */
+  section.bench {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    margin-bottom: 18px;
+    overflow: hidden;
+  }
+  .bench > .head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .bench > .head h2 {
+    font-size: 16.5px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.2px;
+  }
+  .bench > .head .note {
+    font-size: 13px;
+    color: var(--ink-sub);
+    flex-basis: 100%;
+    margin-top: 2px;
+    max-width: 68ch;
+  }
+  .bench > .body {
+    padding: 20px;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+
+  .rowctl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  /* ── 데이터 표 ── */
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .readout div {
+    background: var(--surface);
+    padding: 9px 12px;
+  }
+  .readout dt {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    font-weight: 700;
+  }
+  .readout dd {
+    margin: 2px 0 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  /* ── A/B 스테이지 ── */
+  .ab {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 680px) {
+    .ab {
+      grid-template-columns: 1fr;
+    }
+  }
+  .ab .cell {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    background: var(--surface-2);
+  }
+  .ab .cell.is-proposed {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+  }
+  .ab .cell h3 {
+    margin: 0 0 2px;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+  .ab .cell .params {
+    font-size: 12px;
+    color: var(--ink-sub);
+    margin-bottom: 14px;
+  }
+  .stage-btn {
+    width: 100%;
+    padding: 15px;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-weight: 700;
+    font-size: 15px;
+    will-change: transform;
+    touch-action: manipulation;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) .stage-btn {
+      color: #1a1d2e;
+    }
+  }
+  :root[data-theme='dark'] .stage-btn {
+    color: #1a1d2e;
+  }
+
+  /* ── 스코프(궤적 그래프) ── */
+  .scope {
+    width: 100%;
+    height: 130px;
+    display: block;
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .scope-legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--ink-sub);
+    margin-top: 8px;
+  }
+  .swatch {
+    display: inline-block;
+    width: 18px;
+    height: 3px;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+
+  /* ── 트랙(이동 데모) ── */
+  .track-row {
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    align-items: center;
+    gap: 14px;
+    padding: 7px 0;
+  }
+  @media (max-width: 560px) {
+    .track-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+  }
+  .track-row .label {
+    font-size: 12.5px;
+    color: var(--ink-sub);
+  }
+  .track {
+    position: relative;
+    height: 26px;
+    background: var(--track);
+    border-radius: 13px;
+  }
+  .puck {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    will-change: transform;
+  }
+
+  /* ── 스태거 그리드 ── */
+  .grid20 {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 8px;
+  }
+  .tile {
+    height: 46px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-deep);
+    will-change: transform, opacity;
+  }
+
+  /* ── 프리미티브 ── */
+  .prim {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .prim .card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+    background: var(--surface-2);
+  }
+  .prim .card h3 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .prim .card .foot {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--ink-sub);
+  }
+
+  .skel {
+    background: var(--track);
+    border-radius: 7px;
+  }
+  .bar-track {
+    height: 10px;
+    background: var(--track);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 5px;
+  }
+  .bignum {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.8px;
+  }
+
+  /* ── 폰 프레임(시트·토스트 데모) ── */
+  .phone {
+    position: relative;
+    width: 210px;
+    height: 330px;
+    margin: 0 auto;
+    border-radius: 26px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .phone .content {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .phone .content .ln {
+    height: 9px;
+    border-radius: 5px;
+    background: var(--track);
+  }
+  .dim {
+    position: absolute;
+    inset: 0;
+    background: rgba(26, 29, 46, 0.42);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-bottom: none;
+    border-radius: 18px 18px 0 0;
+    padding: 10px 14px 18px;
+    transform: translateY(110%);
+    will-change: transform;
+  }
+  .grabber {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    margin: 0 auto 10px;
+  }
+  .toast {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 14px;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 11px;
+    padding: 10px 13px;
+    font-size: 12.5px;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateY(12px);
+    will-change: transform, opacity;
+  }
+
+  /* ── 경고/메모 ── */
+  .callout {
+    border: 1px solid var(--accent-line);
+    background: var(--accent-soft);
+    border-radius: 11px;
+    padding: 13px 15px;
+    font-size: 13.5px;
+    color: var(--ink);
+    margin-top: 16px;
+  }
+  .callout strong {
+    color: var(--accent-deep);
+  }
+
+  footer.doc {
+    margin-top: 34px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--ink-sub);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      scroll-behavior: auto;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="doc">
+    <div class="eyebrow">docs/prd/motion · 값 확정용 계측기</div>
+    <h1>gromo 모션 계측기</h1>
+    <p>
+      코드에 값을 넣기 전에 브라우저에서 먼저 본다. 스프링은 CSS 근사가 아니라
+      damping·stiffness·mass를 실제로 적분해 구동하므로, 여기서 보이는 궤적이 앱의
+      <span class="mono">withSpring</span>과 같은 물리다.
+    </p>
+    <div class="meta mono">
+      <span>팔레트: app/src/constants/theme.ts (T)</span>
+      <span>·</span>
+      <span>의존성 0</span>
+      <span>·</span>
+      <span>판정 기준은 실기기 체감</span>
+    </div>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="playAll">전체 재생</button>
+    <button id="reduceBtn" aria-pressed="false">동작 줄이기</button>
+    <span class="spacer"></span>
+    <button id="themeBtn">테마 전환</button>
+  </div>
+
+  <!-- ══ 1. 톤 A/B — 이 문서에서 확정할 단 하나의 값 ══ -->
+  <section class="bench">
+    <div class="head">
+      <h2>1 · 버튼 톤 A/B</h2>
+      <span class="eyebrow">확정 대상</span>
+      <p class="note">
+        앱의 모든 버튼이 <span class="mono">PressableScale</span> 하나를 지난다. 여기 값이 곧 앱의
+        톤이다. 눌러서 직접 비교하거나 아래 버튼으로 두 쪽을 동시에 재생한다. 눌림은 양쪽 모두
+        110ms 고정 — <strong>차이는 복귀에서만 난다.</strong>
+      </p>
+    </div>
+    <div class="body">
+      <div class="rowctl">
+        <button class="primary" id="abPlay">동시 재생</button>
+        <button id="abZoom" aria-pressed="false">궤적 확대</button>
+      </div>
+      <div class="ab">
+        <div class="cell">
+          <h3>현행</h3>
+          <div class="params mono">damping 18 · stiffness 320 · mass 0.6 · scaleTo 0.97</div>
+          <button class="stage-btn" id="btnA">눌러보기</button>
+          <dl class="readout" id="roA" style="margin-top:14px"></dl>
+        </div>
+        <div class="cell is-proposed">
+          <h3>제안</h3>
+          <div class="params mono">damping 14 · stiffness 300 · mass 0.65 · scaleTo 0.96</div>
+          <button class="stage-btn" id="btnB">눌러보기</button>
+          <dl class="readout" id="roB" style="margin-top:14px"></dl>
+        </div>
+      </div>
+      <svg class="scope" id="abScope" viewBox="0 0 900 260" preserveAspectRatio="none"></svg>
+      <div class="scope-legend">
+        <span><i class="swatch" style="background:var(--ink-muted)"></i>현행</span>
+        <span><i class="swatch" style="background:var(--accent)"></i>제안</span>
+        <span><i class="swatch" style="background:var(--line)"></i>목표선(scale 1.0)</span>
+      </div>
+      <div class="callout">
+        <strong>읽는 법 — 오버슛 %는 두 가지로 읽힌다.</strong> 아래 <span class="mono">오버슛</span>은
+        <em>이동량 대비</em> 초과분이고, <span class="mono">최대 배율</span>은 화면에 실제로 나타나는
+        스케일 최대값이다. 제안값은 이동량의 16%를 넘지만 이동량 자체가 0.04라 실제 배율은 1.006에
+        그친다 — 계획서의 "3% 이내" 표현은 이 절대값 기준이었다. 판정은 <strong>최대 배율과 안착
+        시간</strong>으로 하는 게 정확하다.
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 2. duration 사다리 ══ -->
+  <section class="bench">
+    <div class="head">
+      <h2>2 · duration 사다리</h2>
+      <p class="note">
+        6칸 전부 같은 거리를 <span class="mono">standard</span> 커브로 이동한다. 칸 사이 간격이
+        구분될 만큼 벌어져 있는지, 쓰이지 않을 칸이 있는지를 본다.
+      </p>
+    </div>
+    <div class="body">
+      <div class="rowctl"><button class="primary" data-play="dur">재생</button></div>
+      <div id="durRows"></div>
+    </div>
+  </section>
+
+  <!-- ══ 3. 이징 커브 ══ -->
+  <section class="bench">
+    <div class="head">
+      <h2>3 · 이징 커브</h2>
+      <p class="note">
+        곡선과 실제 움직임을 나란히 본다. <span class="mono">overshoot</span>는 탭바 알약·차트
+        막대·축하 표면에만 쓰고, 시트·토스트·스켈레톤에는 쓰지 않는다.
+      </p>
+    </div>
+    <div class="body">
+      <div class="rowctl"><button class="primary" data-play="ease">재생</button></div>
+      <div id="easeRows"></div>
+    </div>
+  </section>
+
+  <!-- ══ 4. spring 4종 ══ -->
+  <section class="bench">
+    <div class="head">
+      <h2>4 · spring 4종</h2>
+      <p class="note">
+        용도별 스프링. <span class="mono">press</span>는 버튼,
+        <span class="mono">snappy</span>는 시트·패널, <span class="mono">bouncy</span>는 배지·축하,
+        <span class="mono">gentle</span>은 큰 요소 진입.
+      </p>
+    </div>
+    <div class="body">
+      <div class="rowctl"><button class="primary" data-play="spring">재생</button></div>
+      <div id="springRows"></div>
+      <svg class="scope" id="springScope" viewBox="0 0 900 260" preserveAspectRatio="none"></svg>
+    </div>
+  </section>
+
+  <!-- ══ 5. stagger ══ -->
+  <section class="bench">
+    <div class="head">
+      <h2>5 · stagger 시차</h2>
+      <p class="note">
+        항목 20개. 상한을 끄면 마지막 타일이 언제 뜨는지 확인한다 — 시차가 "완성도"가 아니라
+        "느림"으로 넘어가는 지점을 찾는 게 목적이다.
+      </p>
+    </div>
+    <div class="body">
+      <div class="rowctl">
+        <button class="primary" data-play="stagger">재생</button>
+        <button class="stagger-step" data-step="40">40ms</button>
+        <button class="stagger-step" data-step="60" aria-pressed="true">60ms</button>
+        <button class="stagger-step" data-step="90">90ms</button>
+        <button id="capBtn" aria-pressed="true">상한 6단계</button>
+        <span class="mono" id="staggerLast" style="font-size:12.5px;color:var(--ink-sub)"></span>
+      </div>
+      <div class="grid20" id="staggerGrid"></div>
+    </div>
+  </section>
+
+  <!-- ══ 6. 프리미티브 ══ -->
+  <section class="bench">
+    <div class="head">
+      <h2>6 · 프리미티브</h2>
+      <p class="note">
+        만들 공용 컴포넌트의 실제 연출. 시트는 등장 스프링(<span class="mono">snappy</span>)과 딤
+        페이드가 따로 돈다 — 앱에서도 같은 구조다.
+      </p>
+    </div>
+    <div class="body">
+      <div class="prim">
+        <div class="card">
+          <h3>Skeleton — 불투명도 펄스</h3>
+          <div style="display:flex;flex-direction:column;gap:8px" id="skelBox">
+            <div class="skel" style="height:14px;width:60%"></div>
+            <div class="skel" style="height:14px"></div>
+            <div class="skel" style="height:14px;width:82%"></div>
+            <div class="skel" style="height:54px"></div>
+          </div>
+          <div class="foot mono">0.45 ↔ 1.0 · 1200ms · alternate</div>
+          <div class="rowctl" style="margin:12px 0 0">
+            <button data-play="skel">토글</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>ProgressBar — width 애니메이션</h3>
+          <div class="bar-track"><div class="bar-fill" id="pbar"></div></div>
+          <div class="foot mono" id="pbarNote">0% → 68% · 600ms · standard</div>
+          <div class="rowctl" style="margin:12px 0 0">
+            <button data-play="pbar">재생</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>AnimatedNumber — 카운트업</h3>
+          <div class="bignum mono" id="anum">0</div>
+          <div class="foot mono">0 → 12,480 · 600ms · decelerate</div>
+          <div class="rowctl" style="margin:12px 0 0">
+            <button data-play="anum">재생</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>enterUp — 카드 진입</h3>
+          <div style="display:flex;flex-direction:column;gap:8px" id="enterBox">
+            <div class="tile" style="height:34px">카드 1</div>
+            <div class="tile" style="height:34px">카드 2</div>
+            <div class="tile" style="height:34px">카드 3</div>
+          </div>
+          <div class="foot mono">opacity 0→1 · translateY 12→0 · stagger 60ms</div>
+          <div class="rowctl" style="margin:12px 0 0">
+            <button data-play="enter">재생</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>시트 — 슬라이드업 + 딤 페이드</h3>
+          <div class="phone">
+            <div class="content">
+              <div class="ln" style="width:52%"></div>
+              <div class="ln"></div>
+              <div class="ln" style="width:78%"></div>
+              <div class="ln" style="height:60px"></div>
+              <div class="ln" style="width:64%"></div>
+            </div>
+            <div class="dim" id="sheetDim"></div>
+            <div class="sheet" id="sheetPanel">
+              <div class="grabber"></div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:8px">타이머 방식</div>
+              <div class="ln" style="height:9px;border-radius:5px;background:var(--track)"></div>
+              <div
+                class="ln"
+                style="height:9px;border-radius:5px;background:var(--track);margin-top:8px"
+              ></div>
+            </div>
+          </div>
+          <div class="foot mono">등장 spring.snappy · 딤 220ms · 퇴장 220ms standard</div>
+          <div class="rowctl" style="margin:12px 0 0">
+            <button data-play="sheet">열기 / 닫기</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Toast — 성공 통보</h3>
+          <div class="phone">
+            <div class="content">
+              <div class="ln" style="width:52%"></div>
+              <div class="ln"></div>
+              <div class="ln" style="height:60px"></div>
+            </div>
+            <div class="toast" id="toastEl">캐릭터를 변경했어요</div>
+          </div>
+          <div class="foot mono">진입 spring.snappy · 2200ms 후 자동 해제</div>
+          <div class="rowctl" style="margin:12px 0 0">
+            <button data-play="toast">띄우기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="doc">
+    <p>
+      한계 — 이 페이지는 값 후보를 좁히는 계측기다. 실제 판정은 iOS·Android 실기기에서 한다.
+      브라우저 합성기와 RN 렌더러는 프레임 예산이 다르고, 리퀴드 글래스·블러가 얹힌 표면에서는
+      같은 값도 다르게 읽힌다.
+    </p>
+  </footer>
+</div>
+
+<script>
+  (() => {
+    'use strict';
+
+    /* ══════════════════════════════════════════════════════════════
+       모션 토큰 — src/constants/motion.ts 로 들어갈 값의 원본
+       ══════════════════════════════════════════════════════════════ */
+    const M = {
+      dur: { press: 110, quick: 220, base: 350, slow: 600, entrance: 800, celebrate: 1200 },
+      curve: {
+        standard: [0.2, 0, 0, 1],
+        overshoot: [0.34, 1.56, 0.64, 1],
+        glide: [0.3, 1.15, 0.5, 1],
+        out: [0.25, 0.46, 0.45, 0.94],
+      },
+      spring: {
+        press: { damping: 14, stiffness: 300, mass: 0.65 },
+        snappy: { damping: 20, stiffness: 260, mass: 0.9 },
+        bouncy: { damping: 13, stiffness: 180, mass: 0.9 },
+        gentle: { damping: 16, stiffness: 120, mass: 1.0 },
+      },
+      stagger: { tight: 40, base: 60, loose: 90 },
+      staggerMaxSteps: 6,
+    };
+    const PRESS_CUR = { damping: 18, stiffness: 320, mass: 0.6, scaleTo: 0.97 };
+    const PRESS_NEW = { ...M.spring.press, scaleTo: 0.96 };
+
+    let REDUCE = false;
+
+    /* ── 큐빅 베지어 이징 (CSS cubic-bezier와 동일 정의) ────────────
+       x(t)=f(t) 를 뉴턴법으로 역산해 y를 얻는다. */
+    function bezier([x1, y1, x2, y2]) {
+      const A = (a, b) => 1 - 3 * b + 3 * a;
+      const B = (a, b) => 3 * b - 6 * a;
+      const C = (a) => 3 * a;
+      const calc = (t, a, b) => ((A(a, b) * t + B(a, b)) * t + C(a)) * t;
+      const slope = (t, a, b) => 3 * A(a, b) * t * t + 2 * B(a, b) * t + C(a);
+      return (x) => {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        let t = x;
+        for (let i = 0; i < 8; i++) {
+          const d = slope(t, x1, x2);
+          if (d === 0) break;
+          const err = calc(t, x1, x2) - x;
+          if (Math.abs(err) < 1e-6) break;
+          t -= err / d;
+        }
+        return calc(t, y1, y2);
+      };
+    }
+
+    /* ── 스프링 적분 ────────────────────────────────────────────────
+       m·x'' + c·x' + k·(x−target) = 0 을 1/480초 스텝으로 반음시적
+       오일러 적분한다. reanimated withSpring 과 같은 물리 모델. */
+    // 안착 판정은 **이동량의 2% 허용대**(제어공학 관례). 허용대를 마지막으로 벗어난 시각이
+    // 안착 시각이다 — 처음 들어온 시각으로 재면 이후 오버슛으로 다시 나갔다 오는 구간을 놓친다.
+    const SETTLE_TOL = 0.02;
+    function springTrace({ damping: c, stiffness: k, mass: m }, from, to, maxMs = 2400) {
+      const dt = 1 / 480;
+      const stepMs = dt * 1000;
+      let x = from;
+      let v = 0;
+      const out = [{ t: 0, v: x }];
+      let t = 0;
+      const span = Math.abs(to - from) || 1;
+      const tol = span * SETTLE_TOL;
+      let settledAt = 0;
+      // 허용대 밖으로 나간 마지막 시각 + 여유 한 호흡까지만 샘플을 남긴다
+      while (t < maxMs) {
+        const a = (-k * (x - to) - c * v) / m;
+        v += a * dt;
+        x += v * dt;
+        t += stepMs;
+        out.push({ t, v: x });
+        if (Math.abs(x - to) > tol) settledAt = t;
+        else if (t > settledAt + 90) break; // 허용대 안에서 90ms 유지되면 끝난 것으로 본다
+      }
+      // 감쇠비 ζ 와 이동량 대비 오버슛 — 해석해로 구한다(적분 오차 없음)
+      const zeta = c / (2 * Math.sqrt(k * m));
+      const overshoot =
+        zeta < 1 ? Math.exp((-zeta * Math.PI) / Math.sqrt(1 - zeta * zeta)) : 0;
+      let peak = from;
+      for (const p of out) if (Math.abs(p.v - from) > Math.abs(peak - from)) peak = p.v;
+      return { samples: out, settleMs: settledAt, zeta, overshoot, peak };
+    }
+
+    /* ── 재생 루프 ─────────────────────────────────────────────────
+       reduce가 켜져 있으면 즉시 최종 상태로 — 앱의 useMotion().css()가
+       스타일을 통째로 드롭했을 때와 같은 결과다. */
+    function play(durationMs, onFrame, onDone) {
+      if (REDUCE) {
+        onFrame(1);
+        onDone && onDone();
+        return () => {};
+      }
+      let raf = 0;
+      const t0 = performance.now();
+      const tick = (now) => {
+        // 재생 도중 '동작 줄이기'가 켜지면 그 자리에서 최종 상태로 끊는다.
+        // useReduceMotion 이 반응형인 이유가 이것 — 이미 시작된 연출이 끝까지 도는 걸 막는다.
+        if (REDUCE) {
+          onFrame(1);
+          onDone && onDone();
+          return;
+        }
+        const p = Math.min(1, (now - t0) / durationMs);
+        onFrame(p);
+        if (p < 1) raf = requestAnimationFrame(tick);
+        else onDone && onDone();
+      };
+      raf = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(raf);
+    }
+
+    function playTrace(trace, apply) {
+      if (REDUCE) {
+        apply(trace.samples[trace.samples.length - 1].v);
+        return;
+      }
+      const s = trace.samples;
+      const total = s[s.length - 1].t;
+      play(total, (p) => {
+        const t = p * total;
+        let i = Math.min(s.length - 1, Math.round((t / total) * (s.length - 1)));
+        apply(s[i].v);
+      });
+    }
+
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+    /* ══ 1. 톤 A/B ══════════════════════════════════════════════ */
+    const traceA = springTrace(PRESS_CUR, PRESS_CUR.scaleTo, 1);
+    const traceB = springTrace(PRESS_NEW, PRESS_NEW.scaleTo, 1);
+
+    function readout(el, cfg, trace) {
+      el.innerHTML = `
+        <div><dt>감쇠비 ζ</dt><dd class="mono">${trace.zeta.toFixed(2)}</dd></div>
+        <div><dt>오버슛</dt><dd class="mono">${(trace.overshoot * 100).toFixed(0)}%</dd></div>
+        <div><dt>최대 배율</dt><dd class="mono">${trace.peak.toFixed(3)}</dd></div>
+        <div><dt>안착 (2%)</dt><dd class="mono">${Math.round(trace.settleMs)}ms</dd></div>`;
+    }
+    readout($('#roA'), PRESS_CUR, traceA);
+    readout($('#roB'), PRESS_NEW, traceB);
+
+    let abZoom = false;
+    function drawAbScope() {
+      const W = 900;
+      const H = 260;
+      const pad = 14;
+      const total = Math.max(traceA.settleMs, traceB.settleMs) + 60;
+      // 확대: 목표선 부근만 크게. 기본: 눌림 배율부터 최대치까지.
+      const lo = abZoom ? 0.99 : Math.min(PRESS_CUR.scaleTo, PRESS_NEW.scaleTo) - 0.004;
+      const hi = abZoom ? 1.009 : Math.max(traceA.peak, traceB.peak, 1) + 0.004;
+      const X = (t) => pad + (t / total) * (W - pad * 2);
+      const Y = (v) => H - pad - ((v - lo) / (hi - lo)) * (H - pad * 2);
+      const line = (tr, color, width) => {
+        const pts = [];
+        for (let i = 0; i < tr.samples.length; i += 3) {
+          const s = tr.samples[i];
+          pts.push(`${X(s.t).toFixed(1)},${Y(s.v).toFixed(1)}`);
+        }
+        return `<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+      };
+      const gridY = Y(1);
+      const ticks = [0, 100, 200, 300, 400]
+        .filter((t) => t <= total)
+        .map(
+          (t) =>
+            `<line x1="${X(t)}" y1="${pad}" x2="${X(t)}" y2="${H - pad}" stroke="var(--scope-grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>`
+        )
+        .join('');
+      $('#abScope').innerHTML =
+        ticks +
+        `<line x1="${pad}" y1="${gridY}" x2="${W - pad}" y2="${gridY}" stroke="var(--line)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/>` +
+        line(traceA, 'var(--ink-muted)', 2) +
+        line(traceB, 'var(--accent)', 2.5);
+    }
+    drawAbScope();
+    $('#abZoom').addEventListener('click', (e) => {
+      abZoom = !abZoom;
+      e.currentTarget.setAttribute('aria-pressed', String(abZoom));
+      drawAbScope();
+    });
+
+    // 실제 눌러보기 — press-in은 110ms timing, 복귀는 스프링
+    function wirePressable(btn, cfg, trace) {
+      const easeOut = bezier(M.curve.out);
+      let cancel = () => {};
+      const down = () => {
+        cancel();
+        if (REDUCE) return;
+        cancel = play(M.dur.press, (p) => {
+          const v = 1 + (cfg.scaleTo - 1) * easeOut(p);
+          btn.style.transform = `scale(${v})`;
+        });
+      };
+      const up = () => {
+        cancel();
+        if (REDUCE) {
+          btn.style.transform = 'scale(1)';
+          return;
+        }
+        playTrace(trace, (v) => (btn.style.transform = `scale(${v})`));
+      };
+      btn.addEventListener('pointerdown', down);
+      btn.addEventListener('pointerup', up);
+      btn.addEventListener('pointerleave', up);
+      btn.addEventListener('pointercancel', up);
+      return { down, up };
+    }
+    const pa = wirePressable($('#btnA'), PRESS_CUR, traceA);
+    const pb = wirePressable($('#btnB'), PRESS_NEW, traceB);
+    function abPlay() {
+      pa.down();
+      pb.down();
+      setTimeout(() => {
+        pa.up();
+        pb.up();
+      }, M.dur.press + 40);
+    }
+    $('#abPlay').addEventListener('click', abPlay);
+
+    /* ══ 2. duration 사다리 ═════════════════════════════════════ */
+    const durKeys = ['press', 'quick', 'base', 'slow', 'entrance', 'celebrate'];
+    $('#durRows').innerHTML = durKeys
+      .map(
+        (k) => `<div class="track-row">
+          <div class="label mono">M.dur.${k} · ${M.dur[k]}ms</div>
+          <div class="track"><div class="puck" data-dur="${M.dur[k]}"></div></div>
+        </div>`
+      )
+      .join('');
+
+    function playDur() {
+      const ease = bezier(M.curve.standard);
+      $$('#durRows .puck').forEach((puck) => {
+        const d = Number(puck.dataset.dur);
+        const dist = puck.parentElement.clientWidth - 26;
+        puck.style.transform = 'translateX(0px)';
+        requestAnimationFrame(() => {
+          play(d, (p) => (puck.style.transform = `translateX(${dist * ease(p)}px)`));
+        });
+      });
+    }
+
+    /* ══ 3. 이징 커브 ═══════════════════════════════════════════ */
+    const easeKeys = ['standard', 'out', 'glide', 'overshoot'];
+    $('#easeRows').innerHTML = easeKeys
+      .map((k) => {
+        const c = M.curve[k];
+        const fn = bezier(c);
+        const pts = [];
+        for (let i = 0; i <= 60; i++) {
+          const x = i / 60;
+          pts.push(`${(x * 100).toFixed(2)},${(100 - fn(x) * 100).toFixed(2)}`);
+        }
+        return `<div class="track-row" style="grid-template-columns:132px 84px 1fr">
+          <div class="label mono">${k}</div>
+          <svg viewBox="-14 -32 128 164" style="width:84px;height:56px">
+            <rect x="0" y="0" width="100" height="100" fill="none" stroke="var(--scope-grid)" stroke-width="1.5"/>
+            <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="track"><div class="puck" data-ease="${k}"></div></div>
+        </div>`;
+      })
+      .join('');
+
+    function playEase() {
+      $$('#easeRows .puck').forEach((puck) => {
+        const fn = bezier(M.curve[puck.dataset.ease]);
+        const dist = puck.parentElement.clientWidth - 26;
+        puck.style.transform = 'translateX(0px)';
+        requestAnimationFrame(() => {
+          play(M.dur.slow, (p) => (puck.style.transform = `translateX(${dist * fn(p)}px)`));
+        });
+      });
+    }
+
+    /* ══ 4. spring 4종 ══════════════════════════════════════════ */
+    const springKeys = ['press', 'snappy', 'bouncy', 'gentle'];
+    const springTraces = {};
+    springKeys.forEach((k) => (springTraces[k] = springTrace(M.spring[k], 0, 1)));
+
+    $('#springRows').innerHTML = springKeys
+      .map((k) => {
+        const s = M.spring[k];
+        const tr = springTraces[k];
+        return `<div class="track-row">
+          <div class="label mono">${k} · d${s.damping}/s${s.stiffness}/m${s.mass}<br>
+            <span style="color:var(--ink-muted)">ζ ${tr.zeta.toFixed(2)} · 오버슛 ${(tr.overshoot * 100).toFixed(0)}% · ${Math.round(tr.settleMs)}ms</span></div>
+          <div class="track"><div class="puck" data-spring="${k}"></div></div>
+        </div>`;
+      })
+      .join('');
+
+    function drawSpringScope() {
+      const W = 900;
+      const H = 260;
+      const pad = 14;
+      const total = Math.max(...springKeys.map((k) => springTraces[k].settleMs)) + 40;
+      const hi = Math.max(...springKeys.map((k) => springTraces[k].peak), 1) + 0.06;
+      const X = (t) => pad + (t / total) * (W - pad * 2);
+      const Y = (v) => H - pad - ((v + 0.06) / (hi + 0.06)) * (H - pad * 2);
+      const colors = {
+        press: 'var(--accent)',
+        snappy: 'var(--good)',
+        bouncy: 'var(--warn)',
+        gentle: 'var(--ink-muted)',
+      };
+      const lines = springKeys
+        .map((k) => {
+          const tr = springTraces[k];
+          const pts = [];
+          for (let i = 0; i < tr.samples.length; i += 3) {
+            const s = tr.samples[i];
+            pts.push(`${X(s.t).toFixed(1)},${Y(s.v).toFixed(1)}`);
+          }
+          return `<polyline points="${pts.join(' ')}" fill="none" stroke="${colors[k]}" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+        })
+        .join('');
+      $('#springScope').innerHTML =
+        `<line x1="${pad}" y1="${Y(1)}" x2="${W - pad}" y2="${Y(1)}" stroke="var(--line)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/>` +
+        lines;
+    }
+    drawSpringScope();
+
+    function playSpring() {
+      $$('#springRows .puck').forEach((puck) => {
+        const tr = springTraces[puck.dataset.spring];
+        const dist = puck.parentElement.clientWidth - 26;
+        puck.style.transform = 'translateX(0px)';
+        requestAnimationFrame(() => playTrace(tr, (v) => (puck.style.transform = `translateX(${dist * v}px)`)));
+      });
+    }
+
+    /* ══ 5. stagger ═════════════════════════════════════════════ */
+    let staggerStep = M.stagger.base;
+    let staggerCap = true;
+    $('#staggerGrid').innerHTML = Array.from(
+      { length: 20 },
+      (_, i) => `<div class="tile">${i + 1}</div>`
+    ).join('');
+
+    function staggerDelay(i) {
+      const steps = staggerCap ? Math.min(i, M.staggerMaxSteps) : i;
+      return steps * staggerStep;
+    }
+    function syncStaggerNote() {
+      const last = staggerDelay(19) + M.dur.entrance;
+      $('#staggerLast').textContent = `마지막 타일 완료 ${last}ms`;
+    }
+    function playStagger() {
+      const ease = bezier(M.curve.standard);
+      $$('#staggerGrid .tile').forEach((tile, i) => {
+        tile.style.opacity = '0';
+        tile.style.transform = 'translateY(12px)';
+        const d = staggerDelay(i);
+        if (REDUCE) {
+          tile.style.opacity = '1';
+          tile.style.transform = 'none';
+          return;
+        }
+        setTimeout(() => {
+          play(M.dur.base, (p) => {
+            const e = ease(p);
+            tile.style.opacity = String(e);
+            tile.style.transform = `translateY(${12 * (1 - e)}px)`;
+          });
+        }, d);
+      });
+      syncStaggerNote();
+    }
+    $$('.stagger-step').forEach((b) =>
+      b.addEventListener('click', () => {
+        staggerStep = Number(b.dataset.step);
+        $$('.stagger-step').forEach((x) =>
+          x.setAttribute('aria-pressed', String(x === b))
+        );
+        syncStaggerNote();
+      })
+    );
+    $('#capBtn').addEventListener('click', (e) => {
+      staggerCap = !staggerCap;
+      e.currentTarget.setAttribute('aria-pressed', String(staggerCap));
+      syncStaggerNote();
+    });
+    syncStaggerNote();
+
+    /* ══ 6. 프리미티브 ══════════════════════════════════════════ */
+    // Skeleton — 불투명도 펄스(무한 루프). 데이터 도착 시 언마운트가 원칙이므로 토글로 둔다.
+    let skelOn = false;
+    let skelStop = null;
+    function toggleSkeleton() {
+      const nodes = $$('#skelBox .skel');
+      skelOn = !skelOn;
+      if (skelStop) {
+        skelStop();
+        skelStop = null;
+      }
+      if (!skelOn || REDUCE) {
+        nodes.forEach((n) => (n.style.opacity = '1'));
+        return;
+      }
+      let raf = 0;
+      const t0 = performance.now();
+      const loop = (now) => {
+        if (REDUCE) { nodes.forEach((n) => (n.style.opacity = '1')); return; } // 재생 중 토글 대응
+        const phase = ((now - t0) % 2400) / 1200; // 0→2 (왕복)
+        const p = phase <= 1 ? phase : 2 - phase;
+        const o = 0.45 + 0.55 * p;
+        nodes.forEach((n) => (n.style.opacity = String(o)));
+        raf = requestAnimationFrame(loop);
+      };
+      raf = requestAnimationFrame(loop);
+      skelStop = () => cancelAnimationFrame(raf);
+    }
+
+    // ProgressBar — width 애니메이션(둥근 캡 유지)
+    function playProgress() {
+      const ease = bezier(M.curve.standard);
+      const el = $('#pbar');
+      el.style.width = '0%';
+      requestAnimationFrame(() =>
+        play(M.dur.slow, (p) => (el.style.width = `${68 * ease(p)}%`))
+      );
+    }
+
+    // AnimatedNumber — 리프 전용 카운트업
+    function playNumber() {
+      const ease = bezier(M.curve.out);
+      const el = $('#anum');
+      const to = 12480;
+      play(M.dur.slow, (p) => {
+        el.textContent = Math.round(to * ease(p)).toLocaleString('ko-KR');
+      });
+    }
+
+    // enterUp — 카드 진입 stagger
+    function playEnter() {
+      const ease = bezier(M.curve.standard);
+      $$('#enterBox .tile').forEach((tile, i) => {
+        tile.style.opacity = '0';
+        tile.style.transform = 'translateY(12px)';
+        if (REDUCE) {
+          tile.style.opacity = '1';
+          tile.style.transform = 'none';
+          return;
+        }
+        setTimeout(() => {
+          play(M.dur.base, (p) => {
+            const e = ease(p);
+            tile.style.opacity = String(e);
+            tile.style.transform = `translateY(${12 * (1 - e)}px)`;
+          });
+        }, i * M.stagger.base);
+      });
+    }
+
+    // 시트 — 등장은 스프링, 퇴장은 timing. 딤은 별도 타이밍.
+    let sheetOpen = false;
+    const sheetEnter = springTrace(M.spring.snappy, 1, 0); // 1 = 화면 밖(패널 높이 배수)
+    function toggleSheet() {
+      const panel = $('#sheetPanel');
+      const dim = $('#sheetDim');
+      sheetOpen = !sheetOpen;
+      if (REDUCE) {
+        panel.style.transform = sheetOpen ? 'translateY(0%)' : 'translateY(110%)';
+        dim.style.opacity = sheetOpen ? '1' : '0';
+        return;
+      }
+      const ease = bezier(M.curve.standard);
+      if (sheetOpen) {
+        playTrace(sheetEnter, (v) => (panel.style.transform = `translateY(${v * 110}%)`));
+        play(M.dur.quick, (p) => (dim.style.opacity = String(ease(p))));
+      } else {
+        play(M.dur.quick, (p) => {
+          const e = ease(p);
+          panel.style.transform = `translateY(${e * 110}%)`;
+          dim.style.opacity = String(1 - e);
+        });
+      }
+    }
+
+    // Toast — 진입 스프링 + 2.2초 후 자동 해제
+    let toastTimer = null;
+    const toastEnter = springTrace(M.spring.snappy, 1, 0);
+    function playToast() {
+      const el = $('#toastEl');
+      clearTimeout(toastTimer);
+      const ease = bezier(M.curve.standard);
+      if (REDUCE) {
+        el.style.opacity = '1';
+        el.style.transform = 'none';
+      } else {
+        playTrace(toastEnter, (v) => {
+          el.style.transform = `translateY(${v * 20}px)`;
+          el.style.opacity = String(1 - v);
+        });
+      }
+      toastTimer = setTimeout(() => {
+        if (REDUCE) {
+          el.style.opacity = '0';
+          return;
+        }
+        play(M.dur.quick, (p) => {
+          const e = ease(p);
+          el.style.opacity = String(1 - e);
+          el.style.transform = `translateY(${12 * e}px)`;
+        });
+      }, 2200);
+    }
+
+    /* ══ 배선 ═══════════════════════════════════════════════════ */
+    const players = {
+      dur: playDur,
+      ease: playEase,
+      spring: playSpring,
+      stagger: playStagger,
+      skel: toggleSkeleton,
+      pbar: playProgress,
+      anum: playNumber,
+      enter: playEnter,
+      sheet: toggleSheet,
+      toast: playToast,
+    };
+    $$('[data-play]').forEach((b) =>
+      b.addEventListener('click', () => players[b.dataset.play]())
+    );
+
+    $('#playAll').addEventListener('click', () => {
+      abPlay();
+      playDur();
+      playEase();
+      playSpring();
+      playStagger();
+      playProgress();
+      playNumber();
+      playEnter();
+      if (!sheetOpen) toggleSheet();
+      playToast();
+    });
+
+    $('#reduceBtn').addEventListener('click', (e) => {
+      REDUCE = !REDUCE;
+      e.currentTarget.setAttribute('aria-pressed', String(REDUCE));
+      e.currentTarget.textContent = REDUCE ? '동작 줄이기 · 켜짐' : '동작 줄이기';
+      if (REDUCE && skelOn) {
+        skelOn = false;
+        toggleSkeleton();
+        skelOn = false;
+      }
+    });
+
+    $('#themeBtn').addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme');
+      const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+      const now = cur || (sysDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', now === 'dark' ? 'light' : 'dark');
+      drawAbScope();
+      drawSpringScope();
+    });
+
+    // 첫 진입 시 한 번 보여준다 — 무엇을 보는 문서인지 즉시 알게.
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        playEnter();
+        playProgress();
+        playNumber();
+      }, 250);
+    });
+  })();
+</script>
+</body>
+</html>
