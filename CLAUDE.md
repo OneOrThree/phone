@@ -58,8 +58,9 @@ Korean. Keep code identifiers (types, functions, variables) in English.
   key (`GROMO-####`) — the full key makes the Jira integration attach this PR's history to
   that ticket. For **related/reference tickets** the PR does not implement, write the
   **number only** so no PR history is attached (e.g. `GROMO-455` → "ticket 455").
-- **Creating Jira tickets**: follow `docs/jira-conventions.md` — every ticket needs exactly
-  one **`도메인`** value (the domain axis, a dropdown custom field); Epic is only for
+- **Creating Jira tickets**: follow `docs/jira-conventions.md` — every task/bug/subtask
+  needs exactly one **`도메인`** value (the domain axis, a dropdown custom field);
+  **epics do not get it** (their `[도메인]` name prefix plays that role). Epic is only for
   time-boxed initiatives and may be left empty; no `[Tag]` prefixes in task summaries
   (that info lives in `도메인`/Label).
 - `main` is the integration branch. **`git add`, `git commit`, and `git push` are the
