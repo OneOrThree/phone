@@ -1,0 +1,91 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="cond04" name="푸시 알림 조건">
+    <mxGraphModel dx="1400" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1120" pageHeight="650" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="푸시 알림 조건 — 언제 · 누구에게 · 승패를 싣는가" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="14" width="700" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="axis" value="" style="endArrow=blockThin;html=1;strokeColor=#999999;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="60" y="150" as="sourcePoint" /><mxPoint x="1080" y="150" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="axisLab" value="회차 하나가 도는 동안 (챌린지 생성은 상시 이벤트)" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="60" y="258" width="400" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p1" value="" style="ellipse;html=1;fillColor=#6c8ebf;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="124" y="144" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="p2" value="" style="ellipse;html=1;fillColor=#6c8ebf;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="294" y="144" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="p3" value="" style="ellipse;html=1;fillColor=#82b366;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="464" y="144" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="p4" value="" style="ellipse;html=1;fillColor=#666666;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="634" y="144" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="p5" value="" style="ellipse;html=1;fillColor=#9673a6;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="804" y="144" width="12" height="12" as="geometry" /></mxCell>
+        <mxCell id="p6" value="" style="ellipse;html=1;fillColor=#82b366;strokeColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="974" y="144" width="12" height="12" as="geometry" /></mxCell>
+
+        <mxCell id="c1" value="챌린지 생성 (커밋 후)&#10;CHALLENGE_CREATED&#10;그룹원 — 생성자 제외&#10;승패 —" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="50" y="54" width="160" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="회차 시작 − 30분 (설계)&#10;CHALLENGE_SESSION_OPEN&#10;그룹원&#10;승패 —" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="170" width="160" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="목표를 채운 순간&#10;BET_WON&#10;본인&#10;승패 ✅ · 불가역" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="390" y="54" width="160" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="회차 종료 (설계)&#10;CHALLENGE_SESSION_END&#10;그룹원&#10;승패 ❌ · 미확정" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="170" width="160" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="정산 직전 (설계)&#10;사일런트 · type 없음&#10;해당 회차 참가자만&#10;무음 · 큐 flush 전용" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="730" y="54" width="160" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="정산 완료&#10;BET_RESULT&#10;참가자&#10;승패 ✅" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="170" width="160" height="76" as="geometry" />
+        </mxCell>
+
+        <mxCell id="s1" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="130" y="130" as="sourcePoint" /><mxPoint x="130" y="144" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="s2" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="300" y="156" as="sourcePoint" /><mxPoint x="300" y="170" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="s3" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="470" y="130" as="sourcePoint" /><mxPoint x="470" y="144" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="s4" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="640" y="156" as="sourcePoint" /><mxPoint x="640" y="170" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="s5" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="810" y="130" as="sourcePoint" /><mxPoint x="810" y="144" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="s6" style="endArrow=none;html=1;strokeColor=#bbbbbb;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="980" y="156" as="sourcePoint" /><mxPoint x="980" y="170" as="targetPoint" /></mxGeometry></mxCell>
+
+        <mxCell id="ptitle" value="발송 파이프라인" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="292" width="300" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b1" value="감지기 4종&#10;생성·회차개설·종료·정산" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="330" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="묶음&#10;유저 × 그룹 × 시간슬롯" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="260" y="330" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="dedup&#10;NotificationSentLog 기준" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="330" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="조용한 시간 필터&#10;23–07시는 표시 푸시만 차단" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="660" y="330" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b5" value="발송 (FCM)&#10;실패하면 이력을 안 남긴다&#10;→ 다음 틱이 다시 집는다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="860" y="330" width="170" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pe1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#666666;" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#666666;" edge="1" parent="1" source="b2" target="b3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#666666;" edge="1" parent="1" source="b3" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#666666;" edge="1" parent="1" source="b4" target="b5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="sil" value="사일런트&#10;content-available (무음)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="silEdge" value="묶음 · dedup · 조용한 시간을 전부 우회 — 대상은 해당 회차 참가자만" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0.5;entryY=1;strokeColor=#9673a6;dashed=1;fontSize=10;fontColor=#6b4a80;verticalAlign=bottom;" edge="1" parent="1" source="sil" target="b5">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="945" y="470" /></Array></mxGeometry>
+        </mxCell>
+
+        <mxCell id="note" value="· 같은 무렵에 떨어지는 알림은 그룹 단위로 한 건에 묶는다 — 하루 2~3건이 상한 (FR-43)&#10;· 사일런트는 settle_after − 15분 (FR-22) — 회차 종료와의 앞뒤가 조합마다 갈린다&#10;&#160;&#160;창형 둘 · SCREEN_TIME 하루형은 회차 종료 뒤 / FOCUS 하루형만 그레이스 0(종료 = 정산)이라 15분 앞선다&#10;· 회차 종료 푸시는 승패를 싣지 않는다 — 스크린타임은 보고 전이라 아직 확정이 아니다 (FR-44)&#10;· 묶여서 나간 푸시의 딥링크는 그룹방까지만 — 특정 챌린지로 스크롤하지 않는다 (설계)&#10;· 삭제 시점의 환불도 「푸시로 알린다」(FR-44-4)고 돼 있으나 해당 data.type이 아직 없다 → §4.0.7 K3" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="520" width="1000" height="114" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

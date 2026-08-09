@@ -1,0 +1,1764 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>챌린지 — UX 명세 · gromo</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   토큰 — app/src/constants/theme.ts 의 실제 값을 그대로 가져온다.
+   이 문서가 곧 시각적 진실이 되도록, 색을 새로 만들지 않는다.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --app-bg:#F4F5F8; --app-paper:#FFFFFF; --app-paper-alt:#F5F6F9;
+  --app-ink:#1C1E22; --app-ink-sub:#667085; --app-ink-muted:#9AA0A8; --app-ink-faint:#AEB4BF;
+  --app-border:#EAEBEE; --app-divider:#F1F2F5; --app-track:#F1F2F6; --app-chip:#F1F2F8;
+  --app-accent:#5E6AD2; --app-accent-deep:#4A53B8; --app-accent-bg:#EEF0FB;
+  --app-success-ink:#4A7A54; --app-success-bg:#F0F7F1; --app-success-border:#D6E9DA;
+  --app-danger-ink:#C25F52; --app-danger-bg:#FBEFEC;
+
+  --doc-bg:#EDEFF4; --doc-surface:#FFFFFF; --doc-raise:#F7F8FB;
+  --doc-ink:#15171C; --doc-ink-sub:#5B626E; --doc-ink-mute:#8A919C;
+  --doc-line:#DFE2EA; --doc-line-soft:#EBEDF2;
+  --doc-accent:#5E6AD2; --doc-accent-soft:#EEF0FB;
+  --doc-warn-ink:#8A5A17; --doc-warn-bg:#FDF5E6; --doc-warn-line:#EFDCB4;
+  --doc-gap-ink:#9A3E33; --doc-gap-bg:#FCF0ED; --doc-gap-line:#F0D5CE;
+  --doc-new-ink:#2F6B4F; --doc-new-bg:#EFF6F1; --doc-new-line:#CFE5D8;
+
+  --measure:62rem;
+  --rail:14.5rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --doc-bg:#0F1117; --doc-surface:#171A22; --doc-raise:#1D212B;
+    --doc-ink:#E8EAF0; --doc-ink-sub:#A3AAB8; --doc-ink-mute:#767E8C;
+    --doc-line:#2A2F3B; --doc-line-soft:#232732;
+    --doc-accent:#9AA3E8; --doc-accent-soft:#232842;
+    --doc-warn-ink:#E0BC77; --doc-warn-bg:#241F14; --doc-warn-line:#3B3323;
+    --doc-gap-ink:#E39A8C; --doc-gap-bg:#251816; --doc-gap-line:#3C2622;
+    --doc-new-ink:#8FCDAA; --doc-new-bg:#152219; --doc-new-line:#25382C;
+  }
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--doc-bg); color:var(--doc-ink);
+  font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Segoe UI',Roboto,'Noto Sans KR',sans-serif;
+  font-size:16px; line-height:1.65; letter-spacing:-0.01em;
+}
+code,kbd,.mono{font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace}
+
+.shell{display:grid; grid-template-columns:var(--rail) minmax(0,1fr); gap:0; min-height:100vh}
+.rail{
+  position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+  padding:2rem 1.1rem; border-right:1px solid var(--doc-line); background:var(--doc-surface);
+}
+.rail__brand{font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--doc-ink-mute); font-weight:700}
+.rail__title{margin:.35rem 0 1.6rem; font-size:1.15rem; font-weight:800; letter-spacing:-.03em; line-height:1.25}
+.rail__nav{display:flex; flex-direction:column; gap:.1rem}
+.rail__nav a{
+  display:block; padding:.4rem .6rem; border-radius:7px; text-decoration:none;
+  color:var(--doc-ink-sub); font-size:.845rem; font-weight:600; border-left:2px solid transparent;
+}
+.rail__nav a:hover{background:var(--doc-raise); color:var(--doc-ink)}
+.rail__nav a.is-active{color:var(--doc-accent); background:var(--doc-accent-soft); border-left-color:var(--doc-accent)}
+.rail__foot{margin-top:1.8rem; padding-top:1.1rem; border-top:1px solid var(--doc-line-soft); font-size:.76rem; color:var(--doc-ink-mute); line-height:1.6}
+.rail__foot a{color:var(--doc-ink-sub)}
+
+.main{padding:0 clamp(1.1rem,4vw,3.5rem) 7rem; max-width:calc(var(--measure) + 7rem)}
+
+.hero{padding:4.5rem 0 2.75rem; border-bottom:1px solid var(--doc-line)}
+.hero__eyebrow{font-size:.75rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--doc-accent)}
+.hero__h1{margin:.7rem 0 0; font-size:clamp(2.1rem,5.2vw,3.35rem); font-weight:800; letter-spacing:-.045em; line-height:1.08}
+.hero__lede{margin:1.1rem 0 0; max-width:44rem; font-size:1.075rem; color:var(--doc-ink-sub); line-height:1.7}
+.hero__meta{margin-top:2rem; display:flex; flex-wrap:wrap; gap:.5rem}
+.tag{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.735rem; font-weight:600;
+  padding:.3rem .58rem; border-radius:6px; background:var(--doc-raise);
+  border:1px solid var(--doc-line-soft); color:var(--doc-ink-sub);
+}
+.tag--new{background:var(--doc-new-bg); border-color:var(--doc-new-line); color:var(--doc-new-ink)}
+
+.sec{padding:3.5rem 0 0; scroll-margin-top:1.5rem}
+.sec__label{font-size:.72rem; font-weight:700; letter-spacing:.15em; text-transform:uppercase; color:var(--doc-ink-mute)}
+.sec__h{margin:.4rem 0 0; font-size:1.72rem; font-weight:800; letter-spacing:-.035em; line-height:1.2}
+.sec__intro{margin:.85rem 0 0; max-width:46rem; color:var(--doc-ink-sub)}
+.sec > * + *{margin-top:1.4rem}
+h3.sub{margin:2.4rem 0 0; font-size:1.06rem; font-weight:750; letter-spacing:-.02em}
+p{margin:0}
+.sec p + p{margin-top:.7rem}
+
+/* ── 앱 목업 ────────────────────────────────────────────────── */
+.mock{
+  width:340px; max-width:100%; background:var(--app-paper-alt);
+  border:1px solid var(--app-border); border-radius:14px;
+  padding:14px 18px; color:var(--app-ink);
+  font-size:13px; line-height:1.5; letter-spacing:-.01em;
+  box-shadow:0 1px 2px rgba(30,35,64,.05), 0 8px 22px -14px rgba(30,35,64,.35);
+}
+.mock--wide{width:390px}
+.mock--rest{background:var(--doc-surface); opacity:.92}
+.mock *{color:inherit}
+.mock__head{display:flex; align-items:center; gap:8px}
+.mock__icon{width:26px;height:26px;border-radius:9px;background:var(--app-accent-bg);
+  display:grid;place-items:center;color:var(--app-accent);font-size:13px;flex:none}
+.mock__label{font-size:15px; font-weight:600; color:var(--app-ink); flex:1 1 auto; min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.mock__x{width:22px;height:22px;display:grid;place-items:center;color:var(--app-ink-muted);font-size:15px;flex:none}
+.mock__cap{font-size:13px; font-weight:500; color:var(--app-ink-muted); margin-top:4px}
+.mock__warn{font-size:13px; font-weight:500; color:var(--app-danger-ink); margin-top:4px}
+.mock__list{margin-top:10px; padding-top:8px; border-top:1px solid var(--app-divider); display:flex; flex-direction:column; gap:4px}
+.mock__row{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.mock__row--me{background:var(--app-accent-bg); border-radius:8px; padding:3px 8px; margin:0 -8px}
+.mock__nick{font-size:13px; font-weight:600; color:var(--app-ink-sub); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.mock__row--me .mock__nick{color:var(--app-accent-deep); font-weight:700}
+.mock__val{font-size:13px; font-weight:700; color:var(--app-ink-sub); font-variant-numeric:tabular-nums; flex:none}
+.mock__row--me .mock__val{color:var(--app-accent-deep)}
+.mock__val--none{color:var(--app-ink-faint); font-weight:500}
+.mock__val--done{color:var(--app-success-ink); background:var(--app-success-bg); border-radius:8px; padding:1px 8px}
+.mock__bet{margin-top:10px; padding-top:8px; border-top:1px solid var(--app-divider)}
+.mock__betrow{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.mock__bettext{font-size:13px; color:var(--app-ink-sub); flex:1 1 auto; min-width:0}
+.mock__bettext--off{color:var(--app-ink-muted); font-weight:500}
+.mock__joinrow{background:var(--app-accent-bg); border-radius:10px; padding:8px 12px; margin:0}
+.mock__joinrow--off{background:var(--app-track)}
+.mock__btn{display:inline-flex; align-items:center; justify-content:center; height:32px; padding:0 14px;
+  border-radius:10px; border:1px solid var(--app-accent); color:var(--app-accent); font-size:13px; font-weight:600}
+.mock__btn--fill{background:var(--app-accent); color:#fff; border-color:var(--app-accent)}
+.mock__btn--off{border-color:var(--app-border); color:var(--app-ink-muted)}
+.mock__btn--wide{width:100%}
+.mock__mini{display:inline-flex; align-items:center; height:26px; padding:0 8px; border-radius:8px;
+  border:1px solid var(--app-border); color:var(--app-danger-ink); font-size:13px; font-weight:600; flex:none}
+.mock__chip{font-size:13px; font-weight:700; border-radius:8px; padding:2px 8px; flex:none}
+.mock__chip--joined{color:var(--app-accent-deep); background:var(--app-accent-bg)}
+.mock__chip--next{color:var(--app-ink-sub); background:var(--app-chip)}
+.mock__last{margin-top:8px; font-size:13px; font-weight:500; color:var(--app-ink-muted); text-decoration:underline}
+
+/* 요일 배지 — 이번 개편의 시그니처 */
+.dows{display:flex; gap:4px; margin-top:8px; align-items:center; flex-wrap:wrap}
+.dow{
+  width:24px; height:24px; border-radius:8px; display:grid; place-items:center;
+  font-size:11px; font-weight:700; letter-spacing:0;
+  background:var(--app-track); color:var(--app-ink-faint);
+}
+.dow.is-on{background:var(--app-accent-bg); color:var(--app-accent-deep)}
+.dow.is-today{background:var(--app-accent); color:#fff}
+.dows__next{margin-left:4px; font-size:12px; font-weight:600; color:var(--app-ink-muted); font-variant-numeric:tabular-nums}
+
+/* 진행 바 (참가 시트 진행분 공개) */
+.bar{display:inline-flex; gap:2px; align-items:center; flex:none}
+.bar i{width:9px; height:9px; border-radius:2px; background:var(--app-track); display:block}
+.bar i.on{background:var(--app-accent)}
+.bar i.warn{background:var(--app-danger-ink)}
+
+/* 시트 목업 */
+.sheet{
+  width:340px; max-width:100%; background:var(--app-paper); border:1px solid var(--app-border);
+  border-radius:18px 18px 14px 14px; padding:16px 18px 18px; color:var(--app-ink);
+  font-size:13px; line-height:1.5;
+  box-shadow:0 1px 2px rgba(30,35,64,.05), 0 14px 34px -18px rgba(30,35,64,.45);
+}
+.sheet__grip{width:36px;height:4px;border-radius:2px;background:var(--app-border);margin:0 auto 12px}
+.sheet__h{font-size:16px; font-weight:700; letter-spacing:-.02em}
+.sheet__sub{margin-top:3px; font-size:12px; color:var(--app-ink-muted)}
+.sheet__fieldlabel{margin-top:14px; font-size:12px; font-weight:700; color:var(--app-ink-sub)}
+.sheet__seg{display:flex; gap:6px; margin-top:6px}
+.sheet__segbtn{flex:1; height:34px; border-radius:10px; border:1px solid var(--app-border);
+  display:grid; place-items:center; font-size:13px; font-weight:600; color:var(--app-ink-sub); background:var(--app-paper)}
+.sheet__segbtn.is-on{border-color:var(--app-accent); background:var(--app-accent-bg); color:var(--app-accent-deep)}
+.sheet__input{margin-top:6px; height:38px; border-radius:10px; border:1px solid var(--app-border);
+  display:flex; align-items:center; padding:0 12px; font-size:14px; font-weight:600; background:var(--app-paper)}
+.sheet__input span{color:var(--app-ink-muted); font-weight:500; margin-left:auto; font-size:12px}
+.sheet__chips{display:flex; gap:6px; margin-top:6px; flex-wrap:wrap}
+.sheet__chip{height:30px; padding:0 12px; border-radius:9px; border:1px solid var(--app-border);
+  display:grid; place-items:center; font-size:13px; font-weight:600; color:var(--app-ink-sub)}
+.sheet__chip.is-on{border-color:var(--app-accent); background:var(--app-accent-bg); color:var(--app-accent-deep)}
+.sheet__note{margin-top:8px; font-size:12px; color:var(--app-ink-muted); line-height:1.55}
+.sheet__err{margin-top:8px; font-size:12px; color:var(--app-danger-ink); line-height:1.55}
+.sheet__cta{margin-top:16px; height:44px; border-radius:12px; background:var(--app-accent); color:#fff;
+  display:grid; place-items:center; font-size:14px; font-weight:700}
+.sheet__cta--off{background:var(--app-track); color:var(--app-ink-faint)}
+.sheet__ghost{margin-top:8px; height:40px; border-radius:12px; border:1px solid var(--app-border);
+  display:grid; place-items:center; font-size:13px; font-weight:600; color:var(--app-ink-sub)}
+.sheet__div{height:1px; background:var(--app-divider); margin:14px 0}
+.sheet__peers{margin-top:8px; display:flex; flex-direction:column; gap:6px}
+
+/* 결과 모달 목업 — 화면 중앙 다이얼로그 */
+.modal{
+  width:300px; max-width:100%; background:var(--app-paper); border:1px solid var(--app-border);
+  border-radius:18px; padding:18px 18px 16px; color:var(--app-ink); font-size:13px; line-height:1.5;
+  box-shadow:0 1px 2px rgba(30,35,64,.06), 0 18px 44px -20px rgba(30,35,64,.5);
+}
+.modal__q{font-size:11px; font-weight:700; color:var(--app-ink-faint); letter-spacing:.02em}
+.modal__h{margin-top:6px; font-size:17px; font-weight:800; letter-spacing:-.03em; line-height:1.25}
+.modal__sub{margin-top:4px; font-size:12px; color:var(--app-ink-muted)}
+.modal__hero{
+  margin-top:14px; padding:12px; border-radius:12px; text-align:center;
+  background:var(--app-success-bg); border:1px solid var(--app-success-border);
+}
+.modal__hero--lose{background:var(--app-danger-bg); border-color:transparent}
+.modal__hero--none{background:var(--app-track); border-color:transparent}
+.modal__amt{font-size:24px; font-weight:800; letter-spacing:-.04em; color:var(--app-success-ink); font-variant-numeric:tabular-nums}
+.modal__hero--lose .modal__amt{color:var(--app-danger-ink)}
+.modal__hero--none .modal__amt{color:var(--app-ink-muted); font-size:15px}
+.modal__amtcap{margin-top:2px; font-size:12px; font-weight:600; color:var(--app-ink-sub)}
+.modal__list{margin-top:12px; padding-top:10px; border-top:1px solid var(--app-divider);
+  display:flex; flex-direction:column; gap:5px}
+.modal__cta{margin-top:14px; height:42px; border-radius:12px; background:var(--app-accent); color:#fff;
+  display:grid; place-items:center; font-size:14px; font-weight:700}
+.modal__link{margin-top:8px; text-align:center; font-size:12px; font-weight:600;
+  color:var(--app-ink-muted); text-decoration:underline}
+
+/* 메뉴 목업 */
+.menu{width:200px; background:var(--app-paper); border:1px solid var(--app-border); border-radius:12px;
+  padding:6px; box-shadow:0 10px 26px -14px rgba(30,35,64,.45)}
+.menu__i{display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; font-size:13px; font-weight:600; color:var(--app-ink-sub)}
+.menu__i--danger{color:var(--app-danger-ink)}
+.menu__i span{margin-left:auto; font-size:11px; color:var(--app-ink-faint); font-weight:500}
+
+/* 푸시 목업 */
+.push{width:340px; max-width:100%; background:var(--app-paper); border:1px solid var(--app-border);
+  border-radius:14px; padding:12px 14px; box-shadow:0 8px 22px -14px rgba(30,35,64,.4)}
+.push__top{display:flex; align-items:center; gap:8px; font-size:11px; color:var(--app-ink-muted); font-weight:600}
+.push__app{width:16px;height:16px;border-radius:5px;background:var(--app-accent);flex:none}
+.push__t{margin-top:6px; font-size:13px; font-weight:700; color:var(--app-ink)}
+.push__b{margin-top:2px; font-size:13px; color:var(--app-ink-sub); line-height:1.5}
+
+/* ── 분기 보드 ─────────────────────────────────────────────── */
+.board{margin-top:1.6rem; border:1px solid var(--doc-line); border-radius:14px; background:var(--doc-surface); overflow:hidden}
+.branch{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:1.4rem; align-items:start;
+  padding:1.35rem 1.1rem; border-bottom:1px solid var(--doc-line-soft)}
+.branch:last-child{border-bottom:0}
+.branch__ord{display:inline-grid; place-items:center; width:1.7rem; height:1.7rem; border-radius:6px;
+  background:var(--doc-accent-soft); color:var(--doc-accent);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.8rem; font-weight:700}
+.branch__title{margin:.55rem 0 0; font-size:1.02rem; font-weight:750; letter-spacing:-.02em}
+.branch__cond{margin:.55rem 0 0; padding:.55rem .7rem; border-radius:8px; background:var(--doc-raise);
+  border:1px solid var(--doc-line-soft);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.775rem; line-height:1.55; color:var(--doc-ink-sub); overflow-x:auto}
+.branch__why{margin:.7rem 0 0; font-size:.875rem; color:var(--doc-ink-sub)}
+.branch__why b{color:var(--doc-ink); font-weight:700}
+@media (max-width:860px){ .branch{grid-template-columns:minmax(0,1fr)} }
+
+/* ── 표 ────────────────────────────────────────────────────── */
+.tablewrap{overflow-x:auto; border:1px solid var(--doc-line); border-radius:12px; background:var(--doc-surface)}
+table{border-collapse:collapse; width:100%; min-width:34rem; font-size:.875rem}
+th,td{padding:.62rem .85rem; text-align:left; border-bottom:1px solid var(--doc-line-soft); vertical-align:top}
+thead th{background:var(--doc-raise); font-size:.735rem; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--doc-ink-mute); font-weight:700; white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td code{font-size:.8rem; background:var(--doc-raise); padding:.1rem .34rem; border-radius:4px; color:var(--doc-ink-sub)}
+.copy{color:var(--doc-ink)}
+
+/* ── 콜아웃 ────────────────────────────────────────────────── */
+.note{border-left:3px solid var(--doc-accent); background:var(--doc-accent-soft);
+  padding:.9rem 1.05rem; border-radius:0 10px 10px 0; font-size:.9rem; color:var(--doc-ink-sub)}
+.note b{color:var(--doc-ink)}
+.gap{border:1px solid var(--doc-gap-line); background:var(--doc-gap-bg);
+  padding:1rem 1.15rem; border-radius:11px; font-size:.9rem; color:var(--doc-ink-sub)}
+.gap__h{display:block; font-size:.72rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--doc-gap-ink); margin-bottom:.5rem}
+.gap ul{margin:.5rem 0 0; padding-left:1.15rem}
+.gap li + li{margin-top:.42rem}
+.gap b{color:var(--doc-ink)}
+.new{border:1px solid var(--doc-new-line); background:var(--doc-new-bg);
+  padding:1rem 1.15rem; border-radius:11px; font-size:.9rem; color:var(--doc-ink-sub)}
+.new__h{display:block; font-size:.72rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--doc-new-ink); margin-bottom:.5rem}
+.new b{color:var(--doc-ink)}
+.new ul{margin:.5rem 0 0; padding-left:1.15rem}
+.new li + li{margin-top:.42rem}
+
+/* ── 플로우 ────────────────────────────────────────────────── */
+.flow{display:flex; flex-wrap:wrap; gap:.5rem; align-items:stretch}
+.flow__step{flex:1 1 9.5rem; min-width:9.5rem; padding:.8rem .9rem; border-radius:11px;
+  background:var(--doc-surface); border:1px solid var(--doc-line)}
+.flow__n{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.72rem; font-weight:700; color:var(--doc-accent)}
+.flow__t{margin-top:.2rem; font-size:.9rem; font-weight:700; letter-spacing:-.02em}
+.flow__d{margin-top:.28rem; font-size:.8rem; color:var(--doc-ink-sub); line-height:1.55}
+
+/* ── 3상 스와치 ────────────────────────────────────────────── */
+.tri{display:grid; grid-template-columns:repeat(auto-fit,minmax(13.5rem,1fr)); gap:.8rem}
+.tri__c{padding:1rem; border-radius:12px; border:1px solid var(--doc-line); background:var(--doc-surface)}
+.tri__sample{display:inline-block; font-size:13px; font-weight:700; border-radius:8px; padding:2px 9px; font-variant-numeric:tabular-nums}
+.tri__name{margin-top:.65rem; font-size:.86rem; font-weight:750}
+.tri__desc{margin-top:.3rem; font-size:.82rem; color:var(--doc-ink-sub); line-height:1.55}
+
+.mockcol{display:flex; flex-direction:column; gap:.55rem; align-items:flex-start}
+.mockcap{font-size:.75rem; color:var(--doc-ink-mute); font-weight:600}
+.mockrow{display:flex; flex-wrap:wrap; gap:1.4rem; align-items:flex-start}
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(17rem,1fr)); gap:1rem; align-items:start}
+
+@media (max-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .rail{position:static; height:auto; border-right:0; border-bottom:1px solid var(--doc-line); padding:1.5rem 1.2rem}
+  .rail__nav{flex-direction:row; flex-wrap:wrap; gap:.3rem}
+  .rail__nav a{border-left:0; border-bottom:2px solid transparent}
+  .rail__nav a.is-active{border-left:0; border-bottom-color:var(--doc-accent)}
+  .rail__foot{margin-top:1.1rem}
+}
+@media (prefers-reduced-motion:reduce){ *{transition:none !important; scroll-behavior:auto !important} }
+html{scroll-behavior:smooth}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<aside class="rail">
+  <div class="rail__brand">gromo · 그룹</div>
+  <div class="rail__title">챌린지<br>UX 명세</div>
+  <nav class="rail__nav" id="nav" aria-label="문서 목차">
+    <a href="#principles">지배 규칙</a>
+    <a href="#anatomy">카드 한 장</a>
+    <a href="#rest">도는 날 · 쉬는 날</a>
+    <a href="#tri">진행 3상</a>
+    <a href="#branches">내기 영역 4분기</a>
+    <a href="#compose">챌린지 만들기</a>
+    <a href="#edit">종료 · 삭제</a>
+    <a href="#join">회차 참여</a>
+    <a href="#week">이번 주 전부</a>
+    <a href="#result">결과 · 지난 회차</a>
+    <a href="#push">알림</a>
+    <a href="#copy">카피 규칙</a>
+    <a href="#diff">무엇이 바뀌었나</a>
+  </nav>
+  <div class="rail__foot">
+    2026-08-08 백지 재정의 기준<br>
+    정본: <a href="./policy.md">policy.md</a><br>
+    <a href="./prd.md">PRD</a> · <a href="./information-architecture.md">IA</a> ·
+    <a href="./high-level-design.md">HLD</a> · <a href="./low-level-design.md">LLD</a>
+  </div>
+</aside>
+
+<main class="main">
+
+<header class="hero">
+  <div class="hero__eyebrow">Challenge · UX Specification</div>
+  <h1 class="hero__h1">우리가 지키기로 한<br>한 줄, 그리고 그 위의 내기.</h1>
+  <p class="hero__lede">
+    챌린지는 그룹의 <b>공동 목표</b>다. 그룹장이 목표를 걸고, 그룹원은 가입만으로 판정 대상이 된다.
+    내기는 그 목표 위에 얹히는 선택지지 존재 이유가 아니다.
+    이 문서는 그 원칙이 <b>화면에서 어떻게 보이는지</b>를 픽셀 단위로 고정한다.
+  </p>
+  <div class="hero__meta">
+    <span class="tag tag--new">요일 반복</span>
+    <span class="tag tag--new">내기는 상시 · 참여는 회차별</span>
+    <span class="tag tag--new">종료 ↔ 삭제 분리</span>
+    <span class="tag tag--new">창은 하루 안에서</span>
+    <span class="tag tag--new">화면엔 날짜·요일</span>
+    <span class="tag">진행 3상</span>
+    <span class="tag">KST 고정</span>
+    <span class="tag">Palette_Indigo</span>
+  </div>
+</header>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="principles">
+  <div class="sec__label">Section 01</div>
+  <h2 class="sec__h">이 화면을 지배하는 여섯 규칙</h2>
+  <p class="sec__intro">
+    아래 여섯은 개별 화면의 취향이 아니라 <b>정책의 시각적 귀결</b>이다. 하나를 어기면 다른 화면이
+    거짓말을 하게 된다.
+  </p>
+
+  <div class="flow">
+    <div class="flow__step">
+      <div class="flow__n">R1</div>
+      <div class="flow__t">목표가 먼저, 돈은 나중</div>
+      <div class="flow__d">진행 리스트가 카드의 본문이고, 내기 영역은 구분선 아래에 붙는다. 순서를 뒤집지 않는다.</div>
+    </div>
+    <div class="flow__step">
+      <div class="flow__n">R2</div>
+      <div class="flow__t">언제 도는지가 보인다</div>
+      <div class="flow__d">요일 배지와 다음 회차 시각이 라벨 바로 아래 고정. 요일을 모르면 카드를 읽을 수 없다.</div>
+    </div>
+    <div class="flow__step">
+      <div class="flow__n">R3</div>
+      <div class="flow__t">0과 없음을 뭉개지 않는다</div>
+      <div class="flow__d"><code>32/60분</code> · <code>—</code> · <code>달성 ✓</code> 는 서로 다른 세 상태다.</div>
+    </div>
+    <div class="flow__step">
+      <div class="flow__n">R4</div>
+      <div class="flow__t">한 자리에 상태 하나</div>
+      <div class="flow__d">내기 영역은 배타 4분기. 두 상태를 겹쳐 그리지 않는다.</div>
+    </div>
+    <div class="flow__step">
+      <div class="flow__n">R5</div>
+      <div class="flow__t">못 하는 이유를 말한다</div>
+      <div class="flow__d">버튼을 지우는 대신, 왜 없는지를 그 자리에 남긴다.</div>
+    </div>
+    <div class="flow__step">
+      <div class="flow__n">R6</div>
+      <div class="flow__t">돈이 움직이면 즉시 보인다</div>
+      <div class="flow__d">참여·취소·환불은 화면을 떠나지 않고 그 자리에서 결과를 보여준다.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="anatomy">
+  <div class="sec__label">Section 02</div>
+  <h2 class="sec__h">카드 한 장</h2>
+  <p class="sec__intro">
+    위에서 아래로 <b>무엇을 → 언제 도는가 → 누가 얼마나 → 돈이 걸렸나 → 지난 결과</b>.
+    요일 줄이 2번 자리에 새로 들어온 것이 이번 개편의 가장 큰 시각적 변화다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="mock">
+        <div class="mock__head">
+          <div class="mock__icon">◎</div>
+          <div class="mock__label">09:00–12:00 · 90분 집중</div>
+          <div class="mock__x">⋯</div>
+        </div>
+        <div class="dows">
+          <div class="dow is-today">월</div>
+          <div class="dow">화</div>
+          <div class="dow is-on">수</div>
+          <div class="dow">목</div>
+          <div class="dow is-on">금</div>
+          <div class="dow">토</div>
+          <div class="dow">일</div>
+          <div class="dows__next">오늘 09:00</div>
+        </div>
+        <div class="mock__cap">목표에서 5분 모자라도 달성으로 인정돼요</div>
+        <div class="mock__list">
+          <div class="mock__row mock__row--me"><div class="mock__nick">나</div><div class="mock__val mock__val--done">달성 ✓</div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div><div class="mock__val">45/90분</div></div>
+          <div class="mock__row"><div class="mock__nick">수빈</div><div class="mock__val">0/90분</div></div>
+          <div class="mock__row"><div class="mock__nick">태현</div><div class="mock__val">12/90분</div></div>
+        </div>
+        <div class="mock__bet">
+          <div class="mock__betrow">
+            <div class="mock__bettext">참가비 30 · 적립금 90 · 3명</div>
+            <div class="mock__chip mock__chip--joined">참여 중</div>
+          </div>
+        </div>
+        <div class="mock__last">지난 8/8(금) · 달성 · +45</div>
+      </div>
+      <div class="mockcap">활성 요일 · 내기 참여 중</div>
+    </div>
+
+    <div style="flex:1 1 20rem; min-width:17rem">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>순위</th><th>블록</th><th>왜 이 위치인가</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td class="copy">미션 라벨</td><td>카드를 식별하는 단 하나의 문장</td></tr>
+            <tr><td>2</td><td class="copy">요일 + 다음 회차</td><td><b>신규.</b> 반복이 생긴 이상 "언제"를 모르면 나머지가 안 읽힌다</td></tr>
+            <tr><td>3</td><td class="copy">뜻·한계 캡션</td><td>스크린타임은 방향이 반대라 오해를 먼저 막는다</td></tr>
+            <tr><td>4</td><td class="copy">진행 리스트</td><td>카드의 본문. <b>내 행이 항상 맨 위</b></td></tr>
+            <tr><td>5</td><td class="copy">내기 영역</td><td>돈이 움직이는 자리 — 구분선으로 분리</td></tr>
+            <tr><td>6</td><td class="copy">지난 회차 1줄</td><td>가장 옅게, 밑줄로 탭 가능 표시</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">요일 배지의 세 상태</h3>
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="dows" style="background:var(--app-paper-alt); padding:10px 14px; border-radius:12px; border:1px solid var(--app-border)">
+        <div class="dow is-today">월</div>
+        <div class="dow">화</div>
+        <div class="dow is-on">수</div>
+        <div class="dow">목</div>
+        <div class="dow is-on">금</div>
+        <div class="dow">토</div>
+        <div class="dow">일</div>
+      </div>
+      <div class="mockcap">월요일에 본 「월·수·금」 챌린지</div>
+    </div>
+    <div style="flex:1 1 18rem; min-width:16rem">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>상태</th><th>색</th><th>뜻</th></tr></thead>
+          <tbody>
+            <tr><td><span class="dow is-today" style="display:inline-grid">월</span></td><td><code>accent</code> 채움</td><td>오늘이자 활성 요일 — 지금 도는 중</td></tr>
+            <tr><td><span class="dow is-on" style="display:inline-grid">수</span></td><td><code>accentBg</code></td><td>활성 요일 (오늘 아님)</td></tr>
+            <tr><td><span class="dow" style="display:inline-grid">화</span></td><td><code>track</code></td><td>쉬는 요일</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">요일 줄 오른쪽 문구 — 회차 상태를 따른다</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>상태</th><th>문구</th><th>근거</th></tr></thead>
+      <tbody>
+        <tr><td>오늘 활성 · 회차 시작 전</td><td class="copy">오늘 09:00</td><td>창형만 해당. 하루형은 자정에 이미 시작</td></tr>
+        <tr><td>오늘 활성 · 진행 중</td><td class="copy">진행 중 · 12:00 종료</td><td>남은 시간이 곧 행동 정보다</td></tr>
+        <tr><td>오늘 활성 · 회차 끝남</td><td class="copy">다음 8/12(수) 09:00</td><td><b>"오늘 09:00"으로 두면 거짓말</b>이 된다</td></tr>
+        <tr><td>오늘 비활성</td><td class="copy">다음 8/12(수) 09:00</td><td>쉬는 날</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>다음 회차 표기는 상대·절대를 섞는다.</b> 오늘이면 <code>오늘 09:00</code>,
+    내일이면 <code>내일 09:00</code>, 그 밖은 <code>8/12(수) 09:00</code>.
+    "3일 뒤" 같은 상대 표현은 쓰지 않는다 — 요일 반복에서는 날짜가 곧 정보다.
+  </div>
+
+  <div class="new">
+    <span class="new__h">activeToday와 nextSessionAt은 배타가 아니다</span>
+    <code>nextSessionAt</code>은 항상 <b>오늘을 제외한</b> 다음 활성일을 가리킨다.
+    오늘 회차의 정보는 <code>bet.session</code>에 있다. 하루형은 회차 시작이 자정이라
+    "오늘 회차 시작"이 늘 과거라서, 이 분리가 없으면 <b>오늘 도는 챌린지가 "다음 회차 내일"로</b>
+    잘못 표시된다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="rest">
+  <div class="sec__label">Section 03</div>
+  <h2 class="sec__h">도는 날과 쉬는 날</h2>
+  <p class="sec__intro">
+    쉬는 날에도 카드를 <b>감추지 않는다.</b> 그룹은 "우리가 지키기로 한 것"의 전체 모습을 항상 봐야 한다.
+    대신 카드 전체가 가라앉고, 진행 리스트 자리에 다음 회차만 남는다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="mock">
+        <div class="mock__head">
+          <div class="mock__icon">◎</div>
+          <div class="mock__label">09:00–12:00 · 90분 집중</div>
+          <div class="mock__x">⋯</div>
+        </div>
+        <div class="dows">
+          <div class="dow is-today">월</div><div class="dow">화</div><div class="dow is-on">수</div>
+          <div class="dow">목</div><div class="dow is-on">금</div><div class="dow">토</div><div class="dow">일</div>
+          <div class="dows__next">오늘 09:00</div>
+        </div>
+        <div class="mock__list">
+          <div class="mock__row mock__row--me"><div class="mock__nick">나</div><div class="mock__val">62/90분</div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div><div class="mock__val mock__val--done">달성 ✓</div></div>
+          <div class="mock__row"><div class="mock__nick">수빈</div><div class="mock__val">0/90분</div></div>
+        </div>
+        <div class="mock__bet">
+          <div class="mock__betrow mock__joinrow">
+            <div class="mock__bettext">참가비 30 · 2명 참여 중</div>
+            <div class="mock__btn">참여하기</div>
+          </div>
+        </div>
+      </div>
+      <div class="mockcap">월요일 — 도는 날</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="mock mock--rest">
+        <div class="mock__head">
+          <div class="mock__icon" style="background:var(--app-track); color:var(--app-ink-faint)">◎</div>
+          <div class="mock__label" style="color:var(--app-ink-sub)">09:00–12:00 · 90분 집중</div>
+          <div class="mock__x">⋯</div>
+        </div>
+        <div class="dows">
+          <div class="dow is-on">월</div><div class="dow">화</div><div class="dow is-on">수</div>
+          <div class="dow">목</div><div class="dow is-on">금</div><div class="dow">토</div><div class="dow">일</div>
+        </div>
+        <div class="mock__list" style="justify-content:center">
+          <div class="mock__cap" style="margin-top:2px">오늘은 쉬는 날이에요</div>
+          <div class="mock__betrow" style="margin-top:2px">
+            <div class="mock__bettext" style="color:var(--app-ink-sub); font-weight:600">다음 8/12(수) 09:00</div>
+            <div class="mock__chip mock__chip--next">30코인</div>
+          </div>
+        </div>
+      </div>
+      <div class="mockcap">화요일 — 쉬는 날</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>쉬는 날에는 진행률을 재지 않는다.</b> 서버가 <code>memberProgress: null</code>을 내리고
+    앱은 리스트를 그리지 않는다. 억울한 "전원 0분"이 만들어지지 않는 것이 요일 반복의 핵심 이득이다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="tri">
+  <div class="sec__label">Section 04</div>
+  <h2 class="sec__h">진행 표기는 세 상태다</h2>
+  <p class="sec__intro">
+    <b>0분</b>과 <b>값 없음</b>은 다른 사실이다. 스크린타임에서 이 둘을 뭉개면
+    <b>미보고가 "0분 사용 = 달성"으로 뒤집힌다.</b> 돈이 걸려 있으므로 표기가 곧 계약이다.
+  </p>
+
+  <div class="tri">
+    <div class="tri__c">
+      <span class="tri__sample" style="color:var(--app-success-ink); background:var(--app-success-bg)">달성 ✓</span>
+      <div class="tri__name">확정 달성</div>
+      <div class="tri__desc"><code>achieved = true</code>. FOCUS는 목표를 채운 순간 확정되고 되돌아가지 않는다.</div>
+    </div>
+    <div class="tri__c">
+      <span class="tri__sample" style="color:var(--app-ink-sub); background:var(--app-chip)">32/60분</span>
+      <div class="tri__name">진행 중</div>
+      <div class="tri__desc"><code>progressMinutes</code>에 값이 있다. 분모는 <b>회차에 박제된 목표</b>다.</div>
+    </div>
+    <div class="tri__c">
+      <span class="tri__sample" style="color:var(--app-ink-faint); background:transparent; padding-left:0">—</span>
+      <div class="tri__name">미집계</div>
+      <div class="tri__desc"><code>progressMinutes = null</code>. <b>0분이 아니다.</b> 스크린타임 미보고·권한 미동의·보존 창 밖.</div>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>카테고리</th><th>데이터 없을 때</th><th>왜</th></tr></thead>
+      <tbody>
+        <tr><td class="copy">FOCUS</td><td><code>0/60분</code></td><td>세션이 없으면 "0분 집중"이 <b>사실</b>이다</td></tr>
+        <tr><td class="copy">SCREEN_TIME</td><td><code>—</code></td><td>"0분 사용"과 "보고 안 됨"을 구분할 수 없다</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>접근성</b> — 진행 행은 한 덩어리로 읽힌다. <code>accessible</code> + 합성
+    <code>accessibilityLabel</code>("준호, 90분 중 45분")로 감싼다. VoiceOver가 <code>—</code>를
+    "대시"로 읽는 문제를 이걸로 피한다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="branches">
+  <div class="sec__label">Section 05</div>
+  <h2 class="sec__h">내기 영역 — 네 개의 배타 상태</h2>
+  <p class="sec__intro">
+    같은 자리에 상태 하나만 그린다. 분기 순서가 곧 우선순위다.
+    <b>개설·취소가 사라져</b> 기존 5분기에서 하나 줄었다.
+  </p>
+
+  <div class="board">
+    <div class="branch">
+      <div>
+        <span class="branch__ord">0</span>
+        <h3 class="branch__title">내기가 꺼져 있다</h3>
+        <div class="branch__cond">bet == null</div>
+        <p class="branch__why">
+          <b>영역 자체가 없다.</b> 챌린지는 목표가 본질이고 내기는 옵션이다.
+          그룹원에게 "내기 걸기" 버튼을 주지 않는다 — 내기를 켜는 건 그룹장의 권한이고,
+          그것도 <b>챌린지를 만들 때 한 번</b>이다. 나중에 켜는 버튼도, 끄는 토글도 없다.
+        </p>
+      </div>
+      <div class="mockcol">
+        <div class="mock" style="width:300px">
+          <div class="mock__head"><div class="mock__icon">◎</div><div class="mock__label">하루 60분 집중</div></div>
+          <div class="dows"><div class="dow is-today">월</div><div class="dow is-on">화</div><div class="dow is-on">수</div><div class="dow is-on">목</div><div class="dow is-on">금</div><div class="dow">토</div><div class="dow">일</div></div>
+          <div class="mock__list">
+            <div class="mock__row mock__row--me"><div class="mock__nick">나</div><div class="mock__val">28/60분</div></div>
+            <div class="mock__row"><div class="mock__nick">준호</div><div class="mock__val mock__val--done">달성 ✓</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="branch">
+      <div>
+        <span class="branch__ord">1</span>
+        <h3 class="branch__title">오늘은 회차가 없다</h3>
+        <div class="branch__cond">bet != null && bet.session == null</div>
+        <p class="branch__why">
+          쉬는 날이다. <b>다음 회차 시각과 참가비를 미리 보여준다</b> — 마음의 준비를 시키는 자리다.
+          참여 버튼은 없다. 회차가 아직 안 열렸다.
+        </p>
+      </div>
+      <div class="mockcol">
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow mock__joinrow mock__joinrow--off">
+              <div class="mock__bettext mock__bettext--off">다음 8/12(수) 09:00</div>
+              <div class="mock__chip mock__chip--next">30코인</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="branch">
+      <div>
+        <span class="branch__ord">2</span>
+        <h3 class="branch__title">열려 있는데 나는 미참여</h3>
+        <div class="branch__cond">session.status == OPEN && !myJoined && now &lt; joinClosesAt</div>
+        <p class="branch__why">
+          <b>행 전체가 버튼</b>이다. 참가비·인원과 함께 <b>마감 시각</b>을 반드시 붙인다 —
+          창형은 창이 열리는 순간 잠기므로 남은 시간이 곧 의사결정 정보다.
+        </p>
+      </div>
+      <div class="mockcol">
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow mock__joinrow">
+              <div class="mock__bettext">참가비 30 · 2명 참여 중</div>
+              <div class="mock__btn">참여하기</div>
+            </div>
+            <div class="mock__cap" style="margin-top:6px">09:00까지 참여할 수 있어요</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="branch">
+      <div>
+        <span class="branch__ord">3</span>
+        <h3 class="branch__title">내가 참여 중</h3>
+        <div class="branch__cond">myJoined == true</div>
+        <p class="branch__why">
+          참가비·적립금·인원 + <b>참여 중</b> 칩. <b><code>참여 취소</code> 버튼은 회차 시작
+          전에만</b> 뜬다. 시작 후에는 버튼 대신 이유를 남긴다 — R5.
+        </p>
+        <p class="branch__why">
+          <b>버튼 문구는 <code>취소</code>가 아니라 <code>참여 취소</code>다.</b> 그냥
+          <code>취소</code>는 시트를 닫는 버튼과 헷갈린다 — 돈이 빠져나가는 행동이라 <b>무엇을</b>
+          취소하는지가 버튼에 드러나야 한다. 반대로 시트를 닫는 버튼은 그대로
+          <code>닫기</code> / <code>그만두기</code>다.
+        </p>
+        <p class="branch__why">
+          <b>하루형은 5분 유예가 유일한 취소 창</b>이다 — 회차 시작이 자정이라 "시작 전"이 영영
+          오지 않는다. 그래서 버튼 옆에 <b>남은 시간을 초 단위로</b> 세어 준다. 흐르는 걸 모르면
+          유예가 없는 것과 같다.
+        </p>
+      </div>
+      <div class="mockcol" style="gap:.8rem">
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow">
+              <div class="mock__bettext">참가비 30 · 적립금 90 · 3명</div>
+              <div class="mock__chip mock__chip--joined">참여 중</div>
+              <div class="mock__mini">참여 취소</div>
+            </div>
+            <div class="mock__cap" style="margin-top:6px">09:00까지 취소할 수 있어요</div>
+          </div>
+        </div>
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow">
+              <div class="mock__bettext">참가비 30 · 적립금 90 · 3명</div>
+              <div class="mock__chip mock__chip--joined">참여 중</div>
+              <div class="mock__mini">참여 취소 4:37</div>
+            </div>
+            <div class="mock__cap" style="margin-top:6px">4분 37초 안에 취소할 수 있어요</div>
+          </div>
+        </div>
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow">
+              <div class="mock__bettext">참가비 30 · 적립금 90 · 3명</div>
+              <div class="mock__chip mock__chip--joined">참여 중</div>
+            </div>
+            <div class="mock__cap" style="margin-top:6px">취소할 수 있는 시간이 지났어요</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="branch">
+      <div>
+        <span class="branch__ord">4</span>
+        <h3 class="branch__title">끝났거나 무산됐다</h3>
+        <div class="branch__cond">session.status ∈ {SETTLED, FORFEITED, VOIDED, REFUNDED}</div>
+        <p class="branch__why">
+          <b>누를 자리가 없다.</b> 무산·환불은 돈이 되돌아온 사건이므로
+          <b>어디로 갔는지</b>를 반드시 문장으로 남긴다. 침묵하면 "코인이 사라졌다"로 읽힌다.
+        </p>
+      </div>
+      <div class="mockcol" style="gap:.8rem">
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow mock__joinrow mock__joinrow--off">
+              <div class="mock__bettext mock__bettext--off">참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요</div>
+            </div>
+          </div>
+        </div>
+        <div class="mock" style="width:300px">
+          <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+            <div class="mock__betrow mock__joinrow mock__joinrow--off">
+              <div class="mock__bettext mock__bettext--off">아무도 달성하지 못해 적립금 90이 사라졌어요</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">③ 안의 하위 표시 — 침묵하면 사고가 나는 두 자리</h3>
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="mock" style="width:300px">
+        <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+          <div class="mock__betrow">
+            <div class="mock__bettext">참가비 30 · 나 혼자</div>
+            <div class="mock__chip mock__chip--joined">참여 중</div>
+            <div class="mock__mini">참여 취소</div>
+          </div>
+          <div class="mock__warn" style="margin-top:6px">1명 더 참여해야 오늘 내기가 성립해요</div>
+        </div>
+      </div>
+      <div class="mockcap">혼자 — 무산 예고</div>
+    </div>
+    <div class="mockcol">
+      <div class="mock" style="width:300px">
+        <div class="mock__bet" style="margin:0; padding-top:0; border-top:0">
+          <div class="mock__betrow">
+            <div class="mock__bettext">참가비 30 · 적립금 90 · 3명</div>
+            <div class="mock__chip mock__chip--next">정산 대기</div>
+          </div>
+          <div class="mock__cap" style="margin-top:6px">내일 12시에 결과가 나와요</div>
+        </div>
+      </div>
+      <div class="mockcap">회차는 끝났고 정산 전</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>둘 다 "말 안 하면 사고"</b>다.
+    ① 하루형은 참가 마감이 자정이라 혼자인 채로 종일 있다가 갑자기 무산될 수 있다.
+    ② 스크린타임 하루형은 회차 종료(자정)와 정산(익일 12:00) 사이가 12시간이라 그 공백을 설명해야 한다.
+    <br><br>세 번째였던 "목표 수정으로 분모가 갈리는" 케이스는 <b>수정이 사라져 자동 소멸</b>했다.
+  </div>
+
+  <div class="gap">
+    <span class="gap__h">카드에서 사라진 것</span>
+    <ul>
+      <li><b><code>+ 내기 걸기</code> 버튼</b> — 내기는 그룹장이 챌린지에 켜는 상시 구조다. 개설 행위가 없다.</li>
+      <li><b>개설자의 <code>[회차 전체 취소]</code></b> — 개설자가 없다. 지금 "취소"는 <b>내 참여를 무르는 것</b> 하나뿐이라, 버튼 문구도 <code>참여 취소</code>로 통일한다.</li>
+      <li><b>휴면 배지</b> — "내기 이력은 있는데 열린 회차가 없는 상태"가 이제 정상 상태(쉬는 날)다.</li>
+      <li><b>헤더의 <code>×</code></b> — <code>⋯</code> 메뉴로 이동. 종료·삭제 두 액션이라 버튼 하나로 안 된다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="compose">
+  <div class="sec__label">Section 06</div>
+  <h2 class="sec__h">챌린지 만들기 — 그룹장만</h2>
+  <p class="sec__intro">
+    카테고리 → 방식 → <b>요일</b> → 목표 → 내기 순. 요일이 새 단계로 들어오고,
+    <b>기본값이 없어</b> 반드시 고르게 한다. "언제 도는지"를 의식하지 않고 목표를 세울 수 없게 만드는 장치다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="sheet">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">챌린지 만들기</div>
+        <div class="sheet__sub">그룹이 함께 지킬 목표예요</div>
+
+        <div class="sheet__fieldlabel">무엇을</div>
+        <div class="sheet__seg">
+          <div class="sheet__segbtn is-on">집중 시간</div>
+          <div class="sheet__segbtn">스크린타임</div>
+        </div>
+
+        <div class="sheet__fieldlabel">어떻게</div>
+        <div class="sheet__seg">
+          <div class="sheet__segbtn">하루 누적</div>
+          <div class="sheet__segbtn is-on">시간대</div>
+        </div>
+
+        <div class="sheet__fieldlabel">언제 <span style="color:var(--app-danger-ink)">*</span></div>
+        <div class="dows" style="margin-top:6px">
+          <div class="dow is-on">월</div><div class="dow">화</div><div class="dow is-on">수</div>
+          <div class="dow">목</div><div class="dow is-on">금</div><div class="dow">토</div><div class="dow">일</div>
+        </div>
+
+        <div class="sheet__fieldlabel">시간대</div>
+        <div class="sheet__input">09:00 – 12:00 <span>3시간</span></div>
+
+        <div class="sheet__fieldlabel">목표</div>
+        <div class="sheet__input">90분 <span>1시간 30분 · 최대 3시간</span></div>
+        <div class="sheet__note">매일 정한 시간대 안에서 목표 시간 이상 집중하면 달성이에요. 목표에서 5분 모자라도 달성으로 인정돼요</div>
+
+        <div class="sheet__div"></div>
+
+        <div class="sheet__fieldlabel">참가비(코인) <span style="font-weight:500; color:var(--app-ink-muted)">· 안 고르면 내기 없음</span></div>
+        <div class="sheet__chips">
+          <div class="sheet__chip is-on">300</div><div class="sheet__chip">900</div>
+          <div class="sheet__chip">1,500</div><div class="sheet__chip">3,000</div>
+          <div class="sheet__chip">직접</div>
+        </div>
+        <div class="sheet__note">1~3,000코인 사이로 정해요. 도는 날마다 각자 참여를 정하고, 2명 이상 모여야 내기가 성립해요.<br>
+          <b>내기는 만든 뒤에 끌 수 없어요</b> — 빼려면 챌린지를 삭제하고 다시 만들어요</div>
+
+        <div class="sheet__cta">만들기</div>
+      </div>
+      <div class="mockcap">창형 · 요일 선택 포함</div>
+    </div>
+
+    <div style="flex:1 1 19rem; min-width:17rem">
+      <h3 class="sub" style="margin-top:0">고를 수 없을 때 하는 말</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>상황</th><th>화면이 하는 말</th></tr></thead>
+          <tbody>
+            <tr><td>요일 미선택</td><td class="copy">요일을 하나 이상 골라 주세요</td></tr>
+            <tr><td>활성 4개 꽉 참</td><td class="copy">챌린지는 4개까지 만들 수 있어요. 하나를 종료하고 다시 시도해 주세요</td></tr>
+            <tr><td>하루형 중복</td><td class="copy">같은 종류의 하루 챌린지가 이미 있어요</td></tr>
+            <tr><td>창이 자정을 넘음</td><td class="copy">시간대는 하루 안에서 끝나야 해요. 자정 이후는 다음 날 챌린지로 만들어 주세요</td></tr>
+            <tr><td>창 겹침</td><td class="copy">「수·금 10–13시 집중」과 시간대가 겹쳐요. 창 사이는 15분 이상 비워 주세요</td></tr>
+            <tr><td>창 SCREEN_TIME 목표 눈금</td><td class="copy">사용 시간은 15분 단위로 집계돼요. 15·30·45분처럼 골라 주세요</td></tr>
+            <tr><td>목표 &gt; 창 길이</td><td class="copy">시간대(3시간)보다 긴 목표는 달성할 수 없어요</td></tr>
+            <tr><td>참가비 범위 밖</td><td class="copy">참가비는 1~3,000코인 사이로 정해 주세요</td></tr>
+            <tr><td>잔액 부족 (내기 켤 때)</td><td class="copy">참가비는 도는 날마다 각자 내요. 지금 잔액과 무관하게 설정할 수 있어요</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:1.2rem">
+        <b>프리셋 칩(매일/평일/주말)은 두지 않는다.</b> 요일은 7개 배지를 직접 누른다 —
+        누르는 손이 곧 "언제 도는지"를 의식하는 절차다. 프리셋은 그 의식을 건너뛰게 만든다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">분 입력은 시간으로 환산해 같이 보여준다</span>
+        <code>90분</code> 옆에 <b>1시간 30분</b>. 목표가 커질수록 "분"만으로는 감이 안 온다 —
+        <code>240분</code>이 4시간이라는 걸 암산하게 두지 않는다. 상한도 같은 단위로
+        (<code>최대 3시간</code>).
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">겹침은 요일 ∧ 시간대</span>
+        요일이 겹치지 않으면 <b>같은 시간대도 허용</b>된다. 「월·수·금 09–12 집중」과
+        「화·목 09–12 폰금지」는 공존한다. 요일 반복이 창을 훨씬 자유롭게 만든 지점이다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">창은 자정을 걸칠 수 없다</span>
+        <code>시작 &lt; 종료</code>를 강제한다 — <code>22:00~01:00</code>은 거부하고
+        <code>22:00~23:59</code>는 허용한다. <b>요일이 회차를 가르는 축</b>인데 창이 요일 경계를
+        넘으면 "월요일치가 화요일에 끝난다"가 되어 판정일·겹침 검사·정산 귀속이 전부 모호해진다.
+        <br><br>
+        <b>대가는 심야 챌린지다.</b> 자정 앞에서 끊거나, 자정 이후 구간을 <b>다음 날 요일의 별도
+        챌린지</b>로 만들어야 한다. 활성 4개 상한 안에서 감당할 수 있는 제약이고, 얻는 것(요일 =
+        회차라는 한 줄 규칙)이 훨씬 크다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">참가비 프리셋은 절대값이 아니라 상한 대비 비율이다</span>
+        칩 <code>300 · 900 · 1,500 · 3,000</code>은 <b>상한(3,000코인)의 10 · 30 · 50 · 100%</b>다.
+        비율로 정의해 두면 상한이 또 바뀌어도 <b>칩의 정의는 그대로고 값만 따라온다</b> —
+        절대값으로만 적어 두면 다음 사람이 "왜 하필 이 넷인가"를 알 방법이 없다.
+        네 칩 사이의 값과 1~299 구간은 <code>직접</code> 입력이 덮는다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">내기는 나중에 끄지 못한다</span>
+        참가비 칩을 고르는 이 순간이 <b>내기를 켤지 정하는 유일한 자리</b>다. 상세에도 카드에도
+        <code>내기 끄기</code> 토글이 없다 — 끄는 순간 이미 참가비를 낸 회차의 돈 처리가 남는데,
+        그건 삭제(무효화 + 전원 환불)와 같은 일이다. 끄고 싶으면 <b>삭제하고 내기 없이 다시
+        만든다.</b>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="edit">
+  <div class="sec__label">Section 07</div>
+  <h2 class="sec__h">종료와 삭제 — 수정은 없다</h2>
+  <p class="sec__intro">
+    <b>챌린지는 만들면 통째로 불변이다.</b> 목표도 참가비도 <b>내기를 켤지 여부도</b> 못 바꾼다.
+    바꾸려면 삭제하고 새로 만든다 — <b>삭제에 조건이 없으므로</b> 그 동선이 성립한다. 수정 시트도,
+    내기 끄기 토글도, "진행 중 회차는 옛 목표로 판정된다"는 예외 설명도 통째로 사라진다.
+  </p>
+  <p>
+    <b><code>⋯</code> 메뉴에 「내기 끄기」가 없는 이유.</b> 끄는 순간 이미 참가비를 낸 회차의 돈을
+    어떻게 할지가 남는데, 그건 <b>삭제가 하는 일</b>(무효화 + 전원 환불)과 정확히 같다. 같은
+    결과를 내는 경로를 둘 두면 규칙만 늘어난다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="menu">
+        <div class="menu__i" style="color:var(--app-ink-faint)">챌린지 종료 <span>진행 중</span></div>
+        <div class="menu__i menu__i--danger">챌린지 삭제</div>
+      </div>
+      <div class="mockcap">⋯ 메뉴 · 그룹장 (진행 중일 때)</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="sheet" style="width:320px">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">챌린지를 삭제할까요?</div>
+        <div class="sheet__sub">09:00–12:00 · 90분 집중 · 월·수·금</div>
+
+        <div class="sheet__note">
+          지난 기록은 그룹의 <b>챌린지 내역</b>에 남아요
+        </div>
+
+        <div class="sheet__cta" style="background:var(--app-danger-ink)">삭제</div>
+        <div class="sheet__ghost">그만두기</div>
+      </div>
+      <div class="mockcap">1단계 · 걸린 돈이 없을 때는 여기서 끝난다</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="sheet" style="width:320px; border-color:var(--app-danger-ink)">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">지금 진행 중인 챌린지예요</div>
+        <div class="sheet__sub">09:00–12:00 · 90분 집중 · 월·수·금</div>
+
+        <div class="sheet__fieldlabel">참가비가 걸려 있는 날</div>
+        <div class="sheet__peers">
+          <div class="mock__row"><div class="mock__nick">8/10(월)</div><div class="mock__val">3명 · 90코인</div></div>
+          <div class="mock__row"><div class="mock__nick">8/12(수)</div><div class="mock__val">1명 · 30코인</div></div>
+        </div>
+
+        <div class="sheet__err">
+          8/10(월)·8/12(수)가 무효가 되고 <b>적립금 120코인이 전원에게 돌아갑니다.</b>
+          이 날들은 판정하지 않아요 — 이미 결과가 나온 날은 그대로예요
+        </div>
+        <div class="sheet__note">
+          지난 기록은 그룹의 <b>챌린지 내역</b>에 남아요
+        </div>
+
+        <div class="sheet__cta" style="background:var(--app-danger-ink)">삭제</div>
+        <div class="sheet__ghost">그만두기</div>
+      </div>
+      <div class="mockcap">2단계 · <b>진행 중일 때만</b> 추가되는 경고</div>
+    </div>
+
+    <div style="flex:1 1 18rem; min-width:16rem">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>액션</th><th>조건</th><th>진행 중 참가비</th><th>확인 단계</th><th>뜻</th></tr></thead>
+          <tbody>
+            <tr><td class="copy">수정</td><td colspan="4"><b>없음</b> — 삭제하고 새로 만든다</td></tr>
+            <tr><td class="copy">내기 끄기</td><td colspan="4"><b>없음</b> — 생성 시 결정, 이후 불변. 빼려면 삭제 후 재생성</td></tr>
+            <tr><td class="copy">종료</td><td><b>OPEN 회차 없음</b></td><td>—</td><td>1단계</td><td>깨끗한 마감</td></tr>
+            <tr><td class="copy">삭제</td><td><b>언제든</b></td><td><b>무효화 + 전원 환불</b></td><td>1단계 · <b>진행 중이면 2단계</b></td><td>강제 접기</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:1.2rem">
+        <b>진행 중인 챌린지는 종료할 수 없다.</b> 남의 돈이 걸린 회차를 "조용히 마감"하는 경로를 주지
+        않는다. 정말 접어야 하면 <b>삭제</b>를 쓰고, 그때는 참가비가 전원에게 돌아간다 —
+        접는 행위에 대가를 붙인 것이다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">삭제해도 기록은 안 사라진다</span>
+        이력의 소유자가 <b>챌린지가 아니라 그룹</b>이기 때문이다. 회차 행에 미션 스냅샷
+        (카테고리·방식·목표·창 시각)이 박제돼 있어, 챌린지가 없어져도
+        <b>「챌린지 내역」한 줄이 온전히 읽힌다.</b>
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">진행 중 삭제만 한 번 더 묻는다</span>
+        돌고 있는 날을 엎는 건 <b>남의 진행과 돈을 되돌리는 행동</b>이라 오탭 한 번으로 일어나서는
+        안 된다. 그래서 <b>진행 중일 때만</b> 경고 확인이 한 단계 붙고, 거기에 <b>사라지는 것을
+        숫자로</b> 적는다 — 걸린 날짜·참여 인원·돌아가는 적립금. "정말 삭제할까요?"만 띄우면
+        읽지 않는다.
+        <br><br>
+        <b>진행 중이 아니면 이 단계를 넣지 않는다.</b> 위험하지 않은 행동까지 두 번 물으면 경고가
+        의미를 잃고, 정작 위험할 때도 그냥 누르게 된다. 확인 버튼은 <code>삭제</code>다 —
+        <code>확인</code>은 무엇을 확인하는지 말해주지 않는다. 나가는 버튼은
+        <code>그만두기</code>이며, 여기서 <code>취소</code>를 쓰면 <b>참여 취소</b>와 겹친다.
+      </div>
+
+      <h3 class="sub">확인 문구</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>상황</th><th>화면이 하는 말</th></tr></thead>
+          <tbody>
+            <tr><td>종료 (막힘)</td><td class="copy">8/14(금)이 끝나야 종료할 수 있어요<br>아직 참가비가 걸려 있어요</td></tr>
+            <tr><td>종료</td><td class="copy">이 챌린지를 종료할까요?<br>기록은 그룹의 「챌린지 내역」에 남아요</td></tr>
+            <tr><td>삭제 1단계 (진행 중 아님 — 여기서 끝)</td><td class="copy">이 챌린지를 삭제할까요?<br>지난 기록은 「챌린지 내역」에 남아요</td></tr>
+            <tr><td>삭제 2단계 (진행 중일 때만 추가)</td><td class="copy">지금 진행 중인 챌린지예요<br>8/10(월)·8/12(수)가 무효가 되고 적립금 120코인이 전원에게 돌아갑니다</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">그룹 챌린지 내역</h3>
+  <p>
+    「지난 챌린지」가 아니라 <b>그룹 단위의 회차 내역</b>이다. 챌린지별로 묶지 않고 시간순으로 쌓는다 —
+    챌린지가 사라져도 줄은 남아야 하기 때문이다.
+  </p>
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="mock mock--wide">
+        <div class="mock__head"><div class="mock__label">챌린지 내역</div></div>
+        <div class="mock__list">
+          <div class="mock__row"><div class="mock__nick">8/10(월) · 집중 09–12시 90분</div>
+            <div class="mock__val mock__val--done">+45</div></div>
+          <div class="mock__row"><div class="mock__nick">8/08(금) · 하루 폰 2시간 이하</div>
+            <div class="mock__val" style="color:var(--app-danger-ink)">−30</div></div>
+          <div class="mock__row"><div class="mock__nick">8/08(금) · 집중 09–12시 90분</div>
+            <div class="mock__val mock__val--none">무산 · 환불</div></div>
+          <div class="mock__row"><div class="mock__nick">8/07(목) · 하루 60분 집중 <span style="color:var(--app-ink-faint)">· 삭제됨</span></div>
+            <div class="mock__val mock__val--done">+60</div></div>
+        </div>
+      </div>
+      <div class="mockcap">삭제된 챌린지도 배지를 달고 남는다</div>
+    </div>
+    <div style="flex:1 1 18rem; min-width:16rem">
+      <div class="note">
+        <b>「삭제됨」 배지를 단다.</b> 지금 카드 목록에 없는 챌린지가 내역에 나오면
+        "이건 뭐지?"가 되므로, 사라진 목표라는 사실을 한 단어로 말한다.
+        탭해도 카드로 갈 곳이 없으니 <b>행 자체를 비활성</b>으로 둔다.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="join">
+  <div class="sec__label">Section 08</div>
+  <h2 class="sec__h">회차 참여 — 하루형은 진행분을 공개한다</h2>
+  <p class="sec__intro">
+    창형은 창이 열리기 전에만 들어올 수 있어 <b>전원이 같은 출발선</b>이다.
+    하루형은 출발선이 없어 종일 열려 있고, 대신 <b>기존 참가자의 진행분을 그대로 보여준다.</b>
+    불리한 회차인 걸 알고 들어가는 건 본인 선택이다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="sheet">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">참여하기 · 30코인</div>
+        <div class="sheet__sub">하루 60분 집중 · 오늘 남은 시간 6시간 12분</div>
+
+        <div class="sheet__fieldlabel">지금 참여 중인 사람</div>
+        <div class="sheet__peers">
+          <div class="mock__row"><div class="mock__nick">민지</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="bar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+              <span class="mock__val">52/60분</span></div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="bar"><i class="on"></i><i></i><i></i><i></i><i></i></span>
+              <span class="mock__val">18/60분</span></div></div>
+          <div class="mock__row mock__row--me"><div class="mock__nick">나</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="bar"><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="mock__val">0/60분</span></div></div>
+        </div>
+
+        <div class="sheet__note">
+          먼저 시작한 사람이 유리해요. 지금 들어가면 남은 시간 안에 60분을 채워야 해요
+        </div>
+
+        <div class="sheet__div"></div>
+        <div class="mock__betrow">
+          <div class="mock__bettext">참가비 30 · 내 잔액 240 → 210</div>
+        </div>
+
+        <div class="sheet__cta">들어가기</div>
+      </div>
+      <div class="mockcap">하루형 — 진행분 공개</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="sheet">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">참여하기 · 30코인</div>
+        <div class="sheet__sub">하루 60분 집중 · 오늘 남은 시간 10분</div>
+
+        <div class="sheet__fieldlabel">지금 참여 중인 사람</div>
+        <div class="sheet__peers">
+          <div class="mock__row"><div class="mock__nick">민지</div>
+            <div class="mock__val mock__val--done">달성 ✓</div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div>
+            <div class="mock__val">58/60분</div></div>
+          <div class="mock__row mock__row--me"><div class="mock__nick">나</div>
+            <div class="mock__val">0/60분</div></div>
+        </div>
+
+        <div class="sheet__err">남은 10분으로 60분을 채우기는 어려워요</div>
+
+        <div class="sheet__div"></div>
+        <div class="mock__betrow">
+          <div class="mock__bettext">참가비 30 · 내 잔액 240 → 210</div>
+        </div>
+
+        <div class="sheet__cta">들어가기</div>
+      </div>
+      <div class="mockcap">시간 부족 — 경고하되 막지 않는다</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="sheet">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">참여하기 · 30코인</div>
+        <div class="sheet__sub">09:00–12:00 · 90분 집중</div>
+
+        <div class="sheet__fieldlabel">참가자</div>
+        <div class="sheet__peers">
+          <div class="mock__row"><div class="mock__nick">민지</div><div class="mock__val mock__val--none">아직 시작 전</div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div><div class="mock__val mock__val--none">아직 시작 전</div></div>
+        </div>
+
+        <div class="sheet__note">
+          창이 열리는 <b>09:00에 마감</b>돼요. 참가자 전원이 같은 시점에 시작해요.<br>
+          목표에서 5분 모자라도 달성으로 인정돼요
+        </div>
+
+        <div class="sheet__div"></div>
+        <div class="mock__betrow">
+          <div class="mock__bettext">참가비 30 · 내 잔액 240 → 210</div>
+        </div>
+
+        <div class="sheet__cta">들어가기</div>
+      </div>
+      <div class="mockcap">창형 — 출발선이 같다</div>
+    </div>
+
+    <div style="flex:1 1 17rem; min-width:16rem">
+      <h3 class="sub" style="margin-top:0">막힐 때</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>상황</th><th>화면이 하는 말</th></tr></thead>
+          <tbody>
+            <tr><td>FOCUS 이미 달성</td><td class="copy">이미 오늘 목표를 달성해서 참여할 수 없어요</td></tr>
+            <tr><td>SCREEN_TIME 이미 초과</td><td class="copy">오늘 사용 시간이 이미 목표를 넘어 참여할 수 없어요</td></tr>
+            <tr><td>창 시작됨</td><td class="copy">09:00에 마감됐어요. 다음은 8/12(수)예요</td></tr>
+            <tr><td>잔액 부족</td><td class="copy">코인이 30 부족해요</td></tr>
+            <tr><td>스크린타임 권한 없음</td><td class="copy">스크린타임 권한을 허용해야 참여할 수 있어요</td></tr>
+            <tr><td><b>남은 시간 부족</b><br>(막지 않음)</td><td class="copy">남은 10분으로 60분을 채우기는 어려워요<br><span style="color:var(--doc-ink-mute)">— 버튼은 살아 있다</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" style="margin-top:1.2rem">
+        <b>잔액도 3상이다.</b> 조회 실패(<code>undefined</code>)와 잔액 0(<code>0</code>)을 구분한다.
+        조회 실패면 버튼을 잠그되 "잔액이 부족해요"가 아니라 "잔액을 불러오지 못했어요"라고 말한다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">시간이 모자라도 막지 않는다</span>
+        23:50에 「하루 60분」 회차에 들어가는 건 물리적으로 불가능하지만 <b>버튼은 살아 있다.</b>
+        차단하면 사람마다 참가 마감이 달라져("나는 왜 못 들어가지") 설명할 수 없는 화면이 된다.
+        <br><br>
+        <b>확정과 불리는 다르다.</b> 스크린타임 초과는 되돌릴 수 없어 막지만(<code>BET_ALREADY_FAILED</code>),
+        시간 부족은 어려울 뿐 확정이 아니다 — 40분 남았는데 60분 목표라면 무리지만 불가능은 아니다.
+        진행분을 공개하는 것과 같은 원리로 <b>정보를 주고 결정은 맡긴다.</b>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="week">
+  <div class="sec__label">Section 09</div>
+  <h2 class="sec__h">이번 주 남은 날 전부</h2>
+  <p class="sec__intro">
+    월수금이면 주 3번 참여를 눌러야 한다. 매번 결심하는 게 긴장감의 일부지만,
+    마찰이기도 하다. 단축을 주되 <b>총액을 먼저 보여주고 즉시 전액을 묶는다.</b>
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="sheet" style="width:320px">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">이번 주 남은 날</div>
+        <div class="sheet__sub">09:00–12:00 · 90분 집중</div>
+
+        <div class="sheet__peers" style="margin-top:12px">
+          <div class="mock__row"><div class="mock__nick">8/10 (월) 09:00</div><div class="mock__val">30</div></div>
+          <div class="mock__row"><div class="mock__nick">8/12 (수) 09:00</div><div class="mock__val">30</div></div>
+          <div class="mock__row"><div class="mock__nick">8/14 (금) 09:00</div><div class="mock__val">30</div></div>
+        </div>
+
+        <div class="sheet__div"></div>
+        <div class="mock__betrow">
+          <div class="mock__bettext" style="font-weight:700; color:var(--app-ink)">합계 90코인</div>
+          <div class="mock__val">잔액 240 → 150</div>
+        </div>
+        <div class="sheet__note">
+          지금 90코인이 모두 묶여요. 시작 전이라면 하루씩 따로 참여를 취소할 수 있어요
+        </div>
+
+        <div class="sheet__cta">3일 전부 참여</div>
+        <div class="sheet__ghost">오늘(월)만 참여 (30코인)</div>
+      </div>
+      <div class="mockcap">총액 선공개 · 전액 에스크로</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="sheet" style="width:320px">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">이번 주 남은 날</div>
+        <div class="sheet__sub">09:00–12:00 · 90분 집중</div>
+
+        <div class="sheet__peers" style="margin-top:12px">
+          <div class="mock__row"><div class="mock__nick">8/10 (월) 09:00</div><div class="mock__val">30</div></div>
+          <div class="mock__row"><div class="mock__nick">8/12 (수) 09:00</div><div class="mock__val">30</div></div>
+          <div class="mock__row" style="opacity:.5"><div class="mock__nick">8/14 (금) 09:00</div><div class="mock__val">30</div></div>
+        </div>
+
+        <div class="sheet__div"></div>
+        <div class="mock__betrow">
+          <div class="mock__bettext" style="font-weight:700; color:var(--app-ink)">합계 90코인</div>
+          <div class="mock__val" style="color:var(--app-danger-ink)">잔액 70</div>
+        </div>
+        <div class="sheet__err">코인이 20 부족해요. 2일(60코인)만 참여할 수 있어요</div>
+
+        <div class="sheet__cta sheet__cta--off">3일 전부 참여</div>
+        <div class="sheet__ghost">2일만 참여 (60코인)</div>
+      </div>
+      <div class="mockcap">잔액 부족 — 부분 성공을 만들지 않는다</div>
+    </div>
+
+    <div style="flex:1 1 17rem; min-width:16rem">
+      <div class="new">
+        <span class="new__h">전부 성공 or 전부 실패</span>
+        중간에 잔액이 떨어져 <b>일부만 들어간 상태를 만들지 않는다.</b> 총액을 먼저 검사하고
+        한 트랜잭션으로 처리한다. 부족하면 <b>가능한 개수를 제안</b>하되, 그 선택도 유저가 한다.
+      </div>
+
+      <div class="note" style="margin-top:1.2rem">
+        <b>왜 회차 직전 차감이 아닌가.</b> "참가 = 돈이 빠졌다"는 원칙이 깨지면 팟이 실재하지 않게 되고,
+        잠긴 사이 잔액이 비면 <b>자동 불참</b>이 조용히 일어난다. 유저가 몰랐다가 나중에 항의할 여지를
+        남기지 않는다.
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">버튼이 안 뜨는 조건</span>
+        <b>남은 회차가 1개 이하면 숨긴다.</b> 단건 참여와 같아져 의미가 없다.
+        금요일 저녁이나 주말에는 이 버튼이 대부분 사라진다.
+      </div>
+
+      <div class="note" style="margin-top:1.2rem">
+        <b>예약하면 그룹장이 그 주 내내 종료를 못 한다.</b> 남의 돈이 걸린 회차를 접을 수 없게 하는 게
+        맞다. 종료 시도 시 <code>8/14(금)이 끝나야 종료할 수 있어요</code>로 언제까지
+        기다려야 하는지 말한다.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="result">
+  <div class="sec__label">Section 10</div>
+  <h2 class="sec__h">결과 — 즉시 확정과 최종 정산</h2>
+  <p class="sec__intro">
+    FOCUS는 목표를 채우는 <b>순간 개인 승리가 박제</b>되고 알림이 간다.
+    팟 분배는 회차가 끝나고(창형은 +30분) 이뤄진다. 두 사건을 다른 화면으로 나눈다.
+  </p>
+
+  <h3 class="sub" style="margin-top:1.6rem">결과 모달 — 그룹방에 들어오면 뜬다</h3>
+  <p>
+    <b>내가 돈을 걸었던 회차</b>의 결과다. 큐가 여러 건이면 좌상단에 <code>1/2</code>로 남은 수를
+    보여주고, 닫으면 다음이 뜬다. 손익을 가장 크게 — 유저가 알고 싶은 건 그 숫자 하나다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="modal">
+        <div class="modal__q">1 / 2</div>
+        <div class="modal__h">8/10(월) 결과</div>
+        <div class="modal__sub">집중 · 09:00–12:00 · 목표 90분</div>
+
+        <div class="modal__hero">
+          <div class="modal__amt">+45</div>
+          <div class="modal__amtcap">달성 ✓ · 102분</div>
+        </div>
+
+        <div class="modal__list">
+          <div class="mock__row"><div class="mock__nick">준호</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="mock__val">93분</span>
+              <span class="mock__val mock__val--done">+45</span></div></div>
+          <div class="mock__row"><div class="mock__nick">수빈</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="mock__val">41분</span>
+              <span class="mock__val" style="color:var(--app-danger-ink)">−30</span></div></div>
+        </div>
+
+        <div class="modal__cta">확인</div>
+        <div class="modal__link">지난 기록 보기</div>
+      </div>
+      <div class="mockcap">SETTLED — 내가 이겼다</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="modal">
+        <div class="modal__q">2 / 2</div>
+        <div class="modal__h">8/10(월) 결과</div>
+        <div class="modal__sub">폰 · 하루 2시간 이하</div>
+
+        <div class="modal__hero modal__hero--none">
+          <div class="modal__amt">아무도 달성하지 못했어요</div>
+          <div class="modal__amtcap">적립금 90이 사라졌어요</div>
+        </div>
+
+        <div class="modal__list">
+          <div class="mock__row mock__row--me"><div class="mock__nick">나</div>
+            <div class="mock__val">2시간 41분</div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div>
+            <div class="mock__val">3시간 12분</div></div>
+        </div>
+
+        <div class="modal__cta">확인</div>
+      </div>
+      <div class="mockcap">FORFEITED — 전원 미달성</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="modal">
+        <div class="modal__q">1 / 1</div>
+        <div class="modal__h">8/10(월) 무산</div>
+        <div class="modal__sub">집중 · 09:00–12:00</div>
+
+        <div class="modal__hero modal__hero--none">
+          <div class="modal__amt">참가비 30 돌려드렸어요</div>
+          <div class="modal__amtcap">참가자가 부족해 내기가 성립하지 않았어요</div>
+        </div>
+
+        <div class="modal__cta">확인</div>
+      </div>
+      <div class="mockcap">VOIDED — 혼자라 무산</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>손익 숫자가 히어로다.</b> 모달을 여는 순간 알고 싶은 건 "얼마 벌었나/잃었나"이고,
+    남의 성적은 그다음이다. 인별 리스트는 그 아래 보조로 둔다.
+    <br><br>
+    <b>히어로가 내 결과를 다 말하면 리스트에서 내 행을 뺀다</b>(정산 케이스 — 중복이다).
+    히어로가 그룹 전체를 말할 때는(전원 미달성) 내 행도 리스트에 남긴다 — 내 수치가
+    어디에도 없어지기 때문이다.
+  </div>
+
+  <h3 class="sub">달성 순간과 정산은 다른 화면이다</h3>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="push">
+        <div class="push__top"><span class="push__app"></span>gromo · 지금</div>
+        <div class="push__t">90분 채웠어요 — 이겼습니다</div>
+        <div class="push__b">A그룹 · 09–12시 집중<br>적립금은 12:30에 정산돼요</div>
+      </div>
+      <div class="mockcap">승리 확정 — 달성 순간</div>
+    </div>
+
+    <div class="mockcol">
+      <div class="sheet" style="width:320px">
+        <div class="sheet__grip"></div>
+        <div class="sheet__h">8/10(월) 결과</div>
+        <div class="sheet__sub">09:00–12:00 · 90분 집중 · 적립금 90</div>
+
+        <div class="sheet__peers" style="margin-top:12px">
+          <div class="mock__row mock__row--me"><div class="mock__nick">나</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="mock__val">102분</span>
+              <span class="mock__val mock__val--done">+45</span></div></div>
+          <div class="mock__row"><div class="mock__nick">준호</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="mock__val">93분</span>
+              <span class="mock__val mock__val--done">+45</span></div></div>
+          <div class="mock__row"><div class="mock__nick">수빈</div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="mock__val">41분</span>
+              <span class="mock__val" style="color:var(--app-danger-ink)">−30</span></div></div>
+        </div>
+
+        <div class="sheet__note">목표 90분 · 목표에서 5분 모자라도 달성으로 인정돼요</div>
+        <div class="sheet__ghost">지난 기록 더보기</div>
+      </div>
+      <div class="mockcap">지난 회차 시트 — 근거를 함께 보여준다</div>
+    </div>
+
+    <div style="flex:1 1 17rem; min-width:16rem">
+      <h3 class="sub" style="margin-top:0">결과 모달 — 언제, 무엇을, 몇 개</h3>
+      <p style="margin-top:.5rem">
+        <b>그룹방에 들어왔을 때, 내가 돈을 걸었던 회차 중 아직 결과를 안 본 것을 최신순으로
+        하나씩</b> 보여준다.
+      </p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>축</th><th>규칙</th></tr></thead>
+          <tbody>
+            <tr><td>트리거</td><td class="copy">그룹방 <code>load()</code> 1회. 포그라운드 복귀로 재조회돼도 가드가 막는다</td></tr>
+            <tr><td>대상</td><td class="copy">각 챌린지의 <code>lastSettledSession</code> 중 <b><code>myJoined = true</code></b></td></tr>
+            <tr><td>데이터</td><td class="copy"><b>오늘 조회 1건</b>. 날짜를 따로 부르지 않는다</td></tr>
+            <tr><td>순서</td><td class="copy"><code>sessionDate</code> 내림차순 — 최근 것부터</td></tr>
+            <tr><td>개수</td><td class="copy">순차 큐. 하나 닫으면 다음</td></tr>
+            <tr><td>1회 가드</td><td class="copy"><code>gromo:sessionResult:{sessionId}</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="sub">무산·환불도 결과다</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>회차 상태</th><th>모달이 하는 말</th></tr></thead>
+          <tbody>
+            <tr><td><code>SETTLED</code></td><td class="copy">인별 달성 · 손익</td></tr>
+            <tr><td><code>FORFEITED</code></td><td class="copy">아무도 달성하지 못해 적립금 90이 사라졌어요</td></tr>
+            <tr><td><code>VOIDED</code></td><td class="copy">참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요</td></tr>
+            <tr><td><code>REFUNDED</code></td><td class="copy">정산이 지연돼 참가비를 돌려드렸어요</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:.7rem">
+        돈이 움직였거나 <b>움직이지 않기로 확정된</b> 사건은 전부 알린다. 침묵하면
+        "내 코인 어디 갔지"가 된다.
+      </p>
+
+      <h3 class="sub">띄우지 않는 경우</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>경우</th><th>왜</th></tr></thead>
+          <tbody>
+            <tr><td>내가 참가하지 않은 회차</td><td>남의 결과로 화면을 막지 않는다. 그룹 달성 현황은 카드에서 상시 보인다</td></tr>
+            <tr><td>내기가 꺼진 챌린지</td><td><code>lastSettledSession</code>이 없다</td></tr>
+            <tr><td>정산 전 회차</td><td>정산된 것만 실린다 — 스크린타임 하루형의 12시간 공백이 자동으로 걸러진다</td></tr>
+            <tr><td>이미 본 회차</td><td>세션 id 가드</td></tr>
+            <tr><td>삭제된 챌린지의 회차</td><td>응답에 없다. 삭제 시점의 환불은 <b>푸시로</b> 알린다</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="new" style="margin-top:1.2rem">
+        <span class="new__h">날짜 조회가 통째로 사라졌다</span>
+        기존 설계는 「오늘 + 직전 회차일」 <b>2건</b>을 불렀는데, 요일 반복에서는
+        <b>챌린지마다 직전 회차일이 다르다</b> — 월수금과 화목이 공존하면 수요일 기준 직전 회차가
+        각각 월/화요일이라 2건으로 못 덮는다.
+        <br><br>
+        서버가 이미 <code>lastSettledSession</code>을 챌린지마다 실어주므로 <b>오늘 조회 1건이면
+        끝난다.</b> 날짜 역산도, 자정 걸침 판정도 앱에서 사라진다.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="push">
+  <div class="sec__label">Section 11</div>
+  <h2 class="sec__h">알림 — 시간대별로 묶는다</h2>
+  <p class="sec__intro">
+    요일 반복과 회차별 참여로 알림이 하루 8~10건까지 늘어난다. 그대로 두면 유저가 알림을 닫는다.
+    <b>같은 무렵 같은 그룹의 알림은 한 건으로 모은다.</b> 하루 2~3건이 상한이다.
+  </p>
+
+  <div class="mockrow">
+    <div class="mockcol">
+      <div class="push">
+        <div class="push__top"><span class="push__app"></span>gromo · 08:30</div>
+        <div class="push__t">A그룹 · 오늘 챌린지 2개</div>
+        <div class="push__b">집중 09–12시 · 참가비 30코인<br>하루 폰 2시간 이하 · 참가비 50코인</div>
+      </div>
+      <div class="mockcap">참여 모집 묶음</div>
+    </div>
+    <div class="mockcol">
+      <div class="push">
+        <div class="push__top"><span class="push__app"></span>gromo · 13:00</div>
+        <div class="push__t">A그룹 · 결과 2건</div>
+        <div class="push__b">집중 달성 · +45코인<br>폰 미달성 · −30코인</div>
+      </div>
+      <div class="mockcap">결과 묶음</div>
+    </div>
+    <div class="mockcol">
+      <div class="push" style="opacity:.55; border-style:dashed">
+        <div class="push__top"><span class="push__app" style="background:var(--app-ink-faint)"></span>gromo · 08:45 · 무음</div>
+        <div class="push__t" style="color:var(--app-ink-muted)">(표시되지 않음)</div>
+        <div class="push__b">업로드 큐 flush · 창 사용분 보고</div>
+      </div>
+      <div class="mockcap">사일런트 — 화면에 안 뜬다</div>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>종류</th><th>시점</th><th>대상</th><th>승패</th><th>묶임</th></tr></thead>
+      <tbody>
+        <tr><td class="copy">챌린지 생성</td><td>생성 직후</td><td>그룹원 (생성자 제외)</td><td>—</td><td>○</td></tr>
+        <tr><td class="copy">회차 참여 모집</td><td>회차 시작 −30분</td><td>그룹원</td><td>—</td><td>○</td></tr>
+        <tr><td class="copy">회차 종료</td><td>회차 종료</td><td>그룹원</td><td>❌</td><td>○</td></tr>
+        <tr><td class="copy">승리 확정</td><td>목표 달성 순간</td><td><b>본인</b></td><td>✅</td><td>✗ 즉시성이 전부다</td></tr>
+        <tr><td class="copy">결과</td><td>정산 완료</td><td>참가자</td><td>✅</td><td>○</td></tr>
+        <tr><td class="copy"><b>사일런트</b></td><td>정산 −15분</td><td>참가자</td><td>무음</td><td>✗ 표시가 목적이 아니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>회차 종료 푸시는 승패를 싣지 않는다.</b> 스크린타임은 아직 보고 전이라 확정이 아니다.
+    "끝났어요"까지만 말하고 결과는 정산 후에 따로 보낸다.
+  </div>
+
+  <div class="new">
+    <span class="new__h">사일런트 푸시는 조용한 시간 필터를 타지 않는다</span>
+    무음이라 유저를 깨우지 않는다. 심야에 끝나는 창(<code>22:00–23:59</code>)의 정산이 데이터를
+    못 받던 문제가 이걸로 풀린다. <b>단 배달 보장이 없다</b> — 도착률 장치이지 신뢰 경로가 아니다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="copy">
+  <div class="sec__label">Section 12</div>
+  <h2 class="sec__h">카피 규칙 — 침묵이 거짓말이 되는 자리</h2>
+  <p class="sec__intro">
+    캡션을 다는 기준은 장식이 아니다. <b>말하지 않으면 유저가 반대로 이해하는 자리</b>에만 붙인다.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>문구</th><th>없으면 생기는 오해</th></tr></thead>
+      <tbody>
+        <tr><td class="copy">오늘 스크린타임을 목표 이하로 유지해요</td><td>집중처럼 "많을수록 좋다"로 읽는다</td></tr>
+        <tr><td class="copy">사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요</td><td>정확한 측정 위로 돈이 움직인다고 믿는다</td></tr>
+        <tr><td class="copy">목표에서 5분 모자라도 달성으로 인정돼요</td><td>창형 집중의 판정 기준을 모른 채 돈을 건다</td></tr>
+        <tr><td class="copy">— 는 아직 집계되지 않았어요</td><td><code>—</code>를 0분으로 읽는다</td></tr>
+        <tr><td class="copy">오늘은 쉬는 날이에요 · 다음은 8/12(수)</td><td>카드가 비면 "고장났다"로 읽는다</td></tr>
+        <tr><td class="copy">먼저 시작한 사람이 유리해요</td><td>불리한 회차인 줄 모르고 들어간다</td></tr>
+        <tr><td class="copy">09:00까지 참여할 수 있어요</td><td>언제까지 들어갈 수 있는지 알 방법이 없다</td></tr>
+        <tr><td class="copy">4분 37초 안에 취소할 수 있어요</td><td>하루형은 5분 유예가 유일한 취소 창인데, 흐르는 줄 모른다</td></tr>
+        <tr><td class="copy">취소할 수 있는 시간이 지났어요</td><td>버튼이 사라진 이유를 모른다</td></tr>
+        <tr><td class="copy">참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요</td><td>돈이 어디 갔는지 알 수 없다</td></tr>
+        <tr><td class="copy">아무도 달성하지 못해 적립금 90이 사라졌어요</td><td>"버그로 코인이 없어졌다"로 읽는다</td></tr>
+        <tr><td class="copy">기록은 그룹의 「챌린지 내역」에 남아요</td><td>종료·삭제가 기록까지 지운다고 생각해 못 누른다</td></tr>
+        <tr><td class="copy">8/10(월) 3명 참여 중 · 적립금 120코인이 전원에게 돌아갑니다</td><td>삭제가 남의 진행과 돈을 어떻게 하는지 모른 채 누른다</td></tr>
+        <tr><td class="copy">1명 더 참여해야 오늘 내기가 성립해요</td><td>혼자인 채로 종일 있다가 자정에 갑자기 무산된다</td></tr>
+        <tr><td class="copy">내일 12시에 결과가 나와요</td><td>오늘은 끝났는데 결과가 없어 "고장났다"로 읽는다</td></tr>
+        <tr><td class="copy">내기는 만든 뒤에 끌 수 없어요</td><td>나중에 뺄 수 있다고 믿고 켰다가, 뺄 방법이 없다는 걸 뒤늦게 안다</td></tr>
+        <tr><td class="copy">시간대는 하루 안에서 끝나야 해요</td><td><code>22:00~01:00</code>이 왜 거부되는지 알 방법이 없다</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">쓰지 않는 말</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>금지</th><th>대신</th><th>왜</th></tr></thead>
+      <tbody>
+        <tr><td><code>3일 뒤</code></td><td><code>8/12(수)</code></td><td>요일 반복에서는 날짜가 곧 정보다</td></tr>
+        <tr><td><code>베팅</code> · <code>배당</code></td><td><code>내기</code> · <code>적립금</code></td><td>도박 용어를 피한다</td></tr>
+        <tr><td><code>실패</code></td><td><code>미달성</code></td><td>사람이 아니라 목표에 대한 서술</td></tr>
+        <tr><td><code>몰수</code></td><td><code>사라졌어요</code></td><td>처벌 어감을 빼고 사실만</td></tr>
+        <tr><td><code>0분</code> (스크린타임 미보고)</td><td><code>—</code></td><td>없는 값을 0으로 쓰지 않는다</td></tr>
+        <tr><td><code>철회</code></td><td><code>참여 취소</code></td><td>법률·행정 어휘다. 결제·예약의 표준어인 "취소"가 유저 언어에 맞는다</td></tr>
+        <tr><td><code>취소</code> (버튼 단독)</td><td><code>참여 취소</code></td><td>시트를 닫는 버튼과 헷갈린다. 돈이 빠져나가는 행동이라 <b>무엇을</b> 취소하는지 드러나야 한다</td></tr>
+        <tr><td><code>판</code> · <code>판돈</code></td><td><code>내기</code> · <code>참가비</code> · <code>적립금</code></td><td>도박 어감 + "판"이 가리키던 것이 실제로는 회차였다</td></tr>
+        <tr><td><b><code>회차</code></b></td><td><b>날짜 · 요일</b></td><td>아래 별도 규칙 — 내부 용어라 화면에 쓰지 않는다</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">"회차"는 화면에 쓰지 않는다</h3>
+  <p>
+    유저에게 회차는 결국 <b>그 챌린지가 도는 하루</b>이고, 그건 <b>날짜와 요일이 이미 완전히
+    표현한다.</b> 월수금 챌린지의 월요일치를 "3회차"라고 부를 이유가 없다 — 유저가 아는 건
+    "오늘(월) 참여할지"뿐이다. 가르는 기준은 하나다: <b>이 문장을 유저가 앱에서 읽는가.</b>
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>자리</th><th>쓰지 않음</th><th>대신</th></tr></thead>
+      <tbody>
+        <tr><td>참여 버튼</td><td><code>이번 회차 참여</code></td><td class="copy">오늘(월) 참여</td></tr>
+        <tr><td>비활성 요일</td><td><code>다음 회차 수요일</code></td><td class="copy">다음은 수요일</td></tr>
+        <tr><td>결과 모달</td><td><code>8/10(월) 회차 결과</code></td><td class="copy">8/10(월) 결과</td></tr>
+        <tr><td>마감 안내</td><td><code>회차 마감</code></td><td class="copy">오늘 마감</td></tr>
+        <tr><td>주간 일괄 참여</td><td><code>이번 주 남은 회차 전부</code></td><td class="copy">이번 주 남은 날 전부</td></tr>
+        <tr><td>종료 차단 사유</td><td><code>8/14(금) 회차가 끝나야…</code></td><td class="copy">8/14(금)이 끝나야…</td></tr>
+        <tr><td>모집 푸시</td><td><code>오늘 회차 2개</code></td><td class="copy">오늘 챌린지 2개</td></tr>
+        <tr><td>무산 예고</td><td><code>회차가 성립해요</code></td><td class="copy">오늘 내기가 성립해요</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <b>문서·API·DB는 그대로 "회차"를 쓴다.</b> 하루형(자정~자정)과 창형(그날의 창)이 섞일 때
+    단위를 한 단어로 가리켜야 하는 건 <b>설계하는 쪽 사정</b>이지 유저 사정이 아니다.
+    이 문서의 설계 서술·상태 이름·<code>session</code> 필드는 손대지 않는다.
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="sec" id="diff">
+  <div class="sec__label">Section 13</div>
+  <h2 class="sec__h">무엇이 바뀌었나</h2>
+  <p class="sec__intro">
+    2026-08-08 백지 재정의 이전 화면과의 차이. <b>추가</b>보다 <b>제거</b>가 많다 —
+    개설 개념이 사라지면서 곁가지가 함께 정리됐다.
+  </p>
+
+  <div class="grid2">
+    <div class="new">
+      <span class="new__h">새로 생긴 것</span>
+      <ul>
+        <li><b>요일 배지 + 다음 회차</b> — 카드 2번 자리</li>
+        <li><b>쉬는 날 카드</b> — 가라앉은 톤 + 다음 회차만</li>
+        <li><b>만들기 시트의 요일 단계</b> — 기본값 없음</li>
+        <li><b>종료 액션</b> · <b>조건 없는 삭제</b>(참가비 환불 동반)</li>
+        <li><b>그룹 챌린지 내역</b> — 챌린지가 삭제돼도 남는다</li>
+        <li><b>하루형 참가 시트의 진행분 공개</b></li>
+        <li><b>「이번 주 남은 날 전부」</b> 예약</li>
+        <li><b>승리 확정 푸시</b> — 달성 순간</li>
+        <li><b>알림 묶음</b> — 하루 2~3건</li>
+        <li><b>사일런트 푸시</b> — 화면에 안 뜸</li>
+        <li><b>취소 5분 유예 + 카운트다운</b> — 오탭 방어</li>
+        <li><b>무산·환불 문구</b> — 돈의 행방을 항상 말한다</li>
+        <li><b>화면 문구에서 「회차」 제거</b> — 날짜·요일로만 말한다 (내부 용어는 그대로)</li>
+        <li><b>버튼 문구 <code>참여 취소</code></b> — 시트 닫기 버튼과 구분</li>
+      </ul>
+    </div>
+    <div class="gap">
+      <span class="gap__h">없어진 것</span>
+      <ul>
+        <li><b>챌린지 수정 일체</b> — 삭제가 자유로워 접고 다시 만들면 된다</li>
+        <li><b><code>+ 내기 걸기</code> 버튼</b> — 내기는 그룹장이 켠다</li>
+        <li><b>개설자의 <code>[회차 전체 취소]</code></b> — 개설자가 없다</li>
+        <li><b>휴면 배지</b> — 쉬는 날이 정상 상태가 됐다</li>
+        <li><b>헤더 <code>×</code> 삭제</b> — <code>⋯</code> 메뉴로</li>
+        <li><b>"내일 내기"</b> — 회차 단위로 대체</li>
+        <li><b>내기 영역 ⓪ 자리 캡션</b>("빠졌어요") — 참가 마감 전이면 그냥 ②로 되돌아간다</li>
+        <li><b>자정을 걸치는 창</b>(<code>22:00~01:00</code>) — <code>시작 &lt; 종료</code>를 강제한다. 심야는 <code>22:00~23:59</code>로 끊거나 다음 날 요일의 별도 챌린지로 나눈다. "마지막 1시간 참가 불가"라는 기형도 함께 사라졌다</li>
+        <li><b>내기 켜기/끄기 토글</b> — 켤지 여부는 만들 때 정하고 이후 불변. 끄려면 삭제 후 재생성</li>
+        <li><b>요일 프리셋 칩</b>(매일/평일/주말) — 의식을 건너뛰게 만든다</li>
+        <li><b>「취소는 회차 시작 전만」 단일 규칙</b> — 하루형에서 취소가 영영 불가능해진다</li>
+        <li><b>「삭제하려면 내기 이력이 0건이어야 한다」</b> — 이력을 그룹이 소유해 불필요해졌다</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>영역</th><th>이전</th><th>지금</th></tr></thead>
+      <tbody>
+        <tr><td class="copy">반복</td><td>매일 고정 (암묵)</td><td><b>요일 선택</b> · 카드에 명시</td></tr>
+        <tr><td class="copy">내기 소유권</td><td>그룹원 누구나 개설</td><td><b>그룹장</b>이 <b>만들 때</b> 켜기 (이후 불변 · 끄기 없음)</td></tr>
+        <tr><td class="copy">창 시간대</td><td>자정 걸침 허용 (<code>22:00~01:00</code>)</td><td><b><code>시작 &lt; 종료</code></b> — 하루 안에서 닫힌다</td></tr>
+        <tr><td class="copy">화면 용어</td><td>화면에도 「회차」 노출</td><td><b>날짜·요일로만</b> — 회차는 내부 용어</td></tr>
+        <tr><td class="copy">내기 단위</td><td>날짜당 1건 (개설 필요)</td><td><b>회차</b>마다 자동 · 참여만</td></tr>
+        <tr><td class="copy">참가 마감</td><td>창 진행 중에도 가능</td><td>창형 <b>창 시작 전</b> / 하루형 종일</td></tr>
+        <tr><td class="copy">라이프사이클</td><td>삭제만</td><td><b>종료</b>(진행 중 불가) ↔ <b>삭제</b>(언제든·환불)</td></tr>
+        <tr><td class="copy">이력 소유자</td><td>챌린지</td><td><b>그룹</b> — 챌린지가 사라져도 남는다</td></tr>
+        <tr><td class="copy">수정</td><td>불가</td><td><b>불가</b> (삭제 후 재생성)</td></tr>
+        <tr><td class="copy">정산 시점</td><td>01:00 / 12:00 배치</td><td><b>회차 종료 즉시</b> (창형 +30분)</td></tr>
+        <tr><td class="copy">알림</td><td>종류별 개별 발송</td><td><b>시간대별 그룹 묶음</b></td></tr>
+        <tr><td class="copy">활성 상한</td><td>조합당 1개 = 4개</td><td>총 <b>4개</b> · 창형은 여러 개 가능</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('#nav a'));
+  var secs  = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  function sync(){
+    var y = window.scrollY + 120, best = 0;
+    for (var i = 0; i < secs.length; i++){ if (secs[i] && secs[i].offsetTop <= y) best = i; }
+    links.forEach(function(a, i){ a.classList.toggle('is-active', i === best); });
+  }
+  var ticking = false;
+  window.addEventListener('scroll', function(){
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(function(){ sync(); ticking = false; });
+  }, {passive:true});
+  sync();
+})();
+</script>
+</body>
+</html>
