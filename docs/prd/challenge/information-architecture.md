@@ -388,7 +388,12 @@ flowchart LR
 | `CHALLENGE_SESSION_END` | `groupId` + 대표 `challengeId` | 그룹방 + 결과 모달 | ❌ |
 | `BET_WON` | `groupId` + `challengeId` | 그룹방 | ✅ |
 | `BET_RESULT` | `groupId` (+ 결과 요약 N건) | 그룹방 + 결과 모달 | ✅ |
+| `BET_VOID_REFUND` | `groupId` + `voidReason` | 그룹방 | ✅ |
 | *(사일런트)* | `content-available` / data-only | **없음** — 큐 flush 전용 | — |
+
+> **앱 배선이 있어야 이 표가 성립한다.** 서버는 `link`를 싣지 않고 `groupId`만 주는데, 현재
+> `push.ts`는 **`CHALLENGE_WINDOW_END` 한 타입에만** `groupId` → 그룹방 딥링크를 합성한다.
+> 위 타입들을 같은 방식으로 배선하지 않으면 **탭해도 아무 데도 안 간다** (LLD §6.2 앱 파일 표).
 
 **묶음 발송의 페이로드 규칙**: 여러 챌린지가 한 푸시에 묶이면 `challengeId` 대신 요약 배열을
 싣고, 딥링크는 그룹방까지만 보낸다. 특정 챌린지로 스크롤하지 않는다 — 어느 것을 고를지
@@ -406,7 +411,7 @@ flowchart LR
 | **데이터** | **오늘 조회 1건**. 날짜를 따로 부르지 않는다 |
 | **순서** | `sessionDate` 내림차순 → 동률이면 챌린지 `startedAt` 순. 최근 것부터 |
 | **개수** | 순차 큐. 하나 닫으면 다음이 뜬다 |
-| **1회 가드** | `gromo:sessionResult:{sessionId}` — 세션 id 기준 |
+| **1회 가드** | `gromo:sessionResult:{userId}:{sessionId}` — **계정별** 세션 id 기준 (§8과 동일 키. 한 기기 두 계정이 같은 회차에 참가할 수 있다) |
 
 ```mermaid
 flowchart TB

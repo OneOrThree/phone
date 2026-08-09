@@ -34,7 +34,7 @@ erDiagram
     }
     GROUP_CHALLENGE_DURATIONS {
         uuid challenge_id PK
-        int duration_minutes "하루 목표 · 1~1440"
+        int duration_minutes "하루 목표 · FOCUS 1~1080 · SCREEN_TIME 1~720 (N51)"
     }
     GROUP_CHALLENGE_WINDOWS {
         uuid challenge_id PK
@@ -145,10 +145,17 @@ flowchart LR
     VN2["Vn+2<br/>sessions 테이블 신설 (미션 스냅샷 포함)<br/>기존 bets → bets(설정) + sessions(회차) 분해"]
     VN3["Vn+3<br/>window를 time 타입으로<br/>KST 벽시계 추출 백필<br/>CHECK (start &lt; end) 추가"]
     VN4["Vn+4<br/>잔재 컬럼 제거<br/>is_achieved·achieved_at·deleted_at<br/>usage_date NOT NULL"]
-    VN5["Vn+5<br/>stake CHECK 상한<br/>통계 일자 KST 재계산"]
+    VN5["Vn+5<br/>stake CHECK 상한<br/>하루형 목표 상한 CHECK (N51)<br/>통계 일자 KST 재계산"]
+    VN6["Vn+6<br/>notification_sent_logs 확장<br/>kind · subject_id · status · claimed_at · group_id · slot<br/>UNIQUE (user_id, kind, subject_id)"]
 
-    V1 --> V2 --> V5 --> V19 --> V20 --> V28 --> V29 --> VN1 --> VN2 --> VN3 --> VN4 --> VN5
+    V1 --> V2 --> V5 --> V19 --> V20 --> V28 --> V29 --> VN1 --> VN2 --> VN3 --> VN4 --> VN5 --> VN6
 ```
+
+**`Vn+6`이 없으면 알림 선점(N41·§6)이 구현 불가**다. 현행 `notification_sent_logs`는
+`id·sent_at·target_user_id·type·user_id`뿐이라 **유니크 사건 키도, `PENDING` 상태·리스 시각도
+없다** — 마이그레이션 없이 코드만 쓰면 결국 "조회 후 발송"으로 되돌아가 다중 인스턴스에서
+결과 푸시가 중복 발송된다. 기존 행은 `kind=type`·`subject_id=NULL`로 백필하고, `NULL`
+`subject_id`는 유니크 제약에서 빠지므로(Postgres) 과거 이력과 충돌하지 않는다.
 
 **전환 원칙 — forward-only.** dev DB는 리셋 가능하므로 컷오버 데이터 불일치는 백필 대신
 **수용 + 문서화**한다. 다만 `Vn+2`(내기 분해)와 `Vn+5`(통계 일자 재계산)는 **prod에 돈 이력이
@@ -254,6 +261,13 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 하루형은 회차 시작이 자정이라 "오늘 회차 시작"이 항상 과거다 — 이 분리가 없으면 오늘 도는
 > 챌린지가 "다음 회차 내일"로 잘못 표시된다.
 
+> **브리지 주기 동안 `bet`은 구·신 필드를 함께 싣는다 (N36 보강).** 경로만 유지하는 걸로는
+> 부족하다 — 설치된 구앱의 `GroupChallengeBet` 타입은 최상위 `betId`·`status`·`myJoined`·
+> `participants`를 **필수**로 읽는데, 새 응답은 그 자리를 `enabled`·`stake`·중첩 `session`으로
+> 바꾼다. 서버 먼저 배포하면 구앱은 `bet`이 있다고 판단한 뒤 `undefined` 식별자로 렌더·호출해
+> 깨진다. 그래서 브리지 한 주기 동안 **오늘 회차 기준으로 레거시 4필드를 채워 병기**하고,
+> 구앱 전환 확인 후 제거한다(제거는 별도 티켓).
+>
 > **직렬화 계약**: `bet` · `bet.session` · `goalMinutes` · `results[].progressMinutes` ·
 > `participants[].progressMinutes`에 **`@JsonInclude(NON_NULL)`을 붙이면 안 된다.**
 > 앱이 `undefined`(구서버) ↔ `null`(값 없음) ↔ `0`(진짜 0분)을 3상으로 구분한다.
@@ -292,7 +306,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 | 3 | 활성 4개 미만인가 | `CHALLENGE_LIMIT_EXCEEDED` 409 |
 | 4 | 하루형이면 같은 카테고리 활성 챌린지 없는가 | `CHALLENGE_ALREADY_EXISTS` 409 |
 | 5 | 창형: **`시작 < 종료`** (자정 걸침 금지 — `22:00~01:00` 거부) | `INVALID_MISSION_PARAMS` 400 |
-| 6 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가** | `INVALID_MISSION_PARAMS` 400 |
+| 6 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가**<br>하루형: **FOCUS `≤ 1080분`(18h) · SCREEN_TIME `≤ 720분`(12h)** (N51) | `INVALID_MISSION_PARAMS` 400 |
 | 7 | 창형 SCREEN_TIME: 목표가 15분 배수 | `CHALLENGE_GOAL_NOT_ALIGNED` 400 |
 | 8 | 창형: 기존 창과 겹치지 않는가 (§3.5) | `CHALLENGE_WINDOW_OVERLAP` 409 |
 | 9 | 내기 켬: `1 ≤ stake ≤ 3000` | `BET_INVALID_STAKE` 400 |
@@ -366,7 +380,9 @@ FR-12-1이 요구하는 "걸려 있는 **모든** OPEN 회차의 인원·적립�
 @Transactional
 void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
     requireOwner(groupId, ownerId);
-    var ch = challengeRepo.findByIdForUpdate(challengeId)     // 삭제된 행 포함 조회
+    // **그룹 바인딩 필수** — challengeId만으로 잠그면 IDOR: 내가 방장인 그룹의 gid + 남의
+    // 그룹 챌린지 cid 조합으로 requireOwner를 통과시켜 남의 챌린지를 지울 수 있다.
+    var ch = challengeRepo.findByIdAndGroupIdForUpdate(challengeId, groupId)  // 삭제 행 포함
                           .orElseThrow(CHALLENGE_NOT_FOUND);
     if (ch.isDeleted()) return;      // 이미 삭제됨 — 멱등 204 (활성만 조회하면 재시도가 예외로 빠진다)
 
@@ -473,6 +489,12 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 앱은 실패 처리했지만 요청이 서버에 지연 도착하는 경우. "마지막 도착이 이긴다"로 두면
 **정산 결과가 네트워크 도착 순서에 좌우**된다 — 돈 경로다.
 서버는 범위(0~1440)만 검증한다(클라 신뢰).
+**보고도 회차 락을 잡고 `OPEN`을 재확인한 뒤 쓴다.** 무락으로 "OPEN이네" 확인만 하고 upsert하면
+정산과 경합한다 — 정산이 락을 잡고 **옛 값으로 패배를 확정·지급한 뒤**, 이 트랜잭션이 새 값을
+써서 **저장된 측정치와 지급 결과가 어긋난다**(계약상 "정산 후 보고는 무시"인데 실제로는 반영된
+셈). 회차 락을 먼저 잡으면 정산이 새 값을 보거나, 보고가 정산 후임을 알고 스스로 무시한다.
+**하루형 SCREEN_TIME 일일 보고 경로도 같은 직렬화가 필요하다** — DURATION 회차가 그 값을 쓴다.
+
 **`usageDate`는 내가 참가한 그 챌린지의 `OPEN` 회차 날짜여야 한다.** 활성 요일인지만 보면
 클라가 **미래 활성일에 낮은 값을 미리 심을** 수 있고, 그 뒤 덮어쓰는 보고가 없으면 그대로
 정산에 쓰여 스크린타임 회차를 부당하게 이긴다. 회차가 없거나 이미 정산됐으면 조용히 204로
@@ -547,7 +569,10 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
 - **부분 예약**: 잔액이 전부를 감당하지 못하면 UX가 「2일만 참여 (60코인)」 같은 축소 액션을
   준다(ux §주간 시트). 그래서 본문의 `sessionDates`로 **대상 날짜를 지정**할 수 있다 — 주지
   않으면 남은 활성일 전부다. 지정 날짜는 아래 대상 규칙(활성일·참여 가능)을 통과해야 하고,
-  하나라도 어긋나면 400(부분 성공을 만들지 않는다).
+  하나라도 어긋나면 400(부분 성공을 만들지 않는다). **비어 있지 않은 서로 다른 날짜 집합**이어야
+  한다 — 중복이 섞이면 총액 선검사가 부풀고, 같은 회차에 참가 행을 두 번 넣다가 유니크 제약으로
+  전체가 롤백되거나 "이미 참가" 검사 시점에 따라 차감이 들쭉날쭉해진다. 중복은
+  `INVALID_SESSION_DATES` 400으로 거절한다(조용한 dedup보다 낫다 — 클라 버그를 숨기지 않는다).
 - 대상은 `RepeatSchedule.remainingThisWeek(mask, 오늘)` — 오늘 포함, 그 주(월~일)의 남은 활성일.
   단 **배치에 담는 건 "지금 참여 가능한 미참가 회차"만이다** (N39): 오늘 회차가 이미 참가
   마감됐거나(창 시작 후) 자격 가드(§3.3)에 걸리면 **조용히 건너뛴다**. 전부-성공-or-전부-실패에
@@ -860,7 +885,8 @@ enum RemainderRule {
 ```java
 // FocusSessionService가 세션 저장 후 호출 (같은 트랜잭션)
 void onFocusRecorded(UUID userId, LocalDate kstDate) {
-    var targets = participantRepo.findOpenByUserAndDate(userId, kstDate).stream()
+    // **FOCUS 회차만** — 조기 확정은 FOCUS 전용이다 (아래 근거)
+    var targets = participantRepo.findOpenFocusByUserAndDate(userId, kstDate).stream()
             .filter(p -> !Boolean.TRUE.equals(p.getAchieved()))   // 이미 확정 제외
             .sorted(comparing(BetParticipant::getSessionId))      // §5.4 — id 오름차순
             .toList();
@@ -869,9 +895,12 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
             .map(p -> sessionRepo.findByIdForUpdate(p.getSessionId()).orElseThrow())
             .collect(toMap(BetSession::getId, identity()));
 
-    for (var p : targets) {
-        var s = locked.get(p.getSessionId());
+    for (var p0 : targets) {
+        var s = locked.get(p0.getSessionId());
         if (s.getStatus() != OPEN) continue;                      // 이미 정산됨 — 건드리지 않는다
+        // 락 이후 참가 행 재조회 (§5.4) — 대기하는 사이 취소로 사라졌을 수 있다
+        var p = participantRepo.findById(p0.getId()).orElse(null);
+        if (p == null || Boolean.TRUE.equals(p.getAchieved())) continue;
         Target t = targetOf(s);
         Integer m = judge.progressMinutes(t, kstDate, List.of(userId)).get(userId);
         if (BetJudge.isAchieved(t, m)) {
@@ -885,6 +914,16 @@ void onFocusRecorded(UUID userId, LocalDate kstDate) {
 **조기 확정은 되돌리지 않는다.** 목표분이 나중에 올라가도(A7) 회차 박제값으로 판정했으므로
 번복 사유가 없다.
 
+> **조기 확정은 FOCUS 회차에만 건다.** 카테고리를 안 가리면 집중 세션 하나를 기록했을 뿐인데
+> **같은 날 SCREEN_TIME 회차까지 판정**된다 — 그 시점에 사용량이 목표 이하면
+> `confirmWin`이 걸리고, 조기 확정은 **불가역**이라 이후 사용량이 목표를 넘겨도 정산에서
+> 승자로 지급된다. SCREEN_TIME은 값이 하루 종일 늘어나는 지표라 애초에 "먼저 확정"이 성립하지
+> 않는다(그래서 §5.1의 제목이 "조기 승리 확정 (FOCUS)"이다).
+>
+> **락 획득 후 참가 행을 다시 읽는다** — 락을 기다리는 동안 취소(5분 유예)가 그 행을 지웠을 수
+> 있다. 낡은 스냅샷을 그대로 수정하면 없는 참가에 승리를 기록하거나, flush 실패로 **집중 세션
+> 저장 트랜잭션 전체가 롤백**된다(남의 취소 때문에 내 집중 기록이 사라지는 셈).
+>
 > **한 번에 여러 회차를 잠글 때는 `session.id` 오름차순**(§5.4). 유저가 같은 날 여러 챌린지에
 > 참가했을 수 있는데, 리포지토리 반환 순서대로 하나씩 잠그면 탈퇴 연동(`releaseSessions`)처럼
 > 오름차순으로 도는 경로와 **교차 데드락**이 난다(한쪽은 낮은 id를 쥐고 높은 id를 기다리고,
@@ -1225,6 +1264,7 @@ classDiagram
 | `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — 각 챌린지의 `mySettledSessions`를 합쳐 회차일 내림차순 정렬 후 로컬 seen set(`sessionId`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |
 | `pendingFocusUploads.ts` | 업로드 재시도 큐 | **사일런트 푸시 수신 시 flush 추가** |
+| `push.ts` | 푸시 수신·딥링크 라우팅 | **신규 타입 배선 필요** — 현재 `groupId`로 딥링크를 합성하는 분기가 `CHALLENGE_WINDOW_END` 하나뿐이라, `CHALLENGE_*`·`BET_WON`·`BET_RESULT`·**`BET_VOID_REFUND`** 를 탭해도 그룹방으로 못 간다. 서버가 `link`를 안 싣는 계약이므로(IA §푸시) **앱에서 `data.groupId` → 그룹방 라우팅**을 추가한다 |
 | `screentimeSync.ts` | 일·창 사용분 보고 | 비활성 요일 스킵 · **보고 대상 탐색축 교체** — `getMyGroups()`→그룹별 ACTIVE 챌린지 순회에서 **내 OPEN 회차 목록** 기준으로 (탈퇴·챌린지 종료 후에도 진행 중 회차엔 보고해야 한다 — N43) |
 
 **사일런트 푸시 수신 배선**
