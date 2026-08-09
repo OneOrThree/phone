@@ -1,0 +1,66 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="cond05" name="집계 방법 — 4조합 파이프라인">
+    <mxGraphModel dx="1400" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="집계 방법 — 조합마다 소스가 다르고, 판정은 한 곳에서 한다" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="14" width="700" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="주황 = 클라이언트가 보고하는 값 — 서버는 범위(0~1440)만 검증한다" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#a35c00;" vertex="1" parent="1">
+          <mxGeometry x="30" y="40" width="700" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="band" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="20" y="242" width="510" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h1" value="조합" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#555555;" vertex="1" parent="1"><mxGeometry x="30" y="80" width="200" height="20" as="geometry" /></mxCell>
+        <mxCell id="h2" value="데이터 소스" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#555555;" vertex="1" parent="1"><mxGeometry x="270" y="80" width="250" height="20" as="geometry" /></mxCell>
+        <mxCell id="h3" value="판정" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#555555;" vertex="1" parent="1"><mxGeometry x="560" y="80" width="250" height="20" as="geometry" /></mxCell>
+        <mxCell id="h4" value="정산" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#555555;" vertex="1" parent="1"><mxGeometry x="850" y="80" width="300" height="20" as="geometry" /></mxCell>
+
+        <mxCell id="k1" value="FOCUS × DURATION&#10;당일 집중분 ≥ 목표" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="110" width="200" height="60" as="geometry" /></mxCell>
+        <mxCell id="k2" value="FOCUS × TIME_WINDOW&#10;창 내 집중분 ≥ 목표 − 5분" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="180" width="200" height="60" as="geometry" /></mxCell>
+        <mxCell id="k3" value="SCREEN_TIME × DURATION&#10;당일 사용분 ≤ 목표" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="250" width="200" height="60" as="geometry" /></mxCell>
+        <mxCell id="k4" value="SCREEN_TIME × TIME_WINDOW&#10;창 내 사용분 ≤ 목표 · iOS만" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="320" width="200" height="60" as="geometry" /></mxCell>
+
+        <mxCell id="d1" value="daily_focus_stats&#10;서버 · 세션 기록 (분 단위)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="270" y="110" width="250" height="60" as="geometry" /></mxCell>
+        <mxCell id="d2" value="focus_sessions&#10;서버 · 창 클리핑 (분 단위)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="270" y="180" width="250" height="60" as="geometry" /></mxCell>
+        <mxCell id="d3" value="daily_screen_time_stats&#10;클라 보고 · 일 단위 집계" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="270" y="250" width="250" height="60" as="geometry" /></mxCell>
+        <mxCell id="d4" value="group_challenge_members&#10;클라 보고 · 15분 눈금" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="270" y="320" width="250" height="60" as="geometry" /></mxCell>
+
+        <mxCell id="judge" value="BetJudge — 판정의 유일한 소유자&#10;&#10;FOCUS · 값 없음 → 0분으로 접는다&#10;&#160;&#160;「0분 집중」이 사실이므로&#10;SCREEN_TIME · 값 없음 → null 유지&#10;&#160;&#160;0으로 접으면 미보고가&#10;&#160;&#160;「0분 사용 = 달성」으로 뒤집힌다&#10;관용치 — 창 FOCUS만 5분&#10;&#160;&#160;창 SCREEN_TIME은 관용치 0,&#10;&#160;&#160;대신 목표를 15분 배수로 정렬&#10;모든 날짜 키는 KST&#10;자정 걸친 세션은 종료일 회차로&#10;null(미집계)도 미달성으로 확정 (FR-21)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="560" y="110" width="250" height="270" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pot" value="PotDistributor — 팟 분배&#10;&#10;팟 = 참가비 × 참가자 수&#10;참가자 &lt; 2명 → VOIDED · 전액 환불&#10;승자 0명 → FORFEITED · 팟 소멸 (이월 없음)&#10;승자 ≥ 1명 → SETTLED · 달성자 균등 분배&#10;&#160;&#160;잔여는 성과 1위에게&#10;&#160;&#160;FOCUS 진행분 최대 / SCREEN_TIME 사용분 최소&#10;&#160;&#160;동률이면 userId 오름차순 (결정적)&#10;정산은 되돌리지 않는다 (FR-27)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="850" y="110" width="300" height="270" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ledger" value="currency_transactions — 원장이 단일 진실&#10;멱등키 session:{sid}:stake|refund|payout:{participantId} · UNIQUE 로 차감·환불·지급이 정확히 한 번" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="410" width="590" height="56" as="geometry" />
+        </mxCell>
+
+        <mxCell id="a1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="k1" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="k2" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="k3" target="d3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="a4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="k4" target="d4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="b1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#9673a6;" edge="1" parent="1" source="d1" target="judge"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="540" y="140" /><mxPoint x="540" y="245" /></Array></mxGeometry></mxCell>
+        <mxCell id="b2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#9673a6;" edge="1" parent="1" source="d2" target="judge"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="540" y="210" /><mxPoint x="540" y="245" /></Array></mxGeometry></mxCell>
+        <mxCell id="b3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#9673a6;" edge="1" parent="1" source="d3" target="judge"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="540" y="280" /><mxPoint x="540" y="245" /></Array></mxGeometry></mxCell>
+        <mxCell id="b4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#9673a6;" edge="1" parent="1" source="d4" target="judge"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="540" y="350" /><mxPoint x="540" y="245" /></Array></mxGeometry></mxCell>
+
+        <mxCell id="c1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#82b366;" edge="1" parent="1" source="judge" target="pot"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="c2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.75;entryY=0;strokeColor=#666666;" edge="1" parent="1" source="pot" target="ledger"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="note" value="· 판정 데이터가 정산 시각까지 도착하지 않으면 미달성으로 확정한다 (FR-21) — 회차는 닫혀야 한다&#10;· 정산 직전 사일런트 푸시로 참가자 앱을 깨워 업로드 큐를 비운다 (FR-22)&#10;· 몰수분은 회수 계정이 없다 — 코인이 소멸하며 원장에 지급 기입이 없다 (§8 L3)&#10;· 창 사용분 네이티브 타임라인은 2일 보존 — 그제 이전 창은 복구 불가 (§8 L2)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="30" y="500" width="1120" height="80" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

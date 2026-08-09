@@ -1,0 +1,109 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17">
+  <diagram id="cond03" name="종료·삭제 조건 — 챌린지 × 회차 상태">
+    <mxGraphModel dx="1300" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="580" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="종료·삭제 조건 — 챌린지와 회차는 다른 것이 끝난다" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="16" width="700" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="왼쪽 = 그룹장이 누르는 것 · 오른쪽 = 서버가 확정하는 것" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="30" y="42" width="700" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="boxL" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#cccccc;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="70" width="440" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="boxLt" value="챌린지 &#160;group_challenges" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#555555;" vertex="1" parent="1">
+          <mxGeometry x="40" y="78" width="300" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cStart" value="생성 (그룹장만)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="180" y="110" width="140" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="cActive" value="ACTIVE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="175" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="cEnded" value="ENDED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="300" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="cDeleted" value="DELETED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="300" width="150" height="44" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cLabE" value="종료" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#1f5c99;" vertex="1" parent="1">
+          <mxGeometry x="135" y="176" width="50" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="cLabD" value="삭제" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="323" y="176" width="50" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="cLabE2D" value="삭제" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="227" y="302" width="50" height="16" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cCapE" value="OPEN 회차가 하나도&#10;없을 때만 (FR-11)" style="text;html=1;align=center;verticalAlign=top;fontSize=10;fontColor=#1f5c99;" vertex="1" parent="1">
+          <mxGeometry x="60" y="348" width="160" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="cCapD" value="언제든 — OPEN 회차는&#10;무효화 + 전원 환불 (FR-12)&#10;진행 중이면 경고 확인 1단계 추가" style="text;html=1;align=center;verticalAlign=top;fontSize=10;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="290" y="348" width="170" height="48" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cNote" value="만들면 통째로 불변 (FR-10)&#10;카테고리 · 방식 · 요일 · 시간대 · 목표분 · 내기 켤지 여부 · 참가비&#10;바꾸려면 삭제하고 새로 만든다" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#dddddd;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="60" y="396" width="380" height="54" as="geometry" />
+        </mxCell>
+
+        <mxCell id="boxR" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#cccccc;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="70" width="440" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="boxRt" value="회차 &#160;bet_sessions" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#555555;" vertex="1" parent="1">
+          <mxGeometry x="530" y="78" width="300" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sOpen" value="OPEN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="270" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sSettled" value="SETTLED&#10;달성자 ≥ 1명 · 팟 분배" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="150" width="230" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="sForfeited" value="FORFEITED&#10;달성자 0명 · 팟 소멸 (이월 없음)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="215" width="230" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="sVoided" value="VOIDED&#10;참가 마감 시 참가자 &lt; 2명 · 전액 환불" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="280" width="230" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="sRefunded" value="REFUNDED&#10;정산 24h 초과 · 전원 환불 (FR-45)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="345" width="230" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="sNote" value="네 상태 모두 종단 — 역전이가 없다. 정산은 되돌리지 않는다 (FR-27)" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#777777;" vertex="1" parent="1">
+          <mxGeometry x="540" y="412" width="410" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eStart" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#666666;" edge="1" parent="1" source="cStart" target="cActive"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eEnd" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.5;entryX=0.5;entryY=0;strokeColor=#6c8ebf;" edge="1" parent="1" source="cActive" target="cEnded">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="140" y="197" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="eDel" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0.5;entryY=0;strokeColor=#b85450;" edge="1" parent="1" source="cActive" target="cDeleted">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="375" y="197" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="eE2D" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#b85450;" edge="1" parent="1" source="cEnded" target="cDeleted"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="eS1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="sOpen" target="sSettled"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eS2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="sOpen" target="sForfeited"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eS3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="sOpen" target="sVoided"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eS4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#888888;" edge="1" parent="1" source="sOpen" target="sRefunded"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="eCross" value="삭제 시 OPEN 회차 → 전원 환불" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.75;strokeColor=#b85450;dashed=1;fontSize=10;fontColor=#b85450;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="cDeleted" target="sVoided">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="490" y="322" /><mxPoint x="490" y="448" /><mxPoint x="700" y="448" /><mxPoint x="700" y="322" /></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="note" value="· 정산이 끝난 회차(SETTLED · FORFEITED)는 삭제해도 되돌리지 않는다 — 환불 대상은 OPEN 회차의 에스크로뿐 (FR-13)&#10;· 종료든 삭제든 회차 이력은 「그룹 챌린지 내역」에 남는다 — 이력의 소유자가 챌린지가 아니라 그룹이기 때문이다 (FR-14)&#10;· 그래서 회차 행에 미션 스냅샷(카테고리·방식·목표분·창 시각)을 박제한다 — 챌린지가 사라져도 한 줄을 읽을 수 있어야 한다" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="30" y="486" width="930" height="62" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
