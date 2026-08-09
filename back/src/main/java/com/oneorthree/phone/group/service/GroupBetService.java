@@ -344,10 +344,11 @@ public class GroupBetService {
 
     /**
      * "이 회차는 아직 시작 전인가" — TIME_WINDOW 는 창 시작 시각, DURATION 은 날짜 경계(KST)가
-     * 시작점이다. 철회({@link #requireBeforeStart})와 그룹·계정 탈퇴 연동({@link #releaseBets})이
+     * 시작점이다. 철회({@link #requireBeforeStart})와 <b>그룹 탈퇴</b> 연동({@link #releaseBets})이
      * <b>같은 판정</b>을 공유해야 한다(GROMO-1258): 갈라지면 "철회는 막혔는데 그룹을 나가면
      * 환불된다"는 우회로가 생겨 §C8("시작한 회차에서는 어떤 경로로도 참가비를 뺄 수 없다")과
-     * 손실 회피 설계가 통째로 무력화된다.
+     * 손실 회피 설계가 통째로 무력화된다. 계정 탈퇴는 이 가드를 타지 않는다 — 이유는
+     * {@link ReleaseReason#ACCOUNT_WITHDRAW}.
      *
      * <p>목표를 해석할 수 없으면 <b>시작된 것으로 본다</b>(false). 시작 여부를 모르는 채 환불하는
      * 것보다 에스크로에 남기는 쪽이 안전하고, 그렇게 묶인 판돈은 24h 자동 환불
@@ -373,6 +374,9 @@ public class GroupBetService {
      * {@link GroupMemberService#withdrawGroup} 가 탈퇴와 <b>같은 트랜잭션</b>에서 호출한다
      * (탈퇴만 되고 판돈이 묶이는 반쪽 상태 방지).
      *
+     * <p>대상은 <b>시작 전 회차뿐</b>이다({@link ReleaseReason#GROUP_LEAVE}) — 시작된 회차는
+     * 손대지 않고 정산 대상으로 남긴다.
+     *
      * <ul>
      *   <li>탈퇴자가 개설자 → 내기 전체 취소(CANCELED) + 전원 환불</li>
      *   <li>탈퇴자가 일반 참가자 → 참가 행 삭제 + 본인 환불. 남은 참가자가 개설자 1명뿐이면
@@ -391,7 +395,8 @@ public class GroupBetService {
     @Transactional
     public void releaseFromOpenBets(User user, Group group) {
         releaseBets(groupChallengeBetRepository
-                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId()), user);
+                        .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId()),
+                user, ReleaseReason.GROUP_LEAVE);
     }
 
     /**
@@ -408,14 +413,47 @@ public class GroupBetService {
      * </ul>
      *
      * <p>{@link #releaseFromOpenBets(User, Group)} 와 같은 2단계 잠금 규율·불변식(그룹 상태
-     * 불참조)을 공유한다.
+     * 불참조)을 공유하지만, <b>"시작된 회차는 남긴다" 가드는 공유하지 않는다</b> —
+     * {@link ReleaseReason#ACCOUNT_WITHDRAW} 참고.
      */
     @Transactional
     public void releaseFromAllOpenBets(User user) {
-        releaseBets(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(user.getId()), user);
+        releaseBets(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(user.getId()),
+                user, ReleaseReason.ACCOUNT_WITHDRAW);
     }
 
-    private void releaseBets(List<UUID> betIds, User user) {
+    /**
+     * 해제 경로 — 같은 {@link #releaseBets} 를 쓰지만 <b>이미 시작된 회차</b>의 처분이 갈린다.
+     * 갈라야 하는 이유는 두 경로가 남기는 뒷일이 다르기 때문이다(GROMO-1258 리뷰).
+     */
+    private enum ReleaseReason {
+        /**
+         * 그룹 탈퇴({@link GroupMemberService#withdrawGroup}) — 시작된 회차는 <b>손대지 않는다</b>.
+         * 탈퇴자의 계정·지갑·집중 통계가 전부 살아 있으므로 정산이 그대로 판정·지급할 수 있고,
+         * 여기서 환불해 주면 "지는 판이 시작된 뒤 그룹을 나가면 전액 환불"이라는 우회로가 열려
+         * 철회 가드({@link #requireBeforeStart})가 통째로 무력화된다(정책 §C8).
+         */
+        GROUP_LEAVE,
+        /**
+         * 계정 탈퇴({@code UserService.withdraw}) — 시작된 회차에서도 <b>탈퇴자 본인만 분리</b>한다.
+         * 근거 두 가지:
+         * <ul>
+         *   <li>우회 유인이 없다 — 계정 탈퇴의 환불금은 같은 트랜잭션에서 삭제되는 지갑
+         *       ({@code userWalletRepository.deleteById})으로 들어가 그대로 소멸한다. "환불받고
+         *       빠져나간다"가 성립하지 않으므로 §C8 가드가 막을 대상 자체가 없다</li>
+         *   <li>판정 근거가 같은 트랜잭션에서 파기된다 — {@code UserService.withdraw} 는 해제
+         *       직후 {@code focus_sessions}·{@code daily_focus_stats}·{@code daily_screen_time_stats}
+         *       를 전부 {@code user = null} 로 익명화하는데, 이 셋이 정확히
+         *       {@link GroupBetJudge#progressMinutes} 의 판정 소스다. 참가 행을 남겨 두면 나중 정산이
+         *       달성자를 0분·미보고로 읽어 <b>미달성으로 오판</b>하고, 그 거짓 기록이
+         *       {@code recordSettlement} 로 영구히 박힌다(남은 참가자에게 "탈퇴한 사용자 — 실패"로
+         *       노출된다). 판정할 수 없는 참가자는 정산에 남기지 않는 것이 맞다</li>
+         * </ul>
+         */
+        ACCOUNT_WITHDRAW
+    }
+
+    private void releaseBets(List<UUID> betIds, User user, ReleaseReason reason) {
         // 1단계: 대상 내기 행을 id 오름차순으로 전부 잠근다 — 지갑 쓰기 없이 잠금만. 내기 하나를
         // 정리(지갑 쓰기)한 채로 다음 내기 잠금을 기다리면, 그 내기를 이미 잠근 참가/정산이 이쪽이
         // 쥔 지갑을 기다리는 AB-BA 데드락이 된다. 모든 경로의 잠금 순서를 "내기 행(전부) → 지갑"으로
@@ -430,29 +468,35 @@ public class GroupBetService {
 
         // 2단계: 잠금이 전부 확보된 뒤에만 돈을 움직인다(참가 해제·환불·자동 취소).
         for (GroupChallengeBet bet : lockedOpenBets) {
-            // 이미 시작된 회차는 손대지 않는다(정책 §C8, GROMO-1258) — 참가 행·판돈을 그대로 두어
-            // 정산 대상으로 남긴다(판정도 지급도 그대로, 명단에는 WITHDRAWN_USER_NICKNAME 로 표기).
-            // 종전에는 여기에 시작 시각 가드가 아예 없어, "지는 판이 시작된 뒤 그룹을 나가면 전액
-            // 환불"이라는 우회로로 철회 가드(requireBeforeStart)가 통째로 무력화됐다.
+            boolean beforeStart = isBeforeStart(bet);
+            // 그룹 탈퇴에 한해 이미 시작된 회차는 손대지 않는다(정책 §C8, GROMO-1258) — 참가 행·
+            // 판돈을 그대로 두어 정산 대상으로 남긴다(판정도 지급도 그대로, 명단에는
+            // WITHDRAWN_USER_NICKNAME 로 표기). 종전에는 여기에 시작 시각 가드가 아예 없어, "지는
+            // 판이 시작된 뒤 그룹을 나가면 전액 환불"이라는 우회로로 철회 가드(requireBeforeStart)가
+            // 통째로 무력화됐다. 계정 탈퇴는 이 가드를 타지 않는다(ReleaseReason.ACCOUNT_WITHDRAW).
             // 예외가 아니라 스킵인 이유: 탈퇴 자체는 막지 않는다 — 던지면 "지는 판이 하나라도 있으면
-            // 그룹을 못 나간다"가 되고, 계정 탈퇴 경로에서는 탈퇴가 통째로 실패한다.
-            if (!isBeforeStart(bet)) {
+            // 그룹을 못 나간다"가 된다.
+            if (!beforeStart && reason == ReleaseReason.GROUP_LEAVE) {
                 log.info("내기 탈퇴 연동 스킵 — 이미 시작된 회차라 정산 대상으로 남긴다. "
                         + "betId={}, betDate={}, userId={}", bet.getId(), bet.getBetDate(), user.getId());
                 continue;
             }
             List<GroupChallengeBetParticipant> participants =
                     groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId()));
-            if (bet.getCreatorUser().getId().equals(user.getId())) {
+            // 개설자 특권(회차 통째 취소)은 시작 전에만 의미가 있다(정책 §C8). 시작된 회차를
+            // 취소하면 정상 판정이 가능한 남은 참가자들의 진행 중인 내기를 파괴하므로, 계정 탈퇴가
+            // 시작된 회차에 들어오면 개설자여도 본인 참가 행만 분리한다 — 이미 시작된 회차에서
+            // 개설자 여부는 처분을 가르지 않는다.
+            if (beforeStart && bet.getCreatorUser().getId().equals(user.getId())) {
                 cancelAndRefundAll(bet, participants);
             } else {
-                detachAndRefund(bet, participants, user);
+                detachAndRefund(bet, participants, user, beforeStart);
             }
         }
     }
 
     /**
-     * 개설자 탈퇴 — 내기 전체를 취소하고 전원(개설자 포함) 환불한다.
+     * 개설자 탈퇴(<b>시작 전 회차만</b>) — 내기 전체를 취소하고 전원(개설자 포함) 환불한다.
      * 환불은 userId 오름차순 — 여러 지갑을 만지는 경로(정산 지급 포함)끼리 지갑 잠금 순서를
      * 맞춰 두기 위한 고정이다.
      */
@@ -461,13 +505,22 @@ public class GroupBetService {
         participants.stream()
                 .sorted(Comparator.comparing(p -> p.getUser().getId()))
                 .forEach(p -> refundParticipant(bet, p));
-        log.info("내기 자동 취소 — 개설자 그룹 탈퇴. betId={}, creatorId={}, 환불 {}명",
+        log.info("내기 자동 취소 — 시작 전 회차의 개설자 탈퇴. betId={}, creatorId={}, 환불 {}명",
                 bet.getId(), bet.getCreatorUser().getId(), participants.size());
     }
 
-    /** 일반 참가자 탈퇴 — 참가 행 삭제 + 본인 환불. 개설자 혼자 남으면 자동 취소까지. */
+    /**
+     * 참가 행 분리 — 탈퇴자 행 삭제 + 본인 환불. <b>시작 전</b> 회차에 한해 개설자 혼자 남으면
+     * 자동 취소까지 한다.
+     *
+     * @param beforeStart 이 회차가 아직 시작 전인가. 시작된 회차(계정 탈퇴만 여기 온다)에서는
+     *                    자동 취소를 하지 않는다 — 남은 참가자는 판정도 지급도 정상이라 회차를
+     *                    닫을 이유가 없고, 닫으면 시작된 회차에서 참가비가 빠져나가 §C8 이 깨진다
+     *                    (개설자와 짜고 한 명이 계정을 지우면 진 판이 전액 환불되는 우회로가 된다)
+     */
     private void detachAndRefund(
-            GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants, User leaver) {
+            GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants, User leaver,
+            boolean beforeStart) {
         // 잠금 확보 후의 참가 행 재검증(GROMO-1258) — 대상 betId 는 잠금 <b>전에</b> 평문 SELECT 로
         // 뽑히므로(releaseFromOpenBets/releaseFromAllOpenBets), 그 사이에 같은 유저의 철회(leaveBet)가
         // 먼저 커밋되면 이 시점의 참가 행은 이미 없다. 종전에는 필터가 0건이어도 무조건 환불해
@@ -486,12 +539,13 @@ public class GroupBetService {
         List<GroupChallengeBetParticipant> remaining = participants.stream()
                 .filter(p -> !p.getUser().getId().equals(leaver.getId()))
                 .toList();
-        boolean creatorAlone = remaining.size() == 1
+        boolean creatorAlone = beforeStart
+                && remaining.size() == 1
                 && remaining.get(0).getUser().getId().equals(bet.getCreatorUser().getId());
         if (!creatorAlone) {
             refundParticipant(bet, mine.get());
-            log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
-                    bet.getId(), leaver.getId(), bet.getStake());
+            log.info("내기 참가 해제 — 탈퇴 연동. betId={}, userId={}, stake={} 환불, 시작전={}",
+                    bet.getId(), leaver.getId(), bet.getStake(), beforeStart);
             return;
         }
 
@@ -502,7 +556,7 @@ public class GroupBetService {
         Stream.of(mine.get(), remaining.get(0))
                 .sorted(Comparator.comparing(p -> p.getUser().getId()))
                 .forEach(p -> refundParticipant(bet, p));
-        log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
+        log.info("내기 참가 해제 — 탈퇴 연동. betId={}, userId={}, stake={} 환불, 시작전=true",
                 bet.getId(), leaver.getId(), bet.getStake());
         log.info("내기 자동 취소 — 참가자 이탈로 개설자 단독. betId={}, creatorId={}",
                 bet.getId(), bet.getCreatorUser().getId());

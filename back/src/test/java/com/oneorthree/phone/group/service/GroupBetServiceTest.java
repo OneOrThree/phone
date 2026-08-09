@@ -1423,22 +1423,28 @@ class GroupBetServiceTest {
                 .credit(eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString());
     }
 
+    /** 이미 시작된(당일 DURATION) OPEN 내기 — 두 해제 경로의 처분이 갈리는 지점이다. */
+    private GroupChallengeBet startedBet(User creator) {
+        return GroupChallengeBet.builder()
+                .id(BET_ID).challenge(focusChallenge()).creatorUser(creator).stake(30)
+                .betDate(today()).status(GroupBetStatus.OPEN).build();
+    }
+
     @Test
-    @DisplayName("탈퇴 해제 — 이미 시작된 회차는 예외 없이 스킵된다(참가 행·판돈 보존, 정책 §C8)")
-    void releaseSkipsStartedBetWithoutThrowing() {
+    @DisplayName("그룹 탈퇴 해제 — 이미 시작된 회차는 예외 없이 스킵된다(참가 행·판돈 보존, 정책 §C8)")
+    void groupLeaveSkipsStartedBetWithoutThrowing() {
         // 종전에는 releaseBets 에 시작 시각 가드가 아예 없어, 지는 판이 시작된 뒤 그룹을 나가면
         // 전액 환불됐다 — 철회 가드(requireBeforeStart)를 통째로 우회하는 구멍이었다(GROMO-1258).
         User leaver = User.builder().id(USER_ID).isGuest(false).build();
         User creator = User.builder().id(OTHER_USER_ID).isGuest(false).build();
-        GroupChallengeBet startedBet = GroupChallengeBet.builder()
-                .id(BET_ID).challenge(focusChallenge()).creatorUser(creator).stake(30)
-                .betDate(today()).status(GroupBetStatus.OPEN).build();
+        GroupChallengeBet startedBet = startedBet(creator);
         givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
-        given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
+        given(groupChallengeBetRepository
+                .findOpenBetIdsByGroupIdAndParticipantUserId(GROUP_ID, USER_ID))
                 .willReturn(List.of(BET_ID));
         given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(startedBet));
 
-        groupBetService.releaseFromAllOpenBets(leaver);
+        groupBetService.releaseFromOpenBets(leaver, group());
 
         // 탈퇴 자체는 성공(예외 없음)하되 돈도 참가 행도 움직이지 않는다 — 정산 대상으로 남는다.
         assertNoRefundIssued();
@@ -1446,6 +1452,71 @@ class GroupBetServiceTest {
         verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
         // 참가자 조회조차 하지 않는다 — 스킵은 잠금 직후에 끝난다.
         verify(groupChallengeBetParticipantRepository, never()).findByBetIdIn(any());
+    }
+
+    @Test
+    @DisplayName("계정 탈퇴 해제 — 시작된 회차라도 본인 참가 행을 분리한다(판정 근거가 같은 트랜잭션에서 파기된다)")
+    void accountWithdrawDetachesStartedBet() {
+        // 그룹 탈퇴 가드를 계정 탈퇴에도 그대로 적용하면, UserService.withdraw 가 곧이어
+        // nullifyUser 로 daily_focus_stats 등 판정 소스를 지우므로 남겨 둔 참가 행이 나중 정산에서
+        // 미달성으로 오판된다(거짓 기록). 우회 유인은 없다 — 환불금은 곧 삭제될 지갑으로 들어간다.
+        User leaver = User.builder().id(USER_ID).isGuest(false).build();
+        User creator = User.builder().id(OTHER_USER_ID).isGuest(false).build();
+        GroupChallengeBet startedBet = startedBet(creator);
+        GroupChallengeBetParticipant leaverRow = GroupChallengeBetParticipant.builder()
+                .id(PARTICIPANT_ID).bet(startedBet).user(leaver).build();
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
+        given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
+                .willReturn(List.of(BET_ID));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(startedBet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(
+                        leaverRow,
+                        GroupChallengeBetParticipant.builder()
+                                .id(OTHER_PARTICIPANT_ID).bet(startedBet).user(creator).build()));
+        given(currencyLedgerService.credit(
+                eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString()))
+                .willReturn(true);
+
+        groupBetService.releaseFromAllOpenBets(leaver);
+
+        verify(groupChallengeBetParticipantRepository).delete(leaverRow);
+        verify(currencyLedgerService).credit(leaver, CurrencyTransactionType.BET_REFUND, 30,
+                "bet:" + BET_ID + ":refund:" + PARTICIPANT_ID);
+        // 남은 참가자가 개설자 1명뿐이어도 시작된 회차는 취소하지 않는다 — 진행 중인 내기를
+        // 파괴하지 않고, 시작된 회차에서 개설자 참가비가 빠져나가는 우회로도 만들지 않는다.
+        verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
+        verify(currencyLedgerService, never())
+                .credit(eq(creator), any(), anyInt(), anyString());
+    }
+
+    @Test
+    @DisplayName("계정 탈퇴 해제 — 탈퇴자가 개설자라도 시작된 회차는 취소되지 않고 본인만 빠진다")
+    void accountWithdrawOfCreatorKeepsStartedBetAlive() {
+        User creatorLeaver = User.builder().id(USER_ID).isGuest(false).build();
+        User other = User.builder().id(OTHER_USER_ID).isGuest(false).build();
+        GroupChallengeBet startedBet = startedBet(creatorLeaver);
+        GroupChallengeBetParticipant leaverRow = GroupChallengeBetParticipant.builder()
+                .id(PARTICIPANT_ID).bet(startedBet).user(creatorLeaver).build();
+        givenOpensAt(durationTarget(MissionCategory.FOCUS), null);
+        given(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(USER_ID))
+                .willReturn(List.of(BET_ID));
+        given(groupChallengeBetRepository.findByIdForUpdate(BET_ID)).willReturn(Optional.of(startedBet));
+        given(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(BET_ID)))
+                .willReturn(List.of(
+                        leaverRow,
+                        GroupChallengeBetParticipant.builder()
+                                .id(OTHER_PARTICIPANT_ID).bet(startedBet).user(other).build()));
+        given(currencyLedgerService.credit(
+                eq(creatorLeaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString()))
+                .willReturn(true);
+
+        groupBetService.releaseFromAllOpenBets(creatorLeaver);
+
+        verify(groupChallengeBetParticipantRepository).delete(leaverRow);
+        verify(groupChallengeBetRepository, never()).compareAndSetSettled(any(), any(), any());
+        // 남은 참가자에게는 환불이 없다 — 회차는 그대로 살아 정산을 기다린다.
+        verify(currencyLedgerService, never()).credit(eq(other), any(), anyInt(), anyString());
     }
 
     @Test

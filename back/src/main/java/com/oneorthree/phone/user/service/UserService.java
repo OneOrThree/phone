@@ -242,6 +242,16 @@ public class UserService {
         // userWalletRepository.deleteById 보다 먼저 실행해야 한다 — 지갑을 먼저 지우면 환불이
         // NOT_FOUND 로 터진다. 친구 정리(friendships 락 구간)보다도 앞이라 "락 보유 구간을
         // 줄인다" 규율과도 어긋나지 않는다.
+        //
+        // ⚠ nullifyUser 3종과의 상호작용 (GROMO-1258 리뷰) — 이 호출은 그룹 탈퇴와 달리 <이미
+        // 시작된 회차>에서도 참가 행을 분리한다(GroupBetService.ReleaseReason.ACCOUNT_WITHDRAW).
+        // 아래 focusSessionRepository/dailyFocusStatRepository/dailyScreenTimeStatRepository 의
+        // nullifyUser 가 <같은 트랜잭션에서> 판정 근거를 통째로 익명화(user=null)하기 때문이다 —
+        // 이 셋이 정확히 GroupBetJudge.progressMinutes 가 읽는 소스라, 참가 행을 정산 대상으로
+        // 남기면 탈퇴 시점에 목표를 달성했더라도 나중 정산이 0분·미보고로 읽어 미달성으로
+        // 오판하고, 그 거짓 기록이 recordSettlement 로 참가 행에 영구히 박힌다.
+        // → 이 호출을 nullifyUser 뒤로 옮기거나, 시작된 회차를 남기는 그룹 탈퇴 가드를 이 경로에
+        //   되살리면 그 오판이 다시 살아난다. 순서와 경로 구분을 함께 유지할 것.
         groupBetService.releaseFromAllOpenBets(user);
 
         // 활성 멤버십 이탈 (GROMO-801) — 안 하면 탈퇴자가 is_left=false 유령 멤버로 남아 멤버
