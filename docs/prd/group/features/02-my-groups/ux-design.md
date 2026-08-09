@@ -6,11 +6,12 @@
 | 하위      | [high-level-design.md](./high-level-design.md) (시스템 경계) · [low-level-design.md](./low-level-design.md) (상태·복구·검증)                                                                                     |
 | 정본 HTML | [ux.html](./ux.html) — 단일 카드 플립 UX                                                                                   |
 | 상태      | **v1.1** — 단일 플립 카드 · 개인 로컬 `내 카드 아이콘` · 공용 `ReorderHandle` · 계정별 로컬 순서 · 기존 전역 리그 라이브 합성 · 그룹 카드 첫 노출 코치마크 |
+| 구현 상태 | **⬜ 설계 완료·구현 미착수** — 카드 덱·플립·재정렬·로컬 아이콘·안내는 아직 앱에 구현되지 않음 |
 | 작성일    | 2026-08-08                                                                                                                                                 |
 
 이 문서는 **사용자가 무엇을 보고, 어떤 상태에서 무엇을 조작하는가**와 시각·모션 기준을 규정한다. 상태 전이·실패 복구·검증 기준은 [low-level-design.md](./low-level-design.md)가 담당한다.
 
-> **근거 수준:** 현재 실제 행동 표본은 0명이고 `is_deleted=false AND is_guest=false` 리그 조회 대상은 100명 미만이다. 이 문서는 이 규모에서 기존 전역 리그 top100을 재사용하는 단일 UX와 출시 전 품질 기준을 정하지만, 사용성이나 사업 효과가 입증되었다고 보지 않는다. “소속감·재방문·집중 전환이 좋아진다”처럼 사용자 효능을 단정하지 않으며, 출시 전 형성평가에서는 명백한 막힘과 오류를 찾는 데 집중한다.
+> **근거 수준:** 현재 실제 행동 표본은 0명이다. `eligible_user_count < 100`은 운영상 출시 전제이며 런타임 앱에는 전달되지 않는다. 앱은 성공한 전역 리그 원본 응답 길이가 100 미만일 때만 top100 완전성을 적용하고, `length === 100`·loading·error는 미산출(0명 금지)이다. 운영 수가 unknown 또는 100 이상이면 출시는 차단하고 대체 계약을 먼저 정한다.
 
 ---
 
@@ -172,11 +173,11 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 
 ### 3.2 집중 인원 데이터 경계
 
-- 앱은 `leagueApi.getMyRanking()`을 category 인자 없이 호출하거나 동일한 전용 query hook으로 **전역 top100 원본 배열**을 받는다. 포커스 세션의 `useSessionLeagueMembers` 결과는 자기 제외가 가능하고 `MAX_MEMBERS=12`로 slice되므로 사용하지 않는다.
-- 앱은 원본 배열을 `userId -> isFocusing` map으로 만든 뒤 그룹 상세 `members[].userId`와 join/filter한다. 매칭된 행의 `isFocusing === true`만 세고, 완전성이 확인된 성공 응답(`<100`행)에 없는 ID만 `false`로 본다. `focusTimeMinutes`나 오늘 합계로 현재 집중 여부를 추정하지 않는다.
-- 현재 정확성은 `LeagueRankingQueryRepository`가 `users LEFT JOIN daily_focus_stats`로 집중 기록이 0인 eligible 사용자도 포함하고, `is_deleted=false AND is_guest=false` 전체가 100명 미만이어서 top100에 모두 들어간다는 전제에서 성립한다.
-- 리그 요청이 loading·error이면 `0명`으로 보이지 않고 집중 현황 블록만 skeleton 또는 `정보를 불러오지 못했어요`·재시도를 노출한다. 정상 응답에 그룹원 ID가 없을 때만 `false`로 처리한다.
-- 이 버전의 서버 변경은 **0건**이다. 운영 지표 `eligible_user_count = COUNT(users WHERE is_deleted=false AND is_guest=false)`를 관찰해 90명에서 경고·대체 안을 착수하고, 100명 도달 전을 전환 release gate로 둔다. 응답 `length === 100`이면 coverage 불명 신호로 telemetry를 남기고, 그룹 상세 live 필드·그룹 멤버 batch live endpoint·live pagination 중 하나로 전환하는 TODO를 운영한다.
+- 현행 `leagueApi.getMyRanking(category?)`에는 날짜 인자가 없다. 계획된 wrapper 확장 `getMyRanking(category?, date = todayStrKst())` 뒤 category 없는 `getMyRanking(undefined, localDate)` 호출 또는 동일 전용 query hook으로 **전역 top100 원본 배열**을 받는다. 포커스 세션의 `useSessionLeagueMembers` 결과는 자기 제외가 가능하고 `MAX_MEMBERS=12`로 slice되므로 사용하지 않는다.
+- 앱은 원본 배열을 `userId -> isFocusing` map으로 만든 뒤 그룹 상세 `members[].userId`와 join/filter한다. 매칭된 행의 `isFocusing === true`만 세고, 운영 출시 전제가 유효한 성공 응답(`<100`행)에 없는 ID만 `false`로 본다. `focusTimeMinutes`나 오늘 합계로 현재 집중 여부를 추정하지 않는다.
+- 정확성은 `LeagueRankingQueryRepository`가 `users LEFT JOIN daily_focus_stats`로 집중 기록이 0인 eligible 사용자도 포함한다는 서버 사실과, 운영 eligible 사용자 100명 미만 출시 전제에서 성립한다. 런타임 앱은 eligible 수를 받지 않는다.
+- 리그 요청이 loading·error이거나 성공 원본이 100행이면 `0명`으로 보이지 않고 집중 현황 블록만 skeleton 또는 `정보를 불러오지 못했어요`·재시도를 노출한다.
+- 이 버전의 서버 변경은 **0건**이다. 운영 지표 `eligible_user_count = COUNT(users WHERE is_deleted=false AND is_guest=false)`는 90명에서 경고·대체 안을 착수한다. unknown 또는 100 이상이면 카드 덱 출시는 차단하고, 그룹 상세 live 필드·그룹 멤버 batch live endpoint·live pagination 중 하나의 대체 계약을 먼저 배포한다. 런타임 `length === 100`은 coverage 불명 telemetry를 남긴다.
 
 ### 3.3 공지와 멤버 폴백
 
@@ -403,7 +404,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 
 ## 8.1 버튼·제스처 semantic event
 
-이 표는 [PRD §6.5·§6.6](./prd.md)의 UI 발행 지도를 카드 UX에 연결한다. raw 버튼 문구, 그룹 이름,
+이 표는 [HLD §6.5 공통 분석 이벤트 사전](./high-level-design.md#65-공통-분석-이벤트-사전)과 [§6.6 퍼널·결과 귀속](./high-level-design.md#66-f1f2f3-퍼널과-결과-귀속)의 UI 발행 지도를 카드 UX에 연결한다. raw 버튼 문구, 그룹 이름,
 emoji glyph는 analytics payload에 넣지 않는다. screen/exposure → user action → result의 순서를 유지하며,
 클릭만 있고 결과가 없으면 별도 성공으로 해석하지 않는다.
 
@@ -619,14 +620,14 @@ validation 실패·disabled·double tap에서는 0건인지 확인한다.
 
 | 시나리오                                                  | 기대 결과                                                                                    |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| eligible 사용자 1·99명, 0초 사용자 포함                   | 전역 top100 원본에 non-guest/non-deleted 전원이 있고 그룹 멤버 join 결과가 fixture와 일치    |
+| 운영 eligible 사용자 1·99명, 0초 사용자 포함                   | 출시 전제에서 전역 top100 원본에 non-guest/non-deleted 전원이 있고 그룹 멤버 join 결과가 fixture와 일치    |
 | `useSessionLeagueMembers`의 13위 이후 멤버가 그룹원       | 12명 slice hook을 쓰지 않고 원본 query를 쓰므로 정상 계산                                    |
 | 한 사용자가 여러 그룹에 소속                              | 공유 리그 원본 요청은 query cycle당 1회이고 각 그룹에서 동일한 live 상태로 계산              |
-| 완전성이 확인된 리그 성공 응답(`<100`행)에 그룹원 ID 없음 | 현 100명 미만 전제에서 해당 멤버를 `false`로 계산                                            |
+| 완전성이 확인된 리그 성공 응답(`<100`행)에 그룹원 ID 없음 | 운영 출시 전제가 유효할 때만 해당 멤버를 `false`로 계산                                            |
 | 리그 loading / 요청 실패                                  | `0명`으로 위장하지 않고 집중 현황 블록만 skeleton 또는 오류·재시도. 다른 섹션·CTA는 유지     |
-| 응답 `length === 100`                                     | coverage 불명 telemetry를 남기고 전환 TODO를 점검. 앱 전체를 런타임에서 강제 차단하지는 않음 |
-| `eligible_user_count=90`                                  | 운영 경고와 대체 안 작업 착수                                                                |
-| `eligible_user_count` 100명 도달 예상                     | 도달 전 live 필드·batch endpoint·live pagination 중 하나로 전환하는 release gate 통과        |
+| 응답 `length === 100`·loading·error                                     | 집중 인원 미산출·coverage 불명 telemetry. 앱 전체를 런타임에서 강제 차단하지는 않음 |
+| `eligible_user_count=90~99`                                  | 운영 경고와 대체 안 작업 착수                                                                |
+| `eligible_user_count` unknown 또는 100 이상                     | 카드 덱 출시 차단. live 필드·batch endpoint·live pagination 중 하나의 대체 계약을 먼저 배포        |
 
 ### 11.6 반응형 인디케이터 QA
 

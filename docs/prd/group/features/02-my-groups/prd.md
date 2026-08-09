@@ -5,6 +5,7 @@
 | ------ | ---------------------------------------------------------------------------------------------------------- |
 | 문서 상태  | **v1.0 초안**                                                                                                |
 | 문서 지위  | **사전 제품·구현 계약**. 사용자 효과는 아직 검증되지 않음                                                                        |
+| 구현 상태  | **⬜ 설계 완료·구현 미착수** — 카드 덱·플립·재정렬·로컬 아이콘·안내는 아직 앱에 구현되지 않음                                      |
 | 상위 정본  | [그룹 생애주기 PRD](../../prd.md) · [그룹 전체 IA](../../information-architecture.md)                                                               |
 | 정본 기준  | 2026-08-08 현재 앱·서버 계약과 제품 목업                                                                               |
 | 작성·갱신일 | 2026-08-08                                                                                                 |
@@ -32,10 +33,9 @@
 ### 현재 전제
 
 - 행동 기준선, 그룹 수 분포, flip 발견률, CTA 전환율, 재방문율, D30 잔존율이 없다.
-- 현재 리그 조회 적격 사용자인 **is_deleted=false AND is_guest=false** 사용자는 100명 미만이다.
-- 이 규모에서는 category 없는 전역 리그 top100 응답에 적격 사용자가 모두 포함된다는 임시 전제를 쓴다.
-- 적격 사용자 90명부터 대체 서버 계약을 착수하고, 100명에 도달하기 전에 전환한다.
-- 현재 앱 코드 검색에서는 카드 덱 컴포넌트, 로컬 아이콘 저장소, 신규 카드 계측의 구현을 확인하지 못했다. 이 문서의 카드 기능은 **계획 상태**다.
+- 운영상 출시 전제는 리그 조회 적격 사용자(`is_deleted=false AND is_guest=false`)가 100명 미만이라는 것이다. 값이 unknown이거나 100명 이상이면 카드 덱 출시는 차단하고 대체 계약을 먼저 배포한다.
+- 런타임 앱에는 적격 사용자 수가 내려오지 않는다. 따라서 성공한 전역 리그 원본 응답 길이가 100 미만일 때만 top100 완전성을 적용한다. `length === 100`·loading·error는 미산출이며 0명으로 표시하지 않는다.
+- 운영 수가 90명에 도달하면 대체 계약을 준비한다.
 
 ### 이 문서가 주장하지 않는 것
 
@@ -149,7 +149,7 @@
 | 카드 순서        | 현재 userId가 이 기기에서 보는 stable groupId 배열    | gromo:groups:cardOrder:v1             | 로컬 저장이 유지되는 동안          | 없음·손상 시 서버 목록 순서                                                                     |
 | 내 카드 아이콘     | 현재 userId×groupId의 기기 로컬 표현               | gromo:groups:cardEmoji:v1             | 로컬 저장이 유지되는 동안          | 없음·손상·허용 밖 값은 🎯                                                                     |
 | 카드 face      | 특정 groupId의 front 또는 back                 | GroupListScreen 화면 상태                 | 화면 생명주기·route 복원        | 미정 상태 없음                                                                             |
-| 현재 집중 인원     | 그룹 멤버 중 완전한 현재 상태 응답에서 isFocusing=true인 수 | detail members와 전역 리그 원본의 client join | localDate·refresh cycle | eligible 수와 원본 길이가 모두 100 미만일 때만 0 계산 가능. 그 외 loading·error·unknown·100행 이상은 unknown |
+| 현재 집중 인원     | 그룹 멤버 중 완전한 현재 상태 응답에서 isFocusing=true인 수 | detail members와 전역 리그 원본의 client join | localDate·refresh cycle | 운영 출시 전제가 유효할 때 성공 원본 길이 100 미만에서만 0 계산 가능. 런타임 loading·error·100행은 미산출 |
 | 챌린지 목록       | 해당 날짜의 GroupChallengeResponse 전건          | 그룹 challenges API                     | groupId+date cache      | 빈 배열은 없음, 실패는 error                                                                  |
 | 최신 공지        | 서버 최신순 공지 배열의 첫 항목                        | announcements API                     | groupId cache           | 빈 배열은 공지 없음, 실패는 error                                                               |
 | FindMoreCard | 캐러셀 끝의 그룹 찾기 진입 카드                        | 화면 합성 UI                              | 화면 생명주기                 | 서버 목록·로컬 순서 배열에 저장하지 않음                                                              |
@@ -192,14 +192,14 @@ GroupScreen
 | FR-09 | 뒷면에 현재 집중 인원, 챌린지 전건, 최신 공지 1개, 최대 5명 멤버 preview와 두 CTA를 표시한다                                                                                                                                        | MUST   | P1    | 기존 read API            | 미착수             |
 | FR-10 | 첫 flip에서 detail·announcements·challenges를 병렬 조회하고, 해당 날짜 리그 원본 cache가 없으면 전역 요청을 한 번 시작한다                                                                                                            | MUST   | P1    | 앱 cache                | 미착수             |
 | FR-11 | 챌린지는 서버 createdAt DESC 순서를 유지하며 대표 1개, UPCOMING, title·진행률·연속일수를 만들지 않는다                                                                                                                             | MUST   | P1    | GroupChallengeResponse | 미착수             |
-| FR-12 | 현재 집중 인원은 detail members.userId와 category 없는 /league/me/ranking의 원본 isFocusing=true만 join해 계산한다                                                                                                      | MUST   | P1    | eligible 사용자 100명 미만   | 미착수             |
-| FR-13 | eligible_user_count가 100 미만이고 category 없는 ranking 원본 응답 길이도 100 미만인 동일 refresh cycle의 성공 데이터에서만 응답 부재를 isFocusing=false로 해석한다. 두 조건 중 하나라도 loading·error·unknown·100 이상이면 집중 인원을 미산출하고 0명으로 표시하지 않는다 | MUST   | P1    | coverage 상태            | 미착수             |
+| FR-12 | 현재 집중 인원은 detail members.userId와 category 없는 /league/me/ranking의 원본 isFocusing=true만 join해 계산한다. 운영상 eligible 사용자 100명 미만은 출시 전제이며 앱 런타임은 이 수를 조회하지 않는다 | MUST   | P1    | 운영 출시 gate   | 미착수             |
+| FR-13 | 런타임은 category 없는 ranking 성공 원본 응답 길이가 100 미만일 때만 응답 부재를 isFocusing=false로 해석한다. `length === 100`·loading·error에서는 집중 인원을 미산출하고 0명으로 표시하지 않는다 | MUST   | P1    | coverage 상태            | 미착수             |
 | FR-14 | 방 전체 보기 후 같은 stable groupId·index·back face·focus로 돌아온다                                                                                                                                              | MUST   | P1    | navigation state       | 미착수             |
 | FR-15 | OWNER·MEMBER 모두 설정에서 내 카드 아이콘을 바꾸며 이 기기에서 나에게만 보여요 문구를 본다                                                                                                                                            | MUST   | P1    | settings               | 미착수             |
 | FR-16 | OWNER 설정은 프로필·방장 넘기기·멤버 관리·공지·나가기를, MEMBER 설정은 아이콘·나가기를 제공한다                                                                                                                                         | MUST   | P1    | 현행 권한                  | 일부 현행·카드 설정 미착수 |
 | FR-17 | OWNER 나가기가 HOST_WITHDRAW이면 방장 넘기고 나가기 흐름으로 연결한다                                                                                                                                                      | MUST   | P1    | 기존 서버 오류 계약            | 현행 흐름 유지        |
 | FR-18 | indicator는 containerWidth 기반 dots·compact 공식을 사용하고 폭 변경 뒤에도 active groupId를 유지한다                                                                                                                     | MUST   | P1    | layout 측정              | 미착수             |
-| FR-19 | 이름은 앞면 최대 2줄, 검색·목록·뒷면 헤더 1줄 ellipsis이며 접근성 이름은 원문 전체다                                                                                                                                               | MUST   | P1    | 텍스트 layout             | 미착수             |
+| FR-19 | 이름은 앞면·뒷면·검색·목록에서 모두 1줄 tail ellipsis이며 접근성 이름은 축약하지 않은 서버 원문 전체다                                                                                                                                            | MUST   | P1    | 텍스트 layout             | 미착수             |
 | FR-20 | Reduce Motion에서는 3D flip 대신 짧은 cross-fade를 쓰고 숨은 면·비활성 control을 focus tree에서 제외한다                                                                                                                    | MUST   | P1    | 접근성 설정                 | 미착수             |
 | FR-21 | 헤더의 만들기·찾기를 유지하고 끝 FindMoreCard는 찾기만 제공한다                                                                                                                                                            | SHOULD | P1    | navigation             | 미착수             |
 | FR-22 | 카드 기능 때문에 서버 DTO·DB·migration·OpenAPI를 변경하지 않는다                                                                                                                                                      | MUST   | P1    | 기존 API                 | 설계 확정           |
@@ -216,7 +216,8 @@ GroupScreen
 | 게스트·userId 미확정                      | 현행 게스트·전이 상태            | local bucket 읽기·쓰기 금지      | 인증 확정 후 진입        | 기존 인증 계측                |
 | detail·공지·챌린지 일부 실패                 | 실패한 섹션만 inline error    | 성공한 섹션과 CTA 유지             | 섹션별 다시 시도         | dependency·result       |
 | 리그 loading·error                    | 집중 인원 skeleton 또는 오류    | stale·시간 필드로 추정 금지         | 공유 query 재시도      | focus_status_state      |
-| eligible 수 미확인·100 이상 또는 리그 원본 100행 | 완전성 확인 불가 표시            | absent=false 계산 금지         | 서버 전환 또는 완전 응답    | coverage_unknown        |
+| 런타임 리그 원본 100행·loading·error | 완전성 확인 불가 표시            | absent=false 계산 금지         | 미산출 표시·재시도    | coverage_unknown        |
+| 운영 eligible 수 unknown·100 이상 | 출시 전제 불충족 | 카드 덱 출시 차단 | 대체 계약 선행 | release_blocked |
 | 공지·챌린지 빈 배열                         | 공지 없음·진행 중인 항목 없음       | 실패와 구분                     | 재시도 버튼 불필요        | empty_state             |
 | 로컬 아이콘 쓰기 실패                        | picker 유지·inline 오류     | 현재 세션 선택은 유지, 정상 저장값 훼손 금지 | 명시적 재시도           | icon_save_result=failed |
 | 로컬 순서 쓰기 실패                         | 현재 세션 순서는 유지·비차단 오류 1회  | 서버 목록 불변                   | 다음 reorder에서 재저장  | reorder_save_failed     |
@@ -241,7 +242,7 @@ GroupScreen
 | P3  | 아이콘은 userId×groupId 기기 로컬 선호     | 서버 변경 없이 개인 구분                | 그룹 공용 emoji 필드                | 다기기·재설치 복원 불가      | 동기화 요구가 검증됨            |
 | P4  | 순서는 stable groupId 배열로 기기 로컬 저장  | 서버 멤버십과 개인 표시 분리              | 서버 order API                  | 다기기 동기화 없음         | 협업·동기화 필요가 검증됨         |
 | P5  | 뒷면은 기존 read API를 첫 flip에 lazy 조합 | 빠르게 가치·비용 검증                  | card-summary endpoint         | 첫 flip 다중 요청·부분 상태 | p95 지연·요청량이 SLO 초과     |
-| P6  | 현재 집중 상태는 전역 top100 원본을 임시 재사용   | 현재 eligible 사용자 100명 미만       | 신규 batch·live endpoint        | 규모 증가 시 완전성 붕괴     | 90명 경고·100명 전 전환       |
+| P6  | 현재 집중 상태는 전역 top100 원본을 임시 재사용   | 운영 eligible 사용자 100명 미만 출시 전제       | 신규 batch·live endpoint        | 규모 증가 시 완전성 붕괴     | unknown/100 이상 출시 차단, 90명 경고       |
 | P7  | 챌린지는 전건·서버 순서를 유지                | 기존 GroupRoom과 의미 일치           | 대표 1개·임의 재정렬                  | 뒷면 밀도 증가           | 과업 실패·성능 문제가 확인됨       |
 | P8  | 출시 전 성장 KPI를 임의 설정하지 않음          | 행동 표본 0명                      | 근거 없는 전환·잔존 목표                | 사업 효과 수치를 바로 제시 못함 | 4주 기준선과 검정력 확보         |
 | P9  | 가입·탈퇴는 서버, 카드 노출·조작은 클라이언트가 발행   | 중복·귀속 방지                      | 같은 이벤트 양쪽 발행                  | 이벤트 카탈로그 갱신 필요     | 분석 파이프라인 구조 변경         |
@@ -297,10 +298,10 @@ GroupScreen
 | 이벤트                         | 발행 주체 | 정확한 발행 시점                         | 주요 속성                                             | 중복 방지                          | 구현 상태 |
 | --------------------------- | ----- | --------------------------------- | ------------------------------------------------- | ------------------------------ | ----- |
 | group_viewed                | 클라이언트 | 기존 그룹 진입 계약                       | 기존 속성                                             | 기존 화면 규칙                       | 구현됨   |
-| group_card_deck_viewed      | 클라이언트 | 그룹 1개 이상 응답으로 덱이 첫 렌더 완료          | group_count_bucket, entry                         | 화면 진입당 1회                      | 계획    |
+| group_card_deck_viewed      | 클라이언트 | 그룹 1개 이상 응답으로 덱이 첫 렌더 완료          | group_count_bucket, group_entry, guide_state      | 화면 진입당 1회                      | 계획    |
 | group_card_flipped          | 클라이언트 | 사용자 입력으로 face가 실제 전환              | to_face, trigger, group_count_bucket              | animation 재렌더·route 복귀 발행 금지   | 계획    |
 | group_carousel_paged        | 클라이언트 | 사용자 입력으로 active groupId가 변경       | trigger, from_index, to_index, group_count_bucket | resize·indicator mode 변경 발행 금지 | 계획    |
-| group_card_action_clicked   | 클라이언트 | back CTA가 focus 또는 room 흐름을 시작    | action, role                                      | 탭 1회당 1회                       | 계획    |
+| group_card_action_clicked   | 클라이언트 | back CTA가 focus 또는 room 흐름을 시작    | action, role, back_source                         | 탭 1회당 1회                       | 계획    |
 | group_card_reordered        | 클라이언트 | pointer up 또는 접근성 이동으로 순서를 commit | trigger, from_index, to_index, group_count_bucket | drag 중간 위치 발행 금지               | 계획    |
 | group_card_icon_save_result | 클라이언트 | 로컬 아이콘 쓰기 성공·실패 확정                | surface, result                                   | glyph·그룹명 전송 금지                | 계획    |
 | group_room_viewed           | 클라이언트 | GroupRoom 로드 성공                   | 기존 group_id                                       | 기존 화면 방문 규칙                    | 구현됨   |
@@ -308,7 +309,7 @@ GroupScreen
 | group_left                  | 서버    | 탈퇴·강퇴 등 멤버십 종료                    | 기존 서버 계약                                          | 클라이언트 발행 금지                    | 구현됨   |
 
 
-그룹 이름·소개·emoji glyph·로컬 순서 배열은 analytics payload에 싣지 않는다. **이 표를 카드 UI 계측의 제품 정본으로 사용한다.** 현재 HLD·LLD는 group_card_flipped·group_card_reordered와 기존 group_room_viewed만 검증 대상으로 둔다. 따라서 P1 진입 전에 group_card_deck_viewed, group_carousel_paged, group_card_action_clicked, group_card_icon_save_result의 발행 범위·속성·QA matrix를 HLD·LLD에 동일하게 반영한다.
+그룹 이름·소개·emoji glyph·로컬 순서 배열은 analytics payload에 싣지 않는다. 이 표는 카드 핵심 이벤트의 제품 요약이며, 공통 생애주기·획득·안내 이벤트를 포함한 전체 사전과 퍼널 정본은 [HLD §6.5](./high-level-design.md#65-공통-분석-이벤트-사전)·[§6.6](./high-level-design.md#66-f1f2f3-퍼널과-결과-귀속)이다. 신규 카드 이벤트는 모두 계획 상태이므로 P1에서 HLD·LLD의 전체 발행 범위·속성·QA matrix를 함께 구현하고 검증한다.
 
 ### 6.5 별도 그룹 락인 실험
 
@@ -402,8 +403,9 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 
 ### 규모 전환 gate
 
-- eligible 사용자 수 또는 raw ranking 응답 길이가 90 이상이면 대체 서버 계약의 오너·티켓·목표 배포일을 확정한다.
-- 원본 리그 응답이 100행이면 0명으로 계산하지 않고 coverage unknown으로 처리한다.
+- 운영 eligible 사용자 수가 90~99이면 대체 서버 계약의 오너·티켓·목표 배포일을 확정한다.
+- 운영 eligible 사용자 수가 unknown 또는 100 이상이면 출시를 차단하고 대체 서버 계약을 먼저 배포한다.
+- 런타임 원본 리그 응답이 100행·loading·error이면 0명으로 계산하지 않고 coverage unknown으로 처리한다.
 - 100명 도달 전에 그룹 live 필드, 멤버 batch endpoint, 또는 isFocusing 포함 pagination 중 하나를 배포하고 top100 absent=false 전제를 제거한다.
 
 ---
@@ -433,7 +435,7 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | R3  | 뒷면 정보 과밀              | 정보·CTA 탐색 지연       | 우선순위 유지·정보 찾기 평가              | 과업 시간·실패           | 제품·디자인 미정 |
 | R4  | 로컬 선호를 공용 설정으로 오해     | 타기기에서 설정 유실로 인식    | 이 기기에서 나에게만 보여요               | 범위 설명 과업           | 제품 미정     |
 | R5  | 부분 실패를 0·빈 상태로 오표시    | 사용자 신뢰 훼손          | loading·error·unknown 분리      | 잘못된 0명 표시          | 앱 미정      |
-| R6  | top100 전제 만료          | 집중 인원 과소 집계        | 90·100 gate와 대체 계약            | eligible 수·100행 응답 | 백엔드·운영 미정 |
+| R6  | top100 전제 만료          | 집중 인원 과소 집계        | 운영 eligible 출시 gate와 런타임 raw length 판정            | eligible 수·100행 응답 | 백엔드·운영 미정 |
 | R7  | 가입자 잔존 상관을 인과로 해석     | 잘못된 성장 투자 판단       | 사전 배정·ITT 분석                  | 실험 계약 위반           | 제품·분석 미정  |
 | R8  | 36×36 grip이 충분하지 않음   | 터치·보조기술 reorder 실패 | VoiceOver move action·평가 후 확대 | reorder 과업 실패      | 디자인·앱 미정  |
 | R9  | PRD와 HLD·LLD 계측 계약 충돌 | 구현 누락·분모 부재        | P0에서 하위 문서 갱신                 | 문서 drift           | 앱·분석 미정   |
@@ -457,11 +459,11 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | 7   | 320·390·430·768pt × 그룹 1·5·6·7·10개                          | 공식에 따라 dots·compact 전환, active groupId 유지                          | 단위·E2E  | 미착수   |
 | 8   | 첫 flip 네트워크 호출                                              | detail·공지·챌린지 병렬, 리그는 같은 날짜 refresh cycle당 1회                      | 통합      | 미착수   |
 | 9   | 챌린지 0·1·복수·ACTIVE/INACTIVE 혼합                               | 서버 최신순 전건 표시, 임의 필드·대표 항목 없음                                       | 통합·E2E  | 미착수   |
-| 10  | eligible 수·원본 길이 각각 unknown·99·100과 집중 상태 0·N·loading·error | 두 완전성 조건을 모두 충족한 ready 응답에서만 계산하며 그 외는 unknown                     | 단위·통합   | 미착수   |
+| 10  | 런타임 원본 성공 99/100·loading·error와 집중 상태 0·N, 운영 eligible unknown/99/100 출시 gate | raw 99에서만 계산, 그 외 미산출; 운영 전제 불충족 시 출시 차단                     | 단위·통합   | 미착수   |
 | 11  | dependency별 독립 실패와 retry                                    | 성공 섹션·CTA 유지, 실패 섹션만 복구                                            | 통합·E2E  | 미착수   |
 | 12  | 방 전체 보기 왕복                                                  | 같은 groupId·index·back face·focus 복원                                | E2E     | 미착수   |
 | 13  | OWNER·MEMBER 설정·나가기                                         | 역할별 행 일치, OWNER HOST_WITHDRAW는 이전 흐름                               | 통합·E2E  | 일부 현행 |
-| 14  | 긴 그룹 이름                                                     | 앞면 2줄, 목록·뒷면 1줄 ellipsis, 스크린리더는 원문                                | 접근성·스냅샷 | 미착수   |
+| 14  | 긴 그룹 이름                                                     | 앞면·뒷면·검색·목록 모두 1줄 tail ellipsis, 스크린리더는 원문                       | 접근성·스냅샷 | 미착수   |
 | 15  | Reduce Motion·스크린리더·키보드                                     | cross-fade, 숨은 control 제외, move action 동작                          | 접근성·E2E | 미착수   |
 | 16  | 이벤트별 정상·rerender·route 복귀·resize                            | §6.4 발행 시점 준수, 누락·중복 0건, 금지 payload 없음                             | 통합·QA   | 미착수   |
 | 17  | 서버 계약 회귀                                                    | Create·Update·Summary·Detail·Search·Overview DTO와 DB·OpenAPI 변경 0건 | 계약 테스트  | 설계됨   |

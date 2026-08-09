@@ -7,7 +7,7 @@
 | 시각 정본 | [ux.html](./ux.html) · 공용 목업 모듈 [ux-shared.js](./ux-shared.js) |
 | 범위 | 컴포넌트 구조 · 앞/뒷면 데이터 흐름 · 개인 카드 이모지/뒷면 정보/현재 챌린지 목록/순서 계약 · 설정 권한 · 영향 범위 |
 | 상태 | **v1.1 기능 설계 정본** — 앞면 탭은 같은 자리의 카드 플립, 전체 방은 뒷면 CTA route, 첫 안정 카드 덱에는 기존 TabGuideOverlay를 보강한 4단계 코치마크를 1회 제공 |
-| 구현 상태 | **🟡 일부 구현** — 덱·플립·재정렬·로컬 아이콘·독립 조회·집중 범위 gate는 현재 작업 트리에 구현됨; 코치마크 overlay 조정과 공통 퍼널 일부는 미구현 |
+| 구현 상태 | **⬜ 설계 완료·구현 미착수** — 카드 덱·플립·재정렬·로컬 아이콘·안내·분석 귀속은 아직 앱에 구현되지 않음 |
 
 ---
 
@@ -66,11 +66,11 @@ flowchart TD
     A[카드 요약을 열기] --> SECTIONS[그룹 상세·공지·챌린지\n각 영역을 기존 원천에서 독립 조회]
     SECTIONS --> PARTIAL[한 영역 실패는 그 영역만 오류·재시도\n성공한 영역과 가능한 행동은 유지]
 
-    A --> COMPLETE{같은 조회 주기에서\n적격 사용자 수 100명 미만이고\n원본 응답 100행 미만인가?}
+    A --> COMPLETE{성공한 원본 응답 길이가\n100행 미만인가?}
     COMPLETE -->|예| COUNT[확인된 0명 또는 N명 표시]
     COMPLETE -->|불러오는 중| LOADING[집중 영역만 불러오는 중]
     COMPLETE -->|요청 실패| ERROR[집중 영역만 오류·재시도\n0명 표시 금지]
-    COMPLETE -->|값 불명 또는 100 이상| UNKNOWN[확인할 수 없음\n0명 표시 금지]
+    COMPLETE -->|100행| UNKNOWN[확인할 수 없음\n0명 표시 금지]
 
     COUNT --> TRUST[확인된 사실만 표시]
     LOADING --> TRUST
@@ -108,10 +108,9 @@ flowchart TB
     E --> DIAG[페이지 이동·순서 변경은\n탐색 진단 행동]
     DIAG -.-> NO_RESULT[방 표시·집중 시작 결과로 세지 않음]
 
-    Z[적격 사용자 수 또는\n원본 응답 길이] -->|0 ~ 89| TEMP[전역 상위 100명 조합 임시 사용]
+    Z[운영 적격 사용자 수] -->|0 ~ 89| TEMP[전역 상위 100명 조합 출시 전제]
     Z -->|90 ~ 99| PREPARE[대체 계약 오너·티켓·배포일 확정]
-    Z -->|값을 알 수 없음| OBSERVE[집중 인원 미산출\n관측 복구·재시도]
-    Z -->|100 이상| SWITCH[집중 인원 미산출\n대체 서버 계약 배포]
+    Z -->|값을 알 수 없음 또는 100 이상| SWITCH[출시 차단\n대체 서버 계약 선행]
 ```
 
 안내는 한 번의 학습 기회일 뿐 안내가 만든 자동 카드 뒤집기를 사용자 행동으로 기록하지 않는다. 측정은 **화면 노출 → 사용자 의도 → 실제 결과**를 분리하고, 규모가 커져 현재 상태를 완전하게 알 수 없으면 ‘0명’이 아니라 전환 gate를 작동시킨다.
@@ -126,7 +125,7 @@ flowchart TB
 4. **카드 표현은 개인 로컬 설정.** 앞면 배경은 모든 그룹이 `#5E6AD2`; 그룹별 색·그라데이션·선화 아이콘은 없다. `내 카드 아이콘`은 현재 계정이 이 기기에서 보는 카드에만 적용하며 그룹의 서버 속성이나 OWNER 권한이 아니다.
 5. **서버 계약을 늘리지 않는다.** 이모지는 Create/Update request와 Summary/Detail/Search/Overview response, DB, OpenAPI 어디에도 추가하지 않는다. 앱은 userId별 AsyncStorage 값만 읽고, 미설정·손상·신규·가입 그룹은 `🎯`로 fallback한다. 집중 인원도 기존 그룹 상세 멤버 ID와 기존 전체 사용자 현재 집중 상태 응답을 앱에서 join하므로 이 기능의 서버 변경은 0건이다.
 6. **제품 계약을 하나로 유지.** 앞면 탭은 같은 자리에서 카드를 뒤집고, 뒷면 `방 전체 보기`만 `GroupRoom` route를 연다. `GroupChallengeResponse[]`, `ACTIVE|INACTIVE`, `createdAt DESC`와 role별 설정 허브는 현행 정본이다. 없는 `UPCOMING` 상태나 챌린지 제목·연속일·단일 항목 tie-break를 설계로 만들어내지 않는다.
-7. **규모 가정을 임시 계약으로 명시한다.** 현재 `is_deleted=false AND is_guest=false` 사용자는 100명 미만이므로 전역 주간 상위 100명 응답이 전체 대상자를 포함한다. 이 가정은 영구 계약이 아니며 90명부터 경고하고, 100명 도달 전 pagination·그룹 상세 현재 집중 상태 필드 또는 batch endpoint로 전환하는 release gate를 둔다.
+7. **규모 가정을 임시 계약으로 명시한다.** `eligible_user_count < 100`은 운영상 출시 전제이고 런타임 앱에는 전달되지 않는다. 앱은 성공한 전역 상위 100명 원본 응답 길이가 100 미만일 때만 완전성을 적용한다. 운영 수 90명부터 경고하며 unknown 또는 100 이상이면 출시를 차단하고 pagination·그룹 상세 현재 집중 상태 필드 또는 batch endpoint의 대체 계약을 먼저 배포한다.
 8. **멤버십과 표시 순서를 분리.** `GET /groups` 응답이 소속 그룹과 DTO의 정본이다. AsyncStorage는 현재 `userId`에 해당하는 stable `groupId[]`만 기기 로컬 표시 순서로 보관하며, 서버에 없는 그룹을 복원하거나 권한 판정에 쓰지 않는다.
 9. **첫 카드 덱 안내도 화면 상태로 다룬다.** 기존 `TabGuideOverlay`의 그로몬·말풍선·진행 dot·dim/spotlight를 재사용·보강한다. `GroupScreen`은 route/다른 overlay와의 queue 및 안정 렌더 조건을, `GroupListScreen`은 카드 anchor·활성 face·programmatic 전환을 소유한다. phase 3→4의 programmatic back은 사용자 이벤트 없이 정상 첫 back과 같은 lazy query를 정확히 한 번 시작하되, guide는 응답을 기다리지 않고 step 4의 loading/ready/error를 그대로 표시한다. 서버 계약은 바꾸지 않는다.
 10. **사용자 이벤트는 typed 경계에서 한 번만 발행한다.** 화면은 Firebase SDK를 직접 부르지 않고 `analyticsEvents.ts`의 typed helper → 기존 `analytics.track()`만 호출한다. `C`(클라이언트), `S`(서버 Measurement Protocol), `S-LOG`(서버 구조화 로그), `A`(GA4/Firebase 자동 수집)를 구분해 퍼널에는 C·S·검증된 A만 쓰며, raw 버튼/모든 `onPress`를 이벤트로 만들지 않는다.
@@ -175,7 +174,7 @@ flowchart TB
   - `useCarousel` — scrollX·activeIndex·snap 계산.
   - `useGroupFlipState` — `flippedGroupId`와 face 전환.
   - `useGroupCardBackData` — 카드 뒷면을 처음 열 때 현행 detail·announcements·challenges의 lazy fetch·독립 오류·retry·invalidate를 조정한다.
-  - `useGroupFocusStatus` — `getMyRanking(undefined, date)`의 **전체 사용자 현재 집중 상태 원본 최대 100행**을 날짜별 한 번 조회하고 in-flight를 합치며, 모든 카드가 공유할 `userId → isFocusing` index를 제공한다. 12명만 남기는 `useSessionLeagueMembers`는 재사용하지 않는다.
+  - `useGroupFocusStatus` — 계획된 wrapper 확장 `getMyRanking(category?, date = todayStrKst())` 뒤의 `getMyRanking(undefined, date)`로 **전체 사용자 현재 집중 상태 원본 최대 100행**을 날짜별 한 번 조회하고 in-flight를 합치며, 모든 카드가 공유할 `userId → isFocusing` index를 제공한다. 12명만 남기는 `useSessionLeagueMembers`는 재사용하지 않는다.
   - `useGroupReorder` — grip gesture·낙관적 순서 상태·서버 목록/AsyncStorage hydration·계정별 저장을 조정한다.
   - `groupCardOrderStore` — `STORAGE_KEYS.groupCardOrder`의 계정별 map 읽기·검증·직렬화 쓰기를 담는다.
   - `useGroupCardEmoji` — 성공한 전체 그룹 목록과 현재 `userId`를 기준으로 이모지 hydrate/reconcile·낙관적 표시·오류 상태를 조정한다.
@@ -217,7 +216,7 @@ flowchart LR
 - 카드 뒷면을 처음 열 때 사용하는 집중 상태 API: category를 보내지 않은 `GET /api/v1/league/me/ranking?date`의 원본 응답.
 - AsyncStorage는 네트워크 응답을 대체하지 않는다. 화면 진입의 `GET /api/v1/groups`로 확정한 소속 groupId에 대해 현재 계정의 표시 순서와 개인 카드 아이콘만 reconcile한다.
 - 그룹 상세는 멤버십과 `members[].userId`의 정본이다. `isFocusing`을 그룹 상세 DTO에 추가하지 않는다.
-- 현재 집중 상태 데이터는 `getMyRanking(undefined, date)`의 원본 배열을 사용한다. 포커스 세션 화면용 `useSessionLeagueMembers`가 본인을 제외하고 12명으로 자른 결과는 그룹 집계에 사용하지 않는다.
+- 현재 집중 상태 데이터는 계획된 wrapper 확장 뒤 `getMyRanking(undefined, date)`의 원본 배열을 사용한다. 포커스 세션 화면용 `useSessionLeagueMembers`가 본인을 제외하고 12명으로 자른 결과는 그룹 집계에 사용하지 않는다.
 - `/api/v1/league/me/ranking?date` 재사용은 그룹 화면에 리그 UI나 리그 기능을 추가하는 것이 아니다. 기존 응답의 `isFocusing` 값만 현재 집중 상태 판단에 재사용한다.
 
 ### 3.1 카드 뒷면을 처음 열 때와 화면 공유 현재 집중 상태 데이터
@@ -244,12 +243,12 @@ flowchart TD
 
 ### 3.2 기존 그룹 상세 + 현재 집중 상태 응답의 client join
 
-카드 전용 request/response와 그룹 상세 필드 확장을 만들지 않는다. 현행 그룹 상세의 `members[].userId`를 멤버십 정본으로, category를 생략한 현행 `GET /api/v1/league/me/ranking?date=YYYY-MM-DD`의 원본 `LeagueMemberResponse[]`를 현재 집중 상태 정본으로 사용한다. 현재 eligible 사용자(`is_deleted=false AND is_guest=false`)가 100명 미만이므로 이 top-100 응답에 eligible 사용자 전원이 포함된다는 **임시 규모 가정** 아래 앱에서 join한다.
+카드 전용 request/response와 그룹 상세 필드 확장을 만들지 않는다. 현행 그룹 상세의 `members[].userId`를 멤버십 정본으로, category를 생략한 현행 `GET /api/v1/league/me/ranking?date=YYYY-MM-DD`의 원본 `LeagueMemberResponse[]`를 현재 집중 상태 정본으로 사용한다. 운영 eligible 사용자(`is_deleted=false AND is_guest=false`) 100명 미만은 출시 전제이며, 런타임 앱은 이 수를 받지 않는다.
 
-- `getMyRanking(undefined, date)`는 기존 endpoint에 category를 보내지 않아 전역 주간 상위 100명과 각 행의 기존 `isFocusing`을 그대로 받는다. 날짜 일관성을 위해 `getMyRanking(category?, date = todayStr())`처럼 앱 wrapper에 optional date 인자만 더할 수 있으며 이는 서버 계약 변경이 아니다.
+- 현행 `getMyRanking(category?)`에 날짜 인자가 없다. 계획된 wrapper 확장 `getMyRanking(category?, date = todayStrKst())`이 기존 endpoint에 category를 보내지 않는 `getMyRanking(undefined, date)` 호출을 가능하게 하며, 서버 계약 변경은 아니다.
 - 포커스 세션 UI용 `useSessionLeagueMembers`는 본인 제외·핀 우선 정렬 뒤 12명으로 `slice`한다. 그룹 count는 그 결과를 재사용하지 않고, `getMyRanking()`의 원본 배열을 보존하는 전용 `useGroupFocusStatus`를 GroupScreen에서 한 번만 사용한다.
-- 완전한 현재 집중 상태 데이터에 없는 `userId`는 `false`로 본다. 단, 이는 **eligible 사용자 수와 응답 길이가 모두 100 미만이라 데이터가 완전하다는 게이트를 통과했을 때만** 유효하다. 요청 loading/error나 100행 coverage-unknown 응답은 0명으로 강하하지 않고 집중 섹션을 독립 loading/error로 표시한다.
-- 조회 결과가 90~99행이면 운영 warning/계측을 남긴다. 100행은 실제 총원이 100인지 그 이상인지 구분할 수 없으므로 coverage-unknown telemetry를 남기고 count를 미산출한다. eligible 사용자 100명 도달 전 TODO로 그룹 상세 현재 집중 상태 필드, userId batch 현재 집중 상태 endpoint 또는 pagination 중 하나를 배포한다.
+- 완전한 현재 집중 상태 데이터에 없는 `userId`는 `false`로 본다. 단, 운영 출시 전제가 유효하고 **성공한 raw 응답 길이가 100 미만일 때만** 유효하다. 요청 loading/error나 100행 coverage-unknown 응답은 0명으로 강하하지 않고 집중 섹션을 독립 loading/error로 표시한다.
+- 운영 eligible 사용자 수 90~99명은 warning/대체 계약 준비 신호다. unknown 또는 100 이상이면 출시를 차단하고 대체 계약을 먼저 배포한다. 런타임의 100행 응답은 실제 총원을 구분할 수 없으므로 coverage-unknown telemetry를 남기고 count를 미산출한다.
 - `/api/v1/league/ranking`은 `isFocusing` 값을 채우지 않으므로 사용하지 않는다. 대상은 이름이 비슷한 이 endpoint가 아니라 반드시 `/api/v1/league/me/ranking`의 category 없는 원본 응답이다.
 - 이 설계의 백엔드 DTO·service·DB·migration·OpenAPI 변경은 **0건**이다.
 - 최신 공지는 서버가 `createdAt DESC`로 주는 기존 `GroupAnnouncementResponse[]`의 `announcements[0] ?? null`이다. 빈 배열과 요청 실패를 구분한다.
@@ -567,14 +566,14 @@ export interface GroupListScreenProps {
 | `types/storage.ts`·그룹 local store | `groupCardOrder`와 별도로 `groupCardEmoji: 'gromo:groups:cardEmoji:v1'` 추가. `{[userId]: {[groupId]: emoji}}` 검증·reconcile·직렬화 쓰기 |
 | `TabGuideOverlay`·guide storage/controller | 공용 그로몬·말풍선·dot·dim/spotlight를 재사용하고 `groupDeck:v1` 4단계, `gromo:guide:groupDeck:v1`, session fallback, anchor fallback, 단계 접근성 action을 보강. 서버/API 변경 없음 |
 | `types/dto/group.ts`·`services/groupApi.ts` | emoji·`isFocusing` 변경 없음. 현행 `getGroupDetail`·`getAnnouncements`·`getChallenges` 재사용 |
-| `services/leagueApi.ts`·`useGroupFocusStatus` | 기존 `getMyRanking()` 원본 응답을 category 없이 사용. 동일 날짜를 명시할 optional client 인자와, 전체 사용자 현재 집중 상태 원본 100행을 보존하는 그룹 전용 화면 캐시/in-flight dedupe 추가. `useSessionLeagueMembers`의 12명 slice 결과는 재사용하지 않음 |
+| `services/leagueApi.ts`·`useGroupFocusStatus` | 계획된 `getMyRanking(category?, date = todayStrKst())` wrapper 확장 뒤 원본 응답을 category 없이 사용. 동일 날짜를 명시할 optional client 인자와, 전체 사용자 현재 집중 상태 원본 100행을 보존하는 그룹 전용 화면 캐시/in-flight dedupe 추가. `useSessionLeagueMembers`의 12명 slice 결과는 재사용하지 않음 |
 | 백엔드 `Group`·DTO·service | 변경 없음. 그룹 상세 `members[]`에는 기존 필드만 유지하고 `FocusLiveInfoLookup`·`@JsonProperty` mapping을 추가하지 않음 |
 | DB migration·OpenAPI | 변경 없음. emoji·현재 집중 상태 컬럼·schema·새 API path 모두 추가하지 않음 |
 | 기존 그룹 조회 API | controller/service 경로 추가 없음. detail·announcements·challenges의 권한·정렬·부분 실패 계약을 카드와 전체 방에서 함께 회귀 검증 |
 | `GroupSettingsScreen` 및 하위 route | 기존 허브에 공용 로컬 `내 카드 아이콘` route만 추가. OWNER는 기존 관리 4항목+나가기, MEMBER는 기존 나가기를 유지 |
 | `GroupRoomScreen` | 현행 detail·announcements·오늘/어제 challenges `Promise.allSettled`와 응답 전건 `map`을 유지. 카드도 같은 API 계약과 부분 실패 원칙을 따름 |
 | 테스트 | 기존 카드 lazy data·독립 실패/캐시·순서·이모지·role 회귀와 함께 guide trigger matrix, 4단계 anchor/programmatic back의 4개 query 1회·step 4 상태, session fallback/write failure, 접근성·이벤트 중복을 추가 |
-| 계측 | PRD §6.5의 C/S/S-LOG/A 카탈로그와 F1/F2/F3를 정본으로 한다. `app_main_viewed`·`main_tab_selected`·획득 결과/화면 이벤트와 기존 카드 이벤트를 typed helper로 발행하고, guide programmatic 전환은 flip/page에서 제외한다. 기존 카드/API 계약은 변경하지 않음 |
+| 계측 | [§6.5 공통 분석 이벤트 사전](#65-공통-분석-이벤트-사전)의 C/S/S-LOG/A 카탈로그와 [§6.6 F1/F2/F3](#66-f1f2f3-퍼널과-결과-귀속)를 정본으로 한다. `app_main_viewed`·`main_tab_selected`·획득 결과/화면 이벤트와 기존 카드 이벤트를 typed helper로 발행하고, guide programmatic 전환은 flip/page에서 제외한다. 기존 카드/API 계약은 변경하지 않음 |
 
 ---
 
@@ -629,7 +628,7 @@ export interface GroupListScreenProps {
 | H-18 | 고정 pageCount 임계가 작은 화면에서 overflow하거나 큰 화면 공간을 낭비 | 실제 indicator/container 폭에서 40pt gutter를 뺀 available과 dot hit width/gap의 required를 비교. mode는 carousel 상태와 분리된 파생값 |
 | H-19 | 긴 이름이 카드 높이·CTA를 밀거나 보조기술에도 잘린 이름이 전달됨 | 앞면·뒷면·검색·목록 모두 1줄 tail ellipsis. 접근성 label은 항상 원문 전체 사용 |
 | H-20 | 실패·부분 그룹 목록으로 emoji stale key를 지움 | 성공한 전체 `GET /groups`에서만 reconcile/prune하고, 실패·부분 목록에서는 현재 local bucket을 보존 |
-| H-21 | eligible 사용자가 100명에 도달해 top-100 밖 그룹원이 `false`로 오판됨 | 90~99명 warning, 응답 100행은 coverage-unknown telemetry·count 미산출. eligible 사용자 100명 도달 전 pagination·그룹 상세 현재 집중 상태 필드·batch 현재 집중 상태 endpoint 중 하나로 전환하는 release gate 적용 |
+| H-21 | eligible 사용자가 100명에 도달해 top-100 밖 그룹원이 `false`로 오판됨 | 운영 eligible 수 90~99명 warning; unknown/100 이상은 출시 차단 후 대체 계약 선행. 런타임 응답 100행은 coverage-unknown telemetry·count 미산출 |
 | H-22 | 카드마다 `/api/v1/league/me/ranking`을 호출해 요청이 증폭됨 | GroupScreen 소유 date cache와 in-flight promise를 모든 카드가 공유하고, 12명 slice 훅 대신 원본 전용 hook 사용 |
 | H-23 | guide가 sheet·route 복귀와 겹쳐 잘못된 anchor 또는 화면 차단을 만듦 | GroupScreen overlay queue·안정 렌더 gate를 사용하고 background/unmount는 미완료 interrupt로 종료 |
 | H-24 | guide 시연 back이 사용자 flip·page 이벤트 또는 lazy query 미시작/중복으로 오인됨 | programmatic source를 별도 표시해 flip/page analytics는 차단하되, 정상 첫 back과 같은 cache/in-flight dedupe로 detail·공지·challenge·공유 league query를 정확히 1회 시작한다. guide는 기다리지 않고 step 4의 loading/ready/error를 표시 |
@@ -652,7 +651,7 @@ export interface GroupListScreenProps {
 
 ## 12. 출시 전 검증 게이트
 
-카드 기능의 행동 baseline은 아직 없고 현재 eligible 사용자는 100명 미만이다. 아래는 사업 효과가 아니라 구현 가능성, 규모 가정, 과업 이해를 확인하는 게이트다.
+카드 기능의 행동 baseline은 아직 없고, eligible 사용자 100명 미만은 운영상 출시 전제다. 아래는 사업 효과가 아니라 구현 가능성, 규모 가정, 과업 이해를 확인하는 게이트다.
 
 - **사용성:** 앞면 탭→뒷면, 뒷면→전체 방, grip 재정렬을 설명 없이 수행하는지 관찰.
 - **상태:** 그룹 1·5·10개, local emoji 미설정/무효/읽기·쓰기 실패/연속 변경, detail/현재 집중 상태/announcements/challenges 독립 loading/error/empty, 현재 집중 상태 0/N명 및 userId join, 챌린지 0/1/복수 및 ACTIVE/INACTIVE 혼합, 공지 없음.
@@ -667,8 +666,8 @@ export interface GroupListScreenProps {
 - **호환:** 기존 Create/Update/Summary/Detail/Search/Overview DTO가 emoji·`isFocusing` 추가 없이 그대로 동작하고, 현행 공지 최신순·`ACTIVE|INACTIVE` 챌린지 응답을 검증한다.
 - **회귀:** 앞면 press에서 GroupRoom이 열리지 않고, 뒷면 `*.room`에서만 정확히 한 번 열린다.
 - **기존 API 회귀:** category 없는 `/api/v1/league/me/ranking?date` 원본에 `isFocusing` 값이 있고, 그룹 detail의 기존 멤버 필드, announcements 최신순, challenges의 date·상태·정렬 계약이 카드 도입 뒤에도 유지된다.
-- **규모 게이트:** eligible 사용자 수와 raw response 길이를 관측한다. 90~99명은 warning과 전환 작업 착수, 100행 응답은 coverage-unknown telemetry와 count 미산출 상태다. 이를 `0명`으로 표시하지 않는다.
-- **전환 TODO:** 100명 도달 전에 그룹 상세의 멤버별 현재 집중 상태 필드, userId batch 현재 집중 상태 endpoint, 또는 `/api/v1/league/me/ranking` pagination 중 하나의 서버 계약을 선택·배포한 뒤 top-100 join을 제거한다.
-- **계측 준비:** PRD §6.5 카탈로그와 §6.6 F1/F2/F3의 이벤트별 발행 시점·속성·중복 방지를 staging/DebugView에서 검증한다. 특히 `app_main_viewed`는 foreground main shell당 1회, `main_tab_selected`는 실제 global tab 변경 때만 1회, `group_card_deck_viewed`는 eligibility 확정 첫 렌더에 focus당 1회, `tab_guide_completed`는 마지막 `시작`으로 overlay가 닫힌 현재 session당 1회여야 한다. key write 실패는 completed를 취소하지 않고 운영 telemetry만 1회다. guide programmatic flip/page, rerender, resize, route 복귀에서는 flip/page 금지 이벤트가 0건이어야 하며 payload에 그룹명·emoji·버튼 문구·asset·로컬 순서·user_id가 없어야 한다.
+- **규모 게이트:** 운영 eligible 사용자 수 90~99명은 warning과 전환 작업 착수, unknown/100 이상은 출시 차단이다. 런타임 raw 100행·loading·error는 coverage-unknown과 count 미산출 상태이며 `0명`으로 표시하지 않는다.
+- **전환 TODO:** 출시 차단을 해제하려면 그룹 상세의 멤버별 현재 집중 상태 필드, userId batch 현재 집중 상태 endpoint, 또는 `/api/v1/league/me/ranking` pagination 중 하나의 서버 계약을 선택·배포한 뒤 top-100 join을 제거한다.
+- **계측 준비:** [§6.5 카탈로그](#65-공통-분석-이벤트-사전)와 [§6.6 F1/F2/F3](#66-f1f2f3-퍼널과-결과-귀속)의 이벤트별 발행 시점·속성·중복 방지를 staging/DebugView에서 검증한다. 특히 `app_main_viewed`는 foreground main shell당 1회, `main_tab_selected`는 실제 global tab 변경 때만 1회, `group_card_deck_viewed`는 eligibility 확정 첫 렌더에 focus당 1회, `tab_guide_completed`는 마지막 `시작`으로 overlay가 닫힌 현재 session당 1회여야 한다. key write 실패는 completed를 취소하지 않고 운영 telemetry만 1회다. guide programmatic flip/page, rerender, resize, route 복귀에서는 flip/page 금지 이벤트가 0건이어야 하며 payload에 그룹명·emoji·버튼 문구·asset·로컬 순서·user_id가 없어야 한다.
 
 리텐션·재방문·전환율 개선은 이 HLD의 성공 기준이 아니다. 실제 사용자 데이터가 쌓인 뒤 별도 제품 지표로 정의한다.

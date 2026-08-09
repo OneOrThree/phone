@@ -5,10 +5,11 @@
 | 상위 | [그룹 전체 IA](../../information-architecture.md) · [Feature PRD](./prd.md)                                                                                           |
 | 범위 | 화면 위치 · 상태 트리 · 카드 앞/뒷면 정보 위계 · 내비게이션 · 권한별 설정                                                                        |
 | 상태 | **v1.1 정보구조 정본** — 카드 플립·기기 로컬 순서·사용자별 `내 카드 아이콘`·기존 전역 리그 라이브 합성·그룹 카드 첫 노출 코치마크 정보 구조 확정 |
+| 구현 상태 | **⬜ 설계 완료·구현 미착수** — 카드 덱·플립·재정렬·로컬 아이콘·안내는 아직 앱에 구현되지 않음 |
 
 이 문서는 **"무엇을, 어떤 순서/위계로 보여주는가"** 만 다룬다. 어떻게 움직이는지(제스처·모션)는 [ux-design.md](./ux-design.md), 어떻게 구현하는지는 [high-level-design.md](./high-level-design.md)·[low-level-design.md](./low-level-design.md).
 
-> **현실성 전제:** 작성 시점의 실제 행동 데이터는 0이고, `is_deleted=false AND is_guest=false` 리그 조회 대상은 100명 미만이다. 기존 전역 리그 top100 재사용은 이 운영 규모에서만 쓰는 **v1.1 정보구조의 임시 전제**이며, 성장 효과가 확인되었다는 뜻은 아니다. 출시 전에는 과업 이해도·오조작·접근성·구현 안정성을 확인하고, 출시 후에는 최초 행동 기준선부터 수집한다.
+> **현실성 전제:** 작성 시점의 실제 행동 데이터는 0이다. `eligible_user_count < 100`은 운영상 출시 전제일 뿐 런타임 앱에는 전달되지 않는다. 앱은 성공한 전역 리그 원본 응답 길이가 100 미만일 때만 top100 완전성을 적용하며, `length === 100`·loading·error는 미산출(0명 금지)이다. 운영 수가 unknown 또는 100 이상이면 출시는 차단하고 대체 계약을 먼저 정한다.
 
 ---
 
@@ -70,18 +71,17 @@ flowchart TB
     BACK["카드 뒷면 정보"] --> SECTIONS["그룹 상세 · 공지 · 챌린지<br/>각 영역이 독립적으로 상태를 가짐"]
     SECTIONS --> PARTIAL["한 영역 실패는 그 영역만 오류 · 재시도<br/>다른 정보와 가능한 행동은 유지"]
 
-    BACK --> COMPLETE{"같은 조회 주기에서<br/>적격 사용자 수 100명 미만이고<br/>원본 응답도 100행 미만인가?"}
+    BACK --> COMPLETE{"성공한 원본 리그 응답이<br/>100행 미만인가?"}
     COMPLETE -->|예| FACT["확인된 0명 또는 N명 표시"]
     COMPLETE -->|불러오는 중| LOADING["불러오는 중 표시"]
     COMPLETE -->|요청 실패| ERROR["집중 영역만 오류 · 재시도<br/>0명 표시 금지"]
-    COMPLETE -->|값 불명 또는 100 이상| UNKNOWN["확인할 수 없음<br/>0명 표시 금지"]
+    COMPLETE -->|100행| UNKNOWN["확인할 수 없음<br/>0명 표시 금지"]
 
     NAME["시각 이름<br/>한 줄 말줄임"] --> ACCESS["보조기술 이름<br/>서버 원문 전체"]
 
-    SCALE["적격 사용자 수 또는<br/>원본 응답 길이"] -->|0~89명| TEMP["현재 조합을 임시 사용"]
+    SCALE["운영 적격 사용자 수"] -->|0~89명| TEMP["현재 조합 출시 전제"]
     SCALE -->|90~99명| PREPARE["대체 계약 담당자 · 티켓 · 배포일 확정"]
-    SCALE -->|값을 알 수 없음| OBSERVE["집중 인원 미산출 · 관측 복구"]
-    SCALE -->|100 이상| SWITCH["집중 인원 미산출 · 대체 계약 배포"]
+    SCALE -->|값을 알 수 없음 또는 100 이상| SWITCH["출시 차단 · 대체 계약 선행"]
 ```
 
 ### 0.4 첫 카드 덱 안내의 사용자 약속
@@ -136,13 +136,13 @@ flowchart TD
 - `GroupListScreen`은 **그룹 탭의 첫 화면**(A-9: 소속 1개부터 항상 목록). 자체 백버튼 없음(`onBack` 미전달이 정상).
 - 캐러셀은 `GroupScreen`의 **"1건 이상" 분기만** 대체한다. 게스트/로딩/에러/빈 상태 화면은 위치·소유 불변.
 - **카드 앞면 탭은 라우트 이동이 아니다.** `GroupRoom` push는 뒷면의 명시적 `방 전체 보기`에서만 일어난다.
-- 이 흐름의 노출·의도·결과 이벤트 정본은 [PRD §6.5·§6.6](./prd.md)다. 앱 main shell, 글로벌 탭 선택,
+- 이 흐름의 노출·의도·결과 이벤트 정본은 [HLD §6.5 공통 분석 이벤트 사전](./high-level-design.md#65-공통-분석-이벤트-사전)과 [§6.6 퍼널·결과 귀속](./high-level-design.md#66-f1f2f3-퍼널과-결과-귀속)이다. 앱 main shell, 글로벌 탭 선택,
   `GroupScreen` 도달, 덱 노출, back CTA 수락, 방/집중 결과를 서로 다른 단계로 기록한다.
 
 ### 1.1 화면 결과의 semantic event
 
 아래는 정보 구조상 결과가 실제로 발생한 지점만 연결한 것이다. 버튼 원문이나 그룹 이름은 payload에
-넣지 않으며, 이벤트의 속성·중복 규칙은 PRD §6.5·§6.6을 따른다.
+넣지 않으며, 이벤트의 속성·중복 규칙은 [HLD §6.5](./high-level-design.md#65-공통-분석-이벤트-사전)·[§6.6](./high-level-design.md#66-f1f2f3-퍼널과-결과-귀속)을 따른다.
 
 | 화면 결과                                                 | semantic event                                                                                                                                       | 분류                              |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
@@ -296,8 +296,8 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 - 카드 뒷면의 챌린지 영역은 고정 카드 높이 안에서 세로 스크롤한다. 각 항목의 카테고리·방식·목표·시간대·멤버 진행 의미는 현행 `ChallengeCard`와 같고, 생성·삭제·내기 같은 변경 동작은 전체 방에 둔다.
 - 최신 공지는 현행 announcements 최신순 응답의 첫 항목만 사용한다. 카드 전용 limit·정렬 API는 만들지 않는다.
 - 집중 현황은 `leagueApi.getMyRanking()` 원본 또는 동일한 전용 query hook을 쓴다. `useSessionLeagueMembers`는 자기 제외와 `MAX_MEMBERS=12` slice가 있으므로 정보 원천으로 쓰지 않는다.
-- `LeagueRankingQueryRepository`가 `users LEFT JOIN daily_focus_stats`로 0초 사용자도 포함하고 현재 eligible 사용자가 100명 미만이므로, 전역 top100 원본은 현재 모수 전원을 포함한다. 이 전제에서 응답에 없는 그룹원 ID는 `false`로 본다.
-- 그룹 상세·리그 DTO·DB를 바꾸거나 새 endpoint를 만들지 않는다. eligible 사용자 90명에서 경고·대체 안을 착수하고 100명 도달 전을 release gate로 두어 live 필드·batch endpoint·live pagination 중 하나로 전환한다. 리그 응답 `length === 100`은 coverage 불명 telemetry 신호로 남긴다.
+- `LeagueRankingQueryRepository`가 `users LEFT JOIN daily_focus_stats`로 0초 사용자도 포함한다. 운영 eligible 사용자 수가 100명 미만이라는 출시 전제 아래, 런타임의 성공 원본 응답 길이가 100 미만일 때만 응답에 없는 그룹원 ID를 `false`로 본다.
+- 그룹 상세·리그 DTO·DB를 바꾸거나 새 endpoint를 만들지 않는다. 운영 eligible 사용자 90명에서 경고·대체 안을 착수하며, unknown 또는 100 이상이면 출시를 차단하고 live 필드·batch endpoint·live pagination 중 하나의 대체 계약을 먼저 배포한다. 런타임 리그 응답 `length === 100`은 coverage 불명 telemetry 신호로 남긴다.
 - `방 전체 보기`만 `GroupRoom` 라우트를 연다. 뒤로 오면 같은 그룹의 뒷면과 carousel 위치로 복귀한다.
 
 ### 3.4 헤더·끝 찾기 카드
@@ -447,7 +447,7 @@ GroupProfileEdit  (OWNER only)
 - `userId`가 확정되지 않은 상태에서는 아이콘 저장소를 읽거나 쓰지 않고 `🎯`로 표시한다.
 - 성공한 전체 `GET /groups`의 ID 집합과 현재 `userId`의 아이콘 map을 reconcile해 stale `groupId`와 허용 밖 값을 제거한다. 목록 오류·부분 응답에서는 삭제하지 않고 다른 사용자 bucket은 유지한다.
 - 서버 변경은 **0건**이다. 카테고리 미전달 전역 리그 원본과 그룹 상세 멤버 ID를 클라이언트에서 join하며, 기존 API·DTO·DB·OpenAPI를 바꾸지 않는다.
-- 정확성 전제는 `eligible_user_count = COUNT(users WHERE is_deleted=false AND is_guest=false) < 100`이다. 90명에서 경고·대체 안 착수, 100명 도달 전을 release gate로 두어 그룹 live 필드·그룹 멤버 batch live endpoint·live pagination 중 하나로 전환하는 TODO를 운영한다. 응답 `length === 100`은 coverage 불명 telemetry를 보낸다.
+- 운영 출시 전제는 `eligible_user_count = COUNT(users WHERE is_deleted=false AND is_guest=false) < 100`이다. 이 값은 런타임 앱에 전달되지 않는다. 90명에서 경고·대체 안을 착수하며, unknown 또는 100 이상이면 출시를 차단하고 그룹 live 필드·그룹 멤버 batch live endpoint·live pagination 중 하나의 대체 계약을 먼저 배포한다. 런타임의 성공 raw 응답 길이 `<100`만 complete이고, `length === 100`·loading·error는 coverage 불명(0명 금지)이다.
 - 챌린지는 현행 DTO의 `ACTIVE | INACTIVE`, nullable `memberProgress`, `bet?`, `lastSettledBet?` 의미를 유지한다. 앱에 없는 `UPCOMING`, 단일 `title`, `progressPercent`, 연속일수 필드를 새로 정의하지 않는다.
 - room summary와 challenge 목록은 그룹 멤버 전용 응답이다.
 
@@ -468,10 +468,10 @@ GroupProfileEdit  (OWNER only)
 | MEMBER 그룹 프로필 접근                                 | `내 카드 아이콘`은 접근 가능. OWNER 전용 `GroupProfileEdit` 메뉴·deep link·PATCH는 기존 권한으로 차단                                                                                            |
 | 첫 flip 데이터 로딩                                     | detail·announcements·challenges 섹션별 skeleton. 앞면으로 즉시 복귀 가능                                                                                                                         |
 | 뒷면 요청 일부/전체 실패                                | 실패한 섹션만 인라인 오류 + 재시도. 성공 섹션과 CTA 유지, full room을 자동으로 열지 않음                                                                                                         |
-| 완전성이 확인된 리그 성공 응답(`<100`행)에 멤버 ID 누락 | 현 `eligible_user_count < 100` 전제에서 `false`. 오늘 집중분으로 추정하지 않음                                                                                                                   |
+| 완전성이 확인된 리그 성공 응답(`<100`행)에 멤버 ID 누락 | 운영 출시 전제가 유효할 때만 `false`. 오늘 집중분으로 추정하지 않음                                                                                                                   |
 | 리그 loading / 요청 실패                                | `0명`으로 오인하지 않고 집중 현황 블록만 skeleton 또는 인라인 오류 + 재시도                                                                                                                      |
-| 리그 응답 `length === 100`                              | coverage 불명 telemetry를 남기고 전환 TODO 점검. 런타임 전체 강제 차단 없음                                                                                                                      |
-| eligible 사용자 90명 / 100명                            | 90명에서 경고·대체 안 착수. 100명 도달 전 release gate에서 정확한 live 조회로 전환                                                                                                               |
+| 리그 응답 `length === 100`                              | coverage 불명 telemetry를 남기고 집중 인원을 미산출한다. 런타임 전체를 차단하지 않음                                                                                                                      |
+| 운영 eligible 사용자 90~99명 / unknown·100 이상                            | 90~99명에서 경고·대체 안 착수. unknown·100 이상이면 카드 덱 출시를 차단하고 대체 계약을 먼저 배포                                                                                                               |
 | 챌린지 없음                                             | `아직 챌린지가 없어요`                                                                                                                                                                           |
 | 공지 없음                                               | `아직 공지가 없어요`                                                                                                                                                                             |
 | 현재 집중 0명                                           | `0명 집중 중`                                                                                                                                                                                    |
