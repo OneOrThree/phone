@@ -199,11 +199,12 @@ class GroupChallengeV20MigrationTest {
                 UUID.randomUUID(), GROUP_ID, challengeId, USER_ID, stake, Date.valueOf(betDate), status);
     }
 
+    // is_achieved 는 V37 에서 드롭됐다(GROMO-1265) — LATEST 까지 올린 스키마라 컬럼을 지정하지 않는다.
     private void insertMember(JdbcTemplate jdbcTemplate, UUID challengeId, LocalDate usageDate) {
         jdbcTemplate.update(
                 "INSERT INTO group_challenge_members"
-                        + " (id, created_at, is_achieved, progress_minutes, group_challenge_id, user_id, usage_date)"
-                        + " VALUES (?, now(), false, 0, ?, ?, ?)",
+                        + " (id, created_at, progress_minutes, group_challenge_id, user_id, usage_date)"
+                        + " VALUES (?, now(), 0, ?, ?, ?)",
                 UUID.randomUUID(), challengeId, USER_ID, Date.valueOf(usageDate));
     }
 

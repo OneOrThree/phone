@@ -300,7 +300,10 @@ public class GroupChallengeService {
                     .filter(u -> grantedUserIds.contains(u.getId()))
                     .toList();
             if (!participants.isEmpty()) {
+                // 미집계 row(minutes null, GROMO-1267)는 맵에서 제외 — "행은 있는데 값이 없다"도
+                // 미보고와 동일하게 progressMinutes null(판정 불가)로 전파한다(FR-16, 3상 유지).
                 screenTimeMinutes = dailyScreenTimeStatRepository.findByUserInAndDate(participants, date).stream()
+                        .filter(s -> s.getTotalScreenTimeMinutes() != null)
                         .collect(Collectors.toMap(
                                 s -> s.getUser().getId(),
                                 DailyScreenTimeStat::getTotalScreenTimeMinutes));
@@ -396,9 +399,8 @@ public class GroupChallengeService {
                     UUID memberId = member.getUser().getId();
                     // FOCUS 는 데이터가 없으면 "0분 집중"이 사실이지만(서버 데이터), SCREEN_TIME 은
                     // 데이터 미수집(미보고 포함)과 "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
-                    // 한계: null 은 "통계 행 없음/권한 미동의/미보고"까지만 덮는다. 앱이 actualScreenTimeMinutes
-                    // 없이 보고하면 ScreenTimeService 가 0 으로 저장해 실제 0분과 구분되지 않는다(쓰기 모델
-                    // 이슈 — 컬럼 nullable 화가 필요해 이 범위 밖).
+                    // GROMO-1267 로 쓰기 모델도 정합 — 앱이 actualScreenTimeMinutes 없이 보고하면
+                    // ScreenTimeService 가 null(미집계)로 저장하고, 여기서도 맵 제외로 null 이 전파된다.
                     Integer progressMinutes;
                     if (windowType) {
                         progressMinutes = screenTime
