@@ -12,7 +12,7 @@ jobs:
       github.event.issue.pull_request != null &&
       contains(github.event.comment.body, '@claude')
     runs-on: [self-hosted, ci, spot]
-    timeout-minutes: 10
+    timeout-minutes: 40
     permissions:
       contents: read
       pull-requests: write
