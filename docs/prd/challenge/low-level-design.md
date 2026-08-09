@@ -540,7 +540,8 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 ```jsonc
 { "results": [{
     "sessionId": "uuid", "groupId": "uuid", "groupName": "새벽반",   // 그룹방을 못 읽어도 이름은 보여준다
-    "challengeId": "uuid", "challengeDeleted": false, "challengeEnded": true,
+    "challengeId": "uuid", "challengeDeleted": false,   // 삭제 회차는 애초에 안 실린다 (FR-44-4)
+    "challengeEnded": true,                              // ENDED는 실린다 (N38 — N53으로 이관)
     "sessionDate": "2026-08-08", "stake": 30, "pot": 90,
     "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED (UNUSED는 안 실린다)
     "voidReason": null, "goalMinutes": 90,
@@ -549,8 +550,12 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 }] }
 ```
 
-- 조건: **내가 참가자**인 정산 완료 회차. **그룹 멤버십·챌린지 상태(ACTIVE/ENDED/삭제)를 보지
-  않는다.** 최근 30일·최대 10건(§D3).
+- 조건: **내가 참가자**인 정산 완료 회차. **그룹 멤버십과 챌린지 ACTIVE/ENDED를 보지 않는다** —
+  탈퇴자·종료 챌린지도 실린다. 최근 30일·최대 10건(§D3).
+- **단 삭제된 챌린지(`deleted_at IS NOT NULL`)의 회차는 제외**한다 (FR-44-4·N48). 삭제 환불은
+  **`BET_VOID_REFUND` 푸시**가 알리는 것으로 이미 정해져 있고, 모달까지 띄우면 같은 사건을 두
+  경로로 통지하게 된다. "챌린지 상태 무관"은 **ENDED**에 대한 말이지 삭제까지 포함하지 않는다 —
+  N53이 N38(ENDED 유실)을 풀면서 문구를 일반화하는 과정에서 N48의 예외가 지워졌던 자리다.
 - **왜 카드 조회에서 분리했나 (N53)**: 결과 큐를 카드 응답에 실으면 세 가지가 동시에 막힌다 —
   ① 카드 응답 최상위가 `GroupChallengeResponse[]` **배열**이라 형제 키를 둘 자리가 없다
   ② ENDED 챌린지를 그 배열에 넣으면 구앱이 **끝난 챌린지를 카드로 렌더**한다(N38 보강 논의)
@@ -1235,7 +1240,7 @@ classDiagram
         +create(gid, req)
         +end(gid, cid)
         +delete(gid, cid)
-        +listEnded(gid, cursor, size)
+        +deletionPreview(gid, cid) "삭제 영향 범위 — N49"
         +reportWindowUsage(gid, cid, req)
     }
     class GroupBetController {
@@ -1244,6 +1249,11 @@ classDiagram
         +joinWeek(gid, cid)
         +leave(gid, sid)
         +sessions(gid, cid, cursor, size)
+    }
+    class MeChallengeController {
+        <<참가자 스코프 — 그룹 멤버십 무관>>
+        +openSessions() "GET /me/bet-sessions — 보고 대상 (N43)"
+        +results(since, limit) "GET /me/challenge-results — 결과 모달 큐 (N53)"
     }
     class GroupChallengeService {
         -validateCreate()
@@ -1298,6 +1308,7 @@ classDiagram
 
     GroupChallengeController --> GroupChallengeService
     GroupBetController --> GroupBetService
+    MeChallengeController --> GroupBetService
     GroupChallengeService --> BetJudge
     GroupChallengeService --> RepeatSchedule
     GroupChallengeService --> WindowResolver

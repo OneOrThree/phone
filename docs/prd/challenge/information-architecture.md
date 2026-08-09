@@ -444,7 +444,7 @@ flowchart TB
 | `SETTLED` | ✅ | 인별 달성·손익 |
 | `FORFEITED` | ✅ | `아무도 달성하지 못해 적립금 90이 사라졌어요` |
 | `VOIDED` (`voidReason=SHORT_PARTICIPANTS`) | ✅ | `참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요` |
-| `VOIDED` (`voidReason=CHALLENGE_DELETED`) | ✅ | `챌린지가 삭제돼 무산됐어요 · 참가비는 돌려드렸어요` |
+| `VOIDED` (`voidReason=CHALLENGE_DELETED`) | ❌ **모달 아님** | 삭제 환불은 `BET_VOID_REFUND` **푸시**가 알린다 (FR-44-4·N48). 문구 `챌린지가 삭제돼 무산됐어요 · 참가비는 돌려드렸어요` 는 그 푸시의 것 |
 | `REFUNDED` | ✅ | `정산이 지연돼 참가비를 돌려드렸어요` |
 
 돈이 움직였거나 **움직이지 않기로 확정된** 사건은 전부 알린다. 침묵하면 "내 코인 어디 갔지"가 된다.
