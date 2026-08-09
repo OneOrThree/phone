@@ -199,6 +199,6 @@ flowchart LR
 | 03   | 그룹 활동    | [상세 HLD](./features/03-activity/high-level-design.md)    | [상세 LLD](./features/03-activity/low-level-design.md)    |
 | 04   | 그룹 운영    | [상세 HLD](./features/04-operation/high-level-design.md)   | [상세 LLD](./features/04-operation/low-level-design.md)   |
 
-분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 챌린지 계측은 별도 PRD에서 소유한다. 공통 이벤트명·속성·발행 주체·금지 정보의 문서 정본은 [02 HLD의 공통 분석 이벤트 사전](./features/02-my-groups/high-level-design.md#65-공통-분석-이벤트-사전)에 한 번만 둔다.
+분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 소유한다. 공통 이벤트명·속성·발행 주체·금지 정보의 문서 정본은 [02 HLD의 공통 분석 이벤트 사전](./features/02-my-groups/high-level-design.md#65-공통-분석-이벤트-사전)에 한 번만 둔다.
 
 통합 HLD는 기능 사이의 연결 정본이고, 세부 API·상태·테스트가 충돌할 때는 상위 PRD·IA를 확인한 뒤 해당 기능 HLD에서 결정한다.

@@ -21,11 +21,12 @@ features/
 ├─ 03-activity/                 그룹 방·멤버·집중·공지
 │  ├─ high-level-design.md
 │  └─ low-level-design.md
-├─ challenge/                   별도 PRD·IA·HLD·LLD 작성 예정
 └─ 04-operation/                프로필·역할·멤버·권한·이탈
    ├─ high-level-design.md
    └─ low-level-design.md
 ```
+
+챌린지의 상세 제품·설계·구현 계약은 그룹 기능 폴더 밖의 [챌린지 문서 세트](../challenge/README.md)가 정본이다.
 
 ## 정본 우선순위
 

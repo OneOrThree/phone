@@ -130,7 +130,7 @@ flowchart LR
 - 모든 그룹에 대한 자동 추천·랭킹
 - 새 알림 체계나 기존 알림의 무조건적 확대
 - 개인 카드 설정의 서버·다기기 동기화
-- 챌린지의 상세 정책과 구현 판단 — 별도 챌린지 PRD로 이관
+- 챌린지의 상세 정책과 구현 판단 — [챌린지 PRD](../challenge/prd.md)로 이관
 - 카드 덱만으로 리텐션·락인이 개선된다는 주장
 
 ---
@@ -154,7 +154,7 @@ flowchart LR
 | 그룹 획득    | 찾기·초대·생성·가입         | [HLD](./features/01-acquisition/high-level-design.md) · [LLD](./features/01-acquisition/low-level-design.md)                                                                                                         |
 | 내 그룹 탐색 | 소속 확인·요약·집중/방 선택 | [Feature PRD](./features/02-my-groups/prd.md) · [IA](./features/02-my-groups/information-architecture.md) · [HLD](./features/02-my-groups/high-level-design.md) · [LLD](./features/02-my-groups/low-level-design.md) |
 | 그룹 활동    | 방·멤버·집중·공지           | [HLD](./features/03-activity/high-level-design.md) · [LLD](./features/03-activity/low-level-design.md)                                                                                                               |
-| 챌린지       | 그룹방의 하위 기능          | 별도 PRD·HLD·LLD 작성 예정                                                                                                                                                                                           |
+| 챌린지       | 그룹방의 하위 기능          | [PRD](../challenge/prd.md) · [IA](../challenge/information-architecture.md) · [HLD](../challenge/high-level-design.md) · [LLD](../challenge/low-level-design.md)                                                     |
 | 그룹 운영    | 프로필·역할·멤버·권한·이탈  | [HLD](./features/04-operation/high-level-design.md) · [LLD](./features/04-operation/low-level-design.md)                                                                                                             |
 
 ---
