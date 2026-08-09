@@ -1315,7 +1315,14 @@ export default function FocusSessionScreen() {
                   한다(정책 D-22). ref 안쪽에 transform이 걸리면 아래 captureRef가 세로로 눌린
                   호흡 중간 프레임을 그대로 PNG로 구워 Live Activity·차폐 화면에 박아 버린다.
                   일시정지면 calm(주기 2600ms·얕은 진폭)으로 가라앉는다. reduce 처리는 컴포넌트 몫. */}
-              <AnimatedCharacter size={charSize} mood={paused ? 'calm' : 'idle'}>
+              {/* ⚠️ active={page === 0} — 가로 페이저는 다른 페이지로 넘어가도 캐릭터 페이지가
+                  마운트된 채 남는다. 안 넘기면 보이지도 않는 캐릭터의 무한 호흡이 몇 시간짜리
+                  세션 내내 UI 스레드를 먹는다(codex 리뷰). 홈의 useIsFocused와 같은 부류다. */}
+              <AnimatedCharacter
+                size={charSize}
+                mood={paused ? 'calm' : 'idle'}
+                active={page === 0}
+              >
                 {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터).
                     ⚠️ charSize가 작은 화면에서 줄면 캡처 PNG 해상도도 함께 줄어든다. 기기 배율
                     (@2x/@3x) 때문에 해상도는 원래도 460~690px로 흔들렸고, 축소 하한(≈370px)도
