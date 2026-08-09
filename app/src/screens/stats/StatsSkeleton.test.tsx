@@ -5,13 +5,15 @@
 // 펄스의 중간 프레임·타이밍은 단언하지 않는다 — jest에서 워클릿은 목이라 거짓 안정감이다.
 //
 // ⚠️ 스켈레톤은 접근성 트리에서 숨겨져 있어 기본 쿼리로는 찾히지 않는다 → includeHiddenElements.
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { StatsSkeleton } from './StatsSkeleton';
-import { CAL_CELL_H, skeletonCards } from './constants';
-import { calendarRowCount } from './format';
+import { calendarCellH, skeletonCards } from './constants';
+import { calendarRowCount, mergeCardOrder } from './format';
 
 const HIDDEN = { includeHiddenElements: true } as const;
+// 렌더된 컴포넌트가 useWindowDimensions로 읽는 것과 같은 폭 — 캘린더 셀 높이가 여기서 파생된다
+const W = Dimensions.get('window').width;
 
 describe('StatsSkeleton', () => {
   test.each([
@@ -37,7 +39,7 @@ describe('StatsSkeleton', () => {
 
   test('카드 높이는 constants의 계산값이 그대로 스타일로 내려간다', async () => {
     await render(<StatsSkeleton period="WEEK" />);
-    for (const c of skeletonCards('WEEK', 1)) {
+    for (const c of skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W })) {
       const style = StyleSheet.flatten(
         screen.getByTestId(`stats.skeleton.${c.key}`, HIDDEN).props.style,
       );
@@ -47,7 +49,12 @@ describe('StatsSkeleton', () => {
   });
 
   test('주간 타임테이블 카드는 본문 높이(400)가 있어 다른 카드보다 확실히 높다', async () => {
-    const byKey = new Map(skeletonCards('WEEK', 1).map((c) => [c.key, c.height]));
+    const byKey = new Map(
+      skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W }).map((c) => [
+        c.key,
+        c.height,
+      ]),
+    );
     // 실제 카드가 WTT_BODY_H(400)를 쓰므로 스켈레톤도 그만큼 커야 도착 순간 튀지 않는다
     expect(byKey.get('firstStart')).toBeGreaterThan(400);
     expect(byKey.get('firstStart')).toBeGreaterThan(byKey.get('delta') as number);
@@ -61,7 +68,7 @@ describe('StatsSkeleton', () => {
     const inline = (testID: string) =>
       StyleSheet.flatten(screen.getByTestId(testID, HIDDEN).props.jestInlineStyle);
     expect(inline('stats.skeleton').animationName).toBeDefined();
-    for (const c of skeletonCards('WEEK', 1)) {
+    for (const c of skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W })) {
       expect(inline(`stats.skeleton.${c.key}`).animationName).toBeUndefined();
     }
   });
@@ -73,8 +80,11 @@ describe('StatsSkeleton', () => {
     afterAll(() => jest.useRealTimers());
 
     const goalHeight = () =>
-      skeletonCards('MONTH', calendarRowCount('MONTH', 0)).find((c) => c.key === 'goalAchieve')!
-        .height;
+      skeletonCards({
+        period: 'MONTH',
+        calendarRows: calendarRowCount('MONTH', 0),
+        screenWidth: W,
+      }).find((c) => c.key === 'goalAchieve')!.height;
 
     test('6행 달(2026-08: 앞 빈칸 5 + 31일)이 5행 달(2026-07)보다 한 행만큼 높다', () => {
       jest.setSystemTime(new Date('2026-07-15T09:00:00+09:00'));
@@ -82,7 +92,7 @@ describe('StatsSkeleton', () => {
       jest.setSystemTime(new Date('2026-08-10T09:00:00+09:00'));
       const sixRows = goalHeight();
       expect(calendarRowCount('MONTH', 0)).toBe(6);
-      expect(sixRows - fiveRows).toBe(CAL_CELL_H + 1); // 셀 한 행 + 행 사이 1px
+      expect(sixRows - fiveRows).toBeCloseTo(calendarCellH(W) + 1); // 셀 한 행 + 행 사이 1px
     });
 
     test('렌더된 스켈레톤 카드에도 그 높이가 그대로 내려간다', async () => {
@@ -93,6 +103,55 @@ describe('StatsSkeleton', () => {
       );
       expect(style.height).toBe(goalHeight());
     });
+  });
+
+  // 셀 높이가 폭에서 파생되는데(flex:1 + aspectRatio) 스켈레톤만 고정값이면 큰 화면에서
+  // 카드가 짧아져 로딩 완료 순간 아래가 전부 밀린다(codex 리뷰).
+  test('캘린더 카드 높이는 화면 폭에 따라 달라진다', () => {
+    const goalOn = (screenWidth: number) =>
+      skeletonCards({ period: 'MONTH', calendarRows: 6, screenWidth }).find(
+        (c) => c.key === 'goalAchieve',
+      )!.height;
+    // 넓은 화면일수록 셀이 커지므로 카드도 커진다 — 6행이면 차이가 눈에 띄게 벌어진다
+    expect(goalOn(430)).toBeGreaterThan(goalOn(390));
+    expect(goalOn(430) - goalOn(390)).toBeCloseTo((calendarCellH(430) - calendarCellH(390)) * 6);
+    // 390pt 기준 셀은 51px 언저리(기존에 상수로 박아 두던 값)
+    expect(calendarCellH(390)).toBeCloseTo(50.93, 1);
+  });
+
+  // 큰 카드를 위로 올려 둔 사용자는 기본 순서로 그리면 로딩 완료 순간 화면 대부분이 밀린다.
+  // 정렬 규칙은 실제 목록(StatsScreen)과 **같은 함수**여야 한다 — 두 곳이 다르면 결국 같은 증상이다.
+  const renderedKeys = () =>
+    screen
+      .getAllByTestId(/^stats\.skeleton\./, HIDDEN)
+      .map((n) => String(n.props.testID).replace('stats.skeleton.', ''));
+
+  test('저장된 순서를 실제 목록과 같은 규칙(mergeCardOrder)으로 반영한다', async () => {
+    const saved = ['firstStart', 'delta', 'total'];
+    await render(<StatsSkeleton period="WEEK" savedOrder={saved} />);
+    const keys = renderedKeys();
+    // 사용자가 맨 위로 올려 둔 큰 카드(주간 타임테이블)가 실제로 첫 장이다
+    expect(keys[0]).toBe('firstStart');
+    expect(keys).toEqual(
+      mergeCardOrder(
+        skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W }).map((c) => c.key),
+        saved,
+      ),
+    );
+  });
+
+  test('저장에 없는 키는 채워 넣고, 이제 없는 키는 버린다', async () => {
+    // 'grass'는 폐기된 카드 키 — 무시돼야 하고, 기본 카드는 하나도 빠지면 안 된다
+    await render(<StatsSkeleton period="DAY" savedOrder={['grass', 'longest']} />);
+    const keys = renderedKeys();
+    expect(keys).not.toContain('grass');
+    expect(keys).toHaveLength(7);
+    expect(new Set(keys).size).toBe(7);
+  });
+
+  test('저장된 순서가 없으면 기본 순서 그대로다', async () => {
+    await render(<StatsSkeleton period="WEEK" />);
+    expect(renderedKeys()[0]).toBe('total');
   });
 
   test('스크린리더 포커스에서 제외된다 — 내용 없는 자리표시자다', async () => {

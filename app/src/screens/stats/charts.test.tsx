@@ -8,7 +8,7 @@
 import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { FirstStartChart, LineChart } from './charts';
-import { FIRST_START_BODY_H } from './constants';
+import { CHART_BLOCK_H, FIRST_START_BODY_H } from './constants';
 import type { StatBar } from './format';
 
 jest.mock('@react-navigation/native', () => ({
@@ -39,9 +39,14 @@ function layoutPlot() {
 }
 
 describe('LineChart', () => {
-  test('기록이 없으면 빈 상태 문구만 그린다', async () => {
+  test('기록이 없으면 빈 상태 문구를 그리되 **조회 중과 같은 높이**를 지킨다', async () => {
+    // 빈 상태가 한 줄로 줄면 예약이 무의미해진다 — 신규 사용자에게만 아래 카드가 올라온다
     await render(<LineChart bars={[]} color="#000000" />);
-    expect(screen.getByText('아직 기록이 없어요')).toBeTruthy();
+    const node = screen.getByText('아직 기록이 없어요');
+    expect(node).toBeTruthy();
+    let box: typeof node | null = node;
+    while (box && StyleSheet.flatten(box.props.style)?.minHeight == null) box = box.parent;
+    expect(StyleSheet.flatten(box?.props.style).minHeight).toBe(CHART_BLOCK_H);
   });
 
   test('레이아웃이 잡히면 애니메이션 캔버스까지 렌더되고 라벨은 그대로다', async () => {

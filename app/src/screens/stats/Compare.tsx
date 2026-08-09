@@ -17,8 +17,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { fmtMinutes } from '@/utils/timeFormat';
 import { periodKey } from './format';
 import { COMPARE_BARS_H } from './constants';
-import { CardBodyLoading } from './CardBodyLoading';
-import { cs } from './cardStyles';
+import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
 
 // ST1 비교(주간 실데이터) — 전체/같은 카테고리는 리그 랭킹(주간 아레나 집계) 평균, 친구는 평균
 // 집계 API(compareAverages 공용 헬퍼). 리그가 주간 집계라 '주' 탭에서만 유효 —
@@ -81,7 +80,7 @@ export function CompareWeek({ myMinutes }: { myMinutes: number }) {
       {!loaded ? (
         <CardBodyLoading height={COMPARE_BARS_H} testID="stats.compare.loading" />
       ) : avg == null ? (
-        <Text style={cs.emptyText}>{emptyNote}</Text>
+        <CardBodyEmpty height={COMPARE_BARS_H}>{emptyNote}</CardBodyEmpty>
       ) : (
         <CompareBars myMinutes={myMinutes} avg={avg} avgLabel={avgLabel} />
       )}
@@ -166,7 +165,7 @@ export function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMi
       {cur === undefined ? (
         <CardBodyLoading height={COMPARE_BARS_H} testID="stats.compare.loading" />
       ) : cur.avg == null ? (
-        <Text style={cs.emptyText}>{emptyNote(axis, cur.count)}</Text>
+        <CardBodyEmpty height={COMPARE_BARS_H}>{emptyNote(axis, cur.count)}</CardBodyEmpty>
       ) : (
         <CompareBars myMinutes={myMinutes} avg={cur.avg} avgLabel={avgLabel} />
       )}

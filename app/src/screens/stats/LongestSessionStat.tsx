@@ -12,7 +12,7 @@ import { hms } from '@/utils/timeFormat';
 import { localDateStr } from '@/utils/localDate';
 import { kstTodayDate } from './format';
 import { LONGEST_BODY_H } from './constants';
-import { CardBodyLoading } from './CardBodyLoading';
+import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 
 export function LongestSessionStat({ period }: { period: StatsPeriod }) {
@@ -62,7 +62,7 @@ export function LongestSessionStat({ period }: { period: StatsPeriod }) {
     return <CardBodyLoading height={LONGEST_BODY_H} testID="stats.longest.loading" />;
   }
   if (seconds <= 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
+    return <CardBodyEmpty height={LONGEST_BODY_H}>아직 기록이 없어요</CardBodyEmpty>;
   }
   return (
     <View>

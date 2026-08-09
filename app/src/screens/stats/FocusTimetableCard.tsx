@@ -13,7 +13,7 @@ import { todayStr } from '@/utils/localDate';
 import { subjectColorForTag, tenMinuteFocusSlots, type FocusSlotSegment } from './format';
 import { SectionCard } from './SectionCard';
 import { FOCUS_COLOR, TT_BODY_BLOCK_H, TT_CELL_H, TT_ROW_GAP, TT_ROWS } from './constants';
-import { CardBodyLoading } from './CardBodyLoading';
+import { CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 import { ShareDayFrame } from './ShareDayFrame';
 import { useTimetableShareCapture } from './useTimetableShareCapture';

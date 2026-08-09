@@ -64,8 +64,10 @@ export function useTimetableShareCapture({
   disabled: boolean;
   // 브랜드 캐릭터 이미지 로드/실패 콜백 — ShareBrandFooter/ShareDayFrame에 넘긴다
   onCharReady: () => void;
-  // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 조회 후 호출
-  onLoaded: () => void;
+  // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 조회 후 호출.
+  // 인자는 **이번 렌더에서 진입 애니메이션이 붙는 노드 수**(주간 세션 블록 개수).
+  // 늘었을 때만 캡처 대기 기준 시각을 다시 잡는다.
+  onLoaded: (animatedCount?: number) => void;
   onShare: () => Promise<void>;
 } {
   const m = useMotion();
@@ -76,15 +78,23 @@ export function useTimetableShareCapture({
   const [capturing, setCapturing] = useState(false);
   // 타임테이블 데이터 로드 완료 여부 — 로딩 중(격자 스피너)에 공유하면 빈 이미지가 캡처되므로 막는다.
   const [ready, setReady] = useState(false);
-  // 진입 애니메이션이 시작된 시각 = 데이터가 처음 도착한 시각.
-  // ⚠️ **첫 도착만** 기록한다. 화면 재진입마다 재조회가 돌아 onLoaded가 다시 불리지만, 그때는
-  //    같은 블록 노드가 재사용돼(스타일 참조가 캐시라) 진입이 다시 재생되지 않는다. 매번
-  //    갱신하면 애니메이션이 없는데도 공유가 1초 넘게 늦어진다.
+  // 진입 애니메이션이 마지막으로 시작된 시각.
+  //
+  // ⚠️ 갱신 조건이 "데이터가 왔을 때"가 아니라 **"진입할 노드가 늘었을 때"** 인 이유:
+  //    진입 스타일은 인덱스별로 캐시된 참조라, 재조회로 같은 개수가 다시 그려지면 기존 노드가
+  //    재사용돼 애니메이션이 **재생되지 않는다.** 그때까지 기준 시각을 갱신하면 움직이는 것도
+  //    없는데 공유만 1초 넘게 늦어진다.
+  //    반대로 화면을 떠난 사이 새 세션이 생겨 **블록이 늘면** 새 노드가 마운트되며 growUp이
+  //    다시 돈다 — 그 경우엔 갱신해야 새 블록의 중간 프레임을 찍지 않는다(codex 리뷰).
   // ⚠️ deps는 빈 배열을 유지해야 한다 — WeeklyTimetable/FocusTimetable의 useFocusEffect가
   //    onLoaded를 의존성으로 잡고 있어, 참조가 바뀌면 재조회 루프가 된다.
   const loadedAtRef = useRef(0);
-  const onLoaded = useCallback(() => {
-    if (loadedAtRef.current === 0) loadedAtRef.current = Date.now();
+  const enterCountRef = useRef(0);
+  const onLoaded = useCallback((animatedCount = 0) => {
+    if (loadedAtRef.current === 0 || animatedCount > enterCountRef.current) {
+      loadedAtRef.current = Date.now();
+    }
+    enterCountRef.current = animatedCount;
     setReady(true);
   }, []);
 
@@ -113,14 +123,19 @@ export function useTimetableShareCapture({
   const onShare = useCallback(async () => {
     if (sharing) return;
     setSharing(true);
-    setCapturing(true);
     try {
       // 1) 캡처 대상의 진입 애니메이션이 끝난 뒤 진행 — 중간 프레임(찌그러진 세션 막대)이
       //    PNG에 구워지는 것을 막는다. 이미 지난 시각이면 대기 0이라, 카드가 뜬 지 한참 뒤에
       //    누르는 보통의 경우엔 아무 비용이 없다.
+      //    ⚠️ **capturing을 켜기 전에** 기다린다. 켜 놓고 기다리면 그 1초 남짓 동안 캡처 전용
+      //       chrome(브랜드 밴드·여백)이 실제 화면에 그대로 보이고 카드가 늘어난다(codex 리뷰).
       await waitUntil(loadedAtRef.current + m.delay(enterMs));
-      // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지
-      await waitCharReady();
+      // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지.
+      //    ⚠️ 게이트를 **chrome을 붙이기 전에 등록**한다. 등록 전에 이미지 onLoad가 오면 신호를
+      //       잃고 CHAR_READY_TIMEOUT(1.5초)을 통째로 기다리게 된다.
+      const charReady = waitCharReady();
+      setCapturing(true);
+      await charReady;
       // 3) chrome·여백이 커밋·페인트된 뒤 캡처(두 프레임 대기). 여백은 내용 폭 불변이라 재측정 없음.
       await nextFrame();
       await nextFrame();

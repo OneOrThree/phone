@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedNumber } from '@/components/AnimatedNumber';
@@ -282,6 +282,8 @@ export default function HomeScreen() {
   // 시간조각(재화) 잔액 — 오늘 카드 헤더 칩. 홈 포커스 시 서버 잔액 재조회(내기 차감·정산 반영).
   const { coins } = useCoins();
   useRefreshCoinsOnFocus();
+  // 캐릭터 호흡 on/off — 훅은 최상위에서 부르고 값만 넘긴다(홈은 탭 네비게이터 안이라 사용 가능)
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
@@ -308,6 +310,17 @@ export default function HomeScreen() {
   const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
   const [streakDays, setStreakDays] = useState(0);
+  // 칩에 실제로 표시하는 스트릭 값 — streakDays보다 **한 커밋 늦게** 따라온다.
+  //
+  // ⚠️ 왜 나눴나: 칩은 0일이면 숨기므로(`streakDays > 0`), 첫 응답이 오는 순간에야 서브트리가
+  //    마운트된다. 그때 AnimatedNumber는 최종값으로 초기화돼(display=displayRef=value) 내부
+  //    effect의 from===value 분기로 즉시 끝나 **카운트업이 아예 안 돈다**(codex 리뷰).
+  //    마운트되는 프레임에는 0을 넘기고 다음 커밋에 실제 값을 올리면 0 → N으로 세어 올라간다.
+  //    (코인 칩은 칩 자체가 항상 떠 있고 CoinContext가 0에서 시작하므로 이 처리가 필요 없다.)
+  const [streakShown, setStreakShown] = useState(0);
+  useEffect(() => {
+    setStreakShown(streakDays);
+  }, [streakDays]);
   // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
   // date = 달성한 날짜(예약 payload의 date) — 닫을 때 이 날짜로 기록한다.
   const [goalCelebration, setGoalCelebration] = useState<{
@@ -621,6 +634,10 @@ export default function HomeScreen() {
               testID="home.character"
               size={216}
               sourceUri={activeSource ?? undefined}
+              // 다른 탭으로 가도 홈은 언마운트되지 않는다(MainTabs에 unmountOnBlur 없음) —
+              // 보이지도 않는 캐릭터의 무한 호흡이 앱 세션 내내 UI 스레드를 먹는다(codex 리뷰).
+              // '화면당 무한 루프 1개' 상한은 **보이는** 화면 기준이므로 포커스에 묶는다.
+              active={isFocused}
             />
             {/* 캐릭터 변경 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
             <PressableScale
@@ -671,7 +688,7 @@ export default function HomeScreen() {
                     연속 공부{' '}
                     <AnimatedNumber
                       testID="home.streak"
-                      value={streakDays}
+                      value={streakShown}
                       format={(n) => String(Math.round(n))}
                       style={s.streakChipText}
                     />

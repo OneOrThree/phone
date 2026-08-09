@@ -9,8 +9,8 @@ import { enterUp, fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { fmtHm, hms } from '@/utils/timeFormat';
-import { DONUT_SIZE, FOCUS_COLOR } from './constants';
-import { cs } from './cardStyles';
+import { DONUT_BLOCK_H, DONUT_SIZE, FOCUS_COLOR } from './constants';
+import { CardBodyEmpty } from './CardBodySlot';
 
 const DONUT_STROKE = 20;
 
@@ -102,7 +102,7 @@ export function CategoryDonut({
   total: number;
 }) {
   if (items.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
+    return <CardBodyEmpty height={DONUT_BLOCK_H}>아직 기록이 없어요</CardBodyEmpty>;
   }
   const denom = total || 1;
   const segs = items.map((it, i) => ({
@@ -130,7 +130,7 @@ export function SubjectDonut({
   const unclassified = Math.max(0, totalSeconds - subjectSum);
   const denom = subjectSum + unclassified;
   if (denom <= 0) {
-    return <Text style={cs.emptyText}>아직 기록된 집중시간이 없어요</Text>;
+    return <CardBodyEmpty height={DONUT_BLOCK_H}>아직 기록된 집중시간이 없어요</CardBodyEmpty>;
   }
   const segs = rows
     .filter((x) => x.accumulatedSeconds > 0)

@@ -21,7 +21,7 @@ import {
 } from './format';
 import { SectionCard } from './SectionCard';
 import { WEEK_DAYS, WTT_BODY_BLOCK_H, WTT_BODY_H } from './constants';
-import { CardBodyLoading } from './CardBodyLoading';
+import { CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 import { ShareBrandFooter } from './ShareBrandFooter';
 import { useTimetableShareCapture } from './useTimetableShareCapture';
@@ -75,7 +75,7 @@ export function WeeklyTimetableCard() {
 // constants.ts로 옮겼다 — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다(GROMO-1381).
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 
-function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
+function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => void }) {
   const { subjects } = useSubjects();
   const m = useMotion();
   const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
@@ -110,9 +110,12 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
         ]);
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
-        setBlocks(weekdayFocusBlocks(sessions, weekStart.getTime()));
-        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영)
-        onLoaded?.();
+        const nextBlocks = weekdayFocusBlocks(sessions, weekStart.getTime());
+        setBlocks(nextBlocks);
+        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영).
+        // 블록 수를 함께 넘긴다: 늘었을 때만 새 노드가 마운트되며 growUp이 다시 돌기 때문에,
+        // 캡처 대기 기준 시각을 그때만 다시 잡는다(codex 리뷰).
+        onLoaded?.(nextBlocks.length);
       })();
       return () => {
         cancelled = true;

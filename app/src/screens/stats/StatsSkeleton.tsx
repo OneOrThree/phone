@@ -19,22 +19,47 @@
 // **그대로 둔다.** 이 스켈레톤은 "카드 목록 자체가 아직 없다"는 상태고, 그쪽은 "카드는 떴고
 // 그 카드의 데이터만 아직"이라는 다른 상태다. 둘은 시간상 겹치지 않는다 — 이 트리가 사라진
 // 다음에야 카드가 마운트되고 그때 각자 조회를 시작한다.
-import { StyleSheet } from 'react-native';
+import { StyleSheet, useWindowDimensions } from 'react-native';
 import { SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
 import { T } from '@/constants/theme';
 import type { StatsPeriod } from '@/types/dto/stats';
-import { skeletonCards } from './constants';
-import { calendarRowCount } from './format';
+import { LIST_PAD_H, skeletonCards } from './constants';
+import { calendarRowCount, mergeCardOrder } from './format';
 
-export function StatsSkeleton({ period }: { period: StatsPeriod }) {
+export function StatsSkeleton({
+  period,
+  savedOrder,
+}: {
+  period: StatsPeriod;
+  /**
+   * 이 탭에 저장된 카드 순서(AsyncStorage). 아직 못 읽었으면 undefined.
+   *
+   * ⚠️ 없다고 기본 순서로 그리면, 사용자가 400px 넘는 주간 타임테이블을 맨 위로 올려 뒀을 때
+   *    로딩이 끝나는 순간 짧은 첫 카드가 큰 카드로 바뀌며 화면 대부분이 밀린다(codex 리뷰).
+   *    정렬은 실제 목록과 **같은 함수**(mergeCardOrder)를 쓴다 — 저장에 없는 새 카드·이제
+   *    없는 카드 처리가 두 곳에서 갈리면 결국 같은 증상이 난다.
+   */
+  savedOrder?: string[];
+}) {
   // 목표 달성 카드의 캘린더 행 수 — **실제 그리드와 같은 함수**로 구한다(format.calendarRows).
-  // 월은 달마다 5행이거나 6행이라 상수로 박으면 도착 순간 한 행(≈52px)이 갑자기 늘어난다.
+  // 월은 달마다 5행이거나 6행이라 상수로 박으면 도착 순간 한 행이 갑자기 늘어난다.
   const rows = period === 'DAY' ? 0 : calendarRowCount(period, 0);
+  // 캘린더 셀 높이는 화면 폭에서 파생된다(flex:1 + aspectRatio) — 실제 폭을 넘겨야 큰 화면에서
+  // 카드가 짧아지지 않는다.
+  const { width } = useWindowDimensions();
+
+  const cards = skeletonCards({ period, calendarRows: rows, screenWidth: width });
+  const byKey = new Map(cards.map((c) => [c.key, c]));
+  const ordered = mergeCardOrder(
+    cards.map((c) => c.key),
+    savedOrder,
+  ).flatMap((k) => byKey.get(k) ?? []);
+
   return (
     // 목록 컨테이너를 SkeletonGroup으로 **교체**했다(새로 끼운 게 아니다) — 노드가 늘면
     // 스크롤 컨테이너와의 관계·치수가 흔들려 카드 높이 계측이 어긋난다.
     <SkeletonGroup testID="stats.skeleton" style={s.wrap}>
-      {skeletonCards(period, rows).map((c) => (
+      {ordered.map((c) => (
         <SkeletonCard key={c.key} height={c.height} testID={`stats.skeleton.${c.key}`} />
       ))}
     </SkeletonGroup>
@@ -47,7 +72,7 @@ const s = StyleSheet.create({
   wrap: {
     flex: 1,
     overflow: 'hidden',
-    paddingHorizontal: T.space.xl,
+    paddingHorizontal: LIST_PAD_H,
     gap: T.space.lg,
   },
 });

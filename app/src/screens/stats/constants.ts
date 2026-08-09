@@ -33,6 +33,15 @@ const lineH = (fontSize: number) => Math.round(fontSize * 1.2);
 export const CARD_BORDER_W = 1;
 export const CARD_RADIUS = 18;
 export const CARD_PAD = T.space.lg;
+/** 카드 목록의 좌우 여백 — CardOrderEditor의 콘텐츠 패딩이자 로딩 스켈레톤의 패딩 */
+export const LIST_PAD_H = T.space.xl;
+
+/**
+ * 카드 **안쪽** 폭 — 화면 폭에서 목록 좌우 여백과 카드 테두리·패딩을 뺀 값.
+ * 폭에서 파생되는 치수(캘린더 셀)를 실제 그리드와 같은 식으로 구하려고 뽑아 둔다.
+ */
+export const cardInnerWidth = (screenWidth: number) =>
+  screenWidth - LIST_PAD_H * 2 - (CARD_BORDER_W + CARD_PAD) * 2;
 /** 제목 줄(heading 21) + 본문과의 간격 */
 export const CARD_HEAD_H = lineH(T.text.heading.fontSize) + T.space.md; // 37
 /** 부제가 붙는 카드 — 제목·부제를 붙이고(xs) 본문 간격은 부제가 담당한다 */
@@ -60,7 +69,7 @@ export const FIRST_START_BODY_H = CHART_BLOCK_H + HINT_H; // 184
 /** 과목별 도넛 지름 — CategoryDonut이 읽는다 */
 export const DONUT_SIZE = 132;
 /** 도넛 블록 = 위 간격 + 링(범례는 링보다 낮다) */
-const DONUT_BLOCK_H = T.space.sm + DONUT_SIZE; // 140
+export const DONUT_BLOCK_H = T.space.sm + DONUT_SIZE; // 140
 
 /** '나 vs 평균' 막대 2세트(CompareBars) — 축 조회 중 이 높이를 예약한다 */
 export const COMPARE_BARS_H =
@@ -94,21 +103,25 @@ export const WTT_BODY_BLOCK_H = T.space.sm + lineH(12) + T.space.xs + WTT_BODY_H
 const WTT_BLOCK_H = WTT_BODY_BLOCK_H + SHARE_BTN_H; // 454
 
 // ── 캘린더(주·월) ──
-// ⚠️ 실제 셀은 `aspectRatio: 40/46`이라 높이가 **기기 폭에 따라 달라진다**. 상수로 못 묶는
-//    유일한 자리라 기준 폭에서 역산한 근사를 쓴다:
-//    390pt 화면 − 좌우 여백 20×2 − (테두리 1 + 패딩 16)×2 = 안쪽 316,
-//    셀 폭 (316 − 간격 6)/7 ≈ 44.3 → 높이 44.3 × 46/40 ≈ 51.
-export const CAL_CELL_H = 51;
+// 셀 비율·간격은 CalendarCard의 그리드 스타일이 그대로 읽는다. 셀 높이는 **폭에서 파생**되므로
+// (flex:1 + aspectRatio) 상수로 못 박으면 큰 화면에서 어긋난다 — 430pt 기기는 셀이 57px대라
+// 6행 월이면 40px 가까이 모자란다(codex 리뷰). 그래서 폭을 받아 같은 식으로 계산한다.
+export const CAL_CELL_ASPECT = 40 / 46;
+export const CAL_GRID_GAP = 1;
+/** 캘린더 셀 한 칸의 높이 — 한 줄 7칸을 간격만큼 뺀 폭으로 나누고 비율을 되돌린다. */
+export const calendarCellH = (screenWidth: number) =>
+  (cardInnerWidth(screenWidth) - CAL_GRID_GAP * 6) / 7 / CAL_CELL_ASPECT;
 const CAL_HEAD_H =
   lineH(T.text.label.fontSize) +
   lineH(11) + // ‹ 라벨 › 줄 31
   (T.space.xs + lineH(12) + T.space.md) + // 총 집중 줄 30
   (lineH(10) + T.space.xs); // 요일 헤더 16
-const calendarBlockH = (rows: number) => CAL_HEAD_H + rows * CAL_CELL_H + (rows - 1);
+const calendarBlockH = (rows: number, screenWidth: number) =>
+  CAL_HEAD_H + rows * calendarCellH(screenWidth) + (rows - 1) * CAL_GRID_GAP;
 
 // ── 목표 달성 스탬프(일) — GoalCards가 읽는다 ──
 export const STAMP_ICON_SIZE = 44;
-const STAMP_BLOCK_H =
+export const STAMP_BLOCK_H =
   1.5 * 2 + // 테두리
   T.space.lg * 2 + // 상하 패딩
   STAMP_ICON_SIZE +
@@ -138,13 +151,20 @@ export const LONGEST_BODY_H = HERO_H + HINT_H; // 59
  * @param calendarRows 목표 달성 카드가 그릴 캘린더 행 수. 주는 항상 1이지만 **월은 달마다
  *   5행이거나 6행**이다(1일 요일 + 말일에 따라. 예: 2026-08은 앞 빈칸 5 + 31일 = 6행).
  *   호출부가 `calendarRowCount(period, 0)`(format.ts)로 구해 넘긴다 — 실제 그리드와 같은 식을
- *   써야 도착 순간 한 행(≈52px)이 갑자기 늘어나지 않는다.
+ *   써야 도착 순간 한 행이 갑자기 늘어나지 않는다.
  *   여기서 직접 구하지 않는 이유는 format.ts가 이미 이 모듈을 import하고 있어서다(순환 참조 회피).
+ * @param screenWidth 화면 폭. 캘린더 셀 높이가 폭에서 파생되므로(aspectRatio) 반드시 실제
+ *   값(useWindowDimensions)을 넘긴다 — 고정값으로 두면 큰 화면에서 카드가 짧아진다.
  */
-export function skeletonCards(
-  period: StatsPeriod,
-  calendarRows: number,
-): { key: string; height: number }[] {
+export function skeletonCards({
+  period,
+  calendarRows,
+  screenWidth,
+}: {
+  period: StatsPeriod;
+  calendarRows: number;
+  screenWidth: number;
+}): { key: string; height: number }[] {
   const cards: { key: string; height: number }[] = [
     { key: 'total', height: CARD_CHROME_H + HERO_H + COMPARE_H },
     {
@@ -152,7 +172,7 @@ export function skeletonCards(
       height:
         period === 'DAY'
           ? CARD_CHROME_H + STAMP_BLOCK_H
-          : CARD_CHROME_H + calendarBlockH(calendarRows),
+          : CARD_CHROME_H + calendarBlockH(calendarRows, screenWidth),
     },
     { key: 'category', height: CARD_CHROME_H + DONUT_BLOCK_H },
   ];

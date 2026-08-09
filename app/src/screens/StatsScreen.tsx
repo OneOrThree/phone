@@ -489,7 +489,9 @@ export default function StatsScreen() {
       {/* 첫 로딩 — 가운데 스피너 대신 올 카드 모양 그대로의 스켈레톤(GROMO-1381).
           ⚠️ 삼항으로 트리에서 통째로 빼야 한다. 펄스가 무한 루프라 숨기기만 하면 계속 돈다. */}
       {firstLoad || !orderLoaded ? (
-        <StatsSkeleton period={period} />
+        // 저장된 순서를 읽은 뒤라면 그 순서로 그린다 — 기본 순서로 두면 큰 카드를 위로
+        // 올려 둔 사용자의 화면이 로딩 완료 순간 통째로 밀린다.
+        <StatsSkeleton period={period} savedOrder={orderLoaded ? cardOrder[period] : undefined} />
       ) : (
         // 카드 목록 — 항상 드래그 가능(GROMO-762 개편). 카드 오른쪽 위 핸들을 잡아 끌면 순서가
         // 바뀌고 놓을 때마다 저장. 탭을 바꾸면 그 탭의 순서를 편집(탭별 저장)

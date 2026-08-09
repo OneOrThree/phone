@@ -20,8 +20,8 @@ import {
   type StatBar,
   type StartTimePoint,
 } from './format';
-import { CHART_H, FIRST_START_BODY_H, FOCUS_COLOR } from './constants';
-import { CardBodyLoading } from './CardBodyLoading';
+import { CHART_BLOCK_H, CHART_H, FIRST_START_BODY_H, FOCUS_COLOR } from './constants';
+import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 
 // 진입 애니메이션을 걸려면 Animated 컴포넌트여야 한다 — 격자·라벨은 제자리에 둔 채
@@ -38,7 +38,8 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   const [picked, setPicked] = useState<number | null>(null);
   const mo = useMotion();
   if (bars.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
+    // 빈 상태도 조회 중과 같은 높이 — 한 줄로 줄면 아래 카드가 통째로 올라온다
+    return <CardBodyEmpty height={CHART_BLOCK_H}>아직 기록이 없어요</CardBodyEmpty>;
   }
   const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
   const step = plotW / bars.length;
@@ -205,7 +206,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
 
   const vals = points.filter((p) => !p.future && p.minutes != null).map((p) => p.minutes as number);
   if (vals.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
+    return <CardBodyEmpty height={FIRST_START_BODY_H}>아직 기록이 없어요</CardBodyEmpty>;
   }
 
   // 세로축 경계 — 정시로 내리고 폭을 3시간 배수로 맞춰 ⅓·⅔ 눈금도 정시가 되게 한다

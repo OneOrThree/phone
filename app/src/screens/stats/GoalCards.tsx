@@ -8,15 +8,15 @@ import { T } from '@/constants/theme';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import { useFocus } from '@/store/FocusContext';
 import { fmtHm } from '@/utils/timeFormat';
-import { FOCUS_COLOR, STAMP_ICON_SIZE } from './constants';
-import { cs } from './cardStyles';
+import { FOCUS_COLOR, STAMP_BLOCK_H, STAMP_ICON_SIZE } from './constants';
+import { CardBodyEmpty } from './CardBodySlot';
 
 // 일 탭 — 오늘 2목표 스탬프. 집중 현재값은 홈·타임테이블과 같은 로컬 오늘 누적(서버 today.focus는
 // 업로드 지연이 있어 총계 카드와 어긋난다) + 목표는 서버값. 폰 사용은 서버 today.screenTime.
 export function GoalDayStamps({ today }: { today: TodayStatsResponse | null }) {
   const { todayFocusSeconds } = useFocus();
   if (today === null) {
-    return <Text style={cs.emptyText}>목표 정보를 불러오지 못했어요</Text>;
+    return <CardBodyEmpty height={STAMP_BLOCK_H}>목표 정보를 불러오지 못했어요</CardBodyEmpty>;
   }
   return (
     <View style={s.stampRow}>

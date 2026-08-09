@@ -14,13 +14,39 @@
 // ⚠️ 카드 안에 또 스켈레톤(펄스)을 쓰지 않는 이유: 카드마다 `SkeletonGroup`이 생겨 무한 루프가
 //    화면당 1개 상한을 다시 깬다(카드 7~9장 = 루프 7~9개). 높이 예약만으로 점프는 사라지고,
 //    스피너는 "내 조작/이 카드가 처리 중"이라는 원래 뜻을 유지한다(Skeleton.tsx 헤더 주석과 같은 구분).
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { cs } from './cardStyles';
 
+/** 조회 중 — 완성 본문 높이를 예약하고 그 안에 스피너를 중앙 배치한다. */
 export function CardBodyLoading({ height, testID }: { height: number; testID?: string }) {
   return (
     <View testID={testID} style={[s.wrap, { height }]}>
       <ActivityIndicator color={T.accent} size="small" />
+    </View>
+  );
+}
+
+/**
+ * 기록 없음 — **로딩과 같은 높이를 유지한다.**
+ *
+ * ⚠️ 빈 상태를 한 줄 텍스트로만 두면 예약이 무의미해진다. 예컨대 월간 첫 시작 카드는 조회 중
+ *    184px을 차지하다가 "아직 기록이 없어요" 한 줄(≈41px)로 줄어, 신규 사용자·그 달에 세션이
+ *    없는 사용자에게는 카드가 143px 수축하며 아래가 통째로 올라온다(codex 리뷰).
+ *    `minHeight`라 안내 문구가 예약분보다 길어지면(줄바꿈) 자연스럽게 늘어난다.
+ */
+export function CardBodyEmpty({
+  height,
+  children,
+  testID,
+}: {
+  height: number;
+  children: string;
+  testID?: string;
+}) {
+  return (
+    <View testID={testID} style={[s.wrap, { minHeight: height }]}>
+      <Text style={cs.emptyText}>{children}</Text>
     </View>
   );
 }

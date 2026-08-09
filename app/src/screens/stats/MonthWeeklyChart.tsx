@@ -11,7 +11,7 @@ import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { dayNum, kstTodayDate, type StatBar } from './format';
 import { LineChart } from './charts';
 import { CHART_BLOCK_H } from './constants';
-import { CardBodyLoading } from './CardBodyLoading';
+import { CardBodyLoading } from './CardBodySlot';
 
 // 히트맵 셀 → 지표 추출기 — 렌더마다 재생성되지 않게 모듈 상수(훅 의존성 안정화)
 export const pickFocus = (c: HeatmapCellResponse) => c.totalFocusMinutes;

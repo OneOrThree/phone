@@ -4,7 +4,7 @@
 //   ③ 코인·스트릭 숫자는 AnimatedNumber가 그리되 단위 텍스트('연속 공부 … 일')는 그대로 읽힌다.
 //   ④ 진입 stagger가 접근성 트리·문구를 바꾸지 않는다(카드 컨테이너를 Animated.View로 바꾼 것뿐).
 // 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다 — jest에서 워클릿은 목이라 거짓 안정감이다.
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, render, screen, waitFor } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -20,8 +20,10 @@ jest.mock('react-native-safe-area-context', () => {
 //    checkGoalCelebration(useCallback deps에 navigation)이 매번 새로 생겨 포커스 이펙트가
 //    다시 돌고, 그 안의 setReportRefresh가 또 렌더를 부른다 → 무한 루프.
 const mockNavigation = { navigate: jest.fn(), isFocused: () => true };
+let mockIsFocused = true;
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
+  useIsFocused: () => mockIsFocused,
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => cb(), [cb]);
@@ -104,12 +106,14 @@ jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce 
 const BAR = 'home.metric.focus.bar';
 const barFill = () => screen.getByTestId(`${BAR}.fill`).props.style;
 const flatten = (style: unknown) => require('react-native').StyleSheet.flatten(style);
+const styleOf = (testID: string) => flatten(screen.getByTestId(testID).props.style) ?? {};
 
 beforeEach(() => {
   mockCoins = 0;
   mockStreak = 0;
   mockTodayFocusSeconds = 0;
   mockReduce = false;
+  mockIsFocused = true;
 });
 
 describe('HomeScreen 오늘 카드 진행바', () => {
@@ -169,6 +173,20 @@ describe('HomeScreen 코인·스트릭 칩', () => {
     expect(screen.getByText(/일/)).toBeTruthy();
   });
 
+  // 칩이 0일이면 숨겨지므로, 첫 응답이 오는 순간에야 서브트리가 마운트된다. 그때 최종값으로
+  // 초기화되면 카운트업이 아예 안 돈다(codex 리뷰) — 표시값을 한 커밋 늦춰 0에서 출발시킨다.
+  test('처음 스트릭이 도착하면 최종값이 아니라 0에서 세어 올라가기 시작한다', async () => {
+    mockStreak = 7;
+    const view = await render(<HomeScreen />);
+    // 세는 동안 setState가 돌므로 조회까지 act 안에서 — 밖에서 읽으면 act 경고가 샌다
+    const node = await act(async () => screen.findByTestId('home.streak'));
+    // 라벨(스크린리더가 읽는 값)은 언제나 최종값
+    expect(node.props.accessibilityLabel).toBe('7');
+    // 화면에 그려지는 값은 아직 최종값이 아니다 = 세는 과정이 실제로 시작됐다
+    expect(Number(node.props.children)).toBeLessThan(7);
+    await view.unmount(); // 남은 rAF 취소(언마운트 정리) — 뒤 테스트로 새지 않게
+  });
+
   test('스트릭 0일이면 칩 자체가 없다(기존 규칙)', async () => {
     mockStreak = 0;
     await render(<HomeScreen />);
@@ -187,9 +205,19 @@ describe('HomeScreen 진입 stagger', () => {
 });
 
 describe('HomeScreen 캐릭터', () => {
+  test('홈이 포커스를 잃으면 호흡을 멈춘다 — 안 보이는 화면의 무한 루프를 끊는다', async () => {
+    mockIsFocused = false;
+    await render(<HomeScreen />);
+    // active=false면 AnimatedCharacter가 반복을 끊고 정지 프레임으로 돌아간다(프리미티브 계약)
+    // — 호흡 transform 자체가 붙지 않는다. 중간 프레임 값은 단언하지 않는다.
+    expect(styleOf('home.character').transform).toBeUndefined();
+  });
+
   test('메인 캐릭터(216)만 호흡 래퍼로 감싼다 — 프로필 아바타는 그대로다', async () => {
     await render(<HomeScreen />);
     expect(screen.getByTestId('home.character')).toBeTruthy();
+    // 포커스 중에는 호흡이 붙어 있다 — 위 '멈춘다' 단언의 대조군
+    expect(styleOf('home.character').transform).toBeDefined();
     // 상단 프로필 아바타(38)는 s.avatar의 overflow:'hidden' 안이라 호흡을 붙이면 잘린다.
     // 화면에 호흡 래퍼는 정확히 하나여야 한다(무한 루프 화면당 1개 상한).
     expect(screen.getAllByTestId('home.character')).toHaveLength(1);

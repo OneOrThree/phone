@@ -76,6 +76,60 @@ describe('useTimetableShareCapture 진입 대기', () => {
     expect(mockCaptureAt[0] - loadedAt).toBeGreaterThanOrEqual(ENTER_MS);
   });
 
+  test('대기 중에는 캡처 전용 chrome을 켜지 않는다 — 대기가 끝난 뒤에 켠다', async () => {
+    // 켜 놓고 기다리면 그 1초 남짓 동안 브랜드 밴드·여백이 실제 화면에 그대로 보인다(codex 리뷰)
+    const { result } = await setup(ENTER_MS);
+    await act(async () => {
+      result.current.onLoaded();
+    });
+    await act(async () => {
+      result.current.onShare().catch(() => {});
+    });
+    await drain(ENTER_MS - 100);
+    expect(result.current.capturing).toBe(false);
+    expect(result.current.captureStyle).toBeNull();
+
+    await drain(3000);
+    expect(mockCaptureAt).toHaveLength(1);
+  });
+
+  test('대기가 끝난 뒤 오는 이미지 신호를 놓치지 않는다 — 게이트를 chrome보다 먼저 등록한다', async () => {
+    // 게이트 등록 전에 onLoad가 오면 신호를 잃고 캐릭터 타임아웃 1.5초를 통째로 기다린다
+    const { result } = await setup(ENTER_MS);
+    await act(async () => {
+      result.current.onLoaded();
+    });
+    await act(async () => {
+      result.current.onShare().catch(() => {});
+    });
+    await drain(ENTER_MS + 40); // 진입 대기만 넘긴다 — 이 시점엔 게이트가 등록돼 있어야 한다
+    await act(async () => {
+      result.current.onCharReady();
+    });
+    await drain(200); // rAF 두 프레임 남짓 — 캐릭터 타임아웃(1500)까지 갈 필요가 없다
+    expect(mockCaptureAt).toHaveLength(1);
+  });
+
+  test('재조회로 블록이 늘면 새 진입만큼 다시 기다린다', async () => {
+    const { result } = await setup(ENTER_MS);
+    await act(async () => {
+      result.current.onLoaded(3);
+    });
+    await drain(ENTER_MS + 50); // 첫 진입 종료
+
+    // 화면을 떠난 사이 새 세션이 생겨 블록이 3 → 5. 새 노드가 마운트되며 growUp이 다시 돈다.
+    await act(async () => {
+      result.current.onLoaded(5);
+    });
+    await act(async () => {
+      result.current.onShare().catch(() => {});
+    });
+    await drain(ENTER_MS - 100);
+    expect(mockCaptureAt).toHaveLength(0); // 아직 새 블록이 자라는 중
+    await drain(3000);
+    expect(mockCaptureAt).toHaveLength(1);
+  });
+
   test("'동작 줄이기'면 대기가 0이다 — 애니메이션이 없으니 기다릴 게 없다", async () => {
     mockReduce = true;
     const { result } = await setup(ENTER_MS);
@@ -112,17 +166,17 @@ describe('useTimetableShareCapture 진입 대기', () => {
     expect(mockCaptureAt[0] - loadedAt).toBeLessThan(ENTER_MS);
   });
 
-  test('화면 재진입 재조회로 onLoaded가 다시 불려도 대기가 되살아나지 않는다', async () => {
-    // 같은 블록 노드가 재사용돼 진입이 다시 재생되지 않으므로, 두 번째 로드는 기준 시각을
-    // 갱신하면 안 된다 — 갱신하면 애니메이션도 없는데 공유가 1초 넘게 늦어진다.
+  test('블록 수가 그대로인 재조회는 대기를 되살리지 않는다', async () => {
+    // 같은 개수면 기존 노드가 재사용돼 진입이 다시 재생되지 않으므로 기준 시각을 갱신하면 안 된다
+    // — 갱신하면 애니메이션도 없는데 공유가 1초 넘게 늦어진다.
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded();
+      result.current.onLoaded(4);
     });
     await drain(ENTER_MS + 50); // 진입 종료
 
     await act(async () => {
-      result.current.onLoaded(); // 재조회 완료
+      result.current.onLoaded(4); // 재조회 완료 — 개수 동일
     });
     await act(async () => {
       result.current.onShare().catch(() => {}); // 대기는 아래 drain이 굴린다

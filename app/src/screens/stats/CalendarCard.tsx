@@ -23,7 +23,7 @@ import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
 import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
 import { calendarPage, calendarRows, grassLevel, kstTodayDate } from './format';
-import { CAL_RAMP, WEEK_DAYS } from './constants';
+import { CAL_CELL_ASPECT, CAL_GRID_GAP, CAL_RAMP, WEEK_DAYS } from './constants';
 
 interface Props {
   period: 'WEEK' | 'MONTH';
@@ -365,17 +365,17 @@ const s = StyleSheet.create({
     marginTop: T.space.xs,
     marginBottom: T.space.md,
   },
-  dowRow: { flexDirection: 'row', gap: 1, marginBottom: T.space.xs },
+  dowRow: { flexDirection: 'row', gap: CAL_GRID_GAP, marginBottom: T.space.xs },
   dowText: { flex: 1, textAlign: 'center', ...T.text.caption, fontSize: 10, color: T.inkFaint },
   dowSun: { color: T.accentAlt },
-  grid: { gap: 1 },
-  row: { flexDirection: 'row', gap: 1 },
+  grid: { gap: CAL_GRID_GAP },
+  row: { flexDirection: 'row', gap: CAL_GRID_GAP },
   // 투명 테두리를 항상 깔아 오늘/선택 링이 켜져도 내용이 밀리지 않게 한다.
-  // ⚠️ 높이가 폭에서 파생(aspectRatio)돼 상수로 못 묶는 유일한 자리다 — 로딩 스켈레톤은
-  //    constants.ts의 CAL_CELL_H(기준 폭에서 역산한 51)로 근사한다. 이 비율을 바꾸면 그쪽도 같이.
+  // 셀 높이는 폭에서 파생된다(flex:1 + aspectRatio) — 로딩 스켈레톤도 같은 비율·간격 상수로
+  // 계산하므로(constants.calendarCellH) 여기 값을 바꾸면 스켈레톤도 자동으로 따라온다.
   cell: {
     flex: 1,
-    aspectRatio: 40 / 46,
+    aspectRatio: CAL_CELL_ASPECT,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: 'transparent',
