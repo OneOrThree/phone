@@ -19,9 +19,10 @@ glob instead of trusting any list here.
 
 ### Team-shared feature docs (repo-root `docs/`)
 
-Team-facing feature docs — per-feature **PRD · IA · high-level design · low-level
-design** — live in the repo-root `docs/` (tracked in git; see `docs/README.md`).
-Anything meant for teammates goes there, not in the local-only folders below.
+Team-facing feature docs — **PRD · policy · IA · high-level/low-level design ·
+diagrams** per feature — live in the repo-root `docs/prd/<feature>/` (tracked in
+git; see `docs/README.md`). Anything meant for teammates goes there, not in the
+local-only folders below.
 
 ### Planning/design reference docs (`app/.docs/`)
 

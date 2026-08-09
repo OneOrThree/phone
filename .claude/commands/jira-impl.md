@@ -27,7 +27,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - `fields`: `["summary","description","status","issuetype","labels","parent"]`,
   `responseContentFormat: "markdown"`.
 - 요약·설명·부모 에픽을 파악한다. 설명에 `PRD N-N` 참조가 있으면
-  팀 공유 `docs/<기능>/` 또는 개인 스크래치 `.docs/superpowers/specs/` 의
+  팀 공유 `docs/prd/<기능>/` 또는 개인 스크래치 `.docs/superpowers/specs/` 의
   관련 PRD/설계 문서도 찾아 읽는다.
 
 조회 실패(권한/404) 시 중단하고 사용자에게 알린다. **추측으로 진행하지 않는다.**

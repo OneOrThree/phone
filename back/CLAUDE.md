@@ -56,8 +56,9 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 
 ## Docs
 
-Team-shared feature docs (per-feature PRD · IA · high-level/low-level design) live
-in the **repo-root `docs/`** (tracked; see `docs/README.md`). `back/docs/` stays
+Team-shared feature docs (PRD · policy · IA · high-level/low-level design ·
+diagrams per feature) live in the **repo-root `docs/prd/<feature>/`** (tracked;
+see `docs/README.md`). `back/docs/` stays
 local-only planning scratch — except the tracked `back/docs/db/` schema whitelist
 (GROMO-735).
 

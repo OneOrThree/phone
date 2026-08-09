@@ -5,34 +5,40 @@
 
 ## 구조
 
-기능(피처) 단위로 폴더를 만들고, 그 안에 문서 4종을 둔다:
+`docs/prd/` 아래에 기능(피처) 단위 폴더를 만들고, 그 안에 기획·설계 문서를 둔다:
 
 ```
 docs/
-├── README.md                      # 이 파일
-└── <기능-이름>/                    # 예: focus-session, league, group
-    ├── prd.md                     # PRD — 문제 정의·목표·요구사항·정책
-    ├── ia.md                      # IA — 화면 구조·네비게이션·정보 구조
-    ├── high-level-design.md       # HLD — 시스템 구성·컴포넌트 간 흐름·API 개요
-    └── low-level-design.md        # LLD — 상세 설계 (스키마·엔드포인트 명세·시퀀스)
+├── README.md                          # 이 파일
+└── prd/
+    └── <기능-이름>/                    # 예: challenge, focus-session
+        ├── prd.md                     # PRD — 문제 정의·목표·요구사항
+        ├── policy.md                  # 정책 정본 — 결정 로그·근거 (prd와 어긋나면 policy가 맞다)
+        ├── information-architecture.md # IA — 화면 구조·네비게이션·정보 구조
+        ├── high-level-design.md       # HLD — 시스템 구성·컴포넌트 간 흐름·API 개요
+        ├── low-level-design.md        # LLD — 상세 설계 (스키마·엔드포인트 명세·시퀀스)
+        ├── ux.html                    # UX 시안 (있으면)
+        └── diagrams/                  # 다이어그램 — .drawio 원본 + .svg 익스포트 쌍
 ```
 
-- 폴더 이름은 **kebab-case 영문** (예: `focus-session`, `invite-link`).
-- 4종이 다 갖춰질 필요는 없다 — 있는 것부터 커밋하고 점진적으로 채운다.
+- 폴더 이름은 **kebab-case 영문** (예: `challenge`, `focus-session`, `invite-link`).
+- 문서가 다 갖춰질 필요는 없다 — 있는 것부터 커밋하고 점진적으로 채운다.
 - 문서는 한국어로 쓴다 (프로젝트 언어 컨벤션).
 
 ## 문서별 역할
 
 | 문서 | 답하는 질문 |
 | --- | --- |
-| `prd.md` | 왜 만드는가? 무엇을 만드는가? 정책·엣지케이스는? |
-| `ia.md` | 사용자가 어디서 어떻게 진입·이동하는가? 화면·정보 구조는? |
+| `prd.md` | 왜 만드는가? 무엇을 만드는가? (to-be 요구사항) |
+| `policy.md` | 정책의 근거와 결정 로그 — 정책 충돌 시 **이 문서가 정본** |
+| `information-architecture.md` | 사용자가 어디서 어떻게 진입·이동하는가? 화면·정보 구조는? |
 | `high-level-design.md` | 어떤 컴포넌트(앱·서버·DB·외부)가 어떻게 협력하는가? |
 | `low-level-design.md` | 정확히 어떤 테이블·API·로직으로 구현하는가? |
 
 ## 컨벤션
 
-- 다이어그램은 **Mermaid** (구조는 flowchart, 흐름은 sequenceDiagram).
+- 다이어그램은 `diagrams/`에 **draw.io 원본(.drawio)과 svg 익스포트를 쌍으로** 둔다
+  (svg는 GitHub에서 바로 보이는 렌더본). 문서 안 간단한 도식은 Mermaid도 가능.
 - DB 스키마의 정본은 `back/docs/db/schema.dbml` — LLD에는 해당 기능의 델타만 적고
   정본 링크로 대신한다.
 - 문서 갱신은 코드 PR과 같은 브랜치에 담아도 되고, `doc/` 브랜치로 분리해도 된다.
