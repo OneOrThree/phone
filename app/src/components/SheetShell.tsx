@@ -64,6 +64,12 @@ const prelayoutY = (windowHeight: number) => windowHeight;
 // 드래그가 딤을 얼마나 걷어내는가(0~1). 1이면 손을 놓기도 전에 배경이 완전히 드러나 이미 닫힌
 // 것처럼 보인다 — 절반 조금 넘게만 걷어 "닫히는 중"임을 알린다.
 const DIM_DRAG_FADE = 0.6;
+// 시트 안착 스프링 — M.spring.snappy에 **오버슛 클램프**를 더한 것.
+// ⚠️ snappy는 ζ≈0.65의 과소감쇠라 translateY=0을 지나 음수로 넘어간다. 패널 전체를 위로
+//    옮기는 transform이므로 그 구간에는 **패널 아래와 화면 바닥 사이에 딤이 띠처럼 드러난다**
+//    — 시작 높이가 큰 시트일수록 틈이 커진다(codex 리뷰). 바텀시트는 바닥에 붙어 있는 게
+//    전제라 여기서만 클램프한다(토큰 자체는 건드리지 않는다 — 다른 표면에서는 오버슛이 맞다).
+const SHEET_SETTLE = { ...M.spring.snappy, overshootClamping: true } as const;
 // 닫힘 임계 — 이동량 90pt 또는 던지는 속도 1.2. 종전 값 그대로다(회귀 방지).
 const CLOSE_DY = 90;
 const CLOSE_VY = 1.2;
@@ -200,10 +206,11 @@ export function SheetShell({
     dimProgress.value = withTiming(0, {
       duration: M.dur.quick,
       easing: M.curve.standard.fn,
+      reduceMotion: M.never,
     });
     translateY.value = withTiming(
       exitY,
-      { duration: M.dur.quick, easing: M.curve.standard.fn },
+      { duration: M.dur.quick, easing: M.curve.standard.fn, reduceMotion: M.never },
       (finished) => {
         // 중간에 끊겼으면(다른 애니메이션이 값을 가져감) 닫지 않는다 — 시트가 남아 있는 게 맞다.
         if (finished) runOnJS(fireClose)();
@@ -228,9 +235,13 @@ export function SheetShell({
       //    순간 패널이 g.dy(≈0) 자리로 **순간이동**한다. 같은 shared value를 쓰는 것만으로는
       //    인터럽트가 성립하지 않는다 — 절대값으로 덮어쓰면 이전 위치가 사라진다(claude 리뷰).
       onPanResponderGrant: () => {
+        // ⚠️ 퇴장 중이면 취소하지 않는다. 그랩바를 누른 채(4pt 임계 미만) 하드웨어 뒤로가기로
+        //    퇴장이 시작된 뒤 손가락을 움직여 뒤늦게 grant되면, 무조건적인 cancelAnimation이
+        //    진행 중인 퇴장 withTiming을 취소해 **닫을 수 없는 시트**가 남는다(codex 리뷰).
+        if (closingRef.current) return;
         // ⚠️ 진행 중인 스프링을 **멈춘 뒤** 위치를 캡처한다. 멈추지 않으면 UI 스레드의 스프링이
         //    계속 전진하는데, 사용자가 잡은 채 잠깐 멈췄다 다시 움직이면 다음 move가 낡은
-        //    dragStartY를 기준으로 값을 덮어써 패널이 뒤로 튄다(codex 리뷰).
+        //    dragStartY를 기준으로 값을 덮어써 패널이 뒤로 튄다(claude 리뷰).
         cancelAnimation(translateY);
         dragStartYRef.current = translateY.value;
       },
@@ -254,7 +265,7 @@ export function SheetShell({
           requestCloseRef.current();
         } else {
           // 복귀는 등장과 **같은 스프링**이다 — 올라올 때와 되돌아갈 때의 물성이 다르면 겉돈다.
-          translateY.value = reduceRef.current ? 0 : withSpring(0, M.spring.snappy);
+          translateY.value = reduceRef.current ? 0 : withSpring(0, SHEET_SETTLE);
         }
       },
     }),
@@ -275,8 +286,12 @@ export function SheetShell({
       return;
     }
     translateY.value = h + keyboardHeightRef.current;
-    translateY.value = withSpring(0, M.spring.snappy);
-    dimProgress.value = withTiming(1, { duration: M.dur.quick, easing: M.curve.standard.fn });
+    translateY.value = withSpring(0, SHEET_SETTLE);
+    dimProgress.value = withTiming(1, {
+      duration: M.dur.quick,
+      easing: M.curve.standard.fn,
+      reduceMotion: M.never,
+    });
   };
 
   const panelAnimStyle = useAnimatedStyle(() => ({

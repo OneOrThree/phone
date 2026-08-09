@@ -233,7 +233,12 @@ export default function GroupScreen() {
   ) : null;
 
   const inviteSheet = invite ? (
+    // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
+    //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
+    //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
+    //    B가 보이지도 닫히지도 않는다(codex 리뷰).
     <GroupInviteSheet
+      key={invite.groupId}
       groupId={invite.groupId}
       slug={invite.slug}
       entry={invite.entry}
