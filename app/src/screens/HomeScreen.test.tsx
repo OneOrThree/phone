@@ -175,16 +175,26 @@ describe('HomeScreen 코인·스트릭 칩', () => {
 
   // 칩이 0일이면 숨겨지므로, 첫 응답이 오는 순간에야 서브트리가 마운트된다. 그때 최종값으로
   // 초기화되면 카운트업이 아예 안 돈다(codex 리뷰) — 표시값을 한 커밋 늦춰 0에서 출발시킨다.
+  //
+  // ⚠️ 가짜 타이머로 시계를 멈춘 채 확인한다. 실제 타이머를 쓰면 rAF 보간이 조금씩 진행돼
+  //    "아직 최종값이 아니다"가 기기 부하에 따라 흔들린다(병렬 실행 중 600ms를 넘기면 오탐).
   test('처음 스트릭이 도착하면 최종값이 아니라 0에서 세어 올라가기 시작한다', async () => {
     mockStreak = 7;
-    const view = await render(<HomeScreen />);
-    // 세는 동안 setState가 돌므로 조회까지 act 안에서 — 밖에서 읽으면 act 경고가 샌다
-    const node = await act(async () => screen.findByTestId('home.streak'));
-    // 라벨(스크린리더가 읽는 값)은 언제나 최종값
-    expect(node.props.accessibilityLabel).toBe('7');
-    // 화면에 그려지는 값은 아직 최종값이 아니다 = 세는 과정이 실제로 시작됐다
-    expect(Number(node.props.children)).toBeLessThan(7);
-    await view.unmount(); // 남은 rAF 취소(언마운트 정리) — 뒤 테스트로 새지 않게
+    jest.useFakeTimers();
+    try {
+      const view = await render(<HomeScreen />);
+      // getStreak 응답 → setStreakDays → effect → setStreakShown 까지 마이크로태스크만 비운다
+      await act(async () => {});
+      await act(async () => {});
+      const node = screen.getByTestId('home.streak');
+      // 라벨(스크린리더가 읽는 값)은 언제나 최종값
+      expect(node.props.accessibilityLabel).toBe('7');
+      // 화면에 그려지는 값은 아직 0 = 0에서 세어 올라가기 시작했다(시계를 멈춰 뒀으므로 확정적)
+      expect(node.props.children).toBe('0');
+      await view.unmount(); // 남은 rAF 취소 — 뒤 테스트로 새지 않게
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('스트릭 0일이면 칩 자체가 없다(기존 규칙)', async () => {

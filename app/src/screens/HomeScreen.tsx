@@ -19,7 +19,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedNumber } from '@/components/AnimatedNumber';
 import { ProgressBar } from '@/components/ProgressBar';
-import { M, enterUp } from '@/constants/motion';
+import { M, enterUp, staggerDelay } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
@@ -79,10 +79,14 @@ import {
 // 값이 달라지면 카드 레이아웃이 미세하게 바뀐다.
 const BAR_H = 6;
 const BAR_RADIUS = 3;
-// 카드가 자리를 잡은 뒤에 차오르게 한다 — 진입과 동시에 차면 둘 다 눈에 안 들어온다(설계 §6).
-const BAR_DELAY = 120;
-// 진입 stagger 총 재생 시간 — 마지막 블록(i=2)의 지연 + 기본 duration.
-const ENTER_TOTAL_MS = M.stagger.base * 2 + M.dur.base;
+// 오늘 카드는 진입 stagger의 마지막 칸이다(상단바 0 · 방 1 · 오늘 카드 2).
+const CARD_ENTER_INDEX = 2;
+// 마지막 칸의 진입이 **끝나는** 시각 = 시차 + 재생 시간. 진입 stagger 총 재생 시간이자,
+// 진행바가 차기 시작해야 하는 시점이다.
+const ENTER_TOTAL_MS = staggerDelay(CARD_ENTER_INDEX) + M.dur.base;
+// 진행바는 카드가 **자리를 잡은 뒤** 찬다(설계 §6). 카드 진입과 같은 시차(120)를 주면 둘이
+// 거의 동시에 재생돼 순서가 성립하지 않는다 — 진입 완료 시각에 맞춘다.
+const BAR_DELAY = ENTER_TOTAL_MS;
 
 // 초 → "N시간 M분" (목표 표시용)
 function hm(totalSeconds: number): string {
@@ -656,7 +660,7 @@ export default function HomeScreen() {
 
         {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정, 스크롤 밖) ── (진입 stagger 2) */}
         <Animated.View
-          style={[s.card, { marginBottom: insets.bottom + 74 }, enter(2)]}
+          style={[s.card, { marginBottom: insets.bottom + 74 }, enter(CARD_ENTER_INDEX)]}
           ref={todayCardRef}
           collapsable={false}
         >

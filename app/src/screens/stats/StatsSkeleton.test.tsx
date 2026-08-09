@@ -8,7 +8,14 @@
 import { Dimensions, StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { StatsSkeleton } from './StatsSkeleton';
-import { calendarCellH, skeletonCards } from './constants';
+import {
+  CARD_CHROME_H,
+  SHARE_BTN_H,
+  WTT_BODY_BLOCK_H,
+  WTT_FOOTER_LINE_H,
+  calendarCellH,
+  skeletonCards,
+} from './constants';
 import { calendarRowCount, mergeCardOrder } from './format';
 
 const HIDDEN = { includeHiddenElements: true } as const;
@@ -62,6 +69,19 @@ describe('StatsSkeleton', () => {
 
   // 무한 루프는 **화면당 1개**여야 한다 — 카드마다 펄스를 걸면 9개가 동시에 돈다(codex 리뷰).
   // 재생 자체가 아니라 '어디에 걸려 있는가'만 본다(타이밍·중간 프레임은 단언하지 않는다).
+  test('주간 타임테이블 예약에 표 아래 슬롯(안내·범례) 한 줄이 포함된다', async () => {
+    // 표 아래에 안내 문구나 범례가 **항상** 붙으므로, 트랙까지만 예약하면 도착 순간 카드가
+    // 그만큼 늘어나 아래가 밀린다(codex 리뷰).
+    const firstStart = skeletonCards({
+      period: 'WEEK',
+      calendarRows: 1,
+      screenWidth: W,
+    }).find((c) => c.key === 'firstStart')!.height;
+    // 트랙(400) + 요일 헤더 + 슬롯 + 공유 버튼 + 카드 프레임
+    expect(firstStart).toBe(CARD_CHROME_H + WTT_BODY_BLOCK_H + SHARE_BTN_H);
+    expect(WTT_BODY_BLOCK_H).toBeGreaterThan(400 + WTT_FOOTER_LINE_H);
+  });
+
   test('펄스는 묶음 한 겹에만 걸리고 카드들은 정적으로 그려진다', async () => {
     await render(<StatsSkeleton period="WEEK" />);
     // reanimated가 호스트 뷰 style에서 CSS 애니메이션 프로퍼티를 걷어가므로 jestInlineStyle로 본다

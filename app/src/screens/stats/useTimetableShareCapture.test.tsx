@@ -60,7 +60,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     const { result } = await setup(ENTER_MS);
     const loadedAt = Date.now();
     await act(async () => {
-      result.current.onLoaded();
+      result.current.onLoaded(3); // 세션 블록 3개가 자란다
     });
 
     await act(async () => {
@@ -80,7 +80,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     // 켜 놓고 기다리면 그 1초 남짓 동안 브랜드 밴드·여백이 실제 화면에 그대로 보인다(codex 리뷰)
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded();
+      result.current.onLoaded(3); // 세션 블록 3개가 자란다
     });
     await act(async () => {
       result.current.onShare().catch(() => {});
@@ -97,7 +97,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     // 게이트 등록 전에 onLoad가 오면 신호를 잃고 캐릭터 타임아웃 1.5초를 통째로 기다린다
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded();
+      result.current.onLoaded(3); // 세션 블록 3개가 자란다
     });
     await act(async () => {
       result.current.onShare().catch(() => {});
@@ -135,7 +135,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     const { result } = await setup(ENTER_MS);
     const loadedAt = Date.now();
     await act(async () => {
-      result.current.onLoaded();
+      result.current.onLoaded(3);
     });
     // onShare를 먼저 띄워 캐릭터 게이트가 등록되게 한 뒤(act가 마이크로태스크를 비운다) 풀어 준다
     await act(async () => {
@@ -157,6 +157,24 @@ describe('useTimetableShareCapture 진입 대기', () => {
     });
     await act(async () => {
       result.current.onShare().catch(() => {}); // 대기는 아래 drain이 굴린다
+    });
+    await act(async () => {
+      result.current.onCharReady();
+    });
+    await drain(200);
+    expect(mockCaptureAt).toHaveLength(1);
+    expect(mockCaptureAt[0] - loadedAt).toBeLessThan(ENTER_MS);
+  });
+
+  test('기록이 없는 주는 대기가 없다 — 자랄 블록이 하나도 없다', async () => {
+    // onLoaded(0)에 마감 시각을 잡으면 기록 없는 사용자만 1.16초 무반응이 된다(codex 리뷰)
+    const { result } = await setup(ENTER_MS);
+    const loadedAt = Date.now();
+    await act(async () => {
+      result.current.onLoaded(0);
+    });
+    await act(async () => {
+      result.current.onShare().catch(() => {});
     });
     await act(async () => {
       result.current.onCharReady();

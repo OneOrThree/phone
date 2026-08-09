@@ -20,7 +20,7 @@ import {
   type WeekFocusBlock,
 } from './format';
 import { SectionCard } from './SectionCard';
-import { WEEK_DAYS, WTT_BODY_BLOCK_H, WTT_BODY_H } from './constants';
+import { WEEK_DAYS, WTT_BODY_BLOCK_H, WTT_BODY_H, WTT_FOOTER_LINE_H } from './constants';
 import { CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 import { ShareBrandFooter } from './ShareBrandFooter';
@@ -242,21 +242,25 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => v
           )}
         </View>
       </View>
-      {/* 빈 상태 안내 — 표는 띄운 채 캡션만 덧붙인다(GROMO-1082). 기록이 있으면 범례가 대신 뜬다 */}
-      {blocks.length === 0 && <Text style={cs.grassHint}>아직 기록이 없어요</Text>}
-      {/* 범례 */}
-      {legendSubjects.length > 0 && (
-        <View style={s.wttLegend}>
-          {legendSubjects.map((sub) => (
+      {/* 표 아래 한 줄 — 기록이 없으면 안내(GROMO-1082), 있으면 범례. **둘 다 없어도 자리를
+          유지한다**(minHeight): 로딩 스켈레톤이 잡아 둔 높이와 어긋나면 데이터 도착 순간
+          카드가 늘어나 아래가 통째로 밀린다(GROMO-1381 codex 리뷰).
+          태그 없는 세션만 있는 주는 블록은 있는데 범례가 비므로, 조건부 렌더로 두면 그 경우에만
+          높이가 사라진다 — 슬롯을 항상 그리고 내용만 갈아 끼운다. */}
+      <View style={s.wttFooter}>
+        {blocks.length === 0 ? (
+          <Text style={s.wttEmpty}>아직 기록이 없어요</Text>
+        ) : (
+          legendSubjects.map((sub) => (
             <View key={sub.id} style={s.wttLegendItem}>
               <View style={[s.wttLegendDot, { backgroundColor: sub.color }]} />
               <Text style={s.wttLegendText} numberOfLines={1} allowFontScaling={false}>
                 {sub.name}
               </Text>
             </View>
-          ))}
-        </View>
-      )}
+          ))
+        )}
+      </View>
     </View>
   );
 }
@@ -288,12 +292,17 @@ const s = StyleSheet.create({
   // 과목색 세션 블록 — 각진 모서리(라운드 금지). transformOrigin은 growUp(scaleY)이 위가 아니라
   // **바닥부터** 자라기 위한 정적 스타일이다(motion.ts growUp 주석).
   wttBlock: { position: 'absolute', transformOrigin: 'bottom' },
-  wttLegend: {
+  // 표 아래 슬롯(안내 문구 또는 범례) — minHeight로 한 줄을 늘 확보한다.
+  // 상수는 constants.ts의 WTT_FOOTER_H와 한 짝이다(= marginTop + 이 minHeight).
+  wttFooter: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    alignItems: 'center',
     gap: T.space.sm,
     marginTop: T.space.md,
+    minHeight: WTT_FOOTER_LINE_H,
   },
+  wttEmpty: { ...T.text.caption, color: T.inkMuted },
   wttLegendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   wttLegendDot: { width: 8, height: 8, borderRadius: 4 },
   wttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink },

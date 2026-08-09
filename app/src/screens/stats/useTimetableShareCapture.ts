@@ -91,7 +91,10 @@ export function useTimetableShareCapture({
   const loadedAtRef = useRef(0);
   const enterCountRef = useRef(0);
   const onLoaded = useCallback((animatedCount = 0) => {
-    if (loadedAtRef.current === 0 || animatedCount > enterCountRef.current) {
+    // ⚠️ 조건은 "처음 왔는가"가 아니라 오직 **"진입할 노드가 늘었는가"** 다.
+    //    기록이 없는 주는 onLoaded(0)이 오는데, 재생될 애니메이션이 하나도 없는데도 마감 시각을
+    //    잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
+    if (animatedCount > enterCountRef.current) {
       loadedAtRef.current = Date.now();
     }
     enterCountRef.current = animatedCount;

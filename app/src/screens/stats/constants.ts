@@ -48,7 +48,7 @@ export const CARD_HEAD_H = lineH(T.text.heading.fontSize) + T.space.md; // 37
 export const CARD_HEAD_SUB_H =
   lineH(T.text.heading.fontSize) + T.space.xs + lineH(T.text.caption.fontSize) + T.space.md; // 57
 /** 본문을 뺀 카드 껍데기 높이 — 테두리 2 + 상하 패딩 32 + 머리 */
-const CARD_CHROME_H = CARD_BORDER_W * 2 + CARD_PAD * 2 + CARD_HEAD_H; // 71
+export const CARD_CHROME_H = CARD_BORDER_W * 2 + CARD_PAD * 2 + CARD_HEAD_H; // 71
 const CARD_CHROME_SUB_H = CARD_BORDER_W * 2 + CARD_PAD * 2 + CARD_HEAD_SUB_H; // 91
 
 // ── 본문 조각 ──
@@ -57,7 +57,7 @@ const HERO_H = lineH(T.text.title.fontSize); // 31
 /** 카드 하단 안내 문구(cs.grassHint) — 위 간격 + 캡션 한 줄 */
 const HINT_H = T.space.md + lineH(T.text.caption.fontSize); // 28
 /** 공유하기 버튼 줄(cs.shareBtn) */
-const SHARE_BTN_H = T.space.md + lineH(T.text.caption.fontSize); // 28
+export const SHARE_BTN_H = T.space.md + lineH(T.text.caption.fontSize); // 28
 
 /** 세로축 차트 플롯 높이 — LineChart·FirstStartChart 공용(charts.tsx가 읽는다) */
 export const CHART_H = 120;
@@ -98,9 +98,20 @@ const TT_BLOCK_H = TT_BODY_BLOCK_H + SHARE_BTN_H; // 449
 
 // ── 요일별 타임테이블(주) — WeeklyTimetableCard가 읽는다 ──
 export const WTT_BODY_H = 400;
-/** 요일 헤더 + 트랙 — 주간 세션 조회 중 이 높이를 예약한다(공유 버튼은 카드 몫이라 제외) */
-export const WTT_BODY_BLOCK_H = T.space.sm + lineH(12) + T.space.xs + WTT_BODY_H; // 426
-const WTT_BLOCK_H = WTT_BODY_BLOCK_H + SHARE_BTN_H; // 454
+/**
+ * 표 아래 슬롯 한 줄의 최소 높이 — 빈 주 안내 문구(캡션)와 범례가 번갈아 들어간다.
+ * 실제 카드의 `s.wttFooter`가 이 값을 minHeight로 쓴다.
+ *
+ * ⚠️ **최악(범례 3줄)이 아니라 한 줄로 잡는다.** 최악으로 잡으면 범례가 한 줄인 흔한 경우에
+ *    실제 카드가 예약보다 **짧아져** 도착 순간 아래 내용이 위로 튄다. 한 줄로 잡으면 어긋남이
+ *    "카드가 아래로 조금 늘어난다" 방향만 남는다 — 같은 크기 오차라도 위로 튀는 쪽이 나쁘다
+ *    (읽거나 누르려던 것이 손 밑에서 사라진다).
+ */
+export const WTT_FOOTER_LINE_H = lineH(T.text.caption.fontSize); // 16
+const WTT_FOOTER_H = T.space.md + WTT_FOOTER_LINE_H; // 28
+/** 요일 헤더 + 트랙 + 아래 슬롯 — 주간 세션 조회 중 이 높이를 예약한다(공유 버튼은 카드 몫이라 제외) */
+export const WTT_BODY_BLOCK_H = T.space.sm + lineH(12) + T.space.xs + WTT_BODY_H + WTT_FOOTER_H; // 454
+const WTT_BLOCK_H = WTT_BODY_BLOCK_H + SHARE_BTN_H; // 482
 
 // ── 캘린더(주·월) ──
 // 셀 비율·간격은 CalendarCard의 그리드 스타일이 그대로 읽는다. 셀 높이는 **폭에서 파생**되므로
