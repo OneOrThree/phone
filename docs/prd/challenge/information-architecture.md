@@ -248,7 +248,7 @@ erDiagram
         enum mission_type "미션 스냅샷"
         time window_start "미션 스냅샷 · 창형만"
         time window_end "미션 스냅샷 · 창형만"
-        enum status "OPEN|SETTLED|FORFEITED|VOIDED|REFUNDED"
+        enum status "OPEN|SETTLED|FORFEITED|VOIDED|REFUNDED|UNUSED"
         timestamptz starts_at "회차 시작 — 취소 기준"
         timestamptz join_closes_at "참가 마감"
         timestamptz closes_at "회차 종료"
@@ -278,11 +278,13 @@ erDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> OPEN: 활성 요일 도래 시 자동 개설
-    OPEN --> VOIDED: 참가 마감 시 참가자 < 2명
+    OPEN --> VOIDED: 참가 마감 시 참가자 1명 (환불)
+    OPEN --> UNUSED: 참가자 0명 — 결과 아님 (N52)
     OPEN --> SETTLED: 정산 — 달성자 ≥ 1명
     OPEN --> FORFEITED: 정산 — 달성자 0명 (팟 소멸)
     OPEN --> REFUNDED: 정산 24h 초과 → 자동 전원 환불
     VOIDED --> [*]
+    UNUSED --> [*]
     SETTLED --> [*]
     FORFEITED --> [*]
     REFUNDED --> [*]

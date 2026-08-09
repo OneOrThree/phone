@@ -69,7 +69,7 @@ erDiagram
         enum mission_type "미션 스냅샷"
         time window_start "미션 스냅샷 · 창형만"
         time window_end "미션 스냅샷 · 창형만"
-        enum status "OPEN|SETTLED|FORFEITED|VOIDED|REFUNDED"
+        enum status "OPEN|SETTLED|FORFEITED|VOIDED|REFUNDED|UNUSED"
         enum void_reason "VOIDED 사유 — SHORT_PARTICIPANTS|CHALLENGE_DELETED · 그 외 null"
         timestamptz starts_at "회차 시작 — 취소 기준"
         timestamptz join_closes_at "참가 마감"
@@ -104,7 +104,7 @@ erDiagram
 | `group_challenges` | `CHECK (repeat_days BETWEEN 1 AND 127)` | 요일 하나는 반드시 |
 | `group_challenges` | `INDEX (group_id) WHERE status='ACTIVE' AND deleted_at IS NULL` | 활성 목록 조회 · 상한 검사 |
 | `group_challenges` | `UNIQUE (group_id, category) WHERE type='DURATION' AND status='ACTIVE' AND deleted_at IS NULL` | 하루형 카테고리당 1개 — check-then-insert 레이스의 **진짜** 방어선 |
-| `group_challenge_durations` | `CHECK (duration_minutes BETWEEN 1 AND 1440)` | 하루보다 긴 목표는 달성 불가 |
+| `group_challenge_durations` | **카테고리별 CHECK** — CTI 부모(`group_challenges.category`)를 참조해야 하므로 `category`를 이 테이블에 **비정규화 복사**하고 `CHECK ((category='FOCUS' AND duration_minutes BETWEEN 1 AND 1080) OR (category='SCREEN_TIME' AND duration_minutes BETWEEN 1 AND 720))` + 부모와의 `FOREIGN KEY (challenge_id, category)` | N51 상한을 **DB가 보증**한다. 단일 `BETWEEN 1 AND 1440`은 서비스 검증을 우회하는 경로(배치·수동 SQL)에서 상한 밖 값이 저장될 수 있고, 챌린지는 **불변**이라 되돌릴 수 없다 |
 | `group_challenge_windows` | `CHECK (duration_minutes > 0)` | 목표 필수 |
 | `group_challenge_windows` | `CHECK (window_start < window_end)` | 0길이 제거 **+ 자정 걸침 금지** — 회차가 요일 경계를 넘지 않는다는 것을 DB가 보증한다 |
 | `group_challenge_members` | `UNIQUE (group_challenge_id, user_id, usage_date)` · `usage_date NOT NULL` | 날짜별 보고 1행 (NULL이면 유니크가 안 걸린다) |
@@ -494,6 +494,11 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 써서 **저장된 측정치와 지급 결과가 어긋난다**(계약상 "정산 후 보고는 무시"인데 실제로는 반영된
 셈). 회차 락을 먼저 잡으면 정산이 새 값을 보거나, 보고가 정산 후임을 알고 스스로 무시한다.
 **하루형 SCREEN_TIME 일일 보고 경로도 같은 직렬화가 필요하다** — DURATION 회차가 그 값을 쓴다.
+
+**보고 창은 `starts_at` ~ 정산 전까지다.** `join-next`·`join-week`가 만든 **미래 예약 회차도
+`OPEN`** 이라, 시작 전 보고를 받으면 아직 시작도 안 한 창에 **0분이 선기록**되고 이후 동기화가
+덮어쓰지 못하면 그 값으로 이긴다. 그래서 `now < starts_at`이면 조용히 204로 무시한다
+(그레이스 구간의 늦은 보고는 계속 받는다 — N43).
 
 **`usageDate`는 내가 참가한 그 챌린지의 `OPEN` 회차 날짜여야 한다.** 활성 요일인지만 보면
 클라가 **미래 활성일에 낮은 값을 미리 심을** 수 있고, 그 뒤 덮어쓰는 보고가 없으면 그대로
@@ -997,6 +1002,7 @@ void settle(UUID sessionId, SettleTrigger trigger) {
             && focusSessionRepo.existsActiveOverlapping(userIdsOf(s), windowOf(s))) return;
     }
 
+    if (participants.isEmpty()) { s.closeUnused(); return; }      // 아무도 안 들어온 회차 — 결과 아님
     if (participants.size() < 2) { voidSession(s, participants, SHORT_PARTICIPANTS); return; }
 
     Target t = targetOf(s);
@@ -1024,6 +1030,13 @@ void settle(UUID sessionId, SettleTrigger trigger) {
 > 바로 그 상황이 24h를 넘긴 시점이라, 환불돼야 할 회차에 지급이 나간다(FR-45 위반).
 > 락을 쥔 정산 본체에 두면 어느 진입점으로 와도 같은 결론이다.
 >
+> **참가자 0명은 결과가 아니다 (N52).** 보증 스캔이 매 활성일 회차를 세우므로 **아무도 참여하지
+> 않은 회차**가 흔하다. 그걸 `VOIDED`로 닫으면 — `VOIDED`는 N17이 "혼자 남은 참가자에게 환불"로
+> 정의한 상태다 — `lastSettledSession`·그룹 내역에 **"참가자가 부족해 무산" 0명 결과**가 뜨고,
+> 심지어 **직전의 진짜 결과를 밀어낸다**. 그래서 참가자 0이면 별도 종료 상태(`UNUSED`)로 닫고
+> **결과 큐·내역·알림 어디에도 싣지 않는다**. `VOIDED`는 환불 대상이 실제로 있는 경우(정확히
+> 1명)로 남긴다.
+
 > **진행분을 전원 다시 재는 이유**: `achieved == null`인 사람만 갱신하면 조기 확정자의
 > `progressMinutes`가 **목표를 넘던 순간 값으로 박제**된다. 잔여 코인이 "성과 1위"에게 가는데
 > (§4), 자정 정산 시점엔 조기 확정자의 실제 최종 집중분이 더 클 수 있다 — 박제값으로 순위를
