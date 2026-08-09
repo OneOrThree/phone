@@ -16,7 +16,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { Skeleton } from '@/components/Skeleton';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
 import {
@@ -76,8 +76,6 @@ const NOTICE_PREVIEW = 3;
 // ── 최초 로딩 자리표시자 치수 ── (GROMO-1381)
 // 도착할 화면과 같은 자리를 잡아야 데이터가 왔을 때 레이아웃이 튀지 않는다. 값은 전부 아래
 // StyleSheet의 실제 규격에서 계산한 것이라, 규격을 바꾸면 이 상수도 같이 고쳐야 한다.
-// 제목 한 줄(T.text.title 26pt)의 글자 상자 높이
-const SK_TITLE_H = 30;
 // 섹션 라벨 한 줄(T.text.label 15pt)
 const SK_LABEL_H = 18;
 // 공지/챌린지 카드 한 장: paddingVertical 12×2 + border 1×2 + 제목 18 + gap 2 + 날짜 16
@@ -679,39 +677,70 @@ export default function GroupRoomScreen({
     </TouchableOpacity>
   ) : null;
 
+  // 헤더 — 로딩 분기와 본문이 **같은 노드**를 쓴다. name·인원은 이미 summary 폴백이 있어
+  // (위 `detail?.name ?? summary?.name` — 상세 도착 전 헤더를 먼저 그리려고 둔 장치다)
+  // 상세를 기다릴 필요가 없고, 덕분에 데이터가 도착해도 헤더가 제자리에서 글자만 채워진다.
+  // ⚠️ 헤더는 스켈레톤 묶음 **밖**에 둔다 — SkeletonGroup은 accessibilityElementsHidden이라
+  //    안에 넣으면 스크린리더에서 백버튼(유일한 탈출 경로)과 설정 진입이 사라진다.
+  const headerRow = (
+    <View style={s.header}>
+      {/* 라우트 진입에서만 — 규격은 그룹 만들기·공지 화면의 원형 백버튼과 같다(§5-1) */}
+      {backButton}
+      <View style={s.headerLeft}>
+        <Text style={s.title} numberOfLines={1}>
+          {name}
+        </Text>
+        {isPrivate && <Ionicons name="lock-closed" size={15} color={T.inkSub} />}
+        {/* 정원을 모르는 동안(요약 없이 첫 조회 중)은 '0/0'을 쓰지 않는다 — 상세가 오면 항상 1 이상이라
+            본문 렌더에는 영향이 없다. */}
+        {maxMembers > 0 && (
+          <Text style={s.count}>
+            {memberCount}/{maxMembers}
+          </Text>
+        )}
+      </View>
+      <TouchableOpacity
+        style={s.moreBtn}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('GroupSettings', { groupId })}
+        accessibilityLabel="그룹 설정"
+      >
+        <Ionicons name="ellipsis-horizontal" size={18} color={T.ink} />
+      </TouchableOpacity>
+    </View>
+  );
+
   // ── 최초 로딩 — 화면 실루엣 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
-  // 헤더 · 공지 · 챌린지 · 멤버 그리드가 들어올 자리를 도착할 화면과 같은 여백·높이로 미리 잡는다.
-  // 백버튼은 로딩 중에도 그대로 살아 있어야 목록으로 돌아갈 경로가 유지된다(기존 규칙).
+  // 헤더는 진짜 헤더를 그대로 세우고(위 headerRow — 백버튼·설정 진입이 접근성 트리에 살아 있어야
+  // 한다), 공지 · 챌린지 · 멤버 그리드가 들어올 자리만 도착할 화면과 같은 여백·높이로 잡는다.
   // 데이터가 오면 이 분기가 통째로 사라져 펄스(무한 루프)도 함께 언마운트된다.
+  // 블록이 9개라 SkeletonGroup 한 겹에만 펄스를 건다 — 블록마다 돌리면 무한 루프가 9개가 되어
+  // "화면당 1개" 상한을 구조적으로 위반한다(codex 리뷰).
   if (loading && !detail) {
     return (
       <View style={s.fill}>
-        <View style={s.content} testID="group.room.skeleton">
-          <View style={s.header}>
-            {backButton}
-            <View style={s.headerLeft}>
-              <Skeleton w="55%" h={SK_TITLE_H} />
+        <View style={s.content}>
+          {headerRow}
+          <SkeletonGroup style={s.skeletonBody} testID="group.room.skeleton">
+            <View style={s.sectionHead}>
+              <Skeleton w={44} h={SK_LABEL_H} radius={6} />
             </View>
-            <Skeleton w={34} h={34} radius={17} />
-          </View>
-          <View style={s.sectionHead}>
-            <Skeleton w={44} h={SK_LABEL_H} radius={6} />
-          </View>
-          <Skeleton w="100%" h={SK_CARD_H} radius={14} />
-          <View style={s.sectionHead}>
-            <Skeleton w={60} h={SK_LABEL_H} radius={6} />
-          </View>
-          <Skeleton w="100%" h={SK_CARD_H} radius={14} />
-          <View style={s.sectionHead}>
-            <Skeleton w={44} h={SK_LABEL_H} radius={6} />
-          </View>
-          <View style={s.gridRow}>
-            {Array.from({ length: COLS }, (_, i) => (
-              <View key={i} style={s.gridPad}>
-                <Skeleton w="100%" h={SK_TILE_H} radius={14} />
-              </View>
-            ))}
-          </View>
+            <Skeleton w="100%" h={SK_CARD_H} radius={14} />
+            <View style={s.sectionHead}>
+              <Skeleton w={60} h={SK_LABEL_H} radius={6} />
+            </View>
+            <Skeleton w="100%" h={SK_CARD_H} radius={14} />
+            <View style={s.sectionHead}>
+              <Skeleton w={44} h={SK_LABEL_H} radius={6} />
+            </View>
+            <View style={s.gridRow}>
+              {Array.from({ length: COLS }, (_, i) => (
+                <View key={i} style={s.gridPad}>
+                  <Skeleton w="100%" h={SK_TILE_H} radius={14} />
+                </View>
+              ))}
+            </View>
+          </SkeletonGroup>
         </View>
       </View>
     );
@@ -780,28 +809,8 @@ export default function GroupRoomScreen({
           </View>
         )}
 
-        {/* ── 헤더 ── */}
-        <View style={s.header}>
-          {/* 라우트 진입에서만 — 규격은 그룹 만들기·공지 화면의 원형 백버튼과 같다(§5-1) */}
-          {backButton}
-          <View style={s.headerLeft}>
-            <Text style={s.title} numberOfLines={1}>
-              {name}
-            </Text>
-            {isPrivate && <Ionicons name="lock-closed" size={15} color={T.inkSub} />}
-            <Text style={s.count}>
-              {memberCount}/{maxMembers}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={s.moreBtn}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('GroupSettings', { groupId })}
-            accessibilityLabel="그룹 설정"
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color={T.ink} />
-          </TouchableOpacity>
-        </View>
+        {/* ── 헤더 ── 로딩 분기와 같은 노드를 쓴다(위 headerRow) */}
+        {headerRow}
 
         {/* ── 공지 ── */}
         <View style={s.sectionHead}>
@@ -1164,6 +1173,9 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
   },
   writeText: { ...T.text.label, color: T.white },
+
+  // 로딩 자리표시자 묶음 — 바깥 s.content가 패딩을 주므로 블록 간 간격만 s.content와 맞춘다.
+  skeletonBody: { gap: T.space.md },
 
   grid: { gap: T.space.md },
   gridRow: { flexDirection: 'row', gap: T.space.md },

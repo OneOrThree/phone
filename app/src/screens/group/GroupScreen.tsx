@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
-import { Skeleton, SkeletonCard } from '@/components/Skeleton';
+import { Skeleton, SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -285,8 +285,10 @@ export default function GroupScreen() {
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 카드 3장으로, 도착할 화면과
             같은 자리·같은 높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
-            펄스(무한 루프)도 함께 언마운트된다. */}
-        <View testID="group.list.skeleton">
+            펄스(무한 루프)도 함께 언마운트된다.
+            묶음 전체를 SkeletonGroup 하나로 감싸 펄스를 이 한 겹에만 건다 — 블록마다 루프를
+            돌리면 "화면당 무한 루프 1개" 상한을 위반한다(codex 리뷰). */}
+        <SkeletonGroup testID="group.list.skeleton">
           <View style={s.skeletonHeader}>
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
@@ -295,7 +297,7 @@ export default function GroupScreen() {
               <SkeletonCard key={i} height={GROUP_CARD_HEIGHT} />
             ))}
           </View>
-        </View>
+        </SkeletonGroup>
         {inviteSheet}
       </SafeAreaView>
     );

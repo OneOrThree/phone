@@ -13,7 +13,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { Skeleton } from '@/components/Skeleton';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import { getGroupDetail, groupErrorCode, transferOwner, withdrawGroup } from '@/services/groupApi';
@@ -207,12 +207,14 @@ export default function GroupOwnerTransferScreen() {
 
   // ── 최초 로딩 — 안내 문구 + 멤버 행 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
   // 행 높이가 규격으로 고정된 목록이라 도착 화면과 같은 실루엣을 그릴 수 있다.
+  // 펄스는 SkeletonGroup 한 겹에만 건다(무한 루프 1개) — 기존 컨테이너 View를 그대로 교체한 것이라
+  // 노드 수·여백은 변하지 않는다. 백버튼이 있는 header는 묶음 밖이라 접근성 트리에 그대로 남는다.
   // 데이터가 오면 이 분기가 사라지며 펄스(무한 루프)도 함께 언마운트된다.
   if (loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.owner.transfer.screen">
         {header}
-        <View style={s.scrollContent} testID="group.owner.transfer.skeleton">
+        <SkeletonGroup style={s.scrollContent} testID="group.owner.transfer.skeleton">
           <View style={s.skeletonGuide}>
             <Skeleton w="70%" h={GUIDE_H} radius={6} />
           </View>
@@ -221,7 +223,7 @@ export default function GroupOwnerTransferScreen() {
               <Skeleton key={i} w="100%" h={ROW_H} radius={14} />
             ))}
           </View>
-        </View>
+        </SkeletonGroup>
       </SafeAreaView>
     );
   }
