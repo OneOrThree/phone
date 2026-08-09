@@ -10,6 +10,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { View, Share, Platform, type ViewStyle } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
+import { useMotion } from '@/hooks/useMotion';
 import { logStatsShared, type StatsShareCard } from '@/services/analyticsEvents';
 
 // 캐릭터 onLoad가 끝내 안 와도 공유가 막히지 않도록 하는 상한(FocusSessionScreen 캡처 선례 참고).
@@ -26,14 +27,34 @@ const CAPTURE_FRAME: ViewStyle = {
 const nextFrame = (): Promise<void> =>
   new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
+/** 지정 시각까지 대기. 이미 지났으면 곧바로 진행한다(대기 0). */
+const waitUntil = (at: number): Promise<void> => {
+  const left = at - Date.now();
+  return left > 0 ? new Promise((resolve) => setTimeout(resolve, left)) : Promise.resolve();
+};
+
 export function useTimetableShareCapture({
   card,
   makeFileName,
+  enterMs = 0,
 }: {
   // 계측 구분용 카드 종류
   card: StatsShareCard;
   // 공유 파일명 생성기 — 예: () => '260711_타임테이블' (캡처 시점에 오늘 날짜로 만든다)
   makeFileName: () => string;
+  /**
+   * 캡처 대상 안에서 도는 **진입 애니메이션의 총 재생 시간(ms)**. 데이터가 도착한 시점부터
+   * 이만큼은 캡처를 미룬다 (GROMO-1381).
+   *
+   * ⚠️ 왜 필요한가 — `WeeklyTimetable`은 데이터 로드 콜백에서 `setBlocks()`와 **같은 틱**에
+   *    `onLoaded()`를 부른다. 즉 공유 버튼이 눌릴 수 있게 되는 순간이 곧 세션 블록의
+   *    `growUp`(scaleY 0→1)이 막 시작되는 순간이다. 그대로 찍으면 **찌그러진 막대가 PNG에
+   *    구워져** 사용자가 저장·공유한다.
+   *
+   * 진입이 없는 카드(일 탭 타임테이블)는 넘기지 않는다 — 기본값 0이면 대기가 사라진다.
+   * '동작 줄이기'에서도 0이다(`m.delay()` 통과) — 애니메이션이 없으니 기다릴 게 없다.
+   */
+  enterMs?: number;
 }): {
   shotRef: React.RefObject<View | null>;
   capturing: boolean;
@@ -47,6 +68,7 @@ export function useTimetableShareCapture({
   onLoaded: () => void;
   onShare: () => Promise<void>;
 } {
+  const m = useMotion();
   const shotRef = useRef<View | null>(null);
   const [sharing, setSharing] = useState(false);
   // 캡처 전용 상태 — 브랜드 chrome 렌더 조건. sharing은 공유 시트가 닫혀야 풀리므로 그걸 쓰면
@@ -54,7 +76,17 @@ export function useTimetableShareCapture({
   const [capturing, setCapturing] = useState(false);
   // 타임테이블 데이터 로드 완료 여부 — 로딩 중(격자 스피너)에 공유하면 빈 이미지가 캡처되므로 막는다.
   const [ready, setReady] = useState(false);
-  const onLoaded = useCallback(() => setReady(true), []);
+  // 진입 애니메이션이 시작된 시각 = 데이터가 처음 도착한 시각.
+  // ⚠️ **첫 도착만** 기록한다. 화면 재진입마다 재조회가 돌아 onLoaded가 다시 불리지만, 그때는
+  //    같은 블록 노드가 재사용돼(스타일 참조가 캐시라) 진입이 다시 재생되지 않는다. 매번
+  //    갱신하면 애니메이션이 없는데도 공유가 1초 넘게 늦어진다.
+  // ⚠️ deps는 빈 배열을 유지해야 한다 — WeeklyTimetable/FocusTimetable의 useFocusEffect가
+  //    onLoaded를 의존성으로 잡고 있어, 참조가 바뀌면 재조회 루프가 된다.
+  const loadedAtRef = useRef(0);
+  const onLoaded = useCallback(() => {
+    if (loadedAtRef.current === 0) loadedAtRef.current = Date.now();
+    setReady(true);
+  }, []);
 
   // 브랜드 캐릭터 로드 대기 게이트 — onLoad(실패 시 폴백 기본 에셋의 onLoad)가 오면 푼다(멱등). fast path에선 타임아웃을
   // 걷어 댕글링 타이머·중복 resolve를 막는다.
@@ -83,9 +115,13 @@ export function useTimetableShareCapture({
     setSharing(true);
     setCapturing(true);
     try {
-      // 1) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지
+      // 1) 캡처 대상의 진입 애니메이션이 끝난 뒤 진행 — 중간 프레임(찌그러진 세션 막대)이
+      //    PNG에 구워지는 것을 막는다. 이미 지난 시각이면 대기 0이라, 카드가 뜬 지 한참 뒤에
+      //    누르는 보통의 경우엔 아무 비용이 없다.
+      await waitUntil(loadedAtRef.current + m.delay(enterMs));
+      // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지
       await waitCharReady();
-      // 2) chrome·여백이 커밋·페인트된 뒤 캡처(두 프레임 대기). 여백은 내용 폭 불변이라 재측정 없음.
+      // 3) chrome·여백이 커밋·페인트된 뒤 캡처(두 프레임 대기). 여백은 내용 폭 불변이라 재측정 없음.
       await nextFrame();
       await nextFrame();
       const uri = await captureRef(shotRef, {
@@ -110,7 +146,7 @@ export function useTimetableShareCapture({
       setCapturing(false);
       setSharing(false);
     }
-  }, [sharing, waitCharReady, makeFileName, card]);
+  }, [sharing, waitCharReady, makeFileName, card, m, enterMs]);
 
   return {
     shotRef,

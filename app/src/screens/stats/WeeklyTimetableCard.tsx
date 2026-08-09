@@ -6,7 +6,7 @@ import Animated from 'react-native-reanimated';
 import Svg, { Line } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { growUp } from '@/constants/motion';
+import { M, growUp, staggerDelay } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
@@ -26,6 +26,11 @@ import { cs } from './cardStyles';
 import { ShareBrandFooter } from './ShareBrandFooter';
 import { useTimetableShareCapture } from './useTimetableShareCapture';
 
+// 세션 블록 진입(growUp)이 **완전히 끝나는** 데 걸리는 시간 — 마지막 시차 칸 + 재생 시간.
+// 공유 캡처는 이보다 먼저 일어나면 안 된다(scaleY 중간 프레임이 PNG에 구워진다, GROMO-1381).
+// 하드코딩이 아니라 토큰에서 계산한다 — duration/stagger가 바뀌면 대기도 따라간다.
+const BLOCK_ENTER_DONE_MS = staggerDelay(M.staggerMaxSteps) + M.dur.entrance;
+
 // 주간 타임라인 카드 — '오늘 타임테이블'(FocusTimetableCard)과 동일하게 공유하기(캡처→Share) 버튼 제공(GROMO-778).
 export function WeeklyTimetableCard() {
   // 공유 파일명 — 예: 260716_주간타임라인.png (사진 저장 시엔 이름이 남지 않음)
@@ -36,7 +41,11 @@ export function WeeklyTimetableCard() {
   );
   // 캡처→공유·로드 게이트 로직은 일/주 공용 훅이 담당(FocusTimetableCard와 동일, GROMO-1070)
   const { shotRef, capturing, captureStyle, disabled, onCharReady, onLoaded, onShare } =
-    useTimetableShareCapture({ card: 'weekly_timeline', makeFileName });
+    useTimetableShareCapture({
+      card: 'weekly_timeline',
+      makeFileName,
+      enterMs: BLOCK_ENTER_DONE_MS,
+    });
 
   return (
     <SectionCard title="요일별 타임테이블">
