@@ -104,6 +104,7 @@ erDiagram
 | `group_challenges` | `CHECK (repeat_days BETWEEN 1 AND 127)` | 요일 하나는 반드시 |
 | `group_challenges` | `INDEX (group_id) WHERE status='ACTIVE' AND deleted_at IS NULL` | 활성 목록 조회 · 상한 검사 |
 | `group_challenges` | `UNIQUE (group_id, category) WHERE type='DURATION' AND status='ACTIVE' AND deleted_at IS NULL` | 하루형 카테고리당 1개 — check-then-insert 레이스의 **진짜** 방어선 |
+| `group_challenges` | **`UNIQUE (id, category)`** (부분 인덱스 아님) | 자식의 복합 FK가 참조할 부모 키. **PK(`id`)와 부분 유니크만으로는 Postgres가 `FOREIGN KEY (challenge_id, category)`를 거부**한다 — 이게 없으면 아래 카테고리별 CHECK를 배포할 수 없다 |
 | `group_challenge_durations` | **카테고리별 CHECK** — CTI 부모(`group_challenges.category`)를 참조해야 하므로 `category`를 이 테이블에 **비정규화 복사**하고 `CHECK ((category='FOCUS' AND duration_minutes BETWEEN 1 AND 1080) OR (category='SCREEN_TIME' AND duration_minutes BETWEEN 1 AND 720))` + 부모와의 `FOREIGN KEY (challenge_id, category)` | N51 상한을 **DB가 보증**한다. 단일 `BETWEEN 1 AND 1440`은 서비스 검증을 우회하는 경로(배치·수동 SQL)에서 상한 밖 값이 저장될 수 있고, 챌린지는 **불변**이라 되돌릴 수 없다 |
 | `group_challenge_windows` | `CHECK (duration_minutes > 0)` | 목표 필수 |
 | `group_challenge_windows` | `CHECK (window_start < window_end)` | 0길이 제거 **+ 자정 걸침 금지** — 회차가 요일 경계를 넘지 않는다는 것을 DB가 보증한다 |
@@ -145,11 +146,18 @@ flowchart LR
     VN2["Vn+2<br/>sessions 테이블 신설 (미션 스냅샷 포함)<br/>기존 bets → bets(설정) + sessions(회차) 분해"]
     VN3["Vn+3<br/>window를 time 타입으로<br/>KST 벽시계 추출 백필<br/>CHECK (start &lt; end) 추가"]
     VN4["Vn+4<br/>잔재 컬럼 제거<br/>is_achieved·achieved_at·deleted_at<br/>usage_date NOT NULL"]
-    VN5["Vn+5<br/>stake CHECK 상한<br/>하루형 목표 상한 CHECK (N51)<br/>통계 일자 KST 재계산"]
+    VN5["Vn+5<br/>stake CHECK 상한<br/>부모 UNIQUE (id, category) 선행<br/>하루형 목표 상한 CHECK (N51)<br/>통계 일자 KST 재계산"]
+    VN7["Vn+7<br/>daily_screen_time_stats.total_screen_time_minutes<br/>NOT NULL 해제 (미보고 = null)<br/>+ reported_at 저장·비교"]
     VN6["Vn+6<br/>notification_sent_logs 확장<br/>kind · subject_id · status · claimed_at · group_id · slot<br/>UNIQUE (user_id, kind, subject_id)"]
 
-    V1 --> V2 --> V5 --> V19 --> V20 --> V28 --> V29 --> VN1 --> VN2 --> VN3 --> VN4 --> VN5 --> VN6
+    V1 --> V2 --> V5 --> V19 --> V20 --> V28 --> V29 --> VN1 --> VN2 --> VN3 --> VN4 --> VN5 --> VN6 --> VN7
 ```
+
+**`Vn+7`이 없으면 하루형 SCREEN_TIME이 무조건 이긴다.** `daily_screen_time_stats.
+total_screen_time_minutes`가 `NOT NULL`이라 서비스가 미보고를 **0으로 접어** 저장하고, 판정은
+`0 ≤ 목표`라 **미보고자가 승자**가 된다 — policy §B7·S5가 요구한 "미보고 = 미달성"이 하루형에서
+뒤집힌다. 컬럼을 nullable로 바꾸고 **서비스의 0 폴딩도 함께 제거**해야 의미가 산다(마이그레이션만
+해도 코드가 계속 0을 쓰면 그대로다).
 
 **`Vn+6`이 없으면 알림 선점(N41·§6)이 구현 불가**다. 현행 `notification_sent_logs`는
 `id·sent_at·target_user_id·type·user_id`뿐이라 **유니크 사건 키도, `PENDING` 상태·리스 시각도
@@ -240,20 +248,18 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
                   "achieved": true, "payout": 45,
                   "progressMinutes": 102 }]
   },
-  "mySettledSessions": [                 // 결과 모달 큐 — 내가 참가한 정산 완료 회차,
-    /* lastSettledSession과 같은 요소 스키마 */  // 회차일 내림차순 · 최근 30일 · 최대 10건
-  ]
 }]
 ```
 
-> **`lastSettledSession` vs `mySettledSessions`**: 전자는 카드의 "지난 결과 + 정산 근거"
-> 표시용 **그룹 기준 최신 1건**, 후자는 결과 모달 큐용 **내 참가 회차 목록**이다. 최신 1건으로
-> 모달을 만들면 ① 내가 참가 안 한 최신 회차가 그 앞의 내 결과를 가리고 ② 앱을 안 연 사이
-> 정산된 내 회차 여럿이 1건으로 접힌다. 1회 가드는 앱 로컬 seen set(`sessionId`)이 담당하고,
-> 서버는 seen 상태를 모른다. **최근 30일·최대 10건 초과분은 버린다** — 한 달 넘게 안 본
-> 결과까지 모달로 줄 세우지 않는다(수용). 30일 경계는 앱 seen 마커 프루닝(60일 — IA §8)보다
-> **짧아야 한다**: 서버가 마커 수명보다 오래된 회차를 계속 실어주면, 프루닝된 회차가 이미 본
-> 모달로 재생된다.
+> **결과 모달 큐는 이 응답에 없다 (N53).** 여기 있는 `lastSettledSession`은 카드의 "지난 결과 +
+> 정산 근거" 한 줄 표시용 **그룹 기준 최신 1건**일 뿐이다. 모달 큐는 참가자 스코프
+> **`GET /me/challenge-results`** 에서 가져온다 — 최신 1건으로 모달을 만들면 ① 내가 참가 안 한
+> 최신 회차가 그 앞의 내 결과를 가리고 ② 앱을 안 연 사이 정산된 내 회차 여럿이 1건으로 접히며,
+> 무엇보다 ③ 카드 조회는 그룹 멤버십을 검증하므로 **탈퇴자가 자기 결과를 못 본다**.
+> 1회 가드는 앱 로컬 seen set(`{userId}:{sessionId}`)이 담당하고 서버는 seen 상태를 모른다.
+> **최근 30일·최대 10건 초과분은 버린다**(수용). 30일 경계는 앱 seen 마커 프루닝(60일 — IA §8)보다
+> **짧아야 한다**: 마커 수명보다 오래된 회차를 계속 실어주면 프루닝된 회차가 이미 본 모달로
+> 재생된다.
 
 > **`activeToday` / `nextSessionAt` 계약**: 둘은 **배타가 아니라 보완**이다.
 > `nextSessionAt`은 항상 **오늘을 제외한** 다음 활성일을 가리킨다(`RepeatSchedule.next()`).
@@ -274,7 +280,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 필드가 통째로 사라지면 3상이 2상으로 무너진다.
 
 > **탈퇴 멤버 가시성**: 라이브 뷰(`memberProgress` · `session.participants`)는 탈퇴 멤버를
-> **필터**하고, 정산 명단(`lastSettledSession`·`mySettledSessions`의 `results`)은 명단·인원·`pot`을 보존하되 닉네임만
+> **필터**하고, 정산 명단(`lastSettledSession`·`/me/challenge-results`의 `results`)은 명단·인원·`pot`을 보존하되 닉네임만
 > **"탈퇴한 사용자"** 로 치환한다. **단 탈퇴자가 시작된 회차의 참가자면 라이브에서도 보인다** —
 > 정산 대상으로 남기 때문이다(정책 C8).
 
@@ -393,7 +399,11 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
                           .distinct().sorted().toList();
     walletRepo.lockAllForUpdate(userIds);
     // ③ 무효화 + 환불 (멱등키 session:{sid}:refund:{participantId})
-    for (var s : sessions) voidAndRefund(s, VoidReason.CHALLENGE_DELETED);
+    //    참가자 0명이면 환불할 것도 알릴 것도 없다 → UNUSED로 닫는다 (N52)
+    for (var s : sessions) {
+        if (participantRepo.countBySessionId(s.getId()) == 0) { s.closeUnused(); continue; }
+        voidAndRefund(s, VoidReason.CHALLENGE_DELETED);
+    }
     // ② 정산이 끝난 회차는 건드리지 않는다 (B8 정산 불가역)
     ch.softDelete();                 // deleted_at = now()
 }
@@ -524,6 +534,31 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 > 푸시가 `settle_after − 15분`에 앱을 깨워 마지막 보고를 시키는데(FR-22), 대상에서 이미
 > 빠졌으면 그 flush가 무의미해진다. 특히 탈퇴자는 그룹 기반 폴백이 없어 값이 `null`로 남고
 > **미보고 = 미달성**으로 정산된다 — N43이 막으려던 바로 그 결과다.
+
+#### `GET /me/challenge-results?since=&limit=` — 내 정산 완료 회차 (그룹 무관) · **결과 모달의 유일한 소스** (N53)
+
+```jsonc
+{ "results": [{
+    "sessionId": "uuid", "groupId": "uuid", "groupName": "새벽반",   // 그룹방을 못 읽어도 이름은 보여준다
+    "challengeId": "uuid", "challengeDeleted": false, "challengeEnded": true,
+    "sessionDate": "2026-08-08", "stake": 30, "pot": 90,
+    "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED (UNUSED는 안 실린다)
+    "voidReason": null, "goalMinutes": 90,
+    "myAchieved": true, "myPayout": 45,
+    "results": [{ "userId": "uuid", "nickname": "민지", "achieved": true, "payout": 45, "progressMinutes": 102 }]
+}] }
+```
+
+- 조건: **내가 참가자**인 정산 완료 회차. **그룹 멤버십·챌린지 상태(ACTIVE/ENDED/삭제)를 보지
+  않는다.** 최근 30일·최대 10건(§D3).
+- **왜 카드 조회에서 분리했나 (N53)**: 결과 큐를 카드 응답에 실으면 세 가지가 동시에 막힌다 —
+  ① 카드 응답 최상위가 `GroupChallengeResponse[]` **배열**이라 형제 키를 둘 자리가 없다
+  ② ENDED 챌린지를 그 배열에 넣으면 구앱이 **끝난 챌린지를 카드로 렌더**한다(N38 보강 논의)
+  ③ 카드 조회는 **그룹 멤버십 검증**으로 시작하므로 **탈퇴자는 자기 정산 결과를 영영 못 본다**
+  (C8로 정산 대상은 유지되는데 결과 화면이 없다 — 푸시를 눌러도 못 읽는 그룹방으로 간다).
+  참가자 스코프 엔드포인트 하나로 셋을 같이 닫는다. 신규 엔드포인트라 구앱에도 additive다.
+- 카드 응답의 `mySettledSessions`는 **폐기**하고 `lastSettledSession`(카드의 "지난 결과" 한 줄
+  표시용)만 남긴다.
 
 #### `GET /me/bet-sessions?status=OPEN` — 내 OPEN 회차 (그룹 무관)
 
@@ -694,11 +729,20 @@ record Target(MissionCategory category, MissionType type, int goalMinutes,
 |---|---|---|---|---|
 | FOCUS × DURATION | `daily_focus_stats` | `findByUserIdInAndDate` | `분 ≥ 목표` | 0분 (사실) |
 | FOCUS × TIME_WINDOW | `focus_sessions` | `sumOverlapSecondsInWindow` | `분 ≥ 목표 − 5` | 0분 (사실) |
-| SCREEN_TIME × DURATION | `daily_screen_time_stats` | `findByUserInAndDate` | `분 ≤ 목표` | **미보고** |
+| SCREEN_TIME × DURATION | `daily_screen_time_stats` | `findByUserInAndDate` | `분 ≤ 목표` | **미보고** (`null` — `Vn+7`로 NOT NULL 해제 전에는 0으로 접혀 **오달성**) |
 | SCREEN_TIME × TIME_WINDOW | `group_challenge_members` | `findByGroupChallengeIdInAndUsageDate` | `분 ≤ 목표` | **미보고** |
 
 **모든 `date` 키는 KST다.** `CountryZoneResolver`는 이 경로에 등장하지 않는다.
 **초→분 변환은 `/ 60` 내림**. 유저·날짜당 1행이지만 중복 시 `Integer::max`로 방어.
+
+> **일일 스크린타임 보고(`/screen-time`)도 창 보고와 같은 방어가 필요하다.** 이 경로는 하루형
+> 정산의 **유일한 판정 소스**인데 지금은 창 보고(N34·§2.1)와 달리 아무 가드가 없다:
+>
+> | 구멍 | 결과 | 처방 |
+> |---|---|---|
+> | 순서 무보장 | 포그라운드·사일런트 동기화가 겹치거나 지연 요청이 나중에 도착하면 **높은 사용분이 낮은 값으로 회귀** — 스크린타임은 낮을수록 이기므로 오달성 | `reported_at` 저장·비교, 더 오래된 쓰기는 무시 (`Vn+7`) |
+> | 미래 일자 수용 | 기기 시계가 앞서거나 악의적 클라가 **미래 날짜 행을 선주입**하면, 그 날짜의 예약 회차가 낮은 값으로 이긴다 | 서버 시각 기준 **오늘/과거만** 저장 (창형 `starts_at` 가드는 이 경로를 못 막는다) |
+> | 확정 보고 덮어쓰기 | 하루 마감 후 도착한 중간 보고가 최종값을 덮는다 | 확정(최종) 플래그가 선 날짜는 이후 중간 보고를 무시 |
 
 > **`sumOverlapSecondsInWindow`는 완료 세션만 계수**한다(`ended_at IS NOT NULL` + 취소·자동
 > 마감 status 제외 — 현행 쿼리 관례). 창을 걸쳐 아직 도는 세션은 0분으로 보이므로, **정산은
@@ -728,6 +772,11 @@ public static boolean isAchieved(Target t, Integer minutes) {
 > (§2.1 검증 7) 눈금과 경계를 정렬한다.
 
 ### 3.3 참가 자격 가드 — 방향이 반대다
+
+**멤버십은 차감 직전에 다시 본다 (N54).** 참여 경로가 `users` 행만 공유 잠금하면 **그룹 탈퇴와
+직렬화되지 않는다**(탈퇴는 `group_members`를 바꾼다). 회차 락을 잡은 뒤 활성 멤버십을 재검증하고,
+아니면 `CHALLENGE_FORBIDDEN` 403으로 되돌린다 — 그러지 않으면 **그룹에 없는 사람의 유료 예약**이
+남고 탈퇴 정산 정리에서도 빠진다.
 
 **권한 가드가 먼저다 (N50).** `join`·`join-next`·`join-week` **세 경로 모두**, SCREEN_TIME
 회차면 차감 전에 `UserScreenTimeSettings.screenTimePermissionGranted`를 확인하고 없으면
@@ -1111,7 +1160,8 @@ static Instant nextAttemptAt(BetSession s, int attempts) {
 void voidShortSessions() {
     // status=OPEN AND join_closes_at ≤ now AND 참가자 < 2
     for (var s : sessionRepo.findOpenPastJoinDeadlineWithFewParticipants(Instant.now())) {
-        try { settlement.voidIfShort(s.getId()); }                 // 락 안에서 인원 재확인 후 VOIDED
+        // 락 안에서 인원 재확인 → **0명이면 UNUSED**, 1명이면 VOIDED+환불 (N52는 전 종료 경로 적용)
+        try { settlement.closeShortOrUnused(s.getId()); }
         catch (Exception e) { log.warn("무산 처리 실패 — sessionId={}", s.getId(), e); }
     }
 }
@@ -1274,7 +1324,7 @@ classDiagram
 | `ChallengeComposeSheet.tsx` | 만들기 폼 | **요일 선택 추가** (기본값 없음) |
 | `BetJoinSheet.tsx` | 회차 참여 | 개설 모드 제거 · 하루형 진행분 공개 · "이번 주 전부" · **다음 활성일 단건 예약(`join-next`)** — 미래 회차라 진행분·경고 블록은 숨긴다 |
 | `ChallengeDeleteSheet.tsx` | 삭제 확인 | **신설** — 진행 중이면 경고 단계 1개 추가(수치 노출), 아니면 1단계. 버튼 `삭제`/`그만두기` |
-| `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — 각 챌린지의 `mySettledSessions`를 합쳐 회차일 내림차순 정렬 후 로컬 seen set(`sessionId`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
+| `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — `GET /me/challenge-results`(N53) 응답을 로컬 seen set(`{userId}:{sessionId}`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |
 | `pendingFocusUploads.ts` | 업로드 재시도 큐 | **사일런트 푸시 수신 시 flush 추가** |
 | `push.ts` | 푸시 수신·딥링크 라우팅 | **신규 타입 배선 필요** — 현재 `groupId`로 딥링크를 합성하는 분기가 `CHALLENGE_WINDOW_END` 하나뿐이라, `CHALLENGE_*`·`BET_WON`·`BET_RESULT`·**`BET_VOID_REFUND`** 를 탭해도 그룹방으로 못 간다. 서버가 `link`를 안 싣는 계약이므로(IA §푸시) **앱에서 `data.groupId` → 그룹방 라우팅**을 추가한다 |
