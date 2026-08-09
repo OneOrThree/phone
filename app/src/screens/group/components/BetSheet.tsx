@@ -13,7 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { BET_ALREADY_FAILED, createBet, groupErrorCode, joinBet } from '@/services/groupApi';
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
@@ -417,6 +417,9 @@ export default function BetSheet({
       <SheetShell onClose={onClose} asModal>
         <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
         <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
+        {/* ⚠️ 이 CTA는 일부러 useSheetClose()로 옮기지 않는다(GROMO-1381) — 닫은 **직후 화면을
+            전환**하므로 220ms 퇴장을 붙이면 계정 화면 위에 시트(네이티브 Modal)가 남는다.
+            닫기와 전환이 붙어 있는 CTA는 즉시 언마운트가 맞다. */}
         <TouchableOpacity
           style={s.submitBtn}
           activeOpacity={0.85}
@@ -428,9 +431,7 @@ export default function BetSheet({
         >
           <Text style={s.submitText}>로그인하러 가기</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={onClose}>
-          <Text style={s.ghostText}>다음에 할게요</Text>
-        </TouchableOpacity>
+        <DismissCta />
       </SheetShell>
     );
   }
@@ -601,6 +602,18 @@ export default function BetSheet({
           보이지 않게 한 줄 세운다. 닫기를 열어 주는 쪽은 AbortController가 필요해 더 두껍다(F10). */}
       {submitting && <Text style={s.submittingCaption}>{SUBMITTING_CAPTION}</Text>}
     </SheetShell>
+  );
+}
+
+// 게스트 화면의 '다음에 할게요' — 순수 닫기라 퇴장 애니메이션을 태운다(GROMO-1381).
+// useSheetClose()는 SheetShell **자식 트리**에서만 잡히므로 작은 컴포넌트로 뺐다.
+// 렌더 결과는 종전과 같다(같은 TouchableOpacity·같은 문구).
+function DismissCta() {
+  const close = useSheetClose();
+  return (
+    <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={close}>
+      <Text style={s.ghostText}>다음에 할게요</Text>
+    </TouchableOpacity>
   );
 }
 

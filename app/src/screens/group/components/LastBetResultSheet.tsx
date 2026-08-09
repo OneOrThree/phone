@@ -17,7 +17,7 @@
 // — 내 결과(달성/미달성/미판정·명단 밖)에 따라 고른다.
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import type {
   LastSettledBet,
   LastSettledBetResult,
@@ -278,16 +278,26 @@ export default function LastBetResultSheet({
       )}
 
       {/* 닫기 CTA — 그룹 시트 공통 규격(52/r16). 딤 탭으로도 닫힌다(SheetShell). */}
-      <TouchableOpacity
-        style={s.closeBtn}
-        activeOpacity={0.85}
-        onPress={onClose}
-        accessibilityRole="button"
-        testID="group.bet.result.close"
-      >
-        <Text style={s.closeText}>확인</Text>
-      </TouchableOpacity>
+      <CloseCta />
     </SheetShell>
+  );
+}
+
+// 확인(닫기) CTA — onClose를 직접 부르면 부모가 즉시 언마운트해 퇴장 애니메이션이 보이지 않는다.
+// useSheetClose()는 SheetShell **자식 트리**에서만 잡히므로 작은 컴포넌트로 뺐다(GROMO-1381).
+// 렌더 결과(TouchableOpacity·testID·문구)는 종전과 한 글자도 다르지 않다 — E2E 셀렉터 보존.
+function CloseCta() {
+  const close = useSheetClose();
+  return (
+    <TouchableOpacity
+      style={s.closeBtn}
+      activeOpacity={0.85}
+      onPress={close}
+      accessibilityRole="button"
+      testID="group.bet.result.close"
+    >
+      <Text style={s.closeText}>확인</Text>
+    </TouchableOpacity>
   );
 }
 
