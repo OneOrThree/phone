@@ -154,14 +154,14 @@ class FocusControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /focus-session → 200 + body 에 dayTotalFocusSeconds·streakQualifiedToday 포함")
+    @DisplayName("PATCH /focus-session → 200 + body 에 dayTotalFocusSeconds·streakQualifiedToday·지급 필드 포함")
     void endFocusSessionReturns200WithStreakFields() throws Exception {
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
         given(focusService.endFocusSession(any(), any()))
                 .willReturn(new FocusSessionEndResponse(sessionId,
                         Instant.parse("2026-06-23T01:00:00Z"),
                         Instant.parse("2026-06-23T01:05:00Z"),
-                        300L, 0, 300, false));
+                        300L, 0, 300, false, 5, 30, 135));
 
         String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-06-23T01:05:00Z\","
                 + "\"totalDistractionSeconds\":0}";
@@ -172,6 +172,10 @@ class FocusControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dayTotalFocusSeconds").value(300))
                 .andExpect(jsonPath("$.streakQualifiedToday").value(false))
+                // GROMO-1214: 지급 필드는 POST 응답과 같은 이름·의미로 실린다(앱이 두 경로를 같은 코드로 소비)
+                .andExpect(jsonPath("$.awardedCoins").value(5))
+                .andExpect(jsonPath("$.goalRewardCoins").value(30))
+                .andExpect(jsonPath("$.balanceAfter").value(135))
                 .andDo(print());
     }
 
@@ -210,7 +214,7 @@ class FocusControllerTest {
                 .willReturn(new FocusSessionEndResponse(sessionId,
                         Instant.parse("2026-07-12T14:50:00Z"),
                         Instant.parse("2026-07-12T15:15:00Z"),
-                        1500L, 0, 300, false));
+                        1500L, 0, 300, false, 0, 0, 0));
 
         String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-07-12T15:15:00Z\","
                 + "\"totalDistractionSeconds\":0,\"focusSecondsByDate\":{\"2026-07-13\":300}}";
@@ -225,6 +229,41 @@ class FocusControllerTest {
         verify(focusService).endFocusSession(any(), captor.capture());
         assertThat(captor.getValue().focusSecondsByDate())
                 .containsExactlyInAnyOrderEntriesOf(Map.of(LocalDate.of(2026, 7, 13), 300));
+    }
+
+    // ── 1214-②: 방해 초 음수 차단(돈 경로) ───────────────────────────────────
+    // 지급 공식이 (endedAt − startedAt) − totalDistractionSeconds 라, 음수를 보내면 집중초가 늘어나
+    // 방금 발급한 몇 초짜리 마커로도 12시간 캡(720코인)까지 긁을 수 있었다. 같은 값이 방해 통계에도 그대로 저장된다.
+
+    @Test
+    @DisplayName("1214-②: PATCH /focus-session — totalDistractionSeconds 음수 → 400, 서비스 미호출")
+    void endFocusSessionRejectsNegativeDistraction() throws Exception {
+        UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+        String body = "{\"sessionId\":\"" + sessionId + "\",\"endedAt\":\"2026-06-23T01:05:00Z\","
+                + "\"totalDistractionSeconds\":-43200}";
+
+        mockMvc.perform(patch("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+        verify(focusService, never()).endFocusSession(any(), any());
+    }
+
+    @Test
+    @DisplayName("1214-②: POST /focus-session — totalDistractionSeconds 음수 → 400, 서비스 미호출")
+    void saveFocusSessionRejectsNegativeDistraction() throws Exception {
+        String body = "{\"startedAt\":\"2026-06-23T01:00:00Z\",\"endedAt\":\"2026-06-23T01:11:00Z\","
+                + "\"totalDistractionSeconds\":-43200}";
+
+        mockMvc.perform(post("/api/v1/focus-session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isBadRequest())
+                .andDo(print());
+        verify(focusService, never()).saveFocusSession(any(), any());
     }
 
     // 엔트리 수 상한(GROMO-1252 코드리뷰 4차 ③) — 인증된 클라가 임의로 큰 맵을 보내면 서버가

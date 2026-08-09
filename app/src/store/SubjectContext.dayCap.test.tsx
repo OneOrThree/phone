@@ -15,6 +15,7 @@ import { todayStr } from '@/utils/localDate';
 jest.mock('@/screens/focus/focusRestore', () => ({
   fetchTodayFocusRestore: jest.fn().mockResolvedValue({ sessions: null, tags: null }),
   sessionFocusSeconds: () => 0,
+  todayRestoreSeconds: () => 0,
 }));
 
 // 삭제 테스트가 서버 태그 동기화를 타지 않게(fire-and-forget이라 결과엔 영향 없음)

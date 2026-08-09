@@ -88,6 +88,11 @@ public class FocusService {
     // 세션 저장·통계는 종전대로 수용(클라 신뢰 기존 정책) — 상한은 '지급'에만 적용한다.
     private static final long MAX_REWARDED_SESSION_SECONDS = ORPHAN_TIMEOUT.toSeconds();
 
+    // GROMO-1214: 클라가 보낸 시각을 수용하는 창 = 서버 수신 시각 기준 [now-5분, now]. 라이브 마커 경로
+    // (start/PATCH)에만 적용한다 — 이 창을 벗어난 값은 서버 시각으로 대체해 startedAt 을 과거로,
+    // endedAt 을 미래로 조작한 시간 뻥튀기를 차단한다. 5분은 정상 클라의 시계 오차·네트워크 지연 여유분.
+    private static final Duration CLIENT_CLOCK_TOLERANCE = Duration.ofMinutes(5);
+
     // GROMO-1252: 자정 분할이 만들 수 있는 날짜 조각 수 상한. POST 는 클라 시각을 신뢰하므로 startedAt 을
     // 몇 년 전으로 조작한 세션이 날짜 수만큼 일별 upsert(행 잠금 포함)를 만들어 한 트랜잭션을 부풀릴 수 있다.
     // 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않는다 — 상한 초과분은 마지막 조각에 합쳐
@@ -287,20 +292,50 @@ public class FocusService {
         // 미래 endedAt 위조 클램프 + 날짜별 귀속 분포를 한 번만 구해 저장·통계·중복응답이 같은 값을 쓴다.
         Instant now = Instant.now();
         Instant statEnd = statEnd(body.getEndedAt(), now);
-        NavigableMap<LocalDate, Integer> secondsByDate = resolveSecondsByDate(
-                body.getStartedAt(), statEnd, zone, body.getFocusSecondsByDate());
+        CreditedByDate credited = resolveSecondsByDate(
+                body.getStartedAt(), statEnd, zone, body.getFocusSecondsByDate(),
+                body.getTotalDistractionSeconds());
         // 응답의 "그날 누적"은 실제로 조각이 쓰인 마지막(가장 늦은) 날짜 기준 — endedAt 에서 직접 파생하면
         // 정확히 자정에 끝난 세션에서 최초 저장(전날 조각)과 재업로드 응답(다음날)이 다른 날짜를 본다(코드리뷰 ⑤).
-        LocalDate statDate = secondsByDate.isEmpty()
-                ? statDate(body.getEndedAt(), zone) : secondsByDate.lastKey();
+        LocalDate statDate = credited.focusSeconds().isEmpty()
+                ? statDate(body.getEndedAt(), zone) : credited.focusSeconds().lastKey();
 
         // 재업로드 멱등(서버 지급 전환의 이중 지급 방어): 앱 업로드 대기열(pendingFocusUploads)은 응답이 유실되면
         // 서버가 이미 커밋한 세션을 같은 바디로 재전송한다. 매 POST 가 새 행을 만들면 행 기반 멱등키가 재생성돼
         // 지급·통계가 중복되므로, 같은 (user, 구간) 완료 세션이 있으면 저장·통계·지급 전부를 스킵하고
         // 현재 상태만 응답한다(재시도 클라는 성공 응답을 받아 대기열에서 제거). 유니크 제약이 없어 완전 동시
         // 요청 레이스는 남지만, 대기열 재시도는 순차 실행이라 실효 경로는 이걸로 닫힌다.
-        boolean duplicated = focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
-                user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
+        //
+        // GROMO-1214 코드리뷰(기기 시계 스큐): 구간 완전일치 검사만으로는 마커 폴백을 못 잡는다. 마커 경로는
+        // 서버가 시각을 클램프해 저장하므로, PATCH 가 커밋된 뒤 응답만 유실돼 앱이 POST 로 폴백하면 저장값
+        // (서버 시각)과 폴백 바디(기기 시각)가 어긋나 dedup 을 통과해 버린다. 폴백 바디가 실어 보낸 마커 id 를
+        // 기준으로 거른다.
+        //
+        // GROMO-1214 코드리뷰 2차(원자성): 종전엔 이 판정이 insert 전 **존재 조회**뿐이라, PATCH 가 타임아웃돼
+        // (서버 트랜잭션은 계속 도는 중) 앱이 곧바로 POST 로 폴백하면 조회가 아직 커밋 전인 마커를 ACTIVE 로 보고
+        // 통과했다 — 두 트랜잭션이 나란히 커밋되며 통계·보상이 두 번 들어갔다. 이제 조회 대신 **조건부 UPDATE 로
+        // 마커를 선점**한다(claimMarkerIfActive). 마커 행 잠금이 PATCH 와 이 POST 를 직렬화하므로 순서와 무관하게
+        // 완료는 한 번뿐이다:
+        //   선점 성공(row=1) → 이 POST 가 마커를 CANCELED 로 닫았다. 완료 행은 아래에서 새로 만든다(지급 1회).
+        //   선점 실패(row=0) → 이미 닫힌 마커다. COMPLETED 면 PATCH 가 이겼으므로 저장·통계·지급을 전부 스킵하고,
+        //                      CANCELED/AUTO_CLOSED(SESSION_DISCARDED 폴백)면 통계 미반영분이라 그대로 새로 저장한다.
+        //
+        // GROMO-1214 코드리뷰 3차 ③(폐기 마커 폴백의 직렬화): 선점이 0 행이면 마커 행 잠금을 얻지 못한 채
+        // 비원자적 구간 존재 조회만 남는다 — 폐기 마커 폴백 POST 가 타임아웃된 채 서버 트랜잭션이 도는 중에
+        // 큐 재시도가 겹치면 둘 다 '완료 구간 없음'을 보고 각각 완료 행·통계·보상을 만든다(유니크 제약 없음).
+        // 그래서 상태 확인을 존재 조회가 아니라 <b>마커 행 비관적 락</b>({@code findByIdAndUserForUpdate})으로 한다 —
+        // 검사~INSERT 구간이 마커 단위로 직렬화돼, 뒤이은 재시도는 앞선 트랜잭션이 커밋한 완료 행을 구간 검사에서
+        // 보게 된다. 마커가 없거나(구버전·오프라인) 남의 것이면 잠글 대상이 없으므로 종전대로 진행한다.
+        // 잠금 순서는 PATCH(endFocusSession)와 동일하다 — users(공유, requireActiveUser) → focus_sessions 마커 행
+        // → 지갑 → daily_focus_stats. 두 경로가 같은 순서라 교착이 생기지 않는다(GROMO-801 락 규율).
+        boolean markerAlreadyCompleted = body.getSessionId() != null
+                && focusSessionRepository.claimMarkerIfActive(body.getSessionId(), user, now) == 0
+                && focusSessionRepository.findByIdAndUserForUpdate(body.getSessionId(), user)
+                        .map(marker -> marker.getStatus() == FocusSessionStatus.COMPLETED)
+                        .orElse(false);
+        boolean duplicated = markerAlreadyCompleted
+                || focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
+                        user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
         if (duplicated) {
             log.info("완료 세션 재업로드 스킵 — 동일 구간 세션 존재. userId={}, startedAt={}, endedAt={}",
                     userId, body.getStartedAt(), body.getEndedAt());
@@ -322,7 +357,8 @@ public class FocusService {
                 // 통계 귀속용 유효 종료(GROMO-1252 ②) — 저장되는 endedAt 은 클라 값 그대로(중복 검사 전제).
                 .statEndAt(statEnd)
                 // 확정 분포도 함께 보관(GROMO-1252 ③차 ①) — 조회 집계·앱 복원이 사전집계와 같은 값을 쓴다.
-                .focusSecondsByDate(toStoredSecondsByDate(secondsByDate))
+                // 저장하는 건 **순수 집중초(net)** 다 — 읽는 쪽이 방해초를 다시 빼면 이중 차감이다(1214 3차 ①).
+                .focusSecondsByDate(toStoredSecondsByDate(credited.focusSeconds()))
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
@@ -330,16 +366,12 @@ public class FocusService {
         // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
         // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을, 위의 재업로드 스킵이 행 재생성을 막는다.
         // 지갑 변경·원장 기입은 이 저장 트랜잭션에 함께 묶인다(credit 전파 REQUIRED).
-        int awardedCoins = sessionRewardCoins(body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), now);
-        if (awardedCoins > 0) {
-            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
-                    "focus:" + saved.getId() + ":reward");
-        }
+        int awardedCoins = creditSessionReward(user, saved.getId(), body.getStartedAt(), body.getEndedAt(),
+                body.getTotalDistractionSeconds());
 
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
-                body.getTotalDistractionSeconds(), zone, secondsByDate);
+                body.getTotalDistractionSeconds(), zone, credited);
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
@@ -368,6 +400,49 @@ public class FocusService {
         long focusedSeconds = Duration.between(startedAt, effectiveEnd).getSeconds() - totalDistractionSeconds;
         long rewardedSeconds = Math.min(focusedSeconds, MAX_REWARDED_SESSION_SECONDS);
         return (int) Math.max(0, rewardedSeconds / SESSION_REWARD_UNIT_SECONDS);
+    }
+
+    /**
+     * 클라가 보낸 시각을 서버 수신 시각 창으로 클램프한다 (GROMO-1214).
+     *
+     * <p>수용 창은 {@code [now - CLIENT_CLOCK_TOLERANCE, now]} — 미래는 1초도 허용하지 않고, 과거는 5분까지만
+     * 그대로 쓴다. 창 밖(또는 null)이면 {@code now} 로 대체한다. 변조 앱이 startedAt 을 몇 시간 전으로,
+     * endedAt 을 몇 시간 뒤로 보내 시간·코인을 부풀리는 경로를 닫는 게 목적이다.
+     *
+     * <p><b>마커 경로(POST /focus-session/start · PATCH /focus-session) 전용</b> — POST /focus-session
+     * (완료 통째 저장)의 저장 값에는 적용하지 않는다. 그쪽 재업로드 멱등은 앱이 보낸 startedAt/endedAt 이
+     * 그대로 저장되는 것을 전제로 {@code existsByUserAndStartedAtAndEndedAtAndStatus} 로 중복을 잡는데,
+     * 클램프로 값이 바뀌면 같은 세션 재전송이 dedup 을 빠져나가 이중 계상된다. POST 의 위조 방어는
+     * 종전대로 {@link #sessionRewardCoins} 의 '지급에만 적용되는' 미래 클램프·12h 캡이 담당한다.
+     *
+     * <p><b>부작용(수용)</b>: 오프라인으로 세션을 시작해 5분 넘게 지난 뒤 마커를 만들면 그 앞 구간은 버려진다.
+     * 오프라인 세션은 앱이 종전 POST 경로로 올린다.
+     */
+    static Instant clampToServerNow(Instant clientValue, Instant now) {
+        if (clientValue == null || clientValue.isAfter(now)
+                || clientValue.isBefore(now.minus(CLIENT_CLOCK_TOLERANCE))) {
+            return now;
+        }
+        return clientValue;
+    }
+
+    /**
+     * 세션 보상 코인 지급 — POST(완료 통째 저장)·PATCH(라이브 마커 종료) 공용 (GROMO-1214).
+     *
+     * <p>지급률·상한({@link #sessionRewardCoins})과 멱등키 형태({@code focus:{sessionId}:reward})를 한 곳에
+     * 모아 두 경로가 같은 계산을 두 벌 갖지 않게 한다. PATCH 는 {@code endSessionIfActive} 원자 가드가
+     * 이중 종료를 409 로 막으므로 세션 1건당 지급도 1회다.
+     *
+     * @return 이번 호출로 지급한 코인(0 이면 미지급 — credit 자체를 호출하지 않는다)
+     */
+    private int creditSessionReward(User user, UUID sessionId, Instant startedAt, Instant endedAt,
+                                    int totalDistractionSeconds) {
+        int awardedCoins = sessionRewardCoins(startedAt, endedAt, totalDistractionSeconds, Instant.now());
+        if (awardedCoins > 0) {
+            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, awardedCoins,
+                    "focus:" + sessionId + ":reward");
+        }
+        return awardedCoins;
     }
 
     /**
@@ -458,11 +533,33 @@ public class FocusService {
     }
 
     /**
+     * 날짜별 귀속 확정 (GROMO-1252 ① · GROMO-1214 3차 ①) — 날짜별 <b>순수 집중초</b>와 날짜별 방해초.
+     *
+     * @param focusSeconds       날짜 → 순수 집중초(일시정지 제외). 사전집계 가산분·저장 분포
+     *                           ({@code focus_sessions.focus_seconds_by_date})·조회 집계가 전부 이 값을 쓴다.
+     * @param distractionSeconds 날짜 → 방해초(조각 길이 비례 배분, 합 = 세션 총 방해초). 벽시계 폴백에서
+     *                           집중초를 net 으로 깎는 근거값이다. ⚠️ 지표 컬럼
+     *                           ({@code daily_focus_stats.total_distraction_seconds})은 이 배분이 아니라
+     *                           <b>시작일에 전량</b> 쌓는다(GROMO-1252 5차 ⑥ 메타데이터 버킷).
+     */
+    record CreditedByDate(NavigableMap<LocalDate, Integer> focusSeconds,
+                          NavigableMap<LocalDate, Integer> distractionSeconds) {
+    }
+
+    /**
      * 날짜별 집중 초 귀속 결정 (GROMO-1252 ①) — 앱이 실어 보낸 분포를 검증해 쓰고, 없으면 벽시계 분할로 폴백한다.
      *
      * <p><b>왜 앱 분포가 필요한가</b>: 업로드 구간 [startedAt, endedAt] 엔 일시정지 공백이 섞여 있어 벽시계로
      * 쪼개면 날짜별 몫이 어긋난다 — 23:50~23:55 집중 → 일시정지 → 00:10~00:15 집중은 실제 300/300 인데
      * 벽시계는 600/900 이다. 날짜별 분포를 아는 건 앱뿐이고 업로드엔 두 시각만 실려 있다.
+     *
+     * <p><b>gross / net 구분 (코드리뷰 3차 ①)</b>: 두 경로의 단위가 다르다.
+     * <ul>
+     *   <li>앱 분포 = 집중 tick 합 = <b>이미 일시정지가 빠진 net</b>. 여기서 방해초를 또 빼면 이중 차감이다
+     *       (30분 집중 + 30분 일시정지 → 조각 1800 − 방해 1800 = 0초 기록, 스트릭·목표 보상 증발).</li>
+     *   <li>벽시계 분할 = 일시정지를 포함한 <b>gross</b>. 이쪽만 조각 몫의 방해초를 뺀다.</li>
+     * </ul>
+     * 어느 경로든 이 메서드가 <b>net 으로 통일해서</b> 돌려주므로, 호출측(사전집계·저장 분포)은 다시 빼지 않는다.
      *
      * <p><b>위조 방어(무검증 수용 금지)</b>: 클라 값은 두 규칙으로 걸러진다.
      * <ul>
@@ -475,15 +572,33 @@ public class FocusService {
      *
      * @param clientByDate 앱이 보낸 로컬 날짜 → 집중 초 (null·빈 맵이면 벽시계 분할)
      */
-    static NavigableMap<LocalDate, Integer> resolveSecondsByDate(Instant startedAt, Instant statEnd, ZoneId zone,
-                                                                 Map<LocalDate, Integer> clientByDate) {
+    static CreditedByDate resolveSecondsByDate(Instant startedAt, Instant statEnd, ZoneId zone,
+                                               Map<LocalDate, Integer> clientByDate,
+                                               int totalDistractionSeconds) {
         // 구간이 통째로 미래(startedAt > statEnd)면 조각을 하나도 만들지 않는다(음수 초 방지).
         if (statEnd.isBefore(startedAt)) {
-            return Collections.emptyNavigableMap();
+            return new CreditedByDate(Collections.emptyNavigableMap(), Collections.emptyNavigableMap());
         }
         NavigableMap<LocalDate, Integer> wallClock = splitByLocalDay(startedAt, statEnd, zone);
+        NavigableMap<LocalDate, Integer> clientNet = verifiedClientSeconds(wallClock, clientByDate);
+        // 방해초는 타임스탬프가 없어 날짜별로 정확히 못 나눈다 — 조각 길이에 비례 배분한다.
+        // 집중초에서 빼는지와 무관하게 지표 컬럼은 같은 규칙으로 쌓는다.
+        NavigableMap<LocalDate, Integer> distraction =
+                allocateByShare(clientNet != null ? clientNet : wallClock, totalDistractionSeconds);
+        if (clientNet != null) {
+            return new CreditedByDate(clientNet, distraction);
+        }
+        NavigableMap<LocalDate, Integer> net = new TreeMap<>();
+        wallClock.forEach((date, seconds) ->
+                net.put(date, Math.max(0, seconds - distraction.getOrDefault(date, 0))));
+        return new CreditedByDate(net, distraction);
+    }
+
+    /** 앱 분포 검증 — 벽시계 몫으로 클램프한 결과. 쓸 값이 하나도 없으면 {@code null}(= 벽시계 폴백). */
+    private static NavigableMap<LocalDate, Integer> verifiedClientSeconds(
+            NavigableMap<LocalDate, Integer> wallClock, Map<LocalDate, Integer> clientByDate) {
         if (clientByDate == null || clientByDate.isEmpty()) {
-            return wallClock;
+            return null;
         }
         NavigableMap<LocalDate, Integer> verified = new TreeMap<>();
         for (Map.Entry<LocalDate, Integer> entry : clientByDate.entrySet()) {
@@ -494,7 +609,31 @@ public class FocusService {
             }
             verified.put(entry.getKey(), Math.min(seconds, cap));
         }
-        return verified.isEmpty() ? wallClock : verified;
+        return verified.isEmpty() ? null : verified;
+    }
+
+    /**
+     * 총량을 조각 길이에 비례 배분한다 — 마지막 조각이 반올림 잔여를 흡수해 총합이 정확히 보존된다
+     * (조각이 1개면 곧 전량). 가중치 합이 0 이면 전량을 마지막 조각에 몰아 총합만 지킨다.
+     */
+    private static NavigableMap<LocalDate, Integer> allocateByShare(NavigableMap<LocalDate, Integer> slices,
+                                                                    int total) {
+        NavigableMap<LocalDate, Integer> allocated = new TreeMap<>();
+        if (slices.isEmpty()) {
+            return allocated;
+        }
+        int totalWeight = slices.values().stream().mapToInt(Integer::intValue).sum();
+        int assigned = 0;
+        int index = 0;
+        for (Map.Entry<LocalDate, Integer> slice : slices.entrySet()) {
+            index++;
+            int share = index == slices.size()
+                    ? total - assigned
+                    : (totalWeight <= 0 ? 0 : (int) ((long) total * slice.getValue() / totalWeight));
+            allocated.put(slice.getKey(), share);
+            assigned += share;
+        }
+        return allocated;
     }
 
     /**
@@ -521,7 +660,8 @@ public class FocusService {
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
         User user = requireActiveUser(userId);
 
-        Instant startedAt = body.startedAt() != null ? body.startedAt() : Instant.now();
+        // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
+        Instant startedAt = clampToServerNow(body.startedAt(), Instant.now());
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
 
         // GROMO-733: focus_type 인입 — null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
@@ -550,7 +690,9 @@ public class FocusService {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
 
-        Instant endedAt = body.endedAt() != null ? body.endedAt() : Instant.now();
+        // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
+        // 클램프 후에 역전 검사를 한다(과거로 조작된 endedAt 은 now 로 올라가 정상 종료가 된다).
+        Instant endedAt = clampToServerNow(body.endedAt(), Instant.now());
         if (endedAt.isBefore(session.getStartedAt())) {
             throw new FocusException(FocusErrorCode.INVALID_DATE_RANGE);
         }
@@ -560,7 +702,19 @@ public class FocusService {
         // 영향 row=0(이미 종료됨)이면 409 로 recordCompletion 을 스킵한다. → 종료를 성사시킨 요청만 통계 1회 반영.
         int updated = focusSessionRepository.endSessionIfActive(body.sessionId(), endedAt);
         if (updated == 0) {
-            throw new FocusException(FocusErrorCode.SESSION_ALREADY_ENDED);
+            // GROMO-1214 코드리뷰: 409 의 원인을 구분해 돌려준다. 앱은 PATCH 실패 후 POST 폴백 여부를 이걸로 가른다.
+            //   COMPLETED(또는 상태 미상) → SESSION_ALREADY_ENDED: 통계·지급이 이미 커밋됐다. 폴백하면 이중 지급.
+            //   CANCELED / AUTO_CLOSED  → SESSION_DISCARDED: 통계에 한 번도 반영되지 않은 마커다
+            //       (status NOT IN (CANCELED, AUTO_CLOSED) 집계 관례). 폴백하지 않으면 그 세션 시간이 영구 유실된다.
+            // 판정은 위에서 로드한 엔티티가 아니라 DB 재조회(findStatusById)로 한다 — 그 엔티티는 UPDATE 이전
+            // 스냅샷이라 동시 취소를 못 보고, 그러면 살릴 수 있는 세션을 ALREADY_ENDED 로 돌려보내 시간이 유실된다.
+            // 상태를 못 읽으면(행 소실 등) 이중 지급을 피하는 쪽인 ALREADY_ENDED 로 떨어진다.
+            boolean discarded = focusSessionRepository.findStatusById(body.sessionId())
+                    .filter(s -> s == FocusSessionStatus.CANCELED || s == FocusSessionStatus.AUTO_CLOSED)
+                    .isPresent();
+            throw new FocusException(discarded
+                    ? FocusErrorCode.SESSION_DISCARDED
+                    : FocusErrorCode.SESSION_ALREADY_ENDED);
         }
 
         UserFocusTag tag = session.getFocusTag();
@@ -569,20 +723,27 @@ public class FocusService {
             session.applyTag(tag);
         }
 
+        // GROMO-1214: 라이브 마커 종료도 POST 와 동일하게 세션 보상을 지급한다(같은 헬퍼 = 같은 지급률·캡·멱등키).
+        // 앱이 cancel+POST 를 PATCH 로 전환하면 이 경로가 유일한 세션 지급처가 된다 — 빠져 있으면 코인이 0이 된다.
+        int awardedCoins = creditSessionReward(user, session.getId(), session.getStartedAt(), endedAt,
+                body.totalDistractionSeconds());
+
         ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
         Instant statEnd = statEnd(endedAt, Instant.now());
-        NavigableMap<LocalDate, Integer> secondsByDate = resolveSecondsByDate(
-                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate());
+        CreditedByDate credited = resolveSecondsByDate(
+                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
-        session.end(endedAt, body.totalDistractionSeconds(), statEnd, toStoredSecondsByDate(secondsByDate));
+        session.end(endedAt, body.totalDistractionSeconds(), statEnd,
+                toStoredSecondsByDate(credited.focusSeconds()));
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
-                body.totalDistractionSeconds(), zone, secondsByDate);
+                body.totalDistractionSeconds(), zone, credited);
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
-        // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 추가(additive).
+        // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
         return new FocusSessionEndResponse(session.getId(), session.getStartedAt(), endedAt,
                 durationSeconds, body.totalDistractionSeconds(),
-                result.dayTotalFocusSeconds(), result.streakQualifiedToday());
+                result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
+                awardedCoins, result.goalRewardCoins(), currencyLedgerService.balanceOf(user));
     }
 
     /**
@@ -695,14 +856,23 @@ public class FocusService {
      * (heatmap 은 row 없는 날도 0 셀) 0초 행이 새 셀을 만들지도, 스트릭 판정을 바꾸지도 않는다
      * (스트릭은 {@code user_streaks} 저장값이고 인정 게이트는 10분 누적이다).
      *
-     * @param zone          유저 존(country_code 파생) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
-     * @param secondsByDate 날짜 오름차순 조각(호출부가 {@link #resolveSecondsByDate} 로 만들어 넘긴다)
+     * <p><b>GROMO-1214 코드리뷰 — 방해 초 차감</b>: {@code totalFocusSeconds} 는 <b>순수 집중 시간</b>이다.
+     * 차감은 {@link #resolveSecondsByDate} 가 이미 끝냈다 — 여기서 또 빼면 앱 분포(집중 tick 합 = 이미 net)
+     * 경로에서 이중 차감이 된다(3차 ①). 이 루프는 날짜별 net 집중초를 그대로 누적할 뿐이고, 지표 컬럼
+     * ({@code total_distraction_seconds})은 위 규칙대로 시작일에 전량 쌓는다.
+     * 스트릭 10분 게이트·목표 달성 판정은 모두 차감 후(net) 누적으로 이뤄진다.
+     *
+     * <p><b>미래 endedAt 클램프</b>: 분할 전에 종료 시각을 서버 {@code now} 로 클램프한다(통계 귀속 전용 —
+     * 저장된 세션 행은 앱이 보낸 값 그대로). 상세는 아래 구현 주석 참조.
+     *
+     * @param zone     유저 존(country_code 파생) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
+     * @param credited 날짜 오름차순 net 집중초 + 날짜별 방해초(호출부가 {@link #resolveSecondsByDate} 로 만든다)
      * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
      *         그리고 이 세션이 유발한 목표 지급액 합
      */
     private RecordCompletionResult recordCompletion(User user, UUID userId, UserFocusTag tag,
                                   Instant startedAt, Instant endedAt, int totalDistractionSeconds,
-                                  ZoneId zone, NavigableMap<LocalDate, Integer> secondsByDate) {
+                                  ZoneId zone, CreditedByDate credited) {
         long durationSeconds = Duration.between(startedAt, endedAt).getSeconds();
         // payload 에 null 값 금지 — nullable 인 focus_tag_id 는 태그 있을 때만 키 포함
         Map<String, Object> sessionPayload = new LinkedHashMap<>();
@@ -727,7 +897,7 @@ public class FocusService {
         LocalDate metaDate = statDate(startedAt, zone);
         // upsert 대상 = 집중초 조각 날짜 ∪ 시작일. 조각이 하나도 없는 구간(구간 전체가 미래인 위조 세션 —
         // resolveSecondsByDate 가 빈 맵)은 종전대로 아무 행도 만들지 않는다.
-        NavigableSet<LocalDate> statDates = new TreeSet<>(secondsByDate.keySet());
+        NavigableSet<LocalDate> statDates = new TreeSet<>(credited.focusSeconds().keySet());
         if (!statDates.isEmpty()) {
             statDates.add(metaDate);
         }
@@ -739,7 +909,8 @@ public class FocusService {
         for (LocalDate statDate : statDates) {
             // GROMO-642: 초 단위 누적(세션별 분 내림 제거 — 30초×10=300초 정확). goal(분)은 *60 초로 비교.
             // 시작일에 tick 이 없으면(자정 직전 시작 → 첫 tick 은 다음날) 이 날 조각은 없다 — 0초 가산.
-            int addedSeconds = secondsByDate.getOrDefault(statDate, 0);
+            // GROMO-1214 3차 ①: 이 값은 이미 방해초가 빠진 net 이다(리졸버가 경로별로 처리) — 여기서 또 빼지 않는다.
+            int addedSeconds = credited.focusSeconds().getOrDefault(statDate, 0);
             // 세션 1건은 어디까지나 1건 — 시작일에만 계수한다. 방해 초도 타임스탬프가 없어
             // 조각에 배분할 수 없으므로 시작일에 전량 귀속한다(GROMO-1252).
             boolean isMetaDate = statDate.equals(metaDate);

@@ -440,17 +440,19 @@ public class StatsService {
     }
 
     /**
-     * 세션 1건이 조회 창 [from, to](유저 존 로컬 날짜)에 기여하는 집중 초.
+     * 세션 1건이 조회 창 [from, to](유저 존 로컬 날짜)에 기여하는 <b>순수 집중 초</b>.
      *
      * <p><b>GROMO-1252(코드리뷰 3차 ①)</b>: 완료 시점에 확정해 저장한 날짜별 분포
      * ({@code focus_sessions.focus_seconds_by_date})가 있으면 그중 창에 든 날짜만 더한다 — 사전집계
      * {@code DailyFocusStat} 에 가산한 바로 그 값이라 같은 화면의 총합과 과목별 합이 정확히 맞는다.
      * 벽시계 클리핑으로 다시 계산하면 일시정지가 자정을 걸친 세션에서 어긋난다(300/300 vs 600/900).
+     * ⚠️ 저장 분포는 <b>이미 방해 초가 빠진 net</b> 이다(FocusService.resolveSecondsByDate) —
+     * 여기서 방해 비율을 또 빼면 이중 차감이다(GROMO-1214 코드리뷰 3차 ①).
      *
-     * <p><b>폴백(분포 미기록 레거시 row)</b>: 종전대로 창과 겹친 구간만 계수한다 —
-     * max(startedAt, from) ~ min(유효 종료, windowEnd). 종료측은 endedAt 이 아니라 완료 시점에 고정된
-     * 유효 종료(stat_end_at, 그마저 없으면 endedAt)를 쓴다(코드리뷰 2차 ②) — endedAt 을 쓰면 미래 endedAt
-     * 위조 세션이 조회 시점 windowEnd 를 따라 시간이 갈수록 더 계수된다.
+     * <p><b>폴백(분포 미기록 레거시 row)</b>: 종전대로 창과 겹친 구간만 계수하고, 그 <b>gross</b> 겹침에서
+     * 방해 비율만큼 뺀다 — max(startedAt, from) ~ min(유효 종료, windowEnd). 종료측은 endedAt 이 아니라
+     * 완료 시점에 고정된 유효 종료(stat_end_at, 그마저 없으면 endedAt)를 쓴다(코드리뷰 2차 ②) —
+     * endedAt 을 쓰면 미래 endedAt 위조 세션이 조회 시점 windowEnd 를 따라 시간이 갈수록 더 계수된다.
      */
     private static long windowSeconds(FocusSession s, LocalDate from, LocalDate to,
                                       Instant fromInstant, Instant windowEnd) {
@@ -469,6 +471,30 @@ public class StatsService {
         Instant statEnd = s.statEndOrEndedAt();
         Instant sliceEnd = statEnd.isBefore(windowEnd) ? statEnd : windowEnd;
         // 창이 통째로 미래(클라가 미래 date 를 보내 windowEnd < fromInstant)면 음수가 되므로 0 으로 바닥친다.
-        return Math.max(0, Duration.between(sliceStart, sliceEnd).getSeconds());
+        return minusDistraction(Math.max(0, Duration.between(sliceStart, sliceEnd).getSeconds()), s);
+    }
+
+    /**
+     * 창으로 클리핑한 <b>gross</b> 겹침 초에서 그 세션의 방해 비율만큼을 뺀다 (GROMO-1214 코드리뷰 ⑥).
+     *
+     * <p>{@code 기여분 = 겹침초 × (1 − totalDistractionSeconds / (endedAt − startedAt))}, 하한 0.
+     * 사전집계({@code daily_focus_stats.total_focus_seconds})가 방해 초를 뺀 순수 집중 시간이라, 원시
+     * 겹침 길이를 쓰던 by-category 는 일시정지가 낀 세션에서 총합보다 커졌다. 창 집계
+     * ({@code FocusSessionRepository.sumOverlapSecondsInWindow})와 <b>같은 공식</b>이라 두 경로가 정합한다 —
+     * 세션이 창에 통째로 들어오면 기여분은 정확히 {@code 구간 − 방해초}(= 저장 분포의 합)가 된다.
+     *
+     * <p>⚠️ <b>분포 미기록 레거시 row 전용</b>이다. 저장 분포가 있으면 그 값이 이미 net 이라 부르지 않는다.
+     *
+     * <p>비율은 클리핑 전 <b>전체 세션 길이</b> 기준이다(방해 초에 타임스탬프가 없어 어디서 났는지 모르므로
+     * 세션 전체에 고르게 퍼져 있다고 본다). 길이가 0 인 세션은 겹침도 0 이라 그대로 0.
+     */
+    private static long minusDistraction(long overlapSeconds, FocusSession session) {
+        long duration = Duration.between(session.getStartedAt(), session.getEndedAt()).getSeconds();
+        if (duration <= 0 || session.getTotalDistractionSeconds() <= 0) {
+            return overlapSeconds;
+        }
+        long distraction = Math.round(
+                (double) overlapSeconds * session.getTotalDistractionSeconds() / duration);
+        return Math.max(0, overlapSeconds - distraction);
     }
 }

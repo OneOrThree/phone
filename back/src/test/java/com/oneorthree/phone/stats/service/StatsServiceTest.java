@@ -1100,6 +1100,57 @@ class StatsServiceTest {
         assertThat(response.items().get(1).totalFocusMinutes()).isEqualTo(60);
     }
 
+    /**
+     * 1214-⑥: by-category 도 방해 초를 뺀 순수 집중 시간을 센다.
+     *
+     * <p>⑤에서 사전집계({@code daily_focus_stats.total_focus_seconds})가 방해 초를 뺀 값이 되면서,
+     * 원시 겹침 길이를 쓰던 by-category 는 일시정지가 낀 세션에서 총합보다 커졌다. 세션이 창에
+     * 통째로 들어오면 기여분은 정확히 {@code 구간 − 방해초} — 사전집계가 저장하는 값과 같다.
+     */
+    @Test
+    @DisplayName("1214-⑥: 일시정지가 낀 세션 → 과목별 합이 사전집계(구간−방해초)와 정확히 일치한다")
+    void getFocusStatsByCategorySubtractsDistraction() {
+        // 60분 세션 + 방해 15분 → 45분. 사전집계 recordCompletion 도 3600-900=2700초를 적립한다.
+        User user = User.builder().id(USER_ID).build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
+        Instant base = Instant.parse("2026-07-03T01:00:00Z");
+        FocusSession paused = session(base, base.plusSeconds(3600), tagA);
+        // 분포 미기록(레거시 row) — 이 경로만 벽시계 gross 에서 방해 비율을 뺀다(1214 3차 ①).
+        paused.end(base.plusSeconds(3600), 900, base.plusSeconds(3600), null);
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
+                .willReturn(List.of(paused));
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(45);
+        assertThat(response.items().get(0).totalFocusMinutes()).isEqualTo(45);
+    }
+
+    @Test
+    @DisplayName("1214-⑥: 창에 절반만 걸친 세션 → 방해 초도 겹침에 비례해서만 깎인다")
+    void getFocusStatsByCategoryProratesDistractionToOverlap() {
+        // 창(오늘 KST) 시작 전부터 이어진 세션 — 전체 60분 중 겹침 30분, 방해 12분(20%) → 30 × 0.8 = 24분.
+        // 비율은 클리핑 전 세션 전체 길이 기준이다(방해 초에 타임스탬프가 없어 고르게 퍼졌다고 본다).
+        User user = User.builder().id(USER_ID).build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", user);
+        // FIXED_TODAY(KST) 자정 = 전날 15:00Z. 세션 14:30Z~15:30Z → 창 안 겹침은 뒤쪽 30분.
+        Instant windowStart = FIXED_TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant();
+        FocusSession straddler = session(windowStart.minusSeconds(1800), windowStart.plusSeconds(1800), tagA);
+        straddler.end(windowStart.plusSeconds(1800), 720, windowStart.plusSeconds(1800), null);
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(user);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(user), any(), any()))
+                .willReturn(List.of(straddler));
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, FIXED_TODAY);
+
+        assertThat(response.totalFocusMinutes()).isEqualTo(24);
+    }
+
     @Test
     @DisplayName("카테고리별 — 태그 없는 세션(미분류) 포함: tagId=null 항목 존재, 분 합산 정확")
     void getFocusStatsByCategoryUntaggedSession() {
@@ -1342,6 +1393,38 @@ class StatsServiceTest {
         assertThat(response.totalFocusMinutes()).isEqualTo(5);
         assertThat(response.items()).singleElement()
                 .satisfies(item -> assertThat(item.totalFocusMinutes()).isEqualTo(5));
+    }
+
+    /**
+     * GROMO-1214 코드리뷰 3차 ①: 저장된 확정 분포는 <b>이미 방해 초가 빠진 net</b> 이다
+     * (FocusService.resolveSecondsByDate 가 경로별로 처리해 net 으로 통일해 저장한다).
+     * 여기서 방해 비율을 또 빼면 이중 차감이라 사전집계(DailyFocusStat)보다 작아진다.
+     */
+    @Test
+    @DisplayName("1214-①(3차): 저장된 분포 경로는 방해초를 다시 빼지 않는다 — 이미 net")
+    void getFocusStatsByCategoryDoesNotSubtractDistractionFromStoredDistribution() {
+        ZoneId kst = ZoneId.of("Asia/Seoul");
+        LocalDate today = LocalDate.of(2026, 7, 13);
+        User krUser = User.builder().id(USER_ID).countryCode("KR").build();
+        UserFocusTag tagA = userFocusTag(TAG_A, "공부", krUser);
+        // 10:00~11:00 KST 벽시계 3600 중 절반이 일시정지 → 저장 분포는 net 1800.
+        FocusSession stored = FocusSession.builder()
+                .startedAt(today.atTime(10, 0).atZone(kst).toInstant())
+                .endedAt(today.atTime(11, 0).atZone(kst).toInstant())
+                .focusTag(tagA)
+                .totalDistractionSeconds(1800)
+                .focusSecondsByDate(Map.of("2026-07-13", 1800))
+                .build();
+
+        given(userRepository.getReferenceById(USER_ID)).willReturn(krUser);
+        given(focusSessionRepository.findCompletedSessionsOverlappingPeriod(eq(krUser), any(), any()))
+                .willReturn(List.of(stored));
+
+        CategoryFocusStatsResponse response =
+                statsService.getFocusStatsByCategory(USER_ID, StatsPeriod.DAY, today);
+
+        // 이중 차감이면 1800 × (1 − 0.5) = 900초 = 15분이 된다.
+        assertThat(response.totalFocusMinutes()).isEqualTo(30);
     }
 
     @Test

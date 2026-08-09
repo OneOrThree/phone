@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { saveFocusSession } from '@/services/focusApi';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -9,7 +8,9 @@ import { useSubjects } from '@/store/SubjectContext';
 import { useUser } from '@/store/UserContext';
 import { todayOverlapSeconds, todayStr } from '@/utils/localDate';
 import type { LiveFocusSession } from './types';
-import { enqueuePendingFocusUpload } from './pendingFocusUploads';
+import { uploadFocusBlock } from './uploadFocusBlock';
+import { cancelMarker } from './pendingMarkerCancels';
+import { ensureFocusTagId } from './tagSync';
 import { cancelStaleCompletionNotifications } from './completionNotification';
 
 // 죽은(강제 종료된) 세션 정산 — 앱 시작 시 라이브 레코드가 남아 있으면
@@ -89,31 +90,54 @@ export function OrphanFocusSettler() {
           addFocusToSubject(rec.subjectId, todaySeconds);
         }
       }
+      // 과목 태그 해석 — 종전엔 focusTagId를 null로 하드코딩해 고아 정산이 과목 귀속을 통째로
+      // 날렸다(by-category 통계에 '미분류'로 들어감). 세션 정산과 같은 규칙으로 이름→서버 태그를
+      // 매칭/생성한다. 실패하면 종전대로 null(미분류) — ensureFocusTagId가 내부에서 삼킨다.
+      const focusTagId = await ensureFocusTagId(rec.subjectName, userId);
+      // 방해초(GROMO-1214 코드리뷰) — 세션 화면은 일시정지를 직접 세지만 라이브 레코드엔 그 값이
+      // 없다. 대신 구간 벽시계에서 집중초를 빼 역산한다: elapsed는 집중 tick에서만 오르므로
+      // (updatedAt − startedAt) − elapsed = 이 구간의 '집중하지 않은' 초(대부분 일시정지)다.
+      // 0을 보내면 그 시간이 통째로 집중으로 지급·집계된다. 서버 검증 상한(24h)으로 자른다.
+      const spanSeconds = Math.round(
+        (Date.parse(rec.updatedAt) - Date.parse(rec.startedAt)) / 1000,
+      );
+      const totalDistractionSeconds = Number.isFinite(spanSeconds)
+        ? Math.min(24 * 3600, Math.max(0, spanSeconds - focused))
+        : 0;
       const body = {
-        focusTagId: null,
+        focusTagId,
         subject: rec.subjectName,
         startedAt: rec.startedAt,
         endedAt: rec.updatedAt,
         distractionCount: 0,
-        totalDistractionSeconds: 0,
+        totalDistractionSeconds,
         // 날짜별 집중초(GROMO-1252 ①) — 레코드에 있으면 서버 벽시계 분할 대신 이 분포로 귀속된다.
         // 축은 서버 존(프로필 timeZone) — 로컬 축을 보내면 기기 존 ≠ 서버 존일 때 몫이 조용히
         // 버려진다(②). 구버전 레코드(필드 없음)는 미전송 → 서버가 종전대로 벽시계로 쪼갠다.
+        // 이 분포는 집중 tick만 센 net 이라 서버가 방해초를 또 빼지 않는다(GROMO-1214).
         focusSecondsByDate: rec.focusDays?.server,
       };
-      try {
-        await saveFocusSession(body, userId);
-        // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).
-        refreshCoins();
-      } catch {
-        // 업로드 실패 — 대기열(GROMO-614)로 인계해 앱 시작·포그라운드 복귀마다 재시도.
-        // 대기열 저장까지 실패하면 레코드를 보존해 다음 실행에서 이 경로가 재시도한다.
-        try {
-          await enqueuePendingFocusUpload(body, userId);
-        } catch {
-          return;
-        }
-      }
+      // 강제종료 시 열린 채 남은 라이브 마커가 있으면 그 마커를 PATCH로 종료해 시간·코인을
+      // 귀속시킨다(GROMO-1214). 마커가 없거나(구버전 레코드·오프라인 시작) 종료 시각이 서버
+      // 클램프 창 밖이면(대부분의 재실행) 종전 POST 경로로 폴백한다 — uploadFocusBlock이 판단.
+      // 실패 시 대기열(GROMO-614)로 인계해 앱 시작·포그라운드 복귀마다 재시도하고, 대기열 저장
+      // 까지 실패하면 레코드를 보존해 다음 실행에서 이 경로가 재시도한다.
+      const result = await uploadFocusBlock({
+        sessionId: rec.serverSessionId ?? null,
+        body,
+        userId,
+        // PATCH가 마커를 못 닫은 채 실패하면 취소를 영속화한다(GROMO-1214 코드리뷰 3차 ④) —
+        // 종전엔 이 콜백이 없어 POST만 큐에 넣고 라이브 레코드를 지웠다. 재시도 전에 계정이 바뀌면
+        // flushPendingFocusUploads가 옛 계정 업로드를 폐기해 업로드도 취소도 남지 않고,
+        // 친구 화면에 서버 스윕(12h)까지 '집중 중'으로 보인다. 세션 화면과 같은 규칙.
+        // 계정 스코프는 이 레코드의 소유자(위에서 현재 계정과 일치를 확인했다).
+        onMarkerStillOpen: (id) => {
+          cancelMarker(id, rec.userId ?? null).catch(() => {});
+        },
+      });
+      if (result.status === 'failed') return;
+      // 지급이 확정됐으니 서버 잔액을 다시 받는다(GROMO-1049).
+      if (result.status === 'saved') refreshCoins();
       // 업로드 성공(또는 대기열 인계) 후 제거 — 그 사이 새 세션이 레코드를 덮어썼을 수
       // 있으니 같은 값일 때만 지운다.
       const cur = await AsyncStorage.getItem(STORAGE_KEYS.focusLiveSession);

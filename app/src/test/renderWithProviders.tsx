@@ -7,6 +7,7 @@
 //   jest.mock('@/screens/focus/focusRestore', () => ({
 //     fetchTodayFocusRestore: jest.fn().mockResolvedValue({ sessions: null, tags: null }),
 //     sessionFocusSeconds: jest.fn(() => 0),
+//     todayRestoreSeconds: jest.fn(() => 0),
 //   }));
 import type { ReactElement } from 'react';
 import { render } from '@testing-library/react-native';

@@ -12,6 +12,7 @@ import type { TodayStatMetric, TodayStatsResponse } from '@/types/dto/stats';
 jest.mock('@/screens/focus/focusRestore', () => ({
   fetchTodayFocusRestore: jest.fn().mockResolvedValue({ sessions: null, tags: null }),
   sessionFocusSeconds: jest.fn(() => 0),
+  todayRestoreSeconds: jest.fn(() => 0),
 }));
 
 const metric = (todayMinutes: number, goalMinutes: number): TodayStatMetric => ({

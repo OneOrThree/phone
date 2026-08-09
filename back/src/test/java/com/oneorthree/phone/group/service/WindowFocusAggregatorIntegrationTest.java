@@ -74,18 +74,30 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
     }
 
     private void saveSession(User user, String startedAt, String endedAt, FocusSessionStatus status) {
-        saveSession(user, startedAt, endedAt, null, status);
+        saveSession(user, startedAt, endedAt, null, status, 0);
     }
 
     /** statEndAt=null 이면 레거시 행(마이그레이션 이전) — 집계가 endedAt 으로 폴백해야 한다. */
     private void saveSession(User user, String startedAt, String endedAt, String statEndAt,
                              FocusSessionStatus status) {
+        saveSession(user, startedAt, endedAt, statEndAt, status, 0);
+    }
+
+    /** 방해(일시정지) 초가 있는 세션 — GROMO-1214 코드리뷰 ⑥ 차감 검증용. */
+    private void saveSession(User user, String startedAt, String endedAt, FocusSessionStatus status,
+            int totalDistractionSeconds) {
+        saveSession(user, startedAt, endedAt, null, status, totalDistractionSeconds);
+    }
+
+    private void saveSession(User user, String startedAt, String endedAt, String statEndAt,
+                             FocusSessionStatus status, int totalDistractionSeconds) {
         focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(Instant.parse(startedAt))
                 .endedAt(endedAt != null ? Instant.parse(endedAt) : null)
                 .statEndAt(statEndAt != null ? Instant.parse(statEndAt) : null)
                 .status(status)
+                .totalDistractionSeconds(totalDistractionSeconds)
                 .build());
         focusSessionRepository.flush();
     }
@@ -178,6 +190,59 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
                 .isEqualTo(Instant.parse("2026-08-01T22:00:00+09:00"));
         assertThat(windowFocusAggregator.windowEndOn(DATE, window))
                 .isEqualTo(Instant.parse("2026-08-02T02:00:00+09:00"));
+    }
+
+    /**
+     * 1214-⑥: 창 집계도 방해 초를 뺀 순수 집중 시간을 센다.
+     *
+     * <p>⑤에서 {@code daily_focus_stats.total_focus_seconds} 가 방해 초를 뺀 값이 되면서, 원시 겹침
+     * 길이를 쓰던 이 창 집계는 일시정지가 낀 세션에서 일별 총합보다 커졌다.
+     * ⚠️ 이 값이 챌린지 달성 판정 → 내기 정산을 가른다 — 일시정지 시간으로 창을 통과하던 게 잘못이었다.
+     */
+    @Test
+    @DisplayName("1214-⑥: 창 안 세션의 방해 초가 차감된다 — 60분 세션 + 방해 15분 → 45분")
+    void subtractsDistractionFromWindowOverlap() {
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+        User paused = saveUser("일시정지");
+        User clean = saveUser("정지없음");
+        // 둘 다 09:30~10:30 KST(60분) 완전 포함 — 방해 초만 다르다
+        saveSession(paused, "2026-08-01T00:30:00Z", "2026-08-01T01:30:00Z", FocusSessionStatus.COMPLETED, 900);
+        saveSession(clean, "2026-08-01T00:30:00Z", "2026-08-01T01:30:00Z", FocusSessionStatus.COMPLETED, 0);
+
+        Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(
+                List.of(paused.getId(), clean.getId()), DATE, window);
+
+        assertThat(minutes)
+                .containsEntry(paused.getId(), 45)
+                // 방해 0 이면 종전과 완전히 동일 — 회귀 방지
+                .containsEntry(clean.getId(), 60);
+    }
+
+    @Test
+    @DisplayName("1214-⑥: 창에 절반만 걸친 세션 → 방해 초도 겹침에 비례해서만 깎인다(정수 절삭 없음)")
+    void proratesDistractionToWindowOverlap() {
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+        User user = saveUser("경계걸침방해");
+        // 08:30~09:30 KST = 60분 세션 중 창 겹침은 30분. 방해 12분(20%) → 30 × 0.8 = 24분.
+        // 비율은 클리핑 전 세션 전체 길이 기준(방해 초에 타임스탬프가 없어 고르게 퍼졌다고 본다).
+        saveSession(user, "2026-07-31T23:30:00Z", "2026-08-01T00:30:00Z", FocusSessionStatus.COMPLETED, 720);
+
+        Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(List.of(user.getId()), DATE, window);
+
+        assertThat(minutes).containsEntry(user.getId(), 24);
+    }
+
+    @Test
+    @DisplayName("1214-⑥: 방해 초가 세션 길이보다 커도 음수가 아니라 0")
+    void distractionNeverPushesWindowOverlapNegative() {
+        GroupChallengeWindow window = saveWindow("09:00:00", "12:00:00", 120);
+        User user = saveUser("과잉방해");
+        // 60분 세션에 방해 90분(있을 수 없는 조합이지만 하한 0 을 잠근다)
+        saveSession(user, "2026-08-01T00:30:00Z", "2026-08-01T01:30:00Z", FocusSessionStatus.COMPLETED, 5400);
+
+        Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(List.of(user.getId()), DATE, window);
+
+        assertThat(minutes).containsEntry(user.getId(), 0);
     }
 
     /**

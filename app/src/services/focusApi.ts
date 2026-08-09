@@ -14,6 +14,8 @@ import type {
   FocusSessionStartRequest,
   FocusSessionStartResponse,
   FocusSessionCancelRequest,
+  FocusSessionEndRequest,
+  FocusSessionEndResponse,
   OccupationDefaultTagsResponse,
 } from '@/types/dto/focus';
 import type { Occupation } from '@/types/dto/user';
@@ -74,24 +76,23 @@ export class FocusSaveAccountChangedError extends Error {
   }
 }
 
-// POST /api/v1/focus-session — 집중 세션 저장. 응답은 그날 누적·스트릭 서버 판정(GROMO-806).
-// 앞선 저장이 끝난 뒤에 보낸다(위 saveChain) — 실패해도 체인은 이어진다.
+// 세션 커밋(POST 저장 · PATCH 마커 종료) 공통 발사대 — 위 saveChain 직렬화 + 계정 대조.
 //
-// ownerUserId: 이 저장을 시작한 계정. 직렬화 때문에 전송까지 대기가 생기는데, 그 사이 계정이
+// ownerUserId: 이 커밋을 시작한 계정. 직렬화 때문에 전송까지 대기가 생기는데, 그 사이 계정이
 // 바뀌면 api 인터셉터가 **전송 시점의 토큰**을 붙여 옛 계정의 세션·보상이 새 계정에 커밋된다.
 // 전송 직전에 대조하고, **검증한 그 토큰을 직접 실어** 보낸다 — 대조와 전송 사이에 계정이 바뀌어도
 // 인터셉터가 새 토큰으로 갈아끼우지 못하게(코덱스 리뷰 P1). 401 재발급 재시도도 끈다: 재발급
 // 토큰은 전환된 계정 것일 수 있어 재시도가 곧 계정 오귀속이 된다. 실패하면 대기열로 간다.
-export function saveFocusSession(
-  body: FocusSessionRequest,
+function commitSession<T>(
   ownerUserId: string | null,
-): Promise<FocusSessionSaveResponse> {
+  send: (config: Parameters<typeof api.post>[2]) => Promise<{ data: T }>,
+): Promise<T> {
   const run = saveChain.then(async () => {
     const { token, accountId } = await currentAccessToken();
     if (accountId !== ownerUserId) {
       throw new FocusSaveAccountChangedError();
     }
-    const { data } = await api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body, {
+    const { data } = await send({
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       _noAuthRetry: true,
     } as Parameters<typeof api.post>[2]);
@@ -100,6 +101,30 @@ export function saveFocusSession(
   // 체인은 실패해도 끊기지 않게 삼키고, 호출자에겐 실패를 그대로 전파한다.
   saveChain = run.catch(() => {});
   return run;
+}
+
+// POST /api/v1/focus-session — 집중 세션 저장. 응답은 그날 누적·스트릭 서버 판정(GROMO-806).
+// 앞선 저장이 끝난 뒤에 보낸다(위 saveChain) — 실패해도 체인은 이어진다.
+export function saveFocusSession(
+  body: FocusSessionRequest,
+  ownerUserId: string | null,
+): Promise<FocusSessionSaveResponse> {
+  return commitSession(ownerUserId, (config) =>
+    api.post<FocusSessionSaveResponse>('/api/v1/focus-session', body, config),
+  );
+}
+
+// PATCH /api/v1/focus-session — 라이브 마커 종료(GROMO-1214). 서버가 발급한 마커 id를 거쳐
+// 시간·코인이 귀속된다. 이미 종료/취소/자동마감된 세션은 409.
+// POST 저장과 **같은 체인**에 태운다 — 둘 다 UserWallet(@Version)을 갱신해, 동시에 나가면
+// 낙관락 충돌로 한쪽이 통째로 롤백된다(뽀모도로가 여러 블록을 한꺼번에 정산할 때 실제로 겹친다).
+export function endFocusSession(
+  body: FocusSessionEndRequest,
+  ownerUserId: string | null,
+): Promise<FocusSessionEndResponse> {
+  return commitSession(ownerUserId, (config) =>
+    api.patch<FocusSessionEndResponse>('/api/v1/focus-session', body, config),
+  );
 }
 
 // POST /api/v1/focus-session/start — 라이브 세션 시작(진행 중 레코드 생성, GROMO-873).

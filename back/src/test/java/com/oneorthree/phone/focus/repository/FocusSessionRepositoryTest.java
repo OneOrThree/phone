@@ -298,6 +298,110 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
     }
 
+    // ── 마커 원자 선점(claimMarkerIfActive) (GROMO-1214 코드리뷰 2차) ────────
+
+    /**
+     * POST 폴백이 마커를 <b>원자적으로 선점</b>하는지 — 종전 존재 조회(existsByIdAndUserAndStatus)는
+     * 아직 커밋 전인 PATCH 를 ACTIVE 로 보고 통과해, 폴백 POST 가 두 번째 완료 행을 만들었다.
+     * 조건부 UPDATE 는 이미 닫힌 마커에 0 을 돌려주므로 호출측이 '누가 이겼는지'로 분기할 수 있다.
+     */
+    @Test
+    @DisplayName("claimMarkerIfActive — 진행 중 마커는 CANCELED 로 선점하고 반환 1(폴백 POST 가 완료 행을 만든다)")
+    void claimMarkerIfActiveClaimsOpenMarker() {
+        FocusSession open = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        Instant claimedAt = Instant.parse("2026-07-03T00:30:00Z");
+
+        int updated = focusSessionRepository.claimMarkerIfActive(open.getId(), user, claimedAt);
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(updated).isEqualTo(1);
+        FocusSession reloaded = focusSessionRepository.findById(open.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.CANCELED);
+        assertThat(reloaded.getEndedAt()).isEqualTo(claimedAt);
+    }
+
+    @Test
+    @DisplayName("claimMarkerIfActive — PATCH 가 먼저 완료한 마커는 반환 0 + 완료 상태 보존(이중 계상 차단 지점)")
+    void claimMarkerIfActiveSkipsCompletedMarker() {
+        // given: PATCH 가 이미 종료시킨 마커(= 통계·지급 커밋 완료)
+        Instant endedAt = Instant.parse("2026-07-03T02:00:00Z");
+        FocusSession completed = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .endedAt(endedAt)
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        int updated = focusSessionRepository.claimMarkerIfActive(completed.getId(), user,
+                Instant.parse("2026-07-03T03:00:00Z"));
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        // then: 선점 실패(0) → 호출측이 COMPLETED 를 확인하고 저장·지급을 스킵한다. 완료 값은 보존.
+        assertThat(updated).isZero();
+        FocusSession reloaded = focusSessionRepository.findById(completed.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.COMPLETED);
+        assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
+    }
+
+    @Test
+    @DisplayName("claimMarkerIfActive — 남의 마커는 선점하지 못한다(반환 0) — sessionId 는 클라 입력")
+    void claimMarkerIfActiveRejectsOtherUsersMarker() {
+        User other = userRepository.save(User.builder().nickname("남").build());
+        FocusSession othersMarker = focusSessionRepository.save(FocusSession.builder()
+                .user(other)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+
+        int updated = focusSessionRepository.claimMarkerIfActive(othersMarker.getId(), user,
+                Instant.parse("2026-07-03T00:30:00Z"));
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        // then: 남의 진행 중 세션을 취소시킬 수 없다
+        assertThat(updated).isZero();
+        FocusSession reloaded = focusSessionRepository.findById(othersMarker.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.ACTIVE);
+        assertThat(reloaded.getEndedAt()).isNull();
+    }
+
+    // ── findStatusById — 409 원인 판정용 상태 재조회 (GROMO-1214 코드리뷰) ──
+
+    /**
+     * endFocusSession 은 findById 로 엔티티를 로드한 뒤 조건부 UPDATE 를 쏘고, 실패(row=0)하면 409 의 원인을
+     * 상태로 가른다. 그런데 <b>로드한 엔티티는 UPDATE 이전 스냅샷</b>이고 findById 재호출은 1차 캐시가
+     * 흡수해 DB 를 다시 읽지 않는다 — 그대로 쓰면 동시 취소를 못 보고, 살릴 수 있는 세션을
+     * SESSION_ALREADY_ENDED 로 돌려보내 시간이 영구 유실된다. 이 테스트가 그 전제(스칼라 JPQL 은
+     * 캐시를 우회해 DB 값을 읽는다)를 잠근다.
+     */
+    @Test
+    @DisplayName("findStatusById — 엔티티를 로드한 뒤 벌크 취소가 나가도 clear 없이 DB 실제 상태(CANCELED)를 읽는다")
+    void findStatusByIdReadsDbNotStaleEntity() {
+        // given: 진행 중 세션을 영속성 컨텍스트에 올려 둔 상태(= endFocusSession 의 findById 시점)
+        FocusSession open = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        FocusSession loaded = focusSessionRepository.findById(open.getId()).orElseThrow();
+
+        // when: 그 사이 취소가 벌크 UPDATE 로 성사(로드한 엔티티는 여전히 ACTIVE 로 보인다)
+        focusSessionRepository.cancelSessionIfActive(open.getId(), Instant.parse("2026-07-03T00:30:00Z"));
+        focusSessionRepository.flush();
+
+        // then: 캐시된 엔티티는 낡았지만, 스칼라 조회는 DB 값을 그대로 읽는다(clear() 없이)
+        assertThat(loaded.getStatus()).isEqualTo(FocusSessionStatus.ACTIVE);
+        assertThat(focusSessionRepository.findStatusById(open.getId()))
+                .contains(FocusSessionStatus.CANCELED);
+    }
+
     // ── findLiveSessionsByUserIdIn (GROMO-822 FocusLiveInfoLookup 공용) ──
 
     @Test

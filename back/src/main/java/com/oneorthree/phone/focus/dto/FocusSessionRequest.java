@@ -1,6 +1,8 @@
 package com.oneorthree.phone.focus.dto;
 
 import com.oneorthree.phone.focus.domain.FocusType;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -29,9 +31,19 @@ public class FocusSessionRequest {
     UUID focusTagId;
     Instant startedAt;
     Instant endedAt;
+    // GROMO-1214 코드리뷰(돈 경로): 음수 금지 — 지급 공식이 (endedAt − startedAt) − totalDistractionSeconds 라
+    // 음수는 집중초를 부풀린다. PATCH(FocusSessionEndRequest)와 같은 범위로 맞춘다.
+    @PositiveOrZero
+    @Max(value = 24 * 60 * 60, message = "하루 24시간을 넘을 수 없습니다")
+    // 앱이 세는 건 수동 일시정지뿐이다 — 뽀모도로 휴식·실드 이탈 크레딧은 정산 구간 밖이라
+    // 여기 넣으면 이중 차감이 된다(app/screens/focus/blockPause.ts 헤더 주석이 정본).
     int totalDistractionSeconds;
     // GROMO-733: 세션 유형(INFINITE/RANGE/POMODORO, additive). null 이면 서비스에서 INFINITE 기본(하위호환).
     FocusType focusType;
+    // GROMO-1214 코드리뷰(additive): 이 POST 가 '라이브 마커의 폴백'일 때 그 마커 id. PATCH 가 커밋됐는데 응답만
+    // 유실돼 앱이 POST 로 폴백하는 경우, 서버가 클램프한 마커 구간과 앱이 보낸 원본 타임스탬프가 달라
+    // (startedAt, endedAt) 중복 검사가 못 잡는다(기기 시계 스큐). 그 마커가 이미 COMPLETED 인지로 먼저 거른다.
+    UUID sessionId;
 
     /**
      * GROMO-1252: 이 세션의 <b>날짜별 집중 초</b>(로컬 날짜 "YYYY-MM-DD" → 초, additive).
@@ -49,14 +61,29 @@ public class FocusSessionRequest {
     @Size(max = MAX_SECONDS_BY_DATE_ENTRIES)
     Map<LocalDate, Integer> focusSecondsByDate;
 
-    /** 하위호환 — focusType 미지정 기존 4-arg 호출부(null → 서비스에서 INFINITE 기본). */
+    /** 하위호환 — focusType·sessionId·focusSecondsByDate 미지정 기존 4-arg 호출부. */
     public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds) {
-        this(focusTagId, startedAt, endedAt, totalDistractionSeconds, null);
+        this(focusTagId, startedAt, endedAt, totalDistractionSeconds, null, null, null);
     }
 
-    /** 하위호환 — focusSecondsByDate 미지정 기존 5-arg 호출부(null → 서버 벽시계 분할 폴백). */
+    /**
+     * 하위호환 — sessionId(마커 폴백 표식)·focusSecondsByDate(날짜별 집중초) 미지정 기존 5-arg 호출부.
+     * 둘 다 null 이면 종전 동작: 마커 id 중복 검사 생략 + 서버 벽시계 분할 폴백.
+     */
     public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds,
                                FocusType focusType) {
-        this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, null);
+        this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, null, null);
+    }
+
+    /** 하위호환 — 마커 폴백 표식만 싣는 6-arg 호출부(날짜별 집중초 미지정 → 서버 벽시계 분할 폴백). */
+    public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds,
+                               FocusType focusType, UUID sessionId) {
+        this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, sessionId, null);
+    }
+
+    /** 하위호환 — 날짜별 집중초만 싣는 6-arg 호출부(마커 폴백 표식 미지정 → id 중복 검사 생략). */
+    public FocusSessionRequest(UUID focusTagId, Instant startedAt, Instant endedAt, int totalDistractionSeconds,
+                               FocusType focusType, Map<LocalDate, Integer> focusSecondsByDate) {
+        this(focusTagId, startedAt, endedAt, totalDistractionSeconds, focusType, null, focusSecondsByDate);
     }
 }
