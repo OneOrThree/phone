@@ -10,6 +10,7 @@ import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { FOCUS_GOAL_MINUTES, GOAL_STEP_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -18,19 +19,11 @@ type IconName = keyof typeof Ionicons.glyphMap;
 //   예약만 남긴다. 실제 반영은 발효일이 지난 뒤 PendingGoalApplier(App 루트)가 한다.
 //   현재 예약이 있으면 그 값으로 피커를 초기화하고, 현재 목표와 같게 되돌려 저장하면 예약을 취소한다.
 
-// 목표 하한/상한(분) — 온보딩 목표 설정과 동일하게 5분 단위 휠로 통일 (GROMO-969, 구 1분 단위는 630).
-// 집중 5분~24시간, 사용 30분~12시간.
-const FOCUS_MIN_MINUTES = 5;
-const FOCUS_MAX_MINUTES = 24 * 60;
-const FOCUS_STEP = 5;
-const USAGE_MIN_MINUTES = 30;
-const USAGE_MAX_MINUTES = 12 * 60;
-const USAGE_STEP = 5;
-
-// 분 → step 단위 스냅 + [하한, 상한] 클램프.
-function snapClamp(minutes: number, min: number, max: number, step: number): number {
-  const snapped = Math.round(minutes / step) * step;
-  return Math.min(max, Math.max(min, snapped));
+// 분 → 5분 스냅 + [하한, 상한] 클램프. 범위는 온보딩 목표 설정과 공유한다
+// (@/constants/goals — 집중 30분~24시간, 사용 30분~12시간, GROMO-1255).
+function snapClamp(minutes: number, range: { min: number; max: number }): number {
+  const snapped = Math.round(minutes / GOAL_STEP_MINUTES) * GOAL_STEP_MINUTES;
+  return Math.min(range.max, Math.max(range.min, snapped));
 }
 
 // 총 분 → '3시간 20분' / '4시간' / '30분' 표기.
@@ -121,10 +114,10 @@ export default function GoalsScreen() {
 
   // 피커 상태 — 초기엔 현재 목표(5분 단위 스냅), 예약이 있으면 예약값으로 덮어씀(아래 effect).
   const [focusMinutes, setFocusMinutes] = useState(() =>
-    snapClamp(activeFocusMin, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES, FOCUS_STEP),
+    snapClamp(activeFocusMin, FOCUS_GOAL_MINUTES),
   );
   const [usageMinutes, setUsageMinutes] = useState(() =>
-    snapClamp(activeUsageMin, USAGE_MIN_MINUTES, USAGE_MAX_MINUTES, USAGE_STEP),
+    snapClamp(activeUsageMin, USAGE_GOAL_MINUTES),
   );
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -146,24 +139,10 @@ export default function GoalsScreen() {
             const p = JSON.parse(raw) as NonNullable<typeof pendingRef.current>;
             pendingRef.current = p;
             if (typeof p.dailyFocusTimeGoalMinutes === 'number') {
-              setFocusMinutes(
-                snapClamp(
-                  p.dailyFocusTimeGoalMinutes,
-                  FOCUS_MIN_MINUTES,
-                  FOCUS_MAX_MINUTES,
-                  FOCUS_STEP,
-                ),
-              );
+              setFocusMinutes(snapClamp(p.dailyFocusTimeGoalMinutes, FOCUS_GOAL_MINUTES));
             }
             if (typeof p.dailyScreenTimeGoalMinutes === 'number') {
-              setUsageMinutes(
-                snapClamp(
-                  p.dailyScreenTimeGoalMinutes,
-                  USAGE_MIN_MINUTES,
-                  USAGE_MAX_MINUTES,
-                  USAGE_STEP,
-                ),
-              );
+              setUsageMinutes(snapClamp(p.dailyScreenTimeGoalMinutes, USAGE_GOAL_MINUTES));
             }
           } catch {
             // 깨진 예약값은 무시
@@ -245,8 +224,8 @@ export default function GoalsScreen() {
         iconBg={T.accentBg}
         label="목표 집중시간"
         sub="채우기"
-        min={FOCUS_MIN_MINUTES}
-        max={FOCUS_MAX_MINUTES}
+        min={FOCUS_GOAL_MINUTES.min}
+        max={FOCUS_GOAL_MINUTES.max}
         value={focusMinutes}
         activeMinutes={activeFocusMin}
         onChange={setFocusMinutes}
@@ -258,8 +237,8 @@ export default function GoalsScreen() {
         iconBg={T.greenBg}
         label="목표 사용시간"
         sub="넘지 않기"
-        min={USAGE_MIN_MINUTES}
-        max={USAGE_MAX_MINUTES}
+        min={USAGE_GOAL_MINUTES.min}
+        max={USAGE_GOAL_MINUTES.max}
         value={usageMinutes}
         activeMinutes={activeUsageMin}
         onChange={setUsageMinutes}
