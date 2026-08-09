@@ -24,6 +24,13 @@ interface FocusContextValue {
 
 const FocusContext = createContext<FocusContextValue | null>(null);
 
+// 하루 총 집중시간의 물리적 상한(GROMO-1253). 적립 경로가 늘어도 여기서 한 번에 막는다 —
+// 하루 24시간을 넘는 값은 어떤 경로로 들어와도 버그다. 저장분 로드에도 적용해
+// 이미 부푼 기기 값이 다음 자정까지 남지 않게 한다.
+// SubjectContext 도 같은 상한을 쓴다 — 총합만 막으면 과목별 누적이 부푼 채 남아
+// 도넛이 어긋나고, 그 과목을 지울 때 총합에서 24시간 넘는 값을 빼 0으로 떨어진다(코드리뷰).
+export const DAY_SECONDS = 24 * 3600;
+
 interface SavedFocus {
   todayFocusSeconds?: number;
   date?: string;
@@ -57,7 +64,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         const saved = JSON.parse(raw) as SavedFocus;
         // 날짜가 바뀌면 오늘 집중 시간 초기화
         if (saved.date === todayStr()) {
-          setTodayFocusSeconds(saved.todayFocusSeconds ?? 0);
+          setTodayFocusSeconds(Math.min(DAY_SECONDS, saved.todayFocusSeconds ?? 0));
         }
       } else {
         // 로컬 데이터 없음(첫 실행·재로그인) — 오늘 서버 세션 구간 합으로 '오늘 집중' 복원(GROMO-677).
@@ -75,7 +82,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
               .filter((s) => s.focusTagId === null || activeTagIds.has(s.focusTagId))
               .reduce((acc, s) => acc + sessionFocusSeconds(s), 0);
             // 복원 대기 중 들어온 적립분(고아 정산 등)을 덮지 않도록 대입이 아니라 가산(리뷰 반영)
-            if (total > 0) setTodayFocusSeconds((prev) => prev + total);
+            if (total > 0) setTodayFocusSeconds((prev) => Math.min(DAY_SECONDS, prev + total));
           }
         } catch {}
       }
@@ -106,7 +113,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
   function addFocusSeconds(seconds: number) {
     // 자정을 넘긴 뒤 첫 적립이면 어제 총합을 먼저 0으로 — 리셋 없이 더하면 어제+오늘이 섞인다
     rolloverIfNeeded();
-    setTodayFocusSeconds((prev) => prev + seconds);
+    setTodayFocusSeconds((prev) => Math.min(DAY_SECONDS, prev + seconds));
   }
 
   // 과목 삭제 등으로 기록을 되돌릴 때 — 오늘치보다 크면 0으로 클램프.
