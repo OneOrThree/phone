@@ -6,7 +6,7 @@ import {
   type WithSpringConfig,
   type WithTimingConfig,
 } from 'react-native-reanimated';
-import { staggerDelay } from '@/constants/motion';
+import { M, staggerDelay } from '@/constants/motion';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 // '동작 줄이기'(손쉬운 사용 › 동작) 단일 게이트 (GROMO-1381 / 설계 §3).
@@ -64,8 +64,12 @@ export function useMotion(): Motion {
   return useMemo<Motion>(
     () => ({
       reduce,
-      timing: (to, cfg) => (reduce ? to : withTiming(to, cfg)),
-      spring: (to, cfg) => (reduce ? to : withSpring(to, cfg)),
+      // ⚠️ reduceMotion: M.never를 강제로 얹는다. reanimated의 기본값(ReduceMotion.System)은
+      //    모듈 로드 시 1회 계산한 정적 플래그라, '동작 줄이기'를 켠 채 앱을 켰다가 실행 중에
+      //    끄면 여기서는 애니메이션을 내주는데 그 플래그가 계속 억제한다. 판단은 이 훅만 한다.
+      //    호출부 설정은 보존하고 이 키만 덮어쓴다.
+      timing: (to, cfg) => (reduce ? to : withTiming(to, { ...cfg, reduceMotion: M.never })),
+      spring: (to, cfg) => (reduce ? to : withSpring(to, { ...cfg, reduceMotion: M.never })),
       css: (style) => (reduce ? undefined : style),
       delay: (ms) => (reduce ? 0 : ms),
       stagger: (index, step) => (reduce ? 0 : staggerDelay(index, step)),
