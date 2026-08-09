@@ -107,6 +107,10 @@ export interface UserProfileResponse {
   countryCode: string | null; // ISO 3166-1 alpha-2 — 미설정 null
   statVisibility: StatVisibility | null; // 미설정 null
   occupation: Occupation | null; // 준비 시험 코드(enum name) — 미설정 null (GROMO-757)
+  // 서버가 이 유저의 날짜 버킷을 자르는 IANA 존(GROMO-1252) — countryCode 파생, 미지정·미지원은
+  // 'Asia/Seoul'. 자정 걸친 세션의 업로드 날짜 키를 이 축으로 만든다(utils/serverZone).
+  // 구버전 서버는 미전송 → undefined → 앱 폴백('Asia/Seoul') 유지.
+  timeZone?: string;
   // ↓ 설정 화면 표시용 — 백엔드 응답 확장 예정(GROMO-559 짝 BE). 도착 전까진 undefined → 로컬 캐시·기본값 폴백.
   notificationEnabled?: boolean;
   soundEnabled?: boolean;

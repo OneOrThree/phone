@@ -68,42 +68,48 @@ export function todayOverlapSeconds(startISO: string, endISO: string): number {
 // 날짜 이동은 setDate가 아니라 절대 ms 가산이다: Date는 절대 시각이라 +86_400_000ms 후를 KST로
 // 포맷하면 정확히 KST 다음 날이 된다(KST는 DST가 없다).
 
-// KST 포매터는 모듈 스코프 1회 생성 캐시 — Intl.DateTimeFormat 생성은 로케일 데이터를 물어
-// 비싸서, 레코드당 생성하면(kstDateStr를 세션 수백 건에 맵핑) JS 스레드가 눈에 띄게 멈춘다
+// 포매터는 존별로 모듈 스코프 캐시 — Intl.DateTimeFormat 생성은 로케일 데이터를 물어 비싸서,
+// 레코드당 생성하면(kstDateStr를 세션 수백 건에 맵핑) JS 스레드가 눈에 띄게 멈춘다
 // (PR #531 P2). 생성 실패(Intl/타임존 미지원)도 1회만 판정해 null로 캐시 — 이후 호출은 곧장
-// 로컬 폴백을 탄다.
-let kstDateFormat: Intl.DateTimeFormat | null | undefined;
-function getKstDateFormat(): Intl.DateTimeFormat | null {
-  if (kstDateFormat === undefined) {
-    try {
-      kstDateFormat = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      });
-    } catch {
-      kstDateFormat = null;
-    }
+// 로컬 폴백을 탄다. 존은 몇 개 안 되므로(KST + 서버가 내려주는 유저 존) 맵이 커지지 않는다.
+const dateFormatByZone = new Map<string, Intl.DateTimeFormat | null>();
+function getZoneDateFormat(timeZone: string): Intl.DateTimeFormat | null {
+  const cached = dateFormatByZone.get(timeZone);
+  if (cached !== undefined) return cached;
+  let fmt: Intl.DateTimeFormat | null;
+  try {
+    fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    fmt = null;
   }
-  return kstDateFormat;
+  dateFormatByZone.set(timeZone, fmt);
+  return fmt;
 }
 
-function dateStrKstAfter(days: number, base: number = Date.now()): string {
-  const target = new Date(base + days * 86_400_000);
-  const fmt = getKstDateFormat();
-  if (fmt == null) return localDateStr(target);
+// 임의 Date → 지정 IANA 존의 "YYYY-MM-DD". 존 미지원·Intl 오류면 기기 로컬 폴백(위 관례와 동일).
+export function zoneDateStr(date: Date, timeZone: string): string {
+  const fmt = getZoneDateFormat(timeZone);
+  if (fmt == null) return localDateStr(date);
   try {
-    const parts = fmt.formatToParts(target);
+    const parts = fmt.formatToParts(date);
     const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
     const y = get('year');
     const m = get('month');
     const d = get('day');
     if (y && m && d) return `${y}-${m}-${d}`;
-    return localDateStr(target);
+    return localDateStr(date);
   } catch {
-    return localDateStr(target);
+    return localDateStr(date);
   }
+}
+
+function dateStrKstAfter(days: number, base: number = Date.now()): string {
+  return zoneDateStr(new Date(base + days * 86_400_000), 'Asia/Seoul');
 }
 
 // KST 기준 오늘 "YYYY-MM-DD"

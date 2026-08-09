@@ -88,8 +88,8 @@ public class FocusService {
     // GROMO-1252: 자정 분할이 만들 수 있는 날짜 조각 수 상한. POST 는 클라 시각을 신뢰하므로 startedAt 을
     // 몇 년 전으로 조작한 세션이 날짜 수만큼 일별 upsert(행 잠금 포함)를 만들어 한 트랜잭션을 부풀릴 수 있다.
     // 정상 세션은 12h(orphan 상한) 이내라 조각이 2개를 넘지 않는다 — 상한 초과분은 마지막 조각에 합쳐
-    // 총합은 보존한 채 작업량만 자른다.
-    private static final int MAX_SPLIT_DAYS = 32;
+    // 총합은 보존한 채 작업량만 자른다. 업로드 맵 엔트리 상한(400 검증)과 같은 값을 쓴다(정본은 DTO).
+    private static final int MAX_SPLIT_DAYS = FocusSessionRequest.MAX_SECONDS_BY_DATE_ENTRIES;
 
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
@@ -395,13 +395,16 @@ public class FocusService {
      * <p>경계: 정확히 자정에 끝나는 세션은 그 시각이 속한 <b>전날</b> 조각으로 끝난다(초 0짜리 다음날 조각을
      * 만들지 않는다). 같은 날 안에서 끝나는 세션은 조각 1개로 종전과 동일하다.
      *
-     * <p><b>밀리초 배분 (코드리뷰 3차 ④)</b>: 조각마다 {@code Duration.getSeconds()} 로 잘라 더하면 양 끝에
-     * 밀리초가 있는 구간에서 총합이 1초 준다(23:50:00.500~00:10:00.500 = 1200초인데 599+600=1199).
-     * 전날이 10분 스트릭 문턱을 놓칠 수 있는 손실이라, <b>시작점부터의 누적 초를 반올림</b>해 그 차분을
-     * 조각 값으로 쓴다 — 반올림 잔여는 다음 조각이 흡수하므로 조각 합 = 구간 총합(반올림)이 항상 성립한다.
+     * <p><b>총합은 floor, 배분만 반올림 (코드리뷰 3차 ④·4차 ①)</b>: 조각마다 {@code Duration.getSeconds()} 로
+     * 잘라 더하면 양 끝에 밀리초가 있는 구간에서 총합이 1초 준다(23:50:00.500~00:10:00.500 = 1200초인데
+     * 599+600=1199). 반대로 구간 전체를 반올림하면 599.5초짜리 같은 날 세션이 600초가 돼 10분 문턱을
+     * 잘못 통과한다. 그래서 <b>구간 총합은 floor 로 확정</b>하고({@code Duration.getSeconds()} — 종전 의미),
+     * 그 정수를 자정 경계에서만 반올림으로 나눈다. 마지막 조각은 언제나 총합의 잔여라 조각 합 = 총합이다.
      */
     static NavigableMap<LocalDate, Integer> splitByLocalDay(Instant startedAt, Instant endedAt, ZoneId zone) {
         NavigableMap<LocalDate, Integer> secondsByDate = new TreeMap<>();
+        // 구간 총합(floor) — 조각들은 이 정수를 나눠 가질 뿐 늘리지 않는다.
+        long totalSeconds = Duration.between(startedAt, endedAt).getSeconds();
         Instant cursor = startedAt;
         long creditedSeconds = 0;
         while (true) {
@@ -410,8 +413,11 @@ public class FocusService {
             // 상한(MAX_SPLIT_DAYS)에 닿으면 남은 구간을 이 조각에 몰아 총합을 보존한다.
             boolean splitHere = nextMidnight.isBefore(endedAt) && secondsByDate.size() < MAX_SPLIT_DAYS - 1;
             Instant sliceEnd = splitHere ? nextMidnight : endedAt;
-            // 누적 초(시작점 기준, 0.5초 반올림)의 차분 = 이 조각 몫. 절삭이 아니라 차분이라 총합이 보존된다.
-            long cumulativeSeconds = Math.floorDiv(Duration.between(startedAt, sliceEnd).toMillis() + 500, 1000);
+            // 경계까지의 누적 초(0.5초 반올림, 총합 초과 금지)의 차분 = 이 조각 몫. 마지막 조각은 잔여 전부.
+            long cumulativeSeconds = splitHere
+                    ? Math.min(Math.floorDiv(Duration.between(startedAt, sliceEnd).toMillis() + 500, 1000),
+                            totalSeconds)
+                    : totalSeconds;
             secondsByDate.merge(date, (int) (cumulativeSeconds - creditedSeconds), Integer::sum);
             creditedSeconds = cumulativeSeconds;
             if (!sliceEnd.isBefore(endedAt)) {

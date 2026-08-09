@@ -1749,6 +1749,26 @@ class FocusServiceTest {
         assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 600, CROSS_D2, 600));
     }
 
+    /**
+     * 1252-①(4차): 3차의 밀리초 보정(누적 반올림)이 <b>자정 분할이 없는 구간까지</b> 반올림해,
+     * 599.5초짜리 같은 날 세션이 600초로 계상됐다 — 10분 스트릭·집중목표를 잘못 통과시킨다.
+     * 총합은 종전({@code Duration.getSeconds()}) 대로 floor 여야 하고, 자정 분할 시 조각 합 보존
+     * (바로 위 테스트)은 그대로 유지돼야 한다.
+     */
+    @Test
+    @DisplayName("1252-①(4차): 같은 날 599.5초 세션 → 599 (총합 floor, 반올림 금지)")
+    void sameDaySession_withMillis_floorsTotal() {
+        Instant startedAt = Instant.parse("2026-07-12T05:00:00Z");        // 07-12 14:00:00 KST
+        Instant endedAt = Instant.parse("2026-07-12T05:09:59.500Z");      // 07-12 14:09:59.5 KST
+        givenKrUserWithEmptyStats();
+
+        focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, startedAt, endedAt, 0));
+
+        assertThat(savedSlices()).containsExactlyInAnyOrderEntriesOf(Map.of(CROSS_D1, 599));
+        // 600 이었다면 10분 문턱을 넘어 스트릭이 잘못 인정된다
+        verify(userStreakService, never()).updateOnSessionComplete(any(), any());
+    }
+
     @Test
     @DisplayName("1252-④: 밀리초가 껴도 클라 분포 600/600 이 클램프로 깎이지 않아 전날 스트릭이 인정된다")
     void splitMidnight_withMillis_clientDistributionNotClampedDown() {

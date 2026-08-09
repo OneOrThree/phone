@@ -6,7 +6,29 @@
 // ⚠️ 오프라인 대기열(GROMO-614) flush 성공 시에는 발행하지 않는다 — 어제 실패분이 오늘 flush되면
 // 응답의 '그날 누적'이 어제 기준이라 오늘 판정으로 쓰면 오염된다. 그 경로는 기존 추정 판정이 폴백.
 import type { FocusSessionSaveResponse } from '@/types/dto/focus';
-import { todayStr } from '@/utils/localDate';
+import { localDateStr, todayStr } from '@/utils/localDate';
+import { serverTodayStr } from '@/utils/serverZone';
+import { attributedDate, type SecondsByDate } from './blockToday';
+
+/**
+ * 이 저장 응답을 '오늘 판정'으로 발행해도 되는가 (GROMO-1252 코드리뷰 4차 ④).
+ *
+ * 서버는 endedAt이 아니라 **분포 맵의 마지막 비어있지 않은 날짜**로 그날 누적·스트릭을 판정한다.
+ * 자정 전에 집중하고 자정을 넘겨 일시정지한 뒤 tick 없이 종료하면 맵엔 전날만 담기는데(endedAt은
+ * 오늘) endedAt으로 게이트하면 어제 판정이 오늘 것으로 표시되고, 큰 어제 누적이 단조 가드에 걸려
+ * 이후 진짜 오늘 응답까지 막는다. 그래서 **귀속된 맵 날짜**로 게이트한다.
+ *
+ * 맵을 안 보냈으면(구버전 경로·tick 0) 서버가 벽시계 분할로 폴백하므로 종전대로 endedAt 기준.
+ */
+export function isTodayVerdict(
+  focusSecondsByDate: SecondsByDate | undefined,
+  endedAt: string,
+): boolean {
+  const attributed = attributedDate(focusSecondsByDate);
+  // 맵 키는 서버 존 축이라 '오늘'도 같은 축으로 비교해야 한다(기기 존과 다를 수 있음).
+  if (attributed != null) return attributed === serverTodayStr();
+  return localDateStr(new Date(endedAt)) === todayStr();
+}
 
 export interface SessionSaveVerdict {
   date: string; // 수신한 로컬 날짜(YYYY-MM-DD) — 자정을 넘긴 잔존 판정이 다음 날로 새지 않게 소비처에서 대조

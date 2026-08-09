@@ -56,9 +56,9 @@ it('일시정지가 자정을 걸치면 자정 이후 집중분만 오늘 몫', 
 
   expect(blockTodaySeconds(s)).toBe(300);
   // 업로드 페이로드(focusSecondsByDate)로 그대로 나가는 값 — 서버가 이 분포로 귀속한다.
-  expect(s.kst).toEqual({ '2026-08-07': 300, '2026-08-08': 300 });
-  // 러너 TZ가 KST 고정이라 두 축이 같은 날짜로 떨어진다(축 분리 검증은 아래 '②' 테스트).
-  expect(s.local).toEqual(s.kst);
+  expect(s.server).toEqual({ '2026-08-07': 300, '2026-08-08': 300 });
+  // 러너 TZ·서버 존 폴백이 둘 다 KST라 두 축이 같은 날짜로 떨어진다(축 분리 검증은 zone 테스트).
+  expect(s.local).toEqual(s.server);
 });
 
 it('라이브 값은 자정이 지나면 오늘 몫만 남는다', () => {
@@ -117,5 +117,5 @@ it('⑤ 이탈 스냅샷은 이후 tick에 오염되지 않아 리플레이가 �
   // 복귀: 이탈 시점부터 10초를 리플레이. 되감으면 70, 안 되감으면 72(2초 이중 적립).
   const replayed = runTicks(snapshot, '2026-08-08T10:01:00', 10);
   expect(replayed.local['2026-08-08']).toBe(70);
-  expect(replayed.kst['2026-08-08']).toBe(70);
+  expect(replayed.server['2026-08-08']).toBe(70);
 });

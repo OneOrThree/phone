@@ -28,7 +28,7 @@ import { saveFocusSession, startFocusSession, cancelFocusSession } from '@/servi
 import type { FocusType } from '@/types/dto/focus';
 import { ensureFocusTagId } from './tagSync';
 import { enqueuePendingFocusUpload } from './pendingFocusUploads';
-import { publishSessionSaveVerdict } from './sessionSaveVerdict';
+import { isTodayVerdict, publishSessionSaveVerdict } from './sessionSaveVerdict';
 import ScreenTimeModule from '@/services/ScreenTimeModule';
 import { useFocus } from '@/store/FocusContext';
 import { useCoins } from '@/store/CoinContext';
@@ -40,7 +40,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { todayStr, localDateStr } from '@/utils/localDate';
+import { todayStr } from '@/utils/localDate';
 import { newBlockToday, creditTick, blockTodaySeconds, type BlockToday } from './blockToday';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -568,10 +568,10 @@ export default function FocusSessionScreen() {
       // 어제 몫까지 오늘로 들어왔다). 몫은 벽시계 겹침이 아니라 집중 tick의 날짜로 센다 —
       // 겹침으로 클램프하면 일시정지가 자정을 걸칠 때 여전히 과다 계상된다(blockToday.ts 주석).
       // 코인은 all-time이라 항상 반영.
-      // 이 블록의 날짜별 집중초 — 서버 업로드엔 KST 축(서버 귀속 축)을 실어 보낸다(GROMO-1252 ①·②).
-      // 로컬 적립은 기기 로컬 축(유저가 보는 '오늘'). 리셋 전에 붙든다.
+      // 이 블록의 날짜별 집중초 — 서버 업로드엔 서버 존 축(프로필 timeZone)을 실어 보낸다
+      // (GROMO-1252 ①·②). 로컬 적립은 기기 로컬 축(유저가 보는 '오늘'). 리셋 전에 붙든다.
       const blockToday = blockTodayRef.current;
-      const focusSecondsByDate = blockToday.kst;
+      const focusSecondsByDate = blockToday.server;
       const todaySeconds = Math.min(delta, blockTodaySeconds(blockToday));
       // 다음 블록은 endedAt부터 — 카운터도 0에서 다시 시작한다. 이탈 스냅샷도 함께 버린다(⑤) —
       // 정산이 이미 이 tick들을 적립했으므로 복귀 리플레이가 스냅샷을 되돌리면 이중 적립이다.
@@ -621,10 +621,11 @@ export default function FocusSessionScreen() {
               // 맞추는 방식은 '진행 중이던 조회가 지급 전인지 후인지'를 앱이 알 수 없어 성립하지
               // 않았다. 조회끼리는 CoinContext 의 시퀀스 가드가 순서를 잡아 준다.
               refreshCoins();
-              // 리플레이가 자정을 넘겨 어제 날짜(endedAt)의 블록을 저장한 응답이면 발행하지
-              // 않는다 — 판정의 '그날 누적'이 어제 기준이라 오늘 판정을 오염시키고, 단조증가
-              // 가드에 걸려 오늘의 진짜 판정까지 막는다(대기열 flush 미발행과 같은 규칙, 코덱스 리뷰).
-              if (localDateStr(new Date(endedAt)) === todayStr()) publishSessionSaveVerdict(res);
+              // 어제 몫으로 귀속된 저장의 응답이면 발행하지 않는다 — 판정의 '그날 누적'이 어제
+              // 기준이라 오늘 판정을 오염시키고, 단조증가 가드에 걸려 오늘의 진짜 판정까지 막는다
+              // (대기열 flush 미발행과 같은 규칙). 판정 날짜는 endedAt이 아니라 서버가 실제로 쓴
+              // 분포 맵의 마지막 날짜다(GROMO-1252 4차 ④ — isTodayVerdict 주석).
+              if (isTodayVerdict(focusSecondsByDate, endedAt)) publishSessionSaveVerdict(res);
             },
             // 저장 실패 — 대기열행(발행 없음). 결과 화면은 기존 추정 판정으로 폴백.
             () => {

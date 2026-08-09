@@ -23,6 +23,7 @@ import { recordAccessDay } from '@/services/storeReview';
 import { occupationForCategory, categoryForOccupation } from '@/constants/focusCategories';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { runStorageMigrations } from '@/utils/storageMigration';
+import { setServerZone } from '@/utils/serverZone';
 import { markOtaSplashShown } from '@/utils/otaGate';
 import { preloadTapSound } from '@/utils/sound';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -163,8 +164,12 @@ function App() {
       }
       const data = JSON.parse(raw) as UserProfile;
       const userId = getUserIdFromToken(data.accessToken ?? '');
+      // 서버 날짜 버킷 존(GROMO-1252) — 캐시된 프로필로 먼저 세운다. 프로필 조회가 실패(오프라인)해도
+      // 지난 실행에서 받은 존이 유지되고, 한 번도 못 받았으면 모듈 폴백(Asia/Seoul)이 남는다.
+      setServerZone(data.timeZone);
       try {
         const profile = await getMyProfile();
+        setServerZone(profile.timeZone);
         const merged = { ...data, ...profile };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
@@ -322,6 +327,7 @@ function App() {
     setOnboarded(true);
     try {
       const profile = await getMyProfile();
+      setServerZone(profile.timeZone); // 서버 날짜 버킷 존(GROMO-1252)
       const merged = { ...data, ...profile };
       await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
       setUser({ ...merged, userId });
