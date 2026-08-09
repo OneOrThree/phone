@@ -185,3 +185,13 @@ describe('HomeScreen 진입 stagger', () => {
     expect(screen.getByText('공부 집중')).toBeTruthy();
   });
 });
+
+describe('HomeScreen 캐릭터', () => {
+  test('메인 캐릭터(216)만 호흡 래퍼로 감싼다 — 프로필 아바타는 그대로다', async () => {
+    await render(<HomeScreen />);
+    expect(screen.getByTestId('home.character')).toBeTruthy();
+    // 상단 프로필 아바타(38)는 s.avatar의 overflow:'hidden' 안이라 호흡을 붙이면 잘린다.
+    // 화면에 호흡 래퍼는 정확히 하나여야 한다(무한 루프 화면당 1개 상한).
+    expect(screen.getAllByTestId('home.character')).toHaveLength(1);
+  });
+});

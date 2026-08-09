@@ -37,6 +37,7 @@ import ScreenTimeModule, {
   type AuthorizationStatus,
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
@@ -612,7 +613,15 @@ export default function HomeScreen() {
 
           {/* ── 방 + 캐릭터 ── (진입 stagger 1) */}
           <Animated.View style={[s.room, enter(1)]}>
-            <CharacterImage size={216} sourceUri={activeSource ?? undefined} />
+            {/* 메인 캐릭터만 호흡한다(GROMO-1381). s.room은 클리핑이 없어 scaleY 1.025가 잘리지
+                않는다 — 위 프로필 아바타(s.avatar, overflow:'hidden' 44px)는 여유가 3px뿐이라
+                호흡을 붙이면 머리·발이 잘려 떨리는 것처럼 보인다. 그래서 그쪽은 정적 그대로 둔다.
+                reduce 처리는 컴포넌트 안에 있으므로 호출부에서 다시 분기하지 않는다. */}
+            <AnimatedCharacter
+              testID="home.character"
+              size={216}
+              sourceUri={activeSource ?? undefined}
+            />
             {/* 캐릭터 변경 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
             <PressableScale
               style={s.changeCharBtn}

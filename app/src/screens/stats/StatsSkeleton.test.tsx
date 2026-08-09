@@ -52,6 +52,19 @@ describe('StatsSkeleton', () => {
     expect(byKey.get('firstStart')).toBeGreaterThan(byKey.get('delta') as number);
   });
 
+  // 무한 루프는 **화면당 1개**여야 한다 — 카드마다 펄스를 걸면 9개가 동시에 돈다(codex 리뷰).
+  // 재생 자체가 아니라 '어디에 걸려 있는가'만 본다(타이밍·중간 프레임은 단언하지 않는다).
+  test('펄스는 묶음 한 겹에만 걸리고 카드들은 정적으로 그려진다', async () => {
+    await render(<StatsSkeleton period="WEEK" />);
+    // reanimated가 호스트 뷰 style에서 CSS 애니메이션 프로퍼티를 걷어가므로 jestInlineStyle로 본다
+    const inline = (testID: string) =>
+      StyleSheet.flatten(screen.getByTestId(testID, HIDDEN).props.jestInlineStyle);
+    expect(inline('stats.skeleton').animationName).toBeDefined();
+    for (const c of skeletonCards('WEEK')) {
+      expect(inline(`stats.skeleton.${c.key}`).animationName).toBeUndefined();
+    }
+  });
+
   test('스크린리더 포커스에서 제외된다 — 내용 없는 자리표시자다', async () => {
     await render(<StatsSkeleton period="DAY" />);
     expect(screen.queryByTestId('stats.skeleton.total')).toBeNull();
