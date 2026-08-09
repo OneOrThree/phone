@@ -24,18 +24,29 @@ diagrams** per feature — live in the repo-root `docs/prd/<feature>/` (tracked 
 git; see `docs/README.md`). Anything meant for teammates goes there, not in the
 local-only folders below.
 
+**앱 기능 설계서는 전부 여기로 이관됐다 (2026-08-09)** — `currency` · `focus-session` ·
+`group-carousel` · `league` · `object-character` · `onboarding` · `screentime`. 새 기능
+설계서도 `docs/prd/<기능-영문-kebab>/`에 만든다. 4종을 한 파일로 합칠 때는 **기능 이름을
+딴 파일명**(`screentime.md`) — `design.md` 금지. 문서 브랜치는 `doc/` 프리픽스.
+
 ### Planning/design reference docs (`app/.docs/`)
 
 Original planning/design source docs live in `app/.docs/`. **This folder is in `.gitignore`
 (local-only)** — personal working references, not for external sharing.
 
-| Doc                                      | Purpose                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------ |
-| `MVP_화면설계_브리프.md`                 | Screen-design brief for the design AI (concept, target, screen flow)     |
-| `기능명세.md`                            | Feature spec (screen/feature definitions; was `app/.claude/기능명세.md`) |
-| `01-information-architecture.drawio.xml` | Information architecture (IA) diagram (draw.io)                          |
+**[`app/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
+Folder map (그 README가 정본, 이 표는 요약):
 
-> When you receive a new planning/design source doc, put it in `app/.docs/` and add a row above.
+| Folder             | Purpose                                                                         |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `features/`        | 이관 후 잔여분(`challenge/` as-is 판)만 남음 — 기능 설계서는 팀 공유 `docs/prd/<기능>/`가 정본 |
+| `product/`         | Product-wide planning — 기획서, 기능명세, IA diagram, user funnel, event taxonomy |
+| `qa/` · `ops/`     | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)        |
+| `design/` · `marketing/` · `store/` · `presentations/` · `troubleshooting/` | 시안 · 마케팅 · 스토어 · 발표자료 · 트러블슈팅 |
+| `pr/` · `tickets/` · `archive/` | PR 초안 · 티켓 초안 · 지난 문서 보존(현행 아님)                     |
+
+> New docs go in one of these folders — **never at `.docs/` root**. 단 기능 설계서는 예외로
+> 팀 공유 `docs/prd/<기능-영문-kebab>/`에 만든다 (위 섹션).
 
 ### Feature work logs
 
