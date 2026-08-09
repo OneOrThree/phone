@@ -301,12 +301,24 @@ public class FocusService {
         //
         // GROMO-1214 코드리뷰(기기 시계 스큐): 구간 완전일치 검사만으로는 마커 폴백을 못 잡는다. 마커 경로는
         // 서버가 시각을 클램프해 저장하므로, PATCH 가 커밋된 뒤 응답만 유실돼 앱이 POST 로 폴백하면 저장값
-        // (서버 시각)과 폴백 바디(기기 시각)가 어긋나 dedup 을 통과해 버린다. 폴백 바디가 실어 보낸 마커 id 로
-        // '이미 완료된 마커'를 먼저 거른다. 취소·자동마감 마커(SESSION_DISCARDED 폴백)는 COMPLETED 가 아니라
-        // 이 검사에 걸리지 않는다 — 통계 미반영분이라 그대로 새로 저장돼야 맞다.
-        boolean duplicated = (body.getSessionId() != null
+        // (서버 시각)과 폴백 바디(기기 시각)가 어긋나 dedup 을 통과해 버린다. 폴백 바디가 실어 보낸 마커 id 를
+        // 기준으로 거른다.
+        //
+        // GROMO-1214 코드리뷰 2차(원자성): 종전엔 이 판정이 insert 전 **존재 조회**뿐이라, PATCH 가 타임아웃돼
+        // (서버 트랜잭션은 계속 도는 중) 앱이 곧바로 POST 로 폴백하면 조회가 아직 커밋 전인 마커를 ACTIVE 로 보고
+        // 통과했다 — 두 트랜잭션이 나란히 커밋되며 통계·보상이 두 번 들어갔다. 이제 조회 대신 **조건부 UPDATE 로
+        // 마커를 선점**한다(claimMarkerIfActive). 마커 행 잠금이 PATCH 와 이 POST 를 직렬화하므로 순서와 무관하게
+        // 완료는 한 번뿐이다:
+        //   선점 성공(row=1) → 이 POST 가 마커를 CANCELED 로 닫았다. 완료 행은 아래에서 새로 만든다(지급 1회).
+        //   선점 실패(row=0) → 이미 닫힌 마커다. COMPLETED 면 PATCH 가 이겼으므로 저장·통계·지급을 전부 스킵하고,
+        //                      CANCELED/AUTO_CLOSED(SESSION_DISCARDED 폴백)면 통계 미반영분이라 그대로 새로 저장한다.
+        // 잠금 순서는 PATCH(endFocusSession)와 동일하다 — users(공유, requireActiveUser) → focus_sessions 마커 행
+        // → 지갑 → daily_focus_stats. 두 경로가 같은 순서라 교착이 생기지 않는다(GROMO-801 락 규율).
+        boolean markerAlreadyCompleted = body.getSessionId() != null
+                && focusSessionRepository.claimMarkerIfActive(body.getSessionId(), user, now) == 0
                 && focusSessionRepository.existsByIdAndUserAndStatus(
-                        body.getSessionId(), user, FocusSessionStatus.COMPLETED))
+                        body.getSessionId(), user, FocusSessionStatus.COMPLETED);
+        boolean duplicated = markerAlreadyCompleted
                 || focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
                         user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
         if (duplicated) {

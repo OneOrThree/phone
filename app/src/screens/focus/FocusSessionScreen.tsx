@@ -44,7 +44,7 @@ import { hms } from './format';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { todayStr, localDateStr } from '@/utils/localDate';
 import { newBlockToday, creditTick, blockTodaySeconds } from './blockToday';
-import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds } from './blockPause';
+import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds, pauseCutAt } from './blockPause';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
 import { occupationForCategory } from '@/constants/focusCategories';
@@ -132,6 +132,11 @@ export default function FocusSessionScreen() {
   // Live Activity 시작 시점에 읽을 과목 목록 — effect 재실행 없이 최신값 참조용
   const subjectsRef = useRef(subjects);
   subjectsRef.current = subjects;
+  // 마커 취소·대기열 재시도에 실어 보낼 소유 계정(GROMO-1214 코드리뷰 2차) — 취소 대기열이 계정
+  // 스코프를 갖게 되면서 필요해졌다. ref로 두는 이유: cancelLiveSession·finish 같은 안정 콜백의
+  // 의존성에 userId를 넣으면 세션 중 계정이 바뀔 때 언마운트 클린업이 돌아 마커가 조기 취소된다.
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
 
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -324,7 +329,7 @@ export default function FocusSessionScreen() {
   const startLiveSession = useCallback(
     (startedAt: string) => {
       // 회전 시점 = 연결이 살아있을 가능성이 큰 시점 — 밀린 취소부터 재시도(코덱스 리뷰)
-      flushPendingMarkerCancels().catch(() => {});
+      flushPendingMarkerCancels(userIdRef.current).catch(() => {});
       const promise = ensureFocusTagId(subjectName, userId)
         .catch(() => null)
         .then((focusTagId) =>
@@ -515,11 +520,13 @@ export default function FocusSessionScreen() {
     liveIdRef.current = null;
     liveStartPromiseRef.current = Promise.resolve(null);
     livePromise
-      .then((sessionId) => (sessionId != null ? cancelMarker(sessionId) : undefined))
+      .then((sessionId) =>
+        sessionId != null ? cancelMarker(sessionId, userIdRef.current) : undefined,
+      )
       // 이 취소의 성패가 확정된 뒤 밀린 취소를 재시도 — finish의 flush가 진행 중이던 마지막
       // 취소보다 먼저 돌아 실패분을 놓치는 순서 경합 방지(코덱스 리뷰). 체인은 언마운트 후에도
       // 살아 있어 정지 직후 화면을 떠나도 재시도가 한 번은 돈다.
-      .then(() => flushPendingMarkerCancels())
+      .then(() => flushPendingMarkerCancels(userIdRef.current))
       .catch(() => {});
   }, []);
 
@@ -562,10 +569,15 @@ export default function FocusSessionScreen() {
       const elapsed = Math.floor(sessionRef.current.elapsed);
       const delta = elapsed - settledSecondsRef.current;
       if (delta <= 0) return;
-      const endedAt = endedAtOverride ?? new Date().toISOString();
+      // 24시간을 넘긴 일시정지는 방해값(서버 DTO 상한 24h)으로 실을 수 없다 — 값만 자르면 초과분이
+      // 통째로 집중으로 계상된다(blockPause.ts pauseCutAt 주석). 그런 블록은 '지금'이 아니라
+      // 정지 시작 시점에서 끊고, 남은 [정지시작, 지금] 공백은 재개 때 새 블록이 가져간다.
+      const cutAt = pauseCutAt(blockPauseRef.current);
+      const endedAt = endedAtOverride ?? new Date(cutAt ?? Date.now()).toISOString();
       const startedAt = settleAtRef.current;
-      // 이 블록의 방해초 — 아직 안 닫힌 정지 구간(정지 중 정지 버튼으로 종료)까지 포함한다.
-      const totalDistractionSeconds = blockPauseSeconds(blockPauseRef.current);
+      // 이 블록의 방해초 — 아직 안 닫힌 정지 구간(정지 중 정지 버튼으로 종료)까지 포함하되,
+      // 구간 끝(endedAt)까지만 센다.
+      const totalDistractionSeconds = blockPauseSeconds(blockPauseRef.current, Date.parse(endedAt));
       const distractionCount = blockPauseRef.current.count;
       // 마커·레코드를 적립보다 먼저 갱신 — 적립 후 제거 전에 죽으면 고아 정산이 또 적립한다(원 finish와 동일 순서).
       settledSecondsRef.current = elapsed;
@@ -630,7 +642,9 @@ export default function FocusSessionScreen() {
             sessionId,
             body,
             userId,
-            onMarkerStillOpen: cancelMarker,
+            onMarkerStillOpen: (id) => {
+              cancelMarker(id, userIdRef.current).catch(() => {});
+            },
           }).then((result) => {
             // 저장 실패(대기열행)면 발행 없음 — 결과 화면은 기존 추정 판정으로 폴백.
             if (result.status !== 'saved') return;
@@ -707,7 +721,7 @@ export default function FocusSessionScreen() {
         // 완료·중도 정지 공통 — 표시용 마커는 여기서 항상 취소로 닫는다(GROMO-873).
         cancelLiveSession();
         // 화면을 떠나기 전 마지막 재시도 — 회전 중 실패해 쌓인 취소가 있으면 지금 정리(코덱스 리뷰)
-        flushPendingMarkerCancels().catch(() => {});
+        flushPendingMarkerCancels(userIdRef.current).catch(() => {});
       } finally {
         // 정산 성공 여부와 무관하게 화면은 반드시 빠져나간다 —
         // 집중 결과 화면(GROMO-598)으로 replace, 길이 무관 항상 결과 화면을 보여준다.
@@ -842,7 +856,7 @@ export default function FocusSessionScreen() {
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
       // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
-      flushPendingMarkerCancels().catch(() => {});
+      flushPendingMarkerCancels(userIdRef.current).catch(() => {});
       if (__DEV__)
         console.log(`[이탈감지] ${away}초 만에 복귀 (실드 ${shieldedRef.current ? 'ON' : 'OFF'})`);
       if (sessionRef.current.done || finishedRef.current) return;
@@ -970,6 +984,18 @@ export default function FocusSessionScreen() {
       // 자체를 재개 시점으로 밀어 이미 제외되므로, 방해초로 또 빼면 이중 차감이다.
       blockPauseRef.current = pauseStart(blockPauseRef.current);
       logFocusSessionPaused({ elapsed_seconds: Math.floor(sessionRef.current.elapsed) });
+    } else if (pauseCutAt(blockPauseRef.current) != null) {
+      // 24시간을 넘긴 정지에서 재개 — 방해값으로 실을 수 없는 구간이라 블록 자체를 끊는다
+      // (blockPause.ts pauseCutAt 주석). 정산은 정지 시작 시점까지만 올리고, 재개 시점부터
+      // 새 블록·새 마커를 연다. 정지 구간은 어느 블록에도 안 들어가 집중으로 계상되지 않는다.
+      const resumedAt = new Date().toISOString();
+      settleFocusBlock();
+      // 정산할 델타가 0이면 위 정산이 마커를 회전하지 않는다 — 참조를 덮어쓰기 전에 닫는다(회전했으면 no-op).
+      cancelLiveSession();
+      startBlockAt(resumedAt);
+      blockPauseRef.current = newBlockPause(); // 열린 정지 구간은 새 블록으로 넘기지 않는다
+      startLiveSession(settleAtRef.current);
+      logFocusSessionResumed();
     } else {
       blockPauseRef.current = pauseEnd(blockPauseRef.current);
       // 일시정지 대기로 유예해둔 다음 블록 마커 — 실제 집중이 시작되는 재개 시점부터 연다.
@@ -981,7 +1007,7 @@ export default function FocusSessionScreen() {
       }
       logFocusSessionResumed();
     }
-  }, [startLiveSession, startBlockAt]);
+  }, [startLiveSession, startBlockAt, settleFocusBlock, cancelLiveSession]);
 
   // 정지 버튼(사용자 수동 종료) — 유저가 직접 마친 세션이므로 모드 무관 completed로 계측한다
   // (GROMO-1004, abandoned는 이탈 타임아웃 전용 — finish 안에서 발행). completed 인자는 별점

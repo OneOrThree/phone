@@ -10,6 +10,8 @@ import {
   pauseStart,
   pauseEnd,
   blockPauseSeconds,
+  pauseCutAt,
+  MAX_DISTRACTION_SECONDS,
   type BlockPause,
 } from './blockPause';
 
@@ -71,4 +73,43 @@ test('중복 정지 시작은 무시한다 — 기준 시각이 밀려 방해초
 test('서버 검증 상한(24h)으로 자른다 — 넘기면 400이라 업로드가 영영 실패한다', () => {
   const b = pauseStart(newBlockPause(undefined, T0), T0);
   expect(blockPauseSeconds(b, T0 + 48 * 3600 * 1000)).toBe(24 * 3600);
+});
+
+// ── 24시간 초과 일시정지 = 업로드 구간을 끊는다 (코드리뷰 2차 ②) ──────────────
+//
+// 값만 상한으로 자르면 업로드 구간은 그대로라 초과분이 서버에서 통째로 집중이 된다:
+// 36시간 정지 + 타이머 진행 0이면 36h − 24h = 12h 집중 = 720코인 캡. 그래서 정산 블록을
+// 정지 시작 시점에서 끊고 재개 시점에 새 블록을 연다.
+
+test('상한 이내 정지는 끊지 않는다(null) — 종전 동작 유지', () => {
+  const b = pauseStart(newBlockPause(undefined, T0), T0 + 60_000);
+  expect(pauseCutAt(b, T0 + 60_000 + 23 * 3600 * 1000)).toBeNull();
+});
+
+test('정지 중이 아니면 끊을 일이 없다(null)', () => {
+  const b = pauseEnd(pauseStart(newBlockPause(undefined, T0), T0), T0 + 600_000);
+  expect(pauseCutAt(b, T0 + 900_000)).toBeNull();
+});
+
+// 이 테스트가 이 항목의 핵심 — 36시간 정지가 12시간 집중으로 둔갑하지 않는지.
+test('24h 초과 정지는 정지 시작 시각에서 블록을 끊어 초과분이 집중으로 안 남는다', () => {
+  const pausedAt = T0 + 60_000; // 1분 집중 후 정지
+  const b = pauseStart(newBlockPause(undefined, T0), pausedAt);
+  const resumedAt = pausedAt + 36 * 3600 * 1000; // 36시간 뒤 재개
+
+  const cut = pauseCutAt(b, resumedAt);
+  expect(cut).toBe(pausedAt);
+
+  // 서버가 받는 구간 = [블록시작, cut] — 방해초를 빼고 남는 게 곧 집중으로 계상된다.
+  const uploadedSeconds = ((cut ?? resumedAt) - T0) / 1000;
+  const distraction = blockPauseSeconds(b, cut ?? resumedAt);
+  expect(distraction).toBeLessThanOrEqual(MAX_DISTRACTION_SECONDS); // DTO 상한 통과
+  expect(uploadedSeconds - distraction).toBe(60); // 실제 집중 1분 그대로 — 12h가 아니다
+});
+
+test('여러 번 정지해 누적이 24h를 넘겨도 끊는다 — 클램프로 초과분이 새지 않게', () => {
+  let b: BlockPause = newBlockPause(undefined, T0);
+  b = pauseEnd(pauseStart(b, T0), T0 + 20 * 3600 * 1000); // 20시간 정지
+  b = pauseStart(b, T0 + 21 * 3600 * 1000); // 다시 정지
+  expect(pauseCutAt(b, T0 + 26 * 3600 * 1000)).toBe(T0 + 21 * 3600 * 1000); // 누적 25h > 24h
 });

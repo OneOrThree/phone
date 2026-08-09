@@ -915,13 +915,19 @@ class FocusServiceTest {
      * <p>기기 시계가 서버와 어긋나면 서버가 클램프해 저장한 마커 구간(서버 시각)과 폴백 바디의
      * 타임스탬프(기기 시각)가 달라 (startedAt, endedAt) 완전일치 검사를 그대로 빠져나간다 —
      * PATCH 가 커밋됐는데 응답만 유실된 폴백에서 통계·코인이 두 번 들어갔다.
+     *
+     * <p>코드리뷰 2차(원자성) — 판정의 1단계는 이제 존재 조회가 아니라 <b>조건부 UPDATE 선점</b>이다.
+     * PATCH 가 먼저 마커를 닫았으면 선점이 0 을 돌려주고(행 잠금 덕에 커밋 순서와 무관하게 확정적),
+     * 그때만 COMPLETED 여부를 확인해 스킵한다. 이 테스트가 그 '동시 폴백' 케이스다.
      */
     @Test
-    @DisplayName("1214-③: 이미 COMPLETED 인 마커 id 를 실은 POST 폴백 → 구간이 달라도 저장·지급 스킵")
+    @DisplayName("1214-③: PATCH 가 먼저 마커를 닫은 뒤의 동시 POST 폴백 → 선점 실패 → 구간이 달라도 저장·지급 스킵")
     void saveFocusSessionSkipsWhenMarkerAlreadyCompleted() {
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        // 구간 기준 중복 검사는 '스큐 때문에' 못 잡는 상황(스텁 없음 = false) — 마커 id 검사만 걸린다
+        // 선점 실패(row=0) = 마커가 이미 닫혔다. 구간 기준 중복 검사는 '스큐 때문에' 못 잡는 상황(스텁 없음 = false).
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(0);
         given(focusSessionRepository.existsByIdAndUserAndStatus(
                 SESSION_ID, user, FocusSessionStatus.COMPLETED)).willReturn(true);
         given(dailyFocusStatRepository.findByUserAndDate(eq(user), any(LocalDate.class)))
@@ -937,11 +943,13 @@ class FocusServiceTest {
     }
 
     @Test
-    @DisplayName("1214-③: 취소·자동마감 마커의 폴백 POST(마커가 COMPLETED 아님) → 정상 저장·지급")
+    @DisplayName("1214-③: 취소·자동마감 마커의 폴백 POST(선점 실패 + COMPLETED 아님) → 정상 저장·지급")
     void saveFocusSessionSavesWhenMarkerNotCompleted() {
         // SESSION_DISCARDED 폴백 경로 — 그 마커는 통계에 한 번도 반영되지 않았으므로 새로 저장돼야 한다.
         User user = User.builder().id(USER_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(0);   // 이미 닫힌(취소·자동마감) 마커라 선점할 게 없다
         given(focusSessionRepository.existsByIdAndUserAndStatus(
                 SESSION_ID, user, FocusSessionStatus.COMPLETED)).willReturn(false);
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
@@ -952,6 +960,48 @@ class FocusServiceTest {
 
         focusService.saveFocusSession(USER_ID, body);
 
+        verify(focusSessionRepository).save(any(FocusSession.class));
+    }
+
+    /**
+     * 코드리뷰 2차 ① — 마커가 아직 열려 있는 폴백(PATCH 가 네트워크로 죽었거나 재시도 가능한 409 로 롤백된 경우).
+     * POST 가 마커를 선점해 닫고 완료 행을 새로 만든다. 선점이 성사됐으면 '이미 완료됐나' 조회는 볼 필요가 없다 —
+     * 뒤늦게 도착한 PATCH 는 이 선점 때문에 0 행을 받아 통계에 닿지 못하므로 계상은 정확히 1회다.
+     */
+    @Test
+    @DisplayName("1214-①: 마커가 열린 채인 POST 폴백 → 마커를 선점(CANCELED)하고 완료 행을 저장한다")
+    void saveFocusSessionClaimsOpenMarkerBeforeSaving() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
+                .willReturn(1);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0, null, SESSION_ID);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        verify(focusSessionRepository).claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class));
+        verify(focusSessionRepository, never()).existsByIdAndUserAndStatus(any(), any(), any());
+        verify(focusSessionRepository).save(any(FocusSession.class));
+    }
+
+    @Test
+    @DisplayName("1214-①: 마커 id 없는 POST(오프라인 시작)는 선점을 시도하지 않는다 — 구간 중복 검사만")
+    void saveFocusSessionSkipsClaimWithoutMarker() {
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+        given(dailyFocusStatRepository.findByUserAndDateForUpdate(any(), any())).willReturn(Optional.empty());
+        given(dailyFocusStatRepository.save(any(DailyFocusStat.class))).willAnswer(inv -> inv.getArgument(0));
+        given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        FocusSessionRequest body = new FocusSessionRequest(null, START, END, 0);
+
+        focusService.saveFocusSession(USER_ID, body);
+
+        verify(focusSessionRepository, never()).claimMarkerIfActive(any(), any(), any());
         verify(focusSessionRepository).save(any(FocusSession.class));
     }
 

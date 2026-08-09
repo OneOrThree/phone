@@ -201,7 +201,55 @@ describe('PATCH 실패 폴백', () => {
     expect(result).toEqual({ status: 'saved', response: saveRes });
   });
 
-  test('409는 대기열에도 남기지 않는다 — 재시도할 게 없다', async () => {
+  // 코드리뷰 2차 ③ — 재시도 가능한 409를 종결로 처리하면 그 블록의 통계·보상이 영구 유실된다.
+  // 서버는 지갑 낙관락 경쟁·행 잠금 충돌에서 PATCH 트랜잭션을 통째로 롤백하고 CONCURRENT_UPDATE를
+  // 준다(GlobalExceptionHandler) — 아무것도 커밋되지 않았고 마커도 열린 채다.
+  test('409 CONCURRENT_UPDATE(롤백 = 재시도 가능)면 마커 취소를 위임하고 POST로 폴백한다', async () => {
+    mockEnd.mockRejectedValue(axiosError(409, 'CONCURRENT_UPDATE'));
+    mockSave.mockResolvedValue(saveRes);
+    const onMarkerStillOpen = jest.fn();
+
+    const result = await uploadFocusBlock({
+      sessionId: 'marker-1',
+      body: body(),
+      userId: USER,
+      onMarkerStillOpen,
+    });
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(mockSave).toHaveBeenCalledWith({ ...body(), sessionId: 'marker-1' }, USER);
+    expect(onMarkerStillOpen).toHaveBeenCalledWith('marker-1'); // 마커가 열린 채다
+    expect(result).toEqual({ status: 'saved', response: saveRes });
+  });
+
+  test('409 DATA_INTEGRITY_VIOLATION도 재시도 분류 — POST로 폴백한다', async () => {
+    mockEnd.mockRejectedValue(axiosError(409, 'DATA_INTEGRITY_VIOLATION'));
+    mockSave.mockResolvedValue(saveRes);
+
+    const result = await uploadFocusBlock({ sessionId: 'marker-1', body: body(), userId: USER });
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ status: 'saved', response: saveRes });
+  });
+
+  test('재시도 가능한 409에서 POST까지 실패하면 큐로 간다 — 네트워크 실패와 같은 경로', async () => {
+    mockEnd.mockRejectedValue(axiosError(409, 'CONCURRENT_UPDATE'));
+    mockSave.mockRejectedValue(axiosError());
+
+    const result = await uploadFocusBlock({
+      sessionId: 'marker-1',
+      body: body(),
+      userId: USER,
+      onMarkerStillOpen: jest.fn(),
+    });
+
+    expect(result).toEqual({ status: 'queued' });
+    expect(
+      JSON.parse((await AsyncStorage.getItem(STORAGE_KEYS.focusPendingUploads)) ?? '[]'),
+    ).toEqual([{ userId: USER, body: { ...body(), sessionId: 'marker-1' } }]);
+  });
+
+  test('종결(SESSION_ALREADY_ENDED) 409는 대기열에도 남기지 않는다 — 재시도할 게 없다', async () => {
     mockEnd.mockRejectedValue(axiosError(409, 'SESSION_ALREADY_ENDED'));
 
     await uploadFocusBlock({ sessionId: 'marker-1', body: body(), userId: USER });

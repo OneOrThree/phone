@@ -6,12 +6,22 @@
 // 12시간이 날아갔다. 이제 AsyncStorage에 남겨 앱 시작·포그라운드 복귀마다 flush한다
 // (PendingFocusUploader가 세션 업로드 대기열과 같은 시점에 부른다).
 //
-// 계정 스코프는 두지 않는다 — 취소는 적립이 아니라 '내 마커 닫기'라 오귀속될 값이 없고, 계정이
-// 바뀐 뒤 남의 마커를 취소하려 하면 서버가 403으로 막는다(아래 tryCancel이 영구 실패로 보고 버린다).
+// 계정 스코프(GROMO-1214 코드리뷰 2차) — 디바이스 전역 키라서 항목마다 마커를 만든 계정(userId)을
+// 같이 저장하고, **그 계정으로 로그인해 있을 때만** 재시도한다. 종전엔 계정 무관하게 보내고 403을
+// 영구 실패로 보고 버렸는데, 큐는 로그아웃·계정전환에서 비워지지 않아 A로 쌓인 취소가 B 로그인 중
+// 403을 받고 사라졌다 — A의 마커가 A가 다시 로그인해도 12h 스윕까지 '집중 중'으로 남았다.
+// pendingFocusUploads와 달리 다른 계정 항목을 **버리지 않고 보존**한다: 업로드는 잘못 올라가면
+// 통계가 오염되지만, 취소는 그 계정으로 돌아오기만 하면 여전히 유효한 뒷정리다.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { cancelFocusSession } from '@/services/focusApi';
 import { STORAGE_KEYS } from '@/types/storage';
+
+// 큐 항목 — 마커 id와 그 마커를 만든 계정(로그인 UUID 또는 게스트 null).
+interface PendingMarkerCancel {
+  userId: string | null;
+  sessionId: string;
+}
 
 // 무한 적체 방지 상한 — 초과분은 오래된 항목부터 버린다(pendingFocusUploads와 동일 규칙).
 const MAX_PENDING = 50;
@@ -24,45 +34,55 @@ function serialize(task: () => Promise<void>): Promise<void> {
   return chain;
 }
 
-async function readQueue(): Promise<string[]> {
+async function readQueue(): Promise<PendingMarkerCancel[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusPendingCancels);
-    return raw ? (JSON.parse(raw) as string[]) : [];
+    const parsed = raw ? (JSON.parse(raw) as PendingMarkerCancel[]) : [];
+    // 형태가 다른 값(깨진 항목)은 버린다 — sessionId가 없으면 취소할 대상을 알 수 없다.
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => item != null && typeof item.sessionId === 'string')
+      : [];
   } catch {
     return []; // 깨진 값은 버린다
   }
 }
 
-async function writeQueue(ids: string[]): Promise<void> {
-  if (ids.length === 0) await AsyncStorage.removeItem(STORAGE_KEYS.focusPendingCancels);
-  else await AsyncStorage.setItem(STORAGE_KEYS.focusPendingCancels, JSON.stringify(ids));
+async function writeQueue(queue: PendingMarkerCancel[]): Promise<void> {
+  if (queue.length === 0) await AsyncStorage.removeItem(STORAGE_KEYS.focusPendingCancels);
+  else await AsyncStorage.setItem(STORAGE_KEYS.focusPendingCancels, JSON.stringify(queue));
 }
 
 // 취소 1건 시도 — 재시도할 필요가 없으면(= 큐에서 빼도 되면) true.
-// 성공(204)은 물론, 4xx도 재시도로 풀리지 않으므로 버린다: 409(이미 종료/취소 — 목적 달성),
-// 404(마커 소실), 403(계정 전환). 네트워크 실패·5xx만 큐에 남겨 다음 기회에 다시 보낸다.
+// 성공(204)은 물론, 재시도로 풀리지 않는 4xx도 버린다: 409(이미 종료/취소 — 목적 달성), 404(마커 소실).
+// **403은 예외** — 큐 항목이 소유 계정으로만 재시도되므로 여기서의 403은 일시적 배선 문제(토큰 갱신
+// 지연 등)일 수 있다. 종결로 보면 마커가 12h 스윕까지 열린 채 남으므로 큐에 남겨 다음 기회를 기다린다.
+// 네트워크 실패·5xx도 마찬가지로 남긴다.
 async function tryCancel(sessionId: string): Promise<boolean> {
   try {
     await cancelFocusSession({ sessionId });
     return true;
   } catch (e) {
     const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-    return status != null && status >= 400 && status < 500;
+    return status != null && status >= 400 && status < 500 && status !== 403;
   }
 }
 
 // 마커 1건을 취소로 닫는다. 실패하면 대기열에 남겨 다음 실행·포그라운드 복귀에 재시도한다.
 // PATCH 종료가 실패해 마커가 열린 채 남았을 때 uploadFocusBlock이 부르는 뒤처리 지점이기도 하다.
-export async function cancelMarker(sessionId: string): Promise<void> {
-  if (!(await tryCancel(sessionId))) await enqueuePendingMarkerCancel(sessionId);
+// userId는 이 마커를 만든 계정 — 재시도를 그 계정으로 제한하는 데 쓴다.
+export async function cancelMarker(sessionId: string, userId: string | null): Promise<void> {
+  if (!(await tryCancel(sessionId))) await enqueuePendingMarkerCancel(sessionId, userId);
 }
 
-// 취소 실패한 마커 id를 대기열에 추가(같은 id는 한 번만).
-export function enqueuePendingMarkerCancel(sessionId: string): Promise<void> {
+// 취소 실패한 마커를 대기열에 추가(같은 id는 한 번만).
+export function enqueuePendingMarkerCancel(
+  sessionId: string,
+  userId: string | null,
+): Promise<void> {
   return serialize(async () => {
     const queue = await readQueue();
-    if (queue.includes(sessionId)) return;
-    queue.push(sessionId);
+    if (queue.some((item) => item.sessionId === sessionId)) return;
+    queue.push({ userId: userId ?? null, sessionId });
     await writeQueue(queue.slice(-MAX_PENDING));
   });
 }
@@ -72,25 +92,27 @@ export function enqueuePendingMarkerCancel(sessionId: string): Promise<void> {
 let flushing = false;
 
 // 대기열 재시도 — 3단계 구조(락 안 스냅샷 → 락 밖 전송 → 락 안 재조정)도 pendingFocusUploads와 같다.
-export async function flushPendingMarkerCancels(): Promise<void> {
+// currentUserId는 현재 로그인 계정. 소유 계정이 다른 항목은 보내지 않고 큐에 그대로 둔다.
+export async function flushPendingMarkerCancels(currentUserId: string | null): Promise<void> {
   if (flushing) return;
   flushing = true;
   try {
-    let snapshot: string[] = [];
+    let snapshot: PendingMarkerCancel[] = [];
     await serialize(async () => {
       snapshot = await readQueue();
     });
-    if (snapshot.length === 0) return;
+    const mine = snapshot.filter((item) => item.userId === currentUserId);
+    if (mine.length === 0) return;
 
     const settled: string[] = [];
-    for (const sessionId of snapshot) {
-      if (await tryCancel(sessionId)) settled.push(sessionId);
+    for (const item of mine) {
+      if (await tryCancel(item.sessionId)) settled.push(item.sessionId);
     }
     if (settled.length === 0) return;
 
     await serialize(async () => {
       const queue = await readQueue();
-      await writeQueue(queue.filter((id) => !settled.includes(id)));
+      await writeQueue(queue.filter((item) => !settled.includes(item.sessionId)));
     });
   } finally {
     flushing = false;

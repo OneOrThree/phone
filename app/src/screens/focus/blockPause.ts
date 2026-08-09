@@ -41,9 +41,27 @@ export function pauseEnd(state: BlockPause, at: number = Date.now()): BlockPause
   };
 }
 
+// 서버 DTO 검증 상한 — totalDistractionSeconds 는 0 이상 24시간 이하여야 한다(넘기면 400).
+export const MAX_DISTRACTION_SECONDS = 24 * 3600;
+
 // 이 블록의 방해 초 — 아직 안 닫힌 구간(정지 중 정지 버튼으로 종료)까지 포함한다.
-// 서버 검증 상한(0 이상 24시간 이하)으로 자른다 — 넘기면 400이라 업로드가 대기열에서 영영 실패한다.
+// 상한으로 자르는 건 최후 방어일 뿐이다 — 상한을 넘는 정지는 아래 pauseCutAt 이 업로드 구간
+// 자체를 끊어 애초에 여기까지 오지 않는다.
 export function blockPauseSeconds(state: BlockPause, at: number = Date.now()): number {
   const openMs = state.startedAt != null ? Math.max(0, at - state.startedAt) : 0;
-  return Math.min(24 * 3600, Math.round((state.pausedMs + openMs) / 1000));
+  return Math.min(MAX_DISTRACTION_SECONDS, Math.round((state.pausedMs + openMs) / 1000));
+}
+
+// 업로드 구간을 끊어야 하는 시각 — 이 블록의 방해 총합이 DTO 상한을 넘기면 진행 중인 정지의
+// **시작 시각**을, 아니면 null(끊을 필요 없음)을 준다 (GROMO-1214 코드리뷰 2차).
+//
+// 왜 자르는 대신 끊나: blockPauseSeconds 로 값만 상한에 맞추면 업로드 구간 [startedAt, endedAt]은
+// 그대로라 초과분이 서버에서 통째로 집중이 된다 — 36시간 정지에 타이머 진행 0이어도 서버는
+// 36h − 24h = 12h 집중으로 계산해 720코인 캡까지 지급한다(돈 경로). 정산 블록을 정지 시작
+// 시점에서 닫고 재개 시점에 새 블록을 열면 서버가 받는 구간 안에 24h 초과 공백이 남지 않는다.
+export function pauseCutAt(state: BlockPause, at: number = Date.now()): number | null {
+  const { startedAt, pausedMs } = state;
+  if (startedAt == null) return null;
+  const totalSeconds = (pausedMs + Math.max(0, at - startedAt)) / 1000;
+  return totalSeconds > MAX_DISTRACTION_SECONDS ? startedAt : null;
 }

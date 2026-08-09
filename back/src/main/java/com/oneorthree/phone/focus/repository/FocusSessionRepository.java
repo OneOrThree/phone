@@ -156,6 +156,22 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     @Query("SELECT s.status FROM FocusSession s WHERE s.id = :id")
     Optional<FocusSessionStatus> findStatusById(@Param("id") UUID id);
 
+    // 원자적 마커 선점(GROMO-1214 코드리뷰 2차) — POST 폴백이 '이 마커에 대해 완료 행을 만든다'를 claim 한다.
+    // 위 existsByIdAndUserAndStatus 는 insert 전 **존재 조회**일 뿐이라, PATCH 가 타임아웃돼 앱이 곧바로 POST 로
+    // 폴백하면 아직 커밋 전인 PATCH 를 못 보고(ACTIVE) 통과해 두 완료 행이 나란히 커밋됐다(통계·지급 이중 계상).
+    // 조건부 UPDATE 는 마커 행 잠금으로 두 경로를 직렬화한다 — PATCH 가 진행 중이면 여기서 대기하다 커밋 후
+    // ended_at IS NULL 재평가에 걸려 0 을 반환하고(→ 호출측이 COMPLETED 를 확인해 스킵), 반대로 이 UPDATE 가
+    // 먼저 성사되면 뒤늦은 PATCH 가 0 행으로 409 를 받아 통계에 닿지 못한다.
+    // cancelSessionIfActive 와 같은 결(취소로 마감)이지만 **user 조건이 붙는다** — 폴백 바디의 sessionId 는
+    // 클라 입력이라, 소유 검사가 없으면 남의 진행 중 세션을 취소시킬 수 있다.
+    @Modifying
+    @Query("UPDATE FocusSession s "
+            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED, "
+            + "s.endedAt = :canceledAt "
+            + "WHERE s.id = :id AND s.user = :user AND s.endedAt IS NULL")
+    int claimMarkerIfActive(@Param("id") UUID id, @Param("user") User user,
+                            @Param("canceledAt") Instant canceledAt);
+
     // 원자적 조건부 orphan 자동 종료(GROMO-804) — 아직 미종료(endedAt IS NULL)인 경우에만 AUTO_CLOSED 로 마감한다.
     // 반환값(영향 row 수)이 1이면 이 스윕이 종료를 성사시킨 것이고, 0이면 그 사이 유저 PATCH(endSessionIfActive)가
     // 먼저 완료해 이미 통계에 반영된 세션이다. 엔티티 autoClose() 더티 라이트는 이 경합에서 완료된 세션의 endedAt·status 를

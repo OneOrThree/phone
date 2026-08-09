@@ -41,7 +41,8 @@ export type UploadFocusBlockResult =
 //       화면에 '집중 중'이 서버 고아 스윕(12h)까지 남는다. 409(이미 마감)면 부르지 않는다.
 //
 // POST 폴백을 쓰는 경우: 마커 id가 애초에 없을 때(오프라인 시작), 404(마커 소실), 네트워크·서버 오류,
-// 그리고 409 중 SESSION_DISCARDED(취소·자동마감된 마커) — 아래 catch의 주석 참고.
+// 그리고 409 중 SESSION_ALREADY_ENDED가 아닌 것 전부(폐기 마커 SESSION_DISCARDED + 재시도 가능한
+// CONCURRENT_UPDATE 등) — 아래 catch의 주석 참고.
 export async function uploadFocusBlock(opts: {
   sessionId: string | null;
   body: FocusSessionRequest;
@@ -64,27 +65,33 @@ export async function uploadFocusBlock(opts: {
         return { status: 'saved', response };
       } catch (e) {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-        if (status === 409) {
-          // 409는 두 가지다 — 서버가 에러 코드로 갈라 준다(GROMO-1214 코드리뷰).
-          //
-          //   SESSION_DISCARDED (취소·자동마감된 마커): 통계·코인에 **한 번도 반영되지 않은** 마커다
-          //     (집계 관례가 status NOT IN (CANCELED, AUTO_CLOSED)). 안드로이드 시스템 뒤로가기의
-          //     언마운트 취소는 고아 정산을 위해 로컬 레코드를 일부러 남기는데, 4분 안에 재실행하면
-          //     OrphanFocusSettler가 그 취소된 마커에 PATCH를 쏜다 — 여기서 성공 처리하면 그 세션의
-          //     서버 통계·코인이 영구 유실된다. 아래 POST로 폴백해 시간을 살린다(이중 지급 아님).
-          //     마커는 이미 닫혀 있으므로 취소 위임(onMarkerStillOpen)은 하지 않는다.
-          //
-          //   그 외(SESSION_ALREADY_ENDED, 그리고 코드가 없는 구버전 서버): 이미 완료된 마커 =
-          //     통계·코인이 이미 커밋됐다(응답만 유실된 이중 PATCH 포함). **폴백 금지** — 새 세션 행이
-          //     생겨 지급 멱등키가 갈리고 코인·통계가 두 번 들어간다. 유저에게 에러도 띄우지 않는다.
-          const code = axios.isAxiosError(e)
-            ? (e.response?.data as { code?: string } | undefined)?.code
-            : undefined;
-          if (code !== 'SESSION_DISCARDED') return { status: 'alreadyEnded' };
-        } else {
-          // 그 외 실패는 마커가 열린 채일 수 있어 취소를 위임하고, 아래 POST로 폴백한다.
-          onMarkerStillOpen?.(sessionId);
+        const code = axios.isAxiosError(e)
+          ? (e.response?.data as { code?: string } | undefined)?.code
+          : undefined;
+        // 409는 **세 갈래**다 — 서버 에러 코드로 가른다(GROMO-1214 코드리뷰 2차).
+        //
+        //   종결 — SESSION_ALREADY_ENDED (그리고 코드가 없는 구버전 서버 응답): 이미 완료된 마커 =
+        //     통계·코인이 이미 커밋됐다(응답만 유실된 이중 PATCH 포함). **폴백 금지** — 새 세션 행이
+        //     생겨 지급 멱등키가 갈리고 코인·통계가 두 번 들어간다. 유저에게 에러도 띄우지 않는다.
+        //
+        //   폐기라 폴백 — SESSION_DISCARDED (취소·자동마감된 마커): 통계·코인에 **한 번도 반영되지 않은**
+        //     마커다(집계 관례가 status NOT IN (CANCELED, AUTO_CLOSED)). 안드로이드 시스템 뒤로가기의
+        //     언마운트 취소는 고아 정산을 위해 로컬 레코드를 일부러 남기는데, 4분 안에 재실행하면
+        //     OrphanFocusSettler가 그 취소된 마커에 PATCH를 쏜다 — 여기서 성공 처리하면 그 세션의
+        //     서버 통계·코인이 영구 유실된다. 아래 POST로 폴백해 시간을 살린다(이중 지급 아님).
+        //     마커는 이미 닫혀 있으므로 취소 위임(onMarkerStillOpen)은 하지 않는다.
+        //
+        //   재시도 — 그 외 409: GlobalExceptionHandler가 '트랜잭션이 통째로 롤백됐으니 재시도하면 풀린다'고
+        //     명시한 코드들이다(CONCURRENT_UPDATE = 지갑 낙관락·행 잠금 충돌, DATA_INTEGRITY_VIOLATION =
+        //     제약 위반, ILLEGAL_ARGUMENT). 아무것도 커밋되지 않았고 마커도 열린 채다 — 종결로 보면 그 블록의
+        //     통계·보상이 서버 스윕(12h)까지 영구 유실된다. 네트워크 실패와 같은 경로로 보낸다
+        //     (취소 위임 + POST 폴백 + 실패 시 큐 적재). 폴백 POST는 마커 id를 실어 보내고 서버가 그 id로
+        //     마커를 원자적으로 선점하므로, 설령 PATCH가 실제로는 커밋돼 있었더라도 이중 계상되지 않는다.
+        if (status === 409 && (code == null || code === 'SESSION_ALREADY_ENDED')) {
+          return { status: 'alreadyEnded' };
         }
+        // 마커가 열린 채일 수 있으면 취소를 위임한다(폐기 마커는 이미 닫혀 있어 제외). 어느 쪽이든 POST로 폴백.
+        if (!(status === 409 && code === 'SESSION_DISCARDED')) onMarkerStillOpen?.(sessionId);
       }
     } else {
       // 클램프 창 밖 — PATCH를 안 태우므로 마커는 종전대로 취소로 닫는다.

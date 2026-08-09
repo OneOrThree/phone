@@ -23,7 +23,8 @@ export function PendingFocusUploader() {
         .catch(() => {});
       // 취소 실패로 열린 채 남은 라이브 마커도 같은 시점에 닫는다(GROMO-1214 코드리뷰) — 화면(세션)은
       // 이미 떠났으므로 여기 말고는 재시도할 곳이 없고, 방치하면 친구 화면에 12h(서버 스윕)까지 '집중 중'.
-      flushPendingMarkerCancels().catch(() => {});
+      // 대기열과 같은 계정 스코프 — 다른 계정이 남긴 취소는 보내지 않고 그 계정이 돌아올 때까지 보존한다.
+      flushPendingMarkerCancels(userId).catch(() => {});
     };
     flush();
     const sub = AppState.addEventListener('change', (state) => {
