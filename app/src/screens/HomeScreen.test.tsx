@@ -1,0 +1,187 @@
+// HomeScreen 모션 배선 테스트(GROMO-1381) — 잠그는 것은 **값이 어디로 흘러가는가**다.
+//   ① 오늘 카드의 목표 대비 진행률이 ProgressBar에 그대로 전달된다(치수는 기존 바를 승계).
+//   ② 목표를 넘긴 값도 호출부에서 자르지 않는다 — 클램프 규칙은 ProgressBar 한 곳에만 산다.
+//   ③ 코인·스트릭 숫자는 AnimatedNumber가 그리되 단위 텍스트('연속 공부 … 일')는 그대로 읽힌다.
+//   ④ 진입 stagger가 접근성 트리·문구를 바꾸지 않는다(카드 컨테이너를 Animated.View로 바꾼 것뿐).
+// 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다 — jest에서 워클릿은 목이라 거짓 안정감이다.
+import { render, screen, waitFor } from '@testing-library/react-native';
+import HomeScreen from './HomeScreen';
+
+jest.mock('react-native-safe-area-context', () => {
+  const { View: RNView } = require('react-native');
+  return {
+    ...jest.requireActual('react-native-safe-area-context'),
+    useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
+    SafeAreaView: RNView,
+  };
+});
+
+// ⚠️ navigation 객체는 **모듈 스코프에 한 번만** 만든다. 렌더마다 새 객체를 돌려주면
+//    checkGoalCelebration(useCallback deps에 navigation)이 매번 새로 생겨 포커스 이펙트가
+//    다시 돌고, 그 안의 setReportRefresh가 또 렌더를 부른다 → 무한 루프.
+const mockNavigation = { navigate: jest.fn(), isFocused: () => true };
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => mockNavigation,
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(() => cb(), [cb]);
+  },
+}));
+
+// ── 데이터 원천 ── 화면이 그리는 값만 제어하고 나머지는 무해한 기본값으로 막는다
+let mockCoins = 0;
+let mockStreak = 0;
+let mockTodayFocusSeconds = 0;
+jest.mock('@/store/UserContext', () => ({
+  useUser: () => ({
+    nickname: '재영',
+    userId: 'u1',
+    goalSeconds: 3600,
+    screenTimeGoalSeconds: 7200,
+  }),
+}));
+jest.mock('@/store/FocusContext', () => ({
+  useFocus: () => ({ todayFocusSeconds: mockTodayFocusSeconds }),
+}));
+jest.mock('@/store/CharacterContext', () => ({ useCharacter: () => ({ activeSource: null }) }));
+jest.mock('@/store/CoinContext', () => ({
+  useCoins: () => ({ coins: mockCoins }),
+  useRefreshCoinsOnFocus: jest.fn(),
+}));
+jest.mock('@/screens/league/useLeagueMeta', () => ({
+  useLeagueMeta: () => ({ tier: { tierLevel: 1 } }),
+}));
+jest.mock('@/screens/league/useLeagueRanking', () => ({
+  useLeagueRanking: () => ({ myLeagueRank: 3 }),
+}));
+
+jest.mock('@/services/statsApi', () => ({
+  getTodayStats: jest.fn().mockRejectedValue(new Error('offline')), // 로컬 폴백 경로로 고정
+  getStreak: jest.fn(() => Promise.resolve({ currentStreak: mockStreak })),
+}));
+jest.mock('@/services/ScreenTimeModule', () => ({
+  __esModule: true,
+  default: {
+    getAuthorizationStatus: jest.fn().mockResolvedValue('approved'),
+    requestAuthorization: jest.fn().mockResolvedValue(true),
+    getTodayUsageBucketMinutes: jest.fn().mockResolvedValue(0),
+  },
+  androidNativeModuleAvailable: () => false,
+}));
+jest.mock('@/components/ScreenTimeReportView', () => ({ __esModule: true, default: null }));
+jest.mock('@/services/userApi', () => ({ updateScreenTimePermission: jest.fn() }));
+jest.mock('@/services/notificationInbox', () => ({
+  hasUnread: jest.fn().mockResolvedValue(false),
+  subscribeInbox: () => () => {},
+}));
+jest.mock('@/services/goalCelebration', () => ({
+  celebrationDayKey: () => '2026-01-01',
+  readPendingCelebration: jest.fn().mockResolvedValue(null),
+  clearPendingCelebration: jest.fn().mockResolvedValue(undefined),
+  subscribeCelebration: () => () => {},
+}));
+jest.mock('@/services/screentimeCelebration', () => ({
+  readPendingScreenTimeCelebration: jest.fn().mockResolvedValue(null),
+  clearScreenTimeCelebration: jest.fn().mockResolvedValue(undefined),
+  subscribeScreenTimeCelebration: () => () => {},
+}));
+jest.mock('@/services/analyticsEvents', () => ({
+  logHomeViewed: jest.fn(),
+  logTodaySummaryViewed: jest.fn(),
+  logHomeButtonTapped: jest.fn(),
+  logHomeRefreshed: jest.fn(),
+}));
+jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
+// TabBar는 fabWindowRect(투어 스포트라이트 좌표) 하나 때문에 들어온다 — 전이로 딸려오는
+// @callstack/liquid-glass가 ESM이라 목으로 끊지 않으면 스위트가 로드 단계에서 죽는다.
+jest.mock('@/components/TabBar', () => ({
+  fabWindowRect: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+}));
+
+let mockReduce = false;
+jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+
+const BAR = 'home.metric.focus.bar';
+const barFill = () => screen.getByTestId(`${BAR}.fill`).props.style;
+const flatten = (style: unknown) => require('react-native').StyleSheet.flatten(style);
+
+beforeEach(() => {
+  mockCoins = 0;
+  mockStreak = 0;
+  mockTodayFocusSeconds = 0;
+  mockReduce = false;
+});
+
+describe('HomeScreen 오늘 카드 진행바', () => {
+  test('목표 대비 진행률이 ProgressBar로 전달된다 — 30분/60분이면 50%', async () => {
+    mockTodayFocusSeconds = 1800; // 30분, 목표 3600초(60분)
+    await render(<HomeScreen />);
+    const bar = screen.getByTestId(BAR);
+    // 접근성 값은 0~100 스케일 — 진행률이 실제로 넘어갔다는 계약
+    expect(bar.props.accessibilityValue).toEqual({ now: 50, min: 0, max: 100 });
+    expect(flatten(barFill()).width).toBe('50%');
+  });
+
+  test('기존 바의 치수(높이 6·반지름 3)를 그대로 승계한다', async () => {
+    await render(<HomeScreen />);
+    const style = flatten(screen.getByTestId(BAR).props.style);
+    expect(style.height).toBe(6);
+    expect(style.borderRadius).toBe(3);
+  });
+
+  test('목표를 넘긴 값은 호출부가 아니라 ProgressBar가 100%로 자른다', async () => {
+    mockTodayFocusSeconds = 7200; // 목표의 2배
+    await render(<HomeScreen />);
+    expect(screen.getByTestId(BAR).props.accessibilityValue.now).toBe(100);
+    expect(flatten(barFill()).width).toBe('100%');
+  });
+});
+
+describe("HomeScreen '동작 줄이기'", () => {
+  test('reduce여도 값·문구는 그대로 보인다 — 사라지는 건 움직임뿐이다', async () => {
+    mockReduce = true;
+    mockCoins = 300;
+    mockStreak = 4;
+    mockTodayFocusSeconds = 1800;
+    await render(<HomeScreen />);
+    expect(screen.getByTestId(BAR).props.accessibilityValue.now).toBe(50);
+    expect(screen.getByText('300')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('home.streak')).toBeTruthy());
+    expect(screen.getByTestId('home.today.detail')).toBeTruthy();
+  });
+});
+
+describe('HomeScreen 코인·스트릭 칩', () => {
+  test('코인은 천단위 구분 기호가 붙은 최종값으로 읽힌다', async () => {
+    mockCoins = 12345;
+    await render(<HomeScreen />);
+    const coins = screen.getByTestId('home.coins');
+    // VoiceOver가 중간 숫자를 읽지 않도록 라벨은 항상 최종값이다
+    expect(coins.props.accessibilityLabel).toBe('12,345');
+  });
+
+  test("스트릭은 숫자만 감싸고 '연속 공부 … 일' 단위 텍스트는 그대로 남는다", async () => {
+    mockStreak = 7;
+    await render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByTestId('home.streak')).toBeTruthy());
+    expect(screen.getByTestId('home.streak').props.accessibilityLabel).toBe('7');
+    expect(screen.getByText(/연속 공부/)).toBeTruthy();
+    expect(screen.getByText(/일/)).toBeTruthy();
+  });
+
+  test('스트릭 0일이면 칩 자체가 없다(기존 규칙)', async () => {
+    mockStreak = 0;
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId('home.streak')).toBeNull();
+  });
+});
+
+describe('HomeScreen 진입 stagger', () => {
+  test('컨테이너를 Animated.View로 바꿔도 기존 testID·문구가 그대로 있다', async () => {
+    await render(<HomeScreen />);
+    // 오늘 카드(진입 stagger 2)와 그 안의 '자세히' 버튼 — Maestro 셀렉터 계약
+    expect(screen.getByTestId('home.screen')).toBeTruthy();
+    expect(screen.getByTestId('home.today.detail')).toBeTruthy();
+    expect(screen.getByText('공부 집중')).toBeTruthy();
+  });
+});

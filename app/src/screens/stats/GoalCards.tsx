@@ -8,7 +8,7 @@ import { T } from '@/constants/theme';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import { useFocus } from '@/store/FocusContext';
 import { fmtHm } from '@/utils/timeFormat';
-import { FOCUS_COLOR } from './constants';
+import { FOCUS_COLOR, STAMP_ICON_SIZE } from './constants';
 import { cs } from './cardStyles';
 
 // 일 탭 — 오늘 2목표 스탬프. 집중 현재값은 홈·타임테이블과 같은 로컬 오늘 누적(서버 today.focus는
@@ -124,10 +124,11 @@ const s = StyleSheet.create({
   stampOn: { borderColor: T.successBorder, backgroundColor: T.successBg },
   stampFail: { borderColor: T.dangerBorder, backgroundColor: T.dangerBg },
   stampProgress: { borderColor: T.noteBorder, backgroundColor: T.noteBg },
+  // 아이콘 지름은 constants.ts — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다(GROMO-1381)
   stampIc: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: STAMP_ICON_SIZE,
+    height: STAMP_ICON_SIZE,
+    borderRadius: STAMP_ICON_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: T.space.sm,

@@ -2,8 +2,11 @@
 // 세로축·격자·탭 말풍선 스캐폴딩(스타일)을 공유해 한 파일에 둔다.
 import { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import Animated from 'react-native-reanimated';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
+import { fadeIn, growUp } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { getAllFocusSessions } from '@/services/focusApi';
@@ -17,10 +20,12 @@ import {
   type StatBar,
   type StartTimePoint,
 } from './format';
-import { FOCUS_COLOR } from './constants';
+import { CHART_H, FOCUS_COLOR } from './constants';
 import { cs } from './cardStyles';
 
-const CHART_H = 120;
+// 진입 애니메이션을 걸려면 Animated 컴포넌트여야 한다 — 격자·라벨은 제자리에 둔 채
+// **플롯 캔버스(SVG)만** 움직인다(GROMO-1381).
+const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
 // 선그래프 — BarChart와 같은 데이터(StatBar[])·세로축 구조를 쓰되 값을 점+꺾은선으로 잇는다(주 탭, GROMO-761).
 // 점의 x좌표는 아래 라벨 칼럼(flex 균등 분할)의 중앙과 일치. 직선·원은 SVG가 필요해 react-native-svg 사용.
@@ -30,6 +35,7 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   const [plotW, setPlotW] = useState(0);
   // 탭한 칼럼의 실값 말풍선(GROMO-849) — 같은 칼럼 재탭이면 닫힘. 기간 탭 전환 시 언마운트로 초기화.
   const [picked, setPicked] = useState<number | null>(null);
+  const mo = useMotion();
   if (bars.length === 0) {
     return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
   }
@@ -69,7 +75,13 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
         {plotW > 0 && (
           // 캔버스를 점 반지름만큼 사방으로 키우고 음수 마진으로 되돌림 — 상단(최댓값)·바닥(0)의
           // 점이 캔버스 경계에서 잘리지 않게 (SVG는 자기 영역 밖을 클리핑)
-          <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
+          <AnimatedSvg
+            width={plotW + DOT_PAD * 2}
+            height={CHART_H + DOT_PAD * 2}
+            // 바닥(0)에서 값만큼 자라 오른다 — 분량 축이라 바닥이 실제로 0인 차트에만 맞는
+            // 연출이다. enterUp(translateY·350ms)이 아니라 growUp(scaleY·800ms·오버슛)을 쓴다.
+            style={[s.lineSvg, mo.css(growUp())]}
+          >
             <Polyline
               points={pts.map((p) => `${p.x + DOT_PAD},${p.y + DOT_PAD}`).join(' ')}
               fill="none"
@@ -96,7 +108,7 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
                 fill="none"
               />
             )}
-          </Svg>
+          </AnimatedSvg>
         )}
         {/* 칼럼별 탭 영역 — 점 위가 아니어도 해당 칼럼 세로 영역 아무 데나 탭하면 실값 표시 */}
         <View style={s.lineTapRow}>
@@ -153,6 +165,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   const [plotW, setPlotW] = useState(0);
   // 탭한 칼럼의 시작 시각 말풍선(GROMO-849) — LineChart와 같은 패턴, 값만 시각(HH:MM)
   const [picked, setPicked] = useState<number | null>(null);
+  const mo = useMotion();
 
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
   useFocusEffect(
@@ -246,7 +259,14 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
           <View style={[s.chartGridLine, s.chartGridLower]} />
           <View style={[s.chartGridLine, s.chartGridBottom]} />
           {plotW > 0 && (
-            <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
+            <AnimatedSvg
+              width={plotW + DOT_PAD * 2}
+              height={CHART_H + DOT_PAD * 2}
+              // ⚠️ 여기만 growUp이 아니다. 이 차트의 세로축은 **시각**이라 바닥이 0이 아니다
+              // (axisMin은 데이터에서 정해진다). 바닥부터 자라게 하면 "0에서 이만큼 커졌다"는
+              // 뜻이 되어 값의 의미를 왜곡한다 — 이동 없이 불투명도만 쓰는 fadeIn을 고른다.
+              style={[s.lineSvg, mo.css(fadeIn())]}
+            >
               {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
               {pts.map((p, i) => (
                 <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
@@ -262,7 +282,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
                   fill="none"
                 />
               )}
-            </Svg>
+            </AnimatedSvg>
           )}
           {/* 칼럼별 탭 영역 — 해당 칼럼 아무 데나 탭하면 첫 시작 시각 표시 */}
           <View style={s.lineTapRow}>
@@ -315,8 +335,11 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
 
 const s = StyleSheet.create({
   chartPlotRow: { flexDirection: 'row', marginTop: T.space.lg },
-  // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지
+  // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지.
+  // transformOrigin은 growUp(scaleY 0→1)이 **바닥부터** 자라기 위한 정적 스타일이다
+  // (애니메이션 프로퍼티가 아니라 여기 있어야 한다 — motion.ts growUp 주석).
   lineSvg: {
+    transformOrigin: 'bottom',
     marginTop: -DOT_PAD,
     marginBottom: -DOT_PAD,
     marginLeft: -DOT_PAD,

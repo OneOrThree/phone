@@ -3,13 +3,15 @@
 // 주·월(CategoryDonut)은 서버 집계 + 팔레트 순서 색(CategoryBars와 동일), 일(SubjectDonut)은
 // 드로어와 같은 로컬 오늘 누적 + 과목 고유 색을 쓴다(GROMO-976).
 import { View, Text, StyleSheet } from 'react-native';
+import Animated from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
+import { enterUp, fadeIn } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { fmtHm, hms } from '@/utils/timeFormat';
-import { FOCUS_COLOR } from './constants';
+import { DONUT_SIZE, FOCUS_COLOR } from './constants';
 import { cs } from './cardStyles';
 
-const DONUT_SIZE = 132;
 const DONUT_STROKE = 20;
 
 interface DonutSeg {
@@ -20,7 +22,13 @@ interface DonutSeg {
 }
 
 // 공용 렌더러 — 링 + 가운데 총합 + 우측 범례(색 점·이름·시간·%)
+//
+// ⚠️ 진입 연출에 growUp을 쓰지 않는다 — 도넛은 막대가 아니다. scaleY 0→1은 원을 납작한
+//    타원으로 눌렀다 펴는 모양이 되고, 오버슛 구간에서는 세로로 늘어난 타원까지 보인다.
+//    '값이 바닥부터 자란다'는 뜻도 없다(링은 12시부터 도는 비중 표현이다).
+//    링은 fadeIn, 범례는 리스트 관용구인 enterUp(i) 시차로 나눠 준다.
 function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string }) {
+  const m = useMotion();
   const half = DONUT_SIZE / 2;
   const r = (DONUT_SIZE - DONUT_STROKE) / 2;
   const circumference = 2 * Math.PI * r;
@@ -32,7 +40,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
   });
   return (
     <View style={s.donutRow}>
-      <View style={s.donutWrap}>
+      <Animated.View style={[s.donutWrap, m.css(fadeIn())]}>
         <Svg width={DONUT_SIZE} height={DONUT_SIZE}>
           <Circle
             cx={half}
@@ -64,10 +72,10 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
           </Text>
           <Text style={s.donutCenterLabel}>총 집중</Text>
         </View>
-      </View>
+      </Animated.View>
       <View style={s.donutLegend}>
         {placed.map((sg, i) => (
-          <View key={i} style={s.donutLegendRow}>
+          <Animated.View key={i} style={[s.donutLegendRow, m.css(enterUp(i))]}>
             <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
             <Text style={s.donutLegendName} numberOfLines={1}>
               {sg.name}
@@ -78,7 +86,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
             <Text style={s.donutLegendPct} allowFontScaling={false}>
               {Math.round(sg.frac * 100)}%
             </Text>
-          </View>
+          </Animated.View>
         ))}
       </View>
     </View>

@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   useWindowDimensions,
   type ScrollView,
 } from 'react-native';
@@ -22,6 +21,7 @@ import {
 import { useStatsData } from './stats/useStatsData';
 import { ComingSoon } from './stats/ComingSoon';
 import { CardOrderEditor } from './stats/CardOrderEditor';
+import { StatsSkeleton } from './stats/StatsSkeleton';
 import { STORAGE_KEYS } from '@/types/storage';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { useFocus } from '@/store/FocusContext';
@@ -486,10 +486,10 @@ export default function StatsScreen() {
         </View>
       </View>
 
+      {/* 첫 로딩 — 가운데 스피너 대신 올 카드 모양 그대로의 스켈레톤(GROMO-1381).
+          ⚠️ 삼항으로 트리에서 통째로 빼야 한다. 펄스가 무한 루프라 숨기기만 하면 계속 돈다. */}
       {firstLoad || !orderLoaded ? (
-        <View style={s.loader}>
-          <ActivityIndicator color={T.accent} />
-        </View>
+        <StatsSkeleton period={period} />
       ) : (
         // 카드 목록 — 항상 드래그 가능(GROMO-762 개편). 카드 오른쪽 위 핸들을 잡아 끌면 순서가
         // 바뀌고 놓을 때마다 저장. 탭을 바꾸면 그 탭의 순서를 편집(탭별 저장)
@@ -549,6 +549,4 @@ const s = StyleSheet.create({
   },
   segText: { ...T.text.label, color: T.inkMuted },
   segTextOn: { color: T.ink },
-
-  loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

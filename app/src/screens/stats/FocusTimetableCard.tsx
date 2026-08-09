@@ -12,12 +12,13 @@ import { useSubjects } from '@/store/SubjectContext';
 import { todayStr } from '@/utils/localDate';
 import { subjectColorForTag, tenMinuteFocusSlots, type FocusSlotSegment } from './format';
 import { SectionCard } from './SectionCard';
-import { FOCUS_COLOR } from './constants';
+import { FOCUS_COLOR, TT_CELL_H, TT_ROW_GAP, TT_ROWS } from './constants';
 import { cs } from './cardStyles';
 import { ShareDayFrame } from './ShareDayFrame';
 import { useTimetableShareCapture } from './useTimetableShareCapture';
 
-const TIMETABLE_HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
+// 격자 치수(TT_*)는 constants.ts에 있다 — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다(GROMO-1381).
+const TIMETABLE_HOURS = Array.from({ length: TT_ROWS }, (_, i) => (i + 6) % 24);
 
 // 타임테이블 카드(일) — 헤더에 공유 버튼. 카드 내용(범례+격자)을 이미지로 캡처해
 // iOS 공유 시트로 내보낸다(react-native-view-shot, GROMO-762).
@@ -156,7 +157,7 @@ const s = StyleSheet.create({
   ttLegendRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, maxWidth: '100%' },
   ttLegendDot: { width: 8, height: 8, borderRadius: 4 },
   ttLegendText: { ...T.text.caption, fontSize: 11, color: T.ink, flexShrink: 1 },
-  ttGrid: { flex: 1, gap: 3 },
+  ttGrid: { flex: 1, gap: TT_ROW_GAP },
   // 한 시간 안의 10분 칸은 간격 없이 붙임(GROMO-849) — 시간 라벨과의 간격은 라벨 마진이 담당
   ttRow: { flexDirection: 'row', alignItems: 'center' },
   ttHourLabel: {
@@ -169,7 +170,7 @@ const s = StyleSheet.create({
   },
   ttCell: {
     flex: 1,
-    height: 14,
+    height: TT_CELL_H,
     borderRadius: 3,
     borderWidth: 1,
     borderColor: T.paperAlt,

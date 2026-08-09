@@ -2,9 +2,12 @@
 // 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
 import { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import Animated from 'react-native-reanimated';
 import Svg, { Line } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { growUp } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { getAllFocusSessions, getFocusTags } from '@/services/focusApi';
 import type { FocusSessionResponse } from '@/types/dto/focus';
@@ -17,7 +20,7 @@ import {
   type WeekFocusBlock,
 } from './format';
 import { SectionCard } from './SectionCard';
-import { WEEK_DAYS } from './constants';
+import { WEEK_DAYS, WTT_BODY_H } from './constants';
 import { cs } from './cardStyles';
 import { ShareBrandFooter } from './ShareBrandFooter';
 import { useTimetableShareCapture } from './useTimetableShareCapture';
@@ -58,11 +61,13 @@ export function WeeklyTimetableCard() {
   );
 }
 
-const WTT_BODY_H = 400; // 트랙 세로 픽셀 — 하루 24시간(0~24)을 담아도 세션 막대가 도톰하게 보이도록(GROMO-975)
+// WTT_BODY_H(트랙 세로 픽셀 — 하루 24시간을 담아도 세션 막대가 도톰하게, GROMO-975)는
+// constants.ts로 옮겼다 — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다(GROMO-1381).
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 
 function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
   const { subjects } = useSubjects();
+  const m = useMotion();
   const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
   // 서버 tagId → 태그명(과목 색 매칭용). 로컬 과목 id는 서버 tagId와 달라 이름으로 잇는다(FocusTimetable과 동일).
   const [tagNames, setTagNames] = useState<Map<string, string>>(new Map());
@@ -204,12 +209,16 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: () => void }) {
                   />
                 ))}
               </Svg>
-              {/* 세션 블록 — 과목색 각진 사각형(라운드 없음), 휴식 틈은 그대로 빈 공간 */}
+              {/* 세션 블록 — 과목색 각진 사각형(라운드 없음), 휴식 틈은 그대로 빈 공간.
+                  진입은 growUp(j) — 블록 자체가 '시간만큼 자란 막대'라 바닥부터 자라는 게 맞다
+                  (transformOrigin은 s.wttBlock에 있다). 시차는 staggerMaxSteps(6)에서 묶이므로
+                  세션이 수십 개인 주에도 마지막 블록이 360ms 뒤에는 재생을 시작한다. */}
               {blocks.map((b, j) => (
-                <View
+                <Animated.View
                   key={j}
                   style={[
                     s.wttBlock,
+                    m.css(growUp(j)),
                     {
                       left: b.col * colW + 3,
                       width: colW - 6,
@@ -267,7 +276,9 @@ const s = StyleSheet.create({
   wttSun: { color: T.accentAlt },
   wttTodayLabel: { color: T.accent },
   wttPlot: { flex: 1, position: 'relative' },
-  wttBlock: { position: 'absolute' }, // 과목색 세션 블록 — 각진 모서리(라운드 금지)
+  // 과목색 세션 블록 — 각진 모서리(라운드 금지). transformOrigin은 growUp(scaleY)이 위가 아니라
+  // **바닥부터** 자라기 위한 정적 스타일이다(motion.ts growUp 주석).
+  wttBlock: { position: 'absolute', transformOrigin: 'bottom' },
   wttLegend: {
     flexDirection: 'row',
     flexWrap: 'wrap',

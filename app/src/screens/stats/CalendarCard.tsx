@@ -13,7 +13,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { fadeIn } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
@@ -43,6 +46,7 @@ export function CalendarCard({
   periodTotal,
   retryCurrent,
 }: Props) {
+  const mo = useMotion();
   const [offset, setOffset] = useState(0); // 0=이번 기간, -1=지난 기간 …
   const [picked, setPicked] = useState<string | null>(null); // 탭한 날짜 — 하단 정보줄
   // 과거 기간 heatmap 캐시(기간 첫 날짜 키). 실패는 캐시하지 않는다 — 빈 데이터로 캐시하면
@@ -294,10 +298,12 @@ export function CalendarCard({
       {/* ── 캘린더 그리드 — 셀 사이 1px 흰 선(gap) ── */}
       <View>
         <View style={s.grid}>
+          {/* 행 단위 시차 진입 — 캘린더는 값 축이 없는 격자라 growUp(바닥부터 자라는 막대)이
+              표현할 '자라는 값'이 없다. 위→아래로 한 행씩 드러나는 fadeIn 시차를 쓴다. */}
           {rows.map((row, ri) => (
-            <View key={ri} style={s.row}>
+            <Animated.View key={ri} style={[s.row, mo.css(fadeIn(mo.stagger(ri)))]}>
               {row.map((date, ci) => renderCell(date, ri * 7 + ci))}
-            </View>
+            </Animated.View>
           ))}
         </View>
         {loading ? (
@@ -370,7 +376,9 @@ const s = StyleSheet.create({
   dowSun: { color: T.accentAlt },
   grid: { gap: 1 },
   row: { flexDirection: 'row', gap: 1 },
-  // 투명 테두리를 항상 깔아 오늘/선택 링이 켜져도 내용이 밀리지 않게 한다
+  // 투명 테두리를 항상 깔아 오늘/선택 링이 켜져도 내용이 밀리지 않게 한다.
+  // ⚠️ 높이가 폭에서 파생(aspectRatio)돼 상수로 못 묶는 유일한 자리다 — 로딩 스켈레톤은
+  //    constants.ts의 CAL_CELL_H(기준 폭에서 역산한 51)로 근사한다. 이 비율을 바꾸면 그쪽도 같이.
   cell: {
     flex: 1,
     aspectRatio: 40 / 46,
