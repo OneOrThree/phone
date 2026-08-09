@@ -40,6 +40,21 @@ const MIN_FIT = 0.62;
  */
 const TIMER_W_PER_PT = 3.85;
 
+/**
+ * 리드아웃이 가로로 쓸 수 있는 폭 = 화면 폭 − 이 여백. 링 지름과 평문 타이머 폭 양쪽의 상한이다.
+ * (s.readout에는 paddingHorizontal이 없어 폭을 다 쓸 수 있지만, 화면 가장자리에 글자가 닿지 않게
+ *  다른 영역과 같은 좌우 여백 T.space.xxl(24)×2를 남긴다.)
+ */
+const H_MARGIN = 48;
+
+/**
+ * 평문(링 없음) 타이머가 폭에 못 들어갈 때를 대비한 최후 방어선. 계산은 TIMER_W_PER_PT 추정에
+ * 기대는데, 실제 폰트 메트릭이 추정보다 넓으면 말줄임이 난다 — 그때 잘리는 대신 줄어들게 한다.
+ * ⚠️ **링이 있는 경로에는 절대 붙이지 않는다.** 링 지름 계산이 '지정 크기대로 그려진다'는 전제
+ *    위에 서 있어서, 렌더가 제멋대로 줄면 링 안이 비어 보인다(codex 리뷰).
+ */
+export const PLAIN_TIMER_MIN_FONT_SCALE = 0.6;
+
 // 세로 고정 요소(실측): topBar 52(36 + paddingVertical 8×2) + dots 23(7 + 8×2)
 //                     + controls 90(60 + paddingBottom 30)
 const CHROME_FRAME = 165;
@@ -61,7 +76,12 @@ export interface ReadoutLayout {
   timerFontSize: number;
 }
 
-function solve(availableH: number, fontScale: number, withRing: boolean): ReadoutLayout {
+function solve(
+  availableH: number,
+  availableW: number,
+  fontScale: number,
+  withRing: boolean,
+): ReadoutLayout {
   const chrome = withRing ? READOUT_RING : READOUT_PLAIN;
   // 배율이 1보다 작아도 예산을 늘려 잡지 않는다 — 작은 글자로 얻은 여유는 그냥 여백으로 둔다.
   const grow = Math.max(fontScale, 1) - 1;
@@ -70,12 +90,20 @@ function solve(availableH: number, fontScale: number, withRing: boolean): Readou
   const fit = Math.min(1, Math.max(MIN_FIT, budgetH / need));
 
   if (!withRing) {
-    // 링이 없으면 폭 제약도 없다 — 타이머는 기본 크기를 그대로 쓴다(기존 카운트업 동작).
+    // 링이 없어도 **화면 폭**이라는 제약은 남는다. 링을 포기한 이유가 "숫자는 지킨다"인데
+    // 그 숫자가 화면을 넘어 말줄임되면 사다리의 마지막 칸이 무너진다(codex 리뷰) — 접근성
+    // 크기를 쓰는 사용자가 이 화면의 유일한 핵심 정보를 못 읽게 된다.
+    // 그래서 지정 크기를 폭에 맞춰 낮춘다. 사용자의 확대를 되돌리는 게 아니다: 배율은 그대로
+    // 곱해지므로 **그려지는 크기는 여전히 기본(52pt)보다 크고**, 다만 8글자가 물리적으로 들어갈
+    // 수 있는 최대치에서 멈춘다. 배율 1에서는 계산값이 기본값보다 커서 아무것도 바뀌지 않는다
+    // (= 기존 카운트업 렌더와 바이트 단위로 동일).
+    const maxTextW = Math.max(0, availableW - H_MARGIN);
+    const widthFitted = Math.floor(maxTextW / (Math.max(fontScale, 0.1) * TIMER_W_PER_PT));
     return {
       showRing: false,
       charSize: Math.floor(BASE_CHAR * fit),
       ringSize: 0,
-      timerFontSize: T.text.timer.fontSize,
+      timerFontSize: Math.max(1, Math.min(T.text.timer.fontSize, widthFitted)),
     };
   }
 
@@ -91,12 +119,9 @@ function solve(availableH: number, fontScale: number, withRing: boolean): Readou
   return { showRing: true, charSize, ringSize, timerFontSize };
 }
 
-/** 링이 가로로 쓸 수 있는 폭 — 화면 폭에서 리드아웃 좌우 여백(T.space.xxl×2)을 뺀 값. */
-const H_MARGIN = 48;
-
 /**
  * @param availableH 안전 영역(노치·홈 인디케이터)을 뺀 실제 가용 높이
- * @param availableW 화면 폭 — 배율이 큰 기기에서 링이 가로로도 넘치지 않게 함께 본다
+ * @param availableW 화면 폭 — 링 지름과 평문 타이머 폭의 상한을 함께 정한다
  * @param fontScale  시스템 글자 배율 (`useWindowDimensions().fontScale`)
  * @param wantRing   진행률이 정의되는 모드인가 (카운트업은 목표가 없어 false)
  */
@@ -106,11 +131,11 @@ export function focusReadoutLayout(
   fontScale: number,
   wantRing: boolean,
 ): ReadoutLayout {
-  if (!wantRing) return solve(availableH, fontScale, false);
-  const ringed = solve(availableH, fontScale, true);
+  if (!wantRing) return solve(availableH, availableW, fontScale, false);
+  const ringed = solve(availableH, availableW, fontScale, true);
   // 링 배치를 쓰려면 세로(캐릭터가 최소치 이상)와 가로(링이 화면 폭 안) 둘 다 만족해야 한다.
   // 하나라도 못 지키면 숫자만 남기는 배치로 내려간다 — 정보는 숫자에 그대로 남는다.
   const fitsV = ringed.charSize >= MIN_CHAR;
   const fitsH = ringed.ringSize <= Math.max(0, availableW - H_MARGIN);
-  return fitsV && fitsH ? ringed : solve(availableH, fontScale, false);
+  return fitsV && fitsH ? ringed : solve(availableH, availableW, fontScale, false);
 }

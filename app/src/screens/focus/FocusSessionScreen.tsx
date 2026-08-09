@@ -47,7 +47,12 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
-import { focusReadoutLayout, RING_STROKE, type ReadoutLayout } from './readoutLayout';
+import {
+  focusReadoutLayout,
+  PLAIN_TIMER_MIN_FONT_SCALE,
+  RING_STROKE,
+  type ReadoutLayout,
+} from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -1499,7 +1504,23 @@ function renderReadout(
   layout: ReadoutLayout,
   timerStyle: TextStyle,
 ) {
-  // 큰 숫자 — 링을 그릴 수 있으면 링 가운데에, 아니면 링 없이 그대로. 링 유무 판정은 전부
+  // 링 없이 그리는 큰 숫자 — 카운트업의 기본 배치이자, 글자 배율이 커서 링을 포기했을 때의
+  // 폴백이기도 하다. 두 경로가 같은 코드를 쓰므로 한 곳에서 만든다.
+  // ⚠️ 여기에만 adjustsFontSizeToFit을 붙인다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
+  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 하는 최후 방어선이다.
+  //    링이 있는 경로에는 절대 붙이지 않는다 — 링 지름이 '지정 크기대로 그려진다'는 전제 위에 있다.
+  const plainTime = (
+    <Text
+      style={[s.bigTime, timerStyle]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={PLAIN_TIMER_MIN_FONT_SCALE}
+    >
+      {hms(session.display)}
+    </Text>
+  );
+
+  // 큰 숫자 — 링을 그릴 수 있으면 링 가운데에, 아니면 위 평문으로. 링 유무 판정은 전부
   // readoutLayout이 했고(글자 배율·화면 크기), 여기서는 결과만 반영한다.
   const bigTime = (progress: number) =>
     layout.showRing ? (
@@ -1516,9 +1537,7 @@ function renderReadout(
         </Text>
       </ProgressRing>
     ) : (
-      <Text style={s.bigTime} numberOfLines={1}>
-        {hms(session.display)}
-      </Text>
+      plainTime
     );
 
   if (mode === 'countup') {
@@ -1527,7 +1546,7 @@ function renderReadout(
         <Text style={s.roSubject} numberOfLines={1}>
           {subjectName}
         </Text>
-        <Text style={s.bigTime}>{hms(session.display)}</Text>
+        {plainTime}
       </>
     );
   }

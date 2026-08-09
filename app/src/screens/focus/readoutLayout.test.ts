@@ -68,12 +68,37 @@ describe('focusReadoutLayout — 기기 × 글자 배율', () => {
     }
   });
 
-  test('카운트업은 배율과 무관하게 링 없이 기본 타이머 크기를 쓴다', () => {
-    for (const fontScale of SCALES) {
+  test('카운트업은 링을 쓰지 않는다 — 표준 배율에선 기본 크기 그대로', () => {
+    for (const fontScale of [1.0, 1.15, 1.35]) {
       const l = focusReadoutLayout(647, 375, fontScale, false);
       expect(l.showRing).toBe(false);
       expect(l.ringSize).toBe(0);
+      // 폭 계산값이 기본값보다 커서 아무것도 깎이지 않는다 = 기존 렌더와 동일(E2E 경로 보호).
       expect(l.timerFontSize).toBe(52);
+    }
+  });
+
+  // ── 링 폴백의 마지막 칸 ────────────────────────────────────────────────────────
+  // 링을 포기한 이유가 "숫자는 지킨다"이므로, 그 숫자가 화면 폭을 넘어 말줄임되면 안 된다.
+  test.each(DEVICES)('$name: 링을 포기해도 숫자는 화면 폭 안에 들어간다', ({ w, availH }) => {
+    for (const fontScale of SCALES) {
+      for (const wantRing of [true, false]) {
+        const l = focusReadoutLayout(availH, w, fontScale, wantRing);
+        if (l.showRing) continue; // 링이 있는 경우는 위 '링 안에 들어간다' 테스트가 본다
+        // 좌우 여백 48을 남기고도 들어가야 한다.
+        expect(renderedTimerWidth(l.timerFontSize, fontScale)).toBeLessThanOrEqual(w - 48);
+      }
+    }
+  });
+
+  test('접근성 배율에서도 숫자는 기본(52pt)보다 크게 그려진다 — 확대를 되돌리지 않는다', () => {
+    for (const { availH, w } of DEVICES) {
+      for (const fontScale of [2.0, 3.1]) {
+        const l = focusReadoutLayout(availH, w, fontScale, true);
+        expect(l.showRing).toBe(false);
+        // 지정 크기는 폭에 맞춰 낮아지지만, 시스템 배율이 곱해진 **그려지는 크기**는 여전히 더 크다.
+        expect(l.timerFontSize * fontScale).toBeGreaterThan(52);
+      }
     }
   });
 
