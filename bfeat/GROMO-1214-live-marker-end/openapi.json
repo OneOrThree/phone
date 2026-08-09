@@ -5588,6 +5588,13 @@
           "sessionId": {
             "type": "string",
             "format": "uuid"
+          },
+          "focusSecondsByDate": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         }
       },
@@ -6064,6 +6071,13 @@
           "focusTagId": {
             "type": "string",
             "format": "uuid"
+          },
+          "focusSecondsByDate": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
           }
         },
         "required": [
