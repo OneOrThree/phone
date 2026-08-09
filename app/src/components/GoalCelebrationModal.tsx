@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { useCharacter } from '@/store/CharacterContext';
+import { M, pop } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
+import { hapticSuccess } from '@/utils/haptics';
 import { T, withAlpha } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
@@ -41,13 +45,34 @@ export function GoalCelebrationModal({
   // 프레임이 밀리면 시간 기준 애니메이션이 건너뛰어 "이미 떨어진 상태"로 보이는 것 방지.
   const [charReady, setCharReady] = useState(false);
   const [uiIdle, setUiIdle] = useState(false);
+  // 팝인이 끝났는가(GROMO-1381) — 축하의 박자를 '캐릭터가 튀어 들어온 뒤 색종이'로 나눈다.
+  // 둘이 동시에 시작하면 서로를 묻는다.
+  const [popDone, setPopDone] = useState(false);
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
+  const m = useMotion();
   useEffect(() => {
     if (!visible) return;
     const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
     return () => task.cancel();
   }, [visible]);
+  // 축하 순간의 촉감(GROMO-1381) — impact가 아니라 notification 계열이라 "따-단" 2박자다.
+  // ⚠️ 축하 표면 전용. 일반 성공 통보에 붙이면 이 인상이 닳는다.
+  useEffect(() => {
+    if (visible) hapticSuccess();
+  }, [visible]);
+  // 팝인 완료 → 색종이. reduce면 지연이 0이 되지만 **타이머 자체는 남긴다**(정책 D7) —
+  // 없애면 색종이 게이트가 영영 열리지 않는다. (색종이 자체의 reduce 처리는 ConfettiBurst 담당)
+  const charShown = charReady && uiIdle;
+  useEffect(() => {
+    if (!visible) {
+      setPopDone(false);
+      return undefined;
+    }
+    if (!charShown) return undefined;
+    const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
+    return () => clearTimeout(t);
+  }, [visible, charShown, m]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -65,11 +90,16 @@ export function GoalCelebrationModal({
               연속 목표달성 <Text style={s.streakDays}>{goalStreakDays}일</Text>
             </Text>
           </View>
-          <CharacterImage
-            size={104}
-            sourceUri={activeSource ?? undefined}
-            onLoad={() => setCharReady(true)}
-          />
+          {/* 팝 진입 — 카드에 overflow 제약이 없어 1.25배 오버슛이 잘리지 않는다.
+              호흡(AnimatedCharacter)은 여기 쓰지 않는다: 무한 루프는 화면당 1개 상한이고,
+              축하 순간에 필요한 건 '들어오는 팝'이지 상시 생명 신호가 아니다. */}
+          <Animated.View style={m.css(pop())}>
+            <CharacterImage
+              size={104}
+              sourceUri={activeSource ?? undefined}
+              onLoad={() => setCharReady(true)}
+            />
+          </Animated.View>
           <Text style={s.title}>
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
           </Text>
@@ -90,7 +120,7 @@ export function GoalCelebrationModal({
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
-        {cardRect && charReady && uiIdle ? <ConfettiBurst obstacle={cardRect} /> : null}
+        {cardRect && popDone ? <ConfettiBurst obstacle={cardRect} /> : null}
       </View>
     </Modal>
   );

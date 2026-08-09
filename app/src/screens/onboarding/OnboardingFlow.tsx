@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
-import { View, PanResponder, StyleSheet } from 'react-native';
+import { PanResponder, StyleSheet } from 'react-native';
+import Animated from 'react-native-reanimated';
 import type { LoginResult } from '@/types/api';
 import LoginScreen from '@/screens/LoginScreen';
 import OnboardingSplash from './OnboardingSplash';
@@ -21,6 +22,8 @@ import CharacterIntroStep from '@/screens/onboarding/steps/CharacterIntroStep';
 import CutoutStep from '@/screens/onboarding/steps/CutoutStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
+import { fadeIn } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import {
@@ -73,6 +76,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 가입 확정(신규 유저) 실패 상태 — 닉네임 화면에 에러를 띄운다. 입력을 고치면 지운다.
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // 스텝 전환 크로스페이드(GROMO-1381) — 아래 래퍼에 key={index}를 걸어 스텝이 바뀔 때마다
+  // 새로 마운트시키고 fadeIn을 다시 태운다(CSS 애니메이션은 참조 동등성으로 재시작을 판단하므로
+  // 같은 프리셋 객체만으로는 다시 돌지 않는다). 뷰를 새로 끼우지 않고 기존 래퍼를 승격만 했다 —
+  // Maestro 셀렉터(스텝 testID)는 전부 StepScaffold 안쪽이라 트리 계약은 그대로다.
+  const m = useMotion();
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
   // 분석 연출 1회 플래그도 함께 리셋 — 재진입한 온보딩에서 연출이 다시 보이도록.
@@ -243,7 +251,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   if (node.kind === 'nickname') {
     return (
       <OnboardingProgressContext.Provider value={progress}>
-        <View style={styles.flex} {...swipeBack.panHandlers}>
+        <Animated.View
+          key={index}
+          style={[styles.flex, m.css(fadeIn())]}
+          {...swipeBack.panHandlers}
+        >
           <NicknameStep
             data={data}
             update={(patch) => {
@@ -257,7 +269,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             serverError={serverError}
             submitting={submitting}
           />
-        </View>
+        </Animated.View>
       </OnboardingProgressContext.Provider>
     );
   }
@@ -265,9 +277,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const Step = node.Component;
   return (
     <OnboardingProgressContext.Provider value={progress}>
-      <View style={styles.flex} {...swipeBack.panHandlers}>
+      <Animated.View key={index} style={[styles.flex, m.css(fadeIn())]} {...swipeBack.panHandlers}>
         <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
-      </View>
+      </Animated.View>
     </OnboardingProgressContext.Provider>
   );
 }

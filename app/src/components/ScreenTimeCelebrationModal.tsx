@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { useCharacter } from '@/store/CharacterContext';
+import { M, pop } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
+import { hapticSuccess } from '@/utils/haptics';
 import { T, withAlpha } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
@@ -40,13 +44,31 @@ export function ScreenTimeCelebrationModal({
   // 색종이는 캐릭터가 그려지고 UI가 한가해진 뒤 시작(GROMO-848) — GoalCelebrationModal과 동일 가드
   const [charReady, setCharReady] = useState(false);
   const [uiIdle, setUiIdle] = useState(false);
+  // 팝인이 끝났는가(GROMO-1381) — GoalCelebrationModal과 동일한 박자 게이트.
+  const [popDone, setPopDone] = useState(false);
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
+  const m = useMotion();
   useEffect(() => {
     if (!visible) return;
     const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
     return () => task.cancel();
   }, [visible]);
+  // 축하 순간의 촉감(GROMO-1381) — notification 계열 "따-단". 축하 표면 전용이다.
+  useEffect(() => {
+    if (visible) hapticSuccess();
+  }, [visible]);
+  // 팝인 완료 → 색종이. reduce여도 타이머는 남긴다(정책 D7) — 없애면 게이트가 안 열린다.
+  const charShown = charReady && uiIdle;
+  useEffect(() => {
+    if (!visible) {
+      setPopDone(false);
+      return undefined;
+    }
+    if (!charShown) return undefined;
+    const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
+    return () => clearTimeout(t);
+  }, [visible, charShown, m]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -64,11 +86,15 @@ export function ScreenTimeCelebrationModal({
               연속 목표달성 <Text style={s.streakDays}>{streakDays}일</Text>
             </Text>
           </View>
-          <CharacterImage
-            size={104}
-            sourceUri={activeSource ?? undefined}
-            onLoad={() => setCharReady(true)}
-          />
+          {/* 팝 진입 — 카드에 overflow 제약이 없어 1.25배 오버슛이 잘리지 않는다.
+              호흡(AnimatedCharacter)은 쓰지 않는다(무한 루프 상한 + 축하엔 진입 팝이 맞다). */}
+          <Animated.View style={m.css(pop())}>
+            <CharacterImage
+              size={104}
+              sourceUri={activeSource ?? undefined}
+              onLoad={() => setCharReady(true)}
+            />
+          </Animated.View>
           <Text style={s.title}>어제 핸드폰 사용 시간 목표를 달성했군요!</Text>
           <Text style={s.sub}>
             {goalMinutes
@@ -92,7 +118,7 @@ export function ScreenTimeCelebrationModal({
             <Text style={s.ctaText}>좋아요!</Text>
           </TouchableOpacity>
         </View>
-        {cardRect && charReady && uiIdle ? <ConfettiBurst obstacle={cardRect} /> : null}
+        {cardRect && popDone ? <ConfettiBurst obstacle={cardRect} /> : null}
       </View>
     </Modal>
   );
