@@ -6,6 +6,7 @@
 //  2) 라이브(미정산) 값도 자정을 넘기면 오늘 몫만 남는다. 세션을 끝내야 값이 줄어드는
 //     역전(65분 → 5분)이 생기지 않게.
 import { newBlockToday, creditTick, blockTodaySeconds, type BlockToday } from './blockToday';
+import { localDateStr } from '@/utils/localDate';
 
 // jest.config.js가 TZ=Asia/Seoul로 고정 — 로컬 자정 = KST 자정.
 const at = (iso: string) => new Date(`${iso}+09:00`);
@@ -17,6 +18,24 @@ function runTicks(state: BlockToday, startISO: string, seconds: number): BlockTo
   let s = state;
   for (let i = 1; i <= seconds; i++) s = creditTick(s, new Date(base + i * 1000));
   return s;
+}
+
+// 서버 벽시계 분할(FocusService.splitByLocalDay)과 같은 반열림 규칙으로 구간을 쪼갠다 —
+// 앱 tick 귀속이 서버 경계와 어긋나지 않는지 대조하는 용도(GROMO-1252 ④).
+function wallClockSplit(startISO: string, endISO: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  let cursor = at(startISO).getTime();
+  const end = at(endISO).getTime();
+  while (cursor < end) {
+    const day = localDateStr(new Date(cursor));
+    const midnight = new Date(cursor);
+    midnight.setHours(0, 0, 0, 0);
+    midnight.setDate(midnight.getDate() + 1);
+    const sliceEnd = Math.min(midnight.getTime(), end);
+    out[day] = (out[day] ?? 0) + (sliceEnd - cursor) / 1000;
+    cursor = sliceEnd;
+  }
+  return out;
 }
 
 beforeEach(() => {
@@ -31,36 +50,50 @@ it('일시정지가 자정을 걸치면 자정 이후 집중분만 오늘 몫', 
   // 집중초는 600이고 벽시계 겹침(00:00~00:15)은 900이라, min(delta, 겹침)은 600을 골라
   // 600 전부를 오늘로 넣었다 — 실제 오늘 몫은 300이다.
   jest.setSystemTime(at('2026-08-08T00:15:00'));
-  let s = newBlockToday(at('2026-08-07T23:50:00'));
+  let s = newBlockToday();
   s = runTicks(s, '2026-08-07T23:50:00', 300);
   s = runTicks(s, '2026-08-08T00:10:00', 300);
 
   expect(blockTodaySeconds(s)).toBe(300);
+  // 업로드 페이로드(focusSecondsByDate)로 그대로 나가는 값 — 서버가 이 분포로 귀속한다.
+  expect(s).toEqual({ '2026-08-07': 300, '2026-08-08': 300 });
 });
 
 it('라이브 값은 자정이 지나면 오늘 몫만 남는다', () => {
   // 23:00~00:05로 이어지는 미정산 세션(3900초). 정산 전이라도 오늘 몫만 보여야 한다.
-  // 00:00:00에 끝나는 tick까지 새 날짜로 세므로 300 + 경계 1초.
   jest.setSystemTime(at('2026-08-08T00:05:00'));
-  const s = runTicks(newBlockToday(at('2026-08-07T23:00:00')), '2026-08-07T23:00:00', 3900);
+  const s = runTicks(newBlockToday(), '2026-08-07T23:00:00', 3900);
 
-  expect(blockTodaySeconds(s)).toBe(301);
+  expect(blockTodaySeconds(s)).toBe(300);
+});
+
+it('④ 자정 정각 경계는 서버 벽시계 분할과 같은 날짜로 귀속된다', () => {
+  // 쉼 없이 이어진 세션은 tick 분포 == 서버 splitByLocalDay 결과여야 한다. 어긋나면
+  // 앱 301초 / 서버 300초처럼 임계값에서 목표·10분 스트릭 판정이 뒤집힌다.
+  const cases: [string, string, number][] = [
+    ['2026-08-07T23:00:00', '2026-08-08T00:05:00', 3900], // 자정을 넘긴다
+    ['2026-08-07T23:00:00', '2026-08-08T00:00:00', 3600], // 정확히 자정에 끝난다
+    ['2026-08-08T00:00:00', '2026-08-08T00:10:00', 600], // 정확히 자정에 시작한다
+  ];
+  for (const [startISO, endISO, seconds] of cases) {
+    expect(runTicks(newBlockToday(), startISO, seconds)).toEqual(wallClockSplit(startISO, endISO));
+  }
 });
 
 it('어제로 끝난 블록은 오늘 몫이 0', () => {
   // 앱을 켜 둔 채 자정을 넘겼는데 그 뒤로 집중 tick이 없는 경우(예: 자정 직전 일시정지).
   jest.setSystemTime(at('2026-08-08T00:30:00'));
-  const s = runTicks(newBlockToday(at('2026-08-07T23:00:00')), '2026-08-07T23:00:00', 600);
+  const s = runTicks(newBlockToday(), '2026-08-07T23:00:00', 600);
 
   expect(blockTodaySeconds(s)).toBe(0);
 });
 
 it('정산하면 오늘 몫이 0에서 다시 시작한다', () => {
   jest.setSystemTime(at('2026-08-08T10:20:00'));
-  const s = runTicks(newBlockToday(at('2026-08-08T10:00:00')), '2026-08-08T10:00:00', 600);
+  const s = runTicks(newBlockToday(), '2026-08-08T10:00:00', 600);
   expect(blockTodaySeconds(s)).toBe(600);
 
-  // settleFocusBlock이 endedAt으로 새 블록을 연다
-  const next = runTicks(newBlockToday(at('2026-08-08T10:10:00')), '2026-08-08T10:10:00', 120);
+  // settleFocusBlock이 새 블록을 연다
+  const next = runTicks(newBlockToday(), '2026-08-08T10:10:00', 120);
   expect(blockTodaySeconds(next)).toBe(120);
 });

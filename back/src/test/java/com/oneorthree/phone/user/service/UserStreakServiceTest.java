@@ -27,9 +27,10 @@ import static org.mockito.Mockito.verify;
 /**
  * UserStreakService 단위 테스트.
  *
- * <p>세션 완료 시 스트릭 갱신 규칙(UTC 날짜, endedAt 기준):
+ * <p>세션 완료 시 스트릭 갱신 규칙(유저 존 로컬 날짜, endedAt 기준):
  * row 없음/최초 → started, 연속(+1일) → extended, 하루 이상 건너뜀 → reset,
- * 같은 날·과거 세션 소급 → 무변화(이벤트 미발행).
+ * 연속 구간 안(같은 날 포함) → 무변화, 구간 시작 바로 앞날 소급 → backfilled(GROMO-1252 ③),
+ * 그보다 더 과거 → 무변화(이벤트 미발행).
  */
 @ExtendWith(MockitoExtension.class)
 class UserStreakServiceTest {
@@ -137,17 +138,69 @@ class UserStreakServiceTest {
     }
 
     @Test
-    @DisplayName("과거 날짜 세션 소급 저장 → 무변화·이벤트 미발행 (방어)")
-    void pastSessionDateNoChange() {
+    @DisplayName("연속 구간보다 더 과거인 소급 저장 → 공백이 남아 무변화·이벤트 미발행")
+    void pastSessionDateBeforeRunNoChange() {
+        // 구간 = [TODAY-2, TODAY]. TODAY-4 는 TODAY-3 공백을 사이에 두고 있어 이어지지 않는다.
         UserStreak existing = streak(3, 5, TODAY);
         given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
 
-        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(3));
+        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(4));
 
         assertThat(existing.getStreakCount()).isEqualTo(3);
         assertThat(existing.getLongestStreakCount()).isEqualTo(5);
         assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
         verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
+    }
+
+    /**
+     * 1252-③: 오프라인 지연 업로드로 종료일이 이미 기록된 뒤, 자정을 걸친 세션의 <b>어제 조각</b>이 도착하는
+     * 케이스. 종전엔 lastSessionDate 이하라고 통째로 무시해 DailyFocusStat 만 어제를 인정하고 스트릭은
+     * 복구되지 않았다. 이제 연속 구간 시작 바로 앞날이면 구간이 하루 뒤로 늘어난다.
+     */
+    @Test
+    @DisplayName("1252-③: 오늘이 이미 기록된 상태에서 어제 조각 도착 → 소급 연장(count+1), lastSessionDate 유지")
+    void yesterdaySliceBackfillsRunStart() {
+        UserStreak existing = streak(1, 1, TODAY);
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+
+        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+
+        assertThat(existing.getStreakCount()).isEqualTo(2);
+        assertThat(existing.getLongestStreakCount()).isEqualTo(2);
+        // 구간의 '끝'은 그대로 — 조회 만료 판정(currentStreakAsOf)이 끝 날짜 기준이라 앞당기면 안 된다.
+        assertThat(existing.getLastSessionDate()).isEqualTo(TODAY);
+        verify(userActivityEventLogger).log(UserActivityEvent.STREAK_UPDATED,
+                Map.of("streak_count", 2, "longest_streak", 2, "change", "backfilled"));
+    }
+
+    @Test
+    @DisplayName("1252-③: 이미 연속 구간 안에 든 날짜의 소급 도착 → 이중 가산 없이 무변화")
+    void backfillInsideRunIsNoChange() {
+        // 구간 = [TODAY-2, TODAY]. 어제(TODAY-1)는 이미 계수돼 있다.
+        UserStreak existing = streak(3, 5, TODAY);
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(existing));
+
+        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+
+        assertThat(existing.getStreakCount()).isEqualTo(3);
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
+    }
+
+    @Test
+    @DisplayName("1252-③: 자정 걸친 세션은 어제→오늘·오늘→어제 어느 순서로 들어와도 결과가 같다")
+    void midnightSplitStreakIsOrderIndependent() {
+        UserStreak ascending = streak(0, 0, null);
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(ascending));
+        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+        userStreakService.updateOnSessionComplete(USER, TODAY);
+
+        UserStreak descending = streak(0, 0, null);
+        given(userStreakRepository.findByUser(USER)).willReturn(Optional.of(descending));
+        userStreakService.updateOnSessionComplete(USER, TODAY);
+        userStreakService.updateOnSessionComplete(USER, TODAY.minusDays(1));
+
+        assertThat(descending.getStreakCount()).isEqualTo(ascending.getStreakCount()).isEqualTo(2);
+        assertThat(descending.getLastSessionDate()).isEqualTo(ascending.getLastSessionDate()).isEqualTo(TODAY);
     }
 
     @Test

@@ -3,6 +3,8 @@ package com.oneorthree.phone.focus.dto;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -14,11 +16,19 @@ import java.util.UUID;
  * @param endedAt                 종료 시각(선택). null 이면 서버 수신 시각(Instant.now). startedAt 이후여야 함
  * @param totalDistractionSeconds 세션 중 누적 방해 초(선택, 미지정 시 0)
  * @param focusTagId              시작 시 미지정한 태그 보정용(user_focus_tags.id, 선택). 소유 태그여야 함
+ * @param focusSecondsByDate      GROMO-1252: 날짜별 집중 초(로컬 날짜 → 초, 선택). 자정을 걸친 세션의 날짜별
+ *                                귀속 근거 — null·빈 맵이면 서버 벽시계 분할로 폴백한다.
+ *                                상세 계약은 {@link FocusSessionRequest#focusSecondsByDate} 참고
  */
 public record FocusSessionEndRequest(
         @NotNull UUID sessionId,
         Instant endedAt,
         int totalDistractionSeconds,
-        UUID focusTagId
+        UUID focusTagId,
+        Map<LocalDate, Integer> focusSecondsByDate
 ) {
+    /** 하위호환 — focusSecondsByDate 미지정 기존 4-arg 호출부(null → 서버 벽시계 분할 폴백). */
+    public FocusSessionEndRequest(UUID sessionId, Instant endedAt, int totalDistractionSeconds, UUID focusTagId) {
+        this(sessionId, endedAt, totalDistractionSeconds, focusTagId, null);
+    }
 }

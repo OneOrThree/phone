@@ -257,8 +257,9 @@ export default function FocusSessionScreen() {
   // 코인은 여기서 세지 않는다(GROMO-1049) — 지급도 잔액도 서버가 정본이라 앱이 미리 계산하지 않는다.
   const settledSecondsRef = useRef(0);
   const settleAtRef = useRef(startedAtRef.current);
-  // 미정산 블록의 집중초 중 '오늘' 몫(GROMO-1252 코드리뷰) — 정산 적립·그리드 셀·메뉴 드로어
-  // 공용. 벽시계 겹침이 아니라 집중 tick의 날짜로 세는 이유는 blockToday.ts 주석 참고.
+  // 미정산 블록의 날짜별 집중초(GROMO-1252) — 정산 적립·그리드 셀·메뉴 드로어의 '오늘 몫'이자,
+  // 업로드 페이로드의 focusSecondsByDate. 벽시계 겹침이 아니라 집중 tick의 날짜로 세는 이유는
+  // blockToday.ts 주석 참고.
   const blockTodayRef = useRef(newBlockToday());
   const creditFocusTick = useCallback((at?: Date) => {
     blockTodayRef.current = creditTick(blockTodayRef.current, at);
@@ -417,10 +418,10 @@ export default function FocusSessionScreen() {
         updatedAt: new Date().toISOString(),
         userId, // 소유 계정 — 고아 정산 시 다른 계정으로 적립/업로드되는 것을 막는다
         serverSessionId: liveIdRef.current, // 열려 있는 라이브 마커 — 강제종료 시 서버 스윕이 마감
-        // 날짜별 집중초 스냅샷(GROMO-1252 코드리뷰) — 고아 정산이 여기와 같은 규칙으로
-        // '오늘 몫'을 고르게 한다. 구간 겹침만으로는 일시정지가 자정을 걸친 블록을 과다 계상한다.
-        focusDay: blockTodayRef.current.day,
-        focusDaySeconds: Math.min(remaining, blockTodayRef.current.seconds),
+        // 날짜별 집중초 스냅샷(GROMO-1252) — 고아 정산이 여기와 같은 규칙으로 '오늘 몫'을 고르고,
+        // 서버 업로드에도 그대로 실어 보낸다. 구간 겹침만으로는 일시정지가 자정을 걸친 블록을
+        // 과다 계상한다.
+        focusDays: blockTodayRef.current,
       };
       AsyncStorage.setItem(STORAGE_KEYS.focusLiveSession, JSON.stringify(record)).catch(() => {});
     },
@@ -562,9 +563,11 @@ export default function FocusSessionScreen() {
       // 어제 몫까지 오늘로 들어왔다). 몫은 벽시계 겹침이 아니라 집중 tick의 날짜로 센다 —
       // 겹침으로 클램프하면 일시정지가 자정을 걸칠 때 여전히 과다 계상된다(blockToday.ts 주석).
       // 코인은 all-time이라 항상 반영.
-      const todaySeconds = Math.min(delta, blockTodaySeconds(blockTodayRef.current));
-      // 다음 블록은 endedAt부터 — 카운터도 그 날짜에서 0으로 시작한다.
-      blockTodayRef.current = newBlockToday(new Date(endedAt));
+      // 이 블록의 날짜별 집중초 — 서버 업로드에도 그대로 실어 보낸다(GROMO-1252 ①). 리셋 전에 붙든다.
+      const focusSecondsByDate = blockTodayRef.current;
+      const todaySeconds = Math.min(delta, blockTodaySeconds(focusSecondsByDate));
+      // 다음 블록은 endedAt부터 — 카운터도 0에서 다시 시작한다.
+      blockTodayRef.current = newBlockToday();
       if (todaySeconds > 0) {
         addFocusSeconds(todaySeconds);
         addFocusToSubject(subjectId, todaySeconds);
@@ -595,6 +598,9 @@ export default function FocusSessionScreen() {
             // 완주 저장에도 세션 유형을 전파 — 마커(취소됨)에만 실으면 RANGE/POMODORO가
             // 전부 INFINITE(서버 기본)로 저장돼 유형별 통계가 오염된다(코덱스 리뷰).
             focusType: FOCUS_TYPE_BY_MODE[mode],
+            // 날짜별 집중초(GROMO-1252 ①) — 서버는 [startedAt, endedAt]만으로는 일시정지가 자정을
+            // 걸친 블록의 날짜별 몫을 알 수 없다. 서버가 날짜별 벽시계 몫을 상한으로 클램프해 받는다.
+            focusSecondsByDate,
           };
           // onRejected 2인자 형태 — .then().catch() 체인이면 발행(구독 콜백) 중 예외까지 실패
           // 핸들러로 새서, 이미 서버에 저장된 세션이 대기열에 재적재돼 중복 업로드된다(PR 250 리뷰).
