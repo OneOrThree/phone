@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { GROUP_CARD_EMOJI_OPTIONS, type GroupCardEmoji } from '../groupCardEmojiStore';
@@ -15,20 +16,51 @@ export function GroupCardEmojiPicker({
   testIDPrefix = 'group.cardEmoji',
   disabled = false,
 }: Props) {
+  const optionRefs = useRef<Array<{ focus?: () => void } | null>>([]);
+  const moveSelection = (from: number, step: -1 | 1) => {
+    const next = (from + step + GROUP_CARD_EMOJI_OPTIONS.length) % GROUP_CARD_EMOJI_OPTIONS.length;
+    onChange(GROUP_CARD_EMOJI_OPTIONS[next].emoji);
+    optionRefs.current[next]?.focus?.();
+  };
   return (
-    <View accessibilityRole="radiogroup">
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel="내 카드 아이콘"
+      accessibilityHint="이 기기에서 나에게만 보여요. 방향키로 선택을 이동할 수 있어요."
+    >
       <View style={s.grid}>
-        {GROUP_CARD_EMOJI_OPTIONS.map(({ emoji, label }) => {
+        {GROUP_CARD_EMOJI_OPTIONS.map(({ emoji, label }, index) => {
           const selected = value === emoji;
           return (
             <Pressable
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
               key={emoji}
               style={[s.option, selected && s.selected, disabled && s.disabled]}
               onPress={() => onChange(emoji)}
               disabled={disabled}
               accessibilityRole="radio"
               accessibilityLabel={`카드 아이콘 ${label}`}
-              accessibilityState={{ selected, disabled }}
+              accessibilityState={{ selected, checked: selected, disabled }}
+              accessibilityActions={[
+                { name: 'increment', label: '다음 아이콘' },
+                { name: 'decrement', label: '이전 아이콘' },
+              ]}
+              onAccessibilityAction={(event) => {
+                if (disabled) return;
+                if (event.nativeEvent.actionName === 'increment') moveSelection(index, 1);
+                if (event.nativeEvent.actionName === 'decrement') moveSelection(index, -1);
+              }}
+              {...({
+                onKeyDown: (event: { nativeEvent: { key?: string } }) => {
+                  if (disabled) return;
+                  const key = event.nativeEvent.key;
+                  if (key === 'ArrowRight' || key === 'ArrowDown') moveSelection(index, 1);
+                  if (key === 'ArrowLeft' || key === 'ArrowUp') moveSelection(index, -1);
+                  if (key === 'Enter' || key === ' ') onChange(emoji);
+                },
+              } as object)}
               testID={`${testIDPrefix}.${emoji}`}
             >
               <Text style={s.emoji}>{emoji}</Text>
