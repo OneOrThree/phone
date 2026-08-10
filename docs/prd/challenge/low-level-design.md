@@ -282,9 +282,11 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 간주해 자정을 주면 서지도 않을 회차를 예고하기 때문이다(그 자리 주석이 직접 그렇게 적고 있다).
 >
 > **이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.** V5 가 인라인 파라미터를 CTI 상세
-> 테이블로 이관할 때 `WHERE type = 'TIME_WINDOW' AND window_start IS NOT NULL AND window_end IS NOT NULL`
-> 로 백필했다 — **시각이 null 이던 구 행은 챌린지 행만 남고 상세가 만들어지지 않았다.**
-> 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
+> 테이블로 이관할 때 백필을 **두 번** 했다 — ⑴ 챌린지 자체의 `window_start`·`window_end` 가
+> NOT NULL 인 행, ⑵ 그게 null 이어도 **그룹의 미션 설정**이 `type`·`category` 까지 일치하고
+> 시각이 있으면 그 값으로(그룹 폴백, `NOT EXISTS` 가드). 따라서 **상세가 없는 행은 둘 다 없었던
+> 경우**다 — 챌린지 값이 null 이고, 그룹 폴백도 종류·카테고리가 다르거나 시각이 null 이라
+> 적용되지 않은 행. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
 >
 > **같은 분기를 타는 필드가 셋이다.** 조립부가 `nextSessions.containsKey(...) ? … : null` 이므로
 > `nextSessionAt` 뿐 아니라 **`nextSessionJoined` 와 `nextSessionStake` 도 그 경우 null** 이다 —
