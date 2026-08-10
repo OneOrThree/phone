@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import Animated, {
   Easing,
@@ -51,18 +51,34 @@ export default function ScreenTimeAnalyzingOverlay({
 }: Props) {
   const progress = useSharedValue(0);
   const m = useMotion();
+  // 마운트 시각 — 호출부의 ANALYZE_MS 타이머가 시작된 시점이기도 하다.
+  const mountedAtRef = useRef(Date.now());
 
   useEffect(() => {
+    // ⚠️ **확정 전에는 아무것도 하지 않는다.** 미확정 구간의 보수적 true로 즉시 100%를 만들면,
+    //    확정된 뒤 시퀀스를 처음부터 다시 돌리게 되어 호출부의 ANALYZE_MS 타이머와 시작점이
+    //    어긋난다 — 오버레이가 걷힐 때 진행바가 아직 90% 대기 구간에 있어 마지막 연출이
+    //    보이지 않고, 확정 전 보이던 100%가 0%로 순간 이동하기도 한다(codex 리뷰).
+    //    확정될 때까지는 시작 프레임(0%)에서 기다린다.
+    if (!m.ready) return;
     // '동작 줄이기'면 차오르는 연출 없이 즉시 100%. 진행바는 "기다리는 중"의 표시일 뿐이고,
     // 실제 대기는 호출부의 ANALYZE_MS 타이머가 담당하므로 여기를 즉시 채워도 흐름은 같다.
     if (m.reduce) {
       progress.value = 1;
       return;
     }
-    // ⚠️ 시퀀스를 걸기 전에 0으로 되돌린다. useReduceMotion은 최초 비동기 조회가 끝나기 전
-    //    보수적으로 true를 돌려주므로, 콜드 스타트에서 이 오버레이가 일찍 뜨면 위 분기가 먼저
-    //    progress를 1로 만든다. 그 뒤 설정이 false로 확정되며 이 경로가 실행되면 100%에서
-    //    90%로 **역재생**된 뒤 다시 100%가 된다(codex 리뷰).
+    // ⚠️ 확정이 늦어진 만큼 시퀀스를 **앞에서 깎는다.** 호출부 타이머는 마운트 시점부터 이미
+    //    흐르고 있으므로, 전체 길이를 그대로 쓰면 그만큼 뒤로 밀려 끝을 못 보여 준다.
+    //    보통 조회는 한두 프레임이라 깎이는 게 없고, 늦어진 경우에만 따라잡는다.
+    let left = Math.max(0, Date.now() - mountedAtRef.current);
+    const take = (ms: number): number => {
+      const used = Math.min(left, ms);
+      left -= used;
+      return ms - used;
+    };
+    const fillMs = take(FILL_MS);
+    const holdMs = take(HOLD_MS);
+    const finishMs = take(FINISH_MS);
     progress.value = 0;
     progress.value = withSequence(
       // ⚠️ withSequence는 **첫 인자**로 게이트를 받는다(오버로드). 조합자마다 자리가 달라
@@ -70,11 +86,11 @@ export default function ScreenTimeAnalyzingOverlay({
       M.never,
       // reduceMotion: M.never — reanimated 기본값(정적 System 플래그)은 '동작 줄이기'를 켠 채
       // 앱을 켰다가 끈 사용자에게 계속 걸려, 재시작 전까지 진행바가 아예 차오르지 않는다.
-      withTiming(0.9, { duration: FILL_MS, easing: Easing.linear, reduceMotion: M.never }),
+      withTiming(0.9, { duration: fillMs, easing: Easing.linear, reduceMotion: M.never }),
       withDelay(
-        HOLD_MS,
+        holdMs,
         withTiming(1, {
-          duration: FINISH_MS,
+          duration: finishMs,
           easing: Easing.out(Easing.cubic),
           reduceMotion: M.never,
         }),
@@ -85,7 +101,7 @@ export default function ScreenTimeAnalyzingOverlay({
       ),
     );
     // ⚠️ m.reduce를 의존성에 포함 — 재생 도중 설정이 켜져도 90%에서 굳지 않게 한다.
-  }, [progress, m.reduce]);
+  }, [progress, m.reduce, m.ready]);
 
   const fill = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 

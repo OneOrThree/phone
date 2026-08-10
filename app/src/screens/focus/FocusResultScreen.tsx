@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { growUp, pop } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
+import { Enter } from '@/components/Enter';
 import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
 import { T } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
@@ -92,8 +93,6 @@ export default function FocusResultScreen() {
   const { focusSeconds, subjectName, completed } = params;
   const { subjects } = useSubjects();
   const m = useMotion();
-  // 이 막대가 진입 연출을 받는가 — 받으면 스타일, 아니면 undefined.
-  const barEnter = (i: number) => m.enter(growUp(i));
   // 연출 판정 effect가 재실행되면 안 되므로(아래 celebrationStarted 가드) m을 deps에 넣는 대신
   // 최신 delay 함수를 ref로 읽는다.
   const delayRef = useRef(m.delay);
@@ -473,7 +472,7 @@ export default function FocusResultScreen() {
           </Text>
           {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 pop 프리셋 재사용) */}
           {rewardCoins > 0 ? (
-            <Animated.View style={[s.coinBadge, m.enter(pop(STREAK_POP_DELAY_MS))]}>
+            <Enter preset={pop(STREAK_POP_DELAY_MS)} style={s.coinBadge}>
               {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
               <Text
                 style={s.coinBadgeText}
@@ -481,7 +480,7 @@ export default function FocusResultScreen() {
               >
                 +{rewardCoins.toLocaleString()} <CurrencyIcon size={14} />
               </Text>
-            </Animated.View>
+            </Enter>
           ) : null}
         </View>
 
@@ -566,9 +565,9 @@ export default function FocusResultScreen() {
                       <Ionicons name="checkmark" size={15} color={T.white} />
                     ) : null}
                     {popping ? (
-                      <Animated.View style={[s.dotPopFill, m.enter(pop(STREAK_POP_DELAY_MS))]}>
+                      <Enter preset={pop(STREAK_POP_DELAY_MS)} style={s.dotPopFill}>
                         <Ionicons name="checkmark" size={15} color={T.white} />
-                      </Animated.View>
+                      </Enter>
                     ) : null}
                   </View>
                   <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
@@ -618,23 +617,12 @@ export default function FocusResultScreen() {
                   return (
                     <View key={date} style={s.barCol}>
                       <View style={s.barTrack}>
-                        <Animated.View
-                          style={[
-                            s.bar,
-                            { height: h, backgroundColor: isToday ? T.accent : T.sand },
-                            // ⚠️ heatmap이 도착한 뒤에 애니메이션을 **처음** 붙인다.
-                            //    프리셋은 참조 캐싱이라 같은 객체를 계속 돌려주므로, 빈 데이터로
-                            //    먼저 붙여 두면 높이 0에서 이미 시작한 CSS 애니메이션이 데이터
-                            //    갱신 때 재시작되지 않는다. 응답이 마지막 막대의 종료(약 1.16초)
-                            //    보다 늦으면 과거 요일 막대가 0에서 완성 높이로 툭 튄다
-                            //    (codex 리뷰). cellsLoaded를 게이트로 쓴다.
-                            // ⚠️ 도착 전에는 **시작 프레임에서 기다린다.** 집중 30초 이상이면
-                            //    응답 전에도 sessionMin으로 오늘 막대에 값이 생겨 완성 높이로
-                            //    먼저 보이는데, 응답이 오며 growUp이 붙으면 0으로 접혔다 다시
-                            //    자란다(codex 리뷰). 진입 연출을 받지 않는 경우(reduce 확정)엔
-                            //    붙들 이유가 없으므로 그대로 둔다.
-                            cellsLoaded ? barEnter(i) : barEnter(i) && GROW_PENDING,
-                          ]}
+                        <WeekBar
+                          key={cellsLoaded ? 'loaded' : 'pending'}
+                          height={h}
+                          isToday={isToday}
+                          index={i}
+                          loaded={cellsLoaded}
                         />
                       </View>
                       <Text style={[s.barDay, isToday ? s.barDayToday : null]}>
@@ -887,6 +875,37 @@ function CompareCard({
 
 // growUp의 **시작 프레임**. 프리셋에서 직접 뽑아 두 값이 갈리지 않게 한다.
 const GROW_PENDING = (growUp(0).animationName as { from: ViewStyle }).from;
+
+// 주간 막대 하나. ⚠️ **자기 useMotion을 호출하는 게 이 컴포넌트의 존재 이유다.**
+// 막대는 화면과 함께 마운트되지만 진입 스타일은 heatmap 응답(cellsLoaded)에 **늦게 붙는다.**
+// 화면의 useMotion 결정에 묶이면, 사용자가 그 사이 '동작 줄이기'를 켰어도 막대가 자란다
+// (codex 리뷰). 호출부가 cellsLoaded를 key로 주므로 붙는 순간 새 인스턴스가 되어 그때 정한다.
+// 뷰를 새로 끼운 게 아니다 — 이 컴포넌트가 곧 그 Animated.View다(D-04 유지).
+function WeekBar({
+  height,
+  isToday,
+  index,
+  loaded,
+}: {
+  height: number;
+  isToday: boolean;
+  index: number;
+  loaded: boolean;
+}) {
+  const m = useMotion();
+  const enter = m.enter(growUp(index));
+  return (
+    <Animated.View
+      style={[
+        s.bar,
+        { height, backgroundColor: isToday ? T.accent : T.sand },
+        // 도착 전에는 시작 프레임에서 기다린다 — 오늘 막대는 이미 값이 있어 완성 높이로 먼저
+        // 보였다가, 응답이 오며 growUp이 붙으면 0으로 접혔다 다시 자란다(codex 리뷰).
+        loaded ? enter : enter && GROW_PENDING,
+      ]}
+    />
+  );
+}
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
