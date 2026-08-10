@@ -50,7 +50,15 @@ export async function guestLogin(): Promise<LoginResult> {
   const previousToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   if (previousToken) await accountSwitchHandler?.(previousToken);
 
-  const result: LoginResult = { ...data, isGuest: false, isNewUser: true };
+  // 게이트를 여는 건 로컬 디버그(dev)일 때뿐이다. 로컬 시드는 닉네임이 설정되는 순간
+  // 트리거로 서버 쪽 is_guest 도 false 로 승격시키지만, 배포 웹은 팀 dev 서버라 그 승격
+  // 절차가 없다 — 거기서까지 비게스트로 덮어쓰면 그룹·친구를 열어 준 뒤 서버 검증에서
+  // GUEST_FORBIDDEN 을 받는다(코드리뷰). 배포 웹은 서버가 준 값을 그대로 쓴다.
+  const result: LoginResult = {
+    ...data,
+    isGuest: __DEV__ ? false : (data.isGuest ?? true),
+    isNewUser: true,
+  };
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, result.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
   await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));

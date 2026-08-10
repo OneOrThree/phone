@@ -64,7 +64,12 @@ ON CONFLICT (tier_level) DO UPDATE SET
     deleted_at = NULL,
     updated_at = now();
 
-WITH debug_users(id, nickname, occupation, tier_level) AS (
+-- 시드 유저 목록. 아래 두 구문(닉네임 선점 해제 + 삽입)이 같은 목록을 봐야 해서
+-- CTE 가 아니라 세션 임시 테이블로 둔다(psql 세션 종료 시 사라짐).
+-- 이름이 아래 CTE(debug_users)와 겹치지 않게 둔다 — 겹치면 CTE 가 가려 버린다.
+DROP TABLE IF EXISTS debug_seed_users;
+CREATE TEMP TABLE debug_seed_users(id uuid, nickname text, occupation text, tier_level integer);
+INSERT INTO debug_seed_users(id, nickname, occupation, tier_level)
     VALUES
         ('10000000-0000-7000-8000-000000000001'::uuid, '모각코장인', 'CODING', 4),
         ('10000000-0000-7000-8000-000000000002'::uuid, '오늘도열공', 'CODING', 3),
@@ -90,14 +95,23 @@ WITH debug_users(id, nickname, occupation, tier_level) AS (
         ('10000000-0000-7000-8000-000000000022'::uuid, '세무회계', 'TAX_ACCOUNTANT', 5),
         ('10000000-0000-7000-8000-000000000023'::uuid, '감평합격', 'APPRAISER', 4),
         ('10000000-0000-7000-8000-000000000024'::uuid, '행시도전', 'ADMIN_EXAM', 5),
-        ('10000000-0000-7000-8000-000000000025'::uuid, '코드한줄더', 'CODING', 3)
-)
+        ('10000000-0000-7000-8000-000000000025'::uuid, '코드한줄더', 'CODING', 3);
+
+-- 재사용 DB 에 이미 시드 닉네임을 쓰는 다른 사용자가 있으면 uq_users_nickname 충돌로
+-- (seed-local-debug.sh 가 ON_ERROR_STOP=1) 시드 전체가 멈춘다. 아래 INSERT 는 id 충돌만
+-- 처리하므로, 닉네임을 선점한 쪽을 먼저 비켜 준다 — 로컬 디버그 DB 한정 조치.
+UPDATE users AS u
+SET nickname = u.nickname || '-local-' || left(u.id::text, 8),
+    updated_at = now()
+FROM debug_seed_users AS d
+WHERE u.nickname = d.nickname AND u.id <> d.id;
+
 INSERT INTO users
     (id, nickname, occupation, country_code, is_guest, is_deleted, stat_visibility,
      tier_level, last_active_at, created_at, updated_at)
 SELECT id, nickname, occupation, 'KR', false, false, 'PUBLIC', tier_level,
        now() - interval '1 hour', now() - interval '90 days', now()
-FROM debug_users
+FROM debug_seed_users
 ON CONFLICT (id) DO UPDATE SET
     nickname = EXCLUDED.nickname,
     occupation = EXCLUDED.occupation,
@@ -118,7 +132,10 @@ INSERT INTO daily_focus_stats
     (id, user_id, date, total_focus_seconds, total_distraction_seconds,
      session_count, is_focus_time_goal_achieved, updated_at)
 SELECT
-    md5('local-focus-' || users.id || '-' || days.day_no)::uuid,
+    -- id 는 상대 오프셋(day_no)이 아니라 **절대 날짜**에서 뽑는다. day_no 로 뽑으면 자정을 넘겨
+    -- 다시 돌릴 때 같은 day_no 가 다른 날짜를 가리켜, ON CONFLICT (user_id, date) 는 안 걸리는데
+    -- id 는 기존 행과 충돌해 daily_focus_stats_pkey 로 시드 전체가 멈춘다.
+    md5('local-focus-' || users.id || '-' || (current_date - days.day_no))::uuid,
     users.id,
     current_date - days.day_no,
     1800 + users.user_no * 420 + (days.day_no % 5) * 300,
@@ -146,7 +163,8 @@ INSERT INTO daily_screen_time_stats
     (id, user_id, date, total_screen_time_minutes, is_screen_time_goal_achieved,
      is_screen_time_finalized, created_at, updated_at)
 SELECT
-    md5('local-screen-' || users.id || '-' || days.day_no)::uuid,
+    -- id 는 절대 날짜 기준 (위 daily_focus_stats 주석과 같은 이유)
+    md5('local-screen-' || users.id || '-' || (current_date - days.day_no))::uuid,
     users.id,
     current_date - days.day_no,
     120 + users.user_no * 12 + (days.day_no % 6) * 8,
@@ -464,6 +482,8 @@ INSERT INTO focus_sessions
      started_at, ended_at, stat_end_at, focus_seconds_by_date,
      total_distraction_seconds, created_at)
 SELECT
+    -- 여기는 day_no 유지 — 충돌 판정이 id 라, 같은 id 로 다시 들어와도 그대로 UPDATE 된다
+    -- (날짜 기준으로 바꾸면 기존 로컬 DB 에 옛 id 행이 남아 세션이 중복된다).
     md5('local-session-' || sessions.user_id || '-' || sessions.day_no || '-' || sessions.session_no)::uuid,
     sessions.user_id,
     tags.id,
@@ -563,7 +583,8 @@ BEGIN
     INSERT INTO daily_focus_stats
         (id, user_id, date, total_focus_seconds, total_distraction_seconds,
          session_count, is_focus_time_goal_achieved, updated_at)
-    SELECT md5('local-focus-' || NEW.id || '-' || days.day_no)::uuid,
+    -- id 는 절대 날짜 기준 (자정 넘긴 재실행에서 pkey 충돌 방지)
+    SELECT md5('local-focus-' || NEW.id || '-' || (current_date - days.day_no))::uuid,
            NEW.id,
            current_date - days.day_no,
            2400 + (days.day_no % 7) * 360,
@@ -577,7 +598,8 @@ BEGIN
     INSERT INTO daily_screen_time_stats
         (id, user_id, date, total_screen_time_minutes, is_screen_time_goal_achieved,
          is_screen_time_finalized, created_at, updated_at)
-    SELECT md5('local-screen-' || NEW.id || '-' || days.day_no)::uuid,
+    -- id 는 절대 날짜 기준 (자정 넘긴 재실행에서 pkey 충돌 방지)
+    SELECT md5('local-screen-' || NEW.id || '-' || (current_date - days.day_no))::uuid,
            NEW.id,
            current_date - days.day_no,
            145 + (days.day_no % 6) * 9,

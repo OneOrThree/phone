@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for required_command in docker curl npm; do
+for required_command in docker curl npm lsof; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "필수 명령을 찾을 수 없습니다: $required_command"
     exit 1
@@ -31,11 +31,37 @@ docker compose -f "$compose_file" up -d --wait
 
 if [[ ! -f "$local_config" ]]; then
   cp "$local_config_example" "$local_config"
+else
+  # 예제보다 먼저 만들어 둔 application-local.yml 은 이번에 추가된 키가 없을 수 있다.
+  # 기본값 없는 @Value 라 하나만 빠져도 부팅 중에 죽으므로(placeholder 미해결) 먼저 잡는다.
+  # 개인 설정 파일이라 자동으로 고치지 않고, 무엇을 채워야 하는지 알려주고 멈춘다.
+  missing_keys=()
+  for required_key in jwt kakao apple google line instagram facebook link; do
+    grep -q "^${required_key}:" "$local_config" || missing_keys+=("$required_key")
+  done
+  if [[ ${#missing_keys[@]} -gt 0 ]]; then
+    echo "application-local.yml 에 다음 설정이 없습니다: ${missing_keys[*]}"
+    echo "  파일: $local_config"
+    echo "  예제: $local_config_example — 위 키 블록을 그대로 복사해 넣으세요."
+    echo "  (없으면 백엔드가 Could not resolve placeholder 로 부팅에 실패합니다)"
+    exit 1
+  fi
 fi
 
 if curl --connect-timeout 1 --silent --fail --output /dev/null \
   http://127.0.0.1:8080/swagger-ui/index.html; then
-  echo "2/4 이미 실행 중인 로컬 백엔드를 사용합니다."
+  # 8080 에 응답이 있다고 그게 이 저장소의 local 프로파일 백엔드라는 보장은 없다.
+  # 다른 프로파일·다른 DB 를 보는 인스턴스면 시드는 phone-db-local 에 들어가는데 웹 요청은
+  # 그쪽 DB 로 가서 더미 데이터가 안 보인다 — 조용히 그렇게 되느니 멈추고 알린다(코드리뷰).
+  if [[ "${LOCAL_WEB_REUSE_BACKEND:-}" != "1" ]]; then
+    echo "8080 포트에 이미 다른 프로세스가 응답하고 있습니다."
+    echo "  그 백엔드가 이 저장소의 local 프로파일이 아니면, 시드는 phone-db-local 에 들어가고"
+    echo "  웹 요청은 그 백엔드의 DB 로 가서 더미 데이터가 보이지 않습니다."
+    echo "  → 그 프로세스를 내리고 다시 실행하거나,"
+    echo "    로컬 백엔드가 맞다면 LOCAL_WEB_REUSE_BACKEND=1 $0 로 실행하세요."
+    exit 1
+  fi
+  echo "2/4 이미 실행 중인 백엔드를 재사용합니다(LOCAL_WEB_REUSE_BACKEND=1)."
 else
   echo "2/4 로컬 백엔드를 시작합니다. 로그: $backend_log"
   mkdir -p "$(dirname "$backend_log")"
