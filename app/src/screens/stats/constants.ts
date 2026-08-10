@@ -53,7 +53,7 @@ const CARD_CHROME_SUB_H = CARD_BORDER_W * 2 + CARD_PAD * 2 + CARD_HEAD_SUB_H; //
 
 // ── 본문 조각 ──
 /** 히어로 숫자 한 줄(cs.bigStat = T.text.title) */
-const HERO_H = lineH(T.text.title.fontSize); // 31
+export const HERO_H = lineH(T.text.title.fontSize); // 31
 /** 카드 하단 안내 문구(cs.grassHint) — 위 간격 + 캡션 한 줄 */
 const HINT_H = T.space.md + lineH(T.text.caption.fontSize); // 28
 /** 공유하기 버튼 줄(cs.shareBtn) */

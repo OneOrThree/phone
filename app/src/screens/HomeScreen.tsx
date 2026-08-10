@@ -544,15 +544,25 @@ export default function HomeScreen() {
   // 애니메이션이 중간에 끊기지 않는다.
   const enterPlayedRef = useRef(false);
   const [entering, setEntering] = useState(true);
+  const m = useMotion();
+  // ⚠️ **'동작 줄이기'가 확정되기 전에는 타이머를 걸지 않는다.** 미확정 구간에는 m.css()가
+  //    진입 스타일을 걷어내 아무것도 재생되지 않는데, 그 사이 470ms가 흘러가 버린다.
+  //    조회가 중간에 끝나면 남은 시간만큼만 재생돼 마지막 카드가 잘리고, 470ms보다 늦게 끝나면
+  //    entering이 이미 false라 진입이 통째로 사라진다(codex 리뷰).
+  //    확정된 뒤에 시작하고, reduce로 확정되면 기다릴 연출이 없으니 즉시 완료 처리한다.
   useEffect(() => {
-    if (enterPlayedRef.current) return;
+    if (enterPlayedRef.current || !m.ready) return;
+    if (m.reduce) {
+      enterPlayedRef.current = true;
+      setEntering(false);
+      return;
+    }
     const timer = setTimeout(() => {
       enterPlayedRef.current = true;
       setEntering(false);
     }, ENTER_TOTAL_MS);
     return () => clearTimeout(timer);
-  }, []);
-  const m = useMotion();
+  }, [m.ready, m.reduce]);
   // CSS API에는 reduce-motion 내장 처리가 없다 — 반드시 m.css()를 통과시킨다.
   const enter = (index: number) => (entering ? m.css(enterUp(index)) : undefined);
 

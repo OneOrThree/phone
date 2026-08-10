@@ -41,7 +41,7 @@ import { CategoryDonut, SubjectDonut } from './stats/CategoryDonut';
 import { DeltaRow } from './stats/DeltaRow';
 import { GoalDayStamps } from './stats/GoalCards';
 import { CalendarCard } from './stats/CalendarCard';
-import { FOCUS_COLOR, PHONE_COLOR } from './stats/constants';
+import { FOCUS_COLOR, HERO_H, PHONE_COLOR } from './stats/constants';
 import { cs } from './stats/cardStyles';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
@@ -294,9 +294,14 @@ export default function StatsScreen() {
       node: (
         <SectionCard key="monthWeeklyFocus" title={`${month}월 주별 집중시간`}>
           {/* 주 탭(요일별)과 동일한 총계 히어로 — 탭 간 표기 일관(GROMO-849).
-              집계 조회 실패(null)면 숨김 — 0으로 그리면 차트와 모순(코덱스 리뷰 반영) */}
-          {data.focus != null && (
+              집계 조회 실패(null)면 숫자를 감춘다 — 0으로 그리면 차트와 모순(코덱스 리뷰 반영).
+              ⚠️ 다만 **자리는 비워 둔다.** 스켈레톤은 실패를 예측할 수 없어 항상 히어로 높이를
+                 예약하는데, 실패 시 노드까지 사라지면 로딩이 끝나는 순간 카드가 31px 줄며 아래
+                 카드들이 통째로 밀린다(codex 리뷰). 오프라인·부분 API 장애에서 실제로 밟힌다. */}
+          {data.focus != null ? (
             <Text style={cs.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+          ) : (
+            <View style={{ height: HERO_H }} />
           )}
           <MonthWeeklyChart pick={pickFocus} color={FOCUS_COLOR} />
         </SectionCard>
@@ -310,10 +315,13 @@ export default function StatsScreen() {
           title={`${month}월 주별 핸드폰 사용량`}
           subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
         >
-          {data.screenTime != null && (
+          {/* 실패해도 자리는 비워 둔다 — 위 집중시간 카드와 같은 이유(codex 리뷰) */}
+          {data.screenTime != null ? (
             <Text style={[cs.bigStat, { color: PHONE_COLOR }]}>
               총 {fmtMinutes(data.screenTime.currentMinutes)}
             </Text>
+          ) : (
+            <View style={{ height: HERO_H }} />
           )}
           <MonthWeeklyChart pick={pickScreenTime} color={PHONE_COLOR} />
         </SectionCard>
