@@ -45,6 +45,23 @@ test('손상된 저장값은 성공한 전체 목록의 서버 순서로 복구�
   await waitFor(async () => expect(await readGroupCardOrder('me')).toEqual(['a', 'b']));
 });
 
+test('stale 순서 복구 쓰기 실패도 안내하고 다음 전체 목록에서 재시도한다', async () => {
+  await writeGroupCardOrder('me', ['gone', 'b', 'a']);
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  const { result, rerender } = await renderHook(
+    ({ ids }: { ids: string[] }) => useGroupCardOrder({ serverGroupIds: ids, userId: 'me' }),
+    { initialProps: { ids: ['a', 'b'] } },
+  );
+
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a']));
+  await waitFor(() => expect(result.current.saveFailed).toBe(true));
+
+  await rerender({ ids: ['a', 'b', 'c'] });
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a', 'c']));
+  await waitFor(() => expect(result.current.saveFailed).toBe(false));
+  expect(await readGroupCardOrder('me')).toEqual(['b', 'a', 'c']);
+});
+
 test('계정 전환 직후 이전 계정 순서를 노출하지 않고 새 bucket으로 hydrate한다', async () => {
   await writeGroupCardOrder('u1', ['b', 'a']);
   await writeGroupCardOrder('u2', ['a', 'b']);
