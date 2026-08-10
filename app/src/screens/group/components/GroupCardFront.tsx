@@ -37,100 +37,113 @@ export function GroupCardFront({
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
-    <View style={s.root} testID={`group.card.front.${group.groupId}`}>
-      <View
-        style={s.grip}
-        testID={`group.card.grip.${group.groupId}`}
-        accessibilityRole="adjustable"
-        focusable={active}
-        accessibilityLabel={`${group.name} 카드 순서`}
-        accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
-        accessibilityActions={[
-          ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
-          ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
-        ]}
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
-          if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
-        }}
-        {...reorderHandlers}
-      >
-        <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
-      </View>
-      <Pressable
-        ref={bodyRef}
-        style={s.body}
-        focusable={active}
-        onPress={onFlip}
-        accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
-        accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
-        testID={`group.card.${group.groupId}`}
-      >
-        <View style={s.art}>
-          <View style={s.privacyPill}>
-            <MaterialCommunityIcons
-              name={group.isPrivate ? 'lock' : 'earth'}
-              size={12}
-              color={T.white}
-            />
-            <Text style={s.pillText}>{privacyLabel}</Text>
-          </View>
-          <View style={s.emojiOrbit}>
-            <View style={s.emojiOrbitDash}>
-              <View style={s.emojiFrame}>
-                <Text style={s.emoji}>{emoji}</Text>
-              </View>
-            </View>
-          </View>
+    <View style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
+      <View style={s.root}>
+        <View
+          style={s.grip}
+          testID={`group.card.grip.${group.groupId}`}
+          accessibilityRole="adjustable"
+          focusable={active}
+          accessibilityLabel={`${group.name} 카드 순서`}
+          accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+          accessibilityActions={[
+            ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
+            ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
+            if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
+          }}
+          {...reorderHandlers}
+        >
+          <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
         </View>
-
-        <View style={s.info}>
-          <View style={s.infoInner}>
-            <View style={s.nameRow}>
-              <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
-                {group.name}
-              </Text>
-              {group.role === 'OWNER' && (
-                <View style={s.ownerChip}>
-                  <MaterialCommunityIcons name="crown-outline" size={14} color={T.accentDeep} />
-                  <Text style={s.ownerText}>방장</Text>
+        <Pressable
+          ref={bodyRef}
+          style={s.body}
+          focusable={active}
+          onPress={onFlip}
+          accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
+          accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
+          testID={`group.card.${group.groupId}`}
+        >
+          <View style={s.art}>
+            <View style={s.privacyPill}>
+              <MaterialCommunityIcons
+                name={group.isPrivate ? 'lock' : 'earth'}
+                size={12}
+                color={T.white}
+              />
+              <Text style={s.pillText}>{privacyLabel}</Text>
+            </View>
+            <View style={s.emojiOrbit}>
+              <View style={s.emojiOrbitDash}>
+                <View style={s.emojiFrame}>
+                  <Text style={s.emoji}>{emoji}</Text>
                 </View>
-              )}
-            </View>
-            {!!group.description && (
-              <Text style={s.desc} numberOfLines={2}>
-                {group.description}
-              </Text>
-            )}
-            <View style={s.footer}>
-              <View style={s.countBadge}>
-                <MaterialCommunityIcons
-                  name="account-multiple-outline"
-                  size={18}
-                  color={T.accentDeep}
-                />
-                <Text style={s.count}>
-                  {group.currentMembers}/{group.maxMembers}
-                </Text>
-              </View>
-              <View style={s.flipHint}>
-                <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
-                <Text style={s.flipText}>뒤집어 방 보기</Text>
               </View>
             </View>
           </View>
-        </View>
-      </Pressable>
+
+          <View style={s.info}>
+            <View style={s.infoInner}>
+              <View style={s.nameRow}>
+                <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
+                  {group.name}
+                </Text>
+                {group.role === 'OWNER' && (
+                  <View style={s.ownerChip}>
+                    <MaterialCommunityIcons name="crown-outline" size={14} color={T.accentDeep} />
+                    <Text style={s.ownerText}>방장</Text>
+                  </View>
+                )}
+              </View>
+              {!!group.description && (
+                <Text style={s.desc} numberOfLines={2}>
+                  {group.description}
+                </Text>
+              )}
+              <View style={s.footer}>
+                <View style={s.countBadge}>
+                  <MaterialCommunityIcons
+                    name="account-multiple-outline"
+                    size={18}
+                    color={T.accentDeep}
+                  />
+                  <Text style={s.count}>
+                    {group.currentMembers}/{group.maxMembers}
+                  </Text>
+                </View>
+                <View style={s.flipHint}>
+                  <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
+                  <Text style={s.flipText}>뒤집어 방 보기</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
+  shadowShell: {
+    flex: 1,
+    minHeight: 520,
+    borderRadius: 28,
+    backgroundColor: T.white,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
   root: {
     flex: 1,
     minHeight: 520,

@@ -14,7 +14,9 @@ interface Props {
   onOpenRoom: () => void;
   onOpenSettings: () => void;
   onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
+  backFocusRef?: React.RefObject<View | null>;
   roomRef?: React.RefObject<View | null>;
+  settingsRef?: React.RefObject<View | null>;
   position?: number;
   pageCount?: number;
 }
@@ -32,7 +34,9 @@ export function GroupCardBack({
   onOpenRoom,
   onOpenSettings,
   onRetry,
+  backFocusRef,
   roomRef,
+  settingsRef,
   position = 1,
   pageCount = 1,
 }: Props) {
@@ -61,7 +65,11 @@ export function GroupCardBack({
         >
           {group.name}
         </Text>
-        <TouchableOpacity onPress={onOpenSettings} testID={`group.card.settings.${group.groupId}`}>
+        <TouchableOpacity
+          ref={settingsRef}
+          onPress={onOpenSettings}
+          testID={`group.card.settings.${group.groupId}`}
+        >
           <Text style={s.link}>⋯ 설정</Text>
         </TouchableOpacity>
       </View>
@@ -126,6 +134,7 @@ export function GroupCardBack({
 
       <View style={s.actions}>
         <TouchableOpacity
+          ref={backFocusRef}
           style={s.primary}
           onPress={onStartFocus}
           testID={`group.card.focus.${group.groupId}`}

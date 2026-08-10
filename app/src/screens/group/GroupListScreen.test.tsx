@@ -135,6 +135,10 @@ describe('카드 렌더', () => {
     expect(screen.getByText('2/5')).toBeOnTheScreen();
     expect(screen.getByText('저녁 스터디', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toHaveStyle({
+      shadowOpacity: 0.16,
+      elevation: 5,
+    });
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
     ).toBeOnTheScreen();

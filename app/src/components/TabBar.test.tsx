@@ -71,6 +71,18 @@ describe('TabBar 피드백 정책', () => {
 });
 
 describe('TabBar 접근성', () => {
+  test('네 탭은 아이콘 아래 라벨과 44pt 이상의 터치 높이를 유지한다', async () => {
+    await renderTabBar(2);
+    for (const name of ROUTE_NAMES) {
+      expect(screen.getByText(name)).toBeOnTheScreen();
+      expect(screen.getByTestId(`tabbar.tab.${name}`)).toHaveStyle({
+        minWidth: 44,
+        height: 56,
+      });
+    }
+    expect(screen.getByText('그룹')).toHaveStyle({ color: '#5E6AD2' });
+  });
+
   test('탭 역할·선택 상태·레이블을 노출한다', async () => {
     await renderTabBar(1);
     const selected = screen.getByTestId('tabbar.tab.리그');

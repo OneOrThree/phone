@@ -267,11 +267,15 @@ export default function GroupListScreen({
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
+  const returnFocusTargetRef = useRef<'room' | 'settings'>('room');
   const frontFocusRef = useRef<View | null>(null);
+  const backFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
+  const settingsFocusRef = useRef<View | null>(null);
   const deckAnchorRef = useRef<View | null>(null);
   const activeCardRef = useRef<View | null>(null);
   const guideDecisionEpisodeRef = useRef<number | null>(null);
+  const invalidatedGuideEpisodeRef = useRef<number | null>(null);
   const guideReadStateRef = useRef<GroupDeckGuideReadState | null>(null);
   const guideStartGroupsRef = useRef<string | null>(null);
   const guideVisibleRef = useRef(false);
@@ -390,7 +394,7 @@ export default function GroupListScreen({
         trigger,
         group_count_bucket: groupCountBucket(orderedGroups.length),
       });
-      focusNode(roomFocusRef);
+      focusNode(backFocusRef);
     },
     [ensureBack, focusNode, orderedGroups.length],
   );
@@ -509,6 +513,7 @@ export default function GroupListScreen({
       context,
       orderedGroups.map((group) => group.groupId),
     );
+    const returnFocusTarget = returnFocusTargetRef.current;
     roomReturnRef.current = null;
     if (target.kind === 'empty') return;
 
@@ -519,7 +524,7 @@ export default function GroupListScreen({
     listRef.current?.scrollToOffset({ offset: target.index * snapInterval, animated: false });
     if (target.kind === 'same_back') {
       setFlippedGroupId(target.groupId);
-      focusNode(roomFocusRef);
+      focusNode(returnFocusTarget === 'settings' ? settingsFocusRef : roomFocusRef);
     } else {
       setFlippedGroupId(null);
       focusNode(frontFocusRef);
@@ -718,7 +723,12 @@ export default function GroupListScreen({
   }, [guideDataFailed, guideDataReady, guideManaged]);
 
   useEffect(() => {
-    if (!guideEligible || guideDecisionEpisodeRef.current === guideEpisode) return;
+    if (
+      !guideEligible ||
+      invalidatedGuideEpisodeRef.current === guideEpisode ||
+      guideDecisionEpisodeRef.current === guideEpisode
+    )
+      return;
     guideDecisionEpisodeRef.current = guideEpisode;
     let canceled = false;
     let settled = false;
@@ -791,11 +801,23 @@ export default function GroupListScreen({
   }, []);
 
   useEffect(() => {
+    if (!guideScreenFocused) {
+      invalidatedGuideEpisodeRef.current = guideEpisode;
+      if (guideVisible) interruptGuide('route');
+      setGuideQueued(false);
+      return;
+    }
     if (!guideVisible) return;
-    if (!guideScreenFocused) interruptGuide('route');
     else if (guideBlocked) interruptGuide('blocking_overlay');
     else if (guideStartGroupsRef.current !== groupFingerprint) interruptGuide('groups_changed');
-  }, [groupFingerprint, guideBlocked, guideScreenFocused, guideVisible, interruptGuide]);
+  }, [
+    groupFingerprint,
+    guideBlocked,
+    guideEpisode,
+    guideScreenFocused,
+    guideVisible,
+    interruptGuide,
+  ]);
 
   const guideSteps: GuideStep[] = useMemo(
     () =>
@@ -834,7 +856,7 @@ export default function GroupListScreen({
     setGuideQueued(false);
     // 마지막 단계가 뒷면을 열어 둔 채 끝나므로 오버레이가 포커스를 잃게 하지 않는다.
     // 다음 실제 조작 대상인 뒷면 제목/첫 CTA로 즉시 이어 준다.
-    focusNode(roomFocusRef);
+    focusNode(backFocusRef);
   }, [focusNode]);
 
   return (
@@ -954,6 +976,12 @@ export default function GroupListScreen({
                       roomRef={
                         activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
                       }
+                      backFocusRef={
+                        activeIdentityRef.current === item.groupId ? backFocusRef : undefined
+                      }
+                      settingsRef={
+                        activeIdentityRef.current === item.groupId ? settingsFocusRef : undefined
+                      }
                       onFlipFront={flipToFront}
                       onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
                       onStartFocus={() => {
@@ -962,7 +990,15 @@ export default function GroupListScreen({
                         );
                       }}
                       onOpenSettings={() => {
-                        runCardAction(item, 'settings', () => onOpenSettings(item.groupId));
+                        runCardAction(item, 'settings', () => {
+                          roomReturnRef.current = {
+                            groupId: item.groupId,
+                            sourceIndex: index,
+                            departureRevision: groupsRevision,
+                          };
+                          returnFocusTargetRef.current = 'settings';
+                          onOpenSettings(item.groupId);
+                        });
                       }}
                       onOpenRoom={() => {
                         runCardAction(item, 'room', (interaction) => {
@@ -971,6 +1007,7 @@ export default function GroupListScreen({
                             sourceIndex: index,
                             departureRevision: groupsRevision,
                           };
+                          returnFocusTargetRef.current = 'room';
                           onSelect(item.groupId, interaction);
                         });
                       }}
