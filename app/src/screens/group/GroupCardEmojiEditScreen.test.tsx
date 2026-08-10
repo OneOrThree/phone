@@ -167,6 +167,21 @@ test('pending 선택을 카드와 편집기 초기값에 합성하되 저장 기
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
 });
 
+test('pending을 합성해 다시 연 편집기에서 디스크 기준값을 고르면 재시도를 취소한다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '🎯');
+  preservePendingGroupCardEmoji('user-1', 'group-1', '📚');
+  await render(<GroupCardEmojiEditScreen />);
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState.selected).toBe(true),
+  );
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🎯')));
+
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+  expect(await retryPendingGroupCardEmojis('user-1', ['group-1'])).toEqual({});
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🎯');
+});
+
 test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성화한다', async () => {
   mockUser.userId = null;
   await render(<GroupCardEmojiEditScreen />);

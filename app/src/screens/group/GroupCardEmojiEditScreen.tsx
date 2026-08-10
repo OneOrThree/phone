@@ -49,6 +49,7 @@ export default function GroupCardEmojiEditScreen() {
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [hasPendingSelection, setHasPendingSelection] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const requestRef = useRef(0);
@@ -86,6 +87,7 @@ export default function GroupCardEmojiEditScreen() {
       const emoji = result.emoji;
       setBaseline(result.storedEmoji);
       setSelected(emoji);
+      setHasPendingSelection(emoji !== result.storedEmoji);
       setLoadedIdentity(requestedIdentity);
       setSaveFailed(false);
     });
@@ -107,9 +109,13 @@ export default function GroupCardEmojiEditScreen() {
     // 네이티브 뒤로가기·스와이프로 화면이 먼저 닫혀도 현재 실행의 카드는 수락한 선택을 즉시 쓴다.
     // 성공하면 아래에서 pending을 지우고, 실패하면 다음 그룹 화면 활성화에서 재시도한다.
     preservePendingGroupCardEmoji(userId, groupId, selected);
+    setHasPendingSelection(true);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
       clearPendingGroupCardEmoji(userId, groupId);
+      if (activeRef.current && identityRef.current === saveIdentity) {
+        setHasPendingSelection(false);
+      }
       if (
         identityRef.current !== saveIdentity ||
         !ownsGroupCardIconSaveResult(saveSessionIdentity, userId)
@@ -138,8 +144,11 @@ export default function GroupCardEmojiEditScreen() {
   const selectEmoji = useCallback(
     (emoji: GroupCardEmoji) => {
       setSelected(emoji);
-      if (saveFailed && userId && baseline) {
+      if ((hasPendingSelection || saveFailed) && userId && baseline) {
         updatePendingGroupCardEmojiSelection(userId, groupId, emoji, baseline);
+        setHasPendingSelection(emoji !== baseline);
+      }
+      if (saveFailed && userId && baseline) {
         const retry = ++changeRetryRef.current;
         const retryIdentity = identity;
         writeGroupCardEmoji(userId, groupId, emoji)
@@ -147,6 +156,7 @@ export default function GroupCardEmojiEditScreen() {
             if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
             clearPendingGroupCardEmoji(userId, groupId, emoji);
             if (!activeRef.current) return;
+            setHasPendingSelection(false);
             setBaseline(emoji);
             setSaveFailed(false);
           })
@@ -157,7 +167,7 @@ export default function GroupCardEmojiEditScreen() {
           });
       }
     },
-    [baseline, groupId, identity, saveFailed, userId],
+    [baseline, groupId, hasPendingSelection, identity, saveFailed, userId],
   );
 
   return (

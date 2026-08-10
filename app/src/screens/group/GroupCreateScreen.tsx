@@ -73,7 +73,7 @@ const VISIBILITY_CAPTION = {
 
 export default function GroupCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { userId } = useUser();
+  const { userId, sessionIdentityRef } = useUser();
 
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
@@ -202,12 +202,17 @@ export default function GroupCreateScreen() {
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
       let localSaveFailed = false;
       if (userId) {
+        const saveSessionIdentity = sessionIdentityRef.current;
         try {
           await writeGroupCardEmoji(userId, groupId, cardEmoji);
-          logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
+          if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
+            logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
+          }
         } catch {
           preservePendingGroupCardEmoji(userId, groupId, cardEmoji);
-          logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
+          if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
+            logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
+          }
           setEmojiSaveFailed(true);
           localSaveFailed = true;
         }
