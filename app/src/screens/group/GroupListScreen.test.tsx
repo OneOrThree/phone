@@ -11,6 +11,8 @@ import { View } from 'react-native';
 import GroupListScreen, { advanceEdgeTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
+import { logGroupCardActionClicked } from '@/services/analyticsEvents';
+import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -214,6 +216,56 @@ describe('콜백', () => {
     await press(`group.card.room.${GROUP_ID}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  test('guide가 연 뒷면에서 설정을 다녀와도 다음 CTA의 back_source를 유지한다', async () => {
+    resetGroupDeckGuideSessionForTests();
+    const onOpenSettings = jest.fn();
+    const props = {
+      groups: [group()],
+      userId: 'user-1',
+      onSelect,
+      onCreate,
+      onFind,
+      onOpenSettings,
+      onRefresh,
+      guideEpisode: 1,
+    };
+    const view = await render(<GroupListScreen {...props} isScreenFocused />);
+
+    await waitFor(() => expect(screen.getByTestId('group.list.items')).toBeOnTheScreen());
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 520 } },
+      });
+      fireEvent(screen.getByTestId(`group.list.card.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 352, height: 520 } },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('group.list.guide')).toBeOnTheScreen());
+
+    await press('group.list.guide');
+    await press('group.list.guide');
+    await press('group.list.guide');
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(`group.card.back.${GROUP_ID}`, { includeHiddenElements: true }),
+      ).toBeOnTheScreen(),
+    );
+    await press('group.list.guide');
+    await waitFor(() => expect(screen.queryByTestId('group.list.guide')).toBeNull());
+
+    await press(`group.card.settings.${GROUP_ID}`);
+    expect(onOpenSettings).toHaveBeenCalledWith(GROUP_ID);
+    await view.rerender(<GroupListScreen {...props} isScreenFocused={false} />);
+    await view.rerender(<GroupListScreen {...props} isScreenFocused />);
+    await press(`group.card.room.${GROUP_ID}`);
+
+    const actionEvents = (logGroupCardActionClicked as jest.Mock).mock.calls;
+    expect(actionEvents).toEqual([
+      [expect.objectContaining({ action: 'settings', back_source: 'guide' })],
+      [expect.objectContaining({ action: 'room', back_source: 'guide' })],
+    ]);
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {

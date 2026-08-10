@@ -87,6 +87,47 @@ test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한
   expect(screen.queryByText('현재 집중 0명')).toBeNull();
 });
 
+test('멤버를 받아도 focus가 조회 중이면 오류 대신 로딩을 표시한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: {
+          status: 'ready',
+          data: {
+            id: 'g1',
+            name: group.name,
+            description: null,
+            missionCategory: null,
+            missionType: null,
+            durationMinutes: null,
+            windowStart: null,
+            windowEnd: null,
+            maxMembers: 5,
+            status: 'ACTIVE',
+            members: [],
+            code: null,
+            codeExpiresAt: null,
+            noticeGrantedUserIds: [],
+          },
+        },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('집중 인원 불러오는 중…')).toBeOnTheScreen();
+  expect(screen.queryByText('현재 집중 인원 확인 불가')).toBeNull();
+});
+
+test('설정 버튼의 접근성 이름에 대상 그룹을 포함한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByLabelText('아침 집중방 그룹 옵션')).toBeOnTheScreen();
+});
+
 test('현재 사용자가 상위 5명 밖이어도 선두에 두고 나머지 서버 순서를 보존한다', async () => {
   const members = ['첫째', '둘째', '셋째', '넷째', '다섯째', '나'].map((nickname, index) => ({
     userId: `u${index + 1}`,

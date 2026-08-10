@@ -84,6 +84,8 @@ export function GroupCardBack({
         <TouchableOpacity
           ref={settingsRef}
           onPress={onOpenSettings}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name} 그룹 옵션`}
           testID={`group.card.settings.${group.groupId}`}
         >
           <Text style={s.link}>⋯ 설정</Text>
@@ -101,11 +103,15 @@ export function GroupCardBack({
         ) : (
           <>
             <Text style={s.body}>{memberPreview.map((member) => member.nickname).join(' · ')}</Text>
-            <Text style={s.muted}>
-              {focusCount.status === 'unavailable'
-                ? '현재 집중 인원 확인 불가'
-                : `현재 집중 ${focusCount.count}명${focusCount.status === 'stale' ? ' · 이전 값' : ''}`}
-            </Text>
+            {focus.status === 'idle' || focus.status === 'loading' ? (
+              <LoadingLine label="집중 인원" />
+            ) : (
+              <Text style={s.muted}>
+                {focusCount.status === 'unavailable'
+                  ? '현재 집중 인원 확인 불가'
+                  : `현재 집중 ${focusCount.count}명${focusCount.status === 'stale' ? ' · 이전 값' : ''}`}
+              </Text>
+            )}
           </>
         )}
         {(focus.status === 'error' || focus.status === 'coverage-unknown') && (

@@ -80,7 +80,14 @@ export function useGroupCardData({
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      setAppActive(state === 'active');
+      const active = state === 'active';
+      setAppActive(active);
+      // 백그라운드에서 KST 날짜가 바뀐 경우 60초 tick을 기다리지 않고 새 날짜 scope로
+      // 교체한다. 열린 카드의 날짜별 dependency도 scope effect에서 즉시 다시 시작된다.
+      if (active) {
+        const next = todayStrKst();
+        setDate((current) => (current === next ? current : next));
+      }
     });
     return () => subscription.remove();
   }, []);

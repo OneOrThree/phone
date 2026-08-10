@@ -323,7 +323,6 @@ export default function GroupListScreen({
         back_source: guideBackGroupIdRef.current === group.groupId ? 'guide' : 'user',
         interaction_id: interaction.interactionId,
       });
-      guideBackGroupIdRef.current = null;
       return interaction;
     },
     [reorderMenuGroupId],
