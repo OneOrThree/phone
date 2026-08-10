@@ -306,6 +306,11 @@ export default function GroupListScreen({
     }
     frontFocusGroupIdRef.current = null;
     setFrontFocusGroupId(null);
+    // 사용자가 새 페이지/행동의 소유권을 잡으면 아직 node를 기다리는 뒷면 복귀 포커스도
+    // 함께 폐기한다. 그렇지 않으면 과거 카드가 다시 마운트될 때 포커스를 빼앗을 수 있다.
+    roomReturnFocusGroupIdRef.current = null;
+    roomReturnWasBlurredRef.current = false;
+    setRoomReturnReadyGroupId(null);
   }, []);
 
   useEffect(
@@ -1098,7 +1103,11 @@ export default function GroupListScreen({
                         roomReturnFocusGroupIdRef.current = null;
                         roomReturnWasBlurredRef.current = false;
                       }}
-                      suppressInitialFocus={deckGuideVisible}
+                      suppressInitialFocus={
+                        deckGuideVisible ||
+                        actionAcceptedRef.current ||
+                        roomReturnFocusGroupIdRef.current === item.groupId
+                      }
                       focusPrimaryOnMount={guidePrimaryFocusGroupId === item.groupId}
                       onPrimaryFocusRestored={() => setGuidePrimaryFocusGroupId(null)}
                       onRetry={(section) => summaryAdapter.retry(item.groupId, section)}

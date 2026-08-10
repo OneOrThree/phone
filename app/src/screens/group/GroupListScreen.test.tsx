@@ -743,6 +743,13 @@ describe('콜백', () => {
     );
 
     setFocus.mockClear();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={1} />);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
+
     jest.mocked(ReactNative.findNodeHandle).mockReturnValue(null);
     await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={2} />);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -760,6 +767,50 @@ describe('콜백', () => {
     );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(setFocus).toHaveBeenCalledWith(1);
+  });
+
+  test('뒷면 복귀 포커스 대기 중 페이지를 선택하면 과거 요청을 폐기한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const first = group();
+    const second = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
+    const props = {
+      groups: [first, second],
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(
+      <GroupListScreen {...props} screenFocused successfulListVersion={1} />,
+    );
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused={false} successfulListVersion={1} />,
+    );
+
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(null);
+    await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={2} />);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const indicator = screen.getByTestId('group.deck.indicator');
+    await act(async () => {
+      fireEvent(indicator, 'layout', {
+        nativeEvent: { layout: { width: 320, height: 44, x: 0, y: 0 } },
+      });
+    });
+    await press('group.deck.indicator.dot.1');
+    await press('group.deck.indicator.dot.0');
+
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
+    announce.mockClear();
+    await press(`group.card.${GROUP_ID}`);
+    await waitFor(() =>
+      expect(announce).toHaveBeenCalledWith('아침 6시 집중방 방 요약이 열렸습니다'),
+    );
   });
 
   test.each([
