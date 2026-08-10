@@ -239,7 +239,7 @@ test('무효화된 prune의 원본 복원이 실패해도 최신 reconcile은 �
   expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
 });
 
-test('복구 대기 bucket은 후속 저장에 즉시 병합되어 앱 재시작 뒤에도 보존된다', async () => {
+test('다른 계정의 후속 저장도 모든 복구 대기 bucket을 앱 재시작 전에 영속화한다', async () => {
   await writeGroupCardEmoji('u1', 'a', '📚');
   await writeGroupCardEmoji('u1', 'b', '🔥');
   let started: () => void = () => undefined;
@@ -264,11 +264,10 @@ test('복구 대기 bucket은 후속 저장에 즉시 병합되어 앱 재시작
   release();
   await Promise.all([stale, invalidator]);
 
-  await writeGroupCardEmoji('u1', 'b', '⚡');
   await writeGroupCardEmoji('u2', 'other', '🧠');
 
   expect(parseGroupCardEmoji(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1'))).toEqual({
-    u1: { a: '📚', b: '⚡' },
+    u1: { a: '📚', b: '🔥' },
     u2: { other: '🧠' },
   });
 
@@ -276,7 +275,7 @@ test('복구 대기 bucket은 후속 저장에 즉시 병합되어 앱 재시작
   __resetGroupCardEmojiQueueForTest();
 
   expect(await readGroupCardEmoji('u1', 'a')).toBe('📚');
-  expect(await readGroupCardEmoji('u1', 'b')).toBe('⚡');
+  expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
   expect(await readGroupCardEmoji('u2', 'other')).toBe('🧠');
 });
 

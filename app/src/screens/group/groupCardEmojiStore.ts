@@ -165,16 +165,28 @@ export function writeGroupCardEmoji(
 ): Promise<void> {
   return enqueueStorageOperation(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
-    const recoveryBucket = reconcileRecoveryBucketByUser.get(userId);
+    const recoveryEntries = [...reconcileRecoveryBucketByUser.entries()];
+    const recoveredMap = recoveryEntries.reduce<GroupCardEmojiMap>(
+      (nextMap, [recoveryUserId, recoveryBucket]) => ({
+        ...nextMap,
+        [recoveryUserId]: { ...recoveryBucket, ...nextMap[recoveryUserId] },
+      }),
+      map,
+    );
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardEmoji,
       JSON.stringify({
-        ...map,
-        [userId]: { ...recoveryBucket, ...map[userId], [groupId]: emoji },
+        ...recoveredMap,
+        [userId]: { ...recoveredMap[userId], [groupId]: emoji },
       }),
     );
-    // 성공한 쓰기에 복구 bucket 전체가 영속화된 뒤에만 메모리 복구본을 비운다.
-    if (recoveryBucket) reconcileRecoveryBucketByUser.delete(userId);
+    // 성공한 RMW에 병합된 모든 계정 복구본만 비운다. 이후 세대가 같은 계정에 새로
+    // 복구본을 만들었다면 참조가 달라지므로 다음 저장까지 유지한다.
+    recoveryEntries.forEach(([recoveryUserId, recoveryBucket]) => {
+      if (reconcileRecoveryBucketByUser.get(recoveryUserId) === recoveryBucket) {
+        reconcileRecoveryBucketByUser.delete(recoveryUserId);
+      }
+    });
     emitGroupCardEmoji(userId, groupId, emoji);
   });
 }
