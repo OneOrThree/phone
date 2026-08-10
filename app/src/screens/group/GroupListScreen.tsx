@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { DEFAULT_GROUP_CARD_EMOJI, type GroupCardEmojiBucket } from './groupCardEmojiStore';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -30,6 +31,7 @@ const TAB_BAR_SPACE = 74;
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
+  cardEmojiByGroupId?: GroupCardEmojiBucket;
   onSelect: (groupId: string) => void;
   onCreate: () => void;
   onFind: () => void;
@@ -39,6 +41,7 @@ export interface GroupListScreenProps {
 
 export default function GroupListScreen({
   groups,
+  cardEmojiByGroupId = {},
   onSelect,
   onCreate,
   onFind,
@@ -101,6 +104,13 @@ export default function GroupListScreen({
             onPress={() => onSelect(item.groupId)}
             testID={`group.list.card.${item.groupId}`}
           >
+            <Text
+              style={s.cardEmoji}
+              accessible={false}
+              testID={`group.list.emoji.${item.groupId}`}
+            >
+              {cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
+            </Text>
             <View style={s.cardMain}>
               {/* 1행: 이름 + 비공개 자물쇠 */}
               <View style={s.cardTitleRow}>
@@ -207,6 +217,7 @@ const s = StyleSheet.create({
     paddingVertical: T.space.lg,
   },
   cardMain: { flex: 1, gap: 4, minWidth: 0 },
+  cardEmoji: { fontSize: 28, lineHeight: 34 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   cardDesc: { ...T.text.caption, color: T.inkSub },

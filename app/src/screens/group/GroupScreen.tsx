@@ -19,6 +19,11 @@ import { logGroupViewed } from '@/services/analyticsEvents';
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
+import {
+  reconcileGroupCardEmojiBucket,
+  retryPendingGroupCardEmojis,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
 
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
@@ -39,9 +44,10 @@ const TAB_BAR_SPACE = 74;
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { isGuest } = useUser();
+  const { isGuest, userId } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
+  const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -102,6 +108,21 @@ export default function GroupScreen() {
     try {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
+      let emojiBucket: GroupCardEmojiBucket = {};
+      if (userId) {
+        // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
+        // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
+        await retryPendingGroupCardEmojis(
+          userId,
+          rows.map((row) => row.groupId),
+        );
+        emojiBucket = await reconcileGroupCardEmojiBucket(
+          userId,
+          rows.map((row) => row.groupId),
+        ).catch(() => ({}));
+      }
+      if (seq !== requestSeqRef.current) return;
+      setCardEmojiByGroupId(emojiBucket);
       setGroups(rows);
       // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
@@ -111,7 +132,7 @@ export default function GroupScreen() {
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [isGuest]);
+  }, [isGuest, userId]);
 
   // mutation 성공 직후의 재조회 — 결과가 올 때까지(또는 실패가 확정될 때까지) 빈 상태를 렌더하지 않는다.
   const fetchAfterMutation = useCallback(() => {
@@ -309,6 +330,7 @@ export default function GroupScreen() {
         {staleNotice}
         <GroupListScreen
           groups={myGroups}
+          cardEmojiByGroupId={cardEmojiByGroupId}
           onSelect={onSelectGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
