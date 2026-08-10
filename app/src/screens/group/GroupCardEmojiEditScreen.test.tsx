@@ -21,7 +21,10 @@ jest.mock('@react-navigation/native', () => ({
 
 const mockUser = { userId: 'user-1' as string | null };
 jest.mock('@/store/UserContext', () => ({ useUser: () => mockUser }));
-jest.mock('@/services/analyticsEvents', () => ({ logGroupCardIconSaveResult: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardIconEditorViewed: jest.fn(),
+  logGroupCardIconSaveResult: jest.fn(),
+}));
 const { logGroupCardIconSaveResult } = jest.requireMock('@/services/analyticsEvents');
 
 beforeEach(async () => {
