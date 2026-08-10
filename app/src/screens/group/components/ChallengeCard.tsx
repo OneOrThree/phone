@@ -49,7 +49,7 @@ import {
 } from './progressFormat';
 import ChallengeDeleteSheet from './ChallengeDeleteSheet';
 import JoinNextSheet from './JoinNextSheet';
-import JoinWeekSheet from './JoinWeekSheet';
+import JoinWeekSheet, { type JoinWeekEntry } from './JoinWeekSheet';
 import LastBetResultSheet from './LastBetResultSheet';
 
 // 챌린지 카드(그룹방 챌린지 섹션 1장) — 명세 docs/app/group-plan-2.md §3-2.
@@ -482,7 +482,10 @@ export default function ChallengeCard({
   // 참가 가능 회차. 오늘은 '지금 참여 가능한 미참가 회차'일 때만(창형은 참가 마감 전 — N39와 같은
   // 원리로 참여 불가능한 오늘을 담으면 서버 400으로 전체가 죽는다). 이미 예약한 다음 활성일은
   // 뺀다 — 합계 표기가 실제 나갈 돈보다 부풀면 안 된다(서버는 조용히 건너뛰지만 표기가 거짓이 된다).
-  const weekDates = (() => {
+  // ⚠️ 금액은 **날짜마다 다를 수 있다**(#570 리뷰): 오늘 회차는 이미 열려 있어 개설 시점 stake가
+  //    박제돼 있고, 아직 열리지 않은 날은 예약하는 순간 지금 설정값이 박제된다. 단가 하나로
+  //    합계를 내면 관리자가 참가비를 바꾼 직후 **표시 합계 ≠ 실제 차감**이 된다 — 날짜별로 낸다.
+  const weekEntries = (() => {
     if (
       repeatDays === null ||
       !betOn ||
@@ -504,13 +507,17 @@ export default function ChallengeCard({
       !myBlockedNow &&
       // 참가 마감(joinClosesAt) 경과 판정은 창 시각 재구성이 아니라 서버 값이 정본이다(위 주석).
       !todaySessionClosed;
-    const future = weekRemainingActiveDates(repeatDays, todayKst, false).filter(
-      (d) => !(challenge.nextSessionJoined === true && d === nextDate),
-    );
-    return todayEligible ? [todayKst, ...future] : future;
+    // 미래 날짜는 아직 회차가 없다 → 예약 시점의 설정값이 박제된다(= reserveStake).
+    const future = weekRemainingActiveDates(repeatDays, todayKst, false)
+      .filter((d) => !(challenge.nextSessionJoined === true && d === nextDate))
+      .map((date) => ({ date, stake: reserveStake }));
+    if (!todayEligible) return future;
+    // 오늘 몫은 **박제값**이다 — 회차가 이미 서 있으므로 설정값이 아니라 그 회차의 stake가 나간다.
+    const todayStake = todaySession?.stake ?? bet?.stake ?? reserveStake;
+    return [{ date: todayKst, stake: todayStake }, ...future];
   })();
   // 남은 날이 1개 이하면 숨긴다 — 단건 참여와 같아져 의미가 없다(LLD §2.2).
-  const weekEligible = weekDates.length >= 2;
+  const weekEligible = weekEntries.length >= 2;
 
   // ── 오늘 회차 참여 취소 창(N22 · #570 codex ②) ──
   // 서버가 준 myLeaveDeadlineAt이 정본이다: 시작 전 참가는 회차 시작까지, **시작 후 참가(하루형)는
@@ -545,7 +552,7 @@ export default function ChallengeCard({
   // 배선을 늘리지 않는다). groupId는 조회 캐시 역참조 — 미적중이면 공통 문구.
   const [betV2Sheet, setBetV2Sheet] = useState<'next' | null>(null);
   // 주간 시트가 그릴 대상 날짜 — **열 때 확정**한다(아래 openWeekSheet). null = 닫힘.
-  const [weekSheetDates, setWeekSheetDates] = useState<string[] | null>(null);
+  const [weekSheetDates, setWeekSheetDates] = useState<JoinWeekEntry[] | null>(null);
   const weekOpenLock = useRef(false);
   // 진행 중 삭제 2단계(GROMO-1425) — 프리플라이트 수치가 도착해야만 열린다(N49).
   const [deletePreview, setDeletePreview] = useState<ChallengeDeletionPreviewResponse | null>(null);
@@ -577,14 +584,14 @@ export default function ChallengeCard({
       const reserved = new Set(
         mine.filter((m) => m.challengeId === challenge.id).map((m) => m.sessionDate),
       );
-      const dates = weekDates.filter((d) => !reserved.has(d));
-      if (dates.length === 0) {
+      const targets = weekEntries.filter((e) => !reserved.has(e.date));
+      if (targets.length === 0) {
         // 남은 날을 전부 예약해 뒀다 — 낡은 버튼이었다. 사실을 알리고 카드를 최신으로 갈아 끼운다.
         Alert.alert('이미 참여했어요', '이번 주 남은 날은 이미 모두 참여하고 있어요.');
         onBetChanged?.();
         return;
       }
-      setWeekSheetDates(dates);
+      setWeekSheetDates(targets);
     } catch {
       // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
       Alert.alert('참여 정보를 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
@@ -1270,14 +1277,13 @@ export default function ChallengeCard({
 
       {/* 이번 주 남은 날 일괄 예약(GROMO-1276) — 대상 날짜는 열 때 예약 현황까지 반영해 확정한
           weekSheetDates다(위 openWeekSheet — #570 codex ②). */}
-      {weekSheetDates !== null && reserveStake > 0 && cachedGroupId !== null && (
+      {weekSheetDates !== null && weekSheetDates.length > 0 && cachedGroupId !== null && (
         <JoinWeekSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
           label={label ?? categoryLabel(challenge)}
-          dates={weekSheetDates}
+          entries={weekSheetDates}
           startTimeLabel={startHHmm}
-          stake={reserveStake}
           onClose={() => setWeekSheetDates(null)}
           onDone={() => {
             setWeekSheetDates(null);

@@ -2383,6 +2383,45 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
     expect(onBetChanged).toHaveBeenCalled();
   });
 
+  // #570 리뷰 — 오늘 회차는 이미 열려 있어 **박제값**(bet.session.stake)이 나가고, 미래 날짜는
+  // 예약 시점에 **설정값**(betConfig.stake)이 박제된다. 설정을 바꾼 직후엔 둘이 갈리므로
+  // 합계를 단가 하나로 곱하면 화면이 안내한 금액과 실제 차감이 어긋난다.
+  test('오늘이 포함되면 오늘 몫은 박제값, 미래 날짜는 설정값으로 합계를 낸다', async () => {
+    await renderCard({
+      ...weekendOver({ stake: 100 }), // 오늘 회차의 박제 참가비 100
+      betConfig: { enabled: true, stake: 30 }, // 지금 설정값 30 — 미래 날짜에 박제될 값
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    // 100(오늘) + 30(8/2) = 130. 설정값 일괄이면 60, 박제값 일괄이면 200이 된다.
+    expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent('2일 · 합계 130코인');
+    expect(screen.getByLabelText('8/1(토) 참가비 100코인')).toBeOnTheScreen();
+    expect(screen.getByLabelText('8/2(일) 참가비 30코인')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+    });
+    expect(mockJoinWeekSessions).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, [
+      '2026-08-01',
+      '2026-08-02',
+    ]);
+  });
+
+  test('금액이 전부 같으면 종전 단가 표기를 유지한다', async () => {
+    await renderCard({
+      ...weekendOver({ stake: 30 }),
+      betConfig: { enabled: true, stake: 30 },
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+    expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent(
+      '2일 × 30코인 = 합계 60코인',
+    );
+  });
+
   test('오늘 회차에 이미 참가했으면 오늘을 빼고 — 남은 날 1개라 버튼 자체가 없다', async () => {
     await renderCard(weekendOver({ myJoined: true }));
     expect(screen.queryByTestId(`group.bet.week.${CHALLENGE_ID}`)).toBeNull();

@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { Alert } from 'react-native';
-import JoinWeekSheet from './JoinWeekSheet';
+import JoinWeekSheet, { type JoinWeekEntry } from './JoinWeekSheet';
 import { joinWeekSessions } from '@/services/groupApi';
 
 jest.setTimeout(20000);
@@ -45,6 +45,8 @@ const mockJoinWeek = joinWeekSessions as jest.MockedFunction<typeof joinWeekSess
 const GROUP_ID = 'g1';
 const CHALLENGE_ID = 'c1';
 const DATES = ['2026-08-10', '2026-08-12', '2026-08-14']; // 월·수·금
+// 기본은 균일 단가 30 — 금액이 갈리는 케이스는 각 테스트가 entries를 직접 만든다.
+const ENTRIES = DATES.map((date) => ({ date, stake: 30 }));
 const onClose = jest.fn();
 const onDone = jest.fn();
 
@@ -59,23 +61,22 @@ function axiosErrorWith(status: number, code?: string): AxiosError {
   });
 }
 
-function weekElement(dates: string[] = DATES) {
+function weekElement(entries: JoinWeekEntry[] = ENTRIES) {
   return (
     <JoinWeekSheet
       groupId={GROUP_ID}
       challengeId={CHALLENGE_ID}
       label="매일 09:00~12:00 90분 집중"
-      dates={dates}
+      entries={entries}
       startTimeLabel="09:00"
-      stake={30}
       onClose={onClose}
       onDone={onDone}
     />
   );
 }
 
-async function renderWeek(dates: string[] = DATES) {
-  const result = await render(weekElement(dates));
+async function renderWeek(entries: JoinWeekEntry[] = ENTRIES) {
+  const result = await render(weekElement(entries));
   await act(async () => {});
   return result;
 }
@@ -107,6 +108,41 @@ test('날짜별 참가비·합계·잔액을 먼저 보여주고, 보여준 날�
   });
   expect(mockJoinWeek).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, DATES);
   expect(onDone).toHaveBeenCalled();
+});
+
+// #570 리뷰 — 이미 열린 회차는 개설 시점 stake가 박제돼 있고 미래 날짜는 지금 설정값이
+// 박제된다. 단가 하나로 곱하면 관리자가 참가비를 바꾼 직후 **표시 합계 ≠ 실제 차감**이 된다.
+test('날짜별 금액이 갈리면 합계를 실제 차감액으로 내고 단가 표기를 지운다', async () => {
+  await renderWeek([
+    { date: '2026-08-10', stake: 100 }, // 오늘 — 이미 열린 회차의 박제값
+    { date: '2026-08-12', stake: 30 }, // 미래 — 예약 시점에 설정값이 박제된다
+    { date: '2026-08-14', stake: 30 },
+  ]);
+
+  // 없는 단가('× S코인')를 지어내지 않는다 — 날짜별 금액은 위 행에 이미 다 적혀 있다.
+  expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent('3일 · 합계 160코인');
+  expect(screen.getByTestId('group.bet.week.total')).not.toHaveTextContent('×');
+  expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent('합계 160 · 내 잔액 240');
+  // 행에는 각 날짜의 실제 금액이 적힌다.
+  expect(screen.getByLabelText('8/10(월) 참가비 100코인')).toBeOnTheScreen();
+  expect(screen.getByLabelText('8/12(수) 참가비 30코인')).toBeOnTheScreen();
+});
+
+test('금액이 갈릴 때 부분 예약도 날짜별 금액으로 자른다 — 몫 나눗셈이 아니다', async () => {
+  mockCoins = 140; // 100 + 30 = 130까지만 가능(세 번째 날에서 160 초과)
+  await renderWeek([
+    { date: '2026-08-10', stake: 100 },
+    { date: '2026-08-12', stake: 30 },
+    { date: '2026-08-14', stake: 30 },
+  ]);
+
+  expect(screen.getByTestId('group.bet.week.shortage')).toHaveTextContent(
+    '코인이 20 부족해요. 2일(130코인)만 참여할 수 있어요',
+  );
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.partial'));
+  });
+  expect(mockJoinWeek).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, ['2026-08-10', '2026-08-12']);
 });
 
 test('잔액 부족 — 전체 CTA는 잠그되 가능한 날수를 적고 축소 액션을 준다(§C2)', async () => {

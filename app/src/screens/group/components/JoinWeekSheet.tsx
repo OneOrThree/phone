@@ -26,16 +26,27 @@ import BetBalanceRow from './BetBalanceRow';
 //
 // 취소는 날짜 단위다(§C8 — 일괄 취소 없음) — 노트가 그 사실을 미리 말한다. 「회차」 금지(N28).
 
+/**
+ * 예약 대상 하루 — 날짜와 **그 날짜에 실제로 나갈 금액**.
+ *
+ * 금액이 날짜마다 다를 수 있다(#570 리뷰): 이미 열린 회차는 **개설 시점 stake가 박제**돼 있고,
+ * 아직 열리지 않은 날은 예약하는 순간 **지금 설정값**이 박제된다. 관리자가 참가비를 바꾼 직후엔
+ * 두 값이 갈리므로, 단가 하나로 합계를 내면 화면이 안내한 금액과 실제 차감이 어긋난다.
+ */
+export interface JoinWeekEntry {
+  date: string; // 'YYYY-MM-DD'
+  stake: number;
+}
+
 export interface JoinWeekSheetProps {
   groupId: string;
   challengeId: string;
   // 미션 요약 라벨(카드와 같은 문장).
   label: string;
-  // 예약 대상 날짜들('YYYY-MM-DD', 오름차순) — 카드가 repeatDays·오늘 참여 가능 여부에서 산출.
-  dates: string[];
+  // 예약 대상(오름차순) — 카드가 repeatDays·오늘 참여 가능 여부·날짜별 금액에서 산출.
+  entries: JoinWeekEntry[];
   // 창형이면 시작 시각 'HH:mm' — 행마다 날짜 옆에 적는다. 하루형은 null.
   startTimeLabel: string | null;
-  stake: number;
   onClose: () => void;
   // 성공(또는 성공과 같게 취급) — 카드가 시트를 내리고 부모 재조회를 태운다.
   onDone: () => void;
@@ -45,9 +56,8 @@ export default function JoinWeekSheet({
   groupId,
   challengeId,
   label,
-  dates,
+  entries,
   startTimeLabel,
-  stake,
   onClose,
   onDone,
 }: JoinWeekSheetProps) {
@@ -69,7 +79,10 @@ export default function JoinWeekSheet({
     refresh();
   }, [refresh]);
 
-  const total = dates.length * stake;
+  // 합계는 **날짜별 금액의 합**이다 — 단가 × 일수로 내면 박제값이 다른 날에서 어긋난다.
+  const total = entries.reduce((sum, e) => sum + e.stake, 0);
+  // 모든 날짜가 같은 금액인가 — 문구를 가른다(아래 표기 주석).
+  const uniformStake = entries.length > 0 && entries.every((e) => e.stake === entries[0].stake);
   // 잔액 미상이면 부족 판정을 하지 않는다(3상) — 판정은 서버 총액 선검사가 확정해 준다.
   const loaded = !!coinsLoaded;
   const insufficient = loaded && total > coins;
@@ -81,11 +94,21 @@ export default function JoinWeekSheet({
     total <= coins;
   const serverInsufficient =
     insufficientVerdict !== null && total >= insufficientVerdict.total && !balanceOverridesVerdict;
-  // 부분 예약 제안 — **권위 있는 잔액**으로만 계산한다(앞 날짜부터). 서버 판정만 있고 새 잔액이
-  // 아직 없으면 제안하지 않는다 — 낡은 잔액으로 만든 축소 제안은 또 같은 실패를 보낸다.
-  const affordableCount = insufficient ? Math.min(Math.floor(coins / stake), dates.length) : 0;
-  const partialDates = dates.slice(0, affordableCount);
-  const partialTotal = affordableCount * stake;
+  // 부분 예약 제안 — **권위 있는 잔액**으로만 계산한다(앞 날짜부터: 먼저 오는 날이 먼저 도는 날).
+  // 날짜별 금액이 다르므로 '몫 나눗셈'이 아니라 **누적합이 잔액을 넘기 직전까지** 담는다.
+  const partialEntries = (() => {
+    if (!insufficient) return [];
+    const picked: JoinWeekEntry[] = [];
+    let sum = 0;
+    for (const e of entries) {
+      if (sum + e.stake > coins) break;
+      sum += e.stake;
+      picked.push(e);
+    }
+    return picked;
+  })();
+  const affordableCount = partialEntries.length;
+  const partialTotal = partialEntries.reduce((sum, e) => sum + e.stake, 0);
   const fullDisabled = submitting || insufficient || serverInsufficient;
 
   function failAndReload(title: string, message: string) {
@@ -93,10 +116,11 @@ export default function JoinWeekSheet({
     onDone();
   }
 
-  async function submit(targetDates: string[]) {
-    if (submitting || submitLock.current || targetDates.length === 0) return;
+  async function submit(targets: JoinWeekEntry[]) {
+    if (submitting || submitLock.current || targets.length === 0) return;
+    const targetDates = targets.map((e) => e.date);
     // 서버 판정이 잡은 총액 이상은 다시 보내지 않는다 — CTA 잠금과 같은 근거의 최후 가드.
-    const targetTotal = targetDates.length * stake;
+    const targetTotal = targets.reduce((sum, e) => sum + e.stake, 0);
     if (
       insufficientVerdict !== null &&
       !balanceOverridesVerdict &&
@@ -155,27 +179,33 @@ export default function JoinWeekSheet({
       <Text style={s.title}>이번 주 남은 날</Text>
       <Text style={s.sub}>{label}</Text>
 
-      {/* 날짜별 참가비 — "N일 × 참가비"가 행으로 먼저 읽히고, 합계가 아래에서 못을 박는다. */}
+      {/* 날짜별 참가비 — 행이 먼저 읽히고 합계가 아래에서 못을 박는다. 금액은 **행마다** 다를 수
+          있다(이미 열린 회차의 박제값 vs 앞으로 박제될 설정값). */}
       <View style={s.dayList} testID="group.bet.week.days">
-        {dates.map((d) => (
+        {entries.map((e) => (
           <View
-            key={d}
+            key={e.date}
             style={s.dayRow}
             accessible
-            accessibilityLabel={`${fmtMonthDayDow(d)} 참가비 ${stake}코인`}
+            accessibilityLabel={`${fmtMonthDayDow(e.date)} 참가비 ${e.stake}코인`}
           >
             <Text style={s.dayText}>
-              {fmtMonthDayDow(d)}
+              {fmtMonthDayDow(e.date)}
               {startTimeLabel !== null ? ` ${startTimeLabel}` : ''}
             </Text>
-            <Text style={s.dayStake}>{stake}</Text>
+            <Text style={s.dayStake}>{e.stake}</Text>
           </View>
         ))}
       </View>
 
-      {/* 합계 + 잔액 — 잔액 표기는 N46 단독 소유 컴포넌트(1424) 재사용. 차감 후 값 병기 금지. */}
+      {/* 합계 + 잔액 — 잔액 표기는 N46 단독 소유 컴포넌트(1424) 재사용. 차감 후 값 병기 금지.
+          문구는 금액이 갈리는지에 따라 나뉜다: 전부 같으면 종전대로 `N일 × S코인 = 합계 T코인`
+          (단가가 정보다), 갈리면 **단가를 지우고 `N일 · 합계 T코인`** 으로 합계만 말한다 —
+          날짜별 금액은 위 행에 이미 다 적혀 있고, 없는 단가를 지어내면 그게 곧 거짓이 된다. */}
       <Text style={s.totalText} testID="group.bet.week.total">
-        {dates.length}일 × {stake}코인 = 합계 {total}코인
+        {uniformStake
+          ? `${entries.length}일 × ${entries[0].stake}코인 = 합계 ${total}코인`
+          : `${entries.length}일 · 합계 ${total}코인`}
       </Text>
       <BetBalanceRow label="합계" amount={total} coins={loaded ? coins : null} />
 
@@ -205,14 +235,14 @@ export default function JoinWeekSheet({
         style={[s.submitBtn, fullDisabled && s.submitBtnOff]}
         activeOpacity={0.85}
         disabled={fullDisabled}
-        onPress={() => submit(dates)}
+        onPress={() => submit(entries)}
         accessibilityRole="button"
         testID="group.bet.week.submit"
       >
         {submitting ? (
           <ActivityIndicator color={T.white} />
         ) : (
-          <Text style={s.submitText}>{dates.length}일 전부 참여</Text>
+          <Text style={s.submitText}>{entries.length}일 전부 참여</Text>
         )}
       </TouchableOpacity>
 
@@ -221,7 +251,7 @@ export default function JoinWeekSheet({
         <TouchableOpacity
           style={s.partialBtn}
           activeOpacity={0.8}
-          onPress={() => submit(partialDates)}
+          onPress={() => submit(partialEntries)}
           accessibilityRole="button"
           testID="group.bet.week.partial"
         >
