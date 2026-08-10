@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -69,6 +70,7 @@ export function GroupCardDeck({
   const previousOrderKeyRef = useRef(orderKey);
   const previousSnapIntervalRef = useRef(snapInterval);
   const previousActiveInputRef = useRef<string | null | undefined>(undefined);
+  const pendingPeekGroupIdRef = useRef<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [indicatorWidth, setIndicatorWidth] = useState(0);
   const indicatorFocusedRef = useRef(false);
@@ -78,8 +80,10 @@ export function GroupCardDeck({
     pageCount * DOT_HIT_WIDTH + (pageCount - 1) * DOT_GAP <=
       Math.max(0, indicatorWidth - INDICATOR_GUTTER * 2);
   const previousShowDotsRef = useRef(showDots);
-  const dotRefs = useRef<Array<View | null>>([]);
+  const dotRefs = useRef(new Map<string, View | null>());
   const counterRef = useRef<View | null>(null);
+  const focusedIndicatorKeyRef = useRef<string | null>(null);
+  const pageKeys = useMemo(() => [...groups.map((group) => group.groupId), 'find-more'], [groups]);
   // 폭·순서가 바뀌는 렌더에서는 passive effect를 기다리지 않고, 직전 stable identity가
   // 새 배치에서 차지하는 offset으로 FlatList를 다시 마운트한다. 그래야 이전 픽셀 offset이
   // 새 snapInterval의 다른 카드로 한 프레임 해석되지 않는다.
@@ -91,18 +95,27 @@ export function GroupCardDeck({
     if (previousShowDotsRef.current === showDots) return;
     previousShowDotsRef.current = showDots;
     if (!indicatorFocusedRef.current) return;
-    const target = showDots ? dotRefs.current[activeIndex] : counterRef.current;
+    const target = showDots ? dotRefs.current.get(pageKeys[activeIndex]) : counterRef.current;
     target?.focus();
-    const node = findNodeHandle(target);
+    const node = findNodeHandle(target ?? null);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [activeIndex, showDots]);
+  }, [activeIndex, pageKeys, showDots]);
 
-  const settleActiveCard = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const index = Math.max(
-        0,
-        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), groups.length),
-      );
+  useEffect(() => {
+    if (!showDots || !indicatorFocusedRef.current) return;
+    const preservedKey = focusedIndicatorKeyRef.current;
+    const nextKey =
+      preservedKey && pageKeys.includes(preservedKey) ? preservedKey : pageKeys[activeIndex];
+    focusedIndicatorKeyRef.current = nextKey;
+    const target = dotRefs.current.get(nextKey);
+    target?.focus();
+    const node = findNodeHandle(target ?? null);
+    if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+  }, [activeIndex, pageKeys, showDots]);
+
+  const settleActiveOffset = useCallback(
+    (offsetX: number) => {
+      const index = Math.max(0, Math.min(Math.round(offsetX / snapInterval), groups.length));
       const changed = activeIndexRef.current !== index;
       activeGroupIdRef.current = groups[index]?.groupId ?? null;
       activeIndexRef.current = index;
@@ -112,8 +125,28 @@ export function GroupCardDeck({
           `${groups[index]?.name ?? '그룹 찾기'}, ${index + 1} / ${pageCount} 페이지`,
         );
       }
+      const pendingPeekId = pendingPeekGroupIdRef.current;
+      pendingPeekGroupIdRef.current = null;
+      if (pendingPeekId && groups[index]?.groupId === pendingPeekId) {
+        const group = groups[index];
+        if (group) onPeekPress?.(group);
+      }
     },
-    [groups, pageCount, snapInterval],
+    [groups, onPeekPress, pageCount, snapInterval],
+  );
+
+  const onMomentumScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
+      settleActiveOffset(event.nativeEvent.contentOffset.x),
+    [settleActiveOffset],
+  );
+
+  const onScrollEndDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const target = event.nativeEvent.targetContentOffset?.x;
+      if (typeof target === 'number') settleActiveOffset(target);
+    },
+    [settleActiveOffset],
   );
 
   // 회전·분할 화면과 서버 목록 reconcile 뒤에도 index가 아닌 stable groupId를 새 간격에 복원한다.
@@ -162,8 +195,8 @@ export function GroupCardDeck({
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum
-        onMomentumScrollEnd={settleActiveCard}
-        onScrollEndDrag={settleActiveCard}
+        onMomentumScrollEnd={onMomentumScrollEnd}
+        onScrollEndDrag={onScrollEndDrag}
         ListFooterComponent={
           <View
             testID="group.cardDeck.findMorePage"
@@ -189,14 +222,6 @@ export function GroupCardDeck({
             accessibilityElementsHidden={index !== activeIndex}
             importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
           >
-            {index === activeIndex && (
-              <Text
-                style={s.srOnly}
-                accessibilityLabel={`${item.name}, 현재 ${index + 1}/${pageCount} 페이지`}
-              >
-                {`${item.name}, 현재 ${index + 1}/${pageCount} 페이지`}
-              </Text>
-            )}
             <View
               pointerEvents={index === activeIndex ? 'auto' : 'none'}
               testID={`group.cardDeck.pageBody.${item.groupId}`}
@@ -207,8 +232,8 @@ export function GroupCardDeck({
               <Pressable
                 style={StyleSheet.absoluteFill}
                 onPress={() => {
-                  selectPage(index);
-                  onPeekPress?.(item);
+                  pendingPeekGroupIdRef.current = item.groupId;
+                  listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
                 }}
                 accessible={false}
                 accessibilityElementsHidden
@@ -226,28 +251,32 @@ export function GroupCardDeck({
       >
         {showDots ? (
           <View style={s.dots}>
-            {Array.from({ length: pageCount }, (_, page) => (
-              <Pressable
-                key={page}
-                ref={(node) => {
-                  dotRefs.current[page] = node;
-                }}
-                testID={`group.cardDeck.indicator.dot.${page}`}
-                style={s.dotHit}
-                onPress={() => selectPage(page)}
-                onFocus={() => {
-                  indicatorFocusedRef.current = true;
-                }}
-                onBlur={() => {
-                  indicatorFocusedRef.current = false;
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount} 페이지로 이동`}
-                accessibilityState={{ selected: page === activeIndex }}
-              >
-                <View style={[s.dot, page === activeIndex && s.dotActive]} />
-              </Pressable>
-            ))}
+            {Array.from({ length: pageCount }, (_, page) => {
+              const pageKey = pageKeys[page];
+              return (
+                <Pressable
+                  key={pageKey}
+                  ref={(node) => {
+                    dotRefs.current.set(pageKey, node);
+                  }}
+                  testID={`group.cardDeck.indicator.dot.${page}`}
+                  style={s.dotHit}
+                  onPress={() => selectPage(page)}
+                  onFocus={() => {
+                    indicatorFocusedRef.current = true;
+                    focusedIndicatorKeyRef.current = pageKey;
+                  }}
+                  onBlur={() => {
+                    indicatorFocusedRef.current = false;
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount} 페이지로 이동`}
+                  accessibilityState={{ selected: page === activeIndex }}
+                >
+                  <View style={[s.dot, page === activeIndex && s.dotActive]} />
+                </Pressable>
+              );
+            })}
           </View>
         ) : (
           <Pressable
@@ -281,5 +310,4 @@ const s = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8CAD0' },
   dotActive: { width: 18, backgroundColor: '#5E6AD2' },
   counterHit: { minHeight: 44, justifyContent: 'center' },
-  srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
 });

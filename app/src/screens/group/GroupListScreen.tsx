@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -25,9 +24,6 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 // 렌더는 SafeAreaView 없이 컨텐츠만 — 탭 셸(SafeAreaView·배경)은 GroupScreen이 감싼다.
 // 빈 배열은 다루지 않는다: 0건은 GroupScreen이 빈 상태로 가로채므로 여기 오지 않는다.
 
-// 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
-const TAB_BAR_SPACE = 74;
-
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   onSelect: (groupId: string) => void;
@@ -45,7 +41,6 @@ export default function GroupListScreen({
   onRefresh,
   onBack,
 }: GroupListScreenProps) {
-  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
@@ -83,6 +78,28 @@ export default function GroupListScreen({
           </TouchableOpacity>
         )}
         <Text style={s.headerTitle}>내 그룹</Text>
+        <View style={s.headerActions}>
+          <TouchableOpacity
+            style={s.searchBtn}
+            activeOpacity={0.75}
+            onPress={onFind}
+            accessibilityRole="button"
+            accessibilityLabel="그룹 찾기"
+            testID="group.list.find"
+          >
+            <Ionicons name="search" size={22} color={T.inkSub} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.createBtn}
+            activeOpacity={0.8}
+            onPress={onCreate}
+            accessibilityRole="button"
+            accessibilityLabel="그룹 만들기"
+            testID="group.list.create"
+          >
+            <Ionicons name="add" size={28} color={T.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -141,26 +158,6 @@ export default function GroupListScreen({
           </TouchableOpacity>
         )}
       />
-
-      {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
-      <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
-        <TouchableOpacity
-          style={s.primaryBtn}
-          activeOpacity={0.85}
-          onPress={onCreate}
-          testID="group.list.create"
-        >
-          <Text style={s.primaryText}>그룹 만들기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={s.outlineBtn}
-          activeOpacity={0.85}
-          onPress={onFind}
-          testID="group.list.find"
-        >
-          <Text style={s.outlineText}>그룹 찾기</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -179,6 +176,30 @@ const s = StyleSheet.create({
     paddingBottom: T.space.md,
   },
   headerTitle: { ...T.text.title, color: T.ink },
+  headerActions: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+  },
+  searchBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  createBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accent,
+  },
   // 그룹 스택 화면(GroupCreateScreen s.backBtn)과 같은 규격 — 32/r16/white/border
   backBtn: {
     width: 32,
@@ -212,28 +233,4 @@ const s = StyleSheet.create({
   cardDesc: { ...T.text.caption, color: T.inkSub },
   cardRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
-
-  footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
-  // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
-  primaryBtn: {
-    alignSelf: 'stretch',
-    height: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: T.accent,
-  },
-  primaryText: { ...T.text.subtitle, color: T.white },
-  outlineBtn: {
-    alignSelf: 'stretch',
-    height: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: T.space.md,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  outlineText: { ...T.text.subtitle, color: T.ink },
 });

@@ -45,7 +45,7 @@ test('서버 data에 찾기 카드를 섞지 않고 가로 snap 덱으로 렌더
   expect(onFind).toHaveBeenCalledTimes(1);
 });
 
-test('drag 종료와 momentum 종료가 모두 active card 확정 경로를 가진다', async () => {
+test('momentum은 최종 종료에서, momentum 없는 drag는 target offset에서만 확정한다', async () => {
   await render(
     <GroupCardDeck
       groups={[group(0), group(1)]}
@@ -59,9 +59,21 @@ test('drag 종료와 momentum 종료가 모두 active card 확정 경로를 가�
   expect(deck.props.onMomentumScrollEnd).toEqual(expect.any(Function));
 
   await act(async () => {
-    fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+    fireEvent(deck, 'scrollEndDrag', { nativeEvent: { contentOffset: { x: 160 } } });
+  });
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('1 / 3');
+
+  await act(async () => {
+    fireEvent(deck, 'scrollEndDrag', {
+      nativeEvent: { contentOffset: { x: 160 }, targetContentOffset: { x: 400 } },
+    });
   });
   expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 3');
+
+  await act(async () => {
+    fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 0 } } });
+  });
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('1 / 3');
 });
 
 test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한다', async () => {
@@ -98,7 +110,6 @@ test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴
   );
 
   expect(screen.getByText('그룹 0')).toBeOnTheScreen();
-  expect(screen.getByLabelText('그룹 0, 현재 1/3 페이지')).toBeOnTheScreen();
   expect(screen.queryByText('그룹 1')).toBeNull();
   expect(screen.queryByTestId('group.deck.findMore')).toBeNull();
   expect(screen.getByText('그룹 1', { includeHiddenElements: true })).toBeOnTheScreen();
@@ -137,6 +148,13 @@ test('비활성 peek 탭은 내부 카드 입력 대신 페이지 선택과 peek
     );
   });
 
+  expect(onPeekPress).not.toHaveBeenCalled();
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('1 / 3');
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.cardDeck'), 'momentumScrollEnd', {
+      nativeEvent: { contentOffset: { x: 400 } },
+    });
+  });
   expect(onPeekPress).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'group-1' }));
   expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 3');
 });
@@ -184,6 +202,36 @@ test('포커스된 인디케이터가 counter에서 dots로 바뀐 때 현재 �
   expect(screen.getByTestId('group.cardDeck.indicator.dot.0').props.onFocus).toEqual(
     expect.any(Function),
   );
+});
+
+test('목록 재정렬 중 포커스된 dot은 stable groupId key로 같은 native 항목을 유지한다', async () => {
+  const groups = [group(0), group(1)];
+  const view = await render(
+    <GroupCardDeck
+      groups={groups}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.cardDeck.indicator'), 'layout', {
+      nativeEvent: { layout: { width: 400 } },
+    });
+  });
+  const groupOneDot = screen.getByTestId('group.cardDeck.indicator.dot.1');
+  await act(async () => groupOneDot.props.onFocus());
+
+  await view.rerender(
+    <GroupCardDeck
+      groups={[group(1), group(0)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  expect(screen.getByTestId('group.cardDeck.indicator.dot.0')).toBe(groupOneDot);
 });
 
 test('dots 폭은 좌우 20pt gutter를 제외한 가용 폭으로 판정한다', async () => {
