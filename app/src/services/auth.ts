@@ -152,11 +152,11 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       await accountSwitchHandlers?.afterCommit(prevToken);
     }
 
-    // 세션 세대는 로컬 세션 전체가 커밋된 뒤에만 올린다. 이 구간은 로그아웃과 mutex로 직렬화되어
-    // 같은 userId 승격 중 multiRemove가 끼어들어 로컬 데이터와 device token을 지울 수 없다.
-    markAuthSessionReplacement();
     setServerZone(result.timeZone);
     await claimStoredInviteAttribution();
+    // 세션 세대는 전환 내부의 마지막 await 뒤에 올린다. 새 세대를 공개한 뒤 mutex를 놓기 전에
+    // 이전 요청이 triggerLogout하면 새 세대로 시작한 로그아웃이 대기 후 새 토큰을 지울 수 있다.
+    markAuthSessionReplacement();
     return result;
   } catch (error) {
     if (sessionWriteStarted) {
