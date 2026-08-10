@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.domain.SettleTrigger;
+import com.oneorthree.phone.group.event.GroupBetSessionClosedEvent;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
@@ -17,6 +18,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.user.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,6 +72,7 @@ public class GroupBetSettler {
     private final FocusSessionRepository focusSessionRepository;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 정산 결과.
@@ -207,6 +210,8 @@ public class GroupBetSettler {
                 sessionId, session.getSessionDate(), session.getMissionCategory(),
                 session.getMissionType(), distribution.status(), distribution.pot(), trigger,
                 participants.size());
+        // 결과 알림 트리거(GROMO-1417) — AFTER_COMMIT 리스너가 받으므로 지급 커밋 전에 나가지 않는다.
+        eventPublisher.publishEvent(new GroupBetSessionClosedEvent(sessionId));
         return new SettleResult(distribution.status(), true);
     }
 
@@ -311,7 +316,8 @@ public class GroupBetSettler {
                 + "참가자={}, stake={}",
                 session.getId(), session.getSessionDate(), trigger, participants.size(),
                 session.getStake());
-        // TODO(B7·GROMO-1283 계열): BET_VOID_REFUND 푸시(N48) — 알림 발송은 B7 몫.
+        // BET_VOID_REFUND 푸시 트리거(N48) — AFTER_COMMIT 리스너 경유라 환불 커밋 전 발송이 없다.
+        eventPublisher.publishEvent(new GroupBetSessionClosedEvent(session.getId()));
         return new SettleResult(GroupBetStatus.REFUNDED, true);
     }
 
@@ -346,7 +352,8 @@ public class GroupBetSettler {
         log.info("회차 무산 — sessionId={}, sessionDate={}, reason={}, 참가자={}, stake={} 환불",
                 session.getId(), session.getSessionDate(), reason, participants.size(),
                 session.getStake());
-        // TODO(B7·GROMO-1283 계열): BET_VOID_REFUND 푸시(N48) — 알림 발송은 B7 몫.
+        // BET_VOID_REFUND 푸시 트리거(N48) — AFTER_COMMIT 리스너 경유라 환불 커밋 전 발송이 없다.
+        eventPublisher.publishEvent(new GroupBetSessionClosedEvent(session.getId()));
         return participants.stream().map(p -> new PendingRefund(session, p)).toList();
     }
 
