@@ -135,3 +135,33 @@ describe('ProgressBar — 동작 줄이기 미확정 구간', () => {
     await waitFor(() => expect(fillStyle('settled').width).toBe('50%'));
   });
 });
+
+// ⚠️ delay는 "카드 진입이 끝난 뒤 차오르기 시작"이라는 **1회성 순서 맞춤**이다. 이걸 그대로 두면
+//    이후 모든 width 갱신에도 걸려서, 새로고침으로 값이 바뀔 때 숫자는 즉시 바뀌는데 진행바만
+//    delay 뒤 600ms에 걸쳐 따라간다 — 두 표시가 1초 넘게 어긋난다(codex 리뷰).
+describe('ProgressBar — delay는 최초 채우기에만', () => {
+  test('최초 전환에는 delay가 실리고, 이후 갱신에는 실리지 않는다', async () => {
+    jest.useFakeTimers();
+    try {
+      const view = await render(
+        <ProgressBar progress={0.3} color={T.accent} delay={470} testID="d" />,
+      );
+      // 진입 프레임(rAF) 통과 — 아직 delay 타이머는 살아 있다
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      expect(fillInlineStyle('d').transitionDelay).toBe('470ms');
+
+      // delay가 소진된 뒤 값이 갱신되면 지연 없이 따라간다
+      await act(async () => {
+        jest.advanceTimersByTime(470);
+      });
+      await view.rerender(<ProgressBar progress={0.8} color={T.accent} delay={470} testID="d" />);
+      // transition()은 delay 0이면 키 자체를 넣지 않는다 — 없는 게 곧 '지연 없음'이다
+      expect(fillInlineStyle('d').transitionDelay).toBeUndefined();
+      expect(fillStyle('d').width).toBe('80%');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

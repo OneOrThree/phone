@@ -6,7 +6,7 @@
 // 조회 실패 경로는 다른 인스턴스가 필요해 useReduceMotion.queryFailure.test.ts 로 분리했다.
 import { act, renderHook } from '@testing-library/react-native';
 import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
-import { useReduceMotion } from './useReduceMotion';
+import { useReduceMotion, useReduceMotionReady } from './useReduceMotion';
 
 // addEventListener는 이벤트별 오버로드라 mockImplementation이 첫 오버로드(announcementFinished)로
 // 좁혀진다 — 반환 구독 객체와 핸들러 타입은 테스트용으로 단언해서 넘긴다.
@@ -35,10 +35,24 @@ describe('useReduceMotion', () => {
     expect(result.current).toBe(true);
   });
 
+  // ⚠️ `useReduceMotion()`의 미확정 구간 true는 **실제 설정이 아니다.** 그 값으로 되돌릴 수 없는
+  //    1회성 결정(단계 시퀀스 시작·진입 판정)을 내리면 설정을 켜지 않은 사용자도 연출을 통째로
+  //    잃는다(결정 D-30). `ready`는 "지금 이 값으로 결정해도 되는가"를 묻는 짝이라, 이 구간을
+  //    구분하지 못하면 방어가 통째로 무력해진다.
+  test('조회 전에는 ready=false — 확정 여부를 값과 분리해 알려준다', async () => {
+    const { result } = await renderHook(() => useReduceMotionReady());
+    expect(result.current).toBe(false);
+  });
+
   test('조회가 false로 끝나면 애니메이션을 허용한다', async () => {
     const { result } = await renderHook(() => useReduceMotion());
     await act(async () => resolveQuery(false));
     expect(result.current).toBe(false);
+  });
+
+  test('조회가 끝나면 ready=true', async () => {
+    const { result } = await renderHook(() => useReduceMotionReady());
+    expect(result.current).toBe(true);
   });
 
   test('설정 변경 이벤트가 오면 값이 갱신된다', async () => {
