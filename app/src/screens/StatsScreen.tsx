@@ -56,6 +56,8 @@ export default function StatsScreen() {
   const { data, loading, refetch } = useStatsData(period);
   // 일 탭 과목별 카드 — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext) 사용
   const { subjects } = useSubjects();
+  // 도넛 범례에 실제로 뜰 행 수의 추정치 — 스켈레톤 높이가 이 값에서 나온다(아래 주석 참고).
+  const usedSubjectCount = subjects.filter((x) => x.accumulatedSeconds > 0).length;
   // 일 탭 총계도 같은 로컬 소스(홈·드로어와 동일) — 서버 집계(data.focus)는 업로드 지연·재시도 중이면
   // 과목별 합보다 낮게 보여 카드끼리 어긋난다(리뷰 반영)
   const { todayFocusSeconds } = useFocus();
@@ -502,7 +504,13 @@ export default function StatsScreen() {
         <StatsSkeleton
           period={period}
           savedOrder={orderLoaded ? cardOrder[period] : undefined}
-          subjectCount={subjects.length}
+          // ⚠️ **전체 과목 수가 아니라 '이번에 실제로 범례에 뜰' 수를 넘긴다.** 일 탭은
+          //    0초 과목을 범례에서 빼고, 주·월 API도 해당 기간 세션이 있는 태그만 준다.
+          //    과목 20개 중 1개만 쓴 사용자에게 20줄짜리 높이를 예약하면 로딩이 끝나는
+          //    순간 도넛 카드가 수백 px 수축한다 — 늘어나는 것보다 나쁘다(codex 리뷰).
+          //    주·월은 로딩 중 기간 집계를 알 수 없어 오늘 기준 사용 과목 수가 최선의
+          //    추정치다. 정확한 값이 아니라 **과대 예약을 막기 위한** 값이다.
+          subjectCount={usedSubjectCount}
         />
       ) : (
         // 카드 목록 — 항상 드래그 가능(GROMO-762 개편). 카드 오른쪽 위 핸들을 잡아 끌면 순서가
