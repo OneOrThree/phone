@@ -1,46 +1,68 @@
 # 그룹 문서 지도
 
-이 폴더는 **그룹 전체 제품 결정 → 정보 구조 → 기능 설계 → 구현 계약** 순서로 읽는다.
+이 폴더는 **그룹 생애주기 → 정보 구조 → 기능 연결 → 구현 예외**를 설명한다. 모든 문서를 순서대로 읽을 필요는 없다. 맡은 역할과 기능의 착수 카드에서 필요한 정본으로 이동한다.
+
+## 1. 폴더 구조
 
 ```text
-prd.md                          그룹 생애주기·가치·공통 정책·지표
-information-architecture.md     그룹 전체 정보·화면·권한·이동
-high-level-design.md            01~04 기능 책임·데이터·연결 통합본
-low-level-design.md             01~04 상태 전이·경합·복구·테스트 통합본
-features/
-├─ 01-acquisition/              찾기·초대·생성·가입
-│  ├─ high-level-design.md
-│  └─ low-level-design.md
-├─ 02-my-groups/                소속 그룹 카드 덱·요약·집중/방 진입
-│  ├─ prd.md
-│  ├─ information-architecture.md
-│  ├─ high-level-design.md
-│  ├─ low-level-design.md
-│  ├─ ux-design.md
-│  └─ ux.html · ux-shared.js
-├─ 03-activity/                 그룹 방·멤버·집중·공지
-│  ├─ high-level-design.md
-│  └─ low-level-design.md
-├─ challenge/                   별도 PRD·IA·HLD·LLD 작성 예정
-└─ 04-operation/                프로필·역할·멤버·권한·이탈
-   ├─ high-level-design.md
-   └─ low-level-design.md
+group/
+├─ README.md                       문서 지도와 충돌 해결 규칙
+├─ prd.md                          그룹 생애주기·가치·공통 제품 정책
+├─ information-architecture.md     그룹 전체 화면·정보·권한·이동
+├─ high-level-design.md            01~04 책임·데이터·연결 통합본
+├─ low-level-design.md             기능 사이 상태·경합·복구·테스트
+├─ shared/
+│  ├─ implementation-status.md     구현 상태·다음 작업·출시 gate 정본
+│  └─ analytics.md                 공통 이벤트·속성·귀속 정본
+└─ features/
+   ├─ 01-acquisition/              찾기·초대·생성·가입
+   ├─ 02-my-groups/                소속 그룹 탐색·요약·집중/방 선택
+   ├─ 03-activity/                 그룹 방·멤버·집중·공지
+   └─ 04-operation/                프로필·역할·멤버·권한·이탈
 ```
 
-## 정본 우선순위
+각 기능은 `README.md`를 구현 시작점으로 쓴다. 01·03·04는 이미 구현된 흐름의 경계와 남은 안전장치를 HLD·LLD로 관리한다. 02는 신규 계획이라 제품·화면·UX 결정을 먼저 닫아야 하므로 PRD·IA·UX까지 별도 세트를 가진다. 이 비대칭은 의도된 것이다.
 
-1. [prd.md](./prd.md): 왜 만들며 무엇을 성공으로 볼지 결정한다.
-2. [information-architecture.md](./information-architecture.md): 사용자가 보는 정보와 화면 관계를 결정한다.
-3. [high-level-design.md](./high-level-design.md): 01~04 기능의 책임과 연결을 통합해 결정하고, 기능별 HLD가 세부 경계를 보완한다.
-4. [low-level-design.md](./low-level-design.md): 생애주기 전체의 상태·경합·복구를 통합하고, 기능별 LLD가 세부 실행을 보완한다.
-5. UX·목업: 확정된 기능 범위 안에서 시각·상호작용을 구체화한다.
+챌린지의 제품·설계·구현 계약은 [챌린지 문서 세트](../challenge/README.md)가 정본이다. 그룹 문서는 챌린지 진입점과 독립 실패 경계만 소유한다.
 
-상위 문서와 하위 문서가 충돌하면 상위 결정을 우선한다. 하위 문서에서 새로운 제품 목표나 권한 정책을 추가하지 않는다.
+## 2. 정본은 문서 종류별로 결정한다
 
-## 문서 작성 원칙
+문서 전체에 하나의 선형 우선순위를 적용하지 않는다. 같은 질문을 다룰 때 아래 범위의 정본을 따른다.
 
-- 그룹 전체 PRD에 특정 화면의 픽셀·컴포넌트·API 호출 순서를 넣지 않는다.
-- 기능 HLD에 제품 효과를 새로 주장하지 않는다.
-- LLD는 코드 복사본이 아니라 놓치기 쉬운 상태·경합·복구·검증만 남긴다.
-- 같은 이벤트·정책을 여러 문서에서 정본으로 선언하지 않는다.
-- 현재 구현 사실, 확정 정책, 아직 검증할 가설을 문장 안에서 구분한다.
+| 질문                                   | 전체 범위 정본                                       | 기능 상세 정본                                                         | 충돌 시 판단                                             |
+| -------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| 왜 만들고 무엇을 성공으로 보는가       | [그룹 PRD](./prd.md)                                 | 02의 [Feature PRD](./features/02-my-groups/prd.md)                     | 전체 생애주기·공통 정책은 루트, 기능 수용 기준은 feature |
+| 어디에서 무엇을 보고 이동하는가        | [그룹 IA](./information-architecture.md)             | 02의 [Feature IA](./features/02-my-groups/information-architecture.md) | 글로벌 화면·역할은 루트, 카드 내부 위계는 feature        |
+| 기능이 누구와 어떤 데이터를 주고받는가 | [통합 HLD](./high-level-design.md)                   | 각 기능 HLD                                                            | 기능 간 계약은 루트, 기능 내부 책임·API 경계는 feature   |
+| 어떤 상태·경합·복구를 구현하는가       | [통합 LLD](./low-level-design.md)                    | 각 기능 LLD                                                            | 기능 간 전이는 루트, 기능 내부 실행·테스트는 feature     |
+| 현재 구현됐는가                        | [구현 상태](./shared/implementation-status.md)       | 착수 카드의 코드·테스트 링크                                           | 상태 문구를 다른 문서에서 재정의하지 않음                |
+| 어떤 이벤트를 어떻게 해석하는가        | [분석 계약](./shared/analytics.md)                   | 기능 HLD의 발행 위치·once guard                                        | 이름·속성·귀속은 shared에서만 변경                       |
+| 어떻게 보이고 작동하는가               | 02의 [UX 정본](./features/02-my-groups/ux-design.md) | 동일                                                                   | `ux.html`은 검토용 비정본 프로토타입                     |
+
+상위 문서가 기능 상세를 대신하지 않고, 기능 문서가 전체 정책을 덮어쓰지 않는다. 충돌하면 먼저 질문의 범위를 정한 뒤 해당 행의 정본을 수정하고 소비 문서는 링크만 갱신한다.
+
+## 3. 역할별 최소 읽기 경로
+
+- **제품·기획:** 그룹 PRD → 그룹 IA → 맡은 기능 README. 02를 결정할 때만 Feature PRD·IA·UX를 추가로 읽는다.
+- **앱·백엔드 개발:** 맡은 기능 README → 기능 HLD → 기능 LLD → 통합 HLD·LLD의 연결 구간.
+- **QA:** 구현 상태 → 맡은 기능 README의 출시 gate → 기능 LLD → 통합 LLD의 생애주기 E2E.
+- **분석:** 그룹 PRD 성공 측정 → 공통 분석 계약 → 기능 HLD의 발행 위치.
+- **신규 합류자:** 이 README → 그룹 PRD의 결정 요약 → 그룹 IA의 전체 화면 지도 → 맡은 기능 README.
+
+## 4. 단계·심각도 이름
+
+- 그룹 전체 로드맵은 `G-P0`~`G-P4`를 쓴다.
+- 02 기능 구현 단계는 `F02-P0`~`F02-P4`를 쓴다.
+- 결함 심각도는 `S0`(출시 차단), `S1`(높음)처럼 표기한다.
+
+따라서 “02의 `F02-P1`”과 그룹 전체 로드맵의 `G-P1`은 같은 단계가 아니다.
+상위 대응은 `F02-P0 → G-P0`, `F02-P1~P2 → G-P2`, `F02-P3 → G-P3`, `F02-P4 → G-P4`다.
+
+## 5. 유지보수 규칙
+
+- 구현 상태는 `shared/implementation-status.md`, 이벤트 이름·속성·귀속은 `shared/analytics.md`에서만 바꾼다.
+- PRD에는 픽셀·컴포넌트·API 호출 순서를, HLD에는 코드 스켈레톤·testID를 넣지 않는다.
+- LLD는 코드 복사본이 아니라 놓치기 쉬운 신원·상태·경합·복구·검증만 남긴다.
+- 기능 문서에는 서버 정본과 개인 로컬 상태의 경계를 한 번만 설명하고 상위 정책을 복제하지 않는다.
+- 현재 구현 사실, 확정 정책, 아직 검증할 가설을 같은 문장 안에서도 구분한다.
+- 문서 변경 시 상대 링크, Mermaid 렌더, 중복 heading, `git diff --check`를 검사한다.
