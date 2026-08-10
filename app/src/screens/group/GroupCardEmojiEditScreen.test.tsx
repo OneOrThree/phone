@@ -78,3 +78,24 @@ test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성�
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1')).toBeNull();
 });
+
+test('계정 전환 시 이전 계정 선택을 노출하지 않고 새 계정 bucket을 다시 읽는다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '📚');
+  await writeGroupCardEmoji('user-2', 'group-1', '🔥');
+  const view = await render(<GroupCardEmojiEditScreen />);
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual({
+      selected: true,
+    }),
+  );
+
+  mockUser.userId = 'user-2';
+  await view.rerender(<GroupCardEmojiEditScreen />);
+
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.🔥').props.accessibilityState).toEqual({
+      selected: true,
+    }),
+  );
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+});
