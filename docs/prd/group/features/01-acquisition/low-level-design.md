@@ -80,6 +80,7 @@ sequenceDiagram
 - 목록 재조회는 최신 요청만 화면에 반영한다. 계정 전환·화면 이탈 뒤 응답은 반영하지 않는다.
 - 가입 요청은 `{targetGroupId, mutation, resultTrack}`을 목록 확인까지 보존한다. `mutation=joined`·`s_log_only`이고 성공한 전체 목록에 target이 있을 때만 `group_membership_reconciled(cause=join)`을 요청당 1회 발행한다. `already_member`·목록 실패·부분 응답·target 미포함·늦은 세대는 발행하지 않는다.
 - cold direct·deferred는 목록 0개 확정을 기다리지 않는다. 열린 F3 episode가 없을 때 `result_track=ga4`인 실제 API 전송 직전의 invite attempt만 `invite_intent` fallback을 열고, `s_log_only` 시도·sheet mount·게스트 로그인·rerender·foreground는 열지 않는다. 30분 안의 같은 pending/다른 링크 시도는 기존 episode에 진단 이벤트만 더한다.
+- C attempt는 `search|invite|deferred_invite`만 발행한다. S/S-LOG 결과의 `code|unknown|미전송` 또는 C/S method 불일치는 열린 episode를 `unattributed_legacy_or_invalid_method`로 닫고 이후 결과를 귀속하지 않는다. payload의 미전송은 literal `absent`가 아니라 `join_method` 키 없음이다.
 
 ### 2.1 초대 링크 수명과 이탈 경합
 
@@ -139,3 +140,4 @@ stateDiagram-v2
 14. `WAITING|ACTIVE` 공개·비공개 그룹은 기존 조건을 만족하면 가입되고, `ENDED`·`deletedAt!=null` 그룹은 public search/direct·private valid slug/direct·LEFT 재가입 모두 멤버십·`group_joined` 없이 `NOT_FOUND`다. 이미 활성 멤버는 상태 검사보다 먼저 `ALREADY_MEMBER`로 끝나며 mutation·`group_joined` 0건인 기존 분기도 고정한다.
 15. 마지막 멤버 이탈과 join/rejoin이 경합하면 group 행 잠금 순서에 따라 가입 선행은 그룹 유지, 종료 선행은 가입 0건 중 하나로 수렴한다.
 16. 실제 가입 2xx+s_log_only 뒤 전체 목록에 target이 확인될 때만 reconciliation이 1회 발행된다. `ALREADY_MEMBER`·목록 실패·target 미포함은 0건이고, 이 terminal 뒤의 후속 GA4 결과는 이전 F3 episode에 귀속되지 않는다.
+17. 서버는 `code`를 보존하고 계약 밖 nonblank를 `unknown`으로, null·blank를 키 미전송으로 남긴다. F3 fixture는 C/S method가 일치하는 정상 값만 전환으로 세며 legacy·unknown·absent·mismatch terminal 뒤 결과를 오귀속하지 않는다.

@@ -21,7 +21,7 @@
 
 - **앱:** 생성·찾기·초대 UI, 현재 비공개 안내 완화, 구형 비공개 링크의 새 링크 재요청 안내, 식별자→시도 이벤트→API→목록 reconciliation 순서, 중복 요청 잠금과 `groupId` 목적지 전환.
 - **서버:** 모든 가입의 `WAITING|ACTIVE` 그룹 검사, 비공개 slug·발급자 활성 멤버십·폐기 상태 강제, 마지막 이탈·가입 직렬화와 구형·직접 요청 오류 계약 확정.
-- **QA/분석:** 직접·복원·검색 가입의 GA4/S-LOG 결과와 `result_track`, cold invite F3와 `s_log_only` terminal, 종료 그룹 우회·생성/가입 뒤 목록 실패·중복 탭·늦은 응답을 회귀 검증한다.
+- **QA/분석:** 직접·복원·검색 가입의 GA4/S-LOG 결과와 `result_track`, legacy·unknown·미전송 `join_method`, cold invite F3와 `s_log_only` terminal, 종료 그룹 우회·생성/가입 뒤 목록 실패·중복 탭·늦은 응답을 회귀 검증한다.
 
 ## 출시 게이트
 
@@ -31,6 +31,7 @@
 - slug 링크를 생성·해석하고 구형 비공개 링크의 재발급 안내를 표시하는 앱을 최소 지원 버전으로 올린 뒤 서버 강제를 배포한다. 그 시점부터 public legacy와 **활성 멤버가 발급한 미폐기 private slug**만 가입되고, 구형·폐기 private 링크는 새 링크를 받아야 한다.
 - 검색·초대 가입은 `appInstanceId`를 먼저 best-effort로 조회하고 시도 이벤트와 API를 바로 이어 실행한다. 값이 없어도 가입과 S-LOG 결과를 막지 않으며 cold F3 분모는 열지 않는다.
 - `s_log_only` 실제 가입은 성공한 전체 목록의 target 확인 뒤 reconciliation을 남겨 열린 empty F3를 `unattributed`로 닫고, 이후 결과를 잘못 귀속하지 않는다.
+- 신규 앱의 가입 시도는 `search|invite|deferred_invite`만 사용한다. 서버 결과의 legacy `code`, 정규화된 `unknown`, 미전송 `join_method`는 정상 F3 전환으로 세지 않고 열린 episode를 `unattributed`로 닫는다.
 - 새 초대·계정·화면 전환 뒤 늦은 응답이 현재 `groupId` 목적지를 바꾸지 않는다.
 
 ## 상위 정본

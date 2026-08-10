@@ -55,6 +55,7 @@ flowchart TB
 - 비공개 그룹의 링크 수신자 검증은 서버가 최종 판단해야 하나 현재는 미구현이다. 이 한계는 UI의 공개 검색 제외와 별개다.
 - 초대 링크의 클릭 기록이나 분석 실패는 링크 열기와 참여 가능 여부를 막지 않는다.
 - 초대 가입은 기존 `JoinGroupRequest.appInstanceId`를 best-effort로 전달한다. 검색 가입은 아직 전달하지 않으며 `GRP-01` 후속 앱 작업에서 같은 계약으로 맞춘다. 앱은 식별자 조회를 먼저 끝내고 `group_join_attempted(result_track)`와 가입 API를 바로 이어 실행한다. 값이 있으면 서버 GA4와 S-LOG에, 없으면 S-LOG에만 성공 결과를 남기며 분석 식별자 조회 실패가 가입을 막지 않는다.
+- 앱 `group_join_attempted.join_method`는 `search|invite|deferred_invite`다. 서버 `group_joined`는 호환을 위해 legacy `code`, 계약 밖 nonblank의 `unknown`, null·blank의 키 미전송도 가질 수 있다. 이 세 결과와 C/S method 불일치는 운영 진단으로만 남기고 정상 F3 전환으로 세지 않는다.
 - cold direct·deferred 초대는 전체 목록의 0개 확정을 기다리지 않는다. 열린 F3 episode가 없을 때 `result_track=ga4`인 실제 가입 API 시도만 `invite_intent` fallback을 열며, preview 노출·로그인 대기·`s_log_only` 시도는 분모를 만들지 않는다. 구체 귀속·dedupe는 [공통 분석 계약 §4](../../shared/analytics.md#4-공통-퍼널과-귀속)를 따른다.
 
 ### 2.1 구형 초대 링크 전환
@@ -100,4 +101,5 @@ flowchart TD
 - 초대 참여는 실제로 가입된 그룹을 목적지로 사용한다. 새 초대가 도착해도 먼저 성공한 가입의 목적지를 바꾸지 않는다.
 - 생성·검색 가입·초대 가입 뒤 재조회 실패는 다시 만들기·찾기 빈 상태로 위장하지 않는다.
 - 실제 가입 2xx의 `{targetGroupId, resultTrack}`을 목록 재조회까지 보존한다. `s_log_only` 요청의 성공한 전체 목록에 대상이 포함되면 `group_membership_reconciled(cause=join)`을 요청당 1회 발행해 열린 F3를 `unattributed`로 닫는다. `ALREADY_MEMBER`·목록 실패·대상 미포함은 발행하지 않는다.
+- 열린 F3에 legacy `code`·`unknown`·미전송 또는 C/S method 불일치 결과가 오면 `unattributed_legacy_or_invalid_method`로 닫아 후속 결과가 이전 episode에 귀속되지 않게 한다. 세부 enum·집계 규칙은 [공통 분석 계약](../../shared/analytics.md)이 소유한다.
 - 이 기능은 새 그룹 서버 도메인이나 카드 전용 데이터를 추가하지 않는다.
