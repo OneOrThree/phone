@@ -131,7 +131,7 @@ const defaultLoaders: GroupCardSummaryLoaders = {
   challenges: getChallenges,
 };
 
-type GroupDependency = 'detail' | 'announcements' | 'challenges' | 'focus';
+export type GroupDependency = 'detail' | 'announcements' | 'challenges' | 'focus';
 
 const keyed = (groupId: string, date: string) => `${groupId}\u0000${date}`;
 const groupOnly = (key: string) => key.split('\u0000', 1)[0];

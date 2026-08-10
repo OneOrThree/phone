@@ -47,6 +47,7 @@ describe('GroupCardBackSummary', () => {
         snapshot={snapshot}
         onStartFocus={onStartFocus}
         onOpenRoom={onOpenRoom}
+        onRetry={jest.fn()}
         onFlipFront={onFlipFront}
       />,
     );
@@ -81,6 +82,7 @@ describe('GroupCardBackSummary', () => {
         }}
         onStartFocus={jest.fn()}
         onOpenRoom={jest.fn()}
+        onRetry={jest.fn()}
         onFlipFront={jest.fn()}
       />,
     );
@@ -88,6 +90,32 @@ describe('GroupCardBackSummary', () => {
     expect(screen.getByText('공지를 불러오지 못했어요')).toBeOnTheScreen();
     expect(screen.getByText('집중 인원을 확인할 수 없어요')).toBeOnTheScreen();
     expect(screen.getByText('1개 진행 중')).toBeOnTheScreen();
+  });
+
+  test('실패한 각 영역은 adapter dependency에 대응하는 명시 재시도를 제공한다', async () => {
+    const onRetry = jest.fn();
+    await render(
+      <GroupCardBackSummary
+        group={group}
+        snapshot={{
+          detail: { status: 'error', error: new Error('detail') },
+          announcements: { status: 'error', error: new Error('announcements') },
+          challenges: { status: 'error', error: new Error('challenges') },
+          focus: { status: 'error', error: new Error('focus') },
+        }}
+        onStartFocus={jest.fn()}
+        onOpenRoom={jest.fn()}
+        onRetry={onRetry}
+        onFlipFront={jest.fn()}
+      />,
+    );
+
+    for (const dependency of ['members', 'notice', 'challenge', 'focus']) {
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(`group.card.back.${dependency}.${GROUP_ID}.retry`));
+      });
+    }
+    expect(onRetry.mock.calls).toEqual([['detail'], ['announcements'], ['challenges'], ['focus']]);
   });
 
   test('앞면 전환의 접근성 activate는 전용 콜백으로 구분한다', async () => {
@@ -99,6 +127,7 @@ describe('GroupCardBackSummary', () => {
         snapshot={snapshot}
         onStartFocus={jest.fn()}
         onOpenRoom={jest.fn()}
+        onRetry={jest.fn()}
         onFlipFront={onFlipFront}
         onAccessibilityFlipFront={onAccessibilityFlipFront}
       />,
@@ -123,6 +152,7 @@ describe('GroupCardBackSummary', () => {
         snapshot={snapshot}
         onStartFocus={jest.fn()}
         onOpenRoom={jest.fn()}
+        onRetry={jest.fn()}
         onFlipFront={jest.fn()}
         onLayout={onLayout}
         titleRef={titleRef}

@@ -3,7 +3,7 @@ import type { Ref } from 'react';
 import { T } from '@/constants/theme';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import type { GroupCardSummarySnapshot } from '../groupCardSummary';
+import type { GroupCardSummarySnapshot, GroupDependency } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
 
 interface GroupCardBackSummaryProps {
@@ -11,6 +11,7 @@ interface GroupCardBackSummaryProps {
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
   onStartFocus: () => void;
   onOpenRoom: () => void;
+  onRetry: (dependency: GroupDependency) => void;
   onFlipFront: () => void;
   onAccessibilityFlipFront?: () => void;
   titleRef?: Ref<Text>;
@@ -21,11 +22,45 @@ function pendingOrFailed(status: 'idle' | 'loading' | 'error', object: string): 
   return status === 'error' ? `${object} 불러오지 못했어요` : `${object} 불러오는 중`;
 }
 
+function SummarySection({
+  text,
+  testID,
+  retryDependency,
+  onRetry,
+  numberOfLines,
+}: {
+  text: string;
+  testID: string;
+  retryDependency?: GroupDependency;
+  onRetry: (dependency: GroupDependency) => void;
+  numberOfLines?: number;
+}) {
+  return (
+    <View style={s.sectionRow} testID={testID}>
+      <Text style={s.section} numberOfLines={numberOfLines}>
+        {text}
+      </Text>
+      {retryDependency && (
+        <TouchableOpacity
+          style={s.retry}
+          onPress={() => onRetry(retryDependency)}
+          accessibilityRole="button"
+          accessibilityLabel={`${text}. 다시 시도`}
+          testID={`${testID}.retry`}
+        >
+          <Text style={s.retryText}>다시 시도</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 export function GroupCardBackSummary({
   group,
   snapshot,
   onStartFocus,
   onOpenRoom,
+  onRetry,
   onFlipFront,
   onAccessibilityFlipFront,
   titleRef,
@@ -69,22 +104,31 @@ export function GroupCardBackSummary({
         {group.name}
       </Text>
       <View style={s.sections}>
-        <Text style={s.section} testID={`group.card.back.members.${group.groupId}`}>
-          {memberSummary}
-        </Text>
-        <Text
-          style={s.section}
-          numberOfLines={1}
+        <SummarySection
+          text={memberSummary}
+          testID={`group.card.back.members.${group.groupId}`}
+          retryDependency={detail.status === 'error' ? 'detail' : undefined}
+          onRetry={onRetry}
+        />
+        <SummarySection
+          text={announcementSummary}
           testID={`group.card.back.notice.${group.groupId}`}
-        >
-          {announcementSummary}
-        </Text>
-        <Text style={s.section} testID={`group.card.back.challenge.${group.groupId}`}>
-          {challengeSummary}
-        </Text>
-        <Text style={s.section} testID={`group.card.back.focus.${group.groupId}`}>
-          {focusSummary}
-        </Text>
+          retryDependency={announcements.status === 'error' ? 'announcements' : undefined}
+          onRetry={onRetry}
+          numberOfLines={1}
+        />
+        <SummarySection
+          text={challengeSummary}
+          testID={`group.card.back.challenge.${group.groupId}`}
+          retryDependency={challenges.status === 'error' ? 'challenges' : undefined}
+          onRetry={onRetry}
+        />
+        <SummarySection
+          text={focusSummary}
+          testID={`group.card.back.focus.${group.groupId}`}
+          retryDependency={focus.status === 'error' ? 'focus' : undefined}
+          onRetry={onRetry}
+        />
       </View>
       <TouchableOpacity
         style={s.primary}
@@ -131,13 +175,22 @@ const s = StyleSheet.create({
   },
   title: { ...T.text.heading, color: T.ink },
   sections: { gap: T.space.sm, flex: 1 },
-  section: {
-    ...T.text.caption,
-    color: T.inkSub,
-    paddingVertical: T.space.xs,
+  sectionRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: T.border,
   },
+  section: {
+    ...T.text.caption,
+    color: T.inkSub,
+    flex: 1,
+    paddingVertical: T.space.xs,
+  },
+  retry: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  retryText: { ...T.text.caption, color: T.accent, fontWeight: '700' },
   primary: {
     height: 48,
     borderRadius: 16,

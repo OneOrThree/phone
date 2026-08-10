@@ -50,7 +50,7 @@ import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { GroupCardBackSummary } from './components/GroupCardBackSummary';
-import type { GroupCardSummarySnapshot } from './groupCardSummary';
+import type { GroupCardSummarySnapshot, GroupDependency } from './groupCardSummary';
 import {
   GROUP_DECK_GUIDE_ID,
   completeGroupDeckGuide,
@@ -174,6 +174,7 @@ export interface GroupListScreenProps {
   groupEntry?: GroupEntry;
   // 사용자 첫 back과 guide 3→4가 공유하는 lazy ensure 경로다.
   onEnsureBack?: (groupId: string) => void;
+  onRetryBack?: (groupId: string, dependency: GroupDependency) => void;
   getBackSnapshot?: (groupId: string) => GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
   cardDataDate?: string;
 }
@@ -194,6 +195,7 @@ export default function GroupListScreen({
   guideDataFailed = false,
   groupEntry = 'unknown',
   onEnsureBack,
+  onRetryBack,
   getBackSnapshot,
   cardDataDate,
 }: GroupListScreenProps) {
@@ -527,6 +529,7 @@ export default function GroupListScreen({
     if (!firstGroupId) return;
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
     activeIdentityRef.current = firstGroupId;
+    activeIndexRef.current = 0;
     setActiveIndex(0);
     setActiveAnchorGroupId(firstGroupId);
     setFlippedGroupId(null);
@@ -652,12 +655,19 @@ export default function GroupListScreen({
             ListFooterComponent={
               <View
                 style={{ marginLeft: CARD_GAP }}
+                pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
                 accessibilityElementsHidden={activeIndex !== groups.length}
                 importantForAccessibility={
                   activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
                 }
               >
-                <FindMoreCard width={cardWidth} onPress={onFind} />
+                <FindMoreCard
+                  width={cardWidth}
+                  onPress={() => {
+                    if (!guideInputReady || guideVisible) return;
+                    onFind();
+                  }}
+                />
               </View>
             }
             renderItem={({ item }) => (
@@ -691,6 +701,7 @@ export default function GroupListScreen({
                       if (onStartFocus) acceptCardAction(item, 'focus', onStartFocus);
                     }}
                     onOpenRoom={() => acceptCardAction(item, 'room', onSelect)}
+                    onRetry={(dependency) => onRetryBack?.(item.groupId, dependency)}
                     onFlipFront={() => flipCardFront()}
                     onAccessibilityFlipFront={() => flipCardFront('accessibility_action')}
                   />

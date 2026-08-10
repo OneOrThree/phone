@@ -83,6 +83,23 @@ beforeEach(() => {
 });
 
 describe('카드 렌더', () => {
+  test('완료 key 판정 전에는 side-peek 찾기 카드도 입력을 수락하지 않는다', async () => {
+    await render(
+      <GroupListScreen
+        groups={[group()]}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        userId="user-1"
+        guideDataReady={false}
+      />,
+    );
+
+    await press('group.deck.findMore');
+    expect(onFind).not.toHaveBeenCalled();
+  });
+
   test('안내 중 blocking overlay가 생긴 render에서는 가이드 Modal을 즉시 내린다', async () => {
     resetGroupDeckGuideSessionForTests();
     await AsyncStorage.removeItem('gromo:guide:groupDeck:v1');
@@ -128,6 +145,48 @@ describe('카드 렌더', () => {
     await act(async () => {});
 
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+  });
+
+  test('실패 중 보던 페이지 뒤 안내를 시작하면 carousel from_index도 첫 페이지로 맞춘다', async () => {
+    resetGroupDeckGuideSessionForTests();
+    await AsyncStorage.removeItem('gromo:guide:groupDeck:v1');
+    const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
+    const baseProps = { groups, onSelect, onCreate, onFind, onRefresh, userId: 'user-1' };
+    const view = await render(
+      <GroupListScreen {...baseProps} guideDataReady={false} guideDataFailed />,
+    );
+    await act(async () => {});
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+    });
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
+
+    await view.rerender(<GroupListScreen {...baseProps} guideDataReady />);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 300 } },
+      });
+      fireEvent(screen.getByTestId(`group.list.card.${GROUP_ID_2}`), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 300 } },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('group.list.guide')).toBeOnTheScreen());
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
+
+    await view.rerender(<GroupListScreen {...baseProps} guideDataReady guideBlocked />);
+    await waitFor(() => expect(screen.queryByTestId('group.list.guide')).toBeNull());
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 44 } },
+      });
+    });
+    jest.mocked(logGroupCarouselPaged).mockClear();
+    await press('group.deck.indicator.dot.1');
+    expect(logGroupCarouselPaged).toHaveBeenCalledWith(
+      expect.objectContaining({ from_index: 0, to_index: 1 }),
+    );
   });
 
   test('이름과 n/m 인원을 서버가 준 순서 그대로 그린다', async () => {
@@ -179,6 +238,30 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('뒷면 영역 재시도를 groupId와 dependency로 adapter callback에 위임한다', async () => {
+    const onRetryBack = jest.fn();
+    await render(
+      <GroupListScreen
+        groups={[group()]}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        onRetryBack={onRetryBack}
+        getBackSnapshot={() => ({
+          detail: { status: 'error', error: new Error('detail') },
+          announcements: { status: 'idle' },
+          challenges: { status: 'idle' },
+          focus: { status: 'idle' },
+        })}
+      />,
+    );
+
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.back.members.${GROUP_ID}.retry`);
+    expect(onRetryBack).toHaveBeenCalledWith(GROUP_ID, 'detail');
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 

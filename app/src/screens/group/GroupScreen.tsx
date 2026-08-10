@@ -27,7 +27,7 @@ import {
 } from '@/navigation/groupEntrySource';
 import { todayStrKst } from '@/utils/localDate';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
-import { GroupCardSummaryAdapter } from './groupCardSummary';
+import { GroupCardSummaryAdapter, type GroupDependency } from './groupCardSummary';
 import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupFindSheet from './components/GroupFindSheet';
@@ -196,6 +196,9 @@ export default function GroupScreen() {
       return () => {
         setScreenFocused(false);
         requestSeqRef.current++;
+        // 일반 push가 기다리던 성공 목록은 이 focus episode의 결과다. 사용자가 먼저 화면을
+        // 떠났다면 다음 수동 진입의 성공 목록이 과거 push를 되살리지 않도록 즉시 실패 정산한다.
+        settlePendingPushGroupList(null);
       };
     }, [fetchGroups, isGuest]),
   );
@@ -390,6 +393,11 @@ export default function GroupScreen() {
     cardSummaryRef.current.ensureBack(groupId).catch(() => {});
   }, []);
 
+  const retryCardBack = useCallback((groupId: string, dependency: GroupDependency) => {
+    if (dependency === 'focus') focusPollingRef.current?.activate();
+    cardSummaryRef.current.retry(groupId, dependency).catch(() => {});
+  }, []);
+
   const getCardBackSnapshot = useCallback(
     (groupId: string) => cardSummaryRef.current.getSnapshot(groupId),
     [],
@@ -524,6 +532,7 @@ export default function GroupScreen() {
           guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
           groupEntry={viewEpisodeRef.current.source}
           onEnsureBack={ensureCardBack}
+          onRetryBack={retryCardBack}
           getBackSnapshot={getCardBackSnapshot}
           cardDataDate={summaryDate}
         />

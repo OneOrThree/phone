@@ -20,6 +20,7 @@ import {
   clearPendingGroupEntry,
   peekGroupEntry,
   queueDirectGroupEntry,
+  waitForPendingPushGroupList,
 } from '@/navigation/groupEntrySource';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -251,6 +252,18 @@ afterEach(() => {
 });
 
 describe('group_viewed view episode', () => {
+  test('push 목록을 기다리던 focus가 끝나면 gate를 실패 정산해 다음 진입에서 되살리지 않는다', async () => {
+    queueDirectGroupEntry('push');
+    const pending = waitForPendingPushGroupList();
+    mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
+
+    const view = await renderScreen();
+    await act(async () => view.unmount());
+
+    await expect(pending).resolves.toBeNull();
+    expect(waitForPendingPushGroupList()).toBeNull();
+  });
+
   test('성공한 전체 목록 뒤에만 group_entry와 count bucket을 한 번 발행한다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([]);
 
