@@ -167,7 +167,6 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   const [plotW, setPlotW] = useState(0);
   // 탭한 칼럼의 시작 시각 말풍선(GROMO-849) — LineChart와 같은 패턴, 값만 시각(HH:MM)
   const [picked, setPicked] = useState<number | null>(null);
-  const mo = useMotion();
 
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
   useFocusEffect(
@@ -257,30 +256,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
           <View style={[s.chartGridLine, s.chartGridLower]} />
           <View style={[s.chartGridLine, s.chartGridBottom]} />
           {plotW > 0 && (
-            <AnimatedSvg
-              width={plotW + DOT_PAD * 2}
-              height={CHART_H + DOT_PAD * 2}
-              // ⚠️ 여기만 growUp이 아니다. 이 차트의 세로축은 **시각**이라 바닥이 0이 아니다
-              // (axisMin은 데이터에서 정해진다). 바닥부터 자라게 하면 "0에서 이만큼 커졌다"는
-              // 뜻이 되어 값의 의미를 왜곡한다 — 이동 없이 불투명도만 쓰는 fadeIn을 고른다.
-              style={[s.lineSvg, mo.enter(fadeIn())]}
-            >
-              {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
-              {pts.map((p, i) => (
-                <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
-              ))}
-              {/* 선택 강조 링 — 탭한 점 둘레 */}
-              {tipMin != null && (
-                <Circle
-                  cx={tipX + DOT_PAD}
-                  cy={tipY + DOT_PAD}
-                  r={8}
-                  stroke={FOCUS_COLOR}
-                  strokeWidth={2}
-                  fill="none"
-                />
-              )}
-            </AnimatedSvg>
+            <FirstStartPlot plotW={plotW} pts={pts} tipMin={tipMin} tipX={tipX} tipY={tipY} />
           )}
           {/* 칼럼별 탭 영역 — 해당 칼럼 아무 데나 탭하면 첫 시작 시각 표시 */}
           <View style={s.lineTapRow}>
@@ -328,6 +304,53 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
       </View>
       <Text style={cs.grassHint}>그날 처음 집중을 시작한 시각 · 위로 갈수록 이른 시각이에요</Text>
     </View>
+  );
+}
+
+// ⚠️ **자기 useMotion을 갖는 게 이 컴포넌트의 존재 이유다.** 이 플롯은 세션 조회와 plotW
+//    레이아웃이 끝난 **뒤에야** 마운트되는데, 부모(FirstStartChart)의 진입 결정에 묶이면
+//    조회 중 사용자가 '동작 줄이기'를 켰어도 과거 결정대로 페이드된다(codex 리뷰).
+//    캘린더 행·주간 블록에 Enter를 쓴 것과 같은 처방이고, 여기는 Animated.View가 아니라
+//    AnimatedSvg라 Enter 대신 컴포넌트로 뺐다 — 뷰를 새로 끼운 게 아니다(D-04 유지).
+function FirstStartPlot({
+  plotW,
+  pts,
+  tipMin,
+  tipX,
+  tipY,
+}: {
+  plotW: number;
+  pts: { x: number; y: number }[];
+  tipMin: number | null;
+  tipX: number;
+  tipY: number;
+}) {
+  const mo = useMotion();
+  return (
+    <AnimatedSvg
+      width={plotW + DOT_PAD * 2}
+      height={CHART_H + DOT_PAD * 2}
+      // ⚠️ 여기만 growUp이 아니다. 이 차트의 세로축은 **시각**이라 바닥이 0이 아니다
+      // (axisMin은 데이터에서 정해진다). 바닥부터 자라게 하면 "0에서 이만큼 커졌다"는
+      // 뜻이 되어 값의 의미를 왜곡한다 — 이동 없이 불투명도만 쓰는 fadeIn을 고른다.
+      style={[s.lineSvg, mo.enter(fadeIn())]}
+    >
+      {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
+      {pts.map((p, i) => (
+        <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
+      ))}
+      {/* 선택 강조 링 — 탭한 점 둘레 */}
+      {tipMin != null && (
+        <Circle
+          cx={tipX + DOT_PAD}
+          cy={tipY + DOT_PAD}
+          r={8}
+          stroke={FOCUS_COLOR}
+          strokeWidth={2}
+          fill="none"
+        />
+      )}
+    </AnimatedSvg>
   );
 }
 
