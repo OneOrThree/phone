@@ -5007,7 +5007,7 @@
           "Group Bet"
         ],
         "summary": "챌린지 내기 참가 철회",
-        "description": "시작 전 내기에서 호출자 본인의 참가만 철회하고 본인 참가비를 환불한다. 개설자가 철회해도 남은 참가자가 있으면 내기는 유지되고, 마지막 참가자가 떠나면 내기가 자동 취소(CANCELED)된다. 시작 전 \u003d TIME_WINDOW 는 bet_date 창 시작 전, DURATION 은 bet_date 가 내일 이후(KST).",
+        "description": "시작 전 회차에서 호출자 본인의 참가만 철회하고 본인 참가비를 환불한다. 철회해도 남은 참가자가 있으면 회차는 유지되고, 유저가 연 회차에서 마지막 참가자가 떠나면 회차 행이 삭제된다(2계층 재편으로 CANCELED 상태는 소멸 — GROMO-1262). 시작 전 \u003d TIME_WINDOW 는 session_date 창 시작 전, DURATION 은 session_date 가 내일 이후(KST).",
         "operationId": "leaveBet",
         "parameters": [
           {
