@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -213,24 +214,94 @@ public class GroupBetJudge {
      * 측정값이라 그걸로 판정하면 "측정 종료 = 승리"가 성립한다(클래스 주석 참고).
      */
     public Map<UUID, Integer> progressMinutes(Target target, LocalDate date, Collection<User> users) {
-        if (users.isEmpty()) {
+        return progressMinutes(List.of(target), date, users)
+                .getOrDefault(target.challengeId(), Map.of());
+    }
+
+    /**
+     * <b>배치판</b> — 대상 여러 개(챌린지별)의 진행분을 한 번에 낸다. 반환은 {@code challengeId →
+     * (userId → 진행분)} 이고, 값이 없는 유저의 키가 없다는 3상 규약은 단건판과 같다.
+     *
+     * <p><b>왜 배치가 커널에 있나.</b> 그룹은 겹치지 않는 창형 챌린지를 최대 4개까지 굴린다(§A4).
+     * 단건판을 챌린지마다 부르면 <b>호출마다</b> 같은 멤버의 측정 권한을 다시 읽고 창 보고값도
+     * 챌린지별로 따로 읽어, 카드 한 번 그리는 데 권한 4회 + 보고값 4회가 나간다. 그렇다고 배치
+     * 로딩을 호출부(카드 조립)로 되돌리면 판정 소스가 다시 두 벌이 된다 — 그래서 <b>모으는 일까지
+     * 커널이 한다</b>. 소스별로 정확히 한 번씩만 읽는다:
+     * <ul>
+     *   <li>측정 권한({@link #measurableForScreenTime}) — SCREEN_TIME 대상이 하나라도 있을 때 1회.
+     *       FOCUS 만 있는 그룹은 아예 읽지 않는다</li>
+     *   <li>창 사용분 보고 — 창형 SCREEN_TIME 챌린지 전부를 IN 절 1회로</li>
+     *   <li>일 집중·일 스크린타임 통계 — 각 1회(해당 조합 대상이 있을 때만)</li>
+     *   <li>창 집중 클리핑 — 창 시각이 다르면 클리핑 범위가 달라 창별 1회다. 같은 창을 공유하는
+     *       대상끼리는 재사용한다</li>
+     * </ul>
+     *
+     * <p><b>권한 규칙은 우회로가 없다</b>(N50 · FR-21): SCREEN_TIME 진행분은 어느 분기로 가든
+     * {@code measurable} 에서 유래하고, 동의자가 하나도 없으면 그 대상의 맵은 비어 있다 —
+     * 미계측 → {@link #isAchieved} 가 미달성으로 닫는다. 배치 로드가 이 필터를 건너뛰는 분기는 없다.
+     */
+    public Map<UUID, Map<UUID, Integer>> progressMinutes(
+            Collection<Target> targets, LocalDate date, Collection<User> users) {
+        if (targets.isEmpty() || users.isEmpty()) {
             return Map.of();
         }
-        if (target.category() == MissionCategory.FOCUS) {
-            List<UUID> userIds = users.stream().map(User::getId).toList();
-            return target.windowed()
-                    ? windowFocusAggregator.focusMinutesWithin(
-                            userIds, date, target.windowStart(), target.windowEnd())
-                    : dailyFocusMinutes(userIds, date);
+        List<UUID> userIds = users.stream().map(User::getId).toList();
+
+        // 스크린타임 권한은 조합·챌린지 수와 무관하게 한 번만 읽는다(N50).
+        boolean anyScreenTime = targets.stream()
+                .anyMatch(target -> target.category() == MissionCategory.SCREEN_TIME);
+        List<User> measurable = anyScreenTime ? measurableForScreenTime(users) : List.of();
+
+        Map<UUID, Map<UUID, Integer>> reportedByChallenge = Map.of();
+        if (!measurable.isEmpty()) {
+            List<UUID> windowChallengeIds = targets.stream()
+                    .filter(target -> target.category() == MissionCategory.SCREEN_TIME && target.windowed())
+                    .map(Target::challengeId)
+                    .toList();
+            if (!windowChallengeIds.isEmpty()) {
+                reportedByChallenge = reportedWindowUsage(windowChallengeIds, date,
+                        measurable.stream().map(User::getId).toList());
+            }
         }
-        List<User> measurable = measurableForScreenTime(users);
-        if (measurable.isEmpty()) {
-            return Map.of();
+
+        Map<UUID, Integer> dailyFocus = targets.stream()
+                .anyMatch(target -> target.category() == MissionCategory.FOCUS && !target.windowed())
+                ? dailyFocusMinutes(userIds, date)
+                : Map.of();
+
+        Map<UUID, Integer> dailyScreenTime = !measurable.isEmpty() && targets.stream()
+                .anyMatch(target -> target.category() == MissionCategory.SCREEN_TIME && !target.windowed())
+                ? dailyScreenTimeMinutes(measurable, date)
+                : Map.of();
+
+        // 창 집중은 창 시각별로 클리핑이 달라 창당 1회다 — 같은 창을 쓰는 대상끼리만 재사용한다.
+        Map<FocusWindow, Map<UUID, Integer>> windowFocus = new HashMap<>();
+
+        Map<UUID, Map<UUID, Integer>> minutesByChallenge = new LinkedHashMap<>();
+        for (Target target : targets) {
+            Map<UUID, Integer> minutes;
+            if (target.category() == MissionCategory.FOCUS) {
+                minutes = target.windowed()
+                        ? windowFocus.computeIfAbsent(
+                                new FocusWindow(target.windowStart(), target.windowEnd()),
+                                window -> windowFocusAggregator.focusMinutesWithin(
+                                        userIds, date, window.start(), window.end()))
+                        : dailyFocus;
+            } else if (measurable.isEmpty()) {
+                // 동의자 0명 — 잔존 통계를 쓰지 않는다(측정을 끄면 이긴다를 막는 지점).
+                minutes = Map.of();
+            } else {
+                minutes = target.windowed()
+                        ? reportedByChallenge.getOrDefault(target.challengeId(), Map.of())
+                        : dailyScreenTime;
+            }
+            minutesByChallenge.put(target.challengeId(), minutes);
         }
-        return target.windowed()
-                ? reportedWindowUsage(target.challengeId(), date,
-                        measurable.stream().map(User::getId).toList())
-                : dailyScreenTimeMinutes(measurable, date);
+        return minutesByChallenge;
+    }
+
+    /** 창 집중 클리핑 캐시 키 — 창 시각이 같으면 집계 쿼리도 같다. */
+    private record FocusWindow(LocalTime start, LocalTime end) {
     }
 
     // ── 해석(3상) ───────────────────────────────────────────────────────
@@ -323,19 +394,23 @@ public class GroupBetJudge {
     }
 
     /**
-     * 창 사용분 클라 보고값({@code group_challenge_members} 의 (챌린지, 유저, 날짜) 행).
-     * 보고가 없는 유저는 키가 없다(= 미계측).
+     * 창 사용분 클라 보고값({@code group_challenge_members} 의 (챌린지, 유저, 날짜) 행) —
+     * <b>챌린지 여러 개를 IN 절 1회</b>로 읽어 {@code challengeId → (userId → 분)} 으로 가른다.
+     * 보고가 없는 유저는 키가 없다(= 미계측). {@code scope} 밖(권한 미동의)의 행은 버린다.
      */
-    private Map<UUID, Integer> reportedWindowUsage(UUID challengeId, LocalDate date, List<UUID> userIds) {
+    private Map<UUID, Map<UUID, Integer>> reportedWindowUsage(
+            Collection<UUID> challengeIds, LocalDate date, Collection<UUID> userIds) {
         Set<UUID> scope = Set.copyOf(userIds);
-        Map<UUID, Integer> minutes = new HashMap<>();
+        Map<UUID, Map<UUID, Integer>> byChallenge = new HashMap<>();
         for (GroupChallengeMember member : groupChallengeMemberRepository
-                .findByGroupChallengeIdInAndUsageDate(List.of(challengeId), date)) {
+                .findByGroupChallengeIdInAndUsageDate(challengeIds, date)) {
             UUID userId = member.getUser().getId();
             if (scope.contains(userId)) {
-                minutes.merge(userId, member.getProgressMinutes(), Integer::max);
+                // 프록시의 식별자 접근이라 챌린지 행을 다시 읽지 않는다(@Id 필드 접근).
+                byChallenge.computeIfAbsent(member.getGroupChallenge().getId(), id -> new HashMap<>())
+                        .merge(userId, member.getProgressMinutes(), Integer::max);
             }
         }
-        return minutes;
+        return byChallenge;
     }
 }

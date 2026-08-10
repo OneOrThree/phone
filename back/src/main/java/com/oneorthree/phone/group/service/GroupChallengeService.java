@@ -303,10 +303,11 @@ public class GroupChallengeService {
             return new ProgressSnapshot(members, Map.of());
         }
 
-        Map<UUID, Map<UUID, Integer>> minutesByChallenge = new LinkedHashMap<>();
-        activeTargets.forEach((challengeId, target) -> minutesByChallenge.put(
-                challengeId, groupBetJudge.progressMinutes(target, date, users)));
-        return new ProgressSnapshot(members, minutesByChallenge);
+        // 대상 전부를 커널 배치판에 한 번에 넘긴다 — 챌린지마다 부르면 같은 멤버의 스크린타임 권한을
+        // 대상 수만큼 다시 읽고 창 보고값도 챌린지별로 따로 읽는다(§A4 상 최대 4개). 배치 로딩을
+        // 여기로 끌어오면 판정 소스가 다시 두 벌이 되므로, 모으는 일까지 커널에 맡긴다(GROMO-1280).
+        return new ProgressSnapshot(members,
+                groupBetJudge.progressMinutes(activeTargets.values(), date, users));
     }
 
     /** 스크린타임 권한에 동의한 유저 id 집합 — 개설 시 비참여자 안내 목록이 쓰는 기준. */

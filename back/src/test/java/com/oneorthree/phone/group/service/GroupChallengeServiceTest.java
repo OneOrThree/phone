@@ -67,6 +67,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -705,6 +706,21 @@ class GroupChallengeServiceTest {
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
 
+    /** 창형 SCREEN_TIME 배치 검증용 4개 챌린지 id — 그룹당 활성 상한(§A4)과 같은 수다. */
+    private static final List<UUID> WINDOW_CHALLENGE_IDS = List.of(
+            UUID.fromString("00000000-0000-0000-0000-0000000000f1"),
+            UUID.fromString("00000000-0000-0000-0000-0000000000f2"),
+            UUID.fromString("00000000-0000-0000-0000-0000000000f3"),
+            UUID.fromString("00000000-0000-0000-0000-0000000000f4"));
+
+    private GroupChallenge windowChallengeOf(Group group, UUID challengeId) {
+        return GroupChallenge.builder()
+                .id(challengeId).group(group)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.SCREEN_TIME)
+                .status(GroupChallengeStatus.ACTIVE)
+                .build();
+    }
+
     private GroupChallenge windowChallenge(Group group, MissionCategory category) {
         return GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group)
@@ -843,6 +859,76 @@ class GroupChallengeServiceTest {
         assertThat(progress.get(1).getUserId()).isEqualTo(OTHER_USER_ID);
         assertThat(progress.get(1).getProgressMinutes()).isNull();
         assertThat(progress.get(1).getAchieved()).isNull();
+    }
+
+    @Test
+    @DisplayName("창형 SCREEN_TIME 4개 — 권한 1회 + 보고값 IN 1회로 끝난다(챌린지 수만큼 늘지 않음)")
+    void getChallengesBatchesScreenTimeWindowSourcesAcrossChallenges() {
+        // 겹치지 않는 창형은 그룹당 최대 4개까지 활성이다(§A4). 커널을 챌린지마다 부르면 같은 멤버의
+        // 측정 권한을 4번 다시 읽고 보고값도 4번 따로 읽어, 카드 한 번에 8쿼리가 나갔다(codex P2).
+        // 커널 배치판은 소스별로 딱 한 번씩만 읽는다 — 판정은 여전히 커널 한 벌이다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        List<GroupChallenge> challenges = List.of(
+                windowChallengeOf(group, WINDOW_CHALLENGE_IDS.get(0)),
+                windowChallengeOf(group, WINDOW_CHALLENGE_IDS.get(1)),
+                windowChallengeOf(group, WINDOW_CHALLENGE_IDS.get(2)),
+                windowChallengeOf(group, WINDOW_CHALLENGE_IDS.get(3)));
+
+        User other = User.builder().id(OTHER_USER_ID).nickname("수빈").isGuest(false).build();
+        List<GroupMember> members = List.of(
+                groupMemberOf(user, group, GroupMemberRole.OWNER),
+                groupMemberOf(other, group, GroupMemberRole.MEMBER));
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.of(members.get(0)));
+        given(groupMemberRepository.findByGroup(group)).willReturn(members);
+        given(groupChallengeRepository.findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(group))
+                .willReturn(challenges);
+        given(groupChallengeWindowRepository.findByChallengeIdIn(WINDOW_CHALLENGE_IDS))
+                .willReturn(challenges.stream()
+                        .map(c -> GroupChallengeWindow.builder()
+                                .challengeId(c.getId())
+                                .windowStart(WINDOW_START)
+                                .windowEnd(WINDOW_END)
+                                .durationMinutes(100)
+                                .build())
+                        .toList());
+        givenScreenTimePermission(USER_ID);   // 수빈은 철회
+        // 4개 챌린지의 보고 행이 IN 절 한 번으로 함께 돌아온다.
+        given(groupChallengeMemberRepository
+                .findByGroupChallengeIdInAndUsageDate(WINDOW_CHALLENGE_IDS, TODAY))
+                .willReturn(List.of(
+                        GroupChallengeMember.builder().groupChallenge(challenges.get(0)).user(user)
+                                .progressMinutes(30).usageDate(TODAY).build(),
+                        GroupChallengeMember.builder().groupChallenge(challenges.get(1)).user(user)
+                                .progressMinutes(120).usageDate(TODAY).build(),
+                        // 철회자 행 — 어느 챌린지에서도 계상되면 안 된다(N50 우회 금지)
+                        GroupChallengeMember.builder().groupChallenge(challenges.get(2)).user(other)
+                                .progressMinutes(10).usageDate(TODAY).build()));
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // 쿼리 수 — 챌린지가 4개여도 권한 1회 · 보고값 1회다.
+        verify(userScreenTimeSettingsRepository, times(1)).findAllById(any());
+        verify(groupChallengeMemberRepository, times(1))
+                .findByGroupChallengeIdInAndUsageDate(WINDOW_CHALLENGE_IDS, TODAY);
+
+        // 판정 결과는 챌린지별로 그대로 갈린다(배치가 값을 섞지 않는다).
+        assertThat(result.get(0).getMemberProgress().get(0).getProgressMinutes()).isEqualTo(30);
+        assertThat(result.get(0).getMemberProgress().get(0).getAchieved()).isTrue();
+        assertThat(result.get(1).getMemberProgress().get(0).getProgressMinutes()).isEqualTo(120);
+        assertThat(result.get(1).getMemberProgress().get(0).getAchieved()).isFalse();
+        // 보고가 없는 챌린지는 미계측(—) — 다른 챌린지의 보고값이 새어 들어오지 않는다.
+        assertThat(result.get(2).getMemberProgress().get(0).getProgressMinutes()).isNull();
+        assertThat(result.get(3).getMemberProgress().get(0).getProgressMinutes()).isNull();
+        // 권한 철회자는 보고 행이 있어도 전 챌린지에서 미계측이다(카드 "—" = 정산 미달성, FR-21).
+        assertThat(result).allSatisfy(challenge -> {
+            ChallengeMemberProgressResponse revoked = challenge.getMemberProgress().get(1);
+            assertThat(revoked.getUserId()).isEqualTo(OTHER_USER_ID);
+            assertThat(revoked.getProgressMinutes()).isNull();
+            assertThat(revoked.getAchieved()).isNull();
+        });
     }
 
     @Test
