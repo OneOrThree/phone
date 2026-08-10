@@ -49,7 +49,8 @@ class CurrencyLedgerServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(100).build();
         given(currencyTransactionRepository.existsByIdempotencyKey(REWARD_KEY)).willReturn(false);
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        // 잔액 변경 경로는 배타 락 조회를 쓴다 — 표시용 findById 가 아니다(동시 변경 롤백 방지).
+        given(userWalletRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(wallet));
 
         boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE,
                 357, REWARD_KEY);
@@ -73,6 +74,8 @@ class CurrencyLedgerServiceTest {
                 357, REWARD_KEY);
 
         assertThat(applied).isFalse();
+        // 멱등키 선점이면 지갑 행을 잠그지도 않는다 — 불필요한 락으로 남의 결제를 막지 않는다.
+        verify(userWalletRepository, never()).findByIdForUpdate(any());
         verify(userWalletRepository, never()).findById(any());
         verify(currencyTransactionRepository, never()).save(any());
     }
