@@ -148,9 +148,9 @@ function sameBucket(a: GroupCardEmojiBucket, b: GroupCardEmojiBucket): boolean {
 }
 
 const reconcileGenerationByUser = new Map<string, number>();
-// 무효화된 prune 뒤 원본 복원이 실패하면, 같은 사용자의 다음 reconcile이 잘린 디스크 값이
-// 아니라 이 원본에서 다시 계산한다. 다음 정상 쓰기가 성공할 때까지 보존한다.
-const reconcileRecoveryRawByUser = new Map<string, string | null>();
+// 무효화된 prune 뒤 원본 복원이 실패하면 잘려 나간 현재 계정 bucket만 보존한다. 다음
+// reconcile은 이를 최신 raw bucket 아래에 병합해, 그 사이의 새 아이콘·다른 계정 저장을 되돌리지 않는다.
+const reconcileRecoveryBucketByUser = new Map<string, GroupCardEmojiBucket>();
 
 /** 성공한 전체 GET /groups에서만 호출해 현재 계정 bucket의 stale groupId를 제거한다. */
 export function reconcileGroupCardEmojiBucket(
@@ -170,17 +170,18 @@ export function reconcileGroupCardEmojiBucket(
       // 정상적인 빈 bucket과 구분해 호출부가 이미 표시 중인 아이콘을 유지하게 한다.
       return null;
     }
-    const hasRecovery = reconcileRecoveryRawByUser.has(userId);
-    const sourceRaw = hasRecovery ? reconcileRecoveryRawByUser.get(userId)! : raw;
-    const parsed = parseGroupCardEmojiState(sourceRaw);
-    const current = parsed.value[userId] ?? {};
+    const parsed = parseGroupCardEmojiState(raw);
+    const recoveryBucket = reconcileRecoveryBucketByUser.get(userId);
+    const current = recoveryBucket
+      ? { ...recoveryBucket, ...parsed.value[userId] }
+      : (parsed.value[userId] ?? {});
     const validIds = new Set(serverGroupIds);
     const next = Object.fromEntries(
       Object.entries(current).filter(([groupId]) => validIds.has(groupId)),
     ) as GroupCardEmojiBucket;
 
     if (!isCurrent()) return {};
-    if (hasRecovery || parsed.needsRepair || !sameBucket(current, next)) {
+    if (recoveryBucket || parsed.needsRepair || !sameBucket(current, next)) {
       try {
         await AsyncStorage.setItem(
           STORAGE_KEYS.groupCardEmoji,
@@ -190,15 +191,23 @@ export function reconcileGroupCardEmojiBucket(
           // 같은 storage queue 뒤에 최신 reconcile이 대기한다. 먼저 원본을 복원해 최신 요청이
           // superseded prune 결과가 아닌 실제 이전 bucket에서 다시 계산하게 한다.
           try {
-            if (sourceRaw === null) await AsyncStorage.removeItem(STORAGE_KEYS.groupCardEmoji);
-            else await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, sourceRaw);
-            reconcileRecoveryRawByUser.delete(userId);
+            if (recoveryBucket) {
+              await AsyncStorage.setItem(
+                STORAGE_KEYS.groupCardEmoji,
+                JSON.stringify({ ...parsed.value, [userId]: current }),
+              );
+            } else if (raw === null) {
+              await AsyncStorage.removeItem(STORAGE_KEYS.groupCardEmoji);
+            } else {
+              await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, raw);
+            }
+            reconcileRecoveryBucketByUser.delete(userId);
           } catch {
-            reconcileRecoveryRawByUser.set(userId, sourceRaw);
+            reconcileRecoveryBucketByUser.set(userId, current);
           }
           return {};
         }
-        reconcileRecoveryRawByUser.delete(userId);
+        reconcileRecoveryBucketByUser.delete(userId);
       } catch {
         // stale 정리는 best-effort다. 이미 정상적으로 읽은 현재 계정 아이콘은 UI에 유지한다.
       }
@@ -289,5 +298,5 @@ export function __resetGroupCardEmojiQueueForTest(): void {
   pendingEmojis.clear();
   emojiListeners.clear();
   reconcileGenerationByUser.clear();
-  reconcileRecoveryRawByUser.clear();
+  reconcileRecoveryBucketByUser.clear();
 }

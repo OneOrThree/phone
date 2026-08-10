@@ -102,6 +102,9 @@ export default function GroupCardEmojiEditScreen() {
     const saveSessionIdentity = sessionIdentityRef.current;
     setSaving(true);
     setSaveFailed(false);
+    // 네이티브 뒤로가기·스와이프로 화면이 먼저 닫혀도 현재 실행의 카드는 수락한 선택을 즉시 쓴다.
+    // 성공하면 아래에서 pending을 지우고, 실패하면 다음 그룹 화면 활성화에서 재시도한다.
+    preservePendingGroupCardEmoji(userId, groupId, selected);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
       clearPendingGroupCardEmoji(userId, groupId);
