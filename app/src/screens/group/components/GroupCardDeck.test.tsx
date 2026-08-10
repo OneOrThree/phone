@@ -93,9 +93,7 @@ test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴
   expect(screen.getByText('그룹 0')).toBeOnTheScreen();
   expect(screen.queryByText('그룹 1')).toBeNull();
   expect(screen.queryByTestId('group.deck.findMore')).toBeNull();
-  expect(
-    screen.getByText('그룹 1', { includeHiddenElements: true }),
-  ).toBeOnTheScreen();
+  expect(screen.getByText('그룹 1', { includeHiddenElements: true })).toBeOnTheScreen();
   expect(
     screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
   ).toBeOnTheScreen();
