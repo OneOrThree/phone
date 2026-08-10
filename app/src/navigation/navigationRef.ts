@@ -7,7 +7,7 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
-import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -240,6 +240,9 @@ async function pushGroupRoom(
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
   // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이
   // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
+  // GroupRoom 우회가 확정되면 GroupScreen이 아직 소비하지 못한 push source를 폐기한다.
+  // 화면 fetch가 먼저 성공했다면 이미 소비된 뒤라 no-op이고, 우회가 먼저면 다음 episode 오염을 막는다.
+  clearPendingGroupEntry();
   navigationRef.navigate('GroupRoom', {
     groupId,
     challengeId: challengeId ?? undefined,
