@@ -94,11 +94,8 @@ jest.mock('@/services/analyticsEvents', () => ({
   logHomeRefreshed: jest.fn(),
 }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
-// TabBar는 fabWindowRect(투어 스포트라이트 좌표) 하나 때문에 들어온다 — 전이로 딸려오는
-// @callstack/liquid-glass가 ESM이라 목으로 끊지 않으면 스위트가 로드 단계에서 죽는다.
-jest.mock('@/components/TabBar', () => ({
-  fabWindowRect: () => ({ x: 0, y: 0, width: 0, height: 0 }),
-}));
+// (TabBar에서 fabWindowRect(투어 스포트라이트 좌표) 하나만 쓴다. 전이로 딸려오던
+//  @callstack/liquid-glass는 jest.setup.js가 통째로 스텁하므로 목이 필요없다.)
 
 let mockReduce = false;
 jest.mock('@/hooks/useReduceMotion', () => ({
