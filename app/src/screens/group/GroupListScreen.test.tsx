@@ -344,12 +344,11 @@ describe('카드 렌더', () => {
 
   test('아이콘 hydration이 끝나기 전에는 기본 아이콘 덱을 먼저 노출하지 않는다', async () => {
     let finishEmojiRead!: (value: string | null) => void;
+    const pendingEmojiRead = new Promise<string | null>((resolve) => {
+      finishEmojiRead = resolve;
+    });
     jest.mocked(AsyncStorage.getItem).mockImplementation((key) => {
-      if (key === STORAGE_KEYS.groupCardEmoji) {
-        return new Promise((resolve) => {
-          finishEmojiRead = resolve;
-        });
-      }
+      if (key === STORAGE_KEYS.groupCardEmoji) return pendingEmojiRead;
       return readStoredItem(key);
     });
 
@@ -472,6 +471,71 @@ describe('콜백', () => {
 
     expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('복귀 목록 revision 전에 사용자가 앞면을 선택하면 이전 뒷면 복원을 취소한다', async () => {
+    const view = await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await press(`group.card.frontAction.${GROUP_ID}`);
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[group()]}
+        groupsRevision={1}
+        userId="user-1"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={1}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    expect(screen.getByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('복귀 복원은 새 episode 덱이 다시 마운트된 뒤 실행한다', async () => {
+    const view = await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+
+    let finishGuideRead!: (value: string | null) => void;
+    const pendingGuideRead = new Promise<string | null>((resolve) => {
+      finishGuideRead = resolve;
+    });
+    jest
+      .mocked(AsyncStorage.getItem)
+      .mockImplementation((key) =>
+        key === STORAGE_KEYS.guideGroupDeck ? pendingGuideRead : readStoredItem(key),
+      );
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[group()]}
+        groupsRevision={1}
+        userId="user-1"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={2}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+    expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen();
+
+    await act(async () => finishGuideRead('1'));
+    await waitFor(() =>
+      expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen(),
+    );
+    jest.mocked(AsyncStorage.getItem).mockImplementation(readStoredItem);
   });
 
   test('CTA 연타는 첫 수락만 계측·전환한다', async () => {
@@ -822,5 +886,51 @@ describe('제스처 중재와 재정렬', () => {
     expect(logGroupCardReordered).toHaveBeenCalledWith(
       expect.objectContaining({ trigger: 'pointer_control', from_index: 0, to_index: 1 }),
     );
+  });
+
+  test('순서 메뉴 대상 그룹이 소속 목록에서 사라지면 메뉴와 입력 잠금을 해제한다', async () => {
+    const first = group();
+    const second = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
+    const view = await renderList([first, second]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, moveX: 0 });
+    });
+    expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[second]}
+        groupsRevision={1}
+        userId="user-1"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={1}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId(`group.card.orderMenu.${GROUP_ID}`, {
+          includeHiddenElements: true,
+        }),
+      ).toBeNull(),
+    );
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
   });
 });

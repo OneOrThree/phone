@@ -87,6 +87,28 @@ export function writeGroupCardEmoji(
   });
 }
 
+/** 성공한 전체 소속 목록을 기준으로 현재 계정에서 사라진 그룹의 로컬 아이콘을 제거한다. */
+export function reconcileGroupCardEmojis(
+  userId: string,
+  currentGroupIds: readonly string[],
+): Promise<void> {
+  const current = new Set(currentGroupIds);
+  return enqueueWrite(async () => {
+    const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+    const bucket = map[userId];
+    if (!bucket) return;
+    const retained = Object.fromEntries(
+      Object.entries(bucket).filter(([groupId]) => current.has(groupId)),
+    ) as GroupCardEmojiBucket;
+    if (Object.keys(retained).length === Object.keys(bucket).length) return;
+
+    const next = { ...map };
+    if (Object.keys(retained).length === 0) delete next[userId];
+    else next[userId] = retained;
+    await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, JSON.stringify(next));
+  });
+}
+
 export function __resetGroupCardEmojiQueueForTest(): void {
   writeQueue = Promise.resolve();
 }

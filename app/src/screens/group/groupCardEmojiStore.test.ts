@@ -6,6 +6,7 @@ import {
   normalizeGroupCardEmoji,
   parseGroupCardEmoji,
   readGroupCardEmoji,
+  reconcileGroupCardEmojis,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
 
@@ -58,4 +59,28 @@ test('쓰기 실패 뒤에도 queue는 다음 저장을 수행한다', async () 
   await expect(writeGroupCardEmoji('u1', 'g1', '📚')).rejects.toThrow('disk full');
   await writeGroupCardEmoji('u1', 'g1', '🔥');
   expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+});
+
+test('현재 소속 밖의 아이콘만 제거하고 다른 계정 bucket은 보존한다', async () => {
+  await writeGroupCardEmoji('u1', 'g1', '📚');
+  await writeGroupCardEmoji('u1', 'g2', '🔥');
+  await writeGroupCardEmoji('u2', 'g2', '🧠');
+
+  await reconcileGroupCardEmojis('u1', ['g1']);
+
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('📚');
+  expect(await readGroupCardEmoji('u1', 'g2')).toBe(DEFAULT_GROUP_CARD_EMOJI);
+  expect(await readGroupCardEmoji('u2', 'g2')).toBe('🧠');
+});
+
+test('아이콘 쓰기와 reconcile을 같은 queue에서 직렬화한다', async () => {
+  await writeGroupCardEmoji('u1', 'old', '📚');
+
+  await Promise.all([
+    writeGroupCardEmoji('u1', 'current', '🔥'),
+    reconcileGroupCardEmojis('u1', ['current']),
+  ]);
+
+  expect(await readGroupCardEmoji('u1', 'old')).toBe(DEFAULT_GROUP_CARD_EMOJI);
+  expect(await readGroupCardEmoji('u1', 'current')).toBe('🔥');
 });

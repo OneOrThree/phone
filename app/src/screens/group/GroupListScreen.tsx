@@ -36,6 +36,7 @@ import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoom
 import {
   DEFAULT_GROUP_CARD_EMOJI,
   readGroupCardEmoji,
+  reconcileGroupCardEmojis,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
 import { GroupCardSummaryAdapter } from './groupCardSummary';
@@ -447,11 +448,21 @@ export default function GroupListScreen({
 
   useEffect(() => {
     let active = true;
-    Promise.all(
-      groups.map(
-        async (group) => [group.groupId, await readGroupCardEmoji(userId, group.groupId)] as const,
-      ),
-    )
+    const reconcile = userId
+      ? reconcileGroupCardEmojis(
+          userId,
+          groups.map((group) => group.groupId),
+        ).catch(() => undefined)
+      : Promise.resolve();
+    reconcile
+      .then(() =>
+        Promise.all(
+          groups.map(
+            async (group) =>
+              [group.groupId, await readGroupCardEmoji(userId, group.groupId)] as const,
+          ),
+        ),
+      )
       .then((entries) => {
         if (active) {
           setEmojis(Object.fromEntries(entries));
@@ -562,7 +573,14 @@ export default function GroupListScreen({
   // 탈퇴로 추정해 다른 카드를 복원하지 않는다.
   useEffect(() => {
     const context = roomReturnRef.current;
-    if (!isScreenFocused || !context || groupsRevision <= context.departureRevision || !hydrated)
+    if (
+      !isScreenFocused ||
+      !context ||
+      groupsRevision <= context.departureRevision ||
+      !hydrated ||
+      emojiScopeLoaded !== emojiScope ||
+      exposedEpisodeId !== viewEpisodeId
+    )
       return;
 
     const target = resolveGroupRoomReturn(
@@ -587,13 +605,26 @@ export default function GroupListScreen({
     }
   }, [
     focusNode,
+    emojiScope,
+    emojiScopeLoaded,
+    exposedEpisodeId,
     groupsRevision,
     hydrated,
     isScreenFocused,
     orderedGroups,
     snapInterval,
     summaryAdapter,
+    viewEpisodeId,
   ]);
+
+  useEffect(() => {
+    if (
+      orderMenuGroupId !== null &&
+      !orderedGroups.some((group) => group.groupId === orderMenuGroupId)
+    ) {
+      setOrderMenuGroupId(null);
+    }
+  }, [orderMenuGroupId, orderedGroups]);
 
   useEffect(() => {
     if (pendingFrontFocusGroupId === null) return;
@@ -885,6 +916,7 @@ export default function GroupListScreen({
                   onSettings(item.groupId);
                 }}
                 onFront={(trigger) => {
+                  roomReturnRef.current = null;
                   setFlippedGroupId(null);
                   setBackSource(null);
                   if (trigger === 'accessibility_action') {
