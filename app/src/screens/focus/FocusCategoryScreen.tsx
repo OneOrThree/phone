@@ -132,35 +132,66 @@ export default function FocusCategoryScreen() {
   //    한 쌍이라 '동작 줄이기' 처리도 짝을 맞춰야 한다 — 아래 m.delay 참고.
   const m = useMotion();
   const methodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 예약된 시트 열기 취소 — 어느 분기든 새 인터랙션(재탭·팝오버)이 시작되면 먼저 부른다.
-  // 스테일 콜백이 남으면 닫은 시트가 뒤늦게 다시 열린다(코덱스 리뷰, PR 301).
-  function cancelPendingMethodSheet() {
+  // '동작 줄이기' 값이 **확정되기 전**(콜드 스타트의 비동기 조회 구간)에 들어온 탭을 담아 둔다.
+  // 미확정 구간의 useMotion은 보수적으로 reduce=true라, 그대로 시작하면 대기가 0으로 눌려
+  // 설정을 켜지 않은 사용자도 알약 슬라이드를 통째로 잃는다 — 일회성 시퀀스라 나중에 설정이
+  // false로 확정돼도 되돌릴 수 없다(codex 리뷰). 탭 자체는 씹지 않고 여기 보관했다가
+  // 확정된 값으로 시작한다. ready는 조회가 실패해도 반드시 확정되므로 영영 대기하지 않는다.
+  const [pendingSubject, setPendingSubject] = useState<Subject | null>(null);
+  function clearMethodTimer() {
     if (methodTimer.current) {
       clearTimeout(methodTimer.current);
       methodTimer.current = null;
     }
   }
-  useEffect(() => cancelPendingMethodSheet, []);
+  // 예약된 시트 열기 취소 — 어느 분기든 새 인터랙션(재탭·팝오버)이 시작되면 먼저 부른다.
+  // 스테일 콜백이 남으면 닫은 시트가 뒤늦게 다시 열린다(코덱스 리뷰, PR 301).
+  // 아직 시작 전인 보류 탭도 함께 버린다 — 팝오버를 연 뒤 시퀀스가 뒤늦게 터지면 같은 사고다.
+  function cancelPendingMethodSheet() {
+    clearMethodTimer();
+    setPendingSubject(null);
+  }
+  // 언마운트 정리는 타이머만 — 여기서 setState까지 부를 필요가 없다.
+  useEffect(() => clearMethodTimer, []);
 
-  function openMethod(sub: Subject) {
+  // 시퀀스 본체: 선택 반영 → (이동했으면) 알약이 미끄러질 시간만큼 대기 → 시트.
+  // delayMs는 **확정된** 설정으로 계산해 넘긴다.
+  function startMethodSequence(sub: Subject, delayMs: number) {
     const moved = sub.id !== active?.id;
     setSelectedId(sub.id);
-    cancelPendingMethodSheet();
     if (!moved) {
       setSheet('method');
       return;
     }
     // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
-    // 놓이므로 기다릴 연출이 없다. m.delay는 0을 돌려줄 뿐 setTimeout은 남으므로,
+    // 놓이므로 기다릴 연출이 없다. delayMs가 0이어도 setTimeout은 남으므로,
     // 예약 취소(cancelPendingMethodSheet)·스테일 콜백 방어가 그대로 성립한다.
-    methodTimer.current = setTimeout(
-      () => {
-        methodTimer.current = null;
-        setSheet('method');
-      },
-      m.delay(SLIDE_MS + 60),
-    );
+    methodTimer.current = setTimeout(() => {
+      methodTimer.current = null;
+      setSheet('method');
+    }, delayMs);
   }
+
+  function openMethod(sub: Subject) {
+    cancelPendingMethodSheet();
+    if (!m.ready) {
+      // 설정 미확정 — 탭은 받아 두고 시작만 미룬다(선택 반영도 함께 미룬다: 알약을 먼저
+      // 옮겨 버리면 확정 후엔 이미 이동이 끝나 슬라이드가 재생될 자리가 없다).
+      setPendingSubject(sub);
+      return;
+    }
+    startMethodSequence(sub, m.delay(SLIDE_MS + 60));
+  }
+
+  // 설정이 확정되면 보류해 둔 탭의 시퀀스를 확정된 값으로 시작한다.
+  // ⚠️ 의존성에 m(useMotion 반환 객체)을 넣지 말 것 — reduce/ready가 바뀔 때마다 새 객체라
+  //    일회성 시퀀스가 중복 실행된다. 원시값 m.ready만 넣고, 지연은 이 렌더의 m으로 계산한다.
+  useEffect(() => {
+    if (!m.ready || !pendingSubject) return;
+    setPendingSubject(null);
+    startMethodSequence(pendingSubject, m.delay(SLIDE_MS + 60));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- m(useMotion 객체)은 의존성에서 제외
+  }, [m.ready, pendingSubject]);
 
   function editSubject(sub: Subject) {
     setMenu(null);
