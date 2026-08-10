@@ -109,8 +109,26 @@ export const TT_ROW_GAP = 3;
 /** 오전 6시부터 24줄(한 줄 = 1시간) */
 export const TT_ROWS = 24;
 /** 격자 본문(범례 열 포함) — 오늘 세션 조회 중 이 높이를 예약한다 */
-export const TT_BODY_BLOCK_H = T.space.lg + (TT_ROWS * TT_CELL_H + (TT_ROWS - 1) * TT_ROW_GAP); // 421
-const TT_BLOCK_H = TT_BODY_BLOCK_H + SHARE_BTN_H; // 449
+/** 격자 본체 높이 — 24행 × 칸 높이 + 행 간격 */
+const TT_GRID_H = TT_ROWS * TT_CELL_H + (TT_ROWS - 1) * TT_ROW_GAP; // 405
+/** 범례 한 줄 — 색 점(8)보다 캡션(11pt) 줄이 높다. `allowFontScaling={false}`라 배율을 안 먹는다. */
+const TT_LEGEND_ROW_H = lineH(11); // 13
+
+/**
+ * 일간 타임테이블 본문 높이 = 위 간격 + max(격자, 범례).
+ *
+ * ⚠️ **범례가 격자보다 낮다고 가정하면 안 된다.** 범례는 과목마다 한 줄 + `T.space.sm` 간격을
+ *    쌓으므로 20줄부터 405px 격자를 넘어선다(과목 생성엔 상한이 없다). 도넛 범례와 같은
+ *    구조의 누락이다(codex 리뷰).
+ */
+export function ttBodyBlockH(legendRows: number): number {
+  const legend =
+    legendRows > 0 ? 2 + TT_LEGEND_ROW_H * legendRows + T.space.sm * (legendRows - 1) : 0;
+  return T.space.lg + Math.max(TT_GRID_H, legend);
+}
+/** 범례가 격자보다 낮을 때의 본문 높이 — 카드 내부 로딩 슬롯이 쓴다 */
+export const TT_BODY_BLOCK_H = ttBodyBlockH(0); // 421
+const ttBlockH = (legendRows: number) => ttBodyBlockH(legendRows) + SHARE_BTN_H; // 449~
 
 // ── 요일별 타임테이블(주) — WeeklyTimetableCard가 읽는다 ──
 export const WTT_BODY_H = 400;
@@ -209,7 +227,8 @@ export function skeletonCards({
     { key: 'category', height: CARD_CHROME_H + donutBlockH(subjectCount) },
   ];
   if (period === 'DAY') {
-    cards.push({ key: 'timetable', height: CARD_CHROME_H + TT_BLOCK_H });
+    // 범례 행 수는 도넛과 같은 추정치(오늘 쓴 과목 수)를 쓴다 — 일 탭 범례가 정확히 그 집합이다.
+    cards.push({ key: 'timetable', height: CARD_CHROME_H + ttBlockH(subjectCount) });
   }
   if (period === 'MONTH') {
     cards.push({ key: 'monthWeeklyFocus', height: CARD_CHROME_H + HERO_H + CHART_BLOCK_H });

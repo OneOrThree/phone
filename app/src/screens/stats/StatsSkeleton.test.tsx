@@ -213,3 +213,21 @@ describe('도넛 카드 높이 — 범례 행 수', () => {
     expect(category(9)).toBeGreaterThan(category(6));
   });
 });
+
+// ⚠️ 일간 타임테이블 범례도 20줄부터 405px 격자를 넘어선다 — 도넛과 같은 구조의 누락이었다.
+describe('일간 타임테이블 카드 높이 — 범례 행 수', () => {
+  const timetable = (subjectCount: number) =>
+    skeletonCards({ period: 'DAY', calendarRows: 0, screenWidth: 375, subjectCount }).find(
+      (c) => c.key === 'timetable',
+    )!.height;
+
+  test('19줄까지는 격자가 지배해 높이가 같다', () => {
+    expect(timetable(19)).toBe(timetable(0));
+    expect(timetable(5)).toBe(timetable(0));
+  });
+
+  test('20줄부터는 범례가 격자를 넘어 카드가 더 높아진다', () => {
+    expect(timetable(20)).toBeGreaterThan(timetable(19));
+    expect(timetable(24)).toBeGreaterThan(timetable(20));
+  });
+});
