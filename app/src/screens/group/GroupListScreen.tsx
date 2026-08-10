@@ -765,7 +765,7 @@ export default function GroupListScreen({
         onPanResponderMove: (_event, gesture) => {
           const drag = dragRef.current;
           if (!drag) return;
-          if (Math.max(Math.abs(gesture.dx), Math.abs(gesture.dy)) < 6) return;
+          if (!shouldClaimReorderDrag(gesture.dx, gesture.dy)) return;
           const max = orderedGroupsRef.current.length - 1;
           const pointerTarget = Math.max(
             0,

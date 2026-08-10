@@ -21,6 +21,7 @@ interface GroupCardFrontProps {
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
+  onOpenReorderMenu?: () => void;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
@@ -39,6 +40,7 @@ export function GroupCardFront({
   onFlip,
   onAccessibilityFlip,
   reorderHandlers,
+  onOpenReorderMenu,
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
@@ -48,6 +50,7 @@ export function GroupCardFront({
   active = true,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
+  const disclosureId = `group-card-summary-${group.groupId}`;
 
   return (
     <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
@@ -187,6 +190,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: withAlpha(T.white, 0.92),
   },
+  gripButton: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   art: {
     flex: 1,
     minHeight: 310,
@@ -268,8 +272,11 @@ const s = StyleSheet.create({
   footer: {
     marginTop: 'auto',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    rowGap: T.space.sm,
+    columnGap: T.space.md,
   },
   countBadge: {
     minHeight: 36,

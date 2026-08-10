@@ -27,6 +27,7 @@ import {
 } from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
@@ -58,6 +59,7 @@ function groupCountBucket(count: number): GroupCountBucket {
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const isScreenFocused = useIsFocused();
