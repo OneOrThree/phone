@@ -7,7 +7,12 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -126,6 +131,7 @@ export function navigateToDeepLink(link: string): void {
   const path = link.replace(/^gromo:\/\/+/i, '').split(/[/?#]/)[0];
   switch (path) {
     case 'league':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
@@ -137,6 +143,7 @@ export function navigateToDeepLink(link: string): void {
       });
       break;
     case 'home':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
@@ -149,11 +156,22 @@ export function navigateToDeepLink(link: string): void {
       // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
       const groupId = readGroupParam(link);
       const resultPush = readResultFlag(link);
-      // 결과성 push는 같은 호출 흐름에서 GroupRoom으로 즉시 우회한다. GroupScreen focus가
-      // 성립하지 않는 경로에 source를 남기면 방을 닫은 뒤의 별도 episode가 오래된 push를 소비한다.
-      if (navigationRef.getCurrentRoute?.()?.name !== '그룹' && !(resultPush && groupId !== null)) {
+      const currentRoute = navigationRef.getCurrentRoute?.()?.name;
+      // 결과성 push는 아래에서 목록을 건너뛰므로 다음 GroupScreen episode의 direct source가
+      // 아니다. 방을 닫은 뒤의 복귀를 push로 오염시키지 않도록 일반 push에만 예약한다.
+      if (!(resultPush && groupId !== null) && currentRoute !== '그룹') {
         queueDirectGroupEntry('push');
         pendingGroupEntrySeq = seq;
+      }
+      // 결과성 push는 목록 focus 전에 GroupRoom으로 곧바로 우회할 수 있다. 그룹 흐름 밖에서
+      // 시작한 우회라면 방을 닫은 뒤 처음 보이는 목록은 탭 진입이 아니라 자식 화면 복귀다.
+      if (
+        resultPush &&
+        groupId !== null &&
+        currentRoute !== '그룹' &&
+        currentRoute !== 'GroupRoom'
+      ) {
+        markInitialGroupRoomReturn();
       }
       if (readRefundFlag(link)) requestCoinRefresh();
       navigateToGroup(seq, groupId, readChallengeParam(link), resultPush);

@@ -28,6 +28,7 @@ jest.mock('@/components/liquidGlass', () => ({
 const ROUTE_NAMES = ['홈', '리그', '그룹', '전체'] as const;
 
 const navigate = jest.fn();
+const emit = jest.fn(() => ({ defaultPrevented: false }));
 
 async function renderTabBar(focusedIndex: number) {
   const props = {
@@ -35,7 +36,7 @@ async function renderTabBar(focusedIndex: number) {
       index: focusedIndex,
       routes: ROUTE_NAMES.map((name) => ({ key: `${name}-key`, name })),
     },
-    navigation: { navigate },
+    navigation: { navigate, emit },
   } as unknown as BottomTabBarProps;
   return await render(<TabBar {...props} />);
 }
@@ -60,7 +61,19 @@ describe('TabBar 피드백 정책', () => {
   test('비선택 탭을 누르면 해당 라우트로 이동한다', async () => {
     await renderTabBar(0);
     fireEvent.press(screen.getByTestId('tabbar.tab.전체'));
+    expect(emit).toHaveBeenCalledWith({
+      type: 'tabPress',
+      target: '전체-key',
+      canPreventDefault: true,
+    });
     expect(navigate).toHaveBeenCalledWith('전체');
+  });
+
+  test('tabPress가 취소되면 이동하지 않는다', async () => {
+    emit.mockReturnValueOnce({ defaultPrevented: true });
+    await renderTabBar(0);
+    fireEvent.press(screen.getByTestId('tabbar.tab.그룹'));
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   test('선택된 탭을 다시 눌러도 이동하지 않는다', async () => {

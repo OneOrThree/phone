@@ -1,7 +1,10 @@
 import {
   clearPendingGroupEntry,
+  consumeInitialGroupRoomReturn,
   consumeGroupEntry,
   peekGroupEntry,
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
   queueDirectGroupEntry,
 } from './groupEntrySource';
 
@@ -28,4 +31,11 @@ test('성공 결과 전에는 source를 읽어도 소비하지 않는다', () =>
   expect(peekGroupEntry('return')).toBe('invite');
   expect(consumeGroupEntry('return')).toBe('invite');
   expect(peekGroupEntry('return')).toBe('return');
+});
+
+test('초기 그룹방 복귀 표식은 전역 탭 이탈에서 폐기된다', () => {
+  markInitialGroupRoomReturn();
+  discardInitialGroupRoomReturn();
+
+  expect(consumeInitialGroupRoomReturn()).toBe(false);
 });

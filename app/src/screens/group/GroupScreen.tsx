@@ -22,6 +22,7 @@ import {
   clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
+  consumeInitialGroupRoomReturn,
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
@@ -116,11 +117,26 @@ export default function GroupScreen() {
   // 첫 마운트의 기본 진입은 tab, 이후 child/다른 화면에서 돌아온 focus는 return이며,
   // 실제 새 focus를 만든 외부 진입만 navigationRef가 넣은 invite|push를 한 번 소비한다.
   const hasFocusedRef = useRef(false);
+  const nextFocusFromTabRef = useRef(false);
   const viewEpisodeRef = useRef<{ id: number; source: GroupEntrySource; logged: boolean }>({
     id: 0,
     source: 'unknown',
     logged: false,
   });
+
+  // 같은 GroupScreen 인스턴스가 유지돼도 다른 탭에서 그룹 버튼을 누른 재진입은 `tab`이다.
+  // 자식 스택에서 돌아오는 focus에는 tabPress가 없으므로 `return`과 구분할 수 있다.
+  useEffect(() => {
+    const tabNavigation = navigation as unknown as {
+      addListener: (event: 'tabPress', listener: () => void) => () => void;
+      isFocused: () => boolean;
+    };
+    return tabNavigation.addListener('tabPress', () => {
+      // 이미 선택된 그룹 탭 재선택은 새 episode를 만들지 않으므로 다음 focus에 남기지 않는다.
+      // focus 중 열린 warm invite로 돌아오는 동작도 정책상 `return`이므로 tab 표식을 만들지 않는다.
+      if (!tabNavigation.isFocused() && !peekPendingInvite()) nextFocusFromTabRef.current = true;
+    });
+  }, [navigation]);
 
   // 초대 링크가 가리킨 그룹방 — 참여(또는 '이미 멤버') 판정 뒤 재조회가 끝날 때까지 목적지를 들고 있는다.
   // 재조회하면 목록이 기본 화면이라(A-9), 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
@@ -166,7 +182,13 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
-      const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
+      const returnedFromInitialRoom = consumeInitialGroupRoomReturn();
+      const fallback: GroupEntrySource = returnedFromInitialRoom
+        ? 'return'
+        : !hasFocusedRef.current || nextFocusFromTabRef.current
+          ? 'tab'
+          : 'return';
+      nextFocusFromTabRef.current = false;
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
