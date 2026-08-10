@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -38,7 +31,10 @@ import {
   type GroupCountBucket,
   type GroupEntry,
 } from '@/services/analyticsEvents';
-import { createCardInteractionContext, type CardInteractionContext } from '@/services/cardInteraction';
+import {
+  createCardInteractionContext,
+  type CardInteractionContext,
+} from '@/services/cardInteraction';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LeagueMemberResponse } from '@/types/api';
 import { enterUp } from '@/constants/motion';
@@ -570,9 +566,7 @@ export default function GroupListScreen({
         scrollEnabled={draggingGroupId === null && reorderMenuGroupId === null}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
-          <View
-            style={{ marginLeft: CARD_GAP }}
-          >
+          <View style={{ marginLeft: CARD_GAP }}>
             <FindMoreCard
               width={cardWidth}
               position={pageCount}
@@ -588,10 +582,7 @@ export default function GroupListScreen({
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
         renderItem={({ item, index }) => (
-          <View
-            style={{ width: cardWidth }}
-            testID={`group.list.card.${item.groupId}`}
-          >
+          <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
             {flippedGroupId === item.groupId ? (
               summaryAdapter.getSnapshot(item.groupId) && (
                 <GroupCardBack

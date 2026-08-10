@@ -190,8 +190,7 @@ function roomParams(
     groupId,
     challengeId: undefined,
     entrySource,
-    interactionId:
-      entrySource === 'group_card' ? `interaction-${groupId}` : undefined,
+    interactionId: entrySource === 'group_card' ? `interaction-${groupId}` : undefined,
     interactionAcceptedAt: entrySource === 'group_card' ? 1234 : undefined,
   };
 }
