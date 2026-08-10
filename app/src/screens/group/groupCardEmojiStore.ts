@@ -31,6 +31,11 @@ export function normalizeGroupCardEmoji(value: unknown): GroupCardEmoji {
   return isGroupCardEmoji(value) ? value : DEFAULT_GROUP_CARD_EMOJI;
 }
 
+export function groupCardEmojiLabel(value: unknown): string {
+  const emoji = normalizeGroupCardEmoji(value);
+  return GROUP_CARD_EMOJI_OPTIONS.find((option) => option.emoji === emoji)?.label ?? '목표';
+}
+
 export function parseGroupCardEmojiState(raw: string | null): ParsedEmojiMap {
   if (!raw) return { value: {}, needsRepair: false };
   try {
@@ -153,8 +158,11 @@ export function preservePendingGroupCardEmoji(
 export async function retryPendingGroupCardEmojis(
   userId: string,
   serverGroupIds: readonly string[],
-): Promise<void> {
+): Promise<GroupCardEmojiBucket> {
   const validIds = new Set(serverGroupIds);
+  for (const [key, pending] of pendingEmojis) {
+    if (pending.userId === userId && !validIds.has(pending.groupId)) pendingEmojis.delete(key);
+  }
   const candidates = [...pendingEmojis.values()].filter(
     (pending) => pending.userId === userId && validIds.has(pending.groupId),
   );
@@ -167,6 +175,11 @@ export async function retryPendingGroupCardEmojis(
       // 다음 그룹 화면 활성화에서 최신 pending 값만 다시 시도한다.
     }
   }
+  return Object.fromEntries(
+    [...pendingEmojis.values()]
+      .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
+      .map((pending) => [pending.groupId, pending.emoji]),
+  ) as GroupCardEmojiBucket;
 }
 
 export function __resetGroupCardEmojiQueueForTest(): void {
