@@ -368,6 +368,19 @@ export default function GroupListScreen({
     [groups, onEnsureBack, snapInterval],
   );
 
+  const flipCardFront = useCallback(
+    (trigger: GroupCardFlipTrigger = 'card_tap') => {
+      setBackSource('user');
+      setFlippedGroupId(null);
+      logGroupCardFlipped({
+        to_face: 'front',
+        trigger,
+        group_count_bucket: groupCountBucket(groups.length),
+      });
+    },
+    [groups.length],
+  );
+
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
     const orderChanged = previousGroupFingerprintRef.current !== groupFingerprint;
@@ -651,15 +664,8 @@ export default function GroupListScreen({
                       if (onStartFocus) acceptCardAction(item, 'focus', onStartFocus);
                     }}
                     onOpenRoom={() => acceptCardAction(item, 'room', onSelect)}
-                    onFlipFront={() => {
-                      setBackSource('user');
-                      setFlippedGroupId(null);
-                      logGroupCardFlipped({
-                        to_face: 'front',
-                        trigger: 'card_tap',
-                        group_count_bucket: groupCountBucket(groups.length),
-                      });
-                    }}
+                    onFlipFront={() => flipCardFront()}
+                    onAccessibilityFlipFront={() => flipCardFront('accessibility_action')}
                   />
                 ) : (
                   <GroupCardFront

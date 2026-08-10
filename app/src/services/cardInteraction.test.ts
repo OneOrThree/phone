@@ -1,6 +1,7 @@
 import {
   CARD_INTERACTION_TTL_MS,
   GROUP_ROOM_INTERACTION_TTL_MS,
+  interruptCardInteraction,
   resolveCardInteraction,
 } from './cardInteraction';
 
@@ -41,5 +42,18 @@ describe('resolveCardInteraction', () => {
         GROUP_ROOM_INTERACTION_TTL_MS,
       ),
     ).toBeNull();
+  });
+});
+
+describe('interruptCardInteraction', () => {
+  test('진입 경로만 남기고 pending interaction 귀속은 제거한다', () => {
+    expect(
+      interruptCardInteraction({
+        entrySource: 'group_card',
+        interactionId: 'interaction-1',
+        interactionAcceptedAt: 1_000_000,
+      }),
+    ).toEqual({ entrySource: 'group_card' });
+    expect(interruptCardInteraction(undefined)).toBeUndefined();
   });
 });

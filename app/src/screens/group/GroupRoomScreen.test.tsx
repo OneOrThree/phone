@@ -9,6 +9,7 @@
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import type { ComponentProps } from 'react';
 import {
   Alert,
   AppState,
@@ -78,7 +79,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeResultShown: jest.fn(),
   logGroupChallengeResultClosed: jest.fn(),
 }));
-const { logGroupInviteShared, logGroupChallengeResultShown } = jest.requireMock(
+const { logGroupInviteShared, logGroupChallengeResultShown, logGroupRoomViewed } = jest.requireMock(
   '@/services/analyticsEvents',
 );
 
@@ -225,8 +226,12 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
   };
 }
 
-async function renderRoom() {
-  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+async function renderRoom(
+  cardInteraction?: ComponentProps<typeof GroupRoomScreen>['cardInteraction'],
+) {
+  const result = await render(
+    <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} cardInteraction={cardInteraction} />,
+  );
   await act(async () => {});
   return result;
 }
@@ -253,6 +258,12 @@ async function focus() {
 async function foreground() {
   await act(async () => {
     appStateHandler?.('active');
+  });
+}
+
+async function background() {
+  await act(async () => {
+    appStateHandler?.('background');
   });
 }
 
@@ -285,6 +296,31 @@ beforeEach(async () => {
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
     return { remove: jest.fn() } as never;
+  });
+});
+
+describe('카드 방문 귀속', () => {
+  test('상세 응답 전에 백그라운드로 가면 방문은 기록하되 interaction 귀속은 취소한다', async () => {
+    let resolveDetail!: (value: GroupDetailResponse) => void;
+    mockGetGroupDetail.mockImplementationOnce(
+      () => new Promise<GroupDetailResponse>((resolve) => (resolveDetail = resolve)),
+    );
+    mockGetAnnouncements.mockResolvedValueOnce([]);
+
+    await renderRoom({
+      entrySource: 'group_card',
+      interactionId: 'interaction-before-background',
+      interactionAcceptedAt: Date.now(),
+    });
+    await background();
+    await act(async () => resolveDetail(detail()));
+
+    await waitFor(() =>
+      expect(logGroupRoomViewed).toHaveBeenCalledWith({
+        group_id: GROUP_ID,
+        entry_source: 'group_card',
+      }),
+    );
   });
 });
 

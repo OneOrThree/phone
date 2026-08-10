@@ -89,4 +89,28 @@ describe('GroupCardBackSummary', () => {
     expect(screen.getByText('집중 인원을 확인할 수 없어요')).toBeOnTheScreen();
     expect(screen.getByText('1개 진행 중')).toBeOnTheScreen();
   });
+
+  test('앞면 전환의 접근성 activate는 전용 콜백으로 구분한다', async () => {
+    const onFlipFront = jest.fn();
+    const onAccessibilityFlipFront = jest.fn();
+    await render(
+      <GroupCardBackSummary
+        group={group}
+        snapshot={snapshot}
+        onStartFocus={jest.fn()}
+        onOpenRoom={jest.fn()}
+        onFlipFront={onFlipFront}
+        onAccessibilityFlipFront={onAccessibilityFlipFront}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+
+    expect(onAccessibilityFlipFront).toHaveBeenCalledTimes(1);
+    expect(onFlipFront).not.toHaveBeenCalled();
+  });
 });

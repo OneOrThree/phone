@@ -20,6 +20,16 @@ export interface CardInteractionRouteContext {
 export const CARD_INTERACTION_TTL_MS = 10 * 60 * 1000;
 export const GROUP_ROOM_INTERACTION_TTL_MS = 30 * 1000;
 
+/**
+ * 앱이 비활성화되면 진행 중이던 카드 CTA 귀속은 끝낸다.
+ * 진입 경로는 방문 이벤트에 남기되 interaction id/timestamp는 제거한다.
+ */
+export function interruptCardInteraction(
+  context: CardInteractionRouteContext | null | undefined,
+): CardInteractionRouteContext | undefined {
+  return context?.entrySource ? { entrySource: context.entrySource } : undefined;
+}
+
 /** 카드 CTA에서 시작한 context만 짧은 TTL 안에서 결과 이벤트에 귀속한다. */
 export function resolveCardInteraction(
   context: CardInteractionRouteContext | null | undefined,

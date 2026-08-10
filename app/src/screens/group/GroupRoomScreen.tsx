@@ -35,6 +35,7 @@ import {
 } from '@/services/analyticsEvents';
 import {
   GROUP_ROOM_INTERACTION_TTL_MS,
+  interruptCardInteraction,
   resolveCardInteraction,
   type CardInteractionRouteContext,
 } from '@/services/cardInteraction';
@@ -206,7 +207,23 @@ export default function GroupRoomScreen({
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId } = useUser();
   const cardInteractionRef = useRef(cardInteraction);
-  cardInteractionRef.current = cardInteraction;
+  const cardEntrySource = cardInteraction?.entrySource;
+  const cardInteractionId = cardInteraction?.interactionId;
+  const cardInteractionAcceptedAt = cardInteraction?.interactionAcceptedAt;
+  // 라우트가 실제로 새 interaction을 전달한 때만 갱신한다. 백그라운드에서 취소한 값을
+  // unrelated render가 같은 props로 다시 살려내면 안 된다.
+  useEffect(() => {
+    cardInteractionRef.current =
+      cardEntrySource !== undefined ||
+      cardInteractionId !== undefined ||
+      cardInteractionAcceptedAt !== undefined
+        ? {
+            entrySource: cardEntrySource,
+            interactionId: cardInteractionId,
+            interactionAcceptedAt: cardInteractionAcceptedAt,
+          }
+        : undefined;
+  }, [cardEntrySource, cardInteractionAcceptedAt, cardInteractionId]);
   // 잔액은 CoinContext가 정본이다 — 여기서는 '서버가 정산했다'를 감지했을 때만 다시 받는다.
   const { refresh: refreshCoins } = useCoins();
 
@@ -570,7 +587,10 @@ export default function GroupRoomScreen({
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') return;
+      if (state !== 'active') {
+        cardInteractionRef.current = interruptCardInteraction(cardInteractionRef.current);
+        return;
+      }
       if (focusedRef.current || loadedDateRef.current !== todayStrKst()) reload();
     });
     return () => sub.remove();

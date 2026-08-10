@@ -11,6 +11,7 @@ interface GroupCardBackSummaryProps {
   onStartFocus: () => void;
   onOpenRoom: () => void;
   onFlipFront: () => void;
+  onAccessibilityFlipFront?: () => void;
 }
 
 function pendingOrFailed(status: 'idle' | 'loading' | 'error', object: string): string {
@@ -23,6 +24,7 @@ export function GroupCardBackSummary({
   onStartFocus,
   onOpenRoom,
   onFlipFront,
+  onAccessibilityFlipFront,
 }: GroupCardBackSummaryProps) {
   const detail = snapshot?.detail ?? { status: 'idle' as const };
   const announcements = snapshot?.announcements ?? { status: 'idle' as const };
@@ -98,6 +100,12 @@ export function GroupCardBackSummary({
       <TouchableOpacity
         onPress={onFlipFront}
         accessibilityRole="button"
+        accessibilityActions={[{ name: 'activate', label: '카드 앞면 보기' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') {
+            (onAccessibilityFlipFront ?? onFlipFront)();
+          }
+        }}
         testID={`group.card.frontAction.${group.groupId}`}
       >
         <Text style={s.link}>앞면으로</Text>
