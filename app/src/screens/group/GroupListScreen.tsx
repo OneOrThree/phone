@@ -11,11 +11,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
+import { GroupCardFront } from './components/GroupCardFront';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -63,6 +64,7 @@ export default function GroupListScreen({
   const { width: windowWidth } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const pageCount = groups.length + 1;
@@ -94,6 +96,7 @@ export default function GroupListScreen({
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = groups[next]?.groupId ?? null;
       setActiveIndex(next);
+      setFlippedGroupId(null);
     },
     [groups, pageCount, snapInterval],
   );
@@ -104,7 +107,9 @@ export default function GroupListScreen({
         0,
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
       );
-      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      const nextIdentity = groups[next]?.groupId ?? null;
+      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
     },
     [groups, pageCount, snapInterval],
@@ -161,50 +166,31 @@ export default function GroupListScreen({
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[s.card, { width: cardWidth }]}
-            activeOpacity={0.85}
-            onPress={() => onSelect(item.groupId)}
-            testID={`group.list.card.${item.groupId}`}
-          >
-            <View style={s.cardMain}>
-              {/* 1행: 이름 + 비공개 자물쇠 */}
-              <View style={s.cardTitleRow}>
-                <Text style={s.cardName} numberOfLines={1}>
+          <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
+            {flippedGroupId === item.groupId ? (
+              <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
+                <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
                   {item.name}
                 </Text>
-                {item.isPrivate && (
-                  <Ionicons
-                    name="lock-closed"
-                    size={14}
-                    color={T.inkSub}
-                    accessibilityLabel="비공개 그룹"
-                  />
-                )}
-                {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠는 그대로 둔다) */}
-                {item.role === 'OWNER' && (
-                  <MaterialCommunityIcons
-                    name="crown"
-                    size={16}
-                    color={T.accent}
-                    accessibilityLabel="내가 방장"
-                  />
-                )}
+                <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
+                <TouchableOpacity
+                  style={s.backPrimary}
+                  onPress={() => onSelect(item.groupId)}
+                  testID={`group.card.room.${item.groupId}`}
+                >
+                  <Text style={s.backPrimaryText}>방 전체 보기</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setFlippedGroupId(null)}
+                  testID={`group.card.frontAction.${item.groupId}`}
+                >
+                  <Text style={s.backLink}>앞면으로</Text>
+                </TouchableOpacity>
               </View>
-              {/* 2행: 소개 — 백엔드가 목록 응답에 description을 실어줄 때만 노출 */}
-              {!!item.description && (
-                <Text style={s.cardDesc} numberOfLines={2}>
-                  {item.description}
-                </Text>
-              )}
-            </View>
-            <View style={s.cardRight}>
-              <Text style={s.cardCount}>
-                {item.currentMembers}/{item.maxMembers}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
-            </View>
-          </TouchableOpacity>
+            ) : (
+              <GroupCardFront group={item} onFlip={() => setFlippedGroupId(item.groupId)} />
+            )}
+          </View>
         )}
       />
 
@@ -265,26 +251,27 @@ const s = StyleSheet.create({
 
   listContent: { paddingBottom: T.space.md },
 
-  // 카드 표면은 T.paperAlt — 그룹 탭 배경이 흰 캔버스(T.paperLight)라 T.white 카드는 묻힌다
-  // (그룹방의 초대·공지 카드와 같은 기준).
-  card: {
-    minHeight: 220,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: T.space.md,
-    backgroundColor: T.paperAlt,
+  backPlaceholder: {
+    minHeight: 300,
+    borderRadius: 22,
+    padding: T.space.xl,
+    backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.border,
-    borderRadius: 16,
-    paddingHorizontal: T.space.lg,
-    paddingVertical: T.space.lg,
+    justifyContent: 'center',
+    gap: T.space.lg,
   },
-  cardMain: { flex: 1, gap: 4, minWidth: 0 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
-  cardDesc: { ...T.text.caption, color: T.inkSub },
-  cardRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  cardCount: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
+  backTitle: { ...T.text.heading, color: T.ink },
+  backDesc: { ...T.text.body, color: T.inkSub },
+  backPrimary: {
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accent,
+  },
+  backPrimaryText: { ...T.text.label, color: T.white },
+  backLink: { ...T.text.caption, color: T.accent, textAlign: 'center' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
