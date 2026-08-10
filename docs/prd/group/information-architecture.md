@@ -1,13 +1,13 @@
 # IA — 그룹 전체 경험
 
-| 항목 | 내용                                                                           |
-| ---- | ------------------------------------------------------------------------------ |
-| 상위 | [그룹 생애주기 PRD](./prd.md)                                                  |
-| 하위 | [통합 HLD](./high-level-design.md) · [통합 LLD](./low-level-design.md) · [기능별 상세 지도](./README.md)  |
-| 역할 | 그룹의 정보 관계, 화면 위치, 역할별 접근, 이동과 복귀 원칙을 정의한다.         |
-| 제외 | API·캐시 키·이벤트 속성·제스처 수치·컴포넌트 구조는 기능별 HLD·LLD에서 다룬다. |
+| 항목 | 내용                                                                                                     |
+| ---- | -------------------------------------------------------------------------------------------------------- |
+| 상위 | [그룹 생애주기 PRD](./prd.md)                                                                            |
+| 하위 | [통합 HLD](./high-level-design.md) · [통합 LLD](./low-level-design.md) · [기능별 상세 지도](./README.md) |
+| 역할 | 그룹의 정보 관계, 화면 위치, 역할별 접근, 이동과 복귀 원칙을 정의한다.                                   |
+| 제외 | API·캐시 키·이벤트 속성·제스처 수치·컴포넌트 구조는 기능별 HLD·LLD에서 다룬다.                           |
 
-문서 우선순위는 **상위 PRD → 이 IA → 기능별 HLD → 기능별 LLD**다. 기능 문서가 화면 하나를 최적화하더라도 이 문서의 전체 생애주기와 사용자 맥락을 끊지 않는다.
+이 문서는 전체 화면·정보 관계의 정본이다. 카드 내부처럼 한 기능에 한정된 정보 위계는 기능 IA가 보완하고, 책임·데이터·구현 방식은 HLD·LLD가 결정한다. 문서 종류별 충돌 규칙은 [문서 지도](./README.md#2-정본은-문서-종류별로-결정한다)를 따른다.
 
 ---
 
@@ -60,13 +60,13 @@ flowchart TD
     Push -->|목록 실패| Safe
     Source -.->|챌린지 알림| ChallengePolicy["별도 챌린지 IA"]
 
-    Find --> Acquire["가입 성공"]
-    Invite --> Acquire
-    Create --> Created["생성 성공"]
-    Acquire --> Refresh["전체 소속 목록 확인"]
+    Find --> Join["서버 가입 성공"]
+    Invite --> Join
+    Create --> Created["서버 생성·방장 소속 성공"]
+    Join --> Refresh["성공한 전체 소속 목록 확인"]
     Created --> Refresh
     Refresh -->|"찾기 · 생성"| MyGroups
-    Refresh -->|"초대 대상 포함"| Room
+    Refresh -->|"초대 대상 groupId 포함"| Room
     Refresh -->|"실패 · 부분 응답"| Safe
 
     Count -->|1개 이상| MyGroups["내 그룹 탐색"]
@@ -82,11 +82,11 @@ flowchart TD
     Settings --> Role{"현재 역할"}
     Role -->|방장만| Profile["그룹 프로필"]
     Role -->|방장만| Members["방장 위임 · 멤버 · 공지 권한"]
-    Role -->|방장·멤버| Personal["내 카드 아이콘 · 그룹 나가기"]
+    Role -->|방장·멤버| Personal["그룹 나가기 · 내 카드 아이콘 F02-P1 계획"]
 ```
 
 - 소속 그룹이 1개여도 기본 진입은 `내 그룹 탐색`이다. 전체 그룹 방은 사용자가 선택한 뒤 열린다.
-- 가입·생성 성공만으로 화면에 카드를 임의 추가하지 않는다. 전체 소속 목록이 성공한 뒤 전환한다.
+- 가입·생성의 서버 성공 뒤에는 먼저 성공한 전체 소속 목록을 확인한다. 그 다음 찾기·생성은 내 그룹 탐색으로, 초대는 대상 `groupId`가 목록에 있을 때만 해당 방으로 전환한다.
 - 초대 링크는 로그인 전에도 보관될 수 있지만, 인증과 미리보기를 거쳐 가입 결과를 확정한다.
 
 ---
@@ -99,13 +99,16 @@ flowchart LR
     Start --> Invite["초대<br/>링크와 미리보기"]
     Start --> Create["만들기<br/>그룹 정보와 공개 범위"]
 
-    Find --> Join["가입 확정"]
-    Invite --> Join
+    Find --> Join["찾기 가입 확정"]
+    Invite --> InviteJoin["초대 가입 확정"]
     Create --> Created["생성·방장 소속 확정"]
-    Join --> Explore["내 그룹 탐색"]
-    Created --> Explore
+    Join --> Refresh["성공한 전체 소속 목록 확인"]
+    InviteJoin --> Refresh
+    Created --> Refresh
+    Refresh -->|찾기·생성| Explore["내 그룹 탐색"]
+    Refresh -->|초대 대상 groupId 확인| Room["그룹 방"]
 
-    Explore --> Room["그룹 방"]
+    Explore --> Room
     Room --> Share["초대 링크 발급·공유"]
     Share -.->|수신자| Invite
     Room --> Settings["그룹 설정"]
@@ -128,30 +131,36 @@ stateDiagram-v2
     state "소속 없음" as None
     state "가입 검토" as Review
     state "생성 중" as Creating
-    state "소속 중" as Active
+    state "성공한 전체 소속 목록 확인" as Refresh
+    state "소속 목록 오류" as RefreshError
+    state "현재 그룹 소속 중" as Active
+    state "다른 내 그룹 탐색" as OtherGroups
     state "방 사용" as Room
     state "나가기 확인" as Leaving
     state "방장 위임 필요" as Transfer
 
     [*] --> None
     None --> Review: 찾기 또는 초대
-    Review --> Active: 서버 가입 성공
+    Review --> Refresh: 서버 가입 성공
     Review --> None: 취소 또는 실패
     None --> Creating: 만들기
-    Creating --> Active: 서버 생성 성공
+    Creating --> Refresh: 서버 생성 성공
     Creating --> None: 취소 또는 실패
+    Refresh --> Active: 대상 groupId가 목록에 확인됨
+    Refresh --> RefreshError: 조회 실패 또는 부분 응답
+    RefreshError --> Refresh: 다시 시도
 
     Active --> Room: 그룹 방 열기
     Room --> Active: 뒤로 가기
     Active --> Leaving: 그룹 나가기
     Leaving --> Active: 취소 또는 실패
     Leaving --> None: 마지막 소속에서 나가기 성공
-    Leaving --> Active: 다른 그룹이 남은 채 나가기 성공
+    Leaving --> OtherGroups: 다른 그룹이 남은 채 나가기 성공
     Leaving --> Transfer: 방장 위임 필요
     Transfer --> Leaving: 위임 완료
 ```
 
-- 소속은 로컬 카드 상태가 아니라 서버 관계다. 가입·나가기·강퇴 성공 뒤에만 상태를 바꾼다.
+- 소속은 로컬 카드 상태가 아니라 서버 관계다. 가입·나가기·강퇴 성공 뒤에는 전체 소속 목록을 확인한 뒤에만 목적지를 정한다.
 - 강퇴된 사용자는 일반적인 재가입 경로로 복원하지 않는다.
 - 다른 멤버가 있는 방장은 먼저 위임한 뒤 나간다. 마지막 멤버의 정상 이탈은 그룹 종료로 이어진다.
 
@@ -184,24 +193,24 @@ flowchart TD
 
 ## 6. 화면별 정보 책임
 
-| 화면         | 사용자가 답하는 질문             | 포함                                                        | 포함하지 않음                                         |
-| ------------ | -------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------- |
-| 그룹 빈 상태 | 어떻게 그룹을 얻을까?            | 찾기·만들기, 외부 초대 진입                                 | 존재하지 않는 추천·가짜 활동                          |
-| 찾기·초대    | 이 그룹에 들어갈까?              | 공개 정보·정원·가입 결과                                    | 멤버 전용 공지·하위 기능                              |
-| 만들기       | 어떤 그룹을 만들까?              | 이름·소개·정원·공개 범위                                    | 하위 기능 동시 생성                                   |
-| 내 그룹 탐색 | 내 그룹 중 어디서 무엇을 할까?   | 소속 그룹 식별·요약·집중/방 진입                            | 그룹 방 전체 기능의 복제                              |
-| 그룹 방      | 이 그룹에서 지금 무슨 일이 있나? | 멤버·집중·공지·하위 기능 진입·초대 공유                     | 다른 그룹의 상태                                      |
-| 공지         | 무엇을 모두에게 알려야 하나?     | 전체 멤버 읽기, 방장·공지 권한 멤버의 쓰기                  | 화면 노출만으로 쓰기 권한 확정                        |
-| 그룹 설정    | 내가 무엇을 바꿀 수 있나?        | 공통 개인 설정·나가기, 방장 전용 프로필·위임·멤버·공지 권한 | MEMBER에게 방장 전용 화면 노출, 낡은 역할로 권한 확정 |
+| 화면         | 사용자가 답하는 질문             | 포함                                                             | 포함하지 않음                                         |
+| ------------ | -------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------- |
+| 그룹 빈 상태 | 어떻게 그룹을 얻을까?            | 찾기·만들기, 외부 초대 진입                                      | 존재하지 않는 추천·가짜 활동                          |
+| 찾기·초대    | 이 그룹에 들어갈까?              | 공개 정보·정원·가입 결과                                         | 멤버 전용 공지·하위 기능                              |
+| 만들기       | 어떤 그룹을 만들까?              | 이름·소개·정원·공개 범위                                         | 하위 기능 동시 생성                                   |
+| 내 그룹 탐색 | 내 그룹 중 어디서 무엇을 할까?   | 소속 그룹 식별·요약·집중/방 진입                                 | 그룹 방 전체 기능의 복제                              |
+| 그룹 방      | 이 그룹에서 지금 무슨 일이 있나? | 멤버·집중·공지·하위 기능 진입·초대 공유                          | 다른 그룹의 상태                                      |
+| 공지         | 무엇을 모두에게 알려야 하나?     | 전체 멤버 읽기, 방장·공지 권한 멤버의 쓰기                       | 화면 노출만으로 쓰기 권한 확정                        |
+| 그룹 설정    | 내가 무엇을 바꿀 수 있나?        | 나가기, `F02-P1` 개인 설정, 방장 전용 프로필·위임·멤버·공지 권한 | MEMBER에게 방장 전용 화면 노출, 낡은 역할로 권한 확정 |
 
 ---
 
 ## 7. 상세 문서 연결
 
-| 정보 범위                                | 상세 문서                                                                                                                           |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 찾기·초대·생성·가입                      | [그룹 획득 HLD](./features/01-acquisition/high-level-design.md) · [LLD](./features/01-acquisition/low-level-design.md)                                               |
-| 카드 앞·뒤, 캐러셀, 순서·아이콘, 첫 안내 | [내 그룹 탐색 IA](./features/02-my-groups/information-architecture.md) · [HLD](./features/02-my-groups/high-level-design.md) · [LLD](./features/02-my-groups/low-level-design.md) |
-| 그룹 방, 집중, 공지                      | [그룹 활동 HLD](./features/03-activity/high-level-design.md) · [LLD](./features/03-activity/low-level-design.md)                                               |
-| 챌린지                                   | 별도 PRD·IA·HLD·LLD 작성 예정                                                                                                       |
-| 프로필, 역할, 멤버, 권한, 이탈           | [그룹 운영 HLD](./features/04-operation/high-level-design.md) · [LLD](./features/04-operation/low-level-design.md)                                               |
+| 정보 범위                                | 상세 문서                                                                                                                                                                                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 찾기·초대·생성·가입                      | [착수 카드](./features/01-acquisition/README.md) · [그룹 획득 HLD](./features/01-acquisition/high-level-design.md) · [LLD](./features/01-acquisition/low-level-design.md)                                                          |
+| 카드 앞·뒤, 캐러셀, 순서·아이콘, 첫 안내 | [착수 카드](./features/02-my-groups/README.md) · [내 그룹 탐색 IA](./features/02-my-groups/information-architecture.md) · [HLD](./features/02-my-groups/high-level-design.md) · [LLD](./features/02-my-groups/low-level-design.md) |
+| 그룹 방, 집중, 공지                      | [착수 카드](./features/03-activity/README.md) · [그룹 활동 HLD](./features/03-activity/high-level-design.md) · [LLD](./features/03-activity/low-level-design.md)                                                                   |
+| 챌린지                                   | [PRD](../challenge/prd.md) · [IA](../challenge/information-architecture.md) · [HLD](../challenge/high-level-design.md) · [LLD](../challenge/low-level-design.md)                                                                   |
+| 프로필, 역할, 멤버, 권한, 이탈           | [착수 카드](./features/04-operation/README.md) · [그룹 운영 HLD](./features/04-operation/high-level-design.md) · [LLD](./features/04-operation/low-level-design.md)                                                                |

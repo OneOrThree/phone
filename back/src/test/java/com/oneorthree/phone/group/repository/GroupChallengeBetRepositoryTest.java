@@ -6,9 +6,11 @@ import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.GroupBetVoidReason;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.user.domain.User;
@@ -25,6 +27,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -33,26 +36,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 내기 스키마의 실 SQL 제약 검증 — 애플리케이션 가드가 뚫려도 DB 가 막아야 하는 지점들.
- *
- * <p>동시 개설·동시 참가는 서비스의 exists 검사만으로는 레이스를 막지 못한다(검사와 삽입 사이가 열려
- * 있다). 정산 재실행의 이중 지급도 마찬가지로 멱등키 유니크가 최후 방어선이다. 그래서 참가·멱등키
- * 유니크가 실제 Postgres 에 존재하는지를 여기서 확인한다. 단, 개설 중복을 막는 (challenge_id,
- * bet_date) 는 V28 에서 <b>부분 유니크 인덱스</b>(취소 제외)가 됐고 JPA 로 표현할 수 없어 엔티티
- * 어노테이션에서 빠졌다 — ci 스키마엔 없으므로 그 검증은 {@code GroupChallengeV28MigrationTest} 가
- * Flyway 체인으로 맡는다.
+ * 내기 2계층 스키마(GROMO-1262)의 실 SQL 제약 검증 — 애플리케이션 가드가 뚫려도 DB 가 막아야
+ * 하는 지점들: 회차 유니크(bet_id, session_date)·참가 유니크(session_id, user_id)·설정 유니크
+ * (challenge_id)·멱등키 유니크·정산 CAS.
  *
  * <p><b>ci 프로파일 주의</b>: 스키마는 Flyway 가 아니라 엔티티 create-drop 으로 만들어진다
- * ({@code application-ci.yml}). 유니크 제약은 엔티티에 선언돼 있어 그대로 생성되지만
- * {@code currency_transactions} 의 type CHECK 는 마이그레이션에만 있다 — 그래서 CHECK 테스트는
- * V22(currency 사유 CHECK) 파일에서 ALTER 문을 직접 읽어 적용한 뒤 검증한다(마이그레이션 SQL 자체를 검증하는 셈).
+ * ({@code application-ci.yml}). 유니크 제약은 엔티티에 선언돼 있어 그대로 생성되지만 V40 stake
+ * CHECK 등 마이그레이션 전용 제약의 검증은 V39~V41 마이그레이션 테스트가 Flyway 체인으로 맡는다.
  */
 class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
 
     private static final String MIGRATION_PATH = "db/migration/V22__currency_transaction_reward_types.sql";
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
+    @Autowired
+    GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Autowired
     GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Autowired
@@ -68,124 +69,162 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
 
     private Group group;
     private GroupChallenge challenge;
+    private GroupChallengeBet config;
     private User user;
 
-    private final LocalDate betDate = LocalDate.of(2026, 7, 31);
+    private final LocalDate sessionDate = LocalDate.of(2026, 7, 31);
 
     @BeforeEach
     void setUp() {
-        // saveAndFlush 로 즉시 DB 에 내보낸다 — type CHECK 테스트는 JdbcTemplate 로 직접 INSERT 하므로
-        // 영속성 컨텍스트에만 있는 user 행은 FK 로 보이지 않는다.
         group = groupRepository.saveAndFlush(Group.builder().name("스터디").build());
         challenge = groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
                 .build());
+        config = configOf(challenge);
         user = userRepository.saveAndFlush(User.builder().nickname("재영").isGuest(false).build());
     }
 
-    private GroupChallengeBet betOf(LocalDate date) {
-        return betOf(challenge, date, GroupBetStatus.OPEN);
-    }
-
-    private GroupChallengeBet betOf(GroupChallenge target, LocalDate date, GroupBetStatus status) {
-        return GroupChallengeBet.builder()
+    private GroupChallengeBet configOf(GroupChallenge target) {
+        return groupChallengeBetRepository.saveAndFlush(GroupChallengeBet.builder()
                 .group(group)
                 .challenge(target)
-                .creatorUser(user)
                 .stake(30)
-                .betDate(date)
-                .status(status)
-                .build();
-    }
-
-    private GroupChallenge anotherChallenge() {
-        return groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
-                .group(group)
-                .category(MissionCategory.FOCUS)
-                .type(MissionType.DURATION)
+                .enabled(true)
                 .build());
     }
 
-    // "(challenge_id, bet_date) 중복 차단" 테스트는 V28 에서 GroupChallengeV28MigrationTest 로
-    // 이관됐다 — 제약이 부분 유니크 인덱스(WHERE status <> CANCELED)가 되면서 엔티티 어노테이션이
-    // 사라져, create-drop 으로 만드는 ci 스키마에는 그 제약 자체가 존재하지 않기 때문이다.
+    private GroupChallengeBetSession sessionOf(LocalDate date) {
+        return sessionOf(config, date, GroupBetStatus.OPEN);
+    }
+
+    private GroupChallengeBetSession sessionOf(GroupChallengeBet target, LocalDate date, GroupBetStatus status) {
+        Instant closesAt = date.plusDays(1).atStartOfDay(KST).toInstant();
+        return groupChallengeBetSessionRepository.saveAndFlush(GroupChallengeBetSession.builder()
+                .bet(target)
+                .group(target.getGroup())
+                .challenge(target.getChallenge())
+                .sessionDate(date)
+                .stake(target.getStake())
+                .goalMinutes(120)
+                .missionCategory(target.getChallenge().getCategory())
+                .missionType(target.getChallenge().getType())
+                .status(status)
+                .startsAt(date.atStartOfDay(KST).toInstant())
+                .joinClosesAt(closesAt)
+                .closesAt(closesAt)
+                .settleAfter(closesAt)
+                .build());
+    }
+
+    private GroupChallengeBet anotherConfig() {
+        return configOf(groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
+                .group(group)
+                .category(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .build()));
+    }
+
+    // ── 2계층 유니크 제약 ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("날짜가 다르면 같은 챌린지라도 내기를 각각 걸 수 있다")
-    void allowsBetsOnDifferentDatesForSameChallenge() {
-        groupChallengeBetRepository.saveAndFlush(betOf(betDate));
-        groupChallengeBetRepository.saveAndFlush(betOf(betDate.plusDays(1)));
-
-        assertThat(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
-                List.of(challenge.getId()), betDate, GroupBetStatus.CANCELED)).hasSize(1);
+    @DisplayName("UNIQUE (challenge_id) — 챌린지당 설정 1개는 DB 가 막는다(동시 개설 레이스 최후 방어)")
+    void rejectsDuplicateConfigForSameChallenge() {
+        assertThatThrownBy(() -> groupChallengeBetRepository.saveAndFlush(GroupChallengeBet.builder()
+                .group(group)
+                .challenge(challenge)
+                .stake(50)
+                .enabled(true)
+                .build()))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
-    @DisplayName("날짜 배치 로드 — CANCELED 만 빠지고 정산 결과(SETTLED 등)는 실린다 (결과 모달 hadBet 보호)")
-    void findByDateExcludesOnlyCanceled() {
-        GroupChallenge canceledOnly = anotherChallenge();
-        GroupChallenge settledOnly = anotherChallenge();
-        GroupChallengeBet open = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
-        groupChallengeBetRepository.saveAndFlush(betOf(canceledOnly, betDate, GroupBetStatus.CANCELED));
-        GroupChallengeBet settled = groupChallengeBetRepository.saveAndFlush(
-                betOf(settledOnly, betDate, GroupBetStatus.SETTLED));
+    @DisplayName("UNIQUE (bet_id, session_date) — 하루 1회차는 DB 가 막는다(구 FR-7 부분 유니크의 대체)")
+    void rejectsDuplicateSessionForSameDate() {
+        sessionOf(sessionDate);
 
-        List<GroupChallengeBet> found = groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
-                List.of(challenge.getId(), canceledOnly.getId(), settledOnly.getId()),
-                betDate, GroupBetStatus.CANCELED);
+        assertThatThrownBy(() -> sessionOf(config, sessionDate, GroupBetStatus.OPEN))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("날짜가 다르면 같은 설정이라도 회차를 각각 열 수 있다")
+    void allowsSessionsOnDifferentDatesForSameConfig() {
+        sessionOf(sessionDate);
+        sessionOf(config, sessionDate.plusDays(1), GroupBetStatus.OPEN);
+
+        assertThat(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                List.of(challenge.getId()), sessionDate, GroupBetStatus.UNUSED)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("날짜 배치 로드 — UNUSED(0명 종료)만 빠지고 정산 결과(SETTLED 등)는 실린다 (hadBet 보호, N52)")
+    void findByDateExcludesOnlyUnused() {
+        GroupChallengeBet unusedOnly = anotherConfig();
+        GroupChallengeBet settledOnly = anotherConfig();
+        GroupChallengeBetSession open = sessionOf(sessionDate);
+        sessionOf(unusedOnly, sessionDate, GroupBetStatus.UNUSED);
+        GroupChallengeBetSession settled = sessionOf(settledOnly, sessionDate, GroupBetStatus.SETTLED);
+
+        List<GroupChallengeBetSession> found = groupChallengeBetSessionRepository
+                .findByChallengeIdInAndSessionDateAndStatusNot(
+                        List.of(challenge.getId(), unusedOnly.getChallenge().getId(),
+                                settledOnly.getChallenge().getId()),
+                        sessionDate, GroupBetStatus.UNUSED);
 
         assertThat(found)
-                .extracting(GroupChallengeBet::getId)
+                .extracting(GroupChallengeBetSession::getId)
                 .containsExactlyInAnyOrder(open.getId(), settled.getId());
     }
 
     @Test
-    @DisplayName("내기 이력 챌린지 조회 — 취소 이력만 있어도 잡힌다(휴면 배지), 이력 없는 챌린지는 빠진다")
-    void findChallengeIdsWithAnyBetIncludesCanceledOnlyHistory() {
-        GroupChallenge canceledOnly = anotherChallenge();
-        GroupChallenge fresh = anotherChallenge();
-        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.SETTLED));
-        groupChallengeBetRepository.saveAndFlush(betOf(canceledOnly, betDate, GroupBetStatus.CANCELED));
+    @DisplayName("내기 이력 챌린지 조회 — 설정이 있으면 잡힌다(휴면 배지), 설정 없는 챌린지는 빠진다")
+    void findChallengeIdsWithAnyBetMatchesConfigPresence() {
+        GroupChallenge fresh = groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
+                .group(group)
+                .category(MissionCategory.SCREEN_TIME)
+                .type(MissionType.DURATION)
+                .build());
+        GroupChallengeBet other = anotherConfig();
 
         List<UUID> found = groupChallengeBetRepository.findChallengeIdsWithAnyBet(
-                List.of(challenge.getId(), canceledOnly.getId(), fresh.getId()));
+                List.of(challenge.getId(), other.getChallenge().getId(), fresh.getId()));
 
-        // lastSettledBet(정산 3종)을 재사용하면 취소 이력만 있는 챌린지가 빠진다 — 별도 쿼리인 이유.
-        assertThat(found).containsExactlyInAnyOrder(challenge.getId(), canceledOnly.getId());
+        assertThat(found).containsExactlyInAnyOrder(challenge.getId(), other.getChallenge().getId());
     }
 
     @Test
-    @DisplayName("OPEN 보유 챌린지 조회 — 날짜 무관 status 기반이라 내일 내기도 잡히고, 정산만 남은 챌린지는 빠진다")
+    @DisplayName("OPEN 보유 챌린지 조회 — 날짜 무관 status 기반이라 내일 회차도 잡히고, 정산만 남은 챌린지는 빠진다")
     void findChallengeIdsWithOpenBetIsDateAgnostic() {
-        GroupChallenge settledOnly = anotherChallenge();
+        GroupChallengeBet settledOnly = anotherConfig();
         // 내일 날짜 OPEN — 요청 date 스코프와 무관하게 "지금 걸린 판"으로 잡혀야 휴면 오판이 없다.
-        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate.plusDays(1), GroupBetStatus.OPEN));
-        groupChallengeBetRepository.saveAndFlush(betOf(settledOnly, betDate, GroupBetStatus.SETTLED));
+        sessionOf(config, sessionDate.plusDays(1), GroupBetStatus.OPEN);
+        sessionOf(settledOnly, sessionDate, GroupBetStatus.SETTLED);
 
         List<UUID> found = groupChallengeBetRepository.findChallengeIdsWithOpenBet(
-                List.of(challenge.getId(), settledOnly.getId()));
+                List.of(challenge.getId(), settledOnly.getChallenge().getId()));
 
         assertThat(found).containsExactly(challenge.getId());
     }
 
     @Test
-    @DisplayName("(bet_id, user_id) 유니크 — 같은 내기에 같은 유저 2번 참가는 DB 가 막는다(동시 참가 레이스 최후 방어)")
+    @DisplayName("(session_id, user_id) 유니크 — 같은 회차에 같은 유저 2번 참가는 DB 가 막는다(동시 참가 레이스 최후 방어)")
     void rejectsDuplicateParticipant() {
-        GroupChallengeBet bet = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
+        GroupChallengeBetSession session = sessionOf(sessionDate);
         groupChallengeBetParticipantRepository.saveAndFlush(
-                GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+                GroupChallengeBetParticipant.builder().session(session).user(user).build());
 
         assertThatThrownBy(() -> groupChallengeBetParticipantRepository.saveAndFlush(
-                GroupChallengeBetParticipant.builder().bet(bet).user(user).build()))
+                GroupChallengeBetParticipant.builder().session(session).user(user).build()))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
     @DisplayName("idempotency_key 유니크 — 같은 멱등키 재기입은 DB 가 막는다(정산 재실행 이중 지급 차단)")
     void rejectsDuplicateIdempotencyKey() {
-        String key = "bet:" + UUID.randomUUID() + ":payout:" + user.getId();
+        String key = "session:" + UUID.randomUUID() + ":payout:" + UUID.randomUUID();
         currencyTransactionRepository.saveAndFlush(CurrencyTransaction.builder()
                 .user(user).amount(45).type(CurrencyTransactionType.BET_PAYOUT).idempotencyKey(key).build());
 
@@ -202,129 +241,115 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
         currencyTransactionRepository.saveAndFlush(CurrencyTransaction.builder()
                 .user(user).amount(10).type(CurrencyTransactionType.SESSION_COMPLETE).build());
 
-        assertThat(currencyTransactionRepository.existsByIdempotencyKey("bet:none")).isFalse();
+        assertThat(currencyTransactionRepository.existsByIdempotencyKey("session:none")).isFalse();
     }
 
     // ── 챌린지별 최신 정산 1건 (DISTINCT ON) ─────────────────────────────
 
     @Test
-    @DisplayName("최신 정산 조회 — 챌린지당 1행만, 그것도 bet_date 가 가장 큰 행이 온다")
+    @DisplayName("최신 정산 조회 — 챌린지당 1행만, 그것도 session_date 가 가장 큰 행이 온다")
     void latestSettledReturnsExactlyOneRowPerChallenge() {
-        GroupChallenge other = anotherChallenge();
-        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate.minusDays(2), GroupBetStatus.SETTLED));
-        GroupChallengeBet newest =
-                groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate.minusDays(1),
-                        GroupBetStatus.REFUNDED));
-        GroupChallengeBet otherOnly =
-                groupChallengeBetRepository.saveAndFlush(betOf(other, betDate.minusDays(5),
-                        GroupBetStatus.SETTLED));
+        GroupChallengeBet other = anotherConfig();
+        sessionOf(config, sessionDate.minusDays(2), GroupBetStatus.SETTLED);
+        GroupChallengeBetSession newest =
+                sessionOf(config, sessionDate.minusDays(1), GroupBetStatus.REFUNDED);
+        GroupChallengeBetSession otherOnly =
+                sessionOf(other, sessionDate.minusDays(5), GroupBetStatus.SETTLED);
 
-        List<GroupChallengeBet> found = groupChallengeBetRepository.findLatestSettledByChallengeIds(
-                List.of(challenge.getId(), other.getId()));
+        List<GroupChallengeBetSession> found = groupChallengeBetSessionRepository
+                .findLatestSettledByChallengeIds(
+                        List.of(challenge.getId(), other.getChallenge().getId()));
 
         assertThat(found)
-                .extracting(GroupChallengeBet::getId)
+                .extracting(GroupChallengeBetSession::getId)
                 .containsExactlyInAnyOrder(newest.getId(), otherOnly.getId());
     }
 
     @Test
-    @DisplayName("최신 정산 조회 — OPEN(진행 중) 내기는 제외된다. 정산 이력이 없는 챌린지는 아예 빠진다")
-    void latestSettledExcludesOpenBets() {
-        GroupChallenge other = anotherChallenge();
-        // 가장 최신이지만 아직 OPEN — 지난 내기 줄에 나오면 안 된다.
-        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.OPEN));
-        GroupChallengeBet settled =
-                groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate.minusDays(1),
-                        GroupBetStatus.SETTLED));
-        groupChallengeBetRepository.saveAndFlush(betOf(other, betDate, GroupBetStatus.OPEN));
+    @DisplayName("최신 정산 조회 — OPEN(진행 중) 회차는 제외된다. 정산 이력이 없는 챌린지는 아예 빠진다")
+    void latestSettledExcludesOpenSessions() {
+        GroupChallengeBet other = anotherConfig();
+        sessionOf(config, sessionDate, GroupBetStatus.OPEN);
+        GroupChallengeBetSession settled =
+                sessionOf(config, sessionDate.minusDays(1), GroupBetStatus.SETTLED);
+        sessionOf(other, sessionDate, GroupBetStatus.OPEN);
 
-        List<GroupChallengeBet> found = groupChallengeBetRepository.findLatestSettledByChallengeIds(
-                List.of(challenge.getId(), other.getId()));
+        List<GroupChallengeBetSession> found = groupChallengeBetSessionRepository
+                .findLatestSettledByChallengeIds(
+                        List.of(challenge.getId(), other.getChallenge().getId()));
 
-        assertThat(found).extracting(GroupChallengeBet::getId).containsExactly(settled.getId());
+        assertThat(found).extracting(GroupChallengeBetSession::getId).containsExactly(settled.getId());
     }
 
     @Test
-    @DisplayName("최신 정산 조회 — CANCELED(취소)는 제외, FORFEITED(몰수)는 포함된다")
-    void latestSettledExcludesCanceledButIncludesForfeited() {
-        // 가장 최신이 취소 — 취소는 결과가 아니라 없던 일이므로 '지난 내기' 줄에 나오면 안 된다.
-        // 구앱은 CANCELED 문자열을 몰라 정산 결과처럼 오표시한다.
-        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.CANCELED));
-        GroupChallengeBet forfeited = groupChallengeBetRepository.saveAndFlush(
-                betOf(challenge, betDate.minusDays(1), GroupBetStatus.FORFEITED));
+    @DisplayName("최신 정산 조회 — VOIDED·UNUSED 는 제외, FORFEITED(몰수)는 포함된다 (구앱 렌더 보호·N52)")
+    void latestSettledExcludesVoidedAndUnusedButIncludesForfeited() {
+        // 가장 최신이 VOIDED — 구앱은 VOIDED 문자열을 몰라 정산 결과처럼 오표시한다(신 API 부터 노출).
+        sessionOf(config, sessionDate, GroupBetStatus.VOIDED);
+        sessionOf(config, sessionDate.minusDays(2), GroupBetStatus.UNUSED);
+        GroupChallengeBetSession forfeited =
+                sessionOf(config, sessionDate.minusDays(1), GroupBetStatus.FORFEITED);
 
-        List<GroupChallengeBet> found = groupChallengeBetRepository.findLatestSettledByChallengeIds(
-                List.of(challenge.getId()));
+        List<GroupChallengeBetSession> found = groupChallengeBetSessionRepository
+                .findLatestSettledByChallengeIds(List.of(challenge.getId()));
 
-        assertThat(found).extracting(GroupChallengeBet::getId).containsExactly(forfeited.getId());
-    }
-
-    @Test
-    @DisplayName("취소 이력만 있는 챌린지는 최신 정산 조회에서 아예 빠진다")
-    void latestSettledOmitsChallengeWithOnlyCanceledBets() {
-        groupChallengeBetRepository.saveAndFlush(betOf(challenge, betDate, GroupBetStatus.CANCELED));
-
-        assertThat(groupChallengeBetRepository.findLatestSettledByChallengeIds(
-                List.of(challenge.getId()))).isEmpty();
+        assertThat(found).extracting(GroupChallengeBetSession::getId).containsExactly(forfeited.getId());
     }
 
     // ── 그룹 탈퇴 연동 대상 조회 ─────────────────────────────────────────
 
     @Test
-    @DisplayName("탈퇴 대상 조회 — 이 그룹에서 내가 참가 중인 OPEN 내기만, id 오름차순으로 온다")
-    void findsOpenBetIdsForParticipant() {
-        GroupChallenge other = anotherChallenge();
-        GroupChallengeBet open = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
-        GroupChallengeBet openOther =
-                groupChallengeBetRepository.saveAndFlush(betOf(other, betDate, GroupBetStatus.OPEN));
-        GroupChallengeBet settled = groupChallengeBetRepository.saveAndFlush(
-                betOf(challenge, betDate.minusDays(1), GroupBetStatus.SETTLED));
-        for (GroupChallengeBet bet : List.of(open, openOther, settled)) {
+    @DisplayName("탈퇴 대상 조회 — 이 그룹에서 내가 참가 중인 OPEN 회차만, id 오름차순으로 온다")
+    void findsOpenSessionIdsForParticipant() {
+        GroupChallengeBet other = anotherConfig();
+        GroupChallengeBetSession open = sessionOf(sessionDate);
+        GroupChallengeBetSession openOther = sessionOf(other, sessionDate, GroupBetStatus.OPEN);
+        GroupChallengeBetSession settled =
+                sessionOf(config, sessionDate.minusDays(1), GroupBetStatus.SETTLED);
+        for (GroupChallengeBetSession session : List.of(open, openOther, settled)) {
             groupChallengeBetParticipantRepository.saveAndFlush(
-                    GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+                    GroupChallengeBetParticipant.builder().session(session).user(user).build());
         }
-        // 참가하지 않은 OPEN 내기는 대상이 아니다.
-        groupChallengeBetRepository.saveAndFlush(
-                betOf(anotherChallenge(), betDate, GroupBetStatus.OPEN));
+        // 참가하지 않은 OPEN 회차는 대상이 아니다.
+        sessionOf(anotherConfig(), sessionDate, GroupBetStatus.OPEN);
 
-        List<UUID> found = groupChallengeBetRepository
-                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId());
+        List<UUID> found = groupChallengeBetSessionRepository
+                .findOpenSessionIdsByGroupIdAndParticipantUserId(group.getId(), user.getId());
 
         assertThat(found).containsExactlyInAnyOrder(open.getId(), openOther.getId());
         assertThat(found).isSorted();
     }
 
     @Test
-    @DisplayName("계정 탈퇴 대상 조회(유저 스코프) — 그룹 무관하게 참가 중 OPEN 내기 전부, id 오름차순 (GROMO-801)")
-    void findsOpenBetIdsAcrossGroupsForParticipant() {
-        // 멤버십이 아니라 참가 행 기준이라 그룹 경계·is_left 상태와 무관해야 한다(강퇴자 판돈 보호).
+    @DisplayName("계정 탈퇴 대상 조회(유저 스코프) — 그룹 무관하게 참가 중 OPEN 회차 전부, id 오름차순 (GROMO-801)")
+    void findsOpenSessionIdsAcrossGroupsForParticipant() {
         Group otherGroup = groupRepository.saveAndFlush(Group.builder().name("다른방").build());
         GroupChallenge otherGroupChallenge = groupChallengeRepository.saveAndFlush(GroupChallenge.builder()
                 .group(otherGroup)
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
                 .build());
-        GroupChallengeBet mine = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
-        GroupChallengeBet mineInOtherGroup = groupChallengeBetRepository.saveAndFlush(
+        GroupChallengeBet otherGroupConfig = groupChallengeBetRepository.saveAndFlush(
                 GroupChallengeBet.builder()
                         .group(otherGroup)
                         .challenge(otherGroupChallenge)
-                        .creatorUser(user)
                         .stake(30)
-                        .betDate(betDate)
-                        .status(GroupBetStatus.OPEN)
+                        .enabled(true)
                         .build());
-        GroupChallengeBet settled = groupChallengeBetRepository.saveAndFlush(
-                betOf(challenge, betDate.minusDays(1), GroupBetStatus.SETTLED));
-        for (GroupChallengeBet bet : List.of(mine, mineInOtherGroup, settled)) {
+        GroupChallengeBetSession mine = sessionOf(sessionDate);
+        GroupChallengeBetSession mineInOtherGroup =
+                sessionOf(otherGroupConfig, sessionDate, GroupBetStatus.OPEN);
+        GroupChallengeBetSession settled =
+                sessionOf(config, sessionDate.minusDays(1), GroupBetStatus.SETTLED);
+        for (GroupChallengeBetSession session : List.of(mine, mineInOtherGroup, settled)) {
             groupChallengeBetParticipantRepository.saveAndFlush(
-                    GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+                    GroupChallengeBetParticipant.builder().session(session).user(user).build());
         }
-        // 참가하지 않은 OPEN 내기는 대상이 아니다.
-        groupChallengeBetRepository.saveAndFlush(
-                betOf(anotherChallenge(), betDate, GroupBetStatus.OPEN));
+        // 참가하지 않은 OPEN 회차는 대상이 아니다.
+        sessionOf(anotherConfig(), sessionDate, GroupBetStatus.OPEN);
 
-        List<UUID> found = groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(user.getId());
+        List<UUID> found = groupChallengeBetSessionRepository
+                .findOpenSessionIdsByParticipantUserId(user.getId());
 
         assertThat(found).containsExactlyInAnyOrder(mine.getId(), mineInOtherGroup.getId());
         assertThat(found).isSorted();
@@ -335,18 +360,37 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     @Test
     @DisplayName("정산 CAS — OPEN 이면 1행, 이미 정산됐으면 0행(동시 정산의 두 번째 트랜잭션이 여기서 스킵된다)")
     void compareAndSetSettledClaimsOnlyOnce() {
-        GroupChallengeBet bet = groupChallengeBetRepository.saveAndFlush(betOf(betDate));
+        GroupChallengeBetSession session = sessionOf(sessionDate);
         Instant settledAt = Instant.parse("2026-08-01T04:00:00Z");
 
-        assertThat(groupChallengeBetRepository.compareAndSetSettled(
-                bet.getId(), GroupBetStatus.SETTLED, settledAt)).isEqualTo(1);
+        assertThat(groupChallengeBetSessionRepository.compareAndSetSettled(
+                session.getId(), GroupBetStatus.SETTLED, null, settledAt)).isEqualTo(1);
 
         // 두 번째 시도는 status=OPEN 조건이 이미 깨져 아무 행도 건드리지 못한다.
-        assertThat(groupChallengeBetRepository.compareAndSetSettled(
-                bet.getId(), GroupBetStatus.REFUNDED, settledAt)).isZero();
+        assertThat(groupChallengeBetSessionRepository.compareAndSetSettled(
+                session.getId(), GroupBetStatus.REFUNDED, null, settledAt)).isZero();
         // 상태는 첫 CAS 가 쓴 값 그대로 — 뒤에 온 쪽이 덮어쓰지 못한다.
-        assertThat(groupChallengeBetRepository.findStatusById(bet.getId()))
+        assertThat(groupChallengeBetSessionRepository.findStatusById(session.getId()))
                 .contains(GroupBetStatus.SETTLED);
+    }
+
+    @Test
+    @DisplayName("무산 CAS — VOIDED 전이에 void_reason 이 같은 UPDATE 로 박힌다 (GROMO-1404)")
+    void compareAndSetVoidedRecordsReason() {
+        GroupChallengeBetSession session = sessionOf(sessionDate);
+
+        assertThat(groupChallengeBetSessionRepository.compareAndSetSettled(
+                session.getId(), GroupBetStatus.VOIDED,
+                GroupBetVoidReason.INSUFFICIENT_PARTICIPANTS,
+                Instant.now())).isEqualTo(1);
+
+        // 벌크 UPDATE 는 영속성 컨텍스트를 우회한다 — findById 는 낡은 1차 캐시를 돌려주므로
+        // DB 원본을 SQL 로 직접 읽는다(compareAndSetSettled 의 주석 계약 그대로).
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT status, void_reason FROM group_challenge_bet_sessions WHERE id = ?",
+                session.getId()))
+                .containsEntry("status", "VOIDED")
+                .containsEntry("void_reason", "INSUFFICIENT_PARTICIPANTS");
     }
 
     @Test
@@ -366,13 +410,8 @@ class GroupChallengeBetRepositoryTest extends RepositoryTestBase {
     /**
      * V22 의 ALTER 문(type CHECK 재작성 = DROP + ADD)을 <b>파일에서 읽어 그대로</b> 실행한다 —
      * 이 테스트가 검증하는 것은 CHECK 식의 사본이 아니라 마이그레이션 원본이다.
-     *
-     * <p>ci 스키마는 create-drop 이지만 {@code currency_transactions_type_check} 는 이미 존재한다
-     * (Hibernate 6 이 enum 컬럼에서 같은 이름의 CHECK 를 생성한다). 덕분에 DROP 도 dev/prod 와
-     * 동일하게 성립하므로 두 문을 있는 그대로 돌릴 수 있다.
      */
     private void applyTypeCheckFromMigration() {
-        // 앞선 주석 줄까지 한 덩어리로 잘리므로 제약 이름으로 고른다(선행 주석이 있어도 실행에는 문제없다).
         List<String> alters = Arrays.stream(readMigration().split(";"))
                 .map(String::trim)
                 .filter(s -> s.contains("CONSTRAINT currency_transactions_type_check"))
