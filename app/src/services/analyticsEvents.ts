@@ -7,6 +7,7 @@
 //    단 focus_session_completed는 서버 미발행으로 클라 소유로 이관(GROMO-1004) — 서버 MP 배선 시 제외할 것.
 // ⚠️ PII 금지: 닉네임/생년월일/원본 식별정보를 이벤트·유저속성으로 보내지 않는다. 파생 비식별값만.
 import { track, setUserProperty } from '@/services/analytics';
+import type { FocusEntrySource } from '@/services/cardInteraction';
 
 // 로그인/가입 수단
 export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
@@ -116,6 +117,8 @@ export function logFocusSessionStarted(p: {
   has_tag: boolean;
   mode: FocusMode;
   goal_minutes?: number;
+  entry_source: FocusEntrySource;
+  interaction_id?: string;
 }): void {
   track('focus_session_started', p);
 }
@@ -410,6 +413,9 @@ export function logNudgeTapped(p: { type: NudgeType }): void {
 // 'deferred_invite' = 미설치 상태에서 링크를 누르고 설치 후 복원된 초대(초대 링크 스펙 §4-3).
 // C-1: 참가 코드는 폐기됐다(§0) — 'code'는 발행되지 않던 데드 값이라 제거. 검색·초대·복원 초대만 남긴다.
 export type GroupJoinMethod = 'search' | 'invite' | 'deferred_invite';
+export type GroupCardAction = 'focus' | 'room' | 'settings';
+export type GroupCardRole = 'owner' | 'member';
+export type GroupCardBackSource = 'user' | 'guide';
 
 export function logGroupCreateStarted(): void {
   track('group_create_started');
@@ -436,7 +442,19 @@ export function logGroupCardIconEditorViewed(): void {
 }
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
-export function logGroupRoomViewed(p: { group_id: string }): void {
+export function logGroupCardActionClicked(p: {
+  action: GroupCardAction;
+  role: GroupCardRole;
+  back_source: GroupCardBackSource;
+  interaction_id: string;
+}): void {
+  track('group_card_action_clicked', p);
+}
+export function logGroupRoomViewed(p: {
+  group_id: string;
+  entry_source: FocusEntrySource;
+  interaction_id?: string;
+}): void {
   track('group_room_viewed', p);
 }
 export function logGroupTabViewed(p: { tab: string }): void {
