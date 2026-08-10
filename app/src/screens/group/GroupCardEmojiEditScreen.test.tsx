@@ -6,6 +6,7 @@ import {
   preservePendingGroupCardEmoji,
   readGroupCardEmoji,
   retryPendingGroupCardEmojis,
+  subscribeGroupCardEmoji,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
 
@@ -101,6 +102,25 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   });
   await retryPendingGroupCardEmojis('user-1', ['group-1']);
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🧠');
+});
+
+test('저장 수락 즉시 현재 세션 카드에 선택을 낙관 반영한다', async () => {
+  const observed: string[] = [];
+  const unsubscribe = subscribeGroupCardEmoji('user-1', (_groupId, emoji) => {
+    observed.push(`emit:${emoji}`);
+  });
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    observed.push('persist');
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+  await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
+  expect(observed.slice(0, 2)).toEqual(['emit:📚', 'persist']);
+  unsubscribe();
 });
 
 test('저장 실패 뒤 선택을 되돌리면 오래된 pending을 폐기하고 현재 카드를 기준값으로 복원한다', async () => {

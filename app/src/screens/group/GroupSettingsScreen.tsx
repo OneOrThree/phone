@@ -18,7 +18,7 @@ import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { groupCardEmojiLabel, readGroupCardEmoji } from './groupCardEmojiStore';
+import { groupCardEmojiLabel, readGroupCardEmojiResult } from './groupCardEmojiStore';
 
 // 그룹 설정 = 관리 허브 (root stack 'GroupSettings') — 3차 A-1. 그룹방 ⋯ 버튼에서 바로 진입한다.
 //
@@ -83,8 +83,10 @@ export default function GroupSettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      readGroupCardEmoji(userId, groupId).then((emoji) => {
-        if (active) setCardEmojiName(groupCardEmojiLabel(emoji));
+      readGroupCardEmojiResult(userId, groupId).then((result) => {
+        if (active && result.status === 'ready') {
+          setCardEmojiName(groupCardEmojiLabel(result.emoji));
+        }
       });
       return () => {
         active = false;
