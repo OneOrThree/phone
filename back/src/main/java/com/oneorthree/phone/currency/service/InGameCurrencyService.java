@@ -73,7 +73,11 @@ public class InGameCurrencyService {
             throw new CurrencyException(CurrencyErrorCode.ILLEGAL_SPEND_REASON);
         }
 
-        UserWallet wallet = userWalletRepository.findById(userId)
+        // 잔액을 바꾸는 경로라 지갑 행을 배타 락으로 잡는다(CurrencyLedgerService 와 같은 규율).
+        // 낙관락만 두면 같은 지갑에 동시에 들어온 정산 지급·환불과 겹칠 때 늦은 쪽이 0행 갱신으로
+        // 터진다 — 구매는 유저 요청이라 그 실패가 그대로 5xx 가 된다. 이 트랜잭션은 지갑을 하나만
+        // 잡으므로 다중 지갑 순서 규약(계약 §3)과 무관하다.
+        UserWallet wallet = userWalletRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         wallet.spend(amount);
         currencyTransactionRepository.save(CurrencyTransaction.builder()

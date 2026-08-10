@@ -152,17 +152,19 @@ class InGameCurrencyServiceTest {
     // ── spendCurrency ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("사용 성공 → wallet 잔액 차감 + PURCHASE 거래 저장 — 요청자는 공유 락 활성 조회 (GROMO-1237)")
+    @DisplayName("사용 성공 → wallet 잔액 차감 + PURCHASE 거래 저장 — 요청자는 공유 락, 지갑은 배타 락 조회")
     void spendCurrencySuccess() {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userWalletRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(wallet));
 
         inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 300);
 
         assertThat(wallet.getBalance()).isEqualTo(700);
-        // 락 규율 (GROMO-1237): 돈이 움직이는 변경 트랜잭션은 공유 락 활성 조회 — 무락 findById 금지.
+        // 락 규율: 요청자(users)는 공유 락 활성 조회(GROMO-1237), 지갑은 배타 락 조회 —
+        // 무락 findById 로 잔액을 바꾸면 동시 정산 지급과 겹칠 때 낙관락 충돌로 구매가 통째로 실패한다.
+        verify(userWalletRepository, never()).findById(USER_ID);
         verify(userRepository).findActiveByIdForShare(USER_ID);
         verify(userRepository, never()).findById(USER_ID);
 
@@ -207,7 +209,7 @@ class InGameCurrencyServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(50).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userWalletRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 100))
@@ -224,7 +226,7 @@ class InGameCurrencyServiceTest {
         User user = User.builder().id(USER_ID).build();
         UserWallet wallet = UserWallet.builder().userId(USER_ID).balance(1000).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(userWalletRepository.findById(USER_ID)).willReturn(Optional.of(wallet));
+        given(userWalletRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(wallet));
 
         assertThatThrownBy(() ->
                 inGameCurrencyService.spendCurrency(USER_ID, CurrencyTransactionType.PURCHASE, 0))
