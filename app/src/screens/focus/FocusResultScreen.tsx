@@ -434,7 +434,7 @@ export default function FocusResultScreen() {
           </Text>
           {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 pop 프리셋 재사용) */}
           {rewardCoins > 0 ? (
-            <Animated.View style={[s.coinBadge, m.css(pop(STREAK_POP_DELAY_MS))]}>
+            <Animated.View style={[s.coinBadge, m.enter(pop(STREAK_POP_DELAY_MS))]}>
               {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
               <Text
                 style={s.coinBadgeText}
@@ -527,7 +527,7 @@ export default function FocusResultScreen() {
                       <Ionicons name="checkmark" size={15} color={T.white} />
                     ) : null}
                     {popping ? (
-                      <Animated.View style={[s.dotPopFill, m.css(pop(STREAK_POP_DELAY_MS))]}>
+                      <Animated.View style={[s.dotPopFill, m.enter(pop(STREAK_POP_DELAY_MS))]}>
                         <Ionicons name="checkmark" size={15} color={T.white} />
                       </Animated.View>
                     ) : null}
@@ -589,7 +589,7 @@ export default function FocusResultScreen() {
                             //    갱신 때 재시작되지 않는다. 응답이 마지막 막대의 종료(약 1.16초)
                             //    보다 늦으면 과거 요일 막대가 0에서 완성 높이로 툭 튄다
                             //    (codex 리뷰). cellsLoaded를 게이트로 쓴다.
-                            cellsLoaded ? m.css(growUp(i)) : undefined,
+                            cellsLoaded ? m.enter(growUp(i)) : undefined,
                           ]}
                         />
                       </View>
