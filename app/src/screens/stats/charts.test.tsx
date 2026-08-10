@@ -8,6 +8,7 @@
 // ⚠️ 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다(워클릿이 목이라 거짓 안정감).
 import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { getAllFocusSessions } from '@/services/focusApi';
 import { FirstStartChart, LineChart, dotWindow, drawOnRatios } from './charts';
 import { CHART_BLOCK_H, FIRST_START_BODY_H } from './constants';
 import type { StatBar } from './format';
@@ -18,10 +19,15 @@ jest.mock('@react-navigation/native', () => ({
     useEffect(() => cb(), [cb]);
   },
 }));
-// 영영 끝나지 않는 조회 — '조회 중' 상태에 붙잡아 두고 높이만 본다
-jest.mock('@/services/focusApi', () => ({
-  getAllFocusSessions: jest.fn(() => new Promise(() => {})),
-}));
+jest.mock('@/services/focusApi', () => ({ getAllFocusSessions: jest.fn() }));
+const getAllMock = getAllFocusSessions as jest.MockedFunction<typeof getAllFocusSessions>;
+
+beforeEach(() => {
+  getAllMock.mockReset();
+  // 기본은 영영 끝나지 않는 조회 — '조회 중' 상태에 붙잡아 두고 높이만 본다.
+  // 실패/성공 경로를 보는 테스트가 각자 이 구현을 덮어쓴다.
+  getAllMock.mockImplementation(() => new Promise(() => {}));
+});
 
 const bars: StatBar[] = [
   { label: '월', value: 30, current: false, future: false },
@@ -67,6 +73,49 @@ describe('FirstStartChart 자체 조회 중', () => {
     await render(<FirstStartChart period="MONTH" />);
     const style = StyleSheet.flatten(screen.getByTestId('stats.firstStart.loading').props.style);
     expect(style.height).toBe(FIRST_START_BODY_H);
+  });
+});
+
+// 조회 실패를 빈 배열로 뭉개면 네트워크 장애가 "아직 기록이 없어요"로 둔갑하고 재시도 경로도
+// 없다(GROMO-1474). 실패·무데이터가 화면에서 갈리는지, 문구가 같은 화면의 CalendarCard와
+// 같은지, 그리고 자리 높이가 흔들리지 않는지를 잠근다.
+describe('FirstStartChart 조회 실패', () => {
+  test('실패를 "기록 없음"으로 표시하지 않고 재시도 경로를 준다', async () => {
+    getAllMock.mockRejectedValue(new Error('network down'));
+    // ⚠️ 이 RTL 버전의 render·fireEvent는 **비동기**다(내부에서 async act) — await하지 않으면
+    //    screen이 아직 비어 `render function has not been called`가 난다.
+    await render(<FirstStartChart period="WEEK" />);
+    expect(await screen.findByText('불러오지 못했어요')).toBeTruthy();
+    expect(screen.queryByText('아직 기록이 없어요')).toBeNull();
+    expect(screen.getByText('다시 시도')).toBeTruthy();
+  });
+
+  test('조회에 성공했는데 데이터가 없으면 종전대로 빈 상태다', async () => {
+    getAllMock.mockResolvedValue([]);
+    await render(<FirstStartChart period="WEEK" />);
+    expect(await screen.findByText('아직 기록이 없어요')).toBeTruthy();
+    expect(screen.queryByText('불러오지 못했어요')).toBeNull();
+  });
+
+  // 실패 표시가 더 짧으면 아래 카드가 통째로 위로 튄다 — 로딩과 같은 고정 높이를 지킨다
+  test('실패 표시도 조회 중·완성 본문과 같은 높이를 예약한다', async () => {
+    getAllMock.mockRejectedValue(new Error('network down'));
+    await render(<FirstStartChart period="MONTH" />);
+    await screen.findByText('불러오지 못했어요');
+    const style = StyleSheet.flatten(screen.getByTestId('stats.firstStart.error').props.style);
+    expect(style.height).toBe(FIRST_START_BODY_H);
+  });
+
+  test('"다시 시도"를 누르면 실제로 재조회한다', async () => {
+    getAllMock.mockRejectedValueOnce(new Error('network down')).mockResolvedValue([]);
+    await render(<FirstStartChart period="WEEK" />);
+    await screen.findByText('다시 시도');
+    expect(getAllMock).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByText('다시 시도'));
+    // 재조회가 성공하면 실패 안내가 사라지고 정상 판정(여기선 빈 상태)으로 넘어간다
+    expect(await screen.findByText('아직 기록이 없어요')).toBeTruthy();
+    expect(screen.queryByText('불러오지 못했어요')).toBeNull();
+    expect(getAllMock).toHaveBeenCalledTimes(2);
   });
 });
 
