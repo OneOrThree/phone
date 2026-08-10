@@ -3,7 +3,16 @@
 // 잡는지를 잠근다. 이 선택이 없으면 v2 응답만 오는 서버에서 카드 '지난 결과'와 잔액 재동기화가
 // 첫 정산 이후 **영영 빈 채로** 남는다.
 import type { GroupChallengeResponse, LastSettledSession } from '@/types/dto/group';
-import { pickLastSettled, settledSignatureOf, voidSummary } from './lastSettledView';
+import {
+  pickLastSettled,
+  settledSignatureOf,
+  voidBanner,
+  voidReasonKey,
+  voidSummary,
+} from './lastSettledView';
+// 시트가 export 하는 배너 함수도 같은 소스를 쓰는지 함께 잠근다 — 두 화면이 갈리지 않는 것이
+// 이 테스트의 목적이라, 소비자 쪽 함수를 직접 부르지 않으면 위임이 끊겨도 통과해 버린다.
+import { statusBanner, voidReasonBanner } from './components/LastBetResultSheet';
 
 function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeResponse {
   return {
@@ -109,9 +118,11 @@ describe('pickLastSettled', () => {
   });
 });
 
-describe('voidSummary', () => {
-  // 값 축 이문(policy N33 ↔ LLD) — 서버가 어느 쪽을 내보내도 같은 문장이어야 한다.
+describe('무효화 사유 문구', () => {
+  // 값 축 이문(policy N33 ↔ LLD) — 서버가 어느 쪽을 내보내도 같은 키로 접혀 같은 문장이 된다.
   test('인원 미달은 두 표기를 모두 받는다', () => {
+    expect(voidReasonKey('SHORT_PARTICIPANTS')).toBe('SHORT_PARTICIPANTS');
+    expect(voidReasonKey('INSUFFICIENT_PARTICIPANTS')).toBe('SHORT_PARTICIPANTS');
     expect(voidSummary('SHORT_PARTICIPANTS')).toBe('참가자가 부족해 무산');
     expect(voidSummary('INSUFFICIENT_PARTICIPANTS')).toBe('참가자가 부족해 무산');
   });
@@ -122,8 +133,50 @@ describe('voidSummary', () => {
   });
 
   test('모르는 값·없음은 null — 문구를 지어내지 않고 호출부가 폴백한다', () => {
+    expect(voidReasonKey('SOMETHING_NEW')).toBeNull();
     expect(voidSummary('SOMETHING_NEW')).toBeNull();
     expect(voidSummary(null)).toBeNull();
+    expect(voidBanner('SOMETHING_NEW')).toBeNull();
+    expect(voidBanner(null)).toBeNull();
+  });
+
+  // ⚠️ 재발 방지(#570 리뷰) — 카드 요약과 시트 배너는 **같은 표**에서 나와야 한다. 예전처럼
+  // 두 곳이 각자 switch를 들면 새 사유를 한쪽만 갱신하고 잊는데, 그게 이번 라운드에 고친
+  // "카드와 시트가 갈리는" 버그의 재발 구조다. 아래 표는 사유 4종 + 미상 값에 대해 두 화면이
+  // **같은 사유 분류**로 떨어지는지 검사한다 — 한쪽만 바꾸면 이 테스트가 깨진다.
+  test.each([
+    [
+      'SHORT_PARTICIPANTS',
+      '참가자가 부족해 무산',
+      '참가자가 부족해 무산됐어요. 참가비는 돌려드렸어요',
+    ],
+    [
+      'INSUFFICIENT_PARTICIPANTS',
+      '참가자가 부족해 무산',
+      '참가자가 부족해 무산됐어요. 참가비는 돌려드렸어요',
+    ],
+    [
+      'CHALLENGE_DELETED',
+      '챌린지 삭제로 무효',
+      '챌린지가 삭제돼 무효가 됐어요. 참가비는 돌려드렸어요',
+    ],
+    ['REFUND_DEADLINE', '기한이 지나 무효', '기한이 지나 무효가 됐어요. 참가비는 돌려드렸어요'],
+  ])('%s — 카드 요약과 시트 배너가 같은 분류에서 나온다', (reason, summary, banner) => {
+    // 카드(짧은 요약)
+    expect(voidSummary(reason)).toBe(summary);
+    // 시트(돈의 행방까지) — 시트 컴포넌트가 export 하는 함수도 같은 소스를 위임한다.
+    expect(voidBanner(reason)).toBe(banner);
+    expect(voidReasonBanner(reason)).toBe(banner);
+    // 둘 다 같은 키로 접혔다 = 분류가 갈리지 않았다.
+    expect(voidReasonKey(reason)).not.toBeNull();
+    expect(statusBanner('REFUNDED', reason)).toBe(banner);
+  });
+
+  test('미상 값에서는 카드·시트 **둘 다** 폴백한다 — 한쪽만 문구를 지어내지 않는다', () => {
+    expect(voidSummary('UNKNOWN_REASON')).toBeNull();
+    expect(voidReasonBanner('UNKNOWN_REASON')).toBeNull();
+    // 시트 배너는 상태 기반 종전 문장으로 떨어진다(환불 사실 자체는 여전히 참이다).
+    expect(statusBanner('REFUNDED', 'UNKNOWN_REASON')).toBe('달성한 사람이 없어 전원 환불됐어요');
   });
 });
 

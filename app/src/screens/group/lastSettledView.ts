@@ -26,27 +26,60 @@ function toDisplayStatus(status: LastSettledSession['status']): GroupBetStatus |
   return status;
 }
 
+// ── 무효화 사유 — **문구 소스는 이 표 하나다** ─────────────────────────────────
+// 카드 한 줄과 결과 시트 배너가 **각자 switch로** 같은 값 축을 매핑하고 있었다(#570 리뷰):
+// 지금은 결과가 같아도 새 사유가 생기면 한쪽만 고치고 잊게 된다 — 그게 바로 이번 라운드에
+// 고친 "카드와 시트가 갈리는" 버그의 재발 구조다. 정규화(키 접기)와 라벨을 여기 한 곳에 두고,
+// 두 화면은 **길이만 다른 문자열을 같은 표에서 조립**한다. 새 사유는 이 파일만 고치면 된다.
+
+/** 정규화된 사유 키 — 서버 값 축의 이문·별칭을 접은 결과. */
+export type VoidReasonKey = 'SHORT_PARTICIPANTS' | 'CHALLENGE_DELETED' | 'REFUND_DEADLINE';
+
+// 서버 값 → 키. 값 축이 문서 간 이문 상태다 — policy N33은 `INSUFFICIENT_PARTICIPANTS`,
+// LLD §2.1은 `SHORT_PARTICIPANTS`. **둘 다 같은 키로 접는다**(어느 쪽이 와도 같은 문장).
+const VOID_REASON_ALIASES: Readonly<Record<string, VoidReasonKey>> = {
+  SHORT_PARTICIPANTS: 'SHORT_PARTICIPANTS',
+  INSUFFICIENT_PARTICIPANTS: 'SHORT_PARTICIPANTS',
+  CHALLENGE_DELETED: 'CHALLENGE_DELETED',
+  REFUND_DEADLINE: 'REFUND_DEADLINE',
+};
+
+// 키별 문구 조각. summary = 카드 한 줄(집계 자리를 대신한다), cause = 시트 배너의 앞 문장.
+// 배너는 여기에 환불 사실을 이어 붙인다 — 돈이 어디 갔는지 침묵하면 "코인이 사라졌다"로 읽힌다.
+const VOID_REASON_LABELS: Readonly<Record<VoidReasonKey, { summary: string; cause: string }>> = {
+  SHORT_PARTICIPANTS: { summary: '참가자가 부족해 무산', cause: '참가자가 부족해 무산됐어요' },
+  CHALLENGE_DELETED: { summary: '챌린지 삭제로 무효', cause: '챌린지가 삭제돼 무효가 됐어요' },
+  REFUND_DEADLINE: { summary: '기한이 지나 무효', cause: '기한이 지나 무효가 됐어요' },
+};
+
+// 환불 사실 — 두 화면이 같은 문장을 쓴다(카드는 자리가 좁아 요약만, 시트는 여기까지 말한다).
+const REFUNDED_TAIL = '참가비는 돌려드렸어요';
+
+/**
+ * 서버 사유 값 → 정규화 키. 모르는 값·없음은 null — **폴백 판단도 여기 한 곳**에서 난다.
+ * (카드는 종전 달성 집계 문장으로, 시트는 종전 환불 배너로 각각 떨어진다.)
+ */
+export function voidReasonKey(voidReason: string | null | undefined): VoidReasonKey | null {
+  if (!voidReason) return null;
+  return VOID_REASON_ALIASES[voidReason] ?? null;
+}
+
 /**
  * 카드 '지난 결과' 한 줄의 **무효화 요약** — 무산·삭제 환불은 판정을 한 적이 없으므로
  * 「N명 중 0명 달성」으로 적으면 시트를 열기도 전에 카드가 거짓을 말한다(#570 codex ①).
- * 사유를 모르면 null → 호출부가 종전 달성 집계 문장으로 폴백한다.
- *
- * ⚠️ 값 축 이문(policy N33 `INSUFFICIENT_PARTICIPANTS` ↔ LLD `SHORT_PARTICIPANTS`)은 둘 다
- *    받는다 — 시트 배너(LastBetResultSheet.voidReasonBanner)와 같은 축·같은 폴백 규칙이다.
- *    문장 길이만 다르다: 카드는 한 줄 요약, 시트는 돈의 행방까지 말하는 배너.
  */
 export function voidSummary(voidReason: string | null): string | null {
-  switch (voidReason) {
-    case 'SHORT_PARTICIPANTS':
-    case 'INSUFFICIENT_PARTICIPANTS':
-      return '참가자가 부족해 무산';
-    case 'CHALLENGE_DELETED':
-      return '챌린지 삭제로 무효';
-    case 'REFUND_DEADLINE':
-      return '기한이 지나 무효';
-    default:
-      return null;
-  }
+  const key = voidReasonKey(voidReason);
+  return key === null ? null : VOID_REASON_LABELS[key].summary;
+}
+
+/**
+ * 결과 시트의 **무효화 배너** — 사유 + 돈의 행방까지 말한다(LastBetResultSheet가 이걸 쓴다).
+ * 같은 표에서 나오므로 카드 요약과 분류가 갈릴 수 없다.
+ */
+export function voidBanner(voidReason: string | null): string | null {
+  const key = voidReasonKey(voidReason);
+  return key === null ? null : `${VOID_REASON_LABELS[key].cause}. ${REFUNDED_TAIL}`;
 }
 
 /** 표시 모델 + v2에만 있는 곁가지(무효화 사유) — 시트가 문장을 가르는 데 쓴다. */

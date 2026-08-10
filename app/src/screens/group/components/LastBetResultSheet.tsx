@@ -24,6 +24,7 @@ import type {
   MissionCategory,
   MissionType,
 } from '@/types/dto/group';
+import { voidBanner } from '../lastSettledView';
 import {
   UNMEASURED,
   WINDOW_FOCUS_TOLERANCE_NOTICE,
@@ -71,21 +72,12 @@ const CHARACTER = {
 // "달성한 사람이 없어"라고 적으면 하지도 않은 판정의 결과를 말하는 거짓이 된다(#570 codex ④).
 // 그래서 사유(voidReason)가 있으면 사유별 문장을 쓰고, 없으면(구서버·모르는 값) 종전 문장 그대로다.
 //
-// ⚠️ 값 축이 문서 간 이문 상태다 — policy N33은 `INSUFFICIENT_PARTICIPANTS`,
-//    LLD §2.1은 `SHORT_PARTICIPANTS`. 서버가 어느 쪽을 내보내도 같은 문장이 나오도록 **둘 다**
-//    받는다. 모르는 값은 폴백(문구를 지어내지 않는다).
+// ⚠️ 문구·값 축의 **소스는 lastSettledView 한 곳**이다(#570 리뷰). 카드 한 줄과 이 배너가
+//    각자 switch를 들고 있으면 새 사유가 생길 때 한쪽만 갱신하고 잊는다 — 카드·시트가 갈리는
+//    바로 그 재발 구조다. 여기서는 조립하지 않고 공용 매핑을 그대로 위임한다(값 축 이문
+//    `SHORT_PARTICIPANTS`↔`INSUFFICIENT_PARTICIPANTS` 접기·모르는 값 폴백도 그쪽이 결정).
 export function voidReasonBanner(voidReason: string): string | null {
-  switch (voidReason) {
-    case 'SHORT_PARTICIPANTS':
-    case 'INSUFFICIENT_PARTICIPANTS':
-      return '참가자가 부족해 무산됐어요. 참가비는 돌려드렸어요';
-    case 'CHALLENGE_DELETED':
-      return '챌린지가 삭제돼 무효가 됐어요. 참가비는 돌려드렸어요';
-    case 'REFUND_DEADLINE':
-      return '기한이 지나 무효가 됐어요. 참가비는 돌려드렸어요';
-    default:
-      return null;
-  }
+  return voidBanner(voidReason);
 }
 
 export function statusBanner(

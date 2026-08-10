@@ -211,6 +211,12 @@ export interface GroupChallengeResponse {
   nextSessionAt?: string;
   // 다음 활성일 회차를 이미 예약했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태 분기(N45).
   nextSessionJoined?: boolean;
+  // 다음 활성일 회차에 **박제된** 참가비(#572/B8 additive) — `join-next`가 실제 차감할 금액이다.
+  // `betConfig.stake`는 **지금 설정값**이라 둘이 갈릴 수 있다: 회차는 개설 시점 stake를 박제하고,
+  // 브리지 기간엔 구앱이 다른 stake로 개설할 수도 있다. 설정이 낮아진 경우 이 값을 안 보면
+  // 화면이 안내한 금액보다 **더 많이 차감**된다 — 예약 시트의 표시·판정은 이 값이 우선이다.
+  // null = 회차 미개설(예약 시점에 현재 설정값이 박제된다) → 종전대로 betConfig.stake를 쓴다.
+  nextSessionStake?: number | null;
   // 내기 설정(#572/B8 additive) — **오늘 회차 유무와 무관한 챌린지 단위 설정**이다.
   // "설정은 켜져 있는데 오늘 회차만 없는 날"(마지막 참가자 취소로 회차 삭제·lazy 개설 전)에
   // 서버는 `bet=null`을 주므로, bet만 보면 참여할 수 없는 챌린지가 된다. 설정을 bet 객체에
