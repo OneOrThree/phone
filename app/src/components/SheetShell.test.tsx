@@ -468,4 +468,31 @@ describe('퇴장 시작 신호 — useSheetClosing()', () => {
     // 딤은 일부러 숨기지 않는다 — 유일한 액션이 '닫기'이고 멱등하다.
     expect(screen.getByTestId('sheetShell.dim').props.accessibilityElementsHidden).toBeFalsy();
   });
+
+  // ⚠️ 아래로 끌었다가 손을 놓지 않은 채 시작점 위로 되돌리면, 갱신을 생략하던 종전 코드는
+  //    패널을 마지막 양수 위치에 붙들어 손가락을 따라오지 않았다(codex 리뷰).
+  test('위로 되돌리는 드래그는 0에서 클램프되고 값 갱신이 끊기지 않는다', async () => {
+    await render(
+      <SheetShell onClose={jest.fn()}>
+        <Text>내용</Text>
+      </SheetShell>,
+    );
+    await reportPanelHeight(300);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ENTER_SETTLE_MS));
+    });
+
+    const pan = mockPanConfigs[0];
+    await act(async () => {
+      pan.onPanResponderGrant({}, { dy: 0, vy: 0 });
+      pan.onPanResponderMove({}, { dy: 80, vy: 0 });
+    });
+    expect(panelTranslateY()).toBeCloseTo(80, 0);
+
+    // 손가락을 시작점 **위로** 되돌린다 — 0에 붙어야지 80에 굳으면 안 된다.
+    await act(async () => {
+      pan.onPanResponderMove({}, { dy: -40, vy: 0 });
+    });
+    expect(panelTranslateY()).toBe(0);
+  });
 });

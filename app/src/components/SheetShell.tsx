@@ -39,7 +39,7 @@ import { T, withAlpha } from '@/constants/theme';
 //
 // ── 모션(GROMO-1381 / 정책 D3·D4, 설계 §4) ────────────────────────────────────
 // 상태 기계: mount → (모션 설정 확정 대기) → entering → idle ⇄ dragging → closing → onClose()
-//   대기      패널을 화면 밖(prelayoutY)에 둔 채 '동작 줄이기' 확정만 기다린다(보통 0프레임)
+//   대기      패널을 화면 밖(exitDistance)에 둔 채 '동작 줄이기' 확정만 기다린다(보통 0프레임)
 //   entering  translateY h→0 (spring.snappy) + 딤 0→1 (quick)
 //   dragging  PanResponder가 translateY를 직접 쓴다. 딤은 진행률에 연동돼 끌수록 옅어진다.
 //   복귀      임계 미달·dismissible=false → withSpring(0, snappy) — entering과 같은 스프링(대칭)
@@ -63,7 +63,6 @@ import { T, withAlpha } from '@/constants/theme';
 //    폴더블·큰 글꼴 환경에서는 1000pt를 내려도 패널 상단 일부가 화면에 남아, 첫 onLayout 전에
 //    흰 조각이 번쩍였다가 다시 올라오는 깜빡임이 생긴다(codex 리뷰). 화면 높이 자체를 쓴다 —
 //    패널은 그보다 클 수 없다.
-const prelayoutY = (windowHeight: number) => windowHeight;
 /**
  * 퇴장 목표 거리 — **화면의 긴 변**을 쓴다.
  *
@@ -187,8 +186,9 @@ export function SheetShell({
   const dragStartYRef = useRef(0);
 
   // 패널 세로 위치. 등장·드래그·퇴장이 **같은 값**을 쓴다(정책 D4).
-  // 초기값은 화면 높이 — 패널은 그보다 클 수 없으므로 측정 전 한 프레임도 보이지 않는다.
-  const translateY = useSharedValue(prelayoutY(windowHeight));
+  // 초기값은 화면의 긴 변 — 패널은 그보다 클 수 없으므로 측정 전 한 프레임도 보이지 않고,
+  // 회전으로 높이가 바뀌어도 여전히 화면 밖이다(exitDistance 주석의 불변량과 같은 근거).
+  const translateY = useSharedValue(exitDistance(windowWidth, windowHeight));
   // 딤 불투명도의 등장/퇴장 성분. 드래그 성분은 아래 useAnimatedStyle에서 곱해진다.
   const dimProgress = useSharedValue(0);
   // 퇴장이 시작되면 딤에서 **드래그 성분을 뗀다**(아래 requestClose·dimAnimStyle 주석).
@@ -202,6 +202,10 @@ export function SheetShell({
   // 모션 설정이 확정되기 전에 측정된 패널 높이를 **보관**해 두는 자리.
   // 확정 전에는 등장을 시작하지도, 생략하기로 확정하지도 않는다 — 값만 들고 기다린다.
   const pendingEnterHeightRef = useRef<number | null>(null);
+  // 등장 스프링이 **아직 도는 중**인가. 진행 중 패널 높이가 바뀌면 상단이 튀므로 보정해야 한다.
+  const enterActiveRef = useRef(false);
+  // 직전 측정 높이 — 등장 중 증감분(Δ)을 구해 translateY로 상쇄한다.
+  const lastPanelHeightRef = useRef(0);
   // 퇴장 진행 중 — 딤 탭·드래그·CTA가 겹쳐 들어와도 onClose를 두 번 부르지 않게 한다.
   const closingRef = useRef(false);
   // ⚠️ ref만으로는 **자식 입력**을 못 막는다. 종전에는 닫는 즉시 언마운트돼서 불가능했던 일이
@@ -230,7 +234,7 @@ export function SheetShell({
   // ⚠️ **등장을 시작하기 전에는 스냅하지 않는다.** 모션 설정이 확정되기 전 useMotion은 보수적으로
   //    reduce=true를 돌려주는데(그게 옳다), 그 값에 반응해 여기서 최종 상태로 스냅해 버리면
   //    콜드 스타트 직후 열리는 시트가 등장 없이 **제자리에서 튀어나온 뒤**, 뒤늦게 reduce=false로
-  //    확정돼도 되돌릴 수 없다. 확정 전에는 화면 밖(prelayoutY)에 그대로 둔다.
+  //    확정돼도 되돌릴 수 없다. 확정 전에는 화면 밖에 그대로 둔다.
   useEffect(() => {
     if (!m.reduce || closingRef.current || !enteredRef.current) return;
     translateY.value = 0;
@@ -269,7 +273,7 @@ export function SheetShell({
     //    두 대안 중 '항상 더 큰 거리로 내린다'를 고른 이유: 패널 높이 상한이 가용 높이의 85%라
     //    `panelHeight + keyboardHeight ≤ 0.85·(H−kb) + kb ≤ H`가 **항상** 성립한다. 즉 화면 높이
     //    하나면 높이 변화든 키보드 등장이든 전부 덮는다(레이아웃 고정은 높이 축만 막고 키보드 축은
-    //    못 막는다). prelayoutY가 이미 쓰는 "어떤 패널 높이보다 큰 값"과 같은 개념이라 값의 출처도
+    //    못 막는다). 등장 전 초기 위치와 **같은 값**을 쓰므로 '화면 밖'의 출처도
     //    하나로 유지된다. 키보드 높이를 더하는 건 상한 재계산이 한 프레임 늦는 과도 구간까지 덮는
     //    여유분이다.
     //    (거리가 길어진 만큼 패널은 220ms를 다 쓰기 전에 화면 밖으로 나간다. 딤 페이드가 같은
@@ -317,6 +321,14 @@ export function SheetShell({
     );
   }, [windowWidth, windowHeight, translateY, fireClose]);
 
+  // ⚠️ 등장을 **아직 시작하지 않았으면** 화면 밖 위치도 화면 크기를 따라간다. shared value의
+  //    초기값은 최초 렌더 치수에 고정되는데, '동작 줄이기' 확정을 기다리는 사이 폴더블을 펼치거나
+  //    회전하면 패널 상한만 커져 하단 일부가 화면에 노출된다(codex 리뷰).
+  useEffect(() => {
+    if (enteredRef.current || closingRef.current) return;
+    translateY.value = exitDistance(windowWidth, windowHeight);
+  }, [windowWidth, windowHeight, translateY]);
+
   // 컨텍스트로 내려보내는 참조는 렌더마다 바뀌지 않아야 한다(자식 memo 무효화 방지).
   const close = useCallback(() => requestCloseRef.current(), []);
 
@@ -349,8 +361,10 @@ export function SheetShell({
         // 퇴장이 시작된 뒤의 잔여 이벤트가 패널을 도로 끌어올리지 않게 막는다.
         if (closingRef.current) return;
         // 위로는 끌리지 않는다(0 미만 방지) — 시트는 아래로만 닫힌다.
-        const next = dragStartYRef.current + g.dy;
-        if (next > 0) translateY.value = next;
+        // ⚠️ 갱신을 **생략**하면 안 된다. 아래로 끌었다가 손을 놓지 않은 채 시작점 위로 되돌리면
+        //    패널이 마지막 양수 위치에 멈춰 손가락을 따라오지 않는다 — 딤도 그만큼 옅어진 채
+        //    굳어, 직접 조작이 끊긴 것처럼 보인다(codex 리뷰). 값은 항상 쓰되 0에서 클램프한다.
+        translateY.value = Math.max(0, dragStartYRef.current + g.dy);
       },
       // ⚠️ 시스템 제스처 등이 터치를 가져가면 release가 아니라 이쪽이 불린다. 이게 없으면
       //    등장 스프링을 grant에서 멈춰 둔 채 아무도 되돌리지 않아, 사용자가 끌지도 않았는데
@@ -380,25 +394,32 @@ export function SheetShell({
 
   // 등장 실행부 — 측정 높이 h에서 시작해 제자리로 올린다. '동작 줄이기'면 최종 상태로 바로 놓는다.
   // 호출 시점에는 모션 설정이 **확정돼 있어야 한다**(아래 onPanelLayout·useEffect가 그걸 보장한다).
+  const markEnterSettled = useCallback(() => {
+    enterActiveRef.current = false;
+  }, []);
   const startEnter = useCallback(
     (h: number) => {
       enteredRef.current = true;
       pendingEnterHeightRef.current = null;
       if (reduceRef.current) {
         // '동작 줄이기' — 최종 상태로 바로 놓는다. 이후 설정이 꺼져도 제자리라 안전하다.
+        enterActiveRef.current = false;
         translateY.value = 0;
         dimProgress.value = 1;
         return;
       }
       translateY.value = h + keyboardHeightRef.current;
-      translateY.value = withSpring(0, SHEET_SETTLE);
+      enterActiveRef.current = true;
+      translateY.value = withSpring(0, SHEET_SETTLE, (finished) => {
+        if (finished) runOnJS(markEnterSettled)();
+      });
       dimProgress.value = withTiming(1, {
         duration: M.dur.quick,
         easing: M.curve.standard.fn,
         reduceMotion: M.never,
       });
     },
-    [translateY, dimProgress],
+    [translateY, dimProgress, markEnterSettled],
   );
 
   // ⚠️ 모션 설정이 확정되면 **보류해 둔 등장**을 그제서야 시작한다. 콜드 스타트 직후(초대 딥링크
@@ -422,7 +443,22 @@ export function SheetShell({
   // 스프링을 걸면 높이 추정값도, 깜빡임도 없다.
   // (모션 설정이 아직 미확정이면 여기서 시작하지 않고 위 useEffect로 넘긴다 — 아래 주석 참고.)
   const onPanelLayout = (h: number): void => {
+    const prev = lastPanelHeightRef.current;
+    lastPanelHeightRef.current = h;
     panelHeight.value = h;
+    // ⚠️ 등장 스프링이 도는 중에 패널이 커지면(초대 시트 로딩 → 프리뷰) 패널은 하단 고정이라
+    //    **늘어난 만큼 상단이 즉시 위로 튀어나온다.** 남은 이동만 기존 스프링을 따라가므로
+    //    등장이 끊겨 보인다(codex 리뷰). 증감분을 translateY로 상쇄해 상단을 연속으로 만든다.
+    //    (값을 대입하면 진행 중 스프링이 취소되므로, 상쇄한 위치에서 스프링을 다시 건다.)
+    if (enterActiveRef.current && !closingRef.current && dragStartYRef.current === 0) {
+      const delta = h - prev;
+      if (delta !== 0) {
+        translateY.value = translateY.value + delta;
+        translateY.value = withSpring(0, SHEET_SETTLE, (finished) => {
+          if (finished) runOnJS(markEnterSettled)();
+        });
+      }
+    }
     // ⚠️ 이미 닫는 중이면 등장을 시작하지 않는다. 첫 onLayout 전에 (아직 투명한) 딤을 빠르게
     //    탭하거나 안드로이드 뒤로가기를 누르면 퇴장 withTiming이 먼저 걸리는데, 여기서
     //    withSpring(0)을 대입하면 그 퇴장을 **취소**한다 → 완료 콜백이 finished=false라
@@ -431,7 +467,7 @@ export function SheetShell({
     if (closingRef.current) return;
     if (enteredRef.current) return;
     // ⚠️ 모션 설정이 아직 미확정이면 **높이만 보관하고 등장을 확정하지 않는다.** 패널은 화면
-    //    밖(prelayoutY)에 그대로 머문다 — 시트의 자연스러운 시작 상태이고, 여기서 최종 위치로
+    //    밖에 그대로 머문다 — 시트의 자연스러운 시작 상태이고, 여기서 최종 위치로
     //    놓아 버리면 확정 후에 되돌릴 방법이 없다. 확정되는 즉시 위 useEffect가 이어받는다.
     if (!readyRef.current) {
       pendingEnterHeightRef.current = h;
