@@ -30,6 +30,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -76,6 +78,8 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
     UserRepository userRepository;
     @Autowired
     EntityManager entityManager;
+    @Autowired
+    TransactionTemplate transactionTemplate;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalDate TODAY = LocalDate.now(KST);
@@ -118,7 +122,7 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
 
     @AfterEach
     void tearDown() {
-        for (LocalDate date : List.of(TODAY, FUTURE)) {
+        for (LocalDate date : List.of(TODAY.minusDays(1), TODAY, FUTURE)) {
             groupChallengeMemberRepository.deleteAll(
                     groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(
                             List.of(betChallenge.getId(), plainChallenge.getId()), date));
@@ -192,6 +196,15 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
                 .findByGroupChallengeIdInAndUsageDate(List.of(challenge.getId()), date).stream()
                 .filter(row -> row.getUser().getId().equals(user.getId()))
                 .findFirst();
+    }
+
+    /**
+     * 참가 경로의 트랜잭션 경계를 재현한다 — 무효화는 참가 행 생성과 <b>원자</b>여야 해서
+     * {@code MANDATORY} 로 트랜잭션을 요구한다(단독 호출은 계약 위반이라 예외다 — 아래 전용 테스트).
+     */
+    private void invalidateOnJoin(GroupChallengeBetSession session, User user) {
+        transactionTemplate.executeWithoutResult(status ->
+                groupBetWindowUsageService.invalidatePreJoinReport(session, user.getId()));
     }
 
     private WindowUsageReportRequest report(LocalDate date, int minutes, Instant measuredAt) {
@@ -314,6 +327,60 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
         assertThatThrownBy(() -> reportBet(stranger, report(TODAY, 30, Instant.now())))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+    }
+
+    // ── 참가 시 선기록 무효화 (PR #573 codex ③) ───────────────────────────
+
+    @Test
+    @DisplayName("창이 열린 뒤 미참가자가 심은 값은 참가 시점에 무효화된다 — 판정은 미보고로 떨어진다")
+    void joiningInvalidatesReportsPlantedBeforeJoin() {
+        GroupChallengeBetSession today = startedToday();
+
+        // ① 창이 열린 뒤, 아직 참가하지 않은 멤버가 낮은 값을 먼저 보고한다 — 표시용이라 저장된다(FR-9)
+        reportBet(member, report(TODAY, 0, Instant.now().minusSeconds(300)));
+        assertThat(storedReport(betChallenge, member, TODAY))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(0);
+
+        // ② 그 뒤 참가한다(레거시 참가 경로는 창 종료까지 참가를 허용한다 — N36 브리지)
+        invalidateOnJoin(today, member);
+        join(today, member);
+
+        // ③ 심어둔 값이 사라진다 — 정산이 읽을 행이 없으니 미보고 = 미달성(FR-21, 돈 안전 방향)
+        assertThat(storedReport(betChallenge, member, TODAY)).isEmpty();
+
+        // ④ 참가 이후의 정상 보고는 그대로 저장된다(참가자 게이트를 통과한다)
+        reportBet(member, report(TODAY, 70, Instant.now()));
+        assertThat(storedReport(betChallenge, member, TODAY))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(70);
+    }
+
+    @Test
+    @DisplayName("무효화는 그 (챌린지·유저·날짜)만 지운다 — 남의 보고·다른 날짜는 건드리지 않는다")
+    void invalidationIsScopedToJoinedSessionOnly() {
+        GroupChallengeBetSession today = startedToday();
+        reportBet(member, report(TODAY, 11, Instant.now()));
+        reportBet(bettor, report(TODAY, 22, Instant.now()));
+        // 어제 날짜의 내 보고 — 다른 회차의 근거라 남아 있어야 한다
+        groupChallengeMemberRepository.save(GroupChallengeMember.builder()
+                .groupChallenge(betChallenge).user(member).usageDate(TODAY.minusDays(1))
+                .progressMinutes(33).build());
+
+        invalidateOnJoin(today, member);
+
+        assertThat(storedReport(betChallenge, member, TODAY)).isEmpty();
+        assertThat(storedReport(betChallenge, bettor, TODAY))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(22);
+        assertThat(storedReport(betChallenge, member, TODAY.minusDays(1)))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(33);
+    }
+
+    @Test
+    @DisplayName("무효화는 트랜잭션 밖에서 부를 수 없다(MANDATORY) — 참가 행 생성과 원자여야 한다")
+    void invalidationRequiresCallerTransaction() {
+        GroupChallengeBetSession today = startedToday();
+
+        assertThatThrownBy(() -> groupBetWindowUsageService.invalidatePreJoinReport(today, member.getId()))
+                .isInstanceOf(IllegalTransactionStateException.class);
     }
 
     // ── FR-9 양립 증명 ───────────────────────────────────────────────────

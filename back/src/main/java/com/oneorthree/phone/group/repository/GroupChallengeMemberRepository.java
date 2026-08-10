@@ -56,4 +56,23 @@ public interface GroupChallengeMemberRepository extends JpaRepository<GroupChall
                           @Param("usageDate") LocalDate usageDate,
                           @Param("usedMinutes") int usedMinutes,
                           @Param("measuredAt") Instant measuredAt);
+
+    /**
+     * 참가 <b>직전</b>까지 쌓인 보고를 지운다(GROMO-1407 — 선기록 계열 차단). 참가 시점에 행을
+     * 없애면 "미보고" 상태로 되돌아가고, 참가 이후의 보고만 참가자 게이트(회차 락 · OPEN · 시작
+     * 이후)를 통과해 다시 쌓인다.
+     *
+     * <p>값을 0 으로 리셋하지 않고 <b>행을 지우는</b> 이유: {@code progress_minutes} 가 NOT NULL 이라
+     * 0 으로 남기면 "0분 사용"이 되어 SCREEN_TIME 에서는 <b>완전 달성</b>이다 — 막으려던 바로 그
+     * 결과다. 행이 없어야 미보고 = 미달성(FR-21)이라는 보수적 기본값으로 떨어진다. 클라는 누적값을
+     * 보내므로 참가 직후 다음 sync 가 실제 값을 복원한다(정직한 사용자는 손해 보지 않는다).
+     *
+     * @return 지운 행 수(0 = 참가 전 보고가 없었다 — 정상 경로)
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM GroupChallengeMember m WHERE m.groupChallenge.id = :challengeId "
+            + "AND m.user.id = :userId AND m.usageDate = :usageDate")
+    int deleteWindowUsage(@Param("challengeId") UUID challengeId,
+                          @Param("userId") UUID userId,
+                          @Param("usageDate") LocalDate usageDate);
 }

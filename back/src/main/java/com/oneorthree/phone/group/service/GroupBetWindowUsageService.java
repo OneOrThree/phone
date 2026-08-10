@@ -24,6 +24,7 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -163,6 +164,41 @@ public class GroupBetWindowUsageService {
                         + "participant={}, applied={}",
                 challengeId, userId, request.getUsageDate(), request.getProgressMinutes(), measuredAt,
                 participant, applied == 1);
+    }
+
+    /**
+     * <b>참가 시 기존 보고 무효화</b>(GROMO-1407 — 선기록 <b>계열</b> 차단). 참가 경로가 참가 행을
+     * 만든 <b>같은 트랜잭션</b>에서 부른다: 그 (챌린지, 유저, 회차 날짜)의 보고 행을 지워 미보고로
+     * 되돌린다.
+     *
+     * <p><b>왜 변종을 하나씩 막지 않고 여기서 닫나</b>: 시작 전 예약 회차·회차 미개설 미래 날짜는
+     * 시각 게이트로 막았지만, <b>창이 열린 뒤 아직 참가하지 않은 멤버</b>가 낮은 값을 먼저 보고하고
+     * 나중에 참가하는 변종이 남는다 — 레거시 참가 경로({@code GroupBetService.joinBet})는 참가 마감을
+     * {@code joinClosesAt}(창 시작)이 아니라 <b>창 종료</b>까지로 보기 때문이다(N36 브리지). 표시용
+     * 보고는 계속 받아야 하므로(FR-9) 쓰기를 막는 대신 <b>참가 시점에 그때까지의 값을 버린다</b> —
+     * 참가 이후의 보고는 이미 참가자 게이트를 통과해야 하니 참가 전에 심긴 값만 정확히 걸러진다.
+     *
+     * <p>정직한 사용자는 손해 보지 않는다: 클라가 <b>누적값</b>을 보내므로 참가 직후 다음 sync 가
+     * 실제 값을 복원한다. 복원 전에 정산되는 극단은 미보고 = 미달성(FR-21)이라 <b>돈 안전 쪽</b>으로
+     * 떨어진다.
+     *
+     * <p>창형 SCREEN_TIME 회차에만 의미가 있다 — 다른 조합은 이 테이블을 판정 소스로 쓰지 않는다.
+     *
+     * @param session 방금 참가한 회차(미션 스냅샷으로 조합·날짜를 읽는다)
+     * @param userId  참가자
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void invalidatePreJoinReport(GroupChallengeBetSession session, UUID userId) {
+        if (session.getMissionCategory() != MissionCategory.SCREEN_TIME
+                || session.getMissionType() != MissionType.TIME_WINDOW) {
+            return;
+        }
+        int cleared = groupChallengeMemberRepository.deleteWindowUsage(
+                session.getChallenge().getId(), userId, session.getSessionDate());
+        if (cleared > 0) {
+            log.info("참가 전 창 사용분 보고 무효화 — sessionId={}, challengeId={}, userId={}, usageDate={}, 삭제 {}행",
+                    session.getId(), session.getChallenge().getId(), userId, session.getSessionDate(), cleared);
+        }
     }
 
     /**

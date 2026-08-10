@@ -122,6 +122,14 @@ class GroupBetServiceTest {
     @Spy
     private GroupBetSessionFactory groupBetSessionFactory = new GroupBetSessionFactory();
 
+    /**
+     * 참가 시 선기록 무효화(GROMO-1407)의 위임처 — 참가 행 생성과 <b>같은 트랜잭션</b>에서 그
+     * (챌린지, 유저, 회차 날짜)의 기존 창 사용분 보고를 지운다. 여기서는 배선만 본다(무효화 자체의
+     * 동작은 {@code GroupBetWindowUsageIntegrationTest}).
+     */
+    @Mock
+    private GroupBetWindowUsageService groupBetWindowUsageService;
+
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
@@ -713,6 +721,23 @@ class GroupBetServiceTest {
         verify(groupChallengeBetParticipantRepository).save(any());
         verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30),
                 eq("session:" + SESSION_ID + ":stake:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("참가 시 그 날짜의 기존 창 사용분 보고를 무효화한다 — 참가 전 선기록 차단(GROMO-1407)")
+    void joinBetInvalidatesPreJoinWindowUsageReport() {
+        givenMember();
+        GroupChallengeBetSession target = session(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetSessionRepository.findByIdAndGroupIdForUpdate(SESSION_ID, GROUP_ID))
+                .willReturn(Optional.of(target));
+        given(groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(SESSION_ID, USER_ID))
+                .willReturn(false);
+        givenFocusDuration(30);
+
+        groupBetService.joinBet(GROUP_ID, SESSION_ID, USER_ID);
+
+        // 참가 경로가 무효화를 위임한다 — 조합별 적용 여부 판단은 위임처가 회차 스냅샷으로 한다.
+        verify(groupBetWindowUsageService).invalidatePreJoinReport(target, USER_ID);
     }
 
     @Test

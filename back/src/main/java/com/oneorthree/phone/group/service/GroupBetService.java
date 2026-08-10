@@ -113,6 +113,7 @@ public class GroupBetService {
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
     private final GroupBetSessionFactory groupBetSessionFactory;
+    private final GroupBetWindowUsageService groupBetWindowUsageService;
 
     // ── 개설 브리지 / 참가 ──────────────────────────────────────────────
 
@@ -392,6 +393,9 @@ public class GroupBetService {
                         .session(session)
                         .user(user)
                         .build());
+        // 참가 전에 쌓인 창 사용분 보고는 버린다(GROMO-1407 선기록 계열 차단) — 참가 이후의 보고만
+        // 참가자 게이트를 통과한다. 무효화 본체·근거는 GroupBetWindowUsageService 에 있다.
+        groupBetWindowUsageService.invalidatePreJoinReport(session, user.getId());
         boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE,
                 session.getStake(), stakeKey(session.getId(), participant.getId()));
         if (!applied) {
