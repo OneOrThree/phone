@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupCardEmojiEditScreen from './GroupCardEmojiEditScreen';
+import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
 import {
   __resetGroupCardEmojiQueueForTest,
   readGroupCardEmoji,
@@ -14,9 +15,13 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack }),
+  useNavigation: () => ({ goBack: mockGoBack, addListener: jest.fn(() => jest.fn()) }),
   useRoute: () => ({ params: { groupId: 'group-1' } }),
 }));
+jest.mock('@/services/analyticsEvents', () => ({ logGroupCardIconSaveResult: jest.fn() }));
+const mockLogGroupCardIconSaveResult = logGroupCardIconSaveResult as jest.MockedFunction<
+  typeof logGroupCardIconSaveResult
+>;
 
 const mockUser = { userId: 'user-1' as string | null };
 jest.mock('@/store/UserContext', () => ({ useUser: () => mockUser }));
@@ -34,9 +39,11 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
   await render(<GroupCardEmojiEditScreen />);
 
   await waitFor(() =>
-    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual({
-      selected: true,
-    }),
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual(
+      expect.objectContaining({
+        selected: true,
+      }),
+    ),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
@@ -50,6 +57,10 @@ test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
 
   await waitFor(async () => expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🔥'));
+  expect(mockLogGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'settings',
+    result: 'success',
+  });
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });
 
@@ -62,10 +73,14 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
 
   expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
-  expect(screen.getByTestId('group.cardEmoji.🧠').props.accessibilityState).toEqual({
-    selected: true,
-  });
+  expect(screen.getByTestId('group.cardEmoji.🧠').props.accessibilityState).toEqual(
+    expect.objectContaining({ selected: true }),
+  );
   expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
+  expect(mockLogGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'settings',
+    result: 'failed',
+  });
   expect(mockGoBack).not.toHaveBeenCalled();
 });
 

@@ -1078,7 +1078,14 @@ export default function GroupRoomScreen({
 
       {/* 그룹방 하단바(F2 Part2) — ▶ FAB는 이 그룹의 집중 세션(그룹 페이지 기본)으로 진입시킨다. */}
       <GroupRoomBottomBar
-        onFocusPress={() => navigation.navigate('FocusCategory', { initialGroupId: groupId })}
+        onFocusPress={() =>
+          navigation.navigate('FocusCategory', {
+            initialGroupId: groupId,
+            entrySource: 'group_room',
+            interactionId: undefined,
+            interactionAcceptedAt: undefined,
+          })
+        }
       />
 
       {/* ── 챌린지 만들기 시트(방장만) ── */}

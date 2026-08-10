@@ -236,7 +236,13 @@ async function pushGroupRoom(
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
   // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이
   // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
-  navigationRef.navigate('GroupRoom', { groupId, challengeId: challengeId ?? undefined });
+  navigationRef.navigate('GroupRoom', {
+    groupId,
+    challengeId: challengeId ?? undefined,
+    entrySource: undefined,
+    interactionId: undefined,
+    interactionAcceptedAt: undefined,
+  });
 }
 
 // NavigationContainer onReady에서 호출 — 준비 전에 도착한 링크를 1회 흘려보낸다.

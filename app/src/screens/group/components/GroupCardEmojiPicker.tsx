@@ -6,9 +6,15 @@ interface Props {
   value: GroupCardEmoji;
   onChange: (emoji: GroupCardEmoji) => void;
   testIDPrefix?: string;
+  disabled?: boolean;
 }
 
-export function GroupCardEmojiPicker({ value, onChange, testIDPrefix = 'group.cardEmoji' }: Props) {
+export function GroupCardEmojiPicker({
+  value,
+  onChange,
+  testIDPrefix = 'group.cardEmoji',
+  disabled = false,
+}: Props) {
   return (
     <View accessibilityRole="radiogroup">
       <View style={s.grid}>
@@ -19,9 +25,10 @@ export function GroupCardEmojiPicker({ value, onChange, testIDPrefix = 'group.ca
               key={emoji}
               style={[s.option, selected && s.selected]}
               onPress={() => onChange(emoji)}
+              disabled={disabled}
               accessibilityRole="radio"
               accessibilityLabel={`카드 아이콘 ${emoji}`}
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled }}
               testID={`${testIDPrefix}.${emoji}`}
             >
               <Text style={s.emoji}>{emoji}</Text>

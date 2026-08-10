@@ -35,11 +35,13 @@ import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocus
 import { todayStrKst } from '@/utils/localDate';
 import {
   logGroupCardActionClicked,
+  logGroupCardDeckViewed,
   logGroupCardFlipped,
   logGroupCardReordered,
   logGroupCarouselPaged,
   type GroupCardReorderTrigger,
   type GroupCountBucket,
+  type GroupEntry,
 } from '@/services/analyticsEvents';
 import {
   createCardInteractionContext,
@@ -101,6 +103,9 @@ export interface GroupListScreenProps {
   userId?: string | null;
   onSelect: (groupId: string, interaction: CardInteractionContext) => void;
   onFocus: (groupId: string, interaction: CardInteractionContext) => void;
+  onSettings: (groupId: string) => void;
+  viewEpisodeId: number;
+  groupEntry: GroupEntry;
   onCreate: () => void;
   onFind: () => void;
   onRefresh: () => Promise<void>;
@@ -114,6 +119,9 @@ export default function GroupListScreen({
   userId = null,
   onSelect,
   onFocus,
+  onSettings,
+  viewEpisodeId,
+  groupEntry,
   onCreate,
   onFind,
   onRefresh,
@@ -127,6 +135,8 @@ export default function GroupListScreen({
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [orderMenuGroupId, setOrderMenuGroupId] = useState<string | null>(null);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [summaryDate, setSummaryDate] = useState(todayStrKst);
+  const [exposedEpisodeId, setExposedEpisodeId] = useState<number | null>(null);
   const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
   const [, setSummaryVersion] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
@@ -153,7 +163,8 @@ export default function GroupListScreen({
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const frontFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
-  const summaryDate = todayStrKst();
+  const actionLockedRef = useRef(false);
+  const [pendingFrontFocusGroupId, setPendingFrontFocusGroupId] = useState<string | null>(null);
   const summaryAdapter = useMemo(() => new GroupCardSummaryAdapter(groupFocusStatusStore), []);
   const focusPolling = useMemo(
     () =>
@@ -164,9 +175,28 @@ export default function GroupListScreen({
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       setAppActive(state === 'active');
+      if (state === 'active') setSummaryDate(todayStrKst());
     });
-    return () => subscription.remove();
+    const dateTimer = setInterval(() => setSummaryDate(todayStrKst()), 30_000);
+    return () => {
+      subscription.remove();
+      clearInterval(dateTimer);
+    };
   }, []);
+
+  useEffect(() => {
+    if (isScreenFocused) actionLockedRef.current = false;
+  }, [isScreenFocused]);
+
+  useEffect(() => {
+    if (!hydrated || exposedEpisodeId === viewEpisodeId) return;
+    logGroupCardDeckViewed({
+      group_count_bucket: groupCountBucket(orderedGroups.length),
+      group_entry: groupEntry,
+      guide_state: 'unknown',
+    });
+    setExposedEpisodeId(viewEpisodeId);
+  }, [exposedEpisodeId, groupEntry, hydrated, orderedGroups.length, viewEpisodeId]);
 
   useEffect(() => {
     focusPolling?.setLifecycle({
@@ -318,9 +348,17 @@ export default function GroupListScreen({
       focusNode(roomFocusRef);
     } else {
       setFlippedGroupId(null);
-      focusNode(frontFocusRef);
+      setPendingFrontFocusGroupId(target.groupId);
     }
   }, [focusNode, groupsRevision, hydrated, isScreenFocused, orderedGroups, snapInterval]);
+
+  useEffect(() => {
+    if (pendingFrontFocusGroupId === null) return;
+    if (activeIdentityRef.current !== pendingFrontFocusGroupId || frontFocusRef.current === null)
+      return;
+    focusNode(frontFocusRef);
+    setPendingFrontFocusGroupId(null);
+  }, [focusNode, pendingFrontFocusGroupId]);
 
   // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
   // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
@@ -427,7 +465,7 @@ export default function GroupListScreen({
     respondersRef.current.clear();
   }, [hydrated, orderedGroupIds]);
 
-  if (!hydrated) {
+  if (!hydrated || exposedEpisodeId !== viewEpisodeId) {
     return (
       <View style={s.loading} testID="group.deck.loading">
         <ActivityIndicator color={T.accent} />
@@ -487,6 +525,8 @@ export default function GroupListScreen({
                   summaryAdapter.retry(item.groupId, dependency).catch(() => undefined);
                 }}
                 onRoom={() => {
+                  if (actionLockedRef.current) return;
+                  actionLockedRef.current = true;
                   const interaction = createCardInteractionContext();
                   logGroupCardActionClicked({
                     action: 'room',
@@ -502,6 +542,8 @@ export default function GroupListScreen({
                   onSelect(item.groupId, interaction);
                 }}
                 onFocus={() => {
+                  if (actionLockedRef.current) return;
+                  actionLockedRef.current = true;
                   const interaction = createCardInteractionContext();
                   logGroupCardActionClicked({
                     action: 'focus',
@@ -510,6 +552,18 @@ export default function GroupListScreen({
                     interaction_id: interaction.interactionId,
                   });
                   onFocus(item.groupId, interaction);
+                }}
+                onSettings={() => {
+                  if (actionLockedRef.current) return;
+                  actionLockedRef.current = true;
+                  const interaction = createCardInteractionContext();
+                  logGroupCardActionClicked({
+                    action: 'settings',
+                    role: item.role === 'OWNER' ? 'owner' : 'member',
+                    back_source: 'user',
+                    interaction_id: interaction.interactionId,
+                  });
+                  onSettings(item.groupId);
                 }}
                 onFront={() => {
                   setFlippedGroupId(null);

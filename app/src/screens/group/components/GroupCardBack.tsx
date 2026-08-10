@@ -12,6 +12,7 @@ interface Props {
   focusRef?: RefObject<View | null>;
   onRoom: () => void;
   onFocus: () => void;
+  onSettings: () => void;
   onFront: () => void;
   onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
 }
@@ -22,6 +23,7 @@ export function GroupCardBack({
   focusRef,
   onRoom,
   onFocus,
+  onSettings,
   onFront,
   onRetry,
 }: Props) {
@@ -47,7 +49,11 @@ export function GroupCardBack({
       ) : (
         <RetryRow label="멤버 정보를 불러오지 못했어요." onPress={() => onRetry('detail')} />
       )}
-      {focus?.status === 'ready' || focus?.status === 'stale' ? (
+      {focus?.status === 'stale' ? (
+        <Text style={s.body} accessibilityLabel={`현재 집중 ${focus.count}명, 업데이트 실패`}>
+          현재 집중 {focus.count}명 · 업데이트 실패
+        </Text>
+      ) : focus?.status === 'ready' ? (
         <Text style={s.body}>현재 집중 {focus.count}명</Text>
       ) : snapshot?.focus.status === 'error' ? (
         <RetryRow label="집중 상태를 확인하지 못했어요." onPress={() => onRetry('focus')} />
@@ -84,6 +90,9 @@ export function GroupCardBack({
       </TouchableOpacity>
       <TouchableOpacity onPress={onRoom} testID={`group.card.room.${group.groupId}`}>
         <Text style={s.link}>방 전체 보기</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onSettings} testID={`group.card.settings.${group.groupId}`}>
+        <Text style={s.link}>⋯ 그룹 설정</Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onFront} testID={`group.card.frontAction.${group.groupId}`}>
         <Text style={s.link}>앞면으로</Text>

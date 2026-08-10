@@ -14,6 +14,7 @@ import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/grou
 import { getMyRanking } from '@/services/leagueApi';
 import {
   logGroupCardActionClicked,
+  logGroupCardDeckViewed,
   logGroupCardFlipped,
   logGroupCardReordered,
 } from '@/services/analyticsEvents';
@@ -26,6 +27,7 @@ jest.mock('@/services/groupApi', () => ({
 jest.mock('@/services/leagueApi', () => ({ getMyRanking: jest.fn() }));
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
+  logGroupCardDeckViewed: jest.fn(),
   logGroupCardFlipped: jest.fn(),
   logGroupCardReordered: jest.fn(),
   logGroupCarouselPaged: jest.fn(),
@@ -54,6 +56,7 @@ function group(over: Partial<GroupSummaryResponse> = {}): GroupSummaryResponse {
 
 const onSelect = jest.fn();
 const onFocus = jest.fn();
+const onSettings = jest.fn();
 const onCreate = jest.fn();
 const onFind = jest.fn();
 const onRefresh = jest.fn<Promise<void>, []>();
@@ -73,14 +76,17 @@ async function renderList(
       userId={userId}
       onSelect={onSelect}
       onFocus={onFocus}
+      onSettings={onSettings}
+      viewEpisodeId={1}
+      groupEntry="tab"
       onCreate={onCreate}
       onFind={onFind}
       onRefresh={onRefresh}
       onBack={back}
     />,
   );
-  if (waitHydrated)
-    await waitFor(() => expect(screen.queryByTestId('group.deck.loading')).toBeNull());
+  if (waitHydrated) await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
+  else await waitFor(() => expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen());
   return result;
 }
 
@@ -127,6 +133,11 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
+    expect(logGroupCardDeckViewed).toHaveBeenCalledWith({
+      group_count_bucket: '11_plus',
+      group_entry: 'tab',
+      guide_state: 'unknown',
+    });
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
@@ -182,6 +193,28 @@ describe('콜백', () => {
     );
     expect(logGroupCardActionClicked).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'room', role: 'member', back_source: 'user' }),
+    );
+  });
+
+  test('CTA 연타는 첫 수락만 계측·전환한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    const room = screen.getByTestId(`group.card.room.${GROUP_ID}`);
+    await act(async () => {
+      fireEvent.press(room);
+      fireEvent.press(room);
+    });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  test('설정 CTA는 설정 action을 계측하고 설정 콜백으로 나간다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.settings.${GROUP_ID}`);
+    expect(onSettings).toHaveBeenCalledWith(GROUP_ID);
+    expect(logGroupCardActionClicked).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'settings', interaction_id: expect.any(String) }),
     );
   });
 

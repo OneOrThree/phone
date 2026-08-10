@@ -23,7 +23,11 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { triggerLogout } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
-import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconSaveResult,
+  logGroupCreateStarted,
+  logGroupInviteShared,
+} from '@/services/analyticsEvents';
 import { useUser } from '@/store/UserContext';
 import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
@@ -196,7 +200,9 @@ export default function GroupCreateScreen() {
       if (userId) {
         try {
           await writeGroupCardEmoji(userId, groupId, cardEmoji);
+          logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
         } catch {
+          logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
           Alert.alert(
             '카드 아이콘을 저장하지 못했어요',
             '그룹은 만들어졌고 기본 아이콘으로 표시됩니다. 설정에서 다시 바꿀 수 있어요.',
@@ -398,6 +404,7 @@ export default function GroupCreateScreen() {
         <GroupCardEmojiPicker
           value={cardEmoji}
           onChange={setCardEmoji}
+          disabled={submitting}
           testIDPrefix="group.create.cardEmoji"
         />
 

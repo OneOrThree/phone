@@ -54,9 +54,12 @@ jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) 
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCreateStarted: jest.fn(),
+  logGroupCardIconSaveResult: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));
-const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
+const { logGroupCardIconSaveResult, logGroupInviteShared } = jest.requireMock(
+  '@/services/analyticsEvents',
+);
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
@@ -147,6 +150,10 @@ describe('내 카드 아이콘 로컬 draft', () => {
 
     expect(mockCreateGroup.mock.calls[0][0]).not.toHaveProperty('emoji');
     await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
+    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+      surface: 'create',
+      result: 'success',
+    });
   });
 
   test('생성 실패에는 로컬 아이콘을 저장하지 않는다', async () => {

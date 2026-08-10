@@ -59,6 +59,10 @@ export default function GroupScreen() {
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [groupsRevision, setGroupsRevision] = useState(0);
+  const [deckExposure, setDeckExposure] = useState<{ episodeId: number; entry: GroupEntrySource }>({
+    episodeId: 0,
+    entry: 'unknown',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -141,6 +145,7 @@ export default function GroupScreen() {
           group_entry: episode.source,
           group_count_bucket: groupCountBucket(rows.length),
         });
+        setDeckExposure({ episodeId: episode.id, entry: episode.source });
       }
       // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
@@ -218,7 +223,13 @@ export default function GroupScreen() {
     if (!groups.some((g) => g.groupId === target)) return;
     // challengeId를 **명시로 비운다** — 스택에 이미 GroupRoom이 있으면 파라미터가 병합돼
     // 직전 딥링크(챌린지 종료 푸시)의 지목이 이 방으로 새어 든다(types.ts GroupRoom 주석).
-    navigation.navigate('GroupRoom', { groupId: target, challengeId: undefined });
+    navigation.navigate('GroupRoom', {
+      groupId: target,
+      challengeId: undefined,
+      entrySource: undefined,
+      interactionId: undefined,
+      interactionAcceptedAt: undefined,
+    });
   }, [groups, navigation]);
 
   // 검색으로 참여 완료 — 시트를 닫고 재조회.
@@ -253,11 +264,22 @@ export default function GroupScreen() {
     [navigation],
   );
 
+  const onSettingsGroup = useCallback(
+    (groupId: string) => navigation.navigate('GroupSettings', { groupId }),
+    [navigation],
+  );
+
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
     (groupId: string) => {
       setFindOpen(false);
-      navigation.navigate('GroupRoom', { groupId, challengeId: undefined });
+      navigation.navigate('GroupRoom', {
+        groupId,
+        challengeId: undefined,
+        entrySource: undefined,
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
     },
     [navigation],
   );
@@ -375,6 +397,9 @@ export default function GroupScreen() {
           userId={userId}
           onSelect={onSelectGroup}
           onFocus={onFocusGroup}
+          onSettings={onSettingsGroup}
+          viewEpisodeId={deckExposure.episodeId}
+          groupEntry={deckExposure.entry}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}

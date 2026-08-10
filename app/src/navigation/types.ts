@@ -66,7 +66,10 @@ export type V2RootStackParamList = {
     //    다른 그룹에 참여하는 경로 — @claude 리뷰). 키를 필수로 두면 모든 호출부가 값을
     //    명시하게 되어 컴파일 시점에 이 불변식이 강제된다.
     challengeId: string | undefined;
-  } & CardInteractionRouteContext;
+    entrySource: FocusEntrySource | undefined;
+    interactionId: string | undefined;
+    interactionAcceptedAt: number | undefined;
+  };
   GroupNotice: {
     groupId: string;
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)
