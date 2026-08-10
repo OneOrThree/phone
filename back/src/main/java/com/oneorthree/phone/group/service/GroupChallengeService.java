@@ -183,6 +183,9 @@ public class GroupChallengeService {
                                     ? nextSessions.get(c.getId()).nextSessionAt() : null)
                             .nextSessionJoined(nextSessions.containsKey(c.getId())
                                     ? nextSessions.get(c.getId()).nextSessionJoined() : null)
+                            // 박제 stake — 회차가 아직 없으면 null(앱은 betConfig.stake 로 안내).
+                            .nextSessionStake(nextSessions.containsKey(c.getId())
+                                    ? nextSessions.get(c.getId()).stake() : null)
                             .dormant(challengeIdsWithBetHistory.contains(c.getId())
                                     && !challengeIdsWithOpenBet.contains(c.getId()))
                             .build();

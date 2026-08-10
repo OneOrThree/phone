@@ -641,9 +641,15 @@ public class GroupBetService {
         // 진행분 공개는 하루형만이다(N16 — 창형은 출발선이 있어 계약상 싣지 않는다).
         Map<UUID, ChallengeMemberProgressResponse> progressByUser =
                 session.getMissionType() == MissionType.DURATION && memberProgress != null
-                        ? memberProgress.stream().collect(Collectors.toMap(
-                                ChallengeMemberProgressResponse::getUserId, p -> p))
-                        : Map.of();
+                        ? new LinkedHashMap<>(memberProgress.stream().collect(Collectors.toMap(
+                                ChallengeMemberProgressResponse::getUserId, p -> p)))
+                        : new LinkedHashMap<>();
+        // 카드 memberProgress 는 활성 그룹원만 계산한다 — 시작된 회차에 남아 있는 강퇴·탈퇴
+        // 참가자(정산 대상)는 거기 없어 진행률이 늘 null 로 보인다. 명단에 세울 거면 판정도
+        // 세워야 하므로, 빠진 참가자만 따로 집계해 채운다(대상이 없으면 쿼리도 없다).
+        if (session.getMissionType() == MissionType.DURATION && !preStart(session)) {
+            progressByUser.putAll(progressOfMissingParticipants(session, visible, progressByUser.keySet()));
+        }
         Optional<GroupChallengeBetParticipant> mine = participants.stream()
                 .filter(p -> p.getUser().getId().equals(userId))
                 .findFirst();
@@ -680,6 +686,51 @@ public class GroupBetService {
     }
 
     /**
+     * 카드 진행률 스냅샷에 없는 회차 참가자(강퇴·탈퇴자)의 진행률을 따로 집계한다 — 시작된 하루형
+     * 회차 전용. 판정 규칙은 카드 {@code memberProgress} 와 같다: FOCUS 는 데이터 없음 = 0분(서버
+     * 데이터라 사실), SCREEN_TIME 은 미보고 = null(판정 불가, 3상 유지).
+     *
+     * <p>목표는 회차 박제값을 쓴다(GROMO-1263) — 챌린지 목표가 이후 바뀌어도 이 회차 기준은 불변.
+     * 챌린지 상세가 사라져 판정 대상을 못 만들면(삭제 이력 등) 조용히 비운다 — 표시 경로가 500 이
+     * 되면 카드 전체가 죽는다.
+     */
+    private Map<UUID, ChallengeMemberProgressResponse> progressOfMissingParticipants(
+            GroupChallengeBetSession session,
+            List<GroupChallengeBetParticipant> participants,
+            Set<UUID> alreadyKnownUserIds) {
+        List<User> missing = participants.stream()
+                .map(GroupChallengeBetParticipant::getUser)
+                .filter(user -> !alreadyKnownUserIds.contains(user.getId()))
+                .toList();
+        if (missing.isEmpty()) {
+            return Map.of();
+        }
+        Optional<GroupBetJudge.Target> target = groupBetJudge.resolve(session.getChallenge())
+                .map(t -> session.getGoalMinutes() == null
+                        ? t
+                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()));
+        if (target.isEmpty()) {
+            return Map.of();
+        }
+        boolean screenTime = target.get().category() == MissionCategory.SCREEN_TIME;
+        Map<UUID, Integer> minutesByUser =
+                groupBetJudge.progressMinutes(target.get(), session.getSessionDate(), missing);
+        Map<UUID, ChallengeMemberProgressResponse> filled = new LinkedHashMap<>();
+        for (User user : missing) {
+            Integer minutes = screenTime
+                    ? minutesByUser.get(user.getId())
+                    : minutesByUser.getOrDefault(user.getId(), 0);
+            filled.put(user.getId(), ChallengeMemberProgressResponse.builder()
+                    .userId(user.getId())
+                    .nickname(displayNickname(user))
+                    .progressMinutes(minutes)
+                    .achieved(minutes == null ? null : GroupBetJudge.isAchieved(target.get(), minutes))
+                    .build());
+        }
+        return filled;
+    }
+
+    /**
      * 다음 회차 축(신앱 카드 — GROMO-1418, LLD §2.1) — <b>오늘을 제외한</b> 다음 활성일의 회차
      * 시작 시각과 내 예약 여부를 챌린지별로 배치 조립한다.
      *
@@ -706,10 +757,18 @@ public class GroupBetService {
         Map<UUID, LocalDate> nextDateByChallengeId = new LinkedHashMap<>();
         Map<LocalDate, List<UUID>> challengeIdsByNextDate = new LinkedHashMap<>();
         for (GroupChallenge challenge : actives) {
+            // 창형인데 창 상세가 없으면 다음 회차를 계산할 수 없다 — 시작 시각을 모르고 회차 개설도
+            // 못 하는 데이터다. 하루형으로 간주해 자정을 주면 카드가 서지도 않을 회차를 예고한다.
+            if (challenge.getType() == MissionType.TIME_WINDOW && windows.get(challenge.getId()) == null) {
+                continue;
+            }
             LocalDate nextDate = RepeatSchedule.next(repeatDaysOf(challenge), today);
             nextDateByChallengeId.put(challenge.getId(), nextDate);
             challengeIdsByNextDate.computeIfAbsent(nextDate, d -> new ArrayList<>())
                     .add(challenge.getId());
+        }
+        if (nextDateByChallengeId.isEmpty()) {
+            return Map.of();
         }
 
         // 날짜별(시임 배선 전에는 내일 하나) OPEN 회차 배치 조회 → 내 참가 행만 걸러 예약 여부로.
@@ -727,22 +786,37 @@ public class GroupBetService {
                         .map(p -> p.getSession().getChallenge().getId())
                         .collect(Collectors.toSet());
 
+        // 그 날짜 회차의 <b>박제</b> stake — 설정값(betConfig.stake)과 갈릴 수 있어 따로 싣는다.
+        Map<UUID, Integer> nextStakeByChallengeId = nextSessions.stream()
+                .collect(Collectors.toMap(s -> s.getChallenge().getId(),
+                        GroupChallengeBetSession::getStake, (a, b) -> a));
+
         Map<UUID, NextSessionInfo> result = new LinkedHashMap<>();
-        for (GroupChallenge challenge : actives) {
-            LocalDate nextDate = nextDateByChallengeId.get(challenge.getId());
-            GroupChallengeWindow window = windows.get(challenge.getId());
+        for (UUID challengeId : nextDateByChallengeId.keySet()) {
+            LocalDate nextDate = nextDateByChallengeId.get(challengeId);
+            GroupChallengeWindow window = windows.get(challengeId);
             Instant nextSessionAt = window != null
                     ? nextDate.atTime(WindowFocusAggregator.timeOfDay(window.getWindowStartAt()))
                             .atZone(KST).toInstant()
                     : nextDate.atStartOfDay(KST).toInstant();
-            result.put(challenge.getId(),
-                    new NextSessionInfo(nextSessionAt, myJoinedChallengeIds.contains(challenge.getId())));
+            result.put(challengeId, new NextSessionInfo(nextSessionAt,
+                    myJoinedChallengeIds.contains(challengeId),
+                    nextStakeByChallengeId.get(challengeId)));
         }
         return result;
     }
 
-    /** 다음 회차 축 한 쌍 — 카드 응답의 {@code nextSessionAt}·{@code nextSessionJoined} 원값. */
-    public record NextSessionInfo(Instant nextSessionAt, boolean nextSessionJoined) {
+    /**
+     * 다음 회차 축 — 카드 응답의 {@code nextSessionAt}·{@code nextSessionJoined}·
+     * {@code nextSessionStake} 원값.
+     *
+     * @param stake 그 날짜 <b>OPEN 회차에 박제된</b> 참가비. null = 회차가 아직 없다(lazy 개설 시
+     *     설정값이 박제되므로 앱은 {@code betConfig.stake} 로 안내한다). 설정 stake 는 브리지 기간
+     *     레거시 개설이 갱신할 수 있어(구앱이 날짜마다 다른 금액으로 개설) 이미 열린 미래 회차의
+     *     박제값과 갈린다 — 예약 시트가 설정값을 쓰면 <b>안내 금액과 join-next 의 실제 차감이
+     *     어긋난다</b>(설정이 낮아지면 안내보다 더 빠진다). 그래서 회차가 있으면 이 값이 정본이다.
+     */
+    public record NextSessionInfo(Instant nextSessionAt, boolean nextSessionJoined, Integer stake) {
     }
 
     /**
