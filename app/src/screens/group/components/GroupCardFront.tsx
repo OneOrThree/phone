@@ -67,7 +67,7 @@ export function GroupCardFront({
           if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
         }}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
+        accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >

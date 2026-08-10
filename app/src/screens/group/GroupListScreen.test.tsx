@@ -219,7 +219,12 @@ describe('콜백', () => {
     expect(screen.getAllByLabelText(new RegExp(longName)).length).toBeGreaterThan(0);
   });
 
-  test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
+  test('앞면 접근성 이름은 화면에 표시한 소개 원문을 포함한다', async () => {
+    await renderList([group({ description: '매일 아침 함께 집중해요' })]);
+    expect(screen.getByLabelText(/매일 아침 함께 집중해요/)).toBeOnTheScreen();
+  });
+
+  test('헤더 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
     await renderList([group()]);
 
     await press('group.list.create');
