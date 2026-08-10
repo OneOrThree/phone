@@ -3,9 +3,10 @@ import { STORAGE_KEYS } from '@/types/storage';
 import {
   __resetGroupCardOrderQueueForTest,
   parseGroupCardOrder,
+  parseGroupCardOrderState,
   readGroupCardOrder,
+  readGroupCardOrderState,
   reconcileGroupCardOrder,
-  reconcileStoredGroupCardOrder,
   writeGroupCardOrder,
 } from './groupCardOrderStore';
 
@@ -41,6 +42,28 @@ test('손상된 저장값은 안전하게 빈 map으로 읽는다', () => {
   });
 });
 
+test('저장값 부재와 파싱 손상을 구분한다', () => {
+  expect(parseGroupCardOrderState(null)).toEqual({ value: {}, needsRepair: false });
+  expect(parseGroupCardOrderState('')).toEqual({ value: {}, needsRepair: true });
+  expect(parseGroupCardOrderState('{broken')).toEqual({ value: {}, needsRepair: true });
+  expect(parseGroupCardOrderState(JSON.stringify({ u1: 'bad' }))).toEqual({
+    value: {},
+    needsRepair: true,
+  });
+});
+
+test('다른 계정 bucket 손상은 현재 계정 복구 상태로 전파하지 않는다', async () => {
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.groupCardOrder,
+    JSON.stringify({ me: ['a'], other: 'bad' }),
+  );
+  expect(await readGroupCardOrderState('me')).toEqual({
+    order: ['a'],
+    needsRepair: false,
+    readFailed: false,
+  });
+});
+
 test('계정별 RMW 쓰기를 직렬화해 동시 갱신과 마지막 선택을 보존한다', async () => {
   await Promise.all([
     writeGroupCardOrder('u1', ['a']),
@@ -59,28 +82,6 @@ test('쓰기 실패 뒤에도 큐가 살아 다음 쓰기를 수행한다', asyn
   expect(await readGroupCardOrder('u1')).toEqual(['b']);
 });
 
-test('진행 중인 오래된 prune은 최신 전체 목록의 순서를 제거하지 않는다', async () => {
-  await writeGroupCardOrder('u1', ['b', 'a']);
-  let started: () => void = () => undefined;
-  let release: () => void = () => undefined;
-  const startedGate = new Promise<void>((resolve) => (started = resolve));
-  const writeGate = new Promise<void>((resolve) => (release = resolve));
-  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
-    started();
-    await writeGate;
-    await AsyncStorage.multiSet([[key, value]]);
-  });
-
-  const stale = reconcileStoredGroupCardOrder('u1', ['a']);
-  await startedGate;
-  const latest = reconcileStoredGroupCardOrder('u1', ['a', 'b']);
-  release();
-
-  expect(await stale).toBeNull();
-  expect(await latest).toEqual(['b', 'a']);
-  expect(await readGroupCardOrder('u1')).toEqual(['b', 'a']);
-});
-
 test('다른 계정 bucket은 수정하지 않는다', async () => {
   await AsyncStorage.setItem(STORAGE_KEYS.groupCardOrder, JSON.stringify({ u1: ['a'], u2: ['z'] }));
   await writeGroupCardOrder('u1', ['b', 'a']);
@@ -88,4 +89,30 @@ test('다른 계정 bucket은 수정하지 않는다', async () => {
     u1: ['b', 'a'],
     u2: ['z'],
   });
+});
+
+test('읽기는 호출 시점에 대기 중인 쓰기가 끝난 뒤 최신 값을 반환한다', async () => {
+  let finishWrite: () => void = () => undefined;
+  const writeGate = new Promise<void>((resolve) => {
+    finishWrite = resolve;
+  });
+  const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    await writeGate;
+    await originalSetItem(key, value);
+  });
+
+  const write = writeGroupCardOrder('u1', ['b', 'a']);
+  await Promise.resolve();
+  const read = readGroupCardOrder('u1');
+  let settled = false;
+  void read.then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+
+  finishWrite();
+  await write;
+  expect(await read).toEqual(['b', 'a']);
 });

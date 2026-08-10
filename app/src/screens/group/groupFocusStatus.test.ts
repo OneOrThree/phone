@@ -30,6 +30,12 @@ async function flushPromises() {
 }
 
 describe('GroupFocusStatusStore coverage와 count', () => {
+  test('entry가 없는 동안 idle snapshot 참조가 안정적이다', () => {
+    const store = new GroupFocusStatusStore(jest.fn());
+
+    expect(store.getState(USER_ID, DATE)).toBe(store.getState(USER_ID, DATE));
+  });
+
   test('raw 99행 이하는 완전한 응답이며 확인된 0명과 N명을 계산한다', async () => {
     const rows = [member('a', true), member('b', false)];
     const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
@@ -99,6 +105,26 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     pending.resolve([]);
     await Promise.all(requests);
   });
+
+  test('coverage-unknown 이후 실패에서는 이전 complete 숫자를 되살리지 않는다', async () => {
+    const rows100 = Array.from({ length: 100 }, (_, index) => member(String(index), false));
+    const load = jest
+      .fn()
+      .mockResolvedValueOnce([member('a', true)])
+      .mockResolvedValueOnce(rows100)
+      .mockRejectedValueOnce(new Error('network'));
+    const store = new GroupFocusStatusStore(load);
+
+    await store.ensure(USER_ID, DATE);
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('coverage-unknown');
+
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('error');
+    expect(deriveGroupFocusCount(['a'], store.getState(USER_ID, DATE))).toEqual({
+      status: 'unavailable',
+    });
+  });
 });
 
 describe('GroupFocusPollingController', () => {
@@ -149,7 +175,7 @@ describe('GroupFocusPollingController', () => {
     controller.dispose();
   });
 
-  test('KST 날짜 변경은 다음 tick의 새 cache key로 조회한다', async () => {
+  test('KST 자정 경계에서 interval을 기다리지 않고 새 cache key로 즉시 조회한다', async () => {
     let date = DATE;
     const load = jest.fn().mockResolvedValue([]);
     const store = new GroupFocusStatusStore(load);
@@ -157,37 +183,41 @@ describe('GroupFocusPollingController', () => {
       store,
       userId: USER_ID,
       getDate: () => date,
+      getMsUntilNextDate: () => 1_000,
     });
     controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
     controller.activate();
     await flushPromises();
+    const oldDateListener = jest.fn();
+    store.subscribe(USER_ID, DATE, oldDateListener);
+    jest.advanceTimersByTime(999);
+    expect(load).toHaveBeenCalledTimes(1);
+
     date = '2026-08-11';
-    jest.advanceTimersByTime(60_000);
+    jest.advanceTimersByTime(1);
 
     expect(load).toHaveBeenNthCalledWith(1, DATE);
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
+    expect(oldDateListener).toHaveBeenCalledTimes(1);
+    expect(store.getState(USER_ID, DATE).status).toBe('idle');
     controller.dispose();
   });
 
-  test('명시적 새로고침은 활성 lifecycle에서 즉시 갱신하고 비활성 상태에서는 요청하지 않는다', async () => {
+  test('dispose 뒤 같은 user/date의 새 controller는 이전 ready cache 대신 즉시 재조회한다', async () => {
     const load = jest.fn().mockResolvedValue([]);
     const store = new GroupFocusStatusStore(load);
-    const controller = new GroupFocusPollingController({
-      store,
-      userId: USER_ID,
-      getDate: () => DATE,
-    });
-    controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
-    expect(controller.refreshNow()).toBeNull();
-
-    controller.activate();
+    const first = new GroupFocusPollingController({ store, userId: USER_ID, getDate: () => DATE });
+    first.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    first.activate();
     await flushPromises();
-    await controller.refreshNow();
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(1);
 
-    controller.setLifecycle({ screenFocused: false, appActive: true, hasGroups: true });
-    expect(controller.refreshNow()).toBeNull();
+    first.dispose();
+    const second = new GroupFocusPollingController({ store, userId: USER_ID, getDate: () => DATE });
+    second.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    second.activate();
+
     expect(load).toHaveBeenCalledTimes(2);
-    controller.dispose();
+    second.dispose();
   });
 });

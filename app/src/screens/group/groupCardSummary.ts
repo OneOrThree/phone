@@ -20,6 +20,7 @@ export interface SharedFocusDependency<T> {
   getState(userId: string, date: string): FocusDependencyState<T>;
   ensure(userId: string, date: string): Promise<unknown>;
   retry(userId: string, date: string): Promise<unknown>;
+  subscribe(listener: Listener): () => void;
 }
 
 interface CacheEntry<T> {
@@ -65,20 +66,15 @@ export class KeyedDependencyCache<T> {
     return this.start(key);
   }
 
-  retain(isValid: (key: string) => boolean): void {
+  retain(isValid: (key: string) => boolean, notify = true): boolean {
     let changed = false;
     for (const key of this.entries.keys()) {
       if (isValid(key)) continue;
       this.entries.delete(key);
       changed = true;
     }
-    if (changed) this.emit();
-  }
-
-  clear(): void {
-    if (this.entries.size === 0) return;
-    this.entries.clear();
-    this.emit();
+    if (changed && notify) this.emit();
+    return changed;
   }
 
   private start(key: string): Promise<DependencyState<T>> {
@@ -143,9 +139,12 @@ const dateOnly = (key: string) => key.slice(key.indexOf('\u0000') + 1);
  */
 export class GroupCardSummaryAdapter<TFocus> {
   private scope: GroupCardSummaryScope | null = null;
+  private readonly listeners = new Set<Listener>();
+  private readonly snapshots = new Map<string, GroupCardSummarySnapshot<TFocus>>();
   private readonly detail: KeyedDependencyCache<GroupDetailResponse>;
   private readonly announcements: KeyedDependencyCache<GroupAnnouncementResponse[]>;
   private readonly challenges: KeyedDependencyCache<GroupChallengeResponse[]>;
+  private readonly unsubscribeDependencies: Array<() => void>;
 
   constructor(
     private readonly focus: SharedFocusDependency<TFocus>,
@@ -160,27 +159,50 @@ export class GroupCardSummaryAdapter<TFocus> {
       const separator = key.indexOf('\u0000');
       return loaders.challenges(key.slice(0, separator), key.slice(separator + 1));
     });
+
+    const notify = () => this.notifySubscribers();
+    this.unsubscribeDependencies = [
+      this.detail.subscribe(notify),
+      this.announcements.subscribe(notify),
+      this.challenges.subscribe(notify),
+      this.focus.subscribe(notify),
+    ];
   }
 
   setScope(scope: GroupCardSummaryScope | null): void {
+    const accountChanged = this.scope?.userId !== scope?.userId;
     this.scope = scope;
+    this.snapshots.clear();
     const groupIds = new Set(scope?.groupIds ?? []);
     const date = scope?.date;
-    this.detail.retain((key) => groupIds.has(groupOnly(key)) && dateOnly(key) === date);
-    this.challenges.retain((key) => groupIds.has(groupOnly(key)) && dateOnly(key) === date);
-    this.announcements.retain((groupId) => groupIds.has(groupId));
+    // 세 dependency를 모두 정리하기 전에 중간 snapshot을 알리면 새 계정의 focus와 이전 계정의
+    // group cache가 한 렌더에서 섞인다. retain 알림을 억제하고 완성된 scope를 한 번만 발행한다.
+    this.detail.retain(
+      (key) => !accountChanged && groupIds.has(groupOnly(key)) && dateOnly(key) === date,
+      false,
+    );
+    this.challenges.retain(
+      (key) => !accountChanged && groupIds.has(groupOnly(key)) && dateOnly(key) === date,
+      false,
+    );
+    this.announcements.retain((groupId) => !accountChanged && groupIds.has(groupId), false);
+    this.emit();
   }
 
   getSnapshot(groupId: string): GroupCardSummarySnapshot<TFocus> | null {
     const scope = this.validScope(groupId);
     if (!scope) return null;
+    const cached = this.snapshots.get(groupId);
+    if (cached) return cached;
     const datedKey = keyed(groupId, scope.date);
-    return {
+    const snapshot = {
       detail: this.detail.getState(datedKey),
       announcements: this.announcements.getState(groupId),
       challenges: this.challenges.getState(datedKey),
       focus: this.focus.getState(scope.userId, scope.date),
     };
+    this.snapshots.set(groupId, snapshot);
+    return snapshot;
   }
 
   async ensureBack(groupId: string): Promise<void> {
@@ -196,16 +218,6 @@ export class GroupCardSummaryAdapter<TFocus> {
         ? this.focus.ensure(scope.userId, scope.date)
         : Promise.resolve(focusState),
     ]);
-  }
-
-  /**
-   * 성공 목록 새로고침이나 그룹방 복귀 때 이전 ready/error 결과를 버린다. 진행 중이던 요청도
-   * Map identity 검증에서 폐기되므로, invalidate 뒤 시작한 최신 요청을 늦게 덮지 못한다.
-   */
-  invalidateBack(): void {
-    this.detail.clear();
-    this.announcements.clear();
-    this.challenges.clear();
   }
 
   async retry(groupId: string, dependency: GroupDependency): Promise<void> {
@@ -228,12 +240,24 @@ export class GroupCardSummaryAdapter<TFocus> {
   }
 
   subscribe(listener: Listener): () => void {
-    const unsubscribers = [
-      this.detail.subscribe(listener),
-      this.announcements.subscribe(listener),
-      this.challenges.subscribe(listener),
-    ];
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  dispose(): void {
+    this.unsubscribeDependencies.splice(0).forEach((unsubscribe) => unsubscribe());
+    this.scope = null;
+    this.snapshots.clear();
+    this.listeners.clear();
+  }
+
+  private notifySubscribers(): void {
+    this.snapshots.clear();
+    this.emit();
+  }
+
+  private emit(): void {
+    this.listeners.forEach((listener) => listener());
   }
 
   private validScope(groupId: string): GroupCardSummaryScope | null {

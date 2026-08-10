@@ -104,6 +104,16 @@ const EDGE_PAGE_THROTTLE_MS = 260;
  */
 export const GROUP_CARD_HEIGHT = 300;
 
+// GroupCardSummaryAdapter는 화면별 focus 구독을 직접 소유하지 않는다. GroupFocusStatusStore는
+// user/date scope별 구독만 제공하므로, 아래 facade로 조회·재시도만 연결하고 화면 effect에서
+// 현재 scope를 구독해 snapshot 갱신을 전달한다.
+const groupCardSummaryFocusDependency = {
+  getState: (userId: string, date: string) => groupFocusStatusStore.getState(userId, date),
+  ensure: (userId: string, date: string) => groupFocusStatusStore.ensure(userId, date),
+  retry: (userId: string, date: string) => groupFocusStatusStore.retry(userId, date),
+  subscribe: (_listener: () => void) => () => undefined,
+};
+
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
 //  같은 모양을 로컬 타입으로 둔다.)
@@ -251,7 +261,7 @@ export default function GroupListScreen({
   const [, refreshSummary] = useState(0);
   const summaryAdapterRef = useRef<GroupCardSummaryAdapter<LeagueMemberResponse[]> | null>(null);
   if (summaryAdapterRef.current === null) {
-    summaryAdapterRef.current = new GroupCardSummaryAdapter(groupFocusStatusStore);
+    summaryAdapterRef.current = new GroupCardSummaryAdapter(groupCardSummaryFocusDependency);
   }
   const summaryAdapter = summaryAdapterRef.current;
   const focusController = useMemo(
@@ -259,6 +269,24 @@ export default function GroupListScreen({
       userId ? new GroupFocusPollingController({ store: groupFocusStatusStore, userId }) : null,
     [userId],
   );
+  const retryBack = useCallback(
+    async (groupId: string) => {
+      await Promise.all([
+        summaryAdapter.retry(groupId, 'detail'),
+        summaryAdapter.retry(groupId, 'announcements'),
+        summaryAdapter.retry(groupId, 'challenges'),
+        summaryAdapter.retry(groupId, 'focus'),
+      ]);
+    },
+    [summaryAdapter],
+  );
+  const invalidateBack = useCallback(() => {
+    // 최신 scoped cache는 public invalidate API 대신 scope 밖 key를 prune한다. null로 한 번
+    // 내렸다가 현재 성공 목록 scope를 복원하면, 늦은 이전 응답도 버리면서 다음 retry가 새 요청을 연다.
+    const groupIds = groupIdsKey ? groupIdsKey.split('\u0000') : [];
+    summaryAdapter.setScope(null);
+    summaryAdapter.setScope(userId ? { userId, date, groupIds } : null);
+  }, [date, groupIdsKey, summaryAdapter, userId]);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -319,9 +347,9 @@ export default function GroupListScreen({
     const returned = screenFocused && !previousScreenFocusedRef.current;
     previousScreenFocusedRef.current = screenFocused;
     if (!returned) return;
-    summaryAdapter.invalidateBack();
-    if (flippedGroupId !== null) summaryAdapter.ensureBack(flippedGroupId);
-  }, [flippedGroupId, screenFocused, summaryAdapter]);
+    invalidateBack();
+    if (flippedGroupId !== null) void retryBack(flippedGroupId);
+  }, [flippedGroupId, invalidateBack, retryBack, screenFocused]);
 
   useEffect(() => {
     focusController?.setLifecycle({
@@ -466,24 +494,22 @@ export default function GroupListScreen({
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    // 당겨서 새로고침은 사용자가 명시적으로 최신 상태를 요구한 경계다. 이전 ready/error를
-    // 먼저 폐기해, 후속 목록 요청의 성공 여부와 무관하게 다음 flip이 오래된 요약을 재사용하지 않는다.
-    summaryAdapter.invalidateBack();
+    invalidateBack();
     try {
       await onRefresh();
       if (flippedGroupId !== null) {
-        await Promise.all([
-          summaryAdapter.ensureBack(flippedGroupId),
-          focusController?.refreshNow() ?? Promise.resolve(),
-        ]);
+        // 최신 main의 scoped cache에는 전체 invalidate API가 없다. 열린 뒷면의 네 dependency를
+        // 명시 retry해, 목록 갱신 뒤 stale snapshot을 재사용하지 않는다.
+        await retryBack(flippedGroupId);
       }
     } finally {
       if (mountedRef.current) setRefreshing(false);
     }
-  }, [flippedGroupId, focusController, onRefresh, summaryAdapter]);
+  }, [flippedGroupId, invalidateBack, onRefresh, retryBack]);
 
   const selectPage = useCallback(
     (page: number) => {
+      if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       if (next === activeIndex) return;
       logGroupCarouselPaged({
@@ -499,7 +525,15 @@ export default function GroupListScreen({
       setFlippedGroupId(null);
       guideBackGroupIdRef.current = null;
     },
-    [activeIndex, countBucket, orderedGroups, pageCount, snapInterval],
+    [
+      activeIndex,
+      countBucket,
+      draggingGroupId,
+      orderedGroups,
+      pageCount,
+      reorderMenuGroupId,
+      snapInterval,
+    ],
   );
 
   const onMomentumScrollEnd = useCallback(
@@ -1013,11 +1047,10 @@ export default function GroupListScreen({
         testID="group.deck.controls"
       >
         <PageIndicator
-          pageCount={pageCount}
           activeIndex={activeIndex}
-          disabled={draggingGroupId !== null || reorderMenuGroupId !== null}
           onSelectPage={selectPage}
           pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
+          pageKeys={[...orderedGroups.map((group) => group.groupId), 'find-more']}
         />
         <TouchableOpacity
           style={s.refreshButton}
