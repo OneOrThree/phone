@@ -91,10 +91,22 @@ describe('pickLastSettled', () => {
     );
     expect(view?.bet.status).toBe('REFUNDED');
     expect(view?.voidReason).toBe('AUTO_REFUND');
-    expect(voidSummary(view?.voidReason ?? null)).toBe('기한이 지나 자동 환불');
-    expect(voidBanner(view?.voidReason ?? null)).toBe(
-      '기한이 지나 자동으로 환불됐어요. 참가비는 돌려드렸어요',
-    );
+    expect(voidSummary(view?.voidReason ?? null)).toBe('정산이 지연돼 환불');
+    expect(voidBanner(view?.voidReason ?? null)).toBe('정산이 지연됐어요. 참가비는 돌려드렸어요');
+  });
+
+  // 서버는 24h 초과 환불에 사유를 함께 실어 보낸다. 폴백 경로와 **같은 문장**이어야 한다 —
+  // 갈리면 사유 유무에 따라 같은 사건이 다른 말로 설명된다(codex 리뷰).
+  test('사유가 실린 REFUNDED와 사유 없는 폴백이 같은 문장으로 수렴한다', () => {
+    expect(voidSummary('REFUND_DEADLINE')).toBe(voidSummary('AUTO_REFUND'));
+    expect(voidBanner('REFUND_DEADLINE')).toBe(voidBanner('AUTO_REFUND'));
+  });
+
+  // 돈을 돌려받은 사건을 「무효」라고 부르지 않는다 — 무효는 판정 없이 없던 일이 된 것이다.
+  test('24h 초과 환불 문구에 「무효」가 들어가지 않는다', () => {
+    expect(voidSummary('REFUND_DEADLINE')).not.toContain('무효');
+    expect(voidBanner('REFUND_DEADLINE')).not.toContain('무효');
+    expect(voidBanner('REFUND_DEADLINE')).toContain('돌려드렸어요');
   });
 
   test('구서버 REFUNDED(레거시)는 종전 문장 그대로다 — 자동 환불로 단정하지 않는다', () => {
@@ -158,7 +170,7 @@ describe('무효화 사유 문구', () => {
 
   test('삭제·기한 사유도 각자 문장을 갖는다', () => {
     expect(voidSummary('CHALLENGE_DELETED')).toBe('챌린지 삭제로 무효');
-    expect(voidSummary('REFUND_DEADLINE')).toBe('기한이 지나 무효');
+    expect(voidSummary('REFUND_DEADLINE')).toBe('정산이 지연돼 환불');
   });
 
   test('모르는 값·없음은 null — 문구를 지어내지 않고 호출부가 폴백한다', () => {
@@ -189,7 +201,9 @@ describe('무효화 사유 문구', () => {
       '챌린지 삭제로 무효',
       '챌린지가 삭제돼 무효가 됐어요. 참가비는 돌려드렸어요',
     ],
-    ['REFUND_DEADLINE', '기한이 지나 무효', '기한이 지나 무효가 됐어요. 참가비는 돌려드렸어요'],
+    ['REFUND_DEADLINE', '정산이 지연돼 환불', '정산이 지연됐어요. 참가비는 돌려드렸어요'],
+    // 앱 파생 폴백도 같은 키로 접혀 같은 문장이 나온다(codex 리뷰 — 갈라 두니 문구가 둘이었다).
+    ['AUTO_REFUND', '정산이 지연돼 환불', '정산이 지연됐어요. 참가비는 돌려드렸어요'],
   ])('%s — 카드 요약과 시트 배너가 같은 분류에서 나온다', (reason, summary, banner) => {
     // 카드(짧은 요약)
     expect(voidSummary(reason)).toBe(summary);

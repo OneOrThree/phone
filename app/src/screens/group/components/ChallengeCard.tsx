@@ -95,9 +95,11 @@ const BET_FAILED_CREATE_CAPTION = '이미 목표를 초과해서 내기를 열 �
 // 철회 직후의 사실 고지 — 영역을 그냥 비우면 방금 한 일이 사라진 것처럼 보인다(betLocked와 같은 이유).
 // 재참여할 수 있는 철회에서는 참가 진입점 **아래**에 붙는다(GROMO-1112) — 캡션만 남기고 버튼을
 // 걷어 버리면 한 번 빠진 사람은 다음 재조회 전까지 다시 들어갈 방법이 없다.
-const BET_LEFT_CAPTION = '내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요';
-// 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼('취소')과 같은 동사로 말한다.
-const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으로 돌아왔어요';
+const BET_LEFT_CAPTION = '참여를 취소했어요. 참가비는 잔액으로 돌아왔어요';
+// 취소(당일 단독 개설자 carve-out) 직후의 자리 표시 — 누른 버튼(「참여 취소」)과 같은 동사로
+// 말하되, 여기서는 **내기 자체가 닫힌다**는 결과가 하나 더 있어 그 사실까지 적는다(N27로
+// 두 버튼 문구가 「참여 취소」로 합쳐진 뒤에도 두 결말은 여전히 다르다).
+const BET_CANCELED_CAPTION = '참여를 취소해 내기가 닫혔어요. 참가비는 잔액으로 돌아왔어요';
 // 휴면 챌린지(GROMO-1201) — OPEN 내기가 없고 과거 내기 이력만 남았다. 서버는 마지막 참가자가
 // 철회해도 챌린지를 지우지 않고 남겨 두므로(백엔드 테스트가 잠근다) 카드가 사유를 한 줄로 말한다.
 // 배지 문구 '휴면'은 계약 §2 고정 — '비활성'은 INACTIVE 노출 대비 예약어라 쓰지 않는다.
@@ -274,14 +276,19 @@ export default function ChallengeCard({
       Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해주세요.');
       return;
     }
-    navigation.navigate('GroupBetHistory', {
+    // 그룹 축 내역 화면(GROMO-1277)으로 간다 — 이 진입점은 **이 챌린지만** 보는 필터다
+    // (IA §1: 화면은 하나, 챌린지별 보기는 challengeId 필터). 미션 메타는 응답의 회차
+    // 스냅샷에 실려 오므로 더 이상 route param으로 나르지 않는다.
+    navigation.navigate('GroupChallengeHistory', {
       groupId,
       challengeId: challenge.id,
-      // FOCUS 창 관용치 안내 판단용(#527 리뷰) — 시트에 내려주는 것과 같은 카드의 미션 메타.
-      missionType: challenge.missionType,
-      missionCategory: challenge.missionCategory,
+      // 필터로 들어왔다는 사실을 헤더가 말하게 한다 — 안 밝히면 그룹 전체 이력으로 읽힌다.
+      // 방향(`이하`)을 켜서 넘긴다: 내역 화면엔 카드의 스크린타임 캡션 자리가 없어 이 라벨이
+      // 필터 헤더의 유일한 설명이고, 방향이 빠지면 「하루 60분 스크린타임만 보는 중」이
+      // 집중과 같은 뜻으로 읽힌다(codex 리뷰). 카드 본문 문구는 캡션이 맡으므로 그대로 둔다.
+      challengeLabel: missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge),
     });
-  }, [lastBetView, challenge.id, challenge.missionType, challenge.missionCategory, navigation]);
+  }, [lastBetView, challenge, navigation]);
 
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -850,18 +857,23 @@ export default function ChallengeCard({
     } catch (e) {
       switch (groupErrorCode(e)) {
         // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
-        // 다음 자연 재조회에 맡긴다(철회 버튼은 조건이 깨진 최신 응답이 오면 스스로 사라진다).
+        // 다음 자연 재조회에 맡긴다(버튼은 조건이 깨진 최신 응답이 오면 스스로 사라진다).
+        // 제목은 v2 경로(doLeaveToday·doLeaveNext)와 같은 문장이다 — 같은 행동을 되돌리는
+        // 실패인데 화면마다 다른 이름으로 부르면 유저는 다른 기능이라고 읽는다(N27).
         case BET_LEAVE_CLOSED:
-          Alert.alert('철회할 수 없어요', '내기가 시작된 뒤에는 뺄 수 없어요.');
+          Alert.alert('참여 취소를 못 했어요', '내기가 시작된 뒤에는 뺄 수 없어요.');
           break;
         case BET_NOT_JOINED:
-          Alert.alert('철회할 수 없어요', '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.');
+          Alert.alert(
+            '참여 취소를 못 했어요',
+            '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
+          );
           break;
         case BET_NOT_OPEN:
-          Alert.alert('철회할 수 없어요', '이미 정산됐거나 닫힌 내기예요.');
+          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 내기예요.');
           break;
         default:
-          Alert.alert('내기에서 빠지지 못했어요', '잠시 후 다시 시도해주세요.');
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -870,12 +882,14 @@ export default function ChallengeCard({
   }
 
   // 확인 한 겹 — 돈이 되돌아오는 동작이라도 참가가 사라지므로 삭제와 같은 규격을 쓴다.
+  // 문구는 「참여 취소」로 통일한다(N27) — 레거시 '철회'는 같은 행동의 옛 이름일 뿐이라,
+  // v2 경로와 다른 동사를 쓰면 유저에겐 서로 다른 두 기능으로 읽힌다.
   function confirmLeaveBet() {
     if (!leavable || bet === null) return;
-    Alert.alert('참가 철회', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
+    Alert.alert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
       { text: '아니요', style: 'cancel' },
       {
-        text: '철회하기',
+        text: '참여 취소',
         style: 'destructive',
         onPress: () => doLeaveBet(bet.betId, bet.stake, betMembers),
       },
@@ -900,18 +914,19 @@ export default function ChallengeCard({
       onBetChanged?.();
     } catch (e) {
       switch (groupErrorCode(e)) {
-        // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(철회와 동일).
+        // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(위와 동일).
+        // 제목은 참여를 무르는 다른 경로들과 같은 문장이다(N27).
         case BET_CANCEL_FORBIDDEN:
-          Alert.alert('취소할 수 없어요', '내기를 연 사람만 취소할 수 있어요.');
+          Alert.alert('참여 취소를 못 했어요', '내기를 연 사람만 취소할 수 있어요.');
           break;
         case BET_CANCEL_HAS_OTHERS:
-          Alert.alert('취소할 수 없어요', '다른 참가자가 있어 취소할 수 없어요.');
+          Alert.alert('참여 취소를 못 했어요', '다른 참가자가 있어 취소할 수 없어요.');
           break;
         case BET_NOT_OPEN:
-          Alert.alert('취소할 수 없어요', '이미 정산됐거나 닫힌 내기예요.');
+          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 내기예요.');
           break;
         default:
-          Alert.alert('내기를 취소하지 못했어요', '잠시 후 다시 시도해주세요.');
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -919,13 +934,14 @@ export default function ChallengeCard({
     }
   }
 
-  // 확인 한 겹 — 옛 취소 버튼의 문구 관례 그대로(내기 자체가 닫히므로 '닫을까요'로 묻는다).
+  // 확인 한 겹 — 제목·CTA는 「참여 취소」로 통일(N27)하되, 질문은 그대로 '내기를 닫을까요'다.
+  // 단독 참가자라 내 참여를 무르면 내기 자체가 닫힌다 — 그 결과를 묻는 문장에서 지우면 안 된다.
   function confirmCancelBet() {
     if (!cancelable || bet === null) return;
-    Alert.alert('내기 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+    Alert.alert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
       { text: '아니요', style: 'cancel' },
       {
-        text: '취소하기',
+        text: '참여 취소',
         style: 'destructive',
         onPress: () => doCancelBet(bet.betId, bet.stake, betMembers),
       },
@@ -949,9 +965,12 @@ export default function ChallengeCard({
   // 멤버가 join-next·join-week로 참가하면, 걸린 돈을 한 번도 안 보여준 채 조건 없는 삭제가
   // 나간다(#570 codex ③). 새 참여가 생겼으면 삭제하지 않고 **수치 경고(2단계)로 전환**한다.
   // 구서버(프리뷰 엔드포인트 없음)는 revalidate=false로 종전 동작 그대로다.
+  //
+  // 물러나는 버튼은 `그만두기`다(policy §A8) — 여기서 `취소`를 쓰면 같은 카드의 **참여 취소**와
+  // 겹쳐, 돈을 무르는 버튼과 창을 닫는 버튼이 같은 단어가 된다.
   function confirmDeleteOneStep(revalidate: boolean) {
     Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-      { text: '취소', style: 'cancel' },
+      { text: '그만두기', style: 'cancel' },
       {
         text: '삭제',
         style: 'destructive',
@@ -1001,8 +1020,9 @@ export default function ChallengeCard({
         confirmDeleteOneStep(true);
         return;
       }
+      // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
       Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
-        { text: '취소', style: 'cancel' },
+        { text: '그만두기', style: 'cancel' },
         { text: '삭제', style: 'destructive', onPress: () => setDeletePreview(preview) },
       ]);
     } catch {
@@ -1316,10 +1336,12 @@ export default function ChallengeCard({
                     disabled={leaveBusy}
                     onPress={confirmLeaveBet}
                     accessibilityRole="button"
-                    accessibilityLabel="내기 참가 철회"
+                    accessibilityLabel="참여 취소"
                     testID={`group.bet.leave.${challenge.id}`}
                   >
-                    <Text style={s.betLeaveText}>철회</Text>
+                    {/* 문구는 「참여 취소」다(N27) — 레거시 '철회'는 같은 행동의 옛 이름이라
+                        v2 버튼과 다른 동사를 쓰면 두 기능처럼 읽힌다. 동작은 그대로 leaveBet. */}
+                    <Text style={s.betLeaveText}>참여 취소</Text>
                   </TouchableOpacity>
                 )}
                 {/* 당일 단독 개설자 carve-out — cancelable이 !leavable을 품어 철회와 배타다.
@@ -1331,10 +1353,12 @@ export default function ChallengeCard({
                     disabled={leaveBusy}
                     onPress={confirmCancelBet}
                     accessibilityRole="button"
-                    accessibilityLabel="내기 취소"
+                    accessibilityLabel="참여 취소"
                     testID={`group.bet.cancel.${challenge.id}`}
                   >
-                    <Text style={s.betLeaveText}>취소</Text>
+                    {/* 그냥 '취소'는 시트를 닫는 버튼과 헷갈린다 — 돈이 빠지는 행동이라
+                        무엇을 취소하는지 버튼에 드러나야 한다(N27 · §9.3 A10). */}
+                    <Text style={s.betLeaveText}>참여 취소</Text>
                   </TouchableOpacity>
                 )}
               </View>

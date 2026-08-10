@@ -1,0 +1,129 @@
+import { useMemo, useRef } from 'react';
+import {
+  withSpring,
+  withTiming,
+  type AnimatableValue,
+  type WithSpringConfig,
+  type WithTimingConfig,
+} from 'react-native-reanimated';
+import type { CSSAnimationProperties } from 'react-native-reanimated';
+import type { ViewStyle } from 'react-native';
+import { M, staggerDelay } from '@/constants/motion';
+import { useReduceMotion, useReduceMotionReady } from '@/hooks/useReduceMotion';
+
+// '동작 줄이기'(손쉬운 사용 › 동작) 단일 게이트 (GROMO-1381 / 설계 §3).
+//
+// 이 앱은 애니메이션 시스템을 세 가지 쓴다. 끄는 법이 각각 다르다:
+//   imperative(withTiming/withSpring) → 애니메이션 대신 **즉시 대입**
+//   CSS(animationName/transitionProperty) → **스타일 객체 자체를 undefined로 드롭**
+//   layout(entering=/LinearTransition)   → prop을 undefined로
+// 셋 중 하나만 덮으면 나머지가 접근성 설정을 무시한다. 그래서 한 훅에 모아 둔다.
+//
+// ⚠️ reanimated 내장 ReduceMotion.System은 쓰지 않는다 (정책 D6). 그쪽은 모듈 로드 시 1회
+//    계산한 정적 플래그라 설정을 바꿔도 앱 재시작 전까지 반영되지 않는다. 앱 안에 '동작 줄이기'
+//    진실이 두 개 생기면 안 되므로 전부 이 훅을 통과시킨다.
+//
+// ⚠️ 축하 연출도 예외가 아니다 (정책 D7). 다만 **파티클만 생략**하고 모달·햅틱·문구는 남긴다 —
+//    축하가 사라지는 게 아니라 44조각이 도는 것만 사라진다.
+
+export type Motion = {
+  /** 시스템 '동작 줄이기'가 켜져 있는가. 확정 전(비동기 조회 중)에는 보수적으로 true. */
+  reduce: boolean;
+  /**
+   * 위 값이 **확정됐는가**. 확정 전의 보수적 true를 실제 설정처럼 써서 되돌릴 수 없는 결정을
+   * 내리면 안 된다 — 특히 **단계 시퀀스의 시작**은 확정될 때까지 미룬다. 그러지 않으면 설정을
+   * 켜지 않은 사용자도 대기가 0으로 눌려 연출을 통째로 잃는다(codex 리뷰).
+   */
+  ready: boolean;
+  /**
+   * reduce면 애니메이션 없이 목표값을 그대로 돌려준다.
+   * ⚠️ JS 스레드 전용 — useAnimatedStyle·useAnimatedProps·useAnimatedReaction·useDerivedValue·
+   *    runOnUI 안에서 호출 금지.
+   *    (훅 반환값은 JS 클로저다. 워클릿 안에서 분기해야 하면 `reduce`를 shared value로 옮겨 읽을 것)
+   */
+  timing<V extends AnimatableValue>(to: V, cfg?: WithTimingConfig): V;
+  /** ⚠️ timing과 동일 — 워클릿 안에서 호출 금지 */
+  spring<V extends AnimatableValue>(to: V, cfg?: WithSpringConfig): V;
+  /**
+   * CSS 애니메이션 스타일·layout 애니메이션 prop을 reduce면 통째로 끈다.
+   * RN이 스타일 배열의 undefined를 무시하므로 호출부에 조건문이 필요 없다:
+   *   `style={[s.card, m.css(highlightSlide)]}` (⚠️ **진입 프리셋은 `enter()`를 쓴다**)
+   */
+  css<S>(style: S): S | undefined;
+  /**
+   * **진입 애니메이션 전용** CSS 스타일. `css()`와 하나 다르다 — '동작 줄이기'가 **확정되기
+   * 전에는 진입의 시작 프레임(`animationName.from`)을 돌려준다.**
+   *
+   * ⚠️ 진입 스타일에 `css()`를 쓰면 미확정 구간의 보수적 `reduce=true`가 스타일을 통째로
+   *    걷어내 요소가 **최종 상태로 먼저 노출**된다. 이후 `false`로 확정되면 이미 보이던 같은
+   *    노드에 애니메이션이 붙으며 `fillMode:'backwards'`의 시작 상태로 **사라졌다가 다시
+   *    나타난다.** 이 배치에서만 서로 다른 파일에서 8번 나왔다(결정 D-30).
+   *    시작 프레임에서 기다리면 어느 쪽으로 확정되든 이어지는 그림에 끊김이 없다.
+   *
+   * 시작 프레임을 못 찾는 스타일(키프레임에 `from`이 없음)은 `undefined`를 돌려준다 —
+   * 그런 프리셋은 진입용이 아니다.
+   */
+  enter(style: CSSAnimationProperties): CSSAnimationProperties | ViewStyle | undefined;
+  /** reduce면 0. 단계 시퀀스는 지연만 없애고 **반드시 완주시킨다** — 아래 주석 참고. */
+  delay(ms: number): number;
+  /** reduce면 0. 아니면 staggerMaxSteps 상한을 적용한 시차. */
+  stagger(index: number, step?: number): number;
+};
+
+/**
+ * ⚠️ `delay()`가 왜 필요한가 — reduce-motion 확산에서 가장 흔한 버그.
+ *    LeagueResultScreen처럼 setTimeout 단계 시퀀스로 연출을 진행하는 화면은, 애니메이션만 끄고
+ *    타이머를 없애면 **단계가 진행되지 않아 화면이 멈춘다.** delay를 0으로 만들면 시퀀스는
+ *    완주하고 시각 효과만 사라진다. 타이머 자체를 걷어내지 말 것.
+ *
+ * ⚠️ 재생 도중 설정이 켜졌을 때 중간 상태로 굳지 않게 하려면, imperative 애니메이션을 거는
+ *    useEffect의 의존성 배열에 `m.reduce`를 반드시 포함시킨다. CSS 경로는 스타일이 사라지면서
+ *    기본 스타일로 되돌아가므로 별도 처리가 필요 없다.
+ */
+export function useMotion(): Motion {
+  const reduce = useReduceMotion();
+  const ready = useReduceMotionReady();
+  // ⚠️ 진입 여부는 **컴포넌트 인스턴스 단위로 한 번** 정하고 얼린다.
+  //    확정된 뒤(reduce=true) 사용자가 설정을 끄면, 이미 보이던 같은 노드에 진입 스타일이
+  //    새로 붙어 요소가 opacity 0(또는 scale 0)으로 사라졌다가 다시 나타난다(codex 리뷰).
+  //    양쪽 다 얼린다 — 한쪽만 얼리면 반대 방향 토글에서 같은 사고가 난다.
+  //    새로 마운트되는 요소가 최신 설정을 따르게 하려면 **그 요소를 자기 컴포넌트로 빼면** 된다.
+  //    그때 useMotion이 새로 호출되며 그 시점 설정으로 다시 정한다.
+  //    null=미확정 · false=생략 확정 · true=연출 확정
+  const enterDecided = useRef<boolean | null>(null);
+  if (enterDecided.current === null && ready) enterDecided.current = !reduce;
+
+  return useMemo<Motion>(
+    () => ({
+      reduce,
+      ready,
+      // ⚠️ reduceMotion: M.never를 강제로 얹는다. reanimated의 기본값(ReduceMotion.System)은
+      //    모듈 로드 시 1회 계산한 정적 플래그라, '동작 줄이기'를 켠 채 앱을 켰다가 실행 중에
+      //    끄면 여기서는 애니메이션을 내주는데 그 플래그가 계속 억제한다. 판단은 이 훅만 한다.
+      //    호출부 설정은 보존하고 이 키만 덮어쓴다.
+      timing: (to, cfg) => (reduce ? to : withTiming(to, { ...cfg, reduceMotion: M.never })),
+      spring: (to, cfg) => (reduce ? to : withSpring(to, { ...cfg, reduceMotion: M.never })),
+      css: (style) => (reduce ? undefined : style),
+      enter: (style) => {
+        // 미확정 — 시작 프레임에서 기다린다.
+        if (enterDecided.current === null) {
+          const frames = style.animationName;
+          return typeof frames === 'object' && frames !== null && 'from' in frames
+            ? (frames as { from: ViewStyle }).from
+            : undefined;
+        }
+        // 확정된 뒤에는 **그 결정을 끝까지 지킨다.** 지금 설정을 다시 보면, 켬→끔을 왕복할 때
+        // 이미 진입을 마친 노드에 스타일이 다시 붙어 시작 상태로 사라졌다 나타난다(codex 리뷰).
+        // 켜져 있는 동안 스타일이 남아 있어도 참조가 그대로라 재생되지 않는다 — 붙었다 떨어지는
+        // 것 자체가 사고다.
+        // ⚠️ 그래서 **결정 경계 = 컴포넌트 마운트**가 계약이다. 새로 마운트되는 요소가 그 시점
+        //    설정을 따라야 하면 그 요소를 **자기 컴포넌트로 빼야 한다**(키로 remount되는 요소도
+        //    마찬가지다 — 부모의 useMotion은 remount되지 않는다).
+        return enterDecided.current ? style : undefined;
+      },
+      delay: (ms) => (reduce ? 0 : ms),
+      stagger: (index, step) => (reduce ? 0 : staggerDelay(index, step)),
+    }),
+    [reduce, ready],
+  );
+}

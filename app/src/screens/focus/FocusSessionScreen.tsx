@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   View,
   Text,
@@ -12,8 +13,10 @@ import {
   Vibration,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  type TextStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { captureRef } from 'react-native-view-shot';
@@ -22,8 +25,12 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
+import { ProgressRing } from '@/components/ProgressRing';
+import { M, fadeIn, pop, transition } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
 import { startFocusSession } from '@/services/focusApi';
 import type { FocusType } from '@/types/dto/focus';
@@ -41,6 +48,12 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
+import {
+  focusReadoutLayout,
+  PLAIN_TIMER_MIN_FONT_SCALE,
+  RING_STROKE,
+  type ReadoutLayout,
+} from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -117,6 +130,13 @@ function viewForPage(index: number, groupCount: number): FocusViewName {
 // 초기 세로 설정을 덮으므로, 플랫폼으로 명시적으로 게이트하지 않으면 미검증 가로 UI가 노출된다.
 const LANDSCAPE_ENABLED = Platform.OS === 'ios';
 
+// ── 렌더 계층 전용 상수(GROMO-1381) — 아래 세션 로직과 무관하다 ──────────────────────
+// 페이저 도트 — 활성 알약(너비 7→18)과 색이 값 변화를 부드럽게 따라가게 한다.
+const DOT_TRANSITION = transition({
+  property: ['width', 'backgroundColor'],
+  duration: M.dur.quick,
+});
+
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
   display: number; // 큰 숫자: countup=경과 / countdown=남음 / pomodoro=현 페이즈 남음
@@ -136,9 +156,13 @@ export default function FocusSessionScreen() {
   const goal = params.goalSeconds ?? 25 * 60;
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
+  // 세로 레이아웃 예산 계산용 — 노치·홈 인디케이터를 뺀 실제 가용 높이를 알아야 한다(아래 uiScale).
+  const insets = useSafeAreaInsets();
   // 가로 판별 — 방향 전환에 따라 렌더만 분기한다(세션 로직은 방향과 무관, GROMO-973).
   const isLandscape = width > height;
+  // 모션 게이트('동작 줄이기') — 이 화면에서는 렌더 계층에서만 쓴다(GROMO-1381).
+  const m = useMotion();
   const { userId, nickname } = useUser();
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { refresh: refreshCoins } = useCoins();
@@ -1233,6 +1257,30 @@ export default function FocusSessionScreen() {
     tagName: subjectName,
   };
 
+  // ── 렌더 계층(GROMO-1381) — 아래 블록은 세션 로직에 전혀 관여하지 않는다 ──────────────
+  // 캐릭터·링 크기와 링 표시 여부는 전부 readoutLayout.ts의 순수 함수가 정한다(단위 테스트로
+  // 잠겨 있다). 여기서는 입력(가용 높이·폭·글자 배율·모드)만 넘긴다.
+  // ⚠️ fontScale을 반드시 넘긴다 — Text의 allowFontScaling 기본값 때문에 시스템 글자 크기를
+  //    키운 사용자에게는 타이머가 다시 확대되어, 고정 pt 링을 뚫고 나간다(codex 리뷰).
+  const layout = focusReadoutLayout(
+    Math.max(0, height - insets.top - insets.bottom),
+    width,
+    fontScale,
+    mode !== 'countup', // 카운트업은 목표가 없어 진행률 자체가 정의되지 않는다
+    // ⚠️ 뽀모도로는 링을 포기해도 세트배지·세트도트를 계속 그린다 — 예산에 넣지 않으면
+    //    캐릭터를 크게 유지한 채 리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
+    mode === 'pomodoro',
+    // ⚠️ 카운트다운은 링을 포기해도 '목표 HH:MM:SS' 줄을 계속 그린다(codex 리뷰).
+    mode === 'countdown',
+  );
+  const charSize = layout.charSize;
+  // 자간·행높이는 지정 fontSize에 비례시켜 폰트 메트릭을 유지한다(시스템 배율은 RN이 곱한다).
+  const timerTextStyle = {
+    fontSize: layout.timerFontSize,
+    lineHeight: Math.round(layout.timerFontSize * 1.08),
+    letterSpacing: (T.text.timer.letterSpacing * layout.timerFontSize) / T.text.timer.fontSize,
+  };
+
   // 가로 — 플립 시계만 크게 보는 컴팩트 뷰(GROMO-973). 세션 상태·타이머는 위 훅들이 그대로 굴린다.
   // 자릿수는 세션 최대 길이로 판정 — 1시간 이상(뽀모도로가 시간 단위인 경우 포함)이면 HH:MM:SS, 아니면 MM:SS.
   const landscapeFormat: 'hhmmss' | 'mmss' =
@@ -1305,10 +1353,35 @@ export default function FocusSessionScreen() {
         >
           <View style={[s.page, { width }]}>
             <View style={s.characterWrap}>
-              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
-              <View ref={charShotRef} collapsable={false}>
-                <CharacterImage size={230} variant="study" sourceUri={activeSource ?? undefined} />
-              </View>
+              {/* 호흡 래퍼 — children 슬롯에 캡처 뷰를 넣어 래퍼가 charShotRef의 **부모**가 되게
+                  한다(정책 D-22). ref 안쪽에 transform이 걸리면 아래 captureRef가 세로로 눌린
+                  호흡 중간 프레임을 그대로 PNG로 구워 Live Activity·차폐 화면에 박아 버린다.
+                  일시정지면 calm(주기 2600ms·얕은 진폭)으로 가라앉는다. reduce 처리는 컴포넌트 몫. */}
+              {/* ⚠️ active={page === 0} — 가로 페이저는 다른 페이지로 넘어가도 캐릭터 페이지가
+                  마운트된 채 남는다. 안 넘기면 보이지도 않는 캐릭터의 무한 호흡이 몇 시간짜리
+                  세션 내내 UI 스레드를 먹는다(codex 리뷰). 홈의 useIsFocused와 같은 부류다. */}
+              <AnimatedCharacter
+                size={charSize}
+                mood={paused ? 'calm' : 'idle'}
+                // ⚠️ `!doneGate`도 함께 본다. 완료 게이트는 화면을 통째로 덮는데, 캐릭터
+                //    페이지에서 세션을 끝내면 `page === 0`이 그대로 참이라 **가려진 캐릭터의
+                //    무한 호흡이 사용자가 확인을 누를 때까지 계속 돈다**(codex 리뷰).
+                //    게이트는 사용자가 닫을 때까지 열려 있을 수 있어 그 사이 UI 스레드와
+                //    배터리를 계속 먹는다. 위 페이저 사유와 같은 부류다.
+                active={page === 0 && !doneGate}
+              >
+                {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터).
+                    ⚠️ charSize가 작은 화면에서 줄면 캡처 PNG 해상도도 함께 줄어든다. 기기 배율
+                    (@2x/@3x) 때문에 해상도는 원래도 460~690px로 흔들렸고, 축소 하한(≈370px)도
+                    위젯 실제 표시 크기보다 크다 — 별도 캡처 크기를 두지 않는다(보고 참고). */}
+                <View ref={charShotRef} collapsable={false}>
+                  <CharacterImage
+                    size={charSize}
+                    variant="study"
+                    sourceUri={activeSource ?? undefined}
+                  />
+                </View>
+              </AnimatedCharacter>
             </View>
           </View>
           <View style={[s.page, { width }]}>
@@ -1379,12 +1452,19 @@ export default function FocusSessionScreen() {
         <View style={s.dots} ref={dotsRef} collapsable={false}>
           {/* 페이저 페이지 수와 항상 일치 — 캐릭터·친구(2) + 그룹×N + 내리그·전체리그(2) */}
           {Array.from({ length: 4 + sessionGroups.length }).map((_, i) => (
-            <View key={i} style={[s.dot, page === i && s.dotActive]} />
+            <Animated.View
+              key={i}
+              style={[s.dot, page === i && s.dotActive, m.css(DOT_TRANSITION)]}
+            />
           ))}
         </View>
 
-        {/* 타이머 리드아웃(모드별) */}
-        <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets, subjectName)}</View>
+        {/* 타이머 리드아웃(모드별).
+            key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
+            갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
+        <PhaseReadout key={session.phase}>
+          {renderReadout(mode, session, goal, pomo, subjectName, layout, timerTextStyle)}
+        </PhaseReadout>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls} ref={controlsRef} collapsable={false}>
@@ -1395,7 +1475,9 @@ export default function FocusSessionScreen() {
             haptic="light"
             onPress={togglePause}
           >
-            <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
+            {/* 아이콘이 바뀌는 순간 팝으로 갈아탄다 — key로 새로 마운트시켜야 프리셋이 다시 돈다.
+                버튼의 testID(focus.pause)는 위 PressableScale에 그대로 남아 E2E 셀렉터에 영향 없음. */}
+            <PopIcon key={paused ? 'play' : 'pause'} name={paused ? 'play' : 'pause'} />
           </PressableScale>
           <PressableScale
             testID="focus.stop"
@@ -1446,49 +1528,125 @@ export default function FocusSessionScreen() {
 // 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시).
 // 타이머 바로 위엔 모드 안내 문구 대신 집중 중인 과목명을 보여준다(GROMO-848).
 // 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
+//
+// 진행 링(GROMO-1381) — '남은 시간'을 링으로도 읽게 한다. 숫자 텍스트는 링 가운데에 겹치되
+// 정렬·색·tabular-nums(s.bigTime)는 그대로 승계하고, 크기만 링에 맞춰 timerStyle로 덮는다.
+// ⚠️ 카운트업(무제한)에는 링을 그리지 않는다 — 목표가 없으면 진행률 자체가 정의되지 않는다.
+//    링이 없으니 폭 제약도 없어 timerStyle을 씌우지 않고 기본 52pt를 그대로 쓴다.
+// ⚠️ 링은 첫 마운트에 애니메이션이 없다(ProgressRing 헤더 주석). 이미 진행 중인 세션으로
+//    들어와도 남은 시간이 처음부터 정확히 그려진다 — 진입 연출은 호출부의 fadeIn이 담당한다.
 function renderReadout(
   mode: FocusTimerMode,
   session: SessionState,
   goal: number,
-  sets: number,
+  pomo: { focusMin: number; breakMin: number; sets: number },
   subjectName: string,
+  layout: ReadoutLayout,
+  timerStyle: TextStyle,
 ) {
+  // 링 없이 그리는 큰 숫자 — 카운트업의 기본 배치이자, 글자 배율이 커서 링을 포기했을 때의
+  // 폴백이기도 하다. 두 경로가 같은 코드를 쓰므로 한 곳에서 만든다.
+  // ⚠️ 여기에만 adjustsFontSizeToFit을 붙인다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
+  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 하는 최후 방어선이다.
+  //    링이 있는 경로에는 절대 붙이지 않는다 — 링 지름이 '지정 크기대로 그려진다'는 전제 위에 있다.
+  const plainTime = (
+    <Text
+      style={[s.bigTime, timerStyle]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={PLAIN_TIMER_MIN_FONT_SCALE}
+    >
+      {hms(session.display)}
+    </Text>
+  );
+
+  // 큰 숫자 — 링을 그릴 수 있으면 링 가운데에, 아니면 위 평문으로. 링 유무 판정은 전부
+  // readoutLayout이 했고(글자 배율·화면 크기), 여기서는 결과만 반영한다.
+  const bigTime = (progress: number) =>
+    layout.showRing ? (
+      <ProgressRing
+        size={layout.ringSize}
+        stroke={RING_STROKE}
+        progress={progress}
+        color={T.night.gold}
+        trackColor={withAlpha(T.night.cream, 0.18)}
+        // ⚠️ 이 화면의 progress는 완료율이 아니라 **남은 비율**이다(시작 100 → 종료 0).
+        //    링에 progressbar 역할이 붙으면 스크린리더가 "100% 진행"으로 정반대로 읽는다.
+        //    가운데 타이머가 이미 정확한 값을 읽어 주므로 링은 장식으로 둔다(codex 리뷰).
+        decorative
+        testID="focus.progress.ring"
+      >
+        <Text style={[s.bigTime, timerStyle]} numberOfLines={1}>
+          {hms(session.display)}
+        </Text>
+      </ProgressRing>
+    ) : (
+      plainTime
+    );
+
   if (mode === 'countup') {
     return (
       <>
-        <Text style={s.roSubject}>{subjectName}</Text>
-        <Text style={s.bigTime}>{hms(session.display)}</Text>
+        <Text style={s.roSubject} numberOfLines={1}>
+          {subjectName}
+        </Text>
+        {plainTime}
       </>
     );
   }
   if (mode === 'countdown') {
     return (
       <>
-        <Text style={s.roSubject}>{subjectName}</Text>
-        <Text style={s.bigTime}>{hms(session.display)}</Text>
+        <Text style={s.roSubject} numberOfLines={1}>
+          {subjectName}
+        </Text>
+        {bigTime(goal > 0 ? session.display / goal : 0)}
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
     );
   }
-  // pomodoro
+  // pomodoro — 진행률은 세션 전체가 아니라 '현재 페이즈' 안에서의 남은 비율이다(큰 숫자와 같은 축).
+  const phaseTotalSeconds = (session.phase === 'focus' ? pomo.focusMin : pomo.breakMin) * 60;
   return (
     <>
       <View style={s.setBadgeRow}>
         <View style={s.setBadge}>
           <View style={s.setBadgeDot} />
           <Text style={s.setBadgeText}>
-            세트 {session.setIndex} / {sets}
+            세트 {session.setIndex} / {pomo.sets}
           </Text>
         </View>
       </View>
-      <Text style={s.roSubject}>{session.phase === 'focus' ? subjectName : '휴식'}</Text>
-      <Text style={s.bigTime}>{hms(session.display)}</Text>
+      <Text style={s.roSubject} numberOfLines={1}>
+        {session.phase === 'focus' ? subjectName : '휴식'}
+      </Text>
+      {bigTime(phaseTotalSeconds > 0 ? session.display / phaseTotalSeconds : 0)}
       <View style={s.setDots}>
-        {Array.from({ length: sets }).map((_, i) => (
+        {Array.from({ length: pomo.sets }).map((_, i) => (
           <View key={i} style={[s.setDot, i < session.setIndex && s.setDotOn]} />
         ))}
       </View>
     </>
+  );
+}
+
+// ⚠️ 키로 remount되는 진입 요소는 **자기 컴포넌트여야 한다.** `m.enter`의 결정은 useMotion을
+//    호출한 컴포넌트 인스턴스 단위로 얼리는데(기반 설계), 부모인 FocusSessionScreen은 페이즈가
+//    바뀌어도 remount되지 않는다. 부모의 결정에 묶이면 '동작 줄이기'를 끈 뒤 새로 마운트되는
+//    리드아웃·아이콘이 진입 연출을 영영 못 받는다(codex 리뷰).
+//    ⚠️ 뷰를 새로 끼운 게 아니다 — 이 컴포넌트가 곧 그 Animated.View다(D-04 유지).
+function PhaseReadout({ children }: { children: ReactNode }) {
+  const m = useMotion();
+  return <Animated.View style={[s.readout, m.enter(fadeIn())]}>{children}</Animated.View>;
+}
+
+// 같은 이유로 분리 — 아이콘이 바뀔 때마다 key로 remount되며 그 시점 설정으로 다시 정한다.
+function PopIcon({ name }: { name: 'play' | 'pause' }) {
+  const m = useMotion();
+  return (
+    <Animated.View style={m.enter(pop())}>
+      <Ionicons name={name} size={22} color={T.paperLight} />
+    </Animated.View>
   );
 }
 
@@ -1533,6 +1691,9 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
+  // ⚠️ 호출부에서 numberOfLines={1}로 **한 줄로 고정**한다. 과목명은 사용자가 자유 입력하는
+  //    값이라 길면 줄바꿈되는데, 위 CHROME_WITH_RING 예산이 과목명을 30pt(한 줄)로 계산하므로
+  //    늘어난 줄만큼 캐릭터·링과 리드아웃이 다시 겹친다(codex 리뷰).
   roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,

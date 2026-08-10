@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -35,7 +36,11 @@ import java.util.UUID;
 @Table(name = "group_challenge_bet_participants",
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_group_challenge_bet_participants_session_user",
-                columnNames = {"session_id", "user_id"}))
+                columnNames = {"session_id", "user_id"}),
+        // 참가자 스코프 조회(/me/*)와 탈퇴 연동은 user_id 선두로 걷는다 — 유니크는 (session_id,
+        // user_id) 라 선두가 달라 못 쓴다(V44).
+        indexes = @Index(name = "idx_group_challenge_bet_participants_user_session",
+                columnList = "user_id, session_id"))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

@@ -44,6 +44,10 @@
 | `src/screens/focus/FocusSessionScreen.tsx` | 1560 | 렌더 계층만 | `ProgressRing` · 페이즈 크로스페이드 · 도트 전환 |
 | `src/screens/HomeScreen.tsx` | 840 | 132 · 590 · 카드 렌더 | `ProgressBar` · `AnimatedNumber` · `enterUp` |
 | `src/screens/StatsScreen.tsx` | 554 | 491 + 카드 8종 | 스켈레톤 |
+| `src/screens/stats/charts.tsx` | 470 | `LineChart` 렌더부 | **좌→우 draw-on**(정책 D16) — `AnimatedPolyline` `strokeDashoffset` + 점별 `AnimatedCircle`. ⚠️ `growUp` 아님 |
+| `src/screens/stats/CategoryDonut.tsx` | 190 | `DonutBase` | 링 `fadeIn` + 범례 `enterUp(i)`. ⚠️ `growUp`은 원을 타원으로 눌러 못 쓴다 |
+| `src/screens/stats/CalendarCard.tsx` | 420 | 그리드 행 | 행 단위 `fadeIn(i)` — 값 축이 없어 `growUp`이 뜻을 못 만든다 |
+| `src/screens/stats/WeeklyTimetableCard.tsx` | 330 | 세션 블록 | **`growUp(j)`** — 블록 자체가 '시간만큼 자란 막대'라 여기는 맞다 |
 | `src/screens/league/LeagueScreen.tsx` | 1063 | 219 · 227 · 리스트 | `LayoutAnimation`→`LinearTransition` · `enterUp` |
 | `src/screens/league/LeagueResultScreen.tsx` | 408 | 87–125 · 승급 분기 | `m.delay()` · 컨페티 + `hapticSuccess` |
 | `src/utils/haptics.ts` | 20 | +8 | `hapticSuccess()` 추가 |
@@ -252,9 +256,12 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 홈 | 집중·사용시간 진행바 | `ProgressBar` | slow | 120 | 1 |
 | 홈 | 코인·스트릭 칩 | `AnimatedNumber` | slow | 0 | 1 |
 | 통계 | 카드 8종 로딩 | `SkeletonCard` | 1200 loop | — | 1 |
-| 통계 | 차트 진입 | **`growUp(i)`** | entrance | i × 60 | 2 |
+| 통계 | 꺾은선 차트 진입 | **draw-on**(`strokeDashoffset`) | entrance | i × 60 | 2 |
+| 통계 | 도넛 진입 | 링 `fadeIn` + 범례 `enterUp(i)` | base | i × 60 | 2 |
+| 통계 | 캘린더 진입 | 행 단위 `fadeIn(i)` | base | i × 60 | 2 |
+| 통계 | 타임테이블 세션 블록 | **`growUp(j)`** | entrance | j × 60 | 2 |
 | 집중 세션 | 카운트다운·뽀모도로 | `ProgressRing` | 연속 | — | 1 |
-| 집중 세션 | 페이즈 전환 | 크로스페이드 + `hapticMedium` | quick | 0 | 1 |
+| 집중 세션 | 페이즈 전환 | 크로스페이드 (진동은 기존 2연속 유지) | quick | 0 | 1 |
 | 집중 결과 | 주간 막대 | **`growUp(i)`** | entrance | i × 60 | 2 |
 | 집중 결과 | 스트릭 ✓ · 코인 | `pop` | slow | 400 | 3 |
 | 리그 | 순위 행 | `enterUp(i)` | base | i × 60 | 2 |
@@ -263,7 +270,26 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 시트 전체 | 등장 | `spring.snappy` | ≈base | 0 | 1 |
 | 전역 | 토스트 | `spring.snappy` | quick | 0 | 1 |
 
-> ⚠️ **차트에 `enterUp`을 쓰지 않는다.** `enterUp`은 `M.dur.base`(350) 고정이고 duration 인자를 받지 않는다(참조 캐시 때문). 차트는 `scaleY`·`entrance`·`overshoot`가 다르므로 §2-1의 **`growUp` 프리셋**을 쓴다.
+> ⚠️ **페이즈 전환에 `hapticMedium`을 새로 붙이지 않는다.** 이 경계에는 이미
+> `Vibration.vibrate([0, 400, 200, 400])`(iOS는 `[0, 500]`)가 붙어 있다 — GROMO-864에서
+> "라이브 전환이면 진동 2번으로 경계를 알린다"로 넣은 것이고, `hapticMedium`(가벼운 임팩트)보다
+> **훨씬 강하다**. 위에 겹쳐 붙이면 한 경계에서 신호가 두 번 난다. 초안이 `hapticMedium`으로
+>적혀 있었으나 기존 구현이 더 나은 쪽이라 문서를 코드에 맞춘다(codex 리뷰 PR #562).
+
+> ⚠️ **막대에 `enterUp`을 쓰지 않는다.** `enterUp`은 `M.dur.base`(350) 고정이고 duration 인자를 받지 않는다(참조 캐시 때문). 막대는 `scaleY`·`entrance`·`overshoot`가 다르므로 §2-1의 **`growUp` 프리셋**을 쓴다.
+>
+> ⚠️ **"차트 = `growUp`"이 아니다** (정책 D16). `growUp`은 **막대 전용**이다 — 값이 곧 높이라 바닥에서 자라는 게 값의 의미와 같기 때문이다. 꺾은선은 시간축을 따라 이어지는 궤적이라 **왼쪽에서 오른쪽으로 그리고**(draw-on), 도넛은 `scaleY`가 원을 타원으로 눌러 뜻이 깨지므로 링 `fadeIn`, 캘린더는 값 축이 없어 행 `fadeIn`이다.
+
+**꺾은선 draw-on 구현.** `Polyline`에 선 길이만큼의 `strokeDasharray`를 깔고 `strokeDashoffset`을 길이 → 0으로 당긴다. `ProgressRing`과 같은 기법이며 같은 규칙을 따른다 — `Animated.createAnimatedComponent(Polyline)` + `useAnimatedProps`, 변환은 워클릿 콜백 **안에서** 처리(`SVGAdapter` 금지).
+
+점은 선이 그 자리를 지나가는 순간 뜬다. 판정은 **각 점까지의 누적 길이 비율**이다:
+
+```
+seg[i] = |P(i+1) − P(i)|          // 구간 길이
+at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[n−1]=1)
+```
+
+⚠️ 시차를 `i × 60ms` 같은 상수로 주면 안 된다. 구간마다 길이가 달라(꺾임이 클수록 길다) 점이 선보다 먼저 뜨거나 뒤늦게 따라온다.
 
 **리그 재정렬 — 한 칸씩 스왑한다** (**타이밍 정본: [ui.html](ui.html) 리그 카드**. 문서와 어긋나면 시안이 맞다)
 
