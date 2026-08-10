@@ -12,6 +12,8 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import GroupSettingsScreen from './GroupSettingsScreen';
 import { getGroupDetail, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { __resetGroupCardEmojiQueueForTest, writeGroupCardEmoji } from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -132,7 +134,9 @@ async function pressLeaveAndConfirm(alertSpy: jest.SpyInstance) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await AsyncStorage.clear();
+  __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
   mockUser.userId = 'me';
   mockGetGroupDetail.mockResolvedValue(detail());
@@ -144,7 +148,7 @@ describe('허브 — 행 노출', () => {
     await renderScreen();
 
     expect(screen.getByTestId('group.settings.cardEmoji')).toBeOnTheScreen();
-    expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+    expect(screen.getByText(/현재 아이콘 목표/)).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();
@@ -155,6 +159,13 @@ describe('허브 — 행 노출', () => {
       fireEvent.press(screen.getByTestId('group.settings.profile'));
     });
     expect(mockNavigate).toHaveBeenCalledWith('GroupProfileEdit', { groupId: GROUP_ID });
+  });
+
+  test('아이콘 설정 행은 현재 계정·그룹의 선택 이름을 보조값으로 보여준다', async () => {
+    await writeGroupCardEmoji('me', GROUP_ID, '📚');
+    await renderScreen();
+
+    expect(screen.getByText('현재 아이콘 책 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
   });
 
   test('MEMBER도 아이콘과 나가기는 보지만 OWNER 관리 행은 보지 않는다', async () => {

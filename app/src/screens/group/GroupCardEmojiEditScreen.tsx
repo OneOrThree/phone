@@ -14,6 +14,7 @@ import {
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   clearPendingGroupCardEmoji,
+  groupCardEmojiLabel,
   readGroupCardEmoji,
   preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
@@ -76,7 +77,7 @@ export default function GroupCardEmojiEditScreen() {
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
-      clearPendingGroupCardEmoji(userId, groupId, selected);
+      clearPendingGroupCardEmoji(userId, groupId);
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       setBaseline(selected);
@@ -112,6 +113,17 @@ export default function GroupCardEmojiEditScreen() {
           <ActivityIndicator color={T.accent} />
         ) : (
           <>
+            <View
+              style={s.cardPreview}
+              accessible={false}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              testID="group.cardEmoji.preview"
+            >
+              <Text style={s.cardPreviewEmoji}>{selected}</Text>
+              <Text style={s.cardPreviewLabel}>내 그룹 카드</Text>
+              <Text style={s.cardPreviewName}>{groupCardEmojiLabel(selected)}</Text>
+            </View>
             <GroupCardEmojiPicker value={selected} onChange={setSelected} disabled={saving} />
             {saveFailed && (
               <Text style={s.error} accessibilityLiveRegion="polite">
@@ -124,10 +136,15 @@ export default function GroupCardEmojiEditScreen() {
               onPress={save}
               activeOpacity={0.85}
               accessibilityRole="button"
+              accessibilityLabel={saving ? '저장 중…' : '저장'}
+              accessibilityState={{ disabled: !changed || saving || !userId, busy: saving }}
               testID="group.cardEmoji.save"
             >
               {saving ? (
-                <ActivityIndicator color={T.white} />
+                <View style={s.savingContent}>
+                  <ActivityIndicator color={T.white} accessible={false} />
+                  <Text style={s.saveText}>저장 중…</Text>
+                </View>
               ) : (
                 <Text style={s.saveText}>저장</Text>
               )}
@@ -161,6 +178,17 @@ const s = StyleSheet.create({
   },
   title: { ...T.text.heading, fontWeight: '800', color: T.ink },
   body: { flex: 1, paddingHorizontal: T.space.xl, paddingTop: T.space.xl },
+  cardPreview: {
+    minHeight: 132,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: T.space.xl,
+    backgroundColor: T.accent,
+  },
+  cardPreviewEmoji: { fontSize: 42 },
+  cardPreviewLabel: { ...T.text.caption, color: T.white, marginTop: T.space.sm },
+  cardPreviewName: { ...T.text.subtitle, color: T.white, marginTop: T.space.xs },
   error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.lg },
   saveButton: {
     height: 52,
@@ -171,5 +199,6 @@ const s = StyleSheet.create({
     marginTop: T.space.xxl,
   },
   saveButtonDisabled: { opacity: 0.5 },
+  savingContent: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   saveText: { ...T.text.subtitle, color: T.white },
 });
