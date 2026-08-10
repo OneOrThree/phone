@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { ConfettiBurst, type ConfettiObstacle } from '@/components/ConfettiBurst';
 import { useCharacter } from '@/store/CharacterContext';
 import { M, pop } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
+import { Enter } from '@/components/Enter';
 import { hapticSuccess } from '@/utils/haptics';
 import { T, withAlpha } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
@@ -115,17 +115,17 @@ export function GoalCelebrationModal({
               ⚠️ 팝은 마운트가 아니라 **그림이 실제로 올라온 뒤**(onLoad) 시작한다 — 커스텀 누끼
               디코딩이 600ms보다 늦으면 팝이 안 보이는 사이 끝나 캐릭터가 최종 크기로 툭 나타난다
               (codex 리뷰). 그 전에는 opacity 0으로 접어 둬 '컸다가 줄어드는' 프레임도 없앤다. */}
-          <Animated.View
+          {/* ⚠️ 팝 래퍼는 **노출마다 마운트**돼야 한다. 이 모달은 visible=false인 동안에도 부모에
+              마운트돼 있어 화면의 useMotion 결정이 실제 축하보다 훨씬 전에 얼린다 — 그 뒤 설정을
+              바꾸고 열면 과거 결정으로 팝이 재생되거나 생략된다(codex 리뷰). key로 다시 마운트시킨다.
+              ⚠️ 게이트가 `charShown`인 이유: InteractionManager가 늦는 전환에서 모달이 안정되기 전에 팝이
+              끝나 팝→색종이 박자가 깨진다. 확정 전에는 pending(opacity 0) — 팝의 시작 프레임이다. */}
+          <Enter
+            key={visible ? 'shown' : 'hidden'}
             testID="goalCelebration.character"
-            // ⚠️ `m.ready`도 함께 본다. 미확정 구간의 보수적 reduce=true는 `m.css(pop())`을
-            //    undefined로 만들어 캐릭터를 **최종 크기로 먼저 노출**하는데, 이후 false로
-            //    확정되면 이미 보이던 래퍼에 팝이 뒤늦게 붙어 0배율로 사라졌다 나타난다
-            //    (codex 리뷰). 확정될 때까지는 pending(opacity 0)을 유지한다 — 팝의 시작
-            //    프레임과 같은 상태라 어느 쪽으로 확정되든 이어지는 그림에 끊김이 없다.
-            // ⚠️ 팝 게이트도 `charShown`다 — `charReady`만 보면 InteractionManager가 늦는
-            //    화면 전환에서 모달이 안정되기 전에 팝이 끝나고, 그 뒤 다시 기다렸다
-            //    색종이가 시작돼 팝→색종이 박자가 깨진다(codex 리뷰).
-            style={charShown ? m.enter(pop()) : s.charPending}
+            preset={pop()}
+            style={charShown ? undefined : s.charPending}
+            active={charShown}
           >
             <CharacterImage
               size={104}
@@ -133,7 +133,7 @@ export function GoalCelebrationModal({
               testID="goalCelebration.character.image"
               onLoad={() => setCharReady(true)}
             />
-          </Animated.View>
+          </Enter>
           <Text style={s.title}>
             {goalMinutes ? `${goalLabel(goalMinutes)} 집중 목표 달성!` : '오늘 목표 달성!'}
           </Text>

@@ -1534,6 +1534,10 @@ function renderReadout(
         progress={progress}
         color={T.night.gold}
         trackColor={withAlpha(T.night.cream, 0.18)}
+        // ⚠️ 이 화면의 progress는 완료율이 아니라 **남은 비율**이다(시작 100 → 종료 0).
+        //    링에 progressbar 역할이 붙으면 스크린리더가 "100% 진행"으로 정반대로 읽는다.
+        //    가운데 타이머가 이미 정확한 값을 읽어 주므로 링은 장식으로 둔다(codex 리뷰).
+        decorative
         testID="focus.progress.ring"
       >
         <Text style={[s.bigTime, timerStyle]} numberOfLines={1}>

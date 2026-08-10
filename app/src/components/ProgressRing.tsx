@@ -36,6 +36,13 @@ interface ProgressRingProps {
   color: string;
   trackColor?: string;
   testID?: string;
+  /**
+   * 링을 접근성에서 **장식으로** 다룰지. 가운데 숫자가 이미 정확한 값을 읽어 주는 경우에 켠다.
+   *
+   * ⚠️ 켜도 **자식은 그대로 읽힌다** — 이 뷰의 progressbar 역할만 없앤다. 링의 `progress`가
+   *    호출부마다 다른 뜻일 수 있어서 필요하다(집중 세션은 '남은 비율'이라 시작 100 → 종료 0).
+   */
+  decorative?: boolean;
   /** 링 가운데에 겹칠 내용(카운트다운 숫자 등). */
   children?: ReactNode;
 }
@@ -47,6 +54,7 @@ export function ProgressRing({
   color,
   trackColor = T.track,
   testID,
+  decorative = false,
   children,
 }: ProgressRingProps) {
   const m = useMotion();
@@ -71,8 +79,14 @@ export function ProgressRing({
   return (
     <View
       testID={testID}
-      accessibilityRole="progressbar"
-      accessibilityValue={{ now: Math.round(clamped * 100), min: 0, max: 100 }}
+      // ⚠️ `decorative`면 progressbar 역할을 **떼되 자식은 그대로 읽힌다.** 링 안의 숫자가
+      //    이미 정확한 값을 읽어 주는데 링까지 역할을 가지면 중복이고, 진행률의 의미가
+      //    호출부마다 다르면(집중 세션은 '남은 비율') 정반대로 읽힌다(codex 리뷰).
+      //    자식을 숨기는 게 아니라 이 뷰의 역할만 없앤다 — 타이머 텍스트는 계속 읽힌다.
+      accessibilityRole={decorative ? undefined : 'progressbar'}
+      accessibilityValue={
+        decorative ? undefined : { now: Math.round(clamped * 100), min: 0, max: 100 }
+      }
       style={[s.wrap, { width: size, height: size }]}
     >
       <Svg width={size} height={size}>
