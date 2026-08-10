@@ -9,6 +9,14 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardDeckViewed: jest.fn(),
+  logGroupDeckGuideInterrupted: jest.fn(),
+  logGroupDeckGuideReadFailed: jest.fn(),
+  logGroupDeckGuideWriteFailed: jest.fn(),
+  logTabGuideCompleted: jest.fn(),
+}));
+
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),

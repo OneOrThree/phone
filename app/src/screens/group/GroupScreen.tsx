@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -18,7 +18,10 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
+import { todayStrKst } from '@/utils/localDate';
 import GroupListScreen from './GroupListScreen';
+import { GroupCardSummaryAdapter } from './groupCardSummary';
+import { groupFocusStatusStore } from './groupFocusStatus';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
@@ -49,7 +52,7 @@ function groupCountBucket(count: number): GroupCountBucket {
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { isGuest } = useUser();
+  const { isGuest, userId } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,6 +62,8 @@ export default function GroupScreen() {
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
   const [transitioning, setTransitioning] = useState(false);
+  const [screenFocused, setScreenFocused] = useState(false);
+  const cardSummaryRef = useRef(new GroupCardSummaryAdapter(groupFocusStatusStore));
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
@@ -151,6 +156,7 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
+      setScreenFocused(true);
       const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
@@ -160,6 +166,7 @@ export default function GroupScreen() {
       };
       fetchGroups();
       return () => {
+        setScreenFocused(false);
         requestSeqRef.current++;
       };
     }, [fetchGroups]),
@@ -242,7 +249,20 @@ export default function GroupScreen() {
     navigation.navigate('GroupCreate');
   }, [navigation]);
 
-  const myGroups = groups ?? [];
+  const myGroups = useMemo(() => groups ?? [], [groups]);
+
+  useEffect(() => {
+    cardSummaryRef.current.setScope(
+      userId === null
+        ? null
+        : { userId, date: todayStrKst(), groupIds: myGroups.map((group) => group.groupId) },
+    );
+  }, [myGroups, userId]);
+
+  const ensureCardBack = useCallback((groupId: string) => {
+    // 사용자 첫 flip과 guide 3→4가 같은 cache/in-flight dedupe 경로를 쓴다.
+    cardSummaryRef.current.ensureBack(groupId).catch(() => {});
+  }, []);
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -347,6 +367,11 @@ export default function GroupScreen() {
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}
+          userId={userId}
+          guideBlocked={findOpen || invite !== null}
+          guideScreenFocused={screenFocused}
+          guideEpisode={viewEpisodeRef.current.id}
+          onEnsureBack={ensureCardBack}
         />
         {findSheet}
         {inviteSheet}

@@ -33,6 +33,7 @@ export const STORAGE_KEYS = {
   guideFocusSession: 'gromo:guide:focusSession', // 집중 세션 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   guideStats: 'gromo:guide:stats', // 통계 첫 진입 스포트라이트 투어 노출 완료('1', GROMO-652)
   guideTier: 'gromo:guide:tier', // 티어 단계 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
+  guideGroupDeck: 'gromo:guide:groupDeck:v1', // 그룹 카드 덱 첫 안내 완료('1') — 계정 구분 없는 기기 전역 v1
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)

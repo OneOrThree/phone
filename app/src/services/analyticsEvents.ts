@@ -430,6 +430,30 @@ export function logGroupViewed(p: {
 }): void {
   track('group_viewed', p);
 }
+
+export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
+
+// 그룹 덱이 성공한 전체 목록과 안정된 anchor를 확보하고, 완료 key read와 overlay queue 판정까지
+// 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹 식별 정보는 싣지 않는다.
+export function logGroupCardDeckViewed(p: {
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+  guide_state: GroupDeckGuideState;
+}): void {
+  track('group_card_deck_viewed', p);
+}
+
+// guide 저장소/수명 오류는 사용자 행동 이벤트와 분리한다.
+export function logGroupDeckGuideReadFailed(): void {
+  track('group_deck_guide_read_failed');
+}
+export function logGroupDeckGuideInterrupted(p: {
+  reason: 'background' | 'route' | 'groups_changed' | 'blocking_overlay' | 'unmount';
+}): void {
+  track('group_deck_guide_interrupted', p);
+}
+export function logGroupDeckGuideWriteFailed(): void {
+  track('guide_complete_write_failed', { guide: 'groupDeck:v1' });
+}
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
 export function logGroupRoomViewed(p: { group_id: string }): void {
