@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   FlatList,
+  findNodeHandle,
   PanResponder,
   RefreshControl,
   StyleSheet,
@@ -19,6 +21,7 @@ import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { useGroupCardOrder } from './useGroupCardOrder';
+import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -49,6 +52,8 @@ const EDGE_PAGE_THROTTLE_MS = 260;
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
+  groupsRevision?: number;
+  isScreenFocused?: boolean;
   userId?: string | null;
   onSelect: (groupId: string) => void;
   onCreate: () => void;
@@ -59,6 +64,8 @@ export interface GroupListScreenProps {
 
 export default function GroupListScreen({
   groups,
+  groupsRevision = 0,
+  isScreenFocused = true,
   userId = null,
   onSelect,
   onCreate,
@@ -91,6 +98,9 @@ export default function GroupListScreen({
   const activeIdentityRef = useRef<string | null>(orderedGroups[0]?.groupId ?? null);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
+  const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
+  const frontFocusRef = useRef<View | null>(null);
+  const roomFocusRef = useRef<View | null>(null);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -149,6 +159,39 @@ export default function GroupListScreen({
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
   }, [activeIndex, orderedGroups, snapInterval]);
+
+  const focusNode = useCallback((ref: { current: View | null }) => {
+    requestAnimationFrame(() => {
+      const node = findNodeHandle(ref.current);
+      if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+  }, []);
+
+  // 복귀 판단은 출발 뒤 성공한 전체 목록 revision을 받은 뒤에만 한다. 조회 실패나 부분 응답을
+  // 탈퇴로 추정해 다른 카드를 복원하지 않는다.
+  useEffect(() => {
+    const context = roomReturnRef.current;
+    if (!isScreenFocused || !context || groupsRevision <= context.departureRevision || !hydrated)
+      return;
+
+    const target = resolveGroupRoomReturn(
+      context,
+      orderedGroups.map((group) => group.groupId),
+    );
+    roomReturnRef.current = null;
+    if (target.kind === 'empty') return;
+
+    activeIdentityRef.current = target.groupId;
+    setActiveIndex(target.index);
+    listRef.current?.scrollToOffset({ offset: target.index * snapInterval, animated: false });
+    if (target.kind === 'same_back') {
+      setFlippedGroupId(target.groupId);
+      focusNode(roomFocusRef);
+    } else {
+      setFlippedGroupId(null);
+      focusNode(frontFocusRef);
+    }
+  }, [focusNode, groupsRevision, hydrated, isScreenFocused, orderedGroups, snapInterval]);
 
   // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
   // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
@@ -283,8 +326,16 @@ export default function GroupListScreen({
                 </Text>
                 <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
                 <TouchableOpacity
+                  ref={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
                   style={s.backPrimary}
-                  onPress={() => onSelect(item.groupId)}
+                  onPress={() => {
+                    roomReturnRef.current = {
+                      groupId: item.groupId,
+                      sourceIndex: index,
+                      departureRevision: groupsRevision,
+                    };
+                    onSelect(item.groupId);
+                  }}
                   testID={`group.card.room.${item.groupId}`}
                 >
                   <Text style={s.backPrimaryText}>방 전체 보기</Text>
@@ -299,6 +350,7 @@ export default function GroupListScreen({
             ) : (
               <GroupCardFront
                 group={item}
+                bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
                 onFlip={() => draggingGroupId === null && setFlippedGroupId(item.groupId)}
                 reorderHandlers={handlersFor(item.groupId)}
                 canMovePrevious={index > 0}
