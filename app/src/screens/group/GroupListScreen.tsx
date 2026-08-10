@@ -105,6 +105,13 @@ export function advanceEdgeTarget(current: number, direction: -1 | 1, max: numbe
   return Math.max(0, Math.min(current + direction, max));
 }
 
+export function isProgrammaticMomentum(
+  targetOffset: number | null,
+  settledOffset: number,
+): boolean {
+  return targetOffset !== null && Math.abs(targetOffset - settledOffset) < 1;
+}
+
 const GUIDE_CHARACTER = {
   hi: require('@/assets/character_hi.png'),
   study: require('@/assets/character_study.png'),
@@ -339,6 +346,9 @@ export default function GroupListScreen({
     groupId: string;
     trigger: GroupCardFlipTrigger;
   } | null>(null);
+  // grip 가장자리 자동 paging은 캐러셀 위치만 맞추는 programmatic 이동이다. 완료 offset과
+  // 함께 보관해 실제 사용자 momentum만 swipe 계측으로 인정한다.
+  const programmaticMomentumOffsetRef = useRef<number | null>(null);
   const groupFingerprint = orderedGroups.map((group) => group.groupId).join('|');
   const stableActiveIndex =
     activeStableGroupId === null
@@ -548,7 +558,7 @@ export default function GroupListScreen({
   );
 
   const settleOffset = useCallback(
-    (offsetX: number) => {
+    (offsetX: number, logSwipe = true) => {
       const next = Math.max(0, Math.min(Math.round(offsetX / snapInterval), pageCount - 1));
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
       const from = activeIndexRef.current;
@@ -562,7 +572,7 @@ export default function GroupListScreen({
       setActiveStableGroupId(nextIdentity);
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
-      if (from !== next) {
+      if (from !== next && logSwipe) {
         logGroupCarouselPaged({
           trigger: 'swipe',
           from_index: from,
@@ -581,8 +591,13 @@ export default function GroupListScreen({
   );
 
   const onMomentumScrollEnd = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
-      settleOffset(event.nativeEvent.contentOffset.x),
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const programmaticOffset = programmaticMomentumOffsetRef.current;
+      const isProgrammatic = isProgrammaticMomentum(programmaticOffset, offsetX);
+      programmaticMomentumOffsetRef.current = null;
+      settleOffset(offsetX, !isProgrammatic);
+    },
     [settleOffset],
   );
 
@@ -681,7 +696,9 @@ export default function GroupListScreen({
         const next = advanceEdgeTarget(drag.target, direction, max);
         if (next === drag.target) return;
         drag.target = next;
-        listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
+        const offset = next * snapInterval;
+        programmaticMomentumOffsetRef.current = offset;
+        listRef.current?.scrollToOffset({ offset, animated: true });
       };
       page();
       edgeTimerRef.current = setInterval(page, EDGE_PAGE_THROTTLE_MS);
@@ -1109,6 +1126,9 @@ export default function GroupListScreen({
                 disableIntervalMomentum
                 onScrollBeginDrag={() => {
                   roomReturnRef.current = null;
+                  pendingFlipRef.current = null;
+                  guideBackGroupIdRef.current = null;
+                  setFlippedGroupId(null);
                 }}
                 onMomentumScrollEnd={onMomentumScrollEnd}
                 onScrollEndDrag={onScrollEndDrag}

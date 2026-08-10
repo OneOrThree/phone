@@ -13,6 +13,7 @@ import {
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import {
+  clearPendingDirectGroupEntry,
   clearPendingGroupEntry,
   discardInitialGroupRoomReturn,
   markInitialGroupRoomReturn,
@@ -21,6 +22,7 @@ import {
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 jest.mock('@/navigation/groupEntrySource', () => ({
+  clearPendingDirectGroupEntry: jest.fn(),
   clearPendingGroupEntry: jest.fn(),
   discardInitialGroupRoomReturn: jest.fn(),
   markInitialGroupRoomReturn: jest.fn(),
@@ -37,6 +39,9 @@ jest.mock('@/services/groupApi', () => ({ getMyGroups: jest.fn() }));
 const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as jest.Mock;
 const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
   typeof queueDirectGroupEntry
+>;
+const mockClearPendingDirectGroupEntry = clearPendingDirectGroupEntry as jest.MockedFunction<
+  typeof clearPendingDirectGroupEntry
 >;
 const mockClearPendingGroupEntry = clearPendingGroupEntry as jest.MockedFunction<
   typeof clearPendingGroupEntry
@@ -206,7 +211,8 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     await flushAsync();
 
     expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
-    expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
+    expect(mockClearPendingDirectGroupEntry).toHaveBeenCalledTimes(1);
+    expect(mockClearPendingGroupEntry).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
@@ -420,7 +426,8 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       await flushAsync();
 
       expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
-      expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
+      expect(mockClearPendingDirectGroupEntry).toHaveBeenCalledTimes(1);
+      expect(mockClearPendingGroupEntry).not.toHaveBeenCalled();
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,

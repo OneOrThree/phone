@@ -8,6 +8,7 @@ import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 import {
+  clearPendingDirectGroupEntry,
   clearPendingGroupEntry,
   discardInitialGroupRoomReturn,
   markInitialGroupRoomReturn,
@@ -291,7 +292,7 @@ async function pushGroupRoom(
   // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
   // GroupRoom 우회가 확정되면 GroupScreen이 아직 소비하지 못한 push source를 폐기한다.
   // 화면 fetch가 먼저 성공했다면 이미 소비된 뒤라 no-op이고, 우회가 먼저면 다음 episode 오염을 막는다.
-  clearPendingGroupEntry();
+  clearPendingDirectGroupEntry();
   if (pendingGroupEntrySeq === seq) pendingGroupEntrySeq = null;
   navigationRef.navigate('GroupRoom', {
     groupId,

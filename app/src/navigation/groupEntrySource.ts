@@ -28,6 +28,12 @@ export function clearPendingGroupEntry(): void {
   pendingInitialGroupRoomReturn = false;
 }
 
+// GroupRoom으로 직접 우회한 뒤에는 목록용 direct source만 폐기한다. 결과 푸시가 남긴
+// 최초 방 복귀 표식까지 지우면 방을 닫은 첫 GroupScreen episode가 tab으로 오염된다.
+export function clearPendingDirectGroupEntry(): void {
+  pendingDirectSource = null;
+}
+
 export function markInitialGroupRoomReturn(): void {
   pendingInitialGroupRoomReturn = true;
 }

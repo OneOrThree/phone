@@ -8,7 +8,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BackHandler, FlatList, View } from 'react-native';
-import GroupListScreen, { advanceEdgeTarget } from './GroupListScreen';
+import GroupListScreen, { advanceEdgeTarget, isProgrammaticMomentum } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import { logGroupCardActionClicked } from '@/services/analyticsEvents';
@@ -292,6 +292,22 @@ describe('콜백', () => {
       [expect.objectContaining({ action: 'settings', back_source: 'guide' })],
       [expect.objectContaining({ action: 'room', back_source: 'guide' })],
     ]);
+  });
+
+  test('사용자 스와이프 시작은 같은 페이지로 돌아와도 열린 뒷면을 즉시 닫는다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await finishCardFlip();
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'scrollBeginDrag', {
+        nativeEvent: { contentOffset: { x: 0 } },
+      });
+    });
+    await finishCardFlip();
+
+    expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
@@ -587,6 +603,13 @@ describe('제스처 중재와 재정렬', () => {
     const second = advanceEdgeTarget(first, 1, 3);
     const third = advanceEdgeTarget(second, 1, 3);
     expect([first, second, third, advanceEdgeTarget(third, 1, 3)]).toEqual([1, 2, 3, 3]);
+  });
+
+  test('가장자리 자동 이동의 완료 offset만 programmatic momentum으로 분류한다', () => {
+    expect(isProgrammaticMomentum(400, 400)).toBe(true);
+    expect(isProgrammaticMomentum(400, 399.5)).toBe(true);
+    expect(isProgrammaticMomentum(400, 360)).toBe(false);
+    expect(isProgrammaticMomentum(null, 400)).toBe(false);
   });
 
   test('순서 저장 실패는 앱 재실행 시 이전 순서로 돌아갈 수 있음을 알린다', async () => {

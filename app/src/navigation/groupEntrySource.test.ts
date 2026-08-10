@@ -1,4 +1,5 @@
 import {
+  clearPendingDirectGroupEntry,
   clearPendingGroupEntry,
   consumeInitialGroupRoomReturn,
   consumeGroupEntry,
@@ -38,4 +39,14 @@ test('초기 그룹방 복귀 표식은 전역 탭 이탈에서 폐기된다', (
   discardInitialGroupRoomReturn();
 
   expect(consumeInitialGroupRoomReturn()).toBe(false);
+});
+
+test('직접 source만 폐기하면 결과 방의 최초 복귀 표식은 보존한다', () => {
+  queueDirectGroupEntry('push');
+  markInitialGroupRoomReturn();
+
+  clearPendingDirectGroupEntry();
+
+  expect(consumeGroupEntry('tab')).toBe('tab');
+  expect(consumeInitialGroupRoomReturn()).toBe(true);
 });
