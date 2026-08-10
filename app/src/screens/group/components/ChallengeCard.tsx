@@ -352,11 +352,7 @@ export default function ChallengeCard({
   const isFutureBet = betDate > todayStrKst();
   // 참가 진입점 잠금 — FOCUS는 서버가 준 bet.myAchievedNow(이미 달성), SCREEN_TIME은 내 진행
   // 행의 확정 패배다. 스크린타임의 myAchievedNow는 표시용 잠정값이라 잠금에 쓰지 않는다(DTO 주석).
-  // ⚠️ 미래(내일) 내기는 오늘 진행률 스냅샷으로 잠그지 않는다(#473 리뷰) — 내일의 집중·사용량은
-  //    미지수라 오늘 '이미 달성/초과'는 차단 근거가 못 된다. 서버도 폴백 내기의
-  //    myAchievedNow=false를 보장하지만 구서버·경합 대비 앱에서도 방어적으로 끊는다.
-  const joinBlockedNow =
-    !isFutureBet && (isScreenTime ? myBlockedNow : bet?.myAchievedNow === true);
+  // (joinBlockedNow 는 아래 회차 축 파생 뒤에 둔다 — todaySession 을 봐야 하기 때문이다.)
   // ── 참여 상태·표시값의 축: **회차(bet.session)가 정본, 레거시 최상위 필드는 폴백** ──
   // 브리지가 끝나면(1418) 서버는 정식 v2 형태(`enabled`·`stake`·`session`)만 내리고 최상위
   // `status`·`myJoined`·`participants`는 사라진다(N36 병기 종료). 레거시 축으로 분기를 짜 두면
@@ -372,6 +368,19 @@ export default function ChallengeCard({
   // 표시 금액도 회차 우선 — 회차는 개설 시점 stake·pot을 박제한다(설정 변경과 갈릴 수 있다).
   const displayStake = todaySession?.stake ?? bet?.stake ?? 0;
   const displayPot = todaySession?.pot ?? bet?.pot ?? 0;
+
+  // 참가 진입점 잠금 — FOCUS는 서버가 준 myAchievedNow(이미 달성), SCREEN_TIME은 내 진행 행의
+  // 확정 패배다. 스크린타임의 myAchievedNow는 표시용 잠정값이라 잠금에 쓰지 않는다(DTO 주석).
+  // ⚠️ 미래(내일) 내기는 오늘 진행률 스냅샷으로 잠그지 않는다(#473 리뷰) — 내일의 집중·사용량은
+  //    미지수라 오늘 '이미 달성/초과'는 차단 근거가 못 된다. 서버도 폴백 내기의
+  //    myAchievedNow=false를 보장하지만 구서버·경합 대비 앱에서도 방어적으로 끊는다.
+  // 회차 축을 먼저 본다(#570 리뷰) — 레거시 최상위 필드만 보면 브리지 철거(1418) 순간
+  // undefined 가 되어 **이 잠금이 조용히 풀린다**. 서버가 BET_ALREADY_ACHIEVED 로 최종
+  // 거부하니 참가비가 새지는 않지만, 위 myJoinedNow 와 같은 클래스의 "조용히 깨지는" 자리다.
+  const myAchievedNowValue = sessionAware
+    ? todaySession?.myAchievedNow === true
+    : bet?.myAchievedNow === true;
+  const joinBlockedNow = !isFutureBet && (isScreenTime ? myBlockedNow : myAchievedNowValue);
 
   // ── 낙관 반영 폐기 — 재조회가 도착하면 서버 값이 정본이다(GROMO-1112) ──
   // challenge 객체가 갈렸다 = 부모가 **새 응답**을 내려 줬다는 신호다(부모는 조회 응답을 그대로
