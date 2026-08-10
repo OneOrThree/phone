@@ -224,6 +224,11 @@ export default function GroupListScreen({
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeStableGroupId, setActiveStableGroupId] = useState<string | null>(null);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
+  const flippedGroupIdRef = useRef<string | null>(null);
+  flippedGroupIdRef.current = flippedGroupId;
+  const [flipAnimating, setFlipAnimating] = useState(false);
+  const flipAnimatingRef = useRef(false);
+  flipAnimatingRef.current = flipAnimating;
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -274,6 +279,7 @@ export default function GroupListScreen({
     // iOS는 RefreshControl.enabled를 무시하므로 handler에서도 순서 변경 episode를 잠근다.
     if (
       refreshingRef.current ||
+      flipAnimatingRef.current ||
       reorderMenuGroupIdRef.current !== null ||
       draggingGroupIdRef.current !== null
     )
@@ -310,7 +316,11 @@ export default function GroupListScreen({
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const returnFocusTargetRef = useRef<'room' | 'settings'>('room');
   const frontFocusRef = useRef<View | null>(null);
+  const mountedRef = useRef(true);
   const reorderGripRefs = useRef(new Map<string, View>());
+  const reorderPreviousRefs = useRef(new Map<string, View>());
+  const reorderNextRefs = useRef(new Map<string, View>());
+  const reorderDoneRefs = useRef(new Map<string, View>());
   const backFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
   const settingsFocusRef = useRef<View | null>(null);
@@ -428,10 +438,28 @@ export default function GroupListScreen({
 
   const focusNode = useCallback((ref: { current: View | null }) => {
     requestAnimationFrame(() => {
+      if (!mountedRef.current || ref.current === null) return;
       const node = findNodeHandle(ref.current);
       if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
     });
   }, []);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
+  const handleFlipTransition = useCallback(
+    (transitioning: boolean) => {
+      setFlipAnimating(transitioning);
+      if (!transitioning) {
+        focusNode(flippedGroupIdRef.current === null ? frontFocusRef : backFocusRef);
+      }
+    },
+    [focusNode],
+  );
 
   const closeReorderMenu = useCallback(() => {
     const groupId = reorderMenuGroupIdRef.current;
@@ -439,11 +467,33 @@ export default function GroupListScreen({
     reorderMenuGroupIdRef.current = null;
     setReorderMenuGroupId(null);
     requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
       const node = findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
       if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
     });
     return true;
   }, []);
+
+  // 메뉴가 열린 첫 commit과 한 칸 이동 뒤 재정렬 commit 모두에서 현재 가능한 첫 조작으로
+  // 포커스를 옮긴다. accessibilityViewIsModal만으로는 기존 grip 포커스가 자동 이동하지 않는다.
+  useEffect(() => {
+    if (reorderMenuGroupId === null) return;
+    requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
+      const index = orderedGroupsRef.current.findIndex(
+        (group) => group.groupId === reorderMenuGroupId,
+      );
+      const target =
+        (index > 0 ? reorderPreviousRefs.current.get(reorderMenuGroupId) : null) ??
+        (index >= 0 && index < orderedGroupsRef.current.length - 1
+          ? reorderNextRefs.current.get(reorderMenuGroupId)
+          : null) ??
+        reorderDoneRefs.current.get(reorderMenuGroupId) ??
+        null;
+      const node = findNodeHandle(target);
+      if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+  }, [orderedGroups, reorderMenuGroupId]);
 
   useEffect(() => {
     if (reorderMenuGroupId === null) return;
@@ -462,14 +512,13 @@ export default function GroupListScreen({
         trigger,
         group_count_bucket: groupCountBucket(orderedGroups.length),
       });
-      focusNode(backFocusRef);
     },
-    [ensureBack, focusNode, orderedGroups.length],
+    [ensureBack, orderedGroups.length],
   );
 
   const selectPage = useCallback(
     (page: number, trigger: GroupCarouselTrigger = 'indicator_press') => {
-      if (reorderMenuGroupIdRef.current !== null) return;
+      if (reorderMenuGroupIdRef.current !== null || flipAnimatingRef.current) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndexRef.current;
       roomReturnRef.current = null;
@@ -782,9 +831,8 @@ export default function GroupListScreen({
         trigger,
         group_count_bucket: groupCountBucket(orderedGroups.length),
       });
-      focusNode(frontFocusRef);
     },
-    [flippedGroupId, focusNode, orderedGroups.length],
+    [flippedGroupId, orderedGroups.length],
   );
 
   // focus episode가 바뀌면 완료 key와 queue 결과를 새로 판정한다. read 전에는 카드 입력을 받지 않는다.
@@ -1006,7 +1054,7 @@ export default function GroupListScreen({
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         directionalLockEnabled
-        scrollEnabled={guideInputReady && !guideVisible}
+        scrollEnabled={guideInputReady && !guideVisible && !flipAnimating}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1014,6 +1062,7 @@ export default function GroupListScreen({
             enabled={
               guideInputReady &&
               !guideVisible &&
+              !flipAnimating &&
               reorderMenuGroupId === null &&
               draggingGroupId === null
             }
@@ -1027,7 +1076,7 @@ export default function GroupListScreen({
           ref={deckAnchorRef}
           collapsable={false}
           onLayout={() => setDeckLayoutReady(true)}
-          pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
+          pointerEvents={guideInputReady && !guideVisible && !flipAnimating ? 'auto' : 'none'}
           testID="group.deck.guideAnchor"
         >
           {!hydrated || !emojiHydrated ? (
@@ -1047,6 +1096,7 @@ export default function GroupListScreen({
                 scrollEnabled={
                   guideInputReady &&
                   !guideVisible &&
+                  !flipAnimating &&
                   draggingGroupId === null &&
                   reorderMenuGroupId === null
                 }
@@ -1099,6 +1149,9 @@ export default function GroupListScreen({
                       groupId={item.groupId}
                       minHeight={GROUP_CARD_HEIGHT}
                       flipped={flippedGroupId === item.groupId}
+                      onTransitioningChange={
+                        item.groupId === activeGroupId ? handleFlipTransition : undefined
+                      }
                       back={
                         <GroupCardBack
                           group={item}
@@ -1202,6 +1255,10 @@ export default function GroupListScreen({
                           <View style={s.reorderHeader}>
                             <Text style={s.reorderTitle}>순서 변경</Text>
                             <TouchableOpacity
+                              ref={(node) => {
+                                if (node) reorderDoneRefs.current.set(item.groupId, node);
+                                else reorderDoneRefs.current.delete(item.groupId);
+                              }}
                               onPress={closeReorderMenu}
                               accessibilityRole="button"
                               testID={`group.card.reorderDone.${item.groupId}`}
@@ -1209,28 +1266,52 @@ export default function GroupListScreen({
                               <Text style={s.reorderDoneText}>완료</Text>
                             </TouchableOpacity>
                           </View>
-                          <ScrollView
+                          <View
                             style={s.reorderOptions}
-                            nestedScrollEnabled
-                            showsVerticalScrollIndicator
                             testID={`group.card.reorderOptions.${item.groupId}`}
                           >
-                            {orderedGroups.map((target, targetIndex) => (
-                              <TouchableOpacity
-                                key={target.groupId}
-                                style={s.reorderOption}
-                                onPress={() => {
-                                  commitMove(item.groupId, targetIndex, 'pointer_control');
-                                  closeReorderMenu();
-                                }}
-                                accessibilityRole="button"
-                                accessibilityLabel={`${targetIndex + 1}번째로 이동`}
-                                testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
-                              >
-                                <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
+                            <TouchableOpacity
+                              ref={(node) => {
+                                if (node) reorderPreviousRefs.current.set(item.groupId, node);
+                                else reorderPreviousRefs.current.delete(item.groupId);
+                              }}
+                              style={[s.reorderOption, index === 0 && s.reorderOptionDisabled]}
+                              disabled={index === 0}
+                              onPress={() => {
+                                const from = orderedGroupsRef.current.findIndex(
+                                  (group) => group.groupId === item.groupId,
+                                );
+                                commitMove(item.groupId, from - 1, 'pointer_control');
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel="앞으로 이동"
+                              testID={`group.card.reorderPrevious.${item.groupId}`}
+                            >
+                              <Text style={s.reorderOptionText}>앞으로 이동</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              ref={(node) => {
+                                if (node) reorderNextRefs.current.set(item.groupId, node);
+                                else reorderNextRefs.current.delete(item.groupId);
+                              }}
+                              style={[
+                                s.reorderOption,
+                                index === orderedGroups.length - 1 && s.reorderOptionDisabled,
+                              ]}
+                              disabled={index === orderedGroups.length - 1}
+                              onPress={() => {
+                                const from = orderedGroupsRef.current.findIndex(
+                                  (group) => group.groupId === item.groupId,
+                                );
+                                commitMove(item.groupId, from + 1, 'pointer_control');
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel="뒤로 이동"
+                              testID={`group.card.reorderNext.${item.groupId}`}
+                            >
+                              <Text style={s.reorderOptionText}>뒤로 이동</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       </>
                     )}
@@ -1240,7 +1321,8 @@ export default function GroupListScreen({
 
               {saveFailed && (
                 <Text style={s.saveError} accessibilityRole="alert">
-                  순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.
+                  순서를 저장하지 못했어요. 다음 변경 때 다시 시도하며, 앱을 다시 열면 이전 순서로
+                  돌아갈 수 있어요.
                 </Text>
               )}
 
@@ -1248,7 +1330,7 @@ export default function GroupListScreen({
                 pageCount={pageCount}
                 activeIndex={renderedActiveIndex}
                 pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
-                disabled={draggingGroupId !== null || reorderMenuGroupId !== null}
+                disabled={flipAnimating || draggingGroupId !== null || reorderMenuGroupId !== null}
                 onSelectPage={selectPage}
                 onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
               />
@@ -1384,6 +1466,7 @@ const s = StyleSheet.create({
   reorderDoneText: { ...T.text.label, color: T.accent, padding: T.space.xs },
   reorderOptions: { maxHeight: 196 },
   reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
+  reorderOptionDisabled: { opacity: 0.36 },
   reorderOptionText: { ...T.text.label, color: T.ink },
   saveError: {
     ...T.text.caption,

@@ -1,8 +1,10 @@
-import { render, screen } from '@testing-library/react-native';
+import { act, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { GroupCardFlip } from './GroupCardFlip';
 
-test('같은 shell 안의 두 face에서 포인터·접근성 활성 면을 flip 상태와 함께 바꾼다', async () => {
+test('전환 완료 전 양쪽 입력을 잠그고 완료 뒤 뒷면만 연다', async () => {
+  jest.useFakeTimers();
+  const onTransitioningChange = jest.fn();
   const view = await render(
     <GroupCardFlip
       groupId="g1"
@@ -10,6 +12,7 @@ test('같은 shell 안의 두 face에서 포인터·접근성 활성 면을 flip
       flipped={false}
       front={<Text>앞면</Text>}
       back={<Text>뒷면</Text>}
+      onTransitioningChange={onTransitioningChange}
     />,
   );
 
@@ -29,11 +32,21 @@ test('같은 shell 안의 두 face에서 포인터·접근성 활성 면을 flip
       flipped
       front={<Text>앞면</Text>}
       back={<Text>뒷면</Text>}
+      onTransitioningChange={onTransitioningChange}
     />,
   );
 
   expect(front().props.pointerEvents).toBe('none');
   expect(front().props.importantForAccessibility).toBe('no-hide-descendants');
+  expect(back().props.pointerEvents).toBe('none');
+  expect(onTransitioningChange).toHaveBeenCalledWith(true);
+
+  await act(async () => {
+    jest.advanceTimersByTime(290);
+  });
+
   expect(back().props.pointerEvents).toBe('auto');
   expect(back().props.importantForAccessibility).toBe('auto');
+  expect(onTransitioningChange).toHaveBeenLastCalledWith(false);
+  jest.useRealTimers();
 });

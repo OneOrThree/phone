@@ -160,10 +160,15 @@ export function reconcileGroupCardEmojiBucket(
     ) as GroupCardEmojiBucket;
 
     if (parsed.needsRepair || !sameBucket(current, next)) {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.groupCardEmoji,
-        JSON.stringify({ ...parsed.value, [userId]: next }),
-      );
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.groupCardEmoji,
+          JSON.stringify({ ...parsed.value, [userId]: next }),
+        );
+      } catch {
+        // repair/prune 저장 실패는 다음 성공 목록에서 다시 시도한다. 읽어서 검증한 현재 계정 값은
+        // 이미 사용할 수 있으므로 hydrate까지 실패로 바꿔 정상 아이콘을 기본값으로 덮지 않는다.
+      }
     }
     return next;
   });

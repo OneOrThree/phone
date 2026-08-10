@@ -1,6 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { Ref, RefObject } from 'react';
-import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderHandlers,
+} from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
@@ -96,7 +103,13 @@ export function GroupCardFront({
           </View>
 
           <View style={s.info}>
-            <View style={s.infoInner}>
+            <ScrollView
+              style={s.infoScroll}
+              contentContainerStyle={s.infoInner}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+              testID={`group.card.frontInfo.${group.groupId}`}
+            >
               <View style={s.nameRow}>
                 <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
                   {group.name}
@@ -129,7 +142,7 @@ export function GroupCardFront({
                   <Text style={s.flipText}>뒤집어 방 보기</Text>
                 </View>
               </View>
-            </View>
+            </ScrollView>
           </View>
         </Pressable>
       </View>
@@ -227,13 +240,14 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
   },
   infoInner: {
-    flex: 1,
+    flexGrow: 1,
     width: '76%',
     alignSelf: 'center',
     paddingHorizontal: T.space.sm,
     paddingBottom: 56,
     gap: T.space.sm,
   },
+  infoScroll: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   name: { ...T.text.heading, color: T.ink, flexShrink: 1, minWidth: 0 },
   ownerChip: {

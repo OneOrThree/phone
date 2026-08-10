@@ -85,6 +85,12 @@ async function press(testID: string) {
   });
 }
 
+async function finishCardFlip() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 310));
+  });
+}
+
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
@@ -143,6 +149,12 @@ describe('카드 렌더', () => {
       shadowOpacity: 0.16,
       elevation: 5,
     });
+    expect(screen.getByTestId(`group.card.frontInfo.${GROUP_ID}`).props).toMatchObject({
+      nestedScrollEnabled: true,
+    });
+    expect(
+      screen.getByTestId(`group.card.frontInfo.${GROUP_ID}`).props.contentContainerStyle,
+    ).toEqual(expect.objectContaining({ flexGrow: 1 }));
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
@@ -198,6 +210,7 @@ describe('콜백', () => {
     ).toBeOnTheScreen();
     expect(onSelect).not.toHaveBeenCalled();
 
+    await finishCardFlip();
     await press(`group.card.room.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
@@ -213,6 +226,7 @@ describe('콜백', () => {
   test('뒷면 CTA 연타는 첫 interaction과 navigation만 수락한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
+    await finishCardFlip();
 
     await press(`group.card.room.${GROUP_ID}`);
     await press(`group.card.room.${GROUP_ID}`);
@@ -256,6 +270,7 @@ describe('콜백', () => {
     );
     await press('group.list.guide');
     await waitFor(() => expect(screen.queryByTestId('group.list.guide')).toBeNull());
+    await finishCardFlip();
 
     await act(async () => {
       fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
@@ -480,12 +495,22 @@ describe('제스처 중재와 재정렬', () => {
       grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
     });
 
-    await press(`group.card.reorderTo.${GROUP_ID}.1`);
+    await press(`group.card.reorderNext.${GROUP_ID}`);
     expect(
       screen
         .getByTestId('group.list.items')
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
+    expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    await press(`group.card.reorderPrevious.${GROUP_ID}`);
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2]);
+    expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    await press(`group.card.reorderDone.${GROUP_ID}`);
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
   });
 
   test('Android Back은 열린 순서 변경 메뉴만 닫고 상위 route로 전달하지 않는다', async () => {
@@ -524,7 +549,7 @@ describe('제스처 중재와 재정렬', () => {
     backSpy.mockRestore();
   });
 
-  test('긴 순서 변경 메뉴는 카드 안에서 세로 스크롤로 모든 슬롯을 제공한다', async () => {
+  test('그룹이 많아도 순서 메뉴는 고정된 두 방향 한 칸 control만 제공한다', async () => {
     const groups = Array.from({ length: 11 }, (_, index) =>
       group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
     );
@@ -546,10 +571,15 @@ describe('제스처 중재와 재정렬', () => {
     });
 
     const options = screen.getByTestId(`group.card.reorderOptions.${groups[0].groupId}`);
-    expect(options.props.nestedScrollEnabled).toBe(true);
+    expect(options).toBeOnTheScreen();
     expect(
-      screen.getAllByTestId(new RegExp(`group.card.reorderTo.${groups[0].groupId}`)),
-    ).toHaveLength(11);
+      screen.getByTestId(`group.card.reorderPrevious.${groups[0].groupId}`).props
+        .accessibilityState,
+    ).toEqual(expect.objectContaining({ disabled: true }));
+    expect(
+      screen.getByTestId(`group.card.reorderNext.${groups[0].groupId}`).props.accessibilityState,
+    ).toEqual(expect.objectContaining({ disabled: false }));
+    expect(screen.queryAllByTestId(/group\.card\.reorderTo\./)).toHaveLength(0);
   });
 
   test('가장자리 유지 tick은 현재 target을 누적해 마지막 슬롯까지 이동한다', () => {
@@ -557,6 +587,27 @@ describe('제스처 중재와 재정렬', () => {
     const second = advanceEdgeTarget(first, 1, 3);
     const third = advanceEdgeTarget(second, 1, 3);
     expect([first, second, third, advanceEdgeTarget(third, 1, 3)]).toEqual([1, 2, 3, 3]);
+  });
+
+  test('순서 저장 실패는 앱 재실행 시 이전 순서로 돌아갈 수 있음을 알린다', async () => {
+    await renderList(
+      [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })],
+      undefined,
+      'save-error-user',
+    );
+    await waitFor(() => expect(screen.getByTestId('group.list.items')).toBeOnTheScreen());
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    const activeGroupId = screen.getByTestId('group.list.items').props.data[0].groupId;
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.grip.${activeGroupId}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/앱을 다시 열면 이전 순서로 돌아갈 수 있어요/)).toBeOnTheScreen(),
+    );
   });
 
   test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {

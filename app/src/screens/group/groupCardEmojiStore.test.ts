@@ -118,6 +118,16 @@ test('성공한 전체 목록에서만 현재 계정의 stale 그룹 아이콘�
   });
 });
 
+test('stale repair 쓰기가 실패해도 검증해 읽은 현재 그룹 아이콘은 hydrate에 유지한다', async () => {
+  await AsyncStorage.setItem(
+    'gromo:groups:cardEmoji:v1',
+    JSON.stringify({ u1: { g1: '📚', gone: '🔥' } }),
+  );
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+
+  await expect(reconcileGroupCardEmojiBucket('u1', ['g1'])).resolves.toEqual({ g1: '📚' });
+});
+
 test('실패한 최신 pending 아이콘은 다음 그룹 화면 활성화에서 재시도한다', async () => {
   preservePendingGroupCardEmoji('u1', 'g1', '🔥');
   await retryPendingGroupCardEmojis('u1', ['g1']);
