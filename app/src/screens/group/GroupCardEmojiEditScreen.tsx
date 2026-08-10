@@ -95,6 +95,8 @@ export default function GroupCardEmojiEditScreen() {
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
       setBaseline(selected);
+      // 저장 중 다른 route가 이 화면 위에 열렸다면 그 route를 잘못 pop하지 않는다.
+      if (!navigation.isFocused()) return;
       navigation.goBack();
     } catch {
       preservePendingGroupCardEmoji(userId, groupId, selected);
