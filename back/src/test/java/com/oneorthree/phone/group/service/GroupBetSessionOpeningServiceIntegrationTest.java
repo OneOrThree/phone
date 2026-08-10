@@ -205,7 +205,7 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
         betConfig(disabled, false);
 
         // 스캔 루프는 스케줄러 빈에 있다 — 서비스 안 루프는 자기 호출로 @Transactional 을 우회한다.
-        int opened = groupBetScheduler.ensureTodaySessions();
+        int opened = groupBetScheduler.openTodaySessions();
 
         LocalDate today = LocalDate.now(KST);
         Optional<GroupChallengeBetSession> session =
@@ -217,7 +217,7 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
                 .findByBetIdAndSessionDate(configs.get(1).getId(), today)).isEmpty();
 
         // 재스캔은 새로 만들지 않는다(캐치업 멱등).
-        int reopened = groupBetScheduler.ensureTodaySessions();
+        int reopened = groupBetScheduler.openTodaySessions();
         assertThat(groupChallengeBetSessionRepository
                 .findByBetIdAndSessionDate(config.getId(), today).orElseThrow().getId())
                 .isEqualTo(session.orElseThrow().getId());

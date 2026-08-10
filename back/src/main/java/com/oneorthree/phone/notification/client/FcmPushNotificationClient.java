@@ -103,10 +103,24 @@ public class FcmPushNotificationClient implements PushNotificationPort {
     /**
      * FCM HTTP v1 메시지 페이로드 조립 — package-private (단위 테스트 대상).
      * soundEnabled true 일 때만 apns.payload.aps.sound = "default" 포함.
+     *
+     * <p><b>사일런트(data-only, GROMO-1281)</b>: notification 블록을 빼고 data 만 싣는다.
+     * iOS 는 {@code aps.content-available=1} + 헤더 {@code apns-push-type: background} ·
+     * {@code apns-priority: 5}(Apple 이 background 푸시에 요구하는 조합)로 앱을 깨우고,
+     * Android 는 data-only 메시지의 기본 우선순위가 normal 이라 Doze 에서 지연되므로
+     * {@code priority: HIGH} 로 올린다 — 그레이스 30분 안에 flush 가 도착해야 정산이 데이터를 본다.
      */
     Map<String, Object> buildMessagePayload(String deviceToken, PushMessage message) {
         Map<String, Object> fcmMessage = new LinkedHashMap<>();
         fcmMessage.put("token", deviceToken);
+        if (message.isSilent()) {
+            fcmMessage.put("data", message.toDataPayload());
+            fcmMessage.put("apns", Map.of(
+                    "headers", Map.of("apns-push-type", "background", "apns-priority", "5"),
+                    "payload", Map.of("aps", Map.of("content-available", 1))));
+            fcmMessage.put("android", Map.of("priority", "HIGH"));
+            return Map.of("message", fcmMessage);
+        }
         fcmMessage.put("notification", Map.of("title", message.title(), "body", message.body()));
         // data = 추가 키(type·groupId 등) + link. 종전 트리거는 추가 키가 없어 {"link": …} 그대로다.
         fcmMessage.put("data", message.toDataPayload());

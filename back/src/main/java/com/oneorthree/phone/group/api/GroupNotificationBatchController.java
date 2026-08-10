@@ -3,7 +3,7 @@ package com.oneorthree.phone.group.api;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
-import com.oneorthree.phone.notification.service.BetResultNotificationService;
+import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -41,27 +41,28 @@ public class GroupNotificationBatchController {
     /** 관리자 키 요청 헤더 — 환경변수 {@code BATCH_ADMIN_KEY} 값과 일치해야 한다. */
     public static final String ADMIN_KEY_HEADER = GroupBetBatchController.ADMIN_KEY_HEADER;
 
-    private final BetResultNotificationService betResultNotificationService;
+    private final BetEventNotificationService betEventNotificationService;
     private final ChallengeWindowEndNotificationService challengeWindowEndNotificationService;
     private final ChallengeDurationEndNotificationService challengeDurationEndNotificationService;
     private final String batchAdminKey;
 
     // 키 미설정은 기동 실패가 아니라 503 응답으로 처리한다(GroupBetBatchController 와 동일).
     public GroupNotificationBatchController(
-            BetResultNotificationService betResultNotificationService,
+            BetEventNotificationService betEventNotificationService,
             ChallengeWindowEndNotificationService challengeWindowEndNotificationService,
             ChallengeDurationEndNotificationService challengeDurationEndNotificationService,
             @Value("${BATCH_ADMIN_KEY:}") String batchAdminKey) {
-        this.betResultNotificationService = betResultNotificationService;
+        this.betEventNotificationService = betEventNotificationService;
         this.challengeWindowEndNotificationService = challengeWindowEndNotificationService;
         this.challengeDurationEndNotificationService = challengeDurationEndNotificationService;
         this.batchAdminKey = batchAdminKey;
     }
 
-    @Operation(summary = "내기 정산 결과 푸시 수동 실행",
-            description = "최근 48시간 안에 정산이 끝난 내기(SETTLED·FORFEITED)의 참가자에게 결과 푸시를 보낸다."
-                    + " 승/패/몰수 3종 문구가 참가자별로 갈린다."
-                    + " 이미 보낸 (유저, 내기) 조합은 dedup 으로 빠지므로 반복 호출해도 중복 발송이 없다"
+    @Operation(summary = "내기 사건 알림 재훑기 수동 실행",
+            description = "최근 48시간 안에 종료된 회차(SETTLED·FORFEITED 결과 + VOIDED·REFUNDED 환불 통지)를"
+                    + " 재훑기해 미발송 건을 사건 단위 파이프라인(클레임 → 묶음 → 발송)에 태우고,"
+                    + " 조용한 시간 이월(DEFERRED) 건도 함께 흘려보낸다."
+                    + " 이미 클레임된 (유저, kind, 회차) 사건은 dedup 으로 빠지므로 반복 호출해도 중복 발송이 없다"
                     + " (재호출 시 sentCount=0, dedupedCount>0 이 정상)."
                     + " X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")
     @ApiResponses({
@@ -73,7 +74,7 @@ public class GroupNotificationBatchController {
     public ResponseEntity<PushDispatchSummaryResponse> notifyBetResults(
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey) {
         requireAdminKey(adminKey);
-        return ResponseEntity.ok(betResultNotificationService.sendBetResultNotifications());
+        return ResponseEntity.ok(betEventNotificationService.rescanAndFlush());
     }
 
     @Operation(summary = "챌린지 창 종료 푸시 수동 실행",

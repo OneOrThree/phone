@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.service.GroupBetSessionOpeningService;
 import com.oneorthree.phone.group.service.GroupBetSettler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -28,8 +29,8 @@ import java.util.UUID;
  * 호출(self-invocation)이라 {@code @Transactional} 프록시를 타지 않는다. 이 클래스 자체는
  * <b>의도적으로 무트랜잭션</b>이다(건별 격리 — 한 회차의 실패가 다른 회차를 말아먹지 않게).
  *
- * <p>멀티 인스턴스 중복 실행 방지(ShedLock)는 B7(GROMO-1283)의 몫이다 — 여기서는 넣지 않는다.
- * 겹쳐 돌아도 회차 행 락 + CAS + 원장 멱등키가 이중 지급을 막는다(성능 문제일 뿐 정합은 유지).
+ * <p>멀티 인스턴스 중복 실행은 ShedLock 이 막는다(GROMO-1283, policy §E4) — 락을 놓쳐도 회차 행
+ * 락 + CAS + 원장 멱등키가 이중 지급을 막으므로(정합은 별도 방어) 락은 중복 스캔 낭비 차단용이다.
  */
 @Slf4j
 @Component
@@ -50,6 +51,7 @@ public class GroupBetScheduler {
      * (24h 판정이 진입점마다 흩어지면 수동 경로가 우회한다 — N21).
      */
     @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @SchedulerLock(name = "group-bet-settle-scan")
     public void retryDueSessions() {
         Instant now = Instant.now();
         List<GroupChallengeBetSession> due = groupChallengeBetSessionRepository.findDue(
@@ -94,6 +96,7 @@ public class GroupBetScheduler {
      * {@code settle()} 안의 인원 가드는 경합·크론 지연 대비 안전망으로 존치한다.
      */
     @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @SchedulerLock(name = "group-bet-void-short-sessions")
     public void voidShortSessions() {
         List<UUID> targets = groupChallengeBetSessionRepository
                 .findOpenPastJoinDeadlineWithFewParticipants(Instant.now());
@@ -115,10 +118,17 @@ public class GroupBetScheduler {
      * (챌린지 단위 격리)이라 같은 빈에서 돌리면 자기 호출로 프록시를 우회한다 — 크론 진입점은
      * 항상 별도 빈에서 프록시를 통해 서비스를 부른다(정산 스캔과 같은 규율).
      *
-     * @return 신규 개설한 회차 수(테스트·수동 호출용 — 스케줄러는 반환값을 쓰지 않는다)
+     * <p>크론 래퍼가 void 인 이유: ShedLock 은 락을 못 잡으면 메서드를 건너뛰고 null 을 돌려주는데,
+     * 반환형이 primitive 면 그 null 이 언박싱 NPE 가 된다 — 잠금 대상 메서드는 void 가 규약이다.
      */
     @Scheduled(cron = "0 5 * * * *", zone = "Asia/Seoul")
-    public int ensureTodaySessions() {
+    @SchedulerLock(name = "group-bet-ensure-today-sessions")
+    public void ensureTodaySessions() {
+        openTodaySessions();
+    }
+
+    /** 개설 스캔 본체 — 신규 개설한 회차 수를 반환한다(테스트·수동 호출용). */
+    public int openTodaySessions() {
         LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
         List<UUID> challengeIds = groupChallengeBetRepository.findActiveEnabledChallengeIds();
         int opened = 0;

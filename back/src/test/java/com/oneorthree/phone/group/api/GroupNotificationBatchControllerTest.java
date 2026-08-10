@@ -3,7 +3,7 @@ package com.oneorthree.phone.group.api;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
-import com.oneorthree.phone.notification.service.BetResultNotificationService;
+import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeDurationEndNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeWindowEndNotificationService;
 import org.junit.jupiter.api.DisplayName;
@@ -25,8 +25,8 @@ class GroupNotificationBatchControllerTest {
 
     private static final String CONFIGURED_KEY = "test-admin-key";
 
-    private final BetResultNotificationService betResultNotificationService =
-            mock(BetResultNotificationService.class);
+    private final BetEventNotificationService betEventNotificationService =
+            mock(BetEventNotificationService.class);
     private final ChallengeWindowEndNotificationService challengeWindowEndNotificationService =
             mock(ChallengeWindowEndNotificationService.class);
     private final ChallengeDurationEndNotificationService challengeDurationEndNotificationService =
@@ -34,7 +34,7 @@ class GroupNotificationBatchControllerTest {
 
     private GroupNotificationBatchController controllerWithKey(String configuredKey) {
         return new GroupNotificationBatchController(
-                betResultNotificationService, challengeWindowEndNotificationService,
+                betEventNotificationService, challengeWindowEndNotificationService,
                 challengeDurationEndNotificationService, configuredKey);
     }
 
@@ -42,7 +42,7 @@ class GroupNotificationBatchControllerTest {
     @DisplayName("올바른 키 → 정산 결과 푸시가 실행되고 요약이 반환된다")
     void correctKeyRunsBetResultPush() {
         PushDispatchSummaryResponse summary = new PushDispatchSummaryResponse(3, 2, 1, 0, 5L);
-        given(betResultNotificationService.sendBetResultNotifications()).willReturn(summary);
+        given(betEventNotificationService.rescanAndFlush()).willReturn(summary);
 
         ResponseEntity<PushDispatchSummaryResponse> response =
                 controllerWithKey(CONFIGURED_KEY).notifyBetResults(CONFIGURED_KEY);
@@ -95,7 +95,7 @@ class GroupNotificationBatchControllerTest {
                 .extracting(e -> ((GroupException) e).getErrorCode())
                 .isEqualTo(GroupErrorCode.BATCH_KEY_INVALID);
         assertThat(GroupErrorCode.BATCH_KEY_INVALID.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
-        verifyNoInteractions(betResultNotificationService, challengeWindowEndNotificationService,
+        verifyNoInteractions(betEventNotificationService, challengeWindowEndNotificationService,
                 challengeDurationEndNotificationService);
     }
 
@@ -110,7 +110,7 @@ class GroupNotificationBatchControllerTest {
                 .isEqualTo(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED);
         assertThat(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED.getStatus())
                 .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        verifyNoInteractions(betResultNotificationService, challengeWindowEndNotificationService,
+        verifyNoInteractions(betEventNotificationService, challengeWindowEndNotificationService,
                 challengeDurationEndNotificationService);
     }
 }

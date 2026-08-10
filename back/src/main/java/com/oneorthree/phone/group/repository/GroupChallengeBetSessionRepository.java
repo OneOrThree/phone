@@ -240,13 +240,39 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
     List<UUID> findOpenSessionIdsByChallengeId(@Param("challengeId") UUID challengeId);
 
     /**
-     * 정산 결과 푸시 대상 — 최근 정산이 끝난 회차. 상태는 호출측이 (SETTLED, FORFEITED) 로 넘긴다
-     * (UNUSED 는 0명 회차라 알릴 대상 자체가 없고 — N52 알림 제외 — VOIDED·REFUNDED 환불 통지는
-     * BET_VOID_REFUND 푸시(B4·N48)의 몫이다).
+     * 사건 알림 재훑기 대상(GROMO-1417) — 최근 종료된 회차. 호출측(BetEventNotificationService)이
+     * (SETTLED, FORFEITED) 결과 + (VOIDED, REFUNDED) 환불 통지(N48)를 함께 넘긴다.
+     * UNUSED 는 0명 회차라 알릴 대상 자체가 없다(N52 알림 제외).
      */
     @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group JOIN FETCH s.challenge "
             + "WHERE s.status IN :statuses AND s.settledAt >= :since ORDER BY s.settledAt, s.id")
     List<GroupChallengeBetSession> findByStatusInAndSettledAtSince(
             @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("since") Instant since);
+
+    /**
+     * 사일런트 flush 푸시 대상(GROMO-1281, FR-22) — 정산 그레이스에 진입한 창형 OPEN 회차.
+     * 창이 끝났고({@code closes_at} 경과) 아직 정산 가능 시각({@code settle_after} = 창 끝+30분)
+     * 전인 구간에서 data-only 푸시로 앱의 업로드 큐 flush 를 유도한다 — 정산이 클라 보고분·집중
+     * 세션 업로드를 기다릴 수 있는 마지막 창이다. 회차당 1회는 사건 클레임이 보장하므로 여기서는
+     * 잠금 없이 집기만 한다. 하루형(DURATION)은 대상이 아니다(§HLD — 11:30 사일런트는 후속).
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.missionType = com.oneorthree.phone.group.domain.MissionType.TIME_WINDOW "
+            + "AND s.closesAt <= :now AND s.settleAfter > :now ORDER BY s.id")
+    List<GroupChallengeBetSession> findWindowSessionsInSettleGrace(@Param("now") Instant now);
+
+    /**
+     * 참여 모집 알림 대상(GROMO-1417, N40) — <b>아직 참가할 수 있는</b> OPEN 회차
+     * ({@code join_closes_at} 미도래). 발송 슬롯(창형 = 참가 마감 −30분 / 하루형 = 당일 08:00)
+     * 판정은 호출측이 회차 스냅샷으로 하고, 여기서는 후보만 좁힌다. {@code until} 로 상한을 둬
+     * 먼 미래의 예약 회차(join-week)까지 매 틱 끌어오지 않는다.
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group JOIN FETCH s.challenge "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.joinClosesAt > :now AND s.joinClosesAt <= :until ORDER BY s.id")
+    List<GroupChallengeBetSession> findOpenJoinableSessions(
+            @Param("now") Instant now,
+            @Param("until") Instant until);
 }

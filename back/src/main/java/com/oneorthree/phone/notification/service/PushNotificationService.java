@@ -64,6 +64,26 @@ public class PushNotificationService {
             return false;
         }
         // 4. 발송 — 한 유저 실패가 배치 루프를 중단시키지 않게 예외 격리
+        return deliver(user, message);
+    }
+
+    /**
+     * 사일런트(data-only) 발송(GROMO-1281, FR-22) — <b>표시 필터를 타지 않는다</b>. 알림 설정
+     * off·quiet hours 는 "표시"에 대한 약속이지 앱 백그라운드 기동과 무관하고(HLD §6 — 사일런트는
+     * 조용한 시간 예외), 심야 창의 업로드 flush 가 바로 이 예외에 기대기 때문이다. 토큰 검사와
+     * 무효 토큰 정리는 표시 발송과 동일하다 — 쓰기 @Transactional 안에서 부를 것.
+     *
+     * @return 실제 발송이 성사(FCM SENT)되면 true — 호출측이 이 값으로 클레임 SENT/반납을 가른다
+     */
+    public boolean sendSilentPush(User user, PushMessage message) {
+        if (user.getDeviceToken() == null) {
+            return false;
+        }
+        return deliver(user, message);
+    }
+
+    /** 발송 + 무효 토큰 정리 공통부 — 표시(sendIfAllowed)와 사일런트가 같은 규칙을 쓴다. */
+    private boolean deliver(User user, PushMessage message) {
         try {
             // 실제로 FCM 에 보낸 토큰을 붙잡아 둔다 — 정리 조건에 이 값을 그대로 쓴다.
             String sentToken = user.getDeviceToken();

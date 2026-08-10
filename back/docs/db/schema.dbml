@@ -888,15 +888,34 @@ Table daily_screen_time_stats [note: '유저별 일일 스크린타임 집계 (�
 // 9. 알림 (서버 푸시)
 // ────────────────────────────────────────────
 
-Table notification_sent_logs [note: '발송 이력 로그 (GROMO-579). RANK_OVERTAKE 순위 추월 푸시의 48h 쿨다운·주2회 상한 판정용 — 실발송(FCM SENT) 건만 기록. migration v26'] {
+Table notification_sent_logs [note: '발송 이력 로그 (GROMO-579) + 사건 단위 클레임 파이프라인 (GROMO-1417 · N41 · N44, V45). 종전 트리거는 실발송(FCM SENT) 건만 기록하고, 내기 사건 알림(BET_RESULT · BET_VOID_REFUND · BET_SILENT_FLUSH)은 발송 전 PENDING 선점 → SENT 전이로 다중 인스턴스 이중 발송을 막는다. migration v26 → v45'] {
   id             uuid        [pk]
 
   user_id        uuid        [not null, note: 'FK → users.id (수신자)']
 
-  type           varchar     [not null, note: "발송 종류 (현재 'RANK_OVERTAKE')"]
+  type           varchar     [not null, note: "발송 종류 (RANK_OVERTAKE · BET_RESULT · CHALLENGE_* · FRIEND_* · BET_VOID_REFUND · BET_SILENT_FLUSH)"]
   target_user_id uuid        [note: '대상 유저(라이벌) — 추월=대표 라이벌, 없으면 null (nullable, FK → users.id)']
 
-  sent_at        timestamptz [not null, note: '실발송 시각']
+  sent_at        timestamptz [note: '실발송 시각 — PENDING/DEFERRED 클레임 행은 발송 전이라 null (V45 에서 NOT NULL 해제)']
+
+  kind           varchar     [not null, note: '사건 dedup 축의 종류 (V45) — 기존 행은 type 백필. 유니크 (user_id, kind, subject_id) 의 축']
+  subject_id     uuid        [note: '사건 대상 id (V45) — 내기 계열은 회차 id. 레거시 행은 null (유니크에서 서로 충돌하지 않음)']
+  status         varchar     [not null, default: "'SENT'", note: "클레임 상태 (V45): 'PENDING'(선점, 리스 10분) | 'DEFERRED'(조용한 시간 이월 — N44) | 'SENT'"]
+  claimed_at     timestamptz [note: '선점 시각 (V45) — PENDING 리스 만료(10분) 판정 기준']
+  group_id       uuid        [note: '묶음 메타 (V45) — (유저 × 그룹 × 슬롯) 묶음 축, dedup 키 아님 (N20 · N41)']
+  slot_at        timestamptz [note: '묶음 메타 (V45) — 사건이 속한 15분 시간슬롯 (이월돼도 원래 슬롯 유지 — N44)']
+
+  indexes {
+    (user_id, kind, subject_id) [unique, name: 'uq_notification_sent_logs_user_kind_subject', note: '사건 단위 선점 유니크 — INSERT ON CONFLICT DO NOTHING 대상 (N41)']
+    (status, claimed_at) [name: 'idx_notification_sent_logs_unsent_claims', note: "부분 인덱스 WHERE status <> 'SENT' — 미발송 클레임 스캔"]
+  }
+}
+
+Table shedlock [note: 'ShedLock 분산 락 (GROMO-1283 · policy §E4, V45) — 챌린지·정산·알림 크론의 멀티 인스턴스 중복 실행 차단. shedlock-provider-jdbc-template 표준 스키마'] {
+  name       varchar(64)  [pk, note: '락 이름 — @SchedulerLock(name) 크론별 고유']
+  lock_until timestamp    [not null]
+  locked_at  timestamp    [not null]
+  locked_by  varchar(255) [not null]
 }
 
 // ────────────────────────────────────────────
