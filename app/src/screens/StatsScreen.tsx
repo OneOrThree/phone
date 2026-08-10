@@ -337,9 +337,13 @@ export default function StatsScreen() {
       key: 'weekdayFocus',
       node: (
         <SectionCard key="weekdayFocus" title="요일별 집중시간">
-          {/* 집계 조회 실패(null)면 히어로 숨김 — 월 탭과 동일(코덱스 리뷰 반영) */}
-          {data.focus != null && (
+          {/* 집계 조회 실패(null)면 숫자를 감추되 **자리는 비워 둔다** — 월 탭과 동일한 이유다.
+              스켈레톤은 실패를 예측할 수 없어 항상 히어로 높이를 예약하므로, 노드까지 사라지면
+              로딩이 끝나는 순간 카드가 31px 줄며 아래가 밀린다(codex 리뷰). */}
+          {data.focus != null ? (
             <Text style={cs.bigStat}>총 {fmtMinutes(data.focus.totalFocusMinutes)}</Text>
+          ) : (
+            <View style={{ height: HERO_H }} />
           )}
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.totalFocusMinutes)}
@@ -356,10 +360,13 @@ export default function StatsScreen() {
           title="요일별 핸드폰 사용량"
           subtitle="집중시간과 대비돼요. 줄어들면 함께 줄어요."
         >
-          {data.screenTime != null && (
+          {/* 실패해도 자리는 비워 둔다 — 위 요일별 집중시간과 같은 이유(codex 리뷰) */}
+          {data.screenTime != null ? (
             <Text style={[cs.bigStat, { color: PHONE_COLOR }]}>
               총 {fmtMinutes(data.screenTime.currentMinutes)}
             </Text>
+          ) : (
+            <View style={{ height: HERO_H }} />
           )}
           <LineChart
             bars={heatmapBars(period, data.heatmap, (c) => c.actualScreenTimeMinutes)}
