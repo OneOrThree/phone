@@ -274,6 +274,8 @@ export default function FocusResultScreen() {
   // 동작 없이 피드백만 내는 것을 막는다(아래 footer 주석 참고).
   const [leaving, setLeaving] = useState(false);
   const celebrationStarted = useRef(false);
+  // 축하 판정이 아직 진행 중인가 — 별점 요청이 그 사이를 비집고 들어오지 못하게 한다.
+  const celebrationPendingRef = useRef(false);
   // 진행 중인 '연출 대기' 예약 — 재생 도중 '동작 줄이기'가 켜지면 기다릴 연출이 사라지므로
   // 남은 대기를 버리고 즉시 다음 단계로 넘긴다(아래 effect).
   const pendingCelebrateRef = useRef<{
@@ -294,7 +296,15 @@ export default function FocusResultScreen() {
     // 도착 시 축하 판정창은 최대 1.2s(팝 종료) — 그 뒤(1.6s)에 확인. 실패면 연출 자체가 없어 짧게.
     const delay = cellsLoaded ? 1600 : 400;
     const timer = setTimeout(() => {
-      if (weekModalVisibleRef.current) return; // 스트릭 축하 노출 중 → 스킵(다음 완료 때 재시도)
+      // 축하가 **떠 있거나 · 예약됐거나 · 아직 판정 중**이면 스킵한다(다음 완료 때 재시도).
+      // 종전에는 '떠 있는가'만 봐서, 판정이 길어지면 별점창과 축하가 겹쳤다(codex 리뷰).
+      if (
+        weekModalVisibleRef.current ||
+        pendingCelebrateRef.current !== null ||
+        celebrationPendingRef.current
+      ) {
+        return;
+      }
       maybeRequestReview();
     }, delay);
     return () => clearTimeout(timer);
@@ -348,6 +358,11 @@ export default function FocusResultScreen() {
     (async () => {
       if (cancelled || celebrationStarted.current) return;
       celebrationStarted.current = true;
+      // ⚠️ 판정이 **끝날 때까지** 별점 요청을 막는다. 판정에는 AsyncStorage 조회 두 번과
+      //    '동작 줄이기' 확정 대기가 들어 있어 400ms를 넘길 수 있는데, 그동안 별점 타이머가
+      //    먼저 만료되면 weekModalVisibleRef는 아직 false라 별점창이 뜨고 뒤늦게 축하 모달이
+      //    겹친다(codex 리뷰). 예약까지 끝나면 pendingCelebrateRef가 이어받는다.
+      celebrationPendingRef.current = true;
       // 오늘 ✓ 팝은 그날 처음 채워진 결과 화면에서만 재생(하루 1회 — '매 세션 노출'에서 재변경,
       // 오스카 요청). 이후 세션의 결과 화면은 팝 없이 정적 ✓로 표시된다. 주간 축하는 팝과
       // 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
@@ -403,7 +418,10 @@ export default function FocusResultScreen() {
       //    1.2초 남는다(codex 리뷰). 아래 effect가 그때 이 예약을 앞당긴다.
       pendingCelebrateRef.current = { timer, run: openWeekModal };
       timers.push(timer);
-    })();
+    })().finally(() => {
+      // 예약이 잡혔으면 pendingCelebrateRef가 이어받고, 아니면 축하가 없다는 뜻이다.
+      celebrationPendingRef.current = false;
+    });
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);

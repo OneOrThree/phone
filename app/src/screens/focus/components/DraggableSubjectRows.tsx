@@ -53,6 +53,11 @@ export function DraggableSubjectRows({
   const insets = useSafeAreaInsets();
   // '동작 줄이기'면 선택 알약이 미끄러지지 않고 활성 행에 즉시 놓인다(위치·표시는 그대로).
   const m = useMotion();
+  // ⚠️ 정렬 타이밍은 **실행 시점의** 값으로 판정한다. m을 의존성에 넣으면 드래그 중 재구독이
+  //    걸려 PanResponder가 갈아끼워진다(D-29). 확정 전(ready=false)의 보수적 true로 "즉시
+  //    완료"를 굳히면 설정을 켜지 않은 사용자가 정렬 연출을 잃는다(D-30).
+  const settleInstantRef = useRef(false);
+  settleInstantRef.current = m.ready && m.reduce;
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const viewportH = useRef(0); // 스크롤 보이는 높이
@@ -95,6 +100,12 @@ export function DraggableSubjectRows({
   function settleOthers() {
     orderRef.current.forEach((id, i) => {
       if (id === dragIdRef.current) return;
+      // ⚠️ 드래그 **추종**은 끄지 않는다(손가락을 따라오는 건 직접 조작이다). 끄는 건 손을 뗀
+      //    뒤의 **안착·정렬 타이밍**뿐이다 — 그건 시간 기반 애니메이션이다.
+      if (settleInstantRef.current) {
+        tops.current[id].setValue(i * SLOT);
+        return;
+      }
       Animated.timing(tops.current[id], {
         toValue: i * SLOT,
         duration: 160,
@@ -170,11 +181,16 @@ export function DraggableSubjectRows({
     stopAuto();
     const pos = orderRef.current.indexOf(id);
     if (pos >= 0) {
-      Animated.timing(tops.current[id], {
-        toValue: pos * SLOT,
-        duration: 160,
-        useNativeDriver: false,
-      }).start();
+      // 놓은 행의 안착도 같은 규칙 — '동작 줄이기'면 미끄러지지 않고 제자리에 놓인다.
+      if (settleInstantRef.current) {
+        tops.current[id].setValue(pos * SLOT);
+      } else {
+        Animated.timing(tops.current[id], {
+          toValue: pos * SLOT,
+          duration: 160,
+          useNativeDriver: false,
+        }).start();
+      }
     }
     const byId = new Map(subjectsRef.current.map((x) => [x.id, x]));
     const next = orderRef.current.map((oid) => byId.get(oid)).filter((x): x is Subject => !!x);
