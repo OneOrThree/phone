@@ -175,6 +175,22 @@ describe('historySummary — 판정한 날만 집계로 말한다', () => {
     expect(summary).not.toContain('달성');
     expect(summary).toBe(voidSummary('REFUND_DEADLINE'));
   });
+
+  // 실제 서버는 사유를 **항상** 실어 보내므로 위 두 경로 중 사유 있는 쪽만 사용자에게 닿는다.
+  // 둘이 갈리면 폴백 경로를 고쳐도 화면은 안 바뀐다 — 실제로 그래서 「무효」가 남아 있었다.
+  test('사유 유무와 무관하게 REFUNDED 문장이 하나로 수렴한다', () => {
+    const withReason = historySummary(item({ status: 'REFUNDED', voidReason: 'REFUND_DEADLINE' }));
+    const withoutReason = historySummary(item({ status: 'REFUNDED', voidReason: null }));
+    expect(withReason).toBe(withoutReason);
+  });
+
+  // 돈을 돌려받은 사건을 「무효」라고 부르지 않는다(codex 리뷰) — 무효는 판정 없이 없던 일이
+  // 된 것이고, 24h 초과는 정산이 늦어 돌려준 것이다.
+  test('24h 초과 환불을 「무효」라고 말하지 않는다', () => {
+    const summary = historySummary(item({ status: 'REFUNDED', voidReason: 'REFUND_DEADLINE' }));
+    expect(summary).not.toContain('무효');
+    expect(summary).toContain('환불');
+  });
 });
 
 describe('historyDelta — 미참가 · 환불 · 손익을 뭉개지 않는다', () => {

@@ -35,15 +35,16 @@ function toDisplayStatus(status: LastSettledSession['status']): GroupBetStatus |
 /**
  * 정규화된 사유 키 — 서버 값 축의 이문·별칭을 접은 결과.
  *
- * `AUTO_REFUND`만 **앱이 파생**한다: v2 회차 상태 `REFUNDED`는 LLD상 24시간 자동 환불이고
- * 서버가 사유 문자열을 따로 주지 않는다. 무효화(VOIDED)와 같은 문구로 접으면 "무산됐어요"가
- * 되어 사실이 아니므로 여기서 별도 키로 갈라 둔다(#570 codex ⑤).
+ * ⚠️ **`AUTO_REFUND`는 더 이상 별도 키가 아니다.** 24시간 초과 자동 환불의 서버 값은
+ * `REFUND_DEADLINE` 하나뿐이고(`GroupBetVoidReason` enum은 `INSUFFICIENT_PARTICIPANTS`·
+ * `CHALLENGE_DELETED`·`REFUND_DEADLINE` 셋이 전부다), 앱이 파생하던 `AUTO_REFUND`는 서버가
+ * 사유를 안 주던 시절의 폴백이다. 둘을 갈라 두니 **같은 사건에 문구가 둘**이 됐고, 실제
+ * 응답에는 사유가 실려 오므로 사용자는 늘 `REFUND_DEADLINE` 쪽 문구만 봤다 — 그게
+ * 「기한이 지나 **무효**」였다. 돈을 돌려받은 사람에게 무효라고 말한 셈이다(codex 리뷰).
+ * 두 키를 하나로 접고 문구를 환불 계열로 바로잡는다. 폴백 값 `'AUTO_REFUND'`는 별칭으로만
+ * 남아 같은 키로 접힌다.
  */
-export type VoidReasonKey =
-  | 'SHORT_PARTICIPANTS'
-  | 'CHALLENGE_DELETED'
-  | 'REFUND_DEADLINE'
-  | 'AUTO_REFUND';
+export type VoidReasonKey = 'SHORT_PARTICIPANTS' | 'CHALLENGE_DELETED' | 'REFUND_DEADLINE';
 
 // 서버 값 → 키. 값 축이 문서 간 이문 상태다 — policy N33은 `INSUFFICIENT_PARTICIPANTS`,
 // LLD §2.1은 `SHORT_PARTICIPANTS`. **둘 다 같은 키로 접는다**(어느 쪽이 와도 같은 문장).
@@ -52,7 +53,9 @@ const VOID_REASON_ALIASES: Readonly<Record<string, VoidReasonKey>> = {
   INSUFFICIENT_PARTICIPANTS: 'SHORT_PARTICIPANTS',
   CHALLENGE_DELETED: 'CHALLENGE_DELETED',
   REFUND_DEADLINE: 'REFUND_DEADLINE',
-  AUTO_REFUND: 'AUTO_REFUND', // 앱 파생 키(아래 pickLastSettled) — 서버가 보내는 값은 아니다.
+  // 앱 파생 폴백(아래 pickLastSettled) — 서버가 보내는 값이 아니다. 뜻이 REFUND_DEADLINE과
+  // 같으므로 같은 키로 접는다. 갈라 두면 같은 사건에 문구가 둘 생긴다.
+  AUTO_REFUND: 'REFUND_DEADLINE',
 };
 
 // 키별 문구 조각. summary = 카드 한 줄(집계 자리를 대신한다), cause = 시트 배너의 앞 문장.
@@ -60,20 +63,24 @@ const VOID_REASON_ALIASES: Readonly<Record<string, VoidReasonKey>> = {
 const VOID_REASON_LABELS: Readonly<Record<VoidReasonKey, { summary: string; cause: string }>> = {
   SHORT_PARTICIPANTS: { summary: '참가자가 부족해 무산', cause: '참가자가 부족해 무산됐어요' },
   CHALLENGE_DELETED: { summary: '챌린지 삭제로 무효', cause: '챌린지가 삭제돼 무효가 됐어요' },
-  REFUND_DEADLINE: { summary: '기한이 지나 무효', cause: '기한이 지나 무효가 됐어요' },
-  AUTO_REFUND: { summary: '기한이 지나 자동 환불', cause: '기한이 지나 자동으로 환불됐어요' },
+  // 24h 초과 자동 환불 — **무효가 아니라 환불**이다. 정본 문구는 IA §4.3의
+  // `정산이 지연돼 참가비를 돌려드렸어요`이고, 아래 REFUNDED_TAIL이 뒷문장을 맡으므로
+  // cause에는 앞부분만 둔다(다른 사유들과 같은 조립 규칙).
+  REFUND_DEADLINE: { summary: '정산이 지연돼 환불', cause: '정산이 지연됐어요' },
 };
 
 // 환불 사실 — 두 화면이 같은 문장을 쓴다(카드는 자리가 좁아 요약만, 시트는 여기까지 말한다).
 const REFUNDED_TAIL = '참가비는 돌려드렸어요';
 
 /**
- * 사유 문자열 없이 상태만 온 `REFUNDED`의 요약 — **달성자가 없어서가 아니라** 정산이 24시간을
- * 넘겨 자동 환불된 회차다(IA §4.2 상태도). 카드(아래 `pickLastSettled`의 AUTO_REFUND 파생)와
- * 내역 목록(`challengeHistoryView.historySummary`)이 **같은 문자열**을 쓰도록 표에서 직접 꺼내
- * 공개한다 — 사본을 만들면 두 화면이 같은 상태를 다른 말로 설명하게 된다.
+ * 24시간 초과 자동 환불의 요약 — **달성자가 없어서가 아니라** 정산이 24시간을 넘겨 환불된
+ * 회차다(IA §4.2 상태도). 달성자 0명은 `FORFEITED`(적립금 소멸)로 갈린다.
+ *
+ * 사유가 실려 오면(정상 응답) `voidSummary('REFUND_DEADLINE')`이 같은 값을 내고, 사유 없이
+ * 상태만 온 `REFUNDED`(구서버)는 내역이 이 상수로 떨어진다 — **두 경로가 한 문자열**이다.
+ * 표에서 직접 꺼내는 이유도 그것이다(사본을 만들면 화면마다 말이 갈린다).
  */
-export const AUTO_REFUND_SUMMARY = VOID_REASON_LABELS.AUTO_REFUND.summary;
+export const AUTO_REFUND_SUMMARY = VOID_REASON_LABELS.REFUND_DEADLINE.summary;
 
 /**
  * 서버 사유 값 → 정규화 키. 모르는 값·없음은 null — **폴백 판단도 여기 한 곳**에서 난다.
@@ -130,10 +137,11 @@ export function pickLastSettled(challenge: GroupChallengeResponse): LastSettledV
         results: session.results,
         goalMinutes: session.goalMinutes,
       },
-      // 사유는 무효화(VOIDED)에서만 서버 값을 쓴다 — 다른 상태에 실려 와도 문장을 바꾸지 않는다.
-      // v2 `REFUNDED`는 **24시간 자동 환불**이라(LLD) 판정도 무산도 아니다 — 사유 문자열이 없어
-      // 그대로 두면 "달성한 사람이 없어 전원 환불"(구 룰 문장)로 접혀 거짓이 된다. 앱 파생
-      // 키로 갈라 자동 환불임을 말한다(#570 codex ⑤).
+      // v2 `REFUNDED`는 **24시간 자동 환불**이라 판정도 무산도 아니다 — 그대로 두면 "달성한
+      // 사람이 없어 전원 환불"(구 룰 문장)로 접혀 거짓이 된다(#570 codex ⑤).
+      // 실제 서버는 사유(`REFUND_DEADLINE`)를 함께 내려주므로 대개 `??` 왼쪽이 쓰인다.
+      // `'AUTO_REFUND'`는 사유를 안 주던 구서버용 폴백이고, 별칭 표에서 `REFUND_DEADLINE`과
+      // **같은 키로 접혀** 문구가 갈리지 않는다(codex 리뷰).
       voidReason:
         session.status === 'VOIDED'
           ? (session.voidReason ?? null)

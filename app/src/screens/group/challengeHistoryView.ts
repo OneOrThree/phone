@@ -68,8 +68,13 @@ export function historyMissionLabel(item: GroupChallengeHistoryItem): string | n
  * ⚠️ **REFUNDED는 달성자가 없어서 생기는 상태가 아니다** — 정산 시도가 24시간을 넘겨 자동
  *    환불된 회차다(IA §4.2 상태도 · §4.3). 달성자 0명은 `FORFEITED`(적립금 소멸)로 갈린다.
  *    「달성한 사람이 없어 전원 환불」이라고 적으면 자동 환불을 받은 사용자에게 **원인을
- *    틀리게** 알려준다(codex 리뷰). 문구는 카드가 쓰는 공용 표의 AUTO_REFUND 그대로다 —
- *    같은 상태를 화면마다 다른 말로 설명하면 그게 다음 버그다.
+ *    틀리게** 알려준다(codex 리뷰). 문구는 카드가 쓰는 공용 표 그대로다 — 같은 상태를
+ *    화면마다 다른 말로 설명하면 그게 다음 버그다.
+ *
+ * ⚠️ **아래 REFUNDED 분기는 구서버 전용이다.** 지금 서버는 24h 초과 환불에 사유
+ *    (`REFUND_DEADLINE`)를 함께 실어 보내므로 실제 응답은 위 `voidSummary`에서 먼저 반환된다.
+ *    두 경로가 **같은 문자열**로 수렴하는지가 관건이라(갈리면 사유 유무에 따라 화면이 다른 말을
+ *    한다) `AUTO_REFUND_SUMMARY`가 표의 `REFUND_DEADLINE` 항목을 직접 가리킨다.
  */
 export function historySummary(item: GroupChallengeHistoryItem): string {
   // 사유가 실려 오면 상태로 역추론하지 않고 그 값을 그대로 분기한다(N55 — 사유 축은 종료 사유다).
