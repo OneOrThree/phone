@@ -77,6 +77,25 @@ test('로컬 쓰기 실패에도 현재 세션 순서는 유지하고 다음 커
   await waitFor(() => expect(result.current.saveFailed).toBe(false));
 });
 
+test('저장 실패 뒤 서버 목록이 바뀌어도 세션 순서를 유지해 합성하고 재시도한다', async () => {
+  const { result, rerender } = await renderHook(
+    ({ ids }: { ids: string[] }) => useGroupCardOrder({ serverGroupIds: ids, userId: 'me' }),
+    { initialProps: { ids: ['a', 'b'] } },
+  );
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+
+  await act(async () => {
+    result.current.commitOrder(['b', 'a']);
+  });
+  await waitFor(() => expect(result.current.saveFailed).toBe(true));
+
+  await rerender({ ids: ['a', 'b', 'c'] });
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a', 'c']));
+  await waitFor(() => expect(result.current.saveFailed).toBe(false));
+  expect(await readGroupCardOrder('me')).toEqual(['b', 'a', 'c']);
+});
+
 test('이전 계정의 늦은 저장 실패가 새 계정 오류 상태를 바꾸지 않는다', async () => {
   let rejectOldWrite: (error: Error) => void = () => undefined;
   const { result, rerender } = await renderHook(

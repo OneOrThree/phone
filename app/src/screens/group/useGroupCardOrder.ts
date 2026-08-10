@@ -30,6 +30,8 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
   const userRef = useRef(userId);
   userRef.current = userId;
   const identityRef = useRef('');
+  // 디스크 쓰기 실패 뒤에도 계정별 최신 화면 순서를 세션 동안 보존한다.
+  const pendingByUserRef = useRef(new Map<string, string[]>());
 
   useEffect(() => {
     mounted.current = true;
@@ -55,9 +57,26 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
       const stored = read.order;
       if (canceled || !mounted.current) return;
 
-      const reconciled = reconcileGroupCardOrder(ids, stored);
+      const pending = userId ? pendingByUserRef.current.get(userId) : undefined;
+      const reconciled = reconcileGroupCardOrder(ids, pending ?? stored);
       orderRef.current = reconciled;
-      setState({ identity, ids: reconciled, saveFailed: false });
+      setState({ identity, ids: reconciled, saveFailed: pending !== undefined });
+
+      if (userId && pending) {
+        // 새 그룹 append·탈퇴 prune을 실패한 최신 세션 순서에 합성한 뒤 즉시 재시도한다.
+        pendingByUserRef.current.set(userId, reconciled);
+        writeGroupCardOrder(userId, reconciled)
+          .then(() => {
+            const latest = pendingByUserRef.current.get(userId);
+            if (!latest || !isSameGroupOrder(latest, reconciled)) return;
+            pendingByUserRef.current.delete(userId);
+            if (mounted.current && identityRef.current === identity) {
+              setState((current) => current && { ...current, saveFailed: false });
+            }
+          })
+          .catch(() => undefined);
+        return;
+      }
 
       // stale/중복 prune은 성공한 전체 목록을 받은 이 경로에서만 수행한다.
       if (
@@ -85,12 +104,17 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     orderRef.current = next;
     setState((current) => (current ? { ...current, ids: next, saveFailed: false } : current));
     if (currentUser) {
-      void writeGroupCardOrder(currentUser, next)
+      pendingByUserRef.current.set(currentUser, next);
+      writeGroupCardOrder(currentUser, next)
         .then(
-          () =>
-            mounted.current &&
-            identityRef.current === currentIdentity &&
-            setState((current) => current && { ...current, saveFailed: false }),
+          () => {
+            const latest = pendingByUserRef.current.get(currentUser);
+            if (!latest || !isSameGroupOrder(latest, next)) return;
+            pendingByUserRef.current.delete(currentUser);
+            if (mounted.current && identityRef.current === currentIdentity) {
+              setState((current) => current && { ...current, saveFailed: false });
+            }
+          },
         )
         .catch(
           () =>
