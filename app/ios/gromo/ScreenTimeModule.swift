@@ -531,7 +531,13 @@ class ScreenTimeModule: NSObject {
                         resolve([
                             "applications": selection.applicationTokens.count,
                             "categories": selection.categoryTokens.count,
-                            "webDomains": selection.webDomainTokens.count
+                            "webDomains": selection.webDomainTokens.count,
+                            // ⚠️ JS가 **이 바이너리가 dismiss 완료 뒤에 resolve하는지** 판별하는
+                            //    표식. hot-updater로 새 JS만 받은 구 바이너리는 이 키가 없어
+                            //    undefined이고, 그쪽은 아직 모달이 떠 있는 채로 resolve하므로
+                            //    등장 연출이 있는 UI(토스트)를 쓰면 안 된다(codex 리뷰).
+                            //    새 메서드를 추가하는 대신 응답으로 알리면 능력 판별 왕복이 없다.
+                            "dismissed": true
                         ])
                     }
                 }

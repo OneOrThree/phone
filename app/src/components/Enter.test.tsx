@@ -54,4 +54,25 @@ describe('Enter', () => {
     expect(styleOf('first').animationName).toBeDefined();
     expect(styleOf('late').animationName).toBeUndefined();
   });
+
+  // ⚠️ active가 false인 동안에는 결정을 내리지 않는다. 그림·데이터를 기다리는 사이 설정이
+  //    바뀌면 그 시점 값으로 정해야 한다(codex 리뷰).
+  it('active가 처음 true가 되는 시점에 정한다', async () => {
+    mockReduce = false;
+    const view = await render(<Enter preset={fadeIn()} active={false} testID="e" />);
+    expect(styleOf('e').animationName).toBeUndefined();
+
+    mockReduce = true; // 기다리는 사이 사용자가 '동작 줄이기'를 켰다
+    await view.rerender(<Enter preset={fadeIn()} active testID="e" />);
+    expect(styleOf('e').animationName).toBeUndefined();
+  });
+
+  it('기다리는 사이 설정을 끄면 그때 연출을 받는다', async () => {
+    mockReduce = true;
+    const view = await render(<Enter preset={fadeIn()} active={false} testID="e" />);
+
+    mockReduce = false;
+    await view.rerender(<Enter preset={fadeIn()} active testID="e" />);
+    expect(styleOf('e').animationName).toBeDefined();
+  });
 });
