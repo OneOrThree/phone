@@ -53,6 +53,7 @@ export default function GroupScreen() {
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [screenFocused, setScreenFocused] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
@@ -151,6 +152,7 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
+      setScreenFocused(true);
       const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
@@ -160,6 +162,7 @@ export default function GroupScreen() {
       };
       fetchGroups();
       return () => {
+        setScreenFocused(false);
         requestSeqRef.current++;
       };
     }, [fetchGroups]),
@@ -345,9 +348,15 @@ export default function GroupScreen() {
           groups={myGroups}
           userId={userId}
           onSelect={onSelectGroup}
+          onStartFocus={(groupId) =>
+            navigation.navigate('FocusCategory', { initialGroupId: groupId })
+          }
+          onOpenSettings={(groupId) => navigation.navigate('GroupSettings', { groupId })}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}
+          screenFocused={screenFocused}
+          entrySource={viewEpisodeRef.current.source}
         />
         {findSheet}
         {inviteSheet}

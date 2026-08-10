@@ -430,6 +430,53 @@ export function logGroupViewed(p: {
 }): void {
   track('group_viewed', p);
 }
+
+// 그룹 카드 덱. 그룹 이름·ID·로컬 순서·아이콘 glyph는 고카디널리티/로컬 표현값이라 싣지 않는다.
+export type GroupCardAction = 'focus' | 'room' | 'settings';
+export type GroupCardRole = 'owner' | 'member';
+
+export function logGroupCardDeckViewed(p: {
+  group_count_bucket: GroupCountBucket;
+  group_entry: GroupEntry;
+  guide_state: 'shown' | 'completed' | 'unknown';
+}): void {
+  track('group_card_deck_viewed', p);
+}
+
+export function logGroupCardFlipped(p: {
+  to_face: 'front' | 'back';
+  trigger: 'tap' | 'accessibility_action';
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_card_flipped', p);
+}
+
+export function logGroupCarouselPaged(p: {
+  trigger: 'swipe' | 'indicator' | 'accessibility_action';
+  from_index: number;
+  to_index: number;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_carousel_paged', p);
+}
+
+export function logGroupCardActionClicked(p: {
+  action: GroupCardAction;
+  role: GroupCardRole;
+  back_source: 'user' | 'guide';
+  interaction_id: string;
+}): void {
+  track('group_card_action_clicked', p);
+}
+
+export function logGroupCardReordered(p: {
+  trigger: 'drag' | 'popover' | 'accessibility_action';
+  from_index: number;
+  to_index: number;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_card_reordered', p);
+}
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
 export function logGroupRoomViewed(p: { group_id: string }): void {

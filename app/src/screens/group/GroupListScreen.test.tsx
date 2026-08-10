@@ -15,6 +15,22 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardActionClicked: jest.fn(),
+  logGroupCardDeckViewed: jest.fn(),
+  logGroupCardFlipped: jest.fn(),
+  logGroupCardReordered: jest.fn(),
+  logGroupCarouselPaged: jest.fn(),
+}));
+
+jest.mock('@/services/groupApi', () => ({
+  getGroupDetail: jest.fn(async (groupId: string) => ({ id: groupId, members: [] })),
+  getAnnouncements: jest.fn(async () => []),
+  getChallenges: jest.fn(async () => []),
+}));
+
+jest.mock('@/services/leagueApi', () => ({ getMyRanking: jest.fn(async () => []) }));
+
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 
@@ -32,6 +48,8 @@ function group(over: Partial<GroupSummaryResponse> = {}): GroupSummaryResponse {
 }
 
 const onSelect = jest.fn();
+const onStartFocus = jest.fn();
+const onOpenSettings = jest.fn();
 const onCreate = jest.fn();
 const onFind = jest.fn();
 const onRefresh = jest.fn<Promise<void>, []>();
@@ -45,6 +63,8 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
       groups={groups}
       userId="user-1"
       onSelect={onSelect}
+      onStartFocus={onStartFocus}
+      onOpenSettings={onOpenSettings}
       onCreate={onCreate}
       onFind={onFind}
       onRefresh={onRefresh}
@@ -127,6 +147,20 @@ describe('콜백', () => {
     expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
   });
 
+  test('뒷면은 기존 read API 요약과 집중·설정 행동을 실제 콜백에 연결한다', async () => {
+    await renderList([group()]);
+
+    await press(`group.card.${GROUP_ID}`);
+    expect(await screen.findByText('현재 0명 집중 중')).toBeOnTheScreen();
+    expect(screen.getByText('진행 중인 챌린지가 없어요')).toBeOnTheScreen();
+    expect(screen.getByText('아직 공지가 없어요')).toBeOnTheScreen();
+
+    await press(`group.card.focus.${GROUP_ID}`);
+    expect(onStartFocus).toHaveBeenCalledWith(GROUP_ID);
+    await press(`group.card.settings.${GROUP_ID}`);
+    expect(onOpenSettings).toHaveBeenCalledWith(GROUP_ID);
+  });
+
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
     const longName = '공백 없는 매우 긴 그룹 이름 ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     await renderList([group({ name: longName })]);
@@ -202,6 +236,33 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('grip 짧은 탭은 원하는 위치를 고르는 순서 변경 메뉴를 연다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+    expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await press(`group.card.reorderTo.${GROUP_ID}.1`);
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID_2, GROUP_ID]);
   });
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {

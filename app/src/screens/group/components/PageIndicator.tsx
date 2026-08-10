@@ -23,9 +23,15 @@ interface PageIndicatorProps {
   pageCount: number;
   activeIndex: number;
   onSelectPage: (page: number) => void;
+  pageLabels?: readonly string[];
 }
 
-export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndicatorProps) {
+export function PageIndicator({
+  pageCount,
+  activeIndex,
+  onSelectPage,
+  pageLabels = [],
+}: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
 
@@ -37,16 +43,15 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
       {mode === 'dots' ? (
-        <View
-          style={s.dots}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        >
+        <View style={s.dots}>
           {Array.from({ length: pageCount }, (_, page) => (
             <Pressable
               key={page}
               style={s.dotHit}
               onPress={() => onSelectPage(page)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: page === activeIndex }}
+              accessibilityLabel={`${pageLabels[page] ?? `${page + 1}번째`}, ${page + 1} / ${pageCount} 페이지로 이동`}
               testID={`group.deck.indicator.dot.${page}`}
             >
               <View style={[s.dot, page === activeIndex && s.dotActive]} />
@@ -56,7 +61,7 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
       ) : (
         <Text
           style={s.counter}
-          accessibilityLabel={`${activeIndex + 1} / ${pageCount}`}
+          accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
           testID="group.deck.indicator.counter"
         >
           {activeIndex + 1} / {pageCount}
