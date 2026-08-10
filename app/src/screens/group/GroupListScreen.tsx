@@ -221,6 +221,10 @@ export default function GroupListScreen({
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const appActiveRef = useRef(appActive);
+  appActiveRef.current = appActive;
+  const guideBlockedRef = useRef(guideBlocked);
+  guideBlockedRef.current = guideBlocked;
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const isCardEmojiKnown = (groupId: string) =>
@@ -261,6 +265,9 @@ export default function GroupListScreen({
   const [deckGuideVisible, setDeckGuideVisible] = useState(false);
   const [guidePrimaryFocusGroupId, setGuidePrimaryFocusGroupId] = useState<string | null>(null);
   const [frontFocusGroupId, setFrontFocusGroupId] = useState<string | null>(null);
+  const frontFocusGroupIdRef = useRef(frontFocusGroupId);
+  frontFocusGroupIdRef.current = frontFocusGroupId;
+  const frontFocusFrameRef = useRef<number | null>(null);
   const deckGuideVisibleRef = useRef(false);
   deckGuideVisibleRef.current = deckGuideVisible;
   const viewEpisodeRef = useRef(viewEpisodeId);
@@ -278,6 +285,26 @@ export default function GroupListScreen({
     summaryAdapterRef.current = new GroupCardSummaryAdapter(groupCardSummaryFocusDependency);
   }
   const summaryAdapter = summaryAdapterRef.current;
+  const scheduleFrontFocus = useCallback((groupId: string) => {
+    if (frontFocusFrameRef.current !== null) cancelAnimationFrame(frontFocusFrameRef.current);
+    frontFocusFrameRef.current = requestAnimationFrame(() => {
+      frontFocusFrameRef.current = null;
+      if (!appActiveRef.current || guideBlockedRef.current) return;
+      const node = ReactNative.findNodeHandle(frontDisclosureRefs.current.get(groupId) ?? null);
+      // 가상화된 먼 셀은 scroll 직후 아직 마운트되지 않을 수 있다. ref가 등록될 때까지
+      // 요청을 유지하고 disclosureRef callback에서 다시 예약한다.
+      if (node === null) return;
+      AccessibilityInfo.setAccessibilityFocus(node);
+      setFrontFocusGroupId((current) => (current === groupId ? null : current));
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (frontFocusFrameRef.current !== null) cancelAnimationFrame(frontFocusFrameRef.current);
+    },
+    [],
+  );
   const focusController = useMemo(
     () =>
       userId ? new GroupFocusPollingController({ store: groupFocusStatusStore, userId }) : null,
@@ -602,6 +629,8 @@ export default function GroupListScreen({
     if (
       !context ||
       !screenFocused ||
+      !appActive ||
+      guideBlocked ||
       !roomReturnWasBlurredRef.current ||
       successfulListVersion <= context.departureRevision ||
       !hydrated ||
@@ -632,7 +661,9 @@ export default function GroupListScreen({
       setFrontFocusGroupId(target.groupId);
     }
   }, [
+    appActive,
     dataReady,
+    guideBlocked,
     hydrated,
     orderedGroups,
     screenFocused,
@@ -827,16 +858,9 @@ export default function GroupListScreen({
   );
 
   useEffect(() => {
-    if (frontFocusGroupId === null) return;
-    const frame = requestAnimationFrame(() => {
-      const node = ReactNative.findNodeHandle(
-        frontDisclosureRefs.current.get(frontFocusGroupId) ?? null,
-      );
-      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-      setFrontFocusGroupId(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [frontFocusGroupId]);
+    if (frontFocusGroupId === null || !appActive || guideBlocked) return;
+    scheduleFrontFocus(frontFocusGroupId);
+  }, [appActive, frontFocusGroupId, guideBlocked, scheduleFrontFocus]);
 
   const acceptAction = useCallback(
     (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
@@ -987,13 +1011,23 @@ export default function GroupListScreen({
                       onFlipBack={() => flipToFront(item.groupId)}
                       onOpenSettings={() => {
                         if (!onOpenSettings) return;
-                        invokeAcceptedAction(item, 'settings', () => onOpenSettings(item.groupId));
+                        invokeAcceptedAction(item, 'settings', () => {
+                          roomReturnRef.current = null;
+                          roomReturnFocusGroupIdRef.current = null;
+                          roomReturnWasBlurredRef.current = false;
+                          setRoomReturnReadyGroupId(null);
+                          onOpenSettings(item.groupId);
+                        });
                       }}
                       onStartFocus={() => {
                         if (!onStartFocus) return;
-                        invokeAcceptedAction(item, 'focus', (interaction) =>
-                          onStartFocus(item.groupId, interaction),
-                        );
+                        invokeAcceptedAction(item, 'focus', (interaction) => {
+                          roomReturnRef.current = null;
+                          roomReturnFocusGroupIdRef.current = null;
+                          roomReturnWasBlurredRef.current = false;
+                          setRoomReturnReadyGroupId(null);
+                          onStartFocus(item.groupId, interaction);
+                        });
                       }}
                       onOpenRoom={() => {
                         invokeAcceptedAction(item, 'room', (interaction) => {
@@ -1049,8 +1083,14 @@ export default function GroupListScreen({
                       else reorderGripRefs.current.delete(item.groupId);
                     }}
                     disclosureRef={(node) => {
-                      if (node) frontDisclosureRefs.current.set(item.groupId, node);
-                      else frontDisclosureRefs.current.delete(item.groupId);
+                      if (node) {
+                        frontDisclosureRefs.current.set(item.groupId, node);
+                        if (frontFocusGroupIdRef.current === item.groupId) {
+                          scheduleFrontFocus(item.groupId);
+                        }
+                      } else {
+                        frontDisclosureRefs.current.delete(item.groupId);
+                      }
                     }}
                     onFlip={() => flipToBack(item.groupId)}
                     reorderHandlers={handlersFor(item.groupId)}

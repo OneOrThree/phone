@@ -619,6 +619,134 @@ describe('콜백', () => {
     await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
   });
 
+  test('fallback 카드 ref가 늦게 등록되면 포커스 요청을 유지했다가 복원한다', async () => {
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const first = group();
+    const second = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
+    const props = {
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(
+      <GroupListScreen
+        {...props}
+        groups={[first, second]}
+        screenFocused
+        successfulListVersion={1}
+      />,
+    );
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await view.rerender(
+      <GroupListScreen
+        {...props}
+        groups={[first, second]}
+        screenFocused={false}
+        successfulListVersion={1}
+      />,
+    );
+
+    setFocus.mockClear();
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(null);
+    await view.rerender(
+      <GroupListScreen {...props} groups={[second]} screenFocused successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).not.toHaveBeenCalled();
+
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
+    await view.rerender(
+      <GroupListScreen {...props} groups={[second]} screenFocused successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).toHaveBeenCalledWith(1);
+  });
+
+  test.each([
+    ['집중', `group.card.focus.${GROUP_ID}`, onStartFocus],
+    ['설정', `group.card.settings.${GROUP_ID}`, onOpenSettings],
+  ])('복귀 목록 대기 중 %s CTA를 수락하면 오래된 방 복귀를 폐기한다', async (_, cta, callback) => {
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const props = {
+      groups: [group()],
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(
+      <GroupListScreen {...props} screenFocused successfulListVersion={1} />,
+    );
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused={false} successfulListVersion={1} />,
+    );
+    await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={1} />);
+    setFocus.mockClear();
+
+    await press(cta);
+    expect(callback).toHaveBeenCalled();
+    await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={2} />);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(setFocus).not.toHaveBeenCalled();
+  });
+
+  test('background와 blocking overlay 동안은 복귀 context와 포커스를 소비하지 않는다', async () => {
+    let onAppStateChange: ((state: string) => void) | undefined;
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+      onAppStateChange = listener as (state: string) => void;
+      return { remove: jest.fn() };
+    });
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const props = {
+      groups: [group()],
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(
+      <GroupListScreen {...props} screenFocused successfulListVersion={1} />,
+    );
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused={false} successfulListVersion={1} />,
+    );
+    await act(async () => onAppStateChange?.('background'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    setFocus.mockClear();
+
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused guideBlocked successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    await act(async () => onAppStateChange?.('active'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    // foreground 자체의 기존 카드 포커스 효과와 구분해, blocker 해제 뒤의 복귀를 따로 본다.
+    setFocus.mockClear();
+
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused guideBlocked={false} successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).toHaveBeenCalledWith(1);
+  });
+
   test('KST 날짜가 바뀌면 열린 뒷면의 날짜 의존 요약과 focus를 즉시 다시 조회한다', async () => {
     jest.useFakeTimers();
     const date = jest.spyOn(localDate, 'todayStrKst').mockReturnValue('2026-08-10');
