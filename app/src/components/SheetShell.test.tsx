@@ -11,13 +11,16 @@
 //  5) 닫기(딤 탭·드래그·CTA)는 **퇴장 애니메이션이 끝난 뒤** onClose를 부른다.
 //  6) '동작 줄이기'가 켜져 있으면 애니메이션 스타일이 아예 붙지 않고 닫기는 즉시다.
 //  7) useSheetClose()가 시트 안 CTA의 닫기를 가로챈다.
+//  8) 닫는 동안 딤은 **옅어지기만** 한다 — 퇴장 중 패널이 커져도 되짙어지지 않는다.
+//  9) 퇴장 시작은 onClose보다 **먼저** 자식에게 통지된다(useSheetClosing) — 예약 취소용.
 //
 // ⚠️ 작성 금지: 애니메이션 중간 프레임·타이밍·이징 곡선 단언. 워클릿은 목이라 전부 거짓 안정감이다.
 //    여기서 보는 것은 **판정 규칙과 최종 상태**뿐이다.
+import { useEffect } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Text, TouchableOpacity } from 'react-native';
 import { getAnimatedStyle } from 'react-native-reanimated';
-import { SheetShell, useSheetClose } from './SheetShell';
+import { SheetShell, useSheetClose, useSheetClosing } from './SheetShell';
 
 // 테스트 트리엔 SafeAreaProvider가 없다 — 각 시트 테스트와 같은 고정값 관행을 따른다.
 jest.mock('react-native-safe-area-context', () => ({
@@ -32,6 +35,7 @@ const mockReduce = { on: false, ready: true };
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce.on,
   useReduceMotionReady: () => mockReduce.ready,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 // PanResponder는 내부 gestureState를 touchHistory로만 갱신해 jest로 제스처를 흉내 낼 수 없다.
@@ -83,6 +87,21 @@ function panelTranslateY(): number {
   return style.transform[0].translateY;
 }
 
+// 딤에 **지금 실제로 걸려 있는** opacity. 위와 같은 이유로 reanimated 조회 도구를 쓴다.
+// ⚠️ 특정 프레임 값은 단언하지 않는다. 이 값으로 보는 것은 "딤은 닫는 동안 **되짙어지지
+//    않는다**"는 단조 성질뿐이다 — 몇 프레임이 흘렀든 성립해야 하는 성질이라 타이밍에 기대지 않는다.
+function dimOpacity(): number {
+  const style = getAnimatedStyle(screen.getByTestId('sheetShell.dim')) as { opacity: number };
+  return style.opacity;
+}
+
+// 실시간으로 ms만큼 흘려보낸다(가짜 타이머를 켜면 RNTL 14의 렌더가 진행되지 않는다).
+async function tick(ms: number) {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  });
+}
+
 // 패널 레이아웃 보고 — 등장 트리거가 useEffect가 아니라 onLayout이라(설계 §4.2)
 // 실제 레이아웃이 없는 jest에서는 여기서 높이를 직접 알려 줘야 등장이 시작된다.
 async function reportPanelHeight(height: number) {
@@ -112,9 +131,7 @@ async function press(testID: string) {
 
 // 퇴장 애니메이션이 끝나 완료 콜백(onClose)이 돌 때까지 기다린다.
 async function settleExit() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, EXIT_SETTLE_MS));
-  });
+  await tick(EXIT_SETTLE_MS);
 }
 
 beforeEach(() => {
@@ -366,5 +383,61 @@ describe('퇴장 목표 거리', () => {
     await reportPanelHeight(900); // 퇴장 중 내용이 도착해 패널이 커졌다
     await settleExit();
     expect(panelTranslateY()).toBeGreaterThanOrEqual(900);
+  });
+});
+
+describe('닫는 동안의 딤', () => {
+  // ⚠️ 회귀 방어(codex 리뷰) — 딤은 드래그 진행률(translateY/패널높이)에 연동돼 끌수록 옅어진다.
+  //    그런데 퇴장 중 패널이 커지면 **분모만** 커져 감쇠가 약해지고, 0으로 내려가던 딤이 순간
+  //    다시 어두워진다. 위 '퇴장 목표 거리' 수정으로 퇴장 거리를 화면 높이로 고정한 뒤로는
+  //    그 비율이 "얼마나 끌었나"를 뜻하지도 않는다. 닫는 동안 딤은 **오직 옅어지기만** 해야 한다.
+  // ⚠️ 여기서만 **재생 중 두 값을 비교**한다. 프레임 값·소요 시간·곡선은 여전히 단언하지 않는다 —
+  //    보는 것은 "레이아웃 이벤트를 하나 끼워 넣어도 딤이 짙어지지 않는다"는 성질뿐이고,
+  //    이건 몇 프레임이 흘렀든 성립해야 하는 단조 성질이라 타이밍에 기대지 않는다.
+  //    (패널 높이는 초대 시트의 로딩 화면 → 전체 프리뷰 전환을 흉내 낸 값이다.)
+  test('퇴장 중 패널이 커져도 딤이 다시 어두워지지 않는다', async () => {
+    await renderShell();
+    await reportPanelHeight(600); // 로딩 화면 높이
+    await tick(ENTER_SETTLE_MS); // 등장이 끝나 딤이 완전히 짙어진 상태에서 시작한다
+    await press('sheetShell.dim');
+    const before = dimOpacity();
+    await reportPanelHeight(1100); // 퇴장 중 프리뷰가 도착해 패널이 커졌다
+    expect(dimOpacity()).toBeLessThanOrEqual(before);
+  });
+});
+
+describe('퇴장 시작 신호 — useSheetClosing()', () => {
+  function Scheduler({ log }: { log: string[] }) {
+    const closing = useSheetClosing();
+    useEffect(() => {
+      if (closing) log.push('closing');
+    }, [closing, log]);
+    return <Text>본문</Text>;
+  }
+
+  // ⚠️ 회귀 방어(codex 리뷰) — 종전에는 닫기 = 즉시 언마운트라 자식 cleanup이 그 자리에서 돌았다.
+  //    이제 onClose는 퇴장 220ms 뒤라, 그 사이에 자식이 걸어 둔 setTimeout이 **먼저** 발화해
+  //    사용자의 취소를 무시한다(타이머 방식 시트의 늦은 onSelect). 자식이 퇴장 시작을 알 수
+  //    있어야 하고, 그 통지는 반드시 onClose보다 앞서야 한다.
+  test('퇴장이 시작되면 onClose보다 먼저 자식에게 알린다', async () => {
+    const log: string[] = [];
+    const close = jest.fn(() => log.push('close'));
+    await render(
+      <SheetShell onClose={close}>
+        <Scheduler log={log} />
+      </SheetShell>,
+    );
+    await act(async () => {});
+    await reportPanelHeight(400);
+    await press('sheetShell.dim');
+    await settleExit();
+    expect(log).toEqual(['closing', 'close']);
+  });
+
+  test('SheetShell 밖에서 부르면 조용히 죽지 않고 바로 터뜨린다', async () => {
+    // 조용히 false를 돌려주면 예약 취소가 죽은 채로 배포된다 — 배선 실수는 개발 중에 드러나야 한다.
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(render(<Scheduler log={[]} />)).rejects.toThrow('SheetShell');
+    spy.mockRestore();
   });
 });

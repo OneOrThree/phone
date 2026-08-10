@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClosing } from '@/components/SheetShell';
 import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
@@ -31,23 +31,51 @@ export function TimerMethodSheet({
   onSelect: (mode: FocusTimerMode) => void;
   onClose: () => void;
 }) {
+  // ⚠️ 본문을 하위 컴포넌트로 분리한 이유 — 예약 취소 신호(useSheetClosing)는 SheetShell **자식
+  //    트리**에서만 잡힌다. 이 함수 본문은 SheetShell보다 위에서 실행되므로 여기서는 못 쓴다.
+  //    렌더 결과(호스트 뷰·testID)는 종전과 같다 — Maestro가 testID 셀렉터만 쓰기 때문이다.
+  return (
+    <SheetShell onClose={onClose}>
+      <TimerMethodBody subjectName={subjectName} onSelect={onSelect} />
+    </SheetShell>
+  );
+}
+
+function TimerMethodBody({
+  subjectName,
+  onSelect,
+}: {
+  subjectName: string;
+  onSelect: (mode: FocusTimerMode) => void;
+}) {
   // 알약을 누른 행 위로 보내기 위한 행별 y/높이 측정값
   const [rowRects, setRowRects] = useState<
     Partial<Record<FocusTimerMode, { y: number; h: number }>>
   >({});
   const [picked, setPicked] = useState<FocusTimerMode | null>(null);
   const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closing = useSheetClosing();
 
-  // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
-  useEffect(
-    () => () => {
-      if (proceedRef.current) clearTimeout(proceedRef.current);
-    },
-    [],
-  );
+  const cancelProceed = useCallback(() => {
+    if (proceedRef.current) {
+      clearTimeout(proceedRef.current);
+      proceedRef.current = null;
+    }
+  }, []);
+
+  // 언마운트 시 예약된 진행을 취소 (늦은 onSelect 방지)
+  useEffect(() => cancelProceed, [cancelProceed]);
+
+  // ⚠️ 퇴장이 **시작되는 즉시** 취소한다. 종전에는 딤 탭이 곧 언마운트라 위 cleanup이 그 자리에서
+  //    돌았지만, 이제 onClose는 퇴장 220ms 뒤에야 불려 언마운트도 그만큼 늦는다. 선택 250ms 뒤에
+  //    닫으면 410ms(SLIDE_MS+60) 예약이 470ms인 퇴장 완료보다 **먼저** 발화해, 사용자가 취소했는데
+  //    세션이 시작되거나 다음 설정 시트가 열린다(codex 리뷰).
+  useEffect(() => {
+    if (closing) cancelProceed();
+  }, [closing, cancelProceed]);
 
   const pick = (mode: FocusTimerMode) => {
-    if (picked) return; // 슬라이드 중 중복 탭 방지
+    if (picked || closing) return; // 슬라이드 중 중복 탭·퇴장 중 새 예약 방지
     if (!rowRects[mode]) {
       onSelect(mode); // 측정 전 탭 — 연출 생략하고 바로 진행
       return;
@@ -60,7 +88,7 @@ export function TimerMethodSheet({
   const glassRect = (picked && rowRects[picked]) || rowRects.countup;
 
   return (
-    <SheetShell onClose={onClose}>
+    <>
       <Text style={s.title}>{subjectName} · 타이머 방식</Text>
       <Text style={s.sub}>어떻게 집중할지 골라요.</Text>
       <View style={s.list}>
@@ -103,7 +131,7 @@ export function TimerMethodSheet({
           />
         )}
       </View>
-    </SheetShell>
+    </>
   );
 }
 

@@ -6,6 +6,7 @@ import { useMotion } from './useMotion';
 jest.mock('./useReduceMotion', () => ({
   useReduceMotion: () => true,
   useReduceMotionReady: () => true,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 describe('useMotion (reduce=true)', () => {

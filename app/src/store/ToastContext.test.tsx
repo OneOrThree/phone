@@ -18,6 +18,7 @@ import { ToastProvider, useToast, type ToastOptions } from './ToastContext';
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => false,
   useReduceMotionReady: () => true,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 const EXIT_MS = 220; // M.dur.quick

@@ -44,6 +44,8 @@ import { T, withAlpha } from '@/constants/theme';
 //   dragging  PanResponder가 translateY를 직접 쓴다. 딤은 진행률에 연동돼 끌수록 옅어진다.
 //   복귀      임계 미달·dismissible=false → withSpring(0, snappy) — entering과 같은 스프링(대칭)
 //   closing   translateY→화면 밖 (quick, standard) + 딤 0 → 완료 콜백에서 onClose()
+//             퇴장이 시작되는 즉시 자식에게 알린다(useSheetClosing) — 자식이 예약해 둔 진행을
+//             취소할 수 있어야 한다. onClose는 220ms 뒤라 언마운트만으로는 늦는다.
 //
 // ⚠️ 왜 이 파일만 Reanimated인가 (정책 D4) — **등장 값과 드래그 값이 물리적으로 같은 값**이라
 //    두 애니메이션 시스템으로 나눌 수 없다(등장 중 드래그 시작·드래그 중 등장 종료가 실재한다).
@@ -65,6 +67,14 @@ const prelayoutY = (windowHeight: number) => windowHeight;
 // 드래그가 딤을 얼마나 걷어내는가(0~1). 1이면 손을 놓기도 전에 배경이 완전히 드러나 이미 닫힌
 // 것처럼 보인다 — 절반 조금 넘게만 걷어 "닫히는 중"임을 알린다.
 const DIM_DRAG_FADE = 0.6;
+// 드래그로 딤이 얼마나 걷혔는가를 곱셈 계수(0.4~1)로. 패널을 자기 높이만큼 끌어내리면 최대치다.
+// ⚠️ 워클릿과 JS 양쪽에서 쓴다 — 퇴장을 시작할 때 "지금까지 걷힌 만큼"을 JS에서 한 번 접어
+//    넣어야 하므로(아래 requestClose 주석), 식이 두 벌이 되지 않게 여기 한 곳에 둔다.
+function dimDragFactor(y: number, panelHeight: number): number {
+  'worklet';
+  const dragged = panelHeight > 0 ? Math.min(Math.max(y, 0), panelHeight) / panelHeight : 0;
+  return 1 - dragged * DIM_DRAG_FADE;
+}
 // 시트 안착 스프링 — M.spring.snappy에 **오버슛 클램프**를 더한 것.
 // ⚠️ snappy는 ζ≈0.65의 과소감쇠라 translateY=0을 지나 음수로 넘어간다. 패널 전체를 위로
 //    옮기는 transform이므로 그 구간에는 **패널 아래와 화면 바닥 사이에 딤이 띠처럼 드러난다**
@@ -83,6 +93,9 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 // 가로채므로 호출부 변경이 필요 없지만, CTA는 부모 onClose를 직접 불러 언마운트해 버려
 // 퇴장이 보이지 않는다. 그래서 컨텍스트로 "애니메이션을 태운 닫기"를 내려 준다.
 const SheetCloseContext = createContext<(() => void) | null>(null);
+// 퇴장이 **시작됐다**는 신호. 위 컨텍스트와 따로 두는 이유: 값이 닫힐 때 한 번 바뀌므로 한 객체로
+// 합치면 close만 쓰는 자식들의 memo까지 그때 통째로 무효화된다.
+const SheetClosingContext = createContext<boolean | null>(null);
 
 /**
  * 시트 안 CTA용 닫기 — 퇴장 애니메이션을 재생한 뒤 부모 `onClose`를 부른다.
@@ -101,6 +114,27 @@ export function useSheetClose(): () => void {
     throw new Error('useSheetClose()는 SheetShell 자식 트리 안에서만 쓸 수 있다.');
   }
   return close;
+}
+
+/**
+ * 퇴장이 시작됐는가 — 시트 안에서 **예약해 둔 진행을 취소**할 신호.
+ *
+ * ⚠️ 왜 필요한가. 종전에는 닫기 = 즉시 언마운트라 자식의 cleanup이 그 자리에서 돌았지만, 이제
+ *    `onClose`는 퇴장 220ms **뒤에** 불린다. 그 사이에 자식이 걸어 둔 `setTimeout`은 그대로
+ *    발화한다 — 타이머 방식 시트에서 옵션을 고른 뒤 곧바로 딤을 눌러 취소해도, 예약된 `onSelect`가
+ *    퇴장이 끝나기 전에 실행돼 세션이 시작되거나 다음 시트가 열린다(codex 리뷰).
+ *    `pointerEvents='none'`은 **새 입력**만 막는다 — 이미 예약된 진행은 못 막는다.
+ *
+ * ⚠️ `useSheetClose`와 같은 제약: SheetShell **자식 트리** 안에서만 잡힌다. 시트 컴포넌트 본문은
+ *    SheetShell보다 위에서 실행되므로, 예약을 들고 있는 상태를 하위 컴포넌트로 빼서 거기서 쓴다.
+ *    (밖에서 부르면 조용히 false를 돌려주는 대신 터뜨린다 — 취소가 조용히 죽으면 배포 뒤에야 안다.)
+ */
+export function useSheetClosing(): boolean {
+  const closing = useContext(SheetClosingContext);
+  if (closing === null) {
+    throw new Error('useSheetClosing()은 SheetShell 자식 트리 안에서만 쓸 수 있다.');
+  }
+  return closing;
 }
 
 export function SheetShell({
@@ -145,6 +179,10 @@ export function SheetShell({
   const translateY = useSharedValue(prelayoutY(windowHeight));
   // 딤 불투명도의 등장/퇴장 성분. 드래그 성분은 아래 useAnimatedStyle에서 곱해진다.
   const dimProgress = useSharedValue(0);
+  // 퇴장이 시작되면 딤에서 **드래그 성분을 뗀다**(아래 requestClose·dimAnimStyle 주석).
+  // ⚠️ React 상태(closing)가 아니라 shared value여야 한다 — 상태는 리렌더 뒤에야 워클릿에
+  //    반영돼, 접어 넣기(JS)와 성분 제거(UI) 사이에 한 프레임 어긋난 딤이 그려진다.
+  const dimDragMuted = useSharedValue(false);
   // 측정된 패널 높이 — 등장 시작점이자 퇴장 목표점이다(추정값을 쓰지 않는 이유는 §4.2).
   const panelHeight = useSharedValue(0);
   // 등장은 최초 레이아웃 1회만 — 키보드·내용 변화로 onLayout이 다시 불려도 재생하지 않는다.
@@ -225,6 +263,15 @@ export function SheetShell({
     //    (거리가 길어진 만큼 패널은 220ms를 다 쓰기 전에 화면 밖으로 나간다. 딤 페이드가 같은
     //     220ms를 채우므로 닫힘 연출 전체 길이와 onClose 시점은 종전과 같다.)
     const exitY = prelayoutY(windowHeight) + keyboardHeightRef.current;
+    // ⚠️ 퇴장 중에는 딤에서 **드래그 성분을 뗀다.** 퇴장은 손끝이 아니라 시간이 끄는 애니메이션이고
+    //    (드래그는 이미 closingRef 가드로 전부 막혀 있다), 위에서 퇴장 거리를 화면 높이로 고정한
+    //    뒤로는 translateY/panelHeight 비율이 "얼마나 끌었나"를 더는 뜻하지 않는다.
+    //    그대로 두면 퇴장 220ms 사이에 패널 높이가 커질 때 분모가 커져 감쇠가 **약해지고**,
+    //    0으로 내려가던 딤이 순간 다시 어두워진다(codex 리뷰 — 초대 시트 로딩→프리뷰 전환).
+    //    ⚠️ 대신 **지금까지 걷힌 만큼은 dimProgress에 접어 넣는다.** 그냥 떼기만 하면 임계를 넘겨
+    //       손을 놓는 순간 딤이 도로 짙어져(끌어서 걷어 둔 게 사라져) 같은 종류의 역행이 된다.
+    dimProgress.value *= dimDragFactor(translateY.value, panelHeight.value);
+    dimDragMuted.value = true;
     dimProgress.value = withTiming(0, {
       duration: M.dur.quick,
       easing: M.curve.standard.fn,
@@ -366,10 +413,10 @@ export function SheetShell({
     transform: [{ translateY: translateY.value }],
   }));
   // 딤 = 등장/퇴장 성분 × 드래그 성분. 끌수록 옅어져 "지금 닫는 중"이 손끝에 붙는다.
+  // 퇴장이 시작되면 드래그 성분은 dimProgress에 접힌 채 계산에서 빠진다(위 requestClose 주석).
   const dimAnimStyle = useAnimatedStyle(() => {
-    const h = panelHeight.value;
-    const dragged = h > 0 ? Math.min(Math.max(translateY.value, 0), h) / h : 0;
-    return { opacity: dimProgress.value * (1 - dragged * DIM_DRAG_FADE) };
+    if (dimDragMuted.value) return { opacity: dimProgress.value };
+    return { opacity: dimProgress.value * dimDragFactor(translateY.value, panelHeight.value) };
   });
 
   // 패널 높이 상한 — 가용 높이(키보드가 떠 있으면 그 위)의 85%.
@@ -392,61 +439,64 @@ export function SheetShell({
 
   const body = (
     <SheetCloseContext.Provider value={close}>
-      <View style={StyleSheet.absoluteFill}>
-        <AnimatedPressable
-          // ⚠️ 딤도 reduce에서 뗄 수 없다 — 드래그 진행률에 연동돼 있어서, 떼면 끌어도
-          //    배경이 그대로다. 등장·퇴장 성분은 위에서 즉시 대입되므로 애니메이션은 없다.
-          style={[s.dim, dimAnimStyle]}
-          onPress={close}
-          testID="sheetShell.dim"
-        />
-        <Animated.View
-          style={[
-            s.panel,
-            {
-              bottom: keyboardHeight,
-              maxHeight: panelMaxHeight,
-              paddingBottom: keyboardHeight > 0 ? T.space.lg : insets.bottom + 20,
-            },
-            // ⚠️ **reduce여도 이 transform은 뗀 적이 없다.** 손가락을 따라오는 건 시간 기반
-            //    애니메이션이 아니라 직접 조작이다. m.css()로 떨어뜨리면 패널이 꿈쩍도 않다가
-            //    임계를 넘는 순간 갑자기 사라져, 사용자는 자기가 뭘 했는지 알 수 없게 된다
-            //    (codex 리뷰). 끄는 건 등장·복귀·퇴장 **애니메이션**뿐이고, 그건 위
-            //    reduceRef 분기가 이미 담당한다.
-            panelAnimStyle,
-          ]}
-          onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}
-          // 퇴장이 시작되면 자식 입력을 막는다 — 위 closing 상태 주석 참고.
-          pointerEvents={closing ? 'none' : 'auto'}
-          testID="sheetShell.panel"
-        >
-          {/* 상단 그랩바 — 잡고 아래로 끌면 닫힌다(뒤로가기가 없는 시트의 명시적 닫기 수단) */}
-          <View {...pan.panHandlers} style={s.grabArea} accessibilityLabel="아래로 끌어 닫기">
-            <View style={s.grabber} />
-          </View>
-          {/* 내용 스크롤 — 상한 안에서는 내용 높이 그대로 줄어들고(flexShrink), 넘칠 때만 스크롤한다.
+      {/* 퇴장 시작 신호 — 자식이 예약해 둔 타이머를 취소할 수 있게(useSheetClosing 주석) */}
+      <SheetClosingContext.Provider value={closing}>
+        <View style={StyleSheet.absoluteFill}>
+          <AnimatedPressable
+            // ⚠️ 딤도 reduce에서 뗄 수 없다 — 드래그 진행률에 연동돼 있어서, 떼면 끌어도
+            //    배경이 그대로다. 등장·퇴장 성분은 위에서 즉시 대입되므로 애니메이션은 없다.
+            style={[s.dim, dimAnimStyle]}
+            onPress={close}
+            testID="sheetShell.dim"
+          />
+          <Animated.View
+            style={[
+              s.panel,
+              {
+                bottom: keyboardHeight,
+                maxHeight: panelMaxHeight,
+                paddingBottom: keyboardHeight > 0 ? T.space.lg : insets.bottom + 20,
+              },
+              // ⚠️ **reduce여도 이 transform은 뗀 적이 없다.** 손가락을 따라오는 건 시간 기반
+              //    애니메이션이 아니라 직접 조작이다. m.css()로 떨어뜨리면 패널이 꿈쩍도 않다가
+              //    임계를 넘는 순간 갑자기 사라져, 사용자는 자기가 뭘 했는지 알 수 없게 된다
+              //    (codex 리뷰). 끄는 건 등장·복귀·퇴장 **애니메이션**뿐이고, 그건 위
+              //    reduceRef 분기가 이미 담당한다.
+              panelAnimStyle,
+            ]}
+            onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}
+            // 퇴장이 시작되면 자식 입력을 막는다 — 위 closing 상태 주석 참고.
+            pointerEvents={closing ? 'none' : 'auto'}
+            testID="sheetShell.panel"
+          >
+            {/* 상단 그랩바 — 잡고 아래로 끌면 닫힌다(뒤로가기가 없는 시트의 명시적 닫기 수단) */}
+            <View {...pan.panHandlers} style={s.grabArea} accessibilityLabel="아래로 끌어 닫기">
+              <View style={s.grabber} />
+            </View>
+            {/* 내용 스크롤 — 상한 안에서는 내용 높이 그대로 줄어들고(flexShrink), 넘칠 때만 스크롤한다.
               keyboardShouldPersistTaps='handled': 스크롤 껍데기가 생기기 전과 똑같이 키보드가 떠 있어도
               첫 탭이 버튼에 그대로 닿게 한다(한 번 탭해서 키보드만 닫히는 회귀 방지). */}
-          <ScrollView
-            style={s.scroll}
-            scrollEnabled={scrollEnabled}
-            showsVerticalScrollIndicator={scrollEnabled}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-            onLayout={(e) => {
-              viewportHeightRef.current = e.nativeEvent.layout.height;
-              syncScrollEnabled();
-            }}
-            onContentSizeChange={(_, h) => {
-              contentHeightRef.current = h;
-              syncScrollEnabled();
-            }}
-            testID="sheetShell.scroll"
-          >
-            {children}
-          </ScrollView>
-        </Animated.View>
-      </View>
+            <ScrollView
+              style={s.scroll}
+              scrollEnabled={scrollEnabled}
+              showsVerticalScrollIndicator={scrollEnabled}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              onLayout={(e) => {
+                viewportHeightRef.current = e.nativeEvent.layout.height;
+                syncScrollEnabled();
+              }}
+              onContentSizeChange={(_, h) => {
+                contentHeightRef.current = h;
+                syncScrollEnabled();
+              }}
+              testID="sheetShell.scroll"
+            >
+              {children}
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </SheetClosingContext.Provider>
     </SheetCloseContext.Provider>
   );
 
