@@ -1,6 +1,6 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { T } from '@/constants/theme';
+import { FIXED_BOX_FONT_SCALE_MAX, T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { fmtDelta, hms } from '../format';
 import { MemberAvatar } from './MemberAvatar';
@@ -46,16 +46,19 @@ export function RankRow({
   onPin,
 }: Props) {
   const live = isFocusing === true && focusStartedAt != null;
-  // 주간 시간 — 집중 중이면 진행 경과를 더해 초 단위 라이브, 아니면 기존 고정 표기
+  // 주간 시간 — 집중 중이면 진행 경과를 더해 초 단위 라이브, 아니면 기존 고정 표기.
+  // 배율 상한: 순위(22)·티어(30)·아바타(36)·핀(26)이 전부 고정 폭이라, 접근성 배율에서
+  // HH:MM:SS가 그대로 커지면 이름 칸을 0으로 밀고도 행 밖으로 넘친다(코덱스 리뷰).
   const timeText = live ? (
     <LiveFocusTime
       baseSeconds={seconds}
       focusStartedAt={focusStartedAt}
       format={hms}
       style={[s.time, s.timeFocusing]}
+      maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
     />
   ) : (
-    <Text style={s.time} allowFontScaling={false}>
+    <Text style={s.time} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
       {hms(seconds)}
     </Text>
   );
@@ -91,7 +94,10 @@ export function RankRow({
       {deltaSeconds != null ? (
         <View style={s.timeCol}>
           {timeText}
-          <Text style={[s.delta, deltaSeconds > 0 ? s.deltaAhead : null]} allowFontScaling={false}>
+          <Text
+            style={[s.delta, deltaSeconds > 0 ? s.deltaAhead : null]}
+            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
+          >
             {fmtDelta(deltaSeconds)}
           </Text>
         </View>

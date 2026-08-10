@@ -263,7 +263,8 @@ const s = StyleSheet.create({
 
   // 저장 CTA
   cta: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

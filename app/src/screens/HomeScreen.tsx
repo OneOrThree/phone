@@ -614,9 +614,11 @@ export default function HomeScreen() {
               <View style={s.avatar}>
                 <CharacterImage size={38} sourceUri={activeSource ?? undefined} />
               </View>
-              <View>
+              <View style={s.nameCol}>
                 <View style={s.nameRow}>
-                  <Text style={s.nickname}>{nickname}</Text>
+                  <Text style={s.nickname} numberOfLines={1}>
+                    {nickname}
+                  </Text>
                   {myLeagueRank != null && (
                     <View style={s.rankBadge}>
                       <Ionicons name="trophy" size={9} color={T.blue} />
@@ -804,7 +806,9 @@ const s = StyleSheet.create({
     paddingTop: T.space.sm,
     paddingBottom: T.space.sm,
   },
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.md },
+  // 글자를 키우면 닉네임·순위 배지가 알림 벨을 밀어낸다 — 이름 칸이 줄어들게 한다(GROMO-1485).
+  profileRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.md, flexShrink: 1 },
+  nameCol: { flexShrink: 1 },
   avatar: {
     width: 44,
     height: 44,
@@ -815,7 +819,7 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
-  nickname: { ...T.text.subtitle, color: T.ink },
+  nickname: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',

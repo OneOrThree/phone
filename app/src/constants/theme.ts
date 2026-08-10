@@ -105,6 +105,24 @@ export const T = {
 
   // 타이포 스케일 (중요도별 고정) — body 16 기준(모바일 국룰). 색은 따로 준다.
   // 사용: <Text style={[T.text.title, { color: T.ink }]}>
+  //
+  // ── 글자 배율 정책 (GROMO-1485) ────────────────────────────────────────────
+  // 여기 pt는 **기본 배율(1.0)에서의 크기**다. 기기 '텍스트 크기'(iOS Dynamic Type /
+  // 안드로이드 글꼴 크기)를 켜면 RN이 fontSize와 lineHeight에 배율을 함께 곱해 준다
+  // (iOS RCTAttributedTextUtils / Android TextAttributeProps 둘 다 lineHeight도 스케일).
+  // 그래서 스타일에 lineHeight를 박아 둬도 겹치지 않는다 — 손대지 말 것.
+  //
+  // 배율을 끄는 건 `allowFontScaling={false}`를 **그 Text에 직접** 붙이는 것뿐이다.
+  // ⚠️ App.tsx에서 `Text.defaultProps`로 전역에 걸던 방식은 React 19(SDK 57)부터
+  //    **조용히 무시된다** — JSX가 automatic runtime(`jsx()`)으로 컴파일되는데 React 19의
+  //    jsx()는 함수 컴포넌트의 defaultProps를 적용하지 않는다. 되살리지 말 것.
+  //
+  // 예외로 남겨 둔 자리(= 커지면 도형을 뚫거나 계약이 깨지는 곳):
+  //   · 홈 오늘 카드 값·목표 — 아래 stat/caption이 네이티브 HomeUsageView 고정 pt와 짝
+  //   · 차트 축·눈금 라벨, 통계 캘린더 셀, 공유 이미지 캡처(Share*) — 좌표를 pt로 계산
+  //   · 고정 지름 원/알약 안의 숫자(포디움 메달, 아바타 위 '나' 뱃지, 순위 칸 width 22 등)
+  //
+  // 완전히 끄기와 그냥 두기 사이가 필요하면 `maxFontSizeMultiplier`(아래 FIXED_BOX_FONT_SCALE_MAX).
   text: {
     timer: { fontSize: 52, fontWeight: '800', letterSpacing: -2 }, // 타이머·온보딩 초대형 숫자
     display: { fontSize: 32, fontWeight: '800', letterSpacing: -0.5 }, // 큰 숫자/타이틀
@@ -121,6 +139,20 @@ export const T = {
   // xs 4 / sm 8 / md 12 / lg 16 / xl 20 / xxl 24.
   space: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 },
 } as const;
+
+/**
+ * 고정 폭 칸에 들어가는 텍스트의 배율 상한 (GROMO-1485).
+ *
+ * `allowFontScaling={false}`(아예 안 커짐)와 무제한 사이의 중간값이다. 폭이 못처럼 박힌 칸
+ * — 포디움 열(100), 티어 링 카드(104), 랭킹 행의 시간 칸처럼 옆 요소가 고정 크기라 넘치면
+ * 겹치는 자리 — 에 `maxFontSizeMultiplier`로 걸어 쓴다. 글자는 사용자 설정만큼 커지되
+ * 칸을 뚫기 전에 멈춘다.
+ *
+ * 1.5인 이유: 위 세 칸 중 가장 빠듯한 포디움 열이 caption(13pt) HH:MM:SS ≈ 55pt라
+ * 1.5배(≈83pt)까지 100pt 안에 들어온다. iOS 표준 Dynamic Type 최대(약 1.35)는 그대로 다 먹는다.
+ * 접근성 배율(2.0~3.1)에서만 여기서 멈춘다.
+ */
+export const FIXED_BOX_FONT_SCALE_MAX = 1.5;
 
 // #RRGGBB 팔레트 토큰 → rgba 문자열. 반투명 색을 하드코딩하지 말고 토큰에서 파생시킬 때 사용.
 // 예: backgroundColor: withAlpha(T.accent, 0.2)

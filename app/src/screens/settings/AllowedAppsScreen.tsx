@@ -230,7 +230,8 @@ const s = StyleSheet.create({
 
   // 하단 완료 CTA(필드)
   doneBtn: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

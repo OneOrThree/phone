@@ -12,12 +12,19 @@ export function LiveFocusTime({
   focusStartedAt,
   style,
   format = hms,
+  maxFontSizeMultiplier,
 }: {
   baseSeconds: number;
   focusStartedAt: string | null;
   style?: StyleProp<TextStyle>;
   format?: (totalSeconds: number) => string;
+  /** 고정 폭 칸에 놓일 때 배율 상한 — 같은 자리의 정적 표기와 반드시 같은 값을 준다(GROMO-1485). */
+  maxFontSizeMultiplier?: number;
 }) {
   const now = useLiveFocusClock(focusStartedAt != null);
-  return <Text style={style}>{format(liveTotalSeconds(baseSeconds, focusStartedAt, now))}</Text>;
+  return (
+    <Text style={style} maxFontSizeMultiplier={maxFontSizeMultiplier}>
+      {format(liveTotalSeconds(baseSeconds, focusStartedAt, now))}
+    </Text>
+  );
 }

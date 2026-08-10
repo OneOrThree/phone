@@ -213,9 +213,7 @@ export default function FriendAddScreen() {
           <Text style={s.reqTitle}>받은 요청</Text>
           {requests.length > 0 && (
             <View style={s.reqCountBadge}>
-              <Text style={s.reqCountText} allowFontScaling={false}>
-                {requests.length}
-              </Text>
+              <Text style={s.reqCountText}>{requests.length}</Text>
             </View>
           )}
         </View>

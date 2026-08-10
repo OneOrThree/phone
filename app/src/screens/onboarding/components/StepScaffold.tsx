@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '@/constants/theme';
 import { useOnboardingProgress } from '@/screens/onboarding/components/OnboardingProgressContext';
@@ -49,6 +56,11 @@ export default function StepScaffold({
   // 안전영역 인셋을 동기적으로 읽어 패딩으로 적용 — 네이티브 SafeAreaView는 스텝 remount마다
   // 인셋 적용 전 한 프레임이 생겨 하단 CTA가 튀므로, 첫 프레임부터 확정되는 이 방식을 쓴다.
   const insets = useSafeAreaInsets();
+  // 기기 글자 크기를 키우면 제목·부제·본문이 함께 커져 하단이 화면 밖으로 밀린다. CTA는
+  // ScrollView 밖 형제라 늘 보이지만, 본문 아래쪽(권한 안내 카드 등)은 잠긴 스크롤 때문에
+  // 볼 방법이 없다(코덱스 리뷰). 배율이 오르면 scrollable 여부와 무관하게 스크롤을 연다 —
+  // 기본 배율에서는 종전대로 잠겨 있어 스텝 전환 시 본문이 튀지 않는다.
+  const { fontScale } = useWindowDimensions();
   return (
     <View
       testID={testID}
@@ -80,7 +92,7 @@ export default function StepScaffold({
         style={s.scroll}
         contentContainerStyle={[s.body, center ? s.bodyCenter : null]}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!!scrollable}
+        scrollEnabled={!!scrollable || fontScale > 1}
       >
         {header ? <View style={[s.header, center ? s.headerCenter : null]}>{header}</View> : null}
         <Text style={[T.text.title, s.title, center || titleCenter ? s.centerText : null]}>
@@ -145,7 +157,8 @@ const s = StyleSheet.create({
   contentCenter: { marginTop: T.space.xl, alignItems: 'center', alignSelf: 'stretch' },
   footer: { paddingHorizontal: T.space.xxl, paddingBottom: T.space.md, paddingTop: T.space.sm },
   cta: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -155,7 +168,7 @@ const s = StyleSheet.create({
   ctaHidden: { opacity: 0 },
   ctaText: { ...T.text.subtitle, color: T.white },
   secondarySlot: {
-    height: 22,
+    minHeight: 22,
     marginTop: T.space.lg,
     alignItems: 'center',
     justifyContent: 'center',

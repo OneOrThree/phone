@@ -12,7 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import axios from 'axios';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { T } from '@/constants/theme';
+import { FIXED_BOX_FONT_SCALE_MAX, T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { categoryForOccupation } from '@/constants/focusCategories';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
@@ -420,9 +420,7 @@ export default function FriendProfileScreen() {
             </Text>
             <View style={s.friendPill}>
               <Ionicons name="person-outline" size={11} color={T.inkSub} />
-              <Text style={s.friendPillText} allowFontScaling={false}>
-                친구 {friendCount}
-              </Text>
+              <Text style={s.friendPillText}>친구 {friendCount}</Text>
             </View>
           </View>
         </View>
@@ -439,8 +437,9 @@ export default function FriendProfileScreen() {
                 {/* 현재 티어 — 뱃지 + 티어명 + 랭킹 등수 (항상 공개; 상단 티어 줄에서 이관) */}
                 <TierBadge level={tier.level} size={56} />
                 <Text style={s.ringLabel}>{tier.name}</Text>
+                {/* 링 카드는 width 104 고정 — 세 자리 순위가 커지면 카드를 넘는다(코덱스 리뷰) */}
                 {rank != null && (
-                  <Text style={s.ringRank} allowFontScaling={false}>
+                  <Text style={s.ringRank} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
                     랭킹 {rank}위
                   </Text>
                 )}
@@ -448,15 +447,13 @@ export default function FriendProfileScreen() {
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
                   <Text style={s.summaryLabel}>오늘 집중</Text>
-                  <Text style={s.summaryValue} allowFontScaling={false}>
+                  <Text style={s.summaryValue}>
                     {summaryVisible ? fmtMinutes(todayFocusMinutes) : '비공개'}
                   </Text>
                 </View>
                 <View style={s.summaryCard}>
                   <Text style={s.summaryLabel}>연속</Text>
-                  <Text style={s.summaryValue} allowFontScaling={false}>
-                    {streakDays}일
-                  </Text>
+                  <Text style={s.summaryValue}>{streakDays}일</Text>
                 </View>
               </View>
             </View>

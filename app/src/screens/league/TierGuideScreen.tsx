@@ -80,7 +80,7 @@ export default function TierGuideScreen() {
           <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
             <Image source={cur.image} style={s.heroImg} />
             <Text style={s.heroName}>{cur.name}</Text>
-            <Text style={s.heroSub} allowFontScaling={false}>
+            <Text style={s.heroSub}>
               이번 주 {fmtMinutes(minutes)}
               {remain != null ? ` · 다음 단계까지 ${fmtMinutes(remain)}` : ' · 최고 단계예요'}
             </Text>

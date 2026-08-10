@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Alert,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -68,6 +69,12 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
   // 마지막으로 로그인한 소셜 — 재방문 시 해당 버튼에 '최근 사용' 배지(GROMO-602).
   // 저장값이 화면에 없는 provider(메타/라인)면 매칭되는 버튼이 없어 배지 미표시.
   const [lastProvider, setLastProvider] = useState<AuthMethod | null>(null);
+  // '최근 사용' 배지는 버튼 위에 겹쳐 놓는 장식이라, 기본 배율에서도 가운데 라벨과 3pt 남짓
+  // 사이를 두고 지나간다. 기기 글자 크기를 키우면 라벨과 배지가 서로를 파고들어 둘 다 못 읽게
+  // 되므로, 배율이 올라가면 배지를 접는다 — 장식을 접어 기능(라벨)을 살리는 쪽(GROMO-1485).
+  // 1.15는 iOS 한 단계 위(xLarge)까지는 지금 모습을 유지하는 선.
+  const { fontScale } = useWindowDimensions();
+  const showLastBadge = fontScale <= 1.15;
 
   useEffect(() => {
     // 빠른 언마운트(자동 로그인·딥링크 레이스) 시 해제된 컴포넌트 setState 방지 — 다른 화면 패턴과 일관.
@@ -166,7 +173,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
               ) : (
                 <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
               )}
-              {p.method === lastProvider ? (
+              {p.method === lastProvider && showLastBadge ? (
                 <View style={s.lastBadgeWrap} pointerEvents="none">
                   <View style={s.lastBadge}>
                     <Text style={s.lastBadgeText}>최근 사용</Text>
@@ -219,8 +226,12 @@ const s = StyleSheet.create({
     marginTop: T.space.md,
   },
   bottom: { paddingHorizontal: T.space.xxl, paddingBottom: T.space.xxl },
+  // 높이는 minHeight — 기기 글자 크기를 키우면 라벨이 두 줄로 접히는데, 고정 height면
+  // 그대로 잘린다(GROMO-1485). 기본 배율에선 라벨 한 줄(≈23) + 패딩 24 < 52라 52 그대로다.
   btn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',

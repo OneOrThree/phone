@@ -15,7 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T, withAlpha } from '@/constants/theme';
+import { FIXED_BOX_FONT_SCALE_MAX, T, withAlpha } from '@/constants/theme';
 import { springify } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
@@ -355,7 +355,13 @@ export default function LeagueScreen() {
       {/* ── 헤더: 좌상단 마감 카운트다운 + 우측 제목(탭=리그 선택 드롭다운) ── */}
       {tab === 'league' && (
         <View style={s.header} ref={headerRef} collapsable={false}>
-          <Text style={s.deadline} allowFontScaling={false}>
+          {/* 마감·제목은 한 줄에 나란히 놓이는데 둘 다 고정 배치라, 접근성 배율에서 그대로
+              커지면 서로를 파고든다(코덱스 리뷰) — 상한을 걸고 마감 쪽은 줄어들게 둔다. */}
+          <Text
+            style={s.deadline}
+            numberOfLines={1}
+            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
+          >
             {deadlineLabel ?? ''}
           </Text>
           <TouchableOpacity
@@ -363,7 +369,9 @@ export default function LeagueScreen() {
             activeOpacity={0.7}
             onPress={() => setLeagueMenuOpen(true)}
           >
-            <Text style={s.headerTitle}>{title}</Text>
+            <Text style={s.headerTitle} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
+              {title}
+            </Text>
             <Ionicons name="chevron-down" size={17} color={T.inkSub} />
           </TouchableOpacity>
         </View>
@@ -467,10 +475,12 @@ export default function LeagueScreen() {
                             focusStartedAt={member.focusStartedAt}
                             format={hms}
                             style={[s.podiumTime, s.podiumTimeFocusing]}
+                            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                           />
                         </>
                       ) : (
-                        <Text style={s.podiumTime} allowFontScaling={false}>
+                        // 포디움 열은 width 100 고정 — 넘치면 옆 포디움·핀 버튼과 겹친다(코덱스 리뷰)
+                        <Text style={s.podiumTime} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
                           {hms(member.totalFocusSeconds)}
                         </Text>
                       )}
@@ -511,10 +521,8 @@ export default function LeagueScreen() {
             >
               {myIdx >= 0 ? (
                 <>
-                  <Text style={s.myStripRank} allowFontScaling={false}>
-                    내 순위 {myIdx + 1}위
-                  </Text>
-                  <Text style={s.myStripGap} numberOfLines={1} allowFontScaling={false}>
+                  <Text style={s.myStripRank}>내 순위 {myIdx + 1}위</Text>
+                  <Text style={s.myStripGap} numberOfLines={1}>
                     {above
                       ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - stagedMySeconds)}`
                       : '지금 1위예요'}
@@ -811,7 +819,7 @@ const s = StyleSheet.create({
   },
   headerToggle: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   headerTitle: { ...T.text.title, color: T.ink },
-  deadline: { ...T.text.caption, color: T.inkSub },
+  deadline: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
 
   // 리그 선택 드롭다운
   menuBackdrop: { flex: 1, backgroundColor: withAlpha(T.night.bottom, 0.25) },

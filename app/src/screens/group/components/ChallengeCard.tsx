@@ -1145,9 +1145,12 @@ export default function ChallengeCard({
             const on = repeatDays.includes(day);
             const isTodayCell = on && activeToday && day === todayRepeatDay;
             return (
+              // 글자 배율 예외 — 22×22 고정 칩 7개가 한 줄에 들어가야 하고
+              // overflow:'hidden'이라 커지면 글자가 잘린다(GROMO-1485).
               <Text
                 key={day}
                 style={[s.dow, on && s.dowOn, isTodayCell && s.dowToday]}
+                allowFontScaling={false}
                 testID={`group.challenge.dow.${challenge.id}.${day}`}
               >
                 {REPEAT_DAY_LABELS[i]}
