@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -45,11 +45,19 @@ export function WeekStreakModal({ visible, onClose }: Props) {
   }, [visible]);
   // 색종이는 팝이 시작(=charReady)한 뒤 팝 길이만큼 지나서. reduce여도 타이머는 남긴다(정책 D7) —
   // 지연만 0이 된다. 없애면 게이트가 영영 안 열린다.
+  // ⚠️ **'동작 줄이기'가 확정되기 전에는 팝 시퀀스를 시작하지 않는다.** 미확정 구간의 m.reduce는
+  //    보수적으로 true라 지연이 0으로 눌리고, popDone이 즉시 켜진다. 그러면 나중에 false로
+  //    확정될 때 팝과 색종이가 **동시에** 시작해 팝 → 색종이 순서가 깨지고, 캐릭터가 최종 크기로
+  //    먼저 보였다가 뒤늦게 팝한다(codex 리뷰). 조회는 실패해도 false로 확정되므로 안 멈춘다.
+  // ⚠️ 의존성에 m(매 렌더 새 객체)을 넣지 않는다 — 다시 돌면 타이머가 재시작돼 색종이가 밀린다.
+  //    지연은 ref로 최신값을 읽는다(결정 D-29).
+  const popDelayRef = useRef(m.delay(M.dur.slow));
+  popDelayRef.current = m.delay(M.dur.slow);
   useEffect(() => {
-    if (!visible || !charReady) return undefined;
-    const t = setTimeout(() => setPopDone(true), m.delay(M.dur.slow));
+    if (!visible || !charReady || !m.ready) return undefined;
+    const t = setTimeout(() => setPopDone(true), popDelayRef.current);
     return () => clearTimeout(t);
-  }, [visible, charReady, m]);
+  }, [visible, charReady, m.ready]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>

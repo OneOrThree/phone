@@ -119,7 +119,14 @@ function solve(
     const widthFitted = Math.floor(maxTextW / (Math.max(fontScale, 0.1) * TIMER_W_PER_PT));
     return {
       showRing: false,
-      charSize: Math.floor(BASE_CHAR * fit),
+      // ⚠️ **예산을 넘겨서까지 하한(MIN_FIT)을 지키지 않는다.** 접근성 배율이 극단이면
+      //    (SE 647pt · 배율 3.1 뽀모도로) 프레임·확대된 글자·타이머가 이미 약 560pt를 먹어
+      //    캐릭터 몫이 약 87pt뿐인데, 하한이 142pt를 강제하면 합계가 가용 높이를 55pt 넘겨
+      //    리드아웃이 페이저를 밀어내고 캐릭터·도트가 다시 겹친다(codex 리뷰).
+      //    하한은 "여유가 있을 때 너무 쪼그라들지 말라"는 뜻이지 "없는 공간을 만들어 내라"가
+      //    아니다. 남은 예산이 곧 상한이다.
+      //    대가: 이 극단 조합에서는 캡처 PNG 해상도도 같이 낮아진다. 겹침보다는 낫다.
+      charSize: Math.floor(Math.min(BASE_CHAR * fit, Math.max(0, budgetH))),
       ringSize: 0,
       timerFontSize: Math.max(1, Math.min(T.text.timer.fontSize, widthFitted)),
     };
@@ -158,4 +165,19 @@ export function focusReadoutLayout(
   const fitsV = ringed.charSize >= MIN_CHAR;
   const fitsH = ringed.ringSize <= Math.max(0, availableW - H_MARGIN);
   return fitsV && fitsH ? ringed : solve(availableH, availableW, fontScale, false, withBadges);
+}
+
+/**
+ * 이 배치가 세로로 **실제로 쓰는** 높이. 테스트가 검증 합계를 손으로 다시 쓰다가 항을 빠뜨리는
+ * 걸 막으려고 계산 주체를 여기 하나로 둔다 — 실제로 `CHROME_FRAME`과 글자 몫이 빠져서 55pt
+ * 초과를 통과시킨 적이 있다(codex 리뷰).
+ */
+export function readoutUsedHeight(
+  layout: ReadoutLayout,
+  fontScale: number,
+  withBadges = false,
+): number {
+  const chrome = layout.showRing ? READOUT_RING : plainChrome(fontScale, withBadges);
+  const grow = Math.max(fontScale, 1) - 1;
+  return CHROME_FRAME + chrome.total + chrome.text * grow + layout.charSize + layout.ringSize;
 }
