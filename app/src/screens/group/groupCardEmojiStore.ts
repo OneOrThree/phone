@@ -77,6 +77,29 @@ const saveFailureListeners = new Map<string, Set<(failed: boolean) => void>>();
 // reconcile뿐 아니라 일반 저장도 이를 최신 raw 아래에 병합해 앱 종료 전 복구를 영속화한다.
 const reconcileRecoveryBucketByUser = new Map<string, GroupCardEmojiBucket>();
 
+function mergeRecoveryBuckets(
+  map: GroupCardEmojiMap,
+  recoveryEntries: readonly (readonly [string, GroupCardEmojiBucket])[],
+): GroupCardEmojiMap {
+  return recoveryEntries.reduce<GroupCardEmojiMap>(
+    (nextMap, [recoveryUserId, recoveryBucket]) => ({
+      ...nextMap,
+      [recoveryUserId]: { ...recoveryBucket, ...nextMap[recoveryUserId] },
+    }),
+    map,
+  );
+}
+
+function clearPersistedRecoveryBuckets(
+  recoveryEntries: readonly (readonly [string, GroupCardEmojiBucket])[],
+): void {
+  recoveryEntries.forEach(([recoveryUserId, recoveryBucket]) => {
+    if (reconcileRecoveryBucketByUser.get(recoveryUserId) === recoveryBucket) {
+      reconcileRecoveryBucketByUser.delete(recoveryUserId);
+    }
+  });
+}
+
 export function setGroupCardEmojiSaveFailure(userId: string, failed: boolean): void {
   if (failed) saveFailureUsers.add(userId);
   else saveFailureUsers.delete(userId);
@@ -166,13 +189,7 @@ export function writeGroupCardEmoji(
   return enqueueStorageOperation(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
     const recoveryEntries = [...reconcileRecoveryBucketByUser.entries()];
-    const recoveredMap = recoveryEntries.reduce<GroupCardEmojiMap>(
-      (nextMap, [recoveryUserId, recoveryBucket]) => ({
-        ...nextMap,
-        [recoveryUserId]: { ...recoveryBucket, ...nextMap[recoveryUserId] },
-      }),
-      map,
-    );
+    const recoveredMap = mergeRecoveryBuckets(map, recoveryEntries);
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardEmoji,
       JSON.stringify({
@@ -182,11 +199,7 @@ export function writeGroupCardEmoji(
     );
     // 성공한 RMW에 병합된 모든 계정 복구본만 비운다. 이후 세대가 같은 계정에 새로
     // 복구본을 만들었다면 참조가 달라지므로 다음 저장까지 유지한다.
-    recoveryEntries.forEach(([recoveryUserId, recoveryBucket]) => {
-      if (reconcileRecoveryBucketByUser.get(recoveryUserId) === recoveryBucket) {
-        reconcileRecoveryBucketByUser.delete(recoveryUserId);
-      }
-    });
+    clearPersistedRecoveryBuckets(recoveryEntries);
     emitGroupCardEmoji(userId, groupId, emoji);
   });
 }
@@ -217,43 +230,39 @@ export function reconcileGroupCardEmojiBucket(
       return null;
     }
     const parsed = parseGroupCardEmojiState(raw);
-    const recoveryBucket = reconcileRecoveryBucketByUser.get(userId);
-    const current = recoveryBucket
-      ? { ...recoveryBucket, ...parsed.value[userId] }
-      : (parsed.value[userId] ?? {});
+    const recoveryEntries = [...reconcileRecoveryBucketByUser.entries()];
+    const recoveredMap = mergeRecoveryBuckets(parsed.value, recoveryEntries);
+    const current = recoveredMap[userId] ?? {};
     const validIds = new Set(serverGroupIds);
     const next = Object.fromEntries(
       Object.entries(current).filter(([groupId]) => validIds.has(groupId)),
     ) as GroupCardEmojiBucket;
 
     if (!isCurrent()) return {};
-    if (recoveryBucket || parsed.needsRepair || !sameBucket(current, next)) {
+    if (recoveryEntries.length > 0 || parsed.needsRepair || !sameBucket(current, next)) {
       try {
         await AsyncStorage.setItem(
           STORAGE_KEYS.groupCardEmoji,
-          JSON.stringify({ ...parsed.value, [userId]: next }),
+          JSON.stringify({ ...recoveredMap, [userId]: next }),
         );
         if (!isCurrent()) {
           // 같은 storage queue 뒤에 최신 reconcile이 대기한다. 먼저 원본을 복원해 최신 요청이
           // superseded prune 결과가 아닌 실제 이전 bucket에서 다시 계산하게 한다.
           try {
-            if (recoveryBucket) {
-              await AsyncStorage.setItem(
-                STORAGE_KEYS.groupCardEmoji,
-                JSON.stringify({ ...parsed.value, [userId]: current }),
-              );
+            if (recoveryEntries.length > 0) {
+              await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, JSON.stringify(recoveredMap));
             } else if (raw === null) {
               await AsyncStorage.removeItem(STORAGE_KEYS.groupCardEmoji);
             } else {
               await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, raw);
             }
-            reconcileRecoveryBucketByUser.delete(userId);
+            clearPersistedRecoveryBuckets(recoveryEntries);
           } catch {
             reconcileRecoveryBucketByUser.set(userId, current);
           }
           return {};
         }
-        reconcileRecoveryBucketByUser.delete(userId);
+        clearPersistedRecoveryBuckets(recoveryEntries);
       } catch {
         // stale 정리는 best-effort다. 이미 정상적으로 읽은 현재 계정 아이콘은 UI에 유지한다.
       }
