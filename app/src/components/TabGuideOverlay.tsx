@@ -188,8 +188,8 @@ export function TabGuideOverlay({
   if (!visible || !step) return null;
 
   function advance() {
-    if (idx + 1 < steps.length) {
-      setIdx(idx + 1);
+    if (effectiveIdx + 1 < steps.length) {
+      setIdx(effectiveIdx + 1);
       return;
     }
     if (!controlled) setInternalVisible(false);
@@ -226,9 +226,9 @@ export function TabGuideOverlay({
         style={s.flex1}
         onPress={advance}
         accessibilityRole="button"
-        accessibilityLabel={`${accessibilityTitle ? `${accessibilityTitle}, ` : ''}단계 ${idx + 1}/${steps.length}. ${step.text}. ${idx + 1 < steps.length ? '다음' : '시작'}`}
+        accessibilityLabel={`${accessibilityTitle ? `${accessibilityTitle}, ` : ''}단계 ${effectiveIdx + 1}/${steps.length}. ${step.text}. ${effectiveIdx + 1 < steps.length ? '다음' : '시작'}`}
         accessibilityActions={[
-          { name: 'activate', label: idx + 1 < steps.length ? '다음' : '시작' },
+          { name: 'activate', label: effectiveIdx + 1 < steps.length ? '다음' : '시작' },
         ]}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'activate') advance();
@@ -277,10 +277,10 @@ export function TabGuideOverlay({
             <View style={s.bubbleMeta}>
               <View style={s.dots}>
                 {steps.map((_, i) => (
-                  <View key={i} style={[s.dot, i === idx && s.dotOn]} />
+                  <View key={i} style={[s.dot, i === effectiveIdx && s.dotOn]} />
                 ))}
               </View>
-              <Text style={s.hint}>{idx + 1 < steps.length ? '다음' : '시작'}</Text>
+              <Text style={s.hint}>{effectiveIdx + 1 < steps.length ? '다음' : '시작'}</Text>
             </View>
             <View style={s.bubbleTail} />
           </View>
