@@ -222,4 +222,56 @@ describe('재생 도중 재갱신', () => {
     });
     expect(result.current).toBe(resetWeek);
   });
+
+  // ⚠️ 계획 교체는 **렌더 본문**에서 일어나는데 옛 타이머는 passive effect에서야 걷힌다.
+  //    둘 사이에 옛 타이머가 만료되면(둘 다 매크로태스크라 순서 보장이 없다) 콜백이 방금 세운
+  //    계획을 덮어쓴다 — 특히 옛 계획의 **마지막** 콜백은 pendingRef까지 비워 새 계획을 통째로
+  //    지운다(codex 리뷰). 그 순간은 fake timer로 재현할 수 없으므로, 예약된 콜백을 붙잡아
+  //    직접 호출해 같은 상황을 만든다.
+  test('교체된 옛 계획의 타이머가 뒤늦게 터져도 새 계획을 지우지 않는다', async () => {
+    const scheduled: (() => void)[] = [];
+    const realSetTimeout = global.setTimeout;
+    const spy = jest.spyOn(global, 'setTimeout').mockImplementation(((
+      cb: () => void,
+      ms?: number,
+    ) => {
+      scheduled.push(cb);
+      return realSetTimeout(cb, ms);
+    }) as unknown as typeof setTimeout);
+
+    const { result, rerender } = await mount(rows(BEFORE));
+    await act(async () => {
+      rerender(rows(AFTER));
+    });
+    const planA = [...scheduled];
+    expect(planA.length).toBeGreaterThan(0);
+
+    // 재생 도중 새 응답 — 계획 B로 갈아탄다(기록은 줄지 않는다: 주 경계 취급을 피한다)
+    const next = rows([
+      ['c', 20000],
+      ['me', 10800],
+      ['a', 9000],
+      ['b', 7200],
+    ]);
+    scheduled.length = 0;
+    await act(async () => {
+      rerender(next);
+    });
+    expect(scheduled.length).toBeGreaterThan(0); // 계획 B도 예약됐다
+
+    // 옛 계획의 마지막 콜백이 뒤늦게 만료된 상황
+    await act(async () => {
+      planA[planA.length - 1]();
+    });
+
+    // 계획 B가 살아 있다 — 가드가 없으면 여기서 곧장 최신 배열(next)이 되어 재정렬이 생략된다
+    expect(result.current).not.toBe(next);
+
+    // 그리고 계획 B는 끝까지 재생돼 최종 배열에 도착한다
+    await act(async () => {
+      jest.advanceTimersByTime((SWAP_LEAD_MS + SWAP_GAP_MS) * 6);
+    });
+    expect(result.current).toBe(next);
+    spy.mockRestore();
+  });
 });

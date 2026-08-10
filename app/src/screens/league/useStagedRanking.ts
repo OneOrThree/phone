@@ -73,6 +73,16 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
   // 이번 렌더에서 계획이 새로 정해졌는가 — effect가 타이머를 다시 걸어야 한다는 신호.
   const rescheduleRef = useRef(false);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // 계획 세대 — 계획이 바뀔 때마다 올린다. 예약된 콜백은 자기 세대가 아직 최신일 때만 실행한다.
+  //
+  // ⚠️ 이게 없으면 **커밋과 passive effect 사이**가 구멍이다. 계획 교체는 렌더 본문에서
+  //    일어나는데(위 `targetKey` 분기) 옛 타이머는 아래 effect에서야 걷힌다. 그 사이에 옛
+  //    타이머가 만료되면 콜백이 방금 세운 `frameRef`를 옛 프레임으로 덮어쓰고, 그게 옛 계획의
+  //    **마지막** 프레임이면 `pendingRef`까지 비워 새 계획을 통째로 날린다 — 최신 재정렬이
+  //    생략되거나 옛 순서가 잠깐 되돌아온다(codex 리뷰).
+  //    타이머 콜백과 React의 passive effect 플러시는 둘 다 매크로태스크라 순서가 보장되지 않아,
+  //    "effect가 먼저 돌 것"에 기댈 수 없다.
+  const planGenRef = useRef(0);
 
   const targetOrder = items.map((item) => item.userId);
   // ⚠️ 순서뿐 아니라 **기록도 키에 넣는다.** 같은 순서로 점수만 갱신된 응답이 재생 도중 오면,
@@ -102,11 +112,15 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
     frameRef.current = frames.length > 0 ? frames[0] : null;
     pendingRef.current = frames.slice(1);
     rescheduleRef.current = true;
+    // 계획을 바꾼 **그 자리에서** 세대를 올린다 — effect를 기다리면 위 주석의 구멍이 열린다.
+    planGenRef.current++;
   } else if (!staged && (frameRef.current !== null || pendingRef.current.length > 0)) {
     // 재생 도중 '동작 줄이기'가 켜졌다 — 남은 단계를 버리고 최종 순서·최종 기록으로 점프한다.
     frameRef.current = null;
     pendingRef.current = [];
     rescheduleRef.current = true;
+    // 여기서도 세대를 올린다 — 안 올리면 옛 타이머가 점프한 화면에 중간 단계를 되돌려 놓는다.
+    planGenRef.current++;
   }
 
   const rendered = applyFrame(items, frameRef.current);
@@ -119,10 +133,13 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
     const pending = pendingRef.current;
+    const gen = planGenRef.current;
     pending.forEach((frame, i) => {
       const isLast = i === pending.length - 1;
       timersRef.current.push(
         setTimeout(() => {
+          // 낡은 계획의 콜백은 아무것도 건드리지 않는다 — 위 planGenRef 주석 참고.
+          if (gen !== planGenRef.current) return;
           // 마지막 프레임은 계획을 비운다 — 최신 배열을 그대로 통과시켜, 이후 갱신이 낡은
           // 순서·기록에 갇히지 않게 한다(마지막 프레임의 순서·기록은 최신 배열과 같다).
           frameRef.current = isLast ? null : frame;
