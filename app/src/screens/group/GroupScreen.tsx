@@ -16,6 +16,8 @@ import {
   type PendingInvite,
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
+import type { GroupCountBucket } from '@/services/analyticsEvents';
+import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -35,6 +37,14 @@ import GroupInviteSheet from './components/GroupInviteSheet';
 
 // 플로팅 탭바가 가리는 하단 여백(리그·홈 화면과 동일 기준)
 const TAB_BAR_SPACE = 74;
+
+function groupCountBucket(count: number): GroupCountBucket {
+  if (count === 0) return '0';
+  if (count === 1) return '1';
+  if (count <= 5) return '2_5';
+  if (count <= 10) return '6_10';
+  return '11_plus';
+}
 
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
@@ -89,6 +99,16 @@ export default function GroupScreen() {
   // 최신 요청의 결과만 반영한다(useFriends.ts의 requestSeqRef와 같은 패턴).
   const requestSeqRef = useRef(0);
 
+  // group_viewed는 성공한 전체 목록이 확정된 뒤 view episode당 한 번만 발행한다.
+  // 첫 마운트의 기본 진입은 tab, 이후 child/다른 화면에서 돌아온 focus는 return이며,
+  // 실제 새 focus를 만든 외부 진입만 navigationRef가 넣은 invite|push를 한 번 소비한다.
+  const hasFocusedRef = useRef(false);
+  const viewEpisodeRef = useRef<{ id: number; source: GroupEntrySource; logged: boolean }>({
+    id: 0,
+    source: 'unknown',
+    logged: false,
+  });
+
   // 초대 링크가 가리킨 그룹방 — 참여(또는 '이미 멤버') 판정 뒤 재조회가 끝날 때까지 목적지를 들고 있는다.
   // 재조회하면 목록이 기본 화면이라(A-9), 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
   const pendingRoomIdRef = useRef<string | null>(null);
@@ -103,6 +123,14 @@ export default function GroupScreen() {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
       setGroups(rows);
+      const episode = viewEpisodeRef.current;
+      if (!episode.logged) {
+        episode.logged = true;
+        logGroupViewed({
+          group_entry: episode.source,
+          group_count_bucket: groupCountBucket(rows.length),
+        });
+      }
       // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
     } catch {
@@ -123,7 +151,13 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
-      logGroupViewed();
+      const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
+      hasFocusedRef.current = true;
+      viewEpisodeRef.current = {
+        id: viewEpisodeRef.current.id + 1,
+        source: consumeGroupEntry(fallback),
+        logged: false,
+      };
       fetchGroups();
       return () => {
         requestSeqRef.current++;

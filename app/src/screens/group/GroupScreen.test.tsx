@@ -16,6 +16,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
+import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -164,6 +166,7 @@ jest.mock('./components/GroupInviteSheet', () => {
 const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockPeek = peekPendingInvite as jest.MockedFunction<typeof peekPendingInvite>;
 const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingInvite>;
+const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroupViewed>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
@@ -212,6 +215,7 @@ async function press(label: string) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  clearPendingGroupEntry();
   mockIsGuest = false;
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
@@ -225,6 +229,67 @@ beforeEach(() => {
 // spyOn으로 만든 스파이만 되돌린다 — jest.mock 모듈 목에는 영향이 없다.
 afterEach(() => {
   jest.restoreAllMocks();
+  clearPendingGroupEntry();
+});
+
+describe('group_viewed view episode', () => {
+  test('성공한 전체 목록 뒤에만 group_entry와 count bucket을 한 번 발행한다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([]);
+
+    await renderScreen();
+
+    expect(mockLogGroupViewed).toHaveBeenCalledTimes(1);
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'tab',
+      group_count_bucket: '0',
+    });
+  });
+
+  test('목록 실패에는 발행하지 않고 같은 episode의 재시도 성공에서 한 번 발행한다', async () => {
+    mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
+    await renderScreen();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+
+    mockGetMyGroups.mockResolvedValueOnce(
+      Array.from({ length: 11 }, (_, index) => ({
+        ...summary(),
+        groupId: `0197e0c3-4d1b-7a2e-9f60-${String(index).padStart(12, '0')}`,
+      })),
+    );
+    await press('다시 시도');
+
+    expect(mockLogGroupViewed).toHaveBeenCalledTimes(1);
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'tab',
+      group_count_bucket: '11_plus',
+    });
+  });
+
+  test('실제 새 focus를 만든 direct source를 한 번 소비하고 다음 focus는 return이다', async () => {
+    queueDirectGroupEntry('invite');
+    mockGetMyGroups.mockResolvedValueOnce([summary()]).mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(1, {
+      group_entry: 'invite',
+      group_count_bucket: '1',
+    });
+
+    await refocus();
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    await press('목록-새로고침');
+
+    expect(mockLogGroupViewed).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
