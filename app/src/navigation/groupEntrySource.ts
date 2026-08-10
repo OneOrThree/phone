@@ -5,11 +5,32 @@ type DirectGroupEntrySource = Extract<GroupEntrySource, 'invite' | 'push' | 'unk
 // 외부 진입이 실제로 GroupScreen의 새 focus를 만들 때만 쌓는 1회성 값이다.
 // 이미 focus된 화면에 도착한 warm invite/push는 이 모듈을 호출하지 않는다.
 let pendingDirectSource: DirectGroupEntrySource | null = null;
+let pendingPushListGate: {
+  promise: Promise<readonly string[] | null>;
+  resolve: (groupIds: readonly string[] | null) => void;
+} | null = null;
 
 export function queueDirectGroupEntry(source: DirectGroupEntrySource): void {
   // 첫 외부 전이의 원인을 보존한다. 화면이 focus되기 전에 후속 링크가 도착해도
   // 다음 episode의 source를 최신 링크로 덮어쓰지 않는다.
   if (pendingDirectSource === null) pendingDirectSource = source;
+  if (source === 'push' && pendingPushListGate === null) {
+    let resolve!: (groupIds: readonly string[] | null) => void;
+    const promise = new Promise<readonly string[] | null>((done) => {
+      resolve = done;
+    });
+    pendingPushListGate = { promise, resolve };
+  }
+}
+
+export function waitForPendingPushGroupList(): Promise<readonly string[] | null> | null {
+  return pendingPushListGate?.promise ?? null;
+}
+
+export function settlePendingPushGroupList(groupIds: readonly string[] | null): void {
+  const gate = pendingPushListGate;
+  pendingPushListGate = null;
+  gate?.resolve(groupIds);
 }
 
 export function consumeGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
@@ -25,4 +46,5 @@ export function peekGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
 
 export function clearPendingGroupEntry(): void {
   pendingDirectSource = null;
+  settlePendingPushGroupList(null);
 }

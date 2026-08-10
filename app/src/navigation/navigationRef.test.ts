@@ -12,12 +12,17 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  queueDirectGroupEntry,
+  waitForPendingPushGroupList,
+} from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 jest.mock('@/navigation/groupEntrySource', () => ({
   clearPendingGroupEntry: jest.fn(),
   queueDirectGroupEntry: jest.fn(),
+  waitForPendingPushGroupList: jest.fn(() => null),
 }));
 
 // 환불 푸시(refund=1)가 태우는 잔액 재조회 신호 — 실제 조회는 CoinProvider가 한다.
@@ -33,6 +38,9 @@ const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
 >;
 const mockClearPendingGroupEntry = clearPendingGroupEntry as jest.MockedFunction<
   typeof clearPendingGroupEntry
+>;
+const mockWaitForPendingPushGroupList = waitForPendingPushGroupList as jest.MockedFunction<
+  typeof waitForPendingPushGroupList
 >;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
@@ -193,6 +201,27 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     await flushAsync();
 
     expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
+  });
+
+  test('새 push focus는 GroupScreen 목록 성공 episode 뒤에만 방으로 이동한다', async () => {
+    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+    let publish!: (groupIds: readonly string[] | null) => void;
+    mockWaitForPendingPushGroupList.mockReturnValueOnce(
+      new Promise((resolve) => {
+        publish = resolve;
+      }),
+    );
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+    expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+
+    currentRoute.mockReturnValue({ key: '그룹-1', name: '그룹' });
+    publish([GROUP_ID]);
+    await flushAsync();
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', roomParams(GROUP_ID, undefined));
   });
 
   test('이미 focus된 그룹 화면의 warm push는 다음 source를 만들지 않는다', async () => {
@@ -455,7 +484,12 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
 
   test('gromo://focus → 과목 선택 화면', () => {
     navigateToDeepLink('gromo://focus');
-    expect(navigate).toHaveBeenCalledWith('FocusCategory', { entrySource: 'unknown' });
+    expect(navigate).toHaveBeenCalledWith('FocusCategory', {
+      initialGroupId: undefined,
+      entrySource: 'unknown',
+      interactionId: undefined,
+      interactionAcceptedAt: undefined,
+    });
   });
 
   // 친구 푸시(티켓 1090)가 발행하는 링크를 받는 배선 — 계약 §2.

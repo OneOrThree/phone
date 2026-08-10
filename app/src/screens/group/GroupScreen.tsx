@@ -22,6 +22,7 @@ import {
   clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
+  settlePendingPushGroupList,
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import { todayStrKst } from '@/utils/localDate';
@@ -160,11 +161,13 @@ export default function GroupScreen() {
           group_count_bucket: groupCountBucket(rows.length),
         });
       }
+      settlePendingPushGroupList(rows.map((group) => group.groupId));
       // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
     } catch {
       if (seq !== requestSeqRef.current) return;
       setError(true);
+      settlePendingPushGroupList(null);
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }

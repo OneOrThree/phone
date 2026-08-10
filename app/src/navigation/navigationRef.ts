@@ -7,7 +7,11 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  queueDirectGroupEntry,
+  waitForPendingPushGroupList,
+} from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -115,7 +119,12 @@ export function navigateToDeepLink(link: string): void {
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
-      navigationRef.navigate('FocusCategory', { entrySource: 'unknown' });
+      navigationRef.navigate('FocusCategory', {
+        initialGroupId: undefined,
+        entrySource: 'unknown',
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
       break;
     case 'home':
       navigationRef.navigate('Main', { screen: '홈' } as never);
@@ -226,11 +235,12 @@ async function pushGroupRoom(
   // 비결과성 딥링크(모집·생성·초대 등)의 게이트는 그대로다 — 탈퇴한 그룹방을 아무 경로로나 열게
   // 하지 않는다. 우회 경로는 조회 대기가 없어(동기 진행) 대기 중 화면 이탈 가드도 불필요하다.
   if (!resultPush) {
-    const groups = await getMyGroups();
+    const sharedGroupIds = await (waitForPendingPushGroupList() ??
+      getMyGroups().then((groups) => groups.map((group) => group.groupId)));
     if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
     if (!navigationRef.isReady()) return;
     if (!isStillInGroupFlow()) return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
-    if (!groups.some((g) => g.groupId === groupId)) return;
+    if (!sharedGroupIds?.includes(groupId)) return;
   }
   if (!navigationRef.isReady()) return;
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
