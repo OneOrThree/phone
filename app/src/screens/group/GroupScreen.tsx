@@ -229,6 +229,16 @@ export default function GroupScreen() {
     [navigation],
   );
 
+  const onStartGroupFocus = useCallback(
+    (groupId: string) => navigation.navigate('FocusCategory', { initialGroupId: groupId }),
+    [navigation],
+  );
+
+  const onOpenGroupSettings = useCallback(
+    (groupId: string) => navigation.navigate('GroupSettings', { groupId }),
+    [navigation],
+  );
+
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
     (groupId: string) => {
@@ -352,6 +362,8 @@ export default function GroupScreen() {
           onSelect={onSelectGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
+          onStartFocus={onStartGroupFocus}
+          onOpenSettings={onOpenGroupSettings}
           onRefresh={fetchGroups}
         />
         {findSheet}

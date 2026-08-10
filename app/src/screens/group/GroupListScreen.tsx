@@ -20,7 +20,9 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
+import { GroupCardBack } from './components/GroupCardBack';
 import { useGroupCardOrder } from './useGroupCardOrder';
+import { useGroupCardData } from './useGroupCardData';
 import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
@@ -58,6 +60,8 @@ export interface GroupListScreenProps {
   onSelect: (groupId: string) => void;
   onCreate: () => void;
   onFind: () => void;
+  onStartFocus?: (groupId: string) => void;
+  onOpenSettings?: (groupId: string) => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
 }
@@ -70,6 +74,8 @@ export default function GroupListScreen({
   onSelect,
   onCreate,
   onFind,
+  onStartFocus = () => undefined,
+  onOpenSettings = () => undefined,
   onRefresh,
   onBack,
 }: GroupListScreenProps) {
@@ -93,6 +99,12 @@ export default function GroupListScreen({
       return group ? [group] : [];
     });
   }, [groups, hydrated, orderedGroupIds]);
+  const dataGroupIds = useMemo(() => orderedGroups.map((group) => group.groupId), [orderedGroups]);
+  const { snapshots, ensureBack, retry } = useGroupCardData({
+    userId,
+    groupIds: dataGroupIds,
+    screenFocused: isScreenFocused,
+  });
   const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(orderedGroups[0]?.groupId ?? null);
@@ -320,38 +332,32 @@ export default function GroupListScreen({
         renderItem={({ item, index }) => (
           <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
             {flippedGroupId === item.groupId ? (
-              <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
-                <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
-                  {item.name}
-                </Text>
-                <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
-                <TouchableOpacity
-                  ref={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
-                  style={s.backPrimary}
-                  onPress={() => {
-                    roomReturnRef.current = {
-                      groupId: item.groupId,
-                      sourceIndex: index,
-                      departureRevision: groupsRevision,
-                    };
-                    onSelect(item.groupId);
-                  }}
-                  testID={`group.card.room.${item.groupId}`}
-                >
-                  <Text style={s.backPrimaryText}>방 전체 보기</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setFlippedGroupId(null)}
-                  testID={`group.card.frontAction.${item.groupId}`}
-                >
-                  <Text style={s.backLink}>앞면으로</Text>
-                </TouchableOpacity>
-              </View>
+              <GroupCardBack
+                group={item}
+                snapshot={snapshots[item.groupId]}
+                roomRef={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
+                onFlipFront={() => setFlippedGroupId(null)}
+                onStartFocus={() => onStartFocus(item.groupId)}
+                onOpenSettings={() => onOpenSettings(item.groupId)}
+                onOpenRoom={() => {
+                  roomReturnRef.current = {
+                    groupId: item.groupId,
+                    sourceIndex: index,
+                    departureRevision: groupsRevision,
+                  };
+                  onSelect(item.groupId);
+                }}
+                onRetry={(dependency) => retry(item.groupId, dependency)}
+              />
             ) : (
               <GroupCardFront
                 group={item}
                 bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
-                onFlip={() => draggingGroupId === null && setFlippedGroupId(item.groupId)}
+                onFlip={() => {
+                  if (draggingGroupId !== null) return;
+                  setFlippedGroupId(item.groupId);
+                  ensureBack(item.groupId);
+                }}
                 reorderHandlers={handlersFor(item.groupId)}
                 canMovePrevious={index > 0}
                 canMoveNext={index < orderedGroups.length - 1}
