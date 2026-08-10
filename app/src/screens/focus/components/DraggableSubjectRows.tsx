@@ -61,9 +61,14 @@ export function DraggableSubjectRows({
   // ⚠️ **진행 중인 안착도 멈춘다.** 위 ref는 앞으로의 호출만 즉시 처리할 뿐, 이미 시작된
   //    160ms Animated.timing은 계속 돈다 — 재정렬 도중 접근성 단축키로 설정을 켜면 행이
   //    그대로 미끄러진다(codex 리뷰). 켜지는 순간 모든 행을 지금 순서의 제자리로 확정한다.
+  //    ⚠️ 단, **지금 손가락이 잡고 있는 행은 건너뛴다.** 그 행은 안착 애니메이션 중이 아니라
+  //       손가락을 추종하는 중이다. 여기서 슬롯으로 밀면 손가락 아래에서 제자리로 튄 뒤 다음
+  //       move 이벤트에 다시 손가락 위치로 돌아온다(codex 리뷰). settleOthers()가 드래그 행을
+  //       빼는 것과 같은 이유다 — 확정 대상은 **실제로 Animated.timing 중인 나머지 행**이다.
   useEffect(() => {
     if (!settleInstantRef.current) return;
     orderRef.current.forEach((id, i) => {
+      if (id === dragIdRef.current) return;
       const v = tops.current[id];
       if (!v) return;
       v.stopAnimation(() => v.setValue(i * SLOT));
