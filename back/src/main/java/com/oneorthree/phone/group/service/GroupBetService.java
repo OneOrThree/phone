@@ -404,6 +404,15 @@ public class GroupBetService {
                 log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
                         sessionId, user.getId(), minutes);
             }
+            groupChallengeBetParticipantRepository.delete(mine.get());
+            refundStake(session, user, mine.get().getId());
+            long remaining = groupChallengeBetParticipantRepository.countBySessionId(session.getId());
+            if (remaining == 0) {
+                // 유저 개설 회차가 비면 "없던 일" — 구 자동 취소(CANCELED)의 재편 후 표현이다.
+                groupChallengeBetSessionRepository.delete(session);
+            }
+            log.info("내기 참가 해제 — 탈퇴 연동. sessionId={}, userId={}, stake={} 환불, 잔여 {}명",
+                    session.getId(), user.getId(), session.getStake(), remaining);
         }
     }
 

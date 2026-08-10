@@ -180,8 +180,10 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     private GroupChallenge durationChallenge(Group owner, MissionCategory category) {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(owner).category(category).type(MissionType.DURATION).build());
+        // V36(GROMO-1405) 이후 category 는 NOT NULL 비정규화 사본이다 — 복합 FK 가 부모와 일치를
+        // 강제하므로 부모 챌린지와 같은 값을 넣어야 한다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(category).durationMinutes(GOAL_MINUTES).build());
         challenges.add(saved);
         return saved;
     }
@@ -190,10 +192,11 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     private GroupChallenge startedWindowChallenge(Group owner) {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(owner).category(MissionCategory.FOCUS).type(MissionType.TIME_WINDOW).build());
+        // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 이다 — EPOCH 앵커 Instant 변환이 필요 없다.
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(LocalDate.EPOCH.atTime(LocalTime.MIDNIGHT).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(LocalTime.of(0, 15)).atZone(KST).toInstant())
+                .windowStart(LocalTime.MIDNIGHT)
+                .windowEnd(LocalTime.of(0, 15))
                 .durationMinutes(15)
                 .build());
         challenges.add(saved);
