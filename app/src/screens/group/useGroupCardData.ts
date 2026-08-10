@@ -41,7 +41,9 @@ export function useGroupCardData({
   const openedUserIdRef = useRef<string | null>(userId);
   const previousReloadTokenRef = useRef(reloadToken);
   const [date, setDate] = useState(todayStrKst);
-  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [appActive, setAppActive] = useState(
+    AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+  );
   const [, render] = useState(0);
   const groupKey = JSON.stringify(groupIds);
 

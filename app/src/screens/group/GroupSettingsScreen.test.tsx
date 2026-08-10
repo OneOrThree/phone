@@ -153,7 +153,10 @@ describe('허브 — 행 노출', () => {
     const emojiRow = screen.getByTestId('group.settings.cardEmoji');
     expect(emojiRow).toBeOnTheScreen();
     expect(screen.getByText('🌅 일출 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
-    expect(emojiRow).toHaveProp('accessibilityLabel', '내 카드 아이콘, 현재 일출');
+    expect(emojiRow).toHaveProp(
+      'accessibilityLabel',
+      '내 카드 아이콘, 현재 일출, 이 기기에서 나에게만 보여요',
+    );
     expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();

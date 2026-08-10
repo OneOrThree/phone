@@ -241,7 +241,7 @@ export default function GroupSettingsScreen() {
       ? '내 카드 아이콘, 현재 아이콘을 불러오지 못했어요'
       : currentEmojiLabel === null
         ? '내 카드 아이콘, 현재 아이콘 불러오는 중'
-        : `내 카드 아이콘, 현재 ${currentEmojiLabel}`;
+        : `내 카드 아이콘, 현재 ${currentEmojiLabel}, 이 기기에서 나에게만 보여요`;
     // ── 허브 — 내 카드 아이콘은 역할 공통, 서버 운영 행만 방장 전용 ──
     body = (
       <ScrollView

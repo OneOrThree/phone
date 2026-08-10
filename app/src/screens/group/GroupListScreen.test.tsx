@@ -379,6 +379,28 @@ describe('콜백', () => {
     expect(screen.queryByTestId('group.list.refresh')).toBeNull();
   });
 
+  test('세로 덱 scroller의 당겨서 새로고침은 중복 요청을 막고 완료 뒤 spinner를 내린다', async () => {
+    let release: () => void = () => undefined;
+    onRefresh.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    await renderList([group()]);
+
+    const refresh = () => screen.getByTestId('group.list.scroller').props.refreshControl;
+    expect(refresh().props.refreshing).toBe(false);
+    await act(async () => {
+      refresh().props.onRefresh();
+      refresh().props.onRefresh();
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(refresh().props.refreshing).toBe(true);
+
+    await act(async () => release());
+    await waitFor(() => expect(refresh().props.refreshing).toBe(false));
+  });
+
   test('낮은 화면에서도 카드 하단까지 스크롤하고 탭바 위 여백을 확보한다', async () => {
     await renderList([group()]);
     const scroller = screen.getByTestId('group.list.scroller');

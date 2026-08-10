@@ -13,6 +13,7 @@ import {
   FlatList,
   findNodeHandle,
   PanResponder,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -203,6 +204,7 @@ export default function GroupListScreen({
   onSelect,
   onCreate,
   onFind,
+  onRefresh,
   onStartFocus = () => undefined,
   onOpenSettings = () => undefined,
   onBack,
@@ -221,6 +223,9 @@ export default function GroupListScreen({
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const refreshRequestRef = useRef(0);
   const reorderMenuGroupIdRef = useRef<string | null>(null);
   reorderMenuGroupIdRef.current = reorderMenuGroupId;
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
@@ -260,6 +265,27 @@ export default function GroupListScreen({
     screenFocused: isScreenFocused,
     reloadToken: groupsRevision,
   });
+  const refreshGroups = useCallback(() => {
+    if (refreshingRef.current) return;
+    const request = ++refreshRequestRef.current;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    Promise.resolve()
+      .then(onRefresh)
+      .catch(() => undefined)
+      .finally(() => {
+        if (request !== refreshRequestRef.current) return;
+        refreshingRef.current = false;
+        setRefreshing(false);
+      });
+  }, [onRefresh]);
+  useEffect(
+    () => () => {
+      refreshRequestRef.current++;
+      refreshingRef.current = false;
+    },
+    [],
+  );
   const pageCount = orderedGroups.length + 1;
   const deckOrderKey = orderedGroups.map((group) => group.groupId).join('\u0000');
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
@@ -942,6 +968,20 @@ export default function GroupListScreen({
         nestedScrollEnabled
         directionalLockEnabled
         scrollEnabled={guideInputReady && !guideVisible}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshGroups}
+            enabled={
+              guideInputReady &&
+              !guideVisible &&
+              reorderMenuGroupId === null &&
+              draggingGroupId === null
+            }
+            tintColor={T.accent}
+            colors={[T.accent]}
+          />
+        }
         testID="group.list.scroller"
       >
         <View
