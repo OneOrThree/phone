@@ -13,6 +13,7 @@ import {
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import {
+  discardInitialGroupRoomReturn,
   discardQueuedGroupEntry,
   markInitialGroupRoomReturn,
   queueDirectGroupEntry,
@@ -20,6 +21,7 @@ import {
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 jest.mock('@/navigation/groupEntrySource', () => ({
+  discardInitialGroupRoomReturn: jest.fn(),
   discardQueuedGroupEntry: jest.fn(),
   markInitialGroupRoomReturn: jest.fn(),
   queueDirectGroupEntry: jest.fn(),
@@ -38,6 +40,9 @@ const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
 >;
 const mockDiscardQueuedGroupEntry = discardQueuedGroupEntry as jest.MockedFunction<
   typeof discardQueuedGroupEntry
+>;
+const mockDiscardInitialGroupRoomReturn = discardInitialGroupRoomReturn as jest.MockedFunction<
+  typeof discardInitialGroupRoomReturn
 >;
 const mockMarkInitialGroupRoomReturn = markInitialGroupRoomReturn as jest.MockedFunction<
   typeof markInitialGroupRoomReturn
@@ -534,6 +539,14 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
     navigateToDeepLink(link);
     expect(navigate).toHaveBeenCalledWith('FriendAdd');
   });
+
+  test.each(['gromo://home', 'gromo://league', 'gromo://focus', 'gromo://friends'])(
+    '%s 외부 전이는 보류된 GroupRoom 복귀 표식을 폐기한다',
+    (link) => {
+      navigateToDeepLink(link);
+      expect(mockDiscardInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
+    },
+  );
 
   test('모르는 경로는 무시한다', () => {
     navigateToDeepLink('gromo://unknown');
