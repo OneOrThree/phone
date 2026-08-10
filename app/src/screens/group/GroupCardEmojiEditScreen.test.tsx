@@ -54,6 +54,23 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
   expect(logGroupCardIconEditorViewed).toHaveBeenCalledWith({ surface: 'settings' });
 });
 
+test('읽기 실패는 기본 아이콘을 확정하지 않고 오류와 재시도를 제공한다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '📚');
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporary read failure'));
+  await render(<GroupCardEmojiEditScreen />);
+
+  expect(await screen.findByText('내 카드 아이콘을 불러오지 못했어요.')).toBeOnTheScreen();
+  expect(screen.queryByTestId('group.cardEmoji.🎯')).toBeNull();
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.retry')));
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    ),
+  );
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+});
+
 test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을 닫는다', async () => {
   await render(<GroupCardEmojiEditScreen />);
   await screen.findByTestId('group.cardEmoji.save');

@@ -8,6 +8,7 @@ import {
   normalizeGroupCardEmoji,
   parseGroupCardEmoji,
   readGroupCardEmoji,
+  readGroupCardEmojiForEdit,
   reconcileGroupCardEmojiBucket,
   preservePendingGroupCardEmoji,
   retryPendingGroupCardEmojis,
@@ -59,6 +60,12 @@ test('userId×groupId로 값을 격리하고 미설정은 🎯로 읽는다', as
   expect(await readGroupCardEmoji('u2', 'g1')).toBe('🔥');
   expect(await readGroupCardEmoji('u1', 'g2')).toBe('🎯');
   expect(await readGroupCardEmoji(null, 'g1')).toBe('🎯');
+});
+
+test('편집용 읽기는 저장소 오류를 기본값으로 확정하지 않고 호출자에게 전달한다', async () => {
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporary read failure'));
+
+  await expect(readGroupCardEmojiForEdit('u1', 'g1')).rejects.toThrow('temporary read failure');
 });
 
 test('동시 RMW를 직렬화해 다른 계정·그룹과 같은 그룹의 마지막 선택을 보존한다', async () => {

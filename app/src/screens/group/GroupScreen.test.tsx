@@ -325,7 +325,9 @@ describe('group_viewed view episode', () => {
     mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
 
     const view = await renderScreen();
-    expect(peekGroupEntry('tab')).toBe('invite');
+    // focus 시작과 동시에 이 episode가 source를 소유하므로, 화면이 떠 있는 동안 들어온
+    // 다음 direct source까지 cleanup이 지워 버리는 경쟁 조건도 없다.
+    expect(peekGroupEntry('tab')).toBe('tab');
     await act(async () => view.unmount());
 
     expect(peekGroupEntry('tab')).toBe('tab');

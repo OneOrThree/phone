@@ -19,7 +19,6 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
-  clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
   type GroupEntrySource,
@@ -141,7 +140,6 @@ export default function GroupScreen() {
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
-        episode.source = consumeGroupEntry(episode.source);
         logGroupViewed({
           group_entry: episode.source,
           group_count_bucket: groupCountBucket(rows.length),
@@ -171,19 +169,16 @@ export default function GroupScreen() {
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: peekGroupEntry(fallback),
+        // 인증 사용자는 focus 시작 시 direct source를 이 episode가 소유한다. 조회 실패 후 같은
+        // episode에서 재시도할 때는 ref의 값을 유지하되, 다음 일반 진입으로 source를 흘리지 않는다.
+        // 게스트 초대만 로그인 뒤 리마운트를 위해 전역 버퍼를 보존한다.
+        source: isGuest ? peekGroupEntry(fallback) : consumeGroupEntry(fallback),
         logged: false,
       };
-      const episodeId = viewEpisodeRef.current.id;
       setSuccessfulListEpisode(null);
       fetchGroups();
       return () => {
         requestSeqRef.current++;
-        // 인증된 사용자의 direct 진입이 목록 확정 전에 중단되면 다음 평범한 탭 진입에
-        // invite/push 원인이 새지 않게 이 episode가 소유한 1회성 source를 폐기한다.
-        // 게스트 초대는 로그인 뒤 같은 초대로 돌아와야 하므로 보존한다.
-        const episode = viewEpisodeRef.current;
-        if (!isGuest && episode.id === episodeId && !episode.logged) clearPendingGroupEntry();
       };
     }, [fetchGroups, isGuest]),
   );

@@ -8,6 +8,7 @@ import { deriveGroupFocusCount } from '../groupFocusStatus';
 interface Props {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | undefined;
+  cardRef?: React.RefObject<View | null>;
   onFlipFront: () => void;
   onAccessibilityFlipFront?: () => void;
   onStartFocus: () => void;
@@ -28,6 +29,7 @@ function LoadingLine({ label }: { label: string }) {
 export function GroupCardBack({
   group,
   snapshot,
+  cardRef,
   onFlipFront,
   onAccessibilityFlipFront,
   onStartFocus,
@@ -53,7 +55,7 @@ export function GroupCardBack({
       : 0;
 
   return (
-    <View style={s.root} testID={`group.card.back.${group.groupId}`}>
+    <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
       <View style={s.header}>
         <Text
           style={s.title}

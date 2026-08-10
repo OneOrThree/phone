@@ -88,6 +88,18 @@ export async function readGroupCardEmoji(
   });
 }
 
+/** 편집기는 읽기 실패를 미설정 기본값과 구분해야 하므로 오류를 호출자에게 그대로 전달한다. */
+export async function readGroupCardEmojiForEdit(
+  userId: string | null,
+  groupId: string,
+): Promise<GroupCardEmoji> {
+  if (!userId) return DEFAULT_GROUP_CARD_EMOJI;
+  return enqueueStorageOperation(async () => {
+    const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+    return normalizeGroupCardEmoji(map[userId]?.[groupId]);
+  });
+}
+
 /** 덱 hydrate에서 저장소를 카드 수만큼 읽지 않도록 현재 계정의 표시값을 한 번에 가져온다. */
 export async function readGroupCardEmojis(
   userId: string | null,

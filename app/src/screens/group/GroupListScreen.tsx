@@ -221,6 +221,8 @@ export default function GroupListScreen({
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
+  const reorderMenuGroupIdRef = useRef<string | null>(null);
+  reorderMenuGroupIdRef.current = reorderMenuGroupId;
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
   const [activeAnchorGroupId, setActiveAnchorGroupId] = useState<string | null>(null);
   const guideManaged = typeof userId === 'string';
@@ -275,7 +277,8 @@ export default function GroupListScreen({
   const roomFocusRef = useRef<View | null>(null);
   const settingsFocusRef = useRef<View | null>(null);
   const deckAnchorRef = useRef<View | null>(null);
-  const activeCardRef = useRef<View | null>(null);
+  const guideFrontRef = useRef<View | null>(null);
+  const guideBackRef = useRef<View | null>(null);
   const guideDecisionEpisodeRef = useRef<number | null>(null);
   const invalidatedGuideEpisodeRef = useRef<number | null>(null);
   const guideReadStateRef = useRef<GroupDeckGuideReadState | null>(null);
@@ -403,8 +406,10 @@ export default function GroupListScreen({
 
   const selectPage = useCallback(
     (page: number, trigger: GroupCarouselTrigger = 'indicator_press') => {
+      if (reorderMenuGroupIdRef.current !== null) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndexRef.current;
+      roomReturnRef.current = null;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
       if (pendingFlipRef.current?.groupId !== nextIdentity) pendingFlipRef.current = null;
@@ -606,10 +611,11 @@ export default function GroupListScreen({
       const cached = respondersRef.current.get(responderKey);
       if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponder: () => reorderMenuGroupIdRef.current === null,
+        onMoveShouldSetPanResponder: () => reorderMenuGroupIdRef.current === null,
         onPanResponderGrant: () => {
-          if (reorderMenuGroupId !== null) return;
+          if (reorderMenuGroupIdRef.current !== null) return;
+          roomReturnRef.current = null;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
           dragRef.current = { groupId, from, target: from };
@@ -676,6 +682,7 @@ export default function GroupListScreen({
   const flipToBack = useCallback(
     (groupId: string, trigger: GroupCardFlipTrigger = 'card_tap') => {
       if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
+      roomReturnRef.current = null;
       const index = orderedGroups.findIndex((group) => group.groupId === groupId);
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
@@ -830,16 +837,22 @@ export default function GroupListScreen({
           step.anchor === 'deck'
             ? deckAnchorRef
             : step.anchor === 'active-card'
-              ? activeCardRef
+              ? step.requiresBack
+                ? guideBackRef
+                : guideFrontRef
               : undefined,
         prepare: step.requiresBack
-          ? () => {
+          ? async () => {
               const groupId = activeIdentityRef.current ?? orderedGroups[0]?.groupId;
               if (!groupId) return;
               // 사용자 이벤트를 거치지 않는 상태 전환이다. 응답을 기다리지 않고 lazy ensure만 시작한다.
               setFlippedGroupId(groupId);
               guideBackGroupIdRef.current = groupId;
               (onEnsureBack ?? ensureBack)(groupId);
+              // 뒷면 conditional tree가 commit/layout된 뒤 overlay가 실제 face를 측정한다.
+              await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+              });
             }
           : undefined,
       })),
@@ -868,7 +881,10 @@ export default function GroupListScreen({
         {onBack && (
           <TouchableOpacity
             style={s.backBtn}
-            onPress={onBack}
+            onPress={() => {
+              if (reorderMenuGroupIdRef.current === null) onBack();
+            }}
+            disabled={reorderMenuGroupId !== null}
             activeOpacity={0.7}
             accessibilityLabel="뒤로"
             testID="group.list.back"
@@ -880,7 +896,10 @@ export default function GroupListScreen({
         <View style={s.headerActions}>
           <TouchableOpacity
             style={s.searchBtn}
-            onPress={onFind}
+            onPress={() => {
+              if (reorderMenuGroupIdRef.current === null) onFind();
+            }}
+            disabled={reorderMenuGroupId !== null}
             activeOpacity={0.75}
             accessibilityRole="button"
             accessibilityLabel="그룹 찾기"
@@ -890,7 +909,10 @@ export default function GroupListScreen({
           </TouchableOpacity>
           <TouchableOpacity
             style={s.createBtn}
-            onPress={onCreate}
+            onPress={() => {
+              if (reorderMenuGroupIdRef.current === null) onCreate();
+            }}
+            disabled={reorderMenuGroupId !== null}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="그룹 만들기"
@@ -944,6 +966,9 @@ export default function GroupListScreen({
                 snapToAlignment="start"
                 decelerationRate="fast"
                 disableIntervalMomentum
+                onScrollBeginDrag={() => {
+                  roomReturnRef.current = null;
+                }}
                 onMomentumScrollEnd={onMomentumScrollEnd}
                 onScrollEndDrag={onScrollEndDrag}
                 ListFooterComponent={
@@ -958,14 +983,15 @@ export default function GroupListScreen({
                       width={cardWidth}
                       position={pageCount}
                       pageCount={pageCount}
-                      onPress={onFind}
+                      onPress={() => {
+                        if (reorderMenuGroupIdRef.current === null) onFind();
+                      }}
                       focusable={renderedActiveIndex === orderedGroups.length}
                     />
                   </View>
                 }
                 renderItem={({ item, index }) => (
                   <View
-                    ref={item.groupId === activeGroupId ? activeCardRef : undefined}
                     collapsable={false}
                     onLayout={() => {
                       if (item.groupId === activeIdentityRef.current)
@@ -981,6 +1007,7 @@ export default function GroupListScreen({
                     {flippedGroupId === item.groupId ? (
                       <GroupCardBack
                         group={item}
+                        cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
                         position={index + 1}
                         pageCount={pageCount}
                         snapshot={snapshots[item.groupId]}
@@ -1027,6 +1054,7 @@ export default function GroupListScreen({
                     ) : (
                       <GroupCardFront
                         group={item}
+                        cardRef={item.groupId === activeGroupId ? guideFrontRef : undefined}
                         emoji={emojiFor(item.groupId)}
                         position={index + 1}
                         pageCount={pageCount}
@@ -1040,6 +1068,8 @@ export default function GroupListScreen({
                         canMovePrevious={index > 0}
                         canMoveNext={index < orderedGroups.length - 1}
                         onMoveStep={(step) => {
+                          if (reorderMenuGroupIdRef.current !== null) return;
+                          roomReturnRef.current = null;
                           const from = orderedGroupsRef.current.findIndex(
                             (group) => group.groupId === item.groupId,
                           );

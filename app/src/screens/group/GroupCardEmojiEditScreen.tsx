@@ -14,7 +14,7 @@ import {
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   discardPendingGroupCardEmoji,
-  readGroupCardEmoji,
+  readGroupCardEmojiForEdit,
   preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
   type GroupCardEmoji,
@@ -31,6 +31,8 @@ export default function GroupCardEmojiEditScreen() {
   const [baseline, setBaseline] = useState<GroupCardEmoji | null>(null);
   const [selected, setSelected] = useState<GroupCardEmoji | null>(null);
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const requestRef = useRef(0);
@@ -51,17 +53,27 @@ export default function GroupCardEmojiEditScreen() {
     const requests = requestRef;
     const request = ++requests.current;
     const requestedIdentity = identity;
-    readGroupCardEmoji(userId, groupId).then((emoji) => {
-      if (request !== requests.current || identityRef.current !== requestedIdentity) return;
-      setBaseline(emoji);
-      setSelected(emoji);
-      setLoadedIdentity(requestedIdentity);
-      setSaveFailed(false);
-    });
+    setLoadedIdentity(null);
+    setLoadFailed(false);
+    readGroupCardEmojiForEdit(userId, groupId).then(
+      (emoji) => {
+        if (request !== requests.current || identityRef.current !== requestedIdentity) return;
+        setBaseline(emoji);
+        setSelected(emoji);
+        setLoadedIdentity(requestedIdentity);
+        setSaveFailed(false);
+      },
+      () => {
+        if (request !== requests.current || identityRef.current !== requestedIdentity) return;
+        setBaseline(null);
+        setSelected(null);
+        setLoadFailed(true);
+      },
+    );
     return () => {
       requests.current++;
     };
-  }, [groupId, identity, userId]);
+  }, [groupId, identity, loadAttempt, userId]);
 
   const ready = loadedIdentity === identity && selected !== null && baseline !== null;
   const changed = ready && selected !== baseline;
@@ -111,7 +123,21 @@ export default function GroupCardEmojiEditScreen() {
       </View>
 
       <View style={[s.body, { paddingBottom: insets.bottom + T.space.xxl }]}>
-        {!ready ? (
+        {loadFailed ? (
+          <View style={s.loadError}>
+            <Text style={s.error} accessibilityRole="alert">
+              내 카드 아이콘을 불러오지 못했어요.
+            </Text>
+            <TouchableOpacity
+              style={s.retryButton}
+              onPress={() => setLoadAttempt((attempt) => attempt + 1)}
+              accessibilityRole="button"
+              testID="group.cardEmoji.retry"
+            >
+              <Text style={s.retryText}>다시 시도</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !ready ? (
           <ActivityIndicator color={T.accent} />
         ) : (
           <>
@@ -164,7 +190,17 @@ const s = StyleSheet.create({
   },
   title: { ...T.text.heading, fontWeight: '800', color: T.ink },
   body: { flex: 1, paddingHorizontal: T.space.xl, paddingTop: T.space.xl },
+  loadError: { alignItems: 'center', gap: T.space.lg },
   error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.lg },
+  retryButton: {
+    minHeight: 44,
+    paddingHorizontal: T.space.xl,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accent,
+  },
+  retryText: { ...T.text.body, color: T.white, fontWeight: '700' },
   saveButton: {
     height: 52,
     borderRadius: 16,

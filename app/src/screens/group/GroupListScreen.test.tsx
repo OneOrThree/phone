@@ -349,6 +349,22 @@ describe('제스처 중재와 재정렬', () => {
     });
 
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
+
+    // 메뉴가 열린 동안 다른 카드·페이지·헤더 전이는 같은 포인터 episode를 가로채지 않는다.
+    await press(`group.card.${GROUP_ID_2}`);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+    });
+    await press('group.list.create');
+    await press('group.list.find');
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID_2}`)).toBeNull();
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(onFind).not.toHaveBeenCalled();
+
     await press(`group.card.reorderTo.${GROUP_ID}.1`);
     expect(
       screen

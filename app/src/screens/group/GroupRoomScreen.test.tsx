@@ -1929,6 +1929,26 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       expect(onLeft).toHaveBeenCalledTimes(1);
     });
 
+    test('시트 뒤에서 보류한 결과가 최신 성공 조회에서 사라지면 이탈을 완료한다', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+
+      await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
+      await act(async () => {});
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+      expect(onLeft).not.toHaveBeenCalled();
+
+      // 모달이 실제로 열린 적은 없고, 최신 정본에서도 결과가 사라졌다. 이제 닫기 콜백은
+      // 영원히 오지 않으므로 보류 래치를 풀어야 한다.
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await blur();
+      await focus();
+
+      expect(onLeft).toHaveBeenCalledTimes(1);
+    });
+
     test('보여줄 결과가 없으면 종전대로 즉시 onLeft', async () => {
       mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
