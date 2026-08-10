@@ -44,6 +44,21 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     List<UUID> findActiveEnabledChallengeIds();
 
     /**
+     * 카드 조립용(GROMO-1418) — <b>켜져 있는 설정</b>을 챌린지 목록 단위로 배치 로드한다. 회차가
+     * 하루도 없는 챌린지(마지막 참가자 취소로 회차 행 삭제 / lazy 개설 전)도 "내기가 걸려 있다"는
+     * 사실은 설정 행에 남아 있으므로, 회차 조회만으로 카드를 만들면 신앱이 {@code bet=null} 을
+     * "내기 꺼짐"으로 읽어 참여 진입점을 지운다.
+     *
+     * <p>끝났거나(ACTIVE 아님) 삭제된 챌린지는 제외한다 — 참여할 수 없는 챌린지에 내기 진입점을
+     * 세우지 않는다({@link #findActiveEnabledChallengeIds} 와 같은 기준).
+     */
+    @Query("SELECT b FROM GroupChallengeBet b JOIN FETCH b.challenge c "
+            + "WHERE c.id IN :challengeIds AND b.enabled = true "
+            + "AND c.status = com.oneorthree.phone.group.domain.GroupChallengeStatus.ACTIVE "
+            + "AND c.deletedAt IS NULL")
+    List<GroupChallengeBet> findEnabledByChallengeIdIn(@Param("challengeIds") Collection<UUID> challengeIds);
+
+    /**
      * 휴면 배지 판정용 — <b>OPEN 회차</b>가 걸려 있는 챌린지. 일부러 날짜 무관이다(재편 전 주석
      * 그대로): OPEN 은 오늘·내일에만 존재할 수 있어 status 만으로 "지금 걸린 판"과 동치다.
      */
