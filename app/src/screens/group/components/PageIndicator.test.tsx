@@ -24,6 +24,12 @@ describe('PageIndicator', () => {
     );
 
     expect(onSelectPage).toHaveBeenCalledWith(2, 'indicator_press');
+    expect(screen.getByTestId('group.deck.indicator').props.style).toEqual(
+      expect.objectContaining({ height: 44 }),
+    );
+    expect(
+      screen.getByTestId('group.deck.indicator.dot.2', { includeHiddenElements: true }).props.style,
+    ).toEqual(expect.objectContaining({ width: 44, height: 44 }));
   });
 
   test('첫 측정 전 counter는 현재/전체를 읽는다', async () => {

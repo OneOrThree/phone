@@ -87,6 +87,7 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
     expect.objectContaining({ selected: true }),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🧠');
   expect(mockLogGroupCardIconSaveResult).toHaveBeenCalledWith({
     surface: 'settings',
     result: 'failed',

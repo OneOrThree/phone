@@ -425,6 +425,7 @@ describe('콜백', () => {
     await press(`group.card.${GROUP_ID_2}`);
 
     expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+    expect(screen.getByTestId(`group.card.back.scroll.${GROUP_ID_2}`)).toBeOnTheScreen();
     expect(onSelect).not.toHaveBeenCalled();
 
     await press(`group.card.room.${GROUP_ID_2}`);
@@ -886,6 +887,48 @@ describe('제스처 중재와 재정렬', () => {
     expect(logGroupCardReordered).toHaveBeenCalledWith(
       expect.objectContaining({ trigger: 'pointer_control', from_index: 0, to_index: 1 }),
     );
+    expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await press('group.card.orderMenu.previous');
+    expect(logGroupCardReordered).toHaveBeenLastCalledWith(
+      expect.objectContaining({ trigger: 'pointer_control', from_index: 1, to_index: 0 }),
+    );
+    expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await press('group.card.orderMenu.done');
+    expect(screen.queryByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('FindMoreCard 영역에 놓은 drag는 원래 순서를 유지한다', async () => {
+    const thirdId = `${GROUP_ID}-third`;
+    await renderList([
+      group(),
+      group({ groupId: GROUP_ID_2, name: '저녁 스터디' }),
+      group({ groupId: thirdId, name: '주말 모각공' }),
+    ]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: { pageX: 100 },
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, { dx: 2_000, moveX: 1_000 });
+      grip.props.onResponderRelease?.(responderEvent, { dx: 2_000, moveX: 1_000 });
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2, thirdId]);
+    expect(logGroupCardReordered).not.toHaveBeenCalled();
   });
 
   test('순서 메뉴 대상 그룹이 소속 목록에서 사라지면 메뉴와 입력 잠금을 해제한다', async () => {

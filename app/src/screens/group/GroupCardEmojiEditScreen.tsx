@@ -104,7 +104,8 @@ export default function GroupCardEmojiEditScreen() {
             <GroupCardEmojiPicker value={selected} onChange={setSelected} disabled={saving} />
             {saveFailed && (
               <Text style={s.error} accessibilityLiveRegion="polite">
-                내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+                내 카드 아이콘을 저장하지 못했어요. 선택은 유지하고 다음 그룹 화면에서 다시
+                저장할게요.
               </Text>
             )}
             <TouchableOpacity

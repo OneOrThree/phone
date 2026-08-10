@@ -1,6 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
-import { GROUP_CARD_EMOJIS, type GroupCardEmoji } from '../groupCardEmojiStore';
+import {
+  GROUP_CARD_EMOJIS,
+  GROUP_CARD_EMOJI_LABELS,
+  type GroupCardEmoji,
+} from '../groupCardEmojiStore';
 
 interface Props {
   value: GroupCardEmoji;
@@ -27,7 +31,7 @@ export function GroupCardEmojiPicker({
               onPress={() => onChange(emoji)}
               disabled={disabled}
               accessibilityRole="radio"
-              accessibilityLabel={`카드 아이콘 ${emoji}`}
+              accessibilityLabel={`카드 아이콘 ${GROUP_CARD_EMOJI_LABELS[emoji]}`}
               accessibilityState={{ selected, disabled }}
               testID={`${testIDPrefix}.${emoji}`}
             >

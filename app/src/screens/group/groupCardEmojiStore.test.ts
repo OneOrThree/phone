@@ -7,6 +7,7 @@ import {
   parseGroupCardEmoji,
   readGroupCardEmoji,
   reconcileGroupCardEmojis,
+  retryPendingGroupCardEmojis,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
 
@@ -59,6 +60,19 @@ test('쓰기 실패 뒤에도 queue는 다음 저장을 수행한다', async () 
   await expect(writeGroupCardEmoji('u1', 'g1', '📚')).rejects.toThrow('disk full');
   await writeGroupCardEmoji('u1', 'g1', '🔥');
   expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+});
+
+test('실패한 선택을 현재 실행에서 읽고 다음 활성화에서 다시 저장한다', async () => {
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  await expect(writeGroupCardEmoji('u1', 'g1', '🧠')).rejects.toThrow('disk full');
+
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🧠');
+
+  await retryPendingGroupCardEmojis('u1', ['g1']);
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🧠');
+  expect(parseGroupCardEmoji(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1')).u1.g1).toBe(
+    '🧠',
+  );
 });
 
 test('현재 소속 밖의 아이콘만 제거하고 다른 계정 bucket은 보존한다', async () => {

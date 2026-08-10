@@ -17,9 +17,26 @@ export const GROUP_CARD_EMOJIS = [
 ] as const;
 
 export type GroupCardEmoji = (typeof GROUP_CARD_EMOJIS)[number];
+export const GROUP_CARD_EMOJI_LABELS: Record<GroupCardEmoji, string> = {
+  '🌅': '일출',
+  '📚': '책',
+  '💻': '노트북',
+  '⚡': '번개',
+  '🧘': '명상',
+  '🎨': '팔레트',
+  '🏃': '달리기',
+  '✍️': '글쓰기',
+  '🧠': '두뇌',
+  '🎯': '과녁',
+  '🌿': '새싹',
+  '🔥': '불꽃',
+};
 export const DEFAULT_GROUP_CARD_EMOJI: GroupCardEmoji = '🎯';
 export type GroupCardEmojiBucket = Record<string, GroupCardEmoji>;
 type GroupCardEmojiMap = Record<string, GroupCardEmojiBucket>;
+
+const pendingEmojis = new Map<string, GroupCardEmoji>();
+const pendingKey = (userId: string, groupId: string) => `${userId}\u0000${groupId}`;
 
 export function isGroupCardEmoji(value: unknown): value is GroupCardEmoji {
   return typeof value === 'string' && (GROUP_CARD_EMOJIS as readonly string[]).includes(value);
@@ -61,6 +78,8 @@ export async function readGroupCardEmoji(
   groupId: string,
 ): Promise<GroupCardEmoji> {
   if (!userId) return DEFAULT_GROUP_CARD_EMOJI;
+  const pending = pendingEmojis.get(pendingKey(userId, groupId));
+  if (pending) return pending;
   try {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
     return normalizeGroupCardEmoji(map[userId]?.[groupId]);
@@ -75,6 +94,8 @@ export function writeGroupCardEmoji(
   groupId: string,
   emoji: GroupCardEmoji,
 ): Promise<void> {
+  const key = pendingKey(userId, groupId);
+  pendingEmojis.set(key, emoji);
   return enqueueWrite(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
     await AsyncStorage.setItem(
@@ -84,7 +105,30 @@ export function writeGroupCardEmoji(
         [userId]: { ...map[userId], [groupId]: emoji },
       }),
     );
+  }).then(() => {
+    // 같은 key에 더 최신 선택이 대기 중이면 앞선 저장 완료가 그것을 지우지 않는다.
+    if (pendingEmojis.get(key) === emoji) pendingEmojis.delete(key);
   });
+}
+
+/** 현재 실행에서 실패했던 선택을 유지하고 다음 그룹 화면 활성화에서 다시 저장한다. */
+export async function retryPendingGroupCardEmojis(
+  userId: string,
+  currentGroupIds: readonly string[],
+): Promise<void> {
+  const current = new Set(currentGroupIds);
+  const prefix = `${userId}\u0000`;
+  const pending = [...pendingEmojis.entries()].filter(
+    ([key]) => key.startsWith(prefix) && current.has(key.slice(prefix.length)),
+  );
+  for (const [key, emoji] of pending) {
+    const groupId = key.slice(prefix.length);
+    try {
+      await writeGroupCardEmoji(userId, groupId, emoji);
+    } catch {
+      // 다음 활성화에서도 같은 pending 값을 다시 시도한다.
+    }
+  }
 }
 
 /** 성공한 전체 소속 목록을 기준으로 현재 계정에서 사라진 그룹의 로컬 아이콘을 제거한다. */
@@ -93,6 +137,10 @@ export function reconcileGroupCardEmojis(
   currentGroupIds: readonly string[],
 ): Promise<void> {
   const current = new Set(currentGroupIds);
+  const prefix = `${userId}\u0000`;
+  for (const key of pendingEmojis.keys()) {
+    if (key.startsWith(prefix) && !current.has(key.slice(prefix.length))) pendingEmojis.delete(key);
+  }
   return enqueueWrite(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
     const bucket = map[userId];
@@ -111,4 +159,5 @@ export function reconcileGroupCardEmojis(
 
 export function __resetGroupCardEmojiQueueForTest(): void {
   writeQueue = Promise.resolve();
+  pendingEmojis.clear();
 }

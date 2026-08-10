@@ -86,11 +86,11 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
 }
 
 const s = StyleSheet.create({
-  container: { height: 36, alignItems: 'center', justifyContent: 'center' },
+  container: { height: 44, alignItems: 'center', justifyContent: 'center' },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {
     width: DOT_HIT_WIDTH,
-    height: 36,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

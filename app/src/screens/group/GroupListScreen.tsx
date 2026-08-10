@@ -37,6 +37,7 @@ import {
   DEFAULT_GROUP_CARD_EMOJI,
   readGroupCardEmoji,
   reconcileGroupCardEmojis,
+  retryPendingGroupCardEmojis,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
 import { GroupCardSummaryAdapter } from './groupCardSummary';
@@ -448,11 +449,11 @@ export default function GroupListScreen({
 
   useEffect(() => {
     let active = true;
+    const groupIds = groups.map((group) => group.groupId);
     const reconcile = userId
-      ? reconcileGroupCardEmojis(
-          userId,
-          groups.map((group) => group.groupId),
-        ).catch(() => undefined)
+      ? retryPendingGroupCardEmojis(userId, groupIds)
+          .then(() => reconcileGroupCardEmojis(userId, groupIds))
+          .catch(() => undefined)
       : Promise.resolve();
     reconcile
       .then(() =>
@@ -649,6 +650,7 @@ export default function GroupListScreen({
     target: number;
     edgeOffset: number;
     edgePagingArmed: boolean;
+    dropOutsideDeck: boolean;
     moved: boolean;
   } | null>(null);
   const lastEdgePageAtRef = useRef(0);
@@ -701,6 +703,7 @@ export default function GroupListScreen({
             edgePagingArmed:
               typeof startX !== 'number' ||
               (startX >= DRAG_EDGE && startX <= windowWidth - DRAG_EDGE),
+            dropOutsideDeck: false,
             moved: false,
           };
           lastEdgePageAtRef.current = 0;
@@ -713,6 +716,9 @@ export default function GroupListScreen({
           if (!drag) return;
           if (Math.abs(gesture.dx) > 8) drag.moved = true;
           const max = orderedGroupsRef.current.length - 1;
+          const rawPointerTarget = drag.from + gesture.dx / snapInterval;
+          // 그룹 카드 슬롯 밖(왼쪽 여백 또는 오른쪽 FindMoreCard)에 놓으면 순서 변경을 취소한다.
+          drag.dropOutsideDeck = rawPointerTarget < -0.5 || rawPointerTarget > max + 0.5;
           const pointerDelta = Math.round(gesture.dx / snapInterval);
           drag.target = resolveDragTarget(drag.from, pointerDelta, drag.edgeOffset, 0, max).target;
 
@@ -743,14 +749,22 @@ export default function GroupListScreen({
               animated: true,
             });
           }
+          if (
+            (drag.target === max && gesture.moveX > windowWidth - SIDE_PEEK) ||
+            (drag.target === 0 && gesture.moveX < SIDE_PEEK)
+          ) {
+            drag.dropOutsideDeck = true;
+          }
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
           if (!drag) return;
-          if (drag.moved) commitMove(drag.groupId, drag.target, 'drag');
-          else setOrderMenuGroupId(drag.groupId);
+          if (drag.moved && !drag.dropOutsideDeck) commitMove(drag.groupId, drag.target, 'drag');
+          else if (drag.moved) {
+            listRef.current?.scrollToOffset({ offset: drag.from * snapInterval, animated: true });
+          } else setOrderMenuGroupId(drag.groupId);
         },
         onPanResponderTerminate: () => {
           dragRef.current = null;
@@ -988,7 +1002,6 @@ export default function GroupListScreen({
                   (group) => group.groupId === orderMenuGroupId,
                 );
                 commitMove(orderMenuGroupId, from - 1, 'pointer_control');
-                setOrderMenuGroupId(null);
               }}
               disabled={orderedGroups[0]?.groupId === orderMenuGroupId}
               testID="group.card.orderMenu.previous"
@@ -1001,15 +1014,17 @@ export default function GroupListScreen({
                   (group) => group.groupId === orderMenuGroupId,
                 );
                 commitMove(orderMenuGroupId, from + 1, 'pointer_control');
-                setOrderMenuGroupId(null);
               }}
               disabled={orderedGroups[orderedGroups.length - 1]?.groupId === orderMenuGroupId}
               testID="group.card.orderMenu.next"
             >
               <Text style={s.backLink}>뒤로</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setOrderMenuGroupId(null)}>
-              <Text style={s.backLink}>취소</Text>
+            <TouchableOpacity
+              onPress={() => setOrderMenuGroupId(null)}
+              testID="group.card.orderMenu.done"
+            >
+              <Text style={s.backLink}>완료</Text>
             </TouchableOpacity>
           </View>
         </View>
