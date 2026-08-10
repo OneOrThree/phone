@@ -40,3 +40,35 @@ link:
   match-window-hours: 3
   ip-salt: local-salt
   store-ios-url: https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679
+
+# ⬇️ 아래 블록은 기본값 없는 @Value 라 하나라도 빠지면 bootRun 이 부팅 중 죽는다
+#   (Could not resolve placeholder 'jwt.secret' 등). dev/prod 는 환경변수로 주입받고
+#   base application.yml 은 gitignore 라 로컬 체크아웃엔 없으므로 여기서 채워 준다.
+#   값은 ci 프로파일과 같은 공개 엔드포인트다 — 웹 로컬 디버그는 게스트 로그인만 쓰므로
+#   소셜 client-id 가 실제 값일 필요는 없다(auth.web.ts).
+kakao:
+  api-base-url: https://kapi.kakao.com
+
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+  client-id: com.oneorthree.gromo
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: local-google-client-id
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
+
+facebook:
+  jwks-url: https://www.facebook.com/.well-known/oauth/openid/jwks/
+  client-id: "990121817063522"
+
+# HMAC-SHA256 이라 256bit(32자) 이상이어야 한다. 로컬 전용 더미값.
+jwt:
+  secret: local-debug-secret-key-that-is-at-least-256-bits-long-padded-for-hmac
+  access-expiration: 2592000
+  refresh-expiration: 2592000

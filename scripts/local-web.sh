@@ -41,7 +41,10 @@ else
   mkdir -p "$(dirname "$backend_log")"
   (
     cd "$repo_root/back"
-    ./gradlew bootRun
+    # local 프로파일을 명시해야 application-local.yml(jwt·소셜 설정)과 LocalCorsConfig 가 붙는다.
+    # 저장소에 base application.yml 이 없어(gitignore) 프로파일을 안 주면 default 로 떠서
+    # "Could not resolve placeholder 'jwt.secret'" 으로 부팅에 실패한다.
+    SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
   ) >"$backend_log" 2>&1 &
   backend_pid=$!
 

@@ -41,7 +41,9 @@ export async function guestLogin(): Promise<LoginResult> {
     );
     data = response.data;
   } catch (e) {
-    const body = axios.isAxiosError(e) ? (e.response?.data as { message?: string } | undefined) : null;
+    const body = axios.isAxiosError(e)
+      ? (e.response?.data as { message?: string } | undefined)
+      : null;
     throw new Error(body?.message ?? '게스트 시작 실패');
   }
 

@@ -7,11 +7,7 @@ import { resolveApiUrl } from '@/services/apiBaseUrl';
 
 // 웹 개발 서버는 로컬 백엔드를, 웹 배포 빌드는 팀 dev 백엔드를 사용한다.
 // 두 경로 모두 EXPO_PUBLIC_API_URL에 production이 주입돼도 운영 데이터에 접근하지 않는다.
-export const API_URL: string = resolveApiUrl(
-  Platform.OS,
-  process.env.EXPO_PUBLIC_API_URL,
-  __DEV__,
-);
+export const API_URL: string = resolveApiUrl(Platform.OS, process.env.EXPO_PUBLIC_API_URL, __DEV__);
 
 // 백엔드 무응답 시 무한 로딩 방지(예: 로그인 스피너가 멈추지 않는 문제).
 // 로그인 등 인터셉터 없는 bare axios 호출에도 적용되도록 전역 기본값으로 둔다.

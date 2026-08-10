@@ -2,10 +2,7 @@ import { useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import GoalSettingStep from './GoalSettingStep';
 import { WEB_SCROLL_SETTLE_MS } from '@/components/DrumPickerCore';
-import {
-  INITIAL_ONBOARDING_DATA,
-  type V2OnboardingData,
-} from '@/screens/onboarding/types';
+import { INITIAL_ONBOARDING_DATA, type V2OnboardingData } from '@/screens/onboarding/types';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -34,7 +31,10 @@ function Harness() {
   );
 }
 
-async function scrollAndSettle(element: ReturnType<typeof screen.getAllByTestId>[number], y: number) {
+async function scrollAndSettle(
+  element: ReturnType<typeof screen.getAllByTestId>[number],
+  y: number,
+) {
   await act(async () => {
     fireEvent.scroll(element, { nativeEvent: { contentOffset: { y } } });
     jest.advanceTimersByTime(WEB_SCROLL_SETTLE_MS);
