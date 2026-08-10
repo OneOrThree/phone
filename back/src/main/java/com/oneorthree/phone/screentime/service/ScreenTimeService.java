@@ -3,7 +3,7 @@ package com.oneorthree.phone.screentime.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.ScreenTimeNotificationPort;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
@@ -26,7 +26,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -90,18 +89,17 @@ public class ScreenTimeService {
         //    attempt(saveScreenTimeTx)별 트랜잭션 스코프다(정상 — 재시도마다 새로 잡고 커밋 시 풀린다).
         User user = requireActiveUser(userId);
 
-        // 2. reportedAt → 유저 country_code 파생 ZoneId 기준 로컬 날짜 환산 (자정 경계 오귀속 방지)
-        LocalDate date = resolveLocalDate(user, request);
+        // 2. reportedAt → KST 로컬 날짜 환산 (자정 경계 오귀속 방지. GROMO-1259: 저장축 KST 고정)
+        LocalDate date = resolveLocalDate(request);
 
         // 3. 최종 보고 여부 판정 (GROMO-805 후속). 최종 보고 = 명시적 isFinal=true 이거나 과거 날짜 보고(마감은 다음 날 업로드).
         //    앱이 아직 isFinal 을 안 보내도(구버전) 과거 날짜면 마감으로 간주해 알림이 눌리지 않도록 서버가 finality 를 추론한다.
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        LocalDate today = Instant.now().atZone(zone).toLocalDate();
+        LocalDate today = Instant.now().atZone(ZonePolicy.KST).toLocalDate();
         boolean finalReport = Boolean.TRUE.equals(request.getIsFinal()) || date.isBefore(today);
 
-        // 4. 총 스크린타임(측정 데이터 누락 null → 0) + 클라 달성 결과.
-        int actualMinutes = request.getActualScreenTimeMinutes() != null
-                ? request.getActualScreenTimeMinutes() : 0;
+        // 4. 총 스크린타임(측정 누락 = null 그대로 저장 — GROMO-1267, FR-16: "0분 사용"과 "미집계"는 다르다.
+        //    0 으로 뭉개면 미보고가 "0분 사용 = 챌린지 달성"으로 뒤집힌다) + 클라 달성 결과.
+        Integer actualMinutes = request.getActualScreenTimeMinutes();
         boolean clientAchieved = Boolean.TRUE.equals(request.getScreenTimeGoalAchieved());
 
         // 5. daily_screen_time_stats upsert (user, date) — 멱등.
@@ -171,8 +169,7 @@ public class ScreenTimeService {
         // 위조 채굴 방어(코드리뷰) — 달성 판정은 클라 선언(achieved·isFinal·reportedAt)을 신뢰하므로,
         // 과거 날짜마다 선언을 심어 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정한다(스크린타임 최종
         // 리포트는 익일 도착이라 어제까지 허용). 서버검증 측정 기반 완전 방어는 별도 후속.
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        LocalDate today = LocalDate.now(zone);
+        LocalDate today = LocalDate.now(ZonePolicy.KST);
         // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(reportedAt 위조)도 거부한다 — 하한만 두면
         // 미래 날짜마다 달성을 선언해 채굴할 수 있다(코드리뷰 R3).
         if (date.isBefore(today.minusDays(1)) || date.isAfter(today)) {
@@ -199,11 +196,13 @@ public class ScreenTimeService {
      * 트랜잭션에서만 {@code afterCommit} 으로 발사해 정확히 1회를 보장한다(진 트랜잭션은 롤백 → 미발사, 재시도는
      * wasAchieved=true 라 이 분기에 진입하지 않음). 트랜잭션 동기화가 비활성(단위 테스트 등)이면 즉시 발사한다.
      */
-    private void emitGoalAchievedAfterCommit(UUID userId, LocalDate date, int actualMinutes) {
+    private void emitGoalAchievedAfterCommit(UUID userId, LocalDate date, Integer actualMinutes) {
         Runnable emit = () -> {
+            // actualMinutes 는 null(미집계)일 수 있다(GROMO-1267) — Map.of 는 null 값을 거부하므로
+            // 미집계만 문자열 "null" 로 표기한다(집계된 값은 종전대로 숫자 유지).
             userActivityEventLogger.log(UserActivityEvent.DAILY_SCREEN_TIME_GOAL_ACHIEVED, Map.of(
                     "date", date.toString(),
-                    "actual_screen_time_minutes", actualMinutes));
+                    "actual_screen_time_minutes", actualMinutes != null ? actualMinutes : "null"));
             notificationPort.notify(userId, true);
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -219,11 +218,10 @@ public class ScreenTimeService {
     }
 
     /**
-     * reportedAt(Instant)을 유저 country_code 파생 ZoneId 기준 로컬 날짜로 환산한다.
-     * country_code 가 null·미지원이면 Asia/Seoul 로 폴백한다(CountryZoneResolver, GROMO-1252).
+     * reportedAt(Instant)을 KST 로컬 날짜로 환산한다 (GROMO-1259 — 저장축 KST 고정, {@link ZonePolicy}).
+     * 판정·카드·정산이 전부 KST 라 저장 버킷도 같은 축이어야 한다(N8/FR-19). 해외 유저 어긋남은 L5 수용.
      */
-    private LocalDate resolveLocalDate(User user, ScreenTimeRequest request) {
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        return request.getReportedAt().atZone(zone).toLocalDate();
+    private LocalDate resolveLocalDate(ScreenTimeRequest request) {
+        return request.getReportedAt().atZone(ZonePolicy.KST).toLocalDate();
     }
 }

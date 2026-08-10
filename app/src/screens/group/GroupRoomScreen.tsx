@@ -46,6 +46,7 @@ import type {
 import type { V2RootStackParamList } from '@/navigation/types';
 import { buildInviteShareMessage } from './inviteShare';
 import { fmtNoticeDate } from './noticeDate';
+import { settledSignatureOf } from './lastSettledView';
 import {
   filterUnseenChallengeResults,
   markChallengeResultSeen,
@@ -151,16 +152,10 @@ function staleBetSheetAlert(
 //    상태만 서명하면 두 응답이 같은 사건으로 뭉개져 지급이 확정된 순간을 놓친다 — 카드엔 지급액이
 //    떠도 전역 잔액과 상점의 선행 검사는 정산 전 값에 머문다.
 function settledBetSignature(challenges: GroupChallengeResponse[], userId: string | null): string {
-  return challenges
-    .map((c) => {
-      const last = c.lastSettledBet ?? null;
-      if (last === null || !userId) return '';
-      const mine = last.results.find((r) => r.userId === userId);
-      if (mine === undefined) return '';
-      // null(미확정)과 0(확정된 0코인)은 다른 사실이라 같은 글자로 뭉개지 않는다.
-      return `${c.id}:${last.betDate}:${last.status}:${mine.achieved ?? '?'}:${mine.payout ?? '?'}`;
-    })
-    .join('|');
+  // 서명 산출은 lastSettledView가 단독으로 쥔다 — v2(lastSettledSession)·구서버(lastSettledBet)
+  // 어느 쪽 응답에서도 같은 사건을 같은 글자로 만든다(#570 codex ①). v2 응답만 오는 서버에서
+  // 이 함수가 구 필드만 보면 첫 정산 이후 잔액 재동기화가 영영 돌지 않는다.
+  return challenges.map((c) => settledSignatureOf(c, userId)).join('|');
 }
 
 export interface GroupRoomScreenProps {

@@ -7,8 +7,10 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetHistoryItemResponse;
@@ -21,6 +23,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -36,8 +39,10 @@ import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -49,21 +54,25 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
- * 그룹 챌린지 내기의 개설·참가와 조회용 조립.
+ * 그룹 챌린지 내기 — 설정({@link GroupChallengeBet})·회차({@link GroupChallengeBetSession}) 2계층
+ * (GROMO-1262) 위의 유저 요청 경로(참여·취소·조회 조립)와 구 API 브리지(N36).
  *
- * <p>정산은 {@link GroupBetSettlementService}(배치 진입점)와 {@link GroupBetSettler}(내기 단위
- * 트랜잭션)가 맡는다 — 여기서는 유저 요청 경로만 다룬다.
+ * <p><b>구 API 브리지</b>: 구 앱의 "개설/참가/취소/철회" 경로와 응답 레거시 필드(betId·status·
+ * myJoined·participants)는 그대로 유지한다 — 경로의 {@code betId} 는 이제 <b>회차 id</b> 로
+ * 해석된다(개설 응답이 회차 id 를 돌려주므로 구 앱 흐름이 그대로 돈다). 신 참여 API(join·join-next·
+ * join-week)는 {@link GroupBetJoinService}(GROMO-1408) 가 이 클래스의 참가 커널(newSession·stakeIn·
+ * 자격 가드)을 재사용해 구현한다 — 돈이 움직이는 경로가 갈라지지 않게 패키지 전용으로 연다.
  *
- * <p>참가비 차감은 {@link CurrencyLedgerService#debit} 로 하며 멱등키
- * {@code bet:{betId}:stake:{participantId}} 를 함께 남긴다 — 축이 유저가 아니라 <b>참가 행</b>인
- * 이유는 {@link #stakeIn} 참고(계약 §2-2, GROMO-1112). 철회 환불도 같은 축의
- * {@code bet:{betId}:leave-refund:{participantId}} 를 쓴다. 정산 지급·환불 키
- * ({@code :payout:}/{@code :refund:})는 내기당 1회뿐이라 유저 축 그대로다
- * ({@link GroupBetSettler#payoutKey}). 잔액은 {@code UserWallet} 의 @Version 낙관락이,
- * 중복 참가·중복 개설은 DB 유니크 제약이 각각 최후 방어선이다.
+ * <p><b>돈 흐름 멱등키는 참가 행 id 가 단일 축</b>이다(FR-42): 차감 {@code session:{sid}:stake:{pid}} ·
+ * 환불 {@code session:{sid}:refund:{pid}}(취소·탈퇴·무산·24h 전 경로 공용) · 지급
+ * {@code session:{sid}:payout:{pid}}({@link GroupBetSettler#payoutKey}). 환불 키를 경로별로 나누지
+ * 않으므로 취소 × 탈퇴가 겹쳐도 원장 UNIQUE 가 교차 경로 이중 환불을 막는다(1258 P0 ①).
+ *
+ * <p><b>잠금 규율</b>: {@code user(공유) → 멤버십 → 회차(id 오름차순, 전부) → 지갑(userId 오름차순)}.
+ * 참여는 멤버십 행 공유 잠금으로 그룹 탈퇴와 직렬화하고(N54 — 1258 P0 ②), 회차를 잠근 뒤에는
+ * 참가 행을 <b>재조회</b>한다(1258 P0 ③ — 잠금 대기 중 다른 경로가 이미 처리했을 수 있다).
  */
 @Slf4j
 @Service
@@ -72,23 +81,19 @@ import java.util.stream.Stream;
 public class GroupBetService {
 
     /**
-     * 참가비 허용 범위 — 정수 1~1000 (계약 §2, GROMO-1097). 고정 프리셋(10/30/50/100)에서
-     * 자유 입력으로 확대됐다 — 프리셋은 앱의 빠른 선택 칩으로만 남는다. 상한은 오입력·과몰입
-     * 방지용 정책 값이고, DB 제약은 {@code stake > 0} 그대로다(스키마 변경 없음).
+     * 참가비 허용 범위 — 정수 1~3000 (N30, GROMO-1264). 프리셋(300/900/1,500/3,000)은 앱의 빠른
+     * 선택 칩일 뿐이고 서버는 범위만 본다. DB 도 V40 CHECK 로 같은 범위를 강제한다(설정·회차 양쪽).
      */
     static final int MIN_STAKE = 1;
-    static final int MAX_STAKE = 1000;
+    static final int MAX_STAKE = 3000;
 
     /** 내기 히스토리 페이지 크기 상한 — 집중 세션 슬라이스({@code FocusService})와 같은 값. */
     static final int MAX_HISTORY_PAGE_SIZE = 100;
 
     /**
-     * 히스토리에 실리는 status — 정산 결과 3종만. CANCELED 는 "없던 일"이라 이력에서도 뺀다
-     * ({@code findLatestSettledByChallengeIds} 의 허용 목록과 같은 규칙). REFUNDED 는 정산이 더는
-     * 만들지 않는 deprecated 상태지만 기존 데이터가 남아 있어 <b>조회·표시 경로는 계속 다뤄야
-     * 한다</b>({@link GroupBetStatus#REFUNDED} 주석) — 그 조회 경로가 바로 여기라 경고를 끈다.
+     * 히스토리에 실리는 status — 구앱이 아는 정산 결과 3종. UNUSED(0명 종료)는 결과가 아니라 어디에도
+     * 싣지 않고(N52), VOIDED 는 신 API(B8)부터 노출한다(구앱은 렌더 분기가 없다).
      */
-    @SuppressWarnings("deprecation")
     private static final List<GroupBetStatus> HISTORY_STATUSES =
             List.of(GroupBetStatus.SETTLED, GroupBetStatus.REFUNDED, GroupBetStatus.FORFEITED);
 
@@ -100,6 +105,22 @@ public class GroupBetService {
      */
     static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 사용자";
 
+    /**
+     * 시작 후 참가(하루형)의 취소 유예(N22, GROMO-1423) — 하루형은 회차 시작이 자정이라 "시작 전"이
+     * 영영 오지 않으므로, 오탭 구제로 참가 후 5분만 무를 수 있다. 시작 전 참가(창형·예약분)에는
+     * 유예가 없다 — 주면 창 시작 직전 참가자가 시작 후에 취소할 수 있어 "시작 후 환불 없음"이 깨진다.
+     */
+    static final Duration LEAVE_GRACE = Duration.ofMinutes(5);
+
+    /** 창형 정산 그레이스(분) — 늦게 확정되는 창 데이터를 받는 여유(N12). settle_after = 창 종료 + 30분. */
+    static final int WINDOW_SETTLE_GRACE_MINUTES = 30;
+
+    /** 하루형 FOCUS 정산 그레이스(시간) — 자정 넘겨 끝난 세션 수용(기존 01:00 배치와 짝). */
+    static final int DURATION_FOCUS_SETTLE_GRACE_HOURS = 1;
+
+    /** 하루형 SCREEN_TIME 정산 그레이스(시간) — 다음날 첫 앱 실행 보고 수용(기존 12:00 배치와 짝). */
+    static final int DURATION_SCREEN_TIME_SETTLE_GRACE_HOURS = 12;
+
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupRepository groupRepository;
@@ -107,453 +128,502 @@ public class GroupBetService {
     private final UserRepository userRepository;
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
+    private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
 
-    // ── 개설 / 참가 ──────────────────────────────────────────────────────
+    // ── 개설 브리지 / 참가 ──────────────────────────────────────────────
 
     /**
-     * 내기 개설. 그룹원 누구나 개설할 수 있고 개설자는 자동 참가(판돈 즉시 차감)한다.
-     *
-     * <p>대상은 <b>목표분이 있는 모든 챌린지</b>다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW 4조합
-     * (창은 목표분이 있는 것만). SCREEN_TIME 은 클라 신뢰 데이터로 재화가 움직이는 리스크를 수용한
-     * 확정 정책이다. 조합별 판정 소스는 {@link GroupBetJudge} 하나가 쥔다.
+     * 레거시 개설 경로(N36 브리지) — 2계층에서 "개설"은 <b>설정 보장 + 그 날짜 회차 개설 + 본인
+     * 참가</b>로 해석된다. 설정이 없으면 만들고(챌린지 1:1), 이미 있으면 요청 stake 로 갱신한다
+     * (회차가 자기 stake 를 박제하므로 과거 회차·정산은 불변). 응답의 {@code betId} 는 <b>회차 id</b> 다
+     * — 구앱이 그 값으로 참가·취소를 호출하는 흐름이 그대로 성립한다.
      */
     @Transactional
     public CreateBetResponse createBet(UUID groupId, UUID challengeId, UUID userId, CreateBetRequest request) {
         User user = requireActiveUser(userId);
-        Group group = requireGroupMembership(user, groupId);
+        Group group = requireGroupMembershipForShare(user, groupId);
 
         int stake = request.getStake();
         if (stake < MIN_STAKE || stake > MAX_STAKE) {
             throw new GroupException(GroupErrorCode.BET_INVALID_STAKE);
         }
-        // 내기는 "오늘 또는 내일"(KST)에만 걸 수 있다(계약 §3, GROMO-1103) — 지난 날짜는 결과가
-        // 이미 정해졌고, 모레 이후는 앱이 만들 수 없는 값이다. 내일 내기는 창(시간대)이 이미 끝난 뒤
-        // "내일 시간대부터 적용" 경로로 열린다. 정산 배치(GroupBetSettlementService)는
-        // bet_date < 기준일만 대상으로 집으므로 미래 내기가 조기 정산·몰수되는 일은 없다
-        // (GroupBetSettlementIntegrationTest 가 고정한다).
-        LocalDate betDate = request.getDate();
+        // 회차는 "오늘 또는 내일"(KST)에만 열 수 있다(계약 §3, GROMO-1103) — 지난 날짜는 결과가
+        // 이미 정해졌고, 모레 이후는 앱이 만들 수 없는 값이다(주간 예약은 B4 join-week 의 몫).
+        LocalDate sessionDate = request.getDate();
         LocalDate today = today();
-        if (!betDate.equals(today) && !betDate.equals(today.plusDays(1))) {
+        if (!sessionDate.equals(today) && !sessionDate.equals(today.plusDays(1))) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
 
-        // 챌린지 행을 잠그고 읽는다 — 삭제(deleteChallenge)와 직렬화하기 위해서다. 락이 없으면
-        // "OPEN 내기가 없다"고 본 삭제와 이 개설이 겹쳐, 판돈이 걸린 내기가 삭제된 챌린지에 매달린다.
+        // 챌린지 행을 잠그고 읽는다 — 삭제(deleteChallenge)·동시 개설과 직렬화하기 위해서다. 락이
+        // 없으면 "OPEN 회차가 없다"고 본 삭제와 이 개설이 겹쳐, 참가비가 걸린 회차가 삭제된 챌린지에
+        // 매달린다.
         GroupChallenge challenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        // 종료된 챌린지에는 돈을 걸 수 없다. deleted_at 만으로는 부족하다 — V2 마이그레이션이 레거시
-        // ENDED 챌린지를 INACTIVE 로 이관해 뒀고(삭제는 아니라 목록에도 그대로 뜬다), 중복 검사는
-        // ACTIVE 만 보므로 같은 그룹에 활성 챌린지와 INACTIVE 챌린지가 공존한다. 그 id 로 개설하면
-        // 아무도 진행하지 않는 챌린지에 판돈이 묶인다 (PR #381 리뷰).
         if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
             throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
         }
         // 게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음). 카테고리 제한은 없다.
         GroupBetJudge.Target target = groupBetJudge.resolve(challenge)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
-        // 창 마감 검사는 오늘 내기에만 건다 — 내일 창은 아직 시작도 안 했으니 항상 열려 있다
-        // (계약 §3: date=내일은 TIME_WINDOW·DURATION 공통 무조건 허용).
-        if (betDate.equals(today)) {
-            requireWindowStillOpen(target, betDate);
+        // 창 마감 검사는 오늘 회차에만 건다 — 내일 창은 아직 시작도 안 했으니 항상 열려 있다.
+        if (sessionDate.equals(today)) {
+            requireWindowStillOpen(target, sessionDate);
         }
 
-        // 취소(CANCELED)는 "없던 일" — 같은 날짜 재개설을 막지 않는다(GROMO-1201). 비취소 내기만
-        // 중복으로 본다. 레이스의 최후 방어선은 V28 부분 유니크 인덱스(아래 catch 로 강하)다.
-        if (groupChallengeBetRepository.existsByChallengeIdAndBetDateAndStatusNot(
-                challengeId, betDate, GroupBetStatus.CANCELED)) {
+        GroupChallengeBet bet = ensureBetConfig(group, challenge, stake);
+        // UNIQUE (bet_id, session_date) 의 사전 검사 — 같은 날짜 회차가 이미 있으면(진행 중이든
+        // 정산됐든) 구 계약 그대로 409 다. "취소 후 재개설"은 회차 삭제("없던 일")로 표현되므로
+        // 재개설 시점엔 행이 없다.
+        if (groupChallengeBetSessionRepository
+                .findByBetIdAndSessionDate(bet.getId(), sessionDate).isPresent()) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
         }
-        requireEligibleToStake(target, user, betDate);
+        requireEligibleToStake(target, user, sessionDate);
 
-        GroupChallengeBet bet;
+        GroupChallengeBetSession session;
         try {
-            // saveAndFlush — INSERT 를 지금 내보내야 부분 유니크 위반이 이 try 안에서 잡힌다
-            // (save 만 하면 위반이 커밋 시점에 터져 아래 강하를 지나친다).
-            bet = groupChallengeBetRepository.saveAndFlush(GroupChallengeBet.builder()
-                    .group(group)
-                    .challenge(challenge)
-                    .creatorUser(user)
-                    .stake(stake)
-                    .betDate(betDate)
-                    .status(GroupBetStatus.OPEN)
-                    .build());
+            // saveAndFlush — INSERT 를 지금 내보내야 유니크 위반이 이 try 안에서 잡힌다.
+            session = groupChallengeBetSessionRepository.saveAndFlush(
+                    newSession(bet, group, challenge, target, sessionDate));
         } catch (DataIntegrityViolationException e) {
-            // 사전 검사와 동시 개설이 겹친 레이스 — 부분 유니크(비취소 챌린지·날짜당 1개) 위반을
-            // 결정적인 409 로 강하한다(GroupChallengeService 의 CHALLENGE_DUPLICATE 강하와 같은 관행).
-            // 이 시점엔 판돈이 아직 걷히지 않았다(stakeIn 전)라 되돌릴 돈도 없다.
+            // 사전 검사와 동시 개설이 겹친 레이스 — 유니크(설정·날짜당 회차 1개) 위반을 결정적인
+            // 409 로 강하한다. 이 시점엔 참가비가 아직 걷히지 않았다(stakeIn 전).
             throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
         }
-        stakeIn(bet, user);
+        stakeIn(session, user);
 
-        log.info("내기 개설 — betId={}, challengeId={}, betDate={}, stake={}, creator={}",
-                bet.getId(), challengeId, betDate, bet.getStake(), userId);
-        return CreateBetResponse.builder().betId(bet.getId()).build();
+        log.info("내기 회차 개설 — sessionId={}, betId={}, challengeId={}, sessionDate={}, stake={}, opener={}",
+                session.getId(), bet.getId(), challengeId, sessionDate, session.getStake(), userId);
+        return CreateBetResponse.builder().betId(session.getId()).build();
     }
 
-    /** 진행 중(OPEN·오늘 또는 내일) 내기에 참가한다. 판돈은 즉시 차감된다. */
+    /**
+     * 진행 중(OPEN·오늘 또는 내일) 회차에 참가한다. 참가비는 즉시 차감된다.
+     *
+     * @param sessionId 구 API 경로의 {@code betId} — 브리지에서 회차 id 로 해석된다
+     */
     @Transactional
-    public void joinBet(UUID groupId, UUID betId, UUID userId) {
+    public void joinBet(UUID groupId, UUID sessionId, UUID userId) {
         User user = requireActiveUser(userId);
-        requireGroupMembership(user, groupId);
+        requireGroupMembershipForShare(user, groupId);
 
         // 행 잠금 — "OPEN 확인 → 참가 행 삽입 + 차감"이 check-then-act 라, 잠금 없이는 그 사이에
-        // 취소(명시적·탈퇴 자동)가 끼어들어 방금 종료된 내기에 참가자의 판돈이 묶인다 (PR #427 리뷰).
-        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
+        // 철회·정산이 끼어들어 방금 종료된 회차에 참가비가 묶인다.
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository
+                .findByIdAndGroupIdForUpdate(sessionId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
-        // 정산됐거나(status≠OPEN) 날짜가 지난 내기는 닫힌 것으로 본다. 배치가 돌기 전(FOCUS 01:00 /
-        // SCREEN_TIME 12:00 KST 이전)의 전일자 내기가 여기 걸린다 — status 만으로는 못 막는 구간이라
-        // 날짜도 함께 본다. 미래(내일) 내기는 참가를 허용한다(GROMO-1103 — 마감 후 열린 내일 내기에
-        // 오늘 밤 합류할 수 있어야 한다). 창형은 오늘 내기라도 창이 끝났으면 아래 창 검사가 막고,
-        // 내일 내기의 창 마감 시각은 항상 미래라 자연히 통과한다.
-        if (!bet.isOpen() || bet.getBetDate().isBefore(today())) {
+        // 정산됐거나(status≠OPEN) 날짜가 지난 회차는 닫힌 것으로 본다. 배치가 돌기 전(FOCUS 01:00 /
+        // SCREEN_TIME 12:00 KST 이전)의 전일자 회차가 여기 걸린다. 미래(내일) 회차는 참가를 허용한다.
+        if (!session.isOpen() || session.getSessionDate().isBefore(today())) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
-        if (groupChallengeBetParticipantRepository.existsByBetIdAndUserId(betId, userId)) {
+        if (groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(sessionId, userId)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_JOINED);
         }
-        GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
-                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
-        requireWindowStillOpen(target, bet.getBetDate());
-        requireEligibleToStake(target, user, bet.getBetDate());
+        GroupBetJudge.Target target = targetOf(session);
+        requireWindowStillOpen(target, session.getSessionDate());
+        requireEligibleToStake(target, user, session.getSessionDate());
 
-        stakeIn(bet, user);
-        log.info("내기 참가 — betId={}, userId={}, stake={}", betId, userId, bet.getStake());
+        stakeIn(session, user);
+        log.info("내기 회차 참가 — sessionId={}, userId={}, stake={}", sessionId, userId, session.getStake());
     }
 
-    // ── 취소 / 그룹 탈퇴 연동 ────────────────────────────────────────────
+    // ── 취소 / 철회 / 그룹·계정 탈퇴 연동 ─────────────────────────────────
 
     /**
-     * 내기 취소 — 개설자 본인이면서 참가자가 개설자 1명뿐인 OPEN 내기만 가능하다. 판돈은 환불된다.
+     * 레거시 취소 브리지 — 참가자가 <b>본인 1명뿐</b>인 OPEN 회차를 "없던 일"로 만든다: 참가를 무르고
+     * 환불한 뒤 회차 행을 삭제한다(재편으로 CANCELED 상태는 소멸 — 빈 유저 개설 회차를 남기면 구앱
+     * 카드에 0명 판이 서고 같은 날짜 재개설이 막힌다). 타인이 참가한 회차는 무를 수 없다
+     * ("질 것 같으면 무르기" 방지 — 구 계약의 {@code BET_CANCEL_HAS_OTHERS} 그대로).
      *
-     * <p>타인이 참가한 내기를 취소로 무를 수 있으면 "질 것 같으면 무르기"가 되므로 단독일 때만
-     * 허용한다. 진입 조회가 행 잠금이라 참가(joinBet)와 직렬화된다 — 잠금 없이는 "단독 확인 →
-     * 취소" 사이에 참가가 끼어들어 방금 취소된 내기에 참가자의 판돈이 묶인다. 상태 전이는 정산과
-     * 같은 CAS 게이트를 지난다 — 검증과 전이 사이에 정산 배치가 먼저 끝냈으면 CAS 가 0행을
-     * 돌려주고, 이 취소는 {@code BET_NOT_OPEN} 으로 거절된다(환불 없음). 환불 멱등키가 정산 환불과
-     * 같은 포맷({@code bet:{betId}:refund:{userId}})이라 이중 환불은 원장 유니크가 최후 방어한다.
+     * <p>개설자 개념이 사라졌으므로 "개설자 본인" 검사는 "내가 참가자인가"로 해석된다 — 단독 참가
+     * 회차에서 그 참가자가 곧 개설자였던 구 의미와 실질이 같다.
      */
     @Transactional
-    public void cancelBet(UUID groupId, UUID betId, UUID userId) {
+    public void cancelBet(UUID groupId, UUID sessionId, UUID userId) {
         User user = requireActiveUser(userId);
         requireGroupMembership(user, groupId);
 
-        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository
+                .findByIdAndGroupIdForUpdate(sessionId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
-        if (!bet.getCreatorUser().getId().equals(userId)) {
-            throw new GroupException(GroupErrorCode.BET_CANCEL_FORBIDDEN);
-        }
+        // 잠금 후 참가자 재조회(P0 ③) — 검증 순서는 구 계약(참가자 여부 → 타인 존재 → OPEN) 그대로.
         List<GroupChallengeBetParticipant> participants =
-                groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
-        if (participants.stream().anyMatch(p -> !p.getUser().getId().equals(userId))) {
+                groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(sessionId));
+        GroupChallengeBetParticipant mine = participants.stream()
+                .filter(p -> p.getUser().getId().equals(userId))
+                .findFirst()
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_CANCEL_FORBIDDEN));
+        if (participants.size() > 1) {
             throw new GroupException(GroupErrorCode.BET_CANCEL_HAS_OTHERS);
         }
-        // 이미 종료된 내기(이중 취소 포함)의 이른 거절. 레이스는 아래 CAS 가 최종 판정한다.
-        if (!bet.isOpen()) {
+        if (!session.isOpen()) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-
-        int claimed = groupChallengeBetRepository.compareAndSetSettled(
-                betId, GroupBetStatus.CANCELED, Instant.now());
-        if (claimed == 0) {
-            throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
+        // 취소 마감(N22, GROMO-1423) — 이 브리지에도 신 경로와 같은 단일 판정점을 건다. 신 참여
+        // (join·join-next·join-week)가 만든 회차 id 를 이 경로에 넣으면 참가자 수·OPEN 만 보고 전액
+        // 환불되던 구멍(codex P1 ②): 하루형 5분 유예·창형/예약분의 회차 시작 마감이 전부 우회됐다.
+        // 구앱의 "개설 직후 취소"는 참가+5분 유예 안이라 그대로 성립한다.
+        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
+            throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
-        refundStake(bet, user);
 
-        log.info("내기 취소 — betId={}, challengeId={}, userId={}, stake={} 환불",
-                betId, bet.getChallenge().getId(), userId, bet.getStake());
+        groupChallengeBetParticipantRepository.delete(mine);
+        refundStake(session, user, mine.getId());
+        groupChallengeBetSessionRepository.delete(session);
+        log.info("내기 회차 취소 — sessionId={}, challengeId={}, userId={}, stake={} 환불, 회차 삭제",
+                sessionId, session.getChallenge().getId(), userId, session.getStake());
     }
 
     /**
-     * 참가 철회(GROMO-1102) — <b>시작 전</b>인 OPEN 내기에서 호출자 본인의 참가만 무르고 본인
-     * 판돈을 환불한다. 개설자도 철회할 수 있고 남은 참가자가 있으면 내기는 유지된다
-     * ({@code creatorUserId} 는 이력으로 남는다). 마지막 참가자가 떠나면 내기는 자동 취소된다.
+     * 참가 철회(GROMO-1102 → 취소 마감 분기 GROMO-1423·N22) — <b>취소 마감 전</b>인 OPEN 회차에서
+     * 호출자 본인의 참가만 무르고 본인 참가비를 환불한다. 남은 참가자가 있으면 회차는 유지되고,
+     * 마지막 참가자가 떠나면 회차를 "없던 일"로 삭제한다(구 CANCELED 의 재편 후 표현 —
+     * {@link #cancelBet} 과 같은 규칙).
      *
-     * <p>"시작 전" 판정은 조합별로 다르다 — TIME_WINDOW 는 현재가 {@code bet_date} 창의 시작 시각
-     * ({@link WindowFocusAggregator#windowStartOn} 경유) 전이어야 하고, DURATION 은 하루 전체가
-     * 판이라 {@code bet_date} 가 내일 이후(KST)여야 한다(당일은 집계가 이미 진행 중이다). 시작
-     * 이후의 철회는 "질 것 같으면 무르기"가 되므로 막는다.
-     *
-     * <p>정산 배치는 전일자만 집고 철회는 미래 시작만 허용하므로 날짜 게이트만으로도 서로
-     * 배타적이지만, 진입 조회를 행 잠금으로 두어 참가·취소·정산·탈퇴 연동과 구조적으로 직렬화한다.
-     * 마지막 참가자의 CANCELED 전이는 정산·취소와 같은 CAS 게이트({@link #claimCanceled})를
-     * 지나고, 환불 멱등키는 차감과 같은 축(참가 행 id)의 철회 전용 키
-     * ({@code bet:{betId}:leave-refund:{participantId}})라 이중 환불은 원장 유니크가 최후 방어한다.
+     * <p>취소 마감은 {@link #leaveDeadline} 하나로 판정한다: 시작 전 참가 → 회차 시작까지(유예 없음),
+     * 시작 후 참가(하루형) → min(참가+5분, 회차 종료). 예약분(join-next·join-week)도 같은 규칙이다
+     * — 미래 회차 참가는 항상 "시작 전 참가"라 회차 시작까지 무를 수 있다.
      */
     @Transactional
-    public void leaveBet(UUID groupId, UUID betId, UUID userId) {
+    public void leaveBet(UUID groupId, UUID sessionId, UUID userId) {
         User user = requireActiveUser(userId);
         requireGroupMembership(user, groupId);
 
-        GroupChallengeBet bet = groupChallengeBetRepository.findByIdAndGroupIdForUpdate(betId, groupId)
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository
+                .findByIdAndGroupIdForUpdate(sessionId, groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        // 검증 순서 계약(§4): 참가자 여부 → OPEN → 시작 전. 참가자 읽기는 잠금 뒤다(P0 ③).
         List<GroupChallengeBetParticipant> participants =
-                groupChallengeBetParticipantRepository.findByBetIdIn(List.of(betId));
-        // 검증 순서 계약(§4): 참가자 여부 → OPEN → 시작 전.
+                groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(sessionId));
         GroupChallengeBetParticipant mine = participants.stream()
                 .filter(p -> p.getUser().getId().equals(userId))
                 .findFirst()
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_JOINED));
-        if (!bet.isOpen()) {
+        if (!session.isOpen()) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-        requireBeforeStart(bet);
-
-        groupChallengeBetParticipantRepository.delete(mine);
-        boolean lastParticipant = participants.size() == 1;
-        if (lastParticipant) {
-            claimCanceled(bet);
-        }
-        refundLeftStake(bet, user, mine.getId());
-        log.info("내기 참가 철회 — betId={}, userId={}, stake={} 환불, 자동취소={}",
-                betId, userId, bet.getStake(), lastParticipant);
-    }
-
-    /**
-     * 시작 전 가드(철회 전용) — TIME_WINDOW 는 창 시작 시각, DURATION 은 날짜 경계(KST)가 시작점이다.
-     * 목표를 해석할 수 없는 내기는 개설 게이트({@code resolve})가 이미 막았으므로 여기 도달하면
-     * 데이터가 깨진 것이다 — 개설·참가와 같은 코드로 방어적으로 거절한다.
-     *
-     * <p>DURATION 분기({@code betDate > 오늘})는 개설 게이트가 오늘만 허용하는 현행 코드에선 도달
-     * 불가다 — 내일 개설을 여는 티켓 1103(내기 날짜 게이트 확대)과 짝으로 배포되는 전제이며,
-     * 그 전까지 DURATION 철회는 항상 {@code BET_LEAVE_CLOSED}로 떨어지는 것이 의도된 동작이다.
-     */
-    private void requireBeforeStart(GroupChallengeBet bet) {
-        GroupBetJudge.Target target = groupBetJudge.resolve(bet.getChallenge())
-                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
-        Optional<Instant> opensAt = groupBetJudge.windowOpensAt(target, bet.getBetDate());
-        if (opensAt.isPresent()) {
-            if (!Instant.now().isBefore(opensAt.get())) {
-                throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
-            }
-            return;
-        }
-        if (!bet.getBetDate().isAfter(today())) {
+        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
             throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
+
+        groupChallengeBetParticipantRepository.delete(mine);
+        refundStake(session, user, mine.getId());
+        boolean lastParticipant = participants.size() == 1;
+        if (lastParticipant) {
+            groupChallengeBetSessionRepository.delete(session);
+        }
+        log.info("내기 참가 철회 — sessionId={}, userId={}, stake={} 환불, 회차삭제={}",
+                sessionId, userId, session.getStake(), lastParticipant);
     }
 
     /**
-     * 그룹 탈퇴 연동 — 탈퇴자가 참가 중인 OPEN 내기에서 빼고 판돈을 환불한다.
-     * {@link GroupMemberService#withdrawGroup} 가 탈퇴와 <b>같은 트랜잭션</b>에서 호출한다
-     * (탈퇴만 되고 판돈이 묶이는 반쪽 상태 방지).
+     * 그룹 탈퇴 연동 — 탈퇴자가 참가 중인 이 그룹의 OPEN 회차에서 빼고 참가비를 환불한다.
+     * {@link GroupMemberService#withdrawGroup} 가 탈퇴와 <b>같은 트랜잭션</b>에서 호출한다.
      *
-     * <ul>
-     *   <li>탈퇴자가 개설자 → 내기 전체 취소(CANCELED) + 전원 환불</li>
-     *   <li>탈퇴자가 일반 참가자 → 참가 행 삭제 + 본인 환불. 남은 참가자가 개설자 1명뿐이면
-     *       자동 취소 + 개설자 환불(혼자 남은 내기는 성립하지 않는다)</li>
-     * </ul>
+     * <p><b>멤버십 행 배타 잠금으로 시작한다</b>(N54 의 반대편) — withdrawGroup 은 회차 정리 후에야
+     * {@code leave()} 를 마킹하므로, 이 선점이 없으면 "정리 스캔 → leave" 사이에 참여 경로의 새
+     * 참가가 끼어들어 그룹에 없는 사람의 유료 참가가 남는다(1258 P0 ②). 참여 경로의 멤버십 공유
+     * 잠금({@link #requireGroupMembershipForShare})과 이 배타 잠금이 멤버십 행에서 직렬화된다.
      *
-     * <p>내기마다 행 잠금(FOR UPDATE)으로 시작한다 — 정산 배치({@link GroupBetSettler})·참가
-     * ({@link #joinBet})와 같은 잠금을 잡으므로 "정산이 참가자를 읽는 사이의 행 삭제·환불"이나
-     * "단독 확인 → 자동 취소 사이의 참가 끼어들기" 같은 레이스가 원천 차단된다. 잠금 후 status
-     * 재확인에서 이미 종료된 내기는 건드리지 않는다(정산 결과 존중).
-     *
-     * <p><b>불변식: 그룹 상태(ENDED 등)를 보지 않는다</b> — 내기 status 만이 게이트다. 계정 탈퇴
-     * ({@code UserService.withdraw}, GROMO-801)가 solo 방장 그룹을 {@code close()} 한 <b>뒤에</b>
-     * 이 메서드를 호출하는 것이 이 불변식에 기대므로, 그룹 상태 검사를 새로 넣으면 안 된다.
+     * <p><b>불변식: 그룹 상태(ENDED 등)를 보지 않는다</b> — 회차 status 만이 게이트다.
      */
     @Transactional
     public void releaseFromOpenBets(User user, Group group) {
-        releaseBets(groupChallengeBetRepository
-                .findOpenBetIdsByGroupIdAndParticipantUserId(group.getId(), user.getId()), user);
+        groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(user.getId(), group.getId());
+        releaseSessions(groupChallengeBetSessionRepository
+                .findOpenSessionIdsByGroupIdAndParticipantUserId(group.getId(), user.getId()), user);
     }
 
     /**
-     * 계정 탈퇴 연동(GROMO-801) — 탈퇴자가 참가 중인 <b>모든 그룹</b>의 OPEN 내기를 한 번에
-     * 정리한다. {@code UserService.withdraw} 가 탈퇴와 같은 트랜잭션에서 호출한다.
+     * 계정 탈퇴 연동(GROMO-801) — 탈퇴자가 참가 중인 <b>모든 그룹</b>의 OPEN 회차를 한 번에
+     * 정리한다. {@code UserService.withdraw} 가 유저 행 배타 락 아래, 탈퇴와 같은 트랜잭션에서
+     * 호출한다(참여 경로의 유저 공유 락과 직렬화 — 멤버십 잠금이 따로 필요 없다).
      *
-     * <p>그룹·멤버십 스코프가 아니라 <b>참가 행 스코프</b>인 이유 두 가지:
-     * <ul>
-     *   <li>강퇴({@code kickMember})는 참가·판돈을 정산용으로 남기므로, 활성 멤버십이 없는
-     *       강퇴자도 OPEN 내기의 참가자다 — 멤버십 경유 조회로는 놓치고 판돈이 소각된다</li>
-     *   <li>그룹 단위 순차 해제는 앞 그룹의 환불로 지갑 행 잠금을 쥔 채 다음 그룹의 내기 잠금을
-     *       기다리게 되어, 반대 순서로 잠그는 정산기와 AB-BA 교착이 된다 — 전 그룹의 대상 내기
-     *       행을 bet id 오름차순으로 전부 잠근 뒤에만 돈을 움직인다</li>
-     * </ul>
-     *
-     * <p>{@link #releaseFromOpenBets(User, Group)} 와 같은 2단계 잠금 규율·불변식(그룹 상태
-     * 불참조)을 공유한다.
+     * <p>강퇴자는 활성 멤버십이 없어도 OPEN 회차의 참가자다 — 그래서 <b>참가 행 스코프</b>로 걷는다.
      */
     @Transactional
     public void releaseFromAllOpenBets(User user) {
-        releaseBets(groupChallengeBetRepository.findOpenBetIdsByParticipantUserId(user.getId()), user);
-    }
-
-    private void releaseBets(List<UUID> betIds, User user) {
-        // 1단계: 대상 내기 행을 id 오름차순으로 전부 잠근다 — 지갑 쓰기 없이 잠금만. 내기 하나를
-        // 정리(지갑 쓰기)한 채로 다음 내기 잠금을 기다리면, 그 내기를 이미 잠근 참가/정산이 이쪽이
-        // 쥔 지갑을 기다리는 AB-BA 데드락이 된다. 모든 경로의 잠금 순서를 "내기 행(전부) → 지갑"으로
-        // 고정하기 위해 잠금 확보를 먼저 끝낸다. 잠금 시점에 이미 종료된 내기는 정산 결과를 존중해
-        // 제외한다(대상 조회와 잠금 사이에 정산·취소가 먼저 끝난 판).
-        List<GroupChallengeBet> lockedOpenBets = new ArrayList<>();
-        for (UUID betId : betIds) {
-            groupChallengeBetRepository.findByIdForUpdate(betId)
-                    .filter(GroupChallengeBet::isOpen)
-                    .ifPresent(lockedOpenBets::add);
-        }
-
-        // 2단계: 잠금이 전부 확보된 뒤에만 돈을 움직인다(참가 해제·환불·자동 취소).
-        for (GroupChallengeBet bet : lockedOpenBets) {
-            List<GroupChallengeBetParticipant> participants =
-                    groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId()));
-            if (bet.getCreatorUser().getId().equals(user.getId())) {
-                cancelAndRefundAll(bet, participants);
-            } else {
-                detachAndRefund(bet, participants, user);
-            }
-        }
+        releaseSessions(groupChallengeBetSessionRepository
+                .findOpenSessionIdsByParticipantUserId(user.getId()), user);
     }
 
     /**
-     * 개설자 탈퇴 — 내기 전체를 취소하고 전원(개설자 포함) 환불한다.
-     * 환불은 userId 오름차순 — 여러 지갑을 만지는 경로(정산 지급 포함)끼리 지갑 잠금 순서를
-     * 맞춰 두기 위한 고정이다.
-     */
-    private void cancelAndRefundAll(GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants) {
-        claimCanceled(bet);
-        participants.stream()
-                .sorted(Comparator.comparing(p -> p.getUser().getId()))
-                .forEach(p -> refundStake(bet, p.getUser()));
-        log.info("내기 자동 취소 — 개설자 그룹 탈퇴. betId={}, creatorId={}, 환불 {}명",
-                bet.getId(), bet.getCreatorUser().getId(), participants.size());
-    }
-
-    /** 일반 참가자 탈퇴 — 참가 행 삭제 + 본인 환불. 개설자 혼자 남으면 자동 취소까지. */
-    private void detachAndRefund(
-            GroupChallengeBet bet, List<GroupChallengeBetParticipant> participants, User leaver) {
-        participants.stream()
-                .filter(p -> p.getUser().getId().equals(leaver.getId()))
-                .forEach(groupChallengeBetParticipantRepository::delete);
-
-        List<GroupChallengeBetParticipant> remaining = participants.stream()
-                .filter(p -> !p.getUser().getId().equals(leaver.getId()))
-                .toList();
-        boolean creatorAlone = remaining.size() == 1
-                && remaining.get(0).getUser().getId().equals(bet.getCreatorUser().getId());
-        if (!creatorAlone) {
-            refundStake(bet, leaver);
-            log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
-                    bet.getId(), leaver.getId(), bet.getStake());
-            return;
-        }
-
-        // 자동 취소 — 탈퇴자·개설자 환불 2건도 userId 오름차순으로 고정한다. "탈퇴자 먼저" 고정이면
-        // 탈퇴자 UUID 가 더 클 때 지갑 잠금이 내림차순이 되어, 오름차순으로 도는 다른 지갑-다중
-        // 경로(전원 환불·정산 지급·반대 방향 탈퇴)와 교차 데드락이 성립한다 (PR #427 리뷰).
-        claimCanceled(bet);
-        Stream.of(leaver, remaining.get(0).getUser())
-                .sorted(Comparator.comparing(User::getId))
-                .forEach(u -> refundStake(bet, u));
-        log.info("내기 참가 해제 — 그룹 탈퇴. betId={}, userId={}, stake={} 환불",
-                bet.getId(), leaver.getId(), bet.getStake());
-        log.info("내기 자동 취소 — 참가자 이탈로 개설자 단독. betId={}, creatorId={}",
-                bet.getId(), bet.getCreatorUser().getId());
-    }
-
-    /**
-     * CANCELED 전이 — 정산과 같은 CAS 게이트. 호출 전에 행 잠금 + OPEN 재확인을 거쳤으므로
-     * 실패는 게이트 계약이 깨졌다는 뜻이다(예외로 전체 롤백).
-     */
-    private void claimCanceled(GroupChallengeBet bet) {
-        int claimed = groupChallengeBetRepository.compareAndSetSettled(
-                bet.getId(), GroupBetStatus.CANCELED, Instant.now());
-        if (claimed == 0) {
-            // 이 롤백은 그룹 탈퇴 트랜잭션 전체를 되돌린다(탈퇴만 되고 판돈이 묶이는 반쪽 상태 방지).
-            // 잠금 규율이 지켜지는 한 도달 불가한 분기라, 도달했다면 잠금 코드가 깨진 것이다.
-            log.error("CANCELED 전이 실패 — 행 잠금 규율 위반 의심. betId={}, status 재확인 필요", bet.getId());
-            throw new IllegalStateException("행 잠금 아래에서 CANCELED 전이 실패 — betId=" + bet.getId());
-        }
-    }
-
-    /**
-     * 판돈 환불(취소·그룹 탈퇴 연동) — 정산 환불과 같은 멱등키 포맷이라 같은 유저에게 어떤 경로로든
-     * 두 번 환불되지 않는다. 내기당 1회뿐인 종료 경로라 회차 축이 필요 없다(계약 §2-2).
-     */
-    private void refundStake(GroupChallengeBet bet, User user) {
-        applyRefund(bet, user, GroupBetSettler.payoutKey(bet.getId(), user.getId(), true));
-    }
-
-    /**
-     * 참가 철회 환불 — 차감과 같은 축(참가 행 id)의 <b>철회 전용</b> 키를 쓴다. 회차마다 키가
-     * 달라지므로 "참가 → 철회 → 재참여"를 반복해도 매 회차가 정확히 한 번 걷히고 한 번 돌아간다.
-     * 정산 환불 키({@code :refund:{userId}})를 공유하던 시절에는 철회가 그 키를 미리 써 버려,
-     * 재참여 후 전원 환불 정산이 오면 그 유저만 환불이 조용히 스킵됐다.
-     */
-    private void refundLeftStake(GroupChallengeBet bet, User user, UUID participantId) {
-        applyRefund(bet, user, leaveRefundKey(bet.getId(), participantId));
-    }
-
-    /**
-     * 환불 실행부 — 앱 탈퇴자(지갑 삭제)는 지급 대상에서 뺀다({@link GroupBetSettler} 의 지급
-     * 스킵과 같은 이유다).
+     * 계정 탈퇴 직전 판정 근거 박제(GROMO-1423, codex P1 ③) — 탈퇴 정리
+     * ({@link #releaseFromAllOpenBets})가 환불하지 못하고 <b>정산 대상으로 남기는</b> OPEN 참가
+     * 행마다, 통계 nullify 전 시점의 달성 여부·진행분을 참가 행에 박제한다.
+     * {@code UserService.withdraw} 가 회차 정리 <b>후</b>·통계 nullify <b>전</b>에 부른다.
      *
-     * <p>멱등키 선점(applied=false)은 어느 호출자에게도 정상 흐름이 아니다 — 취소·탈퇴 경로는 CAS 로
-     * 전이를 유일하게 가져간 뒤에만 여기 오고, 철회 경로의 키는 참가 회차별로 유일하다. 즉 <b>이
-     * warn 이 뜨면 그것은 이례가 아니라 버그 신호</b>이므로 흔적을 남긴다.
+     * <p>이게 없으면 nullify 가 focus/daily 통계를 지워 FOCUS·하루형 SCREEN_TIME 판정이 0분/미보고로
+     * 왜곡된다 — 실제 달성자가 미달성으로 떨어져 <b>남은 참가자들의 지급액까지 틀어진다</b>. 박제 축은
+     * 조기 확정({@code GroupChallengeBetParticipant#confirmWin}, GROMO-1268)과 동일하다 — 달성 시점에
+     * {@code achieved=true} + 실측 분. 미달성 참가자는 박제하지 않는다: 관측이 끝났으므로 정산의
+     * 미보고=미달성 확정과 결론이 같고, {@code achieved} 는 null 로 남아 "판정 안 됨" 의미가 유지된다.
+     *
+     * <p>창형 SCREEN_TIME 의 클라 보고분({@code group_challenge_members})은 탈퇴가 지우지 않으므로
+     * 박제 없이도 정산이 그대로 읽는다 — 그래도 같은 규칙으로 박제해 두면 판정 소스가 하나로 줄 뿐
+     * 결론은 같다(멱등·무해).
      */
-    private void applyRefund(GroupChallengeBet bet, User user, String idempotencyKey) {
+    @Transactional
+    public void freezeEvidenceForAccountErasure(User user) {
+        List<UUID> sessionIds =
+                groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(user.getId());
+        for (UUID sessionId : sessionIds) {   // id 오름차순 — 잠금 순서 규약(계약 §3)
+            Optional<GroupChallengeBetSession> locked = groupChallengeBetSessionRepository
+                    .findByIdForUpdate(sessionId)
+                    .filter(GroupChallengeBetSession::isOpen);
+            if (locked.isEmpty()) {
+                continue;   // 잠금 대기 중 정산됨 — 결과를 존중한다.
+            }
+            GroupChallengeBetSession session = locked.get();
+            Optional<GroupChallengeBetParticipant> mine = groupChallengeBetParticipantRepository
+                    .findBySessionIdAndUserId(sessionId, user.getId());
+            // 재조회(P0 ③) 후: 행이 없으면 이미 정리됐고, achieved 가 있으면 조기 확정(GROMO-1268)이
+            // 먼저 박제했다 — 둘 다 할 일이 없다.
+            if (mine.isEmpty() || mine.get().getAchieved() != null) {
+                continue;
+            }
+            // CTI 유실 등으로 판정 불가면 건너뛴다(조기 확정과 같은 태도) — 정산도 같은 이유로
+            // 실패·백오프를 타므로 여기서 탈퇴를 막을 이유가 없다.
+            Optional<GroupBetJudge.Target> target = groupBetJudge.resolve(session.getChallenge())
+                    .map(t -> session.getGoalMinutes() == null
+                            ? t
+                            : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()));
+            if (target.isEmpty()) {
+                continue;
+            }
+            Integer minutes = groupBetJudge
+                    .progressMinutes(target.get(), session.getSessionDate(), List.of(user))
+                    .get(user.getId());
+            if (GroupBetJudge.isAchieved(target.get(), minutes)) {
+                mine.get().confirmWin(minutes == null ? 0 : minutes);
+                log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
+                        sessionId, user.getId(), minutes);
+            }
+            // 여기서 끝이다 — 이 메서드는 <b>판정 근거만 남긴다</b>. 참가 행 삭제·환불·빈 회차 정리는
+            // 전부 releaseFromAllOpenBets(→ releaseSessions)의 "취소 마감 전" 분기 소유다. 두 책임이
+            // 섞이면 마감이 지나 정산 대상으로 남긴 참가를 이 루프가 도로 환불해, 계정 탈퇴가 취소
+            // 마감을 우회하는 환불 경로가 된다(FR-40 위반 — 실제로 병합 충돌 해소 중 되살아났던 회귀).
+        }
+    }
+
+    private void releaseSessions(List<UUID> sessionIds, User user) {
+        // 1단계: 대상 회차 행을 id 오름차순으로 전부 잠근다 — 지갑 쓰기 없이 잠금만(계약 §3 잠금
+        // 순서: 회차 전부 → 지갑). 잠금 시점에 이미 종료된 회차는 정산 결과를 존중해 제외한다.
+        List<GroupChallengeBetSession> lockedOpenSessions = new ArrayList<>();
+        for (UUID sessionId : sessionIds) {
+            groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
+                    .filter(GroupChallengeBetSession::isOpen)
+                    .ifPresent(lockedOpenSessions::add);
+        }
+
+        // 2단계: 잠금이 전부 확보된 뒤에만 돈을 움직인다. 참가 행은 잠금 <b>이후</b> 재조회한다
+        // (P0 ③) — 대상 조회와 잠금 사이에 본인 철회·취소가 먼저 처리했으면 행이 없고, 그러면
+        // 아무것도 하지 않는다(이중 환불 원천 차단 — 키가 같아 원장 유니크가 최후 방어).
+        for (GroupChallengeBetSession session : lockedOpenSessions) {
+            Optional<GroupChallengeBetParticipant> mine = groupChallengeBetParticipantRepository
+                    .findBySessionIdAndUserId(session.getId(), user.getId());
+            if (mine.isEmpty()) {
+                continue;
+            }
+            // 취소 마감이 지난 회차는 환불하지 않고 정산 대상으로 남긴다(FR-40 — 취소와 같은 규칙,
+            // GROMO-1423). 탈퇴로 시작된 판의 돈을 되찾는 각도를 막는 것이고, 명단에는 정산 시
+            // "탈퇴한 사용자"로 표기된다(D1). 참가 후 5분 안의 하루형 오탭은 탈퇴 경로에서도 무른다.
+            if (!Instant.now().isBefore(leaveDeadline(session, mine.get()))) {
+                log.info("내기 참가 유지 — 탈퇴 연동, 취소 마감 경과로 정산 잔류. sessionId={}, userId={}",
+                        session.getId(), user.getId());
+                continue;
+            }
+            groupChallengeBetParticipantRepository.delete(mine.get());
+            refundStake(session, user, mine.get().getId());
+            long remaining = groupChallengeBetParticipantRepository.countBySessionId(session.getId());
+            if (remaining == 0) {
+                // 유저 개설 회차가 비면 "없던 일" — 구 자동 취소(CANCELED)의 재편 후 표현이다.
+                groupChallengeBetSessionRepository.delete(session);
+            }
+            log.info("내기 참가 해제 — 탈퇴 연동. sessionId={}, userId={}, stake={} 환불, 잔여 {}명",
+                    session.getId(), user.getId(), session.getStake(), remaining);
+        }
+    }
+
+    /**
+     * 취소 마감(N22 최종안, GROMO-1423) — 참가 시점 기준 분기의 <b>단일 판정점</b>(철회·그룹 탈퇴 공용).
+     *
+     * <ul>
+     *   <li><b>시작 전에 참가</b>(창형·예약분) → 회차 시작까지. 유예 없음 — max(시작, 참가+5분)으로
+     *       쓰면 창 시작 직전 참가자가 시작 후 5분까지 취소할 수 있어 "시작 후 환불 없음"이 깨진다
+     *       (창 초반을 보고 발을 빼는 각도가 생긴다).</li>
+     *   <li><b>시작 후에 참가</b>(하루형 전용) → min(참가+5분, 회차 종료). 하루형은 시작이 자정이라
+     *       "시작 전"이 영영 오지 않아 오탭 구제가 필요하다. 종료 상한이 없으면 23:58 참가의 유예가
+     *       00:03 까지 살아 자정 정산(CAS)과 경합한다.</li>
+     * </ul>
+     *
+     * <p><b>창형은 시작 후 참가에도 유예가 없다</b> — 창형의 시작 시각이 곧 취소 마감이다. 레거시 참가
+     * 경로({@code createBet}·{@code joinBet}, N36 브리지)는 창형을 <b>창 종료까지</b> 열어 두므로
+     * {@code createdAt >= startsAt} 인 창형 참가자가 실제로 존재한다. 그들에게 5분 유예를 주면
+     * <b>진행 중인 창을 눈으로 확인한 뒤</b> 판돈을 빼는 각도가 생긴다(N22 는 하루형 오탭 구제가
+     * 취지이지 창형 관전 후 이탈 허용이 아니다).
+     */
+    static Instant leaveDeadline(GroupChallengeBetSession session, GroupChallengeBetParticipant participant) {
+        if (session.getMissionType() == MissionType.TIME_WINDOW
+                || participant.getCreatedAt().isBefore(session.getStartsAt())) {
+            return session.getStartsAt();
+        }
+        Instant graceEnd = participant.getCreatedAt().plus(LEAVE_GRACE);
+        return graceEnd.isBefore(session.getClosesAt()) ? graceEnd : session.getClosesAt();
+    }
+
+    /**
+     * 참가비 환불 — 경로 불문(취소·철회·탈퇴 연동) <b>단일 키</b>
+     * {@code session:{sid}:refund:{participantId}} 를 쓴다(FR-42). 경로별 키를 나누면 원장 UNIQUE 가
+     * 교차 경로 중복(구 E5: 취소 × 탈퇴 이중 환불)을 못 막는다. 참가 행 id 가 축이라 "참가 → 철회 →
+     * 재참여" 회차도 키에서 갈린다.
+     *
+     * <p>앱 탈퇴자(지갑 삭제)는 지급 대상에서 뺀다({@link GroupBetSettler} 의 지급 스킵과 같은 이유).
+     * 멱등키 선점(applied=false)은 잠금 후 재조회 규율 아래에서 정상 흐름에 없다 — 버그 신호로 남긴다.
+     */
+    private void refundStake(GroupChallengeBetSession session, User user, UUID participantId) {
         if (user.isDeleted()) {
-            log.warn("내기 환불 스킵 — 탈퇴한 유저라 지갑이 없다. betId={}, userId={}, stake={}",
-                    bet.getId(), user.getId(), bet.getStake());
+            log.warn("내기 환불 스킵 — 탈퇴한 유저라 지갑이 없다. sessionId={}, userId={}, stake={}",
+                    session.getId(), user.getId(), session.getStake());
             return;
         }
         boolean applied = currencyLedgerService.credit(user, CurrencyTransactionType.BET_REFUND,
-                bet.getStake(), idempotencyKey);
+                session.getStake(), refundKey(session.getId(), participantId));
         if (!applied) {
-            log.warn("내기 환불 스킵 — 멱등키 선점됨(버그 신호). betId={}, userId={}, key={}",
-                    bet.getId(), user.getId(), idempotencyKey);
+            log.warn("내기 환불 스킵 — 멱등키 선점됨(버그 신호). sessionId={}, userId={}, key={}",
+                    session.getId(), user.getId(), refundKey(session.getId(), participantId));
         }
     }
 
     /**
-     * 참가 행 생성 + 참가비 차감(에스크로). 개설자 자동 참가와 일반 참가가 같은 경로를 탄다.
+     * 참가 행 생성 + 참가비 차감(에스크로). 개설 브리지의 자동 참가와 일반 참가가 같은 경로를 탄다.
      *
-     * <p>멱등키의 축은 유저가 아니라 <b>참가 행 id</b> 다(계약 §2-2, GROMO-1112). 참가 행은 참가마다
-     * 새로 만들어지는 UUID v7 이라 "참가 → 철회 → 재참여" 회차가 키 수준에서 갈린다. userId 를 축으로
-     * 쓰던 시절에는 재참여가 같은 키를 만들어 차감이 조용히 스킵됐고, 참가 행만 생겨 <b>참가비 0원
-     * 참가</b>가 성립했다 — 정산 팟은 참가비 × 참가자 수라 걷지 않은 코인이 승자에게 나갔다.
-     *
-     * <p>id 는 {@code save()} 반환값에서 읽는다. {@code @GeneratedUuidV7} 는
-     * {@code BeforeExecutionGenerator} 라 persist 시점에 값이 잡히므로 flush 를 강제할 필요는 없다
-     * ({@code saveAndFlush} 불필요 — {@code GroupBetLeaveIntegrationTest} 의 재참여 락 테스트가
-     * 실 DB 로 고정한다).
+     * <p>멱등키의 축은 유저가 아니라 <b>참가 행 id</b> 다(FR-42). 참가 행은 참가마다 새로 만들어지는
+     * UUID v7 이라 "참가 → 철회 → 재참여" 회차가 키 수준에서 갈린다. userId 축이던 시절에는 재참여가
+     * 같은 키를 만들어 차감이 조용히 스킵됐고, 참가비 0원 참가가 성립했다(GROMO-1112).
      */
-    private void stakeIn(GroupChallengeBet bet, User user) {
+    void stakeIn(GroupChallengeBetSession session, User user) {
         GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder()
-                        .bet(bet)
+                        .session(session)
                         .user(user)
                         .build());
+        // TODO(머지 배선 — B6/GROMO-1407): 여기에 groupBetWindowUsageService.invalidatePreJoinReport(
+        // session, user.getId()) 가 들어간다(참가 전 창 사용분 선기록 무효화, @Transactional MANDATORY).
+        // 이 워크트리엔 GroupBetWindowUsageService 가 없어 호출만 비워 둔다. 신·구 참여 경로가 전부 이
+        // 메서드를 지나므로(joinSession·joinNext·joinWeek·레거시 createBet/joinBet) 한 줄이면 전 경로가
+        // 덮인다 — join-week 다건도 회차마다 stakeIn 을 부르므로 회차 단위 호출이 보장된다.
         boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE,
-                bet.getStake(), stakeKey(bet.getId(), participant.getId()));
+                session.getStake(), stakeKey(session.getId(), participant.getId()));
         if (!applied) {
-            // 키에 참가 행 id 가 들어간 뒤로 선점은 정상 흐름에 존재하지 않는다. 그런데도 선점됐다면
-            // id 생성이나 키 규약이 깨진 것이다 — 조용히 넘기면 차감 없는 참가 행이 남아 무임승차가
-            // 되므로 트랜잭션 전체를 되돌린다.
-            log.error("참가비 차감 스킵 — 멱등키 선점됨(도달 불가). betId={}, userId={}, participantId={}",
-                    bet.getId(), user.getId(), participant.getId());
-            throw new IllegalStateException("참가비 차감 멱등키 선점 — betId=" + bet.getId()
+            // 키에 참가 행 id 가 들어간 뒤로 선점은 정상 흐름에 존재하지 않는다. 조용히 넘기면 차감
+            // 없는 참가 행이 남아 무임승차가 되므로 트랜잭션 전체를 되돌린다.
+            log.error("참가비 차감 스킵 — 멱등키 선점됨(도달 불가). sessionId={}, userId={}, participantId={}",
+                    session.getId(), user.getId(), participant.getId());
+            throw new IllegalStateException("참가비 차감 멱등키 선점 — sessionId=" + session.getId()
                     + ", participantId=" + participant.getId());
         }
+    }
+
+    // ── 설정·회차 생성 (미션 스냅샷 박제) ─────────────────────────────────
+
+    /**
+     * 설정 보장 — 챌린지 1:1. 없으면 만들고, 있으면 레거시 브리지 규칙대로 최신 stake 로 갱신한다.
+     * 호출부가 챌린지 행 배타 락을 쥐고 있어 동시 개설과 직렬화되지만, 유니크(challenge_id) 위반은
+     * 최후 방어선으로 409 강하한다.
+     */
+    private GroupChallengeBet ensureBetConfig(Group group, GroupChallenge challenge, int stake) {
+        Optional<GroupChallengeBet> existing =
+                groupChallengeBetRepository.findByChallengeId(challenge.getId());
+        if (existing.isPresent()) {
+            GroupChallengeBet bet = existing.get();
+            if (bet.getStake() != stake) {
+                bet.updateStakeForLegacyBridge(stake);
+            }
+            return bet;
+        }
+        try {
+            return groupChallengeBetRepository.saveAndFlush(GroupChallengeBet.builder()
+                    .group(group)
+                    .challenge(challenge)
+                    .stake(stake)
+                    .enabled(true)
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            throw new GroupException(GroupErrorCode.BET_ALREADY_EXISTS);
+        }
+    }
+
+    /**
+     * 회차 행 조립 — <b>미션 스냅샷 박제</b>(GROMO-1263): 카테고리·방식·목표분·창 시각·참가비를
+     * 챌린지·설정에서 복사한다. 챌린지가 삭제돼도 내역 한 줄이 조인 없이 온전해야 한다(N6-1).
+     *
+     * <p>시각 계산: 하루형은 회차일 00:00 ~ 익일 00:00(KST), 창형은 창 시작 ~ 창 종료(자정 걸침
+     * 레거시 창은 익일 종료). {@code joinClosesAt} 은 LLD §1.1 정의(창형 = 창 시작, 하루형 = 회차
+     * 종료)대로 박제하되, 브리지 기간의 레거시 참가 가드는 종전 규칙(창 종료까지)을 유지한다 —
+     * 이 값의 강제는 신 참여 API(B4)의 몫이다.
+     */
+    GroupChallengeBetSession newSession(GroupChallengeBet bet, Group group,
+            GroupChallenge challenge, GroupBetJudge.Target target, LocalDate sessionDate) {
+        LocalTime windowStart = null;
+        LocalTime windowEnd = null;
+        Instant startsAt;
+        Instant closesAt;
+        Instant joinClosesAt;
+        Instant settleAfter;
+        if (target.windowed()) {
+            // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 으로 저장된다 — Instant→LocalTime
+            // 변환(WindowFocusAggregator.timeOfDay)이 더는 필요 없다.
+            windowStart = target.window().getWindowStart();
+            windowEnd = target.window().getWindowEnd();
+            startsAt = sessionDate.atTime(windowStart).atZone(KST).toInstant();
+            LocalDate endDate = windowStart.isBefore(windowEnd) ? sessionDate : sessionDate.plusDays(1);
+            closesAt = endDate.atTime(windowEnd).atZone(KST).toInstant();
+            joinClosesAt = startsAt;
+            settleAfter = closesAt.plusSeconds(WINDOW_SETTLE_GRACE_MINUTES * 60L);
+        } else {
+            startsAt = sessionDate.atStartOfDay(KST).toInstant();
+            closesAt = sessionDate.plusDays(1).atStartOfDay(KST).toInstant();
+            joinClosesAt = closesAt;
+            int graceHours = target.category() == MissionCategory.SCREEN_TIME
+                    ? DURATION_SCREEN_TIME_SETTLE_GRACE_HOURS
+                    : DURATION_FOCUS_SETTLE_GRACE_HOURS;
+            settleAfter = closesAt.plusSeconds(graceHours * 3600L);
+        }
+        return GroupChallengeBetSession.builder()
+                .bet(bet)
+                .group(group)
+                .challenge(challenge)
+                .sessionDate(sessionDate)
+                .stake(bet.getStake())
+                .goalMinutes(target.goalMinutes())
+                .missionCategory(challenge.getCategory())
+                .missionType(challenge.getType())
+                .windowStart(windowStart)
+                .windowEnd(windowEnd)
+                .status(GroupBetStatus.OPEN)
+                .startsAt(startsAt)
+                .joinClosesAt(joinClosesAt)
+                .closesAt(closesAt)
+                .settleAfter(settleAfter)
+                .build();
     }
 
     // ── 조회 조립 (GroupChallengeService 가 챌린지 카드에 얹는다) ─────────────
 
     /**
-     * 챌린지별 "오늘의 내기"를 배치 로드한다. {@code date} 가 없으면(하위 호환 조회) 빈 맵이다.
+     * 챌린지별 "오늘의 회차"를 배치 로드한다. {@code date} 가 없으면(하위 호환 조회) 빈 맵이다.
+     * 응답의 레거시 필드({@code betId}·{@code status}·{@code myJoined}·{@code participants})는
+     * 오늘 회차 기준으로 그대로 채운다(N36 — shape 불변).
      *
-     * <p><b>내일 폴백</b>(계약 §3 응답 보수, GROMO-1103): 조회일이 서버 KST 오늘이면, 오늘 내기가
-     * 없는 챌린지에 한해 내일 OPEN 내기를 실어 준다 — 마감 후 "내일 시간대부터 적용"으로 연 내기가
-     * 생성 직후 카드에서 안 보이는 구멍을 막는다. 응답의 {@code date}(bet_date)가 어느 날짜의
-     * 내기인지 말한다. 과거 날짜 조회는 그날의 사실만 실어야 하므로 폴백하지 않는다.
-     *
-     * @param myAchievedByChallengeId 챌린지별 "나는 이미 달성했는가" — 호출측이 이미 계산해 둔
-     *                                진행률 스냅샷을 재사용해 통계를 두 번 읽지 않는다
-     * @return challengeId → 내기 (내기가 없는 챌린지는 키 없음)
+     * <p><b>내일 폴백</b>(계약 §3 응답 보수): 조회일이 서버 KST 오늘이면, 오늘 회차가 없는 챌린지에
+     * 한해 내일 OPEN 회차를 실어 준다. UNUSED(0명 종료)는 어디에도 싣지 않는다(N52).
      */
     public Map<UUID, GroupBetResponse> loadCurrentBets(
             Collection<UUID> challengeIds,
@@ -563,52 +633,54 @@ public class GroupBetService {
         if (date == null || challengeIds.isEmpty()) {
             return Map.of();
         }
-        // 취소는 "없던 일"이라 CANCELED 만 뺀다 — 오늘·과거의 정산 결과(SETTLED·FORFEITED·REFUNDED)는
-        // 그날의 사실이라 계속 실어야 한다. 앱 결과 모달이 어제 날짜 조회의 내기 존재 여부(hadBet)로
-        // 판정하므로 OPEN 으로 좁히면 어제의 정산 내기가 사라져 결과 모달이 침묵한다(GROMO-1201).
-        List<GroupChallengeBet> bets = new ArrayList<>(
-                groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatusNot(
-                        challengeIds, date, GroupBetStatus.CANCELED));
+        List<GroupChallengeBetSession> sessions = new ArrayList<>(
+                groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                        challengeIds, date, GroupBetStatus.UNUSED));
         if (date.equals(today())) {
-            Set<UUID> covered = bets.stream()
-                    .map(bet -> bet.getChallenge().getId())
+            Set<UUID> covered = sessions.stream()
+                    .map(session -> session.getChallenge().getId())
                     .collect(Collectors.toSet());
             List<UUID> uncovered = challengeIds.stream()
                     .filter(challengeId -> !covered.contains(challengeId))
                     .toList();
             if (!uncovered.isEmpty()) {
-                // 내일 폴백은 OPEN 만 싣는다 — 아직 시작도 안 한 판이라 정산 결과가 있을 수 없고,
-                // 취소된 내일 내기는 "없던 일"이라 카드에 세울 자격이 없다.
-                bets.addAll(groupChallengeBetRepository.findByChallengeIdInAndBetDateAndStatus(
-                        uncovered, date.plusDays(1), GroupBetStatus.OPEN));
+                // 내일 폴백은 OPEN 만 싣는다 — 아직 시작도 안 한 판이라 정산 결과가 있을 수 없다.
+                sessions.addAll(groupChallengeBetSessionRepository
+                        .findByChallengeIdInAndSessionDateAndStatus(
+                                uncovered, date.plusDays(1), GroupBetStatus.OPEN));
             }
         }
-        if (bets.isEmpty()) {
+        if (sessions.isEmpty()) {
             return Map.of();
         }
 
-        Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet = participantsByBet(bets);
+        Map<UUID, List<GroupChallengeBetParticipant>> participantsBySession =
+                participantsBySession(sessions);
         Map<UUID, GroupBetResponse> result = new LinkedHashMap<>();
-        for (GroupChallengeBet bet : bets) {
+        for (GroupChallengeBetSession session : sessions) {
             List<GroupChallengeBetParticipant> participants =
-                    participantsByBet.getOrDefault(bet.getId(), List.of());
-            UUID challengeId = bet.getChallenge().getId();
+                    participantsBySession.getOrDefault(session.getId(), List.of());
+            UUID challengeId = session.getChallenge().getId();
             result.put(challengeId, GroupBetResponse.builder()
-                    .betId(bet.getId())
-                    .creatorUserId(bet.getCreatorUser().getId())
-                    .date(bet.getBetDate())
-                    .stake(bet.getStake())
-                    .pot(bet.getStake() * participants.size())
-                    .status(bet.getStatus())
+                    .betId(session.getId())
+                    // 개설자 개념 소멸(GROMO-1262) — 구앱의 취소 버튼 판정(개설자 && 단독 && OPEN)이
+                    // 계속 서게 최초 참가자(구 모델에서 개설자였던 사람)를 채운다. 취소 브리지도
+                    // "단독 참가자 본인"이면 허용하므로 버튼과 서버 판정이 일치한다.
+                    .creatorUserId(participants.stream()
+                            .min(Comparator.comparing(GroupChallengeBetParticipant::getCreatedAt)
+                                    .thenComparing(GroupChallengeBetParticipant::getId))
+                            .map(p -> p.getUser().getId())
+                            .orElse(null))
+                    .date(session.getSessionDate())
+                    .stake(session.getStake())
+                    .pot(session.getStake() * participants.size())
+                    .status(session.getStatus())
                     .myJoined(participants.stream()
                             .anyMatch(p -> p.getUser().getId().equals(userId)))
-                    // 호출측 스냅샷은 조회일(오늘) 진행률이다 — 내일 폴백 내기의 판정일은 내일이라
-                    // 아직 아무도 달성하지 않았다. 오늘 값을 그대로 실으면 앱이 내일 내기의 참가
-                    // 버튼을 오늘 달성 사실로 잘못 잠근다(서버 joinBet 은 bet_date 기준이라 허용).
-                    .myAchievedNow(bet.getBetDate().equals(date)
+                    // 호출측 스냅샷은 조회일(오늘) 진행률이다 — 내일 폴백 회차의 판정일은 내일이라
+                    // 아직 아무도 달성하지 않았다.
+                    .myAchievedNow(session.getSessionDate().equals(date)
                             && myAchievedByChallengeId.getOrDefault(challengeId, false))
-                    // 탈퇴자 닉네임 치환(GROMO-1220) — 신규 탈퇴자는 releaseFromAllOpenBets 가 OPEN
-                    // 내기에서 해제하지만, 그 정리가 없던 시절(#497 이전)의 유령 참가 행 방어다.
                     .participants(participants.stream()
                             .map(p -> GroupBetParticipantResponse.builder()
                                     .userId(p.getUser().getId())
@@ -621,33 +693,31 @@ public class GroupBetService {
     }
 
     /**
-     * 챌린지별 "가장 최근 정산 내기"를 배치 로드한다 — 카드의 지난 내기 한 줄용.
-     * 조회 {@code date} 와 무관하므로 하위 호환 조회(date 없음)에서도 채워진다.
-     *
-     * @return challengeId → 최근 정산 내기 (정산 이력이 없는 챌린지는 키 없음)
+     * 챌린지별 "가장 최근 정산 회차"를 배치 로드한다 — 카드의 지난 내기 한 줄용.
+     * {@code goalMinutes} 는 개설 시점 박제값(GROMO-1263)이다 — V39 백필 이전 정산 이력만 null.
      */
     public Map<UUID, GroupBetResultResponse> loadLastSettledBets(Collection<UUID> challengeIds) {
         if (challengeIds.isEmpty()) {
             return Map.of();
         }
-        // 쿼리(DISTINCT ON)가 이미 챌린지당 1행으로 줄여 온다 — 애플리케이션에서 추리지 않는다.
-        List<GroupChallengeBet> latest =
-                groupChallengeBetRepository.findLatestSettledByChallengeIds(challengeIds);
+        List<GroupChallengeBetSession> latest =
+                groupChallengeBetSessionRepository.findLatestSettledByChallengeIds(challengeIds);
         if (latest.isEmpty()) {
             return Map.of();
         }
 
-        Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet = participantsByBet(latest);
+        Map<UUID, List<GroupChallengeBetParticipant>> participantsBySession =
+                participantsBySession(latest);
         Map<UUID, GroupBetResultResponse> result = new LinkedHashMap<>();
-        latest.forEach(bet -> {
+        latest.forEach(session -> {
             List<GroupChallengeBetParticipant> participants =
-                    participantsByBet.getOrDefault(bet.getId(), List.of());
-            result.put(bet.getChallenge().getId(), GroupBetResultResponse.builder()
-                    .betDate(bet.getBetDate())
-                    .stake(bet.getStake())
-                    .pot(bet.getStake() * participants.size())
-                    .status(bet.getStatus())
-                    .goalMinutes(bet.getGoalMinutes())
+                    participantsBySession.getOrDefault(session.getId(), List.of());
+            result.put(session.getChallenge().getId(), GroupBetResultResponse.builder()
+                    .betDate(session.getSessionDate())
+                    .stake(session.getStake())
+                    .pot(session.getStake() * participants.size())
+                    .status(session.getStatus())
+                    .goalMinutes(session.getGoalMinutes())
                     .results(toResultParticipants(participants))
                     .build());
         });
@@ -655,16 +725,9 @@ public class GroupBetService {
     }
 
     /**
-     * 내기 히스토리(GROMO-1207) — 챌린지의 정산 완료 내기(SETTLED·REFUNDED·FORFEITED)를
-     * {@code bet_date} 내림차순 keyset 커서로 페이지네이션한다. 봉투는
-     * {@code FocusSessionSliceResponse} 선례(content/size/hasNext/nextCursor)와 같다.
-     *
-     * <p>권한은 다른 내기 경로와 동일하다 — 게스트 {@code GUEST_FORBIDDEN}, 비그룹원
-     * {@code MEMBER_ONLY}. 이력은 그룹원 전체가 열람한다(오너 결정, 계약 §2-1207).
-     *
-     * <p>커서는 직전 페이지 마지막 항목의 {@code betId} 다 — 서버가 그 내기의 {@code bet_date} 로
-     * 해석해 strict {@code <} keyset 을 만든다. V28 부분 유니크가 비취소 내기를 챌린지·날짜당
-     * 1개로 보장하므로 날짜 단독 축에 동률이 없다.
+     * 내기 히스토리(GROMO-1207) — 챌린지의 정산 완료 회차(SETTLED·REFUNDED·FORFEITED)를
+     * {@code session_date} 내림차순 keyset 커서로 페이지네이션한다. 커서는 직전 페이지 마지막
+     * 항목의 회차 id({@code betId} 필드 — 브리지 명명 유지)다.
      */
     public GroupBetHistorySliceResponse getBetHistory(
             UUID groupId, UUID challengeId, UUID userId, UUID cursor, int size) {
@@ -677,41 +740,40 @@ public class GroupBetService {
         groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        Slice<GroupChallengeBet> slice;
+        Slice<GroupChallengeBetSession> slice;
         if (cursor == null) {
-            slice = groupChallengeBetRepository.findSettledHistoryFirstPage(
+            slice = groupChallengeBetSessionRepository.findSettledHistoryFirstPage(
                     challengeId, HISTORY_STATUSES, PageRequest.of(0, size));
         } else {
-            // 커서는 챌린지 스코프로 해석 — 남의 챌린지 내기 id 로 임의 날짜 필터를 만들 수 없다.
-            LocalDate cursorDate = groupChallengeBetRepository
-                    .findBetDateByIdAndChallengeId(cursor, challengeId)
+            // 커서는 챌린지 스코프로 해석 — 남의 챌린지 회차 id 로 임의 날짜 필터를 만들 수 없다.
+            LocalDate cursorDate = groupChallengeBetSessionRepository
+                    .findSessionDateByIdAndChallengeId(cursor, challengeId)
                     .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
-            slice = groupChallengeBetRepository.findSettledHistoryAfterCursor(
+            slice = groupChallengeBetSessionRepository.findSettledHistoryAfterCursor(
                     challengeId, HISTORY_STATUSES, cursorDate, PageRequest.of(0, size));
         }
-        List<GroupChallengeBet> pageBets = slice.getContent();
-        // 참가자는 페이지 전체를 IN 1회로 배치 로드한다(N+1 금지) — 조회 조립 공용 헬퍼.
-        Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet =
-                pageBets.isEmpty() ? Map.of() : participantsByBet(pageBets);
+        List<GroupChallengeBetSession> pageSessions = slice.getContent();
+        Map<UUID, List<GroupChallengeBetParticipant>> participantsBySession =
+                pageSessions.isEmpty() ? Map.of() : participantsBySession(pageSessions);
 
-        List<GroupBetHistoryItemResponse> content = pageBets.stream()
-                .map(bet -> {
+        List<GroupBetHistoryItemResponse> content = pageSessions.stream()
+                .map(session -> {
                     List<GroupChallengeBetParticipant> participants =
-                            participantsByBet.getOrDefault(bet.getId(), List.of());
+                            participantsBySession.getOrDefault(session.getId(), List.of());
                     return GroupBetHistoryItemResponse.builder()
-                            .betId(bet.getId())
-                            .betDate(bet.getBetDate())
-                            .stake(bet.getStake())
-                            .pot(bet.getStake() * participants.size())
-                            .status(bet.getStatus())
-                            .settledAt(bet.getSettledAt())
-                            .goalMinutes(bet.getGoalMinutes())
+                            .betId(session.getId())
+                            .betDate(session.getSessionDate())
+                            .stake(session.getStake())
+                            .pot(session.getStake() * participants.size())
+                            .status(session.getStatus())
+                            .settledAt(session.getSettledAt())
+                            .goalMinutes(session.getGoalMinutes())
                             .results(toResultParticipants(participants))
                             .build();
                 })
                 .toList();
-        UUID nextCursor = slice.hasNext() && !pageBets.isEmpty()
-                ? pageBets.get(pageBets.size() - 1).getId()
+        UUID nextCursor = slice.hasNext() && !pageSessions.isEmpty()
+                ? pageSessions.get(pageSessions.size() - 1).getId()
                 : null;
         return new GroupBetHistorySliceResponse(content, size, slice.hasNext(), nextCursor);
     }
@@ -736,33 +798,32 @@ public class GroupBetService {
 
     /**
      * 명단 표시용 닉네임 — 탈퇴자(is_deleted, PII 파기로 nickname=null)는 고정 문구로 치환한다.
-     * 탈퇴자 처리를 <b>출력(명단) 층에서만</b> 하는 계약(§1)의 단일 지점이다 — 조회 리포지토리
-     * ({@code findByBetIdIn})나 정산·해제 경로에 필터를 넣으면 팟 계산·환불이 틀어진다.
+     * 탈퇴자 처리를 <b>출력(명단) 층에서만</b> 하는 계약(§1)의 단일 지점이다.
      */
     private static String displayNickname(User user) {
         return user.isDeleted() ? WITHDRAWN_USER_NICKNAME : user.getNickname();
     }
 
-    private Map<UUID, List<GroupChallengeBetParticipant>> participantsByBet(
-            Collection<GroupChallengeBet> bets) {
-        List<UUID> betIds = bets.stream().map(GroupChallengeBet::getId).toList();
-        return groupChallengeBetParticipantRepository.findByBetIdIn(betIds).stream()
-                .collect(Collectors.groupingBy(p -> p.getBet().getId()));
+    private Map<UUID, List<GroupChallengeBetParticipant>> participantsBySession(
+            Collection<GroupChallengeBetSession> sessions) {
+        List<UUID> sessionIds = sessions.stream().map(GroupChallengeBetSession::getId).toList();
+        return groupChallengeBetParticipantRepository.findBySessionIdIn(sessionIds).stream()
+                .collect(Collectors.groupingBy(p -> p.getSession().getId()));
     }
 
     // ── 공용 가드 ────────────────────────────────────────────────────────
 
-    /**
-     * 멱등키 컨벤션 — 참가비 차감. 축은 유저가 아니라 <b>참가 행</b>이다(계약 §2-2) — 이유는
-     * {@link #stakeIn}. 정산 키는 {@link GroupBetSettler} 가 만든다.
-     */
-    static String stakeKey(UUID betId, UUID participantId) {
-        return "bet:" + betId + ":stake:" + participantId;
+    /** 멱등키 컨벤션 — 참가비 차감. 축은 유저가 아니라 <b>참가 행</b>이다(FR-42). */
+    static String stakeKey(UUID sessionId, UUID participantId) {
+        return "session:" + sessionId + ":stake:" + participantId;
     }
 
-    /** 멱등키 컨벤션 — 참가 철회 환불. 차감과 같은 축이라 참가 회차별로 유일하다. */
-    static String leaveRefundKey(UUID betId, UUID participantId) {
-        return "bet:" + betId + ":leave-refund:" + participantId;
+    /**
+     * 멱등키 컨벤션 — 환불 <b>단일 축</b>(FR-42): 취소·철회·탈퇴·무산·24h 어떤 경로든 같은 키다.
+     * 정산 지급 키는 {@link GroupBetSettler#payoutKey}.
+     */
+    static String refundKey(UUID sessionId, UUID participantId) {
+        return "session:" + sessionId + ":refund:" + participantId;
     }
 
     static LocalDate today() {
@@ -770,16 +831,22 @@ public class GroupBetService {
     }
 
     /**
-     * 활성 검증 + 공유 락 (GROMO-801, codex 리뷰 2차) — 락 없는 findById 면 계정 탈퇴(유저 행 배타
-     * 락)와 직렬화되지 않아, 탈퇴의 참가자 스냅샷({@link #releaseFromAllOpenBets}) 이후에 커밋된
-     * 참가가 정리에서 빠진다 — 탈퇴자 참가 행·지갑 없음·정산 스킵으로 팟이 오염되는, 그 정리가
-     * 막으려던 바로 그 상태다. 참가 생성(createBet·joinBet)이 필수 대상이지만 헬퍼 전체에 건다:
-     * ① 유저 락이 모든 경로의 <b>첫</b> 잠금이라(user → 내기 행 → 지갑) 기존 잠금 순서 규율과
-     * 역전이 없고 ② 취소·철회는 내기 행 잠금으로 이미 탈퇴 정리와 직렬화되지만 공유 락끼리는
-     * 병렬이라 추가 비용이 미미하며 ③ 탈퇴 유저의 잔여 토큰 접근을 네 경로 모두 표준 NOT_FOUND
-     * 로 거절하게 된다(종전 findById 는 is_deleted 를 보지 않았다). 탈퇴가 먼저 커밋되면 빈 결과.
+     * 회차 스냅샷 기반 판정 대상 — 참가 가드·창 마감 검사가 챌린지 CTI 를 다시 읽되, 목표분은
+     * 회차 박제값(GROMO-1263)으로 덮는다(챌린지 목표가 이후 바뀌어도 이 회차의 기준은 불변).
      */
-    private User requireActiveUser(UUID userId) {
+    GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
+        return groupBetJudge.resolve(session.getChallenge())
+                .map(t -> session.getGoalMinutes() == null
+                        ? t
+                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()))
+                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
+    }
+
+    /**
+     * 활성 검증 + 공유 락 (GROMO-801) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)와 직렬화되지
+     * 않아, 탈퇴의 참가자 스냅샷 이후에 커밋된 참가가 정리에서 빠진다.
+     */
+    User requireActiveUser(UUID userId) {
         User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -790,14 +857,7 @@ public class GroupBetService {
 
     /**
      * 활성·게스트 검증의 <b>락 없는</b> 판 (GROMO-1230) — 순수 읽기(readOnly) 조회 경로 전용.
-     * {@link #requireActiveUser}(공유 락)를 쓰지 않는 이유: 이 클래스 기본 트랜잭션이 readOnly 라
-     * Postgres 가 FOR SHARE 를 거절하고(read-only 에서 행 잠금 불가 — #510 CI 실측), 애초에 잠글
-     * 이유도 없다 — 공유 락은 읽은 값이 변경(참가 생성·해제)의 근거가 될 때 탈퇴와 직렬화하려는
-     * 장치인데, 순수 조회는 아무것도 변경하지 않아 stale 하게 읽혀도 결과가 응답 한 번에 그친다.
-     *
-     * <p>⚠ readOnly 전용이다 — users 행을 읽고 그 근거로 무언가를 <b>변경하는</b> 트랜잭션에서
-     * 이 헬퍼를 쓰면 탈퇴와 직렬화되지 않아 락 규율(GROMO-801) 위반이다. 변경 트랜잭션은
-     * {@link #requireActiveUser}(공유 락) 또는 배타 락(UserRepository 락 선택 원칙)을 쓸 것.
+     * Postgres 가 read-only 트랜잭션에서 FOR SHARE 를 거절하고, 순수 조회는 잠글 이유도 없다.
      */
     private User requireActiveUserNoLock(UUID userId) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
@@ -808,6 +868,7 @@ public class GroupBetService {
         return user;
     }
 
+    /** 조회 경로용 멤버십 검증 — 잠금 없음. 돈이 움직이는 경로는 {@link #requireGroupMembershipForShare}. */
     private Group requireGroupMembership(User user, UUID groupId) {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -817,22 +878,24 @@ public class GroupBetService {
     }
 
     /**
-     * 창형(TIME_WINDOW) 마감 — 오늘 창이 이미 끝났으면 개설·참가를 막는다. 창이 끝난 뒤에 걸면 결과가
-     * 이미 정해진 판에 올라타는 것이라 DURATION 의 "당일 자정 전"과 같은 성격의 가드다. DURATION 은
-     * 창이 없어 날짜 검사만으로 충분하다(마감 코드도 {@code BET_CLOSED} 로 같다).
-     *
-     * <p><b>자정 걸침 창에서는 이 가드가 도달하지 않는다</b>(PR #446 리뷰). 예로 22:00~01:00 창의
-     * 날짜 D 창은 {@code D+1 01:00} 에 끝나는데, 이 가드는 {@code date} 가 오늘 이후일 때만 실행되므로
-     * (개설은 오늘 내기에만 검사하고 내일 내기는 건너뛴다 — GROMO-1103, 참가는 {@code bet_date} 가
-     * 오늘 이상) "오늘"인 동안 {@code now} 는 항상 그 종료 시각보다 이르다. 실질 마감은
-     * 자정에 {@code today()} 가 넘어가면서 앞의 날짜 게이트가 대신 처리한다 — 즉 자정 걸침 창은
-     * 마지막 1시간(00:00~01:00) 동안 새 개설·참가를 받지 않는다.
-     *
-     * <p>일부러 그대로 둔다. ① 더 일찍 닫는 쪽이라 "결과가 정해진 판에 올라타기"는 여전히 불가능하고
-     * (자금 안전 방향), ② 마지막 1시간을 열려면 {@code betDate} 가 어제인 내기를 허용해야 하는데
-     * 이는 "betDate = KST 오늘"이라는 계약 공통 규칙과 01:00 정산 배치의 대상 선정 전제를 동시에
-     * 흔든다. 같은 시각 판정(집계)은 창 전체를 그대로 쓰므로 이미 참가한 사람의 판정에는 영향이 없다.
-     * 실제 경계값은 {@code GroupBetJudgeIntegrationTest} 가 실 DB 로 고정한다.
+     * 참여(차감) 경로용 멤버십 검증 — 활성 멤버십 행을 <b>공유 잠금</b>으로 읽는다(N54 차감 직전
+     * 활성 멤버십 재검증). 그룹 탈퇴({@link #releaseFromOpenBets})의 배타 잠금과 멤버십 행에서
+     * 직렬화되므로, "탈퇴 정리 스캔 → leave 마킹" 사이에 새 참가가 끼어들 수 없다(1258 P0 ②) —
+     * users 행 공유 락은 그룹 탈퇴와 직렬화되지 않아 이 잠금이 따로 필요하다.
+     */
+    Group requireGroupMembershipForShare(User user, UUID groupId) {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        groupMemberRepository.findActiveByUserIdAndGroupIdForShare(user.getId(), group.getId())
+                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+        return group;
+    }
+
+    /**
+     * 창형(TIME_WINDOW) 마감 — 오늘 창이 이미 끝났으면 개설·참가를 막는다. 브리지 기간의 참가
+     * 마감은 종전 규칙(창 <b>종료</b>까지) 그대로다 — {@code joinClosesAt}(창 시작) 강제는 신 참여
+     * API(B4)의 몫이다. DURATION 은 창이 없어 날짜 검사만으로 충분하다(마감 코드도
+     * {@code BET_CLOSED} 로 같다).
      */
     private void requireWindowStillOpen(GroupBetJudge.Target target, LocalDate date) {
         Optional<Instant> closesAt = groupBetJudge.windowClosesAt(target, date);
@@ -842,20 +905,16 @@ public class GroupBetService {
     }
 
     /**
-     * 판돈을 걸 자격 — 카테고리마다 막는 방향이 반대다.
+     * 참가비를 걸 자격 — 카테고리마다 막는 방향이 반대다.
      *
      * <ul>
-     *   <li><b>FOCUS</b>: 이미 달성했으면 거절({@code BET_ALREADY_ACHIEVED}). 서버 데이터라 달성이
-     *       확정 의미이고, 확정된 뒤 올라타는 무위험 참가를 막는다(창형은 5분 관용치 포함 — 카드
-     *       진행률·정산과 같은 판정 소스다)</li>
-     *   <li><b>SCREEN_TIME</b>: 달성은 하루/창이 끝나야 확정되므로 "이미 달성"이 무위험이 아니다
-     *       (이후 사용으로 뒤집힌다). 대신 <b>이미 목표를 초과해 패배가 확정된</b> 유저를 거절한다
-     *       ({@code BET_ALREADY_FAILED}) — 질 게 정해진 판돈 투입 방지</li>
+     *   <li><b>FOCUS</b>: 이미 달성했으면 거절({@code BET_ALREADY_ACHIEVED}) — 확정된 뒤 올라타는
+     *       무위험 참가 방지(창형은 5분 관용치 포함, 카드 진행률·정산과 같은 판정 소스)</li>
+     *   <li><b>SCREEN_TIME</b>: 이미 목표를 초과해 패배가 확정된 유저를 거절
+     *       ({@code BET_ALREADY_FAILED}) — 질 게 정해진 참가비 투입 방지</li>
      * </ul>
-     *
-     * <p>비용은 조합별 소스 조회 1회다(카드 진행률과 같은 쿼리).
      */
-    private void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
+    void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
         Integer minutes = groupBetJudge.progressMinutes(target, date, List.of(user)).get(user.getId());
         if (target.category() == MissionCategory.SCREEN_TIME) {
             // 미보고(null)는 잠정 달성으로 보고 통과시킨다 — 초과가 확인된 경우에만 막는다.

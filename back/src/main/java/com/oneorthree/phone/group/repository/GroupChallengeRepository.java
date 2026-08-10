@@ -37,6 +37,19 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
     Optional<GroupChallenge> findByIdAndGroupAndDeletedAtIsNullForUpdate(
             @Param("id") UUID id, @Param("group") Group group);
 
+    /**
+     * 신 참여 경로(GROMO-1408·1414) 전용 — 같은 조회 + 챌린지 행 <b>공유 락</b>(SELECT … FOR SHARE).
+     *
+     * <p>참여(회차 lazy 개설 포함)는 이 공유 락 아래에서만 진행한다(계약 §3): 종료·삭제의 배타 락
+     * ({@link #findByIdAndGroupAndDeletedAtIsNullForUpdate}, N42)과 직렬화돼, 삭제가 "OPEN 회차
+     * 없음"을 본 뒤에 lazy 개설·참가가 끼어들어 삭제된 챌린지에 참가비가 매달리는 창을 없앤다.
+     * 참여끼리는 공유 락이라 병렬이다 — 회차·지갑 직렬화는 회차 행 락과 원장 유니크가 맡는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select c from GroupChallenge c where c.id = :id and c.group = :group and c.deletedAt is null")
+    Optional<GroupChallenge> findByIdAndGroupAndDeletedAtIsNullForShare(
+            @Param("id") UUID id, @Param("group") Group group);
+
     List<GroupChallenge> findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(Group group);
 
     // GROMO-674: 그룹 대표 챌린지(가장 오래된 ACTIVE, 미삭제) — 그룹 상세/오버뷰의 미션 정보 소스.
@@ -47,6 +60,10 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
 
     boolean existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
             Group group, MissionCategory category, MissionType type, GroupChallengeStatus status);
+
+    // 그룹당 활성 챌린지 4개 상한(FR-1 · GROMO-1422) 사전 검사용 — 그룹 행 배타 락 아래에서만 의미 있다
+    // (GroupRepository.findByIdForUpdate 로 생성을 직렬화한 뒤 센다).
+    long countByGroupAndStatusAndDeletedAtIsNull(Group group, GroupChallengeStatus status);
 
     // TIME_WINDOW 겹침 판정은 window 컬럼의 상세 테이블 분리에 따라
     // GroupChallengeWindowRepository.existsOverlappingTimeWindow 로 이동.
@@ -60,8 +77,8 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
      * 스크린타임 전용이던 시절의 잔재였다).
      *
      * <p>매 틱 도는 조회라 group 을 함께 fetch 한다(딥링크의 groupId). 실제 발송 대상은 호출측이
-     * 상세(창·일 목표)를 붙여 "방금 끝났는지" 로 다시 좁힌다. 활성 챌린지는 그룹당 카테고리×타입 1개
-     * (V20 부분 유니크)라 결과는 타입당 최대 (그룹 수 × 2) 건이다.
+     * 상세(창·일 목표)를 붙여 "방금 끝났는지" 로 다시 좁힌다. 활성 챌린지는 그룹당 최대 4개
+     * (FR-1 · GROMO-1422)라 결과는 타입당 최대 (그룹 수 × 4) 건이다.
      */
     @Query("SELECT c FROM GroupChallenge c JOIN FETCH c.group "
             + "WHERE c.status = :status AND c.deletedAt IS NULL AND c.type = :type")

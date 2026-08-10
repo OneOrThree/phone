@@ -733,12 +733,12 @@ public class GroupService {
                     .map(GroupChallengeDuration::getDurationMinutes)
                     .orElse(null);
         } else if (challenge.getType() == MissionType.TIME_WINDOW) {
-            // GROMO-1206: 저장 Instant → KST 벽시계 "HH:mm:ss" — /challenges 응답과 같은
-            // 단일 출구(WindowFocusAggregator.timeOfDayString)를 쓴다. 별도 zone 변환 신설 금지.
+            // GROMO-1206: 저장 time(KST 벽시계) → "HH:mm:ss" — /challenges 응답과 같은
+            // 단일 출구(WindowFocusAggregator.timeOfDayString)를 쓴다. 별도 포맷 신설 금지.
             Optional<GroupChallengeWindow> window = groupChallengeWindowRepository.findById(challenge.getId());
-            windowStart = window.map(GroupChallengeWindow::getWindowStartAt)
+            windowStart = window.map(GroupChallengeWindow::getWindowStart)
                     .map(WindowFocusAggregator::timeOfDayString).orElse(null);
-            windowEnd = window.map(GroupChallengeWindow::getWindowEndAt)
+            windowEnd = window.map(GroupChallengeWindow::getWindowEnd)
                     .map(WindowFocusAggregator::timeOfDayString).orElse(null);
         }
         return new RepresentativeMission(

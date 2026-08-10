@@ -85,7 +85,9 @@ const SLUG = 'ab23cd45';
 const mockRefreshCoins = jest.fn(async () => true);
 jest.mock('@/store/CoinContext', () => ({
   useCoins: () => ({
-    coins: 100,
+    // 최고 프리셋(3,000 — N30 상한)까지 잠기지 않는 잔액 — 이 스위트는 배선만 보고
+    // 부족 분기는 BetSheet.test가 잠근다.
+    coins: 5000,
     coinsLoaded: true,
     coinsVersion: 1,
     latestCoinsVersion: () => 1,
@@ -612,8 +614,9 @@ describe('내기 배선', () => {
       fireEvent.press(screen.getByTestId('group.bet.submit'));
     });
 
+    // 기본 참가비 = 가장 낮은 프리셋(상한 3,000의 10% = 300 — N30·GROMO-1424).
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, 'c1', {
-      stake: 10,
+      stake: 300,
       date: '2026-08-01',
     });
     // 성공 후 재조회 — 조회 1회당 오늘 1콜(결과 큐 분리 — 1279): 최초 1콜 + 개설 후 1콜.
