@@ -107,6 +107,12 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
         data={groups}
         keyExtractor={(item) => item.groupId}
         horizontal
+        contentOffset={{ x: initialIndex * snapInterval, y: 0 }}
+        getItemLayout={(_, index) => ({
+          length: snapInterval,
+          offset: index * snapInterval,
+          index,
+        })}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: SIDE_PEEK }}
         ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}

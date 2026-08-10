@@ -116,6 +116,7 @@ test('부모가 전달한 stable groupId를 초기 페이지와 후속 복원의
   );
 
   expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 4');
+  expect(screen.getByTestId('group.cardDeck').props.contentOffset.x).toBeGreaterThan(0);
 
   await view.rerender(
     <GroupCardDeck
