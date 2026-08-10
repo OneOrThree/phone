@@ -34,6 +34,7 @@ const mockFocusRunners = new Set<() => void | (() => void)>();
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  useIsFocused: () => true,
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
