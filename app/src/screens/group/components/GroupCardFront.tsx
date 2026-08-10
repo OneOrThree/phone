@@ -11,6 +11,7 @@ interface GroupCardFrontProps {
 
 export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
+  const descriptionLabel = group.description ? `, ${group.description}` : '';
 
   return (
     <View style={s.root} testID={`group.card.front.${group.groupId}`}>
@@ -21,7 +22,7 @@ export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFront
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}${descriptionLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >

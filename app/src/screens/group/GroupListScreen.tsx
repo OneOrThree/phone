@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -94,14 +95,15 @@ export default function GroupListScreen({
     (page: number) => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
-      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      const nextIdentity = groups[next]?.groupId ?? null;
+      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
-      setFlippedGroupId(null);
     },
     [groups, pageCount, snapInterval],
   );
 
-  const onMomentumScrollEnd = useCallback(
+  const settlePage = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const next = Math.max(
         0,
@@ -115,10 +117,25 @@ export default function GroupListScreen({
     [groups, pageCount, snapInterval],
   );
 
+  const flipCard = useCallback(
+    (groupId: string) => {
+      const index = groups.findIndex((group) => group.groupId === groupId);
+      if (index < 0) return;
+      if (activeIdentityRef.current !== groupId) {
+        listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
+        activeIdentityRef.current = groupId;
+        setActiveIndex(index);
+      }
+      setFlippedGroupId(groupId);
+    },
+    [groups, snapInterval],
+  );
+
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
     const identity = activeIdentityRef.current;
-    const next = identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
+    const next =
+      identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
     const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
     setActiveIndex(safeIndex);
@@ -126,7 +143,16 @@ export default function GroupListScreen({
   }, [activeIndex, groups, snapInterval]);
 
   return (
-    <View style={s.root} testID="group.list">
+    <ScrollView
+      style={s.root}
+      contentContainerStyle={s.screenContent}
+      alwaysBounceVertical
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
+      }
+      testID="group.list"
+    >
       <View style={s.header}>
         {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
         {onBack && (
@@ -156,14 +182,12 @@ export default function GroupListScreen({
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum
-        onMomentumScrollEnd={onMomentumScrollEnd}
+        onMomentumScrollEnd={settlePage}
+        onScrollEndDrag={settlePage}
         ListFooterComponent={
           <View style={{ marginLeft: CARD_GAP }}>
             <FindMoreCard width={cardWidth} onPress={onFind} />
           </View>
-        }
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
         renderItem={({ item }) => (
           <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
@@ -188,17 +212,13 @@ export default function GroupListScreen({
                 </TouchableOpacity>
               </View>
             ) : (
-              <GroupCardFront group={item} onFlip={() => setFlippedGroupId(item.groupId)} />
+              <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
             )}
           </View>
         )}
       />
 
-      <PageIndicator
-        pageCount={pageCount}
-        activeIndex={activeIndex}
-        onSelectPage={selectPage}
-      />
+      <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
       <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
@@ -219,12 +239,13 @@ export default function GroupListScreen({
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  screenContent: { flexGrow: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.

@@ -88,6 +88,10 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.onScrollEndDrag).toEqual(
+      expect.any(Function),
+    );
+    expect(screen.getByTestId('group.list').props.alwaysBounceVertical).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
   });
 
@@ -116,6 +120,7 @@ describe('콜백', () => {
     await press(`group.card.${GROUP_ID_2}`);
 
     expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
     expect(onSelect).not.toHaveBeenCalled();
 
     await press(`group.card.room.${GROUP_ID_2}`);
@@ -129,6 +134,23 @@ describe('콜백', () => {
     await renderList([group({ name: longName })]);
 
     expect(screen.getByLabelText(new RegExp(longName))).toBeOnTheScreen();
+  });
+
+  test('접근성 이름은 화면에 보이는 소개 원문도 포함한다', async () => {
+    await renderList([group({ description: '매일 아침 함께 집중해요' })]);
+    expect(screen.getByLabelText(/매일 아침 함께 집중해요/)).toBeOnTheScreen();
+  });
+
+  test('현재 페이지 dot을 다시 눌러도 열린 뒷면을 유지한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    await press('group.deck.indicator.dot.0');
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
   });
 
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
@@ -166,7 +188,7 @@ describe('콜백', () => {
 
     // RefreshControl은 리스트의 자식이라 fireEvent가 위로 훑어 찾지 못한다(RNTL 14는 UNSAFE_*
     // 쿼리도 없다) — FlatList에 넘긴 요소를 리스트 props에서 직접 집는다.
-    const control = () => screen.getByTestId('group.list.items').props.refreshControl.props;
+    const control = () => screen.getByTestId('group.list').props.refreshControl.props;
     expect(control().refreshing).toBe(false);
 
     await act(async () => {

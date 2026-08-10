@@ -19,11 +19,17 @@ describe('PageIndicator', () => {
         nativeEvent: { layout: { width: 400 } },
       });
     });
-    fireEvent.press(
-      screen.getByTestId('group.deck.indicator.dot.2', { includeHiddenElements: true }),
-    );
+    fireEvent.press(screen.getByTestId('group.deck.indicator.dot.2'));
 
     expect(onSelectPage).toHaveBeenCalledWith(2);
+    expect(screen.getByLabelText('그룹 카드 1 페이지').props.accessibilityState).toEqual({
+      selected: true,
+    });
+    expect(screen.getByLabelText('그룹 찾기 페이지').props.accessibilityState).toEqual({
+      selected: false,
+    });
+    expect(screen.getByTestId('group.deck.indicator')).toHaveStyle({ height: 44 });
+    expect(screen.getByTestId('group.deck.indicator.dot.0')).toHaveStyle({ height: 44 });
   });
 
   test('첫 측정 전 counter는 현재/전체를 읽는다', async () => {
