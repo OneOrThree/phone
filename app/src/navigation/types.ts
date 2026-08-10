@@ -2,7 +2,6 @@
 // 별도 파일로 분리해 화면 ↔ 네비게이터 순환 import을 피한다.
 import type { FocusTimerMode, PomodoroConfig } from '@/screens/focus/types';
 import type { CardInteractionRouteContext } from '@/services/cardInteraction';
-import type { MissionCategory, MissionType } from '@/types/dto/group';
 
 export type V2RootStackParamList = {
   Main: undefined; // 4탭 + FAB

@@ -113,4 +113,26 @@ describe('GroupCardBackSummary', () => {
     expect(onAccessibilityFlipFront).toHaveBeenCalledTimes(1);
     expect(onFlipFront).not.toHaveBeenCalled();
   });
+
+  test('뒷면이 커밋된 layout 신호와 제목 ref를 guide 측정·포커스 경로에 제공한다', async () => {
+    const onLayout = jest.fn();
+    const titleRef = jest.fn();
+    await render(
+      <GroupCardBackSummary
+        group={group}
+        snapshot={snapshot}
+        onStartFocus={jest.fn()}
+        onOpenRoom={jest.fn()}
+        onFlipFront={jest.fn()}
+        onLayout={onLayout}
+        titleRef={titleRef}
+      />,
+    );
+
+    fireEvent(screen.getByTestId(`group.card.back.${GROUP_ID}`), 'layout', {
+      nativeEvent: { layout: { width: 300, height: 420 } },
+    });
+    expect(onLayout).toHaveBeenCalledTimes(1);
+    expect(titleRef).toHaveBeenCalledWith(expect.anything());
+  });
 });

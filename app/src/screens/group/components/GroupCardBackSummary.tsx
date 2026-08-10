@@ -1,4 +1,5 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, type LayoutChangeEvent } from 'react-native';
+import type { Ref } from 'react';
 import { T } from '@/constants/theme';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -12,6 +13,8 @@ interface GroupCardBackSummaryProps {
   onOpenRoom: () => void;
   onFlipFront: () => void;
   onAccessibilityFlipFront?: () => void;
+  titleRef?: Ref<Text>;
+  onLayout?: (event: LayoutChangeEvent) => void;
 }
 
 function pendingOrFailed(status: 'idle' | 'loading' | 'error', object: string): string {
@@ -25,6 +28,8 @@ export function GroupCardBackSummary({
   onOpenRoom,
   onFlipFront,
   onAccessibilityFlipFront,
+  titleRef,
+  onLayout,
 }: GroupCardBackSummaryProps) {
   const detail = snapshot?.detail ?? { status: 'idle' as const };
   const announcements = snapshot?.announcements ?? { status: 'idle' as const };
@@ -59,8 +64,8 @@ export function GroupCardBackSummary({
   }
 
   return (
-    <View style={s.root} testID={`group.card.back.${group.groupId}`}>
-      <Text style={s.title} numberOfLines={1} ellipsizeMode="tail">
+    <View style={s.root} onLayout={onLayout} testID={`group.card.back.${group.groupId}`}>
+      <Text ref={titleRef} style={s.title} numberOfLines={1} ellipsizeMode="tail">
         {group.name}
       </Text>
       <View style={s.sections}>

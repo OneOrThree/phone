@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  AccessibilityInfo,
   AppState,
   FlatList,
+  findNodeHandle,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -225,6 +227,8 @@ export default function GroupListScreen({
   const previousCardDataDateRef = useRef(cardDataDate);
   const deckAnchorRef = useRef<View | null>(null);
   const activeCardRef = useRef<View | null>(null);
+  const backTitleRef = useRef<Text | null>(null);
+  const backLayoutWaitersRef = useRef(new Map<string, () => void>());
   const guideDecisionEpisodeRef = useRef<number | null>(null);
   const guideReadStateRef = useRef<GroupDeckGuideReadState | null>(null);
   const guideStartGroupsRef = useRef<string | null>(null);
@@ -397,6 +401,7 @@ export default function GroupListScreen({
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
     activeIndexRef.current = safeIndex;
     setActiveIndex(safeIndex);
+    setActiveAnchorGroupId(groups[safeIndex]?.groupId ?? null);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
   }, [groupFingerprint, groups, snapInterval]);
 
@@ -559,8 +564,11 @@ export default function GroupListScreen({
               if (!groupId) return;
               // 사용자 이벤트를 거치지 않는 상태 전환이다. 응답을 기다리지 않고 lazy ensure만 시작한다.
               setBackSource('guide');
-              setFlippedGroupId(groupId);
-              onEnsureBack?.(groupId);
+              return new Promise<void>((resolve) => {
+                backLayoutWaitersRef.current.set(groupId, resolve);
+                setFlippedGroupId(groupId);
+                onEnsureBack?.(groupId);
+              });
             }
           : undefined,
       })),
@@ -577,6 +585,10 @@ export default function GroupListScreen({
     guideVisibleRef.current = false;
     setGuideVisible(false);
     setGuideQueued(false);
+    requestAnimationFrame(() => {
+      const node = findNodeHandle(backTitleRef.current);
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
   }, []);
 
   return (
@@ -659,6 +671,13 @@ export default function GroupListScreen({
                 {flippedGroupId === item.groupId ? (
                   <GroupCardBackSummary
                     group={item}
+                    titleRef={item.groupId === activeGroupId ? backTitleRef : undefined}
+                    onLayout={() => {
+                      const resolve = backLayoutWaitersRef.current.get(item.groupId);
+                      if (!resolve) return;
+                      backLayoutWaitersRef.current.delete(item.groupId);
+                      resolve();
+                    }}
                     snapshot={getBackSnapshot?.(item.groupId) ?? null}
                     onStartFocus={() => {
                       if (onStartFocus) acceptCardAction(item, 'focus', onStartFocus);
