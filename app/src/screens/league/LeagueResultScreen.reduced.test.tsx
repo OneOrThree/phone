@@ -20,6 +20,7 @@ let mockReduce = true;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
   useReduceMotionReady: () => true,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 jest.mock('@react-navigation/native', () => ({

@@ -187,7 +187,8 @@ export default function LeagueScreen() {
   const filter = leagueFilter ?? myLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
   // 재정렬은 **한 칸씩** 재생한다 (정본 §6). 서버가 여러 칸을 한 번에 바꿔 넣어도 중간 순서를
-  // 큐로 거쳐 가도록 useStagedRanking이 순서를 늦춘다 — 값(기록·막대)은 최신 그대로다.
+  // 거쳐 가도록 useStagedRanking이 순서를 늦추고, 한 칸마다 **기록도 함께** 단계적으로 올린다
+  // (정본 "바로 위 사람을 앞지르는 값이라야 상승이 납득된다"). 마지막 단계는 서버 최종값이다.
   // 포디움·리스트가 같은 파생값을 쓰므로 두 영역의 재정렬 호흡이 자동으로 맞는다.
   const visibleRanking = useStagedRanking(
     isAll ? globalRanking : ranking.filter((r) => r.exam === filter),

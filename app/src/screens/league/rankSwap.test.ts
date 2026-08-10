@@ -1,12 +1,15 @@
-// 순위 재정렬 큐 — 정본 docs/prd/motion/low-level-design.md §6.
+// 순위 재정렬 재생 계획 — 정본 docs/prd/motion/low-level-design.md §6.
 //
 //   "맨 아래에서 맨 위까지 **한 칸씩** 4단계. 여러 칸을 한 번에 뛰면 결과만 남고 과정이 사라진다."
+//   "자리가 바뀌기 직전에 **내 기록과 막대가 먼저 자란다**. 바로 위 사람을 앞지르는 값이라야
+//    상승이 납득된다."  (시안 ui.html의 `CLIMB` = 한 칸마다 갱신되는 내 기록)
 //
-// 서버가 8위→4위처럼 여러 칸을 한 번에 갈아끼워도 중간 순서를 거쳐 가야 한다는 계약을 잠근다.
+// 서버가 8위→4위처럼 여러 칸을 한 번에 갈아끼워도 **순서와 기록이 함께** 단계적으로 가야 한다는
+// 계약을 잠근다.
 //
 // ⚠️ 애니메이션의 중간 프레임·타이밍·이징은 단언하지 않는다(워클릿은 jest에서 목이라 실행되지
-//    않는다 — 정책 D14). 여기서 보는 것은 **순수 로직이 만들어내는 중간 배열**뿐이다.
-import { rankSwapQueue, SWAP_MAX_STEPS } from './rankSwap';
+//    않는다 — 정책 D14). 여기서 보는 것은 **순수 로직이 만들어내는 순서·기록**뿐이다.
+import { rankSwapFrames, SWAP_GAP_MS, SWAP_LEAD_MS, SWAP_MAX_STEPS } from './rankSwap';
 
 /** 두 순서가 '인접한 두 칸을 맞바꾼 관계'인지 — 한 칸씩 재생한다는 계약의 실질 */
 function isSingleAdjacentSwap(before: string[], after: string[]): boolean {
@@ -18,84 +21,149 @@ function isSingleAdjacentSwap(before: string[], after: string[]): boolean {
   return j === i + 1 && before[i] === after[j] && before[j] === after[i];
 }
 
-const seq = (n: number): string[] => Array.from({ length: n }, (_, i) => `u${i}`);
+const secs = (entries: [string, number][]): Map<string, number> => new Map(entries);
+/** 프레임이 실제로 그릴 기록 — 덮어쓰기가 없으면 서버 최종값 */
+const shownAt = (
+  frame: { seconds: Map<string, number> },
+  key: string,
+  final: Map<string, number>,
+): number => frame.seconds.get(key) ?? final.get(key)!;
 
-describe('rankSwapQueue — 한 칸씩', () => {
-  test('8위→4위는 인접 스왑 4단계로 쪼개진다(리드 프레임 + 4)', () => {
-    const from = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'me'];
-    const to = ['a', 'b', 'c', 'me', 'd', 'e', 'f', 'g'];
+describe('rankSwapFrames — 한 칸씩', () => {
+  const from = ['a', 'b', 'c', 'me'];
+  const to = ['me', 'a', 'b', 'c'];
+  // a·b·c는 그대로, me만 4위→1위. 기록은 30분(1800s)에서 3시간(10800s)으로 뛰었다.
+  const final = secs([
+    ['me', 10800],
+    ['a', 9000],
+    ['b', 7200],
+    ['c', 5400],
+  ]);
+  const start = secs([
+    ['me', 1800],
+    ['a', 9000],
+    ['b', 7200],
+    ['c', 5400],
+  ]);
 
-    const queue = rankSwapQueue(from, to);
+  test('세 번의 인접 스왑을 거치고, 스왑마다 기록이 먼저 자란다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
 
-    // [0]은 리드 프레임 — 자리는 그대로다(값만 먼저 갱신되는 구간)
-    expect(queue[0]).toEqual(from);
-    expect(queue).toHaveLength(5);
-    for (let i = 1; i < queue.length; i += 1) {
-      expect(isSingleAdjacentSwap(queue[i - 1], queue[i])).toBe(true);
+    // 이동 3회 × (기록 프레임 + 자리 프레임)
+    expect(frames).toHaveLength(6);
+    expect(frames.map((f) => f.at)).toEqual([
+      0,
+      SWAP_LEAD_MS,
+      SWAP_LEAD_MS + SWAP_GAP_MS,
+      2 * SWAP_LEAD_MS + SWAP_GAP_MS,
+      2 * (SWAP_LEAD_MS + SWAP_GAP_MS),
+      3 * SWAP_LEAD_MS + 2 * SWAP_GAP_MS,
+    ]);
+
+    // 기록 프레임은 순서를 바꾸지 않는다 — 자리는 LEAD 뒤에 바뀐다
+    expect(frames[0].order).toEqual(from);
+    expect(frames[1].order).toEqual(['a', 'b', 'me', 'c']);
+    expect(frames[2].order).toEqual(frames[1].order);
+    expect(frames[3].order).toEqual(['a', 'me', 'b', 'c']);
+    expect(frames[4].order).toEqual(frames[3].order);
+    expect(frames[5].order).toEqual(to);
+
+    // 자리 이동은 매번 인접 한 칸
+    expect(isSingleAdjacentSwap(frames[0].order, frames[1].order)).toBe(true);
+    expect(isSingleAdjacentSwap(frames[1].order, frames[3].order)).toBe(true);
+    expect(isSingleAdjacentSwap(frames[3].order, frames[5].order)).toBe(true);
+  });
+
+  test('각 단계의 기록은 그 순간 앞지르는 상대보다 위다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
+    // 1단계: c(5400)를 앞지른다 / 2단계: b(7200) / 3단계: a(9000)
+    expect(shownAt(frames[0], 'me', final)).toBeGreaterThan(5400);
+    expect(shownAt(frames[2], 'me', final)).toBeGreaterThan(7200);
+    expect(shownAt(frames[4], 'me', final)).toBeGreaterThan(9000);
+  });
+
+  test('기록은 직전 표시값과 서버 최종값 사이에서 단조 증가한다 — 지어낸 값이 아니다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
+    const mine = frames.map((f) => shownAt(f, 'me', final));
+    for (let i = 1; i < mine.length; i += 1) expect(mine[i]).toBeGreaterThanOrEqual(mine[i - 1]);
+    expect(Math.min(...mine)).toBeGreaterThanOrEqual(1800);
+    expect(Math.max(...mine)).toBeLessThanOrEqual(10800);
+  });
+
+  test('마지막 프레임은 예외 없이 서버 최종값이다 — 중간값이 화면에 남지 않는다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
+    expect(frames[frames.length - 1].seconds.size).toBe(0);
+    expect(shownAt(frames[frames.length - 1], 'me', final)).toBe(10800);
+  });
+
+  test('밀려나는 행의 기록은 손대지 않는다 — 기록은 줄지 않는다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
+    for (const f of frames) {
+      expect(f.seconds.has('a')).toBe(false);
+      expect(f.seconds.has('b')).toBe(false);
+      expect(f.seconds.has('c')).toBe(false);
     }
-    // 마지막은 반드시 최종 순서
-    expect(queue[queue.length - 1]).toEqual(to);
-    // 실제로 거쳐 가는 중간 순서까지 못 박는다 — 한 칸씩 올라간다
-    expect(queue).toEqual([
-      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'me'],
-      ['a', 'b', 'c', 'd', 'e', 'f', 'me', 'g'],
-      ['a', 'b', 'c', 'd', 'e', 'me', 'f', 'g'],
-      ['a', 'b', 'c', 'd', 'me', 'e', 'f', 'g'],
-      ['a', 'b', 'c', 'me', 'd', 'e', 'f', 'g'],
-    ]);
-  });
-
-  test('밀려나는 행도 함께 한 칸씩 움직인다 — 두 행이 교대로 자리를 맞바꾼다', () => {
-    // c가 두 칸 올라가면 a·b가 각각 한 칸씩 밀린다
-    const queue = rankSwapQueue(['a', 'b', 'c'], ['c', 'a', 'b']);
-    expect(queue).toEqual([
-      ['a', 'b', 'c'],
-      ['a', 'c', 'b'],
-      ['c', 'a', 'b'],
-    ]);
-  });
-
-  test('순서가 그대로면 재생할 단계가 없다', () => {
-    const order = ['a', 'b', 'c'];
-    expect(rankSwapQueue(order, order)).toEqual([order]);
-  });
-
-  test('구성원이 바뀌면(진입·이탈) 단계를 만들지 않고 최종 배열로 간다', () => {
-    // 인접 스왑 연출은 행 노드의 동일성을 전제한다(정본 §6) — 전제가 깨지면 과정이 무의미하다
-    expect(rankSwapQueue(['a', 'b', 'c'], ['a', 'b', 'z'])).toEqual([['a', 'b', 'z']]);
-    expect(rankSwapQueue(['a', 'b'], ['a', 'b', 'c'])).toEqual([['a', 'b', 'c']]);
-    expect(rankSwapQueue([], ['a', 'b'])).toEqual([['a', 'b']]);
-  });
-
-  test('키에 중복이 있으면 큐를 만들지 않는다 — 어느 행이 어느 자리인지 정할 수 없다', () => {
-    expect(rankSwapQueue(['a', 'a', 'b'], ['b', 'a', 'a'])).toEqual([['b', 'a', 'a']]);
   });
 });
 
-describe('rankSwapQueue — 상한', () => {
-  // 20위→1위를 한 칸씩 다 재생하면 19단계 × 300ms = 5.7초 동안 목록이 계속 움직인다.
+describe('rankSwapFrames — 재생할 것이 없는 경우', () => {
+  const anySecs = secs([
+    ['a', 3],
+    ['b', 2],
+    ['c', 1],
+  ]);
+
+  test('순서가 그대로면 빈 계획', () => {
+    expect(rankSwapFrames(['a', 'b', 'c'], ['a', 'b', 'c'], anySecs, anySecs)).toEqual([]);
+  });
+
+  test('구성원이 바뀌면(진입·이탈) 빈 계획 — 행 노드 동일성 전제가 깨진다(정본 §6)', () => {
+    expect(rankSwapFrames(['a', 'b', 'c'], ['a', 'b', 'z'], anySecs, anySecs)).toEqual([]);
+    expect(rankSwapFrames(['a', 'b'], ['a', 'b', 'c'], anySecs, anySecs)).toEqual([]);
+    expect(rankSwapFrames([], ['a', 'b'], anySecs, anySecs)).toEqual([]);
+  });
+
+  test('키에 중복이 있으면 빈 계획 — 어느 행이 어느 자리인지 정할 수 없다', () => {
+    expect(rankSwapFrames(['a', 'a', 'b'], ['b', 'a', 'a'], anySecs, anySecs)).toEqual([]);
+  });
+});
+
+describe('rankSwapFrames — 상한', () => {
+  // 20위→1위를 한 칸씩 다 재생하면 19단계 × 390ms ≈ 7.4초 동안 목록이 계속 움직인다.
   // 초과분은 **버리지 않고 첫 한 단계로 묶어** 시차 상한(M.staggerMaxSteps)과 같은 규율을 쓴다.
-  test('19칸 상승도 자리 이동은 상한(SWAP_MAX_STEPS)까지만 한다', () => {
-    const from = seq(20);
-    const to = ['u19', ...seq(19)];
+  const from = Array.from({ length: 20 }, (_, i) => `u${i}`);
+  const to = ['u19', ...from.slice(0, 19)];
+  // u0이 가장 높고 u19가 가장 낮았다가, u19가 전부를 앞질러 1위가 된다.
+  const final = new Map(from.map((key, i) => [key, (20 - i) * 600]));
+  final.set('u19', 20 * 600 + 600);
+  const start = new Map(final);
+  start.set('u19', 600);
 
-    const queue = rankSwapQueue(from, to);
-
-    expect(queue[0]).toEqual(from); // 리드 프레임은 언제나 현재 순서
-    expect(queue).toHaveLength(SWAP_MAX_STEPS + 1); // 리드 + 자리 이동 SWAP_MAX_STEPS회
-    expect(queue[queue.length - 1]).toEqual(to);
+  test('자리 이동은 상한(SWAP_MAX_STEPS)까지만 한다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
+    expect(frames).toHaveLength(SWAP_MAX_STEPS * 2);
+    expect(frames[0].order).toEqual(from);
+    expect(frames[frames.length - 1].order).toEqual(to);
     // 첫 이동만 여러 칸을 한 번에 묶고(초과분), 나머지는 한 칸씩 — 도착은 그대로 읽힌다
-    expect(isSingleAdjacentSwap(queue[0], queue[1])).toBe(false);
-    for (let i = 2; i < queue.length; i += 1) {
-      expect(isSingleAdjacentSwap(queue[i - 1], queue[i])).toBe(true);
+    expect(isSingleAdjacentSwap(frames[0].order, frames[1].order)).toBe(false);
+    for (let i = 3; i < frames.length; i += 2) {
+      expect(isSingleAdjacentSwap(frames[i - 2].order, frames[i].order)).toBe(true);
     }
   });
 
-  test('상한이 1이면 곧장 최종 순서로 간다', () => {
-    const queue = rankSwapQueue(['a', 'b', 'c'], ['c', 'a', 'b'], 1);
-    expect(queue).toEqual([
-      ['a', 'b', 'c'],
-      ['c', 'a', 'b'],
-    ]);
+  test('묶인 첫 단계의 기록은 건너뛴 상대까지 전부 앞지른 값이다', () => {
+    const frames = rankSwapFrames(from, to, final, start);
+    // 묶음이 끝난 순서에서 바로 아래에 있는 행(=이번 묶음에서 마지막으로 앞지른 상대)
+    const landedAt = frames[1].order.indexOf('u19');
+    const passed = frames[1].order[landedAt + 1];
+    expect(shownAt(frames[0], 'u19', final)).toBeGreaterThan(final.get(passed)!);
+  });
+
+  test('상한이 1이면 한 번에 최종 순서·최종 기록으로 간다', () => {
+    const frames = rankSwapFrames(from, to, final, start, 1);
+    expect(frames).toHaveLength(2);
+    expect(frames[0].order).toEqual(from);
+    expect(frames[1].order).toEqual(to);
+    expect(frames[1].seconds.size).toBe(0);
   });
 });
