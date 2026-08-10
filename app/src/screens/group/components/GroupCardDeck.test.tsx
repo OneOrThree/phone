@@ -77,6 +77,8 @@ test('momentum은 최종 종료에서, momentum 없는 drag는 target offset에�
 });
 
 test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한다', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+  announce.mockClear();
   await render(
     <GroupCardDeck
       groups={[group(0), group(1)]}
@@ -97,6 +99,14 @@ test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한
     fireEvent.press(findDot);
   });
   expect(findDot.props.accessibilityState).toEqual({ selected: true });
+  expect(announce).not.toHaveBeenCalled();
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.cardDeck'), 'momentumScrollEnd', {
+      nativeEvent: { contentOffset: { x: 100_000 } },
+    });
+  });
+  expect(announce).toHaveBeenCalledWith('그룹 찾기, 3 / 3 페이지');
+  announce.mockRestore();
 });
 
 test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴다', async () => {

@@ -71,6 +71,7 @@ export function GroupCardDeck({
   const previousSnapIntervalRef = useRef(snapInterval);
   const previousActiveInputRef = useRef<string | null | undefined>(undefined);
   const pendingPeekGroupIdRef = useRef<string | null>(null);
+  const pendingPageAnnouncementRef = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [indicatorWidth, setIndicatorWidth] = useState(0);
   const indicatorFocusedRef = useRef(false);
@@ -116,7 +117,9 @@ export function GroupCardDeck({
   const settleActiveOffset = useCallback(
     (offsetX: number) => {
       const index = Math.max(0, Math.min(Math.round(offsetX / snapInterval), groups.length));
-      const changed = activeIndexRef.current !== index;
+      const changed =
+        activeIndexRef.current !== index || pendingPageAnnouncementRef.current === index;
+      pendingPageAnnouncementRef.current = null;
       activeGroupIdRef.current = groups[index]?.groupId ?? null;
       activeIndexRef.current = index;
       setActiveIndex(index);
@@ -169,6 +172,7 @@ export function GroupCardDeck({
 
   const selectPage = (page: number) => {
     listRef.current?.scrollToOffset({ offset: page * snapInterval, animated: true });
+    if (page !== activeIndexRef.current) pendingPageAnnouncementRef.current = page;
     activeGroupIdRef.current = groups[page]?.groupId ?? null;
     activeIndexRef.current = page;
     setActiveIndex(page);

@@ -11,6 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { enterUp } from '@/constants/motion';
@@ -112,6 +113,7 @@ export default function GroupListScreen({
   onRefresh,
   onBack,
 }: GroupListScreenProps) {
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
@@ -177,7 +179,7 @@ export default function GroupListScreen({
         testID="group.list.items"
         data={groups}
         keyExtractor={(item) => item.groupId}
-        contentContainerStyle={s.listContent}
+        contentContainerStyle={[s.listContent, { paddingBottom: insets.bottom + 74 }]}
         CellRendererComponent={GroupListCell}
         showsVerticalScrollIndicator={false}
         refreshControl={
