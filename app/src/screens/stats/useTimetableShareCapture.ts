@@ -132,11 +132,18 @@ export function useTimetableShareCapture({
       //    잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
       if (animatedCount > enterCountRef.current) {
         loadedAtRef.current = Date.now();
-        // ⚠️ 대기 길이도 **이때** 확정한다. 블록의 진입 여부는 Enter가 마운트 시점에 얼리므로,
-        //    그 뒤 사용자가 '동작 줄이기'를 켜도 이미 시작된 growUp은 계속 재생된다. 공유 시점의
-        //    m.delay를 읽으면 그때 0이 되어 대기를 건너뛰고 중간 크기 블록이 캡처된다(codex 리뷰).
-        //    "지금 설정"이 아니라 "그 블록들이 실제로 애니메이션을 시작했는가"가 기준이다.
-        waitMsRef.current = delayRef.current(enterMs);
+        // ⚠️ 대기 길이도 **블록이 진입을 시작하는 그 시점의 설정으로** 확정한다. 공유 시점의
+        //    m.delay를 읽으면, 그 사이 설정을 켠 사용자에게 이미 시작된 growUp이 도는데도 대기가
+        //    0이 되어 중간 크기 블록이 캡처된다(codex 리뷰).
+        //    ⚠️ 아직 **미확정**이면 여기서 정하지 않는다 — 그때의 보수적 reduce=true는 실제 설정이
+        //       아니고(0을 돌려준다), Enter도 확정될 때까지 진입을 미룬다. 확정되는 시점에 위
+        //       whenReduceMotionReady 콜백이 채운다.
+        if (readyRef.current) {
+          waitMsRef.current = delayRef.current(enterMs);
+          waitPendingRef.current = false;
+        } else {
+          waitPendingRef.current = true;
+        }
       }
       enterCountRef.current = animatedCount;
       setReady(true);
