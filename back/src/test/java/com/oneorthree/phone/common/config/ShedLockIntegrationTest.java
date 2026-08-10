@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
+import com.oneorthree.phone.group.scheduler.GroupBetScheduler;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;
@@ -70,6 +71,39 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
                 "shedlock-integration-test", Duration.ofMinutes(10), Duration.ZERO));
         assertThat(reacquired).isPresent();
         reacquired.get().unlock();
+    }
+
+    @Test
+    @DisplayName("정산 계열 크론은 전용 스케줄러에서 돈다 — 알림 팬아웃이 돈 처리를 잠식하지 못한다")
+    void settlementCronsRunOnDedicatedScheduler() {
+        int settlementCrons = 0;
+        for (Method method : GroupBetScheduler.class.getDeclaredMethods()) {
+            Scheduled[] schedules = method.getAnnotationsByType(Scheduled.class);
+            if (schedules.length == 0) {
+                continue;
+            }
+            settlementCrons++;
+            for (Scheduled schedule : schedules) {
+                assertThat(schedule.scheduler())
+                        .as("%s 가 공용 풀에서 돈다 — 알림 팬아웃이 슬롯을 선점하면 정산·환불이 밀린다",
+                                method.getName())
+                        .isEqualTo(SchedulingConfig.SETTLEMENT_SCHEDULER);
+            }
+        }
+        assertThat(settlementCrons).isEqualTo(3);
+
+        // 두 풀은 서로 다른 빈이어야 격리가 성립한다(같은 빈이면 이름만 다른 공용 풀이다).
+        assertThat(applicationContext.getBean(SchedulingConfig.SETTLEMENT_SCHEDULER))
+                .isNotSameAs(applicationContext.getBean("taskScheduler"));
+        // 알림 크론은 반대로 공용 풀을 쓴다(전용 풀을 잠식하지 않는다).
+        for (Method method : com.oneorthree.phone.notification.scheduler.NotificationScheduler.class
+                .getDeclaredMethods()) {
+            for (Scheduled schedule : method.getAnnotationsByType(Scheduled.class)) {
+                assertThat(schedule.scheduler())
+                        .as("알림 크론 %s 가 정산 전용 풀을 쓰면 격리가 무의미해진다", method.getName())
+                        .isNotEqualTo(SchedulingConfig.SETTLEMENT_SCHEDULER);
+            }
+        }
     }
 
     /**

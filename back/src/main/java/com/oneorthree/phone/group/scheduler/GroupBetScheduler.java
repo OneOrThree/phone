@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.scheduler;
 
+import com.oneorthree.phone.common.config.SchedulingConfig;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.SettleTrigger;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
@@ -32,6 +33,11 @@ import java.util.UUID;
  *
  * <p>멀티 인스턴스 중복 실행은 ShedLock 이 막는다(GROMO-1283, policy §E4) — 락을 놓쳐도 회차 행
  * 락 + CAS + 원장 멱등키가 이중 지급을 막으므로(정합은 별도 방어) 락은 중복 스캔 낭비 차단용이다.
+ *
+ * <p><b>이 클래스의 크론은 전용 스케줄러({@link SchedulingConfig#SETTLEMENT_SCHEDULER})에서 돈다</b>
+ * — 공용 풀을 쓰면 같은 5분·15분 경계에 함께 뜨는 알림 팬아웃(대상마다 blocking FCM 호출)이 슬롯을
+ * 선점해 정산과 인원 미달 환불이 그 뒤에 줄을 선다. 돈 처리가 알림에 밀리면 24h 자동 환불(N21)
+ * 시한과 참가비 동결 시간이 그만큼 잠식된다.
  */
 @Slf4j
 @Component
@@ -51,7 +57,8 @@ public class GroupBetScheduler {
      * ({@code findDue} 의 OR 술어) — 정산·환불 분기는 {@code settle} 이 락 안에서 스스로 가른다
      * (24h 판정이 진입점마다 흩어지면 수동 경로가 우회한다 — N21).
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+            scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-settle-scan")
     public void retryDueSessions() {
         Instant now = Instant.now();
@@ -96,7 +103,8 @@ public class GroupBetScheduler {
      * 기다리면 창형은 창 전체 + 30분 동안 혼자 남은 참가비가 묶이고 카드도 OPEN 으로 남는다(K1).
      * {@code settle()} 안의 인원 가드는 경합·크론 지연 대비 안전망으로 존치한다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+            scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-void-short-sessions")
     public void voidShortSessions() {
         List<UUID> targets = groupChallengeBetSessionRepository
@@ -124,7 +132,8 @@ public class GroupBetScheduler {
      * 반환형이 primitive 면 그 null 이 언박싱 NPE 가 된다 — 잠금 대상 메서드는 void 가 규약이다.
      * 개설 건수를 쓰는 호출부(테스트·수동)는 {@link #openTodaySessions()} 를 직접 부른다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+            scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-ensure-today-sessions")
     public void ensureTodaySessions() {
         openTodaySessions();

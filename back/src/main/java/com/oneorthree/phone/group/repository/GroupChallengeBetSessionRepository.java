@@ -349,4 +349,82 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
     List<GroupChallengeBetSession> findOpenJoinableSessions(
             @Param("now") Instant now,
             @Param("until") Instant until);
+
+    /**
+ * 창 사용분 보고의 <b>대상 회차</b>(GROMO-1407, N34·N43) — 보고 날짜({@code usageDate})에
+     * 해당하는 이 챌린지의 회차. 설정이 챌린지당 1개(uq_group_challenge_bets_challenge)이고 회차가
+     * (설정, 날짜)당 1개라 결과는 최대 1건이다.
+     *
+     * <p>보고 자격·직렬화가 <b>이 회차에 결속</b>된다: 참가자는 이 날짜의 회차가 시작됐고 OPEN 일
+     * 때만 저장할 수 있다. 챌린지 단위로 "아무 OPEN 회차 참가자면 통과"로 두면, 오늘 회차 참가자가
+     * 함께 예약한 <b>미래 회차가 시작되기도 전에 그 날짜의 낮은 사용량을 미리 심을</b> 수 있다.
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s "
+            + "WHERE s.challenge.id = :challengeId AND s.sessionDate = :sessionDate")
+    Optional<GroupChallengeBetSession> findByChallengeIdAndSessionDate(
+            @Param("challengeId") UUID challengeId,
+            @Param("sessionDate") LocalDate sessionDate);
+
+    /**
+     * 삭제 프리플라이트(GROMO-1416, N49·K11) — 이 챌린지의 OPEN 회차 전부(예약된 미래 포함)를
+     * 날짜순으로. 잠금 없는 순수 조회다 — 경고 수치는 스냅샷이고, 실제 무효화는 DELETE 가 락 아래
+     * 다시 센다.
+     */
+    List<GroupChallengeBetSession> findByChallengeIdAndStatusOrderBySessionDateAscIdAsc(
+            UUID challengeId, GroupBetStatus status);
+
+    /** 그룹 내역 커서 해석(GROMO-1271) — 커서 회차가 <b>이 그룹의</b> 것일 때만(타 그룹 id 로 필터 생성 방지). */
+    Optional<GroupChallengeBetSession> findByIdAndGroupId(UUID id, UUID groupId);
+
+    /**
+     * 그룹 챌린지 내역 첫 페이지(GROMO-1271, N6-1) — 그룹 소유 축이라 챌린지 삭제와 무관하게
+     * 조회된다(표시 값은 회차 미션 스냅샷). UNUSED(0명 종료)는 호출측 statuses 에서 이미 빠져 있다
+     * (N52). 같은 날짜에 챌린지별 회차가 최대 4개라 (session_date, id) 튜플 keyset 이다 — 날짜만으로
+     * 자르면 페이지 경계의 같은 날 나머지가 스킵/중복된다. challenge 는 삭제 배지 판정에 쓰므로
+     * 함께 fetch 한다(행당 추가 SELECT 방지).
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.status IN :statuses "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryFirstPage(
+            @Param("groupId") UUID groupId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            Pageable pageable);
+
+    /** 그룹 챌린지 내역 다음 페이지 — (session_date, id) 튜플 strict 비교 keyset. */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.status IN :statuses "
+            + "AND (s.sessionDate < :cursorDate "
+            + "OR (s.sessionDate = :cursorDate AND s.id < :cursorId)) "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryAfterCursor(
+            @Param("groupId") UUID groupId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("cursorDate") LocalDate cursorDate,
+            @Param("cursorId") UUID cursorId,
+            Pageable pageable);
+
+    /** 그룹 챌린지 내역 첫 페이지 — 챌린지 필터판(챌린지별 이력 화면). 그룹 스코프는 유지된다. */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.challenge.id = :challengeId AND s.status IN :statuses "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryFirstPageByChallenge(
+            @Param("groupId") UUID groupId,
+            @Param("challengeId") UUID challengeId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            Pageable pageable);
+
+    /** 그룹 챌린지 내역 다음 페이지 — 챌린지 필터판. */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.challenge.id = :challengeId AND s.status IN :statuses "
+            + "AND (s.sessionDate < :cursorDate "
+            + "OR (s.sessionDate = :cursorDate AND s.id < :cursorId)) "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryAfterCursorByChallenge(
+            @Param("groupId") UUID groupId,
+            @Param("challengeId") UUID challengeId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("cursorDate") LocalDate cursorDate,
+            @Param("cursorId") UUID cursorId,
+            Pageable pageable);
 }

@@ -62,6 +62,8 @@ public class GroupNotificationBatchController {
             description = "최근 48시간 안에 종료된 회차(SETTLED·FORFEITED 결과 + VOIDED·REFUNDED 환불 통지)를"
                     + " 재훑기해 미발송 건을 사건 단위 파이프라인(클레임 → 묶음 → 발송)에 태우고,"
                     + " 조용한 시간 이월(DEFERRED) 건도 함께 흘려보낸다."
+                    + " 크론과 달리 <슬롯이 닫히기를 기다리지 않고> 지금 있는 클레임을 즉시 발송한다"
+                    + " — 방금 종료된 회차도 이 호출 한 번으로 발송까지 확인된다."
                     + " 이미 클레임된 (유저, kind, 회차) 사건은 dedup 으로 빠지므로 반복 호출해도 중복 발송이 없다"
                     + " (재호출 시 sentCount=0, dedupedCount>0 이 정상)."
                     + " X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")
@@ -74,7 +76,7 @@ public class GroupNotificationBatchController {
     public ResponseEntity<PushDispatchSummaryResponse> notifyBetResults(
             @RequestHeader(value = ADMIN_KEY_HEADER, required = false) String adminKey) {
         requireAdminKey(adminKey);
-        return ResponseEntity.ok(betEventNotificationService.rescanAndFlush());
+        return ResponseEntity.ok(betEventNotificationService.rescanAndFlushImmediately());
     }
 
     @Operation(summary = "챌린지 창 종료 푸시 수동 실행",

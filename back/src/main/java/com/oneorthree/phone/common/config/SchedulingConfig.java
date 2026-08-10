@@ -11,24 +11,58 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 public class SchedulingConfig {
 
     /**
-     * 크론 실행 풀 — <b>단일 스레드 기본값을 대체</b>한다(GROMO-1417 리뷰).
+     * 돈 처리(정산·무산 환불·회차 개설) 전용 스케줄러 빈 이름 — {@code GroupBetScheduler} 의
+     * {@code @Scheduled(scheduler = …)} 가 이 이름으로 지정한다.
      *
-     * <p>Spring 이 {@code TaskScheduler} 빈을 못 찾으면 모든 {@code @Scheduled} 가 스레드 <b>하나</b>를
-     * 공유한다. 지금 크론 중에는 대상마다 blocking FCM 호출을 순차로 도는 팬아웃 발송이 여럿이라,
-     * 그 하나가 늦어지면 같은 주기의 <b>정산 스캔·인원 미달 환불</b>({@code GroupBetScheduler})까지
-     * 밀린다 — 알림 지연이 돈 처리 지연으로 번지는 배선이다. FCM 이 멎으면(타임아웃은
-     * {@code FcmPushNotificationClient} 가 건다) 전체 크론이 무기한 멈춘다.
+     * <p><b>왜 풀을 키우는 게 아니라 격리인가.</b> 공용 풀에서는 알림 팬아웃이 슬롯을 먼저 차지하면
+     * 정산이 그 뒤에 줄을 선다 — 크론이 늘어날 때마다 같은 경합이 재발하므로 풀 크기 조정은 미봉이다.
+     * 전용 풀이면 알림이 아무리 늘어져도 정산 스레드를 잠식할 수 없다. <b>돈 처리는 알림에 밀리면
+     * 안 된다</b>: 정산 지연은 24h 자동 환불(N21) 시한을 갉아먹고, 인원 미달 환불 지연은 참가비가
+     * 묶인 시간을 그대로 늘린다.
+     */
+    public static final String SETTLEMENT_SCHEDULER = "settlementTaskScheduler";
+
+    /**
+     * 공용 크론 풀 — 알림 팬아웃과 그 밖의 잡([리그 주간 배치·orphan 정리])이 쓴다.
+     * Spring 이 {@code TaskScheduler} 빈을 못 찾으면 모든 {@code @Scheduled} 가 스레드 <b>하나</b>를
+     * 공유하므로, 이 빈이 없으면 알림 하나가 늦어질 때 나머지 전부가 멈춘다.
      *
-     * <p>풀 크기 5 — 같은 분에 겹치는 크론이 최대 5개(5분·15분 주기 + 정시 잡)라 서로를 기다리지
-     * 않는다. 중복 실행 방지는 스레드가 아니라 ShedLock 이 담당하므로 병렬로 돌아도 안전하다.
+     * <p><b>풀 크기 6의 근거(실측 기준 — 크론 수를 세었다).</b> 이 풀이 감당할 최대 동시 기동은
+     * 15분 경계이면서 정시인 <b>09:00</b> 이다:
+     * <ul>
+     *   <li>5분 주기 2 — 사건 알림 묶음 flush · 사일런트 flush</li>
+     *   <li>15분 주기 3 — 사건 알림 재훑기 · 회차 모집 · 창 종료 감지</li>
+     *   <li>09:00 정시 2 — 하루형 마감 푸시 · 판돈 동결 감지</li>
+     *   <li>매시 정각 1 — orphan 집중 세션 정리</li>
+     * </ul>
+     * 합계 8이라 6으로도 두 건은 대기하지만, 대기하는 쪽이 전부 <b>알림·정리 계열</b>이고 돈 처리는
+     * 아래 전용 풀에 있어 영향이 없다. 6은 상시 스레드 비용과 대기 허용 사이의 절충이다.
+     * (종전 주석의 "최대 5개" 전제는 크론 수를 잘못 센 것이라 바로잡았다 — 실제로는 8이다.)
      */
     @Bean
     public ThreadPoolTaskScheduler taskScheduler() {
+        return scheduler(6, "sched-");
+    }
+
+    /**
+     * 정산 계열 전용 풀 — {@code GroupBetScheduler} 의 크론 3개(정산 스캔 · 인원 미달 무산 · 회차
+     * 개설)가 <b>모두 5분 주기로 같은 시각에</b> 뜬다. 셋이 서로를 기다리지 않도록 정확히 3이다.
+     * 이 크론들은 FCM 같은 외부 blocking 호출이 없어 실행이 짧고(DB 트랜잭션 단위), 늘어날 이유도
+     * 알림 쪽보다 적다.
+     */
+    @Bean(SETTLEMENT_SCHEDULER)
+    public ThreadPoolTaskScheduler settlementTaskScheduler() {
+        return scheduler(3, "settle-sched-");
+    }
+
+    /**
+     * 공통 조립 — 종료 시 진행 중인 크론이 끝날 시간을 준다. 발송 도중 강제 종료되면 클레임이
+     * PENDING 으로 남고(다음 틱 회수), 정산 도중이면 트랜잭션이 롤백돼 다음 틱이 재시도한다.
+     */
+    private static ThreadPoolTaskScheduler scheduler(int poolSize, String threadNamePrefix) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(5);
-        scheduler.setThreadNamePrefix("sched-");
-        // 종료 시 진행 중인 크론이 끝날 시간을 준다 — 발송 도중 강제 종료되면 클레임이 PENDING 으로
-        // 남고(다음 틱 회수) 최악엔 FCM 에 나간 건이 SENT 로 안 찍혀 재발송된다.
+        scheduler.setPoolSize(poolSize);
+        scheduler.setThreadNamePrefix(threadNamePrefix);
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(30);
         return scheduler;

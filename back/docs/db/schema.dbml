@@ -406,13 +406,14 @@ Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challe
   duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x ≤ 창 길이. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
 }
 
-Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert, 마지막 값 승리)'] {
+Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert. V43 부터 measured_at 단조 갱신: 저장값보다 오래된 보고는 조용히 무시, GROMO-1407·N34)'] {
   id                 uuid        [pk]
   group_challenge_id uuid        [not null, note: 'FK → group_challenges.id']
   user_id            uuid        [not null, note: 'FK → users.id']
   usage_date         date        [not null, note: '보고 대상 날짜(KST). V37 에서 NOT NULL 승격(GROMO-1266) — NULL 잔재 행은 삭제로 정리. migration V20·V37']
 
   progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값. 판정(달성)은 저장하지 않고 조회 시 계산 — 구 is_achieved·achieved_at 은 V37 에서 드롭(GROMO-1265)']
+  measured_at        timestamptz [note: '클라 측정 시각 — 역전 보고 방어의 비교 축(V43, N34). null = 도입 전 레거시 행("시각 모름" — 어떤 보고든 갱신 허용). 미래(+2분 초과)는 API 가 400 거절']
 
   created_at         timestamptz [not null, default: `now()`]
   updated_at         timestamptz
@@ -488,6 +489,7 @@ Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — �
 
   indexes {
     (session_id, user_id) [unique, name: 'uq_group_challenge_bet_participants_session_user', note: '회차당 참가 1행 — 중복 참가 방어']
+    (user_id, session_id) [name: 'idx_group_challenge_bet_participants_user_session', note: '참가자 스코프 조회(/me/bet-sessions·/me/challenge-results)와 탈퇴 연동의 user_id 선두 축 — 유니크는 선두가 session_id 라 못 쓴다. migration V44']
   }
 }
 

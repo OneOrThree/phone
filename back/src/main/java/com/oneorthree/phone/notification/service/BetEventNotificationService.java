@@ -110,8 +110,13 @@ public class BetEventNotificationService {
             GroupChallengeBetParticipant participant) {
     }
 
-    /** 묶음 키 — (유저 × 그룹 × 슬롯 × kind). dedup 키(사건 단위)와는 분리다(N41). */
-    private record BundleKey(UUID userId, UUID groupId, Instant slotAt, String kind) {
+    /**
+     * 묶음 키 — <b>(유저 × 그룹 × 슬롯)</b>. {@code kind} 는 <b>들어가지 않는다</b>(policy N41 ·
+     * HLD §6 "묶음은 (유저 × 그룹 × 슬롯), dedup 은 사건 단위 (유저 × kind × 대상 id)").
+     * kind 를 넣으면 한 슬롯에서 어떤 회차는 정산되고 어떤 회차는 무효화된 경우 묶음이 둘로 갈려
+     * 푸시가 2건 나간다 — 하루 2~3건 상한(N20)이 깨진다. 혼합 슬롯은 한 건으로 요약해 보낸다.
+     */
+    private record BundleKey(UUID userId, UUID groupId, Instant slotAt) {
     }
 
     private record SendCounts(int sent, int skipped) {
@@ -160,10 +165,22 @@ public class BetEventNotificationService {
         return summary(flushed.targets(), flushed.sent(), 0, flushed.skipped(), startedAtMillis);
     }
 
-    /** 15분 재훑기 크론·수동 트리거 진입점. */
+    /** 15분 재훑기 크론 진입점 — 슬롯 누적을 지킨다(발송은 슬롯이 닫힌 것만). */
     @Transactional
     public PushDispatchSummaryResponse rescanAndFlush() {
         return rescanAndFlush(Instant.now(), false);
+    }
+
+    /**
+     * 수동 트리거 진입점 — 슬롯이 닫히기를 기다리지 않고 <b>지금 있는 클레임을 전부</b> 보낸다.
+     * QA 가 한 번의 호출로 발송까지 확인해야 하기 때문이다(크론 경로로 두면 방금 종료된 회차는
+     * {@code sentCount=0} 만 돌려주고 실제 발송이 5분 크론까지 밀려, 트리거가 검증 수단이 못 된다).
+     * 슬롯 누적을 건너뛰므로 같은 슬롯에 뒤이어 생길 사건은 별도 푸시가 된다 — 수동 경로에서만
+     * 감수하는 대가다.
+     */
+    @Transactional
+    public PushDispatchSummaryResponse rescanAndFlushImmediately() {
+        return rescanAndFlush(Instant.now(), true);
     }
 
     /** 테스트·크론용 — 슬롯이 닫힌 것만 보낸다(수동 트리거는 {@code immediate = true}). */
@@ -329,7 +346,7 @@ public class BetEventNotificationService {
         for (Claim claim : owned) {
             BundleKey key = new BundleKey(claim.participant().getUser().getId(),
                     claim.session().getGroup().getId(),
-                    slotOf(claim.session().getSettledAt()), claim.kind());
+                    slotOf(claim.session().getSettledAt()));
             bundles.computeIfAbsent(key, k -> new ArrayList<>()).add(claim);
         }
         List<UUID> userIds = bundles.keySet().stream().map(BundleKey::userId).distinct().toList();
@@ -353,7 +370,7 @@ public class BetEventNotificationService {
                 continue;
             }
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            PushMessage message = composeBundle(entry.getKey().kind(), claims, soundEnabled);
+            PushMessage message = composeBundle(claims, soundEnabled);
             try {
                 if (pushNotificationService.sendIfAllowed(user, settings, message, now)) {
                     notificationSentLogRepository.updateStatusByIds(
@@ -367,24 +384,37 @@ public class BetEventNotificationService {
             } catch (RuntimeException e) {
                 notificationSentLogRepository.deleteByIds(rowIds);
                 skipped += claims.size();
-                log.warn("내기 사건 알림 발송 실패 — userId={}, kind={}, 사건 {}건",
-                        user.getId(), entry.getKey().kind(), claims.size(), e);
+                log.warn("내기 사건 알림 발송 실패 — userId={}, slotAt={}, 사건 {}건",
+                        user.getId(), entry.getKey().slotAt(), claims.size(), e);
             }
         }
         return new SendCounts(sent, skipped);
     }
 
-    /** 묶음 문구·payload 조립 — 단건은 상세, 다건은 요약(특정 challengeId 를 싣지 않는다 — IA §4.2). */
-    PushMessage composeBundle(String kind, List<Claim> claims, boolean soundEnabled) {
+    /**
+     * 묶음 문구·payload 조립 — 단건은 상세, 다건은 요약(특정 {@code challengeId} 를 싣지 않는다 —
+     * IA §4.2 "어느 것을 고를지 서버가 정할 근거가 없다").
+     *
+     * <p><b>혼합 슬롯</b>(같은 슬롯에 결과와 무산 환불이 함께): 한 건으로 요약한다. 종별로 나눠
+     * 보내면 묶음 키에 kind 를 넣은 것과 같아져 상한이 깨진다. {@code data.type} 은
+     * {@code BET_RESULT} 로 둔다 — 앱이 결과 모달을 열어 <b>결과분</b>을 소비해야 하고, 환불분은
+     * 본문이 알린다(삭제 환불은 애초에 결과 큐에서 빠지므로 이중 통지가 아니다 — FR-44-4·N48).
+     * 사유({@code voidReason})는 혼합이면 싣지 않는다 — 알림 전체를 대표하지 못한다.
+     */
+    PushMessage composeBundle(List<Claim> claims, boolean soundEnabled) {
         if (claims.size() == 1) {
-            return composeSingle(kind, claims.get(0), soundEnabled);
+            return composeSingle(claims.get(0).kind(), claims.get(0), soundEnabled);
         }
-        GroupChallengeBetSession first = claims.get(0).session();
-        UUID groupId = first.getGroup().getId();
+        UUID groupId = claims.get(0).session().getGroup().getId();
+        long refunds = claims.stream()
+                .filter(c -> NotificationSentLog.TYPE_BET_VOID_REFUND.equals(c.kind()))
+                .count();
+        long results = claims.size() - refunds;
+
         Map<String, String> data = new LinkedHashMap<>();
-        data.put("type", kind);
         data.put("groupId", groupId.toString());
-        if (NotificationSentLog.TYPE_BET_VOID_REFUND.equals(kind)) {
+        if (results == 0) {
+            data.put("type", NotificationSentLog.TYPE_BET_VOID_REFUND);
             // 사유는 전부 같을 때만 싣는다 — 섞이면 대표를 고를 근거가 없다(묶음 challengeId 와 같은 원리).
             Set<GroupBetVoidReason> reasons = claims.stream()
                     .map(c -> c.session().getVoidReason())
@@ -393,11 +423,17 @@ public class BetEventNotificationService {
                 data.put("voidReason", reasons.iterator().next().name());
             }
             return new PushMessage("참가비를 돌려드렸어요",
-                    "내기 " + claims.size() + "건이 무산돼 참가비를 돌려드렸어요",
+                    "내기 " + refunds + "건이 무산돼 참가비를 돌려드렸어요",
                     null, soundEnabled, data);
         }
-        return new PushMessage("내기 결과가 나왔어요",
-                "내기 결과 " + claims.size() + "건이 나왔어요 — 그룹에서 확인하세요",
+        data.put("type", NotificationSentLog.TYPE_BET_RESULT);
+        if (refunds == 0) {
+            return new PushMessage("내기 결과가 나왔어요",
+                    "내기 결과 " + results + "건이 나왔어요 — 그룹에서 확인하세요",
+                    GROUP_DEEP_LINK_PREFIX + groupId, soundEnabled, data);
+        }
+        return new PushMessage("내기 소식이 도착했어요",
+                "결과 " + results + "건 · 무산 환불 " + refunds + "건 — 그룹에서 확인하세요",
                 GROUP_DEEP_LINK_PREFIX + groupId, soundEnabled, data);
     }
 

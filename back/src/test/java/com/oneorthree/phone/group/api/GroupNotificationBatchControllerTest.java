@@ -15,6 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
@@ -42,13 +44,16 @@ class GroupNotificationBatchControllerTest {
     @DisplayName("올바른 키 → 정산 결과 푸시가 실행되고 요약이 반환된다")
     void correctKeyRunsBetResultPush() {
         PushDispatchSummaryResponse summary = new PushDispatchSummaryResponse(3, 2, 1, 0, 5L);
-        given(betEventNotificationService.rescanAndFlush()).willReturn(summary);
+        // 수동 트리거는 즉시 발송 경로를 불러야 한다 — 크론 경로면 sentCount=0 만 돌려준다.
+        given(betEventNotificationService.rescanAndFlushImmediately()).willReturn(summary);
 
         ResponseEntity<PushDispatchSummaryResponse> response =
                 controllerWithKey(CONFIGURED_KEY).notifyBetResults(CONFIGURED_KEY);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(summary);
+        verify(betEventNotificationService).rescanAndFlushImmediately();
+        verify(betEventNotificationService, never()).rescanAndFlush();
     }
 
     @Test

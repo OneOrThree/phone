@@ -217,6 +217,88 @@ class BetEventNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("N41 — 한 슬롯에 결과와 무산 환불이 섞여도 묶음은 한 건이다 (묶음 키에 kind 없음)")
+    void mixedKindsInOneSlotProduceOnePush() {
+        UUID userId = UUID.randomUUID();
+        User target = user(userId);
+        // 같은 12:00 슬롯에서 한 회차는 정산되고 다른 회차는 삭제로 무효화됐다.
+        GroupChallengeBetSession settled =
+                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:01:00Z"));
+        GroupChallengeBetSession voided = session(GroupBetStatus.VOIDED,
+                GroupBetVoidReason.CHALLENGE_DELETED, Instant.parse("2026-08-02T03:04:00Z"));
+        GroupChallengeBetParticipant settledParticipant = participant(settled, target, true, 100);
+        GroupChallengeBetParticipant voidedParticipant = participant(voided, target, null, null);
+
+        givenEventSession(settled, List.of(settledParticipant));
+        service.notifySessionClosed(settled.getId(), Instant.parse("2026-08-02T03:01:30Z"));
+        givenEventSession(voided, List.of(voidedParticipant));
+        service.notifySessionClosed(voided.getId(), Instant.parse("2026-08-02T03:04:30Z"));
+
+        givenFlushLookup(List.of(settled, voided), List.of(settledParticipant, voidedParticipant));
+        var summary = service.flushDueBundles(NOON);
+
+        assertThat(summary.sentCount()).isEqualTo(2);
+        PushMessage message = singleSentMessage();   // kind 가 달라도 푸시는 1회다
+        assertThat(message.body()).isEqualTo("결과 1건 · 무산 환불 1건 — 그룹에서 확인하세요");
+        assertThat(message.data())
+                // 결과 모달이 열려야 결과분이 소비된다 — 환불분은 본문이 알린다.
+                .containsEntry("type", NotificationSentLog.TYPE_BET_RESULT)
+                .containsEntry("groupId", GROUP_ID.toString())
+                // 혼합 슬롯에서 사유는 알림 전체를 대표하지 못한다.
+                .doesNotContainKey("voidReason")
+                .doesNotContainKey("challengeId");
+    }
+
+    @Test
+    @DisplayName("한 슬롯이 전부 무산 환불이고 사유가 하나면 voidReason 을 싣는다")
+    void allRefundBundleKeepsSingleReason() {
+        User target = user(UUID.randomUUID());
+        GroupChallengeBetSession first = session(GroupBetStatus.VOIDED,
+                GroupBetVoidReason.CHALLENGE_DELETED, Instant.parse("2026-08-02T03:01:00Z"));
+        GroupChallengeBetSession second = session(GroupBetStatus.VOIDED,
+                GroupBetVoidReason.CHALLENGE_DELETED, Instant.parse("2026-08-02T03:02:00Z"));
+        GroupChallengeBetParticipant firstParticipant = participant(first, target, null, null);
+        GroupChallengeBetParticipant secondParticipant = participant(second, target, null, null);
+
+        givenEventSession(first, List.of(firstParticipant));
+        service.notifySessionClosed(first.getId(), Instant.parse("2026-08-02T03:01:30Z"));
+        givenEventSession(second, List.of(secondParticipant));
+        service.notifySessionClosed(second.getId(), Instant.parse("2026-08-02T03:02:30Z"));
+
+        givenFlushLookup(List.of(first, second), List.of(firstParticipant, secondParticipant));
+        service.flushDueBundles(NOON);
+
+        PushMessage message = singleSentMessage();
+        assertThat(message.body()).isEqualTo("내기 2건이 무산돼 참가비를 돌려드렸어요");
+        assertThat(message.data())
+                .containsEntry("type", NotificationSentLog.TYPE_BET_VOID_REFUND)
+                .containsEntry("voidReason", GroupBetVoidReason.CHALLENGE_DELETED.name());
+    }
+
+    @Test
+    @DisplayName("수동 트리거 경로 — 슬롯이 닫히지 않아도 즉시 발송한다 (QA 검증 동선)")
+    void immediatePathSendsWithoutWaitingForSlotClose() {
+        User target = user(UUID.randomUUID());
+        // 방금(12:16) 종료된 회차 — 슬롯 12:15 는 12:30 에야 닫힌다.
+        GroupChallengeBetSession justSettled =
+                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:16:00Z"));
+        GroupChallengeBetParticipant betParticipant = participant(justSettled, target, true, 100);
+        given(groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
+                .willReturn(List.of(justSettled));
+        givenFlushLookup(List.of(justSettled), List.of(betParticipant));
+
+        // 크론 경로(immediate=false)는 아직 안 보낸다.
+        assertThat(service.rescanAndFlush(NOON).sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+
+        // 수동 경로는 같은 상태에서 발송까지 간다.
+        var manual = service.rescanAndFlush(NOON, true);
+
+        assertThat(manual.sentCount()).isEqualTo(1);
+        verify(pushNotificationService).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("슬롯이 닫히기 전에는 발송하지 않는다 — 누적 창을 지킨다")
     void doesNotSendBeforeSlotCloses() {
         User target = user(UUID.randomUUID());
