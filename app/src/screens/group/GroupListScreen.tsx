@@ -1240,7 +1240,7 @@ const s = StyleSheet.create({
   },
   orderMenuTitle: { ...T.text.label, color: T.ink },
   orderMenuActions: { flexDirection: 'row', justifyContent: 'space-around' },
-  orderMenuAction: { minHeight: 44, justifyContent: 'center' },
+  orderMenuAction: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

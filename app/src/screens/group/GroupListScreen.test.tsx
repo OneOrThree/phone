@@ -1129,9 +1129,18 @@ describe('제스처 중재와 재정렬', () => {
     });
     expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
-    expect(screen.getByTestId('group.card.orderMenu.previous')).toHaveStyle({ minHeight: 44 });
-    expect(screen.getByTestId('group.card.orderMenu.next')).toHaveStyle({ minHeight: 44 });
-    expect(screen.getByTestId('group.card.orderMenu.done')).toHaveStyle({ minHeight: 44 });
+    expect(screen.getByTestId('group.card.orderMenu.previous')).toHaveStyle({
+      minWidth: 44,
+      minHeight: 44,
+    });
+    expect(screen.getByTestId('group.card.orderMenu.next')).toHaveStyle({
+      minWidth: 44,
+      minHeight: 44,
+    });
+    expect(screen.getByTestId('group.card.orderMenu.done')).toHaveStyle({
+      minWidth: 44,
+      minHeight: 44,
+    });
 
     // 메뉴가 열린 동안 화면 밖 카드 flip과 indicator 이동은 수락하지 않는다.
     await press(`group.card.${GROUP_ID_2}`);
