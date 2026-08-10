@@ -205,6 +205,7 @@ export default function GroupListScreen({
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(null);
   const programmaticMomentumCountRef = useRef(0);
+  const actionAcceptedRef = useRef(false);
   const activeInitializedRef = useRef(false);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
@@ -270,6 +271,10 @@ export default function GroupListScreen({
 
   useEffect(() => () => focusController?.dispose(), [focusController]);
 
+  useEffect(() => {
+    if (screenFocused) actionAcceptedRef.current = false;
+  }, [screenFocused]);
+
   // 성공 목록과 로컬 순서가 확정된 뒤 focus episode마다 완료 key를 읽어 실제 guide 상태를 기록한다.
   useEffect(() => {
     if (!hydrated || !screenFocused || !dataReady || deckViewedEpisodeRef.current === viewEpisodeId)
@@ -311,15 +316,14 @@ export default function GroupListScreen({
   const selectPage = useCallback(
     (page: number) => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
-      if (next !== activeIndex) {
-        logGroupCarouselPaged({
-          trigger: 'indicator_press',
-          from_index: activeIndex,
-          to_index: next,
-          group_count_bucket: countBucket,
-        });
-      }
-      if (next !== activeIndex) programmaticMomentumCountRef.current += 1;
+      if (next === activeIndex) return;
+      logGroupCarouselPaged({
+        trigger: 'indicator_press',
+        from_index: activeIndex,
+        to_index: next,
+        group_count_bucket: countBucket,
+      });
+      programmaticMomentumCountRef.current += 1;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
@@ -521,7 +525,8 @@ export default function GroupListScreen({
 
   const acceptAction = useCallback(
     (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
-      if (reorderMenuGroupId !== null) return null;
+      if (reorderMenuGroupId !== null || actionAcceptedRef.current) return null;
+      actionAcceptedRef.current = true;
       const interaction = createCardInteractionContext();
       logGroupCardActionClicked({
         action,
@@ -532,6 +537,24 @@ export default function GroupListScreen({
       return interaction;
     },
     [reorderMenuGroupId],
+  );
+
+  const invokeAcceptedAction = useCallback(
+    (
+      group: GroupSummaryResponse,
+      action: 'focus' | 'room' | 'settings',
+      invoke: (interaction: CardInteractionContext) => void,
+    ) => {
+      const interaction = acceptAction(group, action);
+      if (!interaction) return;
+      try {
+        invoke(interaction);
+      } catch (error) {
+        actionAcceptedRef.current = false;
+        throw error;
+      }
+    },
+    [acceptAction],
   );
 
   if (!hydrated) {
@@ -579,6 +602,7 @@ export default function GroupListScreen({
           // 취소되거나 네이티브가 momentum-end를 생략한 programmatic 이동이 다음 사용자 swipe를
           // 삼키지 않도록 실제 손가락 스크롤 시작에서 억제 토큰을 폐기한다.
           programmaticMomentumCountRef.current = 0;
+          setFlippedGroupId(null);
         }}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
@@ -606,16 +630,19 @@ export default function GroupListScreen({
                   snapshot={summaryAdapter.getSnapshot(item.groupId)!}
                   onFlipBack={flipToFront}
                   onOpenSettings={() => {
-                    if (!acceptAction(item, 'settings')) return;
-                    onOpenSettings?.(item.groupId);
+                    if (!onOpenSettings) return;
+                    invokeAcceptedAction(item, 'settings', () => onOpenSettings(item.groupId));
                   }}
                   onStartFocus={() => {
-                    const interaction = acceptAction(item, 'focus');
-                    if (interaction) onStartFocus?.(item.groupId, interaction);
+                    if (!onStartFocus) return;
+                    invokeAcceptedAction(item, 'focus', (interaction) =>
+                      onStartFocus(item.groupId, interaction),
+                    );
                   }}
                   onOpenRoom={() => {
-                    const interaction = acceptAction(item, 'room');
-                    if (interaction) onSelect(item.groupId, interaction);
+                    invokeAcceptedAction(item, 'room', (interaction) =>
+                      onSelect(item.groupId, interaction),
+                    );
                   }}
                   onRetry={(section) => summaryAdapter.retry(item.groupId, section)}
                 />

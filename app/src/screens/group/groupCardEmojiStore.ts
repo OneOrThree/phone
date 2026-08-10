@@ -171,6 +171,18 @@ export function preservePendingGroupCardEmoji(
   pendingEmojis.set(pendingKey(userId, groupId), { userId, groupId, emoji });
 }
 
+export function clearPendingGroupCardEmoji(
+  userId: string,
+  groupId: string,
+  emoji?: GroupCardEmoji,
+): boolean {
+  const key = pendingKey(userId, groupId);
+  const pending = pendingEmojis.get(key);
+  if (!pending || (emoji !== undefined && pending.emoji !== emoji)) return false;
+  pendingEmojis.delete(key);
+  return true;
+}
+
 /** 그룹 화면 활성화 뒤 성공한 전체 목록에 포함된 최신 pending 값만 재시도한다. */
 export async function retryPendingGroupCardEmojis(
   userId: string,

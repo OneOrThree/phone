@@ -87,8 +87,9 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
 // 탭은 act로 감싼다 — 감싸지 않으면 fireEvent가 여는 act 스코프가 렌더 스코프와 겹쳐
 // ("overlapping act() calls") 다음 테스트의 렌더가 통째로 비는 일이 생긴다.
 async function press(testID: string) {
+  const target = await screen.findByTestId(testID);
   await act(async () => {
-    fireEvent.press(screen.getByTestId(testID));
+    fireEvent.press(target);
   });
 }
 
@@ -203,6 +204,11 @@ describe('콜백', () => {
       GROUP_ID,
       expect.objectContaining({ interactionId: expect.any(String) }),
     );
+  });
+
+  test('뒷면 설정 행동은 역할별 설정 콜백에 연결한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
     await press(`group.card.settings.${GROUP_ID}`);
     expect(onOpenSettings).toHaveBeenCalledWith(GROUP_ID);
   });
@@ -227,20 +233,54 @@ describe('콜백', () => {
     expect(screen.queryByText('집중 현황을 확인하는 중…')).toBeNull();
   });
 
-  test('각 CTA 수락은 고유 interaction ID와 정본 trigger를 기록한다', async () => {
+  test('CTA 수락은 callback과 계측에 같은 interaction ID를 전달한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
-    await press(`group.card.focus.${GROUP_ID}`);
     await press(`group.card.room.${GROUP_ID}`);
 
     expect(logGroupCardFlipped).toHaveBeenCalledWith(
       expect.objectContaining({ trigger: 'card_tap', to_face: 'back' }),
     );
-    const interactions = jest
-      .mocked(logGroupCardActionClicked)
-      .mock.calls.map(([event]) => event.interaction_id);
-    expect(interactions).toHaveLength(2);
-    expect(new Set(interactions).size).toBe(2);
+    const interaction = onSelect.mock.calls[0][1];
+    expect(logGroupCardActionClicked).toHaveBeenCalledWith(
+      expect.objectContaining({ interaction_id: interaction.interactionId }),
+    );
+  });
+
+  test('화면 전환 전 CTA 연타는 첫 interaction 한 건만 수락한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    await press(`group.card.focus.${GROUP_ID}`);
+    await press(`group.card.focus.${GROUP_ID}`);
+
+    expect(onStartFocus).toHaveBeenCalledTimes(1);
+    expect(logGroupCardActionClicked).toHaveBeenCalledTimes(1);
+  });
+
+  test('현재 페이지 dot 재선택은 열린 뒷면을 그대로 유지한다', async () => {
+    await renderList([group()]);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 320, height: 44, x: 0, y: 0 } },
+      });
+    });
+    await press(`group.card.${GROUP_ID}`);
+    await press('group.deck.indicator.dot.0');
+
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+  });
+
+  test('사용자 스와이프 시작은 같은 페이지로 돌아와도 뒷면을 먼저 닫는다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    await act(async () => {
+      screen.getByTestId('group.list.items').props.onScrollBeginDrag();
+    });
+
+    expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
   });
 
   test('덱 끝 찾기 카드는 전용 진입점을 기록한다', async () => {
