@@ -6,13 +6,15 @@ import { T } from '@/constants/theme';
 import { ProgressBar } from './ProgressBar';
 
 let mockReduce = false;
+let mockReady = true;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
-  useReduceMotionReady: () => true,
+  useReduceMotionReady: () => mockReady,
 }));
 
 beforeEach(() => {
   mockReduce = false;
+  mockReady = true;
 });
 
 const fillStyle = (testID: string) =>
@@ -89,12 +91,23 @@ describe('ProgressBar', () => {
   // ⚠️ 회귀 방어(codex 리뷰) — CSS transition은 **이전 렌더와 값이 달라야** 실행된다.
   //    첫 렌더부터 최종 폭으로 그리면 채우기 연출이 통째로 재생되지 않는데, "화면에 들어올 때
   //    이미 계산된 진행률을 넘긴다"가 오히려 기본 사용 경로다. 첫 프레임 0%가 그 방지 장치다.
+  // ⚠️ 이 테스트는 **가짜 타이머가 필수**다. rAF 목이 setTimeout(0)이라, 실시간 타이머에서는
+  //    부하가 걸린 CI에서 render를 await 하는 사이에 진입 프레임이 이미 지나가 첫 단언이
+  //    '60%'를 본다(실제로 CI에서 났다). 시간을 우리가 밀어야 '첫 프레임'을 관찰할 수 있다.
   test('첫 프레임은 0%에서 시작해 목표 폭으로 전환된다 — 진입 시 채우기가 재생되게', async () => {
-    await render(<ProgressBar progress={0.6} color={T.accent} testID="bar" />);
-    expect(fillStyle('bar').width).toBe('0%');
-    await waitFor(() => expect(fillStyle('bar').width).toBe('60%'));
-    // 접근성 값은 첫 프레임부터 **최종값**이어야 한다 — VoiceOver가 0%를 읽으면 안 된다.
-    expect(screen.getByTestId('bar').props.accessibilityValue).toMatchObject({ now: 60 });
+    jest.useFakeTimers();
+    try {
+      await render(<ProgressBar progress={0.6} color={T.accent} testID="bar" />);
+      expect(fillStyle('bar').width).toBe('0%');
+      // 접근성 값은 첫 프레임부터 **최종값**이어야 한다 — VoiceOver가 0%를 읽으면 안 된다.
+      expect(screen.getByTestId('bar').props.accessibilityValue).toMatchObject({ now: 60 });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      expect(fillStyle('bar').width).toBe('60%');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('reduce=true면 전환 스타일도 2단계 진입도 없이 곧바로 최종 폭이다', async () => {
@@ -103,5 +116,63 @@ describe('ProgressBar', () => {
     await flushEnter();
     expect(fillInlineStyle('bar').transitionProperty).toBeUndefined();
     expect(fillStyle('bar').width).toBe('50%');
+  });
+});
+
+// ⚠️ '동작 줄이기' 조회가 끝나기 전 `useReduceMotion()`은 보수적으로 true를 돌려준다. 그 값으로
+//    진입을 확정해 버리면 첫 렌더부터 목표 폭이 그려지고, 이후 false로 확정돼 전환 스타일이
+//    붙어도 **폭이 이미 목표라 변화가 없어** 채우기가 통째로 사라진다(codex 리뷰).
+describe('ProgressBar — 동작 줄이기 미확정 구간', () => {
+  test('확정 전에는 목표 폭을 그리지 않는다 — 시작 상태(0%)로 대기한다', async () => {
+    mockReady = false;
+    mockReduce = true; // 미확정 구간의 보수적 값
+    await render(<ProgressBar progress={0.5} color={T.accent} testID="pending" />);
+    await flushEnter();
+    expect(fillStyle('pending').width).toBe('0%');
+  });
+
+  test('확정된 뒤에 채우기가 시작된다', async () => {
+    mockReady = false;
+    mockReduce = true;
+    const view = await render(<ProgressBar progress={0.5} color={T.accent} testID="settled" />);
+    await flushEnter();
+    expect(fillStyle('settled').width).toBe('0%');
+
+    // 조회가 '동작 줄이기 꺼짐'으로 확정됐다
+    mockReady = true;
+    mockReduce = false;
+    await view.rerender(<ProgressBar progress={0.5} color={T.accent} testID="settled" />);
+    await flushEnter();
+    await waitFor(() => expect(fillStyle('settled').width).toBe('50%'));
+  });
+});
+
+// ⚠️ delay는 "카드 진입이 끝난 뒤 차오르기 시작"이라는 **1회성 순서 맞춤**이다. 이걸 그대로 두면
+//    이후 모든 width 갱신에도 걸려서, 새로고침으로 값이 바뀔 때 숫자는 즉시 바뀌는데 진행바만
+//    delay 뒤 600ms에 걸쳐 따라간다 — 두 표시가 1초 넘게 어긋난다(codex 리뷰).
+describe('ProgressBar — delay는 최초 채우기에만', () => {
+  test('최초 전환에는 delay가 실리고, 이후 갱신에는 실리지 않는다', async () => {
+    jest.useFakeTimers();
+    try {
+      const view = await render(
+        <ProgressBar progress={0.3} color={T.accent} delay={470} testID="d" />,
+      );
+      // 진입 프레임(rAF) 통과 — 아직 delay 타이머는 살아 있다
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      expect(fillInlineStyle('d').transitionDelay).toBe('470ms');
+
+      // delay가 소진된 뒤 값이 갱신되면 지연 없이 따라간다
+      await act(async () => {
+        jest.advanceTimersByTime(470);
+      });
+      await view.rerender(<ProgressBar progress={0.8} color={T.accent} delay={470} testID="d" />);
+      // transition()은 delay 0이면 키 자체를 넣지 않는다 — 없는 게 곧 '지연 없음'이다
+      expect(fillInlineStyle('d').transitionDelay).toBeUndefined();
+      expect(fillStyle('d').width).toBe('80%');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

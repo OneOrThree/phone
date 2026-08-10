@@ -50,6 +50,13 @@ export function AnimatedNumber({
   const displayRef = useRef(value);
 
   useEffect(() => {
+    // ⚠️ '동작 줄이기' 조회가 끝나기 전에는 **목표값을 소비하지 않는다.** 미확정 구간의
+    //    `m.reduce`는 보수적으로 true라, 그 값으로 아래 분기를 타면 displayRef가 새 목표로
+    //    확정된다. 이후 false로 확정돼 effect가 다시 돌아도 `from === value`에서 끝나므로
+    //    설정을 켜지 않은 사용자가 카운트업을 영구히 잃는다(codex 리뷰).
+    //    출발값을 보존한 채 기다리면 확정 시점에 정상적으로 이어진다. 조회는 실패해도 false로
+    //    확정되므로(useReduceMotion.ts) 표시가 옛 값에 영영 묶이지 않는다.
+    if (!m.ready) return;
     if (m.reduce) {
       displayRef.current = value;
       setDisplay(value);
@@ -78,7 +85,7 @@ export function AnimatedNumber({
     });
     // 언마운트·목표 변경 시 반드시 취소한다. 남겨 두면 사라진 컴포넌트에 setState가 날아간다.
     return () => cancelAnimationFrame(frame);
-  }, [value, duration, m.reduce]);
+  }, [value, duration, m.reduce, m.ready]);
 
   return (
     <Text testID={testID} style={style} accessibilityLabel={format(value)}>
