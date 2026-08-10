@@ -89,7 +89,7 @@ export function GroupCardFront({
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, minHeight: 300, borderRadius: 22, overflow: 'hidden' },
+  root: { flex: 1, height: '100%', borderRadius: 22, overflow: 'hidden' },
   body: { flex: 1 },
   grip: { position: 'absolute', top: T.space.md, right: T.space.lg, zIndex: 2 },
   art: {

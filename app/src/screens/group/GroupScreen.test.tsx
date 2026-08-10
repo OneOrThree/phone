@@ -85,7 +85,7 @@ jest.mock('@/navigation/navigationRef', () => ({
 // A-9 이후 목록이 항상 기본 화면이라 onBack은 더 이상 내려가지 않는다(내장 그룹방·임시 목록 제거).
 jest.mock('./GroupListScreen', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
-  return function MockList({
+  function MockList({
     groups,
     onSelect,
     onCreate,
@@ -117,6 +117,13 @@ jest.mock('./GroupListScreen', () => {
         </RNTouchable>
       </RNView>
     );
+  }
+  return {
+    __esModule: true,
+    default: MockList,
+    GROUP_CARD_HEIGHT: 300,
+    GROUP_CARD_SIDE_PEEK: 24,
+    GROUP_CARD_GAP: 12,
   };
 });
 
@@ -252,6 +259,21 @@ afterEach(() => {
 });
 
 describe('group_viewed view episode', () => {
+  test('최초 로딩은 실제 가로 덱과 같은 한 장 + 다음 카드 peek 실루엣을 쓴다', async () => {
+    mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
+
+    await renderScreen();
+
+    const hidden = { includeHiddenElements: true };
+    expect(screen.getByTestId('group.list.skeleton', hidden)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.skeleton.card', hidden)).toHaveStyle({ height: 300 });
+    expect(screen.getByTestId('group.list.skeleton.peek', hidden)).toHaveStyle({
+      width: 24,
+      height: 300,
+    });
+    expect(screen.queryAllByTestId('group.list.skeleton.card', hidden)).toHaveLength(1);
+  });
+
   test('push 목록을 기다리던 focus가 끝나면 gate를 실패 정산해 다음 진입에서 되살리지 않는다', async () => {
     queueDirectGroupEntry('push');
     const pending = waitForPendingPushGroupList();

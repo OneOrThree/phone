@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  AppState,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
-import { Skeleton, SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -26,7 +33,11 @@ import {
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import { todayStrKst } from '@/utils/localDate';
-import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import GroupListScreen, {
+  GROUP_CARD_GAP,
+  GROUP_CARD_HEIGHT,
+  GROUP_CARD_SIDE_PEEK,
+} from './GroupListScreen';
 import { GroupCardSummaryAdapter, type GroupDependency } from './groupCardSummary';
 import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
 import type { CardInteractionContext } from '@/services/cardInteraction';
@@ -57,14 +68,14 @@ function groupCountBucket(count: number): GroupCountBucket {
   return '11_plus';
 }
 
-// 최초 로딩 자리표시자로 그릴 카드 수 — 첫 화면에 들어오는 만큼만(화면당 동시 스켈레톤 상한 12).
-const SKELETON_CARDS = 3;
 // 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
 // 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const skeletonCardWidth = Math.max(240, windowWidth - GROUP_CARD_SIDE_PEEK * 2);
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { isGuest, userId } = useUser();
 
@@ -474,7 +485,7 @@ export default function GroupScreen() {
   if (groups === null && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 카드 3장으로, 도착할 화면과
+        {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 가로 덱 한 장/다음 카드 peek로, 도착할 화면과
             같은 자리·같은 높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
             펄스(무한 루프)도 함께 언마운트된다.
             묶음 전체를 SkeletonGroup 하나로 감싸 펄스를 이 한 겹에만 건다 — 블록마다 루프를
@@ -484,9 +495,18 @@ export default function GroupScreen() {
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
           <View style={s.skeletonList}>
-            {Array.from({ length: SKELETON_CARDS }, (_, i) => (
-              <SkeletonCard key={i} height={GROUP_CARD_HEIGHT} />
-            ))}
+            <Skeleton
+              w={skeletonCardWidth}
+              h={GROUP_CARD_HEIGHT}
+              radius={22}
+              testID="group.list.skeleton.card"
+            />
+            <Skeleton
+              w={GROUP_CARD_SIDE_PEEK}
+              h={GROUP_CARD_HEIGHT}
+              radius={22}
+              testID="group.list.skeleton.peek"
+            />
           </View>
         </SkeletonGroup>
         {inviteSheet}
@@ -584,7 +604,12 @@ const s = StyleSheet.create({
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
   },
-  skeletonList: { paddingHorizontal: T.space.xl, gap: T.space.md },
+  skeletonList: {
+    flexDirection: 'row',
+    paddingLeft: GROUP_CARD_SIDE_PEEK,
+    gap: GROUP_CARD_GAP,
+    overflow: 'hidden',
+  },
   body: {
     flex: 1,
     alignItems: 'center',

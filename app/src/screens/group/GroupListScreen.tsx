@@ -82,8 +82,8 @@ import {
 
 // 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
 const TAB_BAR_SPACE = 74;
-const SIDE_PEEK = 24;
-const CARD_GAP = 12;
+export const GROUP_CARD_SIDE_PEEK = 24;
+export const GROUP_CARD_GAP = 12;
 
 const GUIDE_CHARACTER = {
   hi: require('@/assets/character_hi.png'),
@@ -216,8 +216,8 @@ export default function GroupListScreen({
   const [appActive, setAppActive] = useState(
     AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
   );
-  const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
-  const snapInterval = cardWidth + CARD_GAP;
+  const cardWidth = Math.max(240, windowWidth - GROUP_CARD_SIDE_PEEK * 2);
+  const snapInterval = cardWidth + GROUP_CARD_GAP;
   const pageCount = groups.length + 1;
   const groupFingerprint = groups.map((group) => group.groupId).join('|');
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
@@ -657,8 +657,8 @@ export default function GroupListScreen({
             horizontal
             scrollEnabled={guideInputReady && !guideVisible}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-            ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+            contentContainerStyle={[s.listContent, { paddingHorizontal: GROUP_CARD_SIDE_PEEK }]}
+            ItemSeparatorComponent={() => <View style={{ width: GROUP_CARD_GAP }} />}
             snapToInterval={snapInterval}
             snapToAlignment="start"
             decelerationRate="fast"
@@ -667,7 +667,7 @@ export default function GroupListScreen({
             onScrollEndDrag={onScrollEndDrag}
             ListFooterComponent={
               <View
-                style={{ marginLeft: CARD_GAP }}
+                style={{ marginLeft: GROUP_CARD_GAP }}
                 pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
                 accessibilityElementsHidden={activeIndex !== groups.length}
                 importantForAccessibility={
@@ -698,12 +698,13 @@ export default function GroupListScreen({
                 importantForAccessibility={
                   item.groupId === activeGroupId ? 'auto' : 'no-hide-descendants'
                 }
-                style={{ width: cardWidth }}
+                style={{ width: cardWidth, height: GROUP_CARD_HEIGHT }}
                 testID={`group.list.card.${item.groupId}`}
               >
                 {flippedGroupId === item.groupId ? (
                   <GroupCardBackSummary
                     group={item}
+                    userId={userId}
                     titleRef={item.groupId === activeGroupId ? backTitleRef : undefined}
                     onLayout={() => {
                       const resolve = backLayoutWaitersRef.current.get(item.groupId);
