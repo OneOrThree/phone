@@ -21,7 +21,10 @@ export async function resolveGroupRoomNotFound({
   userId: string;
 }): Promise<GroupRoomNotFoundResolution> {
   try {
-    const profile = await getMyProfile();
+    // 이 재확인은 이미 NOT_FOUND를 반환한 요청의 scope를 판별하는 보조 읽기다. 그 사이 인증
+    // 세대가 교체되면 401 refresh 실패가 현재 세션의 전역 로그아웃을 부르면 안 되므로 재발급과
+    // logout 부작용을 끈 채 실패를 안전 retry로만 돌린다.
+    const profile = await getMyProfile({ noAuthRetry: true });
     // /users/me가 다른 id를 돌려주는 것은 정상 계약이 아니다. 현재 세션을 성공으로 간주하지 않는다.
     if (profile.id !== userId) return { kind: 'retry' };
   } catch (error) {

@@ -437,6 +437,13 @@ export default function GroupRoomScreen({
       } else if (code === 'NOT_FOUND') {
         // NOT_FOUND는 활성 사용자 부재와 그룹 부재가 같은 code다. 인증을 재확인하고, 유효한
         // 세션이면 최신 detail/전체 목록 scope가 결론을 낼 때만 방 유지 또는 이탈로 수렴한다.
+        if (
+          seq !== requestSeqRef.current ||
+          activeUserIdRef.current !== userId ||
+          getAuthSessionGeneration() !== requestSessionGeneration
+        ) {
+          return false;
+        }
         const resolution = await resolveGroupRoomNotFound({ groupId, date, userId: userId ?? '' });
         if (
           seq !== requestSeqRef.current ||

@@ -229,6 +229,9 @@ function App() {
       const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
       if (accessToken) await deleteDeviceToken(accessToken);
     } catch {}
+    // 디바이스 토큰 해제 대기 중 새 인증이 시작됐다면 새 refresh token을 읽어 서버에서
+    // 무효화하면 안 된다. 두 번째 서버 요청 전에 이전 로그아웃의 소유권을 재검증한다.
+    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
     try {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
       if (refreshToken) await logout(refreshToken);

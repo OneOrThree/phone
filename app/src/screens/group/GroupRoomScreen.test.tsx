@@ -397,6 +397,20 @@ describe('상세·공지 오류 분리', () => {
     expect(onLeft).not.toHaveBeenCalled();
   });
 
+  test('detail NOT_FOUND 도착 전에 인증 세대가 바뀌면 전역 재확인을 시작하지 않는다', async () => {
+    let rejectDetail!: (reason: unknown) => void;
+    mockGetGroupDetail.mockImplementationOnce(
+      () => new Promise((_, reject) => (rejectDetail = reject)),
+    );
+    await renderRoom();
+
+    mockAuthSessionGeneration += 1;
+    await act(async () => rejectDetail(axiosErrorWith(404, 'NOT_FOUND')));
+
+    expect(mockResolveGroupRoomNotFound).not.toHaveBeenCalled();
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
+  });
+
   test('기존 detail 갱신의 NOT_FOUND도 불명확하면 데이터를 보존하고 배너로 재시도한다', async () => {
     mockGetGroupDetail
       .mockResolvedValueOnce(detail())
