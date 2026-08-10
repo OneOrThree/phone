@@ -58,8 +58,9 @@ export default function GroupScreen() {
   const [transitioning, setTransitioning] = useState(false);
 
   useEffect(() => {
+    // 계정 전환 시 이전 계정의 로컬 표현 설정을 새 계정에 잠시라도 노출하지 않는다.
+    setCardEmojiByGroupId({});
     if (!userId) {
-      setCardEmojiByGroupId({});
       return;
     }
     return subscribeGroupCardEmoji(userId, (groupId, emoji) => {
@@ -119,11 +120,12 @@ export default function GroupScreen() {
     try {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
-      let emojiBucket: GroupCardEmojiBucket = {};
+      let emojiBucket: GroupCardEmojiBucket | null = {};
+      let pendingBucket: GroupCardEmojiBucket = {};
       if (userId) {
         // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
         // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
-        const pendingBucket = await retryPendingGroupCardEmojis(
+        pendingBucket = await retryPendingGroupCardEmojis(
           userId,
           rows.map((row) => row.groupId),
           () => seq === requestSeqRef.current,
@@ -133,12 +135,17 @@ export default function GroupScreen() {
           userId,
           rows.map((row) => row.groupId),
           () => seq === requestSeqRef.current,
-        ).catch(() => ({}));
+        ).catch(() => null);
         // 디스크 재시도가 계속 실패해도 이번 실행에서 고른 최신 아이콘은 카드에 유지한다.
-        emojiBucket = { ...storedBucket, ...pendingBucket };
+        emojiBucket = storedBucket === null ? null : { ...storedBucket, ...pendingBucket };
       }
       if (seq !== requestSeqRef.current) return;
-      setCardEmojiByGroupId(emojiBucket);
+      if (emojiBucket === null) {
+        // 로컬 읽기 실패는 '설정 없음'이 아니다. 기존 카드 상태 위에 이번 실행 pending만 합성한다.
+        setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
+      } else {
+        setCardEmojiByGroupId(emojiBucket);
+      }
       setGroups(rows);
       // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
