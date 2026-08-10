@@ -91,12 +91,39 @@ test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴
   );
 
   expect(screen.getByText('그룹 0')).toBeOnTheScreen();
+  expect(screen.getByLabelText('그룹 0, 현재 1/3 페이지')).toBeOnTheScreen();
   expect(screen.queryByText('그룹 1')).toBeNull();
   expect(screen.queryByTestId('group.deck.findMore')).toBeNull();
   expect(screen.getByText('그룹 1', { includeHiddenElements: true })).toBeOnTheScreen();
   expect(
     screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
   ).toBeOnTheScreen();
+  expect(
+    screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
+  ).toBeOnTheScreen();
+});
+
+test('포커스된 인디케이터가 counter에서 dots로 바뀐 때 현재 페이지로 포커스를 잇는다', async () => {
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  await act(async () => {
+    screen.getByTestId('group.cardDeck.indicator.counter').props.onFocus();
+  });
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.cardDeck.indicator'), 'layout', {
+      nativeEvent: { layout: { width: 400 } },
+    });
+  });
+
+  expect(screen.getByTestId('group.cardDeck.indicator.dot.0').props.onFocus).toEqual(
+    expect.any(Function),
+  );
 });
 
 test('dots 폭은 좌우 20pt gutter를 제외한 가용 폭으로 판정한다', async () => {

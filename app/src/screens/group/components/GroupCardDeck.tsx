@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import {
+  AccessibilityInfo,
   FlatList,
+  findNodeHandle,
   Pressable,
   StyleSheet,
   Text,
@@ -55,11 +57,25 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
   const previousActiveInputRef = useRef<string | null | undefined>(undefined);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [indicatorWidth, setIndicatorWidth] = useState(0);
+  const indicatorFocusedRef = useRef(false);
   const pageCount = groups.length + 1;
   const showDots =
     indicatorWidth > 0 &&
     pageCount * DOT_HIT_WIDTH + (pageCount - 1) * DOT_GAP <=
       Math.max(0, indicatorWidth - INDICATOR_GUTTER * 2);
+  const previousShowDotsRef = useRef(showDots);
+  const dotRefs = useRef<Array<View | null>>([]);
+  const counterRef = useRef<View | null>(null);
+
+  useEffect(() => {
+    if (previousShowDotsRef.current === showDots) return;
+    previousShowDotsRef.current = showDots;
+    if (!indicatorFocusedRef.current) return;
+    const target = showDots ? dotRefs.current[activeIndex] : counterRef.current;
+    target?.focus();
+    const node = findNodeHandle(target);
+    if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+  }, [activeIndex, showDots]);
 
   const settleActiveCard = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -130,7 +146,12 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
               activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
             }
           >
-            <FindMoreCard width={cardWidth} onPress={onFind} />
+            <FindMoreCard
+              width={cardWidth}
+              position={pageCount}
+              pageCount={pageCount}
+              onPress={onFind}
+            />
           </View>
         }
         renderItem={({ item, index }) => (
@@ -139,6 +160,14 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
             accessibilityElementsHidden={index !== activeIndex}
             importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
           >
+            {index === activeIndex && (
+              <Text
+                style={s.srOnly}
+                accessibilityLabel={`${item.name}, 현재 ${index + 1}/${pageCount} 페이지`}
+              >
+                {`${item.name}, 현재 ${index + 1}/${pageCount} 페이지`}
+              </Text>
+            )}
             {renderCard(item)}
           </View>
         )}
@@ -153,9 +182,18 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
             {Array.from({ length: pageCount }, (_, page) => (
               <Pressable
                 key={page}
+                ref={(node) => {
+                  dotRefs.current[page] = node;
+                }}
                 testID={`group.cardDeck.indicator.dot.${page}`}
                 style={s.dotHit}
                 onPress={() => selectPage(page)}
+                onFocus={() => {
+                  indicatorFocusedRef.current = true;
+                }}
+                onBlur={() => {
+                  indicatorFocusedRef.current = false;
+                }}
                 accessibilityRole="button"
                 accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount} 페이지로 이동`}
                 accessibilityState={{ selected: page === activeIndex }}
@@ -165,12 +203,24 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
             ))}
           </View>
         ) : (
-          <Text
+          <Pressable
+            ref={counterRef}
+            style={s.counterHit}
+            accessible
+            accessibilityRole="text"
             testID="group.cardDeck.indicator.counter"
             accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+            onFocus={() => {
+              indicatorFocusedRef.current = true;
+            }}
+            onBlur={() => {
+              indicatorFocusedRef.current = false;
+            }}
           >
-            {activeIndex + 1} / {pageCount}
-          </Text>
+            <Text>
+              {activeIndex + 1} / {pageCount}
+            </Text>
+          </Pressable>
         )}
       </View>
     </View>
@@ -183,4 +233,6 @@ const s = StyleSheet.create({
   dotHit: { width: DOT_HIT_WIDTH, height: 44, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8CAD0' },
   dotActive: { width: 18, backgroundColor: '#5E6AD2' },
+  counterHit: { minHeight: 44, justifyContent: 'center' },
+  srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
 });
