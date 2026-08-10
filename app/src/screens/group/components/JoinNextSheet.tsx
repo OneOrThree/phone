@@ -257,7 +257,8 @@ const s = StyleSheet.create({
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, lineHeight: 19 },
   error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.md },
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -267,7 +268,8 @@ const s = StyleSheet.create({
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
   ghostBtn: {
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: T.space.xs,

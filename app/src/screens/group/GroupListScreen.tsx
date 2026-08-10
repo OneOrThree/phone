@@ -291,7 +291,8 @@ const s = StyleSheet.create({
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
   primaryBtn: {
     alignSelf: 'stretch',
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -300,7 +301,8 @@ const s = StyleSheet.create({
   primaryText: { ...T.text.subtitle, color: T.white },
   outlineBtn: {
     alignSelf: 'stretch',
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',

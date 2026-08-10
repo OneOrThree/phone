@@ -522,7 +522,8 @@ const s = StyleSheet.create({
   bonusText: { ...T.text.label, fontWeight: '800', color: T.night.gold },
 
   cta: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

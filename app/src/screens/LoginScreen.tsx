@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  ScrollView,
   Alert,
   Platform,
   useWindowDimensions,
@@ -72,7 +73,12 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
   // '최근 사용' 배지는 버튼 위에 겹쳐 놓는 장식이라, 기본 배율에서도 가운데 라벨과 3pt 남짓
   // 사이를 두고 지나간다. 기기 글자 크기를 키우면 라벨과 배지가 서로를 파고들어 둘 다 못 읽게
   // 되므로, 배율이 올라가면 배지를 접는다 — 장식을 접어 기능(라벨)을 살리는 쪽(GROMO-1485).
-  // 1.15는 iOS 한 단계 위(xLarge)까지는 지금 모습을 유지하는 선.
+  //
+  // ⚠️ 여기서 걸리는 건 **가로 폭**이지 버튼 높이가 아니다(높이는 minHeight가 알아서 자란다).
+  // 라벨은 버튼 전체 폭 기준 가운데 정렬이라 커질수록 양쪽으로 퍼지는데, 배지는 오른쪽에
+  // 고정돼 있다. xxLarge(1.235)만 돼도 '카카오로 계속하기'가 배지 자리를 침범한다 —
+  // 그래서 표준 Dynamic Type 단계에서도 배지가 사라진다. 이건 손해를 알고 고른 쪽이다.
+  // (배지를 끝까지 살리려면 아이콘 점으로 줄이거나 버튼 위 한 줄로 빼는 디자인 변경이 필요.)
   const { fontScale } = useWindowDimensions();
   const showLastBadge = fontScale <= 1.15;
 
@@ -143,72 +149,86 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
 
   return (
     <SafeAreaView style={s.root}>
-      {/* 중앙: 마스코트 + 타이틀 */}
-      <View style={s.center}>
-        <View style={s.mascot}>
-          <CharacterImage size={104} />
+      {/* 스크롤 래퍼 — 기기 글자 크기를 키우면 버튼 라벨이 두 줄로 접히며 하단 블록이 화면
+          아래로 밀리는데, 이 화면엔 로그인·게스트 시작 말고 다른 진입로가 없다. 잠긴 화면이면
+          그대로 못 누른다(코드리뷰 P0). contentContainer가 flexGrow:1이라 기본 배율에서는
+          가운데 블록이 남는 높이를 다 먹어 종전 배치 그대로다 — 넘칠 때만 스크롤이 생긴다. */}
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 중앙: 마스코트 + 타이틀 */}
+        <View style={s.center}>
+          <View style={s.mascot}>
+            <CharacterImage size={104} />
+          </View>
+          <Text style={s.title}>Gromo</Text>
+          <Text style={s.subtitle}>
+            목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.
+          </Text>
         </View>
-        <Text style={s.title}>Gromo</Text>
-        <Text style={s.subtitle}>목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.</Text>
-      </View>
 
-      {/* 하단: 소셜 로그인 + 게스트 + 약관 */}
-      <View style={s.bottom}>
-        {PROVIDERS.map((p) => {
-          const loading = busy === p.method;
-          return (
-            <TouchableOpacity
-              key={p.method}
-              activeOpacity={0.85}
-              disabled={busy !== null || guestBusy}
-              onPress={() => run(p.method, p.fn)}
-              style={[
-                s.btn,
-                { backgroundColor: p.bg },
-                p.border ? [s.btnBorder, { borderColor: p.border }] : null,
-              ]}
-            >
-              {loading ? (
-                <ActivityIndicator color={p.fg} />
-              ) : (
-                <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
-              )}
-              {p.method === lastProvider && showLastBadge ? (
-                <View style={s.lastBadgeWrap} pointerEvents="none">
-                  <View style={s.lastBadge}>
-                    <Text style={s.lastBadgeText}>최근 사용</Text>
+        {/* 하단: 소셜 로그인 + 게스트 + 약관 */}
+        <View style={s.bottom}>
+          {PROVIDERS.map((p) => {
+            const loading = busy === p.method;
+            return (
+              <TouchableOpacity
+                key={p.method}
+                activeOpacity={0.85}
+                disabled={busy !== null || guestBusy}
+                onPress={() => run(p.method, p.fn)}
+                style={[
+                  s.btn,
+                  { backgroundColor: p.bg },
+                  p.border ? [s.btnBorder, { borderColor: p.border }] : null,
+                ]}
+              >
+                {loading ? (
+                  <ActivityIndicator color={p.fg} />
+                ) : (
+                  <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
+                )}
+                {p.method === lastProvider && showLastBadge ? (
+                  <View style={s.lastBadgeWrap} pointerEvents="none">
+                    <View style={s.lastBadge}>
+                      <Text style={s.lastBadgeText}>최근 사용</Text>
+                    </View>
                   </View>
-                </View>
-              ) : null}
-            </TouchableOpacity>
-          );
-        })}
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
 
-        <TouchableOpacity
-          testID="login.guest"
-          onPress={runGuest}
-          disabled={busy !== null || guestBusy}
-          activeOpacity={0.85}
-          style={[s.btn, s.guestBtn]}
-        >
-          {guestBusy ? (
-            <ActivityIndicator color={T.ink} />
-          ) : (
-            <Text style={[s.btnText, s.guestBtnText]}>로그인 없이 시작하기</Text>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            testID="login.guest"
+            onPress={runGuest}
+            disabled={busy !== null || guestBusy}
+            activeOpacity={0.85}
+            style={[s.btn, s.guestBtn]}
+          >
+            {guestBusy ? (
+              <ActivityIndicator color={T.ink} />
+            ) : (
+              <Text style={[s.btnText, s.guestBtnText]}>로그인 없이 시작하기</Text>
+            )}
+          </TouchableOpacity>
 
-        <Text style={s.terms}>
-          계속하면 <Text style={s.termsLink}>이용약관</Text> 및{' '}
-          <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의하게 됩니다.
-        </Text>
-      </View>
+          <Text style={s.terms}>
+            계속하면 <Text style={s.termsLink}>이용약관</Text> 및{' '}
+            <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의하게 됩니다.
+          </Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   mascot: {
     width: 104,

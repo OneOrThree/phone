@@ -229,7 +229,8 @@ const s = StyleSheet.create({
   emptyDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, textAlign: 'center' },
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·그룹방·공지와 같은 값(§G-4).
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

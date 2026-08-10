@@ -197,7 +197,16 @@ const s = StyleSheet.create({
   cardBody: { marginTop: T.space.sm, fontSize: 14, lineHeight: 21 },
   btnRow: { flexDirection: 'row', gap: 20, marginTop: T.space.xl },
   flex1: { flex: 1 },
-  pill: { flex: 1, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  // borderRadius를 999로 두는 이유 — 높이가 배율 따라 자라도 알약 모양이 유지된다
+  // (23은 height 46의 절반이라 높이가 늘면 모서리만 각져 보인다).
+  pill: {
+    flex: 1,
+    minHeight: 46,
+    paddingVertical: T.space.xs,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   pillRing: { borderWidth: 3 },
   pillText: { fontSize: 16, fontWeight: '600' },
   denyText: { color: T.white },

@@ -871,7 +871,8 @@ const s = StyleSheet.create({
   chips: { flexDirection: 'row', gap: T.space.sm },
   chip: {
     flex: 1,
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -894,7 +895,8 @@ const s = StyleSheet.create({
   },
   stakeInput: {
     flex: 1,
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: T.chipBorder,
@@ -973,7 +975,8 @@ const s = StyleSheet.create({
 
   // 시트 CTA = 52 / r16 (그룹 시트 공통 규격).
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -993,7 +996,8 @@ const s = StyleSheet.create({
 
   // 게스트 안내의 보조 버튼 — GroupInviteSheet의 ghost 규격 그대로.
   ghostBtn: {
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: T.space.xs,

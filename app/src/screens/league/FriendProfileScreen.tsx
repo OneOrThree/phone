@@ -12,7 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import axios from 'axios';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { FIXED_BOX_FONT_SCALE_MAX, T } from '@/constants/theme';
+import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { categoryForOccupation } from '@/constants/focusCategories';
 import { getPublicProfile, getUserStats } from '@/services/userApi';
@@ -437,12 +437,7 @@ export default function FriendProfileScreen() {
                 {/* 현재 티어 — 뱃지 + 티어명 + 랭킹 등수 (항상 공개; 상단 티어 줄에서 이관) */}
                 <TierBadge level={tier.level} size={56} />
                 <Text style={s.ringLabel}>{tier.name}</Text>
-                {/* 링 카드는 width 104 고정 — 세 자리 순위가 커지면 카드를 넘는다(코덱스 리뷰) */}
-                {rank != null && (
-                  <Text style={s.ringRank} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
-                    랭킹 {rank}위
-                  </Text>
-                )}
+                {rank != null && <Text style={s.ringRank}>랭킹 {rank}위</Text>}
               </View>
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
@@ -607,7 +602,15 @@ const s = StyleSheet.create({
 
   // 아바타·이름·티어
   heroCol: { alignItems: 'center' },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, marginTop: T.space.sm },
+  // 글자를 키우면 닉네임(maxWidth 200)은 안 줄고 알약만 커져 행을 넘긴다 — 접히게 둔다(코드리뷰).
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: T.space.sm,
+    marginTop: T.space.sm,
+  },
   name: { ...T.text.stat, color: T.ink, maxWidth: 200 },
   friendPill: {
     flexDirection: 'row',
@@ -619,6 +622,7 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
+  // 닉네임은 maxWidth 200으로 안 줄고 알약만 커져 행을 넘긴다 — 자리가 없으면 접히게 둔다(코드리뷰).
 
   loader: { paddingVertical: 48, alignItems: 'center' },
 
@@ -743,7 +747,8 @@ const s = StyleSheet.create({
   // 하단 CTA
   ctaWrap: { paddingHorizontal: T.space.xl, paddingTop: T.space.md },
   requestBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     flexDirection: 'row',
@@ -758,7 +763,8 @@ const s = StyleSheet.create({
   },
   requestText: { ...T.text.body, fontWeight: '700', color: T.white },
   requestedBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.track,
     alignItems: 'center',
@@ -766,7 +772,8 @@ const s = StyleSheet.create({
   },
   requestedText: { ...T.text.body, fontWeight: '700', color: T.inkSub },
   unfriendBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.white,
     borderWidth: 1,

@@ -366,7 +366,8 @@ const s = StyleSheet.create({
   emptyTitle: { ...T.text.title, color: T.ink, textAlign: 'center' },
   emptyDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, textAlign: 'center' },
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',
@@ -397,7 +398,8 @@ const s = StyleSheet.create({
     borderColor: T.border,
     borderRadius: 13,
     paddingHorizontal: T.space.md,
-    height: 46,
+    minHeight: 46,
+    paddingVertical: T.space.md,
   },
   input: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
   counter: { ...T.text.caption, color: T.inkMuted, fontVariant: ['tabular-nums'] },
@@ -472,7 +474,8 @@ const s = StyleSheet.create({
 
   // 저장 CTA = 52 / r16 (그룹 3화면 공통 규격)
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',

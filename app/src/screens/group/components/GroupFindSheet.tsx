@@ -418,7 +418,8 @@ const s = StyleSheet.create({
     borderColor: T.accent,
     borderRadius: 13,
     paddingHorizontal: T.space.md,
-    height: 46,
+    minHeight: 46,
+    paddingVertical: T.space.md,
   },
   searchInput: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
   clearBtn: {

@@ -466,7 +466,8 @@ const s = StyleSheet.create({
     borderRadius: 13,
     paddingHorizontal: T.space.md,
     // 46 = 찾기 시트 검색 인풋·FriendAddScreen과 같은 값(앱 내 유일하게 50이던 것을 맞춤)
-    height: 46,
+    minHeight: 46,
+    paddingVertical: T.space.md,
   },
   inputBoxError: { borderColor: T.dangerInk, backgroundColor: T.dangerBg },
   input: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
@@ -561,7 +562,8 @@ const s = StyleSheet.create({
 
   // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격). marginTop 28은 8pt 그리드 밖이라 토큰으로 내렸다.
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -595,7 +597,8 @@ const s = StyleSheet.create({
   cardActions: { flexDirection: 'row', gap: T.space.sm, marginTop: T.space.xl },
   cardOutlineBtn: {
     flex: 1,
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -606,7 +609,8 @@ const s = StyleSheet.create({
   cardOutlineText: { ...T.text.label, fontWeight: '700', color: T.ink },
   cardFillBtn: {
     flex: 1,
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',

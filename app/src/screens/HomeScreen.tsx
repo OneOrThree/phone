@@ -628,7 +628,9 @@ export default function HomeScreen() {
                 </View>
                 <View style={s.tierRow}>
                   <Image source={tier.image} style={s.tierImg} />
-                  <Text style={s.tierText}>{tier.name}</Text>
+                  <Text style={s.tierText} numberOfLines={1}>
+                    {tier.name}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -818,10 +820,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, flexShrink: 1 },
   nickname: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   rankBadge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 3,
     backgroundColor: T.blueBg,
@@ -829,10 +832,16 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.sm,
     paddingVertical: 2,
   },
-  rankText: { ...T.text.label, color: T.blue },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginTop: 2 },
+  rankText: { ...T.text.label, color: T.blue, flexShrink: 1 },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    marginTop: 2,
+    flexShrink: 1,
+  },
   tierImg: { width: 18, height: 18, resizeMode: 'contain' },
-  tierText: { ...T.text.label, color: T.inkSub },
+  tierText: { ...T.text.label, color: T.inkSub, flexShrink: 1 },
   settingsBtn: {
     width: 40,
     height: 40,

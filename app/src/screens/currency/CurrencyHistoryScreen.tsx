@@ -223,7 +223,8 @@ const s = StyleSheet.create({
   // 재시도 버튼 — GroupSettingsScreen의 같은 블록 복사. marginTop만 xl→sm으로 줄였다:
   // 이 center는 gap(md)이 이미 있어 원본 그대로 두면 문구와 버튼 사이가 혼자 벌어진다(합 20 유지).
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

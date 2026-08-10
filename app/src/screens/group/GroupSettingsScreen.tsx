@@ -287,7 +287,8 @@ const s = StyleSheet.create({
   emptyTitle: { ...T.text.title, color: T.ink, textAlign: 'center' },
   emptyDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, textAlign: 'center' },
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

@@ -116,8 +116,11 @@ export default function StepScaffold({
         >
           <Text style={s.ctaText}>{ctaLabel}</Text>
         </TouchableOpacity>
-        {/* 보조 액션 자리 — 라벨이 없어도 높이를 고정 예약해 CTA 위치를 전 화면 동일하게 유지. */}
-        <View style={s.secondarySlot}>
+        {/* 보조 액션 자리 — 라벨이 없어도 높이를 예약해 CTA 위치를 전 화면 동일하게 유지.
+            예약 높이는 배율을 따라간다: 고정 22pt면 큰 글자에서 라벨이 삐져나오고, 그렇다고
+            내용 높이에 맡기면 라벨 있는 스텝만 footer가 두꺼워져 스텝을 넘길 때마다 CTA가
+            위아래로 튄다(코드리뷰). 한 줄 높이를 배율만큼 예약하고 라벨도 한 줄로 묶는다. */}
+        <View style={[s.secondarySlot, { minHeight: 22 * Math.min(fontScale, 2) }]}>
           {secondaryLabel ? (
             <TouchableOpacity
               // Maestro E2E — 보조 액션 공통 식별자(GROMO-947). 스텝당 최대 1개라 고정 이름.
@@ -125,7 +128,9 @@ export default function StepScaffold({
               onPress={onSecondary}
               hitSlop={{ top: 14, bottom: 14, left: 20, right: 20 }}
             >
-              <Text style={s.secondaryText}>{secondaryLabel}</Text>
+              <Text style={s.secondaryText} numberOfLines={1}>
+                {secondaryLabel}
+              </Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -168,7 +173,6 @@ const s = StyleSheet.create({
   ctaHidden: { opacity: 0 },
   ctaText: { ...T.text.subtitle, color: T.white },
   secondarySlot: {
-    minHeight: 22,
     marginTop: T.space.lg,
     alignItems: 'center',
     justifyContent: 'center',

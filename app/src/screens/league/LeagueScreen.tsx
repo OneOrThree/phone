@@ -60,7 +60,10 @@ import {
 const TAB_BAR_SPACE = 74;
 // 리그 드롭다운의 '전체' 항목 라벨
 const LEAGUE_ALL = '전체';
-// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
+// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유.
+// 실측(onLayout) 전까지 쓰는 기본값 — 글자 배율을 키우면 스트립이 이보다 두꺼워지므로
+// 실제 높이를 재서 덮어쓴다(코드리뷰). 이 상수만 믿으면 배율이 큰 기기에서 내 행이
+// 스트립 밑에 깔린 채로 멈춘다.
 const MY_STRIP_SPACE = 70;
 // 포디움 메달 그라데이션 (1·2·3위 — 골드/실버/브론즈, 밝은 쪽→진한 쪽)
 const MEDAL_GRAD = [T.medalGrad.gold, T.medalGrad.silver, T.medalGrad.bronze];
@@ -238,7 +241,10 @@ export default function LeagueScreen() {
       listRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
-    listRef.current?.scrollTo({ y: Math.max(myRowY.current - MY_STRIP_SPACE, 0), animated: true });
+    listRef.current?.scrollTo({
+      y: Math.max(myRowY.current - myStripH.current, 0),
+      animated: true,
+    });
   }
 
   // 드롭다운에서 리그 선택 — 최상단(포디움)부터 보여주고, 내 행이 화면 밖이면 자동 스크롤 예약
@@ -299,6 +305,8 @@ export default function LeagueScreen() {
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·티어·친구 탭을 차례로 설명
   const segmentRef = useRef<View | null>(null);
   const headerRef = useRef<View | null>(null);
+  // sticky '내 순위' 스트립의 실제 높이 — 스크롤 오프셋 계산에 쓴다(위 MY_STRIP_SPACE 주석 참고).
+  const myStripH = useRef(MY_STRIP_SPACE);
   const guideSteps: GuideStep[] = [
     {
       text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
@@ -505,7 +513,12 @@ export default function LeagueScreen() {
 
           {/* ── 내 순위 스트립 — 스크롤해도 상단 고정(sticky).
                탭=내 행으로 / 내가 없는 리그에선 핀 안내 + 전체 리그 이동 ── */}
-          <View style={s.myStripWrap}>
+          <View
+            style={s.myStripWrap}
+            onLayout={(e) => {
+              myStripH.current = e.nativeEvent.layout.height;
+            }}
+          >
             <TouchableOpacity
               style={s.myStrip}
               activeOpacity={0.85}
@@ -581,7 +594,7 @@ export default function LeagueScreen() {
                             const rowBottom = myRowY.current + 56; // 행 높이 근사값
                             if (listHeight.current > 0 && rowBottom > listHeight.current) {
                               listRef.current?.scrollTo({
-                                y: Math.max(myRowY.current - MY_STRIP_SPACE, 0),
+                                y: Math.max(myRowY.current - myStripH.current, 0),
                                 animated: false,
                               });
                             }
@@ -734,10 +747,14 @@ export default function LeagueScreen() {
                               </Text>
                             </View>
                           )}
+                          {/* 카드 폭이 '48%' 고정인데 HH:MM:SS는 공백이 없어 줄바꿈이 안 된다 —
+                              배율을 안 묶으면 글자 중간에서 깨진다(코드리뷰). 옆 정적 분기
+                              (fmtMinutes)는 공백에서 접히므로 상한이 필요 없다. */}
                           <LiveFocusTime
                             baseSeconds={(f.focusTimeMinutes ?? 0) * 60}
                             focusStartedAt={f.focusStartedAt ?? null}
                             style={s.friendFocusTimeLive}
+                            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                           />
                         </>
                       ) : (
@@ -809,16 +826,20 @@ export default function LeagueScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
 
+  // 마감 문구와 제목이 한 줄에 못 들어가면 접는다 — 안 접으면 줄어들 수 있는 쪽(마감)만
+  // 말줄임돼 정작 남은 시간이 사라진다(코드리뷰).
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: T.space.xs,
     paddingHorizontal: T.space.xl,
     paddingTop: T.space.md,
     paddingBottom: T.space.md,
   },
   headerToggle: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  headerTitle: { ...T.text.title, color: T.ink },
+  headerTitle: { ...T.text.title, color: T.ink, flexShrink: 1 },
   deadline: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
 
   // 리그 선택 드롭다운
@@ -882,6 +903,7 @@ const s = StyleSheet.create({
     paddingTop: T.space.xs,
     paddingBottom: T.space.md,
   },
+  // width 100은 FIXED_BOX_FONT_SCALE_MAX의 근거다 — 바꾸면 constants/theme.test.ts도 같이 고칠 것.
   podiumCol: { alignItems: 'center', gap: T.space.xs, width: 100 },
   podiumColFirst: { marginBottom: T.space.lg },
   // 메달 — 왕관(1위)+그라데이션 원형 배지를 세로로 쌓는다
@@ -954,9 +976,12 @@ const s = StyleSheet.create({
 
   // 내 순위 스트립 (sticky) — 밑 리스트가 비치지 않게 배경을 깐다
   myStripWrap: { backgroundColor: T.paperLight, paddingTop: 2, paddingBottom: T.space.sm },
+  // 글자를 키우면 순위·격차 두 문구가 한 줄에 못 들어간다. 줄여서 말줄임하면 정작 넛지
+  // 수치(격차)가 사라지므로, 자리가 모자라면 아래로 접히게 둔다(코드리뷰).
   myStrip: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1.5,
@@ -965,10 +990,14 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.md,
     paddingVertical: T.space.md,
   },
-  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep },
+  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep, flexShrink: 1 },
+  // flexBasis 'auto' — 접히기 전엔 종전처럼 남는 폭을 채워 오른쪽 정렬(flex:1과 동일),
+  // 안 들어가면 제 폭을 요구하며 다음 줄로 내려간다(flexBasis 0이면 접히지 않고 짜부라진다).
   myStripGap: {
     ...T.text.caption,
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
     textAlign: 'right',
     color: T.inkSub,
     fontVariant: ['tabular-nums'],

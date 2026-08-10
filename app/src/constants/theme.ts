@@ -109,7 +109,7 @@ export const T = {
   // ── 글자 배율 정책 (GROMO-1485) ────────────────────────────────────────────
   // 여기 pt는 **기본 배율(1.0)에서의 크기**다. 기기 '텍스트 크기'(iOS Dynamic Type /
   // 안드로이드 글꼴 크기)를 켜면 RN이 fontSize와 lineHeight에 배율을 함께 곱해 준다
-  // (iOS RCTAttributedTextUtils / Android TextAttributeProps 둘 다 lineHeight도 스케일).
+  // (iOS RCTAttributedTextUtils.mm / Android TextAttributeProps.kt 둘 다 lineHeight도 스케일).
   // 그래서 스타일에 lineHeight를 박아 둬도 겹치지 않는다 — 손대지 말 것.
   //
   // 배율을 끄는 건 `allowFontScaling={false}`를 **그 Text에 직접** 붙이는 것뿐이다.
@@ -144,13 +144,29 @@ export const T = {
  * 고정 폭 칸에 들어가는 텍스트의 배율 상한 (GROMO-1485).
  *
  * `allowFontScaling={false}`(아예 안 커짐)와 무제한 사이의 중간값이다. 폭이 못처럼 박힌 칸
- * — 포디움 열(100), 티어 링 카드(104), 랭킹 행의 시간 칸처럼 옆 요소가 고정 크기라 넘치면
+ * — 포디움 열(100), 랭킹 행의 시간 칸, 친구 그리드 카드처럼 옆 요소가 고정 크기라 넘치면
  * 겹치는 자리 — 에 `maxFontSizeMultiplier`로 걸어 쓴다. 글자는 사용자 설정만큼 커지되
  * 칸을 뚫기 전에 멈춘다.
+ *
+ * **줄바꿈으로 풀리는 칸에는 걸지 말 것.** 여기 걸 이유는 "넘친다"가 아니라 "접을 데가 없다"다.
+ * `HH:MM:SS`는 공백이 없어 글자 중간에서 깨지지만, '랭킹 100위'처럼 끊을 데가 있는 문구는
+ * 고정 폭 카드 안에서도 그냥 두 줄이 될 뿐이다 — 그런 자리에 상한을 걸면 얻는 것 없이
+ * 접근성만 깎는다(코드리뷰에서 티어 링 카드가 이 경우로 판명돼 상한을 뺐다).
  *
  * 1.5인 이유: 위 세 칸 중 가장 빠듯한 포디움 열이 caption(13pt) HH:MM:SS ≈ 55pt라
  * 1.5배(≈83pt)까지 100pt 안에 들어온다. iOS 표준 Dynamic Type 최대(약 1.35)는 그대로 다 먹는다.
  * 접근성 배율(2.0~3.1)에서만 여기서 멈춘다.
+ *
+ * ⚠️ **`lineHeight`가 있는 스타일에는 걸지 말 것 — 안드로이드에서 상한이 반만 먹는다.**
+ * iOS는 fontSize와 lineHeight가 같은 배율 함수를 타서 둘 다 상한을 받지만
+ * (RCTAttributedTextUtils.mm의 `RCTEffectiveFontSizeMultiplierFromTextAttributes`),
+ * 안드로이드 `<Text>`는 fontSize에만 상한을 넘기고 lineHeight·letterSpacing은 시스템 배율
+ * 전체를 그대로 먹는다(TextAttributeProps.kt — fontSize만 `toPixelFromSP(v, max)`, lineHeight는
+ * `toPixelFromSP(v)`). 그러면 글자는 멈추는데 줄 상자만 계속 자라 지키려던 칸을 세로로 뚫는다.
+ * (`<TextInput>`은 TextAttributes.kt를 써서 안드에서도 제대로 clamp된다 — 같은 안드끼리도 다르다.)
+ * 지금 이 상수를 쓰는 자리는 전부 lineHeight가 없는 토큰(caption/label/title)이라 안전하다.
+ * lineHeight가 필요한 칸이면 상한 대신 `allowFontScaling={false}`를 쓰거나, lineHeight를
+ * `Math.min(fontScale, 이 값)`으로 직접 곱해 넣어라.
  */
 export const FIXED_BOX_FONT_SCALE_MAX = 1.5;
 

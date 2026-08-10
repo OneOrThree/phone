@@ -179,7 +179,8 @@ const s = StyleSheet.create({
   list: { gap: T.space.sm },
 
   primaryBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -191,7 +192,8 @@ const s = StyleSheet.create({
   btnCount: { ...T.text.caption, color: T.white, opacity: 0.75, marginTop: 1 },
   // 건너뛰기/완료하기 — 위 버튼과 같은 모양, 검은색으로 매칭
   darkBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.ink,
     alignItems: 'center',

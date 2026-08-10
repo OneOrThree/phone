@@ -1588,7 +1588,8 @@ const s = StyleSheet.create({
   // 다음 활성일 참여 버튼(GROMO-1419) — 쉬는 날 카드의 유일한 행동이라 채운 와이드 버튼(ux §05 ①).
   joinNextBtn: {
     marginTop: T.space.sm,
-    height: 40,
+    minHeight: 40,
+    paddingVertical: T.space.sm,
     borderRadius: 12,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -1600,7 +1601,8 @@ const s = StyleSheet.create({
   weekBtn: {
     marginTop: T.space.sm,
     alignSelf: 'flex-start',
-    height: 32,
+    minHeight: 32,
+    paddingVertical: T.space.xs,
     paddingHorizontal: T.space.md,
     borderRadius: 10,
     borderWidth: 1,
@@ -1685,7 +1687,8 @@ const s = StyleSheet.create({
   // '내기 걸기' — 아웃라인 소형 버튼. 카드의 주 내용(진행 리스트)보다 약한 위계라 채우지 않는다.
   betCreateBtn: {
     alignSelf: 'flex-start',
-    height: 32,
+    minHeight: 32,
+    paddingVertical: T.space.xs,
     paddingHorizontal: T.space.md,
     borderRadius: 10,
     borderWidth: 1,
@@ -1709,7 +1712,7 @@ const s = StyleSheet.create({
   betTextOff: { color: T.inkMuted, fontWeight: '500' },
   // 참가 철회 — 소형 아웃라인. 돈이 되돌아와도 참가가 사라지는 파괴 동작이라 danger 잉크로 구분한다.
   betLeaveBtn: {
-    height: 26,
+    minHeight: 26,
     paddingHorizontal: T.space.sm,
     borderRadius: 8,
     borderWidth: 1,
