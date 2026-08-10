@@ -88,6 +88,21 @@ describe('카드 렌더', () => {
     ).toMatchObject({
       accessibilityElementsHidden: true,
       importantForAccessibility: 'no-hide-descendants',
+      pointerEvents: 'none',
+    });
+  });
+
+  test('글자 확대 등으로 측정된 가장 큰 카드 높이를 끝 카드에도 공유한다', async () => {
+    await renderList([group()]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.front.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { height: 420 } },
+      });
+    });
+
+    expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
+      minHeight: 420,
     });
   });
 
@@ -132,6 +147,22 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('앞면과 뒷면 복귀 제어가 같은 요약 disclosure 상태를 노출한다', async () => {
+    await renderList([group()]);
+    const front = screen.getByTestId(`group.card.${GROUP_ID}`);
+    expect(front.props.accessibilityState).toEqual({ expanded: false });
+    expect(front.props.nativeID).toBe(`group.card.disclosure.${GROUP_ID}`);
+
+    await press(`group.card.${GROUP_ID}`);
+    const back = screen.getByTestId(`group.card.back.${GROUP_ID}`);
+    const collapse = screen.getByTestId(`group.card.frontAction.${GROUP_ID}`);
+    expect(back.props.nativeID).toBe(`group.card.summary.${GROUP_ID}`);
+    expect(back.props.accessibilityLabelledBy).toBe(`group.card.disclosure.${GROUP_ID}`);
+    expect(collapse.props.accessibilityState).toEqual({ expanded: true });
+    expect(collapse.props.nativeID).toBe(`group.card.disclosure.${GROUP_ID}`);
+    expect(collapse).toHaveStyle({ minWidth: 44, minHeight: 44 });
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 

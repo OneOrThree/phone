@@ -11,6 +11,8 @@ interface GroupCardFrontProps {
   pageCount: number;
   onFlip: () => void;
   actionRef?: Ref<View>;
+  minHeight?: number;
+  onHeightChange?: (height: number) => void;
 }
 
 export function GroupCardFront({
@@ -20,14 +22,21 @@ export function GroupCardFront({
   pageCount,
   onFlip,
   actionRef,
+  minHeight = 300,
+  onHeightChange,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
   const descriptionLabel = group.description ? `, ${group.description}` : '';
 
   return (
-    <View style={s.root} testID={`group.card.front.${group.groupId}`}>
+    <View
+      style={[s.root, { minHeight }]}
+      onLayout={(event) => onHeightChange?.(event.nativeEvent.layout.height)}
+      testID={`group.card.front.${group.groupId}`}
+    >
       <View
         style={s.grip}
+        pointerEvents="none"
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         testID={`group.card.grip.${group.groupId}`}
@@ -39,6 +48,8 @@ export function GroupCardFront({
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
+        accessibilityState={{ expanded: false }}
+        nativeID={`group.card.disclosure.${group.groupId}`}
         accessibilityLabel={`${group.name}${descriptionLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, ${pageIndex + 1} / ${pageCount}`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
@@ -89,7 +100,7 @@ export function GroupCardFront({
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, minHeight: 300, borderRadius: 22, overflow: 'hidden' },
+  root: { flex: 1, borderRadius: 22, overflow: 'hidden' },
   body: { flex: 1 },
   grip: { position: 'absolute', top: T.space.md, right: T.space.lg, zIndex: 2 },
   art: {

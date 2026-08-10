@@ -79,4 +79,41 @@ describe('PageIndicator', () => {
     expect(focus).not.toHaveBeenCalled();
     focus.mockRestore();
   });
+
+  test('재정렬 뒤 포커스는 같은 stable page key의 새 dot 위치를 따른다', async () => {
+    const onSelectPage = jest.fn();
+    const view = await render(
+      <PageIndicator
+        pageLabels={['아침 집중방', '저녁 스터디', '그룹 찾기']}
+        pageKeys={['morning', 'evening', 'find-more']}
+        activeIndex={1}
+        onSelectPage={onSelectPage}
+      />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    await act(async () => {
+      screen.getByTestId('group.deck.indicator.dot.1').props.onFocus();
+    });
+    const focusedEveningDot = screen.getByLabelText('저녁 스터디, 2 / 3');
+
+    await view.rerender(
+      <PageIndicator
+        pageLabels={['저녁 스터디', '아침 집중방', '그룹 찾기']}
+        pageKeys={['evening', 'morning', 'find-more']}
+        activeIndex={0}
+        onSelectPage={onSelectPage}
+      />,
+    );
+
+    expect(screen.getByLabelText('저녁 스터디, 1 / 3')).toBe(focusedEveningDot);
+    expect(screen.getByTestId('group.deck.indicator.dot.0').props.accessibilityLabel).toBe(
+      '저녁 스터디, 1 / 3',
+    );
+    fireEvent.press(screen.getByTestId('group.deck.indicator.dot.0'));
+    expect(onSelectPage).toHaveBeenLastCalledWith(0);
+  });
 });

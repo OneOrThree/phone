@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   FlatList,
   findNodeHandle,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -132,6 +133,7 @@ export default function GroupListScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
+  const [deckMinHeight, setDeckMinHeight] = useState(GROUP_CARD_HEIGHT);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const pageCount = groups.length + 1;
@@ -145,6 +147,9 @@ export default function GroupListScreen({
   const pendingFaceFocusRef = useRef<{ groupId: string; face: 'front' | 'back' } | null>(null);
   const frontActionRefs = useRef(new Map<string, View | null>());
   const backTitleRefs = useRef(new Map<string, Text | null>());
+  const observeDeckHeight = useCallback((height: number) => {
+    setDeckMinHeight((current) => (height > current ? height : current));
+  }, []);
 
   useEffect(() => {
     const pending = pendingFaceFocusRef.current;
@@ -325,6 +330,7 @@ export default function GroupListScreen({
                 width={cardWidth}
                 position={pageCount}
                 pageCount={pageCount}
+                minHeight={deckMinHeight}
                 onPress={onFind}
               />
             </View>
@@ -339,7 +345,13 @@ export default function GroupListScreen({
               testID={`group.list.card.${item.groupId}`}
             >
               {flippedGroupId === item.groupId ? (
-                <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
+                <View
+                  style={[s.backPlaceholder, { minHeight: deckMinHeight }]}
+                  nativeID={`group.card.summary.${item.groupId}`}
+                  accessibilityLabelledBy={`group.card.disclosure.${item.groupId}`}
+                  onLayout={(event) => observeDeckHeight(event.nativeEvent.layout.height)}
+                  testID={`group.card.back.${item.groupId}`}
+                >
                   <Text
                     ref={(node) => {
                       backTitleRefs.current.set(item.groupId, node);
@@ -354,28 +366,34 @@ export default function GroupListScreen({
                     {item.name}
                   </Text>
                   <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
-                  <TouchableOpacity
+                  <Pressable
                     style={s.backPrimary}
                     onPress={() => onSelect(item.groupId)}
                     testID={`group.card.room.${item.groupId}`}
                   >
                     <Text style={s.backPrimaryText}>방 전체 보기</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </Pressable>
+                  <Pressable
+                    style={s.backLinkHit}
                     onPress={() => {
                       pendingFaceFocusRef.current = { groupId: item.groupId, face: 'front' };
                       setFlippedGroupId(null);
                     }}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: true }}
+                    nativeID={`group.card.disclosure.${item.groupId}`}
                     testID={`group.card.frontAction.${item.groupId}`}
                   >
                     <Text style={s.backLink}>앞면으로</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               ) : (
                 <GroupCardFront
                   group={item}
                   pageIndex={groups.findIndex((group) => group.groupId === item.groupId)}
                   pageCount={pageCount}
+                  minHeight={deckMinHeight}
+                  onHeightChange={observeDeckHeight}
                   onFlip={() => flipCard(item.groupId)}
                   actionRef={(node) => {
                     frontActionRefs.current.set(item.groupId, node);
@@ -388,6 +406,7 @@ export default function GroupListScreen({
 
         <PageIndicator
           pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+          pageKeys={[...groups.map((group) => group.groupId), 'find-more']}
           activeIndex={activeIndex}
           onSelectPage={selectPage}
         />
@@ -450,7 +469,6 @@ const s = StyleSheet.create({
   listContent: { paddingBottom: T.space.md },
 
   backPlaceholder: {
-    minHeight: 300,
     borderRadius: 22,
     padding: T.space.xl,
     backgroundColor: T.white,
@@ -469,6 +487,13 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
   },
   backPrimaryText: { ...T.text.label, color: T.white },
+  backLinkHit: {
+    minWidth: 44,
+    minHeight: 44,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   backLink: { ...T.text.caption, color: T.accent, textAlign: 'center' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },

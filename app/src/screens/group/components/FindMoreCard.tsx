@@ -7,16 +7,23 @@ interface FindMoreCardProps {
   position: number;
   pageCount: number;
   onPress: () => void;
+  minHeight?: number;
 }
 
 /**
  * 캐러셀 끝에만 붙는 탐색 진입점이다.
  * 서버 그룹 배열이나 로컬 순서 배열에 sentinel로 넣지 않는다.
  */
-export function FindMoreCard({ width, position, pageCount, onPress }: FindMoreCardProps) {
+export function FindMoreCard({
+  width,
+  position,
+  pageCount,
+  onPress,
+  minHeight = 300,
+}: FindMoreCardProps) {
   return (
     <Pressable
-      style={[s.card, { width }]}
+      style={[s.card, { width, minHeight }]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`그룹 찾기, 현재 ${position}/${pageCount} 페이지`}
@@ -33,7 +40,6 @@ export function FindMoreCard({ width, position, pageCount, onPress }: FindMoreCa
 
 const s = StyleSheet.create({
   card: {
-    minHeight: 300,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
