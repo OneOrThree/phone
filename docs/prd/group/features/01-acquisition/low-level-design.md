@@ -59,9 +59,16 @@ sequenceDiagram
     X->>S: joinMethod + 선택적 appInstanceId로 가입 요청
     U->>X: 다른 후보 또는 초대 선택
     X-->>U: 기존 요청이 끝날 때까지 참여 차단
-    S-->>X: 성공 또는 이미 멤버
+    alt 실제 가입 2xx
+        S-->>X: mutation=joined
+    else 이미 활성 멤버
+        S-->>X: mutation=already_member
+    end
     X->>L: 전체 목록 재조회
     L-->>X: 성공한 전체 목록
+    opt joined · s_log_only · 대상 groupId 포함
+        X->>X: group_membership_reconciled 1회
+    end
     X->>X: 실제 가입된 대상 기준으로 목적지 결정
     X->>X: 참여 잠금 해제
 ```
@@ -71,6 +78,7 @@ sequenceDiagram
 - 참여 잠금은 검색과 초대가 공유한다. 한 요청의 중복 탭과 두 화면의 동시 가입을 막는다.
 - 초대 참여 중 다른 링크가 도착해도, 성공 콜백은 요청을 시작한 그룹을 사용한다.
 - 목록 재조회는 최신 요청만 화면에 반영한다. 계정 전환·화면 이탈 뒤 응답은 반영하지 않는다.
+- 가입 요청은 `{targetGroupId, mutation, resultTrack}`을 목록 확인까지 보존한다. `mutation=joined`·`s_log_only`이고 성공한 전체 목록에 target이 있을 때만 `group_membership_reconciled(cause=join)`을 요청당 1회 발행한다. `already_member`·목록 실패·부분 응답·target 미포함·늦은 세대는 발행하지 않는다.
 - cold direct·deferred는 목록 0개 확정을 기다리지 않는다. 열린 F3 episode가 없을 때 `result_track=ga4`인 실제 API 전송 직전의 invite attempt만 `invite_intent` fallback을 열고, `s_log_only` 시도·sheet mount·게스트 로그인·rerender·foreground는 열지 않는다. 30분 안의 같은 pending/다른 링크 시도는 기존 episode에 진단 이벤트만 더한다.
 
 ### 2.1 초대 링크 수명과 이탈 경합
@@ -89,26 +97,29 @@ stateDiagram-v2
 - 링크는 논리 폐기해 click·claim 감사 관계를 보존한다. 전체 `(groupId, inviterId)` unique를 **active 버전 1개** 제약으로 migration하고, 재발급은 새 slug 행을 만든다. 폐기 뒤 claim은 멱등 no-op으로 끝나며 미claim click에 사용자를 새로 연결하지 않는다.
 - 멤버십 이탈과 링크 폐기는 같은 transaction에서 처리한다. 초대 write 경로는 slug를 잠금 없이 한 번 읽어 대상 ID를 찾은 뒤 **관련 user UUID 오름차순 → groupId 오름차순의 group·membership → active link ID** 순으로 잠그고 모든 조건을 재검증한다. 계정 탈퇴의 여러 그룹도 groupId 순서로 폐기하며, 발급·재발급은 `findActive`와 partial unique 충돌 재조회로 active slug 하나에 수렴한다.
 - private join·이탈·재발급은 위 순서로 직렬화한다. join이 먼저 commit한 경우만 가입이 남고 이탈·폐기가 먼저면 join은 일반 초대 오류로 끝나며, 동시 재발급은 같은 active slug를 반환한다.
+- 모든 join은 group 행 잠금 뒤 `deletedAt=null`과 `status=WAITING|ACTIVE`를 재검증하고 나서 insert/rejoin한다. 마지막 멤버 이탈도 같은 group 행을 잠근다. join이 먼저면 이탈은 늘어난 활성 멤버를 보고 그룹을 종료하지 않으며, 종료가 먼저면 join은 `NOT_FOUND`·멤버십 0건이다.
 - 기존 attribution용 nullable 처리와 private authorization validator를 분리한다. authorization은 그룹 일치·미폐기·발급자 활성 멤버십을 모두 요구한다.
 
 ## 3. 오류와 복구
 
-| 상황                          | 사용자 상태                        | 복구 원칙                                  |
-| ----------------------------- | ---------------------------------- | ------------------------------------------ |
-| 검색 실패                     | 결과 없음과 구분한 오류            | 같은 검색어로 다시 시도                    |
-| 초대 대상 없음                | 사라진 그룹 안내                   | 참여 요청 없음                             |
-| 초대 대상 정원 마감           | 참여 비활성                        | 최신 초대 개요를 다시 확인                 |
-| 게스트 초대                   | 로그인 유도                        | 초대 맥락을 보존하고 로그인 뒤 재개        |
-| 가입 제한·정원 초과           | 인라인 안내와 참여 잠금            | 서버 판단을 유지, 임의 재시도 없음         |
-| 생성 실패                     | 폼 입력 유지                       | 수정 또는 다시 제출                        |
-| 가입·생성 뒤 목록 재조회 실패 | 전이 오류와 다시 시도              | 빈 상태·중복 생성으로 되돌리지 않음        |
-| 링크 발급·공유 실패           | 생성은 유지, 링크 관련 오류만 표시 | 생성 요청을 반복하지 않음                  |
-| 비공개 그룹 가입 강제         | 검색 비노출·링크 공유까지만 안내   | 서버 링크 수신자 검증은 미구현             |
-| slug 없는 구형 공개 링크      | 미리보기·가입 유지                 | attribution 없이 기존 조건으로 처리        |
-| slug 없는 구형 비공개 링크    | 새 링크 재요청 안내                | 강제 전환 뒤 가입 요청 거절·자동 승격 금지 |
-| 비공개 링크 누락·무효·불일치  | 동일한 일반 오류                   | 멤버십 미생성, 사용자 임의 재시도 금지     |
-| 폐기·발급자 이탈 private 링크 | 새 링크 재요청 안내                | landing·match·가입 만료, claim은 no-op     |
-| 검색 가입 분석 식별자 없음    | 가입 흐름 유지                     | S-LOG만 기록, GA4 결과로 가장하지 않음     |
+| 상황                          | 사용자 상태                        | 복구 원칙                                                 |
+| ----------------------------- | ---------------------------------- | --------------------------------------------------------- |
+| 검색 실패                     | 결과 없음과 구분한 오류            | 같은 검색어로 다시 시도                                   |
+| 초대 대상 없음                | 사라진 그룹 안내                   | 참여 요청 없음                                            |
+| 초대 대상 정원 마감           | 참여 비활성                        | 최신 초대 개요를 다시 확인                                |
+| 종료·삭제 그룹                | 사라진 그룹 안내                   | 공개·비공개·slug 무관 `NOT_FOUND`, 가입 없음              |
+| 이미 활성 멤버                | 기존 그룹 방으로 이동              | `ALREADY_MEMBER`, membership mutation·`group_joined` 없음 |
+| 게스트 초대                   | 로그인 유도                        | 초대 맥락을 보존하고 로그인 뒤 재개                       |
+| 가입 제한·정원 초과           | 인라인 안내와 참여 잠금            | 서버 판단을 유지, 임의 재시도 없음                        |
+| 생성 실패                     | 폼 입력 유지                       | 수정 또는 다시 제출                                       |
+| 가입·생성 뒤 목록 재조회 실패 | 전이 오류와 다시 시도              | 빈 상태·중복 생성으로 되돌리지 않음                       |
+| 링크 발급·공유 실패           | 생성은 유지, 링크 관련 오류만 표시 | 생성 요청을 반복하지 않음                                 |
+| 비공개 그룹 가입 강제         | 검색 비노출·링크 공유까지만 안내   | 서버 링크 수신자 검증은 미구현                            |
+| slug 없는 구형 공개 링크      | 미리보기·가입 유지                 | attribution 없이 기존 조건으로 처리                       |
+| slug 없는 구형 비공개 링크    | 새 링크 재요청 안내                | 강제 전환 뒤 가입 요청 거절·자동 승격 금지                |
+| 비공개 링크 누락·무효·불일치  | 동일한 일반 오류                   | 멤버십 미생성, 사용자 임의 재시도 금지                    |
+| 폐기·발급자 이탈 private 링크 | 새 링크 재요청 안내                | landing·match·가입 만료, claim은 no-op                    |
+| 검색 가입 분석 식별자 없음    | 가입 흐름 유지                     | S-LOG만 기록, GA4 결과로 가장하지 않음                    |
 
 ## 4. 검증 gate
 
@@ -125,3 +136,6 @@ stateDiagram-v2
 11. issue→탈퇴·강퇴·계정 탈퇴→old landing·match·claim·private join 실패→재가입→old slug 실패→fresh issue 성공을 검증한다. OWNER 위임으로 활성 멤버십이 유지되면 기존 링크도 유지된다.
 12. private join·발급자 이탈·재발급이 경합해도 정해진 잠금 순서와 partial unique로 가입은 한 결과, 링크는 active slug 최대 1개에 수렴하며 deadlock·폐기 링크 재반환이 없다.
 13. cold direct·deferred 가입이 `group_viewed(0)` 없이 시작될 때 `result_track=ga4` attempt만 F3 episode를 정확히 1건 열고, `s_log_only`·preview·로그인 대기·rerender·같은 pending invite는 분모를 추가하지 않는다.
+14. `WAITING|ACTIVE` 공개·비공개 그룹은 기존 조건을 만족하면 가입되고, `ENDED`·`deletedAt!=null` 그룹은 public search/direct·private valid slug/direct·LEFT 재가입 모두 멤버십·`group_joined` 없이 `NOT_FOUND`다. 이미 활성 멤버는 상태 검사보다 먼저 `ALREADY_MEMBER`로 끝나며 mutation·`group_joined` 0건인 기존 분기도 고정한다.
+15. 마지막 멤버 이탈과 join/rejoin이 경합하면 group 행 잠금 순서에 따라 가입 선행은 그룹 유지, 종료 선행은 가입 0건 중 하나로 수렴한다.
+16. 실제 가입 2xx+s_log_only 뒤 전체 목록에 target이 확인될 때만 reconciliation이 1회 발행된다. `ALREADY_MEMBER`·목록 실패·target 미포함은 0건이고, 이 terminal 뒤의 후속 GA4 결과는 이전 F3 episode에 귀속되지 않는다.

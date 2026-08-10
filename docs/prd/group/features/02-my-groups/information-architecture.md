@@ -49,7 +49,7 @@ flowchart LR
                      ├── back [이 그룹으로 집중] → FocusCategory → 세션 시작
                      ├── back [방 전체 보기] → push GroupRoom → Back 시 같은 back 복귀
                      ├── back [⋯] → 공통 내 카드 아이콘 + role별 GroupSettings
-                     └── 앞면 우상단 ReorderHandle → 직접 drag/drop으로 순서 변경
+                     └── 앞면 우상단 ReorderHandle → drag/drop 또는 tap/click `순서 변경` popover로 순서 변경
 ```
 
 - `GroupListScreen`은 **그룹 탭의 첫 화면**(A-9: 소속 1개부터 항상 목록). 자체 백버튼 없음(`onBack` 미전달이 정상).
@@ -114,7 +114,7 @@ GroupListScreen
 1. **그룹 카드들** — 서버 응답이 현재 소속 집합과 DTO의 정본이다. 같은 기기에 저장한 현재 `userId`의 stable `groupId[]`와 reconcile한 순서로 표시하고, 저장값이 없으면 서버 순서로 시작한다. index 0이 첫 페이지다.
 2. **맨 끝 `그룹 찾기` 카드 1장** — 그룹 순서 변경 대상이 아니며 항상 마지막이다.
 3. 페이지 수는 **`groups.length + 1`** 이다. 찾기 카드는 구현상 `ListFooterComponent`로 붙인다.
-4. 순서 변경의 유일한 시각적 진입점은 **각 앞면 우상단 공용 `ReorderHandle`**이다.
+4. 순서 변경의 유일한 시각적 진입점은 **각 앞면 우상단 공용 `ReorderHandle`**이다. drag 외에 같은 handle의 짧은 tap/click은 해당 카드의 local `순서 변경` popover를 연다.
 
 `PageIndicator` mode는 페이지 수가 아니라 실제 레이아웃 폭으로 정한다.
 
@@ -131,10 +131,11 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 - 390pt 컨테이너에서 7페이지가 dots이고 8페이지가 compact인 것은 산식 결과의 예시이며 고정 임계값이 아니다.
 - 회전·분할 화면 등으로 컨테이너 실측 폭이 달라지면 mode를 다시 계산한다. mode만 바꾸고 현재 active `groupId`와 index는 유지한다.
 
-- grip을 직접 누르고 끌어 drop한다. 카드 몸체 탭·롱프레스·뒷면에서는 순서를 바꾸지 않는다.
+- grip을 직접 누르고 끌어 drop하거나, 짧게 tap/click해 해당 카드의 local `순서 변경` popover를 연다. 카드 몸체 탭·롱프레스·뒷면에서는 순서를 바꾸지 않는다.
 - grip에서 시작한 drag 동안 카드 flip과 carousel swipe는 발생하지 않는다.
 - drag가 좌우 가장자리 조건을 만족하면 덱이 순서를 바꾸지 않은 채 한 페이지씩 이동해 화면 밖 그룹을 drop 대상으로 보여 준다. `그룹 찾기` 페이지는 이동·drop 대상이 아니다.
-- 접근성 사용자는 같은 grip의 `앞으로 이동`·`뒤로 이동` action으로 동일한 결과를 얻는다. 별도 재정렬 버튼을 화면에 추가하지 않는다.
+- popover의 `앞으로 이동`·`뒤로 이동`은 유효한 한 slot을 즉시 commit하고, page 경계를 넘으면 새 페이지의 같은 카드·popover·focus를 유지한다. 첫·마지막 위치의 해당 방향은 disabled이며 `FindMoreCard`는 대상이 아니다. 처음에는 사용 가능한 첫 이동 control에, 둘 다 disabled면 `완료`에 focus하고, `완료`·Escape로 닫으면 출발 grip으로 돌린다. 외부 탭, 목록 변경·route 이탈은 popover만 닫고 이벤트·순서 변경을 만들지 않는다.
+- 접근성 사용자는 같은 grip의 `앞으로 이동`·`뒤로 이동` action으로 동일한 stable-ID reducer 결과를 얻는다. 별도 전역 재정렬 버튼을 화면에 추가하지 않는다.
 - 찾기 카드는 drag 대상·drop 대상에서 제외한다.
 - 공용 `components/reorder/ReorderHandle`은 현행 `CardOrderEditor`의 20pt `drag-vertical` 아이콘과 `T.inkSub` 색을 재사용하되, legacy 36×36 규격을 복사하지 않고 **최소 44×44pt 투명 hit target**으로 확장해 우상단에 배치한다.
 - 공용 핸들은 축과 카드 순서를 모른다. 통계의 feature-local `PanResponder`는 세로 controller로 남고, 그룹 캐러셀은 별도 horizontal axis adapter가 `pageX`·슬롯 폭·carousel swipe lock을 계산해 handlers만 핸들에 전달한다.
@@ -214,19 +215,19 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 
 ## 4. 내비게이션 관계 (Interaction → destination)
 
-| 트리거                  | 계약                       | 목적지/결과                                                                         |
-| ----------------------- | -------------------------- | ----------------------------------------------------------------------------------- |
-| 카드 앞면 탭            | 로컬 `flip(groupId)`       | 같은 카드의 뒷면 Room Summary. 라우트 변화 없음                                     |
-| 뒷면의 앞면 전환        | 로컬 `showFront(groupId)`  | 같은 자리 앞면                                                                      |
-| 뒷면 `이 그룹으로 집중` | 집중 진입 콜백             | 선택 그룹을 초기값으로 집중 플로우 진입                                             |
-| 뒷면 `방 전체 보기`     | 기존 `onSelect(groupId)`   | `GroupScreen`이 full `GroupRoom` route push                                         |
-| 뒷면 `⋯`                | 설정 진입                  | 동일 groupId의 공통 `내 카드 아이콘` + role별 `GroupSettings`                       |
-| 앞면 grip drag/drop     | 로컬 순서 변경 + 기기 저장 | 그룹 카드 순서를 즉시 바꾸고 현재 `userId`의 `groupId[]`로 저장. 찾기 footer는 고정 |
-| 헤더 `+`                | `onCreate()`               | `GroupScreen`이 전이 세우고 `GroupCreate` push                                      |
-| 헤더 `🔍`               | `onFind()`                 | `GroupScreen`이 `GroupFindSheet` open                                               |
-| 끝 찾기 카드 탭         | `onFind()`                 | 헤더 `🔍`와 같은 시트                                                               |
-| 좌우 스와이프           | (내부 상태)                | 페이지 index 변경 + 인디케이터 갱신 (+ `group_carousel_paged` 계측)                 |
-| ~~당겨서 새로고침~~     | ~~`onRefresh()`~~          | 호출 지점 없음. 갱신은 `GroupScreen` 포커스 재조회                                  |
+| 트리거                                     | 계약                       | 목적지/결과                                                                                     |
+| ------------------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| 카드 앞면 탭                               | 로컬 `flip(groupId)`       | 같은 카드의 뒷면 Room Summary. 라우트 변화 없음                                                 |
+| 뒷면의 앞면 전환                           | 로컬 `showFront(groupId)`  | 같은 자리 앞면                                                                                  |
+| 뒷면 `이 그룹으로 집중`                    | 집중 진입 콜백             | 선택 그룹을 초기값으로 집중 플로우 진입                                                         |
+| 뒷면 `방 전체 보기`                        | 기존 `onSelect(groupId)`   | `GroupScreen`이 full `GroupRoom` route push                                                     |
+| 뒷면 `⋯`                                   | 설정 진입                  | 동일 groupId의 공통 `내 카드 아이콘` + role별 `GroupSettings`                                   |
+| 앞면 grip drag/drop 또는 tap/click popover | 로컬 순서 변경 + 기기 저장 | drag는 drop 때, popover는 유효 이동 때 즉시 같은 `groupId[]` reducer로 저장. 찾기 footer는 고정 |
+| 헤더 `+`                                   | `onCreate()`               | `GroupScreen`이 전이 세우고 `GroupCreate` push                                                  |
+| 헤더 `🔍`                                  | `onFind()`                 | `GroupScreen`이 `GroupFindSheet` open                                                           |
+| 끝 찾기 카드 탭                            | `onFind()`                 | 헤더 `🔍`와 같은 시트                                                                           |
+| 좌우 스와이프                              | (내부 상태)                | 페이지 index 변경 + 인디케이터 갱신 (+ `group_carousel_paged` 계측)                             |
+| ~~당겨서 새로고침~~                        | ~~`onRefresh()`~~          | 호출 지점 없음. 갱신은 `GroupScreen` 포커스 재조회                                              |
 
 **`onSelect` 의미 변경:** 콜백 시그니처는 유지하지만 호출 지점은 앞면 카드 전체에서 뒷면 `방 전체 보기`로 이동한다. 따라서 기존 카드 탭 라우팅 테스트는 카드 플립 계약에 맞게 갱신한다.
 

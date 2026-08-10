@@ -40,11 +40,12 @@ flowchart LR
 | 01 획득 | `group_invite_sheet_viewed`     | screen·C       | 초대 preview sheet가 실제 표시                                | 기존 `group_id`, `slug`, `entry=link\|deferred`                                         |
 | 01 획득 | `group_join_attempted`          | action·C       | 식별자 조회를 끝내고 검색·초대 가입 API를 보내기 직전         | `join_method`, `result_track`; 요청당 1회                                               |
 | 01 획득 | `group_joined`                  | result·S+S-LOG | 서버가 가입을 commit                                          | `join_method`; `appInstanceId`가 있으면 GA4에도 발행, 없으면 S-LOG만; 앱 중복 발행 금지 |
+| 01 획득 | `group_membership_reconciled`   | result·C       | 실제 가입 2xx 뒤 성공한 전체 목록에 요청 target이 포함        | `cause=join`, `result_track=s_log_only`; 요청당 1회, raw groupId 금지                   |
 | 02 탐색 | `group_card_deck_viewed`        | exposure·C     | 1개 이상 목록과 layout이 안정된 첫 렌더                       | `group_count_bucket`, `group_entry`, `guide_state`; focus당 1회                         |
 | 02 탐색 | `group_card_flipped`            | action·C       | 사용자 입력으로 face가 실제 변경                              | `to_face`, `trigger`, `group_count_bucket`; guide·animation·복귀 제외                   |
 | 02 탐색 | `group_carousel_paged`          | action·C       | 사용자 입력으로 active `groupId`가 변경                       | `trigger`, `from_index`, `to_index`, `group_count_bucket`; resize 제외                  |
 | 02 탐색 | `group_card_action_clicked`     | action·C       | 뒷면의 focus·room·settings 흐름이 수락                        | `action`, `role`, `back_source`; disabled·연타·no-op 제외                               |
-| 02 탐색 | `group_card_reordered`          | action·C       | pointer up 또는 접근성 이동으로 순서 commit                   | `trigger`, `from_index`, `to_index`, `group_count_bucket`; drag 중간 제외               |
+| 02 탐색 | `group_card_reordered`          | action·C       | drag drop·popover 유효 이동·접근성 이동으로 순서 commit       | `trigger`, `from_index`, `to_index`, `group_count_bucket`; drag 중간 제외               |
 | 02 탐색 | `group_card_icon_editor_viewed` | screen·C       | 아이콘 편집기가 실제 표시                                     | 설정 편집기만; 생성 inline picker와 구분                                                |
 | 02 탐색 | `group_card_icon_save_result`   | result·C       | 로컬 쓰기 성공·실패 확정                                      | `surface`, `result`; glyph 제외                                                         |
 | 02 탐색 | `tab_guide_completed`           | result·C       | 마지막 `시작`으로 안내가 닫힌 직후                            | `guide=groupDeck:v1`; session당 1회, key write와 분리                                   |
@@ -56,30 +57,31 @@ flowchart LR
 
 ## 3. 공통 enum과 수명
 
-| 속성                 | 허용값                                                                    |
-| -------------------- | ------------------------------------------------------------------------- |
-| `app_entry`          | `cold_start \| foreground \| auth_complete \| unknown`                    |
-| `auth_state`         | `guest \| member`                                                         |
-| `group_entry`        | `tab \| invite \| push \| return \| unknown`                              |
-| `tab`                | `home \| league \| group \| menu`                                         |
-| `entry_point`        | `empty \| header \| end_card`                                             |
-| `group_count_bucket` | `0 \| 1 \| 2_5 \| 6_10`                                                   |
-| `guide_state`        | `shown \| completed \| unknown`                                           |
-| `action`             | `focus \| room \| settings`                                               |
-| `role`               | `owner \| member`                                                         |
-| `to_face`            | `front \| back`                                                           |
-| `back_source`        | `user \| guide`                                                           |
-| `surface`            | `create \| settings`                                                      |
-| `result`             | `success \| failed`                                                       |
-| `entry_source`       | `group_card \| group_room \| group_find \| invite \| home_fab \| unknown` |
-| `join_method`        | `search \| invite \| deferred_invite`                                     |
-| `result_track`       | `ga4 \| s_log_only`                                                       |
-| `trigger`            | `card_tap \| swipe \| indicator_press \| drag \| accessibility_action`    |
-| `leave_reason`       | `self \| kicked`                                                          |
+| 속성                 | 허용값                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `app_entry`          | `cold_start \| foreground \| auth_complete \| unknown`                                    |
+| `auth_state`         | `guest \| member`                                                                         |
+| `group_entry`        | `tab \| invite \| push \| return \| unknown`                                              |
+| `tab`                | `home \| league \| group \| menu`                                                         |
+| `entry_point`        | `empty \| header \| end_card`                                                             |
+| `group_count_bucket` | `0 \| 1 \| 2_5 \| 6_10`                                                                   |
+| `guide_state`        | `shown \| completed \| unknown`                                                           |
+| `action`             | `focus \| room \| settings`                                                               |
+| `role`               | `owner \| member`                                                                         |
+| `to_face`            | `front \| back`                                                                           |
+| `back_source`        | `user \| guide`                                                                           |
+| `surface`            | `create \| settings`                                                                      |
+| `result`             | `success \| failed`                                                                       |
+| `entry_source`       | `group_card \| group_room \| group_find \| invite \| home_fab \| unknown`                 |
+| `join_method`        | `search \| invite \| deferred_invite`                                                     |
+| `result_track`       | `ga4 \| s_log_only`                                                                       |
+| `cause`              | `join`                                                                                    |
+| `trigger`            | `card_tap \| swipe \| indicator_press \| drag \| pointer_control \| accessibility_action` |
+| `leave_reason`       | `self \| kicked`                                                                          |
 
 - 초대 sheet의 기존 `entry=link|deferred`는 초대 내부 속성이다. 그룹 화면 유입의 `group_entry`와 섞지 않는다.
 - `back_source=guide`는 안내가 만든 뒷면을 사용자가 다시 flip하기 전까지만 유지한다. front로 돌아간 뒤 다시 연 back은 `user`다.
-- `trigger`는 이벤트별 허용값을 더 좁힌다. flip은 `card_tap|accessibility_action`, page는 `swipe|indicator_press|accessibility_action`, reorder는 `drag|accessibility_action`만 허용한다.
+- `trigger`는 이벤트별 허용값을 더 좁힌다. flip은 `card_tap|accessibility_action`, page는 `swipe|indicator_press|accessibility_action`, reorder는 `drag|pointer_control|accessibility_action`만 허용한다.
 - `group_left`의 최상위 서버 로그 `user_id`는 행위자가 아니라 **소속에서 빠진 사용자**다. 자발 이탈은 요청자, 강퇴는 `targetUserId`를 명시 오버로드로 기록하고 `leave_reason=self|kicked`로 구분한다. 방장 행위자 정보가 필요하면 기존 요청·감사 맥락을 사용하며 이벤트 payload에 raw ID를 중복 전송하지 않는다.
 - 현재 서버는 자발 이탈과 강퇴 모두 `group_id`만 남기고, 강퇴 로그의 최상위 `user_id`도 요청한 방장 MDC를 사용한다. 위 `group_left` 계약이 구현·export 검증되기 전에는 이 이벤트를 이탈률·강퇴율 KPI에 사용하지 않는다.
 - 현재 앱의 `group_viewed`는 소속 목록 확정 전에 발행하고 위 두 필수 속성을 보내지 않는다. 성공한 전체 목록 뒤로 발행 위치를 옮기고 typed payload를 검증하기 전에는 F3의 0개 사용자 분모로 사용하지 않는다.
@@ -107,6 +109,7 @@ F3 그룹 획득 → 소속 반영
     ├─ invite_link_opened → group_invite_sheet_viewed → group_join_attempted(invite|deferred_invite) → group_joined
     └─ group_create_started → group_create_submitted → group_created
   cold invite fallback: 열린 episode 없이 group_join_attempted(invite|deferred_invite, result_track=ga4) → group_joined
+  s_log_only terminal: 실제 join 2xx → target을 포함한 전체 목록 → group_membership_reconciled → unattributed 종료
   서버 성공 → 성공한 전체 소속 목록 확인 → 다음 목적 화면 노출
 ```
 
@@ -120,7 +123,9 @@ F3 그룹 획득 → 소속 반영
 - 수락되어 실제 API가 전송된 `group_join_attempted`·`group_create_submitted`는 반복 시도 진단으로 모두 남기되 분모를 늘리지 않는다. 단, 열린 episode가 없는 direct·deferred 초대의 첫 `result_track=ga4` join attempt만 `invite_intent` 분모 1건이다. `s_log_only`·검색 attempt는 fallback opener가 아니다. validation 실패·잠금 거절·disabled tap은 시도 이벤트 0건이다.
 - 같은 episode의 최초 `group_joined` 또는 `group_created`만 전환 1건으로 센다. 재전송·재시도·두 번째 성공은 무시하고, 30분 밖 결과는 이전 분모에 귀속하지 않는다. 이후 성공한 전체 0개 목록을 다시 본 시점에만 새 episode를 연다.
 - `empty`와 `invite_intent`는 분모의 의미가 다르므로 source별 전환율을 따로 보고하고 하나의 F3 비율로 합치지 않는다.
-- `appInstanceId`가 없어 `result_track=s_log_only`인 cold invite는 GA4 F3 episode·분모를 열지 않고 S-LOG 운영 지표에만 남긴다. 이미 열린 `empty` episode 안의 `s_log_only` 가입 시도는 계측 공백으로 별도 집계하며 제품 실패로 단정하지 않는다. episode 중 로그인 `user_id`가 바뀐 경우도 GA4 F3에서 제외하고, S-LOG 운영 집계와 GA4 전환율을 시간만으로 조인하거나 합산하지 않는다.
+- `group_membership_reconciled`는 가입 성공 전환을 대체하지 않는다. 실제 join 2xx의 `{targetGroupId, mutation=joined, resultTrack=s_log_only}`를 보존하고, 이어진 성공한 전체 목록이 1개 이상이며 target을 포함할 때만 발행한다. `ALREADY_MEMBER`·목록 실패/부분 응답·target 미포함·늦은 세대에는 발행하지 않는다.
+- 열린 `empty` episode에서 최초 reconciliation이 30분 안에 오면 그 시각에 `membership_observed_s_log_only`로 닫는다. 이는 `conversion=unattributed`이며 GA4 전환율 분자·분모에서 제외한다. 닫힌 뒤 도착한 `group_joined|group_created`는 이전 episode에 귀속하지 않는다. `result_track=ga4` reconciliation은 서버 after-commit 결과보다 먼저 올 수 있으므로 발행하지 않는다.
+- `appInstanceId`가 없어 `result_track=s_log_only`인 cold invite는 GA4 F3 episode·분모를 열지 않고 S-LOG 운영 지표에만 남긴다. episode 중 로그인 `user_id`가 바뀐 경우도 GA4 F3에서 제외하고, S-LOG 운영 집계와 GA4 전환율을 시간만으로 조인하거나 합산하지 않는다. reconciliation이 없으면 기존 30분 timeout으로 닫되 성공·실패로 단정하지 않는다.
 - CTA 의도 뒤 결과가 없으면 취소·background·navigation 실패일 수 있다. 클릭을 성공으로 해석하지 않는다.
 
 ## 5. 구현·검증 게이트
@@ -135,4 +140,5 @@ F3 그룹 획득 → 소속 반영
 8. 검색·초대 가입 각각에서 식별자 조회가 끝난 직후 `group_join_attempted(join_method,result_track)`와 가입 API가 연속 호출되고, `appInstanceId` 있음은 GA4+S-LOG, 없음은 비차단 S-LOG 결과가 되는지 검증한다.
 9. F3 export fixture에서 같은/다른 `user_pseudo_id`, 29분 59초/30분 초과, 반복 0개 화면·시도·결과, 계정 전환을 검증해 episode당 분모·전환이 각각 최대 1건인지 확인한다.
 10. cold direct·deferred에서 `group_viewed(0)` 없이 `result_track=ga4` attempt→joined가 `invite_intent` episode 1·전환 1인지, `s_log_only`는 episode 0인지, 열린 `empty` episode 뒤 초대 시도는 분모 0건 추가인지, preview·로그인 대기만으로는 episode 0건인지 검증한다.
-11. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.
+11. `empty` episode의 s_log_only join 2xx→target 포함 전체 목록은 reconciliation 1건과 `unattributed` 종료를 만들고, ALREADY_MEMBER·목록 실패·target 미포함은 0건인지 검증한다. 종료 뒤 두 번째 join/create 결과가 이전 episode에 귀속되지 않아야 한다.
+12. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.

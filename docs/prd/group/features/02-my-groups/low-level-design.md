@@ -89,17 +89,28 @@ flowchart TB
 flowchart TD
     Input["사용자 입력"] --> Guide{"첫 안내가 진행 중인가?"}
     Guide -->|예| GuideOnly["안내의 다음 · 시작만 처리<br/>일반 카드 입력 차단"]
-    Guide -->|아니오| Surface{"입력한 위치"}
+    Guide -->|아니오| PopoverOpen{"순서 변경 popover가<br/>열려 있는가?"}
+    PopoverOpen -->|아니오| Surface{"입력한 위치"}
+    PopoverOpen -->|예| Popover["해당 카드의 순서 변경 popover"]
 
     Surface -->|뒷면 행동 버튼| CTA{"사용 가능하고 처리 중이 아닌가?"}
     CTA -->|예| Action["집중 · 전체 방 · 설정 중<br/>선택한 행동 하나"]
     CTA -->|아니오| Noop["상태 변화 없음<br/>사용자 행동 이벤트 없음"]
 
-    Surface -->|순서 변경 손잡이| Drag{"현재 drag 결과"}
+    Surface -->|순서 변경 손잡이 drag| Drag{"현재 drag 결과"}
     Drag -->|좌우 가장자리 유지| Edge["한 페이지 자동 이동<br/>순서 배열은 아직 그대로"]
     Edge --> Drag
     Drag -->|유효 그룹 위치에 drop| Reorder["순서 변경 한 번 확정"]
     Drag -->|취소 · 끝 경계 · 찾기 카드| Noop
+
+    Surface -->|순서 변경 손잡이 tap/click| Popover
+    Popover -->|앞으로 · 뒤로 유효 이동| Move["한 slot 순서 변경 확정"]
+    Move -->|page 경계| PopoverPage["한 페이지 자동 이동<br/>같은 카드·popover·focus 유지"]
+    PopoverPage --> Popover
+    Move -->|같은 page| Popover
+    Popover -->|완료 · Escape · 외부 탭 · 목록 변경 · route 이탈| Noop
+    Popover -->|끝 경계 · 찾기 카드| Noop
+    Popover -->|swipe · flip · CTA| Noop
 
     Surface -->|수평 넘김| Page{"활성 페이지가 바뀌었는가?"}
     Page -->|예| Normalize["새 페이지 표시<br/>이전 뒷면은 앞면으로 정리"]
@@ -109,10 +120,11 @@ flowchart TD
     Surface -->|끝의 찾기 카드| Find["그룹 찾기 열기"]
 ```
 
-- 순서 변경 중에는 사용자 page swipe와 flip을 시작하지 않는다. 단, drag의 가장자리 보조 동작은 관성 없이 한 페이지씩 programmatic 이동한다.
+- 순서 변경 중에는 사용자 page swipe·flip·CTA를 시작하지 않는다. drag의 가장자리 보조 동작은 관성 없이 한 페이지씩 programmatic 이동하고, popover의 유효 이동이 page 경계를 넘으면 같은 카드·popover·focus를 유지한 채 한 페이지 이동한다.
 - 수평 넘김이 시작되면 본문 탭은 취소한다.
-- 가장자리 page 이동 자체는 순서와 이벤트를 바꾸지 않는다. 유효 drop만 reorder 1건이며 취소·첫/마지막 경계·`FindMoreCard`는 0건이다.
-- 접근성의 `앞으로 이동`·`뒤로 이동`도 같은 순서 변경 결과로 합류한다. page 경계를 넘으면 새 페이지로 이동한 grip에 focus를 유지한다.
+- 가장자리·popover page 이동 자체는 순서와 이벤트를 바꾸지 않는다. drag는 유효 drop만 reorder 1건이며, popover와 접근성 action은 유효한 한 slot 이동마다 같은 stable-ID reducer로 reorder 1건이다. popover open/close·취소·첫/마지막 disabled 경계·`FindMoreCard`는 0건이다.
+- popover의 `앞으로 이동`·`뒤로 이동`과 접근성의 같은 action은 동일 reducer로 합류한다. page 경계를 넘으면 새 페이지의 같은 카드에 popover와 focus를 유지한다.
+- popover를 열면 첫 번째 사용 가능한 이동 control에, 둘 다 disabled면 `완료`에 focus를 둔다. `완료`·Escape로 닫으면 출발한 grip으로 focus를 돌린다. 목록 변경·route 이탈로 카드가 사라지는 경우에는 popover만 닫고 사라진 grip으로 focus를 강제 복원하지 않는다.
 - 안내의 자동 뒤집기, 다시 그리기, 애니메이션 완료, 취소 입력은 사용자 행동으로 기록하지 않는다.
 
 ---
@@ -253,10 +265,10 @@ flowchart LR
 
 필수 출시 게이트는 네 가지다.
 
-1. **정체성·복귀:** 5·10개 카드의 cross-page 재정렬, 목록 갱신·방 왕복 뒤에도 같은 `groupId`를 가리키며, 찾기 카드·사라진 카드는 순서에 넣거나 복원하지 않는다.
+1. **정체성·복귀:** 5·10개 카드의 drag 및 단일 포인터 popover cross-page 재정렬, 목록 갱신·방 왕복 뒤에도 같은 `groupId`를 가리키며, 찾기 카드·사라진 카드는 순서에 넣거나 복원하지 않는다.
 2. **개인화·늦은 응답:** 빠른 변경과 계정 전환에서도 최신 의도와 계정 영역을 보존하고, 과거 응답을 다른 카드에 표시하지 않는다.
 3. **데이터 신뢰:** 부분 실패는 해당 영역에만 남고, 집중 상태의 불명·실패·100 이상을 `0명`으로 표시하지 않는다.
-4. **안내·접근성·계측:** 안내의 읽기·중단·저장 실패와 자동 전환을 각각 검증한다. 자동 전환의 사용자 이벤트는 0건이고 완료 이벤트는 저장 성공과 무관하게 1건이다. 그룹명은 모든 위치에서 1줄 말줄임, 접근성 이름은 원문 전체이며, DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
+4. **안내·접근성·계측:** 안내의 읽기·중단·저장 실패와 자동 전환을 각각 검증한다. drag 없는 popover의 5·10개 cross-page 이동, disabled 경계·FindMore 제외·focus/popover 유지를 검증한다. 자동 전환의 사용자 이벤트는 0건이고 완료 이벤트는 저장 성공과 무관하게 1건이다. 그룹명은 모든 위치에서 1줄 말줄임, 접근성 이름은 원문 전체이며, DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
 
 ## 9. 확정된 구현 결정
 

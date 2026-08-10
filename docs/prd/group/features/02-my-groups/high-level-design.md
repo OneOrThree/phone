@@ -78,15 +78,15 @@ flowchart TB
 
 상위 그룹 화면이 route·계정·목록·overlay queue를 소유하고, 덱과 카드는 표시 상태와 사용자 의도를 위임받는다. 카드 한 장의 실패가 화면 전체나 다른 카드의 상태를 소유하지 않는다.
 
-| 책임 영역              | 소유하는 것                                                                        | 소유하지 않는 것               |
-| ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------ |
-| 그룹 화면              | 인증 계정, 성공한 전체 목록, route, 화면 공유 cache, 안내 queue                    | 카드 제스처·face 내부 상태     |
-| 카드 덱                | active `groupId`, page, face, drag 가장자리 page 이동, 순서 변경, 마지막 찾기 카드 | 멤버십·서버 권한               |
-| 카드                   | 앞·뒷면 렌더, 영역별 loading/ready/error, CTA 의도 전달                            | 전체 방 데이터·집중 세션 결과  |
-| 원격 adapter           | 기존 API 조합, keyed cache, retry·late-response guard                              | 새 도메인 정책·서버 필드       |
-| 로컬 설정              | 계정별 순서·아이콘 reconcile와 직렬 저장                                           | 소속·역할·다기기 동기화        |
-| 안내 조정              | eligibility, 4단계 진행, 중단·완료, programmatic back                              | 요약 데이터의 성공 대기        |
-| 공용 reorder primitive | grip 표현·접근성 action·stable ID 이동                                             | 세로·가로 화면별 좌표 알고리즘 |
+| 책임 영역              | 소유하는 것                                                                                          | 소유하지 않는 것               |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 그룹 화면              | 인증 계정, 성공한 전체 목록, route, 화면 공유 cache, 안내 queue                                      | 카드 제스처·face 내부 상태     |
+| 카드 덱                | active `groupId`, page, face, drag 가장자리 및 popover 이동의 page 전환, 순서 변경, 마지막 찾기 카드 | 멤버십·서버 권한               |
+| 카드                   | 앞·뒷면 렌더, 영역별 loading/ready/error, CTA 의도 전달                                              | 전체 방 데이터·집중 세션 결과  |
+| 원격 adapter           | 기존 API 조합, keyed cache, retry·late-response guard                                                | 새 도메인 정책·서버 필드       |
+| 로컬 설정              | 계정별 순서·아이콘 reconcile와 직렬 저장                                                             | 소속·역할·다기기 동기화        |
+| 안내 조정              | eligibility, 4단계 진행, 중단·완료, programmatic back                                                | 요약 데이터의 성공 대기        |
+| 공용 reorder primitive | grip drag·tap/click popover·접근성 action의 stable ID 이동                                           | 세로·가로 화면별 좌표 알고리즘 |
 
 ---
 
@@ -182,15 +182,15 @@ flowchart TD
 
 ## 4. UI 기술 선택
 
-| 판단      | 선택                                                     | 이유                                                       |
-| --------- | -------------------------------------------------------- | ---------------------------------------------------------- |
-| 가로 탐색 | 기존 React Native list·paging primitives 사용            | 최대 그룹 수가 작고 새 캐러셀 의존성이 필요하지 않음       |
-| 앞·뒷면   | 같은 card shell 안에서 face만 전환                       | 화면 맥락·크기·stable `groupId` 유지                       |
-| 순서 변경 | 앞면 grip drag + 덱 가장자리 한 페이지 이동              | 일반 page swipe·flip·CTA와 충돌 없이 화면 밖 drop 지원     |
-| 모션      | 기본 flip, Reduce Motion에서는 cross-fade 또는 즉시 전환 | 상태·포커스 의미는 모션 설정과 무관하게 동일               |
-| 긴 이름   | 모든 surface 1줄 tail ellipsis, 접근성은 원문 전체       | 레이아웃을 보호하면서 정보 손실을 보조기술에 전파하지 않음 |
+| 판단      | 선택                                                                           | 이유                                                       |
+| --------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| 가로 탐색 | 기존 React Native list·paging primitives 사용                                  | 최대 그룹 수가 작고 새 캐러셀 의존성이 필요하지 않음       |
+| 앞·뒷면   | 같은 card shell 안에서 face만 전환                                             | 화면 맥락·크기·stable `groupId` 유지                       |
+| 순서 변경 | 앞면 grip drag + 덱 가장자리 한 페이지 이동, 또는 grip tap/click local popover | drag 없는 단일 포인터도 화면 밖 카드까지 이동 가능         |
+| 모션      | 기본 flip, Reduce Motion에서는 cross-fade 또는 즉시 전환                       | 상태·포커스 의미는 모션 설정과 무관하게 동일               |
+| 긴 이름   | 모든 surface 1줄 tail ellipsis, 접근성은 원문 전체                             | 레이아웃을 보호하면서 정보 손실을 보조기술에 전파하지 않음 |
 
-가장자리 이동은 덱이 page 위치를, 공용 reorder primitive가 stable ID 이동 의도를 소유한다. page 이동 중에는 순서 배열을 바꾸지 않고 유효 그룹 slot에 drop할 때만 commit한다. 구체 list 속성, animation 값, drag 임계, testID는 구현 코드와 테스트가 정본이다. 사용자에게 보이는 치수·상호작용은 [UX 정본](./ux-design.md), 입력 경합은 [LLD §3](./low-level-design.md#3-한-번의-입력은-한-가지-결과만-만든다)를 따른다.
+가장자리 이동은 덱이 page 위치를, 공용 reorder primitive가 drag·popover·접근성 action의 stable ID 이동 의도를 소유한다. drag는 유효 그룹 slot drop 때만 commit하고, popover·접근성 action은 유효한 앞/뒤 한 slot마다 즉시 같은 reducer를 commit한다. popover가 page 경계를 넘으면 덱은 programmatic 이동 뒤 같은 카드의 popover와 focus를 유지한다. popover의 열기·닫기 focus와 CTA 차단은 [UX 정본](./ux-design.md#42-재정렬-grip과-저장-피드백)과 [LLD §3](./low-level-design.md#3-한-번의-입력은-한-가지-결과만-만든다)을 따른다. 구체 list 속성, animation 값, drag 임계, testID는 구현 코드와 테스트가 정본이다.
 
 ## 5. 상태 소유권
 
@@ -301,16 +301,16 @@ flowchart LR
 
 ## 8. 설계 리스크
 
-| 리스크 묶음        | 실패 형태                                         | 설계 완화                                                        |
-| ------------------ | ------------------------------------------------- | ---------------------------------------------------------------- |
-| 신원·복귀          | 재정렬·목록 갱신 뒤 다른 그룹을 열거나 복원       | 모든 전달·캐시·복귀를 stable `groupId`로 연결                    |
-| 입력 경합          | 한 제스처가 page·flip·reorder를 함께 실행         | surface별 입력 소유권과 cancel 규칙을 분리                       |
-| 데이터 증폭·오염   | 카드마다 중복 조회하거나 A 응답을 B에 표시        | 첫 back lazy load, keyed cache·in-flight 공유, 늦은 응답 guard   |
-| 불완전한 집중 상태 | 누락 사용자를 0명으로 오판                        | raw 100행은 미산출, 운영 90 경고·100 전 대체 계약                |
-| 계정 간 로컬 누출  | 순서·아이콘의 다른 계정 덮어쓰기                  | userId bucket, key별 직렬 저장, 성공한 전체 목록에서만 reconcile |
-| 안내 중첩·오계측   | sheet와 겹치거나 자동 back을 사용자 flip으로 기록 | overlay queue, 중단 상태, programmatic source와 once guard       |
-| 접근성·반응형      | 숨은 face 노출, 작은 grip, 긴 이름·indicator 충돌 | active face만 노출, custom action, 측정 폭 기반 표시, 원문 label |
-| 도메인 드리프트    | 카드가 방·운영·챌린지 정책을 복제                 | compact read adapter와 기존 route만 제공하고 각 정본에 링크      |
+| 리스크 묶음        | 실패 형태                                                                | 설계 완화                                                                               |
+| ------------------ | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 신원·복귀          | 재정렬·목록 갱신 뒤 다른 그룹을 열거나 복원                              | 모든 전달·캐시·복귀를 stable `groupId`로 연결                                           |
+| 입력 경합          | 한 제스처가 page·flip·reorder를 함께 실행                                | surface별 입력 소유권과 cancel 규칙을 분리                                              |
+| 데이터 증폭·오염   | 카드마다 중복 조회하거나 A 응답을 B에 표시                               | 첫 back lazy load, keyed cache·in-flight 공유, 늦은 응답 guard                          |
+| 불완전한 집중 상태 | 누락 사용자를 0명으로 오판                                               | raw 100행은 미산출, 운영 90 경고·100 전 대체 계약                                       |
+| 계정 간 로컬 누출  | 순서·아이콘의 다른 계정 덮어쓰기                                         | userId bucket, key별 직렬 저장, 성공한 전체 목록에서만 reconcile                        |
+| 안내 중첩·오계측   | sheet와 겹치거나 자동 back을 사용자 flip으로 기록                        | overlay queue, 중단 상태, programmatic source와 once guard                              |
+| 접근성·반응형      | 숨은 face 노출, 작은 grip, drag만 가능한 reorder, 긴 이름·indicator 충돌 | active face만 노출, popover·custom action의 같은 reducer, 측정 폭 기반 표시, 원문 label |
+| 도메인 드리프트    | 카드가 방·운영·챌린지 정책을 복제                                        | compact read adapter와 기존 route만 제공하고 각 정본에 링크                             |
 
 ## 9. 범위 경계
 
@@ -324,7 +324,7 @@ flowchart LR
 ## 10. 출시 전 설계 게이트
 
 1. [LLD §8](./low-level-design.md#8-구현출시-검증)의 신원·계정 race·부분 실패·안내·계측 시나리오가 테스트 위치와 연결되어야 한다.
-2. 앞면→뒷면→방, 앞면 grip 재정렬, 안내 4단계는 [UX 정본](./ux-design.md)의 형성평가·접근성 gate를 통과해야 한다.
+2. 앞면→뒷면→방, 앞면 grip drag와 tap/click popover 재정렬, 안내 4단계는 [UX 정본](./ux-design.md)의 형성평가·접근성 gate를 통과해야 한다.
 3. 현재 집중 상태는 운영 90 경고와 100 전 대체 계약이 배정되고, runtime loading·error·100행을 0명으로 표시하지 않아야 한다.
 4. 기존 그룹·리그 API와 전체 방·집중·운영 route 회귀가 없어야 한다.
 5. [공통 분석 계약](../../shared/analytics.md)의 F1~F3, once, 귀속, 금지 payload를 DebugView에서 증명해야 한다.
