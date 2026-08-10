@@ -11,6 +11,30 @@
 --    (서비스, 그룹 행 배타 락)만 통과하면 복수 허용.
 -- 4) 활성 목록 부분 인덱스 — 목록 조회·활성 4개 상한(FR-1) 검사 경로.
 
+-- ── 0) 사전 검사 — OPEN 내기가 걸린 상한 초과 하루형이 있으면 여기서 멈춘다 ──
+-- 클램프는 목표값을 바꾼다. OPEN 내기가 걸린 챌린지의 목표를 바꾸면 참가자가 돈을 건 시점과
+-- 다른 조건으로 판정된다(돈 경로 — 정산은 되돌리지 않는다 §B8). 그런 행은 무조건 고치지 않고
+-- 운영자가 해당 내기를 먼저 정산/무효화한 뒤 재실행하게 명시적으로 중단한다(V35 사전 검사 패턴).
+-- OPEN 내기가 없는 초과 행만 아래 3)에서 경계 클램프된다.
+DO $$
+DECLARE
+    blocked integer;
+BEGIN
+    SELECT count(*)
+    INTO blocked
+    FROM public.group_challenge_durations d
+             JOIN public.group_challenges c ON c.id = d.challenge_id
+    WHERE ((c.category = 'FOCUS' AND d.duration_minutes > 1080)
+        OR (c.category = 'SCREEN_TIME' AND d.duration_minutes > 720))
+      AND EXISTS (SELECT 1
+                  FROM public.group_challenge_bets b
+                  WHERE b.challenge_id = d.challenge_id
+                    AND b.status = 'OPEN');
+    IF blocked > 0 THEN
+        RAISE EXCEPTION 'V36 중단 — OPEN 내기가 걸린 상한 초과 하루형 % 건 존재. 클램프하면 참가 시점과 다른 목표로 판정된다 — 해당 내기를 정산/무효화한 뒤 재실행할 것 (N51 · GROMO-1405)', blocked;
+    END IF;
+END $$;
+
 -- ── 1) 부모 UNIQUE (id, category) ────────────────────────────────────
 ALTER TABLE public.group_challenges
     ADD CONSTRAINT uq_group_challenges_id_category UNIQUE (id, category);
@@ -35,7 +59,8 @@ ALTER TABLE public.group_challenge_durations
 
 -- CHECK 교체 전에 상한 밖 기존 행을 경계값으로 클램프한다(V28 관행 — plain CHECK 는 기존 행을
 -- 즉시 검증하므로 위반 행이 있으면 배포(부팅)가 막힌다). 상한 초과 목표는 어차피 UI 가 거부하는
--- 값이라 경계 클램프가 의미 보존에 가장 가깝다.
+-- 값이라 경계 클램프가 의미 보존에 가장 가깝다. 여기 도달한 초과 행에는 OPEN 내기가 없음이
+-- 0) 사전 검사로 보증돼 있다 — 목표 변경이 진행 중인 돈 경로를 건드리지 않는다.
 UPDATE public.group_challenge_durations
 SET duration_minutes = 1080
 WHERE category = 'FOCUS' AND duration_minutes > 1080;

@@ -291,6 +291,26 @@ class ChallengeCreatedNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("TIME_WINDOW 문구 — 요일이 매일이 아니면 '월·수·금' 처럼 실제 요일을 나열한다 (GROMO-1260)")
+    void composesTimeWindowMessageWithRepeatDays() {
+        // 월·수·금(1|4|16=21) 창형 — 고정 "매일" 은 이 챌린지에 거짓 문구다(@codex 리뷰 ④).
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group())
+                .category(MissionCategory.SCREEN_TIME).type(MissionType.TIME_WINDOW)
+                .repeatDays(0b0010101)
+                .status(GroupChallengeStatus.ACTIVE).createdAt(CREATED_AT).build();
+        given(groupChallengeWindowRepository.findByChallengeIdIn(anyCollection()))
+                .willReturn(List.of(GroupChallengeWindow.builder()
+                        .challengeId(CHALLENGE_ID).challenge(challenge)
+                        .windowStart(LocalTime.of(21, 0))
+                        .windowEnd(LocalTime.of(23, 30))
+                        .durationMinutes(30)
+                        .build()));
+
+        assertThat(service.missionLabel(challenge)).isEqualTo("월·수·금 21:00~23:30 30분 스크린타임");
+    }
+
+    @Test
     @DisplayName("상세 행이 없으면 목표를 지어내지 않고 카테고리 명사로 떨어뜨린다")
     void fallsBackToCategoryLabelWithoutDetail() {
         GroupChallenge challenge = durationChallenge();

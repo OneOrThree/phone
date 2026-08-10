@@ -54,6 +54,7 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -142,7 +143,8 @@ public class GroupChallengeService {
 
         // 내기(오늘 것 + 지난 정산 1건)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
         Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
-                challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
+                challengeIds, date, userId,
+                myAchievedByChallengeId(challenges, durations, windows, progress, date, userId));
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
 
         // 휴면 배지(GROMO-1201) — 이력·OPEN 보유 챌린지 id 를 각각 IN 절 1회로 배치 조회한다(N+1 없음).
@@ -176,7 +178,7 @@ public class GroupChallengeService {
                             .status(c.getStatus())
                             .startedAt(c.getStartedAt())
                             .createdAt(c.getCreatedAt())
-                            .memberProgress(memberProgressOf(c, duration, window, progress))
+                            .memberProgress(memberProgressOf(c, duration, window, progress, date))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
                             .dormant(challengeIdsWithBetHistory.contains(c.getId())
@@ -215,12 +217,17 @@ public class GroupChallengeService {
             Map<UUID, GroupChallengeDuration> durations,
             Map<UUID, GroupChallengeWindow> windows,
             ProgressSnapshot progress,
+            LocalDate date,
             UUID userId) {
         if (progress == null) {
             return Map.of();
         }
         Map<UUID, Boolean> achieved = new LinkedHashMap<>();
         for (GroupChallenge challenge : challenges) {
+            // 비활성 요일은 판정하지 않는다(FR-9) — 맵에서 빠져 myAchievedNow 가 null(판정 불가)로 나간다.
+            if (!RepeatSchedule.activeOn(challenge.getRepeatDays(), date)) {
+                continue;
+            }
             Integer goalMinutes = goalMinutesOf(challenge, durations, windows);
             if (goalMinutes == null) {
                 continue;
@@ -298,7 +305,9 @@ public class GroupChallengeService {
         }
         List<UUID> userIds = users.stream().map(User::getId).toList();
 
+        // 비활성 요일(FR-9)은 통계 조회 대상도 아니다 — 그날 도는 챌린지만 로드한다.
         List<GroupChallenge> targets = challenges.stream()
+                .filter(c -> RepeatSchedule.activeOn(c.getRepeatDays(), date))
                 .filter(c -> isProgressTarget(c, durations.get(c.getId()), windows.get(c.getId())))
                 .toList();
 
@@ -401,9 +410,23 @@ public class GroupChallengeService {
      */
     private List<ChallengeMemberProgressResponse> memberProgressOf(
             GroupChallenge challenge, GroupChallengeDuration duration, GroupChallengeWindow window,
-            ProgressSnapshot progress) {
+            ProgressSnapshot progress, LocalDate date) {
         if (progress == null || !isProgressTarget(challenge, duration, window)) {
             return null;
+        }
+
+        // 비활성 요일에는 진행률을 재지 않는다(FR-9 · §A3). 멤버 행은 유지하되 progressMinutes·achieved 를
+        // 전원 null(판정 불가 3상)로 내보낸다 — 구앱은 null 을 '—'(미집계)로 렌더하므로 shape 안전.
+        // 통계도 loadProgressSnapshot 의 targets 필터가 같은 기준으로 아예 조회하지 않는다.
+        if (!RepeatSchedule.activeOn(challenge.getRepeatDays(), date)) {
+            return progress.members().stream()
+                    .map(member -> ChallengeMemberProgressResponse.builder()
+                            .userId(member.getUser().getId())
+                            .nickname(member.getUser().getNickname())
+                            .progressMinutes(null)
+                            .achieved(null)
+                            .build())
+                    .toList();
         }
 
         boolean screenTime = challenge.getCategory() == MissionCategory.SCREEN_TIME;
@@ -582,6 +605,12 @@ public class GroupChallengeService {
     private int resolveRepeatDaysMask(CreateChallengeRequest request) {
         if (request.getRepeatDays() == null) {
             return RepeatSchedule.EVERYDAY;
+        }
+        // Jackson 은 [null] 원소를 통과시킨다 — 비트 접기 전에 거르지 않으면 NPE 500 이 된다.
+        // 의미상 "요일을 안 고른 것"과 같으므로 빈 배열과 동일하게 400 으로 수렴시킨다.
+        // contains(null) 은 List.of 계열(불변 리스트)에서 그 자체로 NPE 라 스트림 스캔으로 거른다.
+        if (request.getRepeatDays().stream().anyMatch(Objects::isNull)) {
+            throw new GroupException(GroupErrorCode.CHALLENGE_REPEAT_DAYS_REQUIRED);
         }
         int mask = RepeatDay.maskOf(request.getRepeatDays());
         if (!RepeatSchedule.isValidMask(mask)) {

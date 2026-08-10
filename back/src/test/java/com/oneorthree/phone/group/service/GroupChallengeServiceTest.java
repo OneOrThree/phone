@@ -11,6 +11,7 @@ import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
@@ -818,6 +819,39 @@ class GroupChallengeServiceTest {
 
         // then: 끝난 챌린지에 당일 통계를 대조하면 과거 진행률이 매일 바뀌므로 계산 자체를 하지 않는다
         assertThat(result.get(0).getMemberProgress()).isNull();
+        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+    }
+
+    @Test
+    @DisplayName("비활성 요일 조회 — memberProgress 전원 null(판정 불가 3상) + activeToday=false, 통계 미조회 (FR-9)")
+    void getChallengesReturnsNullProgressOnInactiveDay() {
+        // given: 조회 날짜(TODAY)의 요일이 repeatDays 에 없는 DURATION 챌린지 — 도는 날이 아니다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        int inactiveTodayMask = RepeatSchedule.bit(TODAY.plusDays(1).getDayOfWeek());
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE)
+                .repeatDays(inactiveTodayMask)
+                .build();
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 멤버 행은 유지하되 진행분·판정은 전원 null — 구앱은 null 을 '—'(미집계)로 렌더한다.
+        // 비활성 요일에 그날 통계를 대조하면 "주말에 억울한 미달성"이 찍힌다(§A3) — 조회 자체를 안 한다.
+        assertThat(result.get(0).isActiveToday()).isFalse();
+        assertThat(result.get(0).getMemberProgress())
+                .isNotNull()
+                .isNotEmpty()
+                .allSatisfy(row -> {
+                    assertThat(row.getProgressMinutes()).isNull();
+                    assertThat(row.getAchieved()).isNull();
+                });
         verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
@@ -1743,6 +1777,28 @@ class GroupChallengeServiceTest {
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
         given(request.getRepeatDays()).willReturn(List.of());
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_REPEAT_DAYS_REQUIRED);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("repeatDays [null] 원소 → CHALLENGE_REPEAT_DAYS_REQUIRED 400 — 비트 접기 NPE(500) 방지")
+    void createChallengeRejectsNullRepeatDayElement() {
+        // Jackson 은 ["MON"] 자리의 null 원소를 그대로 통과시킨다 — 빈 배열과 같은 "미선택"으로 접는다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(Arrays.asList((RepeatDay) null));
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))

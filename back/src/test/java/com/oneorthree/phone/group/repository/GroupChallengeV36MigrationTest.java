@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -91,6 +92,33 @@ class GroupChallengeV36MigrationTest {
     }
 
     @Test
+    @DisplayName("OPEN 내기가 걸린 상한 초과 하루형이 있으면 V36 이 명시적 메시지로 중단된다 — 목표 클램프가 돈 경로를 못 건드린다")
+    void abortsWhenOpenBetOnOverCapDuration() {
+        givenV35StateWithDurations();
+        // 상한 초과(FOCUS 1440) 챌린지에 OPEN 내기 — 클램프하면 참가 시점과 다른 목표로 판정된다.
+        UUID bettor = insertUser();
+        insertBet(FOCUS_DURATION_ID, bettor, "OPEN");
+
+        assertThatThrownBy(() -> migrate(MigrationVersion.fromVersion("36")))
+                .isInstanceOf(FlywayException.class)
+                .hasMessageContaining("V36 중단");
+    }
+
+    @Test
+    @DisplayName("정산이 끝난(SETTLED) 내기는 중단 사유가 아니다 — 초과 행은 그대로 클램프된다")
+    void settledBetDoesNotBlockClamp() {
+        givenV35StateWithDurations();
+        // 같은 초과 챌린지라도 OPEN 이 아니면 판정할 돈이 안 남아 있다 — 사전 검사를 통과해야 한다.
+        UUID bettor = insertUser();
+        insertBet(FOCUS_DURATION_ID, bettor, "SETTLED");
+
+        migrate(MigrationVersion.fromVersion("36"));
+
+        assertThat(((Number) durationOf(FOCUS_DURATION_ID).get("duration_minutes")).intValue())
+                .isEqualTo(1080);
+    }
+
+    @Test
     @DisplayName("유니크 완화 — 같은 (그룹, 카테고리) 활성 창형은 복수 허용(FR-3), 활성 하루형은 여전히 1개")
     void relaxesActiveUniqueToDurationOnly() {
         givenV35StateWithDurations();
@@ -140,6 +168,24 @@ class GroupChallengeV36MigrationTest {
                         + " repeat_days, started_at)"
                         + " VALUES (?, ?, ?, ?, ?, now(), 127, now())",
                 id, GROUP_ID, type, category, status);
+    }
+
+    private UUID insertUser() {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate().update(
+                "INSERT INTO users (id, created_at, is_guest, nickname, is_deleted)"
+                        + " VALUES (?, now(), false, '내기꾼', false)",
+                id);
+        return id;
+    }
+
+    /** V19 스키마의 내기 삽입 — 사전 검사(OPEN 내기 가드) 재현용. */
+    private void insertBet(UUID challengeId, UUID creatorUserId, String status) {
+        jdbcTemplate().update(
+                "INSERT INTO group_challenge_bets (id, group_id, challenge_id, creator_user_id,"
+                        + " stake, bet_date, status, created_at, updated_at)"
+                        + " VALUES (?, ?, ?, ?, 30, current_date, ?, now(), now())",
+                UUID.randomUUID(), GROUP_ID, challengeId, creatorUserId, status);
     }
 
     private void insertDuration(UUID challengeId, String category, int minutes) {

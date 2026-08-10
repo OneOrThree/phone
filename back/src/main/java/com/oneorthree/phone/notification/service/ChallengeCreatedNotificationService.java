@@ -7,6 +7,8 @@ import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.dto.RepeatDay;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
@@ -217,10 +219,37 @@ public class ChallengeCreatedNotificationService {
         if (window.isEmpty()) {
             return categoryLabel(challenge);
         }
-        String span = "매일 " + hhmm(window.get().getWindowStart())
+        String span = repeatLabel(challenge.getRepeatDays()) + " " + hhmm(window.get().getWindowStart())
                 + "~" + hhmm(window.get().getWindowEnd()) + " ";
         Integer goal = window.get().getDurationMinutes();
         return goal != null ? span + goal + "분 " + what : span + what;
+    }
+
+    /**
+     * 요일 반복 표기(§A3 · GROMO-1260) — 매일(127)이면 "매일", 아니면 실제 요일을 "월·수·금" 으로
+     * 나열한다. 종전 고정 "매일" 은 월수금 챌린지에 거짓 문구였다(@codex 리뷰 ④).
+     * 나열 순서는 {@link RepeatDay#listOf} 가 보장하는 월~일 정렬 그대로다.
+     */
+    private static String repeatLabel(int repeatDays) {
+        if (repeatDays == RepeatSchedule.EVERYDAY) {
+            return "매일";
+        }
+        return RepeatDay.listOf(repeatDays).stream()
+                .map(ChallengeCreatedNotificationService::koreanDay)
+                .collect(Collectors.joining("·"));
+    }
+
+    /** 요일 한 글자 한국어 표기 — 푸시 문구 전용(앱 카드 표기와 동일 어휘). */
+    private static String koreanDay(RepeatDay day) {
+        return switch (day) {
+            case MON -> "월";
+            case TUE -> "화";
+            case WED -> "수";
+            case THU -> "목";
+            case FRI -> "금";
+            case SAT -> "토";
+            case SUN -> "일";
+        };
     }
 
     /** 목표를 못 만든 챌린지의 폴백 — 앱의 {@code categoryLabel} 과 같은 명칭. */

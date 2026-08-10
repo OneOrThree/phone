@@ -259,5 +259,17 @@ class GroupChallengeWindowTimeWireTest extends IntegrationTestBase {
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("CHALLENGE_REPEAT_DAYS_REQUIRED"));
+
+        // [null] 원소 — Jackson 이 통과시키는 꼴. 비트 접기 NPE(500)가 아니라 같은 400 으로 수렴해야 한다.
+        mockMvc.perform(post("/api/v1/groups/{groupId}/challenges", group.getId())
+                        .header("Authorization", bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"missionCategory":"FOCUS","missionType":"TIME_WINDOW",
+                                 "repeatDays":[null],
+                                 "durationMinutes":60,"windowStart":"14:00:00","windowEnd":"16:00:00"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CHALLENGE_REPEAT_DAYS_REQUIRED"));
     }
 }
