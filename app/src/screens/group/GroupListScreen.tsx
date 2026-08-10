@@ -192,6 +192,11 @@ export default function GroupListScreen({
     const identity = activeIdentityRef.current;
     const next =
       identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
+    if (identity !== null && next < 0) {
+      pendingFlipGroupIdRef.current = null;
+      pendingFaceFocusRef.current = null;
+      setFlippedGroupId(null);
+    }
     const safeIndex =
       next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;

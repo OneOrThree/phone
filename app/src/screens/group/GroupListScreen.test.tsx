@@ -228,6 +228,37 @@ describe('콜백', () => {
     expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
   });
 
+  test('열린 그룹이 목록에서 제거되면 해당 flip 상태를 영구 폐기한다', async () => {
+    const a = group();
+    const b = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
+    const view = await renderList([a, b]);
+    await press(`group.card.${GROUP_ID}`);
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[b]}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+    await view.rerender(
+      <GroupListScreen
+        groups={[a, b]}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId(`group.card.back.${GROUP_ID}`, { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
     await renderList([group()]);
 
