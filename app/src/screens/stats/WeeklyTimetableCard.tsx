@@ -245,7 +245,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => v
                   key={j}
                   style={[
                     s.wttBlock,
-                    m.css(growUp(j)),
+                    m.enter(growUp(j)),
                     {
                       left: b.col * colW + 3,
                       width: colW - 6,

@@ -40,7 +40,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
   });
   return (
     <View style={s.donutRow}>
-      <Animated.View style={[s.donutWrap, m.css(fadeIn())]}>
+      <Animated.View style={[s.donutWrap, m.enter(fadeIn())]}>
         <Svg width={DONUT_SIZE} height={DONUT_SIZE}>
           <Circle
             cx={half}
@@ -75,7 +75,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
       </Animated.View>
       <View style={s.donutLegend}>
         {placed.map((sg, i) => (
-          <Animated.View key={i} style={[s.donutLegendRow, m.css(enterUp(i))]}>
+          <Animated.View key={i} style={[s.donutLegendRow, m.enter(enterUp(i))]}>
             <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
             <Text style={s.donutLegendName} numberOfLines={1}>
               {sg.name}

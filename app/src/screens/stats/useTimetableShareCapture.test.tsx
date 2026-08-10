@@ -25,6 +25,7 @@ let mockReduce = false;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
   useReduceMotionReady: () => true,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 const ENTER_MS = 1160; // staggerDelay(6) 360 + M.dur.entrance 800

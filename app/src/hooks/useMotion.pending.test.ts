@@ -8,6 +8,7 @@ jest.mock('./useReduceMotion', () => ({
   // 미확정 구간에서 useReduceMotion이 돌려주는 보수적 값
   useReduceMotion: () => true,
   useReduceMotionReady: () => false,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 describe('useMotion (ready=false)', () => {

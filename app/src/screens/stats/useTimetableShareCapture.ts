@@ -11,6 +11,7 @@ import { useCallback, useRef, useState } from 'react';
 import { View, Share, Platform, type ViewStyle } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useMotion } from '@/hooks/useMotion';
+import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
 import { logStatsShared, type StatsShareCard } from '@/services/analyticsEvents';
 
 // 캐릭터 onLoad가 끝내 안 와도 공유가 막히지 않도록 하는 상한(FocusSessionScreen 캡처 선례 참고).
@@ -135,6 +136,10 @@ export function useTimetableShareCapture({
       //    누르는 보통의 경우엔 아무 비용이 없다.
       //    ⚠️ **capturing을 켜기 전에** 기다린다. 켜 놓고 기다리면 그 1초 남짓 동안 캡처 전용
       //       chrome(브랜드 밴드·여백)이 실제 화면에 그대로 보이고 카드가 늘어난다(codex 리뷰).
+      //    ⚠️ '동작 줄이기' 확정을 **먼저** 기다린다. 미확정 구간의 보수적 reduce=true는
+      //       m.delay를 0으로 만들어 대기를 통째로 건너뛴다 — 설정을 켜지 않은 사용자의
+      //       진입 애니메이션이 도는 중에 캡처가 찍힌다(결정 D-30).
+      await whenReduceMotionReady();
       await waitUntil(loadedAtRef.current + m.delay(enterMs));
       // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지.
       //    ⚠️ 게이트를 **chrome을 붙이기 전에 등록**한다. 등록 전에 이미지 onLoad가 오면 신호를

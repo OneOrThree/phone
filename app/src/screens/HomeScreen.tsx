@@ -12,7 +12,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import type { ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -276,10 +275,6 @@ function PhoneUsageRow({
     </View>
   );
 }
-
-// 진입 애니메이션의 **시작 프레임**. enterUp 프리셋에서 직접 뽑아 두 값이 갈리지 않게 한다.
-// '동작 줄이기' 조회가 끝나기 전, 요소를 미리 노출하지 않고 이 상태로 대기시킨다.
-const ENTER_PENDING = (enterUp(0).animationName as { from: ViewStyle }).from;
 
 export default function HomeScreen() {
   // 목표는 온보딩값(집중=goalSeconds, 사용시간=screenTimeGoalSeconds).
@@ -570,14 +565,11 @@ export default function HomeScreen() {
   }, [m.ready, m.reduce]);
   // CSS API에는 reduce-motion 내장 처리가 없다 — 반드시 m.css()를 통과시킨다.
   //
-  // ⚠️ **확정 전에는 진입 '시작 프레임'을 유지한다.** 미확정 구간의 보수적 reduce=true는
-  //    m.css()를 undefined로 만들어 상단바·방·오늘 카드를 첫 프레임에 **완전히 노출**하는데,
-  //    이후 false로 확정되면 같은 노드에 enterUp이 붙으며 fillMode:'backwards'의 시작 상태
-  //    (opacity 0 · translateY 12)로 **사라졌다가 다시 나타난다**(codex 리뷰).
-  //    시작 프레임에서 기다리면 어느 쪽으로 확정되든 이어지는 그림에 끊김이 없다.
-  //    값은 프리셋에서 뽑는다 — 손으로 옮겨 적으면 프리셋이 바뀔 때 조용히 어긋난다.
-  const enter = (index: number) =>
-    entering ? (m.ready ? m.css(enterUp(index)) : ENTER_PENDING) : undefined;
+  // ⚠️ 진입 프리셋은 **m.css가 아니라 m.enter**를 통과시킨다. m.css는 미확정 구간의 보수적
+  //    reduce=true에 스타일을 통째로 걷어내 상단바·방·오늘 카드를 첫 프레임에 완전히
+  //    노출하는데, 이후 false로 확정되면 같은 노드에 enterUp이 붙으며 시작 상태로
+  //    사라졌다가 다시 나타난다(codex 리뷰). m.enter는 확정 전 시작 프레임을 유지한다.
+  const enter = (index: number) => (entering ? m.enter(enterUp(index)) : undefined);
 
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 오늘 카드·집중 FAB를 차례로 설명.
   // FAB는 탭바(다른 트리)에 있어 ref 대신 레이아웃 수식(fabWindowRect)으로 스포트라이트.

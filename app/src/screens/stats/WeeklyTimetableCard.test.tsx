@@ -26,6 +26,7 @@ jest.mock('@/services/analyticsEvents', () => ({ logStatsShared: jest.fn() }));
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => false,
   useReduceMotionReady: () => true,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 jest.mock('@react-navigation/native', () => ({
   useFocusEffect: (cb: () => void | (() => void)) => {
