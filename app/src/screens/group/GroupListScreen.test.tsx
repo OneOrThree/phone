@@ -498,12 +498,7 @@ describe('콜백', () => {
       onRefresh,
     };
     const view = await render(
-      <GroupListScreen
-        {...props}
-        screenFocused
-        viewEpisodeId={0}
-        successfulListVersion={1}
-      />,
+      <GroupListScreen {...props} screenFocused viewEpisodeId={0} successfulListVersion={1} />,
     );
     await press(`group.card.${GROUP_ID}`);
     await waitFor(() => expect(getGroupDetail).toHaveBeenCalledTimes(1));
@@ -519,12 +514,7 @@ describe('콜백', () => {
       />,
     );
     await view.rerender(
-      <GroupListScreen
-        {...props}
-        screenFocused
-        viewEpisodeId={1}
-        successfulListVersion={2}
-      />,
+      <GroupListScreen {...props} screenFocused viewEpisodeId={1} successfulListVersion={2} />,
     );
     await screen.findByTestId(`group.card.room.${GROUP_ID}`);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -620,12 +610,7 @@ describe('콜백', () => {
       />,
     );
     await view.rerender(
-      <GroupListScreen
-        {...props}
-        groups={[second]}
-        screenFocused
-        successfulListVersion={2}
-      />,
+      <GroupListScreen {...props} groups={[second]} screenFocused successfulListVersion={2} />,
     );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
