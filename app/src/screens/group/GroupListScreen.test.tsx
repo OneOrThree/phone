@@ -5,12 +5,14 @@
 //     그룹에만** 붙는다. role을 뭉개면 남의 그룹에 방장 표시가 붙어 잘못된 권한을 기대하게 된다.
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo, View } from 'react-native';
 import * as ReactNative from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { logGroupCardFlipped, logGroupCarouselPaged } from '@/services/analyticsEvents';
+import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -81,6 +83,35 @@ beforeEach(() => {
 });
 
 describe('카드 렌더', () => {
+  test('안내 중 blocking overlay가 생긴 render에서는 가이드 Modal을 즉시 내린다', async () => {
+    resetGroupDeckGuideSessionForTests();
+    await AsyncStorage.removeItem('gromo:guide:groupDeck:v1');
+    const props = {
+      groups: [group()],
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+      userId: 'user-1',
+      guideEpisode: 1,
+      guideDataReady: true,
+    };
+    const view = await render(<GroupListScreen {...props} />);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 300 } },
+      });
+      fireEvent(screen.getByTestId(`group.list.card.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 300 } },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('group.list.guide')).toBeOnTheScreen());
+
+    await view.rerender(<GroupListScreen {...props} guideBlocked />);
+    expect(screen.queryByTestId('group.list.guide')).toBeNull();
+  });
+
   test('최신 목록 재조회 실패 시 유지된 덱의 일반 입력은 다시 연다', async () => {
     await render(
       <GroupListScreen

@@ -342,6 +342,27 @@ describe('카드 방문 귀속', () => {
       }),
     );
   });
+
+  test('NOT_FOUND 재확인에서 detail이 복구되면 원래 카드 interaction 귀속을 유지한다', async () => {
+    const acceptedAt = Date.now();
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockResolveGroupRoomNotFound.mockResolvedValueOnce({ kind: 'detail', detail: detail() });
+
+    await renderRoom({
+      entrySource: 'group_card',
+      interactionId: 'interaction-reconfirmed',
+      interactionAcceptedAt: acceptedAt,
+    });
+
+    await waitFor(() =>
+      expect(logGroupRoomViewed).toHaveBeenCalledWith({
+        group_id: GROUP_ID,
+        entry_source: 'group_card',
+        interaction_id: 'interaction-reconfirmed',
+      }),
+    );
+  });
 });
 
 describe('상세·공지 오류 분리', () => {

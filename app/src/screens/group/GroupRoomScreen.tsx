@@ -447,6 +447,13 @@ export default function GroupRoomScreen({
     let resolvedDetail: GroupDetailResponse | null =
       detailResult.status === 'fulfilled' ? detailResult.value : null;
 
+    const interruptInitialCardAttribution = () => {
+      if (roomViewedGroupIdRef.current !== groupId) {
+        // 최초 목적지 렌더가 최종 실패한 interaction은 재시도로 성공해도 원래 카드 CTA 결과가 아니다.
+        cardInteractionRef.current = interruptCardInteraction(cardInteractionRef.current);
+      }
+    };
+
     // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
     // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
     const convergeMembershipAbsence = (): boolean => {
@@ -464,12 +471,9 @@ export default function GroupRoomScreen({
     };
 
     if (detailResult.status === 'rejected') {
-      if (roomViewedGroupIdRef.current !== groupId) {
-        // 최초 목적지 렌더가 실패한 interaction은 재시도로 성공해도 원래 카드 CTA 결과가 아니다.
-        cardInteractionRef.current = interruptCardInteraction(cardInteractionRef.current);
-      }
       const code = groupErrorCode(detailResult.reason);
       if (code === 'MEMBER_ONLY') {
+        interruptInitialCardAttribution();
         // 서버가 활성 인증 뒤 멤버십 부재를 확인한 사후조건이라 직접 수렴할 수 있다.
         if (!convergeMembershipAbsence()) return false;
       } else if (code === 'NOT_FOUND') {
@@ -480,13 +484,16 @@ export default function GroupRoomScreen({
         if (resolution.kind === 'detail') {
           resolvedDetail = resolution.detail;
         } else if (resolution.kind === 'membership_absent') {
+          interruptInitialCardAttribution();
           if (!convergeMembershipAbsence()) return false;
         } else {
+          interruptInitialCardAttribution();
           // session_recovery는 공통 로그아웃 경계를 이미 시작했다. 트리가 남아 있는 동안에도
           // 성공 복귀로 보이지 않게 안전 오류를 둔다. 재확인 실패도 같은 명시 재시도 상태다.
           setError(true);
         }
       } else {
+        interruptInitialCardAttribution();
         setError(true);
       }
     }
