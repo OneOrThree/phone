@@ -176,7 +176,7 @@ GroupScreen
 | FR-05 | create 성공 전에는 아이콘을 저장하지 않고, 성공 응답 groupId에만 현재 userId의 값을 연결한다                                                                                                              | MUST     | F02-P1 | create 응답         | 미착수                     |
 | FR-06 | 서버 목록 성공 후 순서에서 stale·중복 ID를 제거하고 신규 ID를 뒤에 추가한다. FindMoreCard는 저장하지 않는다                                                                                               | MUST     | F02-P1 | 로컬 order store    | 미착수                     |
 | FR-07 | 앞면 본문 tap은 같은 카드를 flip하고 즉시 GroupRoom을 열지 않는다                                                                                                                                         | MUST     | F02-P1 | gesture 중재        | 미착수                     |
-| FR-08 | 입력 우선순위는 grip reorder, horizontal page, body flip, back CTA 순으로 충돌 없이 동작한다                                                                                                              | MUST     | F02-P1 | 공용 ReorderHandle  | 미착수                     |
+| FR-08 | grip reorder는 일반 page swipe·flip과 충돌하지 않으며, 가장자리 유지로 한 페이지씩 이동해 보이지 않던 그룹에도 drop할 수 있다                                                                             | MUST     | F02-P1 | 공용 ReorderHandle  | 미착수                     |
 | FR-09 | 뒷면에 현재 집중 인원, 하위 기능 compact 영역, 최신 공지 1개, 최대 5명 멤버 preview와 두 CTA를 표시한다                                                                                                   | MUST     | F02-P1 | 기존 read API       | 미착수                     |
 | FR-10 | 첫 flip에서 detail·announcements·challenges를 병렬 조회하고, 해당 KST 날짜 리그 원본 cache가 없으면 전역 요청을 한 번 시작한다                                                                            | MUST     | F02-P1 | 앱 cache            | 미착수                     |
 | FR-11 | 하위 기능 영역은 기존 응답을 read-only compact 표시하며 상태·정렬·진행률 의미를 새로 만들지 않는다. 상세 계약은 챌린지 정본을 따른다                                                                      | MUST     | F02-P1 | 챌린지 정본         | 미착수                     |
@@ -355,6 +355,8 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | F02-P3 | 제한 출시·4주 기준선             | F02-P1·F02-P2 통과, 대시보드 준비 | 노출·flip·CTA·D7 재방문·오류·그룹 수 분포 확보        | guardrail 악화·데이터 품질 실패 | 미착수 |
 | F02-P4 | 확대 또는 후속 실험              | 기준선·표본·오너 확정             | 목표·MDE와 별도 성장 PRD 승인                         | 90명 규모 경고 미대응·표본 부족 | 미착수 |
 
+상위 그룹 로드맵에는 `F02-P0 → G-P0`, `F02-P1~P2 → G-P2`, `F02-P3 → G-P3`, `F02-P4 → G-P4`로 대응한다. 기능 단계와 상위 단계를 같은 이름으로 간주하지 않는다.
+
 ### 기존 데이터·구버전 호환
 
 - 서버 migration은 없다.
@@ -419,7 +421,7 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | 3   | create에서 아이콘 선택·성공·실패                                                              | request body에는 emoji가 없고 성공 groupId에만 로컬 저장                                       | 통합            | 미착수    |
 | 4   | 아이콘 미설정·무효·쓰기 실패·계정 전환                                                        | 🎯 fallback, 현재 UI 유지, 다른 userId bucket 불변                                             | 단위·통합       | 미착수    |
 | 5   | 순서 hydration·신규 append·stale·중복·손상                                                    | 서버 멤버십은 불변이며 stable groupId 배열만 repair                                            | 단위·통합       | 미착수    |
-| 6   | grip drag·horizontal swipe·body tap·back CTA 충돌                                             | 각 입력이 한 결과만 만들고 grip tap은 no-op                                                    | E2E             | 미착수    |
+| 6   | grip drag·가장자리 page 이동·horizontal swipe·body tap·back CTA 충돌                          | 5·10개에서도 한 페이지씩 cross-page reorder; drop만 1회 commit, 취소·경계는 no-op              | E2E             | 미착수    |
 | 7   | 320·390·430·768pt × 그룹 1·5·6·7·10개                                                         | 공식에 따라 dots·compact 전환, active groupId 유지                                             | 단위·E2E        | 미착수    |
 | 8   | 첫 flip 네트워크 호출                                                                         | detail·공지·챌린지 병렬, 리그는 같은 KST 날짜 refresh cycle당 1회                              | 통합            | 미착수    |
 | 9   | 하위 기능 응답 0·1·복수와 조회 실패                                                           | 기존 응답의 신원·순서를 바꾸지 않고 compact 표시, 실패는 해당 영역에만 남음                    | 통합·E2E        | 미착수    |
@@ -464,7 +466,7 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | `F02-T1`  | horizontal peek carousel·indicator         | 앱                    | FR-01·18·21       | 폭×그룹 수 matrix 통과                                                                                                                                                          |
 | `F02-T2`  | 앞면·이름·아이콘 projection                | 앱·디자인             | `F02-T1`          | FR-02·03·19 통과                                                                                                                                                                |
 | `F02-T3`  | 생성·설정 아이콘 picker와 로컬 store       | 앱                    | 인증·create       | FR-04·05·15 통과                                                                                                                                                                |
-| `F02-T4`  | 공용 reorder primitive·순서 store          | 앱                    | `F02-T1`          | gesture·reconcile·접근성 통과                                                                                                                                                   |
+| `F02-T4`  | 공용 reorder primitive·순서 store          | 앱                    | `F02-T1`          | cross-page edge 이동·gesture·reconcile·접근성 통과                                                                                                                              |
 | `F02-T5`  | 뒷면 adapter·공유 집중 상태 cache          | 앱                    | 기존 API          | 호출 수·coverage 테스트 통과                                                                                                                                                    |
 | `F02-T6`  | 뒷면 영역 상태·CTA                         | 앱·디자인             | `F02-T5`          | 부분 실패·정보 과업 통과                                                                                                                                                        |
 | `F02-T7`  | GroupRoom 왕복 복원                        | 앱                    | `F02-T1`,`F02-T6` | stable `groupId` 복원 E2E 통과                                                                                                                                                  |

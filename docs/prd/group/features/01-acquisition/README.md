@@ -10,23 +10,24 @@
 
 ## 코드·테스트 시작점
 
-| 구분             | 시작점                                                                                                                                                                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 앱 화면·전환     | `app/src/screens/group/GroupScreen.tsx`, `GroupCreateScreen.tsx`, `components/GroupFindSheet.tsx`, `components/GroupInviteSheet.tsx`, `app/src/navigation/RootNavigator.tsx`                                                                         |
-| 앱 API·초대 복원 | `app/src/services/groupApi.ts`, `inviteLinkApi.ts`, `deferredInvite.ts`, `app/src/utils/inviteLink.ts`                                                                                                                                               |
-| 서버             | `back/src/main/java/com/oneorthree/phone/group/api/GroupController.java`, `group/service/GroupService.java`, `invitelink/service/InviteLinkService.java`                                                                                             |
-| 기존 테스트      | `GroupCreateScreen.test.tsx`, `GroupScreen.test.tsx`, `components/GroupFindSheet.test.tsx`, `components/GroupInviteSheet.test.tsx`, `services/deferredInvite.test.ts`, `back/src/test/java/com/oneorthree/phone/group/service/GroupServiceTest.java` |
+| 구분                  | 시작점                                                                                                                                                                                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 앱 화면·전환          | `app/src/screens/group/GroupScreen.tsx`, `GroupCreateScreen.tsx`, `components/GroupFindSheet.tsx`, `components/GroupInviteSheet.tsx`, `app/src/navigation/RootNavigator.tsx`                                                                         |
+| 앱 API·분석·초대 복원 | `app/src/services/groupApi.ts`, `analytics.ts`, `inviteLinkApi.ts`, `deferredInvite.ts`, `app/src/utils/inviteLink.ts`                                                                                                                               |
+| 서버                  | `back/src/main/java/com/oneorthree/phone/group/api/GroupController.java`, `group/service/GroupService.java`, `invitelink/service/InviteLinkService.java`                                                                                             |
+| 기존 테스트           | `GroupCreateScreen.test.tsx`, `GroupScreen.test.tsx`, `components/GroupFindSheet.test.tsx`, `components/GroupInviteSheet.test.tsx`, `services/deferredInvite.test.ts`, `back/src/test/java/com/oneorthree/phone/group/service/GroupServiceTest.java` |
 
 ## 담당 역할과 작업 패키지
 
-- **앱:** 생성·찾기·초대 UI, 중복 요청 잠금, 성공 뒤 목록 재확인과 `groupId` 목적지 전환.
+- **앱:** 생성·찾기·초대 UI, 현재 비공개 안내 완화, 검색 가입의 `appInstanceId` 전달, 중복 요청 잠금, 성공 뒤 목록 재확인과 `groupId` 목적지 전환.
 - **서버:** 비공개 가입 시 `inviteSlug` 유효성·그룹 공개 범위를 강제하고 오류 계약을 확정.
-- **QA/분석:** 직접·복원 초대, 생성·가입 성공 뒤 목록 실패, 중복 탭·늦은 응답을 회귀 검증하고 이벤트 품질을 확인.
+- **QA/분석:** 직접·복원·검색 가입의 GA4/S-LOG 결과, 생성·가입 성공 뒤 목록 실패, 중복 탭·늦은 응답을 회귀 검증한다.
 
 ## 출시 게이트
 
 - 생성·가입은 요청당 한 번만 전송되며, 성공 뒤 전체 목록이 확인되기 전 빈 상태나 중복 생성으로 수렴하지 않는다.
-- 비공개 그룹 출시를 invite-only로 주장하려면 서버 enforcement와 해당 통합 테스트가 먼저 통과해야 한다.
+- 다음 앱 배포 전 `초대 링크를 받은 사람만`이라는 현재 문구를 `검색 비노출·링크 공유` 사실로 완화한다. invite-only를 다시 주장하려면 서버 enforcement와 우회 가입 통합 테스트가 먼저 통과해야 한다.
+- 검색 가입은 `appInstanceId`를 best-effort로 전달하며, 값이 없어도 가입과 S-LOG 결과를 막지 않는다.
 - 새 초대·계정·화면 전환 뒤 늦은 응답이 현재 `groupId` 목적지를 바꾸지 않는다.
 
 ## 상위 정본

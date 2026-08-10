@@ -78,15 +78,15 @@ flowchart TB
 
 상위 그룹 화면이 route·계정·목록·overlay queue를 소유하고, 덱과 카드는 표시 상태와 사용자 의도를 위임받는다. 카드 한 장의 실패가 화면 전체나 다른 카드의 상태를 소유하지 않는다.
 
-| 책임 영역              | 소유하는 것                                                     | 소유하지 않는 것               |
-| ---------------------- | --------------------------------------------------------------- | ------------------------------ |
-| 그룹 화면              | 인증 계정, 성공한 전체 목록, route, 화면 공유 cache, 안내 queue | 카드 제스처·face 내부 상태     |
-| 카드 덱                | active `groupId`, page, face, 순서 변경, 마지막 찾기 카드       | 멤버십·서버 권한               |
-| 카드                   | 앞·뒷면 렌더, 영역별 loading/ready/error, CTA 의도 전달         | 전체 방 데이터·집중 세션 결과  |
-| 원격 adapter           | 기존 API 조합, keyed cache, retry·late-response guard           | 새 도메인 정책·서버 필드       |
-| 로컬 설정              | 계정별 순서·아이콘 reconcile와 직렬 저장                        | 소속·역할·다기기 동기화        |
-| 안내 조정              | eligibility, 4단계 진행, 중단·완료, programmatic back           | 요약 데이터의 성공 대기        |
-| 공용 reorder primitive | grip 표현·접근성 action·stable ID 이동                          | 세로·가로 화면별 좌표 알고리즘 |
+| 책임 영역              | 소유하는 것                                                                        | 소유하지 않는 것               |
+| ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------ |
+| 그룹 화면              | 인증 계정, 성공한 전체 목록, route, 화면 공유 cache, 안내 queue                    | 카드 제스처·face 내부 상태     |
+| 카드 덱                | active `groupId`, page, face, drag 가장자리 page 이동, 순서 변경, 마지막 찾기 카드 | 멤버십·서버 권한               |
+| 카드                   | 앞·뒷면 렌더, 영역별 loading/ready/error, CTA 의도 전달                            | 전체 방 데이터·집중 세션 결과  |
+| 원격 adapter           | 기존 API 조합, keyed cache, retry·late-response guard                              | 새 도메인 정책·서버 필드       |
+| 로컬 설정              | 계정별 순서·아이콘 reconcile와 직렬 저장                                           | 소속·역할·다기기 동기화        |
+| 안내 조정              | eligibility, 4단계 진행, 중단·완료, programmatic back                              | 요약 데이터의 성공 대기        |
+| 공용 reorder primitive | grip 표현·접근성 action·stable ID 이동                                             | 세로·가로 화면별 좌표 알고리즘 |
 
 ---
 
@@ -186,11 +186,11 @@ flowchart TD
 | --------- | -------------------------------------------------------- | ---------------------------------------------------------- |
 | 가로 탐색 | 기존 React Native list·paging primitives 사용            | 최대 그룹 수가 작고 새 캐러셀 의존성이 필요하지 않음       |
 | 앞·뒷면   | 같은 card shell 안에서 face만 전환                       | 화면 맥락·크기·stable `groupId` 유지                       |
-| 순서 변경 | 앞면의 명시적 grip만 drag 소유                           | page·flip·CTA 입력과 충돌 방지                             |
+| 순서 변경 | 앞면 grip drag + 덱 가장자리 한 페이지 이동              | 일반 page swipe·flip·CTA와 충돌 없이 화면 밖 drop 지원     |
 | 모션      | 기본 flip, Reduce Motion에서는 cross-fade 또는 즉시 전환 | 상태·포커스 의미는 모션 설정과 무관하게 동일               |
 | 긴 이름   | 모든 surface 1줄 tail ellipsis, 접근성은 원문 전체       | 레이아웃을 보호하면서 정보 손실을 보조기술에 전파하지 않음 |
 
-구체 list 속성, animation 값, drag 임계, testID는 구현 코드와 테스트가 정본이다. 사용자에게 보이는 치수·상호작용은 [UX 정본](./ux-design.md), 입력 경합은 [LLD §3](./low-level-design.md#3-한-번의-입력은-한-가지-결과만-만든다)를 따른다.
+가장자리 이동은 덱이 page 위치를, 공용 reorder primitive가 stable ID 이동 의도를 소유한다. page 이동 중에는 순서 배열을 바꾸지 않고 유효 그룹 slot에 drop할 때만 commit한다. 구체 list 속성, animation 값, drag 임계, testID는 구현 코드와 테스트가 정본이다. 사용자에게 보이는 치수·상호작용은 [UX 정본](./ux-design.md), 입력 경합은 [LLD §3](./low-level-design.md#3-한-번의-입력은-한-가지-결과만-만든다)를 따른다.
 
 ## 5. 상태 소유권
 

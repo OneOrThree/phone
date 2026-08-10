@@ -133,6 +133,7 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 
 - grip을 직접 누르고 끌어 drop한다. 카드 몸체 탭·롱프레스·뒷면에서는 순서를 바꾸지 않는다.
 - grip에서 시작한 drag 동안 카드 flip과 carousel swipe는 발생하지 않는다.
+- drag가 좌우 가장자리 조건을 만족하면 덱이 순서를 바꾸지 않은 채 한 페이지씩 이동해 화면 밖 그룹을 drop 대상으로 보여 준다. `그룹 찾기` 페이지는 이동·drop 대상이 아니다.
 - 접근성 사용자는 같은 grip의 `앞으로 이동`·`뒤로 이동` action으로 동일한 결과를 얻는다. 별도 재정렬 버튼을 화면에 추가하지 않는다.
 - 찾기 카드는 drag 대상·drop 대상에서 제외한다.
 - 시각·터치 규격은 현행 `CardOrderEditor`에서 추출한 공용 `components/reorder/ReorderHandle`을 사용한다: `MaterialCommunityIcons`의 `drag-vertical` 20pt·`T.inkSub`, 36×36 투명 hit box, 우상단 배치.
