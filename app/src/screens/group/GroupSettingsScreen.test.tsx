@@ -140,9 +140,10 @@ beforeEach(() => {
 });
 
 describe('허브 — 행 노출', () => {
-  test('방장은 관리 행 + 나가기를 보고, 프로필 설정하기는 GroupProfileEdit 로 이동한다', async () => {
+  test('방장은 역할 공통 아이콘 + 관리 행 + 나가기를 본다', async () => {
     await renderScreen();
 
+    expect(screen.getByTestId('group.settings.cardEmoji')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();
@@ -155,14 +156,30 @@ describe('허브 — 행 노출', () => {
     expect(mockNavigate).toHaveBeenCalledWith('GroupProfileEdit', { groupId: GROUP_ID });
   });
 
-  test('비방장은 나가기만 보고 관리 행은 없다', async () => {
+  test('MEMBER도 아이콘과 나가기는 보지만 OWNER 관리 행은 보지 않는다', async () => {
     mockGetGroupDetail.mockResolvedValue(memberDetail());
     await renderScreen();
 
     expect(screen.getByTestId('group.settings.leave')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.settings.cardEmoji')).toBeOnTheScreen();
     expect(screen.queryByTestId('group.settings.profile')).toBeNull();
     expect(screen.queryByTestId('group.settings.transfer')).toBeNull();
     expect(screen.queryByTestId('group.settings.members')).toBeNull();
+  });
+
+  test('OWNER와 MEMBER 모두 같은 로컬 아이콘 편집 route로 이동한다', async () => {
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.cardEmoji'));
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupCardEmojiEdit', { groupId: GROUP_ID });
+
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.cardEmoji'));
+    });
+    expect(mockNavigate).toHaveBeenLastCalledWith('GroupCardEmojiEdit', { groupId: GROUP_ID });
   });
 });
 
