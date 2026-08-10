@@ -1,7 +1,9 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
+import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
+import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -79,6 +81,8 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
     FocusSessionRepository focusSessionRepository;
     @Autowired
     CurrencyTransactionRepository currencyTransactionRepository;
+    @Autowired
+    CurrencyLedgerService currencyLedgerService;
     @Autowired
     UserRepository userRepository;
     @Autowired
@@ -245,6 +249,65 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("락 대기 중 참가가 취소돼도 집중 저장 트랜잭션은 살아남는다 — 1차 캐시 유령 행 금지(⑤)")
+    void survivesParticipantDeletedWhileWaitingForLock() {
+        LocalDate today = LocalDate.now(KST);
+        Instant midnight = today.plusDays(1).atStartOfDay(KST).toInstant();
+        User user = stakedUser("취소자");
+        User peer = stakedUser("잔류자");
+        GroupChallengeBetSession session = session(durationChallenge(MissionCategory.FOCUS),
+                today, midnight, midnight, midnight.plus(Duration.ofHours(1)));
+        GroupChallengeBetParticipant mine = join(session, user);
+        join(session, peer);
+        stats.add(dailyFocusStatRepository.save(DailyFocusStat.builder()
+                .user(user).date(today).totalFocusSeconds(GOAL_MINUTES * 60).build()));
+
+        // 대상 조회와 확정 사이에 그 참가 행이 사라지는 상황을 재현한다 — 취소·탈퇴가 회차 락을
+        // 먼저 쥐고 지운 뒤 커밋한 경우다. 대상 조회가 엔티티를 미리 올려 두면 이후 findById 가
+        // 1차 캐시의 유령을 돌려주고, 그걸 수정한 flush 가 0건 UPDATE 로 터져 이 트랜잭션(집중
+        // 세션·통계·보상)이 통째로 롤백된다.
+        inTransaction.executeWithoutResult(tx -> {
+            groupBetEarlyWinConfirmer.lockCandidateSessions(user, List.of(today));
+            groupChallengeBetParticipantRepository.deleteById(mine.getId());
+            groupChallengeBetParticipantRepository.flush();
+            // 예외 없이 지나가야 한다 — 사라진 행은 확정 대상에서 조용히 빠진다.
+            groupBetEarlyWinConfirmer.confirmWins(user, List.of(today));
+        });
+
+        assertThat(groupChallengeBetParticipantRepository.findById(mine.getId())).isEmpty();
+        // 회차는 그대로 OPEN — 남의 취소가 판정·정산을 흔들지 않았다.
+        assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow()
+                .getStatus()).isEqualTo(GroupBetStatus.OPEN);
+    }
+
+    @Test
+    @DisplayName("선잠금이 지갑보다 먼저다 — 회차 락을 쥔 채 판정·확정이 끝난다(락 순서 ②)")
+    void locksSessionsBeforeWalletMutation() {
+        LocalDate today = LocalDate.now(KST);
+        Instant midnight = today.plusDays(1).atStartOfDay(KST).toInstant();
+        User user = stakedUser("선잠금");
+        User peer = stakedUser("동료");
+        GroupChallengeBetSession session = session(durationChallenge(MissionCategory.FOCUS),
+                today, midnight, midnight, midnight.plus(Duration.ofHours(1)));
+        GroupChallengeBetParticipant mine = join(session, user);
+        join(session, peer);
+        stats.add(dailyFocusStatRepository.save(DailyFocusStat.builder()
+                .user(user).date(today).totalFocusSeconds(GOAL_MINUTES * 60).build()));
+
+        // FocusService 의 실제 순서를 재현한다: 회차 선잠금 → 지갑 변경 → 통계 → 확정.
+        inTransaction.executeWithoutResult(tx -> {
+            groupBetEarlyWinConfirmer.lockCandidateSessions(user, List.of(today));
+            currencyLedgerService.credit(user, CurrencyTransactionType.SESSION_COMPLETE, 10,
+                    "test:lock-order:" + session.getId());
+            groupBetEarlyWinConfirmer.confirmWins(user, List.of(today));
+        });
+
+        // 같은 트랜잭션이 회차 락을 먼저 쥐었으므로 정산 경로와 순서가 같다 — 확정이 정상 커밋된다.
+        assertThat(reload(mine).getAchieved()).isTrue();
+        assertThat(reload(mine).getAchievedAt()).isNotNull();
+    }
+
+    @Test
     @DisplayName("참가 마감 이후 마지막 확정이 커밋되면 AFTER_COMMIT 연쇄로 EARLY 정산까지 간다(그레이스 우회)")
     void lastConfirmationTriggersEarlySettlementAfterCommit() {
         LocalDate today = LocalDate.now(KST);
@@ -252,10 +315,10 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
         User first = stakedUser("선확정");
         User last = stakedUser("마지막확정");
 
-        // 창형 — 참가 마감(창 시작)은 지났고 settle_after(창 끝+30분)는 미래인 회차.
+        // 창형 — 실효 참가 마감(브리지 = 창 종료)은 지났고 settle_after(창 끝+30분)는 미래인 회차.
         GroupChallengeBetSession session = session(windowChallenge(), today,
-                now.minus(Duration.ofHours(2)), now.plus(Duration.ofMinutes(30)),
-                now.plus(Duration.ofHours(1)));
+                now.minus(Duration.ofHours(2)), now.minus(Duration.ofMinutes(5)),
+                now.plus(Duration.ofMinutes(25)));
         GroupChallengeBetParticipant firstJoin = groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder()
                         .session(session).user(first).achieved(true).progressMinutes(GOAL_MINUTES)

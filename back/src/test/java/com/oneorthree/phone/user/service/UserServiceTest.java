@@ -674,7 +674,8 @@ class UserServiceTest {
     @DisplayName("스크린타임 권한 변경 성공 → screen settings 에 granted 값 반영")
     void updateScreenTimePermissionSuccess() {
         UserScreenTimeSettings settings = UserScreenTimeSettings.builder().userId(USER_ID).build();
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(settings));
+        // 배타 잠금 조회 (GROMO-1409·N50) — 내기 참여의 권한 가드(공유 잠금)와 설정 행에서 직렬화한다.
+        given(userScreenTimeSettingsRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(settings));
 
         UpdateScreenTimePermissionRequest request = mock(UpdateScreenTimePermissionRequest.class);
         given(request.getGranted()).willReturn(true);
@@ -687,7 +688,7 @@ class UserServiceTest {
     @Test
     @DisplayName("스크린타임 권한 변경 - 설정 없음 → UserException(NOT_FOUND)")
     void updateScreenTimePermissionNotFound() {
-        given(userScreenTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.empty());
+        given(userScreenTimeSettingsRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.updateScreenTimePermission(USER_ID, null))
                 .isInstanceOf(UserException.class)

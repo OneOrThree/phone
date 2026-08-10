@@ -953,11 +953,17 @@ class GroupBetServiceTest {
     /** 참가 행 — id 를 채우는 이유는 환불 멱등키가 그 값을 축으로 삼기 때문이다(FR-42). */
     private GroupChallengeBetParticipant participantOf(
             GroupChallengeBetSession target, UUID participantUserId) {
+        return participantOf(target, participantUserId, Instant.now());
+    }
+
+    /** 참가 시각 지정판 — 취소 마감 분기(N22)가 참가 시각 기준이라 경계 테스트가 값을 고른다. */
+    private GroupChallengeBetParticipant participantOf(
+            GroupChallengeBetSession target, UUID participantUserId, Instant joinedAt) {
         return GroupChallengeBetParticipant.builder()
                 .id(USER_ID.equals(participantUserId) ? PARTICIPANT_ID : OTHER_PARTICIPANT_ID)
                 .session(target)
                 .user(User.builder().id(participantUserId).isGuest(false).build())
-                .createdAt(Instant.now())
+                .createdAt(joinedAt)
                 .build();
     }
 
@@ -1789,7 +1795,7 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("하루형 당일 참가 — 참가+5분 유예 안이면 철회 성공 (N22, 응답 myLeaveDeadlineAt 과 같은 판정)")
+    @DisplayName("하루형 당일 참가 — 참가+5분 유예 안이면 철회 성공 (N22 오탭 구제, 응답 myLeaveDeadlineAt 과 같은 판정)")
     void leaveBetAllowsSameDayDurationWithinGrace() {
         givenMember();
         // 시작(자정)은 이미 지났고 참가는 1분 전 — 유예(5분) 안이다.
@@ -1873,11 +1879,12 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("창형 — 창이 이미 시작됐으면 BET_LEAVE_CLOSED (창 시작 전에 참가한 경우)")
+    @DisplayName("창형 — 창이 이미 시작됐으면 BET_LEAVE_CLOSED (시작 전 참가엔 5분 유예가 없다 — N22)")
     void leaveBetRejectsWindowSessionAfterWindowStarts() {
         givenMember();
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today(), oneHourAgo());
         // 창 시작 전에 참가 → 마감은 창 시작(N22, 유예 없음)이라 이미 지났다.
+        // 유예를 주면 창 초반을 보고 발을 빼는 각도가 생긴다.
         givenLeaveEntry(session,
                 myParticipantJoinedAt(session, session.getStartsAt().minusSeconds(600)));
 
@@ -1940,7 +1947,9 @@ class GroupBetServiceTest {
                 .willReturn(Optional.of(participantOf(firstSession, USER_ID)));
         given(groupChallengeBetParticipantRepository.findBySessionIdAndUserId(otherSessionId, USER_ID))
                 .willReturn(Optional.of(GroupChallengeBetParticipant.builder()
-                        .id(OTHER_PARTICIPANT_ID).session(secondSession).user(leaver).build()));
+                        .id(OTHER_PARTICIPANT_ID).session(secondSession).user(leaver)
+                        // 취소 마감 분기(N22) 통과용 — 방금 참가라 유예 안이고, 두 회차 모두 환불된다.
+                        .createdAt(Instant.now()).build()));
         given(groupChallengeBetParticipantRepository.countBySessionId(any())).willReturn(2L);
         given(currencyLedgerService.credit(
                 eq(leaver), eq(CurrencyTransactionType.BET_REFUND), eq(30), anyString()))

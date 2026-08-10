@@ -14,7 +14,18 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
-import { BET_ALREADY_FAILED, createBet, groupErrorCode, joinBet } from '@/services/groupApi';
+import {
+  BET_ALREADY_FAILED,
+  BET_INSUFFICIENT_BALANCE,
+  BET_SCREENTIME_PERMISSION_REQUIRED,
+  BET_NOT_OPEN,
+  BET_SESSION_CLOSED,
+  BET_SESSION_NOT_FOUND,
+  createBet,
+  groupErrorCode,
+  joinBet,
+  joinSession,
+} from '@/services/groupApi';
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useUser } from '@/store/UserContext';
@@ -24,8 +35,16 @@ import { todayStrKst, tomorrowStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { GroupChallengeResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { fmtKoreanDuration } from '../challengeSchedule';
 import type { BetSheetMode } from './ChallengeCard';
+import BetBalanceRow from './BetBalanceRow';
 import { categoryLabel, missionLabel } from './challengeLabel';
+import {
+  UNMEASURED,
+  progressFraction,
+  progressFractionA11y,
+  unmeasuredA11y,
+} from './progressFormat';
 
 // 내기 시트(개설·참가) — 명세 docs/app/group-bet-plan.md §1, 계약 정본 docs/back/group-bet-plan.md §2.
 //
@@ -57,18 +76,20 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 //     같은 실패만 반복한다. Alert를 쓰는 이유는 인라인 문구가 시트와 함께 사라지기 때문이다
 //     (ChallengeComposeSheet의 nonParticipants 안내와 같은 이유).
 
-// 참가비 자유 입력(계약 §2, GROMO-1097) — 서버 검증(1~1000)과 같은 범위를 클라에서도 민다.
-// 범위 밖·빈 값이면 확인 버튼을 잠그고 인라인으로 알린다(모달 금지 — 스펙).
+// 참가비 자유 입력(GROMO-1424 — N30·FR-29) — 상한 1,000 → **3,000**. 서버 검증(1~3,000)과
+// 같은 범위를 클라에서도 민다. 범위 밖·빈 값이면 확인 버튼을 잠그고 인라인으로 알린다.
 const STAKE_MIN = 1;
-const STAKE_MAX = 1000;
-// 빠른 선택 프리셋 — 자유 입력 확대 뒤에도 원터치 선택지로 남긴다. 칩 탭 = 입력 필드에 값 반영
-// (단일 소스는 입력 필드다 — 칩의 '선택됨'은 입력값이 그 칩과 같다는 파생 표시일 뿐이다).
-const STAKE_OPTIONS = [10, 30, 50, 100] as const;
+const STAKE_MAX = 3000;
+// 빠른 선택 프리셋 — 절대값이 아니라 **상한 대비 비율(10/30/50/100%)**로 정의한다(N30).
+// 상한이 또 바뀌어도 프리셋의 정의는 그대로고 값만 따라온다. 현 상한 3,000 기준 300/900/1,500/3,000.
+// 칩 탭 = 입력 필드에 값 반영(단일 소스는 입력 필드다 — 칩의 '선택됨'은 파생 표시일 뿐이다).
+const STAKE_RATIOS = [0.1, 0.3, 0.5, 1] as const;
+const STAKE_OPTIONS = STAKE_RATIOS.map((r) => Math.round(STAKE_MAX * r));
 // 기본 선택은 **가장 낮은 프리셋**. 돈이 걸린 선택의 기본값은 사용자가 아무 생각 없이 눌러도
 // 가장 덜 잃는 쪽이어야 한다(챌린지 목표분 칩의 '가운데 기본값'과 기준이 다른 이유).
 const STAKE_DEFAULT = STAKE_OPTIONS[0];
 // 범위 안내 — 서버 BET_INVALID_STAKE 메시지와 같은 문장(같은 사실을 두 자리에서 달리 말하지 않는다).
-const STAKE_RANGE_CAPTION = '참가비는 1~1,000코인 사이로 입력해 주세요';
+const STAKE_RANGE_CAPTION = '참가비는 1~3,000코인 사이로 입력해 주세요';
 
 // 시간대 마감 후 내일 적용(계약 §3, GROMO-1103) — 실패 모달 대신 처음부터 내일 내기로 연다.
 // 시트 안 안내(열 때 이미 마감을 안 경우)와 Alert(경합 재시도로 내일 내기가 된 경우 — 시트가
@@ -106,6 +127,26 @@ const SUBMITTING_CAPTION = '처리 중이에요…';
 // 잔액 부족 — CTA 라벨이 부족분을 직접 들고 있다(legacy ShopScreen의 '부족 (N 더 필요)' 규격).
 function shortageLabel(shortage: number): string {
   return `코인이 부족해요 (${shortage} 필요)`;
+}
+
+// 하루형 진행분 공개(GROMO-1275)의 출발선 안내 — 정보를 주고 결정은 맡긴다(§C4).
+function dayHeadstartNote(goalMinutes: number): string {
+  return `먼저 시작한 사람이 유리해요. 지금 들어가면 남은 시간 안에 ${goalMinutes}분을 채워야 해요.`;
+}
+
+// 진행 바 채움 비율 — 목표를 모르거나 미집계면 0(지어내지 않는다). 초과분은 100에서 자른다.
+function dayBarPercent(progressMinutes: number | null, goalMinutes: number | null): number {
+  if (progressMinutes === null || !goalMinutes) return 0;
+  return Math.min(100, Math.round((progressMinutes / goalMinutes) * 100));
+}
+
+// 하루형 진행 행 — 참가자 + '나'(아직 참가 전이지만 출발선 비교의 기준)를 한 리스트로 접는다.
+interface DayProgressRow {
+  userId: string;
+  nickname: string;
+  progressMinutes: number | null;
+  achieved: boolean | null;
+  isMe: boolean;
 }
 
 export interface BetSheetProps {
@@ -166,6 +207,9 @@ export default function BetSheet({
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
   const isCreate = mode === 'create';
+  // 오늘 회차(신서버 — LLD §2.1 bet.session). undefined(구서버)와 null(오늘 회차 없음)은 둘 다
+  // '회차로 참가할 수 없다'라 여기서는 null로 접는다 — 그 경우 참가는 종전 joinBet(betId) 경로다.
+  const session = bet?.session ?? null;
   // 입력값 검증(1~1000 정수) — 입력이 digits만 통과하므로 남는 실패는 빈 값·범위 밖뿐이다.
   const stakeValue = stakeText === '' ? NaN : Number(stakeText);
   const stakeValid =
@@ -195,10 +239,63 @@ export default function BetSheet({
   //                 하루가 끝나야 확정되는 값으로 잠그면 사실상 전원이 잠긴다(계약 §2).
   const isScreenTime = challenge.missionCategory === 'SCREEN_TIME';
   const isWindowChallenge = challenge.missionType === 'TIME_WINDOW';
-  const myFailedNow =
-    isScreenTime &&
-    !!userId &&
-    challenge.memberProgress?.find((p) => p.userId === userId)?.achieved === false;
+  // ── 하루형 진행분 공개(GROMO-1275 — N16·§C4·FR-34) ──
+  // 하루형은 출발선이 없어 늦게 들어올수록 불리하다 — 기존 참가자의 현재 진행분을 그대로
+  // 보여주고, 불리한 판인 걸 **알고** 들어가게 한다(모르고 당하는 일을 없앤다).
+  // 창형은 창 시작 전 마감이라 전원이 같은 출발선(§C3) — 이 블록이 서지 않는다.
+  const daySession = !isCreate && !isWindowChallenge && session !== null ? session : null;
+  // 판정 목표는 **회차에 박제된 값**이 정본(ux §04) — 없으면 챌린지 목표로 폴백.
+  const dayGoal =
+    daySession !== null ? (daySession.goalMinutes ?? challenge.durationMinutes) : null;
+  // 오늘 남은 시간(KST 자정까지) — 시트를 연 시점에 고정한다(betForTomorrow와 같은 관행:
+  // 열어 둔 사이 흐른 시간으로 화면 안내와 전송이 어긋나지 않는다). 서버 판정 축과 같은 KST 벽시계.
+  const [remainMinutes] = useState<number>(() =>
+    Math.max(0, Math.floor((86_400 - nowSecondsInZone('Asia/Seoul')) / 60)),
+  );
+  // 내 진행분 — 카드 진행 리스트와 같은 소스(memberProgress). FOCUS는 값 없음 = 0분이 사실이다.
+  const myProgressRow = userId
+    ? challenge.memberProgress?.find((p) => p.userId === userId)
+    : undefined;
+  // 남은 시간 부족 경고(N23·FR-35-1) — **차단하지 않고 경고만** 한다. 확정(이미 초과)과
+  // 불리(시간 부족)는 다르다: 40분 남았는데 60분 목표는 무리일 뿐 불가능이 아니다.
+  // SCREEN_TIME은 시간을 채우는 미션이 아니라 이 경고 자체가 성립하지 않는다.
+  const timeShort =
+    daySession !== null &&
+    !isScreenTime &&
+    dayGoal !== null &&
+    dayGoal > 0 &&
+    remainMinutes < dayGoal - (myProgressRow?.progressMinutes ?? 0);
+  // 진행분 공개 리스트(나 포함 — ux §08 '나 0/60분'). 3상은 카드 진행 리스트와 같은 규칙:
+  // FOCUS는 값 없음 = '0분 집중'이 사실이라 0으로 접고(FR-15), SCREEN_TIME 미집계는 null('—')을
+  // 유지한다(FR-16 — 0으로 접으면 미보고가 '0분 사용'으로 뒤집힌다).
+  const dayRows: DayProgressRow[] =
+    daySession !== null
+      ? [
+          ...daySession.participants.map(
+            (p): DayProgressRow => ({
+              userId: p.userId,
+              nickname: p.nickname,
+              progressMinutes: p.progressMinutes ?? null,
+              achieved: p.achieved ?? null,
+              isMe: !!userId && p.userId === userId,
+            }),
+          ),
+          ...(userId && !daySession.participants.some((p) => p.userId === userId)
+            ? [
+                {
+                  userId,
+                  nickname: '나',
+                  progressMinutes: isScreenTime
+                    ? (myProgressRow?.progressMinutes ?? null)
+                    : (myProgressRow?.progressMinutes ?? 0),
+                  achieved: myProgressRow?.achieved ?? null,
+                  isMe: true,
+                },
+              ]
+            : []),
+        ]
+      : [];
+  const myFailedNow = isScreenTime && myProgressRow?.achieved === false;
   const achievedBlocked = isScreenTime
     ? myFailedNow
     : isCreate
@@ -244,10 +341,16 @@ export default function BetSheet({
         // 서버 409(BET_CLOSED) 실패 모달 대신 시트의 '내일 시간대부터 적용' 안내가 선다.
         await requestCreate(betForTomorrow ? tomorrowStrKst() : todayStrKst());
       } else {
-        // 도달할 수 없는 조합이지만(위 disabled 가드), 도달하면 공통 문구로 떨어뜨린다 —
-        // 그냥 return하면 submitting이 true로 남아 시트가 영영 잠긴다(F12).
-        if (bet === null) throw new Error('bet is missing');
-        await joinBet(groupId, bet.betId);
+        // 신서버(회차 모델)는 회차 단위 참여 경로를 쓴다(LLD §2.2) — 레거시 joinBet은 브리지
+        // 주기 동안 구서버 응답에서만 남는다(N36).
+        if (session !== null) {
+          await joinSession(groupId, session.sessionId);
+        } else {
+          // 도달할 수 없는 조합이지만(위 disabled 가드), 도달하면 공통 문구로 떨어뜨린다 —
+          // 그냥 return하면 submitting이 true로 남아 시트가 영영 잠긴다(F12).
+          if (bet === null) throw new Error('bet is missing');
+          await joinBet(groupId, bet.betId);
+        }
         logGroupBetJoined({
           stake: amount,
           mission_type: challenge.missionType,
@@ -363,8 +466,24 @@ export default function BetSheet({
         return;
       // 챌린지가 아니라 **내기 자체**가 없다(계약 §2-2의 BET_NOT_FOUND — 404, 참가 경로).
       // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 재시도하게 된다.
+      // 회차 경로의 404(BET_SESSION_NOT_FOUND — 삭제·무산 경합)도 같은 사실·같은 처방이다.
       case 'BET_NOT_FOUND':
+      case BET_SESSION_NOT_FOUND:
         failAndReload('사라진 내기예요', '이미 없어진 내기예요. 최신 상태로 새로고침할게요.');
+        return;
+      // 회차 참가 마감(신서버 — now ≥ joinClosesAt). 창형은 창이 열리는 순간 잠긴다(§C3) —
+      // 이 시트에서 재시도해도 오늘은 같은 결과라 닫고 재조회한다.
+      case BET_SESSION_CLOSED:
+        failAndReload('마감됐어요', '이미 마감돼 참가할 수 없어요.');
+        return;
+      // 시트를 연 뒤 정산·무효화가 먼저 끝났다(#570 codex ⑦) — 들어갈 회차 자체가 닫혔으므로
+      // 재시도해도 영원히 같은 실패다. 공통 문구('잠시 후 다시 시도')는 여기서 거짓이 된다.
+      case BET_NOT_OPEN:
+        failAndReload('이미 끝난 날이에요', '결과가 나왔거나 닫힌 날이라 참가할 수 없어요.');
+        return;
+      // SCREEN_TIME 권한 가드(N50) — 권한 없이 돈부터 받지 않는다. 재시도로 안 풀린다.
+      case BET_SCREENTIME_PERMISSION_REQUIRED:
+        failAndReload('참가할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
         return;
       // 그룹에서 빠졌다 — 재시도로 풀리지 않는다. 부모가 재조회하면서 방 자체를 정리한다.
       case 'MEMBER_ONLY':
@@ -383,7 +502,9 @@ export default function BetSheet({
       // 이 시트가 effect로 미러링한 ref도 같은 문제가 남는다 — 잔액이 적용된 직후 다음 렌더·
       // passive effect 전에 이 catch가 돌면 한 틱 낡은 값을 쓴다. 그래서 응답 적용과 **동시에**
       // 오르는 정본을 직접 읽는다(코덱스 리뷰).
+      // 회차 경로의 잔액 부족(BET_INSUFFICIENT_BALANCE — 409)도 같은 사실·같은 처방이다.
       case 'INSUFFICIENT_CURRENCY':
+      case BET_INSUFFICIENT_BALANCE:
         refresh();
         setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
         break;
@@ -439,7 +560,12 @@ export default function BetSheet({
     // 전송 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다(요청이 떠 있는 상태에서의 언마운트 방지).
     <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
       <Text style={s.title}>{isCreate ? '내기 걸기' : '내기 참가'}</Text>
-      <Text style={s.sub}>{label}</Text>
+      {/* 하루형 참가는 '오늘 남은 시간'이 곧 의사결정 정보다(N16) — KST 자정까지. */}
+      <Text style={s.sub}>
+        {daySession !== null
+          ? `${label} · 오늘 남은 시간 ${fmtKoreanDuration(remainMinutes)}`
+          : label}
+      </Text>
 
       <View style={s.balance}>
         <Text style={s.balanceLabel}>내 코인</Text>
@@ -526,24 +652,96 @@ export default function BetSheet({
             </View>
           </View>
 
-          <Text style={s.label}>참가자 {bet?.participants?.length ?? 0}명</Text>
-          {/* 참가자는 최대 10명이고 닉네임 길이·접근성 글꼴에 따라 줄 수가 늘어난다. 시트 패널은
-              하단 고정 absolute라 높이 제한이 없으면 작은 화면에서 제목·내 코인 같은 위쪽 내용이
-              화면 밖으로 밀려 확인할 수 없게 된다(코덱스 리뷰) — 이 영역만 스크롤로 가둔다.
-              시트 본문 전체가 아니라 참가자 영역만 가두는 이유: 판돈·팟·CTA는 항상 보여야 한다. */}
-          <ScrollView
-            style={s.participantsScroll}
-            contentContainerStyle={s.participants}
-            // 시트 자체는 스크롤 뷰가 아니지만, 안드로이드에서 중첩 제스처를 막지 않게 함께 켠다.
-            nestedScrollEnabled
-            testID="group.bet.participants"
-          >
-            {(bet?.participants ?? []).map((p) => (
-              <Text key={p.userId} style={s.participant} numberOfLines={1}>
-                {p.nickname}
-              </Text>
-            ))}
-          </ScrollView>
+          {daySession !== null ? (
+            <>
+              {/* 하루형 — 기존 참가자의 현재 진행분 공개(GROMO-1275, N16·FR-34). 진행 바 +
+                  n/m분, 나 포함. 3상 준수(SCREEN_TIME 미집계 '—'). 스크롤 상한은 참가자 칩과
+                  같은 이유(작은 화면에서 CTA·잔액이 밀리면 안 된다). */}
+              <Text style={s.label}>지금 참여 중인 사람</Text>
+              <ScrollView
+                style={s.participantsScroll}
+                contentContainerStyle={s.dayRows}
+                nestedScrollEnabled
+                testID="group.bet.dayProgress"
+              >
+                {dayRows.map((r) => {
+                  // 미집계를 '달성'으로 칠하지 않는다 — 카드 진행 리스트와 같은 방어.
+                  const done = r.achieved === true && r.progressMinutes !== null;
+                  return (
+                    <View
+                      key={r.userId}
+                      style={s.dayRow}
+                      accessible
+                      accessibilityLabel={
+                        r.progressMinutes === null
+                          ? unmeasuredA11y(r.nickname)
+                          : done
+                            ? `${r.nickname} 달성`
+                            : progressFractionA11y(r.nickname, r.progressMinutes, dayGoal)
+                      }
+                    >
+                      <Text style={[s.dayNick, r.isMe && s.dayNickMe]} numberOfLines={1}>
+                        {r.nickname}
+                      </Text>
+                      <View style={s.dayBar}>
+                        <View
+                          style={[
+                            s.dayBarFill,
+                            // RN DimensionValue의 퍼센트 리터럴 타입으로 좁힌다(값은 0~100 정수).
+                            {
+                              width:
+                                `${dayBarPercent(r.progressMinutes, dayGoal)}%` as `${number}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          s.dayVal,
+                          r.progressMinutes === null && s.dayValNone,
+                          done && s.dayValDone,
+                        ]}
+                      >
+                        {r.progressMinutes === null
+                          ? UNMEASURED
+                          : done
+                            ? '달성 ✓'
+                            : progressFraction(r.progressMinutes, dayGoal)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+              {/* 남은 시간 부족 — **경고만, 버튼은 살아 있다**(N23·FR-35-1). 차단하면 사람마다
+                  참가 마감이 달라져 설명할 수 없는 화면이 된다. */}
+              {timeShort && dayGoal !== null && (
+                <Text style={s.error} testID="group.bet.timeShort">
+                  남은 {fmtKoreanDuration(remainMinutes)}으로 {dayGoal}분을 채우기는 어려워요
+                </Text>
+              )}
+            </>
+          ) : (
+            <>
+              <Text style={s.label}>참가자 {bet?.participants?.length ?? 0}명</Text>
+              {/* 참가자는 최대 10명이고 닉네임 길이·접근성 글꼴에 따라 줄 수가 늘어난다. 시트 패널은
+                  하단 고정 absolute라 높이 제한이 없으면 작은 화면에서 제목·내 코인 같은 위쪽 내용이
+                  화면 밖으로 밀려 확인할 수 없게 된다(코덱스 리뷰) — 이 영역만 스크롤로 가둔다.
+                  시트 본문 전체가 아니라 참가자 영역만 가두는 이유: 판돈·팟·CTA는 항상 보여야 한다. */}
+              <ScrollView
+                style={s.participantsScroll}
+                contentContainerStyle={s.participants}
+                // 시트 자체는 스크롤 뷰가 아니지만, 안드로이드에서 중첩 제스처를 막지 않게 함께 켠다.
+                nestedScrollEnabled
+                testID="group.bet.participants"
+              >
+                {(bet?.participants ?? []).map((p) => (
+                  <Text key={p.userId} style={s.participant} numberOfLines={1}>
+                    {p.nickname}
+                  </Text>
+                ))}
+              </ScrollView>
+            </>
+          )}
         </>
       )}
 
@@ -558,11 +756,21 @@ export default function BetSheet({
       <View style={s.note}>
         <Ionicons name="information-circle-outline" size={15} color={T.accent} style={s.noteIcon} />
         <Text style={s.noteText}>
-          {isCreate ? CREATE_NOTE : JOIN_NOTE}
+          {/* 하루형 FOCUS 참가는 출발선 안내(§C4)를 몰수 룰 앞에 잇는다 — 불리한 판인 걸 알고
+              들어가는 건 본인 선택이지만, 모르고 당하는 일은 없앤다. */}
+          {isCreate
+            ? CREATE_NOTE
+            : daySession !== null && !isScreenTime && dayGoal
+              ? `${dayHeadstartNote(dayGoal)}\n${JOIN_NOTE}`
+              : JOIN_NOTE}
           {/* SCREEN_TIME은 측정 한계 고지를 한 줄 잇는다(계약 필수 문구) — 돈이 나가기 전이 마지막 고지 자리다. */}
           {isScreenTime ? `\n${SCREEN_TIME_BET_NOTE}` : ''}
         </Text>
       </View>
+
+      {/* 참가 시트 잔액 표기(GROMO-1424 — N46 단독 소유 컴포넌트) — 「참가비 30 · 내 잔액 240」
+          까지다. 차감 후 값 병기 금지. 잔액 부족 차단은 아래 CTA 잠금이 그대로 유지한다(FR-32). */}
+      {!isCreate && <BetBalanceRow amount={amount} coins={coinsLoaded ? coins : null} />}
 
       {/* 서버가 확정한 부족. 잔액을 다시 받아 부족분(N)까지 알게 되면 CTA 라벨이 규격대로
           `코인이 부족해요 (N 필요)`를 말하므로(§1), 같은 문장을 두 번 적지 않는다. */}
@@ -705,6 +913,24 @@ const s = StyleSheet.create({
   // 다 차지해 버려, 참가자가 한 줄뿐일 때도 빈 공간이 생긴다.
   participantsScroll: { maxHeight: 94, flexGrow: 0 },
   participants: { flexDirection: 'row', flexWrap: 'wrap', gap: T.space.sm },
+  // ── 하루형 진행분 공개(GROMO-1275) — 닉네임 · 진행 바 · n/m분 한 행. ──
+  dayRows: { gap: T.space.xs },
+  dayRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  dayNick: { ...T.text.caption, fontWeight: '600', color: T.inkSub, width: 64 },
+  dayNickMe: { color: T.accentDeep, fontWeight: '700' },
+  // 진행 바 — 카드 3상과 같은 결: 미집계는 0으로 채우지 않는다(지어내지 않는다).
+  dayBar: { flex: 1, height: 6, borderRadius: 3, backgroundColor: T.track, overflow: 'hidden' },
+  dayBarFill: { height: 6, borderRadius: 3, backgroundColor: T.accent },
+  dayVal: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.inkSub,
+    fontVariant: ['tabular-nums'],
+    minWidth: 56,
+    textAlign: 'right',
+  },
+  dayValNone: { color: T.inkFaint, fontWeight: '500' },
+  dayValDone: { color: T.successInk },
   participant: {
     ...T.text.caption,
     color: T.inkSub,

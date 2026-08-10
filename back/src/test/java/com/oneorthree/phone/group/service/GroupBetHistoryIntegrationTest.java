@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.GroupBetVoidReason;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -238,6 +240,40 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
         assertThat(response.hasNext()).isFalse();
     }
 
+
+    @Test
+    @DisplayName("내역에 종료 사유(voidReason)가 실린다 — 24h 미정산 환불과 달성자 0명 환불을 구분(N55)")
+    void carriesVoidReasonInHistory() {
+        // 시스템이 정산하지 못해 환불된 회차 — 앱이 이걸 "달성한 사람이 없어 환불"로 그리면 거짓말이다.
+        LocalDate refundDate = BASE_DATE.minusDays(3);
+        Instant closesAt = refundDate.plusDays(1).atStartOfDay(KST).toInstant();
+        GroupChallengeBetSession deadlineRefund = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(configOf(challenge)).group(group).challenge(challenge)
+                        .sessionDate(refundDate).stake(STAKE).goalMinutes(GOAL_MINUTES)
+                        .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                        .status(GroupBetStatus.REFUNDED)
+                        .voidReason(GroupBetVoidReason.REFUND_DEADLINE)
+                        .startsAt(refundDate.atStartOfDay(KST).toInstant())
+                        .joinClosesAt(closesAt).closesAt(closesAt).settleAfter(closesAt)
+                        .settledAt(closesAt)
+                        .build());
+        betSessions.add(deadlineRefund);
+        // 대비군 — 달성자 0명 몰수(사유 없음).
+        settledSession(GroupBetStatus.FORFEITED, BASE_DATE.minusDays(4));
+
+        GroupBetHistorySliceResponse page = history(member.getId(), null, 20);
+
+        // 24h 미정산 환불만 사유가 실리고, 사유 없는 종료는 null 로 구분된다.
+        assertThat(page.content())
+                .filteredOn(item -> item.getBetDate().equals(refundDate))
+                .singleElement()
+                .satisfies(item -> assertThat(item.getVoidReason())
+                        .isEqualTo(GroupBetVoidReason.REFUND_DEADLINE));
+        assertThat(page.content())
+                .filteredOn(item -> item.getStatus() == GroupBetStatus.FORFEITED)
+                .allSatisfy(item -> assertThat(item.getVoidReason()).isNull());
+    }
     @Test
     @DisplayName("항목 매핑 — betId(회차 id)·settledAt·pot(참가자 수 반영)과 근거(goalMinutes·progressMinutes)가 실린다")
     void mapsEvidenceFieldsIntoHistoryItem() {

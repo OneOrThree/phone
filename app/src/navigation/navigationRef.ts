@@ -6,6 +6,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -114,10 +115,15 @@ export function navigateToDeepLink(link: string): void {
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
-      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}]) — 먼저 그룹 탭으로
-      // 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
+      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}][&result=1][&refund=1]) —
+      // 먼저 그룹 탭으로 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
       // challenge가 실려 있으면 그룹방이 그 챌린지의 결과 모달을 자동으로 연다(GROMO-1088).
-      navigateToGroup(seq, readGroupParam(link), readChallengeParam(link));
+      // result=1(결과성 푸시 — push.ts가 합성)은 멤버십 게이트를 우회한다(아래 pushGroupRoom).
+      // refund=1(환불 푸시)은 잔액 재조회를 요청한다 — 삭제 환불은 결과 모달에서 빠지고 챌린지
+      // 목록에도 안 남아, 이 표식이 없으면 화면 어느 경로도 잔액을 다시 받지 않는다(codex 리뷰 P2).
+      // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
+      if (readRefundFlag(link)) requestCoinRefresh();
+      navigateToGroup(seq, readGroupParam(link), readChallengeParam(link), readResultFlag(link));
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
@@ -151,17 +157,37 @@ function readChallengeParam(link: string): string | null {
   return readUuidParam(link, 'challenge');
 }
 
+// 결과성 푸시 표식(result=1 — push.ts RESULT_PUSH_TYPES가 합성) — 정산 결과·환불 통지는 참가자
+// 스코프 사건이라(N53·C8) 탈퇴자에게도 도달해야 한다. 이 표식이 있으면 아래 pushGroupRoom이
+// 멤버십 게이트를 우회한다.
+function readResultFlag(link: string): boolean {
+  return /[?&]result=1(?=[&#]|$)/i.test(link);
+}
+
+// 환불 푸시 표식(refund=1 — push.ts REFUND_PUSH_TYPES가 합성) — 이 링크로 열린 진입에서
+// 잔액을 다시 받는다. 삭제 환불은 결과 모달 대상에서 제외되고(challengeResult.ts의
+// voidReason 필터) 그룹의 챌린지 목록에서도 사라져, GroupRoomScreen의 refreshCoins 경로가
+// 하나도 발화하지 않는다 — 환불 전 잔액이 앱이 살아 있는 내내 남는다(codex 리뷰 P2).
+function readRefundFlag(link: string): boolean {
+  return /[?&]refund=1(?=[&#]|$)/i.test(link);
+}
+
 // 그룹 푸시의 그룹 화면 진입 — GroupScreen의 목록 카드 탭(onSelectGroup)과 **같은 분기**를 쓴다:
 // A-9(3차) 이후 소속이 1개든 여러 개든 그룹 탭의 기본 화면은 목록이고, 그룹방은 라우트 push로만
 // 열린다(내장 렌더 폐지 — GroupScreen.tsx §A-9 주석). 그래서 소속 수를 보지 않고 push 한다.
 // 내 그룹인지는 확인한다 — 목록을 직접 받아, 조회가 실패하거나 내 그룹이 아니면(푸시 수신 후
 // 탈퇴 등) 이미 이동해 둔 그룹 탭이 폴백이다.
 // 그룹방 진입 자체가 재조회를 트리거해(useFocusEffect) 챌린지 결과 모달로 이어진다(A3).
-function navigateToGroup(seq: number, groupId: string | null, challengeId: string | null): void {
+function navigateToGroup(
+  seq: number,
+  groupId: string | null,
+  challengeId: string | null,
+  resultPush: boolean,
+): void {
   navigationRef.navigate('Main', { screen: '그룹' } as never);
   if (!groupId) return;
   // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
-  pushGroupRoom(seq, groupId, challengeId).catch(() => {});
+  pushGroupRoom(seq, groupId, challengeId, resultPush).catch(() => {});
 }
 
 // 지연 이동을 계속해도 되는가 — 딥링크는 그룹 탭으로 먼저 옮겨 두고 목록 조회를 기다리는데,
@@ -178,12 +204,22 @@ async function pushGroupRoom(
   seq: number,
   groupId: string,
   challengeId: string | null,
+  resultPush: boolean,
 ): Promise<void> {
-  const groups = await getMyGroups();
-  if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
+  // 결과성 푸시(result=1)는 멤버십 게이트를 **우회**한다(PR #566 리뷰 P1 — N53·C8). 탈퇴자는
+  // getMyGroups에 그 그룹이 없어 여기서 잘리는데, 그러면 참가자 스코프 결과(/me/challenge-results)
+  // 를 부르는 화면(GroupRoomScreen)에 도달조차 못 한다 — 다른 소속 그룹이 없으면 결과를 볼 통로가
+  // 0이 된다. 그룹방이 MEMBER_ONLY를 받으면 결과 모달을 소비시킨 뒤 스스로 물러난다(onLeft 유예).
+  // 비결과성 딥링크(모집·생성·초대 등)의 게이트는 그대로다 — 탈퇴한 그룹방을 아무 경로로나 열게
+  // 하지 않는다. 우회 경로는 조회 대기가 없어(동기 진행) 대기 중 화면 이탈 가드도 불필요하다.
+  if (!resultPush) {
+    const groups = await getMyGroups();
+    if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
+    if (!navigationRef.isReady()) return;
+    if (!isStillInGroupFlow()) return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
+    if (!groups.some((g) => g.groupId === groupId)) return;
+  }
   if (!navigationRef.isReady()) return;
-  if (!isStillInGroupFlow()) return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
-  if (!groups.some((g) => g.groupId === groupId)) return;
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
   // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이
   // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
