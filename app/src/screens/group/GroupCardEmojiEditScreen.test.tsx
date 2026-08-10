@@ -6,7 +6,9 @@ import {
   preservePendingGroupCardEmoji,
   readGroupCardEmoji,
   readGroupCardEmojiResult,
+  readGroupCardEmojiSaveFailure,
   retryPendingGroupCardEmojis,
+  setGroupCardEmojiSaveFailure,
   subscribeGroupCardEmoji,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -80,6 +82,18 @@ test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을
   expect(mockGoBack).toHaveBeenCalledTimes(1);
   await retryPendingGroupCardEmojis('user-1', ['group-1']);
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🔥');
+});
+
+test('저장 성공은 현재 계정에 남은 pending을 기준으로 실패 상태를 다시 계산한다', async () => {
+  setGroupCardEmojiSaveFailure('user-1', true);
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+
+  await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
+  expect(readGroupCardEmojiSaveFailure('user-1')).toBe(false);
 });
 
 test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능한 저장 버튼을 남긴다', async () => {

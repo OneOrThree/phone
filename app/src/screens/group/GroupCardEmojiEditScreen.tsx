@@ -22,9 +22,11 @@ import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   clearPendingGroupCardEmoji,
   groupCardEmojiLabel,
+  hasPendingGroupCardEmojis,
   readGroupCardEmojiResult,
   preservePendingGroupCardEmoji,
   restoreLatestPendingGroupCardEmoji,
+  setGroupCardEmojiSaveFailure,
   updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
   type GroupCardEmoji,
@@ -114,6 +116,7 @@ export default function GroupCardEmojiEditScreen() {
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
       clearPendingGroupCardEmoji(userId, groupId);
+      setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
       if (activeRef.current && identityRef.current === saveIdentity) {
         setHasPendingSelection(false);
       }

@@ -214,8 +214,10 @@ export default function GroupCreateScreen() {
             }
           })
           .catch(() => {
-            preservePendingGroupCardEmoji(userId, groupId, cardEmoji, 'create');
-            setGroupCardEmojiSaveFailure(userId, true);
+            // 저장 시작 전에 만든 pending을 그대로 유지한다. 이 실패가 resolve되기 전에 그룹
+            // 화면의 재시도가 이미 같은 세대를 가져갔다면 여기서 새 세대를 만들면 성공한
+            // 재시도가 오래된 후보로 취급되어 pending을 지우지 못한다.
+            setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
             if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
               setEmojiSaveFailed(true);

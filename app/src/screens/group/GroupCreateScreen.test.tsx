@@ -22,6 +22,7 @@ import {
   preservePendingGroupCardEmoji,
   readGroupCardEmoji,
   readGroupCardEmojiSaveFailure,
+  retryPendingGroupCardEmojis,
   setGroupCardEmojiSaveFailure,
 } from './groupCardEmojiStore';
 
@@ -223,6 +224,29 @@ describe('내 카드 아이콘 로컬 draft', () => {
     );
     expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🔥');
     expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
+  });
+
+  test('생성 저장 실패 전에 예약된 재시도 성공을 새 pending 세대로 되살리지 않는다', async () => {
+    let started: () => void = () => undefined;
+    let reject: (reason: Error) => void = () => undefined;
+    const startedGate = new Promise<void>((resolve) => (started = resolve));
+    const firstWrite = new Promise<void>((_resolve, rejectPromise) => {
+      reject = rejectPromise;
+    });
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => {
+      started();
+      await firstWrite;
+    });
+    await renderScreen();
+    await typeName('재시도 세대 그룹');
+    fireEvent.press(screen.getByText('만들기'));
+    await startedGate;
+
+    const retry = retryPendingGroupCardEmojis('user-1', [GROUP_ID]);
+    await act(async () => reject(new Error('disk full')));
+    await retry;
+
+    expect(await retryPendingGroupCardEmojis('user-1', [GROUP_ID])).toEqual({});
   });
 
   test('새 그룹 아이콘 저장 성공도 다른 그룹 pending의 실패 경고를 지우지 않는다', async () => {
