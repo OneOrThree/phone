@@ -55,16 +55,28 @@ export default function FocusCategoryScreen() {
   const interactionAcceptedAt =
     entrySource === 'group_card' ? params?.interactionAcceptedAt : undefined;
   const interactionTransferredRef = useRef(false);
+  const startTransitionRef = useRef(false);
+  const navigationCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     interactionTransferredRef.current = false;
+    startTransitionRef.current = false;
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') invalidateCardInteraction(interactionId);
     });
+    const blurSub = navigation.addListener('blur', () => {
+      if (!startTransitionRef.current) invalidateCardInteraction(interactionId);
+    });
+    const focusSub = navigation.addListener('focus', () => {
+      startTransitionRef.current = false;
+    });
     return () => {
       sub.remove();
+      blurSub();
+      focusSub();
+      if (navigationCheckTimerRef.current) clearTimeout(navigationCheckTimerRef.current);
       if (!interactionTransferredRef.current) invalidateCardInteraction(interactionId);
     };
-  }, [entrySource, interactionId, interactionAcceptedAt]);
+  }, [navigation, entrySource, interactionId, interactionAcceptedAt]);
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();
@@ -237,12 +249,13 @@ export default function FocusCategoryScreen() {
     mode: FocusTimerMode,
     extra?: { goalSeconds?: number; pomodoro?: PomodoroConfig },
   ) {
-    if (!active) return;
+    if (!active || startTransitionRef.current) return;
     setSheet(null);
     const firstRouteTransfer = !interactionTransferredRef.current;
     const sessionEntrySource = firstRouteTransfer ? entrySource : 'unknown';
     const sessionInteractionId = firstRouteTransfer ? interactionId : undefined;
     const sessionInteractionAcceptedAt = firstRouteTransfer ? interactionAcceptedAt : undefined;
+    startTransitionRef.current = true;
     interactionTransferredRef.current = true;
     try {
       navigation.navigate('FocusSession', {
@@ -256,9 +269,16 @@ export default function FocusCategoryScreen() {
         interactionId: sessionInteractionId,
         interactionAcceptedAt: sessionInteractionAcceptedAt,
       });
+      navigationCheckTimerRef.current = setTimeout(() => {
+        navigationCheckTimerRef.current = null;
+        const state = navigation.getState();
+        if (state.routes[state.index]?.name === 'FocusSession') return;
+        startTransitionRef.current = false;
+        invalidateCardInteraction(sessionInteractionId);
+      }, 500);
     } catch (error) {
-      interactionTransferredRef.current = false;
-      invalidateCardInteraction(interactionId);
+      startTransitionRef.current = false;
+      invalidateCardInteraction(sessionInteractionId);
       throw error;
     }
   }

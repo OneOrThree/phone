@@ -310,6 +310,12 @@ describe('카드 CTA 결과 귀속', () => {
       );
     });
     expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} entrySource="unknown" onLeft={onLeft} />);
+    });
+    await act(async () => {});
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
   });
 
   test('30초 초과 성공은 방문 결과를 남기되 interaction_id를 싣지 않는다', async () => {
