@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo, Text } from 'react-native';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { GroupCardDeck, resolveDeckIndex } from './GroupCardDeck';
+import { GroupCardDeck, resolveDeckIndex, resolveDotFocusKey } from './GroupCardDeck';
 
 function group(index: number): GroupSummaryResponse {
   return {
@@ -275,6 +275,13 @@ test('포커스된 인디케이터가 counter에서 dots로 바뀐 때 현재 �
   expect(screen.getByTestId('group.cardDeck.indicator.dot.0').props.onFocus).toEqual(
     expect.any(Function),
   );
+});
+
+test('indicator mode 복원은 이전 비활성 dot 이력보다 현재 페이지를 우선한다', () => {
+  const pageKeys = ['group-0', 'group-1', 'find-more'];
+
+  expect(resolveDotFocusKey(pageKeys, 0, 'group-1', true)).toBe('group-0');
+  expect(resolveDotFocusKey(pageKeys, 0, 'group-1', false)).toBe('group-1');
 });
 
 test('목록 재정렬 중 포커스된 dot은 stable groupId key로 같은 native 항목을 유지한다', async () => {

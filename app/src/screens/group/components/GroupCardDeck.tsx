@@ -47,6 +47,17 @@ export function resolveDeckIndex(
   return Math.max(0, Math.min(previousIndex, Math.max(0, groups.length - 1)));
 }
 
+export function resolveDotFocusKey(
+  pageKeys: readonly string[],
+  activeIndex: number,
+  preservedKey: string | null,
+  indicatorModeChanged: boolean,
+): string | null {
+  const activeKey = pageKeys[activeIndex] ?? null;
+  if (indicatorModeChanged) return activeKey;
+  return preservedKey && pageKeys.includes(preservedKey) ? preservedKey : activeKey;
+}
+
 const groupOrderKey = (groups: readonly GroupSummaryResponse[]) =>
   groups.map((group) => group.groupId).join('\u0000');
 
@@ -97,6 +108,14 @@ export function GroupCardDeck({
     if (previousShowDotsRef.current === showDots) return;
     previousShowDotsRef.current = showDots;
     if (!indicatorFocusedRef.current) return;
+    if (showDots) {
+      focusedIndicatorKeyRef.current = resolveDotFocusKey(
+        pageKeys,
+        activeIndex,
+        focusedIndicatorKeyRef.current,
+        true,
+      );
+    }
     const target = showDots ? dotRefs.current.get(pageKeys[activeIndex]) : counterRef.current;
     target?.focus();
     const node = findNodeHandle(target ?? null);
@@ -106,8 +125,8 @@ export function GroupCardDeck({
   useEffect(() => {
     if (!showDots || !indicatorFocusedRef.current) return;
     const preservedKey = focusedIndicatorKeyRef.current;
-    const nextKey =
-      preservedKey && pageKeys.includes(preservedKey) ? preservedKey : pageKeys[activeIndex];
+    const nextKey = resolveDotFocusKey(pageKeys, activeIndex, preservedKey, false);
+    if (nextKey === null) return;
     focusedIndicatorKeyRef.current = nextKey;
     const target = dotRefs.current.get(nextKey);
     target?.focus();
