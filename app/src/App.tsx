@@ -223,15 +223,17 @@ function App() {
     return () => sub.remove();
   }, []);
 
-  async function handleLogout() {
-    // 외부 그룹 진입 source는 명시적 로그아웃 시작·완료 경계에서 폐기한다. 게스트→소셜
-    // 전환은 이 핸들러를 타지 않으므로 invite 승격 보존은 유지된다.
-    clearPendingGroupEntry();
-    clearPendingInvite();
-    const logoutSessionGeneration = getAuthSessionGeneration();
+  async function handleLogout(expectedSessionGeneration?: number) {
+    // 비동기 요청에서 시작한 로그아웃은 그 요청의 시작 세대를 전달한다. 대기 중 같은 UUID의
+    // 게스트→소셜 승격이 완료돼도 userId만으로는 구분할 수 없으므로 세대로 소유권을 판별한다.
+    const logoutSessionGeneration = expectedSessionGeneration ?? getAuthSessionGeneration();
     await runAuthSessionTransition(async () => {
       // 기다리는 동안 새 로그인 저장이 먼저 끝났다면 이 로그아웃은 이전 세션 작업이다.
       if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 외부 그룹 진입 source는 유효한 명시적 로그아웃 시작·완료 경계에서 폐기한다. 세대 검증보다
+      // 먼저 지우면 오래된 요청이 새 세션에서 적재한 invite/group entry까지 없앨 수 있다.
+      clearPendingGroupEntry();
+      clearPendingInvite();
       // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
       // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
       // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가

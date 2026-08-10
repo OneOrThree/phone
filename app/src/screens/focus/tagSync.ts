@@ -14,7 +14,7 @@ async function refreshCache(): Promise<void> {
   cache = new Map(tags.map((t) => [t.name, t.tagId]));
 }
 
-export async function ensureFocusTagId(
+async function ensureFocusTagIdOperation(
   name: string,
   userId: string | null,
 ): Promise<string | null> {
@@ -37,6 +37,22 @@ export async function ensureFocusTagId(
   }
 }
 
+// 조회/생성 경로도 인증 전환의 drain 대상이다. 편집 큐와 같은 gate·세대를 사용해 전환 전에
+// 시작한 작업은 끝까지 이전 토큰으로 마치고, 전환 준비 뒤 시작한 작업은 commit 시 폐기하거나
+// rollback 시 이전 세션에서 재개한다.
+export function ensureFocusTagId(name: string, userId: string | null): Promise<string | null> {
+  const gen = editGeneration;
+  const pauseGate = editPauseGate;
+  const operation = (async () => {
+    if (pauseGate) await pauseGate;
+    if (gen !== editGeneration) return null;
+    return ensureFocusTagIdOperation(name, userId);
+  })();
+  activeEnsures.add(operation);
+  operation.finally(() => activeEnsures.delete(operation)).catch(() => {});
+  return operation;
+}
+
 // ── 과목 편집 → 서버 태그 반영 (GROMO-677) ─────────────────────────────────
 // SubjectContext의 생성/이름변경/삭제를 서버에 동기화한다. 전부 fire-and-forget —
 // 실패해도 던지지 않는다(오프라인 등). 못 맞춘 생성분은 업로드 시 ensureFocusTagId가 자가치유.
@@ -47,6 +63,7 @@ export async function ensureFocusTagId(
 let editChain: Promise<void> = Promise.resolve();
 let editGeneration = 0;
 let editPauseGate: Promise<void> | null = null;
+const activeEnsures = new Set<Promise<string | null>>();
 function enqueueEdit(task: () => Promise<void>): void {
   // 등록 시점의 pause gate와 세대를 캡처한다. 계정 전환 준비 뒤 들어온 편집은 전환 결과가
   // 결정될 때까지 기다렸다가, rollback이면 이전 계정에서 계속하고 commit이면 건너뛴다.
@@ -72,7 +89,9 @@ export async function beginTagEditTransition(): Promise<TagEditTransition> {
   editPauseGate = new Promise<void>((resolve) => {
     releasePause = resolve;
   });
-  await tailBeforePause;
+  // gate 설정 전 시작한 ensure 작업의 현재 snapshot도 함께 drain한다. gate 설정 뒤 들어오는
+  // ensure는 위에서 pauseGate를 기다리므로 이 snapshot에서 빠져도 새 토큰으로 실행되지 않는다.
+  await Promise.allSettled([tailBeforePause, ...activeEnsures]);
 
   let settled = false;
   const settle = (committed: boolean) => {

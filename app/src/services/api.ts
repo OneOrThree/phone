@@ -21,7 +21,7 @@ export function getUserIdFromToken(token: string): string | null {
   }
 }
 
-let onLogout: (() => void) | null = null;
+let onLogout: ((expectedGeneration?: number) => void) | null = null;
 
 // 소셜 로그인/게스트 승격처럼 인증 세션 자체가 교체될 때만 증가한다. access token 자동 갱신은
 // 같은 세션의 연장이므로 올리지 않는다. userId가 같은 승격에서도 이전 요청의 후속 부작용을
@@ -77,13 +77,15 @@ function ownsAuthSessionTransition(lease?: AuthSessionTransitionLease): boolean 
   return lease !== undefined && lease.token === activeAuthTransitionToken;
 }
 
-export function setLogoutHandler(fn: (() => void) | null): void {
+export function setLogoutHandler(fn: ((expectedGeneration?: number) => void) | null): void {
   onLogout = fn;
 }
 
 // 등록된 로그아웃 핸들러를 외부에서 호출(전체 화면의 로그아웃 버튼 등).
-export function triggerLogout(): void {
-  onLogout?.();
+// 비동기 요청이 세션 이상을 발견한 경우에는 요청 시작 세대를 넘겨, 그 사이 완료된 새 인증을
+// 오래된 응답이 로그아웃시키지 않게 한다. 사용자 직접 로그아웃은 현재 세대를 App에서 캡처한다.
+export function triggerLogout(expectedGeneration?: number): void {
+  onLogout?.(expectedGeneration);
 }
 
 // 재로그인 핸들러 — 게스트가 설정에서 소셜 로그인해 새 토큰/유저가 저장된 뒤,
