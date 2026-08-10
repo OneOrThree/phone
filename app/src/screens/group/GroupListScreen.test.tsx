@@ -218,7 +218,7 @@ describe('콜백', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  test('guide가 연 뒷면에서 설정을 다녀와도 다음 CTA의 back_source를 유지한다', async () => {
+  test('guide가 연 뒷면은 같은 페이지 스냅·설정 복귀 후에도 back_source를 유지한다', async () => {
     resetGroupDeckGuideSessionForTests();
     const onOpenSettings = jest.fn();
     const props = {
@@ -254,6 +254,15 @@ describe('콜백', () => {
     );
     await press('group.list.guide');
     await waitFor(() => expect(screen.queryByTestId('group.list.guide')).toBeNull());
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 8 } },
+      });
+    });
+    expect(
+      screen.getByTestId(`group.card.back.${GROUP_ID}`, { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
 
     await press(`group.card.settings.${GROUP_ID}`);
     expect(onOpenSettings).toHaveBeenCalledWith(GROUP_ID);

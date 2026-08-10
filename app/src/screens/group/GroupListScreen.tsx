@@ -411,14 +411,17 @@ export default function GroupListScreen({
       roomReturnRef.current = null;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
+      const identityChanged = activeIdentityRef.current !== nextIdentity;
       if (pendingFlipRef.current?.groupId !== nextIdentity) pendingFlipRef.current = null;
       activeIdentityRef.current = nextIdentity;
       activeIndexRef.current = next;
       setActiveStableGroupId(nextIdentity);
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
-      setFlippedGroupId(null);
-      guideBackGroupIdRef.current = null;
+      if (identityChanged) {
+        setFlippedGroupId(null);
+        guideBackGroupIdRef.current = null;
+      }
       if (from !== next) {
         logGroupCarouselPaged({
           trigger,
@@ -436,13 +439,16 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(Math.round(offsetX / snapInterval), pageCount - 1));
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
       const from = activeIndexRef.current;
-      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      const identityChanged = activeIdentityRef.current !== nextIdentity;
+      if (identityChanged) {
+        setFlippedGroupId(null);
+        guideBackGroupIdRef.current = null;
+      }
       activeIdentityRef.current = nextIdentity;
       activeIndexRef.current = next;
       setActiveStableGroupId(nextIdentity);
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
-      guideBackGroupIdRef.current = null;
       if (from !== next) {
         logGroupCarouselPaged({
           trigger: 'swipe',

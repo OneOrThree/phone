@@ -65,6 +65,11 @@ export default function FocusCategoryScreen() {
   useEffect(() => {
     interactionTransferredRef.current = false;
     startTransitionRef.current = false;
+    // CTA 직후 화면이 마운트되기 전에 background/inactive 이벤트가 지나간 경우에도
+    // 중단된 intent를 다음 포그라운드 세션에 귀속하지 않는다.
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') invalidateCardInteraction(interactionId);
     });

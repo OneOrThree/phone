@@ -83,7 +83,12 @@ export function TabGuideOverlay({
   }, [controlled, storageKey]);
 
   useEffect(() => {
-    if (visible) setIdx(0);
+    if (visible) return;
+    // controlled guide가 숨겨진 commit에서 먼저 0단계로 되돌린다. 재노출 commit에서
+    // 마지막 단계의 stale prepare가 한 번 실행된 뒤 idx effect가 0으로 바꾸는 순서를 막는다.
+    holeReq.current++;
+    setIdx(0);
+    setHole(null);
   }, [visible]);
 
   // 스텝이 바뀔 때마다 스포트라이트 결정 — prepare(스크롤 등) → rect 또는 앵커 측정. 없으면 전체 딤

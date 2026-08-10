@@ -48,3 +48,42 @@ test('controlled guide는 단계/다음·시작을 읽고 외부 controller에 �
   expect(logTabGuideCompleted).not.toHaveBeenCalled();
   expect(AsyncStorage.setItem).not.toHaveBeenCalled();
 });
+
+test('controlled guide를 마지막 단계에서 숨겼다 재개하면 stale prepare 없이 1단계로 시작한다', async () => {
+  const prepare = jest.fn();
+  const steps: GuideStep[] = [
+    { text: '첫 단계', character },
+    { text: '마지막 단계', character, prepare },
+  ];
+  const view = await render(
+    <TabGuideOverlay
+      storageKey="gromo:guide:test"
+      steps={steps}
+      visible
+      completionMode="external"
+    />,
+  );
+  await act(async () => fireEvent.press(screen.getByTestId('guide.overlay')));
+  await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+
+  await view.rerender(
+    <TabGuideOverlay
+      storageKey="gromo:guide:test"
+      steps={steps}
+      visible={false}
+      completionMode="external"
+    />,
+  );
+  prepare.mockClear();
+  await view.rerender(
+    <TabGuideOverlay
+      storageKey="gromo:guide:test"
+      steps={steps}
+      visible
+      completionMode="external"
+    />,
+  );
+
+  expect(screen.getByLabelText('단계 1/2. 첫 단계. 다음')).toBeOnTheScreen();
+  expect(prepare).not.toHaveBeenCalled();
+});
