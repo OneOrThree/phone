@@ -7,7 +7,7 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { FlatList, View } from 'react-native';
+import { BackHandler, FlatList, View } from 'react-native';
 import GroupListScreen, { advanceEdgeTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -456,12 +456,72 @@ describe('제스처 중재와 재정렬', () => {
     expect(onCreate).not.toHaveBeenCalled();
     expect(onFind).not.toHaveBeenCalled();
 
+    await press(`group.card.reorderDone.${GROUP_ID}`);
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+    await press(`group.card.reorderDismiss.${GROUP_ID}`);
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+    await act(async () => {
+      screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`).props.onAccessibilityEscape();
+    });
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+
     await press(`group.card.reorderTo.${GROUP_ID}.1`);
     expect(
       screen
         .getByTestId('group.list.items')
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
+  });
+
+  test('Android Back은 열린 순서 변경 메뉴만 닫고 상위 route로 전달하지 않는다', async () => {
+    let hardwareBack: (event: never) => boolean | null | undefined = () => false;
+    const remove = jest.fn();
+    const backSpy = jest
+      .spyOn(BackHandler, 'addEventListener')
+      .mockImplementation((_event, listener) => {
+        hardwareBack = listener;
+        return { remove };
+      });
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+
+    expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    let consumed = false;
+    await act(async () => {
+      consumed = hardwareBack(undefined as never) === true;
+    });
+    expect(consumed).toBe(true);
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
+    expect(remove).toHaveBeenCalledTimes(1);
+    backSpy.mockRestore();
   });
 
   test('긴 순서 변경 메뉴는 카드 안에서 세로 스크롤로 모든 슬롯을 제공한다', async () => {

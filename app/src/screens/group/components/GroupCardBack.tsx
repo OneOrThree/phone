@@ -1,9 +1,11 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { todayStrKst } from '@/utils/localDate';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
+import { repeatDayOf } from '../challengeSchedule';
 import { categoryLabel, missionLabel } from './challengeLabel';
 
 interface Props {
@@ -93,95 +95,120 @@ export function GroupCardBack({
         </TouchableOpacity>
       </View>
 
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>지금 방</Text>
-        {detail.status === 'idle' || detail.status === 'loading' ? (
-          <LoadingLine label="멤버" />
-        ) : detail.status === 'error' ? (
-          <TouchableOpacity onPress={() => onRetry('detail')}>
-            <Text style={s.error}>멤버 정보를 확인하지 못했어요 · 다시 시도</Text>
-          </TouchableOpacity>
-        ) : (
-          <>
-            <Text style={s.body}>{memberPreview.map((member) => member.nickname).join(' · ')}</Text>
-            {focus.status === 'idle' || focus.status === 'loading' ? (
-              <LoadingLine label="집중 인원" />
+      <ScrollView
+        style={s.summaryScroll}
+        contentContainerStyle={s.summaryContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+        testID="group.card.summaryScroll"
+      >
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>지금 방</Text>
+          {detail.status === 'idle' || detail.status === 'loading' ? (
+            <LoadingLine label="멤버" />
+          ) : detail.status === 'error' ? (
+            <TouchableOpacity onPress={() => onRetry('detail')}>
+              <Text style={s.error}>멤버 정보를 확인하지 못했어요 · 다시 시도</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <Text style={s.body}>
+                {memberPreview.map((member) => member.nickname).join(' · ')}
+              </Text>
+              {focus.status === 'idle' || focus.status === 'loading' ? (
+                <LoadingLine label="집중 인원" />
+              ) : (
+                <Text style={s.muted}>
+                  {focusCount.status === 'unavailable'
+                    ? '현재 집중 인원 확인 불가'
+                    : `현재 집중 ${focusCount.count}명${focusCount.status === 'stale' ? ' · 이전 값' : ''}`}
+                </Text>
+              )}
+            </>
+          )}
+          {(focus.status === 'error' || focus.status === 'coverage-unknown') && (
+            <TouchableOpacity onPress={() => onRetry('focus')}>
+              <Text style={s.error}>집중 상태 다시 시도</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>공지</Text>
+          {announcements.status === 'ready' ? (
+            announcements.data[0] ? (
+              <View>
+                <Text style={s.body} numberOfLines={1}>
+                  {announcements.data[0].title}
+                </Text>
+                <Text style={s.muted} numberOfLines={2} testID="group.card.announcement.content">
+                  {announcements.data[0].content}
+                </Text>
+              </View>
             ) : (
-              <Text style={s.muted}>
-                {focusCount.status === 'unavailable'
-                  ? '현재 집중 인원 확인 불가'
-                  : `현재 집중 ${focusCount.count}명${focusCount.status === 'stale' ? ' · 이전 값' : ''}`}
-              </Text>
-            )}
-          </>
-        )}
-        {(focus.status === 'error' || focus.status === 'coverage-unknown') && (
-          <TouchableOpacity onPress={() => onRetry('focus')}>
-            <Text style={s.error}>집중 상태 다시 시도</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>공지</Text>
-        {announcements.status === 'ready' ? (
-          announcements.data[0] ? (
-            <View>
-              <Text style={s.body} numberOfLines={1}>
-                {announcements.data[0].title}
-              </Text>
-              <Text style={s.muted} numberOfLines={2} testID="group.card.announcement.content">
-                {announcements.data[0].content}
-              </Text>
-            </View>
+              <Text style={s.body}>새 공지가 없어요</Text>
+            )
+          ) : announcements.status === 'error' ? (
+            <TouchableOpacity onPress={() => onRetry('announcements')}>
+              <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
+            </TouchableOpacity>
           ) : (
-            <Text style={s.body}>새 공지가 없어요</Text>
-          )
-        ) : announcements.status === 'error' ? (
-          <TouchableOpacity onPress={() => onRetry('announcements')}>
-            <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
-          </TouchableOpacity>
-        ) : (
-          <LoadingLine label="공지" />
-        )}
-      </View>
+            <LoadingLine label="공지" />
+          )}
+        </View>
 
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>그룹 활동</Text>
-        {challenges.status === 'ready' ? (
-          activeChallenges.length > 0 ? (
-            <View style={s.activityList}>
-              {activeChallenges.map((challenge) => {
-                const myProgress = challenge.memberProgress?.find(
-                  (progress) => progress.userId === userId,
-                );
-                const progressText =
-                  myProgress === undefined
-                    ? null
-                    : myProgress.progressMinutes === null
-                      ? '내 진행 미집계'
-                      : `내 진행 ${myProgress.progressMinutes}${challenge.durationMinutes ? `/${challenge.durationMinutes}` : ''}분${myProgress.achieved === true ? ' · 달성' : ''}`;
-                return (
-                  <View key={challenge.id} testID={`group.card.activity.${challenge.id}`}>
-                    <Text style={s.body} numberOfLines={1}>
-                      {missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge)}
-                    </Text>
-                    {progressText !== null && <Text style={s.muted}>{progressText}</Text>}
-                  </View>
-                );
-              })}
-            </View>
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>그룹 활동</Text>
+          {challenges.status === 'ready' ? (
+            activeChallenges.length > 0 ? (
+              <View style={s.activityList}>
+                {activeChallenges.map((challenge) => {
+                  const myProgress = challenge.memberProgress?.find(
+                    (progress) => progress.userId === userId,
+                  );
+                  const repeatDays =
+                    Array.isArray(challenge.repeatDays) && challenge.repeatDays.length > 0
+                      ? challenge.repeatDays
+                      : null;
+                  const todayRepeatDay = repeatDayOf(todayStrKst());
+                  const activeToday =
+                    repeatDays === null
+                      ? true
+                      : (challenge.activeToday ??
+                        (todayRepeatDay !== null && repeatDays.includes(todayRepeatDay)));
+                  const progressText =
+                    challenge.memberProgress === null
+                      ? activeToday
+                        ? '이 챌린지는 진행률을 표시하지 않아요'
+                        : '오늘은 쉬는 날이에요'
+                      : myProgress === undefined
+                        ? null
+                        : myProgress.progressMinutes === null
+                          ? '내 진행 미집계'
+                          : `내 진행 ${myProgress.progressMinutes}${challenge.durationMinutes ? `/${challenge.durationMinutes}` : ''}분${myProgress.achieved === true ? ' · 달성' : ''}`;
+                  return (
+                    <View key={challenge.id} testID={`group.card.activity.${challenge.id}`}>
+                      <Text style={s.body} numberOfLines={1}>
+                        {missionLabel(challenge, { direction: true, everyday: false }) ??
+                          categoryLabel(challenge)}
+                      </Text>
+                      {progressText !== null && <Text style={s.muted}>{progressText}</Text>}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={s.body}>진행 중인 활동이 없어요</Text>
+            )
+          ) : challenges.status === 'error' ? (
+            <TouchableOpacity onPress={() => onRetry('challenges')}>
+              <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
+            </TouchableOpacity>
           ) : (
-            <Text style={s.body}>진행 중인 활동이 없어요</Text>
-          )
-        ) : challenges.status === 'error' ? (
-          <TouchableOpacity onPress={() => onRetry('challenges')}>
-            <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
-          </TouchableOpacity>
-        ) : (
-          <LoadingLine label="활동" />
-        )}
-      </View>
+            <LoadingLine label="활동" />
+          )}
+        </View>
+      </ScrollView>
 
       <View style={s.actions}>
         <TouchableOpacity
@@ -234,6 +261,8 @@ const s = StyleSheet.create({
   },
   title: { ...T.text.heading, color: T.ink, flex: 1 },
   section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
+  summaryScroll: { flex: 1 },
+  summaryContent: { gap: T.space.sm },
   sectionTitle: { ...T.text.label, color: T.ink },
   activityList: { gap: T.space.xs },
   body: { ...T.text.caption, color: T.ink },

@@ -264,6 +264,83 @@ test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 co
   ]);
   expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
   expect(screen.getByText('내 진행 25/60분')).toBeOnTheScreen();
-  expect(screen.getByText('매일 09:00~12:00 30분 이하 스크린타임')).toBeOnTheScreen();
+  expect(screen.getByText('09:00~12:00 30분 이하 스크린타임')).toBeOnTheScreen();
   expect(screen.getByText('내 진행 30/30분 · 달성')).toBeOnTheScreen();
+});
+
+test('memberProgress null은 쉬는 날과 진행률 미제공 상태를 구분해 표시한다', async () => {
+  const challenge = {
+    status: 'ACTIVE' as const,
+    missionType: 'TIME_WINDOW' as const,
+    missionCategory: 'FOCUS' as const,
+    durationMinutes: 30,
+    windowStart: '09:00:00',
+    windowEnd: '12:00:00',
+    createdAt: '2026-08-11T00:00:00Z',
+    canParticipate: true,
+    memberProgress: null,
+  };
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: { status: 'loading' },
+        challenges: {
+          status: 'ready',
+          data: [
+            { ...challenge, id: 'resting', repeatDays: ['MON'], activeToday: false },
+            { ...challenge, id: 'legacy' },
+          ],
+        },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('오늘은 쉬는 날이에요')).toBeOnTheScreen();
+  expect(screen.getByText('이 챌린지는 진행률을 표시하지 않아요')).toBeOnTheScreen();
+});
+
+test('활동 4개와 확대 가능한 본문은 bounded summary scroll 안에 두고 CTA는 고정한다', async () => {
+  const activities = Array.from({ length: 4 }, (_, index) => ({
+    id: `activity-${index}`,
+    status: 'ACTIVE' as const,
+    missionType: 'DURATION' as const,
+    missionCategory: 'FOCUS' as const,
+    durationMinutes: 30 + index,
+    windowStart: null,
+    windowEnd: null,
+    createdAt: '2026-08-11T00:00:00Z',
+    canParticipate: true,
+    memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: index, achieved: false }],
+  }));
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      userId="me"
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: {
+          status: 'ready',
+          data: [
+            {
+              id: 'notice',
+              title: '긴 공지',
+              content: '두 줄까지 표시되는 긴 공지 본문입니다.',
+              createdAt: '2026-08-11T00:00:00Z',
+            },
+          ],
+        },
+        challenges: { status: 'ready', data: activities },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getAllByTestId(/^group\.card\.activity\./)).toHaveLength(4);
+  expect(screen.getByTestId('group.card.summaryScroll').props.nestedScrollEnabled).toBe(true);
+  expect(screen.getByTestId('group.card.summaryScroll')).toHaveStyle({ flex: 1 });
+  expect(screen.getByTestId('group.card.focus.g1')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.room.g1')).toBeOnTheScreen();
 });

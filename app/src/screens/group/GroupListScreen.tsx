@@ -10,9 +10,11 @@ import {
 import {
   AccessibilityInfo,
   AppState,
+  BackHandler,
   FlatList,
   findNodeHandle,
   PanResponder,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -308,6 +310,7 @@ export default function GroupListScreen({
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const returnFocusTargetRef = useRef<'room' | 'settings'>('room');
   const frontFocusRef = useRef<View | null>(null);
+  const reorderGripRefs = useRef(new Map<string, View>());
   const backFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
   const settingsFocusRef = useRef<View | null>(null);
@@ -429,6 +432,24 @@ export default function GroupListScreen({
       if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
     });
   }, []);
+
+  const closeReorderMenu = useCallback(() => {
+    const groupId = reorderMenuGroupIdRef.current;
+    if (groupId === null) return false;
+    reorderMenuGroupIdRef.current = null;
+    setReorderMenuGroupId(null);
+    requestAnimationFrame(() => {
+      const node = findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
+      if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (reorderMenuGroupId === null) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', closeReorderMenu);
+    return () => subscription.remove();
+  }, [closeReorderMenu, reorderMenuGroupId]);
 
   const completeUserFlipToBack = useCallback(
     (groupId: string, trigger: GroupCardFlipTrigger) => {
@@ -698,6 +719,7 @@ export default function GroupListScreen({
           setDraggingGroupId(null);
           if (!drag) return;
           if (Math.abs(gesture.dx) < 6 && Math.abs(gesture.dy) < 6) {
+            reorderMenuGroupIdRef.current = drag.groupId;
             setReorderMenuGroupId(drag.groupId);
             return;
           }
@@ -1139,6 +1161,10 @@ export default function GroupListScreen({
                           bodyRef={
                             activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
                           }
+                          gripRef={(node) => {
+                            if (node) reorderGripRefs.current.set(item.groupId, node);
+                            else reorderGripRefs.current.delete(item.groupId);
+                          }}
                           onFlip={() => flipToBack(item.groupId)}
                           onAccessibilityFlip={() =>
                             flipToBack(item.groupId, 'accessibility_action')
@@ -1159,31 +1185,54 @@ export default function GroupListScreen({
                       }
                     />
                     {reorderMenuGroupId === item.groupId && (
-                      <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
-                        <Text style={s.reorderTitle}>순서 변경</Text>
-                        <ScrollView
-                          style={s.reorderOptions}
-                          nestedScrollEnabled
-                          showsVerticalScrollIndicator
-                          testID={`group.card.reorderOptions.${item.groupId}`}
+                      <>
+                        <Pressable
+                          style={s.reorderDismiss}
+                          onPress={closeReorderMenu}
+                          accessibilityRole="button"
+                          accessibilityLabel="순서 변경 취소"
+                          testID={`group.card.reorderDismiss.${item.groupId}`}
+                        />
+                        <View
+                          style={s.reorderMenu}
+                          accessibilityViewIsModal
+                          onAccessibilityEscape={closeReorderMenu}
+                          testID={`group.card.reorderMenu.${item.groupId}`}
                         >
-                          {orderedGroups.map((target, targetIndex) => (
+                          <View style={s.reorderHeader}>
+                            <Text style={s.reorderTitle}>순서 변경</Text>
                             <TouchableOpacity
-                              key={target.groupId}
-                              style={s.reorderOption}
-                              onPress={() => {
-                                commitMove(item.groupId, targetIndex, 'pointer_control');
-                                setReorderMenuGroupId(null);
-                              }}
+                              onPress={closeReorderMenu}
                               accessibilityRole="button"
-                              accessibilityLabel={`${targetIndex + 1}번째로 이동`}
-                              testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
+                              testID={`group.card.reorderDone.${item.groupId}`}
                             >
-                              <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
+                              <Text style={s.reorderDoneText}>완료</Text>
                             </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
+                          </View>
+                          <ScrollView
+                            style={s.reorderOptions}
+                            nestedScrollEnabled
+                            showsVerticalScrollIndicator
+                            testID={`group.card.reorderOptions.${item.groupId}`}
+                          >
+                            {orderedGroups.map((target, targetIndex) => (
+                              <TouchableOpacity
+                                key={target.groupId}
+                                style={s.reorderOption}
+                                onPress={() => {
+                                  commitMove(item.groupId, targetIndex, 'pointer_control');
+                                  closeReorderMenu();
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${targetIndex + 1}번째로 이동`}
+                                testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
+                              >
+                                <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      </>
                     )}
                   </View>
                 )}
@@ -1316,7 +1365,23 @@ const s = StyleSheet.create({
     borderColor: T.border,
     maxHeight: 240,
   },
-  reorderTitle: { ...T.text.caption, color: T.inkMuted, padding: T.space.xs },
+  reorderDismiss: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 4,
+  },
+  reorderHeader: {
+    minHeight: 44,
+    paddingHorizontal: T.space.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reorderTitle: { ...T.text.caption, color: T.inkMuted },
+  reorderDoneText: { ...T.text.label, color: T.accent, padding: T.space.xs },
   reorderOptions: { maxHeight: 196 },
   reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
   reorderOptionText: { ...T.text.label, color: T.ink },

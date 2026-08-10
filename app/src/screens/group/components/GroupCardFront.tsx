@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { RefObject } from 'react';
+import type { Ref, RefObject } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -18,6 +18,7 @@ interface GroupCardFrontProps {
   canMoveNext?: boolean;
   cardRef?: RefObject<View | null>;
   bodyRef?: RefObject<View | null>;
+  gripRef?: Ref<View>;
   active?: boolean;
 }
 
@@ -34,6 +35,7 @@ export function GroupCardFront({
   canMoveNext = false,
   cardRef,
   bodyRef,
+  gripRef,
   active = true,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
@@ -42,6 +44,7 @@ export function GroupCardFront({
     <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
       <View style={s.root}>
         <View
+          ref={gripRef}
           style={s.grip}
           testID={`group.card.grip.${group.groupId}`}
           accessibilityRole="adjustable"
