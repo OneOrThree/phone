@@ -52,6 +52,7 @@ export default function GroupCardEmojiEditScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const requestRef = useRef(0);
+  const changeRetryRef = useRef(0);
   const activeRef = useRef(true);
   const identity = `${userId ?? 'anonymous'}:${groupId}`;
   const identityRef = useRef(identity);
@@ -100,6 +101,7 @@ export default function GroupCardEmojiEditScreen() {
     if (!userId || !selected || !changed || saving || !ready) return;
     const saveIdentity = identity;
     const saveSessionIdentity = sessionIdentityRef.current;
+    changeRetryRef.current++;
     setSaving(true);
     setSaveFailed(false);
     // 네이티브 뒤로가기·스와이프로 화면이 먼저 닫혀도 현재 실행의 카드는 수락한 선택을 즉시 쓴다.
@@ -138,9 +140,24 @@ export default function GroupCardEmojiEditScreen() {
       setSelected(emoji);
       if (saveFailed && userId && baseline) {
         updatePendingGroupCardEmojiSelection(userId, groupId, emoji, baseline);
+        const retry = ++changeRetryRef.current;
+        const retryIdentity = identity;
+        writeGroupCardEmoji(userId, groupId, emoji)
+          .then(() => {
+            if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
+            clearPendingGroupCardEmoji(userId, groupId, emoji);
+            if (!activeRef.current) return;
+            setBaseline(emoji);
+            setSaveFailed(false);
+          })
+          .catch(() => {
+            if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
+            // 기준값으로 되돌린 선택도 앞선 자동 쓰기 뒤 실패할 수 있으므로 최신 값으로 보존한다.
+            preservePendingGroupCardEmoji(userId, groupId, emoji);
+          });
       }
     },
-    [baseline, groupId, saveFailed, userId],
+    [baseline, groupId, identity, saveFailed, userId],
   );
 
   return (

@@ -12,6 +12,8 @@ import {
   reconcileGroupCardEmojiBucket,
   preservePendingGroupCardEmoji,
   retryPendingGroupCardEmojis,
+  subscribeGroupCardEmoji,
+  updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
 
@@ -151,6 +153,31 @@ test('pending 재시도가 실패해도 최신 아이콘을 화면 합성값으�
 
   await expect(retryPendingGroupCardEmojis('u1', ['g1'])).resolves.toEqual({ g1: '🔥' });
   expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+});
+
+test('진행 중인 pending 재시도보다 새 선택이 늦게 들어오면 최신 아이콘을 다시 알린다', async () => {
+  preservePendingGroupCardEmoji('u1', 'g1', '📚');
+  const emitted: string[] = [];
+  const unsubscribe = subscribeGroupCardEmoji('u1', (_groupId, emoji) => emitted.push(emoji));
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    started();
+    await writeGate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+
+  const retry = retryPendingGroupCardEmojis('u1', ['g1']);
+  await startedGate;
+  updatePendingGroupCardEmojiSelection('u1', 'g1', '🔥', '🎯');
+  release();
+  await retry;
+
+  expect(emitted.at(-1)).toBe('🔥');
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+  unsubscribe();
 });
 
 test('무효화된 prune의 원본 복원이 실패해도 최신 reconcile은 원본에서 다시 계산한다', async () => {
