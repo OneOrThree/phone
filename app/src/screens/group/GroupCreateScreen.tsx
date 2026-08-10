@@ -29,6 +29,7 @@ import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   DEFAULT_GROUP_CARD_EMOJI,
+  preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -78,6 +79,8 @@ export default function GroupCreateScreen() {
   // 생성 전에는 groupId가 없으므로 로컬 draft로만 보관한다.
   const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji>(DEFAULT_GROUP_CARD_EMOJI);
   const [submitting, setSubmitting] = useState(false);
+  const [emojiSaveFailed, setEmojiSaveFailed] = useState(false);
+  const [createdPublicGroupId, setCreatedPublicGroupId] = useState<string | null>(null);
 
   // 생성 성공한 비공개 그룹 — 값이 있으면 초대 링크 다이얼로그가 뜬다(§6-2 3번).
   // 이름을 id와 **함께** 들고 있는 이유: 요청이 떠 있는 동안에도 이름 입력은 열려 있어서,
@@ -193,12 +196,24 @@ export default function GroupCreateScreen() {
       });
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
-      if (userId) void writeGroupCardEmoji(userId, groupId, cardEmoji).catch(() => undefined);
+      let localSaveFailed = false;
+      if (userId) {
+        try {
+          await writeGroupCardEmoji(userId, groupId, cardEmoji);
+        } catch {
+          preservePendingGroupCardEmoji(userId, groupId, cardEmoji);
+          setEmojiSaveFailed(true);
+          localSaveFailed = true;
+        }
+      }
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
       submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.
       if (isPrivate) {
         setCreated({ id: groupId, name: trimmedName });
+      } else if (localSaveFailed) {
+        // 생성은 이미 성공했다. 폼에 inline 오류와 단일 복귀 경로를 남겨 중복 생성을 막는다.
+        setCreatedPublicGroupId(groupId);
       } else {
         navigation.goBack();
       }
@@ -390,13 +405,30 @@ export default function GroupCreateScreen() {
           value={cardEmoji}
           onChange={setCardEmoji}
           testIDPrefix="group.create.cardEmoji"
+          disabled={submitting || createdPublicGroupId !== null}
         />
+        {emojiSaveFailed && (
+          <Text style={s.errorText} accessibilityLiveRegion="polite">
+            내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+          </Text>
+        )}
+
+        {createdPublicGroupId && (
+          <TouchableOpacity
+            style={s.outlineDoneButton}
+            activeOpacity={0.85}
+            onPress={() => navigation.goBack()}
+            testID="group.create.cardEmoji.continue"
+          >
+            <Text style={s.outlineDoneText}>그룹으로 돌아가기</Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── CTA ── */}
         <TouchableOpacity
-          style={[s.submitBtn, canSubmit ? null : s.submitBtnOff]}
+          style={[s.submitBtn, canSubmit && createdPublicGroupId === null ? null : s.submitBtnOff]}
           activeOpacity={0.85}
-          disabled={!canSubmit}
+          disabled={!canSubmit || createdPublicGroupId !== null}
           onPress={submit}
           testID="group.create.submit"
         >
@@ -419,6 +451,11 @@ export default function GroupCreateScreen() {
           <View style={s.card}>
             <Text style={s.cardTitle}>비공개 그룹을 만들었어요 🎉</Text>
             <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해주세요.</Text>
+            {emojiSaveFailed && (
+              <Text style={s.errorText} accessibilityLiveRegion="polite">
+                내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+              </Text>
+            )}
             <View style={s.cardActions}>
               <TouchableOpacity style={s.cardOutlineBtn} activeOpacity={0.85} onPress={copyLink}>
                 <Text style={s.cardOutlineText}>{copied ? '복사했어요' : '링크 복사'}</Text>
@@ -590,6 +627,17 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
+  outlineDoneButton: {
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: T.border,
+    backgroundColor: T.white,
+    marginTop: T.space.lg,
+  },
+  outlineDoneText: { ...T.text.subtitle, color: T.ink },
 
   // 초대 링크 다이얼로그 — 탈퇴 확인 모달과 같은 스크림·카드 규격
   overlay: {
