@@ -50,6 +50,19 @@ const GROUP_ROOM_TYPES = new Set([
   'CHALLENGE_WINDOW_END', // 레거시(구 서버) — 종전 동작 유지
 ]);
 
+// 결과성 푸시 — **탈퇴자에게도 도달해야 하는** 타입(PR #566 리뷰 P1 추가건). 정산 결과·환불은
+// 참가자 스코프 사건이라(N53·C8) 그룹 멤버십을 잃어도 통지가 성립해야 하는데, 그룹방 딥링크의
+// 멤버십 게이트(navigationRef.pushGroupRoom — getMyGroups 대조)가 탈퇴자를 그룹 탭에서 잘라
+// GroupRoomScreen의 MEMBER_ONLY 처리(결과 모달 소비 후 onLeft)에 도달조차 못 하게 한다.
+// 합성 링크에 result=1 표식을 실어 그 게이트만 우회시킨다 — 모집·생성 등 비결과성 딥링크와
+// 초대 링크의 기존 게이트는 그대로다(탈퇴한 그룹방을 아무 경로로나 열게 하지 않는다).
+const RESULT_PUSH_TYPES = new Set([
+  'CHALLENGE_SESSION_END',
+  'BET_WON',
+  'BET_RESULT',
+  'BET_VOID_REFUND',
+]);
+
 // 서버 payload의 data.link(예: 'gromo://league')에서 딥링크 문자열을 뽑는다. link가 없으면
 // 타입별로 합성한다(GROMO-1421, IA §4.2 표와 대조):
 //  · CHALLENGE_SESSION_END + challengeId → 그룹방 + 그 챌린지의 결과 모달 자동 오픈(challenge 파라미터)
@@ -69,10 +82,13 @@ function linkFromData(data?: Record<string, unknown>): string | null {
   if (raw === null) return null; // 타입 없는 data는 손대지 않는다(종전 동작 — 오라우팅 방지)
   if (!GROUP_ROOM_TYPES.has(raw)) return 'gromo://group'; // 미지원 타입 — 그룹 탭 폴백
   const challengeId = data?.challengeId;
-  if (raw === 'CHALLENGE_SESSION_END' && typeof challengeId === 'string') {
-    return `gromo://group?g=${groupId}&challenge=${challengeId}`;
-  }
-  return `gromo://group?g=${groupId}`;
+  const challengePart =
+    raw === 'CHALLENGE_SESSION_END' && typeof challengeId === 'string'
+      ? `&challenge=${challengeId}`
+      : '';
+  // 결과성 타입은 멤버십 게이트 우회 표식을 싣는다(위 RESULT_PUSH_TYPES 주석).
+  const resultPart = RESULT_PUSH_TYPES.has(raw) ? '&result=1' : '';
+  return `gromo://group?g=${groupId}${challengePart}${resultPart}`;
 }
 
 // 정산 결과/창 종료 푸시 타입(계약 §2 push_opened) — 그 외는 null(이벤트 생략).

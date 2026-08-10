@@ -138,10 +138,12 @@ describe('data.link 3경로 전달(GROMO-1088 유지)', () => {
 });
 
 // 서버는 link를 싣지 않는다(IA §4.2) — 앱이 타입별로 groupId → 딥링크를 합성한다(GROMO-1421).
+// 결과성 타입(BET_RESULT·BET_WON·BET_VOID_REFUND·SESSION_END)은 result=1 표식을 함께 싣는다 —
+// 탈퇴자도 정산 통지에 도달해야 해서(N53·C8) navigationRef가 이 표식만 멤버십 게이트를 우회한다.
 describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', () => {
-  // 그룹방까지만 — 특정 챌린지를 지목하지 않는 타입들(묶음 발송 포함).
-  test.each(['CHALLENGE_CREATED', 'CHALLENGE_SESSION_OPEN', 'BET_RESULT', 'BET_WON'])(
-    '%s + groupId → 그룹방 딥링크(challenge 없음)',
+  // 비결과성(모집·생성) — 그룹방까지만, 멤버십 게이트 유지(result 표식 없음).
+  test.each(['CHALLENGE_CREATED', 'CHALLENGE_SESSION_OPEN'])(
+    '%s + groupId → 그룹방 딥링크(challenge·result 없음)',
     (type) => {
       setupPushListeners();
       openedHandler?.(message({ type, groupId: GROUP_ID, challengeId: CHALLENGE_ID }));
@@ -150,20 +152,28 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
     },
   );
 
-  test('CHALLENGE_SESSION_END + challengeId → 그룹방 + 결과 모달(challenge 파라미터)', () => {
+  // 결과성 — 특정 챌린지를 지목하지 않는 타입들(묶음 발송 포함). result=1만 붙는다.
+  test.each(['BET_RESULT', 'BET_WON'])('%s + groupId → 그룹방 딥링크 + result 표식', (type) => {
+    setupPushListeners();
+    openedHandler?.(message({ type, groupId: GROUP_ID, challengeId: CHALLENGE_ID }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
+  });
+
+  test('CHALLENGE_SESSION_END + challengeId → 그룹방 + 결과 모달(challenge) + result 표식', () => {
     setupPushListeners();
     openedHandler?.(
       message({ type: 'CHALLENGE_SESSION_END', groupId: GROUP_ID, challengeId: CHALLENGE_ID }),
     );
 
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(END_LINK);
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${END_LINK}&result=1`);
   });
 
-  test('CHALLENGE_SESSION_END인데 challengeId가 없으면(묶음) 그룹방까지만', () => {
+  test('CHALLENGE_SESSION_END인데 challengeId가 없으면(묶음) 그룹방까지만(result 표식은 유지)', () => {
     setupPushListeners();
     openedHandler?.(message({ type: 'CHALLENGE_SESSION_END', groupId: GROUP_ID }));
 
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}`);
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
   });
 
   // 삭제 환불은 이 푸시가 알리는 사건이다 — 결과 모달까지 열면 같은 사건 이중 통지(N48).
@@ -179,7 +189,7 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
       }),
     );
 
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}`);
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
   });
 
   test('미지원 타입 + groupId는 그룹 탭 폴백 — 무반응으로 끝나지 않는다', () => {

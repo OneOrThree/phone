@@ -316,6 +316,46 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
   });
 
+  // 결과성 푸시(result=1 — push.ts가 BET_RESULT 등에 합성)는 멤버십 게이트를 우회한다
+  // (PR #566 리뷰 P1). 탈퇴자는 목록에 그 그룹이 없어 여기서 잘리면, 참가자 스코프 결과를
+  // 부르는 GroupRoomScreen(MEMBER_ONLY → 결과 모달 소비 후 onLeft)에 도달조차 못 한다 —
+  // 다른 소속 그룹이 없으면 정산 통지를 볼 통로가 0이 된다(N53·C8).
+  describe('결과성 푸시(result=1)의 멤버십 게이트 우회', () => {
+    test('탈퇴자(내 그룹 목록에 없음)여도 그룹방을 push 한다 — 목록 조회 자체를 생략', async () => {
+      mockGetMyGroups.mockResolvedValue([summary('other-1')]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: undefined,
+      });
+      // 게이트 우회는 조회 생략이다 — 소속 여부와 무관하게 화면(MEMBER_ONLY 처리)이 받는다.
+      expect(mockGetMyGroups).not.toHaveBeenCalled();
+    });
+
+    test('challenge와 함께 실려도 두 파라미터 모두 그룹방까지 흘린다', async () => {
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}&result=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: CHALLENGE_ID,
+      });
+      expect(mockGetMyGroups).not.toHaveBeenCalled();
+    });
+
+    test('result=1이 아니면(비결과성·변조값) 기존 게이트 그대로다', async () => {
+      mockGetMyGroups.mockResolvedValue([summary('other-1')]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=2`);
+      await flushAsync();
+
+      expect(mockGetMyGroups).toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    });
+  });
+
   test('목록 조회가 실패해도 그룹 탭 이동은 유지된다(폴백)', async () => {
     mockGetMyGroups.mockRejectedValue(new Error('network'));
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
