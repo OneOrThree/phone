@@ -228,6 +228,8 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
         GroupChallengeBetParticipant confirmed = reload(mine);
         assertThat(confirmed.getAchieved()).isTrue();
         assertThat(confirmed.getProgressMinutes()).isEqualTo(GOAL_MINUTES);
+        // 조기 확정 시각 박제(V42, LLD §1.1) — confirmWin 순간의 Instant 가 함께 저장된다.
+        assertThat(confirmed.getAchievedAt()).isNotNull();
         // SCREEN_TIME 은 조기 확정 대상이 아니다 — 하루가 끝나야 판정할 수 있는 지표다.
         assertThat(reload(screenMine).getAchieved()).isNull();
         // 하루형은 참가 마감(자정) 전이라 조기 정산으로 이어지지 않는다 — 회차는 OPEN 그대로.
@@ -277,5 +279,9 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
         assertThat(reload(firstJoin).getPayout()).isEqualTo(STAKE);
         assertThat(reload(lastJoin).getPayout()).isEqualTo(STAKE);
         assertThat(reload(lastJoin).getAchieved()).isTrue();
+        // achieved_at 은 조기 확정 전용(LLD §1.1) — confirmWin 을 지난 참가자만 갖고,
+        // 정산이 판정한 참가자(사전 세팅 행)는 null 그대로다(시각 축은 회차 settled_at).
+        assertThat(reload(lastJoin).getAchievedAt()).isNotNull();
+        assertThat(reload(firstJoin).getAchievedAt()).isNull();
     }
 }
