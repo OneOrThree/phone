@@ -19,7 +19,8 @@ import type {
 //      withTiming(v, { easing })                          → .fn
 //
 // ⚠️ CSS API는 reduce-motion 내장 처리가 없다. 프리셋 결과는 반드시 useMotion().css()를
-//    통과시켜 쓴다 — `style={[s.card, m.css(enterUp(i))]}`.
+//    통과시켜 쓴다 — 진입 프리셋은 `m.enter()`, 그 외(전환·무한 루프)는 `m.css()`.
+//    `style={[s.card, m.enter(enterUp(i))]}`
 
 // 베지어 제어점 단일 출처.
 const STANDARD = [0.2, 0, 0, 1] as const; // 표준 감속 — 오버슛 없음
