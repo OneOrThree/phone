@@ -1,18 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { FindMoreCard } from './components/FindMoreCard';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -36,8 +27,6 @@ import { FindMoreCard } from './components/FindMoreCard';
 
 // 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
 const TAB_BAR_SPACE = 74;
-const SIDE_PEEK = 24;
-const CARD_GAP = 12;
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
@@ -57,10 +46,7 @@ export default function GroupListScreen({
   onBack,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
-  const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
-  const snapInterval = cardWidth + CARD_GAP;
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -103,25 +89,14 @@ export default function GroupListScreen({
         testID="group.list.items"
         data={groups}
         keyExtractor={(item) => item.groupId}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-        ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-        snapToInterval={snapInterval}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum
-        ListFooterComponent={
-          <View style={{ marginLeft: CARD_GAP }}>
-            <FindMoreCard width={cardWidth} onPress={onFind} />
-          </View>
-        }
+        contentContainerStyle={s.listContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[s.card, { width: cardWidth }]}
+            style={s.card}
             activeOpacity={0.85}
             onPress={() => onSelect(item.groupId)}
             testID={`group.list.card.${item.groupId}`}
@@ -216,12 +191,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  listContent: { paddingBottom: T.space.md },
+  listContent: { paddingHorizontal: T.space.xl, paddingBottom: T.space.md, gap: T.space.md },
 
   // 카드 표면은 T.paperAlt — 그룹 탭 배경이 흰 캔버스(T.paperLight)라 T.white 카드는 묻힌다
   // (그룹방의 초대·공지 카드와 같은 기준).
   card: {
-    minHeight: 220,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: T.space.md,
