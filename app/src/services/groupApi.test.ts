@@ -163,6 +163,8 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       missionCategory: 'FOCUS' as const,
       missionType: 'DURATION' as const,
       durationMinutes: 60,
+      // 요일 반복(GROMO-1273) — v2 계약의 필수 필드다(LLD §2).
+      repeatDays: ['MON' as const],
     };
     await createChallenge(GROUP_ID, body);
     await deleteChallenge(GROUP_ID, CHALLENGE_ID);
@@ -231,6 +233,7 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       missionCategory: 'FOCUS' as const,
       missionType: 'TIME_WINDOW' as const,
       durationMinutes: 60,
+      repeatDays: ['MON' as const],
       windowStart: '09:00:00',
       windowEnd: '12:00:00',
     };
