@@ -122,6 +122,7 @@ test('저장 실패 뒤 다른 아이콘을 고르면 최신 선택을 즉시 �
   await render(<GroupCardEmojiEditScreen />);
   await screen.findByTestId('group.cardEmoji.save');
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  setGroupCardEmojiSaveFailure('user-1', true);
   jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
   expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
@@ -136,6 +137,31 @@ test('저장 실패 뒤 다른 아이콘을 고르면 최신 선택을 즉시 �
     surface: 'settings',
     result: 'success',
   });
+  expect(readGroupCardEmojiSaveFailure('user-1')).toBe(false);
+});
+
+test('수동 저장 실패 전에 예약된 재시도 성공을 새 pending 세대로 되살리지 않는다', async () => {
+  let started: () => void = () => undefined;
+  let reject: (reason: Error) => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const firstWrite = new Promise<void>((_resolve, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => {
+    started();
+    await firstWrite;
+  });
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  fireEvent.press(screen.getByTestId('group.cardEmoji.save'));
+  await startedGate;
+
+  const retry = retryPendingGroupCardEmojis('user-1', ['group-1']);
+  await act(async () => reject(new Error('disk full')));
+  await retry;
+
+  expect(await retryPendingGroupCardEmojis('user-1', ['group-1'])).toEqual({});
 });
 
 test('저장 실패 뒤 선택 변경 자동 재시도도 실패 결과를 계측한다', async () => {
@@ -185,11 +211,13 @@ test('저장 실패 뒤 선택을 되돌리면 오래된 pending을 폐기하고
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
   jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+  setGroupCardEmojiSaveFailure('user-1', true);
 
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🎯')));
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(await retryPendingGroupCardEmojis('user-1', ['group-1'])).toEqual({});
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🎯');
+  expect(readGroupCardEmojiSaveFailure('user-1')).toBe(false);
 });
 
 test('pending 선택을 카드와 편집기 초기값에 합성하되 저장 기준값은 디스크 값으로 유지한다', async () => {

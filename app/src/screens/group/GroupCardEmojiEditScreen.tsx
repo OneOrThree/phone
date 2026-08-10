@@ -130,7 +130,8 @@ export default function GroupCardEmojiEditScreen() {
       setBaseline(selected);
       navigation.goBack();
     } catch {
-      preservePendingGroupCardEmoji(userId, groupId, selected);
+      // 저장 수락 전에 만든 pending 세대를 그대로 유지한다. 화면 이탈로 GroupScreen 재시도가
+      // 같은 세대를 이미 가져갔다면 여기서 새 버전을 만들면 성공한 재시도가 이를 지우지 못한다.
       if (
         identityRef.current !== saveIdentity ||
         !ownsGroupCardIconSaveResult(saveSessionIdentity, userId)
@@ -167,6 +168,7 @@ export default function GroupCardEmojiEditScreen() {
             }
             if (identityRef.current !== retryIdentity) return;
             clearPendingGroupCardEmoji(userId, groupId, emoji);
+            setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
             if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
               logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
             }
@@ -178,8 +180,8 @@ export default function GroupCardEmojiEditScreen() {
           })
           .catch(() => {
             if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
-            // 기준값으로 되돌린 선택도 앞선 자동 쓰기 뒤 실패할 수 있으므로 최신 값으로 보존한다.
-            preservePendingGroupCardEmoji(userId, groupId, emoji);
+            // updatePendingGroupCardEmojiSelection이 만든 현재 세대를 유지한다. 실패 시 같은 값을
+            // 다시 preserve하면 이미 예약된 GroupScreen 재시도를 오래된 세대로 만들어 버린다.
             if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
               logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
             }
@@ -189,6 +191,9 @@ export default function GroupCardEmojiEditScreen() {
           });
       } else if (shouldRetryPending && emoji === baseline) {
         changeRetryRef.current++;
+        if (userId) {
+          setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
+        }
         setSaveFailed(false);
         setSaving(false);
       }
