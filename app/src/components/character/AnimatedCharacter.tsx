@@ -120,6 +120,10 @@ export function AnimatedCharacter({
       undefined,
       M.never,
     );
+    // ⚠️ **언마운트에서도 반복을 끊는다.** 위 `if` 분기는 active/reduce가 바뀔 때만 도는데,
+    //    active=true인 채로 화면이 사라지면(탭 이동으로 언마운트되는 화면·모달) 무한 반복이
+    //    남는다 — 열고 닫기를 반복하면 보이지 않는 UI 스레드 작업이 쌓인다(codex 리뷰).
+    return () => cancelAnimation(breath);
   }, [breath, duration, m.reduce, active]);
 
   const breathStyle = useAnimatedStyle(() => ({
