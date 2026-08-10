@@ -45,6 +45,55 @@ async function writeQueue(queue: PendingFocusUpload[]): Promise<void> {
   else await AsyncStorage.setItem(STORAGE_KEYS.focusPendingUploads, JSON.stringify(queue));
 }
 
+// ── 백그라운드 커밋 마커(codex 리뷰 P2) ────────────────────────────────────────────
+// 사일런트 푸시로 깨어난 백그라운드 flush(services/pushBackground.runSilentFlush)가 실제로
+// 저장을 커밋하면 **서버 잔액이 바뀌고 큐에서 항목이 빠진다**. 그런데 포그라운드로 돌아온
+// PendingFocusUploader는 이미 비어 버린 큐를 flush 하므로 committed=false를 받고 잔액을
+// 다시 받지 않는다 — CoinContext는 마운트 때만 자동 조회하니 사용자는 낡은 잔액을 계속 보고,
+// 상점의 클라이언트 선행 검사(coins < price)에서 방금 번 코인을 쓰지 못한다.
+// 백그라운드는 React 트리가 없어 refreshCoins(useCoins 훅)를 부를 수 없으므로, **커밋 사실만**
+// AsyncStorage에 남겨(앱이 그 사이 종료돼도 살아남는다) 다음 포그라운드 flush가 이어받게 한다.
+//
+// ⚠️ 이 마커는 **프로세스가 죽는 경우의 보험**이지 정규 경로가 아니다(codex 후속 리뷰 P2).
+// JS 컨텍스트가 살아 있으면 pushBackground가 커밋 시점에 coinRefreshSignal로 곧장 깨운다 —
+// 마커만 두면 '백그라운드 flush가 도는 도중 앱이 active로 전환'된 겹침 구간에서 복귀 쪽
+// flush는 flushing 가드로 즉시 false를, 마커는 아직 기록 전이라 false를 받아 갱신이 통째로
+// 유실된다. 두 경로가 겹쳐 조회가 한 번 더 나가는 것은 무해하다(멱등한 서버 재조회).
+//
+// 값은 계정 없는 단순 플래그다 — 잔액 재조회는 '지금 로그인한 계정의 잔액을 다시 받는' 동작이라
+// 남의 마커를 소비해 한 번 더 조회해도 무해하고(서버 재조회일 뿐), 놓치는 쪽이 더 나쁘다.
+export async function markBackgroundFocusCommit(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEYS.focusBackgroundCommit, '1');
+  } catch {
+    // 마커 저장 실패는 삼킨다 — 백그라운드라 알릴 곳이 없고, 다음 커밋이 다시 남긴다.
+  }
+}
+
+// 마커를 **읽기만** 한다. true면 아직 화면에 반영되지 않은 지급이 있다는 뜻이다.
+//
+// ⚠️ 읽는 자리에서 지우지 않는다(codex 후속 리뷰 P2). 예전엔 읽으면서 삭제했는데, 이어지는
+// 잔액 조회가 네트워크 오류로 실패하거나 겹친 조회에 밀려 미반영되면(CoinContext refreshSeqRef)
+// **큐도 마커도 비어** 지급 전 잔액이 영영 남았다 — 실패를 성공으로 확정한 것이다.
+// coinRefreshSignal의 보류 규칙과 같은 원칙으로 맞춘다: **성공을 확인한 뒤에만 내린다.**
+export async function readBackgroundFocusCommit(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit)) === '1';
+  } catch {
+    return false; // 못 읽었으면 '없다'가 아니라 '이번엔 모른다' — 마커는 남아 다음 기회에 다시 읽힌다
+  }
+}
+
+// 잔액 재조회가 **실제로 반영된 뒤** 호출자가 부른다. 삭제 실패는 삼킨다 — 마커가 남아
+// 다음 복귀에서 조회가 한 번 더 나갈 뿐이고(멱등), 잃는 것보다 낫다.
+export async function clearBackgroundFocusCommit(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusBackgroundCommit);
+  } catch {
+    // 무시 — 다음 복귀가 다시 시도한다.
+  }
+}
+
 // 업로드 실패한 세션을 대기열에 추가. userId는 적립한 계정(useUser().userId).
 export function enqueuePendingFocusUpload(
   body: FocusSessionRequest,
