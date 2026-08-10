@@ -89,7 +89,7 @@ flowchart TB
 | 코인 · 스트릭 수치 | 🟥 즉시 교체 | 🟦 `AnimatedNumber` 카운트업 | PR6 |
 | 온보딩 진행 세그먼트 | 🟥 즉시 색 변경 | 🟦 `ProgressBar` | PR6 |
 | 집중 카운트다운 · 뽀모도로 | 🟥 진행 어포던스 없음 | 🟦 `ProgressRing` | PR8 |
-| 뽀모도로 페이즈 전환 | 🟥 무표시 | 🟦 크로스페이드 + `hapticMedium` | PR8 |
+| 뽀모도로 페이즈 전환 | 🟩 2연속 진동(GROMO-864) | 🟦 크로스페이드 추가 (진동은 그대로) | PR8 |
 | 리그 순위 재정렬 | 🟥 통째 교체 | 🟦 `LinearTransition` | PR7 |
 | 리그 리스트 펼침 | 🟥 `LayoutAnimation`(충돌 위험) | 🟦 `LinearTransition`으로 치환 | PR7 |
 | 탭바 하이라이트 | 🟩 알약 슬라이드 350ms | 🟩 유지(토큰 이관) | PR1 |

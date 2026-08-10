@@ -261,7 +261,7 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 통계 | 캘린더 진입 | 행 단위 `fadeIn(i)` | base | i × 60 | 2 |
 | 통계 | 타임테이블 세션 블록 | **`growUp(j)`** | entrance | j × 60 | 2 |
 | 집중 세션 | 카운트다운·뽀모도로 | `ProgressRing` | 연속 | — | 1 |
-| 집중 세션 | 페이즈 전환 | 크로스페이드 + `hapticMedium` | quick | 0 | 1 |
+| 집중 세션 | 페이즈 전환 | 크로스페이드 (진동은 기존 2연속 유지) | quick | 0 | 1 |
 | 집중 결과 | 주간 막대 | **`growUp(i)`** | entrance | i × 60 | 2 |
 | 집중 결과 | 스트릭 ✓ · 코인 | `pop` | slow | 400 | 3 |
 | 리그 | 순위 행 | `enterUp(i)` | base | i × 60 | 2 |
@@ -269,6 +269,12 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 리그 결과 | 승급 컨페티 | `ConfettiBurst` + `hapticSuccess` | celebrate | 시퀀스 후 | 3 |
 | 시트 전체 | 등장 | `spring.snappy` | ≈base | 0 | 1 |
 | 전역 | 토스트 | `spring.snappy` | quick | 0 | 1 |
+
+> ⚠️ **페이즈 전환에 `hapticMedium`을 새로 붙이지 않는다.** 이 경계에는 이미
+> `Vibration.vibrate([0, 400, 200, 400])`(iOS는 `[0, 500]`)가 붙어 있다 — GROMO-864에서
+> "라이브 전환이면 진동 2번으로 경계를 알린다"로 넣은 것이고, `hapticMedium`(가벼운 임팩트)보다
+> **훨씬 강하다**. 위에 겹쳐 붙이면 한 경계에서 신호가 두 번 난다. 초안이 `hapticMedium`으로
+>적혀 있었으나 기존 구현이 더 나은 쪽이라 문서를 코드에 맞춘다(codex 리뷰 PR #562).
 
 > ⚠️ **막대에 `enterUp`을 쓰지 않는다.** `enterUp`은 `M.dur.base`(350) 고정이고 duration 인자를 받지 않는다(참조 캐시 때문). 막대는 `scaleY`·`entrance`·`overshoot`가 다르므로 §2-1의 **`growUp` 프리셋**을 쓴다.
 >
