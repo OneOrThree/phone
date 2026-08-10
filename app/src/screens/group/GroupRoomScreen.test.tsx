@@ -1815,6 +1815,40 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
     });
 
+    // ⚠️ 이 테스트는 rerender 기반 두 테스트('시트에 가려'·'같은 방에서') **뒤에** 둔다 —
+    // 심은 seen 마커의 비동기 잔향이 앞에 있으면 그 둘의 재조회를 깨뜨린다(멀티리무브로도 완전
+    // 격리가 안 됐다). 순서 의존은 다음 사람을 위해 여기 명시해 둔다.
+    // 요일 반복(N3)에서는 같은 challengeId의 지난 회차가 큐(30일)에 여럿 남는다 — 푸시는
+    // challengeId만 싣기 때문에 전부 우회시키면 이미 본 지난 회차까지 재노출된다(PR #566 리뷰).
+    test('같은 챌린지의 지난 회차가 여럿이어도 가드 우회는 최신 1건뿐이다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      mockGetMyChallengeResults.mockResolvedValue([
+        resultEntry({ sessionId: 's-new', challengeId: 'c-target', sessionDate: '2026-07-31' }),
+        resultEntry({ sessionId: 's-old', challengeId: 'c-target', sessionDate: '2026-07-28' }),
+        resultEntry({ sessionId: 's-older', challengeId: 'c-target', sessionDate: '2026-07-25' }),
+      ]);
+      // 지난 두 회차는 이미 봤다 — 가드 마커가 있다.
+      await AsyncStorage.setItem(`gromo:sessionResult:me:s-old`, '2026-07-28');
+      await AsyncStorage.setItem(`gromo:sessionResult:me:s-older`, '2026-07-25');
+
+      await renderWithFocus('c-target');
+
+      // 최신(7/31) 1건만 우회로 뜨고, 이미 본 지난 회차(7/28·7/25)는 큐에 없다.
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
+      fireEvent.press(screen.getByText('확인'));
+      await act(async () => {});
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+      // 이 테스트가 심은 마커만 걷는다 — 스토리지 목은 스위트 전체에서 살아남아 뒤 테스트를
+      // 오염시킨다. clear()는 목 내부 상태를 통째로 리셋해 다른 누수를 만들 수 있어 쓰지 않는다.
+      await AsyncStorage.multiRemove([
+        'gromo:sessionResult:me:s-old',
+        'gromo:sessionResult:me:s-older',
+        'gromo:sessionResult:me:s-new',
+      ]);
+    });
+
     test('지목이 없으면(목록 탭 진입) 기존 1회 가드가 그대로 막는다', async () => {
       await AsyncStorage.setItem('gromo:sessionResult:me:s1', '2026-07-31');
       mockGetGroupDetail.mockResolvedValue(detail());

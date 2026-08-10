@@ -399,8 +399,14 @@ export default function GroupRoomScreen({
         // 푸시가 지목한 챌린지는 **1회 가드를 건너뛰고** 큐 앞자리에 세운다(GROMO-1088) —
         // 사용자가 알림을 직접 탭한 명시적 요청이라, 앱을 먼저 열어 이미 본 결과여도 응해야 한다.
         // 후보에 없으면(아직 정산 전) 소비하지 않고 다음 조회로 넘긴다.
+        // ⚠️ 최신 1건으로 좁힌다(PR #566 리뷰) — 요일 반복에서 같은 challengeId의 지난 회차가
+        //    큐(30일)에 여럿 남는데, 푸시(challengeId만 싣는다)가 가리키는 건 방금 정산된
+        //    회차 하나다. 전부 우회시키면 이미 본 지난 회차까지 앞자리에 재노출된다.
+        //    candidates는 sessionDate 내림차순(pickChallengeResults)이라 [0]이 최신이다.
         const focusId = focusPendingRef.current;
-        const focused = focusId ? candidates.filter((c) => c.challengeId === focusId) : [];
+        const focused = focusId
+          ? candidates.filter((c) => c.challengeId === focusId).slice(0, 1)
+          : [];
         if (focused.length > 0) focusPendingRef.current = null;
         const next = [
           ...focused,
