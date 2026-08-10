@@ -183,7 +183,7 @@ export interface GroupListScreenProps {
   userId?: string | null;
   onSelect: (groupId: string, interaction: CardInteractionContext) => void;
   onCreate: () => void;
-  onFind: () => void;
+  onFind: (entryPoint: 'list' | 'header' | 'end_card') => void;
   onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
   onOpenSettings?: (groupId: string) => void;
   onRefresh: () => Promise<void>;
@@ -1022,7 +1022,7 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.searchBtn}
             onPress={() => {
-              if (reorderMenuGroupIdRef.current === null) onFind();
+              if (reorderMenuGroupIdRef.current === null) onFind('header');
             }}
             disabled={reorderMenuGroupId !== null}
             activeOpacity={0.75}
@@ -1125,7 +1125,7 @@ export default function GroupListScreen({
                       position={pageCount}
                       pageCount={pageCount}
                       onPress={() => {
-                        if (reorderMenuGroupIdRef.current === null) onFind();
+                        if (reorderMenuGroupIdRef.current === null) onFind('end_card');
                       }}
                       focusable={renderedActiveIndex === orderedGroups.length}
                     />

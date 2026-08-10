@@ -188,7 +188,10 @@ export async function readGroupCardEmojiForEdit(
   if (!userId) return DEFAULT_GROUP_CARD_EMOJI;
   return enqueueStorageOperation(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
-    return normalizeGroupCardEmoji(map[userId]?.[groupId]);
+    return (
+      pendingEmojis.get(pendingKey(userId, groupId))?.emoji ??
+      normalizeGroupCardEmoji(map[userId]?.[groupId])
+    );
   });
 }
 

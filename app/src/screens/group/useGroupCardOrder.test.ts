@@ -113,6 +113,23 @@ test('저장 실패 뒤 서버 목록이 바뀌어도 세션 순서를 유지해
   expect(await readGroupCardOrder('me')).toEqual(['b', 'a', 'c']);
 });
 
+test('서버 목록 변경 시 저장소 읽기가 실패해도 현재 메모리 순서를 유지한다', async () => {
+  const { result, rerender } = await renderHook(
+    ({ ids }: { ids: string[] }) => useGroupCardOrder({ serverGroupIds: ids, userId: 'me' }),
+    { initialProps: { ids: ['a', 'b'] } },
+  );
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  await act(async () => {
+    result.current.commitOrder(['b', 'a']);
+  });
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a']));
+
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporary read failure'));
+  await rerender({ ids: ['a', 'b', 'c'] });
+
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a', 'c']));
+});
+
 test('이전 계정의 늦은 저장 실패가 새 계정 오류 상태를 바꾸지 않는다', async () => {
   let rejectOldWrite: (error: Error) => void = () => undefined;
   const { result, rerender } = await renderHook(

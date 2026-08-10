@@ -30,6 +30,7 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
   const userRef = useRef(userId);
   userRef.current = userId;
   const identityRef = useRef('');
+  const hydratedUserRef = useRef<string | null>(null);
   // 디스크 쓰기 실패 뒤에도 계정별 최신 화면 순서를 세션 동안 보존한다.
   const pendingByUserRef = useRef(new Map<string, string[]>());
 
@@ -58,8 +59,13 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
       if (canceled || !mounted.current) return;
 
       const pending = userId ? pendingByUserRef.current.get(userId) : undefined;
-      const reconciled = reconcileGroupCardOrder(ids, pending ?? stored);
+      const memoryOrder = hydratedUserRef.current === userId ? orderRef.current : null;
+      const reconciled = reconcileGroupCardOrder(
+        ids,
+        pending ?? (read.readFailed ? memoryOrder : stored),
+      );
       orderRef.current = reconciled;
+      hydratedUserRef.current = userId;
       setState({ identity, ids: reconciled, saveFailed: pending !== undefined });
 
       if (userId && pending) {

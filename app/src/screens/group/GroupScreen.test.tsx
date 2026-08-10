@@ -21,7 +21,7 @@ import {
   peekGroupEntry,
   queueDirectGroupEntry,
 } from '@/navigation/groupEntrySource';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -57,7 +57,10 @@ jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ isGuest: mockIsGuest }),
 }));
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupViewed: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupFindOpened: jest.fn(),
+  logGroupViewed: jest.fn(),
+}));
 
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -89,7 +92,7 @@ jest.mock('./GroupListScreen', () => {
       interaction: { interactionId: string; interactionAcceptedAt: number },
     ) => void;
     onCreate: () => void;
-    onFind: () => void;
+    onFind: (entryPoint: 'header') => void;
     onRefresh: () => Promise<void>;
   }) {
     return (
@@ -111,7 +114,7 @@ jest.mock('./GroupListScreen', () => {
         <RNTouchable onPress={onCreate}>
           <RNText>목록-만들기</RNText>
         </RNTouchable>
-        <RNTouchable onPress={onFind}>
+        <RNTouchable onPress={() => onFind('header')}>
           <RNText>목록-찾기</RNText>
         </RNTouchable>
         <RNTouchable onPress={() => onRefresh()}>
@@ -159,15 +162,20 @@ jest.mock('./components/GroupInviteSheet', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
   return function MockInvite({
     groupId,
+    onClose,
     onJoined,
     onLogin,
   }: {
     groupId: string;
+    onClose: () => void;
     onJoined: (joinedGroupId: string) => void;
     onLogin: () => void;
   }) {
     return (
       <RNView>
+        <RNTouchable onPress={onClose}>
+          <RNText>초대-닫기</RNText>
+        </RNTouchable>
         <RNTouchable onPress={() => onJoined(mockJoinedIdOverride ?? groupId)}>
           <RNText>초대-참여완료</RNText>
         </RNTouchable>
@@ -183,6 +191,7 @@ const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockPeek = peekPendingInvite as jest.MockedFunction<typeof peekPendingInvite>;
 const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingInvite>;
 const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroupViewed>;
+const mockLogGroupFindOpened = logGroupFindOpened as jest.MockedFunction<typeof logGroupFindOpened>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
@@ -372,6 +381,7 @@ describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
     await renderScreen();
 
     await press('그룹 찾기');
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'empty' });
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
     await press('찾기-참여완료');
 
@@ -496,6 +506,7 @@ describe('목록의 만들기·찾기 진입점', () => {
 
     await press('목록-찾기');
     expect(screen.getByText('찾기-참여완료')).toBeOnTheScreen();
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'header' });
 
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);
     await press('찾기-참여완료');
@@ -600,6 +611,18 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
 });
 
 describe('게스트 초대 로그인(§6-6)', () => {
+  test('게스트가 초대 시트를 닫으면 보류한 invite 진입 출처도 폐기한다', async () => {
+    mockIsGuest = true;
+    mockPendingInvite = GROUP_ID;
+    queueDirectGroupEntry('invite');
+    await renderScreen();
+
+    await press('초대-닫기');
+
+    expect(mockClear).toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('tab');
+  });
+
   test('시트만 내리고 초대 버퍼는 남긴 채 계정 화면으로 보낸다', async () => {
     mockIsGuest = true;
     mockPendingInvite = GROUP_ID;

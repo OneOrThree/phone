@@ -16,9 +16,10 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
+  clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
   type GroupEntrySource,
@@ -196,6 +197,7 @@ export default function GroupScreen() {
     //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
     if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
+    clearPendingGroupEntry();
     setInvite(null);
   }, []);
 
@@ -304,6 +306,10 @@ export default function GroupScreen() {
   }, [navigation]);
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
+  const openFind = useCallback((entryPoint: 'empty' | 'list' | 'header' | 'end_card') => {
+    logGroupFindOpened({ entry_point: entryPoint });
+    setFindOpen(true);
+  }, []);
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -429,7 +435,7 @@ export default function GroupScreen() {
           userId={userId}
           onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
           onCreate={openCreate}
-          onFind={() => setFindOpen(true)}
+          onFind={(entryPoint) => openFind(entryPoint)}
           onStartFocus={onStartGroupFocus}
           onOpenSettings={onOpenGroupSettings}
           onRefresh={fetchGroups}
@@ -465,7 +471,7 @@ export default function GroupScreen() {
         <TouchableOpacity
           style={s.outlineBtn}
           activeOpacity={0.85}
-          onPress={() => setFindOpen(true)}
+          onPress={() => openFind('empty')}
           testID="group.find.entry"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>

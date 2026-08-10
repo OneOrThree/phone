@@ -79,6 +79,13 @@ test('편집용 읽기는 저장소 오류를 기본값으로 확정하지 않�
   await expect(readGroupCardEmojiForEdit('u1', 'g1')).rejects.toThrow('temporary read failure');
 });
 
+test('편집·설정용 읽기는 오류를 전달하면서 최신 pending 선택을 합성한다', async () => {
+  await writeGroupCardEmoji('u1', 'g1', '📚');
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥');
+
+  await expect(readGroupCardEmojiForEdit('u1', 'g1')).resolves.toBe('🔥');
+});
+
 test('동시 RMW를 직렬화해 다른 계정·그룹과 같은 그룹의 마지막 선택을 보존한다', async () => {
   await Promise.all([
     writeGroupCardEmoji('u1', 'g1', '📚'),

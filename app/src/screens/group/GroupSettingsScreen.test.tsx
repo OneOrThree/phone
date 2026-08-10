@@ -14,6 +14,10 @@ import GroupSettingsScreen from './GroupSettingsScreen';
 import { getGroupDetail, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
+} from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -137,6 +141,7 @@ async function pressLeaveAndConfirm(alertSpy: jest.SpyInstance) {
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
+  __resetGroupCardEmojiQueueForTest();
   mockUser.userId = 'me';
   mockGetGroupDetail.mockResolvedValue(detail());
   mockWithdrawGroup.mockResolvedValue(undefined);
@@ -178,6 +183,18 @@ describe('허브 — 행 노출', () => {
     expect(screen.queryByTestId('group.settings.profile')).toBeNull();
     expect(screen.queryByTestId('group.settings.transfer')).toBeNull();
     expect(screen.queryByTestId('group.settings.members')).toBeNull();
+  });
+
+  test('저장 실패 pending 아이콘을 설정 행의 현재값으로 표시한다', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.groupCardEmoji,
+      JSON.stringify({ me: { [GROUP_ID]: '📚' } }),
+    );
+    preservePendingGroupCardEmoji('me', GROUP_ID, '🔥');
+
+    await renderScreen();
+
+    expect(await screen.findByText('🔥 불꽃 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
   });
 
   test('OWNER와 MEMBER 모두 같은 로컬 아이콘 편집 route로 이동한다', async () => {
