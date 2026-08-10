@@ -109,6 +109,9 @@ export default function FocusResultScreen() {
   const [cellsLoaded, setCellsLoaded] = useState(false);
   // heatmap 확정 실패 — 별점 요청(980)은 성공/실패가 확정된 뒤에만 발화한다(아래 effect 참고)
   const [cellsFailed, setCellsFailed] = useState(false);
+  // 조회가 끝났는가(성공·실패 무관). 막대의 '기다림'은 여기서 끝난다 — 실패를 빼면 로컬로
+  // 확정된 오늘 막대까지 영영 숨는다(codex 리뷰).
+  const cellsSettled = cellsLoaded || cellsFailed;
   // 비교 3축(GROMO-755) — 평균 집계 API(753) 단일 호출. 오늘/이번 주 기간 탭(692와 동일 패턴)
   // × 축별 캐시: 탭 왕복 시 재조회 없이 즉시 전환, 축별 독립 도착은 유지.
   // 축 값 undefined = 로딩 중, avg null = 미확보(count 0 = 집계 대상 없음 / -1 = 조회 실패)
@@ -618,11 +621,15 @@ export default function FocusResultScreen() {
                     <View key={date} style={s.barCol}>
                       <View style={s.barTrack}>
                         <WeekBar
-                          key={cellsLoaded ? 'loaded' : 'pending'}
+                          // ⚠️ 실패(cellsFailed)도 **기다림 종료**다. 성공만 보면 조회가
+                          //    실패했을 때 막대가 scaleY 0에 영구히 갇혀, 로컬로 확정된 오늘
+                          //    막대까지 숨고 주간 합계와 빈 차트가 모순된다(codex 리뷰).
+                          key={cellsSettled ? 'settled' : 'pending'}
                           height={h}
                           isToday={isToday}
                           index={i}
-                          loaded={cellsLoaded}
+                          settled={cellsSettled}
+                          animate={cellsLoaded}
                         />
                       </View>
                       <Text style={[s.barDay, isToday ? s.barDayToday : null]}>
@@ -885,12 +892,16 @@ function WeekBar({
   height,
   isToday,
   index,
-  loaded,
+  settled,
+  animate,
 }: {
   height: number;
   isToday: boolean;
   index: number;
-  loaded: boolean;
+  /** 조회가 끝났는가(성공·실패 무관) — 기다림을 끝내는 신호다. */
+  settled: boolean;
+  /** 성공해서 실제로 자랄 값이 있는가. 실패면 정적으로 보여 준다. */
+  animate: boolean;
 }) {
   const m = useMotion();
   const enter = m.enter(growUp(index));
@@ -901,7 +912,8 @@ function WeekBar({
         { height, backgroundColor: isToday ? T.accent : T.sand },
         // 도착 전에는 시작 프레임에서 기다린다 — 오늘 막대는 이미 값이 있어 완성 높이로 먼저
         // 보였다가, 응답이 오며 growUp이 붙으면 0으로 접혔다 다시 자란다(codex 리뷰).
-        loaded ? enter : enter && GROW_PENDING,
+        // ⚠️ 실패면 기다림을 끝내되 연출은 붙이지 않는다. 로컬로 확정된 오늘 막대는 보여야 한다.
+        settled ? (animate ? enter : undefined) : enter && GROW_PENDING,
       ]}
     />
   );

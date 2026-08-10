@@ -79,7 +79,13 @@ export default function ScreenTimeAnalyzingOverlay({
     const fillMs = take(FILL_MS);
     const holdMs = take(HOLD_MS);
     const finishMs = take(FINISH_MS);
-    progress.value = 0;
+    // ⚠️ **이미 100%면 되감지 않는다.** 오버레이가 떠 있는 동안 '동작 줄이기'를 켰다 끄면
+    //    위 분기가 만든 100%를 여기서 0%로 되돌려 순간 이동한 뒤 다시 차오른다(codex 리뷰).
+    //    끝난 연출은 끝난 채로 둔다 — 되감는 건 어떤 경우에도 얻는 게 없다.
+    if (progress.value >= 1) return;
+    // 경과분을 이미 깎았으므로 남은 구간만 재생한다. 시작값은 지금 값 그대로 두면 앞 구간이
+    // 이미 지나간 만큼에서 이어진다.
+    if (progress.value <= 0) progress.value = 0;
     progress.value = withSequence(
       // ⚠️ withSequence는 **첫 인자**로 게이트를 받는다(오버로드). 조합자마다 자리가 달라
       //    (withDelay는 세 번째, withRepeat는 다섯 번째) 하나씩 확인해야 한다.
