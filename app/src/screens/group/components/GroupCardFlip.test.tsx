@@ -50,3 +50,32 @@ test('전환 완료 전 양쪽 입력을 잠그고 완료 뒤 뒷면만 연다',
   expect(onTransitioningChange).toHaveBeenLastCalledWith(false);
   jest.useRealTimers();
 });
+
+test('스와이프 정리는 전환 잠금 없이 앞면을 즉시 연다', async () => {
+  const onTransitioningChange = jest.fn();
+  const view = await render(
+    <GroupCardFlip
+      groupId="g1"
+      minHeight={520}
+      flipped
+      front={<Text>앞면</Text>}
+      back={<Text>뒷면</Text>}
+      onTransitioningChange={onTransitioningChange}
+    />,
+  );
+
+  await view.rerender(
+    <GroupCardFlip
+      groupId="g1"
+      minHeight={520}
+      flipped={false}
+      skipTransition
+      front={<Text>앞면</Text>}
+      back={<Text>뒷면</Text>}
+      onTransitioningChange={onTransitioningChange}
+    />,
+  );
+
+  expect(screen.getByTestId('group.card.flipFront.g1').props.pointerEvents).toBe('auto');
+  expect(onTransitioningChange).not.toHaveBeenCalledWith(true);
+});

@@ -234,6 +234,7 @@ export default function GroupListScreen({
   const flippedGroupIdRef = useRef<string | null>(null);
   flippedGroupIdRef.current = flippedGroupId;
   const [flipAnimating, setFlipAnimating] = useState(false);
+  const [skipFlipTransition, setSkipFlipTransition] = useState(false);
   const flipAnimatingRef = useRef(false);
   flipAnimatingRef.current = flipAnimating;
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
@@ -734,6 +735,10 @@ export default function GroupListScreen({
         setActiveStableGroupId(groupId);
         setActiveIndex(target);
         listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
+        const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
+        AccessibilityInfo.announceForAccessibility(
+          `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했습니다`,
+        );
       }
       return committed;
     },
@@ -789,7 +794,18 @@ export default function GroupListScreen({
             setReorderMenuGroupId(drag.groupId);
             return;
           }
-          commitMove(drag.groupId, drag.target, 'drag');
+          const committed = commitMove(drag.groupId, drag.target, 'drag');
+          if (!committed) {
+            programmaticMomentumOffsetRef.current = null;
+            activeIdentityRef.current = drag.groupId;
+            activeIndexRef.current = drag.from;
+            setActiveStableGroupId(drag.groupId);
+            setActiveIndex(drag.from);
+            listRef.current?.scrollToOffset({
+              offset: drag.from * snapInterval,
+              animated: false,
+            });
+          }
         },
         onPanResponderTerminate: () => {
           stopEdgePaging();
@@ -1128,7 +1144,11 @@ export default function GroupListScreen({
                   roomReturnRef.current = null;
                   pendingFlipRef.current = null;
                   guideBackGroupIdRef.current = null;
+                  setSkipFlipTransition(true);
                   setFlippedGroupId(null);
+                  requestAnimationFrame(() => {
+                    if (mountedRef.current) setSkipFlipTransition(false);
+                  });
                 }}
                 onMomentumScrollEnd={onMomentumScrollEnd}
                 onScrollEndDrag={onScrollEndDrag}
@@ -1169,6 +1189,7 @@ export default function GroupListScreen({
                       groupId={item.groupId}
                       minHeight={GROUP_CARD_HEIGHT}
                       flipped={flippedGroupId === item.groupId}
+                      skipTransition={skipFlipTransition}
                       onTransitioningChange={
                         item.groupId === activeGroupId ? handleFlipTransition : undefined
                       }
@@ -1230,6 +1251,7 @@ export default function GroupListScreen({
                           emoji={emojiFor(item.groupId)}
                           position={index + 1}
                           pageCount={pageCount}
+                          reorderCount={orderedGroups.length}
                           active={item.groupId === activeGroupId}
                           bodyRef={
                             activeIdentityRef.current === item.groupId ? frontFocusRef : undefined

@@ -16,6 +16,7 @@ interface Props {
   front: ReactNode;
   back: ReactNode;
   onTransitioningChange?: (transitioning: boolean) => void;
+  skipTransition?: boolean;
 }
 
 /** 같은 카드 rect 안에서 두 face를 유지하고 flip/cross-fade만 전환한다. */
@@ -26,6 +27,7 @@ export function GroupCardFlip({
   front,
   back,
   onTransitioningChange,
+  skipTransition = false,
 }: Props) {
   const motion = useMotion();
   const progress = useSharedValue(flipped ? 1 : 0);
@@ -35,7 +37,7 @@ export function GroupCardFlip({
   const [transitioning, setTransitioning] = useState(false);
   // prop이 바뀐 첫 commit부터 layout effect가 state를 올리기 전까지도 입력을 잠근다.
   const transitionRequested = previousFlippedRef.current !== flipped;
-  const inputLocked = transitioning || transitionRequested;
+  const inputLocked = transitioning || (transitionRequested && !skipTransition);
 
   const finishTransition = useCallback(
     (generation: number) => {
@@ -52,6 +54,14 @@ export function GroupCardFlip({
     if (!transitionRequested) return;
     previousFlippedRef.current = flipped;
     const generation = ++transitionGenerationRef.current;
+    if (skipTransition) {
+      if (fallbackTimerRef.current !== null) clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+      setTransitioning(false);
+      onTransitioningChange?.(false);
+      progress.value = flipped ? 1 : 0;
+      return;
+    }
     setTransitioning(true);
     onTransitioningChange?.(true);
     const duration = motion.reduce ? 150 : 290;
@@ -76,6 +86,7 @@ export function GroupCardFlip({
     motion.reduce,
     onTransitioningChange,
     progress,
+    skipTransition,
     transitionRequested,
   ]);
 

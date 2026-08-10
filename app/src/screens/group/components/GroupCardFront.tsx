@@ -17,6 +17,7 @@ interface GroupCardFrontProps {
   emoji?: string;
   position?: number;
   pageCount?: number;
+  reorderCount?: number;
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
@@ -34,6 +35,7 @@ export function GroupCardFront({
   emoji = '🎯',
   position = 1,
   pageCount = 1,
+  reorderCount = pageCount,
   onFlip,
   onAccessibilityFlip,
   reorderHandlers,
@@ -57,6 +59,7 @@ export function GroupCardFront({
           accessibilityRole="adjustable"
           focusable={active}
           accessibilityLabel={`${group.name} 카드 순서`}
+          accessibilityValue={{ text: `${position}/${reorderCount}` }}
           accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
           accessibilityActions={[
             ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),

@@ -7,7 +7,7 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BackHandler, FlatList, View } from 'react-native';
+import { AccessibilityInfo, BackHandler, FlatList, View } from 'react-native';
 import GroupListScreen, { advanceEdgeTarget, isProgrammaticMomentum } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -304,10 +304,11 @@ describe('콜백', () => {
         nativeEvent: { contentOffset: { x: 0 } },
       });
     });
-    await finishCardFlip();
 
     expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+    expect(screen.getByTestId('group.deck.guideAnchor').props.pointerEvents).toBe('auto');
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
@@ -634,6 +635,7 @@ describe('제스처 중재와 재정렬', () => {
   });
 
   test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
     await act(async () => {
@@ -648,6 +650,10 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.accessibilityValue).toEqual({
+      text: '2/2',
+    });
+    expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
   });
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {
