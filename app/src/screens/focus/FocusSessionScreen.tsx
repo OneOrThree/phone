@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   View,
   Text,
@@ -1425,9 +1426,9 @@ export default function FocusSessionScreen() {
         {/* 타이머 리드아웃(모드별).
             key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
             갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
-        <Animated.View key={session.phase} style={[s.readout, m.enter(fadeIn())]}>
+        <PhaseReadout key={session.phase}>
           {renderReadout(mode, session, goal, pomo, subjectName, layout, timerTextStyle)}
-        </Animated.View>
+        </PhaseReadout>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls} ref={controlsRef} collapsable={false}>
@@ -1440,9 +1441,7 @@ export default function FocusSessionScreen() {
           >
             {/* 아이콘이 바뀌는 순간 팝으로 갈아탄다 — key로 새로 마운트시켜야 프리셋이 다시 돈다.
                 버튼의 testID(focus.pause)는 위 PressableScale에 그대로 남아 E2E 셀렉터에 영향 없음. */}
-            <Animated.View key={paused ? 'play' : 'pause'} style={m.enter(pop())}>
-              <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
-            </Animated.View>
+            <PopIcon key={paused ? 'play' : 'pause'} name={paused ? 'play' : 'pause'} />
           </PressableScale>
           <PressableScale
             testID="focus.stop"
@@ -1588,6 +1587,26 @@ function renderReadout(
         ))}
       </View>
     </>
+  );
+}
+
+// ⚠️ 키로 remount되는 진입 요소는 **자기 컴포넌트여야 한다.** `m.enter`의 결정은 useMotion을
+//    호출한 컴포넌트 인스턴스 단위로 얼리는데(기반 설계), 부모인 FocusSessionScreen은 페이즈가
+//    바뀌어도 remount되지 않는다. 부모의 결정에 묶이면 '동작 줄이기'를 끈 뒤 새로 마운트되는
+//    리드아웃·아이콘이 진입 연출을 영영 못 받는다(codex 리뷰).
+//    ⚠️ 뷰를 새로 끼운 게 아니다 — 이 컴포넌트가 곧 그 Animated.View다(D-04 유지).
+function PhaseReadout({ children }: { children: ReactNode }) {
+  const m = useMotion();
+  return <Animated.View style={[s.readout, m.enter(fadeIn())]}>{children}</Animated.View>;
+}
+
+// 같은 이유로 분리 — 아이콘이 바뀔 때마다 key로 remount되며 그 시점 설정으로 다시 정한다.
+function PopIcon({ name }: { name: 'play' | 'pause' }) {
+  const m = useMotion();
+  return (
+    <Animated.View style={m.enter(pop())}>
+      <Ionicons name={name} size={22} color={T.paperLight} />
+    </Animated.View>
   );
 }
 

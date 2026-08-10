@@ -122,7 +122,10 @@ export function GoalCelebrationModal({
             //    확정되면 이미 보이던 래퍼에 팝이 뒤늦게 붙어 0배율로 사라졌다 나타난다
             //    (codex 리뷰). 확정될 때까지는 pending(opacity 0)을 유지한다 — 팝의 시작
             //    프레임과 같은 상태라 어느 쪽으로 확정되든 이어지는 그림에 끊김이 없다.
-            style={charReady ? m.enter(pop()) : s.charPending}
+            // ⚠️ 팝 게이트도 `charShown`다 — `charReady`만 보면 InteractionManager가 늦는
+            //    화면 전환에서 모달이 안정되기 전에 팝이 끝나고, 그 뒤 다시 기다렸다
+            //    색종이가 시작돼 팝→색종이 박자가 깨진다(codex 리뷰).
+            style={charShown ? m.enter(pop()) : s.charPending}
           >
             <CharacterImage
               size={104}
