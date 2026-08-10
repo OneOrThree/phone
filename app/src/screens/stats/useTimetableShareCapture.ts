@@ -101,20 +101,30 @@ export function useTimetableShareCapture({
   //    0을 돌려주므로, 확정된 뒤에는 **ref로 최신 함수**를 읽어야 한다(codex 리뷰).
   const delayRef = useRef(m.delay);
   delayRef.current = m.delay;
+  const readyRef = useRef(m.ready);
+  readyRef.current = m.ready;
   // 확정된 시각을 한 번만 기록한다. 이미 확정돼 있었다면 마운트 시점이 곧 그 시각이라,
   // loadedAt보다 이르므로 아래 max()에서 자연히 무시된다.
   useEffect(() => {
     let alive = true;
     whenReduceMotionReady().then(() => {
-      if (alive && readyAtRef.current === null) readyAtRef.current = Date.now();
+      if (!alive) return;
+      if (readyAtRef.current === null) readyAtRef.current = Date.now();
+      // 확정 전에 마운트된 블록의 대기 길이를 이제 정한다 — Enter가 진입을 시작하는 시점과 같다.
+      if (waitPendingRef.current) {
+        waitMsRef.current = delayRef.current(enterMs);
+        waitPendingRef.current = false;
+      }
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [enterMs]);
   const enterCountRef = useRef(0);
   // 블록이 마운트되던 순간에 확정한 대기 길이(ms). 아래 onLoaded 주석 참고.
   const waitMsRef = useRef(0);
+  // 아직 확정을 못 한 상태로 마운트가 있었는가 — '동작 줄이기'가 확정되면 그때 값을 채운다.
+  const waitPendingRef = useRef(false);
   const onLoaded = useCallback(
     (animatedCount = 0) => {
       // ⚠️ 조건은 "처음 왔는가"가 아니라 오직 **"진입할 노드가 늘었는가"** 다.
