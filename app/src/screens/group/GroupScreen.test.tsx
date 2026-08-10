@@ -16,7 +16,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  peekGroupEntry,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -154,10 +158,12 @@ jest.mock('./components/GroupInviteSheet', () => {
     groupId,
     onJoined,
     onLogin,
+    onClose,
   }: {
     groupId: string;
     onJoined: (joinedGroupId: string) => void;
     onLogin: () => void;
+    onClose: () => void;
   }) {
     return (
       <RNView>
@@ -166,6 +172,9 @@ jest.mock('./components/GroupInviteSheet', () => {
         </RNTouchable>
         <RNTouchable onPress={onLogin}>
           <RNText>초대-로그인</RNText>
+        </RNTouchable>
+        <RNTouchable onPress={onClose}>
+          <RNText>초대-닫기</RNText>
         </RNTouchable>
       </RNView>
     );
@@ -576,6 +585,17 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
 });
 
 describe('게스트 초대 로그인(§6-6)', () => {
+  test('게스트가 초대 시트를 닫으면 다음 일반 탭에 invite source를 남기지 않는다', async () => {
+    queueDirectGroupEntry('invite');
+    mockPendingInvite = GROUP_ID;
+    mockIsGuest = true;
+    await renderScreen();
+
+    await press('초대-닫기');
+
+    expect(peekGroupEntry('tab')).toBe('tab');
+  });
+
   test('시트만 내리고 초대 버퍼는 남긴 채 계정 화면으로 보낸다', async () => {
     mockIsGuest = true;
     mockPendingInvite = GROUP_ID;

@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   Pressable,
   Alert,
+  AppState,
   StyleSheet,
   useWindowDimensions,
 } from 'react-native';
@@ -49,6 +50,17 @@ export default function FocusCategoryScreen() {
   // 그룹방 FAB로 진입했으면 initialGroupId를 세션까지 넘겨 그 그룹 페이지를 기본으로 연다(F2 Part2).
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusCategory'>>();
   const initialGroupId = params?.initialGroupId;
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' || !params?.interactionId) return;
+      navigation.setParams({
+        entrySource: 'unknown',
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
+    });
+    return () => sub.remove();
+  }, [navigation, params?.interactionId]);
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();

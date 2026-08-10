@@ -19,6 +19,7 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
+  clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
   type GroupEntrySource,
@@ -209,6 +210,7 @@ export default function GroupScreen() {
     //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
     if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
+    clearPendingGroupEntry();
     setInvite(null);
   }, []);
 

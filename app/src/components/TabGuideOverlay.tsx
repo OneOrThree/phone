@@ -74,6 +74,10 @@ export function TabGuideOverlay({
 
   const controlled = controlledVisible !== undefined;
   const visible = controlled ? controlledVisible : internalVisible;
+  const previousVisibleRef = useRef(false);
+  // 재개 첫 렌더에서 idx state가 이전 마지막 단계여도 0단계를 사용한다. visible effect의
+  // setIdx(0)을 기다리면 같은 commit의 prepare effect가 이전 단계 prepare를 먼저 실행한다.
+  const effectiveIdx = visible && !previousVisibleRef.current ? 0 : idx;
 
   useEffect(() => {
     if (controlled) return;
@@ -83,15 +87,16 @@ export function TabGuideOverlay({
   }, [controlled, storageKey]);
 
   useEffect(() => {
+    previousVisibleRef.current = visible;
     if (visible) setIdx(0);
   }, [visible]);
 
   // 스텝이 바뀔 때마다 스포트라이트 결정 — prepare(스크롤 등) → rect 또는 앵커 측정. 없으면 전체 딤
-  const step = steps[idx];
+  const step = steps[effectiveIdx];
   useEffect(() => {
     if (!visible) return;
     const req = ++holeReq.current;
-    const st = stepsRef.current[idx];
+    const st = stepsRef.current[effectiveIdx];
     const measure = () => {
       if (req !== holeReq.current) return;
       if (st?.rect) {
@@ -125,7 +130,7 @@ export function TabGuideOverlay({
     } catch {
       measure();
     }
-  }, [visible, idx]);
+  }, [visible, effectiveIdx]);
 
   if (!visible || !step) return null;
 

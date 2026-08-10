@@ -9,7 +9,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { View } from 'react-native';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { logGroupCardFlipped } from '@/services/analyticsEvents';
+import { logGroupCardFlipped, logGroupCarouselPaged } from '@/services/analyticsEvents';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -156,6 +156,9 @@ describe('콜백', () => {
       screen.getByTestId(`group.card.back.${GROUP_ID_2}`, { includeHiddenElements: true }),
     ).toBeOnTheScreen();
     expect(onSelect).not.toHaveBeenCalled();
+    expect(logGroupCarouselPaged).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'card_tap' }),
+    );
 
     await press(`group.card.room.${GROUP_ID_2}`);
 

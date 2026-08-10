@@ -350,7 +350,7 @@ export default function GroupListScreen({
         setActiveIndex(index);
         setActiveAnchorGroupId(groupId);
         logGroupCarouselPaged({
-          trigger: 'indicator_press',
+          trigger: trigger === 'accessibility_action' ? 'accessibility_action' : 'card_tap',
           from_index: from,
           to_index: index,
           group_count_bucket: groupCountBucket(groups.length),

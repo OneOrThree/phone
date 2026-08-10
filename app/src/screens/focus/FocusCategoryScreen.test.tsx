@@ -7,11 +7,16 @@
 // ⚠️ 애니메이션 중간 프레임·이징은 단언하지 않는다 — jest에서 워클릿·CSS 전환은 목이다.
 //    여기서 보는 건 "시퀀스가 언제 시작·완주하는가"라는 순서 계약뿐이다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 import FocusCategoryScreen from './FocusCategoryScreen';
 import type { Subject } from './types';
 
 let mockReduce = true;
 let mockReady = false;
+let mockRouteParams: Record<string, unknown> | undefined;
+const mockNavigate = jest.fn();
+const mockSetParams = jest.fn();
+let mockAppStateHandler: ((state: AppStateStatus) => void) | null = null;
 // ⚠️ 두 export를 모두 목킹해야 한다 — 하나만 두면 나머지를 쓰는 코드가 undefined를 부른다.
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
@@ -29,8 +34,8 @@ jest.mock('@/components/liquidGlass', () => ({
 const WAIT_MS = MOCK_SLIDE_MS + 60;
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
-  useRoute: () => ({ params: undefined }),
+  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), setParams: mockSetParams }),
+  useRoute: () => ({ params: mockRouteParams }),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -121,12 +126,20 @@ jest.mock('./components/TimerMethodSheet', () => {
 });
 
 beforeEach(() => {
+  jest.clearAllMocks();
   mockReduce = true;
   mockReady = false;
+  mockRouteParams = undefined;
+  mockAppStateHandler = null;
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
+    mockAppStateHandler = handler as (state: AppStateStatus) => void;
+    return { remove: jest.fn() } as never;
+  });
   jest.useFakeTimers();
 });
 afterEach(() => {
   jest.useRealTimers();
+  jest.restoreAllMocks();
 });
 
 const advance = async (ms: number) => {
@@ -144,6 +157,23 @@ async function renderScreen() {
 const pressOther = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[1].id}`));
 // 기본 선택과 같은 과목(s1) — 알약이 움직이지 않으므로 기다릴 연출이 없다.
 const pressSame = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[0].id}`));
+
+test('카드 focus CTA 문맥은 앱 비활성 전환에서 즉시 취소한다', async () => {
+  mockRouteParams = {
+    entrySource: 'group_card',
+    interactionId: 'interaction-1',
+    interactionAcceptedAt: Date.now(),
+  };
+  await renderScreen();
+
+  await act(async () => mockAppStateHandler?.('background'));
+
+  expect(mockSetParams).toHaveBeenCalledWith({
+    entrySource: 'unknown',
+    interactionId: undefined,
+    interactionAcceptedAt: undefined,
+  });
+});
 
 describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
   test('설정이 확정되기 전에는 시퀀스를 시작하지 않는다', async () => {

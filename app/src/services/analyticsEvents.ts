@@ -436,7 +436,11 @@ export function logGroupViewed(p: {
 export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
 export type GroupCardFace = 'front' | 'back';
 export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
-export type GroupCarouselTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
+export type GroupCarouselTrigger =
+  | 'swipe'
+  | 'indicator_press'
+  | 'card_tap'
+  | 'accessibility_action';
 export type GroupCardAction = 'focus' | 'room' | 'settings';
 export type GroupCardRole = 'owner' | 'member';
 export type GroupCardBackSource = 'user' | 'guide';
