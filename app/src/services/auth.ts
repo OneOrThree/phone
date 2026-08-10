@@ -82,11 +82,6 @@ function toAuthError(e: unknown, fallback: string): Error {
 
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
-  // 인증 응답을 인계받은 즉시 이전 세션의 진행 중 요청부터 무효화한다. 이 호출이
-  // AsyncStorage/accountSwitchHandler 뒤에 있으면 그 await 창에서 완료된 이전 그룹방의
-  // session_recovery가 방금 인계받은 새 인증까지 로그아웃할 수 있다.
-  // 같은 userId의 게스트→소셜 승격도 세션 교체이므로 예외 없이 올린다.
-  markAuthSessionReplacement();
   // 다른 계정으로 갈아타는 로그인이면 새 토큰 저장 전에 계정 전환 훅 실행(같은 userId 재로그인은 통과)
   const prevToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
@@ -119,6 +114,7 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
 }
 
 export async function kakaoLogin(): Promise<LoginResult> {
+  markAuthSessionReplacement();
   const kakaoToken = await login();
   const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
@@ -136,6 +132,7 @@ export async function kakaoLogin(): Promise<LoginResult> {
 }
 
 export async function appleLogin(): Promise<LoginResult> {
+  markAuthSessionReplacement();
   const credential = await AppleAuthentication.signInAsync({
     requestedScopes: [
       AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -165,6 +162,7 @@ GoogleSignin.configure({
 });
 
 export async function googleLogin(): Promise<LoginResult> {
+  markAuthSessionReplacement();
   const response = await GoogleSignin.signIn();
   if (!isSuccessResponse(response)) {
     throw Object.assign(new Error('Google 로그인 취소'), {
@@ -204,6 +202,7 @@ async function ensureLineSetup(): Promise<void> {
 }
 
 export async function lineLogin(): Promise<LoginResult> {
+  markAuthSessionReplacement();
   await ensureLineSetup();
   const result = await Promise.race([
     LineLogin.login({ scopes: [LoginPermission.Profile] }),
@@ -231,6 +230,7 @@ export async function lineLogin(): Promise<LoginResult> {
 }
 
 export async function facebookLogin(): Promise<LoginResult> {
+  markAuthSessionReplacement();
   // iOS는 Limited Login(ATT 팝업 없음) — access token이 아니라 OIDC id_token을 받는다.
   const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
   const result = await LoginManager.logInWithPermissions(
@@ -270,6 +270,7 @@ export async function facebookLogin(): Promise<LoginResult> {
 // (그룹 생성/가입 등 일부는 서버가 403으로 제한.) 매 호출이 새 게스트를 만드므로
 // postAuthSave가 토큰을 저장 → 앱 재실행 시 저장된 토큰을 재사용해 같은 게스트를 유지한다.
 export async function guestLogin(): Promise<LoginResult> {
+  markAuthSessionReplacement();
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/guest`);

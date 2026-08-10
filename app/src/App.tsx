@@ -5,7 +5,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { HotUpdater } from '@hot-updater/react-native';
-import { setLogoutHandler, setReloginHandler, getUserIdFromToken } from '@/services/api';
+import {
+  getAuthSessionGeneration,
+  getUserIdFromToken,
+  setLogoutHandler,
+  setReloginHandler,
+} from '@/services/api';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
@@ -215,6 +220,7 @@ function App() {
   }, []);
 
   async function handleLogout() {
+    const logoutSessionGeneration = getAuthSessionGeneration();
     // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
     // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
     // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
@@ -227,6 +233,9 @@ function App() {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
       if (refreshToken) await logout(refreshToken);
     } catch {}
+    // 위 네트워크 대기 중 새 로그인/게스트 승격이 시작됐다면 이 로그아웃은 이전 세션의
+    // 작업이다. 새 세션의 토큰·캐시·React 상태를 지우지 않고 여기서 끝낸다.
+    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
     // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
     abortTagEdits();
     // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
@@ -260,9 +269,14 @@ function App() {
       STORAGE_KEYS.screentimeLastRewardedDate,
       STORAGE_KEYS.screentimeCelebratePending,
     ]);
+    // multiRemove가 네이티브 큐에서 실행되는 동안 새 인증 시도가 시작될 수 있다. 인증 저장은
+    // 이 삭제 뒤에 큐잉되므로 토큰은 보존되지만, 아래 인메모리 초기화까지 실행하면 방금 로그인한
+    // 사용자를 다시 로그인 화면으로 보내므로 세대를 한 번 더 확인한다.
+    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
     // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
     // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
     await clearInbox();
+    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
     // 안드로이드 홈 위젯 스냅샷 초기화 — 위젯이 읽는 네이티브 SharedPreferences는 위
     // multiRemove로 안 지워져 이전 계정 과목·공부시간이 런처에 남는다(GROMO-1006 코드리뷰 반영).
     StudyWidgetModule.updateTopSubjects([]).catch(() => {});
