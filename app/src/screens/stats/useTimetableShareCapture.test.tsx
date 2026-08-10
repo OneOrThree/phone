@@ -21,7 +21,10 @@ jest.mock('react-native-view-shot', () => ({
 jest.mock('@/services/analyticsEvents', () => ({ logStatsShared: jest.fn() }));
 
 let mockReduce = false;
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => true,
+}));
 
 const ENTER_MS = 1160; // staggerDelay(6) 360 + M.dur.entrance 800
 

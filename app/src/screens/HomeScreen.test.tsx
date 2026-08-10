@@ -101,7 +101,10 @@ jest.mock('@/components/TabBar', () => ({
 }));
 
 let mockReduce = false;
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => true,
+}));
 
 const BAR = 'home.metric.focus.bar';
 const barFill = () => screen.getByTestId(`${BAR}.fill`).props.style;
