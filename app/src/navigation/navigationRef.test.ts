@@ -12,20 +12,10 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
-import {
-  discardInitialGroupRoomReturn,
-  discardQueuedGroupEntry,
-  markInitialGroupRoomReturn,
-  queueDirectGroupEntry,
-} from '@/navigation/groupEntrySource';
+import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
-jest.mock('@/navigation/groupEntrySource', () => ({
-  discardInitialGroupRoomReturn: jest.fn(),
-  discardQueuedGroupEntry: jest.fn(),
-  markInitialGroupRoomReturn: jest.fn(),
-  queueDirectGroupEntry: jest.fn(),
-}));
+jest.mock('@/navigation/groupEntrySource', () => ({ queueDirectGroupEntry: jest.fn() }));
 
 // 환불 푸시(refund=1)가 태우는 잔액 재조회 신호 — 실제 조회는 CoinProvider가 한다.
 jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
@@ -38,15 +28,6 @@ const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as j
 const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
   typeof queueDirectGroupEntry
 >;
-const mockDiscardQueuedGroupEntry = discardQueuedGroupEntry as jest.MockedFunction<
-  typeof discardQueuedGroupEntry
->;
-const mockDiscardInitialGroupRoomReturn = discardInitialGroupRoomReturn as jest.MockedFunction<
-  typeof discardInitialGroupRoomReturn
->;
-const mockMarkInitialGroupRoomReturn = markInitialGroupRoomReturn as jest.MockedFunction<
-  typeof markInitialGroupRoomReturn
->;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
 async function flushAsync() {
@@ -55,6 +36,11 @@ async function flushAsync() {
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const SLUG = 'ab23cd45';
+const UNKNOWN_ATTRIBUTION = {
+  entrySource: 'unknown',
+  interactionId: undefined,
+  interactionAcceptedAt: undefined,
+} as const;
 
 const navigate = jest.spyOn(navigationRef, 'navigate');
 const currentRoute = jest.spyOn(navigationRef, 'getCurrentRoute');
@@ -62,7 +48,6 @@ const inviteListener = jest.fn();
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockQueueDirectGroupEntry.mockReturnValue(101);
   jest.spyOn(navigationRef, 'isReady').mockReturnValue(true);
   // 지연 이동 가드가 읽는 현재 화면 — 기본은 '딥링크가 옮겨 둔 그룹 탭에 그대로 있다'.
   currentRoute.mockReturnValue({ key: '그룹-1', name: '그룹' });
@@ -179,16 +164,6 @@ describe('컨테이너 준비(onReady)', () => {
     expect(peekPendingInvite()).toEqual({ groupId: GROUP_ID, slug: null, entry: 'link' });
   });
 
-  test('deferred 초대 버퍼가 새 그룹 focus를 만들 때 invite source를 예약한다', () => {
-    notifyGroupInvite({ groupId: GROUP_ID, slug: SLUG, entry: 'deferred' });
-    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
-
-    flushPendingDeepLink();
-
-    expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('invite');
-    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
-  });
-
   test('보류된 링크·초대가 없으면 아무 데도 가지 않는다(일반 실행)', () => {
     flushPendingDeepLink();
     expect(navigate).not.toHaveBeenCalled();
@@ -203,20 +178,13 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   const CHALLENGE_ID = '0198aa11-2b3c-7d4e-8f50-6a7b8c9d0e1f';
 
   test('다른 화면에서 온 push만 다음 view episode source로 예약한다', async () => {
-    currentRoute
-      .mockReturnValueOnce({ key: '홈-1', name: '홈' })
-      .mockReturnValue({ key: '그룹-1', name: '그룹' });
+    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
     mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
 
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
     await flushAsync();
 
     expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
-    expect(mockDiscardQueuedGroupEntry).toHaveBeenCalledWith(101);
-    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
-      groupId: GROUP_ID,
-      challengeId: undefined,
-    });
   });
 
   test('이미 focus된 그룹 화면의 warm push는 다음 source를 만들지 않는다', async () => {
@@ -237,6 +205,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -249,6 +218,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -264,6 +234,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -275,6 +246,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -287,6 +259,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -307,6 +280,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: OTHER_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
 
     // 이제 첫 번째 조회가 뒤늦게 끝난다 — 최신이 아니므로 이동하지 않는다.
@@ -316,6 +290,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: OTHER_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
     expect(navigate).not.toHaveBeenCalledWith('GroupRoom', {
       groupId: GROUP_ID,
@@ -372,6 +347,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -386,6 +362,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -403,21 +380,6 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   // 부르는 GroupRoomScreen(MEMBER_ONLY → 결과 모달 소비 후 onLeft)에 도달조차 못 한다 —
   // 다른 소속 그룹이 없으면 정산 통지를 볼 통로가 0이 된다(N53·C8).
   describe('결과성 푸시(result=1)의 멤버십 게이트 우회', () => {
-    test('다른 화면에서 즉시 GroupRoom으로 우회하면 다음 그룹 episode source를 남기지 않는다', async () => {
-      currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
-
-      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
-      await flushAsync();
-
-      expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
-      expect(mockMarkInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
-      expect(mockDiscardQueuedGroupEntry).toHaveBeenCalledWith(null);
-      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
-        groupId: GROUP_ID,
-        challengeId: undefined,
-      });
-    });
-
     test('탈퇴자(내 그룹 목록에 없음)여도 그룹방을 push 한다 — 목록 조회 자체를 생략', async () => {
       mockGetMyGroups.mockResolvedValue([summary('other-1')]);
       navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
@@ -427,6 +389,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
+        ...UNKNOWN_ATTRIBUTION,
       });
       // 게이트 우회는 조회 생략이다 — 소속 여부와 무관하게 화면(MEMBER_ONLY 처리)이 받는다.
       expect(mockGetMyGroups).not.toHaveBeenCalled();
@@ -439,6 +402,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: CHALLENGE_ID,
+        ...UNKNOWN_ATTRIBUTION,
       });
       expect(mockGetMyGroups).not.toHaveBeenCalled();
     });
@@ -467,6 +431,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
+        ...UNKNOWN_ATTRIBUTION,
       });
     });
 
@@ -531,7 +496,7 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
 
   test('gromo://focus → 과목 선택 화면', () => {
     navigateToDeepLink('gromo://focus');
-    expect(navigate).toHaveBeenCalledWith('FocusCategory');
+    expect(navigate).toHaveBeenCalledWith('FocusCategory', UNKNOWN_ATTRIBUTION);
   });
 
   // 친구 푸시(티켓 1090)가 발행하는 링크를 받는 배선 — 계약 §2.
@@ -539,22 +504,6 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
     navigateToDeepLink(link);
     expect(navigate).toHaveBeenCalledWith('FriendAdd');
   });
-
-  test.each(['gromo://home', 'gromo://league'])(
-    '%s 탭 전환은 보류된 GroupRoom 복귀 표식을 폐기한다',
-    (link) => {
-      navigateToDeepLink(link);
-      expect(mockDiscardInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  test.each(['gromo://focus', 'gromo://friends'])(
-    '%s 스택 push는 뒤로 돌아올 GroupRoom 복귀 표식을 유지한다',
-    (link) => {
-      navigateToDeepLink(link);
-      expect(mockDiscardInitialGroupRoomReturn).not.toHaveBeenCalled();
-    },
-  );
 
   test('모르는 경로는 무시한다', () => {
     navigateToDeepLink('gromo://unknown');

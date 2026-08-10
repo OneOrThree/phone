@@ -99,6 +99,8 @@ describe('TabBar 접근성', () => {
 
   test('중앙 FAB는 버튼 역할 기본값을 갖는다', async () => {
     await renderTabBar(0);
-    expect(screen.getByTestId('tabbar.fab').props.accessibilityRole).toBe('button');
+    const fab = screen.getByTestId('tabbar.fab');
+    expect(fab.props.accessibilityRole).toBe('button');
+    expect(fab.props.accessibilityLabel).toBe('집중 시작');
   });
 });
