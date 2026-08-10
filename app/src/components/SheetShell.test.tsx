@@ -22,6 +22,10 @@ import { Text, TouchableOpacity } from 'react-native';
 import { getAnimatedStyle } from 'react-native-reanimated';
 import { SheetShell, useSheetClose, useSheetClosing } from './SheetShell';
 
+// ⚠️ 퇴장이 시작되면 패널을 접근성 트리에서 숨기므로(accessibilityElementsHidden) RNTL 기본
+//    쿼리로는 안 잡힌다. 이 테스트들은 퇴장 **중**의 값을 봐야 하므로 숨김 요소도 포함한다.
+const HIDDEN = { includeHiddenElements: true } as const;
+
 // 테스트 트리엔 SafeAreaProvider가 없다 — 각 시트 테스트와 같은 고정값 관행을 따른다.
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -72,7 +76,7 @@ async function renderShell(props: { dismissible?: boolean; children?: React.Reac
 
 // 패널에 실제로 적용된 스타일을 평탄화해 읽는다(배열 스타일이라 그대로는 못 본다).
 function panelStyle(): Record<string, unknown> {
-  const raw = screen.getByTestId('sheetShell.panel').props.style;
+  const raw = screen.getByTestId('sheetShell.panel', HIDDEN).props.style;
   return Object.assign({}, ...[raw].flat(Infinity).filter(Boolean));
 }
 
@@ -81,7 +85,7 @@ function panelStyle(): Record<string, unknown> {
 // ⚠️ 이 값으로 단언해도 되는 것은 **정지 상태**(등장 전 화면 밖 / 안착 후 0 / 퇴장 완료 후)뿐이다.
 //    재생 중 프레임 값은 단언하지 않는다.
 function panelTranslateY(): number {
-  const style = getAnimatedStyle(screen.getByTestId('sheetShell.panel')) as {
+  const style = getAnimatedStyle(screen.getByTestId('sheetShell.panel', HIDDEN)) as {
     transform: { translateY: number }[];
   };
   return style.transform[0].translateY;
@@ -106,7 +110,7 @@ async function tick(ms: number) {
 // 실제 레이아웃이 없는 jest에서는 여기서 높이를 직접 알려 줘야 등장이 시작된다.
 async function reportPanelHeight(height: number) {
   await act(async () => {
-    fireEvent(screen.getByTestId('sheetShell.panel'), 'layout', {
+    fireEvent(screen.getByTestId('sheetShell.panel', HIDDEN), 'layout', {
       nativeEvent: { layout: { height, width: 375 } },
     });
   });
@@ -439,5 +443,29 @@ describe('퇴장 시작 신호 — useSheetClosing()', () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
     await expect(render(<Scheduler log={[]} />)).rejects.toThrow('SheetShell');
     spy.mockRestore();
+  });
+
+  // ⚠️ pointerEvents='none'은 터치만 막는다. 접근성 액션은 그대로 실행되므로 스크린리더
+  //    사용자는 닫은 뒤에도 220ms 동안 자식 버튼을 누를 수 있다(codex 리뷰).
+  test('퇴장이 시작되면 패널·딤을 접근성 트리에서도 숨긴다', async () => {
+    await render(
+      <SheetShell onClose={jest.fn()}>
+        <Text>내용</Text>
+      </SheetShell>,
+    );
+    await reportPanelHeight(300);
+
+    const panelBefore = screen.getByTestId('sheetShell.panel', HIDDEN);
+    expect(panelBefore.props.accessibilityElementsHidden).toBeFalsy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('sheetShell.dim'));
+    });
+
+    const panel = screen.getByTestId('sheetShell.panel', HIDDEN);
+    expect(panel.props.accessibilityElementsHidden).toBe(true);
+    expect(panel.props.importantForAccessibility).toBe('no-hide-descendants');
+    // 딤은 일부러 숨기지 않는다 — 유일한 액션이 '닫기'이고 멱등하다.
+    expect(screen.getByTestId('sheetShell.dim').props.accessibilityElementsHidden).toBeFalsy();
   });
 });

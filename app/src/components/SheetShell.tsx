@@ -64,6 +64,18 @@ import { T, withAlpha } from '@/constants/theme';
 //    흰 조각이 번쩍였다가 다시 올라오는 깜빡임이 생긴다(codex 리뷰). 화면 높이 자체를 쓴다 —
 //    패널은 그보다 클 수 없다.
 const prelayoutY = (windowHeight: number) => windowHeight;
+/**
+ * 퇴장 목표 거리 — **화면의 긴 변**을 쓴다.
+ *
+ * ⚠️ 화면 높이만 쓰면 퇴장 220ms 사이에 **회전**이 일어날 때 모자란다. 목표는 요청 시점의
+ *    작은 높이에 고정되는데 패널 상한(가용 높이의 85%)은 새 높이로 커져, 늘어난 상단이
+ *    언마운트 직전까지 화면에 남는다(codex 리뷰).
+ *    긴 변은 **회전에 불변**이다 — 회전 후 높이는 회전 전의 두 변 중 하나이므로 항상
+ *    `max(w, h)` 이하다. 즉 이 한 값이 어느 방향으로 돌든 충분하다.
+ *    (펼침으로 두 변이 **함께** 커지는 경우는 이 상수로 못 덮는다 — 아래 useEffect가 받는다.)
+ */
+const exitDistance = (windowWidth: number, windowHeight: number) =>
+  Math.max(windowWidth, windowHeight);
 // 드래그가 딤을 얼마나 걷어내는가(0~1). 1이면 손을 놓기도 전에 배경이 완전히 드러나 이미 닫힌
 // 것처럼 보인다 — 절반 조금 넘게만 걷어 "닫히는 중"임을 알린다.
 const DIM_DRAG_FADE = 0.6;
@@ -152,7 +164,7 @@ export function SheetShell({
   dismissible?: boolean;
 }) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const m = useMotion();
 
@@ -262,7 +274,7 @@ export function SheetShell({
     //    여유분이다.
     //    (거리가 길어진 만큼 패널은 220ms를 다 쓰기 전에 화면 밖으로 나간다. 딤 페이드가 같은
     //     220ms를 채우므로 닫힘 연출 전체 길이와 onClose 시점은 종전과 같다.)
-    const exitY = prelayoutY(windowHeight) + keyboardHeightRef.current;
+    const exitY = exitDistance(windowWidth, windowHeight) + keyboardHeightRef.current;
     // ⚠️ 퇴장 중에는 딤에서 **드래그 성분을 뗀다.** 퇴장은 손끝이 아니라 시간이 끄는 애니메이션이고
     //    (드래그는 이미 closingRef 가드로 전부 막혀 있다), 위에서 퇴장 거리를 화면 높이로 고정한
     //    뒤로는 translateY/panelHeight 비율이 "얼마나 끌었나"를 더는 뜻하지 않는다.
@@ -286,6 +298,25 @@ export function SheetShell({
       },
     );
   };
+  // ⚠️ 퇴장 **중에** 화면이 커지면(폴더블 펼침처럼 두 변이 함께 커지는 경우) 목표를 다시 건다.
+  //    긴 변 상수는 회전을 덮지만 펼침은 못 덮는다 — withTiming의 목표값은 한 번 정해지면
+  //    갱신되지 않으므로 다시 거는 수밖에 없다(codex 리뷰).
+  //    다시 걸면 앞 애니메이션의 콜백은 finished=false로 와서 닫지 않고(그 가드가 이미 있다),
+  //    새 애니메이션이 끝날 때 닫는다. 그만큼 퇴장이 길어지지만 **패널이 화면에 남는 것보다 낫다.**
+  //    딤은 자기 타임라인을 그대로 유지한다 — 이미 0으로 가는 중이라 다시 걸 이유가 없다.
+  useEffect(() => {
+    if (!closingRef.current) return;
+    const target = exitDistance(windowWidth, windowHeight) + keyboardHeightRef.current;
+    if (translateY.value >= target) return;
+    translateY.value = withTiming(
+      target,
+      { duration: M.dur.quick, easing: M.curve.standard.fn, reduceMotion: M.never },
+      (finished) => {
+        if (finished) runOnJS(fireClose)();
+      },
+    );
+  }, [windowWidth, windowHeight, translateY, fireClose]);
+
   // 컨텍스트로 내려보내는 참조는 렌더마다 바뀌지 않아야 한다(자식 memo 무효화 방지).
   const close = useCallback(() => requestCloseRef.current(), []);
 
@@ -447,6 +478,9 @@ export function SheetShell({
             //    배경이 그대로다. 등장·퇴장 성분은 위에서 즉시 대입되므로 애니메이션은 없다.
             style={[s.dim, dimAnimStyle]}
             onPress={close}
+            // ⚠️ 딤은 접근성에서 빼지 않는다. 딤의 유일한 액션은 '닫기'이고 closingRef가 두 번째
+            //    호출을 이미 막는다 — 멱등한 액션까지 숨기면 스크린리더 사용자가 닫는 중에
+            //    화면 구조를 잃을 뿐 얻는 게 없다. 막아야 할 건 패널 **안의** 자식 액션이다.
             testID="sheetShell.dim"
           />
           <Animated.View
@@ -467,6 +501,16 @@ export function SheetShell({
             onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}
             // 퇴장이 시작되면 자식 입력을 막는다 — 위 closing 상태 주석 참고.
             pointerEvents={closing ? 'none' : 'auto'}
+            // ⚠️ `pointerEvents='none'`은 **터치 히트 테스트만** 막는다. 접근성 트리는 그대로라,
+            //    TalkBack·VoiceOver에서는 퇴장 220ms 동안에도 포커스된 자식(초대 시트의 '참여하기'
+            //    같은)의 **접근성 액션이 실행된다** — 사용자가 닫았는데 join()이 도는 것이다
+            //    (codex 리뷰). 두 플랫폼 prop이 달라 **둘 다** 건다:
+            //      · Android: importantForAccessibility='no-hide-descendants'
+            //      · iOS:     accessibilityElementsHidden
+            //    닫는 중 시트가 접근성에서 사라지면 포커스는 뒤 화면으로 넘어간다 — 그게 맞다.
+            //    시트는 사라지는 중이고, 곧 언마운트될 트리에 포커스를 붙들어 두는 게 더 나쁘다.
+            importantForAccessibility={closing ? 'no-hide-descendants' : 'auto'}
+            accessibilityElementsHidden={closing}
             testID="sheetShell.panel"
           >
             {/* 상단 그랩바 — 잡고 아래로 끌면 닫힌다(뒤로가기가 없는 시트의 명시적 닫기 수단) */}
