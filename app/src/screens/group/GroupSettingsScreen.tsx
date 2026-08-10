@@ -137,13 +137,17 @@ export default function GroupSettingsScreen() {
     label: string,
     onPress: () => void,
     testID: string,
+    helper?: string,
   ) {
     return (
       <TouchableOpacity style={s.navRow} activeOpacity={0.7} onPress={onPress} testID={testID}>
         <View style={s.navIcon}>
           <Ionicons name={icon} size={17} color={T.accent} />
         </View>
-        <Text style={s.navLabel}>{label}</Text>
+        <View style={s.navText}>
+          <Text style={s.navLabel}>{label}</Text>
+          {helper && <Text style={s.navHelper}>{helper}</Text>}
+        </View>
         <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
       </TouchableOpacity>
     );
@@ -204,6 +208,7 @@ export default function GroupSettingsScreen() {
                 '내 카드 아이콘',
                 () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
                 'group.settings.cardEmoji',
+                '이 기기에서 나에게만 보여요',
               )}
             </View>
           </>
@@ -335,7 +340,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: T.accentBg,
   },
-  navLabel: { ...T.text.label, flex: 1, color: T.ink },
+  navText: { flex: 1, gap: 2 },
+  navLabel: { ...T.text.label, color: T.ink },
+  navHelper: { ...T.text.caption, color: T.inkSub },
 
   // 그룹 나가기 — 관리 행과 같은 카드 규격, 위험 색(accentAlt)
   leaveRow: {

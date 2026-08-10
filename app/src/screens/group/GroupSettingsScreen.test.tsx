@@ -144,6 +144,7 @@ describe('허브 — 행 노출', () => {
     await renderScreen();
 
     expect(screen.getByTestId('group.settings.cardEmoji')).toBeOnTheScreen();
+    expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();
