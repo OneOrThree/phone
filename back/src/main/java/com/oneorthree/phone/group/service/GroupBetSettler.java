@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -65,8 +64,6 @@ public class GroupBetSettler {
 
     /** 정산 데드라인(N21) — {@code settle_after} 로부터 이 시간이 지나면 정산 대신 전원 환불한다. */
     public static final Duration REFUND_DEADLINE = Duration.ofHours(24);
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
@@ -433,39 +430,32 @@ public class GroupBetSettler {
             return false;
         }
         List<UUID> userIds = participants.stream().map(p -> p.getUser().getId()).toList();
-        return focusSessionRepository.existsActiveOverlappingWindow(
-                userIds, windowEndOf(session));
+        return focusSessionRepository.existsActiveOverlappingWindow(userIds, windowEndOf(session));
     }
 
     /**
      * 회차 창 종료 Instant — 스냅샷 시각으로 계산하며 <b>종료일은 항상 회차일</b>이다.
      * V35(GROMO-1406)가 자정 걸침을 DB CHECK({@code window_start < window_end})로 금지하면서
-     * {@link WindowFocusAggregator#windowEndOn} 의 D+1 분기가 사라졌다 — 대기 가드는 판정이 실제로
-     * 쓰는 창과 <b>같은 경계</b>를 봐야 하므로 여기서도 같은 규칙을 쓴다(둘이 갈리면, 판정은 이미
-     * 끝난 창을 보는데 대기만 계속 걸리거나 그 반대가 된다).
+     * {@code WindowFocusAggregator.windowEndOn} 의 D+1 분기가 사라졌다 — 대기 가드는 판정이 실제로
+     * 쓰는 창과 <b>같은 경계</b>를 봐야 하므로, 여기서 KST 산술을 다시 쓰지 않고 그 단일 변환점을
+     * 그대로 부른다(GROMO-1280). 둘이 갈리면 판정은 이미 끝난 창을 보는데 대기만 계속 걸리거나
+     * 그 반대가 된다.
      */
     private static Instant windowEndOf(GroupChallengeBetSession session) {
-        return session.getSessionDate().atTime(session.getWindowEnd()).atZone(KST).toInstant();
+        return WindowFocusAggregator.windowEndOn(session.getSessionDate(), session.getWindowEnd());
     }
 
     /**
-     * 판정 대상 — 판정 소스(창 시각·조회 경로)는 CTI 상세에서, <b>목표분은 회차 스냅샷</b>에서 온다.
-     * 스냅샷이 없는 행(V39 백필 이전 이력)만 CTI 목표로 폴백한다.
+     * 판정 대상 — <b>회차 스냅샷</b>이 정본이다(GROMO-1263 · GROMO-1280): 목표분뿐 아니라
+     * 카테고리·방식·창 시각까지 회차 행에서 읽으므로, 챌린지가 삭제되거나 바뀌어도 이 회차의
+     * 판정 기준은 개설 시점 그대로다. 스냅샷이 결손인 옛 이력만 CTI 로 폴백한다.
      */
     private GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
-        return groupBetJudge.resolve(session.getChallenge())
-                .map(t -> session.getGoalMinutes() == null
-                        ? t
-                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()))
+        return groupBetJudge.ofSession(session)
                 .orElseThrow(() -> new IllegalStateException(
                         "챌린지 목표 유실 — 목표를 몰라 정산할 수 없다. sessionId=" + session.getId()));
     }
 
-    /**
-     * 정산 근거로 저장할 참가자별 실측 분(GROMO-1207) — 판정({@code entries})이 실제로 쓴 값
-     * 그대로다. FOCUS 의 무기록(null)은 판정이 0분으로 본 것이므로 0 으로 확정해 저장하고,
-     * SCREEN_TIME 의 미보고(null)는 "미계측"이라 null 그대로 남긴다(0분 사용과 구분 — 앱 "—" 표시).
-     */
     /**
      * 실측 우선, 없으면 참가 행 박제값 폴백(GROMO-1423) — 계정 탈퇴가 통계를 nullify 한 참가자는
      * 실측이 사라진다(FOCUS 0분·SCREEN_TIME 미보고로 접혀 판정·잔여 순위·근거 기록이 전부 왜곡).
@@ -476,6 +466,13 @@ public class GroupBetSettler {
         return measured != null ? measured : participant.getProgressMinutes();
     }
 
+    /**
+     * 정산 근거로 저장할 참가자별 실측 분(GROMO-1207) — 판정({@code entries})이 실제로 쓴 값
+     * 그대로다: 실측이 없으면 {@link #measuredOrFrozen} 이 탈퇴 박제값으로 폴백하고(GROMO-1423),
+     * 3상 접기는 커널({@link GroupBetJudge#displayMinutes})이 한다 — FOCUS 의 무기록은 0 으로 확정해
+     * 저장하고, SCREEN_TIME 의 미계측은 null 로 남긴다(0분 사용과 구분 — 앱 "—" 표시).
+     * 접기를 여기서 손으로 다시 쓰면 카드의 "—" 와 결과의 "—" 가 갈릴 수 있다.
+     */
     private Map<UUID, Integer> evidenceMinutes(
             GroupBetJudge.Target target,
             List<GroupChallengeBetParticipant> participants,
@@ -483,11 +480,8 @@ public class GroupBetSettler {
         Map<UUID, Integer> evidence = new HashMap<>();
         for (GroupChallengeBetParticipant participant : participants) {
             UUID userId = participant.getUser().getId();
-            Integer minutes = measuredOrFrozen(progressMinutes.get(userId), participant);
-            if (minutes == null && target.category() == MissionCategory.FOCUS) {
-                minutes = 0;
-            }
-            evidence.put(userId, minutes);
+            evidence.put(userId, GroupBetJudge.displayMinutes(target,
+                    measuredOrFrozen(progressMinutes.get(userId), participant)));
         }
         return evidence;
     }
