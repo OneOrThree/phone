@@ -71,6 +71,12 @@ export class GroupFocusStatusStore {
     }
   }
 
+  clearDate(userId: string, date: string): void {
+    const key = cacheKey(userId, date);
+    this.entries.delete(key);
+    this.emit(key);
+  }
+
   private start(
     userId: string,
     date: string,
@@ -101,6 +107,7 @@ export class GroupFocusStatusStore {
       entry.state = state;
       entry.inFlight = null;
       if (state.status === 'ready') entry.lastComplete = state.data;
+      if (state.status === 'coverage-unknown') entry.lastComplete = null;
       this.emit(key);
       return state;
     });
@@ -157,6 +164,7 @@ export class GroupFocusPollingController {
     hasGroups: false,
   };
   private timer: ReturnType<typeof setInterval> | null = null;
+  private activeDate: string | null = null;
   private readonly getDate: () => string;
   private readonly intervalMs: number;
   private readonly setIntervalFn: typeof setInterval;
@@ -174,7 +182,8 @@ export class GroupFocusPollingController {
     if (this.disposed || this.activated) return;
     this.activated = true;
     if (!this.canRun()) return;
-    this.options.store.ensure(this.options.userId, this.getDate());
+    const date = this.prepareDate();
+    this.options.store.ensure(this.options.userId, date);
     this.startTimer();
   }
 
@@ -211,7 +220,16 @@ export class GroupFocusPollingController {
   }
 
   private refresh(): Promise<GroupFocusStatusState> {
-    return this.options.store.retry(this.options.userId, this.getDate());
+    return this.options.store.retry(this.options.userId, this.prepareDate());
+  }
+
+  private prepareDate(): string {
+    const nextDate = this.getDate();
+    if (this.activeDate && this.activeDate !== nextDate) {
+      this.options.store.clearDate(this.options.userId, this.activeDate);
+    }
+    this.activeDate = nextDate;
+    return nextDate;
   }
 
   private startTimer(): void {
