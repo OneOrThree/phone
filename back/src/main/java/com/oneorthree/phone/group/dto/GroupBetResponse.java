@@ -68,4 +68,19 @@ public class GroupBetResponse {
     private Boolean myAchievedNow;
 
     private List<GroupBetParticipantResponse> participants;
+
+    /**
+     * 내기 켜짐 여부 — 챌린지 생성 시 1회 결정·불변(N26). 신앱용 additive 필드(GROMO-1418,
+     * LLD §2.1). 끄기 경로가 없으므로(GROMO-1426) 회차가 실린 응답에서는 항상 true 다.
+     * {@code @JsonInclude(NON_NULL)} 금지 — 필드 부재 = 회차 모델을 모르는 구서버(3상 계약).
+     */
+    private Boolean enabled;
+
+    /**
+     * <b>조회 date 의 회차</b>(신앱 카운트다운 축) — additive(GROMO-1418, LLD §2.1). 레거시
+     * 필드({@code betId}·{@code status}·{@code myJoined}·{@code participants})가 내일 폴백을
+     * 실을 때도 이 필드는 null 이다(오늘 회차 없음) — 어느 날짜의 축인지는 {@code session}
+     * 스스로가 아니라 필드 정의가 고정한다. {@code @JsonInclude(NON_NULL)} 금지(3상 계약).
+     */
+    private GroupBetSessionResponse session;
 }

@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupBetSettlementService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -93,5 +94,16 @@ class GroupBetBatchControllerTest {
         assertThat(GroupErrorCode.BATCH_KEY_NOT_CONFIGURED.getStatus())
                 .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         verifyNoInteractions(settlementService);
+    }
+
+    @Test
+    @DisplayName("프로파일 게이팅이 없다 — prod 포함 전 환경에 열린다(LLD §2.3). 인가는 관리자 키가 진다")
+    void isNotProfileGatedSoProdCanRecoverManually() {
+        // 24h 자동 환불은 최후 방어선일 뿐이다 — 그 전에 손으로 푸는 경로가 prod 에 없으면
+        // 스케줄러 장애 회차의 참가비가 강제로 환불까지 흘러간다(GROMO-1411 후속).
+        // @Profile 이 다시 붙으면 이 단정이 깨져 회귀를 잡는다.
+        assertThat(GroupBetBatchController.class.getAnnotation(Profile.class)).isNull();
+        // 대신 관리자 키 게이트는 반드시 남아 있어야 한다 — 위 403·503 분기가 그 증거다.
+        assertThat(GroupBetBatchController.ADMIN_KEY_HEADER).isEqualTo("X-Batch-Admin-Key");
     }
 }

@@ -34,14 +34,17 @@ LogBox.ignoreLogs([
 if (Platform.OS !== 'web') {
   const { initializeKakaoSDK } =
     require('@react-native-kakao/core') as typeof import('@react-native-kakao/core');
-  const { default: messaging } =
-    require('@react-native-firebase/messaging') as typeof import('@react-native-firebase/messaging');
 
   initializeKakaoSDK('af3ff0c5b4fb9cd38b78428b88add65d');
 
   // 백그라운드/종료 상태 원격 메시지 핸들러 — 앱 생명주기 밖(최상위)에서 1회 등록해야 한다.
-  // 알림(alert) 메시지는 OS가 자동 표시하므로 여기선 data-only 처리만 담당(현재 no-op).
-  messaging().setBackgroundMessageHandler(async () => {});
+  // 알림(alert) 메시지는 OS가 자동 표시하므로 여기선 data-only(사일런트 flush — GROMO-1286)만
+  // 처리한다. 종전 no-op은 종료 상태 headless 기동 시 PushGate 이펙트 교체 전에 메시지를 삼켰다
+  // (codex 리뷰 P1) — 실제 flush 핸들러를 여기서 바로 배선한다. Sentry.init 이후에 로드해야
+  // 하므로(App 모듈과 같은 이유) 정적 import 대신 require로 늦춘다.
+  const { registerBackgroundFlushHandler } =
+    require('./src/services/pushBackground') as typeof import('./src/services/pushBackground');
+  registerBackgroundFlushHandler();
 }
 
 // App 모듈은 Sentry.init 이후에 로드한다 — 정적 import는 파일 본문보다 먼저 실행되므로,

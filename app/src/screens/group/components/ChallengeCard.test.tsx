@@ -911,6 +911,11 @@ describe('지난 내기', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.bet.result.close'));
     });
+    // 확인 CTA는 SheetShell의 퇴장 애니메이션(220ms)을 태운 뒤에 onClose를 부른다(GROMO-1381) —
+    // 그만큼 기다려야 카드가 시트를 내린다.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
     expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
   });
 
@@ -982,15 +987,41 @@ describe('지난 기록 더보기 → 히스토리 push', () => {
     });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
-    // 미션 메타(missionType·missionCategory)도 함께 넘긴다(#527 리뷰) — 히스토리 화면의
-    // FOCUS 창 관용치 안내 판단용. 카드 픽스처의 값이 그대로 실려야 한다.
-    expect(mockNavigate).toHaveBeenCalledWith('GroupBetHistory', {
+    // 그룹 축 내역 화면(GROMO-1277)으로 가되, 이 진입점은 **이 챌린지만** 보는 필터다.
+    // 미션 메타는 더 이상 param으로 나르지 않는다 — 응답의 회차 스냅샷에 실려 온다.
+    // 대신 필터 사실을 헤더가 말할 수 있게 라벨을 넘긴다(카드가 그리는 문장 그대로).
+    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
-      missionType: 'DURATION',
-      missionCategory: 'FOCUS',
+      challengeLabel: '하루 60분 집중',
     });
     expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
+  });
+
+  // 내역 화면의 필터 헤더는 이 라벨을 그대로 쓴다("… 만 보는 중"). 스크린타임 목표는 방향이
+  // 반대라(60분 **이하**) 카드의 방향 캡션이 없는 그 화면에서는 라벨이 방향을 말해야 한다
+  // (codex 리뷰 P2 · policy §A9 시안 `하루 폰 2시간 이하`). 카드 본문 문구는 그대로 둔다 —
+  // 캡션이 이미 방향을 말하는 자리라 두 번 말할 필요가 없다.
+  test('스크린타임 카드가 넘기는 필터 라벨에는 목표 방향(이하)이 들어간다', async () => {
+    await renderCard({
+      missionCategory: 'SCREEN_TIME',
+      bet: null,
+      lastSettledBet: lastSettledBet(),
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.result.history'));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+      challengeLabel: '하루 60분 이하 스크린타임',
+    });
+    // 카드 본문의 미션 줄은 종전 그대로 — 방향은 전용 캡션이 말한다.
+    expect(screen.getByText('오늘 스크린타임을 목표 이하로 유지해요')).toBeOnTheScreen();
   });
 
   test('groupId 캐시 미적중이면 push 대신 공통 실패 문구 — 반쪽 파라미터로 화면을 열지 않는다', async () => {
@@ -1089,8 +1120,9 @@ describe('참가 철회', () => {
     return render(joinedCard(betOver, challengeOver, onBetChanged));
   }
 
-  // 확인 Alert의 '철회하기'까지 눌러 준다 — 반복 시나리오에서 같은 6줄을 다시 쓰지 않으려고 묶는다.
+  // 확인 Alert의 CTA까지 눌러 준다 — 반복 시나리오에서 같은 6줄을 다시 쓰지 않으려고 묶는다.
   // Alert는 각 테스트가 spy로 갈아 끼워 두고, 여기서는 **마지막** 호출의 버튼만 본다.
+  // CTA 문구는 「참여 취소」다(N27) — 레거시 '철회하기'는 같은 행동의 옛 이름이었다.
   async function confirmLeave() {
     await act(async () => {
       fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
@@ -1098,7 +1130,7 @@ describe('참가 철회', () => {
     const calls = (Alert.alert as unknown as jest.Mock).mock.calls;
     const buttons = calls[calls.length - 1][2] as AlertButton[] | undefined;
     await act(async () => {
-      buttons?.find((b) => b.text === '철회하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
   }
 
@@ -1159,14 +1191,14 @@ describe('참가 철회', () => {
     // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
     expect(mockLeaveBet).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
-      '참가 철회',
+      '참여 취소',
       '참가비 30코인을 돌려받고 내기에서 빠질까요?',
       expect.anything(),
     );
 
     const buttons = alertSpy.mock.calls[0][2];
     await act(async () => {
-      buttons?.find((b) => b.text === '철회하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
     // groupId는 카드 prop이 아니라 groupApi 조회 캐시에서 역참조한다.
@@ -1182,7 +1214,7 @@ describe('참가 철회', () => {
     // 인원은 내 몫을 뺀 값이다 — 응답은 아직 내가 낀 3명이다.
     expect(screen.getByText('🪙 참가비 30 · 2명 참여 중 — 참가하기')).toBeOnTheScreen();
     // 방금 빠졌다는 사실은 진입점 아래 캡션으로 남는다.
-    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.getByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
   });
 
   test('되살아난 참가 진입점을 누르면 참가 모드로 내기 시트가 열린다', async () => {
@@ -1210,13 +1242,13 @@ describe('참가 철회', () => {
     });
     expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
     expect(screen.getByText('참여 중')).toBeOnTheScreen();
-    expect(screen.queryByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+    expect(screen.queryByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
 
     // 두 번째 철회도 첫 번째와 똑같이 동작한다.
     await confirmLeave();
     expect(mockLeaveBet).toHaveBeenCalledTimes(2);
     expect(screen.getByText('🪙 참가비 30 · 2명 참여 중 — 참가하기')).toBeOnTheScreen();
-    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.getByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
   });
 
   test('재조회가 도착하면 낙관 표시를 버리고 서버 값을 그대로 그린다', async () => {
@@ -1239,7 +1271,7 @@ describe('참가 철회', () => {
       );
     });
     expect(screen.getByText('🪙 참가비 30 · 3명 참여 중 — 참가하기')).toBeOnTheScreen();
-    expect(screen.queryByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+    expect(screen.queryByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
   });
 
   test('철회 성공은 부모 재조회를 태운다 — 실패하면 태우지 않는다', async () => {
@@ -1270,7 +1302,7 @@ describe('참가 철회', () => {
 
     expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
     expect(screen.getByText('🪙 참가비 30 · 적립금 60 · 2명 참여')).toBeOnTheScreen();
-    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.getByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
   });
 
   test('마지막 참가자의 철회는 내기가 닫히므로 취소 계측을 발행하고 자리 캡션만 남긴다', async () => {
@@ -1286,12 +1318,12 @@ describe('참가 철회', () => {
     });
     const buttons = alertSpy.mock.calls[0][2];
     await act(async () => {
-      buttons?.find((b) => b.text === '철회하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
     // 서버가 내기를 CANCELED로 닫는 경우다(계약 §4) — 기존 '내기 취소' 계측의 의미가 보존된다.
     expect(logGroupBetCanceled).toHaveBeenCalledWith({ stake: 30, participants_count: 1 });
-    expect(screen.getByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    expect(screen.getByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
     // 아무도 남지 않았다 — 유지해 그릴 내기 정보 행이 없다.
     expect(screen.queryByText(/적립금/)).toBeNull();
     // 재참여 진입점도 세우지 않는다 — 내기가 CANCELED로 닫혀 들어갈 OPEN 내기가 없다.
@@ -1309,13 +1341,16 @@ describe('참가 철회', () => {
     });
     const buttons = alertSpy.mock.calls[0][2];
     await act(async () => {
-      buttons?.find((b) => b.text === '철회하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith('철회할 수 없어요', '내기가 시작된 뒤에는 뺄 수 없어요.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 취소를 못 했어요',
+      '내기가 시작된 뒤에는 뺄 수 없어요.',
+    );
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
     // 실패했으므로 자리 표시로 갈아 끼우지 않는다 — 내 참가는 그대로 살아 있다.
-    expect(screen.queryByText('내기에서 빠졌어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+    expect(screen.queryByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
   });
 
   test.each([
@@ -1331,10 +1366,10 @@ describe('참가 철회', () => {
     });
     const buttons = alertSpy.mock.calls[0][2];
     await act(async () => {
-      buttons?.find((b) => b.text === '철회하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith('철회할 수 없어요', message);
+    expect(alertSpy).toHaveBeenCalledWith('참여 취소를 못 했어요', message);
   });
 });
 
@@ -1440,17 +1475,18 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
     });
-    // 확인 전에는 아무것도 하지 않는다 — 옛 취소 확인 문구 관례 그대로.
-    expect(mockCancelBet).not.toHaveBeenCalled();
+    // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
+    // 제목·CTA는 「참여 취소」(N27)이되, 질문은 '내기를 닫을까요' 그대로다 — 단독 참가자라
+    // 내 참여를 무르면 내기 자체가 닫히고, 그 결과는 물음에서 지우면 안 된다.
     expect(alertSpy).toHaveBeenCalledWith(
-      '내기 취소',
+      '참여 취소',
       '참가비 30코인을 돌려받고 내기를 닫을까요?',
       expect.anything(),
     );
 
     const buttons = alertSpy.mock.calls[0][2];
     await act(async () => {
-      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
     // 철회 API가 아니라 기존 취소 API로 나간다.
@@ -1459,8 +1495,10 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     expect(mockRefreshCoins).toHaveBeenCalled();
     // 내기가 통째로 닫히는 동작이라 항상 취소 계측이다.
     expect(logGroupBetCanceled).toHaveBeenCalledWith({ stake: 30, participants_count: 1 });
-    // 자리 캡션은 누른 버튼의 동사('취소')를 따른다.
-    expect(screen.getByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeOnTheScreen();
+    // 자리 캡션은 누른 버튼의 동사(「참여 취소」)를 따르되, 내기가 닫혔다는 결과까지 말한다.
+    expect(
+      screen.getByText('참여를 취소해 내기가 닫혔어요. 참가비는 잔액으로 돌아왔어요'),
+    ).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
     // 취소는 내기를 통째로 닫는 동작이라 재참여 진입점을 세우지 않는다(GROMO-1112 — 철회와 다르다).
     expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
@@ -1476,15 +1514,17 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     });
     const buttons = alertSpy.mock.calls[0][2];
     await act(async () => {
-      buttons?.find((b) => b.text === '취소하기')?.onPress?.();
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
     expect(alertSpy).toHaveBeenCalledWith(
-      '취소할 수 없어요',
+      '참여 취소를 못 했어요',
       '다른 참가자가 있어 취소할 수 없어요.',
     );
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
-    expect(screen.queryByText('내기를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
+    expect(
+      screen.queryByText('참여를 취소해 내기가 닫혔어요. 참가비는 잔액으로 돌아왔어요'),
+    ).toBeNull();
   });
 });
 

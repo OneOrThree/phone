@@ -1,10 +1,14 @@
-// 챌린지 결과 모달 — 헤드라인 그림 계약(GROMO-1087).
-// 시스템 이모지에서 캐릭터 에셋으로 갈아탔으므로, 세 결과 상태가 각각 정해진 에셋을 쓰고
-// 스크린리더가 상태를 읽을 수 있는지를 고정한다. 크기·여백 같은 시각 품질은 QA 몫이라 보지 않는다.
+// 챌린지 결과 모달 — 정산 결과 통지(GROMO-1279 · IA §4.3).
+// 잠그는 것: ① 헤드라인 그림 계약(GROMO-1087 — 상태별 정해진 에셋) ② 판정 근거 표기(GROMO-1191
+// — 3상을 뭉개지 않는다) ③ 손익 표기(정산 통지 — payout−stake) ④ 무산·환불 결말 문구(IA §4.3
+// "무산·환불도 결과다") ⑤ 명단 넘침 단서(코덱스 P2). 크기·여백 같은 시각 품질은 QA 몫이라 보지 않는다.
 import { ScrollView } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import ChallengeResultModal, { createListOverflowFlasher } from './ChallengeResultModal';
-import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
+import ChallengeResultModal, {
+  createListOverflowFlasher,
+  resultDeltaText,
+  settlementNotice,
+} from './ChallengeResultModal';
 import type { ChallengeResultCandidate } from '../challengeResult';
 
 // jest 프리셋의 ScrollView 목은 flashScrollIndicators를 **프로토타입 공유 jest.fn**으로
@@ -12,20 +16,28 @@ import type { ChallengeResultCandidate } from '../challengeResult';
 // 잡을 수 없어도, 이 공유 목으로 컴포넌트 배선의 실제 호출을 관찰할 수 있다.
 const flashScrollIndicators = ScrollView.prototype.flashScrollIndicators as unknown as jest.Mock;
 
-function candidate(myAchieved: boolean | null): ChallengeResultCandidate {
+function candidate(
+  myAchieved: boolean | null,
+  over: Partial<ChallengeResultCandidate> = {},
+): ChallengeResultCandidate {
   return {
+    sessionId: 's1',
     challengeId: 'c1',
+    groupId: 'g1',
+    groupName: '아침 6시 집중방',
     date: '2026-08-01',
-    missionType: 'TIME_WINDOW',
-    missionCategory: 'FOCUS',
-    label: '오전 9시까지 집중',
+    status: 'SETTLED',
+    voidReason: null,
+    stake: 30,
+    pot: 60,
     goalMinutes: 60,
-    achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 72 }],
-    failed: [{ userId: 'u2', nickname: '수빈', progressMinutes: 23 }],
+    achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 72, payout: 60 }],
+    failed: [{ userId: 'u2', nickname: '수빈', progressMinutes: 23, payout: 0 }],
     pending: [],
     myAchieved,
+    myPayout: myAchieved === null ? null : myAchieved ? 60 : 0,
     memberCount: 2,
-    hadBet: false,
+    ...over,
   };
 }
 
@@ -37,13 +49,15 @@ function characterImage() {
   return screen.getByTestId(CHARACTER, { includeHiddenElements: true });
 }
 
+const shown = (text: string) => screen.getByText(text, { includeHiddenElements: true });
+
 describe('ChallengeResultModal 헤드라인 그림', () => {
-  // 결과 상태 → 에셋 매핑을 못으로 박는다. 세 상태가 같은 그림으로 뭉개지면(예: 복붙 실수)
+  // 결과 상태 → 에셋 매핑을 못으로 박는다. 상태가 같은 그림으로 뭉개지면(예: 복붙 실수)
   // 화면상으로는 멀쩡해 보이므로 여기서 잡는다.
   test.each([
     [true, require('@/assets/character_happy.png'), '달성'],
     [false, require('@/assets/character_sensitive.png'), '놓쳐'],
-    [null, require('@/assets/character_study.png'), '집계'],
+    [null, require('@/assets/character_study.png'), '판정'],
   ])(
     'myAchieved=%s면 정해진 캐릭터 에셋과 상태 레이블이 붙는다',
     async (myAchieved, source, word) => {
@@ -60,6 +74,24 @@ describe('ChallengeResultModal 헤드라인 그림', () => {
     },
   );
 
+  // 무산·환불은 승패 축이 아니다 — myAchieved가 무엇이든 승패 캐릭터·문구를 세우면 거짓말이 된다.
+  test('VOIDED는 승패 대신 무산 헤드라인을 세운다', async () => {
+    await render(
+      <ChallengeResultModal
+        result={candidate(null, { status: 'VOIDED', voidReason: 'SHORT_PARTICIPANTS' })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(shown('내기가 무산됐어요')).toBeOnTheScreen();
+  });
+
+  test('REFUNDED는 환불 헤드라인을 세운다', async () => {
+    await render(
+      <ChallengeResultModal result={candidate(null, { status: 'REFUNDED' })} onClose={jest.fn()} />,
+    );
+    expect(shown('참가비를 돌려드렸어요')).toBeOnTheScreen();
+  });
+
   // 이모지로 되돌아가는 회귀를 막는다 — 헤드라인 자리에 문자 그림이 다시 들어오면 실패.
   test('헤드라인에 시스템 이모지가 남아 있지 않다', async () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
@@ -71,57 +103,57 @@ describe('ChallengeResultModal 헤드라인 그림', () => {
 
 // 판정 근거 표기(GROMO-1191) — "달성/미달성"만 알려주고 몇 분을 해서 그렇게 됐는지
 // 말하지 않던 문제를 막는다. 명단이 다시 이름만 남으면 여기서 실패한다.
-describe('ChallengeResultModal 판정 근거', () => {
-  const shown = (text: string) => screen.getByText(text, { includeHiddenElements: true });
-
-  test('사람마다 기록 분을 목표와 함께 적는다', async () => {
+describe('ChallengeResultModal 판정 근거·손익', () => {
+  test('사람마다 기록 분을 목표와 함께 적고, 손익(payout−stake)을 붙인다', async () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
     expect(shown('72/60분')).toBeOnTheScreen();
     expect(shown('23/60분')).toBeOnTheScreen();
+    expect(shown('+30')).toBeOnTheScreen(); // 재영: 60 받음 − 30 판돈
+    expect(shown('-30')).toBeOnTheScreen(); // 수빈: 0 받음 − 30 판돈
   });
 
-  test('미집계는 0분으로 뭉개지 않고 —로 비운다', async () => {
-    const result = {
-      ...candidate(null),
+  test('미집계는 0분으로 뭉개지 않고 —로 비운다(미판정 payout도 — 숫자를 지어내지 않는다)', async () => {
+    const result = candidate(null, {
       achievers: [],
       failed: [],
-      pending: [{ userId: 'u3', nickname: '민지', progressMinutes: null }],
-    };
+      pending: [{ userId: 'u3', nickname: '민지', progressMinutes: null, payout: null }],
+    });
     await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
-    expect(shown('—')).toBeOnTheScreen();
+    // 근거 '—'와 손익 '—' 두 칸 — 미판정 행은 숫자를 만들지 않는다.
+    expect(screen.getAllByText('—', { includeHiddenElements: true })).toHaveLength(2);
     expect(screen.queryByText('0/60분', { includeHiddenElements: true })).toBeNull();
+    expect(shown('미판정 1')).toBeOnTheScreen();
   });
 
-  test('목표를 모르는 챌린지는 분모를 지어내지 않는다', async () => {
-    // 구 창 챌린지 — durationMinutes가 없어 판정 기준을 앱이 알 수 없다.
-    const result = {
-      ...candidate(true),
+  test('목표를 모르는 회차는 분모를 지어내지 않는다', async () => {
+    const result = candidate(true, {
       goalMinutes: null,
-      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 72 }],
+      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 72, payout: 60 }],
       failed: [],
-    };
+    });
     await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
     expect(shown('72분')).toBeOnTheScreen();
-    expect(screen.queryByText(/\//, { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByText(/\d\/\d/, { includeHiddenElements: true })).toBeNull();
   });
 
-  // 이름과 분이 따로 읽히면 누구 기록인지 잃는다 — 행 전체를 한 덩어리로 읽어야 한다.
-  // 문구는 카드 진행 리스트와 **같은 조각**을 쓴다(progressFormat) — 같은 상태를 두 화면이
-  // 다른 문장으로 읽어 주던 것을 통일했다(PR #493 리뷰).
-  test('스크린리더는 행을 한 덩어리로 읽는다', async () => {
+  // 이름·분·손익이 따로 읽히면 누구 기록인지 잃는다 — 행 전체를 한 덩어리로 읽어야 한다.
+  // 문구는 카드 진행 리스트와 **같은 조각**을 쓴다(progressFormat) — PR #493 리뷰의 규칙 유지.
+  test('스크린리더는 행을 한 덩어리로 읽는다(근거 + 손익)', async () => {
     await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
     expect(
-      screen.getByLabelText('재영 60분 중 72분', { includeHiddenElements: true }),
+      screen.getByLabelText('재영 60분 중 72분, 30코인', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('수빈 60분 중 23분, 마이너스 30코인', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
   });
 
   test('미집계 행은 뜻을 말로 옮겨 읽는다 — VoiceOver는 —를 "대시"로 발음한다', async () => {
-    const result = {
-      ...candidate(null),
+    const result = candidate(null, {
       achievers: [],
       failed: [],
-      pending: [{ userId: 'u3', nickname: '민지', progressMinutes: null }],
-    };
+      pending: [{ userId: 'u3', nickname: '민지', progressMinutes: null, payout: null }],
+    });
     await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
     expect(
       screen.getByLabelText('민지 아직 집계되지 않음', { includeHiddenElements: true }),
@@ -129,78 +161,88 @@ describe('ChallengeResultModal 판정 근거', () => {
   });
 });
 
-// 5분 관용치 고지(GROMO-1217) — 창형 집중은 목표에서 5분 모자라도 달성인데(서버
-// WindowFocusAggregator, 관용치 5분) 근거 분은 원값 그대로라, 고지가 없으면 달성 명단의
-// '55/60분'이 모순으로 읽힌다. 문구는 progressFormat의 공용 상수를 그대로 잠근다.
-describe('ChallengeResultModal 5분 관용치 고지', () => {
-  const NOTICE = WINDOW_FOCUS_TOLERANCE_NOTICE;
+// 정산 결말 문구(IA §4.3) — 돈이 움직였거나 움직이지 않기로 확정된 사건은 전부 알린다.
+// 침묵하면 "내 코인 어디 갔지"가 된다.
+describe('ChallengeResultModal 정산 결말', () => {
   const notice = () =>
-    screen.queryByTestId('group.challengeResult.toleranceNotice', {
-      includeHiddenElements: true,
-    });
+    screen.queryByTestId('group.challengeResult.notice', { includeHiddenElements: true });
 
-  test('창형 집중(FOCUS×TIME_WINDOW)은 55/60 달성자가 모순으로 읽히지 않게 고지를 세운다', async () => {
-    // 정확한 회귀 재현 — 목표 60분에 55분 기록으로 달성 판정된 멤버.
-    const result = {
-      ...candidate(true),
-      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
-      failed: [],
-    };
-    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
-    // 고지가 뜨고, 1191의 근거 분 행은 그대로 남는다(고지가 표기를 바꾸지 않는다).
-    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
-    expect(screen.getByText('55/60분', { includeHiddenElements: true })).toBeOnTheScreen();
+  test('SETTLED는 내 손익을 말한다', async () => {
+    await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
+    expect(shown('내 정산 +30코인')).toBeOnTheScreen();
   });
 
-  // 구 창 챌린지(durationMinutes 없음)도 서버는 자기 목표에 관용치를 그대로 적용한다 —
-  // 앱이 분모를 몰라도 고지는 여전히 참이라 **의도적으로** 세운다(PR #494 리뷰로 고정).
-  test('목표를 모르는 창형 집중에도 고지를 세운다 — 분모 없는 표기와 함께', async () => {
-    const result = {
-      ...candidate(true),
-      goalMinutes: null,
-      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
-      failed: [],
-    };
-    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
-    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
-    // 분모는 지어내지 않는다(1191 규칙 그대로) — 고지가 표기 규칙을 바꾸지 않는다.
-    expect(screen.getByText('55분', { includeHiddenElements: true })).toBeOnTheScreen();
-    expect(screen.queryByText('55/60분', { includeHiddenElements: true })).toBeNull();
-  });
-
-  test('DURATION 결과에는 고지가 없다(정확 임계 — 관용치가 없다)', async () => {
+  test('SETTLED인데 내 payout이 미판정(null)이면 숫자를 지어내지 않는다', async () => {
     await render(
-      <ChallengeResultModal
-        result={{ ...candidate(true), missionType: 'DURATION' }}
-        onClose={jest.fn()}
-      />,
+      <ChallengeResultModal result={candidate(true, { myPayout: null })} onClose={jest.fn()} />,
     );
     expect(notice()).toBeNull();
   });
 
-  test('SCREEN_TIME 창형 결과에는 고지가 없다(이하 판정 — 관용치가 없다)', async () => {
+  test('FORFEITED는 적립금 소멸을 말하고 명단은 남긴다', async () => {
     await render(
       <ChallengeResultModal
-        result={{ ...candidate(true), missionCategory: 'SCREEN_TIME' as const }}
+        result={candidate(false, { status: 'FORFEITED', myPayout: 0 })}
         onClose={jest.fn()}
       />,
     );
-    expect(notice()).toBeNull();
-  });
-
-  // 고지는 시각 전용 장식이 아니다 — 스크린리더도 같은 규칙을 들어야 "60분 중 55분"이
-  // 달성 섹션에서 모순으로 들리지 않는다. Text의 접근 가능한 본문으로 노출됨을 잠근다.
-  test('고지는 접근 가능한 텍스트로 읽히고, 기존 행 음성 안내는 그대로다', async () => {
-    const result = {
-      ...candidate(true),
-      achievers: [{ userId: 'u1', nickname: '재영', progressMinutes: 55 }],
-      failed: [],
-    };
-    await render(<ChallengeResultModal result={result} onClose={jest.fn()} />);
-    expect(screen.getByText(NOTICE, { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(shown('아무도 달성하지 못해 적립금 60코인이 사라졌어요')).toBeOnTheScreen();
     expect(
-      screen.getByLabelText('재영 60분 중 55분', { includeHiddenElements: true }),
+      screen.getByTestId('group.challengeResult.lists', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
+  });
+
+  test('VOIDED(SHORT_PARTICIPANTS)는 인원 부족 문구를 쓰고 명단은 그리지 않는다', async () => {
+    await render(
+      <ChallengeResultModal
+        result={candidate(null, { status: 'VOIDED', voidReason: 'SHORT_PARTICIPANTS' })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(shown('참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요')).toBeOnTheScreen();
+    expect(
+      screen.queryByTestId('group.challengeResult.lists', { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
+  // **서버가 실제로 보내는 값**은 INSUFFICIENT_PARTICIPANTS다(enum·V41 CHECK). 문서 예시값
+  // (SHORT_PARTICIPANTS)만 받으면 IA §4.3 카피가 한 번도 뜨지 않고 폴백으로 강하한다.
+  test('VOIDED(INSUFFICIENT_PARTICIPANTS)도 같은 인원 부족 문구를 쓴다', () => {
+    expect(
+      settlementNotice(
+        candidate(null, { status: 'VOIDED', voidReason: 'INSUFFICIENT_PARTICIPANTS' }),
+      ),
+    ).toBe('참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요');
+  });
+
+  test('사유를 모르는 VOIDED는 인원 부족이라고 지어내지 않는다', () => {
+    expect(settlementNotice(candidate(null, { status: 'VOIDED', voidReason: null }))).toBe(
+      '내기가 무산돼 참가비를 돌려드렸어요',
+    );
+  });
+
+  test('REFUNDED는 정산 지연 환불 문구를 쓴다', async () => {
+    await render(
+      <ChallengeResultModal result={candidate(null, { status: 'REFUNDED' })} onClose={jest.fn()} />,
+    );
+    expect(shown('정산이 지연돼 참가비를 돌려드렸어요')).toBeOnTheScreen();
+  });
+
+  // 그룹 무관 큐(참가자 스코프)라 모달이 어느 그룹의 결과인지 직접 말해야 한다.
+  test('그룹 이름과 날짜를 함께 말한다', async () => {
+    await render(<ChallengeResultModal result={candidate(true)} onClose={jest.fn()} />);
+    expect(shown('아침 6시 집중방')).toBeOnTheScreen();
+    expect(shown('8월 1일 결과')).toBeOnTheScreen();
+  });
+});
+
+// 손익 표기 단위 규칙 — payout은 '받은 금액'이라 그대로 쓰면 판돈 낸 사실이 지워진다.
+describe('resultDeltaText', () => {
+  test('payout−stake, +는 붙이고 0·음수는 그대로, null은 —', () => {
+    expect(resultDeltaText(60, 30)).toBe('+30');
+    expect(resultDeltaText(30, 30)).toBe('0');
+    expect(resultDeltaText(0, 30)).toBe('-30');
+    expect(resultDeltaText(null, 30)).toBe('—');
   });
 });
 
@@ -235,7 +277,7 @@ describe('ChallengeResultModal 명단 스크롤 인디케이터', () => {
   });
 
   // 결과 큐가 같은 모달 인스턴스로 진행된다(GroupRoomScreen) — 멤버 수가 같아 렌더 높이가
-  // 그대로면 onContentSizeChange가 다시 오지 않으므로, 결과 키 변경이 리셋 경로를 타서
+  // 그대로면 onContentSizeChange가 다시 오지 않으므로, 결과 키(세션) 변경이 리셋 경로를 타서
   // 두 번째 결과에도 넘침 단서가 나가야 한다(코덱스 리뷰 P2 2차).
   test('높이가 같은 다음 결과로 갈리면 사이즈 이벤트 없이도 다시 깜빡인다', async () => {
     const view = await render(
@@ -248,10 +290,7 @@ describe('ChallengeResultModal 명단 스크롤 인디케이터', () => {
     expect(flashCalls()).toBe(1);
     // 같은 높이의 다른 결과 — 사이즈 이벤트를 다시 쏘지 않는다(실기기에서 안 오는 상황 재현).
     await view.rerender(
-      <ChallengeResultModal
-        result={{ ...candidate(true), challengeId: 'c2' }}
-        onClose={jest.fn()}
-      />,
+      <ChallengeResultModal result={candidate(true, { sessionId: 's2' })} onClose={jest.fn()} />,
     );
     expect(flashCalls()).toBe(2);
   });

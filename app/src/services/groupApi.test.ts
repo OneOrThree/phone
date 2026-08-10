@@ -15,9 +15,11 @@ import {
   getAnnouncements,
   getBetHistory,
   getChallenges,
+  getGroupChallengeHistory,
   getGroupDetail,
   getGroupOverview,
   getMyGroups,
+  getMyOpenBetSessionsWithToken,
   groupErrorCode,
   joinBet,
   joinGroup,
@@ -226,6 +228,28 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     );
   });
 
+  // 그룹 챌린지 내역(GROMO-1277 · N6-1) — **경로가 챌린지에 종속되지 않는 것**이 계약의 핵심이다.
+  // 챌린지가 삭제돼도 조회돼야 하므로 챌린지별 보기조차 경로가 아니라 challengeId 쿼리다(IA §5).
+  test('GET /{groupId}/challenge-history — 챌린지별 보기도 같은 경로의 쿼리 필터다', async () => {
+    mockApi.get.mockResolvedValue({
+      data: { content: [], size: 20, hasNext: false, nextCursor: null },
+    });
+
+    await getGroupChallengeHistory(GROUP_ID, { size: 20 });
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenge-history`, {
+      params: { cursor: undefined, size: 20, challengeId: undefined },
+    });
+
+    await getGroupChallengeHistory(GROUP_ID, {
+      cursor: BET_ID,
+      size: 20,
+      challengeId: CHALLENGE_ID,
+    });
+    expect(mockApi.get).toHaveBeenLastCalledWith(`/api/v1/groups/${GROUP_ID}/challenge-history`, {
+      params: { cursor: BET_ID, size: 20, challengeId: CHALLENGE_ID },
+    });
+  });
+
   // TIME_WINDOW 생성(확장 배치) — 창 시각·목표분이 additive로 실린다.
   // 창 시각은 "HH:mm:ss" KST 벽시계다(GROMO-1225 — 종전 ISO Instant 합성 폐기).
   test('POST /{groupId}/challenges — 창 생성 바디(windowStart/End)를 그대로 보낸다', async () => {
@@ -239,6 +263,19 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     };
     await createChallenge(GROUP_ID, body);
     expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, body);
+  });
+
+  // 계정 박제 변형(codex 리뷰 P1) — 사일런트 flush가 검증한 토큰을 직접 싣고 401 재발급
+  // 재시도를 끈다. 인터셉터가 전송 시점의 저장 토큰을 붙이면, 검증~전송 사이에 계정이 바뀐
+  // 경우 **남의 OPEN 회차**를 읽어 와 그 위에 보고하게 된다(돈 경로).
+  test('GET /me/bet-sessions(계정 박제) — 넘긴 토큰을 싣고 재발급 재시도를 끈다', async () => {
+    mockApi.get.mockResolvedValue({ data: { sessions: [] } });
+    await getMyOpenBetSessionsWithToken('token-u1');
+    expect(mockApi.get).toHaveBeenCalledWith('/api/v1/me/bet-sessions', {
+      params: { status: 'OPEN' },
+      headers: { Authorization: 'Bearer token-u1' },
+      _noAuthRetry: true,
+    });
   });
 });
 

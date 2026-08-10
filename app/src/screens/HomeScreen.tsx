@@ -13,9 +13,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import Animated from 'react-native-reanimated';
+import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
+import { ProgressBar } from '@/components/ProgressBar';
+import { M, enterUp, staggerDelay } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { tierByLevel } from '@/constants/tiers';
 import { focusGoalReward, screenTimeGoalReward } from '@/utils/currencyRewards';
@@ -32,6 +37,7 @@ import ScreenTimeModule, {
   type AuthorizationStatus,
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { GoalCelebrationModal } from '@/components/GoalCelebrationModal';
 import { ScreenTimeCelebrationModal } from '@/components/ScreenTimeCelebrationModal';
@@ -69,6 +75,19 @@ import {
 // 데이터 층은 @/store 훅 재사용 — 순위·티어(리그 API)·집중시간(통계)·핸드폰사용(네이티브
 // 리포트)·통계 이동까지 실연동 완료.
 
+// 오늘 카드 진행바(GROMO-1381) — 기존 s.track/s.fill의 치수를 그대로 승계한다.
+// 값이 달라지면 카드 레이아웃이 미세하게 바뀐다.
+const BAR_H = 6;
+const BAR_RADIUS = 3;
+// 오늘 카드는 진입 stagger의 마지막 칸이다(상단바 0 · 방 1 · 오늘 카드 2).
+const CARD_ENTER_INDEX = 2;
+// 마지막 칸의 진입이 **끝나는** 시각 = 시차 + 재생 시간. 진입 stagger 총 재생 시간이자,
+// 진행바가 차기 시작해야 하는 시점이다.
+const ENTER_TOTAL_MS = staggerDelay(CARD_ENTER_INDEX) + M.dur.base;
+// 진행바는 카드가 **자리를 잡은 뒤** 찬다(설계 §6). 카드 진입과 같은 시차(120)를 주면 둘이
+// 거의 동시에 재생돼 순서가 성립하지 않는다 — 진입 완료 시각에 맞춘다.
+const BAR_DELAY = ENTER_TOTAL_MS;
+
 // 초 → "N시간 M분" (목표 표시용)
 function hm(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -96,6 +115,7 @@ function MetricRow({
   goal,
   overColor,
   divider,
+  barTestID,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   iconColor: string;
@@ -105,8 +125,12 @@ function MetricRow({
   goal: number;
   overColor?: string;
   divider?: boolean;
+  /** 진행바 셀렉터 — 테스트·E2E가 목표 대비 진행률을 읽는 자리. */
+  barTestID?: string;
 }) {
-  const pct = goal > 0 ? Math.min(value / goal, 1) : 0;
+  // 클램프는 ProgressBar가 한다(0~1 밖은 잘라 낸다) — 여기서 또 자르면 같은 규칙이 두 곳에
+  // 생긴다. 목표 초과 색은 클램프 전 원값으로 판정하므로 영향 없다.
+  const pct = goal > 0 ? value / goal : 0;
   const fillColor = overColor && value > goal ? overColor : iconColor;
   return (
     <View style={[s.metricRow, divider ? s.metricDivider : null]}>
@@ -127,10 +151,18 @@ function MetricRow({
             목표 {hm(goal)}
           </Text>
         </View>
-        {/* 진행 바 — 카드 끝까지 전체 폭 (두 행 모두 전체 폭이라 바 길이도 자연히 동일) */}
-        <View style={s.track}>
-          <View style={[s.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
-        </View>
+        {/* 진행 바 — 카드 끝까지 전체 폭 (두 행 모두 전체 폭이라 바 길이도 자연히 동일).
+            바 위 여백은 valueRow의 marginBottom이 담당한다(ProgressBar는 style prop이 없고,
+            여백만을 위해 래퍼 뷰를 끼우면 E2E testID 트리가 바뀐다). */}
+        <ProgressBar
+          testID={barTestID}
+          progress={pct}
+          color={fillColor}
+          trackColor={T.caramel}
+          height={BAR_H}
+          radius={BAR_RADIUS}
+          delay={BAR_DELAY}
+        />
       </View>
     </View>
   );
@@ -168,8 +200,9 @@ function PhoneUsageRow({
       (Platform.OS === 'android' && androidNativeModuleAvailable())) &&
     (authStatus === 'notDetermined' || authStatus === 'denied');
   // 안드로이드 목표 대비 진행률 — iOS는 네이티브 뷰가 계산해 그린다.
+  // 클램프는 ProgressBar가 한다 — MetricRow의 pct와 같은 규칙(중복 클램프 제거).
   const androidPct =
-    goalSeconds > 0 && usageMinutes != null ? Math.min((usageMinutes * 60) / goalSeconds, 1) : 0;
+    goalSeconds > 0 && usageMinutes != null ? (usageMinutes * 60) / goalSeconds : 0;
   return (
     <View style={s.metricRow}>
       <View style={[s.metricIcon, { backgroundColor: T.accentBg }]}>
@@ -214,11 +247,15 @@ function PhoneUsageRow({
                 목표 {hm(goalSeconds)}
               </Text>
             </View>
-            <View style={s.track}>
-              <View
-                style={[s.fill, { width: `${androidPct * 100}%`, backgroundColor: T.accent }]}
-              />
-            </View>
+            <ProgressBar
+              testID="home.metric.phone.bar"
+              progress={androidPct}
+              color={T.accent}
+              trackColor={T.caramel}
+              height={BAR_H}
+              radius={BAR_RADIUS}
+              delay={BAR_DELAY}
+            />
           </>
         ) : (
           <Text style={s.metricValue}>–</Text>
@@ -249,6 +286,8 @@ export default function HomeScreen() {
   // 시간조각(재화) 잔액 — 오늘 카드 헤더 칩. 홈 포커스 시 서버 잔액 재조회(내기 차감·정산 반영).
   const { coins } = useCoins();
   useRefreshCoinsOnFocus();
+  // 캐릭터 호흡 on/off — 훅은 최상위에서 부르고 값만 넘긴다(홈은 탭 네비게이터 안이라 사용 가능)
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
 
@@ -275,6 +314,17 @@ export default function HomeScreen() {
   const [todayStats, setTodayStats] = useState<TodayStatsResponse | null>(null);
   // 연속 공부 일수(하루 10분 스트릭, GROMO-630) — 0이면 칩 생략.
   const [streakDays, setStreakDays] = useState(0);
+  // 칩에 실제로 표시하는 스트릭 값 — streakDays보다 **한 커밋 늦게** 따라온다.
+  //
+  // ⚠️ 왜 나눴나: 칩은 0일이면 숨기므로(`streakDays > 0`), 첫 응답이 오는 순간에야 서브트리가
+  //    마운트된다. 그때 AnimatedNumber는 최종값으로 초기화돼(display=displayRef=value) 내부
+  //    effect의 from===value 분기로 즉시 끝나 **카운트업이 아예 안 돈다**(codex 리뷰).
+  //    마운트되는 프레임에는 0을 넘기고 다음 커밋에 실제 값을 올리면 0 → N으로 세어 올라간다.
+  //    (코인 칩은 칩 자체가 항상 떠 있고 CoinContext가 0에서 시작하므로 이 처리가 필요 없다.)
+  const [streakShown, setStreakShown] = useState(0);
+  useEffect(() => {
+    setStreakShown(streakDays);
+  }, [streakDays]);
   // 목표 달성 축하(GROMO-630) — 결과 화면이 예약해 둔 축하를 홈 진입 시 노출. null=비노출.
   // date = 달성한 날짜(예약 payload의 date) — 닫을 때 이 날짜로 기록한다.
   const [goalCelebration, setGoalCelebration] = useState<{
@@ -484,6 +534,43 @@ export default function HomeScreen() {
     setScreenTimeCelebration(null);
   }, [screenTimeCelebration]);
 
+  // 카드 진입 stagger — **첫 마운트에서 한 번만** 재생한다(설계 §6). 탭을 오갈 때마다 다시
+  // 재생되면 앱이 느려 보인다.
+  //
+  // 방식은 "재생이 끝나면 진입 스타일을 트리에서 뺀다"이다. 홈은 탭 화면이라 보통 언마운트되지
+  // 않으므로 마운트 여부만으로는 못 막는다 — 탭 전환으로 화면이 네이티브 트리에서 떨어졌다
+  // 다시 붙을 때 CSS 애니메이션이 재생될 수 있어서, animationName 자체를 없애 재생될 여지를
+  // 지운다. 재생 중에는 홈이 자주 리렌더돼도(코인·스트릭·리포트 갱신) 상태가 유지되므로
+  // 애니메이션이 중간에 끊기지 않는다.
+  const enterPlayedRef = useRef(false);
+  const [entering, setEntering] = useState(true);
+  const m = useMotion();
+  // ⚠️ **'동작 줄이기'가 확정되기 전에는 타이머를 걸지 않는다.** 미확정 구간에는 m.css()가
+  //    진입 스타일을 걷어내 아무것도 재생되지 않는데, 그 사이 470ms가 흘러가 버린다.
+  //    조회가 중간에 끝나면 남은 시간만큼만 재생돼 마지막 카드가 잘리고, 470ms보다 늦게 끝나면
+  //    entering이 이미 false라 진입이 통째로 사라진다(codex 리뷰).
+  //    확정된 뒤에 시작하고, reduce로 확정되면 기다릴 연출이 없으니 즉시 완료 처리한다.
+  useEffect(() => {
+    if (enterPlayedRef.current || !m.ready) return;
+    if (m.reduce) {
+      enterPlayedRef.current = true;
+      setEntering(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      enterPlayedRef.current = true;
+      setEntering(false);
+    }, ENTER_TOTAL_MS);
+    return () => clearTimeout(timer);
+  }, [m.ready, m.reduce]);
+  // CSS API에는 reduce-motion 내장 처리가 없다 — 반드시 m.css()를 통과시킨다.
+  //
+  // ⚠️ 진입 프리셋은 **m.css가 아니라 m.enter**를 통과시킨다. m.css는 미확정 구간의 보수적
+  //    reduce=true에 스타일을 통째로 걷어내 상단바·방·오늘 카드를 첫 프레임에 완전히
+  //    노출하는데, 이후 false로 확정되면 같은 노드에 enterUp이 붙으며 시작 상태로
+  //    사라졌다가 다시 나타난다(codex 리뷰). m.enter는 확정 전 시작 프레임을 유지한다.
+  const enter = (index: number) => (entering ? m.enter(enterUp(index)) : undefined);
+
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 오늘 카드·집중 FAB를 차례로 설명.
   // FAB는 탭바(다른 트리)에 있어 ref 대신 레이아웃 수식(fabWindowRect)으로 스포트라이트.
   const { width: winW, height: winH } = useWindowDimensions();
@@ -520,8 +607,9 @@ export default function HomeScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
           }
         >
-          {/* ── 상단바 ── */}
-          <View style={s.topBar}>
+          {/* ── 상단바 ── (진입 stagger 0 — 기존 컨테이너를 Animated.View로 바꿨을 뿐,
+              래퍼를 새로 끼우지 않는다. 트리가 바뀌면 Maestro testID 셀렉터가 깨진다) */}
+          <Animated.View style={[s.topBar, enter(0)]}>
             <View style={s.profileRow}>
               <View style={s.avatar}>
                 <CharacterImage size={38} sourceUri={activeSource ?? undefined} />
@@ -553,11 +641,23 @@ export default function HomeScreen() {
               <Ionicons name="notifications-outline" size={19} color={T.ink} />
               {hasNotifications && <View style={s.notifDot} />}
             </PressableScale>
-          </View>
+          </Animated.View>
 
-          {/* ── 방 + 캐릭터 ── */}
-          <View style={s.room}>
-            <CharacterImage size={216} sourceUri={activeSource ?? undefined} />
+          {/* ── 방 + 캐릭터 ── (진입 stagger 1) */}
+          <Animated.View style={[s.room, enter(1)]}>
+            {/* 메인 캐릭터만 호흡한다(GROMO-1381). s.room은 클리핑이 없어 scaleY 1.025가 잘리지
+                않는다 — 위 프로필 아바타(s.avatar, overflow:'hidden' 44px)는 여유가 3px뿐이라
+                호흡을 붙이면 머리·발이 잘려 떨리는 것처럼 보인다. 그래서 그쪽은 정적 그대로 둔다.
+                reduce 처리는 컴포넌트 안에 있으므로 호출부에서 다시 분기하지 않는다. */}
+            <AnimatedCharacter
+              testID="home.character"
+              size={216}
+              sourceUri={activeSource ?? undefined}
+              // 다른 탭으로 가도 홈은 언마운트되지 않는다(MainTabs에 unmountOnBlur 없음) —
+              // 보이지도 않는 캐릭터의 무한 호흡이 앱 세션 내내 UI 스레드를 먹는다(codex 리뷰).
+              // '화면당 무한 루프 1개' 상한은 **보이는** 화면 기준이므로 포커스에 묶는다.
+              active={isFocused}
+            />
             {/* 캐릭터 변경 — 알림 벨과 같은 패턴(계측 + navigate). 은은한 pill 스타일 */}
             <PressableScale
               style={s.changeCharBtn}
@@ -570,12 +670,12 @@ export default function HomeScreen() {
               <Ionicons name="brush-outline" size={14} color={T.accent} />
               <Text style={s.changeCharText}>캐릭터 변경</Text>
             </PressableScale>
-          </View>
+          </Animated.View>
         </ScrollView>
 
-        {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정, 스크롤 밖) ── */}
-        <View
-          style={[s.card, { marginBottom: insets.bottom + 74 }]}
+        {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정, 스크롤 밖) ── (진입 stagger 2) */}
+        <Animated.View
+          style={[s.card, { marginBottom: insets.bottom + 74 }, enter(CARD_ENTER_INDEX)]}
           ref={todayCardRef}
           collapsable={false}
         >
@@ -589,13 +689,30 @@ export default function HomeScreen() {
                   '–'는 잔액을 잠금 판정에 쓰지 않는 자리라 정보 없는 기호일 뿐이다. */}
               <View style={s.streakChip}>
                 <CurrencyIcon size={11} />
-                <Text style={s.streakChipText}>{coins.toLocaleString()}</Text>
+                {/* 보간 중인 **소수값**이 format에 들어온다 — 반올림·천단위 구분은 여기서 한다 */}
+                <AnimatedNumber
+                  testID="home.coins"
+                  value={coins}
+                  format={(n) => Math.round(n).toLocaleString()}
+                  style={s.streakChipText}
+                />
               </View>
               {/* 연속 공부(GROMO-630) — 하루 10분 스트릭. 0일이면 생략 */}
               {streakDays > 0 && (
                 <View style={s.streakChip}>
                   <Ionicons name="flame" size={11} color={T.flame} />
-                  <Text style={s.streakChipText}>연속 공부 {streakDays}일</Text>
+                  {/* 세어 올라가는 건 숫자뿐 — '연속 공부'·'일'은 단위 텍스트라 밖에 둔다.
+                      칩의 gap(3)이 글자 사이에 끼지 않게 형제가 아니라 Text 안에 중첩한다. */}
+                  <Text style={s.streakChipText}>
+                    연속 공부{' '}
+                    <AnimatedNumber
+                      testID="home.streak"
+                      value={streakShown}
+                      format={(n) => String(Math.round(n))}
+                      style={s.streakChipText}
+                    />
+                    일
+                  </Text>
                 </View>
               )}
               <PressableScale
@@ -615,6 +732,7 @@ export default function HomeScreen() {
 
           <MetricRow
             divider
+            barTestID="home.metric.focus.bar"
             icon="book"
             iconColor={T.greenDeep}
             iconBg={T.greenBg}
@@ -633,7 +751,7 @@ export default function HomeScreen() {
             }}
             onEnablePermission={requestScreenTimePermission}
           />
-        </View>
+        </Animated.View>
       </View>
 
       {/* 목표 달성 축하 모달(GROMO-630) — 결과 화면을 닫고 홈에 오면 노출 */}
@@ -803,12 +921,15 @@ const s = StyleSheet.create({
   flex1: { flex: 1 },
   usageLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   metricLabel: { ...T.text.label, color: T.inkMuted },
+  // 아래 진행바와의 간격 — 예전에는 s.track의 marginTop이 갖고 있었다. ProgressBar에는
+  // style prop이 없고, 여백만을 위해 래퍼 뷰를 끼우면 E2E testID 트리가 바뀌므로 값 줄이 진다.
   valueRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
     gap: T.space.sm,
     marginTop: 1,
+    marginBottom: T.space.sm,
   },
   metricValue: { ...T.text.stat, color: T.ink },
   goalText: { ...T.text.caption, color: T.inkMuted },
@@ -829,12 +950,4 @@ const s = StyleSheet.create({
     paddingVertical: T.space.sm,
   },
   permissionBtnText: { ...T.text.label, color: T.white },
-  track: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: T.caramel,
-    overflow: 'hidden',
-    marginTop: T.space.sm,
-  },
-  fill: { height: '100%', borderRadius: 3 },
 });

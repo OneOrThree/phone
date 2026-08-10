@@ -377,6 +377,80 @@ export interface CreateChallengeResponse {
   nonParticipants: CreateChallengeNonParticipant[];
 }
 
+// ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, N43·N53) ───────────────────
+// 서버는 이 배치에서 병렬 구현 중이다 — shape의 정본은 docs/prd/challenge/low-level-design.md §2.
+
+// 회차(bet session) 상태. UNUSED(참가 0명 마감)는 결과·내역·알림에서 제외된다(N52) —
+// /me/challenge-results에는 실리지 않지만, 모르는 상태가 와도 화면이 죽지 않게 유니온에 둔다.
+export type BetSessionStatus = 'OPEN' | 'SETTLED' | 'FORFEITED' | 'VOIDED' | 'REFUNDED' | 'UNUSED';
+
+// 회차의 무효·환불 사유(N33 · N48) — 사유 없이 상태 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다.
+// 인원 미달 값이 **두 이름으로 갈려 있다**: 서버 enum·V41 CHECK 는 `INSUFFICIENT_PARTICIPANTS`,
+// LLD §2.1·IA §4.3 예시는 `SHORT_PARTICIPANTS`(policy N33 이 영문 이름을 정하지 않아 각자 굳었다).
+// 둘 다 유니온에 둔다 — 서버 값만 받으면 문서 카피가 죽고, 문서 값만 받으면 실제 응답이 안 맞는다.
+// REFUND_DEADLINE 은 24h 자동 환불(REFUNDED) 사유다 — N48 이 사유 축을 VOIDED 밖으로 넓혔다.
+export type BetSessionVoidReason =
+  | 'SHORT_PARTICIPANTS'
+  | 'INSUFFICIENT_PARTICIPANTS'
+  | 'CHALLENGE_DELETED'
+  | 'REFUND_DEADLINE';
+
+// GET /me/challenge-results의 인별 정산 결과 한 줄. LastSettledBetResult와 같은 3상 규칙 —
+// achieved·payout null = 미판정(부분 정산 실패), progressMinutes null = 미집계(0분 아님).
+export interface MyChallengeResultRow {
+  userId: string;
+  nickname: string; // 탈퇴 멤버는 서버가 "탈퇴한 사용자"로 치환해 내려준다(LLD §2.1)
+  achieved: boolean | null;
+  payout: number | null;
+  progressMinutes: number | null;
+}
+
+// GET /me/challenge-results?since=&limit= 항목 — 내가 참가자인 정산 완료 회차(그룹 무관).
+// 결과 모달 큐의 유일한 소스(N53). 삭제된 챌린지의 회차는 서버가 제외한다(FR-44-4·N48 —
+// 삭제 환불은 BET_VOID_REFUND 푸시가 알린다). 최근 30일·최대 10건.
+export interface MyChallengeResultEntry {
+  sessionId: string;
+  groupId: string;
+  groupName: string; // 그룹방을 못 읽어도(탈퇴) 이름은 보여준다
+  challengeId: string;
+  challengeDeleted: boolean; // 계약상 항상 false — 방어적으로만 읽는다
+  challengeEnded: boolean; // ENDED 챌린지의 회차도 실린다(N38→N53)
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  stake: number;
+  pot: number;
+  status: BetSessionStatus; // SETTLED | FORFEITED | VOIDED | REFUNDED
+  voidReason: BetSessionVoidReason | null; // VOIDED만
+  goalMinutes: number | null; // 미션 스냅샷 — null이면 분모를 지어내지 않는다
+  myAchieved: boolean | null;
+  myPayout: number | null;
+  results: MyChallengeResultRow[];
+}
+
+export interface MyChallengeResultsResponse {
+  results: MyChallengeResultEntry[];
+}
+
+// GET /me/bet-sessions?status=OPEN 항목 — 내가 참가비를 건 진행 중 회차(그룹 무관).
+// 창 사용분 보고 대상 탐색축(N43) — 탈퇴·챌린지 종료 뒤에도 시작된 회차엔 보고해야 한다.
+// 미션 스냅샷을 싣는 이유: 챌린지 행 조인이 불가능한 상황(종료·삭제)이 이 API의 존재 이유다.
+export interface MyOpenBetSession {
+  sessionId: string;
+  groupId: string;
+  challengeId: string;
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  missionCategory: MissionCategory;
+  missionType: MissionType;
+  goalMinutes: number | null;
+  windowStart: string | null; // "HH:mm(:ss)" KST — TIME_WINDOW만(같은 날 최대 23:59, 자정 걸침 없음 — N25)
+  windowEnd: string | null;
+  closesAt: string; // ISO instant — 보고 마감 판단용
+  settleAfter: string; // ISO instant
+}
+
+export interface MyBetSessionsResponse {
+  sessions: MyOpenBetSession[];
+}
+
 // ── 챌린지 v2 — 회차(세션) 모델 (LLD §2.1·§2.2 계약 미러) ─────────────────────
 // 내기가 '개설되는 것'에서 '챌린지에 상시로 붙고 활성 요일마다 회차가 서는 것'으로 바뀌었다(§C1).
 // ⚠️ 화면 문구에는 「회차」를 쓰지 않는다(N28) — 코드 식별자·API 필드만 session이다.
@@ -476,22 +550,61 @@ export interface LastSettledSession {
   results: LastSettledSessionResult[];
 }
 
-// GET /me/bet-sessions?status=OPEN 항목 — 내가 참가비를 건 OPEN 회차(그룹 무관, LLD §2.1).
-// 미션 스냅샷을 함께 싣는다 — 챌린지 행 조인이 불가능한 상황(종료·삭제)이 이 API의 존재 이유다.
-export interface MyBetSession {
-  sessionId: string;
-  groupId: string;
-  challengeId: string;
-  sessionDate: string; // 'YYYY-MM-DD'
-  missionCategory: MissionCategory;
-  missionType: MissionType;
+// `MyOpenBetSession`(위)과 **같은 것에 이름이 둘 붙었다** — 두 워크스트림이 같은 계약을 각자
+// 미러링했고 필드가 완전히 일치한다(GET /me/bet-sessions?status=OPEN, LLD §2.1). 한쪽을 지우면
+// 그쪽 호출부가 전부 깨지므로 정본 하나 + 별칭으로 둔다. 새 코드는 `MyOpenBetSession` 을 쓴다.
+export type MyBetSession = MyOpenBetSession;
+
+// ── 그룹 챌린지 내역(GROMO-1277 · N6-1 — LLD §2.1 `GET /groups/{gid}/challenge-history`) ──
+// **이력의 소유자는 챌린지가 아니라 그룹이다.** 그래서 한 줄이 챌린지 행을 조인하지 않는다 —
+// 표시에 필요한 미션 정보(카테고리·방식·목표분·창 시각)는 전부 회차에 박제된 **스냅샷**이고,
+// 챌린지가 삭제돼도(`challengeDeleted`) 그 줄은 온전히 읽힌다(policy §A9).
+//
+// 구 `GroupBetHistoryItem`(챌린지 축·인별 명단)과의 차이는 두 가지다:
+//   ① 축이 그룹이라 여러 챌린지의 회차가 한 목록에 섞인다 → 줄마다 미션 스냅샷이 필요하다.
+//   ② 명단(results) 대신 **집계 + 내 결과**만 온다 — 그룹 전체 목록에서 인별 명단은 페이로드도
+//      화면도 감당하지 못한다. 인별 상세는 여전히 카드의 결과 시트가 맡는다.
+export interface GroupChallengeHistoryItem {
+  sessionId: string; // UUID — 목록 key이자 keyset 커서
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  challengeId: string; // 삭제된 챌린지여도 값은 있다(소프트 삭제)
+  challengeDeleted: boolean; // true면 '삭제된 챌린지' 배지
+  // 미션 스냅샷 — 조인 없이 읽는 표시 소스.
+  // 카테고리·방식은 **서버 계약상 항상 채워진다**(V39가 `mission_category`·`mission_type`을
+  // NOT NULL로 만들고 `group_challenges` 조인으로 전량 백필했다). 그래도 앱은 null을 받는
+  // 타입으로 둔다: 값이 없는데도 categoryLabel 폴백이 「집중 시간」이라고 **단언**하면 과거
+  // 스크린타임 이력이 집중 챌린지로 보이는데, 카테고리는 이 목록에서 가장 크게 갈리는 축이라
+  // 그 오표기 비용이 방어 비용보다 크다. 모르면 라벨 자리를 비운다(손익 3상과 같은 원칙).
+  missionCategory: MissionCategory | null;
+  missionType: MissionType | null;
+  // 목표 분은 **실제로 null이 온다** — V39 백필 이전 정산분(구 내기 행에 목표가 없던 시절).
   goalMinutes: number | null;
-  windowStart: string | null;
+  windowStart: string | null; // 'HH:mm(:ss)' KST 벽시계 — 창형만
   windowEnd: string | null;
-  closesAt: string;
-  settleAfter: string;
+  stake: number;
+  pot: number; // stake × 참가 인원(정산 당시 사실)
+  // 결과 4종. UNUSED(참가자 0명)는 내역에 실리지 않는다(N52) — OPEN도 오지 않는다.
+  // 모르는 값이 와도 화면이 else 강하로 버틴다(GroupBetStatus와 같은 관행).
+  status: 'SETTLED' | 'REFUNDED' | 'FORFEITED' | 'VOIDED';
+  // VOIDED·REFUNDED만 — 사유 없이 상태 하나면 "인원 부족" 문구가 삭제 건까지 거짓말한다.
+  // 값 축(별칭 포함)의 해석은 lastSettledView의 공용 매핑이 단독으로 쥔다.
+  voidReason: string | null;
+  // 내 결과 — **미참가 회차는 전부 null**이다(그룹 축이라 내가 안 낀 줄도 목록에 있다).
+  // null과 0을 뭉개지 않는다: myPayout 0은 '몰수돼 한 푼도 못 받음'이고 null은 '참가 안 함'이다.
+  myPayout: number | null;
+  myAchieved: boolean | null;
+  myProgressMinutes: number | null; // 미참가·미계측이면 null(0분과 다르다)
+  achievedCount: number;
+  participantCount: number;
 }
 
-export interface MyBetSessionsResponse {
-  sessions: MyBetSession[];
+// 커서(keyset) 슬라이스 봉투 — GroupBetHistorySliceResponse와 같은 규격.
+// ⚠️ 종료 판정은 hasNext·nextCursor **둘 다** 본다(한쪽만 보면 어긋난 응답에서 무한 재호출).
+// 커서는 마지막 항목 sessionId다 — 서버가 `(session_date, id)` 튜플로 해석한다(그룹 전체
+// 조회라 같은 날짜에 회차가 여럿이어서 날짜 단독 커서로는 페이지 경계가 샌다).
+export interface GroupChallengeHistorySliceResponse {
+  content: GroupChallengeHistoryItem[];
+  size: number;
+  hasNext: boolean;
+  nextCursor: string | null;
 }
