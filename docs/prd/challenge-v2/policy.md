@@ -40,10 +40,11 @@
 **결정**: `GroupErrorCode.BET_FOCUS_ONLY` **상수 자체는 남긴다.** 발급 경로가 없다는 것과
 이름을 지워도 된다는 것은 다른 얘기다.
 
-**근거**: 상위 정본 `docs/prd/challenge/low-level-design.md:842-844`가 verbatim으로 그렇게 지시한다.
+**근거**: 상위 정본 `docs/prd/challenge/low-level-design.md:842-844`가 그렇게 지시한다. **이 배치가
+정정한 뒤의** 현재 문면이다(정정 경위는 아래 ⚠️).
 
-> **폐기되는 코드**: `BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` · `BET_CANCEL_HAS_OTHERS` ·
-> `BET_FOCUS_ONLY`. 개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다.
+> **폐기되는 코드**: `BET_FOCUS_ONLY` 하나뿐이다. FOCUS 전용 게이트가 사라져 발생 경로가 없다
+> (`GroupBetService.java:174` — 「게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음). 카테고리 제한은 없다」).
 > 값 자체는 **잔존**시킨다 — 구앱이 code 문자열로 분기하므로 이름을 지우지 않는다(발급만 멈춘다).
 
 앱 쪽 소비처:
@@ -54,30 +55,41 @@
 설치된 구앱은 서버 응답의 `code` **문자열**로 분기한다. 상수 이름을 지우면 서버가 그 문자열을
 영영 못 내보내고, 구앱은 분기 없는 일반 에러로 떨어진다. **정리 대상은 값이 아니라 서술이다.**
 
-**⚠️ 다만 정본의 저 목록은 지금 일부가 낡았다.** `BET_ALREADY_EXISTS` ·
-`BET_CANCEL_FORBIDDEN` · `BET_CANCEL_HAS_OTHERS` 셋은 "발생 경로가 없어진다"고 적혀 있지만
-**여전히 발급된다** — `GroupBetService.java:193,205`(`BET_ALREADY_EXISTS`),
-`GroupBetServiceTest.java:1054-1065`(`BET_CANCEL_FORBIDDEN`) · `:1070-1081`
-(`BET_CANCEL_HAS_OTHERS`)가 현행 동작으로 고정한다. **발급 경로가 실제로 없는 것은
-`BET_FOCUS_ONLY` 하나뿐이다.** 이 목록 정정은 이번 배치 범위 밖이라 여기 기록만 남긴다.
+**⚠️ 정정 경위 — 종전 정본은 위험한 방향으로 틀려 있었다.** 저 문단은 원래
+`BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` · `BET_CANCEL_HAS_OTHERS` 도 함께 나열하며
+"개설·취소 개념이 사라지면서 **전부** 발생 경로가 없어진다"고 적었다. 셋 다 사실이 아니다 —
+지금도 던져진다:
+
+| 코드 | 발급 지점 |
+|---|---|
+| `BET_ALREADY_EXISTS` | `GroupBetService.java:193` · `:205` · `:572` |
+| `BET_CANCEL_FORBIDDEN` | `GroupBetService.java:270` |
+| `BET_CANCEL_HAS_OTHERS` | `GroupBetService.java:272` |
+
+**이 배치가 정본 문면을 고쳤다.** 죽었다고 적힌 코드를 믿고 살아 있는 `throw` 경로를 지우는 것은
+1285가 막으려는 사고(죽은 코드를 살아 있다고 광고)의 **정반대 방향**이고 더 위험하다.
 
 ### 3. B13의 실제 남은 범위 — 「서술 3곳」
 
-**정정 대상**: 상위 정본 `docs/prd/challenge/policy.md:964`의 §9.2 배선표 P3 / B13 행이
-아직 거짓말을 한다.
+**정정 대상**: 상위 정본 `docs/prd/challenge/policy.md`의 §9.2 배선표 P3 / B13 행이
+아래처럼 적혀 있었다 — 티켓 본문은 스스로 철회했는데 정본이 안 따라온 상태였다.
 
 ```
 | P3 | B13 | 좀비 값 정리 — `refundedCount`, `BET_FOCUS_ONLY` · **GROMO-1285** |
 ```
 
-**정정 후 취지**: 값은 둘 다 남는다. B13은 **값 삭제가 아니라 서술 정정**이고, 대상은
-아래 3곳뿐이다.
+**이 배치가 그 행을 고쳤다.** 값은 둘 다 남는다. B13은 **값 삭제가 아니라 서술 정정**이고,
+대상은 아래 3곳뿐이다.
 
 | # | 자리 | 지금 뭐가 틀렸나 |
 |---|---|---|
 | 1 | `back/src/main/java/com/oneorthree/phone/group/api/GroupBetController.java:147` | 400 응답 OpenAPI `description`이 `BET_FOCUS_ONLY(집중 챌린지 아님)`을 **발급 가능한 에러로** 나열한다. 발급 경로가 없으므로 **OpenAPI 서술에서만 뺀다**(상수는 §2대로 유지) |
 | 2 | `back/src/main/java/com/oneorthree/phone/group/dto/GroupChallengeResponse.java:100-101` | `nextSessionAt` javadoc이 "요일 반복(B1, GROMO-1260)이 이 base 에 없어 **당장은 매일 활성(= 내일)으로 계산된다** — `GroupBetService#repeatDaysOf` 시임이 배선점이다"라고 적혀 있다. 배선은 끝났다 — `GroupBetService.java:915`가 `RepeatSchedule.next(repeatDaysOf(challenge), today)` 를 실제로 탄다 |
-| 3 | `back/src/main/java/com/oneorthree/phone/group/service/GroupBetSettlementService.java:122` | `// refunded 버킷은 24h 데드라인 자동 환불(N21·GROMO-1411)이 다시 쓴다(종전엔 상시 0 레거시).` — 좀비 프레이밍의 마지막 흔적인 괄호 주석 |
+| 3 | `back/src/main/java/com/oneorthree/phone/group/service/GroupBetSettlementService.java:43` | `/** 실패 요약 로그에 실을 **betId** 상한 … */` — 주석의 `betId`가 실제 변수·로그(`sessionIds`)와 어긋난다. 티켓 완료 조건이 지목한 자리다. 주석만 고치면 상수 이름(`FAILED_BET_ID_LOG_LIMIT`)과 다시 갈리므로 **상수도 함께** `FAILED_SESSION_ID_LOG_LIMIT` 으로 맞춘다(참조는 이 파일 안 4건뿐·package-private) |
+
+> ⚠️ 같은 파일 `:122`의 `// refunded 버킷은 … (종전엔 상시 0 레거시).` 괄호도 좀비 프레이밍의
+> 흔적이긴 하나 **틀린 서술은 아니다**(실제로 종전엔 상시 0이었다). 티켓 완료 조건이 지목한
+> 자리도 아니므로 **위 3곳에 포함하지 않는다** — 손댈지는 별도 판단이다.
 
 **왜 3곳인가**: 이 배치의 계약(§1 워크스트림 소유권)이 GROMO-1285에 넘긴 파일이 정확히
 저 3개다 — `GroupBetController.java` · `GroupChallengeResponse.java` ·
