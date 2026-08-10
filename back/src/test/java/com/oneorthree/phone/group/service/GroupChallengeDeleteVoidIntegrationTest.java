@@ -39,6 +39,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -89,6 +95,8 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
 
     private final List<User> users = new ArrayList<>();
     private final List<GroupChallengeBetSession> betSessions = new ArrayList<>();
+    private final List<GroupChallenge> extraChallenges = new ArrayList<>();
+    private final List<GroupChallengeBet> extraConfigs = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -111,6 +119,10 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
                 .deleteAll(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(s.getId()))));
         groupChallengeBetSessionRepository.deleteAll(betSessions);
         groupChallengeBetRepository.delete(config);
+        groupChallengeBetRepository.deleteAll(extraConfigs);
+        extraChallenges.forEach(c -> groupChallengeDurationRepository.findById(c.getId())
+                .ifPresent(groupChallengeDurationRepository::delete));
+        groupChallengeRepository.deleteAll(extraChallenges);
         groupChallengeDurationRepository.findById(challenge.getId())
                 .ifPresent(groupChallengeDurationRepository::delete);
         groupChallengeRepository.delete(challenge);
@@ -122,6 +134,8 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
 
         users.clear();
         betSessions.clear();
+        extraChallenges.clear();
+        extraConfigs.clear();
     }
 
     // ── 픽스처 ──────────────────────────────────────────────────────────
@@ -147,6 +161,37 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
                         .startsAt(date.atStartOfDay(KST).toInstant())
                         .joinClosesAt(closesAt).closesAt(closesAt).settleAfter(closesAt)
                         .settledAt(status == GroupBetStatus.OPEN ? null : Instant.now())
+                        .build());
+        betSessions.add(saved);
+        return saved;
+    }
+
+    /** 두 번째 챌린지(+설정) — 동시 삭제 교착 재현용. */
+    private GroupChallengeBet secondChallengeConfig() {
+        GroupChallenge other = groupChallengeRepository.save(GroupChallenge.builder()
+                .group(group).category(MissionCategory.SCREEN_TIME).type(MissionType.DURATION).build());
+        extraChallenges.add(other);
+        groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
+                .challenge(other).category(MissionCategory.SCREEN_TIME).durationMinutes(120).build());
+        GroupChallengeBet otherConfig = groupChallengeBetRepository.save(GroupChallengeBet.builder()
+                .group(group).challenge(other).stake(STAKE).enabled(true).build());
+        extraConfigs.add(otherConfig);
+        return otherConfig;
+    }
+
+    /** 지정 설정·챌린지의 OPEN 회차. */
+    private GroupChallengeBetSession openSessionFor(GroupChallengeBet betConfig, LocalDate date) {
+        GroupChallenge target = betConfig.getChallenge();
+        Instant closesAt = date.plusDays(1).atStartOfDay(KST).toInstant();
+        GroupChallengeBetSession saved = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(betConfig).group(group).challenge(target)
+                        .sessionDate(date).stake(STAKE).goalMinutes(120)
+                        .missionCategory(target.getCategory())
+                        .missionType(target.getType())
+                        .status(GroupBetStatus.OPEN)
+                        .startsAt(date.atStartOfDay(KST).toInstant())
+                        .joinClosesAt(closesAt).closesAt(closesAt).settleAfter(closesAt)
                         .build());
         betSessions.add(saved);
         return saved;
@@ -233,6 +278,95 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("여러 회차 환불의 지갑 순서는 전역이다 — 겹치는 참가자도 회차마다 정확히 1회 환불(②)")
+    void refundsAcrossSessionsUseGlobalWalletOrder() {
+        LocalDate today = LocalDate.now(KST);
+        User a = memberUser("겹침A", GroupMemberRole.MEMBER);
+        User b = memberUser("겹침B", GroupMemberRole.MEMBER);
+        // 한 챌린지의 여러 회차(오늘·내일)에 두 유저가 순서를 뒤집어 참가한다 — 회차 안에서만
+        // 정렬하면 지갑 접근 순서가 회차마다 갈린다(교착의 씨앗). 전역 정렬이면 항상 단조롭다.
+        GroupChallengeBetSession first = sessionOn(today, GroupBetStatus.OPEN);
+        GroupChallengeBetSession second = sessionOn(today.plusDays(1), GroupBetStatus.OPEN);
+        join(first, a);
+        join(first, b);
+        join(second, b);
+        join(second, a);
+
+        groupChallengeService.deleteChallenge(group.getId(), challenge.getId(), owner.getId());
+
+        assertThat(reload(first).getStatus()).isEqualTo(GroupBetStatus.VOIDED);
+        assertThat(reload(second).getStatus()).isEqualTo(GroupBetStatus.VOIDED);
+        // 회차 수만큼 정확히 한 번씩 — 전역 정렬로 순서를 바꿔도 멱등키(참가 행 축)는 그대로다.
+        assertThat(refundsOf(a)).isEqualTo(2);
+        assertThat(refundsOf(b)).isEqualTo(2);
+        assertThat(balanceOf(a)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
+        assertThat(balanceOf(b)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
+    }
+
+    @Test
+    @DisplayName("참가자가 겹치는 두 챌린지를 동시에 삭제해도 양쪽이 완주한다 — 지갑 비관 락 + 전역 순서(②)")
+    void concurrentDeletesWithSharedParticipantsBothComplete() throws Exception {
+        LocalDate today = LocalDate.now(KST);
+        // 두 유저가 <b>양쪽 챌린지에 모두</b> 참가한다 — 같은 지갑을 두 삭제가 동시에 건드린다.
+        // 낙관락만 있던 시절엔 늦은 쪽이 0행 갱신으로 터져 그 삭제가 통째로 롤백됐다.
+        User onlyFirst = memberUser("겹침A", GroupMemberRole.MEMBER);
+        User onlySecond = memberUser("겹침B", GroupMemberRole.MEMBER);
+        GroupChallengeBet otherConfig = secondChallengeConfig();
+        GroupChallengeBetSession first = sessionOn(today, GroupBetStatus.OPEN);
+        GroupChallengeBetSession firstTomorrow = sessionOn(today.plusDays(1), GroupBetStatus.OPEN);
+        GroupChallengeBetSession second = openSessionFor(otherConfig, today);
+        GroupChallengeBetSession secondTomorrow = openSessionFor(otherConfig, today.plusDays(1));
+        // 회차마다 참가 순서를 뒤집어 넣어, 정렬이 없으면 지갑 접근 순서가 갈리도록 만든다.
+        join(first, onlyFirst);
+        join(first, onlySecond);
+        join(firstTomorrow, onlySecond);
+        join(firstTomorrow, onlyFirst);
+        join(second, onlySecond);
+        join(second, onlyFirst);
+        join(secondTomorrow, onlyFirst);
+        join(secondTomorrow, onlySecond);
+
+        UUID otherChallengeId = otherConfig.getChallenge().getId();
+        CyclicBarrier startTogether = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> deleteFirst = pool.submit(() -> {
+                await(startTogether);
+                groupChallengeService.deleteChallenge(group.getId(), challenge.getId(), owner.getId());
+            });
+            Future<?> deleteSecond = pool.submit(() -> {
+                await(startTogether);
+                groupChallengeService.deleteChallenge(group.getId(), otherChallengeId, owner.getId());
+            });
+            // 교착이면 타임아웃/DeadlockLoserDataAccessException, 낙관락 회귀면
+            // ObjectOptimisticLockingFailureException 으로 여기서 터진다.
+            deleteFirst.get(30, TimeUnit.SECONDS);
+            deleteSecond.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 양쪽 삭제가 모두 성사되고 네 회차 전부 무효화된다 — 한쪽도 롤백되지 않았다.
+        assertThat(reload(first).getStatus()).isEqualTo(GroupBetStatus.VOIDED);
+        assertThat(reload(firstTomorrow).getStatus()).isEqualTo(GroupBetStatus.VOIDED);
+        assertThat(reload(second).getStatus()).isEqualTo(GroupBetStatus.VOIDED);
+        assertThat(reload(secondTomorrow).getStatus()).isEqualTo(GroupBetStatus.VOIDED);
+        // 각 유저는 참가한 회차 수(4)만큼 정확히 한 번씩 환불받는다 — 이중도 누락도 없다.
+        assertThat(refundsOf(onlyFirst)).isEqualTo(4);
+        assertThat(refundsOf(onlySecond)).isEqualTo(4);
+        assertThat(balanceOf(onlyFirst)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 4);
+        assertThat(balanceOf(onlySecond)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 4);
+    }
+
+    private void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException("동시 출발 대기 실패", e);
+        }
     }
 
     @Test

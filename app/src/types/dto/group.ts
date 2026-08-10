@@ -200,6 +200,33 @@ export interface GroupChallengeResponse {
   // GroupSummaryResponse.isPrivate와 같은 관행) — 그래서 optional이면서 null도 받는다.
   bet?: GroupChallengeBet | null; // 해당 date의 내기. 없으면 null
   lastSettledBet?: LastSettledBet | null; // 가장 최근 정산 내기(카드 '지난 내기' 1줄용)
+  // ── 챌린지 v2 additive (GROMO-1274·1419, LLD §2.1 카드 응답) — 전부 optional: 필드가
+  //    없는 응답은 '요일 반복을 모르는 구서버'라 카드가 종전 렌더로 폴백한다(bet과 같은 관행). ──
+  // 도는 요일 — ISO 축약 배열, 신서버는 항상 1개 이상. 요일 배지 행·주간 단축의 대상 산출에 쓴다.
+  repeatDays?: ChallengeRepeatDay[];
+  // 오늘(서버 KST)이 repeatDays에 있는가 — 있으면 이 값을 **우선**한다(클라 파생은 보조).
+  activeToday?: boolean;
+  // **오늘을 제외한** 다음 활성일의 회차 시작(ISO Instant, KST 벽시계로 해석해 표기). null 없음
+  // 계약이지만 구서버·경계 대비 optional로 받는다. activeToday와 배타가 아니다(LLD §2.1).
+  nextSessionAt?: string;
+  // 다음 활성일 회차를 이미 예약했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태 분기(N45).
+  nextSessionJoined?: boolean;
+  // 다음 활성일 회차에 **박제된** 참가비(#572/B8 additive) — `join-next`가 실제 차감할 금액이다.
+  // `betConfig.stake`는 **지금 설정값**이라 둘이 갈릴 수 있다: 회차는 개설 시점 stake를 박제하고,
+  // 브리지 기간엔 구앱이 다른 stake로 개설할 수도 있다. 설정이 낮아진 경우 이 값을 안 보면
+  // 화면이 안내한 금액보다 **더 많이 차감**된다 — 예약 시트의 표시·판정은 이 값이 우선이다.
+  // null = 회차 미개설(예약 시점에 현재 설정값이 박제된다) → 종전대로 betConfig.stake를 쓴다.
+  nextSessionStake?: number | null;
+  // 내기 설정(#572/B8 additive) — **오늘 회차 유무와 무관한 챌린지 단위 설정**이다.
+  // "설정은 켜져 있는데 오늘 회차만 없는 날"(마지막 참가자 취소로 회차 삭제·lazy 개설 전)에
+  // 서버는 `bet=null`을 주므로, bet만 보면 참여할 수 없는 챌린지가 된다. 설정을 bet 객체에
+  // 겹쳐 담지 않은 이유는 구앱 계약(`bet != null` → `betId` 유효)이 깨지기 때문이다.
+  // 필드 부재 = 이 개념을 모르는 응답(구서버·브리지) — 그때는 종전대로 bet에서 읽는다.
+  betConfig?: { enabled: boolean; stake: number };
+  // 가장 최근 정산 회차(카드 '지난 결과' 1줄 + 정산 감지용 — LLD §2.1 · N53).
+  // 결과 **모달 큐**는 이 필드가 아니라 참가자 스코프 `/me/challenge-results`가 소스다(A2 소유) —
+  // 분업을 깨지 않는다. 구서버는 lastSettledBet만 주므로 앱은 둘 다 수용한다(v2 우선).
+  lastSettledSession?: LastSettledSession | null;
 }
 
 // ── 내기(3차·확장) — 계약 정본 docs/app/challenge-impl-2026-08/contract.md §2 ──
@@ -242,6 +269,12 @@ export interface GroupChallengeBet {
   // ⚠️ optional: 이 필드를 모르는 구서버가 존재한다(creatorUserId와 같은 관행). undefined면
   //    조회일(오늘) 내기로 간주한다 — DURATION 철회는 미래 내기만 허용이라 자연히 숨는다.
   date?: string;
+  // ── 챌린지 v2 additive (LLD §2.1) — 브리지 주기 동안 구 필드(betId·status·myJoined·
+  //    participants)와 병기된다(N36 보강). 필드 부재 = 회차 모델을 모르는 구서버. ──
+  // 내기 켜짐 여부 — 챌린지 생성 시 1회 결정·불변(N26).
+  enabled?: boolean;
+  // 오늘(조회 date) 회차 — null = 오늘 회차 없음(비활성 요일). undefined = 구서버.
+  session?: GroupBetSession | null;
 }
 
 // 정산된 내기의 인별 결과. payout은 **받은 금액**(승자 분배금 or 환불금)이지 손익이 아니다 —
@@ -309,6 +342,10 @@ export interface CreateBetResponse {
   betId: string;
 }
 
+// 챌린지가 도는 요일(ISO 축약 — LLD §2). 서버는 월=1…일=7 비트마스크로 접어 저장하지만
+// API 계약은 이 문자열 배열이다(docs/prd/challenge/low-level-design.md §2.1).
+export type ChallengeRepeatDay = 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN';
+
 // POST /groups/{id}/challenges — 챌린지 생성(방장만). DURATION·TIME_WINDOW 둘 다 만든다
 // (계약 §2 — V20부터 창 판정·창 목표분을 서버가 지원한다).
 // TIME_WINDOW일 때 durationMinutes는 **필수**다(0 < x ≤ 창 길이, 위반 INVALID_MISSION_PARAMS).
@@ -317,10 +354,15 @@ export interface CreateChallengeRequest {
   missionType: MissionType;
   durationMinutes: number; // 하루/창 목표(분)
   // TIME_WINDOW 전용 — "HH:mm:ss" KST 벽시계 문자열(GROMO-1225). 서버가 읽는 값이
-  // '매일 반복 시간대'(time-of-day)라 날짜·오프셋 없이 시각만 보낸다.
+  // '반복 시간대'(time-of-day)라 날짜·오프셋 없이 시각만 보낸다.
   // (구앱 하위 호환: 서버는 종전 ISO Instant도 이중 수용한다.)
   windowStart?: string;
   windowEnd?: string;
+  // 도는 요일(GROMO-1273) — 필수·1개 이상(정책 §A3·FR-4, 비면 CHALLENGE_REPEAT_DAYS_REQUIRED 400).
+  repeatDays: ChallengeRepeatDay[];
+  // 내기(GROMO-1428) — **생성 시에만** 결정하고 이후 불변이다(N26). 안 실으면 내기 없음.
+  // stake는 1~3,000(N30) — 위반은 BET_INVALID_STAKE 400.
+  bet?: { enabled: boolean; stake: number };
 }
 
 // POST 응답의 미참여자 — SCREEN_TIME 챌린지에서 스크린타임 권한을 허용하지 않은 멤버.
@@ -334,3 +376,181 @@ export interface CreateChallengeResponse {
   id: string;
   nonParticipants: CreateChallengeNonParticipant[];
 }
+
+// ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, N43·N53) ───────────────────
+// 서버는 이 배치에서 병렬 구현 중이다 — shape의 정본은 docs/prd/challenge/low-level-design.md §2.
+
+// 회차(bet session) 상태. UNUSED(참가 0명 마감)는 결과·내역·알림에서 제외된다(N52) —
+// /me/challenge-results에는 실리지 않지만, 모르는 상태가 와도 화면이 죽지 않게 유니온에 둔다.
+export type BetSessionStatus = 'OPEN' | 'SETTLED' | 'FORFEITED' | 'VOIDED' | 'REFUNDED' | 'UNUSED';
+
+// 회차의 무효·환불 사유(N33 · N48) — 사유 없이 상태 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다.
+// 인원 미달 값이 **두 이름으로 갈려 있다**: 서버 enum·V41 CHECK 는 `INSUFFICIENT_PARTICIPANTS`,
+// LLD §2.1·IA §4.3 예시는 `SHORT_PARTICIPANTS`(policy N33 이 영문 이름을 정하지 않아 각자 굳었다).
+// 둘 다 유니온에 둔다 — 서버 값만 받으면 문서 카피가 죽고, 문서 값만 받으면 실제 응답이 안 맞는다.
+// REFUND_DEADLINE 은 24h 자동 환불(REFUNDED) 사유다 — N48 이 사유 축을 VOIDED 밖으로 넓혔다.
+export type BetSessionVoidReason =
+  | 'SHORT_PARTICIPANTS'
+  | 'INSUFFICIENT_PARTICIPANTS'
+  | 'CHALLENGE_DELETED'
+  | 'REFUND_DEADLINE';
+
+// GET /me/challenge-results의 인별 정산 결과 한 줄. LastSettledBetResult와 같은 3상 규칙 —
+// achieved·payout null = 미판정(부분 정산 실패), progressMinutes null = 미집계(0분 아님).
+export interface MyChallengeResultRow {
+  userId: string;
+  nickname: string; // 탈퇴 멤버는 서버가 "탈퇴한 사용자"로 치환해 내려준다(LLD §2.1)
+  achieved: boolean | null;
+  payout: number | null;
+  progressMinutes: number | null;
+}
+
+// GET /me/challenge-results?since=&limit= 항목 — 내가 참가자인 정산 완료 회차(그룹 무관).
+// 결과 모달 큐의 유일한 소스(N53). 삭제된 챌린지의 회차는 서버가 제외한다(FR-44-4·N48 —
+// 삭제 환불은 BET_VOID_REFUND 푸시가 알린다). 최근 30일·최대 10건.
+export interface MyChallengeResultEntry {
+  sessionId: string;
+  groupId: string;
+  groupName: string; // 그룹방을 못 읽어도(탈퇴) 이름은 보여준다
+  challengeId: string;
+  challengeDeleted: boolean; // 계약상 항상 false — 방어적으로만 읽는다
+  challengeEnded: boolean; // ENDED 챌린지의 회차도 실린다(N38→N53)
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  stake: number;
+  pot: number;
+  status: BetSessionStatus; // SETTLED | FORFEITED | VOIDED | REFUNDED
+  voidReason: BetSessionVoidReason | null; // VOIDED만
+  goalMinutes: number | null; // 미션 스냅샷 — null이면 분모를 지어내지 않는다
+  myAchieved: boolean | null;
+  myPayout: number | null;
+  results: MyChallengeResultRow[];
+}
+
+export interface MyChallengeResultsResponse {
+  results: MyChallengeResultEntry[];
+}
+
+// GET /me/bet-sessions?status=OPEN 항목 — 내가 참가비를 건 진행 중 회차(그룹 무관).
+// 창 사용분 보고 대상 탐색축(N43) — 탈퇴·챌린지 종료 뒤에도 시작된 회차엔 보고해야 한다.
+// 미션 스냅샷을 싣는 이유: 챌린지 행 조인이 불가능한 상황(종료·삭제)이 이 API의 존재 이유다.
+export interface MyOpenBetSession {
+  sessionId: string;
+  groupId: string;
+  challengeId: string;
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  missionCategory: MissionCategory;
+  missionType: MissionType;
+  goalMinutes: number | null;
+  windowStart: string | null; // "HH:mm(:ss)" KST — TIME_WINDOW만(같은 날 최대 23:59, 자정 걸침 없음 — N25)
+  windowEnd: string | null;
+  closesAt: string; // ISO instant — 보고 마감 판단용
+  settleAfter: string; // ISO instant
+}
+
+export interface MyBetSessionsResponse {
+  sessions: MyOpenBetSession[];
+}
+
+// ── 챌린지 v2 — 회차(세션) 모델 (LLD §2.1·§2.2 계약 미러) ─────────────────────
+// 내기가 '개설되는 것'에서 '챌린지에 상시로 붙고 활성 요일마다 회차가 서는 것'으로 바뀌었다(§C1).
+// ⚠️ 화면 문구에는 「회차」를 쓰지 않는다(N28) — 코드 식별자·API 필드만 session이다.
+
+// 회차 상태. UNUSED = 참가자 0명으로 닫힘(결과·내역·알림 제외 — N52), VOIDED = 무산·삭제 무효화.
+// 모르는 status가 와도 화면이 죽지 않게 각 화면은 else 강하를 유지한다(GroupBetStatus와 같은 관행).
+export type GroupBetSessionStatus =
+  | 'OPEN'
+  | 'SETTLED'
+  | 'FORFEITED'
+  | 'VOIDED'
+  | 'REFUNDED'
+  | 'UNUSED';
+
+// 회차 참가자. progressMinutes는 **하루형 참가 시트의 진행분 공개**(N16·FR-34)용 —
+// 3상을 뭉개지 않는다: undefined=구서버/창형(안 실림), null=SCREEN_TIME 미집계, number=실측 분.
+export interface GroupBetSessionParticipant {
+  userId: string;
+  nickname: string;
+  progressMinutes?: number | null;
+  achieved?: boolean | null;
+}
+
+// 오늘(조회 date) 회차 — 카드 응답 bet.session (LLD §2.1).
+export interface GroupBetSession {
+  sessionId: string;
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  stake: number; // 이 회차에 박제된 참가비
+  goalMinutes: number | null; // 이 회차에 박제된 목표
+  pot: number;
+  status: GroupBetSessionStatus;
+  startsAt: string; // 회차 시작(ISO) — 취소 기준
+  joinClosesAt: string; // 참가 마감(ISO)
+  myLeaveDeadlineAt: string | null; // 내 취소 마감(서버 계산 정본) · 미참여면 null
+  closesAt: string;
+  myJoined: boolean;
+  myAchievedNow: boolean;
+  participants: GroupBetSessionParticipant[];
+}
+
+// POST /groups/{gid}/challenges/{cid}/join-next 응답 (N45 · LLD §2.2).
+// balanceAfter는 계약 후행 additive라 optional로 받는다 — 잔액 정본은 어차피 CoinContext refresh다.
+export interface JoinNextSessionResponse {
+  sessionId: string;
+  sessionDate: string; // 'YYYY-MM-DD' — 확인 화면의 날짜와 같은 함수(RepeatSchedule.next)를 탄다
+  stake: number;
+  balanceAfter?: number;
+}
+
+// POST /groups/{gid}/challenges/{cid}/join-week 응답 (§C2 부분 예약 · LLD §2.2).
+export interface JoinWeekJoinedSession {
+  sessionId: string;
+  sessionDate: string;
+}
+
+export interface JoinWeekResponse {
+  joined: JoinWeekJoinedSession[];
+  totalStake: number;
+  balanceAfter?: number; // join-next와 같은 이유로 optional
+}
+
+// GET /groups/{gid}/challenges/{cid}/deletion-preview — 삭제 경고 수치 프리플라이트(N49 · K11).
+export interface ChallengeDeletionPreviewSession {
+  sessionDate: string; // 'YYYY-MM-DD'
+  participantCount: number;
+  pot: number;
+}
+
+export interface ChallengeDeletionPreviewResponse {
+  openSessions: ChallengeDeletionPreviewSession[]; // 예약된 미래 날짜까지 전부
+  totalRefund: number; // 무효화 시 돌려줄 총액
+}
+
+// 가장 최근 **정산 완료 회차** — 카드의 '지난 결과' 한 줄 표시용(LLD §2.1 · N53).
+// LastSettledBet(구)의 회차판이다: betDate → sessionDate, + sessionId·voidReason·내 결과 요약.
+export interface LastSettledSessionResult {
+  userId: string;
+  nickname: string;
+  achieved: boolean | null;
+  payout: number | null;
+  // 정산 판정에 쓴 실측 분 — 3상(undefined=구서버, null=미집계·과거분, number=실측).
+  progressMinutes?: number | null;
+}
+
+export interface LastSettledSession {
+  sessionId: string;
+  sessionDate: string; // 'YYYY-MM-DD'
+  stake: number;
+  pot: number;
+  status: GroupBetSessionStatus;
+  // VOIDED만 값이 있다 — SHORT_PARTICIPANTS(인원 미달 무산) | CHALLENGE_DELETED(삭제 무효화).
+  voidReason?: string | null;
+  goalMinutes?: number | null;
+  myJoined?: boolean;
+  myAchieved?: boolean | null;
+  myPayout?: number | null;
+  results: LastSettledSessionResult[];
+}
+
+// `MyOpenBetSession`(위)과 **같은 것에 이름이 둘 붙었다** — 두 워크스트림이 같은 계약을 각자
+// 미러링했고 필드가 완전히 일치한다(GET /me/bet-sessions?status=OPEN, LLD §2.1). 한쪽을 지우면
+// 그쪽 호출부가 전부 깨지므로 정본 하나 + 별칭으로 둔다. 새 코드는 `MyOpenBetSession` 을 쓴다.
+export type MyBetSession = MyOpenBetSession;

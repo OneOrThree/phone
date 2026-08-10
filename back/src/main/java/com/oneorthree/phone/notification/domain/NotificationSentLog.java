@@ -110,6 +110,14 @@ public class NotificationSentLog {
     public static final String TYPE_BET_VOID_REFUND = "BET_VOID_REFUND";
 
     /**
+     * 발송 종류 — 개인 승리 조기 확정 축하(PRD FR-43, GROMO-1268 이벤트의 알림 소비자).
+     * {@code subject_id} = <b>회차 id</b>, 수신자는 달성한 <b>본인</b> 1명이다.
+     * 묶음(N20) 대상이 아니고 조용한 시간이면 이월 없이 버린다 — 지연된 축하는 의미가 없고,
+     * 같은 회차의 결과는 정산 후 {@link #TYPE_BET_RESULT} 가 다시 알린다(중복 통지 방지).
+     */
+    public static final String TYPE_BET_WON = "BET_WON";
+
+    /**
      * 발송 종류 — 회차 참여 모집(GROMO-1417, N40·N20). {@code subject_id} = <b>회차 id</b>.
      * 발송 슬롯은 창형이 <b>참가 마감 −30분</b>, 하루형이 <b>당일 08:00</b>이다 — 하루형의
      * 시작−30분은 전날 23:30 이라 회차 미생성(00:05 개설) + 조용한 시간에 이중으로 막힌다.

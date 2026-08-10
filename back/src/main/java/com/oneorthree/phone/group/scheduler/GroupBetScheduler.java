@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.domain.SettleTrigger;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.service.GroupBetSessionOpeningService;
+import com.oneorthree.phone.group.service.GroupBetSessionOpeningService.SessionOpening;
 import com.oneorthree.phone.group.service.GroupBetSettler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -110,31 +111,44 @@ public class GroupBetScheduler {
     }
 
     /**
-     * 회차 자동 개설(N35) — 00:05 정규 개설 + 매시 캐치업 보증 스캔을 <b>같은 멱등 스캔</b>으로
-     * 처리한다(매시 05분: 첫 틱이 00:05 정규 개설이고 이후 틱은 재기동·장애를 메우는 캐치업이다).
-     * 참가 마감이 지난 창형은 오늘 개설하지 않으므로 늦은 캐치업이 죽은 회차를 세우지 않는다.
+     * 회차 자동 개설(N35) — 00:05 정규 개설과 캐치업 보증 스캔을 <b>같은 멱등 스캔</b>으로 처리하며
+     * <b>정산 스캔과 같은 5분 주기</b>로 돈다.
      *
-     * <p>루프가 서비스가 아니라 여기 있는 이유: {@code ensureSession} 은 {@code @Transactional}
-     * (챌린지 단위 격리)이라 같은 빈에서 돌리면 자기 호출로 프록시를 우회한다 — 크론 진입점은
-     * 항상 별도 빈에서 프록시를 통해 서비스를 부른다(정산 스캔과 같은 규율).
+     * <p><b>왜 시간 주기가 아니라 5분인가</b>: 매시 실행이면 00:05 틱이 죽거나 특정 챌린지 개설이
+     * 실패했을 때 다음 기회가 01:05 다. 그 사이에 참가가 마감되는 창형(00:05~01:05 시작) 회차는
+     * {@code openSession} 의 참가 마감 게이트에 걸려 <b>그날 영구히 생기지 않는다</b> — 배치 장애
+     * 한 번에 그 챌린지 전원의 참가 경로가 사라진다. 5분 주기면 최대 공백이 5분이라 마감 전에
+     * 회복된다. 대상이 없거나 이미 서 있으면 조회만 하고 끝나므로 빈 틱 비용은 무시할 수준이다.
      *
      * <p>크론 래퍼가 void 인 이유: ShedLock 은 락을 못 잡으면 메서드를 건너뛰고 null 을 돌려주는데,
      * 반환형이 primitive 면 그 null 이 언박싱 NPE 가 된다 — 잠금 대상 메서드는 void 가 규약이다.
+     * 개설 건수를 쓰는 호출부(테스트·수동)는 {@link #openTodaySessions()} 를 직접 부른다.
      */
-    @Scheduled(cron = "0 5 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
     @SchedulerLock(name = "group-bet-ensure-today-sessions")
     public void ensureTodaySessions() {
         openTodaySessions();
     }
 
-    /** 개설 스캔 본체 — 신규 개설한 회차 수를 반환한다(테스트·수동 호출용). */
+    /**
+     * 개설 스캔 본체.
+     *
+     * <p>루프가 서비스가 아니라 여기 있는 이유: {@code openSession} 은 {@code @Transactional}
+     * (챌린지 단위 격리)이라 같은 빈에서 돌리면 자기 호출로 프록시를 우회한다 — 크론 진입점은
+     * 항상 별도 빈에서 프록시를 통해 서비스를 부른다(정산 스캔과 같은 규율).
+     *
+     * @return <b>실제로 INSERT 된</b> 회차 수(이미 있던 회차는 세지 않는다 — 멱등 스캔에서 기존
+     *         회차를 신규로 세면 개설 장애 감시 지표가 항상 양수라 무의미해진다)
+     */
     public int openTodaySessions() {
         LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
         List<UUID> challengeIds = groupChallengeBetRepository.findActiveEnabledChallengeIds();
         int opened = 0;
         for (UUID challengeId : challengeIds) {
             try {
-                if (groupBetSessionOpeningService.ensureSession(challengeId, today).isPresent()) {
+                if (groupBetSessionOpeningService.openSession(challengeId, today)
+                        .filter(SessionOpening::created)
+                        .isPresent()) {
                     opened++;
                 }
             } catch (RuntimeException e) {
