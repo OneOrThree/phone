@@ -14,6 +14,7 @@ import { FindMoreCard } from './FindMoreCard';
 
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
+const INDICATOR_GUTTER = 20;
 const DOT_HIT_WIDTH = 44;
 const DOT_GAP = 4;
 
@@ -53,7 +54,9 @@ export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps
   const [indicatorWidth, setIndicatorWidth] = useState(0);
   const pageCount = groups.length + 1;
   const showDots =
-    indicatorWidth > 0 && pageCount * DOT_HIT_WIDTH + (pageCount - 1) * DOT_GAP <= indicatorWidth;
+    indicatorWidth > 0 &&
+    pageCount * DOT_HIT_WIDTH + (pageCount - 1) * DOT_GAP <=
+      Math.max(0, indicatorWidth - INDICATOR_GUTTER * 2);
 
   const settleActiveCard = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -151,7 +154,7 @@ export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps
 
 const s = StyleSheet.create({
   indicator: { height: 44, alignItems: 'center', justifyContent: 'center' },
-  dots: { flexDirection: 'row', gap: DOT_GAP },
+  dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: { width: DOT_HIT_WIDTH, height: 44, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8CAD0' },
   dotActive: { width: 18, backgroundColor: '#5E6AD2' },

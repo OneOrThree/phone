@@ -75,6 +75,23 @@ test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한
   expect(findDot.props.accessibilityState).toEqual({ selected: true });
 });
 
+test('dots 폭은 좌우 20pt gutter를 제외한 가용 폭으로 판정한다', async () => {
+  await render(
+    <GroupCardDeck
+      groups={Array.from({ length: 7 }, (_, index) => group(index))}
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.cardDeck.indicator'), 'layout', {
+      nativeEvent: { layout: { width: 390 } },
+    });
+  });
+
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('1 / 8');
+});
+
 test('활성 그룹이 삭제되면 마지막 카드가 아니라 직전 위치를 새 범위로 clamp한다', () => {
   const remaining = [group(0), group(2), group(3)];
 
