@@ -678,6 +678,8 @@ public class GroupBetService {
                     .stake(session.getStake())
                     .pot(session.getStake() * participants.size())
                     .status(session.getStatus())
+                    // 종료 사유(N55) — REFUNDED 가 "달성자 0명"인지 "24h 미정산 자동 환불"인지 구분.
+                    .voidReason(session.getVoidReason())
                     .goalMinutes(session.getGoalMinutes())
                     .results(toResultParticipants(participants))
                     .build());
@@ -727,6 +729,8 @@ public class GroupBetService {
                             .stake(session.getStake())
                             .pot(session.getStake() * participants.size())
                             .status(session.getStatus())
+                            // 종료 사유(N55) — 내역에서도 환불 사유가 구분돼야 한다.
+                            .voidReason(session.getVoidReason())
                             .settledAt(session.getSettledAt())
                             .goalMinutes(session.getGoalMinutes())
                             .results(toResultParticipants(participants))

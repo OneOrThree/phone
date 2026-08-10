@@ -135,7 +135,12 @@ public class GroupBetSettler {
 
         if (trigger == SettleTrigger.EARLY) {
             // ② EARLY 전제를 락 안에서 재검증 — 걸리면 그냥 return, 크론이 제때 정산한다.
-            if (now.isBefore(session.getJoinClosesAt())) {
+            // 마감 기준은 <b>실효 참가 마감</b>(브리지 기간 = closes_at)이다. 박제된
+            // join_closes_at(창형 = 창 시작)으로 보면, 창 시작 후 기존 참가자 전원이 달성한 순간
+            // 회차가 즉시 정산돼 아직 허용 시간인 구앱의 후속 참가가 BET_CLOSED 로 거절된다
+            // (구앱 가드 requireWindowStillOpen 은 창 종료까지 받는다). 무산 크론과 같은 기준·같은
+            // 이유다. 하루형은 두 값이 같아 동작 불변이고 창형만 움직인다.
+            if (now.isBefore(effectiveJoinDeadline(session))) {
                 return SettleResult.skipped(session.getStatus());
             }
             if (participants.isEmpty()
@@ -221,11 +226,7 @@ public class GroupBetSettler {
         if (!session.isOpen()) {
             return SettleResult.skipped(session.getStatus());
         }
-        // 실효 참가 마감 = closes_at(브리지 기간) — 스캔 술어
-        // ({@code findOpenPastJoinDeadlineWithFewParticipants})와 반드시 같은 기준이어야 한다.
-        // 구앱 참가 가드가 창 종료까지 허용하므로 박제된 join_closes_at(창 시작)으로 닫으면
-        // 원래 허용된 시간 안의 참가를 되물린다. B8 이 참가 마감을 전환하면 둘 다 되돌린다.
-        if (Instant.now().isBefore(session.getClosesAt())) {
+        if (Instant.now().isBefore(effectiveJoinDeadline(session))) {
             return SettleResult.skipped(session.getStatus());
         }
         List<GroupChallengeBetParticipant> participants =
@@ -245,10 +246,16 @@ public class GroupBetSettler {
      * status 게이트로 자연히 제외된다(FR-13 — 확정된 결과·지급은 불변).
      *
      * <p>호출 전제: {@code GroupChallengeService.deleteChallenge} 가 챌린지 행 배타 락을 쥔
-     * <b>같은 트랜잭션</b> 안 — 참여·개설 경로(챌린지 행 락 공유)와 직렬화된다. 잠금 순서는 계약
-     * §3 그대로: 회차 id 오름차순으로 <b>전부 먼저</b> 잠근 뒤(잠금 시점 재확인) 돈을 움직이고,
-     * 회차별 환불은 지갑 userId 오름차순이다({@link #voidAndRefund}). 잠금 대기 중 정산·철회가
-     * 끝난 회차는 최종 상태를 존중해 건너뛴다.
+     * <b>같은 트랜잭션</b> 안 — 참여·개설 경로(챌린지 행 락 공유)와 직렬화된다. 잠금 대기 중
+     * 정산·철회가 끝난 회차는 최종 상태를 존중해 건너뛴다.
+     *
+     * <p><b>잠금 순서(계약 §3)는 "회차 id 오름차순 → 지갑 userId 오름차순"이고, 지갑 순서는 회차
+     * 안이 아니라 전역이어야 성립한다.</b> 회차마다 그 회차 참가자만 정렬해 지갑을 건드리면,
+     * 참가자가 겹치는 두 챌린지를 동시에 삭제할 때 한쪽은 (회차1의 B → 회차2의 A), 다른 쪽은
+     * (A → B) 순서가 되어 <b>서로의 지갑 행 락을 기다리는 교착</b>이 난다(원장 조회가 앞선 지갑
+     * 변경을 flush 하므로 락은 실제로 잡혀 있다). 그래서 여기서는 회차를 id 오름차순으로 전부
+     * 잠그고 → 상태 전이·근거 기록까지 마친 뒤 → <b>전 회차의 환불 대상을 합쳐 userId 전역
+     * 오름차순</b>으로 지갑을 움직인다.
      *
      * @return 무효화(VOIDED·UNUSED)한 회차 수
      */
@@ -262,17 +269,23 @@ public class GroupBetSettler {
                     .filter(GroupChallengeBetSession::isOpen)
                     .ifPresent(lockedOpenSessions::add);
         }
+        // 상태 전이(CAS)와 환불 근거 기록은 회차별로 끝내되, <b>지갑은 건드리지 않고</b> 대상만
+        // 모은다 — 지갑 순서를 회차 안에서만 맞추면 여러 회차를 걸칠 때 전역 순서가 깨진다(아래).
         int voided = 0;
+        List<PendingRefund> pending = new ArrayList<>();
         for (GroupChallengeBetSession session : lockedOpenSessions) {
             List<GroupChallengeBetParticipant> participants = groupChallengeBetParticipantRepository
                     .findBySessionIdIn(List.of(session.getId()));
             if (participants.isEmpty()) {
                 closeUnused(session);
             } else {
-                voidAndRefund(session, participants, GroupBetVoidReason.CHALLENGE_DELETED);
+                pending.addAll(voidAndCollectRefunds(
+                        session, participants, GroupBetVoidReason.CHALLENGE_DELETED));
             }
             voided++;
         }
+        // 지갑은 마지막에 <b>userId 전역 오름차순</b>으로 한 번에 움직인다(계약 §3).
+        applyRefunds(pending);
         if (voided > 0) {
             log.info("챌린지 삭제 연동 — OPEN 회차 {}건 무효화·환불. challengeId={}", voided, challengeId);
         }
@@ -296,7 +309,7 @@ public class GroupBetSettler {
             // 행 잠금 아래라 도달 불가 — 도달했다면 잠금 규율이 깨진 것이다.
             throw new IllegalStateException("REFUNDED 전이 실패 — sessionId=" + session.getId());
         }
-        refundParticipants(session, participants);
+        applyRefunds(participants.stream().map(p -> new PendingRefund(session, p)).toList());
         log.error("회차 자동 환불 — 24h 데드라인 초과(N21). sessionId={}, sessionDate={}, trigger={}, "
                 + "참가자={}, stake={}",
                 session.getId(), session.getSessionDate(), trigger, participants.size(),
@@ -305,19 +318,57 @@ public class GroupBetSettler {
         return new SettleResult(GroupBetStatus.REFUNDED, true);
     }
 
-    /** 인원 미달·챌린지 삭제 무산 — {@code VOIDED} + 사유 기록(N33) + 전원 환불. 회차 행 잠금 아래 전제. */
+    /** 지갑 집행을 미룬 환불 1건 — 회차를 걸쳐 모은 뒤 userId 전역 오름차순으로 처리한다. */
+    private record PendingRefund(GroupChallengeBetSession session,
+            GroupChallengeBetParticipant participant) {
+    }
+
+    /**
+     * 인원 미달·챌린지 삭제 무산 — {@code VOIDED} + 사유 기록(N33) + 전원 환불.
+     * <b>단일 회차</b> 경로 전용이다(회차가 하나뿐이라 전역 순서 = 회차 안 순서).
+     * 여러 회차를 한 트랜잭션에서 처리하는 경로는
+     * {@link #voidAndCollectRefunds} + {@link #applyRefunds} 로 지갑 순서를 전역화해야 한다.
+     * 회차 행 잠금 아래 전제.
+     */
     private SettleResult voidAndRefund(GroupChallengeBetSession session,
+            List<GroupChallengeBetParticipant> participants, GroupBetVoidReason reason) {
+        applyRefunds(voidAndCollectRefunds(session, participants, reason));
+        return new SettleResult(GroupBetStatus.VOIDED, true);
+    }
+
+    /**
+     * 무산 상태 전이 + 환불 근거 기록까지만 하고 <b>지갑은 건드리지 않는다</b> — 집행 대상을
+     * 돌려준다. 지갑 순서를 호출측이 전역으로 정할 수 있게 하기 위한 분리다.
+     */
+    private List<PendingRefund> voidAndCollectRefunds(GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants, GroupBetVoidReason reason) {
         if (groupChallengeBetSessionRepository.compareAndSetSettled(
                 session.getId(), GroupBetStatus.VOIDED, reason, Instant.now()) == 0) {
             throw new IllegalStateException("VOIDED 전이 실패 — sessionId=" + session.getId());
         }
-        refundParticipants(session, participants);
         log.info("회차 무산 — sessionId={}, sessionDate={}, reason={}, 참가자={}, stake={} 환불",
                 session.getId(), session.getSessionDate(), reason, participants.size(),
                 session.getStake());
         // TODO(B7·GROMO-1283 계열): BET_VOID_REFUND 푸시(N48) — 알림 발송은 B7 몫.
-        return new SettleResult(GroupBetStatus.VOIDED, true);
+        return participants.stream().map(p -> new PendingRefund(session, p)).toList();
+    }
+
+    /**
+     * <b>실효 참가 마감</b> — 브리지 기간(N36)에는 {@code closes_at} 이다.
+     *
+     * <p>회차에 박제된 {@code join_closes_at} 은 to-be 정의(창형 = 창 시작, LLD §1.1)인데, 구앱
+     * 참가 가드({@code GroupBetService.requireWindowStillOpen})는 여전히 <b>창 종료까지</b> 받는다.
+     * 그래서 "참가가 끝났다"를 판정하는 곳은 전부 이 메서드 하나를 지나야 한다 — 기준이 갈리면
+     * 어떤 경로는 아직 참가를 받고 어떤 경로는 이미 회차를 닫는 비일관이 생긴다.
+     * 하루형은 두 값이 같아 이 보정으로 동작이 달라지지 않는다.
+     *
+     * <p>⚠️ <b>B8 이 참가 마감을 {@code join_closes_at} 으로 전환할 때 되돌릴 보정 3곳</b>:
+     * ① 이 메서드(EARLY 재검증·{@code closeShortOrUnused} 공용), ② 무산 크론 스캔 술어
+     * ({@code findOpenPastJoinDeadlineWithFewParticipants} 의 {@code closes_at}),
+     * ③ 구앱 참가 가드 자체. 전환 후에는 두 값이 같은 의미라 보정이 불필요해진다.
+     */
+    static Instant effectiveJoinDeadline(GroupChallengeBetSession session) {
+        return session.getClosesAt();
     }
 
     /** 참가자 0명 종료(N52) — 지급·환불·알림이 없는 정리다. 회차 행 잠금 아래 전제. */
@@ -331,16 +382,24 @@ public class GroupBetSettler {
     }
 
     /**
-     * 전원 환불 집행 — <b>지갑 userId 오름차순</b>(계약 §3 잠금 순서). 키는 경로 불문 단일 환불 축
-     * {@code session:{sid}:refund:{participantId}}(FR-42) 라 취소·탈퇴 등 다른 경로와 겹쳐도 원장
-     * UNIQUE 가 이중 환불을 막는다. 탈퇴자(지갑 삭제)는 지급 스킵 — 정산의 탈퇴자 처리와 같은 이유.
+     * 환불 집행 — <b>지갑 userId 전역 오름차순</b>(계약 §3 잠금 순서). 여러 회차의 대상을 함께
+     * 받아 한 번에 정렬하므로, 같은 유저가 여러 회차에 걸쳐 있어도 지갑을 잡는 순서가 트랜잭션
+     * 전체에서 단조롭다 — 동시 삭제 두 건이 서로의 지갑을 역순으로 기다리는 교착이 성립하지 않는다.
+     * 같은 유저의 여러 회차는 sessionId 로 2차 정렬해 순서를 결정적으로 고정한다.
+     *
+     * <p>키는 경로 불문 단일 환불 축 {@code session:{sid}:refund:{participantId}}(FR-42) 라
+     * 취소·탈퇴 등 다른 경로와 겹쳐도 원장 UNIQUE 가 이중 환불을 막는다. 탈퇴자(지갑 삭제)는 지급
+     * 스킵 — 정산의 탈퇴자 처리와 같은 이유.
      */
-    private void refundParticipants(
-            GroupChallengeBetSession session, List<GroupChallengeBetParticipant> participants) {
-        List<GroupChallengeBetParticipant> ordered = participants.stream()
-                .sorted(Comparator.comparing(p -> p.getUser().getId()))
+    private void applyRefunds(List<PendingRefund> refunds) {
+        List<PendingRefund> ordered = refunds.stream()
+                .sorted(Comparator
+                        .<PendingRefund, UUID>comparing(r -> r.participant().getUser().getId())
+                        .thenComparing(r -> r.session().getId()))
                 .toList();
-        for (GroupChallengeBetParticipant participant : ordered) {
+        for (PendingRefund refund : ordered) {
+            GroupChallengeBetSession session = refund.session();
+            GroupChallengeBetParticipant participant = refund.participant();
             participant.recordRefund(session.getStake());
             User user = participant.getUser();
             if (user.isDeleted()) {

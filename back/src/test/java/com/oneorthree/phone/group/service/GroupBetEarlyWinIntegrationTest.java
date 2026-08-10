@@ -315,10 +315,10 @@ class GroupBetEarlyWinIntegrationTest extends IntegrationTestBase {
         User first = stakedUser("선확정");
         User last = stakedUser("마지막확정");
 
-        // 창형 — 참가 마감(창 시작)은 지났고 settle_after(창 끝+30분)는 미래인 회차.
+        // 창형 — 실효 참가 마감(브리지 = 창 종료)은 지났고 settle_after(창 끝+30분)는 미래인 회차.
         GroupChallengeBetSession session = session(windowChallenge(), today,
-                now.minus(Duration.ofHours(2)), now.plus(Duration.ofMinutes(30)),
-                now.plus(Duration.ofHours(1)));
+                now.minus(Duration.ofHours(2)), now.minus(Duration.ofMinutes(5)),
+                now.plus(Duration.ofMinutes(25)));
         GroupChallengeBetParticipant firstJoin = groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder()
                         .session(session).user(first).achieved(true).progressMinutes(GOAL_MINUTES)
