@@ -1,7 +1,9 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
@@ -10,6 +12,7 @@ import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
@@ -42,10 +45,10 @@ import static org.mockito.Mockito.verify;
  * 종전 검증(범위·챌린지 종류·게스트·404)에 다음이 더해진다:
  * <ul>
  *   <li>measuredAt 미래(서버 +2분 초과) 거절 — {@code INVALID_MEASURED_AT} 400</li>
- *   <li>자격 확장(N43): 그룹 멤버가 아니어도 시작된 OPEN 회차 참가자면 보고 가능(탈퇴자 경로),
- *       둘 다 아니면 종전 계약 그대로 {@code MEMBER_ONLY}</li>
- *   <li>upsert 위임에 measuredAt 이 함께 전달된다(역전 무시의 실 SQL 검증은
- *       {@code GroupChallengeMemberRepositoryTest})</li>
+ *   <li>자격의 <b>날짜 결속</b>(PR #573 codex ②): 대상 = {@code usageDate} 회차. 그 회차의
+ *       참가자면 <b>시작됨 + OPEN</b> 일 때만 저장하고, 아니면 조용히 무시한다</li>
+ *   <li>참가자 갈래는 대상 회차를 {@code FOR UPDATE} 로 잠근 뒤 저장한다(codex ① — 정산 직렬화)</li>
+ *   <li>순수 멤버(그 날짜에 참가 행 없음)의 표시용 보고는 종전대로 통과(FR-9)</li>
  * </ul>
  */
 @ExtendWith(MockitoExtension.class)
@@ -66,10 +69,13 @@ class GroupBetWindowUsageServiceTest {
     private GroupChallengeMemberRepository groupChallengeMemberRepository;
     @Mock
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    @Mock
+    private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+    private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
 
     private User member() {
@@ -80,14 +86,21 @@ class GroupBetWindowUsageServiceTest {
         return User.builder().id(USER_ID).isGuest(true).build();
     }
 
-    /** 성공 경로 공통 셋업 — 활성 유저 + 그룹 + 멤버십 + 지정 종류의 챌린지. */
-    private GroupChallenge givenReportableChallenge(User user, Group group, MissionCategory category,
+    /**
+     * 성공 경로 공통 셋업 — 활성 유저 + 그룹 + 멤버십 + 지정 종류의 챌린지. 회차 조회는 스텁하지
+     * 않는다(Mockito 기본값 {@code Optional.empty()}) = "그 날짜에 회차 없음" = 표시용 갈래.
+     */
+    private GroupChallenge givenMemberWithChallenge(User user, Group group, MissionCategory category,
             MissionType type) {
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
         given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(GroupMember.builder()
                         .user(user).group(group).role(GroupMemberRole.MEMBER).build()));
+        return givenChallenge(group, category, type);
+    }
+
+    private GroupChallenge givenChallenge(Group group, MissionCategory category, MissionType type) {
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group)
                 .type(type).category(category)
@@ -98,31 +111,163 @@ class GroupBetWindowUsageServiceTest {
         return challenge;
     }
 
+    private GroupChallengeBetSession session(GroupBetStatus status, Instant startsAt) {
+        return GroupChallengeBetSession.builder()
+                .id(SESSION_ID).sessionDate(TODAY).stake(30).goalMinutes(90)
+                .missionCategory(MissionCategory.SCREEN_TIME).missionType(MissionType.TIME_WINDOW)
+                .status(status)
+                .startsAt(startsAt)
+                .joinClosesAt(startsAt).closesAt(startsAt).settleAfter(startsAt)
+                .build();
+    }
+
+    /** 대상 날짜에 내 참가 행이 있는 상태 — 돈이 걸린 갈래. */
+    private void givenParticipantOn(GroupChallengeBetSession target) {
+        given(groupChallengeBetSessionRepository.findByChallengeIdAndSessionDate(CHALLENGE_ID, TODAY))
+                .willReturn(Optional.of(target));
+        given(groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(SESSION_ID, USER_ID))
+                .willReturn(true);
+    }
+
     @Test
-    @DisplayName("보고 성공 → (챌린지, 유저, 날짜) upsert 에 measuredAt 이 함께 전달된다")
-    void reportWindowUsageSuccess() {
-        // given
+    @DisplayName("참가자 보고 성공 — 대상 회차를 잠그고(FOR UPDATE) upsert 에 measuredAt 이 전달된다")
+    void participantReportLocksSessionAndPassesMeasuredAt() {
+        // given: 시작된 OPEN 회차의 참가자
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        givenReportableChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
+        givenParticipantOn(started);
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(started));
         Instant measuredAt = Instant.now().minusSeconds(60);
-        WindowUsageReportRequest request = new WindowUsageReportRequest(TODAY, 90, measuredAt);
 
         // when
-        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID, request);
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 90, measuredAt));
 
-        // then: measured_at 단조 갱신 upsert 로 위임된다 (id 는 서버가 UUID v7 생성)
+        // then: 잠금이 먼저, 그 다음 measured_at 단조 갱신 upsert
+        verify(groupChallengeBetSessionRepository).findByIdForUpdate(SESSION_ID);
         verify(groupChallengeMemberRepository).upsertWindowUsage(
                 any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(90), eq(measuredAt));
     }
 
     @Test
-    @DisplayName("measuredAt 이 서버 시각 +2분 초과 → INVALID_MEASURED_AT, 저장 안 함(N34)")
-    void reportWindowUsageRejectsFutureMeasuredAt() {
+    @DisplayName("시작 전 회차(예약분)에 참가자가 보고 → 조용히 무시(선기록 차단 — codex ②)")
+    void participantReportOnNotStartedSessionIsSkipped() {
+        // given: join-week 로 예약만 된 미래 회차
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        GroupChallengeBetSession reserved =
+                session(GroupBetStatus.OPEN, Instant.now().plusSeconds(48 * 3600));
+        givenParticipantOn(reserved);
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(reserved));
+
+        // when: 낮은 값을 미리 심으려는 보고
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 0, Instant.now()));
+
+        // then: 예외 없이(204) 저장만 하지 않는다
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("정산이 끝난 회차에 참가자가 보고 → 잠금 후 재확인에서 조용히 무시(정산 불가역)")
+    void participantReportOnSettledSessionIsSkipped() {
+        // given: 잠금 대기 중 정산이 끝난 상태 — 잠금 이후 재조회가 SETTLED 를 본다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        Instant startsAt = Instant.now().minusSeconds(7200);
+        givenParticipantOn(session(GroupBetStatus.OPEN, startsAt));
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(session(GroupBetStatus.SETTLED, startsAt)));
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 10, Instant.now()));
+
+        // then
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("그 날짜에 참가 행이 없는 순수 멤버의 표시용 보고는 회차 잠금 없이 통과(FR-9)")
+    void memberDisplayReportPassesWithoutSessionLock() {
+        // given: 회차 조회는 비어 있다(내기 꺼진 챌린지 = 회차 자체가 없다)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 40, Instant.now()));
+
+        // then: 판정 대상이 아니므로 잠글 회차도 없다
+        verify(groupChallengeBetSessionRepository, never()).findByIdForUpdate(any());
+        verify(groupChallengeMemberRepository)
+                .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(40), any());
+    }
+
+    @Test
+    @DisplayName("멤버가 아니어도 그 날짜 회차의 참가자면 보고 가능(N43 — 탈퇴자 최종 보고 경로)")
+    void leaverParticipantReportsWithoutMembership() {
+        // given: 멤버십 조회조차 하지 않는다(참가자 축으로 통과)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(600));
+        givenParticipantOn(started);
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(started));
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 30, Instant.now()));
+
+        // then
+        verify(groupMemberRepository, never()).findByUserAndGroup(any(), any());
+        verify(groupChallengeMemberRepository)
+                .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(30), any());
+    }
+
+    @Test
+    @DisplayName("멤버도, 그 날짜 회차의 참가자도 아니면 → MEMBER_ONLY(종전 계약 유지)")
+    void reportRejectsNonMemberNonParticipant() {
         // given
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        givenReportableChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 60, null)))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.MEMBER_ONLY);
+    }
+
+    @Test
+    @DisplayName("measuredAt 이 서버 시각 +2분 초과 → INVALID_MEASURED_AT, 저장 안 함(N34)")
+    void reportRejectsFutureMeasuredAt() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
 
         // when & then: 관용치(2분)를 넘는 미래 시각은 거절 — 받아 주면 이후 정상 보고가 전부
         // "오래된 값"으로 버려져 낮은 사용분이 굳는다(스크린타임 오달성).
@@ -137,11 +282,11 @@ class GroupBetWindowUsageServiceTest {
 
     @Test
     @DisplayName("measuredAt 이 관용치(+2분) 이내의 미래 → 허용(기기 시계 오차 수용)")
-    void reportWindowUsageAllowsMeasuredAtWithinTolerance() {
+    void reportAllowsMeasuredAtWithinTolerance() {
         // given
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        givenReportableChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
 
         // when: 1분 미래 — 관용치 안이다
         groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
@@ -153,60 +298,12 @@ class GroupBetWindowUsageServiceTest {
     }
 
     @Test
-    @DisplayName("멤버가 아니어도 시작된 OPEN 회차 참가자면 보고 가능(N43 — 탈퇴자 최종 보고 경로)")
-    void reportWindowUsageAllowsOpenSessionParticipantWithoutMembership() {
-        // given: 멤버십 없음 + 시작된 OPEN 회차 참가
-        User user = member();
-        Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
-        given(groupChallengeBetSessionRepository.existsStartedOpenParticipation(
-                eq(CHALLENGE_ID), eq(USER_ID), any(Instant.class))).willReturn(true);
-        GroupChallenge challenge = GroupChallenge.builder()
-                .id(CHALLENGE_ID).group(group)
-                .type(MissionType.TIME_WINDOW).category(MissionCategory.SCREEN_TIME)
-                .status(GroupChallengeStatus.ACTIVE)
-                .build();
-        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(CHALLENGE_ID, group))
-                .willReturn(Optional.of(challenge));
-
-        // when
-        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
-                new WindowUsageReportRequest(TODAY, 30, Instant.now()));
-
-        // then
-        verify(groupChallengeMemberRepository)
-                .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(30), any());
-    }
-
-    @Test
-    @DisplayName("멤버도 OPEN 회차 참가자도 아니면 → MEMBER_ONLY(종전 계약 유지)")
-    void reportWindowUsageRejectsNonMemberNonParticipant() {
-        // given
-        User user = member();
-        Group group = Group.builder().id(GROUP_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
-        given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
-        given(groupChallengeBetSessionRepository.existsStartedOpenParticipation(
-                eq(CHALLENGE_ID), eq(USER_ID), any(Instant.class))).willReturn(false);
-
-        // when & then
-        assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
-                new WindowUsageReportRequest(TODAY, 60, null)))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.MEMBER_ONLY);
-    }
-
-    @Test
     @DisplayName("progressMinutes 경계 — 0 과 1440 은 허용, 범위 밖은 INVALID_MISSION_PARAMS")
-    void reportWindowUsageValidatesRange() {
+    void reportValidatesRange() {
         // given
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        givenReportableChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
 
         // when & then: 경계값은 통과
         groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
@@ -228,11 +325,11 @@ class GroupBetWindowUsageServiceTest {
 
     @Test
     @DisplayName("SCREEN_TIME×TIME_WINDOW 가 아닌 챌린지에 보고 → INVALID_MISSION_PARAMS, 저장 안 함")
-    void reportWindowUsageRejectsWrongChallengeKind() {
+    void reportRejectsWrongChallengeKind() {
         // given: FOCUS DURATION 챌린지
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
-        givenReportableChallenge(user, group, MissionCategory.FOCUS, MissionType.DURATION);
+        givenMemberWithChallenge(user, group, MissionCategory.FOCUS, MissionType.DURATION);
 
         // when & then
         assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
@@ -246,7 +343,7 @@ class GroupBetWindowUsageServiceTest {
 
     @Test
     @DisplayName("게스트 보고 → GUEST_FORBIDDEN")
-    void reportWindowUsageGuestForbidden() {
+    void reportGuestForbidden() {
         // given
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
 
@@ -260,7 +357,7 @@ class GroupBetWindowUsageServiceTest {
 
     @Test
     @DisplayName("삭제됐거나 없는 챌린지에 보고 → NOT_FOUND")
-    void reportWindowUsageChallengeNotFound() {
+    void reportChallengeNotFound() {
         // given: 챌린지 조회가 비어 있다(soft delete 포함)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();

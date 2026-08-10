@@ -251,19 +251,19 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("since") Instant since);
 
     /**
-     * 창 사용분 보고 자격의 참가자 축(GROMO-1407, N43) — 이 챌린지의 <b>시작된</b>({@code starts_at}
-     * 경과) OPEN 회차에 참가 중인가. 그룹 멤버가 아니어도(탈퇴·강퇴) 이 조건이면 보고를 받는다 —
-     * 막으면 SCREEN_TIME 미보고 = 미달성이라 목표를 지켜도 돈이 걸린 채 패배 확정된다. 시작 전
-     * 예약 회차는 자격을 만들지 않는다("시작된 회차의 참가자" — 시작 전 보고는 선기록 구멍).
+     * 창 사용분 보고의 <b>대상 회차</b>(GROMO-1407, N34·N43) — 보고 날짜({@code usageDate})에
+     * 해당하는 이 챌린지의 회차. 설정이 챌린지당 1개(uq_group_challenge_bets_challenge)이고 회차가
+     * (설정, 날짜)당 1개라 결과는 최대 1건이다.
+     *
+     * <p>보고 자격·직렬화가 <b>이 회차에 결속</b>된다: 참가자는 이 날짜의 회차가 시작됐고 OPEN 일
+     * 때만 저장할 수 있다. 챌린지 단위로 "아무 OPEN 회차 참가자면 통과"로 두면, 오늘 회차 참가자가
+     * 함께 예약한 <b>미래 회차가 시작되기도 전에 그 날짜의 낮은 사용량을 미리 심을</b> 수 있다.
      */
-    @Query("SELECT COUNT(p) > 0 FROM GroupChallengeBetSession s, GroupChallengeBetParticipant p "
-            + "WHERE p.session = s AND s.challenge.id = :challengeId AND p.user.id = :userId "
-            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
-            + "AND s.startsAt <= :now")
-    boolean existsStartedOpenParticipation(
+    @Query("SELECT s FROM GroupChallengeBetSession s "
+            + "WHERE s.challenge.id = :challengeId AND s.sessionDate = :sessionDate")
+    Optional<GroupChallengeBetSession> findByChallengeIdAndSessionDate(
             @Param("challengeId") UUID challengeId,
-            @Param("userId") UUID userId,
-            @Param("now") Instant now);
+            @Param("sessionDate") LocalDate sessionDate);
 
     /**
      * 삭제 프리플라이트(GROMO-1416, N49·K11) — 이 챌린지의 OPEN 회차 전부(예약된 미래 포함)를
