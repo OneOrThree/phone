@@ -5,6 +5,7 @@ import {
   FlatList,
   findNodeHandle,
   PanResponder,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -975,21 +976,28 @@ export default function GroupListScreen({
               {reorderMenuGroupId === item.groupId && (
                 <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
                   <Text style={s.reorderTitle}>순서 변경</Text>
-                  {orderedGroups.map((target, targetIndex) => (
-                    <TouchableOpacity
-                      key={target.groupId}
-                      style={s.reorderOption}
-                      onPress={() => {
-                        commitMove(item.groupId, targetIndex, 'pointer_control');
-                        setReorderMenuGroupId(null);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${targetIndex + 1}번째로 이동`}
-                      testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
-                    >
-                      <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
-                    </TouchableOpacity>
-                  ))}
+                  <ScrollView
+                    style={s.reorderOptions}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator
+                    testID={`group.card.reorderOptions.${item.groupId}`}
+                  >
+                    {orderedGroups.map((target, targetIndex) => (
+                      <TouchableOpacity
+                        key={target.groupId}
+                        style={s.reorderOption}
+                        onPress={() => {
+                          commitMove(item.groupId, targetIndex, 'pointer_control');
+                          setReorderMenuGroupId(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${targetIndex + 1}번째로 이동`}
+                        testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
+                      >
+                        <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
                 </View>
               )}
             </View>
@@ -1114,8 +1122,10 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
     borderWidth: 1,
     borderColor: T.border,
+    maxHeight: 240,
   },
   reorderTitle: { ...T.text.caption, color: T.inkMuted, padding: T.space.xs },
+  reorderOptions: { maxHeight: 196 },
   reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
   reorderOptionText: { ...T.text.label, color: T.ink },
   saveError: {

@@ -317,6 +317,34 @@ describe('제스처 중재와 재정렬', () => {
     ).toEqual([GROUP_ID_2, GROUP_ID]);
   });
 
+  test('긴 순서 변경 메뉴는 카드 안에서 세로 스크롤로 모든 슬롯을 제공한다', async () => {
+    const groups = Array.from({ length: 11 }, (_, index) =>
+      group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
+    );
+    await renderList(groups);
+    const grip = screen.getByTestId(`group.card.grip.${groups[0].groupId}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+
+    const options = screen.getByTestId(`group.card.reorderOptions.${groups[0].groupId}`);
+    expect(options.props.nestedScrollEnabled).toBe(true);
+    expect(
+      screen.getAllByTestId(new RegExp(`group.card.reorderTo.${groups[0].groupId}`)),
+    ).toHaveLength(11);
+  });
+
   test('가장자리 유지 tick은 현재 target을 누적해 마지막 슬롯까지 이동한다', () => {
     const first = advanceEdgeTarget(0, 1, 3);
     const second = advanceEdgeTarget(first, 1, 3);

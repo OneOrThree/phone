@@ -342,6 +342,10 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       () => new Promise((resolve) => (resolveGroups = resolve)),
     );
 
+    currentRoute.mockReturnValueOnce({ key: '홈-1', name: '홈' }).mockReturnValue({
+      key: '그룹-1',
+      name: '그룹',
+    });
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}`);
     // 사용자가 홈 탭을 직접 눌렀다 — 딥링크가 아니라 일반 이동이라 세대는 그대로다.
     currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
@@ -349,6 +353,8 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     await flushAsync();
 
     expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
+    expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
   });
 
   test('이미 그룹방이 열려 있는 상태는 같은 흐름으로 보고 이동을 마친다', async () => {
