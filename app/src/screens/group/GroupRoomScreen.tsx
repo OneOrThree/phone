@@ -216,6 +216,9 @@ export default function GroupRoomScreen({
   const interactionAcceptedAt = entrySource === 'group_card' ? rawInteractionAcceptedAt : undefined;
   // 잔액은 CoinContext가 정본이다 — 여기서는 '서버가 정산했다'를 감지했을 때만 다시 받는다.
   const { refresh: refreshCoins } = useCoins();
+  const entrySource = normalizeFocusEntrySource(rawEntrySource);
+  const interactionId = entrySource === 'group_card' ? rawInteractionId : undefined;
+  const interactionAcceptedAt = entrySource === 'group_card' ? rawInteractionAcceptedAt : undefined;
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
   // null = 아직 한 번도 못 받음. '공지 없음(빈 배열)'과 '공지 조회 실패'를 구분한다 —
@@ -259,8 +262,8 @@ export default function GroupRoomScreen({
   // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
   // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
   const settledSigRef = useRef<string | null>(null);
-  // 그룹방 방문 계측(group_room_viewed)을 그룹당 1회로 묶는 기준 — 마지막으로 발행한 groupId.
-  // 새로고침·포그라운드 복귀 재조회·같은 방 재포커스에선 재발행하지 않고, 그룹을 바꾸면 다시 발행한다.
+  // 그룹방 방문 결과의 view episode — 같은 route의 새로고침·비카드 source 갱신에는 재발행하지 않는다.
+  // 같은 그룹이라도 새 카드 CTA ID라면 별도 episode이고, ID 소비는 전역 exact-once 가드가 맡는다.
   const roomViewedRef = useRef<{ groupId: string; interactionId?: string } | null>(null);
   // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
   const resultShownAtRef = useRef<number | null>(null);
@@ -434,16 +437,27 @@ export default function GroupRoomScreen({
       resultsUnknown = true;
     }
 
-    let resolvedDetail: GroupDetailResponse | null =
-      detailResult.status === 'fulfilled' ? detailResult.value : null;
-
-    // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
-    // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
-    const convergeMembershipAbsence = (): boolean => {
-      if (queuedResults > 0 || resultShownKeyRef.current !== null || pendingLeaveRef.current) {
-        pendingLeaveRef.current = true;
-        setError(true);
-        return true;
+    if (detailResult.status === 'fulfilled') {
+      setDetail(detailResult.value);
+      loadedDateRef.current = date;
+      // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — route episode당 1회.
+      const previousRoomView = roomViewedRef.current;
+      const isNewGroup = previousRoomView?.groupId !== groupId;
+      const isNewCardIntent =
+        entrySource === 'group_card' &&
+        interactionId != null &&
+        previousRoomView?.interactionId !== interactionId;
+      if (isNewGroup || isNewCardIntent) {
+        roomViewedRef.current = { groupId, interactionId };
+        const attributedInteractionId = consumeCardInteraction(
+          { entrySource, interactionId, interactionAcceptedAt },
+          ROOM_ATTRIBUTION_TTL_MS,
+        );
+        logGroupRoomViewed({
+          group_id: groupId,
+          entry_source: entrySource,
+          interaction_id: attributedInteractionId,
+        });
       }
       if (resultsUnknown) {
         setError(true);

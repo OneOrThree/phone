@@ -192,6 +192,15 @@ const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroup
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const GROUP_ID_3 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
+function roomParams(groupId: string, entrySource: 'group_find' | 'invite' | 'unknown') {
+  return {
+    groupId,
+    challengeId: undefined,
+    entrySource,
+    interactionId: undefined,
+    interactionAcceptedAt: undefined,
+  };
+}
 
 function summary(): GroupSummaryResponse {
   return {
@@ -443,13 +452,7 @@ describe('목록 분기(0/1/N)', () => {
 
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID,
-      challengeId: undefined,
-      entrySource: 'group_card',
-      interactionId: '11111111-1111-4111-8111-111111111111',
-      interactionAcceptedAt: 1_000,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'unknown'));
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
@@ -459,13 +462,7 @@ describe('목록 분기(0/1/N)', () => {
     expect(screen.getByText('목록 2건')).toBeOnTheScreen();
 
     await press('목록-저녁 스터디');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID_2,
-      challengeId: undefined,
-      entrySource: 'group_card',
-      interactionId: '11111111-1111-4111-8111-111111111111',
-      interactionAcceptedAt: 1_000,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'unknown'));
   });
 
   // GROMO-1088 — 스택에 이미 GroupRoom이 있으면 파라미터가 얕게 병합된다. challengeId 키를
@@ -553,13 +550,7 @@ describe('찾기 시트의 참여 중 행(onOpenGroup)', () => {
     await press('찾기-이동-아침 6시 집중방');
 
     // 소속이 1건이어도 이동은 그룹방 push다(목록 카드 탭과 같은 분기).
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID,
-      challengeId: undefined,
-      entrySource: 'group_find',
-      interactionId: undefined,
-      interactionAcceptedAt: undefined,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'group_find'));
     expect(screen.queryByText('찾기-참여완료')).toBeNull(); // 시트도 닫힌다
   });
 
@@ -570,13 +561,7 @@ describe('찾기 시트의 참여 중 행(onOpenGroup)', () => {
     await press('목록-찾기');
     await press('찾기-이동-저녁 스터디');
 
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID_2,
-      challengeId: undefined,
-      entrySource: 'group_find',
-      interactionId: undefined,
-      interactionAcceptedAt: undefined,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'group_find'));
     expect(screen.queryByText('찾기-참여완료')).toBeNull();
   });
 });
@@ -592,13 +577,7 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
     await press('초대-참여완료');
 
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID_2,
-      challengeId: undefined,
-      entrySource: 'invite',
-      interactionId: undefined,
-      interactionAcceptedAt: undefined,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'invite'));
     expect(mockClear).toHaveBeenCalled(); // 참여가 끝났으므로 초대 버퍼는 비운다
   });
 
@@ -611,13 +590,7 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
     await press('초대-참여완료');
 
     // 내장 그룹방이 없어졌으므로 1건이어도 초대 목적지로 push 한다.
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID,
-      challengeId: undefined,
-      entrySource: 'invite',
-      interactionId: undefined,
-      interactionAcceptedAt: undefined,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'invite'));
   });
 
   test('재조회 목록에 없는 그룹이면 아무 데도 보내지 않는다(참여 미반영)', async () => {
@@ -644,13 +617,7 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
     await press('초대-참여완료');
 
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
-      groupId: GROUP_ID_2,
-      challengeId: undefined,
-      entrySource: 'invite',
-      interactionId: undefined,
-      interactionAcceptedAt: undefined,
-    });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'invite'));
   });
 });
 

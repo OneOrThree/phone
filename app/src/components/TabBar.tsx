@@ -169,9 +169,9 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         style={s.fab}
         scaleTo={0.94}
         haptic="light"
+        accessibilityLabel="집중 시작"
         onPress={() =>
           rootNav.navigate('FocusCategory', {
-            initialGroupId: undefined,
             entrySource: 'home_fab',
             interactionId: undefined,
             interactionAcceptedAt: undefined,

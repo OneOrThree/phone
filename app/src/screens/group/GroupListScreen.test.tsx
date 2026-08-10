@@ -91,12 +91,29 @@ async function renderList(
       onFind={onFind}
       onRefresh={onRefresh}
       onBack={back}
+      enableCardDeck
     />,
   );
   if (waitHydrated) await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
   else await waitFor(() => expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen());
   return result;
 }
+
+test('운영 기본값은 덱을 노출하지 않고 기존 세로 목록을 유지한다', async () => {
+  await render(
+    <GroupListScreen
+      groups={[group()]}
+      onSelect={onSelect}
+      onCreate={onCreate}
+      onFind={onFind}
+      onRefresh={onRefresh}
+    />,
+  );
+
+  expect(screen.getByTestId('group.list.items').props.horizontal).toBe(false);
+  expect(screen.queryByTestId('group.deck.findMore')).toBeNull();
+  expect(screen.queryByTestId('group.deck.indicator')).toBeNull();
+});
 
 // 탭은 act로 감싼다 — 감싸지 않으면 fireEvent가 여는 act 스코프가 렌더 스코프와 겹쳐
 // ("overlapping act() calls") 다음 테스트의 렌더가 통째로 비는 일이 생긴다.
@@ -137,6 +154,82 @@ describe('카드 렌더', () => {
     expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+
+  test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
+    const groups = Array.from({ length: 11 }, (_, index) =>
+      group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
+    );
+    await renderList(groups);
+
+    expect(
+      screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toHaveLength(1);
+    expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
+    expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.refreshControl).toBeUndefined();
+    expect(screen.getByTestId('group.deck.refresh').props.refreshControl).toBeDefined();
+    expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.onScrollEndDrag).toEqual(
+      expect.any(Function),
+    );
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
+  });
+
+  test('목록 축소와 indicator mode 전환이 겹쳐도 확정된 stable index를 선택한다', async () => {
+    const groups = Array.from({ length: 6 }, (_, index) =>
+      group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
+    );
+    const view = await renderList(groups);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 320 } },
+      });
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 3500 } },
+      });
+    });
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('6 / 7');
+
+    await view.rerender(
+      <GroupListScreen
+        groups={groups.slice(0, 2)}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        enableCardDeck
+      />,
+    );
+
+    expect(screen.getByTestId('group.deck.indicator.dot.1').props.accessibilityState).toEqual({
+      selected: true,
+    });
+  });
+
+  test('덱을 런타임에 다시 활성화하면 stable 현재 페이지 offset을 복원한다', async () => {
+    const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
+    const props = {
+      groups,
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} enableCardDeck />);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+    });
+
+    await view.rerender(<GroupListScreen {...props} enableCardDeck={false} />);
+    await view.rerender(<GroupListScreen {...props} enableCardDeck />);
+
+    expect(screen.getByTestId('group.list.items').props.contentOffset).toBeUndefined();
+    expect(
+      screen.getByLabelText(/저녁 스터디, 공개방, 멤버, 2\/5명, 현재 2\/3 페이지/),
     ).toBeOnTheScreen();
   });
 
@@ -372,63 +465,13 @@ describe('콜백', () => {
   test('peek으로 보이는 이웃 카드를 탭하면 먼저 그 카드를 활성 페이지로 만든 뒤 뒤집는다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
-    await press(`group.card.${GROUP_ID_2}`);
-
-    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
-    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
-  });
-
-  test('비활성 이웃 카드는 터치 peek을 유지하되 접근성 트리에서는 숨긴다', async () => {
-    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-
-    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props).toEqual(
-      expect.objectContaining({
-        accessibilityElementsHidden: false,
-        importantForAccessibility: 'auto',
-      }),
-    );
-    expect(
-      screen.getByTestId(`group.list.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props,
-    ).toEqual(
-      expect.objectContaining({
-        accessibilityElementsHidden: true,
-        importantForAccessibility: 'no-hide-descendants',
-      }),
-    );
-  });
-
-  test('보조기술의 앞·뒷면 전환은 accessibility_action으로 기록한다', async () => {
-    await renderList([group()]);
-
     await act(async () => {
-      fireEvent(screen.getByTestId(`group.card.${GROUP_ID}`), 'accessibilityAction', {
-        nativeEvent: { actionName: 'activate' },
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
       });
     });
-    expect(logGroupCardFlipped).toHaveBeenLastCalledWith(
-      expect.objectContaining({ to_face: 'back', trigger: 'accessibility_action' }),
-    );
 
-    await act(async () => {
-      fireEvent(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`), 'accessibilityAction', {
-        nativeEvent: { actionName: 'activate' },
-      });
-    });
-    expect(logGroupCardFlipped).toHaveBeenLastCalledWith(
-      expect.objectContaining({ to_face: 'front', trigger: 'accessibility_action' }),
-    );
-  });
-
-  test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
-    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-
-    await press(`group.card.${GROUP_ID_2}`);
-
-    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
-    expect(screen.getByTestId(`group.card.back.scroll.${GROUP_ID_2}`)).toBeOnTheScreen();
-    expect(onSelect).not.toHaveBeenCalled();
-
-    await press(`group.card.room.${GROUP_ID_2}`);
+    await press(`group.list.card.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(
@@ -724,6 +767,10 @@ describe('콜백', () => {
     onRefresh.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
     await renderList([group()]);
 
+    // 가로 FlatList에는 RefreshControl을 붙일 수 없으므로, 덱을 감싼 세로 ScrollView가 소유한다.
+    const control = () => screen.getByTestId('group.deck.refresh').props.refreshControl.props;
+    expect(control().refreshing).toBe(false);
+
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.list.refresh'));
     });
@@ -975,5 +1022,35 @@ describe('제스처 중재와 재정렬', () => {
       ).toBeNull(),
     );
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+  });
+
+  test('덱은 중앙 활성 페이지만 접근성과 포인터 입력을 허용한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    expect(
+      screen.getByTestId(`group.list.cardPage.${GROUP_ID}`).props.importantForAccessibility,
+    ).toBe('auto');
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props.focusable).toBe(true);
+    expect(
+      screen.getByTestId(`group.list.cardPage.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .importantForAccessibility,
+    ).toBe('no-hide-descendants');
+    expect(
+      screen.getByTestId(`group.list.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .focusable,
+    ).toBe(false);
+    expect(
+      screen.getByTestId('group.deck.findMorePage', { includeHiddenElements: true }).props
+        .pointerEvents,
+    ).toBe('none');
+    expect(
+      screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }).props.focusable,
+    ).toBe(false);
+    expect(
+      screen.getByLabelText(/아침 6시 집중방, 공개방, 멤버, 2\/5명, 현재 1\/3 페이지/),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
   });
 });

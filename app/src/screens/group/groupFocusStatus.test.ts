@@ -30,6 +30,12 @@ async function flushPromises() {
 }
 
 describe('GroupFocusStatusStore coverage와 count', () => {
+  test('entry가 없는 동안 idle snapshot 참조가 안정적이다', () => {
+    const store = new GroupFocusStatusStore(jest.fn());
+
+    expect(store.getState(USER_ID, DATE)).toBe(store.getState(USER_ID, DATE));
+  });
+
   test('raw 99행 이하는 완전한 응답이며 확인된 0명과 N명을 계산한다', async () => {
     const rows = [member('a', true), member('b', false)];
     const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
@@ -56,7 +62,7 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     });
   });
 
-  test('최초 loading·error는 미산출이고 complete는 갱신 중 유지한 뒤 실패 시 stale이 된다', async () => {
+  test('loading·최초 error는 미산출이고 이전 complete 뒤 갱신 실패만 stale count를 유지한다', async () => {
     const refresh = deferred<LeagueMemberResponse[]>();
     const load = jest
       .fn()
@@ -66,13 +72,9 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     await store.ensure(USER_ID, DATE);
     const pending = store.retry(USER_ID, DATE);
 
-    expect(store.getState(USER_ID, DATE)).toEqual({
-      status: 'ready',
-      data: [member('a', true)],
-    });
+    expect(store.getState(USER_ID, DATE)).toEqual({ status: 'loading' });
     expect(deriveGroupFocusCount(['a'], store.getState(USER_ID, DATE))).toEqual({
-      status: 'ready',
-      count: 1,
+      status: 'unavailable',
     });
     refresh.reject(new Error('network'));
     await pending;
@@ -89,24 +91,6 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     });
   });
 
-  test('coverage-unknown이 확인되면 이전 complete fallback을 폐기한다', async () => {
-    const complete = [member('a', true)];
-    const incomplete = Array.from({ length: 100 }, (_, index) => member(String(index), false));
-    const load = jest
-      .fn()
-      .mockResolvedValueOnce(complete)
-      .mockResolvedValueOnce(incomplete)
-      .mockRejectedValueOnce(new Error('network'));
-    const store = new GroupFocusStatusStore(load);
-
-    await store.ensure(USER_ID, DATE);
-    await store.retry(USER_ID, DATE);
-    expect(store.getState(USER_ID, DATE)).toEqual({ status: 'coverage-unknown' });
-
-    await store.retry(USER_ID, DATE);
-    expect(store.getState(USER_ID, DATE).status).toBe('error');
-  });
-
   test('같은 userId+date의 in-flight 요청은 ensure와 refresh가 공유한다', async () => {
     const pending = deferred<LeagueMemberResponse[]>();
     const load = jest.fn(() => pending.promise);
@@ -120,6 +104,26 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     expect(load).toHaveBeenCalledTimes(1);
     pending.resolve([]);
     await Promise.all(requests);
+  });
+
+  test('coverage-unknown 이후 실패에서는 이전 complete 숫자를 되살리지 않는다', async () => {
+    const rows100 = Array.from({ length: 100 }, (_, index) => member(String(index), false));
+    const load = jest
+      .fn()
+      .mockResolvedValueOnce([member('a', true)])
+      .mockResolvedValueOnce(rows100)
+      .mockRejectedValueOnce(new Error('network'));
+    const store = new GroupFocusStatusStore(load);
+
+    await store.ensure(USER_ID, DATE);
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('coverage-unknown');
+
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('error');
+    expect(deriveGroupFocusCount(['a'], store.getState(USER_ID, DATE))).toEqual({
+      status: 'unavailable',
+    });
   });
 });
 
@@ -142,24 +146,6 @@ describe('GroupFocusPollingController', () => {
     expect(load).toHaveBeenCalledTimes(1);
     await flushPromises();
     jest.advanceTimersByTime(60_000);
-    expect(load).toHaveBeenCalledTimes(2);
-    controller.dispose();
-  });
-
-  test('새 controller의 첫 활성화는 이전 ready cache도 즉시 갱신한다', async () => {
-    const load = jest.fn().mockResolvedValue([]);
-    const store = new GroupFocusStatusStore(load);
-    await store.ensure(USER_ID, DATE);
-    expect(load).toHaveBeenCalledTimes(1);
-
-    const controller = new GroupFocusPollingController({
-      store,
-      userId: USER_ID,
-      getDate: () => DATE,
-    });
-    controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
-    controller.activate();
-
     expect(load).toHaveBeenCalledTimes(2);
     controller.dispose();
   });
@@ -189,7 +175,7 @@ describe('GroupFocusPollingController', () => {
     controller.dispose();
   });
 
-  test('KST 날짜 변경은 다음 tick의 새 cache key로 조회한다', async () => {
+  test('KST 자정 경계에서 interval을 기다리지 않고 새 cache key로 즉시 조회한다', async () => {
     let date = DATE;
     const load = jest.fn().mockResolvedValue([]);
     const store = new GroupFocusStatusStore(load);
@@ -197,15 +183,41 @@ describe('GroupFocusPollingController', () => {
       store,
       userId: USER_ID,
       getDate: () => date,
+      getMsUntilNextDate: () => 1_000,
     });
     controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
     controller.activate();
     await flushPromises();
+    const oldDateListener = jest.fn();
+    store.subscribe(USER_ID, DATE, oldDateListener);
+    jest.advanceTimersByTime(999);
+    expect(load).toHaveBeenCalledTimes(1);
+
     date = '2026-08-11';
-    jest.advanceTimersByTime(60_000);
+    jest.advanceTimersByTime(1);
 
     expect(load).toHaveBeenNthCalledWith(1, DATE);
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
+    expect(oldDateListener).toHaveBeenCalledTimes(1);
+    expect(store.getState(USER_ID, DATE).status).toBe('idle');
     controller.dispose();
+  });
+
+  test('dispose 뒤 같은 user/date의 새 controller는 이전 ready cache 대신 즉시 재조회한다', async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const store = new GroupFocusStatusStore(load);
+    const first = new GroupFocusPollingController({ store, userId: USER_ID, getDate: () => DATE });
+    first.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    first.activate();
+    await flushPromises();
+    expect(load).toHaveBeenCalledTimes(1);
+
+    first.dispose();
+    const second = new GroupFocusPollingController({ store, userId: USER_ID, getDate: () => DATE });
+    second.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    second.activate();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    second.dispose();
   });
 });
