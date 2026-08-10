@@ -1,9 +1,11 @@
 import {
   clearPendingGroupEntry,
   claimGroupEntry,
+  consumeInitialGroupRoomReturn,
   consumeGroupEntry,
   consumeClaimedGroupEntry,
   discardQueuedGroupEntry,
+  markInitialGroupRoomReturn,
   peekGroupEntry,
   queueDirectGroupEntry,
 } from './groupEntrySource';
@@ -53,4 +55,11 @@ test('episode claim은 성공 전 source를 보존하고 성공 시 자기 token
   expect(peekGroupEntry('tab')).toBe('push');
   expect(consumeClaimedGroupEntry(claim)).toBe('push');
   expect(peekGroupEntry('tab')).toBe('tab');
+});
+
+test('GroupRoom 최초 우회 표식은 return fallback에서 한 번만 소비한다', () => {
+  markInitialGroupRoomReturn();
+
+  expect(consumeInitialGroupRoomReturn()).toBe(true);
+  expect(consumeInitialGroupRoomReturn()).toBe(false);
 });

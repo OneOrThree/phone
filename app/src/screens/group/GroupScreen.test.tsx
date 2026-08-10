@@ -18,6 +18,7 @@ import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import {
   clearPendingGroupEntry,
+  markInitialGroupRoomReturn,
   peekGroupEntry,
   queueDirectGroupEntry,
 } from '@/navigation/groupEntrySource';
@@ -341,6 +342,28 @@ describe('group_viewed view episode', () => {
     expect(mockGetMyGroups).not.toHaveBeenCalled();
     expect(mockLogGroupViewed).not.toHaveBeenCalled();
     expect(peekGroupEntry('tab')).toBe('invite');
+  });
+
+  test('게스트의 push source는 로그인과 무관하므로 blur에서 폐기한다', async () => {
+    queueDirectGroupEntry('push');
+    mockIsGuest = true;
+    const { unmount } = await renderScreen();
+
+    await act(async () => unmount());
+
+    expect(peekGroupEntry('tab')).toBe('tab');
+  });
+
+  test('lazy GroupScreen을 건너뛴 결과 방의 첫 복귀는 return으로 기록한다', async () => {
+    markInitialGroupRoomReturn();
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
   });
 
   test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {

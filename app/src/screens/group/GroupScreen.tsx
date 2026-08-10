@@ -19,6 +19,7 @@ import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
   claimGroupEntry,
+  consumeInitialGroupRoomReturn,
   consumeClaimedGroupEntry,
   discardQueuedGroupEntry,
   type GroupEntrySource,
@@ -178,8 +179,12 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
-      const fallback: GroupEntrySource =
-        !hasFocusedRef.current || nextFocusFromTabRef.current ? 'tab' : 'return';
+      const returnedFromInitialRoom = consumeInitialGroupRoomReturn();
+      const fallback: GroupEntrySource = returnedFromInitialRoom
+        ? 'return'
+        : !hasFocusedRef.current || nextFocusFromTabRef.current
+          ? 'tab'
+          : 'return';
       nextFocusFromTabRef.current = false;
       hasFocusedRef.current = true;
       const claim = claimGroupEntry(fallback);
@@ -193,7 +198,7 @@ export default function GroupScreen() {
         requestSeqRef.current++;
         // 인증된 episode가 성공 전 끝났으면 그 외부 진입도 끝난 것이다. 게스트 invite는 로그인
         // 승격을 위해 유지하고, 시트 닫기(closeInvite)에서만 명시적으로 폐기한다.
-        if (!isGuest) discardQueuedGroupEntry(claim.token);
+        if (!isGuest || claim.source !== 'invite') discardQueuedGroupEntry(claim.token);
       };
     }, [fetchGroups, isGuest]),
   );

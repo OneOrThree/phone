@@ -13,6 +13,7 @@ export interface ClaimedGroupEntry {
 // 이미 focus된 화면에 도착한 warm invite/push는 이 모듈을 호출하지 않는다.
 let pendingDirectEntry: { source: DirectGroupEntrySource; token: GroupEntryToken } | null = null;
 let nextToken = 1;
+let pendingInitialRoomReturn = false;
 
 export function queueDirectGroupEntry(source: DirectGroupEntrySource): GroupEntryToken | null {
   // 첫 외부 전이의 원인을 보존한다. 화면이 focus되기 전에 후속 링크가 도착해도
@@ -56,4 +57,18 @@ export function discardQueuedGroupEntry(token: GroupEntryToken | null): boolean 
 
 export function clearPendingGroupEntry(): void {
   pendingDirectEntry = null;
+  pendingInitialRoomReturn = false;
+}
+
+// 결과성 push가 lazy GroupScreen을 focus하지 않고 GroupRoom으로 곧바로 우회하면, 방을 닫은
+// 뒤의 첫 GroupScreen focus는 탭 선택이 아니라 자식 화면에서의 복귀다. 이 표식은 source queue와
+// 별개로 그 한 번의 fallback만 return으로 고정한다.
+export function markInitialGroupRoomReturn(): void {
+  pendingInitialRoomReturn = true;
+}
+
+export function consumeInitialGroupRoomReturn(): boolean {
+  const pending = pendingInitialRoomReturn;
+  pendingInitialRoomReturn = false;
+  return pending;
 }

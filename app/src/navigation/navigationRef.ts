@@ -9,6 +9,7 @@ import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 import {
   discardQueuedGroupEntry,
+  markInitialGroupRoomReturn,
   queueDirectGroupEntry,
   type GroupEntryToken,
 } from '@/navigation/groupEntrySource';
@@ -134,12 +135,21 @@ export function navigateToDeepLink(link: string): void {
       // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
       const groupId = readGroupParam(link);
       const resultPush = readResultFlag(link);
+      const currentRoute = navigationRef.getCurrentRoute?.()?.name;
       // 결과성 push는 같은 호출 흐름에서 GroupRoom으로 즉시 우회한다. GroupScreen focus가
       // 성립하지 않는 경로에 source를 남기면 방을 닫은 뒤의 별도 episode가 오래된 push를 소비한다.
       const entryToken =
-        navigationRef.getCurrentRoute?.()?.name !== '그룹' && !(resultPush && groupId !== null)
+        currentRoute !== '그룹' && !(resultPush && groupId !== null)
           ? queueDirectGroupEntry('push')
           : null;
+      if (
+        resultPush &&
+        groupId !== null &&
+        currentRoute !== '그룹' &&
+        currentRoute !== 'GroupRoom'
+      ) {
+        markInitialGroupRoomReturn();
+      }
       if (readRefundFlag(link)) requestCoinRefresh();
       navigateToGroup(seq, groupId, readChallengeParam(link), resultPush, entryToken);
       break;
@@ -264,6 +274,9 @@ export function flushPendingDeepLink(): void {
   // 기회 자체가 없어 "로그인하면 이 초대장이 다시 열려요"라는 안내가 깨진다(§6-6).
   // 여기서 그룹 탭으로 옮겨 주면 화면이 마운트되며 같은 그룹 프리뷰가 다시 뜬다.
   if (pendingInvite && navigationRef.isReady()) {
+    // deferred match는 직접 링크 파서를 지나지 않으므로 아직 source token이 없다. 새 컨테이너에서
+    // 이 버퍼가 실제 그룹 focus를 만들 때 direct invite와 같은 1회성 source를 예약한다.
+    if (navigationRef.getCurrentRoute?.()?.name !== '그룹') queueDirectGroupEntry('invite');
     navigationRef.navigate('Main', { screen: '그룹' } as never);
   }
 }

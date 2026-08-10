@@ -12,11 +12,16 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
-import { discardQueuedGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  discardQueuedGroupEntry,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 jest.mock('@/navigation/groupEntrySource', () => ({
   discardQueuedGroupEntry: jest.fn(),
+  markInitialGroupRoomReturn: jest.fn(),
   queueDirectGroupEntry: jest.fn(),
 }));
 
@@ -33,6 +38,9 @@ const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
 >;
 const mockDiscardQueuedGroupEntry = discardQueuedGroupEntry as jest.MockedFunction<
   typeof discardQueuedGroupEntry
+>;
+const mockMarkInitialGroupRoomReturn = markInitialGroupRoomReturn as jest.MockedFunction<
+  typeof markInitialGroupRoomReturn
 >;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
@@ -164,6 +172,16 @@ describe('컨테이너 준비(onReady)', () => {
     expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
     // 버퍼는 GroupScreen이 이어받을 때까지 남는다
     expect(peekPendingInvite()).toEqual({ groupId: GROUP_ID, slug: null, entry: 'link' });
+  });
+
+  test('deferred 초대 버퍼가 새 그룹 focus를 만들 때 invite source를 예약한다', () => {
+    notifyGroupInvite({ groupId: GROUP_ID, slug: SLUG, entry: 'deferred' });
+    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+
+    flushPendingDeepLink();
+
+    expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('invite');
+    expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
   });
 
   test('보류된 링크·초대가 없으면 아무 데도 가지 않는다(일반 실행)', () => {
@@ -387,6 +405,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       await flushAsync();
 
       expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
+      expect(mockMarkInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
       expect(mockDiscardQueuedGroupEntry).toHaveBeenCalledWith(null);
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
