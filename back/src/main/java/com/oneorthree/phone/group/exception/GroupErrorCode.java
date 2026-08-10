@@ -56,8 +56,19 @@ public enum GroupErrorCode {
     BET_NOT_OPEN(HttpStatus.CONFLICT, "이미 종료된 내기예요"),
     // 참가 철회(leave, GROMO-1102) 전용 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
     BET_NOT_JOINED(HttpStatus.CONFLICT, "참가하지 않은 내기예요"),
-    // "시작 이후"의 철회 거절. BET_NOT_OPEN(상태 위반)과 구분되는 시각 위반 전용 코드다.
-    BET_LEAVE_CLOSED(HttpStatus.CONFLICT, "내기가 시작되어 철회할 수 없어요"),
+    // "취소 마감 이후"의 철회 거절(N22) — 시작 전 참가는 회차 시작, 시작 후 참가(하루형)는
+    // min(참가+5분, 회차 종료)까지. BET_NOT_OPEN(상태 위반)과 구분되는 시각 위반 전용 코드다.
+    BET_LEAVE_CLOSED(HttpStatus.CONFLICT, "취소할 수 있는 시간이 지났어요"),
+    // 신 참여 경로(GROMO-1408~1409) — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
+    // SCREEN_TIME 회차 참여의 서버 권한 가드(N50) — canParticipate 표시는 계약이 아니라서, 권한 없는
+    // 참가(미보고=미달성 확정 패배)를 서버가 막는다. 차감과 같은 트랜잭션, 잔액 검사보다 먼저 걸린다.
+    BET_SCREENTIME_PERMISSION_REQUIRED(HttpStatus.CONFLICT, "스크린타임 권한을 허용해야 참가할 수 있어요"),
+    // 잔액 부족(신 참여 경로 전용, LLD §2.2) — join-week 은 총액 기준으로 선검사한다. 레거시 경로의
+    // INSUFFICIENT_CURRENCY(지갑 차감 시점 400)와 달리 참가 확정 전 409 로 결정적으로 거절한다.
+    BET_INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "잔액이 부족해요"),
+    // join-week 지정 날짜 검증(LLD §2.2) — 활성일 아님·이번 주 밖·과거·중복·빈 목록. 조용한 dedup 보다
+    // 400 이 낫다(클라 버그를 숨기지 않는다).
+    INVALID_SESSION_DATES(HttpStatus.BAD_REQUEST, "참여할 수 없는 날짜가 있어요"),
 
     // 챌린지 생성 충돌 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
     // 하루형(DURATION)만 카테고리당 활성 1개(FR-3 · V36 부분 유니크) — 창형은 겹치지 않으면 복수 허용이라

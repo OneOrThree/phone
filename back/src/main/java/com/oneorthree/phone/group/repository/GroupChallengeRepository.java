@@ -37,6 +37,19 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
     Optional<GroupChallenge> findByIdAndGroupAndDeletedAtIsNullForUpdate(
             @Param("id") UUID id, @Param("group") Group group);
 
+    /**
+     * 신 참여 경로(GROMO-1408·1414) 전용 — 같은 조회 + 챌린지 행 <b>공유 락</b>(SELECT … FOR SHARE).
+     *
+     * <p>참여(회차 lazy 개설 포함)는 이 공유 락 아래에서만 진행한다(계약 §3): 종료·삭제의 배타 락
+     * ({@link #findByIdAndGroupAndDeletedAtIsNullForUpdate}, N42)과 직렬화돼, 삭제가 "OPEN 회차
+     * 없음"을 본 뒤에 lazy 개설·참가가 끼어들어 삭제된 챌린지에 참가비가 매달리는 창을 없앤다.
+     * 참여끼리는 공유 락이라 병렬이다 — 회차·지갑 직렬화는 회차 행 락과 원장 유니크가 맡는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select c from GroupChallenge c where c.id = :id and c.group = :group and c.deletedAt is null")
+    Optional<GroupChallenge> findByIdAndGroupAndDeletedAtIsNullForShare(
+            @Param("id") UUID id, @Param("group") Group group);
+
     List<GroupChallenge> findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(Group group);
 
     // GROMO-674: 그룹 대표 챌린지(가장 오래된 ACTIVE, 미삭제) — 그룹 상세/오버뷰의 미션 정보 소스.
