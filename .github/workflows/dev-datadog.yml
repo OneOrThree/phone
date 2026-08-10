@@ -150,21 +150,28 @@ jobs:
           fail=0
 
           # 0) 스키마 가드 — 아래 검증이 참조하는 경로가 사라졌으면 통과시키지 말고 멈춘다.
-          for path in '.logsStats.metrics.LogsProcessed' '.runnerStats.Checks' '.agent_start_nano'; do
-            if ! jq -e "$path" /tmp/dd-after.json >/dev/null 2>&1; then
-              echo "::error::agent status JSON 스키마 변경 — $path 없음. 이 스텝의 파싱을 갱신해야 한다"
-              fail=1
-            fi
+          #    before/after 둘 다 검사한다. after 만 보면, before 쪽 값이 `null` 일 때 `jq -r` 이 에러 없이
+          #    문자열 "null" 을 돌려주고 `${before:-0}` 는 (unset/빈 문자열이 아니므로) 발동하지 않아
+          #    `[ 5 -le null ]` 같은 잘못된 비교가 된다. `-e` 가 없으니 스크립트는 죽지 않고 `[` 의 비정상
+          #    종료가 if 문맥에서 그냥 "거짓"이 되어 조용히 통과한다 — 이 스텝이 막으려는 바로 그 패턴이다.
+          for f in /tmp/dd-before.json /tmp/dd-after.json; do
+            for path in '.logsStats.metrics.LogsProcessed' '.runnerStats.Checks' '.agent_start_nano'; do
+              if ! jq -e "$path" "$f" >/dev/null 2>&1; then
+                echo "::error::agent status JSON 스키마 변경 — $f 에 $path 없음. 이 스텝의 파싱을 갱신해야 한다"
+                fail=1
+              fi
+            done
           done
           [ "$fail" -eq 0 ] || exit 1
 
           # 1) 컨테이너 로그 — **누적값이 아니라 대기 구간의 증가량**을 본다.
           #    `up` 은 설정이 그대로면 기존 datadog-agent 를 재시작하지 않으므로, LogsProcessed 는 과거
           #    누적이 남아 양수일 수 있다. 그러면 지금 tailer 가 끊겨 있어도 "0 아님"으로 통과해 버린다.
-          before=$(jq -r '.logsStats.metrics.LogsProcessed' /tmp/dd-before.json)
-          after=$(jq -r '.logsStats.metrics.LogsProcessed' /tmp/dd-after.json)
-          s_before=$(jq -r '.agent_start_nano' /tmp/dd-before.json)
-          s_after=$(jq -r '.agent_start_nano' /tmp/dd-after.json)
+          #    위 가드를 통과해도 필터에 `// 0` 을 둔다 — 가드와 판정이 각자 안전하도록(이중 방어).
+          before=$(jq -r '.logsStats.metrics.LogsProcessed // 0' /tmp/dd-before.json)
+          after=$(jq -r '.logsStats.metrics.LogsProcessed // 0' /tmp/dd-after.json)
+          s_before=$(jq -r '.agent_start_nano // 0' /tmp/dd-before.json)
+          s_after=$(jq -r '.agent_start_nano // 0' /tmp/dd-after.json)
           echo "LogsProcessed: ${before} -> ${after} (agent_start ${s_before} -> ${s_after})"
 
           if [ "$s_before" != "$s_after" ]; then
