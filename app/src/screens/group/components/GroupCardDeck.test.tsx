@@ -21,6 +21,7 @@ test('서버 data에 찾기 카드를 섞지 않고 가로 snap 덱으로 렌더
   await render(
     <GroupCardDeck
       groups={groups}
+      activeGroupId="group-0"
       onFind={onFind}
       renderCard={(item) => <Text>{item.name}</Text>}
     />,
@@ -39,6 +40,7 @@ test('drag 종료와 momentum 종료가 모두 active card 확정 경로를 가�
   await render(
     <GroupCardDeck
       groups={[group(0), group(1)]}
+      activeGroupId="group-0"
       onFind={jest.fn()}
       renderCard={(item) => <Text>{item.name}</Text>}
     />,
@@ -57,6 +59,7 @@ test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한
   await render(
     <GroupCardDeck
       groups={[group(0), group(1)]}
+      activeGroupId="group-0"
       onFind={jest.fn()}
       renderCard={(item) => <Text>{item.name}</Text>}
     />,
@@ -79,6 +82,7 @@ test('dots 폭은 좌우 20pt gutter를 제외한 가용 폭으로 판정한다'
   await render(
     <GroupCardDeck
       groups={Array.from({ length: 7 }, (_, index) => group(index))}
+      activeGroupId="group-0"
       onFind={jest.fn()}
       renderCard={(item) => <Text>{item.name}</Text>}
     />,
@@ -98,4 +102,28 @@ test('활성 그룹이 삭제되면 마지막 카드가 아니라 직전 위치�
   expect(resolveDeckIndex(remaining, 'group-1', 1)).toBe(1);
   expect(resolveDeckIndex(remaining, 'group-3', 3)).toBe(2);
   expect(resolveDeckIndex(remaining, null, 1)).toBe(remaining.length);
+});
+
+test('부모가 전달한 stable groupId를 초기 페이지와 후속 복원의 기준으로 쓴다', async () => {
+  const groups = [group(0), group(1), group(2)];
+  const view = await render(
+    <GroupCardDeck
+      groups={groups}
+      activeGroupId="group-1"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 4');
+
+  await view.rerender(
+    <GroupCardDeck
+      groups={groups}
+      activeGroupId="group-2"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('3 / 4');
 });

@@ -20,6 +20,7 @@ const DOT_GAP = 4;
 
 export interface GroupCardDeckProps {
   groups: GroupSummaryResponse[];
+  activeGroupId: string | null;
   onFind: () => void;
   renderCard: (group: GroupSummaryResponse) => ReactElement;
 }
@@ -40,17 +41,19 @@ const groupOrderKey = (groups: readonly GroupSummaryResponse[]) =>
 
 // 운영 GroupListScreen을 교체하기 전, 덱 자체의 폭·snap·stable identity만 독립 검증하는 컴포넌트다.
 // 앞면·인디케이터·flip 계약이 합쳐질 때 이 경계를 운영 화면에 연결한다.
-export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps) {
+export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: GroupCardDeckProps) {
   const { width: windowWidth } = useWindowDimensions();
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
-  const activeGroupIdRef = useRef<string | null>(groups[0]?.groupId ?? null);
-  const activeIndexRef = useRef(0);
+  const initialIndex = resolveDeckIndex(groups, activeGroupId, 0);
+  const activeGroupIdRef = useRef<string | null>(groups[initialIndex]?.groupId ?? null);
+  const activeIndexRef = useRef(initialIndex);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const orderKey = groupOrderKey(groups);
   const previousOrderKeyRef = useRef(orderKey);
   const previousSnapIntervalRef = useRef(snapInterval);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const previousActiveInputRef = useRef<string | null | undefined>(undefined);
+  const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [indicatorWidth, setIndicatorWidth] = useState(0);
   const pageCount = groups.length + 1;
   const showDots =
@@ -75,17 +78,19 @@ export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps
   useEffect(() => {
     const orderChanged = previousOrderKeyRef.current !== orderKey;
     const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
+    const activeInputChanged = previousActiveInputRef.current !== activeGroupId;
     previousOrderKeyRef.current = orderKey;
     previousSnapIntervalRef.current = snapInterval;
-    if (!orderChanged && !intervalChanged) return;
+    previousActiveInputRef.current = activeGroupId;
+    if (!orderChanged && !intervalChanged && !activeInputChanged) return;
 
-    const identity = activeGroupIdRef.current;
+    const identity = activeInputChanged ? activeGroupId : activeGroupIdRef.current;
     const index = resolveDeckIndex(groups, identity, activeIndexRef.current);
     activeGroupIdRef.current = groups[index]?.groupId ?? null;
     activeIndexRef.current = index;
     setActiveIndex(index);
     listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: false });
-  }, [groups, orderKey, snapInterval]);
+  }, [activeGroupId, groups, orderKey, snapInterval]);
 
   const selectPage = (page: number) => {
     listRef.current?.scrollToOffset({ offset: page * snapInterval, animated: true });
