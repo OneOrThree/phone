@@ -1423,7 +1423,7 @@ export default function FocusSessionScreen() {
         {/* 타이머 리드아웃(모드별).
             key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
             갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
-        <Animated.View key={session.phase} style={[s.readout, m.css(fadeIn())]}>
+        <Animated.View key={session.phase} style={[s.readout, m.enter(fadeIn())]}>
           {renderReadout(mode, session, goal, pomo, subjectName, layout, timerTextStyle)}
         </Animated.View>
 
@@ -1438,7 +1438,7 @@ export default function FocusSessionScreen() {
           >
             {/* 아이콘이 바뀌는 순간 팝으로 갈아탄다 — key로 새로 마운트시켜야 프리셋이 다시 돈다.
                 버튼의 testID(focus.pause)는 위 PressableScale에 그대로 남아 E2E 셀렉터에 영향 없음. */}
-            <Animated.View key={paused ? 'play' : 'pause'} style={m.css(pop())}>
+            <Animated.View key={paused ? 'play' : 'pause'} style={m.enter(pop())}>
               <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
             </Animated.View>
           </PressableScale>

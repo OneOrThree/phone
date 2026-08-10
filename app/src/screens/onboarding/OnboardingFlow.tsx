@@ -337,6 +337,8 @@ function StepFade({
   const frozen = useRef<ReturnType<typeof fadeIn> | undefined>(undefined);
   if (!decided.current && m.ready) {
     decided.current = true;
+    // 여기선 m.css로 충분하다 — 위 조건이 이미 m.ready를 기다리므로 m.enter의 '확정 전
+    // 시작 프레임' 경로를 탈 일이 없고, 대기 상태는 styles.pendingEnter가 담당한다.
     frozen.current = m.css(fadeIn());
   }
   return (
