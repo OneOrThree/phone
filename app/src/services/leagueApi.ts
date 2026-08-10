@@ -25,9 +25,13 @@ export async function getMyTier(): Promise<LeagueTierResponse> {
 // date는 필수(누락 시 서버 400) — 라이브 필드의 '당일 집중분' 기준일로, KST 오늘을 보낸다
 // (GROMO-824/854 도입, GROMO-1236에서 KST 이전 — 서버 버킷이 KST고 주 경계도 이미 KST라
 // 일 축만 로컬이던 내부 모순 해소. friendsApi.fetchFriends와 동일 패턴).
-export async function getMyRanking(category?: OccupationCategory): Promise<LeagueMemberResponse[]> {
+export async function getMyRanking(
+  category?: OccupationCategory,
+  date = todayStrKst(),
+): Promise<LeagueMemberResponse[]> {
+  const params = category ? { category, date } : { date };
   const { data } = await api.get<LeagueMemberResponse[]>('/api/v1/league/me/ranking', {
-    params: { category, date: todayStrKst() },
+    params,
   });
   return data;
 }
