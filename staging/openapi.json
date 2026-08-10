@@ -105,6 +105,10 @@
       "description": "무인증 초대 링크 — 랜딩·deferred 매치"
     },
     {
+      "name": "Group Challenge",
+      "description": "그룹 챌린지 (목록/생성/종료/삭제/창 사용분 보고)"
+    },
+    {
       "name": "notification-test",
       "description": "테스트 푸시 발송 (local/dev/staging 전용 — 인증·필터 미적용)"
     },
@@ -239,7 +243,7 @@
     "/api/v1/groups/{groupId}/challenges/{challengeId}/window-usage": {
       "put": {
         "tags": [
-          "Group"
+          "Group Challenge"
         ],
         "summary": "스크린타임 창 사용분 보고",
         "description": "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별 창 내 사용분 업로드. 그룹원 또는 시작된 OPEN 회차의 참가자(탈퇴자 포함 — N43). (챌린지, 유저, 날짜)당 1행 upsert — measuredAt 단조 갱신(GROMO-1407·N34): 저장된 측정 시각보다 오래된 보고는 조용히 204 로 무시된다. 본문은 {usageDate, progressMinutes, measuredAt} (구앱 {date, usedMinutes} 도 수용). 값은 클라 신뢰(±15분 눈금 오차).",
@@ -1230,10 +1234,10 @@
     "/api/v1/groups/{groupId}/challenges": {
       "get": {
         "tags": [
-          "Group"
+          "Group Challenge"
         ],
         "summary": "그룹 챌린지 목록 조회",
-        "description": "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외. date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다 — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null. TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치), SCREEN_TIME 은 클라 보고값(미보고 \u003d null).",
+        "description": "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외. date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다 — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null. TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치), SCREEN_TIME 은 클라 보고값(미보고 \u003d null). 내기 응답(bet)은 \u0027오늘 열린 판\u0027이라 회차가 없는 날엔 null 이다 — 브리지 주기 동안 레거시 필드(betId·status·myJoined·participants)와 신앱 필드(enabled·session)를 병기한다(N36 보강, GROMO-1418). 내기가 걸려 있는지 자체는 회차와 무관한 betConfig(enabled·stake)가, 다음 회차 축은 nextSessionAt·nextSessionJoined 가 담당한다.",
         "operationId": "getGroupChallenges",
         "parameters": [
           {
@@ -1312,7 +1316,7 @@
       },
       "post": {
         "tags": [
-          "Group"
+          "Group Challenge"
         ],
         "summary": "그룹 챌린지 생성",
         "description": "OWNER만 생성 가능. 성공 시 201 반환. repeatDays(도는 요일, [\"MON\"..\"SUN\"])는 신앱 필수(빈 배열 400) — 미전송 구앱은 매일(127)로 처리. TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 \u003c x ≤ 창 길이) 필수 — 자정 걸침 금지(시작 \u003c 종료), FOCUS 목표는 관용치 5분 초과, SCREEN_TIME 목표는 15분 배수. DURATION 목표 상한은 카테고리별(FOCUS 1080분·SCREEN_TIME 720분, N51). windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) — 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.",
@@ -1558,7 +1562,7 @@
     "/api/v1/groups/{groupId}/challenges/{challengeId}/end": {
       "post": {
         "tags": [
-          "Group"
+          "Group Challenge"
         ],
         "summary": "그룹 챌린지 종료",
         "description": "OWNER만 가능. 성공 시 204 — ENDED 전이(ended_at 기록), 더 이상 새 회차를 세우지 않는다. 이미 ENDED 면 멱등 204. 진행 중(OPEN 회차 존재)이면 409 — 접으려면 삭제(무효화 + 전원 환불)를 쓴다(policy §A8).",
@@ -1767,7 +1771,7 @@
             }
           },
           "409": {
-            "description": "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED / BET_CLOSED(date 가 오늘이 아님)",
+            "description": "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED / BET_CLOSED(오늘·내일 아님 / 비활성 요일 / 창 마감)",
             "content": {
               "*/*": {
                 "schema": {
@@ -5592,7 +5596,7 @@
     "/api/v1/groups/{groupId}/challenges/{challengeId}": {
       "delete": {
         "tags": [
-          "Group"
+          "Group Challenge"
         ],
         "summary": "그룹 챌린지 삭제",
         "description": "OWNER만 삭제 가능. 성공 시 204 반환.",
@@ -7999,6 +8003,18 @@
           }
         }
       },
+      "GroupBetConfigResponse": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "GroupBetParticipantResponse": {
         "type": "object",
         "properties": {
@@ -8056,6 +8072,12 @@
             "items": {
               "$ref": "#/components/schemas/GroupBetParticipantResponse"
             }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/components/schemas/GroupBetSessionResponse"
           }
         }
       },
@@ -8101,6 +8123,89 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GroupBetResultParticipantResponse"
+            }
+          }
+        }
+      },
+      "GroupBetSessionParticipantResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "progressMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "achieved": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GroupBetSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SETTLED",
+              "REFUNDED",
+              "FORFEITED",
+              "VOIDED",
+              "UNUSED"
+            ]
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "joinClosesAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "myLeaveDeadlineAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "myJoined": {
+            "type": "boolean"
+          },
+          "myAchievedNow": {
+            "type": "boolean"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBetSessionParticipantResponse"
             }
           }
         }
@@ -8176,6 +8281,20 @@
           },
           "lastSettledBet": {
             "$ref": "#/components/schemas/GroupBetResultResponse"
+          },
+          "betConfig": {
+            "$ref": "#/components/schemas/GroupBetConfigResponse"
+          },
+          "nextSessionAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextSessionJoined": {
+            "type": "boolean"
+          },
+          "nextSessionStake": {
+            "type": "integer",
+            "format": "int32"
           },
           "dormant": {
             "type": "boolean"
