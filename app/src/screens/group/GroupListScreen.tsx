@@ -747,7 +747,7 @@ export default function GroupListScreen({
   }, []);
 
   const flipToBack = useCallback(
-    (groupId: string) => {
+    (groupId: string, trigger: 'card_tap' | 'accessibility_action' = 'card_tap') => {
       if (!userId || draggingGroupId !== null || reorderMenuGroupId !== null) return;
       guideBackGroupIdRef.current = null;
       setFlippedGroupId(groupId);
@@ -755,7 +755,7 @@ export default function GroupListScreen({
       focusController?.activate();
       logGroupCardFlipped({
         to_face: 'back',
-        trigger: 'card_tap',
+        trigger,
         group_count_bucket: countBucket,
       });
     },
@@ -1002,6 +1002,7 @@ export default function GroupListScreen({
                         else frontDisclosureRefs.current.delete(item.groupId);
                       }}
                       onFlip={() => flipToBack(item.groupId)}
+                      onAccessibilityFlip={() => flipToBack(item.groupId, 'accessibility_action')}
                       reorderHandlers={handlersFor(item.groupId)}
                       onOpenReorderMenu={() => setReorderMenuGroupId(item.groupId)}
                       canMovePrevious={index > 0}

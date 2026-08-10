@@ -489,6 +489,21 @@ describe('콜백', () => {
     await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
   });
 
+  test('앞면 접근성 activate flip은 전용 trigger로 기록한다', async () => {
+    await renderList([group()]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+
+    expect(await screen.findByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'accessibility_action', to_face: 'back' }),
+    );
+  });
+
   test('뒷면 접근성 Escape는 같은 카드의 앞면을 복원한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
