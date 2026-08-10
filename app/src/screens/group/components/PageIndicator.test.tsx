@@ -19,9 +19,9 @@ describe('PageIndicator', () => {
         nativeEvent: { layout: { width: 400 } },
       });
     });
-    fireEvent.press(
-      screen.getByTestId('group.deck.indicator.dot.2', { includeHiddenElements: true }),
-    );
+    const findPage = screen.getByRole('button', { name: '그룹 찾기 페이지' });
+    expect(findPage.props.accessibilityState).toEqual({ selected: false });
+    fireEvent.press(findPage);
 
     expect(onSelectPage).toHaveBeenCalledWith(2);
   });

@@ -64,6 +64,7 @@ export default function GroupScreen() {
   const [transitioning, setTransitioning] = useState(false);
   const [screenFocused, setScreenFocused] = useState(false);
   const cardSummaryRef = useRef(new GroupCardSummaryAdapter(groupFocusStatusStore));
+  const [, setCardSummaryVersion] = useState(0);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
@@ -250,19 +251,33 @@ export default function GroupScreen() {
   }, [navigation]);
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
+  const summaryDate = todayStrKst();
 
   useEffect(() => {
     cardSummaryRef.current.setScope(
       userId === null
         ? null
-        : { userId, date: todayStrKst(), groupIds: myGroups.map((group) => group.groupId) },
+        : { userId, date: summaryDate, groupIds: myGroups.map((group) => group.groupId) },
     );
-  }, [myGroups, userId]);
+    const notify = () => setCardSummaryVersion((version) => version + 1);
+    const unsubscribeSummary = cardSummaryRef.current.subscribe(notify);
+    const unsubscribeFocus =
+      userId === null ? () => {} : groupFocusStatusStore.subscribe(userId, summaryDate, notify);
+    return () => {
+      unsubscribeSummary();
+      unsubscribeFocus();
+    };
+  }, [myGroups, summaryDate, userId]);
 
   const ensureCardBack = useCallback((groupId: string) => {
     // 사용자 첫 flip과 guide 3→4가 같은 cache/in-flight dedupe 경로를 쓴다.
     cardSummaryRef.current.ensureBack(groupId).catch(() => {});
   }, []);
+
+  const getCardBackSnapshot = useCallback(
+    (groupId: string) => cardSummaryRef.current.getSnapshot(groupId),
+    [],
+  );
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -371,7 +386,9 @@ export default function GroupScreen() {
           guideBlocked={findOpen || invite !== null}
           guideScreenFocused={screenFocused}
           guideEpisode={viewEpisodeRef.current.id}
+          groupEntry={viewEpisodeRef.current.source}
           onEnsureBack={ensureCardBack}
+          getBackSnapshot={getCardBackSnapshot}
         />
         {findSheet}
         {inviteSheet}

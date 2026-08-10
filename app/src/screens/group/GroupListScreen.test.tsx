@@ -172,9 +172,11 @@ describe('콜백', () => {
     onRefresh.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
     await renderList([group()]);
 
-    // RefreshControl은 리스트의 자식이라 fireEvent가 위로 훑어 찾지 못한다(RNTL 14는 UNSAFE_*
-    // 쿼리도 없다) — FlatList에 넘긴 요소를 리스트 props에서 직접 집는다.
-    const control = () => screen.getByTestId('group.list.items').props.refreshControl.props;
+    // 세로 ScrollView가 pull gesture를 소유해야 가로 덱에서도 새로고침에 도달할 수 있다.
+    const scroll = screen.getByTestId('group.list');
+    expect(scroll.props.alwaysBounceVertical).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.refreshControl).toBeUndefined();
+    const control = () => screen.getByTestId('group.list').props.refreshControl.props;
     expect(control().refreshing).toBe(false);
 
     await act(async () => {

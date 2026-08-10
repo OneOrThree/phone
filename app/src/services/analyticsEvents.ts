@@ -436,6 +436,7 @@ export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
 // 그룹 덱이 성공한 전체 목록과 안정된 anchor를 확보하고, 완료 key read와 overlay queue 판정까지
 // 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹 식별 정보는 싣지 않는다.
 export function logGroupCardDeckViewed(p: {
+  group_entry: GroupEntry;
   group_count_bucket: Exclude<GroupCountBucket, '0'>;
   guide_state: GroupDeckGuideState;
 }): void {

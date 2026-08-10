@@ -3,6 +3,7 @@ import {
   AppState,
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -23,12 +24,16 @@ import {
   logGroupDeckGuideReadFailed,
   logGroupDeckGuideWriteFailed,
   logTabGuideCompleted,
+  type GroupEntry,
   type GroupCountBucket,
 } from '@/services/analyticsEvents';
+import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
+import { GroupCardBackSummary } from './components/GroupCardBackSummary';
+import type { GroupCardSummarySnapshot } from './groupCardSummary';
 import {
   GROUP_DECK_GUIDE_ID,
   completeGroupDeckGuide,
@@ -88,8 +93,10 @@ export interface GroupListScreenProps {
   guideBlocked?: boolean;
   guideScreenFocused?: boolean;
   guideEpisode?: number;
+  groupEntry?: GroupEntry;
   // 사용자 첫 back과 guide 3→4가 공유하는 lazy ensure 경로다.
   onEnsureBack?: (groupId: string) => void;
+  getBackSnapshot?: (groupId: string) => GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
 }
 
 export default function GroupListScreen({
@@ -103,7 +110,9 @@ export default function GroupListScreen({
   guideBlocked = false,
   guideScreenFocused = true,
   guideEpisode = 0,
+  groupEntry = 'unknown',
   onEnsureBack,
+  getBackSnapshot,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -186,15 +195,16 @@ export default function GroupListScreen({
     (page: number) => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
-      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      const nextIdentity = groups[next]?.groupId ?? null;
+      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
-      setActiveAnchorGroupId(groups[next]?.groupId ?? null);
-      setFlippedGroupId(null);
+      setActiveAnchorGroupId(nextIdentity);
     },
     [groups, pageCount, snapInterval],
   );
 
-  const onMomentumScrollEnd = useCallback(
+  const settlePage = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const next = Math.max(
         0,
@@ -207,6 +217,22 @@ export default function GroupListScreen({
       setActiveAnchorGroupId(nextIdentity);
     },
     [groups, pageCount, snapInterval],
+  );
+
+  const flipCard = useCallback(
+    (groupId: string) => {
+      const index = groups.findIndex((group) => group.groupId === groupId);
+      if (index < 0) return;
+      if (activeIdentityRef.current !== groupId) {
+        listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
+        activeIdentityRef.current = groupId;
+        setActiveIndex(index);
+        setActiveAnchorGroupId(groupId);
+      }
+      setFlippedGroupId(groupId);
+      onEnsureBack?.(groupId);
+    },
+    [groups, onEnsureBack, snapInterval],
   );
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
@@ -248,6 +274,7 @@ export default function GroupListScreen({
         guideReadStateRef.current = readState;
         const decision = resolveGroupDeckGuideDecision(readState, guideBlockedRef.current);
         logGroupCardDeckViewed({
+          group_entry: groupEntry,
           group_count_bucket: groupCountBucket(groups.length),
           guide_state: decision.exposure,
         });
@@ -261,6 +288,7 @@ export default function GroupListScreen({
         logGroupDeckGuideReadFailed();
         const decision = resolveGroupDeckGuideDecision('unknown', guideBlockedRef.current);
         logGroupCardDeckViewed({
+          group_entry: groupEntry,
           group_count_bucket: groupCountBucket(groups.length),
           guide_state: decision.exposure,
         });
@@ -273,7 +301,7 @@ export default function GroupListScreen({
         guideDecisionEpisodeRef.current = null;
       }
     };
-  }, [groups.length, guideEligible, guideEpisode]);
+  }, [groupEntry, groups.length, guideEligible, guideEpisode]);
 
   const startGuide = useCallback(() => {
     const firstGroupId = groups[0]?.groupId;
@@ -345,7 +373,15 @@ export default function GroupListScreen({
   }, []);
 
   return (
-    <View style={s.root} testID="group.list">
+    <ScrollView
+      style={s.root}
+      contentContainerStyle={s.screenContent}
+      alwaysBounceVertical
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
+      }
+      testID="group.list"
+    >
       <View style={s.header}>
         {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
         {onBack && (
@@ -382,18 +418,12 @@ export default function GroupListScreen({
           snapToAlignment="start"
           decelerationRate="fast"
           disableIntervalMomentum
-          onMomentumScrollEnd={onMomentumScrollEnd}
+          onMomentumScrollEnd={settlePage}
+          onScrollEndDrag={settlePage}
           ListFooterComponent={
             <View style={{ marginLeft: CARD_GAP }}>
               <FindMoreCard width={cardWidth} onPress={onFind} />
             </View>
-          }
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={T.accent}
-            />
           }
           renderItem={({ item }) => (
             <View
@@ -408,33 +438,14 @@ export default function GroupListScreen({
               testID={`group.list.card.${item.groupId}`}
             >
               {flippedGroupId === item.groupId ? (
-                <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
-                  <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
-                    {item.name}
-                  </Text>
-                  <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
-                  <TouchableOpacity
-                    style={s.backPrimary}
-                    onPress={() => onSelect(item.groupId)}
-                    testID={`group.card.room.${item.groupId}`}
-                  >
-                    <Text style={s.backPrimaryText}>방 전체 보기</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setFlippedGroupId(null)}
-                    testID={`group.card.frontAction.${item.groupId}`}
-                  >
-                    <Text style={s.backLink}>앞면으로</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <GroupCardFront
+                <GroupCardBackSummary
                   group={item}
-                  onFlip={() => {
-                    setFlippedGroupId(item.groupId);
-                    onEnsureBack?.(item.groupId);
-                  }}
+                  snapshot={getBackSnapshot?.(item.groupId) ?? null}
+                  onOpenRoom={() => onSelect(item.groupId)}
+                  onFlipFront={() => setFlippedGroupId(null)}
                 />
+              ) : (
+                <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
               )}
             </View>
           )}
@@ -472,12 +483,13 @@ export default function GroupListScreen({
         testID="group.list.guide"
         onFinish={finishGuide}
       />
-    </View>
+    </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  screenContent: { flexGrow: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
@@ -503,28 +515,6 @@ const s = StyleSheet.create({
   },
 
   listContent: { paddingBottom: T.space.md },
-
-  backPlaceholder: {
-    minHeight: 300,
-    borderRadius: 22,
-    padding: T.space.xl,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-    justifyContent: 'center',
-    gap: T.space.lg,
-  },
-  backTitle: { ...T.text.heading, color: T.ink },
-  backDesc: { ...T.text.body, color: T.inkSub },
-  backPrimary: {
-    height: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: T.accent,
-  },
-  backPrimaryText: { ...T.text.label, color: T.white },
-  backLink: { ...T.text.caption, color: T.accent, textAlign: 'center' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

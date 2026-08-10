@@ -37,19 +37,24 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
       {mode === 'dots' ? (
-        <View
-          style={s.dots}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        >
+        <View style={s.dots}>
           {Array.from({ length: pageCount }, (_, page) => (
             <Pressable
               key={page}
               style={s.dotHit}
               onPress={() => onSelectPage(page)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                page === pageCount - 1 ? '그룹 찾기 페이지' : `그룹 카드 ${page + 1} 페이지`
+              }
+              accessibilityState={{ selected: page === activeIndex }}
               testID={`group.deck.indicator.dot.${page}`}
             >
-              <View style={[s.dot, page === activeIndex && s.dotActive]} />
+              <View
+                style={[s.dot, page === activeIndex && s.dotActive]}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
             </Pressable>
           ))}
         </View>
@@ -67,11 +72,11 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
 }
 
 const s = StyleSheet.create({
-  container: { height: 36, alignItems: 'center', justifyContent: 'center' },
+  container: { height: 44, alignItems: 'center', justifyContent: 'center' },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {
     width: DOT_HIT_WIDTH,
-    height: 36,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
