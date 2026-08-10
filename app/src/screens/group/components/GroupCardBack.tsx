@@ -82,6 +82,15 @@ export function GroupCardBack({
           <SectionError label="집중 현황을 불러오지 못했어요" onRetry={() => onRetry('focus')} />
         ) : focus.status === 'unavailable' || !detail ? (
           <Text style={s.muted}>집중 현황을 확인하는 중…</Text>
+        ) : focus.status === 'stale' ? (
+          <View style={s.errorRow}>
+            <Text style={s.focus} testID={`group.card.focusCount.${group.groupId}`}>
+              마지막 확인 {focus.count}명 집중 중
+            </Text>
+            <TouchableOpacity onPress={() => onRetry('focus')} accessibilityRole="button">
+              <Text style={s.retryText}>새로고침</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <Text style={s.focus} testID={`group.card.focusCount.${group.groupId}`}>
             현재 {focus.count}명 집중 중

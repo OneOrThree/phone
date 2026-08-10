@@ -9,6 +9,11 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import {
+  logGroupCardActionClicked,
+  logGroupCardFlipped,
+  logGroupFindOpened,
+} from '@/services/analyticsEvents';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -21,6 +26,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardFlipped: jest.fn(),
   logGroupCardReordered: jest.fn(),
   logGroupCarouselPaged: jest.fn(),
+  logGroupFindOpened: jest.fn(),
 }));
 
 jest.mock('@/services/groupApi', () => ({
@@ -145,10 +151,10 @@ describe('카드 렌더', () => {
 
     expect(screen.getByTestId(`group.list.emoji.${GROUP_ID}`)).toHaveTextContent('📚');
     expect(screen.getByTestId(`group.list.emoji.${GROUP_ID_2}`)).toHaveTextContent('🎯');
-    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props.accessibilityLabel).toContain(
+    expect(screen.getByTestId(`group.card.${GROUP_ID}`).props.accessibilityLabel).toContain(
       '내 카드 아이콘 책',
     );
-    expect(screen.getByTestId(`group.list.card.${GROUP_ID_2}`).props.accessibilityLabel).toContain(
+    expect(screen.getByTestId(`group.card.${GROUP_ID_2}`).props.accessibilityLabel).toContain(
       '내 카드 아이콘 목표',
     );
   });
@@ -166,7 +172,13 @@ describe('콜백', () => {
     await press(`group.card.room.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+    expect(onSelect).toHaveBeenCalledWith(
+      GROUP_ID_2,
+      expect.objectContaining({
+        interactionId: expect.any(String),
+        interactionAcceptedAt: expect.any(Number),
+      }),
+    );
   });
 
   test('뒷면은 기존 read API 요약과 집중·설정 행동을 실제 콜백에 연결한다', async () => {
@@ -178,9 +190,36 @@ describe('콜백', () => {
     expect(screen.getByText('아직 공지가 없어요')).toBeOnTheScreen();
 
     await press(`group.card.focus.${GROUP_ID}`);
-    expect(onStartFocus).toHaveBeenCalledWith(GROUP_ID);
+    expect(onStartFocus).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ interactionId: expect.any(String) }),
+    );
     await press(`group.card.settings.${GROUP_ID}`);
     expect(onOpenSettings).toHaveBeenCalledWith(GROUP_ID);
+  });
+
+  test('각 CTA 수락은 고유 interaction ID와 정본 trigger를 기록한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.focus.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'card_tap', to_face: 'back' }),
+    );
+    const interactions = jest
+      .mocked(logGroupCardActionClicked)
+      .mock.calls.map(([event]) => event.interaction_id);
+    expect(interactions).toHaveLength(2);
+    expect(new Set(interactions).size).toBe(2);
+  });
+
+  test('덱 끝 찾기 카드는 전용 진입점을 기록한다', async () => {
+    await renderList([group()]);
+    await press('group.deck.findMore');
+
+    expect(logGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'end_card' });
+    expect(onFind).toHaveBeenCalledTimes(1);
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
@@ -278,6 +317,10 @@ describe('제스처 중재와 재정렬', () => {
       grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
     });
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
+
+    await press(`group.card.${GROUP_ID}`);
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
 
     await press(`group.card.reorderTo.${GROUP_ID}.1`);
     expect(
@@ -312,5 +355,31 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('탭 임계값 전 edge 좌표는 페이지 이동 목표를 만들지 않는다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, { dx: 2, dy: 0, moveX: 0 });
+      grip.props.onResponderRelease?.(responderEvent, { dx: 7, dy: 0 });
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2]);
   });
 });

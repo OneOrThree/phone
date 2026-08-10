@@ -24,6 +24,7 @@ interface PageIndicatorProps {
   activeIndex: number;
   onSelectPage: (page: number) => void;
   pageLabels?: readonly string[];
+  disabled?: boolean;
 }
 
 export function PageIndicator({
@@ -31,6 +32,7 @@ export function PageIndicator({
   activeIndex,
   onSelectPage,
   pageLabels = [],
+  disabled = false,
 }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
@@ -48,9 +50,10 @@ export function PageIndicator({
             <Pressable
               key={page}
               style={s.dotHit}
+              disabled={disabled}
               onPress={() => onSelectPage(page)}
               accessibilityRole="button"
-              accessibilityState={{ selected: page === activeIndex }}
+              accessibilityState={{ selected: page === activeIndex, disabled }}
               accessibilityLabel={`${pageLabels[page] ?? `${page + 1}번째`}, ${page + 1} / ${pageCount} 페이지로 이동`}
               testID={`group.deck.indicator.dot.${page}`}
             >
@@ -72,11 +75,11 @@ export function PageIndicator({
 }
 
 const s = StyleSheet.create({
-  container: { height: 36, alignItems: 'center', justifyContent: 'center' },
+  container: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {
     width: DOT_HIT_WIDTH,
-    height: 36,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -7,6 +7,8 @@ interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
   emojiLabel?: string;
+  position?: number;
+  pageCount?: number;
   onFlip: () => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
@@ -18,6 +20,8 @@ export function GroupCardFront({
   group,
   emoji = '🎯',
   emojiLabel = '과녁',
+  position = 1,
+  pageCount = 1,
   onFlip,
   reorderHandlers,
   onMoveStep,
@@ -50,7 +54,7 @@ export function GroupCardFront({
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${emojiLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${emojiLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >
@@ -64,7 +68,9 @@ export function GroupCardFront({
             <Text style={s.pillText}>{privacyLabel}</Text>
           </View>
           <View style={s.emojiFrame}>
-            <Text style={s.emoji}>{emoji}</Text>
+            <Text style={s.emoji} testID={`group.list.emoji.${group.groupId}`}>
+              {emoji}
+            </Text>
           </View>
         </View>
 

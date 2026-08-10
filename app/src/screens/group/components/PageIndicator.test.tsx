@@ -33,12 +33,34 @@ describe('PageIndicator', () => {
     expect(onSelectPage).toHaveBeenCalledWith(2);
     expect(
       screen.getByLabelText('저녁 집중방, 2 / 3 페이지로 이동').props.accessibilityState,
-    ).toEqual({ selected: false });
+    ).toEqual(expect.objectContaining({ selected: false, disabled: false }));
   });
 
   test('첫 측정 전 counter는 현재/전체를 읽는다', async () => {
     await render(<PageIndicator pageCount={12} activeIndex={10} onSelectPage={jest.fn()} />);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('11 / 12');
     expect(screen.getByLabelText('현재 11, 전체 12 페이지')).toBeOnTheScreen();
+  });
+
+  test('재정렬 중에는 dots 입력을 막고 비활성 상태를 읽는다', async () => {
+    const onSelectPage = jest.fn();
+    await render(
+      <PageIndicator pageCount={2} activeIndex={0} disabled onSelectPage={onSelectPage} />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+
+    const dot = screen.getByTestId('group.deck.indicator.dot.1', {
+      includeHiddenElements: true,
+    });
+    fireEvent.press(dot);
+
+    expect(onSelectPage).not.toHaveBeenCalled();
+    expect(dot.props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: false, disabled: true }),
+    );
   });
 });

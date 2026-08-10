@@ -16,6 +16,7 @@ import {
   type PendingInvite,
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
+import type { CardInteractionContext } from '@/services/cardInteraction';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
 import GroupListScreen from './GroupListScreen';
@@ -60,6 +61,7 @@ export default function GroupScreen() {
   const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
   const [loading, setLoading] = useState(false);
   const [screenFocused, setScreenFocused] = useState(false);
+  const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
@@ -147,6 +149,7 @@ export default function GroupScreen() {
       if (seq !== requestSeqRef.current) return;
       setCardEmojiByGroupId(emojiBucket);
       setGroups(rows);
+      setSuccessfulListEpisode(viewEpisodeRef.current.id);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
@@ -259,6 +262,35 @@ export default function GroupScreen() {
         entrySource,
         interactionId: undefined,
         interactionAcceptedAt: undefined,
+      });
+    },
+    [navigation],
+  );
+
+  const onSelectCardGroup = useCallback(
+    (groupId: string, interaction?: CardInteractionContext) => {
+      if (!interaction) {
+        onSelectGroup(groupId);
+        return;
+      }
+      navigation.navigate('GroupRoom', {
+        groupId,
+        challengeId: undefined,
+        entrySource: 'group_card',
+        interactionId: interaction.interactionId,
+        interactionAcceptedAt: interaction.interactionAcceptedAt,
+      });
+    },
+    [navigation, onSelectGroup],
+  );
+
+  const onStartCardFocus = useCallback(
+    (groupId: string, interaction: CardInteractionContext) => {
+      navigation.navigate('FocusCategory', {
+        initialGroupId: groupId,
+        entrySource: 'group_card',
+        interactionId: interaction.interactionId,
+        interactionAcceptedAt: interaction.interactionAcceptedAt,
       });
     },
     [navigation],
@@ -383,16 +415,17 @@ export default function GroupScreen() {
           groups={myGroups}
           userId={userId}
           cardEmojiByGroupId={cardEmojiByGroupId}
-          onSelect={onSelectGroup}
-          onStartFocus={(groupId) =>
-            navigation.navigate('FocusCategory', { initialGroupId: groupId })
-          }
+          onSelect={onSelectCardGroup}
+          onStartFocus={onStartCardFocus}
           onOpenSettings={(groupId) => navigation.navigate('GroupSettings', { groupId })}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}
           screenFocused={screenFocused}
           entrySource={viewEpisodeRef.current.source}
+          viewEpisodeId={viewEpisodeRef.current.id}
+          guideBlocked={findOpen || invite !== null}
+          dataReady={successfulListEpisode === viewEpisodeRef.current.id}
         />
         {findSheet}
         {inviteSheet}
