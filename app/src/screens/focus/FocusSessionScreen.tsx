@@ -72,6 +72,7 @@ import {
   logFocusMarkerStartFailed,
   type FocusViewName,
 } from '@/services/analyticsEvents';
+import { resolveCardInteraction } from '@/services/cardInteraction';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
@@ -122,7 +123,8 @@ interface SessionState {
 export default function FocusSessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusSession'>>();
-  const { subjectId, subjectName, mode } = params;
+  const { subjectId, subjectName, mode, entrySource, interactionId, interactionAcceptedAt } =
+    params;
   const goal = params.goalSeconds ?? 25 * 60;
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
@@ -332,12 +334,27 @@ export default function FocusSessionScreen() {
         : mode === 'pomodoro'
           ? pomo.focusMin * pomo.sets * 60
           : undefined;
+    const interaction = resolveCardInteraction({
+      entrySource,
+      interactionId,
+      interactionAcceptedAt,
+    });
     logFocusSessionStarted({
       has_tag: Boolean(subjectId),
       mode,
       goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
+      ...(interaction ? { interaction_id: interaction.interactionId } : {}),
     });
-  }, [subjectId, mode, goal, pomo.focusMin, pomo.sets]);
+  }, [
+    entrySource,
+    goal,
+    interactionAcceptedAt,
+    interactionId,
+    mode,
+    pomo.focusMin,
+    pomo.sets,
+    subjectId,
+  ]);
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
   // 태그를 해석해 실어 보내되, 실패(오프라인 등)해도 세션·시간 저장은 영향 없다(마커는 표시용).

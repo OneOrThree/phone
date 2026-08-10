@@ -75,6 +75,7 @@ export default function GroupScreen() {
     AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
   );
   const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
+  const [summaryDate, setSummaryDate] = useState(todayStrKst);
   const cardSummaryRef = useRef(new GroupCardSummaryAdapter(groupFocusStatusStore));
   const focusPollingRef = useRef<GroupFocusPollingController | null>(null);
   const [, setCardSummaryVersion] = useState(0);
@@ -290,8 +291,6 @@ export default function GroupScreen() {
   }, [navigation]);
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
-  const summaryDate = todayStrKst();
-
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       setAppActive(state === 'active');
@@ -301,10 +300,15 @@ export default function GroupScreen() {
 
   useEffect(() => {
     if (typeof userId !== 'string') return;
-    const controller = new GroupFocusPollingController({ store: groupFocusStatusStore, userId });
+    const controller = new GroupFocusPollingController({
+      store: groupFocusStatusStore,
+      userId,
+      onDateChanged: setSummaryDate,
+    });
     focusPollingRef.current = controller;
     return () => {
       controller.dispose();
+      groupFocusStatusStore.clearUser(userId);
       if (focusPollingRef.current === controller) focusPollingRef.current = null;
     };
   }, [userId]);
@@ -455,9 +459,11 @@ export default function GroupScreen() {
           guideScreenFocused={screenFocused}
           guideEpisode={viewEpisodeRef.current.id}
           guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
+          guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
           groupEntry={viewEpisodeRef.current.source}
           onEnsureBack={ensureCardBack}
           getBackSnapshot={getCardBackSnapshot}
+          cardDataDate={summaryDate}
         />
         {findSheet}
         {inviteSheet}

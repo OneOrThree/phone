@@ -229,6 +229,9 @@ export default function FocusCategoryScreen() {
       goalSeconds: extra?.goalSeconds,
       pomodoro: extra?.pomodoro,
       initialGroupId,
+      entrySource: params?.entrySource,
+      interactionId: params?.interactionId,
+      interactionAcceptedAt: params?.interactionAcceptedAt,
     });
   }
 

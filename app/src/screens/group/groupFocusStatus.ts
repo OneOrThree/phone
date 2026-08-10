@@ -145,6 +145,7 @@ export interface GroupFocusPollingOptions {
   intervalMs?: number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  onDateChanged?: (date: string) => void;
 }
 
 /** 첫 back 뒤의 foreground 60초 수명을 화면/앱 수명과 분리해 검증 가능한 controller로 둔다. */
@@ -161,6 +162,7 @@ export class GroupFocusPollingController {
   private readonly intervalMs: number;
   private readonly setIntervalFn: typeof setInterval;
   private readonly clearIntervalFn: typeof clearInterval;
+  private currentDate: string | null = null;
 
   constructor(private readonly options: GroupFocusPollingOptions) {
     this.getDate = options.getDate ?? todayStrKst;
@@ -174,7 +176,7 @@ export class GroupFocusPollingController {
     if (this.disposed || this.activated) return;
     this.activated = true;
     if (!this.canRun()) return;
-    this.options.store.ensure(this.options.userId, this.getDate());
+    this.options.store.ensure(this.options.userId, this.readDate());
     this.startTimer();
   }
 
@@ -211,7 +213,16 @@ export class GroupFocusPollingController {
   }
 
   private refresh(): Promise<GroupFocusStatusState> {
-    return this.options.store.retry(this.options.userId, this.getDate());
+    return this.options.store.retry(this.options.userId, this.readDate());
+  }
+
+  private readDate(): string {
+    const date = this.getDate();
+    if (this.currentDate !== date) {
+      this.currentDate = date;
+      this.options.onDateChanged?.(date);
+    }
+    return date;
   }
 
   private startTimer(): void {

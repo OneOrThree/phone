@@ -78,6 +78,24 @@ beforeEach(() => {
 });
 
 describe('카드 렌더', () => {
+  test('최신 목록 재조회 실패 시 유지된 덱의 일반 입력은 다시 연다', async () => {
+    await render(
+      <GroupListScreen
+        groups={[group()]}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        userId="user-1"
+        guideDataReady={false}
+        guideDataFailed
+      />,
+    );
+    await act(async () => {});
+
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+  });
+
   test('이름과 n/m 인원을 서버가 준 순서 그대로 그린다', async () => {
     await renderList([
       group(),

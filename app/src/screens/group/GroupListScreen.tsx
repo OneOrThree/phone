@@ -102,10 +102,12 @@ export interface GroupListScreenProps {
   guideScreenFocused?: boolean;
   guideEpisode?: number;
   guideDataReady?: boolean;
+  guideDataFailed?: boolean;
   groupEntry?: GroupEntry;
   // 사용자 첫 back과 guide 3→4가 공유하는 lazy ensure 경로다.
   onEnsureBack?: (groupId: string) => void;
   getBackSnapshot?: (groupId: string) => GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
+  cardDataDate?: string;
 }
 
 export default function GroupListScreen({
@@ -121,9 +123,11 @@ export default function GroupListScreen({
   guideScreenFocused = true,
   guideEpisode = 0,
   guideDataReady = true,
+  guideDataFailed = false,
   groupEntry = 'unknown',
   onEnsureBack,
   getBackSnapshot,
+  cardDataDate,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -152,6 +156,7 @@ export default function GroupListScreen({
   const previousGroupFingerprintRef = useRef(groupFingerprint);
   const previousSnapIntervalRef = useRef(snapInterval);
   const actionPendingRef = useRef(false);
+  const previousCardDataDateRef = useRef(cardDataDate);
   const deckAnchorRef = useRef<View | null>(null);
   const activeCardRef = useRef<View | null>(null);
   const guideDecisionEpisodeRef = useRef<number | null>(null);
@@ -355,10 +360,32 @@ export default function GroupListScreen({
     setGuideVisible(false);
   }, [guideEpisode, guideManaged]);
 
+  // 최신 목록 판정은 성공할 때까지 보류하되, 재조회 실패로 화면에 남긴 기존 덱까지 잠그지 않는다.
+  useEffect(() => {
+    if (!guideManaged || guideDataReady || !guideDataFailed) return;
+    setGuideInputReady(true);
+    setGuideQueued(false);
+    setGuideVisible(false);
+  }, [guideDataFailed, guideDataReady, guideManaged]);
+
   // GroupRoom/Focus에서 돌아온 새 focus episode에는 CTA를 다시 받을 수 있어야 한다.
   useEffect(() => {
     actionPendingRef.current = false;
   }, [guideEpisode]);
+
+  useEffect(() => {
+    if (previousCardDataDateRef.current === cardDataDate) return;
+    previousCardDataDateRef.current = cardDataDate;
+    if (!flippedGroupId) return;
+    let canceled = false;
+    // 부모의 adapter scope effect가 새 날짜를 적용한 다음 열린 카드를 다시 ensure한다.
+    Promise.resolve().then(() => {
+      if (!canceled) onEnsureBack?.(flippedGroupId);
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [cardDataDate, flippedGroupId, onEnsureBack]);
 
   useEffect(() => {
     if (!guideEligible || guideDecisionEpisodeRef.current === guideEpisode) return;

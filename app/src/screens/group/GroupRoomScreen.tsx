@@ -33,6 +33,10 @@ import {
   logGroupInviteShared,
   logGroupRoomViewed,
 } from '@/services/analyticsEvents';
+import {
+  resolveCardInteraction,
+  type CardInteractionRouteContext,
+} from '@/services/cardInteraction';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import { todayStrKst } from '@/utils/localDate';
 import type {
@@ -164,6 +168,7 @@ export interface GroupRoomScreenProps {
   // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 이 챌린지의 결과 모달을 자동으로 연다.
   // 딥링크 진입에만 실린다(목록 탭 진입은 undefined). 자세한 규칙은 아래 focusPendingRef 주석.
   focusChallengeId?: string;
+  cardInteraction?: CardInteractionRouteContext;
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
   summary?: GroupSummaryResponse;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
@@ -180,6 +185,7 @@ export interface GroupRoomScreenProps {
 export default function GroupRoomScreen({
   groupId,
   focusChallengeId,
+  cardInteraction,
   summary,
   onLeft,
   inviteOpen,
@@ -188,6 +194,8 @@ export default function GroupRoomScreen({
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { userId } = useUser();
+  const cardInteractionRef = useRef(cardInteraction);
+  cardInteractionRef.current = cardInteraction;
   // 잔액은 CoinContext가 정본이다 — 여기서는 '서버가 정산했다'를 감지했을 때만 다시 받는다.
   const { refresh: refreshCoins } = useCoins();
 
@@ -460,7 +468,11 @@ export default function GroupRoomScreen({
       // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — 그룹당 1회.
       if (roomViewedGroupIdRef.current !== groupId) {
         roomViewedGroupIdRef.current = groupId;
-        logGroupRoomViewed({ group_id: groupId });
+        const interaction = resolveCardInteraction(cardInteractionRef.current);
+        logGroupRoomViewed({
+          group_id: groupId,
+          ...(interaction ? { interaction_id: interaction.interactionId } : {}),
+        });
       }
     }
 

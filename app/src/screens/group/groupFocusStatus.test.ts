@@ -151,12 +151,14 @@ describe('GroupFocusPollingController', () => {
 
   test('KST 날짜 변경은 다음 tick의 새 cache key로 조회한다', async () => {
     let date = DATE;
+    const onDateChanged = jest.fn();
     const load = jest.fn().mockResolvedValue([]);
     const store = new GroupFocusStatusStore(load);
     const controller = new GroupFocusPollingController({
       store,
       userId: USER_ID,
       getDate: () => date,
+      onDateChanged,
     });
     controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
     controller.activate();
@@ -166,6 +168,8 @@ describe('GroupFocusPollingController', () => {
 
     expect(load).toHaveBeenNthCalledWith(1, DATE);
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
+    expect(onDateChanged).toHaveBeenNthCalledWith(1, DATE);
+    expect(onDateChanged).toHaveBeenNthCalledWith(2, '2026-08-11');
     controller.dispose();
   });
 });

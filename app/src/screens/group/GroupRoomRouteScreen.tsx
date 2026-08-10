@@ -39,6 +39,7 @@ export default function GroupRoomRouteScreen() {
       <GroupRoomScreen
         groupId={params.groupId}
         focusChallengeId={params.challengeId}
+        cardInteraction={params}
         onLeft={goBack}
         onBack={goBack}
       />

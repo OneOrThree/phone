@@ -20,7 +20,7 @@ export type V2RootStackParamList = {
     goalSeconds?: number; // 카운트다운 목표
     pomodoro?: PomodoroConfig; // 뽀모도로 설정
     initialGroupId?: string; // 그룹방 FAB 진입 시 — 스와이프를 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입(F2 Part2)
-  }; // 06~11 집중 세션
+  } & CardInteractionRouteContext; // 06~11 집중 세션
   FocusResult: {
     focusSeconds: number; // 이번 세션 집중 초
     subjectId: string;
