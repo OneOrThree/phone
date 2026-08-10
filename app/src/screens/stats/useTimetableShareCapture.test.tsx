@@ -65,7 +65,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     const { result } = await setup(ENTER_MS);
     const loadedAt = Date.now();
     await act(async () => {
-      result.current.onLoaded(3); // 세션 블록 3개가 자란다
+      result.current.onLoaded(['b0', 'b1', 'b2']); // 세션 블록 3개가 자란다
     });
 
     await act(async () => {
@@ -85,7 +85,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     // 켜 놓고 기다리면 그 1초 남짓 동안 브랜드 밴드·여백이 실제 화면에 그대로 보인다(codex 리뷰)
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded(3); // 세션 블록 3개가 자란다
+      result.current.onLoaded(['b0', 'b1', 'b2']); // 세션 블록 3개가 자란다
     });
     await act(async () => {
       result.current.onShare().catch(() => {});
@@ -102,7 +102,7 @@ describe('useTimetableShareCapture 진입 대기', () => {
     // 게이트 등록 전에 onLoad가 오면 신호를 잃고 캐릭터 타임아웃 1.5초를 통째로 기다린다
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded(3); // 세션 블록 3개가 자란다
+      result.current.onLoaded(['b0', 'b1', 'b2']); // 세션 블록 3개가 자란다
     });
     await act(async () => {
       result.current.onShare().catch(() => {});
@@ -118,13 +118,13 @@ describe('useTimetableShareCapture 진입 대기', () => {
   test('재조회로 블록이 늘면 새 진입만큼 다시 기다린다', async () => {
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded(3);
+      result.current.onLoaded(['b0', 'b1', 'b2']);
     });
     await drain(ENTER_MS + 50); // 첫 진입 종료
 
     // 화면을 떠난 사이 새 세션이 생겨 블록이 3 → 5. 새 노드가 마운트되며 growUp이 다시 돈다.
     await act(async () => {
-      result.current.onLoaded(5);
+      result.current.onLoaded(['b0', 'b1', 'b2', 'b3', 'b4']);
     });
     await act(async () => {
       result.current.onShare().catch(() => {});
@@ -135,12 +135,64 @@ describe('useTimetableShareCapture 진입 대기', () => {
     expect(mockCaptureAt).toHaveLength(1);
   });
 
+  // ⚠️ **개수로는 못 잡는 경우.** 블록 키가 신원(요일·분 구간·태그)이 된 뒤로는, 화면이 다른
+  //    스택 화면 아래에 남은 채 주 경계를 넘겨 재조회되면 개수가 같아도 전부 다른 블록이다.
+  //    새 노드가 마운트되며 growUp이 도는데 대기를 갱신하지 않으면 중간 프레임이 캡처된다.
+  test('개수가 같아도 블록 신원이 바뀌면 다시 기다린다 (주 경계)', async () => {
+    const { result } = await setup(ENTER_MS);
+    await act(async () => {
+      result.current.onLoaded(['mon:540:600:t1', 'tue:540:600:t1']);
+    });
+    await drain(ENTER_MS + 50); // 첫 진입 종료
+
+    // 주가 바뀌어 **같은 2개인데 전부 다른 세션**이다 — 새 key라 새로 마운트된다.
+    await act(async () => {
+      result.current.onLoaded(['wed:600:660:t2', 'thu:600:660:t2']);
+    });
+    await act(async () => {
+      result.current.onShare().catch(() => {});
+    });
+    // ⚠️ 캐릭터 게이트를 **먼저 풀어 준다.** 안 풀면 그 게이트(타임아웃 1500ms)가 대기를
+    //    지배해, 진입 대기를 갱신하든 말든 똑같이 늦게 찍혀 이 테스트가 아무것도 구분하지 못한다.
+    await act(async () => {
+      result.current.onCharReady();
+    });
+    await drain(300);
+    expect(mockCaptureAt).toHaveLength(0); // 아직 새 블록이 자라는 중 — 갱신됐다는 증거
+    // 이 시점의 onCharReady는 게이트가 등록되기 전이라 흘러갔다 — 캐릭터 타임아웃(1500)까지 준다.
+    await drain(3000);
+    expect(mockCaptureAt).toHaveLength(1);
+  });
+
+  // 반대 방향 가드 — 같은 블록이 다시 보고되는 것(폭 변화·회전)에는 대기를 새로 잡지 않는다.
+  // 잡으면 사용자가 공유를 눌러도 1초 넘게 아무 반응이 없다.
+  test('같은 블록이 다시 보고되면 대기를 새로 잡지 않는다', async () => {
+    const { result } = await setup(ENTER_MS);
+    await act(async () => {
+      result.current.onLoaded(['mon:540:600:t1', 'tue:540:600:t1']);
+    });
+    await drain(ENTER_MS + 50); // 첫 진입 종료
+
+    // 화면 폭만 바뀌어 같은 키가 다시 온다 — 재생될 애니메이션이 없다.
+    await act(async () => {
+      result.current.onLoaded(['mon:540:600:t1', 'tue:540:600:t1']);
+    });
+    await act(async () => {
+      result.current.onShare().catch(() => {});
+    });
+    await act(async () => {
+      result.current.onCharReady();
+    });
+    await drain(200);
+    expect(mockCaptureAt).toHaveLength(1); // 즉시 찍힌다
+  });
+
   test("'동작 줄이기'면 대기가 0이다 — 애니메이션이 없으니 기다릴 게 없다", async () => {
     mockReduce = true;
     const { result } = await setup(ENTER_MS);
     const loadedAt = Date.now();
     await act(async () => {
-      result.current.onLoaded(3);
+      result.current.onLoaded(['b0', 'b1', 'b2']);
     });
     // onShare를 먼저 띄워 캐릭터 게이트가 등록되게 한 뒤(act가 마이크로태스크를 비운다) 풀어 준다
     await act(async () => {
@@ -172,11 +224,11 @@ describe('useTimetableShareCapture 진입 대기', () => {
   });
 
   test('기록이 없는 주는 대기가 없다 — 자랄 블록이 하나도 없다', async () => {
-    // onLoaded(0)에 마감 시각을 잡으면 기록 없는 사용자만 1.16초 무반응이 된다(codex 리뷰)
+    // onLoaded([])에 마감 시각을 잡으면 기록 없는 사용자만 1.16초 무반응이 된다(codex 리뷰)
     const { result } = await setup(ENTER_MS);
     const loadedAt = Date.now();
     await act(async () => {
-      result.current.onLoaded(0);
+      result.current.onLoaded([]);
     });
     await act(async () => {
       result.current.onShare().catch(() => {});
@@ -194,12 +246,12 @@ describe('useTimetableShareCapture 진입 대기', () => {
     // — 갱신하면 애니메이션도 없는데 공유가 1초 넘게 늦어진다.
     const { result } = await setup(ENTER_MS);
     await act(async () => {
-      result.current.onLoaded(4);
+      result.current.onLoaded(['b0', 'b1', 'b2', 'b3']);
     });
     await drain(ENTER_MS + 50); // 진입 종료
 
     await act(async () => {
-      result.current.onLoaded(4); // 재조회 완료 — 개수 동일
+      result.current.onLoaded(['b0', 'b1', 'b2', 'b3']); // 재조회 완료 — 개수 동일
     });
     await act(async () => {
       result.current.onShare().catch(() => {}); // 대기는 아래 drain이 굴린다

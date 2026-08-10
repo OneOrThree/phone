@@ -66,11 +66,11 @@ export function useTimetableShareCapture({
   // 브랜드 캐릭터 이미지 로드/실패 콜백 — ShareBrandFooter/ShareDayFrame에 넘긴다
   onCharReady: () => void;
   // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 호출.
-  // 인자는 **이번 렌더에서 진입 애니메이션이 붙는 노드 수**(주간 세션 블록 개수).
-  // 늘었을 때만 캡처 대기 기준 시각을 다시 잡는다.
+  // 인자는 **이번 렌더에서 진입 애니메이션이 붙는 노드들의 키**(주간 세션 블록의 신원).
+  // 그중 직전에 없던 키가 하나라도 있으면(=새로 마운트된 노드) 캡처 대기 기준 시각을 다시 잡는다.
   // ⚠️ 진입이 있는 카드는 조회가 끝난 틱이 아니라 **그 노드가 실제로 마운트된 커밋 뒤**에
   //    불러야 한다 — 마운트가 밀린 만큼 대기가 짧아진다(WeeklyTimetableCard 주석 참고).
-  onLoaded: (animatedCount?: number) => void;
+  onLoaded: (animatedKeys?: string[]) => void;
   onShare: () => Promise<void>;
 } {
   const m = useMotion();
@@ -120,17 +120,23 @@ export function useTimetableShareCapture({
       alive = false;
     };
   }, [enterMs]);
-  const enterCountRef = useRef(0);
+  // 직전에 진입 애니메이션이 붙어 있던 노드들의 **신원**(키). 개수가 아니다 — 아래 주석 참고.
+  const enterKeysRef = useRef<Set<string>>(new Set());
   // 블록이 마운트되던 순간에 확정한 대기 길이(ms). 아래 onLoaded 주석 참고.
   const waitMsRef = useRef(0);
   // 아직 확정을 못 한 상태로 마운트가 있었는가 — '동작 줄이기'가 확정되면 그때 값을 채운다.
   const waitPendingRef = useRef(false);
   const onLoaded = useCallback(
-    (animatedCount = 0) => {
-      // ⚠️ 조건은 "처음 왔는가"가 아니라 오직 **"진입할 노드가 늘었는가"** 다.
-      //    기록이 없는 주는 onLoaded(0)이 오는데, 재생될 애니메이션이 하나도 없는데도 마감 시각을
-      //    잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
-      if (animatedCount > enterCountRef.current) {
+    (animatedKeys: string[] = []) => {
+      // ⚠️ 조건은 "처음 왔는가"도 "개수가 늘었는가"도 아니라 **"새로 마운트된 노드가 있는가"** 다.
+      //    · 기록이 없는 주는 빈 배열이 오는데, 재생될 애니메이션이 하나도 없는데도 마감 시각을
+      //      잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
+      //    · **개수로는 부족하다.** 블록 키가 신원(요일·분 구간·태그)이 된 뒤로는, 화면이 다른
+      //      스택 화면 아래에 남은 채 주 경계를 넘겨 재조회되면 **개수가 같거나 줄어도** 키가
+      //      달라진 블록이 새로 마운트되며 growUp을 재생한다. 그때 대기를 갱신하지 않으면
+      //      곧바로 공유했을 때 중간 프레임이 캡처된다(codex 리뷰).
+      const hasNewNode = animatedKeys.some((key) => !enterKeysRef.current.has(key));
+      if (hasNewNode) {
         loadedAtRef.current = Date.now();
         // ⚠️ 대기 길이도 **블록이 진입을 시작하는 그 시점의 설정으로** 확정한다. 공유 시점의
         //    m.delay를 읽으면, 그 사이 설정을 켠 사용자에게 이미 시작된 growUp이 도는데도 대기가
@@ -145,7 +151,7 @@ export function useTimetableShareCapture({
           waitPendingRef.current = true;
         }
       }
-      enterCountRef.current = animatedCount;
+      enterKeysRef.current = new Set(animatedKeys);
       setReady(true);
     },
     [enterMs],

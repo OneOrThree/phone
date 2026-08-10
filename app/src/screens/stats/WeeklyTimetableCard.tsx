@@ -37,6 +37,13 @@ import { useTimetableShareCapture } from './useTimetableShareCapture';
 // 하드코딩이 아니라 토큰에서 계산한다 — duration/stagger가 바뀌면 대기도 따라간다.
 const BLOCK_ENTER_DONE_MS = staggerDelay(M.staggerMaxSteps) + M.dur.entrance;
 
+// 블록의 신원 — 요일·분 구간·태그. 한 사람이 같은 날 같은 분 구간을 두 번 가질 수 없다.
+// ⚠️ 키이자 **캡처 대기 갱신의 근거**다(useTimetableShareCapture). 두 곳이 같은 식을 써야
+//    "새로 마운트된 블록"의 판정이 갈리지 않는다.
+export function blockKey(b: WeekFocusBlock): string {
+  return `${b.col}:${b.startMin}:${b.endMin}:${b.tagId ?? ''}`;
+}
+
 // 세션 블록 하나.
 //
 // ⚠️ **시차 인덱스를 마운트 시점에 얼린다.** `growUp(j)`는 인덱스별로 캐시된 서로 다른 객체라,
@@ -95,7 +102,7 @@ export function WeeklyTimetableCard() {
 // constants.ts로 옮겼다 — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다(GROMO-1381).
 const WTT_MIN_BLOCK = 3; // 아주 짧은 세션도 보이도록 최소 블록 높이
 
-function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => void }) {
+function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedKeys: string[]) => void }) {
   const { subjects } = useSubjects();
   const [blocks, setBlocks] = useState<WeekFocusBlock[] | null>(null);
   // 서버 tagId → 태그명(과목 색 매칭용). 로컬 과목 id는 서버 tagId와 달라 이름으로 잇는다(FocusTimetable과 동일).
@@ -150,13 +157,13 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => v
   //    빈 플롯이 PNG가 된다.
   //
   // ⚠️ deps에 plotW가 있어 기기 회전·화면 폭 변화로 다시 돌지만 기준 시각이 리셋되지는 않는다.
-  //    훅이 **진입할 블록 수가 늘었을 때만** 갱신하는데, 폭만 바뀌면 세션의 신원(요일·분 구간·
+  //    훅이 **직전에 없던 키가 왔을 때만** 갱신하는데, 폭만 바뀌면 세션의 신원(요일·분 구간·
   //    태그)이 그대로라 같은 key의 노드가 재사용되고 시차 인덱스도 얼려 둔 값이라 애니메이션이
-  //    재생되지 않는다. 반대로 주 이동·재조회로 **새 세션**이 생기면 그 블록만 새 key로 마운트돼
-  //    growUp이 도는데, 그때는 blocks 참조가 바뀌어 이 효과가 다시 돌아 기준 시각이 갱신된다.
+  //    재생되지 않는다. 반대로 주 이동·재조회로 신원이 다른 블록이 오면 — 개수가 같거나 줄어도 —
+  //    그 블록이 새 key로 마운트돼 growUp이 돌고, 훅도 새 키를 보고 대기를 다시 잡는다.
   useEffect(() => {
     if (blocks === null || plotW <= 0) return;
-    onLoaded?.(blocks.length);
+    onLoaded?.(blocks.map(blockKey));
   }, [blocks, plotW, onLoaded]);
 
   if (blocks === null) {
@@ -266,7 +273,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => v
                   //    위치·색으로 재사용되고 마지막 노드만 새로 마운트돼, 정작 새 세션은 즉시
                   //    나타나고 가장 오래된 세션이 growUp을 재생한다(codex 리뷰).
                   //    한 사람이 같은 날 같은 분 구간을 두 번 가질 수 없으므로 이 조합이 곧 신원이다.
-                  key={`${b.col}:${b.startMin}:${b.endMin}:${b.tagId ?? ''}`}
+                  key={blockKey(b)}
                   index={j}
                   style={[
                     s.wttBlock,
