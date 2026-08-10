@@ -390,7 +390,7 @@ flowchart LR
 | `CHALLENGE_SESSION_END` | `groupId` + 대표 `challengeId` | 그룹방 + 결과 모달 | ❌ |
 | `BET_WON` | `groupId` + `challengeId` | 그룹방 | ✅ |
 | `BET_RESULT` | `groupId` (+ 결과 요약 N건) | 그룹방 + 결과 모달 | ✅ |
-| `BET_VOID_REFUND` | `groupId` + `voidReason` | 그룹방 | ✅ |
+| `BET_VOID_REFUND` | `groupId` + `voidReason` *(단건은 `challengeId` 추가 — 묶음 규칙 §4.2)* | 그룹방 | ✅ |
 | *(사일런트)* | `content-available` / data-only | **없음** — 큐 flush 전용 | — |
 
 > **앱 배선이 있어야 이 표가 성립한다.** 서버는 `link`를 싣지 않고 `groupId`만 주는데, 현재
@@ -443,9 +443,9 @@ flowchart TB
 |---|---|---|
 | `SETTLED` | ✅ | 인별 달성·손익 |
 | `FORFEITED` | ✅ | `아무도 달성하지 못해 적립금 90이 사라졌어요` |
-| `VOIDED` (`voidReason=SHORT_PARTICIPANTS`) | ✅ | `참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요` |
+| `VOIDED` (`voidReason=INSUFFICIENT_PARTICIPANTS`) | ✅ | `참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요` |
 | `VOIDED` (`voidReason=CHALLENGE_DELETED`) | ❌ **모달 아님** | 삭제 환불은 `BET_VOID_REFUND` **푸시**가 알린다 (FR-44-4·N48). 문구 `챌린지가 삭제돼 무산됐어요 · 참가비는 돌려드렸어요` 는 그 푸시의 것 |
-| `REFUNDED` | ✅ | `정산이 지연돼 참가비를 돌려드렸어요` |
+| `REFUNDED` (`voidReason=REFUND_DEADLINE`) | ✅ | `정산이 지연돼 참가비를 돌려드렸어요` |
 
 돈이 움직였거나 **움직이지 않기로 확정된** 사건은 전부 알린다. 침묵하면 "내 코인 어디 갔지"가 된다.
 
@@ -459,7 +459,8 @@ flowchart TB
   **푸시로 알린다**(모달 범위 밖)
 
 > **가드 키가 `{cid}:{date}`에서 `{sessionId}`로 바뀐다.** 회차가 1급 개체가 되면서 세션 id가
-> 유일 식별자다. 정리는 30일 지난 키를 앱 시작 시 prune한다.
+> 유일 식별자다. **값은 `sessionDate`**(`'YYYY-MM-DD'`, KST)이고, 정리는 **마커를 기록할 때**
+> 60일 지난 키를 함께 prune한다 (§8).
 
 ---
 
@@ -625,12 +626,21 @@ flowchart TB
 
 | 키 | 형태 | 수명 | 용도 |
 |---|---|---|---|
-| `gromo:sessionResult:{userId}:{sessionId}` | `'1'` | **60일** 지나면 앱 시작 시 prune — 서버 큐(`mySettledSessions`)가 **최근 30일** 경계라 마커가 항상 더 오래 산다. 30일 prune이면 주 1회 챌린지에서 마커가 먼저 지워진 회차가 **이미 본 모달로 재생**된다 | 결과 모달 1회 노출 가드. **키에 `userId`를 넣는다** — 한 기기에서 두 계정이 같은 그룹 회차에 참가하면, 세션 id만으로 키를 잡을 경우 A가 본 결과가 B에게도 스킵된다(반대로 계정 전환 때 싹 지우면 A로 돌아왔을 때 재생된다) |
+| `gromo:sessionResult:{userId}:{sessionId}` | `sessionDate` (`'YYYY-MM-DD'`, KST) | **60일**. **마커를 기록하는 시점**에 컷오프(오늘 − 60일)보다 오래된 키를 함께 prune한다 — 서버 큐(`/me/challenge-results`)가 **최근 30일** 경계라 마커가 항상 더 오래 산다. 30일 prune이면 주 1회 챌린지에서 마커가 먼저 지워진 회차가 **이미 본 모달로 재생**된다 | 결과 모달 1회 노출 가드. **키에 `userId`를 넣는다** — 한 기기에서 두 계정이 같은 그룹 회차에 참가하면, 세션 id만으로 키를 잡을 경우 A가 본 결과가 B에게도 스킵된다(반대로 계정 전환 때 싹 지우면 A로 돌아왔을 때 재생된다) |
 | `gromo:screentime:windowReports` | `{userId, finals[], last{}}` | 어제 기준 prune | 창 보고 중복 방지 + 최종 1회 보장 |
 | `gromo:screentime:bucketMonitorRegistered` | `userId` | — | 버킷 모니터 소유자 확인 |
 | `gromo:focus:pendingUploads` | `[{userId, body}]` | 최대 50건 | 집중 세션 업로드 재시도 큐 (사일런트 푸시가 flush) |
 
 계정 전환 시 오염을 막기 위해 **`userId`를 함께 저장**하고, 다르면 통째로 버린다.
+
+> **왜 값이 `'1'`이 아니라 `sessionDate`인가.** 키(`{userId}:{sessionId}`)에 **날짜 성분이 없고**
+> AsyncStorage는 **기록 시각을 보관하지 않는다**. 값이 `'1'`이면 어떤 키가 60일을 넘겼는지 판정할
+> 정보가 **어디에도 존재하지 않아** 프룬 규칙이 원리적으로 실행 불가였다. 값에 회차 날짜를 담아
+> 프룬의 근거를 마커 자신이 들고 있게 한다. 날짜 형식이 아닌 값(구 형식·깨진 값)도 정리 대상이다
+> — 프룬 불능인 채 영영 남는 것보다 낫다.
+>
+> **프룬 시점은 "앱 시작"이 아니라 "마커 기록"이다.** 앱 시작 훅을 따로 두지 않고 쓰기 경로에
+> 붙인다 — 마커가 늘어나는 순간이 곧 정리가 필요해지는 순간이라 훅 하나가 준다.
 
 ---
 

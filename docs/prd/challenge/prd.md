@@ -157,10 +157,10 @@ journey
 
 | # | 조건 | 위반 시 | 근거 |
 |---|---|---|---|
-| 1 | **그룹장(OWNER)만** 만든다. 게스트는 전 경로 차단 | `CHALLENGE_FORBIDDEN` 403 · `GUEST_FORBIDDEN` 403 | §3.1 · 설계 |
+| 1 | **그룹장(OWNER)만** 만든다. 게스트는 전 경로 차단 | `NOT_OWNER` 403 · `GUEST_FORBIDDEN` 403 | §3.1 · 설계 |
 | 2 | 요일을 **최소 1개** 고른다 — 기본값도 프리셋도 없다 | `CHALLENGE_REPEAT_DAYS_REQUIRED` 400 | FR-4 · FR-9-1 |
 | 3 | 그룹당 활성 챌린지 **최대 4개** | `CHALLENGE_LIMIT_EXCEEDED` 409 | FR-1 |
-| 4 | 하루형은 **카테고리당 1개** (최대 2개) | `CHALLENGE_ALREADY_EXISTS` 409 | FR-2 |
+| 4 | 하루형은 **카테고리당 1개** (최대 2개) | `CHALLENGE_DUPLICATE` 409 | FR-2 |
 | 5 | 창은 **`시작 < 종료`** — **자정을 걸칠 수 없다** (`22:00~01:00` 거부, `22:00~23:59` 허용) | `INVALID_MISSION_PARAMS` 400 | FR-6 |
 | 6 | 창형 목표분은 **0 &lt; x ≤ 창 길이** | `INVALID_MISSION_PARAMS` 400 | FR-7 |
 | 7 | 창형 SCREEN_TIME 목표분은 **15분 배수** | `CHALLENGE_GOAL_NOT_ALIGNED` 400 | FR-8 |
@@ -245,7 +245,7 @@ journey
 > **`BET_VOID_REFUND`가 없으면 삭제 환불이 무음이다.** FR-44-4는 삭제된 챌린지의 회차를 결과
 > 모달에서 빼고 **푸시로 알린다**고 약속하는데, 타입이 정의되지 않으면 구현이 그 푸시를 만들
 > 수 없다 — 유저는 설명 없이 코인만 돌아온 걸 본다. 사유는 `data.voidReason`
-> (`CHALLENGE_DELETED` · `SHORT_PARTICIPANTS` · `SETTLE_TIMEOUT`)로 구분해 문구를 고른다.
+> (`CHALLENGE_DELETED` · `INSUFFICIENT_PARTICIPANTS` · `REFUND_DEADLINE`)로 구분해 문구를 고른다.
 
 | 발송 규칙 | 내용 | 근거 |
 |---|---|---|
