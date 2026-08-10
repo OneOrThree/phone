@@ -35,6 +35,7 @@ export const STORAGE_KEYS = {
   guideTier: 'gromo:guide:tier', // 티어 단계 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   groupCardOrder: 'gromo:groups:cardOrder:v1', // 계정별 그룹 카드 순서 { [userId]: groupId[] } — 기기 로컬 표시 설정
   groupCardEmoji: 'gromo:groups:cardEmoji:v1', // 계정×그룹 카드 아이콘 { [userId]: { [groupId]: emoji } } — 기기 로컬 설정
+  guideGroupDeck: 'gromo:guide:groupDeck:v1', // 그룹 카드 덱 첫 안내 완료('1') — 계정 구분 없는 기기 전역 v1
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)

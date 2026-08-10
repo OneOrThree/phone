@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
@@ -278,7 +278,7 @@ export default function GroupScreen() {
     navigation.navigate('GroupCreate');
   }, [navigation]);
 
-  const myGroups = groups ?? [];
+  const myGroups = useMemo(() => groups ?? [], [groups]);
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -388,6 +388,9 @@ export default function GroupScreen() {
           onStartFocus={onStartGroupFocus}
           onOpenSettings={onOpenGroupSettings}
           onRefresh={fetchGroups}
+          guideBlocked={findOpen || invite !== null}
+          guideScreenFocused={isScreenFocused}
+          guideEpisode={viewEpisodeRef.current.id}
         />
         {findSheet}
         {inviteSheet}
