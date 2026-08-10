@@ -24,40 +24,50 @@ export default function GroupCardEmojiEditScreen() {
   const { userId } = useUser();
   const [baseline, setBaseline] = useState<GroupCardEmoji | null>(null);
   const [selected, setSelected] = useState<GroupCardEmoji | null>(null);
+  const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const requestRef = useRef(0);
+  const identity = `${userId ?? 'anonymous'}:${groupId}`;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
 
   useEffect(() => {
     const request = ++requestRef.current;
+    const requestedIdentity = identity;
     void readGroupCardEmoji(userId, groupId).then((emoji) => {
-      if (request !== requestRef.current) return;
+      if (request !== requestRef.current || identityRef.current !== requestedIdentity) return;
       setBaseline(emoji);
       setSelected(emoji);
+      setLoadedIdentity(requestedIdentity);
       setSaveFailed(false);
     });
     return () => {
       requestRef.current++;
     };
-  }, [groupId, userId]);
+  }, [groupId, identity, userId]);
 
-  const changed = selected !== null && baseline !== null && selected !== baseline;
+  const ready = loadedIdentity === identity && selected !== null && baseline !== null;
+  const changed = ready && selected !== baseline;
 
   const save = useCallback(async () => {
-    if (!userId || !selected || !changed || saving) return;
+    if (!userId || !selected || !changed || saving || !ready) return;
+    const saveIdentity = identity;
     setSaving(true);
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
+      if (identityRef.current !== saveIdentity) return;
       setBaseline(selected);
       navigation.goBack();
     } catch {
+      if (identityRef.current !== saveIdentity) return;
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
-      setSaving(false);
+      if (identityRef.current === saveIdentity) setSaving(false);
     }
-  }, [changed, groupId, navigation, saving, selected, userId]);
+  }, [changed, groupId, identity, navigation, ready, saving, selected, userId]);
 
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.cardEmoji.screen">
@@ -74,7 +84,7 @@ export default function GroupCardEmojiEditScreen() {
       </View>
 
       <View style={[s.body, { paddingBottom: insets.bottom + T.space.xxl }]}>
-        {selected === null ? (
+        {!ready ? (
           <ActivityIndicator color={T.accent} />
         ) : (
           <>
