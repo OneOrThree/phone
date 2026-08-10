@@ -57,13 +57,20 @@ export function ProgressBar({
   //    requestAnimationFrame인 이유: useEffect의 setState는 같은 커밋에 묶여 네이티브가 0%를
   //    한 번도 못 볼 수 있다. 실제 프레임 경계가 필요하다.
   //    reduce면 이 2단계를 건너뛴다(전환 스타일이 없으니 0%가 한 프레임 보이기만 할 뿐이다).
+  //
+  // ⚠️ **`m.ready` 전에는 진입 프레임을 예약하지 않는다.** '동작 줄이기' 조회가 끝나기 전
+  //    `m.reduce`는 보수적으로 true인데, 그 값으로 `entered`를 확정해 버리면 첫 렌더부터 목표
+  //    폭이 그려진다. 이후 조회가 false로 확정돼 전환 스타일이 붙어도 **폭이 이미 목표라 변화가
+  //    없어** CSS transition이 실행되지 않는다 — 설정을 켜지 않은 사용자가 최초 채우기와 delay를
+  //    통째로 잃는다(codex 리뷰). 확정 전에는 0%(=시작 상태)로 대기한다.
+  //    조회는 실패해도 catch에서 false로 확정되므로(useReduceMotion.ts) 영원히 대기하지 않는다.
   const [entered, setEntered] = useState(false);
   useEffect(() => {
-    if (entered) return;
+    if (entered || !m.ready) return;
     const id = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(id);
-  }, [entered]);
-  const shown = entered || m.reduce ? clamped : 0;
+  }, [entered, m.ready]);
+  const shown = entered || (m.ready && m.reduce) ? clamped : 0;
 
   // ⚠️ delay는 **최초 채우기에만** 쓴다. 그대로 두면 이후 모든 width 변경에도 걸려서,
   //    새로고침으로 값이 갱신될 때 숫자는 즉시 바뀌는데 진행바만 delay(예: 470ms) 동안 옛 값을
