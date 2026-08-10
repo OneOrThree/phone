@@ -122,7 +122,6 @@ export function navigateToDeepLink(link: string): void {
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
-      discardInitialGroupRoomReturn();
       navigationRef.navigate('FocusCategory');
       break;
     case 'home':
@@ -159,7 +158,6 @@ export function navigateToDeepLink(link: string): void {
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
-      discardInitialGroupRoomReturn();
       navigationRef.navigate('FriendAdd');
       break;
     default:

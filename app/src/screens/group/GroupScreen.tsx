@@ -132,7 +132,11 @@ export default function GroupScreen() {
     };
     return tabNavigation.addListener('tabPress', () => {
       // 이미 focus된 탭을 재선택한 이벤트는 새 view episode를 만들지 않으므로 다음 focus에 남기지 않는다.
-      if (!tabNavigation.isFocused()) nextFocusFromTabRef.current = true;
+      // 초대 시트를 연 채 홈으로 빠졌다 돌아오는 경우는 새 탭 진입이 아니라 진행 중이던 invite
+      // episode의 복귀다. pending invite가 있으면 return 판정을 유지한다.
+      if (!tabNavigation.isFocused() && !peekPendingInvite()) {
+        nextFocusFromTabRef.current = true;
+      }
     });
   }, [navigation]);
 

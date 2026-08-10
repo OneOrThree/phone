@@ -540,11 +540,19 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
     expect(navigate).toHaveBeenCalledWith('FriendAdd');
   });
 
-  test.each(['gromo://home', 'gromo://league', 'gromo://focus', 'gromo://friends'])(
-    '%s 외부 전이는 보류된 GroupRoom 복귀 표식을 폐기한다',
+  test.each(['gromo://home', 'gromo://league'])(
+    '%s 탭 전환은 보류된 GroupRoom 복귀 표식을 폐기한다',
     (link) => {
       navigateToDeepLink(link);
       expect(mockDiscardInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test.each(['gromo://focus', 'gromo://friends'])(
+    '%s 스택 push는 뒤로 돌아올 GroupRoom 복귀 표식을 유지한다',
+    (link) => {
+      navigateToDeepLink(link);
+      expect(mockDiscardInitialGroupRoomReturn).not.toHaveBeenCalled();
     },
   );
 
