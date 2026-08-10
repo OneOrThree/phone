@@ -26,7 +26,9 @@ public enum GroupErrorCode {
     // (대상 멤버 없음은 기존 NOT_FOUND 재사용 — transferOwner 와 동일 패턴)
     KICKED_CANNOT_REJOIN(HttpStatus.FORBIDDEN, "강퇴된 그룹에는 다시 참여할 수 없어요"),
     CANNOT_KICK_SELF(HttpStatus.BAD_REQUEST, "자기 자신은 내보낼 수 없어요"),
-    ACTIVE_CHALLENGE_EXISTS(HttpStatus.CONFLICT, "해당 카테고리에 이미 활성 챌린지가 존재합니다."),
+    // deprecated — 발급 경로 없음(챌린지 생성 중복은 CHALLENGE_DUPLICATE). 하루형만 카테고리당 1개라는
+    // 새 규칙(GROMO-1422)에 맞춰 카피만 정정해 잔존시킨다(코드 문자열 호환 관례).
+    ACTIVE_CHALLENGE_EXISTS(HttpStatus.CONFLICT, "해당 카테고리에 이미 활성 하루형 챌린지가 존재합니다."),
     // 앱이 응답의 code 문자열(GROUP_LIMIT_EXCEEDED)로 분기한다 — 이름 변경 금지.
     GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "참여할 수 있는 그룹 수를 초과했어요"),
     NOTICE_FORBIDDEN(HttpStatus.FORBIDDEN, "공지 작성/수정/삭제 권한이 없습니다."),
@@ -58,10 +60,19 @@ public enum GroupErrorCode {
     BET_LEAVE_CLOSED(HttpStatus.CONFLICT, "내기가 시작되어 철회할 수 없어요"),
 
     // 챌린지 생성 충돌 — 앱이 응답의 code 문자열로 분기한다. 이름 변경 금지.
-    // 활성 챌린지는 (카테고리, 타입)당 1개 — V20 부분 유니크 인덱스가 강제한다.
-    CHALLENGE_DUPLICATE(HttpStatus.CONFLICT, "이미 같은 종류의 챌린지가 진행 중이에요"),
-    // 포커스 창형과 스크린타임 창형의 시간대 교차 금지 — 같은 시간대 행동 하나로 내기 2개 중복 보상 차단.
+    // 하루형(DURATION)만 카테고리당 활성 1개(FR-3 · V36 부분 유니크) — 창형은 겹치지 않으면 복수 허용이라
+    // 이 코드는 하루형 중복에서만 나간다(GROMO-1422).
+    CHALLENGE_DUPLICATE(HttpStatus.CONFLICT, "이미 같은 카테고리의 하루형 챌린지가 진행 중이에요"),
+    // 활성 창형끼리 시간대 교차 금지(카테고리 무관, §A5) — 같은 시간대 행동 하나로 내기 2개 중복 보상 차단.
     CHALLENGE_WINDOW_OVERLAP(HttpStatus.CONFLICT, "겹치는 시간대의 챌린지가 이미 있어요"),
+    // 그룹당 활성 챌린지 4개 상한(FR-1 · §A4 · GROMO-1422) — 사전 검사 + 그룹 행 배타 락으로 결정적 409.
+    CHALLENGE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "활성 챌린지는 그룹당 최대 4개까지 만들 수 있어요"),
+    // 요일 반복(§A3) — 기본값 없음: 신앱이 빈 배열을 보내면 거절한다(필드 미전송 구앱만 매일로 접는다).
+    CHALLENGE_REPEAT_DAYS_REQUIRED(HttpStatus.BAD_REQUEST, "챌린지가 도는 요일을 1개 이상 선택해 주세요"),
+    // 창형 SCREEN_TIME 목표는 15분 배수(§A6-3) — 스크린타임 측정 눈금이 15분이라 그보다 곱지 않다.
+    CHALLENGE_GOAL_NOT_ALIGNED(HttpStatus.BAD_REQUEST, "스크린타임 창 목표는 15분 단위로 입력해 주세요"),
+    // 종료는 진행 중(OPEN 회차 존재) 불가(FR-11 · §A8) — 남의 돈이 걸린 회차를 대가 없이 마감하는 경로 차단.
+    CHALLENGE_END_BLOCKED(HttpStatus.CONFLICT, "진행 중인 내기 회차가 끝나야 종료할 수 있어요"),
 
     // 동시성 — 낙관락(@Version: Group 정원·UserWallet 잔액) 충돌의 전역 폴백(GlobalExceptionHandler).
     // 트랜잭션 전체가 롤백된 일시 충돌이라 클라이언트가 재시도하면 풀린다. 구앱은 이 코드를 모르므로

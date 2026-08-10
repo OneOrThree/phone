@@ -62,6 +62,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
@@ -237,7 +238,7 @@ class GroupServiceTest {
      * windowStart/windowEnd "HH:mm:ss" 계약 테스트가 공용한다 (GROMO-1230).
      */
     private void givenRepresentativeTimeWindowChallenge(
-            Group group, MissionCategory category, Instant windowStartAt, Instant windowEndAt) {
+            Group group, MissionCategory category, LocalTime windowStart, LocalTime windowEnd) {
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group).type(MissionType.TIME_WINDOW)
                 .category(category).status(GroupChallengeStatus.ACTIVE).build();
@@ -245,7 +246,7 @@ class GroupServiceTest {
                 group, GroupChallengeStatus.ACTIVE)).willReturn(Optional.of(challenge));
         given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(
                 Optional.of(GroupChallengeWindow.builder()
-                        .challengeId(CHALLENGE_ID).windowStartAt(windowStartAt).windowEndAt(windowEndAt).build()));
+                        .challengeId(CHALLENGE_ID).windowStart(windowStart).windowEnd(windowEnd).build()));
     }
 
     // ── 정상 생성 ─────────────────────────────────────────────────────────
@@ -879,7 +880,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
-                Instant.parse("2026-07-10T04:00:00Z"), Instant.parse("2026-07-10T06:30:00Z"));
+                LocalTime.parse("13:00"), LocalTime.parse("15:30"));
 
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
@@ -893,10 +894,8 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("자정 걸침 창 → 날짜 없이 벽시계만 남아 시작 ≥ 종료 문자열로 내려간다")
-    void getGroupOverviewMidnightCrossingWindow() {
-        // given — 13:00Z = 22:00 KST(당일), 16:00Z = 01:00 KST(익일). 응답엔 날짜가 없으므로
-        //   "22:00:00" > "01:00:00" 이 자정 걸침의 유일한 신호다(WindowFocusAggregator 해석과 동일).
+    @DisplayName("심야 창(22:00~23:59) → 벽시계 \"HH:mm:ss\" 그대로 내려간다 (자정 걸침은 V35 이후 존재 불가)")
+    void getGroupOverviewLateNightWindow() {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
@@ -905,14 +904,14 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.FOCUS,
-                Instant.parse("2026-07-10T13:00:00Z"), Instant.parse("2026-07-10T16:00:00Z"));
+                LocalTime.parse("22:00"), LocalTime.parse("23:59"));
 
         // when
         GroupOverviewResponse result = groupService.getGroupOverview(GROUP_ID, USER_ID);
 
         // then
         assertThat(result.getWindowStart()).isEqualTo("22:00:00");
-        assertThat(result.getWindowEnd()).isEqualTo("01:00:00");
+        assertThat(result.getWindowEnd()).isEqualTo("23:59:00");
     }
 
     @Test
@@ -1144,7 +1143,7 @@ class GroupServiceTest {
         given(groupMemberRepository.findByUserAndGroup(member, group)).willReturn(Optional.of(memberRole));
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
         givenRepresentativeTimeWindowChallenge(group, MissionCategory.SCREEN_TIME,
-                Instant.parse("2026-07-10T04:00:00Z"), Instant.parse("2026-07-10T06:30:00Z"));
+                LocalTime.parse("13:00"), LocalTime.parse("15:30"));
 
         // when
         GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
