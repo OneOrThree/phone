@@ -9,7 +9,7 @@
 >
 > ⚠️ **애니메이션 구현은 이번 릴리즈에서 빠졌다**(오너 결정). 이 문서가 그래도 머지되는 이유는
 > 여기서 가린 결정·조사를 보존하기 위해서다 — 자세한 것과 **줄 번호 좌표계 주의사항**은
-> [README](README.md#이-문서-세트는-구현보다-먼저-머지된다).
+> [README](README.md#구현-상태--문서-세트가-구현보다-먼저-머지된다).
 
 ---
 
@@ -340,7 +340,10 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
           ├ 포디움(:397)                       ← 자식 0 (조건부)
           ├ 내 순위 스트립(:498)                ← 자식 1 = sticky
           ├ 섹션 헤더(:537)
-          └ RankRowShell × N(:559)
+          ├ RankRowShell × N(:559)
+          ├ 조회 실패+재시도 / 빈 상태(:606-622)   ← ⚠️ 초판이 빠뜨렸던 후행 UI
+          ├ 핀 모드 빈 상태(:624-626)             ← ⚠️ 같음
+          └ TierGuide 진입 스트립(:628-637)       ← ⚠️ 같음 · **무조건 렌더**
 
 [이후]  <View>                                              ← position:relative
           ├ Animated.FlatList
@@ -348,7 +351,10 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
           │    data = listRows · keyExtractor = userId
           │    renderItem = RankRowShell(layout={m.css(rankSwap)})   ← 재정렬은 그대로
           │                  + enterEnabled prop 신설 (§5.3.1 — 진입 1회 보장)
+          │    ListFooterComponent = 위 후행 UI **3덩어리 전부** (§5.1.2)
+          │    ListEmptyComponent = **쓰지 않는다** (§5.1.2 — 술어가 다르다)
           │    onScroll = useAnimatedScrollHandler → scrollY(shared value)
+          │    refreshControl · contentContainerStyle · onLayout = 그대로 이관
           └ 내 순위 스트립 (absolute · translateY = clamp(stripTop − scrollY, 0, ∞))
                                                      ← **sticky 거동을 손수 재현한다**
 ```
@@ -387,6 +393,46 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
 
 **검증** — 수동 QA(§9)에 "스크롤을 포디움 경계 앞뒤로 천천히 왕복" 항목을 포함한다.
 경계에서 스트립이 **한 번도 깜빡이지 않아야** 한다.
+
+### 5.1.2 후행 UI — `ListFooterComponent` 하나에 담고 `ListEmptyComponent`는 쓰지 않는다
+
+**이 문서 초판이 랭킹 행 뒤에 있는 UI 세 덩어리를 통째로 빠뜨렸다**(2026-08-11 정정).
+`ScrollView`는 임의 자식을 담지만 **`FlatList`는 못 담는다** — 헤더/데이터만 정의한 채 전환하면
+**저 UI가 화면에서 사라진다.**
+
+| # | 무엇 | 위치 | 렌더 조건 |
+| --- | --- | --- | --- |
+| 1 | **조회 실패 + 재시도** `'랭킹을 불러오지 못했어요'` / `'다시 시도'` | `LeagueScreen.tsx:608-619` | `visibleRanking.length === 0 && showRankingError` |
+| 1′ | **빈 리그** `'아직 이 리그엔 아무도 없어요'` | `:620-622` | `visibleRanking.length === 0 && !showRankingError` |
+| 2 | **핀 모드 빈 상태** `'랭킹에서 핀을 누르면 여기에 담겨요'` | `:624-626` | `pinnedOnly && !showRankingError && listRows.length === 0` |
+| 3 | **TierGuide 진입 스트립**(`내 티어 · {name}` → `navigation.navigate('TierGuide')`) | `:629-637` | **없다 — 무조건 렌더된다** |
+
+**⚠️ `ListEmptyComponent`를 쓰면 안 된다 — 술어가 다르다.** `ListEmptyComponent`가 보는 것은
+`data.length === 0`, 즉 **`listRows.length === 0`**이다. 그런데 위 1·1′이 보는 것은
+**`visibleRanking.length === 0`**이고, 일반 모드의 `listRows`는
+`visibleRanking.slice(3)`이다(`:233` — 포디움이 앞 3명을 가져간다). 둘이 갈리는 실제 케이스:
+
+> **리그에 1~3명만 있을 때** — `visibleRanking.length`는 1~3이라 빈 상태가 아니지만
+> `listRows`는 **비어 있다.** `ListEmptyComponent`를 걸면 포디움에 사람이 서 있는 화면에
+> **`'아직 이 리그엔 아무도 없어요'`가 함께 뜬다.** 지금은 아무것도 뜨지 않는다.
+
+핀 모드에서도 갈린다 — 2의 술어는 `listRows.length === 0`이지만 **`pinnedOnly` 조건이 더 붙는다.**
+
+**처방 — 세 덩어리를 `ListFooterComponent` 하나에 그대로 넣는다.** `ListFooterComponent`는
+`data`가 비었든 아니든 **항상, 그리고 행들 뒤에** 렌더되므로 **현재의 자식 순서와 술어가
+그대로 보존된다.** 조건문을 FlatList의 술어로 번역하지 않는 것이 핵심이다 — 번역하는 순간
+위 케이스가 생긴다.
+
+| 항목 | 명세 |
+| --- | --- |
+| 담는 것 | 1·1′·2·3 **전부**. 각 블록의 `&&` 조건식은 **한 글자도 바꾸지 않고 옮긴다** |
+| `ListEmptyComponent` | **지정하지 않는다** |
+| 참조 안정성 | **element**(`ListFooterComponent={footer}`) 또는 `useCallback`으로 안정화한 컴포넌트를 쓴다. **렌더마다 새로 만드는 인라인 함수 컴포넌트는 금지** — FlatList가 매 렌더 언마운트/리마운트해 '다시 시도' 버튼의 눌림 상태가 끊기고, 단계 재생 중(390ms마다 리렌더) 반복된다 |
+| 스트립 오버레이와의 관계 | 후행 UI는 **스크롤 콘텐츠 안**이다. §5.1.1의 오버레이 스트립(리스트 밖)과 섞지 않는다 |
+
+**그대로 이관되는 나머지 props** — `refreshControl`(`:382-388`) · `contentContainerStyle`
+(`paddingBottom: insets.bottom + TAB_BAR_SPACE + 16` `:380`) · `onLayout`(`listHeight` `:376-378`)
+는 `FlatList`도 같은 이름으로 받는다. **빠뜨리면 당겨서 새로고침과 탭바 여백이 사라진다.**
 
 ### 5.2 무효가 되는 것 — 스크롤 제어
 
@@ -534,7 +580,7 @@ const FRIEND_LAYOUT = springify(new LinearTransition()); // 모듈 상수 — �
 | 진행 중 | `ProgressRing`(**고정 호 + 회전** — [§6.4 불확정 링 계약](#64-불확정-링-계약--progressring에는-불확정-모드가-없다)) + `'물건만 오려내는 중…'` | 회전 한 바퀴 `SPIN_MS = 1600`(로컬 상수 · `M` 토큰 아님) |
 | **완성 순간** = [§6.3.1의 논리곱](#631-리빌-발화-시점은-두-조건의-논리곱이다) | 마스크가 위에서 아래로 벗겨지며(스캔선이 경계를 따라간다) 캐릭터가 드러난다 | `M.dur.celebrate`(1200) · `M.curve.standard` |
 | 리빌 **50% 지점** | 물체 팝(`scale 0.86 → 1`, 원점 `50% 100%`) + `hapticSuccess()` + 완성 통보 문구 | `M.spring.bouncy` · `POP_AT = M.dur.celebrate / 2` |
-| '동작 줄이기' ON | **리빌·팝만 생략**하고 즉시 최종 상태로 간다. 완성 통보·햅틱은 **유지** | [정본 D7](../motion/policy.md#d7)과 같은 원리 |
+| '동작 줄이기' ON | **리빌·팝만 생략**하고 즉시 최종 상태로 간다. 완성 통보·햅틱은 **유지** | ⚠️ [정본 D7](../motion/policy.md#d7)의 *"컨페티만 생략"* 을 **넓힌 것**이다([D21](policy.md#d21)) — 정본만 읽으면 리빌이 재생된다 |
 
 **햅틱이 완성 순간이 아니라 리빌 50%에 나는 이유** — 축하의 **정점을 리빌이 끝나는 지점에 맞추기
 위해서다.** 팝 스프링(`M.spring.bouncy`)은 시작한 뒤 오버슛 정점까지 시간이 걸리므로, 리빌
@@ -774,6 +820,8 @@ if (points.length === 0) return <빈 상태: '아직 기록이 없어요' />;
 | `hooks/useMotion.*.test.ts` (4종) · `useReduceMotion.*.test.ts` (3종) · `motion.test.ts` · `Enter.test.tsx` | D18의 안전망. **`m.enter`가 `startFrameOf`로 접힌 뒤에도 미확정 구간 모습이 같아야 한다** |
 | D18 진입점 테스트 (신규) | 갈래 × 상태 4×4 표(§3.3) · **되감기 금지 불변식** · **`progressAt()` 구간별 검산**([§3.5](#35-경과-시간--진행률은-구간별-함수다-단일-비율이-아니다)): `elapsed=1000 → 0.45` · `elapsed=2500 → 0.90`(홀드) · `elapsed ≥ 3200 → 1`. 순수 함수라 워클릿 모킹 제약([정본 D14](../motion/policy.md#d14))에 걸리지 않는다 |
 | 리그 화면 테스트 | **자동 스크롤 목적지** — "내 행이 첫 화면 밖일 때만 스크롤"이 FlatList 전환 후에도 성립 |
+| 리그 화면 테스트 — **후행 UI 보존**(신규 · [§5.1.2](#512-후행-ui--listfootercomponent-하나에-담고-listemptycomponent는-쓰지-않는다)) | 전환 후에도 **렌더된다**: ① 조회 실패 시 `'랭킹을 불러오지 못했어요'` + `'다시 시도'`(누르면 재조회) · ② 빈 리그에서 `'아직 이 리그엔 아무도 없어요'` · ③ 핀 모드·핀 0개에서 `'랭킹에서 핀을 누르면 여기에 담겨요'` · ④ **`TierGuide` 진입 스트립은 모든 상태에서** 렌더된다 |
+| ⚠️ 같은 파일 — **거짓 빈 상태 회귀** | **리그 인원 1~3명**(포디움만 차고 `listRows`가 빈 경우) 에 `'아직 이 리그엔 아무도 없어요'`가 **뜨지 않는다.** `ListEmptyComponent`로 번역하면 깨지는 지점을 이 테스트가 고정한다 |
 | 알럿 이관 지점별 | `Alert.alert` **미호출** + `show({ tone: 'error' })` 호출. 모킹 관례는 `GroupProfileEditScreen.test.tsx:45-48` |
 
 **작성 금지** — 애니메이션 중간 프레임·타이밍·이징 곡선 단언([정본 D14](../motion/policy.md#d14)).
@@ -798,5 +846,9 @@ jest에서 워클릿은 모킹돼 실제로 실행되지 않는다.
   + **내 순위 스트립**: 첫 화면에서 포디움이 가려지지 않는가 · **포디움 경계 앞뒤로 천천히 왕복**할 때
   스트립이 한 번도 깜빡이지 않는가(§5.1.1)
   + **진입 연출 되풀이**(§5.3.1): 순위가 **긴 리그**에서 아래까지 스크롤했다가 되돌아올 때
-  행이 **다시 날아들지 않는가**. 반대로 **리그를 갈아타면** 시차 진입이 **다시 나는가**.
+  행이 **다시 날아들지 않는가**. 반대로 **리그를 갈아타면** 시차 진입이 **다시 나는가**
+  + **후행 UI 보존**(§5.1.2): 목록 맨 아래까지 내려 **`내 티어 · …` 스트립이 있는가**(누르면
+  TierGuide로 가는가) · **비행기 모드로 재진입**해 실패 안내 + `'다시 시도'`가 뜨는가 ·
+  **핀 0개로 '핀한 사람만'** 을 켜 안내 문구가 뜨는가 · **인원 1~3명인 리그**에서
+  `'아직 이 리그엔 아무도 없어요'`가 **뜨지 않는가**.
 - **1491**은 이관한 실패 통보를 **VoiceOver 켜고** 한 번씩 — 알럿은 자동으로 읽히지만 토스트는 아니다.
