@@ -123,7 +123,7 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
                 .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION).build());
         challenges.add(saved);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(MissionCategory.FOCUS).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 

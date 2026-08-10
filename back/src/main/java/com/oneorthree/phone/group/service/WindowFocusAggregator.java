@@ -22,9 +22,9 @@ import java.util.stream.Collectors;
  *
  * <p>카드 진행률·myAchievedNow(B2a)와 정산 판정(B2b)이 <b>같은 소스</b>를 쓰도록 분리한 순수 컴포넌트다.
  *
- * <p><b>창 해석(KST 앵커)</b>: TIME_WINDOW 는 매일 반복 시간대다. 저장된 window_start_at/end_at(Instant)
- * 은 Asia/Seoul 벽시계 시각(time-of-day)만 의미를 갖고(응답의 "HH:mm:ss" 변환과 동일 기준), 날짜 D 의
- * 실제 창은 D(KST)에 그 시각을 얹어 조합한다. 시작 ≥ 종료면 자정 걸침 창 — D 의 시작 ~ D+1 의 종료로 해석한다.
+ * <p><b>창 해석(KST)</b>: TIME_WINDOW 는 요일 반복 시간대다. 저장된 window_start/end 는 KST 벽시계
+ * 시각(time 타입, V35 · GROMO-1406)이고 항상 시작 &lt; 종료다(자정 걸침 금지 §A6-1 — DB CHECK).
+ * 날짜 D 의 실제 창은 D(KST)에 그 시각을 얹어 조합한다 — 창의 모든 시각이 회차일 D 안에서 끝난다.
  *
  * <p><b>판정 기준</b>: 창 판정은 세션 겹침 길이에서 <b>방해 비율만큼을 뺀</b> 순수 집중 시간이다
  * (GROMO-1214 코드리뷰 ⑥ — daily_focus_stats 의 total_focus_seconds·by-category 와 같은 기준).
@@ -59,8 +59,7 @@ public class WindowFocusAggregator {
      */
     public Map<UUID, Integer> focusMinutesWithin(Collection<UUID> userIds, LocalDate date,
             GroupChallengeWindow window) {
-        return focusMinutesWithin(userIds, date,
-                timeOfDay(window.getWindowStartAt()), timeOfDay(window.getWindowEndAt()));
+        return focusMinutesWithin(userIds, date, window.getWindowStart(), window.getWindowEnd());
     }
 
     /**
@@ -75,7 +74,7 @@ public class WindowFocusAggregator {
         }
         return focusSessionRepository
                 .sumOverlapSecondsInWindow(userIds,
-                        windowStartOn(date, windowStart), windowEndOn(date, windowStart, windowEnd))
+                        windowStartOn(date, windowStart), windowEndOn(date, windowEnd))
                 .stream()
                 .collect(Collectors.toMap(
                         FocusSessionRepository.WindowFocusOverlap::getUserId,
@@ -87,38 +86,40 @@ public class WindowFocusAggregator {
         return focusMinutes >= goalMinutes - WINDOW_FOCUS_TOLERANCE_MINUTES;
     }
 
-    /** 날짜 D 의 창 시작 Instant — D(KST) + 시작 시각. */
+    /** 날짜 D 의 창 시작 Instant — CTI 엔티티 입력판(알림·집계 호출부 호환). */
     public Instant windowStartOn(LocalDate date, GroupChallengeWindow window) {
-        return windowStartOn(date, timeOfDay(window.getWindowStartAt()));
+        return windowStartOn(date, window.getWindowStart());
     }
 
-    /** 날짜 D 의 창 종료 Instant — 시작 < 종료면 D, 아니면(자정 걸침) D+1 의 종료 시각. */
+    /** 날짜 D 의 창 종료 Instant — CTI 엔티티 입력판. 종료일은 <b>항상 회차일 D</b> 다(아래 참고). */
     public Instant windowEndOn(LocalDate date, GroupChallengeWindow window) {
-        return windowEndOn(date, timeOfDay(window.getWindowStartAt()), timeOfDay(window.getWindowEndAt()));
+        return windowEndOn(date, window.getWindowEnd());
     }
 
     /**
      * 날짜 D 의 창 시작 Instant — 벽시계 시각 입력판. 창 시각 → Instant 변환은 <b>여기와
-     * {@link #windowEndOn(LocalDate, LocalTime, LocalTime)} 둘뿐</b>이다(GROMO-1280): 정산 대기
-     * 가드·개설 시각 박제·마감 판정이 저마다 KST 산술을 다시 쓰면 자정 걸침 처리가 조용히 갈라진다.
+     * {@link #windowEndOn(LocalDate, LocalTime)} 둘뿐</b>이다(GROMO-1280): 정산 대기 가드·개설
+     * 시각 박제·마감 판정이 저마다 KST 산술을 다시 쓰면 창 경계가 조용히 갈라진다.
      */
     public static Instant windowStartOn(LocalDate date, LocalTime windowStart) {
         return date.atTime(windowStart).atZone(KST).toInstant();
     }
 
-    /** 날짜 D 의 창 종료 Instant — 벽시계 시각 입력판(시작 ≥ 종료면 자정 걸침 창이라 D+1 종료). */
-    public static Instant windowEndOn(LocalDate date, LocalTime windowStart, LocalTime windowEnd) {
-        LocalDate endDate = windowStart.isBefore(windowEnd) ? date : date.plusDays(1);
-        return endDate.atTime(windowEnd).atZone(KST).toInstant();
+    /**
+     * 날짜 D 의 창 종료 Instant — 벽시계 시각 입력판이고 종료일은 <b>항상 회차일 D</b> 다.
+     * V35(GROMO-1406)가 자정 걸침을 DB CHECK({@code window_start < window_end})로 금지해(§A6-1)
+     * 종전의 {@code D+1} 분기는 도달할 수 없다 — 죽은 분기를 남기면 개설 시각 박제
+     * ({@link GroupBetSessionFactory})·정산 대기 가드({@link GroupBetSettler})와 규칙이 갈려 보인다.
+     * 그래서 시작 시각을 아예 받지 않는다: 종료 경계는 종료 시각만으로 결정된다.
+     */
+    public static Instant windowEndOn(LocalDate date, LocalTime windowEnd) {
+        return date.atTime(windowEnd).atZone(KST).toInstant();
     }
 
     /**
-     * 창 Instant 의 의미 있는 부분 — <b>Asia/Seoul 벽시계 시각(time-of-day)</b>. 생성 검증·겹침 판정
-     * ({@code GroupChallengeService})·집계 경계(여기)·응답 "HH:mm:ss" 변환이 전부 이 <b>단일 기준</b>을
-     * 쓴다 — 한쪽만 바뀌어 조용히 갈라지지 않도록 공용으로 노출한다(PR #438 리뷰).
-     *
-     * <p>앱은 창 시각을 {@code +09:00} 오프셋의 진짜 Instant 로 보낸다. 종전에는 저장 Instant 의
-     * UTC 시각을 KST 벽시계로 간주해 정확히 9시간 어긋났다(GROMO-1100) — KST 해석으로 통일한다.
+     * 구앱 ISO Instant 창 시각의 KST 벽시계 해석 — {@link #parseRequestTime} 의 레거시 경로 전용.
+     * 종전에는 저장 Instant 의 UTC 시각을 KST 벽시계로 간주해 정확히 9시간 어긋났다(GROMO-1100) —
+     * KST 해석으로 통일한다. 저장이 time 타입(V35)이 된 뒤 창 저장·응답 경로에서는 더 쓰지 않는다.
      */
     public static LocalTime timeOfDay(Instant instant) {
         return LocalTime.ofInstant(instant, KST);
@@ -131,28 +132,22 @@ public class WindowFocusAggregator {
      * <p>신앱은 {@code "HH:mm:ss"}(또는 {@code "HH:mm"})를, 구앱은 ISO Instant
      * ({@code 2026-08-05T09:00:00+09:00} 꼴)를 보낸다 — 이중 수용해 같은 KST 벽시계 시각으로 수렴시킨다.
      * 구앱 경로는 기존 {@link #timeOfDay} 를 그대로 경유하므로 종전 저장 의미(Instant 의 KST 시각)가
-     * 바이트 단위로 보존된다.
-     *
-     * <p><b>저장 앵커</b>: 반환 Instant 의 날짜부는 {@link LocalDate#EPOCH}(1970-01-01, KST)로 고정한다.
-     * 저장 Instant 는 어차피 시각(time-of-day)만 의미를 갖는다({@link #timeOfDay}) — 날짜부를 상수로
-     * 고정하면 "날짜부는 무의미" 가 데이터 자체에 드러난다. 기존 행(앱 송신 당시 날짜부)은 재해석 없이
-     * 그대로 호환된다.
+     * 그대로 보존된다. 저장은 time 타입(V35)이라 반환도 {@link LocalTime} 그 자체다 — 종전의
+     * EPOCH 날짜부 앵커 규약은 타입 전환과 함께 폐기됐다.
      *
      * @throws DateTimeParseException 두 형식 모두 아닐 때 — 호출부가 INVALID_MISSION_PARAMS 로 매핑한다
      */
-    public static Instant parseRequestTime(String value) {
-        LocalTime time = REQUEST_TIME_PATTERN.matcher(value).matches()
+    public static LocalTime parseRequestTime(String value) {
+        return REQUEST_TIME_PATTERN.matcher(value).matches()
                 ? LocalTime.parse(value)
                 : timeOfDay(Instant.parse(value));
-        return LocalDate.EPOCH.atTime(time).atZone(KST).toInstant();
     }
 
     /**
-     * 창 Instant 의 응답 표기 — {@link #timeOfDay} 결과를 {@code "HH:mm:ss"} 문자열로 포맷한다.
-     * {@code /challenges} 목록과 그룹 상세·오버뷰(GROMO-1206)가 같은 문자열을 내보내는 단일 출구다 —
-     * 응답 경로마다 zone 변환을 새로 만들지 말고 반드시 이 메서드를 거칠 것.
+     * 창 시각의 응답 표기 — {@code "HH:mm:ss"} 문자열. {@code /challenges} 목록과 그룹 상세·오버뷰
+     * (GROMO-1206)가 같은 문자열을 내보내는 단일 출구다 — 응답 경로마다 포맷을 새로 만들지 말 것.
      */
-    public static String timeOfDayString(Instant instant) {
-        return timeOfDay(instant).format(TIME_FORMATTER);
+    public static String timeOfDayString(LocalTime time) {
+        return time.format(TIME_FORMATTER);
     }
 }

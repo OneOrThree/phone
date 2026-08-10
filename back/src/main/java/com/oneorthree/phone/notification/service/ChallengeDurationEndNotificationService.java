@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
@@ -107,7 +108,10 @@ public class ChallengeDurationEndNotificationService {
         Set<UUID> withGoal = findChallengeIdsWithGoal(
                 challenges.stream().map(GroupChallenge::getId).toList());
         Instant cycleEnd = cycleEnd(now);
+        // 직전 회차일(어제, KST) — 비활성 요일엔 회차가 서지 않았으므로 마감 알림도 없다(FR-9 · §A3).
+        LocalDate cycleDate = LocalDate.ofInstant(cycleEnd, KST).minusDays(1);
         List<GroupChallenge> ended = challenges.stream()
+                .filter(challenge -> RepeatSchedule.activeOn(challenge.getRepeatDays(), cycleDate))
                 .filter(challenge -> withGoal.contains(challenge.getId()))
                 .filter(challenge -> hasFinishedCycle(challenge, cycleEnd))
                 .toList();

@@ -208,8 +208,9 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
                 .group(group).category(category).type(MissionType.DURATION)
                 .status(GroupChallengeStatus.ACTIVE).build());
         challenges.add(saved);
+        // category 는 V36 의 카테고리별 목표 상한 CHECK·복합 FK 가 요구하는 비정규화 복사다(NOT NULL).
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(category).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 
@@ -222,8 +223,8 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
         challenges.add(saved);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(Instant.parse("2026-01-01T" + start + "+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T" + end + "+09:00"))
+                .windowStart(LocalTime.parse(start))
+                .windowEnd(LocalTime.parse(end))
                 .durationMinutes(goalMinutes)
                 .build());
         return saved;

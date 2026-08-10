@@ -364,11 +364,19 @@ public class GroupBetSettler {
             return false;
         }
         List<UUID> userIds = participants.stream().map(p -> p.getUser().getId()).toList();
-        // 창 종료 Instant 는 스냅샷 시각을 단일 변환점(WindowFocusAggregator)에 넘겨 얻는다 —
-        // 여기서 KST·자정 걸침 산술을 따로 쓰면 판정 커널과 경계가 갈린다(GROMO-1280).
-        return focusSessionRepository.existsActiveOverlappingWindow(userIds,
-                WindowFocusAggregator.windowEndOn(
-                        session.getSessionDate(), session.getWindowStart(), session.getWindowEnd()));
+        return focusSessionRepository.existsActiveOverlappingWindow(userIds, windowEndOf(session));
+    }
+
+    /**
+     * 회차 창 종료 Instant — 스냅샷 시각으로 계산하며 <b>종료일은 항상 회차일</b>이다.
+     * V35(GROMO-1406)가 자정 걸침을 DB CHECK({@code window_start < window_end})로 금지하면서
+     * {@code WindowFocusAggregator.windowEndOn} 의 D+1 분기가 사라졌다 — 대기 가드는 판정이 실제로
+     * 쓰는 창과 <b>같은 경계</b>를 봐야 하므로, 여기서 KST 산술을 다시 쓰지 않고 그 단일 변환점을
+     * 그대로 부른다(GROMO-1280). 둘이 갈리면 판정은 이미 끝난 창을 보는데 대기만 계속 걸리거나
+     * 그 반대가 된다.
+     */
+    private static Instant windowEndOf(GroupChallengeBetSession session) {
+        return WindowFocusAggregator.windowEndOn(session.getSessionDate(), session.getWindowEnd());
     }
 
     /**

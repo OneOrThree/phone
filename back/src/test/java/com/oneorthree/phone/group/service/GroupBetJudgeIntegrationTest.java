@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -86,8 +87,8 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
         GroupChallenge challenge = saveChallenge(category, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.parse("2026-01-01T" + start + "+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T" + end + "+09:00"))
+                .windowStart(LocalTime.parse(start))
+                .windowEnd(LocalTime.parse(end))
                 .durationMinutes(goalMinutes)
                 .build());
         return challenge;
@@ -100,7 +101,7 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
     void resolvesGoalPerType() {
         GroupChallenge duration = saveChallenge(MissionCategory.SCREEN_TIME, MissionType.DURATION);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(duration).durationMinutes(GOAL_MINUTES).build());
+                .challenge(duration).category(MissionCategory.SCREEN_TIME).durationMinutes(GOAL_MINUTES).build());
         GroupChallenge window = saveWindowChallenge(MissionCategory.FOCUS, "09:00:00", "12:00:00", 90);
 
         assertThat(groupBetJudge.resolve(duration))
@@ -136,20 +137,15 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("자정 걸침 창(22:00~01:00) 의 D일 마감은 D+1 01:00 KST — 그래서 D 당일엔 가드가 닫지 않는다")
-    void midnightCrossingWindowClosesNextDay() {
+    @DisplayName("심야 창(22:00~23:59) 의 D일 마감도 D 안이다 — 자정 걸침 금지(GROMO-1406)로 D+1 마감은 없다")
+    void lateNightWindowClosesOnSameDate() {
         GroupChallenge challenge = saveWindowChallenge(
-                MissionCategory.FOCUS, "22:00:00", "01:00:00", GOAL_MINUTES);
+                MissionCategory.FOCUS, "22:00:00", "23:59:00", GOAL_MINUTES);
         GroupBetJudge.Target target = groupBetJudge.resolve(challenge).orElseThrow();
 
-        // 2026-08-02 01:00 KST = 2026-08-01T16:00Z — 날짜 D(08-01) 의 어느 시각보다도 뒤다.
+        // 2026-08-01 23:59 KST = 2026-08-01T14:59Z — 마감이 날짜 D 를 벗어나지 않는다.
         Instant closesAt = groupBetJudge.windowClosesAt(target, DATE).orElseThrow();
-        assertThat(closesAt).isEqualTo(Instant.parse("2026-08-01T16:00:00Z"));
-
-        // D 의 마지막 순간(23:59:59 KST = 14:59:59Z)조차 마감보다 이르다 → 개설·참가 가드
-        // (requireWindowStillOpen)는 betDate == 오늘 인 동안 절대 걸리지 않는다. 실질 마감은
-        // 자정에 날짜 게이트가 넘어가면서 처리되므로, 창의 마지막 1시간은 새 참가를 받지 않는다.
-        assertThat(Instant.parse("2026-08-01T14:59:59Z")).isBefore(closesAt);
+        assertThat(closesAt).isEqualTo(Instant.parse("2026-08-01T14:59:00Z"));
     }
 
     @Test
@@ -157,7 +153,7 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
     void durationHasNoWindowClose() {
         GroupChallenge duration = saveChallenge(MissionCategory.FOCUS, MissionType.DURATION);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(duration).durationMinutes(GOAL_MINUTES).build());
+                .challenge(duration).category(MissionCategory.FOCUS).durationMinutes(GOAL_MINUTES).build());
         GroupBetJudge.Target target = groupBetJudge.resolve(duration).orElseThrow();
 
         assertThat(groupBetJudge.windowClosesAt(target, DATE)).isEqualTo(Optional.empty());

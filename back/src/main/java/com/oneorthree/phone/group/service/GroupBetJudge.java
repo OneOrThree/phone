@@ -119,14 +119,14 @@ public class GroupBetJudge {
         }
         if (challenge.getType() != MissionType.TIME_WINDOW || window == null
                 || window.getDurationMinutes() == null
-                || window.getWindowStartAt() == null || window.getWindowEndAt() == null) {
+                || window.getWindowStart() == null || window.getWindowEnd() == null) {
             // 목표분 없는 구 창 챌린지·상세 유실은 판정 자체가 불가 — 내기 대상이 아니다.
             return Optional.empty();
         }
+        // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 이라 Instant→LocalTime 변환이 없다.
         return Optional.of(new Target(challenge.getId(), challenge.getCategory(),
                 MissionType.TIME_WINDOW, window.getDurationMinutes(),
-                WindowFocusAggregator.timeOfDay(window.getWindowStartAt()),
-                WindowFocusAggregator.timeOfDay(window.getWindowEndAt())));
+                window.getWindowStart(), window.getWindowEnd()));
     }
 
     /**
@@ -186,8 +186,7 @@ public class GroupBetJudge {
      */
     public Optional<Instant> windowClosesAt(Target target, LocalDate date) {
         return target.windowed()
-                ? Optional.of(WindowFocusAggregator.windowEndOn(
-                        date, target.windowStart(), target.windowEnd()))
+                ? Optional.of(WindowFocusAggregator.windowEndOn(date, target.windowEnd()))
                 : Optional.empty();
     }
 
@@ -314,7 +313,11 @@ public class GroupBetJudge {
     private Map<UUID, Integer> dailyScreenTimeMinutes(Collection<User> users, LocalDate date) {
         Map<UUID, Integer> minutes = new HashMap<>();
         for (DailyScreenTimeStat stat : dailyScreenTimeStatRepository.findByUserInAndDate(users, date)) {
-            minutes.merge(stat.getUser().getId(), stat.getTotalScreenTimeMinutes(), Integer::max);
+            // 미집계 row(minutes null, GROMO-1267)는 키를 만들지 않는다 — "행 없음"과 동일하게
+            // 미보고로 해석돼 isAchieved 가 미달성으로 확정한다(FR-21 유지).
+            if (stat.getTotalScreenTimeMinutes() != null) {
+                minutes.merge(stat.getUser().getId(), stat.getTotalScreenTimeMinutes(), Integer::max);
+            }
         }
         return minutes;
     }

@@ -11,7 +11,6 @@ import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -219,8 +218,10 @@ class GroupBetServiceTest {
 
     /** 창 목표(TIME_WINDOW) 대상 — 창 시각은 스냅샷 박제 검증에 쓰인다(09:00~12:00 KST). */
     private GroupBetJudge.Target windowTarget(MissionCategory category) {
+        // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 값 그 자체다 — 판정 대상도 CTI 엔티티가 아니라
+        // 회차 스냅샷과 같은 값(LocalTime)을 든다(GROMO-1280).
         return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.TIME_WINDOW,
-                GOAL_MINUTES, LocalTime.of(9, 0), LocalTime.of(12, 0));
+                GOAL_MINUTES, LocalTime.parse("09:00"), LocalTime.parse("12:00"));
     }
 
     /**
@@ -568,7 +569,7 @@ class GroupBetServiceTest {
                 .group(group())
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
-                .status(GroupChallengeStatus.INACTIVE)
+                .status(GroupChallengeStatus.ENDED)
                 .build());
 
         assertThatThrownBy(() ->

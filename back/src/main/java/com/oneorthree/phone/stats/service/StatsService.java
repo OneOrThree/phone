@@ -1,6 +1,6 @@
 package com.oneorthree.phone.stats.service;
 
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.domain.FocusSession;
 import com.oneorthree.phone.focus.domain.UserFocusTag;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -113,7 +113,8 @@ public class StatsService {
                     f != null ? StatsUnits.secondsToMinutes(f.getTotalFocusSeconds()) : 0,   // GROMO-642: 초 → 분
                     f != null ? f.getSessionCount() : 0,
                     f != null && f.isFocusTimeGoalAchieved(),
-                    s != null ? s.getTotalScreenTimeMinutes() : 0,
+                    // 미집계(null, GROMO-1267)는 개인 통계 표시에선 0 으로 접는다 — statsApi 응답 shape 불변.
+                    screenMinutesOrZero(s),
                     s != null && s.isScreenTimeGoalAchieved()));
         }
         return cells;
@@ -145,6 +146,7 @@ public class StatsService {
 
         int focusMinutes = dailyFocusStatRepository.findByUserAndDate(user, today)
                 .map(d -> StatsUnits.secondsToMinutes(d.getTotalFocusSeconds())).orElse(0);   // GROMO-642: 초→분
+        // 미집계 row(minutes null, GROMO-1267)는 Optional.map 이 empty 로 접어 0 이 된다 — 표시 전용 경로.
         int screenMinutes = dailyScreenTimeStatRepository.findByUserAndDate(user, today)
                 .map(DailyScreenTimeStat::getTotalScreenTimeMinutes).orElse(0);
         int focusGoal = userFocusTimeSettingsRepository.findById(userId)
@@ -326,7 +328,7 @@ public class StatsService {
                         todayFailed = finalizedToday.get().isScreenTimeGoalAchieved() ? 0 : 1;
                     } else {
                         int todayMinutes = todayStats.stream()
-                                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes).sum();
+                                .mapToInt(StatsService::screenMinutesOrZero).sum();
                         todayFailed = todayMinutes > goalMinutes ? 1 : 0;
                     }
                 }
@@ -346,15 +348,15 @@ public class StatsService {
     }
 
     /**
-     * 가입일을 유저존 로컬 날짜로 환산한다(GROMO-805) — 가입 전 날을 집계에서 제외하기 위한 공통 기준.
-     * {@code user.createdAt} 을 유저 country_code 파생 존(GROMO-561, 스크린타임 쓰기 버킷과 동일 존)의 로컬 날짜로
-     * 환산한다. {@code createdAt} 이 null(테스트/레거시)이면 {@code null} 을 반환해 호출부가 클램프/필터를 생략한다.
+     * 가입일을 KST 로컬 날짜로 환산한다(GROMO-805 · 1259) — 가입 전 날을 집계에서 제외하기 위한 공통 기준.
+     * 스크린타임 쓰기 버킷과 동일한 KST 축({@link ZonePolicy})을 쓴다.
+     * {@code createdAt} 이 null(테스트/레거시)이면 {@code null} 을 반환해 호출부가 클램프/필터를 생략한다.
      */
     private LocalDate joinLocalDate(User user) {
         if (user.getCreatedAt() == null) {
             return null;
         }
-        return user.getCreatedAt().atZone(CountryZoneResolver.resolve(user.getCountryCode())).toLocalDate();
+        return user.getCreatedAt().atZone(ZonePolicy.KST).toLocalDate();
     }
 
     /**
@@ -365,8 +367,16 @@ public class StatsService {
     private int sumMinutesFromJoin(List<DailyScreenTimeStat> stats, LocalDate joinLocalDate) {
         return stats.stream()
                 .filter(s -> joinLocalDate == null || !s.getDate().isBefore(joinLocalDate))
-                .mapToInt(DailyScreenTimeStat::getTotalScreenTimeMinutes)
+                .mapToInt(StatsService::screenMinutesOrZero)
                 .sum();
+    }
+
+    /**
+     * 미집계(null, GROMO-1267) 스크린타임을 0 으로 접는 개인 통계 표시 전용 헬퍼 — statsApi 응답 shape 은
+     * int 로 불변이라 합산·표시는 0 으로 다룬다. 챌린지 판정·카드는 null 을 그대로 전파한다(FR-16).
+     */
+    private static int screenMinutesOrZero(DailyScreenTimeStat stat) {
+        return stat != null && stat.getTotalScreenTimeMinutes() != null ? stat.getTotalScreenTimeMinutes() : 0;
     }
 
     /**
@@ -386,10 +396,10 @@ public class StatsService {
         LocalDate from = range.currentFrom();
         LocalDate to = range.currentTo();
 
-        // GROMO-803: endedAt 윈도우도 유저 country_code 존 기준으로 정합 — [from 00:00, to+1 00:00) 반열림 구간.
-        // 일별 버킷(DailyFocusStat)이 존 로컬 날짜가 됐으므로, by-category 윈도우도 같은 존으로 열어야 경계 세션이
-        // 두 집계에서 동일한 날에 귀속된다. countryCode null·미지원은 Asia/Seoul 폴백(CountryZoneResolver).
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        // GROMO-803 · 1259: endedAt 윈도우도 일별 버킷과 같은 KST 축 — [from 00:00, to+1 00:00) 반열림 구간.
+        // 일별 버킷(DailyFocusStat)이 KST 로컬 날짜이므로, by-category 윈도우도 같은 존으로 열어야 경계 세션이
+        // 두 집계에서 동일한 날에 귀속된다.
+        ZoneId zone = ZonePolicy.KST;
         Instant fromInstant = from.atStartOfDay(zone).toInstant();
         Instant toInstant = to.plusDays(1).atStartOfDay(zone).toInstant();
         // GROMO-1252(코드리뷰 P1): 창 상단을 서버 now 로도 클램프한다 — 미래는 실집중일 수 없다.
