@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -197,8 +198,9 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("challengeId") UUID challengeId);
 
     /**
-     * 일 배치 대상 — 기준일 이전의 미정산 회차 id. 엔티티가 아니라 id 만 뽑는 이유는 회차 단위로
-     * 트랜잭션을 새로 열어 처리하기 때문이다(한 건 실패가 다른 건을 말아먹지 않게).
+     * 동결 감시 대상(GroupBetFreezeMonitor) — 기준일 이전의 미정산 회차 id. 엔티티가 아니라 id 만
+     * 뽑는 이유는 회차 단위로 트랜잭션을 새로 열어 처리하기 때문이다(한 건 실패가 다른 건을
+     * 말아먹지 않게).
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
             + "WHERE s.status = :status AND s.sessionDate < :beforeDate ORDER BY s.sessionDate, s.id")
@@ -207,25 +209,228 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("beforeDate") LocalDate beforeDate);
 
     /**
-     * 카테고리별 일 배치 대상 — 미션 스냅샷(GROMO-1263) 덕에 챌린지 조인 없이 회차 자체의
+     * 수동 배치(MANUAL) 대상 — <b>회차별 {@code settle_after}</b> 가 지난 OPEN 회차 id. 날짜 축
+     * ({@code session_date < today})이던 종전 선택은 <b>당일 회차</b>(오전 창형 등)를 못 잡아,
+     * 운영자가 당일 장애 회차를 수동 복구하지 못한 채 24h 자동 환불로 흘렀다(GROMO-1411 후속).
+     * 백오프({@code next_attempt_at})는 무시한다 — 수동 복구는 운영자가 "지금" 재시도하겠다는
+     * 뜻이고, 조기 호출은 settle 내부 그레이스·24h 가드가 이중 방어한다.
+     */
+    @Query("SELECT s.id FROM GroupChallengeBetSession s "
+            + "WHERE s.status = :status AND s.settleAfter <= :now ORDER BY s.settleAfter, s.id")
+    List<UUID> findIdsByStatusAndSettleAfterBefore(
+            @Param("status") GroupBetStatus status,
+            @Param("now") Instant now);
+
+    /**
+     * 카테고리별 수동 배치 대상 — 미션 스냅샷(GROMO-1263) 덕에 챌린지 조인 없이 회차 자체의
      * {@code missionCategory} 로 거른다(챌린지가 삭제돼도 대상 선정이 온전하다).
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
-            + "WHERE s.status = :status AND s.sessionDate < :beforeDate "
-            + "AND s.missionCategory = :category ORDER BY s.sessionDate, s.id")
-    List<UUID> findIdsByStatusAndSessionDateBeforeAndCategory(
+            + "WHERE s.status = :status AND s.settleAfter <= :now "
+            + "AND s.missionCategory = :category ORDER BY s.settleAfter, s.id")
+    List<UUID> findIdsByStatusAndSettleAfterBeforeAndCategory(
             @Param("status") GroupBetStatus status,
-            @Param("beforeDate") LocalDate beforeDate,
+            @Param("now") Instant now,
             @Param("category") MissionCategory category);
 
     /**
-     * 정산 결과 푸시 대상 — 최근 정산이 끝난 회차. 상태는 호출측이 (SETTLED, FORFEITED) 로 넘긴다
-     * (UNUSED 는 0명 회차라 알릴 대상 자체가 없고 — N52 알림 제외 — VOIDED·REFUNDED 환불 통지는
-     * BET_VOID_REFUND 푸시(B4·N48)의 몫이다).
+     * 5분 정산 스캔 대상(GROMO-1269·1411) — {@code settle_after} 가 지난 OPEN 회차 중 백오프
+     * ({@code next_attempt_at})가 경과한 것. <b>24h 데드라인 초과분은 백오프와 무관하게 집는다</b>
+     * (OR 술어) — 백오프 캡({@code GroupBetScheduler#nextAttemptAt})과 두 겹으로, 재시도 정책이
+     * 환불 시각 약속(N21)을 늦추지 못하게 한다. 인덱스는 (status, settle_after, next_attempt_at)
+     * ({@code idx_group_challenge_bet_sessions_settle_scan}).
+     *
+     * @param now            스캔 시각
+     * @param deadlineCutoff {@code now − 24h} — settle_after 가 이보다 이르면 환불 대상
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.settleAfter <= :now "
+            + "AND (s.nextAttemptAt IS NULL OR s.nextAttemptAt <= :now OR s.settleAfter <= :deadlineCutoff) "
+            + "ORDER BY s.id")
+    List<GroupChallengeBetSession> findDue(
+            @Param("now") Instant now,
+            @Param("deadlineCutoff") Instant deadlineCutoff);
+
+    /**
+     * 정산 실패 기록(GROMO-1411 백오프) — 시도 횟수 +1 과 다음 시도 시각을 <b>같은 UPDATE</b> 로
+     * 쓴다. 스케줄러 빈은 의도적으로 무트랜잭션이라(건별 격리) {@code findDue} 반환 엔티티는
+     * detached 다 — 필드만 바꾸면 flush 될 트랜잭션이 없어 영영 저장되지 않고 백오프가 전진하지
+     * 못한다(5분마다 무한 재시도). 그래서 리포지토리 UPDATE 로 직접 쓰고, 메서드 자체 트랜잭션을
+     * 연다({@code @Transactional} — 벌크 UPDATE 는 트랜잭션이 필수다).
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE GroupChallengeBetSession s "
+            + "SET s.settleAttempts = s.settleAttempts + 1, s.nextAttemptAt = :nextAttemptAt, "
+            + "s.updatedAt = :now WHERE s.id = :id")
+    int recordFailure(
+            @Param("id") UUID id,
+            @Param("nextAttemptAt") Instant nextAttemptAt,
+            @Param("now") Instant now);
+
+    /**
+     * 참가 마감 인원 미달 크론 대상(GROMO-1412, N47·FR-36) — 참가 마감이 지났는데 참가자가 2명
+     * 미만인 OPEN 회차 id. 정산 그레이스를 기다리지 않고 즉시 무산·환불하기 위한 스캔이다(혼자 남은
+     * 참가비가 창 전체 + 30분 동안 묶이는 문제 — 기존 K1). 건별 처리는 잠금 후 재확인하므로 여기서는
+     * 잠금 없이 집기만 한다. id 오름차순은 데드락 예방 규약.
+     *
+     * <p><b>브리지 기간에는 {@code closes_at}(회차 종료)이 실효 참가 마감이다</b> — {@code
+     * join_closes_at} 이 아니다. 스냅샷의 {@code join_closes_at} 은 to-be 정의(창형 = 창 시작,
+     * LLD §1.1)로 박제돼 있지만, 구앱 브리지(N36)의 참가 가드
+     * ({@code GroupBetService.requireWindowStillOpen})는 여전히 <b>창 종료까지</b> 참가를 허용한다.
+     * 박제값으로 무산시키면 창 시작 직후 첫 틱에 혼자인 창형 회차가 닫혀, 원래 허용된 시간 안에
+     * 들어온 구앱의 두 번째 참가자가 거절된다 — 게다가 참가자가 2명 이상인 회차는 같은 시각에
+     * 참가가 계속 되므로 "인원수에 따라 참가 가능 시간이 달라지는" 비일관이 생긴다. 하루형은
+     * {@code join_closes_at == closes_at} 이라 이 선택으로 동작이 달라지지 않는다.
+     *
+     * <p>⚠️ <b>참가 마감을 {@code join_closes_at} 으로 전환(B8·N36 브리지 종료)할 때 이 술어도
+     * 함께 되돌려야 한다</b> — 그때는 두 값이 같은 의미가 되므로 보정이 불필요해진다.
+     */
+    @Query("SELECT s.id FROM GroupChallengeBetSession s "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.closesAt <= :now "
+            + "AND (SELECT COUNT(p) FROM GroupChallengeBetParticipant p WHERE p.session = s) < 2 "
+            + "ORDER BY s.id")
+    List<UUID> findOpenPastJoinDeadlineWithFewParticipants(@Param("now") Instant now);
+
+    /**
+     * 챌린지 삭제 연동 대상(GROMO-1272, FR-12) — 이 챌린지의 OPEN 회차 id <b>전부</b>(예약된 미래
+     * 회차 포함). 호출측이 챌린지 행 배타 락 아래에서 부르고, id 오름차순으로 잠근 뒤 무효화·환불한다
+     * (계약 §3 잠금 순서). 정산 완료 회차는 status 게이트로 자연히 빠진다(FR-13 — 결과 불변).
+     */
+    @Query("SELECT s.id FROM GroupChallengeBetSession s "
+            + "WHERE s.challenge.id = :challengeId "
+            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY s.id")
+    List<UUID> findOpenSessionIdsByChallengeId(@Param("challengeId") UUID challengeId);
+
+    /**
+     * 사건 알림 재훑기 대상(GROMO-1417) — 최근 종료된 회차. 호출측(BetEventNotificationService)이
+     * (SETTLED, FORFEITED) 결과 + (VOIDED, REFUNDED) 환불 통지(N48)를 함께 넘긴다.
+     * UNUSED 는 0명 회차라 알릴 대상 자체가 없다(N52 알림 제외).
      */
     @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group JOIN FETCH s.challenge "
             + "WHERE s.status IN :statuses AND s.settledAt >= :since ORDER BY s.settledAt, s.id")
     List<GroupChallengeBetSession> findByStatusInAndSettledAtSince(
             @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("since") Instant since);
+
+    /**
+     * 사일런트 flush 푸시 대상(GROMO-1281, FR-22) — <b>{@code settle_after} − 15분</b> 창에 든
+     * OPEN 회차(HLD §6 시각 표 · LLD §2.1 · PRD). 큐가 비워질 시간을 남기되 정산 직전이라
+     * 마지막 보고분이 판정에 반영된다. 호출측이 {@code leadCutoff = now + 15분} 을 넘겨
+     * {@code settle_after − 15분 ≤ now < settle_after} 를 표현한다 — 5분 크론이 이 15분 폭을 3틱
+     * 훑지만 회차 단위 클레임이 첫 틱만 통과시킨다.
+     *
+     * <p><b>제외는 {@code SCREEN_TIME × DURATION} 하나뿐</b>이다(HLD §6). {@code FOCUS × DURATION}
+     * 을 함께 빼면 {@code settle_after} 가 KST 자정+1h 라 23:45 사일런트가 영영 안 나가는데,
+     * 조용한 시간(23–07)이 사일런트 예외인 이유가 정확히 이 케이스다(HLD §6).
+     *
+     * <p>⚠️ <b>제외된 조합의 대체 트리거는 아직 없다</b>. HLD §6(638–641행)은 이 조합을 여기서
+     * 빼는 대신 <b>11:30 에 별도 사일런트</b>를 보내기로 정했지만 <b>그 11:30 트리거는 구현되지
+     * 않았다</b> — 즉 {@code SCREEN_TIME × DURATION} 참가자는 12:00 정산 전에 사일런트 flush 를
+     * <b>한 번도 받지 못한다</b>. 앱이 백그라운드면 최신 {@code daily_screen_time_stats} 가 안
+     * 올라와 미보고가 미달성으로 확정될 수 있다. 사일런트 푸시로 메울 수 있는 문제인지부터
+     * 정책 축에서 다시 정하기로 해 <b>별도 후속 티켓</b>으로 뺐다(GROMO-1417 8차 리뷰 판정).
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.settleAfter > :now AND s.settleAfter <= :leadCutoff "
+            + "AND (s.missionType = com.oneorthree.phone.group.domain.MissionType.TIME_WINDOW "
+            + "OR s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS) "
+            + "ORDER BY s.id")
+    List<GroupChallengeBetSession> findSilentFlushTargets(
+            @Param("now") Instant now,
+            @Param("leadCutoff") Instant leadCutoff);
+
+    /**
+     * 참여 모집 알림 대상(GROMO-1417, N40) — <b>아직 참가할 수 있는</b> OPEN 회차
+     * ({@code join_closes_at} 미도래). 발송 슬롯(창형 = 참가 마감 −30분 / 하루형 = 당일 08:00)
+     * 판정은 호출측이 회차 스냅샷으로 하고, 여기서는 후보만 좁힌다. {@code until} 로 상한을 둬
+     * 먼 미래의 예약 회차(join-week)까지 매 틱 끌어오지 않는다.
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group JOIN FETCH s.challenge "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.joinClosesAt > :now AND s.joinClosesAt <= :until ORDER BY s.id")
+    List<GroupChallengeBetSession> findOpenJoinableSessions(
+            @Param("now") Instant now,
+            @Param("until") Instant until);
+
+    /**
+ * 창 사용분 보고의 <b>대상 회차</b>(GROMO-1407, N34·N43) — 보고 날짜({@code usageDate})에
+     * 해당하는 이 챌린지의 회차. 설정이 챌린지당 1개(uq_group_challenge_bets_challenge)이고 회차가
+     * (설정, 날짜)당 1개라 결과는 최대 1건이다.
+     *
+     * <p>보고 자격·직렬화가 <b>이 회차에 결속</b>된다: 참가자는 이 날짜의 회차가 시작됐고 OPEN 일
+     * 때만 저장할 수 있다. 챌린지 단위로 "아무 OPEN 회차 참가자면 통과"로 두면, 오늘 회차 참가자가
+     * 함께 예약한 <b>미래 회차가 시작되기도 전에 그 날짜의 낮은 사용량을 미리 심을</b> 수 있다.
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s "
+            + "WHERE s.challenge.id = :challengeId AND s.sessionDate = :sessionDate")
+    Optional<GroupChallengeBetSession> findByChallengeIdAndSessionDate(
+            @Param("challengeId") UUID challengeId,
+            @Param("sessionDate") LocalDate sessionDate);
+
+    /**
+     * 삭제 프리플라이트(GROMO-1416, N49·K11) — 이 챌린지의 OPEN 회차 전부(예약된 미래 포함)를
+     * 날짜순으로. 잠금 없는 순수 조회다 — 경고 수치는 스냅샷이고, 실제 무효화는 DELETE 가 락 아래
+     * 다시 센다.
+     */
+    List<GroupChallengeBetSession> findByChallengeIdAndStatusOrderBySessionDateAscIdAsc(
+            UUID challengeId, GroupBetStatus status);
+
+    /** 그룹 내역 커서 해석(GROMO-1271) — 커서 회차가 <b>이 그룹의</b> 것일 때만(타 그룹 id 로 필터 생성 방지). */
+    Optional<GroupChallengeBetSession> findByIdAndGroupId(UUID id, UUID groupId);
+
+    /**
+     * 그룹 챌린지 내역 첫 페이지(GROMO-1271, N6-1) — 그룹 소유 축이라 챌린지 삭제와 무관하게
+     * 조회된다(표시 값은 회차 미션 스냅샷). UNUSED(0명 종료)는 호출측 statuses 에서 이미 빠져 있다
+     * (N52). 같은 날짜에 챌린지별 회차가 최대 4개라 (session_date, id) 튜플 keyset 이다 — 날짜만으로
+     * 자르면 페이지 경계의 같은 날 나머지가 스킵/중복된다. challenge 는 삭제 배지 판정에 쓰므로
+     * 함께 fetch 한다(행당 추가 SELECT 방지).
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.status IN :statuses "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryFirstPage(
+            @Param("groupId") UUID groupId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            Pageable pageable);
+
+    /** 그룹 챌린지 내역 다음 페이지 — (session_date, id) 튜플 strict 비교 keyset. */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.status IN :statuses "
+            + "AND (s.sessionDate < :cursorDate "
+            + "OR (s.sessionDate = :cursorDate AND s.id < :cursorId)) "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryAfterCursor(
+            @Param("groupId") UUID groupId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("cursorDate") LocalDate cursorDate,
+            @Param("cursorId") UUID cursorId,
+            Pageable pageable);
+
+    /** 그룹 챌린지 내역 첫 페이지 — 챌린지 필터판(챌린지별 이력 화면). 그룹 스코프는 유지된다. */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.challenge.id = :challengeId AND s.status IN :statuses "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryFirstPageByChallenge(
+            @Param("groupId") UUID groupId,
+            @Param("challengeId") UUID challengeId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            Pageable pageable);
+
+    /** 그룹 챌린지 내역 다음 페이지 — 챌린지 필터판. */
+    @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.challenge "
+            + "WHERE s.group.id = :groupId AND s.challenge.id = :challengeId AND s.status IN :statuses "
+            + "AND (s.sessionDate < :cursorDate "
+            + "OR (s.sessionDate = :cursorDate AND s.id < :cursorId)) "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    Slice<GroupChallengeBetSession> findGroupHistoryAfterCursorByChallenge(
+            @Param("groupId") UUID groupId,
+            @Param("challengeId") UUID challengeId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("cursorDate") LocalDate cursorDate,
+            @Param("cursorId") UUID cursorId,
+            Pageable pageable);
 }

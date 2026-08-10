@@ -911,6 +911,11 @@ describe('지난 내기', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.bet.result.close'));
     });
+    // 확인 CTA는 SheetShell의 퇴장 애니메이션(220ms)을 태운 뒤에 onClose를 부른다(GROMO-1381) —
+    // 그만큼 기다려야 카드가 시트를 내린다.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
     expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
   });
 

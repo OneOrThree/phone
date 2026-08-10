@@ -18,3 +18,11 @@ export function hapticLight(): void {
 export function hapticMedium(): void {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 }
+
+// 보상·목표 달성 순간 전용 (GROMO-1381). 임팩트가 아니라 **알림(notification) 피드백**이라
+// "따-단" 하는 2박자 성공 패턴이 나온다 — 위 impact 계열과 촉감이 질적으로 다르다.
+// ⚠️ 축하 표면에만 쓴다. 일반 성공 토스트에 붙이면 특별한 순간의 인상이 닳는다.
+/** 승급·목표 달성 등 축하 순간 */
+export function hapticSuccess(): void {
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+}

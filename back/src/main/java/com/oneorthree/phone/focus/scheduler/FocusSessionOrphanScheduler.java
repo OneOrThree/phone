@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.scheduler;
 import com.oneorthree.phone.focus.service.FocusService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -26,8 +27,10 @@ public class FocusSessionOrphanScheduler {
     private final FocusService focusService;
 
     // 매시 정각(KST) orphan 정리
-    // TODO: 멀티 인스턴스 배포 시 분산 락 필요 (LeagueScheduler 와 동일 이슈, 티켓 565 참조)
+    // 분산 락(GROMO-1283) — 겹쳐 돌아도 종료 UPDATE 자체는 멱등이지만 같은 행을 두 번 훑는 낭비와
+    // 로그 이중 계상을 막는다.
     @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
+    @SchedulerLock(name = "focus-orphan-sweep")
     public void sweepOrphanSessions() {
         int closed = focusService.sweepOrphanSessions(Instant.now());
         if (closed > 0) {
