@@ -6,7 +6,7 @@
 //  3) 승자 0명의 결말은 상태로 갈린다(REFUNDED 전원 환불 / FORFEITED 소멸) — 인별 행만으론
 //     구분이 안 돼 배너가 첫 줄에 못 박는다(F8). 모르는 상태는 배너 없이 행만 그린다.
 //  4) 캐릭터는 내 결과를 따라간다 — ChallengeResultModal과 같은 에셋·같은 매핑(화풍 통일).
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import LastBetResultSheet from './LastBetResultSheet';
 import { T } from '@/constants/theme';
 import type { LastSettledBet } from '@/types/dto/group';
@@ -76,9 +76,16 @@ describe('기본 정보', () => {
     expect(screen.getByText('어제 · 3명 참가')).toBeOnTheScreen();
   });
 
-  test('확인 버튼이 onClose를 부른다', async () => {
+  // 확인 CTA는 useSheetClose()를 지난다(GROMO-1381) — 시트가 아래로 빠져나가는 퇴장(220ms)이
+  // 끝난 뒤에 부모에게 알린다. 즉시 부르면 부모가 언마운트해 퇴장이 한 프레임도 보이지 않는다.
+  test('확인 버튼이 퇴장 뒤 onClose를 부른다', async () => {
     await renderSheet();
-    fireEvent.press(screen.getByTestId('group.bet.result.close'));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.result.close'));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

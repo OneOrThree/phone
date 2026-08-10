@@ -50,16 +50,19 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -128,6 +131,14 @@ class GroupBetServiceTest {
     @Spy
     private GroupBetSessionFactory groupBetSessionFactory = new GroupBetSessionFactory();
 
+    /**
+     * 참가 시 선기록 무효화(GROMO-1407)의 위임처 — 참가 행 생성과 <b>같은 트랜잭션</b>에서 그
+     * (챌린지, 유저, 회차 날짜)의 기존 창 사용분 보고를 지운다. 여기서는 배선만 본다(무효화 자체의
+     * 동작은 {@code GroupBetWindowUsageIntegrationTest}).
+     */
+    @Mock
+    private GroupBetWindowUsageService groupBetWindowUsageService;
+
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
@@ -183,6 +194,17 @@ class GroupBetServiceTest {
         return challenge(MissionCategory.FOCUS, MissionType.DURATION);
     }
 
+    /** 요일 집합을 지정한 하루형 FOCUS 챌린지 — 활성 요일 판정(§A3)의 원값을 실제로 싣는다. */
+    private GroupChallenge challengeRepeating(int repeatDaysMask) {
+        return GroupChallenge.builder()
+                .id(CHALLENGE_ID)
+                .group(group())
+                .category(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .repeatDays(repeatDaysMask)
+                .build();
+    }
+
     /**
      * 요청 DTO 는 값 운반체일 뿐 상호작용을 단언하는 협력자가 아니다. 이른 거절 경로에서는 stake 만
      * 읽고 끝나기도 하므로 lenient 로 둔다.
@@ -219,29 +241,28 @@ class GroupBetServiceTest {
 
     /** 일 목표(DURATION) 대상. 카테고리만 갈아끼워 4조합의 절반을 만든다. */
     private GroupBetJudge.Target durationTarget(MissionCategory category) {
-        return new GroupBetJudge.Target(challenge(category, MissionType.DURATION), GOAL_MINUTES, null);
+        return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.DURATION,
+                GOAL_MINUTES, null, null);
     }
 
     /** 창 목표(TIME_WINDOW) 대상 — 창 시각은 스냅샷 박제 검증에 쓰인다(09:00~12:00 KST). */
     private GroupBetJudge.Target windowTarget(MissionCategory category) {
-        GroupChallenge windowChallenge = challenge(category, MissionType.TIME_WINDOW);
-        return new GroupBetJudge.Target(windowChallenge, GOAL_MINUTES, GroupChallengeWindow.builder()
-                .challengeId(CHALLENGE_ID)
-                .challenge(windowChallenge)
-                .windowStart(LocalTime.parse("09:00"))
-                .windowEnd(LocalTime.parse("12:00"))
-                .durationMinutes(GOAL_MINUTES)
-                .build());
+        // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 값 그 자체다 — 판정 대상도 CTI 엔티티가 아니라
+        // 회차 스냅샷과 같은 값(LocalTime)을 든다(GROMO-1280).
+        return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.TIME_WINDOW,
+                GOAL_MINUTES, LocalTime.parse("09:00"), LocalTime.parse("12:00"));
     }
 
     /**
-     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분.
+     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분. 개설은 살아 있는 챌린지에서
+     * ({@code resolve}), 참가는 회차 스냅샷에서({@code ofSession}) 같은 대상을 얻는다(GROMO-1280).
      *
      * @param closesAt 창 마감(창형만). null 이면 DURATION 처럼 마감 검사가 없다
-     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미보고)
+     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미계측)
      */
     private void givenTarget(GroupBetJudge.Target target, Instant closesAt, Integer minutes) {
-        given(groupBetJudge.resolve(any())).willReturn(Optional.of(target));
+        lenient().when(groupBetJudge.resolve(any())).thenReturn(Optional.of(target));
+        lenient().when(groupBetJudge.ofSession(any())).thenReturn(Optional.of(target));
         lenient().when(groupBetJudge.windowClosesAt(eq(target), any()))
                 .thenReturn(Optional.ofNullable(closesAt));
         lenient().when(groupBetJudge.progressMinutes(eq(target), any(), any()))
@@ -719,6 +740,23 @@ class GroupBetServiceTest {
         verify(groupChallengeBetParticipantRepository).save(any());
         verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30),
                 eq("session:" + SESSION_ID + ":stake:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("참가 시 그 날짜의 기존 창 사용분 보고를 무효화한다 — 참가 전 선기록 차단(GROMO-1407)")
+    void joinBetInvalidatesPreJoinWindowUsageReport() {
+        givenMember();
+        GroupChallengeBetSession target = session(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetSessionRepository.findByIdAndGroupIdForUpdate(SESSION_ID, GROUP_ID))
+                .willReturn(Optional.of(target));
+        given(groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(SESSION_ID, USER_ID))
+                .willReturn(false);
+        givenFocusDuration(30);
+
+        groupBetService.joinBet(GROUP_ID, SESSION_ID, USER_ID);
+
+        // 참가 경로가 무효화를 위임한다 — 조합별 적용 여부 판단은 위임처가 회차 스냅샷으로 한다.
+        verify(groupBetWindowUsageService).invalidatePreJoinReport(target, USER_ID);
     }
 
     @Test
@@ -1569,8 +1607,9 @@ class GroupBetServiceTest {
                         participantOf(started, OTHER_USER_ID)));
         // 강퇴자(OTHER_USER_ID)는 카드 memberProgress 모수(활성 그룹원)에 없다.
         GroupBetJudge.Target target = durationTarget(MissionCategory.FOCUS);
-        given(groupBetJudge.resolve(any())).willReturn(Optional.of(target));
-        given(groupBetJudge.progressMinutes(any(), eq(today()), any()))
+        given(groupBetJudge.ofSession(any())).willReturn(Optional.of(target));
+        // 오버로드(단건/배치)가 둘 다 있어 매처로 대상을 못 박는다 — 보강 집계는 단건판이다.
+        given(groupBetJudge.progressMinutes(any(GroupBetJudge.Target.class), eq(today()), any()))
                 .willReturn(Map.of(OTHER_USER_ID, GOAL_MINUTES + 10));
 
         Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
@@ -1603,7 +1642,8 @@ class GroupBetServiceTest {
 
         groupBetService.loadCurrentBets(List.of(CHALLENGE_ID), tomorrow, USER_ID, Map.of(), Map.of());
 
-        verify(groupBetJudge, never()).progressMinutes(any(), any(), any());
+        verify(groupBetJudge, never())
+                .progressMinutes(any(GroupBetJudge.Target.class), any(), any());
     }
 
     @Test
@@ -1665,27 +1705,64 @@ class GroupBetServiceTest {
     // ── 활성 요일 검증 (N35 — 레거시 개설 브리지, PR #567 이관) ────────────────
 
     @Test
-    @DisplayName("비활성 요일 날짜 개설 → BET_CLOSED — 참가비 미차감 (repeat_days 시임 배선 전엔 매일 활성이라 도달 불가)")
+    @DisplayName("비활성 요일 날짜 개설 → BET_CLOSED — 참가비 미차감 (실제 repeat_days 기준)")
     void createBetRejectsInactiveWeekday() {
         givenMember();
-        givenChallenge(focusChallenge());
-        // B1(repeat_days) 배선 전이라 시임을 덮어 오늘을 비활성 요일로 만든다 — 배선 후에는
-        // challenge.getRepeatDays() 가 같은 자리로 들어온다.
-        GroupBetService weekdayAware = new GroupBetService(
-                groupRepository, groupMemberRepository, userRepository, groupChallengeRepository,
-                groupChallengeBetRepository, groupChallengeBetSessionRepository,
-                groupChallengeBetParticipantRepository, currencyLedgerService, groupBetJudge,
-                groupBetSessionFactory) {
-            @Override
-            int repeatDaysOf(GroupChallenge challenge) {
-                return RepeatSchedule.EVERYDAY ^ RepeatSchedule.bit(today().getDayOfWeek());
-            }
-        };
+        // 오늘을 쉬는 날로 둔 실제 챌린지 — 시임을 덮지 않는다. 판정은 카드의 activeToday 와
+        // 같은 함수(RepeatSchedule.activeOn × challenge.getRepeatDays())를 탄다.
+        LocalDate today = GroupBetService.today();
+        givenChallenge(challengeRepeating(
+                RepeatSchedule.EVERYDAY ^ RepeatSchedule.bit(today.getDayOfWeek())));
 
-        assertThatThrownBy(() -> weekdayAware.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
+        assertThatThrownBy(() -> groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID,
+                request(30, today)))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CLOSED);
+        // 돈 경로 — 쉬는 날 개설은 참가비를 한 푼도 건드리지 않는다.
         assertNoStakeCharged();
+    }
+
+    @Test
+    @DisplayName("월요일 전용 챌린지 — 개설 가능한 두 날짜(오늘·내일) 중 월요일이 아닌 날은 거부 + 참가비 미차감")
+    void createBetHonoursMondayOnlySchedule() {
+        givenMember();
+        givenChallenge(challengeRepeating(RepeatSchedule.bit(DayOfWeek.MONDAY)));
+        LocalDate today = GroupBetService.today();
+
+        // 개설 창(계약 §3)은 오늘·내일뿐이라 "화요일"을 고정할 수 없다 — 대신 그 창에서 월요일이
+        // 아닌 날을 전부 훑는다. 오늘이 일·월이면 하나, 그 밖엔 둘이 걸린다.
+        List<LocalDate> inactiveDates = Stream.of(today, today.plusDays(1))
+                .filter(d -> d.getDayOfWeek() != DayOfWeek.MONDAY)
+                .toList();
+        assertThat(inactiveDates).isNotEmpty();
+
+        for (LocalDate inactive : inactiveDates) {
+            assertThatThrownBy(() -> groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID,
+                    request(30, inactive)))
+                    .isInstanceOf(GroupException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CLOSED);
+        }
+        // 돈 경로 — 쉬는 요일 개설 시도는 원장을 건드리지 않는다(종전에는 시임이 매일 활성이라
+        // 회차가 서고 참가비가 걷혔다).
+        assertNoStakeCharged();
+        verify(groupChallengeBetSessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("다음 회차 예고는 '내일'이 아니라 실제 다음 활성일이다 — 월요일 전용이면 다음 월요일")
+    void nextSessionFollowsRepeatDaysNotTomorrow() {
+        LocalDate today = GroupBetService.today();
+        int mondayOnly = RepeatSchedule.bit(DayOfWeek.MONDAY);
+        GroupChallenge mondayChallenge = challengeRepeating(mondayOnly);
+        LocalDate expected = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        Map<UUID, GroupBetService.NextSessionInfo> next = groupBetService.loadNextSessions(
+                List.of(mondayChallenge), Map.of(), USER_ID);
+
+        // 하루형이라 다음 활성일 00:00 KST — 요일 배선 전에는 무조건 내일 자정이었다.
+        assertThat(next.get(CHALLENGE_ID).nextSessionAt())
+                .isEqualTo(expected.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant());
+        assertThat(expected).isEqualTo(RepeatSchedule.next(mondayOnly, today));
     }
 
     // ── 참가 철회 (GROMO-1102 — 재편 후 시작 전 판정은 회차 박제 startsAt) ────

@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -74,8 +75,20 @@ public class GroupChallengeResponse {
      * 내기 <b>설정</b>(GROMO-1418) — 회차 유무와 무관하게 "내기가 걸려 있고 참가비는 얼마인가".
      * 신앱은 이 필드로 내기 진입점을 세우고, 오늘 판의 상태는 {@code bet.session} 에서 읽는다 —
      * 회차가 없는 날 {@code bet} 은 구앱 계약대로 null 이라 그것만 보면 "내기 꺼짐"으로 오독된다.
-     * null = 진입점 없음(설정 없음·꺼짐·끝난 챌린지). {@code @JsonInclude(NON_NULL)} 금지(3상 계약).
+     *
+     * <p><b>진입점이 없으면 키 자체를 뺀다</b>({@code NON_NULL}). 앱 타입은
+     * {@code betConfig?: { enabled, stake }} 로 <b>null 을 허용하지 않고</b>, 카드가
+     * {@code betConfig !== undefined} 만 확인한 뒤 {@code betConfig.enabled} 를 읽는다 —
+     * {@code null} 을 실어 보내면 내기 없는 챌린지가 하나라도 낀 그룹 화면이 렌더 중
+     * {@code TypeError} 로 통째로 죽는다. 여기서 {@code undefined} 와 {@code null} 은 <b>같은 뜻</b>
+     * (진입점 없음)이라 3상이 접히지 않는다 — LLD §2.1 직렬화 계약이 {@code NON_NULL} 을 금지한
+     * 필드는 값 자체가 3상인 {@code bet}·{@code bet.session}·{@code goalMinutes}·
+     * {@code participants[].progressMinutes}·{@code results[].progressMinutes} 다(이 필드는 그
+     * 목록에 없고, 정본 응답 스키마에도 없는 구현 추가분이다).
+     * 앱의 v2 판별({@code repeatDays !== null || betConfig !== undefined})도 항상 실리는
+     * {@code repeatDays} 로 성립한다.
      */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private GroupBetConfigResponse betConfig;
 
     /**

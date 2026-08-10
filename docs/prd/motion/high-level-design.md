@@ -126,7 +126,7 @@ flowchart LR
 | `PressableScale` | 새 프리미티브가 아니다. **톤만 올려** 앱 전역에 이미 깔린 효과를 바꾼다 |
 | `ConfettiBurst` | `obstacle` prop 하나만 받으므로 **재작성 없이** 리그 승급·챌린지 결과에 붙인다 |
 | `GoalCelebrationModal` | 축하 표면의 **참조 구현**. `charReady && uiIdle` + `InteractionManager` 게이팅 패턴을 다른 축하 표면이 그대로 따른다 |
-| `FocusResultScreen`의 `growUp`/`checkPop` | `M.preset.enterUp`/`pop`으로 **승격**해 stats 차트 6종에 확산 |
+| `FocusResultScreen`의 `growUp`/`checkPop` | `M.preset.growUp`/`pop`으로 **승격**. ⚠️ `growUp`은 **막대에만** 확산한다(정책 D16) — 주간 타임테이블 세션 블록. 통계의 꺾은선은 좌→우 draw-on, 도넛은 링 `fadeIn`, 캘린더는 행 `fadeIn`이라 표면마다 다르다 |
 | `liquidGlass`의 `glassSlide` | `M.curve.glide` + `M.dur.base`로 흡수. `SLIDE_MS` export 이름은 유지해 호출부 무변경 |
 | `ScreenTimeAnalyzingOverlay` | 로딩 연출의 **품질 기준선**. 다만 타이밍은 가드 타임이라 토큰화하지 않는다 |
 

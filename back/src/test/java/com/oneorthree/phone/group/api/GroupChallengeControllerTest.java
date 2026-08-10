@@ -8,6 +8,8 @@ import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupBetConfigResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
+import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
+import com.oneorthree.phone.group.service.GroupBetWindowUsageService;
 import com.oneorthree.phone.group.service.GroupChallengeService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -37,9 +40,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 컨트롤러 분리(GROMO-1284) 후 <b>경로 불변</b> 잠금 — 4개 챌린지 엔드포인트가 종전 URL 그대로
- * 새 컨트롤러에 매핑되는지와, 신앱 additive 필드(GROMO-1418)의 null 직렬화(3상 계약)를 와이어
- * 레벨로 고정한다.
+ * 컨트롤러 분리(GROMO-1284) 후 <b>경로 불변</b> 잠금 — 챌린지 엔드포인트가 종전 URL 그대로 새
+ * 컨트롤러에 매핑되는지, 창 사용분 보고가 종전과 <b>같은 서비스</b>(GroupBetWindowUsageService —
+ * GROMO-1407 · N34)를 타는지, 그리고 신앱 additive 필드(GROMO-1418)의 null 직렬화(3상 계약)를
+ * 와이어 레벨로 고정한다.
  */
 @WebMvcTest(controllers = GroupChallengeController.class)
 class GroupChallengeControllerTest {
@@ -53,6 +57,9 @@ class GroupChallengeControllerTest {
 
     @MockitoBean
     private GroupChallengeService groupChallengeService;
+
+    @MockitoBean
+    private GroupBetWindowUsageService groupBetWindowUsageService;
 
     @Test
     @DisplayName("GET /groups/{gid}/challenges — 종전 URL 그대로 + additive 필드가 null 로도 키를 유지한다(3상)")
@@ -102,7 +109,12 @@ class GroupChallengeControllerTest {
                 .andExpect(content().string(containsString("\"session\":null")))
                 .andExpect(content().string(containsString("\"nextSessionAt\":null")))
                 .andExpect(content().string(containsString("\"nextSessionJoined\":null")))
-                .andExpect(content().string(containsString("\"betConfig\":null")));
+                // betConfig 만은 반대다 — 진입점이 없으면 <b>키를 빼야</b> 한다. 앱 타입이
+                // betConfig?: {...} 라 null 을 허용하지 않고, 카드가 undefined 만 걸러낸 뒤
+                // betConfig.enabled 를 읽어 내기 없는 챌린지 하나에 그룹 화면 전체가 죽는다.
+                .andExpect(content().string(not(containsString("\"betConfig\":null"))))
+                // 값이 있을 때는 종전대로 실린다(위 betConfig.enabled 단정과 같은 축).
+                .andExpect(jsonPath("$[1].betConfig").doesNotExist());
     }
 
     @Test
@@ -124,17 +136,49 @@ class GroupChallengeControllerTest {
     }
 
     @Test
-    @DisplayName("PUT /groups/{gid}/challenges/{cid}/window-usage — 종전 URL 그대로 204")
-    void reportWindowUsageKeepsUrl() throws Exception {
+    @DisplayName("PUT /groups/{gid}/challenges/{cid}/window-usage — 종전 URL 그대로 204"
+            + " + 신앱 payload {usageDate, progressMinutes, measuredAt} 바인딩")
+    void reportWindowUsageKeepsUrlAndBindsNewFieldNames() throws Exception {
         mockMvc.perform(put("/api/v1/groups/{groupId}/challenges/{challengeId}/window-usage",
                         GROUP_ID, CHALLENGE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"date\":\"2026-08-10\",\"usedMinutes\":42}")
+                        .content("""
+                                {"usageDate":"2026-08-10","progressMinutes":24,
+                                 "measuredAt":"2026-08-10T14:03:00Z"}
+                                """)
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
                 .andExpect(status().isNoContent());
 
-        verify(groupChallengeService).reportWindowUsage(eq(GROUP_ID), eq(CHALLENGE_ID),
-                eq(LOGIN_USER_ID), any());
+        // 컨트롤러 분리(GROMO-1284) 후에도 호출 대상은 종전 그대로 창 사용분 전담 서비스다
+        // (GROMO-1407 · N34) — 경로만 옮기고 배선을 바꾸면 measuredAt 단조 갱신이 통째로 빠진다.
+        ArgumentCaptor<WindowUsageReportRequest> captor =
+                ArgumentCaptor.forClass(WindowUsageReportRequest.class);
+        verify(groupBetWindowUsageService).reportWindowUsage(eq(GROUP_ID), eq(CHALLENGE_ID),
+                eq(LOGIN_USER_ID), captor.capture());
+        assertThat(captor.getValue().getUsageDate()).isEqualTo(LocalDate.of(2026, 8, 10));
+        assertThat(captor.getValue().getProgressMinutes()).isEqualTo(24);
+        assertThat(captor.getValue().getMeasuredAt())
+                .isEqualTo(java.time.Instant.parse("2026-08-10T14:03:00Z"));
+    }
+
+    @Test
+    @DisplayName("창 사용분 보고 — 구앱 payload {date, usedMinutes} 도 같은 필드로 수용된다(브리지)")
+    void reportWindowUsageBridgesLegacyFieldNames() throws Exception {
+        mockMvc.perform(put("/api/v1/groups/{groupId}/challenges/{challengeId}/window-usage",
+                        GROUP_ID, CHALLENGE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"2026-08-10","usedMinutes":90}
+                                """)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isNoContent());
+
+        ArgumentCaptor<WindowUsageReportRequest> captor =
+                ArgumentCaptor.forClass(WindowUsageReportRequest.class);
+        verify(groupBetWindowUsageService).reportWindowUsage(any(), any(), any(), captor.capture());
+        assertThat(captor.getValue().getUsageDate()).isEqualTo(LocalDate.of(2026, 8, 10));
+        assertThat(captor.getValue().getProgressMinutes()).isEqualTo(90);
+        assertThat(captor.getValue().getMeasuredAt()).isNull();
     }
 
     @Test

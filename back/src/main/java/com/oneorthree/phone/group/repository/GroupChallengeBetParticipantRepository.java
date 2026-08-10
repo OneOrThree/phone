@@ -1,11 +1,14 @@
 package com.oneorthree.phone.group.repository;
 
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
@@ -16,6 +19,18 @@ public interface GroupChallengeBetParticipantRepository
         extends JpaRepository<GroupChallengeBetParticipant, UUID> {
 
     boolean existsBySessionIdAndUserId(UUID sessionId, UUID userId);
+
+    /**
+     * 참가 시각(GROMO-1407 후속 — 지연 선기록 차단의 비교축). 참가 행 {@code created_at} 은
+     * 참가비 차감과 같은 트랜잭션에서 박제되므로 "언제부터 돈이 걸렸나"의 단일 진실이다.
+     *
+     * <p>존재 판정({@code existsBySessionIdAndUserId})을 겸한다 — 값이 있으면 참가자다. 두 번 묻지
+     * 않으려고 스칼라 하나만 뽑는다(보고는 저지연 경로라 엔티티·연관 fetch 를 피한다).
+     */
+    @Query("SELECT p.createdAt FROM GroupChallengeBetParticipant p "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId")
+    Optional<Instant> findJoinedAtBySessionIdAndUserId(@Param("sessionId") UUID sessionId,
+                                                       @Param("userId") UUID userId);
 
     long countBySessionId(UUID sessionId);
 
@@ -73,4 +88,34 @@ public interface GroupChallengeBetParticipantRepository
      */
     @EntityGraph(attributePaths = "user")
     List<GroupChallengeBetParticipant> findBySessionIdIn(Collection<UUID> sessionIds);
+
+    /**
+     * 내 OPEN 회차(GROMO-1415, N43 보고 대상 탐색축) — <b>참가자 스코프, 그룹 무관</b>. 그룹
+     * 멤버십을 경유하지 않는 이유: 탈퇴·강퇴 후에도 시작된 회차의 참가는 정산 대상으로 남는데
+     * (C8·N19), 그룹 목록 축으로는 그 회차를 영영 못 찾는다. 회차 스냅샷(창 시각·목표)을 응답에
+     * 실어야 하므로 session 을 함께 fetch 한다.
+     */
+    @Query("SELECT p FROM GroupChallengeBetParticipant p JOIN FETCH p.session s "
+            + "WHERE p.user.id = :userId "
+            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "ORDER BY s.sessionDate, s.id")
+    List<GroupChallengeBetParticipant> findOpenSessionParticipationsByUserId(@Param("userId") UUID userId);
+
+    /**
+     * 내 정산 완료 회차(GROMO-1415, N53 결과 모달 큐의 단일 소스) — 참가자 스코프. 멤버십·챌린지
+     * ACTIVE 를 보지 않아 탈퇴자·종료 챌린지 회차도 실린다. 단 <b>삭제된 챌린지의 회차는 제외</b>
+     * (FR-44-4·N48 — 삭제 환불은 BET_VOID_REFUND 푸시가 알리므로 모달까지 띄우면 이중 통지),
+     * UNUSED 는 statuses 에서 이미 빠져 있다(N52). since 는 settled_at 하한(최근 30일 바닥은
+     * 호출측이 보정). 응답 조립에 그룹 이름·챌린지 상태가 필요해 함께 fetch 한다.
+     */
+    @Query("SELECT p FROM GroupChallengeBetParticipant p "
+            + "JOIN FETCH p.session s JOIN FETCH s.group JOIN FETCH s.challenge c "
+            + "WHERE p.user.id = :userId AND s.status IN :statuses "
+            + "AND c.deletedAt IS NULL AND s.settledAt >= :since "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    List<GroupChallengeBetParticipant> findSettledParticipationsByUserId(
+            @Param("userId") UUID userId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("since") Instant since,
+            Pageable pageable);
 }

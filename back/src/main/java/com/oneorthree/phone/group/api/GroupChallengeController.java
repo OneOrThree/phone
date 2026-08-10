@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
+import com.oneorthree.phone.group.service.GroupBetWindowUsageService;
 import com.oneorthree.phone.group.service.GroupChallengeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -41,6 +42,12 @@ import java.util.UUID;
 public class GroupChallengeController {
 
     private final GroupChallengeService groupChallengeService;
+    /**
+     * 창 사용분 보고는 챌린지가 아니라 <b>회차 판정 소스</b>를 갱신한다 — main 이 이 경로를
+     * {@code GroupChallengeService} 에서 분리해 세운 전담 서비스(GROMO-1407 · N34 · N43)를 그대로 탄다.
+     * 컨트롤러 분리(GROMO-1284)는 <b>구조 이동만</b>이라 호출 대상을 바꾸지 않는다.
+     */
+    private final GroupBetWindowUsageService groupBetWindowUsageService;
 
     @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
             + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
@@ -95,13 +102,16 @@ public class GroupChallengeController {
     }
 
     @Operation(summary = "스크린타임 창 사용분 보고", description = "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별"
-            + " 창 내 사용분 업로드. 그룹원만. (챌린지, 유저, 날짜)당 1행 upsert — 중간 보고 허용, 마지막 값 승리."
-            + " 값은 클라 신뢰(±15분 눈금 오차).")
+            + " 창 내 사용분 업로드. 그룹원 또는 시작된 OPEN 회차의 참가자(탈퇴자 포함 — N43)."
+            + " (챌린지, 유저, 날짜)당 1행 upsert — measuredAt 단조 갱신(GROMO-1407·N34): 저장된 측정"
+            + " 시각보다 오래된 보고는 조용히 204 로 무시된다. 본문은 {usageDate, progressMinutes,"
+            + " measuredAt} (구앱 {date, usedMinutes} 도 수용). 값은 클라 신뢰(±15분 눈금 오차).")
     @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "보고 성공"),
+            @ApiResponse(responseCode = "204", description = "보고 성공(역전 보고의 조용한 무시 포함)"),
             @ApiResponse(responseCode = "400", description = "필수 필드 누락 / SCREEN_TIME×TIME_WINDOW 챌린지 아님"
-                    + " / usedMinutes 범위(0~1440) 위반"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+                    + " / progressMinutes 범위(0~1440) 위반"
+                    + " / INVALID_MEASURED_AT(measuredAt 이 서버 시각 +2분 초과)"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원도 OPEN 회차 참가자도 아님"),
             @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
     })
     @PutMapping("/groups/{groupId}/challenges/{challengeId}/window-usage")
@@ -111,7 +121,7 @@ public class GroupChallengeController {
             @Valid @RequestBody WindowUsageReportRequest request,
             @LoginUser UUID userId
     ) {
-        groupChallengeService.reportWindowUsage(groupId, challengeId, userId, request);
+        groupBetWindowUsageService.reportWindowUsage(groupId, challengeId, userId, request);
         return ResponseEntity.noContent().build();
     }
 
