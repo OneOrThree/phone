@@ -7,7 +7,11 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
-import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -112,6 +116,7 @@ export function navigateToDeepLink(link: string): void {
   const path = link.replace(/^gromo:\/\/+/i, '').split(/[/?#]/)[0];
   switch (path) {
     case 'league':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
@@ -122,6 +127,7 @@ export function navigateToDeepLink(link: string): void {
       });
       break;
     case 'home':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
@@ -132,11 +138,26 @@ export function navigateToDeepLink(link: string): void {
       // refund=1(환불 푸시)은 잔액 재조회를 요청한다 — 삭제 환불은 결과 모달에서 빠지고 챌린지
       // 목록에도 안 남아, 이 표식이 없으면 화면 어느 경로도 잔액을 다시 받지 않는다(codex 리뷰 P2).
       // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
-      if (navigationRef.getCurrentRoute?.()?.name !== '그룹') {
+      const groupId = readGroupParam(link);
+      const resultPush = readResultFlag(link);
+      const currentRoute = navigationRef.getCurrentRoute?.()?.name;
+      // 결과성 push는 아래에서 목록을 건너뛰므로 다음 GroupScreen episode의 direct source가
+      // 아니다. 방을 닫은 뒤의 복귀를 push로 오염시키지 않도록 일반 push에만 예약한다.
+      if (!(resultPush && groupId !== null) && currentRoute !== '그룹') {
         queueDirectGroupEntry('push');
       }
+      // 결과성 push는 목록 focus 전에 GroupRoom으로 곧바로 우회할 수 있다. 그룹 흐름 밖에서
+      // 시작한 우회라면 방을 닫은 뒤 처음 보이는 목록은 탭 진입이 아니라 자식 화면 복귀다.
+      if (
+        resultPush &&
+        groupId !== null &&
+        currentRoute !== '그룹' &&
+        currentRoute !== 'GroupRoom'
+      ) {
+        markInitialGroupRoomReturn();
+      }
       if (readRefundFlag(link)) requestCoinRefresh();
-      navigateToGroup(seq, readGroupParam(link), readChallengeParam(link), readResultFlag(link));
+      navigateToGroup(seq, groupId, readChallengeParam(link), resultPush);
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
