@@ -7,7 +7,6 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Animated from 'react-native-reanimated';
 import { growUp, pop } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { Enter } from '@/components/Enter';
@@ -876,11 +875,12 @@ function CompareCard({
 // growUp의 **시작 프레임**. 프리셋에서 직접 뽑아 두 값이 갈리지 않게 한다.
 const GROW_PENDING = (growUp(0).animationName as { from: ViewStyle }).from;
 
-// 주간 막대 하나. ⚠️ **자기 useMotion을 호출하는 게 이 컴포넌트의 존재 이유다.**
-// 막대는 화면과 함께 마운트되지만 진입 스타일은 heatmap 응답(cellsLoaded)에 **늦게 붙는다.**
-// 화면의 useMotion 결정에 묶이면, 사용자가 그 사이 '동작 줄이기'를 켰어도 막대가 자란다
-// (codex 리뷰). 호출부가 cellsLoaded를 key로 주므로 붙는 순간 새 인스턴스가 되어 그때 정한다.
-// 뷰를 새로 끼운 게 아니다 — 이 컴포넌트가 곧 그 Animated.View다(D-04 유지).
+// 주간 막대 하나. ⚠️ **Enter를 쓰는 게 이 컴포넌트의 존재 이유다.**
+// 막대는 화면과 함께 마운트되지만 진입 스타일은 heatmap 응답(settled)에 **늦게 붙는다.**
+// `useMotion`의 결정은 마운트 시점에 얼리므로, 응답을 기다리는 사이 사용자가 '동작 줄이기'를
+// 켰어도 그 옛 결정대로 막대가 자란다(codex 리뷰). `Enter`의 `active`는 **처음 true가 되는
+// 시점**에 정하므로 그 창을 덮는다.
+// 뷰를 새로 끼운 게 아니다 — Enter가 곧 그 Animated.View다(D-04 유지).
 function WeekBar({
   height,
   isToday,
@@ -896,21 +896,18 @@ function WeekBar({
   /** 성공해서 실제로 자랄 값이 있는가. 실패면 정적으로 보여 준다. */
   animate: boolean;
 }) {
-  const m = useMotion();
-  const enter = m.enter(growUp(index));
   return (
-    <Animated.View
+    <Enter
+      preset={growUp(index)}
+      // 도착 전에는 **누구에게나 같은 시작 프레임**에서 기다린다. 갈라 두면 기다리는 동안
+      // 설정이 켜져 있던 사용자에게만 막대가 먼저 보이고, 그 뒤 끄면 접혔다 자란다.
       style={[
         s.bar,
         { height, backgroundColor: isToday ? T.accent : T.sand },
-        // 도착 전에는 **진입 결정과 무관하게** 시작 프레임에서 기다린다. 오늘 막대는 이미 값이
-        // 있어 완성 높이로 먼저 보였다가 응답이 오며 growUp이 붙으면 0으로 접혔다 자란다.
-        // ⚠️ 여기서 `enter &&`로 갈라 두면, 기다리는 동안 '동작 줄이기'가 켜져 있던 사용자에게만
-        //    막대가 먼저 보이고 그 뒤 설정을 끄면 접혔다 자란다(codex 리뷰). 누구에게나 같은
-        //    시작 상태로 기다리면 그 갈림 자체가 없다 — reduce 사용자는 도착 시 그냥 나타난다.
-        // ⚠️ 실패면 기다림을 끝내되 연출은 붙이지 않는다. 로컬로 확정된 오늘 막대는 보여야 한다.
-        settled ? (animate ? enter : undefined) : GROW_PENDING,
+        settled ? undefined : GROW_PENDING,
       ]}
+      // 실패면 기다림은 끝내되 연출은 붙이지 않는다 — 로컬로 확정된 오늘 막대는 보여야 한다.
+      active={settled && animate}
     />
   );
 }
