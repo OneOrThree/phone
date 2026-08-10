@@ -47,11 +47,16 @@ public class GroupBetSessionFactory {
         Instant joinClosesAt;
         Instant settleAfter;
         if (target.windowed()) {
-            windowStart = WindowFocusAggregator.timeOfDay(target.window().getWindowStartAt());
-            windowEnd = WindowFocusAggregator.timeOfDay(target.window().getWindowEndAt());
+            // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 으로 저장된다 — Instant→LocalTime
+            // 변환(WindowFocusAggregator.timeOfDay)이 더는 필요 없다.
+            windowStart = target.window().getWindowStart();
+            windowEnd = target.window().getWindowEnd();
             startsAt = sessionDate.atTime(windowStart).atZone(KST).toInstant();
-            LocalDate endDate = windowStart.isBefore(windowEnd) ? sessionDate : sessionDate.plusDays(1);
-            closesAt = endDate.atTime(windowEnd).atZone(KST).toInstant();
+            // 창 종료는 항상 회차일이다 — V35 가 자정 걸침을 DB CHECK(window_start < window_end)로
+            // 금지해(§A6-1) 종전의 D+1 분기는 도달할 수 없다. 죽은 분기를 남겨 두면 판정 소스
+            // (WindowFocusAggregator.windowEndOn)·대기 가드(GroupBetSettler.windowEndOf)와 규칙이
+            // 갈려 보인다 — 셋이 같은 규칙임을 코드로 드러낸다.
+            closesAt = sessionDate.atTime(windowEnd).atZone(KST).toInstant();
             joinClosesAt = startsAt;
             settleAfter = closesAt.plusSeconds(WINDOW_SETTLE_GRACE_MINUTES * 60L);
         } else {
@@ -85,8 +90,7 @@ public class GroupBetSessionFactory {
     /** 날짜 {@code date} 회차의 참가 마감(LLD §1.1) — 창형은 창 시작, 하루형은 회차 종료(익일 00:00). */
     public Instant joinClosesAtOn(GroupBetJudge.Target target, LocalDate date) {
         if (target.windowed()) {
-            return date.atTime(WindowFocusAggregator.timeOfDay(target.window().getWindowStartAt()))
-                    .atZone(KST).toInstant();
+            return date.atTime(target.window().getWindowStart()).atZone(KST).toInstant();
         }
         return date.plusDays(1).atStartOfDay(KST).toInstant();
     }

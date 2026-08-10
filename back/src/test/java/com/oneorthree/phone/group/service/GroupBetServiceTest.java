@@ -222,8 +222,8 @@ class GroupBetServiceTest {
         return new GroupBetJudge.Target(windowChallenge, GOAL_MINUTES, GroupChallengeWindow.builder()
                 .challengeId(CHALLENGE_ID)
                 .challenge(windowChallenge)
-                .windowStartAt(Instant.parse("1970-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("1970-01-01T12:00:00+09:00"))
+                .windowStart(LocalTime.parse("09:00"))
+                .windowEnd(LocalTime.parse("12:00"))
                 .durationMinutes(GOAL_MINUTES)
                 .build());
     }
@@ -571,7 +571,7 @@ class GroupBetServiceTest {
                 .group(group())
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
-                .status(GroupChallengeStatus.INACTIVE)
+                .status(GroupChallengeStatus.ENDED)
                 .build());
 
         assertThatThrownBy(() ->

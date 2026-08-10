@@ -99,21 +99,33 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION).build());
         challenges.add(saved);
+        // category 는 V36 이후 NOT NULL — 복합 FK 가 부모 챌린지 카테고리와의 일치를 강제한다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(MissionCategory.FOCUS).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 
-    /** 창 시작 시각을 제어하는 창형 챌린지 — 참가 마감(= 창 시작) 게이트 검증용. */
+    /**
+     * 창 시작 시각을 제어하는 창형 챌린지 — 참가 마감(= 창 시작) 게이트 검증용.
+     *
+     * <p>V35(GROMO-1406) 이후 창 시각은 KST 벽시계 {@code LocalTime} 이고 <b>{@code windowStart <
+     * windowEnd} 를 DB CHECK 가 강제</b>한다(자정 걸침 금지 §A6-1). 시작 시각이 실제 벽시계에서
+     * 파생되므로 늦은 밤에는 {@code start + 3h} 가 자정을 넘어 CHECK 에 걸린다 — 그때는 종료를
+     * 그날 23:59 로 자른다. 이 테스트가 보는 것은 "참가 마감이 지났으면 개설하지 않는다" 뿐이라
+     * 창 길이는 판정에 영향을 주지 않는다(개설 경로는 목표분 ≤ 창 길이를 검증하지 않는다 —
+     * 그 검증은 챌린지 생성 시점의 몫이다).
+     */
     private GroupChallenge windowChallengeStartingAt(LocalTime start) {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group).category(MissionCategory.FOCUS).type(MissionType.TIME_WINDOW).build());
         challenges.add(saved);
-        LocalTime end = start.plusHours(3);
+        LocalTime end = start.isBefore(LocalTime.of(20, 59))
+                ? start.plusHours(3)
+                : LocalTime.of(23, 59);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
+                .windowStart(start)
+                .windowEnd(end)
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         return saved;

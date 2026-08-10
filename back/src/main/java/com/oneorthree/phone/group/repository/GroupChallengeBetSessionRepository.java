@@ -159,8 +159,9 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("challengeId") UUID challengeId);
 
     /**
-     * 일 배치 대상 — 기준일 이전의 미정산 회차 id. 엔티티가 아니라 id 만 뽑는 이유는 회차 단위로
-     * 트랜잭션을 새로 열어 처리하기 때문이다(한 건 실패가 다른 건을 말아먹지 않게).
+     * 동결 감시 대상(GroupBetFreezeMonitor) — 기준일 이전의 미정산 회차 id. 엔티티가 아니라 id 만
+     * 뽑는 이유는 회차 단위로 트랜잭션을 새로 열어 처리하기 때문이다(한 건 실패가 다른 건을
+     * 말아먹지 않게).
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
             + "WHERE s.status = :status AND s.sessionDate < :beforeDate ORDER BY s.sessionDate, s.id")
@@ -169,15 +170,28 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("beforeDate") LocalDate beforeDate);
 
     /**
-     * 카테고리별 일 배치 대상 — 미션 스냅샷(GROMO-1263) 덕에 챌린지 조인 없이 회차 자체의
+     * 수동 배치(MANUAL) 대상 — <b>회차별 {@code settle_after}</b> 가 지난 OPEN 회차 id. 날짜 축
+     * ({@code session_date < today})이던 종전 선택은 <b>당일 회차</b>(오전 창형 등)를 못 잡아,
+     * 운영자가 당일 장애 회차를 수동 복구하지 못한 채 24h 자동 환불로 흘렀다(GROMO-1411 후속).
+     * 백오프({@code next_attempt_at})는 무시한다 — 수동 복구는 운영자가 "지금" 재시도하겠다는
+     * 뜻이고, 조기 호출은 settle 내부 그레이스·24h 가드가 이중 방어한다.
+     */
+    @Query("SELECT s.id FROM GroupChallengeBetSession s "
+            + "WHERE s.status = :status AND s.settleAfter <= :now ORDER BY s.settleAfter, s.id")
+    List<UUID> findIdsByStatusAndSettleAfterBefore(
+            @Param("status") GroupBetStatus status,
+            @Param("now") Instant now);
+
+    /**
+     * 카테고리별 수동 배치 대상 — 미션 스냅샷(GROMO-1263) 덕에 챌린지 조인 없이 회차 자체의
      * {@code missionCategory} 로 거른다(챌린지가 삭제돼도 대상 선정이 온전하다).
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
-            + "WHERE s.status = :status AND s.sessionDate < :beforeDate "
-            + "AND s.missionCategory = :category ORDER BY s.sessionDate, s.id")
-    List<UUID> findIdsByStatusAndSessionDateBeforeAndCategory(
+            + "WHERE s.status = :status AND s.settleAfter <= :now "
+            + "AND s.missionCategory = :category ORDER BY s.settleAfter, s.id")
+    List<UUID> findIdsByStatusAndSettleAfterBeforeAndCategory(
             @Param("status") GroupBetStatus status,
-            @Param("beforeDate") LocalDate beforeDate,
+            @Param("now") Instant now,
             @Param("category") MissionCategory category);
 
     /**

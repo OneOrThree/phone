@@ -11,8 +11,8 @@
  *       {@code FocusService.recordCompletion} 이 공통 귀속:
  *       <ul>
  *         <li>{@code DailyFocusStat} upsert — (user, date) 비관적 락 후 초 단위 += 누적(GROMO-642).
- *             버킷 날짜 = country_code 존 로컬 날짜
- *             (GROMO-803 — 스크린타임 561과 동일 기준. countryCode null·미지원은 Asia/Seoul 폴백).
+ *             버킷 날짜 = KST 로컬 날짜
+ *             (GROMO-1259 — 저장축 KST 고정, 스크린타임과 동일 기준. 구 country_code 존은 폐지).
  *             <b>GROMO-1252</b>: 자정을 걸친 세션은 {@code splitByLocalDay} 로 로컬 자정에서 잘라
  *             날짜별로 나눠 가산한다(세션 행·세션 보상 코인은 1건/1회 유지, {@code sessionCount}·
  *             {@code totalDistractionSeconds} 는 시작일에만 — 버킷을 {@code startedAt} 에서 직접 파생하므로
@@ -84,9 +84,10 @@
  * <ul>
  *   <li><b>803</b> — <b>해소됨</b>: 집중 쓰기 날짜 기준을 UTC → country_code 존으로 통일(스크린타임과 정합).
  *       by-category 조회 윈도우도 같은 존으로 정합. <b>forward-only</b> — 기존 UTC 버킷 row 는 재집계하지 않음.
- *       <b>수용 한계</b>: 미지원 국가·{@code countryCode==null} 은 Asia/Seoul 폴백이라(GROMO-1252)
- *       KR 밖 유저는 자정 경계 오귀속 가능(YAGNI — 서비스가 KR 중심).
- *       여행/국가변경으로 디바이스 존 ≠ country 존인 경우도 country 존 기준으로 귀속(코드 미처리, 문서 수용).
+ *       <b>GROMO-1259 로 재개편</b>: country_code 존 파생(CountryZoneResolver)을 폐지하고 저장·조회
+ *       날짜 축을 KST 고정으로 통일(챌린지 정책 N8/FR-19 — 판정·카드·정산이 전부 KST 라 저장축이
+ *       갈리면 어긋난다). <b>수용 한계 L5</b>: 해외 유저는 "내 하루"와 앱의 하루가 어긋난다 —
+ *       한국 타깃 서비스라 수용(docs/prd/challenge/prd.md L5).
  *       <p><b>forward-only 컷오버 아티팩트(수용)</b> — 아래 두 불일치는 PR 리뷰에서 제기됐으나, 변경이
  *       forward-only 이고 현재 DB 가 리셋 가능한 개발용이라 <b>수용</b>한다(소급 보정 안 함).
  *       <ul>
