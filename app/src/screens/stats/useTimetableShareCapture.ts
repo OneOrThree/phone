@@ -113,16 +113,26 @@ export function useTimetableShareCapture({
     };
   }, []);
   const enterCountRef = useRef(0);
-  const onLoaded = useCallback((animatedCount = 0) => {
-    // ⚠️ 조건은 "처음 왔는가"가 아니라 오직 **"진입할 노드가 늘었는가"** 다.
-    //    기록이 없는 주는 onLoaded(0)이 오는데, 재생될 애니메이션이 하나도 없는데도 마감 시각을
-    //    잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
-    if (animatedCount > enterCountRef.current) {
-      loadedAtRef.current = Date.now();
-    }
-    enterCountRef.current = animatedCount;
-    setReady(true);
-  }, []);
+  // 블록이 마운트되던 순간에 확정한 대기 길이(ms). 아래 onLoaded 주석 참고.
+  const waitMsRef = useRef(0);
+  const onLoaded = useCallback(
+    (animatedCount = 0) => {
+      // ⚠️ 조건은 "처음 왔는가"가 아니라 오직 **"진입할 노드가 늘었는가"** 다.
+      //    기록이 없는 주는 onLoaded(0)이 오는데, 재생될 애니메이션이 하나도 없는데도 마감 시각을
+      //    잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
+      if (animatedCount > enterCountRef.current) {
+        loadedAtRef.current = Date.now();
+        // ⚠️ 대기 길이도 **이때** 확정한다. 블록의 진입 여부는 Enter가 마운트 시점에 얼리므로,
+        //    그 뒤 사용자가 '동작 줄이기'를 켜도 이미 시작된 growUp은 계속 재생된다. 공유 시점의
+        //    m.delay를 읽으면 그때 0이 되어 대기를 건너뛰고 중간 크기 블록이 캡처된다(codex 리뷰).
+        //    "지금 설정"이 아니라 "그 블록들이 실제로 애니메이션을 시작했는가"가 기준이다.
+        waitMsRef.current = delayRef.current(enterMs);
+      }
+      enterCountRef.current = animatedCount;
+      setReady(true);
+    },
+    [enterMs],
+  );
 
   // 브랜드 캐릭터 로드 대기 게이트 — onLoad(실패 시 폴백 기본 에셋의 onLoad)가 오면 푼다(멱등). fast path에선 타임아웃을
   // 걷어 댕글링 타이머·중복 resolve를 막는다.
@@ -165,7 +175,7 @@ export function useTimetableShareCapture({
         loadedAtRef.current > 0
           ? Math.max(loadedAtRef.current, readyAtRef.current ?? loadedAtRef.current)
           : 0;
-      await waitUntil(startedAt + delayRef.current(enterMs));
+      await waitUntil(startedAt + waitMsRef.current);
       // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지.
       //    ⚠️ 게이트를 **chrome을 붙이기 전에 등록**한다. 등록 전에 이미지 onLoad가 오면 신호를
       //       잃고 CHAR_READY_TIMEOUT(1.5초)을 통째로 기다리게 된다.
@@ -197,7 +207,7 @@ export function useTimetableShareCapture({
       setCapturing(false);
       setSharing(false);
     }
-  }, [sharing, waitCharReady, makeFileName, card, enterMs]);
+  }, [sharing, waitCharReady, makeFileName, card]);
 
   return {
     shotRef,

@@ -7,6 +7,7 @@ import Animated from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { enterUp, fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
+import { Enter } from '@/components/Enter';
 import { T } from '@/constants/theme';
 import { fmtHm, hms } from '@/utils/timeFormat';
 import { DONUT_BLOCK_H, DONUT_SIZE, FOCUS_COLOR } from './constants';
@@ -74,8 +75,11 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
         </View>
       </Animated.View>
       <View style={s.donutLegend}>
+        {/* ⚠️ 행마다 Enter — 재조회·세션 반영으로 과목이 추가되면 그 행은 **나중에** 마운트되는데,
+            부모의 useMotion 결정에 묶이면 그 사이 '동작 줄이기'를 켠 사용자에게도 페이드된다
+            (codex 리뷰). 뷰를 새로 끼운 게 아니라 원래 있던 Animated.View를 대신한다. */}
         {placed.map((sg, i) => (
-          <Animated.View key={i} style={[s.donutLegendRow, m.enter(enterUp(i))]}>
+          <Enter key={i} preset={enterUp(i)} style={s.donutLegendRow}>
             <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
             <Text style={s.donutLegendName} numberOfLines={1}>
               {sg.name}
@@ -86,7 +90,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
             <Text style={s.donutLegendPct} allowFontScaling={false}>
               {Math.round(sg.frac * 100)}%
             </Text>
-          </Animated.View>
+          </Enter>
         ))}
       </View>
     </View>
