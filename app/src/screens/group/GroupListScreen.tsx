@@ -280,10 +280,10 @@ export default function GroupListScreen({
         ) : null
       }
       refreshControl={enableCardDeck ? undefined : refreshControl}
-       renderItem={({ item, index }) => {
-         const active = !enableCardDeck || index === renderedActiveIndex;
-         const cardEmojiKnown = isCardEmojiKnown(item.groupId);
-         return (
+      renderItem={({ item, index }) => {
+        const active = !enableCardDeck || index === renderedActiveIndex;
+        const cardEmojiKnown = isCardEmojiKnown(item.groupId);
+        return (
           <View
             pointerEvents={active ? 'auto' : 'none'}
             accessibilityElementsHidden={!active}
@@ -296,23 +296,23 @@ export default function GroupListScreen({
               onPress={() => onSelect(item.groupId)}
               focusable={active}
               accessibilityRole="button"
-               accessibilityLabel={
-                 enableCardDeck
-                   ? `${item.name}${item.description ? `, ${item.description}` : ''}, ${cardEmojiKnown ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}, ${item.isPrivate ? '비밀방' : '공개방'}, ${item.role === 'OWNER' ? '방장' : '멤버'}, ${item.currentMembers}/${item.maxMembers}명, 현재 ${index + 1}/${pageCount} 페이지`
-                   : `${item.name}${item.description ? `, ${item.description}` : ''}, ${cardEmojiKnown ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`
-               }
-               testID={`group.list.card.${item.groupId}`}
-             >
-               <Text
-                 style={s.cardEmoji}
-                 accessible={false}
-                 testID={`group.list.emoji.${item.groupId}`}
-               >
-                 {cardEmojiKnown
-                   ? (cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI)
-                   : '…'}
-               </Text>
-               <View style={s.cardMain}>
+              accessibilityLabel={
+                enableCardDeck
+                  ? `${item.name}${item.description ? `, ${item.description}` : ''}, ${item.isPrivate ? '비밀방' : '공개방'}, ${item.role === 'OWNER' ? '방장' : '멤버'}, ${item.currentMembers}/${item.maxMembers}명, 현재 ${index + 1}/${pageCount} 페이지, ${cardEmojiKnown ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}`
+                  : `${item.name}${item.description ? `, ${item.description}` : ''}, ${cardEmojiKnown ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`
+              }
+              testID={`group.list.card.${item.groupId}`}
+            >
+              <Text
+                style={s.cardEmoji}
+                accessible={false}
+                testID={`group.list.emoji.${item.groupId}`}
+              >
+                {cardEmojiKnown
+                  ? (cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI)
+                  : '…'}
+              </Text>
+              <View style={s.cardMain}>
                 <View style={s.cardTitleRow}>
                   <Text style={s.cardName} numberOfLines={1}>
                     {item.name}
@@ -350,8 +350,8 @@ export default function GroupListScreen({
           </View>
         );
       }}
-     />
-   );
+    />
+  );
 
   return (
     <View style={s.root} testID="group.list">
