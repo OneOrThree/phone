@@ -24,18 +24,26 @@ import {
   groupCardEmojiLabel,
   readGroupCardEmojiResult,
   preservePendingGroupCardEmoji,
+  updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
 
 type Route = RouteProp<V2RootStackParamList, 'GroupCardEmojiEdit'>;
 
+export function ownsGroupCardIconSaveResult(
+  session: { userId: string | null; active: boolean },
+  userId: string,
+): boolean {
+  return session.active && session.userId === userId;
+}
+
 /** 서버 그룹 프로필과 독립된 현재 계정·기기의 카드 표현 설정 편집 화면. */
 export default function GroupCardEmojiEditScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId } = useRoute<Route>().params;
-  const { userId } = useUser();
+  const { userId, sessionIdentityRef } = useUser();
   const [baseline, setBaseline] = useState<GroupCardEmoji | null>(null);
   const [selected, setSelected] = useState<GroupCardEmoji | null>(null);
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
@@ -75,7 +83,7 @@ export default function GroupCardEmojiEditScreen() {
         return;
       }
       const emoji = result.emoji;
-      setBaseline(emoji);
+      setBaseline(result.storedEmoji);
       setSelected(emoji);
       setLoadedIdentity(requestedIdentity);
       setSaveFailed(false);
@@ -91,19 +99,28 @@ export default function GroupCardEmojiEditScreen() {
   const save = useCallback(async () => {
     if (!userId || !selected || !changed || saving || !ready) return;
     const saveIdentity = identity;
+    const saveSessionIdentity = sessionIdentityRef.current;
     setSaving(true);
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
       clearPendingGroupCardEmoji(userId, groupId);
-      if (identityRef.current !== saveIdentity) return;
+      if (
+        identityRef.current !== saveIdentity ||
+        !ownsGroupCardIconSaveResult(saveSessionIdentity, userId)
+      )
+        return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current) return;
       setBaseline(selected);
       navigation.goBack();
     } catch {
       preservePendingGroupCardEmoji(userId, groupId, selected);
-      if (identityRef.current !== saveIdentity) return;
+      if (
+        identityRef.current !== saveIdentity ||
+        !ownsGroupCardIconSaveResult(saveSessionIdentity, userId)
+      )
+        return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       if (!activeRef.current) return;
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
@@ -111,7 +128,17 @@ export default function GroupCardEmojiEditScreen() {
     } finally {
       if (activeRef.current && identityRef.current === saveIdentity) setSaving(false);
     }
-  }, [changed, groupId, identity, navigation, ready, saving, selected, userId]);
+  }, [changed, groupId, identity, navigation, ready, saving, selected, sessionIdentityRef, userId]);
+
+  const selectEmoji = useCallback(
+    (emoji: GroupCardEmoji) => {
+      setSelected(emoji);
+      if (saveFailed && userId && baseline) {
+        updatePendingGroupCardEmojiSelection(userId, groupId, emoji, baseline);
+      }
+    },
+    [baseline, groupId, saveFailed, userId],
+  );
 
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.cardEmoji.screen">
@@ -163,7 +190,7 @@ export default function GroupCardEmojiEditScreen() {
               <Text style={s.cardPreviewLabel}>내 그룹 카드</Text>
               <Text style={s.cardPreviewName}>{groupCardEmojiLabel(selected)}</Text>
             </View>
-            <GroupCardEmojiPicker value={selected} onChange={setSelected} disabled={saving} />
+            <GroupCardEmojiPicker value={selected} onChange={selectEmoji} disabled={saving} />
             {saveFailed && (
               <Text style={s.error} accessibilityLiveRegion="polite">
                 내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.

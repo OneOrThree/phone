@@ -64,6 +64,11 @@ export function GroupCardEmojiPicker({
               testID={`${testIDPrefix}.${emoji}`}
             >
               <Text style={s.emoji}>{emoji}</Text>
+              {selected && (
+                <Text style={s.check} accessible={false} testID={`${testIDPrefix}.${emoji}.check`}>
+                  ✓
+                </Text>
+              )}
             </Pressable>
           );
         })}
@@ -88,5 +93,13 @@ const s = StyleSheet.create({
   selected: { borderWidth: 2, borderColor: T.accent, backgroundColor: T.accentBg },
   disabled: { opacity: 0.5 },
   emoji: { fontSize: 26 },
+  check: {
+    position: 'absolute',
+    right: 3,
+    bottom: 1,
+    color: T.accent,
+    fontSize: 14,
+    fontWeight: '900',
+  },
   notice: { ...T.text.caption, color: T.inkSub, marginTop: T.space.md },
 });
