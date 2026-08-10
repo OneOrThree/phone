@@ -120,6 +120,23 @@ describe('FirstStartChart 조회 실패', () => {
     expect(screen.getByText('다시 시도')).toBeTruthy();
   });
 
+  // ⚠️ '다시 시도'는 화면 포커스 재조회와 다르다 — 직전 결과를 비우고 조회 중임을 보여야 한다.
+  //    load를 그대로 걸면 누른 순간 실패 안내가 사라지고 낡은 결과가 정상처럼 돌아와, 조회가
+  //    지연될 때 사용자가 눌렀는지조차 알 수 없다(codex 리뷰).
+  test('"다시 시도"를 누르면 직전 결과를 비우고 조회 중을 보여준다', async () => {
+    getAllMock.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('network down'));
+    const view = await render(<FirstStartChart period="WEEK" />);
+    expect(await screen.findByText('아직 기록이 없어요')).toBeTruthy();
+    await view.rerender(<FirstStartChart period="MONTH" />);
+    await screen.findByText('다시 시도');
+    // 세 번째 조회는 끝나지 않는다 — 재시도 직후의 화면을 붙잡아 본다
+    getAllMock.mockImplementation(() => new Promise(() => {}));
+    await fireEvent.press(screen.getByText('다시 시도'));
+    expect(screen.getByTestId('stats.firstStart.loading')).toBeTruthy();
+    expect(screen.queryByText('아직 기록이 없어요')).toBeNull();
+    expect(screen.queryByText('불러오지 못했어요')).toBeNull();
+  });
+
   test('"다시 시도"를 누르면 실제로 재조회한다', async () => {
     getAllMock.mockRejectedValueOnce(new Error('network down')).mockResolvedValue([]);
     await render(<FirstStartChart period="WEEK" />);

@@ -287,7 +287,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   // 시작한 조회도 같은 기준으로 묶인다).
   const reqRef = useRef(0);
 
-  // 조회 한 번. 화면 포커스와 '다시 시도' 버튼이 **같은 함수**를 부른다 — 재시도용 카운터 상태를
+  // 조회 한 번. 화면 포커스와 '다시 시도' 버튼이 같은 본체를 쓴다 — 재시도용 카운터 상태를
   // 따로 두고 의존성에 끼워 넣는 방식보다 트리거가 눈에 보인다.
   const load = useCallback(async () => {
     const seq = ++reqRef.current;
@@ -317,6 +317,16 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
     }
   }, [period]);
 
+  // '다시 시도' 전용 트리거. 화면 포커스 재조회와 달리 **직전 화면을 비우고** 다시 조회한다.
+  // ⚠️ load를 그대로 버튼에 걸면, 이전 조회의 points가 남아 있는 경우 누른 순간 실패 안내가
+  //    사라지고 **낡은 차트가 정상 결과처럼** 돌아온다 — 조회가 지연되면 사용자는 눌렀는지조차
+  //    알 수 없이 옛 데이터를 무기한 본다(codex 리뷰). 재진입 재조회는 stale-while-revalidate가
+  //    맞지만, 사용자가 직접 누른 재시도는 진행 중임이 보여야 한다.
+  const retry = useCallback(() => {
+    setPoints(null);
+    load();
+  }, [load]);
+
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
   useFocusEffect(
     useCallback(() => {
@@ -336,7 +346,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
     return (
       <View style={s.errorBody} testID="stats.firstStart.error">
         <Text style={s.errorText}>불러오지 못했어요</Text>
-        <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={load}>
+        <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retry}>
           <Text style={s.retryText}>다시 시도</Text>
         </TouchableOpacity>
       </View>
