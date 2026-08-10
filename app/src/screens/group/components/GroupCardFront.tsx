@@ -13,6 +13,7 @@ interface GroupCardFrontProps {
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
+  cardRef?: RefObject<View | null>;
   bodyRef?: RefObject<View | null>;
 }
 
@@ -24,12 +25,13 @@ export function GroupCardFront({
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
+  cardRef,
   bodyRef,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
-    <View style={s.root} testID={`group.card.front.${group.groupId}`}>
+    <View ref={cardRef} style={s.root} testID={`group.card.front.${group.groupId}`}>
       <View
         style={s.grip}
         testID={`group.card.grip.${group.groupId}`}

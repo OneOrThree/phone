@@ -11,6 +11,7 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 interface Props {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
+  cardRef?: RefObject<View | null>;
   backFocusRef?: RefObject<View | null>;
   roomFocusRef?: RefObject<View | null>;
   settingsFocusRef?: RefObject<View | null>;
@@ -24,6 +25,7 @@ interface Props {
 export function GroupCardBack({
   group,
   snapshot,
+  cardRef,
   backFocusRef,
   roomFocusRef,
   settingsFocusRef,
@@ -48,7 +50,7 @@ export function GroupCardBack({
     snapshot?.challenges.status === 'ready' ? snapshot.challenges.data[0] : undefined;
 
   return (
-    <View style={s.root} testID={`group.card.back.${group.groupId}`}>
+    <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
       <Text style={s.title} numberOfLines={1} ellipsizeMode="tail">
         {group.name}
       </Text>

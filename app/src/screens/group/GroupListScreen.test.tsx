@@ -446,6 +446,34 @@ describe('콜백', () => {
     );
   });
 
+  test('복귀 목록 revision 전에 수락한 다른 카드 입력은 이전 카드 복원을 취소한다', async () => {
+    const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
+    const view = await renderList(groups);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+
+    // 느린 복귀 조회를 기다리는 동안 사용자가 다른 카드를 명시적으로 선택했다.
+    await press(`group.card.${GROUP_ID_2}`);
+    await view.rerender(
+      <GroupListScreen
+        groups={groups}
+        groupsRevision={1}
+        userId="user-1"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={1}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
   test('CTA 연타는 첫 수락만 계측·전환한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
@@ -778,6 +806,17 @@ describe('제스처 중재와 재정렬', () => {
       grip.props.onResponderRelease?.(responderEvent, { dx: 0, moveX: 0 });
     });
     expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
+
+    // 메뉴가 열린 동안 화면 밖 카드 flip과 indicator 이동은 수락하지 않는다.
+    await press(`group.card.${GROUP_ID_2}`);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+    });
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID_2}`)).toBeNull();
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
 
     await press('group.card.orderMenu.next');
     expect(logGroupCardReordered).toHaveBeenCalledWith(

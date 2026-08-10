@@ -220,6 +220,8 @@ export default function GroupListScreen({
   const [backSource, setBackSource] = useState<'guide' | 'user' | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [orderMenuGroupId, setOrderMenuGroupId] = useState<string | null>(null);
+  const orderMenuGroupIdRef = useRef<string | null>(null);
+  orderMenuGroupIdRef.current = orderMenuGroupId;
   // RN 부팅 직후 currentState가 null일 수 있다. background/inactive 신호 전에는 foreground
   // 후보로 두고 listener가 이후 확정한다.
   const [appActive, setAppActive] = useState(
@@ -257,6 +259,8 @@ export default function GroupListScreen({
   orderedGroupsRef.current = orderedGroups;
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const returnFocusTargetRef = useRef<'room' | 'settings'>('room');
+  const guideFrontRef = useRef<View | null>(null);
+  const guideBackRef = useRef<View | null>(null);
   const frontFocusRef = useRef<View | null>(null);
   const backFocusRef = useRef<View | null>(null);
   const roomReturnFocusRef = useRef<View | null>(null);
@@ -377,25 +381,39 @@ export default function GroupListScreen({
 
   const guideSteps = useMemo<GuideStep[]>(
     () => [
-      { text: '내 그룹이 카드로 모였어. 같이 둘러보자!', character: GUIDE_CHARACTER },
+      {
+        text: '내 그룹이 카드로 모였어. 같이 둘러보자!',
+        character: GUIDE_CHARACTER,
+        anchor: guideFrontRef,
+      },
       {
         text:
           orderedGroups.length >= 2
             ? '옆으로 넘기면 다른 그룹을 볼 수 있어.'
             : '이 카드가 내 그룹이야. 그룹이 늘면 옆으로 넘길 수 있어.',
         character: GUIDE_CHARACTER,
+        anchor: guideFrontRef,
       },
-      { text: '카드를 탭하면 오늘의 방 상태를 볼 수 있어.', character: GUIDE_CHARACTER },
+      {
+        text: '카드를 탭하면 오늘의 방 상태를 볼 수 있어.',
+        character: GUIDE_CHARACTER,
+        anchor: guideFrontRef,
+      },
       {
         text: '여기서 바로 집중하거나 방 전체를 열 수 있어.',
         character: GUIDE_CHARACTER,
-        prepare: () => {
+        anchor: guideBackRef,
+        prepare: async () => {
           const groupId = orderedGroups[activeIndex]?.groupId ?? orderedGroups[0]?.groupId;
           if (!groupId) return;
           setFlippedGroupId(groupId);
           setBackSource('guide');
           summaryAdapter.ensureBack(groupId).catch(() => undefined);
           focusPolling?.activate();
+          // conditional back 카드가 commit·layout된 다음 overlay가 measureInWindow를 호출한다.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
         },
       },
     ],
@@ -462,6 +480,7 @@ export default function GroupListScreen({
   );
 
   const handleRefresh = useCallback(async () => {
+    if (orderMenuGroupIdRef.current !== null) return;
     setRefreshing(true);
     try {
       await onRefresh();
@@ -473,9 +492,11 @@ export default function GroupListScreen({
 
   const selectPage = useCallback(
     (page: number, trigger: 'indicator_press' | 'accessibility_action' = 'indicator_press') => {
+      if (orderMenuGroupIdRef.current !== null) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndex;
       if (from === next) return;
+      roomReturnRef.current = null;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
@@ -633,10 +654,11 @@ export default function GroupListScreen({
       const cached = respondersRef.current.get(groupId);
       if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => hydrated,
-        onMoveShouldSetPanResponder: () => hydrated,
+        onStartShouldSetPanResponder: () => hydrated && orderMenuGroupIdRef.current === null,
+        onMoveShouldSetPanResponder: () => hydrated && orderMenuGroupIdRef.current === null,
         onPanResponderGrant: (event) => {
-          if (!hydrated) return;
+          if (!hydrated || orderMenuGroupIdRef.current !== null) return;
+          roomReturnRef.current = null;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
           const startX = event.nativeEvent.pageX;
@@ -729,7 +751,10 @@ export default function GroupListScreen({
         {onBack && (
           <TouchableOpacity
             style={s.backBtn}
-            onPress={onBack}
+            onPress={() => {
+              if (orderMenuGroupIdRef.current === null) onBack();
+            }}
+            disabled={orderMenuGroupId !== null}
             activeOpacity={0.7}
             accessibilityLabel="뒤로"
             testID="group.list.back"
@@ -741,7 +766,7 @@ export default function GroupListScreen({
         <TouchableOpacity
           style={s.refreshBtn}
           onPress={handleRefresh}
-          disabled={refreshing}
+          disabled={refreshing || orderMenuGroupId !== null}
           accessibilityRole="button"
           accessibilityLabel={refreshing ? '그룹 새로고침 중' : '그룹 새로고침'}
           testID="group.list.refresh"
@@ -768,7 +793,10 @@ export default function GroupListScreen({
         decelerationRate="fast"
         disableIntervalMomentum
         CellRendererComponent={GroupListCell}
-        scrollEnabled={draggingGroupId === null}
+        scrollEnabled={draggingGroupId === null && orderMenuGroupId === null}
+        onScrollBeginDrag={() => {
+          roomReturnRef.current = null;
+        }}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
           <View
@@ -778,7 +806,12 @@ export default function GroupListScreen({
               activeIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
             }
           >
-            <FindMoreCard width={cardWidth} onPress={onFind} />
+            <FindMoreCard
+              width={cardWidth}
+              onPress={() => {
+                if (orderMenuGroupIdRef.current === null) onFind();
+              }}
+            />
           </View>
         }
         renderItem={({ item, index }) => (
@@ -792,6 +825,7 @@ export default function GroupListScreen({
               <GroupCardBack
                 group={item}
                 snapshot={summaryAdapter.getSnapshot(item.groupId)}
+                cardRef={activeIdentityRef.current === item.groupId ? guideBackRef : undefined}
                 backFocusRef={activeIdentityRef.current === item.groupId ? backFocusRef : undefined}
                 roomFocusRef={
                   activeIdentityRef.current === item.groupId ? roomReturnFocusRef : undefined
@@ -867,9 +901,11 @@ export default function GroupListScreen({
               <GroupCardFront
                 group={item}
                 emoji={emojis[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
+                cardRef={activeIdentityRef.current === item.groupId ? guideFrontRef : undefined}
                 bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
                 onFlip={(trigger) => {
-                  if (draggingGroupId !== null) return;
+                  if (draggingGroupId !== null || orderMenuGroupIdRef.current !== null) return;
+                  roomReturnRef.current = null;
                   if (activeIndex !== index) {
                     listRef.current?.scrollToOffset({
                       offset: index * snapInterval,
@@ -895,7 +931,7 @@ export default function GroupListScreen({
                 canMovePrevious={hydrated && index > 0}
                 canMoveNext={hydrated && index < orderedGroups.length - 1}
                 onMoveStep={(step) => {
-                  if (!hydrated) return;
+                  if (!hydrated || orderMenuGroupIdRef.current !== null) return;
                   const from = orderedGroupsRef.current.findIndex(
                     (group) => group.groupId === item.groupId,
                   );
@@ -960,7 +996,10 @@ export default function GroupListScreen({
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
-          onPress={onCreate}
+          onPress={() => {
+            if (orderMenuGroupIdRef.current === null) onCreate();
+          }}
+          disabled={orderMenuGroupId !== null}
           testID="group.list.create"
         >
           <Text style={s.primaryText}>그룹 만들기</Text>
@@ -968,7 +1007,10 @@ export default function GroupListScreen({
         <TouchableOpacity
           style={s.outlineBtn}
           activeOpacity={0.85}
-          onPress={onFind}
+          onPress={() => {
+            if (orderMenuGroupIdRef.current === null) onFind();
+          }}
+          disabled={orderMenuGroupId !== null}
           testID="group.list.find"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>

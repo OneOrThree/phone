@@ -144,9 +144,8 @@ export default function GroupScreen() {
       setGroupsRevision((revision) => revision + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
-        // 게스트 초대처럼 첫 focus에서 조회를 못 한 episode는 source를 보존한다. 실제 성공 목록을
-        // 발행하는 순간에만 소비해야 로그인 뒤 첫 group_viewed가 invite로 귀속된다.
-        episode.source = consumeGroupEntry(episode.source);
+        // source는 focus 시작 때 이 episode에 귀속됐다. 실패 뒤 같은 episode의 재시도에서는
+        // 그 값을 유지하고, 성공한 전체 목록이 확정된 이 시점에만 한 번 발행한다.
         episode.logged = true;
         logGroupViewed({
           group_entry: episode.source,
@@ -178,14 +177,17 @@ export default function GroupScreen() {
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: peekGroupEntry(fallback),
+        // 인증 사용자의 direct source는 이 focus episode가 즉시 소유한다. 성공 전 blur되어도
+        // 전역 버퍼에 남지 않아 다음 일반 진입을 오염시키지 않고, 같은 episode의 재시도는
+        // viewEpisodeRef의 source를 그대로 쓴다. 게스트만 로그인 리마운트를 위해 peek한다.
+        source: isGuest ? peekGroupEntry(fallback) : consumeGroupEntry(fallback),
         logged: false,
       };
       fetchGroups();
       return () => {
         requestSeqRef.current++;
       };
-    }, [fetchGroups]),
+    }, [fetchGroups, isGuest]),
   );
 
   // ⚠️ 시트 퇴장 애니메이션(220ms) **뒤에** 불린다. 그 사이 새 초대 링크가 도착해 시트 내용이

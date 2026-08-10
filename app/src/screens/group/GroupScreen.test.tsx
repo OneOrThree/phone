@@ -325,6 +325,27 @@ describe('group_viewed view episode', () => {
     });
   });
 
+  test('인증된 direct source는 성공 전 화면이 닫혀도 다음 마운트로 넘어가지 않는다', async () => {
+    let finishFirst!: (groups: GroupSummaryResponse[]) => void;
+    queueDirectGroupEntry('push');
+    mockGetMyGroups.mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)));
+    const first = await renderScreen();
+
+    // focus episode가 source를 소유했으므로 아직 조회 중이어도 전역 보류값은 비었다.
+    expect(peekGroupEntry('tab')).toBe('tab');
+    await act(async () => first.unmount());
+    await act(async () => finishFirst([summary()]));
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    const second = await renderScreen();
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'tab',
+      group_count_bucket: '1',
+    });
+    await act(async () => second.unmount());
+  });
+
   test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {
     mockGetMyGroups.mockResolvedValue([summary()]);
     await renderScreen();
