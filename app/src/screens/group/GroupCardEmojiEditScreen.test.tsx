@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupCardEmojiEditScreen, { ownsGroupCardIconSaveResult } from './GroupCardEmojiEditScreen';
 import {
   __resetGroupCardEmojiQueueForTest,
+  hasPendingGroupCardEmojis,
   preservePendingGroupCardEmoji,
   readGroupCardEmoji,
   readGroupCardEmojiResult,
@@ -36,10 +37,14 @@ const { logGroupCardIconEditorViewed, logGroupCardIconSaveResult } = jest.requir
 );
 
 beforeEach(async () => {
+  // 직전 화면의 unmount 뒤 storage promise 후속 microtask를 먼저 비우고 mock을 복원한 다음
+  // 새 테스트의 직렬 queue를 만든다. 그렇지 않으면 직전 pending callback이 reset 뒤 queue를 잡는다.
+  await Promise.resolve();
+  await Promise.resolve();
+  jest.restoreAllMocks();
   await AsyncStorage.clear();
   __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
-  jest.restoreAllMocks();
   mockUser.userId = 'user-1';
   mockSessionIdentity.current = { userId: 'user-1', active: true };
 });
@@ -371,33 +376,34 @@ test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
   expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState.selected).toBe(true);
 
-  release();
+  await act(async () => {
+    release();
+    await gate;
+  });
   await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
 });
 
-test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추가로 pop하지 않는다', async () => {
-  let release: () => void = () => undefined;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
+test('저장 중 화면이 먼저 unmount된 뒤 실패해도 계정 실패 상태와 pending을 유지한다', async () => {
+  let reject: (reason: Error) => void = () => undefined;
+  const gate = new Promise<void>((_resolve, rejectPromise) => {
+    reject = rejectPromise;
   });
-  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => gate);
   const view = await render(<GroupCardEmojiEditScreen />);
   await screen.findByTestId('group.cardEmoji.save');
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => gate);
   fireEvent.press(screen.getByTestId('group.cardEmoji.save'));
   await waitFor(() => expect(screen.getByTestId('group.cardEmoji.🔥')).toBeDisabled());
 
   view.unmount();
   await act(async () => {
-    release();
-    await gate;
+    reject(new Error('disk full'));
+    await gate.catch(() => undefined);
     await Promise.resolve();
   });
 
   expect(mockGoBack).not.toHaveBeenCalled();
-  expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
-    surface: 'settings',
-    result: 'success',
-  });
+  expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
+  expect(hasPendingGroupCardEmojis('user-1', ['group-1'])).toBe(true);
 });
