@@ -818,8 +818,23 @@ public class GroupBetService {
 
     /**
      * 카드 진행률 스냅샷에 없는 회차 참가자(강퇴·탈퇴자)의 진행률을 따로 집계한다 — 시작된 하루형
-     * 회차 전용. 판정 규칙은 카드 {@code memberProgress} 와 같다: FOCUS 는 데이터 없음 = 0분(서버
-     * 데이터라 사실), SCREEN_TIME 은 미보고 = null(판정 불가, 3상 유지).
+     * 회차 전용. 판정 규칙은 카드 {@code memberProgress} 와 같다: 3상 접기는 커널
+     * ({@link GroupBetJudge#displayMinutes}·{@link GroupBetJudge#achievedOrNull})이 하므로
+     * FOCUS 의 데이터 없음은 0분(서버 데이터라 사실), SCREEN_TIME 의 미보고는 null(판정 불가)이다.
+     *
+     * <p><b>실측이 없으면 참가 행의 박제값으로 폴백한다</b>(GROMO-1423 · codex) — 정산의
+     * {@code GroupBetSettler.measuredOrFrozen} 과 <b>같은 축·같은 순서</b>다. 회차 시작 + 취소 마감
+     * 후 계정을 탈퇴한 참가자는 {@link #freezeEvidenceForAccountErasure} 가
+     * {@code achieved=true} + 실측 분을 참가 행에 박제한 뒤 통계가 nullify 되므로, 여기서 통계를
+     * 다시 집계하면 FOCUS 달성자는 0분/미달성으로, SCREEN_TIME 달성자는 null/미판정으로 접혀
+     * <b>정산이 쓰는 박제 결과와 카드 명단이 어긋난다</b>. 폴백은 이 한 곳에만 둔다 — 결과·내역
+     * 경로({@link #toResultParticipants})는 정산이 참가 행에 남긴 값을 그대로 읽으므로 판정 지점이
+     * 늘지 않는다.
+     *
+     * <p><b>순서를 뒤집지 않는다</b>: 실측이 있으면 언제나 실측이 이긴다(LLD §5.2) — 박제값을 먼저
+     * 보면 조기 확정(GROMO-1268)된 살아 있는 참가자의 최신 진행분이 확정 시점 값에 덮이고, 실측
+     * 0분·미보고가 낡은 값으로 뒤집힌다. {@code achieved} 는 정산과 같이 박제된 {@code true} 만
+     * 불가역으로 존중한다(FR-23).
      *
      * <p>판정 대상은 <b>회차 스냅샷</b>이 정본이다(GROMO-1263 · GROMO-1280) — 카테고리·방식·목표분·
      * 창 시각을 전부 회차 행에서 읽으므로 챌린지가 이후 바뀌거나 삭제돼도 이 회차 기준은 불변이다.
@@ -830,9 +845,8 @@ public class GroupBetService {
             GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants,
             Set<UUID> alreadyKnownUserIds) {
-        List<User> missing = participants.stream()
-                .map(GroupChallengeBetParticipant::getUser)
-                .filter(user -> !alreadyKnownUserIds.contains(user.getId()))
+        List<GroupChallengeBetParticipant> missing = participants.stream()
+                .filter(p -> !alreadyKnownUserIds.contains(p.getUser().getId()))
                 .toList();
         if (missing.isEmpty()) {
             return Map.of();
@@ -843,19 +857,23 @@ public class GroupBetService {
         if (target.isEmpty()) {
             return Map.of();
         }
-        boolean screenTime = target.get().category() == MissionCategory.SCREEN_TIME;
-        Map<UUID, Integer> minutesByUser =
-                groupBetJudge.progressMinutes(target.get(), session.getSessionDate(), missing);
+        Map<UUID, Integer> minutesByUser = groupBetJudge.progressMinutes(target.get(),
+                session.getSessionDate(),
+                missing.stream().map(GroupChallengeBetParticipant::getUser).toList());
         Map<UUID, ChallengeMemberProgressResponse> filled = new LinkedHashMap<>();
-        for (User user : missing) {
-            Integer minutes = screenTime
-                    ? minutesByUser.get(user.getId())
-                    : minutesByUser.getOrDefault(user.getId(), 0);
+        for (GroupChallengeBetParticipant participant : missing) {
+            User user = participant.getUser();
+            // 커널의 "값 없음 = 키 없음" 규약(3상)을 그대로 받아, 그 자리에서만 박제값으로 채운다.
+            Integer measured = minutesByUser.get(user.getId());
+            Integer minutes = measured != null ? measured : participant.getProgressMinutes();
+            Boolean achieved = Boolean.TRUE.equals(participant.getAchieved())
+                    ? Boolean.TRUE
+                    : GroupBetJudge.achievedOrNull(target.get(), minutes);
             filled.put(user.getId(), ChallengeMemberProgressResponse.builder()
                     .userId(user.getId())
                     .nickname(displayNickname(user))
-                    .progressMinutes(minutes)
-                    .achieved(minutes == null ? null : GroupBetJudge.isAchieved(target.get(), minutes))
+                    .progressMinutes(GroupBetJudge.displayMinutes(target.get(), minutes))
+                    .achieved(achieved)
                     .build());
         }
         return filled;

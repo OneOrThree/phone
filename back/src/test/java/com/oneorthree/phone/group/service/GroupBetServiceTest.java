@@ -1665,6 +1665,122 @@ class GroupBetServiceTest {
         verify(groupMemberRepository, never()).findByGroupIdIn(any());
     }
 
+    // ── 탈퇴 박제값 폴백 (codex — 카드 명단이 정산과 같은 근거를 본다, GROMO-1423) ──
+
+    /**
+     * 계정 탈퇴 직전에 판정 근거가 박제된 참가 행 — {@code freezeEvidenceForAccountErasure} 가
+     * {@code achieved=true} + 그 시점 실측 분을 남긴 뒤 통계가 nullify 된 상태다(GROMO-1423).
+     */
+    private GroupChallengeBetParticipant erasedParticipantOf(
+            GroupChallengeBetSession target, int frozenMinutes) {
+        return GroupChallengeBetParticipant.builder()
+                .id(OTHER_PARTICIPANT_ID)
+                .session(target)
+                .user(User.builder().id(OTHER_USER_ID).isGuest(false).isDeleted(true).build())
+                .achieved(true)
+                .achievedAt(Instant.now())
+                .progressMinutes(frozenMinutes)
+                .createdAt(Instant.now())
+                .build();
+    }
+
+    /** 카드 memberProgress 스냅샷 — 활성 그룹원(나)만 들어 있다(탈퇴·강퇴자는 모수 밖). */
+    private Map<UUID, List<ChallengeMemberProgressResponse>> myProgressOnly(int minutes) {
+        return Map.of(CHALLENGE_ID, List.of(ChallengeMemberProgressResponse.builder()
+                .userId(USER_ID).nickname("재영").progressMinutes(minutes).achieved(false).build()));
+    }
+
+    private GroupBetSessionParticipantResponse sessionRowOf(
+            Map<UUID, GroupBetResponse> bets, UUID targetUserId) {
+        return bets.get(CHALLENGE_ID).getSession().getParticipants().stream()
+                .filter(p -> p.getUserId().equals(targetUserId))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /** 시작된 오늘 회차 + (나, 상대) 2인 참가 — 보강 집계가 도는 최소 조건. */
+    private Map<UUID, GroupBetResponse> loadStartedSessionWith(
+            GroupChallengeBetSession started, GroupChallengeBetParticipant other,
+            GroupBetJudge.Target target, Map<UUID, Integer> measured) {
+        given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                List.of(CHALLENGE_ID), today(), GroupBetStatus.UNUSED))
+                .willReturn(List.of(started));
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(SESSION_ID)))
+                .willReturn(List.of(participantOf(started, USER_ID), other));
+        given(groupBetJudge.ofSession(any())).willReturn(Optional.of(target));
+        // 오버로드(단건/배치)가 둘 다 있어 매처로 대상을 못 박는다 — 보강 집계는 단건판이다.
+        given(groupBetJudge.progressMinutes(any(GroupBetJudge.Target.class), eq(today()), any()))
+                .willReturn(measured);
+        return groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of(), myProgressOnly(30));
+    }
+
+    @Test
+    @DisplayName("탈퇴로 통계가 사라진 FOCUS 달성자 — 카드 명단이 박제값을 쓴다(0분/미달성으로 접히지 않는다)")
+    void loadCurrentBetsFallsBackToFrozenEvidenceForErasedFocusAchiever() {
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, today());
+        // nullify 이후라 실측이 하나도 없다 — 종전 판은 FOCUS 규칙대로 0분/미달성으로 접었고,
+        // 정산은 박제값으로 달성 처리해 명단과 결과가 갈렸다.
+        Map<UUID, GroupBetResponse> bets = loadStartedSessionWith(
+                started, erasedParticipantOf(started, GOAL_MINUTES + 40),
+                durationTarget(MissionCategory.FOCUS), Map.of());
+
+        GroupBetSessionParticipantResponse erased = sessionRowOf(bets, OTHER_USER_ID);
+        assertThat(erased.getProgressMinutes()).isEqualTo(GOAL_MINUTES + 40);
+        assertThat(erased.getAchieved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("탈퇴로 통계가 사라진 SCREEN_TIME 달성자 — 미판정(—)이 아니라 박제값으로 보인다")
+    void loadCurrentBetsFallsBackToFrozenEvidenceForErasedScreenTimeAchiever() {
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, today());
+        // 탈퇴는 권한 설정 행까지 지우므로 SCREEN_TIME 실측은 항상 미보고(null)로 떨어진다.
+        Map<UUID, GroupBetResponse> bets = loadStartedSessionWith(
+                started, erasedParticipantOf(started, GOAL_MINUTES - 40),
+                durationTarget(MissionCategory.SCREEN_TIME), Map.of());
+
+        GroupBetSessionParticipantResponse erased = sessionRowOf(bets, OTHER_USER_ID);
+        assertThat(erased.getProgressMinutes()).isEqualTo(GOAL_MINUTES - 40);
+        assertThat(erased.getAchieved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("실측이 있으면 박제값이 이기지 못한다 — 조기 확정된 강퇴자의 최신 실측이 실린다")
+    void loadCurrentBetsPrefersMeasuredMinutesOverFrozenEvidence() {
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, today());
+        // 조기 확정(GROMO-1268)으로 achieved=true + 확정 시점 분이 박혀 있지만 통계는 살아 있다.
+        GroupChallengeBetParticipant earlyConfirmed = GroupChallengeBetParticipant.builder()
+                .id(OTHER_PARTICIPANT_ID)
+                .session(started)
+                .user(User.builder().id(OTHER_USER_ID).isGuest(false).build())
+                .achieved(true)
+                .achievedAt(Instant.now())
+                .progressMinutes(GOAL_MINUTES)
+                .createdAt(Instant.now())
+                .build();
+
+        Map<UUID, GroupBetResponse> bets = loadStartedSessionWith(
+                started, earlyConfirmed, durationTarget(MissionCategory.FOCUS),
+                Map.of(OTHER_USER_ID, GOAL_MINUTES + 50));
+
+        GroupBetSessionParticipantResponse row = sessionRowOf(bets, OTHER_USER_ID);
+        assertThat(row.getProgressMinutes()).isEqualTo(GOAL_MINUTES + 50);
+        assertThat(row.getAchieved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("박제가 없으면 종전 그대로 — 강퇴자의 FOCUS 무기록은 0분/미달성이다(값을 지어내지 않는다)")
+    void loadCurrentBetsKeepsZeroForKickedParticipantWithoutFrozenEvidence() {
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, today());
+        Map<UUID, GroupBetResponse> bets = loadStartedSessionWith(
+                started, participantOf(started, OTHER_USER_ID),
+                durationTarget(MissionCategory.FOCUS), Map.of());
+
+        GroupBetSessionParticipantResponse row = sessionRowOf(bets, OTHER_USER_ID);
+        assertThat(row.getProgressMinutes()).isZero();
+        assertThat(row.getAchieved()).isFalse();
+    }
+
     // ── 취소 마감 단일 판정점 (N22 — 카드 myLeaveDeadlineAt 과 철회 판정 공용) ──
 
     @Test
