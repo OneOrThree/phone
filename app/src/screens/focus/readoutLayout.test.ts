@@ -5,7 +5,13 @@
 // 숫자가 다시 링을 뚫었다(둘 다 codex 리뷰). 눈으로 세는 계산이라 표로 잠근다.
 //
 // ⚠️ 애니메이션이 아니라 **레이아웃 산수**라 단언해도 되는 영역이다(정책 D14의 금지 대상 아님).
-import { focusReadoutLayout, RING_STROKE } from './readoutLayout';
+import {
+  focusReadoutLayout,
+  PLAIN_BASE,
+  POMODORO_EXTRA,
+  RING_STROKE,
+  TIMER_LINE_RATIO,
+} from './readoutLayout';
 
 // 지원 하한부터 최신까지. availH = 화면 높이 − 안전영역(상·하).
 const DEVICES: { name: string; w: number; availH: number }[] = [
@@ -66,6 +72,27 @@ describe('focusReadoutLayout — 기기 × 글자 배율', () => {
       expect(focusReadoutLayout(availH, w, 2.0, true).showRing).toBe(false);
       expect(focusReadoutLayout(availH, w, 3.1, true).showRing).toBe(false);
     }
+  });
+
+  // ⚠️ 링을 포기해도 뽀모도로는 세트배지·세트도트를 계속 그린다. 폴백 예산이 이 둘을 빼먹으면
+  //    캐릭터가 그대로 커서 리드아웃 블록이 배정분을 넘고, 페이저를 밀어내 도트·캐릭터가 겹친다
+  //    (codex 리뷰). 여기서 잠그는 건 "배지가 있는 모드는 같은 조건에서 캐릭터를 더 줄인다"이다.
+  test('링을 포기한 뽀모도로는 배지·도트 높이까지 예산에 넣는다', () => {
+    for (const { availH, w } of DEVICES) {
+      const plain = focusReadoutLayout(availH, w, 3.1, true, false);
+      const pomo = focusReadoutLayout(availH, w, 3.1, true, true);
+      expect(plain.showRing).toBe(false);
+      expect(pomo.showRing).toBe(false);
+      // 캐릭터 하한(가장 작은 화면)에 둘 다 걸리면 같을 수 있다 — 그때만 동률을 허용한다.
+      expect(pomo.charSize).toBeLessThanOrEqual(plain.charSize);
+    }
+    // 예산이 실제로 물리는 지점 — 여기서 동률이면 배지·도트가 빠진 것이다.
+    const plain = focusReadoutLayout(647, 375, 3.1, true, false);
+    const pomo = focusReadoutLayout(647, 375, 3.1, true, true);
+    expect(pomo.charSize).toBeLessThan(plain.charSize);
+    // 줄어든 캐릭터 + 실제로 그려지는 크롬이 세로 예산 안에 들어간다.
+    const timerLine = 52 * 3.1 * TIMER_LINE_RATIO;
+    expect(pomo.charSize + PLAIN_BASE + POMODORO_EXTRA + timerLine).toBeLessThanOrEqual(647);
   });
 
   test('카운트업은 링을 쓰지 않는다 — 표준 배율에선 기본 크기 그대로', () => {

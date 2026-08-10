@@ -1235,6 +1235,9 @@ export default function FocusSessionScreen() {
     width,
     fontScale,
     mode !== 'countup', // 카운트업은 목표가 없어 진행률 자체가 정의되지 않는다
+    // ⚠️ 뽀모도로는 링을 포기해도 세트배지·세트도트를 계속 그린다 — 예산에 넣지 않으면
+    //    캐릭터를 크게 유지한 채 리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
+    mode === 'pomodoro',
   );
   const charSize = layout.charSize;
   // 자간·행높이는 지정 fontSize에 비례시켜 폰트 메트릭을 유지한다(시스템 배율은 RN이 곱한다).

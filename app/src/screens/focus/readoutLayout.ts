@@ -63,7 +63,24 @@ const CHROME_FRAME = 165;
 //           (뽀모도로 = 최악. 모드가 바뀌어도 캐릭터 크기가 흔들리지 않게 이 값으로 통일한다)
 //   링 없음: paddingBottom 20 + 과목명 30                             = 50  (글자 몫 ≈ 22)
 const READOUT_RING = { total: 105, text: 48 };
-const READOUT_PLAIN = { total: 50, text: 22 };
+// ⚠️ 링이 없으면 타이머가 **링 밖의 독립된 줄**이 되므로 그 높이가 예산에 들어가야 한다.
+//    (링이 있을 때는 숫자가 링 안이라 별도 높이가 없다.)
+//    그리고 뽀모도로는 폴백으로 내려가도 세트배지·세트도트를 계속 그린다 — 그걸 빼면
+//    캐릭터를 230pt로 유지한 채 리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다(codex 리뷰).
+//    타이머 줄 높이는 지정 크기가 정해지기 **전에** 필요해 순환하므로, 상한(52pt × 배율)으로
+//    잡는다 — 보수적이라 캐릭터가 조금 작아질 뿐 겹치지는 않는다.
+// 화면이 쓰는 행높이 비율과 같은 값 — 두 곳이 갈리면 예산이 어긋난다.
+export const TIMER_LINE_RATIO = 1.08;
+export const PLAIN_BASE = 50; // paddingBottom 20 + 과목명 30
+export const POMODORO_EXTRA = 55; // 세트배지 34 + 세트도트 21
+function plainChrome(fontScale: number, withBadges: boolean) {
+  const timerLine = T.text.timer.fontSize * Math.max(fontScale, 1) * TIMER_LINE_RATIO;
+  return {
+    total: PLAIN_BASE + (withBadges ? POMODORO_EXTRA : 0) + timerLine,
+    // 과목명 22 + (뽀모도로면 배지·도트의 글자 몫 ≈ 33). 타이머 몫은 위 total이 이미 배율을 먹었다.
+    text: 22 + (withBadges ? 33 : 0),
+  };
+}
 
 export interface ReadoutLayout {
   /** 링을 그릴 수 있는가. false면 숫자만 있는 배치(카운트업과 동일)로 내려간다. */
@@ -81,8 +98,9 @@ function solve(
   availableW: number,
   fontScale: number,
   withRing: boolean,
+  withBadges: boolean,
 ): ReadoutLayout {
-  const chrome = withRing ? READOUT_RING : READOUT_PLAIN;
+  const chrome = withRing ? READOUT_RING : plainChrome(fontScale, withBadges);
   // 배율이 1보다 작아도 예산을 늘려 잡지 않는다 — 작은 글자로 얻은 여유는 그냥 여백으로 둔다.
   const grow = Math.max(fontScale, 1) - 1;
   const budgetH = Math.max(0, availableH - (CHROME_FRAME + chrome.total + chrome.text * grow));
@@ -124,18 +142,20 @@ function solve(
  * @param availableW 화면 폭 — 링 지름과 평문 타이머 폭의 상한을 함께 정한다
  * @param fontScale  시스템 글자 배율 (`useWindowDimensions().fontScale`)
  * @param wantRing   진행률이 정의되는 모드인가 (카운트업은 목표가 없어 false)
+ * @param withBadges 뽀모도로인가 — 링을 포기해도 세트배지·세트도트는 계속 그려지므로 예산에 넣는다
  */
 export function focusReadoutLayout(
   availableH: number,
   availableW: number,
   fontScale: number,
   wantRing: boolean,
+  withBadges = false,
 ): ReadoutLayout {
-  if (!wantRing) return solve(availableH, availableW, fontScale, false);
-  const ringed = solve(availableH, availableW, fontScale, true);
+  if (!wantRing) return solve(availableH, availableW, fontScale, false, withBadges);
+  const ringed = solve(availableH, availableW, fontScale, true, withBadges);
   // 링 배치를 쓰려면 세로(캐릭터가 최소치 이상)와 가로(링이 화면 폭 안) 둘 다 만족해야 한다.
   // 하나라도 못 지키면 숫자만 남기는 배치로 내려간다 — 정보는 숫자에 그대로 남는다.
   const fitsV = ringed.charSize >= MIN_CHAR;
   const fitsH = ringed.ringSize <= Math.max(0, availableW - H_MARGIN);
-  return fitsV && fitsH ? ringed : solve(availableH, availableW, fontScale, false);
+  return fitsV && fitsH ? ringed : solve(availableH, availableW, fontScale, false, withBadges);
 }
