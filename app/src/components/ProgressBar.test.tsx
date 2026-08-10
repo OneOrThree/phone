@@ -10,6 +10,7 @@ let mockReady = true;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
   useReduceMotionReady: () => mockReady,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 beforeEach(() => {
