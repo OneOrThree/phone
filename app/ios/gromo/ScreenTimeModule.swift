@@ -390,12 +390,18 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:goal:selectionPending")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다 — 허용 앱 관리자와 같은 계약이다.
+                    //    즉시 풀면 JS가 아직 떠 있는 피커 아래에서 토스트 등장과 2200ms 타이머를
+                    //    시작해 실제 노출 시간이 줄어든다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count,
+                            // 구 바이너리는 이 키가 없다 — JS가 그때는 Alert로 폴백한다.
+                            "dismissed": true
+                        ])
+                    }
                 },
                 onCancel: {
                     top.dismiss(animated: true)
