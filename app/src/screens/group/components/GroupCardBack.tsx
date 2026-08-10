@@ -123,6 +123,7 @@ export function GroupCardBack({
         </TouchableOpacity>
         <TouchableOpacity
           ref={roomFocusRef}
+          style={s.secondaryAction}
           onPress={onRoom}
           testID={`group.card.room.${group.groupId}`}
         >
@@ -130,12 +131,14 @@ export function GroupCardBack({
         </TouchableOpacity>
         <TouchableOpacity
           ref={settingsFocusRef}
+          style={s.secondaryAction}
           onPress={onSettings}
           testID={`group.card.settings.${group.groupId}`}
         >
           <Text style={s.link}>⋯ 그룹 설정</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          style={s.secondaryAction}
           onPress={() => onFront('card_tap')}
           accessibilityActions={[{ name: 'activate', label: '앞면으로' }]}
           onAccessibilityAction={(event) => {
@@ -190,5 +193,6 @@ const s = StyleSheet.create({
     marginTop: T.space.sm,
   },
   primaryText: { ...T.text.label, color: T.white },
+  secondaryAction: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   link: { ...T.text.caption, color: T.accent, textAlign: 'center' },
 });

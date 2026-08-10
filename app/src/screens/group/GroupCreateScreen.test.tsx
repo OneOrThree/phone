@@ -52,6 +52,11 @@ jest.mock('@react-navigation/native', () => ({
 
 jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) }));
 
+const mockAnalyticsSession = { current: true };
+jest.mock('@/services/analytics', () => ({
+  isCurrentAnalyticsUserId: jest.fn(() => mockAnalyticsSession.current),
+}));
+
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCreateStarted: jest.fn(),
   logGroupCardIconSaveResult: jest.fn(),
@@ -132,6 +137,7 @@ beforeEach(async () => {
   __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
   mockNav.beforeRemove = null;
+  mockAnalyticsSession.current = true;
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockCreateGroup.mockResolvedValue({ groupId: GROUP_ID, code: 'ignored' });
@@ -225,6 +231,26 @@ describe('내 카드 아이콘 로컬 draft', () => {
         result: 'success',
       }),
     );
+  });
+
+  test('로컬 아이콘 쓰기 완료 전 계정이 바뀌면 결과 이벤트를 새 계정에 남기지 않는다', async () => {
+    let finishWrite: () => void = () => {};
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    await renderScreen();
+    await typeName('계정 전환 경계 그룹');
+    await press('만들기');
+    await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
+
+    mockAnalyticsSession.current = false;
+    await act(async () => finishWrite());
+    await act(async () => {});
+
+    expect(logGroupCardIconSaveResult).not.toHaveBeenCalled();
   });
 });
 

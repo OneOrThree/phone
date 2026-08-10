@@ -125,6 +125,15 @@ export function groupDeckResponderLayoutKey(windowWidth: number, snapInterval: n
   return `${windowWidth}:${snapInterval}`;
 }
 
+export function resolveDragRestoreIndex(
+  groupIds: readonly string[],
+  groupId: string,
+  fallbackIndex: number,
+): number {
+  const stableIndex = groupIds.indexOf(groupId);
+  return stableIndex >= 0 ? stableIndex : Math.min(fallbackIndex, Math.max(0, groupIds.length - 1));
+}
+
 /**
  * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
  * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
@@ -472,24 +481,12 @@ export default function GroupListScreen({
     const shouldReconcile =
       reconciliationKey !== null && reconciledEmojiRevisionRef.current !== reconciliationKey;
     if (shouldReconcile) reconciledEmojiRevisionRef.current = reconciliationKey;
-    const prepare = userId
-      ? retryPendingGroupCardEmojis(userId, groupIds)
-          .then(() => (shouldReconcile ? reconcileGroupCardEmojis(userId, groupIds) : undefined))
-          .catch(() => {
-            if (shouldReconcile && reconciledEmojiRevisionRef.current === reconciliationKey) {
-              reconciledEmojiRevisionRef.current = null;
-            }
-          })
-      : Promise.resolve();
-    prepare
-      .then(() =>
-        Promise.all(
-          groups.map(
-            async (group) =>
-              [group.groupId, await readGroupCardEmoji(userId, group.groupId)] as const,
-          ),
-        ),
-      )
+    // pending 값은 메모리에서 즉시 읽을 수 있으므로 저장 재시도 queue가 덱 노출을 막지 않는다.
+    Promise.all(
+      groups.map(
+        async (group) => [group.groupId, await readGroupCardEmoji(userId, group.groupId)] as const,
+      ),
+    )
       .then((entries) => {
         if (active) {
           setEmojis(Object.fromEntries(entries));
@@ -502,6 +499,15 @@ export default function GroupListScreen({
           setEmojiScopeLoaded(emojiScope);
         }
       });
+    if (userId) {
+      retryPendingGroupCardEmojis(userId, groupIds)
+        .then(() => (shouldReconcile ? reconcileGroupCardEmojis(userId, groupIds) : undefined))
+        .catch(() => {
+          if (shouldReconcile && reconciledEmojiRevisionRef.current === reconciliationKey) {
+            reconciledEmojiRevisionRef.current = null;
+          }
+        });
+    }
     return () => {
       active = false;
     };
@@ -552,11 +558,19 @@ export default function GroupListScreen({
 
   const onMomentumScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const next = Math.max(
-        0,
-        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
-      );
+      const offset = event.nativeEvent.contentOffset.x;
+      const next = Math.max(0, Math.min(Math.round(offset / snapInterval), pageCount - 1));
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
+      const dragProgrammatic =
+        dragRef.current !== null ||
+        (dragProgrammaticOffsetRef.current !== null &&
+          Math.abs(dragProgrammaticOffsetRef.current - offset) < 1);
+      if (dragProgrammatic) {
+        dragProgrammaticOffsetRef.current = null;
+        activeIdentityRef.current = nextIdentity;
+        setActiveIndex(next);
+        return;
+      }
       if (activeIdentityRef.current !== nextIdentity) {
         logGroupCarouselPaged({
           trigger: 'swipe',
@@ -680,6 +694,7 @@ export default function GroupListScreen({
     moved: boolean;
   } | null>(null);
   const lastEdgePageAtRef = useRef(0);
+  const dragProgrammaticOffsetRef = useRef<number | null>(null);
   const responderLayoutKey = groupDeckResponderLayoutKey(windowWidth, snapInterval);
   const respondersRef = useRef(
     new Map<string, { layoutKey: string; responder: ReturnType<typeof PanResponder.create> }>(),
@@ -712,11 +727,18 @@ export default function GroupListScreen({
   );
 
   const restoreDragOrigin = useCallback(
-    (drag: { from: number }) => {
-      const origin = orderedGroupsRef.current[drag.from];
+    (drag: { from: number; groupId: string }) => {
+      const groupsNow = orderedGroupsRef.current;
+      const restoreIndex = resolveDragRestoreIndex(
+        groupsNow.map((group) => group.groupId),
+        drag.groupId,
+        drag.from,
+      );
+      const origin = groupsNow[restoreIndex];
       if (origin) activeIdentityRef.current = origin.groupId;
-      setActiveIndex(drag.from);
-      listRef.current?.scrollToOffset({ offset: drag.from * snapInterval, animated: true });
+      setActiveIndex(restoreIndex);
+      dragProgrammaticOffsetRef.current = restoreIndex * snapInterval;
+      listRef.current?.scrollToOffset({ offset: restoreIndex * snapInterval, animated: true });
     },
     [snapInterval],
   );
@@ -783,6 +805,7 @@ export default function GroupListScreen({
             drag.edgeOffset = next.edgeOffset;
             drag.target = next.target;
             lastEdgePageAtRef.current = now;
+            dragProgrammaticOffsetRef.current = drag.target * snapInterval;
             listRef.current?.scrollToOffset({
               offset: drag.target * snapInterval,
               animated: true,
@@ -1100,7 +1123,10 @@ export default function GroupListScreen({
           style={s.primaryBtn}
           activeOpacity={0.85}
           onPress={() => {
-            if (orderMenuGroupIdRef.current === null) onCreate();
+            if (orderMenuGroupIdRef.current === null) {
+              roomReturnRef.current = null;
+              onCreate();
+            }
           }}
           disabled={orderMenuGroupId !== null}
           testID="group.list.create"
@@ -1111,7 +1137,10 @@ export default function GroupListScreen({
           style={s.outlineBtn}
           activeOpacity={0.85}
           onPress={() => {
-            if (orderMenuGroupIdRef.current === null) onFind();
+            if (orderMenuGroupIdRef.current === null) {
+              roomReturnRef.current = null;
+              onFind();
+            }
           }}
           disabled={orderMenuGroupId !== null}
           testID="group.list.find"

@@ -8,7 +8,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View } from 'react-native';
-import GroupListScreen, { groupDeckResponderLayoutKey, resolveDragTarget } from './GroupListScreen';
+import GroupListScreen, {
+  groupDeckResponderLayoutKey,
+  resolveDragRestoreIndex,
+  resolveDragTarget,
+} from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { readGroupCardEmoji, writeGroupCardEmoji } from './groupCardEmojiStore';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
@@ -20,6 +24,7 @@ import {
   logGroupCardDeckViewed,
   logGroupCardFlipped,
   logGroupCardReordered,
+  logGroupCarouselPaged,
 } from '@/services/analyticsEvents';
 
 jest.mock('@/services/groupApi', () => ({
@@ -486,6 +491,27 @@ describe('카드 렌더', () => {
       ).toBeOnTheScreen(),
     );
   });
+
+  test('pending 아이콘 저장이 지연돼도 낙관 아이콘으로 덱을 먼저 노출한다', async () => {
+    let finishWrite: () => void = () => {};
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    const pendingWrite = writeGroupCardEmoji('pending-user', GROUP_ID, '📚');
+
+    await renderList([group()], undefined, 'pending-user');
+
+    expect(
+      within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚', {
+        includeHiddenElements: true,
+      }),
+    ).toBeOnTheScreen();
+    await act(async () => finishWrite());
+    await pendingWrite;
+  });
 });
 
 describe('콜백', () => {
@@ -564,6 +590,15 @@ describe('콜백', () => {
     expect(logGroupCardActionClicked).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'room', role: 'member', back_source: 'user' }),
     );
+  });
+
+  test('뒷면 보조 CTA는 각각 최소 44pt 터치 영역을 가진다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    expect(screen.getByTestId(`group.card.room.${GROUP_ID}`)).toHaveStyle({ minHeight: 44 });
+    expect(screen.getByTestId(`group.card.settings.${GROUP_ID}`)).toHaveStyle({ minHeight: 44 });
+    expect(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`)).toHaveStyle({ minHeight: 44 });
   });
 
   test('복귀 목록 revision 전에 수락한 다른 카드 입력은 이전 카드 복원을 취소한다', async () => {
@@ -960,6 +995,11 @@ describe('제스처 중재와 재정렬', () => {
     expect(back).toEqual({ target: 2, edgeOffset: -1 });
   });
 
+  test('드래그 출발 카드가 살아 있으면 목록 변경 뒤에도 stable groupId 위치로 복원한다', () => {
+    expect(resolveDragRestoreIndex(['new', GROUP_ID, GROUP_ID_2], GROUP_ID, 0)).toBe(1);
+    expect(resolveDragRestoreIndex(['new', GROUP_ID_2], GROUP_ID, 9)).toBe(1);
+  });
+
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
     const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
@@ -1015,6 +1055,7 @@ describe('제스처 중재와 재정렬', () => {
       });
     });
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 4');
+    expect(logGroupCarouselPaged).not.toHaveBeenCalled();
 
     await act(async () => {
       grip.props.onResponderTerminate?.(responderEvent, {});
