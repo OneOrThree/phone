@@ -172,9 +172,10 @@ public class NotificationScheduler {
         }
     }
 
-    // 사일런트 flush 푸시 (GROMO-1281, FR-22) — 5분 간격, B4 정산 스캔과 같은 주기로 창형 정산
-    // 그레이스 진입을 감지해 data-only {silent:'flush'} 를 보낸다. 표시가 아니라 조용한 시간
-    // 필터를 타지 않고(HLD §6 예외), 회차당 1회는 사건 클레임이 보장한다.
+    // 사일런트 flush 푸시 (GROMO-1281, FR-22) — 5분 간격. 발송 시점은 settle_after - 15분
+    // (HLD §6 시각 표)이라 마지막 15분 버킷까지 판정에 반영된다. 5분 크론이 그 15분 창을 3틱
+    // 훑지만 회차당 1회는 사건 클레임이 보장한다. 표시가 아니라 조용한 시간 필터를 타지 않는다
+    // (HLD §6 예외 - FOCUS 하루형의 심야 정산이 이 예외로 구제된다).
     @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
     @SchedulerLock(name = "notification-silent-flush")
     public void sendSilentFlushPushes() {

@@ -251,17 +251,26 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("since") Instant since);
 
     /**
-     * 사일런트 flush 푸시 대상(GROMO-1281, FR-22) — 정산 그레이스에 진입한 창형 OPEN 회차.
-     * 창이 끝났고({@code closes_at} 경과) 아직 정산 가능 시각({@code settle_after} = 창 끝+30분)
-     * 전인 구간에서 data-only 푸시로 앱의 업로드 큐 flush 를 유도한다 — 정산이 클라 보고분·집중
-     * 세션 업로드를 기다릴 수 있는 마지막 창이다. 회차당 1회는 사건 클레임이 보장하므로 여기서는
-     * 잠금 없이 집기만 한다. 하루형(DURATION)은 대상이 아니다(§HLD — 11:30 사일런트는 후속).
+     * 사일런트 flush 푸시 대상(GROMO-1281, FR-22) — <b>{@code settle_after} − 15분</b> 창에 든
+     * OPEN 회차(HLD §6 시각 표 · LLD §2.1 · PRD). 큐가 비워질 시간을 남기되 정산 직전이라
+     * 마지막 보고분이 판정에 반영된다. 호출측이 {@code leadCutoff = now + 15분} 을 넘겨
+     * {@code settle_after − 15분 ≤ now < settle_after} 를 표현한다 — 5분 크론이 이 15분 폭을 3틱
+     * 훑지만 회차 단위 클레임이 첫 틱만 통과시킨다.
+     *
+     * <p><b>제외는 {@code SCREEN_TIME × DURATION} 하나뿐</b>이다(HLD §6) — 그 조합만 11:30 별도
+     * 슬롯으로 이관됐다(<b>미구현 — 후속</b>). {@code FOCUS × DURATION} 을 함께 빼면
+     * {@code settle_after} 가 KST 자정+1h 라 23:45 사일런트가 영영 안 나가는데, 조용한 시간
+     * (23–07)이 사일런트 예외인 이유가 정확히 이 케이스다(HLD §6).
      */
     @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group "
             + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
-            + "AND s.missionType = com.oneorthree.phone.group.domain.MissionType.TIME_WINDOW "
-            + "AND s.closesAt <= :now AND s.settleAfter > :now ORDER BY s.id")
-    List<GroupChallengeBetSession> findWindowSessionsInSettleGrace(@Param("now") Instant now);
+            + "AND s.settleAfter > :now AND s.settleAfter <= :leadCutoff "
+            + "AND (s.missionType = com.oneorthree.phone.group.domain.MissionType.TIME_WINDOW "
+            + "OR s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS) "
+            + "ORDER BY s.id")
+    List<GroupChallengeBetSession> findSilentFlushTargets(
+            @Param("now") Instant now,
+            @Param("leadCutoff") Instant leadCutoff);
 
     /**
      * 참여 모집 알림 대상(GROMO-1417, N40) — <b>아직 참가할 수 있는</b> OPEN 회차

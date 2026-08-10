@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -24,16 +25,27 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 창형 정산 그레이스의 <b>사일런트</b> 푸시 (GROMO-1281, FR-22) — 창이 끝나고 정산 가능 시각
- * ({@code settle_after} = 창 끝+30분) 전인 OPEN 회차의 참가자에게 data-only
+ * 정산 직전의 <b>사일런트</b> 푸시 (GROMO-1281, FR-22) — 회차 참가자에게 data-only
  * {@code {silent:'flush'}} 를 보내 앱의 업로드 큐(집중 세션·창 사용분) flush 를 유도한다.
- * 정산이 클라 데이터를 기다릴 수 있는 마지막 창이라, B4 의 5분 정산 스캔과 같은 주기로
- * 그레이스 진입을 감지한다.
+ *
+ * <p><b>발송 시점 = {@code settle_after} − 15분</b>(HLD §6 시각 표 · LLD §2.1 · PRD). 큐가 비워질
+ * 시간은 남기되 <b>정산 직전</b>이라 마지막 15분 버킷까지 판정에 반영된다. 그레이스 진입 시점
+ * (창 종료 직후)으로 당기면 SCREEN_TIME 창형이 <b>마지막 버킷이 확정되기 전 값</b>으로 보고하고,
+ * 회차당 1회 클레임이라 두 번째 기상이 없어 그대로 오판정이 된다(판정 소스가 15분 눈금 클라
+ * 보고분 — N4). 슬롯을 스냅샷({@code settle_after})에서 계산하는 방식은 모집 알림
+ * ({@link SessionOpenNotificationService})과 같은 규율이다.
+ *
+ * <p>5분 크론이 이 15분 폭을 3틱 훑지만 <b>회차당 1회</b>는 사건 클레임
+ * ({@code (user, BET_SILENT_FLUSH, 회차 id)} 선점 — N41 과 같은 축)이 보장한다 — 첫 틱만 나가고
+ * 나머지 두 틱은 dedup 으로 접힌다.
+ *
+ * <p><b>대상에서 빠지는 조합은 {@code SCREEN_TIME × DURATION} 하나뿐</b>이다(HLD §6 — 그 조합만
+ * 11:30 별도 슬롯으로 이관됐다. <b>11:30 슬롯은 미구현 — 후속</b>). 특히
+ * {@code FOCUS × DURATION} 은 {@code settle_after} 가 KST 자정+1h 라 사일런트가 심야에 나가는데,
+ * 조용한 시간(23–07)이 사일런트 예외인 이유가 정확히 이 케이스다 — 여기서 빼면 그 구제가 사라진다.
  *
  * <p><b>표시 푸시의 규칙을 타지 않는다</b>(HLD §6) — 목적이 표시가 아니라 앱 기동이므로 묶음도
- * 조용한 시간 필터도 없다(심야 창의 정산이 데이터를 못 받는 문제가 이걸로 풀린다). 다만 5분
- * 스캔이 그레이스 구간을 반복 훑으므로 <b>회차당 1회</b>는 사건 클레임
- * ({@code (user, BET_SILENT_FLUSH, 회차 id)} 선점 — N41 과 같은 축)으로 보장한다.
+ * 조용한 시간 필터도 없다.
  */
 @Slf4j
 @Service
@@ -43,6 +55,13 @@ public class SilentFlushPushService {
     /** A2 계약(계약 §2·decisions R0·A2) — 앱 백그라운드 핸들러는 data.silent == 'flush' 만 처리한다. */
     static final String SILENT_KEY = "silent";
     static final String SILENT_VALUE = "flush";
+
+    /**
+     * 발송 선행 시간 — {@code settle_after} 15분 전(HLD §6). 이 폭이 곧 스캔 창이다:
+     * {@code settle_after − 15분 ≤ now < settle_after}. 5분 크론에서 3틱에 걸치지만 클레임이
+     * 첫 틱만 통과시킨다.
+     */
+    static final Duration SETTLE_LEAD = Duration.ofMinutes(15);
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
@@ -55,12 +74,12 @@ public class SilentFlushPushService {
         return sendGraceFlushPushes(Instant.now());
     }
 
-    /** 그레이스 진입 회차 스캔 → 참가자별 클레임 → data-only 발송. */
+    /** {@code settle_after} − 15분 창 스캔 → 참가자별 클레임 → data-only 발송. */
     @Transactional
     public PushDispatchSummaryResponse sendGraceFlushPushes(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
-        List<GroupChallengeBetSession> sessions =
-                groupChallengeBetSessionRepository.findWindowSessionsInSettleGrace(now);
+        List<GroupChallengeBetSession> sessions = groupChallengeBetSessionRepository
+                .findSilentFlushTargets(now, now.plus(SETTLE_LEAD));
         if (sessions.isEmpty()) {
             return summary(0, 0, 0, 0, startedAtMillis);
         }
@@ -82,12 +101,14 @@ public class SilentFlushPushService {
             }
             User user = participant.getUser();
             UUID rowId = Generators.timeBasedEpochRandomGenerator().generate();
-            // 선점(사건 = 유저 × BET_SILENT_FLUSH × 회차) — 5분 스캔 반복·다중 인스턴스에서 1회 보장.
-            // 리스 만료 재클레임은 두지 않는다: 그레이스는 30분뿐이라 죽은 선점을 되살릴 실익이 작고,
+            // 선점(사건 = 유저 × BET_SILENT_FLUSH × 회차) — 15분 창을 3틱 훑어도, 다중 인스턴스가
+            // 동시에 돌아도 1회만 나가게 한다. 슬롯 메타는 실제 발송 시각이 아니라 설계상의 슬롯
+            // (settle_after − 15분)을 박아 어느 틱이 집었든 같은 값이 남게 한다.
+            // 리스 만료 재클레임은 두지 않는다: 창이 15분뿐이라 죽은 선점을 되살릴 실익이 작고,
             // 사일런트는 유실돼도 포그라운드 sync 가 최후 보루다.
             int claimed = notificationSentLogRepository.insertPendingClaim(rowId, user.getId(),
                     NotificationSentLog.TYPE_BET_SILENT_FLUSH, session.getId(),
-                    session.getGroup().getId(), session.getClosesAt(), now);
+                    session.getGroup().getId(), session.getSettleAfter().minus(SETTLE_LEAD), now);
             if (claimed == 0) {
                 deduped++;
                 continue;
@@ -101,7 +122,7 @@ public class SilentFlushPushService {
                             List.of(rowId), NotificationSendStatus.SENT, now);
                     sent++;
                 } else {
-                    // 토큰 없음·실패 — 선점을 반납해 그레이스가 남아 있으면 다음 5분 틱이 재시도.
+                    // 토큰 없음·실패 — 선점을 반납해 15분 창이 남아 있으면 다음 5분 틱이 재시도.
                     notificationSentLogRepository.deleteByIds(List.of(rowId));
                     skipped++;
                 }
@@ -115,7 +136,7 @@ public class SilentFlushPushService {
         PushDispatchSummaryResponse result =
                 summary(targets.size(), sent, deduped, skipped, startedAtMillis);
         if (result.targetCount() > 0) {
-            log.info("사일런트 flush 푸시 — 그레이스 회차 {}건, 대상 {}명, 발송 {}건, dedup {}건, 스킵 {}건",
+            log.info("사일런트 flush 푸시 — 정산 임박 회차 {}건, 대상 {}명, 발송 {}건, dedup {}건, 스킵 {}건",
                     sessions.size(), result.targetCount(), result.sentCount(),
                     result.dedupedCount(), result.skippedCount());
         }

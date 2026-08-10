@@ -119,10 +119,10 @@ public class NotificationSentLog {
     public static final String TYPE_CHALLENGE_SESSION_OPEN = "CHALLENGE_SESSION_OPEN";
 
     /**
-     * 발송 종류 — 창형 정산 그레이스 진입 시의 <b>사일런트</b> 푸시(GROMO-1281, FR-22).
+     * 발송 종류 — 정산 직전({@code settle_after} − 15분)의 <b>사일런트</b> 푸시(GROMO-1281, FR-22).
      * data-only {@code {silent:'flush'}} 로 앱의 업로드 큐 flush 를 유도한다. 표시 푸시가 아니라
      * 묶음·조용한 시간 필터를 타지 않지만, 회차당 1회 발송은 사건 클레임({@code subject_id} =
-     * 회차 id)으로 보장한다 — 5분 스캔이 그레이스 구간을 반복 훑기 때문이다.
+     * 회차 id)으로 보장한다 — 5분 스캔이 15분 창을 3틱 훑기 때문이다.
      */
     public static final String TYPE_BET_SILENT_FLUSH = "BET_SILENT_FLUSH";
 
