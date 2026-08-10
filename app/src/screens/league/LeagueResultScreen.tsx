@@ -153,7 +153,12 @@ export default function LeagueResultScreen() {
         // hapticSuccess는 notification 계열 "따-단" 2박자라 **축하 표면 전용**이다.
         // (파티클은 '동작 줄이기'에서 ConfettiBurst가 스스로 생략한다 — 여기서 다시 분기하지 않는다.)
         if (!fb || cancelled || type !== 'promote') return;
-        setCelebrate(true);
+        // ⚠️ **축하 시점에 모션이 허용된 경우에만 파티클을 켠다.** ConfettiBurst의 생략은 바깥
+        //    컴포넌트가 남아 있는 채 안쪽만 비우는 방식이라, 켜 두면 그 3.2초 사이에 사용자가
+        //    '동작 줄이기'를 끌 때 안쪽이 새로 마운트돼 **이미 끝난 화면에서 컨페티가 뒤늦게**
+        //    시작되고 기존 수명 타이머에 잘린다(codex 리뷰).
+        //    햅틱·문구는 그대로 낸다 — 축하가 사라지는 게 아니라 파티클만 사라진다(정책 D7).
+        if (!reduceRef.current) setCelebrate(true);
         if (!celebratedRef.current) {
           celebratedRef.current = true;
           hapticSuccess();
