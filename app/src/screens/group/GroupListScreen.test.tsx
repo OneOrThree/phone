@@ -8,6 +8,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AccessibilityInfo, View } from 'react-native';
+import * as ReactNative from 'react-native';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { getChallenges } from '@/services/groupApi';
@@ -100,6 +101,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
   jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => undefined);
+  jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(1);
   await AsyncStorage.clear();
   groupFocusStatusStore.clearUser('user-1');
   jest.mocked(getChallenges).mockResolvedValue([]);
@@ -167,7 +169,9 @@ describe('카드 렌더', () => {
     expect(screen.getByText('2/5')).toBeOnTheScreen();
     expect(screen.getByText('저녁 스터디', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
-    expect(screen.getByTestId('group.deck.findMore')).toBeOnTheScreen();
+    expect(
+      screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
   });
 
   test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
@@ -176,7 +180,9 @@ describe('카드 렌더', () => {
     );
     await renderList(groups);
 
-    expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
+    expect(
+      screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toHaveLength(1);
     expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
@@ -268,6 +274,24 @@ describe('콜백', () => {
     );
   });
 
+  test('userId가 확정되지 않으면 빈 뒷면으로 뒤집지 않는다', async () => {
+    await render(
+      <GroupListScreen
+        groups={[group()]}
+        userId={null}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    await press(`group.card.${GROUP_ID}`);
+
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(logGroupCardFlipped).not.toHaveBeenCalled();
+  });
+
   test('뒷면은 기존 read API 요약과 집중·설정 행동을 실제 콜백에 연결한다', async () => {
     await renderList([group()]);
 
@@ -293,6 +317,33 @@ describe('콜백', () => {
     });
 
     expect(announce).toHaveBeenCalledWith('아침 6시 집중방 방 요약이 열렸습니다');
+    expect(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`).props.hitSlop).toBe(6);
+    expect(screen.getByTestId(`group.card.settings.${GROUP_ID}`).props.hitSlop).toBe(6);
+  });
+
+  test('그룹방에서 돌아오면 같은 뒷면의 방 전체 보기 CTA로 포커스를 복원한다', async () => {
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const props = {
+      groups: [group()],
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} screenFocused viewEpisodeId={0} />);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    setFocus.mockClear();
+
+    await view.rerender(<GroupListScreen {...props} screenFocused={false} viewEpisodeId={0} />);
+    await view.rerender(<GroupListScreen {...props} screenFocused viewEpisodeId={1} />);
+    await screen.findByTestId(`group.card.room.${GROUP_ID}`);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(setFocus).toHaveBeenCalledTimes(1);
   });
 
   test('KST 날짜가 바뀌면 열린 뒷면의 날짜 의존 요약과 focus를 즉시 다시 조회한다', async () => {
@@ -396,6 +447,12 @@ describe('콜백', () => {
 
   test('덱 끝 찾기 카드는 전용 진입점을 기록한다', async () => {
     await renderList([group()]);
+    const list = screen.getByTestId('group.list.items');
+    await act(async () => {
+      list.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: list.props.snapToInterval, y: 0 } },
+      });
+    });
     await press('group.deck.findMore');
 
     expect(logGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'end_card' });
@@ -563,8 +620,14 @@ describe('제스처 중재와 재정렬', () => {
     ).toBe(true);
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
 
-    await press(`group.card.${GROUP_ID}`);
-    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    await press(`group.card.reorderClose.${GROUP_ID}`);
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
 
     await press(`group.card.reorderTo.${GROUP_ID}.1`);
     expect(
@@ -572,6 +635,26 @@ describe('제스처 중재와 재정렬', () => {
         .getByTestId('group.list.items')
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
+  });
+
+  test('끝 카드가 현재 페이지가 아닐 때 입력과 접근성 트리에서 제외한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const list = screen.getByTestId('group.list.items');
+    const wrapper = screen.getByTestId('group.deck.findMoreWrapper', {
+      includeHiddenElements: true,
+    });
+    expect(wrapper.props.pointerEvents).toBe('none');
+    expect(wrapper.props.accessibilityElementsHidden).toBe(true);
+
+    await act(async () => {
+      list.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: list.props.snapToInterval * 2, y: 0 } },
+      });
+    });
+
+    expect(screen.getByTestId('group.deck.findMoreWrapper').props.pointerEvents).toBe('auto');
+    await press('group.deck.findMore');
+    expect(onFind).toHaveBeenCalledTimes(1);
   });
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {

@@ -208,6 +208,8 @@ export default function GroupListScreen({
   const activeIdentityRef = useRef<string | null>(null);
   const programmaticMomentumCountRef = useRef(0);
   const actionAcceptedRef = useRef(false);
+  const roomReturnFocusGroupIdRef = useRef<string | null>(null);
+  const roomReturnWasBlurredRef = useRef(false);
   const activeInitializedRef = useRef(false);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
@@ -287,6 +289,7 @@ export default function GroupListScreen({
 
   useEffect(() => {
     if (screenFocused) actionAcceptedRef.current = false;
+    else if (roomReturnFocusGroupIdRef.current !== null) roomReturnWasBlurredRef.current = true;
   }, [screenFocused]);
 
   // 성공 목록과 로컬 순서가 확정된 뒤 focus episode마다 완료 key를 읽어 실제 guide 상태를 기록한다.
@@ -534,7 +537,7 @@ export default function GroupListScreen({
 
   const flipToBack = useCallback(
     (groupId: string) => {
-      if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
+      if (!userId || draggingGroupId !== null || reorderMenuGroupId !== null) return;
       setFlippedGroupId(groupId);
       summaryAdapter.ensureBack(groupId);
       focusController?.activate();
@@ -544,7 +547,7 @@ export default function GroupListScreen({
         group_count_bucket: countBucket,
       });
     },
-    [countBucket, draggingGroupId, focusController, reorderMenuGroupId, summaryAdapter],
+    [countBucket, draggingGroupId, focusController, reorderMenuGroupId, summaryAdapter, userId],
   );
 
   const flipToFront = useCallback(() => {
@@ -640,7 +643,16 @@ export default function GroupListScreen({
         }}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
-          <View style={{ marginLeft: CARD_GAP }}>
+          <View
+            style={{ marginLeft: CARD_GAP }}
+            accessible={activeIndex === orderedGroups.length ? undefined : false}
+            accessibilityElementsHidden={activeIndex !== orderedGroups.length}
+            importantForAccessibility={
+              activeIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
+            }
+            pointerEvents={activeIndex === orderedGroups.length ? 'auto' : 'none'}
+            testID="group.deck.findMoreWrapper"
+          >
             <FindMoreCard
               width={cardWidth}
               position={pageCount}
@@ -681,9 +693,25 @@ export default function GroupListScreen({
                     );
                   }}
                   onOpenRoom={() => {
-                    invokeAcceptedAction(item, 'room', (interaction) =>
-                      onSelect(item.groupId, interaction),
-                    );
+                    invokeAcceptedAction(item, 'room', (interaction) => {
+                      roomReturnFocusGroupIdRef.current = item.groupId;
+                      roomReturnWasBlurredRef.current = false;
+                      try {
+                        onSelect(item.groupId, interaction);
+                      } catch (error) {
+                        roomReturnFocusGroupIdRef.current = null;
+                        roomReturnWasBlurredRef.current = false;
+                        throw error;
+                      }
+                    });
+                  }}
+                  focusRoomOnMount={
+                    roomReturnWasBlurredRef.current &&
+                    roomReturnFocusGroupIdRef.current === item.groupId
+                  }
+                  onRoomFocusRestored={() => {
+                    roomReturnFocusGroupIdRef.current = null;
+                    roomReturnWasBlurredRef.current = false;
                   }}
                   onRetry={(section) => summaryAdapter.retry(item.groupId, section)}
                 />
@@ -710,7 +738,12 @@ export default function GroupListScreen({
               />
             )}
             {reorderMenuGroupId === item.groupId && (
-              <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
+              <View
+                style={s.reorderMenu}
+                accessibilityViewIsModal
+                onAccessibilityEscape={() => setReorderMenuGroupId(null)}
+                testID={`group.card.reorderMenu.${item.groupId}`}
+              >
                 <Text style={s.reorderTitle}>순서 변경</Text>
                 <ScrollView
                   style={s.reorderOptions}
@@ -733,6 +766,15 @@ export default function GroupListScreen({
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+                <TouchableOpacity
+                  style={s.reorderClose}
+                  onPress={() => setReorderMenuGroupId(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="순서 변경 닫기"
+                  testID={`group.card.reorderClose.${item.groupId}`}
+                >
+                  <Text style={s.reorderCloseText}>완료</Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -844,6 +886,14 @@ const s = StyleSheet.create({
   reorderOptions: { maxHeight: 220 },
   reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
   reorderOptionText: { ...T.text.label, color: T.ink },
+  reorderClose: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: T.border,
+  },
+  reorderCloseText: { ...T.text.label, color: T.accent },
   saveError: {
     ...T.text.caption,
     color: T.dangerInk,

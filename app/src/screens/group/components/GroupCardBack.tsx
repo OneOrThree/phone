@@ -1,13 +1,13 @@
 import { useEffect, useRef, type ComponentRef } from 'react';
 import {
   AccessibilityInfo,
-  findNodeHandle,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as ReactNative from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { LeagueMemberResponse } from '@/types/api';
@@ -22,6 +22,8 @@ interface Props {
   onOpenSettings: () => void;
   onStartFocus: () => void;
   onOpenRoom: () => void;
+  focusRoomOnMount?: boolean;
+  onRoomFocusRestored?: () => void;
   onRetry: (section: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
 }
 
@@ -43,17 +45,25 @@ export function GroupCardBack({
   onOpenSettings,
   onStartFocus,
   onOpenRoom,
+  focusRoomOnMount = false,
+  onRoomFocusRestored,
   onRetry,
 }: Props) {
   const frontActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const roomActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const onRoomFocusRestoredRef = useRef(onRoomFocusRestored);
+  onRoomFocusRestoredRef.current = onRoomFocusRestored;
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      const node = findNodeHandle(frontActionRef.current);
+      const node = ReactNative.findNodeHandle(
+        focusRoomOnMount ? roomActionRef.current : frontActionRef.current,
+      );
       if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-      AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
+      if (focusRoomOnMount) onRoomFocusRestoredRef.current?.();
+      else AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
     });
     return () => cancelAnimationFrame(frame);
-  }, [group.name]);
+  }, [focusRoomOnMount, group.name]);
   const detail = snapshot.detail.status === 'ready' ? snapshot.detail.data : null;
   const focus = deriveGroupFocusCount(
     detail?.members.map((member) => member.userId) ?? [],
@@ -76,6 +86,7 @@ export function GroupCardBack({
           accessibilityRole="button"
           accessibilityLabel="앞면 보기"
           testID={`group.card.frontAction.${group.groupId}`}
+          hitSlop={6}
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
         </TouchableOpacity>
@@ -93,6 +104,7 @@ export function GroupCardBack({
           accessibilityRole="button"
           accessibilityLabel={`${group.name} 그룹 옵션`}
           testID={`group.card.settings.${group.groupId}`}
+          hitSlop={6}
         >
           <Ionicons name="ellipsis-horizontal" size={18} color={T.inkSub} />
         </TouchableOpacity>
@@ -181,6 +193,7 @@ export function GroupCardBack({
           <Text style={s.primaryText}>이 그룹으로 집중</Text>
         </TouchableOpacity>
         <TouchableOpacity
+          ref={roomActionRef}
           style={s.secondary}
           onPress={onOpenRoom}
           accessibilityRole="button"
