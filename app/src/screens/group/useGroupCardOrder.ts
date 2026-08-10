@@ -29,16 +29,18 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
   const orderRef = useRef<string[]>([]);
   const userRef = useRef(userId);
   userRef.current = userId;
+  const identityRef = useRef('');
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const serverKey = serverGroupIds === null ? null : JSON.stringify(serverGroupIds);
   const identity = `${userId ?? 'anonymous'}:${serverKey ?? 'unavailable'}`;
+  identityRef.current = identity;
 
   useEffect(() => {
     if (serverGroupIds === null) return;
@@ -72,17 +74,22 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     if (isSameGroupOrder(next, orderRef.current)) return false;
 
     const currentUser = userRef.current;
+    const currentIdentity = identityRef.current;
     orderRef.current = next;
     setState((current) => (current ? { ...current, ids: next, saveFailed: false } : current));
     if (currentUser) {
       void writeGroupCardOrder(currentUser, next)
         .then(
           () =>
-            mounted.current && setState((current) => current && { ...current, saveFailed: false }),
+            mounted.current &&
+            identityRef.current === currentIdentity &&
+            setState((current) => current && { ...current, saveFailed: false }),
         )
         .catch(
           () =>
-            mounted.current && setState((current) => current && { ...current, saveFailed: true }),
+            mounted.current &&
+            identityRef.current === currentIdentity &&
+            setState((current) => current && { ...current, saveFailed: true }),
         );
     }
     return true;
