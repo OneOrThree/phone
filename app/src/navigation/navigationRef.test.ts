@@ -12,10 +12,13 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
-import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
-jest.mock('@/navigation/groupEntrySource', () => ({ queueDirectGroupEntry: jest.fn() }));
+jest.mock('@/navigation/groupEntrySource', () => ({
+  clearPendingGroupEntry: jest.fn(),
+  queueDirectGroupEntry: jest.fn(),
+}));
 
 // 환불 푸시(refund=1)가 태우는 잔액 재조회 신호 — 실제 조회는 CoinProvider가 한다.
 jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
@@ -27,6 +30,9 @@ jest.mock('@/services/groupApi', () => ({ getMyGroups: jest.fn() }));
 const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as jest.Mock;
 const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
   typeof queueDirectGroupEntry
+>;
+const mockClearPendingGroupEntry = clearPendingGroupEntry as jest.MockedFunction<
+  typeof clearPendingGroupEntry
 >;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
@@ -173,13 +179,20 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   const CHALLENGE_ID = '0198aa11-2b3c-7d4e-8f50-6a7b8c9d0e1f';
 
   test('다른 화면에서 온 push만 다음 view episode source로 예약한다', async () => {
-    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+    currentRoute
+      .mockReturnValueOnce({ key: '홈-1', name: '홈' })
+      .mockReturnValue({ key: '그룹-1', name: '그룹' });
     mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
 
     navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
     await flushAsync();
 
     expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
+    expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+    });
   });
 
   test('이미 focus된 그룹 화면의 warm push는 다음 source를 만들지 않는다', async () => {
@@ -373,6 +386,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       await flushAsync();
 
       expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
+      expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
