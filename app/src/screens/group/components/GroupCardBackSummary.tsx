@@ -8,6 +8,7 @@ import { deriveGroupFocusCount } from '../groupFocusStatus';
 interface GroupCardBackSummaryProps {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
+  onStartFocus: () => void;
   onOpenRoom: () => void;
   onFlipFront: () => void;
 }
@@ -19,6 +20,7 @@ function pendingOrFailed(status: 'idle' | 'loading' | 'error', object: string): 
 export function GroupCardBackSummary({
   group,
   snapshot,
+  onStartFocus,
   onOpenRoom,
   onFlipFront,
 }: GroupCardBackSummaryProps) {
@@ -79,11 +81,19 @@ export function GroupCardBackSummary({
       </View>
       <TouchableOpacity
         style={s.primary}
+        onPress={onStartFocus}
+        accessibilityRole="button"
+        testID={`group.card.focus.${group.groupId}`}
+      >
+        <Text style={s.primaryText}>이 그룹으로 집중</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={s.secondary}
         onPress={onOpenRoom}
         accessibilityRole="button"
         testID={`group.card.room.${group.groupId}`}
       >
-        <Text style={s.primaryText}>방 전체 보기</Text>
+        <Text style={s.secondaryText}>방 전체 보기</Text>
       </TouchableOpacity>
       <TouchableOpacity
         onPress={onFlipFront}
@@ -123,5 +133,14 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
   },
   primaryText: { ...T.text.label, color: T.white },
+  secondary: {
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  secondaryText: { ...T.text.label, color: T.ink },
   link: { ...T.text.caption, color: T.accent, textAlign: 'center' },
 });

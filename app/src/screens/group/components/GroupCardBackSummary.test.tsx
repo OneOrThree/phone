@@ -39,11 +39,13 @@ const snapshot = {
 describe('GroupCardBackSummary', () => {
   test('기존 read API의 독립 결과를 실제 뒷면 요약에 표시한다', async () => {
     const onOpenRoom = jest.fn();
+    const onStartFocus = jest.fn();
     const onFlipFront = jest.fn();
     await render(
       <GroupCardBackSummary
         group={group}
         snapshot={snapshot}
+        onStartFocus={onStartFocus}
         onOpenRoom={onOpenRoom}
         onFlipFront={onFlipFront}
       />,
@@ -55,11 +57,15 @@ describe('GroupCardBackSummary', () => {
     expect(screen.getByText('1명 집중 중')).toBeOnTheScreen();
 
     await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.card.focus.${GROUP_ID}`));
+    });
+    await act(async () => {
       fireEvent.press(screen.getByTestId(`group.card.room.${GROUP_ID}`));
     });
     await act(async () => {
       fireEvent.press(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`));
     });
+    expect(onStartFocus).toHaveBeenCalledTimes(1);
     expect(onOpenRoom).toHaveBeenCalledTimes(1);
     expect(onFlipFront).toHaveBeenCalledTimes(1);
   });
@@ -73,6 +79,7 @@ describe('GroupCardBackSummary', () => {
           announcements: { status: 'error', error: new Error('network') },
           focus: { status: 'coverage-unknown' },
         }}
+        onStartFocus={jest.fn()}
         onOpenRoom={jest.fn()}
         onFlipFront={jest.fn()}
       />,

@@ -10,7 +10,10 @@ import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
 jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardActionClicked: jest.fn(),
   logGroupCardDeckViewed: jest.fn(),
+  logGroupCardFlipped: jest.fn(),
+  logGroupCarouselPaged: jest.fn(),
   logGroupDeckGuideInterrupted: jest.fn(),
   logGroupDeckGuideReadFailed: jest.fn(),
   logGroupDeckGuideWriteFailed: jest.fn(),
@@ -39,6 +42,7 @@ function group(over: Partial<GroupSummaryResponse> = {}): GroupSummaryResponse {
 }
 
 const onSelect = jest.fn();
+const onStartFocus = jest.fn();
 const onCreate = jest.fn();
 const onFind = jest.fn();
 const onRefresh = jest.fn<Promise<void>, []>();
@@ -51,6 +55,7 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
     <GroupListScreen
       groups={groups}
       onSelect={onSelect}
+      onStartFocus={onStartFocus}
       onCreate={onCreate}
       onFind={onFind}
       onRefresh={onRefresh}
@@ -63,7 +68,7 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
 // ("overlapping act() calls") 다음 테스트의 렌더가 통째로 비는 일이 생긴다.
 async function press(testID: string) {
   await act(async () => {
-    fireEvent.press(screen.getByTestId(testID));
+    fireEvent.press(screen.getByTestId(testID, { includeHiddenElements: true }));
   });
 }
 
@@ -81,9 +86,11 @@ describe('카드 렌더', () => {
 
     expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
     expect(screen.getByText('2/5')).toBeOnTheScreen();
-    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
-    expect(screen.getByText('4/5')).toBeOnTheScreen();
-    expect(screen.getByTestId('group.deck.findMore')).toBeOnTheScreen();
+    expect(screen.getByText('저녁 스터디', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(
+      screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
   });
 
   test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
@@ -92,7 +99,9 @@ describe('카드 렌더', () => {
     );
     await renderList(groups);
 
-    expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
+    expect(
+      screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toHaveLength(1);
     expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
@@ -123,13 +132,36 @@ describe('콜백', () => {
 
     await press(`group.card.${GROUP_ID_2}`);
 
-    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+    expect(
+      screen.getByTestId(`group.card.back.${GROUP_ID_2}`, { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
     expect(onSelect).not.toHaveBeenCalled();
 
     await press(`group.card.room.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+    expect(onSelect).toHaveBeenCalledWith(
+      GROUP_ID_2,
+      expect.objectContaining({
+        interactionId: expect.any(String),
+        interactionAcceptedAt: expect.any(Number),
+      }),
+    );
+  });
+
+  test('뒷면 집중 CTA는 interaction 문맥과 함께 onStartFocus에 위임한다', async () => {
+    await renderList([group()]);
+
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.focus.${GROUP_ID}`);
+
+    expect(onStartFocus).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({
+        interactionId: expect.any(String),
+        interactionAcceptedAt: expect.any(Number),
+      }),
+    );
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
@@ -173,10 +205,10 @@ describe('콜백', () => {
     await renderList([group()]);
 
     // 세로 ScrollView가 pull gesture를 소유해야 가로 덱에서도 새로고침에 도달할 수 있다.
-    const scroll = screen.getByTestId('group.list');
+    const scroll = screen.getByTestId('group.list.scroller');
     expect(scroll.props.alwaysBounceVertical).toBe(true);
     expect(screen.getByTestId('group.list.items').props.refreshControl).toBeUndefined();
-    const control = () => screen.getByTestId('group.list').props.refreshControl.props;
+    const control = () => screen.getByTestId('group.list.scroller').props.refreshControl.props;
     expect(control().refreshing).toBe(false);
 
     await act(async () => {

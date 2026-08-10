@@ -71,9 +71,9 @@ describe('GroupCardSummaryAdapter', () => {
     await Promise.all([first, second]);
   });
 
-  test('warm·error dependency는 ensure에서 재요청하지 않고 실패 영역만 명시 retry한다', async () => {
+  test('warm dependency는 재사용하고 다시 진입하면 실패 영역만 재시도한다', async () => {
     const focus = createFocus();
-    focus.state = { status: 'error', error: new Error('focus') };
+    focus.state = { status: 'ready', data: [] };
     const loaders = {
       detail: jest.fn().mockResolvedValue(detail(GROUP_A)),
       announcements: jest.fn().mockRejectedValueOnce(new Error('notice')).mockResolvedValueOnce([]),
@@ -83,7 +83,6 @@ describe('GroupCardSummaryAdapter', () => {
     adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
 
     await adapter.ensureBack(GROUP_A);
-    await adapter.ensureBack(GROUP_A);
 
     expect(loaders.detail).toHaveBeenCalledTimes(1);
     expect(loaders.announcements).toHaveBeenCalledTimes(1);
@@ -91,12 +90,11 @@ describe('GroupCardSummaryAdapter', () => {
     expect(adapter.getSnapshot(GROUP_A)?.announcements.status).toBe('error');
     expect(adapter.getSnapshot(GROUP_A)?.detail.status).toBe('ready');
 
-    await adapter.retry(GROUP_A, 'announcements');
+    await adapter.ensureBack(GROUP_A);
     expect(loaders.announcements).toHaveBeenCalledTimes(2);
     expect(loaders.detail).toHaveBeenCalledTimes(1);
-
-    await adapter.retry(GROUP_A, 'focus');
-    expect(focus.retry).toHaveBeenCalledWith(USER_ID, DATE);
+    expect(loaders.challenges).toHaveBeenCalledTimes(1);
+    expect(adapter.getSnapshot(GROUP_A)?.announcements.status).toBe('ready');
   });
 
   test('scope에서 사라진 그룹의 늦은 응답은 폐기하고 다른 카드에 넣지 않는다', async () => {

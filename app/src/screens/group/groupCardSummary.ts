@@ -182,13 +182,22 @@ export class GroupCardSummaryAdapter<TFocus> {
     if (!scope) return;
     const datedKey = keyed(groupId, scope.date);
     const focusState = this.focus.getState(scope.userId, scope.date);
+    const detailState = this.detail.getState(datedKey);
+    const announcementState = this.announcements.getState(groupId);
+    const challengeState = this.challenges.getState(datedKey);
     await Promise.all([
-      this.detail.ensure(datedKey),
-      this.announcements.ensure(groupId),
-      this.challenges.ensure(datedKey),
-      focusState.status === 'idle'
-        ? this.focus.ensure(scope.userId, scope.date)
-        : Promise.resolve(focusState),
+      detailState.status === 'error' ? this.detail.retry(datedKey) : this.detail.ensure(datedKey),
+      announcementState.status === 'error'
+        ? this.announcements.retry(groupId)
+        : this.announcements.ensure(groupId),
+      challengeState.status === 'error'
+        ? this.challenges.retry(datedKey)
+        : this.challenges.ensure(datedKey),
+      focusState.status === 'error'
+        ? this.focus.retry(scope.userId, scope.date)
+        : focusState.status === 'idle'
+          ? this.focus.ensure(scope.userId, scope.date)
+          : Promise.resolve(focusState),
     ]);
   }
 

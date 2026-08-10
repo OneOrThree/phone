@@ -20,6 +20,9 @@ import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
   logGroupCardDeckViewed,
+  logGroupCardActionClicked,
+  logGroupCardFlipped,
+  logGroupCarouselPaged,
   logGroupDeckGuideInterrupted,
   logGroupDeckGuideReadFailed,
   logGroupDeckGuideWriteFailed,
@@ -27,6 +30,10 @@ import {
   type GroupEntry,
   type GroupCountBucket,
 } from '@/services/analyticsEvents';
+import {
+  createCardInteractionContext,
+  type CardInteractionContext,
+} from '@/services/cardInteraction';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
@@ -83,7 +90,8 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
-  onSelect: (groupId: string) => void;
+  onSelect: (groupId: string, interaction?: CardInteractionContext) => void;
+  onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
   onCreate: () => void;
   onFind: () => void;
   onRefresh: () => Promise<void>;
@@ -93,6 +101,7 @@ export interface GroupListScreenProps {
   guideBlocked?: boolean;
   guideScreenFocused?: boolean;
   guideEpisode?: number;
+  guideDataReady?: boolean;
   groupEntry?: GroupEntry;
   // 사용자 첫 back과 guide 3→4가 공유하는 lazy ensure 경로다.
   onEnsureBack?: (groupId: string) => void;
@@ -102,6 +111,7 @@ export interface GroupListScreenProps {
 export default function GroupListScreen({
   groups,
   onSelect,
+  onStartFocus,
   onCreate,
   onFind,
   onRefresh,
@@ -110,6 +120,7 @@ export default function GroupListScreen({
   guideBlocked = false,
   guideScreenFocused = true,
   guideEpisode = 0,
+  guideDataReady = true,
   groupEntry = 'unknown',
   onEnsureBack,
   getBackSnapshot,
@@ -119,6 +130,7 @@ export default function GroupListScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
+  const [backSource, setBackSource] = useState<'user' | 'guide'>('user');
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
   const [activeAnchorGroupId, setActiveAnchorGroupId] = useState<string | null>(null);
   const guideManaged = typeof userId === 'string';
@@ -133,8 +145,13 @@ export default function GroupListScreen({
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const pageCount = groups.length + 1;
+  const groupFingerprint = groups.map((group) => group.groupId).join('|');
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
+  const activeIndexRef = useRef(0);
+  const previousGroupFingerprintRef = useRef(groupFingerprint);
+  const previousSnapIntervalRef = useRef(snapInterval);
+  const actionPendingRef = useRef(false);
   const deckAnchorRef = useRef<View | null>(null);
   const activeCardRef = useRef<View | null>(null);
   const guideDecisionEpisodeRef = useRef<number | null>(null);
@@ -142,11 +159,11 @@ export default function GroupListScreen({
   const guideStartGroupsRef = useRef<string | null>(null);
   const guideVisibleRef = useRef(false);
   const guideBlockedRef = useRef(guideBlocked);
-  const groupFingerprint = groups.map((group) => group.groupId).join('|');
   const activeGroupId = groups[activeIndex]?.groupId ?? null;
   const guideEligible =
     typeof userId === 'string' &&
     groups.length > 0 &&
+    guideDataReady &&
     deckLayoutReady &&
     activeAnchorGroupId === activeGroupId &&
     guideScreenFocused &&
@@ -196,27 +213,58 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       const nextIdentity = groups[next]?.groupId ?? null;
-      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      const from = activeIndexRef.current;
+      if (activeIdentityRef.current !== nextIdentity) {
+        setFlippedGroupId(null);
+        logGroupCarouselPaged({
+          trigger: 'indicator_press',
+          from_index: from,
+          to_index: next,
+          group_count_bucket: groupCountBucket(groups.length),
+        });
+      }
       activeIdentityRef.current = nextIdentity;
+      activeIndexRef.current = next;
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
     },
     [groups, pageCount, snapInterval],
   );
 
-  const settlePage = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const next = Math.max(
-        0,
-        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
-      );
+  const settleOffset = useCallback(
+    (offsetX: number) => {
+      const next = Math.max(0, Math.min(Math.round(offsetX / snapInterval), pageCount - 1));
       const nextIdentity = groups[next]?.groupId ?? null;
-      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      const from = activeIndexRef.current;
+      if (activeIdentityRef.current !== nextIdentity) {
+        setFlippedGroupId(null);
+        logGroupCarouselPaged({
+          trigger: 'swipe',
+          from_index: from,
+          to_index: next,
+          group_count_bucket: groupCountBucket(groups.length),
+        });
+      }
       activeIdentityRef.current = nextIdentity;
+      activeIndexRef.current = next;
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
     },
     [groups, pageCount, snapInterval],
+  );
+
+  const onMomentumScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
+      settleOffset(event.nativeEvent.contentOffset.x),
+    [settleOffset],
+  );
+
+  const onScrollEndDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const target = event.nativeEvent.targetContentOffset?.x;
+      if (typeof target === 'number') settleOffset(target);
+    },
+    [settleOffset],
   );
 
   const flipCard = useCallback(
@@ -224,12 +272,26 @@ export default function GroupListScreen({
       const index = groups.findIndex((group) => group.groupId === groupId);
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
+        const from = activeIndexRef.current;
         listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
         activeIdentityRef.current = groupId;
+        activeIndexRef.current = index;
         setActiveIndex(index);
         setActiveAnchorGroupId(groupId);
+        logGroupCarouselPaged({
+          trigger: 'indicator_press',
+          from_index: from,
+          to_index: index,
+          group_count_bucket: groupCountBucket(groups.length),
+        });
       }
+      setBackSource('user');
       setFlippedGroupId(groupId);
+      logGroupCardFlipped({
+        to_face: 'back',
+        trigger: 'card_tap',
+        group_count_bucket: groupCountBucket(groups.length),
+      });
       onEnsureBack?.(groupId);
     },
     [groups, onEnsureBack, snapInterval],
@@ -237,14 +299,47 @@ export default function GroupListScreen({
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
+    const orderChanged = previousGroupFingerprintRef.current !== groupFingerprint;
+    const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
+    previousGroupFingerprintRef.current = groupFingerprint;
+    previousSnapIntervalRef.current = snapInterval;
+    if (!orderChanged && !intervalChanged) return;
+
     const identity = activeIdentityRef.current;
     const next =
       identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
-    const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
+    const safeIndex =
+      next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    activeIndexRef.current = safeIndex;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [activeIndex, groups, snapInterval]);
+  }, [groupFingerprint, groups, snapInterval]);
+
+  const acceptCardAction = useCallback(
+    (
+      group: GroupSummaryResponse,
+      action: 'focus' | 'room',
+      callback: (groupId: string, interaction: CardInteractionContext) => void,
+    ) => {
+      if (actionPendingRef.current) return;
+      actionPendingRef.current = true;
+      const interaction = createCardInteractionContext();
+      logGroupCardActionClicked({
+        action,
+        role: group.role === 'OWNER' ? 'owner' : 'member',
+        back_source: backSource,
+        interaction_id: interaction.interactionId,
+      });
+      try {
+        callback(group.groupId, interaction);
+      } catch (error) {
+        actionPendingRef.current = false;
+        throw error;
+      }
+    },
+    [backSource],
+  );
 
   // focus episode가 바뀌면 완료 key와 queue 결과를 새로 판정한다. read 전에는 카드 입력을 받지 않는다.
   useEffect(() => {
@@ -259,6 +354,11 @@ export default function GroupListScreen({
     setGuideQueued(false);
     setGuideVisible(false);
   }, [guideEpisode, guideManaged]);
+
+  // GroupRoom/Focus에서 돌아온 새 focus episode에는 CTA를 다시 받을 수 있어야 한다.
+  useEffect(() => {
+    actionPendingRef.current = false;
+  }, [guideEpisode]);
 
   useEffect(() => {
     if (!guideEligible || guideDecisionEpisodeRef.current === guideEpisode) return;
@@ -352,6 +452,7 @@ export default function GroupListScreen({
               const groupId = activeIdentityRef.current ?? groups[0]?.groupId;
               if (!groupId) return;
               // 사용자 이벤트를 거치지 않는 상태 전환이다. 응답을 기다리지 않고 lazy ensure만 시작한다.
+              setBackSource('guide');
               setFlippedGroupId(groupId);
               onEnsureBack?.(groupId);
             }
@@ -373,89 +474,120 @@ export default function GroupListScreen({
   }, []);
 
   return (
-    <ScrollView
-      style={s.root}
-      contentContainerStyle={s.screenContent}
-      alwaysBounceVertical
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
-      }
-      testID="group.list"
-    >
-      <View style={s.header}>
-        {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
-        {onBack && (
-          <TouchableOpacity
-            style={s.backBtn}
-            onPress={onBack}
-            activeOpacity={0.7}
-            accessibilityLabel="뒤로"
-            testID="group.list.back"
-          >
-            <Ionicons name="chevron-back" size={18} color={T.inkSub} />
-          </TouchableOpacity>
-        )}
-        <Text style={s.headerTitle}>내 그룹</Text>
-      </View>
-
-      <View
-        ref={deckAnchorRef}
-        collapsable={false}
-        onLayout={() => setDeckLayoutReady(true)}
-        testID="group.deck.guideAnchor"
+    <View style={s.root} testID="group.list">
+      <ScrollView
+        style={s.scroller}
+        contentContainerStyle={s.screenContent}
+        alwaysBounceVertical
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
+        }
+        testID="group.list.scroller"
       >
-        <FlatList
-          ref={listRef}
-          testID="group.list.items"
-          data={groups}
-          keyExtractor={(item) => item.groupId}
-          horizontal
-          scrollEnabled={guideInputReady && !guideVisible}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-          ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-          snapToInterval={snapInterval}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          disableIntervalMomentum
-          onMomentumScrollEnd={settlePage}
-          onScrollEndDrag={settlePage}
-          ListFooterComponent={
-            <View style={{ marginLeft: CARD_GAP }}>
-              <FindMoreCard width={cardWidth} onPress={onFind} />
-            </View>
-          }
-          renderItem={({ item }) => (
-            <View
-              ref={item.groupId === activeGroupId ? activeCardRef : undefined}
-              collapsable={false}
-              onLayout={() => {
-                if (item.groupId === activeIdentityRef.current)
-                  setActiveAnchorGroupId(item.groupId);
-              }}
-              pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
-              style={{ width: cardWidth }}
-              testID={`group.list.card.${item.groupId}`}
+        <View style={s.header}>
+          {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
+          {onBack && (
+            <TouchableOpacity
+              style={s.backBtn}
+              onPress={onBack}
+              activeOpacity={0.7}
+              accessibilityLabel="뒤로"
+              testID="group.list.back"
             >
-              {flippedGroupId === item.groupId ? (
-                <GroupCardBackSummary
-                  group={item}
-                  snapshot={getBackSnapshot?.(item.groupId) ?? null}
-                  onOpenRoom={() => onSelect(item.groupId)}
-                  onFlipFront={() => setFlippedGroupId(null)}
-                />
-              ) : (
-                <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
-              )}
-            </View>
+              <Ionicons name="chevron-back" size={18} color={T.inkSub} />
+            </TouchableOpacity>
           )}
-        />
+          <Text style={s.headerTitle}>내 그룹</Text>
+        </View>
 
-        <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
-      </View>
+        <View
+          ref={deckAnchorRef}
+          collapsable={false}
+          onLayout={() => setDeckLayoutReady(true)}
+          testID="group.deck.guideAnchor"
+        >
+          <FlatList
+            ref={listRef}
+            testID="group.list.items"
+            data={groups}
+            keyExtractor={(item) => item.groupId}
+            horizontal
+            scrollEnabled={guideInputReady && !guideVisible}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
+            ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+            snapToInterval={snapInterval}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            disableIntervalMomentum
+            onMomentumScrollEnd={onMomentumScrollEnd}
+            onScrollEndDrag={onScrollEndDrag}
+            ListFooterComponent={
+              <View
+                style={{ marginLeft: CARD_GAP }}
+                accessibilityElementsHidden={activeIndex !== groups.length}
+                importantForAccessibility={
+                  activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
+                }
+              >
+                <FindMoreCard width={cardWidth} onPress={onFind} />
+              </View>
+            }
+            renderItem={({ item }) => (
+              <View
+                ref={item.groupId === activeGroupId ? activeCardRef : undefined}
+                collapsable={false}
+                onLayout={() => {
+                  if (item.groupId === activeIdentityRef.current)
+                    setActiveAnchorGroupId(item.groupId);
+                }}
+                pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
+                accessibilityElementsHidden={item.groupId !== activeGroupId}
+                importantForAccessibility={
+                  item.groupId === activeGroupId ? 'auto' : 'no-hide-descendants'
+                }
+                style={{ width: cardWidth }}
+                testID={`group.list.card.${item.groupId}`}
+              >
+                {flippedGroupId === item.groupId ? (
+                  <GroupCardBackSummary
+                    group={item}
+                    snapshot={getBackSnapshot?.(item.groupId) ?? null}
+                    onStartFocus={() => {
+                      if (onStartFocus) acceptCardAction(item, 'focus', onStartFocus);
+                    }}
+                    onOpenRoom={() => acceptCardAction(item, 'room', onSelect)}
+                    onFlipFront={() => {
+                      setBackSource('user');
+                      setFlippedGroupId(null);
+                      logGroupCardFlipped({
+                        to_face: 'front',
+                        trigger: 'card_tap',
+                        group_count_bucket: groupCountBucket(groups.length),
+                      });
+                    }}
+                  />
+                ) : (
+                  <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
+                )}
+              </View>
+            )}
+          />
+
+          <PageIndicator
+            pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+            activeIndex={activeIndex}
+            disabled={!guideInputReady || guideVisible}
+            onSelectPage={selectPage}
+          />
+        </View>
+      </ScrollView>
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
-      <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+      <View
+        style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}
+        testID="group.list.footer"
+      >
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
@@ -483,12 +615,13 @@ export default function GroupListScreen({
         testID="group.list.guide"
         onFinish={finishGuide}
       />
-    </ScrollView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  scroller: { flex: 1 },
   screenContent: { flexGrow: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
