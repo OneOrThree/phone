@@ -68,6 +68,11 @@ jest.mock('@/components/DrumPicker', () => {
   };
 });
 
+// 선택지 없는 결과 통보는 토스트로 나간다(GROMO-1491 / 정책 D8·D19) — useToast는 Provider
+// 밖에서 throw하므로 훅 자체를 목으로 대체한다.
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
+
 const mockCreateChallenge = createChallenge as jest.MockedFunction<typeof createChallenge>;
 const mockNowSeconds = nowSecondsInZone as jest.MockedFunction<typeof nowSecondsInZone>;
 
@@ -738,7 +743,7 @@ describe('참가비(내기)', () => {
 });
 
 describe('생성 결과', () => {
-  test('nonParticipants가 있으면 안내 Alert를 띄우고 그래도 성공으로 닫는다', async () => {
+  test('nonParticipants가 있으면 안내 토스트를 띄우고 그래도 성공으로 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateChallenge.mockResolvedValue({
       id: 'c1',
@@ -749,21 +754,28 @@ describe('생성 결과', () => {
     await pickDay('월');
     await press('만들기');
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '챌린지를 만들었어요',
-      '일부 멤버는 스크린타임 권한이 없어 참여할 수 없어요',
-    );
+    // 선택지 없는 결과 통보라 확인 Alert가 아니라 토스트다(GROMO-1491 / D8·D19).
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '챌린지를 만들었어요 — 스크린타임 권한이 없는 멤버는 빠져요',
+      tone: 'success',
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
     // 생성 자체는 성공이다 — 시트는 닫히고 부모가 재조회한다.
     expect(onCreated).toHaveBeenCalled();
+    // ⚠️ 시트는 RN Modal이라 토스트가 그 아래 깔린다 — 닫은 **뒤** 알려야 보인다.
+    expect(onCreated.mock.invocationCallOrder[0]).toBeLessThan(
+      mockToastShow.mock.invocationCallOrder[0],
+    );
   });
 
-  test('nonParticipants가 비어 있으면 Alert를 띄우지 않는다', async () => {
+  test('nonParticipants가 비어 있으면 아무 통보도 띄우지 않는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await renderSheet();
     await pickDay('월');
     await press('만들기');
 
     expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockToastShow).not.toHaveBeenCalled();
     expect(onCreated).toHaveBeenCalled();
   });
 });

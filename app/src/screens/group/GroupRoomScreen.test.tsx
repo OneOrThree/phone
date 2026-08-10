@@ -90,6 +90,12 @@ const mockIssueInviteLink = jest.requireMock('@/services/inviteLinkApi')
 const SLUG = 'ab23cd45';
 
 // 내기 시트가 잔액을 읽고(CoinContext) 화면이 정산 감지 시 잔액을 다시 받는다 —
+// 자식(ChallengeCard·BetSheet·ChallengeComposeSheet)이 실패·결과 통보를 전역 토스트로 낸다
+// (GROMO-1491 / 정책 D19). 프로덕션에선 ToastProvider가 루트(인증 분기 밖)에 있어 항상 잡히지만
+// 테스트 트리엔 없어 useToast가 throw한다 — 훅 자체를 목으로 대체한다.
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
+
 // 테스트 트리엔 Provider가 없어 훅을 대체하고, refresh는 호출을 세기 위해 한 개를 공유한다.
 // 반환값은 '잔액이 실제로 반영됐는가'(GROMO-1024) — 기본은 성공이고, 실패 케이스가 직접 바꾼다.
 const mockRefreshCoins = jest.fn(async () => true);

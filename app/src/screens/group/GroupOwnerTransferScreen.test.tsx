@@ -6,6 +6,7 @@
 // 확인 Alert는 spyOn으로 잡아 '넘기기' 액션의 onPress를 직접 호출해 확정 흐름을 검증한다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import { AxiosError, AxiosHeaders } from 'axios';
 import GroupOwnerTransferScreen from './GroupOwnerTransferScreen';
 import { getGroupDetail, transferOwner, withdrawGroup } from '@/services/groupApi';
 import { logGroupOwnerTransferred } from '@/services/analyticsEvents';
@@ -108,6 +109,18 @@ async function mountAndSelect(targetUserId: string) {
   });
 }
 
+// 서버 code 분기(§3-2) 검증용 — groupErrorCode가 실제 구현이라 code가 실려야 갈린다.
+function axiosErrorWith(status: number, code?: string): AxiosError {
+  const config = { headers: new AxiosHeaders() };
+  return new AxiosError('request failed', 'ERR_BAD_REQUEST', config, null, {
+    status,
+    statusText: '',
+    headers: {},
+    config,
+    data: code ? { code, message: '...' } : undefined,
+  });
+}
+
 // 확인 Alert('방장 넘기기')의 '넘기기' 액션을 직접 눌러 위임을 확정한다.
 async function confirmTransfer(alertSpy: jest.SpyInstance) {
   await act(async () => {
@@ -194,5 +207,39 @@ describe('위임 확정 + source별 후속', () => {
     expect(mockLog).toHaveBeenCalledWith({ group_id: GROUP_ID, source: 'withdraw' });
     expect(mockWithdrawGroup).toHaveBeenCalledWith(GROUP_ID);
     expect(mockPopToTop).toHaveBeenCalled();
+  });
+});
+
+// 실패 통보 이관(GROMO-1491 / 정책 D19) — 재시도해도 같은 결과인 종결 실패는 확인 버튼이
+// 필요 없으므로 tone:'error' 토스트로 나간다. '잠시 후 다시 시도'는 재시도가 유효해 Alert로 남는다.
+describe('위임 실패 통보', () => {
+  test.each([
+    ['NOT_FOUND', 404, '이미 사라졌거나 나간 그룹이에요'],
+    ['MEMBER_ONLY', 403, '방장이 아니라서 방장을 넘길 수 없어요'],
+  ])('%s는 tone:error 토스트로 알린다', async (code, status, message) => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockTransferOwner.mockRejectedValueOnce(axiosErrorWith(status, code));
+    await mountAndSelect('u2');
+
+    await confirmTransfer(alertSpy);
+
+    expect(mockToastShow).toHaveBeenCalledWith({ message, tone: 'error' });
+    // 확인 Alert 1건 외에 실패 Alert가 추가로 뜨지 않는다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  test('그 밖의 실패는 재시도가 유효하므로 Alert로 남는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockTransferOwner.mockRejectedValueOnce(axiosErrorWith(500));
+    await mountAndSelect('u2');
+
+    await confirmTransfer(alertSpy);
+
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '방장을 넘기지 못했어요',
+      '잠시 후 다시 시도해주세요.',
+    );
+    expect(mockToastShow).not.toHaveBeenCalled();
   });
 });

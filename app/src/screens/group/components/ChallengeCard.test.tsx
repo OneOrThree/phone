@@ -78,6 +78,10 @@ jest.mock('@/utils/localDate', () => ({
   todayStr: jest.fn(() => '2026-07-31'),
   todayStrKst: jest.fn(() => '2026-08-01'),
 }));
+// 조치가 필요 없는 실패 통보는 tone:'error' 토스트다(GROMO-1491 / 정책 D19) — 훅 자체를 목으로
+// 대체한다(카드를 ToastProvider로 감싸지 않아도 되게, GroupProfileEditScreen.test 관행).
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
 // 주간 대상 산출은 '오늘'이 주(월~일) 어디냐에 따라 갈린다 — 요일을 옮기는 테스트만 이 목의
 // 반환값을 바꾸고, beforeEach가 기본값(토요일)으로 되돌린다.
 const mockTodayStrKst = todayStrKst as jest.MockedFunction<typeof todayStrKst>;
@@ -1344,21 +1348,22 @@ describe('참가 철회', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '참여 취소를 못 했어요',
-      '내기가 시작된 뒤에는 뺄 수 없어요.',
-    );
+    // 조치가 없는 종결 통보라 확인 버튼이 필요 없다 → tone:'error' 토스트(GROMO-1491 / D19).
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '내기가 시작된 뒤에는 참여를 뺄 수 없어요',
+      tone: 'error',
+    });
+    // 실패 통보 Alert는 서지 않는다 — 여기 유일한 Alert는 위에서 누른 '참여 취소' 확인이다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
     // 실패했으므로 자리 표시로 갈아 끼우지 않는다 — 내 참가는 그대로 살아 있다.
     expect(screen.queryByText('참여를 취소했어요. 참가비는 잔액으로 돌아왔어요')).toBeNull();
   });
 
-  test.each([
-    ['BET_NOT_JOINED', '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.'],
-    ['BET_NOT_OPEN', '이미 정산됐거나 닫힌 내기예요.'],
-  ])('%s는 사실을 그대로 말한다', async (code, message) => {
+  // ❌ 유지 — '화면을 새로고침해 주세요'는 사용자 조치를 요구한다(정책 D19).
+  test('BET_NOT_JOINED는 새로고침 조치를 요구하므로 Alert로 남는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    mockLeaveBet.mockRejectedValueOnce(axiosErrorWith(409, code));
+    mockLeaveBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_JOINED'));
     await renderJoined();
 
     await act(async () => {
@@ -1369,7 +1374,31 @@ describe('참가 철회', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith('참여 취소를 못 했어요', message);
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '참여 취소를 못 했어요',
+      '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
+    );
+    expect(mockToastShow).not.toHaveBeenCalled();
+  });
+
+  test('BET_NOT_OPEN은 조치가 없는 종결 통보라 토스트로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_OPEN'));
+    await renderJoined();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1517,10 +1546,12 @@ describe('당일 단독 개설자 취소 carve-out', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '참여 취소를 못 했어요',
-      '다른 참가자가 있어 취소할 수 없어요.',
-    );
+    // 조치가 없는 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '다른 참가자가 있어 취소할 수 없어요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(logGroupBetCanceled).not.toHaveBeenCalled();
     expect(
       screen.queryByText('참여를 취소해 내기가 닫혔어요. 참가비는 잔액으로 돌아왔어요'),
@@ -1788,10 +1819,12 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
     });
 
     expect(mockLeaveSession).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith(
-      '이미 정리된 예약이에요',
-      '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
-    );
+    // 조치가 없는 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
   });
 
@@ -2208,10 +2241,12 @@ describe('오늘 참여 취소 (N22)', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '이미 취소된 참여예요',
-      '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
-    );
+    // 조치가 없는 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이미 취소된 참여예요 — 최신 상태로 새로고침할게요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
   });
 
@@ -2241,10 +2276,11 @@ describe('오늘 참여 취소 (N22)', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '참여 취소를 못 했어요',
-      '이미 정산됐거나 닫힌 날이에요.',
-    );
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이미 정산됐거나 닫힌 날이라 참여 취소를 못 했어요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
   });
 
@@ -2364,10 +2400,11 @@ describe('오늘 참여 취소 (N22)', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '참여 취소를 못 했어요',
-      '취소할 수 있는 시간이 지났어요.',
-    );
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '취소할 수 있는 시간이 지나 참여 취소를 못 했어요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).not.toHaveBeenCalled();
   });
 
@@ -2397,10 +2434,11 @@ describe('오늘 참여 취소 (N22)', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '이미 정리된 날이에요',
-      '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
-    );
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이미 정리된 날이에요 — 최신 상태로 새로고침할게요',
+      tone: 'error',
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
   });
 });
@@ -2762,10 +2800,12 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
       fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '이미 참여했어요',
-      '이번 주 남은 날은 이미 모두 참여하고 있어요.',
-    );
+    // 이미 원하던 상태인 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19).
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이번 주 남은 날은 이미 모두 참여하고 있어요',
+      tone: 'error',
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
     expect(onBetChanged).toHaveBeenCalled();
   });
