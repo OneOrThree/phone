@@ -1332,7 +1332,12 @@ export default function FocusSessionScreen() {
               <AnimatedCharacter
                 size={charSize}
                 mood={paused ? 'calm' : 'idle'}
-                active={page === 0}
+                // ⚠️ `!doneGate`도 함께 본다. 완료 게이트는 화면을 통째로 덮는데, 캐릭터
+                //    페이지에서 세션을 끝내면 `page === 0`이 그대로 참이라 **가려진 캐릭터의
+                //    무한 호흡이 사용자가 확인을 누를 때까지 계속 돈다**(codex 리뷰).
+                //    게이트는 사용자가 닫을 때까지 열려 있을 수 있어 그 사이 UI 스레드와
+                //    배터리를 계속 먹는다. 위 페이저 사유와 같은 부류다.
+                active={page === 0 && !doneGate}
               >
                 {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터).
                     ⚠️ charSize가 작은 화면에서 줄면 캡처 PNG 해상도도 함께 줄어든다. 기기 배율
