@@ -132,6 +132,7 @@ public class GroupBetService {
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
     private final GroupBetSessionFactory groupBetSessionFactory;
+    private final GroupBetWindowUsageService groupBetWindowUsageService;
 
     // ── 개설 브리지 / 참가 ──────────────────────────────────────────────
 
@@ -513,11 +514,12 @@ public class GroupBetService {
                         .session(session)
                         .user(user)
                         .build());
-        // TODO(머지 배선 — B6/GROMO-1407): 여기에 groupBetWindowUsageService.invalidatePreJoinReport(
-        // session, user.getId()) 가 들어간다(참가 전 창 사용분 선기록 무효화, @Transactional MANDATORY).
-        // 이 워크트리엔 GroupBetWindowUsageService 가 없어 호출만 비워 둔다. 신·구 참여 경로가 전부 이
-        // 메서드를 지나므로(joinSession·joinNext·joinWeek·레거시 createBet/joinBet) 한 줄이면 전 경로가
-        // 덮인다 — join-week 다건도 회차마다 stakeIn 을 부르므로 회차 단위 호출이 보장된다.
+        // 참가 전에 쌓인 창 사용분 보고는 버린다(GROMO-1407 선기록 계열 차단) — 참가 이후의 보고만
+        // 참가자 게이트를 통과한다. 무효화 본체·근거는 GroupBetWindowUsageService 에 있다.
+        // 신·구 참여 경로가 전부 이 메서드를 지나므로(joinSession·joinNext·joinWeek·레거시
+        // createBet/joinBet) 한 줄이면 전 경로가 덮인다 — join-week 다건도 회차마다 stakeIn 을
+        // 부르므로 회차 단위 호출이 보장된다.
+        groupBetWindowUsageService.invalidatePreJoinReport(session, user.getId());
         boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE,
                 session.getStake(), stakeKey(session.getId(), participant.getId()));
         if (!applied) {
@@ -741,11 +743,12 @@ public class GroupBetService {
     }
 
     /**
-     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})과 히스토리 공용.
-     * 탈퇴자는 닉네임만 {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
+     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})·히스토리·참가자 스코프
+     * 결과 조회({@code GroupBetQueryService}) 공용. 탈퇴자는 닉네임만
+     * {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
      * 명단·인원수·pot 은 정산 당시 사실이라 절대 불변이다(계약 §1).
      */
-    private List<GroupBetResultParticipantResponse> toResultParticipants(
+    static List<GroupBetResultParticipantResponse> toResultParticipants(
             List<GroupChallengeBetParticipant> participants) {
         return participants.stream()
                 .map(p -> GroupBetResultParticipantResponse.builder()
@@ -762,7 +765,7 @@ public class GroupBetService {
      * 명단 표시용 닉네임 — 탈퇴자(is_deleted, PII 파기로 nickname=null)는 고정 문구로 치환한다.
      * 탈퇴자 처리를 <b>출력(명단) 층에서만</b> 하는 계약(§1)의 단일 지점이다.
      */
-    private static String displayNickname(User user) {
+    static String displayNickname(User user) {
         return user.isDeleted() ? WITHDRAWN_USER_NICKNAME : user.getNickname();
     }
 

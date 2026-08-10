@@ -14,6 +14,11 @@ public enum GroupErrorCode {
     INVALID_MISSION_PARAMS(HttpStatus.BAD_REQUEST, "미션 파라미터가 유효하지 않습니다."),
     // 내기 히스토리 페이지네이션(GROMO-1207) — FocusErrorCode.INVALID_PAGE_REQUEST 와 같은 성격.
     INVALID_PAGE_REQUEST(HttpStatus.BAD_REQUEST, "유효하지 않은 페이지 요청입니다."),
+    // 창 사용분 보고(GROMO-1407·N34) — measuredAt 이 서버 시각 +2분을 넘는다(기기 시계 앞섬).
+    // 미래 시각을 받아 주면 이후의 정상 보고가 전부 "오래된 값"으로 버려져 낮은 사용분이 굳는다.
+    INVALID_MEASURED_AT(HttpStatus.BAD_REQUEST, "측정 시각이 서버 시간보다 미래예요"),
+    // 참가자 스코프 조회(GROMO-1415) — /me/bet-sessions 의 status 필터는 OPEN 만 지원한다.
+    INVALID_STATUS_FILTER(HttpStatus.BAD_REQUEST, "지원하지 않는 상태 필터입니다."),
     NOT_FOUND(HttpStatus.NOT_FOUND, "원하는 그룹을 찾을 수 없습니다."),
     WRONG_PASSWORD(HttpStatus.UNAUTHORIZED, "비밀번호가 일치하지 않습니다."),
 
