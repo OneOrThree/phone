@@ -138,6 +138,8 @@ export default function GroupCardEmojiEditScreen() {
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current) return;
       setBaseline(selected);
+      // 저장 중 다른 route가 이 화면 위에 열렸다면 그 route를 잘못 pop하지 않는다.
+      if (!navigation.isFocused()) return;
       navigation.goBack();
     } catch {
       // 저장 수락 전에 만든 pending 세대를 그대로 유지한다. 화면 이탈로 GroupScreen 재시도가
