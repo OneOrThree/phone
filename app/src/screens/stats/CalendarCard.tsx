@@ -13,10 +13,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { fadeIn } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
+import { Enter } from '@/components/Enter';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
@@ -294,10 +294,14 @@ export function CalendarCard({
         <View style={s.grid}>
           {/* 행 단위 시차 진입 — 캘린더는 값 축이 없는 격자라 growUp(바닥부터 자라는 막대)이
               표현할 '자라는 값'이 없다. 위→아래로 한 행씩 드러나는 fadeIn 시차를 쓴다. */}
+          {/* ⚠️ 행마다 Enter를 쓴다 — 5행 월에서 6행 월로 넘어가면 여섯 번째 행이 **나중에**
+              마운트되는데, 카드의 useMotion 결정에 묶이면 그 사이 '동작 줄이기'를 켠 사용자에게도
+              그 행만 페이드된다(codex 리뷰). Enter는 요소와 함께 마운트되며 자기 결정을 갖는다.
+              뷰를 새로 끼운 게 아니라 원래 있던 Animated.View를 대신한다(D-04 유지). */}
           {rows.map((row, ri) => (
-            <Animated.View key={ri} style={[s.row, mo.enter(fadeIn(mo.stagger(ri)))]}>
+            <Enter key={ri} preset={fadeIn(mo.stagger(ri))} style={s.row}>
               {row.map((date, ci) => renderCell(date, ri * 7 + ci))}
-            </Animated.View>
+            </Enter>
           ))}
         </View>
         {loading ? (
