@@ -111,6 +111,17 @@ test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성�
   expect(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1')).toBeNull();
 });
 
+test('로컬 읽기 실패는 기본 아이콘으로 확정하지 않고 재시도를 제공한다', async () => {
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('read failed'));
+  await render(<GroupCardEmojiEditScreen />);
+
+  expect(await screen.findByText('내 카드 아이콘을 불러오지 못했어요.')).toBeOnTheScreen();
+  expect(screen.queryByTestId('group.cardEmoji.save')).toBeNull();
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.retry')));
+  expect(await screen.findByTestId('group.cardEmoji.save')).toBeDisabled();
+});
+
 test('계정 전환 시 이전 계정 선택을 노출하지 않고 새 계정 bucket을 다시 읽는다', async () => {
   await writeGroupCardEmoji('user-1', 'group-1', '📚');
   await writeGroupCardEmoji('user-2', 'group-1', '🔥');
@@ -177,4 +188,8 @@ test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추�
   await act(async () => Promise.resolve());
 
   expect(mockGoBack).not.toHaveBeenCalled();
+  expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'settings',
+    result: 'success',
+  });
 });
