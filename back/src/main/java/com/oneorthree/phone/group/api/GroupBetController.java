@@ -144,7 +144,7 @@ public class GroupBetController {
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "개설 성공"),
         @ApiResponse(responseCode = "400",
-                description = "BET_FOCUS_ONLY(집중 챌린지 아님) / BET_INVALID_STAKE / INSUFFICIENT_CURRENCY"),
+                description = "BET_INVALID_STAKE / INSUFFICIENT_CURRENCY"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
         @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음"),
         @ApiResponse(responseCode = "409",

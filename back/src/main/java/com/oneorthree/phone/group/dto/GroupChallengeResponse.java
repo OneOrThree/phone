@@ -97,8 +97,9 @@ public class GroupChallengeResponse {
      * {@code activeToday} 와 배타가 아니라 보완이다 — 오늘 회차의 축은 {@code bet.session} 이
      * 담당한다. ACTIVE 챌린지에는 항상 채워지고, 끝난 챌린지(INACTIVE)만 null 이다.
      *
-     * <p>요일 반복(B1, GROMO-1260)이 이 base 에 없어 당장은 매일 활성(= 내일)으로 계산된다 —
-     * {@code GroupBetService#repeatDaysOf} 시임이 배선점이다.
+     * <p>요일 반복(B1, GROMO-1260)은 배선이 끝났다 — {@code GroupBetService#repeatDaysOf} 가
+     * 챌린지의 {@code repeatDays} 마스크를 넘기고 {@code RepeatSchedule#next} 가 그중 다음
+     * 활성일을 고른다. 쉬는 요일은 건너뛰므로 이 값은 "무조건 내일"이 아니다.
      */
     private Instant nextSessionAt;
 
