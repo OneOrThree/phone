@@ -30,6 +30,12 @@ async function flushPromises() {
 }
 
 describe('GroupFocusStatusStore coverage와 count', () => {
+  test('entry가 없는 동안 idle snapshot 참조가 안정적이다', () => {
+    const store = new GroupFocusStatusStore(jest.fn());
+
+    expect(store.getState(USER_ID, DATE)).toBe(store.getState(USER_ID, DATE));
+  });
+
   test('raw 99행 이하는 완전한 응답이며 확인된 0명과 N명을 계산한다', async () => {
     const rows = [member('a', true), member('b', false)];
     const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
@@ -195,5 +201,23 @@ describe('GroupFocusPollingController', () => {
     expect(oldDateListener).toHaveBeenCalledTimes(1);
     expect(store.getState(USER_ID, DATE).status).toBe('idle');
     controller.dispose();
+  });
+
+  test('dispose 뒤 같은 user/date의 새 controller는 이전 ready cache 대신 즉시 재조회한다', async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const store = new GroupFocusStatusStore(load);
+    const first = new GroupFocusPollingController({ store, userId: USER_ID, getDate: () => DATE });
+    first.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    first.activate();
+    await flushPromises();
+    expect(load).toHaveBeenCalledTimes(1);
+
+    first.dispose();
+    const second = new GroupFocusPollingController({ store, userId: USER_ID, getDate: () => DATE });
+    second.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    second.activate();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    second.dispose();
   });
 });

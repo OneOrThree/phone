@@ -25,6 +25,7 @@ type Listener = () => void;
 type RankingLoader = (date: string) => Promise<LeagueMemberResponse[]>;
 
 const cacheKey = (userId: string, date: string) => `${userId}\u0000${date}`;
+const IDLE_STATE: GroupFocusStatusState = Object.freeze({ status: 'idle' });
 
 /** 화면의 모든 카드가 공유하는 category 없는 ranking 원본 cache. */
 export class GroupFocusStatusStore {
@@ -34,7 +35,8 @@ export class GroupFocusStatusStore {
   constructor(private readonly load: RankingLoader) {}
 
   getState(userId: string, date: string): GroupFocusStatusState {
-    return this.entries.get(cacheKey(userId, date))?.state ?? { status: 'idle' };
+    // useSyncExternalStore는 변경 전 snapshot의 참조 동일성을 요구한다.
+    return this.entries.get(cacheKey(userId, date))?.state ?? IDLE_STATE;
   }
 
   subscribe(userId: string, date: string, listener: Listener): () => void {
@@ -226,6 +228,10 @@ export class GroupFocusPollingController {
   dispose(): void {
     this.disposed = true;
     this.stopTimer();
+    // 화면 세션의 warm cache를 다음 마운트가 재사용하지 않게 한다. 그렇지 않으면 새 controller의
+    // 첫 ensure가 ready entry를 보고 요청을 생략해 최대 60초 동안 이전 세션 값을 보여 준다.
+    if (this.activeDate) this.options.store.clearDate(this.options.userId, this.activeDate);
+    this.activeDate = null;
   }
 
   private canRun(): boolean {
