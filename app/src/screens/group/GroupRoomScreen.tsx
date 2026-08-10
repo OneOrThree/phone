@@ -1091,6 +1091,30 @@ export default function GroupRoomScreen({
               </View>
             )}
 
+            {/* 챌린지 내역(GROMO-1277 · N6-1) — **이력의 소유자는 그룹이다.** 그래서 이 링크는
+                챌린지 목록의 상태와 무관하게 항상 선다: 챌린지가 하나도 없어도(전부 삭제·종료돼도)
+                돈이 오간 기록은 남아 있어야 하고, 그걸 볼 수 있어야 그 약속이 지켜진 것이다.
+                조회 실패 중에도 감추지 않는다 — 내역은 다른 엔드포인트라 함께 죽지 않는다. */}
+            <TouchableOpacity
+              style={s.historyLink}
+              activeOpacity={0.7}
+              hitSlop={8}
+              // 필터 두 칸을 **명시적으로 비운다** — 키를 생략하면 React Navigation의 얕은 병합이
+              // 스택에 남은 필터 진입(다른 방일 수도 있다)의 challengeId를 그대로 물려준다.
+              onPress={() =>
+                navigation.navigate('GroupChallengeHistory', {
+                  groupId,
+                  challengeId: undefined,
+                  challengeLabel: undefined,
+                })
+              }
+              accessibilityRole="button"
+              testID="group.challenge.history"
+            >
+              <Text style={s.historyLinkText}>챌린지 내역</Text>
+              <Ionicons name="chevron-forward" size={13} color={T.inkMuted} />
+            </TouchableOpacity>
+
             {/* ── 멤버 ── */}
             <View style={s.sectionHead}>
               <Text style={s.sectionTitle}>멤버</Text>
@@ -1290,6 +1314,17 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: T.accentBg,
   },
+
+  // 챌린지 내역 링크 — 섹션 꼬리의 4차 위계(카드보다 옅게, 오른쪽 정렬 + 셰브런).
+  historyLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 2,
+    marginTop: T.space.sm,
+    paddingVertical: T.space.xs,
+  },
+  historyLinkText: { ...T.text.caption, fontWeight: '600', color: T.inkMuted },
 
   noticeList: { gap: T.space.sm },
   noticeCard: {
