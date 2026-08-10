@@ -6,13 +6,15 @@ import { M } from '@/constants/motion';
 import { AnimatedNumber } from './AnimatedNumber';
 
 let mockReduce = false;
+let mockReady = true;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
-  useReduceMotionReady: () => true,
+  useReduceMotionReady: () => mockReady,
 }));
 
 beforeEach(() => {
   mockReduce = false;
+  mockReady = true;
   jest.useFakeTimers();
 });
 
@@ -90,5 +92,28 @@ describe('AnimatedNumber', () => {
     await unmount();
     expect(cancelSpy.mock.calls.length).toBeGreaterThan(before);
     cancelSpy.mockRestore();
+  });
+});
+
+// ⚠️ 미확정 구간의 보수적 reduce=true로 목표값을 소비하면 displayRef가 새 값으로 확정된다.
+//    이후 false로 확정돼도 from === value라 카운트업이 통째로 사라진다(codex 리뷰).
+describe('AnimatedNumber — 동작 줄이기 미확정 구간', () => {
+  test('확정 전에 목표가 바뀌면 출발값을 보존하고, 확정 뒤에 카운트업한다', async () => {
+    mockReady = false;
+    mockReduce = true; // 미확정 구간의 보수적 값
+    const view = await render(<AnimatedNumber value={0} testID="n" />);
+    await view.rerender(<AnimatedNumber value={120} testID="n" />);
+    // 목표를 소비하지 않았으므로 표시는 출발값 그대로다
+    expect(screen.getByTestId('n')).toHaveTextContent('0');
+
+    // '동작 줄이기 꺼짐'으로 확정됐다 — 여기서부터 0 → 120 카운트업이 돈다
+    mockReady = true;
+    mockReduce = false;
+    await view.rerender(<AnimatedNumber value={120} testID="n" />);
+    expect(screen.getByTestId('n')).toHaveTextContent('0');
+    await act(async () => {
+      jest.advanceTimersByTime(M.dur.slow);
+    });
+    expect(screen.getByTestId('n')).toHaveTextContent('120');
   });
 });
