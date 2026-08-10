@@ -59,6 +59,25 @@ test('후반 그룹이 초기 활성 카드면 첫 렌더 배치를 그 index에
   expect(screen.getByTestId('group.cardDeck').props.initialScrollIndex).toBe(10);
 });
 
+test('활성 카드 control이 위치를 이름에 병합하도록 position과 pageCount를 전달한다', async () => {
+  const renderCard = jest.fn((item: GroupSummaryResponse, position: number, pageCount: number) => (
+    <Text accessibilityLabel={`${item.name}, 현재 ${position}/${pageCount} 페이지`}>
+      {item.name}
+    </Text>
+  ));
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={renderCard}
+    />,
+  );
+
+  expect(renderCard).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'group-0' }), 1, 3);
+  expect(screen.getByLabelText('그룹 0, 현재 1/3 페이지')).toBeOnTheScreen();
+});
+
 test('momentum은 최종 종료에서, momentum 없는 drag는 target offset에서만 확정한다', async () => {
   jest.useFakeTimers();
   await render(

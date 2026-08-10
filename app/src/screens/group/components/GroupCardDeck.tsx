@@ -32,7 +32,7 @@ export interface GroupCardDeckProps {
   groups: GroupSummaryResponse[];
   activeGroupId: string | null;
   onFind: () => void;
-  renderCard: (group: GroupSummaryResponse) => ReactElement;
+  renderCard: (group: GroupSummaryResponse, position: number, pageCount: number) => ReactElement;
   onPeekPress?: (group: GroupSummaryResponse) => void;
 }
 
@@ -253,7 +253,7 @@ export function GroupCardDeck({
               pointerEvents={index === activeIndex ? 'auto' : 'none'}
               testID={`group.cardDeck.pageBody.${item.groupId}`}
             >
-              {renderCard(item)}
+              {renderCard(item, index + 1, pageCount)}
             </View>
             {index !== activeIndex && (
               <Pressable
