@@ -95,6 +95,7 @@ export type V2RootStackParamList = {
   // 허브에서 아래 화면들로 갈라진다. 관리 행은 방장 전용이고 비방장은 나가기만 본다.
   // 멤버십이 바뀌면(위임·강퇴·탈퇴) 복귀 시 상태를 재동기화한다.
   GroupSettings: { groupId: string }; // A-1 관리 허브 — 프로필설정·위임·멤버관리·공지권한 진입 + 그룹 나가기
+  GroupCardEmojiEdit: { groupId: string }; // OWNER·MEMBER 공통 기기 로컬 카드 아이콘 편집
   GroupProfileEdit: { groupId: string }; // A-1 그룹 프로필 편집(이름/소개/정원/공개설정) — 허브에서 push
   GroupMemberManage: { groupId: string }; // A-3 멤버 관리(강퇴)
   GroupOwnerTransfer: {
