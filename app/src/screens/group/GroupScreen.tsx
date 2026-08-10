@@ -178,7 +178,8 @@ export default function GroupScreen() {
     };
     return tabNavigation.addListener('tabPress', () => {
       // 이미 선택된 그룹 탭 재선택은 새 episode를 만들지 않으므로 다음 focus에 남기지 않는다.
-      if (!tabNavigation.isFocused()) nextFocusFromTabRef.current = true;
+      // focus 중 열린 warm invite로 돌아오는 동작도 정책상 `return`이므로 tab 표식을 만들지 않는다.
+      if (!tabNavigation.isFocused() && !peekPendingInvite()) nextFocusFromTabRef.current = true;
     });
   }, [navigation]);
 

@@ -7,7 +7,11 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
-import { markInitialGroupRoomReturn, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -112,6 +116,7 @@ export function navigateToDeepLink(link: string): void {
   const path = link.replace(/^gromo:\/\/+/i, '').split(/[/?#]/)[0];
   switch (path) {
     case 'league':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
@@ -122,6 +127,7 @@ export function navigateToDeepLink(link: string): void {
       });
       break;
     case 'home':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
@@ -137,7 +143,7 @@ export function navigateToDeepLink(link: string): void {
       const currentRoute = navigationRef.getCurrentRoute?.()?.name;
       // 결과성 push는 아래에서 목록을 건너뛰므로 다음 GroupScreen episode의 direct source가
       // 아니다. 방을 닫은 뒤의 복귀를 push로 오염시키지 않도록 일반 push에만 예약한다.
-      if (!resultPush && currentRoute !== '그룹') {
+      if (!(resultPush && groupId !== null) && currentRoute !== '그룹') {
         queueDirectGroupEntry('push');
       }
       // 결과성 push는 목록 focus 전에 GroupRoom으로 곧바로 우회할 수 있다. 그룹 흐름 밖에서

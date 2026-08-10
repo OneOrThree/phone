@@ -363,6 +363,21 @@ describe('group_viewed view episode', () => {
     });
   });
 
+  test('focus 중 열린 warm invite로 돌아오면 return으로 기록한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockPendingInvite = GROUP_ID;
+    mockNavigationFocused = false;
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
   test('현재 그룹 탭 재선택은 뒤이은 자식 화면 복귀를 오염시키지 않는다', async () => {
     mockGetMyGroups.mockResolvedValue([summary()]);
     await renderScreen();
