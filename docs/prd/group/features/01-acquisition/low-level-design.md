@@ -23,8 +23,8 @@ stateDiagram-v2
     미리보기 --> 로그인대기: 게스트
     로그인대기 --> 초대확인중: 로그인 완료
 
-    유휴 --> 생성폼: 만들기
-    생성폼 --> 생성요청중: 유효한 만들기 수락
+    유휴 --> 생성폼: 만들기 · route 진입점 보존
+    생성폼 --> 생성요청중: ref 잠금 수락 · submitted 뒤 API
 
     후보표시 --> 가입요청중: 참여 수락
     미리보기 --> 가입요청중: 참여 수락
@@ -39,6 +39,9 @@ stateDiagram-v2
 
 - 빈 결과와 조회 실패는 다른 상태다.
 - 가입 또는 생성 요청 중에는 같은 획득 요청을 다시 시작하지 않는다.
+- 생성 폼은 route가 전달한 `entryPoint=empty|list|header`를 한 진입 동안 보존하고 폼 표시 성공 때 started를 한 번 발행한다. 현재 목록 수나 비동기 재조회 결과로 진입점을 다시 추론하지 않는다.
+- submit handler는 state를 보기 전에 `submittingRef.current`를 검사하고, 수락 즉시 ref를 선점한다. 유효성 검사·disabled·ref lock에서 거절된 호출은 submitted·API·created 모두 0건이다.
+- 수락된 호출은 생성 API 직전에 submitted를 한 번 발행하고, API 2xx를 받은 직후 created를 한 번 발행한 다음 비공개 링크·목록 전이로 간다. API 실패 뒤 새 수락은 새 submitted가 되지만, 링크 공유·목록 재조회 실패는 이미 발생한 created를 재발행하지 않는다.
 - 비공개 생성의 링크 공유 실패는 그룹 생성 성공을 되돌리거나 생성 요청을 반복하지 않는다.
 - 기존 그룹의 링크 발급은 같은 멤버·그룹 조합의 서버 결과를 재사용하며, 중복 탭이 여러 링크나 멤버십 변경을 만들지 않는다.
 - 비공개 그룹은 UI에서 공개 검색으로 노출하지 않고 초대 링크를 기본 획득 경로로 쓴다. 그러나 현재 서버는 `joinGroup` 요청의 `inviteSlug`·`isPrivate`를 가입 허가 조건으로 검증하지 않으므로, 링크 수신자만 가입한다는 강제는 별도 서버 작업이다.
@@ -141,3 +144,5 @@ stateDiagram-v2
 15. 마지막 멤버 이탈과 join/rejoin이 경합하면 group 행 잠금 순서에 따라 가입 선행은 그룹 유지, 종료 선행은 가입 0건 중 하나로 수렴한다.
 16. 실제 가입 2xx+s_log_only 뒤 전체 목록에 target이 확인될 때만 reconciliation이 1회 발행된다. `ALREADY_MEMBER`·목록 실패·target 미포함은 0건이고, 이 terminal 뒤의 후속 GA4 결과는 이전 F3 episode에 귀속되지 않는다.
 17. 서버는 `code`를 보존하고 계약 밖 nonblank를 `unknown`으로, null·blank를 키 미전송으로 남긴다. F3 fixture는 C/S method가 일치하는 정상 값만 전환으로 세며 legacy·unknown·absent·mismatch terminal 뒤 결과를 오귀속하지 않는다.
+18. 생성 화면은 route의 `empty|list|header`를 그대로 사용한다. 진입당 started 1회, 실제 API 요청당 submitted 1회, API 2xx당 created 1회이며 validation·disabled·same-tick lock 거절은 submitted·created 0건이다. 실패 뒤 새 유효 재시도, 비공개 링크 실패, 성공 뒤 목록 실패는 같은 요청 결과를 재발행하지 않는다. 같은 episode의 두 번째 실제 2xx도 created는 요청당 1회 남기되 F3 conversion은 최초 결과만 1건이고 이전 episode 귀속은 0건이다.
+19. `group_first_membership_created_v1` query는 create OWNER와 모든 서버 가입 이력을 GA4·S-LOG 결과 도착 여부와 무관하게 계정 최초 `created_at` 1건으로 만든다. 기존 멤버·재가입·추가 그룹·`ALREADY_MEMBER`는 새 cohort를 만들지 않는다. nullable `created_at` backfill, 서버 UUID↔GA4 `user_id`, 7×24시간 경계·성숙 window·snapshot 재현성을 증명하지 못하면 `G-P3` 기준선을 차단한다.

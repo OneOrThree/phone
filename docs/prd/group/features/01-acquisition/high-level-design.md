@@ -57,6 +57,9 @@ flowchart TB
 - 초대 가입은 기존 `JoinGroupRequest.appInstanceId`를 best-effort로 전달한다. 검색 가입은 아직 전달하지 않으며 `GRP-01` 후속 앱 작업에서 같은 계약으로 맞춘다. 앱은 식별자 조회를 먼저 끝내고 `group_join_attempted(result_track)`와 가입 API를 바로 이어 실행한다. 값이 있으면 서버 GA4와 S-LOG에, 없으면 S-LOG에만 성공 결과를 남기며 분석 식별자 조회 실패가 가입을 막지 않는다.
 - 앱 `group_join_attempted.join_method`는 `search|invite|deferred_invite`다. 서버 `group_joined`는 호환을 위해 legacy `code`, 계약 밖 nonblank의 `unknown`, null·blank의 키 미전송도 가질 수 있다. 이 세 결과와 C/S method 불일치는 운영 진단으로만 남기고 정상 F3 전환으로 세지 않는다.
 - cold direct·deferred 초대는 전체 목록의 0개 확정을 기다리지 않는다. 열린 F3 episode가 없을 때 `result_track=ga4`인 실제 가입 API 시도만 `invite_intent` fallback을 열며, preview 노출·로그인 대기·`s_log_only` 시도는 분모를 만들지 않는다. 구체 귀속·dedupe는 [공통 분석 계약 §4](../../shared/analytics.md#4-공통-퍼널과-귀속)를 따른다.
+- 생성 3단계 결과는 앱이 단독 소유한다. route가 `entryPoint=empty|list|header`를 전달하고, 폼 표시 뒤 started, 유효성 검사와 same-tick ref lock을 통과한 실제 API 직전 submitted, 생성 API 2xx 직후 created를 각각 한 번 발행한다. `end_card`는 찾기 전용이며 화면이 현재 목록 수로 진입점을 추론하지 않는다.
+- validation·disabled·lock 거절에는 submitted·created를 발행하지 않는다. API 실패 뒤 사용자가 다시 수락한 요청은 새 submitted가 될 수 있지만, created는 각 성공한 생성 결과에만 한 번이다. 비공개 링크 발급·공유와 성공 뒤 전체 목록 재조회는 created 이후의 별도 단계이며 실패해도 created를 취소·재발행하지 않는다. 서버가 같은 생성 결과 이벤트를 중복 발행하지 않는다.
+- F3 획득 episode와 `G-P3` 활성화 cohort는 분리한다. commit된 snapshot에서 생성 OWNER와 모든 가입 경로를 포함해 산출한 서버 최초 멤버십 `created_at`이 cohort 정본이며, 앱 생성·가입 결과나 목록 reconciliation을 opener로 쓰지 않는다. 세부 이벤트 enum·귀속·cohort query는 [공통 분석 계약](../../shared/analytics.md)이 소유한다.
 
 ### 2.1 구형 초대 링크 전환
 
