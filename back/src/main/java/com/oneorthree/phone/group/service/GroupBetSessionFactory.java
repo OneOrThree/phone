@@ -47,11 +47,12 @@ public class GroupBetSessionFactory {
         Instant joinClosesAt;
         Instant settleAfter;
         if (target.windowed()) {
-            windowStart = WindowFocusAggregator.timeOfDay(target.window().getWindowStartAt());
-            windowEnd = WindowFocusAggregator.timeOfDay(target.window().getWindowEndAt());
-            startsAt = sessionDate.atTime(windowStart).atZone(KST).toInstant();
-            LocalDate endDate = windowStart.isBefore(windowEnd) ? sessionDate : sessionDate.plusDays(1);
-            closesAt = endDate.atTime(windowEnd).atZone(KST).toInstant();
+            windowStart = target.windowStart();
+            windowEnd = target.windowEnd();
+            // 창 시각 → Instant 변환은 WindowFocusAggregator 단일 변환점을 지난다(GROMO-1280) —
+            // 여기서 KST 산술을 다시 쓰면 자정 걸침 처리가 판정 쪽과 조용히 갈라진다.
+            startsAt = WindowFocusAggregator.windowStartOn(sessionDate, windowStart);
+            closesAt = WindowFocusAggregator.windowEndOn(sessionDate, windowStart, windowEnd);
             joinClosesAt = startsAt;
             settleAfter = closesAt.plusSeconds(WINDOW_SETTLE_GRACE_MINUTES * 60L);
         } else {
@@ -85,8 +86,7 @@ public class GroupBetSessionFactory {
     /** 날짜 {@code date} 회차의 참가 마감(LLD §1.1) — 창형은 창 시작, 하루형은 회차 종료(익일 00:00). */
     public Instant joinClosesAtOn(GroupBetJudge.Target target, LocalDate date) {
         if (target.windowed()) {
-            return date.atTime(WindowFocusAggregator.timeOfDay(target.window().getWindowStartAt()))
-                    .atZone(KST).toInstant();
+            return WindowFocusAggregator.windowStartOn(date, target.windowStart());
         }
         return date.plusDays(1).atStartOfDay(KST).toInstant();
     }

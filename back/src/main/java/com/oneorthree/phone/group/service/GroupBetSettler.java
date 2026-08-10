@@ -23,9 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -67,8 +64,6 @@ public class GroupBetSettler {
 
     /** 정산 데드라인(N21) — {@code settle_after} 로부터 이 시간이 지나면 정산 대신 전원 환불한다. */
     public static final Duration REFUND_DEADLINE = Duration.ofHours(24);
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
@@ -369,36 +364,28 @@ public class GroupBetSettler {
             return false;
         }
         List<UUID> userIds = participants.stream().map(p -> p.getUser().getId()).toList();
-        return focusSessionRepository.existsActiveOverlappingWindow(
-                userIds, windowEndOf(session));
-    }
-
-    /** 회차 창 종료 Instant — 스냅샷 시각으로 계산. 시작 ≥ 종료는 자정 걸침 창(D+1 종료)이다. */
-    private static Instant windowEndOf(GroupChallengeBetSession session) {
-        LocalTime start = session.getWindowStart();
-        LocalTime end = session.getWindowEnd();
-        LocalDate endDate = start.isBefore(end)
-                ? session.getSessionDate() : session.getSessionDate().plusDays(1);
-        return endDate.atTime(end).atZone(KST).toInstant();
+        // 창 종료 Instant 는 스냅샷 시각을 단일 변환점(WindowFocusAggregator)에 넘겨 얻는다 —
+        // 여기서 KST·자정 걸침 산술을 따로 쓰면 판정 커널과 경계가 갈린다(GROMO-1280).
+        return focusSessionRepository.existsActiveOverlappingWindow(userIds,
+                WindowFocusAggregator.windowEndOn(
+                        session.getSessionDate(), session.getWindowStart(), session.getWindowEnd()));
     }
 
     /**
-     * 판정 대상 — 판정 소스(창 시각·조회 경로)는 CTI 상세에서, <b>목표분은 회차 스냅샷</b>에서 온다.
-     * 스냅샷이 없는 행(V39 백필 이전 이력)만 CTI 목표로 폴백한다.
+     * 판정 대상 — <b>회차 스냅샷</b>이 정본이다(GROMO-1263 · GROMO-1280): 목표분뿐 아니라
+     * 카테고리·방식·창 시각까지 회차 행에서 읽으므로, 챌린지가 삭제되거나 바뀌어도 이 회차의
+     * 판정 기준은 개설 시점 그대로다. 스냅샷이 결손인 옛 이력만 CTI 로 폴백한다.
      */
     private GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
-        return groupBetJudge.resolve(session.getChallenge())
-                .map(t -> session.getGoalMinutes() == null
-                        ? t
-                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()))
+        return groupBetJudge.ofSession(session)
                 .orElseThrow(() -> new IllegalStateException(
                         "챌린지 목표 유실 — 목표를 몰라 정산할 수 없다. sessionId=" + session.getId()));
     }
 
     /**
      * 정산 근거로 저장할 참가자별 실측 분(GROMO-1207) — 판정({@code entries})이 실제로 쓴 값
-     * 그대로다. FOCUS 의 무기록(null)은 판정이 0분으로 본 것이므로 0 으로 확정해 저장하고,
-     * SCREEN_TIME 의 미보고(null)는 "미계측"이라 null 그대로 남긴다(0분 사용과 구분 — 앱 "—" 표시).
+     * 그대로다. 3상 접기는 커널({@link GroupBetJudge#displayMinutes})이 한다: FOCUS 의 무기록은
+     * 0 으로 확정해 저장하고, SCREEN_TIME 의 미계측은 null 로 남긴다(0분 사용과 구분 — 앱 "—" 표시).
      */
     private Map<UUID, Integer> evidenceMinutes(
             GroupBetJudge.Target target,
@@ -407,11 +394,8 @@ public class GroupBetSettler {
         Map<UUID, Integer> evidence = new HashMap<>();
         for (GroupChallengeBetParticipant participant : participants) {
             UUID userId = participant.getUser().getId();
-            Integer minutes = progressMinutes.get(userId);
-            if (minutes == null && target.category() == MissionCategory.FOCUS) {
-                minutes = 0;
-            }
-            evidence.put(userId, minutes);
+            evidence.put(userId,
+                    GroupBetJudge.displayMinutes(target, progressMinutes.get(userId)));
         }
         return evidence;
     }

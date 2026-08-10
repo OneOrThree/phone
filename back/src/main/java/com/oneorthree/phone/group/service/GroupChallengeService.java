@@ -4,7 +4,6 @@ import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
-import com.oneorthree.phone.group.domain.GroupChallengeMember;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
@@ -28,9 +27,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
-import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
-import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -71,12 +67,11 @@ public class GroupChallengeService {
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
-    private final DailyFocusStatRepository dailyFocusStatRepository;
-    private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final GroupBetService groupBetService;
     private final GroupBetSettler groupBetSettler;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
-    private final WindowFocusAggregator windowFocusAggregator;
+    // 진행률·달성 판정의 단일 커널(GROMO-1280) — 카드가 통계 테이블을 직접 읽지 않는다.
+    private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
 
     private static final int SECONDS_PER_DAY = 86_400;
@@ -124,12 +119,16 @@ public class GroupChallengeService {
                 .findByChallengeIdIn(challengeIds).stream()
                 .collect(Collectors.toMap(GroupChallengeWindow::getChallengeId, Function.identity()));
 
+        // 판정 대상(목표·창 시각)은 커널이 해석한다(GROMO-1280) — 진행률·달성 규칙을 카드가 따로
+        // 갖지 않는다. 상세는 위에서 배치 로드한 맵을 넘겨 조회가 늘지 않게 한다.
+        Map<UUID, GroupBetJudge.Target> targets = judgeTargets(challenges, durations, windows);
+
         // 멤버·일별 통계도 챌린지 루프 밖에서 한 번씩만 로드한다(챌린지 수 × 멤버 수의 N+1 방지).
-        ProgressSnapshot progress = loadProgressSnapshot(group, challenges, durations, windows, date);
+        ProgressSnapshot progress = loadProgressSnapshot(group, targets, date);
 
         // 내기(오늘 것 + 지난 정산 1건)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
         Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
-                challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
+                challengeIds, date, userId, myAchievedByChallengeId(targets, progress, userId));
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
 
         // 휴면 배지(GROMO-1201) — 이력·OPEN 보유 챌린지 id 를 각각 IN 절 1회로 배치 조회한다(N+1 없음).
@@ -157,7 +156,7 @@ public class GroupChallengeService {
                                     || screenTimePermissionGranted)
                             .status(c.getStatus())
                             .createdAt(c.getCreatedAt())
-                            .memberProgress(memberProgressOf(c, duration, window, progress))
+                            .memberProgress(memberProgressOf(targets.get(c.getId()), progress))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
                             .dormant(challengeIdsWithBetHistory.contains(c.getId())
@@ -176,14 +175,39 @@ public class GroupChallengeService {
     }
 
     /**
-     * 챌린지별 "나는 지금 달성 상태인가" — 내기 UI 표시({@code myAchievedNow})용. 4조합 전부 계산한다.
+     * 판정 대상(목표·창 시각) 해석 — ACTIVE 이고 목표가 있는 챌린지만 대상이 된다. 규칙은
+     * {@link GroupBetJudge#targetOf} 하나뿐이라 "무엇을 판정 대상으로 볼 것인가"가 카드와 내기에서
+     * 갈리지 않는다.
+     *
+     * <p>INACTIVE 를 빼는 이유는 이미 끝난 챌린지이기 때문이다(V2 마이그레이션이 레거시 {@code ENDED}
+     * 행을 INACTIVE 로 보존). 조회한 날짜의 "현재" 통계를 끝난 챌린지 목표와 대조하면 과거 챌린지의
+     * 진행률·달성 여부가 매일 바뀌어 보이고, 활동 기간(ended_at)이 없어 당시 진행률을 복원할 수도 없다.
+     */
+    private Map<UUID, GroupBetJudge.Target> judgeTargets(List<GroupChallenge> challenges,
+            Map<UUID, GroupChallengeDuration> durations, Map<UUID, GroupChallengeWindow> windows) {
+        Map<UUID, GroupBetJudge.Target> targets = new LinkedHashMap<>();
+        for (GroupChallenge challenge : challenges) {
+            if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
+                continue;
+            }
+            GroupBetJudge.targetOf(challenge, durations.get(challenge.getId()),
+                            windows.get(challenge.getId()))
+                    .ifPresent(target -> targets.put(challenge.getId(), target));
+        }
+        return targets;
+    }
+
+    /**
+     * 챌린지별 "나는 지금 달성 상태인가" — 내기 UI 표시({@code myAchievedNow})용. 판정은
+     * {@link GroupBetJudge#isAchieved}(확정 판)로, 참가 가드가 쓰는 것과 <b>같은 함수</b>다 —
+     * 화면이 "달성"이라 표시했는데 서버가 참가를 허용하는(또는 그 반대) 어긋남이 생길 수 없다.
      *
      * <p><b>카테고리마다 의미가 다르다</b>:
      * <ul>
      *   <li><b>FOCUS</b> = <b>확정</b> 달성. DURATION 은 일 통계, TIME_WINDOW 는 창 클리핑 집계(5분
      *       관용치) 기준이고 둘 다 서버 데이터라 한 번 달성하면 뒤집히지 않는다. 그래서 내기 참가
      *       가드가 이 의미 그대로 {@code BET_ALREADY_ACHIEVED} 로 무위험 참가를 막는다</li>
-     *   <li><b>SCREEN_TIME</b> = <b>잠정</b> 달성(현재 보고값 ≤ 목표). 하루/창이 끝나야 확정되므로
+     *   <li><b>SCREEN_TIME</b> = <b>잠정</b> 달성(현재 계측값 ≤ 목표). 하루/창이 끝나야 확정되므로
      *       이후 사용으로 얼마든지 뒤집힌다 — <b>표시용일 뿐 참가 차단 근거가 아니다</b>(참가 가드는
      *       반대 방향으로 "이미 초과 = 확정 패배"만 {@code BET_ALREADY_FAILED} 로 막는다,
      *       {@link GroupBetService#requireEligibleToStake})</li>
@@ -192,78 +216,27 @@ public class GroupChallengeService {
      * <p>이미 로드해 둔 진행률 스냅샷을 재사용해 통계 조회가 늘지 않는다(진행률 미계산이면 빈 맵 → 판정 없음).
      */
     private Map<UUID, Boolean> myAchievedByChallengeId(
-            List<GroupChallenge> challenges,
-            Map<UUID, GroupChallengeDuration> durations,
-            Map<UUID, GroupChallengeWindow> windows,
-            ProgressSnapshot progress,
-            UUID userId) {
+            Map<UUID, GroupBetJudge.Target> targets, ProgressSnapshot progress, UUID userId) {
         if (progress == null) {
             return Map.of();
         }
         Map<UUID, Boolean> achieved = new LinkedHashMap<>();
-        for (GroupChallenge challenge : challenges) {
-            Integer goalMinutes = goalMinutesOf(challenge, durations, windows);
-            if (goalMinutes == null) {
-                continue;
-            }
-            Integer myMinutes = myProgressMinutes(challenge, progress, userId);
-            achieved.put(challenge.getId(), isMyAchieved(challenge, myMinutes, goalMinutes));
-        }
+        targets.forEach((challengeId, target) -> achieved.put(challengeId,
+                GroupBetJudge.isAchieved(target, progress.minutesOf(challengeId).get(userId))));
         return achieved;
     }
 
-    /** 판정에 쓸 목표 분 — 상세 행이 없거나 창 목표분이 비었으면 null(판정 대상 아님). */
-    private Integer goalMinutesOf(GroupChallenge challenge, Map<UUID, GroupChallengeDuration> durations,
-            Map<UUID, GroupChallengeWindow> windows) {
-        if (challenge.getType() == MissionType.DURATION) {
-            GroupChallengeDuration duration = durations.get(challenge.getId());
-            return duration != null ? duration.getDurationMinutes() : null;
-        }
-        GroupChallengeWindow window = windows.get(challenge.getId());
-        return window != null ? window.getDurationMinutes() : null;
-    }
-
     /**
-     * 내 진행 분 — 조합별 소스에서 꺼낸다. <b>null 은 "데이터 없음"</b>이고 그 의미는 카테고리마다 다르다:
-     * FOCUS 는 0분이 사실이라 여기서 0 으로 접고, SCREEN_TIME 은 미보고(권한 철회·구 바이너리 포함)라
-     * 그대로 null 로 남긴다 — 0 으로 접으면 미보고가 "0분 사용 = 달성"으로 뒤집힌다.
-     */
-    private Integer myProgressMinutes(GroupChallenge challenge, ProgressSnapshot progress, UUID userId) {
-        boolean screenTime = challenge.getCategory() == MissionCategory.SCREEN_TIME;
-        if (challenge.getType() == MissionType.TIME_WINDOW) {
-            Map<UUID, Integer> byUser = screenTime
-                    ? progress.windowUsageMinutes().getOrDefault(challenge.getId(), Map.of())
-                    : progress.windowFocusMinutes().getOrDefault(challenge.getId(), Map.of());
-            return screenTime ? byUser.get(userId) : byUser.getOrDefault(userId, 0);
-        }
-        return screenTime
-                ? progress.screenTimeMinutes().get(userId)
-                : progress.focusMinutes().getOrDefault(userId, 0);
-    }
-
-    /** 달성 판정 — 카드 진행률({@link #memberProgressOf})과 <b>같은 규칙</b>이다(소스가 갈리면 안 된다). */
-    private boolean isMyAchieved(GroupChallenge challenge, Integer myMinutes, int goalMinutes) {
-        if (myMinutes == null) {
-            return false;
-        }
-        if (challenge.getCategory() == MissionCategory.SCREEN_TIME) {
-            return myMinutes <= goalMinutes;
-        }
-        return challenge.getType() == MissionType.TIME_WINDOW
-                ? WindowFocusAggregator.isAchieved(myMinutes, goalMinutes)
-                : myMinutes >= goalMinutes;
-    }
-
-    /**
-     * 진행률 계산에 필요한 멤버·통계를 배치 로드한다. {@code date} 가 없으면 null 을 반환해
-     * 호출측이 {@code memberProgress = null}(미계산)로 응답하게 한다.
+     * 진행률 계산에 필요한 멤버와 <b>커널 판정 진행분</b>을 배치 로드한다. {@code date} 가 없으면
+     * null 을 반환해 호출측이 {@code memberProgress = null}(미계산)로 응답하게 한다.
      *
-     * <p>통계는 실제로 진행률 대상 챌린지가 있을 때만 조회한다 — FOCUS 챌린지만 있는 그룹이
-     * 스크린타임 테이블을 훑지 않도록. 창형(TIME_WINDOW)은 카테고리당 활성 1개(V20)라
-     * 창 클리핑 집계도 최대 1회다.
+     * <p>진행분 조회는 대상 챌린지마다 {@link GroupBetJudge#progressMinutes} 한 번이다 — 활성
+     * 챌린지는 (카테고리 × 방식)당 1개(V20)라 조합 수(≤4)가 상한이고, 종전의 조합별 배치 조회와
+     * 쿼리 수가 같다. FOCUS 챌린지만 있는 그룹이 스크린타임 테이블을 훑지 않는 성질도 그대로다
+     * (대상이 없으면 그 조합의 조회 자체가 일어나지 않는다).
      */
-    private ProgressSnapshot loadProgressSnapshot(Group group, List<GroupChallenge> challenges,
-            Map<UUID, GroupChallengeDuration> durations, Map<UUID, GroupChallengeWindow> windows, LocalDate date) {
+    private ProgressSnapshot loadProgressSnapshot(
+            Group group, Map<UUID, GroupBetJudge.Target> targets, LocalDate date) {
         if (date == null) {
             return null;
         }
@@ -275,69 +248,16 @@ public class GroupChallengeService {
                 .toList();
         List<User> users = members.stream().map(GroupMember::getUser).toList();
         if (users.isEmpty()) {
-            return new ProgressSnapshot(members, Map.of(), Map.of(), Map.of(), Map.of());
-        }
-        List<UUID> userIds = users.stream().map(User::getId).toList();
-
-        List<GroupChallenge> targets = challenges.stream()
-                .filter(c -> isProgressTarget(c, durations.get(c.getId()), windows.get(c.getId())))
-                .toList();
-
-        Map<UUID, Integer> focusMinutes = hasTarget(targets, MissionCategory.FOCUS, MissionType.DURATION)
-                ? dailyFocusStatRepository.findByUserInAndDate(users, date).stream()
-                        .collect(Collectors.toMap(
-                                s -> s.getUser().getId(),
-                                s -> s.getTotalFocusSeconds() / 60))   // GROMO-642: 초→분
-                : Map.of();
-
-        // 스크린타임은 권한에 동의한 멤버만 대상 — 권한을 철회한 멤버는 챌린지 비참여자
-        // (canParticipate=false / nonParticipants)이므로, 철회 전에 쌓여 남아 있는 통계 행을
-        // 진행률로 노출하지 않는다(맵에서 빠져 null = 판정 불가).
-        Map<UUID, Integer> screenTimeMinutes = Map.of();
-        if (hasTarget(targets, MissionCategory.SCREEN_TIME, MissionType.DURATION)) {
-            Set<UUID> grantedUserIds = grantedScreenTimeUserIds(users);
-            List<User> participants = users.stream()
-                    .filter(u -> grantedUserIds.contains(u.getId()))
-                    .toList();
-            if (!participants.isEmpty()) {
-                screenTimeMinutes = dailyScreenTimeStatRepository.findByUserInAndDate(participants, date).stream()
-                        .collect(Collectors.toMap(
-                                s -> s.getUser().getId(),
-                                DailyScreenTimeStat::getTotalScreenTimeMinutes));
-            }
+            return new ProgressSnapshot(members, Map.of());
         }
 
-        // FOCUS 창형 — 날짜 D 의 창으로 focus_sessions 를 클리핑 집계(챌린지별 창이 달라 챌린지 단위 조회).
-        Map<UUID, Map<UUID, Integer>> windowFocusMinutes = new LinkedHashMap<>();
-        for (GroupChallenge challenge : targets) {
-            if (challenge.getCategory() == MissionCategory.FOCUS
-                    && challenge.getType() == MissionType.TIME_WINDOW) {
-                windowFocusMinutes.put(challenge.getId(),
-                        windowFocusAggregator.focusMinutesWithin(userIds, date, windows.get(challenge.getId())));
-            }
-        }
-
-        // SCREEN_TIME 창형 — 클라 보고 원본(group_challenge_members)의 해당 날짜 값을 배치 로드.
-        // 미보고 멤버는 맵에 없음 = progressMinutes null(판정 불가) — 구 바이너리 참가자의 정상 상태다.
-        List<UUID> screenWindowChallengeIds = targets.stream()
-                .filter(c -> c.getCategory() == MissionCategory.SCREEN_TIME
-                        && c.getType() == MissionType.TIME_WINDOW)
-                .map(GroupChallenge::getId)
-                .toList();
-        Map<UUID, Map<UUID, Integer>> windowUsageMinutes = screenWindowChallengeIds.isEmpty()
-                ? Map.of()
-                : groupChallengeMemberRepository
-                        .findByGroupChallengeIdInAndUsageDate(screenWindowChallengeIds, date).stream()
-                        .collect(Collectors.groupingBy(
-                                m -> m.getGroupChallenge().getId(),
-                                Collectors.toMap(
-                                        m -> m.getUser().getId(),
-                                        GroupChallengeMember::getProgressMinutes)));
-
-        return new ProgressSnapshot(members, focusMinutes, screenTimeMinutes, windowFocusMinutes, windowUsageMinutes);
+        Map<UUID, Map<UUID, Integer>> minutesByChallenge = new LinkedHashMap<>();
+        targets.forEach((challengeId, target) -> minutesByChallenge.put(
+                challengeId, groupBetJudge.progressMinutes(target, date, users)));
+        return new ProgressSnapshot(members, minutesByChallenge);
     }
 
-    /** 스크린타임 권한에 동의한 유저 id 집합 — 비참여자 판정과 진행률 대상 필터가 같은 기준을 쓰도록 공유한다. */
+    /** 스크린타임 권한에 동의한 유저 id 집합 — 개설 시 비참여자 안내 목록이 쓰는 기준. */
     private Set<UUID> grantedScreenTimeUserIds(List<User> users) {
         return userScreenTimeSettingsRepository.findAllById(users.stream().map(User::getId).toList()).stream()
                 .filter(UserScreenTimeSettings::isScreenTimePermissionGranted)
@@ -345,102 +265,47 @@ public class GroupChallengeService {
                 .collect(Collectors.toSet());
     }
 
-    private boolean hasTarget(List<GroupChallenge> targets, MissionCategory category, MissionType type) {
-        return targets.stream()
-                .anyMatch(c -> c.getCategory() == category && c.getType() == type);
-    }
-
     /**
-     * 진행률 계산 대상인가 — ACTIVE 이면서 목표가 있는 챌린지.
-     * DURATION 은 일 목표(duration 상세), TIME_WINDOW 는 창 내 목표(duration_minutes, V20)가 있어야 한다.
-     * 목표 없는 구 창 챌린지는 현행대로 memberProgress = null(판정 불가)로 남는다.
+     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·판정 대상 아님(목표 없는 창·INACTIVE·
+     * 상세 행 유실)이면 null 이다.
      *
-     * <p>INACTIVE 는 이미 끝난 챌린지다(V2 마이그레이션이 레거시 {@code ENDED} 행을 INACTIVE 로 보존).
-     * 조회한 날짜의 "현재" 통계를 끝난 챌린지 목표와 대조하면 과거 챌린지의 진행률·달성 여부가 매일
-     * 바뀌어 보이므로 계산하지 않는다. 챌린지에 활동 기간(ended_at)이 없어 당시 진행률을 복원할 수도 없다.
-     */
-    private boolean isProgressTarget(GroupChallenge challenge, GroupChallengeDuration duration,
-            GroupChallengeWindow window) {
-        if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
-            return false;
-        }
-        if (challenge.getType() == MissionType.DURATION) {
-            return duration != null;
-        }
-        return challenge.getType() == MissionType.TIME_WINDOW
-                && window != null
-                && window.getDurationMinutes() != null;
-    }
-
-    /**
-     * 챌린지 하나에 대한 멤버별 진행률. 진행률 미계산(date 없음)·목표 없는 창·INACTIVE·상세 행 유실이면
-     * null 이다.
-     *
-     * <p>TIME_WINDOW 는 날짜 D(KST)의 창 기준이다. FOCUS 창은 세션 클리핑 실측 분을 그대로 표시하고
-     * <b>달성 플래그에만</b> 5분 관용치를 적용한다({@link WindowFocusAggregator#isAchieved}).
-     * SCREEN_TIME 창은 클라 보고값 기준 — 미보고는 null(판정 불가, 3상 유지)이다.
+     * <p>표시 규칙은 커널이 쥔다(GROMO-1280): 실측 분은 {@link GroupBetJudge#displayMinutes},
+     * 달성 칩은 3상 {@link GroupBetJudge#achievedOrNull} 이다 — FOCUS 는 무기록이 "0분"이라 값이 서고,
+     * SCREEN_TIME 의 미계측(미보고·권한 철회)은 {@code null}("—")로 남아 0분 사용과 구분된다(§B7).
+     * 정산이 쓰는 {@link GroupBetJudge#isAchieved} 는 이 3상의 null 을 FR-21 대로 미달성으로 닫는
+     * <b>같은 함수의 확정판</b>이라, 카드가 "—" 인 멤버는 정산에서 반드시 미달성이 된다.
      */
     private List<ChallengeMemberProgressResponse> memberProgressOf(
-            GroupChallenge challenge, GroupChallengeDuration duration, GroupChallengeWindow window,
-            ProgressSnapshot progress) {
-        if (progress == null || !isProgressTarget(challenge, duration, window)) {
+            GroupBetJudge.Target target, ProgressSnapshot progress) {
+        if (progress == null || target == null) {
             return null;
         }
-
-        boolean screenTime = challenge.getCategory() == MissionCategory.SCREEN_TIME;
-        boolean windowType = challenge.getType() == MissionType.TIME_WINDOW;
-        int goalMinutes = windowType ? window.getDurationMinutes() : duration.getDurationMinutes();
-
+        Map<UUID, Integer> minutes = progress.minutesOf(target.challengeId());
         return progress.members().stream()
                 .map(member -> {
                     UUID memberId = member.getUser().getId();
-                    // FOCUS 는 데이터가 없으면 "0분 집중"이 사실이지만(서버 데이터), SCREEN_TIME 은
-                    // 데이터 미수집(미보고 포함)과 "0분 사용"을 구분할 수 없어 null(판정 불가)로 남긴다.
-                    // 한계: null 은 "통계 행 없음/권한 미동의/미보고"까지만 덮는다. 앱이 actualScreenTimeMinutes
-                    // 없이 보고하면 ScreenTimeService 가 0 으로 저장해 실제 0분과 구분되지 않는다(쓰기 모델
-                    // 이슈 — 컬럼 nullable 화가 필요해 이 범위 밖).
-                    Integer progressMinutes;
-                    if (windowType) {
-                        progressMinutes = screenTime
-                                ? progress.windowUsageMinutes()
-                                        .getOrDefault(challenge.getId(), Map.of()).get(memberId)
-                                : progress.windowFocusMinutes()
-                                        .getOrDefault(challenge.getId(), Map.of()).getOrDefault(memberId, 0);
-                    } else {
-                        progressMinutes = screenTime
-                                ? progress.screenTimeMinutes().get(memberId)
-                                : progress.focusMinutes().getOrDefault(memberId, 0);
-                    }
-                    Boolean achieved;
-                    if (progressMinutes == null) {
-                        achieved = null;
-                    } else if (screenTime) {
-                        achieved = progressMinutes <= goalMinutes;
-                    } else if (windowType) {
-                        achieved = WindowFocusAggregator.isAchieved(progressMinutes, goalMinutes);
-                    } else {
-                        achieved = progressMinutes >= goalMinutes;
-                    }
+                    Integer measured = minutes.get(memberId);
                     return ChallengeMemberProgressResponse.builder()
                             .userId(memberId)
                             .nickname(member.getUser().getNickname())
-                            .progressMinutes(progressMinutes)
-                            .achieved(achieved)
+                            .progressMinutes(GroupBetJudge.displayMinutes(target, measured))
+                            .achieved(GroupBetJudge.achievedOrNull(target, measured))
                             .build();
                 })
                 .toList();
     }
 
     /**
-     * 진행률 계산용 배치 로드 결과 — 그룹 멤버 전원과 userId → 당일 분 맵(데이터 없는 유저는 키 없음).
-     * 창형은 챌린지마다 창이 달라 challengeId → (userId → 분) 2단 맵이다.
+     * 진행률 계산용 배치 로드 결과 — 그룹 멤버 전원과 challengeId → (userId → 커널 진행분) 맵.
+     * 값이 없는 유저는 키가 없다(3상의 "미계측/무기록" — 해석은 커널이 한다).
      */
     private record ProgressSnapshot(
             List<GroupMember> members,
-            Map<UUID, Integer> focusMinutes,
-            Map<UUID, Integer> screenTimeMinutes,
-            Map<UUID, Map<UUID, Integer>> windowFocusMinutes,
-            Map<UUID, Map<UUID, Integer>> windowUsageMinutes) {
+            Map<UUID, Map<UUID, Integer>> minutesByChallenge) {
+
+        Map<UUID, Integer> minutesOf(UUID challengeId) {
+            return minutesByChallenge.getOrDefault(challengeId, Map.of());
+        }
     }
 
     @Transactional

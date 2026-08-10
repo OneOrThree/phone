@@ -91,9 +91,11 @@ public class GroupBetEarlyWinConfirmer {
                 continue;
             }
             GroupChallengeBetParticipant participant = current.get();
-            // 목표는 회차 박제값(GROMO-1263). CTI 유실이면 판정 불가 — 조기 확정만 건너뛴다
-            // (정산은 어차피 같은 이유로 실패·백오프를 탄다. 집중 저장을 막을 이유가 없다).
-            Optional<GroupBetJudge.Target> target0 = resolveTarget(session);
+            // 판정 기준은 회차 박제 스냅샷(GROMO-1263) — 정산({@code GroupBetSettler})이 쓰는
+            // 것과 <b>같은 커널·같은 대상</b>이라 조기 확정과 최종 정산이 갈릴 수 없다(GROMO-1280).
+            // 스냅샷도 CTI 도 없으면 판정 불가 — 조기 확정만 건너뛴다(정산은 어차피 같은 이유로
+            // 실패·백오프를 탄다. 집중 저장을 막을 이유가 없다).
+            Optional<GroupBetJudge.Target> target0 = groupBetJudge.ofSession(session);
             if (target0.isEmpty()) {
                 continue;
             }
@@ -108,12 +110,5 @@ public class GroupBetEarlyWinConfirmer {
                         session.getId(), user.getId(), minutes);
             }
         }
-    }
-
-    private Optional<GroupBetJudge.Target> resolveTarget(GroupChallengeBetSession session) {
-        return groupBetJudge.resolve(session.getChallenge())
-                .map(t -> session.getGoalMinutes() == null
-                        ? t
-                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()));
     }
 }

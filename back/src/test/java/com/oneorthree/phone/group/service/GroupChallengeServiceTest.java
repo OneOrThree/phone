@@ -37,11 +37,11 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -50,6 +50,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -79,7 +80,13 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class GroupChallengeServiceTest {
 
-    @InjectMocks
+    /**
+     * 판정 커널({@link GroupBetJudge})은 <b>목으로 대체하지 않고 실물</b>을 쓴다(GROMO-1280) —
+     * 카드 진행률이 정산과 같은 규칙을 쓰는지가 이 테스트의 핵심이라, 커널을 모킹하면 정작 검증해야
+     * 할 규칙이 사라진다. 소스(통계 저장소·창 집계)만 목이고 규칙은 실제 코드가 돈다.
+     */
+    private GroupBetJudge groupBetJudge;
+
     private GroupChallengeService groupChallengeService;
 
     @Mock
@@ -136,11 +143,29 @@ class GroupChallengeServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @BeforeEach
+    void setUp() {
+        groupBetJudge = new GroupBetJudge(
+                groupChallengeDurationRepository, groupChallengeWindowRepository,
+                groupChallengeMemberRepository, dailyFocusStatRepository,
+                dailyScreenTimeStatRepository, userScreenTimeSettingsRepository,
+                windowFocusAggregator);
+        groupChallengeService = new GroupChallengeService(
+                groupRepository, groupMemberRepository, userRepository, groupChallengeRepository,
+                groupChallengeDurationRepository, groupChallengeWindowRepository,
+                groupChallengeMemberRepository, userScreenTimeSettingsRepository,
+                groupBetService, groupBetSettler, groupChallengeBetRepository, groupBetJudge,
+                eventPublisher);
+    }
+
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
+    /** 창 상세 스텁의 KST 벽시계 창 — 커널이 스냅샷과 같은 시각으로 집계를 부른다. */
+    private static final LocalTime WINDOW_START = LocalTime.of(9, 0);
+    private static final LocalTime WINDOW_END = LocalTime.of(12, 0);
 
     private User member() {
         return User.builder().id(USER_ID).nickname("재영").isGuest(false).build();
@@ -320,8 +345,8 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
         List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
         givenDurationDetail(60);
-        given(dailyFocusStatRepository.findByUserInAndDate(
-                members.stream().map(GroupMember::getUser).toList(), TODAY))
+        given(dailyFocusStatRepository.findByUserIdInAndDate(
+                members.stream().map(m -> m.getUser().getId()).toList(), TODAY))
                 .willReturn(List.of(DailyFocusStat.builder()
                         .user(user).date(TODAY).totalFocusSeconds(3600).build()));   // 60분
 
@@ -559,6 +584,7 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
         givenGroupWithTwoMembers(group, user, challenge);
         givenWindowDetail(100);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
         given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
                 .willReturn(List.of(GroupChallengeMember.builder()
                         .groupChallenge(challenge).user(user).progressMinutes(100).usageDate(TODAY).build()));
@@ -578,6 +604,7 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
         givenGroupWithTwoMembers(group, user, challenge);
         givenWindowDetail(100);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
         given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
                 .willReturn(List.of());
 
@@ -597,8 +624,8 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = durationChallenge(group, MissionCategory.FOCUS);
         List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
         givenDurationDetail(60);
-        given(dailyFocusStatRepository.findByUserInAndDate(
-                members.stream().map(GroupMember::getUser).toList(), TODAY))
+        given(dailyFocusStatRepository.findByUserIdInAndDate(
+                members.stream().map(m -> m.getUser().getId()).toList(), TODAY))
                 .willReturn(List.of(DailyFocusStat.builder()
                         .user(user).date(TODAY).totalFocusSeconds(60 * 60).build()));
 
@@ -643,7 +670,7 @@ class GroupChallengeServiceTest {
 
         // then: 진행률은 비우고, DURATION 챌린지가 없으니 통계도 조회하지 않는다
         assertThat(result.get(0).getMemberProgress()).isNull();
-        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyFocusStatRepository, never()).findByUserIdInAndDate(any(), any());
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
 
@@ -655,7 +682,7 @@ class GroupChallengeServiceTest {
                 .build();
     }
 
-    /** 창 상세 스텁 — 09:00~12:00(KST) 창에 창 내 목표분(null 허용 = 목표 없는 구 창)을 얹는다. */
+    /** 창 상세 스텁 — {@link #WINDOW_START}~{@link #WINDOW_END} 창에 창 내 목표분(null 허용 = 목표 없는 구 창). */
     private GroupChallengeWindow givenWindowDetail(Integer durationMinutes) {
         GroupChallengeWindow window = GroupChallengeWindow.builder()
                 .challengeId(CHALLENGE_ID)
@@ -676,8 +703,9 @@ class GroupChallengeServiceTest {
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = windowChallenge(group, MissionCategory.FOCUS);
         givenGroupWithTwoMembers(group, user, challenge);
-        GroupChallengeWindow window = givenWindowDetail(60);
-        given(windowFocusAggregator.focusMinutesWithin(List.of(USER_ID, OTHER_USER_ID), TODAY, window))
+        givenWindowDetail(60);
+        given(windowFocusAggregator.focusMinutesWithin(
+                List.of(USER_ID, OTHER_USER_ID), TODAY, WINDOW_START, WINDOW_END))
                 .willReturn(Map.of(USER_ID, 55, OTHER_USER_ID, 54));
 
         // when
@@ -692,7 +720,7 @@ class GroupChallengeServiceTest {
         assertThat(progress.get(1).getProgressMinutes()).isEqualTo(54);
         assertThat(progress.get(1).getAchieved()).isFalse();
         // 일 통계는 조회하지 않는다(DURATION 대상 없음)
-        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyFocusStatRepository, never()).findByUserIdInAndDate(any(), any());
 
         // myAchievedNow(내기 참가 판정)도 같은 소스·같은 관용치를 쓴다
         ArgumentCaptor<Map<UUID, Boolean>> achievedCaptor = ArgumentCaptor.forClass(Map.class);
@@ -709,8 +737,9 @@ class GroupChallengeServiceTest {
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = windowChallenge(group, MissionCategory.FOCUS);
         givenGroupWithTwoMembers(group, user, challenge);
-        GroupChallengeWindow window = givenWindowDetail(60);
-        given(windowFocusAggregator.focusMinutesWithin(List.of(USER_ID, OTHER_USER_ID), TODAY, window))
+        givenWindowDetail(60);
+        given(windowFocusAggregator.focusMinutesWithin(
+                List.of(USER_ID, OTHER_USER_ID), TODAY, WINDOW_START, WINDOW_END))
                 .willReturn(Map.of());
 
         // when
@@ -733,6 +762,7 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
         givenGroupWithTwoMembers(group, user, challenge);
         givenWindowDetail(100);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
         given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
                 .willReturn(List.of(GroupChallengeMember.builder()
                         .groupChallenge(challenge)
@@ -755,6 +785,36 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("SCREEN_TIME/TIME_WINDOW — 권한 철회 멤버의 잔존 보고값은 무시된다(하루형과 같은 규칙)")
+    void getChallengesIgnoresWindowReportFromRevokedMember() {
+        // 종전에는 창형 진행률에만 권한 필터가 없어, 같은 카드 안에서 하루형은 "—" 인데 창형은
+        // 철회 전 보고값으로 "달성"이 떴다. 커널 단일화 후 두 조합이 같은 답을 낸다(GROMO-1280).
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenWindowDetail(100);
+        givenScreenTimePermission(USER_ID);   // 수빈(OTHER_USER_ID)은 철회
+        given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
+                .willReturn(List.of(
+                        GroupChallengeMember.builder().groupChallenge(challenge).user(user)
+                                .progressMinutes(30).usageDate(TODAY).build(),
+                        GroupChallengeMember.builder().groupChallenge(challenge)
+                                .user(members.get(1).getUser())
+                                .progressMinutes(10).usageDate(TODAY).build()));
+
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(30);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        // 철회자는 보고 행이 남아 있어도 미계측(—) — 정산도 같은 커널이라 미달성으로 닫힌다(FR-21)
+        assertThat(progress.get(1).getUserId()).isEqualTo(OTHER_USER_ID);
+        assertThat(progress.get(1).getProgressMinutes()).isNull();
+        assertThat(progress.get(1).getAchieved()).isNull();
+    }
+
+    @Test
     @DisplayName("SCREEN_TIME/TIME_WINDOW 보고값이 목표 초과 → achieved=false")
     void getChallengesWindowScreenTimeOverGoalIsNotAchieved() {
         // given: 목표 100분 창인데 120분 보고
@@ -763,6 +823,7 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = windowChallenge(group, MissionCategory.SCREEN_TIME);
         givenGroupWithTwoMembers(group, user, challenge);
         givenWindowDetail(100);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
         given(groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(List.of(CHALLENGE_ID), TODAY))
                 .willReturn(List.of(GroupChallengeMember.builder()
                         .groupChallenge(challenge)
@@ -796,7 +857,7 @@ class GroupChallengeServiceTest {
         // then: 진행률도 창 집계도 하지 않는다
         assertThat(result.get(0).getMemberProgress()).isNull();
         assertThat(result.get(0).getDurationMinutes()).isNull();
-        verify(windowFocusAggregator, never()).focusMinutesWithin(any(), any(), any());
+        verify(windowFocusAggregator, never()).focusMinutesWithin(any(), any(), any(), any());
         verify(groupChallengeMemberRepository, never()).findByGroupChallengeIdInAndUsageDate(any(), any());
     }
 
@@ -819,7 +880,7 @@ class GroupChallengeServiceTest {
 
         // then: 끝난 챌린지에 당일 통계를 대조하면 과거 진행률이 매일 바뀌므로 계산 자체를 하지 않는다
         assertThat(result.get(0).getMemberProgress()).isNull();
-        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyFocusStatRepository, never()).findByUserIdInAndDate(any(), any());
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
 
@@ -843,7 +904,7 @@ class GroupChallengeServiceTest {
         // then
         assertThat(result.get(0).getMemberProgress()).isNull();
         verify(groupMemberRepository, never()).findByGroup(group);
-        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyFocusStatRepository, never()).findByUserIdInAndDate(any(), any());
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
 

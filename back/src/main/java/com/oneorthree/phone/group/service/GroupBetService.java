@@ -649,14 +649,11 @@ public class GroupBetService {
     }
 
     /**
-     * 회차 스냅샷 기반 판정 대상 — 참가 가드·창 마감 검사가 챌린지 CTI 를 다시 읽되, 목표분은
-     * 회차 박제값(GROMO-1263)으로 덮는다(챌린지 목표가 이후 바뀌어도 이 회차의 기준은 불변).
+     * 회차 스냅샷 기반 판정 대상 — 참가 가드·창 마감 검사가 <b>정산과 같은 커널·같은 박제값</b>을
+     * 본다(GROMO-1263 · GROMO-1280). 챌린지가 이후 바뀌거나 삭제돼도 이 회차의 기준은 불변이다.
      */
     private GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
-        return groupBetJudge.resolve(session.getChallenge())
-                .map(t -> session.getGoalMinutes() == null
-                        ? t
-                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()))
+        return groupBetJudge.ofSession(session)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
     }
 
@@ -731,6 +728,12 @@ public class GroupBetService {
      *   <li><b>SCREEN_TIME</b>: 이미 목표를 초과해 패배가 확정된 유저를 거절
      *       ({@code BET_ALREADY_FAILED}) — 질 게 정해진 참가비 투입 방지</li>
      * </ul>
+     *
+     * <p><b>여기서 막지 않는 것 — 측정 권한 없는 SCREEN_TIME 참여(N50, GROMO-1409)</b>. 판정 커널이
+     * 권한 없는 유저를 미계측으로 보므로(GROMO-1280) 그런 유저는 이 가드를 <b>항상 통과</b>하고
+     * 정산에서 FR-21 로 확정 패배한다. 권한 확인·전용 에러
+     * ({@code BET_SCREENTIME_PERMISSION_REQUIRED})는 참여 가드 티켓의 몫이라 여기서 임의 코드로
+     * 대신 막지 않는다 — 그 티켓이 들어오기 전까지 남는 알려진 구멍이다.
      */
     private void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
         Integer minutes = groupBetJudge.progressMinutes(target, date, List.of(user)).get(user.getId());

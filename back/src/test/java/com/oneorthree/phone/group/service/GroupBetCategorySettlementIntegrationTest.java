@@ -30,8 +30,10 @@ import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,6 +92,8 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     UserRepository userRepository;
     @Autowired
     UserWalletRepository userWalletRepository;
+    @Autowired
+    UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int GOAL_MINUTES = 120;
@@ -142,6 +146,8 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         });
         groupChallengeRepository.deleteAll(challenges);
         users.forEach(u -> userWalletRepository.findById(u.getId()).ifPresent(userWalletRepository::delete));
+        users.forEach(u -> userScreenTimeSettingsRepository.findById(u.getId())
+                .ifPresent(userScreenTimeSettingsRepository::delete));
         userRepository.deleteAll(users);
         groupRepository.delete(group);
 
@@ -158,9 +164,22 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     // ── 픽스처 ──────────────────────────────────────────────────────────
 
     private User stakedUser(String nickname) {
+        return stakedUser(nickname, true);
+    }
+
+    /**
+     * 참가비를 이미 낸 참가자. {@code screenTimePermissionGranted} 가 SCREEN_TIME 판정의 전제다
+     * (GROMO-1280) — 권한이 없으면 커널이 그 유저를 미계측으로 보고, 정산은 FR-21 대로 미달성으로
+     * 닫는다. 카드가 "—" 로 그리는 상태와 정확히 같은 답이다.
+     */
+    private User stakedUser(String nickname, boolean screenTimePermissionGranted) {
         User user = userRepository.save(User.builder().nickname(nickname).isGuest(false).build());
         userWalletRepository.save(UserWallet.builder()
                 .userId(user.getId()).balance(BALANCE_AFTER_STAKE).build());
+        userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
+                .userId(user.getId())
+                .screenTimePermissionGranted(screenTimePermissionGranted)
+                .build());
         users.add(user);
         return user;
     }

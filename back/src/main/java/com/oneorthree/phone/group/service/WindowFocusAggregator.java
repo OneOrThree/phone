@@ -59,11 +59,23 @@ public class WindowFocusAggregator {
      */
     public Map<UUID, Integer> focusMinutesWithin(Collection<UUID> userIds, LocalDate date,
             GroupChallengeWindow window) {
+        return focusMinutesWithin(userIds, date,
+                timeOfDay(window.getWindowStartAt()), timeOfDay(window.getWindowEndAt()));
+    }
+
+    /**
+     * 벽시계 창 시각으로 직접 집계하는 판(GROMO-1280) — 판정 커널({@link GroupBetJudge})이 <b>회차
+     * 스냅샷의 창 시각</b>으로 부른다. 챌린지 CTI 행이 사라져도 회차 판정이 성립해야 하기 때문에,
+     * 집계 입구는 엔티티가 아니라 시각을 받는 쪽이 정본이다.
+     */
+    public Map<UUID, Integer> focusMinutesWithin(Collection<UUID> userIds, LocalDate date,
+            LocalTime windowStart, LocalTime windowEnd) {
         if (userIds.isEmpty()) {
             return Map.of();
         }
         return focusSessionRepository
-                .sumOverlapSecondsInWindow(userIds, windowStartOn(date, window), windowEndOn(date, window))
+                .sumOverlapSecondsInWindow(userIds,
+                        windowStartOn(date, windowStart), windowEndOn(date, windowStart, windowEnd))
                 .stream()
                 .collect(Collectors.toMap(
                         FocusSessionRepository.WindowFocusOverlap::getUserId,
@@ -77,15 +89,27 @@ public class WindowFocusAggregator {
 
     /** 날짜 D 의 창 시작 Instant — D(KST) + 시작 시각. */
     public Instant windowStartOn(LocalDate date, GroupChallengeWindow window) {
-        return date.atTime(timeOfDay(window.getWindowStartAt())).atZone(KST).toInstant();
+        return windowStartOn(date, timeOfDay(window.getWindowStartAt()));
     }
 
     /** 날짜 D 의 창 종료 Instant — 시작 < 종료면 D, 아니면(자정 걸침) D+1 의 종료 시각. */
     public Instant windowEndOn(LocalDate date, GroupChallengeWindow window) {
-        LocalTime start = timeOfDay(window.getWindowStartAt());
-        LocalTime end = timeOfDay(window.getWindowEndAt());
-        LocalDate endDate = start.isBefore(end) ? date : date.plusDays(1);
-        return endDate.atTime(end).atZone(KST).toInstant();
+        return windowEndOn(date, timeOfDay(window.getWindowStartAt()), timeOfDay(window.getWindowEndAt()));
+    }
+
+    /**
+     * 날짜 D 의 창 시작 Instant — 벽시계 시각 입력판. 창 시각 → Instant 변환은 <b>여기와
+     * {@link #windowEndOn(LocalDate, LocalTime, LocalTime)} 둘뿐</b>이다(GROMO-1280): 정산 대기
+     * 가드·개설 시각 박제·마감 판정이 저마다 KST 산술을 다시 쓰면 자정 걸침 처리가 조용히 갈라진다.
+     */
+    public static Instant windowStartOn(LocalDate date, LocalTime windowStart) {
+        return date.atTime(windowStart).atZone(KST).toInstant();
+    }
+
+    /** 날짜 D 의 창 종료 Instant — 벽시계 시각 입력판(시작 ≥ 종료면 자정 걸침 창이라 D+1 종료). */
+    public static Instant windowEndOn(LocalDate date, LocalTime windowStart, LocalTime windowEnd) {
+        LocalDate endDate = windowStart.isBefore(windowEnd) ? date : date.plusDays(1);
+        return endDate.atTime(windowEnd).atZone(KST).toInstant();
     }
 
     /**
