@@ -7,7 +7,7 @@
 //
 // 캡처 폭 = 카드 폭(화면 안)이라 화면 밖으로 안 넓혀 잘림이 없다. 캡처 직후 chrome을 즉시 원복해
 // 공유 시트가 떠 있는 동안 카드가 변형된 채 남지 않게 한다(PR 386 리뷰와 동일 취지).
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Share, Platform, type ViewStyle } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useMotion } from '@/hooks/useMotion';
@@ -93,6 +93,25 @@ export function useTimetableShareCapture({
   // ⚠️ deps는 빈 배열을 유지해야 한다 — WeeklyTimetable/FocusTimetable의 useFocusEffect가
   //    onLoaded를 의존성으로 잡고 있어, 참조가 바뀌면 재조회 루프가 된다.
   const loadedAtRef = useRef(0);
+  // ⚠️ 진입은 '동작 줄이기'가 **확정된 뒤에야** 시작한다(m.enter가 그전까지 시작 프레임에
+  //    붙들어 둔다). 그래서 마감 시각의 기준은 데이터 도착과 확정 시각 중 **늦은 쪽**이다.
+  //    도착 시각만 쓰면 확정이 늦은 콜드 스타트에서 대기가 그만큼 짧아져 중간 프레임이 찍힌다.
+  const readyAtRef = useRef<number | null>(null);
+  // ⚠️ onShare는 비동기라 await 이전 렌더의 m을 계속 붙들고 있다. 미확정 당시의 m.delay는
+  //    0을 돌려주므로, 확정된 뒤에는 **ref로 최신 함수**를 읽어야 한다(codex 리뷰).
+  const delayRef = useRef(m.delay);
+  delayRef.current = m.delay;
+  // 확정된 시각을 한 번만 기록한다. 이미 확정돼 있었다면 마운트 시점이 곧 그 시각이라,
+  // loadedAt보다 이르므로 아래 max()에서 자연히 무시된다.
+  useEffect(() => {
+    let alive = true;
+    whenReduceMotionReady().then(() => {
+      if (alive && readyAtRef.current === null) readyAtRef.current = Date.now();
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const enterCountRef = useRef(0);
   const onLoaded = useCallback((animatedCount = 0) => {
     // ⚠️ 조건은 "처음 왔는가"가 아니라 오직 **"진입할 노드가 늘었는가"** 다.
@@ -140,7 +159,13 @@ export function useTimetableShareCapture({
       //       m.delay를 0으로 만들어 대기를 통째로 건너뛴다 — 설정을 켜지 않은 사용자의
       //       진입 애니메이션이 도는 중에 캡처가 찍힌다(결정 D-30).
       await whenReduceMotionReady();
-      await waitUntil(loadedAtRef.current + m.delay(enterMs));
+      // ⚠️ loadedAt 0은 "기다릴 진입이 아예 없다"는 **센티넬**이다(기록 없는 주 등).
+      //    거기에 확정 시각을 끼워 넣으면 아무것도 자라지 않는 화면에서 1초 넘게 붙잡는다.
+      const startedAt =
+        loadedAtRef.current > 0
+          ? Math.max(loadedAtRef.current, readyAtRef.current ?? loadedAtRef.current)
+          : 0;
+      await waitUntil(startedAt + delayRef.current(enterMs));
       // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지.
       //    ⚠️ 게이트를 **chrome을 붙이기 전에 등록**한다. 등록 전에 이미지 onLoad가 오면 신호를
       //       잃고 CHAR_READY_TIMEOUT(1.5초)을 통째로 기다리게 된다.
@@ -172,7 +197,7 @@ export function useTimetableShareCapture({
       setCapturing(false);
       setSharing(false);
     }
-  }, [sharing, waitCharReady, makeFileName, card, m, enterMs]);
+  }, [sharing, waitCharReady, makeFileName, card, enterMs]);
 
   return {
     shotRef,

@@ -82,7 +82,7 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
             height={CHART_H + DOT_PAD * 2}
             // 바닥(0)에서 값만큼 자라 오른다 — 분량 축이라 바닥이 실제로 0인 차트에만 맞는
             // 연출이다. enterUp(translateY·350ms)이 아니라 growUp(scaleY·800ms·오버슛)을 쓴다.
-            style={[s.lineSvg, mo.css(growUp())]}
+            style={[s.lineSvg, mo.enter(growUp())]}
           >
             <Polyline
               points={pts.map((p) => `${p.x + DOT_PAD},${p.y + DOT_PAD}`).join(' ')}
@@ -263,7 +263,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
               // ⚠️ 여기만 growUp이 아니다. 이 차트의 세로축은 **시각**이라 바닥이 0이 아니다
               // (axisMin은 데이터에서 정해진다). 바닥부터 자라게 하면 "0에서 이만큼 커졌다"는
               // 뜻이 되어 값의 의미를 왜곡한다 — 이동 없이 불투명도만 쓰는 fadeIn을 고른다.
-              style={[s.lineSvg, mo.css(fadeIn())]}
+              style={[s.lineSvg, mo.enter(fadeIn())]}
             >
               {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
               {pts.map((p, i) => (

@@ -295,7 +295,7 @@ export function CalendarCard({
           {/* 행 단위 시차 진입 — 캘린더는 값 축이 없는 격자라 growUp(바닥부터 자라는 막대)이
               표현할 '자라는 값'이 없다. 위→아래로 한 행씩 드러나는 fadeIn 시차를 쓴다. */}
           {rows.map((row, ri) => (
-            <Animated.View key={ri} style={[s.row, mo.css(fadeIn(mo.stagger(ri)))]}>
+            <Animated.View key={ri} style={[s.row, mo.enter(fadeIn(mo.stagger(ri)))]}>
               {row.map((date, ci) => renderCell(date, ri * 7 + ci))}
             </Animated.View>
           ))}
