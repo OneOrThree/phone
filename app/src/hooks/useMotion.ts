@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import {
   withSpring,
   withTiming,
@@ -83,6 +83,15 @@ export type Motion = {
 export function useMotion(): Motion {
   const reduce = useReduceMotion();
   const ready = useReduceMotionReady();
+  // ⚠️ 진입 여부는 **컴포넌트 인스턴스 단위로 한 번** 정하고 얼린다.
+  //    확정된 뒤(reduce=true) 사용자가 설정을 끄면, 이미 보이던 같은 노드에 진입 스타일이
+  //    새로 붙어 요소가 opacity 0(또는 scale 0)으로 사라졌다가 다시 나타난다(codex 리뷰).
+  //    양쪽 다 얼린다 — 한쪽만 얼리면 반대 방향 토글에서 같은 사고가 난다.
+  //    새로 마운트되는 요소가 최신 설정을 따르게 하려면 **그 요소를 자기 컴포넌트로 빼면** 된다.
+  //    그때 useMotion이 새로 호출되며 그 시점 설정으로 다시 정한다.
+  //    null=미확정 · false=생략 확정 · true=연출 확정
+  const enterDecided = useRef<boolean | null>(null);
+  if (enterDecided.current === null && ready) enterDecided.current = !reduce;
 
   return useMemo<Motion>(
     () => ({
@@ -96,11 +105,21 @@ export function useMotion(): Motion {
       spring: (to, cfg) => (reduce ? to : withSpring(to, { ...cfg, reduceMotion: M.never })),
       css: (style) => (reduce ? undefined : style),
       enter: (style) => {
-        if (ready) return reduce ? undefined : style;
-        const frames = style.animationName;
-        return typeof frames === 'object' && frames !== null && 'from' in frames
-          ? (frames as { from: ViewStyle }).from
-          : undefined;
+        // 미확정 — 시작 프레임에서 기다린다.
+        if (enterDecided.current === null) {
+          const frames = style.animationName;
+          return typeof frames === 'object' && frames !== null && 'from' in frames
+            ? (frames as { from: ViewStyle }).from
+            : undefined;
+        }
+        // 확정된 뒤에는 **그 결정을 끝까지 지킨다.** 지금 설정을 다시 보면, 켬→끔을 왕복할 때
+        // 이미 진입을 마친 노드에 스타일이 다시 붙어 시작 상태로 사라졌다 나타난다(codex 리뷰).
+        // 켜져 있는 동안 스타일이 남아 있어도 참조가 그대로라 재생되지 않는다 — 붙었다 떨어지는
+        // 것 자체가 사고다.
+        // ⚠️ 그래서 **결정 경계 = 컴포넌트 마운트**가 계약이다. 새로 마운트되는 요소가 그 시점
+        //    설정을 따라야 하면 그 요소를 **자기 컴포넌트로 빼야 한다**(키로 remount되는 요소도
+        //    마찬가지다 — 부모의 useMotion은 remount되지 않는다).
+        return enterDecided.current ? style : undefined;
       },
       delay: (ms) => (reduce ? 0 : ms),
       stagger: (index, step) => (reduce ? 0 : staggerDelay(index, step)),

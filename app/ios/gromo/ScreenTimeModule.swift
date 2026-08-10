@@ -524,12 +524,22 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다. 즉시 풀면 JS가 아직 떠 있는 네이티브 모달
+                    //    아래에서 토스트 등장과 2200ms 노출 타이머를 시작해, 사용자는 모달이 사라진 뒤
+                    //    토스트가 갑자기 나타나는 데다 실제 노출 시간도 짧아진다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count,
+                            // ⚠️ JS가 **이 바이너리가 dismiss 완료 뒤에 resolve하는지** 판별하는
+                            //    표식. hot-updater로 새 JS만 받은 구 바이너리는 이 키가 없어
+                            //    undefined이고, 그쪽은 아직 모달이 떠 있는 채로 resolve하므로
+                            //    등장 연출이 있는 UI(토스트)를 쓰면 안 된다(codex 리뷰).
+                            //    새 메서드를 추가하는 대신 응답으로 알리면 능력 판별 왕복이 없다.
+                            "dismissed": true
+                        ])
+                    }
                 }
             )
 
