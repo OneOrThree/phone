@@ -13,6 +13,7 @@
 import { act, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { CoinProvider, useCoins } from './CoinContext';
+import { requestCoinRefresh } from './coinRefreshSignal';
 import { api } from '@/services/api';
 
 jest.mock('@/services/api', () => ({ api: { get: jest.fn(), post: jest.fn() } }));
@@ -239,6 +240,28 @@ describe('refresh', () => {
       result = await refreshFn();
     });
     expect(result).toBe(false);
+  });
+});
+
+// 트리 밖(푸시 딥링크)에서 올라오는 재조회 신호 — codex 리뷰 P2.
+// 환불 푸시(BET_VOID_REFUND)로 앱에 들어오면 잔액만 바뀌고 화면에 걸리는 사건이 없다:
+// 삭제된 챌린지는 결과 모달 대상에서 빠지고 챌린지 목록에도 안 남아, 이 신호가 없으면
+// 환불 전 잔액이 앱이 살아 있는 내내 그대로 남는다. refreshCoins는 훅이라 서비스 파일에서
+// 직접 부를 수 없으므로, 신호를 받는 쪽(Provider)이 실제 조회를 맡는다.
+describe('잔액 재조회 신호', () => {
+  test('requestCoinRefresh가 오면 서버 잔액을 다시 받는다', async () => {
+    mockGet.mockResolvedValueOnce({ data: 500 } as never);
+    await renderProvider();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+
+    // 서버가 환불로 잔액을 올렸다 — 앱은 다시 받아야만 알 수 있다.
+    mockGet.mockResolvedValueOnce({ data: 800 } as never);
+    await act(async () => {
+      requestCoinRefresh();
+    });
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('coins')).toHaveTextContent('800');
   });
 });
 

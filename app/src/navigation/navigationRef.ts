@@ -6,6 +6,7 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -114,10 +115,14 @@ export function navigateToDeepLink(link: string): void {
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
-      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}][&result=1]) — 먼저
-      // 그룹 탭으로 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
+      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}][&result=1][&refund=1]) —
+      // 먼저 그룹 탭으로 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
       // challenge가 실려 있으면 그룹방이 그 챌린지의 결과 모달을 자동으로 연다(GROMO-1088).
       // result=1(결과성 푸시 — push.ts가 합성)은 멤버십 게이트를 우회한다(아래 pushGroupRoom).
+      // refund=1(환불 푸시)은 잔액 재조회를 요청한다 — 삭제 환불은 결과 모달에서 빠지고 챌린지
+      // 목록에도 안 남아, 이 표식이 없으면 화면 어느 경로도 잔액을 다시 받지 않는다(codex 리뷰 P2).
+      // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
+      if (readRefundFlag(link)) requestCoinRefresh();
       navigateToGroup(seq, readGroupParam(link), readChallengeParam(link), readResultFlag(link));
       break;
     case 'friends':
@@ -157,6 +162,14 @@ function readChallengeParam(link: string): string | null {
 // 멤버십 게이트를 우회한다.
 function readResultFlag(link: string): boolean {
   return /[?&]result=1(?=[&#]|$)/i.test(link);
+}
+
+// 환불 푸시 표식(refund=1 — push.ts REFUND_PUSH_TYPES가 합성) — 이 링크로 열린 진입에서
+// 잔액을 다시 받는다. 삭제 환불은 결과 모달 대상에서 제외되고(challengeResult.ts의
+// voidReason 필터) 그룹의 챌린지 목록에서도 사라져, GroupRoomScreen의 refreshCoins 경로가
+// 하나도 발화하지 않는다 — 환불 전 잔액이 앱이 살아 있는 내내 남는다(codex 리뷰 P2).
+function readRefundFlag(link: string): boolean {
+  return /[?&]refund=1(?=[&#]|$)/i.test(link);
 }
 
 // 그룹 푸시의 그룹 화면 진입 — GroupScreen의 목록 카드 탭(onSelectGroup)과 **같은 분기**를 쓴다:

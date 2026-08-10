@@ -45,6 +45,38 @@ async function writeQueue(queue: PendingFocusUpload[]): Promise<void> {
   else await AsyncStorage.setItem(STORAGE_KEYS.focusPendingUploads, JSON.stringify(queue));
 }
 
+// ── 백그라운드 커밋 마커(codex 리뷰 P2) ────────────────────────────────────────────
+// 사일런트 푸시로 깨어난 백그라운드 flush(services/pushBackground.runSilentFlush)가 실제로
+// 저장을 커밋하면 **서버 잔액이 바뀌고 큐에서 항목이 빠진다**. 그런데 포그라운드로 돌아온
+// PendingFocusUploader는 이미 비어 버린 큐를 flush 하므로 committed=false를 받고 잔액을
+// 다시 받지 않는다 — CoinContext는 마운트 때만 자동 조회하니 사용자는 낡은 잔액을 계속 보고,
+// 상점의 클라이언트 선행 검사(coins < price)에서 방금 번 코인을 쓰지 못한다.
+// 백그라운드는 React 트리가 없어 refreshCoins(useCoins 훅)를 부를 수 없으므로, **커밋 사실만**
+// AsyncStorage에 남겨(앱이 그 사이 종료돼도 살아남는다) 다음 포그라운드 flush가 이어받게 한다.
+//
+// 값은 계정 없는 단순 플래그다 — 잔액 재조회는 '지금 로그인한 계정의 잔액을 다시 받는' 동작이라
+// 남의 마커를 소비해 한 번 더 조회해도 무해하고(서버 재조회일 뿐), 놓치는 쪽이 더 나쁘다.
+export async function markBackgroundFocusCommit(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEYS.focusBackgroundCommit, '1');
+  } catch {
+    // 마커 저장 실패는 삼킨다 — 백그라운드라 알릴 곳이 없고, 다음 커밋이 다시 남긴다.
+  }
+}
+
+// 마커를 읽고 **지운다**(1회 소비). true면 호출자가 잔액을 다시 받아야 한다.
+// 삭제가 실패하면 false를 반환해 마커를 남긴다 — 다음 flush가 다시 소비한다(중복 조회 무해).
+export async function consumeBackgroundFocusCommit(): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit);
+    if (raw !== '1') return false;
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusBackgroundCommit);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // 업로드 실패한 세션을 대기열에 추가. userId는 적립한 계정(useUser().userId).
 export function enqueuePendingFocusUpload(
   body: FocusSessionRequest,

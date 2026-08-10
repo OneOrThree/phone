@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
   focusPendingUploads: 'gromo:focus:pendingUploads', // 업로드 실패한 집중 세션 재시도 대기열
   focusPendingCancels: 'gromo:focus:pendingCancels', // 취소 실패한 라이브 마커 id 재시도 대기열(GROMO-1214)
+  focusBackgroundCommit: 'gromo:focus:backgroundCommit', // 백그라운드 flush가 실제로 저장을 커밋했다는 마커('1') — 포그라운드 복귀 시 잔액 재조회 예약
   focusGoalCelebratedDate: 'gromo:focus:goalCelebratedDate', // 목표 달성 축하 모달을 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-630)
   focusGoalCelebratePending: 'gromo:focus:goalCelebratePending', // 결과 화면이 예약한 축하 {date,days} — 홈 진입 시 노출(GROMO-630)
   focusWeekStreakCelebratedWeek: 'gromo:focus:weekCelebratedWeek', // 주간 스트릭 완성 축하를 띄운 주(월요일 YYYY-MM-DD) — 주 1회(GROMO-667)

@@ -8,7 +8,10 @@
 // onMessage)도 같은 flush 본체를 공유한다.
 import messaging from '@react-native-firebase/messaging';
 import { getFreshAccessToken, getUserIdFromToken } from '@/services/api';
-import { flushPendingFocusUploads } from '@/screens/focus/pendingFocusUploads';
+import {
+  flushPendingFocusUploads,
+  markBackgroundFocusCommit,
+} from '@/screens/focus/pendingFocusUploads';
 import { syncWindowUsage } from '@/services/screentimeSync';
 
 // 이 메시지가 flush 트리거인가 — 계약 키는 data.silent === 'flush'(LLD §6.2 배선 스케치).
@@ -30,7 +33,12 @@ export async function runSilentFlush(): Promise<void> {
     const userId = token ? getUserIdFromToken(token) : null;
     if (!userId) return; // 게스트·로그아웃 — flush할 계정 큐가 없다
     await syncWindowUsage(userId).catch(() => {});
-    await flushPendingFocusUploads(userId).catch(() => {});
+    // 반환값(committed)을 버리지 않는다(codex 리뷰 P2) — 백그라운드에서 커밋된 저장은 서버
+    // 잔액을 바꾸고 큐를 비우므로, 포그라운드 복귀 시 PendingFocusUploader가 flush 결과만
+    // 보면 '커밋 없음(빈 큐)'으로 읽어 잔액을 영영 다시 받지 않는다. 여기선 refreshCoins
+    // (useCoins 훅)를 부를 수 없으니 커밋 사실만 마커로 남겨 복귀 시점에 이어받게 한다.
+    const committed = await flushPendingFocusUploads(userId).catch(() => false);
+    if (committed) await markBackgroundFocusCommit();
   } catch {
     // 토큰 조회 실패 포함 — 백그라운드라 알릴 곳이 없다. 포그라운드 sync가 흡수한다.
   }

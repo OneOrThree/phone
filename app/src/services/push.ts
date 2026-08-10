@@ -63,6 +63,16 @@ const RESULT_PUSH_TYPES = new Set([
   'BET_VOID_REFUND',
 ]);
 
+// 잔액 재조회가 **이 푸시로 열린 경로에서만** 성립하는 타입(codex 리뷰 P2). 삭제 환불은
+// 앱이 살아 있어도 잔액을 갱신할 통로가 하나도 없다: 삭제된 챌린지는 결과 모달 대상에서
+// 빠지고(challengeResult.pickChallengeResults의 voidReason !== 'CHALLENGE_DELETED' 필터,
+// 서버도 /me/challenge-results에서 제외 — FR-44-4) 그룹의 챌린지 목록에도 남지 않아
+// GroupRoomScreen의 결과 모달 경로·settledBetSignature 경로가 둘 다 발화하지 않는다.
+// 그래서 합성 링크에 refund=1 표식을 실어 navigationRef가 잔액 재조회를 태우게 한다
+// (서버 payload 계약은 그대로 — 앱 내부 URL 스킴에만 붙는 표식이다).
+// 다른 결과성 타입은 결과 모달(refreshCoins)·서명 변화가 이미 잡으므로 붙이지 않는다.
+const REFUND_PUSH_TYPES = new Set(['BET_VOID_REFUND']);
+
 // 서버 payload의 data.link(예: 'gromo://league')에서 딥링크 문자열을 뽑는다. link가 없으면
 // 타입별로 합성한다(GROMO-1421, IA §4.2 표와 대조):
 //  · CHALLENGE_SESSION_END + challengeId → 그룹방 + 그 챌린지의 결과 모달 자동 오픈(challenge 파라미터)
@@ -70,7 +80,7 @@ const RESULT_PUSH_TYPES = new Set([
 //    배열이라 특정 챌린지로 보내지 않는다(어느 것을 고를지 서버가 정할 근거가 없다 — IA §4.2)
 //  · BET_VOID_REFUND → 그룹방까지만 — **결과 모달을 띄우지 않는다**(N48). 삭제 환불은 이 푸시가
 //    알리는 사건이라 모달까지 열면 같은 사건 이중 통지가 된다(서버도 /me/challenge-results에서
-//    해당 회차를 제외한다 — FR-44-4)
+//    해당 회차를 제외한다 — FR-44-4). 대신 refund=1을 실어 **잔액만** 다시 받게 한다
 //  · 모르는 타입인데 groupId가 있으면 그룹 탭 폴백(gromo://group — g 없음): 신 타입이 먼저
 //    배포돼도 탭이 무반응·크래시로 끝나지 않게 한다
 function linkFromData(data?: Record<string, unknown>): string | null {
@@ -88,7 +98,9 @@ function linkFromData(data?: Record<string, unknown>): string | null {
       : '';
   // 결과성 타입은 멤버십 게이트 우회 표식을 싣는다(위 RESULT_PUSH_TYPES 주석).
   const resultPart = RESULT_PUSH_TYPES.has(raw) ? '&result=1' : '';
-  return `gromo://group?g=${groupId}${challengePart}${resultPart}`;
+  // 환불 타입은 잔액 재조회 표식을 함께 싣는다(위 REFUND_PUSH_TYPES 주석).
+  const refundPart = REFUND_PUSH_TYPES.has(raw) ? '&refund=1' : '';
+  return `gromo://group?g=${groupId}${challengePart}${resultPart}${refundPart}`;
 }
 
 // 정산 결과/창 종료 푸시 타입(계약 §2 push_opened) — 그 외는 null(이벤트 생략).

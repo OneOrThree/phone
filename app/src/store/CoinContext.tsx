@@ -11,6 +11,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { useUser } from './UserContext';
+import { setCoinRefreshListener } from './coinRefreshSignal';
 import { STORAGE_KEYS } from '@/types/storage';
 
 interface CoinContextValue {
@@ -123,6 +124,16 @@ export function CoinProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // 트리 밖(푸시 딥링크 등)에서 올라온 재조회 요청을 받는다(codex 리뷰 P2) — 환불 푸시처럼
+  // **잔액만 바뀌고 화면에 걸리는 사건이 없는** 경우, 이 배선이 없으면 앱이 살아 있는 내내
+  // 환불 전 잔액이 그대로 남는다(결과 모달·정산 서명 어느 경로에도 걸리지 않는다).
+  useEffect(() => {
+    setCoinRefreshListener(() => {
+      refresh();
+    });
+    return () => setCoinRefreshListener(null);
   }, [refresh]);
 
   // 보유 아이템은 AsyncStorage 유지 (아이템 API 미구현)

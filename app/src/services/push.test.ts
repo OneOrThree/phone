@@ -13,7 +13,10 @@
 import { handleInitialNotification, setupPushListeners } from './push';
 import { registerBackgroundFlushHandler } from './pushBackground';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
-import { flushPendingFocusUploads } from '@/screens/focus/pendingFocusUploads';
+import {
+  flushPendingFocusUploads,
+  markBackgroundFocusCommit,
+} from '@/screens/focus/pendingFocusUploads';
 import { syncWindowUsage } from '@/services/screentimeSync';
 
 jest.mock('@/navigation/navigationRef', () => ({ navigateToDeepLink: jest.fn() }));
@@ -25,6 +28,7 @@ jest.mock('@/services/api', () => ({
 jest.mock('@/services/notificationInbox', () => ({ addToInbox: jest.fn() }));
 jest.mock('@/screens/focus/pendingFocusUploads', () => ({
   flushPendingFocusUploads: jest.fn(async () => false),
+  markBackgroundFocusCommit: jest.fn(async () => {}),
 }));
 jest.mock('@/services/screentimeSync', () => ({
   syncWindowUsage: jest.fn(async () => {}),
@@ -75,6 +79,7 @@ jest.mock('@react-native-firebase/messaging', () => {
 
 const mockNavigateToDeepLink = navigateToDeepLink as jest.MockedFunction<typeof navigateToDeepLink>;
 const mockFlushFocus = flushPendingFocusUploads as jest.Mock;
+const mockMarkBackgroundCommit = markBackgroundFocusCommit as jest.Mock;
 const mockSyncWindow = syncWindowUsage as jest.Mock;
 const { getFreshAccessToken } = jest.requireMock('@/services/api');
 const { scheduleNotificationAsync } = jest.requireMock('expo-notifications');
@@ -96,6 +101,11 @@ function message(data: Record<string, unknown>) {
 beforeEach(() => {
   jest.clearAllMocks();
   getFreshAccessToken.mockResolvedValue('token');
+  // clearAllMocks는 호출 기록만 지운다 — 앞선 테스트가 심은 구현(mockRejectedValue 등)이
+  // 남아 뒤 테스트를 오염시키지 않도록 기본 동작을 매번 되돌린다.
+  mockFlushFocus.mockResolvedValue(false);
+  mockSyncWindow.mockResolvedValue(undefined);
+  mockMarkBackgroundCommit.mockResolvedValue(undefined);
   openedHandler = null;
   messageHandler = null;
   backgroundHandler = null;
@@ -178,7 +188,9 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
 
   // 삭제 환불은 이 푸시가 알리는 사건이다 — 결과 모달까지 열면 같은 사건 이중 통지(N48).
   // challengeId가 실려 와도 challenge 파라미터를 합성하지 않는다.
-  test('BET_VOID_REFUND → 그룹방까지만, 결과 모달을 지목하지 않는다(N48)', () => {
+  // 대신 refund=1을 싣는다(codex 리뷰 P2) — 삭제된 챌린지는 결과 모달 대상에서 빠지고
+  // 챌린지 목록에도 안 남아, 표식이 없으면 잔액을 다시 받을 경로가 하나도 없다.
+  test('BET_VOID_REFUND → 그룹방까지만 + 잔액 재조회 표식(N48 · 이중 통지 금지)', () => {
     setupPushListeners();
     openedHandler?.(
       message({
@@ -189,8 +201,23 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
       }),
     );
 
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(
+      `gromo://group?g=${GROUP_ID}&result=1&refund=1`,
+    );
   });
+
+  // 환불 표식은 환불 타입에만 붙는다 — 다른 결과성 푸시는 결과 모달·정산 서명 경로가 이미
+  // 잔액을 다시 받으므로(GroupRoomScreen), 여기에 표식을 늘리면 같은 일을 두 번 시킨다.
+  test.each(['BET_RESULT', 'BET_WON', 'CHALLENGE_SESSION_END', 'CHALLENGE_CREATED'])(
+    '%s에는 환불 표식(refund)을 싣지 않는다',
+    (type) => {
+      setupPushListeners();
+      openedHandler?.(message({ type, groupId: GROUP_ID }));
+
+      expect(mockNavigateToDeepLink).toHaveBeenCalledTimes(1);
+      expect(mockNavigateToDeepLink.mock.calls[0][0]).not.toContain('refund');
+    },
+  );
 
   test('미지원 타입 + groupId는 그룹 탭 폴백 — 무반응으로 끝나지 않는다', () => {
     setupPushListeners();
@@ -233,6 +260,33 @@ describe('사일런트 flush(data.silent=flush)', () => {
       mockFlushFocus.mock.invocationCallOrder[0],
     );
     expect(mockNavigateToDeepLink).not.toHaveBeenCalled(); // 화면 이동 없음(IA §4.2)
+  });
+
+  // 백그라운드 커밋 → 잔액 갱신 예약(codex 리뷰 P2). 여기서 커밋된 저장은 서버 잔액을 바꾸고
+  // 큐를 비우므로, 사실을 남기지 않으면 포그라운드로 돌아온 PendingFocusUploader가 빈 큐를
+  // flush 하며 '커밋 없음'으로 읽어 잔액을 영영 다시 받지 않는다(낡은 잔액 고착).
+  test('백그라운드 flush가 커밋했으면 잔액 갱신 마커를 남긴다', async () => {
+    mockFlushFocus.mockResolvedValue(true);
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockMarkBackgroundCommit).toHaveBeenCalledTimes(1);
+  });
+
+  test('커밋이 없었으면 마커를 남기지 않는다 — 불필요한 잔액 조회를 만들지 않는다', async () => {
+    mockFlushFocus.mockResolvedValue(false);
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockMarkBackgroundCommit).not.toHaveBeenCalled();
+  });
+
+  test('flush가 던지면 마커도 남기지 않는다(커밋 여부를 모른다)', async () => {
+    mockFlushFocus.mockRejectedValue(new Error('network'));
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockMarkBackgroundCommit).not.toHaveBeenCalled();
   });
 
   test('setupPushListeners는 백그라운드 핸들러를 등록하지 않는다 — index.ts 선등록을 덮으면 안 된다', () => {
