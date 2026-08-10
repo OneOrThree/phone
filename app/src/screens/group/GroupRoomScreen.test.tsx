@@ -24,6 +24,7 @@ import {
   joinBet,
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
+import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import type {
   GroupAnnouncementResponse,
@@ -70,7 +71,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeResultShown: jest.fn(),
   logGroupChallengeResultClosed: jest.fn(),
 }));
-const { logGroupInviteShared, logGroupChallengeResultShown } = jest.requireMock(
+const { logGroupInviteShared, logGroupChallengeResultShown, logGroupRoomViewed } = jest.requireMock(
   '@/services/analyticsEvents',
 );
 
@@ -262,6 +263,7 @@ async function press(label: string) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  resetCardInteractionStateForTest();
   // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
   await AsyncStorage.clear();
   mockFocusEntries.length = 0;
@@ -277,6 +279,66 @@ beforeEach(async () => {
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
     return { remove: jest.fn() } as never;
+  });
+});
+
+describe('카드 CTA 결과 귀속', () => {
+  test('30초 안의 Room 최초 성공만 같은 interaction_id로 한 번 연결한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const acceptedAt = Date.now() - 29_000;
+
+    const { rerender } = await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="11111111-1111-4111-8111-111111111111"
+        interactionAcceptedAt={acceptedAt}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    await act(async () => {
+      rerender(
+        <GroupRoomScreen
+          groupId={GROUP_ID}
+          entrySource="group_card"
+          interactionId="11111111-1111-4111-8111-111111111111"
+          interactionAcceptedAt={acceptedAt}
+          onLeft={onLeft}
+        />,
+      );
+    });
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+  });
+
+  test('30초 초과 성공은 방문 결과를 남기되 interaction_id를 싣지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="22222222-2222-4222-8222-222222222222"
+        interactionAcceptedAt={Date.now() - 30_001}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: undefined,
+    });
   });
 });
 
