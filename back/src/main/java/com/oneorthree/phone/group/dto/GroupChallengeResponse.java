@@ -95,7 +95,11 @@ public class GroupChallengeResponse {
      * <b>오늘을 제외한</b> 다음 활성일의 회차 시작(신앱 카드의 "다음 회차" 축 — GROMO-1418,
      * LLD §2.1). 하루형은 다음 활성일 00:00 KST, 창형은 다음 활성일의 창 시작이다.
      * {@code activeToday} 와 배타가 아니라 보완이다 — 오늘 회차의 축은 {@code bet.session} 이
-     * 담당한다. ACTIVE 챌린지에는 항상 채워지고, 끝난 챌린지(INACTIVE)만 null 이다.
+     * 담당한다. 끝난 챌린지(INACTIVE)는 null 이고, ACTIVE 는 <b>거의 항상</b> 채워진다 —
+     * 예외는 <b>창형인데 창 상세가 없는</b> 경우 하나뿐이다. 시작 시각을 모르면 다음 회차를
+     * 계산할 수 없어 {@code GroupBetService#loadNextSessions} 가 그 챌린지를 건너뛴다
+     * (하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다). CTI 상 정상 데이터에서는
+     * 발생하지 않지만, 앱이 「null == INACTIVE」로 단정하면 그 한 경우에 어긋난다.
      *
      * <p>요일 반복(B1, GROMO-1260)은 배선이 끝났다 — {@code GroupBetService#repeatDaysOf} 가
      * 챌린지의 {@code repeatDays} 마스크를 넘기고 {@code RepeatSchedule#next} 가 그중 다음
