@@ -96,8 +96,8 @@ describe('카드 렌더', () => {
     await renderList([group()]);
 
     await act(async () => {
-      fireEvent(screen.getByTestId(`group.card.front.${GROUP_ID}`), 'layout', {
-        nativeEvent: { layout: { height: 620 } },
+      fireEvent(screen.getByTestId(`group.card.front.measure.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { height: 280 } },
       });
     });
 
@@ -106,8 +106,8 @@ describe('카드 렌더', () => {
     });
 
     await act(async () => {
-      fireEvent(screen.getByTestId(`group.card.front.${GROUP_ID}`), 'layout', {
-        nativeEvent: { layout: { height: 540 } },
+      fireEvent(screen.getByTestId(`group.card.front.measure.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { height: 200 } },
       });
     });
     expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
@@ -211,6 +211,11 @@ describe('콜백', () => {
   test('접근성 이름은 화면에 보이는 소개 원문도 포함한다', async () => {
     await renderList([group({ description: '매일 아침 함께 집중해요' })]);
     expect(screen.getByLabelText(/매일 아침 함께 집중해요/)).toBeOnTheScreen();
+  });
+
+  test('접근성 이름은 이모티콘의 읽을 수 있는 이름을 포함한다', async () => {
+    await renderList([group()]);
+    expect(screen.getByLabelText(/목표 아이콘/)).toBeOnTheScreen();
   });
 
   test('활성 카드만 접근성 트리에 남긴다', async () => {

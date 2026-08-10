@@ -4,6 +4,21 @@ import type { Ref } from 'react';
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
+const EMOJI_ACCESSIBILITY_NAMES: Readonly<Record<string, string>> = {
+  '🌅': '일출',
+  '📚': '책',
+  '💻': '노트북',
+  '⚡': '번개',
+  '🧘': '명상',
+  '🎨': '팔레트',
+  '🏃': '달리기',
+  '✍️': '쓰기',
+  '🧠': '두뇌',
+  '🎯': '목표',
+  '🌿': '잎',
+  '🔥': '불꽃',
+};
+
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
@@ -27,13 +42,10 @@ export function GroupCardFront({
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
   const descriptionLabel = group.description ? `, ${group.description}` : '';
+  const emojiLabel = EMOJI_ACCESSIBILITY_NAMES[emoji] ?? '사용자 선택';
 
   return (
-    <View
-      style={[s.root, { minHeight }]}
-      onLayout={(event) => onHeightChange?.(event.nativeEvent.layout.height)}
-      testID={`group.card.front.${group.groupId}`}
-    >
+    <View style={[s.root, { minHeight }]} testID={`group.card.front.${group.groupId}`}>
       <View
         style={s.grip}
         pointerEvents="none"
@@ -50,7 +62,7 @@ export function GroupCardFront({
         accessibilityRole="button"
         accessibilityState={{ expanded: false }}
         nativeID={`group.card.disclosure.${group.groupId}`}
-        accessibilityLabel={`${group.name}${descriptionLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, ${pageIndex + 1} / ${pageCount}`}
+        accessibilityLabel={`${group.name}${descriptionLabel}, ${emojiLabel} 아이콘, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, ${pageIndex + 1} / ${pageCount}`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >
@@ -73,7 +85,13 @@ export function GroupCardFront({
         </View>
 
         <View style={s.info}>
-          <View style={s.infoInner}>
+          <View
+            style={s.infoInner}
+            onLayout={(event) =>
+              onHeightChange?.(Math.max(520, 340 + event.nativeEvent.layout.height))
+            }
+            testID={`group.card.front.measure.${group.groupId}`}
+          >
             <View style={s.nameRow}>
               <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
                 {group.name}
@@ -191,7 +209,6 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
   },
   infoInner: {
-    flex: 1,
     width: '76%',
     alignSelf: 'center',
     paddingHorizontal: T.space.sm,
@@ -213,7 +230,7 @@ const s = StyleSheet.create({
   ownerText: { ...T.text.caption, color: T.accentDeep },
   desc: { ...T.text.body, color: T.inkSub },
   footer: {
-    marginTop: 'auto',
+    marginTop: T.space.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

@@ -56,6 +56,25 @@ describe('PageIndicator', () => {
     expect(screen.getByLabelText('현재 11, 전체 12 페이지')).toBeOnTheScreen();
   });
 
+  test('counter는 접근성 증감 동작으로 페이지를 이동한다', async () => {
+    const onSelectPage = jest.fn();
+    await render(
+      <PageIndicator
+        pageLabels={['아침 집중방', '저녁 스터디', '그룹 찾기']}
+        activeIndex={1}
+        onSelectPage={onSelectPage}
+      />,
+    );
+    const counter = screen.getByTestId('group.deck.indicator.counter');
+    expect(counter.props.accessibilityRole).toBe('adjustable');
+    await act(async () => {
+      fireEvent(counter, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
+      fireEvent(counter, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
+    });
+    expect(onSelectPage).toHaveBeenNthCalledWith(1, 2);
+    expect(onSelectPage).toHaveBeenNthCalledWith(2, 0);
+  });
+
   test('dot 접근성 이름은 그룹명과 현재/전체 위치를 함께 제공한다', () => {
     expect(pageAccessibilityLabel('아침 집중방', 0, 3)).toBe('아침 집중방, 1 / 3');
   });

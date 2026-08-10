@@ -55,6 +55,14 @@ export function PageIndicator({
   const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
 
+  const moveCounter = useCallback(
+    (delta: -1 | 1) => {
+      const next = Math.max(0, Math.min(activeIndex + delta, pageCount - 1));
+      if (next !== activeIndex) onSelectPage(next);
+    },
+    [activeIndex, onSelectPage, pageCount],
+  );
+
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const next = event.nativeEvent.layout.width;
     setMeasuredWidth((current) => (current === next ? current : next));
@@ -117,8 +125,23 @@ export function PageIndicator({
           ref={counterRef}
           style={s.counterHit}
           accessible
-          accessibilityRole="text"
+          accessibilityRole="adjustable"
           accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityHint="위아래로 쓸어 페이지를 이동합니다"
+          accessibilityValue={{
+            min: 1,
+            max: pageCount,
+            now: activeIndex + 1,
+            text: `${activeIndex + 1} / ${pageCount}`,
+          }}
+          accessibilityActions={[
+            { name: 'increment', label: '다음 페이지' },
+            { name: 'decrement', label: '이전 페이지' },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') moveCounter(1);
+            if (event.nativeEvent.actionName === 'decrement') moveCounter(-1);
+          }}
           onFocus={() => {
             setFocusWithin(true);
           }}
