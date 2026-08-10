@@ -2,10 +2,10 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -34,11 +34,11 @@ import java.util.stream.Collectors;
  * <p>정산 배치는 01:00(FOCUS)·12:00(SCREEN_TIME) 에 돌지만 발송은 두 번으로 나눈다. 01:00 발송은
  * quiet hours(기본 23–07) 한복판이고, 13:00 은 12:00 정산분을 커버하기 위한 것이다. 두 크론이 같은
  * 정산분을 훑어도 무해하다 — 발송 여부의 단일 소스는 {@link NotificationSentLog} dedup
- * (type={@code BET_RESULT}, target_user_id={@code betId})이고, 실제로 발송이 성사된 건만 기록하기
+ * (type={@code BET_RESULT}, target_user_id={@code sessionId})이고, 실제로 발송이 성사된 건만 기록하기
  * 때문에 앞선 실행에서 못 나간 건은 뒤 실행이 자연스럽게 재시도한다.
  *
- * <p>대상 상태는 (SETTLED, FORFEITED) 뿐이다. CANCELED 는 "결과" 가 아니라 없던 일이라 알리지 않고,
- * REFUNDED 는 몰수 룰 도입 이후 정산이 만들지 않는 레거시 상태다.
+ * <p>대상 상태는 (SETTLED, FORFEITED) 뿐이다. UNUSED(참가자 0명 종료)는 알릴 대상 자체가 없고(N52),
+ * VOIDED·REFUNDED 환불 통지는 BET_VOID_REFUND 푸시(B4·N48)의 몫이다.
  */
 @Slf4j
 @Service
@@ -64,7 +64,7 @@ public class BetResultNotificationService {
     private static final List<GroupBetStatus> RESULT_STATUSES =
             List.of(GroupBetStatus.SETTLED, GroupBetStatus.FORFEITED);
 
-    private final GroupChallengeBetRepository groupChallengeBetRepository;
+    private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final UserNotificationSettingsRepository userNotificationSettingsRepository;
     private final NotificationSentLogRepository notificationSentLogRepository;
@@ -84,23 +84,23 @@ public class BetResultNotificationService {
     @Transactional
     public PushDispatchSummaryResponse sendBetResultNotifications(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
-        List<GroupChallengeBet> bets = groupChallengeBetRepository.findByStatusInAndSettledAtSince(
+        List<GroupChallengeBetSession> sessions = groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(
                 RESULT_STATUSES, now.minus(SETTLEMENT_LOOKBACK));
-        if (bets.isEmpty()) {
+        if (sessions.isEmpty()) {
             log.info("내기 결과 푸시 — 최근 정산 건 없음");
             return summary(0, 0, 0, 0, startedAtMillis);
         }
 
-        Map<UUID, GroupChallengeBet> betsById = bets.stream()
-                .collect(Collectors.toMap(GroupChallengeBet::getId, Function.identity()));
+        Map<UUID, GroupChallengeBetSession> sessionsById = sessions.stream()
+                .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity()));
         List<GroupChallengeBetParticipant> participants =
-                groupChallengeBetParticipantRepository.findByBetIdIn(betsById.keySet());
+                groupChallengeBetParticipantRepository.findBySessionIdIn(sessionsById.keySet());
         // 탈퇴 등으로 사라진 유저는 발송 대상이 아니다(참가 행은 정산 이력으로 남는다).
         List<GroupChallengeBetParticipant> targets = participants.stream()
                 .filter(participant -> !participant.getUser().isDeleted())
                 .toList();
         if (targets.isEmpty()) {
-            log.info("내기 결과 푸시 — 발송 대상 없음 (정산 {}건)", bets.size());
+            log.info("내기 결과 푸시 — 발송 대상 없음 (정산 {}건)", sessions.size());
             return summary(0, 0, 0, 0, startedAtMillis);
         }
 
@@ -117,19 +117,19 @@ public class BetResultNotificationService {
         List<NotificationSentLog> newLogs = new ArrayList<>();
         for (GroupChallengeBetParticipant participant : targets) {
             User user = participant.getUser();
-            GroupChallengeBet bet = betsById.get(participant.getBet().getId());
-            if (bet == null) {
-                // findByBetIdIn 의 입력이 betsById 의 키라 정상 흐름에선 나올 수 없다(방어).
+            GroupChallengeBetSession session = sessionsById.get(participant.getSession().getId());
+            if (session == null) {
+                // findBySessionIdIn 의 입력이 sessionsById 의 키라 정상 흐름에선 나올 수 없다(방어).
                 skipped++;
                 continue;
             }
-            if (!alreadySent.add(new SentKey(user.getId(), bet.getId()))) {
+            if (!alreadySent.add(new SentKey(user.getId(), session.getId()))) {
                 deduped++;
                 continue;
             }
             UserNotificationSettings settings = settingsByUserId.get(user.getId());
             boolean soundEnabled = settings == null || settings.isSoundEnabled();
-            PushMessage message = compose(bet, participant, soundEnabled);
+            PushMessage message = compose(session, participant, soundEnabled);
             // 한 건의 실패가 배치를 끊지 않게 격리 — sendIfAllowed 안에서도 잡지만, 문구 조립·로그
             // 조립까지 포함해 건별로 감싼다.
             try {
@@ -138,7 +138,7 @@ public class BetResultNotificationService {
                     newLogs.add(NotificationSentLog.builder()
                             .userId(user.getId())
                             .type(NotificationSentLog.TYPE_BET_RESULT)
-                            .targetUserId(bet.getId())
+                            .targetUserId(session.getId())
                             .sentAt(now)
                             .build());
                 } else {
@@ -146,7 +146,7 @@ public class BetResultNotificationService {
                 }
             } catch (RuntimeException e) {
                 skipped++;
-                log.warn("내기 결과 푸시 실패 — userId={}, betId={}", user.getId(), bet.getId(), e);
+                log.warn("내기 결과 푸시 실패 — userId={}, sessionId={}", user.getId(), session.getId(), e);
             }
         }
         notificationSentLogRepository.saveAll(newLogs);
@@ -154,7 +154,7 @@ public class BetResultNotificationService {
         PushDispatchSummaryResponse summary =
                 summary(targets.size(), sent, deduped, skipped, startedAtMillis);
         log.info("내기 결과 푸시 완료 — 정산 {}건, 대상 {}건, 발송 {}건, dedup {}건, 스킵 {}건, elapsedMillis={}",
-                bets.size(), summary.targetCount(), summary.sentCount(), summary.dedupedCount(),
+                sessions.size(), summary.targetCount(), summary.sentCount(), summary.dedupedCount(),
                 summary.skippedCount(), summary.elapsedMillis());
         return summary;
     }
@@ -181,18 +181,18 @@ public class BetResultNotificationService {
      * 문구 3종(계약 §2 "푸시 (B4)") — 몰수는 내기 상태로, 승패는 참가자의 정산 기록으로 가른다.
      * {@code payout} 은 "받은 금액" 이라 본전(전원 달성)도 승 문구가 나간다 — 손익 환산은 앱 몫이다.
      */
-    PushMessage compose(GroupChallengeBet bet, GroupChallengeBetParticipant participant,
+    PushMessage compose(GroupChallengeBetSession session, GroupChallengeBetParticipant participant,
                         boolean soundEnabled) {
         String body;
-        if (bet.getStatus() == GroupBetStatus.FORFEITED) {
+        if (session.getStatus() == GroupBetStatus.FORFEITED) {
             body = "아무도 목표를 달성하지 못해 참가비가 소멸됐어요";
         } else if (Boolean.TRUE.equals(participant.getAchieved())) {
             int payout = participant.getPayout() == null ? 0 : participant.getPayout();
             body = "내기에서 이겼어요! +" + payout + "코인 🎉";
         } else {
-            body = "아쉬워요 — 목표 미달성으로 참가비 " + bet.getStake() + "코인을 잃었어요";
+            body = "아쉬워요 — 목표 미달성으로 참가비 " + session.getStake() + "코인을 잃었어요";
         }
-        UUID groupId = bet.getGroup().getId();
+        UUID groupId = session.getGroup().getId();
         return new PushMessage(
                 "내기 결과가 나왔어요",
                 body,
@@ -207,7 +207,7 @@ public class BetResultNotificationService {
                 targetCount, sent, deduped, skipped, System.currentTimeMillis() - startedAtMillis);
     }
 
-    /** dedup 키 — (유저, 내기). 같은 배치 안에서 같은 조합이 두 번 나와도 add 가 false 를 돌려준다. */
-    private record SentKey(UUID userId, UUID betId) {
+    /** dedup 키 — (유저, 회차). 같은 배치 안에서 같은 조합이 두 번 나와도 add 가 false 를 돌려준다. */
+    private record SentKey(UUID userId, UUID sessionId) {
     }
 }

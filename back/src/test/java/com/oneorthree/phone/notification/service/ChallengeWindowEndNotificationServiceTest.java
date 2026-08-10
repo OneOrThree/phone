@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -25,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -111,8 +113,8 @@ class ChallengeWindowEndNotificationServiceTest {
         return GroupChallengeWindow.builder()
                 .challengeId(challenge.getId())
                 .challenge(challenge)
-                .windowStartAt(LocalDate.EPOCH.atTime(start).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(end).atZone(KST).toInstant())
+                .windowStart(start)
+                .windowEnd(end)
                 .durationMinutes(60)
                 .build();
     }
@@ -298,10 +300,33 @@ class ChallengeWindowEndNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("자정을 걸치는 창(23:00~01:00)은 어제 시작분의 종료를 오늘 새벽에 잡는다")
-    void detectsMidnightCrossingWindow() {
+    @DisplayName("비활성 요일의 창 종료는 알리지 않는다 — 회차가 서지 않은 날엔 마감도 없다 (FR-9 · GROMO-1260)")
+    void skipsWindowEndOnInactiveDay() {
+        // 2026-08-02 는 일요일 — 월요일 전용(마스크 1) 챌린지의 창(09:00~12:00)은 이날 돌지 않았다.
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(UUID.randomUUID())
+                .group(group())
+                .category(MissionCategory.SCREEN_TIME)
+                .type(MissionType.TIME_WINDOW)
+                .status(GroupChallengeStatus.ACTIVE)
+                .repeatDays(RepeatSchedule.bit(DayOfWeek.MONDAY))
+                .createdAt(Instant.EPOCH)
+                .build();
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
+
+        PushDispatchSummaryResponse summary =
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 15));
+
+        assertThat(summary.targetCount()).isZero();
+        assertThat(summary.sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("심야 창(23:00~23:59)의 종료도 당일 안에서 잡힌다 — 자정 걸침 창은 V35 이후 존재하지 않는다")
+    void detectsLateNightWindowOnSameDay() {
         GroupChallenge challenge = challenge();
-        givenChallenge(challenge, window(challenge, kstTimeOf(23, 0), kstTimeOf(1, 0)));
+        givenChallenge(challenge, window(challenge, kstTimeOf(23, 0), kstTimeOf(23, 59)));
         User member = user(UUID.randomUUID());
         givenMembers(challenge, member);
         givenNoSentLogs();
@@ -309,7 +334,7 @@ class ChallengeWindowEndNotificationServiceTest {
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
 
         PushDispatchSummaryResponse summary =
-                service().sendWindowEndNotifications(kst(2026, 8, 2, 1, 10));
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 0, 10));
 
         assertThat(summary.sentCount()).isEqualTo(1);
     }

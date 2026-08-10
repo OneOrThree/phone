@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.GroupStatus;
@@ -16,6 +17,7 @@ import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,7 +45,8 @@ import static org.assertj.core.api.Assertions.tuple;
  *
  * <p>{@code UserService.withdraw} 가 그룹 탈퇴 경로({@code GroupMemberService.withdrawGroup})와
  * 같은 해제({@code releaseFromAllOpenBets, 유저 스코프}) → leave 순서를 밟는 것이 핵심이라,
- * 원장 멱등키까지 그룹 탈퇴 연동과 같은 포맷({@code bet:{betId}:refund:{userId}})이어야 한다.
+ * 원장 멱등키까지 그룹 탈퇴 연동과 같은 단일 축({@code session:{sid}:refund:{participantId}},
+ * FR-42)이어야 한다. 2계층 재편(GROMO-1262) 후 해제 단위는 <b>회차</b>다.
  */
 class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
 
@@ -57,6 +61,8 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
     @Autowired
+    GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    @Autowired
     GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Autowired
     CurrencyTransactionRepository currencyTransactionRepository;
@@ -65,6 +71,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     @Autowired
     UserWalletRepository userWalletRepository;
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int STAKE = 30;
     /** 판돈 차감 후 잔액. 참가 시점에 이미 STAKE 만큼 빠져 있는 상태를 재현한다. */
     private static final int BALANCE_AFTER_STAKE = 70;
@@ -73,7 +80,8 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     private GroupChallenge challenge;
 
     private final List<User> users = new ArrayList<>();
-    private final List<GroupChallengeBet> bets = new ArrayList<>();
+    private final List<GroupChallengeBet> configs = new ArrayList<>();
+    private final List<GroupChallengeBetSession> betSessions = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -89,9 +97,14 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
     void tearDown() {
         users.forEach(u -> currencyTransactionRepository
                 .deleteAll(currencyTransactionRepository.findByUserOrderByCreatedAtDesc(u)));
-        bets.forEach(b -> groupChallengeBetParticipantRepository
-                .deleteAll(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(b.getId()))));
-        groupChallengeBetRepository.deleteAll(bets);
+        betSessions.forEach(b -> groupChallengeBetParticipantRepository
+                .deleteAll(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(b.getId()))));
+        betSessions.forEach(b -> {
+            if (groupChallengeBetSessionRepository.existsById(b.getId())) {
+                groupChallengeBetSessionRepository.deleteById(b.getId());
+            }
+        });
+        groupChallengeBetRepository.deleteAll(configs);
         groupChallengeRepository.delete(challenge);
         // 탈퇴는 멤버십 행을 지우지 않고 is_left=true 로 마킹만 하므로, 활성 조회가 아니라
         // findAnyByUserAndGroup 으로 소프트삭제 행까지 지워야 유저 삭제가 FK 를 위반하지 않는다.
@@ -104,7 +117,8 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         groupRepository.findById(group.getId()).ifPresent(groupRepository::delete);
 
         users.clear();
-        bets.clear();
+        configs.clear();
+        betSessions.clear();
     }
 
     // ── 픽스처 ──────────────────────────────────────────────────────────
@@ -119,22 +133,38 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         return user;
     }
 
-    private GroupChallengeBet openBet(User creator) {
-        GroupChallengeBet bet = groupChallengeBetRepository.save(GroupChallengeBet.builder()
+    private GroupChallengeBetSession openSession() {
+        GroupChallengeBet config = groupChallengeBetRepository.save(GroupChallengeBet.builder()
                 .group(group)
                 .challenge(challenge)
-                .creatorUser(creator)
                 .stake(STAKE)
-                .betDate(LocalDate.now())
-                .status(GroupBetStatus.OPEN)
+                .enabled(true)
                 .build());
-        bets.add(bet);
-        return bet;
+        configs.add(config);
+        LocalDate sessionDate = LocalDate.now(KST);
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(config)
+                        .group(group)
+                        .challenge(challenge)
+                        .sessionDate(sessionDate)
+                        .stake(STAKE)
+                        .goalMinutes(120)
+                        .missionCategory(MissionCategory.FOCUS)
+                        .missionType(MissionType.DURATION)
+                        .status(GroupBetStatus.OPEN)
+                        .startsAt(sessionDate.atStartOfDay(KST).toInstant())
+                        .joinClosesAt(sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .closesAt(sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .settleAfter(sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .build());
+        betSessions.add(session);
+        return session;
     }
 
-    private void participant(GroupChallengeBet bet, User user) {
-        groupChallengeBetParticipantRepository.save(
-                GroupChallengeBetParticipant.builder().bet(bet).user(user).build());
+    private GroupChallengeBetParticipant participant(GroupChallengeBetSession session, User user) {
+        return groupChallengeBetParticipantRepository.save(
+                GroupChallengeBetParticipant.builder().session(session).user(user).build());
     }
 
     private List<CurrencyTransaction> refundsOf(User user) {
@@ -169,24 +199,25 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
         User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
-        GroupChallengeBet bet = openBet(creator);
-        participant(bet, creator);
-        participant(bet, leaver);
-        participant(bet, third);
+        GroupChallengeBetSession session = openSession();
+        participant(session, creator);
+        GroupChallengeBetParticipant leaverJoin = participant(session, leaver);
+        participant(session, third);
 
         userService.withdraw(leaver.getId());
 
-        // 남은 참가자가 2명이라 내기는 계속되고, 탈퇴자 참가 행만 빠진다
-        assertThat(groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus())
+        // 남은 참가자가 2명이라 회차는 계속되고, 탈퇴자 참가 행만 빠진다
+        assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow().getStatus())
                 .isEqualTo(GroupBetStatus.OPEN);
-        assertThat(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId())))
+        assertThat(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(session.getId())))
                 .extracting(p -> p.getUser().getId())
                 .containsExactlyInAnyOrder(creator.getId(), third.getId());
-        // 환불 원장은 그룹 탈퇴 연동과 같은 멱등키 포맷으로 정확히 한 번 기입된다
-        // (지갑은 탈퇴로 삭제되지만 원장은 남는다 — 판돈이 소각되지 않았다는 증거)
+        // 환불 원장은 그룹 탈퇴 연동과 같은 단일 축 멱등키(FR-42)로 정확히 한 번 기입된다
+        // (지갑은 탈퇴로 삭제되지만 원장은 남는다 — 참가비가 소각되지 않았다는 증거)
         assertThat(refundsOf(leaver))
                 .extracting(CurrencyTransaction::getAmount, CurrencyTransaction::getIdempotencyKey)
-                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + leaver.getId()));
+                .containsExactly(tuple(STAKE,
+                        "session:" + session.getId() + ":refund:" + leaverJoin.getId()));
         // 멤버십은 이탈 마킹 — 활성 목록에서 빠져 정원 한 자리가 돌아온다
         assertThat(groupMemberRepository.findAnyByUserAndGroup(leaver, group).orElseThrow().isLeft())
                 .isTrue();
@@ -213,36 +244,37 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         User creator = memberUser("개설자", GroupMemberRole.MEMBER);
         User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
         User kicked = memberUser("강퇴자", GroupMemberRole.MEMBER);
-        GroupChallengeBet bet = openBet(creator);
-        participant(bet, creator);
-        participant(bet, kicked);
-        participant(bet, third);
+        GroupChallengeBetSession session = openSession();
+        participant(session, creator);
+        GroupChallengeBetParticipant kickedJoin = participant(session, kicked);
+        participant(session, third);
         GroupMember kickedMembership = groupMemberRepository.findAnyByUserAndGroup(kicked, group).orElseThrow();
         kickedMembership.kick();
         groupMemberRepository.save(kickedMembership);
 
         userService.withdraw(kicked.getId());
 
-        // 남은 참가자 2명 — 내기는 계속되고 강퇴자 참가 행만 빠진다
-        assertThat(groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus())
+        // 남은 참가자 2명 — 회차는 계속되고 강퇴자 참가 행만 빠진다
+        assertThat(groupChallengeBetSessionRepository.findById(session.getId()).orElseThrow().getStatus())
                 .isEqualTo(GroupBetStatus.OPEN);
-        assertThat(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(bet.getId())))
+        assertThat(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(session.getId())))
                 .extracting(p -> p.getUser().getId())
                 .containsExactlyInAnyOrder(creator.getId(), third.getId());
-        // 판돈은 소각되지 않고 지갑 삭제 전에 환불 원장이 기입된다
+        // 참가비는 소각되지 않고 지갑 삭제 전에 환불 원장이 기입된다
         assertThat(refundsOf(kicked))
                 .extracting(CurrencyTransaction::getAmount, CurrencyTransaction::getIdempotencyKey)
-                .containsExactly(tuple(STAKE, "bet:" + bet.getId() + ":refund:" + kicked.getId()));
+                .containsExactly(tuple(STAKE,
+                        "session:" + session.getId() + ":refund:" + kickedJoin.getId()));
         assertThat(userRepository.findById(kicked.getId()).orElseThrow().isDeleted()).isTrue();
         assertThat(userWalletRepository.findById(kicked.getId())).isEmpty();
     }
 
     @Test
-    @DisplayName("solo 방장 계정 탈퇴 — 그룹 자동 종료(ENDED)와 함께 그 그룹의 OPEN 내기도 취소·환불된다")
-    void soloOwnerWithdrawalClosesGroupAndCancelsOpenBet() {
+    @DisplayName("solo 방장 계정 탈퇴 — 그룹 자동 종료(ENDED)와 함께 그 그룹의 OPEN 회차도 해제·환불된다")
+    void soloOwnerWithdrawalClosesGroupAndReleasesOpenSession() {
         User soloOwner = memberUser("나홀로방장", GroupMemberRole.OWNER);
-        GroupChallengeBet bet = openBet(soloOwner);
-        participant(bet, soloOwner);
+        GroupChallengeBetSession session = openSession();
+        GroupChallengeBetParticipant soloJoin = participant(session, soloOwner);
 
         userService.withdraw(soloOwner.getId());
 
@@ -251,12 +283,11 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(GroupStatus.ENDED);
         assertThat(groupMemberRepository.findAnyByUserAndGroup(soloOwner, group).orElseThrow().isLeft())
                 .isTrue();
-        // 자동 종료된 그룹의 OPEN 내기도 해제된다 — 개설자 탈퇴라 내기 전체 취소 + 환불 원장 기입
-        assertThat(groupChallengeBetRepository.findById(bet.getId()).orElseThrow().getStatus())
-                .isEqualTo(GroupBetStatus.CANCELED);
+        // 자동 종료된 그룹의 OPEN 회차도 해제된다 — 마지막 참가자라 회차는 "없던 일"로 삭제된다
+        assertThat(groupChallengeBetSessionRepository.existsById(session.getId())).isFalse();
         assertThat(refundsOf(soloOwner))
                 .extracting(CurrencyTransaction::getIdempotencyKey)
-                .containsExactly("bet:" + bet.getId() + ":refund:" + soloOwner.getId());
+                .containsExactly("session:" + session.getId() + ":refund:" + soloJoin.getId());
         assertThat(userRepository.findById(soloOwner.getId()).orElseThrow().isDeleted()).isTrue();
         assertThat(userWalletRepository.findById(soloOwner.getId())).isEmpty();
     }
