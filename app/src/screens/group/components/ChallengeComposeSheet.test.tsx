@@ -351,7 +351,6 @@ describe('자정 걸침 창 금지', () => {
   });
 });
 
-
 describe('목표분 칩 × 창 길이', () => {
   test('창 길이를 넘는 칩은 잠긴다 — 눌러도 선택되지 않는다', async () => {
     await renderSheet();
