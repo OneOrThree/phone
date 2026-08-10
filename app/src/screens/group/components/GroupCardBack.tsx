@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ComponentRef } from 'react';
 import {
   AccessibilityInfo,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,11 +15,13 @@ import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
+import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface Props {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]>;
   onFlipBack: () => void;
+  onAccessibilityFlipBack?: () => void;
   onOpenSettings: () => void;
   onStartFocus: () => void;
   onOpenRoom: () => void;
@@ -28,6 +31,7 @@ interface Props {
   focusPrimaryOnMount?: boolean;
   onPrimaryFocusRestored?: () => void;
   onRetry: (section: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
+  minHeight?: number;
 }
 
 function SectionError({ label, onRetry }: { label: string; onRetry: () => void }) {
@@ -45,6 +49,7 @@ export function GroupCardBack({
   group,
   snapshot,
   onFlipBack,
+  onAccessibilityFlipBack,
   onOpenSettings,
   onStartFocus,
   onOpenRoom,
@@ -54,8 +59,10 @@ export function GroupCardBack({
   focusPrimaryOnMount = false,
   onPrimaryFocusRestored,
   onRetry,
+  minHeight = GROUP_CARD_HEIGHT,
 }: Props) {
-  const frontActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const disclosureId = `group-card-summary-${group.groupId}`;
+  const frontActionRef = useRef<ComponentRef<typeof Pressable>>(null);
   const primaryActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
   const roomActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
   const focusHandledRef = useRef(false);
@@ -118,22 +125,30 @@ export function GroupCardBack({
 
   return (
     <View
-      style={s.root}
-      onAccessibilityEscape={onFlipBack}
+      nativeID={disclosureId}
+      style={[s.root, { minHeight }]}
+      onAccessibilityEscape={onAccessibilityFlipBack ?? onFlipBack}
       testID={`group.card.back.${group.groupId}`}
     >
       <View style={s.header}>
-        <TouchableOpacity
+        <Pressable
           ref={frontActionRef}
           style={s.headerButton}
           onPress={onFlipBack}
+          accessibilityActions={[{ name: 'activate', label: '앞면 보기' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'activate')
+              (onAccessibilityFlipBack ?? onFlipBack)();
+          }}
           accessibilityRole="button"
+          accessibilityState={{ expanded: true }}
+          aria-controls={disclosureId}
           accessibilityLabel="앞면 보기"
           testID={`group.card.frontAction.${group.groupId}`}
           hitSlop={6}
         >
           <Ionicons name="chevron-back" size={18} color={T.inkSub} />
-        </TouchableOpacity>
+        </Pressable>
         <Text
           style={s.title}
           numberOfLines={1}
@@ -253,7 +268,6 @@ export function GroupCardBack({
 
 const s = StyleSheet.create({
   root: {
-    minHeight: 300,
     flex: 1,
     borderRadius: 22,
     overflow: 'hidden',

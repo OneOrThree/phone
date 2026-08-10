@@ -9,7 +9,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AccessibilityInfo, AppState, View } from 'react-native';
 import * as ReactNative from 'react-native';
-import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import GroupListScreen, { GROUP_CARD_HEIGHT, shouldClaimReorderDrag } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
 import { getMyRanking } from '@/services/leagueApi';
@@ -335,7 +335,12 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
-    expect(GROUP_CARD_HEIGHT).toBe(300);
+    expect(GROUP_CARD_HEIGHT).toBe(520);
+    expect(screen.getByTestId('group.deck.verticalScroll').props.nestedScrollEnabled).toBe(true);
+    expect(screen.getByTestId(`group.card.front.${GROUP_ID}-0`)).toHaveStyle({ minHeight: 520 });
+    expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
+      minHeight: 520,
+    });
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
@@ -366,6 +371,14 @@ describe('카드 렌더', () => {
     expect(peek.props.accessibilityElementsHidden).toBe(true);
     expect(peek.props.importantForAccessibility).toBe('no-hide-descendants');
     expect(peek.props.pointerEvents).toBe('none');
+    expect(
+      screen.getByTestId(`group.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .focusable,
+    ).toBe(false);
+    expect(
+      screen.getByTestId(`group.card.grip.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .focusable,
+    ).toBe(false);
   });
 
   test('현재 계정의 저장 아이콘을 카드에 적용하고 미설정은 🎯로 표시한다', async () => {
@@ -460,17 +473,43 @@ describe('콜백', () => {
     const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
     await renderList([group()]);
 
+    const front = screen.getByTestId(`group.card.${GROUP_ID}`);
+    expect(front.props.accessibilityState).toEqual({ expanded: false });
+    expect(front.props['aria-controls']).toBe(`group-card-summary-${GROUP_ID}`);
+
     await press(`group.card.${GROUP_ID}`);
     await waitFor(() =>
       expect(announce).toHaveBeenCalledWith('아침 6시 집중방 방 요약이 열렸습니다'),
     );
-    expect(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`).props.hitSlop).toBe(6);
+    const frontAction = screen.getByTestId(`group.card.frontAction.${GROUP_ID}`);
+    expect(frontAction.props.hitSlop).toBe(6);
+    expect(frontAction.props.accessibilityState).toEqual({ expanded: true });
+    expect(frontAction.props['aria-controls']).toBe(`group-card-summary-${GROUP_ID}`);
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`).props.nativeID).toBe(
+      `group-card-summary-${GROUP_ID}`,
+    );
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toHaveStyle({ minHeight: 520 });
     expect(screen.getByTestId(`group.card.settings.${GROUP_ID}`).props.hitSlop).toBe(6);
 
     setFocus.mockClear();
     await press(`group.card.frontAction.${GROUP_ID}`);
     expect(await screen.findByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
     await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
+  });
+
+  test('앞면 접근성 activate flip은 전용 trigger로 기록한다', async () => {
+    await renderList([group()]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+
+    expect(await screen.findByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'accessibility_action', to_face: 'back' }),
+    );
   });
 
   test('뒷면 접근성 Escape는 같은 카드의 앞면을 복원한다', async () => {
@@ -483,6 +522,9 @@ describe('콜백', () => {
 
     expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'accessibility_action', to_face: 'front' }),
+    );
   });
 
   test('그룹방에서 돌아오면 같은 뒷면의 방 전체 보기 CTA로 포커스를 복원한다', async () => {
@@ -1184,20 +1226,7 @@ describe('제스처 중재와 재정렬', () => {
   test('순서 메뉴가 열리면 TalkBack에서 카드 본문과 화면 CTA를 숨긴다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
-    const responderEvent = {
-      nativeEvent: {},
-      touchHistory: {
-        touchBank: [],
-        numberActiveTouches: 0,
-        indexOfSingleActiveTouch: -1,
-        mostRecentTimeStamp: 0,
-      },
-    };
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
 
     expect(
       screen.getByTestId(`group.card.content.${GROUP_ID}`, { includeHiddenElements: true }).props
@@ -1219,6 +1248,7 @@ describe('제스처 중재와 재정렬', () => {
 
   test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
     await act(async () => {
@@ -1236,26 +1266,21 @@ describe('제스처 중재와 재정렬', () => {
     expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.accessibilityValue).toEqual({
       text: '2/2',
     });
+    expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.focusable).toBe(true);
     expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
+  });
+
+  test('grip drag는 bubble·capture 모두 6pt 이상 이동만 소유한다', () => {
+    expect(shouldClaimReorderDrag(5.9, 0)).toBe(false);
+    expect(shouldClaimReorderDrag(0, -5.9)).toBe(false);
+    expect(shouldClaimReorderDrag(6, 0)).toBe(true);
+    expect(shouldClaimReorderDrag(0, -6)).toBe(true);
   });
 
   test('grip 짧은 탭은 원하는 위치를 고르는 순서 변경 메뉴를 연다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
-    const responderEvent = {
-      nativeEvent: {},
-      touchHistory: {
-        touchBank: [],
-        numberActiveTouches: 0,
-        indexOfSingleActiveTouch: -1,
-        mostRecentTimeStamp: 0,
-      },
-    };
-
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
     await waitFor(() => expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(1));
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     expect(
@@ -1277,10 +1302,7 @@ describe('제스처 중재와 재정렬', () => {
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
     await waitFor(() => expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(1));
 
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
 
     await press(`group.card.reorderTo.${GROUP_ID}.1`);
     expect(
@@ -1288,6 +1310,15 @@ describe('제스처 중재와 재정렬', () => {
         .getByTestId('group.list.items')
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
+  });
+
+  test('grip은 네이티브 Pressable 활성화로 순서 변경 메뉴를 연다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await press(`group.card.grip.${GROUP_ID}`);
+
+    expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
   });
 
   test('끝 카드가 현재 페이지가 아닐 때 입력과 접근성 트리에서 제외한다', async () => {
@@ -1312,7 +1343,7 @@ describe('제스처 중재와 재정렬', () => {
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
     const responderEvent = {
       nativeEvent: {},
       touchHistory: {
@@ -1340,7 +1371,7 @@ describe('제스처 중재와 재정렬', () => {
   test('grip 가장자리의 자동 이동은 사용자 swipe 이벤트로 기록하지 않는다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
     const list = screen.getByTestId('group.list.items');
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
     const responderEvent = {
       nativeEvent: {},
       touchHistory: {
@@ -1366,20 +1397,7 @@ describe('제스처 중재와 재정렬', () => {
     const first = group();
     const second = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
     const { rerender } = await renderList([first, second]);
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
-    const responderEvent = {
-      nativeEvent: {},
-      touchHistory: {
-        touchBank: [],
-        numberActiveTouches: 0,
-        indexOfSingleActiveTouch: -1,
-        mostRecentTimeStamp: 0,
-      },
-    };
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
 
     await rerender(
       <GroupListScreen
@@ -1398,7 +1416,7 @@ describe('제스처 중재와 재정렬', () => {
 
   test('탭 임계값 전 edge 좌표는 페이지 이동 목표를 만들지 않는다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
     const responderEvent = {
       nativeEvent: {},
       touchHistory: {
