@@ -91,8 +91,8 @@ services:
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
       # 로그를 docker API 스트림이 아니라 호스트 로그파일에서 tail — docker API 가 느려지면 로그 소스
       # 자동탐지가 통째로 실패한다(dev 에서 2일간 LogsProcessed=0 로 실현됐다). dev 와 같은 설정 (GROMO-1489).
+      # FORCE_USE_FILE 은 켜지 않는다(소켓 폴백 안전망 유지) — 근거는 docker-compose.datadog.yml 주석.
       DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE: "true"
-      DD_LOGS_CONFIG_DOCKER_CONTAINER_FORCE_USE_FILE: "true"
       DD_CONTAINER_IMAGE_ENABLED: "false"      # images/json 폴링 제거 — 안 쓰는 인벤토리 기능이 docker 체크를 깬다
       DD_SBOM_CONTAINER_IMAGE_ENABLED: "false"
       DD_DOCKER_QUERY_TIMEOUT: "30"            # 기본 5초

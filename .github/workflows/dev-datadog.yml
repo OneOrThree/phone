@@ -123,34 +123,60 @@ jobs:
           set -uo pipefail
           echo "수집 표본이 쌓이도록 60초 대기..."
           sleep 60
-          STATUS=$(docker exec gromo-datadog-agent agent status 2>/dev/null)
+
+          # `agent status` 사람용 출력을 grep 하지 않고 -j(JSON)를 파싱한다. 사람용 출력은 Agent 버전에
+          # 따라 문구가 바뀌는데, "패턴이 매치되면 실패" 방식은 문구가 바뀌면 아무것도 매치되지 않아
+          # 조용히 초록불이 된다 — 이 스텝이 막으려는 실패 양상이 그대로 재발하는 구조다.
+          # JSON 은 필드 부재 자체를 감지할 수 있어서, 아래처럼 스키마부터 확인하고 없으면 실패시킨다.
+          docker exec gromo-datadog-agent agent status -j 2>/dev/null > /tmp/dd-status.json || true
+          if ! jq -e . /tmp/dd-status.json >/dev/null 2>&1; then
+            echo "::error::agent status -j 가 유효한 JSON 을 주지 않음 — Agent 기동/버전 확인"
+            exit 1
+          fi
 
           fail=0
 
-          # 1) 컨테이너 로그 — LogsProcessed 가 0 이면 tailer 가 하나도 안 붙은 것
-          processed=$(echo "$STATUS" | grep -m1 'LogsProcessed:' | tr -dc '0-9')
-          echo "LogsProcessed=${processed:-?}"
-          if [ "${processed:-0}" -eq 0 ]; then
+          # 0) 스키마 가드 — 아래 검증이 참조하는 경로가 사라졌으면 통과시키지 말고 멈춘다.
+          for path in '.logsStats.metrics.LogsProcessed' '.runnerStats.Checks'; do
+            if ! jq -e "$path" /tmp/dd-status.json >/dev/null 2>&1; then
+              echo "::error::agent status JSON 스키마 변경 — $path 없음. 이 스텝의 파싱을 갱신해야 한다"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || exit 1
+
+          # 1) 컨테이너 로그 — LogsProcessed 가 0 이면 tailer 가 하나도 안 붙은 것 (문자열로 온다)
+          processed=$(jq -r '.logsStats.metrics.LogsProcessed' /tmp/dd-status.json)
+          echo "LogsProcessed=$processed"
+          if [ "$processed" -eq 0 ] 2>/dev/null; then
             echo "::error::컨테이너 로그 수집 0건 — DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE 와 /var/lib/docker/containers 마운트를 확인하세요"
+            jq -r '.logsStats.integrations[]?.sources[]? | "  source=\(.type) status=\(.status) \(.messages // [] | join(" / "))"' /tmp/dd-status.json || true
             fail=1
           fi
 
-          # 2) 컨테이너별 메트릭 — container/docker 체크가 ERROR 면 컨테이너 단위 관측이 통째로 빈다
-          if echo "$STATUS" | grep -qE '^\s+Instance ID: (container|docker).*\[ERROR\]'; then
-            echo "::error::container/docker 체크 ERROR — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
-            echo "$STATUS" | grep -A6 -E '^\s+Instance ID: (container|docker)' || true
+          # 2) 컨테이너별 메트릭 — container/docker 체크가 에러면 컨테이너 단위 관측이 통째로 빈다.
+          #    LastError 는 정상일 때 빈 문자열이다.
+          errs=$(jq -r '.runnerStats.Checks | to_entries[]
+                        | select(.key == "container" or .key == "docker")
+                        | .value | to_entries[]
+                        | select((.value.LastError // "") != "")
+                        | "  \(.value.CheckName): \(.value.LastError)"' /tmp/dd-status.json)
+          if [ -n "$errs" ]; then
+            echo "::error::container/docker 체크 에러 — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
+            echo "$errs"
             fail=1
           fi
 
-          # 3) OpenMetrics 브리지 — app 이미지 AD 라벨(back/Dockerfile)로 붙는다. app 기동 실패 시에도 여기서 잡힌다
-          if echo "$STATUS" | grep -qE '^\s+Instance ID: openmetrics.*\[ERROR\]'; then
-            echo "::warning::OpenMetrics 스크레이프 실패 — app:9091/actuator/prometheus 도달 여부 확인(app 부팅 중이면 일시적)"
-            echo "$STATUS" | grep -A6 -E '^\s+Instance ID: openmetrics' || true
-          fi
-
-          # 4) APM — 트레이스가 실제로 들어오는지(app 에 -javaagent 가 붙었는지의 최종 증거)
-          if ! echo "$STATUS" | grep -q 'Traces received'; then
-            echo "::warning::최근 1분간 수신 트레이스 없음 — dev 무트래픽이면 정상, 배포 직후엔 요청을 한 번 태워 확인하세요"
+          # 3) OpenMetrics 브리지 — app 이미지 AD 라벨(back/Dockerfile)로 붙는다.
+          #    체크가 아예 안 잡히는 경우(라벨 없는 구 이미지)와 에러를 나눠서 알린다. 둘 다 경고 —
+          #    app 이 아직 부팅 중이면 일시적일 수 있어 배포를 막지는 않는다.
+          if ! jq -e '.runnerStats.Checks.openmetrics' /tmp/dd-status.json >/dev/null 2>&1; then
+            echo "::warning::OpenMetrics 체크 미탐지 — app 이미지에 com.datadoghq.ad.checks 라벨이 없을 수 있음(구 이미지로 롤백된 경우)"
+          else
+            om=$(jq -r '.runnerStats.Checks.openmetrics | to_entries[]
+                        | select((.value.LastError // "") != "")
+                        | "  \(.value.CheckName): \(.value.LastError)"' /tmp/dd-status.json)
+            [ -z "$om" ] || { echo "::warning::OpenMetrics 스크레이프 실패 — app:9091/actuator/prometheus 도달 여부 확인"; echo "$om"; }
           fi
 
           [ "$fail" -eq 0 ] || { echo "수집 검증 실패 — 위 오류 참고"; exit 1; }
