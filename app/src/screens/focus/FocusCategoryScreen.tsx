@@ -174,6 +174,12 @@ export default function FocusCategoryScreen() {
 
   function openMethod(sub: Subject) {
     cancelPendingMethodSheet();
+    // 같은 과목 재탭은 알약이 움직이지 않으므로 기다릴 연출이 없다 — 설정 확정과 무관하게
+    // 곧바로 연다. 여기까지 보류하면 콜드 스타트에서 탭이 무반응으로 보인다(codex 리뷰).
+    if (sub.id === active?.id) {
+      startMethodSequence(sub, 0);
+      return;
+    }
     if (!m.ready) {
       // 설정 미확정 — 탭은 받아 두고 시작만 미룬다(선택 반영도 함께 미룬다: 알약을 먼저
       // 옮겨 버리면 확정 후엔 이미 이동이 끝나 슬라이드가 재생될 자리가 없다).

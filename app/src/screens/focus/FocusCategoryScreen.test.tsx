@@ -141,6 +141,8 @@ async function renderScreen() {
 
 // 첫 과목(s1)이 기본 선택이라, 다른 과목(s2)을 눌러야 알약이 이동하는 시퀀스를 탄다.
 const pressOther = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[1].id}`));
+// 기본 선택과 같은 과목(s1) — 알약이 움직이지 않으므로 기다릴 연출이 없다.
+const pressSame = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[0].id}`));
 
 describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
   test('설정이 확정되기 전에는 시퀀스를 시작하지 않는다', async () => {
@@ -177,6 +179,14 @@ describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
     await renderScreen();
     await pressOther();
     await advance(0);
+    expect(screen.getByTestId('method.sheet')).toBeTruthy();
+  });
+
+  // ⚠️ 같은 과목 재탭은 알약이 움직이지 않는다 = 기다릴 연출이 없다. 확정 대기에 묶으면
+  //    콜드 스타트에서 탭이 무반응으로 보인다(codex 리뷰).
+  test('확정 전이어도 같은 과목 재탭은 곧바로 시트가 열린다', async () => {
+    await renderScreen();
+    await pressSame();
     expect(screen.getByTestId('method.sheet')).toBeTruthy();
   });
 });
