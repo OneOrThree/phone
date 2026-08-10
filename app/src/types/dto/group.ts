@@ -495,3 +495,51 @@ export interface MyBetSession {
 export interface MyBetSessionsResponse {
   sessions: MyBetSession[];
 }
+
+// ── 그룹 챌린지 내역(GROMO-1277 · N6-1 — LLD §2.1 `GET /groups/{gid}/challenge-history`) ──
+// **이력의 소유자는 챌린지가 아니라 그룹이다.** 그래서 한 줄이 챌린지 행을 조인하지 않는다 —
+// 표시에 필요한 미션 정보(카테고리·방식·목표분·창 시각)는 전부 회차에 박제된 **스냅샷**이고,
+// 챌린지가 삭제돼도(`challengeDeleted`) 그 줄은 온전히 읽힌다(policy §A9).
+//
+// 구 `GroupBetHistoryItem`(챌린지 축·인별 명단)과의 차이는 두 가지다:
+//   ① 축이 그룹이라 여러 챌린지의 회차가 한 목록에 섞인다 → 줄마다 미션 스냅샷이 필요하다.
+//   ② 명단(results) 대신 **집계 + 내 결과**만 온다 — 그룹 전체 목록에서 인별 명단은 페이로드도
+//      화면도 감당하지 못한다. 인별 상세는 여전히 카드의 결과 시트가 맡는다.
+export interface GroupChallengeHistoryItem {
+  sessionId: string; // UUID — 목록 key이자 keyset 커서
+  sessionDate: string; // 'YYYY-MM-DD' (KST)
+  challengeId: string; // 삭제된 챌린지여도 값은 있다(소프트 삭제)
+  challengeDeleted: boolean; // true면 '삭제된 챌린지' 배지
+  // 미션 스냅샷 — 조인 없이 읽는 표시 소스. V39 백필 이전 정산분은 null일 수 있다(표기 생략).
+  missionCategory: MissionCategory;
+  missionType: MissionType;
+  goalMinutes: number | null;
+  windowStart: string | null; // 'HH:mm(:ss)' KST 벽시계 — 창형만
+  windowEnd: string | null;
+  stake: number;
+  pot: number; // stake × 참가 인원(정산 당시 사실)
+  // 결과 4종. UNUSED(참가자 0명)는 내역에 실리지 않는다(N52) — OPEN도 오지 않는다.
+  // 모르는 값이 와도 화면이 else 강하로 버틴다(GroupBetStatus와 같은 관행).
+  status: 'SETTLED' | 'REFUNDED' | 'FORFEITED' | 'VOIDED';
+  // VOIDED·REFUNDED만 — 사유 없이 상태 하나면 "인원 부족" 문구가 삭제 건까지 거짓말한다.
+  // 값 축(별칭 포함)의 해석은 lastSettledView의 공용 매핑이 단독으로 쥔다.
+  voidReason: string | null;
+  // 내 결과 — **미참가 회차는 전부 null**이다(그룹 축이라 내가 안 낀 줄도 목록에 있다).
+  // null과 0을 뭉개지 않는다: myPayout 0은 '몰수돼 한 푼도 못 받음'이고 null은 '참가 안 함'이다.
+  myPayout: number | null;
+  myAchieved: boolean | null;
+  myProgressMinutes: number | null; // 미참가·미계측이면 null(0분과 다르다)
+  achievedCount: number;
+  participantCount: number;
+}
+
+// 커서(keyset) 슬라이스 봉투 — GroupBetHistorySliceResponse와 같은 규격.
+// ⚠️ 종료 판정은 hasNext·nextCursor **둘 다** 본다(한쪽만 보면 어긋난 응답에서 무한 재호출).
+// 커서는 마지막 항목 sessionId다 — 서버가 `(session_date, id)` 튜플로 해석한다(그룹 전체
+// 조회라 같은 날짜에 회차가 여럿이어서 날짜 단독 커서로는 페이지 경계가 샌다).
+export interface GroupChallengeHistorySliceResponse {
+  content: GroupChallengeHistoryItem[];
+  size: number;
+  hasNext: boolean;
+  nextCursor: string | null;
+}

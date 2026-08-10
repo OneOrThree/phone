@@ -1466,6 +1466,37 @@ describe('⋯ 버튼 → 그룹 설정', () => {
   });
 });
 
+// 챌린지 내역 링크(GROMO-1277 · N6-1) — **이력의 소유자는 그룹이다.** 그래서 진입점이 챌린지
+// 목록의 상태에 매달리면 안 된다: 챌린지가 하나도 없거나 조회가 실패한 순간에도 "돈이 오간
+// 기록은 사라지지 않는다"는 약속을 확인할 수 있어야 한다.
+describe('챌린지 내역 링크', () => {
+  test('그룹 축 내역 화면으로 필터 없이 이동한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.history'));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', { groupId: GROUP_ID });
+  });
+
+  test('챌린지가 없거나 조회가 실패해도 링크는 선다 — 내역은 챌린지와 함께 죽지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValueOnce([]);
+    await renderRoom();
+    expect(screen.getByTestId('group.challenge.history')).toBeOnTheScreen();
+
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+    await renderRoom();
+    expect(screen.getByText('챌린지를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.challenge.history')).toBeOnTheScreen();
+  });
+});
+
 // ── 초대 링크 공유(초대 링크 스펙 §4-2 ①·§7-4) ─────────────────────────────────
 // 링크는 서버가 발급한 url 만 나간다. 앱이 조립하던 구 링크(github.io)는 실제로 404였고,
 // slug 가 빠지면 클릭→설치→가입이 어느 초대에서 왔는지 서버가 영영 이을 수 없다.
