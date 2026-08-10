@@ -60,32 +60,29 @@ export function GroupCardFront({
   return (
     <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
       <View style={s.root}>
-        <View
-          ref={gripRef}
-          style={s.grip}
-          testID={`group.card.grip.${group.groupId}`}
-          accessibilityRole="adjustable"
-          focusable={active}
-          accessibilityLabel={`${group.name} 카드 순서`}
-          accessibilityValue={{ text: `${position}/${reorderCount}` }}
-          accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
-          accessibilityActions={[
-            ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
-            ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
-          ]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
-            if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
-          }}
-          {...({
-            onKeyDown: (event: { nativeEvent: { key?: string } }) => {
-              const key = event.nativeEvent.key;
-              if ((key === 'Enter' || key === ' ') && active) onOpenReorderMenu?.();
-            },
-          } as object)}
-          {...reorderHandlers}
-        >
-          <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
+        <View style={s.grip} testID={`group.card.gripDrag.${group.groupId}`} {...reorderHandlers}>
+          <Pressable
+            ref={gripRef}
+            style={s.gripButton}
+            testID={`group.card.grip.${group.groupId}`}
+            accessibilityRole="adjustable"
+            focusable={active}
+            disabled={!active}
+            onPress={onOpenReorderMenu}
+            accessibilityLabel={`${group.name} 카드 순서`}
+            accessibilityValue={{ text: `${position}/${reorderCount}` }}
+            accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+            accessibilityActions={[
+              ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
+              ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+            ]}
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
+              if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
+            }}
+          >
+            <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
+          </Pressable>
         </View>
         <Pressable
           ref={disclosureRef ?? bodyRef}
@@ -205,6 +202,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: withAlpha(T.white, 0.92),
   },
+  gripButton: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   art: {
     flex: 1,
     minHeight: 310,

@@ -643,8 +643,12 @@ export default function GroupListScreen({
       const cached = respondersRef.current.get(responderKey);
       if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
+        // 탭은 내부 Pressable이 네이티브 press(키보드 Enter/Space 포함)로 처리한다.
+        // 실제 이동 제스처만 부모 PanResponder가 가져가 drag와 키보드 활성화를 함께 보존한다.
+        onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          Math.max(Math.abs(gesture.dx), Math.abs(gesture.dy)) >= 6,
         onPanResponderGrant: () => {
           if (reorderMenuGroupId !== null) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
