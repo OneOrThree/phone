@@ -451,9 +451,13 @@
       <b>ⓐ 누끼</b>(<code>runCutout</code> — 온디바이스 단일 비동기)가 끝나면 코드가
       <b>즉시 <code>setPhase('ready')</code></b>하고
       <b>사용자 입력을 기다린다</b>. <b>ⓑ 저장</b>(모더레이션 → 저장)은 사용자가 '저장'을 누른 뒤에야 시작한다.
-      그래서 <b>리빌·햅틱은 ⓐ가 끝나는 그 순간</b>에 난다 —
+      그래서 <b>리빌·햅틱은 ⓐ가 끝나는 그 순간</b>에 난다 — 단, 그 "순간"은
+      <b>누끼 성공(<code>cut.cutout === true</code>)과 이미지 디코드 완료(<code>onLoad</code>)를
+      둘 다 만족한 시점</b>이다(<b>논리곱</b>). 디코딩이 늦은 기기에서 <code>phase</code>만 보고 터뜨리면
+      <b>빈 자리에서 리빌이 끝난다</b>.
       마스크가 위에서 아래로 벗겨지며 캐릭터가 드러나고(<span class="mono">M.dur.celebrate</span> 1200ms),
-      물체가 <span class="mono">M.spring.bouncy</span>로 튀어 오르며 파티클이 터진다.
+      <b>그 50% 지점</b>에 물체가 <span class="mono">M.spring.bouncy</span>로 튀어 오르며
+      완성 통보·햅틱이 함께 난다(축하의 정점을 리빌 끝에 맞춘다).
       <b>ⓑ는 진행 표시일 뿐 축하가 아니다</b> — 햅틱·리빌·파티클이 붙지 않는다.
       <b>'동작 줄이기'를 켜면 파티클·리빌만 빠지고 완성 통보와 햅틱은 남는다</b>(정본 D7과 같은 원리).
       <b>'재생'은 ⓐ만 돌린다. ⓑ는 아래 '저장' 버튼을 눌러야 시작한다</b> — 그 사이의 대기가 이 대조의 핵심이다.
@@ -511,17 +515,29 @@
         <table class="spec">
           <tr><th>구간</th><th>표시</th><th>토큰</th></tr>
           <tr><td colspan="3"><b>ⓐ 누끼</b> — <span class="mono">phase === 'working'</span> · <b>리빌의 대상</b></td></tr>
-          <tr><td>진행 중</td><td>불확정 회전 (무한 루프 <b>1개</b>) — 나눌 단계 경계가 없다</td><td>—</td></tr>
-          <tr><td><b>완성 리빌</b></td><td>마스크가 위→아래로 벗겨진다</td><td><span class="mono">M.dur.celebrate</span> 1200 · <span class="mono">standard</span></td></tr>
-          <tr><td>물체 팝</td><td>0.86 → 1</td><td><span class="mono">M.spring.bouncy</span> d13/s180/m0.9</td></tr>
-          <tr><td>파티클</td><td>18조각 방사</td><td>~900ms · reduce면 <b>미렌더</b></td></tr>
-          <tr><td>완성 통보 · 햅틱</td><td>문구 + <span class="mono">hapticSuccess</span></td><td>reduce여도 <b>유지</b></td></tr>
+          <tr><td>진행 중</td><td><b>고정 호(0.3) + 회전</b> (무한 루프 <b>1개</b>) — 나눌 단계 경계가 없다. 호 길이 0이면 빈 원이라 '굳은 것'과 구분되지 않는다</td><td>회전 1바퀴 1600ms · <b><code>decorative</code> 필수</b></td></tr>
+          <tr><td><b>완성 리빌</b></td><td>마스크가 위→아래로 벗겨진다 (<b>발화 = 누끼 성공 <u>AND</u> 디코드 완료</b>)</td><td><span class="mono">M.dur.celebrate</span> 1200 · <span class="mono">standard</span></td></tr>
+          <tr><td>물체 팝</td><td>0.86 → 1 (리빌 <b>50%</b> 지점 시작)</td><td><span class="mono">M.spring.bouncy</span> d13/s180/m0.9</td></tr>
+          <tr><td>파티클</td><td>18조각 방사 — <b>시안에만 있다</b>. 보존된 구현(<span class="mono">afeat/GROMO-1494-cutout-reveal</span>)은 파티클 없이 <b>마스크 리빌 + 스캔선 + 팝</b>으로 등급 3을 만족한다</td><td>~900ms · reduce면 <b>미렌더</b></td></tr>
+          <tr><td>완성 통보 · 햅틱</td><td>문구 + <span class="mono">hapticSuccess</span> (리빌 <b>50%</b> · 실행당 <b>1회</b>)</td><td>reduce여도 <b>유지</b></td></tr>
           <tr><td colspan="3">⏸ <b>사용자 입력 대기</b> — 편집하고 '저장'을 누를 때까지 (링 없음)</td></tr>
           <tr><td colspan="3"><b>ⓑ 저장</b> — <span class="mono">checking</span> / <span class="mono">saving</span> · <b>축하가 아니다</b></td></tr>
-          <tr><td>단계 경계 (2회)</td><td>링이 0.5 → 1.0으로 차오른다</td><td><span class="mono">M.dur.base</span> 350 · <span class="mono">standard</span></td></tr>
-          <tr><td>단계 안쪽</td><td>불확정 회전 (ⓐ와 <b>동시에 존재하지 않는다</b>)</td><td>—</td></tr>
+          <tr><td>단계 경계 (2회)</td><td>링이 0.5 → 1.0으로 차오른다. <b>이 수는 단계 서수(2단계 중 몇 번째)이지 완료율이 아니다</b></td><td><span class="mono">M.dur.base</span> 350 · <span class="mono">standard</span></td></tr>
+          <tr><td>단계 안쪽</td><td>회전이 계속 돈다 (ⓐ와 <b>동시에 존재하지 않는다</b>)</td><td>—</td></tr>
           <tr><td>완료</td><td>진행 표시만 종료 — <b>햅틱·리빌·파티클 금지</b></td><td>—</td></tr>
         </table>
+
+        <div class="note warn">
+          <strong>링의 수를 접근성에 백분율로 내보내지 않는다.</strong>
+          <span class="mono">ProgressRing</span>에는 <b>불확정 모드도 회전 prop도 없다</b> —
+          회전은 호출부가 <code>Animated.View</code>로 한 겹 감싸 만들고, 호 길이는 고정값 0.3이다.
+          그런데 링은 <code>progress</code>를 <code>accessibilityValue</code>에 <b>백분율로 노출</b>하므로
+          <b><code>decorative</code>가 필수</b>다. 켜지 않으면 ⓐ에서는 <b>뜻 없는 "30%"</b>를 읽고,
+          ⓑ에서는 <code>saving</code>의 1.0이 <code>saveCustomCharacter()</code>를 <b>await 하기 전에</b>
+          대입되므로 <b>끝나지 않은 저장을 "100%"로 통보한다</b>. 상태를 읽어 주는 것은 링 아래 <b>단계 문구</b>다.
+          <b>이 시안은 ⓑ에서 링 가운데에 % 숫자를 그리지만 구현에는 없다</b> — 시안은 두 척도의
+          차이를 눈으로 보여주려고 수를 노출한 것이고, 실제 화면은 <code>decorative</code> + 단계 문구다.
+        </div>
 
         <div class="note">
           <strong>대기 시간은 '동작 줄이기'로 줄지 않는다.</strong> 두 구간의 대기는 연출이 아니라
@@ -762,6 +778,10 @@
     화면으로 대신할 수 없다(위 <span class="mono">hapticSuccess</span> 배지는 <b>발화 시점 표시일 뿐</b>이다).
     ②의 두 폰은 실제 <code>ScrollView</code>/<code>FlatList</code>가 아니라 CSS 스크롤 컨테이너라
     <b>가상화·셀 재활용은 재현되지 않는다</b> — 이 대조가 보여주는 것은 <b>스트립 거동과 트리 배치</b>뿐이다.
+    <b>그래서 이 시안은 1493의 진짜 함정을 그리지 못한다</b>: 실제 <code>FlatList</code>는 화면 밖 셀을
+    언마운트했다 다시 마운트하고, <code>m.enter</code>의 결정 경계가 <b>마운트</b>라
+    <b>스크롤할 때마다 행이 다시 날아든다</b>. 처방(부모 수명의 <code>seen</code> 집합)은
+    <a href="low-level-design.md#531-가상화가-진입-연출을-되풀이시킨다--1493-설계의-구멍">LLD §5.3.1</a>.
   </div>
 
   <footer class="doc">
@@ -917,9 +937,11 @@
       $('#cutArc').style.strokeDashoffset = String(CIRC * (1 - p));
       $('#cutPct').textContent = `${Math.round(p * 100)}%`;
     }
-    /* 불확정 구간 — 진척률을 모르므로 눈금(%)을 보여주지 않는다. 호(弧)만 일부 남기고 돌린다. */
+    /* 불확정 구간 — 진척률을 모르므로 눈금(%)을 보여주지 않는다. 호(弧)만 일부 남기고 돌린다.
+       ⚠️ 호 길이 0(= strokeDashoffset이 둘레 전체)이면 아무것도 그려지지 않아 '굳은 화면'과
+          구분되지 않는다. 그래서 보이는 호를 남긴다 — 구현의 INDETERMINATE_ARC = 0.3과 같은 값. */
     function setArcIndeterminate() {
-      $('#cutArc').style.strokeDashoffset = String(CIRC * 0.75);
+      $('#cutArc').style.strokeDashoffset = String(CIRC * 0.7);
       $('#cutPct').textContent = '';
     }
 

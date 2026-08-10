@@ -15,12 +15,18 @@
 
 | 표면 | 현재 | 이후 | 티켓 |
 | --- | --- | --- | --- |
-| 리그 순위 리스트 | 🟩 `enterUp` (`RankRowShell.tsx:67` · 마운트 시점 인덱스 고정) | 🟩 **유지** — FlatList 전환 후에도 같다 | 1493 |
+| 리그 순위 리스트 | 🟩 `enterUp` (`RankRowShell.tsx:67` · 마운트 시점 인덱스 고정) — `ScrollView`라 행이 전부 마운트돼 있어 **진입은 화면당 1회** | 🟦 **부모 수명의 `seen` 집합으로 최초 1회만 허용.** 그냥 두면 가상화가 셀을 재마운트할 때마다 진입이 다시 재생된다([LLD §5.3.1](low-level-design.md#531-가상화가-진입-연출을-되풀이시킨다--1493-설계의-구멍)) | 1493 |
 | 리그 **친구 그리드**(2열) | 🟥 전환 없음 — `sortedFriends.map`(`LeagueScreen.tsx:684`)에 layout prop이 0개다 | 🟦 **카드별** `layout={m.css(springify(new LinearTransition()))}` — 포디움(`:74`·`:77`·`:408`)과 같은 처방. ⚠️ `itemLayoutAnimation`은 **2열에서 쓸 수 없다**([D22](policy.md#d22)) | 1493 |
 | 통계 꺾은선 차트 진입(draw-on) | 🟥 재생 중 '동작 줄이기'를 켜도 **끝까지 재생된다**(`charts.tsx:132` 1회 래치) | 🟦 재생 중 전환이 즉시 최종 상태로 끊긴다 | 1482 |
 
 > ⚠️ 상위 IA §3.1의 `리그 순위 리스트 | 🟥 즉시 표시 | 🟦 enterUp | PR7` 행은 **이미 해소됐다.**
 > 병합 시 위 행으로 교체한다.
+
+> ⚠️ **이 문서 초판의 *"FlatList 전환 후에도 같다"* 는 철회한다**(2026-08-11 정정).
+> `m.enter`의 결정 경계는 **컴포넌트 마운트**이고 가상화는 셀을 **언마운트했다 다시 마운트**한다 —
+> 둘이 만나면 스크롤할 때마다 행이 날아든다. `RankRowShell`의 `useRef(index).current`(`:37`)가
+> 얼리는 것은 **시차 인덱스**일 뿐 재마운트를 막지 못한다. **셸은 자기 마운트만 보고는 판단할 수
+> 없다** — 판정 지식이 셀 수명보다 오래 살아야 한다. 처방은 [LLD §5.3.1](low-level-design.md#531-가상화가-진입-연출을-되풀이시킨다--1493-설계의-구멍).
 
 ---
 
@@ -29,7 +35,7 @@
 | 표면 | 현재 | 이후 | 티켓 |
 | --- | --- | --- | --- |
 | 통계 '첫 시작 시각' **조회 실패** | 🟥 실패를 빈 배열로 삼켜 `'아직 기록이 없어요'`로 그린다(`charts.tsx:301`·`:305`) | 🟦 `null`=실패로 들고 **안내 + 재시도**, 자리 높이(`FIRST_START_BODY_H` 184) 유지 | 1474 |
-| 화면 사용시간 분석 진행바 | 🟥 '동작 줄이기' 확정이 늦으면 **시작 진행률을 0으로 두고 남은 구간을 두 배속으로** 채운다(`ScreenTimeAnalyzingOverlay.tsx:73-81`) | 🟦 시간에 비례해 **이어가기**(되감기 금지) | 1482 |
+| 화면 사용시간 분석 진행바 | 🟥 '동작 줄이기' 확정이 늦으면 **시작 진행률을 0으로 두고 남은 구간을 두 배속으로** 채운다(`ScreenTimeAnalyzingOverlay.tsx:73-81`) | 🟦 시간에 비례해 **이어가기**(되감기 금지) — 기준은 총 길이가 아니라 **구간별 함수**다(fill 2000 → hold 900 → finish 300). `elapsed / ANALYZE_MS`로 환산하면 안 된다([LLD §3.5](low-level-design.md#35-경과-시간--진행률은-구간별-함수다-단일-비율이-아니다)) | 1482 |
 | 과목 순서 **드래그 안착** | 🟥 `m.ready && m.reduce`가 미확정을 **모션 허용**으로 취급(`DraggableSubjectRows.tsx:60`) | 🟦 미확정 = **즉시 완료**(드래그 중인 행 제외) | 1482 |
 | 리그 순위 재정렬 | 🟩 `rankSwap` — 가로 ±9pt 왕복 궤적 + `M.spring.snappy` originY + zIndex 상승/하강 | 🟩 **유지**([D22](policy.md#d22)) | 1493 |
 | 리그 순위 **단계 재생** | 🟩 프레임 계획(순서 + 기록을 함께 단계화) | 🟦 두 불변식이 충돌하는 입력이면 **단계화 생략**([D17](policy.md#d17)) | 1475 |
@@ -72,8 +78,8 @@
 
 | 표면 | 현재 | 이후 | 티켓 |
 | --- | --- | --- | --- |
-| **누끼(캐릭터) 완성** — `runCutout` 완료 순간(`CharacterCreator.tsx:153`) | 🟥 `ActivityIndicator` + 정적 텍스트 `'나만의 그로몬 생성 성공'`(`CharacterCreator.tsx:292`·`:322`) — 모션 프리미티브 0개 | 🟦 `ProgressRing` → **완성 리빌**(`M.spring.bouncy` · `M.dur.celebrate`) + `hapticSuccess` ([D21](policy.md#d21)) | 1494 |
-| 캐릭터 **저장**(`checking`/`saving`) | 🟩 진행 표시 없음(`busy` 잠금만) | 🟦 **진행 표시만 · 등급 3 아님** — 햅틱·리빌·파티클 금지. 누끼 완성과 **별개 구간**이다(사이에 사용자 입력 대기) | 1494 |
+| **누끼(캐릭터) 완성** — 누끼 성공 **AND 이미지 디코드 완료**의 논리곱 시점 (`runCutout` 완료 = `CharacterCreator.tsx:153`만으로는 **이르다**) | 🟥 `ActivityIndicator` + 정적 텍스트 `'나만의 그로몬 생성 성공'`(`CharacterCreator.tsx:292`·`:322`) — 모션 프리미티브 0개 | 🟦 `ProgressRing`(**고정 호 + 회전** · `decorative`) → **완성 리빌**(마스크 벗기기 `M.dur.celebrate` + 물체 팝 `M.spring.bouncy`) + 리빌 50%에 `hapticSuccess` ([D21](policy.md#d21)) | 1494 |
+| 캐릭터 **저장**(`checking`/`saving`) | 🟩 진행 표시 없음(`busy` 잠금만) | 🟦 **진행 표시만 · 등급 3 아님** — 햅틱·리빌·파티클 금지. 누끼 완성과 **별개 구간**이다(사이에 사용자 입력 대기). 링의 0.5/1.0은 **단계 서수**이지 완료율이 아니다 → `decorative` 필수 | 1494 |
 
 **'동작 줄이기' ON에서의 거동**은 상위 IA §5의 등급 3 행을 그대로 따른다 —
 **파티클·리빌만 생략하고 완성 통보·햅틱·문구는 유지한다.**
@@ -101,9 +107,10 @@
 | `m.enter`가 `startFrameOf`를 인라인으로 중복 구현 | `useMotion.ts:109-114` ↔ `constants/motion.ts:280-285` | 1482 |
 | **잠복 크래시** — 마지막 프레임 무가드 인덱싱 | `rankSwap.ts:222` | 1475 |
 | 순위 목록이 `ScrollView` 안이라 **가상화가 없다** | `LeagueScreen.tsx:373` | 1493 |
+| 🟦 **가상화가 진입 연출을 되풀이시킨다** — 셀 재마운트마다 `m.enter`가 다시 결정된다. **1493이 만드는 결함**이라 같은 티켓에서 함께 닫는다 | `RankRowShell.tsx:67` ↔ `useMotion.ts:93-94` | 1493 ([LLD §5.3.1](low-level-design.md#531-가상화가-진입-연출을-되풀이시킨다--1493-설계의-구멍)) |
 | 친구 그리드에 재정렬 전환이 없다 | `LeagueScreen.tsx:684` | 1493 |
 | `sortedFriends` 매 렌더 정렬 · `visibleRanking.indexOf` O(n²) | `LeagueScreen.tsx:172` · `:587` | 1493 |
-| 캐릭터 생성기에 모션 프리미티브가 0개 | `CharacterCreator.tsx` | 1494 |
+| 캐릭터 생성기에 모션 프리미티브가 0개 | `CharacterCreator.tsx` | 1494 — **구현은 브랜치 `afeat/GROMO-1494-cutout-reveal`에 보존돼 있고 머지되지 않았다** |
 | 실패 통보가 시스템 알럿 (실사용 108곳) | 전역 · 35곳이 `ChallengeCard.tsx` | 1491 |
 | 🟨 레거시 RN `Animated` 잔존 8파일 | 전역 | **이번 배치 제외**(GROMO-1492) |
 
