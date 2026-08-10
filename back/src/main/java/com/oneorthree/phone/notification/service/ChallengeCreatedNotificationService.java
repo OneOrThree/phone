@@ -2,6 +2,7 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.domain.GroupChallenge;
+import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
@@ -100,9 +101,12 @@ public class ChallengeCreatedNotificationService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {
         GroupChallenge challenge = groupChallengeRepository.findById(event.challengeId()).orElse(null);
-        if (challenge == null || challenge.getDeletedAt() != null) {
-            // 커밋 직후 곧바로 삭제된 경우 — 없는 챌린지를 알리지 않는다.
-            log.info("챌린지 개설 푸시 스킵 — 챌린지 없음/삭제됨 challengeId={}", event.challengeId());
+        // AFTER_COMMIT + @Async 라 이 재조회 시점엔 생성 직후의 삭제·종료가 이미 커밋돼 있을 수 있다.
+        // 삭제만 거르면 "생성 → 즉시 종료"(OPEN 내기 없으면 가능, GROMO-1261) 경로에서 끝난 챌린지에
+        // "지금 참여해보세요" 가 나간다 — 재조회 기준 ACTIVE 일 때만 알린다.
+        if (challenge == null || challenge.getDeletedAt() != null
+                || challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
+            log.info("챌린지 개설 푸시 스킵 — 챌린지 없음/삭제/종료됨 challengeId={}", event.challengeId());
             return 0;
         }
 

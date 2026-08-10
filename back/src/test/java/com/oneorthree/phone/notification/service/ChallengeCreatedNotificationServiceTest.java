@@ -137,6 +137,21 @@ class ChallengeCreatedNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("생성 직후 종료된(ENDED) 챌린지 이벤트 → 발송하지 않음 — AFTER_COMMIT 재조회 시점 기준")
+    void skipsEndedChallenge() {
+        // 생성 커밋 → 워커 실행 전에 그룹장이 종료(OPEN 내기 없으면 가능) — "지금 참여해보세요" 가
+        // 끝난 챌린지에 나가면 안 된다. 재조회가 status=ACTIVE 를 함께 확인한다.
+        GroupChallenge challenge = durationChallenge();
+        challenge.end();
+        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
+
+        int sent = service.sendCreatedNotifications(event(), NOW);
+
+        assertThat(sent).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("삭제된 챌린지 이벤트 → 발송하지 않음")
     void skipsDeletedChallenge() {
         GroupChallenge challenge = durationChallenge();

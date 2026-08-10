@@ -115,7 +115,10 @@ SELECT md5('gch-'||g.n||'-'||i)::uuid, g.id,
             ELSE c.created_at + interval '14 days' END
 FROM seed_groups g
 CROSS JOIN generate_series(1, 4) i
-CROSS JOIN LATERAL (SELECT timestamptz '2026-07-01' - random() * interval '90 days' AS created_at) c;
+-- LATERAL 하위 쿼리는 외부 행을 참조해야 행마다 재평가된다 — 무상관이면 PG 가 1회만 평가해
+-- 20만 행의 created_at 이 한 시각에 몰린다. WHERE 의 i 참조가 상관을 강제한다(항상 참).
+CROSS JOIN LATERAL (SELECT timestamptz '2026-07-01' - random() * interval '90 days' AS created_at
+                    WHERE i > 0) c;
 
 INSERT INTO group_challenge_durations (challenge_id, category, duration_minutes)
 SELECT id, category, 30 + ((random()*6)::int)*15 FROM group_challenges WHERE type = 'DURATION';
