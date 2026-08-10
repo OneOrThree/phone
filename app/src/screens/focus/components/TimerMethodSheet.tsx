@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClosing } from '@/components/SheetShell';
 import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
 import { useMotion } from '@/hooks/useMotion';
 
@@ -32,6 +32,23 @@ export function TimerMethodSheet({
   onSelect: (mode: FocusTimerMode) => void;
   onClose: () => void;
 }) {
+  // ⚠️ 본문을 하위 컴포넌트로 분리한 이유 — 예약 취소 신호(useSheetClosing)는 SheetShell **자식
+  //    트리**에서만 잡힌다. 이 함수 본문은 SheetShell보다 위에서 실행되므로 여기서는 못 쓴다.
+  //    렌더 결과(호스트 뷰·testID)는 종전과 같다 — Maestro가 testID 셀렉터만 쓰기 때문이다.
+  return (
+    <SheetShell onClose={onClose}>
+      <TimerMethodBody subjectName={subjectName} onSelect={onSelect} />
+    </SheetShell>
+  );
+}
+
+function TimerMethodBody({
+  subjectName,
+  onSelect,
+}: {
+  subjectName: string;
+  onSelect: (mode: FocusTimerMode) => void;
+}) {
   // 알약을 누른 행 위로 보내기 위한 행별 y/높이 측정값
   const [rowRects, setRowRects] = useState<
     Partial<Record<FocusTimerMode, { y: number; h: number }>>
@@ -44,6 +61,7 @@ export function TimerMethodSheet({
   // (picked를 먼저 세우면 알약이 이미 이동해 버려 슬라이드가 재생될 자리가 없으므로 함께 미룬다)
   const [queued, setQueued] = useState<FocusTimerMode | null>(null);
   const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closing = useSheetClosing();
   // '동작 줄이기'면 알약이 미끄러지지 않고 누른 행에 즉시 나타난다(위치·표시 여부는 그대로).
   // ⚠️ 아래 진행 타이머(SLIDE_MS + 60)는 **알약이 미끄러지는 걸 보여주기 위한 대기**다.
   //    그래서 m.delay()를 통과시킨다 — reduce면 알약이 이미 제자리에 있으므로 기다릴 게 없고,
@@ -51,13 +69,23 @@ export function TimerMethodSheet({
   //    (onSelect → navigate)의 순서 계약은 그대로다.
   const m = useMotion();
 
-  // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
-  useEffect(
-    () => () => {
-      if (proceedRef.current) clearTimeout(proceedRef.current);
-    },
-    [],
-  );
+  const cancelProceed = useCallback(() => {
+    if (proceedRef.current) {
+      clearTimeout(proceedRef.current);
+      proceedRef.current = null;
+    }
+  }, []);
+
+  // 언마운트 시 예약된 진행을 취소 (늦은 onSelect 방지)
+  useEffect(() => cancelProceed, [cancelProceed]);
+
+  // ⚠️ 퇴장이 **시작되는 즉시** 취소한다. 종전에는 딤 탭이 곧 언마운트라 위 cleanup이 그 자리에서
+  //    돌았지만, 이제 onClose는 퇴장 220ms 뒤에야 불려 언마운트도 그만큼 늦는다. 선택 250ms 뒤에
+  //    닫으면 410ms(SLIDE_MS+60) 예약이 470ms인 퇴장 완료보다 **먼저** 발화해, 사용자가 취소했는데
+  //    세션이 시작되거나 다음 설정 시트가 열린다(codex 리뷰).
+  useEffect(() => {
+    if (closing) cancelProceed();
+  }, [closing, cancelProceed]);
 
   // 진행 본체 — delayMs는 **확정된** 설정으로 계산해 넘긴다.
   // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
@@ -68,7 +96,9 @@ export function TimerMethodSheet({
   };
 
   const pick = (mode: FocusTimerMode) => {
-    if (picked || queued) return; // 슬라이드 중(과 확정 대기 중) 중복 탭 방지
+    // 슬라이드 중(picked)·설정 확정 대기 중(queued)·퇴장 중(closing) 모두 새 예약을 막는다.
+    // 셋은 서로 다른 사유다 — 앞의 둘은 중복 탭, 마지막은 취소한 뒤 세션이 시작되는 것을 막는다.
+    if (picked || queued || closing) return;
     if (!rowRects[mode]) {
       onSelect(mode); // 측정 전 탭 — 연출 생략하고 바로 진행
       return;
@@ -106,7 +136,7 @@ export function TimerMethodSheet({
   const glassRect = (picked && rowRects[picked]) || rowRects.countup;
 
   return (
-    <SheetShell onClose={onClose}>
+    <>
       <Text style={s.title}>{subjectName} · 타이머 방식</Text>
       <Text style={s.sub}>어떻게 집중할지 골라요.</Text>
       <View style={s.list}>
@@ -149,7 +179,7 @@ export function TimerMethodSheet({
           />
         )}
       </View>
-    </SheetShell>
+    </>
   );
 }
 

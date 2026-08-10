@@ -131,7 +131,18 @@ export default function GroupScreen() {
     }, [fetchGroups]),
   );
 
-  const closeInvite = useCallback(() => {
+  // ⚠️ 시트 퇴장 애니메이션(220ms) **뒤에** 불린다. 그 사이 새 초대 링크가 도착해 시트 내용이
+  //    B로 바뀌었을 수 있는데, 확인 없이 지우면 방금 온 초대장이 조용히 증발한다(codex 리뷰).
+  //    닫기를 요청한 초대가 지금도 떠 있는 그 초대일 때만 버퍼를 비운다.
+  //    인자 없이 부르면 "무조건 닫기"다 — 참여 성공(onInviteJoined)처럼 어떤 초대가 떠 있든
+  //    시트를 내려야 하는 경로에서 쓴다.
+  const inviteRef = useRef(invite);
+  inviteRef.current = invite;
+  const closeInvite = useCallback((requested?: PendingInvite | null) => {
+    const current = inviteRef.current;
+    // ⚠️ groupId로 식별한다. slug는 구형 초대 링크에서 null이라, 구형 링크 두 개가 220ms 안에
+    //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
+    if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
     setInvite(null);
   }, []);
@@ -222,11 +233,16 @@ export default function GroupScreen() {
   ) : null;
 
   const inviteSheet = invite ? (
+    // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
+    //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
+    //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
+    //    B가 보이지도 닫히지도 않는다(codex 리뷰).
     <GroupInviteSheet
+      key={invite.groupId}
       groupId={invite.groupId}
       slug={invite.slug}
       entry={invite.entry}
-      onClose={closeInvite}
+      onClose={() => closeInvite(invite)}
       onJoined={onInviteJoined}
       onLogin={onInviteLogin}
     />
