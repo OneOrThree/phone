@@ -11,6 +11,7 @@ import {
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
+import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
@@ -22,6 +23,7 @@ interface GroupCardFrontProps {
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
+  onOpenReorderMenu?: () => void;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
@@ -42,6 +44,7 @@ export function GroupCardFront({
   onFlip,
   onAccessibilityFlip,
   reorderHandlers,
+  onOpenReorderMenu,
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
@@ -52,6 +55,7 @@ export function GroupCardFront({
   active = true,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
+  const disclosureId = `group-card-summary-${group.groupId}`;
 
   return (
     <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
@@ -73,6 +77,12 @@ export function GroupCardFront({
             if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
             if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
           }}
+          {...({
+            onKeyDown: (event: { nativeEvent: { key?: string } }) => {
+              const key = event.nativeEvent.key;
+              if ((key === 'Enter' || key === ' ') && active) onOpenReorderMenu?.();
+            },
+          } as object)}
           {...reorderHandlers}
         >
           <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
@@ -87,6 +97,8 @@ export function GroupCardFront({
             if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
           }}
           accessibilityRole="button"
+          accessibilityState={{ expanded: false }}
+          aria-controls={disclosureId}
           accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${emojiLabel ?? groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
           accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
           testID={`group.card.${group.groupId}`}
@@ -162,7 +174,7 @@ export function GroupCardFront({
 const s = StyleSheet.create({
   shadowShell: {
     flex: 1,
-    minHeight: 520,
+    minHeight: GROUP_CARD_HEIGHT,
     borderRadius: 28,
     backgroundColor: T.white,
     shadowColor: T.shadow,
@@ -173,7 +185,7 @@ const s = StyleSheet.create({
   },
   root: {
     flex: 1,
-    minHeight: 520,
+    minHeight: GROUP_CARD_HEIGHT,
     borderRadius: 28,
     overflow: 'hidden',
     backgroundColor: T.white,
@@ -274,8 +286,11 @@ const s = StyleSheet.create({
   footer: {
     marginTop: 'auto',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    rowGap: T.space.sm,
+    columnGap: T.space.md,
   },
   countBadge: {
     minHeight: 36,
@@ -287,6 +302,6 @@ const s = StyleSheet.create({
     backgroundColor: T.accentBg,
   },
   count: { ...T.text.label, color: T.accentDeep, fontVariant: ['tabular-nums'] },
-  flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  flipText: { ...T.text.label, color: T.inkSub },
+  flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, flexShrink: 1 },
+  flipText: { ...T.text.label, color: T.inkSub, flexShrink: 1 },
 });

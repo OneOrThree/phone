@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface FindMoreCardProps {
   width: number;
@@ -21,7 +22,7 @@ export function FindMoreCard({
   pageCount,
   onPress,
   focusable = true,
-  minHeight = 300,
+  minHeight = GROUP_CARD_HEIGHT,
 }: FindMoreCardProps) {
   return (
     <Pressable

@@ -335,7 +335,12 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
-    expect(GROUP_CARD_HEIGHT).toBe(300);
+    expect(GROUP_CARD_HEIGHT).toBe(520);
+    expect(screen.getByTestId('group.deck.verticalScroll').props.nestedScrollEnabled).toBe(true);
+    expect(screen.getByTestId(`group.card.front.${GROUP_ID}-0`)).toHaveStyle({ minHeight: 520 });
+    expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
+      minHeight: 520,
+    });
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
@@ -460,11 +465,22 @@ describe('콜백', () => {
     const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
     await renderList([group()]);
 
+    const front = screen.getByTestId(`group.card.${GROUP_ID}`);
+    expect(front.props.accessibilityState).toEqual({ expanded: false });
+    expect(front.props['aria-controls']).toBe(`group-card-summary-${GROUP_ID}`);
+
     await press(`group.card.${GROUP_ID}`);
     await waitFor(() =>
       expect(announce).toHaveBeenCalledWith('아침 6시 집중방 방 요약이 열렸습니다'),
     );
-    expect(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`).props.hitSlop).toBe(6);
+    const frontAction = screen.getByTestId(`group.card.frontAction.${GROUP_ID}`);
+    expect(frontAction.props.hitSlop).toBe(6);
+    expect(frontAction.props.accessibilityState).toEqual({ expanded: true });
+    expect(frontAction.props['aria-controls']).toBe(`group-card-summary-${GROUP_ID}`);
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`).props.nativeID).toBe(
+      `group-card-summary-${GROUP_ID}`,
+    );
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toHaveStyle({ minHeight: 520 });
     expect(screen.getByTestId(`group.card.settings.${GROUP_ID}`).props.hitSlop).toBe(6);
 
     setFocus.mockClear();
@@ -907,6 +923,19 @@ describe('제스처 중재와 재정렬', () => {
         .getByTestId('group.list.items')
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
+  });
+
+  test('키보드 Enter로 grip의 순서 변경 메뉴를 연다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.grip.${GROUP_ID}`), 'keyDown', {
+        nativeEvent: { key: 'Enter' },
+      });
+    });
+
+    expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
   });
 
   test('끝 카드가 현재 페이지가 아닐 때 입력과 접근성 트리에서 제외한다', async () => {
