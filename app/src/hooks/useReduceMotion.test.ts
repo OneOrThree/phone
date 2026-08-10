@@ -46,7 +46,7 @@ describe('useReduceMotion', () => {
 
   test('whenReduceMotionReady는 확정 전에는 resolve되지 않는다', async () => {
     let settled = false;
-    void whenReduceMotionReady().then(() => {
+    whenReduceMotionReady().then(() => {
       settled = true;
     });
     await act(async () => {});
@@ -62,7 +62,7 @@ describe('useReduceMotion', () => {
   // 비동기 흐름(AsyncStorage 조회 뒤 타이머 예약 등)은 훅을 못 쓰므로 프로미스로 기다린다.
   test('whenReduceMotionReady는 확정된 뒤에 resolve된다', async () => {
     let settled = false;
-    void whenReduceMotionReady().then(() => {
+    whenReduceMotionReady().then(() => {
       settled = true;
     });
     await act(async () => {});
