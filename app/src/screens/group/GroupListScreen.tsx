@@ -49,6 +49,8 @@ export interface GroupListScreenProps {
   onFind: () => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
+  // 단계별 개발 중인 덱은 명시적으로 켠 테스트/통합 화면에서만 노출한다.
+  enableCardDeck?: boolean;
 }
 
 export default function GroupListScreen({
@@ -58,6 +60,7 @@ export default function GroupListScreen({
   onFind,
   onRefresh,
   onBack,
+  enableCardDeck = false,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -112,6 +115,7 @@ export default function GroupListScreen({
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
+    if (!enableCardDeck) return;
     const identity = activeIdentityRef.current;
     const next =
       identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
@@ -119,7 +123,7 @@ export default function GroupListScreen({
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [activeIndex, groups, snapInterval]);
+  }, [activeIndex, enableCardDeck, groups, snapInterval]);
 
   return (
     <View style={s.root} testID="group.list">
@@ -144,28 +148,35 @@ export default function GroupListScreen({
         testID="group.list.items"
         data={groups}
         keyExtractor={(item) => item.groupId}
-        horizontal
+        horizontal={enableCardDeck}
         alwaysBounceVertical
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-        ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-        snapToInterval={snapInterval}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum
-        onMomentumScrollEnd={settlePage}
-        onScrollEndDrag={settlePage}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={
+          enableCardDeck ? [s.listContent, { paddingHorizontal: SIDE_PEEK }] : s.legacyListContent
+        }
+        ItemSeparatorComponent={
+          enableCardDeck ? () => <View style={{ width: CARD_GAP }} /> : undefined
+        }
+        snapToInterval={enableCardDeck ? snapInterval : undefined}
+        snapToAlignment={enableCardDeck ? 'start' : undefined}
+        decelerationRate={enableCardDeck ? 'fast' : 'normal'}
+        disableIntervalMomentum={enableCardDeck}
+        onMomentumScrollEnd={enableCardDeck ? settlePage : undefined}
+        onScrollEndDrag={enableCardDeck ? settlePage : undefined}
         ListFooterComponent={
-          <View style={{ marginLeft: CARD_GAP }}>
-            <FindMoreCard width={cardWidth} onPress={onFind} />
-          </View>
+          enableCardDeck ? (
+            <View style={{ marginLeft: CARD_GAP }}>
+              <FindMoreCard width={cardWidth} onPress={onFind} />
+            </View>
+          ) : null
         }
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[s.card, { width: cardWidth }]}
+            style={[s.card, enableCardDeck ? { width: cardWidth } : s.legacyCard]}
             activeOpacity={0.85}
             onPress={() => onSelect(item.groupId)}
             testID={`group.list.card.${item.groupId}`}
@@ -211,7 +222,13 @@ export default function GroupListScreen({
         )}
       />
 
-      <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
+      {enableCardDeck && (
+        <PageIndicator
+          pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+          activeIndex={activeIndex}
+          onSelectPage={selectPage}
+        />
+      )}
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
       <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
@@ -263,6 +280,11 @@ const s = StyleSheet.create({
   },
 
   listContent: { paddingBottom: T.space.md },
+  legacyListContent: {
+    paddingHorizontal: T.space.xl,
+    paddingBottom: T.space.md,
+    gap: T.space.md,
+  },
 
   // 카드 표면은 T.paperAlt — 그룹 탭 배경이 흰 캔버스(T.paperLight)라 T.white 카드는 묻힌다
   // (그룹방의 초대·공지 카드와 같은 기준).
@@ -278,6 +300,7 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
   },
+  legacyCard: { minHeight: 58 },
   cardMain: { flex: 1, gap: 4, minWidth: 0 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },

@@ -47,9 +47,26 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
       onFind={onFind}
       onRefresh={onRefresh}
       onBack={back}
+      enableCardDeck
     />,
   );
 }
+
+test('운영 기본값은 덱을 노출하지 않고 기존 세로 목록을 유지한다', async () => {
+  await render(
+    <GroupListScreen
+      groups={[group()]}
+      onSelect={onSelect}
+      onCreate={onCreate}
+      onFind={onFind}
+      onRefresh={onRefresh}
+    />,
+  );
+
+  expect(screen.getByTestId('group.list.items').props.horizontal).toBe(false);
+  expect(screen.queryByTestId('group.deck.findMore')).toBeNull();
+  expect(screen.queryByTestId('group.deck.indicator')).toBeNull();
+});
 
 // 탭은 act로 감싼다 — 감싸지 않으면 fireEvent가 여는 act 스코프가 렌더 스코프와 겹쳐
 // ("overlapping act() calls") 다음 테스트의 렌더가 통째로 비는 일이 생긴다.

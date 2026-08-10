@@ -1,5 +1,13 @@
-import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  findNodeHandle,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { T } from '@/constants/theme';
 
 const INDICATOR_GUTTER = 20;
@@ -20,19 +28,37 @@ export function resolveIndicatorMode(measuredWidth: number, pageCount: number): 
 }
 
 interface PageIndicatorProps {
-  pageCount: number;
+  pageLabels: readonly string[];
   activeIndex: number;
   onSelectPage: (page: number) => void;
 }
 
-export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndicatorProps) {
+export function pageAccessibilityLabel(label: string, page: number, pageCount: number): string {
+  return `${label}, ${page + 1} / ${pageCount}`;
+}
+
+export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
+  const pageCount = pageLabels.length;
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
+  const previousModeRef = useRef(mode);
+  const focusWithinRef = useRef(false);
+  const dotRefs = useRef<Array<View | null>>([]);
+  const counterRef = useRef<View | null>(null);
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const next = event.nativeEvent.layout.width;
     setMeasuredWidth((current) => (current === next ? current : next));
   }, []);
+
+  useEffect(() => {
+    if (previousModeRef.current === mode) return;
+    previousModeRef.current = mode;
+    if (!focusWithinRef.current) return;
+    const target = mode === 'counter' ? counterRef.current : dotRefs.current[activeIndex];
+    const node = findNodeHandle(target);
+    if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+  }, [activeIndex, mode]);
 
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
@@ -41,12 +67,19 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
           {Array.from({ length: pageCount }, (_, page) => (
             <Pressable
               key={page}
+              ref={(node) => {
+                dotRefs.current[page] = node;
+              }}
               style={s.dotHit}
               onPress={() => onSelectPage(page)}
+              onFocus={() => {
+                focusWithinRef.current = true;
+              }}
+              onBlur={() => {
+                focusWithinRef.current = false;
+              }}
               accessibilityRole="button"
-              accessibilityLabel={
-                page === pageCount - 1 ? '그룹 찾기 페이지' : `그룹 카드 ${page + 1} 페이지`
-              }
+              accessibilityLabel={pageAccessibilityLabel(pageLabels[page] ?? '', page, pageCount)}
               accessibilityState={{ selected: page === activeIndex }}
               testID={`group.deck.indicator.dot.${page}`}
             >
@@ -59,13 +92,24 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
           ))}
         </View>
       ) : (
-        <Text
-          style={s.counter}
-          accessibilityLabel={`${activeIndex + 1} / ${pageCount}`}
+        <Pressable
+          ref={counterRef}
+          style={s.counterHit}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+          onFocus={() => {
+            focusWithinRef.current = true;
+          }}
+          onBlur={() => {
+            focusWithinRef.current = false;
+          }}
           testID="group.deck.indicator.counter"
         >
-          {activeIndex + 1} / {pageCount}
-        </Text>
+          <Text style={s.counter}>
+            {activeIndex + 1} / {pageCount}
+          </Text>
+        </Pressable>
       )}
     </View>
   );
@@ -82,5 +126,6 @@ const s = StyleSheet.create({
   },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.borderDark },
   dotActive: { width: 18, backgroundColor: T.accent },
+  counterHit: { minHeight: 44, justifyContent: 'center' },
   counter: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
 });
