@@ -72,6 +72,7 @@ export function GroupCardDeck({
   const previousActiveInputRef = useRef<string | null | undefined>(undefined);
   const pendingPeekGroupIdRef = useRef<string | null>(null);
   const pendingPageAnnouncementRef = useRef<number | null>(null);
+  const dragFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [indicatorWidth, setIndicatorWidth] = useState(0);
   const indicatorFocusedRef = useRef(false);
@@ -138,18 +139,38 @@ export function GroupCardDeck({
     [groups, onPeekPress, pageCount, snapInterval],
   );
 
+  const cancelDragFallback = useCallback(() => {
+    if (dragFallbackTimerRef.current !== null) clearTimeout(dragFallbackTimerRef.current);
+    dragFallbackTimerRef.current = null;
+  }, []);
+
+  useEffect(() => cancelDragFallback, [cancelDragFallback]);
+
+  const onMomentumScrollBegin = useCallback(() => {
+    cancelDragFallback();
+  }, [cancelDragFallback]);
+
   const onMomentumScrollEnd = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
-      settleActiveOffset(event.nativeEvent.contentOffset.x),
-    [settleActiveOffset],
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      cancelDragFallback();
+      settleActiveOffset(event.nativeEvent.contentOffset.x);
+    },
+    [cancelDragFallback, settleActiveOffset],
   );
 
   const onScrollEndDrag = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const target = event.nativeEvent.targetContentOffset?.x;
-      if (typeof target === 'number') settleActiveOffset(target);
+      if (typeof target !== 'number') return;
+      cancelDragFallback();
+      // iOS는 momentum gesture에도 targetContentOffset을 제공한다. 다음 tick 전에
+      // onMomentumScrollBegin이 오면 이 fallback을 취소하고 실제 momentum 종료만 확정한다.
+      dragFallbackTimerRef.current = setTimeout(() => {
+        dragFallbackTimerRef.current = null;
+        settleActiveOffset(target);
+      }, 0);
     },
-    [settleActiveOffset],
+    [cancelDragFallback, settleActiveOffset],
   );
 
   // 회전·분할 화면과 서버 목록 reconcile 뒤에도 index가 아닌 stable groupId를 새 간격에 복원한다.
@@ -201,6 +222,7 @@ export function GroupCardDeck({
         decelerationRate="fast"
         disableIntervalMomentum
         onMomentumScrollEnd={onMomentumScrollEnd}
+        onMomentumScrollBegin={onMomentumScrollBegin}
         onScrollEndDrag={onScrollEndDrag}
         ListFooterComponent={
           <View
