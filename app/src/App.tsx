@@ -47,7 +47,7 @@ import { RootNavigator } from '@/navigation/RootNavigator';
 import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
-import { abortTagEdits } from '@/screens/focus/tagSync';
+import { beginTagEditTransition } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
@@ -247,8 +247,10 @@ function App() {
       // 위 네트워크 대기 중 새 로그인/게스트 승격이 시작됐다면 이 로그아웃은 이전 세션의
       // 작업이다. 새 세션의 토큰·캐시·React 상태를 지우지 않고 여기서 끝낸다.
       if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
-      // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
-      abortTagEdits();
+      // 실행 중인 이전 계정 태그 요청까지 끝낸 뒤 대기분을 폐기한다. 토큰 삭제 뒤에 기존 요청의
+      // 후속 API가 새/빈 세션으로 나가는 경합을 막는다.
+      const tagEditTransition = await beginTagEditTransition();
+      tagEditTransition.commit();
       // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
       // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
       abortFocusRestore();
@@ -442,13 +444,11 @@ function App() {
     // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401
     // 인터셉터가 전역 로그아웃을 발동시켜 방금 로그인한 계정이 풀릴 수 있다(PR 226 리뷰).
     setAccountSwitchHandler({
-      beforeTokenWrite: () => {
-        abortTagEdits();
-        // 새 token을 interceptor에 노출하기 전에 이전 계정의 복원/편집 작업을 무효화한다.
-        abortFocusRestore();
-      },
+      beforeTokenWrite: beginTagEditTransition,
       afterCommit: async (prevAccessToken) => {
         // 새 세션의 로컬 snapshot이 모두 저장된 뒤에만 되돌릴 수 없는 서버 정리를 한다.
+        // 진행 중 복원도 여기서 무효화해야 저장 rollback 때 이전 계정 작업을 잃지 않는다.
+        abortFocusRestore();
         resetServerZone();
         await deleteDeviceToken(prevAccessToken).catch(() => {});
       },

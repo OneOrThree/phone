@@ -53,6 +53,16 @@ export async function acquireAuthSessionTransition(): Promise<() => void> {
   };
 }
 
+/** provider 인증 시작부터 로컬 세션 커밋까지 한 번의 전환으로 직렬화한다. */
+export async function runAuthSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
+  const release = await acquireAuthSessionTransition();
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
 export function setLogoutHandler(fn: (() => void) | null): void {
   onLogout = fn;
 }

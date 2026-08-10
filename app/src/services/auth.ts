@@ -13,11 +13,11 @@ import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbs
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   API_URL,
-  acquireAuthSessionTransition,
   api,
   getFreshAccessToken,
   getUserIdFromToken,
   markAuthSessionReplacement,
+  runAuthSessionTransition,
 } from '@/services/api';
 import { getMyProfile } from '@/services/userApi';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
@@ -44,8 +44,13 @@ interface AuthResponse {
 // async 핸들러는 완료까지 기다린다 — 새 토큰이 저장되면 이전 계정 API를 더는 부를 수 없어서.
 // 이전 계정 access 토큰을 핸들러에 넘긴다 — 공유 api 인스턴스의 401 전역 로그아웃을 피해
 // bare 요청에 명시적으로 실어 보내기 위함(PR 226 리뷰).
+interface AccountSwitchTransition {
+  commit: () => void;
+  rollback: () => void;
+}
+
 interface AccountSwitchHandlers {
-  beforeTokenWrite: () => void;
+  beforeTokenWrite: () => AccountSwitchTransition | Promise<AccountSwitchTransition>;
   afterCommit: (prevAccessToken: string) => void | Promise<void>;
 }
 
@@ -86,7 +91,6 @@ function toAuthError(e: unknown, fallback: string): Error {
 
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
-  const releaseAuthTransition = await acquireAuthSessionTransition();
   const sessionKeys = [
     STORAGE_KEYS.accessToken,
     STORAGE_KEYS.refreshToken,
@@ -94,6 +98,7 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   ] as const;
   let previousSession: readonly (readonly [string, string | null])[] = [];
   let sessionWriteStarted = false;
+  let accountSwitchTransition: AccountSwitchTransition | null = null;
   try {
     previousSession = await AsyncStorage.multiGet([...sessionKeys]);
     const prevToken =
@@ -104,9 +109,11 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       prevToken && prevUserId && nextUserId && prevUserId !== nextUserId,
     );
 
-    // 이전 계정의 대기 작업은 새 access token이 저장소에 보이기 전에 동기적으로 무효화한다.
+    // 이전 계정의 실행 중 작업까지 새 access token이 보이기 전에 drain하고 새 작업은 잠시 세운다.
     // 서버 정리처럼 저장 실패 뒤 되돌릴 수 없는 일은 로컬 세션 커밋 뒤 afterCommit에서 수행한다.
-    if (switchingAccount) accountSwitchHandlers?.beforeTokenWrite();
+    if (switchingAccount && accountSwitchHandlers) {
+      accountSwitchTransition = await accountSwitchHandlers.beforeTokenWrite();
+    }
 
     // 토큰 둘 중 하나만 남는 부분 저장도 실패로 간주하고 아래 snapshot으로 복구한다.
     sessionWriteStarted = true;
@@ -133,6 +140,10 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     }
     await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));
 
+    // 새 로컬 세션이 완성된 뒤에만 이전 계정 대기 작업을 폐기한다. 이보다 앞선 저장이 실패하면
+    // catch에서 이전 snapshot을 복구한 뒤 rollback으로 gate를 열어 작업을 이어 간다.
+    accountSwitchTransition?.commit();
+
     // 이전 계정 API 정리는 prevToken을 명시해서 호출하므로 새 토큰 저장 뒤에도 안전하다. 세션 로컬
     // snapshot이 모두 저장된 뒤 실행해 저장 실패가 기존 계정 정리만 남기는 상황을 피한다.
     if (switchingAccount && prevToken) {
@@ -154,13 +165,12 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       );
       if (restorable.length > 0) await AsyncStorage.multiSet([...restorable]).catch(() => {});
     }
+    accountSwitchTransition?.rollback();
     throw error;
-  } finally {
-    releaseAuthTransition();
   }
 }
 
-export async function kakaoLogin(): Promise<LoginResult> {
+async function kakaoLoginAttempt(): Promise<LoginResult> {
   const kakaoToken = await login();
   const headers = await guestUpgradeHeaders();
   let data: AuthResponse;
@@ -177,7 +187,11 @@ export async function kakaoLogin(): Promise<LoginResult> {
   return postAuthSave(data, false);
 }
 
-export async function appleLogin(): Promise<LoginResult> {
+export function kakaoLogin(): Promise<LoginResult> {
+  return runAuthSessionTransition(kakaoLoginAttempt);
+}
+
+async function appleLoginAttempt(): Promise<LoginResult> {
   const credential = await AppleAuthentication.signInAsync({
     requestedScopes: [
       AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -199,6 +213,10 @@ export async function appleLogin(): Promise<LoginResult> {
   return postAuthSave(data, false);
 }
 
+export function appleLogin(): Promise<LoginResult> {
+  return runAuthSessionTransition(appleLoginAttempt);
+}
+
 // Google 로그인 설정 — 모듈 로드 시 1회 실행.
 GoogleSignin.configure({
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
@@ -206,7 +224,7 @@ GoogleSignin.configure({
   scopes: ['profile', 'email'],
 });
 
-export async function googleLogin(): Promise<LoginResult> {
+async function googleLoginAttempt(): Promise<LoginResult> {
   const response = await GoogleSignin.signIn();
   if (!isSuccessResponse(response)) {
     throw Object.assign(new Error('Google 로그인 취소'), {
@@ -232,6 +250,10 @@ export async function googleLogin(): Promise<LoginResult> {
   return postAuthSave(data, false);
 }
 
+export function googleLogin(): Promise<LoginResult> {
+  return runAuthSessionTransition(googleLoginAttempt);
+}
+
 // LINE 로그인 설정 — setup()은 login() 전에 1회 호출돼야 한다.
 let lineConfigured = false;
 async function ensureLineSetup(): Promise<void> {
@@ -245,7 +267,7 @@ async function ensureLineSetup(): Promise<void> {
   lineConfigured = true;
 }
 
-export async function lineLogin(): Promise<LoginResult> {
+async function lineLoginAttempt(): Promise<LoginResult> {
   await ensureLineSetup();
   const result = await Promise.race([
     LineLogin.login({ scopes: [LoginPermission.Profile] }),
@@ -272,7 +294,11 @@ export async function lineLogin(): Promise<LoginResult> {
   return postAuthSave(data, false);
 }
 
-export async function facebookLogin(): Promise<LoginResult> {
+export function lineLogin(): Promise<LoginResult> {
+  return runAuthSessionTransition(lineLoginAttempt);
+}
+
+async function facebookLoginAttempt(): Promise<LoginResult> {
   // iOS는 Limited Login(ATT 팝업 없음) — access token이 아니라 OIDC id_token을 받는다.
   const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
   const result = await LoginManager.logInWithPermissions(
@@ -307,11 +333,15 @@ export async function facebookLogin(): Promise<LoginResult> {
   return postAuthSave(data, false);
 }
 
+export function facebookLogin(): Promise<LoginResult> {
+  return runAuthSessionTransition(facebookLoginAttempt);
+}
+
 // 게스트 로그인 — 소셜 계정 없이 임시 유저 생성(백엔드 POST /auth/guest, 바디 없음).
 // isGuest=true 실유저 + JWT 발급 → 진짜 인증 세션이 되어 코인·통계·리그 조회 등이 동작한다.
 // (그룹 생성/가입 등 일부는 서버가 403으로 제한.) 매 호출이 새 게스트를 만드므로
 // postAuthSave가 토큰을 저장 → 앱 재실행 시 저장된 토큰을 재사용해 같은 게스트를 유지한다.
-export async function guestLogin(): Promise<LoginResult> {
+async function guestLoginAttempt(): Promise<LoginResult> {
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/guest`);
@@ -324,6 +354,10 @@ export async function guestLogin(): Promise<LoginResult> {
   }
   // 게스트는 항상 신규 → 프로필 병합(GET /users/me) 스킵. isGuest=true 로 태깅.
   return postAuthSave({ ...data, isNewUser: true }, true);
+}
+
+export function guestLogin(): Promise<LoginResult> {
+  return runAuthSessionTransition(guestLoginAttempt);
 }
 
 // POST /api/v1/auth/logout — 서버 리프레시 토큰 무효화. 로컬 세션 정리는 호출부(App.tsx handleLogout) 담당.
