@@ -10,6 +10,7 @@ import {
   BET_LEAVE_CLOSED,
   BET_NOT_JOINED,
   BET_NOT_OPEN,
+  BET_SESSION_NOT_FOUND,
   cancelBet,
   challengeGroupId,
   getChallengeDeletionPreview,
@@ -38,7 +39,7 @@ import {
   repeatDayOf,
   weekRemainingActiveDates,
 } from '../challengeSchedule';
-import { pickLastSettled } from '../lastSettledView';
+import { pickLastSettled, voidSummary } from '../lastSettledView';
 import { categoryLabel, missionLabel } from './challengeLabel';
 import {
   UNMEASURED,
@@ -403,8 +404,13 @@ export default function ChallengeCard({
     isWindow && challenge.windowStart !== null ? hhmmOf(challenge.windowStart) : null;
   // 요일 줄 오른쪽 문구 — 회차 상태를 따른다(ux §02 표). '오늘 09:00'을 창이 끝난 뒤에도 두면
   // 거짓말이 된다. 하루형 활성일은 자정 시작·자정 종료라 '진행 중'이 하루 종일 사실이다.
+  // ⚠️ **끝난 챌린지는 오늘/진행 중 분기를 타지 않는다**(#570 codex ②) — 종료·삭제된 챌린지도
+  //    요일은 그대로라, 상태를 안 보면 하루형이 영영 「진행 중 · 자정 종료」로 남는다.
+  //    앱이 보는 값은 'ACTIVE' | 'INACTIVE'다(서버가 ENDED를 레거시 와이어에서 INACTIVE로
+  //    다운맵한다 — #567/B1) — 미래에 ENDED가 그대로 와도 안전하도록 `!== 'ACTIVE'`로 판정한다.
   const nextLine = (() => {
     if (repeatDays === null) return null;
+    if (challenge.status !== 'ACTIVE') return null;
     if (activeToday) {
       if (isWindow && challenge.windowStart !== null && challenge.windowEnd !== null) {
         const nowSec = nowSecondsInZone(KST_ZONE);
@@ -589,8 +595,10 @@ export default function ChallengeCard({
       const mine = await getMyOpenBetSessions();
       const target = mine.find((m) => m.challengeId === challenge.id && m.sessionDate === nextDate);
       if (target === undefined) {
-        // 이미 취소됐거나 목록이 낡았다 — 사실만 알리고 정리는 재조회에 맡긴다(철회 실패 결).
-        Alert.alert('참여 취소를 못 했어요', '예약을 찾지 못했어요. 화면을 새로고침해 주세요.');
+        // 이미 취소됐거나 예약이 사라졌다 — 취소할 대상이 없는 **종결 상태**다. 재조회로 카드의
+        // 예약 표시를 걷어 준다(안 그러면 없는 예약을 계속 취소하려 든다 — 아래 404와 같은 결).
+        Alert.alert('이미 정리된 예약이에요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
+        onBetChanged?.();
         return;
       }
       await leaveSession(cachedGroupId, target.sessionId);
@@ -599,6 +607,14 @@ export default function ChallengeCard({
       onBetChanged?.();
     } catch (e) {
       switch (groupErrorCode(e)) {
+        // 목록을 받은 뒤 회차가 사라졌다(삭제·정산) — 취소할 대상이 없는 종결 상태다(#570 ③).
+        case BET_SESSION_NOT_FOUND:
+          Alert.alert(
+            '이미 정리된 예약이에요',
+            '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
+          );
+          onBetChanged?.();
+          break;
         case BET_LEAVE_CLOSED:
           Alert.alert('참여 취소를 못 했어요', '취소할 수 있는 시간이 지났어요.');
           break;
@@ -634,6 +650,13 @@ export default function ChallengeCard({
       onBetChanged?.();
     } catch (e) {
       switch (groupErrorCode(e)) {
+        // 카드를 그린 뒤 회차가 사라졌다(삭제·정산) — **취소할 대상이 없는 종결 상태**다.
+        // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 반복하게 되므로,
+        // 사실을 알리고 카드를 최신으로 갈아 끼운다(#570 codex ③).
+        case BET_SESSION_NOT_FOUND:
+          Alert.alert('이미 정리된 날이에요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
+          onBetChanged?.();
+          break;
         case BET_LEAVE_CLOSED:
           Alert.alert('참여 취소를 못 했어요', '취소할 수 있는 시간이 지났어요.');
           break;
@@ -788,6 +811,8 @@ export default function ChallengeCard({
   const lastResults = lastBet?.results ?? [];
   // achieved는 3상이다(계약 §3) — null(미판정)을 미달성으로 세면 달성 인원이 과소 집계된다.
   const lastAchieved = lastResults.filter((r) => r.achieved === true).length;
+  // 무산·삭제 무효화 회차의 카드 한 줄 요약 — 달성 집계 대신 사유를 적는다(#570 codex ①).
+  const lastVoidSummary = voidSummary(lastSettled?.voidReason ?? null);
 
   // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
   // 진행 중(OPEN 회차 없음)이 아닐 땐 여기서 끝난다 — 안 위험할 때도 두 번 물으면 경고가
@@ -1187,7 +1212,11 @@ export default function ChallengeCard({
           testID={`group.bet.last.${challenge.id}`}
         >
           <Text style={s.betLastCaption}>
-            지난 내기({monthDay(lastBet.betDate)}): {lastResults.length}명 중 {lastAchieved}명 달성
+            {/* 무산·삭제 무효화는 **판정을 한 적이 없다** — 「N명 중 0명 달성」으로 적으면 시트를
+                열기도 전에 카드가 거짓을 말한다(#570 codex ①). 사유를 아는 회차는 사유로 적고,
+                모르면(구서버·모르는 값) 종전 달성 집계 문장 그대로다. */}
+            지난 내기({monthDay(lastBet.betDate)}):{' '}
+            {lastVoidSummary ?? `${lastResults.length}명 중 ${lastAchieved}명 달성`}
           </Text>
         </TouchableOpacity>
       )}

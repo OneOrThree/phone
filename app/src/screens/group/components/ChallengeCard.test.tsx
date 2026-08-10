@@ -1592,6 +1592,22 @@ describe('요일 배지·다음 회차 (GROMO-1274)', () => {
     );
   });
 
+  // #570 codex ② — 종료·삭제된 챌린지도 요일은 그대로다. 상태를 안 보면 하루형이 영영
+  // 「진행 중 · 자정 종료」로 남아, 끝난 챌린지가 돌고 있는 것처럼 읽힌다.
+  test('끝난 챌린지(INACTIVE)는 오늘 활성 요일이어도 진행 중으로 말하지 않는다', async () => {
+    await renderCard({
+      status: 'INACTIVE',
+      repeatDays: ['SAT'],
+      activeToday: true,
+      nextSessionAt: NEXT_MON_AT,
+    });
+
+    // 배지 줄은 남는다(언제 도는 챌린지였는지는 여전히 정보다) — 진행 문구만 걷힌다.
+    expect(screen.getByTestId(`group.challenge.dow.${CHALLENGE_ID}.SAT`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.challenge.next.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByText(/진행 중/)).toBeNull();
+  });
+
   test('요일 줄은 한 문장으로 읽힌다(a11y)', async () => {
     await renderCard({
       repeatDays: ['MON', 'WED', 'FRI'],
@@ -1699,6 +1715,38 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
 
     expect(mockLeaveSession).toHaveBeenCalledWith(GROUP_ID, 's-reserved');
     expect(mockRefreshCoins).toHaveBeenCalled();
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  // 예약 취소도 같은 규칙(#570 codex ③) — 목록에서 사라졌거나 404면 종결 상태로 처리한다.
+  test('예약이 이미 사라졌으면 종결 상태로 알리고 카드를 갱신한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetMyOpenBetSessions.mockResolvedValue([]); // 내 OPEN 목록에 없다
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({ ...restingOver(), nextSessionJoined: true })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveNext.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+      | AlertButton[]
+      | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(mockLeaveSession).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '이미 정리된 예약이에요',
+      '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
+    );
     expect(onBetChanged).toHaveBeenCalled();
   });
 
@@ -2055,6 +2103,39 @@ describe('오늘 참여 취소 (N22)', () => {
     );
     expect(onBetChanged).not.toHaveBeenCalled();
   });
+
+  // #570 codex ③ — 카드를 그린 뒤 회차가 삭제·정산되면 404다. 공통 문구로 떨어뜨리면
+  // 취소할 대상이 없는데도 같은 실패를 반복하게 된다 — 종결 상태로 처리하고 카드를 갱신한다.
+  test('회차가 사라졌으면(404) 종결 상태로 알리고 재조회를 태운다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveSession.mockRejectedValueOnce(axiosErrorWith(404, 'BET_SESSION_NOT_FOUND'));
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(joinedOver())}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+      | AlertButton[]
+      | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '이미 정리된 날이에요',
+      '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
+    );
+    expect(onBetChanged).toHaveBeenCalled();
+  });
 });
 
 // ── v2 지난 결과 소비(#570 codex ①) — lastSettledSession 우선, 구서버는 lastSettledBet ──
@@ -2119,6 +2200,57 @@ describe('지난 결과 v2 (lastSettledSession)', () => {
 
     expect(screen.getByText('참가자가 부족해 무산됐어요. 참가비는 돌려드렸어요')).toBeOnTheScreen();
     expect(screen.queryByText('달성한 사람이 없어 전원 환불됐어요')).toBeNull();
+  });
+
+  // #570 codex ① — 시트를 열기 전에 카드 한 줄이 먼저 읽힌다. 여기서 「1명 중 0명 달성」이면
+  // 판정한 적 없는 회차를 판정 결과로 말하는 것이라 시트만 고쳐서는 해결되지 않는다.
+  test('무산 회차의 카드 요약도 달성 집계 대신 사유로 말한다', async () => {
+    await renderCard({
+      repeatDays: ['MON'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 30 },
+      lastSettledSession: {
+        sessionId: 's-void',
+        sessionDate: '2026-07-31',
+        stake: 30,
+        pot: 30,
+        status: 'VOIDED',
+        voidReason: 'INSUFFICIENT_PARTICIPANTS', // policy N33 표기 — LLD 표기와 함께 수용된다
+        goalMinutes: 60,
+        myJoined: true,
+        myAchieved: null,
+        myPayout: 30,
+        results: [{ userId: 'u1', nickname: '재영', achieved: null, payout: 30 }],
+      },
+    });
+
+    expect(screen.getByText('지난 내기(7월 31일): 참가자가 부족해 무산')).toBeOnTheScreen();
+    expect(screen.queryByText(/명 달성/)).toBeNull();
+  });
+
+  test('삭제 무효화는 삭제 사유로 적는다', async () => {
+    await renderCard({
+      repeatDays: ['MON'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 30 },
+      lastSettledSession: {
+        sessionId: 's-void2',
+        sessionDate: '2026-07-31',
+        stake: 30,
+        pot: 60,
+        status: 'VOIDED',
+        voidReason: 'CHALLENGE_DELETED',
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: null, payout: 30 },
+          { userId: 'u2', nickname: '수빈', achieved: null, payout: 30 },
+        ],
+      },
+    });
+    expect(screen.getByText('지난 내기(7월 31일): 챌린지 삭제로 무효')).toBeOnTheScreen();
   });
 
   test('사유를 모르는 환불(구서버)은 종전 문장으로 폴백한다', async () => {

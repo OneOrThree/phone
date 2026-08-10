@@ -3,7 +3,7 @@
 // 잡는지를 잠근다. 이 선택이 없으면 v2 응답만 오는 서버에서 카드 '지난 결과'와 잔액 재동기화가
 // 첫 정산 이후 **영영 빈 채로** 남는다.
 import type { GroupChallengeResponse, LastSettledSession } from '@/types/dto/group';
-import { pickLastSettled, settledSignatureOf } from './lastSettledView';
+import { pickLastSettled, settledSignatureOf, voidSummary } from './lastSettledView';
 
 function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeResponse {
   return {
@@ -106,6 +106,24 @@ describe('pickLastSettled', () => {
       }),
     );
     expect(view?.bet.betDate).toBe('2026-07-31');
+  });
+});
+
+describe('voidSummary', () => {
+  // 값 축 이문(policy N33 ↔ LLD) — 서버가 어느 쪽을 내보내도 같은 문장이어야 한다.
+  test('인원 미달은 두 표기를 모두 받는다', () => {
+    expect(voidSummary('SHORT_PARTICIPANTS')).toBe('참가자가 부족해 무산');
+    expect(voidSummary('INSUFFICIENT_PARTICIPANTS')).toBe('참가자가 부족해 무산');
+  });
+
+  test('삭제·기한 사유도 각자 문장을 갖는다', () => {
+    expect(voidSummary('CHALLENGE_DELETED')).toBe('챌린지 삭제로 무효');
+    expect(voidSummary('REFUND_DEADLINE')).toBe('기한이 지나 무효');
+  });
+
+  test('모르는 값·없음은 null — 문구를 지어내지 않고 호출부가 폴백한다', () => {
+    expect(voidSummary('SOMETHING_NEW')).toBeNull();
+    expect(voidSummary(null)).toBeNull();
   });
 });
 

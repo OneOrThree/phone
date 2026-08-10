@@ -26,6 +26,29 @@ function toDisplayStatus(status: LastSettledSession['status']): GroupBetStatus |
   return status;
 }
 
+/**
+ * 카드 '지난 결과' 한 줄의 **무효화 요약** — 무산·삭제 환불은 판정을 한 적이 없으므로
+ * 「N명 중 0명 달성」으로 적으면 시트를 열기도 전에 카드가 거짓을 말한다(#570 codex ①).
+ * 사유를 모르면 null → 호출부가 종전 달성 집계 문장으로 폴백한다.
+ *
+ * ⚠️ 값 축 이문(policy N33 `INSUFFICIENT_PARTICIPANTS` ↔ LLD `SHORT_PARTICIPANTS`)은 둘 다
+ *    받는다 — 시트 배너(LastBetResultSheet.voidReasonBanner)와 같은 축·같은 폴백 규칙이다.
+ *    문장 길이만 다르다: 카드는 한 줄 요약, 시트는 돈의 행방까지 말하는 배너.
+ */
+export function voidSummary(voidReason: string | null): string | null {
+  switch (voidReason) {
+    case 'SHORT_PARTICIPANTS':
+    case 'INSUFFICIENT_PARTICIPANTS':
+      return '참가자가 부족해 무산';
+    case 'CHALLENGE_DELETED':
+      return '챌린지 삭제로 무효';
+    case 'REFUND_DEADLINE':
+      return '기한이 지나 무효';
+    default:
+      return null;
+  }
+}
+
 /** 표시 모델 + v2에만 있는 곁가지(무효화 사유) — 시트가 문장을 가르는 데 쓴다. */
 export interface LastSettledView {
   bet: LastSettledBet;
