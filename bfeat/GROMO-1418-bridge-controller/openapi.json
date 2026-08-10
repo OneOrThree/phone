@@ -45,6 +45,10 @@
       "description": "그룹 챌린지 내기 정산 수동 트리거 (전 환경 — 관리자 키 필수)"
     },
     {
+      "name": "Group Bet Query",
+      "description": "챌린지 v2 조회 축 (GROMO-1415·1416·1271) — 참가자 스코프 /me 조회(보고 탐색축·결과 모달 큐), 삭제 프리플라이트, 그룹 챌린지 내역"
+    },
+    {
       "name": "character",
       "description": "누끼(캐릭터) 생성 쿼터 API"
     },
@@ -242,7 +246,7 @@
           "Group Challenge"
         ],
         "summary": "스크린타임 창 사용분 보고",
-        "description": "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별 창 내 사용분 업로드. 그룹원만. (챌린지, 유저, 날짜)당 1행 upsert — 중간 보고 허용, 마지막 값 승리. 값은 클라 신뢰(±15분 눈금 오차).",
+        "description": "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별 창 내 사용분 업로드. 그룹원 또는 시작된 OPEN 회차의 참가자(탈퇴자 포함 — N43). (챌린지, 유저, 날짜)당 1행 upsert — measuredAt 단조 갱신(GROMO-1407·N34): 저장된 측정 시각보다 오래된 보고는 조용히 204 로 무시된다. 본문은 {usageDate, progressMinutes, measuredAt} (구앱 {date, usedMinutes} 도 수용). 값은 클라 신뢰(±15분 눈금 오차).",
         "operationId": "reportChallengeWindowUsage",
         "parameters": [
           {
@@ -276,13 +280,13 @@
         },
         "responses": {
           "204": {
-            "description": "보고 성공"
+            "description": "보고 성공(역전 보고의 조용한 무시 포함)"
           },
           "400": {
-            "description": "필수 필드 누락 / SCREEN_TIME×TIME_WINDOW 챌린지 아님 / usedMinutes 범위(0~1440) 위반"
+            "description": "필수 필드 누락 / SCREEN_TIME×TIME_WINDOW 챌린지 아님 / progressMinutes 범위(0~1440) 위반 / INVALID_MEASURED_AT(measuredAt 이 서버 시각 +2분 초과)"
           },
           "403": {
-            "description": "게스트 / 그룹원 아님"
+            "description": "게스트 / 그룹원도 OPEN 회차 참가자도 아님"
           },
           "404": {
             "description": "그룹 없음 / 챌린지 없음"
@@ -4508,6 +4512,121 @@
         }
       }
     },
+    "/api/v1/me/challenge-results": {
+      "get": {
+        "tags": [
+          "Group Bet Query"
+        ],
+        "summary": "내 정산 완료 회차 (그룹 무관) — 결과 모달 큐의 유일한 소스",
+        "description": "내가 참가자인 정산 완료 회차(SETTLED·FORFEITED·VOIDED·REFUNDED)를 회차일 내림차순으로 돌려준다(N53). 그룹 멤버십·챌린지 상태를 보지 않아 탈퇴자·종료 챌린지도 실린다. 삭제된 챌린지의 회차는 제외(FR-44-4 — 삭제 환불은 BET_VOID_REFUND 푸시가 알린다), UNUSED(0명 종료)도 제외(N52). since 는 settledAt 하한(생략 시 최근 30일 — 30일보다 과거는 30일로 보정), limit 은 1~10(생략 시 10). 회차 미션 스냅샷(missionCategory·missionType·창 시각)은 결과 모달의 관용치 고지 복원용 additive 필드다.",
+        "operationId": "getMyChallengeResults",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyChallengeResultsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_PAGE_REQUEST(limit 범위 밖) / since 형식 오류",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyChallengeResultsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyChallengeResultsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/bet-sessions": {
+      "get": {
+        "tags": [
+          "Group Bet Query"
+        ],
+        "summary": "내 OPEN 회차 목록 (그룹 무관)",
+        "description": "내가 참가비를 건 진행 중(OPEN) 회차 전부 — 창 사용분 보고의 대상 탐색축(N43). 그룹 멤버십을 보지 않으므로 그룹 탈퇴 후에도, 챌린지 종료 후에도 조회된다. 응답에 미션 스냅샷(카테고리·방식·목표·창 시각)과 closesAt·settleAfter 를 실어 앱이 챌린지 조회 없이 보고를 만든다. status 는 OPEN 만 지원한다.",
+        "operationId": "getMyBetSessions",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "OPEN"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyBetSessionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_STATUS_FILTER(status ≠ OPEN)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyBetSessionsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyBetSessionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/league/ranking": {
       "get": {
         "tags": [
@@ -4807,6 +4926,158 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/GroupOverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/challenges/{challengeId}/deletion-preview": {
+      "get": {
+        "tags": [
+          "Group Bet Query"
+        ],
+        "summary": "챌린지 삭제 프리플라이트 (그룹장 전용)",
+        "description": "삭제 경고에 쓸 영향 범위(N49·K11 해소) — OPEN 회차 전부(예약된 미래 포함)의 날짜·인원·적립금과 총 환불액. 카드의 bet.session 은 오늘 회차 1건뿐이라 주간 예약분이 빠진다 — 이 응답으로 FR-12-1 의 확인 시트를 그린다. 서버 게이트는 없다 — DELETE 는 프리플라이트 호출 여부와 무관하게 받는다(경고는 오탭 방어).",
+        "operationId": "getDeletionPreview",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "challengeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeDeletionPreviewResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님 / NOT_OWNER(그룹장 아님)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeDeletionPreviewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / 챌린지 없음(타 그룹 챌린지 포함 — IDOR 차단)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeDeletionPreviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/challenge-history": {
+      "get": {
+        "tags": [
+          "Group Bet Query"
+        ],
+        "summary": "그룹 챌린지 내역 (그룹 단위 회차 이력)",
+        "description": "그룹의 정산 완료 회차(SETTLED·REFUNDED·FORFEITED·VOIDED)를 (session_date, id) 내림차순 keyset 커서로 페이지네이션한다(GROMO-1271·N6-1). 이력의 소유자가 그룹이라 챌린지가 삭제돼도 조회된다 — 표시 값은 회차 미션 스냅샷이고 challengeDeleted 로 배지를 단다. UNUSED(0명 종료)는 실리지 않는다(N52). cursor 는 직전 페이지 마지막 항목의 sessionId(생략 시 첫 페이지), size 는 1~100 필수, challengeId 로 특정 챌린지만 필터할 수 있다. 그룹원 전체 열람 가능.",
+        "operationId": "getGroupChallengeHistory",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "challengeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "조회 성공",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupChallengeHistorySliceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_PAGE_REQUEST(size 범위 밖)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupChallengeHistorySliceResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupChallengeHistorySliceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / BET_NOT_FOUND(커서가 이 그룹 회차가 아님)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupChallengeHistorySliceResponse"
                 }
               }
             }
@@ -5560,11 +5831,11 @@
       "WindowUsageReportRequest": {
         "type": "object",
         "properties": {
-          "date": {
+          "usageDate": {
             "type": "string",
             "format": "date"
           },
-          "usedMinutes": {
+          "progressMinutes": {
             "type": "integer",
             "format": "int32"
           },
@@ -5574,8 +5845,8 @@
           }
         },
         "required": [
-          "date",
-          "usedMinutes"
+          "progressMinutes",
+          "usageDate"
         ]
       },
       "CreateAnnouncementRequest": {
@@ -7165,6 +7436,198 @@
           }
         }
       },
+      "GroupBetResultParticipantResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "achieved": {
+            "type": "boolean"
+          },
+          "payout": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "progressMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "MyChallengeResultResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupName": {
+            "type": "string"
+          },
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "challengeDeleted": {
+            "type": "boolean"
+          },
+          "challengeEnded": {
+            "type": "boolean"
+          },
+          "sessionDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SETTLED",
+              "REFUNDED",
+              "FORFEITED",
+              "VOIDED",
+              "UNUSED"
+            ]
+          },
+          "voidReason": {
+            "type": "string",
+            "enum": [
+              "INSUFFICIENT_PARTICIPANTS",
+              "CHALLENGE_DELETED",
+              "REFUND_DEADLINE"
+            ]
+          },
+          "goalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "missionCategory": {
+            "type": "string",
+            "enum": [
+              "FOCUS",
+              "SCREEN_TIME"
+            ]
+          },
+          "missionType": {
+            "type": "string",
+            "enum": [
+              "TIME_WINDOW",
+              "DURATION"
+            ]
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "myAchieved": {
+            "type": "boolean"
+          },
+          "myPayout": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupBetResultParticipantResponse"
+            }
+          }
+        }
+      },
+      "MyChallengeResultsResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyChallengeResultResponse"
+            }
+          }
+        }
+      },
+      "MyBetSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "missionCategory": {
+            "type": "string",
+            "enum": [
+              "FOCUS",
+              "SCREEN_TIME"
+            ]
+          },
+          "missionType": {
+            "type": "string",
+            "enum": [
+              "TIME_WINDOW",
+              "DURATION"
+            ]
+          },
+          "goalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settleAfter": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MyBetSessionsResponse": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyBetSessionResponse"
+            }
+          }
+        }
+      },
       "LeagueMemberResponse": {
         "type": "object",
         "properties": {
@@ -7618,29 +8081,6 @@
           }
         }
       },
-      "GroupBetResultParticipantResponse": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "achieved": {
-            "type": "boolean"
-          },
-          "payout": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "progressMinutes": {
-            "type": "integer",
-            "format": "int32"
-          }
-        }
-      },
       "GroupBetResultResponse": {
         "type": "object",
         "properties": {
@@ -7864,6 +8304,38 @@
           }
         }
       },
+      "ChallengeDeletionPreviewResponse": {
+        "type": "object",
+        "properties": {
+          "openSessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpenSessionPreview"
+            }
+          },
+          "totalRefund": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OpenSessionPreview": {
+        "type": "object",
+        "properties": {
+          "sessionDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "participantCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "GroupBetHistoryItemResponse": {
         "type": "object",
         "properties": {
@@ -7925,6 +8397,118 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GroupBetHistoryItemResponse"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "hasNext": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GroupChallengeHistoryItemResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "challengeDeleted": {
+            "type": "boolean"
+          },
+          "missionCategory": {
+            "type": "string",
+            "enum": [
+              "FOCUS",
+              "SCREEN_TIME"
+            ]
+          },
+          "missionType": {
+            "type": "string",
+            "enum": [
+              "TIME_WINDOW",
+              "DURATION"
+            ]
+          },
+          "goalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pot": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SETTLED",
+              "REFUNDED",
+              "FORFEITED",
+              "VOIDED",
+              "UNUSED"
+            ]
+          },
+          "voidReason": {
+            "type": "string",
+            "enum": [
+              "INSUFFICIENT_PARTICIPANTS",
+              "CHALLENGE_DELETED",
+              "REFUND_DEADLINE"
+            ]
+          },
+          "myPayout": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "myAchieved": {
+            "type": "boolean"
+          },
+          "myProgressMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "achievedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "participantCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "GroupChallengeHistorySliceResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupChallengeHistoryItemResponse"
             }
           },
           "size": {
