@@ -75,6 +75,19 @@ describe('카드 렌더', () => {
     expect(screen.getByText('2/5')).toBeOnTheScreen();
     expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
     expect(screen.getByText('4/5')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.deck.findMore')).toBeOnTheScreen();
+  });
+
+  test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
+    const groups = Array.from({ length: 11 }, (_, index) =>
+      group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
+    );
+    await renderList(groups);
+
+    expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
+    expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
+    expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 배지는 내가 OWNER인 그룹에만 붙는다', async () => {
