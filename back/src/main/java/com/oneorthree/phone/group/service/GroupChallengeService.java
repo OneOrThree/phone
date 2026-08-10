@@ -618,8 +618,9 @@ public class GroupChallengeService {
      * 시간대가 똑같아도 서로 다른 날의 일이라 통과시킨다.
      *
      * <p>기존 창 행을 FOR UPDATE 로 잠가 동시 생성·삭제와 직렬화한다(챌린지 행 락 관행 재사용).
-     * 부모 챌린지의 요일 마스크는 같은 잠긴 쿼리가 JOIN FETCH 로 함께 실어 온다 — 루프에서 LAZY
-     * 프록시를 깨우면 N+1 이자 락 밖 읽기다.
+     * 부모 챌린지의 요일 마스크는 같은 쿼리가 JOIN FETCH 로 함께 실어 온다 — 루프에서 LAZY
+     * 프록시를 깨우면 행마다 왕복이 하나씩 는다(N+1). <b>성능 이유다</b>; 정합성 근거는
+     * {@link GroupChallengeWindowRepository#findActiveByGroupForUpdate} 의 ⚠️ 문단 참고.
      */
     private void rejectWindowOverlap(Group group, int repeatDaysMask, LocalTime start, LocalTime end) {
         for (GroupChallengeWindow existing : groupChallengeWindowRepository.findActiveByGroupForUpdate(group)) {
