@@ -95,7 +95,7 @@ public class GroupChallengeService {
      * 창끼리 요구하는 최소 간격(§A5 · GROMO-1270) — 스크린타임 창이 15분 눈금이라 그보다 좁으면
      * 눈금 하나가 두 창에 걸쳐 어느 쪽 성과인지 갈리지 않는다. 창형 FOCUS 의 5분 관용치도 이 안이다.
      */
-    private static final int WINDOW_GAP_SECONDS = SCREEN_TIME_GOAL_STEP_MINUTES * 60;
+    private static final long WINDOW_GAP_NANOS = SCREEN_TIME_GOAL_STEP_MINUTES * 60L * 1_000_000_000L;
     /** 그룹당 활성 챌린지 상한(FR-1 · §A4) — 그룹 행 배타 락 아래의 사전 검사로 강제한다. */
     private static final int MAX_ACTIVE_CHALLENGES = 4;
 
@@ -641,17 +641,24 @@ public class GroupChallengeService {
      * <p>간격은 <b>strict &lt;</b> 라 정확히 15분은 허용한다(12:00 종료 vs 12:15 시작 = OK,
      * 12:10 시작 = 409). 맞닿음(끝==시작, 간격 0)은 이제 겹침이다 — 스크린타임 측정 눈금이 15분이라
      * 경계 눈금 하나가 두 창에 걸치기 때문이다.
+     *
+     * <p>비교 단위가 <b>나노초</b>인 이유(codex 리뷰): LLD §3.6 스케치는 {@code toSecondOfDay()} 로
+     * 적혀 있지만 그건 초 미만을 버린다. 신앱 경로는 {@code \d{2}:\d{2}(:\d{2})?} 정규식이라 항상
+     * 0 이지만, <b>구앱 ISO Instant 경로</b>({@code WindowFocusAggregator#parseRequestTime} 의
+     * 레거시 분기)와 V35 이관 데이터는 소수초를 실을 수 있다. 그때 {@code 12:00:00.5} 종료 뒤의
+     * {@code 12:15:00} 시작은 실제 간격이 14분 59.5초인데 초 단위로는 정확히 900초라 통과한다.
+     * 나노초 비교는 문서화된 경계(정확히 15분 허용)를 그대로 두면서 그 구멍만 닫는다.
      */
     private static boolean windowsConflict(int maskA, LocalTime aStart, LocalTime aEnd,
             int maskB, LocalTime bStart, LocalTime bEnd) {
         if (!RepeatSchedule.overlaps(maskA, maskB)) {
             return false;
         }
-        int aStartSec = aStart.toSecondOfDay();
-        int aEndSec = aEnd.toSecondOfDay();
-        int bStartSec = bStart.toSecondOfDay();
-        int bEndSec = bEnd.toSecondOfDay();
-        return aStartSec - WINDOW_GAP_SECONDS < bEndSec && bStartSec - WINDOW_GAP_SECONDS < aEndSec;
+        long aStartNanos = aStart.toNanoOfDay();
+        long aEndNanos = aEnd.toNanoOfDay();
+        long bStartNanos = bStart.toNanoOfDay();
+        long bEndNanos = bEnd.toNanoOfDay();
+        return aStartNanos - WINDOW_GAP_NANOS < bEndNanos && bStartNanos - WINDOW_GAP_NANOS < aEndNanos;
     }
 
     /** 창 길이(분) — 시작 < 종료 불변식(§A6-1) 아래라 단순 차다. */

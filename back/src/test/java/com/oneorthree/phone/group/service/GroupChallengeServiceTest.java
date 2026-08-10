@@ -1975,6 +1975,29 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("기존 창 종료에 소수초가 있으면 간격 14분 59.5초 → 409 (초 단위 절삭 금지 · codex 리뷰)")
+    void createChallengeRejectsSubGapHiddenByFractionalSeconds() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        // 구앱 ISO Instant 경로·V35 이관 데이터는 소수초를 실을 수 있다. toSecondOfDay() 로 비교하면
+        // 12:00:00.5 가 12:00:00 으로 잘려 간격이 정확히 900초로 보이고 통과한다 — 실제로는 미달이다.
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00:00.500");
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "12:15:00", "14:00:00", 30);
+
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
     @DisplayName("간격 경계 16분 → 허용")
     void createChallengeAllowsSixteenMinuteGap() {
         User user = member();
