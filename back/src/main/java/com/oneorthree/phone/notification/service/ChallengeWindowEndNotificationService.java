@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.service.WindowFocusAggregator;
@@ -158,6 +159,10 @@ public class ChallengeWindowEndNotificationService {
         Instant since = now.minus(RECENTLY_ENDED_WINDOW);
         Instant createdAt = challenge.getCreatedAt();
         return List.of(today.minusDays(1), today).stream()
+                // 비활성 요일엔 회차가 서지 않았다(FR-9 · §A3) — 그날의 창 종료는 알릴 사건이 아니다.
+                // 필터 축은 "오늘"이 아니라 회차 날짜다: 월요일 전용 챌린지의 23:59 종료를 화요일
+                // 00:10 틱이 잡는 경우, 회차일(월)은 활성이므로 알림이 나가야 한다.
+                .filter(date -> RepeatSchedule.activeOn(challenge.getRepeatDays(), date))
                 .map(date -> windowFocusAggregator.windowEndOn(date, window))
                 .filter(end -> end.isAfter(since) && !end.isAfter(now))
                 // 창이 끝난 뒤에 만들어진 챌린지는 이번 회차에 아무도 참여하지 않았다.

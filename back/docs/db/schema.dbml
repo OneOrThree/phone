@@ -63,9 +63,9 @@ Enum challenge_type {         // 미션 방식
   DURATION                   // 누적 시간 달성
 }
 
-Enum challenge_status {       // 챌린지 활성/비활성
+Enum challenge_status {       // 챌린지 수명주기 (policy §A8) — V2 의 INACTIVE 를 V34 가 ENDED 로 복원
   ACTIVE
-  INACTIVE
+  ENDED
 }
 
 // 3. 포커스

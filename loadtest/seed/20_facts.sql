@@ -97,20 +97,34 @@ JOIN seed_users su ON su.n = ((g.n * 17 + i * 53) % :n_users) + 1
 CROSS JOIN LATERAL (SELECT random() AS r) t
 ON CONFLICT DO NOTHING;
 
--- 챌린지 (그룹×4 = 20만) — V5: 파라미터는 CTI 상세 테이블 소유
-INSERT INTO group_challenges (id, group_id, type, category, status, created_at)
+-- 챌린지 (그룹×4 = 20만) — V5: 파라미터는 CTI 상세 테이블 소유.
+-- V34~V36 정합(GROMO-1260·1261·1405·1422): repeat_days(1~127)·started_at NOT NULL, 종료 상태는
+-- INACTIVE 가 아니라 ENDED(+ended_at), durations 는 부모 category 복사(복합 FK)와 카테고리별
+-- 상한 CHECK(FOCUS ≤1080·SCREEN_TIME ≤720), windows 는 time 타입(window_start < window_end).
+INSERT INTO group_challenges (id, group_id, type, category, status, created_at,
+                              repeat_days, started_at, ended_at)
 SELECT md5('gch-'||g.n||'-'||i)::uuid, g.id,
        CASE WHEN (g.n + i) % 2 = 0 THEN 'DURATION' ELSE 'TIME_WINDOW' END,
        CASE WHEN (g.n + i) % 3 = 0 THEN 'SCREEN_TIME' ELSE 'FOCUS' END,
-       CASE WHEN i = 4 AND g.status = 'ACTIVE' THEN 'ACTIVE' ELSE 'INACTIVE' END,
-       timestamptz '2026-07-01' - random() * interval '90 days'
-FROM seed_groups g CROSS JOIN generate_series(1, 4) i;
+       CASE WHEN i = 4 AND g.status = 'ACTIVE' THEN 'ACTIVE' ELSE 'ENDED' END,
+       c.created_at,
+       -- 요일 분포: 평일(31)·월수금(21)·매일(127) — 활성(i=4)은 매일이라 부하 시나리오가 결정적이다
+       CASE i WHEN 1 THEN 31 WHEN 2 THEN 21 ELSE 127 END,
+       c.created_at,   -- V34 백필과 같은 의미: 생성 즉시 시작
+       CASE WHEN i = 4 AND g.status = 'ACTIVE' THEN NULL
+            ELSE c.created_at + interval '14 days' END
+FROM seed_groups g
+CROSS JOIN generate_series(1, 4) i
+CROSS JOIN LATERAL (SELECT timestamptz '2026-07-01' - random() * interval '90 days' AS created_at) c;
 
-INSERT INTO group_challenge_durations (challenge_id, duration_minutes)
-SELECT id, 30 + ((random()*6)::int)*15 FROM group_challenges WHERE type = 'DURATION';
+INSERT INTO group_challenge_durations (challenge_id, category, duration_minutes)
+SELECT id, category, 30 + ((random()*6)::int)*15 FROM group_challenges WHERE type = 'DURATION';
 
-INSERT INTO group_challenge_windows (challenge_id, window_start_at, window_end_at)
-SELECT id, created_at + interval '7 hours', created_at + interval '11 hours'
+-- 창은 KST 벽시계 time — 06~15시 시작 + 4시간 창이라 항상 start < end (자정 걸침 금지, V35 CHECK)
+INSERT INTO group_challenge_windows (challenge_id, window_start, window_end)
+SELECT id,
+       make_time(6 + (abs(hashtext(id::text)) % 10), 0, 0),
+       make_time(6 + (abs(hashtext(id::text)) % 10) + 4, 0, 0)
 FROM group_challenges WHERE type = 'TIME_WINDOW';
 
 -- 챌린지 멤버 (챌린지×10 = 200만) — 그룹 멤버 공식의 부분집합이라 FK·유저 정합 보장

@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -25,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -294,6 +296,29 @@ class ChallengeWindowEndNotificationServiceTest {
         // "이미 보낸 건수" 라는 계약이 깨진다(@codex 리뷰).
         assertThat(summary.targetCount()).isZero();
         assertThat(summary.dedupedCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("비활성 요일의 창 종료는 알리지 않는다 — 회차가 서지 않은 날엔 마감도 없다 (FR-9 · GROMO-1260)")
+    void skipsWindowEndOnInactiveDay() {
+        // 2026-08-02 는 일요일 — 월요일 전용(마스크 1) 챌린지의 창(09:00~12:00)은 이날 돌지 않았다.
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(UUID.randomUUID())
+                .group(group())
+                .category(MissionCategory.SCREEN_TIME)
+                .type(MissionType.TIME_WINDOW)
+                .status(GroupChallengeStatus.ACTIVE)
+                .repeatDays(RepeatSchedule.bit(DayOfWeek.MONDAY))
+                .createdAt(Instant.EPOCH)
+                .build();
+        givenChallenge(challenge, window(challenge, kstTimeOf(9, 0), kstTimeOf(12, 0)));
+
+        PushDispatchSummaryResponse summary =
+                service().sendWindowEndNotifications(kst(2026, 8, 2, 12, 15));
+
+        assertThat(summary.targetCount()).isZero();
+        assertThat(summary.sentCount()).isZero();
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
