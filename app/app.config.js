@@ -61,7 +61,7 @@ export default {
     ],
     slug: 'gromo-kr',
     scheme: 'gromo',
-    version: '1.0.1',
+    version: '1.1.0',
     // 앱 전역은 세로. 안드로이드 prebuild가 매니페스트를 세로로 잠그도록 top-level은 'portrait'로
     // 둔다('default'는 안드로이드를 screenOrientation="unspecified"로 풀어버림, 코덱스 리뷰).
     // iOS만 집중 화면(GROMO-973)에서 가로가 필요한데, 아래 ios.infoPlist.UISupportedInterfaceOrientations를
