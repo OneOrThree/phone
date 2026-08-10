@@ -107,6 +107,12 @@ export function AnimatedCharacter({
     //    앱을 켰다가 끈 사용자는 앱 재시작 전까지 호흡이 멈춘 캐릭터를 본다.
     // ⚠️ withRepeat도 다섯 번째 인자로 게이트를 받는다 — 안쪽 withTiming만 막으면 반복
     //    래퍼가 기본값(정적 System 플래그)을 그대로 쓴다(codex 리뷰 계보).
+    // ⚠️ **새 반복을 걸기 전에 값을 0으로 되돌린다.** withRepeat(..., reverse=true)는 시작 시점의
+    //    값과 목표값 사이를 왕복하므로, mood가 바뀌어(duration 변경) 이 effect가 다시 돌 때
+    //    현재 값이 0.6이었다면 그 뒤로는 0.6~1만 왕복한다. 전환을 반복할수록 캐릭터가 늘어난
+    //    상태에 눌어붙는다(codex 리뷰). 진행 중이던 반복을 끊고 바닥에서 다시 시작한다.
+    cancelAnimation(breath);
+    breath.value = 0;
     breath.value = withRepeat(
       withTiming(1, { duration, easing: Easing.inOut(Easing.quad), reduceMotion: M.never }),
       -1,
