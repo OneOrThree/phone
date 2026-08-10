@@ -168,8 +168,10 @@ describe('카드 렌더', () => {
     await view.rerender(<GroupListScreen {...props} enableCardDeck={false} />);
     await view.rerender(<GroupListScreen {...props} enableCardDeck />);
 
-    expect(screen.getByTestId('group.list.items').props.contentOffset.x).toBeGreaterThan(0);
-    expect(screen.getByLabelText(`저녁 스터디, 현재 2/3 페이지`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.contentOffset).toBeUndefined();
+    expect(
+      screen.getByLabelText(/저녁 스터디, 공개방, 멤버, 2\/5명, 현재 2\/3 페이지/),
+    ).toBeOnTheScreen();
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 배지는 내가 OWNER인 그룹에만 붙는다', async () => {
@@ -333,7 +335,9 @@ describe('콜백', () => {
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }).props.focusable,
     ).toBe(false);
-    expect(screen.getByLabelText(`아침 6시 집중방, 현재 1/3 페이지`)).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText(/아침 6시 집중방, 공개방, 멤버, 2\/5명, 현재 1\/3 페이지/),
+    ).toBeOnTheScreen();
     expect(
       screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
     ).toBeOnTheScreen();

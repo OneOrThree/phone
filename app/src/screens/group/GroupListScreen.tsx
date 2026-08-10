@@ -227,7 +227,6 @@ export default function GroupListScreen({
       data={groups}
       keyExtractor={(item) => item.groupId}
       horizontal={enableCardDeck}
-      contentOffset={enableCardDeck ? { x: renderedActiveIndex * snapInterval, y: 0 } : undefined}
       showsHorizontalScrollIndicator={false}
       CellRendererComponent={GroupListCell}
       showsVerticalScrollIndicator={false}
@@ -281,7 +280,9 @@ export default function GroupListScreen({
               focusable={active}
               accessibilityRole="button"
               accessibilityLabel={
-                enableCardDeck ? `${item.name}, 현재 ${index + 1}/${pageCount} 페이지` : undefined
+                enableCardDeck
+                  ? `${item.name}${item.description ? `, ${item.description}` : ''}, ${item.isPrivate ? '비밀방' : '공개방'}, ${item.role === 'OWNER' ? '방장' : '멤버'}, ${item.currentMembers}/${item.maxMembers}명, 현재 ${index + 1}/${pageCount} 페이지`
+                  : undefined
               }
               testID={`group.list.card.${item.groupId}`}
             >
