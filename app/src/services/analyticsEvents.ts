@@ -416,6 +416,9 @@ export type GroupJoinMethod = 'search' | 'invite' | 'deferred_invite';
 export type GroupCardAction = 'focus' | 'room' | 'settings';
 export type GroupCardRole = 'owner' | 'member';
 export type GroupCardBackSource = 'user' | 'guide';
+export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
+export type GroupCarouselTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
+export type GroupCardReorderTrigger = 'drag' | 'pointer_control' | 'accessibility_action';
 
 export function logGroupCreateStarted(): void {
   track('group_create_started');
@@ -442,10 +445,37 @@ export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
 // 그룹 덱이 성공한 전체 목록과 안정된 anchor를 확보하고, 완료 key read와 overlay queue 판정까지
 // 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹 식별 정보는 싣지 않는다.
 export function logGroupCardDeckViewed(p: {
+  group_entry: GroupEntry;
   group_count_bucket: Exclude<GroupCountBucket, '0'>;
   guide_state: GroupDeckGuideState;
 }): void {
   track('group_card_deck_viewed', p);
+}
+
+export function logGroupCardFlipped(p: {
+  to_face: 'front' | 'back';
+  trigger: GroupCardFlipTrigger;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+}): void {
+  track('group_card_flipped', p);
+}
+
+export function logGroupCarouselPaged(p: {
+  trigger: GroupCarouselTrigger;
+  from_index: number;
+  to_index: number;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+}): void {
+  track('group_carousel_paged', p);
+}
+
+export function logGroupCardReordered(p: {
+  trigger: GroupCardReorderTrigger;
+  from_index: number;
+  to_index: number;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+}): void {
+  track('group_card_reordered', p);
 }
 
 // guide 저장소/수명 오류는 사용자 행동 이벤트와 분리한다.

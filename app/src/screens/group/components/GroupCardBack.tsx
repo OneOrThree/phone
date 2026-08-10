@@ -9,11 +9,14 @@ interface Props {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | undefined;
   onFlipFront: () => void;
+  onAccessibilityFlipFront?: () => void;
   onStartFocus: () => void;
   onOpenRoom: () => void;
   onOpenSettings: () => void;
   onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
   roomRef?: React.RefObject<View | null>;
+  position?: number;
+  pageCount?: number;
 }
 
 function LoadingLine({ label }: { label: string }) {
@@ -24,11 +27,14 @@ export function GroupCardBack({
   group,
   snapshot,
   onFlipFront,
+  onAccessibilityFlipFront,
   onStartFocus,
   onOpenRoom,
   onOpenSettings,
   onRetry,
   roomRef,
+  position = 1,
+  pageCount = 1,
 }: Props) {
   const detail = snapshot?.detail ?? { status: 'idle' as const };
   const announcements = snapshot?.announcements ?? { status: 'idle' as const };
@@ -45,7 +51,14 @@ export function GroupCardBack({
   return (
     <View style={s.root} testID={`group.card.back.${group.groupId}`}>
       <View style={s.header}>
-        <Text style={s.title} numberOfLines={1} ellipsizeMode="tail">
+        <Text
+          style={s.title}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          accessible
+          accessibilityRole="header"
+          accessibilityLabel={`${group.name}, 현재 ${position}/${pageCount} 페이지`}
+        >
           {group.name}
         </Text>
         <TouchableOpacity onPress={onOpenSettings} testID={`group.card.settings.${group.groupId}`}>
@@ -127,7 +140,16 @@ export function GroupCardBack({
         >
           <Text style={s.secondaryText}>방 전체 보기</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onFlipFront} testID={`group.card.frontAction.${group.groupId}`}>
+        <TouchableOpacity
+          onPress={onFlipFront}
+          accessibilityActions={[{ name: 'activate', label: '카드 앞면 보기' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'activate') {
+              (onAccessibilityFlipFront ?? onFlipFront)();
+            }
+          }}
+          testID={`group.card.frontAction.${group.groupId}`}
+        >
           <Text style={s.link}>앞면으로</Text>
         </TouchableOpacity>
       </View>

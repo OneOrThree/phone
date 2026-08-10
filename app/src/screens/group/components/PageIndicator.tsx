@@ -1,5 +1,13 @@
-import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  findNodeHandle,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { T } from '@/constants/theme';
 
 const INDICATOR_GUTTER = 20;
@@ -22,60 +30,117 @@ export function resolveIndicatorMode(measuredWidth: number, pageCount: number): 
 interface PageIndicatorProps {
   pageCount: number;
   activeIndex: number;
+  pageLabels?: readonly string[];
+  disabled?: boolean;
   onSelectPage: (page: number) => void;
+  onAccessibilitySelectPage?: (page: number) => void;
 }
 
-export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndicatorProps) {
+export function PageIndicator({
+  pageCount,
+  activeIndex,
+  pageLabels = [],
+  disabled = false,
+  onSelectPage,
+  onAccessibilitySelectPage,
+}: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
+  const [focusWithin, setFocusWithin] = useState(false);
+  const safeActiveIndex = Math.max(0, Math.min(activeIndex, Math.max(0, pageCount - 1)));
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
+  const previousModeRef = useRef(mode);
+  const dotRefs = useRef<Array<View | null>>([]);
+  const counterRef = useRef<View | null>(null);
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
     const next = event.nativeEvent.layout.width;
     setMeasuredWidth((current) => (current === next ? current : next));
   }, []);
 
+  useEffect(() => {
+    if (previousModeRef.current === mode) return;
+    previousModeRef.current = mode;
+    if (!focusWithin) return;
+    const target = mode === 'counter' ? counterRef.current : dotRefs.current[safeActiveIndex];
+    target?.focus();
+    const node = findNodeHandle(target);
+    if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+  }, [focusWithin, mode, safeActiveIndex]);
+
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
       {mode === 'dots' ? (
-        <View
-          style={s.dots}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        >
+        <View style={s.dots}>
           {Array.from({ length: pageCount }, (_, page) => (
             <Pressable
               key={page}
+              ref={(node) => {
+                dotRefs.current[page] = node;
+              }}
               style={s.dotHit}
+              disabled={disabled}
               onPress={() => onSelectPage(page)}
+              accessibilityActions={[{ name: 'activate', label: '페이지 선택' }]}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'activate') {
+                  (onAccessibilitySelectPage ?? onSelectPage)(page);
+                }
+              }}
+              onFocus={() => {
+                setFocusWithin(true);
+              }}
+              onBlur={() => {
+                setFocusWithin(false);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${pageLabels[page] ?? (page === pageCount - 1 ? '그룹 찾기' : `${page + 1}번째 그룹`)}, ${page + 1} / ${pageCount}`}
+              accessibilityState={{ selected: page === safeActiveIndex, disabled }}
               testID={`group.deck.indicator.dot.${page}`}
             >
-              <View style={[s.dot, page === activeIndex && s.dotActive]} />
+              <View
+                style={[s.dot, page === safeActiveIndex && s.dotActive]}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
             </Pressable>
           ))}
         </View>
       ) : (
-        <Text
-          style={s.counter}
-          accessibilityLabel={`${activeIndex + 1} / ${pageCount}`}
+        <Pressable
+          ref={counterRef}
+          style={s.counterHit}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityState={{ disabled }}
+          onFocus={() => {
+            setFocusWithin(true);
+          }}
+          onBlur={() => {
+            setFocusWithin(false);
+          }}
           testID="group.deck.indicator.counter"
         >
-          {activeIndex + 1} / {pageCount}
-        </Text>
+          <Text style={s.counter}>
+            {safeActiveIndex + 1} / {pageCount}
+          </Text>
+        </Pressable>
       )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { height: 36, alignItems: 'center', justifyContent: 'center' },
+  container: { height: 44, alignItems: 'center', justifyContent: 'center' },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {
     width: DOT_HIT_WIDTH,
-    height: 36,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.borderDark },
   dotActive: { width: 18, backgroundColor: T.accent },
+  counterHit: { minHeight: 44, justifyContent: 'center' },
   counter: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
 });

@@ -197,6 +197,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      ...UNKNOWN_ATTRIBUTION,
     });
   });
 
@@ -404,6 +405,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
+        ...UNKNOWN_ATTRIBUTION,
       });
     });
 

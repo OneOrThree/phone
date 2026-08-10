@@ -59,6 +59,7 @@ export default function GroupScreen() {
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [groupsRevision, setGroupsRevision] = useState(0);
+  const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -130,6 +131,7 @@ export default function GroupScreen() {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
       setGroups(rows);
+      setSuccessfulListEpisode(viewEpisodeRef.current.id);
       setGroupsRevision((revision) => revision + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
@@ -167,6 +169,7 @@ export default function GroupScreen() {
         source: peekGroupEntry(fallback),
         logged: false,
       };
+      setSuccessfulListEpisode(null);
       fetchGroups();
       return () => {
         requestSeqRef.current++;
@@ -396,6 +399,9 @@ export default function GroupScreen() {
           guideBlocked={findOpen || invite !== null}
           guideScreenFocused={isScreenFocused}
           guideEpisode={viewEpisodeRef.current.id}
+          groupEntry={viewEpisodeRef.current.source}
+          guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
+          guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
         />
         {findSheet}
         {inviteSheet}

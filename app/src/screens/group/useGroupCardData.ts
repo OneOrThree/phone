@@ -20,6 +20,7 @@ interface Params {
   userId: string | null;
   groupIds: readonly string[];
   screenFocused: boolean;
+  reloadToken?: number;
 }
 
 export interface GroupCardData {
@@ -29,10 +30,16 @@ export interface GroupCardData {
 }
 
 /** 카드 화면 하나가 소유하는 adapter와 60초 polling 수명을 React에 연결한다. */
-export function useGroupCardData({ userId, groupIds, screenFocused }: Params): GroupCardData {
+export function useGroupCardData({
+  userId,
+  groupIds,
+  screenFocused,
+  reloadToken = 0,
+}: Params): GroupCardData {
   const adapter = useMemo(() => new GroupCardSummaryAdapter(sharedFocus), []);
   const openedGroupIdsRef = useRef(new Set<string>());
   const openedUserIdRef = useRef<string | null>(userId);
+  const previousReloadTokenRef = useRef(reloadToken);
   const [date, setDate] = useState(todayStrKst);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [, render] = useState(0);
@@ -45,6 +52,8 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
   );
 
   useEffect(() => {
+    const reloadChanged = previousReloadTokenRef.current !== reloadToken;
+    previousReloadTokenRef.current = reloadToken;
     if (openedUserIdRef.current !== userId) {
       openedGroupIdsRef.current.clear();
       openedUserIdRef.current = userId;
@@ -57,10 +66,13 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
     // 이미 뒷면을 연 카드는 KST 날짜가 바뀌어 날짜별 detail/challenge cache가 idle로
     // 교체되더라도 사용자 조작을 다시 기다리지 않고 새 날짜 dependency를 시작한다.
     for (const openedGroupId of openedGroupIdsRef.current) {
-      adapter.ensureBack(openedGroupId).catch(() => undefined);
+      const request = reloadChanged
+        ? adapter.refreshBack(openedGroupId)
+        : adapter.ensureBack(openedGroupId);
+      request.catch(() => undefined);
     }
     render((value) => value + 1);
-  }, [adapter, date, groupIds, groupKey, userId]);
+  }, [adapter, date, groupIds, groupKey, reloadToken, userId]);
 
   useEffect(() => {
     return adapter.subscribe(() => render((value) => value + 1));
@@ -90,7 +102,13 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
     return () => clearInterval(timer);
   }, [appActive, screenFocused]);
 
-  useEffect(() => () => controller?.dispose(), [controller]);
+  useEffect(
+    () => () => {
+      controller?.dispose();
+      if (userId) groupFocusStatusStore.clearUser(userId);
+    },
+    [controller, userId],
+  );
 
   useEffect(() => () => adapter.dispose(), [adapter]);
 

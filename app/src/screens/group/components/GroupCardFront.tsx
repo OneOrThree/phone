@@ -8,7 +8,10 @@ import { groupCardEmojiLabel } from '../groupCardEmojiStore';
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
+  position?: number;
+  pageCount?: number;
   onFlip: () => void;
+  onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
@@ -19,7 +22,10 @@ interface GroupCardFrontProps {
 export function GroupCardFront({
   group,
   emoji = '🎯',
+  position = 1,
+  pageCount = 1,
   onFlip,
+  onAccessibilityFlip,
   reorderHandlers,
   onMoveStep,
   canMovePrevious = false,
@@ -52,8 +58,12 @@ export function GroupCardFront({
         ref={bodyRef}
         style={s.body}
         onPress={onFlip}
+        accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
+        }}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >

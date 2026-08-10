@@ -26,9 +26,37 @@ describe('PageIndicator', () => {
     expect(onSelectPage).toHaveBeenCalledWith(2);
   });
 
+  test('접근성 activate는 전용 trigger 콜백으로 페이지를 선택한다', async () => {
+    const onSelectPage = jest.fn();
+    const onAccessibilitySelectPage = jest.fn();
+    await render(
+      <PageIndicator
+        pageCount={3}
+        activeIndex={0}
+        onSelectPage={onSelectPage}
+        onAccessibilitySelectPage={onAccessibilitySelectPage}
+      />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    await act(async () => {
+      fireEvent(
+        screen.getByTestId('group.deck.indicator.dot.1'),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'activate' } },
+      );
+    });
+
+    expect(onAccessibilitySelectPage).toHaveBeenCalledWith(1);
+    expect(onSelectPage).not.toHaveBeenCalled();
+  });
+
   test('첫 측정 전 counter는 현재/전체를 읽는다', async () => {
     await render(<PageIndicator pageCount={12} activeIndex={10} onSelectPage={jest.fn()} />);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('11 / 12');
-    expect(screen.getByLabelText('11 / 12')).toBeOnTheScreen();
+    expect(screen.getByLabelText('현재 11, 전체 12 페이지')).toBeOnTheScreen();
   });
 });
