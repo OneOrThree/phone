@@ -430,6 +430,45 @@ export function logGroupViewed(p: {
 }): void {
   track('group_viewed', p);
 }
+
+export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
+export type GroupCardPageTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
+export type GroupCardReorderTrigger = 'drag' | 'pointer_control' | 'accessibility_action';
+
+export function logGroupCardFlipped(p: {
+  to_face: 'front' | 'back';
+  trigger: GroupCardFlipTrigger;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_card_flipped', p);
+}
+
+export function logGroupCarouselPaged(p: {
+  trigger: GroupCardPageTrigger;
+  from_index: number;
+  to_index: number;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_carousel_paged', p);
+}
+
+export function logGroupCardReordered(p: {
+  trigger: GroupCardReorderTrigger;
+  from_index: number;
+  to_index: number;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_card_reordered', p);
+}
+
+export function logGroupCardActionClicked(p: {
+  action: 'focus' | 'room' | 'settings';
+  role: 'owner' | 'member';
+  back_source: 'user' | 'guide';
+  interaction_id: string;
+}): void {
+  track('group_card_action_clicked', p);
+}
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
 export function logGroupRoomViewed(p: { group_id: string }): void {

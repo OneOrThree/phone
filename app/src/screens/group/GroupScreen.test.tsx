@@ -16,7 +16,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  peekGroupEntry,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -234,6 +238,16 @@ afterEach(() => {
 });
 
 describe('group_viewed view episode', () => {
+  test('게스트 화면에서는 invite source를 소비하지 않고 로그인 뒤까지 보존한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockIsGuest = true;
+    await renderScreen();
+
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('invite');
+  });
+
   test('성공한 전체 목록 뒤에만 group_entry와 count bucket을 한 번 발행한다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([]);
 

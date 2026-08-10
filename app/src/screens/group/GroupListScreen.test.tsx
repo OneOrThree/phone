@@ -5,10 +5,31 @@
 //     그룹에만** 붙는다. role을 뭉개면 남의 그룹에 방장 표시가 붙어 잘못된 권한을 기대하게 된다.
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import GroupListScreen from './GroupListScreen';
+import GroupListScreen, { resolveDragTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { writeGroupCardEmoji } from './groupCardEmojiStore';
+import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
+import { getMyRanking } from '@/services/leagueApi';
+import {
+  logGroupCardActionClicked,
+  logGroupCardFlipped,
+  logGroupCardReordered,
+} from '@/services/analyticsEvents';
+
+jest.mock('@/services/groupApi', () => ({
+  getGroupDetail: jest.fn(),
+  getAnnouncements: jest.fn(),
+  getChallenges: jest.fn(),
+}));
+jest.mock('@/services/leagueApi', () => ({ getMyRanking: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardActionClicked: jest.fn(),
+  logGroupCardFlipped: jest.fn(),
+  logGroupCardReordered: jest.fn(),
+  logGroupCarouselPaged: jest.fn(),
+}));
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -39,11 +60,11 @@ const onBack = jest.fn();
 
 // render는 반드시 await 한다 — React 19 + RNTL 14에서는 렌더가 비동기라
 // 동기 호출만 하면 screen이 채워지지 않는다(그룹 테스트 3종 공통 관행).
-async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
+async function renderList(groups: GroupSummaryResponse[], back?: () => void, userId = 'user-1') {
   return await render(
     <GroupListScreen
       groups={groups}
-      userId="user-1"
+      userId={userId}
       onSelect={onSelect}
       onCreate={onCreate}
       onFind={onFind}
@@ -65,6 +86,10 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
   onRefresh.mockResolvedValue(undefined);
+  jest.mocked(getGroupDetail).mockResolvedValue({ members: [] } as never);
+  jest.mocked(getAnnouncements).mockResolvedValue([]);
+  jest.mocked(getChallenges).mockResolvedValue([]);
+  jest.mocked(getMyRanking).mockResolvedValue([]);
 });
 
 describe('카드 렌더', () => {
@@ -110,6 +135,17 @@ describe('카드 렌더', () => {
     expect(screen.queryByText('비밀방')).toBeNull();
     expect(screen.queryByText('방장')).toBeNull();
   });
+
+  test('계정·그룹별로 저장한 아이콘을 카드 앞면에 반영한다', async () => {
+    await writeGroupCardEmoji('user-1', GROUP_ID, '📚');
+    await renderList([group()]);
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚'),
+      ).toBeOnTheScreen(),
+    );
+  });
 });
 
 describe('콜백', () => {
@@ -125,6 +161,24 @@ describe('콜백', () => {
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ to_face: 'back', trigger: 'card_tap' }),
+    );
+    expect(logGroupCardActionClicked).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'room', role: 'member', back_source: 'user' }),
+    );
+  });
+
+  test('첫 flip에서 실제 요약 dependency를 지연 로드한다', async () => {
+    await renderList([group()], undefined, 'summary-user');
+    expect(getGroupDetail).not.toHaveBeenCalled();
+
+    await press(`group.card.${GROUP_ID}`);
+
+    await waitFor(() => expect(getGroupDetail).toHaveBeenCalledWith(GROUP_ID, expect.any(String)));
+    expect(getAnnouncements).toHaveBeenCalledWith(GROUP_ID);
+    expect(getChallenges).toHaveBeenCalledWith(GROUP_ID, expect.any(String));
+    expect(getMyRanking).toHaveBeenCalledWith(undefined, expect.any(String));
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
@@ -202,6 +256,31 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(logGroupCardReordered).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'accessibility_action', from_index: 0, to_index: 1 }),
+    );
+  });
+
+  test('hydration 전에는 grip 재정렬 입력을 받지 않는다', async () => {
+    let resolveRead!: (value: string | null) => void;
+    jest
+      .spyOn(AsyncStorage, 'getItem')
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveRead = resolve)));
+    await renderList([group(), group({ groupId: GROUP_ID_2 })]);
+
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    expect(grip.props.onStartShouldSetResponder).toBeUndefined();
+    expect(grip.props.accessibilityActions).toEqual([]);
+
+    await act(async () => resolveRead(null));
+  });
+
+  test('가장자리 자동 이동은 최초 index가 아니라 직전 target에서 누적된다', () => {
+    const first = resolveDragTarget(0, 0, 0, 1, 3);
+    const second = resolveDragTarget(0, 0, first.edgeOffset, 1, 3);
+
+    expect(first.target).toBe(1);
+    expect(second.target).toBe(2);
   });
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {

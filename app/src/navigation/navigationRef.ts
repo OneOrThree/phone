@@ -128,11 +128,15 @@ export function navigateToDeepLink(link: string): void {
       // refund=1(환불 푸시)은 잔액 재조회를 요청한다 — 삭제 환불은 결과 모달에서 빠지고 챌린지
       // 목록에도 안 남아, 이 표식이 없으면 화면 어느 경로도 잔액을 다시 받지 않는다(codex 리뷰 P2).
       // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
-      if (navigationRef.getCurrentRoute?.()?.name !== '그룹') {
+      const groupId = readGroupParam(link);
+      const resultPush = readResultFlag(link);
+      // 결과성 push는 같은 호출 흐름에서 GroupRoom으로 즉시 우회하므로 GroupScreen episode가
+      // 성립하지 않는다. 다음에 탭으로 들어올 episode에 오래된 push source를 남기지 않는다.
+      if (navigationRef.getCurrentRoute?.()?.name !== '그룹' && !(resultPush && groupId !== null)) {
         queueDirectGroupEntry('push');
       }
       if (readRefundFlag(link)) requestCoinRefresh();
-      navigateToGroup(seq, readGroupParam(link), readChallengeParam(link), readResultFlag(link));
+      navigateToGroup(seq, groupId, readChallengeParam(link), resultPush);
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).

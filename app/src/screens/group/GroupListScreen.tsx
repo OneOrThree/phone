@@ -20,8 +20,25 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
+import { GroupCardBack } from './components/GroupCardBack';
 import { useGroupCardOrder } from './useGroupCardOrder';
 import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  readGroupCardEmoji,
+  type GroupCardEmoji,
+} from './groupCardEmojiStore';
+import { GroupCardSummaryAdapter } from './groupCardSummary';
+import { groupFocusStatusStore } from './groupFocusStatus';
+import { todayStrKst } from '@/utils/localDate';
+import {
+  logGroupCardActionClicked,
+  logGroupCardFlipped,
+  logGroupCardReordered,
+  logGroupCarouselPaged,
+  type GroupCardReorderTrigger,
+  type GroupCountBucket,
+} from '@/services/analyticsEvents';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -49,6 +66,34 @@ const SIDE_PEEK = 24;
 const CARD_GAP = 12;
 const DRAG_EDGE = 60;
 const EDGE_PAGE_THROTTLE_MS = 260;
+
+function groupCountBucket(count: number): GroupCountBucket {
+  if (count === 1) return '1';
+  if (count <= 5) return '2_5';
+  if (count <= 10) return '6_10';
+  return '11_plus';
+}
+
+function transientInteractionId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === 'x' ? random : 8 + (random % 4)).toString(16);
+  });
+}
+
+export function resolveDragTarget(
+  from: number,
+  pointerDelta: number,
+  edgeOffset: number,
+  edgeDirection: -1 | 0 | 1,
+  max: number,
+): { target: number; edgeOffset: number } {
+  const nextEdgeOffset = edgeOffset + edgeDirection;
+  return {
+    target: Math.max(0, Math.min(from + pointerDelta + nextEdgeOffset, max)),
+    edgeOffset: nextEdgeOffset,
+  };
+}
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
@@ -79,6 +124,8 @@ export default function GroupListScreen({
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
+  const [, setSummaryVersion] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
@@ -101,6 +148,43 @@ export default function GroupListScreen({
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const frontFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
+  const summaryDate = todayStrKst();
+  const summaryAdapter = useMemo(() => new GroupCardSummaryAdapter(groupFocusStatusStore), []);
+
+  useEffect(() => {
+    summaryAdapter.setScope(
+      userId ? { userId, date: summaryDate, groupIds: groups.map((group) => group.groupId) } : null,
+    );
+    setSummaryVersion((version) => version + 1);
+  }, [groups, summaryAdapter, summaryDate, userId]);
+
+  useEffect(() => {
+    const refresh = () => setSummaryVersion((version) => version + 1);
+    const unsubscribeSummary = summaryAdapter.subscribe(refresh);
+    const unsubscribeFocus = userId
+      ? groupFocusStatusStore.subscribe(userId, summaryDate, refresh)
+      : () => undefined;
+    return () => {
+      unsubscribeSummary();
+      unsubscribeFocus();
+    };
+  }, [summaryAdapter, summaryDate, userId]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(
+      groups.map(
+        async (group) => [group.groupId, await readGroupCardEmoji(userId, group.groupId)] as const,
+      ),
+    )
+      .then((entries) => {
+        if (active) setEmojis(Object.fromEntries(entries));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [groups, groupsRevision, isScreenFocused, userId]);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -124,12 +208,20 @@ export default function GroupListScreen({
   const selectPage = useCallback(
     (page: number) => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
+      const from = activeIndex;
+      if (from === next) return;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
       setFlippedGroupId(null);
+      logGroupCarouselPaged({
+        trigger: 'indicator_press',
+        from_index: from,
+        to_index: next,
+        group_count_bucket: groupCountBucket(orderedGroups.length),
+      });
     },
-    [orderedGroups, pageCount, snapInterval],
+    [activeIndex, orderedGroups, pageCount, snapInterval],
   );
 
   const onMomentumScrollEnd = useCallback(
@@ -139,11 +231,19 @@ export default function GroupListScreen({
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
       );
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
-      if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
+      if (activeIdentityRef.current !== nextIdentity) {
+        logGroupCarouselPaged({
+          trigger: 'swipe',
+          from_index: activeIndex,
+          to_index: next,
+          group_count_bucket: groupCountBucket(orderedGroups.length),
+        });
+        setFlippedGroupId(null);
+      }
       activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
     },
-    [orderedGroups, pageCount, snapInterval],
+    [activeIndex, orderedGroups, pageCount, snapInterval],
   );
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
@@ -195,12 +295,17 @@ export default function GroupListScreen({
 
   // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
   // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
-  const dragRef = useRef<{ groupId: string; from: number; target: number } | null>(null);
+  const dragRef = useRef<{
+    groupId: string;
+    from: number;
+    target: number;
+    edgeOffset: number;
+  } | null>(null);
   const lastEdgePageAtRef = useRef(0);
   const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
 
   const commitMove = useCallback(
-    (groupId: string, targetIndex: number) => {
+    (groupId: string, targetIndex: number, trigger: GroupCardReorderTrigger) => {
       const ids = orderedGroupsRef.current.map((group) => group.groupId);
       const from = ids.indexOf(groupId);
       const target = Math.max(0, Math.min(targetIndex, ids.length - 1));
@@ -210,6 +315,12 @@ export default function GroupListScreen({
       next.splice(target, 0, groupId);
       const committed = commitOrder(next);
       if (committed) {
+        logGroupCardReordered({
+          trigger,
+          from_index: from,
+          to_index: target,
+          group_count_bucket: groupCountBucket(ids.length),
+        });
         activeIdentityRef.current = groupId;
         setActiveIndex(target);
         listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
@@ -224,12 +335,13 @@ export default function GroupListScreen({
       const cached = respondersRef.current.get(groupId);
       if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponder: () => hydrated,
+        onMoveShouldSetPanResponder: () => hydrated,
         onPanResponderGrant: () => {
+          if (!hydrated) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
-          dragRef.current = { groupId, from, target: from };
+          dragRef.current = { groupId, from, target: from, edgeOffset: 0 };
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
           setFlippedGroupId(null);
@@ -238,16 +350,22 @@ export default function GroupListScreen({
           const drag = dragRef.current;
           if (!drag) return;
           const max = orderedGroupsRef.current.length - 1;
-          drag.target = Math.max(
-            0,
-            Math.min(drag.from + Math.round(gesture.dx / snapInterval), max),
-          );
+          const pointerDelta = Math.round(gesture.dx / snapInterval);
+          drag.target = resolveDragTarget(drag.from, pointerDelta, drag.edgeOffset, 0, max).target;
 
           const direction =
             gesture.moveX < DRAG_EDGE ? -1 : gesture.moveX > windowWidth - DRAG_EDGE ? 1 : 0;
           const now = Date.now();
           if (direction !== 0 && now - lastEdgePageAtRef.current >= EDGE_PAGE_THROTTLE_MS) {
-            drag.target = Math.max(0, Math.min(drag.target + direction, max));
+            const next = resolveDragTarget(
+              drag.from,
+              pointerDelta,
+              drag.edgeOffset,
+              direction,
+              max,
+            );
+            drag.edgeOffset = next.edgeOffset;
+            drag.target = next.target;
             lastEdgePageAtRef.current = now;
             listRef.current?.scrollToOffset({
               offset: drag.target * snapInterval,
@@ -259,7 +377,7 @@ export default function GroupListScreen({
           const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
-          if (drag) commitMove(drag.groupId, drag.target);
+          if (drag) commitMove(drag.groupId, drag.target, 'drag');
         },
         onPanResponderTerminate: () => {
           dragRef.current = null;
@@ -269,12 +387,12 @@ export default function GroupListScreen({
       respondersRef.current.set(groupId, responder);
       return responder.panHandlers;
     },
-    [commitMove, snapInterval, windowWidth],
+    [commitMove, hydrated, snapInterval, windowWidth],
   );
 
   useEffect(() => {
     respondersRef.current.clear();
-  }, [orderedGroupIds]);
+  }, [hydrated, orderedGroupIds]);
 
   return (
     <View style={s.root} testID="group.list">
@@ -320,46 +438,61 @@ export default function GroupListScreen({
         renderItem={({ item, index }) => (
           <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
             {flippedGroupId === item.groupId ? (
-              <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
-                <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
-                  {item.name}
-                </Text>
-                <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
-                <TouchableOpacity
-                  ref={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
-                  style={s.backPrimary}
-                  onPress={() => {
-                    roomReturnRef.current = {
-                      groupId: item.groupId,
-                      sourceIndex: index,
-                      departureRevision: groupsRevision,
-                    };
-                    onSelect(item.groupId);
-                  }}
-                  testID={`group.card.room.${item.groupId}`}
-                >
-                  <Text style={s.backPrimaryText}>방 전체 보기</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setFlippedGroupId(null)}
-                  testID={`group.card.frontAction.${item.groupId}`}
-                >
-                  <Text style={s.backLink}>앞면으로</Text>
-                </TouchableOpacity>
-              </View>
+              <GroupCardBack
+                group={item}
+                snapshot={summaryAdapter.getSnapshot(item.groupId)}
+                focusRef={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
+                onRetry={(dependency) => {
+                  summaryAdapter.retry(item.groupId, dependency).catch(() => undefined);
+                }}
+                onRoom={() => {
+                  logGroupCardActionClicked({
+                    action: 'room',
+                    role: item.role === 'OWNER' ? 'owner' : 'member',
+                    back_source: 'user',
+                    interaction_id: transientInteractionId(),
+                  });
+                  roomReturnRef.current = {
+                    groupId: item.groupId,
+                    sourceIndex: index,
+                    departureRevision: groupsRevision,
+                  };
+                  onSelect(item.groupId);
+                }}
+                onFront={() => {
+                  setFlippedGroupId(null);
+                  logGroupCardFlipped({
+                    to_face: 'front',
+                    trigger: 'card_tap',
+                    group_count_bucket: groupCountBucket(orderedGroups.length),
+                  });
+                }}
+              />
             ) : (
               <GroupCardFront
                 group={item}
+                emoji={emojis[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
                 bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
-                onFlip={() => draggingGroupId === null && setFlippedGroupId(item.groupId)}
-                reorderHandlers={handlersFor(item.groupId)}
-                canMovePrevious={index > 0}
-                canMoveNext={index < orderedGroups.length - 1}
+                onFlip={() => {
+                  if (draggingGroupId !== null) return;
+                  setFlippedGroupId(item.groupId);
+                  logGroupCardFlipped({
+                    to_face: 'back',
+                    trigger: 'card_tap',
+                    group_count_bucket: groupCountBucket(orderedGroups.length),
+                  });
+                  summaryAdapter.ensureBack(item.groupId).catch(() => undefined);
+                }}
+                reorderHandlers={hydrated ? handlersFor(item.groupId) : undefined}
+                canMovePrevious={hydrated && index > 0}
+                canMoveNext={hydrated && index < orderedGroups.length - 1}
                 onMoveStep={(step) => {
+                  if (!hydrated) return;
                   const from = orderedGroupsRef.current.findIndex(
                     (group) => group.groupId === item.groupId,
                   );
-                  if (commitMove(item.groupId, from + step)) setFlippedGroupId(null);
+                  if (commitMove(item.groupId, from + step, 'accessibility_action'))
+                    setFlippedGroupId(null);
                 }}
               />
             )}

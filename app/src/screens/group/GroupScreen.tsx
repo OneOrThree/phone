@@ -17,7 +17,11 @@ import {
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
-import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
+import {
+  consumeGroupEntry,
+  peekGroupEntry,
+  type GroupEntrySource,
+} from '@/navigation/groupEntrySource';
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -128,6 +132,9 @@ export default function GroupScreen() {
       setGroupsRevision((revision) => revision + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
+        // 게스트 초대처럼 첫 focus에서 조회를 못 한 episode는 source를 보존한다. 실제 성공 목록을
+        // 발행하는 순간에만 소비해야 로그인 뒤 첫 group_viewed가 invite로 귀속된다.
+        episode.source = consumeGroupEntry(episode.source);
         episode.logged = true;
         logGroupViewed({
           group_entry: episode.source,
@@ -158,7 +165,7 @@ export default function GroupScreen() {
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: consumeGroupEntry(fallback),
+        source: peekGroupEntry(fallback),
         logged: false,
       };
       fetchGroups();
