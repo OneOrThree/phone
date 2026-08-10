@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { growUp, pop } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
+import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
 import { T } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
@@ -370,6 +371,15 @@ export default function FocusResultScreen() {
         () => null,
       );
       if (cancelled || seenWeek === mondayKey) return;
+      // ⚠️ **'동작 줄이기'가 확정될 때까지 타이머 예약을 보류한다.** 위 await들(heatmap·
+      //    AsyncStorage 2회)이 isReduceMotionEnabled() 조회보다 **먼저 끝날 수 있다.**
+      //    그 상태의 보수값(true)으로 지연을 0으로 만들면 일반 사용자에게도 축하 모달이
+      //    즉시 열리고, 체크 팝은 뒤늦게 시작해 모달에 가려진다. 마커까지 기록되므로 그날은
+      //    다시 재생할 수도 없다(codex 리뷰).
+      //    판정 effect 자체를 재시작하지는 않는다 — 그건 아래 주석의 사고를 되살린다.
+      //    여기서 기다리기만 한다. 조회가 실패해도 false로 확정되므로 멈추지 않는다.
+      await whenReduceMotionReady();
+      if (cancelled) return;
       timers.push(
         setTimeout(
           () => {
