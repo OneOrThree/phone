@@ -8,7 +8,10 @@ import { StyleSheet, View } from 'react-native';
 import { AnimatedCharacter } from './AnimatedCharacter';
 
 let mockReduce = false;
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => true,
+}));
 
 beforeEach(() => {
   mockReduce = false;
