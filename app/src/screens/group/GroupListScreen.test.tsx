@@ -9,7 +9,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AccessibilityInfo, AppState, View } from 'react-native';
 import * as ReactNative from 'react-native';
-import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import GroupListScreen, { GROUP_CARD_HEIGHT, shouldClaimReorderDrag } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
 import { getMyRanking } from '@/services/leagueApi';
@@ -522,6 +522,9 @@ describe('콜백', () => {
 
     expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'accessibility_action', to_face: 'front' }),
+    );
   });
 
   test('그룹방에서 돌아오면 같은 뒷면의 방 전체 보기 CTA로 포커스를 복원한다', async () => {
@@ -872,6 +875,7 @@ describe('제스처 중재와 재정렬', () => {
 
   test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
     await act(async () => {
@@ -889,7 +893,16 @@ describe('제스처 중재와 재정렬', () => {
     expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.accessibilityValue).toEqual({
       text: '2/2',
     });
+    expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.focusable).toBe(true);
     expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
+  });
+
+  test('grip drag는 bubble·capture 모두 6pt 이상 이동만 소유한다', () => {
+    expect(shouldClaimReorderDrag(5.9, 0)).toBe(false);
+    expect(shouldClaimReorderDrag(0, -5.9)).toBe(false);
+    expect(shouldClaimReorderDrag(6, 0)).toBe(true);
+    expect(shouldClaimReorderDrag(0, -6)).toBe(true);
   });
 
   test('grip 짧은 탭은 원하는 위치를 고르는 순서 변경 메뉴를 연다', async () => {

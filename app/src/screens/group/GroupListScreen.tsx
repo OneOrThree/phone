@@ -99,6 +99,10 @@ const CARD_GAP = 12;
 const DRAG_EDGE = 60;
 const EDGE_PAGE_THROTTLE_MS = 260;
 
+export function shouldClaimReorderDrag(dx: number, dy: number): boolean {
+  return Math.max(Math.abs(dx), Math.abs(dy)) >= 6;
+}
+
 /**
  * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유한다.
  * 앞면·뒷면의 300pt 최소 높이와 반드시 같은 값이어야 데이터 도착 때 화면이 밀리지 않는다.
@@ -629,6 +633,10 @@ export default function GroupListScreen({
           AccessibilityInfo.announceForAccessibility(
             `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했습니다`,
           );
+          requestAnimationFrame(() => {
+            const node = ReactNative.findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
+            if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+          });
         }
       }
       return committed;
@@ -646,9 +654,10 @@ export default function GroupListScreen({
         // 탭은 내부 Pressable이 네이티브 press(키보드 Enter/Space 포함)로 처리한다.
         // 실제 이동 제스처만 부모 PanResponder가 가져가 drag와 키보드 활성화를 함께 보존한다.
         onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          shouldClaimReorderDrag(gesture.dx, gesture.dy),
         onMoveShouldSetPanResponderCapture: (_event, gesture) =>
-          Math.max(Math.abs(gesture.dx), Math.abs(gesture.dy)) >= 6,
+          shouldClaimReorderDrag(gesture.dx, gesture.dy),
         onPanResponderGrant: () => {
           if (reorderMenuGroupId !== null) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
@@ -662,7 +671,7 @@ export default function GroupListScreen({
         onPanResponderMove: (_event, gesture) => {
           const drag = dragRef.current;
           if (!drag) return;
-          if (Math.max(Math.abs(gesture.dx), Math.abs(gesture.dy)) < 6) return;
+          if (!shouldClaimReorderDrag(gesture.dx, gesture.dy)) return;
           const max = orderedGroupsRef.current.length - 1;
           const pointerTarget = Math.max(
             0,
@@ -763,14 +772,14 @@ export default function GroupListScreen({
   );
 
   const flipToFront = useCallback(
-    (groupId: string) => {
+    (groupId: string, trigger: 'card_tap' | 'accessibility_action' = 'card_tap') => {
       if (flippedGroupId === null) return;
       guideBackGroupIdRef.current = null;
       setFrontFocusGroupId(groupId);
       setFlippedGroupId(null);
       logGroupCardFlipped({
         to_face: 'front',
-        trigger: 'card_tap',
+        trigger,
         group_count_bucket: countBucket,
       });
     },
@@ -942,6 +951,9 @@ export default function GroupListScreen({
                         group={item}
                         snapshot={summaryAdapter.getSnapshot(item.groupId)!}
                         onFlipBack={() => flipToFront(item.groupId)}
+                        onAccessibilityFlipBack={() =>
+                          flipToFront(item.groupId, 'accessibility_action')
+                        }
                         onOpenSettings={() => {
                           if (!onOpenSettings) return;
                           invokeAcceptedAction(item, 'settings', () =>
@@ -993,7 +1005,7 @@ export default function GroupListScreen({
                       position={index + 1}
                       pageCount={pageCount}
                       reorderCount={orderedGroups.length}
-                      active={index === activeIndex}
+                      active={item.groupId === activeIdentityRef.current}
                       gripRef={(node) => {
                         if (node) reorderGripRefs.current.set(item.groupId, node);
                         else reorderGripRefs.current.delete(item.groupId);

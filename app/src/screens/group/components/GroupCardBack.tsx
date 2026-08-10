@@ -21,6 +21,7 @@ interface Props {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]>;
   onFlipBack: () => void;
+  onAccessibilityFlipBack?: () => void;
   onOpenSettings: () => void;
   onStartFocus: () => void;
   onOpenRoom: () => void;
@@ -48,6 +49,7 @@ export function GroupCardBack({
   group,
   snapshot,
   onFlipBack,
+  onAccessibilityFlipBack,
   onOpenSettings,
   onStartFocus,
   onOpenRoom,
@@ -106,7 +108,7 @@ export function GroupCardBack({
     <View
       nativeID={disclosureId}
       style={[s.root, { minHeight }]}
-      onAccessibilityEscape={onFlipBack}
+      onAccessibilityEscape={onAccessibilityFlipBack ?? onFlipBack}
       testID={`group.card.back.${group.groupId}`}
     >
       <View style={s.header}>
@@ -114,6 +116,11 @@ export function GroupCardBack({
           ref={frontActionRef}
           style={s.headerButton}
           onPress={onFlipBack}
+          accessibilityActions={[{ name: 'activate', label: '앞면 보기' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'activate')
+              (onAccessibilityFlipBack ?? onFlipBack)();
+          }}
           accessibilityRole="button"
           accessibilityState={{ expanded: true }}
           aria-controls={disclosureId}
