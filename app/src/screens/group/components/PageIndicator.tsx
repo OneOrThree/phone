@@ -43,6 +43,7 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
   const previousModeRef = useRef(mode);
   const focusWithinRef = useRef(false);
+  const screenReaderEnabledRef = useRef(false);
   const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
 
@@ -52,9 +53,23 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+      if (mounted) screenReaderEnabledRef.current = enabled;
+    });
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', (enabled) => {
+      screenReaderEnabledRef.current = enabled;
+    });
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     if (previousModeRef.current === mode) return;
     previousModeRef.current = mode;
-    if (!focusWithinRef.current) return;
+    if (!focusWithinRef.current && !screenReaderEnabledRef.current) return;
     const target = mode === 'counter' ? counterRef.current : dotRefs.current[activeIndex];
     const node = findNodeHandle(target);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);

@@ -75,6 +75,7 @@ export default function GroupListScreen({
   const orderKey = groups.map((group) => group.groupId).join('\u0000');
   const previousOrderKeyRef = useRef(orderKey);
   const previousSnapIntervalRef = useRef(snapInterval);
+  const pendingFlipGroupIdRef = useRef<string | null>(null);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -116,6 +117,10 @@ export default function GroupListScreen({
       activeIdentityRef.current = nextIdentity;
       activeIndexRef.current = next;
       setActiveIndex(next);
+      if (pendingFlipGroupIdRef.current === nextIdentity) {
+        pendingFlipGroupIdRef.current = null;
+        setFlippedGroupId(nextIdentity);
+      }
     },
     [groups, pageCount, snapInterval],
   );
@@ -140,11 +145,13 @@ export default function GroupListScreen({
       const index = groups.findIndex((group) => group.groupId === groupId);
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
+        // peek 카드는 앞면으로 중앙에 정착한 뒤 뒤집는다. animated scroll 중 교체하면
+        // 이동하는 카드의 뒷면이 먼저 노출되어 한 동작 안의 순서 계약이 깨진다.
+        pendingFlipGroupIdRef.current = groupId;
         listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
-        activeIdentityRef.current = groupId;
-        activeIndexRef.current = index;
-        setActiveIndex(index);
+        return;
       }
+      pendingFlipGroupIdRef.current = null;
       setFlippedGroupId(groupId);
     },
     [groups, snapInterval],
@@ -234,7 +241,14 @@ export default function GroupListScreen({
             >
               {flippedGroupId === item.groupId ? (
                 <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
-                  <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
+                  <Text
+                    style={s.backTitle}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    accessible
+                    accessibilityRole="header"
+                    accessibilityLabel={`${item.name}, ${activeIndex + 1} / ${pageCount}`}
+                  >
                     {item.name}
                   </Text>
                   <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
@@ -253,7 +267,12 @@ export default function GroupListScreen({
                   </TouchableOpacity>
                 </View>
               ) : (
-                <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
+                <GroupCardFront
+                  group={item}
+                  pageIndex={groups.findIndex((group) => group.groupId === item.groupId)}
+                  pageCount={pageCount}
+                  onFlip={() => flipCard(item.groupId)}
+                />
               )}
             </View>
           )}

@@ -6,23 +6,36 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
+  pageIndex: number;
+  pageCount: number;
   onFlip: () => void;
 }
 
-export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFrontProps) {
+export function GroupCardFront({
+  group,
+  emoji = '🎯',
+  pageIndex,
+  pageCount,
+  onFlip,
+}: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
   const descriptionLabel = group.description ? `, ${group.description}` : '';
 
   return (
     <View style={s.root} testID={`group.card.front.${group.groupId}`}>
-      <View style={s.grip} accessibilityElementsHidden>
+      <View
+        style={s.grip}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        testID={`group.card.grip.${group.groupId}`}
+      >
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}${descriptionLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}${descriptionLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, ${pageIndex + 1} / ${pageCount}`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >

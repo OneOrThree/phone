@@ -78,6 +78,13 @@ describe('카드 렌더', () => {
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
+    expect(screen.getByLabelText(/아침 6시 집중방.*1 \/ 3/)).toBeOnTheScreen();
+    expect(
+      screen.getByTestId(`group.card.grip.${GROUP_ID}`, { includeHiddenElements: true }).props,
+    ).toMatchObject({
+      accessibilityElementsHidden: true,
+      importantForAccessibility: 'no-hide-descendants',
+    });
   });
 
   test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
@@ -126,7 +133,17 @@ describe('콜백', () => {
 
     await press(`group.card.${GROUP_ID_2}`);
 
-    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+    expect(
+      screen.queryByTestId(`group.card.back.${GROUP_ID_2}`, { includeHiddenElements: true }),
+    ).toBeNull();
+    const list = screen.getByTestId('group.list.items');
+    await act(async () => {
+      fireEvent(list, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+    });
+    expect(
+      screen.getByTestId(`group.card.back.${GROUP_ID_2}`, { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    expect(screen.getByLabelText('저녁 스터디, 2 / 3')).toBeOnTheScreen();
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
     expect(onSelect).not.toHaveBeenCalled();
 
@@ -164,6 +181,10 @@ describe('콜백', () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
     await press(`group.card.${GROUP_ID_2}`);
     const list = screen.getByTestId('group.list.items');
+
+    await act(async () => {
+      fireEvent(list, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+    });
 
     await act(async () => {
       fireEvent(list, 'scrollEndDrag', { nativeEvent: { contentOffset: { x: 0 } } });
