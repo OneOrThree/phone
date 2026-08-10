@@ -209,6 +209,12 @@ export function SheetShell({
   // ⚠️ React 상태(closing)가 아니라 shared value여야 한다 — 상태는 리렌더 뒤에야 워클릿에
   //    반영돼, 접어 넣기(JS)와 성분 제거(UI) 사이에 한 프레임 어긋난 딤이 그려진다.
   const dimDragMuted = useSharedValue(false);
+  // ⚠️ **등장 중에는 딤에서 드래그 성분을 뗀다.** 그 구간의 translateY는 '얼마나 끌었나'가 아니라
+  //    '등장이 어디까지 왔나'다. 그대로 두면 진입 중 패널 높이가 커질 때(초대 시트 로딩 → 프리뷰)
+  //    보정으로 더한 만큼 비율 y/h가 커져 딤이 순간 옅어졌다 다시 짙어진다 — 배경이 번쩍인다
+  //    (codex 리뷰). 등장 딤은 dimProgress(0→1 timing)만으로 충분하다.
+  //    스프링이 끝나면 translateY가 0이라 감쇠 계수도 1이 되어, 되돌려도 튀지 않는다.
+  const dimEnterActive = useSharedValue(false);
   // 측정된 패널 높이 — 등장 시작점이자 퇴장 목표점이다(추정값을 쓰지 않는 이유는 §4.2).
   const panelHeight = useSharedValue(0);
   // 등장은 최초 레이아웃 1회만 — 키보드·내용 변화로 onLayout이 다시 불려도 재생하지 않는다.
@@ -261,6 +267,7 @@ export function SheetShell({
       translateY.value = exitDistance(windowWidth, windowHeight) + keyboardHeightRef.current;
       dimProgress.value = 0;
       enterActiveRef.current = false;
+      dimEnterActive.value = false;
       fireCloseRef.current();
       return;
     }
@@ -270,9 +277,10 @@ export function SheetShell({
     //    withSpring(reduceMotion: M.never)을 다시 건다 — 방금 '동작 줄이기'를 켠 사용자에게
     //    시트가 다시 움직인다(codex 리뷰).
     enterActiveRef.current = false;
+    dimEnterActive.value = false;
     translateY.value = 0;
     dimProgress.value = 1;
-  }, [m.reduce, translateY, dimProgress, windowWidth, windowHeight]);
+  }, [m.reduce, translateY, dimProgress, dimEnterActive, windowWidth, windowHeight]);
 
   // ⚠️ 퇴장 **시작 시점**의 onClose를 붙잡아 뒀다가 완료 시 그걸 부른다.
   //    onCloseRef는 매 렌더 갱신되므로(제출 중 무력화 등을 위해 PanResponder가 최신값을 읽어야
@@ -399,8 +407,9 @@ export function SheetShell({
         dragStartYRef.current = translateY.value;
         draggingRef.current = true;
         // 손가락이 값을 가져갔으므로 등장 스프링은 여기서 끝난 것으로 본다 — 진입 보정이
-        // 드래그 중에 끼어들면 사용자가 끄는 값을 코드가 덮어쓴다.
+        // 드래그 중에 끼어들면 사용자가 끄는 값을 코드가 덮어쓴다. 딤도 이때부터 손끝을 따른다.
         enterActiveRef.current = false;
+        dimEnterActive.value = false;
       },
       onPanResponderMove: (_, g) => {
         // 퇴장이 시작된 뒤의 잔여 이벤트가 패널을 도로 끌어올리지 않게 막는다.
@@ -443,7 +452,8 @@ export function SheetShell({
   // 호출 시점에는 모션 설정이 **확정돼 있어야 한다**(아래 onPanelLayout·useEffect가 그걸 보장한다).
   const markEnterSettled = useCallback(() => {
     enterActiveRef.current = false;
-  }, []);
+    dimEnterActive.value = false;
+  }, [dimEnterActive]);
   const startEnter = useCallback(
     (h: number) => {
       enteredRef.current = true;
@@ -451,6 +461,7 @@ export function SheetShell({
       if (reduceRef.current) {
         // '동작 줄이기' — 최종 상태로 바로 놓는다. 이후 설정이 꺼져도 제자리라 안전하다.
         enterActiveRef.current = false;
+        dimEnterActive.value = false;
         translateY.value = 0;
         dimProgress.value = 1;
         return;
@@ -466,7 +477,7 @@ export function SheetShell({
         reduceMotion: M.never,
       });
     },
-    [translateY, dimProgress, markEnterSettled],
+    [translateY, dimProgress, dimEnterActive, markEnterSettled],
   );
 
   // ⚠️ 모션 설정이 확정되면 **보류해 둔 등장**을 그제서야 시작한다. 콜드 스타트 직후(초대 딥링크
@@ -535,7 +546,7 @@ export function SheetShell({
   // 딤 = 등장/퇴장 성분 × 드래그 성분. 끌수록 옅어져 "지금 닫는 중"이 손끝에 붙는다.
   // 퇴장이 시작되면 드래그 성분은 dimProgress에 접힌 채 계산에서 빠진다(위 requestClose 주석).
   const dimAnimStyle = useAnimatedStyle(() => {
-    if (dimDragMuted.value) return { opacity: dimProgress.value };
+    if (dimDragMuted.value || dimEnterActive.value) return { opacity: dimProgress.value };
     return { opacity: dimProgress.value * dimDragFactor(translateY.value, panelHeight.value) };
   });
 
