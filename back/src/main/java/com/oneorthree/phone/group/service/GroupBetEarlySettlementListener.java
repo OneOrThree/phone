@@ -43,7 +43,9 @@ public class GroupBetEarlySettlementListener {
         if (session == null || !session.isOpen()) {
             return;
         }
-        if (Instant.now().isBefore(session.getJoinClosesAt())) {
+        // 실효 참가 마감(브리지 기간 = closes_at) — settle 의 락 안 재검증과 <b>같은 기준</b>이어야
+        // 한다. 여기만 박제된 join_closes_at 을 보면 창 진행 중에 settle 을 불러 매번 스킵당한다.
+        if (Instant.now().isBefore(GroupBetSettler.effectiveJoinDeadline(session))) {
             return;   // 생략하면 안 된다 — 아직 들어올 사람이 남아 있다.
         }
         if (groupChallengeBetParticipantRepository
