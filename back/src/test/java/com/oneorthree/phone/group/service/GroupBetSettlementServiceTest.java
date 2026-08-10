@@ -3,7 +3,7 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
-import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,7 +38,7 @@ class GroupBetSettlementServiceTest {
     private GroupBetSettlementService groupBetSettlementService;
 
     @Mock
-    private GroupChallengeBetRepository groupChallengeBetRepository;
+    private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
 
     @Mock
     private GroupBetSettler groupBetSettler;
@@ -46,7 +46,7 @@ class GroupBetSettlementServiceTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
 
     private void givenTargets(UUID... betIds) {
-        given(groupChallengeBetRepository.findIdsByStatusAndBetDateBefore(GroupBetStatus.OPEN, TODAY))
+        given(groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBefore(GroupBetStatus.OPEN, TODAY))
                 .willReturn(List.of(betIds));
     }
 
@@ -105,6 +105,21 @@ class GroupBetSettlementServiceTest {
         assertThat(summary.skippedCount()).isZero();
     }
 
+    @Test
+    @DisplayName("UNUSED(참가자 0명 종료)는 성과 버킷이 아니라 스킵으로 센다 — 요약 합계 보존 (GROMO-1404)")
+    void countsUnusedCloseAsSkipped() {
+        UUID emptySession = UUID.randomUUID();
+        givenTargets(emptySession);
+        given(groupBetSettler.settle(emptySession))
+                .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.UNUSED, true));
+
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
+
+        assertThat(summary.settledCount()).isZero();
+        assertThat(summary.forfeitedCount()).isZero();
+        assertThat(summary.skippedCount()).isEqualTo(1);
+    }
+
     // ── 카테고리 분리(크론 2회) ──────────────────────────────────────────
     // 01:00 은 FOCUS, 12:00 은 SCREEN_TIME 만 집는다 — 스크린타임을 01:00 에 집으면 아침 보고 전이라
     // 미보고=미달성 억울 패배가 양산된다.
@@ -113,7 +128,7 @@ class GroupBetSettlementServiceTest {
     @DisplayName("카테고리를 주면 그 카테고리 대상만 조회한다 — 전체 조회는 타지 않는다")
     void settlesOnlyRequestedCategory() {
         UUID focusBet = UUID.randomUUID();
-        given(groupChallengeBetRepository.findIdsByStatusAndBetDateBeforeAndCategory(
+        given(groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBeforeAndCategory(
                 GroupBetStatus.OPEN, TODAY, MissionCategory.FOCUS)).willReturn(List.of(focusBet));
         given(groupBetSettler.settle(focusBet))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, true));
@@ -123,8 +138,8 @@ class GroupBetSettlementServiceTest {
 
         assertThat(summary.targetCount()).isEqualTo(1);
         assertThat(summary.settledCount()).isEqualTo(1);
-        verify(groupChallengeBetRepository, never())
-                .findIdsByStatusAndBetDateBefore(any(), any());
+        verify(groupChallengeBetSessionRepository, never())
+                .findIdsByStatusAndSessionDateBefore(any(), any());
     }
 
     @Test
@@ -138,8 +153,8 @@ class GroupBetSettlementServiceTest {
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY, null);
 
         assertThat(summary.forfeitedCount()).isEqualTo(1);
-        verify(groupChallengeBetRepository, never())
-                .findIdsByStatusAndBetDateBeforeAndCategory(any(), any(), any());
+        verify(groupChallengeBetSessionRepository, never())
+                .findIdsByStatusAndSessionDateBeforeAndCategory(any(), any(), any());
     }
 
     // ── 정산 기준일(그레이스 1h) ─────────────────────────────────────────

@@ -1,16 +1,14 @@
 package com.oneorthree.phone.group.domain;
 
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
-import com.oneorthree.phone.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,20 +18,25 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * 그룹 챌린지 내기 — 챌린지 하나의 특정 날짜({@code betDate})에 걸린 판.
+ * 그룹 챌린지 내기 <b>설정</b> — 챌린지당 1행(1:1, GROMO-1262 2계층 재편).
  *
- * <p>대상은 목표분이 있는 모든 챌린지다 — FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW 4조합
- * (창은 목표분이 있는 것만). <b>비취소</b> 내기는 챌린지당·날짜당 1개 — 취소(CANCELED)는 "없던 일"이라
- * 같은 날짜 재개설을 막지 않는다(GROMO-1201). 동시 개설의 최후 방어선은 V28 부분 유니크 인덱스
- * ({@code WHERE status <> 'CANCELED'})인데, JPA 가 부분 인덱스를 표현할 수 없어 여기엔
- * {@code @UniqueConstraint} 를 두지 않는다(실 SQL 검증은 {@code GroupChallengeV28MigrationTest}).
+ * <p>재편 전에는 이 테이블의 행 하나가 (챌린지, 날짜)의 판이자 정산 단위였다. 이제 판(참가·판정·
+ * 정산의 단위)은 {@link GroupChallengeBetSession}(회차)이고, 이 행은 "이 챌린지에 내기가 걸려
+ * 있고 참가비는 얼마인가"라는 <b>설정</b>만 담는다. "개설"이라는 행위는 소멸했다 — 회차는 설정에서
+ * 파생될 뿐 누가 열지 않는다.
+ *
+ * <p>{@code stake} 는 회차 개설 시점에 회차 행으로 <b>박제</b>되므로(GROMO-1263), 이 값이 바뀌어도
+ * 이미 열린 회차·정산 이력은 흔들리지 않는다. 구 API 브리지(N36) 동안에는 레거시 개설 경로가
+ * 설정 stake 를 갱신할 수 있다 — to-be(불변)로의 잠금은 신 API 전환(B4~) 시점의 몫이다.
  */
 @Entity
-@Table(name = "group_challenge_bets")
+@Table(name = "group_challenge_bets",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_group_challenge_bets_challenge",
+                columnNames = "challenge_id"))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -53,35 +56,17 @@ public class GroupChallengeBet {
     @JoinColumn(name = "challenge_id", nullable = false)
     private GroupChallenge challenge;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "creator_user_id", nullable = false)
-    private User creatorUser;
-
-    /** 1인 판돈. 팟 = stake × 참가자 수. 서버 허용값만 저장된다. */
+    /** 1인 참가비 — 회차 개설 시점에 회차로 박제된다. 서버 허용 범위(1~3000, V40 CHECK)만 저장된다. */
     @Column(nullable = false)
     private int stake;
 
-    /** 내기 대상 날짜(KST). 개설·참가는 오늘 날짜만 허용한다. */
-    @Column(name = "bet_date", nullable = false)
-    private LocalDate betDate;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    @Builder.Default
-    private GroupBetStatus status = GroupBetStatus.OPEN;
-
-    @Column(name = "settled_at")
-    private Instant settledAt;
-
     /**
-     * 정산 시점의 목표 분 스냅샷(GROMO-1207) — 결과 표시의 분모. 챌린지 목표는 정산 뒤에도 바뀔 수
-     * 있어 참조가 아니라 값으로 박제한다. 쓰기는 <b>정산 경로만</b> 한다 — CAS 성공 트랜잭션이
-     * {@code GroupChallengeBetRepository.recordGoalMinutes}(벌크 UPDATE)로 기록하며, 엔티티 세터를
-     * 두지 않는 이유는 status 전이 소유권 주석(아래)과 같다. OPEN·CANCELED 와 V29 이전 정산 행은
-     * null 이고, 앱은 null 을 "목표 미기록"으로 그린다.
+     * 내기 켜짐 여부. 생성 시 결정 — false 로 되돌리는 경로가 없다(끄려면 챌린지를 삭제하고
+     * 내기 없이 재생성한다, policy §A7·N26).
      */
-    @Column(name = "goal_minutes")
-    private Integer goalMinutes;
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean enabled = true;
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
@@ -92,12 +77,11 @@ public class GroupChallengeBet {
     private Instant updatedAt;
 
     /**
-     * OPEN → SETTLED/REFUNDED 전이는 <b>엔티티 세터가 아니라</b>
-     * {@code GroupChallengeBetRepository.compareAndSetSettled} 의 원자적 UPDATE 가 소유한다.
-     * 세터를 두면 "읽고-판단하고-쓰는" 사이가 열려 동시 정산이 둘 다 통과할 수 있기 때문이다
-     * (돈이 걸린 전이라 게이트 자체가 원자적이어야 한다).
+     * 레거시 개설 브리지(N36) 전용 stake 갱신 — 구앱은 매일 개설하며 참가비를 새로 고르므로,
+     * 설정이 이미 있으면 최신 선택값으로 맞춘다. 회차가 자기 stake 를 박제하므로 과거·현재 회차의
+     * 돈 계산에는 영향이 없다. 호출부는 챌린지 행 배타 락 아래에서만 부른다(개설 경로 직렬화).
      */
-    public boolean isOpen() {
-        return status == GroupBetStatus.OPEN;
+    public void updateStakeForLegacyBridge(int stake) {
+        this.stake = stake;
     }
 }
