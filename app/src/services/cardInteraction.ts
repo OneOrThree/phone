@@ -78,6 +78,19 @@ export function normalizeFocusEntrySource(source?: FocusEntrySource): FocusEntry
   return source ?? 'unknown';
 }
 
+/** FocusCategory의 재시도는 source를 보존하되, 이미 transfer/폐기한 상관키는 다시 넘기지 않는다. */
+export function resolveFocusSessionRouteContext(
+  context: CardInteractionRouteContext,
+  transferInteraction: boolean,
+): Required<Pick<CardInteractionRouteContext, 'entrySource'>> &
+  Pick<CardInteractionRouteContext, 'interactionId' | 'interactionAcceptedAt'> {
+  return {
+    entrySource: normalizeFocusEntrySource(context.entrySource),
+    interactionId: transferInteraction ? context.interactionId : undefined,
+    interactionAcceptedAt: transferInteraction ? context.interactionAcceptedAt : undefined,
+  };
+}
+
 /** 테스트 격리 전용. 런타임 호출 금지. */
 export function resetCardInteractionStateForTest(): void {
   consumedIds.clear();
