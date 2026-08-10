@@ -4,6 +4,7 @@ import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
@@ -13,6 +14,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 
 /**
@@ -76,6 +80,8 @@ public class GroupBetWindowUsageService {
     /** measuredAt 미래 관용치(LLD §2.1) — 서버 시각 대비 이 이상 앞서면 거절한다. */
     static final Duration MEASURED_AT_TOLERANCE = Duration.ofMinutes(2);
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -83,6 +89,8 @@ public class GroupBetWindowUsageService {
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    private final GroupChallengeWindowRepository groupChallengeWindowRepository;
+    private final WindowFocusAggregator windowFocusAggregator;
 
     /**
      * 창 사용분 보고 — (챌린지, 유저, 날짜)당 1행 upsert, measured_at 단조 갱신. 역전 보고는
@@ -123,6 +131,13 @@ public class GroupBetWindowUsageService {
             throw new GroupException(GroupErrorCode.INVALID_MEASURED_AT);
         }
 
+        // 회차 유무와 무관한 선기록 차단 — 회차가 아직 없는 날짜에도 걸어야 한다. 회차 기준 게이트만
+        // 두면 미개설 미래 날짜에 0분을 심어 둔 뒤 개설·참가(레거시 createBet 은 보고보다 나중에
+        // 회차를 만들 수 있다)해서 그 값을 정산에 태울 수 있다 — 챌린지의 창 시각으로 막는다.
+        if (!challengeClockAllowsReport(challengeId, request.getUsageDate(), userId)) {
+            return;   // 조용히 204
+        }
+
         if (target != null) {
             if (participant) {
                 // 돈이 걸린 갈래만 회차와 직렬화한다 — 잠금 후 재확인이라 잠금 대기 중 끝난 정산도
@@ -148,6 +163,45 @@ public class GroupBetWindowUsageService {
                         + "participant={}, applied={}",
                 challengeId, userId, request.getUsageDate(), request.getProgressMinutes(), measuredAt,
                 participant, applied == 1);
+    }
+
+    /**
+     * 회차에 기대지 않는 시각 게이트 — <b>보고 날짜가 아직 오지 않았으면 저장하지 않는다</b>.
+     *
+     * <ul>
+     *   <li>{@code usageDate} 가 <b>KST 오늘보다 미래</b>면 무시 — 그 날짜의 창은 시작조차 하지
+     *       않았으므로 보고할 사용분이 존재할 수 없다. 회차가 아직 없는 날짜의 선기록을 막는
+     *       유일한 방어선이다(회차 기준 게이트는 행이 있어야 작동한다).</li>
+     *   <li>오늘이라도 <b>창 시작 전</b>이면 무시 — 창형 챌린지의 사용분은 창이 열려야 생긴다.
+     *       창 상세가 없는 챌린지(레거시·목표 미설정)는 시작 시각을 알 수 없어 날짜 판정만 적용한다.</li>
+     * </ul>
+     *
+     * <p>과거 날짜는 그대로 받는다 — 자정을 넘겨 끝나는 창의 늦은 보고·그레이스 구간 보고가 여기
+     * 걸리면 안 된다(N43). 과거 날짜의 돈 판정은 회차 게이트({@link #lockedSessionAcceptsReport})가
+     * 맡는다.
+     *
+     * @return true = 시각상 저장 가능, false = 조용히 무시할 보고
+     */
+    private boolean challengeClockAllowsReport(UUID challengeId, LocalDate usageDate, UUID userId) {
+        LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
+        if (usageDate.isAfter(today)) {
+            log.info("창 사용분 보고 무시 — 아직 오지 않은 날짜. challengeId={}, usageDate={}, userId={}",
+                    challengeId, usageDate, userId);
+            return false;
+        }
+        if (!usageDate.isEqual(today)) {
+            return true;
+        }
+        GroupChallengeWindow window = groupChallengeWindowRepository.findById(challengeId).orElse(null);
+        if (window == null) {
+            return true;
+        }
+        if (Instant.now().isBefore(windowFocusAggregator.windowStartOn(today, window))) {
+            log.info("창 사용분 보고 무시 — 오늘 창이 아직 시작되지 않았다. challengeId={}, usageDate={}, userId={}",
+                    challengeId, usageDate, userId);
+            return false;
+        }
+        return true;
     }
 
     /**

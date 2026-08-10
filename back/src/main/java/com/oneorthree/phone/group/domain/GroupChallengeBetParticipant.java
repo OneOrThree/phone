@@ -38,7 +38,7 @@ import java.util.UUID;
                 name = "uq_group_challenge_bet_participants_session_user",
                 columnNames = {"session_id", "user_id"}),
         // 참가자 스코프 조회(/me/*)와 탈퇴 연동은 user_id 선두로 걷는다 — 유니크는 (session_id,
-        // user_id) 라 선두가 달라 못 쓴다(V45).
+        // user_id) 라 선두가 달라 못 쓴다(V44).
         indexes = @Index(name = "idx_group_challenge_bet_participants_user_session",
                 columnList = "user_id, session_id"))
 @Getter

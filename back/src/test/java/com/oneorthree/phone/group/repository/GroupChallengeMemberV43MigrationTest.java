@@ -15,13 +15,13 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V42(창 사용분 보고 measured_at, GROMO-1407·N34)의 실 SQL 검증.
+ * V43(창 사용분 보고 measured_at, GROMO-1407·N34)의 실 SQL 검증.
  *
- * <p>보는 것: ① V41 까지는 {@code group_challenge_members.measured_at} 이 없다 — V42 이후 생긴다,
+ * <p>보는 것: ① V41 까지는 {@code group_challenge_members.measured_at} 이 없다 — V43 이후 생긴다,
  * ② 컬럼은 nullable 이라 기존 행(레거시 보고)은 null 그대로 살아남는다 — "시각 모름" 행에는 어떤
  * 보고든 갱신을 허용하는 비교 규칙의 전제다, ③ timestamptz 값이 저장·조회된다.
  */
-class GroupChallengeMemberV42MigrationTest {
+class GroupChallengeMemberV43MigrationTest {
 
     private static final PostgreSQLContainer<?> POSTGRES;
 
@@ -45,13 +45,13 @@ class GroupChallengeMemberV42MigrationTest {
     }
 
     @Test
-    @DisplayName("V41 까지는 measured_at 컬럼이 없다 — V42 가 nullable 로 추가하고 기존 행은 null 로 남는다")
-    void measuredAtColumnAppearsAtV42AndLegacyRowsStayNull() {
+    @DisplayName("V41 까지는 measured_at 컬럼이 없다 — V43 이 nullable 로 추가하고 기존 행은 null 로 남는다")
+    void measuredAtColumnAppearsAtV43AndLegacyRowsStayNull() {
         seedAt("41");
         assertThat(hasColumn()).isFalse();
         UUID legacyRow = insertReport(DATE);
 
-        migrate("42");
+        migrate("43");
 
         assertThat(hasColumn()).isTrue();
         // 컬럼은 nullable — 마이그레이션이 기존 보고 행을 깨뜨리지 않는다.
@@ -130,7 +130,7 @@ class GroupChallengeMemberV42MigrationTest {
     }
 
     /**
-     * 요청 버전 이하의 <b>실재하는</b> 최고 버전으로 타깃을 해석한다 — 선행 배치(B1·B2)의 V34~V38 이
+     * 요청 버전 이하의 <b>실재하는</b> 최고 버전으로 타깃을 해석한다 — 선행 배치(B1·B2·B4)의 V34~V42 가
      * 아직 없는 워크트리에서도 동작한다(Flyway 는 존재하지 않는 target 을 오류로 본다).
      * {@code GroupBetV41MigrationTest} 와 같은 장치다.
      */

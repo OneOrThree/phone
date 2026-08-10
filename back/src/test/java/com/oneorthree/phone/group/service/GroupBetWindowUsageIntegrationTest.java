@@ -225,6 +225,28 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("회차가 없는 미래 날짜에도 선기록 불가 — 이후 회차를 만들고 참가해도 값이 없다(codex ①)")
+    void futureDateReportIsIgnoredEvenBeforeSessionExists() {
+        // given: FUTURE 에는 회차가 아직 없다 — 회차 기준 게이트가 작동할 수 없는 자리다
+        assertThat(groupChallengeBetSessionRepository
+                .findByChallengeIdAndSessionDate(betChallenge.getId(), FUTURE)).isEmpty();
+
+        // when: 미래 날짜에 0분을 미리 심으려는 보고(멤버 자격 — 표시용 갈래로 들어온다)
+        reportBet(member, report(FUTURE, 0, Instant.now()));
+        reportBet(bettor, report(FUTURE, 0, Instant.now()));
+
+        // then: 저장되지 않는다
+        assertThat(storedReport(betChallenge, member, FUTURE)).isEmpty();
+        assertThat(storedReport(betChallenge, bettor, FUTURE)).isEmpty();
+
+        // 그 뒤 그 날짜 회차가 생기고(레거시 createBet 은 보고보다 나중에 만들 수 있다) 참가해도
+        // 정산이 주워 갈 선기록이 없다.
+        GroupChallengeBetSession created = reservedFuture();
+        join(created, bettor);
+        assertThat(storedReport(betChallenge, bettor, FUTURE)).isEmpty();
+    }
+
+    @Test
     @DisplayName("미참가 멤버도 시작 전 회차에는 못 심는다 — '심어두고 창 시작 전에 참가' 우회 차단")
     void memberCannotPrePlantOnNotStartedSessionThenJoin() {
         GroupChallengeBetSession future = reservedFuture();   // 아직 시작 전 · member 는 미참가
@@ -315,12 +337,6 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
                 report(TODAY, 20, Instant.now()));
         assertThat(storedReport(betChallenge, member, TODAY))
                 .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(20);
-
-        // ③ 미래 날짜라도 회차가 없으면 표시용으로 받는다 — 돈이 걸린 대상이 없다.
-        groupBetWindowUsageService.reportWindowUsage(
-                plainGroup.getId(), plainChallenge.getId(), member.getId(),
-                report(FUTURE, 5, Instant.now()));
-        assertThat(storedReport(plainChallenge, member, FUTURE)).isPresent();
     }
 
     @Test

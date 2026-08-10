@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
+import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -16,6 +17,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantReposit
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -29,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -71,12 +74,18 @@ class GroupBetWindowUsageServiceTest {
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    @Mock
+    private GroupChallengeWindowRepository groupChallengeWindowRepository;
+    @Mock
+    private WindowFocusAggregator windowFocusAggregator;
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
+    /** 고정 과거 날짜 — 시각 게이트(미래 차단·오늘 창 시작)와 무관한 경로를 태우기 위한 값이다. */
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private User member() {
         return User.builder().id(USER_ID).nickname("재영").isGuest(false).build();
@@ -375,5 +384,69 @@ class GroupBetWindowUsageServiceTest {
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.NOT_FOUND);
+    }
+
+    // ── 회차에 기대지 않는 시각 게이트 (PR #573 codex ①) ─────────────────────
+
+    @Test
+    @DisplayName("회차가 없어도 미래 날짜 보고는 무시 — 개설 전 선기록 차단(createBet 이 나중에 회차를 만든다)")
+    void futureDateReportIsIgnoredWithoutSession() {
+        // given: 그 날짜에 회차가 아직 없다(Mockito 기본 Optional.empty())
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        LocalDate future = LocalDate.now(KST).plusDays(2);
+
+        // when: 미래 날짜에 0분을 미리 심으려는 보고
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(future, 0, Instant.now()));
+
+        // then: 예외 없이(204) 저장만 하지 않는다 — 회차 게이트는 행이 없어 작동하지 못하는 자리다
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("오늘이라도 창 시작 전이면 무시 — 회차 없이 챌린지 창 시각만으로 판정한다")
+    void todayReportBeforeWindowStartIsIgnored() {
+        // given: 오늘 창이 아직 열리지 않았다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        LocalDate today = LocalDate.now(KST);
+        GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
+        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(windowFocusAggregator.windowStartOn(today, window))
+                .willReturn(Instant.now().plusSeconds(3600));
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(today, 0, Instant.now()));
+
+        // then
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("오늘 창이 이미 시작됐으면 저장 — 시각 게이트가 정상 보고를 막지 않는다")
+    void todayReportAfterWindowStartIsStored() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        LocalDate today = LocalDate.now(KST);
+        GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
+        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(windowFocusAggregator.windowStartOn(today, window))
+                .willReturn(Instant.now().minusSeconds(3600));
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(today, 25, Instant.now()));
+
+        // then
+        verify(groupChallengeMemberRepository)
+                .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(today), eq(25), any());
     }
 }
