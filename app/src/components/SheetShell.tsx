@@ -151,11 +151,21 @@ export function useSheetClosing(): boolean {
 export function SheetShell({
   children,
   onClose,
+  onClosing,
   asModal = false,
   dismissible = true,
 }: {
   children: ReactNode;
   onClose: () => void;
+  /**
+   * 퇴장이 **시작되는 즉시** 한 번 불린다(`onClose`는 220ms 뒤다).
+   *
+   * ⚠️ 자식용 신호는 `useSheetClosing()`이지만, 시트 컴포넌트 **본문**은 SheetShell보다 위에서
+   *    실행돼 그 훅을 못 쓴다. 본문이 들고 있는 비동기 조회를 무효화해야 할 때 이 prop을 쓴다 —
+   *    종전에는 닫기 = 즉시 언마운트라 cleanup이 알아서 막았지만, 이제 220ms 동안 살아 있다.
+   *    (초대 시트: 딤을 누른 뒤 도착한 응답이 '이미 멤버'면 사용자가 닫았는데 그룹방으로 전환됐다)
+   */
+  onClosing?: () => void;
   asModal?: boolean;
   // false면(예: 저장 요청 중) 그랩바 드래그가 임계치를 넘어도 닫지 않고 제자리로 되돌린다 —
   // onClose가 no-op으로 막힌 시트에서 패널만 화면 밖으로 밀려 박제되는 회귀 방지.
@@ -260,12 +270,17 @@ export function SheetShell({
   }, []);
 
   // 퇴장 시작. 딤 탭·그랩바 릴리스·시트 안 CTA가 전부 이 하나를 지난다.
+  // 렌더마다 바뀔 수 있는 콜백을 ref로 고정 — requestClose는 ref 하나로 유지된다.
+  const onClosingRef = useRef(onClosing);
+  onClosingRef.current = onClosing;
   const requestCloseRef = useRef<() => void>(() => {});
   requestCloseRef.current = () => {
     if (!dismissibleRef.current || closingRef.current) return;
     closingRef.current = true;
     setClosing(true);
     pendingCloseRef.current = onCloseRef.current;
+    // 본문에 "지금부터 결과를 반영하지 마라"를 알린다(위 onClosing 주석).
+    onClosingRef.current?.();
     // '동작 줄이기'에서는 퇴장을 재생하지 않고 즉시 닫는다(설계 §4.1).
     if (reduceRef.current) {
       fireClose();

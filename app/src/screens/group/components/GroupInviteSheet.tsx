@@ -150,6 +150,9 @@ export default function GroupInviteSheet({
   // 새 프리뷰에 덮어쓰게 되므로, 참여 시작 시점의 groupId와 비교해 최신일 때만 반영한다.
   const groupIdRef = useRef(groupId);
   // 조회 완료 시점에 부모 콜백을 부르므로, 콜백 신원 변화로 재조회가 돌지 않게 ref로 잡는다.
+  // 퇴장이 시작됐는가 — 진행 중인 조회 결과를 반영할지 판정한다(아래 onClosing).
+  // ⚠️ 시트는 key 없이 재사용되므로(GroupScreen) 새 초대가 오면 반드시 되돌려야 한다.
+  const closedRef = useRef(false);
   const joinedRef = useRef(onJoined);
   useEffect(() => {
     joinedRef.current = onJoined;
@@ -172,6 +175,7 @@ export default function GroupInviteSheet({
       return;
     }
     let alive = true;
+    closedRef.current = false; // 새 초대 — 앞 그룹에서 닫힌 흔적을 지운다
     setLoading(true);
     setGone(false);
     setFailed(false);
@@ -187,7 +191,7 @@ export default function GroupInviteSheet({
     (async () => {
       try {
         const ov = await getGroupOverview(groupId);
-        if (!alive) return;
+        if (!alive || closedRef.current) return;
         setOverview(ov);
         // 이미 멤버 — 프리뷰를 보여줄 이유가 없다. 부모가 시트를 내리고 그룹방으로 전환한다.
         if (readIsMember(ov)) {
@@ -303,7 +307,16 @@ export default function GroupInviteSheet({
   // 로그인으로 앱 트리가 리마운트되면 GroupScreen이 같은 그룹으로 이 시트를 다시 띄운다(§6-6).
   if (isGuest || guestBlocked) {
     return (
-      <SheetShell onClose={onClose} asModal>
+      <SheetShell
+        onClose={onClose}
+        // ⚠️ 퇴장이 시작되면 진행 중인 조회 결과를 **반영하지 않는다.** 종전에는 딤 탭이 곧
+        //    언마운트라 cleanup이 alive를 내렸지만, 이제 onClose가 220ms 뒤라 그동안 살아 있다.
+        //    그 사이 응답이 오고 '이미 멤버'면 사용자가 닫았는데 그룹방으로 전환된다(codex 리뷰).
+        onClosing={() => {
+          closedRef.current = true;
+        }}
+        asModal
+      >
         <Text style={s.title}>로그인하면 그룹에 참여할 수 있어요</Text>
         <Text style={s.desc}>로그인한 뒤 이 초대장이 다시 열려요.</Text>
         <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={onLogin}>
@@ -317,7 +330,16 @@ export default function GroupInviteSheet({
   // ── 404 — 사라진 그룹 ──
   if (gone) {
     return (
-      <SheetShell onClose={onClose} asModal>
+      <SheetShell
+        onClose={onClose}
+        // ⚠️ 퇴장이 시작되면 진행 중인 조회 결과를 **반영하지 않는다.** 종전에는 딤 탭이 곧
+        //    언마운트라 cleanup이 alive를 내렸지만, 이제 onClose가 220ms 뒤라 그동안 살아 있다.
+        //    그 사이 응답이 오고 '이미 멤버'면 사용자가 닫았는데 그룹방으로 전환된다(codex 리뷰).
+        onClosing={() => {
+          closedRef.current = true;
+        }}
+        asModal
+      >
         <Text style={s.title}>사라진 그룹이에요</Text>
         <Text style={s.desc}>초대 링크가 만료됐거나 그룹이 없어졌어요.</Text>
         <PrimaryCloseCta label="확인" />
@@ -328,7 +350,16 @@ export default function GroupInviteSheet({
   // ── 조회 실패 — 다시 시도 ──
   if (failed) {
     return (
-      <SheetShell onClose={onClose} asModal>
+      <SheetShell
+        onClose={onClose}
+        // ⚠️ 퇴장이 시작되면 진행 중인 조회 결과를 **반영하지 않는다.** 종전에는 딤 탭이 곧
+        //    언마운트라 cleanup이 alive를 내렸지만, 이제 onClose가 220ms 뒤라 그동안 살아 있다.
+        //    그 사이 응답이 오고 '이미 멤버'면 사용자가 닫았는데 그룹방으로 전환된다(codex 리뷰).
+        onClosing={() => {
+          closedRef.current = true;
+        }}
+        asModal
+      >
         <Text style={s.title}>초대장을 열지 못했어요</Text>
         <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
         <TouchableOpacity
@@ -346,7 +377,16 @@ export default function GroupInviteSheet({
   // ── 로딩 · isMember 처리 직후(부모가 곧 시트를 내린다) ──
   if (loading || !overview || readIsMember(overview)) {
     return (
-      <SheetShell onClose={onClose} asModal>
+      <SheetShell
+        onClose={onClose}
+        // ⚠️ 퇴장이 시작되면 진행 중인 조회 결과를 **반영하지 않는다.** 종전에는 딤 탭이 곧
+        //    언마운트라 cleanup이 alive를 내렸지만, 이제 onClose가 220ms 뒤라 그동안 살아 있다.
+        //    그 사이 응답이 오고 '이미 멤버'면 사용자가 닫았는데 그룹방으로 전환된다(codex 리뷰).
+        onClosing={() => {
+          closedRef.current = true;
+        }}
+        asModal
+      >
         <View style={s.loadingBox}>
           <ActivityIndicator color={T.accent} />
         </View>
