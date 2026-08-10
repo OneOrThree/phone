@@ -91,32 +91,44 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
   });
 
-  test('자물쇠는 비공개 그룹에만, 방장 배지는 내가 OWNER인 그룹에만 붙는다', async () => {
+  test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
     await renderList([
       group({ isPrivate: true, role: 'OWNER' }),
       group({ groupId: GROUP_ID_2, name: '저녁 스터디', isPrivate: false, role: 'MEMBER' }),
     ]);
 
-    expect(screen.getAllByLabelText('비공개 그룹')).toHaveLength(1);
-    expect(screen.getAllByLabelText('내가 방장')).toHaveLength(1);
+    expect(screen.getByText('비밀방')).toBeOnTheScreen();
+    expect(screen.getAllByText('방장')).toHaveLength(1);
   });
 
   test('공개·일반 멤버 그룹뿐이면 자물쇠도 방장 배지도 없다', async () => {
     await renderList([group({ isPrivate: false, role: 'MEMBER' })]);
 
-    expect(screen.queryByLabelText('비공개 그룹')).toBeNull();
-    expect(screen.queryByLabelText('내가 방장')).toBeNull();
+    expect(screen.queryByText('비밀방')).toBeNull();
+    expect(screen.queryByText('방장')).toBeNull();
   });
 });
 
 describe('콜백', () => {
-  test('카드 탭 — onSelect에 groupId를 넘기고 스스로 이동하지 않는다', async () => {
+  test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
-    await press(`group.list.card.${GROUP_ID_2}`);
+    await press(`group.card.${GROUP_ID_2}`);
+
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+    expect(onSelect).not.toHaveBeenCalled();
+
+    await press(`group.card.room.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+  });
+
+  test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
+    const longName = '공백 없는 매우 긴 그룹 이름 ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    await renderList([group({ name: longName })]);
+
+    expect(screen.getByLabelText(new RegExp(longName))).toBeOnTheScreen();
   });
 
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
