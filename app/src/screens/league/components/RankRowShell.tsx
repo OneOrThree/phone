@@ -1,7 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, type LayoutChangeEvent } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { enterUp } from '@/constants/motion';
+import { M, enterUp } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { rankSwap } from '../rankSwap';
 
@@ -41,10 +41,18 @@ export function RankRowShell({ index, onLayout, children }: Props) {
   //    layout 트랜지션은 originX/Y·크기만 다루므로 zIndex는 스타일로 준다.
   //    ⚠️ 직전 렌더의 자리와 비교한다. 이 값은 자리가 바뀐 **그 커밋**에서만 참이고, 다음
   //       단계(390ms 뒤) 렌더에서 자연히 1로 돌아간다 — 트랜지션이 도는 동안만 유지된다.
+  //    ⚠️ **트랜지션이 끝날 때까지 유지한다.** 다음 기록 프레임은 스왑 300ms 뒤에 오는데
+  //       rankSwap의 가로 궤적은 M.dur.base(350ms)라, 인덱스 변화 한 렌더만 참으로 두면 마지막
+  //       50ms 동안 상승 행이 다시 아래로 깔린다(codex 리뷰). 타이머로 궤적 길이만큼 붙든다.
   const prevIndexRef = useRef(index);
-  const rising = index < prevIndexRef.current;
+  const [rising, setRising] = useState(false);
   useEffect(() => {
+    const moved = index < prevIndexRef.current;
     prevIndexRef.current = index;
+    if (!moved) return undefined;
+    setRising(true);
+    const t = setTimeout(() => setRising(false), M.dur.base);
+    return () => clearTimeout(t);
   }, [index]);
   return (
     <Animated.View

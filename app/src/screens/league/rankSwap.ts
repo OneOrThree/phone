@@ -200,6 +200,12 @@ export function rankSwapFrames(
       // 방금 앞지른 상대보다는 반드시 커야 하므로, 천장이 그보다 낮으면 overtake를 택한다
       // (두 제약이 충돌하는 건 상대 둘의 기록이 붙어 있을 때뿐이고, 그때는 '넘었다'가 우선이다).
       shown.set(rising, Math.max(overtake, Math.min(ceiling, Math.max(ramp, shownOf(rising)))));
+      // ⚠️ **두 제약이 충돌하면 이 스왑은 프레임을 내지 않는다.** 방금 넘은 상대와 아직 안 넘은
+      //    상대의 기록이 같거나 1초 차이면 사이에 쓸 정수가 없어, overtake를 택하는 순간 아직
+      //    아래에 있는 상대보다 큰 값이 표시된다(codex 리뷰). 그 중간 상태를 **보여주지 않고**
+      //    다음 스왑과 한 단계로 묶는다 — 동점 블록을 함께 지나가는 셈이다.
+      //    (마지막 상승이면 위 분기라 여기 오지 않는다 — 최종값은 항상 그려진다.)
+      if (ceiling < overtake) continue;
     }
     // 묶인 구간은 기록만 반영하고 프레임은 내지 않는다.
     if (i < bundledUpTo) continue;

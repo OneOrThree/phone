@@ -152,17 +152,19 @@ export default function LeagueResultScreen() {
         // 승급만 축하한다 — 결과 뱃지가 다 뜬 순간이 이 화면의 정점이다.
         // hapticSuccess는 notification 계열 "따-단" 2박자라 **축하 표면 전용**이다.
         // (파티클은 '동작 줄이기'에서 ConfettiBurst가 스스로 생략한다 — 여기서 다시 분기하지 않는다.)
-        if (!fb || cancelled || type !== 'promote') return;
+        // ⚠️ **이미 축하가 난 화면이면 파티클도 켜지 않는다.** 전환 effect가 시퀀스를 완료해도
+        //    예약된 hold 콜백은 취소되지 않아 나중에 실행된다 — 그때 파티클만 1회 가드 밖에
+        //    있으면 끝난 화면에서 컨페티가 뒤늦게 재생된다(codex 리뷰).
+        if (!fb || cancelled || type !== 'promote' || celebratedRef.current) return;
         // ⚠️ **축하 시점에 모션이 허용된 경우에만 파티클을 켠다.** ConfettiBurst의 생략은 바깥
         //    컴포넌트가 남아 있는 채 안쪽만 비우는 방식이라, 켜 두면 그 3.2초 사이에 사용자가
         //    '동작 줄이기'를 끌 때 안쪽이 새로 마운트돼 **이미 끝난 화면에서 컨페티가 뒤늦게**
         //    시작되고 기존 수명 타이머에 잘린다(codex 리뷰).
         //    햅틱·문구는 그대로 낸다 — 축하가 사라지는 게 아니라 파티클만 사라진다(정책 D7).
+        // 위 가드가 이미 1회를 보장하므로 여기서는 바로 세운다.
+        celebratedRef.current = true;
         if (!reduceRef.current) setCelebrate(true);
-        if (!celebratedRef.current) {
-          celebratedRef.current = true;
-          hapticSuccess();
-        }
+        hapticSuccess();
       });
       // 결과 티어명 등장 — 승격·유지는 전환과 동시에, 강등은 결과(to) 뱃지가 뜨는 시점(≈1.5초)에 맞춰
       Animated.delay(delayRef.current(demote ? 1500 : 0)).start(({ finished: f2 }) => {

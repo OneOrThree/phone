@@ -219,4 +219,29 @@ describe('rankSwapFrames — 상한', () => {
       }
     });
   });
+
+  // ⚠️ 방금 넘은 상대와 아직 안 넘은 상대의 기록 사이에 쓸 정수가 없으면(동점·1초 차) 중간
+  //    상태를 보여주면 안 된다 — 아직 아래에 있는 상대보다 큰 값이 표시된다(codex 리뷰).
+  test('동점 블록은 중간 프레임 없이 한 단계로 지나간다', () => {
+    const tieFrom = ['a', 'b', 'c'];
+    const tieTo = ['c', 'a', 'b'];
+    const finalSeconds = new Map<string, number>([
+      ['c', 200],
+      ['a', 100],
+      ['b', 100],
+    ]);
+    const startSeconds = new Map<string, number>([['c', 0]]);
+    const frames = rankSwapFrames(tieFrom, tieTo, finalSeconds, startSeconds);
+
+    // 자리가 반영된 프레임(홀수 인덱스)마다 순서와 숫자가 모순되지 않아야 한다.
+    frames.forEach((f, fi) => {
+      if (fi % 2 === 0) return;
+      const shownOf = (k: string) => f.seconds.get(k) ?? (finalSeconds.get(k) as number);
+      const idx = f.order.indexOf('c');
+      for (let i = 0; i < idx; i += 1) {
+        expect(shownOf('c')).toBeLessThanOrEqual(shownOf(f.order[i]));
+      }
+    });
+    expect(frames[frames.length - 1].order).toEqual(tieTo);
+  });
 });
