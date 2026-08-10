@@ -7645,6 +7645,14 @@
               "UNUSED"
             ]
           },
+          "voidReason": {
+            "type": "string",
+            "enum": [
+              "INSUFFICIENT_PARTICIPANTS",
+              "CHALLENGE_DELETED",
+              "REFUND_DEADLINE"
+            ]
+          },
           "goalMinutes": {
             "type": "integer",
             "format": "int32"
@@ -7765,6 +7773,14 @@
               "FORFEITED",
               "VOIDED",
               "UNUSED"
+            ]
+          },
+          "voidReason": {
+            "type": "string",
+            "enum": [
+              "INSUFFICIENT_PARTICIPANTS",
+              "CHALLENGE_DELETED",
+              "REFUND_DEADLINE"
             ]
           },
           "settledAt": {
