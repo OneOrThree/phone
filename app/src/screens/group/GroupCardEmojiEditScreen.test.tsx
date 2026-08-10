@@ -237,6 +237,14 @@ test('pending 선택을 카드와 편집기 초기값에 합성하되 저장 기
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
 });
 
+test('기본값 🎯 pending도 디스크 기본값과 같다고 숨기지 않고 재시도할 수 있다', async () => {
+  preservePendingGroupCardEmoji('user-1', 'group-1', '🎯');
+  await render(<GroupCardEmojiEditScreen />);
+
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.🎯')).not.toBeDisabled());
+  expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
+});
+
 test('pending으로 다시 연 편집기에서 다른 아이콘을 고르면 버튼 탭 없이 최신 선택을 저장한다', async () => {
   await writeGroupCardEmoji('user-1', 'group-1', '🎯');
   preservePendingGroupCardEmoji('user-1', 'group-1', '📚');
@@ -252,6 +260,7 @@ test('pending으로 다시 연 편집기에서 다른 아이콘을 고르면 버
       status: 'ready',
       emoji: '🔥',
       storedEmoji: '🔥',
+      pending: false,
     }),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();

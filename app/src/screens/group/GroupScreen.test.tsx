@@ -20,6 +20,7 @@ import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRe
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import {
   __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
   setGroupCardEmojiSaveFailure,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -363,6 +364,25 @@ describe('목록 분기(0/1/N)', () => {
     );
     await act(async () => setGroupCardEmojiSaveFailure('user-1', false));
     expect(screen.queryByTestId('group.cardEmoji.saveFailure')).toBeNull();
+  });
+
+  test('생성 직후 pending 재시도가 지연돼도 서버 목록을 먼저 표시한다', async () => {
+    mockUserId = 'user-1';
+    preservePendingGroupCardEmoji('user-1', GROUP_ID, '🔥', 'create');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+      await gate;
+      await originalSetItem(key, value);
+    });
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+
+    expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
+    await act(async () => release());
   });
 
   test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {

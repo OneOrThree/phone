@@ -90,7 +90,8 @@ export default function GroupCardEmojiEditScreen() {
       const emoji = result.emoji;
       setBaseline(result.storedEmoji);
       setSelected(emoji);
-      setHasPendingSelection(emoji !== result.storedEmoji);
+      // 기본 🎯처럼 pending과 정규화된 디스크 값이 같아도 저장 실패 세대는 존재할 수 있다.
+      setHasPendingSelection(result.pending);
       setLoadedIdentity(requestedIdentity);
       setSaveFailed(false);
     });
@@ -100,7 +101,7 @@ export default function GroupCardEmojiEditScreen() {
   }, [groupId, identity, loadAttempt, userId]);
 
   const ready = loadedIdentity === identity && selected !== null && baseline !== null;
-  const changed = ready && selected !== baseline;
+  const changed = ready && (selected !== baseline || hasPendingSelection);
 
   const save = useCallback(async () => {
     if (!userId || !selected || !changed || saving || !ready) return;

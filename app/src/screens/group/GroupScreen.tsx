@@ -22,6 +22,7 @@ import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 import {
   reconcileGroupCardEmojiBucket,
+  getPendingGroupCardEmojiBucket,
   hasPendingGroupCardEmojis,
   readGroupCardEmojiSaveFailure,
   retryPendingGroupCardEmojis,
@@ -141,10 +142,19 @@ export default function GroupScreen() {
     try {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
+      // 멤버십 정본은 로컬 아이콘 복구보다 먼저 화면에 반영한다. 생성 직후 최초 로컬 쓰기와
+      // pending 재시도가 같은 storage queue에서 대기해도 빈 화면/이전 목록에 사용자를 묶지 않는다.
+      setGroups(rows);
+      setTransitioning(false);
       let emojiBucket: GroupCardEmojiBucket | null = {};
       let pendingBucket: GroupCardEmojiBucket = {};
       if (userId) {
         const retrySessionIdentity = sessionIdentityRef.current;
+        pendingBucket = getPendingGroupCardEmojiBucket(
+          userId,
+          rows.map((row) => row.groupId),
+        );
+        setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
         // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
         // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
         pendingBucket = await retryPendingGroupCardEmojis(
@@ -182,9 +192,6 @@ export default function GroupScreen() {
       } else {
         setCardEmojiByGroupId(emojiBucket);
       }
-      setGroups(rows);
-      // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
-      setTransitioning(false);
     } catch {
       if (seq !== requestSeqRef.current) return;
       setError(true);

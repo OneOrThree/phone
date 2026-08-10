@@ -47,7 +47,12 @@ export default function GroupSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [cardEmojiName, setCardEmojiName] = useState(groupCardEmojiLabel(undefined));
+  const cardEmojiIdentity = `${userId ?? 'anonymous'}:${groupId}`;
+  const [cardEmojiState, setCardEmojiState] = useState<{
+    identity: string;
+    name: string;
+  } | null>(null);
+  const cardEmojiName = cardEmojiState?.identity === cardEmojiIdentity ? cardEmojiState.name : null;
   // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
   const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
 
@@ -85,13 +90,16 @@ export default function GroupSettingsScreen() {
       let active = true;
       readGroupCardEmojiResult(userId, groupId).then((result) => {
         if (active && result.status === 'ready') {
-          setCardEmojiName(groupCardEmojiLabel(result.emoji));
+          setCardEmojiState({
+            identity: cardEmojiIdentity,
+            name: groupCardEmojiLabel(result.emoji),
+          });
         }
       });
       return () => {
         active = false;
       };
-    }, [groupId, userId]),
+    }, [cardEmojiIdentity, groupId, userId]),
   );
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(GroupRoomScreen과 동일).
@@ -224,7 +232,9 @@ export default function GroupSettingsScreen() {
                 '내 카드 아이콘',
                 () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
                 'group.settings.cardEmoji',
-                `현재 아이콘 ${cardEmojiName} · 이 기기에서 나에게만 보여요`,
+                cardEmojiName
+                  ? `현재 아이콘 ${cardEmojiName} · 이 기기에서 나에게만 보여요`
+                  : '아이콘 불러오는 중 · 이 기기에서 나에게만 보여요',
               )}
             </View>
           </>

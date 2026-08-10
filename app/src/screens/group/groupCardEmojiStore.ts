@@ -21,7 +21,7 @@ export const GROUP_CARD_EMOJIS = GROUP_CARD_EMOJI_OPTIONS.map((option) => option
 export const DEFAULT_GROUP_CARD_EMOJI: GroupCardEmoji = '🎯';
 export type GroupCardEmojiBucket = Record<string, GroupCardEmoji>;
 export type GroupCardEmojiReadResult =
-  | { status: 'ready'; emoji: GroupCardEmoji; storedEmoji: GroupCardEmoji }
+  | { status: 'ready'; emoji: GroupCardEmoji; storedEmoji: GroupCardEmoji; pending: boolean }
   | { status: 'error' };
 type GroupCardEmojiMap = Record<string, GroupCardEmojiBucket>;
 type ParsedEmojiMap = { value: GroupCardEmojiMap; needsRepair: boolean };
@@ -126,6 +126,7 @@ export async function readGroupCardEmojiResult(
       status: 'ready',
       emoji: DEFAULT_GROUP_CARD_EMOJI,
       storedEmoji: DEFAULT_GROUP_CARD_EMOJI,
+      pending: false,
     };
   }
   return enqueueStorageOperation(async () => {
@@ -133,7 +134,12 @@ export async function readGroupCardEmojiResult(
       const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
       const storedEmoji = normalizeGroupCardEmoji(map[userId]?.[groupId]);
       const pendingEmoji = pendingEmojis.get(pendingKey(userId, groupId))?.emoji;
-      return { status: 'ready', emoji: pendingEmoji ?? storedEmoji, storedEmoji };
+      return {
+        status: 'ready',
+        emoji: pendingEmoji ?? storedEmoji,
+        storedEmoji,
+        pending: pendingEmoji !== undefined,
+      };
     } catch {
       return { status: 'error' };
     }
@@ -322,6 +328,19 @@ export function hasPendingGroupCardEmojis(
   return [...pendingEmojis.values()].some(
     (pending) => pending.userId === userId && (validIds === null || validIds.has(pending.groupId)),
   );
+}
+
+/** 저장 queue를 기다리지 않고 현재 계정의 유효한 optimistic 아이콘을 화면에 합성한다. */
+export function getPendingGroupCardEmojiBucket(
+  userId: string,
+  serverGroupIds: readonly string[],
+): GroupCardEmojiBucket {
+  const validIds = new Set(serverGroupIds);
+  return Object.fromEntries(
+    [...pendingEmojis.values()]
+      .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
+      .map((pending) => [pending.groupId, pending.emoji]),
+  ) as GroupCardEmojiBucket;
 }
 
 /** 그룹 화면 활성화 뒤 성공한 전체 목록에 포함된 최신 pending 값만 재시도한다. */
