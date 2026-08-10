@@ -169,7 +169,7 @@ describe('GroupFocusPollingController', () => {
     controller.dispose();
   });
 
-  test('KST 날짜 변경은 다음 tick의 새 cache key로 조회한다', async () => {
+  test('KST 자정 경계에서 interval을 기다리지 않고 새 cache key로 즉시 조회한다', async () => {
     let date = DATE;
     const load = jest.fn().mockResolvedValue([]);
     const store = new GroupFocusStatusStore(load);
@@ -177,14 +177,18 @@ describe('GroupFocusPollingController', () => {
       store,
       userId: USER_ID,
       getDate: () => date,
+      getMsUntilNextDate: () => 1_000,
     });
     controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
     controller.activate();
     await flushPromises();
     const oldDateListener = jest.fn();
     store.subscribe(USER_ID, DATE, oldDateListener);
+    jest.advanceTimersByTime(999);
+    expect(load).toHaveBeenCalledTimes(1);
+
     date = '2026-08-11';
-    jest.advanceTimersByTime(60_000);
+    jest.advanceTimersByTime(1);
 
     expect(load).toHaveBeenNthCalledWith(1, DATE);
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
