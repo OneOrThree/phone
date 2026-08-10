@@ -38,11 +38,15 @@ test('서버 data에 찾기 카드를 섞지 않고 가로 snap 덱으로 렌더
     screen.getByTestId('group.cardDeck.findMorePage', { includeHiddenElements: true }).props
       .pointerEvents,
   ).toBe('none');
+  expect(
+    screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }).props.focusable,
+  ).toBe(false);
   await act(async () => {
     fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 100_000 } } });
   });
   fireEvent.press(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }));
   expect(onFind).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('group.deck.findMore').props.focusable).toBe(true);
 });
 
 test('후반 그룹이 초기 활성 카드면 첫 렌더 배치를 그 index에서 시작한다', async () => {
@@ -135,6 +139,27 @@ test('momentum이 시작되면 drag fallback을 취소하고 실제 종료 위�
   await act(async () => {
     fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
   });
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 3');
+  jest.useRealTimers();
+});
+
+test('Android 비관성 drag는 targetContentOffset 없이 현재 offset으로 확정한다', async () => {
+  jest.useFakeTimers();
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  const deck = screen.getByTestId('group.cardDeck');
+  await act(async () => {
+    fireEvent(deck, 'scrollBeginDrag', { nativeEvent: { contentOffset: { x: 0 } } });
+    fireEvent(deck, 'scrollEndDrag', { nativeEvent: { contentOffset: { x: 400 } } });
+    await jest.runOnlyPendingTimersAsync();
+  });
+
   expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 3');
   jest.useRealTimers();
 });

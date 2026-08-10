@@ -84,6 +84,7 @@ export function GroupCardDeck({
   const pendingPeekGroupIdRef = useRef<string | null>(null);
   const pendingPageAnnouncementRef = useRef<number | null>(null);
   const dragFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const momentumActiveRef = useRef(false);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [indicatorWidth, setIndicatorWidth] = useState(0);
   const indicatorFocusedRef = useRef(false);
@@ -165,12 +166,19 @@ export function GroupCardDeck({
 
   useEffect(() => cancelDragFallback, [cancelDragFallback]);
 
+  const onScrollBeginDrag = useCallback(() => {
+    momentumActiveRef.current = false;
+    cancelDragFallback();
+  }, [cancelDragFallback]);
+
   const onMomentumScrollBegin = useCallback(() => {
+    momentumActiveRef.current = true;
     cancelDragFallback();
   }, [cancelDragFallback]);
 
   const onMomentumScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      momentumActiveRef.current = false;
       cancelDragFallback();
       settleActiveOffset(event.nativeEvent.contentOffset.x);
     },
@@ -179,8 +187,10 @@ export function GroupCardDeck({
 
   const onScrollEndDrag = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const target = event.nativeEvent.targetContentOffset?.x;
-      if (typeof target !== 'number') return;
+      if (momentumActiveRef.current) return;
+      // iOS는 targetContentOffset, Android의 비관성 drag는 현재 contentOffset만 제공한다.
+      // 어느 플랫폼이든 momentum이 시작되면 begin handler가 이 fallback을 취소한다.
+      const target = event.nativeEvent.targetContentOffset?.x ?? event.nativeEvent.contentOffset.x;
       cancelDragFallback();
       // iOS는 momentum gesture에도 targetContentOffset을 제공한다. 다음 tick 전에
       // onMomentumScrollBegin이 오면 이 fallback을 취소하고 실제 momentum 종료만 확정한다.
@@ -240,6 +250,7 @@ export function GroupCardDeck({
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum
+        onScrollBeginDrag={onScrollBeginDrag}
         onMomentumScrollEnd={onMomentumScrollEnd}
         onMomentumScrollBegin={onMomentumScrollBegin}
         onScrollEndDrag={onScrollEndDrag}
@@ -258,6 +269,7 @@ export function GroupCardDeck({
               position={pageCount}
               pageCount={pageCount}
               onPress={onFind}
+              focusable={activeIndex === groups.length}
             />
           </View>
         }
