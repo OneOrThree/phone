@@ -21,7 +21,10 @@ jest.mock('@/store/CharacterContext', () => ({
   useCharacter: () => ({ activeSource: null }),
 }));
 // reduce=false 고정 — 이 테스트의 관심사는 '동작 줄이기'가 아니라 준비 상태 초기화다.
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => false }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => false,
+  useReduceMotionReady: () => true,
+}));
 
 // 팝 래퍼는 시작 프레임이 opacity 0이라 RNTL 기본 질의에서 숨김 처리된다 — 숨김 포함으로 집는다.
 const HIDDEN = { includeHiddenElements: true } as const;
