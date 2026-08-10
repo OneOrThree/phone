@@ -114,9 +114,7 @@ test('저장 실패 뒤 다른 아이콘을 고르면 최신 선택을 즉시 �
 
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
 
-  await waitFor(() =>
-    expect(screen.queryByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeNull(),
-  );
+  await waitFor(() => expect(screen.queryByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeNull());
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🔥');
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(mockGoBack).not.toHaveBeenCalled();
