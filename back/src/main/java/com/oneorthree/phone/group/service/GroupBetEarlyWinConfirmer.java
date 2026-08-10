@@ -55,6 +55,37 @@ public class GroupBetEarlyWinConfirmer {
     private final ApplicationEventPublisher eventPublisher;
 
     /**
+     * 조기 확정 대상 회차를 <b>미리 잠근다</b> — 지갑을 만지기 <b>전에</b> 호출해야 한다(계약 §3
+     * 전역 락 순서: 회차 행 → 지갑).
+     *
+     * <p>집중 완료 트랜잭션은 보상 지급({@code creditSessionReward})으로 지갑을 먼저 잡고, 통계
+     * 반영 뒤에야 {@link #confirmWins} 에서 회차 락을 기다린다 — 그 사이 정산·챌린지 삭제가 회차
+     * 락을 쥔 채 같은 지갑으로 내려오면 <b>정확히 역순</b>이라 교착하거나 {@code @Version} 낙관락
+     * 충돌이 난다. 어느 쪽이든 집중 세션·통계·보상이 통째로 롤백된다(유저가 방금 한 집중이 사라진다).
+     * 그래서 판정에 필요한 통계가 아직 없더라도 <b>대상 회차만 먼저 잠가</b> 순서를 정산 경로와
+     * 맞춘다. 락은 트랜잭션 끝까지 유지되므로 뒤이은 {@code confirmWins} 의 재잠금은 무료다.
+     *
+     * <p>잠금 순서는 <b>회차 id 오름차순</b>(§5.4) — 여러 회차를 잡는 다른 경로(탈퇴 연동·정산)와
+     * 같은 방향이라 교차 데드락이 없다.
+     */
+    public void lockCandidateSessions(User user, Collection<LocalDate> dates) {
+        if (dates.isEmpty()) {
+            return;
+        }
+        groupBetEarlyWinTargets(user, dates).stream()
+                .map(GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget::getSessionId)
+                .distinct()
+                .sorted()
+                .forEach(groupChallengeBetSessionRepository::findByIdForUpdate);
+    }
+
+    private List<GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget> groupBetEarlyWinTargets(
+            User user, Collection<LocalDate> dates) {
+        return groupChallengeBetParticipantRepository
+                .findUnconfirmedOpenFocusTargetsByUserAndDates(user.getId(), dates);
+    }
+
+    /**
      * 집중 기록 반영 직후 호출(같은 트랜잭션) — {@code dates} 는 이번 세션이 통계에 귀속된 날짜들이다
      * (자정 걸침 세션은 2일). 실패가 집중 세션 저장을 되돌리면 안 되는 부가 경로이므로, 판정 불가
      * (CTI 유실 등)는 건너뛰고 예외는 삼키지 않는다 — 여기서 나는 예외는 잠금·flush 계열이라 삼켜도
@@ -64,8 +95,8 @@ public class GroupBetEarlyWinConfirmer {
         if (dates.isEmpty()) {
             return;
         }
-        List<GroupChallengeBetParticipant> targets = groupChallengeBetParticipantRepository
-                .findUnconfirmedOpenFocusByUserAndDates(user.getId(), dates);
+        List<GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget> targets =
+                groupBetEarlyWinTargets(user, dates);
         if (targets.isEmpty()) {
             return;
         }
@@ -74,26 +105,28 @@ public class GroupBetEarlyWinConfirmer {
         // 방어적으로 한 번 더 정렬한다.
         Map<UUID, GroupChallengeBetSession> locked = new LinkedHashMap<>();
         targets.stream()
-                .map(p -> p.getSession().getId())
+                .map(GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget::getSessionId)
                 .distinct()
                 .sorted()
                 .forEach(sessionId -> groupChallengeBetSessionRepository.findByIdForUpdate(sessionId)
                         .ifPresent(s -> locked.put(sessionId, s)));
 
-        for (GroupChallengeBetParticipant target : targets) {
-            GroupChallengeBetSession session = locked.get(target.getSession().getId());
+        for (GroupChallengeBetParticipantRepository.UnconfirmedFocusTarget target : targets) {
+            GroupChallengeBetSession session = locked.get(target.getSessionId());
             if (session == null || !session.isOpen()) {
                 continue;   // 이미 정산됨 — 건드리지 않는다.
             }
-            // 락 이후 참가 행 재조회(§5.4) — 대기하는 사이 취소로 사라졌을 수 있다.
+            // 락 이후 참가 행 <b>첫 로드</b>(§5.4) — 대상 조회가 id 만 받았으므로 이 findById 가
+            // 실제 DB 읽기다. 잠금을 기다리는 사이 취소·탈퇴가 지운 행은 여기서 빈 결과로 잡힌다
+            // (엔티티를 미리 올려 뒀다면 1차 캐시가 유령을 돌려줘 flush 에서 터졌다).
             Optional<GroupChallengeBetParticipant> current =
-                    groupChallengeBetParticipantRepository.findById(target.getId());
+                    groupChallengeBetParticipantRepository.findById(target.getParticipantId());
             if (current.isEmpty() || current.get().getAchieved() != null) {
                 continue;
             }
             GroupChallengeBetParticipant participant = current.get();
-            // 판정 기준은 회차 박제 스냅샷(GROMO-1263) — 정산({@code GroupBetSettler})이 쓰는
-            // 것과 <b>같은 커널·같은 대상</b>이라 조기 확정과 최종 정산이 갈릴 수 없다(GROMO-1280).
+            // 판정 기준은 회차 박제 스냅샷(GROMO-1263) — 정산(GroupBetSettler)이 쓰는 것과
+            // <b>같은 커널·같은 대상</b>이라 조기 확정과 최종 정산이 갈릴 수 없다(GROMO-1280).
             // 스냅샷도 CTI 도 없으면 판정 불가 — 조기 확정만 건너뛴다(정산은 어차피 같은 이유로
             // 실패·백오프를 탄다. 집중 저장을 막을 이유가 없다).
             Optional<GroupBetJudge.Target> target0 = groupBetJudge.ofSession(session);
@@ -106,8 +139,11 @@ public class GroupBetEarlyWinConfirmer {
             if (GroupBetJudge.isAchieved(target0.get(), minutes)) {
                 // 확정 시각 박제(LLD §5.1 — confirmWin(m, Instant.now())). 조기 확정 전용 컬럼이다.
                 participant.confirmWin(minutes == null ? 0 : minutes, Instant.now());
-                eventPublisher.publishEvent(
-                        new GroupBetWonEvent(session.getId(), participant.getId()));
+                // 소비자는 둘 — 조기 정산 트리거(전원 확정 시)와 BET_WON 푸시(본인, FR-43).
+                // 후자의 소비자 배선은 알림 파이프라인 소유자인 B7 의 몫이라 여기서는 발행만 한다.
+                eventPublisher.publishEvent(new GroupBetWonEvent(
+                        session.getId(), participant.getId(), user.getId(),
+                        session.getGroup().getId(), session.getChallenge().getId()));
                 log.info("개인 승리 조기 확정 — sessionId={}, userId={}, progressMinutes={}",
                         session.getId(), user.getId(), minutes);
             }

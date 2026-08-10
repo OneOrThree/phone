@@ -364,6 +364,11 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
+        // 락 순서 고정(계약 §3: 회차 → 지갑) — 지갑을 만지기 전에 조기 확정 대상 회차를 먼저 잠근다.
+        // 지갑부터 잡고 나중에 회차 락을 기다리면 정산·삭제 경로와 정확히 역순이라 교착·낙관락
+        // 충돌로 이 트랜잭션(집중 세션·통계·보상)이 통째로 롤백된다.
+        groupBetEarlyWinConfirmer.lockCandidateSessions(user, credited.focusSeconds().keySet());
+
         // currency 폐쇄(서버 지급 전환): 세션 보상을 서버가 직접 지급한다. 앱의 /currency/earn 호출은 no-op 이 됐고
         // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
         // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을, 위의 재업로드 스킵이 행 재생성을 막는다.
@@ -728,15 +733,20 @@ public class FocusService {
             session.applyTag(tag);
         }
 
+        // 귀속 날짜 계산(순수 함수)을 지급보다 먼저 끝낸다 — 아래 회차 선잠금이 이 날짜 집합을 쓴다.
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
+        Instant statEnd = statEnd(endedAt, Instant.now());
+        CreditedByDate credited = resolveSecondsByDate(
+                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
+
+        // 락 순서 고정(계약 §3: 회차 → 지갑) — POST 완료 저장 경로와 동일한 이유다(교착·낙관락 충돌 방지).
+        groupBetEarlyWinConfirmer.lockCandidateSessions(user, credited.focusSeconds().keySet());
+
         // GROMO-1214: 라이브 마커 종료도 POST 와 동일하게 세션 보상을 지급한다(같은 헬퍼 = 같은 지급률·캡·멱등키).
         // 앱이 cancel+POST 를 PATCH 로 전환하면 이 경로가 유일한 세션 지급처가 된다 — 빠져 있으면 코인이 0이 된다.
         int awardedCoins = creditSessionReward(user, session.getId(), session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds());
 
-        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
-        Instant statEnd = statEnd(endedAt, Instant.now());
-        CreditedByDate credited = resolveSecondsByDate(
-                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.totalDistractionSeconds(), statEnd,
                 toStoredSecondsByDate(credited.focusSeconds()));

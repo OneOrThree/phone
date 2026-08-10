@@ -124,6 +124,11 @@ class GroupChallengeServiceTest {
     @Mock
     private GroupBetService groupBetService;
 
+    // 생성 시 내기 배선(GROMO-1410 ②) — bet 미전송(null) 요청은 실 구현도 즉시 반환이라, 목이면
+    // 호출 여부만 검증 대상이 된다(실 배선 동작은 통합 테스트 몫).
+    @Mock
+    private GroupBetJoinService groupBetJoinService;
+
     @Mock
     private GroupChallengeBetRepository groupChallengeBetRepository;
 
@@ -157,8 +162,8 @@ class GroupChallengeServiceTest {
                 groupRepository, groupMemberRepository, userRepository, groupChallengeRepository,
                 groupChallengeDurationRepository, groupChallengeWindowRepository,
                 groupChallengeMemberRepository, userScreenTimeSettingsRepository,
-                groupBetService, groupBetSettler, groupChallengeBetRepository, groupBetJudge,
-                eventPublisher);
+                groupBetService, groupBetSettler, groupBetJoinService,
+                groupChallengeBetRepository, groupBetJudge, eventPublisher);
     }
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
