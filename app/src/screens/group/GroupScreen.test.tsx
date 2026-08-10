@@ -77,8 +77,15 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 let mockPendingInvite: string | null = null;
+let mockInviteListener:
+  | ((invite: { groupId: string; slug: null; entry: 'deferred' }) => void)
+  | null = null;
 jest.mock('@/navigation/navigationRef', () => ({
-  setGroupInviteListener: jest.fn(),
+  setGroupInviteListener: jest.fn(
+    (listener: ((invite: { groupId: string; slug: null; entry: 'deferred' }) => void) | null) => {
+      mockInviteListener = listener;
+    },
+  ),
   peekPendingInvite: jest.fn(),
   clearPendingInvite: jest.fn(),
 }));
@@ -242,6 +249,7 @@ beforeEach(() => {
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
   mockTabPressListener = null;
+  mockInviteListener = null;
   mockNavigationFocused = false;
   // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는
   // 여전히 groupId 하나라, 테스트는 groupId만 지정하고 나머지는 여기서 감싼다.
@@ -325,12 +333,34 @@ describe('group_viewed view episode', () => {
     await renderScreen();
 
     mockPendingInvite = GROUP_ID;
+    mockNavigationFocused = true;
+    await act(async () =>
+      mockInviteListener?.({ groupId: GROUP_ID, slug: null, entry: 'deferred' }),
+    );
     mockNavigationFocused = false;
     await act(async () => mockTabPressListener?.());
     await refocus();
 
     expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
       group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('blur 중 도착한 deferred invite 뒤 사용자가 탭으로 들어오면 tab으로 기록한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockNavigationFocused = false;
+    mockPendingInvite = GROUP_ID;
+    await act(async () =>
+      mockInviteListener?.({ groupId: GROUP_ID, slug: null, entry: 'deferred' }),
+    );
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'tab',
       group_count_bucket: '1',
     });
   });

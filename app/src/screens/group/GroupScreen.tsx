@@ -75,16 +75,18 @@ export default function GroupScreen() {
   //  · 버퍼를 비우는 곳은 여기뿐 — 시트가 닫히거나(onClose) 참여가 끝났을 때(onJoined)만 clear.
   // 버퍼가 slug·entry까지 들고 온다(초대 링크 스펙 §7-3) — 시트가 6b 이벤트·join 어트리뷰션에 쓴다.
   const [invite, setInvite] = useState<PendingInvite | null>(() => peekPendingInvite());
+  const inviteOpenedWhileFocusedRef = useRef(false);
 
   useEffect(() => {
     setGroupInviteListener((next) => {
       // 초대 시트와 찾기 시트는 상호 배타 — 둘 다 SheetShell이라 겹치면 딤이 2겹으로 포개진다.
       // 링크로 들어온 초대가 우선(사용자가 방금 밖에서 받은 맥락)이라 찾기 시트를 내린다.
       setFindOpen(false);
+      inviteOpenedWhileFocusedRef.current = navigation.isFocused();
       setInvite(next);
     });
     return () => setGroupInviteListener(null);
-  }, []);
+  }, [navigation]);
 
   // 게스트 → 로그인 전환에서 초대 이어받기.
   // 위 useState 초기화는 **마운트 1회**라 앱 트리가 리마운트될 때만 버퍼를 다시 읽는다. 그런데
@@ -134,7 +136,9 @@ export default function GroupScreen() {
       // 이미 focus된 탭을 재선택한 이벤트는 새 view episode를 만들지 않으므로 다음 focus에 남기지 않는다.
       // 초대 시트를 연 채 홈으로 빠졌다 돌아오는 경우는 새 탭 진입이 아니라 진행 중이던 invite
       // episode의 복귀다. pending invite가 있으면 return 판정을 유지한다.
-      if (!tabNavigation.isFocused() && !peekPendingInvite()) {
+      const continuingWarmInvite =
+        peekPendingInvite() !== null && inviteOpenedWhileFocusedRef.current;
+      if (!tabNavigation.isFocused() && !continuingWarmInvite) {
         nextFocusFromTabRef.current = true;
       }
     });
