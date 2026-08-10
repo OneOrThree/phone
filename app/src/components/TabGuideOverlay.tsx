@@ -76,7 +76,11 @@ export function TabGuideOverlay({
   // 화면 크기가 바뀐 첫 렌더부터 이전 좌표를 숨긴다. 새 anchor 측정이 끝날 때까지 전체 dim이다.
   const hole = measuredHole?.viewportKey === viewportKey ? measuredHole.value : null;
   const holeReq = useRef(0); // 늦게 도착한 이전 스텝 측정 무시용
-  const preparedStepRef = useRef<number | null>(null);
+  const prepareStateRef = useRef<{
+    stepIndex: number;
+    status: 'pending' | 'completed';
+    promise: Promise<void>;
+  } | null>(null);
   // steps는 렌더마다 새 배열일 수 있어 ref로 최신값만 읽는다 — 스텝 전환 시에만 재측정
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
@@ -104,13 +108,11 @@ export function TabGuideOverlay({
   const step = steps[effectiveIdx];
   useEffect(() => {
     if (!visible) {
-      preparedStepRef.current = null;
+      prepareStateRef.current = null;
       return;
     }
     const req = ++holeReq.current;
     const st = stepsRef.current[effectiveIdx];
-    const needsPrepare = preparedStepRef.current !== effectiveIdx;
-    preparedStepRef.current = effectiveIdx;
     const measure = () => {
       if (req !== holeReq.current) return;
       if (st?.rect) {
@@ -131,9 +133,17 @@ export function TabGuideOverlay({
       });
     };
 
-    // viewport 변경은 완료된 단계 준비를 되풀이하지 않고 현재 anchor만 다시 측정한다.
-    // 단계 전환·재개처럼 실제 단계가 새로 시작할 때만 prepare를 한 번 실행한다.
-    if (!needsPrepare || !st?.prepare) {
+    // 같은 단계의 prepare가 진행 중이면 viewport 변경 effect도 그 Promise를 함께 기다린다.
+    // 완료된 단계는 prepare를 되풀이하지 않고 현재 anchor만 다시 측정한다.
+    const existingPrepare =
+      prepareStateRef.current?.stepIndex === effectiveIdx ? prepareStateRef.current : null;
+    if (existingPrepare) {
+      if (existingPrepare.status === 'completed') measure();
+      else existingPrepare.promise.then(measure);
+      return;
+    }
+
+    if (!st?.prepare) {
       measure();
       return;
     }
@@ -142,11 +152,35 @@ export function TabGuideOverlay({
     try {
       const prepared = st.prepare();
       if (prepared && typeof prepared.then === 'function') {
-        prepared.then(measure, measure);
+        const prepareState = {
+          stepIndex: effectiveIdx,
+          status: 'pending' as const,
+          promise: Promise.resolve(prepared).then(
+            () => undefined,
+            () => undefined,
+          ),
+        };
+        prepareStateRef.current = prepareState;
+        prepareState.promise.then(() => {
+          if (prepareStateRef.current === prepareState) {
+            prepareStateRef.current = { ...prepareState, status: 'completed' };
+          }
+          measure();
+        });
       } else {
+        prepareStateRef.current = {
+          stepIndex: effectiveIdx,
+          status: 'completed',
+          promise: Promise.resolve(),
+        };
         measure();
       }
     } catch {
+      prepareStateRef.current = {
+        stepIndex: effectiveIdx,
+        status: 'completed',
+        promise: Promise.resolve(),
+      };
       measure();
     }
   }, [visible, effectiveIdx, viewportKey]);

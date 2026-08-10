@@ -129,3 +129,51 @@ test('화면 크기가 바뀌면 이전 spotlight를 숨기고 새 anchor를 다
     Dimensions.set({ window: originalWindow, screen: originalScreen });
   });
 });
+
+test('prepare 진행 중 화면 크기가 바뀌면 같은 Promise 완료 후 최신 viewport에서만 측정한다', async () => {
+  const originalWindow = Dimensions.get('window');
+  const originalScreen = Dimensions.get('screen');
+  let resolvePrepare!: () => void;
+  const prepare = jest.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolvePrepare = resolve;
+      }),
+  );
+  const callbacks: ((x: number, y: number, w: number, h: number) => void)[] = [];
+  const anchor = {
+    current: {
+      measureInWindow: (callback: (x: number, y: number, w: number, h: number) => void) => {
+        callbacks.push(callback);
+      },
+    } as unknown as View,
+  };
+  const steps: GuideStep[] = [{ text: '대상', character, anchor, prepare }];
+  const view = await render(
+    <TabGuideOverlay storageKey="gromo:guide:pending-resize" steps={steps} visible />,
+  );
+
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(callbacks).toHaveLength(0);
+
+  await act(async () => {
+    Dimensions.set({
+      window: { ...originalWindow, width: originalWindow.height, height: originalWindow.width },
+      screen: { ...originalScreen, width: originalScreen.height, height: originalScreen.width },
+    });
+  });
+  await view.rerender(
+    <TabGuideOverlay storageKey="gromo:guide:pending-resize" steps={steps} visible />,
+  );
+
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(callbacks).toHaveLength(0);
+  await act(async () => resolvePrepare());
+  await waitFor(() => expect(callbacks).toHaveLength(1));
+  await act(async () => callbacks[0]?.(30, 40, 120, 90));
+  expect(screen.getByTestId('guide.overlay.cutout')).toBeOnTheScreen();
+
+  await act(async () => {
+    Dimensions.set({ window: originalWindow, screen: originalScreen });
+  });
+});
