@@ -54,7 +54,6 @@ export default function FocusCategoryScreen() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' || !params?.interactionId) return;
       navigation.setParams({
-        entrySource: 'unknown',
         interactionId: undefined,
         interactionAcceptedAt: undefined,
       });

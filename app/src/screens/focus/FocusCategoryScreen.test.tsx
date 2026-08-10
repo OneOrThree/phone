@@ -169,7 +169,6 @@ test('카드 focus CTA 문맥은 앱 비활성 전환에서 즉시 취소한다'
   await act(async () => mockAppStateHandler?.('background'));
 
   expect(mockSetParams).toHaveBeenCalledWith({
-    entrySource: 'unknown',
     interactionId: undefined,
     interactionAcceptedAt: undefined,
   });
