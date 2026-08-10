@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { PanResponder, StyleSheet } from 'react-native';
+import type { GestureResponderHandlers } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { LoginResult } from '@/types/api';
 import LoginScreen from '@/screens/LoginScreen';
@@ -93,8 +94,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   //    것은 '다른 색'이 아니라 같은 흰 종이이고, 보이는 변화는 내용의 불투명도뿐이다.
   //
   // 뷰를 새로 끼우지 않고 기존 래퍼를 승격만 했다 — Maestro 셀렉터(스텝 testID)는 전부
-  // StepScaffold 안쪽이라 트리 계약은 그대로다.
-  const m = useMotion();
+  // StepScaffold 안쪽이라 트리 계약은 그대로다. 실제 진입 스타일은 StepFade가 정한다.
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
   // 분석 연출 1회 플래그도 함께 리셋 — 재진입한 온보딩에서 연출이 다시 보이도록.
@@ -271,9 +271,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   //    않는 기존 동작을 그대로 둔다(여기에 붙이면 backFloor가 0이라 스와이프가 열려 버린다).
   if (node.kind === 'login') {
     return (
-      <Animated.View key={stepKey} style={[styles.flex, m.css(fadeIn())]}>
+      <StepFade key={stepKey}>
         <LoginScreen onLogin={onMidFlowLogin} isOnboarding />
-      </Animated.View>
+      </StepFade>
     );
   }
 
@@ -281,11 +281,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   if (node.kind === 'nickname') {
     return (
       <OnboardingProgressContext.Provider value={progress}>
-        <Animated.View
-          key={stepKey}
-          style={[styles.flex, m.css(fadeIn())]}
-          {...swipeBack.panHandlers}
-        >
+        <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
           <NicknameStep
             data={data}
             update={(patch) => {
@@ -299,7 +295,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             serverError={serverError}
             submitting={submitting}
           />
-        </Animated.View>
+        </StepFade>
       </OnboardingProgressContext.Provider>
     );
   }
@@ -307,14 +303,41 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const Step = node.Component;
   return (
     <OnboardingProgressContext.Provider value={progress}>
-      <Animated.View
-        key={stepKey}
-        style={[styles.flex, m.css(fadeIn())]}
-        {...swipeBack.panHandlers}
-      >
+      <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
         <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
-      </Animated.View>
+      </StepFade>
     </OnboardingProgressContext.Provider>
+  );
+}
+
+// 스텝 진입 페이드. **진입 스타일을 마운트 시점에 결정하고 얼린다.**
+//
+// ⚠️ `useReduceMotion`은 시스템 질의가 끝나기 전까지 보수적으로 `true`를 돌려준다. 그래서
+//    질의가 확정되며 `true → false`로 바뀌는 순간, 이미 화면에 떠 있던 스텝에 `fadeIn`이
+//    **새로 붙는다** — 보이던 화면이 opacity 0으로 깜빡였다가 다시 나타난다(codex 리뷰).
+//    스텝이 바뀔 때는 `key={stepKey}`로 remount되므로, 얼려도 다음 스텝 페이드는 정상 재생된다.
+//    질의가 마운트 시점에 아직 안 끝났다면 **연출을 포기**한다 — 깜빡임보다 무연출이 낫다.
+//
+// 래퍼를 컴포넌트로 뺀 이유: 마운트 경계가 곧 얼리는 경계다. 부모(OnboardingFlow)는 스텝이
+// 바뀌어도 remount되지 않으므로 부모에서 훅으로 얼리면 첫 스텝 값이 끝까지 남는다.
+function StepFade({
+  children,
+  panHandlers,
+}: {
+  children: ReactNode;
+  panHandlers?: GestureResponderHandlers;
+}) {
+  const m = useMotion();
+  const decided = useRef(false);
+  const frozen = useRef<ReturnType<typeof fadeIn> | undefined>(undefined);
+  if (!decided.current) {
+    decided.current = true;
+    frozen.current = m.css(fadeIn());
+  }
+  return (
+    <Animated.View style={[styles.flex, frozen.current]} {...panHandlers}>
+      {children}
+    </Animated.View>
   );
 }
 
