@@ -239,7 +239,7 @@ test('무효화된 prune의 원본 복원이 실패해도 최신 reconcile은 �
   expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
 });
 
-test('복구 대기 bucket은 후속 아이콘과 다른 계정의 정상 저장을 되돌리지 않는다', async () => {
+test('복구 대기 bucket은 후속 저장에 즉시 병합되어 앱 재시작 뒤에도 보존된다', async () => {
   await writeGroupCardEmoji('u1', 'a', '📚');
   await writeGroupCardEmoji('u1', 'b', '🔥');
   let started: () => void = () => undefined;
@@ -266,8 +266,16 @@ test('복구 대기 bucket은 후속 아이콘과 다른 계정의 정상 저장
 
   await writeGroupCardEmoji('u1', 'b', '⚡');
   await writeGroupCardEmoji('u2', 'other', '🧠');
-  await reconcileGroupCardEmojiBucket('u1', ['a', 'b']);
 
+  expect(parseGroupCardEmoji(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1'))).toEqual({
+    u1: { a: '📚', b: '⚡' },
+    u2: { other: '🧠' },
+  });
+
+  // 프로세스 메모리의 recovery bucket 없이도 영속 저장만으로 복구되어야 한다.
+  __resetGroupCardEmojiQueueForTest();
+
+  expect(await readGroupCardEmoji('u1', 'a')).toBe('📚');
   expect(await readGroupCardEmoji('u1', 'b')).toBe('⚡');
   expect(await readGroupCardEmoji('u2', 'other')).toBe('🧠');
 });

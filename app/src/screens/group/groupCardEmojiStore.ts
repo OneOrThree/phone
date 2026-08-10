@@ -73,6 +73,9 @@ type EmojiListener = (groupId: string, emoji: GroupCardEmoji) => void;
 const emojiListeners = new Map<string, Set<EmojiListener>>();
 const saveFailureUsers = new Set<string>();
 const saveFailureListeners = new Map<string, Set<(failed: boolean) => void>>();
+// 무효화된 prune 뒤 원본 복원이 실패하면 잘려 나간 현재 계정 bucket만 보존한다.
+// reconcile뿐 아니라 일반 저장도 이를 최신 raw 아래에 병합해 앱 종료 전 복구를 영속화한다.
+const reconcileRecoveryBucketByUser = new Map<string, GroupCardEmojiBucket>();
 
 export function setGroupCardEmojiSaveFailure(userId: string, failed: boolean): void {
   if (failed) saveFailureUsers.add(userId);
@@ -162,13 +165,16 @@ export function writeGroupCardEmoji(
 ): Promise<void> {
   return enqueueStorageOperation(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+    const recoveryBucket = reconcileRecoveryBucketByUser.get(userId);
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardEmoji,
       JSON.stringify({
         ...map,
-        [userId]: { ...map[userId], [groupId]: emoji },
+        [userId]: { ...recoveryBucket, ...map[userId], [groupId]: emoji },
       }),
     );
+    // 성공한 쓰기에 복구 bucket 전체가 영속화된 뒤에만 메모리 복구본을 비운다.
+    if (recoveryBucket) reconcileRecoveryBucketByUser.delete(userId);
     emitGroupCardEmoji(userId, groupId, emoji);
   });
 }
@@ -179,9 +185,6 @@ function sameBucket(a: GroupCardEmojiBucket, b: GroupCardEmojiBucket): boolean {
 }
 
 const reconcileGenerationByUser = new Map<string, number>();
-// 무효화된 prune 뒤 원본 복원이 실패하면 잘려 나간 현재 계정 bucket만 보존한다. 다음
-// reconcile은 이를 최신 raw bucket 아래에 병합해, 그 사이의 새 아이콘·다른 계정 저장을 되돌리지 않는다.
-const reconcileRecoveryBucketByUser = new Map<string, GroupCardEmojiBucket>();
 
 /** 성공한 전체 GET /groups에서만 호출해 현재 계정 bucket의 stale groupId를 제거한다. */
 export function reconcileGroupCardEmojiBucket(
