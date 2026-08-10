@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
@@ -20,9 +22,29 @@ public class GroupChallengeResponse {
     /** DURATION: 하루 목표 분 · TIME_WINDOW: 창 내 목표 분(V20 additive — 목표 없는 구 창 챌린지는 null). */
     private Integer durationMinutes;
 
+    /**
+     * 도는 요일(§A3 · GROMO-1260) — 항상 월~일 정렬, 1개 이상. 구앱 미전송 생성분·V34 이전 행은
+     * 매일(7개 전부)이다. 와이어 표기는 "MON"~"SUN"(앱 ChallengeRepeatDay 와 동일).
+     */
+    private List<RepeatDay> repeatDays;
+
+    /** 오늘(KST, 조회 date 우선)이 도는 날인가 — 비활성 요일 카드 상태(FR-31-1)의 근거. */
+    private boolean activeToday;
+
     private String windowStart;
     private String windowEnd;
+
+    /**
+     * 내부 상태 — 정본 enum(ACTIVE·ENDED, V34). 와이어에는 그대로 내보내지 않는다:
+     * 직렬화는 {@link #getStatusWire()} 브리지가 담당하므로 여기서는 {@code @JsonIgnore}
+     * (Lombok {@code getStatus()} 는 서버 내부·테스트용으로 남는다).
+     */
+    @JsonIgnore
     private GroupChallengeStatus status;
+
+    /** 활동 시작 시각(V34) — 이력 표기 "언제부터". 기존 행은 created_at 과 같다. */
+    private Instant startedAt;
+
     private Instant createdAt;
     private boolean canParticipate;
 
@@ -93,4 +115,24 @@ public class GroupChallengeResponse {
      * 흡수한다(additive).
      */
     private boolean dormant;
+
+    /**
+     * status 와이어 브리지 — <b>ENDED 를 구앱 어휘 "INACTIVE" 로 다운맵</b>해 내보낸다(§E3 additive).
+     *
+     * <p>구앱 계약이 {@code GroupChallengeStatus = 'ACTIVE' | 'INACTIVE'}(group.ts:17)로 굳어 있고
+     * 종료 분기 전부가 {@code === 'INACTIVE'} 비교다(ChallengeCard.tsx:236 · challengeResult.ts:127) —
+     * 'ENDED' 가 나가는 순간 끝난 챌린지가 활성처럼 렌더된다. DB·enum·내부 로직은 정본(ENDED)을 쓰고
+     * 이 직렬화 지점 하나에서만 낮춘다. 신앱은 additive 필드(startedAt·endedAt·activeToday)로 실상태를
+     * 읽는다.
+     *
+     * <p><b>제거 시점</b>: 구앱 강제 업데이트 이후 — GROMO-1238 축에서 이 메서드와 {@code @JsonIgnore}
+     * 를 걷어내고 enum 직렬화로 되돌린다.
+     */
+    @JsonProperty("status")
+    public String getStatusWire() {
+        if (status == null) {
+            return null;
+        }
+        return status == GroupChallengeStatus.ENDED ? "INACTIVE" : status.name();
+    }
 }

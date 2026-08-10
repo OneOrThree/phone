@@ -108,7 +108,7 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
                 .type(MissionType.DURATION)
                 .build());
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(challenge).durationMinutes(GOAL_MINUTES).build());
+                .challenge(challenge).category(MissionCategory.FOCUS).durationMinutes(GOAL_MINUTES).build());
         owner = memberUser("방장", GroupMemberRole.OWNER);
     }
 
@@ -154,7 +154,7 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
         return user;
     }
 
-    /** 창형(FOCUS × TIME_WINDOW) 챌린지 — 창 시각은 KST 벽시계로 저장한다. */
+    /** 창형(FOCUS × TIME_WINDOW) 챌린지 — 창 시각은 KST 벽시계 time 그대로(V35). */
     private GroupChallenge windowChallenge(LocalTime windowStart, LocalTime windowEnd) {
         GroupChallenge windowed = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
@@ -163,8 +163,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
                 .build());
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(windowed)
-                .windowStartAt(LocalDate.EPOCH.atTime(windowStart).atZone(KST).toInstant())
-                .windowEndAt(LocalDate.EPOCH.atTime(windowEnd).atZone(KST).toInstant())
+                .windowStart(windowStart)
+                .windowEnd(windowEnd)
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         extraChallenges.add(windowed);
@@ -339,6 +339,7 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("창형 내일 회차 — 창 시작 전이므로 철회 허용")
     void windowSessionTomorrowCanBeLeft() {
+        // KST 18:00~20:00 창 — 내일 창의 시작은 항상 미래라 철회가 열려 있다.
         GroupChallenge windowed = windowChallenge(LocalTime.of(18, 0), LocalTime.of(20, 0));
         User opener = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("철회자", GroupMemberRole.MEMBER);
@@ -445,6 +446,7 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("전일자 창형 회차(배치 전 OPEN 잔존) → 창이 이미 시작돼 BET_LEAVE_CLOSED")
     void startedYesterdayWindowSessionCannotBeLeft() {
+        // KST 07:00~10:00 창 — 전일자 회차의 창 시작은 언제나 과거라 철회가 닫혀 있다.
         GroupChallenge windowed = windowChallenge(LocalTime.of(7, 0), LocalTime.of(10, 0));
         User opener = memberUser("개설자", GroupMemberRole.MEMBER);
         GroupChallengeBetSession session = windowSessionOn(

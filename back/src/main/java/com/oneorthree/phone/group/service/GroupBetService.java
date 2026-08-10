@@ -796,8 +796,7 @@ public class GroupBetService {
             LocalDate nextDate = nextDateByChallengeId.get(challengeId);
             GroupChallengeWindow window = windows.get(challengeId);
             Instant nextSessionAt = window != null
-                    ? nextDate.atTime(WindowFocusAggregator.timeOfDay(window.getWindowStartAt()))
-                            .atZone(KST).toInstant()
+                    ? nextDate.atTime(window.getWindowStart()).atZone(KST).toInstant()
                     : nextDate.atStartOfDay(KST).toInstant();
             result.put(challengeId, new NextSessionInfo(nextSessionAt,
                     myJoinedChallengeIds.contains(challengeId),

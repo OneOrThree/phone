@@ -228,8 +228,8 @@ class GroupBetServiceTest {
         return new GroupBetJudge.Target(windowChallenge, GOAL_MINUTES, GroupChallengeWindow.builder()
                 .challengeId(CHALLENGE_ID)
                 .challenge(windowChallenge)
-                .windowStartAt(Instant.parse("1970-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("1970-01-01T12:00:00+09:00"))
+                .windowStart(LocalTime.parse("09:00"))
+                .windowEnd(LocalTime.parse("12:00"))
                 .durationMinutes(GOAL_MINUTES)
                 .build());
     }
@@ -577,7 +577,7 @@ class GroupBetServiceTest {
                 .group(group())
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
-                .status(GroupChallengeStatus.INACTIVE)
+                .status(GroupChallengeStatus.ENDED)
                 .build());
 
         assertThatThrownBy(() ->
@@ -1379,8 +1379,8 @@ class GroupBetServiceTest {
         GroupChallengeWindow window = GroupChallengeWindow.builder()
                 .challengeId(CHALLENGE_ID)
                 .challenge(windowChallenge)
-                .windowStartAt(Instant.parse("1970-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("1970-01-01T12:00:00+09:00"))
+                .windowStart(LocalTime.of(9, 0))
+                .windowEnd(LocalTime.of(12, 0))
                 .build();
         given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatus(
                 List.of(CHALLENGE_ID), tomorrow, GroupBetStatus.OPEN))
@@ -1455,18 +1455,18 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("INACTIVE 챌린지는 다음 회차 축에서 빠진다 — 끝난 챌린지에 다음 회차는 없다")
-    void loadNextSessionsSkipsInactiveChallenges() {
-        GroupChallenge inactive = GroupChallenge.builder()
+    @DisplayName("ENDED 챌린지는 다음 회차 축에서 빠진다 — 끝난 챌린지에 다음 회차는 없다")
+    void loadNextSessionsSkipsEndedChallenges() {
+        GroupChallenge ended = GroupChallenge.builder()
                 .id(CHALLENGE_ID)
                 .group(group())
                 .category(MissionCategory.FOCUS)
                 .type(MissionType.DURATION)
-                .status(GroupChallengeStatus.INACTIVE)
+                .status(GroupChallengeStatus.ENDED)
                 .build();
 
         Map<UUID, GroupBetService.NextSessionInfo> result =
-                groupBetService.loadNextSessions(List.of(inactive), Map.of(), USER_ID);
+                groupBetService.loadNextSessions(List.of(ended), Map.of(), USER_ID);
 
         assertThat(result).isEmpty();
         verify(groupChallengeBetSessionRepository, never())

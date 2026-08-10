@@ -43,6 +43,13 @@ class GroupChallengeV28MigrationTest {
     private static final UUID USER_ID = UUID.randomUUID();
     private static final LocalDate BET_DATE = LocalDate.of(2026, 8, 6);
 
+    /**
+     * 이 테스트의 종착 스키마 — V33 고정. V34+ 가 이 시대의 전제를 재정의한다(repeat_days·started_at
+     * NOT NULL, 창 컬럼 time 전환·개명, V20 부분 유니크 완화, V28 상한 CHECK 교체). 그 이후 규약은
+     * {@code GroupChallengeV34~V36MigrationTest} 가 잇고, 여기는 해당 마이그레이션 시대의 계약을 지킨다.
+     */
+    private static final MigrationVersion ERA_END = MigrationVersion.fromVersion("33");
+
     @BeforeEach
     void resetSchema() {
         JdbcTemplate jdbcTemplate = jdbcTemplate();
@@ -175,7 +182,7 @@ class GroupChallengeV28MigrationTest {
     }
 
     private void migrate() {
-        migrate(MigrationVersion.fromVersion("28"));
+        migrate(ERA_END);
     }
 
     /** 검증 대상은 V28 시점의 역사다 — LATEST 로 올리면 V39(2계층 재편)가 구 스키마를 걷어가 버린다. */
