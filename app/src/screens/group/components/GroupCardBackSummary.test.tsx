@@ -72,6 +72,7 @@ describe('GroupCardBackSummary', () => {
   });
 
   test('영역별 실패를 0으로 오인하지 않고 다른 성공 영역은 유지한다', async () => {
+    const onRetry = jest.fn();
     await render(
       <GroupCardBackSummary
         group={group}
@@ -82,7 +83,7 @@ describe('GroupCardBackSummary', () => {
         }}
         onStartFocus={jest.fn()}
         onOpenRoom={jest.fn()}
-        onRetry={jest.fn()}
+        onRetry={onRetry}
         onFlipFront={jest.fn()}
       />,
     );
@@ -90,6 +91,10 @@ describe('GroupCardBackSummary', () => {
     expect(screen.getByText('공지를 불러오지 못했어요')).toBeOnTheScreen();
     expect(screen.getByText('집중 인원을 확인할 수 없어요')).toBeOnTheScreen();
     expect(screen.getByText('1개 진행 중')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.card.back.focus.${GROUP_ID}.retry`));
+    });
+    expect(onRetry).toHaveBeenCalledWith('focus');
   });
 
   test('실패한 각 영역은 adapter dependency에 대응하는 명시 재시도를 제공한다', async () => {

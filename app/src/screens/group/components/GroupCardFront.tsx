@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { Ref } from 'react';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -8,6 +9,9 @@ interface GroupCardFrontProps {
   emoji?: string;
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
+  bodyRef?: Ref<View>;
+  position?: number;
+  pageCount?: number;
 }
 
 export function GroupCardFront({
@@ -15,6 +19,9 @@ export function GroupCardFront({
   emoji = '🎯',
   onFlip,
   onAccessibilityFlip,
+  bodyRef,
+  position = 1,
+  pageCount = 1,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
@@ -24,6 +31,7 @@ export function GroupCardFront({
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
+        ref={bodyRef}
         style={s.body}
         onPress={onFlip}
         accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
@@ -31,7 +39,7 @@ export function GroupCardFront({
           if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
         }}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >

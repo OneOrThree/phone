@@ -577,6 +577,9 @@ export default function GroupRoomScreen({
       return () => {
         focusedRef.current = false;
         requestSeqRef.current++;
+        // 최초 목적지 detail이 확정되기 전에 다른 route가 위에 올라오면 이 CTA episode는
+        // 끝난다. 같은 props가 남아 있어도 복귀 재조회에 과거 interaction_id를 붙이지 않는다.
+        cardInteractionRef.current = interruptCardInteraction(cardInteractionRef.current);
       };
     }, [reload]),
   );

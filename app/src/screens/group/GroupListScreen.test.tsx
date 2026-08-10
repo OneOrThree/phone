@@ -309,6 +309,19 @@ describe('콜백', () => {
     expect(screen.getByLabelText(new RegExp(longName))).toBeOnTheScreen();
   });
 
+  test('활성 앞면의 접근성 이름에 현재 페이지와 전체 페이지 수를 포함한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+    });
+
+    expect(
+      screen.getByLabelText(/저녁 스터디.*현재 2\/3 페이지/, { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+
   test('스크린리더 activate flip은 accessibility_action trigger로 기록한다', async () => {
     jest.useFakeTimers();
     const findNode = jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(7);
@@ -339,6 +352,11 @@ describe('콜백', () => {
   });
 
   test('뒷면에서 앞면으로 돌아가는 접근성 activate도 accessibility_action으로 기록한다', async () => {
+    jest.useFakeTimers();
+    const findNode = jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(11);
+    const focus = jest
+      .spyOn(AccessibilityInfo, 'setAccessibilityFocus')
+      .mockImplementation(() => undefined);
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
 
@@ -351,6 +369,11 @@ describe('콜백', () => {
     expect(logGroupCardFlipped).toHaveBeenLastCalledWith(
       expect.objectContaining({ to_face: 'front', trigger: 'accessibility_action' }),
     );
+    await act(async () => jest.runAllTimers());
+    expect(focus).toHaveBeenCalledWith(11);
+    findNode.mockRestore();
+    focus.mockRestore();
+    jest.useRealTimers();
   });
 
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {

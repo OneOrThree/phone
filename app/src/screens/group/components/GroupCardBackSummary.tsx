@@ -126,7 +126,9 @@ export function GroupCardBackSummary({
         <SummarySection
           text={focusSummary}
           testID={`group.card.back.focus.${group.groupId}`}
-          retryDependency={focus.status === 'error' ? 'focus' : undefined}
+          retryDependency={
+            focus.status === 'error' || focus.status === 'coverage-unknown' ? 'focus' : undefined
+          }
           onRetry={onRetry}
         />
       </View>

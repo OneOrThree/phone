@@ -323,6 +323,31 @@ describe('카드 방문 귀속', () => {
     );
   });
 
+  test('최초 상세 응답 전 route blur도 복귀 재조회의 interaction 귀속을 취소한다', async () => {
+    let resolveInitialDetail!: (value: GroupDetailResponse) => void;
+    mockGetGroupDetail.mockImplementationOnce(
+      () => new Promise<GroupDetailResponse>((resolve) => (resolveInitialDetail = resolve)),
+    );
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await renderRoom({
+      entrySource: 'group_card',
+      interactionId: 'interaction-before-blur',
+      interactionAcceptedAt: Date.now(),
+    });
+    await blur();
+    mockGetGroupDetail.mockResolvedValue(detail());
+    await focus();
+
+    await waitFor(() =>
+      expect(logGroupRoomViewed).toHaveBeenCalledWith({
+        group_id: GROUP_ID,
+        entry_source: 'group_card',
+      }),
+    );
+    await act(async () => resolveInitialDetail(detail()));
+  });
+
   test('최초 상세 실패 뒤 재시도 성공은 원래 카드 interaction으로 귀속하지 않는다', async () => {
     mockGetGroupDetail.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(detail());
     mockGetAnnouncements.mockResolvedValue([]);

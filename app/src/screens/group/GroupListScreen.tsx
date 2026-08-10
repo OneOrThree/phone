@@ -229,6 +229,8 @@ export default function GroupListScreen({
   const previousCardDataDateRef = useRef(cardDataDate);
   const deckAnchorRef = useRef<View | null>(null);
   const activeCardRef = useRef<View | null>(null);
+  const frontBodyRef = useRef<View | null>(null);
+  const frontFocusPendingRef = useRef(false);
   const backTitleRef = useRef<Text | null>(null);
   const backLayoutWaitersRef = useRef(new Map<string, () => void>());
   const guideDecisionEpisodeRef = useRef<number | null>(null);
@@ -385,6 +387,7 @@ export default function GroupListScreen({
   const flipCardFront = useCallback(
     (trigger: GroupCardFlipTrigger = 'card_tap') => {
       setBackSource('user');
+      frontFocusPendingRef.current = trigger === 'accessibility_action';
       setFlippedGroupId(null);
       logGroupCardFlipped({
         to_face: 'front',
@@ -394,6 +397,16 @@ export default function GroupListScreen({
     },
     [groups.length],
   );
+
+  // 접근성으로 뒷면을 닫은 경우 새 앞면 disclosure button이 commit된 뒤 그 위치로 복귀한다.
+  useEffect(() => {
+    if (flippedGroupId !== null || !frontFocusPendingRef.current) return;
+    frontFocusPendingRef.current = false;
+    requestAnimationFrame(() => {
+      const node = ReactNative.findNodeHandle(frontBodyRef.current);
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+  }, [flippedGroupId]);
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
@@ -670,7 +683,7 @@ export default function GroupListScreen({
                 />
               </View>
             }
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <View
                 ref={item.groupId === activeGroupId ? activeCardRef : undefined}
                 collapsable={false}
@@ -708,6 +721,9 @@ export default function GroupListScreen({
                 ) : (
                   <GroupCardFront
                     group={item}
+                    bodyRef={item.groupId === activeGroupId ? frontBodyRef : undefined}
+                    position={index + 1}
+                    pageCount={pageCount}
                     onFlip={() => flipCard(item.groupId)}
                     onAccessibilityFlip={() => flipCard(item.groupId, 'accessibility_action')}
                   />
