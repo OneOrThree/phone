@@ -29,6 +29,7 @@ export function resolveIndicatorMode(measuredWidth: number, pageCount: number): 
 
 interface PageIndicatorProps {
   pageLabels: readonly string[];
+  pageKeys?: readonly string[];
   activeIndex: number;
   onSelectPage: (page: number) => void;
 }
@@ -37,14 +38,22 @@ export function pageAccessibilityLabel(label: string, page: number, pageCount: n
   return `${label}, ${page + 1} / ${pageCount}`;
 }
 
-export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageIndicatorProps) {
+export function PageIndicator({
+  pageLabels,
+  pageKeys = pageLabels,
+  activeIndex,
+  onSelectPage,
+}: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const [focusWithin, setFocusWithin] = useState(false);
   const pageCount = pageLabels.length;
   const safeActiveIndex = Math.max(0, Math.min(activeIndex, Math.max(0, pageCount - 1)));
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
   const previousModeRef = useRef(mode);
-  const dotRefs = useRef<Array<View | null>>([]);
+  const pageKeySignature = pageKeys.join('\u0000');
+  const previousPageKeySignatureRef = useRef(pageKeySignature);
+  const focusedPageKeyRef = useRef<string | null>(null);
+  const dotRefs = useRef(new Map<string, View | null>());
   const counterRef = useRef<View | null>(null);
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
@@ -53,15 +62,24 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
   }, []);
 
   useEffect(() => {
-    if (previousModeRef.current === mode) return;
+    const modeChanged = previousModeRef.current !== mode;
+    const keysChanged = previousPageKeySignatureRef.current !== pageKeySignature;
     previousModeRef.current = mode;
+    previousPageKeySignatureRef.current = pageKeySignature;
+    if (!modeChanged && !keysChanged) return;
     if (!focusWithin) return;
-    const target = mode === 'counter' ? counterRef.current : dotRefs.current[safeActiveIndex];
+    const focusedIndex = focusedPageKeyRef.current
+      ? pageKeys.indexOf(focusedPageKeyRef.current)
+      : -1;
+    const target =
+      mode === 'counter'
+        ? counterRef.current
+        : dotRefs.current.get(pageKeys[focusedIndex >= 0 ? focusedIndex : safeActiveIndex]);
     // 키보드 입력 포커스와 스크린리더 접근성 포커스는 별개라 둘 다 이전한다.
     target?.focus();
-    const node = findNodeHandle(target);
+    const node = findNodeHandle(target ?? null);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [focusWithin, mode, safeActiveIndex]);
+  }, [focusWithin, mode, pageKeySignature, pageKeys, safeActiveIndex]);
 
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
@@ -69,16 +87,18 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
         <View style={s.dots}>
           {Array.from({ length: pageCount }, (_, page) => (
             <Pressable
-              key={page}
+              key={pageKeys[page] ?? page}
               ref={(node) => {
-                dotRefs.current[page] = node;
+                dotRefs.current.set(pageKeys[page] ?? String(page), node);
               }}
               style={s.dotHit}
               onPress={() => onSelectPage(page)}
               onFocus={() => {
+                focusedPageKeyRef.current = pageKeys[page] ?? null;
                 setFocusWithin(true);
               }}
               onBlur={() => {
+                focusedPageKeyRef.current = null;
                 setFocusWithin(false);
               }}
               accessibilityRole="button"

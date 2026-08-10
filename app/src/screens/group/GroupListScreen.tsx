@@ -355,6 +355,7 @@ export default function GroupListScreen({
           {groupList}
           <PageIndicator
             pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+            pageKeys={[...groups.map((group) => group.groupId), 'find-more']}
             activeIndex={renderedActiveIndex}
             onSelectPage={selectPage}
           />

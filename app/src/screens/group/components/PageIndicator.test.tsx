@@ -61,6 +61,35 @@ describe('PageIndicator', () => {
     expect(pageAccessibilityLabel('아침 집중방', 0, 3)).toBe('아침 집중방, 1 / 3');
   });
 
+  test('dots 모드 재정렬에서도 stable page key의 포커스를 같은 항목으로 잇는다', async () => {
+    const view = await render(
+      <PageIndicator
+        pageLabels={['아침 집중방', '저녁 스터디', '그룹 찾기']}
+        pageKeys={['morning', 'evening', 'find-more']}
+        activeIndex={1}
+        onSelectPage={jest.fn()}
+      />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    const focusedEveningDot = screen.getByTestId('group.deck.indicator.dot.1');
+    await act(async () => focusedEveningDot.props.onFocus());
+
+    await view.rerender(
+      <PageIndicator
+        pageLabels={['저녁 스터디', '아침 집중방', '그룹 찾기']}
+        pageKeys={['evening', 'morning', 'find-more']}
+        activeIndex={0}
+        onSelectPage={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('group.deck.indicator.dot.0')).toBe(focusedEveningDot);
+  });
+
   test('인디케이터 밖의 포커스는 mode 전환 때 가져오지 않는다', async () => {
     const focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus');
     await render(
