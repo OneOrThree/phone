@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ViewStyle } from 'react-native';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -91,6 +92,8 @@ export default function FocusResultScreen() {
   const { focusSeconds, subjectName, completed } = params;
   const { subjects } = useSubjects();
   const m = useMotion();
+  // 이 막대가 진입 연출을 받는가 — 받으면 스타일, 아니면 undefined.
+  const barEnter = (i: number) => m.enter(growUp(i));
   // 연출 판정 effect가 재실행되면 안 되므로(아래 celebrationStarted 가드) m을 deps에 넣는 대신
   // 최신 delay 함수를 ref로 읽는다.
   const delayRef = useRef(m.delay);
@@ -625,7 +628,12 @@ export default function FocusResultScreen() {
                             //    갱신 때 재시작되지 않는다. 응답이 마지막 막대의 종료(약 1.16초)
                             //    보다 늦으면 과거 요일 막대가 0에서 완성 높이로 툭 튄다
                             //    (codex 리뷰). cellsLoaded를 게이트로 쓴다.
-                            cellsLoaded ? m.enter(growUp(i)) : undefined,
+                            // ⚠️ 도착 전에는 **시작 프레임에서 기다린다.** 집중 30초 이상이면
+                            //    응답 전에도 sessionMin으로 오늘 막대에 값이 생겨 완성 높이로
+                            //    먼저 보이는데, 응답이 오며 growUp이 붙으면 0으로 접혔다 다시
+                            //    자란다(codex 리뷰). 진입 연출을 받지 않는 경우(reduce 확정)엔
+                            //    붙들 이유가 없으므로 그대로 둔다.
+                            cellsLoaded ? barEnter(i) : barEnter(i) && GROW_PENDING,
                           ]}
                         />
                       </View>
@@ -876,6 +884,9 @@ function CompareCard({
     </View>
   );
 }
+
+// growUp의 **시작 프레임**. 프리셋에서 직접 뽑아 두 값이 갈리지 않게 한다.
+const GROW_PENDING = (growUp(0).animationName as { from: ViewStyle }).from;
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
