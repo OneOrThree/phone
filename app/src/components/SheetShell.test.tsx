@@ -432,6 +432,47 @@ describe('닫는 동안의 딤', () => {
     //    (윗 테스트 '퇴장 중 …다시 어두워지지 않는다'와 같은 결의 단조 단언이라 타이밍에 기대지 않는다.)
     expect(dimOpacity()).toBeGreaterThanOrEqual(before);
   });
+
+  // 초대 시트는 로딩 패널로 열렸다가 조회가 끝나면 큰 프리뷰로 바뀐다. 그 사이에도 손가락은
+  // 계속 아래로 간다. 감쇠 분모를 **살아 있는 패널 높이**로 두면 이동량은 그대로인데 분모만
+  // 커져 계수가 1에 가까워진다 — 닫으려고 끄는 중에 배경이 다시 덮이는 역행이다(codex 리뷰).
+  // 잠글 성질은 단조다: 아래로 끌고 있는 동안 딤은 짙어지지 않는다.
+  test('끌고 있는 중에 패널이 커져도 딤이 다시 짙어지지 않는다', async () => {
+    await renderShell();
+    await reportPanelHeight(600); // 로딩 패널
+    await tick(ENTER_SETTLE_MS);
+
+    await act(async () => {
+      mockPanConfigs[0].onPanResponderGrant({}, { dy: 0, vy: 0 });
+      mockPanConfigs[0].onPanResponderMove({}, { dy: 120, vy: 0 });
+    });
+    const before = dimOpacity();
+    expect(before).toBeLessThan(1); // 실제로 걷혔다 — 전제가 깨지면 아무것도 못 본다
+
+    await reportPanelHeight(1100); // 끄는 도중 프리뷰가 도착해 패널이 커졌다
+    expect(dimOpacity()).toBeLessThanOrEqual(before);
+  });
+
+  // 등장 중에는 딤이 dimProgress만 쓴다(감쇠는 계산에서 빠져 있다). 그 상태로 딤을 탭해 닫을 때
+  // 퇴장 시작 지점에서 감쇠를 접어 넣으면, 드래그한 적도 없는데 첫 프레임에 딤이 뚝 떨어진다.
+  //
+  // ⚠️ 지금은 **두 겹으로** 막혀 있다 — 감쇠 분모(dimDragBaseH)가 잡기 전에는 0이라 계수가
+  //    1이고, 그 위에 dimEnterActive 가드가 접어넣기 자체를 건너뛴다. 그래서 가드만 떼면
+  //    이 테스트는 붉지 않는다(분모가 이미 막는다). 지적된 **원래 형태**(가드 없음 + 살아 있는
+  //    panelHeight 분모)로 되돌리면 붉다 — 그게 이 테스트가 지키는 회귀다.
+  test('등장 중에 딤을 눌러 닫아도 퇴장 첫 프레임에 딤이 꺼지지 않는다', async () => {
+    await renderShell();
+    await reportPanelHeight(600);
+    await tick(60); // 등장이 끝나기 전
+    expect(panelTranslateY()).toBeGreaterThan(0); // 전제 — 아직 내려오는 중이다
+
+    const before = dimOpacity();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('sheetShell.dim'));
+    });
+    // 퇴장 페이드로 조금 옅어지는 건 정상이다. 잡을 것은 **감쇠 계수만큼의 급락**(최대 60%)이다.
+    expect(dimOpacity()).toBeGreaterThan(before * 0.9);
+  });
 });
 
 describe('퇴장 시작 신호 — useSheetClosing()', () => {

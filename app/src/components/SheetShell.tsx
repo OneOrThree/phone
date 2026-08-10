@@ -226,6 +226,15 @@ export function SheetShell({
   //    dimDragFactor가 0으로 클램프하므로 계수는 1로 수렴한다(딤이 제 농도로 돌아온다).
   //    안착 상태에서 잡으면 기준점이 0이라 종전 동작과 같다.
   const dimDragBaseY = useSharedValue(0);
+  // 드래그 감쇠의 **분모**(잡은 순간의 패널 높이). 0이면 아직 드래그가 없었다는 뜻이고,
+  // dimDragFactor가 그 경우 계수 1을 돌려주므로 감쇠가 없다.
+  //
+  // ⚠️ 살아 있는 panelHeight를 분모로 쓰면 **끌고 있는 도중 패널이 커질 때 딤이 도로 짙어진다.**
+  //    초대 시트는 로딩 패널로 열렸다가 조회가 끝나면 큰 프리뷰로 바뀌는데, 그 사이에도 손가락은
+  //    계속 아래로 가고 있다. 이동량은 그대로인데 분모만 커지니 비율이 작아져 계수가 1에
+  //    가까워진다 — 사용자가 닫으려고 끄는 중에 배경이 다시 덮이는 역행이다(codex 리뷰).
+  //    잡은 순간의 높이로 고정하면 "내가 끈 만큼"의 기준이 드래그 내내 하나로 유지된다.
+  const dimDragBaseH = useSharedValue(0);
   // 측정된 패널 높이 — 등장 시작점이자 퇴장 목표점이다(추정값을 쓰지 않는 이유는 §4.2).
   const panelHeight = useSharedValue(0);
   // 등장은 최초 레이아웃 1회만 — 키보드·내용 변화로 onLayout이 다시 불려도 재생하지 않는다.
@@ -346,10 +355,14 @@ export function SheetShell({
     //    0으로 내려가던 딤이 순간 다시 어두워진다(codex 리뷰 — 초대 시트 로딩→프리뷰 전환).
     //    ⚠️ 대신 **지금까지 걷힌 만큼은 dimProgress에 접어 넣는다.** 그냥 떼기만 하면 임계를 넘겨
     //       손을 놓는 순간 딤이 도로 짙어져(끌어서 걷어 둔 게 사라져) 같은 종류의 역행이 된다.
-    //    ⚠️ 접어 넣는 계수는 **화면에 그려지던 것과 같은 식**이어야 한다 — 기준점(dimDragBaseY)을
-    //       빼지 않으면, 등장 중에 잡아 그대로 닫은 경우 표시값보다 작은 계수를 접어 넣어
-    //       퇴장이 시작되는 프레임에 딤이 한 번 튄다.
-    dimProgress.value *= dimDragFactor(translateY.value - dimDragBaseY.value, panelHeight.value);
+    //    ⚠️ 접어 넣는 계수는 **화면에 그려지던 것과 같은 식**이어야 한다. 그래서 기준점·분모를
+    //       똑같이 쓰고, **등장 중이면(dimEnterActive) 아예 접지 않는다** — 그 구간의 딤은
+    //       dimProgress만 쓰고 있었는데(감쇠는 계산에서 빠져 있다) 여기서 감쇠를 곱하면,
+    //       드래그한 적도 없는데 퇴장 첫 프레임에 딤이 최대 60%까지 뚝 떨어진다.
+    //       (등장 중 딤 탭·안드로이드 뒤로가기가 이 경로다 — codex 리뷰)
+    if (!dimEnterActive.value) {
+      dimProgress.value *= dimDragFactor(translateY.value - dimDragBaseY.value, dimDragBaseH.value);
+    }
     dimDragMuted.value = true;
     dimProgress.value = withTiming(0, {
       duration: M.dur.quick,
@@ -426,6 +439,8 @@ export function SheetShell({
         // 감쇠 기준점을 **잡은 지점**으로 잡는다 — 등장 중에 잡혔다면 여기에 남은 등장 거리가
         // 들어 있어, 이걸 빼야 모드가 바뀌는 프레임에서 딤이 튀지 않는다(위 dimDragBaseY 주석).
         dimDragBaseY.value = translateY.value;
+        // 분모도 이 순간 값으로 고정한다 — 드래그 중 패널이 커져도 기준이 흔들리지 않게(위 주석).
+        dimDragBaseH.value = panelHeight.value;
         dimEnterActive.value = false;
       },
       onPanResponderMove: (_, g) => {
@@ -568,7 +583,8 @@ export function SheetShell({
     if (dimDragMuted.value || dimEnterActive.value) return { opacity: dimProgress.value };
     return {
       opacity:
-        dimProgress.value * dimDragFactor(translateY.value - dimDragBaseY.value, panelHeight.value),
+        dimProgress.value *
+        dimDragFactor(translateY.value - dimDragBaseY.value, dimDragBaseH.value),
     };
   });
 
