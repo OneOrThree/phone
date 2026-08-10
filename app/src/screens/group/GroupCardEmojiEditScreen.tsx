@@ -116,8 +116,9 @@ export default function GroupCardEmojiEditScreen() {
       )
         return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
-      if (!activeRef.current || !navigation.isFocused()) return;
+      if (!activeRef.current) return;
       setBaseline(selected);
+      if (!navigation.isFocused()) return;
       navigation.goBack();
     } catch {
       preservePendingGroupCardEmoji(userId, groupId, selected);

@@ -286,6 +286,7 @@ test('저장 중 다른 route가 위에 열리면 완료 콜백이 새 화면을
 
   await waitFor(async () => expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚'));
   expect(mockGoBack).not.toHaveBeenCalled();
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
 });
 
 test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추가로 pop하지 않는다', async () => {
