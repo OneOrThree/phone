@@ -1,6 +1,9 @@
 import {
   clearPendingGroupEntry,
+  consumeInitialGroupRoomReturn,
   consumeGroupEntry,
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
   queueDirectGroupEntry,
 } from './groupEntrySource';
 
@@ -25,4 +28,11 @@ test('명시적으로 닫은 외부 진입은 다음 인증 episode에 남지 �
   clearPendingGroupEntry();
 
   expect(consumeGroupEntry('tab')).toBe('tab');
+});
+
+test('초기 그룹방 복귀 표식은 전역 탭 이탈에서 폐기된다', () => {
+  markInitialGroupRoomReturn();
+  discardInitialGroupRoomReturn();
+
+  expect(consumeInitialGroupRoomReturn()).toBe(false);
 });

@@ -45,6 +45,8 @@ import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { ToastProvider } from '@/store/ToastContext';
 import { RootNavigator } from '@/navigation/RootNavigator';
+import { clearPendingGroupEntry } from '@/navigation/groupEntrySource';
+import { clearPendingInvite } from '@/navigation/navigationRef';
 import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
@@ -222,6 +224,10 @@ function App() {
   }, []);
 
   async function handleLogout() {
+    // 외부 그룹 진입 source는 명시적 로그아웃 시작·완료 경계에서 폐기한다. 게스트→소셜
+    // 전환은 이 핸들러를 타지 않으므로 invite 승격 보존은 유지된다.
+    clearPendingGroupEntry();
+    clearPendingInvite();
     const logoutSessionGeneration = getAuthSessionGeneration();
     const releaseAuthTransition = await acquireAuthSessionTransition();
     try {
@@ -299,6 +305,8 @@ function App() {
       setOnboardingCutoutUri(null);
       setOnboarded(false);
       setUser(null);
+      clearPendingGroupEntry();
+      clearPendingInvite();
     } finally {
       releaseAuthTransition();
     }

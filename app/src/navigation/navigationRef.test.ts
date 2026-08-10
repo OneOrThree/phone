@@ -12,10 +12,18 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
-import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
-jest.mock('@/navigation/groupEntrySource', () => ({ queueDirectGroupEntry: jest.fn() }));
+jest.mock('@/navigation/groupEntrySource', () => ({
+  discardInitialGroupRoomReturn: jest.fn(),
+  markInitialGroupRoomReturn: jest.fn(),
+  queueDirectGroupEntry: jest.fn(),
+}));
 
 // 환불 푸시(refund=1)가 태우는 잔액 재조회 신호 — 실제 조회는 CoinProvider가 한다.
 jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
@@ -27,6 +35,12 @@ jest.mock('@/services/groupApi', () => ({ getMyGroups: jest.fn() }));
 const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as jest.Mock;
 const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
   typeof queueDirectGroupEntry
+>;
+const mockMarkInitialGroupRoomReturn = markInitialGroupRoomReturn as jest.MockedFunction<
+  typeof markInitialGroupRoomReturn
+>;
+const mockDiscardInitialGroupRoomReturn = discardInitialGroupRoomReturn as jest.MockedFunction<
+  typeof discardInitialGroupRoomReturn
 >;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
@@ -382,6 +396,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   describe('결과성 푸시(result=1)의 멤버십 게이트 우회', () => {
     test('탈퇴자(내 그룹 목록에 없음)여도 그룹방을 push 한다 — 목록 조회 자체를 생략', async () => {
       mockGetMyGroups.mockResolvedValue([summary('other-1')]);
+      currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
       navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
       await flushAsync();
 
@@ -393,6 +408,27 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       });
       // 게이트 우회는 조회 생략이다 — 소속 여부와 무관하게 화면(MEMBER_ONLY 처리)이 받는다.
       expect(mockGetMyGroups).not.toHaveBeenCalled();
+      expect(mockMarkInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
+    });
+
+    test('이미 그룹 흐름 안에서 연 결과 방은 초기 복귀 표식을 만들지 않는다', async () => {
+      currentRoute.mockReturnValue({ key: 'GroupRoom-1', name: 'GroupRoom' });
+
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
+      await flushAsync();
+
+      expect(mockMarkInitialGroupRoomReturn).not.toHaveBeenCalled();
+    });
+
+    test('목록에 남는 잘못된 g의 결과 push는 push source를 예약한다', async () => {
+      currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+
+      navigateToDeepLink('gromo://group?g=abc&result=1');
+      await flushAsync();
+
+      expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
+      expect(mockMarkInitialGroupRoomReturn).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
     });
 
     test('challenge와 함께 실려도 두 파라미터 모두 그룹방까지 흘린다', async () => {
@@ -492,6 +528,12 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
   ])('%s → 탭 이동', (link, route, params) => {
     navigateToDeepLink(link);
     expect(navigate).toHaveBeenCalledWith(route, params);
+  });
+
+  test.each(['gromo://home', 'gromo://league'])('%s는 초기 방 복귀 표식을 폐기한다', (link) => {
+    navigateToDeepLink(link);
+
+    expect(mockDiscardInitialGroupRoomReturn).toHaveBeenCalledTimes(1);
   });
 
   test('gromo://focus → 과목 선택 화면', () => {
