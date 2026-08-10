@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  AccessibilityInfo,
   AppState,
   FlatList,
   PanResponder,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -213,6 +215,8 @@ export default function GroupListScreen({
   const groupIdsKey = groups.map((group) => group.groupId).join('\u0000');
   const countBucket = groupCountBucket(groups.length);
   const deckViewedEpisodeRef = useRef<number | null>(null);
+  const deckViewPendingEpisodeRef = useRef<number | null>(null);
+  const [deckInputEpisode, setDeckInputEpisode] = useState<number | null>(null);
   const [, refreshSummary] = useState(0);
   const summaryAdapterRef = useRef<GroupCardSummaryAdapter<LeagueMemberResponse[]> | null>(null);
   if (summaryAdapterRef.current === null) {
@@ -261,6 +265,16 @@ export default function GroupListScreen({
     };
   }, [date, groupIdsKey, summaryAdapter, userId]);
 
+  const previousDateRef = useRef(date);
+  useEffect(() => {
+    if (previousDateRef.current === date) return;
+    previousDateRef.current = date;
+    if (flippedGroupId === null) return;
+    // 날짜 scope 교체로 폐기된 뒷면 dependency와 focus 상태를 열린 카드에서 즉시 다시 채운다.
+    summaryAdapter.ensureBack(flippedGroupId);
+    focusController?.notifyFocusFlowReturn();
+  }, [date, flippedGroupId, focusController, summaryAdapter]);
+
   useEffect(() => {
     focusController?.setLifecycle({
       screenFocused,
@@ -277,32 +291,44 @@ export default function GroupListScreen({
 
   // 성공 목록과 로컬 순서가 확정된 뒤 focus episode마다 완료 key를 읽어 실제 guide 상태를 기록한다.
   useEffect(() => {
-    if (!hydrated || !screenFocused || !dataReady || deckViewedEpisodeRef.current === viewEpisodeId)
+    if (
+      !hydrated ||
+      !screenFocused ||
+      !dataReady ||
+      guideBlocked ||
+      deckViewedEpisodeRef.current === viewEpisodeId ||
+      deckViewPendingEpisodeRef.current === viewEpisodeId
+    )
       return;
-    deckViewedEpisodeRef.current = viewEpisodeId;
+    deckViewPendingEpisodeRef.current = viewEpisodeId;
     let canceled = false;
+    const recordViewed = (guideState: 'completed' | 'pending' | 'unknown') => {
+      if (canceled) return;
+      logGroupCardDeckViewed({
+        group_count_bucket: countBucket,
+        group_entry: entrySource,
+        guide_state: guideState,
+      });
+      deckViewedEpisodeRef.current = viewEpisodeId;
+      deckViewPendingEpisodeRef.current = null;
+      setDeckInputEpisode(viewEpisodeId);
+    };
     AsyncStorage.getItem(STORAGE_KEYS.guideGroupDeck)
       .then((value) => {
-        if (canceled) return;
-        logGroupCardDeckViewed({
-          group_count_bucket: countBucket,
-          group_entry: entrySource,
-          guide_state: value === '1' ? 'completed' : 'pending',
-        });
+        recordViewed(value === '1' ? 'completed' : 'pending');
       })
       .catch(() => {
-        if (canceled) return;
-        logGroupCardDeckViewed({
-          group_count_bucket: countBucket,
-          group_entry: entrySource,
-          guide_state: 'unknown',
-        });
+        recordViewed('unknown');
       });
     return () => {
       canceled = true;
-      if (deckViewedEpisodeRef.current === viewEpisodeId) deckViewedEpisodeRef.current = null;
+      if (deckViewPendingEpisodeRef.current === viewEpisodeId) {
+        deckViewPendingEpisodeRef.current = null;
+      }
     };
   }, [countBucket, dataReady, entrySource, guideBlocked, hydrated, screenFocused, viewEpisodeId]);
+
+  const deckInputReady = screenFocused && deckInputEpisode === viewEpisodeId;
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -405,6 +431,14 @@ export default function GroupListScreen({
         activeIdentityRef.current = groupId;
         setActiveIndex(target);
         listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
+        if (trigger === 'accessibility_action') {
+          const groupName = orderedGroupsRef.current.find(
+            (group) => group.groupId === groupId,
+          )?.name;
+          AccessibilityInfo.announceForAccessibility(
+            `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했습니다`,
+          );
+        }
       }
       return committed;
     },
@@ -557,7 +591,7 @@ export default function GroupListScreen({
     [acceptAction],
   );
 
-  if (!hydrated) {
+  if (!hydrated || !deckInputReady) {
     return (
       <View style={s.root} testID="group.list">
         <ActivityIndicator color={T.accent} testID="group.deck.hydrating" />
@@ -622,7 +656,14 @@ export default function GroupListScreen({
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
         renderItem={({ item, index }) => (
-          <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
+          <View
+            style={{ width: cardWidth }}
+            testID={`group.list.card.${item.groupId}`}
+            accessible={index === activeIndex ? undefined : false}
+            accessibilityElementsHidden={index !== activeIndex}
+            importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
+            pointerEvents={index === activeIndex ? 'auto' : 'none'}
+          >
             {flippedGroupId === item.groupId ? (
               summaryAdapter.getSnapshot(item.groupId) && (
                 <GroupCardBack
@@ -671,21 +712,27 @@ export default function GroupListScreen({
             {reorderMenuGroupId === item.groupId && (
               <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
                 <Text style={s.reorderTitle}>순서 변경</Text>
-                {orderedGroups.map((target, targetIndex) => (
-                  <TouchableOpacity
-                    key={target.groupId}
-                    style={s.reorderOption}
-                    onPress={() => {
-                      commitMove(item.groupId, targetIndex, 'pointer_control');
-                      setReorderMenuGroupId(null);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${targetIndex + 1}번째로 이동`}
-                    testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
-                  >
-                    <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
-                  </TouchableOpacity>
-                ))}
+                <ScrollView
+                  style={s.reorderOptions}
+                  nestedScrollEnabled
+                  testID={`group.card.reorderOptions.${item.groupId}`}
+                >
+                  {orderedGroups.map((target, targetIndex) => (
+                    <TouchableOpacity
+                      key={target.groupId}
+                      style={s.reorderOption}
+                      onPress={() => {
+                        commitMove(item.groupId, targetIndex, 'pointer_control');
+                        setReorderMenuGroupId(null);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${targetIndex + 1}번째로 이동`}
+                      testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
+                    >
+                      <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               </View>
             )}
           </View>
@@ -794,6 +841,7 @@ const s = StyleSheet.create({
     borderColor: T.border,
   },
   reorderTitle: { ...T.text.caption, color: T.inkMuted, padding: T.space.xs },
+  reorderOptions: { maxHeight: 220 },
   reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
   reorderOptionText: { ...T.text.label, color: T.ink },
   saveError: {

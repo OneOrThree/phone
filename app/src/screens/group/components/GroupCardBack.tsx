@@ -1,4 +1,13 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, type ComponentRef } from 'react';
+import {
+  AccessibilityInfo,
+  findNodeHandle,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { LeagueMemberResponse } from '@/types/api';
@@ -36,6 +45,15 @@ export function GroupCardBack({
   onOpenRoom,
   onRetry,
 }: Props) {
+  const frontActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const node = findNodeHandle(frontActionRef.current);
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+      AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [group.name]);
   const detail = snapshot.detail.status === 'ready' ? snapshot.detail.data : null;
   const focus = deriveGroupFocusCount(
     detail?.members.map((member) => member.userId) ?? [],
@@ -52,6 +70,7 @@ export function GroupCardBack({
     <View style={s.root} testID={`group.card.back.${group.groupId}`}>
       <View style={s.header}>
         <TouchableOpacity
+          ref={frontActionRef}
           style={s.headerButton}
           onPress={onFlipBack}
           accessibilityRole="button"

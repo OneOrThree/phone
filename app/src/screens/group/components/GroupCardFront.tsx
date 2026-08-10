@@ -37,6 +37,7 @@ export function GroupCardFront({
         testID={`group.card.grip.${group.groupId}`}
         accessibilityRole="adjustable"
         accessibilityLabel={`${group.name} 카드 순서`}
+        accessibilityValue={{ text: `${position}/${pageCount}` }}
         accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
         accessibilityActions={[
           ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
