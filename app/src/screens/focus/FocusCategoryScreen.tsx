@@ -67,16 +67,18 @@ export default function FocusCategoryScreen() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') invalidateCardInteraction(interactionId);
     });
-    const blurSub = navigation.addListener('blur', () => {
+    // 화면 단위 얕은 테스트처럼 listener 표면이 없는 navigation host도 안전하게 수용한다.
+    // 실제 React Navigation에서는 두 구독이 그대로 등록된다.
+    const blurSub = navigation.addListener?.('blur', () => {
       if (!startTransitionRef.current) invalidateCardInteraction(interactionId);
     });
-    const focusSub = navigation.addListener('focus', () => {
+    const focusSub = navigation.addListener?.('focus', () => {
       startTransitionRef.current = false;
     });
     return () => {
       sub.remove();
-      blurSub();
-      focusSub();
+      blurSub?.();
+      focusSub?.();
       if (navigationCheckTimerRef.current) clearTimeout(navigationCheckTimerRef.current);
       if (!interactionTransferredRef.current) invalidateCardInteraction(interactionId);
     };
