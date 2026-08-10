@@ -245,7 +245,8 @@ journey
 > **`BET_VOID_REFUND`가 없으면 삭제 환불이 무음이다.** FR-44-4는 삭제된 챌린지의 회차를 결과
 > 모달에서 빼고 **푸시로 알린다**고 약속하는데, 타입이 정의되지 않으면 구현이 그 푸시를 만들
 > 수 없다 — 유저는 설명 없이 코인만 돌아온 걸 본다. 사유는 `data.voidReason`
-> (`CHALLENGE_DELETED` · `INSUFFICIENT_PARTICIPANTS` · `REFUND_DEADLINE`)로 구분해 문구를 고른다.
+> (`CHALLENGE_DELETED` · `INSUFFICIENT_PARTICIPANTS` · `REFUND_DEADLINE`)로 구분해 문구를 고른다 —
+> 회차에 영속된 **종료 사유**를 그대로 싣는다(N55, N33 확장).
 
 | 발송 규칙 | 내용 | 근거 |
 |---|---|---|

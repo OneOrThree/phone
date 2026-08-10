@@ -97,16 +97,25 @@ erDiagram
 **`repeat_days` 비트마스크** — `ISO-8601` 요일 번호(월=1…일=7)를 `1 << (dow - 1)`로 접는다.
 평일은 `0b0011111 = 31`, 매일은 `127`. `0`은 저장 불가(CHECK).
 
-**`void_reason` 값 3종 (정본 = 서버 `GroupBetVoidReason` · V41 CHECK)**
+**`void_reason` 값 3종 — 「종료 사유」 축 (정책 정본 N55 · N33 확장)**
 
 | 값 | 붙는 상태 | 언제 |
 |---|---|---|
-| `INSUFFICIENT_PARTICIPANTS` | `VOIDED` | 참가 마감 시점 인원 미달(2명 미만) — 참가 마감 크론(N47) |
+| `INSUFFICIENT_PARTICIPANTS` | `VOIDED` | 참가 마감 시점 참가자가 **정확히 1명** — 환불 대상이 있는 인원 미달. 참가 마감 크론(N47) |
 | `CHALLENGE_DELETED` | `VOIDED` | 그룹장이 챌린지를 삭제해 OPEN 회차가 무효화·환불됨 |
 | `REFUND_DEADLINE` | `REFUNDED` | 정산 24h 데드라인 초과 자동 전원 환불 (N21) |
 
-> **사유 축은 `VOIDED` 전용이 아니다 (N48).** `REFUNDED`(24h 자동 환불)에도 사유가 붙는다.
-> 정상 정산(`SETTLED`)·몰수(`FORFEITED`)·0명 종료(`UNUSED`)는 `null`이다.
+**`INSUFFICIENT_PARTICIPANTS`는 "2명 미만"이 아니라 "정확히 1명"이다 (N52).** 인원 게이트는
+**0명을 먼저** 걸러 `UNUSED`로 닫고(결과·내역·알림 전부에서 제외), 그 다음에야 1명을 `VOIDED` +
+환불로 보낸다 — 그 순서가 곧 정의다. "2명 미만"으로 읽으면 **보증 크론이 만든 0명 회차에 가짜
+「인원 부족」 결과**가 쌓여 실제 최근 결과를 밀어낸다. 0명은 걸린 돈도 환불 대상도 없어 애초에
+결과가 아니다.
+
+> **사유 축은 `VOIDED` 전용이 아니다 — 정책이 그렇게 정했다 (N55).** `REFUNDED`(24h 데드라인 자동
+> 환불)에도 사유가 붙는다. 정상 정산(`SETTLED`)·몰수(`FORFEITED`)·0명 종료(`UNUSED`)는 `null`이다.
+> N33이 정한 무산 2종을 **대체하지 않고 확장**한 것이고, N48의 푸시 `data.voidReason`은 이 영속
+> 값을 **그대로 싣는다**(상태에서 역추론하지 않는다). 서버 `GroupBetVoidReason`·V41 CHECK 3값이
+> 이 결정의 구현체다.
 >
 > ⚠️ **동명이인 주의**: §5.2·§5.4 코드 예시의 `REFUND_DEADLINE`은 **`settle_after + 24h` 임계값을
 > 나타내는 `Duration` 상수**로, 위 사유 enum과 이름만 같고 다른 것이다. 사유 enum은
@@ -256,7 +265,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
     "sessionDate": "2026-08-08", "stake": 30, "pot": 90,
     "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED
     "voidReason": null,                  // VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
-                                         // REFUNDED: REFUND_DEADLINE (N48) · 그 외 null
+                                         // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
     "goalMinutes": 90,
     "myJoined": true,
     "myAchieved": true, "myPayout": 45,  // myJoined=false면 둘 다 null
@@ -323,19 +332,26 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 
 | 순 | 검사 | 에러 |
 |---|---|---|
-| 1 | 그룹 OWNER인가 — **그룹 행 `FOR UPDATE`**(생성 직렬화) · 요청자 유저 행은 801 규약대로 `FOR SHARE` | `NOT_OWNER` 403 |
-| 2 | `repeatDays` 비어있지 않은가 | `CHALLENGE_REPEAT_DAYS_REQUIRED` 400 |
-| 3 | 활성 4개 미만인가 | `CHALLENGE_LIMIT_EXCEEDED` 409 |
-| 4 | 하루형이면 같은 카테고리 활성 챌린지 없는가 | `CHALLENGE_DUPLICATE` 409 |
-| 5 | 창형: **`시작 < 종료`** (자정 걸침 금지 — `22:00~01:00` 거부) | `INVALID_MISSION_PARAMS` 400 |
-| 6 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가**<br>하루형: **FOCUS `≤ 1080분`(18h) · SCREEN_TIME `≤ 720분`(12h)** (N51) | `INVALID_MISSION_PARAMS` 400 |
-| 7 | 창형 SCREEN_TIME: 목표가 15분 배수 | `CHALLENGE_GOAL_NOT_ALIGNED` 400 |
-| 8 | 창형: 기존 창과 겹치지 않는가 (§3.5) | `CHALLENGE_WINDOW_OVERLAP` 409 |
-| 9 | 내기 켬: `1 ≤ stake ≤ 3000` | `BET_INVALID_STAKE` 400 |
+| 1 | **그룹 멤버인가** — 그룹 행을 **`FOR UPDATE`**(생성 직렬화)로 잡은 뒤 멤버십 행 조회 · 요청자 유저 행은 801 규약대로 `FOR SHARE` | `MEMBER_ONLY` 403 |
+| 2 | 그 멤버가 **OWNER인가** | `NOT_OWNER` 403 |
+| 3 | `repeatDays` 비어있지 않은가 | `CHALLENGE_REPEAT_DAYS_REQUIRED` 400 |
+| 4 | 활성 4개 미만인가 | `CHALLENGE_LIMIT_EXCEEDED` 409 |
+| 5 | 하루형이면 같은 카테고리 활성 챌린지 없는가 | `CHALLENGE_DUPLICATE` 409 |
+| 6 | 창형: **`시작 < 종료`** (자정 걸침 금지 — `22:00~01:00` 거부) | `INVALID_MISSION_PARAMS` 400 |
+| 7 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가**<br>하루형: **FOCUS `≤ 1080분`(18h) · SCREEN_TIME `≤ 720분`(12h)** (N51) | `INVALID_MISSION_PARAMS` 400 |
+| 8 | 창형 SCREEN_TIME: 목표가 15분 배수 | `CHALLENGE_GOAL_NOT_ALIGNED` 400 |
+| 9 | 창형: 기존 창과 겹치지 않는가 (§3.5) | `CHALLENGE_WINDOW_OVERLAP` 409 |
+| 10 | 내기 켬: `1 ≤ stake ≤ 3000` | `BET_INVALID_STAKE` 400 |
 
-> **왜 생성만 배타 락인가**: 활성 4개 상한(3)·창 겹침(8)은 **그룹 전역** 불변식이라 공유 락으로는
+> **권한 검사는 두 단계다 — 403이 두 종류다.** 그룹에 **아예 없는 사람**은 `MEMBER_ONLY`,
+> 멤버인데 **OWNER가 아닌** 사람은 `NOT_OWNER`다(`GroupChallengeService.createChallenge` —
+> 멤버십 조회 `orElseThrow(MEMBER_ONLY)` → `role != OWNER` 검사 `NOT_OWNER`). 둘을 하나로 뭉뚱그려
+> 적으면 **클라이언트가 같은 403을 잘못 분기**한다 — "그룹장에게 요청하세요"와 "이 그룹의 멤버가
+> 아닙니다"는 유저에게 전혀 다른 안내다.
+
+> **왜 생성만 배타 락인가**: 활성 4개 상한(4)·창 겹침(9)은 **그룹 전역** 불변식이라 공유 락으로는
 > 못 지킨다 — 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다(부분 유니크 제약은
-> 하루형 카테고리 중복(4)만 막는다). 그룹 행 `FOR UPDATE`로 생성을 직렬화한다. 생성은 그룹장
+> 하루형 카테고리 중복(5)만 막는다). 그룹 행 `FOR UPDATE`로 생성을 직렬화한다. 생성은 그룹장
 > 전용의 드문 동작이라 경합 비용은 없다시피 하다. 조회는 기존대로 무락(§2.1).
 >
 > **왜 목표 하한이 관용치인가**: 창형 FOCUS 판정이 `분 ≥ 목표 − 5`(§3.2)라서 목표 1~5분이면
@@ -486,7 +502,7 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
     "windowStart": "09:00", "windowEnd": "12:00",
     "stake": 30, "pot": 90, "status": "SETTLED",
     "voidReason": null,                 // VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
-                                        // REFUNDED: REFUND_DEADLINE (N48) · 그 외 null
+                                        // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
                                         // (사유 없이 상태 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다)
     "myPayout": 45, "myAchieved": true, "myProgressMinutes": 102,
     "achievedCount": 2, "participantCount": 3
@@ -603,7 +619,7 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
     "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED (UNUSED는 안 실린다)
     "voidReason": null, "goalMinutes": 90,
                                          // voidReason — VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
-                                         // REFUNDED: REFUND_DEADLINE (N48) · 그 외 null
+                                         // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
     "myAchieved": true, "myPayout": 45,
     "results": [{ "userId": "uuid", "nickname": "민지", "achieved": true, "payout": 45, "progressMinutes": 102 }]
 }] }
@@ -707,15 +723,15 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
 | `BET_NOT_FOUND` | 404 | 회차 없음 / 그룹 불일치 | 참여·취소 |
 | `BET_CLOSED` | 409 | `now ≥ join_closes_at` (참가 마감) | 참여 |
 | `BET_ALREADY_JOINED` | 409 | 이미 참가 | 참여 |
-| `BET_SCREENTIME_PERMISSION_REQUIRED` | 409 | **SCREEN_TIME** 회차인데 스크린타임 권한 미허용 (N50) | 참여 |
+| ✚ `BET_SCREENTIME_PERMISSION_REQUIRED` | 409 | **SCREEN_TIME** 회차인데 스크린타임 권한 미허용 (N50) | 참여 |
 | `BET_ALREADY_ACHIEVED` | 409 | **FOCUS** 이미 달성 | 참여 |
 | `BET_ALREADY_FAILED` | 409 | **SCREEN_TIME** 이미 목표 초과 | 참여 |
 | `BET_NOT_OPEN` | 409 | 회차가 이미 종료 / CAS 레이스 패배 | 참여·취소 |
 | `BET_NOT_JOINED` | 409 | 참가자 아님 | 취소 |
 | `BET_LEAVE_CLOSED` | 409 | 취소 마감 경과 — 시작 전 참가는 회차 시작, 시작 후 참가는 참가+5분(회차 종료 상한) | 취소 |
-| `BET_INSUFFICIENT_BALANCE` | 409 | 잔액 부족 (join-week은 총액 기준) | 참여 |
-| `NOT_OWNER` | 403 | 그룹장 아님 | 생성·종료·삭제 |
-| `MEMBER_ONLY` | 403 | 그룹 멤버도 아니고 그 날짜 회차의 참가자도 아님 | 창 사용분 보고 · 참여(차감 직전 멤버십 재검증, N54) |
+| ✚ `BET_INSUFFICIENT_BALANCE` | 409 | 잔액 부족 (join-week은 총액 기준) | 참여 |
+| `NOT_OWNER` | 403 | **그룹 멤버이지만** OWNER가 아님 | 생성·종료·삭제 |
+| `MEMBER_ONLY` | 403 | **그룹 멤버가 아님** (보고 경로는 "그 날짜 회차의 참가자도 아님"까지 포함) | 생성·종료·삭제 · 창 사용분 보고 · 참여(차감 직전 멤버십 재검증, N54) |
 | `BET_CHALLENGE_INACTIVE` | 409 | 종료(`ENDED`)된 챌린지의 회차에 참여 | 참여 |
 | `CHALLENGE_REPEAT_DAYS_REQUIRED` | 400 | 요일 미선택 | 생성 |
 | `CHALLENGE_LIMIT_EXCEEDED` | 409 | 활성 4개 초과 | 생성 |
@@ -725,18 +741,25 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
 | `CHALLENGE_END_BLOCKED` | 409 | OPEN 회차 존재 | 종료 |
 | `INVALID_MISSION_PARAMS` | 400 | 창 파라미터 무효 | 생성 |
 | `INVALID_PAGE_REQUEST` | 400 | `size` 범위 밖 | 이력 조회 |
-| `INVALID_MEASURED_AT` | 400 | `measuredAt`이 서버 시각 +2분 초과 (기기 시계 앞섬) | 창 사용분 보고 |
-| `INVALID_SESSION_DATES` | 400 | `join-week`의 지정 날짜가 활성일이 아니거나 참여 불가 | 주간 부분 예약 |
+| ✚ `INVALID_MEASURED_AT` | 400 | `measuredAt`이 서버 시각 +2분 초과 (기기 시계 앞섬) | 창 사용분 보고 |
+| ✚ `INVALID_SESSION_DATES` | 400 | `join-week`의 지정 날짜가 활성일이 아니거나 참여 불가 | 주간 부분 예약 |
 | `GUEST_FORBIDDEN` | 403 | 게스트 | 전 경로 |
 | `CONCURRENT_UPDATE` | 409 | 낙관락 충돌 → 재시도 안내 | 전 경로 |
 
-> **표의 코드는 전부 기존 `GroupErrorCode` 값이다 — 신설하지 않는다.**
+> **✚ 표시가 없는 코드는 전부 `GroupErrorCode`에 이미 있는 값이다 — 새로 만들지 않고 그대로 쓴다.**
+> **✚ 표시 4종은 아직 없어 대응 구현 티켓에서 신설한다** — `BET_SCREENTIME_PERMISSION_REQUIRED`
+> (N50 권한 가드) · `BET_INSUFFICIENT_BALANCE` · `INVALID_SESSION_DATES`(둘 다 참여 경로) ·
+> `INVALID_MEASURED_AT`(N34 창 사용분 보고). `main`의 `GroupErrorCode`에는 없으므로 **각 경로를
+> 구현하는 티켓이 enum 값 추가까지 책임진다** — 있다고 가정하고 짜면 계약을 발급할 수 없다.
+> (신규 코드라 구앱은 모른다 → 공통 문구로 강하한다. 그래서 이름은 자유롭게 정할 수 있는 반면,
+> 아래 "기존 값" 항목들은 이름을 바꿀 자유가 없다.)
 >
 > - **`NOT_OWNER`·`MEMBER_ONLY`**: 초안의 `CHALLENGE_FORBIDDEN`(403 신설)은 폐기한다. 같은 403에
 >   같은 의미인 `NOT_OWNER`(그룹장 아님)·`MEMBER_ONLY`(그룹원 아님)가 이미 있고, `GroupErrorCode`
 >   에 **"앱이 응답의 code 문자열로 분기한다 — 이름 변경 금지"** 규약이 명문화돼 있다. 뜻이 겹치는
 >   코드를 하나 더 만들면 앱이 두 문자열을 다 알아야 한다. 정책 정본에도 `CHALLENGE_FORBIDDEN`의
->   근거는 0회다.
+>   근거는 0회다. **둘은 서로 다른 실패다** — 생성·종료·삭제는 비멤버에게 `MEMBER_ONLY`, 멤버인데
+>   OWNER가 아니면 `NOT_OWNER`를 던진다(§2.1 검증표 1·2행). 한 행에 뭉치면 앱이 403을 잘못 가른다.
 > - **`BET_NOT_FOUND`·`BET_CLOSED`** (초안의 `BET_SESSION_NOT_FOUND`·`BET_SESSION_CLOSED`):
 >   **개명하지 않는다.** 배포된 앱이 이 문자열로 분기 중이다 — `BetSheet.tsx`는 `BET_CLOSED`에서
 >   **내일 날짜로 1회 자동 재시도**하고 `BET_NOT_FOUND`를 "사라진 내기" 전용 문구로 가르며,
