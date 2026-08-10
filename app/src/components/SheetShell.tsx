@@ -194,6 +194,10 @@ export function SheetShell({
   readyRef.current = m.ready;
   // 드래그 시작 시점의 패널 위치 — 등장·복귀 스프링이 도는 중에 잡아도 이어서 끌리게 한다.
   const dragStartYRef = useRef(0);
+  // ⚠️ 드래그 중인지를 **dragStartYRef의 값으로 판정하지 않는다.** 제자리(0)에서 잡으면 값이
+  //    0이라 '드래그 아님'으로 읽히고, 진입 중 잡았다 놓으면 양수가 남아 '드래그 중'으로 남는다
+  //    — 높이 보정이 건너뛰거나 엉뚱한 때 돈다(codex 리뷰). 별도 플래그로 쥔다.
+  const draggingRef = useRef(false);
 
   // 패널 세로 위치. 등장·드래그·퇴장이 **같은 값**을 쓴다(정책 D4).
   // 초기값은 화면의 긴 변 — 패널은 그보다 클 수 없으므로 측정 전 한 프레임도 보이지 않고,
@@ -246,7 +250,21 @@ export function SheetShell({
   //    콜드 스타트 직후 열리는 시트가 등장 없이 **제자리에서 튀어나온 뒤**, 뒤늦게 reduce=false로
   //    확정돼도 되돌릴 수 없다. 확정 전에는 화면 밖에 그대로 둔다.
   useEffect(() => {
-    if (!m.reduce || closingRef.current || !enteredRef.current) return;
+    if (!m.reduce) return;
+    // ⚠️ **퇴장 중에도 즉시 반영한다.** 이 컴포넌트는 내장 게이트를 끄고(M.never) 실행 중
+    //    전환을 직접 처리하는 구조라, 여기서 건너뛰면 이미 시작된 withTiming이 끝까지 재생돼
+    //    사용자가 방금 켠 설정이 그 220ms 동안 무시된다(codex 리뷰).
+    //    남은 이동·딤을 최종 상태로 놓고 붙잡아 둔 onClose를 **한 번** 부른다(fireClose가 멱등).
+    if (closingRef.current) {
+      cancelAnimation(translateY);
+      cancelAnimation(dimProgress);
+      translateY.value = exitDistance(windowWidth, windowHeight) + keyboardHeightRef.current;
+      dimProgress.value = 0;
+      enterActiveRef.current = false;
+      fireCloseRef.current();
+      return;
+    }
+    if (!enteredRef.current) return;
     // ⚠️ **등장 활성 상태도 함께 끈다.** 여기서 스프링을 취소해 놓고 enterActiveRef를 true로
     //    두면, 이후 패널 높이가 바뀔 때 onPanelLayout이 아직 진입 중이라고 보고 높이 보정
     //    withSpring(reduceMotion: M.never)을 다시 건다 — 방금 '동작 줄이기'를 켠 사용자에게
@@ -254,7 +272,7 @@ export function SheetShell({
     enterActiveRef.current = false;
     translateY.value = 0;
     dimProgress.value = 1;
-  }, [m.reduce, translateY, dimProgress]);
+  }, [m.reduce, translateY, dimProgress, windowWidth, windowHeight]);
 
   // ⚠️ 퇴장 **시작 시점**의 onClose를 붙잡아 뒀다가 완료 시 그걸 부른다.
   //    onCloseRef는 매 렌더 갱신되므로(제출 중 무력화 등을 위해 PanResponder가 최신값을 읽어야
@@ -268,6 +286,9 @@ export function SheetShell({
     pendingCloseRef.current = null;
     fn();
   }, []);
+  // 위쪽 effect(퇴장 중 '동작 줄이기' 즉시 반영)가 선언 순서상 이 함수보다 먼저 온다 — ref로 잇는다.
+  const fireCloseRef = useRef(fireClose);
+  fireCloseRef.current = fireClose;
 
   // 퇴장 시작. 딤 탭·그랩바 릴리스·시트 안 CTA가 전부 이 하나를 지난다.
   // 렌더마다 바뀔 수 있는 콜백을 ref로 고정 — requestClose는 ref 하나로 유지된다.
@@ -376,6 +397,10 @@ export function SheetShell({
         //    dragStartY를 기준으로 값을 덮어써 패널이 뒤로 튄다(claude 리뷰).
         cancelAnimation(translateY);
         dragStartYRef.current = translateY.value;
+        draggingRef.current = true;
+        // 손가락이 값을 가져갔으므로 등장 스프링은 여기서 끝난 것으로 본다 — 진입 보정이
+        // 드래그 중에 끼어들면 사용자가 끄는 값을 코드가 덮어쓴다.
+        enterActiveRef.current = false;
       },
       onPanResponderMove: (_, g) => {
         // 퇴장이 시작된 뒤의 잔여 이벤트가 패널을 도로 끌어올리지 않게 막는다.
@@ -390,10 +415,12 @@ export function SheetShell({
       //    등장 스프링을 grant에서 멈춰 둔 채 아무도 되돌리지 않아, 사용자가 끌지도 않았는데
       //    시트가 등장 중간 위치에 영구히 멈춘다(codex 리뷰).
       onPanResponderTerminate: () => {
+        draggingRef.current = false;
         if (closingRef.current) return;
         translateY.value = reduceRef.current ? 0 : withSpring(0, SHEET_SETTLE);
       },
       onPanResponderRelease: (_, g) => {
+        draggingRef.current = false;
         // ⚠️ 이미 퇴장 중이면 아무것도 하지 않는다. 안드로이드에서 그랩바를 잡은 채 하드웨어
         //    뒤로가기로 닫기가 시작된 뒤 임계 미만에서 손을 놓으면, 아래 복귀 스프링이 진행 중인
         //    퇴장 withTiming을 **취소**한다. 그러면 완료 콜백이 finished=false라 onClose가 불리지
@@ -475,7 +502,7 @@ export function SheetShell({
       enterActiveRef.current &&
       !reduceRef.current &&
       !closingRef.current &&
-      dragStartYRef.current === 0
+      !draggingRef.current
     ) {
       const delta = h - prev;
       if (delta !== 0) {
