@@ -69,6 +69,23 @@ export async function readGroupCardEmoji(
   }
 }
 
+/** 덱 hydrate에서 저장소를 카드 수만큼 읽지 않도록 현재 계정의 표시값을 한 번에 가져온다. */
+export async function readGroupCardEmojis(
+  userId: string | null,
+  groupIds: readonly string[],
+): Promise<GroupCardEmojiBucket> {
+  if (!userId) return {};
+  try {
+    const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+    const bucket = map[userId] ?? {};
+    return Object.fromEntries(
+      groupIds.map((groupId) => [groupId, normalizeGroupCardEmoji(bucket[groupId])]),
+    );
+  } catch {
+    return {};
+  }
+}
+
 /** 같은 key의 계정×그룹 RMW 전체를 직렬화해 서로 다른 bucket의 동시 저장을 보존한다. */
 export function writeGroupCardEmoji(
   userId: string,
