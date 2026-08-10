@@ -61,7 +61,12 @@ public class GroupChallengeResponse {
 
     /**
      * 조회 {@code date} 의 진행 중 내기. 내기가 없거나 date 를 주지 않았으면 null 이다.
-     * 내기는 FOCUS + DURATION 챌린지에만 걸리므로 다른 챌린지에서는 항상 null 이다.
+     *
+     * <p><b>챌린지 종류로 제한되지 않는다.</b> 종전 서술("내기는 FOCUS + DURATION 챌린지에만
+     * 걸리므로 다른 챌린지에서는 항상 null")은 거짓이다 — FOCUS 전용 게이트가 사라졌고
+     * ({@code GroupBetService} — 「게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음).
+     * 카테고리 제한은 없다」) 판정도 카테고리×방식 조합을 전부 다룬다. SCREEN_TIME·TIME_WINDOW
+     * 응답에서도 이 필드가 채워질 수 있다. 이 서술을 믿고 분기하면 유효한 내기를 무시하게 된다.
      */
     private GroupBetResponse bet;
 
@@ -116,6 +121,12 @@ public class GroupChallengeResponse {
      * 다음 활성일 회차를 내가 이미 예약(참가)했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태
      * 분기(N45 · GROMO-1418). {@code nextSessionAt} 날짜의 OPEN 회차에 내 참가 행이 있으면 true.
      * 회차가 아직 없으면(lazy 개설 전) false 다. INACTIVE 챌린지는 null.
+     *
+     * <p><b>{@code nextSessionAt} 과 같은 분기를 탄다</b> — 조립부가
+     * {@code nextSessions.containsKey(...) ? … : null} 이므로, 창형인데 창 상세가 없어
+     * {@code loadNextSessions} 가 건너뛴 챌린지에서는 <b>false 가 아니라 null</b> 이다
+     * ({@code nextSessionStake} 도 동일). 그 경우를 「미예약」으로 읽으면 틀린다 —
+     * 자세한 경위는 {@link #nextSessionAt} javadoc 참조.
      */
     private Boolean nextSessionJoined;
 
