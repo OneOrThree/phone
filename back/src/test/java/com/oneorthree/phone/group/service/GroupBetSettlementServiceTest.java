@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.SettleTrigger;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -51,14 +52,14 @@ class GroupBetSettlementServiceTest {
     }
 
     @Test
-    @DisplayName("이번 실행이 지급/몰수한 건만 분배/몰수로 센다 — refunded 는 레거시 버킷이라 항상 0")
+    @DisplayName("이번 실행이 지급/몰수한 건만 분배/몰수로 센다 — 환불 없는 배치의 refunded 는 0")
     void countsAppliedSettlementsOnly() {
         UUID settledBet = UUID.randomUUID();
         UUID forfeitedBet = UUID.randomUUID();
         givenTargets(settledBet, forfeitedBet);
-        given(groupBetSettler.settle(settledBet))
+        given(groupBetSettler.settle(settledBet, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, true));
-        given(groupBetSettler.settle(forfeitedBet))
+        given(groupBetSettler.settle(forfeitedBet, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.FORFEITED, true));
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
@@ -77,7 +78,7 @@ class GroupBetSettlementServiceTest {
         UUID betId = UUID.randomUUID();
         givenTargets(betId);
         // 다른 실행이 먼저 정산해 상태는 SETTLED 지만, 이 호출은 지급을 적용하지 않았다.
-        given(groupBetSettler.settle(betId))
+        given(groupBetSettler.settle(betId, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, false));
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
@@ -94,8 +95,9 @@ class GroupBetSettlementServiceTest {
         UUID failing = UUID.randomUUID();
         UUID healthy = UUID.randomUUID();
         givenTargets(failing, healthy);
-        willThrow(new IllegalStateException("불변식 위반")).given(groupBetSettler).settle(failing);
-        given(groupBetSettler.settle(healthy))
+        willThrow(new IllegalStateException("불변식 위반"))
+                .given(groupBetSettler).settle(failing, SettleTrigger.MANUAL);
+        given(groupBetSettler.settle(healthy, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, true));
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
@@ -110,7 +112,7 @@ class GroupBetSettlementServiceTest {
     void countsUnusedCloseAsSkipped() {
         UUID emptySession = UUID.randomUUID();
         givenTargets(emptySession);
-        given(groupBetSettler.settle(emptySession))
+        given(groupBetSettler.settle(emptySession, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.UNUSED, true));
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY);
@@ -130,7 +132,7 @@ class GroupBetSettlementServiceTest {
         UUID focusBet = UUID.randomUUID();
         given(groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBeforeAndCategory(
                 GroupBetStatus.OPEN, TODAY, MissionCategory.FOCUS)).willReturn(List.of(focusBet));
-        given(groupBetSettler.settle(focusBet))
+        given(groupBetSettler.settle(focusBet, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.SETTLED, true));
 
         GroupBetSettlementSummaryResponse summary =
@@ -147,7 +149,7 @@ class GroupBetSettlementServiceTest {
     void settlesAllCategoriesWhenUnspecified() {
         UUID betId = UUID.randomUUID();
         givenTargets(betId);
-        given(groupBetSettler.settle(betId))
+        given(groupBetSettler.settle(betId, SettleTrigger.MANUAL))
                 .willReturn(new GroupBetSettler.SettleResult(GroupBetStatus.FORFEITED, true));
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(TODAY, null);

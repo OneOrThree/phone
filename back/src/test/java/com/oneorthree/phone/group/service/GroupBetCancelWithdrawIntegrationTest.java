@@ -5,6 +5,7 @@ import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.SettleTrigger;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
@@ -272,7 +273,7 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
         LocalDate sessionDate = LocalDate.now(KST).minusDays(1);
         GroupChallengeBetSession session = openSession(sessionDate);
         participant(session, opener);
-        // 달성 상태 — 정산이 이기면 팟(=본인 참가비) 전액이 지급된다.
+        // 단독 참가 — 정산이 이기면 인원 미달 안전망(N47)이 VOIDED + 환불로 닫는다(GROMO-1411).
         focusStat(opener, sessionDate, GOAL_MINUTES);
 
         CyclicBarrier startTogether = new CyclicBarrier(2);
@@ -290,7 +291,7 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
             Future<?> settleCall = pool.submit(() -> {
                 await(startTogether);
                 try {
-                    groupBetSettler.settle(session.getId());
+                    groupBetSettler.settle(session.getId(), SettleTrigger.MANUAL);
                 } catch (GroupException e) {
                     // 취소가 먼저 끝나 회차가 "없던 일"로 삭제됐으면 정산은 대상 없음으로 거절된다.
                     assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.BET_NOT_FOUND);
@@ -302,16 +303,15 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
             pool.shutdownNow();
         }
 
-        // 어느 쪽이 이겼든 "정확히 한 번, 한 종류"의 지급만 존재한다. 단독 참가라 금액은 어느
-        // 경로든 STAKE 그대로다 — 잔액으로 이중 지급 여부를 최종 확인한다.
+        // 어느 쪽이 이겼든 환불은 "정확히 한 번"이다. 단독 참가라 두 경로 모두 STAKE 환불로
+        // 수렴한다(취소 = 회차 삭제 + 환불 / 정산 = 인원 미달 VOIDED + 환불) — 같은 환불 키
+        // (참가 행 축, FR-42)라 원장 유니크가 교차 이중 환불을 막는다.
         long refunds = countOf(opener, CurrencyTransactionType.BET_REFUND);
         long payouts = countOf(opener, CurrencyTransactionType.BET_PAYOUT);
-        assertThat(refunds + payouts).isEqualTo(1);
+        assertThat(refunds).isEqualTo(1);
+        assertThat(payouts).isZero();
         if (sessionExists(session)) {
-            assertThat(statusOf(session)).isEqualTo(GroupBetStatus.SETTLED);
-            assertThat(payouts).isEqualTo(1);
-        } else {
-            assertThat(refunds).isEqualTo(1);
+            assertThat(statusOf(session)).isEqualTo(GroupBetStatus.VOIDED);
         }
         assertThat(balanceOf(opener)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
     }
@@ -580,7 +580,7 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
             });
             Future<?> settleCall = pool.submit(() -> {
                 await(startTogether);
-                groupBetSettler.settle(session.getId());
+                groupBetSettler.settle(session.getId(), SettleTrigger.MANUAL);
             });
             withdrawCall.get(30, TimeUnit.SECONDS);
             settleCall.get(30, TimeUnit.SECONDS);
@@ -598,12 +598,13 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
             assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
             assertThat(balanceOf(opener)).isEqualTo(BALANCE_AFTER_STAKE);
         } else {
-            // 탈퇴가 먼저 — 탈퇴자 환불 후 잔류자 1명으로 정산이 돌았다(단독 미달성 → 몰수).
-            assertThat(finalStatus).isEqualTo(GroupBetStatus.FORFEITED);
+            // 탈퇴가 먼저 — 탈퇴자 환불 후 잔류자 1명으로 정산이 돌았다: 인원 미달 안전망(N47,
+            // GROMO-1411)이 VOIDED 로 닫고 잔류자도 환불받는다.
+            assertThat(finalStatus).isEqualTo(GroupBetStatus.VOIDED);
             assertThat(refunds).isEqualTo(1);
             assertThat(payouts).isZero();
             assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
-            assertThat(balanceOf(opener)).isEqualTo(BALANCE_AFTER_STAKE);
+            assertThat(balanceOf(opener)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
         }
         // 어느 쪽이든 탈퇴 자체는 완료돼 있어야 한다.
         assertThat(groupMemberRepository.findByGroup(group))

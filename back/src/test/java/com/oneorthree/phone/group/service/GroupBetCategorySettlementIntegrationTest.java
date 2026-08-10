@@ -97,8 +97,12 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     /** 참가비 차감 후 잔액 — 참가 시점에 이미 STAKE 만큼 빠져 있는 상태를 재현한다. */
     private static final int BALANCE_AFTER_STAKE = 70;
 
-    /** 정산 대상은 "기준일 미만"이다 — session_date 는 기준일보다 앞선 날짜여야 배치가 집어간다. */
-    private final LocalDate today = LocalDate.of(2026, 8, 1);
+    /**
+     * 정산 대상은 "기준일 미만"이다 — session_date 는 기준일보다 앞선 날짜여야 배치가 집어간다.
+     * 실제 시계 기준 동적 날짜(GROMO-1411): settle 이 24h 데드라인(N21)을 최우선으로 보므로 고정
+     * 과거 날짜면 전부 자동 환불로 빠진다. 어제 회차는 언제 실행해도 "그레이스 경과 + 24h 이내"다.
+     */
+    private final LocalDate today = LocalDate.now(KST);
     private final LocalDate sessionDate = today.minusDays(1);
 
     private Group group;
@@ -237,10 +241,10 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
 
     /**
      * FOCUS × TIME_WINDOW 판정 소스 — 창 안에 통째로 들어가는 완료 세션.
-     * 2026-07-31 의 09:00~12:00 창은 [00:00Z, 03:00Z) 이므로 09:00 KST 시작으로 고정한다.
+     * 회차 날짜의 09:00 KST 시작으로 고정한다(창 09:00~12:00 안에 통째로 들어간다).
      */
     private void windowFocusSession(User user, int minutes) {
-        Instant startedAt = Instant.parse("2026-07-31T00:00:00Z");
+        Instant startedAt = sessionDate.atTime(9, 0).atZone(KST).toInstant();
         focusSessions.add(focusSessionRepository.save(FocusSession.builder()
                 .user(user)
                 .startedAt(startedAt)
@@ -324,10 +328,12 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     @DisplayName("② FOCUS×TIME_WINDOW — 창 밖 집중은 계수되지 않아 몰수될 수 있다")
     void forfeitsFocusWindowWhenFocusHappenedOutsideWindow() {
         User user = stakedUser("창밖집중");
+        User peer = stakedUser("무기록동료");   // 2명 — 인원 미달 무산(N47)이 아니라 판정 경로를 태운다
         GroupChallengeBetSession session = openSession(windowChallenge(MissionCategory.FOCUS));
         join(session, user);
+        join(session, peer);
         // 창(09:00~12:00 KST) 밖인 13:00 KST 에 3시간 집중 — 창 판정에는 0분이다.
-        Instant outside = Instant.parse("2026-07-31T04:00:00Z");
+        Instant outside = sessionDate.atTime(13, 0).atZone(KST).toInstant();
         focusSessions.add(focusSessionRepository.save(FocusSession.builder()
                 .user(user).startedAt(outside).endedAt(outside.plusSeconds(3 * 3600L))
                 .status(FocusSessionStatus.COMPLETED).build()));
@@ -416,9 +422,11 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     @DisplayName("④ SCREEN_TIME×TIME_WINDOW — 다른 날짜의 보고는 그날 회차 판정에 쓰이지 않는다")
     void ignoresReportsFromOtherDates() {
         User user = stakedUser("다른날보고");
+        User peer = stakedUser("미보고동료");   // 2명 — 인원 미달 무산이 아니라 판정 경로를 태운다
         GroupChallenge challenge = windowChallenge(MissionCategory.SCREEN_TIME);
         GroupChallengeBetSession session = openSession(challenge);
         join(session, user);
+        join(session, peer);
         reports.add(groupChallengeMemberRepository.save(GroupChallengeMember.builder()
                 .groupChallenge(challenge).user(user).usageDate(sessionDate.minusDays(1))
                 .progressMinutes(10).build()));
@@ -469,14 +477,19 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     @DisplayName("01:00 배치(FOCUS)는 스크린타임 회차를 건드리지 않고, 12:00 배치가 그것만 정산한다")
     void splitsTargetsByCategory() {
         User focusUser = stakedUser("포커스");
+        User focusPeer = stakedUser("포커스동료");
         User screenUser = stakedUser("스크린타임");
+        User screenPeer = stakedUser("스크린동료");
         GroupChallengeBetSession focusSession = openSession(durationChallenge(MissionCategory.FOCUS));
         join(focusSession, focusUser);
+        join(focusSession, focusPeer);
         dailyFocus(focusUser, GOAL_MINUTES);
         GroupChallengeBetSession screenSession =
                 openSession(durationChallenge(MissionCategory.SCREEN_TIME));
         join(screenSession, screenUser);
+        join(screenSession, screenPeer);
         dailyScreenTime(screenUser, 10);
+        dailyScreenTime(screenPeer, GOAL_MINUTES + 1);
 
         GroupBetSettlementSummaryResponse focusRun =
                 groupBetSettlementService.settleDueBets(today, MissionCategory.FOCUS);
@@ -492,21 +505,26 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
 
         assertThat(screenRun.targetCount()).isEqualTo(1);
         assertThat(statusOf(screenSession)).isEqualTo(GroupBetStatus.SETTLED);
-        assertThat(balanceOf(screenUser)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(balanceOf(screenUser)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
     }
 
     @Test
     @DisplayName("카테고리를 안 주면 두 카테고리를 한 번에 정산한다 — 수동 트리거 기본값")
     void settlesBothCategoriesWhenNoFilter() {
         User focusUser = stakedUser("포커스");
+        User focusPeer = stakedUser("포커스동료");
         User screenUser = stakedUser("스크린타임");
+        User screenPeer = stakedUser("스크린동료");
         GroupChallengeBetSession focusSession = openSession(durationChallenge(MissionCategory.FOCUS));
         join(focusSession, focusUser);
+        join(focusSession, focusPeer);
         dailyFocus(focusUser, GOAL_MINUTES);
         GroupChallengeBetSession screenSession =
                 openSession(durationChallenge(MissionCategory.SCREEN_TIME));
         join(screenSession, screenUser);
+        join(screenSession, screenPeer);
         dailyScreenTime(screenUser, 10);
+        dailyScreenTime(screenPeer, GOAL_MINUTES + 1);
 
         GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
 
@@ -522,6 +540,7 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     @DisplayName("목표 스냅샷도 창 목표분도 없는 회차는 정산 불가로 롤백된다 — OPEN 에 남고 실패로 집계")
     void failsWhenWindowGoalMissing() {
         User user = stakedUser("목표유실");
+        User peer = stakedUser("목표유실동료");   // 2명 — 인원 미달 무산이 아니라 판정 경로에서 터진다
         GroupChallenge broken = challenge(MissionCategory.FOCUS, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(broken)
@@ -532,6 +551,7 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         // goalMinutes null — V39 백필 이전 이력을 재현(스냅샷 폴백도 CTI 목표도 없다).
         GroupChallengeBetSession session = openSession(broken, STAKE, null);
         join(session, user);
+        join(session, peer);
 
         GroupBetSettlementSummaryResponse summary =
                 groupBetSettlementService.settleDueBets(today, MissionCategory.FOCUS);

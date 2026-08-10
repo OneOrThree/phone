@@ -44,15 +44,13 @@ public class GroupBetBatchController {
         this.batchAdminKey = batchAdminKey;
     }
 
-    @Operation(summary = "내기 일 정산 배치 수동 실행",
-            description = "그레이스 1시간이 끝난 날짜까지의 OPEN 내기를 정산한다(스케줄 배치와 같은 기준일)."
-                    + " 00:00~01:00 KST 에 호출해도 전일자 내기는 그레이스가 끝날 때까지 대상에서 빠진다."
-                    + " category 파라미터로 스케줄 배치와 같은 분할(FOCUS=01:00분, SCREEN_TIME=12:00분)을"
-                    + " 재현할 수 있고, 생략하면 전 카테고리를 정산한다."
-                    + " ⚠️ 생략(전체) 호출은 그레이스가 카테고리별 최적 시각을 존중하지 않는다 —"
-                    + " 02:00~11:59 KST 에 호출하면 전일자 SCREEN_TIME 내기가 '아침 첫 앱 실행 보고'"
-                    + " 기회를 받기 전에 정산돼 미보고=미달성 패배로 확정된다."
-                    + " 그 시간대에는 category=FOCUS 를 명시하는 편이 안전하다."
+    @Operation(summary = "내기 일 정산 배치 수동 실행 (MANUAL 트리거)",
+            description = "전일자까지의 OPEN 회차를 훑어 정산 단일 진입점(settle, GROMO-1411)에 넘긴다."
+                    + " 가드는 회차별 settle_after 가 진다 — 그레이스 미경과 회차(예: 아침 보고를"
+                    + " 기다리는 SCREEN_TIME 하루형은 익일 12:00 전)는 skippedCount 로 스킵되므로,"
+                    + " 어느 시각에 호출해도 조기 정산 사고가 없다. 정산 24h 데드라인을 넘긴 회차는"
+                    + " 정산 대신 자동 전원 환불되어 refundedCount 로 집계된다(N21)."
+                    + " category 파라미터로 대상을 좁힐 수 있고, 생략하면 전 카테고리다."
                     + " 이미 정산된 내기는 스킵되므로 반복 호출해도 이중 지급이 없다."
                     + " 실패 건은 그 내기만 롤백되고 failedCount 로 집계된다."
                     + " X-Batch-Admin-Key 헤더에 관리자 키(환경변수 BATCH_ADMIN_KEY)를 실어야 한다.")

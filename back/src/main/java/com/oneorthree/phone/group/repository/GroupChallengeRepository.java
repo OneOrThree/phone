@@ -37,6 +37,15 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
     Optional<GroupChallenge> findByIdAndGroupAndDeletedAtIsNullForUpdate(
             @Param("id") UUID id, @Param("group") Group group);
 
+    /**
+     * 그룹 스코프 없는 잠금 조회(GROMO-1411 배치·N35) — 자동 개설({@code ensureSession})이 챌린지
+     * 행을 잠가 삭제·레거시 개설과 직렬화한다. 유저 요청 경로는 항상 그룹 검증이 있는
+     * {@link #findByIdAndGroupAndDeletedAtIsNullForUpdate} 를 쓸 것 — 이 메서드는 배치 전용이다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from GroupChallenge c where c.id = :id and c.deletedAt is null")
+    Optional<GroupChallenge> findByIdAndDeletedAtIsNullForUpdate(@Param("id") UUID id);
+
     List<GroupChallenge> findByGroupAndDeletedAtIsNullOrderByCreatedAtDesc(Group group);
 
     // GROMO-674: 그룹 대표 챌린지(가장 오래된 ACTIVE, 미삭제) — 그룹 상세/오버뷰의 미션 정보 소스.

@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -178,6 +179,65 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("status") GroupBetStatus status,
             @Param("beforeDate") LocalDate beforeDate,
             @Param("category") MissionCategory category);
+
+    /**
+     * 5분 정산 스캔 대상(GROMO-1269·1411) — {@code settle_after} 가 지난 OPEN 회차 중 백오프
+     * ({@code next_attempt_at})가 경과한 것. <b>24h 데드라인 초과분은 백오프와 무관하게 집는다</b>
+     * (OR 술어) — 백오프 캡({@code GroupBetScheduler#nextAttemptAt})과 두 겹으로, 재시도 정책이
+     * 환불 시각 약속(N21)을 늦추지 못하게 한다. 인덱스는 (status, settle_after, next_attempt_at)
+     * ({@code idx_group_challenge_bet_sessions_settle_scan}).
+     *
+     * @param now            스캔 시각
+     * @param deadlineCutoff {@code now − 24h} — settle_after 가 이보다 이르면 환불 대상
+     */
+    @Query("SELECT s FROM GroupChallengeBetSession s "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.settleAfter <= :now "
+            + "AND (s.nextAttemptAt IS NULL OR s.nextAttemptAt <= :now OR s.settleAfter <= :deadlineCutoff) "
+            + "ORDER BY s.id")
+    List<GroupChallengeBetSession> findDue(
+            @Param("now") Instant now,
+            @Param("deadlineCutoff") Instant deadlineCutoff);
+
+    /**
+     * 정산 실패 기록(GROMO-1411 백오프) — 시도 횟수 +1 과 다음 시도 시각을 <b>같은 UPDATE</b> 로
+     * 쓴다. 스케줄러 빈은 의도적으로 무트랜잭션이라(건별 격리) {@code findDue} 반환 엔티티는
+     * detached 다 — 필드만 바꾸면 flush 될 트랜잭션이 없어 영영 저장되지 않고 백오프가 전진하지
+     * 못한다(5분마다 무한 재시도). 그래서 리포지토리 UPDATE 로 직접 쓰고, 메서드 자체 트랜잭션을
+     * 연다({@code @Transactional} — 벌크 UPDATE 는 트랜잭션이 필수다).
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE GroupChallengeBetSession s "
+            + "SET s.settleAttempts = s.settleAttempts + 1, s.nextAttemptAt = :nextAttemptAt, "
+            + "s.updatedAt = :now WHERE s.id = :id")
+    int recordFailure(
+            @Param("id") UUID id,
+            @Param("nextAttemptAt") Instant nextAttemptAt,
+            @Param("now") Instant now);
+
+    /**
+     * 참가 마감 인원 미달 크론 대상(GROMO-1412, N47·FR-36) — {@code join_closes_at} 이 지났는데
+     * 참가자가 2명 미만인 OPEN 회차 id. 정산 그레이스를 기다리지 않고 즉시 무산·환불하기 위한
+     * 스캔이다(창형은 창 전체 + 30분 동안 혼자 남은 참가비가 묶이는 문제 — 기존 K1). 건별 처리는
+     * 잠금 후 재확인하므로 여기서는 잠금 없이 집기만 한다. id 오름차순은 데드락 예방 규약.
+     */
+    @Query("SELECT s.id FROM GroupChallengeBetSession s "
+            + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.joinClosesAt <= :now "
+            + "AND (SELECT COUNT(p) FROM GroupChallengeBetParticipant p WHERE p.session = s) < 2 "
+            + "ORDER BY s.id")
+    List<UUID> findOpenPastJoinDeadlineWithFewParticipants(@Param("now") Instant now);
+
+    /**
+     * 챌린지 삭제 연동 대상(GROMO-1272, FR-12) — 이 챌린지의 OPEN 회차 id <b>전부</b>(예약된 미래
+     * 회차 포함). 호출측이 챌린지 행 배타 락 아래에서 부르고, id 오름차순으로 잠근 뒤 무효화·환불한다
+     * (계약 §3 잠금 순서). 정산 완료 회차는 status 게이트로 자연히 빠진다(FR-13 — 결과 불변).
+     */
+    @Query("SELECT s.id FROM GroupChallengeBetSession s "
+            + "WHERE s.challenge.id = :challengeId "
+            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN ORDER BY s.id")
+    List<UUID> findOpenSessionIdsByChallengeId(@Param("challengeId") UUID challengeId);
 
     /**
      * 정산 결과 푸시 대상 — 최근 정산이 끝난 회차. 상태는 호출측이 (SETTLED, FORFEITED) 로 넘긴다

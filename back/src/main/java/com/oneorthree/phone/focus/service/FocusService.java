@@ -34,6 +34,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
+import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
@@ -109,6 +110,7 @@ public class FocusService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
     private final CurrencyLedgerService currencyLedgerService;
+    private final GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
@@ -372,6 +374,9 @@ public class FocusService {
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), zone, credited);
+        // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — 통계 반영 이후, 같은 트랜잭션에 편승한다.
+        // 대상은 이 세션이 통계에 귀속된 날짜들의 FOCUS OPEN 회차뿐이다(회차 락은 confirmer 가 잡는다).
+        groupBetEarlyWinConfirmer.confirmWins(user, credited.focusSeconds().keySet());
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
@@ -737,6 +742,8 @@ public class FocusService {
                 toStoredSecondsByDate(credited.focusSeconds()));
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds(), zone, credited);
+        // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — POST 완료 저장 경로와 동일 배선.
+        groupBetEarlyWinConfirmer.confirmWins(user, credited.focusSeconds().keySet());
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).

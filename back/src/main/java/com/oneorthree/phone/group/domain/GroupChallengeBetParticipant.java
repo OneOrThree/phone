@@ -86,6 +86,30 @@ public class GroupChallengeBetParticipant {
     }
 
     /**
+     * 개인 승리 조기 확정(GROMO-1268, N11·FR-23) — <b>불가역</b>이다. 목표분이 나중에 바뀌어도
+     * 회차 박제값으로 판정했으므로 번복 사유가 없다. FOCUS 회차 전용이다 — SCREEN_TIME 은 값이
+     * 하루 종일 늘어나는 지표라 "먼저 확정"이 성립하지 않는다(조기 확정하면 이후 목표 초과가
+     * 정산에서 뒤집히지 못한다).
+     *
+     * <p>{@code progressMinutes} 는 확정 시점 실측이지만 <b>박제가 아니다</b> — 정산이 전원 최종값으로
+     * 다시 잰다(잔여 코인 순위가 박제값으로 엉뚱한 승자에게 가는 것을 막는다, LLD §5.2).
+     * 호출 전제: 회차 행 잠금 아래 + {@code achieved == null}.
+     */
+    public void confirmWin(int progressMinutes) {
+        this.achieved = true;
+        this.progressMinutes = progressMinutes;
+    }
+
+    /**
+     * 환불 기록(무산·24h 데드라인) — 판정 없이 돈만 되돌아간 경우다. {@code achieved} 는 null 로
+     * 남겨 "판정 안 됨"과 "달성 실패(payout 0)"의 구분(클래스 주석)을 지킨다. 원장이 단일 진실이고
+     * 이 값은 표시용 근거다.
+     */
+    public void recordRefund(int payout) {
+        this.payout = payout;
+    }
+
+    /**
      * id 기반 동등성 — 저장 전(id null)인 엔티티는 자기 자신 외 어떤 객체와도 같지 않다.
      * 비교 상대의 id 는 필드가 아니라 getter 로 읽는다 — Hibernate 프록시는 필드가 비어 있어도
      * getter 호출로 초기화되기 때문이다.

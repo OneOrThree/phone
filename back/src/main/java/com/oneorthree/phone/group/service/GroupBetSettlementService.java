@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.SettleTrigger;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,18 +18,19 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 내기 일 배치 진입점 — 전일자까지의 미정산 <b>회차</b>(GROMO-1262)를 훑어 {@link GroupBetSettler}
- * 에 한 건씩 넘긴다.
+ * 내기 <b>수동(MANUAL) 배치</b> 진입점 — 전일자까지의 미정산 <b>회차</b>(GROMO-1262)를 훑어
+ * {@link GroupBetSettler#settle} 에 한 건씩 넘긴다. 정규 정산은 {@code settle_after} 기반 5분 스캔
+ * ({@code GroupBetScheduler} — GROMO-1269·1411)으로 옮겨 갔고, 이 클래스는 운영자 수동 트리거
+ * ({@code GroupBetBatchController})의 날짜 기준 복구 배치로 남는다.
  *
  * <p>이 클래스에는 <b>트랜잭션이 없다</b>. 건별 트랜잭션(정산 실패 격리)이 목적이라, 여기서 하나로
  * 묶으면 한 건의 롤백이 전체를 되돌린다. 대상 id 조회도 각자 짧은 트랜잭션으로 끝난다.
  *
- * <p>정산 크론은 <b>카테고리별로 2회</b> 돈다: FOCUS 는 익일 01:00 KST(집중 일별 통계는 세션 종료
- * 시각 귀속이라 자정에 데이터가 완결된다 — 그레이스 1h 면 충분), SCREEN_TIME 은 익일 12:00 KST
- * (어제 스크린타임의 최종 보고는 유저의 다음날 첫 앱 실행에 올라오므로, 01:00 에 정산하면
- * "미보고=미달성" 억울 패배가 양산된다 — 아침 보고 기회를 준 뒤 정산한다). 대상 선정만 카테고리로
- * 갈릴 뿐 정산 로직은 하나다. 해외 타임존 유저는 KST 하루 경계로 정산된다(서비스가 한국 타깃이라
- * 수용, 후속 티켓).
+ * <p>대상 선정은 날짜·카테고리 축이지만 <b>가드는 정산 본체가 진다</b>(단일 진입점 — GROMO-1411):
+ * 그레이스({@code settle_after}) 미경과 회차는 settle 안에서 스킵되므로, 종전처럼 "02:00~11:59 에
+ * 전체 호출하면 SCREEN_TIME 이 아침 보고 전에 정산되는" 사고가 구조적으로 막힌다. 24h 초과분은
+ * 정산 대신 자동 전원 환불된다(N21). 해외 타임존 유저는 KST 하루 경계로 정산된다(서비스가 한국
+ * 타깃이라 수용, 후속 티켓).
  */
 @Slf4j
 @Service
@@ -88,6 +90,7 @@ public class GroupBetSettlementService {
 
         int settled = 0;
         int forfeited = 0;
+        int refunded = 0;
         int skipped = 0;
         List<UUID> failedSessionIds = new ArrayList<>();
         for (UUID sessionId : targets) {
@@ -95,16 +98,22 @@ public class GroupBetSettlementService {
                 // 대상으로 집은 뒤 다른 실행(스케줄러 ↔ 수동 트리거)이 먼저 정산했을 수 있다.
                 // 그때는 최종 상태만 종료 상태일 뿐 이 호출은 지급을 안 했으므로 스킵으로 센다
                 // — 안 그러면 동시 실행 양쪽이 같은 회차를 각자 성과로 세어 요약·지표가 부풀려진다.
-                GroupBetSettler.SettleResult result = groupBetSettler.settle(sessionId);
+                // MANUAL 트리거도 24h 환불·그레이스·창형 FOCUS 대기 가드를 전부 지난다(N21 —
+                // 단일 진입점 GROMO-1411). 그레이스 미경과 회차는 applied=false 스킵으로 떨어진다.
+                GroupBetSettler.SettleResult result =
+                        groupBetSettler.settle(sessionId, SettleTrigger.MANUAL);
                 if (!result.applied()) {
                     skipped++;
                 } else if (result.status() == GroupBetStatus.FORFEITED) {
                     forfeited++;
                 } else if (result.status() == GroupBetStatus.SETTLED) {
                     settled++;
+                } else if (result.status() == GroupBetStatus.REFUNDED) {
+                    // 24h 데드라인 자동 전원 환불(N21) — 몰수·분배와 구분해 집계한다.
+                    refunded++;
                 } else {
-                    // UNUSED(참가자 0명 종료, GROMO-1404) — 지급·환불이 없는 정리라 성과 버킷에
-                    // 넣지 않고, 응답 shape 호환을 위해 스킵으로 센다(요약 합계 보존).
+                    // UNUSED(참가자 0명 종료)·VOIDED(인원 미달 무산) — 지급 없는 정리라 성과
+                    // 버킷에 넣지 않고, 응답 shape 호환을 위해 스킵으로 센다(요약 합계 보존).
                     skipped++;
                 }
             } catch (RuntimeException e) {
@@ -131,8 +140,8 @@ public class GroupBetSettlementService {
                     failed > FAILED_BET_ID_LOG_LIMIT
                             ? " (앞 " + FAILED_BET_ID_LOG_LIMIT + "건만 표시)" : "");
         }
-        // refundedCount 는 몰수 룰 도입 이후 정산이 만들지 않는 레거시 버킷 — 항상 0 으로 내보낸다.
+        // refunded 버킷은 24h 데드라인 자동 환불(N21·GROMO-1411)이 다시 쓴다(종전엔 상시 0 레거시).
         return new GroupBetSettlementSummaryResponse(
-                today, targets.size(), settled, forfeited, 0, skipped, failed, elapsedMillis);
+                today, targets.size(), settled, forfeited, refunded, skipped, failed, elapsedMillis);
     }
 }
