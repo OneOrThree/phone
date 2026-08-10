@@ -30,6 +30,7 @@ export function StatsSkeleton({
   period,
   savedOrder,
   subjectCount,
+  unclassifiedRow = false,
 }: {
   period: StatsPeriod;
   /**
@@ -42,12 +43,17 @@ export function StatsSkeleton({
    */
   savedOrder?: string[];
   /**
-   * 과목 개수(SubjectContext) — 도넛 범례 행 수의 추정치.
+   * 이번에 범례에 뜰 과목 수(0초 과목 제외) — 도넛·일간 타임테이블 범례 행 수.
    *
    * ⚠️ 범례가 6줄부터 132px 링보다 높아진다. 이걸 안 넘기면 과목을 많이 만든 사용자는
    *    도착 순간 도넛 카드가 수십 px 자라 아래 카드들이 밀린다(codex 리뷰).
    */
   subjectCount: number;
+  /**
+   * 도넛 범례에 '미분류' 행이 하나 더 붙는지(일 탭 총계 > 과목 합).
+   * ⚠️ 도넛에만 붙는다 — 타임테이블 범례엔 없다(constants.skeletonCards 주석).
+   */
+  unclassifiedRow?: boolean;
 }) {
   // 목표 달성 카드의 캘린더 행 수 — **실제 그리드와 같은 함수**로 구한다(format.calendarRows).
   // 월은 달마다 5행이거나 6행이라 상수로 박으면 도착 순간 한 행이 갑자기 늘어난다.
@@ -61,6 +67,7 @@ export function StatsSkeleton({
     calendarRows: rows,
     screenWidth: width,
     subjectCount,
+    unclassifiedRow,
   });
   const byKey = new Map(cards.map((c) => [c.key, c]));
   const ordered = mergeCardOrder(

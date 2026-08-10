@@ -7,8 +7,11 @@
 // 애니메이션 중간 프레임·타이밍은 단언하지 않는다.
 //
 // 카드 목록 자체는 이 테스트의 관심사가 아니라 CardOrderEditor를 스텁으로 세운다 — 분기만 본다.
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { Dimensions, StyleSheet } from 'react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import StatsScreen from './StatsScreen';
+import { skeletonCards } from './stats/constants';
 import type { StatsData } from './stats/useStatsData';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -56,8 +59,13 @@ jest.mock('./stats/CardOrderEditor', () => {
   return { CardOrderEditor: () => <View testID="stats.cards" /> };
 });
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
-jest.mock('@/store/FocusContext', () => ({ useFocus: () => ({ todayFocusSeconds: 0 }) }));
-jest.mock('@/store/SubjectContext', () => ({ useSubjects: () => ({ subjects: [] }) }));
+// 과목·총계는 로컬 소스(Context)라 로딩 중에도 값이 있다 — 스켈레톤 범례 행 수가 여기서 나온다
+let mockSubjects: { accumulatedSeconds: number }[] = [];
+let mockTodayFocusSeconds = 0;
+jest.mock('@/store/FocusContext', () => ({
+  useFocus: () => ({ todayFocusSeconds: mockTodayFocusSeconds }),
+}));
+jest.mock('@/store/SubjectContext', () => ({ useSubjects: () => ({ subjects: mockSubjects }) }));
 jest.mock('@/services/analyticsEvents', () => ({
   logStatsViewed: jest.fn(),
   logStatsPeriodChanged: jest.fn(),
@@ -71,6 +79,8 @@ const LOADED: StatsData = { ...EMPTY, focus: null, heatmap: [] };
 
 beforeEach(() => {
   mockStats = { data: EMPTY, loading: true };
+  mockSubjects = [];
+  mockTodayFocusSeconds = 0;
 });
 
 describe('StatsScreen 첫 로딩', () => {
@@ -98,6 +108,76 @@ describe('StatsScreen 첫 로딩', () => {
       expect(screen.queryByTestId('stats.skeleton', HIDDEN)).toBeNull();
     });
     expect(screen.queryByTestId('stats.cards')).not.toBeNull();
+  });
+
+  // 스켈레톤은 **아는 값만** 그린다. 순서를 모르는 동안 기본 순서로 먼저 그려 두면, 저장된
+  // 순서가 도착하는 순간 로딩이 끝나지도 않았는데 스켈레톤이 한 번 뒤섞인다 — 큰 카드를 위로
+  // 올려 둔 사용자에겐 그 자리에서 화면 대부분이 밀린다(codex 리뷰).
+  test('카드 순서를 읽기 전에는 스켈레톤도 그리지 않는다', async () => {
+    let release: (v: string | null) => void = () => {};
+    // ⚠️ `spyOn(...).mockReturnValue`는 쓰지 않는다 — async-storage 목의 메서드가 이미 jest.fn이라
+    //    `restoreAllMocks()`로 되돌아가지 않고 뒤 테스트까지 오염된다(실제로 겪음).
+    //    화면이 이 키를 한 번만 읽으므로 `mockReturnValueOnce`면 스스로 원복된다.
+    (AsyncStorage.getItem as jest.Mock).mockReturnValueOnce(
+      new Promise<string | null>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const view = await render(<StatsScreen />);
+    expect(screen.queryByTestId('stats.skeleton', HIDDEN)).toBeNull();
+
+    await act(async () => {
+      release(JSON.stringify({ WEEK: ['firstStart', 'total'] }));
+    });
+    await waitFor(() => expect(screen.queryByTestId('stats.skeleton', HIDDEN)).not.toBeNull());
+    // 처음 그려지는 순간부터 저장된 순서다 — 다시 섞이는 단계가 없다
+    const keys = screen
+      .getAllByTestId(/^stats\.skeleton\./, HIDDEN)
+      .map((n) => String(n.props.testID).replace('stats.skeleton.', ''));
+    expect(keys[0]).toBe('firstStart');
+    view.unmount();
+  });
+
+  // 일 탭 도넛은 총계와 과목 합의 차이를 '미분류' 행으로 하나 더 그린다(SubjectDonut).
+  // 둘 다 로컬 Context 값이라 로딩 중에도 정확히 알 수 있는데, 이걸 안 세면 태그 미귀속
+  // 세션이 있는 사용자의 도넛 스켈레톤이 늘 한 행 짧다(codex 리뷰).
+  test('일 탭에서 미분류 시간이 있으면 도넛 스켈레톤이 그만큼 높다', async () => {
+    // 범례가 링(132px)을 넘는 6줄 구간이어야 행 추가가 높이에 반영된다
+    mockSubjects = Array.from({ length: 6 }, () => ({ accumulatedSeconds: 600 }));
+    mockTodayFocusSeconds = 6 * 600 + 300; // 태그 미귀속 5분 → 범례 한 줄 추가
+    const view = await render(<StatsScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('stats.tab.day'));
+    });
+    // 일 탭으로 실제 넘어갔다는 근거 — 타임테이블 자리표시자는 일 탭에만 있다
+    expect(screen.queryByTestId('stats.skeleton.timetable', HIDDEN)).not.toBeNull();
+
+    const donut = (unclassifiedRow: boolean) =>
+      skeletonCards({
+        period: 'DAY',
+        calendarRows: 0,
+        screenWidth: Dimensions.get('window').width,
+        subjectCount: 6,
+        unclassifiedRow,
+      }).find((c) => c.key === 'category')!.height;
+    const rendered = StyleSheet.flatten(
+      screen.getByTestId('stats.skeleton.category', HIDDEN).props.style,
+    ).height;
+    expect(rendered).toBe(donut(true));
+    expect(rendered).toBeGreaterThan(donut(false));
+    // ⚠️ 타임테이블 범례엔 미분류가 없다 — 같이 키우면 이번엔 그쪽이 수축한다.
+    //    (미분류 유무로 도넛만 달라진다는 것 자체는 StatsSkeleton.test.tsx가 잠근다)
+    expect(
+      StyleSheet.flatten(screen.getByTestId('stats.skeleton.timetable', HIDDEN).props.style).height,
+    ).toBe(
+      skeletonCards({
+        period: 'DAY',
+        calendarRows: 0,
+        screenWidth: Dimensions.get('window').width,
+        subjectCount: 6,
+      }).find((c) => c.key === 'timetable')!.height,
+    );
+    view.unmount();
   });
 
   test('데이터가 이미 있어도 카드 순서 조회가 끝난 뒤에야 카드 목록으로 넘어간다', async () => {

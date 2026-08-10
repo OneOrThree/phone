@@ -198,9 +198,13 @@ export const LONGEST_BODY_H = HERO_H + HINT_H; // 59
  *   호출부가 `calendarRowCount(period, 0)`(format.ts)로 구해 넘긴다 — 실제 그리드와 같은 식을
  *   써야 도착 순간 한 행이 갑자기 늘어나지 않는다.
  *   여기서 직접 구하지 않는 이유는 format.ts가 이미 이 모듈을 import하고 있어서다(순환 참조 회피).
- * @param subjectCount 과목 개수(SubjectContext). 도넛 범례 행 수의 추정치다 — 주·월은 서버
- *   집계라 로딩 중엔 알 수 없고, 일도 '미분류' 행이 붙을지는 총합이 와야 정해진다. 정확한
- *   값이 아니라 **범례가 링을 넘기는 구간(6줄 이상)을 놓치지 않기 위한** 값이다.
+ * @param subjectCount 이번에 실제로 범례에 뜰 과목 수(SubjectContext에서 0초 과목 제외).
+ *   주·월은 서버 집계라 로딩 중엔 알 수 없어 오늘 기준 추정치다 — 정확한 값이 아니라
+ *   **범례가 링을 넘기는 구간(6줄 이상)을 놓치지 않기 위한** 값이다.
+ * @param unclassifiedRow 도넛 범례에 '미분류' 행이 하나 더 붙는지(일 탭에서 총계 > 과목 합).
+ *   ⚠️ **도넛에만 붙는다.** 일간 타임테이블 범례는 서버 세션의 태그 이름으로만 만들어져
+ *   (FocusTimetableCard `legendSubjects`) 미분류 행이 없다 — 둘에 같은 수를 넘기면
+ *   타임테이블을 한 행 과대 예약해 도착 순간 카드가 수축한다.
  * @param screenWidth 화면 폭. 캘린더 셀 높이가 폭에서 파생되므로(aspectRatio) 반드시 실제
  *   값(useWindowDimensions)을 넘긴다 — 고정값으로 두면 큰 화면에서 카드가 짧아진다.
  */
@@ -209,11 +213,13 @@ export function skeletonCards({
   calendarRows,
   screenWidth,
   subjectCount,
+  unclassifiedRow = false,
 }: {
   period: StatsPeriod;
   calendarRows: number;
   screenWidth: number;
   subjectCount: number;
+  unclassifiedRow?: boolean;
 }): { key: string; height: number }[] {
   const cards: { key: string; height: number }[] = [
     { key: 'total', height: CARD_CHROME_H + HERO_H + COMPARE_H },
@@ -224,10 +230,13 @@ export function skeletonCards({
           ? CARD_CHROME_H + STAMP_BLOCK_H
           : CARD_CHROME_H + calendarBlockH(calendarRows, screenWidth),
     },
-    { key: 'category', height: CARD_CHROME_H + donutBlockH(subjectCount) },
+    {
+      key: 'category',
+      height: CARD_CHROME_H + donutBlockH(subjectCount + (unclassifiedRow ? 1 : 0)),
+    },
   ];
   if (period === 'DAY') {
-    // 범례 행 수는 도넛과 같은 추정치(오늘 쓴 과목 수)를 쓴다 — 일 탭 범례가 정확히 그 집합이다.
+    // 타임테이블 범례는 **미분류를 빼고** 센다 — 위 unclassifiedRow 주석 참고.
     cards.push({ key: 'timetable', height: CARD_CHROME_H + ttBlockH(subjectCount) });
   }
   if (period === 'MONTH') {

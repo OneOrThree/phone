@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   View,
   Text,
@@ -56,11 +64,26 @@ export default function StatsScreen() {
   const { data, loading, refetch } = useStatsData(period);
   // 일 탭 과목별 카드 — 집중 세션 메뉴 드로어와 동일한 로컬 오늘 누적(SubjectContext) 사용
   const { subjects } = useSubjects();
-  // 도넛 범례에 실제로 뜰 행 수의 추정치 — 스켈레톤 높이가 이 값에서 나온다(아래 주석 참고).
-  const usedSubjectCount = subjects.filter((x) => x.accumulatedSeconds > 0).length;
   // 일 탭 총계도 같은 로컬 소스(홈·드로어와 동일) — 서버 집계(data.focus)는 업로드 지연·재시도 중이면
   // 과목별 합보다 낮게 보여 카드끼리 어긋난다(리뷰 반영)
   const { todayFocusSeconds } = useFocus();
+  // 범례에 실제로 뜰 행 수 — 스켈레톤 높이가 이 값에서 나온다(아래 주석 참고).
+  //
+  // ⚠️ 일 탭 도넛은 과목 합과 총계의 차이를 **'미분류' 구간으로 한 줄 더** 그린다
+  //    (CategoryDonut.tsx `SubjectDonut`). 태그 미귀속 세션(재로그인 복원 등)이 있는
+  //    사용자는 이 한 줄 때문에 스켈레톤이 늘 한 행 짧아, 도착 순간 도넛 카드가 자라며
+  //    아래 카드가 밀린다(codex 리뷰). 두 값 다 로컬 소스라 로딩 중에도 정확히 알 수 있다.
+  //    ⚠️ 이 행은 **도넛에만** 붙는다 — 타임테이블 범례는 서버 세션의 태그 이름으로 만들어져
+  //    미분류가 없다. 그래서 한 값으로 합치지 않고 따로 넘긴다.
+  const { usedSubjectCount, hasUnclassified } = useMemo(() => {
+    const used = subjects.filter((x) => x.accumulatedSeconds > 0).length;
+    const subjectSum = subjects.reduce((a, x) => a + x.accumulatedSeconds, 0);
+    return {
+      usedSubjectCount: used,
+      // 주·월은 서버 집계라 로딩 중엔 알 수 없다 — 일 탭에서만 확정할 수 있다.
+      hasUnclassified: period === 'DAY' && todayFocusSeconds > subjectSum,
+    };
+  }, [subjects, period, todayFocusSeconds]);
   // 카드 순서(탭별, GROMO-762) — AsyncStorage에서 로드, 드래그 확정 시마다 저장.
   // 로드 완료 전에 그리면 기본 순서가 잠깐 보였다 튀므로 플래그로 막는다.
   const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
@@ -504,22 +527,25 @@ export default function StatsScreen() {
       </View>
 
       {/* 첫 로딩 — 가운데 스피너 대신 올 카드 모양 그대로의 스켈레톤(GROMO-1381).
-          ⚠️ 삼항으로 트리에서 통째로 빼야 한다. 펄스가 무한 루프라 숨기기만 하면 계속 돈다. */}
-      {firstLoad || !orderLoaded ? (
-        // 저장된 순서를 읽은 뒤라면 그 순서로 그린다 — 기본 순서로 두면 큰 카드를 위로
-        // 올려 둔 사용자의 화면이 로딩 완료 순간 통째로 밀린다.
+          ⚠️ 삼항으로 트리에서 통째로 빼야 한다. 펄스가 무한 루프라 숨기기만 하면 계속 돈다.
+          ⚠️ **순서를 읽기 전에는 스켈레톤도 그리지 않는다.** 기본 순서로 먼저 그려 두면
+             AsyncStorage가 도착하는 순간 로딩 **도중에** 스켈레톤이 한 번 뒤섞인다 —
+             사용자가 큰 카드를 위로 올려 뒀다면 그 자리에서 화면이 통째로 밀린다(codex 리뷰).
+             로컬 조회라 이 공백은 보통 한두 프레임이고, 네트워크 대기보다 훨씬 짧다. */}
+      {orderLoaded && firstLoad ? (
         <StatsSkeleton
           period={period}
-          savedOrder={orderLoaded ? cardOrder[period] : undefined}
+          // 저장된 순서 그대로 그린다 — 실제 목록과 같은 정렬 함수를 쓴다(StatsSkeleton 주석).
+          savedOrder={cardOrder[period]}
           // ⚠️ **전체 과목 수가 아니라 '이번에 실제로 범례에 뜰' 수를 넘긴다.** 일 탭은
           //    0초 과목을 범례에서 빼고, 주·월 API도 해당 기간 세션이 있는 태그만 준다.
           //    과목 20개 중 1개만 쓴 사용자에게 20줄짜리 높이를 예약하면 로딩이 끝나는
           //    순간 도넛 카드가 수백 px 수축한다 — 늘어나는 것보다 나쁘다(codex 리뷰).
-          //    주·월은 로딩 중 기간 집계를 알 수 없어 오늘 기준 사용 과목 수가 최선의
-          //    추정치다. 정확한 값이 아니라 **과대 예약을 막기 위한** 값이다.
           subjectCount={usedSubjectCount}
+          unclassifiedRow={hasUnclassified}
         />
-      ) : (
+      ) : null}
+      {orderLoaded && !firstLoad ? (
         // 카드 목록 — 항상 드래그 가능(GROMO-762 개편). 카드 오른쪽 위 핸들을 잡아 끌면 순서가
         // 바뀌고 놓을 때마다 저장. 탭을 바꾸면 그 탭의 순서를 편집(탭별 저장)
         // scrollViewRef는 첫 진입 투어(GROMO-652)가 카드를 화면 안으로 끌어올 때 쓴다
@@ -529,7 +555,7 @@ export default function StatsScreen() {
           onReorder={onReorderCards}
           scrollViewRef={scrollRef}
         />
-      )}
+      ) : null}
 
       {/* 첫 진입 스포트라이트 투어(GROMO-652) — 카드가 실제로 렌더된 뒤에만 */}
       {!firstLoad && orderLoaded ? (

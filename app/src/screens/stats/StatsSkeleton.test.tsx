@@ -14,6 +14,7 @@ import {
   WTT_BODY_BLOCK_H,
   WTT_FOOTER_LINE_H,
   calendarCellH,
+  donutBlockH,
   skeletonCards,
 } from './constants';
 import { calendarRowCount, mergeCardOrder } from './format';
@@ -185,6 +186,30 @@ describe('StatsSkeleton', () => {
   test('저장된 순서가 없으면 기본 순서 그대로다', async () => {
     await render(<StatsSkeleton period="WEEK" subjectCount={3} />);
     expect(renderedKeys()[0]).toBe('total');
+  });
+
+  // 일 탭 도넛(SubjectDonut)은 총계와 과목 합의 차이를 '미분류' 구간으로 **한 줄 더** 그린다.
+  // 그 한 줄을 안 세면 태그 미귀속 세션이 있는 사용자의 도넛이 도착 순간 자란다(codex 리뷰).
+  // 반대로 타임테이블 범례엔 미분류가 없어(FocusTimetableCard legendSubjects) 같이 키우면
+  // 이번엔 타임테이블이 수축한다 — 두 카드가 서로 다른 규칙을 쓴다는 것 자체를 잠근다.
+  test("'미분류' 행은 도넛만 한 줄 키우고 타임테이블 예약은 건드리지 않는다", () => {
+    const heights = (unclassifiedRow: boolean) =>
+      new Map(
+        skeletonCards({
+          period: 'DAY',
+          calendarRows: 0,
+          screenWidth: W,
+          // 6줄부터 범례가 링(132px)을 넘어선다 — 그 아래에선 행이 늘어도 높이가 안 변해
+          // 이 회귀를 못 잡는다.
+          subjectCount: 6,
+          unclassifiedRow,
+        }).map((c) => [c.key, c.height]),
+      );
+    const off = heights(false);
+    const on = heights(true);
+    expect(on.get('category')! - off.get('category')!).toBeCloseTo(donutBlockH(7) - donutBlockH(6));
+    expect(on.get('category')!).toBeGreaterThan(off.get('category')!);
+    expect(on.get('timetable')).toBe(off.get('timetable'));
   });
 
   test('스크린리더 포커스에서 제외된다 — 내용 없는 자리표시자다', async () => {
