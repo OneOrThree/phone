@@ -524,12 +524,16 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다. 즉시 풀면 JS가 아직 떠 있는 네이티브 모달
+                    //    아래에서 토스트 등장과 2200ms 노출 타이머를 시작해, 사용자는 모달이 사라진 뒤
+                    //    토스트가 갑자기 나타나는 데다 실제 노출 시간도 짧아진다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count
+                        ])
+                    }
                 }
             )
 
