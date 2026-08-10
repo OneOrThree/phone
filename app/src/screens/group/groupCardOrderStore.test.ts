@@ -5,6 +5,7 @@ import {
   parseGroupCardOrder,
   readGroupCardOrder,
   reconcileGroupCardOrder,
+  reconcileStoredGroupCardOrder,
   writeGroupCardOrder,
 } from './groupCardOrderStore';
 
@@ -56,6 +57,28 @@ test('쓰기 실패 뒤에도 큐가 살아 다음 쓰기를 수행한다', asyn
   await expect(writeGroupCardOrder('u1', ['a'])).rejects.toThrow('disk full');
   await writeGroupCardOrder('u1', ['b']);
   expect(await readGroupCardOrder('u1')).toEqual(['b']);
+});
+
+test('진행 중인 오래된 prune은 최신 전체 목록의 순서를 제거하지 않는다', async () => {
+  await writeGroupCardOrder('u1', ['b', 'a']);
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    started();
+    await writeGate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+
+  const stale = reconcileStoredGroupCardOrder('u1', ['a']);
+  await startedGate;
+  const latest = reconcileStoredGroupCardOrder('u1', ['a', 'b']);
+  release();
+
+  expect(await stale).toBeNull();
+  expect(await latest).toEqual(['b', 'a']);
+  expect(await readGroupCardOrder('u1')).toEqual(['b', 'a']);
 });
 
 test('다른 계정 bucket은 수정하지 않는다', async () => {

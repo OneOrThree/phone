@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   isSameGroupOrder,
-  readGroupCardOrder,
   reconcileGroupCardOrder,
+  reconcileStoredGroupCardOrder,
   writeGroupCardOrder,
 } from './groupCardOrderStore';
 
@@ -47,17 +47,12 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
 
     void (async () => {
       // userId 미확정 상태는 계정 bucket을 읽거나 쓰지 않고 서버 순서만 사용한다.
-      const stored = userId ? await readGroupCardOrder(userId) : null;
-      if (canceled || !mounted.current) return;
-
-      const reconciled = reconcileGroupCardOrder(ids, stored);
+      const reconciled = userId
+        ? await reconcileStoredGroupCardOrder(userId, ids, () => !canceled && mounted.current)
+        : reconcileGroupCardOrder(ids, null);
+      if (!reconciled || canceled || !mounted.current) return;
       orderRef.current = reconciled;
       setState({ identity, ids: reconciled, saveFailed: false });
-
-      // stale/중복 prune은 성공한 전체 목록을 받은 이 경로에서만 수행한다.
-      if (userId && stored && !isSameGroupOrder(stored, reconciled)) {
-        void writeGroupCardOrder(userId, reconciled).catch(() => undefined);
-      }
     })();
 
     return () => {

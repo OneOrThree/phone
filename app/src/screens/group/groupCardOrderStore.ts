@@ -50,21 +50,85 @@ export function isSameGroupOrder(a: readonly string[], b: readonly string[]): bo
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
-let writeQueue: Promise<void> = Promise.resolve();
+let storageQueue: Promise<unknown> = Promise.resolve();
 
-function enqueueWrite(task: () => Promise<void>): Promise<void> {
-  const current = writeQueue.then(task);
-  writeQueue = current.catch(() => undefined);
+function enqueueStorageOperation<T>(task: () => Promise<T>): Promise<T> {
+  const current = storageQueue.then(task);
+  storageQueue = current.catch(() => undefined);
   return current;
 }
 
-export async function readGroupCardOrder(userId: string): Promise<string[] | null> {
-  try {
-    const map = parseGroupCardOrder(await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder));
-    return map[userId] ?? null;
-  } catch {
-    return null;
-  }
+export function readGroupCardOrder(userId: string): Promise<string[] | null> {
+  return enqueueStorageOperation(async () => {
+    try {
+      const map = parseGroupCardOrder(await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder));
+      return map[userId] ?? null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+const reconcileGenerationByUser = new Map<string, number>();
+const reconcileRecoveryOrderByUser = new Map<string, string[]>();
+
+/** 성공한 전체 목록을 읽기와 같은 세대 인식 queue 안에서 합성·prune한다. */
+export function reconcileStoredGroupCardOrder(
+  userId: string,
+  serverGroupIds: readonly string[],
+  shouldContinue: () => boolean = () => true,
+): Promise<string[] | null> {
+  const generation = (reconcileGenerationByUser.get(userId) ?? 0) + 1;
+  reconcileGenerationByUser.set(userId, generation);
+  const isCurrent = () => reconcileGenerationByUser.get(userId) === generation && shouldContinue();
+
+  return enqueueStorageOperation(async () => {
+    if (!isCurrent()) return null;
+    let raw: string | null;
+    try {
+      raw = await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder);
+    } catch {
+      return isCurrent() ? reconcileGroupCardOrder(serverGroupIds, null) : null;
+    }
+    const map = parseGroupCardOrder(raw);
+    const recovery = reconcileRecoveryOrderByUser.get(userId);
+    const stored = recovery ?? map[userId] ?? null;
+    const reconciled = reconcileGroupCardOrder(serverGroupIds, stored);
+    if (!isCurrent()) return null;
+
+    if (stored && !isSameGroupOrder(stored, reconciled)) {
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.groupCardOrder,
+          JSON.stringify({ ...map, [userId]: reconciled }),
+        );
+        if (!isCurrent()) {
+          // 더 최신 목록이 대기 중이면 오래된 prune을 되돌려 최신 요청이 실제 이전 순서에서
+          // 다시 합성하게 한다. 복원 실패 시에는 메모리 snapshot을 다음 요청에 넘긴다.
+          try {
+            if (recovery) {
+              await AsyncStorage.setItem(
+                STORAGE_KEYS.groupCardOrder,
+                JSON.stringify({ ...map, [userId]: stored }),
+              );
+            } else if (raw === null) {
+              await AsyncStorage.removeItem(STORAGE_KEYS.groupCardOrder);
+            } else {
+              await AsyncStorage.setItem(STORAGE_KEYS.groupCardOrder, raw);
+            }
+            reconcileRecoveryOrderByUser.delete(userId);
+          } catch {
+            reconcileRecoveryOrderByUser.set(userId, stored);
+          }
+          return null;
+        }
+        reconcileRecoveryOrderByUser.delete(userId);
+      } catch {
+        // prune은 best-effort다. 정상적으로 읽은 합성 순서는 화면에 유지한다.
+      }
+    }
+    return reconciled;
+  });
 }
 
 /**
@@ -73,15 +137,19 @@ export async function readGroupCardOrder(userId: string): Promise<string[] | nul
  */
 export function writeGroupCardOrder(userId: string, groupIds: readonly string[]): Promise<void> {
   const nextOrder = uniqueIds(groupIds);
-  return enqueueWrite(async () => {
+  return enqueueStorageOperation(async () => {
     const map = parseGroupCardOrder(await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder));
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardOrder,
       JSON.stringify({ ...map, [userId]: nextOrder }),
     );
+    // 더 늦게 수락된 사용자의 명시적 순서는 실패한 prune 복구 snapshot보다 우선한다.
+    reconcileRecoveryOrderByUser.delete(userId);
   });
 }
 
 export function __resetGroupCardOrderQueueForTest(): void {
-  writeQueue = Promise.resolve();
+  storageQueue = Promise.resolve();
+  reconcileGenerationByUser.clear();
+  reconcileRecoveryOrderByUser.clear();
 }
