@@ -310,16 +310,21 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   );
 }
 
-// 스텝 진입 페이드. **진입 스타일을 마운트 시점에 결정하고 얼린다.**
+// 스텝 진입 페이드. **진입 스타일을 '동작 줄이기'가 확정된 첫 렌더에 정하고 얼린다.**
 //
 // ⚠️ `useReduceMotion`은 시스템 질의가 끝나기 전까지 보수적으로 `true`를 돌려준다. 그래서
 //    질의가 확정되며 `true → false`로 바뀌는 순간, 이미 화면에 떠 있던 스텝에 `fadeIn`이
 //    **새로 붙는다** — 보이던 화면이 opacity 0으로 깜빡였다가 다시 나타난다(codex 리뷰).
-//    스텝이 바뀔 때는 `key={stepKey}`로 remount되므로, 얼려도 다음 스텝 페이드는 정상 재생된다.
-//    질의가 마운트 시점에 아직 안 끝났다면 **연출을 포기**한다 — 깜빡임보다 무연출이 낫다.
+//
+// ⚠️ 그렇다고 미확정 값으로 얼려 버리면 반대 사고가 난다 — 설정을 켜지 않은 사용자도 콜드
+//    스타트 첫 스텝의 연출을 영구히 잃는다. 그래서 확정 전에는 **판정을 미루고 시작 상태
+//    (opacity 0)로 대기**한다. fadeIn의 시작 프레임과 같은 상태라 어느 쪽으로 확정되든
+//    이어지는 그림에 끊김이 없다. 질의는 실패해도 false로 확정되므로(useReduceMotion.ts)
+//    영원히 가려진 채 남지 않는다.
 //
 // 래퍼를 컴포넌트로 뺀 이유: 마운트 경계가 곧 얼리는 경계다. 부모(OnboardingFlow)는 스텝이
-// 바뀌어도 remount되지 않으므로 부모에서 훅으로 얼리면 첫 스텝 값이 끝까지 남는다.
+// 바뀌어도 remount되지 않으므로 부모에서 훅으로 얼리면 첫 스텝 값이 끝까지 남는다. 반면
+// 래퍼는 `key={stepKey}`로 remount되므로 다음 스텝 페이드는 정상 재생된다.
 function StepFade({
   children,
   panHandlers,
@@ -330,12 +335,15 @@ function StepFade({
   const m = useMotion();
   const decided = useRef(false);
   const frozen = useRef<ReturnType<typeof fadeIn> | undefined>(undefined);
-  if (!decided.current) {
+  if (!decided.current && m.ready) {
     decided.current = true;
     frozen.current = m.css(fadeIn());
   }
   return (
-    <Animated.View style={[styles.flex, frozen.current]} {...panHandlers}>
+    <Animated.View
+      style={[styles.flex, decided.current ? frozen.current : styles.pendingEnter]}
+      {...panHandlers}
+    >
       {children}
     </Animated.View>
   );
@@ -343,4 +351,6 @@ function StepFade({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  // '동작 줄이기' 확정 대기 — fadeIn의 시작 프레임과 같은 상태다
+  pendingEnter: { opacity: 0 },
 });
