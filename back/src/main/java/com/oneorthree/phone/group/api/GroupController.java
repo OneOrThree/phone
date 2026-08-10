@@ -2,16 +2,12 @@ package com.oneorthree.phone.group.api;
 
 import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
-import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
-import com.oneorthree.phone.group.dto.CreateChallengeRequest;
-import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
-import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupDetailResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSearchResponse;
@@ -21,7 +17,6 @@ import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
-import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -46,6 +41,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 그룹 자체(생성·참가·설정·공지·멤버) API. 챌린지 축은 {@link GroupChallengeController},
+ * 내기 축은 {@link GroupBetController} 로 분리됐다(GROMO-1284, policy §9.2 B12) — URL 은 불변.
+ */
 @Tag(name = "Group", description = "Group 세션 관련 API (생성, 조회 등)")
 @RestController
 @RequestMapping("/api/v1")
@@ -53,7 +52,6 @@ import java.util.UUID;
 public class GroupController {
     private final GroupService groupService;
     private final GroupAnnouncementService groupAnnouncementService;
-    private final GroupChallengeService groupChallengeService;
     private final GroupMemberService groupMemberService;
 
     @Operation(summary = "그룹 생성", description = "그룹 생성 및 참가 코드(3시간 유효) 발급. 생성자는 OWNER로 자동 등록.")
@@ -233,86 +231,6 @@ public class GroupController {
             @LoginUser UUID userId
     ) {
         groupMemberService.kickMember(groupId, targetUserId, userId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
-            + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
-            + " — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null."
-            + " TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치),"
-            + " SCREEN_TIME 은 클라 보고값(미보고 = null).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공"),
-            @ApiResponse(responseCode = "400", description = "date 형식 오류"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
-    })
-    @GetMapping("/groups/{groupId}/challenges")
-    public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
-            @PathVariable UUID groupId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @LoginUser UUID userId
-    ) {
-        return ResponseEntity.ok(groupChallengeService.getChallenges(groupId, userId, date));
-    }
-
-    @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환."
-            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 창(시작 > 종료) 허용."
-            + " windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) —"
-            + " 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "챌린지 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "파라미터 누락 / TIME_WINDOW durationMinutes 누락·범위 위반"
-                    + " / windowStart·windowEnd 형식 오류(INVALID_MISSION_PARAMS)"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음"),
-            @ApiResponse(responseCode = "409", description = "카테고리×타입 활성 중복(CHALLENGE_DUPLICATE)"
-                    + " / 다른 카테고리 창형과 시간대 겹침(CHALLENGE_WINDOW_OVERLAP)")
-    })
-    @PostMapping("/groups/{groupId}/challenges")
-    public ResponseEntity<CreateChallengeResponse> createGroupChallenge(
-            @PathVariable UUID groupId,
-            @Valid @RequestBody CreateChallengeRequest request,
-            @LoginUser UUID userId
-    ) {
-        CreateChallengeResponse response = groupChallengeService.createChallenge(groupId, userId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    @Operation(summary = "스크린타임 창 사용분 보고", description = "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별"
-            + " 창 내 사용분 업로드. 그룹원만. (챌린지, 유저, 날짜)당 1행 upsert — 중간 보고 허용, 마지막 값 승리."
-            + " 값은 클라 신뢰(±15분 눈금 오차).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "보고 성공"),
-            @ApiResponse(responseCode = "400", description = "필수 필드 누락 / SCREEN_TIME×TIME_WINDOW 챌린지 아님"
-                    + " / usedMinutes 범위(0~1440) 위반"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
-    })
-    @PutMapping("/groups/{groupId}/challenges/{challengeId}/window-usage")
-    public ResponseEntity<Void> reportChallengeWindowUsage(
-            @PathVariable UUID groupId,
-            @PathVariable UUID challengeId,
-            @Valid @RequestBody WindowUsageReportRequest request,
-            @LoginUser UUID userId
-    ) {
-        groupChallengeService.reportWindowUsage(groupId, challengeId, userId, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "그룹 챌린지 삭제", description = "OWNER만 삭제 가능. 성공 시 204 반환.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "삭제 성공"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
-    })
-    @DeleteMapping("/groups/{groupId}/challenges/{challengeId}")
-    public ResponseEntity<Void> deleteGroupChallenge(
-            @PathVariable UUID groupId,
-            @PathVariable UUID challengeId,
-            @LoginUser UUID userId
-    ) {
-        groupChallengeService.deleteChallenge(groupId, challengeId, userId);
         return ResponseEntity.noContent().build();
     }
 

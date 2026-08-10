@@ -127,10 +127,23 @@ public class GroupChallengeService {
         // 멤버·일별 통계도 챌린지 루프 밖에서 한 번씩만 로드한다(챌린지 수 × 멤버 수의 N+1 방지).
         ProgressSnapshot progress = loadProgressSnapshot(group, challenges, durations, windows, date);
 
-        // 내기(오늘 것 + 지난 정산 1건)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
+        // 멤버 진행률은 카드(memberProgress)와 회차 참가자 진행분(bet.session — 하루형 N16)이
+        // 같은 계산 결과를 나눠 쓴다. 값 null = 미계산(HashMap 이 null 값을 허용해야 한다).
+        Map<UUID, List<ChallengeMemberProgressResponse>> memberProgressByChallengeId = new LinkedHashMap<>();
+        for (GroupChallenge challenge : challenges) {
+            memberProgressByChallengeId.put(challenge.getId(),
+                    memberProgressOf(challenge, durations.get(challenge.getId()),
+                            windows.get(challenge.getId()), progress));
+        }
+
+        // 내기(오늘 것 + 지난 정산 1건 + 다음 회차 축)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
         Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
-                challengeIds, date, userId, myAchievedByChallengeId(challenges, durations, windows, progress, userId));
+                challengeIds, date, userId,
+                myAchievedByChallengeId(challenges, durations, windows, progress, userId),
+                memberProgressByChallengeId);
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
+        Map<UUID, GroupBetService.NextSessionInfo> nextSessions =
+                groupBetService.loadNextSessions(challenges, windows, userId);
 
         // 휴면 배지(GROMO-1201) — 이력·OPEN 보유 챌린지 id 를 각각 IN 절 1회로 배치 조회한다(N+1 없음).
         // OPEN 판정을 요청 date 스코프의 bets 맵에 얹지 않는 이유: 요청 날짜가 서버 KST 내기 날짜와
@@ -157,9 +170,14 @@ public class GroupChallengeService {
                                     || screenTimePermissionGranted)
                             .status(c.getStatus())
                             .createdAt(c.getCreatedAt())
-                            .memberProgress(memberProgressOf(c, duration, window, progress))
+                            .memberProgress(memberProgressByChallengeId.get(c.getId()))
                             .bet(bets.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
+                            // 다음 회차 축(GROMO-1418) — INACTIVE 는 맵에 없어 null 로 나간다.
+                            .nextSessionAt(nextSessions.containsKey(c.getId())
+                                    ? nextSessions.get(c.getId()).nextSessionAt() : null)
+                            .nextSessionJoined(nextSessions.containsKey(c.getId())
+                                    ? nextSessions.get(c.getId()).nextSessionJoined() : null)
                             .dormant(challengeIdsWithBetHistory.contains(c.getId())
                                     && !challengeIdsWithOpenBet.contains(c.getId()))
                             .build();

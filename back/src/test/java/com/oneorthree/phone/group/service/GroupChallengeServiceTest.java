@@ -37,6 +37,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,6 +63,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -141,6 +143,15 @@ class GroupChallengeServiceTest {
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
+
+    /**
+     * 다음 회차 축(GROMO-1418)은 이 테스트의 관심사가 아니라 기본 빈 맵으로 둔다 — 조립부가
+     * null 맵을 만나면 NPE 라 스텁이 필수다. 개별 검증은 {@code GroupBetServiceTest} 가 한다.
+     */
+    @BeforeEach
+    void givenNoNextSessions() {
+        lenient().when(groupBetService.loadNextSessions(any(), any(), any())).thenReturn(Map.of());
+    }
 
     private User member() {
         return User.builder().id(USER_ID).nickname("재영").isGuest(false).build();
@@ -480,7 +491,7 @@ class GroupChallengeServiceTest {
     /** loadCurrentBets 로 넘어간 myAchievedNow 맵을 캡처한다 — 내기 응답에 실릴 값 그대로다. */
     private Map<UUID, Boolean> capturedMyAchieved() {
         ArgumentCaptor<Map<UUID, Boolean>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(groupBetService).loadCurrentBets(any(), any(), any(), captor.capture());
+        verify(groupBetService).loadCurrentBets(any(), any(), any(), captor.capture(), any());
         return captor.getValue();
     }
 
@@ -697,7 +708,7 @@ class GroupChallengeServiceTest {
         // myAchievedNow(내기 참가 판정)도 같은 소스·같은 관용치를 쓴다
         ArgumentCaptor<Map<UUID, Boolean>> achievedCaptor = ArgumentCaptor.forClass(Map.class);
         verify(groupBetService).loadCurrentBets(
-                any(), any(), any(), achievedCaptor.capture());
+                any(), any(), any(), achievedCaptor.capture(), any());
         assertThat(achievedCaptor.getValue()).containsEntry(CHALLENGE_ID, true);
     }
 
@@ -920,7 +931,7 @@ class GroupChallengeServiceTest {
                 .willReturn(List.of());
         // 오늘·과거 조회는 CANCELED 만 빼므로(결과 모달 보호) 정산된 내기가 bets 맵에 실려 온다 —
         // 맵 키 존재로 판정하면 이 케이스가 휴면에서 빠진다. 판정은 bets 맵과 무관해야 한다.
-        given(groupBetService.loadCurrentBets(any(), any(), any(), any()))
+        given(groupBetService.loadCurrentBets(any(), any(), any(), any(), any()))
                 .willReturn(Map.of(CHALLENGE_ID, betResponseOf(GroupBetStatus.SETTLED)));
 
         List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
@@ -938,7 +949,7 @@ class GroupChallengeServiceTest {
                 .willReturn(List.of(CHALLENGE_ID));
         // 결과 모달의 어제 날짜 조회 — date 스코프 bets 맵에는 오늘 OPEN 내기가 실리지 않는다.
         // OPEN 판정을 bets 맵에 얹으면 참가 가능한 챌린지가 휴면으로 오판된다(회귀 고정).
-        given(groupBetService.loadCurrentBets(any(), any(), any(), any())).willReturn(Map.of());
+        given(groupBetService.loadCurrentBets(any(), any(), any(), any(), any())).willReturn(Map.of());
 
         List<GroupChallengeResponse> result =
                 groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY.minusDays(1));

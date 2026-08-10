@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,10 +26,18 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 @Tag(name = "Group Bet", description = "그룹 챌린지 내기 (개설/참가/히스토리). 현재 판 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드")
+@Slf4j
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class GroupBetController {
+
+    /**
+     * 레거시 브리지 경로 사용량 마커(N36) — 구앱만 이 4경로(개설/참가/취소/철회)를 부른다(신앱은
+     * join·join-next·join-week — B5). 로그 집계가 브리지 제거 시점(GROMO-1238) 판단의 근거다.
+     * 실패 요청도 사용이므로 검증 전(컨트롤러 진입)에 남긴다.
+     */
+    private static final String BRIDGE_MARKER = "[legacy-bet-bridge]";
 
     private final GroupBetService groupBetService;
 
@@ -45,7 +54,8 @@ public class GroupBetController {
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
         @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음"),
         @ApiResponse(responseCode = "409",
-                description = "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED / BET_CLOSED(date 가 오늘이 아님)")
+                description = "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED"
+                        + " / BET_CLOSED(오늘·내일 아님 / 비활성 요일 / 창 마감)")
     })
     @PostMapping("/groups/{groupId}/challenges/{challengeId}/bets")
     public ResponseEntity<CreateBetResponse> createBet(
@@ -54,6 +64,8 @@ public class GroupBetController {
             @Valid @RequestBody CreateBetRequest request,
             @LoginUser UUID userId
     ) {
+        log.info("{} createBet — groupId={}, challengeId={}, userId={}",
+                BRIDGE_MARKER, groupId, challengeId, userId);
         CreateBetResponse response = groupBetService.createBet(groupId, challengeId, userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -74,6 +86,7 @@ public class GroupBetController {
             @PathVariable UUID betId,
             @LoginUser UUID userId
     ) {
+        log.info("{} joinBet — groupId={}, betId={}, userId={}", BRIDGE_MARKER, groupId, betId, userId);
         groupBetService.joinBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -96,6 +109,7 @@ public class GroupBetController {
             @PathVariable UUID betId,
             @LoginUser UUID userId
     ) {
+        log.info("{} cancelBet — groupId={}, betId={}, userId={}", BRIDGE_MARKER, groupId, betId, userId);
         groupBetService.cancelBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -119,6 +133,7 @@ public class GroupBetController {
             @PathVariable UUID betId,
             @LoginUser UUID userId
     ) {
+        log.info("{} leaveBet — groupId={}, betId={}, userId={}", BRIDGE_MARKER, groupId, betId, userId);
         groupBetService.leaveBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
