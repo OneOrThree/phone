@@ -24,6 +24,22 @@ export const glassSlide = transition({
   curve: 'glide',
 });
 
+// 노치 글래스 바 표면(탭바·그룹방 하단바 공용) — SVG Path의 fill/stroke라 스타일이 아닌 색 문자열.
+// 쿨 뉴트럴 토큰에서 파생한다(GROMO-1488). 이전 값은 따뜻한 rgba(252,250,246,·)를 직접 써서
+// 인디고·쿨 화이트인 나머지 화면과 색온도가 어긋났다.
+export const glassBarFill = withAlpha(T.paper, 0.55);
+export const glassBarStroke = withAlpha(T.border, 0.75);
+
+// 선택 탭 알약의 네이티브 유리 틴트(iOS 26+) — 폴백 알약과 같은 계열로 맞춰 색온도가 갈리지 않게.
+export const glassBarTint = withAlpha(T.paper, 0.45);
+
+// 선택 탭 알약 폴백(리퀴드 글래스 미지원 기기) — 바보다 불투명해 선택 위치가 도드라진다.
+export const glassBarHighlight = {
+  backgroundColor: withAlpha(T.paper, 0.65),
+  borderWidth: 1,
+  borderColor: withAlpha(T.paper, 0.9),
+} as const;
+
 // 폴백 알약 질감(미지원 기기) — 틴트 유리 + 옅은 포인트색 테두리.
 // (탭바식 흰 테두리는 흰 카드 위를 미끄러질 때 흰 줄로 도드라져 제거)
 export const glassPill = {
