@@ -27,6 +27,9 @@ services:
       DD_SERVICE: gromo-back-prod    # APM 서비스명 — dev(gromo-back)과 이름 분리
       DD_VERSION: ${IMAGE_TAG}
       DD_TRACE_SAMPLE_RATE: "0.2"    # 20% 샘플
+      # dd-java-agent 가 dd.trace_id/dd.span_id 를 MDC 에 주입 — dev 엔 있고 prod 엔 없어서
+      # 정작 장애를 보는 환경에서 로그↔트레이스 상관이 안 됐다 (GROMO-1489).
+      DD_LOGS_INJECTION: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"                          # JVM 런타임 메트릭(힙·GC) — 대시보드 JVM 위젯용
       DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"   # DB 등 inferred 서비스 안 쪼갬 — APM 깔끔
       DD_GIT_REPOSITORY_URL: "github.com/OneOrThree/phone"        # 트레이스↔소스코드 연결
@@ -56,12 +59,20 @@ services:
       - ./certs:/etc/nginx/certs:ro # S3 아티팩트에서 주입된 Origin Cert (cert/key)
     depends_on:
       - app
+    # 통합 서비스 태그 (GROMO-1489) — 없으면 nginx 액세스/에러 로그가 service 태그 없이 컨테이너명으로
+    # 떨어져 app 과 한 화면에서 안 묶인다. dev 의 db 와 같은 처리.
+    labels:
+      com.datadoghq.tags.env: "prod"
+      com.datadoghq.tags.service: "gromo-nginx-prod"
+      com.datadoghq.tags.version: "1.28-alpine"
     networks: [app-network]
 
   # 관측 일원화(Datadog, 792) — 컨테이너 메트릭 + 컨테이너 stdout 로그 수집(과금 수용 결정 2026-07-18).
   # 앱 시스템 로그는 logback CONSOLE(stdout) 경유로 수집되고, user-activity 로그는 파일 전용이라
   # Datadog에 안 감(분석 자산 — S3 파이프라인 590·790 담당). 파일 바인딩은 보존·SSM 조사용.
-  # 이미지는 multi-arch라 t4g(arm64)에서 그대로 동작. APM은 비용 문제로 미사용(792 제외 결정).
+  # 이미지는 multi-arch라 t4g(arm64)에서 그대로 동작.
+  # ⚠️ 792 당시 "APM 미사용" 결정을 적어뒀으나 실제로는 app 이 -javaagent 로 APM 을 쓰고 있다(위 24행).
+  #    주석이 구현과 어긋나 있어 정정한다 — APM 은 20% 샘플로 사용 중이다 (GROMO-1489).
   datadog-agent:
     image: gcr.io/datadoghq/agent:7
     container_name: gromo-datadog-agent
@@ -78,6 +89,14 @@ services:
       # 로그 수집 — 컨테이너 stdout tail
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      # 로그를 docker API 스트림이 아니라 호스트 로그파일에서 tail — docker API 가 느려지면 로그 소스
+      # 자동탐지가 통째로 실패한다(dev 에서 2일간 LogsProcessed=0 로 실현됐다). dev 와 같은 설정 (GROMO-1489).
+      DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE: "true"
+      DD_LOGS_CONFIG_DOCKER_CONTAINER_FORCE_USE_FILE: "true"
+      DD_CONTAINER_IMAGE_ENABLED: "false"      # images/json 폴링 제거 — 안 쓰는 인벤토리 기능이 docker 체크를 깬다
+      DD_SBOM_CONTAINER_IMAGE_ENABLED: "false"
+      DD_DOCKER_QUERY_TIMEOUT: "30"            # 기본 5초
+      DD_APM_ENABLED: "true"                 # 기본값이지만 명시 — dev 와 같은 배선임을 파일만 보고 알 수 있게
       DD_APM_NON_LOCAL_TRAFFIC: "true"       # app 컨테이너에서 오는 트레이스 수신
       DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true" # app 컨테이너 DogStatsD(JVM 런타임 메트릭) 수신 — 없으면 JVM 위젯 빈다
       DD_CONTAINER_EXCLUDE: "name:gromo-datadog-agent"

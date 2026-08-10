@@ -57,6 +57,28 @@ decorator:
     p6spy:
       enable-logging: false
 
+# 관측 (GROMO-1489) — dev(application-dev.yml)와 같은 배선. 그전까지 prod 엔 이 블록이 없어
+# /actuator/prometheus 가 아예 안 열렸고, 그래서 RED·HikariCP·JVM 커스텀 메트릭이 prod 에만 없었다.
+# 공개 8080 이 아닌 내부 전용 관리 포트(9091)로 격리 — compose 에서 9091 을 호스트에 노출하지 않으므로
+# app-network 안의 datadog-agent 만 접근한다(nginx 도 8080 만 프록시). JwtFilter 는 /api/* 만 필터하니
+# /actuator/* 는 무인증 — 포트 격리가 유일한 방어선이다. 9091 을 절대 ports 에 올리지 말 것.
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: gromo-back   # dev 와 같은 값 — 환경 구분은 Agent 가 붙이는 env 태그(dev/prod)가 한다
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    # p95/p99(histogram_quantile) 용 버킷
+
 logging:
   level:
     root: INFO

@@ -112,3 +112,46 @@ jobs:
           fi
           echo "== agent status (요약) =="
           docker exec gromo-datadog-agent agent status 2>/dev/null | grep -iE "API Keys|Logs Agent|APM Agent|openmetrics" -A1 || true
+
+      # 수집이 실제로 되고 있는지 어서션 (GROMO-1489).
+      # 이전 버전은 위 grep 을 `|| true` 로 흘려보내기만 해서, Agent 가 살아 있고 배선도 맞는데 컨테이너
+      # 로그가 2일간 0건인 상태를 아무도 몰랐다(워크플로는 계속 초록불). 배선이 붙었다 ≠ 수집이 된다.
+      # 실패가 아니라 경고로 두는 항목이 있는 이유: 방금 재기동한 직후라 표본이 아직 안 쌓였을 수 있다.
+      - name: 수집 검증 (로그·컨테이너·OpenMetrics)
+        if: ${{ inputs.action != 'down' }}
+        run: |
+          set -uo pipefail
+          echo "수집 표본이 쌓이도록 60초 대기..."
+          sleep 60
+          STATUS=$(docker exec gromo-datadog-agent agent status 2>/dev/null)
+
+          fail=0
+
+          # 1) 컨테이너 로그 — LogsProcessed 가 0 이면 tailer 가 하나도 안 붙은 것
+          processed=$(echo "$STATUS" | grep -m1 'LogsProcessed:' | tr -dc '0-9')
+          echo "LogsProcessed=${processed:-?}"
+          if [ "${processed:-0}" -eq 0 ]; then
+            echo "::error::컨테이너 로그 수집 0건 — DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE 와 /var/lib/docker/containers 마운트를 확인하세요"
+            fail=1
+          fi
+
+          # 2) 컨테이너별 메트릭 — container/docker 체크가 ERROR 면 컨테이너 단위 관측이 통째로 빈다
+          if echo "$STATUS" | grep -qE '^\s+Instance ID: (container|docker).*\[ERROR\]'; then
+            echo "::error::container/docker 체크 ERROR — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
+            echo "$STATUS" | grep -A6 -E '^\s+Instance ID: (container|docker)' || true
+            fail=1
+          fi
+
+          # 3) OpenMetrics 브리지 — app 이미지 AD 라벨(back/Dockerfile)로 붙는다. app 기동 실패 시에도 여기서 잡힌다
+          if echo "$STATUS" | grep -qE '^\s+Instance ID: openmetrics.*\[ERROR\]'; then
+            echo "::warning::OpenMetrics 스크레이프 실패 — app:9091/actuator/prometheus 도달 여부 확인(app 부팅 중이면 일시적)"
+            echo "$STATUS" | grep -A6 -E '^\s+Instance ID: openmetrics' || true
+          fi
+
+          # 4) APM — 트레이스가 실제로 들어오는지(app 에 -javaagent 가 붙었는지의 최종 증거)
+          if ! echo "$STATUS" | grep -q 'Traces received'; then
+            echo "::warning::최근 1분간 수신 트레이스 없음 — dev 무트래픽이면 정상, 배포 직후엔 요청을 한 번 태워 확인하세요"
+          fi
+
+          [ "$fail" -eq 0 ] || { echo "수집 검증 실패 — 위 오류 참고"; exit 1; }
+          echo "수집 검증 통과"
