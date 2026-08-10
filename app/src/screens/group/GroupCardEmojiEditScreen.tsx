@@ -58,7 +58,9 @@ export default function GroupCardEmojiEditScreen() {
     };
   }, [groupId, userId]);
 
-  const changed = selected !== null && baseline !== null && selected !== baseline;
+  // 실패한 쓰기는 store의 pending 선택을 유지한다. 기존 baseline을 다시 고른 경우에도
+  // 그 pending을 덮어쓸 수 있어야 하므로 실패 상태 자체를 저장 가능한 변경으로 취급한다.
+  const changed = selected !== null && baseline !== null && (selected !== baseline || saveFailed);
 
   const save = useCallback(async () => {
     if (!userId || !selected || !changed || saving) return;

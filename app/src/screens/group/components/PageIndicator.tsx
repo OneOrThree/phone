@@ -23,9 +23,15 @@ interface PageIndicatorProps {
   pageCount: number;
   activeIndex: number;
   onSelectPage: (page: number, trigger?: 'indicator_press' | 'accessibility_action') => void;
+  disabled?: boolean;
 }
 
-export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndicatorProps) {
+export function PageIndicator({
+  pageCount,
+  activeIndex,
+  onSelectPage,
+  disabled = false,
+}: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
 
@@ -39,7 +45,10 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
       onLayout={onLayout}
       style={s.container}
       testID="group.deck.indicator"
-      accessible
+      pointerEvents={disabled ? 'none' : 'auto'}
+      accessible={!disabled}
+      accessibilityElementsHidden={disabled}
+      importantForAccessibility={disabled ? 'no-hide-descendants' : 'auto'}
       accessibilityRole="adjustable"
       accessibilityLabel={`${activeIndex + 1} / ${pageCount}`}
       accessibilityActions={[
@@ -49,6 +58,7 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
           : []),
       ]}
       onAccessibilityAction={(event) => {
+        if (disabled) return;
         if (event.nativeEvent.actionName === 'decrement' && activeIndex > 0)
           onSelectPage(activeIndex - 1, 'accessibility_action');
         if (event.nativeEvent.actionName === 'increment' && activeIndex < pageCount - 1)
@@ -65,6 +75,7 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
             <Pressable
               key={page}
               style={s.dotHit}
+              disabled={disabled}
               onPress={() => onSelectPage(page, 'indicator_press')}
               testID={`group.deck.indicator.dot.${page}`}
             >

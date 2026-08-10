@@ -197,6 +197,35 @@ describe('내 카드 아이콘 로컬 draft', () => {
     expect(Alert.alert).not.toHaveBeenCalled();
     expect(mockNav.goBack).toHaveBeenCalledTimes(1);
   });
+
+  test('로컬 아이콘 쓰기가 지연돼도 생성 성공 화면 전환과 이탈 잠금을 막지 않는다', async () => {
+    let finishWrite: () => void = () => {};
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = resolve;
+        }),
+    );
+    await renderScreen();
+    await typeName('느린 로컬 저장 그룹');
+
+    await press('만들기');
+
+    await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalled());
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
+    const afterCreate = { preventDefault: jest.fn() };
+    mockNav.beforeRemove?.(afterCreate);
+    expect(afterCreate.preventDefault).not.toHaveBeenCalled();
+    expect(logGroupCardIconSaveResult).not.toHaveBeenCalled();
+
+    await act(async () => finishWrite());
+    await waitFor(() =>
+      expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+        surface: 'create',
+        result: 'success',
+      }),
+    );
+  });
 });
 
 describe('전송 계약 — 챌린지 없이 만든다(3차 §D18)', () => {

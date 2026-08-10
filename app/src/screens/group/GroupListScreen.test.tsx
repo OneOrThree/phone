@@ -430,6 +430,10 @@ describe('카드 렌더', () => {
     expect(
       screen.getByTestId('group.list.items', { includeHiddenElements: true }).props.pointerEvents,
     ).toBe('none');
+    expect(
+      screen.getByTestId('group.deck.indicator', { includeHiddenElements: true }).props
+        .pointerEvents,
+    ).toBe('none');
     await completeDeckLayout();
     await waitFor(() =>
       expect(
@@ -887,6 +891,44 @@ describe('제스처 중재와 재정렬', () => {
     expect(logGroupCardReordered).toHaveBeenCalledWith(
       expect.objectContaining({ trigger: 'accessibility_action', from_index: 0, to_index: 1 }),
     );
+  });
+
+  test('접근성 순서 변경 수락은 대기 중인 그룹방 복원을 취소한다', async () => {
+    const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
+    const view = await renderList(groups);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+
+    await act(async () => {
+      fireEvent(
+        screen.getByTestId(`group.card.grip.${GROUP_ID_2}`, { includeHiddenElements: true }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'decrement' } },
+      );
+    });
+
+    await view.rerender(
+      <GroupListScreen
+        groups={groups}
+        groupsRevision={1}
+        userId="user-1"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={1}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID_2, GROUP_ID]);
   });
 
   test('hydration 전에는 grip 재정렬 입력을 받지 않는다', async () => {

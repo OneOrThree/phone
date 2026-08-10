@@ -95,6 +95,22 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   expect(mockGoBack).not.toHaveBeenCalled();
 });
 
+test('쓰기 실패 뒤 기존 아이콘 재선택은 pending 값을 되돌려 저장할 수 있다', async () => {
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🧠')));
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+  await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/);
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🎯')));
+  expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+
+  await waitFor(async () => expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🎯'));
+  expect(mockGoBack).toHaveBeenCalledTimes(1);
+});
+
 test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성화한다', async () => {
   mockUser.userId = null;
   await render(<GroupCardEmojiEditScreen />);

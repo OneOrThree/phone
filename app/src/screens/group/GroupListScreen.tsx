@@ -1032,6 +1032,7 @@ export default function GroupListScreen({
                     (group) => group.groupId === item.groupId,
                   );
                   if (commitMove(item.groupId, from + step, 'accessibility_action')) {
+                    roomReturnRef.current = null;
                     setFlippedGroupId(null);
                     setBackSource(null);
                   }
@@ -1086,7 +1087,12 @@ export default function GroupListScreen({
         </Text>
       )}
 
-      <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
+      <PageIndicator
+        pageCount={pageCount}
+        activeIndex={activeIndex}
+        onSelectPage={selectPage}
+        disabled={!deckInteractive}
+      />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
       <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>

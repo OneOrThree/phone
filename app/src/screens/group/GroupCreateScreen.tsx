@@ -198,14 +198,11 @@ export default function GroupCreateScreen() {
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
       if (userId) {
-        try {
-          await writeGroupCardEmoji(userId, groupId, cardEmoji);
-          logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
-        } catch {
-          logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
-          // 선택값은 런타임 pending 상태에 남아 목록에 그대로 표시되고 다음 활성화에서
-          // 자동 재시도된다. 이미 성공한 생성 흐름을 잘못된 기본 아이콘 안내로 막지 않는다.
-        }
+        // 호출 즉시 런타임 pending에 선택값이 남으므로 로컬 RMW 완료는 서버 생성 성공 뒤
+        // 화면 전환의 선행조건이 아니다. 결과 계측만 비동기로 마무리하고 목록에서 재시도한다.
+        writeGroupCardEmoji(userId, groupId, cardEmoji)
+          .then(() => logGroupCardIconSaveResult({ surface: 'create', result: 'success' }))
+          .catch(() => logGroupCardIconSaveResult({ surface: 'create', result: 'failed' }));
       }
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
       submittingRef.current = false;

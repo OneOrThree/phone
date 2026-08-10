@@ -51,4 +51,21 @@ describe('PageIndicator', () => {
     });
     expect(onSelectPage).toHaveBeenCalledWith(2, 'accessibility_action');
   });
+
+  test('노출 확정 전에는 포인터와 접근성 입력을 모두 차단한다', async () => {
+    const onSelectPage = jest.fn();
+    await render(
+      <PageIndicator pageCount={3} activeIndex={0} onSelectPage={onSelectPage} disabled />,
+    );
+
+    const indicator = screen.getByTestId('group.deck.indicator', {
+      includeHiddenElements: true,
+    });
+    expect(indicator.props.pointerEvents).toBe('none');
+    expect(indicator.props.accessibilityElementsHidden).toBe(true);
+    fireEvent(indicator, 'accessibilityAction', {
+      nativeEvent: { actionName: 'increment' },
+    });
+    expect(onSelectPage).not.toHaveBeenCalled();
+  });
 });
