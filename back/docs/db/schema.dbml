@@ -912,10 +912,11 @@ Table notification_sent_logs [note: '발송 이력 로그 (GROMO-579) + 사건 �
   claimed_at     timestamptz [note: '선점 시각 (V45) — PENDING 리스 만료(10분) 판정 기준']
   group_id       uuid        [note: '묶음 메타 (V45) — (유저 × 그룹 × 슬롯) 묶음 축, dedup 키 아님 (N20 · N41)']
   slot_at        timestamptz [note: '묶음 메타 (V45) — 사건이 속한 15분 시간슬롯 (이월돼도 원래 슬롯 유지 — N44)']
+  next_attempt_at timestamptz [note: '이월 클레임의 다음 시도 시각 (V45) — 이월 시점의 조용한 시간 종료 시각. 없으면 조용한 시간 내내 매 틱 같은 DEFERRED 전량을 재처리한다']
 
   indexes {
     (user_id, kind, subject_id) [unique, name: 'uq_notification_sent_logs_user_kind_subject', note: '사건 단위 선점 유니크 — INSERT ON CONFLICT DO NOTHING 대상 (N41)']
-    (status, claimed_at) [name: 'idx_notification_sent_logs_unsent_claims', note: "부분 인덱스 WHERE status <> 'SENT' — 미발송 클레임 스캔"]
+    (status, next_attempt_at, claimed_at) [name: 'idx_notification_sent_logs_unsent_claims', note: "부분 인덱스 WHERE status <> 'SENT' — 미발송 클레임 스캔 + 도래한 이월분만 조회"]
   }
 }
 

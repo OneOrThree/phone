@@ -96,8 +96,14 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      *   <li>{@code PENDING} 중 <b>슬롯이 닫힌</b> 것 — 같은 슬롯에 사건이 더 붙을 여지가 없어졌으므로
      *       이제 묶어서 보낸다. 이벤트 경로가 사건마다 즉시 보내면 같은 슬롯·같은 그룹의 회차 수만큼
      *       푸시가 나가고, 이미 {@code SENT} 인 클레임은 재훑기가 다시 묶을 수 없다(N20 파기).</li>
-     *   <li>{@code DEFERRED} — 조용한 시간 이월분(N44). 실제 발송 가부는 유저별 quiet hours 로 다시 본다.</li>
+     *   <li>{@code DEFERRED} — 조용한 시간 이월분 중 <b>다음 시도 시각이 도래한</b> 것만(N44).
+     *       실제 발송 가부는 유저별 quiet hours 로 다시 본다.</li>
      * </ul>
+     *
+     * <p><b>{@code next_attempt_at} 필터가 없으면</b> 조용한 시간 내내 같은 {@code DEFERRED} 전량을
+     * 5분마다 다시 잠그고 회차·참가자·설정을 재조회한 뒤 {@code DEFERRED} 로 되돌려 쓴다 —
+     * 자정 정산분은 07:00 까지 하루형 참가자당 최대 84회다. 불필요한 행 잠금·WAL 쓰기에 더해,
+     * 대상이 많으면 그 틱에 실제로 보내야 할 새 클레임까지 뒤로 밀린다.</p>
      *
      * <p><b>{@code FOR UPDATE SKIP LOCKED}</b>(락 타임아웃 힌트 {@code -2} = Hibernate
      * {@code SKIP_LOCKED}) — 크론과 수동 트리거가 겹쳐도 한 워커만 같은 행을 가져간다. 이게 없으면
@@ -107,16 +113,37 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
      * @param kinds            이 서비스가 소유한 kind 만(다른 트리거의 클레임을 훔치지 않는다)
      * @param slotClosedBefore 이 시각 이하의 슬롯만 발송 대상 — 크론은 {@code now − 슬롯폭},
      *                         수동 트리거는 {@code now}(즉시 확인용)를 넘긴다
+     * @param now              이월분의 도래 판정 기준 — {@code next_attempt_at} 이 이 시각 이하인
+     *                         것만 집는다({@code null} 은 시각 미기록 = 즉시 대상)
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
     @Query("SELECT l FROM NotificationSentLog l WHERE l.kind IN :kinds AND ("
-            + "l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED "
+            + "(l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED "
+            + "AND (l.nextAttemptAt IS NULL OR l.nextAttemptAt <= :now)) "
             + "OR (l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.PENDING "
             + "AND l.slotAt <= :slotClosedBefore)) ORDER BY l.slotAt, l.id")
     List<NotificationSentLog> findDueClaimsForUpdate(
             @Param("kinds") Collection<String> kinds,
-            @Param("slotClosedBefore") Instant slotClosedBefore);
+            @Param("slotClosedBefore") Instant slotClosedBefore,
+            @Param("now") Instant now);
+
+    /**
+     * 이월(DEFERRED) 중 <b>다음 시도 시각이 도래한</b> 클레임만 원자 선점해 가져온다 —
+     * 모집 알림처럼 {@code PENDING} 을 같은 틱 안에서 소비하는 트리거용이다(GROMO-1417 · N44).
+     *
+     * <p>{@link #findDueClaimsForUpdate} 를 쓰지 않는 이유: 그 쪽은 슬롯이 닫힌 {@code PENDING} 도
+     * 함께 집는데, 모집은 스캔이 방금 INSERT 한 {@code PENDING} 이 같은 트랜잭션에 살아 있어
+     * <b>같은 행을 두 번</b> 처리하게 된다(스캔 경로 + 이월 경로 = 이중 발송).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
+    @Query("SELECT l FROM NotificationSentLog l WHERE l.kind IN :kinds "
+            + "AND l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED "
+            + "AND (l.nextAttemptAt IS NULL OR l.nextAttemptAt <= :now) ORDER BY l.slotAt, l.id")
+    List<NotificationSentLog> findDueDeferredClaimsForUpdate(
+            @Param("kinds") Collection<String> kinds,
+            @Param("now") Instant now);
 
     /**
      * 클레임 종결 — 발송 성사(SENT + 실발송 시각) 또는 이월(DEFERRED, sentAt null 유지) 마킹.
@@ -130,6 +157,22 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
             @Param("ids") Collection<UUID> ids,
             @Param("status") NotificationSendStatus status,
             @Param("sentAt") Instant sentAt);
+
+    /**
+     * 클레임 이월(N44) — 조용한 시간에 걸린 표시 푸시를 {@code DEFERRED} 로 두고 <b>다음 시도
+     * 시각</b>(그 유저의 조용한 시간 종료 시각)을 함께 박는다. 이 시각이 없으면 flush 가 매 틱
+     * 같은 집합을 다시 처리한다({@link #findDueClaimsForUpdate} 주석 참조).
+     *
+     * <p>{@code sent_at} 은 null 로 되돌린다 — 아직 발송 전이라는 사실이 상태와 어긋나면 안 된다.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE NotificationSentLog l SET "
+            + "l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED, "
+            + "l.sentAt = null, l.nextAttemptAt = :nextAttemptAt WHERE l.id IN :ids")
+    int deferByIds(
+            @Param("ids") Collection<UUID> ids,
+            @Param("nextAttemptAt") Instant nextAttemptAt);
 
     /**
      * 클레임 반납 — FCM 실패·필터 스킵 건의 PENDING 행을 지워 재훑기(48h lookback)가 다시 집게

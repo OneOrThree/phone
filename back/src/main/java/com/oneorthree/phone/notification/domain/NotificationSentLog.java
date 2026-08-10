@@ -183,6 +183,16 @@ public class NotificationSentLog {
     @Column(name = "slot_at")
     private Instant slotAt;
 
+    /**
+     * 이월 클레임의 <b>다음 시도 시각</b>(V45) — {@code DEFERRED} 로 미룰 때 그 유저의 조용한 시간
+     * 종료 시각을 박는다. 없으면 5분 flush 가 조용한 시간 내내 같은 {@code DEFERRED} 전량을 매 틱
+     * 다시 잠그고 회차·참가자·설정을 재조회한 뒤 그대로 되돌려 쓴다(자정 정산분이면 07:00 까지
+     * 하루형 참가자당 84회). {@code PENDING} 에는 쓰지 않는다 — 그쪽 재시도 기준은 리스
+     * ({@code claimed_at})다.
+     */
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
+
     @PrePersist
     void prePersist() {
         // 종전 서비스(리그·추월·창 종료 등)는 kind/status 를 모른 채 type 만 채운다 — DB NOT NULL 과

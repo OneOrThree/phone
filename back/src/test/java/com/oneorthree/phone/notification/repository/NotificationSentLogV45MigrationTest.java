@@ -155,6 +155,26 @@ class NotificationSentLogV45MigrationTest {
     }
 
     @Test
+    @DisplayName("이월 행은 next_attempt_at 을 담는다 — 없으면 조용한 시간 내내 매 틱 재처리된다")
+    void carriesNextAttemptAtOnDeferredRows() {
+        migrate("45");
+        UUID userId = UUID.randomUUID();
+        UUID rowId = UUID.randomUUID();
+        jdbc.update("INSERT INTO notification_sent_logs"
+                + " (id, user_id, type, kind, subject_id, status, claimed_at, next_attempt_at)"
+                + " VALUES (?, ?, 'BET_RESULT', 'BET_RESULT', ?, 'DEFERRED', now(), now() + interval '7 hours')",
+                rowId, userId, UUID.randomUUID());
+
+        // 도래 전에는 조회 대상이 아니다(발송 경로 술어와 같은 조건).
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs"
+                + " WHERE status = 'DEFERRED' AND (next_attempt_at IS NULL OR next_attempt_at <= now())",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs"
+                + " WHERE status = 'DEFERRED' AND next_attempt_at <= now() + interval '8 hours'",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("status CHECK — PENDING·DEFERRED·SENT 만 허용하고, shedlock 테이블이 생긴다")
     void enforcesStatusDomainAndCreatesShedlock() {
         migrate("45");

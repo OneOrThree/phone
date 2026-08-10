@@ -322,10 +322,16 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
      * {@code settle_after − 15분 ≤ now < settle_after} 를 표현한다 — 5분 크론이 이 15분 폭을 3틱
      * 훑지만 회차 단위 클레임이 첫 틱만 통과시킨다.
      *
-     * <p><b>제외는 {@code SCREEN_TIME × DURATION} 하나뿐</b>이다(HLD §6) — 그 조합만 11:30 별도
-     * 슬롯으로 이관됐다(<b>미구현 — 후속</b>). {@code FOCUS × DURATION} 을 함께 빼면
-     * {@code settle_after} 가 KST 자정+1h 라 23:45 사일런트가 영영 안 나가는데, 조용한 시간
-     * (23–07)이 사일런트 예외인 이유가 정확히 이 케이스다(HLD §6).
+     * <p><b>제외는 {@code SCREEN_TIME × DURATION} 하나뿐</b>이다(HLD §6). {@code FOCUS × DURATION}
+     * 을 함께 빼면 {@code settle_after} 가 KST 자정+1h 라 23:45 사일런트가 영영 안 나가는데,
+     * 조용한 시간(23–07)이 사일런트 예외인 이유가 정확히 이 케이스다(HLD §6).
+     *
+     * <p>⚠️ <b>제외된 조합의 대체 트리거는 아직 없다</b>. HLD §6(638–641행)은 이 조합을 여기서
+     * 빼는 대신 <b>11:30 에 별도 사일런트</b>를 보내기로 정했지만 <b>그 11:30 트리거는 구현되지
+     * 않았다</b> — 즉 {@code SCREEN_TIME × DURATION} 참가자는 12:00 정산 전에 사일런트 flush 를
+     * <b>한 번도 받지 못한다</b>. 앱이 백그라운드면 최신 {@code daily_screen_time_stats} 가 안
+     * 올라와 미보고가 미달성으로 확정될 수 있다. 사일런트 푸시로 메울 수 있는 문제인지부터
+     * 정책 축에서 다시 정하기로 해 <b>별도 후속 티켓</b>으로 뺐다(GROMO-1417 8차 리뷰 판정).
      */
     @Query("SELECT s FROM GroupChallengeBetSession s JOIN FETCH s.group "
             + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "

@@ -293,7 +293,7 @@ public class BetEventNotificationService {
      */
     FlushCounts flushClaims(Instant now, Instant slotClosedBefore) {
         List<NotificationSentLog> rows = notificationSentLogRepository.findDueClaimsForUpdate(
-                OWNED_KINDS, slotClosedBefore);
+                OWNED_KINDS, slotClosedBefore, now);
         if (rows.isEmpty()) {
             return new FlushCounts(0, 0, 0);
         }
@@ -364,8 +364,11 @@ public class BetEventNotificationService {
             UserNotificationSettings settings = settingsByUserId.get(user.getId());
             if (PushNotificationService.isQuietHours(settings, now)) {
                 // 표시 푸시는 버리지 않고 이월한다(N44) — 원래 슬롯(slot_at)은 행에 이미 있다.
-                notificationSentLogRepository.updateStatusByIds(
-                        rowIds, NotificationSendStatus.DEFERRED, null);
+                // 다음 시도 시각을 <그 유저의> 조용한 시간 종료로 박아 둔다: 없으면 5분 flush 가
+                // 종료 때까지 같은 DEFERRED 전량을 매 틱 다시 잠그고 회차·참가자·설정을 재조회한 뒤
+                // 그대로 되돌려 쓴다(자정 정산분이면 07:00 까지 참가자당 최대 84회).
+                notificationSentLogRepository.deferByIds(
+                        rowIds, PushNotificationService.quietHoursEndAfter(settings, now));
                 skipped += claims.size();
                 continue;
             }

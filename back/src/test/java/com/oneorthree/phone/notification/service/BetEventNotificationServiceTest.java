@@ -115,19 +115,26 @@ class BetEventNotificationServiceTest {
                             .build());
                     return 1;
                 });
-        given(notificationSentLogRepository.findDueClaimsForUpdate(anyCollection(), any()))
+        given(notificationSentLogRepository.findDueClaimsForUpdate(anyCollection(), any(), any()))
                 .willAnswer(invocation -> {
                     Collection<String> kinds = invocation.getArgument(0);
                     Instant slotClosedBefore = invocation.getArgument(1);
+                    Instant at = invocation.getArgument(2);
                     return recordedClaims.stream()
                             .filter(row -> kinds.contains(row.getKind()))
                             .filter(row -> row.getStatus() == NotificationSendStatus.DEFERRED
-                                    || !row.getSlotAt().isAfter(slotClosedBefore))
+                                    ? isDue(row, at)
+                                    : !row.getSlotAt().isAfter(slotClosedBefore))
                             .toList();
                 });
         given(userNotificationSettingsRepository.findAllById(anyCollection()))
                 .willReturn(List.<UserNotificationSettings>of());
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+    }
+
+    /** 이월 행의 도래 판정 — 실 쿼리의 {@code next_attempt_at IS NULL OR <= :now} 를 흉내낸다. */
+    private static boolean isDue(NotificationSentLog row, Instant at) {
+        return row.getNextAttemptAt() == null || !row.getNextAttemptAt().isAfter(at);
     }
 
     private static User user(UUID id) {
@@ -361,7 +368,7 @@ class BetEventNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("N44 — 조용한 시간(00:10)의 결과는 발송하지 않고 DEFERRED 로 이월한다")
+    @DisplayName("N44 — 조용한 시간(00:10)의 결과는 발송하지 않고 DEFERRED + 다음 시도 시각(07:00)으로 이월한다")
     void defersDisplayPushDuringQuietHours() {
         GroupChallengeBetSession settled =
                 session(GroupBetStatus.SETTLED, null, MIDNIGHT.minus(Duration.ofMinutes(30)));
@@ -374,9 +381,43 @@ class BetEventNotificationServiceTest {
         service.flushDueBundles(MIDNIGHT);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
-        verify(notificationSentLogRepository).updateStatusByIds(
-                anyCollection(), eq(NotificationSendStatus.DEFERRED), eq(null));
+        // 다음 시도 시각이 없으면 07:00 까지 5분마다 같은 행을 다시 처리한다(참가자당 84회).
+        verify(notificationSentLogRepository).deferByIds(anyCollection(), eq(SEVEN));
+        verify(notificationSentLogRepository, never()).updateStatusByIds(
+                anyCollection(), eq(NotificationSendStatus.DEFERRED), any());
         verify(notificationSentLogRepository, never()).deleteByIds(anyCollection());
+    }
+
+    @Test
+    @DisplayName("이월분은 다음 시도 시각 전까지 다시 처리되지 않는다 — 조용한 시간 내내 5분마다 재작업 금지")
+    void deferredClaimIsNotReprocessedBeforeNextAttempt() {
+        GroupChallengeBetSession settled =
+                session(GroupBetStatus.SETTLED, null, MIDNIGHT.minus(Duration.ofMinutes(30)));
+        User target = user(UUID.randomUUID());
+        GroupChallengeBetParticipant betParticipant = participant(settled, target, true, 100);
+        recordedClaims.add(NotificationSentLog.builder()
+                .id(UUID.randomUUID())
+                .userId(target.getId())
+                .type(NotificationSentLog.TYPE_BET_RESULT)
+                .kind(NotificationSentLog.TYPE_BET_RESULT)
+                .subjectId(settled.getId())
+                .groupId(GROUP_ID)
+                .slotAt(BetEventNotificationService.slotOf(settled.getSettledAt()))
+                .status(NotificationSendStatus.DEFERRED)
+                .claimedAt(MIDNIGHT)
+                .nextAttemptAt(SEVEN)
+                .build());
+        givenFlushLookup(List.of(settled), List.of(betParticipant));
+
+        // 00:15·00:20 … 조용한 시간의 두 틱 — 도래 전이라 아무것도 집지 않는다.
+        var first = service.flushDueBundles(MIDNIGHT.plus(Duration.ofMinutes(5)));
+        var second = service.flushDueBundles(MIDNIGHT.plus(Duration.ofMinutes(10)));
+
+        assertThat(first.targetCount()).isZero();
+        assertThat(second.targetCount()).isZero();
+        verify(notificationSentLogRepository, never()).deferByIds(anyCollection(), any());
+        verify(notificationSentLogRepository, never()).updateStatusByIds(anyCollection(), any(), any());
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
     @Test

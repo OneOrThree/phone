@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 
 /**
  * 발송 공통 규칙 필터 체인 (GROMO-528 커밋③) — apns.md §2.
@@ -119,13 +120,8 @@ public class PushNotificationService {
      * 판정 시각은 KST 고정 (412/519 리그 도메인과 통일).
      */
     static boolean isQuietHours(UserNotificationSettings settings, Instant now) {
-        LocalTime start = DEFAULT_QUIET_START;
-        LocalTime end = DEFAULT_QUIET_END;
-        if (settings != null && settings.isNightModeEnabled()
-                && settings.getNightStartTime() != null && settings.getNightEndTime() != null) {
-            start = settings.getNightStartTime();
-            end = settings.getNightEndTime();
-        }
+        LocalTime start = quietStartOf(settings);
+        LocalTime end = quietEndOf(settings);
         // start == end 는 빈 구간 — 퇴화 설정 방어(항상 발송 허용)
         if (start.equals(end)) {
             return false;
@@ -137,5 +133,46 @@ public class PushNotificationService {
         }
         // 자정을 걸치는 구간 (예: 21:00–09:00)
         return !t.isBefore(start) || t.isBefore(end);
+    }
+
+    /**
+     * 지금 걸린 조용한 시간이 <b>끝나는 시각</b>(GROMO-1417 · N44) — 이월 클레임의
+     * {@code next_attempt_at} 이 된다. 구간이 {@code [start, end)} 라 종료 시각 정각은 이미 발송
+     * 허용이므로 그 시각을 그대로 돌려준다.
+     *
+     * <p>구간은 유저 설정({@code nightStartTime}·{@code nightEndTime})이라 임의의 {@code HH:mm}
+     * 이다 — "조용한 시간 = 07:00 종료"로 가정하면 09:00 종료 유저의 이월분이 07:00 에 깨어나
+     * 다시 조용한 시간에 걸린다(그리고 그 뒤로 매 틱 반복된다).
+     *
+     * @return {@code now} <b>이후</b>의 가장 이른 종료 시각. 퇴화 구간(start == end, 조용한 시간
+     *     없음)이면 {@code now} — 호출측이 조용한 시간일 때만 부르므로 도달하지 않는 방어값이다.
+     */
+    static Instant quietHoursEndAfter(UserNotificationSettings settings, Instant now) {
+        LocalTime start = quietStartOf(settings);
+        LocalTime end = quietEndOf(settings);
+        if (start.equals(end)) {
+            return now;
+        }
+        ZonedDateTime candidate = now.atZone(KST).toLocalDate().atTime(end).atZone(KST);
+        if (!candidate.toInstant().isAfter(now)) {
+            // 종료 시각이 오늘 이미 지났다 = 자정을 걸치는 구간의 앞쪽(예: 23:30 에 07:00 종료).
+            candidate = candidate.plusDays(1);
+        }
+        return candidate.toInstant();
+    }
+
+    /** 조용한 시간 시작 — 유저 설정이 온전할 때만 유저 값, 그 외는 기본 23:00. */
+    private static LocalTime quietStartOf(UserNotificationSettings settings) {
+        return hasCustomQuietHours(settings) ? settings.getNightStartTime() : DEFAULT_QUIET_START;
+    }
+
+    /** 조용한 시간 종료 — 유저 설정이 온전할 때만 유저 값, 그 외는 기본 07:00. */
+    private static LocalTime quietEndOf(UserNotificationSettings settings) {
+        return hasCustomQuietHours(settings) ? settings.getNightEndTime() : DEFAULT_QUIET_END;
+    }
+
+    private static boolean hasCustomQuietHours(UserNotificationSettings settings) {
+        return settings != null && settings.isNightModeEnabled()
+                && settings.getNightStartTime() != null && settings.getNightEndTime() != null;
     }
 }

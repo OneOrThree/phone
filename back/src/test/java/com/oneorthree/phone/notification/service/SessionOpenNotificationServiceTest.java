@@ -41,11 +41,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * 참여 모집 알림(GROMO-1417, N40·N20·N44)의 단위 테스트 — 잠그는 성질 넷:
+ * 참여 모집 알림(GROMO-1417, N40·N20·N44)의 단위 테스트 — 잠그는 성질 여섯:
  * ① 하루형 슬롯이 당일 08:00 KST 다(전날 23:30 이 아니다 — N40),
  * ② 창형 슬롯은 참가 마감 −30분이고 그 전에는 안 나간다,
  * ③ 이미 참가한 사람은 모집 대상이 아니다,
- * ④ 조용한 시간의 모집은 <b>이월하지 않고 버린다</b>(N44 단서) — 결과 알림과 갈리는 지점.
+ * ④ 조용한 시간에 걸려도 <b>종료 시점에 아직 참가할 수 있으면 이월</b>하고, 종료 시점에 이미
+ *    마감된 것만 버린다(N44 + 그 단서),
+ * ⑤ 이월분은 조용한 시간이 끝난 틱에 실제로 나간다,
+ * ⑥ 스캔 이후 참가가 커밋된 유저에게는 발송 직전 재검증으로 모집 푸시가 가지 않는다.
  */
 @ExtendWith(MockitoExtension.class)
 class SessionOpenNotificationServiceTest {
@@ -65,6 +68,8 @@ class SessionOpenNotificationServiceTest {
             userNotificationSettingsRepository;
     @Mock
     private NotificationSentLogRepository notificationSentLogRepository;
+    @Mock
+    private com.oneorthree.phone.user.repository.UserRepository userRepository;
     @Mock
     private PushNotificationService pushNotificationService;
     @InjectMocks
@@ -87,6 +92,7 @@ class SessionOpenNotificationServiceTest {
                 .challenge(GroupChallenge.builder().id(UUID.randomUUID()).group(group).build())
                 .sessionDate(DAY)
                 .stake(300)
+                .status(com.oneorthree.phone.group.domain.GroupBetStatus.OPEN)
                 .missionCategory(MissionCategory.FOCUS)
                 .missionType(MissionType.DURATION)
                 .startsAt(DAY.atStartOfDay(KST).toInstant())
@@ -105,6 +111,7 @@ class SessionOpenNotificationServiceTest {
                 .challenge(GroupChallenge.builder().id(UUID.randomUUID()).group(group).build())
                 .sessionDate(DAY)
                 .stake(900)
+                .status(com.oneorthree.phone.group.domain.GroupBetStatus.OPEN)
                 .missionCategory(MissionCategory.SCREEN_TIME)
                 .missionType(MissionType.TIME_WINDOW)
                 .windowStart(windowStart)
@@ -213,11 +220,12 @@ class SessionOpenNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("N44 단서 — 조용한 시간의 모집은 이월(DEFERRED)하지 않고 SENT 로 종결한다")
-    void quietHoursRecruitmentIsTerminatedNotDeferred() {
-        // 창 07:15 시작 → 슬롯 06:45(조용한 시간). 07:00 으로 미루면 곧 참가 마감이라 무의미하고,
-        // 클레임을 <지우면> 다음 15분 틱이 재선점해 되살아난다 — 그래서 SENT 로 종결한다.
-        GroupChallengeBetSession session = windowSession(LocalTime.of(7, 15));
+    @DisplayName("N44 단서 — 조용한 시간이 끝나기 전에 이미 마감되는 모집만 SENT 로 종결한다")
+    void quietHoursRecruitmentIsTerminatedOnlyWhenJoinClosesFirst() {
+        // 창 06:50 시작 → 슬롯 06:20(조용한 시간). 조용한 시간 종료(07:00)에는 이미 참가 마감이라
+        // 이월해봐야 "참여하세요"가 거짓말이 된다. 클레임을 <지우면> 다음 15분 틱이 재선점해
+        // 되살아나므로 SENT 로 종결한다.
+        GroupChallengeBetSession session = windowSession(LocalTime.of(6, 50));
         User member = user("멤버");
         givenDue(session, List.of(member), List.of());
         given(notificationSentLogRepository.insertPendingClaim(
@@ -225,22 +233,20 @@ class SessionOpenNotificationServiceTest {
         givenNoSettings();
 
         PushDispatchSummaryResponse summary =
-                service.sendSessionOpenNotifications(DAY.atTime(6, 45).atZone(KST).toInstant());
+                service.sendSessionOpenNotifications(DAY.atTime(6, 20).atZone(KST).toInstant());
 
         assertThat(summary.sentCount()).isZero();
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
-        verify(notificationSentLogRepository, never()).updateStatusByIds(
-                anyCollection(), eq(NotificationSendStatus.DEFERRED), any());
+        verify(notificationSentLogRepository, never()).deferByIds(anyCollection(), any());
         verify(notificationSentLogRepository, never()).deleteByIds(anyCollection());
         verify(notificationSentLogRepository).updateStatusByIds(
                 anyCollection(), eq(NotificationSendStatus.SENT), any());
     }
 
     @Test
-    @DisplayName("조용한 시간에 종결된 모집은 07:00 틱에 되살아나지 않는다 — 클레임 유니크가 막는다")
-    void terminatedRecruitmentDoesNotResurrectAfterQuietHours() {
-        // 07:15 시작 창: 06:45 슬롯에서 종결 → 07:00 틱(슬롯 유예 2시간 안)에 다시 집히면 안 된다.
-        GroupChallengeBetSession session = windowSession(LocalTime.of(7, 15));
+    @DisplayName("종결된 모집은 다음 틱에 되살아나지 않는다 — 클레임 유니크가 막는다")
+    void terminatedRecruitmentDoesNotResurrect() {
+        GroupChallengeBetSession session = windowSession(LocalTime.of(6, 50));
         User member = user("멤버");
         givenDue(session, List.of(member), List.of());
         givenNoSettings();
@@ -248,12 +254,107 @@ class SessionOpenNotificationServiceTest {
         given(notificationSentLogRepository.insertPendingClaim(
                 any(), any(), anyString(), any(), any(), any(), any())).willReturn(1, 0);
 
-        service.sendSessionOpenNotifications(DAY.atTime(6, 45).atZone(KST).toInstant());
-        PushDispatchSummaryResponse afterQuiet =
-                service.sendSessionOpenNotifications(DAY.atTime(7, 0).atZone(KST).toInstant());
+        service.sendSessionOpenNotifications(DAY.atTime(6, 20).atZone(KST).toInstant());
+        PushDispatchSummaryResponse next =
+                service.sendSessionOpenNotifications(DAY.atTime(6, 35).atZone(KST).toInstant());
 
-        assertThat(afterQuiet.sentCount()).isZero();
-        assertThat(afterQuiet.dedupedCount()).isEqualTo(1);
+        assertThat(next.sentCount()).isZero();
+        assertThat(next.dedupedCount()).isEqualTo(1);
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("조용한 시간이 끝나도 참가할 수 있는 모집은 종결하지 않고 이월한다 (하루형 08:00 × 야간 07–09)")
+    void quietHoursRecruitmentIsCarriedWhenStillJoinableAfterwards() {
+        // 야간 시간대를 07:00–09:00 으로 둔 유저: 08:00 하루형 슬롯이 조용한 시간에 걸리지만
+        // 참가 마감은 자정이다. 여기서 SENT 로 종결하면 이 유저는 모집 알림을 영영 못 받는다.
+        GroupChallengeBetSession session = durationSession();
+        User member = user("멤버");
+        givenDue(session, List.of(member), List.of());
+        given(notificationSentLogRepository.insertPendingClaim(
+                any(), any(), anyString(), any(), any(), any(), any())).willReturn(1);
+        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+                .willReturn(List.of(nightSettings(member, LocalTime.of(7, 0), LocalTime.of(9, 0))));
+
+        PushDispatchSummaryResponse summary =
+                service.sendSessionOpenNotifications(DAY.atTime(8, 0).atZone(KST).toInstant());
+
+        assertThat(summary.sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        verify(notificationSentLogRepository).deferByIds(
+                anyCollection(), eq(DAY.atTime(9, 0).atZone(KST).toInstant()));
+        verify(notificationSentLogRepository, never()).updateStatusByIds(
+                anyCollection(), eq(NotificationSendStatus.SENT), any());
+    }
+
+    @Test
+    @DisplayName("이월된 모집은 조용한 시간이 끝난 틱에 실제로 발송된다")
+    void carriedRecruitmentIsSentAfterQuietHours() {
+        GroupChallengeBetSession session = durationSession();
+        User member = user("멤버");
+        NotificationSentLog carried = NotificationSentLog.builder()
+                .id(UUID.randomUUID())
+                .userId(member.getId())
+                .type(NotificationSentLog.TYPE_CHALLENGE_SESSION_OPEN)
+                .kind(NotificationSentLog.TYPE_CHALLENGE_SESSION_OPEN)
+                .subjectId(session.getId())
+                .groupId(GROUP_ID)
+                .slotAt(DAY.atTime(8, 0).atZone(KST).toInstant())
+                .status(NotificationSendStatus.DEFERRED)
+                .nextAttemptAt(DAY.atTime(9, 0).atZone(KST).toInstant())
+                .build();
+        // 스캔 경로는 비우고 이월 경로만 본다(슬롯 유예를 넘긴 뒤에도 이월분은 살아 있어야 한다).
+        given(groupChallengeBetSessionRepository.findOpenJoinableSessions(any(), any()))
+                .willReturn(List.of());
+        given(notificationSentLogRepository.findDueDeferredClaimsForUpdate(anyCollection(), any()))
+                .willReturn(List.of(carried));
+        given(groupChallengeBetSessionRepository.findAllById(anyCollection()))
+                .willReturn(List.of(session));
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
+                .willReturn(List.of());
+        given(userRepository.findAllById(anyCollection())).willReturn(List.of(member));
+        givenNoSettings();
+        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+
+        PushDispatchSummaryResponse summary =
+                service.sendSessionOpenNotifications(DAY.atTime(9, 0).atZone(KST).toInstant());
+
+        assertThat(summary.sentCount()).isEqualTo(1);
+        verify(notificationSentLogRepository).updateStatusByIds(
+                eq(List.of(carried.getId())), eq(NotificationSendStatus.SENT), any());
+    }
+
+    @Test
+    @DisplayName("스캔 이후 참가가 커밋된 유저에겐 모집 푸시가 가지 않는다 — 발송 직전 재검증")
+    void membersWhoJoinAfterTheScanAreNotPushed() {
+        GroupChallengeBetSession session = durationSession();
+        User member = user("멤버");
+        given(groupChallengeBetSessionRepository.findOpenJoinableSessions(any(), any()))
+                .willReturn(List.of(session));
+        given(groupMemberRepository.findByGroupIdIn(anyCollection())).willReturn(List.of(
+                GroupMember.builder().group(session.getGroup()).user(member).build()));
+        // 첫 조회(대상 선정)엔 미참가, 두 번째 조회(발송 직전 재검증)엔 이미 참가 — 그사이 커밋됐다.
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
+                .willReturn(List.of(), List.of(GroupChallengeBetParticipant.builder()
+                        .id(UUID.randomUUID()).session(session).user(member).build()));
+        given(notificationSentLogRepository.insertPendingClaim(
+                any(), any(), anyString(), any(), any(), any(), any())).willReturn(1);
+
+        PushDispatchSummaryResponse summary =
+                service.sendSessionOpenNotifications(DAY.atTime(8, 0).atZone(KST).toInstant());
+
+        assertThat(summary.sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        verify(notificationSentLogRepository).deleteByIds(anyCollection());
+    }
+
+    private static com.oneorthree.phone.user.domain.UserNotificationSettings nightSettings(
+            User owner, LocalTime start, LocalTime end) {
+        return com.oneorthree.phone.user.domain.UserNotificationSettings.builder()
+                .userId(owner.getId())
+                .nightModeEnabled(true)
+                .nightStartTime(start)
+                .nightEndTime(end)
+                .build();
     }
 }

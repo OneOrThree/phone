@@ -187,7 +187,9 @@ public class NotificationScheduler {
     // 회차 참여 모집 푸시 (GROMO-1417, N40·N20) — 15분 간격. 슬롯이 회차 유형으로 갈린다:
     // 창형은 참가 마감(창 시작) −30분, 하루형은 당일 08:00 KST. 하루형의 시작−30분(전날 23:30)은
     // 회차 미생성(00:05 개설) + 조용한 시간에 이중으로 막혀 영영 못 나가기 때문이다. 조용한 시간에
-    // 걸린 모집은 이월하지 않고 버린다(N44 단서 — 07:00 도착은 이미 마감 뒤라 거짓말이 된다).
+    // 걸린 모집은 참가 마감과 대조해 가른다 — 조용한 시간 종료 시점에 이미 마감이면 버리고(N44 단서
+    // — 그때 도착해봐야 거짓말이다), 그때도 참가할 수 있으면 이월해 종료 시각에 보낸다(N44).
+    // 이 크론이 이월분 flush 도 겸한다(별도 크론 없음).
     @Scheduled(cron = "0 */15 * * * *", zone = "Asia/Seoul")
     @SchedulerLock(name = "notification-session-open", lockAtMostFor = FANOUT_LOCK)
     public void sendSessionOpenNotifications() {

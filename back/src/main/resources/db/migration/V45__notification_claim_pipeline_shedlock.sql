@@ -11,6 +11,9 @@
 --   선점 후 죽은 워커의 건이 영구 미발송으로 남지 않게 만료 후 재클레임한다.
 --   DEFERRED 는 조용한 시간(23–07)에 걸린 표시 푸시의 이월 상태다(N44 — 버리지 않고 07:00 발송).
 -- · group_id / slot_at: 묶음 키 (유저 × 그룹 × 시간슬롯) 의 메타(N20·N41). dedup 키와는 분리다.
+-- · next_attempt_at: 이월 클레임의 <다음 시도 시각>. 없으면 조용한 시간 내내 5분 flush 가 같은
+--   DEFERRED 전량을 매 틱 다시 잠그고 재조회·재UPDATE 한다(자정~07:00 = 하루형 참가자당 84회).
+--   이월할 때 그 유저의 조용한 시간 종료 시각을 박아 두고, 도래한 것만 집는다.
 -- · sent_at NULL 허용: PENDING/DEFERRED 클레임 행은 아직 발송 전이다 — 실발송 시각은 SENT 전이 때 채운다.
 
 ALTER TABLE public.notification_sent_logs
@@ -42,6 +45,9 @@ ALTER TABLE public.notification_sent_logs
     ADD COLUMN slot_at timestamp(6) with time zone;
 
 ALTER TABLE public.notification_sent_logs
+    ADD COLUMN next_attempt_at timestamp(6) with time zone;
+
+ALTER TABLE public.notification_sent_logs
     ALTER COLUMN sent_at DROP NOT NULL;
 
 -- ── 기존 BET_RESULT 이력의 사건 키 이관 ────────────────────────────────
@@ -70,8 +76,9 @@ CREATE UNIQUE INDEX uq_notification_sent_logs_user_kind_subject
     ON public.notification_sent_logs (user_id, kind, subject_id);
 
 -- 미발송 클레임 스캔(리스 만료 회수·이월 flush) — SENT 가 대다수라 부분 인덱스로 좁힌다.
+-- next_attempt_at 을 함께 실어 "도래한 이월분만" 조회가 인덱스 안에서 끝나게 한다.
 CREATE INDEX idx_notification_sent_logs_unsent_claims
-    ON public.notification_sent_logs (status, claimed_at)
+    ON public.notification_sent_logs (status, next_attempt_at, claimed_at)
     WHERE (status)::text <> 'SENT'::text;
 
 -- ── ShedLock (GROMO-1283 · policy §E4) ─────────────────────────────────

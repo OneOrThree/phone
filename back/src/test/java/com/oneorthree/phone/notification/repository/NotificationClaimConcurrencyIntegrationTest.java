@@ -69,7 +69,7 @@ class NotificationClaimConcurrencyIntegrationTest extends IntegrationTestBase {
                 transactionTemplate.execute(status -> {
                     List<NotificationSentLog> rows = notificationSentLogRepository
                             .findDueClaimsForUpdate(
-                                    List.of(NotificationSentLog.TYPE_BET_RESULT), NOW);
+                                    List.of(NotificationSentLog.TYPE_BET_RESULT), NOW, NOW);
                     firstHoldsLock.countDown();
                     try {
                         secondFinished.await(10, TimeUnit.SECONDS);
@@ -83,7 +83,7 @@ class NotificationClaimConcurrencyIntegrationTest extends IntegrationTestBase {
 
         // 워커 B — 같은 조건으로 조회. 잠긴 행은 건너뛰어야 한다(대기도 하지 않는다).
         int seenByB = transactionTemplate.execute(status -> (int) notificationSentLogRepository
-                .findDueClaimsForUpdate(List.of(NotificationSentLog.TYPE_BET_RESULT), NOW)
+                .findDueClaimsForUpdate(List.of(NotificationSentLog.TYPE_BET_RESULT), NOW, NOW)
                 .stream().filter(r -> r.getId().equals(rowId)).count());
         secondFinished.countDown();
 

@@ -93,4 +93,44 @@ class NotificationClaimLeaseIntegrationTest extends RepositoryTestBase {
                     assertThat(row.getClaimedAt()).isEqualTo(NOW);
                 });
     }
+
+    @Test
+    @DisplayName("이월 — 도래한 DEFERRED 만 조회된다. 다음 시도 시각 전에는 몇 번을 훑어도 안 잡힌다")
+    void dueScanTakesOnlyArrivedDeferrals() {
+        UUID userId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID quietSession = UUID.randomUUID();
+        UUID arrivedSession = UUID.randomUUID();
+        Instant quietEnd = NOW.plus(Duration.ofHours(4));
+
+        UUID quietRowId = UUID.randomUUID();
+        notificationSentLogRepository.insertPendingClaim(quietRowId, userId,
+                NotificationSentLog.TYPE_BET_RESULT, quietSession, groupId, NOW, NOW);
+        notificationSentLogRepository.deferByIds(List.of(quietRowId), quietEnd);
+        UUID arrivedRowId = UUID.randomUUID();
+        notificationSentLogRepository.insertPendingClaim(arrivedRowId, userId,
+                NotificationSentLog.TYPE_BET_RESULT, arrivedSession, groupId, NOW, NOW);
+        notificationSentLogRepository.deferByIds(List.of(arrivedRowId), NOW);
+
+        // 아직 조용한 시간 — 도래한 1건만 나온다. 나머지는 몇 틱을 돌아도 재작업 대상이 아니다.
+        List<NotificationSentLog> due = notificationSentLogRepository.findDueClaimsForUpdate(
+                List.of(NotificationSentLog.TYPE_BET_RESULT), NOW.minus(Duration.ofMinutes(15)), NOW);
+        assertThat(due).extracting(NotificationSentLog::getId).containsExactly(arrivedRowId);
+
+        // 이월 행은 발송 전이므로 sent_at 이 비어 있어야 한다(상태와 어긋나면 안 된다).
+        assertThat(due.get(0).getSentAt()).isNull();
+
+        // 종료 시각이 지나면 그때 집힌다.
+        assertThat(notificationSentLogRepository.findDueClaimsForUpdate(
+                List.of(NotificationSentLog.TYPE_BET_RESULT),
+                quietEnd.minus(Duration.ofMinutes(15)), quietEnd))
+                .extracting(NotificationSentLog::getId)
+                .contains(quietRowId);
+
+        // 모집처럼 PENDING 을 같은 틱에 소비하는 트리거용 조회는 이월분만 본다.
+        assertThat(notificationSentLogRepository.findDueDeferredClaimsForUpdate(
+                List.of(NotificationSentLog.TYPE_BET_RESULT), NOW))
+                .extracting(NotificationSentLog::getId)
+                .containsExactly(arrivedRowId);
+    }
 }

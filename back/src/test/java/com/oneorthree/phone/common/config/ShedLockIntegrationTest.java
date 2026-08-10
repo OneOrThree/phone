@@ -6,7 +6,6 @@ import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
@@ -27,10 +26,12 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ShedLock 배선(GROMO-1283, policy §E4)의 통합 검증 — 잠그는 성질 둘:
- * ① V45 {@code shedlock} 테이블 위에서 락 선점이 실제로 배타적이다(두 번째 획득 실패 = 다른
- * 인스턴스의 중복 실행 차단), ② 챌린지·정산·알림 크론 진입점 전부에 {@code @SchedulerLock} 이
- * 고유 이름으로 걸려 있다 — 애노테이션이 빠진 크론은 락 없이 모든 인스턴스에서 돈다.
+ * ShedLock 배선(GROMO-1283, policy §E4)의 통합 검증 — 잠그는 성질 셋:
+ * ① Flyway 를 안 쓰는 프로파일(local·ci)에도 {@code shedlock} 테이블이 준비돼 있다 — 없으면
+ * {@code @SchedulerLock} 이 걸린 모든 크론이 첫 락 쿼리에서 죽는다,
+ * ② 그 테이블 위에서 락 선점이 실제로 배타적이다(두 번째 획득 실패 = 다른 인스턴스의 중복 실행
+ * 차단), ③ 챌린지·정산·알림 크론 진입점 전부에 {@code @SchedulerLock} 이 고유 이름으로 걸려
+ * 있다 — 애노테이션이 빠진 크론은 락 없이 모든 인스턴스에서 돈다.
  */
 class ShedLockIntegrationTest extends IntegrationTestBase {
 
@@ -43,15 +44,13 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
     @Autowired
     ApplicationContext applicationContext;
 
-    @BeforeEach
-    void createShedlockTable() {
-        // ci 프로파일은 Flyway OFF + 엔티티 기반 create-drop 이라(GROMO-670) 엔티티 없는 shedlock
-        // 테이블이 스키마에 없다 — V45 과 같은 DDL 을 여기서 깐다(실 마이그레이션 SQL 은
-        // NotificationSentLogV45MigrationTest 가 검증).
-        new JdbcTemplate(dataSource).execute("CREATE TABLE IF NOT EXISTS shedlock ("
-                + "name varchar(64) NOT NULL, lock_until timestamp NOT NULL, "
-                + "locked_at timestamp NOT NULL, locked_by varchar(255) NOT NULL, "
-                + "CONSTRAINT shedlock_pkey PRIMARY KEY (name))");
+    @Test
+    @DisplayName("Flyway 미사용 프로파일에도 shedlock 테이블이 준비된다 — 없으면 모든 크론이 첫 락에서 죽는다")
+    void shedlockTableExistsWithoutFlyway() {
+        // local·ci 는 엔티티에서 스키마를 만드는데 shedlock 은 엔티티가 아니다(V45 에서만 생성).
+        // ShedLockSchemaInitializer 가 그 구멍을 메운다 — 테스트가 손으로 깔면 이 구멍이 가려진다.
+        assertThat(new JdbcTemplate(dataSource).queryForObject(
+                "SELECT to_regclass('public.shedlock') IS NOT NULL", Boolean.class)).isTrue();
     }
 
     @Test
