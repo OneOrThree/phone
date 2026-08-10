@@ -63,9 +63,9 @@ Enum challenge_type {         // 미션 방식
   DURATION                   // 누적 시간 달성
 }
 
-Enum challenge_status {       // 챌린지 활성/비활성
+Enum challenge_status {       // 챌린지 수명주기 (policy §A8) — V2 의 INACTIVE 를 V34 가 ENDED 로 복원
   ACTIVE
-  INACTIVE
+  ENDED
 }
 
 // 3. 포커스
@@ -377,38 +377,43 @@ Table group_challenges [note: '그룹 챌린지 (집중/스크린타임 미션).
   type             challenge_type     [not null, note: 'TIME_WINDOW / DURATION — 방식에 따라 상세 테이블 1:1']
   category         challenge_category [not null, note: 'FOCUS / SCREEN_TIME']
 
-  status             challenge_status   [not null, default: 'ACTIVE', note: '챌린지 활성화/비활성화 — 서버에서만 전환 (유저 수정 불가)']
+  status             challenge_status   [not null, default: 'ACTIVE', note: 'ACTIVE / ENDED — 수명주기(policy §A8). V2 의 INACTIVE 를 V34 가 ENDED 로 복원. 서버에서만 전환 (유저 수정 불가)']
+
+  repeat_days        smallint           [not null, note: '도는 요일 비트마스크(§A3) — ISO 요일(월=1…일=7)을 1<<(dow-1) 로 접음: 월=1…일=64, 매일=127. CHECK 1 ≤ x ≤ 127 (요일 하나는 반드시). 기존 행 백필=127. migration V34']
+  started_at         timestamptz        [not null, note: '활동 시작 시각 — 생성 즉시 돌기 시작(기존 행 백필=created_at). migration V34']
+  ended_at           timestamptz        [note: '종료(ENDED 전이) 시각 — null 이면 진행 중. 레거시 INACTIVE→ENDED 행은 created_at 근사 백필. migration V34']
 
   created_at         timestamptz        [not null, default: `now()`]
   deleted_at         timestamptz        [note: '삭제 시각 (소프트 딜리트). 콘텐츠 수정 불가 → 수정은 삭제 후 새 row, 옛 내용 보존']
 
   indexes {
-    (group_id, category, type) [unique, name: 'uq_group_challenges_active_cat_type', note: '부분 유니크(WHERE status = ACTIVE AND deleted_at IS NULL) — 활성 챌린지는 그룹당 카테고리×타입 1개, check-then-insert 레이스 봉합. migration V20']
+    (group_id, category) [unique, name: 'uq_group_challenges_active_duration_category', note: "부분 유니크(WHERE type = 'DURATION' AND status = 'ACTIVE' AND deleted_at IS NULL) — 하루형만 카테고리당 활성 1개(FR-3), 창형은 겹침 검사(서비스)만 통과하면 복수 허용. V20 의 (group_id, category, type) 활성 유니크를 V36 이 완화"]
+    (id, category) [unique, name: 'uq_group_challenges_id_category', note: '자식 복합 FK(group_challenge_durations)의 참조 대상 — 부분 인덱스 아님. migration V36']
+    group_id [name: 'idx_group_challenges_active_group', note: '부분 인덱스(WHERE status = ACTIVE AND deleted_at IS NULL) — 활성 목록·그룹당 활성 4개 상한(FR-1) 검사. migration V36']
   }
 }
 
 Table group_challenge_durations [note: 'DURATION 챌린지 상세 (group_challenges 1:1, type=DURATION 만). 타입별 필드 분리(CTI)로 NULL 오염 방지'] {
-  challenge_id     uuid    [pk, note: 'FK → group_challenges.id (1:1). type=DURATION 챌린지만']
-  duration_minutes integer [not null, note: '누적 달성 목표 시간(분). CHECK 1 ≤ x ≤ 1440 — 하루(1440분) 초과 목표는 달성 불가능이라 금지(GROMO-1205). migration V28']
+  challenge_id     uuid               [pk, note: 'FK → group_challenges.id (1:1). type=DURATION 챌린지만']
+  category         challenge_category [not null, note: '부모 category 비정규화 복사(V36) — 복합 FK (challenge_id, category) → group_challenges (id, category) 가 부모와의 일치를 보증. 카테고리별 상한 CHECK 를 걸기 위한 컬럼']
+  duration_minutes integer            [not null, note: '하루 목표 시간(분). CHECK 카테고리별 상한(N51 · §A6-bis): FOCUS 1~1080(18h) · SCREEN_TIME 1~720(12h) — V28 의 단일 1~1440 을 V36 이 교체']
 }
 
-Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challenges 1:1, type=TIME_WINDOW 만). 타입별 필드 분리(CTI)로 NULL 오염 방지. 창은 매일 반복 시간대 — 저장된 Instant 는 KST time-of-day 앵커로 해석'] {
+Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challenges 1:1, type=TIME_WINDOW 만). 타입별 필드 분리(CTI)로 NULL 오염 방지. 창은 요일 반복 시간대(repeat_days) — 시각은 KST 벽시계 time 타입(V35)'] {
   challenge_id     uuid        [pk, note: 'FK → group_challenges.id (1:1). type=TIME_WINDOW 챌린지만']
-  window_start_at  timestamptz [not null, note: '수행 지정 시간대 시작 — KST 벽시계 시각(time-of-day)만 의미. 신규 저장분은 날짜부를 1970-01-01(KST, EPOCH 앵커)로 고정(GROMO-1225); 기존 행 날짜부는 앱 송신 당시 날짜로 남지만 해석은 시각뿐이라 동치']
-  window_end_at    timestamptz [not null, note: '수행 지정 시간대 종료 — 해석·EPOCH 앵커는 window_start_at 과 동일. 시각 기준 시작 > 종료면 자정 걸침 창(D 시작 ~ D+1 종료)']
-  duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
+  window_start     time        [not null, note: '수행 지정 시간대 시작 — KST 벽시계 시각 그 자체(time, V35 · GROMO-1406). 종전 timestamptz 의 EPOCH 앵커 해석 규약은 타입 승격으로 폐기']
+  window_end       time        [not null, note: '수행 지정 시간대 종료 — CHECK window_start < window_end (자정 걸침 금지 §A6-1 · N25: 회차가 요일 경계를 넘지 않는다). migration V35']
+  duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x ≤ 창 길이. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
 }
 
 Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert. V43 부터 measured_at 단조 갱신: 저장값보다 오래된 보고는 조용히 무시, GROMO-1407·N34)'] {
   id                 uuid        [pk]
   group_challenge_id uuid        [not null, note: 'FK → group_challenges.id']
   user_id            uuid        [not null, note: 'FK → users.id']
-  usage_date         date        [note: '보고 대상 날짜(KST). 창 사용분 업로드 경로는 항상 채운다 — migration V20']
+  usage_date         date        [not null, note: '보고 대상 날짜(KST). V37 에서 NOT NULL 승격(GROMO-1266) — NULL 잔재 행은 삭제로 정리. migration V20·V37']
 
-  progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값']
+  progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값. 판정(달성)은 저장하지 않고 조회 시 계산 — 구 is_achieved·achieved_at 은 V37 에서 드롭(GROMO-1265)']
   measured_at        timestamptz [note: '클라 측정 시각 — 역전 보고 방어의 비교 축(V43, N34). null = 도입 전 레거시 행("시각 모름" — 어떤 보고든 갱신 허용). 미래(+2분 초과)는 API 가 400 거절']
-  is_achieved        boolean     [not null, default: false, note: '목표 달성 여부']
-  achieved_at        timestamptz [note: '달성 확정 시각, null이면 진행 중/미달성']
 
   created_at         timestamptz [not null, default: `now()`]
   updated_at         timestamptz
@@ -469,13 +474,14 @@ Table group_challenge_bet_sessions [note: '내기 회차 — 챌린지가 실제
   }
 }
 
-Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39'] {
+Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39·V42'] {
   id         uuid        [pk]
 
   session_id uuid        [not null, note: 'FK → group_challenge_bet_sessions.id (구 bet_id 를 V39 에서 리네임 — 값 보존)']
   user_id    uuid        [not null, note: 'FK → users.id']
 
-  achieved   boolean     [note: '정산 시 기록 — 판정 결과. 정산 전이면 null']
+  achieved   boolean     [note: '정산 시 기록 — 판정 결과. 정산 전이면 null. 승리는 조기 확정 가능(GROMO-1268, 불가역)']
+  achieved_at timestamptz [note: '조기 확정 시각(V42, LLD §1.1) — confirmWin 순간 박제. 조기 확정 전용이라 정산 시점 판정은 null(회차 settled_at 이 시각 축)']
   payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 환불금. 정산 전이면 null']
   progress_minutes integer [note: '정산 판정에 쓴 실측 분(GROMO-1207). FOCUS 무기록은 0, SCREEN_TIME 미보고는 null(미계측 — 앱 "—" 표시)']
 
@@ -873,9 +879,9 @@ Table daily_screen_time_stats [note: '유저별 일일 스크린타임 집계 (�
   id                           uuid    [pk]
   user_id                      uuid    [note: 'nullable — 탈퇴 유저 익명 보존 (FK → users.id)']
 
-  date                         date    [not null, note: '유저 country_code 파생 ZoneId 기준 로컬 날짜 (GROMO-561)']
+  date                         date    [not null, note: 'KST 로컬 날짜 (GROMO-1259 — 저장축 KST 고정. 구 country_code 파생 존(GROMO-561)은 폐지, 해외 유저 어긋남은 L5 수용)']
 
-  total_screen_time_minutes    integer [not null, default: 0, note: '앱 전송 실제 스크린타임(분)']
+  total_screen_time_minutes    integer [note: '앱 전송 실제 스크린타임(분). null = 미집계(V38, GROMO-1267) — "0분 사용"과 구분(FR-16). 판정은 null 을 미보고(미달성)로 해석']
   is_screen_time_goal_achieved boolean [not null, default: false, note: '스크린타임 목표 달성 여부 (클라 계산값)']
   is_screen_time_finalized     boolean [not null, default: false, note: '오늘 row 확정 여부 — interim(false)이면 현재 목표로 재계산, final(true)이면 클라 스냅샷 사용. GROMO-805, V10']
 

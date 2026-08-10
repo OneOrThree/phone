@@ -259,17 +259,22 @@ public class GroupController {
     }
 
     @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환."
-            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 창(시작 > 종료) 허용."
+            + " repeatDays(도는 요일, [\"MON\"..\"SUN\"])는 신앱 필수(빈 배열 400) — 미전송 구앱은 매일(127)로 처리."
+            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 금지(시작 < 종료),"
+            + " FOCUS 목표는 관용치 5분 초과, SCREEN_TIME 목표는 15분 배수."
+            + " DURATION 목표 상한은 카테고리별(FOCUS 1080분·SCREEN_TIME 720분, N51)."
             + " windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) —"
             + " 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "챌린지 생성 성공"),
             @ApiResponse(responseCode = "400", description = "파라미터 누락 / TIME_WINDOW durationMinutes 누락·범위 위반"
-                    + " / windowStart·windowEnd 형식 오류(INVALID_MISSION_PARAMS)"),
+                    + " / 자정 걸침·형식 오류(INVALID_MISSION_PARAMS) / 요일 빈 배열(CHALLENGE_REPEAT_DAYS_REQUIRED)"
+                    + " / 스크린타임 창 목표 15분 배수 아님(CHALLENGE_GOAL_NOT_ALIGNED)"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
             @ApiResponse(responseCode = "404", description = "그룹 없음"),
-            @ApiResponse(responseCode = "409", description = "카테고리×타입 활성 중복(CHALLENGE_DUPLICATE)"
-                    + " / 다른 카테고리 창형과 시간대 겹침(CHALLENGE_WINDOW_OVERLAP)")
+            @ApiResponse(responseCode = "409", description = "활성 4개 상한(CHALLENGE_LIMIT_EXCEEDED)"
+                    + " / 하루형 카테고리 활성 중복(CHALLENGE_DUPLICATE)"
+                    + " / 활성 창형과 시간대 겹침(CHALLENGE_WINDOW_OVERLAP)")
     })
     @PostMapping("/groups/{groupId}/challenges")
     public ResponseEntity<CreateChallengeResponse> createGroupChallenge(
@@ -302,6 +307,25 @@ public class GroupController {
             @LoginUser UUID userId
     ) {
         groupBetWindowUsageService.reportWindowUsage(groupId, challengeId, userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "그룹 챌린지 종료", description = "OWNER만 가능. 성공 시 204 — ENDED 전이(ended_at 기록),"
+            + " 더 이상 새 회차를 세우지 않는다. 이미 ENDED 면 멱등 204. 진행 중(OPEN 회차 존재)이면 409 —"
+            + " 접으려면 삭제(무효화 + 전원 환불)를 쓴다(policy §A8).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "종료 성공(멱등 포함)"),
+            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
+            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음(삭제 포함)"),
+            @ApiResponse(responseCode = "409", description = "OPEN 회차 존재(CHALLENGE_END_BLOCKED)")
+    })
+    @PostMapping("/groups/{groupId}/challenges/{challengeId}/end")
+    public ResponseEntity<Void> endGroupChallenge(
+            @PathVariable UUID groupId,
+            @PathVariable UUID challengeId,
+            @LoginUser UUID userId
+    ) {
+        groupChallengeService.endChallenge(groupId, challengeId, userId);
         return ResponseEntity.noContent().build();
     }
 

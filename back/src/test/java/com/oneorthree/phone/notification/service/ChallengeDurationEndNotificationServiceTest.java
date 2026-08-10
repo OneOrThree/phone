@@ -8,6 +8,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -24,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -113,6 +115,29 @@ class ChallengeDurationEndNotificationServiceTest {
                                 .durationMinutes(60)
                                 .build())
                         .toList());
+    }
+
+    @Test
+    @DisplayName("직전 회차일이 비활성 요일이면 알리지 않는다 — 회차가 서지 않은 날엔 마감도 없다 (FR-9 · GROMO-1260)")
+    void skipsCycleEndOnInactiveDay() {
+        // 2026-08-01(어제) 은 토요일 — 월요일 전용(마스크 1) 하루형은 그날 돌지 않았다.
+        GroupChallenge inactiveYesterday = GroupChallenge.builder()
+                .id(UUID.randomUUID())
+                .group(group())
+                .category(MissionCategory.FOCUS)
+                .type(MissionType.DURATION)
+                .status(GroupChallengeStatus.ACTIVE)
+                .repeatDays(RepeatSchedule.bit(DayOfWeek.MONDAY))
+                .createdAt(CREATED_AT)
+                .build();
+        givenChallenges(inactiveYesterday);
+
+        PushDispatchSummaryResponse summary =
+                service().sendDurationEndNotifications(kst(2026, 8, 2, 9, 0));
+
+        assertThat(summary.targetCount()).isZero();
+        assertThat(summary.sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
     private void givenMembers(User... users) {

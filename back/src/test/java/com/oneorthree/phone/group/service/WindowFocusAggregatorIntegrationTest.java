@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -30,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * FOCUS 창 클리핑 집계의 실 SQL 검증 (Testcontainers PostgreSQL).
  *
- * <p>창 경계 클리핑(LEAST/GREATEST)·상태 필터(CANCELED/AUTO_CLOSED/ACTIVE 제외)·자정 걸침 창의
+ * <p>창 경계 클리핑(LEAST/GREATEST)·상태 필터(CANCELED/AUTO_CLOSED/ACTIVE 제외)·심야 창의
  * KST 날짜 앵커 조합을 실제 focus_sessions 행으로 확인한다. 관용치 판정(isAchieved)은 순수 함수라
  * 여기서 경계값만 함께 고정한다.
  *
@@ -59,7 +60,7 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
         return userRepository.save(User.builder().nickname(nickname).isGuest(false).build());
     }
 
-    /** 창 상세 저장 — 앱 송신 형식 그대로 {@code +09:00} 오프셋 Instant 로 저장한다(KST 벽시계 시각 = 창 시각). */
+    /** 창 상세 저장 — KST 벽시계 time 그대로 저장한다(V35, 시작 < 종료 불변식). */
     private GroupChallengeWindow saveWindow(String startTime, String endTime, Integer goalMinutes) {
         Group group = groupRepository.save(Group.builder().name("창검증").maxMembers(10).build());
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
@@ -67,8 +68,8 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
                 .status(GroupChallengeStatus.ACTIVE).build());
         return groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(challenge)
-                .windowStartAt(Instant.parse("2026-01-01T" + startTime + "+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T" + endTime + "+09:00"))
+                .windowStart(LocalTime.parse(startTime))
+                .windowEnd(LocalTime.parse(endTime))
                 .durationMinutes(goalMinutes)
                 .build());
     }
@@ -149,15 +150,15 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("자정 걸침 창(22:00~01:00) — 날짜 D 의 창은 D 22:00 ~ D+1 01:00 로 앵커된다")
-    void anchorsMidnightCrossingWindowAcrossDates() {
-        // given: 22:00~01:00 창. 2026-08-01(KST) 의 실제 경계는 [13:00Z, 16:00Z).
-        GroupChallengeWindow window = saveWindow("22:00:00", "01:00:00", 120);
-        User user = saveUser("자정걸침");
-        // 23:30 KST ~ 이튿날 00:30 KST → 자정을 넘겨도 60분 전체가 같은 날짜 D 의 창에 계수된다
-        saveSession(user, "2026-08-01T14:30:00Z", "2026-08-01T15:30:00Z", FocusSessionStatus.COMPLETED);
-        // 창 시작 전 21:00~21:30 KST → 0분
-        saveSession(user, "2026-08-01T12:00:00Z", "2026-08-01T12:30:00Z", FocusSessionStatus.COMPLETED);
+    @DisplayName("심야 창(22:00~23:59) — 날짜 D 의 창은 D 안에서 닫히고, 자정 이후 세션은 계수되지 않는다")
+    void anchorsLateNightWindowWithinSameDate() {
+        // given: 자정 걸침 금지(§A6-1) 아래의 심야 창. 2026-08-01(KST) 의 실제 경계는 [13:00Z, 14:59Z).
+        GroupChallengeWindow window = saveWindow("22:00:00", "23:59:00", 60);
+        User user = saveUser("심야창");
+        // 22:30~23:30 KST → 60분 전체가 날짜 D 의 창에 계수된다
+        saveSession(user, "2026-08-01T13:30:00Z", "2026-08-01T14:30:00Z", FocusSessionStatus.COMPLETED);
+        // 이튿날 00:00~00:30 KST → 창 종료(23:59) 이후라 0분 — D+1 로 넘어가는 꼬리가 없다
+        saveSession(user, "2026-08-01T15:00:00Z", "2026-08-01T15:30:00Z", FocusSessionStatus.COMPLETED);
 
         // when
         Map<UUID, Integer> minutes = windowFocusAggregator.focusMinutesWithin(List.of(user.getId()), DATE, window);
@@ -180,16 +181,16 @@ class WindowFocusAggregatorIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("GROMO-1100 회귀 — 자정 걸침 창(22:00~02:00 KST)의 앵커는 D 22:00 ~ D+1 02:00 (KST)")
-    void anchorsMidnightCrossingWindowAtKstWallClock() {
-        // given: 22:00~02:00 KST 창 — 시작 > 종료라 자정 걸침으로 해석돼야 한다
-        GroupChallengeWindow window = saveWindow("22:00:00", "02:00:00", 120);
+    @DisplayName("GROMO-1406 — 심야 창(22:00~23:59)의 종료 앵커도 항상 회차일 D 다 (D+1 분기 제거)")
+    void anchorsLateNightWindowEndOnSameDate() {
+        // given: 자정 앞에서 끊는 심야 창 — 걸침(시작 > 종료)은 §A6-1 로 생성 자체가 불가하다
+        GroupChallengeWindow window = saveWindow("22:00:00", "23:59:00", 60);
 
-        // then: D 의 시작 22:00 KST, 종료는 D+1 의 02:00 KST
+        // then: 시작·종료 모두 D(2026-08-01) 안 — 시간 모델 어디에도 D+1 이 없다
         assertThat(windowFocusAggregator.windowStartOn(DATE, window))
                 .isEqualTo(Instant.parse("2026-08-01T22:00:00+09:00"));
         assertThat(windowFocusAggregator.windowEndOn(DATE, window))
-                .isEqualTo(Instant.parse("2026-08-02T02:00:00+09:00"));
+                .isEqualTo(Instant.parse("2026-08-01T23:59:00+09:00"));
     }
 
     /**

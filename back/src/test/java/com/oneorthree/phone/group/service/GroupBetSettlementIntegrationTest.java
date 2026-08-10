@@ -153,7 +153,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
                 .build());
         challenges.add(saved);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(goalMinutes).build());
+                .challenge(saved).category(MissionCategory.FOCUS).durationMinutes(goalMinutes).build());
         return saved;
     }
 
@@ -252,7 +252,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         participant(session, winner, GOAL_MINUTES);        // 목표 정확히 달성
         participant(session, loser, GOAL_MINUTES - 1);     // 1분 모자람
 
-        GroupBetSettlementSummaryResponse first = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse first = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(first.settledCount()).isEqualTo(1);
         assertThat(first.failedCount()).isZero();
@@ -261,7 +261,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         assertThat(balanceOf(winner)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
         assertThat(balanceOf(loser)).isEqualTo(BALANCE_AFTER_STAKE);
 
-        GroupBetSettlementSummaryResponse second = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse second = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         // status 가드에 걸려 대상 자체가 잡히지 않는다(멱등 1차 방어).
         assertThat(second.targetCount()).isZero();
@@ -280,7 +280,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         participant(session, winner, GOAL_MINUTES + 60);
         participant(session, loser, 0);
 
-        groupBetSettlementService.settleDueBets(today);
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         // 판정에 쓴 실측 분이 그대로 남는다 — 결과 모달의 "기록/목표" 근거(GROMO-1207).
         assertThat(participantsOf(session))
@@ -372,7 +372,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         participant(session, a, 10);
         participant(session, b, 0);
 
-        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(summary.forfeitedCount()).isEqualTo(1);
         assertThat(summary.settledCount()).isZero();
@@ -404,8 +404,8 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         participant(session, a, 0);
         participant(session, b, 0);   // 2명 전원 미달성 — 몰수 경로(인원 미달 무산과 구분)
 
-        groupBetSettlementService.settleDueBets(today);
-        GroupBetSettlementSummaryResponse second = groupBetSettlementService.settleDueBets(today);
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
+        GroupBetSettlementSummaryResponse second = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(second.targetCount()).isZero();
         assertThat(statusOf(session)).isEqualTo(GroupBetStatus.FORFEITED);
@@ -446,7 +446,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         // 2명이어야 인원 미달 무산(VOIDED)이 아니라 판정 경로로 들어가 목표 유실 예외가 난다.
         participant(brokenSession, brokenPeer, 0);
 
-        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(summary.targetCount()).isEqualTo(2);
         assertThat(summary.settledCount()).isEqualTo(1);
@@ -458,14 +458,14 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("당일 회차는 배치 대상이 아니다 — session_date < 기준일만 정산한다")
+    @DisplayName("settle_after 미도래(당일 하루형) 회차는 수동 배치 대상이 아니다")
     void doesNotSettleTodaysSession() {
         User user = stakedUser("참가자");
         GroupChallengeBetSession session = openSession(challenge, STAKE, today);
         groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(session).user(user).build());
 
-        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(summary.targetCount()).isZero();
         assertThat(statusOf(session)).isEqualTo(GroupBetStatus.OPEN);
@@ -473,14 +473,14 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("미래(내일) 회차는 배치 대상이 아니다 — 조기 정산·몰수·환불 없이 OPEN 그대로 남는다(GROMO-1103)")
+    @DisplayName("미래(내일) 회차는 settle_after 미도래라 대상이 아니다 — 조기 정산·몰수·환불 없이 OPEN 그대로(GROMO-1103)")
     void doesNotSettleTomorrowsSession() {
         User user = stakedUser("참가자");
         GroupChallengeBetSession session = openSession(challenge, STAKE, today.plusDays(1));
         groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(session).user(user).build());
 
-        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(summary.targetCount()).isZero();
         assertThat(statusOf(session)).isEqualTo(GroupBetStatus.OPEN);
@@ -506,7 +506,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(session).user(noStat2).build());
 
-        groupBetSettlementService.settleDueBets(today);
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         // 달성자 0명 → 몰수. 참가비는 돌아오지 않는다.
         assertThat(statusOf(session)).isEqualTo(GroupBetStatus.FORFEITED);
@@ -524,7 +524,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(session).user(withdrawn).build());
 
-        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         // 잔류자가 유일한 승자 — 탈퇴자 행이 있어도 정산이 터지지 않고 팟 전액이 승자에게 간다.
         assertThat(summary.settledCount()).isEqualTo(1);
@@ -546,7 +546,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("정산 대상이 없으면 조용히 0건으로 끝난다")
     void settlesNothingWhenNoDueSessions() {
-        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(today);
+        GroupBetSettlementSummaryResponse summary = groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(summary.targetCount()).isZero();
         assertThat(summary.failedCount()).isZero();
@@ -566,7 +566,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         participant(session, third, GOAL_MINUTES + 5);
         participant(session, loser, 0);
 
-        groupBetSettlementService.settleDueBets(today);
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         int pot = 10 * 4;
         assertThat(participantsOf(session))
@@ -600,7 +600,7 @@ class GroupBetSettlementIntegrationTest extends IntegrationTestBase {
         groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(second).user(rival).build());
 
-        groupBetSettlementService.settleDueBets(today);
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
 
         assertThat(transactionsOf(winner, CurrencyTransactionType.BET_PAYOUT)).hasSize(2);
         assertThat(transactionsOf(winner, CurrencyTransactionType.BET_PAYOUT))

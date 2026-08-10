@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -101,7 +102,8 @@ public class GroupBetEarlyWinConfirmer {
                     .progressMinutes(target0.get(), session.getSessionDate(), List.of(user))
                     .get(user.getId());
             if (GroupBetJudge.isAchieved(target0.get(), minutes)) {
-                participant.confirmWin(minutes == null ? 0 : minutes);
+                // 확정 시각 박제(LLD §5.1 — confirmWin(m, Instant.now())). 조기 확정 전용 컬럼이다.
+                participant.confirmWin(minutes == null ? 0 : minutes, Instant.now());
                 eventPublisher.publishEvent(
                         new GroupBetWonEvent(session.getId(), participant.getId()));
                 log.info("개인 승리 조기 확정 — sessionId={}, userId={}, progressMinutes={}",

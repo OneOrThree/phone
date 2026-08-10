@@ -101,9 +101,10 @@ class GroupChallengeMemberV43MigrationTest {
 
     private UUID insertReport(LocalDate date) {
         UUID id = UUID.randomUUID();
+        // is_achieved·achieved_at 은 V37 에서 드롭됐다(GROMO-1265) — 원본값 컬럼만 채운다.
         jdbc.update("INSERT INTO group_challenge_members (id, group_challenge_id, user_id, usage_date,"
-                + " progress_minutes, is_achieved, created_at, updated_at)"
-                + " VALUES (?, ?, ?, ?, 30, false, now(), now())",
+                + " progress_minutes, created_at, updated_at)"
+                + " VALUES (?, ?, ?, ?, 30, now(), now())",
                 id, challengeId, userId, date);
         return id;
     }

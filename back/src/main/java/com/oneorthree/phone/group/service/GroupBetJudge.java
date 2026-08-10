@@ -177,7 +177,11 @@ public class GroupBetJudge {
     private Map<UUID, Integer> dailyScreenTimeMinutes(Collection<User> users, LocalDate date) {
         Map<UUID, Integer> minutes = new HashMap<>();
         for (DailyScreenTimeStat stat : dailyScreenTimeStatRepository.findByUserInAndDate(users, date)) {
-            minutes.merge(stat.getUser().getId(), stat.getTotalScreenTimeMinutes(), Integer::max);
+            // 미집계 row(minutes null, GROMO-1267)는 키를 만들지 않는다 — "행 없음"과 동일하게
+            // 미보고로 해석돼 isAchieved 가 미달성으로 확정한다(FR-21 유지).
+            if (stat.getTotalScreenTimeMinutes() != null) {
+                minutes.merge(stat.getUser().getId(), stat.getTotalScreenTimeMinutes(), Integer::max);
+            }
         }
         return minutes;
     }

@@ -64,6 +64,8 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
     @Autowired
     GroupBetSettler groupBetSettler;
     @Autowired
+    GroupBetSettlementService groupBetSettlementService;
+    @Autowired
     GroupRepository groupRepository;
     @Autowired
     GroupChallengeRepository groupChallengeRepository;
@@ -145,8 +147,10 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group).category(category).type(MissionType.DURATION).build());
         challenges.add(saved);
+        // category 는 V36 이후 NOT NULL 비정규화 사본이다 — 복합 FK (challenge_id, category) 가
+        // 부모와의 일치를 강제하므로 반드시 부모 챌린지와 같은 값을 넣는다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(category).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 
@@ -157,8 +161,9 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
         challenges.add(saved);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
+                // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 LocalTime 이다 — Instant 앵커 변환 불요.
+                .windowStart(LocalTime.of(9, 0))
+                .windowEnd(LocalTime.of(12, 0))
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         return saved;
@@ -455,7 +460,45 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(GroupBetVoidReason.INSUFFICIENT_PARTICIPANTS);
     }
 
-    // ── ⑤ 스캔 술어 — 백오프 존중 + 24h 초과분 무시 불가 (GROMO-1411) ──────
+    // ── ⑤ 수동 배치 대상 — 회차별 settle_after 경과 (당일 회차 포함) ────────
+
+    @Test
+    @DisplayName("MANUAL 배치는 당일 창형 회차도 잡는다 — settle_after 경과가 선택 축이다(날짜 축 폐지)")
+    void manualBatchPicksSameDayWindowedSession() {
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.now(KST);
+        User a = stakedUser("당일A");
+        User b = stakedUser("당일B");
+        // 오늘 오전 창이 끝나고 그레이스(30분)까지 지난 회차 — 종전 날짜 축(session_date < today)
+        // 선택으로는 내일까지 안 잡혀 24h 자동 환불로 흐를 수 있던 케이스다.
+        GroupChallengeBetSession sameDay = session(windowChallenge(MissionCategory.FOCUS),
+                today, now.minus(Duration.ofHours(3)), now.minus(Duration.ofHours(2)),
+                now.minus(Duration.ofHours(1)));
+        join(sameDay, a);
+        join(sameDay, b);
+
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
+
+        // 창 내 완료 세션이 없어 몰수지만, 핵심은 당일 회차가 대상으로 집혀 OPEN 을 벗어났다는 것.
+        assertThat(reload(sameDay).getStatus()).isEqualTo(GroupBetStatus.FORFEITED);
+    }
+
+    @Test
+    @DisplayName("MANUAL 배치도 settle_after 미도래 회차는 건드리지 않는다 — settle 내부 가드 이중 방어")
+    void manualBatchLeavesNotYetDueSessionsOpen() {
+        Instant now = Instant.now();
+        GroupChallengeBetSession notDue = session(durationChallenge(MissionCategory.FOCUS),
+                LocalDate.now(KST), now.plus(Duration.ofHours(1)), now.plus(Duration.ofHours(2)),
+                now.plus(Duration.ofHours(3)));
+        join(notDue, stakedUser("미도래A"));
+        join(notDue, stakedUser("미도래B"));
+
+        groupBetSettlementService.settleDueBets(Instant.now(), null);
+
+        assertThat(reload(notDue).getStatus()).isEqualTo(GroupBetStatus.OPEN);
+    }
+
+    // ── ⑥ 스캔 술어 — 백오프 존중 + 24h 초과분 무시 불가 (GROMO-1411) ──────
 
     @Test
     @DisplayName("findDue — 백오프 미경과 회차는 빠지고, 24h 초과 회차는 백오프와 무관하게 집힌다")

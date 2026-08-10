@@ -57,6 +57,10 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
     boolean existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
             Group group, MissionCategory category, MissionType type, GroupChallengeStatus status);
 
+    // 그룹당 활성 챌린지 4개 상한(FR-1 · GROMO-1422) 사전 검사용 — 그룹 행 배타 락 아래에서만 의미 있다
+    // (GroupRepository.findByIdForUpdate 로 생성을 직렬화한 뒤 센다).
+    long countByGroupAndStatusAndDeletedAtIsNull(Group group, GroupChallengeStatus status);
+
     // TIME_WINDOW 겹침 판정은 window 컬럼의 상세 테이블 분리에 따라
     // GroupChallengeWindowRepository.existsOverlappingTimeWindow 로 이동.
 
@@ -69,8 +73,8 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
      * 스크린타임 전용이던 시절의 잔재였다).
      *
      * <p>매 틱 도는 조회라 group 을 함께 fetch 한다(딥링크의 groupId). 실제 발송 대상은 호출측이
-     * 상세(창·일 목표)를 붙여 "방금 끝났는지" 로 다시 좁힌다. 활성 챌린지는 그룹당 카테고리×타입 1개
-     * (V20 부분 유니크)라 결과는 타입당 최대 (그룹 수 × 2) 건이다.
+     * 상세(창·일 목표)를 붙여 "방금 끝났는지" 로 다시 좁힌다. 활성 챌린지는 그룹당 최대 4개
+     * (FR-1 · GROMO-1422)라 결과는 타입당 최대 (그룹 수 × 4) 건이다.
      */
     @Query("SELECT c FROM GroupChallenge c JOIN FETCH c.group "
             + "WHERE c.status = :status AND c.deletedAt IS NULL AND c.type = :type")

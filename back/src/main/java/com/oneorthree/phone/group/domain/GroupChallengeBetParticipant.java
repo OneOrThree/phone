@@ -63,6 +63,15 @@ public class GroupChallengeBetParticipant {
     @Column(name = "achieved")
     private Boolean achieved;
 
+    /**
+     * 조기 확정 시각(GROMO-1268, LLD §1.1) — {@link #confirmWin} 이 일어난 순간의 박제.
+     * <b>조기 확정 전용</b>이다: 정산 시점 판정({@link #recordSettlement})은 회차의 {@code settled_at}
+     * 이 시각 축을 담당하므로 여기를 채우지 않는다 — null 이면 "정산에서 판정됨(또는 미판정)"이고,
+     * 값이 있으면 "그 시각에 이미 승리가 닫혀 있었다"는 뜻이다.
+     */
+    @Column(name = "achieved_at")
+    private Instant achievedAt;
+
     /** 정산 시 기록 — 승자 분배금(패자 0) 또는 전원 환불금. 정산 전이면 null. */
     @Column(name = "payout")
     private Integer payout;
@@ -98,10 +107,12 @@ public class GroupChallengeBetParticipant {
      *
      * <p>{@code progressMinutes} 는 확정 시점 실측이지만 <b>박제가 아니다</b> — 정산이 전원 최종값으로
      * 다시 잰다(잔여 코인 순위가 박제값으로 엉뚱한 승자에게 가는 것을 막는다, LLD §5.2).
+     * {@code achievedAt} 은 반대로 <b>박제</b>다 — 조기 확정이 일어난 순간의 시각(LLD §1.1·§5.1).
      * 호출 전제: 회차 행 잠금 아래 + {@code achieved == null}.
      */
-    public void confirmWin(int progressMinutes) {
+    public void confirmWin(int progressMinutes, Instant achievedAt) {
         this.achieved = true;
+        this.achievedAt = achievedAt;
         this.progressMinutes = progressMinutes;
     }
 

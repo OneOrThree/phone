@@ -23,8 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -373,13 +371,15 @@ public class GroupBetSettler {
                 userIds, windowEndOf(session));
     }
 
-    /** 회차 창 종료 Instant — 스냅샷 시각으로 계산. 시작 ≥ 종료는 자정 걸침 창(D+1 종료)이다. */
+    /**
+     * 회차 창 종료 Instant — 스냅샷 시각으로 계산하며 <b>종료일은 항상 회차일</b>이다.
+     * V35(GROMO-1406)가 자정 걸침을 DB CHECK({@code window_start < window_end})로 금지하면서
+     * {@link WindowFocusAggregator#windowEndOn} 의 D+1 분기가 사라졌다 — 대기 가드는 판정이 실제로
+     * 쓰는 창과 <b>같은 경계</b>를 봐야 하므로 여기서도 같은 규칙을 쓴다(둘이 갈리면, 판정은 이미
+     * 끝난 창을 보는데 대기만 계속 걸리거나 그 반대가 된다).
+     */
     private static Instant windowEndOf(GroupChallengeBetSession session) {
-        LocalTime start = session.getWindowStart();
-        LocalTime end = session.getWindowEnd();
-        LocalDate endDate = start.isBefore(end)
-                ? session.getSessionDate() : session.getSessionDate().plusDays(1);
-        return endDate.atTime(end).atZone(KST).toInstant();
+        return session.getSessionDate().atTime(session.getWindowEnd()).atZone(KST).toInstant();
     }
 
     /**
