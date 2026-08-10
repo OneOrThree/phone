@@ -6,13 +6,15 @@ import { T } from '@/constants/theme';
 import { ProgressBar } from './ProgressBar';
 
 let mockReduce = false;
+let mockReady = true;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
-  useReduceMotionReady: () => true,
+  useReduceMotionReady: () => mockReady,
 }));
 
 beforeEach(() => {
   mockReduce = false;
+  mockReady = true;
 });
 
 const fillStyle = (testID: string) =>
@@ -103,5 +105,33 @@ describe('ProgressBar', () => {
     await flushEnter();
     expect(fillInlineStyle('bar').transitionProperty).toBeUndefined();
     expect(fillStyle('bar').width).toBe('50%');
+  });
+});
+
+// ⚠️ '동작 줄이기' 조회가 끝나기 전 `useReduceMotion()`은 보수적으로 true를 돌려준다. 그 값으로
+//    진입을 확정해 버리면 첫 렌더부터 목표 폭이 그려지고, 이후 false로 확정돼 전환 스타일이
+//    붙어도 **폭이 이미 목표라 변화가 없어** 채우기가 통째로 사라진다(codex 리뷰).
+describe('ProgressBar — 동작 줄이기 미확정 구간', () => {
+  test('확정 전에는 목표 폭을 그리지 않는다 — 시작 상태(0%)로 대기한다', async () => {
+    mockReady = false;
+    mockReduce = true; // 미확정 구간의 보수적 값
+    await render(<ProgressBar progress={0.5} color={T.accent} testID="pending" />);
+    await flushEnter();
+    expect(fillStyle('pending').width).toBe('0%');
+  });
+
+  test('확정된 뒤에 채우기가 시작된다', async () => {
+    mockReady = false;
+    mockReduce = true;
+    const view = await render(<ProgressBar progress={0.5} color={T.accent} testID="settled" />);
+    await flushEnter();
+    expect(fillStyle('settled').width).toBe('0%');
+
+    // 조회가 '동작 줄이기 꺼짐'으로 확정됐다
+    mockReady = true;
+    mockReduce = false;
+    await view.rerender(<ProgressBar progress={0.5} color={T.accent} testID="settled" />);
+    await flushEnter();
+    await waitFor(() => expect(fillStyle('settled').width).toBe('50%'));
   });
 });
