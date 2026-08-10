@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   FlatList,
+  findNodeHandle,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -76,6 +78,23 @@ export default function GroupListScreen({
   const previousOrderKeyRef = useRef(orderKey);
   const previousSnapIntervalRef = useRef(snapInterval);
   const pendingFlipGroupIdRef = useRef<string | null>(null);
+  const pendingFaceFocusRef = useRef<{ groupId: string; face: 'front' | 'back' } | null>(null);
+  const frontActionRefs = useRef(new Map<string, View | null>());
+  const backTitleRefs = useRef(new Map<string, Text | null>());
+
+  useEffect(() => {
+    const pending = pendingFaceFocusRef.current;
+    if (!pending) return;
+    const expectedFace = flippedGroupId === pending.groupId ? 'back' : 'front';
+    if (pending.face !== expectedFace) return;
+    pendingFaceFocusRef.current = null;
+    const target =
+      pending.face === 'back'
+        ? backTitleRefs.current.get(pending.groupId)
+        : frontActionRefs.current.get(pending.groupId);
+    const node = findNodeHandle(target ?? null);
+    if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+  }, [flippedGroupId]);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -101,6 +120,7 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       const nextIdentity = groups[next]?.groupId ?? null;
+      if (pendingFlipGroupIdRef.current !== nextIdentity) pendingFlipGroupIdRef.current = null;
       if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
       activeIdentityRef.current = nextIdentity;
       activeIndexRef.current = next;
@@ -119,7 +139,10 @@ export default function GroupListScreen({
       setActiveIndex(next);
       if (pendingFlipGroupIdRef.current === nextIdentity) {
         pendingFlipGroupIdRef.current = null;
+        pendingFaceFocusRef.current = { groupId: nextIdentity, face: 'back' };
         setFlippedGroupId(nextIdentity);
+      } else {
+        pendingFlipGroupIdRef.current = null;
       }
     },
     [groups, pageCount, snapInterval],
@@ -152,6 +175,7 @@ export default function GroupListScreen({
         return;
       }
       pendingFlipGroupIdRef.current = null;
+      pendingFaceFocusRef.current = { groupId, face: 'back' };
       setFlippedGroupId(groupId);
     },
     [groups, snapInterval],
@@ -242,6 +266,9 @@ export default function GroupListScreen({
               {flippedGroupId === item.groupId ? (
                 <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
                   <Text
+                    ref={(node) => {
+                      backTitleRefs.current.set(item.groupId, node);
+                    }}
                     style={s.backTitle}
                     numberOfLines={1}
                     ellipsizeMode="tail"
@@ -260,7 +287,10 @@ export default function GroupListScreen({
                     <Text style={s.backPrimaryText}>방 전체 보기</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => setFlippedGroupId(null)}
+                    onPress={() => {
+                      pendingFaceFocusRef.current = { groupId: item.groupId, face: 'front' };
+                      setFlippedGroupId(null);
+                    }}
                     testID={`group.card.frontAction.${item.groupId}`}
                   >
                     <Text style={s.backLink}>앞면으로</Text>
@@ -272,6 +302,9 @@ export default function GroupListScreen({
                   pageIndex={groups.findIndex((group) => group.groupId === item.groupId)}
                   pageCount={pageCount}
                   onFlip={() => flipCard(item.groupId)}
+                  actionRef={(node) => {
+                    frontActionRefs.current.set(item.groupId, node);
+                  }}
                 />
               )}
             </View>

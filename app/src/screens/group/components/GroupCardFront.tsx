@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { Ref } from 'react';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -9,6 +10,7 @@ interface GroupCardFrontProps {
   pageIndex: number;
   pageCount: number;
   onFlip: () => void;
+  actionRef?: Ref<View>;
 }
 
 export function GroupCardFront({
@@ -17,6 +19,7 @@ export function GroupCardFront({
   pageIndex,
   pageCount,
   onFlip,
+  actionRef,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
   const descriptionLabel = group.description ? `, ${group.description}` : '';
@@ -32,6 +35,7 @@ export function GroupCardFront({
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
+        ref={actionRef}
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"

@@ -199,6 +199,23 @@ describe('콜백', () => {
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
   });
 
+  test('peek flip 이동 중 다른 페이지에 정착하면 보류한 flip을 폐기한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await press(`group.card.${GROUP_ID_2}`);
+    const list = screen.getByTestId('group.list.items');
+
+    await act(async () => {
+      fireEvent(list, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 9999 } } });
+    });
+    await act(async () => {
+      fireEvent(list, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+    });
+
+    expect(
+      screen.queryByTestId(`group.card.back.${GROUP_ID_2}`, { includeHiddenElements: true }),
+    ).toBeNull();
+  });
+
   test('현재 페이지 dot을 다시 눌러도 열린 뒷면을 유지한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);

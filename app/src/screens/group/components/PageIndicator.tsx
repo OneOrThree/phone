@@ -39,11 +39,10 @@ export function pageAccessibilityLabel(label: string, page: number, pageCount: n
 
 export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
+  const [focusWithin, setFocusWithin] = useState(false);
   const pageCount = pageLabels.length;
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
   const previousModeRef = useRef(mode);
-  const focusWithinRef = useRef(false);
-  const screenReaderEnabledRef = useRef(false);
   const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
 
@@ -53,27 +52,14 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
-      if (mounted) screenReaderEnabledRef.current = enabled;
-    });
-    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', (enabled) => {
-      screenReaderEnabledRef.current = enabled;
-    });
-    return () => {
-      mounted = false;
-      subscription.remove();
-    };
-  }, []);
-
-  useEffect(() => {
     if (previousModeRef.current === mode) return;
     previousModeRef.current = mode;
-    if (!focusWithinRef.current && !screenReaderEnabledRef.current) return;
+    // 실제로 사라지는 인디케이터 안에 포커스가 있었을 때만 새 표현으로 이어 준다.
+    if (!focusWithin) return;
     const target = mode === 'counter' ? counterRef.current : dotRefs.current[activeIndex];
     const node = findNodeHandle(target);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [activeIndex, mode]);
+  }, [activeIndex, focusWithin, mode]);
 
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
@@ -88,10 +74,10 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
               style={s.dotHit}
               onPress={() => onSelectPage(page)}
               onFocus={() => {
-                focusWithinRef.current = true;
+                setFocusWithin(true);
               }}
               onBlur={() => {
-                focusWithinRef.current = false;
+                setFocusWithin(false);
               }}
               accessibilityRole="button"
               accessibilityLabel={pageAccessibilityLabel(pageLabels[page] ?? '', page, pageCount)}
@@ -114,10 +100,10 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
           accessibilityRole="text"
           accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
           onFocus={() => {
-            focusWithinRef.current = true;
+            setFocusWithin(true);
           }}
           onBlur={() => {
-            focusWithinRef.current = false;
+            setFocusWithin(false);
           }}
           testID="group.deck.indicator.counter"
         >
