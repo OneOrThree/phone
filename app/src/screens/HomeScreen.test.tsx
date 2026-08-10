@@ -208,6 +208,27 @@ describe('HomeScreen 코인·스트릭 칩', () => {
   });
 });
 
+describe('HomeScreen 접근성', () => {
+  test('알림 버튼은 읽지 않은 알림 상태를 레이블에 포함한다', async () => {
+    const { hasUnread } = jest.requireMock('@/services/notificationInbox') as {
+      hasUnread: jest.Mock;
+    };
+    hasUnread.mockResolvedValueOnce(true);
+
+    await render(<HomeScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '알림 보기, 읽지 않은 알림 있음' })).toBeTruthy(),
+    );
+  });
+
+  test('읽지 않은 알림이 없으면 기본 알림 레이블을 사용한다', async () => {
+    await render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '알림 보기' })).toBeTruthy());
+  });
+});
+
 describe('HomeScreen 진입 stagger', () => {
   test('컨테이너를 Animated.View로 바꿔도 기존 testID·문구가 그대로 있다', async () => {
     await render(<HomeScreen />);
