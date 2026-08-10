@@ -240,6 +240,11 @@ export default function LeagueResultScreen() {
       v.setValue(1);
     });
     setShowTo(true);
+    // ⚠️ **이 축하의 수명을 여기서 끝낸다.** ConfettiBurst의 생략은 안쪽만 비우는 방식이라,
+    //    celebrate를 true로 둔 채 3.2초 타이머가 남아 있으면 그 사이 설정을 다시 끌 때 안쪽이
+    //    새로 마운트돼 컨페티가 처음부터 재생되고 남은 타이머에 잘린다(codex 리뷰).
+    //    파티클만 끝내는 것이고 햅틱·문구는 그대로다(정책 D7).
+    setCelebrate(false);
     if (type === 'promote' && !celebratedRef.current) {
       celebratedRef.current = true;
       hapticSuccess();
