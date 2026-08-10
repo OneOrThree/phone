@@ -13,6 +13,7 @@ import {
   preservePendingGroupCardEmoji,
   restoreLatestPendingGroupCardEmoji,
   retryPendingGroupCardEmojis,
+  hasPendingGroupCardEmojis,
   subscribeGroupCardEmoji,
   updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
@@ -160,6 +161,17 @@ test('pending 재시도가 실패해도 최신 아이콘을 화면 합성값으�
   });
   expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
   expect(onResult).toHaveBeenCalledWith('settings', 'failed');
+});
+
+test('여러 pending의 혼합 결과는 마지막 결과가 아니라 남은 항목 전체로 판정한다', async () => {
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥');
+  preservePendingGroupCardEmoji('u1', 'g2', '📚');
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('g1 failed'));
+
+  await retryPendingGroupCardEmojis('u1', ['g1', 'g2']);
+
+  expect(hasPendingGroupCardEmojis('u1', ['g1', 'g2'])).toBe(true);
+  expect(hasPendingGroupCardEmojis('u1', ['g2'])).toBe(false);
 });
 
 test('오래된 자동 쓰기 뒤에는 메모리의 최신 pending 선택을 다시 알린다', () => {

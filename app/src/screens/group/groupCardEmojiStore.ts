@@ -314,6 +314,16 @@ export function clearPendingGroupCardEmoji(
   return true;
 }
 
+export function hasPendingGroupCardEmojis(
+  userId: string,
+  serverGroupIds: readonly string[],
+): boolean {
+  const validIds = new Set(serverGroupIds);
+  return [...pendingEmojis.values()].some(
+    (pending) => pending.userId === userId && validIds.has(pending.groupId),
+  );
+}
+
 /** 그룹 화면 활성화 뒤 성공한 전체 목록에 포함된 최신 pending 값만 재시도한다. */
 export async function retryPendingGroupCardEmojis(
   userId: string,

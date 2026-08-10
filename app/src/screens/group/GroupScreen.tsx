@@ -22,6 +22,7 @@ import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 import {
   reconcileGroupCardEmojiBucket,
+  hasPendingGroupCardEmojis,
   readGroupCardEmojiSaveFailure,
   retryPendingGroupCardEmojis,
   setGroupCardEmojiSaveFailure,
@@ -153,11 +154,19 @@ export default function GroupScreen() {
           (surface, result) => {
             if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface, result });
-              setGroupCardEmojiSaveFailure(userId, result === 'failed');
             }
           },
         );
         if (seq !== requestSeqRef.current) return;
+        if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
+          setGroupCardEmojiSaveFailure(
+            userId,
+            hasPendingGroupCardEmojis(
+              userId,
+              rows.map((row) => row.groupId),
+            ),
+          );
+        }
         const storedBucket = await reconcileGroupCardEmojiBucket(
           userId,
           rows.map((row) => row.groupId),
