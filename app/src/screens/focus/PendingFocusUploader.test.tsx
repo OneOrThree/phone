@@ -27,7 +27,7 @@ jest.mock('./pendingMarkerCancels', () => ({
 }));
 jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: USER }) }));
 
-const mockRefreshCoins = jest.fn();
+const mockRefreshCoins = jest.fn(async () => true);
 jest.mock('@/store/CoinContext', () => ({ useCoins: () => ({ refresh: mockRefreshCoins }) }));
 
 const mockFlush = flushPendingFocusUploads as jest.MockedFunction<typeof flushPendingFocusUploads>;
@@ -38,6 +38,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
   mockFlush.mockResolvedValue(false);
+  mockRefreshCoins.mockResolvedValue(true);
   appStateHandler = null;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
@@ -101,6 +102,48 @@ test('이 자리의 flush가 커밋하면 마커 없이도 종전대로 잔액�
 
   expect(mockFlush).toHaveBeenCalledWith(USER);
   expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+});
+
+// 조회 성공을 확인하기 전에 마커를 지우면, 그 조회가 실패했을 때 큐도 마커도 비어
+// 지급 전 잔액이 영영 남는다(codex 후속 리뷰 P2 — coinRefreshSignal의 보류 규칙과 같은 원칙).
+test('잔액 조회가 실패하면 마커를 남긴다 — 다음 복귀에서 다시 시도한다', async () => {
+  mockRefreshCoins.mockResolvedValue(false); // 네트워크 실패·시퀀스 가드 미반영 둘 다 false다
+  await markBackgroundFocusCommit();
+  await renderUploader();
+  expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit)).toBe('1');
+
+  // 회복된 다음 복귀에서 다시 조회하고, 그때 성공하면 마커가 내려간다.
+  mockRefreshCoins.mockResolvedValue(true);
+  await act(async () => {
+    appStateHandler?.('active');
+  });
+  await settle();
+
+  expect(mockRefreshCoins).toHaveBeenCalledTimes(2);
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit)).toBeNull();
+});
+
+// 이 자리의 flush가 커밋한 지급도 같은 규칙을 탄다 — 큐는 이미 비었으므로 마커에 남기지
+// 않으면 조회 실패와 함께 '반영해야 할 지급이 있다'는 사실이 통째로 사라진다.
+test('여기서 커밋했는데 조회가 실패하면 마커로 남아 다음 복귀가 이어받는다', async () => {
+  mockFlush.mockResolvedValue(true);
+  mockRefreshCoins.mockResolvedValue(false);
+  await renderUploader();
+
+  expect(mockRefreshCoins).toHaveBeenCalledTimes(1);
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit)).toBe('1');
+
+  // 큐는 이미 비었다(커밋 없음) — 그래도 마커가 남아 잔액을 다시 받는다.
+  mockFlush.mockResolvedValue(false);
+  mockRefreshCoins.mockResolvedValue(true);
+  await act(async () => {
+    appStateHandler?.('active');
+  });
+  await settle();
+
+  expect(mockRefreshCoins).toHaveBeenCalledTimes(2);
+  expect(await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit)).toBeNull();
 });
 
 test('flush가 던져도 마커 소비는 살아남는다 — 백그라운드 지급이 실패에 묻히지 않는다', async () => {

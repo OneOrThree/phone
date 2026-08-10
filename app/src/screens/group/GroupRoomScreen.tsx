@@ -337,6 +337,10 @@ export default function GroupRoomScreen({
     // 보여줄 결과가 있는가"를 알아야 하기 때문. 큐는 참가자 스코프라 멤버십과 무관하게 성립한다.
     // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
     let queuedResults = 0; // 이번 조회로 큐에 실린 결과 수 — 아래 탈퇴 분기의 이탈 유예 근거
+    // '보여줄 결과가 없다'와 **'있는지 모르겠다'**를 가르는 값(codex 후속 리뷰 P2). 결과 조회
+    // 실패·가드 읽기 실패가 여기 해당한다 — 모르는 채로 탈퇴자를 방에서 내보내면(onLeft) 다른
+    // 소속 그룹이 없는 사용자에겐 '다음 조회'가 없어 정산 결과를 영영 못 본다(N53·C8).
+    let resultsUnknown = false;
     const resultEntries =
       myResultsResult.status === 'fulfilled' && Array.isArray(myResultsResult.value)
         ? myResultsResult.value
@@ -350,47 +354,61 @@ export default function GroupRoomScreen({
       // 통지(N48이 금지하는 형태)가 된다. 실패 응답은 여기 오지 않는다(resultEntries === null) —
       // 네트워크 실패로 대기 결과를 잃지 않는다.
       let next: ChallengeResultCandidate[] = [];
+      // 가드를 읽어 판정까지 마쳤는가 — null(읽기 실패)이면 '빈 정본'으로 반영하지 않는다.
+      let unseenKnown = true;
       if (candidates.length > 0) {
         const unseen = await filterUnseenChallengeResults(userId, candidates);
         // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
         if (seq !== requestSeqRef.current) return false;
-        // 푸시가 지목한 챌린지(GROMO-1088)는 같은 challengeId의 **최신 1건이 unseen일 때만**
-        // 큐 앞자리에 세우고 소비한다(PR #566 리뷰 ③). SESSION_END 푸시는 정산 **전**에 오므로
-        // 방금 끝난 회차는 아직 이 큐에 없다 — 이때 seen 우회로 지난 회차를 재노출하며 지목까지
-        // 소비하면, 정작 새 결과가 정산돼 도착했을 때 지목이 죽어 있다. 매치가 전부 본 결과뿐이면
-        // 소비하지 않고 유지한다("후보에 없으면 소비하지 않는다"와 같은 원리 — 다음 재조회가
-        // 이어받는다). candidates는 sessionDate 내림차순이라 첫 매치가 최신이다.
-        const focusId = focusPendingRef.current;
-        let focused: ChallengeResultCandidate[] = [];
-        if (focusId) {
-          const newest = candidates.find((c) => c.challengeId === focusId);
-          if (newest && unseen.some((u) => u.sessionId === newest.sessionId)) {
-            focused = [newest];
-            focusPendingRef.current = null;
+        if (unseen === null) unseenKnown = false;
+        else {
+          // 푸시가 지목한 챌린지(GROMO-1088)는 같은 challengeId의 **최신 1건이 unseen일 때만**
+          // 큐 앞자리에 세우고 소비한다(PR #566 리뷰 ③). SESSION_END 푸시는 정산 **전**에 오므로
+          // 방금 끝난 회차는 아직 이 큐에 없다 — 이때 seen 우회로 지난 회차를 재노출하며 지목까지
+          // 소비하면, 정작 새 결과가 정산돼 도착했을 때 지목이 죽어 있다. 매치가 전부 본 결과뿐이면
+          // 소비하지 않고 유지한다("후보에 없으면 소비하지 않는다"와 같은 원리 — 다음 재조회가
+          // 이어받는다). candidates는 sessionDate 내림차순이라 첫 매치가 최신이다.
+          const focusId = focusPendingRef.current;
+          let focused: ChallengeResultCandidate[] = [];
+          if (focusId) {
+            const newest = candidates.find((c) => c.challengeId === focusId);
+            if (newest && unseen.some((u) => u.sessionId === newest.sessionId)) {
+              focused = [newest];
+              focusPendingRef.current = null;
+            }
           }
+          next = [
+            ...focused,
+            ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
+          ];
         }
-        next = [
-          ...focused,
-          ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
-        ];
       }
-      queuedResults = next.length;
-      setResultQueue((prev) => {
-        // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
-        // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
-        // **빈 정본이 와도 이 헤드만은 남긴다** — 사용자가 읽고 있는 모달을 응답 하나로
-        // 걷어내는 것도 사고다. 닫는 순간 큐에서 빠지고(onResultClose) 그 뒤엔 정본만 남는다.
-        // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
-        //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
-        //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
-        //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
-        //    가려져 있던 결과는 서버가 여전히 내려 주는 한 unseen에 그대로 남아 next로 돌아온다 —
-        //    돌아오지 않았다면 서버가 제외한 것이므로 여기서 함께 사라지는 것이 옳다.
-        const head = prev[0];
-        if (!head) return next;
-        if (resultShownKeyRef.current !== head.sessionId) return next;
-        return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
-      });
+      // 가드를 못 읽었으면 큐를 건드리지 않는다 — '빈 정본'은 판정에 성공했을 때만 성립한다.
+      if (!unseenKnown) {
+        resultsUnknown = true;
+      } else {
+        queuedResults = next.length;
+        setResultQueue((prev) => {
+          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
+          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
+          // **빈 정본이 와도 이 헤드만은 남긴다** — 사용자가 읽고 있는 모달을 응답 하나로
+          // 걷어내는 것도 사고다. 닫는 순간 큐에서 빠지고(onResultClose) 그 뒤엔 정본만 남는다.
+          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
+          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
+          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
+          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
+          //    가려져 있던 결과는 서버가 여전히 내려 주는 한 unseen에 그대로 남아 next로 돌아온다 —
+          //    돌아오지 않았다면 서버가 제외한 것이므로 여기서 함께 사라지는 것이 옳다.
+          const head = prev[0];
+          if (!head) return next;
+          if (resultShownKeyRef.current !== head.sessionId) return next;
+          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
+        });
+      }
+    } else if (userId) {
+      // 결과 조회 자체가 실패했다 — 역시 '없다'가 아니라 '모른다'다(게스트는 참가 회차가
+      // 있을 수 없어 해당 없음). 큐는 그대로 두고 아래 탈퇴 분기가 이탈을 미룬다.
+      resultsUnknown = true;
     }
 
     if (detailResult.status === 'fulfilled') {
@@ -412,6 +430,13 @@ export default function GroupRoomScreen({
         // 분기로 세워 둔다(전면 다크 모달 뒤라 보이지 않고, 모달이 닫히면 곧 부모가 화면을 내린다).
         if (queuedResults > 0 || resultShownKeyRef.current !== null || pendingLeaveRef.current) {
           pendingLeaveRef.current = true;
+          setError(true);
+        } else if (resultsUnknown) {
+          // 보여줄 결과가 있는지 **모른다**(결과 조회 실패·가드 읽기 실패 — codex 후속 리뷰 P2).
+          // 모르는 채로 내보내면 다른 소속 그룹이 없는 탈퇴자는 그 정산 결과를 영영 못 본다.
+          // 이번 회차만 이탈을 미루고 **래치하지 않는다**(pendingLeaveRef를 세우지 않는다) —
+          // 세우면 다음 조회가 '결과 없음'을 확인해도 영영 이탈하지 못하고 에러 화면에 갇힌다.
+          // 다음 조회가 판정에 성공하면 그때 결과를 띄우거나(위 분기) 즉시 이탈한다(아래).
           setError(true);
         } else {
           // 보여줄 결과가 없으면 종전대로 즉시 — 부모가 이 화면을 내린다(로딩 플래그를 되돌릴

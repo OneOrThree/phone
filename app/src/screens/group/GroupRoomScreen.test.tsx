@@ -1700,6 +1700,56 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       expect(onLeft).toHaveBeenCalledTimes(1);
     });
 
+    // '모르겠다'와 '없다'를 같은 값으로 말하면 안 된다(codex 후속 리뷰 P2). 가드(AsyncStorage)
+    // 읽기가 일시 실패했을 뿐인데 "결과 0건"으로 읽고 방을 내리면, 다른 소속 그룹이 없는
+    // 탈퇴자에겐 주석이 기대하는 '다음 조회'가 아예 없어 그 정산 결과가 영영 사라진다.
+    test('가드 읽기가 실패하면 즉시 이탈하지 않는다 — 회복된 다음 조회가 결과를 보여준다', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      // 결과 응답은 성공했는데 1회 가드 조회만 실패한다.
+      // ⚠️ jest.spyOn + mockRestore 는 쓰지 않는다 — 공식 AsyncStorage mock의 메서드는 이미
+      //    jest.fn 이라, 복원하면 구현이 사라져 이후 모든 multiGet이 undefined를 돌려준다
+      //    (이 파일 뒤쪽 테스트들이 통째로 무너진다). 1회 오버라이드만 얹는다.
+      (AsyncStorage.multiGet as jest.Mock).mockRejectedValueOnce(new Error('storage'));
+
+      await renderRoom();
+
+      expect(onLeft).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull(); // 노출도 하지 않는다
+
+      // 가드가 회복된 다음 조회 — 그제서야 결과를 띄우고, 닫을 때 이탈한다.
+      await blur();
+      await focus();
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(onLeft).not.toHaveBeenCalled();
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+      });
+      expect(onLeft).toHaveBeenCalledTimes(1);
+    });
+
+    // 결과 조회 자체가 실패한 경우도 같은 '모르겠다'다 — 다만 **래치하지 않아야** 한다.
+    // 유예를 붙들면 다음 조회가 '결과 없음'을 확인해도 영영 에러 화면에 갇힌다.
+    test('결과 조회 실패도 이탈을 미루되, 회복 후 결과가 없으면 그때 나간다', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockRejectedValue(new Error('network'));
+
+      await renderRoom();
+      expect(onLeft).not.toHaveBeenCalled();
+
+      // 회복된 조회가 '정말 없다'를 확정하면 종전대로 즉시 이탈한다.
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await blur();
+      await focus();
+
+      expect(onLeft).toHaveBeenCalledTimes(1);
+    });
+
     test('보여줄 결과가 없으면 종전대로 즉시 onLeft', async () => {
       mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));

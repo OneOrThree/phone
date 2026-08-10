@@ -145,7 +145,7 @@ describe('1회 노출 가드 — 계정 스코프 세션 마커(IA §8)', () => 
       candidate('s1'), // 본 것
       candidate('s2'), // 다른 회차 — 새 결과
     ]);
-    expect(out.map((c) => c.sessionId)).toEqual(['s2']);
+    expect(out?.map((c) => c.sessionId)).toEqual(['s2']);
   });
 
   test('가드 키는 계정 스코프다 — 다른 계정이 본 기록으로 내 결과를 거르지 않는다', async () => {
@@ -176,10 +176,21 @@ describe('1회 노출 가드 — 계정 스코프 세션 마커(IA §8)', () => 
     expect(await AsyncStorage.getItem('gromo:challengeResult:c9:2026-07-31')).toBeNull();
   });
 
-  test('가드를 못 읽으면 아무것도 노출하지 않는다 — 이중 노출보다 한 번 거르는 쪽이 낫다', async () => {
-    const spy = jest.spyOn(AsyncStorage, 'multiGet').mockRejectedValueOnce(new Error('storage'));
+  // 읽기 실패는 '아무것도 노출하지 않는다'로 끝나야 하지만, **'볼 것이 없다'와 같은 값이면
+  // 안 된다**(codex 후속 리뷰 P2). 같은 값으로 뭉개면 탈퇴자 화면이 "결과 0건"으로 읽고 즉시
+  // 방을 내려(onLeft) 다른 소속 그룹이 없는 사용자는 그 정산 결과를 영영 못 본다.
+  test('가드를 못 읽으면 null — 노출은 하지 않되 "없다"로 확정하지 않는다', async () => {
+    // spyOn + mockRestore 금지 — 공식 mock의 메서드는 이미 jest.fn 이라 복원하면 구현이 사라져
+    // 이후 테스트의 multiGet이 undefined를 돌려준다. 1회 오버라이드만 얹는다.
+    (AsyncStorage.multiGet as jest.Mock).mockRejectedValueOnce(new Error('storage'));
     const out = await filterUnseenChallengeResults(USER_ID, [candidate('s1')]);
-    expect(out).toEqual([]);
-    spy.mockRestore();
+    expect(out).toBeNull();
+  });
+
+  test('후보가 실제로 없으면 빈 배열 — null(판정 불가)과 구분된다', async () => {
+    expect(await filterUnseenChallengeResults(USER_ID, [])).toEqual([]);
+
+    await AsyncStorage.setItem(`gromo:sessionResult:${USER_ID}:s1`, '2026-07-31');
+    expect(await filterUnseenChallengeResults(USER_ID, [candidate('s1')])).toEqual([]);
   });
 });

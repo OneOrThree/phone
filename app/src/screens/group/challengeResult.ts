@@ -122,19 +122,27 @@ function guardKey(userId: string, sessionId: string): string {
   return `${STORAGE_KEYS.sessionResultSeen}:${userId}:${sessionId}`;
 }
 
-// 이미 보여준 결과를 걸러낸다. 가드를 못 읽으면 아무것도 노출하지 않는다 —
-// 같은 결과를 두 번 띄우는 것보다 한 번 거르는 쪽이 낫고, 다음 조회가 다시 시도한다.
+// 이미 보여준 결과를 걸러낸다. 가드를 못 읽으면 아무것도 노출하지 않되, 그 사실을 **null로
+// 구분해서** 돌려준다(codex 후속 리뷰 P2).
+//
+// ⚠️ 예전엔 읽기 실패도 `[]`(= 볼 것이 없다)로 뭉갰다. 그러면 탈퇴자가 결과 푸시로 들어온
+// 경우가 무너진다: 화면(GroupRoomScreen)은 MEMBER_ONLY를 받고 "보여줄 결과가 0건"이라 읽어
+// **즉시 onLeft**로 방을 내리는데, 다른 소속 그룹이 없으면 "다음 조회"라는 것 자체가 없어
+// 그 정산 결과를 영영 못 본다(N53·C8이 지키려던 바로 그 경로).
+// 그래서 '모르겠다'와 '없다'를 같은 값으로 말하지 않는다 — null이면 호출자가 판단을 미룬다.
+// 노출 자체는 여전히 보수적이다(이중 노출보다 한 번 거르는 쪽) — null은 '이번엔 아무것도
+// 띄우지 않는다 + 없다고 확정하지도 않는다'는 뜻이다.
 export async function filterUnseenChallengeResults(
   userId: string,
   candidates: ChallengeResultCandidate[],
-): Promise<ChallengeResultCandidate[]> {
+): Promise<ChallengeResultCandidate[] | null> {
   if (candidates.length === 0) return candidates;
   try {
     const pairs = await AsyncStorage.multiGet(candidates.map((c) => guardKey(userId, c.sessionId)));
     const seen = new Set(pairs.filter(([, value]) => value !== null).map(([key]) => key));
     return candidates.filter((c) => !seen.has(guardKey(userId, c.sessionId)));
   } catch {
-    return [];
+    return null; // 가드 읽기 실패 = 판정 불가
   }
 }
 

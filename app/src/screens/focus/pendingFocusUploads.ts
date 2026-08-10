@@ -70,16 +70,27 @@ export async function markBackgroundFocusCommit(): Promise<void> {
   }
 }
 
-// 마커를 읽고 **지운다**(1회 소비). true면 호출자가 잔액을 다시 받아야 한다.
-// 삭제가 실패하면 false를 반환해 마커를 남긴다 — 다음 flush가 다시 소비한다(중복 조회 무해).
-export async function consumeBackgroundFocusCommit(): Promise<boolean> {
+// 마커를 **읽기만** 한다. true면 아직 화면에 반영되지 않은 지급이 있다는 뜻이다.
+//
+// ⚠️ 읽는 자리에서 지우지 않는다(codex 후속 리뷰 P2). 예전엔 읽으면서 삭제했는데, 이어지는
+// 잔액 조회가 네트워크 오류로 실패하거나 겹친 조회에 밀려 미반영되면(CoinContext refreshSeqRef)
+// **큐도 마커도 비어** 지급 전 잔액이 영영 남았다 — 실패를 성공으로 확정한 것이다.
+// coinRefreshSignal의 보류 규칙과 같은 원칙으로 맞춘다: **성공을 확인한 뒤에만 내린다.**
+export async function readBackgroundFocusCommit(): Promise<boolean> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit);
-    if (raw !== '1') return false;
-    await AsyncStorage.removeItem(STORAGE_KEYS.focusBackgroundCommit);
-    return true;
+    return (await AsyncStorage.getItem(STORAGE_KEYS.focusBackgroundCommit)) === '1';
   } catch {
-    return false;
+    return false; // 못 읽었으면 '없다'가 아니라 '이번엔 모른다' — 마커는 남아 다음 기회에 다시 읽힌다
+  }
+}
+
+// 잔액 재조회가 **실제로 반영된 뒤** 호출자가 부른다. 삭제 실패는 삼킨다 — 마커가 남아
+// 다음 복귀에서 조회가 한 번 더 나갈 뿐이고(멱등), 잃는 것보다 낫다.
+export async function clearBackgroundFocusCommit(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusBackgroundCommit);
+  } catch {
+    // 무시 — 다음 복귀가 다시 시도한다.
   }
 }
 
