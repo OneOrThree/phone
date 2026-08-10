@@ -87,7 +87,11 @@ describe('카드 렌더', () => {
     expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
     expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.alwaysBounceVertical).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.onScrollEndDrag).toEqual(
+      expect.any(Function),
+    );
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
   });
 

@@ -98,7 +98,7 @@ export default function GroupListScreen({
     [groups, pageCount, snapInterval],
   );
 
-  const onMomentumScrollEnd = useCallback(
+  const settlePage = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const next = Math.max(
         0,
@@ -113,7 +113,8 @@ export default function GroupListScreen({
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
     const identity = activeIdentityRef.current;
-    const next = identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
+    const next =
+      identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
     const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
     setActiveIndex(safeIndex);
@@ -144,6 +145,7 @@ export default function GroupListScreen({
         data={groups}
         keyExtractor={(item) => item.groupId}
         horizontal
+        alwaysBounceVertical
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
         ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
@@ -151,7 +153,8 @@ export default function GroupListScreen({
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum
-        onMomentumScrollEnd={onMomentumScrollEnd}
+        onMomentumScrollEnd={settlePage}
+        onScrollEndDrag={settlePage}
         ListFooterComponent={
           <View style={{ marginLeft: CARD_GAP }}>
             <FindMoreCard width={cardWidth} onPress={onFind} />
@@ -208,11 +211,7 @@ export default function GroupListScreen({
         )}
       />
 
-      <PageIndicator
-        pageCount={pageCount}
-        activeIndex={activeIndex}
-        onSelectPage={selectPage}
-      />
+      <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
       <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
