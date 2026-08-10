@@ -25,6 +25,7 @@ import {
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
+import type { CardInteractionContext } from '@/services/cardInteraction';
 
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
@@ -229,9 +230,25 @@ export default function GroupScreen() {
   // 목록에서 그룹을 골랐다 — A-9 이후 목록이 항상 기본 화면이라 소속 수와 무관하게 그룹방을
   // 스택에 push 한다(목록 화면은 스스로 navigate 하지 않고 이 콜백에 위임한다).
   const onSelectGroup = useCallback(
-    (groupId: string) => {
+    (groupId: string, interaction: CardInteractionContext) => {
       // 위 초대 목적지 소비와 같은 이유로 challengeId를 명시로 비운다(types.ts GroupRoom 주석).
-      navigation.navigate('GroupRoom', { groupId, challengeId: undefined });
+      navigation.navigate('GroupRoom', {
+        groupId,
+        challengeId: undefined,
+        entrySource: 'group_card',
+        ...interaction,
+      });
+    },
+    [navigation],
+  );
+
+  const onFocusGroup = useCallback(
+    (groupId: string, interaction: CardInteractionContext) => {
+      navigation.navigate('FocusCategory', {
+        initialGroupId: groupId,
+        entrySource: 'group_card',
+        ...interaction,
+      });
     },
     [navigation],
   );
@@ -240,9 +257,9 @@ export default function GroupScreen() {
   const onOpenGroup = useCallback(
     (groupId: string) => {
       setFindOpen(false);
-      onSelectGroup(groupId);
+      navigation.navigate('GroupRoom', { groupId, challengeId: undefined });
     },
-    [onSelectGroup],
+    [navigation],
   );
 
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
@@ -357,6 +374,7 @@ export default function GroupScreen() {
           isScreenFocused={isScreenFocused}
           userId={userId}
           onSelect={onSelectGroup}
+          onFocus={onFocusGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}

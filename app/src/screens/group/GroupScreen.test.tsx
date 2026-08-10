@@ -84,7 +84,10 @@ jest.mock('./GroupListScreen', () => {
     onRefresh,
   }: {
     groups: { groupId: string; name: string }[];
-    onSelect: (groupId: string) => void;
+    onSelect: (
+      groupId: string,
+      interaction: { interactionId: string; interactionAcceptedAt: number },
+    ) => void;
     onCreate: () => void;
     onFind: () => void;
     onRefresh: () => Promise<void>;
@@ -93,7 +96,15 @@ jest.mock('./GroupListScreen', () => {
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
         {groups.map((g) => (
-          <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
+          <RNTouchable
+            key={g.groupId}
+            onPress={() =>
+              onSelect(g.groupId, {
+                interactionId: '11111111-1111-4111-8111-111111111111',
+                interactionAcceptedAt: 1_000,
+              })
+            }
+          >
             <RNText>{`목록-${g.name}`}</RNText>
           </RNTouchable>
         ))}
@@ -394,7 +405,13 @@ describe('목록 분기(0/1/N)', () => {
 
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+      entrySource: 'group_card',
+      interactionId: '11111111-1111-4111-8111-111111111111',
+      interactionAcceptedAt: 1_000,
+    });
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
@@ -404,7 +421,13 @@ describe('목록 분기(0/1/N)', () => {
     expect(screen.getByText('목록 2건')).toBeOnTheScreen();
 
     await press('목록-저녁 스터디');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID_2 });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', {
+      groupId: GROUP_ID_2,
+      challengeId: undefined,
+      entrySource: 'group_card',
+      interactionId: '11111111-1111-4111-8111-111111111111',
+      interactionAcceptedAt: 1_000,
+    });
   });
 
   // GROMO-1088 — 스택에 이미 GroupRoom이 있으면 파라미터가 얕게 병합된다. challengeId 키를

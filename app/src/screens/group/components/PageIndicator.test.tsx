@@ -23,12 +23,26 @@ describe('PageIndicator', () => {
       screen.getByTestId('group.deck.indicator.dot.2', { includeHiddenElements: true }),
     );
 
-    expect(onSelectPage).toHaveBeenCalledWith(2);
+    expect(onSelectPage).toHaveBeenCalledWith(2, 'indicator_press');
   });
 
   test('첫 측정 전 counter는 현재/전체를 읽는다', async () => {
     await render(<PageIndicator pageCount={12} activeIndex={10} onSelectPage={jest.fn()} />);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('11 / 12');
-    expect(screen.getByLabelText('11 / 12')).toBeOnTheScreen();
+    expect(screen.getAllByLabelText('11 / 12').length).toBeGreaterThan(0);
+  });
+
+  test('dots 모드도 현재 위치를 읽고 접근성 동작으로 이동한다', async () => {
+    const onSelectPage = jest.fn();
+    await render(<PageIndicator pageCount={3} activeIndex={1} onSelectPage={onSelectPage} />);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+    });
+    expect(onSelectPage).toHaveBeenCalledWith(2, 'accessibility_action');
   });
 });

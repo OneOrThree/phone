@@ -193,7 +193,16 @@ export default function GroupCreateScreen() {
       });
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
-      if (userId) void writeGroupCardEmoji(userId, groupId, cardEmoji).catch(() => undefined);
+      if (userId) {
+        try {
+          await writeGroupCardEmoji(userId, groupId, cardEmoji);
+        } catch {
+          Alert.alert(
+            '카드 아이콘을 저장하지 못했어요',
+            '그룹은 만들어졌고 기본 아이콘으로 표시됩니다. 설정에서 다시 바꿀 수 있어요.',
+          );
+        }
+      }
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
       submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.

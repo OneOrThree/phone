@@ -72,6 +72,12 @@ import {
   logFocusMarkerStartFailed,
   type FocusViewName,
 } from '@/services/analyticsEvents';
+import {
+  consumeCardInteraction,
+  FOCUS_ATTRIBUTION_TTL_MS,
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+} from '@/services/cardInteraction';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
@@ -123,6 +129,10 @@ export default function FocusSessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusSession'>>();
   const { subjectId, subjectName, mode } = params;
+  const entrySource = normalizeFocusEntrySource(params.entrySource);
+  const interactionId = entrySource === 'group_card' ? params.interactionId : undefined;
+  const interactionAcceptedAt =
+    entrySource === 'group_card' ? params.interactionAcceptedAt : undefined;
   const goal = params.goalSeconds ?? 25 * 60;
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
@@ -236,6 +246,9 @@ export default function FocusSessionScreen() {
   // 체류 시계 일시정지 — 아래 이탈 감지 이펙트보다 먼저 구독해야 복귀 시 away 구간이 먼저
   // 누적되고, 뒤이은 이탈 타임아웃 finish의 flush가 차감된 값을 읽는다(구독 순서 = 선언 순서).
   useEffect(() => {
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
       // iOS는 알림 센터·앱 전환기 등으로 화면이 가려지면 background 없이 inactive에 머문다 —
       // 그 시간도 뷰를 보는 게 아니므로 이탈로 취급(코덱스 리뷰). inactive→background로
@@ -260,7 +273,7 @@ export default function FocusSessionScreen() {
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [interactionId]);
   const finishedRef = useRef(false);
   // 이탈 타임아웃으로 abandoned를 발행한 세션 — completed 발행과 상호배타 보장(GROMO-1004)
   const abandonedRef = useRef(false);
@@ -324,7 +337,10 @@ export default function FocusSessionScreen() {
   // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
   // 완료(focus_session_completed)는 finish가 발행한다(GROMO-1004 — 서버[S]에서 클라 소유로 이관).
+  const sessionStartedLoggedRef = useRef(false);
   useEffect(() => {
+    if (sessionStartedLoggedRef.current) return;
+    sessionStartedLoggedRef.current = true;
     // 목표 시간(초→분): 카운트다운=목표, 뽀모도로=집중블록×세트 총 집중분. 카운트업은 목표 없음.
     const goalSecondsForLog =
       mode === 'countdown'
@@ -336,8 +352,22 @@ export default function FocusSessionScreen() {
       has_tag: Boolean(subjectId),
       mode,
       goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
+      entry_source: entrySource,
+      interaction_id: consumeCardInteraction(
+        { entrySource, interactionId, interactionAcceptedAt },
+        FOCUS_ATTRIBUTION_TTL_MS,
+      ),
     });
-  }, [subjectId, mode, goal, pomo.focusMin, pomo.sets]);
+  }, [
+    subjectId,
+    mode,
+    goal,
+    pomo.focusMin,
+    pomo.sets,
+    entrySource,
+    interactionId,
+    interactionAcceptedAt,
+  ]);
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
   // 태그를 해석해 실어 보내되, 실패(오프라인 등)해도 세션·시간 저장은 영향 없다(마커는 표시용).

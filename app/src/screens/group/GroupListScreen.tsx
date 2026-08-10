@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  ActivityIndicator,
+  AppState,
   FlatList,
   findNodeHandle,
   PanResponder,
@@ -29,7 +31,7 @@ import {
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
 import { GroupCardSummaryAdapter } from './groupCardSummary';
-import { groupFocusStatusStore } from './groupFocusStatus';
+import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
 import { todayStrKst } from '@/utils/localDate';
 import {
   logGroupCardActionClicked,
@@ -39,6 +41,10 @@ import {
   type GroupCardReorderTrigger,
   type GroupCountBucket,
 } from '@/services/analyticsEvents';
+import {
+  createCardInteractionContext,
+  type CardInteractionContext,
+} from '@/services/cardInteraction';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -74,13 +80,6 @@ function groupCountBucket(count: number): GroupCountBucket {
   return '11_plus';
 }
 
-function transientInteractionId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
-    const random = Math.floor(Math.random() * 16);
-    return (character === 'x' ? random : 8 + (random % 4)).toString(16);
-  });
-}
-
 export function resolveDragTarget(
   from: number,
   pointerDelta: number,
@@ -100,7 +99,8 @@ export interface GroupListScreenProps {
   groupsRevision?: number;
   isScreenFocused?: boolean;
   userId?: string | null;
-  onSelect: (groupId: string) => void;
+  onSelect: (groupId: string, interaction: CardInteractionContext) => void;
+  onFocus: (groupId: string, interaction: CardInteractionContext) => void;
   onCreate: () => void;
   onFind: () => void;
   onRefresh: () => Promise<void>;
@@ -113,6 +113,7 @@ export default function GroupListScreen({
   isScreenFocused = true,
   userId = null,
   onSelect,
+  onFocus,
   onCreate,
   onFind,
   onRefresh,
@@ -124,6 +125,8 @@ export default function GroupListScreen({
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const [orderMenuGroupId, setOrderMenuGroupId] = useState<string | null>(null);
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
   const [, setSummaryVersion] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
@@ -142,7 +145,9 @@ export default function GroupListScreen({
   }, [groups, hydrated, orderedGroupIds]);
   const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
-  const activeIdentityRef = useRef<string | null>(orderedGroups[0]?.groupId ?? null);
+  // hydration 전 서버 첫 카드를 현재 위치로 확정하지 않는다. undefined는 아직 위치 미확정,
+  // null은 사용자가 끝의 찾기 카드를 선택한 상태다.
+  const activeIdentityRef = useRef<string | null | undefined>(undefined);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
@@ -150,6 +155,28 @@ export default function GroupListScreen({
   const roomFocusRef = useRef<View | null>(null);
   const summaryDate = todayStrKst();
   const summaryAdapter = useMemo(() => new GroupCardSummaryAdapter(groupFocusStatusStore), []);
+  const focusPolling = useMemo(
+    () =>
+      userId ? new GroupFocusPollingController({ store: groupFocusStatusStore, userId }) : null,
+    [userId],
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      setAppActive(state === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    focusPolling?.setLifecycle({
+      screenFocused: isScreenFocused,
+      appActive,
+      hasGroups: groups.length > 0,
+    });
+  }, [appActive, focusPolling, groups.length, isScreenFocused]);
+
+  useEffect(() => () => focusPolling?.dispose(), [focusPolling]);
 
   useEffect(() => {
     summaryAdapter.setScope(
@@ -206,7 +233,7 @@ export default function GroupListScreen({
   }, [onRefresh]);
 
   const selectPage = useCallback(
-    (page: number) => {
+    (page: number, trigger: 'indicator_press' | 'accessibility_action' = 'indicator_press') => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndex;
       if (from === next) return;
@@ -215,7 +242,7 @@ export default function GroupListScreen({
       setActiveIndex(next);
       setFlippedGroupId(null);
       logGroupCarouselPaged({
-        trigger: 'indicator_press',
+        trigger,
         from_index: from,
         to_index: next,
         group_count_bucket: groupCountBucket(orderedGroups.length),
@@ -250,9 +277,11 @@ export default function GroupListScreen({
   useEffect(() => {
     const identity = activeIdentityRef.current;
     const next =
-      identity === null
-        ? orderedGroups.length
-        : orderedGroups.findIndex((g) => g.groupId === identity);
+      identity === undefined
+        ? 0
+        : identity === null
+          ? orderedGroups.length
+          : orderedGroups.findIndex((g) => g.groupId === identity);
     const safeIndex =
       next >= 0 ? next : Math.min(activeIndex, Math.max(0, orderedGroups.length - 1));
     activeIdentityRef.current = orderedGroups[safeIndex]?.groupId ?? null;
@@ -300,6 +329,7 @@ export default function GroupListScreen({
     from: number;
     target: number;
     edgeOffset: number;
+    moved: boolean;
   } | null>(null);
   const lastEdgePageAtRef = useRef(0);
   const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
@@ -341,7 +371,7 @@ export default function GroupListScreen({
           if (!hydrated) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
-          dragRef.current = { groupId, from, target: from, edgeOffset: 0 };
+          dragRef.current = { groupId, from, target: from, edgeOffset: 0, moved: false };
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
           setFlippedGroupId(null);
@@ -349,6 +379,7 @@ export default function GroupListScreen({
         onPanResponderMove: (_event, gesture) => {
           const drag = dragRef.current;
           if (!drag) return;
+          if (Math.abs(gesture.dx) > 8) drag.moved = true;
           const max = orderedGroupsRef.current.length - 1;
           const pointerDelta = Math.round(gesture.dx / snapInterval);
           drag.target = resolveDragTarget(drag.from, pointerDelta, drag.edgeOffset, 0, max).target;
@@ -377,7 +408,9 @@ export default function GroupListScreen({
           const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
-          if (drag) commitMove(drag.groupId, drag.target, 'drag');
+          if (!drag) return;
+          if (drag.moved) commitMove(drag.groupId, drag.target, 'drag');
+          else setOrderMenuGroupId(drag.groupId);
         },
         onPanResponderTerminate: () => {
           dragRef.current = null;
@@ -393,6 +426,14 @@ export default function GroupListScreen({
   useEffect(() => {
     respondersRef.current.clear();
   }, [hydrated, orderedGroupIds]);
+
+  if (!hydrated) {
+    return (
+      <View style={s.loading} testID="group.deck.loading">
+        <ActivityIndicator color={T.accent} />
+      </View>
+    );
+  }
 
   return (
     <View style={s.root} testID="group.list">
@@ -446,18 +487,29 @@ export default function GroupListScreen({
                   summaryAdapter.retry(item.groupId, dependency).catch(() => undefined);
                 }}
                 onRoom={() => {
+                  const interaction = createCardInteractionContext();
                   logGroupCardActionClicked({
                     action: 'room',
                     role: item.role === 'OWNER' ? 'owner' : 'member',
                     back_source: 'user',
-                    interaction_id: transientInteractionId(),
+                    interaction_id: interaction.interactionId,
                   });
                   roomReturnRef.current = {
                     groupId: item.groupId,
                     sourceIndex: index,
                     departureRevision: groupsRevision,
                   };
-                  onSelect(item.groupId);
+                  onSelect(item.groupId, interaction);
+                }}
+                onFocus={() => {
+                  const interaction = createCardInteractionContext();
+                  logGroupCardActionClicked({
+                    action: 'focus',
+                    role: item.role === 'OWNER' ? 'owner' : 'member',
+                    back_source: 'user',
+                    interaction_id: interaction.interactionId,
+                  });
+                  onFocus(item.groupId, interaction);
                 }}
                 onFront={() => {
                   setFlippedGroupId(null);
@@ -482,6 +534,7 @@ export default function GroupListScreen({
                     group_count_bucket: groupCountBucket(orderedGroups.length),
                   });
                   summaryAdapter.ensureBack(item.groupId).catch(() => undefined);
+                  focusPolling?.activate();
                 }}
                 reorderHandlers={hydrated ? handlersFor(item.groupId) : undefined}
                 canMovePrevious={hydrated && index > 0}
@@ -499,6 +552,43 @@ export default function GroupListScreen({
           </View>
         )}
       />
+
+      {orderMenuGroupId !== null && (
+        <View style={s.orderMenu} testID={`group.card.orderMenu.${orderMenuGroupId}`}>
+          <Text style={s.orderMenuTitle}>카드 순서 변경</Text>
+          <View style={s.orderMenuActions}>
+            <TouchableOpacity
+              onPress={() => {
+                const from = orderedGroupsRef.current.findIndex(
+                  (group) => group.groupId === orderMenuGroupId,
+                );
+                commitMove(orderMenuGroupId, from - 1, 'pointer_control');
+                setOrderMenuGroupId(null);
+              }}
+              disabled={orderedGroups[0]?.groupId === orderMenuGroupId}
+              testID="group.card.orderMenu.previous"
+            >
+              <Text style={s.backLink}>앞으로</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                const from = orderedGroupsRef.current.findIndex(
+                  (group) => group.groupId === orderMenuGroupId,
+                );
+                commitMove(orderMenuGroupId, from + 1, 'pointer_control');
+                setOrderMenuGroupId(null);
+              }}
+              disabled={orderedGroups[orderedGroups.length - 1]?.groupId === orderMenuGroupId}
+              testID="group.card.orderMenu.next"
+            >
+              <Text style={s.backLink}>뒤로</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setOrderMenuGroupId(null)}>
+              <Text style={s.backLink}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {saveFailed && (
         <Text style={s.saveError} accessibilityRole="alert">
@@ -533,6 +623,7 @@ export default function GroupListScreen({
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
@@ -586,6 +677,17 @@ const s = StyleSheet.create({
     textAlign: 'center',
     paddingTop: T.space.xs,
   },
+  orderMenu: {
+    marginHorizontal: T.space.xl,
+    padding: T.space.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: T.border,
+    backgroundColor: T.white,
+    gap: T.space.sm,
+  },
+  orderMenuTitle: { ...T.text.label, color: T.ink },
+  orderMenuActions: { flexDirection: 'row', justifyContent: 'space-around' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

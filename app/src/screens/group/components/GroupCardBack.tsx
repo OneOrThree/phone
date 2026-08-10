@@ -11,11 +11,20 @@ interface Props {
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
   focusRef?: RefObject<View | null>;
   onRoom: () => void;
+  onFocus: () => void;
   onFront: () => void;
   onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
 }
 
-export function GroupCardBack({ group, snapshot, focusRef, onRoom, onFront, onRetry }: Props) {
+export function GroupCardBack({
+  group,
+  snapshot,
+  focusRef,
+  onRoom,
+  onFocus,
+  onFront,
+  onRetry,
+}: Props) {
   const focus =
     snapshot?.detail.status === 'ready'
       ? deriveGroupFocusCount(
@@ -27,7 +36,7 @@ export function GroupCardBack({ group, snapshot, focusRef, onRoom, onFront, onRe
     snapshot === null || snapshot.detail.status === 'idle' || snapshot.detail.status === 'loading';
 
   return (
-    <View ref={focusRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
+    <View style={s.root} testID={`group.card.back.${group.groupId}`}>
       <Text style={s.title} numberOfLines={1} ellipsizeMode="tail">
         {group.name}
       </Text>
@@ -66,11 +75,15 @@ export function GroupCardBack({ group, snapshot, focusRef, onRoom, onFront, onRe
         <Text style={s.body}>그룹 활동을 불러오는 중이에요.</Text>
       )}
       <TouchableOpacity
+        ref={focusRef}
         style={s.primary}
-        onPress={onRoom}
-        testID={`group.card.room.${group.groupId}`}
+        onPress={onFocus}
+        testID={`group.card.focus.${group.groupId}`}
       >
-        <Text style={s.primaryText}>방 전체 보기</Text>
+        <Text style={s.primaryText}>이 그룹으로 집중</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onRoom} testID={`group.card.room.${group.groupId}`}>
+        <Text style={s.link}>방 전체 보기</Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onFront} testID={`group.card.frontAction.${group.groupId}`}>
         <Text style={s.link}>앞면으로</Text>

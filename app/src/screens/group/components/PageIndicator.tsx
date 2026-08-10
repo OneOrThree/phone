@@ -22,7 +22,7 @@ export function resolveIndicatorMode(measuredWidth: number, pageCount: number): 
 interface PageIndicatorProps {
   pageCount: number;
   activeIndex: number;
-  onSelectPage: (page: number) => void;
+  onSelectPage: (page: number, trigger?: 'indicator_press' | 'accessibility_action') => void;
 }
 
 export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndicatorProps) {
@@ -35,7 +35,26 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
   }, []);
 
   return (
-    <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
+    <View
+      onLayout={onLayout}
+      style={s.container}
+      testID="group.deck.indicator"
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel={`${activeIndex + 1} / ${pageCount}`}
+      accessibilityActions={[
+        ...(activeIndex > 0 ? [{ name: 'decrement' as const, label: '이전 카드' }] : []),
+        ...(activeIndex < pageCount - 1
+          ? [{ name: 'increment' as const, label: '다음 카드' }]
+          : []),
+      ]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'decrement' && activeIndex > 0)
+          onSelectPage(activeIndex - 1, 'accessibility_action');
+        if (event.nativeEvent.actionName === 'increment' && activeIndex < pageCount - 1)
+          onSelectPage(activeIndex + 1, 'accessibility_action');
+      }}
+    >
       {mode === 'dots' ? (
         <View
           style={s.dots}
@@ -46,7 +65,7 @@ export function PageIndicator({ pageCount, activeIndex, onSelectPage }: PageIndi
             <Pressable
               key={page}
               style={s.dotHit}
-              onPress={() => onSelectPage(page)}
+              onPress={() => onSelectPage(page, 'indicator_press')}
               testID={`group.deck.indicator.dot.${page}`}
             >
               <View style={[s.dot, page === activeIndex && s.dotActive]} />

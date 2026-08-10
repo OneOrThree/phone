@@ -53,6 +53,7 @@ function group(over: Partial<GroupSummaryResponse> = {}): GroupSummaryResponse {
 }
 
 const onSelect = jest.fn();
+const onFocus = jest.fn();
 const onCreate = jest.fn();
 const onFind = jest.fn();
 const onRefresh = jest.fn<Promise<void>, []>();
@@ -60,18 +61,27 @@ const onBack = jest.fn();
 
 // render는 반드시 await 한다 — React 19 + RNTL 14에서는 렌더가 비동기라
 // 동기 호출만 하면 screen이 채워지지 않는다(그룹 테스트 3종 공통 관행).
-async function renderList(groups: GroupSummaryResponse[], back?: () => void, userId = 'user-1') {
-  return await render(
+async function renderList(
+  groups: GroupSummaryResponse[],
+  back?: () => void,
+  userId = 'user-1',
+  waitHydrated = true,
+) {
+  const result = await render(
     <GroupListScreen
       groups={groups}
       userId={userId}
       onSelect={onSelect}
+      onFocus={onFocus}
       onCreate={onCreate}
       onFind={onFind}
       onRefresh={onRefresh}
       onBack={back}
     />,
   );
+  if (waitHydrated)
+    await waitFor(() => expect(screen.queryByTestId('group.deck.loading')).toBeNull());
+  return result;
 }
 
 // 탭은 act로 감싼다 — 감싸지 않으면 fireEvent가 여는 act 스코프가 렌더 스코프와 겹쳐
@@ -160,7 +170,13 @@ describe('콜백', () => {
     await press(`group.card.room.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+    expect(onSelect).toHaveBeenCalledWith(
+      GROUP_ID_2,
+      expect.objectContaining({
+        interactionId: expect.any(String),
+        interactionAcceptedAt: expect.any(Number),
+      }),
+    );
     expect(logGroupCardFlipped).toHaveBeenCalledWith(
       expect.objectContaining({ to_face: 'back', trigger: 'card_tap' }),
     );
@@ -179,6 +195,23 @@ describe('콜백', () => {
     expect(getAnnouncements).toHaveBeenCalledWith(GROUP_ID);
     expect(getChallenges).toHaveBeenCalledWith(GROUP_ID, expect.any(String));
     expect(getMyRanking).toHaveBeenCalledWith(undefined, expect.any(String));
+  });
+
+  test('뒷면 핵심 CTA는 새 상관키와 함께 이 그룹 집중으로 이동한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.focus.${GROUP_ID}`);
+
+    expect(onFocus).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({
+        interactionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        interactionAcceptedAt: expect.any(Number),
+      }),
+    );
+    expect(logGroupCardActionClicked).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'focus', interaction_id: expect.any(String) }),
+    );
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {
@@ -266,11 +299,10 @@ describe('제스처 중재와 재정렬', () => {
     jest
       .spyOn(AsyncStorage, 'getItem')
       .mockImplementationOnce(() => new Promise((resolve) => (resolveRead = resolve)));
-    await renderList([group(), group({ groupId: GROUP_ID_2 })]);
+    await renderList([group(), group({ groupId: GROUP_ID_2 })], undefined, 'user-1', false);
 
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
-    expect(grip.props.onStartShouldSetResponder).toBeUndefined();
-    expect(grip.props.accessibilityActions).toEqual([]);
+    expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.grip.${GROUP_ID}`)).toBeNull();
 
     await act(async () => resolveRead(null));
   });
@@ -308,5 +340,29 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('grip 짧은 탭은 포인터 순서 변경 UI를 연다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, moveX: 0 });
+    });
+    expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await press('group.card.orderMenu.next');
+    expect(logGroupCardReordered).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'pointer_control', from_index: 0, to_index: 1 }),
+    );
   });
 });
