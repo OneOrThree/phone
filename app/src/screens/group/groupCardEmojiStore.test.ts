@@ -4,6 +4,7 @@ import {
   DEFAULT_GROUP_CARD_EMOJI,
   GROUP_CARD_EMOJIS,
   GROUP_CARD_EMOJI_OPTIONS,
+  groupCardEmojiLabel,
   normalizeGroupCardEmoji,
   parseGroupCardEmoji,
   readGroupCardEmoji,
@@ -39,6 +40,8 @@ test('허용 목록은 정확히 12종이고 기본값은 🎯다', () => {
   expect(normalizeGroupCardEmoji('🔥')).toBe('🔥');
   expect(normalizeGroupCardEmoji('🚀')).toBe('🎯');
   expect(normalizeGroupCardEmoji('✍')).toBe('🎯');
+  expect(groupCardEmojiLabel('📚')).toBe('책');
+  expect(groupCardEmojiLabel('🚀')).toBe('목표');
 });
 
 test('손상 값과 allowlist 밖 값은 읽기에서 제거한다', () => {
@@ -112,4 +115,20 @@ test('실패한 최신 pending 아이콘은 다음 그룹 화면 활성화에서
   preservePendingGroupCardEmoji('u1', 'g1', '🔥');
   await retryPendingGroupCardEmojis('u1', ['g1']);
   expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+});
+
+test('pending 재시도가 실패해도 최신 아이콘을 화면 합성값으로 반환한다', async () => {
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥');
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('still full'));
+
+  await expect(retryPendingGroupCardEmojis('u1', ['g1'])).resolves.toEqual({ g1: '🔥' });
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🎯');
+});
+
+test('성공한 전체 목록에서 사라진 그룹의 pending 값도 폐기한다', async () => {
+  preservePendingGroupCardEmoji('u1', 'gone', '🔥');
+  expect(await retryPendingGroupCardEmojis('u1', ['g1'])).toEqual({});
+
+  expect(await retryPendingGroupCardEmojis('u1', ['gone'])).toEqual({});
+  expect(await readGroupCardEmoji('u1', 'gone')).toBe('🎯');
 });

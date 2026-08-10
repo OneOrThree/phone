@@ -4,7 +4,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { DEFAULT_GROUP_CARD_EMOJI, type GroupCardEmojiBucket } from './groupCardEmojiStore';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  groupCardEmojiLabel,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -102,6 +106,8 @@ export default function GroupListScreen({
             style={s.card}
             activeOpacity={0.85}
             onPress={() => onSelect(item.groupId)}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.name}, 내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`}
             testID={`group.list.card.${item.groupId}`}
           >
             <Text

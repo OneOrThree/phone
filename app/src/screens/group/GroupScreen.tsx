@@ -112,14 +112,16 @@ export default function GroupScreen() {
       if (userId) {
         // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
         // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
-        await retryPendingGroupCardEmojis(
+        const pendingBucket = await retryPendingGroupCardEmojis(
           userId,
           rows.map((row) => row.groupId),
         );
-        emojiBucket = await reconcileGroupCardEmojiBucket(
+        const storedBucket = await reconcileGroupCardEmojiBucket(
           userId,
           rows.map((row) => row.groupId),
         ).catch(() => ({}));
+        // 디스크 재시도가 계속 실패해도 이번 실행에서 고른 최신 아이콘은 카드에 유지한다.
+        emojiBucket = { ...storedBucket, ...pendingBucket };
       }
       if (seq !== requestSeqRef.current) return;
       setCardEmojiByGroupId(emojiBucket);
