@@ -14,6 +14,7 @@ import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.RepeatDay;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
+import com.oneorthree.phone.group.dto.GroupBetConfigResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
@@ -144,10 +145,27 @@ public class GroupChallengeService {
         // 멤버·일별 통계도 챌린지 루프 밖에서 한 번씩만 로드한다(챌린지 수 × 멤버 수의 N+1 방지).
         ProgressSnapshot progress = loadProgressSnapshot(group, activeTargets, date);
 
-        // 내기(오늘 것 + 지난 정산 1건)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
+        // 멤버 진행률은 카드(memberProgress)와 회차 참가자 진행분(bet.session — 하루형 N16)이
+        // 같은 계산 결과를 나눠 쓴다. 값 null = 미계산(HashMap 이 null 값을 허용해야 한다).
+        // 판정 대상·활성 요일 해석은 커널판 memberProgressOf 하나뿐이다(GROMO-1280) — 카드와
+        // 회차가 각자 계산하면 같은 화면에서 진행분이 갈린다.
+        Map<UUID, List<ChallengeMemberProgressResponse>> memberProgressByChallengeId = new LinkedHashMap<>();
+        for (GroupChallenge challenge : challenges) {
+            memberProgressByChallengeId.put(challenge.getId(),
+                    memberProgressOf(targets.get(challenge.getId()), progress,
+                            activeTargets.containsKey(challenge.getId())));
+        }
+
+        // 내기(오늘 것 + 지난 정산 1건 + 다음 회차 축)도 챌린지 목록 전체를 IN 절로 한 번에 읽는다.
         Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
-                challengeIds, date, userId, myAchievedByChallengeId(activeTargets, progress, userId));
+                challengeIds, date, userId, myAchievedByChallengeId(activeTargets, progress, userId),
+                memberProgressByChallengeId);
         Map<UUID, GroupBetResultResponse> lastSettledBets = groupBetService.loadLastSettledBets(challengeIds);
+        Map<UUID, GroupBetService.NextSessionInfo> nextSessions =
+                groupBetService.loadNextSessions(challenges, windows, userId);
+        // 내기 설정 축(betConfig)은 회차·date 와 무관하다 — date 없는 하위 호환 조회에서도 채운다
+        // (구앱은 이 필드를 몰라 무해하고, 신앱은 회차가 없는 날에도 진입점을 세울 수 있다).
+        Map<UUID, GroupBetConfigResponse> betConfigs = groupBetService.loadBetConfigs(challengeIds);
 
         // 휴면 배지(GROMO-1201) — 이력·OPEN 보유 챌린지 id 를 각각 IN 절 1회로 배치 조회한다(N+1 없음).
         // OPEN 판정을 요청 date 스코프의 bets 맵에 얹지 않는 이유: 요청 날짜가 서버 KST 내기 날짜와
@@ -180,10 +198,19 @@ public class GroupChallengeService {
                             .status(c.getStatus())
                             .startedAt(c.getStartedAt())
                             .createdAt(c.getCreatedAt())
-                            .memberProgress(memberProgressOf(targets.get(c.getId()), progress,
-                                    activeTargets.containsKey(c.getId())))
+                            // 위에서 한 번 계산해 둔 값 — 회차 참가자 진행분과 같은 출처다(N16).
+                            .memberProgress(memberProgressByChallengeId.get(c.getId()))
                             .bet(bets.get(c.getId()))
+                            .betConfig(betConfigs.get(c.getId()))
                             .lastSettledBet(lastSettledBets.get(c.getId()))
+                            // 다음 회차 축(GROMO-1418) — INACTIVE 는 맵에 없어 null 로 나간다.
+                            .nextSessionAt(nextSessions.containsKey(c.getId())
+                                    ? nextSessions.get(c.getId()).nextSessionAt() : null)
+                            .nextSessionJoined(nextSessions.containsKey(c.getId())
+                                    ? nextSessions.get(c.getId()).nextSessionJoined() : null)
+                            // 박제 stake — 회차가 아직 없으면 null(앱은 betConfig.stake 로 안내).
+                            .nextSessionStake(nextSessions.containsKey(c.getId())
+                                    ? nextSessions.get(c.getId()).stake() : null)
                             .dormant(challengeIdsWithBetHistory.contains(c.getId())
                                     && !challengeIdsWithOpenBet.contains(c.getId()))
                             .build();
