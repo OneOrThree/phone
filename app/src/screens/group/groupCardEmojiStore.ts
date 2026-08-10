@@ -216,7 +216,15 @@ export function reconcileGroupCardEmojiBucket(
   });
 }
 
-const pendingEmojis = new Map<string, { userId: string; groupId: string; emoji: GroupCardEmoji }>();
+type PendingEmoji = {
+  userId: string;
+  groupId: string;
+  emoji: GroupCardEmoji;
+  version: number;
+};
+const pendingEmojis = new Map<string, PendingEmoji>();
+const latestPendingSelection = new Map<string, { emoji: GroupCardEmoji; version: number }>();
+let pendingVersion = 0;
 
 function pendingKey(userId: string, groupId: string): string {
   return `${userId}:${groupId}`;
@@ -227,7 +235,10 @@ export function preservePendingGroupCardEmoji(
   groupId: string,
   emoji: GroupCardEmoji,
 ): void {
-  pendingEmojis.set(pendingKey(userId, groupId), { userId, groupId, emoji });
+  const key = pendingKey(userId, groupId);
+  const version = ++pendingVersion;
+  pendingEmojis.set(key, { userId, groupId, emoji, version });
+  latestPendingSelection.set(key, { emoji, version });
   emitGroupCardEmoji(userId, groupId, emoji);
 }
 
@@ -238,8 +249,11 @@ export function updatePendingGroupCardEmojiSelection(
   selected: GroupCardEmoji,
   stored: GroupCardEmoji,
 ): void {
-  if (selected === stored) pendingEmojis.delete(pendingKey(userId, groupId));
-  else pendingEmojis.set(pendingKey(userId, groupId), { userId, groupId, emoji: selected });
+  const key = pendingKey(userId, groupId);
+  const version = ++pendingVersion;
+  latestPendingSelection.set(key, { emoji: selected, version });
+  if (selected === stored) pendingEmojis.delete(key);
+  else pendingEmojis.set(key, { userId, groupId, emoji: selected, version });
   emitGroupCardEmoji(userId, groupId, selected);
 }
 
@@ -250,8 +264,19 @@ export function clearPendingGroupCardEmoji(
 ): boolean {
   const key = pendingKey(userId, groupId);
   const pending = pendingEmojis.get(key);
-  if (!pending || (emoji !== undefined && pending.emoji !== emoji)) return false;
+  if (!pending) {
+    const latest = latestPendingSelection.get(key);
+    if (emoji !== undefined && latest?.emoji === emoji) {
+      latestPendingSelection.delete(key);
+      return true;
+    }
+    return false;
+  }
+  if (emoji !== undefined && pending.emoji !== emoji) return false;
   pendingEmojis.delete(key);
+  if (latestPendingSelection.get(key)?.version === pending.version) {
+    latestPendingSelection.delete(key);
+  }
   return true;
 }
 
@@ -265,7 +290,10 @@ export async function retryPendingGroupCardEmojis(
   const validIds = new Set(serverGroupIds);
   for (const [key, pending] of pendingEmojis) {
     if (!shouldContinue()) return {};
-    if (pending.userId === userId && !validIds.has(pending.groupId)) pendingEmojis.delete(key);
+    if (pending.userId === userId && !validIds.has(pending.groupId)) {
+      pendingEmojis.delete(key);
+      latestPendingSelection.delete(key);
+    }
   }
   const candidates = [...pendingEmojis.values()].filter(
     (pending) => pending.userId === userId && validIds.has(pending.groupId),
@@ -275,10 +303,21 @@ export async function retryPendingGroupCardEmojis(
   ) as GroupCardEmojiBucket;
   for (const pending of candidates) {
     if (!shouldContinue()) return visible;
+    const key = pendingKey(pending.userId, pending.groupId);
+    if (pendingEmojis.get(key)?.version !== pending.version) continue;
     try {
       await writeGroupCardEmoji(pending.userId, pending.groupId, pending.emoji);
-      const key = pendingKey(pending.userId, pending.groupId);
-      if (pendingEmojis.get(key)?.emoji === pending.emoji) pendingEmojis.delete(key);
+      const current = pendingEmojis.get(key);
+      if (current?.version === pending.version) {
+        pendingEmojis.delete(key);
+        if (latestPendingSelection.get(key)?.version === pending.version) {
+          latestPendingSelection.delete(key);
+        }
+      } else {
+        // 오래된 쓰기가 내부 emit까지 마친 뒤 선택이 바뀌었다면 최신 화면 값을 즉시 복원한다.
+        const latest = latestPendingSelection.get(key);
+        if (latest) emitGroupCardEmoji(pending.userId, pending.groupId, latest.emoji);
+      }
     } catch {
       // 다음 그룹 화면 활성화에서 최신 pending 값만 다시 시도한다.
     }
@@ -296,6 +335,8 @@ export async function retryPendingGroupCardEmojis(
 export function __resetGroupCardEmojiQueueForTest(): void {
   storageQueue = Promise.resolve();
   pendingEmojis.clear();
+  latestPendingSelection.clear();
+  pendingVersion = 0;
   emojiListeners.clear();
   reconcileGenerationByUser.clear();
   reconcileRecoveryBucketByUser.clear();

@@ -104,6 +104,24 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🧠');
 });
 
+test('저장 실패 뒤 다른 아이콘을 고르면 최신 선택을 즉시 다시 저장한다', async () => {
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+  expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
+
+  await waitFor(() =>
+    expect(screen.queryByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeNull(),
+  );
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🔥');
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+  expect(mockGoBack).not.toHaveBeenCalled();
+});
+
 test('저장 수락 즉시 현재 세션 카드에 선택을 낙관 반영한다', async () => {
   const observed: string[] = [];
   const unsubscribe = subscribeGroupCardEmoji('user-1', (_groupId, emoji) => {
