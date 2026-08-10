@@ -3,9 +3,11 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.GroupBetVoidReason;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
@@ -17,6 +19,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -33,7 +36,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,12 +46,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
- * 내기 히스토리 조회(GROMO-1207) 통합 테스트 — keyset 페이지네이션(hasNext/nextCursor)·status
- * 필터(CANCELED 제외)·권한(게스트/비그룹원 거절)·정산 근거 필드 매핑을 실 DB 로 고정한다.
+ * 내기 히스토리 조회(GROMO-1207) 통합 테스트 — 2계층 재편(GROMO-1262) 기준. keyset 페이지네이션
+ * (hasNext/nextCursor)·status 필터(UNUSED·VOIDED·OPEN 제외)·권한(게스트/비그룹원 거절)·미션
+ * 스냅샷 필드 매핑을 실 DB 로 고정한다.
  *
  * <p>정산 경로가 근거를 <b>쓰는</b> 것은 {@link GroupBetSettlementIntegrationTest} ·
  * {@link GroupBetCategorySettlementIntegrationTest} 가 고정한다 — 여기는 저장된 근거가 조회로
- * <b>나오는</b> 쪽만 본다. 픽스처·정리 방식은 {@link GroupBetLeaveIntegrationTest} 와 같다.
+ * <b>나오는</b> 쪽만 본다.
  */
 class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
 
@@ -62,6 +68,8 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     GroupChallengeDurationRepository groupChallengeDurationRepository;
     @Autowired
     GroupChallengeBetRepository groupChallengeBetRepository;
+    @Autowired
+    GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Autowired
     GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Autowired
@@ -79,7 +87,8 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     private final List<User> users = new ArrayList<>();
     private final List<GroupMember> members = new ArrayList<>();
     private final List<GroupChallenge> challenges = new ArrayList<>();
-    private final List<GroupChallengeBet> bets = new ArrayList<>();
+    private final Map<UUID, GroupChallengeBet> configsByChallengeId = new HashMap<>();
+    private final List<GroupChallengeBetSession> betSessions = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -91,9 +100,10 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     @AfterEach
     void tearDown() {
         // FK 역순 — 다른 테스트 클래스는 @Transactional 롤백이라 여기 남은 행이 곧 오염이다.
-        bets.forEach(b -> groupChallengeBetParticipantRepository
-                .deleteAll(groupChallengeBetParticipantRepository.findByBetIdIn(List.of(b.getId()))));
-        groupChallengeBetRepository.deleteAll(bets);
+        betSessions.forEach(s -> groupChallengeBetParticipantRepository
+                .deleteAll(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(s.getId()))));
+        groupChallengeBetSessionRepository.deleteAll(betSessions);
+        groupChallengeBetRepository.deleteAll(configsByChallengeId.values());
         challenges.forEach(c -> groupChallengeDurationRepository.findById(c.getId())
                 .ifPresent(groupChallengeDurationRepository::delete));
         groupChallengeRepository.deleteAll(challenges);
@@ -104,7 +114,8 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
         users.clear();
         members.clear();
         challenges.clear();
-        bets.clear();
+        configsByChallengeId.clear();
+        betSessions.clear();
     }
 
     // ── 픽스처 ──────────────────────────────────────────────────────────
@@ -114,7 +125,7 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
                 .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION).build());
         challenges.add(saved);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(MissionCategory.FOCUS).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 
@@ -131,22 +142,45 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
         return user;
     }
 
-    /** 정산이 끝난 내기 — 근거 스냅샷(goalMinutes)은 V29 규약대로 채워 넣는다. */
-    private GroupChallengeBet settledBet(GroupBetStatus status, LocalDate betDate) {
-        GroupChallengeBet bet = groupChallengeBetRepository.save(GroupChallengeBet.builder()
-                .group(group).challenge(challenge).creatorUser(member)
-                .stake(STAKE).betDate(betDate).status(status)
-                .settledAt(betDate.plusDays(1).atStartOfDay(KST).toInstant())
-                .goalMinutes(GOAL_MINUTES)
-                .build());
-        bets.add(bet);
-        return bet;
+    private GroupChallengeBet configOf(GroupChallenge target) {
+        return configsByChallengeId.computeIfAbsent(target.getId(),
+                id -> groupChallengeBetRepository.save(GroupChallengeBet.builder()
+                        .group(group).challenge(target).stake(STAKE).enabled(true).build()));
     }
 
-    private GroupChallengeBetParticipant participant(
-            GroupChallengeBet bet, User user, Boolean achieved, Integer payout, Integer progressMinutes) {
+    private GroupChallengeBetSession sessionOn(
+            GroupChallenge target, GroupBetStatus status, LocalDate sessionDate, Integer goalMinutes) {
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(configOf(target))
+                        .group(group)
+                        .challenge(target)
+                        .sessionDate(sessionDate)
+                        .stake(STAKE)
+                        .goalMinutes(goalMinutes)
+                        .missionCategory(MissionCategory.FOCUS)
+                        .missionType(MissionType.DURATION)
+                        .status(status)
+                        .startsAt(sessionDate.atStartOfDay(KST).toInstant())
+                        .joinClosesAt(sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .closesAt(sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .settleAfter(sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .settledAt(status == GroupBetStatus.OPEN
+                                ? null : sessionDate.plusDays(1).atStartOfDay(KST).toInstant())
+                        .build());
+        betSessions.add(session);
+        return session;
+    }
+
+    /** 정산이 끝난 회차 — 목표 스냅샷(goalMinutes)은 개설 시점 박제 규약(GROMO-1263)대로 채운다. */
+    private GroupChallengeBetSession settledSession(GroupBetStatus status, LocalDate sessionDate) {
+        return sessionOn(challenge, status, sessionDate, GOAL_MINUTES);
+    }
+
+    private GroupChallengeBetParticipant participant(GroupChallengeBetSession session, User user,
+            Boolean achieved, Integer payout, Integer progressMinutes) {
         return groupChallengeBetParticipantRepository.save(GroupChallengeBetParticipant.builder()
-                .bet(bet).user(user).achieved(achieved).payout(payout)
+                .session(session).user(user).achieved(achieved).payout(payout)
                 .progressMinutes(progressMinutes).build());
     }
 
@@ -157,10 +191,10 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     // ── 테스트 ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("bet_date 내림차순 keyset 페이지네이션 — nextCursor 로 끊김 없이 이어지고 마지막 페이지는 hasNext=false")
-    void paginatesByBetDateDescWithKeysetCursor() {
+    @DisplayName("session_date 내림차순 keyset 페이지네이션 — nextCursor 로 끊김 없이 이어지고 마지막 페이지는 hasNext=false")
+    void paginatesBySessionDateDescWithKeysetCursor() {
         for (int i = 0; i < 5; i++) {
-            settledBet(GroupBetStatus.SETTLED, BASE_DATE.minusDays(i));
+            settledSession(GroupBetStatus.SETTLED, BASE_DATE.minusDays(i));
         }
 
         GroupBetHistorySliceResponse first = history(member.getId(), null, 2);
@@ -183,17 +217,17 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("status 필터 — 정산 결과 3종(SETTLED·REFUNDED·FORFEITED)만 실리고 OPEN·CANCELED 는 빠진다")
-    @SuppressWarnings("deprecation") // REFUNDED — 정산이 더는 만들지 않지만 기존 데이터 조회는 계속 다룬다
-    void includesSettlementResultsOnlyExcludingOpenAndCanceled() {
-        settledBet(GroupBetStatus.SETTLED, BASE_DATE);
-        settledBet(GroupBetStatus.REFUNDED, BASE_DATE.minusDays(1));
-        settledBet(GroupBetStatus.FORFEITED, BASE_DATE.minusDays(2));
-        settledBet(GroupBetStatus.CANCELED, BASE_DATE.minusDays(3));
-        // 진행 중(OPEN) 내기 — 아직 결과가 아니라 이력이 아니다.
-        bets.add(groupChallengeBetRepository.save(GroupChallengeBet.builder()
-                .group(group).challenge(challenge).creatorUser(member)
-                .stake(STAKE).betDate(BASE_DATE.plusDays(1)).status(GroupBetStatus.OPEN).build()));
+    @DisplayName("status 필터 — 정산 결과 3종(SETTLED·REFUNDED·FORFEITED)만 실리고 OPEN·VOIDED·UNUSED 는 빠진다")
+    void includesSettlementResultsOnlyExcludingOpenVoidedUnused() {
+        settledSession(GroupBetStatus.SETTLED, BASE_DATE);
+        settledSession(GroupBetStatus.REFUNDED, BASE_DATE.minusDays(1));
+        settledSession(GroupBetStatus.FORFEITED, BASE_DATE.minusDays(2));
+        // VOIDED 는 신 API(B8)부터 노출한다 — 구앱은 렌더 분기가 없다.
+        settledSession(GroupBetStatus.VOIDED, BASE_DATE.minusDays(3));
+        // UNUSED(0명 종료)는 결과가 아니라 어디에도 실리지 않는다(N52).
+        settledSession(GroupBetStatus.UNUSED, BASE_DATE.minusDays(4));
+        // 진행 중(OPEN) 회차 — 아직 결과가 아니라 이력이 아니다.
+        settledSession(GroupBetStatus.OPEN, BASE_DATE.plusDays(1));
 
         GroupBetHistorySliceResponse response = history(member.getId(), null, 10);
 
@@ -206,19 +240,53 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
         assertThat(response.hasNext()).isFalse();
     }
 
+
     @Test
-    @DisplayName("항목 매핑 — betId·settledAt·pot(참가자 수 반영)과 정산 근거(goalMinutes·progressMinutes)가 실린다")
+    @DisplayName("내역에 종료 사유(voidReason)가 실린다 — 24h 미정산 환불과 달성자 0명 환불을 구분(N55)")
+    void carriesVoidReasonInHistory() {
+        // 시스템이 정산하지 못해 환불된 회차 — 앱이 이걸 "달성한 사람이 없어 환불"로 그리면 거짓말이다.
+        LocalDate refundDate = BASE_DATE.minusDays(3);
+        Instant closesAt = refundDate.plusDays(1).atStartOfDay(KST).toInstant();
+        GroupChallengeBetSession deadlineRefund = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(configOf(challenge)).group(group).challenge(challenge)
+                        .sessionDate(refundDate).stake(STAKE).goalMinutes(GOAL_MINUTES)
+                        .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                        .status(GroupBetStatus.REFUNDED)
+                        .voidReason(GroupBetVoidReason.REFUND_DEADLINE)
+                        .startsAt(refundDate.atStartOfDay(KST).toInstant())
+                        .joinClosesAt(closesAt).closesAt(closesAt).settleAfter(closesAt)
+                        .settledAt(closesAt)
+                        .build());
+        betSessions.add(deadlineRefund);
+        // 대비군 — 달성자 0명 몰수(사유 없음).
+        settledSession(GroupBetStatus.FORFEITED, BASE_DATE.minusDays(4));
+
+        GroupBetHistorySliceResponse page = history(member.getId(), null, 20);
+
+        // 24h 미정산 환불만 사유가 실리고, 사유 없는 종료는 null 로 구분된다.
+        assertThat(page.content())
+                .filteredOn(item -> item.getBetDate().equals(refundDate))
+                .singleElement()
+                .satisfies(item -> assertThat(item.getVoidReason())
+                        .isEqualTo(GroupBetVoidReason.REFUND_DEADLINE));
+        assertThat(page.content())
+                .filteredOn(item -> item.getStatus() == GroupBetStatus.FORFEITED)
+                .allSatisfy(item -> assertThat(item.getVoidReason()).isNull());
+    }
+    @Test
+    @DisplayName("항목 매핑 — betId(회차 id)·settledAt·pot(참가자 수 반영)과 근거(goalMinutes·progressMinutes)가 실린다")
     void mapsEvidenceFieldsIntoHistoryItem() {
         User mate = memberUser("동료");
-        GroupChallengeBet bet = settledBet(GroupBetStatus.SETTLED, BASE_DATE);
-        participant(bet, member, true, STAKE * 2, GOAL_MINUTES + 15);
+        GroupChallengeBetSession session = settledSession(GroupBetStatus.SETTLED, BASE_DATE);
+        participant(session, member, true, STAKE * 2, GOAL_MINUTES + 15);
         // 미계측(스크린타임 미보고 정산의 형태) — null 이 null 그대로 나와야 앱이 '—' 를 그린다.
-        participant(bet, mate, false, 0, null);
+        participant(session, mate, false, 0, null);
 
         GroupBetHistoryItemResponse item = history(member.getId(), null, 10).content().get(0);
 
-        assertThat(item.getBetId()).isEqualTo(bet.getId());
-        assertThat(item.getSettledAt()).isEqualTo(bet.getSettledAt());
+        assertThat(item.getBetId()).isEqualTo(session.getId());
+        assertThat(item.getSettledAt()).isEqualTo(session.getSettledAt());
         assertThat(item.getStake()).isEqualTo(STAKE);
         assertThat(item.getPot()).isEqualTo(STAKE * 2);
         assertThat(item.getGoalMinutes()).isEqualTo(GOAL_MINUTES);
@@ -231,14 +299,9 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("근거 저장 이전(V29 미만) 정산 건 — goalMinutes·progressMinutes 가 null 로 실린다")
+    @DisplayName("스냅샷 이전(V39 백필 전 V29 미만) 정산 건 — goalMinutes·progressMinutes 가 null 로 실린다")
     void exposesNullEvidenceForLegacySettlements() {
-        GroupChallengeBet legacy = groupChallengeBetRepository.save(GroupChallengeBet.builder()
-                .group(group).challenge(challenge).creatorUser(member)
-                .stake(STAKE).betDate(BASE_DATE).status(GroupBetStatus.SETTLED)
-                .settledAt(Instant.parse("2026-07-31T16:00:00Z"))
-                .build());
-        bets.add(legacy);
+        GroupChallengeBetSession legacy = sessionOn(challenge, GroupBetStatus.SETTLED, BASE_DATE, null);
         participant(legacy, member, true, STAKE, null);
 
         GroupBetHistoryItemResponse item = history(member.getId(), null, 10).content().get(0);
@@ -251,7 +314,7 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("권한 — 비그룹원은 MEMBER_ONLY, 게스트는 GUEST_FORBIDDEN 으로 거절된다")
     void rejectsNonMemberAndGuest() {
-        settledBet(GroupBetStatus.SETTLED, BASE_DATE);
+        settledSession(GroupBetStatus.SETTLED, BASE_DATE);
         User outsider = plainUser("비그룹원", false);
         User guest = plainUser("게스트", true);
 
@@ -275,16 +338,11 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("다른 챌린지의 내기 id 를 커서로 넘기면 BET_NOT_FOUND — 커서는 챌린지 스코프로만 해석된다")
+    @DisplayName("다른 챌린지의 회차 id 를 커서로 넘기면 BET_NOT_FOUND — 커서는 챌린지 스코프로만 해석된다")
     void rejectsCursorFromAnotherChallenge() {
-        settledBet(GroupBetStatus.SETTLED, BASE_DATE);
+        settledSession(GroupBetStatus.SETTLED, BASE_DATE);
         GroupChallenge other = durationChallenge();
-        GroupChallengeBet foreign = groupChallengeBetRepository.save(GroupChallengeBet.builder()
-                .group(group).challenge(other).creatorUser(member)
-                .stake(STAKE).betDate(BASE_DATE).status(GroupBetStatus.SETTLED)
-                .settledAt(Instant.parse("2026-07-31T16:00:00Z"))
-                .build());
-        bets.add(foreign);
+        GroupChallengeBetSession foreign = sessionOn(other, GroupBetStatus.SETTLED, BASE_DATE, GOAL_MINUTES);
 
         assertThatThrownBy(() -> history(member.getId(), foreign.getId(), 10))
                 .isInstanceOfSatisfying(GroupException.class,

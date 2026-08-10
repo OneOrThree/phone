@@ -1,18 +1,40 @@
-// 푸시 딥링크 배선 테스트 — 계약 §2(딥링크 페이로드) · GROMO-1088.
+// 푸시 딥링크 배선 + 사일런트 flush 테스트 — 정본 IA §4.2 (GROMO-1421 · GROMO-1286).
 //
-// 여기서 잠그는 것: 푸시를 탭했을 때 **세 경로 모두** 서버가 실어 보낸 data.link를 그대로
-// navigateToDeepLink로 흘린다는 사실이다. 링크 문법(challenge 파라미터)이 서버·앱 계약이라
-// 한 경로라도 link를 재조립하거나 잘라 쓰면 결과 모달이 조용히 열리지 않는다.
-//   1) 백그라운드 배너 탭  — messaging().onNotificationOpenedApp
-//   2) 포그라운드 로컬 알림 탭 — Notifications.addNotificationResponseReceivedListener
-//   3) 콜드스타트 — messaging().getInitialNotification
-// 레거시 폴백(link 없이 type=CHALLENGE_WINDOW_END + groupId)은 구 바이너리 호환이라 유지한다.
+// 여기서 잠그는 것:
+//  1) 세 경로(백그라운드 배너 탭·포그라운드 로컬 알림 탭·콜드스타트) 모두 서버가 실어 보낸
+//     data.link를 그대로 navigateToDeepLink로 흘린다 — 링크 문법이 서버·앱 계약이다.
+//  2) link 없는 그룹 푸시는 타입별로 groupId → 그룹방 딥링크를 합성한다(IA §4.2 payload 표) —
+//     서버는 link를 싣지 않는 계약이라 이 배선이 없으면 탭해도 아무 데도 안 간다.
+//  3) BET_VOID_REFUND는 그룹방까지만 — challenge 파라미터를 싣지 않는다(N48 이중 통지 금지).
+//  4) 미지원 타입 + groupId는 그룹 탭 폴백 — 크래시·무반응 금지.
+//  5) 사일런트(data.silent='flush') 수신 → 업로드 큐 flush(창 사용분 먼저 — 1420과 같은 축).
+//     백그라운드 등록은 pushBackground.registerBackgroundFlushHandler(index.ts 최상위) 몫이다 —
+//     PushGate 이펙트 등록만으로는 종료 상태 headless 기동에서 no-op이 메시지를 삼킨다(리뷰 ①).
 import { handleInitialNotification, setupPushListeners } from './push';
+import { registerBackgroundFlushHandler } from './pushBackground';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
+import {
+  flushPendingFocusUploads,
+  markBackgroundFocusCommit,
+} from '@/screens/focus/pendingFocusUploads';
+import { syncWindowUsage } from '@/services/screentimeSync';
 
 jest.mock('@/navigation/navigationRef', () => ({ navigateToDeepLink: jest.fn() }));
-jest.mock('@/services/api', () => ({ api: { put: jest.fn() } }));
+jest.mock('@/services/api', () => ({
+  api: { put: jest.fn() },
+  getFreshAccessToken: jest.fn(async () => 'token'),
+  getUserIdFromToken: jest.fn(() => 'me'),
+}));
 jest.mock('@/services/notificationInbox', () => ({ addToInbox: jest.fn() }));
+jest.mock('@/screens/focus/pendingFocusUploads', () => ({
+  flushPendingFocusUploads: jest.fn(async () => false),
+  markBackgroundFocusCommit: jest.fn(async () => {}),
+}));
+jest.mock('@/services/screentimeSync', () => ({
+  syncWindowUsage: jest.fn(async () => {}),
+}));
+// 백그라운드 커밋이 트리를 깨우는 신호 — 실제 재조회는 CoinProvider가 한다.
+jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
 jest.mock('@/services/analyticsEvents', () => ({
   logNotificationOpened: jest.fn(),
   logNotificationPermissionResult: jest.fn(),
@@ -33,14 +55,22 @@ jest.mock('expo-notifications', () => ({
 // @react-native-firebase/messaging은 네이티브 모듈이라 통째로 대체한다.
 // messaging()이 매번 같은 객체를 돌려줘야 리스너 등록/조회가 한 곳으로 모인다.
 let openedHandler: ((msg: unknown) => void) | null = null;
+let messageHandler: ((msg: unknown) => Promise<void>) | null = null;
+let backgroundHandler: ((msg: unknown) => Promise<void>) | null = null;
 const mockGetInitialNotification = jest.fn(async () => null as unknown);
 jest.mock('@react-native-firebase/messaging', () => {
   const instance = {
     onTokenRefresh: jest.fn(() => jest.fn()),
-    onMessage: jest.fn(() => jest.fn()),
+    onMessage: jest.fn((cb: (msg: unknown) => Promise<void>) => {
+      messageHandler = cb;
+      return jest.fn();
+    }),
     onNotificationOpenedApp: jest.fn((cb: (msg: unknown) => void) => {
       openedHandler = cb;
       return jest.fn();
+    }),
+    setBackgroundMessageHandler: jest.fn((cb: (msg: unknown) => Promise<void>) => {
+      backgroundHandler = cb;
     }),
     getInitialNotification: () => mockGetInitialNotification(),
   };
@@ -50,6 +80,13 @@ jest.mock('@react-native-firebase/messaging', () => {
 });
 
 const mockNavigateToDeepLink = navigateToDeepLink as jest.MockedFunction<typeof navigateToDeepLink>;
+const mockFlushFocus = flushPendingFocusUploads as jest.Mock;
+const mockMarkBackgroundCommit = markBackgroundFocusCommit as jest.Mock;
+const mockRequestCoinRefresh = jest.requireMock('@/store/coinRefreshSignal')
+  .requestCoinRefresh as jest.Mock;
+const mockSyncWindow = syncWindowUsage as jest.Mock;
+const { getFreshAccessToken } = jest.requireMock('@/services/api');
+const { scheduleNotificationAsync } = jest.requireMock('expo-notifications');
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const CHALLENGE_ID = '0198aa11-2b3c-7d4e-8f50-6a7b8c9d0e1f';
@@ -67,11 +104,19 @@ function message(data: Record<string, unknown>) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  getFreshAccessToken.mockResolvedValue('token');
+  // clearAllMocks는 호출 기록만 지운다 — 앞선 테스트가 심은 구현(mockRejectedValue 등)이
+  // 남아 뒤 테스트를 오염시키지 않도록 기본 동작을 매번 되돌린다.
+  mockFlushFocus.mockResolvedValue(false);
+  mockSyncWindow.mockResolvedValue(undefined);
+  mockMarkBackgroundCommit.mockResolvedValue(undefined);
   openedHandler = null;
+  messageHandler = null;
+  backgroundHandler = null;
   responseHandler = null;
 });
 
-describe('챌린지 종료 푸시 딥링크(3경로)', () => {
+describe('data.link 3경로 전달(GROMO-1088 유지)', () => {
   test('백그라운드 배너 탭 — data.link를 그대로 흘린다', () => {
     setupPushListeners();
     openedHandler?.(message({ type: 'CHALLENGE_ENDED', link: END_LINK }));
@@ -106,6 +151,93 @@ describe('챌린지 종료 푸시 딥링크(3경로)', () => {
   });
 });
 
+// 서버는 link를 싣지 않는다(IA §4.2) — 앱이 타입별로 groupId → 딥링크를 합성한다(GROMO-1421).
+// 결과성 타입(BET_RESULT·BET_WON·BET_VOID_REFUND·SESSION_END)은 result=1 표식을 함께 싣는다 —
+// 탈퇴자도 정산 통지에 도달해야 해서(N53·C8) navigationRef가 이 표식만 멤버십 게이트를 우회한다.
+describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', () => {
+  // 비결과성(모집·생성) — 그룹방까지만, 멤버십 게이트 유지(result 표식 없음).
+  test.each(['CHALLENGE_CREATED', 'CHALLENGE_SESSION_OPEN'])(
+    '%s + groupId → 그룹방 딥링크(challenge·result 없음)',
+    (type) => {
+      setupPushListeners();
+      openedHandler?.(message({ type, groupId: GROUP_ID, challengeId: CHALLENGE_ID }));
+
+      expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}`);
+    },
+  );
+
+  // 결과성 — 특정 챌린지를 지목하지 않는 타입들(묶음 발송 포함). result=1만 붙는다.
+  test.each(['BET_RESULT', 'BET_WON'])('%s + groupId → 그룹방 딥링크 + result 표식', (type) => {
+    setupPushListeners();
+    openedHandler?.(message({ type, groupId: GROUP_ID, challengeId: CHALLENGE_ID }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
+  });
+
+  test('CHALLENGE_SESSION_END + challengeId → 그룹방 + 결과 모달(challenge) + result 표식', () => {
+    setupPushListeners();
+    openedHandler?.(
+      message({ type: 'CHALLENGE_SESSION_END', groupId: GROUP_ID, challengeId: CHALLENGE_ID }),
+    );
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${END_LINK}&result=1`);
+  });
+
+  test('CHALLENGE_SESSION_END인데 challengeId가 없으면(묶음) 그룹방까지만(result 표식은 유지)', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'CHALLENGE_SESSION_END', groupId: GROUP_ID }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
+  });
+
+  // 삭제 환불은 이 푸시가 알리는 사건이다 — 결과 모달까지 열면 같은 사건 이중 통지(N48).
+  // challengeId가 실려 와도 challenge 파라미터를 합성하지 않는다.
+  // 대신 refund=1을 싣는다(codex 리뷰 P2) — 삭제된 챌린지는 결과 모달 대상에서 빠지고
+  // 챌린지 목록에도 안 남아, 표식이 없으면 잔액을 다시 받을 경로가 하나도 없다.
+  test('BET_VOID_REFUND → 그룹방까지만 + 잔액 재조회 표식(N48 · 이중 통지 금지)', () => {
+    setupPushListeners();
+    openedHandler?.(
+      message({
+        type: 'BET_VOID_REFUND',
+        groupId: GROUP_ID,
+        challengeId: CHALLENGE_ID,
+        voidReason: 'CHALLENGE_DELETED',
+      }),
+    );
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(
+      `gromo://group?g=${GROUP_ID}&result=1&refund=1`,
+    );
+  });
+
+  // 환불 표식은 환불 타입에만 붙는다 — 다른 결과성 푸시는 결과 모달·정산 서명 경로가 이미
+  // 잔액을 다시 받으므로(GroupRoomScreen), 여기에 표식을 늘리면 같은 일을 두 번 시킨다.
+  test.each(['BET_RESULT', 'BET_WON', 'CHALLENGE_SESSION_END', 'CHALLENGE_CREATED'])(
+    '%s에는 환불 표식(refund)을 싣지 않는다',
+    (type) => {
+      setupPushListeners();
+      openedHandler?.(message({ type, groupId: GROUP_ID }));
+
+      expect(mockNavigateToDeepLink).toHaveBeenCalledTimes(1);
+      expect(mockNavigateToDeepLink.mock.calls[0][0]).not.toContain('refund');
+    },
+  );
+
+  test('미지원 타입 + groupId는 그룹 탭 폴백 — 무반응으로 끝나지 않는다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'SOME_FUTURE_TYPE', groupId: GROUP_ID }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith('gromo://group');
+  });
+
+  test('타입도 link도 없으면 이동하지 않는다(오라우팅 방지)', () => {
+    setupPushListeners();
+    openedHandler?.(message({ groupId: GROUP_ID }));
+
+    expect(mockNavigateToDeepLink).not.toHaveBeenCalled();
+  });
+});
+
 describe('레거시 폴백(구 바이너리 호환 — 제거하지 않는다)', () => {
   test('link 없이 type=CHALLENGE_WINDOW_END + groupId면 그룹 딥링크를 합성한다', () => {
     setupPushListeners();
@@ -113,11 +245,103 @@ describe('레거시 폴백(구 바이너리 호환 — 제거하지 않는다)',
 
     expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}`);
   });
+});
 
-  test('link도 폴백 조건도 없으면 이동하지 않는다', () => {
+// 사일런트 data-only 푸시 → 업로드 큐 flush (GROMO-1286 · FR-22). 화면 이동·배너 없음.
+// 백그라운드 핸들러는 index.ts 최상위가 registerBackgroundFlushHandler로 등록한다(리뷰 ①).
+describe('사일런트 flush(data.silent=flush)', () => {
+  const silent = { messageId: 'm-silent', data: { silent: 'flush' } };
+
+  test('백그라운드(index.ts 등록) 수신 — 창 사용분 sync **먼저**, 그다음 집중 큐(리뷰 ④)', async () => {
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockSyncWindow).toHaveBeenCalledWith('me');
+    expect(mockFlushFocus).toHaveBeenCalledWith('me');
+    // 순서 락 — 사일런트 실행 시간 제한에서 집중 큐(최대 50건 순차)가 먼저 돌면 이 푸시의
+    // 존재 이유(FR-22 마지막 창 보고)에 도달하지 못한다.
+    expect(mockSyncWindow.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFlushFocus.mock.invocationCallOrder[0],
+    );
+    expect(mockNavigateToDeepLink).not.toHaveBeenCalled(); // 화면 이동 없음(IA §4.2)
+  });
+
+  // 백그라운드 커밋 → 잔액 갱신 예약(codex 리뷰 P2). 여기서 커밋된 저장은 서버 잔액을 바꾸고
+  // 큐를 비우므로, 사실을 남기지 않으면 포그라운드로 돌아온 PendingFocusUploader가 빈 큐를
+  // flush 하며 '커밋 없음'으로 읽어 잔액을 영영 다시 받지 않는다(낡은 잔액 고착).
+  // 커밋 확정 시점에 **두 갈래**로 알린다(codex 후속 리뷰 P2): 살아 있는 프로세스는 신호로
+  // 즉시(복귀 이벤트와의 순서 의존 제거), 프로세스가 죽는 경우는 영속 마커로.
+  test('백그라운드 flush가 커밋했으면 신호를 쏘고 마커도 남긴다', async () => {
+    mockFlushFocus.mockResolvedValue(true);
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockRequestCoinRefresh).toHaveBeenCalledTimes(1);
+    expect(mockMarkBackgroundCommit).toHaveBeenCalledTimes(1);
+  });
+
+  test('커밋이 없었으면 신호도 마커도 없다 — 불필요한 잔액 조회를 만들지 않는다', async () => {
+    mockFlushFocus.mockResolvedValue(false);
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockRequestCoinRefresh).not.toHaveBeenCalled();
+    expect(mockMarkBackgroundCommit).not.toHaveBeenCalled();
+  });
+
+  test('flush가 던지면 신호·마커 모두 없다(커밋 여부를 모른다)', async () => {
+    mockFlushFocus.mockRejectedValue(new Error('network'));
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockRequestCoinRefresh).not.toHaveBeenCalled();
+    expect(mockMarkBackgroundCommit).not.toHaveBeenCalled();
+  });
+
+  test('setupPushListeners는 백그라운드 핸들러를 등록하지 않는다 — index.ts 선등록을 덮으면 안 된다', () => {
     setupPushListeners();
-    openedHandler?.(message({ type: 'CHALLENGE_ENDED', groupId: GROUP_ID }));
+    expect(backgroundHandler).toBeNull();
+  });
 
-    expect(mockNavigateToDeepLink).not.toHaveBeenCalled();
+  test('포그라운드 수신 — flush만 하고 빈 로컬 배너를 만들지 않는다', async () => {
+    setupPushListeners();
+    await messageHandler?.(silent);
+
+    expect(mockSyncWindow).toHaveBeenCalledWith('me');
+    expect(mockFlushFocus).toHaveBeenCalledWith('me');
+    expect(scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  test('silent가 아닌 백그라운드 메시지는 flush를 깨우지 않는다', async () => {
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(message({ type: 'BET_RESULT', groupId: GROUP_ID }));
+
+    expect(mockFlushFocus).not.toHaveBeenCalled();
+    expect(mockSyncWindow).not.toHaveBeenCalled();
+  });
+
+  test('로그아웃(토큰 없음)이면 flush하지 않는다 — 남의 계정 큐를 만들지 않는다', async () => {
+    getFreshAccessToken.mockResolvedValue(null);
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+
+    expect(mockFlushFocus).not.toHaveBeenCalled();
+    expect(mockSyncWindow).not.toHaveBeenCalled();
+  });
+
+  test('flush 실패는 삼킨다 — 수신 핸들러가 던지면 다음 푸시 처리까지 죽는다', async () => {
+    mockFlushFocus.mockRejectedValue(new Error('network'));
+    mockSyncWindow.mockRejectedValue(new Error('network'));
+    registerBackgroundFlushHandler();
+    await expect(backgroundHandler?.(silent)).resolves.toBeUndefined();
+  });
+
+  test('이중 실행 멱등 — 두 번 수신해도 각 단계가 그대로 다시 돌 뿐 부작용이 없다', async () => {
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+    await backgroundHandler?.(silent);
+    // 창 보고는 upsert+measuredAt 역전 무시(N34), 집중 큐는 flushing 가드 — 호출 자체는 매번 나간다.
+    expect(mockSyncWindow).toHaveBeenCalledTimes(2);
+    expect(mockFlushFocus).toHaveBeenCalledTimes(2);
   });
 });

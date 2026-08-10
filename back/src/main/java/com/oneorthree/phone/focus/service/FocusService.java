@@ -2,7 +2,7 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
@@ -34,6 +34,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.focus.repository.DefaultTagRepository;
 import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
+import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
 import com.oneorthree.phone.focus.repository.OccupationDefaultTagRepository;
 import com.oneorthree.phone.stats.domain.DailyFocusStat;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
@@ -109,6 +110,7 @@ public class FocusService {
     private final UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     private final UserStreakService userStreakService;
     private final CurrencyLedgerService currencyLedgerService;
+    private final GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
 
     public List<FocusTagResponse> getFocusTags(UUID userId) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
@@ -288,7 +290,7 @@ public class FocusService {
         }
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
         // 미래 endedAt 위조 클램프 + 날짜별 귀속 분포를 한 번만 구해 저장·통계·중복응답이 같은 값을 쓴다.
         Instant now = Instant.now();
         Instant statEnd = statEnd(body.getEndedAt(), now);
@@ -362,6 +364,11 @@ public class FocusService {
                 .totalDistractionSeconds(body.getTotalDistractionSeconds())
                 .build());
 
+        // 락 순서 고정(계약 §3: 회차 → 지갑) — 지갑을 만지기 전에 조기 확정 대상 회차를 먼저 잠근다.
+        // 지갑부터 잡고 나중에 회차 락을 기다리면 정산·삭제 경로와 정확히 역순이라 교착·낙관락
+        // 충돌로 이 트랜잭션(집중 세션·통계·보상)이 통째로 롤백된다.
+        groupBetEarlyWinConfirmer.lockCandidateSessions(user, credited.focusSeconds().keySet());
+
         // currency 폐쇄(서버 지급 전환): 세션 보상을 서버가 직접 지급한다. 앱의 /currency/earn 호출은 no-op 이 됐고
         // (구앱: 저장 시 서버 지급 + earn no-op / 신앱: 저장 시 서버 지급 + earn 미호출 → 어느 조합도 정확히 1회),
         // 멱등키(focus:{sessionId}:reward)가 같은 세션 행에 대한 이중 지급을, 위의 재업로드 스킵이 행 재생성을 막는다.
@@ -372,6 +379,9 @@ public class FocusService {
         // GROMO-806: 그날 누적·스트릭 인정 여부를 응답에 실어 준다(additive — 구버전 앱은 무시).
         RecordCompletionResult result = recordCompletion(user, userId, tag, body.getStartedAt(), body.getEndedAt(),
                 body.getTotalDistractionSeconds(), zone, credited);
+        // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — 통계 반영 이후, 같은 트랜잭션에 편승한다.
+        // 대상은 이 세션이 통계에 귀속된 날짜들의 FOCUS OPEN 회차뿐이다(회차 락은 confirmer 가 잡는다).
+        groupBetEarlyWinConfirmer.confirmWins(user, credited.focusSeconds().keySet());
         // 세션 지급액(#417)·목표 지급액(이 브랜치)을 함께 실어 준다(additive) — 클라가 획득 코인을 즉시 노출.
         // balanceAfter 는 구 번들 호환용으로만 남긴다(현재 앱은 재조회로 잔액을 받는다).
         return new FocusSessionSaveResponse(result.dayTotalFocusSeconds(), result.streakQualifiedToday(),
@@ -448,8 +458,8 @@ public class FocusService {
     /**
      * 세션이 끝난 날(= 앱이 보는 "오늘")의 로컬 날짜.
      *
-     * <p><b>기준: 유저 country_code 파생 존 로컬 날짜 (GROMO-803, screentime 561과 동일 기준).</b>
-     * countryCode 가 null·미지원이면 Asia/Seoul 로 폴백한다(CountryZoneResolver). 스크린타임 저장 존과 정합.
+     * <p><b>기준: KST 로컬 날짜 (GROMO-1259 — 저장축 KST 고정, {@link ZonePolicy}).</b>
+     * 스크린타임 저장 존과 정합(같은 KST 축). 해외 유저 어긋남은 L5 수용.
      *
      * <p>GROMO-1252 이후 <b>집계 귀속</b>은 이 날짜 하나가 아니라 {@link #splitByLocalDay} 가 나눈 날짜별
      * 조각으로 이뤄진다 — 이 헬퍼는 재업로드 응답의 "그날 누적" 조회처럼 종료일 하나만 필요한 곳에 쓴다.
@@ -459,7 +469,7 @@ public class FocusService {
     }
 
     /**
-     * 세션 구간 [startedAt, endedAt] 을 유저 존의 로컬 자정 경계로 잘라 날짜별 초를 배분한다 (GROMO-1252).
+     * 세션 구간 [startedAt, endedAt] 을 KST 로컬 자정 경계로 잘라 날짜별 초를 배분한다 (GROMO-1252 · 1259).
      *
      * <p>종전엔 endedAt 하나의 로컬 날짜에 구간 전체를 가산해, 자정을 넘긴 세션은 전날 몫이 통째로 사라지고
      * 다음날이 부풀었다(prod 실측 10.7h 오귀속).
@@ -723,20 +733,27 @@ public class FocusService {
             session.applyTag(tag);
         }
 
+        // 귀속 날짜 계산(순수 함수)을 지급보다 먼저 끝낸다 — 아래 회차 선잠금이 이 날짜 집합을 쓴다.
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
+        Instant statEnd = statEnd(endedAt, Instant.now());
+        CreditedByDate credited = resolveSecondsByDate(
+                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
+
+        // 락 순서 고정(계약 §3: 회차 → 지갑) — POST 완료 저장 경로와 동일한 이유다(교착·낙관락 충돌 방지).
+        groupBetEarlyWinConfirmer.lockCandidateSessions(user, credited.focusSeconds().keySet());
+
         // GROMO-1214: 라이브 마커 종료도 POST 와 동일하게 세션 보상을 지급한다(같은 헬퍼 = 같은 지급률·캡·멱등키).
         // 앱이 cancel+POST 를 PATCH 로 전환하면 이 경로가 유일한 세션 지급처가 된다 — 빠져 있으면 코인이 0이 된다.
         int awardedCoins = creditSessionReward(user, session.getId(), session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds());
 
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
-        Instant statEnd = statEnd(endedAt, Instant.now());
-        CreditedByDate credited = resolveSecondsByDate(
-                session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
         // 조건부 UPDATE 로 이미 endedAt 이 채워진 관리 엔티티에 방해 지표·태그를 반영(더티 체킹). recordCompletion 은 1회.
         session.end(endedAt, body.totalDistractionSeconds(), statEnd,
                 toStoredSecondsByDate(credited.focusSeconds()));
         RecordCompletionResult result = recordCompletion(user, userId, tag, session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds(), zone, credited);
+        // 그룹 내기 개인 승리 조기 확정(GROMO-1268, N11) — POST 완료 저장 경로와 동일 배선.
+        groupBetEarlyWinConfirmer.confirmWins(user, credited.focusSeconds().keySet());
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
@@ -865,7 +882,7 @@ public class FocusService {
      * <p><b>미래 endedAt 클램프</b>: 분할 전에 종료 시각을 서버 {@code now} 로 클램프한다(통계 귀속 전용 —
      * 저장된 세션 행은 앱이 보낸 값 그대로). 상세는 아래 구현 주석 참조.
      *
-     * @param zone     유저 존(country_code 파생) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
+     * @param zone     날짜 버킷 존(KST 고정, GROMO-1259) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
      * @param credited 날짜 오름차순 net 집중초 + 날짜별 방해초(호출부가 {@link #resolveSecondsByDate} 로 만든다)
      * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
      *         그리고 이 세션이 유발한 목표 지급액 합
@@ -996,7 +1013,7 @@ public class FocusService {
         // 과거 날짜마다 목표 길이 세션을 위조 제출해 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정해
         // (오프라인 늦은 업로드·자정 경계 허용) 그보다 오래된 날짜의 대량 채굴을 차단한다. 세션 자체의
         // 신뢰 검증(라이브 마커 대조 등)은 별도 후속 — #417 세션 위조방어와 정합.
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
         LocalDate today = LocalDate.now(zone);
         // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(endedAt 위조)도 거부한다 — 하한만 두면
         // 미래 날짜마다 위조 세션을 심어 채굴할 수 있다(코드리뷰 R3).

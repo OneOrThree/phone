@@ -1,7 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
-import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,7 +22,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 /**
- * 동결 감지의 <b>기준일 경계</b> 단위 테스트 — 어제 내기는 아직 오늘 배치의 대상이라 정상이고,
+ * 동결 감지의 <b>기준일 경계</b> 단위 테스트 — 어제 회차는 아직 오늘 배치의 대상이라 정상이고,
  * 그제 것이 OPEN 이면 배치를 한 번 이상 걸렀다는 뜻이다.
  */
 @ExtendWith(MockitoExtension.class)
@@ -32,21 +32,21 @@ class GroupBetFreezeMonitorTest {
     private static final Instant NOW = Instant.parse("2026-08-02T00:00:00Z");
 
     @Mock
-    private GroupChallengeBetRepository groupChallengeBetRepository;
+    private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @InjectMocks
     private GroupBetFreezeMonitor monitor;
 
     @Test
-    @DisplayName("bet_date ≤ 오늘−2 만 조회한다 — 어제 내기는 아직 정산 대상이라 제외")
+    @DisplayName("session_date ≤ 오늘−2 만 조회한다 — 어제 회차는 아직 정산 대상이라 제외")
     void queriesOnlyBetsOlderThanYesterday() {
-        given(groupChallengeBetRepository.findIdsByStatusAndBetDateBefore(eq(GroupBetStatus.OPEN), any()))
+        given(groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBefore(eq(GroupBetStatus.OPEN), any()))
                 .willReturn(List.of());
 
         monitor.detectFrozenBets(NOW);
 
         ArgumentCaptor<LocalDate> captor = ArgumentCaptor.forClass(LocalDate.class);
-        verify(groupChallengeBetRepository)
-                .findIdsByStatusAndBetDateBefore(eq(GroupBetStatus.OPEN), captor.capture());
+        verify(groupChallengeBetSessionRepository)
+                .findIdsByStatusAndSessionDateBefore(eq(GroupBetStatus.OPEN), captor.capture());
         // beforeDate 미만 = 2026-08-01 미만 = 7/31 이하 = 오늘(8/2) − 2 이하
         assertThat(captor.getValue()).isEqualTo(LocalDate.of(2026, 8, 1));
     }
@@ -54,7 +54,7 @@ class GroupBetFreezeMonitorTest {
     @Test
     @DisplayName("동결 건이 없으면 0")
     void returnsZeroWhenNothingFrozen() {
-        given(groupChallengeBetRepository.findIdsByStatusAndBetDateBefore(any(), any()))
+        given(groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBefore(any(), any()))
                 .willReturn(List.of());
 
         assertThat(monitor.detectFrozenBets(NOW)).isZero();
@@ -67,7 +67,7 @@ class GroupBetFreezeMonitorTest {
                 .range(0, GroupBetFreezeMonitor.LOGGED_BET_ID_LIMIT + 5)
                 .mapToObj(index -> UUID.randomUUID())
                 .toList();
-        given(groupChallengeBetRepository.findIdsByStatusAndBetDateBefore(any(), any()))
+        given(groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBefore(any(), any()))
                 .willReturn(frozen);
 
         assertThat(monitor.detectFrozenBets(NOW)).isEqualTo(frozen.size());

@@ -18,6 +18,7 @@ import {
   getGroupDetail,
   getGroupOverview,
   getMyGroups,
+  getMyOpenBetSessionsWithToken,
   groupErrorCode,
   joinBet,
   joinGroup,
@@ -163,6 +164,8 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       missionCategory: 'FOCUS' as const,
       missionType: 'DURATION' as const,
       durationMinutes: 60,
+      // 요일 반복(GROMO-1273) — v2 계약의 필수 필드다(LLD §2).
+      repeatDays: ['MON' as const],
     };
     await createChallenge(GROUP_ID, body);
     await deleteChallenge(GROUP_ID, CHALLENGE_ID);
@@ -231,11 +234,25 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       missionCategory: 'FOCUS' as const,
       missionType: 'TIME_WINDOW' as const,
       durationMinutes: 60,
+      repeatDays: ['MON' as const],
       windowStart: '09:00:00',
       windowEnd: '12:00:00',
     };
     await createChallenge(GROUP_ID, body);
     expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, body);
+  });
+
+  // 계정 박제 변형(codex 리뷰 P1) — 사일런트 flush가 검증한 토큰을 직접 싣고 401 재발급
+  // 재시도를 끈다. 인터셉터가 전송 시점의 저장 토큰을 붙이면, 검증~전송 사이에 계정이 바뀐
+  // 경우 **남의 OPEN 회차**를 읽어 와 그 위에 보고하게 된다(돈 경로).
+  test('GET /me/bet-sessions(계정 박제) — 넘긴 토큰을 싣고 재발급 재시도를 끈다', async () => {
+    mockApi.get.mockResolvedValue({ data: { sessions: [] } });
+    await getMyOpenBetSessionsWithToken('token-u1');
+    expect(mockApi.get).toHaveBeenCalledWith('/api/v1/me/bet-sessions', {
+      params: { status: 'OPEN' },
+      headers: { Authorization: 'Bearer token-u1' },
+      _noAuthRetry: true,
+    });
   });
 });
 

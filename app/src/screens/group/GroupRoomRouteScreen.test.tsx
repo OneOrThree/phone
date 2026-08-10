@@ -9,7 +9,12 @@
 //     인라인 함수를 넘기면 스택이 재렌더될 때마다 3콜이 한 세트씩 더 나간다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import GroupRoomRouteScreen from './GroupRoomRouteScreen';
-import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
+import {
+  getAnnouncements,
+  getChallenges,
+  getGroupDetail,
+  getMyChallengeResults,
+} from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -75,6 +80,7 @@ jest.mock('@/services/groupApi', () => ({
   getGroupDetail: jest.fn(),
   getAnnouncements: jest.fn(),
   getChallenges: jest.fn(),
+  getMyChallengeResults: jest.fn(),
   withdrawGroup: jest.fn(),
 }));
 
@@ -93,6 +99,9 @@ jest.mock('@/utils/localDate', () => ({
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockGetAnnouncements = getAnnouncements as jest.MockedFunction<typeof getAnnouncements>;
 const mockGetChallenges = getChallenges as jest.MockedFunction<typeof getChallenges>;
+const mockGetMyChallengeResults = getMyChallengeResults as jest.MockedFunction<
+  typeof getMyChallengeResults
+>;
 
 function detail(): GroupDetailResponse {
   return {
@@ -129,6 +138,7 @@ beforeEach(() => {
   mockGetGroupDetail.mockResolvedValue(detail());
   mockGetAnnouncements.mockResolvedValue([]);
   mockGetChallenges.mockResolvedValue([]);
+  mockGetMyChallengeResults.mockResolvedValue([]);
 });
 
 describe('라우트 진입 계약', () => {
@@ -182,30 +192,28 @@ describe('라우트 진입 계약', () => {
   // 여기서 끊기면 푸시 탭이 그룹방까지만 가고 결과 모달이 뜨지 않는다.
   test('라우트 파라미터의 challengeId를 그룹방에 흘린다(결과 모달 자동 오픈)', async () => {
     mockRoute.params = { groupId: GROUP_ID, challengeId: 'c1' };
-    mockGetChallenges.mockImplementation(async (_gid, date) =>
-      date === '2026-07-31'
-        ? [
-            {
-              id: 'c1',
-              missionType: 'DURATION',
-              missionCategory: 'FOCUS',
-              durationMinutes: 60,
-              windowStart: null,
-              windowEnd: null,
-              // 결과가 확정된 시점에도 챌린지는 ACTIVE다(창형이 그렇게 동작한다) —
-              // INACTIVE는 서버가 memberProgress를 null로 내려 후보가 되지 않는다.
-              status: 'ACTIVE',
-              createdAt: '2026-07-30T06:00:00',
-              canParticipate: true,
-              memberProgress: [
-                { userId: 'me', nickname: '나', progressMinutes: 70, achieved: true },
-              ],
-              bet: null,
-              lastSettledBet: null,
-            },
-          ]
-        : [],
-    );
+    // 결과 모달 큐의 소스는 /me/challenge-results다(GROMO-1279 · N53) — 카드 조회가 아니다.
+    mockGetMyChallengeResults.mockResolvedValue([
+      {
+        sessionId: 's1',
+        groupId: GROUP_ID,
+        groupName: '아침 6시 집중방',
+        challengeId: 'c1',
+        challengeDeleted: false,
+        challengeEnded: false,
+        sessionDate: '2026-07-31',
+        stake: 30,
+        pot: 60,
+        status: 'SETTLED',
+        voidReason: null,
+        goalMinutes: 60,
+        myAchieved: true,
+        myPayout: 60,
+        results: [
+          { userId: 'me', nickname: '나', achieved: true, payout: 60, progressMinutes: 70 },
+        ],
+      },
+    ]);
 
     await renderRoute();
 

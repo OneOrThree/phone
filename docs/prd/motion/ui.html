@@ -265,36 +265,158 @@
   /* 스켈레톤 */
   .skel { background: var(--track); border-radius: 6px; }
 
-  /* 차트 */
-  .bars { display: flex; align-items: flex-end; gap: 6px; height: 62px; }
-  .bars .b {
-    flex: 1; background: var(--accent); border-radius: 4px 4px 2px 2px;
-    transform-origin: bottom; will-change: transform;
-  }
-  .bars .b.dim { background: var(--accent-light); }
+  /* ⚠️ 통계 카드는 **줄어들지 않는다.** .scroll 이 flex column 이라 기본값(flex-shrink:1)이면
+     카드가 컨테이너에 맞춰 눌리는데, 실제 ScrollView 는 자식을 누르지 않고 넘치면 스크롤한다.
+     여기서 눌리면 선언한 높이(=스켈레톤이 예약한 높이)와 실제 카드 높이가 갈려,
+     이 시안이 보여주려는 '치수가 같다'는 성질 자체가 사라진다. */
+  #statsBody .card { flex: none; }
+  /* 실제 화면은 ScrollView 다 — 카드가 프레임을 넘치면 스크롤된다(잘려 사라지는 게 아니다).
+     주 탭 카드 9장 중 선 그래프는 네 번째부터라, 스크롤이 없으면 이 시안에서 영영 못 본다. */
+  #pStats .scroll { overflow-y: auto; scrollbar-width: none; }
+  #pStats .scroll::-webkit-scrollbar { display: none; }
 
-  /* 집중 세션 */
-  .night-screen { padding: 0; color: var(--n-cream); }
-  .night-head { padding: 16px 14px 0; display: flex; align-items: center; gap: 6px; }
-  .night-head .subj { font-size: 12px; font-weight: 700; color: var(--n-cream); }
-  .night-head .ph {
-    margin-left: auto; font-size: 10px; font-weight: 700; color: var(--n-bottom);
-    background: var(--n-gold); border-radius: 20px; padding: 2px 8px;
+  /* 과목 선택(02) — 시트 뒤 화면 */
+  .subjrows { display: grid; gap: 8px; padding-top: 2px; }
+  .subjrow {
+    position: relative; display: flex; align-items: center; gap: 8px;
+    padding: 12px 12px; border-radius: 16px;
+    background: var(--surface); border: 1px solid var(--line);
+    font-size: 12px; font-weight: 700;
   }
-  .ringwrap { flex: 1; display: grid; place-items: center; }
-  .ringbox { position: relative; width: 172px; height: 172px; }
+  .subjrow .nm, .subjrow .tm, .subjrow .kebab { position: relative; z-index: 1; }
+  .subjrow .tm { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--ink-muted); }
+  .subjrow .kebab { color: var(--ink-muted); font-size: 13px; }
+  /* 선택 표시는 배경색이 아니라 **알약 한 겹**이다 — 과목을 바꾸면 이 겹이 미끄러져 이동한다. */
+  .subjrow .glass {
+    position: absolute; inset: 0; border-radius: 16px;
+    background: var(--accent-soft); border: 1px solid var(--accent-line);
+  }
+  .subjrow.sel { color: var(--accent-deep); }
+  .addhint {
+    margin-top: 10px; text-align: center; font-size: 11px; font-weight: 700;
+    color: var(--accent-deep); opacity: 0.75;
+  }
+
+  /* 통계 — 선 그래프(LineChart). 세로축 눈금 3 + 그리드 4줄 + 꺾은선 + 점. */
+  .plotrow { display: flex; gap: 5px; }
+  .axiscol {
+    width: 20px; height: 68px; display: flex; flex-direction: column;
+    justify-content: space-between; padding: 2px 0 8px;
+    font-size: 8px; font-weight: 600; color: var(--ink-muted); text-align: right;
+  }
+  .plot { position: relative; flex: 1; height: 68px; }
+  .plot .grid {
+    position: absolute; left: 0; right: 0; height: 1px;
+    background: var(--line); display: block;
+  }
+  /* ⚠️ transform-origin: bottom — growUp(scaleY 0→1)이 위가 아니라 **바닥부터** 자라기 위한
+     정적 스타일이다(애니메이션 프로퍼티가 아니라 여기 있어야 한다). */
+  .lsvg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    transform-origin: bottom center; will-change: transform;
+  }
+  .xlabels {
+    display: flex; margin-left: 25px; margin-top: 2px;
+    font-size: 8px; font-weight: 600; color: var(--ink-muted);
+  }
+  .xlabels span { flex: 1; text-align: center; }
+
+  /* 통계 — 히어로 숫자 · 나 vs 평균 */
+  .hero { font-size: 21px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px; }
+  .hero.small { font-size: 14px; font-weight: 700; color: var(--ink-muted); margin-bottom: 4px; }
+  .cmp { display: grid; gap: 6px; }
+  .cmprow { display: flex; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 700; color: var(--ink-muted); }
+  .cmprow span { width: 22px; flex: none; }
+  .cmptrack { flex: 1; height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; }
+  .cmptrack i { display: block; height: 100%; border-radius: 5px; background: var(--accent); }
+  .cmptrack i.avg { background: var(--accent-light); }
+
+  /* 통계 — 목표 달성 캘린더. 주 탭은 1행(월 탭이 5~6행). */
+  .calrow { display: flex; gap: 4px; will-change: opacity; }
+  .calrow .cell {
+    flex: 1; aspect-ratio: 1 / 1.15; border-radius: 7px; background: var(--track);
+    display: grid; place-items: center; gap: 2px; font-size: 8px; color: var(--ink-muted);
+  }
+  .calrow .cell b { font-weight: 700; }
+  .calrow .cell i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+  .calrow .cell.on { background: var(--accent-soft); color: var(--accent-deep); }
+  .calrow .cell.on i { background: var(--accent); }
+
+  /* 통계 — 과목별 도넛 + 범례 */
+  .donutrow { display: flex; align-items: center; gap: 10px; }
+  .donut { position: relative; width: 92px; height: 92px; flex: none; will-change: opacity; }
+  .donut svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .donut .dtotal {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 12px; font-weight: 800; color: var(--ink);
+  }
+  .legend { flex: 1; display: grid; gap: 6px; min-width: 0; }
+  .lg { display: flex; align-items: center; gap: 5px; font-size: 9.5px; will-change: transform, opacity; }
+  .lg i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .lg .n { font-weight: 700; }
+  .lg .t { margin-left: auto; color: var(--ink-muted); font-weight: 600; }
+  .lg .p { color: var(--ink-muted); font-weight: 600; width: 26px; text-align: right; }
+
+  /* 집중 세션 — 실제 화면 순서: 헤더 → 페이저(캐릭터) → 페이저 도트 → 리드아웃(링) → 컨트롤.
+     ⚠️ 화면의 주역은 링이 아니라 **캐릭터**다. 링은 리드아웃 안에서 큰 숫자를 감싸는 요소다. */
+  .night-screen { padding: 0; color: var(--n-cream); }
+  .night-head { padding: 14px 14px 0; display: flex; align-items: center; gap: 6px; }
+  .night-head .subj { font-size: 12px; font-weight: 700; color: var(--n-cream); }
+  /* 집중 메뉴(햄버거) — 실제 화면의 우상단 버튼 */
+  .night-head .burger {
+    margin-left: auto; width: 26px; height: 26px; border-radius: 9px;
+    background: rgba(255, 255, 255, 0.09);
+    display: grid; place-items: center; gap: 3px; padding: 7px 6px;
+  }
+  .night-head .burger i { display: block; height: 1.5px; width: 100%; background: var(--n-cream); border-radius: 1px; }
+
+  /* 페이저 페이지 0 — 캐릭터. 나머지 페이지는 친구/그룹/리그 그리드다. */
+  .charstage { flex: 1; display: grid; place-items: center; min-height: 0; }
+  .nchar {
+    width: 78px; height: 98px; border-radius: 40px 40px 26px 26px;
+    background: var(--n-gold); position: relative;
+    transform-origin: bottom center; will-change: transform;
+  }
+  .nchar::before, .nchar::after {
+    content: ''; position: absolute; top: 36px; width: 8px; height: 10px;
+    border-radius: 4px; background: var(--n-bottom);
+  }
+  .nchar::before { left: 19px; }
+  .nchar::after { right: 19px; }
+
+  /* 리드아웃 — 세트 배지 · 과목명(휴식) · 링+시간 · 세트 도트 */
+  .readout { flex: none; display: grid; justify-items: center; padding-bottom: 16px; }
+  .readout .setbadge {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; color: var(--n-gold);
+    background: rgba(90, 96, 200, 0.16); border: 1px solid rgba(90, 96, 200, 0.32);
+    border-radius: 99px; padding: 3px 9px; margin-bottom: 7px;
+  }
+  .readout .setbadge i { width: 5px; height: 5px; border-radius: 3px; background: var(--n-gold); }
+  .readout .rolabel { font-size: 12.5px; font-weight: 700; color: var(--n-cream); margin-bottom: 7px; }
+  .ringbox { position: relative; width: 132px; height: 132px; }
   .ringbox svg { width: 100%; height: 100%; transform: rotate(-90deg); }
   .ringbox .time {
     position: absolute; inset: 0; display: grid; place-items: center;
-    font-size: 30px; font-weight: 800; letter-spacing: -1px; color: var(--n-cream);
+    font-size: 25px; font-weight: 800; letter-spacing: -1px; color: #f7f7fb;
   }
-  .night-ctl { display: flex; gap: 8px; padding: 0 16px 18px; }
+  .setdots { display: flex; gap: 8px; margin-top: 11px; }
+  .setdots i { width: 9px; height: 9px; border-radius: 5px; background: rgba(217, 220, 240, 0.22); }
+  .setdots i.on { background: var(--n-gold); }
+
+  /* 컨트롤 — 실제 화면은 아이콘 원형 버튼 2개(일시정지 / 종료) */
+  .night-ctl { display: flex; gap: 14px; justify-content: center; padding: 0 16px 20px; }
   .night-ctl .b {
-    flex: 1; text-align: center; padding: 10px; border-radius: 12px;
-    background: rgba(255, 255, 255, 0.09); font-size: 11px; font-weight: 700;
-    color: var(--n-cream); will-change: transform;
+    width: 52px; height: 52px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.09); color: var(--n-cream);
+    will-change: transform;
   }
-  .dots { display: flex; gap: 5px; justify-content: center; padding-bottom: 14px; }
+  .night-ctl .b.stop { background: rgba(232, 69, 44, 0.18); color: #ff9a88; }
+  .night-ctl .b svg { width: 18px; height: 18px; fill: currentColor; }
+
+  /* 페이저 인디케이터 */
+  .dots { display: flex; gap: 5px; justify-content: center; padding: 10px 0 12px; }
   .dots i {
     width: 5px; height: 5px; border-radius: 50%; background: var(--n-muted);
     display: block; transition: none;
@@ -432,7 +554,8 @@
       </p>
       <div class="phone" id="pHome">
         <div class="screen">
-          <div class="topbar">
+          <!-- 진입 stagger 순서는 실제 화면과 같다 — 상단바 0 · 방 1 · 오늘 카드 2. -->
+          <div class="topbar" data-enter>
             <div class="avatar"></div>
             <div class="nick">재영</div>
             <div class="rankbadge">골드 · 12위</div>
@@ -467,15 +590,6 @@
                 <span class="goal">목표 4시간</span>
               </div>
             </div>
-            <div class="card" data-enter>
-              <div class="ttl">이번 주 <span class="sub">Week</span></div>
-              <div class="bars">
-                <div class="b" style="height:38%"></div><div class="b" style="height:64%"></div>
-                <div class="b" style="height:48%"></div><div class="b dim" style="height:82%"></div>
-                <div class="b" style="height:56%"></div><div class="b dim" style="height:30%"></div>
-                <div class="b" style="height:70%"></div>
-              </div>
-            </div>
           </div>
           <div class="tabbar">
             <div class="pill" id="homePill"></div>
@@ -490,12 +604,23 @@
     <!-- ══ 통계 ══ -->
     <div class="slot">
       <div class="cap">
-        <h2>통계 — 스켈레톤</h2><span class="grade">등급 1 · 2</span>
+        <h2>통계 — 스켈레톤 → 카드</h2><span class="grade">등급 1 · 2</span>
         <button data-play="stats" style="margin-left:auto">재생</button>
       </div>
       <p class="desc">
         지금은 카드마다 <b>독립 스피너 8개</b>가 제각각 튄다. 스켈레톤이 같은 리듬으로 맥박치다가
         도착 순서대로 콘텐츠로 바뀐다. <b>치수가 같아 레이아웃 점프가 없다.</b>
+        도착 뒤에는 카드마다 다른 연출이 붙는다 — 캘린더는 <b>행 단위 페이드</b>, 도넛은
+        <b>링 페이드 + 범례 시차</b>, <b>선 그래프는 왼쪽에서 오른쪽으로 그려진다</b>
+        (draw-on · 800ms · 점은 선이 지나가는 순간 튀어나온다).
+        <b>막대가 아니라 선이라서</b> 그렇다 — 막대는 '값이 곧 높이'라 바닥에서 자라는 게
+        값의 의미와 같지만, 꺾은선의 의미는 <b>시간을 따라 이어지는 궤적</b>이다. 선 전체를
+        아래에서 눌렀다 펴면(<span class="mono">growUp</span>) 모든 요일이 동시에 자라
+        "왼쪽부터 지나온 시간"이라는 뜻이 사라진다.
+        <span class="mono">growUp</span>은 실제 막대에만 남는다 — 집중 결과의 주간 막대,
+        주간 타임테이블의 세션 블록.
+        <br><b>선 그래프는 네 번째 카드다</b> — 폰 안을 아래로 스크롤한 뒤 다시 재생하면
+        그 자리에서 재생된다.
       </p>
       <div class="phone" id="pStats">
         <div class="screen">
@@ -519,31 +644,50 @@
       </div>
       <p class="desc">
         1560줄짜리 화면에 <b>진행 어포던스가 없다</b> — 카운트다운·뽀모도로가 숫자만 바뀐다.
-        링은 남은 시간을 보여주고, 페이즈가 바뀔 때 크로스페이드 + 햅틱이 붙는다.
+        링은 남은 시간을 보여주고, 페이즈가 바뀔 때 리드아웃이 통째로 크로스페이드 + 햅틱이 붙는다.
+        <b>화면의 주역은 링이 아니라 캐릭터다</b> — 세션 내내 호흡하고, 일시정지하면
+        <span class="mono">calm</span>(주기 2600ms·얕은 진폭)으로 가라앉는다.
       </p>
       <div class="phone night" id="pFocus">
         <div class="screen night-screen">
+          <!-- 상단 — 과목명 + 집중 메뉴. 페이즈는 여기가 아니라 아래 리드아웃이 말한다. -->
           <div class="night-head">
             <span class="subj">수학 · 미적분</span>
-            <span class="ph" id="focusPhase">집중</span>
+            <span class="burger"><i></i><i></i><i></i></span>
           </div>
-          <div class="ringwrap">
-            <div class="ringbox">
-              <svg viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="43" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="7"/>
-                <circle id="focusRing" cx="50" cy="50" r="43" fill="none" stroke="#b7bcf0"
-                        stroke-width="7" stroke-linecap="round"
-                        stroke-dasharray="270.2" stroke-dashoffset="270.2"/>
-              </svg>
-              <div class="time mono" id="focusTime">25:00</div>
-            </div>
+
+          <!-- 가로 페이저 페이지 0 = 캐릭터(화면의 주역). 나머지 페이지는 친구·그룹·리그 그리드. -->
+          <div class="charstage">
+            <div class="nchar" id="focusChar"></div>
           </div>
+
+          <!-- 페이저 인디케이터 — [캐릭터][내 친구][내 그룹][내 리그][전체 리그] -->
           <div class="dots" id="focusDots">
             <i class="on"></i><i></i><i></i><i></i><i></i>
           </div>
+
+          <!-- 리드아웃(뽀모도로) — 세트 배지 · 과목명 · 링 안의 큰 숫자 · 세트 도트 -->
+          <div class="readout" id="focusReadout">
+            <div class="setbadge"><i></i>세트 <span id="focusSet">1</span> / 4</div>
+            <div class="rolabel" id="focusPhase">수학 · 미적분</div>
+            <div class="ringbox">
+              <svg viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="43" fill="none" stroke="rgba(217,220,240,.18)" stroke-width="6"/>
+                <!-- ⚠️ 이 화면의 진행률은 완료율이 아니라 **남은 비율**이다(시작 100 → 종료 0). -->
+                <circle id="focusRing" cx="50" cy="50" r="43" fill="none" stroke="#b7bcf0"
+                        stroke-width="6" stroke-linecap="round"
+                        stroke-dasharray="270.2" stroke-dashoffset="0"/>
+              </svg>
+              <div class="time mono" id="focusTime">25:00</div>
+            </div>
+            <div class="setdots" id="focusSetDots"><i class="on"></i><i></i><i></i><i></i></div>
+          </div>
+
           <div class="night-ctl">
-            <div class="b" id="focusPause">일시정지</div>
-            <div class="b" style="background:rgba(255,255,255,.16)">종료</div>
+            <div class="b" id="focusPause">
+              <svg id="focusPauseIcon" viewBox="0 0 24 24"><path d="M8 5h3v14H8zm5 0h3v14h-3z"/></svg>
+            </div>
+            <div class="b stop"><svg viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></svg></div>
           </div>
         </div>
       </div>
@@ -595,18 +739,18 @@
       </p>
       <div class="phone" id="pSheet">
         <div class="screen">
-          <div class="topbar"><div class="nick" style="font-size:15px">집중 시작</div></div>
+          <div class="topbar"><div class="nick" style="font-size:15px">과목 선택</div></div>
+          <!-- 시트 뒤는 '02 과목 선택' 화면이다 — 과목명 + 누적 집중시간 + ⋮ 행이 이어진다.
+               선택된 과목에는 유리 알약이 슬라이드해 붙는다(glassSlide). -->
           <div class="scroll">
-            <div class="card"><div class="ttl">과목 선택</div>
-              <div class="opt-line skel" style="height:11px;margin-bottom:7px"></div>
-              <div class="opt-line skel" style="height:11px;width:72%"></div>
+            <div class="subjrows">
+              <div class="subjrow sel"><span class="glass"></span>
+                <span class="nm">수학</span><span class="tm mono">8:12</span><span class="kebab">⋮</span></div>
+              <div class="subjrow"><span class="nm">영어</span><span class="tm mono">5:24</span><span class="kebab">⋮</span></div>
+              <div class="subjrow"><span class="nm">과학</span><span class="tm mono">2:46</span><span class="kebab">⋮</span></div>
+              <div class="subjrow"><span class="nm">국어</span><span class="tm mono">1:08</span><span class="kebab">⋮</span></div>
             </div>
-            <div class="card"><div class="ttl">오늘 기록</div>
-              <div class="bars">
-                <div class="b" style="height:40%"></div><div class="b dim" style="height:70%"></div>
-                <div class="b" style="height:52%"></div><div class="b" style="height:64%"></div>
-              </div>
-            </div>
+            <div class="addhint">+ 과목 추가</div>
           </div>
           <div class="dim" id="sheetDim"></div>
           <div class="sheet" id="sheetPanel">
@@ -801,13 +945,8 @@
       $$('[data-enter]', root).forEach((el, i) => enterUp(el, i));
       $$('[data-num]', root).forEach((el) => setTimeout(() => countUp(el), delay(200)));
       $$('[data-bar]', root).forEach((el, i) => fillBar(el, 160 + i * 90));
-      // 차트 막대 — growUp
-      $$('.bars .b', root).forEach((b, i) => {
-        if (REDUCE) { b.style.transform = 'none'; return; }
-        b.style.transform = 'scaleY(0)';
-        setTimeout(() => play(M.dur.entrance, (p) =>
-          (b.style.transform = `scaleY(${EASE.overshoot(p)})`)), stagger(i) + delay(220));
-      });
+      // ⚠️ 홈에는 차트가 없다 — 상단바 · 방(캐릭터) · 오늘 카드 셋이 전부다.
+      //    통계로 가야 차트가 나온다(그쪽은 막대가 아니라 선 그래프·도넛·캘린더다).
       // 탭바 알약 — 홈 자리
       const pill = $('#homePill');
       const w = root.querySelector('.tabbar').clientWidth;
@@ -815,27 +954,115 @@
       homePlayed = true;
     }
 
-    /* ══ 통계 ══ */
+    /* ══ 통계 ══
+       실제 '주' 탭의 카드 구성 그대로다(StatsScreen cards 순서). 막대 차트는 여기 없다 —
+       분량 축은 **선 그래프**(LineChart)이고, 목표 달성은 캘린더, 과목별은 도넛이다.
+       h는 스켈레톤이 예약하는 높이이자 실제 카드 높이다 — 두 값이 같아야 레이아웃 점프가 없다. */
+    const WEEK_FOCUS = [0.52, 0.74, 0.40, 0.88, 0.61, 0.35, 0.70];
+    const WEEK_PHONE = [0.61, 0.44, 0.72, 0.33, 0.58, 0.80, 0.47];
+    const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
+
+    /* 선 그래프 — 실제 LineChart와 같은 구조(축 라벨 3 + 그리드 4줄 + 꺾은선 + 점).
+       각 점에 `data-at`(그 점까지의 누적 길이 비율)을 심어 둔다 — 선이 그려지며 그 지점을
+       **지나가는 순간에** 점이 뜨게 하기 위해서다. 시차를 눈대중 상수로 주면 꺾임이 심한
+       구간에서 점이 선보다 먼저 뜨거나 늦게 뜬다(구간마다 길이가 다르다). */
+    function lineChart(vals, color) {
+      const W = 196, H = 58, PAD = 5;
+      const step = W / vals.length;
+      const pts = vals.map((v, i) => [step * (i + 0.5), H - v * H]);
+      const poly = pts.map(([x, y]) => `${x + PAD},${y + PAD}`).join(' ');
+      // 점까지의 누적 길이 비율 — 첫 점은 0, 마지막 점은 1.
+      const segs = pts.slice(1).map(([x, y], i) => Math.hypot(x - pts[i][0], y - pts[i][1]));
+      const total = segs.reduce((a, b) => a + b, 0) || 1;
+      let acc = 0;
+      const at = [0, ...segs.map((s) => (acc += s) / total)];
+      return `<div class="plotrow">
+        <div class="axiscol"><span>5h</span><span>3h</span><span>2h</span></div>
+        <div class="plot">
+          <i class="grid" style="top:0"></i><i class="grid" style="top:33%"></i>
+          <i class="grid" style="top:66%"></i><i class="grid" style="bottom:0"></i>
+          <svg class="lsvg" viewBox="0 0 ${W + PAD * 2} ${H + PAD * 2}">
+            <polyline points="${poly}" fill="none" stroke="${color}" stroke-width="2"
+                      stroke-linejoin="round" stroke-linecap="round"/>
+            ${pts.map(([x, y], i) => {
+              const r = i === vals.length - 1 ? 4.5 : 3;
+              return `<circle cx="${x + PAD}" cy="${y + PAD}" r="${r}" fill="${color}"
+                              data-at="${at[i].toFixed(4)}" data-r="${r}"/>`;
+            }).join('')}
+          </svg>
+        </div>
+      </div>
+      <div class="xlabels">${DAY_LABELS.map((d) => `<span>${d}</span>`).join('')}</div>`;
+    }
+
     const STATS = [
-      { h: 76, title: '집중 시간 추이' },
-      { h: 92, title: '과목별 비중' },
-      { h: 68, title: '주간 캘린더' },
-      { h: 84, title: '또래 비교' },
+      { key: 'total', h: 116, title: '총 집중시간', kind: 'total' },
+      { key: 'goalAchieve', h: 104, title: '목표 달성', kind: 'cal' },
+      { key: 'category', h: 156, title: '과목별 집중시간', kind: 'donut' },
+      { key: 'weekdayFocus', h: 152, title: '요일별 집중시간', kind: 'line', color: 'var(--accent)' },
+      {
+        key: 'weekdayPhone', h: 152, title: '요일별 핸드폰 사용량', kind: 'line',
+        color: '#4c9f6a', sub: '집중시간과 대비돼요',
+      },
     ];
+
+    function statsBody(c) {
+      if (c.kind === 'total') {
+        return `<div class="hero mono">18시간 42분</div>
+          <div class="cmp">
+            <div class="cmprow"><span>나</span><div class="cmptrack"><i style="width:78%"></i></div></div>
+            <div class="cmprow"><span>평균</span><div class="cmptrack"><i class="avg" style="width:54%"></i></div></div>
+          </div>`;
+      }
+      if (c.kind === 'cal') {
+        // 주 탭 캘린더는 **1행**이다(월 탭이 5~6행). 행 단위로 페이드 진입한다.
+        return `<div class="calrow" data-calrow>
+          ${DAY_LABELS.map((d, i) =>
+            `<div class="cell${i < 4 ? ' on' : ''}"><b>${d}</b><i></i></div>`).join('')}
+        </div>`;
+      }
+      if (c.kind === 'donut') {
+        return `<div class="donutrow">
+          <div class="donut" data-donut>
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--track)" stroke-width="20"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--accent)" stroke-width="20"
+                      stroke-dasharray="113 138" stroke-dashoffset="0"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--accent-light)" stroke-width="20"
+                      stroke-dasharray="75 176" stroke-dashoffset="-113"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#4c9f6a" stroke-width="20"
+                      stroke-dasharray="38 213" stroke-dashoffset="-188"/>
+            </svg>
+            <div class="dtotal mono">18:42</div>
+          </div>
+          <div class="legend">
+            ${[['수학', '8:12', '45%', 'var(--accent)'],
+               ['영어', '5:24', '30%', 'var(--accent-light)'],
+               ['미분류', '2:46', '15%', '#4c9f6a']].map(([n, t, p, col]) =>
+              `<div class="lg" data-lg><i style="background:${col}"></i>
+                 <span class="n">${n}</span><span class="t mono">${t}</span><span class="p">${p}</span>
+               </div>`).join('')}
+          </div>
+        </div>`;
+      }
+      // line — hero 총합 + 선 그래프
+      return `<div class="hero mono small">${c.key === 'weekdayFocus' ? '총 18시간 42분' : '총 12시간 06분'}</div>
+        ${lineChart(c.key === 'weekdayFocus' ? WEEK_FOCUS : WEEK_PHONE, c.color)}`;
+    }
+
     function renderStats(mode) {
       const box = $('#statsBody');
       box.innerHTML = STATS.map((c, i) =>
         mode === 'skel'
+          // ⚠️ 스켈레톤은 **같은 높이**를 예약한다. 도넛 범례 행 수·캘린더 행 수처럼 도착
+          //    시점에야 알 수 있는 값은 과대 예약(수축)이 과소 예약(팽창)보다 나쁘다.
           ? `<div class="card" style="height:${c.h}px">
                <div class="skel" style="height:11px;width:44%;margin-bottom:9px"></div>
                <div class="skel" style="height:${c.h - 44}px"></div>
              </div>`
           : `<div class="card" data-si="${i}" style="height:${c.h}px">
-               <div class="ttl">${c.title}</div>
-               <div class="bars" style="height:${c.h - 44}px">
-                 ${[52, 74, 40, 88, 61, 35, 70].map((v, j) =>
-                   `<div class="b${j % 3 === 1 ? ' dim' : ''}" style="height:${v}%"></div>`).join('')}
-               </div>
+               <div class="ttl">${c.title}${c.sub ? `<span class="sub">${c.sub}</span>` : ''}</div>
+               ${statsBody(c)}
              </div>`
       ).join('');
       return box;
@@ -843,6 +1070,9 @@
     let statsTimer = null;
     function playStats() {
       clearTimeout(statsTimer);
+      // ⚠️ 스크롤 위치를 **되돌리지 않는다.** 선 그래프는 네 번째 카드라 프레임 밖에서 시작하는데,
+      //    맨 위로 되감으면 그 카드의 growUp 은 영영 볼 수 없다. 폰 안을 스크롤해 두고 다시
+      //    재생하면 그 자리에서 스켈레톤 → 카드 → growUp 이 재생된다.
       const box = renderStats('skel');
       const skels = $$('.skel', box);
       if (REDUCE) {
@@ -865,12 +1095,71 @@
       statsTimer = setTimeout(() => {
         const b2 = renderStats('real');
         $$('.card', b2).forEach((c, i) => enterUp(c, i));
-        $$('.bars .b', b2).forEach((b, i) => {
-          if (REDUCE) return;
-          b.style.transform = 'scaleY(0)';
-          setTimeout(() => play(M.dur.entrance, (p) =>
-            (b.style.transform = `scaleY(${EASE.overshoot(p)})`)), stagger(i % 7) + 120);
+
+        // 선 그래프 — **왼쪽에서 오른쪽으로 그려진다(draw-on).**
+        //
+        // ⚠️ 여기엔 growUp(scaleY 0→1)을 쓰지 않는다. 막대는 '값이 곧 높이'라 바닥에서 자라는
+        //    게 값의 의미와 같지만, 꺾은선의 의미는 **시간을 따라 이어지는 궤적**이다. 선 전체를
+        //    아래에서 눌렀다 펴면 모든 요일이 동시에 자라 "왼쪽부터 지나온 시간"이라는 뜻이
+        //    사라지고, 오버슛 구간에서는 값이 실제보다 크게 보이는 프레임까지 생긴다.
+        //    구현은 ProgressRing과 같은 기법이다 — 선 길이만큼의 파선을 깔고 그 시작점
+        //    (strokeDashoffset)을 0까지 당긴다.
+        //
+        // 점은 선이 그 자리를 **지나가는 순간** 뜬다. 시차를 상수로 주지 않고 각 점의 누적
+        // 길이 비율(data-at)로 판정한다 — 구간마다 길이가 달라(꺾임이 클수록 길다) 상수로는
+        // 점이 선보다 먼저 뜨거나 뒤늦게 따라온다.
+        $$('.lsvg', b2).forEach((svg, i) => {
+          const line = svg.querySelector('polyline');
+          const dots = $$('circle', svg);
+          const showAll = () => {
+            line.style.strokeDasharray = 'none';
+            line.style.strokeDashoffset = '0';
+            dots.forEach((d) => { d.style.opacity = '1'; d.setAttribute('r', d.dataset.r); });
+          };
+          if (REDUCE) { showAll(); return; }
+          const len = line.getTotalLength();
+          line.style.strokeDasharray = String(len);
+          line.style.strokeDashoffset = String(len);
+          dots.forEach((d) => { d.style.opacity = '0'; d.setAttribute('r', '0'); });
+          // ⚠️ **시퀀스는 선 그리기(entrance)보다 점 팝(quick) 하나만큼 길다.**
+          //    선이 끝나는 순간(LINE_SPAN)에 맞춰 마지막 점의 팝이 **시작**하고 남은 구간에서
+          //    끝난다. 이 여유가 없으면 누적 비율이 1인 마지막 점은 팝에 쓸 시간이 0이라
+          //    선이 완성되는 순간 툭 나타난다(codex 리뷰). 다른 점들은 뒤에 선이 더 남아 있어
+          //    저절로 시간이 생기므로 마지막 점만 겪는 문제다.
+          const DRAW_MS = M.dur.entrance + M.dur.quick;
+          const LINE_SPAN = M.dur.entrance / DRAW_MS;
+          const POP_SPAN = M.dur.quick / DRAW_MS;
+          setTimeout(() => play(DRAW_MS, (p) => {
+            const e = EASE.standard(p);
+            line.style.strokeDashoffset = String(len * (1 - Math.min(1, e / LINE_SPAN)));
+            dots.forEach((d) => {
+              const start = Number(d.dataset.at) * LINE_SPAN;
+              if (e < start) return;
+              const k = Math.min(1, (e - start) / POP_SPAN);
+              d.style.opacity = '1';
+              d.setAttribute('r', String(Number(d.dataset.r) * EASE.overshoot(k)));
+            });
+          }, showAll), stagger(i) + 120);
         });
+
+        // 캘린더 — **행 단위** 페이드. 행마다 자기 결정을 갖게 해, 월 이동으로 여섯 번째 행이
+        // 나중에 붙어도 그 행만 페이드된다(카드 전체가 다시 재생되지 않는다).
+        $$('[data-calrow]', b2).forEach((row, i) => {
+          if (REDUCE) { row.style.opacity = '1'; return; }
+          row.style.opacity = '0';
+          setTimeout(() => play(M.dur.base, (p) =>
+            (row.style.opacity = String(EASE.standard(p)))), stagger(i) + 120);
+        });
+
+        // 도넛 — 링은 fadeIn, 범례는 리스트 관용구인 enterUp 시차.
+        // ⚠️ 도넛에 growUp을 쓰지 않는다. scaleY 0→1은 원을 납작한 타원으로 눌렀다 펴는
+        //    모양이 되고, '값이 바닥부터 자란다'는 뜻도 없다(링은 12시부터 도는 비중 표현이다).
+        $$('[data-donut]', b2).forEach((d) => {
+          if (REDUCE) { d.style.opacity = '1'; return; }
+          d.style.opacity = '0';
+          setTimeout(() => play(M.dur.base, (p) => (d.style.opacity = String(EASE.standard(p)))), 120);
+        });
+        $$('[data-lg]', b2).forEach((lg, i) => enterUp(lg, i));
       }, delay(1500));
     }
 
@@ -881,6 +1170,29 @@
     // play() 의 rAF 는 못 멈춘다. 세대가 바뀐 콜백은 스스로 물러나게 해 두 재생이
     // 같은 링·시간을 동시에 쓰는 것을 막는다.
     let focusRun = 0;
+    /* 캐릭터 호흡 — 화면당 하나뿐인 무한 루프. 세션 내내 돌고, '동작 줄이기'면 즉시 멈춘다.
+       AnimatedCharacter의 idle(2000ms) / calm(2600ms·얕은 진폭)을 그대로 흉내 낸다.
+       ⚠️ transform-origin은 bottom center — 발이 바닥에 붙은 채 눌렸다 펴진다(앱과 동일). */
+    let breathLive = false;
+    function startBreathing() {
+      const el = $('#focusChar');
+      if (breathLive) return;
+      breathLive = true;
+      const t0 = performance.now();
+      const loop = (now) => {
+        if (!breathLive) return;
+        if (REDUCE) { el.style.transform = 'none'; requestAnimationFrame(loop); return; }
+        const calm = $('#pFocus').dataset.paused === '1';
+        const period = calm ? 2600 : 2000;
+        const amp = calm ? 0.012 : 0.022;
+        // 사인 한 주기 = 들이쉼 + 내쉼
+        const s = Math.sin(((now - t0) % period) / period * Math.PI * 2);
+        el.style.transform = `scaleY(${1 + amp * s}) scaleX(${1 - amp * 0.6 * s})`;
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    }
+
     function playFocus() {
       focusTimer.forEach(clearTimeout);
       focusTimer = [];
@@ -888,48 +1200,72 @@
       const stale = () => run !== focusRun;
       const ring = $('#focusRing');
       const time = $('#focusTime');
-      const phase = $('#focusPhase');
-      const dots = $$('#focusDots i');
-      phase.textContent = '집중';
-      phase.style.background = 'var(--n-gold)';
-      phase.style.opacity = '1'; // 이전 재생이 크로스페이드 중에 끊겼을 때 반투명으로 굳는 것 방지
+      const label = $('#focusPhase');
+      const readout = $('#focusReadout');
+      const setNo = $('#focusSet');
+      const setDots = $$('#focusSetDots i');
+      const root = $('#pFocus');
+
+      root.dataset.paused = '0';
+      startBreathing();
+      label.textContent = '수학 · 미적분';
+      readout.style.opacity = '1'; // 이전 재생이 크로스페이드 중에 끊겼을 때 반투명으로 굳는 것 방지
       ring.style.stroke = '#b7bcf0';
-      dots.forEach((d, i) => d.classList.toggle('on', i === 0));
+      setNo.textContent = '1';
+      setDots.forEach((d, i) => d.classList.toggle('on', i < 1));
 
       // 25:00 → 00:00 을 4초로 압축해 보여준다(시연용)
+      // ⚠️ 링은 **남은 비율**이다 — 가득 찬 상태에서 시작해 비어 간다(앱과 같은 축).
       const total = REDUCE ? 0 : 4000;
       play(total || 1, (p) => {
         if (stale()) return;
-        ring.style.strokeDashoffset = String(CIRC * (1 - p));
+        ring.style.strokeDashoffset = String(CIRC * p);
         const left = Math.round(1500 * (1 - p));
         time.textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
       }, () => {
         if (stale()) return;
-        // 페이즈 전환 — 크로스페이드 + 도트 이동
+        // 페이즈 전환 — 리드아웃이 **통째로** 크로스페이드된다(앱은 key=phase로 remount).
+        // 헤더의 배지가 바뀌는 게 아니다: 과목명 자리가 '휴식'으로 바뀌고 세트가 하나 찬다.
         focusTimer.push(setTimeout(() => {
           if (stale()) return;
           const swap = () => {
-            phase.textContent = '휴식';
-            phase.style.background = 'var(--n-green)';
-            dots.forEach((d, i) => d.classList.toggle('on', i <= 1));
+            label.textContent = '휴식';
             ring.style.stroke = '#7fcb8e';
-            ring.style.strokeDashoffset = String(CIRC);
+            ring.style.strokeDashoffset = '0';
+            time.textContent = '05:00';
+            setDots.forEach((d, i) => d.classList.toggle('on', i < 1));
           };
           if (REDUCE) { swap(); return; }
-          play(M.dur.quick, (p) => (phase.style.opacity = String(1 - EASE.standard(p))), () => {
+          play(M.dur.quick, (p) => (readout.style.opacity = String(1 - EASE.standard(p))), () => {
             swap();
-            play(M.dur.quick, (p) => (phase.style.opacity = String(EASE.standard(p))));
+            play(M.dur.quick, (p) => (readout.style.opacity = String(EASE.standard(p))));
           });
         }, delay(220)));
       });
 
-      // 일시정지 버튼 — 확정된 press 스프링
+      // 일시정지 — 확정된 press 스프링 + 아이콘 pop + 캐릭터가 calm 으로 가라앉는다
       const pauseBtn = $('#focusPause');
+      const pauseIcon = $('#focusPauseIcon');
       focusTimer.push(setTimeout(() => {
-        if (REDUCE || stale()) return;
+        if (stale()) return;
+        root.dataset.paused = '1';
+        // 아이콘 교체(❚❚ → ▶)는 앱에서도 key remount + pop 이다
+        pauseIcon.innerHTML = '<path d="M8 5l11 7-11 7z"/>';
+        if (REDUCE) { pauseIcon.style.transform = 'none'; return; }
         play(M.dur.press, (p) => (pauseBtn.style.transform = `scale(${1 + (0.96 - 1) * EASE.out(p)})`),
           () => playTrace(SP.press, (v) => (pauseBtn.style.transform = `scale(${v})`)));
+        play(M.dur.slow, (p) => {
+          const e = EASE.overshoot(p);
+          pauseIcon.style.transform = `scale(${e})`;
+        });
       }, delay(1200)));
+      // 다시 재생 버튼으로 되돌려 둔다 — 재생을 반복해도 같은 상태에서 시작하게
+      focusTimer.push(setTimeout(() => {
+        if (stale()) return;
+        root.dataset.paused = '0';
+        pauseIcon.innerHTML = '<path d="M8 5h3v14H8zm5 0h3v14h-3z"/>';
+        pauseIcon.style.transform = 'none';
+      }, delay(2600)));
     }
 
     /* ══ 리그 ══ */
