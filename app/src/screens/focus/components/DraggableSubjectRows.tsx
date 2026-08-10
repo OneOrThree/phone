@@ -58,6 +58,17 @@ export function DraggableSubjectRows({
   //    완료"를 굳히면 설정을 켜지 않은 사용자가 정렬 연출을 잃는다(D-30).
   const settleInstantRef = useRef(false);
   settleInstantRef.current = m.ready && m.reduce;
+  // ⚠️ **진행 중인 안착도 멈춘다.** 위 ref는 앞으로의 호출만 즉시 처리할 뿐, 이미 시작된
+  //    160ms Animated.timing은 계속 돈다 — 재정렬 도중 접근성 단축키로 설정을 켜면 행이
+  //    그대로 미끄러진다(codex 리뷰). 켜지는 순간 모든 행을 지금 순서의 제자리로 확정한다.
+  useEffect(() => {
+    if (!settleInstantRef.current) return;
+    orderRef.current.forEach((id, i) => {
+      const v = tops.current[id];
+      if (!v) return;
+      v.stopAnimation(() => v.setValue(i * SLOT));
+    });
+  }, [m.ready, m.reduce]);
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0); // 현재 스크롤 오프셋
   const viewportH = useRef(0); // 스크롤 보이는 높이
