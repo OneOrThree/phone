@@ -193,7 +193,7 @@ export default function GroupCreateScreen() {
       });
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
-      if (userId) void writeGroupCardEmoji(userId, groupId, cardEmoji).catch(() => undefined);
+      if (userId) writeGroupCardEmoji(userId, groupId, cardEmoji).catch(() => undefined);
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
       submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.

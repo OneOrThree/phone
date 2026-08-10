@@ -47,7 +47,7 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     let canceled = false;
     const ids = [...serverGroupIds];
 
-    void (async () => {
+    (async () => {
       // userId 미확정 상태는 계정 bucket을 읽거나 쓰지 않고 서버 순서만 사용한다.
       const stored = userId ? await readGroupCardOrder(userId) : null;
       if (canceled || !mounted.current) return;
@@ -58,7 +58,7 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
 
       // stale/중복 prune은 성공한 전체 목록을 받은 이 경로에서만 수행한다.
       if (userId && stored && !isSameGroupOrder(stored, reconciled)) {
-        void writeGroupCardOrder(userId, reconciled).catch(() => undefined);
+        writeGroupCardOrder(userId, reconciled).catch(() => undefined);
       }
     })();
 
@@ -78,7 +78,7 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     orderRef.current = next;
     setState((current) => (current ? { ...current, ids: next, saveFailed: false } : current));
     if (currentUser) {
-      void writeGroupCardOrder(currentUser, next)
+      writeGroupCardOrder(currentUser, next)
         .then(
           () =>
             mounted.current &&
