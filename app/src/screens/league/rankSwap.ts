@@ -181,7 +181,15 @@ export function rankSwapFrames(
       // 반드시 위여야 순서와 숫자가 서로 모순되지 않는다(정본 "바로 위 사람을 앞지르는 값").
       const ramp = Math.round(startR + ((finalR - startR) * nth) / rises.length);
       const overtake = shownOf(fallers[i]) + 1;
-      shown.set(rising, Math.min(finalR, Math.max(ramp, overtake, shownOf(rising))));
+      // ⚠️ **아직 넘지 않은 다음 상대보다는 작아야 한다.** 최종 증가폭이 크면(3위→1위 등)
+      //    ramp가 다음 상대의 기록까지 넘어서, 행은 아직 2위인데 표시 기록은 1위보다 큰
+      //    모순이 다음 단계까지 300ms 남는다 — 단계별 기록으로 상승의 원인을 설명하려던
+      //    연출이 정반대로 뒤집힌다(codex 리뷰).
+      const nextFaller = fallers[rises[nth]];
+      const ceiling = nextFaller === undefined ? finalR : Math.min(finalR, shownOf(nextFaller) - 1);
+      // 방금 앞지른 상대보다는 반드시 커야 하므로, 천장이 그보다 낮으면 overtake를 택한다
+      // (두 제약이 충돌하는 건 상대 둘의 기록이 붙어 있을 때뿐이고, 그때는 '넘었다'가 우선이다).
+      shown.set(rising, Math.max(overtake, Math.min(ceiling, Math.max(ramp, shownOf(rising)))));
     }
     // 묶인 구간은 기록만 반영하고 프레임은 내지 않는다.
     if (i < bundledUpTo) continue;

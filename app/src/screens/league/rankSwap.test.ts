@@ -192,4 +192,31 @@ describe('rankSwapFrames — 상한', () => {
     expect(frames.length).toBe(4);
     expect(frames[frames.length - 1].order).toEqual(smallTo);
   });
+
+  // ⚠️ 중간 기록이 **아직 넘지 않은 상대**를 앞지르면, 행은 아직 아래인데 숫자는 위인 모순이
+  //    다음 단계까지 남는다 — 단계별 기록으로 상승을 설명하려던 연출이 뒤집힌다(codex 리뷰).
+  //    ⚠️ **리드 프레임은 예외다.** 거기서는 일부러 바로 위 사람을 넘어선 값을 먼저 보여 준다
+  //       — 그게 자리가 뒤따르는 '원인'이다(정본 §6). 자리가 반영된 프레임만 본다.
+  test('자리가 반영된 프레임에서는 표시 기록이 순서와 모순되지 않는다', () => {
+    // climbFrom의 c가 3위 → 1위로 오른다. 램프가 위 두 명을 넘어설 수 있는 배치.
+    const climbFrom = ['a', 'b', 'c'];
+    const climbTo = ['c', 'a', 'b'];
+    const finalSeconds = new Map<string, number>([
+      ['c', 5000],
+      ['a', 1000],
+      ['b', 900],
+    ]);
+    const startSeconds = new Map<string, number>([['c', 100]]);
+    const frames = rankSwapFrames(climbFrom, climbTo, finalSeconds, startSeconds);
+
+    // 프레임은 (리드, 자리이동) 쌍이라 홀수 인덱스가 '자리가 반영된' 프레임이다.
+    frames.forEach((f, fi) => {
+      if (fi % 2 === 0) return;
+      const shownOf = (k: string) => f.seconds.get(k) ?? (finalSeconds.get(k) as number);
+      const idx = f.order.indexOf('c');
+      for (let i = 0; i < idx; i += 1) {
+        expect(shownOf('c')).toBeLessThan(shownOf(f.order[i]));
+      }
+    });
+  });
 });
