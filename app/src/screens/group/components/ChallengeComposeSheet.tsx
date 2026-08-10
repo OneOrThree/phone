@@ -75,6 +75,14 @@ const MINUTE_ITEMS = Array.from(
   { length: 60 / MINUTE_STEP },
   (_, i) => `${String(i * MINUTE_STEP).padStart(2, '0')}분`,
 );
+// 종료 분 휠 전용 — 자정 걸침 금지(§A6-1) 후 "22:00~23:59는 허용"이 정책의 유효 예시인데
+// 5분 눈금으로는 23:55가 상한이라 당일 마지막 시각을 표현할 수 없다(codex 리뷰, PR #565).
+// 59분 항목을 끝에 더해 어느 시든 HH:59를 고를 수 있게 한다(서버는 임의 time 수용).
+const END_MINUTE_ITEMS = [...MINUTE_ITEMS, '59분'];
+const endMinuteIndexOf = (minuteOfHour: number): number =>
+  minuteOfHour === 59 ? END_MINUTE_ITEMS.length - 1 : minuteOfHour / MINUTE_STEP;
+const endMinuteOf = (index: number): number =>
+  index === END_MINUTE_ITEMS.length - 1 ? 59 : index * MINUTE_STEP;
 
 // durationLabel까지 카테고리에서 파생시킨다 — 그룹 만들기 화면과 같은 문구다(같은 값을
 // 고르는 두 자리가 달라 보이면 안 된다는 이 파일의 전제를 라벨에도 적용).
@@ -364,17 +372,26 @@ export default function ChallengeComposeSheet({
   //  · 하루형: 1 ≤ x ≤ 카테고리 상한(FOCUS 1,080 / SCREEN_TIME 720 — N51)
   //  · 창형: 0 < x ≤ 창 길이, SCREEN_TIME은 15분 배수(A6-3), FOCUS는 목표 > 5분(A6-4)
   // 빈 값은 치우는 중일 뿐이라 빨간 줄을 띄우지 않는다(CTA만 잠근다).
-  // 15분 미만 SCREEN_TIME 창엔 유효한 목표(15분 배수)가 아예 없다 — commitWindow가 목표를
-  // 비워두는데(빈 값 = 캡션 없이 CTA 잠금) 그러면 화면에 "왜 안 되는지"가 안 남는다. 목표
-  // 검증이 아니라 창 자체의 문제라 창 축에서 안내한다(codex 리뷰, PR #565).
+  // 유효한 목표가 아예 없는 창 — SCREEN_TIME은 15분 미만(15분 배수 부재), FOCUS는 5분
+  // 이하(관용치 규칙상 목표 > 5 필요, A6-4). commitWindow가 목표를 비워두는데(빈 값 =
+  // 캡션 없이 CTA 잠금) 그러면 화면에 "왜 안 되는지"가 안 남고, 값을 넣으면 "5분보다
+  // 길어야"↔"최대 5분" 상충 안내가 번갈아 뜬다. 목표가 아니라 창 자체의 문제라 창 축에서
+  // 안내한다(codex 리뷰 2건, PR #565).
   const windowTooShortForStep =
-    isWindow && windowValid && missionCategory === 'SCREEN_TIME' && windowLength < SCREEN_TIME_STEP;
+    isWindow &&
+    windowValid &&
+    (missionCategory === 'SCREEN_TIME'
+      ? windowLength < SCREEN_TIME_STEP
+      : windowLength <= WINDOW_FOCUS_MIN_EXCLUSIVE);
   let durationValid = false;
   let durationCaption: string | null = null;
   if (windowTooShortForStep) {
-    // 값 입력 여부와 무관하게 이 안내가 이긴다 — "최대 10분" 같은 달성 불가능한 안내로 덮이면
-    // 사용자는 10을 넣고 또 막힌다.
-    durationCaption = `시간대가 최소 ${SCREEN_TIME_STEP}분은 되어야 해요. 시간대를 늘려 주세요`;
+    // 값 입력 여부와 무관하게 이 안내가 이긴다 — 달성 불가능한 안내로 덮이면 사용자는 그
+    // 값을 넣고 또 막힌다.
+    durationCaption =
+      missionCategory === 'SCREEN_TIME'
+        ? `시간대가 최소 ${SCREEN_TIME_STEP}분은 되어야 해요. 시간대를 늘려 주세요`
+        : `시간대가 ${WINDOW_FOCUS_MIN_EXCLUSIVE}분보다 길어야 해요. 시간대를 늘려 주세요`;
   } else if (durationMinutes !== null) {
     if (!isWindow) {
       durationValid = durationMinutes >= 1 && durationMinutes <= DURATION_MAX[missionCategory];
@@ -464,7 +481,9 @@ export default function ChallengeComposeSheet({
       const snapped =
         missionCategory === 'SCREEN_TIME'
           ? Math.floor(length / SCREEN_TIME_STEP) * SCREEN_TIME_STEP
-          : length;
+          : length > WINDOW_FOCUS_MIN_EXCLUSIVE
+            ? length
+            : 0; // FOCUS ≤5분 창 — 유효 목표가 없다(A6-4). 비워서 창 축 안내가 받는다
       // SCREEN_TIME 창이 15분 미만이면 유효한 15분 배수 목표 자체가 없다 — length 폴백은
       // 비눈금 값이라 CTA만 잠긴 채 남는다(지키려던 것과 정반대). 빈 값으로 비워 입력을
       // 다시 받는다(빈 값은 에러 캡션 없이 CTA만 잠근다).
@@ -671,10 +690,10 @@ export default function ChallengeComposeSheet({
             </View>
             <View style={s.windowCol}>
               <DrumPicker
-                items={MINUTE_ITEMS}
-                selectedIndex={(windowEnd % 60) / MINUTE_STEP}
+                items={END_MINUTE_ITEMS}
+                selectedIndex={endMinuteIndexOf(windowEnd % 60)}
                 onChange={(i) =>
-                  commitWindow(windowStart, Math.floor(windowEnd / 60) * 60 + i * MINUTE_STEP)
+                  commitWindow(windowStart, Math.floor(windowEnd / 60) * 60 + endMinuteOf(i))
                 }
               />
             </View>

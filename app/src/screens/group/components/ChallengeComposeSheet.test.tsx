@@ -628,6 +628,40 @@ describe('목표 시간 직접 입력', () => {
     // 왜 막혔는지 화면에 남아야 한다(codex 리뷰) — 빈 값+잠긴 CTA만으로는 알 수 없다.
     expect(screen.getByText('시간대가 최소 15분은 되어야 해요. 시간대를 늘려 주세요')).toBeTruthy();
   });
+
+  // FOCUS도 같은 계열 — 5분 이하 창엔 관용치 규칙(목표 > 5, A6-4)상 유효 목표가 없다.
+  // 상충 안내("5분보다 길어야"↔"최대 5분") 대신 창 축 안내 하나로 수렴한다(codex 리뷰).
+  test('FOCUS 창이 5분 이하면 목표를 비우고 창 축 안내가 뜬다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await pickDay('월');
+    await typeDuration('60');
+    // 창을 09:00~09:05(5분)로 줄인다.
+    await pressNth('05분', 1);
+    await pressNth('9시', 1);
+
+    const input = await screen.findByTestId('group.challenge.durationInput');
+    expect(input.props.value).toBe('');
+    expect(screen.getByText('시간대가 5분보다 길어야 해요. 시간대를 늘려 주세요')).toBeTruthy();
+  });
+
+  // §A6-1의 유효 예시 "22:00~23:59"를 UI가 표현할 수 있어야 한다 — 5분 눈금만으로는
+  // 23:55가 상한이라 마지막 4분이 판정에서 빠진다(codex 리뷰).
+  test('종료 분 휠의 59분으로 22:00~23:59 창을 만들 수 있다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await pickDay('월');
+    await typeDuration('30');
+    await pressNth('22시', 0); // 시작 22:00 (0번째 = 시작 시 휠)
+    await pressNth('23시', 1); // 종료 23:00
+    await pressNth('59분', 0); // 종료 분 59 — 59분 항목은 종료 휠에만 있다
+    await press('만들기');
+
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ windowStart: '22:00:00', windowEnd: '23:59:00' }),
+    );
+  });
 });
 
 // FR-9-2(GROMO-1278) — 분 입력은 시간 환산을 병기한다. 240분이 4시간이라는 걸 암산하게 두지 않는다.
