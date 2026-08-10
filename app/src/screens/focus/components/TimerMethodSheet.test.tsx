@@ -15,6 +15,7 @@ let mockReady = false;
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
   useReduceMotionReady: () => mockReady,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 // 네이티브 리퀴드 글래스는 jest에서 로드할 수 없다 — 연출 스타일은 빈 값으로 두고,
