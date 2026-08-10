@@ -83,9 +83,13 @@ class GroupBetWindowUsageServiceTest {
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
-    /** 고정 과거 날짜 — 시각 게이트(미래 차단·오늘 창 시작)와 무관한 경로를 태우기 위한 값이다. */
-    private static final LocalDate TODAY = LocalDate.of(2026, 8, 1);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    /**
+     * 어제 — 시각 게이트(미래 차단·오늘 창 시작)와 무관한 경로를 태우기 위한 값이다. 고정 리터럴이
+     * 아니라 상대 날짜인 이유: 회차 없는 표시용 보고의 과거 허용 폭이
+     * {@code DISPLAY_REPORT_LOOKBACK_DAYS}(=1) 일이라 고정 날짜는 시간이 지나면 게이트에 걸린다.
+     */
+    private static final LocalDate TODAY = LocalDate.now(KST).minusDays(1);
 
     private User member() {
         return User.builder().id(USER_ID).nickname("재영").isGuest(false).build();
@@ -130,12 +134,17 @@ class GroupBetWindowUsageServiceTest {
                 .build();
     }
 
-    /** 대상 날짜에 내 참가 행이 있는 상태 — 돈이 걸린 갈래. */
+    /** 대상 날짜에 내 참가 행이 있는 상태 — 돈이 걸린 갈래. 참가는 한참 전에 했다(기본값). */
     private void givenParticipantOn(GroupChallengeBetSession target) {
+        givenParticipantOn(target, Instant.now().minusSeconds(7200));
+    }
+
+    /** 참가 시각을 지정하는 변형 — 참가 전 측정분 차단 검증용. */
+    private void givenParticipantOn(GroupChallengeBetSession target, Instant joinedAt) {
         given(groupChallengeBetSessionRepository.findByChallengeIdAndSessionDate(CHALLENGE_ID, TODAY))
                 .willReturn(Optional.of(target));
-        given(groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(SESSION_ID, USER_ID))
-                .willReturn(true);
+        given(groupChallengeBetParticipantRepository.findJoinedAtBySessionIdAndUserId(SESSION_ID, USER_ID))
+                .willReturn(Optional.of(joinedAt));
     }
 
     @Test
@@ -386,6 +395,91 @@ class GroupBetWindowUsageServiceTest {
                 .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
+    // ── 참가 전 측정분 차단 (지연 선기록 — 순차 경합) ─────────────────────────
+
+    @Test
+    @DisplayName("참가 전에 측정된 보고가 참가 뒤에 도착 → 조용히 무시(advisory lock 이 못 막는 순차 경합)")
+    void participantReportMeasuredBeforeJoinIsSkipped() {
+        // given: 창이 열린 뒤 미참가 시절(5분 전)에 잰 값 — 그 사이 참가가 먼저 커밋됐다(1분 전)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        givenParticipantOn(session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600)),
+                Instant.now().minusSeconds(60));
+
+        // when: 지연 도착한 낮은 선기록(SCREEN_TIME 은 작을수록 이긴다)
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 0, Instant.now().minusSeconds(300)));
+
+        // then: 저장되지 않는다 — 회차를 잠글 것도 없이 측정 시각에서 걸린다
+        verify(groupChallengeBetSessionRepository, never()).findByIdForUpdate(any());
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("참가 후에 측정된 보고는 정상 저장 — 차단은 참가 전 값만 겨눈다")
+    void participantReportMeasuredAfterJoinIsStored() {
+        // given: 5분 전 참가, 1분 전 측정
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
+        givenParticipantOn(started, Instant.now().minusSeconds(300));
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(started));
+        Instant measuredAt = Instant.now().minusSeconds(60);
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 80, measuredAt));
+
+        // then
+        verify(groupChallengeMemberRepository).upsertWindowUsage(
+                any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(80), eq(measuredAt));
+    }
+
+    @Test
+    @DisplayName("참가자 갈래의 measuredAt 누락(구앱)은 조용히 무시 — 참가 전 값인지 판별할 수 없다")
+    void participantReportWithoutMeasuredAtIsSkipped() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        givenParticipantOn(session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600)));
+
+        // when: 시각 없는 보고 — 400 이 아니라 204 다(구앱에 고칠 수 없는 에러를 던지지 않는다)
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 0, null));
+
+        // then
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("표시용 갈래는 measuredAt 이 없어도 그대로 저장 — 구앱 카드 진행률이 죽지 않는다(FR-9)")
+    void displayReportWithoutMeasuredAtIsStored() {
+        // given: 그 날짜에 회차가 없다(표시용 갈래)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(TODAY, 35, null));
+
+        // then
+        verify(groupChallengeMemberRepository).upsertWindowUsage(
+                any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(TODAY), eq(35), eq(null));
+    }
+
     // ── 회차에 기대지 않는 시각 게이트 (PR #573 codex ①) ─────────────────────
 
     @Test
@@ -426,6 +520,69 @@ class GroupBetWindowUsageServiceTest {
         // then
         verify(groupChallengeMemberRepository, never())
                 .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("회차 없는 날짜의 오래된 과거 보고는 무시 — 임의 과거 날짜 대량 전송으로 행을 불릴 수 없다")
+    void staleDateDisplayReportIsIgnoredWithoutSession() {
+        // given: 회차가 없는(내기 꺼진) 챌린지에 한참 전 날짜를 밀어 넣는다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        LocalDate stale = LocalDate.now(KST).minusDays(30);
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(stale, 0, Instant.now()));
+
+        // then: 표시할 곳도 없고 판정 대상도 아닌 행이라 만들지 않는다
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("어제분 표시용 보고는 통과 — 자정 직후 늦은 보고를 막지 않는다(FR-9)")
+    void yesterdayDisplayReportIsStored() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        LocalDate yesterday = LocalDate.now(KST).minusDays(1);
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(yesterday, 45, Instant.now()));
+
+        // then
+        verify(groupChallengeMemberRepository).upsertWindowUsage(
+                any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(yesterday), eq(45), any());
+    }
+
+    @Test
+    @DisplayName("회차가 있는 오래된 날짜는 제한하지 않는다 — 날짜가 서버가 만든 회차에 결속돼 유한하다")
+    void staleDateReportIsAllowedWhenSessionExists() {
+        // given: 30일 전 날짜에 시작된 OPEN 회차가 있고 나는 그 회차 참가자다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        givenChallenge(group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        LocalDate stale = LocalDate.now(KST).minusDays(30);
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, Instant.now().minusSeconds(3600));
+        given(groupChallengeBetSessionRepository.findByChallengeIdAndSessionDate(CHALLENGE_ID, stale))
+                .willReturn(Optional.of(started));
+        given(groupChallengeBetParticipantRepository.findJoinedAtBySessionIdAndUserId(SESSION_ID, USER_ID))
+                .willReturn(Optional.of(Instant.now().minusSeconds(7200)));
+        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
+                .willReturn(Optional.of(started));
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(stale, 60, Instant.now()));
+
+        // then
+        verify(groupChallengeMemberRepository).upsertWindowUsage(
+                any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(stale), eq(60), any());
     }
 
     @Test

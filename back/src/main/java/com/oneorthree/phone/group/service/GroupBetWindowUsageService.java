@@ -47,7 +47,8 @@ import java.util.UUID;
  * <p><b>자격(N43)은 보고 날짜의 회차에 결속된다</b> — 두 갈래다:
  * <ul>
  *   <li><b>돈이 걸린 갈래</b>: {@code usageDate} 회차의 <b>참가자</b>면, 그 회차가 <b>시작됐고
- *       OPEN</b> 일 때만 저장한다(아니면 조용히 204). 그룹 멤버가 아니어도 받는다 — C8·N19 로
+ *       OPEN</b> 이며 보고가 <b>참가 시각 이후에 측정</b>됐을 때만 저장한다(아니면 조용히 204 —
+ *       {@link #measuredAfterJoin}). 그룹 멤버가 아니어도 받는다 — C8·N19 로
  *       탈퇴자도 시작된 회차의 정산 대상이라, 멤버 전용이면 마지막 창 사용분을 영영 못 보내고
  *       SCREEN_TIME 은 미보고 = 미달성이라 <b>목표를 지켜도 패배 확정</b>된다.</li>
  *   <li><b>표시용 갈래</b>: 그 날짜에 내 참가 행이 없는 순수 그룹 멤버의 보고는 종전대로 받는다
@@ -55,7 +56,9 @@ import java.util.UUID;
  *       자체가 없어 이 갈래로만 돈다. <b>단 회차가 있고 아직 시작 전이면 이 갈래도 무시</b>한다 —
  *       미참가 상태로 낮은 값을 심어두고 <b>창 시작 전에 참가</b>하면 참가자 결속을 우회하기
  *       때문이다(창형은 참가 마감 = 창 시작이라 시작 후 합류가 없어 이 한 줄로 닫힌다). 시작 전
- *       창에는 표시할 사용분이 없으므로 FR-9 손실은 없다.</li>
+ *       창에는 표시할 사용분이 없으므로 FR-9 손실은 없다. 회차가 아예 없는 날짜의 표시용 보고는
+ *       과거로 {@value #DISPLAY_REPORT_LOOKBACK_DAYS} 일까지만 받는다(무한 행 증식 차단 —
+ *       {@link #challengeClockAllowsReport}).</li>
  * </ul>
  *
  * <p><b>왜 "챌린지의 아무 시작된 OPEN 회차"로는 안 되나</b>(PR #573 codex ②): 오늘 회차 참가자가
@@ -80,6 +83,12 @@ public class GroupBetWindowUsageService {
 
     /** measuredAt 미래 관용치(LLD §2.1) — 서버 시각 대비 이 이상 앞서면 거절한다. */
     static final Duration MEASURED_AT_TOLERANCE = Duration.ofMinutes(2);
+
+    /**
+     * 회차에 결속되지 않은(순수 표시용) 보고의 과거 날짜 허용 폭(일) — 오늘과 어제만 받는다.
+     * 근거는 {@link #challengeClockAllowsReport}.
+     */
+    private static final int DISPLAY_REPORT_LOOKBACK_DAYS = 1;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -119,8 +128,11 @@ public class GroupBetWindowUsageService {
         GroupChallengeBetSession target = groupChallengeBetSessionRepository
                 .findByChallengeIdAndSessionDate(challengeId, request.getUsageDate())
                 .orElse(null);
-        boolean participant = target != null
-                && groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(target.getId(), userId);
+        // 참가 시각을 함께 읽는다 — 존재 = 참가자, 값 = 지연 선기록 판정의 비교축(아래 참조).
+        Instant joinedAt = target == null ? null
+                : groupChallengeBetParticipantRepository
+                        .findJoinedAtBySessionIdAndUserId(target.getId(), userId).orElse(null);
+        boolean participant = joinedAt != null;
         // 자격: 참가자(탈퇴자 포함 — N43) 또는 활성 그룹 멤버. 둘 다 아니면 종전 계약대로 403.
         if (!participant && groupMemberRepository.findByUserAndGroup(user, group).isEmpty()) {
             throw new GroupException(GroupErrorCode.MEMBER_ONLY);
@@ -143,12 +155,16 @@ public class GroupBetWindowUsageService {
         // 회차 유무와 무관한 선기록 차단 — 회차가 아직 없는 날짜에도 걸어야 한다. 회차 기준 게이트만
         // 두면 미개설 미래 날짜에 0분을 심어 둔 뒤 개설·참가(레거시 createBet 은 보고보다 나중에
         // 회차를 만들 수 있다)해서 그 값을 정산에 태울 수 있다 — 챌린지의 창 시각으로 막는다.
-        if (!challengeClockAllowsReport(challengeId, request.getUsageDate(), userId)) {
+        if (!challengeClockAllowsReport(challengeId, request.getUsageDate(), userId, target != null)) {
             return;   // 조용히 204
         }
 
         if (target != null) {
             if (participant) {
+                // 참가 시각 이전에 <b>측정된</b> 값은 받지 않는다 — 순차 경합(아래 메서드 주석) 차단.
+                if (!measuredAfterJoin(measuredAt, joinedAt, target.getId(), userId)) {
+                    return;
+                }
                 // 돈이 걸린 갈래만 회차와 직렬화한다 — 잠금 후 재확인이라 잠금 대기 중 끝난 정산도
                 // 감지된다. 조용히 204 — 시작 전 선기록·정산 후 지연 도착은 에러가 아니라 무시다.
                 if (!lockedSessionAcceptsReport(target.getId(), challengeId, userId)) {
@@ -200,7 +216,11 @@ public class GroupBetWindowUsageService {
      * ({@code challengeId, userId, usageDate}) advisory lock 을 잡아 <b>동시 보고와 직렬화</b>한다
      * ({@link GroupChallengeMemberRepository#lockReportAxis}). 두 순서 모두 안전하다: 보고가 먼저면
      * 그 값이 이 삭제에 지워지고, 삭제가 먼저면 보고가 기다렸다가 <b>참가자 게이트</b>(회차 락 ·
-     * OPEN · 시작 이후)를 통과해 쓴다.
+     * OPEN · 시작 이후 · 참가 후 측정)를 통과해 쓴다.
+     *
+     * <p><b>순차 경합은 이 잠금이 못 막는다</b> — 참가가 <b>먼저 커밋</b>되고 지연된 미참가 시절
+     * 보고가 <b>나중에</b> 도착하면 지울 행이 아직 없어 무효화가 헛돌고, 그 요청은 참가자 갈래로
+     * 분류돼 참가 전 값을 쓴다. 그 구멍은 {@link #measuredAfterJoin} 이 닫는다(측정 시각 기준).
      *
      * @param session 방금 참가한 회차(미션 스냅샷으로 조합·날짜를 읽는다)
      * @param userId  참가자
@@ -224,6 +244,52 @@ public class GroupBetWindowUsageService {
     }
 
     /**
+     * <b>지연 선기록 차단</b> — 참가자 갈래는 <b>참가 시각 이후에 측정된</b> 보고만 받는다.
+     *
+     * <p><b>왜 무효화(advisory lock)로 부족한가</b>: {@link #invalidatePreJoinReport} 의 잠금은
+     * <b>동시에 도는</b> 두 트랜잭션만 줄 세운다. 순차 경합은 못 막는다 — ① 창이 열린 뒤 미참가자가
+     * 낮은 값(아직 안 썼다)을 보고하는데 그 요청 처리가 지연되고, ② 그 사이 참가 트랜잭션이 <b>먼저
+     * 커밋</b>되면 무효화는 <b>아직 없는 행</b>을 지우느라 아무것도 안 지우고, ③ 뒤늦게 도착한 요청이
+     * 이제 <b>참가자</b>로 분류돼 그 낮은 값을 쓴다. SCREEN_TIME 은 작을수록 이기는 지표라 그대로
+     * 부당 승리·지급이다.
+     *
+     * <p>그래서 판정축을 <b>"언제 도착했나"에서 "언제 측정됐나"로</b> 옮긴다 — 도착 순서는 네트워크가
+     * 정하지만 측정 시각은 값 자체의 성질이라 순서가 어떻게 꼬여도 결론이 같다. 참가 시각은 참가 행
+     * {@code created_at}(참가비 차감과 같은 트랜잭션의 박제)이다.
+     *
+     * <p><b>{@code measuredAt} 이 null(구앱)이면 참가자 갈래에서는 거절</b>한다. 시각을 모르면 참가
+     * 전 값인지 판별할 방법이 없고, 돈이 걸린 쪽은 보수적으로 가야 한다 — 미보고 = 미달성(FR-21)은
+     * 손해가 본인에게만 가지만, 참가 전 값을 받으면 <b>남의 돈</b>을 가져간다. 표시용 갈래는 종전대로
+     * 받는다(판정과 무관하고 FR-9 카드가 구앱에서 죽으면 안 된다). 에러(400)가 아니라 조용한 204 인
+     * 이유: 같은 갈래의 다른 무시(시작 전·정산 후·회차 소멸)와 계약을 맞추고, 구앱 이용자에게
+     * 고칠 수 없는 에러를 계속 던지지 않기 위해서다.
+     *
+     * <p><b>기기 시계가 느린 경우</b>: 참가 직후 잠깐 보고가 버려지지만 시계 오차만큼 지나면 스스로
+     * 풀린다(측정 시각이 참가 시각을 추월한다). 클라가 누적값을 보내므로 그 사이 값도 다음 보고가
+     * 복원하고, 복원 전에 정산되는 극단은 미보고 = 미달성이라 <b>돈 안전 쪽</b>으로 떨어진다.
+     * 반대로 시계가 빠른 경우는 {@link #MEASURED_AT_TOLERANCE} 가 이미 400 으로 걸러낸다.
+     *
+     * <p>기존 {@code measured_at} <b>단조 갱신</b>(역전 방어)과는 다른 축이다 — 그쪽은 <b>저장값</b>
+     * 대비 비교(같은 사람의 옛 보고가 새 보고를 못 덮는다)고, 이쪽은 <b>참가 시각</b> 대비 비교다
+     * (참가 전에 잰 값이 애초에 들어오지 못한다). 둘 다 있어야 닫힌다.
+     *
+     * @return true = 참가 이후 측정분, false = 조용히 무시할 보고
+     */
+    private boolean measuredAfterJoin(Instant measuredAt, Instant joinedAt, UUID sessionId, UUID userId) {
+        if (measuredAt == null) {
+            log.info("창 사용분 보고 무시 — 참가자 갈래인데 measuredAt 이 없다(구앱). sessionId={}, userId={}",
+                    sessionId, userId);
+            return false;
+        }
+        if (measuredAt.isBefore(joinedAt)) {
+            log.info("창 사용분 보고 무시 — 참가 전 측정분(지연 도착). sessionId={}, userId={}, "
+                    + "measuredAt={}, joinedAt={}", sessionId, userId, measuredAt, joinedAt);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * 보고 축 키 — 쓰기(upsert)와 무효화(delete)가 <b>같은 문자열</b>을 써야 직렬화가 성립한다.
      * 해시·잠금 자체는 Postgres 가 한다({@link GroupChallengeMemberRepository#lockReportAxis}).
      */
@@ -242,17 +308,35 @@ public class GroupBetWindowUsageService {
      *       창 상세가 없는 챌린지(레거시·목표 미설정)는 시작 시각을 알 수 없어 날짜 판정만 적용한다.</li>
      * </ul>
      *
-     * <p>과거 날짜는 그대로 받는다 — 자정을 넘겨 끝나는 창의 늦은 보고·그레이스 구간 보고가 여기
-     * 걸리면 안 된다(N43). 과거 날짜의 돈 판정은 회차 게이트({@link #lockedSessionAcceptsReport})가
-     * 맡는다.
+     * <p>과거 날짜는 늦은 보고·그레이스 구간 보고를 위해 받는다(N43). 다만 <b>그 날짜에 회차가 없는
+     * 보고</b>(순수 표시용 — 내기가 꺼졌거나 아직 개설되지 않은 날짜)는
+     * {@value #DISPLAY_REPORT_LOOKBACK_DAYS} 일까지만 거슬러 받는다. 무제한으로 열어 두면 잘못된
+     * 클라이언트나 악의적 멤버가 임의의 과거 날짜를 대량 전송해 {@code group_challenge_members} 를
+     * 무한히 부풀릴 수 있다 — (챌린지, 유저, 날짜) 유니크가 날짜마다 새 행을 허용하므로 유니크는
+     * 이 증식을 막지 못한다. <b>회차가 있는 날짜는 제한하지 않는다</b> — 날짜 자체가 서버가 만든
+     * 회차에 결속돼 이미 유한하고, 그쪽 돈 판정은 회차 게이트
+     * ({@link #lockedSessionAcceptsReport})가 맡는다.
      *
+     * <p>FR-9 손실은 없다: 창은 자정을 걸치지 못하고(V35 CHECK {@code window_start < window_end})
+     * 창형 정산 그레이스도 창 종료 +30분이라, 정당한 과거 날짜 보고는 자정 직후의 어제분뿐이다 —
+     * 하루 여유가 그 폭을 덮고도 남는다. 카드 진행률 조회 자체가 요청 날짜 단건이라 더 오래된
+     * 날짜를 채워 봐야 표시되지도 않는다.
+     *
+     * @param sessionBound 그 날짜에 회차가 있는가 — true 면 과거 날짜 제한을 적용하지 않는다
      * @return true = 시각상 저장 가능, false = 조용히 무시할 보고
      */
-    private boolean challengeClockAllowsReport(UUID challengeId, LocalDate usageDate, UUID userId) {
+    private boolean challengeClockAllowsReport(UUID challengeId, LocalDate usageDate, UUID userId,
+            boolean sessionBound) {
         LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
         if (usageDate.isAfter(today)) {
             log.info("창 사용분 보고 무시 — 아직 오지 않은 날짜. challengeId={}, usageDate={}, userId={}",
                     challengeId, usageDate, userId);
+            return false;
+        }
+        if (!sessionBound && usageDate.isBefore(today.minusDays(DISPLAY_REPORT_LOOKBACK_DAYS))) {
+            log.info("창 사용분 보고 무시 — 회차 없는 날짜의 과거 보고(허용 폭 {}일 초과). "
+                            + "challengeId={}, usageDate={}, userId={}",
+                    DISPLAY_REPORT_LOOKBACK_DAYS, challengeId, usageDate, userId);
             return false;
         }
         if (!usageDate.isEqual(today)) {

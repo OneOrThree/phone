@@ -20,6 +20,18 @@ public interface GroupChallengeBetParticipantRepository
 
     boolean existsBySessionIdAndUserId(UUID sessionId, UUID userId);
 
+    /**
+     * 참가 시각(GROMO-1407 후속 — 지연 선기록 차단의 비교축). 참가 행 {@code created_at} 은
+     * 참가비 차감과 같은 트랜잭션에서 박제되므로 "언제부터 돈이 걸렸나"의 단일 진실이다.
+     *
+     * <p>존재 판정({@code existsBySessionIdAndUserId})을 겸한다 — 값이 있으면 참가자다. 두 번 묻지
+     * 않으려고 스칼라 하나만 뽑는다(보고는 저지연 경로라 엔티티·연관 fetch 를 피한다).
+     */
+    @Query("SELECT p.createdAt FROM GroupChallengeBetParticipant p "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId")
+    Optional<Instant> findJoinedAtBySessionIdAndUserId(@Param("sessionId") UUID sessionId,
+                                                       @Param("userId") UUID userId);
+
     long countBySessionId(UUID sessionId);
 
     /**

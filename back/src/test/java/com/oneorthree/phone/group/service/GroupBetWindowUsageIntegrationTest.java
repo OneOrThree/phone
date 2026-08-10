@@ -59,6 +59,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       — 결속이 없던 시절의 선기록 구멍</li>
  *   <li>정산이 끝난 회차의 지연 도착 보고는 잠금 후 재확인에서 무시된다(정산 불가역)</li>
  *   <li>역전 보고는 저장값을 바꾸지 못하고, 같은 measuredAt 재전송은 멱등이다</li>
+ *   <li><b>참가 전에 측정</b>된 보고가 참가 커밋 뒤에 도착해도 저장되지 않는다 — advisory lock 이
+ *       못 막는 순차 경합(무효화가 아직 없는 행을 지우느라 헛도는 구간)</li>
+ *   <li>회차 없는 날짜의 오래된 과거 보고는 무시된다(무한 행 증식 차단) — 어제분은 통과</li>
  *   <li><b>FR-9 양립</b>: 내기 없는 챌린지·미참가 멤버의 표시용 보고는 그대로 저장된다</li>
  * </ul>
  */
@@ -90,6 +93,8 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalDate TODAY = LocalDate.now(KST);
     private static final LocalDate FUTURE = TODAY.plusDays(2);
+    /** 표시용 갈래의 과거 허용 폭(1일)을 한참 넘긴 날짜 — 회차 없는 오래된 보고 차단 검증용. */
+    private static final LocalDate STALE = TODAY.minusDays(30);
 
     /** 내기가 걸린 창 챌린지 — 회차·참가가 붙는다(돈이 걸린 갈래). */
     private GroupChallenge betChallenge;
@@ -128,7 +133,9 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
 
     @AfterEach
     void tearDown() {
-        for (LocalDate date : List.of(TODAY.minusDays(1), TODAY, FUTURE)) {
+        // STALE 도 지운다 — 게이트가 무너지면 그 날짜에 행이 남아 챌린지 삭제가 FK 로 막히고
+        // 뒤 테스트까지 연쇄로 죽는다(원인이 가려진다).
+        for (LocalDate date : List.of(STALE, TODAY.minusDays(1), TODAY, FUTURE)) {
             groupChallengeMemberRepository.deleteAll(
                     groupChallengeMemberRepository.findByGroupChallengeIdInAndUsageDate(
                             List.of(betChallenge.getId(), plainChallenge.getId()), date));
@@ -193,6 +200,12 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
     private void join(GroupChallengeBetSession session, User user) {
         groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(session).user(user).build());
+    }
+
+    /** 참가 행에 박제된 참가 시각 — 보고의 "참가 전 측정" 판정축. */
+    private Instant joinedAt(GroupChallengeBetSession session, User user) {
+        return groupChallengeBetParticipantRepository
+                .findJoinedAtBySessionIdAndUserId(session.getId(), user.getId()).orElseThrow();
     }
 
     private Optional<GroupChallengeMember> storedReport(GroupChallenge challenge, User user, LocalDate date) {
@@ -299,8 +312,10 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
     void leaverReportsOnStartedOpenSessionWithMonotonicMeasuredAt() {
         GroupChallengeBetSession today = startedToday();
         join(today, leaver);
-        Instant t1 = Instant.now().minusSeconds(600);
-        Instant t2 = Instant.now().minusSeconds(60);
+        // 측정 시각은 <b>참가 이후</b>여야 한다 — 참가 전 측정분은 지연 선기록으로 버려진다.
+        Instant joinedAt = joinedAt(today, leaver);
+        Instant t1 = joinedAt.plusSeconds(1);
+        Instant t2 = joinedAt.plusSeconds(60);
 
         // 최종 보고(t2)가 먼저 도착
         reportBet(leaver, report(TODAY, 95, t2));
@@ -493,6 +508,63 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
         assertThat(groupChallengeBetParticipantRepository
                 .existsBySessionIdAndUserId(today.getId(), member.getId())).isTrue();
         assertThat(order).contains("join-commit", "report-done");
+    }
+
+    // ── 지연 선기록: 참가가 먼저 커밋된 순차 경합 ─────────────────────────
+
+    @Test
+    @DisplayName("참가 전에 측정된 보고가 참가 커밋 뒤에 도착 → 저장되지 않는다(무효화가 헛도는 순차 경합)")
+    void delayedPreJoinMeasurementIsRejectedAfterJoinCommits() {
+        GroupChallengeBetSession today = startedToday();
+
+        // ① 창이 열린 뒤, 아직 참가하지 않은 멤버가 낮은 값을 잰다(요청 처리는 지연된다)
+        Instant measuredBeforeJoin = Instant.now().minusSeconds(300);
+
+        // ② 그 사이 참가가 <b>먼저</b> 커밋된다 — 지울 보고 행이 아직 없어 무효화는 헛돈다
+        invalidateOnJoin(today, member);
+        join(today, member);
+        assertThat(storedReport(betChallenge, member, TODAY)).isEmpty();
+
+        // ③ 뒤늦게 도착한 요청은 이제 참가자 갈래로 분류된다 — 종전 구현은 이 낮은 값을 저장했다
+        reportBet(member, report(TODAY, 0, measuredBeforeJoin));
+        assertThat(storedReport(betChallenge, member, TODAY)).isEmpty();
+
+        // ④ 참가 이후에 측정된 보고는 정상 저장된다 — 차단은 참가 전 값만 겨눈다
+        Instant afterJoin = joinedAt(today, member).plusSeconds(1);
+        reportBet(member, report(TODAY, 70, afterJoin));
+        assertThat(storedReport(betChallenge, member, TODAY))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(70);
+    }
+
+    @Test
+    @DisplayName("참가자 갈래의 measuredAt 누락은 저장되지 않는다 — 표시용 갈래는 종전대로 받는다")
+    void missingMeasuredAtIsDroppedOnlyOnTheParticipantBranch() {
+        GroupChallengeBetSession today = startedToday();
+        join(today, bettor);
+
+        // 참가자: 시각 없는 보고 → 예외 없이(204) 저장만 되지 않는다
+        reportBet(bettor, report(TODAY, 0, null));
+        assertThat(storedReport(betChallenge, bettor, TODAY)).isEmpty();
+
+        // 미참가 멤버(표시용): 그대로 저장된다 — FR-9 카드가 구앱에서 죽으면 안 된다
+        reportBet(member, report(TODAY, 25, null));
+        assertThat(storedReport(betChallenge, member, TODAY))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(25);
+    }
+
+    @Test
+    @DisplayName("회차 없는 날짜의 오래된 과거 보고는 무시 — 어제분은 통과한다(무한 행 증식 차단)")
+    void staleDisplayOnlyDatesAreIgnoredButYesterdayPasses() {
+        groupBetWindowUsageService.reportWindowUsage(
+                plainGroup.getId(), plainChallenge.getId(), member.getId(),
+                report(STALE, 0, Instant.now()));
+        assertThat(storedReport(plainChallenge, member, STALE)).isEmpty();
+
+        groupBetWindowUsageService.reportWindowUsage(
+                plainGroup.getId(), plainChallenge.getId(), member.getId(),
+                report(TODAY.minusDays(1), 40, Instant.now()));
+        assertThat(storedReport(plainChallenge, member, TODAY.minusDays(1)))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(40);
     }
 
     // ── FR-9 양립 증명 ───────────────────────────────────────────────────
