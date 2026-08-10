@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -15,6 +16,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,6 +33,15 @@ public class FcmPushNotificationClient implements PushNotificationPort {
 
     private static final String FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
     private static final String FCM_BASE_URL = "https://fcm.googleapis.com";
+
+    /** 연결 타임아웃 — FCM 은 국내에서 수백 ms 안에 붙는다. 5초면 정상 지연은 다 덮는다. */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    /**
+     * 읽기 타임아웃 — 단건 발송 응답이 10초를 넘기면 FCM 이상이다. 실패로 접고 다음 유저로
+     * 넘어가는 편이 낫다(호출측이 건별로 격리하고, 미발송 건은 재훑기·다음 틱이 회수한다).
+     */
+    static final Duration READ_TIMEOUT = Duration.ofSeconds(10);
 
     private final RestClient restClient;
     private final GoogleCredentials credentials;
@@ -57,8 +68,18 @@ public class FcmPushNotificationClient implements PushNotificationPort {
         } catch (IOException e) {
             throw new IllegalStateException("FCM 서비스 계정 키 파싱 실패 — base64/JSON 형식을 확인하세요", e);
         }
-        // 선례: auth/client 의 RestClient 직조립 — 발송 경로는 send()에서 /v1/projects/{id}/messages:send
-        this.restClient = RestClient.builder().baseUrl(FCM_BASE_URL).build();
+        // 선례: auth/client 의 RestClient 직조립 — 발송 경로는 send()에서 /v1/projects/{id}/messages:send.
+        // 타임아웃은 필수다: 발송은 유저 1명당 blocking 호출이고 크론이 대상 수만큼 순차로 돈다.
+        // 무제한이면 FCM 이 멎는 순간 크론 하나가 영원히 실행 중이 되어 ① ShedLock 상한을 넘겨 락이
+        // 만료되고(다른 인스턴스가 같은 크론 시작 → dedup 없는 발송은 중복 도착) ② 스케줄러 스레드를
+        // 붙잡아 다른 크론까지 굶긴다. 이 값이 크론의 최악 실행시간(= 타임아웃 × 대상 수) 계산의 축이다.
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
+        requestFactory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = RestClient.builder()
+                .baseUrl(FCM_BASE_URL)
+                .requestFactory(requestFactory)
+                .build();
     }
 
 

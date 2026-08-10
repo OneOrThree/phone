@@ -2,9 +2,13 @@ package com.oneorthree.phone.notification.repository;
 
 import com.oneorthree.phone.notification.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -82,8 +86,37 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     /** 사건 클레임 행 단건 — 재클레임 성공 후 행 id·묶음 메타를 다시 읽는 용도. */
     Optional<NotificationSentLog> findByUserIdAndKindAndSubjectId(UUID userId, String kind, UUID subjectId);
 
-    /** 이월 대기(DEFERRED) 전량 — 07:00 및 주기 틱의 flush 대상(N44). */
+    /** 이월 대기(DEFERRED) 전량 — 진단·테스트용. 발송 경로는 {@link #findDueClaimsForUpdate} 를 쓴다. */
     List<NotificationSentLog> findByStatus(NotificationSendStatus status);
+
+    /**
+     * 발송할 차례가 된 클레임을 <b>원자적으로 선점</b>해 가져온다(GROMO-1417 · N20 · N44).
+     * 두 부류를 한 번에 집는다:
+     * <ul>
+     *   <li>{@code PENDING} 중 <b>슬롯이 닫힌</b> 것 — 같은 슬롯에 사건이 더 붙을 여지가 없어졌으므로
+     *       이제 묶어서 보낸다. 이벤트 경로가 사건마다 즉시 보내면 같은 슬롯·같은 그룹의 회차 수만큼
+     *       푸시가 나가고, 이미 {@code SENT} 인 클레임은 재훑기가 다시 묶을 수 없다(N20 파기).</li>
+     *   <li>{@code DEFERRED} — 조용한 시간 이월분(N44). 실제 발송 가부는 유저별 quiet hours 로 다시 본다.</li>
+     * </ul>
+     *
+     * <p><b>{@code FOR UPDATE SKIP LOCKED}</b>(락 타임아웃 힌트 {@code -2} = Hibernate
+     * {@code SKIP_LOCKED}) — 크론과 수동 트리거가 겹쳐도 한 워커만 같은 행을 가져간다. 이게 없으면
+     * 둘 다 같은 이월 알림을 읽어 <b>중복 도착</b>한다. 잠금은 트랜잭션 종료까지라, 워커가 죽으면
+     * 롤백돼 다음 틱이 그대로 회수한다.
+     *
+     * @param kinds            이 서비스가 소유한 kind 만(다른 트리거의 클레임을 훔치지 않는다)
+     * @param slotClosedBefore 이 시각 이하의 슬롯만 발송 대상 — 크론은 {@code now − 슬롯폭},
+     *                         수동 트리거는 {@code now}(즉시 확인용)를 넘긴다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
+    @Query("SELECT l FROM NotificationSentLog l WHERE l.kind IN :kinds AND ("
+            + "l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.DEFERRED "
+            + "OR (l.status = com.oneorthree.phone.notification.domain.NotificationSendStatus.PENDING "
+            + "AND l.slotAt <= :slotClosedBefore)) ORDER BY l.slotAt, l.id")
+    List<NotificationSentLog> findDueClaimsForUpdate(
+            @Param("kinds") Collection<String> kinds,
+            @Param("slotClosedBefore") Instant slotClosedBefore);
 
     /**
      * 클레임 종결 — 발송 성사(SENT + 실발송 시각) 또는 이월(DEFERRED, sentAt null 유지) 마킹.

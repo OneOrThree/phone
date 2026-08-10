@@ -38,10 +38,20 @@ import java.util.stream.Collectors;
  * 내기 <b>사건 단위</b> 알림 파이프라인 (GROMO-1417 · 1282, N41·N44·N48·N20) —
  * 정산 결과({@code BET_RESULT})와 무효화 환불({@code BET_VOID_REFUND})의 유일한 발송 경로다.
  *
- * <p><b>진입은 둘, 규칙은 하나.</b> ① 회차 종료 커밋 직후의 이벤트
- * ({@code GroupBetSessionClosedEvent} → AFTER_COMMIT 리스너)가 즉시성을 만들고 — 종전 일 2회
- * (08:00·13:00) 배치는 당일 정산 결과가 최대 하루 늦었다 — ② 15분 재훑기 크론이 이벤트 유실·발송
- * 실패·죽은 워커의 리스 만료 건을 회수한다. 어느 경로로 와도 dedup 은 같은 축이다.
+ * <p><b>클레임과 발송이 분리돼 있다</b> — 이게 묶음(N20)이 성립하는 조건이다. 어느 경로로 들어와도
+ * <b>발송하지 않고 사건을 선점만</b> 하고, 슬롯이 닫힌 뒤에 슬롯 단위로 모아 보낸다:
+ * <ol>
+ *   <li><b>클레임</b> — ① 회차 종료 커밋 직후 이벤트({@code GroupBetSessionClosedEvent} →
+ *       AFTER_COMMIT 리스너)와 ② 15분 재훑기(이벤트 유실·리스 만료 회수).</li>
+ *   <li><b>발송</b> — 5분 flush 가 <b>슬롯이 닫힌</b>({@code slot_at + 15분 ≤ now}) 클레임을
+ *       {@code FOR UPDATE SKIP LOCKED} 로 선점해 (유저 × 그룹 × 슬롯 × kind) 로 묶어 한 건 보낸다.</li>
+ * </ol>
+ *
+ * <p><b>이벤트가 곧바로 보내면 안 되는 이유</b>: 정산 배치·챌린지 삭제는 같은 그룹의 회차 여러 개를
+ * 한 슬롯 안에서 끝낸다. 사건마다 즉시 보내면 <b>회차 수만큼 푸시</b>가 가고, 이미 {@code SENT} 인
+ * 클레임은 재훑기가 다시 묶을 수 없어 되돌릴 방법도 없다. 대가는 지연 — 최악 슬롯폭(15분) +
+ * flush 주기(5분)다. 종전 일 2회(08:00·13:00) 배치의 최대 하루 지연에 비하면 여전히 큰 개선이고,
+ * 즉시성과 "하루 2~3건 상한 정신"(N20) 중 후자를 택한 것이 정책이다.
  *
  * <p><b>선점 dedup(N41)</b> — 발송 전에 사건 유니크 {@code (user_id, kind, subject_id=회차 id)}
  * 로 {@code PENDING} 행을 INSERT 해 선점한다(충돌 = 남이 선점 → 스킵). 같은 kind 라도 회차가
@@ -81,6 +91,10 @@ public class BetEventNotificationService {
      * 알림 대상 종료 상태 — SETTLED·FORFEITED 는 결과(BET_RESULT), VOIDED·REFUNDED 는 환불 통지
      * (BET_VOID_REFUND, N48). UNUSED(0명 종료)는 알릴 대상 자체가 없다(N52).
      */
+    /** 이 서비스가 소유한 kind — flush 가 다른 트리거(모집·사일런트)의 클레임을 훔치지 않게 한다. */
+    private static final List<String> OWNED_KINDS = List.of(
+            NotificationSentLog.TYPE_BET_RESULT, NotificationSentLog.TYPE_BET_VOID_REFUND);
+
     private static final List<GroupBetStatus> NOTIFIABLE_STATUSES = List.of(
             GroupBetStatus.SETTLED, GroupBetStatus.FORFEITED,
             GroupBetStatus.VOIDED, GroupBetStatus.REFUNDED);
@@ -103,14 +117,19 @@ public class BetEventNotificationService {
     private record SendCounts(int sent, int skipped) {
     }
 
-    /** 이월 flush 집계 — targets = 처리한 DEFERRED 행 수, sent 를 뺀 나머지는 스킵(잔류·소비 포함). */
+    /** 클레임 집계 — targets = 판정한 (유저 × 사건), claimed = 이번에 선점한 수, deduped = 이미 선점됨. */
+    private record ClaimCounts(int targets, int claimed, int deduped) {
+    }
+
+    /** flush 집계 — targets = 선점해 온 클레임 행 수, sent 를 뺀 나머지는 스킵(이월·소비 포함). */
     private record FlushCounts(int targets, int sent, int skipped) {
     }
 
     /**
-     * 이벤트 경로 진입점 — 회차 종료 커밋 직후({@code AFTER_COMMIT} 리스너 경유) 그 회차의
-     * 참가자 알림을 즉시 클레임·발송한다. 실패해도 15분 재훑기가 회수하므로 예외는 호출측
-     * (리스너)이 삼킨다.
+     * 이벤트 경로 진입점 — 회차 종료 커밋 직후({@code AFTER_COMMIT} 리스너 경유) 그 회차의 참가자
+     * 사건을 <b>선점만</b> 한다. 발송은 슬롯이 닫힌 뒤 {@link #flushDueBundles(Instant)} 가
+     * 슬롯 단위로 묶어서 한다 — 여기서 바로 보내면 같은 슬롯의 회차 수만큼 푸시가 나간다(N20).
+     * 실패해도 15분 재훑기가 회수하므로 예외는 호출측(리스너)이 삼킨다.
      */
     @Transactional
     public void notifySessionClosed(UUID sessionId, Instant now) {
@@ -119,37 +138,63 @@ public class BetEventNotificationService {
         if (session == null) {
             return;
         }
-        dispatch(List.of(session), now, System.currentTimeMillis());
+        ClaimCounts claimed = claimEvents(List.of(session), now);
+        log.debug("회차 종료 사건 클레임 — sessionId={}, 대상 {}건, 신규 {}건",
+                sessionId, claimed.targets(), claimed.claimed());
     }
 
-    /** 크론(15분)·수동 트리거 진입점. */
+    /** 5분 flush 크론 진입점 — 슬롯이 닫힌 클레임 + 이월분을 묶어 보낸다. */
     @Transactional
-    public PushDispatchSummaryResponse rescanAndFlush() {
-        return rescanAndFlush(Instant.now());
+    public PushDispatchSummaryResponse flushDueBundles() {
+        return flushDueBundles(Instant.now());
     }
 
     /**
-     * 재훑기 + 이월 flush — ① DEFERRED(조용한 시간 이월) 건 중 지금 보낼 수 있는 것을 발송하고,
-     * ② 최근 48시간 종료 회차를 다시 훑어 미클레임·리스 만료 건을 회수한다. dedup 이 선점 기반이라
-     * 이벤트 경로와 겹쳐 돌아도 이중 발송이 없다.
+     * 슬롯 단위 묶음 발송 — <b>슬롯이 닫힌</b>({@code slot_at ≤ now − 슬롯폭}) PENDING 과
+     * 이월(DEFERRED) 클레임을 원자 선점해 (유저 × 그룹 × 슬롯 × kind) 로 묶어 보낸다.
      */
     @Transactional
-    public PushDispatchSummaryResponse rescanAndFlush(Instant now) {
+    public PushDispatchSummaryResponse flushDueBundles(Instant now) {
         long startedAtMillis = System.currentTimeMillis();
-        FlushCounts flushed = flushDeferred(now);
+        FlushCounts flushed = flushClaims(now, now.minus(SLOT_WIDTH));
+        return summary(flushed.targets(), flushed.sent(), 0, flushed.skipped(), startedAtMillis);
+    }
+
+    /** 15분 재훑기 크론·수동 트리거 진입점. */
+    @Transactional
+    public PushDispatchSummaryResponse rescanAndFlush() {
+        return rescanAndFlush(Instant.now(), false);
+    }
+
+    /** 테스트·크론용 — 슬롯이 닫힌 것만 보낸다(수동 트리거는 {@code immediate = true}). */
+    @Transactional
+    public PushDispatchSummaryResponse rescanAndFlush(Instant now) {
+        return rescanAndFlush(now, false);
+    }
+
+    /**
+     * 재훑기 + flush — ① 최근 48시간 종료 회차를 다시 훑어 미클레임·리스 만료 건을 선점하고,
+     * ② 발송할 차례가 된 클레임(슬롯 닫힘 + 이월)을 묶어 보낸다. dedup 이 선점 기반이라 이벤트
+     * 경로와 겹쳐 돌아도 이중 발송이 없다.
+     *
+     * @param immediate 슬롯이 닫히기를 기다리지 않고 지금 있는 클레임을 전부 보낸다 — <b>수동
+     *                  트리거 전용</b>(QA 가 한 번의 호출로 발송까지 확인해야 하기 때문). 크론은
+     *                  항상 false 로 슬롯 누적을 지킨다.
+     */
+    @Transactional
+    public PushDispatchSummaryResponse rescanAndFlush(Instant now, boolean immediate) {
+        long startedAtMillis = System.currentTimeMillis();
         List<GroupChallengeBetSession> sessions = groupChallengeBetSessionRepository
                 .findByStatusInAndSettledAtSince(NOTIFIABLE_STATUSES, now.minus(SETTLEMENT_LOOKBACK));
-        PushDispatchSummaryResponse scanned = dispatch(sessions, now, startedAtMillis);
+        ClaimCounts claimed = claimEvents(sessions, now);
+        FlushCounts flushed = flushClaims(now, immediate ? now : now.minus(SLOT_WIDTH));
         PushDispatchSummaryResponse summary = new PushDispatchSummaryResponse(
-                scanned.targetCount() + flushed.targets(),
-                scanned.sentCount() + flushed.sent(),
-                scanned.dedupedCount(),
-                scanned.skippedCount() + flushed.skipped(),
+                claimed.targets(), flushed.sent(), claimed.deduped(), flushed.skipped(),
                 System.currentTimeMillis() - startedAtMillis);
-        log.info("내기 사건 알림 재훑기 — 종료 회차 {}건, 이월 {}건, 대상 {}건, 발송 {}건, dedup {}건, "
-                + "스킵 {}건, elapsedMillis={}", sessions.size(), flushed.targets(),
-                summary.targetCount(), summary.sentCount(), summary.dedupedCount(),
-                summary.skippedCount(), summary.elapsedMillis());
+        log.info("내기 사건 알림 재훑기 — 종료 회차 {}건, 대상 {}건, 신규 클레임 {}건, dedup {}건, "
+                + "발송 대상 {}건, 발송 {}건, 스킵 {}건, elapsedMillis={}",
+                sessions.size(), claimed.targets(), claimed.claimed(), claimed.deduped(),
+                flushed.targets(), flushed.sent(), flushed.skipped(), summary.elapsedMillis());
         return summary;
     }
 
@@ -168,14 +213,17 @@ public class BetEventNotificationService {
         return Instant.ofEpochMilli(Math.floorDiv(eventAt.toEpochMilli(), slotMillis) * slotMillis);
     }
 
-    /** 종료 회차 목록에 대해 클레임 → 묶음 → 발송을 수행한다. */
-    private PushDispatchSummaryResponse dispatch(
-            List<GroupChallengeBetSession> sessions, Instant now, long startedAtMillis) {
+    /**
+     * 종료 회차 목록의 (유저 × 사건)을 <b>선점만</b> 한다 — 발송은 슬롯이 닫힌 뒤
+     * {@link #flushClaims}. 클레임 시점에 슬롯({@code slot_at})을 사건 시각으로 박아 두므로,
+     * 어느 경로가 언제 집었든 같은 슬롯으로 묶인다(N44 원래 슬롯 기준).
+     */
+    private ClaimCounts claimEvents(List<GroupChallengeBetSession> sessions, Instant now) {
         Map<UUID, GroupChallengeBetSession> sessionsById = sessions.stream()
                 .filter(s -> kindOf(s.getStatus()) != null && s.getSettledAt() != null)
                 .collect(Collectors.toMap(GroupChallengeBetSession::getId, Function.identity()));
         if (sessionsById.isEmpty()) {
-            return summary(0, 0, 0, 0, startedAtMillis);
+            return new ClaimCounts(0, 0, 0);
         }
         // 탈퇴 유저는 발송 대상이 아니다(참가 행은 정산 이력으로 남는다).
         List<GroupChallengeBetParticipant> targets = groupChallengeBetParticipantRepository
@@ -183,24 +231,19 @@ public class BetEventNotificationService {
                 .filter(p -> sessionsById.containsKey(p.getSession().getId()))
                 .filter(p -> !p.getUser().isDeleted())
                 .toList();
-        if (targets.isEmpty()) {
-            return summary(0, 0, 0, 0, startedAtMillis);
-        }
 
+        int claimed = 0;
         int deduped = 0;
-        List<Claim> owned = new ArrayList<>();
         for (GroupChallengeBetParticipant participant : targets) {
             GroupChallengeBetSession session = sessionsById.get(participant.getSession().getId());
             String kind = kindOf(session.getStatus());
-            UUID rowId = claimEvent(participant.getUser().getId(), kind, session, now);
-            if (rowId == null) {
+            if (claimEvent(participant.getUser().getId(), kind, session, now) == null) {
                 deduped++;
-                continue;
+            } else {
+                claimed++;
             }
-            owned.add(new Claim(rowId, kind, session, participant));
         }
-        SendCounts counts = sendBundles(owned, now);
-        return summary(targets.size(), counts.sent(), deduped, counts.skipped(), startedAtMillis);
+        return new ClaimCounts(targets.size(), claimed, deduped);
     }
 
     /**
@@ -225,13 +268,15 @@ public class BetEventNotificationService {
     }
 
     /**
-     * 이월 대기(DEFERRED) flush(N44) — 조용한 시간이 끝난 유저의 건을 원래 슬롯 기준으로 묶어
-     * 발송한다. 아직 조용한 시간인 유저의 건은 그대로 남아 다음 틱을 기다린다. 회차·참가 행이
-     * 사라져 재조립할 수 없는 건은 SENT 로 소비 확정한다(영구 잔류 방지).
+     * 발송 차례가 된 클레임 flush — 슬롯이 닫힌 {@code PENDING} + 이월 {@code DEFERRED}(N44)를
+     * {@code FOR UPDATE SKIP LOCKED} 로 <b>원자 선점</b>해(크론 × 수동 트리거 동시 실행에도 한
+     * 워커만 소유 — 중복 도착 방지) 원래 슬롯 기준으로 묶어 발송한다. 아직 조용한 시간인 유저의
+     * 건은 DEFERRED 로 남아 다음 틱을 기다린다. 회차·참가 행이 사라져 재조립할 수 없는 건은
+     * SENT 로 소비 확정한다(영구 잔류 방지).
      */
-    FlushCounts flushDeferred(Instant now) {
-        List<NotificationSentLog> rows =
-                notificationSentLogRepository.findByStatus(NotificationSendStatus.DEFERRED);
+    FlushCounts flushClaims(Instant now, Instant slotClosedBefore) {
+        List<NotificationSentLog> rows = notificationSentLogRepository.findDueClaimsForUpdate(
+                OWNED_KINDS, slotClosedBefore);
         if (rows.isEmpty()) {
             return new FlushCounts(0, 0, 0);
         }
@@ -268,7 +313,7 @@ public class BetEventNotificationService {
                     unrecoverable, NotificationSendStatus.SENT, now);
         }
         SendCounts counts = sendBundles(claims, now);
-        log.info("내기 알림 이월 flush — 대기 {}건, 발송 {}건", rows.size(), counts.sent());
+        log.info("내기 알림 묶음 flush — 선점 {}건, 발송 {}건", rows.size(), counts.sent());
         return new FlushCounts(rows.size(), counts.sent(), rows.size() - counts.sent());
     }
 

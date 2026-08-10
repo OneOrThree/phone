@@ -66,6 +66,66 @@ class NotificationSentLogV45MigrationTest {
     }
 
     @Test
+    @DisplayName("기존 BET_RESULT 이력은 subject_id 로 이관된다 — 안 하면 배포 후 결과 푸시가 재발송된다")
+    void migratesLegacyBetResultEventKeys() {
+        migrate("41");
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID legacyId = UUID.randomUUID();
+        jdbc.update("INSERT INTO notification_sent_logs (id, user_id, type, target_user_id, sent_at)"
+                + " VALUES (?, ?, 'BET_RESULT', ?, now())", legacyId, userId, sessionId);
+        // 창 종료 알림은 target_user_id 가 challengeId 이고 '매일 반복 + 당일 sent_at' 으로 dedup 한다 —
+        // 여기에 subject_id 를 채우면 유니크가 이튿날 발송을 막는다. 이관 대상이 아니어야 한다.
+        UUID challengeId = UUID.randomUUID();
+        jdbc.update("INSERT INTO notification_sent_logs (id, user_id, type, target_user_id, sent_at)"
+                + " VALUES (?, ?, 'CHALLENGE_WINDOW_END', ?, now())",
+                UUID.randomUUID(), userId, challengeId);
+
+        migrate("45");
+
+        assertThat(jdbc.queryForObject("SELECT subject_id FROM notification_sent_logs WHERE id = ?",
+                UUID.class, legacyId)).isEqualTo(sessionId);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs"
+                + " WHERE type = 'CHALLENGE_WINDOW_END' AND subject_id IS NOT NULL", Integer.class))
+                .isZero();
+
+        // 이관 덕분에 새 파이프라인의 선점이 충돌한다 = 같은 회차 결과가 다시 나가지 않는다.
+        int reclaimed = jdbc.update("INSERT INTO notification_sent_logs"
+                + " (id, user_id, type, kind, subject_id, status, claimed_at)"
+                + " VALUES (?, ?, 'BET_RESULT', 'BET_RESULT', ?, 'PENDING', now())"
+                + " ON CONFLICT (user_id, kind, subject_id) DO NOTHING",
+                UUID.randomUUID(), userId, sessionId);
+        assertThat(reclaimed).isZero();
+
+        // 이튿날 창 종료 알림은 여전히 들어간다(subject NULL 끼리는 충돌 없음).
+        jdbc.update("INSERT INTO notification_sent_logs (id, user_id, type, kind, target_user_id, sent_at)"
+                + " VALUES (?, ?, 'CHALLENGE_WINDOW_END', 'CHALLENGE_WINDOW_END', ?, now())",
+                UUID.randomUUID(), userId, challengeId);
+    }
+
+    @Test
+    @DisplayName("이관으로 사건 키가 겹치는 과거 행은 최신 1건만 남기고 정리된다 — 유니크 생성 실패 방지")
+    void dedupesLegacyRowsBeforeUniqueIndex() {
+        migrate("41");
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID older = UUID.randomUUID();
+        UUID newer = UUID.randomUUID();
+        jdbc.update("INSERT INTO notification_sent_logs (id, user_id, type, target_user_id, sent_at)"
+                + " VALUES (?, ?, 'BET_RESULT', ?, now() - interval '2 hours')", older, userId, sessionId);
+        jdbc.update("INSERT INTO notification_sent_logs (id, user_id, type, target_user_id, sent_at)"
+                + " VALUES (?, ?, 'BET_RESULT', ?, now())", newer, userId, sessionId);
+
+        migrate("45");   // 유니크 생성이 실패하지 않아야 한다
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs"
+                + " WHERE user_id = ? AND kind = 'BET_RESULT' AND subject_id = ?",
+                Integer.class, userId, sessionId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs WHERE id = ?",
+                Integer.class, newer)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("사건 유니크 (user_id, kind, subject_id) — 중복은 거절, NULL subject 레거시 행은 공존")
     void enforcesEventUniqueButAllowsNullSubjects() {
         migrate("45");

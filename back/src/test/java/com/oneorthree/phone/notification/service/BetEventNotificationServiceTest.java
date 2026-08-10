@@ -15,6 +15,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,9 +23,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -39,20 +45,26 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * 사건 단위 알림 파이프라인의 단위 테스트 — 잠그는 성질 다섯:
- * ① BET_VOID_REFUND payload 가 사유 3종(N48)을 정확히 싣는다,
- * ② 같은 슬롯·그룹의 사건 여럿은 한 푸시로 묶이고 묶음 payload 엔 challengeId 가 없다(N20·IA §4.2),
- * ③ 조용한 시간의 표시 푸시는 버려지지 않고 DEFERRED 로 이월된다(N44),
- * ④ 이월분은 flush 에서 발송·SENT 마킹된다,
- * ⑤ 발송 실패·필터 스킵은 클레임을 반납(삭제)해 재훑기가 다시 집게 한다.
- * (선점·리스의 SQL 계약은 NotificationClaimLeaseIntegrationTest, 연속 사건 dedup 은
- * GroupPushNotificationIntegrationTest 가 실 DB 로 잠근다.)
+ * 사건 단위 알림 파이프라인의 단위 테스트 — 잠그는 성질:
+ * <ol>
+ *   <li><b>클레임과 발송이 분리</b>됐다 — 이벤트는 선점만 하고, 같은 슬롯의 사건 여럿이 각각
+ *       이벤트로 들어와도 <b>푸시는 슬롯당 한 건</b>이다(N20 · codex P1),</li>
+ *   <li>슬롯이 닫히기 전에는 발송하지 않는다(누적 창),</li>
+ *   <li>BET_VOID_REFUND payload 가 사유 3종(N48)을 정확히 싣는다,</li>
+ *   <li>조용한 시간의 표시 푸시는 DEFERRED 로 이월되고(N44) 이후 flush 에서 나간다,</li>
+ *   <li>발송 실패·필터 스킵은 클레임을 반납해 재훑기가 다시 집게 한다.</li>
+ * </ol>
+ *
+ * <p>리포지토리 목은 <b>클레임 저장소를 흉내</b>낸다({@link #recordedClaims}) — 선점 행 id 가
+ * 서비스 안에서 생성되므로, INSERT 를 가로채 행을 만들어 두고 flush 조회가 그 행을 돌려주게 한다.
+ * 선점 유니크·SKIP LOCKED 의 실제 계약은 통합 테스트가 실 DB 로 잠근다.
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class BetEventNotificationServiceTest {
 
-    /** KST 12:00 — 조용한 시간(23–07) 밖. */
-    private static final Instant NOON = Instant.parse("2026-08-02T03:00:00Z");
+    /** KST 12:20 — 조용한 시간(23–07) 밖. */
+    private static final Instant NOON = Instant.parse("2026-08-02T03:20:00Z");
     /** KST 00:10 — 조용한 시간 한복판(하루형 자정 정산 직후). */
     private static final Instant MIDNIGHT = Instant.parse("2026-08-01T15:10:00Z");
     /** KST 07:00 — 조용한 시간 종료 정각. */
@@ -71,6 +83,52 @@ class BetEventNotificationServiceTest {
     private PushNotificationService pushNotificationService;
     @InjectMocks
     private BetEventNotificationService service;
+
+    /** 목이 흉내내는 클레임 저장소 — insertPendingClaim 이 넣고 findDueClaimsForUpdate 가 읽는다. */
+    private final List<NotificationSentLog> recordedClaims = new ArrayList<>();
+
+    @BeforeEach
+    void wireClaimStore() {
+        given(notificationSentLogRepository.insertPendingClaim(
+                any(), any(), anyString(), any(), any(), any(), any()))
+                .willAnswer(invocation -> {
+                    UUID rowId = invocation.getArgument(0);
+                    UUID userId = invocation.getArgument(1);
+                    String kind = invocation.getArgument(2);
+                    UUID subjectId = invocation.getArgument(3);
+                    boolean exists = recordedClaims.stream().anyMatch(row ->
+                            row.getUserId().equals(userId) && row.getKind().equals(kind)
+                                    && row.getSubjectId().equals(subjectId));
+                    if (exists) {
+                        return 0;   // 유니크 충돌 = 이미 선점됨
+                    }
+                    recordedClaims.add(NotificationSentLog.builder()
+                            .id(rowId)
+                            .userId(userId)
+                            .type(kind)
+                            .kind(kind)
+                            .subjectId(subjectId)
+                            .groupId(invocation.getArgument(4))
+                            .slotAt(invocation.getArgument(5))
+                            .claimedAt(invocation.getArgument(6))
+                            .status(NotificationSendStatus.PENDING)
+                            .build());
+                    return 1;
+                });
+        given(notificationSentLogRepository.findDueClaimsForUpdate(anyCollection(), any()))
+                .willAnswer(invocation -> {
+                    Collection<String> kinds = invocation.getArgument(0);
+                    Instant slotClosedBefore = invocation.getArgument(1);
+                    return recordedClaims.stream()
+                            .filter(row -> kinds.contains(row.getKind()))
+                            .filter(row -> row.getStatus() == NotificationSendStatus.DEFERRED
+                                    || !row.getSlotAt().isAfter(slotClosedBefore))
+                            .toList();
+                });
+        given(userNotificationSettingsRepository.findAllById(anyCollection()))
+                .willReturn(List.<UserNotificationSettings>of());
+        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+    }
 
     private static User user(UUID id) {
         return User.builder().id(id).nickname("유저").deviceToken("token-" + id).build();
@@ -103,7 +161,8 @@ class BetEventNotificationServiceTest {
                 .build();
     }
 
-    private void givenSession(GroupChallengeBetSession session,
+    /** 이벤트 경로 입력 — 회차 단건 조회 + 그 회차의 참가자. */
+    private void givenEventSession(GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants) {
         given(groupChallengeBetSessionRepository.findById(session.getId()))
                 .willReturn(Optional.of(session));
@@ -111,20 +170,66 @@ class BetEventNotificationServiceTest {
                 .willReturn(participants);
     }
 
-    private void givenClaimsSucceed() {
-        given(notificationSentLogRepository.insertPendingClaim(
-                any(), any(), anyString(), any(), any(), any(), any())).willReturn(1);
+    /** flush 가 클레임 행에서 회차·참가자를 재조립할 때 쓰는 입력. */
+    private void givenFlushLookup(List<GroupChallengeBetSession> sessions,
+            List<GroupChallengeBetParticipant> participants) {
+        given(groupChallengeBetSessionRepository.findAllById(anyCollection())).willReturn(sessions);
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
+                .willReturn(participants);
     }
 
-    private void givenNoSettings() {
-        given(userNotificationSettingsRepository.findAllById(anyCollection()))
-                .willReturn(List.<UserNotificationSettings>of());
-    }
-
-    private PushMessage sentMessage() {
+    private PushMessage singleSentMessage() {
         ArgumentCaptor<PushMessage> captor = ArgumentCaptor.forClass(PushMessage.class);
         verify(pushNotificationService).sendIfAllowed(any(), any(), captor.capture(), any());
         return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("N20 — 같은 슬롯의 회차 2건이 각각 이벤트로 들어와도 푸시는 한 건이다 (묶음)")
+    void separateEventsInSameSlotProduceOnePush() {
+        UUID userId = UUID.randomUUID();
+        User target = user(userId);
+        // 정산 배치가 12:01·12:03 에 같은 그룹의 회차 둘을 끝낸다 → 같은 12:00 슬롯.
+        GroupChallengeBetSession first =
+                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:01:00Z"));
+        GroupChallengeBetSession second =
+                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:03:00Z"));
+        GroupChallengeBetParticipant firstParticipant = participant(first, target, true, 100);
+        GroupChallengeBetParticipant secondParticipant = participant(second, target, false, 0);
+
+        // 이벤트 2회 — 각각 별도 트랜잭션·별도 호출(실제 AFTER_COMMIT 리스너와 같다).
+        givenEventSession(first, List.of(firstParticipant));
+        service.notifySessionClosed(first.getId(), Instant.parse("2026-08-02T03:01:30Z"));
+        givenEventSession(second, List.of(secondParticipant));
+        service.notifySessionClosed(second.getId(), Instant.parse("2026-08-02T03:03:30Z"));
+
+        // 이 시점까지 발송은 0건이어야 한다 — 슬롯이 아직 안 닫혔고, 무엇보다 이벤트는 보내지 않는다.
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+
+        // 슬롯(12:00~12:15)이 닫힌 뒤 첫 flush.
+        givenFlushLookup(List.of(first, second), List.of(firstParticipant, secondParticipant));
+        var summary = service.flushDueBundles(NOON);
+
+        assertThat(summary.sentCount()).isEqualTo(2);   // 사건 2건이 종결됐고
+        PushMessage message = singleSentMessage();      // 푸시는 정확히 1회다
+        assertThat(message.body()).contains("2건");
+        assertThat(message.data()).doesNotContainKey("challengeId");
+    }
+
+    @Test
+    @DisplayName("슬롯이 닫히기 전에는 발송하지 않는다 — 누적 창을 지킨다")
+    void doesNotSendBeforeSlotCloses() {
+        User target = user(UUID.randomUUID());
+        GroupChallengeBetSession settled =
+                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:16:00Z"));
+        givenEventSession(settled, List.of(participant(settled, target, true, 100)));
+
+        service.notifySessionClosed(settled.getId(), Instant.parse("2026-08-02T03:16:30Z"));
+        // 12:20 — 슬롯 12:15 는 12:30 에 닫힌다. 아직 이르다.
+        var early = service.flushDueBundles(NOON);
+
+        assertThat(early.sentCount()).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 
     @Test
@@ -150,16 +255,17 @@ class BetEventNotificationServiceTest {
 
     private void assertVoidRefundPayload(GroupBetStatus status, GroupBetVoidReason reason,
             String expectedBody) {
-        GroupChallengeBetSession voided = session(status, reason, NOON.minusSeconds(60));
+        GroupChallengeBetSession voided =
+                session(status, reason, NOON.minus(Duration.ofMinutes(30)));
         User target = user(UUID.randomUUID());
-        givenSession(voided, List.of(participant(voided, target, null, null)));
-        givenClaimsSucceed();
-        givenNoSettings();
-        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+        GroupChallengeBetParticipant betParticipant = participant(voided, target, null, null);
+        givenEventSession(voided, List.of(betParticipant));
 
-        service.notifySessionClosed(voided.getId(), NOON);
+        service.notifySessionClosed(voided.getId(), NOON.minus(Duration.ofMinutes(29)));
+        givenFlushLookup(List.of(voided), List.of(betParticipant));
+        service.flushDueBundles(NOON);
 
-        PushMessage message = sentMessage();
+        PushMessage message = singleSentMessage();
         assertThat(message.body()).isEqualTo(expectedBody);
         assertThat(message.data())
                 .containsEntry("type", NotificationSentLog.TYPE_BET_VOID_REFUND)
@@ -173,49 +279,17 @@ class BetEventNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("N20 — 같은 슬롯·그룹의 결과 2건은 한 푸시로 묶이고, 묶음 payload 엔 challengeId 가 없다")
-    void bundlesSameSlotEventsIntoOnePushWithoutChallengeId() {
-        UUID userId = UUID.randomUUID();
-        User target = user(userId);
-        // 같은 15분 슬롯(12:01·12:03 정산)의 서로 다른 회차 2건.
-        GroupChallengeBetSession first =
-                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:01:00Z"));
-        GroupChallengeBetSession second =
-                session(GroupBetStatus.SETTLED, null, Instant.parse("2026-08-02T03:03:00Z"));
-        given(notificationSentLogRepository.findByStatus(NotificationSendStatus.DEFERRED))
-                .willReturn(List.of());
-        given(groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
-                .willReturn(List.of(first, second));
-        given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
-                .willReturn(List.of(
-                        participant(first, target, true, 100),
-                        participant(second, target, false, 0)));
-        givenClaimsSucceed();
-        givenNoSettings();
-        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
-
-        var summary = service.rescanAndFlush(NOON);
-
-        assertThat(summary.sentCount()).isEqualTo(2);
-        PushMessage message = sentMessage();   // 검증: 발송 호출은 정확히 1회(묶음 1건)
-        assertThat(message.body()).contains("2건");
-        assertThat(message.data())
-                .containsEntry("type", NotificationSentLog.TYPE_BET_RESULT)
-                .containsEntry("groupId", GROUP_ID.toString())
-                .doesNotContainKey("challengeId");
-    }
-
-    @Test
     @DisplayName("N44 — 조용한 시간(00:10)의 결과는 발송하지 않고 DEFERRED 로 이월한다")
     void defersDisplayPushDuringQuietHours() {
         GroupChallengeBetSession settled =
-                session(GroupBetStatus.SETTLED, null, MIDNIGHT.minusSeconds(120));
+                session(GroupBetStatus.SETTLED, null, MIDNIGHT.minus(Duration.ofMinutes(30)));
         User target = user(UUID.randomUUID());
-        givenSession(settled, List.of(participant(settled, target, true, 100)));
-        givenClaimsSucceed();
-        givenNoSettings();
+        GroupChallengeBetParticipant betParticipant = participant(settled, target, true, 100);
+        givenEventSession(settled, List.of(betParticipant));
 
-        service.notifySessionClosed(settled.getId(), MIDNIGHT);
+        service.notifySessionClosed(settled.getId(), MIDNIGHT.minus(Duration.ofMinutes(29)));
+        givenFlushLookup(List.of(settled), List.of(betParticipant));
+        service.flushDueBundles(MIDNIGHT);
 
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(notificationSentLogRepository).updateStatusByIds(
@@ -227,7 +301,7 @@ class BetEventNotificationServiceTest {
     @DisplayName("N44 — 이월분은 07:00 flush 에서 발송되고 SENT 로 종결된다 (하루형 자정 정산 → 아침 도착)")
     void flushSendsDeferredAfterQuietHours() {
         GroupChallengeBetSession settled =
-                session(GroupBetStatus.SETTLED, null, MIDNIGHT.minusSeconds(120));
+                session(GroupBetStatus.SETTLED, null, MIDNIGHT.minus(Duration.ofMinutes(30)));
         User target = user(UUID.randomUUID());
         GroupChallengeBetParticipant betParticipant = participant(settled, target, true, 100);
         NotificationSentLog deferredRow = NotificationSentLog.builder()
@@ -241,23 +315,15 @@ class BetEventNotificationServiceTest {
                 .status(NotificationSendStatus.DEFERRED)
                 .claimedAt(MIDNIGHT)
                 .build();
-        given(notificationSentLogRepository.findByStatus(NotificationSendStatus.DEFERRED))
-                .willReturn(List.of(deferredRow));
-        given(groupChallengeBetSessionRepository.findAllById(anyCollection()))
-                .willReturn(List.of(settled));
-        given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
-                .willReturn(List.of(betParticipant));
-        given(groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
-                .willReturn(List.of());
-        givenNoSettings();
-        given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(true);
+        recordedClaims.add(deferredRow);
+        givenFlushLookup(List.of(settled), List.of(betParticipant));
 
-        var summary = service.rescanAndFlush(SEVEN);
+        var summary = service.flushDueBundles(SEVEN);
 
         assertThat(summary.sentCount()).isEqualTo(1);
         verify(notificationSentLogRepository).updateStatusByIds(
                 eq(List.of(deferredRow.getId())), eq(NotificationSendStatus.SENT), eq(SEVEN));
-        PushMessage message = sentMessage();
+        PushMessage message = singleSentMessage();
         assertThat(message.data()).containsEntry("challengeId",
                 settled.getChallenge().getId().toString());
     }
@@ -266,14 +332,15 @@ class BetEventNotificationServiceTest {
     @DisplayName("발송 실패·필터 스킵 — 클레임을 반납(삭제)해 재훑기가 다시 집는다")
     void releasesClaimWhenSendFails() {
         GroupChallengeBetSession settled =
-                session(GroupBetStatus.SETTLED, null, NOON.minusSeconds(60));
+                session(GroupBetStatus.SETTLED, null, NOON.minus(Duration.ofMinutes(30)));
         User target = user(UUID.randomUUID());
-        givenSession(settled, List.of(participant(settled, target, true, 100)));
-        givenClaimsSucceed();
-        givenNoSettings();
+        GroupChallengeBetParticipant betParticipant = participant(settled, target, true, 100);
+        givenEventSession(settled, List.of(betParticipant));
         given(pushNotificationService.sendIfAllowed(any(), any(), any(), any())).willReturn(false);
 
-        service.notifySessionClosed(settled.getId(), NOON);
+        service.notifySessionClosed(settled.getId(), NOON.minus(Duration.ofMinutes(29)));
+        givenFlushLookup(List.of(settled), List.of(betParticipant));
+        service.flushDueBundles(NOON);
 
         verify(notificationSentLogRepository).deleteByIds(anyCollection());
         verify(notificationSentLogRepository, never()).updateStatusByIds(
@@ -281,19 +348,19 @@ class BetEventNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("이미 선점된 사건(INSERT 0 + 리스 생존) — dedup 으로 스킵하고 발송하지 않는다")
+    @DisplayName("이미 선점된 사건(INSERT 0 + 리스 생존) — dedup 으로 스킵하고 클레임을 늘리지 않는다")
     void skipsAlreadyClaimedEvent() {
         GroupChallengeBetSession settled =
-                session(GroupBetStatus.SETTLED, null, NOON.minusSeconds(60));
+                session(GroupBetStatus.SETTLED, null, NOON.minus(Duration.ofMinutes(30)));
         User target = user(UUID.randomUUID());
-        givenSession(settled, List.of(participant(settled, target, true, 100)));
-        given(notificationSentLogRepository.insertPendingClaim(
-                any(), any(), anyString(), any(), any(), any(), any())).willReturn(0);
+        GroupChallengeBetParticipant betParticipant = participant(settled, target, true, 100);
+        givenEventSession(settled, List.of(betParticipant));
         given(notificationSentLogRepository.reclaimExpired(any(), anyString(), any(), any(), any()))
                 .willReturn(0);
 
-        service.notifySessionClosed(settled.getId(), NOON);
+        service.notifySessionClosed(settled.getId(), NOON.minus(Duration.ofMinutes(29)));
+        service.notifySessionClosed(settled.getId(), NOON.minus(Duration.ofMinutes(28)));
 
-        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        assertThat(recordedClaims).hasSize(1);
     }
 }

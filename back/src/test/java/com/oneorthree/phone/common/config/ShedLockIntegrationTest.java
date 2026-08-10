@@ -1,8 +1,6 @@
 package com.oneorthree.phone.common.config;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone.group.scheduler.GroupBetScheduler;
-import com.oneorthree.phone.notification.scheduler.NotificationScheduler;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;
@@ -10,7 +8,9 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -19,9 +19,9 @@ import javax.sql.DataSource;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,6 +38,9 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     DataSource dataSource;
+
+    @Autowired
+    ApplicationContext applicationContext;
 
     @BeforeEach
     void createShedlockTable() {
@@ -69,26 +72,43 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
         reacquired.get().unlock();
     }
 
+    /**
+     * <b>애플리케이션 전체</b>의 {@code @Scheduled} 를 훑는다 — 스케줄러 클래스를 열거하면 새로
+     * 추가된 크론이 검사 밖에 남는다(실제로 리그·orphan 스케줄러가 그렇게 빠져 있었다).
+     * 컨텍스트의 모든 빈을 대상으로 하므로 앞으로 어디에 크론을 추가해도 여기서 걸린다.
+     */
     @Test
-    @DisplayName("챌린지·정산·알림 크론 전부에 @SchedulerLock 이 고유 이름으로 걸려 있다")
+    @DisplayName("애플리케이션의 모든 @Scheduled 에 고유 이름의 @SchedulerLock 이 걸려 있다")
     void everyCronEntryPointIsLocked() {
-        Set<String> names = new HashSet<>();
-        for (Class<?> scheduler : new Class<?>[] {GroupBetScheduler.class, NotificationScheduler.class}) {
-            for (Method method : scheduler.getDeclaredMethods()) {
+        Map<String, String> ownerByLockName = new HashMap<>();
+        int scheduled = 0;
+        for (String beanName : applicationContext.getBeanDefinitionNames()) {
+            Class<?> beanType = applicationContext.getType(beanName);
+            if (beanType == null || !beanType.getName().startsWith("com.oneorthree.phone")) {
+                continue;
+            }
+            Class<?> targetType = AopUtils.getTargetClass(applicationContext.getBean(beanName));
+            for (Method method : targetType.getDeclaredMethods()) {
                 if (method.getAnnotationsByType(Scheduled.class).length == 0) {
                     continue;
                 }
+                scheduled++;
+                String owner = targetType.getSimpleName() + "." + method.getName();
                 SchedulerLock lock = method.getAnnotation(SchedulerLock.class);
                 assertThat(lock)
-                        .as("%s.%s 은 @Scheduled 인데 @SchedulerLock 이 없다 — 멀티 인스턴스에서 중복 실행된다",
-                                scheduler.getSimpleName(), method.getName())
+                        .as("%s 은 @Scheduled 인데 @SchedulerLock 이 없다 — 멀티 인스턴스에서 중복 실행된다",
+                                owner)
                         .isNotNull();
-                assertThat(names.add(lock.name()))
-                        .as("락 이름 중복: %s — 서로 다른 크론이 같은 락을 다투면 한쪽이 조용히 굶는다",
-                                lock.name())
-                        .isTrue();
+                String previous = ownerByLockName.put(lock.name(), owner);
+                assertThat(previous)
+                        .as("락 이름 중복(%s): %s ↔ %s — 서로 다른 크론이 같은 락을 다투면 한쪽이 굶는다",
+                                lock.name(), previous, owner)
+                        .isNull();
             }
         }
-        assertThat(names).isNotEmpty();
+        // 스케줄러가 통째로 사라지면(=탐색 실패) 검사가 공회전한다 — 하한을 둔다.
+        assertThat(scheduled).isGreaterThanOrEqualTo(15);
+        assertThat(ownerByLockName).containsKeys("league-weekly-batch", "focus-orphan-sweep",
+                "group-bet-settle-scan", "notification-bet-event-flush");
     }
 }

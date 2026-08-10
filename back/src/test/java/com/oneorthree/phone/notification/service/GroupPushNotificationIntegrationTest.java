@@ -159,6 +159,11 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     private GroupChallengeBetSession settledBet(GroupBetStatus status) {
+        return settledBet(status, NOW.minusSeconds(3600));
+    }
+
+    /** 정산 시각을 지정하는 오버로드 — 묶음 슬롯이 정산 시각 기준이라 조용한 시간 시나리오에 필요하다. */
+    private GroupChallengeBetSession settledBet(GroupBetStatus status, Instant settledAt) {
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.FOCUS)
@@ -184,7 +189,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 .joinClosesAt(DAY.atStartOfDay(KST).toInstant())
                 .closesAt(DAY.atStartOfDay(KST).toInstant())
                 .settleAfter(DAY.atStartOfDay(KST).toInstant())
-                .settledAt(NOW.minusSeconds(3600))
+                .settledAt(settledAt)
                 .build());
     }
 
@@ -263,7 +268,10 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     @Test
     @DisplayName("N44 — quiet hours 의 결과는 버려지지 않고 이월(DEFERRED)돼 07:00 에 발송된다")
     void betResultDefersDuringQuietHoursAndFlushesAtSeven() {
-        GroupChallengeBetSession bet = settledBet(GroupBetStatus.SETTLED);
+        // 하루형 자정 정산이 이 규칙의 실제 대상이다 — 00:05 정산분이 조용한 시간에 걸린다.
+        // (묶음 슬롯이 정산 시각 기준이라, 정산이 발송 시각보다 뒤인 픽스처는 애초에 발송 차례가 아니다.)
+        GroupChallengeBetSession bet =
+                settledBet(GroupBetStatus.SETTLED, DAY.atTime(0, 5).atZone(KST).toInstant());
         participant(bet, winner, true, 100);
 
         // 06:59 — 조용한 시간. 종전 스펙(버림)과 달리 클레임을 DEFERRED 로 이월한다(N44).

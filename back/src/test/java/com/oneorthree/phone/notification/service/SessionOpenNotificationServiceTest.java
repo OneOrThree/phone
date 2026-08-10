@@ -213,10 +213,11 @@ class SessionOpenNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("N44 단서 — 조용한 시간의 모집은 이월하지 않고 버린다(DEFERRED 전이 없음)")
-    void quietHoursRecruitmentIsDroppedNotDeferred() {
-        // 창 07:00 시작 → 슬롯 06:30(조용한 시간). 07:00 으로 미루면 이미 참가 마감이다.
-        GroupChallengeBetSession session = windowSession(LocalTime.of(7, 0));
+    @DisplayName("N44 단서 — 조용한 시간의 모집은 이월(DEFERRED)하지 않고 SENT 로 종결한다")
+    void quietHoursRecruitmentIsTerminatedNotDeferred() {
+        // 창 07:15 시작 → 슬롯 06:45(조용한 시간). 07:00 으로 미루면 곧 참가 마감이라 무의미하고,
+        // 클레임을 <지우면> 다음 15분 틱이 재선점해 되살아난다 — 그래서 SENT 로 종결한다.
+        GroupChallengeBetSession session = windowSession(LocalTime.of(7, 15));
         User member = user("멤버");
         givenDue(session, List.of(member), List.of());
         given(notificationSentLogRepository.insertPendingClaim(
@@ -224,12 +225,35 @@ class SessionOpenNotificationServiceTest {
         givenNoSettings();
 
         PushDispatchSummaryResponse summary =
-                service.sendSessionOpenNotifications(DAY.atTime(6, 30).atZone(KST).toInstant());
+                service.sendSessionOpenNotifications(DAY.atTime(6, 45).atZone(KST).toInstant());
 
         assertThat(summary.sentCount()).isZero();
         verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
         verify(notificationSentLogRepository, never()).updateStatusByIds(
                 anyCollection(), eq(NotificationSendStatus.DEFERRED), any());
-        verify(notificationSentLogRepository).deleteByIds(anyCollection());
+        verify(notificationSentLogRepository, never()).deleteByIds(anyCollection());
+        verify(notificationSentLogRepository).updateStatusByIds(
+                anyCollection(), eq(NotificationSendStatus.SENT), any());
+    }
+
+    @Test
+    @DisplayName("조용한 시간에 종결된 모집은 07:00 틱에 되살아나지 않는다 — 클레임 유니크가 막는다")
+    void terminatedRecruitmentDoesNotResurrectAfterQuietHours() {
+        // 07:15 시작 창: 06:45 슬롯에서 종결 → 07:00 틱(슬롯 유예 2시간 안)에 다시 집히면 안 된다.
+        GroupChallengeBetSession session = windowSession(LocalTime.of(7, 15));
+        User member = user("멤버");
+        givenDue(session, List.of(member), List.of());
+        givenNoSettings();
+        // 첫 틱은 선점 성공, 두 번째 틱은 종결된 행과 유니크 충돌(실 DB 동작 — 통합 테스트가 SQL 로 잠근다).
+        given(notificationSentLogRepository.insertPendingClaim(
+                any(), any(), anyString(), any(), any(), any(), any())).willReturn(1, 0);
+
+        service.sendSessionOpenNotifications(DAY.atTime(6, 45).atZone(KST).toInstant());
+        PushDispatchSummaryResponse afterQuiet =
+                service.sendSessionOpenNotifications(DAY.atTime(7, 0).atZone(KST).toInstant());
+
+        assertThat(afterQuiet.sentCount()).isZero();
+        assertThat(afterQuiet.dedupedCount()).isEqualTo(1);
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
     }
 }

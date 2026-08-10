@@ -44,6 +44,27 @@ ALTER TABLE public.notification_sent_logs
 ALTER TABLE public.notification_sent_logs
     ALTER COLUMN sent_at DROP NOT NULL;
 
+-- ── 기존 BET_RESULT 이력의 사건 키 이관 ────────────────────────────────
+-- 이관하지 않으면 배포 시점의 최근 이력은 회차 id 가 target_user_id 에만 있고 subject_id 는 NULL 이라
+-- 새 파이프라인의 선점이 <충돌하지 않는다> → 같은 회차를 다시 클레임해 결과 푸시가 재발송된다.
+-- 대상은 BET_RESULT 뿐이다. CHALLENGE_WINDOW_END·CHALLENGE_ENDED 는 target_user_id 가 challengeId 이고
+-- "매일 반복 + 당일 sent_at" 으로 dedup 하므로, subject_id 를 채우면 유니크가 이튿날 발송을 막아버린다.
+-- CHALLENGE_CREATED·FRIEND_* 도 아직 구 모델(발송 후 기록)이라 NULL 로 남긴다(NULL 끼리는 충돌 없음).
+UPDATE public.notification_sent_logs
+    SET subject_id = target_user_id
+    WHERE type = 'BET_RESULT' AND target_user_id IS NOT NULL AND subject_id IS NULL;
+
+-- 이관으로 (user_id, kind, subject_id) 가 겹치는 행이 생기면 최신 1건만 남긴다 — 유니크 생성 실패
+-- 방지. 과거 dedup 이 정상 작동했다면 0건이지만, 배치 재실행·수동 트리거 이력이 있으면 나올 수 있다.
+DELETE FROM public.notification_sent_logs a
+    WHERE a.subject_id IS NOT NULL
+      AND EXISTS (
+          SELECT 1 FROM public.notification_sent_logs b
+          WHERE b.user_id = a.user_id
+            AND b.kind = a.kind
+            AND b.subject_id = a.subject_id
+            AND (b.sent_at > a.sent_at OR (b.sent_at = a.sent_at AND b.id > a.id)));
+
 -- 사건 단위 선점 유니크 — INSERT … ON CONFLICT (user_id, kind, subject_id) DO NOTHING 의 대상.
 CREATE UNIQUE INDEX uq_notification_sent_logs_user_kind_subject
     ON public.notification_sent_logs (user_id, kind, subject_id);

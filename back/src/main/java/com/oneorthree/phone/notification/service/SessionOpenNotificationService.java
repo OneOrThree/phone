@@ -183,9 +183,13 @@ public class SessionOpenNotificationService {
     }
 
     /**
-     * 묶음 발송 — (유저 × 그룹 × 슬롯) 한 건. 조용한 시간이면 <b>클레임을 지워 버린다</b>
-     * (N44 단서 — 모집은 이월 대상이 아니다. 지우는 이유는 다음 활성일의 같은 회차가 아니라
-     * 남은 슬롯 안에서의 재시도를 열어 두기 위함이다).
+     * 묶음 발송 — (유저 × 그룹 × 슬롯) 한 건.
+     *
+     * <p><b>조용한 시간이면 클레임을 {@code SENT} 로 종결</b>한다(N44 단서 — 모집은 이월 대상이
+     * 아니다). 지우면 안 된다: 15분 크론이 같은 회차를 다음 틱에 <b>다시 선점</b>해, 06:45 슬롯에서
+     * 버린 07:15 시작 회차가 07:00 틱에 되살아나 발송된다 — "창이 07:30 이전에 시작하는 챌린지는
+     * 모집 알림 없이 돈다"는 수용 조건이 깨진다. 종결로 표시해야 그 회차의 모집이 소진된다.
+     * 발송 실패·토큰 없음은 반대로 삭제해 남은 슬롯 안에서 재시도를 연다.
      */
     private int sendBundles(List<Claim> owned, Map<UUID, List<User>> membersByGroupId, Instant now) {
         if (owned.isEmpty()) {
@@ -212,7 +216,14 @@ public class SessionOpenNotificationService {
             List<UUID> rowIds = claims.stream().map(Claim::rowId).toList();
             User user = usersById.get(entry.getKey().userId());
             UserNotificationSettings settings = settingsByUserId.get(entry.getKey().userId());
-            if (user == null || PushNotificationService.isQuietHours(settings, now)) {
+            if (PushNotificationService.isQuietHours(settings, now)) {
+                // 조용한 시간 = 이 회차의 모집은 없던 일로 <종결>. 삭제하면 다음 틱이 재선점한다.
+                notificationSentLogRepository.updateStatusByIds(
+                        rowIds, NotificationSendStatus.SENT, now);
+                continue;
+            }
+            if (user == null) {
+                // 재조립 불가(그룹 멤버 목록에서 사라짐) — 재시도 여지를 남겨 반납한다.
                 notificationSentLogRepository.deleteByIds(rowIds);
                 continue;
             }
