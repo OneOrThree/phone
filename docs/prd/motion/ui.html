@@ -1121,14 +1121,21 @@
           line.style.strokeDasharray = String(len);
           line.style.strokeDashoffset = String(len);
           dots.forEach((d) => { d.style.opacity = '0'; d.setAttribute('r', '0'); });
-          setTimeout(() => play(M.dur.entrance, (p) => {
+          // ⚠️ **시퀀스는 선 그리기(entrance)보다 점 팝(quick) 하나만큼 길다.**
+          //    선이 끝나는 순간(LINE_SPAN)에 맞춰 마지막 점의 팝이 **시작**하고 남은 구간에서
+          //    끝난다. 이 여유가 없으면 누적 비율이 1인 마지막 점은 팝에 쓸 시간이 0이라
+          //    선이 완성되는 순간 툭 나타난다(codex 리뷰). 다른 점들은 뒤에 선이 더 남아 있어
+          //    저절로 시간이 생기므로 마지막 점만 겪는 문제다.
+          const DRAW_MS = M.dur.entrance + M.dur.quick;
+          const LINE_SPAN = M.dur.entrance / DRAW_MS;
+          const POP_SPAN = M.dur.quick / DRAW_MS;
+          setTimeout(() => play(DRAW_MS, (p) => {
             const e = EASE.standard(p);
-            line.style.strokeDashoffset = String(len * (1 - e));
+            line.style.strokeDashoffset = String(len * (1 - Math.min(1, e / LINE_SPAN)));
             dots.forEach((d) => {
-              const at = Number(d.dataset.at);
-              if (e < at) return;
-              // 점 자체는 짧게 튀어나온다 — 선이 지나간 직후 M.dur.quick 안에 제 크기로.
-              const k = Math.min(1, ((e - at) * M.dur.entrance) / M.dur.quick);
+              const start = Number(d.dataset.at) * LINE_SPAN;
+              if (e < start) return;
+              const k = Math.min(1, (e - start) / POP_SPAN);
               d.style.opacity = '1';
               d.setAttribute('r', String(Number(d.dataset.r) * EASE.overshoot(k)));
             });

@@ -44,6 +44,10 @@
 | `src/screens/focus/FocusSessionScreen.tsx` | 1560 | 렌더 계층만 | `ProgressRing` · 페이즈 크로스페이드 · 도트 전환 |
 | `src/screens/HomeScreen.tsx` | 840 | 132 · 590 · 카드 렌더 | `ProgressBar` · `AnimatedNumber` · `enterUp` |
 | `src/screens/StatsScreen.tsx` | 554 | 491 + 카드 8종 | 스켈레톤 |
+| `src/screens/stats/charts.tsx` | 470 | `LineChart` 렌더부 | **좌→우 draw-on**(정책 D16) — `AnimatedPolyline` `strokeDashoffset` + 점별 `AnimatedCircle`. ⚠️ `growUp` 아님 |
+| `src/screens/stats/CategoryDonut.tsx` | 190 | `DonutBase` | 링 `fadeIn` + 범례 `enterUp(i)`. ⚠️ `growUp`은 원을 타원으로 눌러 못 쓴다 |
+| `src/screens/stats/CalendarCard.tsx` | 420 | 그리드 행 | 행 단위 `fadeIn(i)` — 값 축이 없어 `growUp`이 뜻을 못 만든다 |
+| `src/screens/stats/WeeklyTimetableCard.tsx` | 330 | 세션 블록 | **`growUp(j)`** — 블록 자체가 '시간만큼 자란 막대'라 여기는 맞다 |
 | `src/screens/league/LeagueScreen.tsx` | 1063 | 219 · 227 · 리스트 | `LayoutAnimation`→`LinearTransition` · `enterUp` |
 | `src/screens/league/LeagueResultScreen.tsx` | 408 | 87–125 · 승급 분기 | `m.delay()` · 컨페티 + `hapticSuccess` |
 | `src/utils/haptics.ts` | 20 | +8 | `hapticSuccess()` 추가 |
