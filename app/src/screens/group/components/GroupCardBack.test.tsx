@@ -87,6 +87,49 @@ test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한
   expect(screen.queryByText('현재 집중 0명')).toBeNull();
 });
 
+test('현재 사용자가 상위 5명 밖이어도 선두에 두고 나머지 서버 순서를 보존한다', async () => {
+  const members = ['첫째', '둘째', '셋째', '넷째', '다섯째', '나'].map((nickname, index) => ({
+    userId: `u${index + 1}`,
+    nickname,
+    role: 'MEMBER' as const,
+    focusTimeMinutes: 60 - index,
+    totalFocusMinutes: 60 - index,
+  }));
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      userId="u6"
+      snapshot={{
+        detail: {
+          status: 'ready',
+          data: {
+            id: 'g1',
+            name: group.name,
+            description: null,
+            missionCategory: null,
+            missionType: null,
+            durationMinutes: null,
+            windowStart: null,
+            windowEnd: null,
+            maxMembers: 10,
+            status: 'ACTIVE',
+            members,
+            code: null,
+            codeExpiresAt: null,
+            noticeGrantedUserIds: [],
+          },
+        },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('나 · 첫째 · 둘째 · 셋째 · 넷째')).toBeOnTheScreen();
+  expect(screen.queryByText(/다섯째/)).toBeNull();
+});
+
 test('그룹 활동 수는 ACTIVE 상태만 센다', async () => {
   await render(
     <GroupCardBack

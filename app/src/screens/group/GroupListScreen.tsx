@@ -1007,6 +1007,7 @@ export default function GroupListScreen({
                     {flippedGroupId === item.groupId ? (
                       <GroupCardBack
                         group={item}
+                        userId={userId}
                         cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
                         position={index + 1}
                         pageCount={pageCount}

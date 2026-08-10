@@ -7,6 +7,7 @@ import { deriveGroupFocusCount } from '../groupFocusStatus';
 
 interface Props {
   group: GroupSummaryResponse;
+  userId?: string | null;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | undefined;
   cardRef?: React.RefObject<View | null>;
   onFlipFront: () => void;
@@ -28,6 +29,7 @@ function LoadingLine({ label }: { label: string }) {
 
 export function GroupCardBack({
   group,
+  userId = null,
   snapshot,
   cardRef,
   onFlipFront,
@@ -48,6 +50,18 @@ export function GroupCardBack({
   const focus = snapshot?.focus ?? { status: 'idle' as const };
   const memberIds =
     detail.status === 'ready' ? detail.data.members.map((member) => member.userId) : [];
+  const memberPreview = (() => {
+    if (detail.status !== 'ready') return [];
+    const currentIndex = userId
+      ? detail.data.members.findIndex((member) => member.userId === userId)
+      : -1;
+    if (currentIndex <= 0) return detail.data.members.slice(0, 5);
+    return [
+      detail.data.members[currentIndex],
+      ...detail.data.members.slice(0, currentIndex),
+      ...detail.data.members.slice(currentIndex + 1),
+    ].slice(0, 5);
+  })();
   const focusCount = deriveGroupFocusCount(memberIds, focus);
   const activeChallengeCount =
     challenges.status === 'ready'
@@ -86,12 +100,7 @@ export function GroupCardBack({
           </TouchableOpacity>
         ) : (
           <>
-            <Text style={s.body}>
-              {detail.data.members
-                .slice(0, 5)
-                .map((m) => m.nickname)
-                .join(' · ')}
-            </Text>
+            <Text style={s.body}>{memberPreview.map((member) => member.nickname).join(' · ')}</Text>
             <Text style={s.muted}>
               {focusCount.status === 'unavailable'
                 ? '현재 집중 인원 확인 불가'
