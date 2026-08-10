@@ -408,6 +408,26 @@ describe('닫는 동안의 딤', () => {
     await reportPanelHeight(1100); // 퇴장 중 프리뷰가 도착해 패널이 커졌다
     expect(dimOpacity()).toBeLessThanOrEqual(before);
   });
+
+  // 등장 스프링이 끝나기 전에 그랩바를 잡으면, 그 프레임부터 딤에 드래그 감쇠가 곱해진다.
+  // 감쇠를 **절대 translateY**로 재면 아직 남은 등장 거리가 그대로 "끌어내린 양"으로 읽혀,
+  // 손가락을 거의 움직이지 않았는데 딤이 최대 60%까지 옅어졌다가 다시 짙어진다(codex 리뷰).
+  // 잡은 지점을 기준으로 재면 그 순간 계수가 1이라 모드 전환 전후가 이어진다.
+  test('등장 중에 잡아도 딤이 그 프레임에 튀지 않는다', async () => {
+    await renderShell();
+    await reportPanelHeight(600);
+    // 등장이 **끝나기 전** — 아직 패널이 내려오는 중이어야 이 회귀가 성립한다.
+    await tick(60);
+    const y = panelTranslateY();
+    expect(y).toBeGreaterThan(0); // 전제가 깨지면(이미 안착) 이 테스트는 아무것도 못 본다
+
+    const before = dimOpacity();
+    await act(async () => {
+      mockPanConfigs[0].onPanResponderGrant({}, { dy: 0, vy: 0 });
+    });
+    // 손가락은 아직 움직이지 않았다 — 딤도 그대로여야 한다.
+    expect(dimOpacity()).toBeCloseTo(before, 5);
+  });
 });
 
 describe('퇴장 시작 신호 — useSheetClosing()', () => {

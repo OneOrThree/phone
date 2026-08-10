@@ -215,6 +215,17 @@ export function SheetShell({
   //    (codex 리뷰). 등장 딤은 dimProgress(0→1 timing)만으로 충분하다.
   //    스프링이 끝나면 translateY가 0이라 감쇠 계수도 1이 되어, 되돌려도 튀지 않는다.
   const dimEnterActive = useSharedValue(false);
+  // 드래그 감쇠를 재는 **기준점**(잡은 순간의 translateY).
+  //
+  // ⚠️ 절대 translateY로 재면 **등장 중에 그랩바를 잡는 순간 딤이 튄다.** 그때까지 딤은
+  //    dimProgress만 썼는데(위 dimEnterActive), 잡는 프레임부터 감쇠 계수가 곱해진다 —
+  //    translateY에는 아직 남은 등장 거리가 있어 손가락을 거의 안 움직여도 딤이 최대 60%까지
+  //    옅어졌다가, dimProgress가 1로 차오르며 다시 짙어진다(codex 리뷰).
+  //    잡은 지점을 빼면 그 순간 계수가 정확히 1이라 **모드 전환 전후가 이어진다.**
+  //    임계 미달로 되돌아갈 때는 translateY가 기준점 아래로 내려가 y가 음수가 되는데,
+  //    dimDragFactor가 0으로 클램프하므로 계수는 1로 수렴한다(딤이 제 농도로 돌아온다).
+  //    안착 상태에서 잡으면 기준점이 0이라 종전 동작과 같다.
+  const dimDragBaseY = useSharedValue(0);
   // 측정된 패널 높이 — 등장 시작점이자 퇴장 목표점이다(추정값을 쓰지 않는 이유는 §4.2).
   const panelHeight = useSharedValue(0);
   // 등장은 최초 레이아웃 1회만 — 키보드·내용 변화로 onLayout이 다시 불려도 재생하지 않는다.
@@ -335,7 +346,10 @@ export function SheetShell({
     //    0으로 내려가던 딤이 순간 다시 어두워진다(codex 리뷰 — 초대 시트 로딩→프리뷰 전환).
     //    ⚠️ 대신 **지금까지 걷힌 만큼은 dimProgress에 접어 넣는다.** 그냥 떼기만 하면 임계를 넘겨
     //       손을 놓는 순간 딤이 도로 짙어져(끌어서 걷어 둔 게 사라져) 같은 종류의 역행이 된다.
-    dimProgress.value *= dimDragFactor(translateY.value, panelHeight.value);
+    //    ⚠️ 접어 넣는 계수는 **화면에 그려지던 것과 같은 식**이어야 한다 — 기준점(dimDragBaseY)을
+    //       빼지 않으면, 등장 중에 잡아 그대로 닫은 경우 표시값보다 작은 계수를 접어 넣어
+    //       퇴장이 시작되는 프레임에 딤이 한 번 튄다.
+    dimProgress.value *= dimDragFactor(translateY.value - dimDragBaseY.value, panelHeight.value);
     dimDragMuted.value = true;
     dimProgress.value = withTiming(0, {
       duration: M.dur.quick,
@@ -409,6 +423,9 @@ export function SheetShell({
         // 손가락이 값을 가져갔으므로 등장 스프링은 여기서 끝난 것으로 본다 — 진입 보정이
         // 드래그 중에 끼어들면 사용자가 끄는 값을 코드가 덮어쓴다. 딤도 이때부터 손끝을 따른다.
         enterActiveRef.current = false;
+        // 감쇠 기준점을 **잡은 지점**으로 잡는다 — 등장 중에 잡혔다면 여기에 남은 등장 거리가
+        // 들어 있어, 이걸 빼야 모드가 바뀌는 프레임에서 딤이 튀지 않는다(위 dimDragBaseY 주석).
+        dimDragBaseY.value = translateY.value;
         dimEnterActive.value = false;
       },
       onPanResponderMove: (_, g) => {
@@ -549,7 +566,10 @@ export function SheetShell({
   // 퇴장이 시작되면 드래그 성분은 dimProgress에 접힌 채 계산에서 빠진다(위 requestClose 주석).
   const dimAnimStyle = useAnimatedStyle(() => {
     if (dimDragMuted.value || dimEnterActive.value) return { opacity: dimProgress.value };
-    return { opacity: dimProgress.value * dimDragFactor(translateY.value, panelHeight.value) };
+    return {
+      opacity:
+        dimProgress.value * dimDragFactor(translateY.value - dimDragBaseY.value, panelHeight.value),
+    };
   });
 
   // 패널 높이 상한 — 가용 높이(키보드가 떠 있으면 그 위)의 85%.
