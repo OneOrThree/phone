@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.service.WindowFocusAggregator;
@@ -143,8 +144,10 @@ public class ChallengeWindowEndNotificationService {
     }
 
     /**
-     * 오늘(KST) 창 종료가 방금 지났는지. 자정을 걸치는 창은 어제 시작분의 종료가 오늘 새벽이므로
-     * 어제·오늘 두 날짜를 모두 후보로 본다. 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
+     * 오늘(KST) 창 종료가 방금 지났는지. 자정 걸침 금지(§A6-1 · GROMO-1406)로 창 종료는 항상
+     * 회차일 당일이지만, <b>감지 틱이 자정을 넘을 수 있다</b> — 23:59 에 끝난 창을 00:10 틱이
+     * 잡으려면 어제 날짜의 종료도 후보로 봐야 한다(창의 D+1 해석과는 무관한 틱 지연 보정).
+     * 경계는 {@code (now - 폭, now]} — 종료 시각 정각은 포함이다.
      */
     private Optional<Instant> justEndedAt(GroupChallenge challenge, GroupChallengeWindow window,
             Instant now) {
@@ -156,6 +159,10 @@ public class ChallengeWindowEndNotificationService {
         Instant since = now.minus(RECENTLY_ENDED_WINDOW);
         Instant createdAt = challenge.getCreatedAt();
         return List.of(today.minusDays(1), today).stream()
+                // 비활성 요일엔 회차가 서지 않았다(FR-9 · §A3) — 그날의 창 종료는 알릴 사건이 아니다.
+                // 필터 축은 "오늘"이 아니라 회차 날짜다: 월요일 전용 챌린지의 23:59 종료를 화요일
+                // 00:10 틱이 잡는 경우, 회차일(월)은 활성이므로 알림이 나가야 한다.
+                .filter(date -> RepeatSchedule.activeOn(challenge.getRepeatDays(), date))
                 .map(date -> windowFocusAggregator.windowEndOn(date, window))
                 .filter(end -> end.isAfter(since) && !end.isAfter(now))
                 // 창이 끝난 뒤에 만들어진 챌린지는 이번 회차에 아무도 참여하지 않았다.

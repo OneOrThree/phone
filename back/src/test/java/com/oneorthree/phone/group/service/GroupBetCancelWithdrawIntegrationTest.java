@@ -108,7 +108,7 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
                 .type(MissionType.DURATION)
                 .build());
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(challenge).durationMinutes(GOAL_MINUTES).build());
+                .challenge(challenge).category(MissionCategory.FOCUS).durationMinutes(GOAL_MINUTES).build());
         owner = memberUser("방장", GroupMemberRole.OWNER);
     }
 
