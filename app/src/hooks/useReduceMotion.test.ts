@@ -6,7 +6,7 @@
 // 조회 실패 경로는 다른 인스턴스가 필요해 useReduceMotion.queryFailure.test.ts 로 분리했다.
 import { act, renderHook } from '@testing-library/react-native';
 import { AccessibilityInfo, type EmitterSubscription } from 'react-native';
-import { useReduceMotion, useReduceMotionReady } from './useReduceMotion';
+import { useReduceMotion, useReduceMotionReady, whenReduceMotionReady } from './useReduceMotion';
 
 // addEventListener는 이벤트별 오버로드라 mockImplementation이 첫 오버로드(announcementFinished)로
 // 좁혀진다 — 반환 구독 객체와 핸들러 타입은 테스트용으로 단언해서 넘긴다.
@@ -44,10 +44,29 @@ describe('useReduceMotion', () => {
     expect(result.current).toBe(false);
   });
 
+  test('whenReduceMotionReady는 확정 전에는 resolve되지 않는다', async () => {
+    let settled = false;
+    void whenReduceMotionReady().then(() => {
+      settled = true;
+    });
+    await act(async () => {});
+    expect(settled).toBe(false);
+  });
+
   test('조회가 false로 끝나면 애니메이션을 허용한다', async () => {
     const { result } = await renderHook(() => useReduceMotion());
     await act(async () => resolveQuery(false));
     expect(result.current).toBe(false);
+  });
+
+  // 비동기 흐름(AsyncStorage 조회 뒤 타이머 예약 등)은 훅을 못 쓰므로 프로미스로 기다린다.
+  test('whenReduceMotionReady는 확정된 뒤에 resolve된다', async () => {
+    let settled = false;
+    void whenReduceMotionReady().then(() => {
+      settled = true;
+    });
+    await act(async () => {});
+    expect(settled).toBe(true); // 위 테스트가 이미 조회를 resolve해 뒀다
   });
 
   test('조회가 끝나면 ready=true', async () => {

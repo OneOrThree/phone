@@ -87,3 +87,25 @@ export function useReduceMotion(): boolean {
 export function useReduceMotionReady(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot) !== null;
 }
+
+/**
+ * '동작 줄이기' 값이 **확정될 때까지** 기다린다. 훅을 쓸 수 없는 **비동기 흐름**용이다.
+ *
+ * ⚠️ `await` 몇 번을 지났다고 해서 확정됐다고 가정하면 안 된다. AsyncStorage 조회 같은 다른
+ *    비동기 작업이 `isReduceMotionEnabled()`보다 **먼저 끝날 수 있다.** 그 상태에서 미확정
+ *    보수값(true)으로 되돌릴 수 없는 결정(축하 모달을 즉시 연다·마커를 기록한다)을 내리면
+ *    설정을 켜지 않은 사용자가 연출을 영구히 잃는다(codex 리뷰).
+ *
+ * 조회가 실패해도 false로 확정되므로 이 프로미스는 반드시 resolve된다.
+ */
+export function whenReduceMotionReady(): Promise<void> {
+  init();
+  if (enabled !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const notify = (): void => {
+      listeners.delete(notify);
+      resolve();
+    };
+    listeners.add(notify);
+  });
+}
