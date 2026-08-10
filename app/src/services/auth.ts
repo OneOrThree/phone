@@ -44,11 +44,14 @@ interface AuthResponse {
 // async 핸들러는 완료까지 기다린다 — 새 토큰이 저장되면 이전 계정 API를 더는 부를 수 없어서.
 // 이전 계정 access 토큰을 핸들러에 넘긴다 — 공유 api 인스턴스의 401 전역 로그아웃을 피해
 // bare 요청에 명시적으로 실어 보내기 위함(PR 226 리뷰).
-let accountSwitchHandler: ((prevAccessToken: string) => void | Promise<void>) | null = null;
-export function setAccountSwitchHandler(
-  handler: (prevAccessToken: string) => void | Promise<void>,
-): void {
-  accountSwitchHandler = handler;
+interface AccountSwitchHandlers {
+  beforeTokenWrite: () => void;
+  afterCommit: (prevAccessToken: string) => void | Promise<void>;
+}
+
+let accountSwitchHandlers: AccountSwitchHandlers | null = null;
+export function setAccountSwitchHandler(handlers: AccountSwitchHandlers): void {
+  accountSwitchHandlers = handlers;
 }
 
 // 게스트→소셜 업그레이드 트리거(GROMO-962) — 저장된 access 토큰이 있으면 소셜 로그인 요청의
@@ -97,6 +100,13 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       previousSession.find(([key]) => key === STORAGE_KEYS.accessToken)?.[1] ?? null;
     const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
     const nextUserId = getUserIdFromToken(data.accessToken);
+    const switchingAccount = Boolean(
+      prevToken && prevUserId && nextUserId && prevUserId !== nextUserId,
+    );
+
+    // 이전 계정의 대기 작업은 새 access token이 저장소에 보이기 전에 동기적으로 무효화한다.
+    // 서버 정리처럼 저장 실패 뒤 되돌릴 수 없는 일은 로컬 세션 커밋 뒤 afterCommit에서 수행한다.
+    if (switchingAccount) accountSwitchHandlers?.beforeTokenWrite();
 
     // 토큰 둘 중 하나만 남는 부분 저장도 실패로 간주하고 아래 snapshot으로 복구한다.
     sessionWriteStarted = true;
@@ -109,8 +119,14 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     // 프로필 병합에서 그 값이 우선한다(...profile 이 뒤에 spread).
     let result: LoginResult;
     if (!data.isNewUser) {
-      // 병합 실패는 무시 — 프로필 필드만 빠질 뿐 로그인 자체는 진행한다(기존 동작 유지).
-      const profile = await getMyProfile().catch(() => ({}));
+      // 새 토큰이 401이면 로그인 성공으로 삼키지 않는다. refresh/전역 logout 없이 이 저장을
+      // 실패시켜 아래 snapshot rollback이 이전 세션을 복구하게 한다. 비인증성 프로필 장애만 병합 생략.
+      let profile = {};
+      try {
+        profile = await getMyProfile({ noAuthRetry: true });
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 401) throw error;
+      }
       result = { isGuest, ...data, ...profile };
     } else {
       result = { isGuest, ...data };
@@ -119,8 +135,8 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
 
     // 이전 계정 API 정리는 prevToken을 명시해서 호출하므로 새 토큰 저장 뒤에도 안전하다. 세션 로컬
     // snapshot이 모두 저장된 뒤 실행해 저장 실패가 기존 계정 정리만 남기는 상황을 피한다.
-    if (prevToken && prevUserId && nextUserId && prevUserId !== nextUserId) {
-      await accountSwitchHandler?.(prevToken);
+    if (switchingAccount && prevToken) {
+      await accountSwitchHandlers?.afterCommit(prevToken);
     }
 
     // 세션 세대는 로컬 세션 전체가 커밋된 뒤에만 올린다. 이 구간은 로그아웃과 mutex로 직렬화되어

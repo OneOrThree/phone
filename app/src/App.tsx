@@ -441,15 +441,17 @@ function App() {
     // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
     // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401
     // 인터셉터가 전역 로그아웃을 발동시켜 방금 로그인한 계정이 풀릴 수 있다(PR 226 리뷰).
-    setAccountSwitchHandler(async (prevAccessToken) => {
-      abortTagEdits();
-      // 이전 계정 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — applyStoredSession의 스토리지
-      // 클리어·새 계정 프로바이더 리마운트보다 먼저 실행되는 지점(코덱스 리뷰).
-      abortFocusRestore();
-      // 이전 계정 서버 존 폐기(GROMO-1252 5차 ②) — 새 계정 프로필 조회가 실패해도 폴백(Asia/Seoul)에서
-      // 시작하도록. 성공하면 곧바로 postAuthSave의 setServerZone이 새 계정 존으로 덮어쓴다.
-      resetServerZone();
-      await deleteDeviceToken(prevAccessToken).catch(() => {});
+    setAccountSwitchHandler({
+      beforeTokenWrite: () => {
+        abortTagEdits();
+        // 새 token을 interceptor에 노출하기 전에 이전 계정의 복원/편집 작업을 무효화한다.
+        abortFocusRestore();
+      },
+      afterCommit: async (prevAccessToken) => {
+        // 새 세션의 로컬 snapshot이 모두 저장된 뒤에만 되돌릴 수 없는 서버 정리를 한다.
+        resetServerZone();
+        await deleteDeviceToken(prevAccessToken).catch(() => {});
+      },
     });
   }, []);
 
