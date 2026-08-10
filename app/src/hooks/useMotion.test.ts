@@ -4,7 +4,10 @@ import { renderHook } from '@testing-library/react-native';
 import { M } from '@/constants/motion';
 import { useMotion } from './useMotion';
 
-jest.mock('./useReduceMotion', () => ({ useReduceMotion: () => false }));
+jest.mock('./useReduceMotion', () => ({
+  useReduceMotion: () => false,
+  useReduceMotionReady: () => true,
+}));
 
 describe('useMotion (reduce=false)', () => {
   it('css는 스타일을 그대로 통과시킨다', async () => {
