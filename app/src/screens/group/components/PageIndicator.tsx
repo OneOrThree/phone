@@ -57,6 +57,16 @@ export function PageIndicator({
     setMeasuredWidth((current) => (current === next ? current : next));
   }, []);
 
+  const moveCounter = useCallback(
+    (delta: -1 | 1) => {
+      if (disabled) return;
+      const page = Math.max(0, Math.min(safeActiveIndex + delta, pageCount - 1));
+      if (page === safeActiveIndex) return;
+      (onAccessibilitySelectPage ?? onSelectPage)(page);
+    },
+    [disabled, onAccessibilitySelectPage, onSelectPage, pageCount, safeActiveIndex],
+  );
+
   useEffect(() => {
     if (previousModeRef.current === mode) return;
     previousModeRef.current = mode;
@@ -109,9 +119,25 @@ export function PageIndicator({
         <Pressable
           ref={counterRef}
           style={s.counterHit}
+          disabled={disabled}
           accessible
-          accessibilityRole="text"
+          accessibilityRole="adjustable"
           accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityHint="위아래로 쓸어 페이지를 이동합니다"
+          accessibilityValue={{
+            min: 1,
+            max: pageCount,
+            now: safeActiveIndex + 1,
+            text: `${safeActiveIndex + 1} / ${pageCount}`,
+          }}
+          accessibilityActions={[
+            { name: 'increment', label: '다음 페이지' },
+            { name: 'decrement', label: '이전 페이지' },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') moveCounter(1);
+            if (event.nativeEvent.actionName === 'decrement') moveCounter(-1);
+          }}
           accessibilityState={{ disabled }}
           onFocus={() => {
             setFocusWithin(true);

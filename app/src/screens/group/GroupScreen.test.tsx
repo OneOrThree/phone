@@ -320,6 +320,17 @@ describe('group_viewed view episode', () => {
     expect(peekGroupEntry('tab')).toBe('invite');
   });
 
+  test('인증 direct 진입이 목록 성공 전에 중단되면 source를 다음 탭 episode로 넘기지 않는다', async () => {
+    queueDirectGroupEntry('invite');
+    mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
+
+    const view = await renderScreen();
+    expect(peekGroupEntry('tab')).toBe('invite');
+    await act(async () => view.unmount());
+
+    expect(peekGroupEntry('tab')).toBe('tab');
+  });
+
   test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {
     mockGetMyGroups.mockResolvedValue([summary()]);
     await renderScreen();

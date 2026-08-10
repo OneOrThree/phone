@@ -171,6 +171,11 @@ export function preservePendingGroupCardEmoji(
   pendingEmojis.set(pendingKey(userId, groupId), { userId, groupId, emoji });
 }
 
+/** 직접 저장 성공은 같은 계정×그룹의 과거 실패값보다 최신이므로 stale retry를 폐기한다. */
+export function discardPendingGroupCardEmoji(userId: string, groupId: string): void {
+  pendingEmojis.delete(pendingKey(userId, groupId));
+}
+
 /** 그룹 화면 활성화 뒤 성공한 전체 목록에 포함된 최신 pending 값만 재시도한다. */
 export async function retryPendingGroupCardEmojis(
   userId: string,

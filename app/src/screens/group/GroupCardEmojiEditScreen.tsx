@@ -7,9 +7,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
-import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconEditorViewed,
+  logGroupCardIconSaveResult,
+} from '@/services/analyticsEvents';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
+  discardPendingGroupCardEmoji,
   readGroupCardEmoji,
   preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
@@ -33,6 +37,7 @@ export default function GroupCardEmojiEditScreen() {
   const activeRef = useRef(true);
   const identity = `${userId ?? 'anonymous'}:${groupId}`;
   const identityRef = useRef(identity);
+  const viewedIdentityRef = useRef<string | null>(null);
   identityRef.current = identity;
 
   useEffect(() => {
@@ -61,6 +66,12 @@ export default function GroupCardEmojiEditScreen() {
   const ready = loadedIdentity === identity && selected !== null && baseline !== null;
   const changed = ready && selected !== baseline;
 
+  useEffect(() => {
+    if (!ready || viewedIdentityRef.current === identity) return;
+    viewedIdentityRef.current = identity;
+    logGroupCardIconEditorViewed({ surface: 'settings' });
+  }, [identity, ready]);
+
   const save = useCallback(async () => {
     if (!userId || !selected || !changed || saving || !ready) return;
     const saveIdentity = identity;
@@ -68,6 +79,7 @@ export default function GroupCardEmojiEditScreen() {
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
+      discardPendingGroupCardEmoji(userId, groupId);
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
       setBaseline(selected);

@@ -57,4 +57,25 @@ describe('PageIndicator', () => {
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('11 / 12');
     expect(screen.getByLabelText('현재 11, 전체 12 페이지')).toBeOnTheScreen();
   });
+
+  test('counter 접근성 증감 동작으로 인접 페이지를 선택하고 경계를 넘지 않는다', async () => {
+    const onAccessibilitySelectPage = jest.fn();
+    await render(
+      <PageIndicator
+        pageCount={12}
+        activeIndex={10}
+        onSelectPage={jest.fn()}
+        onAccessibilitySelectPage={onAccessibilitySelectPage}
+      />,
+    );
+    const counter = screen.getByTestId('group.deck.indicator.counter');
+
+    fireEvent(counter, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
+    fireEvent(counter, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
+
+    expect(onAccessibilitySelectPage).toHaveBeenNthCalledWith(1, 11);
+    expect(onAccessibilitySelectPage).toHaveBeenNthCalledWith(2, 9);
+    expect(counter.props.accessibilityRole).toBe('adjustable');
+    expect(counter.props.accessibilityValue).toEqual({ min: 1, max: 12, now: 11, text: '11 / 12' });
+  });
 });

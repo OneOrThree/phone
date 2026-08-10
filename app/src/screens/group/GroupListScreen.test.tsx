@@ -5,11 +5,12 @@
 //     그룹에만** 붙는다. role을 뭉개면 남의 그룹에 방장 표시가 붙어 잘못된 권한을 기대하게 된다.
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View } from 'react-native';
 import GroupListScreen, { advanceEdgeTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { STORAGE_KEYS } from '@/types/storage';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -56,11 +57,15 @@ const onBack = jest.fn();
 
 // render는 반드시 await 한다 — React 19 + RNTL 14에서는 렌더가 비동기라
 // 동기 호출만 하면 screen이 채워지지 않는다(그룹 테스트 3종 공통 관행).
-async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
+async function renderList(
+  groups: GroupSummaryResponse[],
+  back?: () => void,
+  userId: string | null = null,
+) {
   return await render(
     <GroupListScreen
       groups={groups}
-      userId={null}
+      userId={userId}
       onSelect={onSelect}
       onCreate={onCreate}
       onFind={onFind}
@@ -85,6 +90,41 @@ beforeEach(async () => {
 });
 
 describe('카드 렌더', () => {
+  test('로컬 순서를 읽기 전에는 서버 첫 카드를 노출하지 않고 hydrate된 0번부터 시작한다', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.groupCardOrder,
+      JSON.stringify({ 'user-1': [GROUP_ID_2, GROUP_ID] }),
+    );
+    const storedOrder = await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key) => {
+      if (key === STORAGE_KEYS.groupCardOrder) await gate;
+      return key === STORAGE_KEYS.groupCardOrder ? storedOrder : null;
+    });
+
+    await renderList(
+      [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })],
+      undefined,
+      'user-1',
+    );
+    expect(
+      screen.getByTestId('group.deck.hydrating', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByTestId('group.list.items')).toBeNull();
+
+    release();
+    await waitFor(() => expect(screen.getByTestId('group.list.items')).toBeOnTheScreen());
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID_2, GROUP_ID]);
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
+  });
+
   test('이름과 n/m 인원을 서버가 준 순서 그대로 그린다', async () => {
     await renderList([
       group(),

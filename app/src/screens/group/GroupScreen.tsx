@@ -19,6 +19,7 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
+  clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
   type GroupEntrySource,
@@ -173,12 +174,18 @@ export default function GroupScreen() {
         source: peekGroupEntry(fallback),
         logged: false,
       };
+      const episodeId = viewEpisodeRef.current.id;
       setSuccessfulListEpisode(null);
       fetchGroups();
       return () => {
         requestSeqRef.current++;
+        // 인증된 사용자의 direct 진입이 목록 확정 전에 중단되면 다음 평범한 탭 진입에
+        // invite/push 원인이 새지 않게 이 episode가 소유한 1회성 source를 폐기한다.
+        // 게스트 초대는 로그인 뒤 같은 초대로 돌아와야 하므로 보존한다.
+        const episode = viewEpisodeRef.current;
+        if (!isGuest && episode.id === episodeId && !episode.logged) clearPendingGroupEntry();
       };
-    }, [fetchGroups]),
+    }, [fetchGroups, isGuest]),
   );
 
   // ⚠️ 시트 퇴장 애니메이션(220ms) **뒤에** 불린다. 그 사이 새 초대 링크가 도착해 시트 내용이

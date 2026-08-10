@@ -21,8 +21,13 @@ jest.mock('@react-navigation/native', () => ({
 
 const mockUser = { userId: 'user-1' as string | null };
 jest.mock('@/store/UserContext', () => ({ useUser: () => mockUser }));
-jest.mock('@/services/analyticsEvents', () => ({ logGroupCardIconSaveResult: jest.fn() }));
-const { logGroupCardIconSaveResult } = jest.requireMock('@/services/analyticsEvents');
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardIconEditorViewed: jest.fn(),
+  logGroupCardIconSaveResult: jest.fn(),
+}));
+const { logGroupCardIconEditorViewed, logGroupCardIconSaveResult } = jest.requireMock(
+  '@/services/analyticsEvents',
+);
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -45,6 +50,8 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+  expect(logGroupCardIconEditorViewed).toHaveBeenCalledTimes(1);
+  expect(logGroupCardIconEditorViewed).toHaveBeenCalledWith({ surface: 'settings' });
 });
 
 test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을 닫는다', async () => {
@@ -84,6 +91,21 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🧠');
 });
 
+test('실패한 이전 선택 뒤 새 선택 저장이 성공하면 stale pending 재시도가 덮어쓰지 않는다', async () => {
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🧠')));
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+  await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/);
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+  await retryPendingGroupCardEmojis('user-1', ['group-1']);
+
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🔥');
+});
+
 test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성화한다', async () => {
   mockUser.userId = null;
   await render(<GroupCardEmojiEditScreen />);
@@ -113,6 +135,7 @@ test('계정 전환 시 이전 계정 선택을 노출하지 않고 새 계정 b
     ),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+  expect(logGroupCardIconEditorViewed).toHaveBeenCalledTimes(2);
 });
 
 test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버리지 않는다', async () => {
