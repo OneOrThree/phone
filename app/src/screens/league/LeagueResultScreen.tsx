@@ -104,6 +104,15 @@ export default function LeagueResultScreen() {
   const ready = m.ready;
   const delayRef = useRef(m.delay);
   delayRef.current = m.delay;
+  // ⚠️ m.delay만으로는 부족하다 — 그건 **대기 시간**만 0으로 만든다. 뒤이어 걸리는 원시
+  //    애니메이션(LayoutAnimation 500 · nameAnim 스프링 · 200ms 지연 · 420ms 타이틀 · line3
+  //    스프링)은 게이트 밖이라 '동작 줄이기'가 처음부터 켜져 있어도 그대로 재생됐다. 그때는
+  //    아래 '재생 도중 켜짐' effect도 꺼짐→켜짐 전이가 아니라 돌지 않아, 사용자는 티어명·
+  //    타이틀·하단 안내의 확대·페이드를 전부 보게 된다(codex 리뷰).
+  //    그래서 단계가 **실제로 실행되는 시점의** reduce 값을 여기서 읽어, 시퀀스는 완주시키되
+  //    값만 최종 상태로 대입한다(정책 D6 — 끄는 것은 시각 효과지 시퀀스가 아니다).
+  const reduceRef = useRef(m.reduce);
+  reduceRef.current = m.reduce;
   // 축하(햅틱·컨페티)는 화면당 1회. 시퀀스가 어떤 이유로 다시 돌더라도 보상 피드백은 반복하지 않는다.
   const celebratedRef = useRef(false);
   // 조각이 전부 화면 밖으로 나가면 컨페티를 **언마운트**한다. 남겨 두면 조각이 안 보이는 뒤로도
@@ -153,15 +162,27 @@ export default function LeagueResultScreen() {
       // 결과 티어명 등장 — 승격·유지는 전환과 동시에, 강등은 결과(to) 뱃지가 뜨는 시점(≈1.5초)에 맞춰
       Animated.delay(delayRef.current(demote ? 1500 : 0)).start(({ finished: f2 }) => {
         if (!f2 || cancelled) return;
-        // 티어명(화살표/단일) 등장 — 레이아웃 페이드
-        LayoutAnimation.configureNext(
-          LayoutAnimation.create(
-            500,
-            LayoutAnimation.Types.easeInEaseOut,
-            LayoutAnimation.Properties.opacity,
-          ),
-        );
+        // 이 단계가 실제로 도는 시점의 '동작 줄이기' 값 — 마운트 시점 값이 아니다.
+        const reduce = reduceRef.current;
+        // 티어명(화살표/단일) 등장 — 레이아웃 페이드.
+        // reduce면 이 설정 자체를 걸지 않는다(=500ms 페이드가 생기지 않는다). D-26으로
+        // LayoutAnimation을 이번에 걷어내지는 않지만, 게이트는 씌운다.
+        if (!reduce) {
+          LayoutAnimation.configureNext(
+            LayoutAnimation.create(
+              500,
+              LayoutAnimation.Types.easeInEaseOut,
+              LayoutAnimation.Properties.opacity,
+            ),
+          );
+        }
         setShowTo(true);
+        if (reduce) {
+          // 남은 단계(티어명 팝 → 타이틀 팝 → 하단 안내)를 **최종 상태로 즉시 대입**한다.
+          // 시퀀스는 여기서 끝나므로 뒤에 남는 단계가 없다 — 화면이 중간에 멈추지 않는다.
+          [nameAnim, titleAnim, line3].forEach((v) => v.setValue(1));
+          return;
+        }
         // 티어명 팝인
         Animated.spring(nameAnim, {
           toValue: 1,

@@ -24,6 +24,7 @@ import { useLeagueRanking } from './useLeagueRanking';
 import { useGlobalRanking } from './useGlobalRanking';
 import { useLeagueMeta } from './useLeagueMeta';
 import { useLeagueLastResult } from './useLeagueLastResult';
+import { useStagedRanking } from './useStagedRanking';
 import { useFriends } from './useFriends';
 import { usePinned } from './usePinned';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -185,7 +186,12 @@ export default function LeagueScreen() {
     myLeagueLabel ?? (rankingError && ranking.length === 0 ? intendedLeagueLabel : null);
   const filter = leagueFilter ?? myLabel ?? LEAGUE_ALL;
   const isAll = filter === LEAGUE_ALL;
-  const visibleRanking = isAll ? globalRanking : ranking.filter((r) => r.exam === filter);
+  // 재정렬은 **한 칸씩** 재생한다 (정본 §6). 서버가 여러 칸을 한 번에 바꿔 넣어도 중간 순서를
+  // 큐로 거쳐 가도록 useStagedRanking이 순서를 늦춘다 — 값(기록·막대)은 최신 그대로다.
+  // 포디움·리스트가 같은 파생값을 쓰므로 두 영역의 재정렬 호흡이 자동으로 맞는다.
+  const visibleRanking = useStagedRanking(
+    isAll ? globalRanking : ranking.filter((r) => r.exam === filter),
+  );
   // 지금 보는 리스트의 조회 실패 여부 — 전체 탭은 전역 랭킹, 직군 탭은 직군 랭킹 기준 (GROMO-922)
   const visibleRankingError = isAll ? globalError : rankingError;
   // 실패 안내 표시 여부 — 실패했고 보여줄 목록도 없을 때만(기존 목록이 있으면 목록 유지)
