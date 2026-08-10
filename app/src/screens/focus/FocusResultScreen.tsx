@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ViewStyle } from 'react-native';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -6,7 +7,10 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { cubicBezier } from 'react-native-reanimated';
+import { growUp, pop } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
+import { Enter } from '@/components/Enter';
+import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
 import { T } from '@/constants/theme';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
@@ -52,33 +56,17 @@ const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 const BAR_H = 72;
 // GROMO-682: 스트릭(출석 ✓) 인정 최소 기준 — 하루 누적 10분
 const STREAK_MIN_DAILY_MINUTES = 10;
-// 진입 시 막대가 바닥부터 자라는 키프레임(GROMO-683) — height 애니메이션은 매 프레임
-// 레이아웃 패스를 유발하므로 scaleY 변환 사용(s.bar의 transformOrigin: 'bottom'과 조합).
-const growUp = { from: { transform: [{ scaleY: 0 }] } };
-// 막대별 진입 애니메이션 — 왼쪽부터 80ms 시차. fillMode backwards로 딜레이 동안
-// scaleY 0(접힌 상태)을 유지해 먼저 그려지는 튐 방지. 이징은 목표를 살짝 넘었다가
-// 자리 잡는 overshoot 곡선(easeOutBack) — 500ms ease-out은 너무 빨라 체감이 안 됐음.
-const barEnterAnim = (index: number) =>
-  ({
-    animationName: growUp,
-    animationDuration: '800ms',
-    animationDelay: `${index * 80}ms`,
-    animationTimingFunction: cubicBezier(0.34, 1.56, 0.64, 1),
-    animationFillMode: 'backwards',
-  }) as const;
-// 스트릭 ✓ 팝 모션(GROMO-667) — 그날 누적 10분을 처음 채운 결과 화면에서 '오늘 칸'에만 재생.
-// 요일 무관 동일 효과 — 일요일이라 주간까지 완성되면 이 팝에 이어 종이폭죽·모달이 붙는다.
-const checkPop = {
-  animationName: {
-    from: { transform: [{ scale: 0 }] },
-    '70%': { transform: [{ scale: 1.25 }] },
-    to: { transform: [{ scale: 1 }] },
-  },
-  animationDuration: '600ms',
-  animationDelay: '400ms',
-  animationTimingFunction: 'ease-out',
-  animationFillMode: 'backwards',
-} as const;
+// 진입 애니메이션은 전부 @/constants/motion 프리셋으로 이관했다(GROMO-1381).
+//   막대 진입  → growUp(i)  : scaleY 0→1, entrance(800ms), overshoot 커브, fillMode backwards.
+//                             s.bar의 transformOrigin: 'bottom'과 짝이다(height 대신 scaleY를
+//                             쓰는 이유 — 매 프레임 레이아웃 패스 회피, GROMO-683).
+//                             시차는 M.stagger.base(60ms)로 상향됐다(기존 80ms).
+//   ✓ 팝     → pop(400)    : scale 0→1.25→1, slow(600ms), 400ms 지연.
+//                             스트릭 ✓(GROMO-667)와 코인 배지가 같은 모션을 공유한다.
+// ⚠️ 프리셋은 모듈 스코프에 참조 캐싱돼 있어 인라인 호출해도 애니메이션이 리셋되지 않는다.
+//    (기존 barEnterAnim은 호출마다 새 객체를 만들었다 — 마운트 1회라 드러나지 않았을 뿐이다.)
+// ⚠️ 반드시 m.css()를 통과시킨다. CSS 애니메이션은 reduce-motion 내장 처리가 없다.
+const STREAK_POP_DELAY_MS = 400;
 
 // 오늘 ✓ 팝을 재생한 마커(프로세스 메모리, 'userId:날짜') — 연속 결과 화면이 AsyncStorage 쓰기
 // 완료 전에 영속 마커를 다시 읽는 레이스 방어(코덱스 리뷰). 영속 마커(focusStreakPoppedDate)와
@@ -103,6 +91,11 @@ export default function FocusResultScreen() {
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusResult'>>();
   const { focusSeconds, subjectName, completed } = params;
   const { subjects } = useSubjects();
+  const m = useMotion();
+  // 연출 판정 effect가 재실행되면 안 되므로(아래 celebrationStarted 가드) m을 deps에 넣는 대신
+  // 최신 delay 함수를 ref로 읽는다.
+  const delayRef = useRef(m.delay);
+  delayRef.current = m.delay;
   // 목표 달성 판정용(GROMO-630) — 로컬 누적(오늘 전체)·로컬 목표. 서버 조회가 늦거나 실패해도 판정 가능.
   const { todayFocusSeconds } = useFocus();
   const { goalSeconds: userGoalSeconds, userId } = useUser();
@@ -115,6 +108,9 @@ export default function FocusResultScreen() {
   const [cellsLoaded, setCellsLoaded] = useState(false);
   // heatmap 확정 실패 — 별점 요청(980)은 성공/실패가 확정된 뒤에만 발화한다(아래 effect 참고)
   const [cellsFailed, setCellsFailed] = useState(false);
+  // 조회가 끝났는가(성공·실패 무관). 막대의 '기다림'은 여기서 끝난다 — 실패를 빼면 로컬로
+  // 확정된 오늘 막대까지 영영 숨는다(codex 리뷰).
+  const cellsSettled = cellsLoaded || cellsFailed;
   // 비교 3축(GROMO-755) — 평균 집계 API(753) 단일 호출. 오늘/이번 주 기간 탭(692와 동일 패턴)
   // × 축별 캐시: 탭 왕복 시 재조회 없이 즉시 전환, 축별 독립 도착은 유지.
   // 축 값 undefined = 로딩 중, avg null = 미확보(count 0 = 집계 대상 없음 / -1 = 조회 실패)
@@ -151,7 +147,7 @@ export default function FocusResultScreen() {
     fetchFocusAverage('CATEGORY', comparePeriod).then(put('category'));
     if (comparePeriod === 'MONTH') {
       getFocusPeriodStats('MONTH')
-        .then((m) => !compareUnmounted.current && setMonth(m))
+        .then((res) => !compareUnmounted.current && setMonth(res))
         .catch(() => {});
     }
   }, [comparePeriod]);
@@ -282,6 +278,11 @@ export default function FocusResultScreen() {
   // 동작 없이 피드백만 내는 것을 막는다(아래 footer 주석 참고).
   const [leaving, setLeaving] = useState(false);
   const celebrationStarted = useRef(false);
+  // 축하 판정이 아직 진행 중인가 — 별점 요청이 그 사이를 비집고 들어오지 못하게 한다.
+  const celebrationPendingRef = useRef(false);
+  // 진행 중인 '연출 대기' 예약 — 재생 도중 '동작 줄이기'가 켜지면 기다릴 연출이 사라지므로
+  // 남은 대기를 버리고 즉시 다음 단계로 넘긴다(아래 effect).
+  const pendingCelebrateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 별점 요청(GROMO-980) — 집중 세션 '정상 완료'(긍정적 순간)에 조건 충족 시 1회 노출.
   // 중도 이탈(정지·이탈 타임아웃) 세션은 요청하지 않는다 — 부정적 순간에 영구 마커('단 한 번의
@@ -296,7 +297,15 @@ export default function FocusResultScreen() {
     // 도착 시 축하 판정창은 최대 1.2s(팝 종료) — 그 뒤(1.6s)에 확인. 실패면 연출 자체가 없어 짧게.
     const delay = cellsLoaded ? 1600 : 400;
     const timer = setTimeout(() => {
-      if (weekModalVisibleRef.current) return; // 스트릭 축하 노출 중 → 스킵(다음 완료 때 재시도)
+      // 축하가 **떠 있거나 · 예약됐거나 · 아직 판정 중**이면 스킵한다(다음 완료 때 재시도).
+      // 종전에는 '떠 있는가'만 봐서, 판정이 길어지면 별점창과 축하가 겹쳤다(codex 리뷰).
+      if (
+        weekModalVisibleRef.current ||
+        pendingCelebrateRef.current !== null ||
+        celebrationPendingRef.current
+      ) {
+        return;
+      }
       maybeRequestReview();
     }, delay);
     return () => clearTimeout(timer);
@@ -350,6 +359,11 @@ export default function FocusResultScreen() {
     (async () => {
       if (cancelled || celebrationStarted.current) return;
       celebrationStarted.current = true;
+      // ⚠️ 판정이 **끝날 때까지** 별점 요청을 막는다. 판정에는 AsyncStorage 조회 두 번과
+      //    '동작 줄이기' 확정 대기가 들어 있어 400ms를 넘길 수 있는데, 그동안 별점 타이머가
+      //    먼저 만료되면 weekModalVisibleRef는 아직 false라 별점창이 뜨고 뒤늦게 축하 모달이
+      //    겹친다(codex 리뷰). 예약까지 끝나면 pendingCelebrateRef가 이어받는다.
+      celebrationPendingRef.current = true;
       // 오늘 ✓ 팝은 그날 처음 채워진 결과 화면에서만 재생(하루 1회 — '매 세션 노출'에서 재변경,
       // 오스카 요청). 이후 세션의 결과 화면은 팝 없이 정적 ✓로 표시된다. 주간 축하는 팝과
       // 독립 판정 — 이번 주 도장이 없으면 재생하되, 주 1회 가드는 그대로 유지한다.
@@ -379,26 +393,54 @@ export default function FocusResultScreen() {
         () => null,
       );
       if (cancelled || seenWeek === mondayKey) return;
-      timers.push(
-        setTimeout(
-          () => {
-            // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
-            // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
-            AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
-              () => {},
-            );
-            setWeekModalVisible(true);
-          },
-          firstPopToday ? 1200 : 400, // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms)
-        ),
-      );
-    })();
+      // ⚠️ **'동작 줄이기'가 확정될 때까지 타이머 예약을 보류한다.** 위 await들(heatmap·
+      //    AsyncStorage 2회)이 isReduceMotionEnabled() 조회보다 **먼저 끝날 수 있다.**
+      //    그 상태의 보수값(true)으로 지연을 0으로 만들면 일반 사용자에게도 축하 모달이
+      //    즉시 열리고, 체크 팝은 뒤늦게 시작해 모달에 가려진다. 마커까지 기록되므로 그날은
+      //    다시 재생할 수도 없다(codex 리뷰).
+      //    판정 effect 자체를 재시작하지는 않는다 — 그건 아래 주석의 사고를 되살린다.
+      //    여기서 기다리기만 한다. 조회가 실패해도 false로 확정되므로 멈추지 않는다.
+      await whenReduceMotionReady();
+      if (cancelled) return;
+      // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
+      // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
+      const openWeekModal = () => {
+        pendingCelebrateRef.current = null;
+        AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(() => {});
+        setWeekModalVisible(true);
+      };
+      // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms).
+      // ⚠️ m.delay를 통과시킨다 — '동작 줄이기'면 팝 자체가 재생되지 않는데 대기만 남으면
+      //    정적 ✓를 보며 아무 일도 없는 1.2초를 기다리게 된다(codex 리뷰).
+      //    타이머 자체는 남으므로 주 1회 도장 기록·모달 노출 순서는 그대로다.
+      // ⚠️ 예약해 뒀다는 사실 자체가 별점 요청의 스킵 조건이다(위 maybeRequestReview 가드).
+      //    "곧 뜬다"를 아는 유일한 표식이라 반드시 남긴다.
+      const timer = setTimeout(openWeekModal, delayRef.current(firstPopToday ? 1200 : 400));
+      pendingCelebrateRef.current = timer;
+      timers.push(timer);
+    })().finally(() => {
+      // 예약이 잡혔으면 pendingCelebrateRef가 이어받고, 아니면 축하가 없다는 뜻이다.
+      celebrationPendingRef.current = false;
+    });
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
+    // ⚠️ m을 **의존성에 넣지 않는다.** 이 effect는 celebrationStarted ref로 1회만 실행되는데,
+    //    첫 AsyncStorage 대기 중에 reduce가 확정되면(초기 조회는 비동기다) 재실행이 걸리면서
+    //    cleanup이 cancelled를 세워 진행 중이던 판정을 죽이고, 새 실행은 그 ref 가드에 막힌다.
+    //    결과는 그날의 팝 마커 미기록 + 주간 축하 모달 누락이다(codex 리뷰).
+    //    대신 delayRef로 **타이머를 걸는 시점의** 최신 값을 읽는다 — 그 시점은 await 이후라
+    //    reduce가 이미 확정돼 있다.
   }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
+
+  // ⚠️ **재생 도중 설정을 켜도 이 예약은 앞당기지 않는다.** 앞선 라운드에 "팝이 즉시 사라지니
+  //    남은 대기도 버린다"로 고쳤었는데, 그 뒤 팝이 `Enter`로 바뀌면서 전제가 사라졌다 —
+  //    `Enter`는 진입 결정을 얼려서 **이미 시작된 팝을 걷어내지 않는다**(그게 '붙었다 떨어지는'
+  //    사고를 막는 방식이다). 앞당기면 아직 도는 팝 위로 축하 모달이 겹친다(codex 리뷰).
+  //    같은 라운드의 과목·타이머 선택 쪽 앞당김은 그대로 둔다 — 그쪽 연출(glassSlide)은 CSS
+  //    전환이라 `m.css`를 통해 설정을 켜는 즉시 실제로 사라진다.
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>
@@ -421,9 +463,9 @@ export default function FocusResultScreen() {
           <Text style={s.sub}>
             {firstTime ? '오늘 첫 걸음을 뗐어요 🎉' : `${subjectName} · 꾸준함이 쌓이고 있어요`}
           </Text>
-          {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 checkPop 재사용) */}
+          {/* 획득 시간조각 — 저장 응답 도착 시 "+N 모래시계" 팝(스트릭 ✓와 같은 pop 프리셋 재사용) */}
           {rewardCoins > 0 ? (
-            <Animated.View style={[s.coinBadge, checkPop]}>
+            <Enter preset={pop(STREAK_POP_DELAY_MS)} style={s.coinBadge}>
               {/* 중첩 아이콘은 부모 문자열에 합쳐져 글리프로 읽히므로 라벨은 이 <Text>에 단다. */}
               <Text
                 style={s.coinBadgeText}
@@ -431,7 +473,7 @@ export default function FocusResultScreen() {
               >
                 +{rewardCoins.toLocaleString()} <CurrencyIcon size={14} />
               </Text>
-            </Animated.View>
+            </Enter>
           ) : null}
         </View>
 
@@ -516,9 +558,9 @@ export default function FocusResultScreen() {
                       <Ionicons name="checkmark" size={15} color={T.white} />
                     ) : null}
                     {popping ? (
-                      <Animated.View style={[s.dotPopFill, checkPop]}>
+                      <Enter preset={pop(STREAK_POP_DELAY_MS)} style={s.dotPopFill}>
                         <Ionicons name="checkmark" size={15} color={T.white} />
-                      </Animated.View>
+                      </Enter>
                     ) : null}
                   </View>
                   <Text style={[s.dotDay, isToday ? s.dotDayToday : null]}>{WEEK_LABELS[i]}</Text>
@@ -568,12 +610,18 @@ export default function FocusResultScreen() {
                   return (
                     <View key={date} style={s.barCol}>
                       <View style={s.barTrack}>
-                        <Animated.View
-                          style={[
-                            s.bar,
-                            { height: h, backgroundColor: isToday ? T.accent : T.sand },
-                            barEnterAnim(i),
-                          ]}
+                        <WeekBar
+                          // ⚠️ 실패(cellsFailed)도 **기다림 종료**다. 성공만 보면 조회가
+                          //    실패했을 때 막대가 scaleY 0에 영구히 갇혀, 로컬로 확정된 오늘
+                          //    막대까지 숨고 주간 합계와 빈 차트가 모순된다(codex 리뷰).
+                          // ⚠️ **key로 재마운트시키지 않는다.** 재마운트하면 인스턴스에 얼려 둔
+                          //    진입 결정이 폐기돼, 기다리는 동안 '동작 줄이기'를 켰다 끈 경우
+                          //    이미 보이던 막대를 scaleY 0으로 접었다 다시 키운다(codex 리뷰).
+                          height={h}
+                          isToday={isToday}
+                          index={i}
+                          settled={cellsSettled}
+                          animate={cellsLoaded}
                         />
                       </View>
                       <Text style={[s.barDay, isToday ? s.barDayToday : null]}>
@@ -821,6 +869,46 @@ function CompareCard({
         <Text style={s.cmpCaption}>{cur.loading ? '불러오는 중…' : cur.empty}</Text>
       )}
     </View>
+  );
+}
+
+// growUp의 **시작 프레임**. 프리셋에서 직접 뽑아 두 값이 갈리지 않게 한다.
+const GROW_PENDING = (growUp(0).animationName as { from: ViewStyle }).from;
+
+// 주간 막대 하나. ⚠️ **Enter를 쓰는 게 이 컴포넌트의 존재 이유다.**
+// 막대는 화면과 함께 마운트되지만 진입 스타일은 heatmap 응답(settled)에 **늦게 붙는다.**
+// `useMotion`의 결정은 마운트 시점에 얼리므로, 응답을 기다리는 사이 사용자가 '동작 줄이기'를
+// 켰어도 그 옛 결정대로 막대가 자란다(codex 리뷰). `Enter`의 `active`는 **처음 true가 되는
+// 시점**에 정하므로 그 창을 덮는다.
+// 뷰를 새로 끼운 게 아니다 — Enter가 곧 그 Animated.View다(D-04 유지).
+function WeekBar({
+  height,
+  isToday,
+  index,
+  settled,
+  animate,
+}: {
+  height: number;
+  isToday: boolean;
+  index: number;
+  /** 조회가 끝났는가(성공·실패 무관) — 기다림을 끝내는 신호다. */
+  settled: boolean;
+  /** 성공해서 실제로 자랄 값이 있는가. 실패면 정적으로 보여 준다. */
+  animate: boolean;
+}) {
+  return (
+    <Enter
+      preset={growUp(index)}
+      // 도착 전에는 **누구에게나 같은 시작 프레임**에서 기다린다. 갈라 두면 기다리는 동안
+      // 설정이 켜져 있던 사용자에게만 막대가 먼저 보이고, 그 뒤 끄면 접혔다 자란다.
+      style={[
+        s.bar,
+        { height, backgroundColor: isToday ? T.accent : T.sand },
+        settled ? undefined : GROW_PENDING,
+      ]}
+      // 실패면 기다림은 끝내되 연출은 붙이지 않는다 — 로컬로 확정된 오늘 막대는 보여야 한다.
+      active={settled && animate}
+    />
   );
 }
 

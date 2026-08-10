@@ -6,6 +6,7 @@ import { T } from '@/constants/theme';
 import type { FocusTimerMode } from '../types';
 import { SheetShell } from '@/components/SheetShell';
 import { SLIDE_MS, glassSlide, glassPill } from '@/components/liquidGlass';
+import { useMotion } from '@/hooks/useMotion';
 
 // 03 타이머 방식 — 카운트업/카운트다운/뽀모도로 중 선택.
 const OPTIONS: {
@@ -36,7 +37,19 @@ export function TimerMethodSheet({
     Partial<Record<FocusTimerMode, { y: number; h: number }>>
   >({});
   const [picked, setPicked] = useState<FocusTimerMode | null>(null);
+  // '동작 줄이기' 값이 **확정되기 전**(콜드 스타트의 비동기 조회 구간)에 들어온 탭.
+  // 미확정 구간의 useMotion은 보수적으로 reduce=true라, 그대로 시작하면 대기가 0으로 눌려
+  // 설정을 켜지 않은 사용자도 알약 슬라이드를 잃는다 — 일회성 진행이라 나중에 false로
+  // 확정돼도 되돌릴 수 없다(codex 리뷰). 탭은 여기 담아 두고 확정된 값으로 시작한다.
+  // (picked를 먼저 세우면 알약이 이미 이동해 버려 슬라이드가 재생될 자리가 없으므로 함께 미룬다)
+  const [queued, setQueued] = useState<FocusTimerMode | null>(null);
   const proceedRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // '동작 줄이기'면 알약이 미끄러지지 않고 누른 행에 즉시 나타난다(위치·표시 여부는 그대로).
+  // ⚠️ 아래 진행 타이머(SLIDE_MS + 60)는 **알약이 미끄러지는 걸 보여주기 위한 대기**다.
+  //    그래서 m.delay()를 통과시킨다 — reduce면 알약이 이미 제자리에 있으므로 기다릴 게 없고,
+  //    게이트하지 않으면 빈 410ms 정지 화면이 남는다. 타이머 자체는 남으므로 세션 시작 흐름
+  //    (onSelect → navigate)의 순서 계약은 그대로다.
+  const m = useMotion();
 
   // 딤 탭 등으로 시트가 닫히면 예약된 진행을 취소 (늦은 onSelect 방지)
   useEffect(
@@ -46,15 +59,48 @@ export function TimerMethodSheet({
     [],
   );
 
+  // 진행 본체 — delayMs는 **확정된** 설정으로 계산해 넘긴다.
+  // 이 대기는 알약이 미끄러지는 걸 보여주기 위한 시간이다 — reduce면 알약이 이미 제자리에
+  // 놓이므로 기다릴 연출이 없다. delayMs가 0이어도 setTimeout은 남으므로 진행은 완주한다.
+  const startProceed = (mode: FocusTimerMode, delayMs: number) => {
+    setPicked(mode);
+    proceedRef.current = setTimeout(() => onSelect(mode), delayMs);
+  };
+
   const pick = (mode: FocusTimerMode) => {
-    if (picked) return; // 슬라이드 중 중복 탭 방지
+    if (picked || queued) return; // 슬라이드 중(과 확정 대기 중) 중복 탭 방지
     if (!rowRects[mode]) {
       onSelect(mode); // 측정 전 탭 — 연출 생략하고 바로 진행
       return;
     }
-    setPicked(mode);
-    proceedRef.current = setTimeout(() => onSelect(mode), SLIDE_MS + 60);
+    if (!m.ready) {
+      // 설정 미확정 — 탭은 받아 두고 시작만 미룬다. ready는 조회가 실패해도 반드시
+      // 확정되므로(useReduceMotion) 여기서 영영 멈추지 않는다.
+      setQueued(mode);
+      return;
+    }
+    startProceed(mode, m.delay(SLIDE_MS + 60));
   };
+
+  // ⚠️ 재생 도중 '동작 줄이기'가 켜지면 **남은 대기를 버리고 즉시 진행**한다. 대기 시간은
+  //    예약할 때 한 번 계산되므로, 그대로 두면 알약은 이미 제자리인데 아무 일도 없는 410ms가
+  //    남는다(codex 리뷰).
+  useEffect(() => {
+    if (!m.reduce || !picked || !proceedRef.current) return;
+    clearTimeout(proceedRef.current);
+    proceedRef.current = null;
+    onSelect(picked);
+  }, [m.reduce, picked, onSelect]);
+
+  // 설정이 확정되면 보류해 둔 탭을 확정된 값으로 진행시킨다.
+  // ⚠️ 의존성에 m(useMotion 반환 객체)을 넣지 말 것 — reduce/ready가 바뀔 때마다 새 객체라
+  //    일회성 진행이 중복 실행된다. 원시값 m.ready만 넣고, 지연은 이 렌더의 m으로 계산한다.
+  useEffect(() => {
+    if (!m.ready || !queued) return;
+    setQueued(null);
+    startProceed(queued, m.delay(SLIDE_MS + 60));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- m(useMotion 객체)은 의존성에서 제외
+  }, [m.ready, queued]);
 
   // 대기 위치는 첫 행 — 누르면 그 자리에서 누른 행으로 미끄러지며 나타난다
   const glassRect = (picked && rowRects[picked]) || rowRects.countup;
@@ -98,7 +144,7 @@ export function TimerMethodSheet({
                 height: glassRect.h,
                 transform: [{ translateY: glassRect.y }],
               },
-              glassSlide,
+              m.css(glassSlide),
             ]}
           />
         )}
