@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
-import { Skeleton, SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -30,6 +30,7 @@ import {
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 import {
@@ -69,12 +70,12 @@ function groupCountBucket(count: number): GroupCountBucket {
 }
 
 // 최초 로딩 자리표시자로 그릴 카드 수 — 첫 화면에 들어오는 만큼만(화면당 동시 스켈레톤 상한 12).
-const SKELETON_CARDS = 3;
 // 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
 // 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { isGuest, userId, sessionIdentityRef } = useUser();
@@ -514,10 +515,13 @@ export default function GroupScreen() {
           <View style={s.skeletonHeader}>
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
-          <View style={s.skeletonList}>
-            {Array.from({ length: SKELETON_CARDS }, (_, i) => (
-              <SkeletonCard key={i} height={GROUP_CARD_HEIGHT} />
-            ))}
+          <View style={s.skeletonDeck} testID="group.deck.skeleton">
+            <View style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}>
+              <Skeleton w="100%" h={GROUP_CARD_HEIGHT} radius={22} />
+            </View>
+            <View style={s.skeletonPeek}>
+              <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
+            </View>
           </View>
         </SkeletonGroup>
         {inviteSheet}
@@ -620,7 +624,14 @@ const s = StyleSheet.create({
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
   },
-  skeletonList: { paddingHorizontal: T.space.xl, gap: T.space.md },
+  skeletonDeck: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingLeft: 24,
+    overflow: 'hidden',
+  },
+  skeletonCard: {},
+  skeletonPeek: { width: 36 },
   body: {
     flex: 1,
     alignItems: 'center',
