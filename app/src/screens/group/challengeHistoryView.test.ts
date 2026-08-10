@@ -64,6 +64,25 @@ describe('historyMissionLabel — 스냅샷이 소스', () => {
   test('스냅샷이 비면(구 정산분) 카테고리 명사로 떨어진다 — 목표를 지어내지 않는다', () => {
     expect(historyMissionLabel(item({ goalMinutes: null }))).toBe('집중 시간');
   });
+
+  // V39 백필 이전 정산분은 카테고리조차 없다. 폴백(categoryLabel)은 null을 FOCUS로 뭉개
+  // 「집중 시간」이라고 **단언**한다 — 과거 스크린타임 이력이 집중 챌린지로 보인다.
+  test('카테고리를 모르면 라벨을 만들지 않는다 — 「집중 시간」으로 단언하지 않는다', () => {
+    expect(historyMissionLabel(item({ missionCategory: null, missionType: null }))).toBeNull();
+    expect(historyMissionLabel(item({ missionCategory: null }))).toBeNull();
+  });
+
+  test('카테고리만 알면 명사까지만 — 방식(창·하루)을 모르면 시간을 지어내지 않는다', () => {
+    expect(historyMissionLabel(item({ missionCategory: 'SCREEN_TIME', missionType: null }))).toBe(
+      '스크린타임',
+    );
+  });
+
+  test('행 음성 라벨은 라벨이 없는 줄에서 그 자리만 비운다', () => {
+    const a11y = historyRowA11y(item({ missionCategory: null, missionType: null }), '8월 10일(월)');
+    expect(a11y).not.toContain('집중');
+    expect(a11y).toContain('8월 10일(월)');
+  });
 });
 
 describe('historySummary — 판정한 날만 집계로 말한다', () => {

@@ -23,12 +23,21 @@ export const REFUNDED_TEXT = '환불';
 /**
  * 한 줄의 미션 라벨 — **회차에 박제된 스냅샷**으로 만든다(챌린지 행이 삭제됐을 수 있다).
  * 카드·시트와 같은 문장 규칙을 쓰도록 challengeLabel에 그대로 위임한다.
- * 스냅샷이 모자라면(V39 백필 이전 정산분) 카테고리 명사로 떨어진다 — 목표를 지어내지 않는다.
+ *
+ * 스냅샷이 모자라는 세 단계를 뭉개지 않는다(손익 3상과 같은 원칙 — 모르는 것을 지어내지 않는다):
+ *   · 카테고리를 모른다(V39 백필 이전) → **null**. 라벨 자리를 비운다. `categoryLabel` 폴백은
+ *     null을 FOCUS로 뭉개 「집중 시간」이라고 **단언**한다 — 과거 스크린타임 이력이 집중
+ *     챌린지로 보인다(카테고리는 이 목록에서 가장 크게 갈리는 축이라 오표기 비용이 크다).
+ *   · 카테고리만 안다(방식 null)   → 카테고리 명사. 시간·목표를 지어내지 않는다.
+ *   · 문장을 못 만든다(목표·창 부재) → 종전대로 카테고리 명사.
  */
-export function historyMissionLabel(item: GroupChallengeHistoryItem): string {
+export function historyMissionLabel(item: GroupChallengeHistoryItem): string | null {
+  const { missionCategory, missionType } = item;
+  if (missionCategory === null) return null;
+  if (missionType === null) return categoryLabel({ missionCategory });
   const source = {
-    missionCategory: item.missionCategory,
-    missionType: item.missionType,
+    missionCategory,
+    missionType,
     // 스냅샷의 목표분이 곧 그날의 durationMinutes다(하루형·창형 공통).
     durationMinutes: item.goalMinutes,
     windowStart: item.windowStart,

@@ -18,6 +18,7 @@ import {
   BET_ALREADY_FAILED,
   BET_INSUFFICIENT_BALANCE,
   BET_SCREENTIME_PERMISSION_REQUIRED,
+  BET_NOT_OPEN,
   BET_SESSION_CLOSED,
   BET_SESSION_NOT_FOUND,
   createBet,
@@ -474,6 +475,11 @@ export default function BetSheet({
       // 이 시트에서 재시도해도 오늘은 같은 결과라 닫고 재조회한다.
       case BET_SESSION_CLOSED:
         failAndReload('마감됐어요', '이미 마감돼 참가할 수 없어요.');
+        return;
+      // 시트를 연 뒤 정산·무효화가 먼저 끝났다(#570 codex ⑦) — 들어갈 회차 자체가 닫혔으므로
+      // 재시도해도 영원히 같은 실패다. 공통 문구('잠시 후 다시 시도')는 여기서 거짓이 된다.
+      case BET_NOT_OPEN:
+        failAndReload('이미 끝난 날이에요', '결과가 나왔거나 닫힌 날이라 참가할 수 없어요.');
         return;
       // SCREEN_TIME 권한 가드(N50) — 권한 없이 돈부터 받지 않는다. 재시도로 안 풀린다.
       case BET_SCREENTIME_PERMISSION_REQUIRED:

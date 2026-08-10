@@ -505,7 +505,18 @@ export type ChallengeMissionParams = {
 export function logGroupBetCreated(p: { stake: number } & ChallengeMissionParams): void {
   track('group_bet_created', p);
 }
-export function logGroupBetJoined(p: { stake: number } & ChallengeMissionParams): void {
+// 참여 성공 — 단건 참가와 **예약**(join-next 1건 / join-week N건)이 같은 이벤트를 쓴다.
+// 왜 예약도 1건으로 세나(챌린지 v2, GROMO-1419·1276): 이벤트 1건 = **유저가 참여를 결심한
+// 한 번의 행동**이다. 3일 예약을 3건으로 부풀리면 '참여 결심 수'와 '참여 건수'가 뒤섞여
+// 전환 퍼널(카드 노출 → 시트 → 참여)의 분모·분자가 갈리고, 주간 단축을 쓸수록 지표가 커져
+// 단축 도입 효과를 스스로 부풀린다. 대신 규모는 파라미터로 남긴다:
+//   session_count : 이 행동으로 걸린 날 수(단건 1 · 주간 N) — 예약 깊이 분포용
+//   stake         : **하루치** 참가비(총액이 아니다 — 금액대별 참여율 축을 단건과 같게 유지).
+//                   날짜별 금액이 갈리는 주간 예약은 가장 큰 하루치를 싣는다(축을 흐리지 않게).
+// 파라미터는 선택이라 기존 호출부(BetSheet 단건)는 그대로 둔다 — 없으면 종전과 같은 이벤트다.
+export function logGroupBetJoined(
+  p: { stake: number; session_count?: number } & ChallengeMissionParams,
+): void {
   track('group_bet_joined', p);
 }
 // 내기 취소(개설자 단독·OPEN) 성공 — participants_count는 취소 시점 참가자 수(계약상 항상 1이어야
@@ -526,6 +537,11 @@ export function logGroupChallengeCreated(
 // 삭제 성공 — 발행 지점은 groupApi.deleteChallenge(호출부가 id만 넘겨 메타는 API 층 캐시로 해결).
 export function logGroupChallengeDeleted(p: ChallengeMissionParams): void {
   track('group_challenge_deleted', p);
+}
+// 내기 켬 — PRD §5 성공 지표 "내기 켜짐 비율"의 측정 소스. v2에서 내기는 생성 시에만 켜지므로
+// (N26 — 이후 불변) 생성 성공 경로가 유일한 발행 지점이다. 여기 없으면 지표가 영원히 0이다.
+export function logGroupBetEnabled(p: { stake: number } & ChallengeMissionParams): void {
+  track('group_bet_enabled', p);
 }
 
 // ── 그룹 챌린지 결과(확장 배치 A3) [C] ── (challenge-impl-2026-08/contract.md §2 계측 표)

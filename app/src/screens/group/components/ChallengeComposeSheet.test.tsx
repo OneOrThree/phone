@@ -18,7 +18,7 @@ import { AccessibilityInfo, Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
-import { logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeResponse } from '@/types/dto/group';
 
@@ -36,6 +36,7 @@ jest.mock('@/services/groupApi', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeCreated: jest.fn(),
+  logGroupBetEnabled: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
 }));
 
@@ -277,6 +278,25 @@ describe('전송값', () => {
     await pickDay('월');
     await press('만들기');
     expect(logGroupChallengeCreated).not.toHaveBeenCalled();
+  });
+
+  test('내기를 켠 생성은 group_bet_enabled를 함께 발행한다 — 지표의 유일한 소스 (PR #565 codex)', async () => {
+    await renderSheet();
+    await pickDay('월');
+    await typeStake('300');
+    await press('만들기');
+    expect(logGroupBetEnabled).toHaveBeenCalledWith({
+      stake: 300,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
+
+    // 참가비 없이 만들면 발행하지 않는다 — 내기 없는 생성은 켜짐 비율 분자가 아니다.
+    jest.clearAllMocks();
+    await renderSheet();
+    await pickDay('월');
+    await press('만들기');
+    expect(logGroupBetEnabled).not.toHaveBeenCalled();
   });
 });
 
@@ -984,8 +1004,10 @@ describe('다음 도는 날 적용 안내', () => {
     expect(mockNowSeconds).toHaveBeenCalledWith('Asia/Seoul');
   });
 
-  test('창이 아직 안 끝났으면 안내가 없다', async () => {
-    mockNowSeconds.mockReturnValue(10 * 3600); // 창 한가운데
+  // 창 진행 중(10:00)에도 안내가 떠야 한다 — 서버는 창 시작 후 당일 회차를 만들지 않으므로(N35)
+  // "오늘부터"라는 오인이 바로 이 구간에서 생긴다(PR #565 codex).
+  test('창 진행 중에도(시작은 지났으니) 안내가 뜬다', async () => {
+    mockNowSeconds.mockReturnValue(10 * 3600); // 창 한가운데 — 시작(09:00)은 지났다
     await renderSheet();
     await press('시간대');
     await pickAllDays();

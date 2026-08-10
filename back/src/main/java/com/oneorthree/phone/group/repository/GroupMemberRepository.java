@@ -3,8 +3,10 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.user.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -49,6 +51,29 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     @Query("SELECT COUNT(gm) > 0 FROM GroupMember gm "
             + "WHERE gm.group.id = :groupId AND gm.user.id = :userId AND gm.isLeft = false")
     boolean existsByGroupIdAndUserId(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
+
+    // 내기 참여 경로 전용(GROMO-1262, N54 차감 직전 활성 멤버십 재검증) — 활성 멤버십 행을 공유
+    // 잠금으로 읽는다. 그룹 탈퇴(withdrawGroup → releaseFromOpenSessions)가 같은 행을 배타 잠금으로
+    // 먼저 잡으므로, 참여와 탈퇴가 멤버십 행에서 직렬화된다: 참여가 먼저면 탈퇴의 회차 정리가 방금
+    // 커밋된 참가까지 보고 환불하고, 탈퇴가 먼저면 참여의 이 조회가 빈 결과(is_left=true)로 403 이다.
+    // users 행 공유 락만으로는 그룹 탈퇴와 직렬화되지 않는다(탈퇴는 group_members 를 바꾼다) —
+    // 1258 P0 "탈퇴 우회 유료 예약"의 재발 방지 축. 잠금 순서: user → 멤버십 → 회차 → 지갑.
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.user.id = :userId AND gm.group.id = :groupId "
+            + "AND gm.isLeft = false")
+    Optional<GroupMember> findActiveByUserIdAndGroupIdForShare(
+            @Param("userId") UUID userId,
+            @Param("groupId") UUID groupId);
+
+    // 내기 탈퇴 연동 전용(GROMO-1262) — 탈퇴 쪽에서 멤버십 행을 배타 잠금으로 선점해 위 공유 잠금과
+    // 짝을 이룬다. withdrawGroup 은 회차 정리 후에야 is_left 를 마킹하므로, 이 선점이 없으면 정리
+    // 스캔과 leave() 사이에 새 참가가 끼어들 수 있다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.user.id = :userId AND gm.group.id = :groupId "
+            + "AND gm.isLeft = false")
+    Optional<GroupMember> findActiveByUserIdAndGroupIdForUpdate(
+            @Param("userId") UUID userId,
+            @Param("groupId") UUID groupId);
 
     // 재가입 로직 전용 — 소프트삭제 행 포함 전체. 유니크(user,group) 제약상 재삽입 불가라, 자진 탈퇴자
     // 재가입은 이 행을 되살리고(rejoin), 강퇴자는 거절한다.

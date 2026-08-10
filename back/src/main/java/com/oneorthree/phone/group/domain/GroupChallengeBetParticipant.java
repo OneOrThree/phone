@@ -21,7 +21,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 내기 참가자. 판돈은 참가 즉시 차감(에스크로)되므로 이 행의 존재 자체가 "돈을 걸었다"는 뜻이다.
+ * 내기 <b>회차</b> 참가자(GROMO-1262 — 축이 내기 행에서 회차로 이동했다). 참가비는 참가 즉시
+ * 차감(에스크로)되므로 이 행의 존재 자체가 "돈을 걸었다"는 뜻이다.
+ *
+ * <p>이 행의 {@code id} 는 회차 단위 돈 흐름 <b>멱등키의 축</b>이다(FR-42) — 차감·환불·지급 키가
+ * 전부 {@code session:{sid}:…:{participantId}} 꼴이라, 취소 → 재참여 회차가 키에서 갈리고
+ * 어떤 경로의 환불이든 참가 행당 정확히 1회로 원장 유니크가 최후 방어한다.
  *
  * <p>{@code achieved}/{@code payout} 은 정산 시점에만 채워진다 — 정산 전에는 둘 다 null 이라
  * "아직 판정 안 됨"과 "달성 실패(payout 0)"가 구분된다.
@@ -29,8 +34,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "group_challenge_bet_participants",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_group_challenge_bet_participants_bet_user",
-                columnNames = {"bet_id", "user_id"}))
+                name = "uq_group_challenge_bet_participants_session_user",
+                columnNames = {"session_id", "user_id"}))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -42,8 +47,8 @@ public class GroupChallengeBetParticipant {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "bet_id", nullable = false)
-    private GroupChallengeBet bet;
+    @JoinColumn(name = "session_id", nullable = false)
+    private GroupChallengeBetSession session;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
@@ -68,6 +73,26 @@ public class GroupChallengeBetParticipant {
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+
+    /**
+     * 개인 승리 조기 확정(GROMO-1268, N11·FR-23) — <b>불가역</b>이다. 목표분이 나중에 바뀌어도
+     * 회차 박제값으로 판정했으므로 번복 사유가 없다. FOCUS 회차 전용이다 — SCREEN_TIME 은 값이
+     * 하루 종일 늘어나는 지표라 "먼저 확정"이 성립하지 않는다(조기 확정하면 이후 목표 초과가
+     * 정산에서 뒤집히지 못한다).
+     *
+     * <p>계정 탈퇴의 판정 근거 박제(GROMO-1423)도 같은 축을 쓴다 — 탈퇴는 관측이 끝나는 지점이라
+     * "그 시점 달성"이 마지막 진실이고(SCREEN_TIME 포함 — 기기가 더는 보고하지 않는다), 통계
+     * nullify 뒤에도 이 값이 정산 판정에 남는다.
+     *
+     * <p>{@code progressMinutes} 는 확정 시점 실측이지만 <b>박제가 아니다</b> — 정산이 전원 최종값으로
+     * 다시 잰다(잔여 코인 순위가 박제값으로 엉뚱한 승자에게 가는 것을 막는다, LLD §5.2). 실측이
+     * 사라진 탈퇴자만 이 값으로 폴백한다({@code GroupBetSettler}).
+     * 호출 전제: 회차 행 잠금 아래 + {@code achieved == null}.
+     */
+    public void confirmWin(int progressMinutes) {
+        this.achieved = true;
+        this.progressMinutes = progressMinutes;
+    }
 
     /**
      * 정산 결과 기록. 재실행은 내기 status 가드로 막으므로 여기서는 덮어쓰기만 한다.

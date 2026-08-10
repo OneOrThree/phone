@@ -76,9 +76,38 @@ describe('pickLastSettled', () => {
     expect(view?.voidReason).toBe('SHORT_PARTICIPANTS');
   });
 
-  test('무효화가 아닌 상태의 사유는 문장을 바꾸지 않는다', () => {
+  // SETTLED·FORFEITED에 사유가 실려 와도 문장을 바꿀 근거가 아니다(판정이 끝난 회차다).
+  test('판정이 끝난 상태의 사유는 문장을 바꾸지 않는다', () => {
     const view = pickLastSettled(
-      challenge({ lastSettledSession: session({ status: 'REFUNDED', voidReason: 'WHATEVER' }) }),
+      challenge({ lastSettledSession: session({ status: 'FORFEITED', voidReason: 'WHATEVER' }) }),
+    );
+    expect(view?.voidReason).toBeNull();
+  });
+
+  // v2 REFUNDED = 24h 자동 환불(LLD) — 판정도 무산도 아니라 전용 문구가 필요하다(#570 codex ⑤).
+  test('사유 없는 v2 REFUNDED는 자동 환불로 갈라진다', () => {
+    const view = pickLastSettled(
+      challenge({ lastSettledSession: session({ status: 'REFUNDED', voidReason: null }) }),
+    );
+    expect(view?.bet.status).toBe('REFUNDED');
+    expect(view?.voidReason).toBe('AUTO_REFUND');
+    expect(voidSummary(view?.voidReason ?? null)).toBe('기한이 지나 자동 환불');
+    expect(voidBanner(view?.voidReason ?? null)).toBe(
+      '기한이 지나 자동으로 환불됐어요. 참가비는 돌려드렸어요',
+    );
+  });
+
+  test('구서버 REFUNDED(레거시)는 종전 문장 그대로다 — 자동 환불로 단정하지 않는다', () => {
+    const view = pickLastSettled(
+      challenge({
+        lastSettledBet: {
+          betDate: '2026-07-30',
+          stake: 10,
+          pot: 20,
+          status: 'REFUNDED',
+          results: [],
+        },
+      }),
     );
     expect(view?.voidReason).toBeNull();
   });

@@ -224,6 +224,9 @@ export default function GroupChallengeHistoryScreen() {
     const dateText = fmtMonthDayDow(item.sessionDate);
     const delta = historyDelta(item);
     const basis = historyBasis(item);
+    // 카테고리를 모르는 과거 이력(V39 백필 이전)은 라벨 줄 자체를 그리지 않는다 —
+    // 빈 줄을 남기면 라벨이 잘린 것처럼 보이고, 폴백 명사를 넣으면 거짓말이 된다.
+    const mission = historyMissionLabel(item);
     return (
       <View
         style={s.card}
@@ -239,9 +242,11 @@ export default function GroupChallengeHistoryScreen() {
           <View style={s.spacer} />
           <Text style={[s.delta, s[delta.tone]]}>{delta.text}</Text>
         </View>
-        <Text style={s.cardMission} numberOfLines={1}>
-          {historyMissionLabel(item)}
-        </Text>
+        {mission !== null && (
+          <Text style={s.cardMission} numberOfLines={1}>
+            {mission}
+          </Text>
+        )}
         <View style={s.cardFoot}>
           <Text style={s.cardSummary}>{historySummary(item)}</Text>
           {/* 내 판정 근거 — 인별 명단이 없는 목록에서 내 숫자만은 남긴다(미참가·미계측이면 없다). */}
