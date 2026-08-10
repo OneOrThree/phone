@@ -27,6 +27,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
@@ -214,6 +215,7 @@ export default function GroupListScreen({
   onEnsureBack,
 }: GroupListScreenProps) {
   const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeStableGroupId, setActiveStableGroupId] = useState<string | null>(null);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
@@ -899,192 +901,202 @@ export default function GroupListScreen({
         </View>
       </View>
 
-      <View
-        ref={deckAnchorRef}
-        collapsable={false}
-        onLayout={() => setDeckLayoutReady(true)}
-        pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
-        testID="group.deck.guideAnchor"
+      <ScrollView
+        style={s.deckScroller}
+        contentContainerStyle={[s.deckScrollerContent, { paddingBottom: insets.bottom + 74 }]}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        directionalLockEnabled
+        scrollEnabled={guideInputReady && !guideVisible}
+        testID="group.list.scroller"
       >
-        {!hydrated || !emojiHydrated ? (
-          <SkeletonGroup style={s.deckSkeleton} testID="group.deck.hydrating">
-            <Skeleton w={cardWidth} h={GROUP_CARD_HEIGHT} radius={22} />
-            <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
-          </SkeletonGroup>
-        ) : (
-          <>
-            <FlatList
-              ref={listRef}
-              testID="group.list.items"
-              data={orderedGroups}
-              keyExtractor={(item) => item.groupId}
-              CellRendererComponent={GroupListCell}
-              horizontal
-              scrollEnabled={
-                guideInputReady &&
-                !guideVisible &&
-                draggingGroupId === null &&
-                reorderMenuGroupId === null
-              }
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-              ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-              snapToInterval={snapInterval}
-              snapToAlignment="start"
-              decelerationRate="fast"
-              disableIntervalMomentum
-              onMomentumScrollEnd={onMomentumScrollEnd}
-              onScrollEndDrag={onScrollEndDrag}
-              ListFooterComponent={
-                <View
-                  style={{ marginLeft: CARD_GAP }}
-                  accessibilityElementsHidden={renderedActiveIndex !== orderedGroups.length}
-                  importantForAccessibility={
-                    renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
-                  }
-                >
-                  <FindMoreCard
-                    width={cardWidth}
-                    position={pageCount}
-                    pageCount={pageCount}
-                    onPress={onFind}
-                    focusable={renderedActiveIndex === orderedGroups.length}
-                  />
-                </View>
-              }
-              renderItem={({ item, index }) => (
-                <View
-                  ref={item.groupId === activeGroupId ? activeCardRef : undefined}
-                  collapsable={false}
-                  onLayout={() => {
-                    if (item.groupId === activeIdentityRef.current)
-                      setActiveAnchorGroupId(item.groupId);
-                  }}
-                  style={{ width: cardWidth }}
-                  accessibilityElementsHidden={item.groupId !== activeGroupId}
-                  importantForAccessibility={
-                    item.groupId === activeGroupId ? 'auto' : 'no-hide-descendants'
-                  }
-                  testID={`group.list.card.${item.groupId}`}
-                >
-                  {flippedGroupId === item.groupId ? (
-                    <GroupCardBack
-                      group={item}
-                      position={index + 1}
+        <View
+          ref={deckAnchorRef}
+          collapsable={false}
+          onLayout={() => setDeckLayoutReady(true)}
+          pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
+          testID="group.deck.guideAnchor"
+        >
+          {!hydrated || !emojiHydrated ? (
+            <SkeletonGroup style={s.deckSkeleton} testID="group.deck.hydrating">
+              <Skeleton w={cardWidth} h={GROUP_CARD_HEIGHT} radius={22} />
+              <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
+            </SkeletonGroup>
+          ) : (
+            <>
+              <FlatList
+                ref={listRef}
+                testID="group.list.items"
+                data={orderedGroups}
+                keyExtractor={(item) => item.groupId}
+                CellRendererComponent={GroupListCell}
+                horizontal
+                scrollEnabled={
+                  guideInputReady &&
+                  !guideVisible &&
+                  draggingGroupId === null &&
+                  reorderMenuGroupId === null
+                }
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
+                ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+                snapToInterval={snapInterval}
+                snapToAlignment="start"
+                decelerationRate="fast"
+                disableIntervalMomentum
+                onMomentumScrollEnd={onMomentumScrollEnd}
+                onScrollEndDrag={onScrollEndDrag}
+                ListFooterComponent={
+                  <View
+                    style={{ marginLeft: CARD_GAP }}
+                    accessibilityElementsHidden={renderedActiveIndex !== orderedGroups.length}
+                    importantForAccessibility={
+                      renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
+                    }
+                  >
+                    <FindMoreCard
+                      width={cardWidth}
+                      position={pageCount}
                       pageCount={pageCount}
-                      snapshot={snapshots[item.groupId]}
-                      roomRef={
-                        activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
-                      }
-                      backFocusRef={
-                        activeIdentityRef.current === item.groupId ? backFocusRef : undefined
-                      }
-                      settingsRef={
-                        activeIdentityRef.current === item.groupId ? settingsFocusRef : undefined
-                      }
-                      onFlipFront={flipToFront}
-                      onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
-                      onStartFocus={() => {
-                        runCardAction(item, 'focus', (interaction) =>
-                          onStartFocus(item.groupId, interaction),
-                        );
-                      }}
-                      onOpenSettings={() => {
-                        runCardAction(item, 'settings', () => {
-                          roomReturnRef.current = {
-                            groupId: item.groupId,
-                            sourceIndex: index,
-                            departureRevision: groupsRevision,
-                          };
-                          returnFocusTargetRef.current = 'settings';
-                          onOpenSettings(item.groupId);
-                        });
-                      }}
-                      onOpenRoom={() => {
-                        runCardAction(item, 'room', (interaction) => {
-                          roomReturnRef.current = {
-                            groupId: item.groupId,
-                            sourceIndex: index,
-                            departureRevision: groupsRevision,
-                          };
-                          returnFocusTargetRef.current = 'room';
-                          onSelect(item.groupId, interaction);
-                        });
-                      }}
-                      onRetry={(dependency) => retry(item.groupId, dependency)}
+                      onPress={onFind}
+                      focusable={renderedActiveIndex === orderedGroups.length}
                     />
-                  ) : (
-                    <GroupCardFront
-                      group={item}
-                      emoji={emojiFor(item.groupId)}
-                      position={index + 1}
-                      pageCount={pageCount}
-                      active={item.groupId === activeGroupId}
-                      bodyRef={
-                        activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
-                      }
-                      onFlip={() => flipToBack(item.groupId)}
-                      onAccessibilityFlip={() => flipToBack(item.groupId, 'accessibility_action')}
-                      reorderHandlers={handlersFor(item.groupId)}
-                      canMovePrevious={index > 0}
-                      canMoveNext={index < orderedGroups.length - 1}
-                      onMoveStep={(step) => {
-                        const from = orderedGroupsRef.current.findIndex(
-                          (group) => group.groupId === item.groupId,
-                        );
-                        if (commitMove(item.groupId, from + step, 'accessibility_action'))
-                          setFlippedGroupId(null);
-                      }}
-                    />
-                  )}
-                  {reorderMenuGroupId === item.groupId && (
-                    <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
-                      <Text style={s.reorderTitle}>순서 변경</Text>
-                      <ScrollView
-                        style={s.reorderOptions}
-                        nestedScrollEnabled
-                        showsVerticalScrollIndicator
-                        testID={`group.card.reorderOptions.${item.groupId}`}
-                      >
-                        {orderedGroups.map((target, targetIndex) => (
-                          <TouchableOpacity
-                            key={target.groupId}
-                            style={s.reorderOption}
-                            onPress={() => {
-                              commitMove(item.groupId, targetIndex, 'pointer_control');
-                              setReorderMenuGroupId(null);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${targetIndex + 1}번째로 이동`}
-                            testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
-                          >
-                            <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
+                  </View>
+                }
+                renderItem={({ item, index }) => (
+                  <View
+                    ref={item.groupId === activeGroupId ? activeCardRef : undefined}
+                    collapsable={false}
+                    onLayout={() => {
+                      if (item.groupId === activeIdentityRef.current)
+                        setActiveAnchorGroupId(item.groupId);
+                    }}
+                    style={{ width: cardWidth }}
+                    accessibilityElementsHidden={item.groupId !== activeGroupId}
+                    importantForAccessibility={
+                      item.groupId === activeGroupId ? 'auto' : 'no-hide-descendants'
+                    }
+                    testID={`group.list.card.${item.groupId}`}
+                  >
+                    {flippedGroupId === item.groupId ? (
+                      <GroupCardBack
+                        group={item}
+                        position={index + 1}
+                        pageCount={pageCount}
+                        snapshot={snapshots[item.groupId]}
+                        roomRef={
+                          activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
+                        }
+                        backFocusRef={
+                          activeIdentityRef.current === item.groupId ? backFocusRef : undefined
+                        }
+                        settingsRef={
+                          activeIdentityRef.current === item.groupId ? settingsFocusRef : undefined
+                        }
+                        onFlipFront={flipToFront}
+                        onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
+                        onStartFocus={() => {
+                          runCardAction(item, 'focus', (interaction) =>
+                            onStartFocus(item.groupId, interaction),
+                          );
+                        }}
+                        onOpenSettings={() => {
+                          runCardAction(item, 'settings', () => {
+                            roomReturnRef.current = {
+                              groupId: item.groupId,
+                              sourceIndex: index,
+                              departureRevision: groupsRevision,
+                            };
+                            returnFocusTargetRef.current = 'settings';
+                            onOpenSettings(item.groupId);
+                          });
+                        }}
+                        onOpenRoom={() => {
+                          runCardAction(item, 'room', (interaction) => {
+                            roomReturnRef.current = {
+                              groupId: item.groupId,
+                              sourceIndex: index,
+                              departureRevision: groupsRevision,
+                            };
+                            returnFocusTargetRef.current = 'room';
+                            onSelect(item.groupId, interaction);
+                          });
+                        }}
+                        onRetry={(dependency) => retry(item.groupId, dependency)}
+                      />
+                    ) : (
+                      <GroupCardFront
+                        group={item}
+                        emoji={emojiFor(item.groupId)}
+                        position={index + 1}
+                        pageCount={pageCount}
+                        active={item.groupId === activeGroupId}
+                        bodyRef={
+                          activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
+                        }
+                        onFlip={() => flipToBack(item.groupId)}
+                        onAccessibilityFlip={() => flipToBack(item.groupId, 'accessibility_action')}
+                        reorderHandlers={handlersFor(item.groupId)}
+                        canMovePrevious={index > 0}
+                        canMoveNext={index < orderedGroups.length - 1}
+                        onMoveStep={(step) => {
+                          const from = orderedGroupsRef.current.findIndex(
+                            (group) => group.groupId === item.groupId,
+                          );
+                          if (commitMove(item.groupId, from + step, 'accessibility_action'))
+                            setFlippedGroupId(null);
+                        }}
+                      />
+                    )}
+                    {reorderMenuGroupId === item.groupId && (
+                      <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
+                        <Text style={s.reorderTitle}>순서 변경</Text>
+                        <ScrollView
+                          style={s.reorderOptions}
+                          nestedScrollEnabled
+                          showsVerticalScrollIndicator
+                          testID={`group.card.reorderOptions.${item.groupId}`}
+                        >
+                          {orderedGroups.map((target, targetIndex) => (
+                            <TouchableOpacity
+                              key={target.groupId}
+                              style={s.reorderOption}
+                              onPress={() => {
+                                commitMove(item.groupId, targetIndex, 'pointer_control');
+                                setReorderMenuGroupId(null);
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${targetIndex + 1}번째로 이동`}
+                              testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
+                            >
+                              <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+                )}
+              />
+
+              {saveFailed && (
+                <Text style={s.saveError} accessibilityRole="alert">
+                  순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.
+                </Text>
               )}
-            />
 
-            {saveFailed && (
-              <Text style={s.saveError} accessibilityRole="alert">
-                순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.
-              </Text>
-            )}
-
-            <PageIndicator
-              pageCount={pageCount}
-              activeIndex={renderedActiveIndex}
-              pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
-              disabled={draggingGroupId !== null || reorderMenuGroupId !== null}
-              onSelectPage={selectPage}
-              onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
-            />
-          </>
-        )}
-      </View>
+              <PageIndicator
+                pageCount={pageCount}
+                activeIndex={renderedActiveIndex}
+                pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
+                disabled={draggingGroupId !== null || reorderMenuGroupId !== null}
+                onSelectPage={selectPage}
+                onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
+              />
+            </>
+          )}
+        </View>
+      </ScrollView>
 
       <TabGuideOverlay
         storageKey={STORAGE_KEYS.guideGroupDeck}
@@ -1101,6 +1113,8 @@ export default function GroupListScreen({
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  deckScroller: { flex: 1 },
+  deckScrollerContent: { flexGrow: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.

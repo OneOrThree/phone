@@ -317,6 +317,16 @@ describe('콜백', () => {
     expect(screen.getByTestId('group.list.create')).toHaveStyle({ width: 48, height: 48 });
     expect(screen.queryByTestId('group.list.refresh')).toBeNull();
   });
+
+  test('낮은 화면에서도 카드 하단까지 스크롤하고 탭바 위 여백을 확보한다', async () => {
+    await renderList([group()]);
+    const scroller = screen.getByTestId('group.list.scroller');
+    expect(scroller.props.scrollEnabled).toBe(true);
+    expect(scroller.props.nestedScrollEnabled).toBe(true);
+    expect(scroller.props.contentContainerStyle).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paddingBottom: 108 })]),
+    );
+  });
 });
 
 describe('제스처 중재와 재정렬', () => {
