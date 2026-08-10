@@ -43,22 +43,35 @@ function session(over: Partial<LastSettledSession> = {}): LastSettledSession {
 describe('pickLastSettled', () => {
   test('v2 회차를 표시 모델로 접는다 — 날짜 축은 sessionDate다', () => {
     expect(pickLastSettled(challenge({ lastSettledSession: session() }))).toEqual({
-      betDate: '2026-07-31',
-      stake: 30,
-      pot: 90,
-      status: 'SETTLED',
-      goalMinutes: 60,
-      results: session().results,
+      bet: {
+        betDate: '2026-07-31',
+        stake: 30,
+        pot: 90,
+        status: 'SETTLED',
+        goalMinutes: 60,
+        results: session().results,
+      },
+      voidReason: null,
     });
   });
 
-  test('VOIDED(무산·삭제 무효화)는 환불로 표시한다 — 돈이 어디 갔는지 침묵하지 않는다', () => {
+  // VOIDED는 환불 사건이라 상태는 REFUNDED로 접되, **사유를 함께 실어야** 시트가
+  // "달성한 사람이 없어"(하지도 않은 판정) 대신 무산 문장을 쓴다(#570 codex ④).
+  test('VOIDED(무산·삭제 무효화)는 환불로 표시하고 사유를 함께 넘긴다', () => {
     const view = pickLastSettled(
       challenge({
         lastSettledSession: session({ status: 'VOIDED', voidReason: 'SHORT_PARTICIPANTS' }),
       }),
     );
-    expect(view?.status).toBe('REFUNDED');
+    expect(view?.bet.status).toBe('REFUNDED');
+    expect(view?.voidReason).toBe('SHORT_PARTICIPANTS');
+  });
+
+  test('무효화가 아닌 상태의 사유는 문장을 바꾸지 않는다', () => {
+    const view = pickLastSettled(
+      challenge({ lastSettledSession: session({ status: 'REFUNDED', voidReason: 'WHATEVER' }) }),
+    );
+    expect(view?.voidReason).toBeNull();
   });
 
   test('UNUSED(참가자 0명)는 결과에서 제외한다(N52)', () => {
@@ -75,7 +88,10 @@ describe('pickLastSettled', () => {
       status: 'SETTLED' as const,
       results: [],
     };
-    expect(pickLastSettled(challenge({ lastSettledBet: legacy }))).toBe(legacy);
+    expect(pickLastSettled(challenge({ lastSettledBet: legacy }))).toEqual({
+      bet: legacy,
+      voidReason: null,
+    });
   });
 
   test('둘 다 없으면 null', () => {
@@ -89,7 +105,7 @@ describe('pickLastSettled', () => {
         lastSettledBet: { betDate: '2026-07-01', stake: 1, pot: 2, status: 'SETTLED', results: [] },
       }),
     );
-    expect(view?.betDate).toBe('2026-07-31');
+    expect(view?.bet.betDate).toBe('2026-07-31');
   });
 });
 

@@ -65,8 +65,39 @@ const CHARACTER = {
 
 // 승자 0명의 결말 배너 — 구 룰(V19 이전)은 전원 환불(REFUNDED), 현 룰은 전액 몰수(FORFEITED).
 // 모르는 상태는 배너 없이 인별 행만 그린다(Alert 시절의 else 강하 유지).
-export function statusBanner(status: LastSettledBet['status']): string | null {
-  if (status === 'REFUNDED') return '달성한 사람이 없어 전원 환불됐어요';
+//
+// v2 무효화(VOIDED)는 표시 모델에서 REFUNDED로 접히는데(회차→내기 정규화), **환불 사유가
+// 갈린다**: 인원 미달 무산·삭제 무효화는 애초에 **판정을 한 적이 없다** — 그 회차에
+// "달성한 사람이 없어"라고 적으면 하지도 않은 판정의 결과를 말하는 거짓이 된다(#570 codex ④).
+// 그래서 사유(voidReason)가 있으면 사유별 문장을 쓰고, 없으면(구서버·모르는 값) 종전 문장 그대로다.
+//
+// ⚠️ 값 축이 문서 간 이문 상태다 — policy N33은 `INSUFFICIENT_PARTICIPANTS`,
+//    LLD §2.1은 `SHORT_PARTICIPANTS`. 서버가 어느 쪽을 내보내도 같은 문장이 나오도록 **둘 다**
+//    받는다. 모르는 값은 폴백(문구를 지어내지 않는다).
+export function voidReasonBanner(voidReason: string): string | null {
+  switch (voidReason) {
+    case 'SHORT_PARTICIPANTS':
+    case 'INSUFFICIENT_PARTICIPANTS':
+      return '참가자가 부족해 무산됐어요. 참가비는 돌려드렸어요';
+    case 'CHALLENGE_DELETED':
+      return '챌린지가 삭제돼 무효가 됐어요. 참가비는 돌려드렸어요';
+    case 'REFUND_DEADLINE':
+      return '기한이 지나 무효가 됐어요. 참가비는 돌려드렸어요';
+    default:
+      return null;
+  }
+}
+
+export function statusBanner(
+  status: LastSettledBet['status'],
+  // v2 무효화 사유(선택) — 미전달·모르는 값이면 종전 문장으로 폴백한다(기존 호출부 동작 불변).
+  voidReason?: string | null,
+): string | null {
+  if (status === 'REFUNDED') {
+    return (
+      (voidReason ? voidReasonBanner(voidReason) : null) ?? '달성한 사람이 없어 전원 환불됐어요'
+    );
+  }
   if (status === 'FORFEITED') return '아무도 달성하지 못해 참가비가 소멸됐어요';
   return null;
 }
@@ -135,6 +166,9 @@ export interface LastBetResultSheetProps {
   // 콜백으로 올린다(onClose와 같은 결). 미전달이면 진입점 자체를 그리지 않는다 — 눌러도 아무
   // 일이 없는 버튼을 세우지 않는다(ChallengeCard.onOpenBet과 같은 원칙).
   onOpenHistory?: () => void;
+  // v2 무효화 사유(GROMO-1274 배치, #570 codex ④ — **추가 전용**). 미전달이면 종전 배너 그대로다.
+  // 무산·삭제 무효화는 판정 없는 환불이라 "달성한 사람이 없어"가 거짓이 된다(위 statusBanner 주석).
+  voidReason?: string | null;
   onClose: () => void;
 }
 
@@ -144,9 +178,10 @@ export default function LastBetResultSheet({
   missionType,
   missionCategory,
   onOpenHistory,
+  voidReason,
   onClose,
 }: LastBetResultSheetProps) {
-  const banner = statusBanner(lastBet.status);
+  const banner = statusBanner(lastBet.status, voidReason);
   // 분모(목표 분)는 정산 시점 스냅샷 — undefined(구서버)와 null(과거분·구 창)은 표기상 같은
   // '분모 생략'이라 여기서 null로 합친다. 근거 행 자체의 렌더 여부는 progressMinutes가 가른다.
   const goalMinutes = lastBet.goalMinutes ?? null;

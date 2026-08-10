@@ -497,6 +497,35 @@ export default function ChallengeCard({
   // 남은 날이 1개 이하면 숨긴다 — 단건 참여와 같아져 의미가 없다(LLD §2.2).
   const weekEligible = weekDates.length >= 2;
 
+  // ── 오늘 회차 참여 취소 창(N22 · #570 codex ②) ──
+  // 서버가 준 myLeaveDeadlineAt이 정본이다: 시작 전 참가는 회차 시작까지, **시작 후 참가(하루형)는
+  // 참가+5분**(회차 종료 상한). 앱이 자체 계산하지 않는다 — 기기 시계가 틀어지면 버튼이 어긋난다.
+  const todaySessionForLeave = bet?.session ?? null;
+  const leaveDeadlineMs = (() => {
+    const at = todaySessionForLeave?.myLeaveDeadlineAt;
+    if (!at) return null;
+    const ms = Date.parse(at);
+    return Number.isNaN(ms) ? null : ms;
+  })();
+  const todayLeavable =
+    todaySessionForLeave !== null &&
+    todaySessionForLeave.myJoined &&
+    todaySessionForLeave.status === 'OPEN' &&
+    leaveDeadlineMs !== null &&
+    Date.now() < leaveDeadlineMs;
+  // 남은 시간 안내 — 흐르는 걸 모르면 5분 유예는 없는 것과 같다(ux §05 ③). 초 단위 카운트다운
+  // (매초 리렌더)은 이 배치 범위 밖이라 **렌더 시점 값**만 적는다: 리렌더될 때마다 갱신되고,
+  // 어긋난 순간은 서버가 BET_LEAVE_CLOSED로 정본 판정한다(후속 티켓에서 타이머 배선).
+  const leaveRemainCaption = (() => {
+    if (!todayLeavable || leaveDeadlineMs === null) return null;
+    const sec = Math.max(0, Math.floor((leaveDeadlineMs - Date.now()) / 1000));
+    // 몇 시간 이상 남은 창(시작 전 참가한 창형·예약분)에는 초읽기를 적지 않는다 — 노이즈다.
+    if (sec > 3600) return null;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}분 ${s}초 안에 취소할 수 있어요` : `${s}초 안에 취소할 수 있어요`;
+  })();
+
   // v2 시트(다음 활성일 예약·주간 예약) — 카드가 직접 연다(히스토리 push와 같은 이유로 부모
   // 배선을 늘리지 않는다). groupId는 조회 캐시 역참조 — 미적중이면 공통 문구.
   const [betV2Sheet, setBetV2Sheet] = useState<'next' | null>(null);
@@ -586,6 +615,48 @@ export default function ChallengeCard({
       leaveLock.current = false;
       setLeaveBusy(false);
     }
+  }
+
+  // 오늘 회차 참여 취소(N22·N27 · #570 codex ②) — **당일 참가자의 유일한 환불 창**이다.
+  // 하루형은 회차 시작이 자정이라 레거시 '시작 전' 판정(beforeStart)이 영영 false다 — 그 축만
+  // 두면 오탭으로 빠져나간 참가비를 되돌릴 버튼이 화면에 아예 없다(N22가 화면에서 죽는다).
+  // 마감 판정은 서버가 준 myLeaveDeadlineAt이 정본이다 — 앱이 `참가시각 + 5분`을 자체 계산하면
+  // 기기 시계가 틀어질 때 버튼이 어긋난다(LLD §2.2 "서버 시각 기준으로 앱이 카운트다운").
+  async function doLeaveToday(sessionId: string) {
+    if (leaveLock.current) return;
+    leaveLock.current = true;
+    setLeaveBusy(true);
+    try {
+      if (cachedGroupId === null) throw new Error('unknown groupId');
+      await leaveSession(cachedGroupId, sessionId);
+      // 환불 반영은 서버가 정본 — 잔액·카드를 다시 받는다.
+      refreshCoins();
+      onBetChanged?.();
+    } catch (e) {
+      switch (groupErrorCode(e)) {
+        case BET_LEAVE_CLOSED:
+          Alert.alert('참여 취소를 못 했어요', '취소할 수 있는 시간이 지났어요.');
+          break;
+        case BET_NOT_JOINED:
+          Alert.alert('참여 취소를 못 했어요', '참여 중이 아니에요. 화면을 새로고침해 주세요.');
+          break;
+        case BET_NOT_OPEN:
+          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 날이에요.');
+          break;
+        default:
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      leaveLock.current = false;
+      setLeaveBusy(false);
+    }
+  }
+
+  function confirmLeaveToday(sessionId: string, stake: number) {
+    Alert.alert('참여 취소', `참가비 ${stake}코인을 돌려받고 오늘 참여를 취소할까요?`, [
+      { text: '아니요', style: 'cancel' },
+      { text: '참여 취소', style: 'destructive', onPress: () => doLeaveToday(sessionId) },
+    ]);
   }
 
   // 확인 한 겹 — 버튼 문구는 「참여 취소」다(N27 — 돈이 걸린 행동이라 무엇을 취소하는지 드러낸다).
@@ -710,8 +781,10 @@ export default function ChallengeCard({
     ]);
   }
   // 지난 결과 1건 — v2 lastSettledSession 우선, 없으면 구서버 lastSettledBet 폴백(#570 codex ①).
-  // 선택·정규화는 lastSettledView가 단독으로 쥔다(결과 시트는 A2 소유라 props를 바꾸지 않는다).
-  const lastBet = pickLastSettled(challenge);
+  // 선택·정규화는 lastSettledView가 단독으로 쥔다(시트는 A2 소유라 표시 계약을 최소로만 넓혔다 —
+  // 무효화 사유 optional prop 하나, 미전달 시 종전 동작).
+  const lastSettled = pickLastSettled(challenge);
+  const lastBet = lastSettled?.bet ?? null;
   const lastResults = lastBet?.results ?? [];
   // achieved는 3상이다(계약 §3) — null(미판정)을 미달성으로 세면 달성 인원이 과소 집계된다.
   const lastAchieved = lastResults.filter((r) => r.achieved === true).length;
@@ -983,42 +1056,68 @@ export default function ChallengeCard({
             //    시작 전 OPEN 내기에는 참가 철회 진입점을 붙인다(계약 §4 — 개설자·단독 불문).
             //    방금 철회한 카드는 응답이 아직 myJoined=true라 rejoinable로 걸러 ②로 보낸다 —
             //    안 그러면 이미 빠진 내기에 '참여 중'과 철회 버튼이 다시 선다.
-            <View style={s.betRow}>
-              <Text style={s.betText}>
-                🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
-              </Text>
-              {/* '내일 시작' — 서버가 내일 내기를 폴백으로 내려줄 수 있다(계약 §3). 표기가 없으면
+            <>
+              <View style={s.betRow}>
+                <Text style={s.betText}>
+                  🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
+                </Text>
+                {/* '내일 시작' — 서버가 내일 내기를 폴백으로 내려줄 수 있다(계약 §3). 표기가 없으면
                   오늘 내기로 읽힌다. 상태('참여 중')가 아니라 시점 표기라 중립 칩으로 가른다. */}
-              {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
-              {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
-              {leavable && (
-                <TouchableOpacity
-                  style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
-                  activeOpacity={0.8}
-                  disabled={leaveBusy}
-                  onPress={confirmLeaveBet}
-                  accessibilityRole="button"
-                  accessibilityLabel="내기 참가 철회"
-                  testID={`group.bet.leave.${challenge.id}`}
-                >
-                  <Text style={s.betLeaveText}>철회</Text>
-                </TouchableOpacity>
+                {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
+                {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
+                {/* v2 오늘 회차 취소(N22·N27) — 서버 myLeaveDeadlineAt이 유일한 판정 근거다.
+                  하루형 당일 참가자에겐 이 버튼이 **유일한 환불 창**이라(레거시 '시작 전' 판정은
+                  영영 false) 없으면 오탭 참가를 되돌릴 방법이 사라진다(#570 codex ②).
+                  회차 축을 아는 응답에서는 레거시 철회·취소 버튼을 세우지 않는다(배타 — 아래 조건). */}
+                {todayLeavable && bet.session != null && (
+                  <TouchableOpacity
+                    style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
+                    activeOpacity={0.8}
+                    disabled={leaveBusy}
+                    onPress={() => confirmLeaveToday(bet.session!.sessionId, bet.session!.stake)}
+                    accessibilityRole="button"
+                    accessibilityLabel="오늘 참여 취소"
+                    testID={`group.bet.leaveToday.${challenge.id}`}
+                  >
+                    <Text style={s.betLeaveText}>참여 취소</Text>
+                  </TouchableOpacity>
+                )}
+                {leavable && bet.session === undefined && (
+                  <TouchableOpacity
+                    style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
+                    activeOpacity={0.8}
+                    disabled={leaveBusy}
+                    onPress={confirmLeaveBet}
+                    accessibilityRole="button"
+                    accessibilityLabel="내기 참가 철회"
+                    testID={`group.bet.leave.${challenge.id}`}
+                  >
+                    <Text style={s.betLeaveText}>철회</Text>
+                  </TouchableOpacity>
+                )}
+                {/* 당일 단독 개설자 carve-out — cancelable이 !leavable을 품어 철회와 배타다.
+                  회차 축을 아는 응답에는 세우지 않는다(취소는 회차 단위 leaveSession으로 통일 — §C8). */}
+                {cancelable && bet.session === undefined && (
+                  <TouchableOpacity
+                    style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
+                    activeOpacity={0.8}
+                    disabled={leaveBusy}
+                    onPress={confirmCancelBet}
+                    accessibilityRole="button"
+                    accessibilityLabel="내기 취소"
+                    testID={`group.bet.cancel.${challenge.id}`}
+                  >
+                    <Text style={s.betLeaveText}>취소</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {/* 남은 유예 안내 — 흐르는 걸 모르면 5분 유예는 없는 것과 같다(ux §05 ③). */}
+              {leaveRemainCaption !== null && (
+                <Text style={s.caption} testID={`group.bet.leaveCountdown.${challenge.id}`}>
+                  {leaveRemainCaption}
+                </Text>
               )}
-              {/* 당일 단독 개설자 carve-out — cancelable이 !leavable을 품어 철회와 배타다. */}
-              {cancelable && (
-                <TouchableOpacity
-                  style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
-                  activeOpacity={0.8}
-                  disabled={leaveBusy}
-                  onPress={confirmCancelBet}
-                  accessibilityRole="button"
-                  accessibilityLabel="내기 취소"
-                  testID={`group.bet.cancel.${challenge.id}`}
-                >
-                  <Text style={s.betLeaveText}>취소</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            </>
           ) : bet.status === 'OPEN' && betOpenable && !todayJoinClosed ? (
             // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
             //    ⚠️ 회차는 정산 전까지 OPEN으로 남지만 참가 마감(joinClosesAt)은 먼저 지난다 —
@@ -1102,6 +1201,8 @@ export default function ChallengeCard({
           missionCategory={challenge.missionCategory}
           // 전체 이력 진입(GROMO-1221) — 시트를 걷고 push 대기로 전환한다(위 이펙트가 소비).
           onOpenHistory={() => setLastBetView({ kind: 'history' })}
+          // 무효화 사유(#570 codex ④) — 무산·삭제 환불에 "달성한 사람이 없어"를 적지 않는다.
+          voidReason={lastSettled?.voidReason ?? null}
           onClose={() => setLastBetView(null)}
         />
       )}
@@ -1109,14 +1210,16 @@ export default function ChallengeCard({
       {/* 다음 활성일 1건 예약 확인(GROMO-1419) — 성공하면 부모 재조회로 nextSessionJoined를
           갈아 끼운다(카드가 시트·API를 직접 쥐는 이유는 히스토리 push와 같다 — 부모는 형제
           워크스트림 전유라 배선을 늘리지 않는다). */}
-      {betV2Sheet === 'next' && bet !== null && nextDate !== null && cachedGroupId !== null && (
+      {/* ⚠️ 마운트 조건에 `bet !== null`을 두면 **회차 없는 날 버튼이 무반응**이 된다(#570 codex ①)
+          — 그 날이 바로 이 시트가 필요한 날이다. 참가비 축은 betConfig까지 포함한 reserveStake다. */}
+      {betV2Sheet === 'next' && reserveStake > 0 && nextDate !== null && cachedGroupId !== null && (
         <JoinNextSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
           label={label ?? categoryLabel(challenge)}
           sessionDate={nextDate}
           startTimeLabel={startHHmm}
-          stake={bet.stake}
+          stake={reserveStake}
           onClose={() => setBetV2Sheet(null)}
           onDone={() => {
             setBetV2Sheet(null);
@@ -1127,14 +1230,14 @@ export default function ChallengeCard({
 
       {/* 이번 주 남은 날 일괄 예약(GROMO-1276) — 대상 날짜는 열 때 예약 현황까지 반영해 확정한
           weekSheetDates다(위 openWeekSheet — #570 codex ②). */}
-      {weekSheetDates !== null && bet !== null && cachedGroupId !== null && (
+      {weekSheetDates !== null && reserveStake > 0 && cachedGroupId !== null && (
         <JoinWeekSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
           label={label ?? categoryLabel(challenge)}
           dates={weekSheetDates}
           startTimeLabel={startHHmm}
-          stake={bet.stake}
+          stake={reserveStake}
           onClose={() => setWeekSheetDates(null)}
           onDone={() => {
             setWeekSheetDates(null);
@@ -1151,6 +1254,11 @@ export default function ChallengeCard({
           onConfirm={() => {
             setDeletePreview(null);
             onDelete(challenge.id);
+            // 삭제는 OPEN 회차를 무효화하고 **전원에게 환불**한다(FR-12) — 그룹장 자신이 참가한
+            // 회차가 있으면 지갑이 늘어난다. 부모의 재조회(load)는 챌린지 목록만 갈아 끼우고,
+            // 정산 감지 서명은 삭제된 챌린지가 응답에서 사라져 변화를 못 잡는다 — 여기서 직접
+            // 잔액을 다시 받지 않으면 상점이 정산 전 잔액으로 구매를 막는다(#570 codex ③).
+            refreshCoins();
           }}
           onClose={() => setDeletePreview(null)}
         />

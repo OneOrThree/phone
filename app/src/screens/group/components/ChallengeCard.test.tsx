@@ -21,6 +21,7 @@ import {
   leaveSession,
 } from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
+import { todayStrKst } from '@/utils/localDate';
 import { T } from '@/constants/theme';
 import type {
   ChallengeMemberProgress,
@@ -75,6 +76,9 @@ jest.mock('@/utils/localDate', () => ({
   todayStr: jest.fn(() => '2026-07-31'),
   todayStrKst: jest.fn(() => '2026-08-01'),
 }));
+// 주간 대상 산출은 '오늘'이 주(월~일) 어디냐에 따라 갈린다 — 요일을 옮기는 테스트만 이 목의
+// 반환값을 바꾸고, beforeEach가 기본값(토요일)으로 되돌린다.
+const mockTodayStrKst = todayStrKst as jest.MockedFunction<typeof todayStrKst>;
 // KST 벽시계는 기본 10:00 — 자정 걸침 창(GROMO-1208) 시나리오만 값을 바꾼다(BetSheet.test 관행).
 // 되돌리기는 beforeEach가 맡는다 — 안 되돌리면 뒤 테스트가 조용히 00:30 세계에서 돈다.
 let mockNowSec = 10 * 3600;
@@ -184,6 +188,7 @@ beforeEach(() => {
   // 실제 실행일 기준으로 이미 지나 테스트가 날짜와 함께 썩는다. KST 10:00 = 01:00Z로 못 박는다
   // (아래 mockNowSec 10:00과 같은 순간 — 두 시간축이 어긋나면 분기 판정이 서로 모순된다).
   jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-01T01:00:00Z'));
+  mockTodayStrKst.mockReturnValue('2026-08-01'); // 요일을 옮긴 테스트가 남긴 값을 되돌린다.
   mockNowSec = 10 * 3600; // KST 10:00 — 시각을 바꾼 테스트가 남긴 값을 되돌린다.
   mockLeaveBet.mockResolvedValue(undefined);
   mockCancelBet.mockResolvedValue(undefined);
@@ -1793,6 +1798,67 @@ describe('v2 내기 꺼짐 (N26)', () => {
     expect(screen.queryByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeNull();
   });
 
+  // #570 codex ① — 버튼만 서고 시트가 안 뜨면 "무반응 버튼"이다. 회차 없는 날이 바로 이
+  // 시트가 필요한 날이라, 마운트 조건이 bet에 매여 있으면 기능 전체가 죽는다.
+  test('bet=null이어도 예약 시트가 실제로 열리고 예약까지 간다', async () => {
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          repeatDays: ['MON', 'WED', 'FRI'],
+          activeToday: false,
+          nextSessionAt: NEXT_MON_AT,
+          bet: null,
+          betConfig: { enabled: true, stake: 50 },
+        })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`));
+    });
+
+    // 시트가 실제로 떴고, 참가비는 betConfig에서 온다.
+    expect(screen.getByTestId('group.bet.joinNext.submit')).toHaveTextContent('8/3(월) 참여하기');
+    expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent(/참가비 50 · 내 잔액/);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.joinNext.submit'));
+    });
+    expect(mockJoinNextSession).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID);
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('bet=null이어도 주간 예약 시트가 열리고 합계에 설정 참가비를 쓴다', async () => {
+    // 화요일(8/4)로 옮겨 남은 활성일을 2개(수·금) 만든다 — 토요일 기준으로는 이번 주에 남는
+    // 날이 하루뿐이라(주는 월~일) 버튼 노출 규칙(≥2)에 걸려 이 경로를 못 밟는다.
+    mockTodayStrKst.mockReturnValue('2026-08-04');
+    await renderCard({
+      repeatDays: ['WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: '2026-08-04T15:00:00Z', // 8/5(수) 자정 시작
+      bet: null, // 오늘 회차가 없다(비활성 요일)
+      betConfig: { enabled: true, stake: 50 },
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent(
+      '2일 × 50코인 = 합계 100코인',
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+    });
+    expect(mockJoinWeekSessions).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, [
+      '2026-08-05',
+      '2026-08-07',
+    ]);
+  });
+
   test('betConfig.enabled=false면 v2 규칙대로 내기 영역 자체가 없다', async () => {
     await renderCard({
       repeatDays: ['MON', 'WED', 'FRI'],
@@ -1876,6 +1942,121 @@ describe('오늘 참가 마감·권한 가드', () => {
   });
 });
 
+// ── 오늘 회차 참여 취소(#570 codex ② — N22·N27) ────────────────────────────────
+// 하루형 당일 참가자에게는 이 버튼이 **유일한 환불 창**이다: 회차 시작이 자정이라 레거시
+// '시작 전' 판정은 영영 false다. 마감 판정 근거는 서버 myLeaveDeadlineAt 하나뿐이다.
+describe('오늘 참여 취소 (N22)', () => {
+  const joinedDaySession = (over: Partial<GroupBetSession> = {}): GroupBetSession => ({
+    sessionId: 's-today',
+    sessionDate: '2026-08-01',
+    stake: 30,
+    goalMinutes: 60,
+    pot: 60,
+    status: 'OPEN',
+    startsAt: '2026-07-31T15:00:00Z', // 하루형 — 자정 시작(이미 지났다)
+    joinClosesAt: '2026-08-01T14:59:59Z',
+    // 지금(01:00Z)으로부터 3분 뒤 — 참가 후 5분 유예의 잔여분(N22).
+    myLeaveDeadlineAt: '2026-08-01T01:03:00Z',
+    closesAt: '2026-08-01T14:59:59Z',
+    myJoined: true,
+    myAchievedNow: false,
+    participants: [{ userId: 'u1', nickname: '재영' }],
+    ...over,
+  });
+  const joinedOver = (
+    sessionOver: Partial<GroupBetSession> = {},
+  ): Partial<GroupChallengeResponse> => ({
+    repeatDays: ['SAT'],
+    activeToday: true,
+    nextSessionAt: NEXT_MON_AT,
+    bet: bet({ enabled: true, myJoined: true, session: joinedDaySession(sessionOver) }),
+  });
+
+  test('유예가 남아 있으면 「참여 취소」와 남은 시간이 뜬다', async () => {
+    await renderCard(joinedOver());
+
+    expect(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toHaveTextContent(
+      '참여 취소',
+    );
+    expect(screen.getByTestId(`group.bet.leaveCountdown.${CHALLENGE_ID}`)).toHaveTextContent(
+      '3분 0초 안에 취소할 수 있어요',
+    );
+    // 회차 축을 아는 응답에는 레거시 철회·취소 버튼을 세우지 않는다(배타).
+    expect(screen.queryByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`group.bet.cancel.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('확인 후 회차 단위로 취소하고 잔액·카드를 다시 받는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(joinedOver())}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+      | AlertButton[]
+      | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(mockLeaveSession).toHaveBeenCalledWith(GROUP_ID, 's-today');
+    expect(mockRefreshCoins).toHaveBeenCalled();
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('유예가 지났으면 버튼도 초읽기도 없다 — 서버 마감 시각이 유일한 근거다', async () => {
+    await renderCard(joinedOver({ myLeaveDeadlineAt: '2026-08-01T00:59:00Z' })); // 이미 지남
+    expect(screen.queryByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`group.bet.leaveCountdown.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('마감 시각이 없으면(미참여·구 응답) 버튼을 세우지 않는다', async () => {
+    await renderCard(joinedOver({ myLeaveDeadlineAt: null }));
+    expect(screen.queryByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('실패는 code별 문구로 알리고 재조회를 태우지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_LEAVE_CLOSED'));
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(joinedOver())}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+      | AlertButton[]
+      | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 취소를 못 했어요',
+      '취소할 수 있는 시간이 지났어요.',
+    );
+    expect(onBetChanged).not.toHaveBeenCalled();
+  });
+});
+
 // ── v2 지난 결과 소비(#570 codex ①) — lastSettledSession 우선, 구서버는 lastSettledBet ──
 describe('지난 결과 v2 (lastSettledSession)', () => {
   test('v2 필드가 있으면 그것으로 지난 결과 줄을 그린다', async () => {
@@ -1907,6 +2088,45 @@ describe('지난 결과 v2 (lastSettledSession)', () => {
   test('v2 필드가 없으면 구서버 lastSettledBet로 폴백한다', async () => {
     await renderCard({ bet: bet(), lastSettledBet: lastSettledBet() });
     expect(screen.getByText('지난 내기(7월 31일): 3명 중 2명 달성')).toBeOnTheScreen();
+  });
+
+  // #570 codex ④ — 무산·삭제 환불은 **판정을 한 적이 없다**. "달성한 사람이 없어"라고 적으면
+  // 하지도 않은 판정의 결과를 말하는 거짓이 된다.
+  test('무산(VOIDED) 회차는 시트에서 사유별 문장으로 말한다 — 판정 결과를 지어내지 않는다', async () => {
+    await renderCard({
+      repeatDays: ['MON'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 30 },
+      lastSettledSession: {
+        sessionId: 's-void',
+        sessionDate: '2026-07-31',
+        stake: 30,
+        pot: 30,
+        status: 'VOIDED',
+        voidReason: 'SHORT_PARTICIPANTS',
+        goalMinutes: 60,
+        myJoined: true,
+        myAchieved: null,
+        myPayout: 30,
+        results: [{ userId: 'u1', nickname: '재영', achieved: null, payout: 30 }],
+      },
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    expect(screen.getByText('참가자가 부족해 무산됐어요. 참가비는 돌려드렸어요')).toBeOnTheScreen();
+    expect(screen.queryByText('달성한 사람이 없어 전원 환불됐어요')).toBeNull();
+  });
+
+  test('사유를 모르는 환불(구서버)은 종전 문장으로 폴백한다', async () => {
+    await renderCard({ bet: bet(), lastSettledBet: lastSettledBet({ status: 'REFUNDED' }) });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    expect(screen.getByText('달성한 사람이 없어 전원 환불됐어요')).toBeOnTheScreen();
   });
 
   test('참가자 0명으로 닫힌 회차(UNUSED)는 지난 결과로 그리지 않는다(N52)', async () => {
@@ -2171,6 +2391,9 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
       fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
     });
     expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+    // 삭제는 OPEN 회차를 무효화하고 전원 환불한다(FR-12) — 그룹장 자신이 참가했으면 지갑이
+    // 늘어나는데, 삭제된 챌린지는 재조회 응답에서 사라져 정산 감지가 변화를 못 잡는다(#570 ③).
+    expect(mockRefreshCoins).toHaveBeenCalled();
   });
 
   test('그만두기는 삭제 없이 시트만 접는다', async () => {

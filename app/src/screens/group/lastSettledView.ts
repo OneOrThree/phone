@@ -26,27 +26,40 @@ function toDisplayStatus(status: LastSettledSession['status']): GroupBetStatus |
   return status;
 }
 
+/** 표시 모델 + v2에만 있는 곁가지(무효화 사유) — 시트가 문장을 가르는 데 쓴다. */
+export interface LastSettledView {
+  bet: LastSettledBet;
+  // VOIDED에서만 값이 있다. 이 값이 있으면 "달성한 사람이 없어 전원 환불"이 **거짓**이므로
+  // 시트가 사유별 문장으로 갈아 끼운다(#570 codex ④). 구서버·모르는 값이면 null(종전 문장).
+  voidReason: string | null;
+}
+
 /**
  * 카드가 그릴 '지난 결과' 1건. 없으면 null.
  *
  * v2 필드가 있으면 그것이 정본이고(회차 모델), 없으면 구서버 `lastSettledBet`로 폴백한다 —
  * 서버 배포가 앱보다 늦어도(그 반대여도) 카드가 빈 채로 남지 않는다.
  */
-export function pickLastSettled(challenge: GroupChallengeResponse): LastSettledBet | null {
+export function pickLastSettled(challenge: GroupChallengeResponse): LastSettledView | null {
   const session = challenge.lastSettledSession ?? null;
   if (session !== null) {
     const status = toDisplayStatus(session.status);
     if (status === null) return null;
     return {
-      betDate: session.sessionDate,
-      stake: session.stake,
-      pot: session.pot,
-      status,
-      results: session.results,
-      goalMinutes: session.goalMinutes,
+      bet: {
+        betDate: session.sessionDate,
+        stake: session.stake,
+        pot: session.pot,
+        status,
+        results: session.results,
+        goalMinutes: session.goalMinutes,
+      },
+      // 사유는 무효화(VOIDED)에서만 뜻이 있다 — 다른 상태에 실려 와도 문장을 바꾸지 않는다.
+      voidReason: session.status === 'VOIDED' ? (session.voidReason ?? null) : null,
     };
   }
-  return challenge.lastSettledBet ?? null;
+  const legacy = challenge.lastSettledBet ?? null;
+  return legacy === null ? null : { bet: legacy, voidReason: null };
 }
 
 /**
