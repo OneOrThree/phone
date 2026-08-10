@@ -11,11 +11,13 @@ import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateChallengeRequest;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
+import com.oneorthree.phone.group.dto.RepeatDay;
 import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -50,6 +52,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -201,8 +204,8 @@ class GroupChallengeServiceTest {
         given(groupChallengeWindowRepository.findByChallengeIdIn(challengeIds))
                 .willReturn(List.of(GroupChallengeWindow.builder()
                         .challengeId(screenTimeId)
-                        .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00")) // KST → 09:00:00
-                        .windowEndAt(Instant.parse("2026-01-01T18:00:00+09:00"))   // KST → 18:00:00
+                        .windowStart(LocalTime.parse("09:00")) // 응답 "09:00:00"
+                        .windowEnd(LocalTime.parse("18:00"))   // 응답 "18:00:00"
                         .build()));
         given(userScreenTimeSettingsRepository.findById(USER_ID))
                 .willReturn(Optional.of(settings(USER_ID, false))); // 권한 미동의
@@ -394,6 +397,35 @@ class GroupChallengeServiceTest {
         // then: SCREEN_TIME 은 "적을수록 달성"(<=), 데이터 없음은 0분이 아니라 null 로 남긴다
         List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
         assertThat(progress).hasSize(2);
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(50);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getProgressMinutes()).isNull();
+        assertThat(progress.get(1).getAchieved()).isNull();
+    }
+
+    @Test
+    @DisplayName("SCREEN_TIME 미집계 row(minutes null) 는 행 없음과 동일하게 null(판정 불가)로 전파 (GROMO-1267)")
+    void getChallengesPropagatesNullForUnmeasuredScreenTimeRow() {
+        // given: 목표 60분 · 둘 다 권한 동의 · 재영은 50분 사용(달성) · 수빈은 row 는 있으나 미집계(null)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(
+                        DailyScreenTimeStat.builder()
+                                .user(user).date(TODAY).totalScreenTimeMinutes(50).build(),
+                        DailyScreenTimeStat.builder()
+                                .user(members.get(1).getUser()).date(TODAY).build()));   // 미집계 — minutes null
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: "0분 사용 = 달성"으로 뒤집히지 않는다 — 미집계는 3상(null) 그대로(FR-16)
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
         assertThat(progress.get(0).getProgressMinutes()).isEqualTo(50);
         assertThat(progress.get(0).getAchieved()).isTrue();
         assertThat(progress.get(1).getProgressMinutes()).isNull();
@@ -661,8 +693,8 @@ class GroupChallengeServiceTest {
     private GroupChallengeWindow givenWindowDetail(Integer durationMinutes) {
         GroupChallengeWindow window = GroupChallengeWindow.builder()
                 .challengeId(CHALLENGE_ID)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
+                .windowStart(LocalTime.parse("09:00"))
+                .windowEnd(LocalTime.parse("12:00"))
                 .durationMinutes(durationMinutes)
                 .build();
         given(groupChallengeWindowRepository.findByChallengeIdIn(List.of(CHALLENGE_ID)))
@@ -803,15 +835,15 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("INACTIVE(종료된) 챌린지는 date 를 줘도 memberProgress = null, 통계도 조회하지 않는다")
-    void getChallengesInactiveChallengeHasNoProgress() {
-        // given: V2 마이그레이션이 레거시 ENDED 를 옮겨 둔 INACTIVE DURATION 챌린지
+    @DisplayName("ENDED(종료된) 챌린지는 date 를 줘도 memberProgress = null, 통계도 조회하지 않는다")
+    void getChallengesEndedChallengeHasNoProgress() {
+        // given: 종료 전이(V34 — 레거시 INACTIVE 도 ENDED 로 복원)된 DURATION 챌린지
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(CHALLENGE_ID).group(group)
                 .type(MissionType.DURATION).category(MissionCategory.FOCUS)
-                .status(GroupChallengeStatus.INACTIVE)
+                .status(GroupChallengeStatus.ENDED)
                 .build();
         givenGroupWithTwoMembers(group, user, challenge);
         givenDurationDetail(60);
@@ -821,6 +853,39 @@ class GroupChallengeServiceTest {
 
         // then: 끝난 챌린지에 당일 통계를 대조하면 과거 진행률이 매일 바뀌므로 계산 자체를 하지 않는다
         assertThat(result.get(0).getMemberProgress()).isNull();
+        verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
+        verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
+    }
+
+    @Test
+    @DisplayName("비활성 요일 조회 — memberProgress 전원 null(판정 불가 3상) + activeToday=false, 통계 미조회 (FR-9)")
+    void getChallengesReturnsNullProgressOnInactiveDay() {
+        // given: 조회 날짜(TODAY)의 요일이 repeatDays 에 없는 DURATION 챌린지 — 도는 날이 아니다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        int inactiveTodayMask = RepeatSchedule.bit(TODAY.plusDays(1).getDayOfWeek());
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE)
+                .repeatDays(inactiveTodayMask)
+                .build();
+        givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: 멤버 행은 유지하되 진행분·판정은 전원 null — 구앱은 null 을 '—'(미집계)로 렌더한다.
+        // 비활성 요일에 그날 통계를 대조하면 "주말에 억울한 미달성"이 찍힌다(§A3) — 조회 자체를 안 한다.
+        assertThat(result.get(0).isActiveToday()).isFalse();
+        assertThat(result.get(0).getMemberProgress())
+                .isNotNull()
+                .isNotEmpty()
+                .allSatisfy(row -> {
+                    assertThat(row.getProgressMinutes()).isNull();
+                    assertThat(row.getAchieved()).isNull();
+                });
         verify(dailyFocusStatRepository, never()).findByUserInAndDate(any(), any());
         verify(dailyScreenTimeStatRepository, never()).findByUserInAndDate(any(), any());
     }
@@ -973,11 +1038,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getDurationMinutes()).willReturn(30);
@@ -1012,11 +1078,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getDurationMinutes()).willReturn(30);
@@ -1044,14 +1111,15 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
-        given(request.getDurationMinutes()).willReturn(30);
+        // durationMinutes 는 스텁하지 않는다 — 하루형 중복 검사가 목표 검증보다 앞서 끊는다(GROMO-1422 순서).
         given(groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
                 group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE))
                 .willReturn(true);
@@ -1071,11 +1139,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getWindowStart()).willReturn("00:00:00");
@@ -1096,32 +1165,57 @@ class GroupChallengeServiceTest {
         ArgumentCaptor<GroupChallengeWindow> windowCaptor = ArgumentCaptor.forClass(GroupChallengeWindow.class);
         verify(groupChallengeWindowRepository).save(windowCaptor.capture());
         assertThat(windowCaptor.getValue().getChallenge()).isEqualTo(saved);
-        // 저장 앵커: 날짜부는 EPOCH(1970-01-01, KST)로 고정된다 — 의미는 KST 시각뿐(GROMO-1225).
-        assertThat(windowCaptor.getValue().getWindowStartAt())
-                .isEqualTo(Instant.parse("1970-01-01T00:00:00+09:00"));
-        assertThat(windowCaptor.getValue().getWindowEndAt())
-                .isEqualTo(Instant.parse("1970-01-01T09:00:00+09:00"));
+        // 저장은 KST 벽시계 time 그 자체다(V35) — 종전 EPOCH 앵커 Instant 규약은 폐기됐다.
+        assertThat(windowCaptor.getValue().getWindowStart()).isEqualTo(LocalTime.parse("00:00"));
+        assertThat(windowCaptor.getValue().getWindowEnd()).isEqualTo(LocalTime.parse("09:00"));
         assertThat(windowCaptor.getValue().getDurationMinutes()).isEqualTo(120);
         verify(groupChallengeDurationRepository, never()).save(any(GroupChallengeDuration.class));
     }
 
     @Test
-    @DisplayName("TIME_WINDOW 자정 걸침 창(22:00~01:00) → 창 길이 180분으로 계산돼 생성 허용")
-    void createTimeWindowChallengeAllowsMidnightCrossing() {
-        // given: 시각(time-of-day) 기준 시작 > 종료 — D 22:00 ~ D+1 01:00 창
+    @DisplayName("TIME_WINDOW 자정 걸침 창(22:00~01:00) → INVALID_MISSION_PARAMS 400 — 시작 < 종료 단일 조건(§A6-1 · GROMO-1406)")
+    void createTimeWindowChallengeRejectsMidnightCrossing() {
+        // given: 시각 기준 시작 > 종료 — 종전엔 자정 걸침으로 허용됐지만 N25 되돌리기로 거부된다
+        // (걸친 창은 회차가 요일 경계를 넘어 판정일·겹침·정산 귀속이 전부 모호해진다)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getWindowStart()).willReturn("22:00:00");
+        given(request.getWindowEnd()).willReturn("01:00:00");
+
+        // when & then: 저장 없이 400 — 심야 챌린지는 22:00~23:59 처럼 자정 앞에서 끊는다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+        verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+    }
+
+    @Test
+    @DisplayName("심야 창(22:00~23:59)은 허용 — 자정 앞에서 끊는 대안 경로(§A6-1 대가)")
+    void createTimeWindowChallengeAllowsLateNightWindow() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getWindowStart()).willReturn("22:00:00");
-        given(request.getWindowEnd()).willReturn("01:00:00");
-        given(request.getDurationMinutes()).willReturn(180);   // 정확히 창 길이 = 경계 허용
+        given(request.getWindowEnd()).willReturn("23:59:00");
+        given(request.getDurationMinutes()).willReturn(119);   // 정확히 창 길이 = 경계 허용
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
@@ -1143,11 +1237,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getWindowStart()).willReturn("09:00:00");
         given(request.getWindowEnd()).willReturn("12:00:00");
@@ -1168,11 +1263,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getWindowStart()).willReturn("09:00:00");
         given(request.getWindowEnd()).willReturn("12:00:00");
@@ -1193,11 +1289,12 @@ class GroupChallengeServiceTest {
         User owner = member(); // screenTimePermissionGranted = false 지만 OWNER 본인
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group))
                 .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.SCREEN_TIME);
         given(request.getDurationMinutes()).willReturn(30);
@@ -1234,11 +1331,12 @@ class GroupChallengeServiceTest {
         User owner = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(owner));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(owner, group))
                 .willReturn(Optional.of(groupMemberOf(owner, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.SCREEN_TIME);
         given(request.getDurationMinutes()).willReturn(30);
@@ -1287,7 +1385,7 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
 
@@ -1305,11 +1403,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getDurationMinutes()).willReturn(0);
 
@@ -1321,20 +1420,22 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("DURATION durationMinutes 가 1440 초과(1441·999999) → GroupException(INVALID_MISSION_PARAMS)")
-    void createChallengeRejectsDurationOverOneDay() {
-        // given: OWNER + DURATION — 하루(1440분)보다 긴 목표는 달성 불가능한 챌린지다(GROMO-1205)
+    @DisplayName("FOCUS 하루형 목표가 1080분(18h) 초과(1081·999999) → INVALID_MISSION_PARAMS (N51)")
+    void createChallengeRejectsFocusDurationOverCap() {
+        // given: OWNER + FOCUS DURATION — 상한은 카테고리별이다(§A6-bis). V36 CHECK 와 같은 값.
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
 
-        for (int minutes : new int[] {1441, 999_999}) {
+        for (int minutes : new int[] {1081, 999_999}) {
             given(request.getDurationMinutes()).willReturn(minutes);
 
             // when & then
@@ -1347,20 +1448,45 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("DURATION durationMinutes 1440(하루 전체) 경계는 허용 — V28 CHECK 와 같은 상한이다")
-    void createChallengeAllowsFullDayDurationBoundary() {
-        // given: OWNER + DURATION + durationMinutes = 1440(경계)
+    @DisplayName("SCREEN_TIME 하루형 목표가 720분(12h) 초과 → INVALID_MISSION_PARAMS — 상한이 곧 가장 느슨한 목표(N51)")
+    void createChallengeRejectsScreenTimeDurationOverCap() {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.SCREEN_TIME);
+        given(request.getDurationMinutes()).willReturn(721);
+
+        // when & then: FOCUS 였다면 통과할 값(721 ≤ 1080)이 SCREEN_TIME 상한에는 걸린다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("카테고리별 상한 경계(FOCUS 1080)는 허용 — 값과 부모 카테고리가 그대로 상세에 저장된다")
+    void createChallengeAllowsFocusDurationCapBoundary() {
+        // given: OWNER + FOCUS DURATION + durationMinutes = 1080(경계)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
-        given(request.getDurationMinutes()).willReturn(1440);
+        given(request.getDurationMinutes()).willReturn(1080);
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.DURATION).category(MissionCategory.FOCUS)
@@ -1370,12 +1496,13 @@ class GroupChallengeServiceTest {
         // when
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
 
-        // then: 경계값이 그대로 상세에 저장된다
+        // then: 경계값이 그대로 상세에 저장되고, 부모 카테고리도 복사된다(V36 복합 FK 대비)
         assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
         ArgumentCaptor<GroupChallengeDuration> durationCaptor =
                 ArgumentCaptor.forClass(GroupChallengeDuration.class);
         verify(groupChallengeDurationRepository).save(durationCaptor.capture());
-        assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(1440);
+        assertThat(durationCaptor.getValue().getDurationMinutes()).isEqualTo(1080);
+        assertThat(durationCaptor.getValue().getCategory()).isEqualTo(MissionCategory.FOCUS);
     }
 
     @Test
@@ -1385,11 +1512,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         // windowStart/End 는 stub 안 함 → null → 누락으로 간주
 
@@ -1407,11 +1535,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getWindowStart()).willReturn("09:00:00");
         given(request.getWindowEnd()).willReturn("09:00:00");
@@ -1431,14 +1560,15 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
-        given(request.getDurationMinutes()).willReturn(30);
+        // durationMinutes 는 스텁하지 않는다 — 하루형 중복 검사가 목표 검증보다 앞서 끊는다(GROMO-1422 순서).
         given(groupChallengeRepository.existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
                 group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE))
                 .willReturn(true);
@@ -1458,11 +1588,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getDurationMinutes()).willReturn(30);
@@ -1488,14 +1619,15 @@ class GroupChallengeServiceTest {
                 .willReturn(List.of(GroupChallengeWindow.builder()
                         .challengeId(challenge.getId())
                         .challenge(challenge)
-                        .windowStartAt(Instant.parse(start))
-                        .windowEndAt(Instant.parse(end))
+                        .windowStart(LocalTime.parse(start))
+                        .windowEnd(LocalTime.parse(end))
                         .build()));
     }
 
     /** 창형 생성 요청 스텁 — start/end 는 구앱 ISO Instant 문자열 그대로 넣어 이중 수용 경로도 함께 태운다. */
     private CreateChallengeRequest windowRequest(MissionCategory category, String start, String end, int goal) {
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
         given(request.getMissionCategory()).willReturn(category);
         given(request.getWindowStart()).willReturn(start);
@@ -1511,10 +1643,10 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
-        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "2026-01-01T09:00:00+09:00", "2026-01-01T12:00:00+09:00");
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
 
         CreateChallengeRequest request =
                 windowRequest(MissionCategory.FOCUS, "2026-01-01T10:00:00+09:00", "2026-01-01T11:00:00+09:00", 30);
@@ -1535,10 +1667,10 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
-        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "2026-01-01T09:00:00+09:00", "2026-01-01T12:00:00+09:00");
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
 
         GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
                 .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
@@ -1556,20 +1688,20 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("자정 걸침 창끼리의 교차도 하루 경계 전개로 잡는다 → CHALLENGE_WINDOW_OVERLAP")
-    void createChallengeDetectsMidnightCrossingOverlap() {
-        // given: SCREEN_TIME [23:00~02:00](자정 걸침) 이 있는데 FOCUS [01:00~03:00] 생성 시도 —
-        // 새 창은 자정을 안 걸치지만 기존 창의 [00:00~02:00) 구간과 겹친다
+    @DisplayName("같은 카테고리 창형끼리의 교차도 거부 — 복수 허용(FR-3) 이후 카테고리 스킵은 없다(§A5)")
+    void createChallengeDetectsSameCategoryOverlap() {
+        // given: FOCUS [09:00~12:00] 이 있는 그룹에 FOCUS [10:00~11:00] 생성 시도 — 종전에는
+        // 같은 카테고리가 중복 검사(카테고리×타입 1개)에 걸려 겹침 검사가 스킵됐지만, 창형 복수
+        // 허용(GROMO-1422)으로 겹침 검사가 카테고리 무관 전건 비교가 됐다
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
-        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "2026-01-01T23:00:00+09:00", "2026-01-01T02:00:00+09:00");
+        givenActiveWindow(group, MissionCategory.FOCUS, "09:00", "12:00");
 
-        CreateChallengeRequest request =
-                windowRequest(MissionCategory.FOCUS, "2026-01-01T01:00:00+09:00", "2026-01-01T03:00:00+09:00", 30);
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "10:00:00", "11:00:00", 30);
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
@@ -1577,6 +1709,319 @@ class GroupChallengeServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
     }
+
+    @Test
+    @DisplayName("겹치지 않는 같은 카테고리 창형은 복수 허용(FR-3) — 유니크 완화의 목적 그 자체")
+    void createChallengeAllowsMultipleDisjointWindowsInSameCategory() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS, "09:00", "12:00");
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "14:00:00", "16:00:00", 30);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then: 하루형 중복 검사(existsBy...)를 타지 않고 그대로 저장된다
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+        verify(groupChallengeRepository, never()).existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
+                any(), any(), any(), any());
+    }
+
+    // ── 생성 검증 재정의(GROMO-1422·1260) — 요일·4개 상한·목표분 규칙 ──────────
+
+    @Test
+    @DisplayName("repeatDays [MON, WED, FRI] → 비트마스크 21(1|4|16)로 접혀 저장된다 (GROMO-1260)")
+    void createChallengeFoldsRepeatDaysIntoBitmask() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(30);
+        given(request.getRepeatDays()).willReturn(List.of(RepeatDay.MON, RepeatDay.WED, RepeatDay.FRI));
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        // when
+        groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then: 월=1·수=4·금=16 → 21
+        ArgumentCaptor<GroupChallenge> challengeCaptor = ArgumentCaptor.forClass(GroupChallenge.class);
+        verify(groupChallengeRepository).saveAndFlush(challengeCaptor.capture());
+        assertThat(challengeCaptor.getValue().getRepeatDays()).isEqualTo(0b0010101);
+    }
+
+    @Test
+    @DisplayName("repeatDays 미전송(구앱) → 매일(127)로 접는다 — 서버는 관대하게, UI 는 선택 강제")
+    void createChallengeDefaultsRepeatDaysToEverydayForLegacyApp() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
+        given(request.getMissionType()).willReturn(MissionType.DURATION);
+        given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
+        given(request.getDurationMinutes()).willReturn(30);
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.DURATION).category(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        // when
+        groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then
+        ArgumentCaptor<GroupChallenge> challengeCaptor = ArgumentCaptor.forClass(GroupChallenge.class);
+        verify(groupChallengeRepository).saveAndFlush(challengeCaptor.capture());
+        assertThat(challengeCaptor.getValue().getRepeatDays()).isEqualTo(127);
+    }
+
+    @Test
+    @DisplayName("repeatDays 빈 배열(신앱 미선택) → CHALLENGE_REPEAT_DAYS_REQUIRED 400 — 기본값 없음(§A3)")
+    void createChallengeRejectsEmptyRepeatDays() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(List.of());
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_REPEAT_DAYS_REQUIRED);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("repeatDays [null] 원소 → CHALLENGE_REPEAT_DAYS_REQUIRED 400 — 비트 접기 NPE(500) 방지")
+    void createChallengeRejectsNullRepeatDayElement() {
+        // Jackson 은 ["MON"] 자리의 null 원소를 그대로 통과시킨다 — 빈 배열과 같은 "미선택"으로 접는다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(Arrays.asList((RepeatDay) null));
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_REPEAT_DAYS_REQUIRED);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("그룹당 활성 챌린지 4개 → CHALLENGE_LIMIT_EXCEEDED 409 (FR-1)")
+    void createChallengeRejectsWhenActiveLimitReached() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupChallengeRepository.countByGroupAndStatusAndDeletedAtIsNull(group, GroupChallengeStatus.ACTIVE))
+                .willReturn(4L);
+
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
+
+        // when & then: 상한 검사는 타입별 검증보다 앞선다 — request 파라미터를 읽기 전에 끊는다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_LIMIT_EXCEEDED);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("창형 FOCUS 목표가 관용치(5분) 이하 → INVALID_MISSION_PARAMS — 1~5분이면 0분도 자동 달성(N31)")
+    void createChallengeRejectsWindowFocusGoalWithinTolerance() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        // 판정이 분 ≥ 목표−5 라 목표 5분은 문턱 0 — 무위험 참가 가드가 전원을 막는 죽은 내기가 된다
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "09:00:00", "12:00:00", 5);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.INVALID_MISSION_PARAMS);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("창형 SCREEN_TIME 목표가 15분 배수 아님 → CHALLENGE_GOAL_NOT_ALIGNED 400 (§A6-3 · FR-8)")
+    void createChallengeRejectsWindowScreenTimeGoalNotAligned() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME, "09:00:00", "12:00:00", 40);
+
+        // when & then: 스크린타임 측정 눈금(15분)보다 고운 목표는 판정할 수 없다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_GOAL_NOT_ALIGNED);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("창형 SCREEN_TIME 목표 15분 배수(45)는 허용 — 비참여자 안내까지 정상 경로")
+    void createChallengeAllowsAlignedWindowScreenTimeGoal() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(MissionCategory.SCREEN_TIME)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME, "09:00:00", "12:00:00", 45);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+    }
+
+    // ── endChallenge (GROMO-1261) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("챌린지 종료 성공 → ENDED 전이 + ended_at 기록 (배타 락 조회 경유)")
+    void endChallengeSuccess() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        // N42: 종료도 삭제와 같은 배타 락 조회를 쓴다 — 참여 경로(FOR SHARE)와 직렬화.
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
+                .willReturn(Optional.of(challenge));
+        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
+                .willReturn(false);
+
+        // when
+        groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
+
+        // then
+        assertThat(challenge.getStatus()).isEqualTo(GroupChallengeStatus.ENDED);
+        assertThat(challenge.getEndedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("이미 ENDED 인 챌린지 재종료 → 멱등(예외 없음) + ended_at 을 당겨쓰지 않는다")
+    void endChallengeIsIdempotent() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .status(GroupChallengeStatus.ENDED).build();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
+                .willReturn(Optional.of(challenge));
+
+        // when: 예외 없이 그대로 반환한다 (204 멱등)
+        groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
+
+        // then: OPEN 회차 검사조차 타지 않고, ended_at 도 갱신되지 않는다(픽스처의 null 유지)
+        verify(groupChallengeBetRepository, never()).existsByChallengeIdAndStatus(any(), any());
+        assertThat(challenge.getEndedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("OPEN 회차(내기)가 있으면 종료 불가 → CHALLENGE_END_BLOCKED 409 (FR-11)")
+    void endChallengeBlockedByOpenBet() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
+                .willReturn(Optional.of(challenge));
+        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
+                .willReturn(true);
+
+        // when & then: 종료는 환불 의무가 없으므로 남의 돈이 걸린 회차를 조용히 접을 수 없다(§A8)
+        assertThatThrownBy(() -> groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_END_BLOCKED);
+        assertThat(challenge.getStatus()).isEqualTo(GroupChallengeStatus.ACTIVE);
+        assertThat(challenge.getEndedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("OWNER 아님 → 종료 불가 GroupException(NOT_OWNER)")
+    void endChallengeNotOwner() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.MEMBER)));
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_OWNER);
+    }
+
 
     // ── deleteChallenge ───────────────────────────────────────────────────
 
@@ -1610,11 +2055,12 @@ class GroupChallengeServiceTest {
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
         given(groupMemberRepository.findByUserAndGroup(user, group))
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
 
         CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(null);   // 미전송(구앱) — mock 기본값은 빈 리스트라 400 이 나 버린다
         given(request.getMissionType()).willReturn(MissionType.DURATION);
         given(request.getMissionCategory()).willReturn(MissionCategory.FOCUS);
         given(request.getDurationMinutes()).willReturn(30);
@@ -1626,7 +2072,7 @@ class GroupChallengeServiceTest {
         // when
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
 
-        // then: ACTIVE_CHALLENGE_EXISTS 없이 새 챌린지가 저장된다
+        // then: CHALLENGE_DUPLICATE 없이 새 챌린지가 저장된다
         assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
         verify(groupChallengeRepository).existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
                 group, MissionCategory.FOCUS, MissionType.DURATION, GroupChallengeStatus.ACTIVE);

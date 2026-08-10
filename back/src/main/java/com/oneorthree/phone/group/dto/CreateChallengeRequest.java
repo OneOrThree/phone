@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Getter
 @NoArgsConstructor
 public class CreateChallengeRequest {
@@ -13,9 +15,13 @@ public class CreateChallengeRequest {
     private MissionCategory missionCategory;
     @NotNull
     private MissionType missionType;
-    // DURATION: 하루 목표 분(필수) · TIME_WINDOW: 창 내 목표 분(필수, 0 < x ≤ 창 길이 분).
+    // 도는 요일(§A3 · GROMO-1260) — 신앱은 1개 이상 필수(빈 배열 = CHALLENGE_REPEAT_DAYS_REQUIRED 400).
+    // 구앱 호환: 필드 미전송(null)이면 서버가 매일(127)로 접는다 — UI 는 선택을 강제하고 서버는 관대하게.
+    private List<RepeatDay> repeatDays;
+    // DURATION: 하루 목표 분(필수, 카테고리별 상한 — FOCUS 1080·SCREEN_TIME 720, N51)
+    // TIME_WINDOW: 창 내 목표 분(필수, 0 < x ≤ 창 길이 분 · FOCUS 는 >5분(N31) · SCREEN_TIME 은 15분 배수).
     private Integer durationMinutes;
-    // TIME_WINDOW 전용 — Asia/Seoul 벽시계 시각(time-of-day)만 의미(GROMO-1100). 시작 > 종료는 자정 걸침 창으로 허용.
+    // TIME_WINDOW 전용 — KST 벽시계 시각. 자정 걸침 금지: 시작 < 종료만 허용(§A6-1 · GROMO-1406).
     // 표기는 "HH:mm:ss" 권장(신앱)·구앱 ISO Instant 도 수용 — 파싱은 WindowFocusAggregator.parseRequestTime
     // 단일 입구를 거치고, 형식 오류는 INVALID_MISSION_PARAMS 다(GROMO-1225).
     private String windowStart;

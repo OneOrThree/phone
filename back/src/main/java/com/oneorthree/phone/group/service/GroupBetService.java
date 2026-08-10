@@ -565,8 +565,10 @@ public class GroupBetService {
         Instant joinClosesAt;
         Instant settleAfter;
         if (target.windowed()) {
-            windowStart = WindowFocusAggregator.timeOfDay(target.window().getWindowStartAt());
-            windowEnd = WindowFocusAggregator.timeOfDay(target.window().getWindowEndAt());
+            // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 으로 저장된다 — Instant→LocalTime
+            // 변환(WindowFocusAggregator.timeOfDay)이 더는 필요 없다.
+            windowStart = target.window().getWindowStart();
+            windowEnd = target.window().getWindowEnd();
             startsAt = sessionDate.atTime(windowStart).atZone(KST).toInstant();
             LocalDate endDate = windowStart.isBefore(windowEnd) ? sessionDate : sessionDate.plusDays(1);
             closesAt = endDate.atTime(windowEnd).atZone(KST).toInstant();

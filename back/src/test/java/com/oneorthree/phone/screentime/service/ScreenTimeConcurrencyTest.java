@@ -1,7 +1,7 @@
 package com.oneorthree.phone.screentime.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.screentime.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.screentime.dto.ScreenTimeRequest;
 import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
@@ -53,10 +53,9 @@ class ScreenTimeConcurrencyTest extends IntegrationTestBase {
     // 모든 스레드가 같은 (user, date) 로 향하도록 고정한 과거 시각. 과거 날짜라 finalReport 로 추론되나
     // clientAchieved=false 라 목표 달성 알림·이벤트 side-effect 는 발사되지 않아 순수 멱등 upsert 만 검증한다.
     private static final Instant REPORTED_AT = Instant.parse("2020-01-01T00:00:00Z");
-    // 유저 country_code 가 null 이면 CountryZoneResolver 가 폴백 존(GROMO-1252: Asia/Seoul)을 준다 →
-    // 그 존 기준 REPORTED_AT 의 로컬 날짜. 폴백 값이 바뀌어도 깨지지 않게 리졸버로 직접 계산한다.
+    // 저장 날짜 축은 KST 고정(GROMO-1259, ZonePolicy) — REPORTED_AT 의 KST 로컬 날짜.
     private static final LocalDate DATE =
-            REPORTED_AT.atZone(CountryZoneResolver.resolve(null)).toLocalDate();
+            REPORTED_AT.atZone(ZonePolicy.KST).toLocalDate();
     // 스크린타임은 덮어쓰기(last-write-wins)라 모든 스레드가 같은 값을 쓰면 최종값이 결정론적이다.
     private static final int SCREEN_TIME_MINUTES = 60;
 
