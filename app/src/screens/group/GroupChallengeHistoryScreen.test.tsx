@@ -202,7 +202,8 @@ describe('그룹 축 계약 (N6-1)', () => {
 
     expect(screen.getByText('삭제됨')).toBeOnTheScreen();
     // 챌린지 행을 조인하지 않고도 미션이 읽힌다 — 이 화면의 존재 이유다.
-    expect(screen.getByText('매일 09:00~12:00 90분 집중')).toBeOnTheScreen();
+    // 창 문장에 「매일」은 붙지 않는다(요일 반복 챌린지의 지난 기록이 섞여 있다 — challengeHistoryView).
+    expect(screen.getByText('09:00~12:00 90분 집중')).toBeOnTheScreen();
   });
 });
 
@@ -216,9 +217,12 @@ describe('첫 페이지 렌더', () => {
     expect(screen.getByText('참가비 30 · 적립금 90')).toBeOnTheScreen();
     expect(screen.getByText('+15')).toBeOnTheScreen();
     expect(screen.getByText('72/60분')).toBeOnTheScreen();
-    // 행 전체가 한 덩어리 음성 라벨.
+    // 행 전체가 한 덩어리 음성 라벨 — 카드가 accessible이라 자식 Text는 따로 읽히지 않는다.
+    // 그래서 눈에 보이는 참가비·적립금도 이 문장 안에 있어야 한다(codex 리뷰).
     expect(
-      screen.getByLabelText('7/31(금), 하루 60분 집중, 3명 중 2명 달성, 72/60분, 15코인 획득'),
+      screen.getByLabelText(
+        '7/31(금), 하루 60분 집중, 3명 중 2명 달성, 72/60분, 참가비 30코인, 적립금 90코인, 15코인 획득',
+      ),
     ).toBeOnTheScreen();
   });
 

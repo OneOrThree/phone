@@ -973,7 +973,15 @@ export default function GroupRoomScreen({
           style={s.historyLink}
           activeOpacity={0.7}
           hitSlop={8}
-          onPress={() => navigation.navigate('GroupChallengeHistory', { groupId })}
+          // 필터 두 칸을 **명시적으로 비운다** — 키를 생략하면 React Navigation의 얕은 병합이
+          // 스택에 남은 필터 진입(다른 방일 수도 있다)의 challengeId를 그대로 물려준다.
+          onPress={() =>
+            navigation.navigate('GroupChallengeHistory', {
+              groupId,
+              challengeId: undefined,
+              challengeLabel: undefined,
+            })
+          }
           accessibilityRole="button"
           testID="group.challenge.history"
         >

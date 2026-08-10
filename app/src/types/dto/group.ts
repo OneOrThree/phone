@@ -569,12 +569,15 @@ export interface GroupChallengeHistoryItem {
   sessionDate: string; // 'YYYY-MM-DD' (KST)
   challengeId: string; // 삭제된 챌린지여도 값은 있다(소프트 삭제)
   challengeDeleted: boolean; // true면 '삭제된 챌린지' 배지
-  // 미션 스냅샷 — 조인 없이 읽는 표시 소스. **V39 백필 이전 정산분은 null이다**(표기 생략).
-  // ⚠️ null을 허용하지 않는 타입으로 두면 런타임 null이 그대로 categoryLabel까지 흘러
-  //    「집중 시간」으로 단언된다 — 카테고리를 모르는 과거 **스크린타임** 이력이 집중
-  //    챌린지로 보인다. 모르는 것은 지어내지 않고 라벨 자리를 비운다(손익 3상과 같은 원칙).
+  // 미션 스냅샷 — 조인 없이 읽는 표시 소스.
+  // 카테고리·방식은 **서버 계약상 항상 채워진다**(V39가 `mission_category`·`mission_type`을
+  // NOT NULL로 만들고 `group_challenges` 조인으로 전량 백필했다). 그래도 앱은 null을 받는
+  // 타입으로 둔다: 값이 없는데도 categoryLabel 폴백이 「집중 시간」이라고 **단언**하면 과거
+  // 스크린타임 이력이 집중 챌린지로 보이는데, 카테고리는 이 목록에서 가장 크게 갈리는 축이라
+  // 그 오표기 비용이 방어 비용보다 크다. 모르면 라벨 자리를 비운다(손익 3상과 같은 원칙).
   missionCategory: MissionCategory | null;
   missionType: MissionType | null;
+  // 목표 분은 **실제로 null이 온다** — V39 백필 이전 정산분(구 내기 행에 목표가 없던 시절).
   goalMinutes: number | null;
   windowStart: string | null; // 'HH:mm(:ss)' KST 벽시계 — 창형만
   windowEnd: string | null;

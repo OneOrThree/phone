@@ -1487,7 +1487,18 @@ describe('챌린지 내역 링크', () => {
       fireEvent.press(screen.getByTestId('group.challenge.history'));
     });
 
-    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', { groupId: GROUP_ID });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+      challengeLabel: undefined,
+    });
+    // **키를 생략하지 않는다.** 이미 필터된 내역이 스택에 남아 있으면 React Navigation의 얕은
+    // 파라미터 병합(`{ ...route.params, ...params }`)이 직전 진입의 challengeId를 그대로 남긴다 —
+    // 다른 그룹방을 딥링크로 올린 뒤 전체 내역을 눌러도 남의 챌린지 필터가 새어 든다(codex 리뷰).
+    // toHaveBeenCalledWith는 `undefined` 값과 키 부재를 같게 보므로 키 존재를 따로 못 박는다.
+    const params = mockNavigate.mock.calls[0][1];
+    expect(params).toHaveProperty('challengeId', undefined);
+    expect(params).toHaveProperty('challengeLabel', undefined);
   });
 
   test('챌린지가 없거나 조회가 실패해도 링크는 선다 — 내역은 챌린지와 함께 죽지 않는다', async () => {

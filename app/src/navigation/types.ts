@@ -72,10 +72,17 @@ export type V2RootStackParamList = {
   // 진입 둘·화면 하나(IA §1): 그룹방 「챌린지 내역」 링크(필터 없음) / 지난 결과 시트
   // 「지난 기록 더보기」(challengeId 필터). 미션 메타는 회차 스냅샷으로 응답에 실려 오므로
   // route param으로 나르지 않는다 — 진입 경로에 표시가 의존하지 않는다.
+  //
+  // ⚠️ 필터 두 칸은 위 `GroupRoom.challengeId`와 **같은 이유로** optional(`?`)이 아니라
+  //    `| undefined`다. 이미 필터로 열린 이 화면이 스택에 남아 있는데(예: 그룹방 위에 뜬
+  //    초대·딥링크로 다른 방을 올린 뒤) 전체 내역 링크를 누르면, React Navigation의 얕은
+  //    파라미터 병합이 **생략한 키를 직전 진입 값으로 채운다** — 다른 그룹의 챌린지 필터가
+  //    그대로 남아 "왜 이 방 기록이 안 보이지"가 된다. 키를 필수로 두면 모든 호출부가 값을
+  //    명시하게 되어 이 불변식이 컴파일 시점에 강제된다(codex 리뷰).
   GroupChallengeHistory: {
     groupId: string;
-    challengeId?: string; // 있으면 그 챌린지만(서버는 같은 엔드포인트의 필터로 처리한다)
-    challengeLabel?: string; // 필터 진입에서 헤더에 적을 미션 라벨 — 없으면 아무것도 지어내지 않는다
+    challengeId: string | undefined; // 있으면 그 챌린지만(서버는 같은 엔드포인트의 필터로 처리한다)
+    challengeLabel: string | undefined; // 필터 진입에서 헤더에 적을 미션 라벨 — 없으면 아무것도 지어내지 않는다
   };
 
   // 그룹 운영(3차) — 그룹방 ⋯ 가 GroupSettings(관리 허브)로 직행한다(팝업 메뉴 폐지).

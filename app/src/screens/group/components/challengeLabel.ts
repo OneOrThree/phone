@@ -15,13 +15,27 @@ export interface MissionLabelSource {
   windowEnd?: string | null;
 }
 
+/**
+ * 창형 문장의 **「매일」 접두**를 붙일지. 기본 true — 카드·시트는 같은 화면에 **요일 배지**를
+ * 함께 세우므로 「매일 09:00~12:00 …」이 배지에 곧바로 정정된다.
+ *
+ * 내역 화면(GROMO-1277)만 false다: 이력 DTO에는 `repeatDays`가 없고 목록에도 요일 배지가 없어,
+ * **월요일에만 도는 챌린지의 지난 기록까지 "매일 실행된 목표"로 설명**하게 된다(codex 리뷰).
+ * 문장 사본을 하나 더 만들지 않고 접두만 끄는 이유는 나머지 규칙(HH:mm 접기·목표분 유무 분기)이
+ * 그대로여야 하기 때문이다 — 사본이 갈리면 카드와 내역이 다른 문장을 말한다.
+ * policy §A9의 목록 시안도 요일 없는 창 문장(`집중 09–12시 90분`)이다.
+ */
+export interface MissionLabelOptions {
+  everyday?: boolean;
+}
+
 // 'HH:mm:ss' · ISO 등 서버 시각 문자열에서 HH:mm만 뽑는다. 형식이 다르면 원문 유지.
 function hhmm(v: string): string {
   return /(\d{2}:\d{2})/.exec(v)?.[1] ?? v;
 }
 
 // 값이 모자라면 null — 호출부가 카테고리 명사('집중 시간'·'스크린타임')로 떨어뜨린다.
-export function missionLabel(c: MissionLabelSource): string | null {
+export function missionLabel(c: MissionLabelSource, opts: MissionLabelOptions = {}): string | null {
   const what = c.missionCategory === 'SCREEN_TIME' ? '스크린타임' : '집중';
   if (c.missionType === 'DURATION' && c.durationMinutes) {
     return `하루 ${c.durationMinutes}분 ${what}`;
@@ -29,9 +43,8 @@ export function missionLabel(c: MissionLabelSource): string | null {
   if (c.missionType === 'TIME_WINDOW' && c.windowStart && c.windowEnd) {
     // 창 목표분(V20 additive)이 있으면 함께 적는다 — 창 시각만 적으면 '그 시간 내내'로 읽힌다.
     // 없으면(구 창 챌린지·구서버) 기존 문장 그대로 — 목표를 지어내지 않는다.
-    return c.durationMinutes
-      ? `매일 ${hhmm(c.windowStart)}~${hhmm(c.windowEnd)} ${c.durationMinutes}분 ${what}`
-      : `매일 ${hhmm(c.windowStart)}~${hhmm(c.windowEnd)} ${what}`;
+    const when = `${opts.everyday === false ? '' : '매일 '}${hhmm(c.windowStart)}~${hhmm(c.windowEnd)}`;
+    return c.durationMinutes ? `${when} ${c.durationMinutes}분 ${what}` : `${when} ${what}`;
   }
   return null;
 }

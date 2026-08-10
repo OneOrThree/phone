@@ -25,11 +25,17 @@ export const REFUNDED_TEXT = '환불';
  * 카드·시트와 같은 문장 규칙을 쓰도록 challengeLabel에 그대로 위임한다.
  *
  * 스냅샷이 모자라는 세 단계를 뭉개지 않는다(손익 3상과 같은 원칙 — 모르는 것을 지어내지 않는다):
- *   · 카테고리를 모른다(V39 백필 이전) → **null**. 라벨 자리를 비운다. `categoryLabel` 폴백은
+ *   · 카테고리를 모른다              → **null**. 라벨 자리를 비운다. `categoryLabel` 폴백은
  *     null을 FOCUS로 뭉개 「집중 시간」이라고 **단언**한다 — 과거 스크린타임 이력이 집중
  *     챌린지로 보인다(카테고리는 이 목록에서 가장 크게 갈리는 축이라 오표기 비용이 크다).
  *   · 카테고리만 안다(방식 null)   → 카테고리 명사. 시간·목표를 지어내지 않는다.
  *   · 문장을 못 만든다(목표·창 부재) → 종전대로 카테고리 명사.
+ *
+ * ⚠️ **창 문장에서 「매일」을 뺀다**(`everyday: false`) — 카드와 유일하게 다른 자리다.
+ *    카드는 요일 배지를 같은 화면에 세워 「매일 …」을 곧바로 정정하지만, 이력 DTO에는
+ *    `repeatDays`가 없고 이 목록에는 배지도 없다. 그대로 두면 **월요일에만 도는 챌린지의
+ *    지난 기록이 "매일 실행된 목표"로 설명된다**(codex 리뷰). 없는 사실을 말하느니 창만 적는다
+ *    — policy §A9의 목록 시안도 요일 없는 창 문장이다.
  */
 export function historyMissionLabel(item: GroupChallengeHistoryItem): string | null {
   const { missionCategory, missionType } = item;
@@ -43,7 +49,7 @@ export function historyMissionLabel(item: GroupChallengeHistoryItem): string | n
     windowStart: item.windowStart,
     windowEnd: item.windowEnd,
   };
-  return missionLabel(source) ?? categoryLabel(source);
+  return missionLabel(source, { everyday: false }) ?? categoryLabel(source);
 }
 
 /**
@@ -100,6 +106,14 @@ export function historyBasis(item: GroupChallengeHistoryItem): string | null {
 /**
  * 행 전체를 한 덩어리로 읽는 음성 라벨 — 따로 읽히면 `—`·`+45`가 맥락 없이 발음된다
  * (진행 리스트·결과 시트의 rowA11y와 같은 이유).
+ *
+ * ⚠️ **화면에 보이는 것은 전부 여기 있어야 한다.** 카드 컨테이너가 `accessible`이라 자식
+ *    `Text`는 개별적으로 읽히지 않는다 — 이 문자열이 그 줄의 전부다. 참가비·적립금이 빠져
+ *    있었고, 돈이 오간 기록을 보는 화면에서 스크린 리더 사용자만 판돈과 총액을 확인할 수
+ *    없었다(codex 리뷰). 숫자에는 단위(코인)를 붙인다 — 붙이지 않으면 "삼십"만 읽힌다.
+ *
+ * 순서는 카드의 시각 순서를 따른다(날짜 → 미션 → 요약·근거 → 참가비·적립금). 손익만
+ * 마지막이다: 날짜 줄 오른쪽 끝에 있지만 그 줄의 결론이라 끝에서 읽는 편이 낫다(종전 유지).
  */
 export function historyRowA11y(item: GroupChallengeHistoryItem, dateText: string): string {
   const parts = [
@@ -108,6 +122,8 @@ export function historyRowA11y(item: GroupChallengeHistoryItem, dateText: string
     historyMissionLabel(item),
     historySummary(item),
     historyBasis(item),
+    `참가비 ${item.stake}코인`,
+    `적립금 ${item.pot}코인`,
     historyDeltaA11y(item),
   ];
   return parts.filter((p) => p !== null).join(', ');

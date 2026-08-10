@@ -47,6 +47,9 @@ describe('historyMissionLabel — 스냅샷이 소스', () => {
     expect(historyMissionLabel(item())).toBe('하루 60분 집중');
   });
 
+  // 내역의 창 문장에는 「매일」이 없다(policy §A9의 목록 시안도 `집중 09–12시 90분`이다).
+  // 회차 스냅샷에 repeatDays가 없고 이 화면엔 요일 배지도 없어서, 월요일만 도는 챌린지의
+  // 지난 기록까지 「매일 …」로 설명하면 없는 사실을 말하게 된다(codex 리뷰).
   test('창형은 창 시각 + 목표분 — 서버 HH:mm:ss도 HH:mm으로 접힌다', () => {
     expect(
       historyMissionLabel(
@@ -58,15 +61,31 @@ describe('historyMissionLabel — 스냅샷이 소스', () => {
           windowEnd: '12:00:00',
         }),
       ),
-    ).toBe('매일 09:00~12:00 90분 스크린타임');
+    ).toBe('09:00~12:00 90분 스크린타임');
+  });
+
+  test('창형 이력은 「매일」이라고 단정하지 않는다 — 요일 반복 챌린지의 과거 기록이 섞여 있다', () => {
+    const windowed = item({
+      missionType: 'TIME_WINDOW',
+      missionCategory: 'FOCUS',
+      goalMinutes: 90,
+      windowStart: '09:00',
+      windowEnd: '12:00',
+    });
+    expect(historyMissionLabel(windowed)).not.toContain('매일');
+    // 창 목표분이 없는 구 스냅샷(문장이 갈리는 다른 가지)에서도 마찬가지다.
+    expect(historyMissionLabel({ ...windowed, goalMinutes: null })).not.toContain('매일');
+    // 낭독도 같은 문장을 쓴다 — 눈으로 본 줄과 귀로 들은 줄이 갈리면 안 된다.
+    expect(historyRowA11y(windowed, '8/10(월)')).not.toContain('매일');
   });
 
   test('스냅샷이 비면(구 정산분) 카테고리 명사로 떨어진다 — 목표를 지어내지 않는다', () => {
     expect(historyMissionLabel(item({ goalMinutes: null }))).toBe('집중 시간');
   });
 
-  // V39 백필 이전 정산분은 카테고리조차 없다. 폴백(categoryLabel)은 null을 FOCUS로 뭉개
-  // 「집중 시간」이라고 **단언**한다 — 과거 스크린타임 이력이 집중 챌린지로 보인다.
+  // 서버 계약상 카테고리는 항상 온다(V39 NOT NULL + 전량 백필). 그래도 방어를 잠근다:
+  // 폴백(categoryLabel)은 null을 FOCUS로 뭉개 「집중 시간」이라고 **단언**하므로, 한 번이라도
+  // null이 새면 과거 스크린타임 이력이 집중 챌린지로 보인다 — 가장 크게 갈리는 축이다.
   test('카테고리를 모르면 라벨을 만들지 않는다 — 「집중 시간」으로 단언하지 않는다', () => {
     expect(historyMissionLabel(item({ missionCategory: null, missionType: null }))).toBeNull();
     expect(historyMissionLabel(item({ missionCategory: null }))).toBeNull();
@@ -168,10 +187,23 @@ describe('historyBasis — 내 판정 근거', () => {
 });
 
 describe('historyRowA11y — 행 전체를 한 덩어리로 읽는다', () => {
-  test('날짜·미션·요약·근거·손익이 한 문장으로 묶인다(코인 단위까지)', () => {
+  test('날짜·미션·요약·근거·참가비·적립금·손익이 한 문장으로 묶인다(코인 단위까지)', () => {
     expect(historyRowA11y(item(), '8/10(월)')).toBe(
-      '8/10(월), 하루 60분 집중, 3명 중 2명 달성, 72/60분, 15코인 획득',
+      '8/10(월), 하루 60분 집중, 3명 중 2명 달성, 72/60분, 참가비 30코인, 적립금 90코인, 15코인 획득',
     );
+  });
+
+  // 카드 컨테이너가 accessible이라 자식 Text('참가비 30 · 적립금 90')는 따로 읽히지 않는다 —
+  // 이 라벨에 없으면 스크린 리더 사용자에겐 판돈과 총액이 존재하지 않는 것과 같다(codex 리뷰).
+  test('돈이 오간 화면이라 참가비·적립금은 미참가 줄에서도 읽힌다', () => {
+    const a11y = historyRowA11y(
+      item({ stake: 50, pot: 150, myPayout: null, myProgressMinutes: null }),
+      '8/10(월)',
+    );
+    expect(a11y).toContain('참가비 50코인');
+    expect(a11y).toContain('적립금 150코인');
+    // 시각 순서(… 참가비·적립금 줄이 마지막)를 뒤집지 않는다 — 참가비가 적립금보다 먼저다.
+    expect(a11y.indexOf('참가비 50코인')).toBeLessThan(a11y.indexOf('적립금 150코인'));
   });
 
   test('삭제된 챌린지는 그 사실이 낭독에 포함된다', () => {
