@@ -16,6 +16,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { logGroupCardActionClicked } from '@/services/analyticsEvents';
+import {
+  createCardInteractionContext,
+  type CardInteractionContext,
+} from '@/services/cardInteraction';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
@@ -57,10 +62,10 @@ export interface GroupListScreenProps {
   groupsRevision?: number;
   isScreenFocused?: boolean;
   userId?: string | null;
-  onSelect: (groupId: string) => void;
+  onSelect: (groupId: string, interaction: CardInteractionContext) => void;
   onCreate: () => void;
   onFind: () => void;
-  onStartFocus?: (groupId: string) => void;
+  onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
   onOpenSettings?: (groupId: string) => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
@@ -113,6 +118,20 @@ export default function GroupListScreen({
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const frontFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
+
+  const acceptCardAction = useCallback(
+    (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
+      const interaction = createCardInteractionContext();
+      logGroupCardActionClicked({
+        action,
+        role: group.role === 'OWNER' ? 'owner' : 'member',
+        back_source: 'user',
+        interaction_id: interaction.interactionId,
+      });
+      return interaction;
+    },
+    [],
+  );
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -337,15 +356,19 @@ export default function GroupListScreen({
                 snapshot={snapshots[item.groupId]}
                 roomRef={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
                 onFlipFront={() => setFlippedGroupId(null)}
-                onStartFocus={() => onStartFocus(item.groupId)}
-                onOpenSettings={() => onOpenSettings(item.groupId)}
+                onStartFocus={() => onStartFocus(item.groupId, acceptCardAction(item, 'focus'))}
+                onOpenSettings={() => {
+                  acceptCardAction(item, 'settings');
+                  onOpenSettings(item.groupId);
+                }}
                 onOpenRoom={() => {
+                  const interaction = acceptCardAction(item, 'room');
                   roomReturnRef.current = {
                     groupId: item.groupId,
                     sourceIndex: index,
                     departureRevision: groupsRevision,
                   };
-                  onSelect(item.groupId);
+                  onSelect(item.groupId, interaction);
                 }}
                 onRetry={(dependency) => retry(item.groupId, dependency)}
               />

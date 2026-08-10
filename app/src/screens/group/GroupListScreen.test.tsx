@@ -19,6 +19,8 @@ jest.mock('./useGroupCardData', () => ({
   useGroupCardData: () => ({ snapshots: {}, ensureBack: jest.fn(), retry: jest.fn() }),
 }));
 
+jest.mock('@/services/analyticsEvents', () => ({ logGroupCardActionClicked: jest.fn() }));
+
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 
@@ -128,7 +130,13 @@ describe('콜백', () => {
     await press(`group.card.room.${GROUP_ID_2}`);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+    expect(onSelect).toHaveBeenCalledWith(
+      GROUP_ID_2,
+      expect.objectContaining({
+        interactionId: expect.any(String),
+        interactionAcceptedAt: expect.any(Number),
+      }),
+    );
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {

@@ -18,6 +18,7 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
+import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -228,21 +229,31 @@ export default function GroupScreen() {
   // 목록에서 그룹을 골랐다 — A-9 이후 목록이 항상 기본 화면이라 소속 수와 무관하게 그룹방을
   // 스택에 push 한다(목록 화면은 스스로 navigate 하지 않고 이 콜백에 위임한다).
   const onSelectGroup = useCallback(
-    (groupId: string, entrySource: 'group_find' | 'unknown' = 'unknown') => {
+    (
+      groupId: string,
+      entrySource: 'group_card' | 'group_find' | 'unknown' = 'unknown',
+      interaction?: CardInteractionContext,
+    ) => {
       // 위 초대 목적지 소비와 같은 이유로 challengeId를 명시로 비운다(types.ts GroupRoom 주석).
       navigation.navigate('GroupRoom', {
         groupId,
         challengeId: undefined,
         entrySource,
-        interactionId: undefined,
-        interactionAcceptedAt: undefined,
+        interactionId: interaction?.interactionId,
+        interactionAcceptedAt: interaction?.interactionAcceptedAt,
       });
     },
     [navigation],
   );
 
   const onStartGroupFocus = useCallback(
-    (groupId: string) => navigation.navigate('FocusCategory', { initialGroupId: groupId }),
+    (groupId: string, interaction: CardInteractionContext) =>
+      navigation.navigate('FocusCategory', {
+        initialGroupId: groupId,
+        entrySource: 'group_card',
+        interactionId: interaction.interactionId,
+        interactionAcceptedAt: interaction.interactionAcceptedAt,
+      }),
     [navigation],
   );
 
@@ -371,7 +382,7 @@ export default function GroupScreen() {
           groupsRevision={groupsRevision}
           isScreenFocused={isScreenFocused}
           userId={userId}
-          onSelect={onSelectGroup}
+          onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onStartFocus={onStartGroupFocus}
