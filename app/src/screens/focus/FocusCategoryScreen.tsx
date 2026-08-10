@@ -36,7 +36,11 @@ import {
   logFocusTagUpdated,
   logFocusTagDeleted,
 } from '@/services/analyticsEvents';
-import { invalidateCardInteraction, normalizeFocusEntrySource } from '@/services/cardInteraction';
+import {
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+  resolveFocusSessionRouteContext,
+} from '@/services/cardInteraction';
 
 // 02 과목 선택 — 홈 ● 집중 FAB → 이 화면. 행 탭 → 타이머 방식 시트(03) → 설정(04/05) → 세션.
 // 각 행: 과목명 + 누적 집중시간 + ⋮(탭=이름편집/삭제 팝오버, 잡고 위아래=순서 변경).
@@ -252,9 +256,10 @@ export default function FocusCategoryScreen() {
     if (!active || startTransitionRef.current) return;
     setSheet(null);
     const firstRouteTransfer = !interactionTransferredRef.current;
-    const sessionEntrySource = firstRouteTransfer ? entrySource : 'unknown';
-    const sessionInteractionId = firstRouteTransfer ? interactionId : undefined;
-    const sessionInteractionAcceptedAt = firstRouteTransfer ? interactionAcceptedAt : undefined;
+    const sessionContext = resolveFocusSessionRouteContext(
+      { entrySource, interactionId, interactionAcceptedAt },
+      firstRouteTransfer,
+    );
     startTransitionRef.current = true;
     interactionTransferredRef.current = true;
     try {
@@ -265,20 +270,20 @@ export default function FocusCategoryScreen() {
         goalSeconds: extra?.goalSeconds,
         pomodoro: extra?.pomodoro,
         initialGroupId,
-        entrySource: sessionEntrySource,
-        interactionId: sessionInteractionId,
-        interactionAcceptedAt: sessionInteractionAcceptedAt,
+        entrySource: sessionContext.entrySource,
+        interactionId: sessionContext.interactionId,
+        interactionAcceptedAt: sessionContext.interactionAcceptedAt,
       });
       navigationCheckTimerRef.current = setTimeout(() => {
         navigationCheckTimerRef.current = null;
         const state = navigation.getState();
         if (state.routes[state.index]?.name === 'FocusSession') return;
         startTransitionRef.current = false;
-        invalidateCardInteraction(sessionInteractionId);
+        invalidateCardInteraction(sessionContext.interactionId);
       }, 500);
     } catch (error) {
       startTransitionRef.current = false;
-      invalidateCardInteraction(sessionInteractionId);
+      invalidateCardInteraction(sessionContext.interactionId);
       throw error;
     }
   }
