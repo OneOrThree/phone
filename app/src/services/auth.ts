@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   API_URL,
   api,
+  type AuthSessionTransitionLease,
   getFreshAccessToken,
   getUserIdFromToken,
   markAuthSessionReplacement,
@@ -65,10 +66,12 @@ export function setAccountSwitchHandler(handlers: AccountSwitchHandlers): void {
 // 서버가 무시하고 기존 로그인 흐름을 타므로 항상 실어도 안전하다.
 // 만료·임박 토큰은 갱신을 거친다(getFreshAccessToken) — 만료 토큰을 그대로 보내면 백엔드가
 // "토큰 없음"과 동일 취급해 조용히 새 계정을 만들어 버그가 재발한다(코드리뷰 반영).
-async function guestUpgradeHeaders(): Promise<{ Authorization: string } | undefined> {
+async function guestUpgradeHeaders(
+  lease: AuthSessionTransitionLease,
+): Promise<{ Authorization: string } | undefined> {
   let token: string | null;
   try {
-    token = await getFreshAccessToken();
+    token = await getFreshAccessToken(lease);
   } catch {
     // 갱신 실패를 헤더 생략으로 계속하면 일시적 오류(네트워크·서버 5xx)에도 새 계정이 만들어져
     // 게스트 데이터가 영구히 버려진다 — 업그레이드를 중단하고 재시도를 유도한다(코드리뷰 반영).
@@ -170,9 +173,9 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   }
 }
 
-async function kakaoLoginAttempt(): Promise<LoginResult> {
+async function kakaoLoginAttempt(lease: AuthSessionTransitionLease): Promise<LoginResult> {
   const kakaoToken = await login();
-  const headers = await guestUpgradeHeaders();
+  const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
@@ -191,14 +194,14 @@ export function kakaoLogin(): Promise<LoginResult> {
   return runAuthSessionTransition(kakaoLoginAttempt);
 }
 
-async function appleLoginAttempt(): Promise<LoginResult> {
+async function appleLoginAttempt(lease: AuthSessionTransitionLease): Promise<LoginResult> {
   const credential = await AppleAuthentication.signInAsync({
     requestedScopes: [
       AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
       AppleAuthentication.AppleAuthenticationScope.EMAIL,
     ],
   });
-  const headers = await guestUpgradeHeaders();
+  const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
@@ -224,7 +227,7 @@ GoogleSignin.configure({
   scopes: ['profile', 'email'],
 });
 
-async function googleLoginAttempt(): Promise<LoginResult> {
+async function googleLoginAttempt(lease: AuthSessionTransitionLease): Promise<LoginResult> {
   const response = await GoogleSignin.signIn();
   if (!isSuccessResponse(response)) {
     throw Object.assign(new Error('Google 로그인 취소'), {
@@ -235,7 +238,7 @@ async function googleLoginAttempt(): Promise<LoginResult> {
   if (!idToken) {
     throw new Error('Google idToken을 가져오지 못했습니다.');
   }
-  const headers = await guestUpgradeHeaders();
+  const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
@@ -267,7 +270,7 @@ async function ensureLineSetup(): Promise<void> {
   lineConfigured = true;
 }
 
-async function lineLoginAttempt(): Promise<LoginResult> {
+async function lineLoginAttempt(lease: AuthSessionTransitionLease): Promise<LoginResult> {
   await ensureLineSetup();
   const result = await Promise.race([
     LineLogin.login({ scopes: [LoginPermission.Profile] }),
@@ -279,7 +282,7 @@ async function lineLoginAttempt(): Promise<LoginResult> {
     ),
   ]);
   const accessToken = result.accessToken.accessToken;
-  const headers = await guestUpgradeHeaders();
+  const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(
@@ -298,7 +301,7 @@ export function lineLogin(): Promise<LoginResult> {
   return runAuthSessionTransition(lineLoginAttempt);
 }
 
-async function facebookLoginAttempt(): Promise<LoginResult> {
+async function facebookLoginAttempt(lease: AuthSessionTransitionLease): Promise<LoginResult> {
   // iOS는 Limited Login(ATT 팝업 없음) — access token이 아니라 OIDC id_token을 받는다.
   const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
   const result = await LoginManager.logInWithPermissions(
@@ -318,7 +321,7 @@ async function facebookLoginAttempt(): Promise<LoginResult> {
   if (!token) {
     throw new Error('Facebook 토큰을 가져오지 못했습니다.');
   }
-  const headers = await guestUpgradeHeaders();
+  const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(

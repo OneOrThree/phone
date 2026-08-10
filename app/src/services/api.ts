@@ -28,6 +28,11 @@ let onLogout: (() => void) | null = null;
 // 취소할 수 있도록 화면은 요청 시작/완료 시 이 동기 세대를 비교한다.
 let authSessionGeneration = 0;
 let authTransitionTail: Promise<void> = Promise.resolve();
+let activeAuthTransitionToken: symbol | null = null;
+
+export interface AuthSessionTransitionLease {
+  readonly token: symbol;
+}
 
 export function getAuthSessionGeneration(): number {
   return authSessionGeneration;
@@ -54,13 +59,22 @@ export async function acquireAuthSessionTransition(): Promise<() => void> {
 }
 
 /** provider 인증 시작부터 로컬 세션 커밋까지 한 번의 전환으로 직렬화한다. */
-export async function runAuthSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
+export async function runAuthSessionTransition<T>(
+  operation: (lease: AuthSessionTransitionLease) => Promise<T>,
+): Promise<T> {
   const release = await acquireAuthSessionTransition();
+  const lease = { token: Symbol('auth-session-transition') };
+  activeAuthTransitionToken = lease.token;
   try {
-    return await operation();
+    return await operation(lease);
   } finally {
+    if (activeAuthTransitionToken === lease.token) activeAuthTransitionToken = null;
     release();
   }
+}
+
+function ownsAuthSessionTransition(lease?: AuthSessionTransitionLease): boolean {
+  return lease !== undefined && lease.token === activeAuthTransitionToken;
 }
 
 export function setLogoutHandler(fn: (() => void) | null): void {
@@ -102,7 +116,11 @@ interface RefreshResponse {
 // 이미 사용된 토큰으로 갱신을 시도해 실패 → 일부 요청만 로그아웃되는 경합이 생긴다.
 let refreshPromise: Promise<string> | null = null;
 
-function refreshAccessToken(): Promise<string> {
+function refreshAccessToken(lease?: AuthSessionTransitionLease): Promise<string> {
+  // 전환 작업 자신이 이미 mutex를 소유하면 전역 single-flight가 잠금 뒤에서 기다리고 있을 수
+  // 있으므로 그 Promise에 합류하지 않는다. 현재 전환 안에서 직접 갱신하고, 바깥 refresh는 잠금
+  // 해제 뒤 회전된 최신 refresh token으로 이어 간다.
+  if (ownsAuthSessionTransition(lease)) return doRefreshAccessToken(lease);
   refreshPromise ??= doRefreshAccessToken().finally(() => {
     refreshPromise = null;
   });
@@ -110,31 +128,33 @@ function refreshAccessToken(): Promise<string> {
 }
 
 // 토큰 갱신. 인터셉터 루프를 피하기 위해 인스턴스(api)가 아닌 bare axios 사용.
-async function doRefreshAccessToken(): Promise<string> {
-  const sessionGeneration = getAuthSessionGeneration();
-  const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
-  if (!refreshToken) throw new Error('no refresh token');
+class StaleAuthRefreshError extends Error {}
 
-  const { data } = await axios.post<RefreshResponse>(`${API_URL}/api/v1/auth/refresh`, {
-    refreshToken,
-  });
-
-  // 응답 저장도 로그인·로그아웃 전환 mutex에 참여한다. 기다리는 사이 세대 또는 refresh token
-  // 소유권이 바뀌면 이전 세션 응답이므로 새 세션 토큰을 덮지 않고 폐기한다.
-  const release = await acquireAuthSessionTransition();
+async function doRefreshAccessToken(lease?: AuthSessionTransitionLease): Promise<string> {
+  // 외부 refresh는 요청 시작 전부터 저장 완료까지 전환 mutex를 소유한다. 인증 전환 안에서 호출된
+  // refresh는 전달받은 lease로 같은 잠금을 재사용해 중첩 획득 교착을 피한다.
+  const release = ownsAuthSessionTransition(lease) ? null : await acquireAuthSessionTransition();
   try {
+    const sessionGeneration = getAuthSessionGeneration();
+    const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+    if (!refreshToken) throw new Error('no refresh token');
+
+    const { data } = await axios.post<RefreshResponse>(`${API_URL}/api/v1/auth/refresh`, {
+      refreshToken,
+    });
+
     const currentRefreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
     if (getAuthSessionGeneration() !== sessionGeneration || currentRefreshToken !== refreshToken) {
-      throw new Error('stale auth refresh');
+      throw new StaleAuthRefreshError('stale auth refresh');
     }
     await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
     if (data.refreshToken) {
       await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
     }
+    return data.accessToken;
   } finally {
-    release();
+    release?.();
   }
-  return data.accessToken;
 }
 
 // JWT payload의 만료시각(exp, 초 단위)을 ms로 디코드. 실패 시 null.
@@ -159,14 +179,16 @@ const TOKEN_EXP_MARGIN_MS = 30_000;
 // null은 저장된 토큰이 없을 때만. 갱신 실패는 삼키지 않고 그대로 던진다 — 일시적 오류(네트워크·
 // 서버 5xx)까지 "토큰 없음"으로 계속하면 돌이킬 수 없는 오동작(게스트 승격 대신 새 계정 생성)이
 // 되므로, 중단·재시도는 호출부가 결정한다(코드리뷰 반영).
-export async function getFreshAccessToken(): Promise<string | null> {
+export async function getFreshAccessToken(
+  lease?: AuthSessionTransitionLease,
+): Promise<string | null> {
   const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   if (!token) return null;
   const expMs = getTokenExpMs(token);
   if (expMs !== null && expMs - Date.now() > TOKEN_EXP_MARGIN_MS) {
     return token;
   }
-  return refreshAccessToken();
+  return refreshAccessToken(lease);
 }
 
 // 모든 백엔드 호출은 이 인스턴스를 통한다 (fetch 직접 사용 금지).
@@ -216,7 +238,9 @@ api.interceptors.response.use(
         const newToken = await refreshAccessToken();
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
-      } catch {
+      } catch (refreshError) {
+        // 이전 세션 refresh 응답을 의도적으로 폐기한 경우 현재 세션까지 로그아웃시키지 않는다.
+        if (refreshError instanceof StaleAuthRefreshError) throw refreshError;
         onLogout?.();
         throw new Error('세션이 만료됐습니다. 다시 로그인해주세요.');
       }
