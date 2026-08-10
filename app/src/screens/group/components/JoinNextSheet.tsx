@@ -9,8 +9,10 @@ import {
   groupErrorCode,
   joinNextSession,
 } from '@/services/groupApi';
+import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
+import type { MissionCategory, MissionType } from '@/types/dto/group';
 import { fmtMonthDayDow } from '../challengeSchedule';
 import BetBalanceRow from './BetBalanceRow';
 
@@ -39,6 +41,9 @@ export interface JoinNextSheetProps {
   // 창형이면 시작 시각 'HH:mm' — 하루형은 null(자정 시작이라 시각 표기가 노이즈다).
   startTimeLabel: string | null;
   stake: number;
+  // 참여 계측의 미션 축(단건 참가와 같은 파라미터 — 채택률을 같은 축에서 본다).
+  missionType: MissionType;
+  missionCategory: MissionCategory;
   // 딤 탭·그만두기 — 카드가 시트만 내린다.
   onClose: () => void;
   // 성공(또는 성공과 같게 취급) — 카드가 시트를 내리고 부모 재조회를 태운다.
@@ -52,6 +57,8 @@ export default function JoinNextSheet({
   sessionDate,
   startTimeLabel,
   stake,
+  missionType,
+  missionCategory,
   onClose,
   onDone,
 }: JoinNextSheetProps) {
@@ -113,6 +120,15 @@ export default function JoinNextSheet({
     setErrorMsg(null);
     try {
       const joined = await joinNextSession(groupId, challengeId);
+      // 참여 계측(#570 codex ⑧) — 성공 시에만. 예약도 참여 결심 1건이다(session_count=1).
+      // 금액은 서버가 확정한 박제값(joined.stake)을 우선한다 — 화면 값과 갈렸다면 실제 나간 쪽이
+      // 지표에 남아야 한다.
+      logGroupBetJoined({
+        stake: joined.stake ?? stake,
+        session_count: 1,
+        mission_type: missionType,
+        mission_category: missionCategory,
+      });
       // 예약분도 즉시 전액 에스크로다(N15) — 빠진 잔액을 곧바로 맞춘다.
       refresh();
       // 드리프트 잔여 경로(요청이 나가 있는 사이 자정 경과 등) — 참가는 이미 성립했으므로 되돌리지

@@ -1307,6 +1307,20 @@ describe('하루형 진행분 공개 (GROMO-1275)', () => {
     );
   });
 
+  // #570 codex ⑦ — 시트를 연 뒤 정산·무효화가 먼저 끝나면 회차가 닫힌다. 재시도해도 같은 실패다.
+  test('BET_NOT_OPEN — 이미 끝난 날임을 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_OPEN'));
+    await renderSheet('join', dayOver());
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '이미 끝난 날이에요',
+      '결과가 나왔거나 닫힌 날이라 참가할 수 없어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
   test('BET_SESSION_CLOSED — 마감을 알리고 닫는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockJoinSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_SESSION_CLOSED'));

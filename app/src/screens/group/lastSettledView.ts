@@ -32,8 +32,18 @@ function toDisplayStatus(status: LastSettledSession['status']): GroupBetStatus |
 // 고친 "카드와 시트가 갈리는" 버그의 재발 구조다. 정규화(키 접기)와 라벨을 여기 한 곳에 두고,
 // 두 화면은 **길이만 다른 문자열을 같은 표에서 조립**한다. 새 사유는 이 파일만 고치면 된다.
 
-/** 정규화된 사유 키 — 서버 값 축의 이문·별칭을 접은 결과. */
-export type VoidReasonKey = 'SHORT_PARTICIPANTS' | 'CHALLENGE_DELETED' | 'REFUND_DEADLINE';
+/**
+ * 정규화된 사유 키 — 서버 값 축의 이문·별칭을 접은 결과.
+ *
+ * `AUTO_REFUND`만 **앱이 파생**한다: v2 회차 상태 `REFUNDED`는 LLD상 24시간 자동 환불이고
+ * 서버가 사유 문자열을 따로 주지 않는다. 무효화(VOIDED)와 같은 문구로 접으면 "무산됐어요"가
+ * 되어 사실이 아니므로 여기서 별도 키로 갈라 둔다(#570 codex ⑤).
+ */
+export type VoidReasonKey =
+  | 'SHORT_PARTICIPANTS'
+  | 'CHALLENGE_DELETED'
+  | 'REFUND_DEADLINE'
+  | 'AUTO_REFUND';
 
 // 서버 값 → 키. 값 축이 문서 간 이문 상태다 — policy N33은 `INSUFFICIENT_PARTICIPANTS`,
 // LLD §2.1은 `SHORT_PARTICIPANTS`. **둘 다 같은 키로 접는다**(어느 쪽이 와도 같은 문장).
@@ -42,6 +52,7 @@ const VOID_REASON_ALIASES: Readonly<Record<string, VoidReasonKey>> = {
   INSUFFICIENT_PARTICIPANTS: 'SHORT_PARTICIPANTS',
   CHALLENGE_DELETED: 'CHALLENGE_DELETED',
   REFUND_DEADLINE: 'REFUND_DEADLINE',
+  AUTO_REFUND: 'AUTO_REFUND', // 앱 파생 키(아래 pickLastSettled) — 서버가 보내는 값은 아니다.
 };
 
 // 키별 문구 조각. summary = 카드 한 줄(집계 자리를 대신한다), cause = 시트 배너의 앞 문장.
@@ -50,6 +61,7 @@ const VOID_REASON_LABELS: Readonly<Record<VoidReasonKey, { summary: string; caus
   SHORT_PARTICIPANTS: { summary: '참가자가 부족해 무산', cause: '참가자가 부족해 무산됐어요' },
   CHALLENGE_DELETED: { summary: '챌린지 삭제로 무효', cause: '챌린지가 삭제돼 무효가 됐어요' },
   REFUND_DEADLINE: { summary: '기한이 지나 무효', cause: '기한이 지나 무효가 됐어요' },
+  AUTO_REFUND: { summary: '기한이 지나 자동 환불', cause: '기한이 지나 자동으로 환불됐어요' },
 };
 
 // 환불 사실 — 두 화면이 같은 문장을 쓴다(카드는 자리가 좁아 요약만, 시트는 여기까지 말한다).
@@ -110,8 +122,16 @@ export function pickLastSettled(challenge: GroupChallengeResponse): LastSettledV
         results: session.results,
         goalMinutes: session.goalMinutes,
       },
-      // 사유는 무효화(VOIDED)에서만 뜻이 있다 — 다른 상태에 실려 와도 문장을 바꾸지 않는다.
-      voidReason: session.status === 'VOIDED' ? (session.voidReason ?? null) : null,
+      // 사유는 무효화(VOIDED)에서만 서버 값을 쓴다 — 다른 상태에 실려 와도 문장을 바꾸지 않는다.
+      // v2 `REFUNDED`는 **24시간 자동 환불**이라(LLD) 판정도 무산도 아니다 — 사유 문자열이 없어
+      // 그대로 두면 "달성한 사람이 없어 전원 환불"(구 룰 문장)로 접혀 거짓이 된다. 앱 파생
+      // 키로 갈라 자동 환불임을 말한다(#570 codex ⑤).
+      voidReason:
+        session.status === 'VOIDED'
+          ? (session.voidReason ?? null)
+          : session.status === 'REFUNDED'
+            ? (session.voidReason ?? 'AUTO_REFUND')
+            : null,
     };
   }
   const legacy = challenge.lastSettledBet ?? null;

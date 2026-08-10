@@ -20,7 +20,7 @@ import {
   leaveBet,
   leaveSession,
 } from '@/services/groupApi';
-import { logGroupBetCanceled } from '@/services/analyticsEvents';
+import { logGroupBetCanceled, logGroupBetJoined } from '@/services/analyticsEvents';
 import { todayStrKst } from '@/utils/localDate';
 import { T } from '@/constants/theme';
 import type {
@@ -52,6 +52,8 @@ jest.mock('@/services/groupApi', () => ({
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupBetCanceled: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
+  // 예약 성공도 참여 계측을 발행한다(#570 codex ⑧) — 카드가 여는 시트가 부른다.
+  logGroupBetJoined: jest.fn(),
 }));
 // 잔액은 CoinContext가 정본 — 철회 성공 후 환불 반영을 위한 refresh 호출만 본다.
 const mockRefreshCoins = jest.fn(async () => true);
@@ -2061,6 +2063,56 @@ describe('오늘 참여 취소 (N22)', () => {
     bet: bet({ enabled: true, myJoined: true, session: joinedDaySession(sessionOver) }),
   });
 
+  // #570 codex ① — join-week로 미래를 예약한 뒤 오늘도 참여 중이면 카드는 오늘 행을 그린다.
+  // 미래 예약 취소를 그 분기에 묶어 두면 **이미 낸 돈을 무를 자리가 화면에서 사라진다**.
+  test('오늘도 참여 중이면서 미래를 예약해 뒀으면 두 취소 동선이 모두 뜬다', async () => {
+    await renderCard({ ...joinedOver(), nextSessionJoined: true });
+
+    expect(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId(`group.bet.leaveNext.${CHALLENGE_ID}`)).toHaveTextContent(
+      '참여 취소',
+    );
+    // 예약 상태 행은 날짜와 금액을 함께 말한다(무엇을 취소하는지가 버튼 옆에 있어야 한다).
+    expect(screen.getByLabelText('8/3(월) 참여 취소')).toBeOnTheScreen();
+  });
+
+  test('예약이 없으면 미래 취소 행도 없다', async () => {
+    await renderCard(joinedOver());
+    expect(screen.queryByTestId(`group.bet.leaveNext.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  // #570 codex ④ — 다른 기기에서 이미 취소했으면 취소할 대상이 없다(404와 같은 사실).
+  test('BET_NOT_JOINED는 종결 상태로 알리고 재조회를 태운다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_JOINED'));
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(joinedOver())}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+      | AlertButton[]
+      | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '이미 취소된 참여예요',
+      '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
+    );
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
   test('유예가 남아 있으면 「참여 취소」와 남은 시간이 뜬다', async () => {
     await renderCard(joinedOver());
 
@@ -2383,6 +2435,42 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
     expect(onBetChanged).toHaveBeenCalled();
   });
 
+  // #570 codex ⑧ — 예약도 '참여를 결심한 한 번의 행동'이라 1건으로 세고, 규모는 파라미터로.
+  test('주간 예약 성공은 참여 계측 1건 + 일수를 남긴다', async () => {
+    await renderCard(weekendOver());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+    });
+
+    expect(logGroupBetJoined).toHaveBeenCalledTimes(1);
+    expect(logGroupBetJoined).toHaveBeenCalledWith({
+      stake: 30, // 하루치 축(총액이 아니다 — 단건 참가와 같은 금액대 축을 유지한다)
+      session_count: 2,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
+  });
+
+  // #570 codex ② — 다음 활성일 회차가 이미 열려 있으면 그 날 몫도 박제값이다(오늘만이 아니다).
+  test('다음 활성일 몫은 nextSessionStake로 계산한다', async () => {
+    await renderCard({
+      ...weekendOver({ stake: 100 }), // 오늘(8/1) 박제값
+      betConfig: { enabled: true, stake: 30 },
+      nextSessionAt: '2026-08-01T15:00:00Z', // 8/2(일) — 이미 열려 있다
+      nextSessionStake: 70, // 그 회차의 박제값
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    // 100(오늘 박제) + 70(다음 회차 박제) = 170. 설정값(30)을 쓰면 130이 된다.
+    expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent('2일 · 합계 170코인');
+    expect(screen.getByLabelText('8/2(일) 참가비 70코인')).toBeOnTheScreen();
+  });
+
   // #570 리뷰 — 오늘 회차는 이미 열려 있어 **박제값**(bet.session.stake)이 나가고, 미래 날짜는
   // 예약 시점에 **설정값**(betConfig.stake)이 박제된다. 설정을 바꾼 직후엔 둘이 갈리므로
   // 합계를 단가 하나로 곱하면 화면이 안내한 금액과 실제 차감이 어긋난다.
@@ -2606,6 +2694,137 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     // 삭제는 OPEN 회차를 무효화하고 전원 환불한다(FR-12) — 그룹장 자신이 참가했으면 지갑이
     // 늘어나는데, 삭제된 챌린지는 재조회 응답에서 사라져 정산 감지가 변화를 못 잡는다(#570 ③).
     expect(mockRefreshCoins).toHaveBeenCalled();
+  });
+
+  // #570 codex ③ — 환불은 서버 삭제가 끝나야 반영된다. 호출 전에 잔액을 받으면 환불 전 값이다.
+  test('잔액 갱신은 삭제 완료를 기다린 뒤에 돈다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    let finishDelete: () => void = () => {};
+    const slowDelete = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={slowDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    // 서버 삭제가 아직 안 끝났다 — 이 시점의 잔액 조회는 환불 전 값이라 의미가 없다.
+    expect(slowDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+    expect(mockRefreshCoins).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishDelete();
+    });
+    expect(mockRefreshCoins).toHaveBeenCalled();
+  });
+
+  // #570 codex ⑨ — 프리뷰를 받은 뒤 Alert·시트를 거치는 동안 누가 더 참가할 수 있다.
+  // 낡은 수치로 확정하면 경고가 거짓이 된 상태로 돈이 움직인다.
+  test('확정 직전 영향 범위가 달라졌으면 삭제하지 않고 새 수치를 보여준다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    await renderOwner();
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+    expect(screen.getByText('3명 · 90코인')).toBeOnTheScreen();
+
+    // 그 사이 한 명이 더 참가했다.
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 4, pot: 120 }],
+      totalRefund: 120,
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '걸린 돈이 바뀌었어요',
+      '바뀐 내용을 확인하고 다시 눌러주세요.',
+    );
+    // 시트는 새 수치로 갈아 끼워진 채 남는다 — 다시 누르면 그때 삭제된다.
+    expect(screen.getByText('4명 · 120코인')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+    expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  test('확정 직전 걸린 돈이 사라졌으면 경고 없이 바로 삭제한다(N29)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    await renderOwner();
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    mockGetDeletionPreview.mockResolvedValue({ openSessions: [], totalRefund: 0 });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+    // 환불이 없으니 잔액을 다시 받지 않는다(불필요한 조회를 만들지 않는다).
+    expect(mockRefreshCoins).not.toHaveBeenCalled();
+  });
+
+  test('확정 직전 재조회가 실패하면 삭제하지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValueOnce({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    await renderOwner();
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    mockGetDeletionPreview.mockRejectedValue(axiosErrorWith(500));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '삭제 영향을 확인하지 못했어요',
+      '잠시 후 다시 시도해주세요.',
+    );
   });
 
   test('그만두기는 삭제 없이 시트만 접는다', async () => {

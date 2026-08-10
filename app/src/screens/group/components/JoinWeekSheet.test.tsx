@@ -7,6 +7,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import { Alert } from 'react-native';
 import JoinWeekSheet, { type JoinWeekEntry } from './JoinWeekSheet';
 import { joinWeekSessions } from '@/services/groupApi';
+import { logGroupBetJoined } from '@/services/analyticsEvents';
 
 jest.setTimeout(20000);
 
@@ -18,6 +19,7 @@ jest.mock('react-native-safe-area-context', () => ({
 // groupApi가 계측 모듈을 물고 온다(firebase 네이티브) — 다른 스위트와 같은 이유로 목이다.
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeDeleted: jest.fn(),
+  logGroupBetJoined: jest.fn(),
 }));
 
 // groupErrorCode는 실제 구현을 남긴다(code 분기까지 검증).
@@ -69,6 +71,8 @@ function weekElement(entries: JoinWeekEntry[] = ENTRIES) {
       label="매일 09:00~12:00 90분 집중"
       entries={entries}
       startTimeLabel="09:00"
+      missionType="DURATION"
+      missionCategory="FOCUS"
       onClose={onClose}
       onDone={onDone}
     />
@@ -108,6 +112,14 @@ test('날짜별 참가비·합계·잔액을 먼저 보여주고, 보여준 날�
   });
   expect(mockJoinWeek).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, DATES);
   expect(onDone).toHaveBeenCalled();
+  // 예약도 '참여 결심 1건' — 일수는 파라미터로 남긴다(#570 codex ⑧).
+  expect(logGroupBetJoined).toHaveBeenCalledTimes(1);
+  expect(logGroupBetJoined).toHaveBeenCalledWith({
+    stake: 30,
+    session_count: 3,
+    mission_type: 'DURATION',
+    mission_category: 'FOCUS',
+  });
 });
 
 // #570 리뷰 — 이미 열린 회차는 개설 시점 stake가 박제돼 있고 미래 날짜는 지금 설정값이
@@ -204,6 +216,37 @@ test('INVALID_SESSION_DATES — 낡은 화면임을 알리고 닫는다', async 
 
 // 서버 판정 유지(#570 codex — BetSheet insufficientVerdict 패턴): refresh가 안 끝났거나 낡은 큰
 // 잔액이 남아 있어도(여기선 240 ≥ 90) "그 총액으로는 안 된다"는 이미 확정 — 반복 전송을 막는다.
+// #570 codex ⑥ — 판정은 "그 총액 이상은 안 된다"는 사실이다. 전체가 거절된 뒤 잔액이 조금
+// 들어오면 **축소분은 낼 수 있는데**, 전체 총액으로만 재면 부분 예약 버튼까지 영영 잠긴다.
+test('전체가 거절돼도 새 잔액이 감당하는 축소분은 다시 보낼 수 있다', async () => {
+  mockJoinWeek.mockRejectedValueOnce(axiosErrorWith(409, 'BET_INSUFFICIENT_BALANCE'));
+  const { rerender } = await renderWeek(); // 3일 × 30 = 90
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+  expect(mockJoinWeek).toHaveBeenCalledTimes(1);
+
+  // 판정 이후 새 잔액이 도착했지만 전체(90)는 여전히 못 낸다 — 2일(60)은 낼 수 있다.
+  mockCoins = 70;
+  mockCoinsVersion = 2;
+  await act(async () => {
+    rerender(weekElement());
+  });
+
+  // 전체 CTA는 잠긴 채(90 > 70), 축소 액션은 열린다.
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+  expect(mockJoinWeek).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.partial'));
+  });
+  expect(mockJoinWeek).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, [
+    '2026-08-10',
+    '2026-08-12',
+  ]);
+});
+
 test('총액 기준 BET_INSUFFICIENT_BALANCE — 판정을 유지해 CTA를 잠그고, 판정 이후 잔액만 푼다', async () => {
   mockJoinWeek.mockRejectedValueOnce(axiosErrorWith(409, 'BET_INSUFFICIENT_BALANCE'));
   const { rerender } = await renderWeek();

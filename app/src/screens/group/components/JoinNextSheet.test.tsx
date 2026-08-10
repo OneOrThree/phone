@@ -8,6 +8,7 @@ import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import JoinNextSheet from './JoinNextSheet';
 import { joinNextSession } from '@/services/groupApi';
+import { logGroupBetJoined } from '@/services/analyticsEvents';
 
 jest.setTimeout(20000);
 
@@ -19,6 +20,7 @@ jest.mock('react-native-safe-area-context', () => ({
 // groupApi가 계측 모듈(firebase 네이티브)을 물고 온다 — 다른 스위트와 같은 이유로 목이다.
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeDeleted: jest.fn(),
+  logGroupBetJoined: jest.fn(),
 }));
 
 // groupErrorCode는 실제 구현을 남긴다(code 분기까지 검증).
@@ -76,6 +78,8 @@ function nextElement() {
       sessionDate={SESSION_DATE}
       startTimeLabel={null}
       stake={30}
+      missionType="DURATION"
+      missionCategory="FOCUS"
       onClose={onClose}
       onDone={onDone}
     />
@@ -117,6 +121,13 @@ test('예약 대상 날짜를 제목·CTA·안내에 못 박고, 잔액을 N46 �
   await submit();
   expect(mockJoinNext).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID);
   expect(onDone).toHaveBeenCalled();
+  // 예약도 참여 1건으로 센다(#570 codex ⑧) — 금액은 서버가 확정한 박제값이 정본이다.
+  expect(logGroupBetJoined).toHaveBeenCalledWith({
+    stake: 30,
+    session_count: 1,
+    mission_type: 'DURATION',
+    mission_category: 'FOCUS',
+  });
 });
 
 test('잔액이 모자라면 CTA가 부족분을 들고 잠긴다', async () => {
@@ -142,6 +153,8 @@ test('전달받은 참가비로 표시·잔액 판정을 한다 — 두 자리�
       sessionDate={SESSION_DATE}
       startTimeLabel={null}
       stake={100} // 박제값 — 설정값(30)보다 크다
+      missionType="DURATION"
+      missionCategory="FOCUS"
       onClose={onClose}
       onDone={onDone}
     />,

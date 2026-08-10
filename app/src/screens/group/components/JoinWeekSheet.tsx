@@ -9,7 +9,9 @@ import {
   groupErrorCode,
   joinWeekSessions,
 } from '@/services/groupApi';
+import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
+import type { MissionCategory, MissionType } from '@/types/dto/group';
 import { fmtMonthDayDow } from '../challengeSchedule';
 import BetBalanceRow from './BetBalanceRow';
 
@@ -47,6 +49,9 @@ export interface JoinWeekSheetProps {
   entries: JoinWeekEntry[];
   // 창형이면 시작 시각 'HH:mm' — 행마다 날짜 옆에 적는다. 하루형은 null.
   startTimeLabel: string | null;
+  // 참여 계측의 미션 축(단건 참가와 같은 파라미터 — 채택률을 같은 축에서 본다).
+  missionType: MissionType;
+  missionCategory: MissionCategory;
   onClose: () => void;
   // 성공(또는 성공과 같게 취급) — 카드가 시트를 내리고 부모 재조회를 태운다.
   onDone: () => void;
@@ -58,6 +63,8 @@ export default function JoinWeekSheet({
   label,
   entries,
   startTimeLabel,
+  missionType,
+  missionCategory,
   onClose,
   onDone,
 }: JoinWeekSheetProps) {
@@ -86,18 +93,26 @@ export default function JoinWeekSheet({
   // 잔액 미상이면 부족 판정을 하지 않는다(3상) — 판정은 서버 총액 선검사가 확정해 준다.
   const loaded = !!coinsLoaded;
   const insufficient = loaded && total > coins;
-  // 판정 이후에 도착한 잔액이 '낼 수 있다'고 말하는가 — 그때만 서버 판정을 푼다(BetSheet와 동일).
-  const balanceOverridesVerdict =
-    insufficientVerdict !== null &&
-    loaded &&
-    coinsVersion > insufficientVerdict.coinsVersion &&
-    total <= coins;
-  const serverInsufficient =
-    insufficientVerdict !== null && total >= insufficientVerdict.total && !balanceOverridesVerdict;
+  /**
+   * 서버 판정이 **이 금액**을 막고 있는가 (#570 codex ⑥).
+   *
+   * 판정은 "그 총액 이상은 안 된다"는 사실이라 **시도 금액 단위로** 물어야 한다: 전체(3일)가
+   * 거절된 뒤 잔액이 조금 들어오면 축소분(2일)은 낼 수 있는데, 전체 총액으로만 재면 부분 예약
+   * 버튼까지 영영 잠긴다. 푸는 것도 같은 축이다 — 판정 **이후 버전**의 권위 있는 잔액이
+   * **그 금액**을 감당한다고 말할 때만 연다(크기만 보면 판정 직후의 낡은 잔액이 스스로 푼다).
+   */
+  function verdictBlocks(amount: number): boolean {
+    if (insufficientVerdict === null || amount < insufficientVerdict.total) return false;
+    const fresherBalanceCovers =
+      loaded && coinsVersion > insufficientVerdict.coinsVersion && amount <= coins;
+    return !fresherBalanceCovers;
+  }
+  const serverInsufficient = verdictBlocks(total);
   // 부분 예약 제안 — **권위 있는 잔액**으로만 계산한다(앞 날짜부터: 먼저 오는 날이 먼저 도는 날).
-  // 날짜별 금액이 다르므로 '몫 나눗셈'이 아니라 **누적합이 잔액을 넘기 직전까지** 담는다.
+  // 날짜별 금액이 다르므로 '몫 나눗셈'이 아니라 **누적합이 잔액을 넘기 직전까지** 담고,
+  // 서버 판정이 막는 금액이면 뒤에서부터 줄인다 — 막힌 금액을 다시 보내는 제안은 무의미하다.
   const partialEntries = (() => {
-    if (!insufficient) return [];
+    if (!loaded || (!insufficient && !serverInsufficient)) return [];
     const picked: JoinWeekEntry[] = [];
     let sum = 0;
     for (const e of entries) {
@@ -105,7 +120,11 @@ export default function JoinWeekSheet({
       sum += e.stake;
       picked.push(e);
     }
-    return picked;
+    while (picked.length > 0 && verdictBlocks(picked.reduce((acc, e) => acc + e.stake, 0))) {
+      picked.pop();
+    }
+    // 전부 담겼다면 축소가 아니다 — 전체 CTA와 같은 요청이 되므로 제안하지 않는다.
+    return picked.length === entries.length ? [] : picked;
   })();
   const affordableCount = partialEntries.length;
   const partialTotal = partialEntries.reduce((sum, e) => sum + e.stake, 0);
@@ -119,20 +138,23 @@ export default function JoinWeekSheet({
   async function submit(targets: JoinWeekEntry[]) {
     if (submitting || submitLock.current || targets.length === 0) return;
     const targetDates = targets.map((e) => e.date);
-    // 서버 판정이 잡은 총액 이상은 다시 보내지 않는다 — CTA 잠금과 같은 근거의 최후 가드.
+    // 서버 판정이 막는 금액은 다시 보내지 않는다 — CTA 잠금과 **같은 축**(시도 금액 기준)이다.
     const targetTotal = targets.reduce((sum, e) => sum + e.stake, 0);
-    if (
-      insufficientVerdict !== null &&
-      !balanceOverridesVerdict &&
-      targetTotal >= insufficientVerdict.total
-    ) {
-      return;
-    }
+    if (verdictBlocks(targetTotal)) return;
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
     try {
       await joinWeekSessions(groupId, challengeId, targetDates);
+      // 참여 계측(#570 codex ⑧) — **성공 시에만**, 그리고 **행동 1건**으로 센다. 예약 일수는
+      // session_count로 남긴다(analyticsEvents 주석: 3일 예약을 3건으로 부풀리면 '참여 결심 수'
+      // 축이 무너진다). stake는 하루치 축을 유지하려 최대 하루치를 싣는다(총액이 아니다).
+      logGroupBetJoined({
+        stake: Math.max(...targets.map((e) => e.stake)),
+        session_count: targets.length,
+        mission_type: missionType,
+        mission_category: missionCategory,
+      });
       // 예약분 전액이 그 자리에서 묶였다(N15) — 잔액을 곧바로 맞춘다.
       refresh();
       onDone();
