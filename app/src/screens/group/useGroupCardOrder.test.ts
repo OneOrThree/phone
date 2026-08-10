@@ -35,6 +35,16 @@ test('목록 실패·부분 응답에서는 읽기와 prune을 하지 않는다'
   expect(await readGroupCardOrder('me')).toEqual(['gone', 'a']);
 });
 
+test('손상된 저장값은 성공한 전체 목록의 서버 순서로 복구해 기록한다', async () => {
+  await AsyncStorage.setItem('gromo:groups:cardOrder:v1', '{broken');
+  const { result } = await renderHook(() =>
+    useGroupCardOrder({ serverGroupIds: ['a', 'b'], userId: 'me' }),
+  );
+
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['a', 'b']));
+  await waitFor(async () => expect(await readGroupCardOrder('me')).toEqual(['a', 'b']));
+});
+
 test('계정 전환 직후 이전 계정 순서를 노출하지 않고 새 bucket으로 hydrate한다', async () => {
   await writeGroupCardOrder('u1', ['b', 'a']);
   await writeGroupCardOrder('u2', ['a', 'b']);
@@ -85,9 +95,10 @@ test('이전 계정의 늦은 저장 실패가 새 계정 오류 상태를 바�
     result.current.commitOrder(['b', 'a']);
   });
   await rerender({ userId: 'u2' });
-  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  expect(result.current.hydrated).toBe(false);
   await act(async () => rejectOldWrite(new Error('old account write failed')));
 
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
   expect(result.current.saveFailed).toBe(false);
   expect(result.current.orderedGroupIds).toEqual(['a', 'b']);
 });
