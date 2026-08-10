@@ -7,6 +7,7 @@ interface FindMoreCardProps {
   position: number;
   pageCount: number;
   onPress: () => void;
+  focusable?: boolean;
   minHeight?: number;
 }
 
@@ -19,12 +20,14 @@ export function FindMoreCard({
   position,
   pageCount,
   onPress,
+  focusable = true,
   minHeight = 300,
 }: FindMoreCardProps) {
   return (
     <Pressable
       style={[s.card, { width, minHeight }]}
       onPress={onPress}
+      focusable={focusable}
       accessibilityRole="button"
       accessibilityLabel={`그룹 찾기, 현재 ${position}/${pageCount} 페이지`}
       testID="group.deck.findMore"

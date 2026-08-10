@@ -1,7 +1,9 @@
 // v2 루트 스택 파라미터 — 탭(Main) 위에 상세 화면을 얹는 구조.
 // 별도 파일로 분리해 화면 ↔ 네비게이터 순환 import을 피한다.
 import type { FocusTimerMode, PomodoroConfig } from '@/screens/focus/types';
-import type { MissionCategory, MissionType } from '@/types/dto/group';
+import type { CardInteractionRouteContext, FocusEntrySource } from '@/services/cardInteraction';
+
+export type { FocusEntrySource };
 
 export type V2RootStackParamList = {
   Main: undefined; // 4탭 + FAB
@@ -11,7 +13,12 @@ export type V2RootStackParamList = {
   CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
   // 02 과목 선택 (홈 ● 집중 FAB에서 진입). initialGroupId: 그룹방 FAB에서 진입 시 — 세션까지 넘겨
   // 집중 세션이 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입하게 한다(F2 Part2).
-  FocusCategory: { initialGroupId?: string } | undefined;
+  FocusCategory:
+    | ({
+        initialGroupId?: string;
+        entrySource?: FocusEntrySource;
+      } & CardInteractionRouteContext)
+    | undefined;
   FocusSession: {
     subjectId: string;
     subjectName: string;
@@ -19,7 +26,7 @@ export type V2RootStackParamList = {
     goalSeconds?: number; // 카운트다운 목표
     pomodoro?: PomodoroConfig; // 뽀모도로 설정
     initialGroupId?: string; // 그룹방 FAB 진입 시 — 스와이프를 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입(F2 Part2)
-  }; // 06~11 집중 세션
+  } & CardInteractionRouteContext; // 06~11 집중 세션
   FocusResult: {
     focusSeconds: number; // 이번 세션 집중 초
     subjectId: string;
@@ -63,24 +70,34 @@ export type V2RootStackParamList = {
     //    다른 그룹에 참여하는 경로 — @claude 리뷰). 키를 필수로 두면 모든 호출부가 값을
     //    명시하게 되어 컴파일 시점에 이 불변식이 강제된다.
     challengeId: string | undefined;
-  };
+  } & CardInteractionRouteContext;
   GroupNotice: {
     groupId: string;
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)
   }; // 공지 목록 (그룹방 '모두보기'·공지 카드에서 진입)
-  GroupBetHistory: {
+  // 그룹 챌린지 내역(GROMO-1277 · N6-1) — 구 'GroupBetHistory'(챌린지 축)를 대체한다.
+  // 이력의 소유자가 챌린지에서 **그룹**으로 올라가, 챌린지가 삭제돼도 목록이 살아 있다.
+  // 진입 둘·화면 하나(IA §1): 그룹방 「챌린지 내역」 링크(필터 없음) / 지난 결과 시트
+  // 「지난 기록 더보기」(challengeId 필터). 미션 메타는 회차 스냅샷으로 응답에 실려 오므로
+  // route param으로 나르지 않는다 — 진입 경로에 표시가 의존하지 않는다.
+  //
+  // ⚠️ 필터 두 칸은 위 `GroupRoom.challengeId`와 **같은 이유로** optional(`?`)이 아니라
+  //    `| undefined`다. 이미 필터로 열린 이 화면이 스택에 남아 있는데(예: 그룹방 위에 뜬
+  //    초대·딥링크로 다른 방을 올린 뒤) 전체 내역 링크를 누르면, React Navigation의 얕은
+  //    파라미터 병합이 **생략한 키를 직전 진입 값으로 채운다** — 다른 그룹의 챌린지 필터가
+  //    그대로 남아 "왜 이 방 기록이 안 보이지"가 된다. 키를 필수로 두면 모든 호출부가 값을
+  //    명시하게 되어 이 불변식이 컴파일 시점에 강제된다(codex 리뷰).
+  GroupChallengeHistory: {
     groupId: string;
-    challengeId: string;
-    // FOCUS 창 5분 관용치 안내 판단용(#527 리뷰) — 시트(LastBetResultSheet)와 같은 조건·문구.
-    // 옵셔널: 미션 메타 없는 진입점 호환 — 없으면 안내 없이 그린다(없는 정보를 지어내지 않는다).
-    missionType?: MissionType;
-    missionCategory?: MissionCategory;
-  }; // 챌린지 내기 히스토리 — 지난 내기 결과 시트 '지난 기록 더보기'에서 진입 (GROMO-1221)
+    challengeId: string | undefined; // 있으면 그 챌린지만(서버는 같은 엔드포인트의 필터로 처리한다)
+    challengeLabel: string | undefined; // 필터 진입에서 헤더에 적을 미션 라벨 — 없으면 아무것도 지어내지 않는다
+  };
 
   // 그룹 운영(3차) — 그룹방 ⋯ 가 GroupSettings(관리 허브)로 직행한다(팝업 메뉴 폐지).
   // 허브에서 아래 화면들로 갈라진다. 관리 행은 방장 전용이고 비방장은 나가기만 본다.
   // 멤버십이 바뀌면(위임·강퇴·탈퇴) 복귀 시 상태를 재동기화한다.
   GroupSettings: { groupId: string }; // A-1 관리 허브 — 프로필설정·위임·멤버관리·공지권한 진입 + 그룹 나가기
+  GroupCardEmojiEdit: { groupId: string }; // OWNER·MEMBER 공통 기기 로컬 카드 아이콘 편집
   GroupProfileEdit: { groupId: string }; // A-1 그룹 프로필 편집(이름/소개/정원/공개설정) — 허브에서 push
   GroupMemberManage: { groupId: string }; // A-3 멤버 관리(강퇴)
   GroupOwnerTransfer: {

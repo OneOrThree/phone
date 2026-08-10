@@ -1,0 +1,292 @@
+import { getMyRanking } from '@/services/leagueApi';
+import type { LeagueMemberResponse } from '@/types/api';
+import { todayStrKst } from '@/utils/localDate';
+
+export type GroupFocusStatusState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; data: LeagueMemberResponse[] }
+  | { status: 'error'; error: unknown }
+  | { status: 'coverage-unknown' }
+  | { status: 'stale'; data: LeagueMemberResponse[]; error: unknown };
+
+export type GroupFocusCount =
+  | { status: 'ready'; count: number }
+  | { status: 'stale'; count: number }
+  | { status: 'unavailable' };
+
+interface CacheEntry {
+  state: GroupFocusStatusState;
+  lastComplete: LeagueMemberResponse[] | null;
+  inFlight: Promise<GroupFocusStatusState> | null;
+}
+
+type Listener = () => void;
+type RankingLoader = (date: string) => Promise<LeagueMemberResponse[]>;
+
+const cacheKey = (userId: string, date: string) => `${userId}\u0000${date}`;
+const IDLE_STATE: GroupFocusStatusState = Object.freeze({ status: 'idle' });
+
+/** 화면의 모든 카드가 공유하는 category 없는 ranking 원본 cache. */
+export class GroupFocusStatusStore {
+  private readonly entries = new Map<string, CacheEntry>();
+  private readonly listeners = new Map<string, Set<Listener>>();
+
+  constructor(private readonly load: RankingLoader) {}
+
+  getState(userId: string, date: string): GroupFocusStatusState {
+    // useSyncExternalStore는 변경 전 snapshot의 참조 동일성을 요구한다.
+    return this.entries.get(cacheKey(userId, date))?.state ?? IDLE_STATE;
+  }
+
+  subscribe(userId: string, date: string, listener: Listener): () => void {
+    const key = cacheKey(userId, date);
+    const listeners = this.listeners.get(key) ?? new Set<Listener>();
+    listeners.add(listener);
+    this.listeners.set(key, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.listeners.delete(key);
+    };
+  }
+
+  ensure(userId: string, date: string): Promise<GroupFocusStatusState> {
+    const entry = this.entries.get(cacheKey(userId, date));
+    if (!entry) return this.start(userId, date);
+    if (entry.inFlight) return entry.inFlight;
+    return Promise.resolve(entry.state);
+  }
+
+  /** 60초 tick·복귀·명시 retry가 새 refresh cycle을 여는 경로다. */
+  retry(userId: string, date: string): Promise<GroupFocusStatusState> {
+    const entry = this.entries.get(cacheKey(userId, date));
+    if (entry?.inFlight) return entry.inFlight;
+    return this.start(userId, date, entry);
+  }
+
+  clearUser(userId: string): void {
+    const prefix = `${userId}\u0000`;
+    for (const key of this.entries.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      this.entries.delete(key);
+      this.emit(key);
+    }
+  }
+
+  clearDate(userId: string, date: string): void {
+    const key = cacheKey(userId, date);
+    this.entries.delete(key);
+    this.emit(key);
+  }
+
+  private start(
+    userId: string,
+    date: string,
+    previous = this.entries.get(cacheKey(userId, date)),
+  ): Promise<GroupFocusStatusState> {
+    const key = cacheKey(userId, date);
+    const entry: CacheEntry = {
+      state: { status: 'loading' },
+      lastComplete: previous?.lastComplete ?? null,
+      inFlight: null,
+    };
+    this.entries.set(key, entry);
+    this.emit(key);
+
+    const request = this.load(date).then(
+      (rows): GroupFocusStatusState => {
+        if (rows.length >= 100) return { status: 'coverage-unknown' };
+        return { status: 'ready', data: rows };
+      },
+      (error): GroupFocusStatusState =>
+        entry.lastComplete
+          ? { status: 'stale', data: entry.lastComplete, error }
+          : { status: 'error', error },
+    );
+
+    entry.inFlight = request.then((state) => {
+      if (this.entries.get(key) !== entry) return state;
+      entry.state = state;
+      entry.inFlight = null;
+      if (state.status === 'ready') entry.lastComplete = state.data;
+      if (state.status === 'coverage-unknown') entry.lastComplete = null;
+      this.emit(key);
+      return state;
+    });
+    return entry.inFlight;
+  }
+
+  private emit(key: string): void {
+    this.listeners.get(key)?.forEach((listener) => listener());
+  }
+}
+
+/**
+ * members에 없는 ranking 행은 무시한다. raw가 완전하다고 확인된 ready/stale에서만 부재를
+ * isFocusing=false로 해석하므로 0도 확인된 값이고, 그 밖의 상태는 숫자를 만들지 않는다.
+ */
+export function deriveGroupFocusCount(
+  memberIds: readonly string[],
+  state: GroupFocusStatusState,
+): GroupFocusCount {
+  if (state.status !== 'ready' && state.status !== 'stale') {
+    return { status: 'unavailable' };
+  }
+  const focusingIds = new Set(
+    state.data.filter((member) => member.isFocusing === true).map((member) => member.userId),
+  );
+  const count = Array.from(new Set(memberIds)).reduce((total, id) => {
+    return total + (focusingIds.has(id) ? 1 : 0);
+  }, 0);
+  return { status: state.status, count };
+}
+
+export interface GroupFocusPollingLifecycle {
+  screenFocused: boolean;
+  appActive: boolean;
+  hasGroups: boolean;
+}
+
+export interface GroupFocusPollingOptions {
+  store: GroupFocusStatusStore;
+  userId: string;
+  getDate?: () => string;
+  intervalMs?: number;
+  getMsUntilNextDate?: () => number;
+  setIntervalFn?: typeof setInterval;
+  clearIntervalFn?: typeof clearInterval;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function msUntilNextKstDate(now = Date.now()): number {
+  const kst = new Date(now + KST_OFFSET_MS);
+  const nextKstMidnightUtc =
+    Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + 1) - KST_OFFSET_MS;
+  return Math.max(1, nextKstMidnightUtc - now);
+}
+
+/** 첫 back 뒤의 foreground 60초 수명을 화면/앱 수명과 분리해 검증 가능한 controller로 둔다. */
+export class GroupFocusPollingController {
+  private activated = false;
+  private disposed = false;
+  private lifecycle: GroupFocusPollingLifecycle = {
+    screenFocused: false,
+    appActive: false,
+    hasGroups: false,
+  };
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private dateBoundaryTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeDate: string | null = null;
+  private readonly getDate: () => string;
+  private readonly intervalMs: number;
+  private readonly getMsUntilNextDate: () => number;
+  private readonly setIntervalFn: typeof setInterval;
+  private readonly clearIntervalFn: typeof clearInterval;
+  private readonly setTimeoutFn: typeof setTimeout;
+  private readonly clearTimeoutFn: typeof clearTimeout;
+
+  constructor(private readonly options: GroupFocusPollingOptions) {
+    this.getDate = options.getDate ?? todayStrKst;
+    this.intervalMs = options.intervalMs ?? 60_000;
+    this.getMsUntilNextDate = options.getMsUntilNextDate ?? msUntilNextKstDate;
+    this.setIntervalFn = options.setIntervalFn ?? setInterval;
+    this.clearIntervalFn = options.clearIntervalFn ?? clearInterval;
+    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+    this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
+  }
+
+  /** 사용자 첫 back과 코치마크 3→4가 공유하는 진입점. */
+  activate(): void {
+    if (this.disposed || this.activated) return;
+    this.activated = true;
+    if (!this.canRun()) return;
+    const date = this.prepareDate();
+    this.options.store.ensure(this.options.userId, date);
+    this.startTimer();
+  }
+
+  setLifecycle(next: GroupFocusPollingLifecycle): void {
+    if (this.disposed) return;
+    const wasRunning = this.canRun();
+    this.lifecycle = next;
+    const isRunning = this.canRun();
+    if (!isRunning) {
+      this.stopTimer();
+      return;
+    }
+    if (!wasRunning) this.refresh();
+    this.startTimer();
+  }
+
+  notifyFocusFlowReturn(): void {
+    if (this.canRun()) this.refresh();
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.stopTimer();
+    // 화면 세션의 warm cache를 다음 마운트가 재사용하지 않게 한다. 그렇지 않으면 새 controller의
+    // 첫 ensure가 ready entry를 보고 요청을 생략해 최대 60초 동안 이전 세션 값을 보여 준다.
+    if (this.activeDate) this.options.store.clearDate(this.options.userId, this.activeDate);
+    this.activeDate = null;
+  }
+
+  private canRun(): boolean {
+    return (
+      this.activated &&
+      !this.disposed &&
+      this.lifecycle.screenFocused &&
+      this.lifecycle.appActive &&
+      this.lifecycle.hasGroups
+    );
+  }
+
+  private refresh(): Promise<GroupFocusStatusState> {
+    return this.options.store.retry(this.options.userId, this.prepareDate());
+  }
+
+  private prepareDate(): string {
+    const nextDate = this.getDate();
+    if (this.activeDate && this.activeDate !== nextDate) {
+      this.options.store.clearDate(this.options.userId, this.activeDate);
+    }
+    this.activeDate = nextDate;
+    return nextDate;
+  }
+
+  private startTimer(): void {
+    if (this.timer === null) {
+      this.timer = this.setIntervalFn(() => {
+        if (this.canRun()) this.refresh();
+      }, this.intervalMs);
+    }
+    this.scheduleDateBoundary();
+  }
+
+  private scheduleDateBoundary(): void {
+    if (this.dateBoundaryTimer !== null || !this.canRun()) return;
+    this.dateBoundaryTimer = this.setTimeoutFn(() => {
+      this.dateBoundaryTimer = null;
+      if (this.canRun()) this.refresh();
+      this.scheduleDateBoundary();
+    }, this.getMsUntilNextDate());
+  }
+
+  private stopTimer(): void {
+    if (this.timer !== null) {
+      this.clearIntervalFn(this.timer);
+      this.timer = null;
+    }
+    if (this.dateBoundaryTimer !== null) {
+      this.clearTimeoutFn(this.dateBoundaryTimer);
+      this.dateBoundaryTimer = null;
+    }
+  }
+}
+
+export const groupFocusStatusStore = new GroupFocusStatusStore((date) =>
+  getMyRanking(undefined, date),
+);

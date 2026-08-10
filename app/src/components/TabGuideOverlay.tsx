@@ -49,25 +49,34 @@ export function TabGuideOverlay({
   storageKey,
   steps,
   onFinish,
+  visible: controlledVisible,
+  onRequestClose,
 }: {
   storageKey: string;
   steps: GuideStep[];
   onFinish?: () => void; // 마지막 스텝을 닫은 직후 — 투어 중 옮긴 스크롤 원복 등
+  /** 별도 queue가 완료 key를 이미 판정한 화면은 두 번째 저장소 read 없이 즉시 표시한다. */
+  visible?: boolean;
+  /** 제어형 guide는 Android 뒤로가기를 완료가 아닌 중단으로 처리한다. */
+  onRequestClose?: () => void;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
-  const [visible, setVisible] = useState(false);
+  const [internalVisible, setInternalVisible] = useState(false);
   const [idx, setIdx] = useState(0);
   const [hole, setHole] = useState<Hole>(null);
   const holeReq = useRef(0); // 늦게 도착한 이전 스텝 측정 무시용
   // steps는 렌더마다 새 배열일 수 있어 ref로 최신값만 읽는다 — 스텝 전환 시에만 재측정
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
+  const controlled = controlledVisible !== undefined;
+  const visible = controlled ? controlledVisible : internalVisible;
 
   useEffect(() => {
+    if (controlled) return;
     AsyncStorage.getItem(storageKey).then((v) => {
-      if (v !== '1') setVisible(true);
+      if (v !== '1') setInternalVisible(true);
     });
-  }, [storageKey]);
+  }, [controlled, storageKey]);
 
   // 스텝이 바뀔 때마다 스포트라이트 결정 — prepare(스크롤 등) → rect 또는 앵커 측정. 없으면 전체 딤
   const step = steps[idx];
@@ -106,7 +115,7 @@ export function TabGuideOverlay({
       setIdx(idx + 1);
       return;
     }
-    setVisible(false);
+    if (!controlled) setInternalVisible(false);
     AsyncStorage.setItem(storageKey, '1').catch(() => {});
     // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
     logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
@@ -126,7 +135,13 @@ export function TabGuideOverlay({
     : { bottom: winH - (hole ? hole.y : winH * 0.62) + 18 };
 
   return (
-    <Modal transparent statusBarTranslucent animationType="fade" onRequestClose={advance}>
+    <Modal
+      testID="guide.overlay.modal"
+      transparent
+      statusBarTranslucent
+      animationType="fade"
+      onRequestClose={onRequestClose ?? advance}
+    >
       {/* Maestro E2E — 코치마크 식별·진행용(GROMO-947). 사라질 때까지 탭해서 닫는다. */}
       <Pressable testID="guide.overlay" style={s.flex1} onPress={advance}>
         {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가

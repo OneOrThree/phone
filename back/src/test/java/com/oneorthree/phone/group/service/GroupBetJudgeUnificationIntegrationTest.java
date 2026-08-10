@@ -21,6 +21,7 @@ import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.domain.SettleTrigger;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
+import com.oneorthree.phone.group.dto.GroupBetSessionParticipantResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
@@ -80,6 +81,8 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     GroupChallengeService groupChallengeService;
+    @Autowired
+    GroupBetService groupBetService;
     @Autowired
     GroupBetSettler groupBetSettler;
     @Autowired
@@ -312,6 +315,20 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
         return groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(session.getId()));
     }
 
+    /** 카드의 <b>회차 참가자</b> 한 줄(bet.session.participants) — memberProgress 와는 다른 축이다. */
+    private GroupBetSessionParticipantResponse betSessionRowOf(UUID challengeId, User viewer,
+            User target, LocalDate date) {
+        GroupChallengeResponse card =
+                groupChallengeService.getChallenges(group.getId(), viewer.getId(), date).stream()
+                        .filter(c -> c.getId().equals(challengeId))
+                        .findFirst()
+                        .orElseThrow();
+        return card.getBet().getSession().getParticipants().stream()
+                .filter(row -> row.getUserId().equals(target.getId()))
+                .findFirst()
+                .orElseThrow();
+    }
+
     // ── ① 권한 철회 — 카드와 정산이 같은 답을 낸다 ─────────────────────────
 
     @Test
@@ -506,5 +523,48 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
                 .containsExactlyInAnyOrder(
                         tuple(participant.getId(), true),
                         tuple(peer.getId(), false));
+    }
+
+    // ── ⑤ 계정 탈퇴 박제 — 카드 명단과 정산이 같은 근거를 본다 (GROMO-1423 · codex) ──
+
+    @Test
+    @DisplayName("탈퇴로 통계가 사라진 달성자 — 카드 회차 명단과 정산 근거가 같은 값이다(0분/미달성으로 갈리지 않는다)")
+    void erasedAchieverShowsSameFrozenEvidenceOnCardAndSettlement() {
+        // 회차 시작 + 취소 마감 후 계정을 탈퇴하면 참가 행은 정산 대상으로 남고(FR-40) 통계만
+        // nullify 된다. 카드가 통계를 다시 집계하면 달성자가 0분/미달성으로 접혀, 정산이 쓰는
+        // 박제 결과와 명단이 어긋난다.
+        User erased = member("탈퇴자", true);
+        User peer = member("동료", true);
+        GroupChallenge challenge = durationChallenge(MissionCategory.FOCUS);
+        GroupChallengeBetSession session = openSession(challenge);
+        join(session, erased);
+        join(session, peer);
+        dailyFocus(erased, sessionDate, GOAL_MINUTES + 40);
+        dailyFocus(peer, sessionDate, GOAL_MINUTES + 10);
+
+        // UserService.withdraw 와 같은 순서: 근거 박제 → 통계 nullify → 멤버십 이탈 → 소프트딜리트.
+        groupBetService.freezeEvidenceForAccountErasure(erased);
+        inTransaction.executeWithoutResult(status -> {
+            dailyFocusStatRepository.nullifyUser(erased.getId());
+            groupMemberRepository.findByUser(erased).forEach(GroupMember::leave);
+            User row = userRepository.findById(erased.getId()).orElseThrow();
+            row.setNickname(null);
+            row.setDeleted(true);
+        });
+
+        // 카드는 정산 전에 읽는다 — 이 순간의 명단이 정산 결과와 같은 값이어야 한다.
+        GroupBetSessionParticipantResponse cardRow =
+                betSessionRowOf(challenge.getId(), peer, erased, sessionDate);
+        assertThat(cardRow.getProgressMinutes()).isEqualTo(GOAL_MINUTES + 40);
+        assertThat(cardRow.getAchieved()).isTrue();
+
+        groupBetSettler.settle(session.getId(), SettleTrigger.CRON);
+
+        GroupChallengeBetParticipant settled = participantsOf(session).stream()
+                .filter(p -> p.getUser().getId().equals(erased.getId()))
+                .findFirst().orElseThrow();
+        // 직접 대조 — 정산이 쓴 값과 카드가 보여준 값이 같은 값이다.
+        assertThat(settled.getProgressMinutes()).isEqualTo(cardRow.getProgressMinutes());
+        assertThat(settled.getAchieved()).isEqualTo(cardRow.getAchieved());
     }
 }

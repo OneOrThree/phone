@@ -1,139 +1,179 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { Ref } from 'react';
+import type { ComponentRef, Ref, RefObject } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderHandlers,
+} from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-
-const EMOJI_ACCESSIBILITY_NAMES: Readonly<Record<string, string>> = {
-  '🌅': '일출',
-  '📚': '책',
-  '💻': '노트북',
-  '⚡': '번개',
-  '🧘': '명상',
-  '🎨': '팔레트',
-  '🏃': '달리기',
-  '✍️': '쓰기',
-  '🧠': '두뇌',
-  '🎯': '목표',
-  '🌿': '잎',
-  '🔥': '불꽃',
-};
+import { groupCardEmojiLabel } from '../groupCardEmojiStore';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
-  pageIndex: number;
-  pageCount: number;
+  emojiLabel?: string;
+  position?: number;
+  pageCount?: number;
+  reorderCount?: number;
   onFlip: () => void;
-  actionRef?: Ref<View>;
-  minHeight?: number;
-  onHeightChange?: (height: number) => void;
+  onAccessibilityFlip?: () => void;
+  reorderHandlers?: GestureResponderHandlers;
+  onMoveStep?: (step: -1 | 1) => void;
+  canMovePrevious?: boolean;
+  canMoveNext?: boolean;
+  cardRef?: RefObject<View | null>;
+  bodyRef?: RefObject<View | null>;
+  disclosureRef?: Ref<ComponentRef<typeof Pressable>>;
+  gripRef?: Ref<View>;
+  active?: boolean;
 }
 
 export function GroupCardFront({
   group,
   emoji = '🎯',
-  pageIndex,
-  pageCount,
+  emojiLabel,
+  position = 1,
+  pageCount = 1,
+  reorderCount = pageCount,
   onFlip,
-  actionRef,
-  minHeight = 520,
-  onHeightChange,
+  onAccessibilityFlip,
+  reorderHandlers,
+  onMoveStep,
+  canMovePrevious = false,
+  canMoveNext = false,
+  cardRef,
+  bodyRef,
+  disclosureRef,
+  gripRef,
+  active = true,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
-  const descriptionLabel = group.description ? `, ${group.description}` : '';
-  const emojiLabel = EMOJI_ACCESSIBILITY_NAMES[emoji] ?? '사용자 선택';
 
   return (
-    <View style={[s.root, { minHeight }]} testID={`group.card.front.${group.groupId}`}>
-      <View
-        style={s.grip}
-        pointerEvents="none"
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        testID={`group.card.grip.${group.groupId}`}
-      >
-        <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
-      </View>
-      <Pressable
-        ref={actionRef}
-        style={s.body}
-        onPress={onFlip}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: false }}
-        nativeID={`group.card.disclosure.${group.groupId}`}
-        accessibilityLabel={`${group.name}${descriptionLabel}, ${emojiLabel} 아이콘, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, ${pageIndex + 1} / ${pageCount}`}
-        accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
-        testID={`group.card.${group.groupId}`}
-      >
-        <View style={s.art}>
-          <View style={s.privacyPill}>
-            <MaterialCommunityIcons
-              name={group.isPrivate ? 'lock' : 'earth'}
-              size={12}
-              color={T.white}
-            />
-            <Text style={s.pillText}>{privacyLabel}</Text>
-          </View>
-          <View style={s.emojiOrbit}>
-            <View style={s.emojiOrbitDash}>
-              <View style={s.emojiFrame}>
-                <Text style={s.emoji}>{emoji}</Text>
-              </View>
-            </View>
-          </View>
+    <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
+      <View style={s.root}>
+        <View
+          ref={gripRef}
+          style={s.grip}
+          testID={`group.card.grip.${group.groupId}`}
+          accessibilityRole="adjustable"
+          focusable={active}
+          accessibilityLabel={`${group.name} 카드 순서`}
+          accessibilityValue={{ text: `${position}/${reorderCount}` }}
+          accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+          accessibilityActions={[
+            ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
+            ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
+            if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
+          }}
+          {...reorderHandlers}
+        >
+          <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
         </View>
-
-        <View style={s.info}>
-          <View
-            style={s.infoInner}
-            onLayout={(event) =>
-              onHeightChange?.(Math.max(520, 340 + event.nativeEvent.layout.height))
-            }
-            testID={`group.card.front.measure.${group.groupId}`}
-          >
-            <View style={s.nameRow}>
-              <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
-                {group.name}
-              </Text>
-              {group.role === 'OWNER' && (
-                <View style={s.ownerChip}>
-                  <MaterialCommunityIcons name="crown-outline" size={14} color={T.accentDeep} />
-                  <Text style={s.ownerText}>방장</Text>
+        <Pressable
+          ref={disclosureRef ?? bodyRef}
+          style={s.body}
+          focusable={active}
+          onPress={onFlip}
+          accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${emojiLabel ?? groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
+          accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
+          testID={`group.card.${group.groupId}`}
+        >
+          <View style={s.art}>
+            <View style={s.privacyPill}>
+              <MaterialCommunityIcons
+                name={group.isPrivate ? 'lock' : 'earth'}
+                size={12}
+                color={T.white}
+              />
+              <Text style={s.pillText}>{privacyLabel}</Text>
+            </View>
+            <View style={s.emojiOrbit}>
+              <View style={s.emojiOrbitDash}>
+                <View style={s.emojiFrame}>
+                  <Text style={s.emoji} testID={`group.list.emoji.${group.groupId}`}>
+                    {emoji}
+                  </Text>
                 </View>
-              )}
-            </View>
-            {!!group.description && (
-              <Text style={s.desc} numberOfLines={2}>
-                {group.description}
-              </Text>
-            )}
-            <View style={s.footer}>
-              <View style={s.countBadge}>
-                <MaterialCommunityIcons
-                  name="account-multiple-outline"
-                  size={18}
-                  color={T.accentDeep}
-                />
-                <Text style={s.count}>
-                  {group.currentMembers}/{group.maxMembers}
-                </Text>
-              </View>
-              <View style={s.flipHint}>
-                <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
-                <Text style={s.flipText}>뒤집어 방 보기</Text>
               </View>
             </View>
           </View>
-        </View>
-      </Pressable>
+
+          <View style={s.info}>
+            <ScrollView
+              style={s.infoScroll}
+              contentContainerStyle={s.infoInner}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+              testID={`group.card.frontInfo.${group.groupId}`}
+            >
+              <View style={s.nameRow}>
+                <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
+                  {group.name}
+                </Text>
+                {group.role === 'OWNER' && (
+                  <View style={s.ownerChip}>
+                    <MaterialCommunityIcons name="crown-outline" size={14} color={T.accentDeep} />
+                    <Text style={s.ownerText}>방장</Text>
+                  </View>
+                )}
+              </View>
+              {!!group.description && (
+                <Text style={s.desc} numberOfLines={2}>
+                  {group.description}
+                </Text>
+              )}
+              <View style={s.footer}>
+                <View style={s.countBadge}>
+                  <MaterialCommunityIcons
+                    name="account-multiple-outline"
+                    size={18}
+                    color={T.accentDeep}
+                  />
+                  <Text style={s.count}>
+                    {group.currentMembers}/{group.maxMembers}
+                  </Text>
+                </View>
+                <View style={s.flipHint}>
+                  <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
+                  <Text style={s.flipText}>뒤집어 방 보기</Text>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
+  shadowShell: {
+    flex: 1,
+    minHeight: 520,
+    borderRadius: 28,
+    backgroundColor: T.white,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
   root: {
     flex: 1,
+    minHeight: 520,
     borderRadius: 28,
     overflow: 'hidden',
     backgroundColor: T.white,
@@ -209,12 +249,14 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
   },
   infoInner: {
+    flexGrow: 1,
     width: '76%',
     alignSelf: 'center',
     paddingHorizontal: T.space.sm,
-    paddingBottom: T.space.xl,
+    paddingBottom: 56,
     gap: T.space.sm,
   },
+  infoScroll: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   name: { ...T.text.heading, color: T.ink, flexShrink: 1, minWidth: 0 },
   ownerChip: {
@@ -230,7 +272,7 @@ const s = StyleSheet.create({
   ownerText: { ...T.text.caption, color: T.accentDeep },
   desc: { ...T.text.body, color: T.inkSub },
   footer: {
-    marginTop: T.space.md,
+    marginTop: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

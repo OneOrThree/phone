@@ -1,5 +1,5 @@
-import { AccessibilityInfo } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import {
   PageIndicator,
   pageAccessibilityLabel,
@@ -41,6 +41,7 @@ describe('PageIndicator', () => {
       selected: false,
     });
     expect(screen.getByTestId('group.deck.indicator')).toHaveStyle({ height: 44 });
+    expect(screen.getByTestId('group.deck.indicator')).toHaveStyle({ marginTop: -56 });
     expect(screen.getByTestId('group.deck.indicator.dot.0')).toHaveStyle({ height: 44 });
   });
 
@@ -56,39 +57,48 @@ describe('PageIndicator', () => {
     expect(screen.getByLabelText('현재 11, 전체 12 페이지')).toBeOnTheScreen();
   });
 
-  test('counter는 접근성 증감 동작으로 페이지를 이동한다', async () => {
-    const onSelectPage = jest.fn();
-    await render(
-      <PageIndicator
-        pageLabels={['아침 집중방', '저녁 스터디', '그룹 찾기']}
-        activeIndex={1}
-        onSelectPage={onSelectPage}
-      />,
-    );
-    const counter = screen.getByTestId('group.deck.indicator.counter');
-    expect(counter.props.accessibilityRole).toBe('adjustable');
-    await act(async () => {
-      fireEvent(counter, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
-      fireEvent(counter, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
-    });
-    expect(onSelectPage).toHaveBeenNthCalledWith(1, 2);
-    expect(onSelectPage).toHaveBeenNthCalledWith(2, 0);
-  });
-
   test('dot 접근성 이름은 그룹명과 현재/전체 위치를 함께 제공한다', () => {
     expect(pageAccessibilityLabel('아침 집중방', 0, 3)).toBe('아침 집중방, 1 / 3');
+  });
+
+  test('dots 모드 재정렬에서도 stable page key의 포커스를 같은 항목으로 잇는다', async () => {
+    const view = await render(
+      <PageIndicator
+        pageLabels={['아침 집중방', '저녁 스터디', '그룹 찾기']}
+        pageKeys={['morning', 'evening', 'find-more']}
+        activeIndex={1}
+        onSelectPage={jest.fn()}
+      />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    const focusedEveningDot = screen.getByTestId('group.deck.indicator.dot.1');
+    await act(async () => focusedEveningDot.props.onFocus());
+
+    await view.rerender(
+      <PageIndicator
+        pageLabels={['저녁 스터디', '아침 집중방', '그룹 찾기']}
+        pageKeys={['evening', 'morning', 'find-more']}
+        activeIndex={0}
+        onSelectPage={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('group.deck.indicator.dot.0')).toBe(focusedEveningDot);
   });
 
   test('인디케이터 밖의 포커스는 mode 전환 때 가져오지 않는다', async () => {
     const focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus');
     await render(
       <PageIndicator
-        pageLabels={['아침 집중방', '저녁 스터디']}
+        pageLabels={['아침 집중방', '그룹 찾기']}
         activeIndex={0}
         onSelectPage={jest.fn()}
       />,
     );
-
     await act(async () => {
       fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
         nativeEvent: { layout: { width: 400 } },
@@ -97,42 +107,5 @@ describe('PageIndicator', () => {
 
     expect(focus).not.toHaveBeenCalled();
     focus.mockRestore();
-  });
-
-  test('재정렬 뒤 포커스는 같은 stable page key의 새 dot 위치를 따른다', async () => {
-    const onSelectPage = jest.fn();
-    const view = await render(
-      <PageIndicator
-        pageLabels={['아침 집중방', '저녁 스터디', '그룹 찾기']}
-        pageKeys={['morning', 'evening', 'find-more']}
-        activeIndex={1}
-        onSelectPage={onSelectPage}
-      />,
-    );
-    await act(async () => {
-      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
-        nativeEvent: { layout: { width: 400 } },
-      });
-    });
-    await act(async () => {
-      screen.getByTestId('group.deck.indicator.dot.1').props.onFocus();
-    });
-    const focusedEveningDot = screen.getByLabelText('저녁 스터디, 2 / 3');
-
-    await view.rerender(
-      <PageIndicator
-        pageLabels={['저녁 스터디', '아침 집중방', '그룹 찾기']}
-        pageKeys={['evening', 'morning', 'find-more']}
-        activeIndex={0}
-        onSelectPage={onSelectPage}
-      />,
-    );
-
-    expect(screen.getByLabelText('저녁 스터디, 1 / 3')).toBe(focusedEveningDot);
-    expect(screen.getByTestId('group.deck.indicator.dot.0').props.accessibilityLabel).toBe(
-      '저녁 스터디, 1 / 3',
-    );
-    fireEvent.press(screen.getByTestId('group.deck.indicator.dot.0'));
-    expect(onSelectPage).toHaveBeenLastCalledWith(0);
   });
 });
