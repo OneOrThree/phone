@@ -38,7 +38,8 @@ import { T, withAlpha } from '@/constants/theme';
 // 높이: 패널에 가용 높이의 85% 상한을 두고, 넘치면 패널 안이 스크롤된다(GROMO-1111).
 //
 // ── 모션(GROMO-1381 / 정책 D3·D4, 설계 §4) ────────────────────────────────────
-// 상태 기계: mount → entering → idle ⇄ dragging → closing → onClose()
+// 상태 기계: mount → (모션 설정 확정 대기) → entering → idle ⇄ dragging → closing → onClose()
+//   대기      패널을 화면 밖(prelayoutY)에 둔 채 '동작 줄이기' 확정만 기다린다(보통 0프레임)
 //   entering  translateY h→0 (spring.snappy) + 딤 0→1 (quick)
 //   dragging  PanResponder가 translateY를 직접 쓴다. 딤은 진행률에 연동돼 끌수록 옅어진다.
 //   복귀      임계 미달·dismissible=false → withSpring(0, snappy) — entering과 같은 스프링(대칭)
@@ -133,6 +134,9 @@ export function SheetShell({
   keyboardHeightRef.current = keyboardHeight;
   const reduceRef = useRef(m.reduce);
   reduceRef.current = m.reduce;
+  // '동작 줄이기' 값이 **확정됐는가**. 콜백 안에서는 최신값을 봐야 하므로 ref로도 들고 있다.
+  const readyRef = useRef(m.ready);
+  readyRef.current = m.ready;
   // 드래그 시작 시점의 패널 위치 — 등장·복귀 스프링이 도는 중에 잡아도 이어서 끌리게 한다.
   const dragStartYRef = useRef(0);
 
@@ -145,6 +149,9 @@ export function SheetShell({
   const panelHeight = useSharedValue(0);
   // 등장은 최초 레이아웃 1회만 — 키보드·내용 변화로 onLayout이 다시 불려도 재생하지 않는다.
   const enteredRef = useRef(false);
+  // 모션 설정이 확정되기 전에 측정된 패널 높이를 **보관**해 두는 자리.
+  // 확정 전에는 등장을 시작하지도, 생략하기로 확정하지도 않는다 — 값만 들고 기다린다.
+  const pendingEnterHeightRef = useRef<number | null>(null);
   // 퇴장 진행 중 — 딤 탭·드래그·CTA가 겹쳐 들어와도 onClose를 두 번 부르지 않게 한다.
   const closingRef = useRef(false);
   // ⚠️ ref만으로는 **자식 입력**을 못 막는다. 종전에는 닫는 즉시 언마운트돼서 불가능했던 일이
@@ -169,8 +176,13 @@ export function SheetShell({
 
   // 재생 도중 '동작 줄이기'가 켜지면 중간 프레임으로 굳는다 — 최종 상태로 스냅한다.
   // (imperative 애니메이션은 CSS 경로와 달리 스타일을 떼는 것만으로 되돌아가지 않는다.)
+  //
+  // ⚠️ **등장을 시작하기 전에는 스냅하지 않는다.** 모션 설정이 확정되기 전 useMotion은 보수적으로
+  //    reduce=true를 돌려주는데(그게 옳다), 그 값에 반응해 여기서 최종 상태로 스냅해 버리면
+  //    콜드 스타트 직후 열리는 시트가 등장 없이 **제자리에서 튀어나온 뒤**, 뒤늦게 reduce=false로
+  //    확정돼도 되돌릴 수 없다. 확정 전에는 화면 밖(prelayoutY)에 그대로 둔다.
   useEffect(() => {
-    if (!m.reduce || closingRef.current) return;
+    if (!m.reduce || closingRef.current || !enteredRef.current) return;
     translateY.value = 0;
     dimProgress.value = 1;
   }, [m.reduce, translateY, dimProgress]);
@@ -200,9 +212,19 @@ export function SheetShell({
       fireClose();
       return;
     }
-    // 키보드가 떠 있으면 패널이 그만큼 위에 있으므로(bottom) 그 높이까지 더 내려야 완전히 나간다.
-    // 측정 전(높이 0)이라면 화면 높이로 대신한다 — 어중간하게 멈추는 것보다 낫다.
-    const exitY = (panelHeight.value || windowHeight) + keyboardHeightRef.current;
+    // ⚠️ 퇴장 목표는 **요청 시점의 패널 높이가 아니라 화면 높이**다. withTiming의 목표값은 한 번
+    //    정해지면 갱신되지 않는데, 퇴장 220ms 동안 패널 높이는 얼마든지 커진다 — 초대 시트의
+    //    로딩 화면에서 딤을 누른 직후 프리뷰가 도착하면 패널이 커지고, 목표가 옛 높이에 묶여 있어
+    //    **늘어난 패널 상단이 퇴장이 끝날 때까지 화면에 다시 드러난다**(codex 리뷰).
+    //    두 대안 중 '항상 더 큰 거리로 내린다'를 고른 이유: 패널 높이 상한이 가용 높이의 85%라
+    //    `panelHeight + keyboardHeight ≤ 0.85·(H−kb) + kb ≤ H`가 **항상** 성립한다. 즉 화면 높이
+    //    하나면 높이 변화든 키보드 등장이든 전부 덮는다(레이아웃 고정은 높이 축만 막고 키보드 축은
+    //    못 막는다). prelayoutY가 이미 쓰는 "어떤 패널 높이보다 큰 값"과 같은 개념이라 값의 출처도
+    //    하나로 유지된다. 키보드 높이를 더하는 건 상한 재계산이 한 프레임 늦는 과도 구간까지 덮는
+    //    여유분이다.
+    //    (거리가 길어진 만큼 패널은 220ms를 다 쓰기 전에 화면 밖으로 나간다. 딤 페이드가 같은
+    //     220ms를 채우므로 닫힘 연출 전체 길이와 onClose 시점은 종전과 같다.)
+    const exitY = prelayoutY(windowHeight) + keyboardHeightRef.current;
     dimProgress.value = withTiming(0, {
       duration: M.dur.quick,
       easing: M.curve.standard.fn,
@@ -278,10 +300,49 @@ export function SheetShell({
     }),
   ).current;
 
+  // 등장 실행부 — 측정 높이 h에서 시작해 제자리로 올린다. '동작 줄이기'면 최종 상태로 바로 놓는다.
+  // 호출 시점에는 모션 설정이 **확정돼 있어야 한다**(아래 onPanelLayout·useEffect가 그걸 보장한다).
+  const startEnter = useCallback(
+    (h: number) => {
+      enteredRef.current = true;
+      pendingEnterHeightRef.current = null;
+      if (reduceRef.current) {
+        // '동작 줄이기' — 최종 상태로 바로 놓는다. 이후 설정이 꺼져도 제자리라 안전하다.
+        translateY.value = 0;
+        dimProgress.value = 1;
+        return;
+      }
+      translateY.value = h + keyboardHeightRef.current;
+      translateY.value = withSpring(0, SHEET_SETTLE);
+      dimProgress.value = withTiming(1, {
+        duration: M.dur.quick,
+        easing: M.curve.standard.fn,
+        reduceMotion: M.never,
+      });
+    },
+    [translateY, dimProgress],
+  );
+
+  // ⚠️ 모션 설정이 확정되면 **보류해 둔 등장**을 그제서야 시작한다. 콜드 스타트 직후(초대 딥링크
+  //    등) 첫 시트는 isReduceMotionEnabled() 조회보다 먼저 레이아웃될 수 있는데, 그때의
+  //    reduce=true는 실제 설정이 아니라 미확정을 뜻하는 보수값이다. 그걸로 등장을 확정하면
+  //    enteredRef 때문에 다시 시작할 수 없어, 동작 줄이기를 쓰지 않는 사용자도 이번 슬라이드업을
+  //    영구히 잃는다(codex 리뷰). 조회가 실패해도 ready는 false로 반드시 확정되므로
+  //    (useReduceMotion의 catch) 여기서 영원히 기다리는 일은 없다.
+  //    ⚠️ 의존성엔 `m`(매 렌더 새 객체)이 아니라 원시값 m.ready만 넣는다 — 1회성 등장이 중복
+  //       실행되지 않게.
+  useEffect(() => {
+    if (!m.ready || enteredRef.current || closingRef.current) return;
+    const h = pendingEnterHeightRef.current;
+    if (h === null) return;
+    startEnter(h);
+  }, [m.ready, startEnter]);
+
   // 등장 트리거는 useEffect가 아니라 패널 onLayout이다(설계 §4.2).
   // asModal은 iOS에서 Modal이 UIViewController를 present하느라 한 프레임 늦게 붙어, useEffect로
   // 걸면 레이아웃 전에 애니메이션이 시작돼 깜빡인다. 여기서 측정 높이로 스냅하고 **같은 프레임에**
   // 스프링을 걸면 높이 추정값도, 깜빡임도 없다.
+  // (모션 설정이 아직 미확정이면 여기서 시작하지 않고 위 useEffect로 넘긴다 — 아래 주석 참고.)
   const onPanelLayout = (h: number): void => {
     panelHeight.value = h;
     // ⚠️ 이미 닫는 중이면 등장을 시작하지 않는다. 첫 onLayout 전에 (아직 투명한) 딤을 빠르게
@@ -291,20 +352,14 @@ export function SheetShell({
     //    (codex 리뷰).
     if (closingRef.current) return;
     if (enteredRef.current) return;
-    enteredRef.current = true;
-    if (reduceRef.current) {
-      // '동작 줄이기' — 최종 상태로 바로 놓는다. 이후 설정이 꺼져도 제자리라 안전하다.
-      translateY.value = 0;
-      dimProgress.value = 1;
+    // ⚠️ 모션 설정이 아직 미확정이면 **높이만 보관하고 등장을 확정하지 않는다.** 패널은 화면
+    //    밖(prelayoutY)에 그대로 머문다 — 시트의 자연스러운 시작 상태이고, 여기서 최종 위치로
+    //    놓아 버리면 확정 후에 되돌릴 방법이 없다. 확정되는 즉시 위 useEffect가 이어받는다.
+    if (!readyRef.current) {
+      pendingEnterHeightRef.current = h;
       return;
     }
-    translateY.value = h + keyboardHeightRef.current;
-    translateY.value = withSpring(0, SHEET_SETTLE);
-    dimProgress.value = withTiming(1, {
-      duration: M.dur.quick,
-      easing: M.curve.standard.fn,
-      reduceMotion: M.never,
-    });
+    startEnter(h);
   };
 
   const panelAnimStyle = useAnimatedStyle(() => ({

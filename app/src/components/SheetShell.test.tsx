@@ -16,6 +16,7 @@
 //    여기서 보는 것은 **판정 규칙과 최종 상태**뿐이다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Text, TouchableOpacity } from 'react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 import { SheetShell, useSheetClose } from './SheetShell';
 
 // 테스트 트리엔 SafeAreaProvider가 없다 — 각 시트 테스트와 같은 고정값 관행을 따른다.
@@ -24,12 +25,13 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
-// '동작 줄이기' 스위치 — 기본은 꺼짐(애니메이션 켬). reduce 테스트만 켜서 확인한다.
+// '동작 줄이기' 스위치 — 기본은 꺼짐(애니메이션 켬)·확정됨. 해당 테스트만 켜서 확인한다.
+// ready는 "이 값이 실제 설정으로 **확정**됐는가"다 — 콜드 스타트 직후에는 false다.
 // (jest.mock 팩토리가 참조할 수 있게 mock 접두사를 붙인다.)
-const mockReduce = { on: false };
+const mockReduce = { on: false, ready: true };
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce.on,
-  useReduceMotionReady: () => true,
+  useReduceMotionReady: () => mockReduce.ready,
 }));
 
 // PanResponder는 내부 gestureState를 touchHistory로만 갱신해 jest로 제스처를 흉내 낼 수 없다.
@@ -50,6 +52,8 @@ const SCREEN_HEIGHT = 1334;
 // 퇴장(M.dur.quick 220ms)이 끝나고 완료 콜백이 돌 때까지 실제로 기다리는 여유.
 // 가짜 타이머를 켜면 RNTL 14의 비동기 render 자체가 진행되지 않아 실시간으로 기다린다.
 const EXIT_SETTLE_MS = 400;
+// 등장 스프링(snappy)이 완전히 멎을 때까지 기다리는 여유. 여기서 보는 것은 **정지 상태**뿐이다.
+const ENTER_SETTLE_MS = 800;
 
 async function renderShell(props: { dismissible?: boolean; children?: React.ReactNode } = {}) {
   const { children, ...rest } = props;
@@ -66,6 +70,17 @@ async function renderShell(props: { dismissible?: boolean; children?: React.Reac
 function panelStyle(): Record<string, unknown> {
   const raw = screen.getByTestId('sheetShell.panel').props.style;
   return Object.assign({}, ...[raw].flat(Infinity).filter(Boolean));
+}
+
+// 패널에 **지금 실제로 걸려 있는** translateY. props.style은 첫 렌더 스냅샷이라 이후 값을
+// 반영하지 않으므로 reanimated가 주는 조회 도구를 쓴다.
+// ⚠️ 이 값으로 단언해도 되는 것은 **정지 상태**(등장 전 화면 밖 / 안착 후 0 / 퇴장 완료 후)뿐이다.
+//    재생 중 프레임 값은 단언하지 않는다.
+function panelTranslateY(): number {
+  const style = getAnimatedStyle(screen.getByTestId('sheetShell.panel')) as {
+    transform: { translateY: number }[];
+  };
+  return style.transform[0].translateY;
 }
 
 // 패널 레이아웃 보고 — 등장 트리거가 useEffect가 아니라 onLayout이라(설계 §4.2)
@@ -106,6 +121,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockPanConfigs.length = 0;
   mockReduce.on = false;
+  mockReduce.ready = true;
 });
 
 describe('패널 높이 상한', () => {
@@ -278,6 +294,43 @@ describe("'동작 줄이기'", () => {
   //    넘기면 완료 콜백이 **나중 것**을 실행한다. 실제 사고: 그룹 초대 A를 닫는 중 초대 B가
   //    도착하면 B를 캡처한 콜백이 실행되며 방금 온 B가 버퍼에서 지워졌다.
   //    닫기를 요청한 그 시점의 콜백을 붙잡아 둬야 한다.
+  // ⚠️ 회귀 방어(codex 리뷰) — 콜드 스타트 직후 첫 시트는 AccessibilityInfo 조회보다 먼저
+  //    레이아웃될 수 있다. 그 구간의 reduce=true는 실제 설정이 아니라 **미확정**을 뜻하는
+  //    보수값인데, 그걸로 등장을 확정해 버리면(enteredRef) 나중에 false로 확정돼도 되돌릴 수
+  //    없어 동작 줄이기를 쓰지 않는 사용자가 슬라이드업을 영구히 잃는다.
+  //    확정 전에는 시트의 자연스러운 시작 상태 — **화면 밖** — 에 머물러야 한다.
+  test('모션 설정이 미확정이면 등장을 확정하지 않고 화면 밖에 머문다', async () => {
+    mockReduce.ready = false;
+    mockReduce.on = true; // 미확정 구간의 보수값
+    await renderShell();
+    await reportPanelHeight(400);
+    expect(panelTranslateY()).toBe(SCREEN_HEIGHT);
+  });
+
+  test('설정이 확정되면 보류해 둔 등장이 그제서야 재생돼 제자리에 안착한다', async () => {
+    mockReduce.ready = false;
+    mockReduce.on = true;
+    const view = await render(
+      <SheetShell onClose={onClose}>
+        <Text>내용</Text>
+      </SheetShell>,
+    );
+    await act(async () => {});
+    await reportPanelHeight(400);
+    // 실제 설정이 '동작 줄이기 꺼짐'으로 확정된다
+    mockReduce.ready = true;
+    mockReduce.on = false;
+    await view.rerender(
+      <SheetShell onClose={onClose}>
+        <Text>내용</Text>
+      </SheetShell>,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ENTER_SETTLE_MS));
+    });
+    expect(panelTranslateY()).toBeCloseTo(0);
+  });
+
   test('퇴장 도중 onClose가 교체돼도 요청 시점의 콜백을 부른다', async () => {
     const first = jest.fn();
     const second = jest.fn();
@@ -298,5 +351,20 @@ describe("'동작 줄이기'", () => {
     await settleExit();
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).not.toHaveBeenCalled();
+  });
+});
+
+describe('퇴장 목표 거리', () => {
+  // ⚠️ 회귀 방어(codex 리뷰) — withTiming의 목표값은 한 번 정해지면 갱신되지 않는데, 퇴장 220ms
+  //    동안 패널 높이는 얼마든지 커진다. 초대 시트의 로딩 화면에서 딤을 누른 직후 프리뷰가 도착해
+  //    패널이 커지는 경우가 실제 사례다. 목표를 요청 시점 높이에 묶으면 늘어난 패널 상단이 퇴장이
+  //    끝날 때까지 화면에 다시 드러난다. 여기서 보는 것은 **퇴장이 끝난 뒤의 정지 위치**다.
+  test('퇴장 중 패널이 커져도 커진 높이만큼 화면 밖으로 나간다', async () => {
+    await renderShell();
+    await reportPanelHeight(200); // 로딩 화면 높이
+    await press('sheetShell.dim');
+    await reportPanelHeight(900); // 퇴장 중 내용이 도착해 패널이 커졌다
+    await settleExit();
+    expect(panelTranslateY()).toBeGreaterThanOrEqual(900);
   });
 });
