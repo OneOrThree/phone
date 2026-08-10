@@ -20,17 +20,24 @@ import { useMotion } from '@/hooks/useMotion';
 export function Enter({
   preset,
   style,
+  active = true,
   children,
   ...rest
 }: {
   /** 진입 프리셋(enterUp·fadeIn·pop·growUp). 참조가 캐싱된 값이어야 한다. */
   preset: CSSAnimationProperties;
   style?: StyleProp<ViewStyle>;
+  /**
+   * 진입할 준비가 됐는가. `false`면 프리셋을 붙이지 않고 `style`만 적용한다 —
+   * 호출부가 "아직 기다리는 중"의 모습(대개 시작 프레임)을 직접 주는 경우에 쓴다.
+   * (예: 그림이 아직 안 올라왔다 · 데이터가 아직 안 왔다)
+   */
+  active?: boolean;
   children?: ReactNode;
 } & Omit<ViewProps, 'style'>) {
   const m = useMotion();
   return (
-    <Animated.View style={[style, m.enter(preset)]} {...rest}>
+    <Animated.View style={[style, active ? m.enter(preset) : undefined]} {...rest}>
       {children}
     </Animated.View>
   );
