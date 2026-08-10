@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
 import { useCharacter, type CharacterChoice } from '@/store/CharacterContext';
+import { useToast } from '@/store/ToastContext';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 
@@ -32,6 +33,7 @@ export function resolveEquippedChoice(
 export default function CharacterSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { choice, customUri, setChoice } = useCharacter();
+  const { show } = useToast();
 
   // 저장된 누끼를 실제로 그릴 수 있는지. 이미지 로드는 비동기라 세 상태가 필요하다.
   //  pending — 아직 로드 결과를 모름 / ok — 그려짐 / broken — 경로가 죽어 못 그림
@@ -90,15 +92,25 @@ export default function CharacterSelectScreen() {
     setCustomLoad((prev) => (prev?.uri === customUri ? prev : { uri: customUri, status: 'ok' }));
   }, [customUri]);
 
-  // 변경 확정 — 고른 캐릭터를 실제로 장착하고, 알림을 닫으면 홈으로 돌아간다.
+  // 변경 확정 — 고른 캐릭터를 실제로 장착하고 곧바로 홈으로 돌아간다.
   // 이 화면은 홈 '캐릭터 변경'으로만 들어오므로 popToTop이 곧 홈 복귀다(중간에 '만들기'로
   // 다녀온 스택이 남아 있어도 한 번에 걷어낸다).
+  // 종전엔 Alert의 '확인' 버튼 onPress에 popToTop이 달려 있었다(GROMO-1381 §6-5). 토스트는
+  // 버튼이 없으므로 부작용을 잃지 않게 여기서 직접 부른다 — ToastProvider가 NavigationContainer
+  // 바깥이라 배너는 화면 전환을 넘어 그대로 살아남는다.
+  // ⚠️ **재진입을 막는다.** 종전 Alert는 첫 탭 즉시 모달로 입력을 가로막았지만 토스트는 안 막고,
+  //    `popToTop()` 전환이 끝나기 전에 한 번 더 누르면 같은 토스트가 큐에 두 개 쌓여 약 4.4초
+  //    연속 표시되고 내비게이션 액션도 중복 발행된다(codex 리뷰).
+  //    ref 가드인 이유: state로 잠그면 리렌더 한 프레임 사이에 두 번째 탭이 들어온다.
+  //    (같은 전환에 `leaving` 가드를 두는 FocusResultScreen과 같은 규율이다.)
+  const equippedRef = useRef(false);
   const equip = useCallback(() => {
+    if (equippedRef.current) return;
+    equippedRef.current = true;
     setChoice(selected);
-    Alert.alert('변경되었어요!', '홈에서 바로 확인할 수 있어요.', [
-      { text: '확인', onPress: () => navigation.popToTop() },
-    ]);
-  }, [selected, setChoice, navigation]);
+    show({ message: '캐릭터를 변경했어요', tone: 'success' });
+    navigation.popToTop();
+  }, [selected, setChoice, navigation, show]);
 
   const defaultSelected = selected === 'default';
   const customSelected = selected === 'custom';

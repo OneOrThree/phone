@@ -14,7 +14,9 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.domain.User;
+import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,9 +57,24 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
     GroupChallengeMemberRepository groupChallengeMemberRepository;
     @Autowired
     UserRepository userRepository;
+    @Autowired
+    UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
 
     private static final LocalDate DATE = LocalDate.of(2026, 8, 1);
     private static final int GOAL_MINUTES = 120;
+
+    /**
+     * 스크린타임 측정 권한을 가진 유저 — SCREEN_TIME 판정의 전제다(N50 · GROMO-1280). 권한이 없는
+     * 유저는 커널이 아예 판정 대상에서 뺀다({@link #ignoresStatsOfUsersWithoutScreenTimePermission}).
+     */
+    private User saveUser(String nickname, boolean screenTimePermissionGranted) {
+        User user = userRepository.save(User.builder().nickname(nickname).isGuest(false).build());
+        userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
+                .userId(user.getId())
+                .screenTimePermissionGranted(screenTimePermissionGranted)
+                .build());
+        return user;
+    }
 
     private GroupChallenge saveChallenge(MissionCategory category, MissionType type) {
         Group group = groupRepository.save(Group.builder().name("판정검증").maxMembers(10).build());
@@ -150,8 +167,8 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
         GroupChallenge challenge = saveWindowChallenge(
                 MissionCategory.SCREEN_TIME, "09:00:00", "12:00:00", GOAL_MINUTES);
         GroupBetJudge.Target target = groupBetJudge.resolve(challenge).orElseThrow();
-        User participant = userRepository.save(User.builder().nickname("참가자").isGuest(false).build());
-        User stranger = userRepository.save(User.builder().nickname("비참가자").isGuest(false).build());
+        User participant = saveUser("참가자", true);
+        User stranger = saveUser("비참가자", true);
 
         groupChallengeMemberRepository.save(GroupChallengeMember.builder()
                 .groupChallenge(challenge).user(participant).usageDate(DATE).progressMinutes(30).build());
@@ -182,7 +199,7 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
         GroupChallenge challenge = saveWindowChallenge(
                 MissionCategory.SCREEN_TIME, "09:00:00", "12:00:00", GOAL_MINUTES);
         GroupBetJudge.Target target = groupBetJudge.resolve(challenge).orElseThrow();
-        User silent = userRepository.save(User.builder().nickname("미보고").isGuest(false).build());
+        User silent = saveUser("미보고", true);
 
         assertThat(groupBetJudge.progressMinutes(target, DATE, List.of(silent))).isEmpty();
         assertThat(GroupBetJudge.isAchieved(target, null)).isFalse();
@@ -191,6 +208,43 @@ class GroupBetJudgeIntegrationTest extends RepositoryTestBase {
                 MissionCategory.FOCUS, "09:00:00", "12:00:00", GOAL_MINUTES)).orElseThrow();
         assertThat(GroupBetJudge.isAchieved(focusWindow, null)).isFalse();
         assertThat(GroupBetJudge.isAchieved(focusWindow, GOAL_MINUTES - 5)).isTrue();
+    }
+
+    @Test
+    @DisplayName("스크린타임 권한이 없는 유저는 통계·보고가 남아 있어도 판정 대상에서 빠진다 (N50 · FR-21)")
+    void ignoresStatsOfUsersWithoutScreenTimePermission() {
+        // 철회 전에 쌓인 부분 측정값으로 "목표 이하"를 판정하면 측정을 끄는 것이 곧 승리가 된다 —
+        // SCREEN_TIME 은 작을수록 이기는 지표이기 때문이다. 카드가 오래 전부터 쓰던 규칙을 커널로
+        // 올려, 화면과 정산이 같은 답을 내게 한다(GROMO-1280).
+        GroupChallenge challenge = saveWindowChallenge(
+                MissionCategory.SCREEN_TIME, "09:00:00", "12:00:00", GOAL_MINUTES);
+        GroupBetJudge.Target target = groupBetJudge.resolve(challenge).orElseThrow();
+        User granted = saveUser("권한동의", true);
+        User revoked = saveUser("권한철회", false);
+        groupChallengeMemberRepository.save(GroupChallengeMember.builder()
+                .groupChallenge(challenge).user(granted).usageDate(DATE).progressMinutes(30).build());
+        groupChallengeMemberRepository.save(GroupChallengeMember.builder()
+                .groupChallenge(challenge).user(revoked).usageDate(DATE).progressMinutes(5).build());
+
+        assertThat(groupBetJudge.progressMinutes(target, DATE, List.of(granted, revoked)))
+                .containsExactly(entry(granted.getId(), 30));
+        // 3상: 화면은 "미계측(—)" · 정산은 FR-21 로 미달성 확정 — 같은 커널의 두 판이다.
+        assertThat(GroupBetJudge.achievedOrNull(target, null)).isNull();
+        assertThat(GroupBetJudge.isAchieved(target, null)).isFalse();
+        assertThat(GroupBetJudge.displayMinutes(target, null)).isNull();
+    }
+
+    @Test
+    @DisplayName("FOCUS 는 권한과 무관하다 — 서버 데이터라 무기록이 곧 0분이다 (FR-15)")
+    void focusJudgingIsIndependentOfScreenTimePermission() {
+        GroupBetJudge.Target focus = groupBetJudge.resolve(saveWindowChallenge(
+                MissionCategory.FOCUS, "09:00:00", "12:00:00", GOAL_MINUTES)).orElseThrow();
+        User revoked = saveUser("권한철회", false);
+
+        // 집중 세션이 없으니 키도 없지만, 그 null 의 뜻은 "0분 집중"이다.
+        assertThat(groupBetJudge.progressMinutes(focus, DATE, List.of(revoked))).isEmpty();
+        assertThat(GroupBetJudge.displayMinutes(focus, null)).isZero();
+        assertThat(GroupBetJudge.achievedOrNull(focus, null)).isFalse();
     }
 
     @Test
