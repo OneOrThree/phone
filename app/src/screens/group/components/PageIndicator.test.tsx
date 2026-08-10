@@ -43,11 +43,9 @@ describe('PageIndicator', () => {
       });
     });
     await act(async () => {
-      fireEvent(
-        screen.getByTestId('group.deck.indicator.dot.1'),
-        'accessibilityAction',
-        { nativeEvent: { actionName: 'activate' } },
-      );
+      fireEvent(screen.getByTestId('group.deck.indicator.dot.1'), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
     });
 
     expect(onAccessibilitySelectPage).toHaveBeenCalledWith(1);

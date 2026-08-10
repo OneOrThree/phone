@@ -57,8 +57,9 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupCreateStarted: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));
-const { logGroupCardIconSaveResult, logGroupInviteShared } =
-  jest.requireMock('@/services/analyticsEvents');
+const { logGroupCardIconSaveResult, logGroupInviteShared } = jest.requireMock(
+  '@/services/analyticsEvents',
+);
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
