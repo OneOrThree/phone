@@ -7,9 +7,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
+import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   readGroupCardEmoji,
+  preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -66,10 +68,13 @@ export default function GroupCardEmojiEditScreen() {
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
+      logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
       setBaseline(selected);
       navigation.goBack();
     } catch {
+      preservePendingGroupCardEmoji(userId, groupId, selected);
+      logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);

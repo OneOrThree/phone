@@ -23,7 +23,11 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { triggerLogout } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
-import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconSaveResult,
+  logGroupCreateStarted,
+  logGroupInviteShared,
+} from '@/services/analyticsEvents';
 import { useUser } from '@/store/UserContext';
 import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
@@ -200,8 +204,10 @@ export default function GroupCreateScreen() {
       if (userId) {
         try {
           await writeGroupCardEmoji(userId, groupId, cardEmoji);
+          logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
         } catch {
           preservePendingGroupCardEmoji(userId, groupId, cardEmoji);
+          logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
           setEmojiSaveFailed(true);
           localSaveFailed = true;
         }
