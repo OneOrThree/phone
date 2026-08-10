@@ -22,6 +22,7 @@ import { updateScreenTimePermission } from '@/services/userApi';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { tomorrowStr } from '@/utils/localDate';
 import { useUser } from '@/store/UserContext';
+import { useToast } from '@/store/ToastContext';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -68,6 +69,7 @@ export default function ScreenTimePermissionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   // 측정 대상 변경 시 버킷 모니터 재등록에 모니터 소유 기록용 계정이 필요하다(GROMO-633).
   const { userId } = useUser();
+  const { show } = useToast();
 
   const [status, setStatus] = useState<AuthorizationStatus | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
@@ -223,7 +225,18 @@ export default function ScreenTimePermissionScreen() {
         );
         return;
       }
-      Alert.alert('측정 대상 변경됨', `앱·카테고리 ${total}개를 측정합니다.`);
+      // 성공 통보(선택지 없음) → 토스트. 바로 위 '측정 대상을 비웠어요'는 성공이지만
+      // "측정이 중단된다"는 경고성 장문이라 2200ms 배너에 담기지 않아 Alert로 남긴다(정책 D8).
+      // ⚠️ 구 바이너리에서는 Alert를 유지한다 — 그쪽 presentAppPicker는 모달 dismiss 완료를
+      //    기다리지 않고 promise를 풀어서, 토스트가 아직 떠 있는 피커 아래에서 등장 연출과
+      //    2200ms 타이머를 시작한다. 이 JS는 hot-updater로 구 바이너리에도 내려가므로
+      //    네이티브 수정만으로는 못 막는다(codex 리뷰). 허용 앱 관리자와 같은 계약이다.
+      const pickedMessage = `앱·카테고리 ${total}개를 측정해요`;
+      if (counts.dismissed) {
+        show({ message: pickedMessage });
+      } else {
+        Alert.alert('설정 완료', pickedMessage);
+      }
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }
