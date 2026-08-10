@@ -90,7 +90,11 @@ beforeEach(() => {
   mockCoins = 240;
   mockCoinsLoaded = true;
   mockCoinsVersion = 1;
-  mockJoinWeek.mockResolvedValue({ joined: [], totalStake: 90 });
+  // 기본은 "보낸 날짜가 전부 새로 걸렸다" — 건너뛴 날짜 시나리오는 각 테스트가 직접 만든다.
+  mockJoinWeek.mockImplementation(async (_g, _c, dates) => ({
+    joined: dates.map((date, i) => ({ sessionId: `s${i}`, sessionDate: date })),
+    totalStake: dates.length * 30,
+  }));
 });
 
 test('날짜별 참가비·합계·잔액을 먼저 보여주고, 보여준 날짜 그대로 전송한다', async () => {
@@ -216,6 +220,45 @@ test('INVALID_SESSION_DATES — 낡은 화면임을 알리고 닫는다', async 
 
 // 서버 판정 유지(#570 codex — BetSheet insufficientVerdict 패턴): refresh가 안 끝났거나 낡은 큰
 // 잔액이 남아 있어도(여기선 240 ≥ 90) "그 총액으로는 안 된다"는 이미 확정 — 반복 전송을 막는다.
+// #570 codex ④ — join-week은 다른 기기에서 이미 참가한 날짜를 조용히 건너뛴다. 요청값으로
+// 세면 걸리지도 않은 날이 지표에 실리고, 전부 건너뛴 요청까지 성공 이벤트가 된다.
+test('건너뛴 날짜는 계측에서 빠진다 — 응답 joined가 기준이다', async () => {
+  mockJoinWeek.mockResolvedValueOnce({
+    joined: [{ sessionId: 's0', sessionDate: '2026-08-10' }], // 3일 중 1일만 새로 걸렸다
+    totalStake: 30,
+  });
+  await renderWeek();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+
+  expect(logGroupBetJoined).toHaveBeenCalledTimes(1);
+  expect(logGroupBetJoined).toHaveBeenCalledWith(
+    expect.objectContaining({ session_count: 1, stake: 30 }),
+  );
+});
+
+test('전부 건너뛰었으면(새 예약 0건) 성공 이벤트를 발행하지 않는다', async () => {
+  mockJoinWeek.mockResolvedValueOnce({ joined: [], totalStake: 0 });
+  await renderWeek();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+
+  expect(logGroupBetJoined).not.toHaveBeenCalled();
+  // 요청 자체는 성공이라 시트는 닫고 재조회를 태운다(사용자에겐 이미 참여한 상태가 맞다).
+  expect(onDone).toHaveBeenCalled();
+});
+
+test('joined를 모르는 응답(구·경계)은 보낸 값으로 폴백한다', async () => {
+  mockJoinWeek.mockResolvedValueOnce({ totalStake: 90 } as never);
+  await renderWeek();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+  expect(logGroupBetJoined).toHaveBeenCalledWith(expect.objectContaining({ session_count: 3 }));
+});
+
 // #570 codex ⑥ — 판정은 "그 총액 이상은 안 된다"는 사실이다. 전체가 거절된 뒤 잔액이 조금
 // 들어오면 **축소분은 낼 수 있는데**, 전체 총액으로만 재면 부분 예약 버튼까지 영영 잠긴다.
 test('전체가 거절돼도 새 잔액이 감당하는 축소분은 다시 보낼 수 있다', async () => {

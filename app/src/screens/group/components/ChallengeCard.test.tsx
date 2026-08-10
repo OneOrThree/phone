@@ -203,7 +203,10 @@ beforeEach(() => {
     sessionDate: '2026-08-03',
     stake: 30,
   });
-  mockJoinWeekSessions.mockResolvedValue({ joined: [], totalStake: 0 });
+  mockJoinWeekSessions.mockImplementation(async (_g, _c, dates) => ({
+    joined: dates.map((date, i) => ({ sessionId: `s${i}`, sessionDate: date })),
+    totalStake: dates.length * 30,
+  }));
 });
 
 describe('미션 라벨', () => {
@@ -2033,6 +2036,65 @@ describe('오늘 참가 마감·권한 가드', () => {
   });
 });
 
+// ── 브리지 철거 후의 정식 v2 응답(#570 codex ②) ────────────────────────────────
+// 서버가 최상위 레거시 필드(status·myJoined·participants)를 빼고 회차만 내리는 형태.
+// 분기를 레거시 축에 걸어 두면 **참여 가능한 회차가 정보 행으로 떨어지고**, 참여자는
+// 참여 중 표시·당일 취소를 통째로 잃는다 — 조용히 깨지는 종류라 지금 잠근다.
+describe('정식 v2 응답 (레거시 필드 없음)', () => {
+  // 레거시 4필드가 빠진 응답 — 타입은 브리지 계약이라 아직 필수라서 캐스팅으로 재현한다.
+  function v2Bet(session: GroupBetSession): GroupChallengeBet {
+    return { betId: 'b1', stake: session.stake, enabled: true, session } as GroupChallengeBet;
+  }
+  const openSession = (over: Partial<GroupBetSession> = {}): GroupBetSession => ({
+    sessionId: 's-today',
+    sessionDate: '2026-08-01',
+    stake: 30,
+    goalMinutes: 60,
+    pot: 60,
+    status: 'OPEN',
+    startsAt: '2026-07-31T15:00:00Z',
+    joinClosesAt: '2026-08-01T14:59:59Z',
+    myLeaveDeadlineAt: null,
+    closesAt: '2026-08-01T14:59:59Z',
+    myJoined: false,
+    myAchievedNow: false,
+    participants: [
+      { userId: 'u2', nickname: '수빈' },
+      { userId: 'u3', nickname: '민지' },
+    ],
+    ...over,
+  });
+  const v2Over = (sessionOver: Partial<GroupBetSession> = {}): Partial<GroupChallengeResponse> => ({
+    repeatDays: ['SAT'],
+    activeToday: true,
+    nextSessionAt: NEXT_MON_AT,
+    betConfig: { enabled: true, stake: 30 },
+    bet: v2Bet(openSession(sessionOver)),
+  });
+
+  test('미참가·OPEN이면 참가 진입점이 선다 — 정보 행으로 떨어지지 않는다', async () => {
+    await renderCard(v2Over());
+    expect(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`)).toHaveTextContent(
+      /참가비 30 · 2명 참여 중 — 참가하기/,
+    );
+  });
+
+  test('참여 중이면 참여 중 표시와 당일 취소가 회차 값으로 선다', async () => {
+    await renderCard(
+      v2Over({
+        myJoined: true,
+        participants: [{ userId: 'u1', nickname: '재영' }],
+        pot: 30,
+        myLeaveDeadlineAt: '2026-08-01T01:03:00Z', // 지금(01:00Z)+3분
+      }),
+    );
+
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+    expect(screen.getByText('🪙 참가비 30 · 적립금 30 · 1명 참여')).toBeOnTheScreen();
+    expect(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeOnTheScreen();
+  });
+});
+
 // ── 오늘 회차 참여 취소(#570 codex ② — N22·N27) ────────────────────────────────
 // 하루형 당일 참가자에게는 이 버튼이 **유일한 환불 창**이다: 회차 시작이 자정이라 레거시
 // '시작 전' 판정은 영영 false다. 마감 판정 근거는 서버 myLeaveDeadlineAt 하나뿐이다.
@@ -2186,6 +2248,45 @@ describe('오늘 참여 취소 (N22)', () => {
     expect(mockLeaveSession).toHaveBeenCalledWith(GROUP_ID, 's-today');
     expect(mockRefreshCoins).toHaveBeenCalled();
     expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  // #570 codex ⑤ — 예전엔 마감이 지나도 버튼이 활성으로 남아, 시간이 남아 보이는 버튼을 눌렀다가
+  // 서버 BET_LEAVE_CLOSED로 거절당했다. 카운트다운이 마감에 닿는 순간 버튼도 함께 내려간다.
+  test('마감이 지나면 초읽기와 버튼이 함께 사라진다(가짜 타이머)', async () => {
+    // 가짜 타이머가 Date까지 가져간다(modern) — beforeEach의 Date.now 스파이 대신 이쪽이 시계다.
+    jest.useFakeTimers({ now: Date.parse('2026-08-01T01:00:00Z') });
+    try {
+      // 지금(01:00:00Z)으로부터 2초 뒤 마감.
+      await renderCard(joinedOver({ myLeaveDeadlineAt: '2026-08-01T01:00:02Z' }));
+
+      expect(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeOnTheScreen();
+      expect(screen.getByTestId(`group.bet.leaveCountdown.${CHALLENGE_ID}`)).toHaveTextContent(
+        '2초 안에 취소할 수 있어요',
+      );
+
+      // 1초 경과 — 표시만 갱신된다.
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(screen.getByTestId(`group.bet.leaveCountdown.${CHALLENGE_ID}`)).toHaveTextContent(
+        '1초 안에 취소할 수 있어요',
+      );
+
+      // 마감 도달 — 버튼과 초읽기가 함께 사라진다(부모 상태는 이때 한 번만 바뀐다).
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeNull();
+      expect(screen.queryByTestId(`group.bet.leaveCountdown.${CHALLENGE_ID}`)).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('마감이 몇 시간 뒤면 초읽기를 켜지 않는다 — 매초 타이머는 그 창에서만 돈다', async () => {
+    await renderCard(joinedOver({ myLeaveDeadlineAt: '2026-08-01T09:00:00Z' })); // 8시간 뒤
+    expect(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.leaveCountdown.${CHALLENGE_ID}`)).toBeNull();
   });
 
   test('유예가 지났으면 버튼도 초읽기도 없다 — 서버 마감 시각이 유일한 근거다', async () => {
@@ -2771,6 +2872,47 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(mockRefreshCoins).toHaveBeenCalled();
   });
 
+  // #570 codex ① — 최종 확정이 프리뷰 재조회를 기다리는 동안 사용자가 시트를 닫을 수 있다.
+  // 그 뒤 도착한 응답이 삭제를 실행하면 **명시적으로 그만둔 뒤에 챌린지가 사라진다**.
+  test('검증 대기 중 시트를 닫으면 뒤늦게 도착한 응답으로 삭제하지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const shown = {
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    };
+    mockGetDeletionPreview.mockResolvedValueOnce(shown);
+    await renderOwner();
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    // 재검증 응답을 붙잡아 둔다 — 아직 도착하지 않은 상태를 만든다.
+    let resolvePreview: (v: typeof shown) => void = () => {};
+    mockGetDeletionPreview.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePreview = resolve;
+      }),
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+    // 사용자가 그만두기로 시트를 닫는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.dismiss'));
+    });
+    expect(screen.queryByText('지금 진행 중인 챌린지예요')).toBeNull();
+
+    // 이제 검증 응답이 도착한다 — 수치가 **같아도** 삭제가 나가면 안 된다.
+    await act(async () => {
+      resolvePreview(shown);
+    });
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(mockRefreshCoins).not.toHaveBeenCalled();
+  });
+
   // #570 codex ⑨ — 프리뷰를 받은 뒤 Alert·시트를 거치는 동안 누가 더 참가할 수 있다.
   // 낡은 수치로 확정하면 경고가 거짓이 된 상태로 돈이 움직인다.
   test('확정 직전 영향 범위가 달라졌으면 삭제하지 않고 새 수치를 보여준다', async () => {
@@ -2832,6 +2974,48 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
     // 환불이 없으니 잔액을 다시 받지 않는다(불필요한 조회를 만들지 않는다).
     expect(mockRefreshCoins).not.toHaveBeenCalled();
+  });
+
+  // #570 codex ③ — 0건 프리뷰의 1단계 Alert가 떠 있는 동안 다른 멤버가 참가할 수 있다.
+  // 그대로 삭제하면 **걸린 돈을 한 번도 안 보여준 채** 조건 없는 삭제가 나간다.
+  test('0건이었어도 확정 시점에 참여가 생겼으면 수치 경고로 전환한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValueOnce({ openSessions: [], totalRefund: 0 });
+    await renderOwner();
+    await pressDeleteX();
+
+    // 확인 Alert가 떠 있는 사이 누군가 join-next로 들어왔다.
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-03', participantCount: 1, pot: 30 }],
+      totalRefund: 30,
+    });
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '걸린 돈이 생겼어요',
+      '방금 참여한 사람이 있어요. 내용을 확인해 주세요.',
+    );
+    expect(screen.getByText('1명 · 30코인')).toBeOnTheScreen();
+  });
+
+  test('0건이 그대로면 종전처럼 1단계로 끝난다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({ openSessions: [], totalRefund: 0 });
+    await renderOwner();
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+    expect(screen.queryByText('지금 진행 중인 챌린지예요')).toBeNull();
   });
 
   test('확정 직전 재조회가 실패하면 삭제하지 않는다', async () => {

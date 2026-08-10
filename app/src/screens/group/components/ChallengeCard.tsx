@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -115,6 +115,56 @@ const KST_ZONE = 'Asia/Seoul';
 function monthDay(betDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
   return m ? `${Number(m[2])}월 ${Number(m[3])}일` : betDate;
+}
+
+// 취소 유예 카운트다운을 켜는 창 — 이보다 멀면 타이머를 걸지 않는다(예약분·창형은 몇 시간
+// 뒤가 마감이라 매초 타이머가 순수 낭비다). 실제로 다투는 구간은 하루형의 5분 유예다.
+const LEAVE_COUNTDOWN_WINDOW_SEC = 3600;
+
+/**
+ * 취소 유예 초읽기 — **이 자식만 매초 리렌더된다**(#570 codex ⑤).
+ *
+ * 타이머를 카드 본체에 두면 진행 리스트·시트까지 매초 다시 그려진다. 그래서 남은 시간 표시만
+ * 떼어 자식으로 두고, 부모 상태는 **마감에 닿는 순간 한 번만** 건드린다(onExpire) — 그때
+ * 버튼이 함께 사라진다. 마감이 지났는데 버튼만 남아 있으면 눌러도 서버가 BET_LEAVE_CLOSED로
+ * 거절하므로, "시간이 남아 보이는데 안 되는" 화면이 된다(그게 지적의 본체다).
+ *
+ * 언마운트·마감 도달 시 인터벌을 반드시 정리한다.
+ */
+export function LeaveCountdown({
+  deadlineMs,
+  onExpire,
+  testID,
+}: {
+  deadlineMs: number;
+  onExpire: () => void;
+  testID?: string;
+}) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (Date.now() >= deadlineMs) {
+      onExpire();
+      return;
+    }
+    const id = setInterval(() => {
+      const t = Date.now();
+      setNowMs(t);
+      if (t >= deadlineMs) {
+        clearInterval(id);
+        onExpire();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [deadlineMs, onExpire]);
+
+  const sec = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
+  const m = Math.floor(sec / 60);
+  const rest = sec % 60;
+  return (
+    <Text style={s.caption} testID={testID}>
+      {m > 0 ? `${m}분 ${rest}초 안에 취소할 수 있어요` : `${rest}초 안에 취소할 수 있어요`}
+    </Text>
+  );
 }
 
 // 다음 활성일 문구(FR-16-1) — 상대·절대를 섞는다(ux §02 note): 오늘·내일이면 그대로, 그 밖은
@@ -307,8 +357,21 @@ export default function ChallengeCard({
   //    myAchievedNow=false를 보장하지만 구서버·경합 대비 앱에서도 방어적으로 끊는다.
   const joinBlockedNow =
     !isFutureBet && (isScreenTime ? myBlockedNow : bet?.myAchievedNow === true);
+  // ── 참여 상태·표시값의 축: **회차(bet.session)가 정본, 레거시 최상위 필드는 폴백** ──
+  // 브리지가 끝나면(1418) 서버는 정식 v2 형태(`enabled`·`stake`·`session`)만 내리고 최상위
+  // `status`·`myJoined`·`participants`는 사라진다(N36 병기 종료). 레거시 축으로 분기를 짜 두면
+  // 그 순간 **참여 가능한 회차가 정보 행으로 떨어지고, 참여자는 참여 중 표시·당일 취소 버튼을
+  // 통째로 잃는다** — 조용히 깨지는 종류라 지금 축을 바꿔 둔다(#570 codex ②).
+  // (구서버·브리지 응답에서는 session이 undefined라 폴백이 종전과 완전히 같은 값을 만든다.)
+  const todaySession = bet?.session ?? null;
+  const sessionAware = bet !== null && bet.session !== undefined;
+  const myJoinedNow = sessionAware ? todaySession?.myJoined === true : bet?.myJoined === true;
+  const sessionOpenNow = sessionAware ? todaySession?.status === 'OPEN' : bet?.status === 'OPEN';
   // 서버가 participants를 빠뜨려도 카드가 죽지 않게 — 인원 수는 표시용일 뿐이다.
-  const betMembers = bet?.participants?.length ?? 0;
+  const betMembers = (todaySession?.participants ?? bet?.participants)?.length ?? 0;
+  // 표시 금액도 회차 우선 — 회차는 개설 시점 stake·pot을 박제한다(설정 변경과 갈릴 수 있다).
+  const displayStake = todaySession?.stake ?? bet?.stake ?? 0;
+  const displayPot = todaySession?.pot ?? bet?.pot ?? 0;
 
   // ── 낙관 반영 폐기 — 재조회가 도착하면 서버 값이 정본이다(GROMO-1112) ──
   // challenge 객체가 갈렸다 = 부모가 **새 응답**을 내려 줬다는 신호다(부모는 조회 응답을 그대로
@@ -506,7 +569,8 @@ export default function ChallengeCard({
     ) {
       return [];
     }
-    const todaySession = bet?.session ?? null;
+    // 위에서 파생한 todaySession을 그대로 쓴다(같은 값을 두 번 만들지 않는다 — 축이 갈리면
+    // 오늘 몫 판정과 표시가 어긋난다).
     const todayEligible =
       activeToday &&
       todaySession !== null &&
@@ -532,34 +596,36 @@ export default function ChallengeCard({
   // 남은 날이 1개 이하면 숨긴다 — 단건 참여와 같아져 의미가 없다(LLD §2.2).
   const weekEligible = weekEntries.length >= 2;
 
+  // 취소 유예가 끝난 순간을 기록한다 — 자식 카운트다운이 마감에 닿을 때 **한 번만** 올린다.
+  // 값을 마감 시각으로 두는 이유: 재조회로 회차·마감이 바뀌면 자연히 무효가 된다(비교 불일치).
+  const [leaveExpiredAt, setLeaveExpiredAt] = useState<number | null>(null);
+
   // ── 오늘 회차 참여 취소 창(N22 · #570 codex ②) ──
   // 서버가 준 myLeaveDeadlineAt이 정본이다: 시작 전 참가는 회차 시작까지, **시작 후 참가(하루형)는
   // 참가+5분**(회차 종료 상한). 앱이 자체 계산하지 않는다 — 기기 시계가 틀어지면 버튼이 어긋난다.
-  const todaySessionForLeave = bet?.session ?? null;
   const leaveDeadlineMs = (() => {
-    const at = todaySessionForLeave?.myLeaveDeadlineAt;
+    const at = todaySession?.myLeaveDeadlineAt;
     if (!at) return null;
     const ms = Date.parse(at);
     return Number.isNaN(ms) ? null : ms;
   })();
   const todayLeavable =
-    todaySessionForLeave !== null &&
-    todaySessionForLeave.myJoined &&
-    todaySessionForLeave.status === 'OPEN' &&
+    todaySession !== null &&
+    todaySession.myJoined &&
+    todaySession.status === 'OPEN' &&
     leaveDeadlineMs !== null &&
-    Date.now() < leaveDeadlineMs;
-  // 남은 시간 안내 — 흐르는 걸 모르면 5분 유예는 없는 것과 같다(ux §05 ③). 초 단위 카운트다운
-  // (매초 리렌더)은 이 배치 범위 밖이라 **렌더 시점 값**만 적는다: 리렌더될 때마다 갱신되고,
-  // 어긋난 순간은 서버가 BET_LEAVE_CLOSED로 정본 판정한다(후속 티켓에서 타이머 배선).
-  const leaveRemainCaption = (() => {
-    if (!todayLeavable || leaveDeadlineMs === null) return null;
-    const sec = Math.max(0, Math.floor((leaveDeadlineMs - Date.now()) / 1000));
-    // 몇 시간 이상 남은 창(시작 전 참가한 창형·예약분)에는 초읽기를 적지 않는다 — 노이즈다.
-    if (sec > 3600) return null;
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return m > 0 ? `${m}분 ${s}초 안에 취소할 수 있어요` : `${s}초 안에 취소할 수 있어요`;
-  })();
+    Date.now() < leaveDeadlineMs &&
+    // 마감이 지난 순간 버튼을 내린다 — 카운트다운 자식이 알려준다(아래 LeaveCountdown).
+    leaveExpiredAt !== leaveDeadlineMs;
+  // 초읽기를 켜는가 — 마감이 가까울 때만(먼 예약분에 매초 타이머를 돌리지 않는다, 위 상수).
+  const showLeaveCountdown =
+    todayLeavable &&
+    leaveDeadlineMs !== null &&
+    leaveDeadlineMs - Date.now() <= LEAVE_COUNTDOWN_WINDOW_SEC * 1000;
+  // 자식이 부르는 만료 콜백 — 참조가 매 렌더 갈리면 자식 이펙트가 인터벌을 다시 건다.
+  const onLeaveExpired = useCallback(() => {
+    if (leaveDeadlineMs !== null) setLeaveExpiredAt(leaveDeadlineMs);
+  }, [leaveDeadlineMs]);
 
   // v2 시트(다음 활성일 예약·주간 예약) — 카드가 직접 연다(히스토리 push와 같은 이유로 부모
   // 배선을 늘리지 않는다). groupId는 조회 캐시 역참조 — 미적중이면 공통 문구.
@@ -570,6 +636,14 @@ export default function ChallengeCard({
   // 진행 중 삭제 2단계(GROMO-1425) — 프리플라이트 수치가 도착해야만 열린다(N49).
   const [deletePreview, setDeletePreview] = useState<ChallengeDeletionPreviewResponse | null>(null);
   const deleteLock = useRef(false);
+  // 삭제 확정 요청의 시퀀스 — **사용자가 시트를 닫으면 올려서 진행 중이던 검증 결과를 버린다**
+  // (#570 codex ①). 닫기를 막는 대신 결과를 폐기하는 쪽을 택했다: 응답이 늦을 때 시트에
+  // 갇히는 것보다, 닫은 뒤에는 아무 일도 일어나지 않는 편이 안전하다(돈이 걸린 파괴 동작이다).
+  const deleteSeqRef = useRef(0);
+  const closeDeleteSheet = useCallback(() => {
+    deleteSeqRef.current++;
+    setDeletePreview(null);
+  }, []);
   const cachedGroupId = challengeGroupId(challenge.id);
 
   function openJoinNextSheet() {
@@ -862,11 +936,41 @@ export default function ChallengeCard({
   // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
   // 진행 중(OPEN 회차 없음)이 아닐 땐 여기서 끝난다 — 안 위험할 때도 두 번 물으면 경고가
   // 의미를 잃는다(N29).
-  function confirmDeleteOneStep() {
+  // revalidate=true면 확정 시점에 프리뷰를 **다시** 받는다 — 이 Alert가 떠 있는 동안 다른
+  // 멤버가 join-next·join-week로 참가하면, 걸린 돈을 한 번도 안 보여준 채 조건 없는 삭제가
+  // 나간다(#570 codex ③). 새 참여가 생겼으면 삭제하지 않고 **수치 경고(2단계)로 전환**한다.
+  // 구서버(프리뷰 엔드포인트 없음)는 revalidate=false로 종전 동작 그대로다.
+  function confirmDeleteOneStep(revalidate: boolean) {
     Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
       { text: '취소', style: 'cancel' },
-      { text: '삭제', style: 'destructive', onPress: () => onDelete(challenge.id) },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => (revalidate ? confirmDeleteZeroFinal() : onDelete(challenge.id)),
+      },
     ]);
+  }
+
+  // 0건 프리뷰의 확정 — 다시 받아 새 참여가 생겼는지 본다.
+  async function confirmDeleteZeroFinal() {
+    if (deleteLock.current) return;
+    deleteLock.current = true;
+    const seq = ++deleteSeqRef.current;
+    try {
+      if (cachedGroupId === null) throw new Error('unknown groupId');
+      const fresh = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
+      if (seq !== deleteSeqRef.current) return; // 사용자가 그 사이 다른 동작을 했다 — 폐기.
+      if (fresh.openSessions.length > 0) {
+        setDeletePreview(fresh);
+        Alert.alert('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
+        return;
+      }
+      await runDelete(false);
+    } catch {
+      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+    } finally {
+      deleteLock.current = false;
+    }
   }
 
   // 삭제 진입(GROMO-1425) — 신서버(요일 반복 응답)에서는 deletion-preview 프리플라이트(N49)로
@@ -876,7 +980,7 @@ export default function ChallengeCard({
   async function confirmDelete() {
     if (!isOwner) return;
     if (repeatDays === null) {
-      confirmDeleteOneStep();
+      confirmDeleteOneStep(false); // 프리뷰 엔드포인트가 없는 구서버 — 재검증할 수단이 없다.
       return;
     }
     if (deleteLock.current) return; // 프리플라이트가 도는 동안의 연타 방지(leaveLock 관행)
@@ -885,7 +989,7 @@ export default function ChallengeCard({
       if (cachedGroupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 실패로.
       const preview = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
       if (preview.openSessions.length === 0) {
-        confirmDeleteOneStep();
+        confirmDeleteOneStep(true);
         return;
       }
       Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
@@ -924,9 +1028,13 @@ export default function ChallengeCard({
   async function confirmDeleteFinal(shown: ChallengeDeletionPreviewResponse) {
     if (deleteLock.current) return;
     deleteLock.current = true;
+    // 이 확정의 신원 — 검증을 기다리는 동안 사용자가 시트를 닫으면(closeDeleteSheet) 값이 갈려
+    // 아래 결과가 전부 폐기된다. **닫은 뒤에 삭제가 나가는 일**을 구조로 막는다(#570 codex ①).
+    const seq = ++deleteSeqRef.current;
     try {
       if (cachedGroupId === null) throw new Error('unknown groupId');
       const fresh = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
+      if (seq !== deleteSeqRef.current) return; // 사용자가 그 사이 시트를 닫았다 — 아무 일도 없다.
       if (fresh.openSessions.length === 0) {
         // 그 사이 걸린 돈이 없어졌다 — 2단계 경고 자체가 불필요하다(N29). 바로 삭제한다.
         setDeletePreview(null);
@@ -1123,7 +1231,8 @@ export default function ChallengeCard({
               {betMembers > 1 && (
                 <View style={s.betRow}>
                   <Text style={[s.betText, s.betTextOff]}>
-                    🪙 참가비 {bet.stake} · 적립금 {bet.pot - bet.stake} · {betMembers - 1}명 참여
+                    🪙 참가비 {displayStake} · 적립금 {displayPot - displayStake} · {betMembers - 1}
+                    명 참여
                   </Text>
                   {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
                 </View>
@@ -1159,7 +1268,7 @@ export default function ChallengeCard({
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>🪙 참가비 {reserveStake}</Text>
             </View>
-          ) : bet.myJoined && !rejoinable ? (
+          ) : myJoinedNow && !rejoinable ? (
             // ③ 내가 참여 중 — 참가비·적립금·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
             //    시작 전 OPEN 내기에는 참가 철회 진입점을 붙인다(계약 §4 — 개설자·단독 불문).
@@ -1168,12 +1277,12 @@ export default function ChallengeCard({
             <>
               <View style={s.betRow}>
                 <Text style={s.betText}>
-                  🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
+                  🪙 참가비 {displayStake} · 적립금 {displayPot} · {betMembers}명 참여
                 </Text>
                 {/* '내일 시작' — 서버가 내일 내기를 폴백으로 내려줄 수 있다(계약 §3). 표기가 없으면
                   오늘 내기로 읽힌다. 상태('참여 중')가 아니라 시점 표기라 중립 칩으로 가른다. */}
                 {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
-                {bet.status === 'OPEN' && <Text style={s.betJoinedTag}>참여 중</Text>}
+                {sessionOpenNow && <Text style={s.betJoinedTag}>참여 중</Text>}
                 {/* v2 오늘 회차 취소(N22·N27) — 서버 myLeaveDeadlineAt이 유일한 판정 근거다.
                   하루형 당일 참가자에겐 이 버튼이 **유일한 환불 창**이라(레거시 '시작 전' 판정은
                   영영 false) 없으면 오탭 참가를 되돌릴 방법이 사라진다(#570 codex ②).
@@ -1220,14 +1329,17 @@ export default function ChallengeCard({
                   </TouchableOpacity>
                 )}
               </View>
-              {/* 남은 유예 안내 — 흐르는 걸 모르면 5분 유예는 없는 것과 같다(ux §05 ③). */}
-              {leaveRemainCaption !== null && (
-                <Text style={s.caption} testID={`group.bet.leaveCountdown.${challenge.id}`}>
-                  {leaveRemainCaption}
-                </Text>
+              {/* 남은 유예 초읽기 — 흐르는 걸 모르면 5분 유예는 없는 것과 같다(ux §05 ③).
+                  매초 리렌더는 이 자식에 갇힌다(카드 본문·시트는 다시 그리지 않는다). */}
+              {showLeaveCountdown && leaveDeadlineMs !== null && (
+                <LeaveCountdown
+                  deadlineMs={leaveDeadlineMs}
+                  onExpire={onLeaveExpired}
+                  testID={`group.bet.leaveCountdown.${challenge.id}`}
+                />
               )}
             </>
-          ) : bet.status === 'OPEN' && betOpenable && !todayJoinClosed ? (
+          ) : sessionOpenNow && betOpenable && !todayJoinClosed ? (
             // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
             //    ⚠️ 회차는 정산 전까지 OPEN으로 남지만 참가 마감(joinClosesAt)은 먼저 지난다 —
             //    그 구간을 여기로 흘리면 눌러도 항상 실패하는 「참가하기」가 선다(#570 codex ③).
@@ -1247,7 +1359,7 @@ export default function ChallengeCard({
                 testID={`group.bet.join.${challenge.id}`}
               >
                 <Text style={[s.betText, (joinBlockedNow || betLocked) && s.betTextOff]}>
-                  🪙 참가비 {bet.stake} · {joinMembers}명 참여 중 — 참가하기
+                  🪙 참가비 {displayStake} · {joinMembers}명 참여 중 — 참가하기
                 </Text>
                 {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
               </TouchableOpacity>
@@ -1259,7 +1371,7 @@ export default function ChallengeCard({
             // 남아 있음) — 상태만 그대로 적고 누를 자리는 두지 않는다.
             <View style={s.betRow}>
               <Text style={[s.betText, s.betTextOff]}>
-                🪙 참가비 {bet.stake} · 적립금 {bet.pot} · {betMembers}명 참여
+                🪙 참가비 {displayStake} · 적립금 {displayPot} · {betMembers}명 참여
               </Text>
               {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
             </View>
@@ -1392,7 +1504,7 @@ export default function ChallengeCard({
           preview={deletePreview}
           // 확정 직전 영향 범위 재검증 + 삭제 완료 후 잔액 갱신(#570 codex ⑨·③).
           onConfirm={() => confirmDeleteFinal(deletePreview)}
-          onClose={() => setDeletePreview(null)}
+          onClose={closeDeleteSheet}
         />
       )}
     </View>

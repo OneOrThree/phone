@@ -145,16 +145,26 @@ export default function JoinWeekSheet({
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      await joinWeekSessions(groupId, challengeId, targetDates);
-      // 참여 계측(#570 codex ⑧) — **성공 시에만**, 그리고 **행동 1건**으로 센다. 예약 일수는
-      // session_count로 남긴다(analyticsEvents 주석: 3일 예약을 3건으로 부풀리면 '참여 결심 수'
-      // 축이 무너진다). stake는 하루치 축을 유지하려 최대 하루치를 싣는다(총액이 아니다).
-      logGroupBetJoined({
-        stake: Math.max(...targets.map((e) => e.stake)),
-        session_count: targets.length,
-        mission_type: missionType,
-        mission_category: missionCategory,
-      });
+      const result = await joinWeekSessions(groupId, challengeId, targetDates);
+      // 참여 계측(#570 codex ⑧) — **성공 시에만**, **행동 1건**으로 센다(3일 예약을 3건으로
+      // 부풀리면 '참여 결심 수' 축이 무너진다 — analyticsEvents 주석). 규모는 session_count로.
+      //
+      // ⚠️ 수치는 **요청값이 아니라 응답값**에서 뽑는다(#570 codex ④): join-week은 다른 기기에서
+      // 이미 참가한 날짜를 **조용히 건너뛴다**(LLD §2.2). 보낸 날짜로 세면 실제로 걸리지 않은
+      // 날까지 지표에 실리고, 전부 건너뛴 요청(joined 빈 배열 — 새로 걸린 게 없다)까지 성공
+      // 이벤트가 된다. `joined` 필드를 모르는 응답(구·경계)만 보낸 값으로 폴백한다.
+      const joinedDates = result?.joined?.map((j) => j.sessionDate);
+      const actual =
+        joinedDates === undefined ? targets : targets.filter((e) => joinedDates.includes(e.date));
+      if (actual.length > 0) {
+        logGroupBetJoined({
+          // stake는 하루치 축을 유지한다(총액이 아니다) — 날짜별로 갈리면 최대 하루치.
+          stake: Math.max(...actual.map((e) => e.stake)),
+          session_count: actual.length,
+          mission_type: missionType,
+          mission_category: missionCategory,
+        });
+      }
       // 예약분 전액이 그 자리에서 묶였다(N15) — 잔액을 곧바로 맞춘다.
       refresh();
       onDone();
