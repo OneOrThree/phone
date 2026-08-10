@@ -6,7 +6,7 @@
 //  3) 나가기: 성공 → popToTop(목록 복귀). 방장(HOST_WITHDRAW) → 위임 화면 유도.
 //     이미 빠져 있음(NOT_FOUND·MEMBER_ONLY) → 성공과 같게 popToTop.
 //  (프로필 편집 폼 자체는 GroupProfileEditScreen.test.tsx 에서 검증한다.)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupSettingsScreen from './GroupSettingsScreen';
@@ -26,14 +26,19 @@ const mockNavigate = jest.fn();
 const mockPopToTop = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigation = { navigate: mockNavigate, popToTop: mockPopToTop, goBack: mockGoBack };
+const mockFocusRunners = new Set<() => void | (() => void)>();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
   useRoute: () => ({ params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' } }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
+      mockFocusRunners.add(cb);
       const cleanup = cb();
-      return typeof cleanup === 'function' ? cleanup : undefined;
+      return () => {
+        mockFocusRunners.delete(cb);
+        if (typeof cleanup === 'function') cleanup();
+      };
     }, [cb]);
   },
 }));
@@ -166,6 +171,20 @@ describe('허브 — 행 노출', () => {
     await renderScreen();
 
     expect(screen.getByText('현재 아이콘 책 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+  });
+
+  test('포커스 재조회에서 로컬 읽기가 실패하면 표시 중인 아이콘 이름을 유지한다', async () => {
+    await writeGroupCardEmoji('me', GROUP_ID, '📚');
+    await renderScreen();
+    expect(screen.getByText(/현재 아이콘 책/)).toBeOnTheScreen();
+
+    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
+    await act(async () => {
+      mockFocusRunners.forEach((runner) => runner());
+    });
+
+    await waitFor(() => expect(screen.getByText(/현재 아이콘 책/)).toBeOnTheScreen());
+    expect(screen.queryByText(/현재 아이콘 목표/)).toBeNull();
   });
 
   test('MEMBER도 아이콘과 나가기는 보지만 OWNER 관리 행은 보지 않는다', async () => {
