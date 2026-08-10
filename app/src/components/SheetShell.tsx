@@ -468,6 +468,8 @@ export function SheetShell({
       }
       translateY.value = h + keyboardHeightRef.current;
       enterActiveRef.current = true;
+      // 등장 딤은 dimProgress(0→1)만으로 그린다 — 이 구간의 translateY는 드래그 진행률이 아니다.
+      dimEnterActive.value = true;
       translateY.value = withSpring(0, SHEET_SETTLE, (finished) => {
         if (finished) runOnJS(markEnterSettled)();
       });
