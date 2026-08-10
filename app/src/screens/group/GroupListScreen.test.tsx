@@ -10,6 +10,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardDeckViewed: jest.fn(),
+  logGroupDeckGuideInterrupted: jest.fn(),
+  logGroupDeckGuideReadFailed: jest.fn(),
+  logGroupDeckGuideWriteFailed: jest.fn(),
+  logTabGuideCompleted: jest.fn(),
+}));
+
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
@@ -49,7 +57,7 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
   return await render(
     <GroupListScreen
       groups={groups}
-      userId="user-1"
+      userId={null}
       onSelect={onSelect}
       onCreate={onCreate}
       onFind={onFind}
