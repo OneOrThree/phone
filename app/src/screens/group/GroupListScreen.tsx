@@ -107,13 +107,13 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
 }
 
 /**
- * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
- * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
+ * 카드 한 장의 높이 — 앞면·뒷면과 로딩 스켈레톤(GroupScreen)이
+ * 같은 가로 덱 실루엣을 쓰도록 공유한다.
  * 아래 s.card의 minHeight로도 걸어 둔다 — 스켈레톤과 실제 카드가 **같은 값에 묶여 있어야**
  * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
  * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
  */
-export const GROUP_CARD_HEIGHT = 58;
+export const GROUP_CARD_HEIGHT = 300;
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
