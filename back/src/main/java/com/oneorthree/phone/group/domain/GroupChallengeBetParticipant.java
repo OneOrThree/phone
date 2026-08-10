@@ -58,6 +58,15 @@ public class GroupChallengeBetParticipant {
     @Column(name = "achieved")
     private Boolean achieved;
 
+    /**
+     * 조기 확정 시각(GROMO-1268, LLD §1.1) — {@link #confirmWin} 이 일어난 순간의 박제.
+     * <b>조기 확정 전용</b>이다: 정산 시점 판정({@link #recordSettlement})은 회차의 {@code settled_at}
+     * 이 시각 축을 담당하므로 여기를 채우지 않는다 — null 이면 "정산에서 판정됨(또는 미판정)"이고,
+     * 값이 있으면 "그 시각에 이미 승리가 닫혀 있었다"는 뜻이다.
+     */
+    @Column(name = "achieved_at")
+    private Instant achievedAt;
+
     /** 정산 시 기록 — 승자 분배금(패자 0) 또는 전원 환불금. 정산 전이면 null. */
     @Column(name = "payout")
     private Integer payout;
@@ -75,26 +84,6 @@ public class GroupChallengeBetParticipant {
     private Instant createdAt;
 
     /**
-     * 개인 승리 조기 확정(GROMO-1268, N11·FR-23) — <b>불가역</b>이다. 목표분이 나중에 바뀌어도
-     * 회차 박제값으로 판정했으므로 번복 사유가 없다. FOCUS 회차 전용이다 — SCREEN_TIME 은 값이
-     * 하루 종일 늘어나는 지표라 "먼저 확정"이 성립하지 않는다(조기 확정하면 이후 목표 초과가
-     * 정산에서 뒤집히지 못한다).
-     *
-     * <p>계정 탈퇴의 판정 근거 박제(GROMO-1423)도 같은 축을 쓴다 — 탈퇴는 관측이 끝나는 지점이라
-     * "그 시점 달성"이 마지막 진실이고(SCREEN_TIME 포함 — 기기가 더는 보고하지 않는다), 통계
-     * nullify 뒤에도 이 값이 정산 판정에 남는다.
-     *
-     * <p>{@code progressMinutes} 는 확정 시점 실측이지만 <b>박제가 아니다</b> — 정산이 전원 최종값으로
-     * 다시 잰다(잔여 코인 순위가 박제값으로 엉뚱한 승자에게 가는 것을 막는다, LLD §5.2). 실측이
-     * 사라진 탈퇴자만 이 값으로 폴백한다({@code GroupBetSettler}).
-     * 호출 전제: 회차 행 잠금 아래 + {@code achieved == null}.
-     */
-    public void confirmWin(int progressMinutes) {
-        this.achieved = true;
-        this.progressMinutes = progressMinutes;
-    }
-
-    /**
      * 정산 결과 기록. 재실행은 내기 status 가드로 막으므로 여기서는 덮어쓰기만 한다.
      *
      * @param progressMinutes 판정에 쓴 실측 분 — 미계측(SCREEN_TIME 미보고)이면 null
@@ -103,6 +92,40 @@ public class GroupChallengeBetParticipant {
         this.achieved = achieved;
         this.payout = payout;
         this.progressMinutes = progressMinutes;
+    }
+
+    /**
+     * 개인 승리 <b>사전 확정</b>(GROMO-1268 조기 확정 N11·FR-23 / GROMO-1423 계정 탈퇴 근거 박제)
+     * — <b>불가역</b>이다. 목표분이 나중에 바뀌어도 회차 박제값으로 판정했으므로 번복 사유가 없다.
+     *
+     * <p><b>조기 확정</b>은 FOCUS 회차 전용이다 — SCREEN_TIME 은 값이 하루 종일 늘어나는 지표라
+     * "먼저 확정"이 성립하지 않는다(조기 확정하면 이후 목표 초과가 정산에서 뒤집히지 못한다).
+     * <b>계정 탈퇴 박제</b>는 카테고리를 가리지 않는다 — 탈퇴는 관측이 끝나는 지점이라 "그 시점
+     * 달성"이 마지막 진실이고(기기가 더는 보고하지 않는다), 통계 nullify 뒤에도 이 값이 정산
+     * 판정에 남는다.
+     *
+     * <p>{@code progressMinutes} 는 확정 시점 실측이지만 <b>박제가 아니다</b> — 정산이 전원 최종값으로
+     * 다시 잰다(잔여 코인 순위가 박제값으로 엉뚱한 승자에게 가는 것을 막는다, LLD §5.2). 실측이
+     * 사라진 탈퇴자만 이 값으로 폴백한다({@code GroupBetSettler.measuredOrFrozen}).
+     * {@code achievedAt} 은 반대로 <b>박제</b>다 — 승리가 닫힌 순간의 시각(LLD §1.1·§5.1).
+     *
+     * <p><b>오버로드를 두지 않는다</b>: 시각을 안 받는 판이 함께 있으면 호출부가 무심코 그쪽을 골라
+     * {@code achieved_at} 이 조용히 비는 경로가 생긴다(병합 중 실제로 두 판이 공존했다).
+     * 호출 전제: 회차 행 잠금 아래 + {@code achieved == null}.
+     */
+    public void confirmWin(int progressMinutes, Instant achievedAt) {
+        this.achieved = true;
+        this.achievedAt = achievedAt;
+        this.progressMinutes = progressMinutes;
+    }
+
+    /**
+     * 환불 기록(무산·24h 데드라인) — 판정 없이 돈만 되돌아간 경우다. {@code achieved} 는 null 로
+     * 남겨 "판정 안 됨"과 "달성 실패(payout 0)"의 구분(클래스 주석)을 지킨다. 원장이 단일 진실이고
+     * 이 값은 표시용 근거다.
+     */
+    public void recordRefund(int payout) {
+        this.payout = payout;
     }
 
     /**

@@ -42,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -132,6 +131,7 @@ public class GroupBetService {
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
+    private final GroupBetSessionFactory groupBetSessionFactory;
 
     // ── 개설 브리지 / 참가 ──────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ public class GroupBetService {
         try {
             // saveAndFlush — INSERT 를 지금 내보내야 유니크 위반이 이 try 안에서 잡힌다.
             session = groupChallengeBetSessionRepository.saveAndFlush(
-                    newSession(bet, group, challenge, target, sessionDate));
+                    groupBetSessionFactory.create(bet, group, challenge, target, sessionDate));
         } catch (DataIntegrityViolationException e) {
             // 사전 검사와 동시 개설이 겹친 레이스 — 유니크(설정·날짜당 회차 1개) 위반을 결정적인
             // 409 로 강하한다. 이 시점엔 참가비가 아직 걷히지 않았다(stakeIn 전).
@@ -401,7 +401,9 @@ public class GroupBetService {
                     .progressMinutes(target.get(), session.getSessionDate(), List.of(user))
                     .get(user.getId());
             if (GroupBetJudge.isAchieved(target.get(), minutes)) {
-                mine.get().confirmWin(minutes == null ? 0 : minutes);
+                // 확정 시각도 함께 박제한다(V42 achieved_at) — 탈퇴 박제도 "승리가 닫힌 순간"이
+                // 있는 사건이라 조기 확정과 같은 축을 남긴다.
+                mine.get().confirmWin(minutes == null ? 0 : minutes, Instant.now());
                 log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
                         sessionId, user.getId(), minutes);
             }
@@ -561,58 +563,17 @@ public class GroupBetService {
     }
 
     /**
-     * 회차 행 조립 — <b>미션 스냅샷 박제</b>(GROMO-1263): 카테고리·방식·목표분·창 시각·참가비를
-     * 챌린지·설정에서 복사한다. 챌린지가 삭제돼도 내역 한 줄이 조인 없이 온전해야 한다(N6-1).
+     * 회차 행 조립 — <b>미션 스냅샷 박제</b>(GROMO-1263). 실제 조립은
+     * {@link GroupBetSessionFactory} 단일 지점이 하고 이 메서드는 <b>얇은 위임</b>이다.
      *
-     * <p>시각 계산: 하루형은 회차일 00:00 ~ 익일 00:00(KST), 창형은 창 시작 ~ 창 종료(자정 걸침
-     * 레거시 창은 익일 종료). {@code joinClosesAt} 은 LLD §1.1 정의(창형 = 창 시작, 하루형 = 회차
-     * 종료)대로 박제하되, 브리지 기간의 레거시 참가 가드는 종전 규칙(창 종료까지)을 유지한다 —
-     * 이 값의 강제는 신 참여 API(B4)의 몫이다.
+     * <p>신 참여 경로({@code GroupBetJoinService} 의 lazy 개설)와 레거시 개설 브리지·자동 개설
+     * 스캔이 <b>같은 조립</b>을 써야 한다 — 사본이 둘이면 개설 경로에 따라 참가 마감·정산 시각이
+     * 조용히 갈린다(회차는 그 값들을 박제하므로 되돌릴 수도 없다). B5 의 호출부를 유지하면서
+     * 구현을 하나로 모으기 위해 시그니처만 남긴다.
      */
     GroupChallengeBetSession newSession(GroupChallengeBet bet, Group group,
             GroupChallenge challenge, GroupBetJudge.Target target, LocalDate sessionDate) {
-        LocalTime windowStart = null;
-        LocalTime windowEnd = null;
-        Instant startsAt;
-        Instant closesAt;
-        Instant joinClosesAt;
-        Instant settleAfter;
-        if (target.windowed()) {
-            // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 으로 저장된다 — Instant→LocalTime
-            // 변환(WindowFocusAggregator.timeOfDay)이 더는 필요 없다.
-            windowStart = target.window().getWindowStart();
-            windowEnd = target.window().getWindowEnd();
-            startsAt = sessionDate.atTime(windowStart).atZone(KST).toInstant();
-            LocalDate endDate = windowStart.isBefore(windowEnd) ? sessionDate : sessionDate.plusDays(1);
-            closesAt = endDate.atTime(windowEnd).atZone(KST).toInstant();
-            joinClosesAt = startsAt;
-            settleAfter = closesAt.plusSeconds(WINDOW_SETTLE_GRACE_MINUTES * 60L);
-        } else {
-            startsAt = sessionDate.atStartOfDay(KST).toInstant();
-            closesAt = sessionDate.plusDays(1).atStartOfDay(KST).toInstant();
-            joinClosesAt = closesAt;
-            int graceHours = target.category() == MissionCategory.SCREEN_TIME
-                    ? DURATION_SCREEN_TIME_SETTLE_GRACE_HOURS
-                    : DURATION_FOCUS_SETTLE_GRACE_HOURS;
-            settleAfter = closesAt.plusSeconds(graceHours * 3600L);
-        }
-        return GroupChallengeBetSession.builder()
-                .bet(bet)
-                .group(group)
-                .challenge(challenge)
-                .sessionDate(sessionDate)
-                .stake(bet.getStake())
-                .goalMinutes(target.goalMinutes())
-                .missionCategory(challenge.getCategory())
-                .missionType(challenge.getType())
-                .windowStart(windowStart)
-                .windowEnd(windowEnd)
-                .status(GroupBetStatus.OPEN)
-                .startsAt(startsAt)
-                .joinClosesAt(joinClosesAt)
-                .closesAt(closesAt)
-                .settleAfter(settleAfter)
-                .build();
+        return groupBetSessionFactory.create(bet, group, challenge, target, sessionDate);
     }
 
     // ── 조회 조립 (GroupChallengeService 가 챌린지 카드에 얹는다) ─────────────
@@ -717,6 +678,8 @@ public class GroupBetService {
                     .stake(session.getStake())
                     .pot(session.getStake() * participants.size())
                     .status(session.getStatus())
+                    // 종료 사유(N55) — REFUNDED 가 "달성자 0명"인지 "24h 미정산 자동 환불"인지 구분.
+                    .voidReason(session.getVoidReason())
                     .goalMinutes(session.getGoalMinutes())
                     .results(toResultParticipants(participants))
                     .build());
@@ -766,6 +729,8 @@ public class GroupBetService {
                             .stake(session.getStake())
                             .pot(session.getStake() * participants.size())
                             .status(session.getStatus())
+                            // 종료 사유(N55) — 내역에서도 환불 사유가 구분돼야 한다.
+                            .voidReason(session.getVoidReason())
                             .settledAt(session.getSettledAt())
                             .goalMinutes(session.getGoalMinutes())
                             .results(toResultParticipants(participants))

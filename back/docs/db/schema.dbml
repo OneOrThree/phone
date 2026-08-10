@@ -473,13 +473,14 @@ Table group_challenge_bet_sessions [note: '내기 회차 — 챌린지가 실제
   }
 }
 
-Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39'] {
+Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — 축이 내기 행에서 회차로 이동). 참가비는 참가 즉시 차감(에스크로)되고 achieved/payout/progress_minutes 는 정산 시 기록된다. 이 행의 id 가 돈 흐름 멱등키의 단일 축(FR-42). migration V19·V29·V39·V42'] {
   id         uuid        [pk]
 
   session_id uuid        [not null, note: 'FK → group_challenge_bet_sessions.id (구 bet_id 를 V39 에서 리네임 — 값 보존)']
   user_id    uuid        [not null, note: 'FK → users.id']
 
-  achieved   boolean     [note: '정산 시 기록 — 판정 결과. 정산 전이면 null']
+  achieved   boolean     [note: '정산 시 기록 — 판정 결과. 정산 전이면 null. 승리는 조기 확정 가능(GROMO-1268, 불가역)']
+  achieved_at timestamptz [note: '조기 확정 시각(V42, LLD §1.1) — confirmWin 순간 박제. 조기 확정 전용이라 정산 시점 판정은 null(회차 settled_at 이 시각 축)']
   payout     integer     [note: '정산 시 기록 — 승자 분배금(패자 0) 또는 환불금. 정산 전이면 null']
   progress_minutes integer [note: '정산 판정에 쓴 실측 분(GROMO-1207). FOCUS 무기록은 0, SCREEN_TIME 미보고는 null(미계측 — 앱 "—" 표시)']
 

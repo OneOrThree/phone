@@ -122,10 +122,13 @@ class GroupChallengeServiceTest {
     @Mock
     private GroupBetJoinService groupBetJoinService;
 
-    // 삭제 가드(진행 중 내기 확인) 전용. 스텁이 없으면 false = "진행 중 내기 없음" 이라
-    // 기존 삭제 테스트들은 그대로 통과한다.
     @Mock
     private GroupChallengeBetRepository groupChallengeBetRepository;
+
+    // 삭제 연동(GROMO-1272) — OPEN 회차 무효화·환불의 위임처. 스텁이 없으면 0건 무효화(기본값)라
+    // 회차 없는 삭제 테스트들은 그대로 통과한다. 환불이 실제로 한 번씩 나가는지는 통합 테스트가 본다.
+    @Mock
+    private GroupBetSettler groupBetSettler;
 
     // 스크린타임 창 사용분 보고 원본 저장소 — 스텁이 없으면 빈 리스트 = "보고 없음"(판정 불가).
     @Mock
@@ -1947,8 +1950,9 @@ class GroupChallengeServiceTest {
         // N42: 종료도 삭제와 같은 배타 락 조회를 쓴다 — 참여 경로(FOR SHARE)와 직렬화.
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
-        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
-                .willReturn(false);
+        // OPEN 회차 없음 — status 축이 회차로 이동해(GROMO-1262) 판정 쿼리가 회차 스코프로 바뀌었다.
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of());
 
         // when
         groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
@@ -1976,7 +1980,7 @@ class GroupChallengeServiceTest {
         groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
 
         // then: OPEN 회차 검사조차 타지 않고, ended_at 도 갱신되지 않는다(픽스처의 null 유지)
-        verify(groupChallengeBetRepository, never()).existsByChallengeIdAndStatus(any(), any());
+        verify(groupChallengeBetRepository, never()).findChallengeIdsWithOpenBet(any());
         assertThat(challenge.getEndedAt()).isNull();
     }
 
@@ -1993,8 +1997,9 @@ class GroupChallengeServiceTest {
                 .status(GroupChallengeStatus.ACTIVE).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
-        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
-                .willReturn(true);
+        // OPEN 회차 있음 — 해당 챌린지 id 가 돌아오면 "지금 걸린 판이 있다"는 뜻이다.
+        given(groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(CHALLENGE_ID));
 
         // when & then: 종료는 환불 의무가 없으므로 남의 돈이 걸린 회차를 조용히 접을 수 없다(§A8)
         assertThatThrownBy(() -> groupChallengeService.endChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
@@ -2097,9 +2102,9 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("진행 중(OPEN) 내기가 걸려 있으면 삭제 거절 → GroupException(CHALLENGE_HAS_OPEN_BET)")
-    void deleteChallengeRejectedWhenOpenBetExists() {
-        // given: OWNER + 챌린지 존재 + 그 챌린지에 오늘자 OPEN 내기
+    @DisplayName("OPEN 회차가 걸려 있어도 삭제된다 — 무효화·환불 연동을 거쳐 softDelete (GROMO-1272)")
+    void deleteChallengeVoidsOpenSessionsAndDeletes() {
+        // given: OWNER + 챌린지 존재. to-be(FR-12)는 삭제를 막지 않고 OPEN 회차를 무효화·환불한다.
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -2109,21 +2114,20 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
-        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
-                .willReturn(true);
+        given(groupBetSettler.voidOpenSessionsForChallengeDelete(CHALLENGE_ID)).willReturn(2);
 
-        // when & then: 판돈이 묶인 내기가 조회에서 사라지지 않도록 409 로 막는다
-        assertThatThrownBy(() -> groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.CHALLENGE_HAS_OPEN_BET);
-        assertThat(challenge.getDeletedAt()).isNull();
+        // when
+        groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
+
+        // then: 무효화 연동이 softDelete 와 같은 트랜잭션에서 호출되고, 삭제도 성사된다.
+        verify(groupBetSettler).voidOpenSessionsForChallengeDelete(CHALLENGE_ID);
+        assertThat(challenge.getDeletedAt()).isNotNull();
     }
 
     @Test
-    @DisplayName("정산이 끝난 내기만 있으면 삭제 허용 — OPEN 이 아닌 이력은 삭제를 막지 않는다")
+    @DisplayName("정산 완료 이력만 있으면 무효화 대상 0건 — 삭제는 그대로 성사된다 (FR-13)")
     void deleteChallengeAllowedWhenBetsAreSettled() {
-        // given: OWNER + 챌린지 존재 + OPEN 내기 없음(정산 완료 이력만 있는 상태)
+        // given: OWNER + 챌린지 존재 + OPEN 회차 없음(정산 완료 이력만 있는 상태 — 스텁 기본값 0건)
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -2133,13 +2137,12 @@ class GroupChallengeServiceTest {
         GroupChallenge challenge = GroupChallenge.builder().id(CHALLENGE_ID).group(group).build();
         given(groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNullForUpdate(CHALLENGE_ID, group))
                 .willReturn(Optional.of(challenge));
-        given(groupChallengeBetRepository.existsByChallengeIdAndStatus(CHALLENGE_ID, GroupBetStatus.OPEN))
-                .willReturn(false);
 
         // when
         groupChallengeService.deleteChallenge(GROUP_ID, CHALLENGE_ID, USER_ID);
 
         // then
+        verify(groupBetSettler).voidOpenSessionsForChallengeDelete(CHALLENGE_ID);
         assertThat(challenge.getDeletedAt()).isNotNull();
     }
 
