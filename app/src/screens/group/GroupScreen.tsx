@@ -62,6 +62,9 @@ export default function GroupScreen() {
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
   const [cardEmojiHydratedIdentity, setCardEmojiHydratedIdentity] = useState<string | null>(null);
+  const [cardEmojiHydratedGroupIds, setCardEmojiHydratedGroupIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [cardEmojiSaveFailed, setCardEmojiSaveFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -83,6 +86,8 @@ export default function GroupScreen() {
   useEffect(() => {
     // 계정 전환 시 이전 계정의 로컬 표현 설정을 새 계정에 잠시라도 노출하지 않는다.
     setCardEmojiByGroupId({});
+    setCardEmojiHydratedIdentity(null);
+    setCardEmojiHydratedGroupIds(new Set());
     if (!userId) {
       return;
     }
@@ -193,6 +198,7 @@ export default function GroupScreen() {
       } else {
         setCardEmojiByGroupId(emojiBucket);
         setCardEmojiHydratedIdentity(userId ?? 'anonymous');
+        setCardEmojiHydratedGroupIds(new Set(rows.map((row) => row.groupId)));
       }
     } catch {
       if (seq !== requestSeqRef.current) return;
@@ -436,6 +442,7 @@ export default function GroupScreen() {
           groups={myGroups}
           cardEmojiByGroupId={cardEmojiByGroupId}
           cardEmojiHydrated={cardEmojiHydratedIdentity === (userId ?? 'anonymous')}
+          cardEmojiHydratedGroupIds={cardEmojiHydratedGroupIds}
           onSelect={onSelectGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}

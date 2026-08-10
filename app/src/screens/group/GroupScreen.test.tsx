@@ -92,6 +92,7 @@ jest.mock('./GroupListScreen', () => {
     onRefresh,
     cardEmojiByGroupId,
     cardEmojiHydrated,
+    cardEmojiHydratedGroupIds,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (groupId: string) => void;
@@ -100,11 +101,23 @@ jest.mock('./GroupListScreen', () => {
     onRefresh: () => Promise<void>;
     cardEmojiByGroupId: Record<string, string>;
     cardEmojiHydrated: boolean;
+    cardEmojiHydratedGroupIds?: ReadonlySet<string>;
   }) {
+    const emojiStatus = (groupId: string) =>
+      cardEmojiByGroupId[groupId] ??
+      (cardEmojiHydrated &&
+      (cardEmojiHydratedGroupIds === undefined || cardEmojiHydratedGroupIds.has(groupId))
+        ? '없음'
+        : '불러오는 중');
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
-        <RNText>{`아이콘-${cardEmojiByGroupId[groups[0]?.groupId] ?? (cardEmojiHydrated ? '없음' : '불러오는 중')}`}</RNText>
+        <RNText>{`아이콘-${emojiStatus(groups[0]?.groupId)}`}</RNText>
+        {groups.map((group) => (
+          <RNText
+            key={`emoji-${group.groupId}`}
+          >{`아이콘상태-${group.groupId}-${emojiStatus(group.groupId)}`}</RNText>
+        ))}
         {groups.map((g) => (
           <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
             <RNText>{`목록-${g.name}`}</RNText>
@@ -230,8 +243,9 @@ async function press(label: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetGroupCardEmojiQueueForTest();
+  await AsyncStorage.clear();
   jest.clearAllMocks();
   mockIsGuest = false;
   mockUserId = null;
@@ -420,6 +434,31 @@ describe('목록 분기(0/1/N)', () => {
     await refocus();
 
     expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
+  });
+
+  test('새로 추가된 그룹은 해당 groupId의 로컬 아이콘을 읽기 전에 기본값으로 확정하지 않는다', async () => {
+    mockUserId = 'user-1';
+    await writeGroupCardEmoji('user-1', GROUP_ID_2, '📚');
+    // 첫 목록의 stale prune 저장을 실패시켜 재가입 그룹 아이콘이 디스크에 남는 조건을 만든다.
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('prune failed'));
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(await screen.findByText(`아이콘상태-${GROUP_ID}-없음`)).toBeOnTheScreen();
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
+      await gate;
+      return originalGetItem(key);
+    });
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await refocus();
+
+    expect(await screen.findByText('목록 2건')).toBeOnTheScreen();
+    expect(screen.getByText(`아이콘상태-${GROUP_ID_2}-불러오는 중`)).toBeOnTheScreen();
+    await act(async () => release());
+    expect(await screen.findByText(`아이콘상태-${GROUP_ID_2}-📚`)).toBeOnTheScreen();
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
