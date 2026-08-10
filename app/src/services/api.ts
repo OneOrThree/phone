@@ -111,6 +111,7 @@ function refreshAccessToken(): Promise<string> {
 
 // 토큰 갱신. 인터셉터 루프를 피하기 위해 인스턴스(api)가 아닌 bare axios 사용.
 async function doRefreshAccessToken(): Promise<string> {
+  const sessionGeneration = getAuthSessionGeneration();
   const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
   if (!refreshToken) throw new Error('no refresh token');
 
@@ -118,9 +119,20 @@ async function doRefreshAccessToken(): Promise<string> {
     refreshToken,
   });
 
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  if (data.refreshToken) {
-    await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
+  // 응답 저장도 로그인·로그아웃 전환 mutex에 참여한다. 기다리는 사이 세대 또는 refresh token
+  // 소유권이 바뀌면 이전 세션 응답이므로 새 세션 토큰을 덮지 않고 폐기한다.
+  const release = await acquireAuthSessionTransition();
+  try {
+    const currentRefreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+    if (getAuthSessionGeneration() !== sessionGeneration || currentRefreshToken !== refreshToken) {
+      throw new Error('stale auth refresh');
+    }
+    await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
+    if (data.refreshToken) {
+      await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
+    }
+  } finally {
+    release();
   }
   return data.accessToken;
 }
