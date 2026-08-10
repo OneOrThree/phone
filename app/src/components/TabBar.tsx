@@ -170,7 +170,13 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         scaleTo={0.94}
         haptic="light"
         accessibilityLabel="집중 시작"
-        onPress={() => rootNav.navigate('FocusCategory')}
+        onPress={() =>
+          rootNav.navigate('FocusCategory', {
+            entrySource: 'home_fab',
+            interactionId: undefined,
+            interactionAcceptedAt: undefined,
+          })
+        }
       >
         <View style={s.fabInner}>
           {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}
