@@ -106,16 +106,14 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     if (currentUser) {
       pendingByUserRef.current.set(currentUser, next);
       writeGroupCardOrder(currentUser, next)
-        .then(
-          () => {
-            const latest = pendingByUserRef.current.get(currentUser);
-            if (!latest || !isSameGroupOrder(latest, next)) return;
-            pendingByUserRef.current.delete(currentUser);
-            if (mounted.current && identityRef.current === currentIdentity) {
-              setState((current) => current && { ...current, saveFailed: false });
-            }
-          },
-        )
+        .then(() => {
+          const latest = pendingByUserRef.current.get(currentUser);
+          if (!latest || !isSameGroupOrder(latest, next)) return;
+          pendingByUserRef.current.delete(currentUser);
+          if (mounted.current && identityRef.current === currentIdentity) {
+            setState((current) => current && { ...current, saveFailed: false });
+          }
+        })
         .catch(
           () =>
             mounted.current &&
