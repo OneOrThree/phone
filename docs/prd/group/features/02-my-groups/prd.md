@@ -397,16 +397,16 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 
 ### 리스크
 
-| ID  | 리스크                         | 발생 조건·영향              | 완화                                             | 감지 지표              | 오너         |
-| --- | ------------------------------ | --------------------------- | ------------------------------------------------ | ---------------------- | ------------ |
-| R1  | flip을 발견하지 못함           | 요약과 CTA를 사용하지 못함  | affordance·형성평가·재검증                       | flip 과업 완료율       | 제품·디자인  |
-| R2  | swipe·flip·reorder 충돌        | 오작동·원치 않는 순서 변경  | grip 전용 drag·gesture 우선순위·E2E              | gesture 실패           | 앱·QA        |
-| R3  | 뒷면 정보 과밀                 | 정보·CTA 탐색 지연          | 우선순위 유지·정보 찾기 평가                     | 과업 시간·실패         | 제품·디자인  |
-| R4  | 로컬 선호를 공용 설정으로 오해 | 타기기에서 설정 유실로 인식 | 이 기기에서 나에게만 보여요                      | 범위 설명 과업         | 제품·디자인  |
-| R5  | 부분 실패를 0·빈 상태로 오표시 | 사용자 신뢰 훼손            | loading·error·unknown 분리                       | 잘못된 0명 표시        | 앱·QA        |
-| R6  | top100 전제 만료               | 집중 인원 과소 집계         | 운영 eligible 출시 gate와 런타임 raw length 판정 | eligible 수·100행 응답 | 백엔드·운영  |
-| R7  | 가입자 잔존 상관을 인과로 해석 | 잘못된 성장 투자 판단       | 사전 배정·ITT 분석                               | 실험 계약 위반         | 제품·분석    |
-| R8  | 36×36 grip이 충분하지 않음     | 터치·보조기술 reorder 실패  | VoiceOver move action·평가 후 확대               | reorder 과업 실패      | 디자인·앱·QA |
+| ID  | 리스크                                 | 발생 조건·영향              | 완화                                             | 감지 지표                | 오너         |
+| --- | -------------------------------------- | --------------------------- | ------------------------------------------------ | ------------------------ | ------------ |
+| R1  | flip을 발견하지 못함                   | 요약과 CTA를 사용하지 못함  | affordance·형성평가·재검증                       | flip 과업 완료율         | 제품·디자인  |
+| R2  | swipe·flip·reorder 충돌                | 오작동·원치 않는 순서 변경  | grip 전용 drag·gesture 우선순위·E2E              | gesture 실패             | 앱·QA        |
+| R3  | 뒷면 정보 과밀                         | 정보·CTA 탐색 지연          | 우선순위 유지·정보 찾기 평가                     | 과업 시간·실패           | 제품·디자인  |
+| R4  | 로컬 선호를 공용 설정으로 오해         | 타기기에서 설정 유실로 인식 | 이 기기에서 나에게만 보여요                      | 범위 설명 과업           | 제품·디자인  |
+| R5  | 부분 실패를 0·빈 상태로 오표시         | 사용자 신뢰 훼손            | loading·error·unknown 분리                       | 잘못된 0명 표시          | 앱·QA        |
+| R6  | top100 전제 만료                       | 집중 인원 과소 집계         | 운영 eligible 출시 gate와 런타임 raw length 판정 | eligible 수·100행 응답   | 백엔드·운영  |
+| R7  | 가입자 잔존 상관을 인과로 해석         | 잘못된 성장 투자 판단       | 사전 배정·ITT 분석                               | 실험 계약 위반           | 제품·분석    |
+| R8  | 공용 handle에 legacy 36×36 규격을 복사 | 터치·보조기술 reorder 실패  | 최소 44×44pt target·VoiceOver move action·E2E    | target·reorder 과업 실패 | 디자인·앱·QA |
 
 ---
 
@@ -421,7 +421,7 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | 3   | create에서 아이콘 선택·성공·실패                                                              | request body에는 emoji가 없고 성공 groupId에만 로컬 저장                                       | 통합            | 미착수    |
 | 4   | 아이콘 미설정·무효·쓰기 실패·계정 전환                                                        | 🎯 fallback, 현재 UI 유지, 다른 userId bucket 불변                                             | 단위·통합       | 미착수    |
 | 5   | 순서 hydration·신규 append·stale·중복·손상                                                    | 서버 멤버십은 불변이며 stable groupId 배열만 repair                                            | 단위·통합       | 미착수    |
-| 6   | grip drag·가장자리 page 이동·horizontal swipe·body tap·back CTA 충돌                          | 5·10개에서도 한 페이지씩 cross-page reorder; drop만 1회 commit, 취소·경계는 no-op              | E2E             | 미착수    |
+| 6   | 최소 44×44pt grip drag·가장자리 page 이동·horizontal swipe·body tap·back CTA 충돌             | 5·10개에서도 한 페이지씩 cross-page reorder; drop만 1회 commit, 취소·경계는 no-op              | E2E             | 미착수    |
 | 7   | 320·390·430·768pt × 그룹 1·5·6·7·10개                                                         | 공식에 따라 dots·compact 전환, active groupId 유지                                             | 단위·E2E        | 미착수    |
 | 8   | 첫 flip 네트워크 호출                                                                         | detail·공지·챌린지 병렬, 리그는 같은 KST 날짜 refresh cycle당 1회                              | 통합            | 미착수    |
 | 9   | 하위 기능 응답 0·1·복수와 조회 실패                                                           | 기존 응답의 신원·순서를 바꾸지 않고 compact 표시, 실패는 해당 영역에만 남음                    | 통합·E2E        | 미착수    |

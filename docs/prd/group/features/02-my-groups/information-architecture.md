@@ -136,7 +136,7 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 - drag가 좌우 가장자리 조건을 만족하면 덱이 순서를 바꾸지 않은 채 한 페이지씩 이동해 화면 밖 그룹을 drop 대상으로 보여 준다. `그룹 찾기` 페이지는 이동·drop 대상이 아니다.
 - 접근성 사용자는 같은 grip의 `앞으로 이동`·`뒤로 이동` action으로 동일한 결과를 얻는다. 별도 재정렬 버튼을 화면에 추가하지 않는다.
 - 찾기 카드는 drag 대상·drop 대상에서 제외한다.
-- 시각·터치 규격은 현행 `CardOrderEditor`에서 추출한 공용 `components/reorder/ReorderHandle`을 사용한다: `MaterialCommunityIcons`의 `drag-vertical` 20pt·`T.inkSub`, 36×36 투명 hit box, 우상단 배치.
+- 공용 `components/reorder/ReorderHandle`은 현행 `CardOrderEditor`의 20pt `drag-vertical` 아이콘과 `T.inkSub` 색을 재사용하되, legacy 36×36 규격을 복사하지 않고 **최소 44×44pt 투명 hit target**으로 확장해 우상단에 배치한다.
 - 공용 핸들은 축과 카드 순서를 모른다. 통계의 feature-local `PanResponder`는 세로 controller로 남고, 그룹 캐러셀은 별도 horizontal axis adapter가 `pageX`·슬롯 폭·carousel swipe lock을 계산해 handlers만 핸들에 전달한다.
 
 순서 저장은 다음 경계를 지킨다.
@@ -151,17 +151,17 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 
 앞면은 그룹별 색·그라데이션·선화 아이콘을 만들지 않는다. 모든 그룹이 같은 토큰을 쓰고, 현재 사용자가 이 기기에서 고른 `내 카드 아이콘`을 개인적인 카드 구분 단서로 쓴다. 같은 그룹도 사용자·기기마다 다른 아이콘으로 보일 수 있으며 공용 그룹 프로필로 취급하지 않는다.
 
-| 위계      | 요소                     | 소스                               | 규칙                                                        |
-| --------- | ------------------------ | ---------------------------------- | ----------------------------------------------------------- |
-| 배경      | **고정 인디고**          | 디자인 토큰                        | 모든 그룹 `#5E6AD2`. 그룹별 tone/gradient 금지              |
-| 우상단    | **공용 `ReorderHandle`** | UI                                 | `drag-vertical`, 36×36 투명 hit box. 직접 drag/drop 전용    |
-| 아트 중앙 | **내 카드 아이콘**       | 로컬 `cardEmojiByGroupId[groupId]` | 허용 세트 안의 1개. 저장값 없음·손상·미지원 값은 `🎯`       |
-| 아트 위   | 공개/비밀 칩             | `isPrivate`                        | `공개방`/`비밀방` 중 하나를 항상 표기                       |
-| 1차       | 그룹 이름                | `name`                             | 1줄. overflow 시 첫 줄 끝에 시각적 `…` 필수                 |
-| 1차 옆    | 방장 배지                | `role==='OWNER'`                   | 방장에게만 표시                                             |
-| 2차       | 소개                     | `description?`                     | 현행 응답의 optional/nullable 필드. 값이 있을 때만 최대 3줄 |
-| 3차       | 인원 `현재/정원`         | `currentMembers`/`maxMembers`      | tabular-nums                                                |
-| 어포던스  | `탭하여 방 요약 보기`    | UI                                 | 탭 결과가 라우트가 아니라 flip임을 전달                     |
+| 위계      | 요소                     | 소스                               | 규칙                                                          |
+| --------- | ------------------------ | ---------------------------------- | ------------------------------------------------------------- |
+| 배경      | **고정 인디고**          | 디자인 토큰                        | 모든 그룹 `#5E6AD2`. 그룹별 tone/gradient 금지                |
+| 우상단    | **공용 `ReorderHandle`** | UI                                 | 20pt `drag-vertical`, 최소 44×44pt hit target. drag/drop 전용 |
+| 아트 중앙 | **내 카드 아이콘**       | 로컬 `cardEmojiByGroupId[groupId]` | 허용 세트 안의 1개. 저장값 없음·손상·미지원 값은 `🎯`         |
+| 아트 위   | 공개/비밀 칩             | `isPrivate`                        | `공개방`/`비밀방` 중 하나를 항상 표기                         |
+| 1차       | 그룹 이름                | `name`                             | 1줄. overflow 시 첫 줄 끝에 시각적 `…` 필수                   |
+| 1차 옆    | 방장 배지                | `role==='OWNER'`                   | 방장에게만 표시                                               |
+| 2차       | 소개                     | `description?`                     | 현행 응답의 optional/nullable 필드. 값이 있을 때만 최대 3줄   |
+| 3차       | 인원 `현재/정원`         | `currentMembers`/`maxMembers`      | tabular-nums                                                  |
+| 어포던스  | `탭하여 방 요약 보기`    | UI                                 | 탭 결과가 라우트가 아니라 flip임을 전달                       |
 
 허용 이모지는 아래 12개로 고정한다.
 

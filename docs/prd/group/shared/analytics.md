@@ -110,7 +110,12 @@ F3 그룹 획득 → 소속 반영
 
 - F1은 로그인 `user_id + ga_session_id` 고유 세션으로 본다. 탭 전환 뒤 10초 안의 `group_viewed(group_entry=tab)`만 navigation 성공으로 귀속한다.
 - F2의 뒷면 사용 가능은 같은 session에서 guide 완료와 사용자 flip의 합집합으로 dedupe한다. room 결과는 action 뒤 30초, focus 결과는 10분을 초기 귀속 window로 둔다.
-- F3에서 검색은 선택 단계다. 기본 목록에서 바로 가입해도 정상이다. 가입 결과 정본은 서버 `group_joined`, 생성 결과는 현재 앱 `group_created`이며 같은 결과의 서버 중복 발행을 금지한다.
+- F3에서 검색은 선택 단계다. 기본 목록에서 바로 가입해도 정상이다. 가입 결과 정본은 서버 `group_joined`, 생성 결과는 현재 앱 `group_created`이며 같은 결과의 앱·서버 중복 발행을 금지한다.
+- F3 집계 단위는 **획득 episode**다. 같은 Firebase `user_pseudo_id`에서 최초 `group_viewed(group_count_bucket=0)`가 episode를 열고, 성공 결과 또는 30분 경과 중 먼저 오는 시점에 닫는다. 열린 episode 안의 추가 0개 화면은 새 분모로 세지 않는다.
+- 서버 `group_joined`의 `app_instance_id`는 클라이언트 `user_pseudo_id`와 같아야 한다. 현재 서버 MP에는 `ga_session_id`가 없으므로 F3 연결 키나 같은-session 조건으로 쓰지 않고, 첫 분모부터 **30분 이하**의 결과만 귀속한다.
+- 수락되어 실제 API가 전송된 `group_join_attempted`·`group_create_submitted`는 반복 시도 진단으로 모두 남기되 분모를 늘리지 않는다. validation 실패·잠금 거절·disabled tap은 시도 이벤트 0건이다.
+- 같은 episode의 최초 `group_joined` 또는 `group_created`만 전환 1건으로 센다. 재전송·재시도·두 번째 성공은 무시하고, 30분 밖 결과는 이전 분모에 귀속하지 않는다. 이후 성공한 전체 0개 목록을 다시 본 시점에만 새 episode를 연다.
+- `appInstanceId`가 없어 S-LOG만 남은 가입, episode 중 로그인 `user_id`가 바뀐 경우는 GA4 F3에서 제외한다. S-LOG 운영 집계와 GA4 전환율을 시간만으로 조인하거나 합산하지 않는다.
 - CTA 의도 뒤 결과가 없으면 취소·background·navigation 실패일 수 있다. 클릭을 성공으로 해석하지 않는다.
 
 ## 5. 구현·검증 게이트
@@ -123,4 +128,5 @@ F3 그룹 획득 → 소속 반영
 6. raw payload에 그룹 이름·소개·glyph·asset·로컬 순서·raw `userId`가 없는지 확인한다.
 7. 서버 로그에서 자발 이탈은 `leave_reason=self`와 요청자 `user_id`, 강퇴는 `leave_reason=kicked`와 대상자 `user_id`로 기록되는지 검증한다.
 8. 검색·초대 가입 각각에서 `join_method`가 보존되고, `appInstanceId` 있음은 GA4+S-LOG, 없음은 비차단 S-LOG 결과가 되는지 검증한다.
-9. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.
+9. F3 export fixture에서 같은/다른 `user_pseudo_id`, 29분 59초/30분 초과, 반복 0개 화면·시도·결과, 계정 전환을 검증해 episode당 분모·전환이 각각 최대 1건인지 확인한다.
+10. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.
