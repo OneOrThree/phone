@@ -236,6 +236,7 @@ export default function GroupListScreen({
   const [deckInputEpisode, setDeckInputEpisode] = useState<number | null>(null);
   const [deckGuideVisible, setDeckGuideVisible] = useState(false);
   const [guidePrimaryFocusGroupId, setGuidePrimaryFocusGroupId] = useState<string | null>(null);
+  const [frontFocusGroupId, setFrontFocusGroupId] = useState<string | null>(null);
   const deckGuideVisibleRef = useRef(false);
   deckGuideVisibleRef.current = deckGuideVisible;
   const viewEpisodeRef = useRef(viewEpisodeId);
@@ -245,6 +246,8 @@ export default function GroupListScreen({
   const deckGuideAnchorRef = useRef<View | null>(null);
   const activeCardGuideAnchorRef = useRef<View | null>(null);
   const reorderFirstOptionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const reorderGripRefs = useRef(new Map<string, View>());
+  const frontDisclosureRefs = useRef(new Map<string, View>());
   const [, refreshSummary] = useState(0);
   const summaryAdapterRef = useRef<GroupCardSummaryAdapter<LeagueMemberResponse[]> | null>(null);
   if (summaryAdapterRef.current === null) {
@@ -393,7 +396,9 @@ export default function GroupListScreen({
     viewEpisodeId,
   ]);
 
-  const deckInputReady = screenFocused && deckInputEpisode === viewEpisodeId;
+  // 새 episode의 전체 목록 성공은 guide 판정에 필요하지만, 이미 한 번 입력을 연 덱은 재조회
+  // 실패 중에도 유지한다. 기존 데이터가 있는 오류를 영구 hydrating으로 바꾸지 않는다.
+  const deckInputReady = screenFocused && deckInputEpisode !== null;
 
   const deckGuideSteps: GuideStep[] = useMemo(
     () => [
@@ -451,6 +456,13 @@ export default function GroupListScreen({
     setDeckGuideVisible(false);
     if (groupId) setGuidePrimaryFocusGroupId(groupId);
   }, []);
+
+  const previousGuideBlockedRef = useRef(guideBlocked);
+  useEffect(() => {
+    const becameBlocked = guideBlocked && !previousGuideBlockedRef.current;
+    previousGuideBlockedRef.current = guideBlocked;
+    if (becameBlocked) interruptGuide();
+  }, [guideBlocked, interruptGuide]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -675,6 +687,15 @@ export default function GroupListScreen({
     return () => cancelAnimationFrame(frame);
   }, [reorderMenuGroupId]);
 
+  const closeReorderMenu = useCallback((groupId: string, restoreFocus = true) => {
+    setReorderMenuGroupId(null);
+    if (!restoreFocus) return;
+    requestAnimationFrame(() => {
+      const node = ReactNative.findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+  }, []);
+
   const flipToBack = useCallback(
     (groupId: string) => {
       if (!userId || draggingGroupId !== null || reorderMenuGroupId !== null) return;
@@ -691,16 +712,32 @@ export default function GroupListScreen({
     [countBucket, draggingGroupId, focusController, reorderMenuGroupId, summaryAdapter, userId],
   );
 
-  const flipToFront = useCallback(() => {
-    if (flippedGroupId === null) return;
-    guideBackGroupIdRef.current = null;
-    setFlippedGroupId(null);
-    logGroupCardFlipped({
-      to_face: 'front',
-      trigger: 'card_tap',
-      group_count_bucket: countBucket,
+  const flipToFront = useCallback(
+    (groupId: string) => {
+      if (flippedGroupId === null) return;
+      guideBackGroupIdRef.current = null;
+      setFrontFocusGroupId(groupId);
+      setFlippedGroupId(null);
+      logGroupCardFlipped({
+        to_face: 'front',
+        trigger: 'card_tap',
+        group_count_bucket: countBucket,
+      });
+    },
+    [countBucket, flippedGroupId],
+  );
+
+  useEffect(() => {
+    if (frontFocusGroupId === null) return;
+    const frame = requestAnimationFrame(() => {
+      const node = ReactNative.findNodeHandle(
+        frontDisclosureRefs.current.get(frontFocusGroupId) ?? null,
+      );
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+      setFrontFocusGroupId(null);
     });
-  }, [countBucket, flippedGroupId]);
+    return () => cancelAnimationFrame(frame);
+  }, [frontFocusGroupId]);
 
   const acceptAction = useCallback(
     (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
@@ -846,7 +883,7 @@ export default function GroupListScreen({
                     <GroupCardBack
                       group={item}
                       snapshot={summaryAdapter.getSnapshot(item.groupId)!}
-                      onFlipBack={flipToFront}
+                      onFlipBack={() => flipToFront(item.groupId)}
                       onOpenSettings={() => {
                         if (!onOpenSettings) return;
                         invokeAcceptedAction(item, 'settings', () => onOpenSettings(item.groupId));
@@ -892,6 +929,14 @@ export default function GroupListScreen({
                     position={index + 1}
                     pageCount={pageCount}
                     reorderCount={orderedGroups.length}
+                    gripRef={(node) => {
+                      if (node) reorderGripRefs.current.set(item.groupId, node);
+                      else reorderGripRefs.current.delete(item.groupId);
+                    }}
+                    disclosureRef={(node) => {
+                      if (node) frontDisclosureRefs.current.set(item.groupId, node);
+                      else frontDisclosureRefs.current.delete(item.groupId);
+                    }}
                     onFlip={() => flipToBack(item.groupId)}
                     reorderHandlers={handlersFor(item.groupId)}
                     canMovePrevious={index > 0}
@@ -911,7 +956,7 @@ export default function GroupListScreen({
                 <View
                   style={s.reorderMenu}
                   accessibilityViewIsModal
-                  onAccessibilityEscape={() => setReorderMenuGroupId(null)}
+                  onAccessibilityEscape={() => closeReorderMenu(item.groupId)}
                   testID={`group.card.reorderMenu.${item.groupId}`}
                 >
                   <Text style={s.reorderTitle}>순서 변경</Text>
@@ -927,7 +972,7 @@ export default function GroupListScreen({
                         style={s.reorderOption}
                         onPress={() => {
                           commitMove(item.groupId, targetIndex, 'pointer_control');
-                          setReorderMenuGroupId(null);
+                          closeReorderMenu(item.groupId);
                         }}
                         accessibilityRole="button"
                         accessibilityLabel={`${targetIndex + 1}번째로 이동`}
@@ -939,7 +984,7 @@ export default function GroupListScreen({
                   </ScrollView>
                   <TouchableOpacity
                     style={s.reorderClose}
-                    onPress={() => setReorderMenuGroupId(null)}
+                    onPress={() => closeReorderMenu(item.groupId)}
                     accessibilityRole="button"
                     accessibilityLabel="순서 변경 닫기"
                     testID={`group.card.reorderClose.${item.groupId}`}

@@ -84,6 +84,7 @@ jest.mock('./GroupListScreen', () => {
     onFind,
     onRefresh,
     cardEmojiByGroupId,
+    dataReady,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (
@@ -94,11 +95,13 @@ jest.mock('./GroupListScreen', () => {
     onFind: () => void;
     onRefresh: () => Promise<void>;
     cardEmojiByGroupId: Record<string, string>;
+    dataReady?: boolean;
   }) {
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
         <RNText>{`아이콘-${cardEmojiByGroupId[groups[0]?.groupId] ?? '없음'}`}</RNText>
+        <RNText>{`목록 데이터 ${dataReady ? '최신' : '이전 성공본'}`}</RNText>
         {groups.map((g) => (
           <RNTouchable
             key={g.groupId}
@@ -385,12 +388,14 @@ describe('일반 재조회 실패', () => {
     mockGetMyGroups.mockResolvedValueOnce([summary()]);
     await renderScreen();
     expect(screen.getByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.getByText('목록 데이터 최신')).toBeOnTheScreen();
 
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
     await refocus();
 
     // 화면을 갈아엎지 않는다 — 보고 있던 목록을 그대로 두고 배너만 얹는다.
     expect(screen.getByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.getByText('목록 데이터 이전 성공본')).toBeOnTheScreen();
     expect(screen.getByText('목록을 새로고침하지 못했어요')).toBeOnTheScreen();
 
     mockGetMyGroups.mockResolvedValueOnce([summary()]);

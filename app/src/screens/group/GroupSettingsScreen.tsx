@@ -36,6 +36,10 @@ import { groupCardEmojiLabel, readGroupCardEmojiResult } from './groupCardEmojiS
 //    OWNER일 때만 노출한다(포커스마다 재조회로 재동기화).
 
 type GroupSettingsRoute = RouteProp<V2RootStackParamList, 'GroupSettings'>;
+type CardEmojiState =
+  | { groupId: string; status: 'loading' }
+  | { groupId: string; status: 'ready'; name: string }
+  | { groupId: string; status: 'error' };
 
 export default function GroupSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -47,7 +51,10 @@ export default function GroupSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [cardEmojiName, setCardEmojiName] = useState(groupCardEmojiLabel(undefined));
+  const [cardEmojiState, setCardEmojiState] = useState<CardEmojiState>({
+    groupId,
+    status: 'loading',
+  });
   // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
   const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
 
@@ -83,10 +90,28 @@ export default function GroupSettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      setCardEmojiState((current) =>
+        current.groupId === groupId && current.status === 'ready'
+          ? current
+          : { groupId, status: 'loading' },
+      );
       readGroupCardEmojiResult(userId, groupId).then((result) => {
-        if (active && result.status === 'ready') {
-          setCardEmojiName(groupCardEmojiLabel(result.emoji));
+        if (!active) return;
+        if (result.status === 'ready') {
+          setCardEmojiState({
+            groupId,
+            status: 'ready',
+            name: groupCardEmojiLabel(result.emoji),
+          });
+          return;
         }
+        // 이미 확인한 값이 있는 포커스 재조회 실패는 그 값을 유지하되, 첫 읽기 실패는
+        // 기본 🎯를 확정값처럼 보이지 않고 별도 오류 상태로 표시한다.
+        setCardEmojiState((current) =>
+          current.groupId === groupId && current.status === 'ready'
+            ? current
+            : { groupId, status: 'error' },
+        );
       });
       return () => {
         active = false;
@@ -98,6 +123,12 @@ export default function GroupSettingsScreen() {
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
   const isOwner = me?.role === 'OWNER';
   const groupName = detail?.name ?? '';
+  const cardEmojiHelper =
+    cardEmojiState.groupId !== groupId || cardEmojiState.status === 'loading'
+      ? '현재 아이콘 확인 중…'
+      : cardEmojiState.status === 'error'
+        ? '현재 아이콘을 확인할 수 없어요 · 이 기기에서 나에게만 보여요'
+        : `현재 아이콘 ${cardEmojiState.name} · 이 기기에서 나에게만 보여요`;
 
   const doLeave = useCallback(async () => {
     if (leaving) return;
@@ -224,7 +255,7 @@ export default function GroupSettingsScreen() {
                 '내 카드 아이콘',
                 () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
                 'group.settings.cardEmoji',
-                `현재 아이콘 ${cardEmojiName} · 이 기기에서 나에게만 보여요`,
+                cardEmojiHelper,
               )}
             </View>
           </>

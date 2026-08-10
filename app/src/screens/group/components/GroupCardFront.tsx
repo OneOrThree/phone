@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import type { ComponentRef, Ref } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -10,6 +11,8 @@ interface GroupCardFrontProps {
   position?: number;
   pageCount?: number;
   reorderCount?: number;
+  gripRef?: Ref<View>;
+  disclosureRef?: Ref<ComponentRef<typeof Pressable>>;
   onFlip: () => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
@@ -24,6 +27,8 @@ export function GroupCardFront({
   position = 1,
   pageCount = 1,
   reorderCount = pageCount,
+  gripRef,
+  disclosureRef,
   onFlip,
   reorderHandlers,
   onMoveStep,
@@ -35,6 +40,7 @@ export function GroupCardFront({
   return (
     <View style={s.root} testID={`group.card.front.${group.groupId}`}>
       <View
+        ref={gripRef}
         style={s.grip}
         testID={`group.card.grip.${group.groupId}`}
         accessibilityRole="adjustable"
@@ -54,6 +60,7 @@ export function GroupCardFront({
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
+        ref={disclosureRef}
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
