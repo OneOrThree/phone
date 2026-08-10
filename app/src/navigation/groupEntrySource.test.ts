@@ -4,6 +4,7 @@ import {
   consumeInitialGroupRoomReturn,
   consumeGroupEntry,
   consumeClaimedGroupEntry,
+  discardInitialGroupRoomReturn,
   discardQueuedGroupEntry,
   markInitialGroupRoomReturn,
   peekGroupEntry,
@@ -61,5 +62,13 @@ test('GroupRoom 최초 우회 표식은 return fallback에서 한 번만 소비�
   markInitialGroupRoomReturn();
 
   expect(consumeInitialGroupRoomReturn()).toBe(true);
+  expect(consumeInitialGroupRoomReturn()).toBe(false);
+});
+
+test('GroupRoom에서 다른 탭으로 끝낸 흐름은 최초 복귀 표식을 폐기한다', () => {
+  markInitialGroupRoomReturn();
+
+  discardInitialGroupRoomReturn();
+
   expect(consumeInitialGroupRoomReturn()).toBe(false);
 });

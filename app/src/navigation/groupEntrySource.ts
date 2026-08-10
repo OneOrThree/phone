@@ -72,3 +72,7 @@ export function consumeInitialGroupRoomReturn(): boolean {
   pendingInitialRoomReturn = false;
   return pending;
 }
+
+export function discardInitialGroupRoomReturn(): void {
+  pendingInitialRoomReturn = false;
+}
