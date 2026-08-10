@@ -142,10 +142,14 @@ export default function GroupCardEmojiEditScreen() {
         updatePendingGroupCardEmojiSelection(userId, groupId, emoji, baseline);
         const retry = ++changeRetryRef.current;
         const retryIdentity = identity;
+        const retrySessionIdentity = sessionIdentityRef.current;
         writeGroupCardEmoji(userId, groupId, emoji)
           .then(() => {
             if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
             clearPendingGroupCardEmoji(userId, groupId, emoji);
+            if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
+              logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
+            }
             if (!activeRef.current) return;
             setBaseline(emoji);
             setSaveFailed(false);
@@ -154,10 +158,13 @@ export default function GroupCardEmojiEditScreen() {
             if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
             // 기준값으로 되돌린 선택도 앞선 자동 쓰기 뒤 실패할 수 있으므로 최신 값으로 보존한다.
             preservePendingGroupCardEmoji(userId, groupId, emoji);
+            if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
+              logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
+            }
           });
       }
     },
-    [baseline, groupId, identity, saveFailed, userId],
+    [baseline, groupId, identity, saveFailed, sessionIdentityRef, userId],
   );
 
   return (
