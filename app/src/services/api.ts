@@ -23,6 +23,19 @@ export function getUserIdFromToken(token: string): string | null {
 
 let onLogout: (() => void) | null = null;
 
+// 소셜 로그인/게스트 승격처럼 인증 세션 자체가 교체될 때만 증가한다. access token 자동 갱신은
+// 같은 세션의 연장이므로 올리지 않는다. userId가 같은 승격에서도 이전 요청의 후속 부작용을
+// 취소할 수 있도록 화면은 요청 시작/완료 시 이 동기 세대를 비교한다.
+let authSessionGeneration = 0;
+
+export function getAuthSessionGeneration(): number {
+  return authSessionGeneration;
+}
+
+export function markAuthSessionReplacement(): void {
+  authSessionGeneration += 1;
+}
+
 export function setLogoutHandler(fn: (() => void) | null): void {
   onLogout = fn;
 }

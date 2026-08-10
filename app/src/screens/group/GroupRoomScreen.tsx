@@ -18,7 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { useUser } from '@/store/UserContext';
-import { triggerLogout } from '@/services/api';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import { useCoins } from '@/store/CoinContext';
 import {
   deleteChallenge,
@@ -80,7 +80,8 @@ const NOTICE_PREVIEW = 3;
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
 type GridCell =
-  { kind: 'member'; member: GroupDetailMemberResponse; rank: number } | { kind: 'invite' };
+  | { kind: 'member'; member: GroupDetailMemberResponse; rank: number }
+  | { kind: 'invite' };
 
 // 리스트를 n개씩 잘라 행 배열로 만든다(3열 그리드 — flexWrap 대신 행 단위로 그려
 // 마지막 행에도 같은 폭이 유지되게 한다).
@@ -316,6 +317,9 @@ export default function GroupRoomScreen({
     // 무효화하고 이전 그룹 데이터를 새 화면에 되씌운다. 시작조차 하지 않는다(코덱스 리뷰).
     if (renderedGroupIdRef.current !== groupId) return false;
     const seq = ++requestSeqRef.current;
+    // 같은 userId를 유지하는 게스트→소셜 승격도 인증 세대는 바뀐다. 이 요청 묶음이 시작한 세대를
+    // 박제해, 이전 세션의 NOT_FOUND 재확인이 새 세션을 로그아웃/이탈시키지 않게 한다.
+    const requestSessionGeneration = getAuthSessionGeneration();
     // 기준일은 서버 판정 축과 같은 KST다(GROMO-1219) — 진행률·내기·결과의 날짜 판정이 전부
     // 서버 KST 고정이라, 기기 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 조회가 된다.
     const date = todayStrKst();
@@ -434,7 +438,13 @@ export default function GroupRoomScreen({
         // NOT_FOUND는 활성 사용자 부재와 그룹 부재가 같은 code다. 인증을 재확인하고, 유효한
         // 세션이면 최신 detail/전체 목록 scope가 결론을 낼 때만 방 유지 또는 이탈로 수렴한다.
         const resolution = await resolveGroupRoomNotFound({ groupId, date, userId: userId ?? '' });
-        if (seq !== requestSeqRef.current || activeUserIdRef.current !== userId) return false;
+        if (
+          seq !== requestSeqRef.current ||
+          activeUserIdRef.current !== userId ||
+          getAuthSessionGeneration() !== requestSessionGeneration
+        ) {
+          return false;
+        }
         if (resolution.kind === 'detail') {
           resolvedDetail = resolution.detail;
         } else if (resolution.kind === 'membership_absent') {

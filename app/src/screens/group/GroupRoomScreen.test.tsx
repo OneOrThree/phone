@@ -25,7 +25,7 @@ import {
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
-import { triggerLogout } from '@/services/api';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -110,7 +110,10 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 jest.mock('./groupRoomNotFound', () => ({ resolveGroupRoomNotFound: jest.fn() }));
-jest.mock('@/services/api', () => ({ triggerLogout: jest.fn() }));
+jest.mock('@/services/api', () => ({
+  getAuthSessionGeneration: jest.fn(),
+  triggerLogout: jest.fn(),
+}));
 
 // 날짜 경계를 테스트가 직접 옮긴다. kstDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
 // 실물을 쓴다(challengeResult.ts). 조회 기준일·내기 생성 경로는 전부 KST 버전이다(GROMO-1219 —
@@ -141,6 +144,10 @@ const mockResolveGroupRoomNotFound = resolveGroupRoomNotFound as jest.MockedFunc
   typeof resolveGroupRoomNotFound
 >;
 const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
+let mockAuthSessionGeneration = 0;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
@@ -265,6 +272,8 @@ async function press(label: string) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockAuthSessionGeneration = 0;
+  mockGetAuthSessionGeneration.mockImplementation(() => mockAuthSessionGeneration);
   // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
   await AsyncStorage.clear();
   mockFocusEntries.length = 0;
@@ -370,6 +379,22 @@ describe('상세·공지 오류 분리', () => {
     await act(async () => resolveRecovery({ kind: 'session_recovery' }));
 
     expect(mockTriggerLogout).not.toHaveBeenCalled();
+  });
+
+  test('같은 userId여도 access token이 교체된 session_recovery는 새 세션을 로그아웃하지 않는다', async () => {
+    let resolveRecovery!: (value: { kind: 'session_recovery' }) => void;
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockResolveGroupRoomNotFound.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRecovery = resolve)),
+    );
+    await renderRoom();
+
+    // 게스트→소셜 승격은 userId를 유지할 수 있지만 인증 세대는 교체된다.
+    mockAuthSessionGeneration += 1;
+    await act(async () => resolveRecovery({ kind: 'session_recovery' }));
+
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
+    expect(onLeft).not.toHaveBeenCalled();
   });
 
   test('기존 detail 갱신의 NOT_FOUND도 불명확하면 데이터를 보존하고 배너로 재시도한다', async () => {

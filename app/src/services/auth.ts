@@ -11,7 +11,13 @@ import {
 import LineLogin, { LoginPermission } from '@xmartlabs/react-native-line';
 import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbsdk-next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL, api, getFreshAccessToken, getUserIdFromToken } from '@/services/api';
+import {
+  API_URL,
+  api,
+  getFreshAccessToken,
+  getUserIdFromToken,
+  markAuthSessionReplacement,
+} from '@/services/api';
 import { getMyProfile } from '@/services/userApi';
 import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/services/analyticsEvents';
 import { claimStoredInviteAttribution } from '@/services/deferredInvite';
@@ -83,6 +89,9 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   if (prevToken && prevUserId && nextUserId && prevUserId !== nextUserId) {
     await accountSwitchHandler?.(prevToken);
   }
+  // 새 토큰 저장보다 먼저 세대를 올려 이전 세션에서 진행 중인 화면 요청을 무효화한다.
+  // 같은 userId를 유지하는 게스트→소셜 승격도 세션 교체이므로 예외 없이 올린다.
+  markAuthSessionReplacement();
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
