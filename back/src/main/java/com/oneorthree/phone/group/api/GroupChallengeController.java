@@ -47,9 +47,10 @@ public class GroupChallengeController {
             + " — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null."
             + " TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치),"
             + " SCREEN_TIME 은 클라 보고값(미보고 = null)."
-            + " 내기 응답(bet)은 브리지 주기 동안 레거시 필드(betId·status·myJoined·participants)와"
-            + " 신앱 필드(enabled·session)를 병기하고(N36 보강, GROMO-1418), 다음 회차 축은"
-            + " nextSessionAt·nextSessionJoined 가 담당한다.")
+            + " 내기 응답(bet)은 '오늘 열린 판'이라 회차가 없는 날엔 null 이다 — 브리지 주기 동안"
+            + " 레거시 필드(betId·status·myJoined·participants)와 신앱 필드(enabled·session)를"
+            + " 병기한다(N36 보강, GROMO-1418). 내기가 걸려 있는지 자체는 회차와 무관한"
+            + " betConfig(enabled·stake)가, 다음 회차 축은 nextSessionAt·nextSessionJoined 가 담당한다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 형식 오류"),

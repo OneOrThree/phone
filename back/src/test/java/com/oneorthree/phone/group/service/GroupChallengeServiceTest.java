@@ -151,6 +151,7 @@ class GroupChallengeServiceTest {
     @BeforeEach
     void givenNoNextSessions() {
         lenient().when(groupBetService.loadNextSessions(any(), any(), any())).thenReturn(Map.of());
+        lenient().when(groupBetService.loadBetConfigs(any())).thenReturn(Map.of());
     }
 
     private User member() {

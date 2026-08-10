@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateChallengeResponse;
+import com.oneorthree.phone.group.dto.GroupBetConfigResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.service.GroupChallengeService;
@@ -72,11 +73,22 @@ class GroupChallengeControllerTest {
                         .session(null)
                         .enabled(true)
                         .build())
+                // 설정 축은 회차와 무관하게 실린다 — 신앱은 이걸로 진입점을 세운다.
+                .betConfig(GroupBetConfigResponse.builder().enabled(true).stake(30).build())
                 .nextSessionAt(null)
                 .nextSessionJoined(null)
                 .build();
+        // 내기가 걸리지 않은 챌린지 — bet·betConfig 둘 다 null 키로 실려야 한다(3상).
+        GroupChallengeResponse noBet = GroupChallengeResponse.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-000000000009"))
+                .missionType(MissionType.DURATION)
+                .missionCategory(MissionCategory.FOCUS)
+                .status(GroupChallengeStatus.ACTIVE)
+                .bet(null)
+                .betConfig(null)
+                .build();
         given(groupChallengeService.getChallenges(GROUP_ID, LOGIN_USER_ID, LocalDate.of(2026, 8, 10)))
-                .willReturn(List.of(challenge));
+                .willReturn(List.of(challenge, noBet));
 
         mockMvc.perform(get("/api/v1/groups/{groupId}/challenges", GROUP_ID)
                         .param("date", "2026-08-10")
@@ -84,10 +96,13 @@ class GroupChallengeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(CHALLENGE_ID.toString()))
                 .andExpect(jsonPath("$[0].bet.enabled").value(true))
+                .andExpect(jsonPath("$[0].betConfig.enabled").value(true))
+                .andExpect(jsonPath("$[0].betConfig.stake").value(30))
                 // null 값 키의 "존재"는 jsonPath exists 로 못 잡는다 — 원문으로 잠근다(계약 §1 선례).
                 .andExpect(content().string(containsString("\"session\":null")))
                 .andExpect(content().string(containsString("\"nextSessionAt\":null")))
-                .andExpect(content().string(containsString("\"nextSessionJoined\":null")));
+                .andExpect(content().string(containsString("\"nextSessionJoined\":null")))
+                .andExpect(content().string(containsString("\"betConfig\":null")));
     }
 
     @Test

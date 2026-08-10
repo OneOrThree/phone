@@ -49,6 +49,14 @@ public class GroupChallengeResponse {
     private GroupBetResultResponse lastSettledBet;
 
     /**
+     * 내기 <b>설정</b>(GROMO-1418) — 회차 유무와 무관하게 "내기가 걸려 있고 참가비는 얼마인가".
+     * 신앱은 이 필드로 내기 진입점을 세우고, 오늘 판의 상태는 {@code bet.session} 에서 읽는다 —
+     * 회차가 없는 날 {@code bet} 은 구앱 계약대로 null 이라 그것만 보면 "내기 꺼짐"으로 오독된다.
+     * null = 진입점 없음(설정 없음·꺼짐·끝난 챌린지). {@code @JsonInclude(NON_NULL)} 금지(3상 계약).
+     */
+    private GroupBetConfigResponse betConfig;
+
+    /**
      * <b>오늘을 제외한</b> 다음 활성일의 회차 시작(신앱 카드의 "다음 회차" 축 — GROMO-1418,
      * LLD §2.1). 하루형은 다음 활성일 00:00 KST, 창형은 다음 활성일의 창 시작이다.
      * {@code activeToday} 와 배타가 아니라 보완이다 — 오늘 회차의 축은 {@code bet.session} 이

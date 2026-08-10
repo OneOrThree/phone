@@ -16,6 +16,7 @@ import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetConfigResponse;
 import com.oneorthree.phone.group.dto.GroupBetHistoryItemResponse;
 import com.oneorthree.phone.group.dto.GroupBetHistorySliceResponse;
 import com.oneorthree.phone.group.dto.GroupBetParticipantResponse;
@@ -510,6 +511,12 @@ public class GroupBetService {
 
         Map<UUID, List<GroupChallengeBetParticipant>> participantsBySession =
                 participantsBySession(sessions);
+        // 시작 전 회차의 라이브 명단에서 뺄 비활성 멤버(강퇴·탈퇴) 판정용 — 필요할 때만 조회한다
+        // (시작된 회차뿐이면 필터 자체가 없다). 빈 집합을 "전원 비활성"으로 오독하지 않도록
+        // 필터는 preStart 인 회차에만 적용한다.
+        Set<UUID> activeMemberUserIds = sessions.stream().anyMatch(GroupBetService::preStart)
+                ? activeMemberUserIdsOf(sessions)
+                : Set.of();
         Map<UUID, GroupBetResponse> result = new LinkedHashMap<>();
         for (GroupChallengeBetSession session : sessions) {
             List<GroupChallengeBetParticipant> participants =
@@ -549,7 +556,7 @@ public class GroupBetService {
                     // 축은 nextSessionAt · nextSessionJoined 가 담당).
                     .session(session.getSessionDate().equals(date)
                             ? toSessionResponse(session, participants, userId, myAchievedNow,
-                                    memberProgressByChallengeId.get(challengeId))
+                                    memberProgressByChallengeId.get(challengeId), activeMemberUserIds)
                             : null)
                     .build());
         }
@@ -557,15 +564,77 @@ public class GroupBetService {
     }
 
     /**
+     * 챌린지별 <b>내기 설정</b>(카드 최상위 {@code betConfig} — GROMO-1418 · codex ① 후속) —
+     * 회차 유무와 <b>무관하게</b> "이 챌린지에 내기가 걸려 있고 참가비는 얼마인가"만 말한다.
+     *
+     * <p>이 축을 {@code bet} 과 <b>분리한</b> 이유: {@code bet} 은 구앱 계약상 "오늘 열린 판"이라
+     * {@code betId} 가 유효해야 하는데, 회차가 없는 날(마지막 참가자 취소로 회차 행 삭제 / lazy
+     * 개설 전)엔 그 자리에 넣을 값이 없다. 설정을 {@code bet} 에 욱여넣으면 구앱이 판도 없는데
+     * 참가 버튼을 세우려다 개설 동선까지 잃는다 — 회차가 없으면 {@code bet} 은 종전대로 null 이고,
+     * 구앱은 「내기 걸기」를 눌러 레거시 createBet 브리지(설정 보장 + 당일 회차 개설 + 참가)를 탄다.
+     * 신앱은 회차 유무를 {@code bet.session} 이 아니라 이 필드로 판단한다.
+     *
+     * <p>참여할 수 없는 곳에는 실리지 않는다 — 꺼진 설정·끝난(ACTIVE 아님)·삭제된 챌린지는 빠져
+     * {@code betConfig} 가 null 이 된다(= 내기 진입점 없음).
+     */
+    public Map<UUID, GroupBetConfigResponse> loadBetConfigs(Collection<UUID> challengeIds) {
+        if (challengeIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, GroupBetConfigResponse> result = new LinkedHashMap<>();
+        for (GroupChallengeBet bet : groupChallengeBetRepository.findEnabledByChallengeIdIn(challengeIds)) {
+            result.put(bet.getChallenge().getId(), GroupBetConfigResponse.builder()
+                    .enabled(bet.isEnabled())
+                    .stake(bet.getStake())
+                    .build());
+        }
+        return result;
+    }
+
+    /** 회차가 아직 시작되지 않았는가 — 라이브 명단 필터(LLD §2.1)의 단일 판정점. */
+    private static boolean preStart(GroupChallengeBetSession session) {
+        return Instant.now().isBefore(session.getStartsAt());
+    }
+
+    /**
+     * 회차가 속한 그룹의 <b>활성</b> 멤버 userId — 강퇴·탈퇴(is_left)는 빠진다. 카드 조회는 단일
+     * 그룹 스코프라 실제로는 IN 1건이다.
+     */
+    private Set<UUID> activeMemberUserIdsOf(Collection<GroupChallengeBetSession> sessions) {
+        Set<UUID> groupIds = sessions.stream()
+                .map(session -> session.getGroup().getId())
+                .collect(Collectors.toSet());
+        return groupMemberRepository.findByGroupIdIn(groupIds).stream()
+                .map(member -> member.getUser().getId())
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * 오늘(조회 date) 회차의 신앱 응답 조립(GROMO-1418, LLD §2.1) — 카운트다운 축
      * ({@code joinClosesAt}·{@code myLeaveDeadlineAt})과 하루형 참가자 진행분(N16)을 싣는다.
+     *
+     * <p><b>라이브 명단 필터</b>(LLD §2.1 탈퇴 멤버 가시성 · 정책 C8 · codex ②): 아직 시작하지
+     * 않은 회차의 명단에서는 비활성 멤버(강퇴·탈퇴)를 뺀다 — 그룹에 없는 사람이 그룹 카드의
+     * 라이브 참가자로 닉네임까지 노출될 이유가 없다. <b>시작된 회차는 전원 보존</b>한다: 강퇴는
+     * 참가비를 환불하지 않고 정산 대상으로 남기므로({@code GroupMemberService#kickMember}),
+     * 시작 후에 지우면 정산 명단과 화면이 갈린다.
+     *
+     * <p>{@code pot} 은 필터와 무관하게 <b>전체 참가 인원</b> 기준이다(계약 §1) — 강퇴자의 참가비도
+     * 실제로 팟에 들어 있으니 금액을 줄이면 화면이 거짓말이 된다. 표시 인원과 팟이 어긋나 보이는
+     * 것은 "명단만 가린다"는 결정의 대가로 수용한다.
      */
     private GroupBetSessionResponse toSessionResponse(
             GroupChallengeBetSession session,
             List<GroupChallengeBetParticipant> participants,
             UUID userId,
             boolean myAchievedNow,
-            List<ChallengeMemberProgressResponse> memberProgress) {
+            List<ChallengeMemberProgressResponse> memberProgress,
+            Set<UUID> activeMemberUserIds) {
+        List<GroupChallengeBetParticipant> visible = preStart(session)
+                ? participants.stream()
+                        .filter(p -> activeMemberUserIds.contains(p.getUser().getId()))
+                        .toList()
+                : participants;
         // 진행분 공개는 하루형만이다(N16 — 창형은 출발선이 있어 계약상 싣지 않는다).
         Map<UUID, ChallengeMemberProgressResponse> progressByUser =
                 session.getMissionType() == MissionType.DURATION && memberProgress != null
@@ -592,7 +661,7 @@ public class GroupBetService {
                 .closesAt(session.getClosesAt())
                 .myJoined(mine.isPresent())
                 .myAchievedNow(myAchievedNow)
-                .participants(participants.stream()
+                .participants(visible.stream()
                         .map(p -> {
                             ChallengeMemberProgressResponse progress =
                                     progressByUser.get(p.getUser().getId());

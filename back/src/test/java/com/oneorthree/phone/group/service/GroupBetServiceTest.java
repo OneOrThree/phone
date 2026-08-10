@@ -20,6 +20,7 @@ import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
+import com.oneorthree.phone.group.dto.GroupBetConfigResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultParticipantResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
@@ -56,6 +57,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1409,6 +1411,103 @@ class GroupBetServiceTest {
         assertThat(result).isEmpty();
         verify(groupChallengeBetSessionRepository, never())
                 .findByChallengeIdInAndSessionDateAndStatus(any(), any(), any());
+    }
+
+    // ── 내기 설정 축 betConfig (codex ① — bet 과 분리해 구앱 계약을 건드리지 않는다) ──────
+
+    @Test
+    @DisplayName("회차가 없어도 betConfig 는 실린다 — 신앱 진입점 유지 (bet 은 종전대로 null)")
+    void loadBetConfigsCarriesEnabledConfigRegardlessOfSession() {
+        given(groupChallengeBetRepository.findEnabledByChallengeIdIn(List.of(CHALLENGE_ID)))
+                .willReturn(List.of(config()));
+
+        Map<UUID, GroupBetConfigResponse> configs =
+                groupBetService.loadBetConfigs(List.of(CHALLENGE_ID));
+
+        assertThat(configs.get(CHALLENGE_ID).getEnabled()).isTrue();
+        assertThat(configs.get(CHALLENGE_ID).getStake()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("설정이 없는(꺼짐·끝난·삭제 포함) 챌린지는 betConfig 가 없다 — 진입점 없음")
+    void loadBetConfigsOmitsChallengesWithoutEnabledConfig() {
+        given(groupChallengeBetRepository.findEnabledByChallengeIdIn(List.of(CHALLENGE_ID)))
+                .willReturn(List.of());
+
+        assertThat(groupBetService.loadBetConfigs(List.of(CHALLENGE_ID))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("회차가 없는 날의 bet 은 null 이다 — 구앱이 「내기 걸기」(createBet 브리지)를 그대로 탄다")
+    void loadCurrentBetsStaysNullWithoutSession() {
+        given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                List.of(CHALLENGE_ID), today(), GroupBetStatus.UNUSED))
+                .willReturn(List.of());
+        given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatus(
+                List.of(CHALLENGE_ID), today().plusDays(1), GroupBetStatus.OPEN))
+                .willReturn(List.of());
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of(), Map.of());
+
+        assertThat(bets).isEmpty();
+        // 설정 조회는 betConfig 축의 몫이다 — bet 조립은 회차만 본다(축 분리).
+        verify(groupChallengeBetRepository, never()).findEnabledByChallengeIdIn(any());
+    }
+
+    // ── 라이브 명단 필터 (codex ② — 시작 전 회차의 비활성 멤버, LLD §2.1 · C8) ─────
+
+    /** 그룹의 활성 멤버 = 나 혼자 — 상대(OTHER_USER_ID)는 강퇴되어 멤버십 행이 is_left 다. */
+    private void givenOnlyMeIsActiveMember() {
+        given(groupMemberRepository.findByGroupIdIn(Set.of(GROUP_ID)))
+                .willReturn(List.of(GroupMember.builder()
+                        .user(member()).group(group()).role(GroupMemberRole.MEMBER).build()));
+    }
+
+    @Test
+    @DisplayName("시작 전 회차 — 강퇴 멤버는 라이브 명단에서 빠진다(팟은 실제 참가비라 불변)")
+    void loadCurrentBetsFiltersKickedMemberFromPreStartSession() {
+        // 내일 회차 = 아직 시작 전. 오늘 조회에 폴백으로 실리지 않도록 date 를 내일로 준다.
+        LocalDate tomorrow = today().plusDays(1);
+        GroupChallengeBetSession upcoming = session(GroupBetStatus.OPEN, tomorrow);
+        given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                List.of(CHALLENGE_ID), tomorrow, GroupBetStatus.UNUSED))
+                .willReturn(List.of(upcoming));
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(SESSION_ID)))
+                .willReturn(List.of(participantOf(upcoming, USER_ID),
+                        participantOf(upcoming, OTHER_USER_ID)));
+        givenOnlyMeIsActiveMember();
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), tomorrow, USER_ID, Map.of(), Map.of());
+
+        GroupBetSessionResponse sessionResponse = bets.get(CHALLENGE_ID).getSession();
+        assertThat(sessionResponse.getParticipants())
+                .extracting(p -> p.getUserId())
+                .containsExactly(USER_ID);
+        // 팟은 강퇴자 참가비까지 포함한 실제 금액이다(계약 §1 — 명단만 가린다).
+        assertThat(sessionResponse.getPot()).isEqualTo(60);
+        // 레거시 명단은 브리지 계약대로 손대지 않는다(구앱 동작 불변).
+        assertThat(bets.get(CHALLENGE_ID).getParticipants()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("시작된 회차 — 강퇴 멤버도 명단에 남는다(정산 대상이라 지우면 결과와 갈린다, C8)")
+    void loadCurrentBetsKeepsKickedMemberOnStartedSession() {
+        GroupChallengeBetSession started = session(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                List.of(CHALLENGE_ID), today(), GroupBetStatus.UNUSED))
+                .willReturn(List.of(started));
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(SESSION_ID)))
+                .willReturn(List.of(participantOf(started, USER_ID),
+                        participantOf(started, OTHER_USER_ID)));
+
+        Map<UUID, GroupBetResponse> bets = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of(), Map.of());
+
+        assertThat(bets.get(CHALLENGE_ID).getSession().getParticipants()).hasSize(2);
+        // 시작된 회차뿐이면 멤버십 조회 자체가 필요 없다(필터가 없다).
+        verify(groupMemberRepository, never()).findByGroupIdIn(any());
     }
 
     // ── 취소 마감 단일 판정점 (N22 — 카드 myLeaveDeadlineAt 과 철회 판정 공용) ──
