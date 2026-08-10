@@ -8,9 +8,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View } from 'react-native';
-import GroupListScreen, { resolveDragTarget } from './GroupListScreen';
+import GroupListScreen, { groupDeckResponderLayoutKey, resolveDragTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { writeGroupCardEmoji } from './groupCardEmojiStore';
+import { readGroupCardEmoji, writeGroupCardEmoji } from './groupCardEmojiStore';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
@@ -93,9 +93,28 @@ async function renderList(
       onBack={back}
     />,
   );
-  if (waitHydrated) await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
-  else await waitFor(() => expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen());
+  if (waitHydrated) {
+    await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
+    await completeDeckLayout();
+  } else await waitFor(() => expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen());
   return result;
+}
+
+async function fireDeckLayout() {
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.list.items', { includeHiddenElements: true }), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 300 } },
+    });
+  });
+}
+
+async function completeDeckLayout() {
+  await fireDeckLayout();
+  await waitFor(() =>
+    expect(
+      screen.getByTestId('group.list.items', { includeHiddenElements: true }).props.pointerEvents,
+    ).toBe('auto'),
+  );
 }
 
 // 탭은 act로 감싼다 — 감싸지 않으면 fireEvent가 여는 act 스코프가 렌더 스코프와 겹쳐
@@ -279,6 +298,8 @@ describe('카드 렌더', () => {
       onRefresh,
     };
     const view = await render(<GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused />);
+    await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
+    await fireDeckLayout();
     await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
 
     await view.rerender(
@@ -317,6 +338,8 @@ describe('카드 렌더', () => {
       onRefresh,
     };
     const view = await render(<GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused />);
+    await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
+    await fireDeckLayout();
 
     await view.rerender(
       <GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused={false} />,
@@ -397,10 +420,17 @@ describe('카드 렌더', () => {
     await renderList([group()], undefined, 'emoji-hydration', false);
     expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen();
     expect(screen.queryByTestId(`group.card.front.${GROUP_ID}`)).toBeNull();
+    expect(logGroupCardDeckViewed).not.toHaveBeenCalled();
 
     await act(async () => {
       finishEmojiRead(JSON.stringify({ 'emoji-hydration': { [GROUP_ID]: '📚' } }));
     });
+    await waitFor(() => expect(screen.getByTestId('group.list')).toBeOnTheScreen());
+    expect(logGroupCardDeckViewed).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId('group.list.items', { includeHiddenElements: true }).props.pointerEvents,
+    ).toBe('none');
+    await completeDeckLayout();
     await waitFor(() =>
       expect(
         within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚', {
@@ -409,6 +439,48 @@ describe('카드 렌더', () => {
       ).toBeOnTheScreen(),
     );
     jest.mocked(AsyncStorage.getItem).mockImplementation(readStoredItem);
+  });
+
+  test('같은 성공 revision의 포커스 전환은 아직 목록에 없는 새 그룹 아이콘을 prune하지 않는다', async () => {
+    const newGroupId = `${GROUP_ID}-new`;
+    const view = await renderList([group()], undefined, 'create-return');
+    await writeGroupCardEmoji('create-return', newGroupId, '📚');
+
+    const props = {
+      groups: [group()],
+      groupsRevision: 0,
+      userId: 'create-return',
+      onSelect,
+      onFocus,
+      onSettings,
+      viewEpisodeId: 1,
+      groupEntry: 'tab' as const,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    await view.rerender(<GroupListScreen {...props} isScreenFocused={false} />);
+    await view.rerender(<GroupListScreen {...props} isScreenFocused />);
+
+    expect(await readGroupCardEmoji('create-return', newGroupId)).toBe('📚');
+
+    await view.rerender(
+      <GroupListScreen
+        {...props}
+        groupsRevision={1}
+        groups={[group(), group({ groupId: newGroupId, name: '방금 만든 그룹' })]}
+        isScreenFocused
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        within(
+          screen.getByTestId(`group.card.front.${newGroupId}`, {
+            includeHiddenElements: true,
+          }),
+        ).getByText('📚', { includeHiddenElements: true }),
+      ).toBeOnTheScreen(),
+    );
   });
 });
 
@@ -574,7 +646,9 @@ describe('콜백', () => {
         onRefresh={onRefresh}
       />,
     );
-    expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen();
+    expect(
+      screen.getByTestId('group.list.items', { includeHiddenElements: true }).props.pointerEvents,
+    ).toBe('none');
 
     await act(async () => finishGuideRead('1'));
     await waitFor(() =>
@@ -911,6 +985,10 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2, thirdId]);
     expect(logGroupCardReordered).not.toHaveBeenCalled();
+  });
+
+  test('화면 폭·snap 규격은 grip responder cache identity에 포함된다', () => {
+    expect(groupDeckResponderLayoutKey(390, 354)).not.toBe(groupDeckResponderLayoutKey(700, 664));
   });
 
   test('grip을 가장자리에서 잡았다는 이유만으로 첫 move에 다음 slot으로 넘기지 않는다', async () => {

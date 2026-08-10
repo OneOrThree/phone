@@ -121,6 +121,10 @@ export function resolveDragTarget(
   };
 }
 
+export function groupDeckResponderLayoutKey(windowWidth: number, snapInterval: number): string {
+  return `${windowWidth}:${snapInterval}`;
+}
+
 /**
  * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
  * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
@@ -236,9 +240,12 @@ export default function GroupListScreen({
   const invalidatedGuideEpisodeRef = useRef<number | null>(null);
   const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
   const [emojiScopeLoaded, setEmojiScopeLoaded] = useState<string | null>(null);
+  const reconciledEmojiRevisionRef = useRef<string | null>(null);
+  const [deckLayoutScope, setDeckLayoutScope] = useState<string | null>(null);
   const [, setSummaryVersion] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
+  const deckLayoutKey = `${emojiScopeLoaded ?? 'emoji-pending'}\u0000${snapInterval}`;
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
     serverGroupIds: groups.map((group) => group.groupId),
     userId,
@@ -252,6 +259,7 @@ export default function GroupListScreen({
     });
   }, [groups, hydrated, orderedGroupIds]);
   const emojiScope = `${userId ?? ''}\u0000${groups.map((group) => group.groupId).join('\u0000')}`;
+  const deckInteractive = exposedEpisodeId === viewEpisodeId;
   const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   // hydration 전 서버 첫 카드를 현재 위치로 확정하지 않는다. undefined는 아직 위치 미확정,
@@ -298,6 +306,8 @@ export default function GroupListScreen({
   useEffect(() => {
     if (
       !hydrated ||
+      emojiScopeLoaded !== emojiScope ||
+      deckLayoutScope !== deckLayoutKey ||
       !guideScreenFocused ||
       invalidatedGuideEpisodeRef.current === viewEpisodeId ||
       exposedEpisodeId === viewEpisodeId
@@ -328,6 +338,10 @@ export default function GroupListScreen({
     };
   }, [
     exposedEpisodeId,
+    deckLayoutKey,
+    deckLayoutScope,
+    emojiScope,
+    emojiScopeLoaded,
     groupEntry,
     guideBlocked,
     guideScreenFocused,
@@ -454,12 +468,20 @@ export default function GroupListScreen({
   useEffect(() => {
     let active = true;
     const groupIds = groups.map((group) => group.groupId);
-    const reconcile = userId
+    const reconciliationKey = userId ? `${userId}\u0000${groupsRevision}` : null;
+    const shouldReconcile =
+      reconciliationKey !== null && reconciledEmojiRevisionRef.current !== reconciliationKey;
+    if (shouldReconcile) reconciledEmojiRevisionRef.current = reconciliationKey;
+    const prepare = userId
       ? retryPendingGroupCardEmojis(userId, groupIds)
-          .then(() => reconcileGroupCardEmojis(userId, groupIds))
-          .catch(() => undefined)
+          .then(() => (shouldReconcile ? reconcileGroupCardEmojis(userId, groupIds) : undefined))
+          .catch(() => {
+            if (shouldReconcile && reconciledEmojiRevisionRef.current === reconciliationKey) {
+              reconciledEmojiRevisionRef.current = null;
+            }
+          })
       : Promise.resolve();
-    reconcile
+    prepare
       .then(() =>
         Promise.all(
           groups.map(
@@ -508,7 +530,7 @@ export default function GroupListScreen({
 
   const selectPage = useCallback(
     (page: number, trigger: 'indicator_press' | 'accessibility_action' = 'indicator_press') => {
-      if (orderMenuGroupIdRef.current !== null) return;
+      if (!deckInteractive || orderMenuGroupIdRef.current !== null) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndex;
       if (from === next) return;
@@ -525,7 +547,7 @@ export default function GroupListScreen({
         group_count_bucket: groupCountBucket(orderedGroups.length),
       });
     },
-    [activeIndex, orderedGroups, pageCount, snapInterval],
+    [activeIndex, deckInteractive, orderedGroups, pageCount, snapInterval],
   );
 
   const onMomentumScrollEnd = useCallback(
@@ -658,7 +680,10 @@ export default function GroupListScreen({
     moved: boolean;
   } | null>(null);
   const lastEdgePageAtRef = useRef(0);
-  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
+  const responderLayoutKey = groupDeckResponderLayoutKey(windowWidth, snapInterval);
+  const respondersRef = useRef(
+    new Map<string, { layoutKey: string; responder: ReturnType<typeof PanResponder.create> }>(),
+  );
 
   const commitMove = useCallback(
     (groupId: string, targetIndex: number, trigger: GroupCardReorderTrigger) => {
@@ -699,7 +724,7 @@ export default function GroupListScreen({
   const handlersFor = useCallback(
     (groupId: string) => {
       const cached = respondersRef.current.get(groupId);
-      if (cached) return cached.panHandlers;
+      if (cached?.layoutKey === responderLayoutKey) return cached.responder.panHandlers;
       const responder = PanResponder.create({
         onStartShouldSetPanResponder: () => hydrated && orderMenuGroupIdRef.current === null,
         onMoveShouldSetPanResponder: () => hydrated && orderMenuGroupIdRef.current === null,
@@ -786,17 +811,17 @@ export default function GroupListScreen({
           if (drag) restoreDragOrigin(drag);
         },
       });
-      respondersRef.current.set(groupId, responder);
+      respondersRef.current.set(groupId, { layoutKey: responderLayoutKey, responder });
       return responder.panHandlers;
     },
-    [commitMove, hydrated, restoreDragOrigin, snapInterval, windowWidth],
+    [commitMove, hydrated, responderLayoutKey, restoreDragOrigin, snapInterval, windowWidth],
   );
 
   useEffect(() => {
     respondersRef.current.clear();
   }, [hydrated, orderedGroupIds]);
 
-  if (!hydrated || emojiScopeLoaded !== emojiScope || exposedEpisodeId !== viewEpisodeId) {
+  if (!hydrated || emojiScopeLoaded !== emojiScope) {
     return (
       <View style={s.loading} testID="group.deck.loading">
         <ActivityIndicator color={T.accent} />
@@ -843,6 +868,10 @@ export default function GroupListScreen({
         ref={listRef}
         testID="group.list.items"
         data={orderedGroups}
+        onLayout={() => setDeckLayoutScope(deckLayoutKey)}
+        pointerEvents={deckInteractive ? 'auto' : 'none'}
+        accessibilityElementsHidden={!deckInteractive}
+        importantForAccessibility={deckInteractive ? 'auto' : 'no-hide-descendants'}
         keyExtractor={(item) => item.groupId}
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -853,7 +882,7 @@ export default function GroupListScreen({
         decelerationRate="fast"
         disableIntervalMomentum
         CellRendererComponent={GroupListCell}
-        scrollEnabled={draggingGroupId === null && orderMenuGroupId === null}
+        scrollEnabled={deckInteractive && draggingGroupId === null && orderMenuGroupId === null}
         onScrollBeginDrag={() => {
           roomReturnRef.current = null;
         }}
@@ -897,7 +926,7 @@ export default function GroupListScreen({
                   summaryAdapter.retry(item.groupId, dependency).catch(() => undefined);
                 }}
                 onRoom={() => {
-                  if (actionLockedRef.current) return;
+                  if (!deckInteractive || actionLockedRef.current) return;
                   actionLockedRef.current = true;
                   const interaction = createCardInteractionContext();
                   logGroupCardActionClicked({
@@ -915,7 +944,7 @@ export default function GroupListScreen({
                   onSelect(item.groupId, interaction);
                 }}
                 onFocus={() => {
-                  if (actionLockedRef.current) return;
+                  if (!deckInteractive || actionLockedRef.current) return;
                   actionLockedRef.current = true;
                   const interaction = createCardInteractionContext();
                   logGroupCardActionClicked({
@@ -927,7 +956,7 @@ export default function GroupListScreen({
                   onFocus(item.groupId, interaction);
                 }}
                 onSettings={() => {
-                  if (actionLockedRef.current) return;
+                  if (!deckInteractive || actionLockedRef.current) return;
                   actionLockedRef.current = true;
                   const interaction = createCardInteractionContext();
                   logGroupCardActionClicked({
@@ -945,6 +974,7 @@ export default function GroupListScreen({
                   onSettings(item.groupId);
                 }}
                 onFront={(trigger) => {
+                  if (!deckInteractive) return;
                   roomReturnRef.current = null;
                   setFlippedGroupId(null);
                   setBackSource(null);
@@ -965,7 +995,12 @@ export default function GroupListScreen({
                 cardRef={activeIdentityRef.current === item.groupId ? guideFrontRef : undefined}
                 bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
                 onFlip={(trigger) => {
-                  if (draggingGroupId !== null || orderMenuGroupIdRef.current !== null) return;
+                  if (
+                    !deckInteractive ||
+                    draggingGroupId !== null ||
+                    orderMenuGroupIdRef.current !== null
+                  )
+                    return;
                   roomReturnRef.current = null;
                   if (activeIndex !== index) {
                     listRef.current?.scrollToOffset({
@@ -988,11 +1023,11 @@ export default function GroupListScreen({
                   summaryAdapter.ensureBack(item.groupId).catch(() => undefined);
                   focusPolling?.activate();
                 }}
-                reorderHandlers={hydrated ? handlersFor(item.groupId) : undefined}
-                canMovePrevious={hydrated && index > 0}
-                canMoveNext={hydrated && index < orderedGroups.length - 1}
+                reorderHandlers={deckInteractive ? handlersFor(item.groupId) : undefined}
+                canMovePrevious={deckInteractive && index > 0}
+                canMoveNext={deckInteractive && index < orderedGroups.length - 1}
                 onMoveStep={(step) => {
-                  if (!hydrated || orderMenuGroupIdRef.current !== null) return;
+                  if (!deckInteractive || orderMenuGroupIdRef.current !== null) return;
                   const from = orderedGroupsRef.current.findIndex(
                     (group) => group.groupId === item.groupId,
                   );
