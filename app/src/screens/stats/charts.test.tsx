@@ -8,7 +8,7 @@
 // ⚠️ 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다(워클릿이 목이라 거짓 안정감).
 import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { FirstStartChart, LineChart, drawOnRatios } from './charts';
+import { FirstStartChart, LineChart, dotWindow, drawOnRatios } from './charts';
 import { CHART_BLOCK_H, FIRST_START_BODY_H } from './constants';
 import type { StatBar } from './format';
 
@@ -125,5 +125,28 @@ describe('drawOnRatios — 점 등장 시점은 누적 길이 비율이다', () 
     ]);
     expect(total).toBe(0);
     expect(at.every((v) => Number.isFinite(v))).toBe(true);
+  });
+});
+
+// 점의 팝은 선 그리기가 끝난 **뒤에도** 이어질 자리가 있어야 한다. 누적 길이 비율이 1인
+// 마지막 점은 여유가 0이면 반지름 0에 머문 채 끝나 영영 보이지 않는다(codex 리뷰, PR #580).
+describe('dotWindow — 마지막 점도 팝할 시간이 있다', () => {
+  test('마지막 점(at=1)은 선이 끝나는 순간 시작해 진행률 1에서 정확히 끝난다', () => {
+    const { start, end } = dotWindow(1);
+    expect(end).toBeCloseTo(1, 10);
+    expect(end - start).toBeGreaterThan(0);
+  });
+
+  test('어떤 점도 진행률 1을 넘겨서 끝나지 않는다', () => {
+    [0, 0.15, 0.32, 0.51, 0.67, 0.83, 1].forEach((at) => {
+      expect(dotWindow(at).end).toBeLessThanOrEqual(1 + 1e-9);
+    });
+  });
+
+  test('점은 선보다 먼저 뜨지 않는다 — 시작 시점이 누적 비율 순서를 지킨다', () => {
+    const ats = [0, 0.3, 0.7, 1];
+    const starts = ats.map((a) => dotWindow(a).start);
+    starts.forEach((v, i) => i > 0 && expect(v).toBeGreaterThan(starts[i - 1]));
+    expect(starts[0]).toBe(0);
   });
 });

@@ -43,7 +43,17 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 //
 // 구현은 `ProgressRing`과 같은 기법이다 — 선 길이만큼의 파선을 깔고 시작 오프셋만 당긴다.
 // 매 프레임 points를 다시 만들지 않아도 선이 자란다.
-const DOT_POP_SPAN = M.dur.quick / M.dur.entrance; // 점 하나가 튀어나오는 데 쓰는 진행률 폭
+//
+// ⚠️ **시퀀스 전체는 선 그리기(entrance)보다 점 팝(quick) 하나만큼 길다.**
+//    선이 끝나는 순간(진행률 `LINE_SPAN`)에 맞춰 마지막 점의 팝이 **시작**하고, 남은 구간에서
+//    끝난다. 이 여유가 없으면 누적 길이 비율이 1인 마지막 점은 팝에 쓸 시간이 0이라 반지름이
+//    0에 머문 채 끝나 **영영 보이지 않는다**(codex 리뷰). 다른 점들은 뒤에 선이 더 남아 있어
+//    저절로 시간이 확보되므로, 마지막 점만 겪는 문제다.
+const DRAW_MS = M.dur.entrance + M.dur.quick;
+/** 선 그리기가 끝나는 진행률. 이 뒤 구간은 마지막 점의 팝에 쓴다. */
+const LINE_SPAN = M.dur.entrance / DRAW_MS;
+/** 점 하나가 튀어나오는 데 쓰는 진행률 폭 */
+const DOT_POP_SPAN = M.dur.quick / DRAW_MS;
 
 // 점이 뜨는 시점 = 그 점까지의 **누적 길이 비율**.
 // ⚠️ `i * 60ms` 같은 상수 시차를 쓰면 안 된다 — 구간마다 길이가 달라(꺾임이 클수록 길다)
@@ -54,6 +64,17 @@ export function drawOnRatios(pts: { x: number; y: number }[]): { total: number; 
   const total = segs.reduce((a, b) => a + b, 0);
   let acc = 0;
   return { total, at: [0, ...segs.map((s) => (acc += s) / (total || 1))] };
+}
+
+/**
+ * 점 하나가 뜨고(start) 제 크기가 되는(end) 진행률 구간.
+ *
+ * ⚠️ `end`가 1을 넘으면 그 점은 **끝까지 제 크기가 되지 못한다.** 특히 누적 길이 비율이 1인
+ *    마지막 점은 여유가 0이면 반지름 0에 머문 채 끝나 영영 보이지 않는다(codex 리뷰).
+ */
+export function dotWindow(at: number): { start: number; end: number } {
+  const start = at * LINE_SPAN;
+  return { start, end: start + DOT_POP_SPAN };
 }
 
 // 점 하나 — 선이 자기 자리를 지나가는 순간 튀어나온다.
@@ -74,9 +95,11 @@ function DrawOnDot({
   progress: SharedValue<number>;
 }) {
   const animatedProps = useAnimatedProps(() => {
+    // 선이 이 점을 지나가는 시각 — 선 그리기 구간(LINE_SPAN) 안으로 눌러 매핑한다.
+    const start = at * LINE_SPAN;
     const p = progress.value;
-    if (p < at) return { r: 0, opacity: 0 };
-    const k = Math.min(1, (p - at) / DOT_POP_SPAN);
+    if (p < start) return { r: 0, opacity: 0 };
+    const k = Math.min(1, (p - start) / DOT_POP_SPAN);
     const c1 = 1.70158;
     const c3 = c1 + 1;
     const e = k >= 1 ? 1 : 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2;
@@ -111,7 +134,8 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
     progress.value = 0;
     // reduce면 mo.timing이 목표값을 그대로 돌려준다 — 즉시 완성된 선.
     progress.value = mo.timing(1, {
-      duration: M.dur.entrance,
+      // 선(entrance) + 마지막 점 팝(quick). 위 LINE_SPAN 주석 참고.
+      duration: DRAW_MS,
       easing: M.curve.standard.fn,
     });
   }, [mo, plotW, progress]);
@@ -134,7 +158,8 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
     }));
   const draw = drawOnRatios(pts);
   const lineProps = useAnimatedProps(() => ({
-    strokeDashoffset: draw.total * (1 - progress.value),
+    // 선은 LINE_SPAN 에서 이미 완성된다 — 남은 구간은 마지막 점의 팝 몫이다.
+    strokeDashoffset: draw.total * (1 - Math.min(1, progress.value / LINE_SPAN)),
   }));
 
   if (bars.length === 0) {
