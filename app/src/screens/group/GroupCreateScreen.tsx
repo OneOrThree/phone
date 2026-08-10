@@ -24,7 +24,14 @@ import { triggerLogout } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
+import { useUser } from '@/store/UserContext';
 import { buildInviteShareMessage } from './inviteShare';
+import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  writeGroupCardEmoji,
+  type GroupCardEmoji,
+} from './groupCardEmojiStore';
 
 // 그룹 생성 화면 (root stack 'GroupCreate') — 명세 docs/app/group-plan.md §6-2
 // + 3차 §D18(챌린지를 그룹 생성과 분리, 소개 추가).
@@ -61,12 +68,15 @@ const VISIBILITY_CAPTION = {
 
 export default function GroupCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const { userId } = useUser();
 
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [maxMembers, setMaxMembers] = useState(MEMBERS_DEFAULT);
   const [isPrivate, setIsPrivate] = useState(false);
+  // 생성 전에는 groupId가 없으므로 로컬 draft로만 보관한다.
+  const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji>(DEFAULT_GROUP_CARD_EMOJI);
   const [submitting, setSubmitting] = useState(false);
 
   // 생성 성공한 비공개 그룹 — 값이 있으면 초대 링크 다이얼로그가 뜬다(§6-2 3번).
@@ -181,6 +191,9 @@ export default function GroupCreateScreen() {
         maxMembers,
         isPrivate,
       });
+      // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
+      // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
+      if (userId) void writeGroupCardEmoji(userId, groupId, cardEmoji).catch(() => undefined);
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
       submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.
@@ -371,6 +384,13 @@ export default function GroupCreateScreen() {
             {isPrivate ? VISIBILITY_CAPTION.private : VISIBILITY_CAPTION.public}
           </Text>
         </View>
+
+        <Text style={s.label}>내 카드 아이콘</Text>
+        <GroupCardEmojiPicker
+          value={cardEmoji}
+          onChange={setCardEmoji}
+          testIDPrefix="group.create.cardEmoji"
+        />
 
         {/* ── CTA ── */}
         <TouchableOpacity
