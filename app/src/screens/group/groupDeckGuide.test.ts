@@ -1,4 +1,5 @@
 import {
+  claimGroupDeckGuideUnknownFallback,
   completeGroupDeckGuide,
   groupDeckGuideSteps,
   markGroupDeckGuideCompletedInSession,
@@ -29,15 +30,19 @@ test('미완료 안내는 overlay slot 유무에 따라 shown과 pending으로 �
   });
 });
 
-test('key read 실패 fallback은 앱 세션에서 한 번만 queue에 넣는다', () => {
+test('key read 실패 fallback은 overlay slot을 얻은 뒤에만 앱 세션에서 소비한다', () => {
   expect(resolveGroupDeckGuideDecision('unknown', false)).toEqual({
     exposure: 'unknown',
     queue: true,
   });
+  // 대기 중 blur/unmount된 요청은 slot을 얻지 않았으므로 다음 focus에서도 queue 가능하다.
+  expect(resolveGroupDeckGuideDecision('unknown', false).queue).toBe(true);
+  expect(claimGroupDeckGuideUnknownFallback()).toBe(true);
   expect(resolveGroupDeckGuideDecision('unknown', false)).toEqual({
     exposure: 'unknown',
     queue: false,
   });
+  expect(claimGroupDeckGuideUnknownFallback()).toBe(false);
 });
 
 test('현재 세션에서 완료하면 key write 결과와 무관하게 재노출하지 않는다', () => {

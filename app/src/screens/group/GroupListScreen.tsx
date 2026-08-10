@@ -4,6 +4,8 @@ import {
   AccessibilityInfo,
   AppState,
   FlatList,
+  PanResponder,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -51,7 +53,10 @@ import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { GroupCardBackSummary } from './components/GroupCardBackSummary';
 import type { GroupCardSummarySnapshot, GroupDependency } from './groupCardSummary';
+import { useGroupCardOrder } from './useGroupCardOrder';
+import { useGroupCardEmojis } from './useGroupCardEmojis';
 import {
+  claimGroupDeckGuideUnknownFallback,
   GROUP_DECK_GUIDE_ID,
   completeGroupDeckGuide,
   groupDeckGuideSteps,
@@ -204,6 +209,8 @@ export default function GroupListScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
   const [backSource, setBackSource] = useState<'user' | 'guide'>('user');
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
   const [activeAnchorGroupId, setActiveAnchorGroupId] = useState<string | null>(null);
@@ -218,10 +225,39 @@ export default function GroupListScreen({
   );
   const cardWidth = Math.max(240, windowWidth - GROUP_CARD_SIDE_PEEK * 2);
   const snapInterval = cardWidth + GROUP_CARD_GAP;
-  const pageCount = groups.length + 1;
-  const groupFingerprint = groups.map((group) => group.groupId).join('|');
+  const {
+    orderedGroupIds,
+    hydrated: orderHydrated,
+    saveFailed,
+    commitOrder,
+  } = useGroupCardOrder({
+    serverGroupIds: groups.map((group) => group.groupId),
+    userId: userId ?? null,
+  });
+  const orderedGroups = useMemo(() => {
+    if (!orderHydrated) return [];
+    const byId = new Map(groups.map((group) => [group.groupId, group]));
+    return orderedGroupIds.flatMap((groupId) => {
+      const group = byId.get(groupId);
+      return group ? [group] : [];
+    });
+  }, [groups, orderHydrated, orderedGroupIds]);
+  const orderedGroupIdsForEmoji = useMemo(
+    () => orderedGroups.map((group) => group.groupId),
+    [orderedGroups],
+  );
+  const { hydrated: emojiHydrated, emojiFor } = useGroupCardEmojis({
+    userId: userId ?? null,
+    groupIds: orderedGroupIdsForEmoji,
+    reloadToken: guideEpisode,
+  });
+  const pageCount = orderedGroups.length + 1;
+  const groupFingerprint = orderedGroups.map((group) => group.groupId).join('|');
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
+  const hydratedOrderUserRef = useRef<string | null>(null);
+  const orderedGroupsRef = useRef(orderedGroups);
+  orderedGroupsRef.current = orderedGroups;
   const activeIndexRef = useRef(0);
   const previousGroupFingerprintRef = useRef(groupFingerprint);
   const previousSnapIntervalRef = useRef(snapInterval);
@@ -238,10 +274,12 @@ export default function GroupListScreen({
   const guideStartGroupsRef = useRef<string | null>(null);
   const guideVisibleRef = useRef(false);
   const guideBlockedRef = useRef(guideBlocked);
-  const activeGroupId = groups[activeIndex]?.groupId ?? null;
+  const activeGroupId = orderedGroups[activeIndex]?.groupId ?? null;
   const guideEligible =
     typeof userId === 'string' &&
-    groups.length > 0 &&
+    orderedGroups.length > 0 &&
+    orderHydrated &&
+    emojiHydrated &&
     guideDataReady &&
     deckLayoutReady &&
     activeAnchorGroupId === activeGroupId &&
@@ -291,7 +329,7 @@ export default function GroupListScreen({
     (page: number, trigger: GroupCarouselTrigger = 'indicator_press') => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
-      const nextIdentity = groups[next]?.groupId ?? null;
+      const nextIdentity = orderedGroups[next]?.groupId ?? null;
       const from = activeIndexRef.current;
       if (activeIdentityRef.current !== nextIdentity) {
         setFlippedGroupId(null);
@@ -299,7 +337,7 @@ export default function GroupListScreen({
           trigger,
           from_index: from,
           to_index: next,
-          group_count_bucket: groupCountBucket(groups.length),
+          group_count_bucket: groupCountBucket(orderedGroups.length),
         });
       }
       activeIdentityRef.current = nextIdentity;
@@ -307,13 +345,13 @@ export default function GroupListScreen({
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
     },
-    [groups, pageCount, snapInterval],
+    [orderedGroups, pageCount, snapInterval],
   );
 
   const settleOffset = useCallback(
     (offsetX: number) => {
       const next = Math.max(0, Math.min(Math.round(offsetX / snapInterval), pageCount - 1));
-      const nextIdentity = groups[next]?.groupId ?? null;
+      const nextIdentity = orderedGroups[next]?.groupId ?? null;
       const from = activeIndexRef.current;
       if (activeIdentityRef.current !== nextIdentity) {
         setFlippedGroupId(null);
@@ -321,7 +359,7 @@ export default function GroupListScreen({
           trigger: 'swipe',
           from_index: from,
           to_index: next,
-          group_count_bucket: groupCountBucket(groups.length),
+          group_count_bucket: groupCountBucket(orderedGroups.length),
         });
       }
       activeIdentityRef.current = nextIdentity;
@@ -329,7 +367,7 @@ export default function GroupListScreen({
       setActiveIndex(next);
       setActiveAnchorGroupId(nextIdentity);
     },
-    [groups, pageCount, snapInterval],
+    [orderedGroups, pageCount, snapInterval],
   );
 
   const onMomentumScrollEnd = useCallback(
@@ -348,7 +386,8 @@ export default function GroupListScreen({
 
   const flipCard = useCallback(
     (groupId: string, trigger: GroupCardFlipTrigger = 'card_tap') => {
-      const index = groups.findIndex((group) => group.groupId === groupId);
+      if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
+      const index = orderedGroups.findIndex((group) => group.groupId === groupId);
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
         const from = activeIndexRef.current;
@@ -361,7 +400,7 @@ export default function GroupListScreen({
           trigger: trigger === 'accessibility_action' ? 'accessibility_action' : 'card_tap',
           from_index: from,
           to_index: index,
-          group_count_bucket: groupCountBucket(groups.length),
+          group_count_bucket: groupCountBucket(orderedGroups.length),
         });
       }
       setBackSource('user');
@@ -377,11 +416,11 @@ export default function GroupListScreen({
       logGroupCardFlipped({
         to_face: 'back',
         trigger,
-        group_count_bucket: groupCountBucket(groups.length),
+        group_count_bucket: groupCountBucket(orderedGroups.length),
       });
       onEnsureBack?.(groupId);
     },
-    [groups, onEnsureBack, snapInterval],
+    [draggingGroupId, onEnsureBack, orderedGroups, reorderMenuGroupId, snapInterval],
   );
 
   const flipCardFront = useCallback(
@@ -392,10 +431,10 @@ export default function GroupListScreen({
       logGroupCardFlipped({
         to_face: 'front',
         trigger,
-        group_count_bucket: groupCountBucket(groups.length),
+        group_count_bucket: groupCountBucket(orderedGroups.length),
       });
     },
-    [groups.length],
+    [orderedGroups.length],
   );
 
   // 접근성으로 뒷면을 닫은 경우 새 앞면 disclosure button이 commit된 뒤 그 위치로 복귀한다.
@@ -410,6 +449,20 @@ export default function GroupListScreen({
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
+    if (!orderHydrated) return;
+    const orderUser = userId ?? 'anonymous';
+    if (hydratedOrderUserRef.current !== orderUser) {
+      hydratedOrderUserRef.current = orderUser;
+      const firstGroupId = orderedGroups[0]?.groupId ?? null;
+      activeIdentityRef.current = firstGroupId;
+      activeIndexRef.current = 0;
+      setActiveIndex(0);
+      setActiveAnchorGroupId(firstGroupId);
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      previousGroupFingerprintRef.current = groupFingerprint;
+      previousSnapIntervalRef.current = snapInterval;
+      return;
+    }
     const orderChanged = previousGroupFingerprintRef.current !== groupFingerprint;
     const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
     previousGroupFingerprintRef.current = groupFingerprint;
@@ -418,15 +471,102 @@ export default function GroupListScreen({
 
     const identity = activeIdentityRef.current;
     const next =
-      identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
+      identity === null
+        ? orderedGroups.length
+        : orderedGroups.findIndex((g) => g.groupId === identity);
     const safeIndex =
-      next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
-    activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+      next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, orderedGroups.length - 1));
+    activeIdentityRef.current = orderedGroups[safeIndex]?.groupId ?? null;
     activeIndexRef.current = safeIndex;
     setActiveIndex(safeIndex);
-    setActiveAnchorGroupId(groups[safeIndex]?.groupId ?? null);
+    setActiveAnchorGroupId(orderedGroups[safeIndex]?.groupId ?? null);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [groupFingerprint, groups, snapInterval]);
+  }, [groupFingerprint, orderHydrated, orderedGroups, snapInterval, userId]);
+
+  useEffect(() => {
+    if (
+      reorderMenuGroupId !== null &&
+      !orderedGroups.some((group) => group.groupId === reorderMenuGroupId)
+    ) {
+      setReorderMenuGroupId(null);
+    }
+  }, [orderedGroups, reorderMenuGroupId]);
+
+  const dragRef = useRef<{ groupId: string; from: number; target: number } | null>(null);
+  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
+
+  const commitMove = useCallback(
+    (groupId: string, targetIndex: number) => {
+      const ids = orderedGroupsRef.current.map((group) => group.groupId);
+      const from = ids.indexOf(groupId);
+      const target = Math.max(0, Math.min(targetIndex, ids.length - 1));
+      if (from < 0 || from === target) return false;
+      const next = [...ids];
+      next.splice(from, 1);
+      next.splice(target, 0, groupId);
+      if (!commitOrder(next)) return false;
+      activeIdentityRef.current = groupId;
+      activeIndexRef.current = target;
+      setActiveIndex(target);
+      setActiveAnchorGroupId(groupId);
+      setFlippedGroupId(null);
+      listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
+      return true;
+    },
+    [commitOrder, snapInterval],
+  );
+
+  const handlersFor = useCallback(
+    (groupId: string) => {
+      const key = `${groupId}:${snapInterval}:${orderedGroupIds.join(',')}`;
+      const cached = respondersRef.current.get(key);
+      if (cached) return cached.panHandlers;
+      const responder = PanResponder.create({
+        onStartShouldSetPanResponder: () => reorderMenuGroupId === null,
+        onMoveShouldSetPanResponder: () => reorderMenuGroupId === null,
+        onPanResponderGrant: () => {
+          const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
+          if (from < 0) return;
+          dragRef.current = { groupId, from, target: from };
+          setDraggingGroupId(groupId);
+          setFlippedGroupId(null);
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const drag = dragRef.current;
+          if (!drag || Math.abs(gesture.dx) < 6) return;
+          drag.target = Math.max(
+            0,
+            Math.min(
+              drag.from + Math.round(gesture.dx / snapInterval),
+              orderedGroupsRef.current.length - 1,
+            ),
+          );
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          const drag = dragRef.current;
+          dragRef.current = null;
+          setDraggingGroupId(null);
+          if (!drag) return;
+          if (Math.abs(gesture.dx) < 6 && Math.abs(gesture.dy) < 6) {
+            setReorderMenuGroupId(groupId);
+            return;
+          }
+          commitMove(groupId, drag.target);
+        },
+        onPanResponderTerminate: () => {
+          dragRef.current = null;
+          setDraggingGroupId(null);
+        },
+      });
+      respondersRef.current.set(key, responder);
+      return responder.panHandlers;
+    },
+    [commitMove, orderedGroupIds, reorderMenuGroupId, snapInterval],
+  );
+
+  useEffect(() => {
+    respondersRef.current.clear();
+  }, [orderedGroupIds, reorderMenuGroupId, snapInterval]);
 
   const acceptCardAction = useCallback(
     (
@@ -509,7 +649,7 @@ export default function GroupListScreen({
         const decision = resolveGroupDeckGuideDecision(readState, guideBlockedRef.current);
         logGroupCardDeckViewed({
           group_entry: groupEntry,
-          group_count_bucket: groupCountBucket(groups.length),
+          group_count_bucket: groupCountBucket(orderedGroups.length),
           guide_state: decision.exposure,
         });
         setGuideQueued(decision.queue);
@@ -523,7 +663,7 @@ export default function GroupListScreen({
         const decision = resolveGroupDeckGuideDecision('unknown', guideBlockedRef.current);
         logGroupCardDeckViewed({
           group_entry: groupEntry,
-          group_count_bucket: groupCountBucket(groups.length),
+          group_count_bucket: groupCountBucket(orderedGroups.length),
           guide_state: decision.exposure,
         });
         setGuideQueued(decision.queue);
@@ -535,10 +675,14 @@ export default function GroupListScreen({
         guideDecisionEpisodeRef.current = null;
       }
     };
-  }, [groupEntry, groups.length, guideEligible, guideEpisode]);
+  }, [groupEntry, guideEligible, guideEpisode, orderedGroups.length]);
 
   const startGuide = useCallback(() => {
-    const firstGroupId = groups[0]?.groupId;
+    if (guideReadStateRef.current === 'unknown' && !claimGroupDeckGuideUnknownFallback()) {
+      setGuideQueued(false);
+      return;
+    }
+    const firstGroupId = orderedGroups[0]?.groupId;
     if (!firstGroupId) return;
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
     activeIdentityRef.current = firstGroupId;
@@ -549,7 +693,7 @@ export default function GroupListScreen({
     guideStartGroupsRef.current = groupFingerprint;
     guideVisibleRef.current = true;
     setGuideVisible(true);
-  }, [groupFingerprint, groups]);
+  }, [groupFingerprint, orderedGroups]);
 
   useEffect(() => {
     if (!guideQueued || guideVisible || guideBlocked || !guideEligible) return;
@@ -573,7 +717,7 @@ export default function GroupListScreen({
 
   const guideSteps: GuideStep[] = useMemo(
     () =>
-      groupDeckGuideSteps(groups.length).map((step) => ({
+      groupDeckGuideSteps(orderedGroups.length).map((step) => ({
         text: step.text,
         character: GUIDE_CHARACTER[step.character],
         anchor:
@@ -584,7 +728,7 @@ export default function GroupListScreen({
               : undefined,
         prepare: step.requiresBack
           ? () => {
-              const groupId = activeIdentityRef.current ?? groups[0]?.groupId;
+              const groupId = activeIdentityRef.current ?? orderedGroups[0]?.groupId;
               if (!groupId) return;
               // 사용자 이벤트를 거치지 않는 상태 전환이다. 응답을 기다리지 않고 lazy ensure만 시작한다.
               setBackSource('guide');
@@ -596,7 +740,7 @@ export default function GroupListScreen({
             }
           : undefined,
       })),
-    [groups, onEnsureBack],
+    [onEnsureBack, orderedGroups],
   );
 
   const finishGuide = useCallback(() => {
@@ -651,11 +795,16 @@ export default function GroupListScreen({
           <FlatList
             ref={listRef}
             testID="group.list.items"
-            data={groups}
+            data={orderedGroups}
             keyExtractor={(item) => item.groupId}
             CellRendererComponent={GroupListCell}
             horizontal
-            scrollEnabled={guideInputReady && !guideVisible}
+            scrollEnabled={
+              guideInputReady &&
+              !guideVisible &&
+              draggingGroupId === null &&
+              reorderMenuGroupId === null
+            }
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={[s.listContent, { paddingHorizontal: GROUP_CARD_SIDE_PEEK }]}
             ItemSeparatorComponent={() => <View style={{ width: GROUP_CARD_GAP }} />}
@@ -669,14 +818,14 @@ export default function GroupListScreen({
               <View
                 style={{ marginLeft: GROUP_CARD_GAP }}
                 pointerEvents={guideInputReady && !guideVisible ? 'auto' : 'none'}
-                accessibilityElementsHidden={activeIndex !== groups.length}
+                accessibilityElementsHidden={activeIndex !== orderedGroups.length}
                 importantForAccessibility={
-                  activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
+                  activeIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
                 }
               >
                 <FindMoreCard
                   width={cardWidth}
-                  position={groups.length + 1}
+                  position={orderedGroups.length + 1}
                   pageCount={pageCount}
                   onPress={() => {
                     if (!guideInputReady || guideVisible) return;
@@ -724,21 +873,102 @@ export default function GroupListScreen({
                 ) : (
                   <GroupCardFront
                     group={item}
+                    emoji={emojiFor(item.groupId)}
                     bodyRef={item.groupId === activeGroupId ? frontBodyRef : undefined}
                     position={index + 1}
                     pageCount={pageCount}
                     onFlip={() => flipCard(item.groupId)}
                     onAccessibilityFlip={() => flipCard(item.groupId, 'accessibility_action')}
+                    reorderHandlers={handlersFor(item.groupId)}
+                    canMovePrevious={index > 0}
+                    canMoveNext={index < orderedGroups.length - 1}
+                    onMoveStep={(step) => {
+                      const from = orderedGroupsRef.current.findIndex(
+                        (group) => group.groupId === item.groupId,
+                      );
+                      commitMove(item.groupId, from + step);
+                    }}
                   />
+                )}
+                {reorderMenuGroupId === item.groupId && (
+                  <>
+                    <Pressable
+                      style={s.reorderDismiss}
+                      onPress={() => setReorderMenuGroupId(null)}
+                      accessibilityRole="button"
+                      accessibilityLabel="순서 변경 취소"
+                      testID={`group.card.reorderDismiss.${item.groupId}`}
+                    />
+                    <View
+                      style={s.reorderMenu}
+                      accessibilityViewIsModal
+                      onAccessibilityEscape={() => setReorderMenuGroupId(null)}
+                      testID={`group.card.reorderMenu.${item.groupId}`}
+                    >
+                      <View style={s.reorderHeader}>
+                        <Text style={s.reorderTitle}>순서 변경</Text>
+                        <TouchableOpacity
+                          onPress={() => setReorderMenuGroupId(null)}
+                          accessibilityRole="button"
+                          testID={`group.card.reorderDone.${item.groupId}`}
+                        >
+                          <Text style={s.reorderDoneText}>완료</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <TouchableOpacity
+                        style={[s.reorderOption, index === 0 && s.reorderOptionDisabled]}
+                        disabled={index === 0}
+                        onPress={() => {
+                          const from = orderedGroupsRef.current.findIndex(
+                            (group) => group.groupId === item.groupId,
+                          );
+                          commitMove(item.groupId, from - 1);
+                        }}
+                        accessibilityRole="button"
+                        testID={`group.card.reorderPrevious.${item.groupId}`}
+                      >
+                        <Text style={s.reorderOptionText}>앞으로 이동</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          s.reorderOption,
+                          index === orderedGroups.length - 1 && s.reorderOptionDisabled,
+                        ]}
+                        disabled={index === orderedGroups.length - 1}
+                        onPress={() => {
+                          const from = orderedGroupsRef.current.findIndex(
+                            (group) => group.groupId === item.groupId,
+                          );
+                          commitMove(item.groupId, from + 1);
+                        }}
+                        accessibilityRole="button"
+                        testID={`group.card.reorderNext.${item.groupId}`}
+                      >
+                        <Text style={s.reorderOptionText}>뒤로 이동</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
                 )}
               </View>
             )}
           />
 
+          {saveFailed && (
+            <Text style={s.saveError} accessibilityRole="alert">
+              순서를 저장하지 못했어요. 다음 변경 때 다시 시도하며, 앱을 다시 열면 이전 순서로
+              돌아갈 수 있어요.
+            </Text>
+          )}
+
           <PageIndicator
-            pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+            pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
             activeIndex={activeIndex}
-            disabled={!guideInputReady || guideVisible}
+            disabled={
+              !guideInputReady ||
+              guideVisible ||
+              draggingGroupId !== null ||
+              reorderMenuGroupId !== null
+            }
             onSelectPage={selectPage}
             onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
           />
@@ -813,6 +1043,45 @@ const s = StyleSheet.create({
   },
 
   listContent: { paddingBottom: T.space.md },
+
+  reorderDismiss: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 4,
+  },
+  reorderMenu: {
+    position: 'absolute',
+    top: 44,
+    right: T.space.md,
+    zIndex: 5,
+    minWidth: 144,
+    padding: T.space.xs,
+    borderRadius: 12,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  reorderHeader: {
+    minHeight: 44,
+    paddingHorizontal: T.space.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reorderTitle: { ...T.text.caption, color: T.inkMuted },
+  reorderDoneText: { ...T.text.label, color: T.accent, padding: T.space.xs },
+  reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
+  reorderOptionDisabled: { opacity: 0.36 },
+  reorderOptionText: { ...T.text.label, color: T.ink },
+  saveError: {
+    ...T.text.caption,
+    color: T.dangerInk,
+    textAlign: 'center',
+    paddingTop: T.space.xs,
+  },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

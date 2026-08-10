@@ -128,7 +128,15 @@ export function GroupCardBackSummary({
 
   const memberSummary =
     detail.status === 'ready'
-      ? `${detail.data.members.length}명 참여`
+      ? (() => {
+          const preview = detail.data.members
+            .slice(0, 5)
+            .map((member) => member.nickname)
+            .filter(Boolean)
+            .join(', ');
+          const capacity = `${detail.data.members.length}/${group.maxMembers}명`;
+          return preview ? `${capacity} · ${preview}` : capacity;
+        })()
       : pendingOrFailed(detail.status, '멤버 정보를');
   const announcementSummary =
     announcements.status === 'ready'

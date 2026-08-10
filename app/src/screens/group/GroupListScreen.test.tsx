@@ -13,6 +13,8 @@ import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { logGroupCardFlipped, logGroupCarouselPaged } from '@/services/analyticsEvents';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
+import { __resetGroupCardOrderQueueForTest } from './groupCardOrderStore';
+import { __resetGroupCardEmojiQueueForTest } from './groupCardEmojiStore';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -77,8 +79,11 @@ async function press(testID: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  await AsyncStorage.clear();
+  __resetGroupCardOrderQueueForTest();
+  __resetGroupCardEmojiQueueForTest();
   onRefresh.mockResolvedValue(undefined);
 });
 
@@ -217,6 +222,61 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
+  });
+
+  test('계정별 로컬 순서와 아이콘을 hydrate하고 grip 조작으로 순서를 저장한다', async () => {
+    await AsyncStorage.multiSet([
+      ['gromo:guide:groupDeck:v1', '1'],
+      ['gromo:groups:cardOrder:v1', JSON.stringify({ 'user-1': [GROUP_ID_2, GROUP_ID] })],
+      [
+        'gromo:groups:cardEmoji:v1',
+        JSON.stringify({ 'user-1': { [GROUP_ID]: '🔥', [GROUP_ID_2]: '📚' } }),
+      ],
+    ]);
+    await render(
+      <GroupListScreen
+        groups={[group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        userId="user-1"
+        guideEpisode={1}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId('group.list.items')
+          .props.data.map((item: GroupSummaryResponse) => item.groupId),
+      ).toEqual([GROUP_ID_2, GROUP_ID]),
+    );
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
+    expect(screen.getByText('📚', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByText('🔥', { includeHiddenElements: true })).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent(
+        screen.getByTestId(`group.card.grip.${GROUP_ID_2}`, { includeHiddenElements: true }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'increment' } },
+      );
+    });
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId('group.list.items')
+          .props.data.map((item: GroupSummaryResponse) => item.groupId),
+      ).toEqual([GROUP_ID, GROUP_ID_2]),
+    );
+    await waitFor(async () =>
+      expect(JSON.parse((await AsyncStorage.getItem('gromo:groups:cardOrder:v1')) ?? '{}')).toEqual(
+        {
+          'user-1': [GROUP_ID, GROUP_ID_2],
+        },
+      ),
+    );
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {

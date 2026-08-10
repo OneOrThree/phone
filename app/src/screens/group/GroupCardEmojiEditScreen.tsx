@@ -30,14 +30,15 @@ export default function GroupCardEmojiEditScreen() {
 
   useEffect(() => {
     const request = ++requestRef.current;
-    void readGroupCardEmoji(userId, groupId).then((emoji) => {
-      if (request !== requestRef.current) return;
+    let canceled = false;
+    readGroupCardEmoji(userId, groupId).then((emoji) => {
+      if (canceled || request !== requestRef.current) return;
       setBaseline(emoji);
       setSelected(emoji);
       setSaveFailed(false);
     });
     return () => {
-      requestRef.current++;
+      canceled = true;
     };
   }, [groupId, userId]);
 

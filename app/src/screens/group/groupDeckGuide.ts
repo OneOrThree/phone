@@ -60,11 +60,19 @@ export function resolveGroupDeckGuideDecision(
     return { exposure: 'completed', queue: false };
   }
   if (readState === 'unknown') {
-    if (unknownFallbackReserved) return { exposure: 'unknown', queue: false };
-    unknownFallbackReserved = true;
-    return { exposure: 'unknown', queue: true };
+    return { exposure: 'unknown', queue: !unknownFallbackReserved };
   }
   return { exposure: blocked ? 'pending' : 'shown', queue: true };
+}
+
+/**
+ * unknown fallback은 read 시점이 아니라 blocking overlay queue의 실제 slot을 얻은 시점에 소비한다.
+ * 따라서 slot 전에 blur/unmount된 pending 요청은 다음 focus에서 다시 판정할 수 있다.
+ */
+export function claimGroupDeckGuideUnknownFallback(): boolean {
+  if (unknownFallbackReserved || completedThisSession) return false;
+  unknownFallbackReserved = true;
+  return true;
 }
 
 export function markGroupDeckGuideCompletedInSession(): void {

@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import type { LeagueMemberResponse } from '@/types/api';
-import type { GroupChallengeResponse, GroupSummaryResponse } from '@/types/dto/group';
+import type {
+  GroupChallengeResponse,
+  GroupDetailMemberResponse,
+  GroupDetailResponse,
+  GroupSummaryResponse,
+} from '@/types/dto/group';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { GroupCardBackSummary } from './GroupCardBackSummary';
 
@@ -34,7 +39,7 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
 }
 
 const snapshot = {
-  detail: { status: 'ready', data: { members: [{ userId: MEMBER_ID }] } },
+  detail: { status: 'ready', data: { members: [{ userId: MEMBER_ID, nickname: '나' }] } },
   announcements: {
     status: 'ready',
     data: [{ id: 'notice', title: '내일은 7시에 시작해요', content: '', createdAt: '' }],
@@ -66,7 +71,7 @@ describe('GroupCardBackSummary', () => {
       />,
     );
 
-    expect(screen.getByText('1명 참여')).toBeOnTheScreen();
+    expect(screen.getByText('1/5명 · 나')).toBeOnTheScreen();
     expect(screen.getByText('내일은 7시에 시작해요')).toBeOnTheScreen();
     expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
     expect(screen.getByText('내 진행 30/60분')).toBeOnTheScreen();
@@ -84,6 +89,32 @@ describe('GroupCardBackSummary', () => {
     expect(onStartFocus).toHaveBeenCalledTimes(1);
     expect(onOpenRoom).toHaveBeenCalledTimes(1);
     expect(onFlipFront).toHaveBeenCalledTimes(1);
+  });
+
+  test('멤버는 현재/정원과 서버 순서의 닉네임 최대 5명만 preview한다', async () => {
+    const members = Array.from({ length: 6 }, (_, index) => ({
+      userId: `member-${index}`,
+      nickname: `멤버${index + 1}`,
+      role: 'MEMBER' as const,
+      focusTimeMinutes: 0,
+      totalFocusMinutes: 0,
+    })) satisfies GroupDetailMemberResponse[];
+    await render(
+      <GroupCardBackSummary
+        group={{ ...group, maxMembers: 10 }}
+        snapshot={{
+          ...snapshot,
+          detail: { status: 'ready', data: { members } as GroupDetailResponse },
+        }}
+        onStartFocus={jest.fn()}
+        onOpenRoom={jest.fn()}
+        onRetry={jest.fn()}
+        onFlipFront={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('6/10명 · 멤버1, 멤버2, 멤버3, 멤버4, 멤버5')).toBeOnTheScreen();
+    expect(screen.queryByText(/멤버6/)).toBeNull();
   });
 
   test('영역별 실패를 0으로 오인하지 않고 다른 성공 영역은 유지한다', async () => {

@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import type { Ref } from 'react';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -12,6 +12,10 @@ interface GroupCardFrontProps {
   bodyRef?: Ref<View>;
   position?: number;
   pageCount?: number;
+  reorderHandlers?: GestureResponderHandlers;
+  onMoveStep?: (step: -1 | 1) => void;
+  canMovePrevious?: boolean;
+  canMoveNext?: boolean;
 }
 
 export function GroupCardFront({
@@ -22,12 +26,31 @@ export function GroupCardFront({
   bodyRef,
   position = 1,
   pageCount = 1,
+  reorderHandlers,
+  onMoveStep,
+  canMovePrevious = false,
+  canMoveNext = false,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
     <View style={s.root} testID={`group.card.front.${group.groupId}`}>
-      <View style={s.grip} accessibilityElementsHidden>
+      <View
+        style={s.grip}
+        accessibilityRole="adjustable"
+        accessibilityLabel="카드 순서 변경"
+        accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+        accessibilityActions={[
+          ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
+          ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
+          if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
+        }}
+        testID={`group.card.grip.${group.groupId}`}
+        {...reorderHandlers}
+      >
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
