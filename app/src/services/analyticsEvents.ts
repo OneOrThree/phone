@@ -421,8 +421,14 @@ export function logGroupSearchPerformed(p: { query_length: number; result_count:
 export function logGroupJoinAttempted(p: { join_method: GroupJoinMethod; slug?: string }): void {
   track('group_join_attempted', p);
 }
-export function logGroupViewed(): void {
-  track('group_viewed');
+export type GroupEntry = 'tab' | 'invite' | 'push' | 'return' | 'unknown';
+export type GroupCountBucket = '0' | '1' | '2_5' | '6_10' | '11_plus';
+
+export function logGroupViewed(p: {
+  group_entry: GroupEntry;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_viewed', p);
 }
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
