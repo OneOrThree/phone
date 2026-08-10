@@ -68,6 +68,14 @@ const VOID_REASON_LABELS: Readonly<Record<VoidReasonKey, { summary: string; caus
 const REFUNDED_TAIL = '참가비는 돌려드렸어요';
 
 /**
+ * 사유 문자열 없이 상태만 온 `REFUNDED`의 요약 — **달성자가 없어서가 아니라** 정산이 24시간을
+ * 넘겨 자동 환불된 회차다(IA §4.2 상태도). 카드(아래 `pickLastSettled`의 AUTO_REFUND 파생)와
+ * 내역 목록(`challengeHistoryView.historySummary`)이 **같은 문자열**을 쓰도록 표에서 직접 꺼내
+ * 공개한다 — 사본을 만들면 두 화면이 같은 상태를 다른 말로 설명하게 된다.
+ */
+export const AUTO_REFUND_SUMMARY = VOID_REASON_LABELS.AUTO_REFUND.summary;
+
+/**
  * 서버 사유 값 → 정규화 키. 모르는 값·없음은 null — **폴백 판단도 여기 한 곳**에서 난다.
  * (카드는 종전 달성 집계 문장으로, 시트는 종전 환불 배너로 각각 떨어진다.)
  */

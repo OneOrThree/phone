@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -36,6 +36,13 @@ interface ProgressRingProps {
   color: string;
   trackColor?: string;
   testID?: string;
+  /**
+   * 링을 접근성에서 **장식으로** 다룰지. 가운데 숫자가 이미 정확한 값을 읽어 주는 경우에 켠다.
+   *
+   * ⚠️ 켜도 **자식은 그대로 읽힌다** — 이 뷰의 progressbar 역할만 없앤다. 링의 `progress`가
+   *    호출부마다 다른 뜻일 수 있어서 필요하다(집중 세션은 '남은 비율'이라 시작 100 → 종료 0).
+   */
+  decorative?: boolean;
   /** 링 가운데에 겹칠 내용(카운트다운 숫자 등). */
   children?: ReactNode;
 }
@@ -47,6 +54,7 @@ export function ProgressRing({
   color,
   trackColor = T.track,
   testID,
+  decorative = false,
   children,
 }: ProgressRingProps) {
   const m = useMotion();
@@ -59,20 +67,39 @@ export function ProgressRing({
 
   const offset = useSharedValue(target);
 
+  // ⚠️ 원주가 바뀌면 **애니메이션 없이 즉시 맞춘다.**
+  //    `offset`은 비율이 아니라 **그 원주 기준의 절대 길이**다. 세션 도중 시스템 글자 크기나
+  //    창 크기가 바뀌어 링이 커지면 `strokeDasharray`는 그 프레임에 새 원주로 갈아타는데
+  //    `offset`만 옛 원주 기준 값으로 남아, 50%이던 링이 61%처럼 보였다가 350ms에 걸쳐
+  //    제자리로 돌아온다(codex 리뷰). 진행률이 잠깐이라도 틀리게 보이면 안 되는 표시다.
+  //    크기 변화는 사용자가 일으킨 레이아웃 사건이지 값의 변화가 아니므로 연출할 것도 없다.
+  const prevCircumferenceRef = useRef(circumference);
   useEffect(() => {
+    const resized = prevCircumferenceRef.current !== circumference;
+    prevCircumferenceRef.current = circumference;
+    if (resized) {
+      offset.value = target;
+      return;
+    }
     offset.value = m.timing(target, {
       duration: M.dur.base,
       easing: M.curve.standard.fn,
     });
-  }, [m, offset, target]);
+  }, [m, offset, target, circumference]);
 
   const animatedProps = useAnimatedProps(() => ({ strokeDashoffset: offset.value }));
 
   return (
     <View
       testID={testID}
-      accessibilityRole="progressbar"
-      accessibilityValue={{ now: Math.round(clamped * 100), min: 0, max: 100 }}
+      // ⚠️ `decorative`면 progressbar 역할을 **떼되 자식은 그대로 읽힌다.** 링 안의 숫자가
+      //    이미 정확한 값을 읽어 주는데 링까지 역할을 가지면 중복이고, 진행률의 의미가
+      //    호출부마다 다르면(집중 세션은 '남은 비율') 정반대로 읽힌다(codex 리뷰).
+      //    자식을 숨기는 게 아니라 이 뷰의 역할만 없앤다 — 타이머 텍스트는 계속 읽힌다.
+      accessibilityRole={decorative ? undefined : 'progressbar'}
+      accessibilityValue={
+        decorative ? undefined : { now: Math.round(clamped * 100), min: 0, max: 100 }
+      }
       style={[s.wrap, { width: size, height: size }]}
     >
       <Svg width={size} height={size}>

@@ -81,8 +81,20 @@ export default function GroupChallengeHistoryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId, challengeId, challengeLabel } = useRoute<HistoryRoute>().params;
 
-  const [items, setItems] = useState<GroupChallengeHistoryItem[] | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 이 조회가 **어느 경로의 것인지**. 스택에 남은 이 화면으로 다른 그룹·다른 필터가 다시
+  // 들어오면 컴포넌트는 살아 있고 params만 갈린다(그룹방 링크가 challengeId를 명시적으로
+  // 비우는 것과 같은 구조). 목록에 이 키를 달지 않으면 새 조회가 끝날 때까지 — **실패하면
+  // 영영** — 앞 그룹의 참가비·적립금 줄이 새 헤더 아래 남는다(codex 리뷰 P2).
+  const routeKey = `${groupId}|${challengeId ?? ''}`;
+
+  // 목록·에러는 키와 **함께** 담는다. 이펙트에서 비우는 방법(setItems(null))은 새 params로
+  // 이미 한 번 그린 **뒤에** 도착해 그 프레임에 옛 목록이 새 헤더 아래 보이고, 늦게 도착한
+  // 옛 응답도 막지 못한다. 렌더 시점에 키를 맞춰 거르면 두 구멍이 동시에 닫힌다.
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    content: GroupChallengeHistoryItem[];
+  } | null>(null);
+  const [error, setError] = useState<{ key: string; msg: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   // 다음 페이지 커서 상태 — 두 값은 항상 같은 응답에서 함께 온다(따로 갱신되면 종료 판정이 갈린다).
   const [pageEnd, setPageEnd] = useState<{ hasNext: boolean; nextCursor: string | null }>({
@@ -108,24 +120,32 @@ export default function GroupChallengeHistoryScreen() {
   // 첫 페이지 조회 — 진입·새로고침·'다시 시도' 공용. 성공하면 커서 상태까지 통째로 새로 시작한다.
   const fetchFirstPage = useCallback(async (): Promise<void> => {
     const seq = ++requestSeqRef.current;
+    // 응답을 담을 때 쓸 경로 키를 **요청 시점에** 붙든다 — 결과는 이 경로의 것이지 지금 화면의
+    // 것이 아니다(경로가 바뀌면 렌더가 키 불일치로 걸러 낸다).
+    const key = routeKey;
     firstPageInFlight.current = true;
-    setErrorMsg(null);
+    setError(null);
     try {
       const slice = await getGroupChallengeHistory(groupId, { size: PAGE_SIZE, challengeId });
       if (seq !== requestSeqRef.current) return;
-      setItems(slice.content);
+      setLoaded({ key, content: slice.content });
       setPageEnd({ hasNext: slice.hasNext, nextCursor: slice.nextCursor });
       // 커서를 새로 받았다 — 다음 페이지 잠금(일시 실패·무효 커서)을 모두 푼다.
       setMoreFailed(false);
       setHistoryDead(false);
     } catch (e) {
       if (seq !== requestSeqRef.current) return;
-      setErrorMsg(listErrorMessage(e));
+      setError({ key, msg: listErrorMessage(e) });
     } finally {
       // stale로 끝난 조회는 잠금을 풀지 않는다 — 그 조회의 finally가 자기 몫을 푼다.
       if (seq === requestSeqRef.current) firstPageInFlight.current = false;
     }
-  }, [groupId, challengeId]);
+  }, [groupId, challengeId, routeKey]);
+
+  // 지금 경로의 것만 그린다 — 키가 다른 목록·에러는 앞 경로의 잔상이라 렌더에서 버린다.
+  // (버려진 목록 위에서는 items===null이라 loadMore도 자동으로 잠긴다 — 옛 커서로 못 나간다.)
+  const items = loaded !== null && loaded.key === routeKey ? loaded.content : null;
+  const errorMsg = error !== null && error.key === routeKey ? error.msg : null;
 
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다(언마운트 뒤 setState 방지).
   useEffect(() => {
@@ -153,6 +173,7 @@ export default function GroupChallengeHistoryScreen() {
     if (moreFailed && !fromRetry) return;
     const { hasNext, nextCursor } = pageEnd;
     if (!hasNext || !nextCursor) return;
+    const key = routeKey;
     const seq = requestSeqRef.current;
     moreLock.current = true;
     setLoadingMore(true);
@@ -164,7 +185,12 @@ export default function GroupChallengeHistoryScreen() {
       });
       // 그 사이 새로고침이 목록을 교체했으면 이 페이지는 옛 커서의 꼬리다 — 이어붙이지 않는다.
       if (seq !== requestSeqRef.current) return;
-      setItems((prev) => [...(prev ?? []), ...slice.content]);
+      // 경로가 바뀐 뒤라면 붙일 목록 자체가 남의 것이다 — 키가 같을 때만 이어붙인다.
+      setLoaded((prev) =>
+        prev !== null && prev.key === key
+          ? { key, content: [...prev.content, ...slice.content] }
+          : prev,
+      );
       setPageEnd({ hasNext: slice.hasNext, nextCursor: slice.nextCursor });
       setMoreFailed(false);
     } catch (e) {
@@ -283,6 +309,9 @@ export default function GroupChallengeHistoryScreen() {
 
   const list = items ?? [];
   // FOCUS 창의 5분 관용치 안내 — 줄마다 실린 스냅샷으로 판단한다(그룹 축이라 여러 챌린지가 섞인다).
+  // 대상이 **두 번째 이후 페이지에서 처음** 로드되는 경우가 있어서, 안내는 목록 헤더가 아니라
+  // 목록 **밖 고정 자리**에 세운다. 헤더에 얹으면 이미 끝까지 스크롤한 사용자에겐 화면 밖이라,
+  // 목표보다 적은 `55/60분`이 달성으로 찍힌 줄을 안내 없이 읽는다(codex 리뷰 P2).
   const toleranceNotice = showToleranceNotice(list);
   // 새로고침 실패 인라인(목록이 있을 때만) — 전면 에러 조건에 안 걸리는 무음 실패를 알린다.
   const refreshBanner = errorMsg !== null && list.length > 0 ? errorMsg : null;
@@ -290,6 +319,13 @@ export default function GroupChallengeHistoryScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.challengeHistory.screen">
       {header}
+
+      {/* 스크롤과 무관하게 늘 보이는 자리 — 위 toleranceNotice 주석의 이유로 목록 밖이다. */}
+      {toleranceNotice && (
+        <Text style={s.toleranceNotice} testID="group.challengeHistory.toleranceNotice">
+          {WINDOW_FOCUS_TOLERANCE_NOTICE}
+        </Text>
+      )}
 
       <FlatList
         data={list}
@@ -307,17 +343,9 @@ export default function GroupChallengeHistoryScreen() {
         // 무한 스크롤 — 끝에서 다음 페이지(keyset). 종료·중복·404 규칙은 loadMore가 쥔다.
         onEndReached={() => loadMore()}
         onEndReachedThreshold={0.4}
+        // 새로고침 실패 배너는 목록 안(맨 위)에 둔다 — 방금 당겨 새로고침한 사용자는 맨 위에 있다.
         ListHeaderComponent={
-          refreshBanner !== null || toleranceNotice ? (
-            <View style={s.headerNotices}>
-              {refreshBanner !== null && <Text style={s.notice}>{refreshBanner}</Text>}
-              {toleranceNotice && (
-                <Text style={s.toleranceNotice} testID="group.challengeHistory.toleranceNotice">
-                  {WINDOW_FOCUS_TOLERANCE_NOTICE}
-                </Text>
-              )}
-            </View>
-          ) : null
+          refreshBanner !== null ? <Text style={s.notice}>{refreshBanner}</Text> : null
         }
         // 빈 목록 + 재조회 실패는 '기록이 없다'가 아니라 '모른다' — 에러+다시 시도로 바꾼다.
         ListEmptyComponent={
@@ -415,8 +443,14 @@ const s = StyleSheet.create({
   // 인라인 배너(새로고침 실패·다음 페이지 실패) — NoticeScreen s.notice와 같은 규격.
   notice: { ...T.text.caption, color: T.dangerInk },
   footerLoading: { marginTop: T.space.md },
-  headerNotices: { gap: T.space.xs },
-  toleranceNotice: { ...T.text.caption, color: T.inkMuted, textAlign: 'center' },
+  // 목록 밖 고정 자리라 목록의 좌우 여백(listContent)을 스스로 갖는다.
+  toleranceNotice: {
+    ...T.text.caption,
+    color: T.inkMuted,
+    textAlign: 'center',
+    paddingHorizontal: T.space.xl,
+    paddingBottom: T.space.xs,
+  },
   moreFailRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   moreRetryText: {
     ...T.text.caption,

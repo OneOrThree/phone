@@ -283,7 +283,10 @@ export default function ChallengeCard({
       groupId,
       challengeId: challenge.id,
       // 필터로 들어왔다는 사실을 헤더가 말하게 한다 — 안 밝히면 그룹 전체 이력으로 읽힌다.
-      challengeLabel: missionLabel(challenge) ?? categoryLabel(challenge),
+      // 방향(`이하`)을 켜서 넘긴다: 내역 화면엔 카드의 스크린타임 캡션 자리가 없어 이 라벨이
+      // 필터 헤더의 유일한 설명이고, 방향이 빠지면 「하루 60분 스크린타임만 보는 중」이
+      // 집중과 같은 뜻으로 읽힌다(codex 리뷰). 카드 본문 문구는 캡션이 맡으므로 그대로 둔다.
+      challengeLabel: missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge),
     });
   }, [lastBetView, challenge, navigation]);
 

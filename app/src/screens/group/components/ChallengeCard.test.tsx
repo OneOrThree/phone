@@ -911,6 +911,11 @@ describe('지난 내기', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.bet.result.close'));
     });
+    // 확인 CTA는 SheetShell의 퇴장 애니메이션(220ms)을 태운 뒤에 onClose를 부른다(GROMO-1381) —
+    // 그만큼 기다려야 카드가 시트를 내린다.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
     expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
   });
 
@@ -991,6 +996,32 @@ describe('지난 기록 더보기 → 히스토리 push', () => {
       challengeLabel: '하루 60분 집중',
     });
     expect(screen.queryByTestId('group.bet.result.sheet')).toBeNull();
+  });
+
+  // 내역 화면의 필터 헤더는 이 라벨을 그대로 쓴다("… 만 보는 중"). 스크린타임 목표는 방향이
+  // 반대라(60분 **이하**) 카드의 방향 캡션이 없는 그 화면에서는 라벨이 방향을 말해야 한다
+  // (codex 리뷰 P2 · policy §A9 시안 `하루 폰 2시간 이하`). 카드 본문 문구는 그대로 둔다 —
+  // 캡션이 이미 방향을 말하는 자리라 두 번 말할 필요가 없다.
+  test('스크린타임 카드가 넘기는 필터 라벨에는 목표 방향(이하)이 들어간다', async () => {
+    await renderCard({
+      missionCategory: 'SCREEN_TIME',
+      bet: null,
+      lastSettledBet: lastSettledBet(),
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.result.history'));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', {
+      groupId: GROUP_ID,
+      challengeId: CHALLENGE_ID,
+      challengeLabel: '하루 60분 이하 스크린타임',
+    });
+    // 카드 본문의 미션 줄은 종전 그대로 — 방향은 전용 캡션이 말한다.
+    expect(screen.getByText('오늘 스크린타임을 목표 이하로 유지해요')).toBeOnTheScreen();
   });
 
   test('groupId 캐시 미적중이면 push 대신 공통 실패 문구 — 반쪽 파라미터로 화면을 열지 않는다', async () => {

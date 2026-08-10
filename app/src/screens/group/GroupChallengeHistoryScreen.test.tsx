@@ -10,7 +10,7 @@
 //     다음 페이지 404는 받은 이력을 유지하고 인라인으로만 알린다, 일시 실패는 자동 재시도 없음.
 //
 // 네트워크만 목으로 갈아끼우고 groupErrorCode는 실제 구현을 쓴다(NoticeScreen.test 관행).
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupChallengeHistoryScreen from './GroupChallengeHistoryScreen';
 import { getGroupChallengeHistory } from '@/services/groupApi';
@@ -28,6 +28,7 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const CHALLENGE_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
 
 // route params 홀더 — 필터 진입 테스트가 갈아끼운다(beforeEach가 기본값으로 되돌린다).
 const mockNav = { goBack: jest.fn() };
@@ -453,6 +454,73 @@ describe('새로고침 × 다음 페이지 레이스', () => {
   });
 });
 
+// 스택에 남은 이 화면으로 **다른 그룹·다른 필터**가 다시 들어오면 컴포넌트는 그대로 살아 있고
+// route params만 갈린다(그룹방 링크가 challengeId·challengeLabel을 명시적으로 비우는 이유와
+// 같은 구조). 목록에 경로 식별자를 달지 않으면 새 조회가 끝날 때까지 — **실패하면 영영** —
+// 앞 그룹의 참가비·적립금 줄이 새 헤더 아래 남는다. 돈이 오간 기록을 남의 그룹 것으로 보여주는
+// 사고라 이 블록이 그 구조를 잠근다(codex 리뷰 P2).
+describe('경로 식별자가 바뀌면 앞 경로의 내역을 그리지 않는다', () => {
+  type Rerender = Awaited<ReturnType<typeof render>>['rerender'];
+
+  // 같은 컴포넌트에 새 params를 물린다 — 네비게이션이 스택의 화면을 재사용하는 그 경로다.
+  async function reenterWith(params: typeof mockRoute.params, rerender: Rerender) {
+    mockRoute.params = params;
+    await act(async () => {
+      await rerender(<GroupChallengeHistoryScreen />);
+    });
+  }
+
+  test('다른 그룹으로 다시 들어와 조회가 실패하면 앞 그룹의 행이 사라진다', async () => {
+    const { rerender } = await renderScreen();
+    expect(screen.getByText('7/31(금)')).toBeOnTheScreen();
+
+    mockGetHistory.mockRejectedValueOnce(axiosErrorWith(500));
+    await reenterWith({ groupId: OTHER_GROUP_ID }, rerender);
+
+    // 앞 그룹의 줄이 새 그룹 헤더 아래 남으면 안 된다 — 참가비·적립금까지 통째로 남의 것이다.
+    expect(screen.queryByText('7/31(금)')).toBeNull();
+    expect(screen.queryByText('참가비 30 · 적립금 90')).toBeNull();
+    // 볼 게 없으니 전면 에러 + 다시 시도다(빈 목록도, 앞 그룹 목록도 아니다).
+    expect(screen.getByText('지난 기록을 불러오지 못했어요.')).toBeOnTheScreen();
+  });
+
+  test('같은 그룹이라도 필터가 바뀌면 새 응답 전에는 앞 목록을 그리지 않는다', async () => {
+    const { rerender } = await renderScreen();
+    expect(screen.getByText('7/31(금)')).toBeOnTheScreen();
+
+    mockGetHistory.mockReturnValueOnce(new Promise(() => {})); // 영원히 pending
+    await reenterWith(
+      { groupId: GROUP_ID, challengeId: CHALLENGE_ID, challengeLabel: '하루 60분 집중' },
+      rerender,
+    );
+
+    expect(screen.queryByText('7/31(금)')).toBeNull();
+    expect(screen.queryByTestId('group.challengeHistory.list')).toBeNull();
+  });
+
+  test('앞 경로의 응답이 늦게 도착해도 새 경로의 목록에 끼어들지 않는다', async () => {
+    let resolveFirst: (v: GroupChallengeHistorySliceResponse) => void = () => {};
+    mockGetHistory.mockReturnValueOnce(
+      new Promise<GroupChallengeHistorySliceResponse>((r) => {
+        resolveFirst = r;
+      }),
+    );
+    const { rerender } = await render(<GroupChallengeHistoryScreen />);
+
+    mockGetHistory.mockResolvedValueOnce(
+      slice({ content: [historyItem({ sessionId: 's9', sessionDate: '2026-07-29' })] }),
+    );
+    await reenterWith({ groupId: OTHER_GROUP_ID }, rerender);
+
+    await act(async () => {
+      resolveFirst(slice()); // 앞 그룹(7/31)의 응답이 이제야 도착한다
+    });
+
+    expect(screen.getByText('7/29(수)')).toBeOnTheScreen();
+    expect(screen.queryByText('7/31(금)')).toBeNull();
+  });
+});
+
 // FOCUS 창의 5분 관용치 안내 — 그룹 축이라 판단 소스가 route param에서 **줄마다의 스냅샷**으로
 // 바뀌었다(진입 경로에 표시가 의존하지 않는다). 조건·문구 자체는 결과 시트와 같다.
 describe('FOCUS 창 관용치 안내', () => {
@@ -464,13 +532,40 @@ describe('FOCUS 창 관용치 안내', () => {
     windowEnd: '12:00',
   } as const;
 
-  test('창형 집중 줄에 실측 분이 있으면 목록 상단에 안내가 선다', async () => {
+  test('창형 집중 줄에 실측 분이 있으면 안내가 선다', async () => {
     mockGetHistory.mockResolvedValueOnce(slice({ content: [historyItem(focusWindow)] }));
     await renderScreen();
 
     expect(screen.getByTestId('group.challengeHistory.toleranceNotice')).toHaveTextContent(
       '목표에서 5분 모자라도 달성으로 인정돼요',
     );
+  });
+
+  // 첫 페이지엔 대상이 없고 **두 번째 이후 페이지**에서 처음 창형 집중 줄이 로드되는 경우:
+  // 안내를 목록 헤더에 얹으면 이미 끝까지 스크롤한 사용자에겐 화면 밖이라, `55/60분`이
+  // 달성으로 찍힌 줄을 안내 없이 읽는다(codex 리뷰 P2). 목록 밖 고정 자리에 세운다.
+  test('2페이지에서 처음 등장해도 스크롤 위치와 무관하게 보인다 — 목록 안에 숨기지 않는다', async () => {
+    mockGetHistory
+      .mockResolvedValueOnce(slice({ hasNext: true, nextCursor: 's1' })) // 1페이지 = 하루형뿐
+      .mockResolvedValueOnce(
+        slice({
+          content: [historyItem({ ...focusWindow, sessionId: 's2', sessionDate: '2026-07-30' })],
+        }),
+      );
+    await renderScreen();
+    expect(screen.queryByTestId('group.challengeHistory.toleranceNotice')).toBeNull();
+
+    await reachEnd();
+
+    expect(screen.getByTestId('group.challengeHistory.toleranceNotice')).toHaveTextContent(
+      '목표에서 5분 모자라도 달성으로 인정돼요',
+    );
+    // 스크롤되는 목록 안(ListHeaderComponent)이면 맨 아래 사용자는 못 본다 — 밖에 있어야 한다.
+    expect(
+      within(screen.getByTestId('group.challengeHistory.list')).queryByTestId(
+        'group.challengeHistory.toleranceNotice',
+      ),
+    ).toBeNull();
   });
 
   test('하루형만 있으면 안내가 없다 — 관용치는 창형 집중 전용', async () => {

@@ -11,7 +11,7 @@
 // ⚠️ 문구에 「회차」를 쓰지 않는다(N28 · FR-9-3) — 날짜·요일이 이미 그 뜻을 말한다.
 //    코드 식별자(session…)는 그대로다.
 import type { GroupChallengeHistoryItem } from '@/types/dto/group';
-import { voidSummary } from './lastSettledView';
+import { AUTO_REFUND_SUMMARY, voidSummary } from './lastSettledView';
 import { categoryLabel, missionLabel } from './components/challengeLabel';
 import { progressFraction } from './components/progressFormat';
 
@@ -36,6 +36,12 @@ export const REFUNDED_TEXT = '환불';
  *    `repeatDays`가 없고 이 목록에는 배지도 없다. 그대로 두면 **월요일에만 도는 챌린지의
  *    지난 기록이 "매일 실행된 목표"로 설명된다**(codex 리뷰). 없는 사실을 말하느니 창만 적는다
  *    — policy §A9의 목록 시안도 요일 없는 창 문장이다.
+ *
+ * ⚠️ **스크린타임에는 목표 방향(「이하」)을 싣는다**(`direction: true`) — 두 번째로 카드와
+ *    다른 자리다. 스크린타임은 집중과 판정 방향이 반대라(채우는 게 아니라 유지) 방향을 빼면
+ *    `55/60분`이 **달성으로 찍힌 줄**이 모순으로 읽힌다. 카드에는 방향 캡션이 따로 서지만
+ *    이 목록엔 캡션 자리가 없어 라벨이 유일한 설명이다(codex 리뷰 · policy §A9 시안
+ *    `하루 폰 2시간 이하`). 여기서도 문장 사본을 만들지 않고 옵션만 켠다.
  */
 export function historyMissionLabel(item: GroupChallengeHistoryItem): string | null {
   const { missionCategory, missionType } = item;
@@ -49,7 +55,7 @@ export function historyMissionLabel(item: GroupChallengeHistoryItem): string | n
     windowStart: item.windowStart,
     windowEnd: item.windowEnd,
   };
-  return missionLabel(source, { everyday: false }) ?? categoryLabel(source);
+  return missionLabel(source, { everyday: false, direction: true }) ?? categoryLabel(source);
 }
 
 /**
@@ -57,13 +63,21 @@ export function historyMissionLabel(item: GroupChallengeHistoryItem): string | n
  *
  * 판정이 **일어난 날**만 달성 집계로 적는다: 무산·삭제 무효화는 판정을 한 적이 없어
  * 「N명 중 0명 달성」이 거짓이 된다(#570에서 카드가 실제로 거짓말했던 자리).
- * 승자 0명의 결말(REFUNDED·FORFEITED)도 집계보다 결말이 정보다 — 그 문장을 쓴다.
+ * 결말로 끝난 날(REFUNDED·FORFEITED)도 집계보다 결말이 정보다 — 그 문장을 쓴다.
+ *
+ * ⚠️ **REFUNDED는 달성자가 없어서 생기는 상태가 아니다** — 정산 시도가 24시간을 넘겨 자동
+ *    환불된 회차다(IA §4.2 상태도 · §4.3). 달성자 0명은 `FORFEITED`(적립금 소멸)로 갈린다.
+ *    「달성한 사람이 없어 전원 환불」이라고 적으면 자동 환불을 받은 사용자에게 **원인을
+ *    틀리게** 알려준다(codex 리뷰). 문구는 카드가 쓰는 공용 표의 AUTO_REFUND 그대로다 —
+ *    같은 상태를 화면마다 다른 말로 설명하면 그게 다음 버그다.
  */
 export function historySummary(item: GroupChallengeHistoryItem): string {
+  // 사유가 실려 오면 상태로 역추론하지 않고 그 값을 그대로 분기한다(N55 — 사유 축은 종료 사유다).
   const reason = voidSummary(item.voidReason);
   if (reason !== null) return reason;
   if (item.status === 'VOIDED') return '무산돼 전원 환불';
-  if (item.status === 'REFUNDED') return '달성한 사람이 없어 전원 환불';
+  // 사유가 없거나(구서버) 모르는 값인 REFUNDED — 상태 자체가 24시간 초과 자동 환불을 뜻한다.
+  if (item.status === 'REFUNDED') return AUTO_REFUND_SUMMARY;
   if (item.status === 'FORFEITED') return '아무도 달성하지 못해 참가비 소멸';
   return `${item.participantCount}명 중 ${item.achievedCount}명 달성`;
 }

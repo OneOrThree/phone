@@ -9,7 +9,15 @@
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
+import {
+  Alert,
+  AppState,
+  Share,
+  StyleSheet,
+  type AppStateStatus,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
@@ -2063,8 +2071,13 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       // 최신(7/31) 1건만 우회로 뜨고, 이미 본 지난 회차(7/28·7/25)는 큐에 없다.
       expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
       expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
-      fireEvent.press(screen.getByText('확인'));
-      await act(async () => {});
+      // ⚠️ press 를 act 로 감싼다. 밖에서 부르면 이 탭이 띄우는 상태 갱신과 마커 쓰기가
+      //    테스트가 끝난 뒤에도 열린 act 스코프에 남아, **다음 테스트의 render 가 통째로
+      //    빈 트리가 된다**("overlapping act() calls"). 실제로 뒤따르는 로딩 실루엣 테스트
+      //    3개가 단독 실행은 통과하고 전체 실행에서만 깨졌다.
+      await act(async () => {
+        fireEvent.press(screen.getByText('확인'));
+      });
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
       // 이 테스트가 심은 마커만 걷는다 — 스토리지 목은 스위트 전체에서 살아남아 뒤 테스트를
       // 오염시킨다. clear()는 목 내부 상태를 통째로 리셋해 다른 누수를 만들 수 있어 쓰지 않는다.
@@ -2085,5 +2098,112 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
 
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
     });
+  });
+});
+
+// ── 최초 로딩 실루엣(GROMO-1381) ──────────────────────────────────────────────
+//
+// ⚠️ 스크린리더·키보드 **포커스 자체는 jest에서 검증할 수 없다.** 그래서 포커스를 단언하지 않고,
+//    포커스가 사라지는 **원인**(노드 재마운트)을 검증 가능한 명제로 바꿔 잠근다 — 헤더 버튼이
+//    로딩 전후로 **같은 조상 사슬**(같은 ScrollView 아래)에 있다. 부모 트리가 달라지면 네이티브
+//    노드가 새로 마운트되고, 그때 포커스가 사라진다(codex 리뷰).
+describe('최초 로딩 실루엣', () => {
+  const HIDDEN = { includeHiddenElements: true } as const;
+
+  // RTL 인스턴스에서 실제로 쓰는 부분만 좁힌 형태(@types/react-test-renderer가 없다).
+  interface TreeNode {
+    parent: TreeNode | null;
+    children: (TreeNode | string)[];
+    props: { testID?: string; style?: StyleProp<ViewStyle> };
+  }
+  const asNode = (value: unknown): TreeNode => value as TreeNode;
+
+  /** 이 노드 위로 올라가며 만나는 testID들 — '어느 컨테이너 아래에 있는가'의 지문 */
+  function ancestorTestIDs(node: TreeNode): string[] {
+    const ids: string[] = [];
+    for (let cur = node.parent; cur != null; cur = cur.parent) {
+      if (typeof cur.props.testID === 'string') ids.push(cur.props.testID);
+    }
+    return ids;
+  }
+
+  /** 서브트리에서 스타일로 확정된 높이들 — 자리표시자가 무엇을 잡고 있는지 본다 */
+  function heightsUnder(node: TreeNode): number[] {
+    const out: number[] = [];
+    const visit = (n: TreeNode) => {
+      const height = StyleSheet.flatten(n.props.style)?.height;
+      if (typeof height === 'number') out.push(height);
+      n.children.forEach((child) => {
+        if (typeof child !== 'string') visit(child);
+      });
+    };
+    visit(node);
+    return out;
+  }
+
+  /** 상세 응답을 테스트가 붙잡는다 — 그동안 화면은 로딩 상태로 남는다. */
+  async function renderPending() {
+    let settle!: (value: GroupDetailResponse) => void;
+    // ⚠️ `mockReset()`을 먼저 부른다. 전역 beforeEach 의 `clearAllMocks()`는 **호출 기록만**
+    //    지우고 `mockResolvedValueOnce` 큐는 남긴다. 앞선 테스트가 소비하지 않고 남긴 once 값이
+    //    있으면 상세가 즉시 도착해 로딩 상태가 성립하지 않는다 — 단독 실행은 통과하고 전체
+    //    실행에서만 깨지는 순서 종속이 된다(실제로 겪음).
+    mockGetGroupDetail.mockReset();
+    mockGetGroupDetail.mockImplementation(
+      () =>
+        new Promise<GroupDetailResponse>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    // 공지 3장 — 로딩 중엔 개수를 알 수 없다는 것이 이 블록의 요점이다.
+    mockGetAnnouncements.mockResolvedValue([
+      notice({ id: 'a1' }),
+      notice({ id: 'a2' }),
+      notice({ id: 'a3' }),
+    ]);
+    await renderRoom();
+    return async () => {
+      await act(async () => {
+        settle(detail());
+      });
+    };
+  }
+
+  test('헤더는 로딩 전후로 같은 스크롤 컨테이너 아래에 남는다', async () => {
+    const finish = await renderPending();
+
+    expect(screen.getByTestId('group.room.skeleton', HIDDEN)).toBeTruthy();
+    const whileLoading = ancestorTestIDs(asNode(screen.getByLabelText('그룹 설정')));
+    expect(whileLoading).toContain('group.room.scroll');
+
+    await finish();
+
+    expect(screen.queryByTestId('group.room.skeleton', HIDDEN)).toBeNull();
+    expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
+    // 본문만 바뀌었다 — 헤더가 놓인 자리는 그대로다(= 노드가 재마운트되지 않았다)
+    expect(ancestorTestIDs(asNode(screen.getByLabelText('그룹 설정')))).toEqual(whileLoading);
+  });
+
+  test('공지 자리에 고정 카드 자리표시자를 두지 않는다 — 몇 장이 올지 모른다', async () => {
+    const finish = await renderPending();
+
+    const heights = heightsUnder(asNode(screen.getByTestId('group.room.skeleton', HIDDEN)));
+    // 로딩 시점에 알 수 있는 것만 잡는다: 섹션 라벨 높이와 멤버 타일 한 행
+    expect(heights).toContain(18);
+    expect(heights).toContain(130);
+    // 공지 카드 한 장(62)을 고정으로 잡으면 3장이 도착하는 순간 아래가 100pt 넘게 밀린다.
+    // 개수를 알려 주는 경로가 없으므로 아예 잡지 않는다.
+    expect(heights).not.toContain(62);
+
+    await finish();
+    expect(screen.getAllByText('오늘 6시에 모여요')).toHaveLength(3);
+  });
+
+  test('첫 조회가 도는 동안에는 당겨서 새로고침을 달지 않는다', async () => {
+    const finish = await renderPending();
+    expect(refreshControl()).toBeUndefined();
+
+    await finish();
+    expect(refreshControl()).toBeTruthy();
   });
 });

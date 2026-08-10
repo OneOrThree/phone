@@ -61,7 +61,31 @@ describe('historyMissionLabel — 스냅샷이 소스', () => {
           windowEnd: '12:00:00',
         }),
       ),
-    ).toBe('09:00~12:00 90분 스크린타임');
+    ).toBe('09:00~12:00 90분 이하 스크린타임');
+  });
+
+  // 스크린타임 목표는 집중과 **방향이 반대다** — 60분을 채우는 게 아니라 60분 **이하**로
+  // 유지해야 달성이다. 카드에는 방향 캡션(`오늘 스크린타임을 목표 이하로 유지해요`)이 따로
+  // 서지만 이 목록엔 없다: 라벨이 방향을 말하지 않으면 `55/60분`이 **달성으로 찍힌 줄**이
+  // "목표에 못 미쳤는데 달성"으로 읽힌다(codex 리뷰 · policy §A9 시안 `하루 폰 2시간 이하`).
+  test('스크린타임 이력은 목표 방향(이하)을 라벨에 싣는다', () => {
+    expect(historyMissionLabel(item({ missionCategory: 'SCREEN_TIME' }))).toBe(
+      '하루 60분 이하 스크린타임',
+    );
+  });
+
+  test('집중 이력에는 「이하」를 붙이지 않는다 — 목표 방향이 반대다', () => {
+    expect(historyMissionLabel(item())).not.toContain('이하');
+    expect(
+      historyMissionLabel(
+        item({
+          missionType: 'TIME_WINDOW',
+          goalMinutes: 90,
+          windowStart: '09:00',
+          windowEnd: '12:00',
+        }),
+      ),
+    ).not.toContain('이하');
   });
 
   test('창형 이력은 「매일」이라고 단정하지 않는다 — 요일 반복 챌린지의 과거 기록이 섞여 있다', () => {
@@ -128,13 +152,28 @@ describe('historySummary — 판정한 날만 집계로 말한다', () => {
     expect(historySummary(item({ status: 'VOIDED', voidReason: 'WAT' }))).toBe('무산돼 전원 환불');
   });
 
-  test('승자 0명의 두 결말은 서로 다른 문장이다(환불 vs 소멸)', () => {
-    expect(historySummary(item({ status: 'REFUNDED', achievedCount: 0 }))).toBe(
-      '달성한 사람이 없어 전원 환불',
-    );
+  test('달성자 0명의 결말은 몰수다 — 적립금이 소멸한다', () => {
     expect(historySummary(item({ status: 'FORFEITED', achievedCount: 0 }))).toBe(
       '아무도 달성하지 못해 참가비 소멸',
     );
+  });
+
+  // REFUNDED는 **달성자가 없어서 생기는 상태가 아니다** — 정산 시도가 24시간을 넘겨 자동
+  // 환불된 회차다(IA §4.2 상태도 · §4.3). 달성자 0명은 FORFEITED로 갈린다. 자동 환불을 받은
+  // 사용자에게 "달성한 사람이 없어서"라고 말하면 **원인을 틀리게** 알려준다(codex 리뷰).
+  test('REFUNDED는 정산 지연 자동 환불로 말한다 — 「달성한 사람이 없어」가 아니다', () => {
+    const summary = historySummary(item({ status: 'REFUNDED', achievedCount: 0 }));
+    expect(summary).not.toContain('달성');
+    // 화면마다 다른 말로 같은 상태를 설명하지 않는다 — 카드가 쓰는 공용 표의 AUTO_REFUND 그대로.
+    expect(summary).toBe(voidSummary('AUTO_REFUND'));
+  });
+
+  // 사유 축은 무산 전용이 아니라 **종료 사유** 축이라 REFUNDED에도 실려 온다(N55).
+  // 실려 오면 상태로 역추론하지 않고 그 값을 그대로 분기한다 — 문구 소스는 여전히 공용 표다.
+  test('사유가 실려 온 REFUNDED도 공용 표의 같은 문장을 쓴다', () => {
+    const summary = historySummary(item({ status: 'REFUNDED', voidReason: 'REFUND_DEADLINE' }));
+    expect(summary).not.toContain('달성');
+    expect(summary).toBe(voidSummary('REFUND_DEADLINE'));
   });
 });
 

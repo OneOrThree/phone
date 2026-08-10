@@ -70,7 +70,7 @@ erDiagram
         time window_start "미션 스냅샷 · 창형만"
         time window_end "미션 스냅샷 · 창형만"
         enum status "OPEN|SETTLED|FORFEITED|VOIDED|REFUNDED|UNUSED"
-        enum void_reason "VOIDED 사유 — SHORT_PARTICIPANTS|CHALLENGE_DELETED · 그 외 null"
+        enum void_reason "종료 사유 — VOIDED: INSUFFICIENT_PARTICIPANTS|CHALLENGE_DELETED · REFUNDED: REFUND_DEADLINE · 그 외 null"
         timestamptz starts_at "회차 시작 — 취소 기준"
         timestamptz join_closes_at "참가 마감"
         timestamptz closes_at "회차 종료"
@@ -96,6 +96,30 @@ erDiagram
 
 **`repeat_days` 비트마스크** — `ISO-8601` 요일 번호(월=1…일=7)를 `1 << (dow - 1)`로 접는다.
 평일은 `0b0011111 = 31`, 매일은 `127`. `0`은 저장 불가(CHECK).
+
+**`void_reason` 값 3종 — 「종료 사유」 축 (정책 정본 N55 · N33 확장)**
+
+| 값 | 붙는 상태 | 언제 |
+|---|---|---|
+| `INSUFFICIENT_PARTICIPANTS` | `VOIDED` | 참가 마감 시점 참가자가 **정확히 1명** — 환불 대상이 있는 인원 미달. 참가 마감 크론(N47) |
+| `CHALLENGE_DELETED` | `VOIDED` | 그룹장이 챌린지를 삭제해 OPEN 회차가 무효화·환불됨 |
+| `REFUND_DEADLINE` | `REFUNDED` | 정산 24h 데드라인 초과 자동 전원 환불 (N21) |
+
+**`INSUFFICIENT_PARTICIPANTS`는 "2명 미만"이 아니라 "정확히 1명"이다 (N52).** 인원 게이트는
+**0명을 먼저** 걸러 `UNUSED`로 닫고(결과·내역·알림 전부에서 제외), 그 다음에야 1명을 `VOIDED` +
+환불로 보낸다 — 그 순서가 곧 정의다. "2명 미만"으로 읽으면 **보증 크론이 만든 0명 회차에 가짜
+「인원 부족」 결과**가 쌓여 실제 최근 결과를 밀어낸다. 0명은 걸린 돈도 환불 대상도 없어 애초에
+결과가 아니다.
+
+> **사유 축은 `VOIDED` 전용이 아니다 — 정책이 그렇게 정했다 (N55).** `REFUNDED`(24h 데드라인 자동
+> 환불)에도 사유가 붙는다. 정상 정산(`SETTLED`)·몰수(`FORFEITED`)·0명 종료(`UNUSED`)는 `null`이다.
+> N33이 정한 무산 2종을 **대체하지 않고 확장**한 것이고, N48의 푸시 `data.voidReason`은 이 영속
+> 값을 **그대로 싣는다**(상태에서 역추론하지 않는다). 서버 `GroupBetVoidReason`·V41 CHECK 3값이
+> 이 결정의 구현체다.
+>
+> ⚠️ **동명이인 주의**: §5.2·§5.4 코드 예시의 `REFUND_DEADLINE`은 **`settle_after + 24h` 임계값을
+> 나타내는 `Duration` 상수**로, 위 사유 enum과 이름만 같고 다른 것이다. 사유 enum은
+> `void_reason` 컬럼에 들어가는 문자열, 상수는 그 사유를 만들어 내는 시간 임계값이다.
 
 ### 1.2 제약·인덱스
 
@@ -240,7 +264,8 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
     "sessionId": "uuid",
     "sessionDate": "2026-08-08", "stake": 30, "pot": 90,
     "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED
-    "voidReason": null,                  // VOIDED만 — SHORT_PARTICIPANTS | CHALLENGE_DELETED
+    "voidReason": null,                  // VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
+                                         // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
     "goalMinutes": 90,
     "myJoined": true,
     "myAchieved": true, "myPayout": 45,  // myJoined=false면 둘 다 null
@@ -307,19 +332,26 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 
 | 순 | 검사 | 에러 |
 |---|---|---|
-| 1 | 그룹 OWNER인가 — **그룹 행 `FOR UPDATE`**(생성 직렬화) · 요청자 유저 행은 801 규약대로 `FOR SHARE` | `CHALLENGE_FORBIDDEN` 403 |
-| 2 | `repeatDays` 비어있지 않은가 | `CHALLENGE_REPEAT_DAYS_REQUIRED` 400 |
-| 3 | 활성 4개 미만인가 | `CHALLENGE_LIMIT_EXCEEDED` 409 |
-| 4 | 하루형이면 같은 카테고리 활성 챌린지 없는가 | `CHALLENGE_ALREADY_EXISTS` 409 |
-| 5 | 창형: **`시작 < 종료`** (자정 걸침 금지 — `22:00~01:00` 거부) | `INVALID_MISSION_PARAMS` 400 |
-| 6 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가**<br>하루형: **FOCUS `≤ 1080분`(18h) · SCREEN_TIME `≤ 720분`(12h)** (N51) | `INVALID_MISSION_PARAMS` 400 |
-| 7 | 창형 SCREEN_TIME: 목표가 15분 배수 | `CHALLENGE_GOAL_NOT_ALIGNED` 400 |
-| 8 | 창형: 기존 창과 겹치지 않는가 (§3.5) | `CHALLENGE_WINDOW_OVERLAP` 409 |
-| 9 | 내기 켬: `1 ≤ stake ≤ 3000` | `BET_INVALID_STAKE` 400 |
+| 1 | **그룹 멤버인가** — 그룹 행을 **`FOR UPDATE`**(생성 직렬화)로 잡은 뒤 멤버십 행 조회 · 요청자 유저 행은 801 규약대로 `FOR SHARE` | `MEMBER_ONLY` 403 |
+| 2 | 그 멤버가 **OWNER인가** | `NOT_OWNER` 403 |
+| 3 | `repeatDays` 비어있지 않은가 | `CHALLENGE_REPEAT_DAYS_REQUIRED` 400 |
+| 4 | 활성 4개 미만인가 | `CHALLENGE_LIMIT_EXCEEDED` 409 |
+| 5 | 하루형이면 같은 카테고리 활성 챌린지 없는가 | `CHALLENGE_DUPLICATE` 409 |
+| 6 | 창형: **`시작 < 종료`** (자정 걸침 금지 — `22:00~01:00` 거부) | `INVALID_MISSION_PARAMS` 400 |
+| 7 | 창형: `0 < 목표 ≤ 창 길이` — **FOCUS는 `목표 > 5분(관용치)` 추가**<br>하루형: **FOCUS `≤ 1080분`(18h) · SCREEN_TIME `≤ 720분`(12h)** (N51) | `INVALID_MISSION_PARAMS` 400 |
+| 8 | 창형 SCREEN_TIME: 목표가 15분 배수 | `CHALLENGE_GOAL_NOT_ALIGNED` 400 |
+| 9 | 창형: 기존 창과 겹치지 않는가 (§3.5) | `CHALLENGE_WINDOW_OVERLAP` 409 |
+| 10 | 내기 켬: `1 ≤ stake ≤ 3000` | `BET_INVALID_STAKE` 400 |
 
-> **왜 생성만 배타 락인가**: 활성 4개 상한(3)·창 겹침(8)은 **그룹 전역** 불변식이라 공유 락으로는
+> **권한 검사는 두 단계다 — 403이 두 종류다.** 그룹에 **아예 없는 사람**은 `MEMBER_ONLY`,
+> 멤버인데 **OWNER가 아닌** 사람은 `NOT_OWNER`다(`GroupChallengeService.createChallenge` —
+> 멤버십 조회 `orElseThrow(MEMBER_ONLY)` → `role != OWNER` 검사 `NOT_OWNER`). 둘을 하나로 뭉뚱그려
+> 적으면 **클라이언트가 같은 403을 잘못 분기**한다 — "그룹장에게 요청하세요"와 "이 그룹의 멤버가
+> 아닙니다"는 유저에게 전혀 다른 안내다.
+
+> **왜 생성만 배타 락인가**: 활성 4개 상한(4)·창 겹침(9)은 **그룹 전역** 불변식이라 공유 락으로는
 > 못 지킨다 — 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다(부분 유니크 제약은
-> 하루형 카테고리 중복(4)만 막는다). 그룹 행 `FOR UPDATE`로 생성을 직렬화한다. 생성은 그룹장
+> 하루형 카테고리 중복(5)만 막는다). 그룹 행 `FOR UPDATE`로 생성을 직렬화한다. 생성은 그룹장
 > 전용의 드문 동작이라 경합 비용은 없다시피 하다. 조회는 기존대로 무락(§2.1).
 >
 > **왜 목표 하한이 관용치인가**: 창형 FOCUS 판정이 `분 ≥ 목표 − 5`(§3.2)라서 목표 1~5분이면
@@ -469,8 +501,9 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
     "goalMinutes": 90,
     "windowStart": "09:00", "windowEnd": "12:00",
     "stake": 30, "pot": 90, "status": "SETTLED",
-    "voidReason": null,                 // VOIDED만 — SHORT_PARTICIPANTS | CHALLENGE_DELETED
-                                        // (사유 없이 VOIDED 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다)
+    "voidReason": null,                 // VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
+                                        // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
+                                        // (사유 없이 상태 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다)
     "myPayout": 45, "myAchieved": true, "myProgressMinutes": 102,
     "achievedCount": 2, "participantCount": 3
   }],
@@ -484,7 +517,8 @@ void deleteChallenge(UUID groupId, UUID challengeId, UUID ownerId) {
 #### `PUT /groups/{groupId}/challenges/{challengeId}/window-usage` — 멤버 **+ 시작된 회차의 참가자**
 
 ```jsonc
-{ "usageDate": "2026-08-10", "progressMinutes": 24, "measuredAt": "2026-08-10T14:03:00Z" }
+{ "usageDate": "2026-08-10", "progressMinutes": 24,
+  "measuredAt": "2026-08-10T14:03:00Z" }   // 구앱은 생략 가능 — 단 참가자 갈래는 없으면 저장 안 함(아래)
 ```
 
 **204**. `measuredAt`은 **서버 시각 대비 +2분을 넘으면 거부**한다(`INVALID_MEASURED_AT` 400).
@@ -499,20 +533,90 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 앱은 실패 처리했지만 요청이 서버에 지연 도착하는 경우. "마지막 도착이 이긴다"로 두면
 **정산 결과가 네트워크 도착 순서에 좌우**된다 — 돈 경로다.
 서버는 범위(0~1440)만 검증한다(클라 신뢰).
-**보고도 회차 락을 잡고 `OPEN`을 재확인한 뒤 쓴다.** 무락으로 "OPEN이네" 확인만 하고 upsert하면
+**참가자 보고(아래 갈래 ①)는 회차 락을 잡고 `OPEN`을 재확인한 뒤 쓴다.** 무락으로 "OPEN이네" 확인만 하고 upsert하면
 정산과 경합한다 — 정산이 락을 잡고 **옛 값으로 패배를 확정·지급한 뒤**, 이 트랜잭션이 새 값을
 써서 **저장된 측정치와 지급 결과가 어긋난다**(계약상 "정산 후 보고는 무시"인데 실제로는 반영된
 셈). 회차 락을 먼저 잡으면 정산이 새 값을 보거나, 보고가 정산 후임을 알고 스스로 무시한다.
 **하루형 SCREEN_TIME 일일 보고 경로도 같은 직렬화가 필요하다** — DURATION 회차가 그 값을 쓴다.
 
-**보고 창은 `starts_at` ~ 정산 전까지다.** `join-next`·`join-week`가 만든 **미래 예약 회차도
-`OPEN`** 이라, 시작 전 보고를 받으면 아직 시작도 안 한 창에 **0분이 선기록**되고 이후 동기화가
-덮어쓰지 못하면 그 값으로 이긴다. 그래서 `now < starts_at`이면 조용히 204로 무시한다
-(그레이스 구간의 늦은 보고는 계속 받는다 — N43).
+**자격은 `usageDate` 회차에 결속되고, 두 갈래로 갈린다.** 대상 회차 = `(challengeId, usageDate)`
+회차 1건이다(있을 수도, 없을 수도 있다). 그 회차에 **내 참가 행이 있으면 돈이 걸린 보고**,
+없으면 **표시용 보고**다.
 
-**`usageDate`는 내가 참가한 그 챌린지의 `OPEN` 회차 날짜여야 한다.** 활성 요일인지만 보면
-클라가 **미래 활성일에 낮은 값을 미리 심을** 수 있고, 그 뒤 덮어쓰는 보고가 없으면 그대로
-정산에 쓰여 스크린타임 회차를 부당하게 이긴다. 회차가 없거나 이미 정산됐으면 조용히 204로
+| 갈래 | 조건 | 게이트 |
+|---|---|---|
+| **① 참가자 (돈)** | `usageDate` 회차의 참가자 | 그 회차 행을 **`FOR UPDATE`로 잠그고** ⓐ 아직 `OPEN` ⓑ `now ≥ starts_at` 를 재확인 + ⓒ **`measuredAt ≥ 참가 시각`**(없으면 거절)인 뒤에만 저장. 하나라도 아니면 조용히 **204**. 그룹 멤버가 아니어도 받는다 (탈퇴자 — N43) |
+| **② 표시용 (FR-9)** | 그 날짜에 참가 행이 없는 **그룹 멤버** | 받는다(`measuredAt` 없어도 받는다). **단** ⓐ 회차가 있는데 아직 `starts_at` 전이면 무시(204) ⓑ **회차가 없는 날짜**는 **오늘·어제**까지만 받는다(그보다 오래되면 204) |
+
+- **왜 "참가자"로 좁히면 안 되나**: `memberProgress`는 **그룹 멤버 전원** 축이다. 게다가 **내기가
+  꺼진 챌린지엔 회차 행이 아예 없다**(내기는 생성 시에만 켤 수 있다 — N26). "참가한 OPEN 회차"를
+  요구하면 그 챌린지에는 창 사용분이 **한 건도** 저장되지 않아 카드 `memberProgress`가 전원 영구
+  `null`이 되고 **FR-9 진행률이 통째로 죽는다**. IA §4.3의 "그룹 전체 달성 현황은 카드에서 상시
+  보인다"와도 정면으로 어긋난다.
+- **왜 "챌린지의 아무 시작된 OPEN 회차"로도 안 되나**: 오늘 회차 참가자가 `join-week`로 함께
+  예약한 **미래 회차가 시작되기도 전에** 그 날짜의 낮은 값을 미리 심을 수 있다. 대상 회차를
+  **날짜로 결속**해야 "시작 전 선기록"이 닫힌다.
+- **왜 표시용도 시작 전엔 막나**: 미참가 상태로 낮은 값을 심어두고 **창 시작 전에 참가**하면
+  참가자 결속을 우회한다. 창형은 **참가 마감 = 창 시작**(`join_closes_at == starts_at`)이라 시작 후
+  합류가 없어 이 한 줄로 닫힌다. 시작 전 창에는 표시할 사용분이 없으므로 FR-9 손실도 없다.
+- **왜 참가자 갈래만 `measuredAt`을 요구하나 (①-ⓒ)**: 판정축을 **"언제 도착했나"에서 "언제
+  측정됐나"로** 옮긴 것이다. 도착 순서는 네트워크가 정하지만 측정 시각은 **값 자체의 성질**이라
+  순서가 어떻게 꼬여도 결론이 같다. 비교 기준인 **참가 시각(참가 행 `created_at`)은 참가비 차감과
+  같은 트랜잭션에서 박제되는 불변값**이라 "언제부터 돈이 걸렸나"의 단일 진실이다.
+  **`measuredAt`이 없으면(구앱) 참가자 갈래는 거절**한다 — 시각을 모르면 참가 전 값인지 판별할
+  방법이 없고, 돈이 걸린 쪽은 보수적으로 가야 한다. 미보고 = 미달성(FR-21)은 손해가 **본인에게만**
+  가지만, 참가 전 값을 받으면 **남의 돈**을 가져간다. **표시용 갈래는 종전대로 받는다**(판정과
+  무관하고, FR-9 카드가 구앱에서 죽으면 안 된다).
+- **왜 표시용 과거 날짜를 오늘·어제로 자르나 (②-ⓑ)**: 미래만 막고 과거를 전부 통과시키면
+  **행을 무한히 심을 수 있다**. (챌린지, 유저, **날짜**) 유니크는 날짜마다 새 행을 허용하므로
+  유니크가 이 증식을 못 막는다. **"오늘만"으로 자르지 않은 이유**는 창형 정산 그레이스가 창
+  종료 +30분이고 창은 자정을 걸치지 못하므로(V35 `CHECK (window_start < window_end)`), **자정 직후
+  도착하는 어제분 늦은 보고가 정당한 경로**이기 때문이다 — 하루 여유가 그 폭을 덮고도 남는다.
+  **회차가 있는 날짜는 이 제한을 받지 않는다**: 날짜 자체가 서버가 만든 회차에 결속돼 이미
+  유한하고, 그쪽 돈 판정은 회차 게이트가 맡는다. 잘라낸 것은 정확히 **"회차도 없고 표시할 곳도
+  없는 임의 과거 날짜"** 뿐이라 FR-9 손실이 없다(카드 진행률 조회는 요청 날짜 단건이라 더 오래된
+  날짜를 채워 봐야 표시되지 않는다).
+
+**선기록 악용은 회차 게이트 밖에서 네 겹으로 닫는다.** 회차 기준 게이트는 **행이 있어야**
+작동하므로 아직 회차가 없는 날짜가 새고, **동시성 방어(잠금)는 순차 경합을 못 막는다**.
+
+1. **날짜 게이트** — `usageDate`가 **KST 오늘보다 미래**면 무시(204). 그 날짜의 창은 시작조차
+   하지 않았으므로 보고할 사용분이 존재할 수 없다. 반대쪽 끝은 갈래 ②-ⓑ가 맡는다(회차 없는
+   날짜는 오늘·어제까지).
+2. **창 시각 게이트** — 오늘이라도 **챌린지의 창 시작 전**이면 무시(204). 창 상세가 없는
+   챌린지(레거시)는 날짜 게이트만 적용한다.
+3. **참가 시점 무효화** (`invalidatePreJoinReport`) — **창이 열린 뒤** 아직 참가하지 않은 멤버가
+   낮은 값을 먼저 보고하고 나중에 참가하는 변종이 남는다(레거시 참가 경로는 참가 마감을 창
+   **종료**까지로 본다 — N36 브리지). 표시용 보고는 계속 받아야 하므로(FR-9) 쓰기를 막는 대신
+   **참가 트랜잭션에서 그 (챌린지, 유저, 회차 날짜)의 보고 행을 지운다.** 정직한 사용자는 손해
+   보지 않는다 — 클라가 **누적값**을 보내므로 다음 sync가 실제 값을 복원하고, 복원 전에
+   정산되는 극단은 미보고 = 미달성(FR-21)이라 **돈 안전 쪽**으로 떨어진다.
+4. **참가 시각 대비 `measuredAt` 비교** (갈래 ①-ⓒ) — 3의 무효화가 **닿지 못하는 순서**를 닫는다.
+   아래 참조.
+
+**보고 축(`challengeId:userId:usageDate`) advisory lock은 동시 트랜잭션만 직렬화한다.** 참가 행
+생성과 무효화가 같은 트랜잭션이어도 그것만으로는 부족하다 — 참가 커밋 전이면 보고 쪽은 그 행을
+못 보고(READ COMMITTED) "미참가 = 표시용"으로 갈라져 **무락으로** 쓰는데, 그 커밋이 무효화보다
+뒤면 심긴 값이 살아남는다. 쓰기(upsert)와 무효화(delete)가 **같은 키**로 잠가야 두 순서 모두
+안전하다. 같은 유저·같은 날짜의 자기 요청끼리만 줄을 서므로 참가자 간 경합은 생기지 않는다.
+
+**그런데 잠금은 「동시」에만 듣는다 — 「순차」 경합이 남는다.** ① 창이 열린 뒤 미참가자가 낮은
+값(아직 안 썼다)을 보내는데 그 요청 **처리가 지연**되고 ② 그 사이 참가 트랜잭션이 **먼저 커밋**되면,
+무효화는 **아직 존재하지 않는 행**을 지우느라 아무것도 못 지우고 ③ 뒤늦게 도착한 요청이 이제
+**참가자**로 재분류돼 그 낮은 값을 쓴다. 두 트랜잭션이 겹치지 않으므로 락은 개입할 자리가 없다.
+SCREEN_TIME은 작을수록 이기는 지표라 그대로 부당 승리·지급이다. 그래서 갈래 ①은
+**`measuredAt < 참가 시각`인 보고를 저장하지 않는다**(조용한 204). 기기 시계가 느리면 참가 직후
+잠깐 보고가 버려지지만 오차만큼 지나면 스스로 풀리고(측정 시각이 참가 시각을 추월한다), 누적값
+재보고가 그 사이를 복원한다. 시계가 빠른 쪽은 `measuredAt` +2분 관용치가 이미 400으로 막는다.
+
+> **`measured_at`이 걸리는 비교는 둘인데 축이 다르다.** ⑴ **단조 갱신**(N34) — **저장값** 대비
+> 비교로 *같은 사람의 옛 보고가 새 보고를 덮지 못하게* 한다. ⑵ **참가 시각 대비 비교**(위) —
+> *참가 전에 잰 값이 애초에 들어오지 못하게* 한다. 하나는 순서 방어, 하나는 자격 방어다.
+> **둘 다 유지된다** — 어느 한쪽으로 다른 쪽을 대신할 수 없다.
+
+**과거 날짜는 원칙적으로 받는다** — 그레이스 구간의 늦은 보고가 여기 걸리면 안 된다(N43). 과거
+날짜의 돈 판정은 갈래 ①의 회차 게이트가 맡고, **회차가 없는 과거 날짜만** 갈래 ②-ⓑ의 폭
+제한(오늘·어제)을 받는다. 갈래 ①에서 회차가 사라졌거나 이미 정산됐으면 조용히 204로
 무시한다(에러로 만들지 않는 이유는 아래와 같다).
 
 **비활성 요일의 보고는 무시**한다 (`CHALLENGE_NOT_ACTIVE_TODAY` 대신 조용히 204 — 클라가
@@ -534,6 +638,11 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
 > 푸시가 `settle_after − 15분`에 앱을 깨워 마지막 보고를 시키는데(FR-22), 대상에서 이미
 > 빠졌으면 그 flush가 무의미해진다. 특히 탈퇴자는 그룹 기반 폴백이 없어 값이 `null`로 남고
 > **미보고 = 미달성**으로 정산된다 — N43이 막으려던 바로 그 결과다.
+>
+> ⚠️ **구현은 이 표의 "서버 권한"보다 좁다 (미해소 · 후속 판단).** `GroupBetWindowUsageService`의
+> 참가자 판정은 **"그 `usageDate` 날짜 회차의 참가자"** 인데, 위 표현("해당 챌린지의 OPEN 회차
+> 참가자")은 **날짜 무관**으로 읽혀 더 넓다. 위의 갈래 ①·② 규칙은 구현(날짜 결속) 기준으로 쓰였다
+> — 어느 쪽을 정본으로 삼을지는 아직 정하지 않았다.
 
 #### `GET /me/challenge-results?since=&limit=` — 내 정산 완료 회차 (그룹 무관) · **결과 모달의 유일한 소스** (N53)
 
@@ -545,6 +654,8 @@ upsert 멱등 — 단 **`measuredAt`이 저장값보다 오래된 보고는 조�
     "sessionDate": "2026-08-08", "stake": 30, "pot": 90,
     "status": "SETTLED",                 // SETTLED | FORFEITED | VOIDED | REFUNDED (UNUSED는 안 실린다)
     "voidReason": null, "goalMinutes": 90,
+                                         // voidReason — VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
+                                         // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
     "myAchieved": true, "myPayout": 45,
     "results": [{ "userId": "uuid", "nickname": "민지", "achieved": true, "payout": 45, "progressMinutes": 102 }]
 }] }
@@ -645,29 +756,57 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
 | 코드 | HTTP | 조건 | 경로 |
 |---|---|---|---|
 | `BET_INVALID_STAKE` | 400 | stake ∉ [1, 3000] | 생성 |
-| `BET_SESSION_NOT_FOUND` | 404 | 회차 없음 / 그룹 불일치 | 참여·취소 |
-| `BET_SESSION_CLOSED` | 409 | `now ≥ join_closes_at` (참가 마감) | 참여 |
+| `BET_NOT_FOUND` | 404 | 회차 없음 / 그룹 불일치 | 참여·취소 |
+| `BET_CLOSED` | 409 | `now ≥ join_closes_at` (참가 마감) | 참여 |
 | `BET_ALREADY_JOINED` | 409 | 이미 참가 | 참여 |
-| `BET_SCREENTIME_PERMISSION_REQUIRED` | 409 | **SCREEN_TIME** 회차인데 스크린타임 권한 미허용 (N50) | 참여 |
+| ✚ `BET_SCREENTIME_PERMISSION_REQUIRED` | 409 | **SCREEN_TIME** 회차인데 스크린타임 권한 미허용 (N50) | 참여 |
 | `BET_ALREADY_ACHIEVED` | 409 | **FOCUS** 이미 달성 | 참여 |
 | `BET_ALREADY_FAILED` | 409 | **SCREEN_TIME** 이미 목표 초과 | 참여 |
 | `BET_NOT_OPEN` | 409 | 회차가 이미 종료 / CAS 레이스 패배 | 참여·취소 |
 | `BET_NOT_JOINED` | 409 | 참가자 아님 | 취소 |
 | `BET_LEAVE_CLOSED` | 409 | 취소 마감 경과 — 시작 전 참가는 회차 시작, 시작 후 참가는 참가+5분(회차 종료 상한) | 취소 |
-| `BET_INSUFFICIENT_BALANCE` | 409 | 잔액 부족 (join-week은 총액 기준) | 참여 |
-| `CHALLENGE_FORBIDDEN` | 403 | 그룹장 아님 | 생성·종료·삭제 |
+| ✚ `BET_INSUFFICIENT_BALANCE` | 409 | 잔액 부족 (join-week은 총액 기준) | 참여 |
+| `NOT_OWNER` | 403 | **그룹 멤버이지만** OWNER가 아님 | 생성·종료·삭제 |
+| `MEMBER_ONLY` | 403 | **그룹 멤버가 아님** (보고 경로는 "그 날짜 회차의 참가자도 아님"까지 포함) | 생성·종료·삭제 · 창 사용분 보고 · 참여(차감 직전 멤버십 재검증, N54) |
+| `BET_CHALLENGE_INACTIVE` | 409 | 종료(`ENDED`)된 챌린지의 회차에 참여 | 참여 |
 | `CHALLENGE_REPEAT_DAYS_REQUIRED` | 400 | 요일 미선택 | 생성 |
 | `CHALLENGE_LIMIT_EXCEEDED` | 409 | 활성 4개 초과 | 생성 |
-| `CHALLENGE_ALREADY_EXISTS` | 409 | 하루형 카테고리 중복 | 생성 |
+| `CHALLENGE_DUPLICATE` | 409 | 하루형 카테고리 중복 | 생성 |
 | `CHALLENGE_GOAL_NOT_ALIGNED` | 400 | 창 SCREEN_TIME 목표가 15분 배수 아님 | 생성 |
 | `CHALLENGE_WINDOW_OVERLAP` | 409 | 요일 ∩ 시간대 겹침 or 간격 < 15분 | 생성 |
 | `CHALLENGE_END_BLOCKED` | 409 | OPEN 회차 존재 | 종료 |
 | `INVALID_MISSION_PARAMS` | 400 | 창 파라미터 무효 | 생성 |
 | `INVALID_PAGE_REQUEST` | 400 | `size` 범위 밖 | 이력 조회 |
-| `INVALID_MEASURED_AT` | 400 | `measuredAt`이 서버 시각 +2분 초과 (기기 시계 앞섬) | 창 사용분 보고 |
-| `INVALID_SESSION_DATES` | 400 | `join-week`의 지정 날짜가 활성일이 아니거나 참여 불가 | 주간 부분 예약 |
+| ✚ `INVALID_MEASURED_AT` | 400 | `measuredAt`이 서버 시각 +2분 초과 (기기 시계 앞섬) | 창 사용분 보고 |
+| ✚ `INVALID_SESSION_DATES` | 400 | `join-week`의 지정 날짜가 활성일이 아니거나 참여 불가 | 주간 부분 예약 |
 | `GUEST_FORBIDDEN` | 403 | 게스트 | 전 경로 |
 | `CONCURRENT_UPDATE` | 409 | 낙관락 충돌 → 재시도 안내 | 전 경로 |
+
+> **✚ 표시가 없는 코드는 전부 `GroupErrorCode`에 이미 있는 값이다 — 새로 만들지 않고 그대로 쓴다.**
+> **✚ 표시 4종은 아직 없어 대응 구현 티켓에서 신설한다** — `BET_SCREENTIME_PERMISSION_REQUIRED`
+> (N50 권한 가드) · `BET_INSUFFICIENT_BALANCE` · `INVALID_SESSION_DATES`(둘 다 참여 경로) ·
+> `INVALID_MEASURED_AT`(N34 창 사용분 보고). `main`의 `GroupErrorCode`에는 없으므로 **각 경로를
+> 구현하는 티켓이 enum 값 추가까지 책임진다** — 있다고 가정하고 짜면 계약을 발급할 수 없다.
+> (신규 코드라 구앱은 모른다 → 공통 문구로 강하한다. 그래서 이름은 자유롭게 정할 수 있는 반면,
+> 아래 "기존 값" 항목들은 이름을 바꿀 자유가 없다.)
+>
+> - **`NOT_OWNER`·`MEMBER_ONLY`**: 초안의 `CHALLENGE_FORBIDDEN`(403 신설)은 폐기한다. 같은 403에
+>   같은 의미인 `NOT_OWNER`(그룹장 아님)·`MEMBER_ONLY`(그룹원 아님)가 이미 있고, `GroupErrorCode`
+>   에 **"앱이 응답의 code 문자열로 분기한다 — 이름 변경 금지"** 규약이 명문화돼 있다. 뜻이 겹치는
+>   코드를 하나 더 만들면 앱이 두 문자열을 다 알아야 한다. 정책 정본에도 `CHALLENGE_FORBIDDEN`의
+>   근거는 0회다. **둘은 서로 다른 실패다** — 생성·종료·삭제는 비멤버에게 `MEMBER_ONLY`, 멤버인데
+>   OWNER가 아니면 `NOT_OWNER`를 던진다(§2.1 검증표 1·2행). 한 행에 뭉치면 앱이 403을 잘못 가른다.
+> - **`BET_NOT_FOUND`·`BET_CLOSED`** (초안의 `BET_SESSION_NOT_FOUND`·`BET_SESSION_CLOSED`):
+>   **개명하지 않는다.** 배포된 앱이 이 문자열로 분기 중이다 — `BetSheet.tsx`는 `BET_CLOSED`에서
+>   **내일 날짜로 1회 자동 재시도**하고 `BET_NOT_FOUND`를 "사라진 내기" 전용 문구로 가르며,
+>   `GroupBetHistoryScreen.tsx`는 `BET_NOT_FOUND`(무효 커서)에서 **페이지네이션을 접는다**.
+>   이름을 바꾸면 그 분기들이 조용히 죽는다(구앱은 새 문자열을 모르고 공통 문구로 떨어진다).
+> - **`BET_CHALLENGE_INACTIVE`**: 아래 폐기 목록에서 뺐다 — 신 참여 경로가 **살아 있는 분기**로
+>   던진다(`GroupBetJoinService`의 `challenge.getStatus() != ACTIVE`).
+> - **`CHALLENGE_DUPLICATE`** (초안의 `CHALLENGE_ALREADY_EXISTS`): 하루형 카테고리 중복은 이 코드로
+>   나간다. `CHALLENGE_ALREADY_EXISTS`라는 이름은 코드에 **없다**. 같은 자리에 `ACTIVE_CHALLENGE_EXISTS`도
+>   남아 있지만 **값만 잔존한 deprecated 코드로 발급 경로가 없다**(생성 중복은 전부 `CHALLENGE_DUPLICATE`) —
+>   구앱 호환 때문에 이름만 살려 둔 것이니 새로 배선하지 않는다.
 
 **검증 순서 계약 (취소)**: `참가자 여부 → OPEN → 취소 가능 시각`. 순서가 바뀌면 앱이 잘못된
 문구를 띄운다.
@@ -701,7 +840,8 @@ static Instant leaveDeadline(BetSession s, BetParticipant p) {
 `created_at + 5분`을 자체 계산하지 않는다 — 기기 시계가 틀어지면 버튼이 어긋난다.
 
 **폐기되는 코드**: `BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` · `BET_CANCEL_HAS_OTHERS` ·
-`BET_CHALLENGE_INACTIVE` · `BET_FOCUS_ONLY`. 개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다.
+`BET_FOCUS_ONLY`. 개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다.
+값 자체는 **잔존**시킨다 — 구앱이 code 문자열로 분기하므로 이름을 지우지 않는다(발급만 멈춘다).
 
 ### 2.3 배치 (관리자 키)
 
@@ -780,7 +920,7 @@ public static boolean isAchieved(Target t, Integer minutes) {
 
 **멤버십은 차감 직전에 다시 본다 (N54).** 참여 경로가 `users` 행만 공유 잠금하면 **그룹 탈퇴와
 직렬화되지 않는다**(탈퇴는 `group_members`를 바꾼다). 회차 락을 잡은 뒤 활성 멤버십을 재검증하고,
-아니면 `CHALLENGE_FORBIDDEN` 403으로 되돌린다 — 그러지 않으면 **그룹에 없는 사람의 유료 예약**이
+아니면 `MEMBER_ONLY` 403으로 되돌린다 — 그러지 않으면 **그룹에 없는 사람의 유료 예약**이
 남고 탈퇴 정산 정리에서도 빠진다.
 
 **권한 가드가 먼저다 (N50).** `join`·`join-next`·`join-week` **세 경로 모두**, SCREEN_TIME
@@ -1057,7 +1197,7 @@ void settle(UUID sessionId, SettleTrigger trigger) {
     }
 
     if (participants.isEmpty()) { s.closeUnused(); return; }      // 아무도 안 들어온 회차 — 결과 아님
-    if (participants.size() < 2) { voidSession(s, participants, SHORT_PARTICIPANTS); return; }
+    if (participants.size() < 2) { voidSession(s, participants, INSUFFICIENT_PARTICIPANTS); return; }
 
     Target t = targetOf(s);
     var minutes = judge.progressMinutes(t, s.getSessionDate(), userIdsOf(participants));
