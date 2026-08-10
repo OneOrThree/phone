@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useCharacter } from '@/store/CharacterContext';
@@ -25,15 +25,25 @@ export function WeekStreakModal({ visible, onClose }: Props) {
   // 팝을 마운트 시점에 걸면 커스텀 누끼 디코딩이 늦을 때 안 보이는 사이 팝이 끝나 버린다.
   // 다른 두 축하 모달(Goal·ScreenTime)과 같은 결함이라 같은 방식으로 막는다(codex 리뷰).
   const [charReady, setCharReady] = useState(false);
+  // ⚠️ 팝은 그림이 올라온 것만으로 시작하면 안 된다 — 화면 전환·스크롤이 이어지는 동안
+  //    시작하면 UI가 안정될 때쯤 연출이 이미 끝나 있다(설계 §참조 구현). 축하 모달 3종이
+  //    같은 게이트를 쓰는데 여기만 빠져 있었다(codex 리뷰).
+  const [uiIdle, setUiIdle] = useState(false);
   // 팝인이 끝났는가 — 캐릭터가 튀어 들어온 **뒤에** 색종이가 터진다.
   // 같은 오버레이·같은 등장 순간이라는 기존 결정(위 주석)은 유지하고 박자만 나눈 것이다.
   const [popDone, setPopDone] = useState(false);
   // 장착 캐릭터 — custom 선택 + 누끼 있으면 그 URI, 아니면 null(기본 정적 에셋).
   const { activeSource } = useCharacter();
   const m = useMotion();
+  const charShown = charReady && uiIdle;
   // 축하 순간의 촉감 — notification 계열 "따-단". 축하 표면 전용이다.
   useEffect(() => {
     if (visible) hapticSuccess();
+  }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
+    const task = InteractionManager.runAfterInteractions(() => setUiIdle(true));
+    return () => task.cancel();
   }, [visible]);
   // 노출 단위 초기화(codex 리뷰) — 닫혀도 이 컴포넌트는 언마운트되지 않아 준비 플래그가
   // 다음 노출까지 살아남는다. charReady를 이번 라운드에 새로 넣은 곳이라 같은 함정이 그대로
@@ -41,6 +51,7 @@ export function WeekStreakModal({ visible, onClose }: Props) {
   useEffect(() => {
     if (visible) return;
     setCharReady(false);
+    setUiIdle(false);
     setPopDone(false);
   }, [visible]);
   // 색종이는 팝이 시작(=charReady)한 뒤 팝 길이만큼 지나서. reduce여도 타이머는 남긴다(정책 D7) —
@@ -54,10 +65,10 @@ export function WeekStreakModal({ visible, onClose }: Props) {
   const popDelayRef = useRef(m.delay(M.dur.slow));
   popDelayRef.current = m.delay(M.dur.slow);
   useEffect(() => {
-    if (!visible || !charReady || !m.ready) return undefined;
+    if (!visible || !charShown || !m.ready) return undefined;
     const t = setTimeout(() => setPopDone(true), popDelayRef.current);
     return () => clearTimeout(t);
-  }, [visible, charReady, m.ready]);
+  }, [visible, charShown, m.ready]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -82,8 +93,8 @@ export function WeekStreakModal({ visible, onClose }: Props) {
             key={visible ? 'shown' : 'hidden'}
             testID="weekStreak.character"
             preset={pop()}
-            style={charReady ? undefined : s.charPending}
-            active={charReady}
+            style={charShown ? undefined : s.charPending}
+            active={charShown}
           >
             <CharacterImage
               size={104}
