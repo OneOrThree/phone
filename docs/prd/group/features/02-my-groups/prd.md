@@ -25,7 +25,7 @@
 - 뒷면의 주요 행동은 **이 그룹으로 집중**, 보조 행동은 **방 전체 보기**다.
 - 전 그룹 앞면 배경은 **#5E6AD2**로 고정한다.
 - 사용자가 고르는 **내 카드 아이콘**과 카드 순서는 현재 계정·기기 로컬 설정으로만 저장한다.
-- 카드 뒷면은 새 요약 API 없이 기존 detail·공지·챌린지·리그 API를 첫 flip 시점에 조합한다.
+- 카드 뒷면은 새 요약 API 없이 기존 detail·공지·챌린지·리그 API를 첫 back 시점에 조합하고, 현재 집중 상태만 foreground에서 60초마다 갱신한다.
 
 ### 현재 전제
 
@@ -167,49 +167,50 @@ GroupScreen
 
 ### 4.3 기능 요구사항
 
-| ID    | 검증 가능한 요구사항                                                                                                                                                                                                               | 우선순위 | Phase  | 의존성              | 현재 상태                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------ | ------------------- | -------------------------- |
-| FR-01 | 서버 목록이 1개 이상이면 horizontal peek·paging 카드 덱을 렌더한다                                                                                                                                                                 | MUST     | F02-P1 | GET /groups         | 미착수                     |
-| FR-02 | 앞면에 공개 여부, reorder handle, 로컬 아이콘, 이름, OWNER badge, 소개, 현재·정원 인원, flip affordance를 표시한다                                                                                                                 | MUST     | F02-P1 | summary DTO         | 미착수                     |
-| FR-03 | 앞면 배경은 전 그룹 #5E6AD2이며 그룹별 tone을 만들지 않는다                                                                                                                                                                        | MUST     | F02-P1 | 디자인 토큰         | 미착수                     |
-| FR-04 | 12개 허용 아이콘 🌅 📚 💻 ⚡ 🧘 🎨 🏃 ✍️ 🧠 🎯 🌿 🔥 중 하나를 userId×groupId 로컬에 저장하며 기본값은 🎯다                                                                                                                        | MUST     | F02-P1 | AsyncStorage·인증   | 미착수                     |
-| FR-05 | create 성공 전에는 아이콘을 저장하지 않고, 성공 응답 groupId에만 현재 userId의 값을 연결한다                                                                                                                                       | MUST     | F02-P1 | create 응답         | 미착수                     |
-| FR-06 | 서버 목록 성공 후 순서에서 stale·중복 ID를 제거하고 신규 ID를 뒤에 추가한다. FindMoreCard는 저장하지 않는다                                                                                                                        | MUST     | F02-P1 | 로컬 order store    | 미착수                     |
-| FR-07 | 앞면 본문 tap은 같은 카드를 flip하고 즉시 GroupRoom을 열지 않는다                                                                                                                                                                  | MUST     | F02-P1 | gesture 중재        | 미착수                     |
-| FR-08 | grip reorder는 일반 page swipe·flip과 충돌하지 않는다. drag는 가장자리 유지로 한 페이지씩 이동해 보이지 않던 그룹에도 drop할 수 있고, 짧은 tap/click은 해당 카드의 `순서 변경` popover에서 앞/뒤 한 slot 이동으로 같은 결과를 낸다 | MUST     | F02-P1 | 공용 ReorderHandle  | 미착수                     |
-| FR-09 | 뒷면에 현재 집중 인원, 하위 기능 compact 영역, 최신 공지 1개, 최대 5명 멤버 preview와 두 CTA를 표시한다                                                                                                                            | MUST     | F02-P1 | 기존 read API       | 미착수                     |
-| FR-10 | 첫 flip에서 detail·announcements·challenges를 병렬 조회하고, 해당 KST 날짜 리그 원본 cache가 없으면 전역 요청을 한 번 시작한다                                                                                                     | MUST     | F02-P1 | 앱 cache            | 미착수                     |
-| FR-11 | 하위 기능 영역은 기존 응답을 read-only compact 표시하며 상태·정렬·진행률 의미를 새로 만들지 않는다. 상세 계약은 챌린지 정본을 따른다                                                                                               | MUST     | F02-P1 | 챌린지 정본         | 미착수                     |
-| FR-12 | 현재 집중 인원은 detail members.userId와 category 없는 /league/me/ranking의 원본 isFocusing=true만 join해 계산한다. 운영상 eligible 사용자 100명 미만은 출시 전제이며 앱 런타임은 이 수를 조회하지 않는다                          | MUST     | F02-P1 | 운영 출시 gate      | 미착수                     |
-| FR-13 | 런타임은 category 없는 ranking 성공 원본 응답 길이가 100 미만일 때만 응답 부재를 isFocusing=false로 해석한다. `length === 100`·loading·error에서는 집중 인원을 미산출하고 0명으로 표시하지 않는다                                  | MUST     | F02-P1 | coverage 상태       | 미착수                     |
-| FR-14 | 방 전체 보기 후 같은 stable groupId·index·back face·focus로 돌아온다                                                                                                                                                               | MUST     | F02-P1 | navigation state    | 미착수                     |
-| FR-15 | OWNER·MEMBER 모두 설정에서 내 카드 아이콘을 바꾸며 이 기기에서 나에게만 보여요 문구를 본다                                                                                                                                         | MUST     | F02-P1 | settings            | 미착수                     |
-| FR-16 | OWNER 설정은 프로필·방장 넘기기·멤버 관리·공지·나가기를, MEMBER 설정은 아이콘·나가기를 제공한다                                                                                                                                    | MUST     | F02-P1 | 현행 권한           | 일부 현행·카드 설정 미착수 |
-| FR-17 | OWNER 나가기가 HOST_WITHDRAW이면 방장 넘기고 나가기 흐름으로 연결한다                                                                                                                                                              | MUST     | F02-P1 | 기존 서버 오류 계약 | 현행 흐름 유지             |
-| FR-18 | indicator는 containerWidth 기반 dots·compact 공식을 사용하고 폭 변경 뒤에도 active groupId를 유지한다                                                                                                                              | MUST     | F02-P1 | layout 측정         | 미착수                     |
-| FR-19 | 이름은 앞면·뒷면·검색·목록에서 모두 1줄 tail ellipsis이며 접근성 이름은 축약하지 않은 서버 원문 전체다                                                                                                                             | MUST     | F02-P1 | 텍스트 layout       | 미착수                     |
-| FR-20 | Reduce Motion에서는 3D flip 대신 짧은 cross-fade를 쓰고 숨은 면·비활성 control을 focus tree에서 제외한다                                                                                                                           | MUST     | F02-P1 | 접근성 설정         | 미착수                     |
-| FR-21 | 헤더의 만들기·찾기를 유지하고 끝 FindMoreCard는 찾기만 제공한다                                                                                                                                                                    | SHOULD   | F02-P1 | navigation          | 미착수                     |
-| FR-22 | 카드 기능 때문에 서버 DTO·DB·migration·OpenAPI를 변경하지 않는다                                                                                                                                                                   | MUST     | F02-P1 | 기존 API            | 설계 확정                  |
+| ID    | 검증 가능한 요구사항                                                                                                                                                                                                                           | 우선순위 | Phase  | 의존성              | 현재 상태                  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------ | ------------------- | -------------------------- |
+| FR-01 | 서버 목록이 1개 이상이면 horizontal peek·paging 카드 덱을 렌더한다                                                                                                                                                                             | MUST     | F02-P1 | GET /groups         | 미착수                     |
+| FR-02 | 앞면에 공개 여부, reorder handle, 로컬 아이콘, 이름, OWNER badge, 소개, 현재·정원 인원, flip affordance를 표시한다                                                                                                                             | MUST     | F02-P1 | summary DTO         | 미착수                     |
+| FR-03 | 앞면 배경은 전 그룹 #5E6AD2이며 그룹별 tone을 만들지 않는다                                                                                                                                                                                    | MUST     | F02-P1 | 디자인 토큰         | 미착수                     |
+| FR-04 | 12개 허용 아이콘 🌅 📚 💻 ⚡ 🧘 🎨 🏃 ✍️ 🧠 🎯 🌿 🔥 중 하나를 userId×groupId 로컬에 저장하며 기본값은 🎯다                                                                                                                                    | MUST     | F02-P1 | AsyncStorage·인증   | 미착수                     |
+| FR-05 | create 성공 전에는 아이콘을 저장하지 않고, 성공 응답 groupId에만 현재 userId의 값을 연결한다                                                                                                                                                   | MUST     | F02-P1 | create 응답         | 미착수                     |
+| FR-06 | 서버 목록 성공 후 순서에서 stale·중복 ID를 제거하고 신규 ID를 뒤에 추가한다. FindMoreCard는 저장하지 않는다                                                                                                                                    | MUST     | F02-P1 | 로컬 order store    | 미착수                     |
+| FR-07 | 앞면 본문 tap은 같은 카드를 flip하고 즉시 GroupRoom을 열지 않는다                                                                                                                                                                              | MUST     | F02-P1 | gesture 중재        | 미착수                     |
+| FR-08 | grip reorder는 일반 page swipe·flip과 충돌하지 않는다. drag는 가장자리 유지로 한 페이지씩 이동해 보이지 않던 그룹에도 drop할 수 있고, 짧은 tap/click은 해당 카드의 `순서 변경` popover에서 앞/뒤 한 slot 이동으로 같은 결과를 낸다             | MUST     | F02-P1 | 공용 ReorderHandle  | 미착수                     |
+| FR-09 | 뒷면에 현재 집중 인원, 하위 기능 compact 영역, 최신 공지 1개, 최대 5명 멤버 preview와 두 CTA를 표시한다                                                                                                                                        | MUST     | F02-P1 | 기존 read API       | 미착수                     |
+| FR-10 | 사용자 첫 back과 안내 3→4는 같은 ensure 경로를 사용한다. dependency가 `idle`일 때만 요청을 1회 시작하고 `loading \| ready \| error \| coverage-unknown`은 재사용한다. 현재 집중 상태는 첫 back 뒤 화면 focus·foreground 동안 60초마다 갱신한다 | MUST     | F02-P1 | 앱 cache·lifecycle  | 미착수                     |
+| FR-11 | 하위 기능 영역은 기존 응답을 read-only compact 표시하며 상태·정렬·진행률 의미를 새로 만들지 않는다. 상세 계약은 챌린지 정본을 따른다                                                                                                           | MUST     | F02-P1 | 챌린지 정본         | 미착수                     |
+| FR-12 | 현재 집중 인원은 detail members.userId와 category 없는 /league/me/ranking의 원본 isFocusing=true만 join해 계산한다. 운영상 eligible 사용자 100명 미만은 출시 전제이며 앱 런타임은 이 수를 조회하지 않는다                                      | MUST     | F02-P1 | 운영 출시 gate      | 미착수                     |
+| FR-13 | 런타임은 category 없는 ranking 성공 원본 응답 길이가 100 미만일 때만 응답 부재를 isFocusing=false로 해석한다. `length === 100`·loading·error에서는 집중 인원을 미산출하고 0명으로 표시하지 않는다                                              | MUST     | F02-P1 | coverage 상태       | 미착수                     |
+| FR-14 | 방 전체 보기 후 같은 stable groupId·index·back face·focus로 돌아온다                                                                                                                                                                           | MUST     | F02-P1 | navigation state    | 미착수                     |
+| FR-15 | OWNER·MEMBER 모두 설정에서 내 카드 아이콘을 바꾸며 이 기기에서 나에게만 보여요 문구를 본다                                                                                                                                                     | MUST     | F02-P1 | settings            | 미착수                     |
+| FR-16 | OWNER 설정은 프로필·방장 넘기기·멤버 관리·공지·나가기를, MEMBER 설정은 아이콘·나가기를 제공한다                                                                                                                                                | MUST     | F02-P1 | 현행 권한           | 일부 현행·카드 설정 미착수 |
+| FR-17 | OWNER 나가기가 HOST_WITHDRAW이면 방장 넘기고 나가기 흐름으로 연결한다                                                                                                                                                                          | MUST     | F02-P1 | 기존 서버 오류 계약 | 현행 흐름 유지             |
+| FR-18 | indicator는 containerWidth 기반 dots·compact 공식을 사용하고 폭 변경 뒤에도 active groupId를 유지한다                                                                                                                                          | MUST     | F02-P1 | layout 측정         | 미착수                     |
+| FR-19 | 이름은 앞면·뒷면·검색·목록에서 모두 1줄 tail ellipsis이며 접근성 이름은 축약하지 않은 서버 원문 전체다                                                                                                                                         | MUST     | F02-P1 | 텍스트 layout       | 미착수                     |
+| FR-20 | Reduce Motion에서는 3D flip 대신 짧은 cross-fade를 쓰고 숨은 면·비활성 control을 focus tree에서 제외한다                                                                                                                                       | MUST     | F02-P1 | 접근성 설정         | 미착수                     |
+| FR-21 | 헤더의 만들기·찾기를 유지하고 끝 FindMoreCard는 찾기만 제공한다                                                                                                                                                                                | SHOULD   | F02-P1 | navigation          | 미착수                     |
+| FR-22 | 카드 기능 때문에 서버 DTO·DB·migration·OpenAPI를 변경하지 않는다                                                                                                                                                                               | MUST     | F02-P1 | 기존 API            | 설계 확정                  |
 
 ### 4.4 실패·빈 상태·복구
 
-| 상황                                 | 사용자 표시                              | 서버·로컬 처리                               | 재시도·복구              | 계측                    |
-| ------------------------------------ | ---------------------------------------- | -------------------------------------------- | ------------------------ | ----------------------- |
-| 그룹 목록 loading                    | 현행 전체 화면 loading                   | 로컬 reconcile 금지                          | 목록 요청 완료 대기      | 기존 화면 오류          |
-| 그룹 목록 error·부분 응답            | 현행 오류 화면                           | stale ID 삭제 금지                           | 전체 목록 재시도         | 기존 화면 오류          |
-| 그룹 0개                             | 현행 empty·만들기·찾기                   | 카드 저장값은 서버 멤버십으로 사용하지 않음  | 가입·생성 후 목록 재조회 | 기존 이벤트             |
-| 게스트·userId 미확정                 | 현행 게스트·전이 상태                    | local bucket 읽기·쓰기 금지                  | 인증 확정 후 진입        | 기존 인증 계측          |
-| detail·공지·챌린지 일부 실패         | 실패한 섹션만 inline error               | 성공한 섹션과 CTA 유지                       | 섹션별 다시 시도         | dependency·result       |
-| 리그 loading·error                   | 집중 인원 skeleton 또는 오류             | stale·시간 필드로 추정 금지                  | 공유 query 재시도        | focus_status_state      |
-| 런타임 리그 원본 100행·loading·error | 완전성 확인 불가 표시                    | absent=false 계산 금지                       | 미산출 표시·재시도       | coverage_unknown        |
-| 운영 eligible 수 unknown·100 이상    | 출시 전제 불충족                         | 카드 덱 출시 차단                            | 대체 계약 선행           | release_blocked         |
-| 공지·챌린지 빈 배열                  | 공지 없음·진행 중인 항목 없음            | 실패와 구분                                  | 재시도 버튼 불필요       | empty_state             |
-| 로컬 아이콘 쓰기 실패                | picker 유지·inline 오류                  | 현재 세션 선택은 유지, 정상 저장값 훼손 금지 | 명시적 재시도            | icon_save_result=failed |
-| 로컬 순서 쓰기 실패                  | 현재 세션 순서는 유지·비차단 오류 1회    | 서버 목록 불변                               | 다음 reorder에서 재저장  | reorder_save_failed     |
-| 로컬 값 손상·허용 밖                 | 기본 순서·🎯 방어 렌더                   | 성공한 전체 목록에서 repair                  | background repair        | storage_repaired        |
-| GroupRoom 복귀 시 그룹 탈퇴·삭제     | 남은 서버 목록에서 가장 가까운 유효 카드 | stale groupId 제거                           | 목록 재조회              | restore_fallback        |
-| OWNER 나가기                         | 방장 이전 필요 안내                      | HOST_WITHDRAW 계약 유지                      | 이전 완료 후 재시도      | 기존 server event       |
+| 상황                                 | 사용자 표시                              | 서버·로컬 처리                               | 재시도·복구               | 계측                    |
+| ------------------------------------ | ---------------------------------------- | -------------------------------------------- | ------------------------- | ----------------------- |
+| 그룹 목록 loading                    | 현행 전체 화면 loading                   | 로컬 reconcile 금지                          | 목록 요청 완료 대기       | 기존 화면 오류          |
+| 그룹 목록 error·부분 응답            | 현행 오류 화면                           | stale ID 삭제 금지                           | 전체 목록 재시도          | 기존 화면 오류          |
+| 그룹 0개                             | 현행 empty·만들기·찾기                   | 카드 저장값은 서버 멤버십으로 사용하지 않음  | 가입·생성 후 목록 재조회  | 기존 이벤트             |
+| 게스트·userId 미확정                 | 현행 게스트·전이 상태                    | local bucket 읽기·쓰기 금지                  | 인증 확정 후 진입         | 기존 인증 계측          |
+| detail·공지·챌린지 일부 실패         | 실패한 섹션만 inline error               | 성공한 섹션과 CTA 유지                       | 섹션별 다시 시도          | dependency·result       |
+| 리그 loading·최초 error              | 집중 인원 skeleton 또는 오류             | stale·시간 필드로 추정 금지                  | 공유 query 재시도         | focus_status_state      |
+| 리그 갱신 error·이전 complete 있음   | 마지막 확인값 + stale 표시               | 새 값·0명으로 추정 금지                      | 다음 60초 tick·명시 retry | focus_status_state      |
+| 런타임 리그 원본 100행·loading·error | 완전성 확인 불가 표시                    | absent=false 계산 금지                       | 미산출 표시·재시도        | coverage_unknown        |
+| 운영 eligible 수 unknown·100 이상    | 출시 전제 불충족                         | 카드 덱 출시 차단                            | 대체 계약 선행            | release_blocked         |
+| 공지·챌린지 빈 배열                  | 공지 없음·진행 중인 항목 없음            | 실패와 구분                                  | 재시도 버튼 불필요        | empty_state             |
+| 로컬 아이콘 쓰기 실패                | picker 유지·inline 오류                  | 현재 세션 선택은 유지, 정상 저장값 훼손 금지 | 명시적 재시도             | icon_save_result=failed |
+| 로컬 순서 쓰기 실패                  | 현재 세션 순서는 유지·비차단 오류 1회    | 서버 목록 불변                               | 다음 reorder에서 재저장   | reorder_save_failed     |
+| 로컬 값 손상·허용 밖                 | 기본 순서·🎯 방어 렌더                   | 성공한 전체 목록에서 repair                  | background repair         | storage_repaired        |
+| GroupRoom 복귀 시 그룹 탈퇴·삭제     | 남은 서버 목록에서 가장 가까운 유효 카드 | stale groupId 제거                           | 목록 재조회               | restore_fallback        |
+| OWNER 나가기                         | 방장 이전 필요 안내                      | HOST_WITHDRAW 계약 유지                      | 이전 완료 후 재시도       | 기존 server event       |
 
 ### 4.5 알림·재방문 장치
 
@@ -219,18 +220,18 @@ GroupScreen
 
 ## 5. 확정 정책 — Decision Log
 
-| ID   | 결정                                                   | 근거                                      | 버린 대안                         | 수용할 비용·리스크              | 재검토 조건                             |
-| ---- | ------------------------------------------------------ | ----------------------------------------- | --------------------------------- | ------------------------------- | --------------------------------------- |
-| D-01 | 카드 본문 tap은 같은 자리 flip                         | 목록 맥락을 유지한 요약 계층              | 즉시 GroupRoom 이동, bottom sheet | 상호작용 발견 단계 추가         | flip 과업이 4/5 미만                    |
-| D-02 | 전 그룹 앞면 #5E6AD2 고정                              | 제작·정책 범위 최소화                     | 그룹별 색·그라데이션              | 공용 시각 정체성 약함           | 그룹 구분 실패가 반복됨                 |
-| D-03 | 아이콘은 userId×groupId 기기 로컬 선호                 | 서버 변경 없이 개인 구분                  | 그룹 공용 emoji 필드              | 다기기·재설치 복원 불가         | 동기화 요구가 검증됨                    |
-| D-04 | 순서는 stable groupId 배열로 기기 로컬 저장            | 서버 멤버십과 개인 표시 분리              | 서버 order API                    | 다기기 동기화 없음              | 협업·동기화 필요가 검증됨               |
-| D-05 | 뒷면은 기존 read API를 첫 flip에 lazy 조합             | 빠르게 가치·비용 검증                     | card-summary endpoint             | 첫 flip 다중 요청·부분 상태     | p95 지연·요청량이 SLO 초과              |
-| D-06 | 현재 집중 상태는 전역 top100 원본을 임시 재사용        | 운영 eligible 사용자 100명 미만 출시 전제 | 신규 batch·live endpoint          | 규모 증가 시 완전성 붕괴        | unknown/100 이상 출시 차단, 90명 경고   |
-| D-07 | 하위 기능은 기존 응답을 read-only compact 표시         | 도메인 정본 중복 방지                     | 카드 전용 상태·정렬·진행률        | 뒷면 정보 밀도                  | 상세 정책이 바뀌면 adapter만 재검토     |
-| D-08 | 출시 전 성장 KPI를 임의 설정하지 않음                  | 행동 표본 0명                             | 근거 없는 전환·잔존 목표          | 사업 효과 수치를 바로 제시 못함 | 4주 기준선과 검정력 확보                |
-| D-09 | 가입·탈퇴는 서버, 카드 노출·조작은 클라이언트가 발행   | 중복·귀속 방지                            | 같은 이벤트 양쪽 발행             | 이벤트 카탈로그 갱신 필요       | 분석 파이프라인 구조 변경               |
-| D-10 | 공통 분석 계약의 카드 이벤트를 출시 계측 정본으로 사용 | 노출·탐색·CTA·로컬 실패 구분              | flip·reorder만 계측               | 앱·QA·대시보드 작업 증가        | 개인정보·운영비 검토에서 유지 불가 판정 |
+| ID   | 결정                                                                               | 근거                                      | 버린 대안                         | 수용할 비용·리스크              | 재검토 조건                             |
+| ---- | ---------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------- | ------------------------------- | --------------------------------------- |
+| D-01 | 카드 본문 tap은 같은 자리 flip                                                     | 목록 맥락을 유지한 요약 계층              | 즉시 GroupRoom 이동, bottom sheet | 상호작용 발견 단계 추가         | flip 과업이 4/5 미만                    |
+| D-02 | 전 그룹 앞면 #5E6AD2 고정                                                          | 제작·정책 범위 최소화                     | 그룹별 색·그라데이션              | 공용 시각 정체성 약함           | 그룹 구분 실패가 반복됨                 |
+| D-03 | 아이콘은 userId×groupId 기기 로컬 선호                                             | 서버 변경 없이 개인 구분                  | 그룹 공용 emoji 필드              | 다기기·재설치 복원 불가         | 동기화 요구가 검증됨                    |
+| D-04 | 순서는 stable groupId 배열로 기기 로컬 저장                                        | 서버 멤버십과 개인 표시 분리              | 서버 order API                    | 다기기 동기화 없음              | 협업·동기화 필요가 검증됨               |
+| D-05 | 뒷면은 기존 read API를 첫 back에 lazy 조합하고 집중 상태만 활성 화면에서 60초 갱신 | 빠르게 가치·비용·freshness 검증           | card-summary endpoint·상시 선조회 | 첫 back 다중 요청·주기 요청     | p95 지연·요청량이 SLO 초과              |
+| D-06 | 현재 집중 상태는 전역 top100 원본을 임시 재사용                                    | 운영 eligible 사용자 100명 미만 출시 전제 | 신규 batch·live endpoint          | 규모 증가 시 완전성 붕괴        | unknown/100 이상 출시 차단, 90명 경고   |
+| D-07 | 하위 기능은 기존 응답을 read-only compact 표시                                     | 도메인 정본 중복 방지                     | 카드 전용 상태·정렬·진행률        | 뒷면 정보 밀도                  | 상세 정책이 바뀌면 adapter만 재검토     |
+| D-08 | 출시 전 성장 KPI를 임의 설정하지 않음                                              | 행동 표본 0명                             | 근거 없는 전환·잔존 목표          | 사업 효과 수치를 바로 제시 못함 | 4주 기준선과 검정력 확보                |
+| D-09 | 가입·탈퇴는 서버, 카드 노출·조작은 클라이언트가 발행                               | 중복·귀속 방지                            | 같은 이벤트 양쪽 발행             | 이벤트 카탈로그 갱신 필요       | 분석 파이프라인 구조 변경               |
+| D-10 | 공통 분석 계약의 카드 이벤트를 출시 계측 정본으로 사용                             | 노출·탐색·CTA·로컬 실패 구분              | flip·reorder만 계측               | 앱·QA·대시보드 작업 증가        | 개인정보·운영비 검토에서 유지 불가 판정 |
 
 ---
 
@@ -261,17 +262,17 @@ GroupScreen
 
 ### 6.3 지표표
 
-| 구분         | 지표                    | 정확한 정의                                                  | 현재        | 목표·판단 규칙                                 | 소스           | 판정 시점     |
-| ------------ | ----------------------- | ------------------------------------------------------------ | ----------- | ---------------------------------------------- | -------------- | ------------- |
-| Primary      | 핵심 과업 무도움 완료율 | §6.2의 과업별 완료자 ÷ 시도자                                | 미측정      | 과업별 4/5 이상                                | 형성평가 기록  | F02-P2        |
-| Activation   | flip 발견률             | deck 노출 사용자 중 사용자 입력으로 back을 1회 연 사용자     | 기준선 없음 | 첫 4주 관찰, 성공 주장 금지                    | 클라 이벤트    | F02-P3        |
-| Leading      | post-flip 행동 분포     | back 노출 세션의 focus·room·복귀·이탈 분포                   | 기준선 없음 | 의도 확인용 baseline                           | 클라 이벤트    | F02-P3        |
-| Leading      | D7 그룹 화면 재방문     | deck 노출 후 7일 안에 다른 날짜에 그룹 화면을 다시 연 사용자 | 기준선 없음 | baseline 수집                                  | 클라 이벤트    | F02-P3        |
-| Guardrail    | 카드 화면 오류·중단     | crash, dependency error, restore fallback, 저장 실패         | 미측정      | 배포 전 S0 회귀 0건, 운영은 baseline 대비 감시 | 오류·클라 로그 | F02-P1~F02-P3 |
-| Guardrail    | 잘못된 0명 표시         | loading·error·coverage unknown을 0명으로 표시한 건           | 미측정      | 테스트·staging 0건                             | 통합·E2E       | F02-P1        |
-| Data quality | 이벤트 누락·중복        | 시나리오별 예상 이벤트 수와 실제 수의 차이                   | 미측정      | staging 0건                                    | DebugView·QA   | F02-P1        |
-| System SLO   | 첫 flip API 증폭        | 카드별 detail 3개와 KST 날짜별 공유 리그 호출 수             | 미측정      | 같은 KST 날짜 리그 요청은 refresh cycle당 1회  | 네트워크 계측  | F02-P1        |
-| 운영         | eligible 사용자 수      | is_deleted=false AND is_guest=false 사용자 수                | 100명 미만  | 90명 경고, 100명 전 대체 계약 배포             | 서버 집계      | 상시          |
+| 구분         | 지표                    | 정확한 정의                                                  | 현재        | 목표·판단 규칙                                           | 소스           | 판정 시점     |
+| ------------ | ----------------------- | ------------------------------------------------------------ | ----------- | -------------------------------------------------------- | -------------- | ------------- |
+| Primary      | 핵심 과업 무도움 완료율 | §6.2의 과업별 완료자 ÷ 시도자                                | 미측정      | 과업별 4/5 이상                                          | 형성평가 기록  | F02-P2        |
+| Activation   | flip 발견률             | deck 노출 사용자 중 사용자 입력으로 back을 1회 연 사용자     | 기준선 없음 | 첫 4주 관찰, 성공 주장 금지                              | 클라 이벤트    | F02-P3        |
+| Leading      | post-flip 행동 분포     | back 노출 세션의 focus·room·복귀·이탈 분포                   | 기준선 없음 | 의도 확인용 baseline                                     | 클라 이벤트    | F02-P3        |
+| Leading      | D7 그룹 화면 재방문     | deck 노출 후 7일 안에 다른 날짜에 그룹 화면을 다시 연 사용자 | 기준선 없음 | baseline 수집                                            | 클라 이벤트    | F02-P3        |
+| Guardrail    | 카드 화면 오류·중단     | crash, dependency error, restore fallback, 저장 실패         | 미측정      | 배포 전 S0 회귀 0건, 운영은 baseline 대비 감시           | 오류·클라 로그 | F02-P1~F02-P3 |
+| Guardrail    | 잘못된 0명 표시         | loading·error·coverage unknown을 0명으로 표시한 건           | 미측정      | 테스트·staging 0건                                       | 통합·E2E       | F02-P1        |
+| Data quality | 이벤트 누락·중복        | 시나리오별 예상 이벤트 수와 실제 수의 차이                   | 미측정      | staging 0건                                              | DebugView·QA   | F02-P1        |
+| System SLO   | 뒷면 API 증폭           | 카드별 detail 3개와 화면 공유 리그 호출 수                   | 미측정      | 정기 리그 tick은 60초 1회, 동시 trigger는 in-flight 공유 | 네트워크 계측  | F02-P1        |
+| 운영         | eligible 사용자 수      | is_deleted=false AND is_guest=false 사용자 수                | 100명 미만  | 90명 경고, 100명 전 대체 계약 배포                       | 서버 집계      | 상시          |
 
 ### 6.4 측정 단계와 필요한 이벤트
 
@@ -285,7 +286,7 @@ GroupScreen
 | 안내로 back 사용 가능 | `tab_guide_completed`                            | 계획                 |
 | CTA 의도              | `group_card_action_clicked`                      | 계획                 |
 | 방 결과               | `group_room_viewed(entry_source=group_card)`     | 기존 event 보강 계획 |
-| 집중 결과             | `focus_session_started(entry_source=group_card)` | 기존 event 보강 계획 |
+| 집중 세션 진입        | `focus_session_started(entry_source=group_card)` | 기존 event 보강 계획 |
 
 page·reorder·아이콘 저장 이벤트는 품질·탐색 진단용이며 핵심 전환 결과가 아니다. 안내의 자동 back/page, rerender, resize, route 복귀, 취소·no-op은 사용자 행동으로 발행하지 않는다.
 
@@ -322,16 +323,16 @@ meaningful_group_experience의 정확한 이벤트 계약은 카드 UI가 아니
 
 ## 7. 비기능 요구사항
 
-| 영역          | 요구사항                                                                                      | 검증 방법                                   | 현재 상태 |
-| ------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------- | --------- |
-| 정합성        | GET /groups만 멤버십 정본으로 사용하고 로컬 순서·아이콘이 서버 DTO를 덮지 않는다              | 목록 reconcile·계정 전환·손상 저장소 테스트 | 설계됨    |
-| 복원력        | detail·공지·챌린지·리그 중 한 요청 실패가 다른 섹션과 CTA를 숨기지 않는다                     | dependency별 오류 fixture·재시도            | 설계됨    |
-| 성능          | 진입 시 전 그룹을 선조회하지 않고 첫 flip에 lazy load한다. 리그 원본은 KST 날짜별 공유한다    | 호출 수 테스트·저사양 기기 profile          | 미검증    |
-| 관측성        | 90명 경고, 100행 coverage unknown, 로컬 저장 실패, 이벤트 누락·중복을 구분한다                | telemetry·DebugView·대시보드                | 미구현    |
-| 보안·개인정보 | 그룹명·소개·emoji glyph·로컬 순서를 analytics에 보내지 않는다                                 | payload schema 테스트                       | 미구현    |
-| 접근성        | 숨은 면·비활성 control 제외, 원문 이름 낭독, move action, Reduce Motion cross-fade를 제공한다 | VoiceOver·키보드·Reduce Motion matrix       | 미검증    |
-| 호환성        | 서버 API·DTO·DB·OpenAPI 변경 0건, 기존 GroupRoom·설정·빈·게스트 상태를 유지한다               | 앱·서버 배포 순서 회귀                      | 설계됨    |
-| 반응형        | 320·390·430·768pt와 그룹 1·5·6·7·10개에서 active groupId와 탐색 맥락을 유지한다               | 화면 폭×그룹 수 교차 테스트                 | 미검증    |
+| 영역          | 요구사항                                                                                        | 검증 방법                                   | 현재 상태 |
+| ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------- | --------- |
+| 정합성        | GET /groups만 멤버십 정본으로 사용하고 로컬 순서·아이콘이 서버 DTO를 덮지 않는다                | 목록 reconcile·계정 전환·손상 저장소 테스트 | 설계됨    |
+| 복원력        | detail·공지·챌린지·리그 중 한 요청 실패가 다른 섹션과 CTA를 숨기지 않는다                       | dependency별 오류 fixture·재시도            | 설계됨    |
+| 성능          | 진입 시 전 그룹을 선조회하지 않고 첫 back에 lazy load한다. 리그 원본은 화면 공유·60초 cycle이다 | 호출 수·timer 테스트·저사양 기기 profile    | 미검증    |
+| 관측성        | 90명 경고, 100행 coverage unknown, 로컬 저장 실패, 이벤트 누락·중복을 구분한다                  | telemetry·DebugView·대시보드                | 미구현    |
+| 보안·개인정보 | 그룹명·소개·emoji glyph·로컬 순서를 analytics에 보내지 않는다                                   | payload schema 테스트                       | 미구현    |
+| 접근성        | 숨은 면·비활성 control 제외, 원문 이름 낭독, move action, Reduce Motion cross-fade를 제공한다   | VoiceOver·키보드·Reduce Motion matrix       | 미검증    |
+| 호환성        | 서버 API·DTO·DB·OpenAPI 변경 0건, 기존 GroupRoom·설정·빈·게스트 상태를 유지한다                 | 앱·서버 배포 순서 회귀                      | 설계됨    |
+| 반응형        | 320·390·430·768pt와 그룹 1·5·6·7·10개에서 active groupId와 탐색 맥락을 유지한다                 | 화면 폭×그룹 수 교차 테스트                 | 미검증    |
 
 indicator 계산 계약은 다음과 같다.
 
@@ -386,14 +387,14 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 
 ### 트레이드오프
 
-| 선택                  | 얻는 것                       | 잃는 것·한계                | 수용 여부   | 재검토 조건             |
-| --------------------- | ----------------------------- | --------------------------- | ----------- | ----------------------- |
-| 같은 자리 flip        | 목록 맥락과 빠른 요약         | 발견해야 할 상호작용 1단계  | 조건부 수용 | flip 과업 4/5 미만      |
-| 동일 배경             | 제작·구현 범위 축소           | 그룹 공용 시각 정체성 부족  | 수용        | 그룹 구분 실패 반복     |
-| 기기 로컬 아이콘·순서 | 서버 변경 없는 개인화         | 타기기·재설치 복원 불가     | 수용        | 동기화 요구 검증        |
-| 기존 API 병렬 재사용  | 서버 변경 0건·의미 일치       | 첫 flip 다중 요청·부분 상태 | 조건부 수용 | 성능·오류 SLO 초과      |
-| top100 client join    | 현재 규모에서 빠른 구현       | 100명부터 정확성 보장 불가  | 임시 수용   | 90명 경고·100명 전 제거 |
-| 성장 목표 보류        | 근거 없는 수치·인과 주장 방지 | 출시 전 사업 효과 수치 없음 | 수용        | 4주 baseline·power 확보 |
+| 선택                  | 얻는 것                       | 잃는 것·한계                             | 수용 여부   | 재검토 조건             |
+| --------------------- | ----------------------------- | ---------------------------------------- | ----------- | ----------------------- |
+| 같은 자리 flip        | 목록 맥락과 빠른 요약         | 발견해야 할 상호작용 1단계               | 조건부 수용 | flip 과업 4/5 미만      |
+| 동일 배경             | 제작·구현 범위 축소           | 그룹 공용 시각 정체성 부족               | 수용        | 그룹 구분 실패 반복     |
+| 기기 로컬 아이콘·순서 | 서버 변경 없는 개인화         | 타기기·재설치 복원 불가                  | 수용        | 동기화 요구 검증        |
+| 기존 API 병렬 재사용  | 서버 변경 0건·의미 일치       | 첫 back 다중 요청·60초 polling·부분 상태 | 조건부 수용 | 성능·오류 SLO 초과      |
+| top100 client join    | 현재 규모에서 빠른 구현       | 100명부터 정확성 보장 불가               | 임시 수용   | 90명 경고·100명 전 제거 |
+| 성장 목표 보류        | 근거 없는 수치·인과 주장 방지 | 출시 전 사업 효과 수치 없음              | 수용        | 4주 baseline·power 확보 |
 
 ### 리스크
 
@@ -405,6 +406,7 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | R4  | 로컬 선호를 공용 설정으로 오해                           | 타기기에서 설정 유실로 인식 | 이 기기에서 나에게만 보여요                                       | 범위 설명 과업           | 제품·디자인  |
 | R5  | 부분 실패를 0·빈 상태로 오표시                           | 사용자 신뢰 훼손            | loading·error·unknown 분리                                        | 잘못된 0명 표시          | 앱·QA        |
 | R6  | top100 전제 만료                                         | 집중 인원 과소 집계         | 운영 eligible 출시 gate와 런타임 raw length 판정                  | eligible 수·100행 응답   | 백엔드·운영  |
+| R9  | 열린 화면의 집중 상태 노후화                             | 다른 기기의 시작·종료 누락  | 첫 back 뒤 foreground 60초 갱신·복귀 즉시 갱신·stale 표시         | polling age·오류         | 앱·QA        |
 | R7  | 가입자 잔존 상관을 인과로 해석                           | 잘못된 성장 투자 판단       | 사전 배정·ITT 분석                                                | 실험 계약 위반           | 제품·분석    |
 | R8  | 공용 handle에 legacy 36×36 규격을 복사하거나 drag만 제공 | 터치·보조기술 reorder 실패  | 최소 44×44pt target·단일 포인터 popover·VoiceOver move action·E2E | target·reorder 과업 실패 | 디자인·앱·QA |
 
@@ -423,16 +425,16 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 | 5   | 순서 hydration·신규 append·stale·중복·손상                                                               | 서버 멤버십은 불변이며 stable groupId 배열만 repair                                                                                                              | 단위·통합       | 미착수    |
 | 6   | 최소 44×44pt grip drag·가장자리 page 이동·grip tap/click popover·horizontal swipe·body tap·back CTA 충돌 | 5·10개에서 drag와 tap/click 모두 cross-page reorder; drag는 drop만 1회, popover·접근성은 유효 이동마다 한 slot 1회 commit, 취소·경계·FindMore·open/close는 no-op | E2E             | 미착수    |
 | 7   | 320·390·430·768pt × 그룹 1·5·6·7·10개                                                                    | 공식에 따라 dots·compact 전환, active groupId 유지                                                                                                               | 단위·E2E        | 미착수    |
-| 8   | 첫 flip 네트워크 호출                                                                                    | detail·공지·챌린지 병렬, 리그는 같은 KST 날짜 refresh cycle당 1회                                                                                                | 통합            | 미착수    |
+| 8   | 첫 back·지속 갱신 네트워크 호출                                                                          | 첫 back 전 리그 0회; 활성화 뒤 60초·foreground·집중 복귀·KST 변경 갱신, background 중단, 같은 key in-flight 1회                                                  | 단위·통합       | 미착수    |
 | 9   | 하위 기능 응답 0·1·복수와 조회 실패                                                                      | 기존 응답의 신원·순서를 바꾸지 않고 compact 표시, 실패는 해당 영역에만 남음                                                                                      | 통합·E2E        | 미착수    |
-| 10  | 런타임 원본 성공 99/100·loading·error와 집중 상태 0·N, 운영 eligible unknown/99/100 출시 gate            | raw 99에서만 계산, 그 외 미산출; 운영 전제 불충족 시 출시 차단                                                                                                   | 단위·통합       | 미착수    |
+| 10  | 런타임 원본 성공 99/100·loading·error·stale와 집중 상태 0·N, 운영 eligible unknown/99/100 출시 gate      | raw 99에서만 계산; 최초 실패·100은 미산출, 갱신 실패는 이전 complete만 stale 유지; 운영 전제 불충족 시 출시 차단                                                 | 단위·통합       | 미착수    |
 | 11  | dependency별 독립 실패와 retry                                                                           | 성공 섹션·CTA 유지, 실패 섹션만 복구                                                                                                                             | 통합·E2E        | 미착수    |
 | 12  | 방 전체 보기 왕복                                                                                        | 같은 groupId·index·back face·focus 복원                                                                                                                          | E2E             | 미착수    |
 | 13  | OWNER·MEMBER 설정·나가기                                                                                 | 역할별 행 일치, OWNER HOST_WITHDRAW는 이전 흐름                                                                                                                  | 통합·E2E        | 일부 현행 |
 | 14  | 긴 그룹 이름                                                                                             | 앞면·뒷면·검색·목록 모두 1줄 tail ellipsis, 스크린리더는 원문                                                                                                    | 접근성·스냅샷   | 미착수    |
 | 15  | Reduce Motion·스크린리더·키보드·단일 포인터                                                              | cross-fade, 숨은 control 제외, move action 및 drag 없는 tap/click 이동 동작                                                                                      | 접근성·E2E      | 미착수    |
-| 16  | 4단계 첫 안내의 정상·중단·read/write 실패·anchor fallback                                                | 1~3 `다음`·4 `시작`; 3→4 네 lazy 요청 각 1회·사용자 flip/page 0건; 완료 event와 저장 실패 분리                                                                   | 통합·접근성·E2E | 미착수    |
-| 17  | 이벤트별 정상·rerender·route 복귀·resize                                                                 | §6.4 발행 시점 준수, 누락·중복 0건, 금지 payload 없음                                                                                                            | 통합·QA         | 미착수    |
+| 16  | 4단계 첫 안내의 정상·중단·read/write 실패·anchor fallback                                                | 1~3 `다음`·4 `시작`; 3→4 cold는 4회, warm·in-flight·error는 0회, mixed는 idle만 시작; 사용자 flip/page 0건; 완료 event와 저장 실패 분리                          | 통합·접근성·E2E | 미착수    |
+| 17  | 이벤트별 정상·rerender·route 복귀·resize                                                                 | §6.4 발행 시점 준수, 누락·중복·금지 payload 0건, 카드 CTA의 `entrySource=group_card`가 FocusCategory→FocusSession→시작 이벤트까지 유지                           | 통합·QA         | 미착수    |
 | 18  | 서버 계약 회귀                                                                                           | Create·Update·Summary·Detail·Search·Overview DTO와 DB·OpenAPI 변경 0건                                                                                           | 계약 테스트     | 설계됨    |
 | 19  | 대표 사용자 핵심 과업                                                                                    | 최소 5명, 과업별 4명 이상 무도움 완료                                                                                                                            | 사용성          | 미착수    |
 
@@ -461,18 +463,18 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 
 작업 패키지는 문서와 구현을 연결하는 범위 식별자다. 책임 역할·의존성·완료 기준은 확정했으므로 `F02-T1`부터 시작할 수 있다. 사람 단위 assignee와 실제 티켓 번호는 스프린트 운영 기록에서 이 ID에 연결하며, 배정 변경 때문에 제품 계약을 수정하지 않는다.
 
-| ID        | 작업                                       | 책임 역할             | 의존성            | 완료 기준                                                                                                                                                                       |
-| --------- | ------------------------------------------ | --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `F02-T1`  | horizontal peek carousel·indicator         | 앱                    | FR-01·18·21       | 폭×그룹 수 matrix 통과                                                                                                                                                          |
-| `F02-T2`  | 앞면·이름·아이콘 projection                | 앱·디자인             | `F02-T1`          | FR-02·03·19 통과                                                                                                                                                                |
-| `F02-T3`  | 생성·설정 아이콘 picker와 로컬 store       | 앱                    | 인증·create       | FR-04·05·15 통과                                                                                                                                                                |
-| `F02-T4`  | 공용 reorder primitive·순서 store          | 앱                    | `F02-T1`          | drag edge 이동과 grip tap/click popover가 같은 stable-ID reducer로 cross-page 이동·focus 유지·reconcile·접근성 통과                                                             |
-| `F02-T5`  | 뒷면 adapter·공유 집중 상태 cache          | 앱                    | 기존 API          | 호출 수·coverage 테스트 통과                                                                                                                                                    |
-| `F02-T6`  | 뒷면 영역 상태·CTA                         | 앱·디자인             | `F02-T5`          | 부분 실패·정보 과업 통과                                                                                                                                                        |
-| `F02-T7`  | GroupRoom 왕복 복원                        | 앱                    | `F02-T1`,`F02-T6` | stable `groupId` 복원 E2E 통과                                                                                                                                                  |
-| `F02-T8`  | 역할 공통 아이콘 진입·운영 회귀            | 앱·QA                 | 04 운영 계약      | 역할 matrix 통과                                                                                                                                                                |
-| `F02-T9`  | 4단계 첫 안내·접근성·공통 분석·회귀 자동화 | 앱·분석·QA            | `F02-T1`~`F02-T8` | 1~3 `다음`·4 `시작`, eligibility·overlay queue, 3→4 네 lazy 요청 각 1회·사용자 event 0건, 중단·read/write 실패·anchor fallback, Reduce Motion·스크린리더, S0 0건·DebugView 일치 |
-| `F02-T10` | 형성평가·4주 baseline·90/100 경고          | 제품·분석·백엔드·운영 | `F02-T9`          | F02-P2·F02-P3 gate와 [규모 출시 절차](../../shared/implementation-status.md#02-규모-출시-gate-실행) 통과                                                                        |
+| ID        | 작업                                       | 책임 역할             | 의존성            | 완료 기준                                                                                                                                                                                                        |
+| --------- | ------------------------------------------ | --------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `F02-T1`  | horizontal peek carousel·indicator         | 앱                    | FR-01·18·21       | 폭×그룹 수 matrix 통과                                                                                                                                                                                           |
+| `F02-T2`  | 앞면·이름·아이콘 projection                | 앱·디자인             | `F02-T1`          | FR-02·03·19 통과                                                                                                                                                                                                 |
+| `F02-T3`  | 생성·설정 아이콘 picker와 로컬 store       | 앱                    | 인증·create       | FR-04·05·15 통과                                                                                                                                                                                                 |
+| `F02-T4`  | 공용 reorder primitive·순서 store          | 앱                    | `F02-T1`          | drag edge 이동과 grip tap/click popover가 같은 stable-ID reducer로 cross-page 이동·focus 유지·reconcile·접근성 통과                                                                                              |
+| `F02-T5`  | 뒷면 adapter·공유 집중 상태 cache          | 앱                    | 기존 API          | dependency ensure와 60초 foreground polling·중단·in-flight·coverage·stale 테스트 통과                                                                                                                            |
+| `F02-T6`  | 뒷면 영역 상태·CTA                         | 앱·디자인             | `F02-T5`          | 부분 실패·정보 과업 통과                                                                                                                                                                                         |
+| `F02-T7`  | GroupRoom 왕복 복원                        | 앱                    | `F02-T1`,`F02-T6` | stable `groupId` 복원 E2E 통과                                                                                                                                                                                   |
+| `F02-T8`  | 역할 공통 아이콘 진입·운영 회귀            | 앱·QA                 | 04 운영 계약      | 역할 matrix 통과                                                                                                                                                                                                 |
+| `F02-T9`  | 4단계 첫 안내·접근성·공통 분석·회귀 자동화 | 앱·분석·QA            | `F02-T1`~`F02-T8` | 1~3 `다음`·4 `시작`, eligibility·overlay queue, 3→4 cold/warm/in-flight/error ensure, 사용자 event 0건, 중단·read/write 실패·anchor fallback, Focus source 보존, Reduce Motion·스크린리더, S0 0건·DebugView 일치 |
+| `F02-T10` | 형성평가·4주 baseline·90/100 경고          | 제품·분석·백엔드·운영 | `F02-T9`          | F02-P2·F02-P3 gate와 [규모 출시 절차](../../shared/implementation-status.md#02-규모-출시-gate-실행) 통과                                                                                                         |
 
 다음 항목은 현재 구현을 막지 않는 후속 결정이다.
 

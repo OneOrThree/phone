@@ -38,13 +38,13 @@ flowchart LR
 
 1. **앞면 탭과 라우트를 분리.** 앞면 탭은 같은 카드의 뒷면으로 flip하며 navigation을 일으키지 않는다. 기존 `onSelect(groupId)`는 뒷면 `방 전체 보기`에서만 호출한다.
 2. **의존성 추가 회피.** 전용 캐러셀 라이브러리(`react-native-reanimated-carousel` 등)를 새로 넣지 않는다 — 사내에 네이티브 페이징 선례가 있고(`FocusSessionScreen`의 `pagingEnabled` ScrollView, `DrumPicker`의 `snapToInterval` FlatList), reanimated 4.5.0이 이미 설치돼 있어 peek 모션까지 자급 가능.
-3. **기존 API 네 개를 조합한다.** 카드 뒷면을 처음 열 때 해당 `groupId`의 detail·announcements·challenges 세 요청을 lazy 병렬 조회하고, category를 보내지 않은 기존 `GET /api/v1/league/me/ranking?date`의 전체 사용자 현재 집중 상태 원본 응답은 화면 전체에서 KST 날짜별 한 번만 조회·캐시한다. 카드 전용 endpoint는 추가하지 않는다.
+3. **기존 API 네 개를 조합한다.** 카드 뒷면을 처음 열 때 해당 `groupId`의 detail·announcements·challenges 세 요청을 lazy 병렬 조회한다. category를 보내지 않은 기존 `GET /api/v1/league/me/ranking?date`의 전체 사용자 현재 집중 상태 원본은 화면 전체에서 공유하고, 첫 back 뒤 foreground 동안 60초 refresh cycle로 갱신한다. 카드 전용 endpoint는 추가하지 않는다.
 4. **카드 표현은 개인 로컬 설정.** 앞면 배경은 모든 그룹이 `#5E6AD2`; 그룹별 색·그라데이션·선화 아이콘은 없다. `내 카드 아이콘`은 현재 계정이 이 기기에서 보는 카드에만 적용하며 그룹의 서버 속성이나 OWNER 권한이 아니다.
 5. **서버 계약을 늘리지 않는다.** 이모지는 Create/Update request와 Summary/Detail/Search/Overview response, DB, OpenAPI 어디에도 추가하지 않는다. 앱은 userId별 AsyncStorage 값만 읽고, 미설정·손상·신규·가입 그룹은 `🎯`로 fallback한다. 집중 인원도 기존 그룹 상세 멤버 ID와 기존 전체 사용자 현재 집중 상태 응답을 앱에서 join하므로 이 기능의 서버 변경은 0건이다.
 6. **도메인 경계를 유지.** 앞면 탭은 같은 자리에서 카드를 뒤집고, 뒷면 `방 전체 보기`만 `GroupRoom` route를 연다. 카드의 하위 기능 영역은 기존 응답을 compact하게 투영할 뿐 상태·정렬·진행률 의미를 만들지 않으며 [챌린지 문서](../../../challenge/README.md)를 따른다.
 7. **규모 가정을 임시 계약으로 명시한다.** `eligible_user_count < 100`은 운영상 출시 전제이고 런타임 앱에는 전달되지 않는다. 앱은 성공한 전역 상위 100명 원본 응답 길이가 100 미만일 때만 완전성을 적용한다. 운영 수 90명부터 경고하며 unknown 또는 100 이상이면 출시를 차단하고 pagination·그룹 상세 현재 집중 상태 필드 또는 batch endpoint의 대체 계약을 먼저 배포한다.
 8. **멤버십과 표시 순서를 분리.** `GET /groups` 응답이 소속 그룹과 DTO의 정본이다. AsyncStorage는 현재 `userId`에 해당하는 stable `groupId[]`만 기기 로컬 표시 순서로 보관하며, 서버에 없는 그룹을 복원하거나 권한 판정에 쓰지 않는다.
-9. **첫 카드 덱 안내도 화면 상태로 다룬다.** 기존 `TabGuideOverlay`의 그로몬·말풍선·진행 dot·dim/spotlight를 재사용·보강한다. `GroupScreen`은 route/다른 overlay와의 queue 및 안정 렌더 조건을, `GroupListScreen`은 카드 anchor·활성 face·programmatic 전환을 소유한다. phase 3→4의 programmatic back은 사용자 이벤트 없이 정상 첫 back과 같은 lazy query를 정확히 한 번 시작하되, guide는 응답을 기다리지 않고 step 4의 loading/ready/error를 그대로 표시한다. 서버 계약은 바꾸지 않는다.
+9. **첫 카드 덱 안내도 화면 상태로 다룬다.** 기존 `TabGuideOverlay`의 그로몬·말풍선·진행 dot·dim/spotlight를 재사용·보강한다. `GroupScreen`은 route/다른 overlay와의 queue 및 안정 렌더 조건을, `GroupListScreen`은 카드 anchor·활성 face·programmatic 전환을 소유한다. phase 3→4의 programmatic back은 사용자 이벤트 없이 정상 첫 back과 같은 lazy ensure 경로를 호출한다. `idle`만 새 요청을 시작하고 `loading|ready|error|coverage-unknown`은 현재 상태를 재사용하며, guide는 응답을 기다리지 않는다. 서버 계약은 바꾸지 않는다.
 10. **사용자 이벤트는 앱의 단일 typed 분석 경계에서 한 번만 발행한다.** 화면은 분석 SDK를 직접 부르지 않는다. 이름·속성·발행 주체·귀속은 [공통 분석 계약](../../shared/analytics.md)을 따르며 모든 `onPress`를 이벤트로 만들지 않는다.
 
 ---
@@ -174,7 +174,10 @@ flowchart TD
 - detail·announcements·challenges와 화면 공유 현재 집중 상태 데이터는 각각 `idle → loading → ready|error` 상태를 갖고, 현재 집중 상태 데이터에는 별도 `coverage-unknown` 상태가 있다. detail/challenges cache key는 `groupId + KST date`, announcements key는 `groupId`, 현재 집중 상태 key는 `userId + KST date`다.
 - 그룹 화면의 현재 집중 상태 adapter는 같은 KST 날짜의 진행 중 요청과 준비된 원본 배열을 공유한다. 여러 카드의 뒷면을 빠르게 처음 열어도 `/api/v1/league/me/ranking`은 refresh cycle당 한 번만 호출하며 카드별 요청으로 증폭시키지 않는다.
 - 같은 화면 세션에서 앞/뒤를 반복할 때 각 ready cache를 즉시 사용한다. 카드 전용 cache type은 만들지 않는다.
-- KST 날짜가 바뀌면 detail·challenges와 현재 집중 상태 데이터를 새 KST date key로 조회한다. 앱 foreground·집중 시작/종료·pull-to-refresh에서는 화면 공유 현재 집중 상태 데이터를 한 번 갱신하고, detail/challenges와 필요한 공지를 기존 규칙대로 갱신한다.
+- 첫 back 또는 guide의 3→4 준비가 현재 집중 상태 adapter를 활성화한다. 활성화 뒤 `GroupScreen`이 화면 focus이고 앱이 foreground인 동안 **60초 간격**으로 raw ranking을 갱신하며, 화면 focus·foreground 복귀·이 화면에서 시작한 집중 흐름의 복귀·KST 날짜 변경에도 즉시 새 refresh cycle을 시작한다. 아직 back을 한 번도 준비하지 않은 화면은 polling하지 않는다.
+- blur·background·unmount·logout·groups=0에서는 polling을 멈춘다. 같은 key의 진행 중 요청은 공유해 interval·foreground·route 복귀가 겹쳐도 새 요청을 만들지 않는다. 갱신 실패 시 이전의 완전한 ready 값만 stale로 유지하고, 최초 실패·100행은 계속 미산출한다.
+- `idle` dependency만 새 요청을 한 번 시작한다. `loading`은 기존 promise를 구독하고, `ready`는 cache를 즉시 쓰며, `error|coverage-unknown`은 guide 전환 자체가 retry하지 않는다. 그룹별 영역은 사용자가 `다시 시도`를 수락할 때만, 현재 집중 상태는 다음 60초 tick·화면 복귀·명시 retry에서 새 cycle을 시작한다.
+- KST 날짜가 바뀌면 detail·challenges와 현재 집중 상태 데이터를 새 KST date key로 조회한다. 명시 새로고침이나 `onRefresh()`는 추가하지 않는다.
 - 요청 중 다른 카드로 이동해도 응답은 groupId key에만 쓴다. 현재 카드에 낡은 응답을 덮어쓰지 않는다.
 - 한 요청의 실패는 해당 섹션에서만 retry한다. 현재 집중 상태 loading은 집중 영역 skeleton, 최초 error는 `집중 현황을 불러오지 못했어요 · 다시 시도`, 100행 coverage-unknown은 `집중 현황을 확인할 수 없어요`로 분리하며 모두 `0명`으로 표시하지 않는다. refresh 실패에 이전의 완전한 ready 데이터가 있으면 stale 표시와 함께 count를 유지할 수 있다.
 
@@ -227,7 +230,14 @@ flowchart TD
 | 3 카드 flip   | `character_study`·활성 카드 본문       | 카드를 탭하면 이 자리에서 오늘의 방 상태가 열려.                                                             | 다음 단계 준비에서만 시스템이 active card를 back으로 전환            |
 | 4 요약과 행동 | `character_happy`·back 정보 + CTA 영역 | 집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 방 전체를 열어봐.                                          | 마지막 action 후 overlay를 닫고 active card back·CTA 근처 focus 유지 |
 
-각 단계 시작 직전 현재 layout에서 anchor를 재측정한다. anchor 측정 실패 또는 화면 폭 변경 중에는 잘못된 spotlight를 그리지 않고 전체 dim + 말풍선/단계 문구로 fallback하며 다음 단계에서 재측정한다. 단계 3→4의 back 전환은 guide의 programmatic 준비 동작이므로 `group_card_flipped`·`group_carousel_paged`를 발행하지 않는다. 다만 정상 사용자 첫 back과 **동일한 cache key와 in-flight dedupe**로 detail·announcements·challenges 병렬 조회와 화면 공유 league query를 정확히 1회 시작한다. guide는 응답을 기다리지 않고 step 4로 진행하며 back 섹션의 독립 `loading | ready | error` UI를 그대로 렌더한다. CTA는 기존 오류/부분 성공 계약대로 유지한다.
+각 단계 시작 직전 현재 layout에서 anchor를 재측정한다. anchor 측정 실패 또는 화면 폭 변경 중에는 잘못된 spotlight를 그리지 않고 전체 dim + 말풍선/단계 문구로 fallback하며 다음 단계에서 재측정한다. 단계 3→4의 back 전환은 guide의 programmatic 준비 동작이므로 `group_card_flipped`·`group_carousel_paged`를 발행하지 않는다. 정상 사용자 첫 back과 **동일한 cache key·in-flight dedupe의 ensure 경로**를 호출하되 dependency별 동작은 다음과 같다.
+
+- `idle`: 해당 요청을 정확히 1회 시작한다.
+- `loading`: 기존 promise를 구독하고 새 요청은 0회다.
+- `ready`: 준비된 cache를 사용하고 새 요청은 0회다.
+- `error|coverage-unknown`: 현재 상태를 보여 주고 3→4 전환이 만드는 retry는 0회다. 그룹별 영역은 명시 retry에서, 현재 집중 상태는 다음 polling·복귀·명시 retry에서 새 cycle을 연다.
+
+혼합 상태에서는 `idle`인 dependency만 시작한다. guide는 어떤 상태에서도 응답을 기다리지 않고 step 4로 진행하며 back 섹션의 독립 `loading | ready | error` UI를 그대로 렌더한다. CTA는 기존 오류/부분 성공 계약대로 유지한다.
 
 ### 6.3 접근성·오류 경계
 
@@ -251,7 +261,7 @@ guide key 읽기/쓰기 실패, anchor fallback, 중단은 사용자 행동 이�
 
 ### 6.5 공통 분석 계약 연결
 
-이벤트 이름·공통 속성·발행 주체·F1~F3 귀속 window·금지 payload는 [그룹 공통 분석 계약](../../shared/analytics.md)이 정본이다. 이 기능은 §6.4의 카드·guide 이벤트가 **실제 UI 상태 변경에서 한 번만** 발생하도록 구현하고, Room·Focus 결과에 `entry_source=group_card`를 전달하는 책임만 가진다.
+이벤트 이름·공통 속성·발행 주체·F1~F3 귀속 window·금지 payload는 [그룹 공통 분석 계약](../../shared/analytics.md)이 정본이다. 이 기능은 §6.4의 카드·guide 이벤트가 **실제 UI 상태 변경에서 한 번만** 발생하도록 구현한다. Room에는 `entry_source=group_card`를 직접 전달하고, Focus에는 `initialGroupId`와 `entrySource=group_card`를 함께 넘겨 `FocusCategory → FocusSession → focus_session_started`까지 보존한다. `focus_session_started`는 FocusSession 최초 화면 진입·세션 시작 처리 시 발행하며 marker API 성공을 뜻하지 않는다. source를 `initialGroupId`에서 추론하지 않는다.
 
 - 모든 신규 클라이언트 이벤트는 앱의 typed helper 한 경로로 보낸다.
 - `group_card_deck_viewed`는 화면 focus당 1회, flip·page·reorder는 사용자의 실제 상태 변경당 1회다.
@@ -269,13 +279,13 @@ flowchart LR
     Guide --> Ready
     Ready --> Intent["집중 · 방 · 설정 의도"]
     Intent --> Room["방 성공 화면"]
-    Intent --> Focus["집중 세션 시작 성공"]
+    Intent --> Focus["FocusSession 최초 진입"]
 
     Auto["안내 자동 back · scroll"] -.->|"flip · page 이벤트 0건"| Ready
 ```
 
 - `Direct`와 `Guide`가 같은 session에 모두 있으면 뒷면 사용 가능 상태는 한 번으로 dedupe한다.
-- CTA 클릭은 결과가 아니다. Room 최초 성공 렌더 또는 Focus 세션 시작 성공이 있어야 전환 결과로 본다.
+- CTA 클릭은 결과가 아니다. Room 최초 성공 렌더 또는 FocusSession 최초 화면 진입·세션 시작 처리가 있어야 전환 결과로 본다. Focus 이벤트는 marker API 성공을 뜻하지 않는다.
 - room 30초·focus 10분의 초기 귀속 window와 F1/F3 획득 퍼널은 공통 분석 계약을 따른다.
 
 ### 6.7 검증 연결
@@ -286,31 +296,32 @@ flowchart LR
 
 ## 7. 외부 계약과 영향 경계
 
-| 경계      | 유지할 계약                                                                    | 이 기능의 변경                                      |
-| --------- | ------------------------------------------------------------------------------ | --------------------------------------------------- |
-| 그룹 목록 | 서버 응답이 소속과 DTO의 정본                                                  | 성공한 전체 목록과 로컬 순서·아이콘을 합성          |
-| 카드 선택 | 앞면 탭은 route 이동이 아님                                                    | 뒷면의 방 CTA만 기존 `GroupRoom(groupId)` 호출      |
-| 집중      | 기존 `FocusCategory(initialGroupId)` 계약                                      | 선택한 stable `groupId`와 `entry_source` 전달       |
-| 그룹 방   | 방이 자신의 상세·공지를 다시 조회                                              | 카드 cache/view model을 route 정본으로 넘기지 않음  |
-| 운영      | OWNER/MEMBER 정책과 서버 검증은 [04 HLD](../04-operation/high-level-design.md) | 역할 공통 로컬 아이콘 편집 진입만 추가              |
-| 챌린지    | 제품·상태·권한은 [챌린지 정본](../../../challenge/README.md)                   | 기존 읽기 응답의 compact 표시와 전체 방 진입만 제공 |
-| 분석      | 이름·속성·귀속은 [공통 분석 계약](../../shared/analytics.md)                   | 카드·안내 surface의 once guard와 결과 context 전달  |
-| 서버      | 기존 그룹·리그 read API, DTO·DB·OpenAPI 유지                                   | 서버 변경 없음                                      |
+| 경계      | 유지할 계약                                                                    | 이 기능의 변경                                                   |
+| --------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| 그룹 목록 | 서버 응답이 소속과 DTO의 정본                                                  | 성공한 전체 목록과 로컬 순서·아이콘을 합성                       |
+| 카드 선택 | 앞면 탭은 route 이동이 아님                                                    | 뒷면의 방 CTA만 기존 `GroupRoom(groupId)` 호출                   |
+| 집중      | 기존 `FocusCategory → FocusSession` 흐름                                       | stable `groupId`와 `entrySource=group_card`를 세션 시작까지 전달 |
+| 그룹 방   | 방이 자신의 상세·공지를 다시 조회                                              | 카드 cache/view model을 route 정본으로 넘기지 않음               |
+| 운영      | OWNER/MEMBER 정책과 서버 검증은 [04 HLD](../04-operation/high-level-design.md) | 역할 공통 로컬 아이콘 편집 진입만 추가                           |
+| 챌린지    | 제품·상태·권한은 [챌린지 정본](../../../challenge/README.md)                   | 기존 읽기 응답의 compact 표시와 전체 방 진입만 제공              |
+| 분석      | 이름·속성·귀속은 [공통 분석 계약](../../shared/analytics.md)                   | 카드·안내 surface의 once guard와 결과 context 전달               |
+| 서버      | 기존 그룹·리그 read API, DTO·DB·OpenAPI 유지                                   | 서버 변경 없음                                                   |
 
 영향 영역은 그룹 화면·목록, 그룹 전용 카드 컴포넌트, 계정별 로컬 설정 store, 기존 league client wrapper, 공용 reorder primitive, 안내 overlay, 분석 helper와 관련 테스트다. 실제 파일 시작점은 [착수 카드](./README.md#실제-앱테스트-시작점), 세부 테스트 gate는 [LLD §8](./low-level-design.md#8-구현출시-검증)에서 관리한다.
 
 ## 8. 설계 리스크
 
-| 리스크 묶음        | 실패 형태                                                                | 설계 완화                                                                               |
-| ------------------ | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| 신원·복귀          | 재정렬·목록 갱신 뒤 다른 그룹을 열거나 복원                              | 모든 전달·캐시·복귀를 stable `groupId`로 연결                                           |
-| 입력 경합          | 한 제스처가 page·flip·reorder를 함께 실행                                | surface별 입력 소유권과 cancel 규칙을 분리                                              |
-| 데이터 증폭·오염   | 카드마다 중복 조회하거나 A 응답을 B에 표시                               | 첫 back lazy load, keyed cache·in-flight 공유, 늦은 응답 guard                          |
-| 불완전한 집중 상태 | 누락 사용자를 0명으로 오판                                               | raw 100행은 미산출, 운영 90 경고·100 전 대체 계약                                       |
-| 계정 간 로컬 누출  | 순서·아이콘의 다른 계정 덮어쓰기                                         | userId bucket, key별 직렬 저장, 성공한 전체 목록에서만 reconcile                        |
-| 안내 중첩·오계측   | sheet와 겹치거나 자동 back을 사용자 flip으로 기록                        | overlay queue, 중단 상태, programmatic source와 once guard                              |
-| 접근성·반응형      | 숨은 face 노출, 작은 grip, drag만 가능한 reorder, 긴 이름·indicator 충돌 | active face만 노출, popover·custom action의 같은 reducer, 측정 폭 기반 표시, 원문 label |
-| 도메인 드리프트    | 카드가 방·운영·챌린지 정책을 복제                                        | compact read adapter와 기존 route만 제공하고 각 정본에 링크                             |
+| 리스크 묶음        | 실패 형태                                                                | 설계 완화                                                                                |
+| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| 신원·복귀          | 재정렬·목록 갱신 뒤 다른 그룹을 열거나 복원                              | 모든 전달·캐시·복귀를 stable `groupId`로 연결                                            |
+| 입력 경합          | 한 제스처가 page·flip·reorder를 함께 실행                                | surface별 입력 소유권과 cancel 규칙을 분리                                               |
+| 데이터 증폭·오염   | 카드마다 중복 조회하거나 A 응답을 B에 표시                               | 첫 back lazy load, dependency 상태별 ensure, keyed cache·in-flight 공유, 늦은 응답 guard |
+| 집중 상태 노후화   | 열린 화면에서 다른 기기의 시작·종료를 계속 옛 값으로 표시                | 첫 back 뒤 foreground focus 동안 60초 polling, 복귀 즉시 갱신, stale 표시                |
+| 불완전한 집중 상태 | 누락 사용자를 0명으로 오판                                               | raw 100행은 미산출, 운영 90 경고·100 전 대체 계약                                        |
+| 계정 간 로컬 누출  | 순서·아이콘의 다른 계정 덮어쓰기                                         | userId bucket, key별 직렬 저장, 성공한 전체 목록에서만 reconcile                         |
+| 안내 중첩·오계측   | sheet와 겹치거나 자동 back을 사용자 flip으로 기록                        | overlay queue, 중단 상태, programmatic source와 once guard                               |
+| 접근성·반응형      | 숨은 face 노출, 작은 grip, drag만 가능한 reorder, 긴 이름·indicator 충돌 | active face만 노출, popover·custom action의 같은 reducer, 측정 폭 기반 표시, 원문 label  |
+| 도메인 드리프트    | 카드가 방·운영·챌린지 정책을 복제                                        | compact read adapter와 기존 route만 제공하고 각 정본에 링크                              |
 
 ## 9. 범위 경계
 
@@ -325,7 +336,7 @@ flowchart LR
 
 1. [LLD §8](./low-level-design.md#8-구현출시-검증)의 신원·계정 race·부분 실패·안내·계측 시나리오가 테스트 위치와 연결되어야 한다.
 2. 앞면→뒷면→방, 앞면 grip drag와 tap/click popover 재정렬, 안내 4단계는 [UX 정본](./ux-design.md)의 형성평가·접근성 gate를 통과해야 한다.
-3. 현재 집중 상태는 운영 90 경고와 100 전 대체 계약이 배정되고, runtime loading·error·100행을 0명으로 표시하지 않아야 한다.
+3. 현재 집중 상태는 운영 90 경고와 100 전 대체 계약이 배정되고, runtime loading·error·100행을 0명으로 표시하지 않아야 한다. 첫 back 뒤 화면이 활성화된 동안 60초 갱신·중복 요청 방지·중단 수명이 검증돼야 한다.
 4. 기존 그룹·리그 API와 전체 방·집중·운영 route 회귀가 없어야 한다.
-5. [공통 분석 계약](../../shared/analytics.md)의 F1~F3, once, 귀속, 금지 payload를 DebugView에서 증명해야 한다.
+5. [공통 분석 계약](../../shared/analytics.md)의 F1~F3, once, 귀속, 금지 payload와 `entrySource`의 `FocusCategory → FocusSession` 보존을 DebugView에서 증명해야 한다.
 6. 구현 상태와 남은 출시 blocker는 [공통 상태 정본](../../shared/implementation-status.md)에서 갱신한다.

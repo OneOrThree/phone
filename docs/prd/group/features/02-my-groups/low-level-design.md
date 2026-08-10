@@ -133,9 +133,17 @@ flowchart TD
 
 ```mermaid
 flowchart TB
-    Open["카드의 첫 뒷면 열기"] --> Parallel["준비됐거나 진행 중인 조회는 재사용하고<br/>필요한 정보만 한 번씩 함께 준비"]
-    Parallel --> Group["그룹별 정보<br/>상세 · 공지 · 챌린지"]
-    Parallel --> Focus["화면 공유 정보<br/>현재 집중 상태"]
+    Open["사용자 첫 뒷면 또는 안내 3→4"] --> Ensure{"dependency cache 상태"}
+    Ensure -->|idle| Start["해당 요청 1회 시작"]
+    Ensure -->|loading| Reuse["진행 중 promise 재사용<br/>새 요청 0회"]
+    Ensure -->|ready| Warm["준비된 값 재사용<br/>새 요청 0회"]
+    Ensure -->|error · 범위 불확실| Keep["현재 상태 유지<br/>안내 자동 retry 0회"]
+
+    Start --> Group["그룹별 정보<br/>상세 · 공지 · 챌린지"]
+    Start --> Focus["화면 공유 정보<br/>현재 집중 상태"]
+    Reuse --> State
+    Warm --> State
+    Keep --> State
 
     Group --> State["영역별 상태<br/>불러오는 중 · 표시 가능 · 오류"]
     Focus --> State
@@ -147,7 +155,8 @@ flowchart TB
 ```
 
 - 새 카드 요약 API를 만들지 않고 기존 상세·공지·챌린지·현재 집중 상태를 조합한다.
-- 다시 열린 뒷면은 준비된 결과와 진행 중인 조회를 재사용하며 같은 요청을 중복 시작하지 않는다.
+- 사용자 첫 back과 안내 3→4는 같은 ensure 경로를 쓴다. mixed cache에서는 `idle` dependency만 새로 시작하고 `loading|ready|error|coverage-unknown`은 위 상태를 재사용한다.
+- 다시 열린 뒷면은 준비된 결과와 진행 중인 조회를 재사용하며 같은 요청을 중복 시작하지 않는다. `error|coverage-unknown`은 guide 전환 자체가 retry하지 않는다. 그룹별 영역은 명시 retry에서, 현재 집중 상태는 다음 polling·복귀·명시 retry에서 새 cycle을 연다.
 - 각 영역은 독립적으로 `불러오는 중 · 표시 가능 · 오류` 상태를 가진다. 실패한 영역만 다시 시도한다.
 - 한 영역의 실패는 다른 영역과 `이 그룹으로 집중`·`방 전체 보기`를 막지 않는다. 단, 소속이 사라지면 행동을 중단한다.
 - 늦은 응답은 원래 `groupId`에만 반영하며, 그 그룹이 더 이상 유효하지 않으면 버린다.
@@ -164,6 +173,7 @@ stateDiagram-v2
     state "계산 가능" as Ready
     state "요청 실패" as Unavailable
     state "범위 불확실" as CoverageUnknown
+    state "마지막 확인값 · 갱신 실패" as Stale
 
     [*] --> Idle
     Idle --> Loading: 현재 계정·KST 날짜 조회
@@ -178,15 +188,20 @@ stateDiagram-v2
     CoverageUnknown: 집중 인원 미산출
     CoverageUnknown: 0명 표시 금지
 
-    Ready --> Loading: 새로고침 · KST 날짜 변경
-    Unavailable --> Loading: 다시 시도
-    CoverageUnknown --> Loading: 관측 복구 · 계약 전환
+    Ready --> Loading: 60초 tick · 화면/앱 복귀 · 집중 흐름 복귀 · KST 변경
+    Loading --> Stale: 갱신 실패 AND 이전 complete 있음
+    Stale --> Loading: 다음 tick · 화면/앱 복귀 · 명시 retry
+    Stale --> Ready: 새 complete 응답
+    Unavailable --> Loading: 다음 tick · 화면/앱 복귀 · 명시 retry
+    CoverageUnknown --> Loading: 다음 tick · 화면/앱 복귀 · 관측 복구
 ```
 
 - 운영 `eligible_user_count < 100`은 출시 전제이고 런타임 앱에는 없다. 성공한 원본 응답 길이 `< 100`일 때만 응답에 없는 멤버를 `집중하지 않음`으로 본다.
 - 현재 집중 상태는 한 refresh cycle에서 얻은 `현재 계정 + todayStrKst()` 기준으로 화면에서 공유하고, 동시에 같은 요청을 여러 번 보내지 않는다. 요청 인자와 cache key에 기기 로컬 날짜를 섞지 않는다.
+- 첫 back 또는 guide 준비 뒤에만 adapter를 활성화한다. `GroupScreen`이 focus이고 앱이 foreground인 동안 60초마다 갱신하며, focus·foreground·이 화면에서 시작한 집중 흐름의 복귀·KST 날짜 변경에는 즉시 갱신한다. blur·background·unmount·logout·groups=0에서는 timer를 멈춘다.
+- interval과 복귀 trigger가 겹쳐도 동일 key의 in-flight는 공유한다. 다른 기기의 집중 변경은 다음 성공 polling인 60초와 네트워크 지연 안에 반영한다. 명시 새로고침·`onRefresh()`는 추가하지 않는다.
 - 운영 수 90~99명에서는 대체 계약의 담당자·티켓·배포일을 확정한다. 운영 수 unknown 또는 100 이상이면 출시를 차단하고 대체 계약을 먼저 배포한다.
-- 런타임 raw 응답 100행·loading·error는 미산출이며 0명으로 표시하지 않는다.
+- 런타임 raw 응답 100행·loading·최초 error는 미산출이며 0명으로 표시하지 않는다. 이전 complete 뒤 갱신 실패만 stale 표시와 함께 마지막 값을 유지한다.
 
 ---
 
@@ -200,7 +215,7 @@ flowchart TD
     Stored -->|예| Deck
     Stored -->|아니오 · 읽기 실패| Guide["1~3단계 · 다음"]
 
-    Guide --> Prepare["3→4단계에서 시스템이 뒷면 준비<br/>필요한 정보 조회를 각 1회 시작"]
+    Guide --> Prepare["3→4단계에서 동일 ensure 경로 호출<br/>idle만 1회 시작 · loading/ready/error 재사용"]
     Prepare --> NoEvent["사용자 뒤집기·페이지 이동 이벤트 0건<br/>응답 완료를 기다리지 않음"]
     NoEvent --> Step4["4단계 · 시작"]
     Step4 --> Complete["안내 닫기 · 뒷면과 초점 유지<br/>완료 이벤트 현재 세션 1회"]
@@ -221,6 +236,7 @@ flowchart TD
 - 1~3단계 행동은 `다음`, 마지막 행동만 `시작`이다.
 - 완료 기록 읽기에 실패해도 현재 화면 세션에서는 안내를 한 번만 시도한다.
 - 4단계는 각 요약 영역의 `불러오는 중 · 표시 가능 · 오류`를 그대로 보여 준다.
+- cold 상태에서는 네 dependency를 각 1회 시작한다. warm ready와 in-flight는 새 요청 0회이고, mixed 상태는 idle만 시작한다. error·coverage-unknown은 안내 전환에서 새 요청 0회이며, 현재 집중 상태의 다음 60초 tick은 별도 refresh cycle이다.
 - 완료 이벤트는 마지막 `시작`으로 안내가 닫힌 직후 기록하고, 기기 저장은 그 다음에 시도한다.
 - 저장 실패는 현재 foreground에서 안내를 다시 띄우지 않지만, 다음 앱 실행에서는 다시 노출될 수 있다.
 
@@ -238,7 +254,7 @@ flowchart LR
     Guide --> Ready
     Ready --> Intent["CTA 의도 수락"]
     Intent --> Room["방 성공 결과"]
-    Intent --> Focus["집중 시작 성공 결과"]
+    Intent --> Focus["FocusSession 최초 진입"]
 
     Program["안내 자동 back · scroll"] -.->|"사용자 flip · page 이벤트 0건"| Ready
     Noop["rerender · resize · 취소 · no-op"] -.->|"사용자 이벤트 0건"| Intent
@@ -246,7 +262,7 @@ flowchart LR
 
 - guide와 user flip이 같은 session에 모두 있으면 뒷면 사용 가능 단계는 한 번으로 dedupe한다.
 - `back_source=guide`는 사용자가 face를 다시 바꾸기 전까지만 유지한다.
-- 카드 CTA의 context는 Room·Focus 성공 결과까지 보존하며 다른 카드의 늦은 결과에 재사용하지 않는다.
+- 카드 CTA의 context는 Room 성공 결과와 FocusSession 최초 진입까지 보존하며 다른 카드의 늦은 결과에 재사용하지 않는다. Focus CTA는 `initialGroupId`와 `entrySource=group_card`를 `FocusCategory → FocusSession`까지 그대로 전달하고, 최초 진입 이벤트는 이 route context를 사용한다.
 - 그룹명·소개·아이콘 glyph·asset·로컬 순서·raw `userId`를 payload에 넣지 않는다.
 
 ---
@@ -267,8 +283,8 @@ flowchart LR
 
 1. **정체성·복귀:** 5·10개 카드의 drag 및 단일 포인터 popover cross-page 재정렬, 목록 갱신·방 왕복 뒤에도 같은 `groupId`를 가리키며, 찾기 카드·사라진 카드는 순서에 넣거나 복원하지 않는다.
 2. **개인화·늦은 응답:** 빠른 변경과 계정 전환에서도 최신 의도와 계정 영역을 보존하고, 과거 응답을 다른 카드에 표시하지 않는다.
-3. **데이터 신뢰:** 부분 실패는 해당 영역에만 남고, 집중 상태의 불명·실패·100 이상을 `0명`으로 표시하지 않는다.
-4. **안내·접근성·계측:** 안내의 읽기·중단·저장 실패와 자동 전환을 각각 검증한다. drag 없는 popover의 5·10개 cross-page 이동, disabled 경계·FindMore 제외·focus/popover 유지를 검증한다. 자동 전환의 사용자 이벤트는 0건이고 완료 이벤트는 저장 성공과 무관하게 1건이다. 그룹명은 모든 위치에서 1줄 말줄임, 접근성 이름은 원문 전체이며, DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
+3. **데이터 신뢰:** 부분 실패는 해당 영역에만 남고, 집중 상태의 불명·실패·100 이상을 `0명`으로 표시하지 않는다. 첫 back 전 polling 0회, 활성화 뒤 60초 주기, background 중단, foreground·KST 전환 즉시 갱신, 동일 key in-flight 1회를 fake timer와 통합 테스트로 확인한다.
+4. **안내·접근성·계측:** 안내의 읽기·중단·저장 실패와 자동 전환을 각각 검증한다. cold는 새 요청 4회, warm·in-flight·error는 새 요청 0회, mixed는 idle 수만큼 시작하고 자동 전환의 사용자 이벤트는 0건이어야 한다. drag 없는 popover의 5·10개 cross-page 이동, disabled 경계·FindMore 제외·focus/popover 유지를 검증한다. 완료 이벤트는 저장 성공과 무관하게 1건이다. `entrySource=group_card`가 Focus 세션 시작까지 보존되는지와 DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
 
 ## 9. 확정된 구현 결정
 
@@ -281,3 +297,5 @@ flowchart LR
 안내 queue에는 다음 조건이 모두 참일 때만 등록한다: 인증 사용자, 성공한 전체 groups 1개 이상, 순서·아이콘 hydration 완료, active 카드와 필수 anchor layout 완료, navigation transition idle, blocking modal·sheet·다른 guide 없음.
 
 queue 대기는 카드 사용을 차단하지 않으며 고정 시간 timeout을 두지 않는다. slot을 받기 전에 screen blur·background·unmount·계정/멤버십 변경이 발생하면 현재 요청을 취소하고 다음 focus에서 다시 판정한다. 안내 시작 뒤 anchor가 사라지거나 폭이 바뀌면 중단하지 않고 전체 dim fallback으로 계속하며 다음 단계에서 재측정한다.
+
+queue 대기 중 사용자가 먼저 back을 열 수 있다. 이후 안내가 3→4에 도달하면 §4의 동일 ensure 경로를 호출하므로 이미 준비됐거나 진행 중인 dependency를 다시 보내지 않는다.

@@ -19,9 +19,9 @@
 
 ## 담당 역할과 작업 패키지
 
-- **앱:** detail 선행 표시, 하위 영역 오류 표시·응답 격리, 현행 공용 재조회와 후속 영역별 retry, 집중 중복 전환 방지, 방 복귀 시 같은 `groupId` 유지.
+- **앱:** detail 선행 표시, 하위 영역 오류 표시·응답 격리, 현행 공용 재조회와 후속 영역별 retry, 집중 중복 전환 방지, 공통 Focus route/helper의 `group_room|home_fab|unknown` 보존·정규화, 방 복귀 시 같은 `groupId` 유지.
 - **서버:** detail·공지·권한 변경의 최신 멤버십/역할 검증과 오류 응답을 유지한다.
-- **QA/분석:** 최초 detail 실패, detail 성공 뒤 공지 실패, 권한 변경 충돌, 집중 진입·복귀를 E2E로 검증한다.
+- **QA/분석:** 최초 detail 실패, detail 성공 뒤 공지 실패, 권한 변경 충돌, 집중 진입·복귀와 `focus_session_started(entry_source=group_room|home_fab|unknown)`의 최초 화면 진입 1회·route source 비누출을 E2E·DebugView로 검증한다.
 
 ## 출시 게이트
 
@@ -29,6 +29,7 @@
 - 공지 실패가 detail 성공 화면이나 집중 진입을 막지 않으며, 소속 없음은 서버 확인 뒤에만 안전 복귀한다.
 - 현행 공용 재조회가 다른 성공 영역을 지우지 않는지 검증하고, 영역별 retry 구현 여부는 [공통 상태 정본](../../shared/implementation-status.md)에서 추적한다.
 - 동일 `groupId`의 빠른 집중 탭은 요청·전환이 한 번만 일어나도록 보강하고 회귀 테스트한다.
+- 그룹방 FAB가 `initialGroupId`와 `entrySource=group_room`을 함께 전달하고, `FocusCategory → FocusSession`에서 이를 보존해 최초 화면 진입 이벤트를 1회 발행해야 한다. marker API 성공과 결합하거나 `initialGroupId`로 source를 추론하지 않는다.
 
 ## 상위 정본
 

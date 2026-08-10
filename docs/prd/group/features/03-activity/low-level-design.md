@@ -36,13 +36,16 @@ sequenceDiagram
     participant R as 그룹방
     participant F as 집중 화면
     U->>R: 이 그룹으로 집중
-    R->>F: initialGroupId 전달
-    Note over R,F: 그룹방은 집중 세션 성공을 가정하지 않음
+    R->>F: initialGroupId + entrySource=group_room 전달
+    F->>F: FocusCategory → FocusSession source 보존
+    F->>F: FocusSession 최초 진입 시 entry_source=group_room 1회
+    Note over R,F: marker API 성공과 독립 · rerender 재발행 없음
     F-->>R: 뒤로 또는 세션 종료
     R->>R: 현재 날짜의 방 정보 재확인
 ```
 
 - ✅ `initialGroupId` 전달과 복귀 뒤 재조회는 구현되어 있다.
+- ⬜ 공통 Focus route/helper가 `group_room|home_fab|unknown`을 `FocusCategory → FocusSession`에 보존하고 최초 진입 이벤트 payload에 싣는 변경은 아직 구현되지 않았다. `group_card`는 02 작업 패키지가 같은 공통 경계를 사용한다. source를 `initialGroupId`에서 추론하지 않는다.
 - ⬜ 집중 버튼을 같은 순간 빠르게 두 번 누를 때 navigation을 정확히 한 번만 수락하는 잠금은 아직 없다.
 - 🟡 날짜 변경은 포그라운드 복귀·수동 새로고침에서 확인한다. 화면을 계속 연 채 자정을 넘기는 자동 경계 감지는 아직 없다.
 
@@ -83,6 +86,7 @@ flowchart LR
 | 공지·하위 영역 오류 버튼의 공용 재조회와 성공 영역 보존                                                 | 🟡 현행 구현·호출 범위 회귀 테스트 보강 필요                |
 | 특정 오류 영역의 요청만 다시 보내는 영역별 retry                                                        | ⬜ 미구현                                                   |
 | 집중 버튼 빠른 이중 탭 차단                                                                             | ⬜ 미구현                                                   |
+| 공통 Focus route의 `group_room`, `home_fab`, `unknown` 보존·정규화와 최초 진입 이벤트 1회               | ⬜ 미구현                                                   |
 | 열린 화면에서 자정 경계 자동 갱신                                                                       | ⬜ 미구현                                                   |
 | 권한 변경과 제출이 겹치는 전체 E2E                                                                      | ⬜ 검증 미작성                                              |
 | 챌린지 상세 검증                                                                                        | [챌린지 LLD](../../../challenge/low-level-design.md)로 이관 |

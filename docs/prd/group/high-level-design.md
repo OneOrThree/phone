@@ -188,6 +188,6 @@ flowchart LR
 | 03   | 그룹 활동    | [착수 카드](./features/03-activity/README.md)    | [HLD](./features/03-activity/high-level-design.md) · [LLD](./features/03-activity/low-level-design.md)       |
 | 04   | 그룹 운영    | [착수 카드](./features/04-operation/README.md)   | [HLD](./features/04-operation/high-level-design.md) · [LLD](./features/04-operation/low-level-design.md)     |
 
-분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 공통 이벤트명·속성·발행 주체·금지 정보는 [그룹 공통 분석 계약](./shared/analytics.md), 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 각각 소유한다.
+분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 카드·방·글로벌 FAB·source 없는 외부 진입은 각각 `entrySource=group_card|group_room|home_fab|unknown`을 정하고, 공통 Focus route/helper는 이를 `FocusSession` 최초 화면 진입 이벤트까지 보존한다. 이벤트는 marker API 성공을 뜻하지 않으며 `initialGroupId`로 source를 추론하지 않는다. 공통 이벤트명·속성·발행 주체·금지 정보는 [그룹 공통 분석 계약](./shared/analytics.md), 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 각각 소유한다.
 
 통합 HLD는 기능 사이의 연결 정본이고 기능 HLD는 내부 책임·API 경계를 보완한다. 문서 종류별 충돌은 [문서 지도](./README.md#2-정본은-문서-종류별로-결정한다)의 범위 규칙으로 해결한다.

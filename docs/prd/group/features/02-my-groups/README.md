@@ -14,7 +14,7 @@
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `F02-T1`~`T2` 카드 골격·앞면           | [UX §2](./ux-design.md#2-캐러셀과-카드-골격) · [HLD §2·4](./high-level-design.md#2-화면-컴포넌트와-소유권) · [LLD §1·3](./low-level-design.md#1-그룹-카드의-정체성과-화면-복구)                                                                                                                                                                                    |
 | `F02-T3`~`T4` 아이콘·순서              | [UX §4](./ux-design.md#4-제스처-충돌-해결-규칙) · [UX §8](./ux-design.md#8-내-카드-아이콘--개인-로컬-설정) · [LLD §2·3](./low-level-design.md#2-카드-순서아이콘-저장과-계정-경계) · grip drag와 tap/click `순서 변경` popover의 동일 reducer·E2E                                                                                                                   |
-| `F02-T5`~`T7` 뒷면·복귀                | [IA §3.3·4](./information-architecture.md#33-카드-뒷면--room-summary) · [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름) · [LLD §4·5·9](./low-level-design.md#4-카드-뒷면-데이터와-늦은-응답)                                                                                                                                                       |
+| `F02-T5`~`T7` 뒷면·복귀                | [IA §3.3·4](./information-architecture.md#33-카드-뒷면--room-summary) · [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름) · [LLD §4·5·9](./low-level-design.md#4-카드-뒷면-데이터와-늦은-응답) · cold/warm ensure·60초 foreground 집중 상태 갱신                                                                                                     |
 | `F02-T8`~`T9` 운영·첫 안내·접근성·계측 | [UX §7](./ux-design.md#7--그룹-설정) · [UX §1.1](./ux-design.md#11-첫-카드-덱-코치마크) · [HLD §6](./high-level-design.md#6-그룹-카드-첫-노출-코치마크-계약) · [공통 분석 계약](../../shared/analytics.md) · [LLD §6](./low-level-design.md#6-첫-카드-덱-안내) · [§7](./low-level-design.md#7-카드-기능의-계측-상태) · [§8](./low-level-design.md#8-구현출시-검증) |
 | `F02-T10` 평가·확대                    | [PRD §6·8](./prd.md#6-성공-지표와-실험-계약) · [UX §12](./ux-design.md#12-출시-전-형성평가와-ux-gate) · [규모 gate 실행](../../shared/implementation-status.md#02-규모-출시-gate-실행)                                                                                                                                                                             |
 
@@ -42,12 +42,12 @@
 ## 담당과 작업 묶음
 
 - 앱: [`F02-T1`~`F02-T8`](./prd.md#12-작업-패키지와-후속-결정) 구현·회귀. `F02-T4`는 grip drag와 단일 포인터 popover를 같은 stable-ID 이동 reducer에 연결하고, 5·10개 cross-page·focus/popover 유지 회귀를 포함한다.
-- 앱·분석·QA: [`F02-T9`](./prd.md#12-작업-패키지와-후속-결정) 4단계 첫 안내·계측·접근성·E2E
+- 앱·분석·QA: [`F02-T9`](./prd.md#12-작업-패키지와-후속-결정) 4단계 첫 안내의 cold/warm ensure·계측·접근성·Focus route source 보존 E2E
 - 제품·분석·운영: [`F02-T10`](./prd.md#12-작업-패키지와-후속-결정) 형성평가·기준선·규모 경고
 
 ## 구현과 출시 gate
 
 - 문서상 책임·의존성·완료 기준은 확정됐다. 사람 assignee와 Jira 번호 연결은 스프린트 배정 기록이며 로컬 구현 착수의 추가 제품 결정이 아니다.
 - 운영 `eligible_user_count` 점검과 90/100 조치는 [공통 상태 정본의 실행 절차](../../shared/implementation-status.md#02-규모-출시-gate-실행)를 따른다. 값이 unknown 또는 100 이상이어도 구현은 계속할 수 있지만 출시는 차단한다.
-- 앱 런타임은 성공 raw ranking 응답 길이 `<100`일 때만 집중 인원을 계산하며, `100`·loading·error를 0명으로 표시하지 않는다.
+- 앱 런타임은 성공 raw ranking 응답 길이 `<100`일 때만 집중 인원을 계산하며, `100`·loading·최초 error를 0명으로 표시하지 않는다. 첫 back 뒤 foreground 화면에서는 60초마다 갱신하고 background·blur에서 중단한다.
 - [PRD 수용 기준](./prd.md#10-수용-기준과-테스트)과 [LLD 출시 검증](./low-level-design.md#8-구현출시-검증)을 통과하기 전에는 제한 출시하지 않는다.

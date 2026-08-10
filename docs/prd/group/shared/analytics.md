@@ -50,7 +50,7 @@ flowchart LR
 | 02 탐색 | `group_card_icon_save_result`   | result·C          | 로컬 쓰기 성공·실패 확정                                      | `surface`, `result`; glyph 제외                                                                |
 | 02 탐색 | `tab_guide_completed`           | result·C          | 마지막 `시작`으로 안내가 닫힌 직후                            | `guide=groupDeck:v1`; session당 1회, key write와 분리                                          |
 | 03 활동 | `group_room_viewed`             | result·C          | 그룹 방의 최초 성공 렌더                                      | 기존 속성 + `entry_source`                                                                     |
-| 03 활동 | `focus_session_started`         | result·C          | 기존 집중 도메인이 세션 시작을 성공 처리                      | 기존 속성 + `entry_source`                                                                     |
+| 03 활동 | `focus_session_started`         | result·C          | `FocusSession` 최초 화면 진입·세션 시작 처리 시 1회           | 기존 속성 + 필수 `entry_source`; route context에서만 읽음                                      |
 | 04 운영 | `group_settings_updated`        | result·C·진단     | 그룹 프로필 PATCH 성공                                        | 기존 `group_id`, `fields`; 성공 전용이며 시도·화면 수렴 분모 없음                              |
 | 04 운영 | `group_owner_transferred`       | result·C·진단     | 방장 위임 API 성공                                            | 기존 `group_id`, `source`; 성공 전용이며 시도·화면 수렴 분모 없음                              |
 | 04 운영 | `group_member_kicked`           | result·C·진단     | 멤버 강퇴 API 성공                                            | 기존 `group_id`; 성공 전용이며 시도·화면 수렴 분모 없음                                        |
@@ -87,6 +87,8 @@ flowchart LR
 - 초대 sheet의 기존 `entry=link|deferred`는 초대 내부 속성이다. 그룹 화면 유입의 `group_entry`와 섞지 않는다.
 - `code`는 신규 앱 C 이벤트가 만들지 않는 legacy 서버 결과다. nonblank 계약 밖 값은 서버가 `unknown`으로 정규화한다. null·blank·구버전 미전송은 payload에 `absent` 문자열을 넣지 않고 `join_method` 키 자체를 생략한다.
 - `back_source=guide`는 안내가 만든 뒷면을 사용자가 다시 flip하기 전까지만 유지한다. front로 돌아간 뒤 다시 연 back은 `user`다.
+- `focus_session_started.entry_source`는 집중 진입점에서 확정해 route context로 `FocusCategory → FocusSession`까지 그대로 보존한다. 카드 CTA는 `group_card`, 그룹방 FAB는 `group_room`, 글로벌 집중 FAB는 `home_fab`를 명시하고, source가 없는 구버전·외부 진입은 `FocusCategory` 진입에서 `unknown`으로 한 번만 정규화한다. `FocusCategory`는 필수 `entrySource`를 `FocusSession`에 넘기며 `initialGroupId`에서 source를 추론하거나 중간 화면에서 덮어쓰지 않는다. route를 재사용할 때 이전 source가 남지 않도록 source 없는 진입도 `unknown`을 명시한다. 현재 직접 집중 진입이 없는 `group_find|invite`는 실제 route가 생기기 전에는 발행하지 않는다.
+- `focus_session_started`는 `FocusSession` 최초 화면 진입·세션 시작 처리의 결과다. live marker·heartbeat 등 후속 API 성공을 뜻하지 않으며, 같은 화면의 rerender·재시도에는 다시 발행하지 않는다.
 - `trigger`는 이벤트별 허용값을 더 좁힌다. flip은 `card_tap|accessibility_action`, page는 `swipe|indicator_press|accessibility_action`, reorder는 `drag|pointer_control|accessibility_action`만 허용한다.
 - `group_left`의 최상위 서버 로그 `user_id`는 행위자가 아니라 **소속에서 빠진 사용자**다. 자발 이탈은 요청자, 강퇴는 `targetUserId`를 명시 오버로드로 기록하고 `leave_reason=self|kicked`로 구분한다. 방장 행위자 정보가 필요하면 기존 요청·감사 맥락을 사용하며 이벤트 payload에 raw ID를 중복 전송하지 않는다.
 - 현재 서버는 자발 이탈과 강퇴 모두 `group_id`만 남기고, 강퇴 로그의 최상위 `user_id`도 요청한 방장 MDC를 사용한다. 위 `group_left` 계약이 구현·export 검증되기 전에는 이 이벤트를 이탈률·강퇴율 KPI에 사용하지 않는다.
@@ -121,7 +123,7 @@ F3 그룹 획득 → 소속 반영
 ```
 
 - F1은 로그인 `user_id + ga_session_id` 고유 세션으로 본다. 탭 전환 뒤 10초 안의 `group_viewed(group_entry=tab)`만 navigation 성공으로 귀속한다.
-- F2의 뒷면 사용 가능은 같은 session에서 guide 완료와 사용자 flip의 합집합으로 dedupe한다. room 결과는 action 뒤 30초, focus 결과는 10분을 초기 귀속 window로 둔다.
+- F2의 뒷면 사용 가능은 같은 session에서 guide 완료와 사용자 flip의 합집합으로 dedupe한다. room 결과는 action 뒤 30초, focus 결과는 10분을 초기 귀속 window로 둔다. focus 결과는 `entry_source=group_card`가 route 전체에서 보존된 경우에만 카드 action에 귀속한다.
 - F3에서 검색은 선택 단계다. 기본 목록에서 바로 가입해도 정상이다. 가입 결과 정본은 서버 `group_joined`, 생성 결과는 현재 앱 `group_created`이며 같은 결과의 앱·서버 중복 발행을 금지한다.
 - F3 집계 단위는 **획득 episode**이며 opener를 분리한다. 같은 Firebase `user_pseudo_id`의 첫 `group_viewed(group_count_bucket=0)`는 `empty`, 열린 episode가 없을 때 실제 API 전송 직전의 `group_join_attempted(invite|deferred_invite,result_track=ga4)`는 `invite_intent` fallback episode를 연다. 성공 결과 또는 30분 경과 중 먼저 오는 시점에 닫는다.
 - `invite_link_opened`는 설치된 앱이 direct URL을 처리한 진단 이벤트이고, `group_invite_sheet_viewed`는 direct·deferred preview 노출 이벤트다. 둘 자체는 F3 opener가 아니며, deferred 복원에서 과거 `invite_link_opened`를 재발행하지 않는다. 시트 노출·게스트 로그인 대기·오류만으로 분모를 만들지 않는다.
@@ -151,4 +153,5 @@ F3 그룹 획득 → 소속 반영
 11. `empty` episode의 s_log_only join 2xx→target 포함 전체 목록은 reconciliation 1건과 `unattributed` 종료를 만들고, ALREADY_MEMBER·목록 실패·target 미포함은 0건인지 검증한다. 종료 뒤 두 번째 join/create 결과가 이전 episode에 귀속되지 않아야 한다.
 12. 서버 결과의 `code` 보존, 계약 밖 nonblank→`unknown`, null·blank→키 미전송을 실제 S-LOG·MP body에서 검증한다. F3 fixture는 정상 C/S method 일치만 전환으로 세고 legacy·unknown·absent·method mismatch를 `unattributed`로 닫아 후속 결과를 오귀속하지 않아야 한다.
 13. 네 개의 운영 앱 결과 이벤트는 해당 API 2xx 뒤에만 1회이고 실패·rollback에는 0건인지 확인한다. attempt·commit·화면 reconciliation 상관 계약을 별도 승인하기 전에는 이 이벤트와 `group_left`로 운영 성공률 대시보드를 만들지 않는다.
-14. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.
+14. 카드 CTA·그룹방 FAB·글로벌 집중 FAB·source 없는 외부 진입 각각에서 `group_card|group_room|home_fab|unknown`이 `FocusCategory → FocusSession`을 거쳐 최초 진입 이벤트에 1회 남고, route 재사용 때 이전 source가 누출되지 않는지 검증한다.
+15. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.

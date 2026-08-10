@@ -78,7 +78,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 | 4    | `character_happy` · back 요약/CTA    | 집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 방 전체를 열어봐.                                             | overlay 종료 후 back·focus 유지     |
 
 - 코치마크가 열린 동안 카드 tap, page swipe, reorder, CTA는 모두 잠근다. 화면 탭과 보조기술의 `다음` action으로 1~3단계를 진행하고 마지막은 `시작` action을 쓴다. skip, 닫기, replay는 제공하지 않는다.
-- 3→4는 사용자가 만든 flip이 아니다. 필요하면 첫 카드를 중앙으로 programmatic scroll한 다음 back을 보여 주며, 이 시연의 scroll/face 변경에는 사용자 `group_card_flipped`·`group_carousel_paged` 이벤트를 발행하지 않는다. 다만 정상적인 첫 back과 동일하게 detail·공지·챌린지와 KST 날짜별 공유 리그 lazy 조회를 정확히 한 번 시작한다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션의 loading·ready·error 상태와 CTA를 그대로 보여 준다.
+- 3→4는 사용자가 만든 flip이 아니다. 필요하면 첫 카드를 중앙으로 programmatic scroll한 다음 back을 보여 주며, 이 시연의 scroll/face 변경에는 사용자 `group_card_flipped`·`group_carousel_paged` 이벤트를 발행하지 않는다. 정상적인 첫 back과 같은 ensure 경로를 호출해 cold `idle` dependency만 각 1회 시작하고, 이미 `loading|ready|error|coverage-unknown`이면 현재 상태를 재사용해 전환 시점의 새 요청을 보내지 않는다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션 상태와 CTA를 그대로 보여 주며, 이후 현재 집중 상태의 60초 polling은 별도 refresh cycle이다.
 - 마지막 `시작`은 overlay를 닫는 즉시 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행하고, 그 뒤 `AsyncStorage('gromo:guide:groupDeck:v1') = '1'`을 시도한다. background·route 이탈·unmount는 완료가 아니고, read 실패는 session memory로 중복을 막은 채 현재 session에서 최대 1회 시도한다. key write 실패도 완료 이벤트를 취소하지 않으며 `guide_complete_write_failed` telemetry로만 구분하고 다음 앱 실행의 재노출을 허용한다.
 - anchor를 측정하지 못했거나 폭이 바뀌면 spotlight를 잘못 그리지 않고 전체 dim + 말풍선으로 fallback하고, 다음 단계에서 재측정한다.
 
@@ -170,14 +170,15 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 
 ### 3.2 집중 인원 표시 상태
 
-| 상태        | 사용자 표시                                 |
-| ----------- | ------------------------------------------- |
-| 계산 가능   | `0명 집중 중` 또는 `N명 집중 중`            |
-| 불러오는 중 | 같은 영역 높이의 skeleton                   |
-| 요청 실패   | `집중 현황을 불러오지 못했어요` + 다시 시도 |
-| 범위 불확실 | `집중 현황을 확인할 수 없어요`; 0명 금지    |
+| 상태                       | 사용자 표시                                                          |
+| -------------------------- | -------------------------------------------------------------------- |
+| 계산 가능                  | `0명 집중 중` 또는 `N명 집중 중`                                     |
+| 불러오는 중                | 같은 영역 높이의 skeleton                                            |
+| 최초 요청 실패             | `집중 현황을 불러오지 못했어요` + 다시 시도                          |
+| 갱신 실패·이전 완료값 있음 | 마지막 `N명 집중 중` 유지 + `업데이트하지 못했어요` 표식·접근성 안내 |
+| 범위 불확실                | `집중 현황을 확인할 수 없어요`; 0명 금지                             |
 
-현재 시간을 합산하거나 오래된 값으로 집중 여부를 추정하지 않는다. 완전성 판정·공유 cache·90/100 gate는 [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름)과 [LLD §5](./low-level-design.md#5-현재-집중-인원은-완전한-정보에서만-계산한다)가 정본이다.
+현재 시간을 합산하거나 오래된 값으로 집중 여부를 추정하지 않는다. 이전 완료값은 갱신 실패임을 시각·접근성으로 함께 알릴 때만 유지하며, 최초 실패·100행은 미산출한다. 완전성 판정·공유 cache·90/100 gate는 [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름)과 [LLD §5](./low-level-design.md#5-현재-집중-인원은-완전한-정보에서만-계산한다)가 정본이다.
 
 ### 3.3 공지와 멤버 폴백
 
@@ -375,7 +376,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 
 - 실제 덱 노출, 사용자가 만든 face·page·순서 변화, 수락된 CTA만 사용자 행동으로 본다.
 - 안내의 자동 back·scroll, animation 완료, rerender·resize·route 복귀·취소·no-op은 사용자 행동이 아니다.
-- CTA 클릭과 방 표시·집중 시작 성공은 서로 다른 단계다.
+- CTA 클릭과 방 표시·FocusSession 최초 진입은 서로 다른 단계다. 집중 이벤트는 marker API 성공을 뜻하지 않는다.
 - 아이콘 glyph·그룹 이름·버튼 문구·로컬 순서는 payload에 넣지 않는다.
 
 이벤트 이름·속성·F1~F3 귀속은 [공통 분석 계약](../../shared/analytics.md), 카드 surface의 once guard는 [HLD §6](./high-level-design.md#6-그룹-카드-첫-노출-코치마크-계약)을 따른다.
@@ -400,11 +401,11 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 | 내 카드 아이콘 없음/손상               | 해당 계정·그룹에서 `🎯`; 임의 색이나 선화 마크를 생성하지 않음                                                                                   |
 | 그룹 카드 코치마크 대기                | 인증 성공 그룹 1개 이상·stable layout·다른 overlay 없음까지 카드 덱을 막지 않고 대기                                                             |
 | 그룹 카드 코치마크 표시                | 4단계 overlay만 입력 가능. 카드 flip/page/reorder/CTA는 잠금                                                                                     |
-| 그룹 카드 코치마크 완료                | `gromo:guide:groupDeck:v1='1'` 뒤 overlay 종료. 첫 카드 back과 해당 face의 focus 유지                                                            |
+| 그룹 카드 코치마크 완료                | 마지막 `시작`으로 overlay 종료·완료 이벤트 1회 뒤 기기 key 저장 시도. 첫 카드 back과 해당 face의 focus 유지                                      |
 | guide read/write·anchor 실패 또는 중단 | read는 session 1회 fallback, write는 다음 앱 실행 재노출 허용, anchor는 전체 dim fallback, 중단은 key 미저장                                     |
 
 - 헤더의 `찾기`와 `만들기` 진입점은 페이지와 무관하게 유지한다.
-- 명시 새로고침은 두지 않고 `GroupScreen`의 화면 포커스 재조회에 맡긴다.
+- 명시 새로고침·당겨서 새로고침은 두지 않는다. 목록은 `GroupScreen`의 화면 포커스에, 현재 집중 상태는 첫 back 뒤 foreground 화면의 60초 자동 갱신과 영역 오류의 `다시 시도`에 맡긴다.
 - 끝 카드는 그룹 순서 저장 대상이 아니며 flip·설정·집중 CTA를 갖지 않는다.
 - 계정 전환 시 이전 계정의 카드 순서나 내 카드 아이콘이 한 프레임이라도 보이지 않게 현재 목록·순서·아이콘·활성 index를 함께 초기화한다.
 
