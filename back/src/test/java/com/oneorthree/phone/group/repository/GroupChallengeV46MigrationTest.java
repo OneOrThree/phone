@@ -60,6 +60,11 @@ class GroupChallengeV46MigrationTest {
                 "UPDATE group_challenges SET repeat_days = 128 WHERE id = ?", CHALLENGE_ID))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("group_challenges_repeat_days_check");
+        // NOT NULL 은 ALTER COLUMN TYPE 이 보존하는 문서화된 동작이지만, 깨져도 Hibernate validate 가
+        // 잡아주지 않아 조용히 넘어간다. 그래서 CHECK 와 같은 급으로 여기서 못 박는다.
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE group_challenges SET repeat_days = NULL WHERE id = ?", CHALLENGE_ID))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private void insertChallenge() {
