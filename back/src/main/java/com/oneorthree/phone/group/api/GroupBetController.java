@@ -4,6 +4,10 @@ import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetHistorySliceResponse;
+import com.oneorthree.phone.group.dto.JoinSessionResponse;
+import com.oneorthree.phone.group.dto.JoinWeekRequest;
+import com.oneorthree.phone.group.dto.JoinWeekResponse;
+import com.oneorthree.phone.group.service.GroupBetJoinService;
 import com.oneorthree.phone.group.service.GroupBetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -31,6 +35,77 @@ import java.util.UUID;
 public class GroupBetController {
 
     private final GroupBetService groupBetService;
+    private final GroupBetJoinService groupBetJoinService;
+
+    @Operation(summary = "오늘 회차 참여 (신 경로, GROMO-1408)",
+            description = "빈 바디. 오늘 회차에 참가하고 참가비를 즉시 차감한다(에스크로). 회차가 없으면"
+                    + " N35 조건(활성 요일 + 참가 가능 시각) 아래 lazy 개설 후 참가한다. 참가 마감은"
+                    + " 박제 joinClosesAt(창형 = 창 시작, 하루형 = 회차 종료) 기준이다. SCREEN_TIME"
+                    + " 챌린지는 서버가 스크린타임 권한을 확인한다(N50).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "참여 성공 — {sessionId, sessionDate, stake, balanceAfter}"),
+        @ApiResponse(responseCode = "400", description = "INVALID_MISSION_PARAMS"),
+        @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+        @ApiResponse(responseCode = "404",
+                description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정·오늘은 회차가 서지 않는 날)"),
+        @ApiResponse(responseCode = "409",
+                description = "BET_CLOSED(참가 마감) / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED"
+                        + " / BET_ALREADY_FAILED / BET_SCREENTIME_PERMISSION_REQUIRED"
+                        + " / BET_INSUFFICIENT_BALANCE / BET_CHALLENGE_INACTIVE")
+    })
+    @PostMapping("/groups/{groupId}/challenges/{challengeId}/join")
+    public ResponseEntity<JoinSessionResponse> joinToday(
+            @PathVariable UUID groupId,
+            @PathVariable UUID challengeId,
+            @LoginUser UUID userId
+    ) {
+        return ResponseEntity.ok(groupBetJoinService.joinToday(groupId, challengeId, userId));
+    }
+
+    @Operation(summary = "다음 활성일 회차 참여 (신 경로, GROMO-1408·N45)",
+            description = "빈 바디. 오늘을 제외한 다음 활성일 회차 1건을 lazy 개설 후 참가한다(예약 —"
+                    + " 참가비 즉시 에스크로, N15). 오늘 회차는 join 이 담당한다. 취소는 예약분 규칙"
+                    + " 그대로 회차 시작까지 가능하다(N22).")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "예약 성공 — {sessionId, sessionDate, stake, balanceAfter}"),
+        @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+        @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정)"),
+        @ApiResponse(responseCode = "409",
+                description = "BET_ALREADY_JOINED(이미 예약) / BET_SCREENTIME_PERMISSION_REQUIRED"
+                        + " / BET_INSUFFICIENT_BALANCE / BET_CHALLENGE_INACTIVE")
+    })
+    @PostMapping("/groups/{groupId}/challenges/{challengeId}/join-next")
+    public ResponseEntity<JoinSessionResponse> joinNext(
+            @PathVariable UUID groupId,
+            @PathVariable UUID challengeId,
+            @LoginUser UUID userId
+    ) {
+        return ResponseEntity.ok(groupBetJoinService.joinNext(groupId, challengeId, userId));
+    }
+
+    @Operation(summary = "주간 부분 예약 (신 경로, GROMO-1408·N39)",
+            description = "이번 주(월~일) 남은 활성일 회차를 lazy 개설 후 한 트랜잭션으로 참가한다"
+                    + " (부분 성공 없음, 잔액 검사는 총액). 본문 sessionDates 는 선택 — 주면 그 날짜만"
+                    + " 부분 예약. 이미 참가한 회차와 마감·자격 가드에 걸린 오늘은 조용히 스킵한다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "예약 성공 — {joined[], totalStake, balanceAfter}"),
+        @ApiResponse(responseCode = "400",
+                description = "INVALID_SESSION_DATES(빈 목록·중복·활성일 아님·이번 주 밖·과거)"),
+        @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
+        @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정)"),
+        @ApiResponse(responseCode = "409",
+                description = "BET_SCREENTIME_PERMISSION_REQUIRED / BET_INSUFFICIENT_BALANCE(총액)"
+                        + " / BET_CHALLENGE_INACTIVE")
+    })
+    @PostMapping("/groups/{groupId}/challenges/{challengeId}/join-week")
+    public ResponseEntity<JoinWeekResponse> joinWeek(
+            @PathVariable UUID groupId,
+            @PathVariable UUID challengeId,
+            @RequestBody(required = false) JoinWeekRequest request,
+            @LoginUser UUID userId
+    ) {
+        return ResponseEntity.ok(groupBetJoinService.joinWeek(groupId, challengeId, userId, request));
+    }
 
     @Operation(summary = "챌린지 내기 개설 (레거시 브리지)",
             description = "2계층 재편(GROMO-1262) 후 '설정 보장 + 해당 날짜 회차 개설 + 본인 참가'로"

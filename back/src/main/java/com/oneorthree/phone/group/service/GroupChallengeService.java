@@ -75,6 +75,7 @@ public class GroupChallengeService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final GroupBetService groupBetService;
+    private final GroupBetJoinService groupBetJoinService;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final WindowFocusAggregator windowFocusAggregator;
     private final ApplicationEventPublisher eventPublisher;
@@ -531,6 +532,12 @@ public class GroupChallengeService {
         } else {
             nonParticipants = List.of();
         }
+
+        // 내기 배선(GROMO-1410 ②·N35) — 내기 켠 생성이면 설정 생성 + 당일 회차 개설(활성 요일 +
+        // 참가 가능 시각일 때)을 같은 트랜잭션에서 처리한다. stake 가 무효면 챌린지 생성째 롤백된다
+        // (BET_INVALID_STAKE 400). CTI 상세 저장 뒤에 두는 이유: 회차의 미션 스냅샷 박제가 창·목표
+        // 상세를 읽는다.
+        groupBetJoinService.createBetOnChallengeCreation(group, savedChallenge, request.getBet());
 
         // 그룹원 개설 알림(GROMO-1089) — 발송은 알림 도메인이 AFTER_COMMIT 으로 받아 처리한다.
         // 여기서 직접 푸시를 부르지 않는 이유: 이 트랜잭션이 뒤에서 롤백되면 챌린지는 없는데 알림만

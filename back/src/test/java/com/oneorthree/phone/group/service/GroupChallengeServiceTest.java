@@ -114,6 +114,11 @@ class GroupChallengeServiceTest {
     @Mock
     private GroupBetService groupBetService;
 
+    // 생성 시 내기 배선(GROMO-1410 ②) — bet 미전송(null) 요청은 실 구현도 즉시 반환이라, 목이면
+    // 호출 여부만 검증 대상이 된다(실 배선 동작은 통합 테스트 몫).
+    @Mock
+    private GroupBetJoinService groupBetJoinService;
+
     // 삭제 가드(진행 중 내기 확인) 전용. 스텁이 없으면 false = "진행 중 내기 없음" 이라
     // 기존 삭제 테스트들은 그대로 통과한다.
     @Mock

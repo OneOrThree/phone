@@ -38,6 +38,7 @@ import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -59,8 +60,9 @@ import java.util.stream.Collectors;
  *
  * <p><b>구 API 브리지</b>: 구 앱의 "개설/참가/취소/철회" 경로와 응답 레거시 필드(betId·status·
  * myJoined·participants)는 그대로 유지한다 — 경로의 {@code betId} 는 이제 <b>회차 id</b> 로
- * 해석된다(개설 응답이 회차 id 를 돌려주므로 구 앱 흐름이 그대로 돈다). 신 참여 API(join-next·
- * join-week 등)는 B4 의 몫이다.
+ * 해석된다(개설 응답이 회차 id 를 돌려주므로 구 앱 흐름이 그대로 돈다). 신 참여 API(join·join-next·
+ * join-week)는 {@link GroupBetJoinService}(GROMO-1408) 가 이 클래스의 참가 커널(newSession·stakeIn·
+ * 자격 가드)을 재사용해 구현한다 — 돈이 움직이는 경로가 갈라지지 않게 패키지 전용으로 연다.
  *
  * <p><b>돈 흐름 멱등키는 참가 행 id 가 단일 축</b>이다(FR-42): 차감 {@code session:{sid}:stake:{pid}} ·
  * 환불 {@code session:{sid}:refund:{pid}}(취소·탈퇴·무산·24h 전 경로 공용) · 지급
@@ -101,6 +103,13 @@ public class GroupBetService {
      * 행을 빼면 인원·금액이 실제 정산과 어긋난다.
      */
     static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 사용자";
+
+    /**
+     * 시작 후 참가(하루형)의 취소 유예(N22, GROMO-1423) — 하루형은 회차 시작이 자정이라 "시작 전"이
+     * 영영 오지 않으므로, 오탭 구제로 참가 후 5분만 무를 수 있다. 시작 전 참가(창형·예약분)에는
+     * 유예가 없다 — 주면 창 시작 직전 참가자가 시작 후에 취소할 수 있어 "시작 후 환불 없음"이 깨진다.
+     */
+    static final Duration LEAVE_GRACE = Duration.ofMinutes(5);
 
     /** 창형 정산 그레이스(분) — 늦게 확정되는 창 데이터를 받는 여유(N12). settle_after = 창 종료 + 30분. */
     static final int WINDOW_SETTLE_GRACE_MINUTES = 30;
@@ -264,12 +273,14 @@ public class GroupBetService {
     }
 
     /**
-     * 참가 철회(GROMO-1102) — <b>시작 전</b>인 OPEN 회차에서 호출자 본인의 참가만 무르고 본인
-     * 참가비를 환불한다. 남은 참가자가 있으면 회차는 유지되고, 마지막 참가자가 떠나면 회차를
-     * "없던 일"로 삭제한다(구 CANCELED 의 재편 후 표현 — {@link #cancelBet} 과 같은 규칙).
+     * 참가 철회(GROMO-1102 → 취소 마감 분기 GROMO-1423·N22) — <b>취소 마감 전</b>인 OPEN 회차에서
+     * 호출자 본인의 참가만 무르고 본인 참가비를 환불한다. 남은 참가자가 있으면 회차는 유지되고,
+     * 마지막 참가자가 떠나면 회차를 "없던 일"로 삭제한다(구 CANCELED 의 재편 후 표현 —
+     * {@link #cancelBet} 과 같은 규칙).
      *
-     * <p>"시작 전" 판정은 회차에 박제된 {@code startsAt} 하나로 끝난다(GROMO-1263) — 창형은 창 시작,
-     * 하루형은 회차일 00:00 KST 라 구 조합별 분기와 같은 값이다.
+     * <p>취소 마감은 {@link #leaveDeadline} 하나로 판정한다: 시작 전 참가 → 회차 시작까지(유예 없음),
+     * 시작 후 참가(하루형) → min(참가+5분, 회차 종료). 예약분(join-next·join-week)도 같은 규칙이다
+     * — 미래 회차 참가는 항상 "시작 전 참가"라 회차 시작까지 무를 수 있다.
      */
     @Transactional
     public void leaveBet(UUID groupId, UUID sessionId, UUID userId) {
@@ -289,7 +300,7 @@ public class GroupBetService {
         if (!session.isOpen()) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-        if (!Instant.now().isBefore(session.getStartsAt())) {
+        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
             throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
 
@@ -353,6 +364,14 @@ public class GroupBetService {
             if (mine.isEmpty()) {
                 continue;
             }
+            // 취소 마감이 지난 회차는 환불하지 않고 정산 대상으로 남긴다(FR-40 — 취소와 같은 규칙,
+            // GROMO-1423). 탈퇴로 시작된 판의 돈을 되찾는 각도를 막는 것이고, 명단에는 정산 시
+            // "탈퇴한 사용자"로 표기된다(D1). 참가 후 5분 안의 하루형 오탭은 탈퇴 경로에서도 무른다.
+            if (!Instant.now().isBefore(leaveDeadline(session, mine.get()))) {
+                log.info("내기 참가 유지 — 탈퇴 연동, 취소 마감 경과로 정산 잔류. sessionId={}, userId={}",
+                        session.getId(), user.getId());
+                continue;
+            }
             groupChallengeBetParticipantRepository.delete(mine.get());
             refundStake(session, user, mine.get().getId());
             long remaining = groupChallengeBetParticipantRepository.countBySessionId(session.getId());
@@ -363,6 +382,25 @@ public class GroupBetService {
             log.info("내기 참가 해제 — 탈퇴 연동. sessionId={}, userId={}, stake={} 환불, 잔여 {}명",
                     session.getId(), user.getId(), session.getStake(), remaining);
         }
+    }
+
+    /**
+     * 취소 마감(N22 최종안, GROMO-1423) — 참가 시점 기준 분기의 <b>단일 판정점</b>(철회·그룹 탈퇴 공용).
+     *
+     * <ul>
+     *   <li><b>시작 전에 참가</b>(창형·예약분) → 회차 시작까지. 유예 없음 — max(시작, 참가+5분)으로
+     *       쓰면 창 시작 직전 참가자가 시작 후 5분까지 취소할 수 있어 "시작 후 환불 없음"이 깨진다
+     *       (창 초반을 보고 발을 빼는 각도가 생긴다).</li>
+     *   <li><b>시작 후에 참가</b>(하루형 — 시작이 자정이라 "시작 전"이 없다) → min(참가+5분, 회차 종료).
+     *       종료 상한이 없으면 23:58 참가의 유예가 00:03 까지 살아 자정 정산(CAS)과 경합한다.</li>
+     * </ul>
+     */
+    static Instant leaveDeadline(GroupChallengeBetSession session, GroupChallengeBetParticipant participant) {
+        if (participant.getCreatedAt().isBefore(session.getStartsAt())) {
+            return session.getStartsAt();
+        }
+        Instant graceEnd = participant.getCreatedAt().plus(LEAVE_GRACE);
+        return graceEnd.isBefore(session.getClosesAt()) ? graceEnd : session.getClosesAt();
     }
 
     /**
@@ -395,7 +433,7 @@ public class GroupBetService {
      * UUID v7 이라 "참가 → 철회 → 재참여" 회차가 키 수준에서 갈린다. userId 축이던 시절에는 재참여가
      * 같은 키를 만들어 차감이 조용히 스킵됐고, 참가비 0원 참가가 성립했다(GROMO-1112).
      */
-    private void stakeIn(GroupChallengeBetSession session, User user) {
+    void stakeIn(GroupChallengeBetSession session, User user) {
         GroupChallengeBetParticipant participant = groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder()
                         .session(session)
@@ -451,7 +489,7 @@ public class GroupBetService {
      * 종료)대로 박제하되, 브리지 기간의 레거시 참가 가드는 종전 규칙(창 종료까지)을 유지한다 —
      * 이 값의 강제는 신 참여 API(B4)의 몫이다.
      */
-    private GroupChallengeBetSession newSession(GroupChallengeBet bet, Group group,
+    GroupChallengeBetSession newSession(GroupChallengeBet bet, Group group,
             GroupChallenge challenge, GroupBetJudge.Target target, LocalDate sessionDate) {
         LocalTime windowStart = null;
         LocalTime windowEnd = null;
@@ -714,7 +752,7 @@ public class GroupBetService {
      * 회차 스냅샷 기반 판정 대상 — 참가 가드·창 마감 검사가 챌린지 CTI 를 다시 읽되, 목표분은
      * 회차 박제값(GROMO-1263)으로 덮는다(챌린지 목표가 이후 바뀌어도 이 회차의 기준은 불변).
      */
-    private GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
+    GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
         return groupBetJudge.resolve(session.getChallenge())
                 .map(t -> session.getGoalMinutes() == null
                         ? t
@@ -726,7 +764,7 @@ public class GroupBetService {
      * 활성 검증 + 공유 락 (GROMO-801) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)와 직렬화되지
      * 않아, 탈퇴의 참가자 스냅샷 이후에 커밋된 참가가 정리에서 빠진다.
      */
-    private User requireActiveUser(UUID userId) {
+    User requireActiveUser(UUID userId) {
         User user = userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         if (user.isGuest()) {
@@ -763,7 +801,7 @@ public class GroupBetService {
      * 직렬화되므로, "탈퇴 정리 스캔 → leave 마킹" 사이에 새 참가가 끼어들 수 없다(1258 P0 ②) —
      * users 행 공유 락은 그룹 탈퇴와 직렬화되지 않아 이 잠금이 따로 필요하다.
      */
-    private Group requireGroupMembershipForShare(User user, UUID groupId) {
+    Group requireGroupMembershipForShare(User user, UUID groupId) {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
         groupMemberRepository.findActiveByUserIdAndGroupIdForShare(user.getId(), group.getId())
@@ -794,7 +832,7 @@ public class GroupBetService {
      *       ({@code BET_ALREADY_FAILED}) — 질 게 정해진 참가비 투입 방지</li>
      * </ul>
      */
-    private void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
+    void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
         Integer minutes = groupBetJudge.progressMinutes(target, date, List.of(user)).get(user.getId());
         if (target.category() == MissionCategory.SCREEN_TIME) {
             // 미보고(null)는 잠정 달성으로 보고 통과시킨다 — 초과가 확인된 경우에만 막는다.

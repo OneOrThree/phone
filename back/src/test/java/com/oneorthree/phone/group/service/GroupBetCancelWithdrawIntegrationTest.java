@@ -438,27 +438,30 @@ class GroupBetCancelWithdrawIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("탈퇴자가 참가한 OPEN 회차가 여러 개면 전부 정리된다 — 회차마다 각각 환불(참가 행 축 멱등키)")
+    @DisplayName("탈퇴 정리도 취소 마감 규칙(N22·FR-40) — 마감 지난 회차는 정산 잔류, 취소 가능한 회차만 환불")
     void withdrawReleasesEveryOpenSession() {
         User opener = memberUser("개설자", GroupMemberRole.MEMBER);
         User leaver = memberUser("탈퇴자", GroupMemberRole.MEMBER);
         User third = memberUser("제3참가자", GroupMemberRole.MEMBER);
-        // 회차 1 — 탈퇴 후에도 2명이 남아 계속된다.
+        // 회차 1 — 전일자(배치 전 OPEN 잔존). 회차 종료가 지나 취소 마감도 지났다 — 탈퇴해도 참가·
+        // 에스크로가 정산 대상으로 남는다(FR-40 "시작된 회차는 정산 대상 잔류", GROMO-1423).
         GroupChallengeBetSession continuing = openSession(LocalDate.now(KST).minusDays(1));
         participant(continuing, opener);
         participant(continuing, leaver);
         participant(continuing, third);
-        // 회차 2 — 탈퇴자뿐이라 비면서 "없던 일"로 삭제된다.
+        // 회차 2 — 오늘 회차에 방금 참가(유예 안). 환불되고, 탈퇴자뿐이라 비면서 "없던 일"로 삭제된다.
         GroupChallengeBetSession emptied = openSession(LocalDate.now(KST));
         participant(emptied, leaver);
 
         groupMemberService.withdrawGroup(group.getId(), leaver.getId());
 
         assertThat(statusOf(continuing)).isEqualTo(GroupBetStatus.OPEN);
+        // 전일자 회차의 참가 행은 그대로다 — 정산이 판정하고, 명단엔 "탈퇴한 사용자"로 실린다.
+        assertThat(participantsOf(continuing)).hasSize(3);
         assertThat(sessionExists(emptied)).isFalse();
-        // 탈퇴자는 회차마다 각각 환불받는다 — 멱등키가 참가 행 스코프(FR-42)라 서로 충돌하지 않는다.
-        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE * 2);
-        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isEqualTo(2);
+        // 환불은 취소 가능(유예 안)이었던 오늘 회차 몫 정확히 1회뿐이다(FR-41·FR-42).
+        assertThat(balanceOf(leaver)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(countOf(leaver, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
         assertThat(balanceOf(opener)).isEqualTo(BALANCE_AFTER_STAKE);
     }
 

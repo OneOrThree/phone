@@ -35,7 +35,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -82,6 +84,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     UserRepository userRepository;
     @Autowired
     UserWalletRepository userWalletRepository;
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int GOAL_MINUTES = 120;
@@ -220,8 +224,8 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
         return session;
     }
 
-    private void participant(GroupChallengeBetSession session, User user) {
-        groupChallengeBetParticipantRepository.save(
+    private GroupChallengeBetParticipant participant(GroupChallengeBetSession session, User user) {
+        return groupChallengeBetParticipantRepository.save(
                 GroupChallengeBetParticipant.builder().session(session).user(user).build());
     }
 
@@ -410,11 +414,14 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     // ── 철회 거절 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("하루형 당일 회차 → BET_LEAVE_CLOSED — 시작(00:00 KST)이 이미 지나 무를 수 없다")
-    void sameDayDurationSessionCannotBeLeft() {
+    @DisplayName("하루형 당일 회차 — 참가+5분 유예(N22)가 지나면 BET_LEAVE_CLOSED")
+    void sameDayDurationSessionCannotBeLeftAfterGrace() {
         User opener = memberUser("개설자", GroupMemberRole.MEMBER);
         GroupChallengeBetSession session = sessionOn(challenge, today(), GroupBetStatus.OPEN);
-        participant(session, opener);
+        GroupChallengeBetParticipant joined = participant(session, opener);
+        // 시작 후 참가(하루형)는 참가+5분까지 무를 수 있다(GROMO-1423) — 유예 밖으로 되돌린다.
+        jdbcTemplate.update("UPDATE group_challenge_bet_participants SET created_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(360)), joined.getId());
 
         assertThatThrownBy(() -> groupBetService.leaveBet(group.getId(), session.getId(), opener.getId()))
                 .isInstanceOf(GroupException.class)
