@@ -2,17 +2,19 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.domain.GroupChallenge;
+import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
+import com.oneorthree.phone.group.dto.RepeatDay;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.group.service.WindowFocusAggregator;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.user.domain.User;
@@ -99,9 +101,12 @@ public class ChallengeCreatedNotificationService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int sendCreatedNotifications(GroupChallengeCreatedEvent event, Instant now) {
         GroupChallenge challenge = groupChallengeRepository.findById(event.challengeId()).orElse(null);
-        if (challenge == null || challenge.getDeletedAt() != null) {
-            // 커밋 직후 곧바로 삭제된 경우 — 없는 챌린지를 알리지 않는다.
-            log.info("챌린지 개설 푸시 스킵 — 챌린지 없음/삭제됨 challengeId={}", event.challengeId());
+        // AFTER_COMMIT + @Async 라 이 재조회 시점엔 생성 직후의 삭제·종료가 이미 커밋돼 있을 수 있다.
+        // 삭제만 거르면 "생성 → 즉시 종료"(OPEN 내기 없으면 가능, GROMO-1261) 경로에서 끝난 챌린지에
+        // "지금 참여해보세요" 가 나간다 — 재조회 기준 ACTIVE 일 때만 알린다.
+        if (challenge == null || challenge.getDeletedAt() != null
+                || challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
+            log.info("챌린지 개설 푸시 스킵 — 챌린지 없음/삭제/종료됨 challengeId={}", event.challengeId());
             return 0;
         }
 
@@ -218,10 +223,37 @@ public class ChallengeCreatedNotificationService {
         if (window.isEmpty()) {
             return categoryLabel(challenge);
         }
-        String span = "매일 " + hhmm(window.get().getWindowStartAt())
-                + "~" + hhmm(window.get().getWindowEndAt()) + " ";
+        String span = repeatLabel(challenge.getRepeatDays()) + " " + hhmm(window.get().getWindowStart())
+                + "~" + hhmm(window.get().getWindowEnd()) + " ";
         Integer goal = window.get().getDurationMinutes();
         return goal != null ? span + goal + "분 " + what : span + what;
+    }
+
+    /**
+     * 요일 반복 표기(§A3 · GROMO-1260) — 매일(127)이면 "매일", 아니면 실제 요일을 "월·수·금" 으로
+     * 나열한다. 종전 고정 "매일" 은 월수금 챌린지에 거짓 문구였다(@codex 리뷰 ④).
+     * 나열 순서는 {@link RepeatDay#listOf} 가 보장하는 월~일 정렬 그대로다.
+     */
+    private static String repeatLabel(int repeatDays) {
+        if (repeatDays == RepeatSchedule.EVERYDAY) {
+            return "매일";
+        }
+        return RepeatDay.listOf(repeatDays).stream()
+                .map(ChallengeCreatedNotificationService::koreanDay)
+                .collect(Collectors.joining("·"));
+    }
+
+    /** 요일 한 글자 한국어 표기 — 푸시 문구 전용(앱 카드 표기와 동일 어휘). */
+    private static String koreanDay(RepeatDay day) {
+        return switch (day) {
+            case MON -> "월";
+            case TUE -> "화";
+            case WED -> "수";
+            case THU -> "목";
+            case FRI -> "금";
+            case SAT -> "토";
+            case SUN -> "일";
+        };
     }
 
     /** 목표를 못 만든 챌린지의 폴백 — 앱의 {@code categoryLabel} 과 같은 명칭. */
@@ -229,12 +261,8 @@ public class ChallengeCreatedNotificationService {
         return challenge.getCategory() == MissionCategory.SCREEN_TIME ? "스크린타임" : "집중 시간";
     }
 
-    /**
-     * 창 시각 표기 — 저장된 Instant 에서 시각(time-of-day)만 뽑는다. 추출 기준은
-     * {@link WindowFocusAggregator#timeOfDay} 단일 소스를 공유한다(생성 검증·집계·응답 변환과 동일).
-     */
-    private static String hhmm(Instant instant) {
-        LocalTime time = WindowFocusAggregator.timeOfDay(instant);
+    /** 창 시각 표기 — 저장값이 KST 벽시계 time(V35)이라 그대로 포맷만 한다. */
+    private static String hhmm(LocalTime time) {
         return time.format(HH_MM);
     }
 }

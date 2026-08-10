@@ -95,8 +95,9 @@ class GroupChallengeDeleteVoidIntegrationTest extends IntegrationTestBase {
         group = groupRepository.save(Group.builder().name("스터디").build());
         challenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION).build());
+        // category 는 V36 이후 NOT NULL — 복합 FK 가 부모 챌린지 카테고리와의 일치를 강제한다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(challenge).durationMinutes(120).build());
+                .challenge(challenge).category(MissionCategory.FOCUS).durationMinutes(120).build());
         config = groupChallengeBetRepository.save(GroupChallengeBet.builder()
                 .group(group).challenge(challenge).stake(STAKE).enabled(true).build());
         owner = memberUser("방장", GroupMemberRole.OWNER);

@@ -147,8 +147,10 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group).category(category).type(MissionType.DURATION).build());
         challenges.add(saved);
+        // category 는 V36 이후 NOT NULL 비정규화 사본이다 — 복합 FK (challenge_id, category) 가
+        // 부모와의 일치를 강제하므로 반드시 부모 챌린지와 같은 값을 넣는다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(category).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 
@@ -159,8 +161,9 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
         challenges.add(saved);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
+                // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 LocalTime 이다 — Instant 앵커 변환 불요.
+                .windowStart(LocalTime.of(9, 0))
+                .windowEnd(LocalTime.of(12, 0))
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         return saved;

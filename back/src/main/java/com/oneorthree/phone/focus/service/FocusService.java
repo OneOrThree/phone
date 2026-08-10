@@ -2,7 +2,7 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.currency.service.CurrencyRewardPolicy;
@@ -290,7 +290,7 @@ public class FocusService {
         }
 
         UserFocusTag tag = resolveOwnedTag(userId, body.getFocusTagId());
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
         // 미래 endedAt 위조 클램프 + 날짜별 귀속 분포를 한 번만 구해 저장·통계·중복응답이 같은 값을 쓴다.
         Instant now = Instant.now();
         Instant statEnd = statEnd(body.getEndedAt(), now);
@@ -453,8 +453,8 @@ public class FocusService {
     /**
      * 세션이 끝난 날(= 앱이 보는 "오늘")의 로컬 날짜.
      *
-     * <p><b>기준: 유저 country_code 파생 존 로컬 날짜 (GROMO-803, screentime 561과 동일 기준).</b>
-     * countryCode 가 null·미지원이면 Asia/Seoul 로 폴백한다(CountryZoneResolver). 스크린타임 저장 존과 정합.
+     * <p><b>기준: KST 로컬 날짜 (GROMO-1259 — 저장축 KST 고정, {@link ZonePolicy}).</b>
+     * 스크린타임 저장 존과 정합(같은 KST 축). 해외 유저 어긋남은 L5 수용.
      *
      * <p>GROMO-1252 이후 <b>집계 귀속</b>은 이 날짜 하나가 아니라 {@link #splitByLocalDay} 가 나눈 날짜별
      * 조각으로 이뤄진다 — 이 헬퍼는 재업로드 응답의 "그날 누적" 조회처럼 종료일 하나만 필요한 곳에 쓴다.
@@ -464,7 +464,7 @@ public class FocusService {
     }
 
     /**
-     * 세션 구간 [startedAt, endedAt] 을 유저 존의 로컬 자정 경계로 잘라 날짜별 초를 배분한다 (GROMO-1252).
+     * 세션 구간 [startedAt, endedAt] 을 KST 로컬 자정 경계로 잘라 날짜별 초를 배분한다 (GROMO-1252 · 1259).
      *
      * <p>종전엔 endedAt 하나의 로컬 날짜에 구간 전체를 가산해, 자정을 넘긴 세션은 전날 몫이 통째로 사라지고
      * 다음날이 부풀었다(prod 실측 10.7h 오귀속).
@@ -733,7 +733,7 @@ public class FocusService {
         int awardedCoins = creditSessionReward(user, session.getId(), session.getStartedAt(), endedAt,
                 body.totalDistractionSeconds());
 
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
         Instant statEnd = statEnd(endedAt, Instant.now());
         CreditedByDate credited = resolveSecondsByDate(
                 session.getStartedAt(), statEnd, zone, body.focusSecondsByDate(), body.totalDistractionSeconds());
@@ -872,7 +872,7 @@ public class FocusService {
      * <p><b>미래 endedAt 클램프</b>: 분할 전에 종료 시각을 서버 {@code now} 로 클램프한다(통계 귀속 전용 —
      * 저장된 세션 행은 앱이 보낸 값 그대로). 상세는 아래 구현 주석 참조.
      *
-     * @param zone     유저 존(country_code 파생) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
+     * @param zone     날짜 버킷 존(KST 고정, GROMO-1259) — 메타데이터 버킷 날짜를 {@code startedAt} 에서 파생한다
      * @param credited 날짜 오름차순 net 집중초 + 날짜별 방해초(호출부가 {@link #resolveSecondsByDate} 로 만든다)
      * @return 종료일(마지막 조각)의 누적 집중 초와 스트릭 인정 여부(응답 필드용, GROMO-806),
      *         그리고 이 세션이 유발한 목표 지급액 합
@@ -1003,7 +1003,7 @@ public class FocusService {
         // 과거 날짜마다 목표 길이 세션을 위조 제출해 지급을 긁을 수 있다. 정상 지급 창을 오늘·어제로 한정해
         // (오프라인 늦은 업로드·자정 경계 허용) 그보다 오래된 날짜의 대량 채굴을 차단한다. 세션 자체의
         // 신뢰 검증(라이브 마커 대조 등)은 별도 후속 — #417 세션 위조방어와 정합.
-        ZoneId zone = CountryZoneResolver.resolve(user.getCountryCode());
+        ZoneId zone = ZonePolicy.KST;   // GROMO-1259: 저장축 KST 고정 (N8/FR-19, 해외 유저는 L5 수용)
         LocalDate today = LocalDate.now(zone);
         // 지급 창 = [어제, 오늘]. 오래된 과거뿐 아니라 미래 날짜(endedAt 위조)도 거부한다 — 하한만 두면
         // 미래 날짜마다 위조 세션을 심어 채굴할 수 있다(코드리뷰 R3).

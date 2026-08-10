@@ -2,7 +2,7 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.focus.domain.DefaultTag;
@@ -1211,8 +1211,8 @@ class FocusServiceTest {
 
     /**
      * T3-574 (GROMO-574): 집중 저장 존 == 스크린타임 저장 존 (같은 유저·같은 country_code 존).
-     * ScreenTimeService.resolveLocalDate 는 {@code reportedAt.atZone(CountryZoneResolver.resolve(countryCode))},
-     * FocusService.statDate 는 {@code endedAt.atZone(CountryZoneResolver.resolve(countryCode))} — 동일 규칙이다.
+     * ScreenTimeService.resolveLocalDate 는 {@code reportedAt.atZone(ZonePolicy.KST)},
+     * FocusService.statDate 는 {@code endedAt.atZone(ZonePolicy.KST)} — 동일 규칙이다(GROMO-1259 KST 고정).
      * 동일 유저(KR)·동일 순간(instant)을 두 도메인에 넣으면 같은 날짜에 귀속됨을 확인한다(도메인 정합).
      * 여행/국가변경(디바이스 존 ≠ country 존) 엣지는 stats package-info 문서로 수용(코드 미처리).
      */
@@ -1223,8 +1223,8 @@ class FocusServiceTest {
         Instant instant = Instant.parse("2026-07-12T20:00:00Z");
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();
 
-        // 스크린타임이 같은 유저·같은 순간을 귀속시킬 날짜 = CountryZoneResolver 로 계산(도메인 공통 규칙)
-        LocalDate screenTimeDate = instant.atZone(CountryZoneResolver.resolve(krUser.getCountryCode()))
+        // 스크린타임이 같은 유저·같은 순간을 귀속시킬 날짜 = KST 고정 축(ZonePolicy, 도메인 공통 규칙)
+        LocalDate screenTimeDate = instant.atZone(ZonePolicy.KST)
                 .toLocalDate();
 
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(krUser));
@@ -2613,7 +2613,7 @@ class FocusServiceTest {
     void endFocusSession_krUser_bucketsByKstDate() {
         Instant endedAt = withinClampWindow(30);
         Instant startedAt = endedAt.minusSeconds(1800);
-        LocalDate kstDate = endedAt.atZone(CountryZoneResolver.resolve("KR")).toLocalDate();
+        LocalDate kstDate = endedAt.atZone(ZonePolicy.KST).toLocalDate();
 
         // given: KR 유저의 본인 소유 진행 중(ACTIVE) 세션 + 조건부 종료 성사(row=1)
         User krUser = User.builder().id(USER_ID).countryCode("KR").build();

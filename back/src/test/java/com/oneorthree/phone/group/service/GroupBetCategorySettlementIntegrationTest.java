@@ -41,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -176,7 +177,7 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
     private GroupChallenge durationChallenge(MissionCategory category) {
         GroupChallenge saved = challenge(category, MissionType.DURATION);
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
-                .challenge(saved).durationMinutes(GOAL_MINUTES).build());
+                .challenge(saved).category(category).durationMinutes(GOAL_MINUTES).build());
         return saved;
     }
 
@@ -185,8 +186,8 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         GroupChallenge saved = challenge(category, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(saved)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
+                .windowStart(LocalTime.parse("09:00"))
+                .windowEnd(LocalTime.parse("12:00"))
                 .durationMinutes(GOAL_MINUTES)
                 .build());
         return saved;
@@ -545,8 +546,8 @@ class GroupBetCategorySettlementIntegrationTest extends IntegrationTestBase {
         GroupChallenge broken = challenge(MissionCategory.FOCUS, MissionType.TIME_WINDOW);
         groupChallengeWindowRepository.save(GroupChallengeWindow.builder()
                 .challenge(broken)
-                .windowStartAt(Instant.parse("2026-01-01T09:00:00+09:00"))
-                .windowEndAt(Instant.parse("2026-01-01T12:00:00+09:00"))
+                .windowStart(LocalTime.parse("09:00"))
+                .windowEnd(LocalTime.parse("12:00"))
                 .durationMinutes(null)
                 .build());
         // goalMinutes null — V39 백필 이전 이력을 재현(스냅샷 폴백도 CTI 목표도 없다).
