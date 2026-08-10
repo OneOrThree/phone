@@ -93,6 +93,7 @@ test('접근성 제목을 단계 안내 앞에 포함한다', async () => {
 test('화면 크기가 바뀌면 이전 spotlight를 숨기고 새 anchor를 다시 측정한다', async () => {
   const originalWindow = Dimensions.get('window');
   const originalScreen = Dimensions.get('screen');
+  const prepare = jest.fn();
   const callbacks: ((x: number, y: number, w: number, h: number) => void)[] = [];
   const anchor = {
     current: {
@@ -101,12 +102,13 @@ test('화면 크기가 바뀌면 이전 spotlight를 숨기고 새 anchor를 다
       },
     } as unknown as View,
   };
-  const steps: GuideStep[] = [{ text: '대상', character, anchor }];
+  const steps: GuideStep[] = [{ text: '대상', character, anchor, prepare }];
   const view = await render(
     <TabGuideOverlay storageKey="gromo:guide:resize" steps={steps} visible />,
   );
 
   await act(async () => callbacks[0]?.(10, 20, 100, 80));
+  expect(prepare).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId('guide.overlay.cutout')).toBeOnTheScreen();
 
   await act(async () => {
@@ -119,6 +121,7 @@ test('화면 크기가 바뀌면 이전 spotlight를 숨기고 새 anchor를 다
 
   expect(screen.getByTestId('guide.overlay.dim')).toBeOnTheScreen();
   expect(callbacks).toHaveLength(2);
+  expect(prepare).toHaveBeenCalledTimes(1);
   await act(async () => callbacks[1]?.(30, 40, 120, 90));
   expect(screen.getByTestId('guide.overlay.cutout')).toBeOnTheScreen();
 
