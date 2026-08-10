@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import {
   withSpring,
   withTiming,
@@ -83,6 +83,14 @@ export type Motion = {
 export function useMotion(): Motion {
   const reduce = useReduceMotion();
   const ready = useReduceMotionReady();
+  // ⚠️ 진입 여부는 **컴포넌트 인스턴스 단위로 한 번** 정하고 얼린다.
+  //    확정된 뒤(reduce=true) 사용자가 설정을 끄면, 이미 보이던 같은 노드에 진입 스타일이
+  //    새로 붙어 요소가 opacity 0(또는 scale 0)으로 사라졌다가 다시 나타난다(codex 리뷰).
+  //    반대 방향은 얼리지 않는다 — 연출하기로 확정한 컴포넌트라도 설정을 켜면 그 뒤에 마운트되는
+  //    요소는 즉시 생략해야 한다. 그쪽까지 얼리면 접근성 설정을 어긴다.
+  //    null=미확정 · false=생략 확정 · true=연출 확정
+  const enterDecided = useRef<boolean | null>(null);
+  if (enterDecided.current === null && ready) enterDecided.current = !reduce;
 
   return useMemo<Motion>(
     () => ({
@@ -96,11 +104,17 @@ export function useMotion(): Motion {
       spring: (to, cfg) => (reduce ? to : withSpring(to, { ...cfg, reduceMotion: M.never })),
       css: (style) => (reduce ? undefined : style),
       enter: (style) => {
-        if (ready) return reduce ? undefined : style;
-        const frames = style.animationName;
-        return typeof frames === 'object' && frames !== null && 'from' in frames
-          ? (frames as { from: ViewStyle }).from
-          : undefined;
+        // 미확정 — 시작 프레임에서 기다린다.
+        if (enterDecided.current === null) {
+          const frames = style.animationName;
+          return typeof frames === 'object' && frames !== null && 'from' in frames
+            ? (frames as { from: ViewStyle }).from
+            : undefined;
+        }
+        // 이 컴포넌트는 진입을 **생략하기로** 확정했다 — 나중에 설정을 꺼도 다시 붙이지 않는다.
+        if (!enterDecided.current) return undefined;
+        // 연출하기로 확정 — 그 뒤로는 **지금** 설정을 따른다(켜면 이후 진입은 생략된다).
+        return reduce ? undefined : style;
       },
       delay: (ms) => (reduce ? 0 : ms),
       stagger: (index, step) => (reduce ? 0 : staggerDelay(index, step)),
