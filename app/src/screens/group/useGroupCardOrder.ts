@@ -19,6 +19,14 @@ interface GroupCardOrderState {
   commitOrder: (groupIds: readonly string[]) => boolean;
 }
 
+// 저장 실패 뒤에도 현재 실행의 최신 낙관 순서를 계정별로 보존한다. 화면 remount나
+// serverKey 변경 hydration이 저장소의 오래된 값을 다시 덮어쓰지 않게 하는 런타임 정본이다.
+const pendingOrders = new Map<string, string[]>();
+
+export function __resetPendingGroupCardOrdersForTest(): void {
+  pendingOrders.clear();
+}
+
 export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCardOrderState {
   const [state, setState] = useState<{
     identity: string;
@@ -50,12 +58,28 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
       const stored = userId ? await readGroupCardOrder(userId) : null;
       if (canceled || !mounted.current) return;
 
-      const reconciled = reconcileGroupCardOrder(ids, stored);
+      const pending = userId ? pendingOrders.get(userId) : undefined;
+      const reconciled = reconcileGroupCardOrder(ids, pending ?? stored);
+      if (userId && pending) pendingOrders.set(userId, reconciled);
       orderRef.current = reconciled;
-      setState({ identity, ids: reconciled, saveFailed: false });
+      setState({ identity, ids: reconciled, saveFailed: pending !== undefined });
 
       // stale/중복 prune은 성공한 전체 목록을 받은 이 경로에서만 수행한다.
-      if (userId && stored && !isSameGroupOrder(stored, reconciled)) {
+      if (userId && pending) {
+        // 실패했던 최신 순서를 새 서버 목록과 합친 뒤 다시 저장한다. 더 최신 commit이 생기면
+        // 이 완료가 해당 pending이나 실패 상태를 지우지 않는다.
+        writeGroupCardOrder(userId, reconciled)
+          .then(() => {
+            if (!isSameGroupOrder(pendingOrders.get(userId) ?? [], reconciled)) return;
+            pendingOrders.delete(userId);
+            if (mounted.current && userRef.current === userId) {
+              setState((current) =>
+                current?.identity === identity ? { ...current, saveFailed: false } : current,
+              );
+            }
+          })
+          .catch(() => undefined);
+      } else if (userId && stored && !isSameGroupOrder(stored, reconciled)) {
         void writeGroupCardOrder(userId, reconciled).catch(() => undefined);
       }
     })();
@@ -75,15 +99,21 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     orderRef.current = next;
     setState((current) => (current ? { ...current, ids: next, saveFailed: false } : current));
     if (currentUser) {
+      pendingOrders.set(currentUser, next);
       void writeGroupCardOrder(currentUser, next)
-        .then(
-          () =>
-            mounted.current && setState((current) => current && { ...current, saveFailed: false }),
-        )
-        .catch(
-          () =>
-            mounted.current && setState((current) => current && { ...current, saveFailed: true }),
-        );
+        .then(() => {
+          if (!isSameGroupOrder(pendingOrders.get(currentUser) ?? [], next)) return;
+          pendingOrders.delete(currentUser);
+          if (mounted.current && userRef.current === currentUser) {
+            setState((current) => current && { ...current, saveFailed: false });
+          }
+        })
+        .catch(() => {
+          if (!isSameGroupOrder(pendingOrders.get(currentUser) ?? [], next)) return;
+          if (mounted.current && userRef.current === currentUser) {
+            setState((current) => current && { ...current, saveFailed: true });
+          }
+        });
     }
     return true;
   }, []);

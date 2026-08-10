@@ -5,11 +5,12 @@ import {
   readGroupCardOrder,
   writeGroupCardOrder,
 } from './groupCardOrderStore';
-import { useGroupCardOrder } from './useGroupCardOrder';
+import { __resetPendingGroupCardOrdersForTest, useGroupCardOrder } from './useGroupCardOrder';
 
 beforeEach(async () => {
   await AsyncStorage.clear();
   __resetGroupCardOrderQueueForTest();
+  __resetPendingGroupCardOrdersForTest();
   jest.restoreAllMocks();
 });
 
@@ -65,6 +66,29 @@ test('로컬 쓰기 실패에도 현재 세션 순서는 유지하고 다음 커
     expect(result.current.commitOrder(['a', 'b'])).toBe(true);
   });
   await waitFor(() => expect(result.current.saveFailed).toBe(false));
+});
+
+test('저장 실패 뒤 서버 목록이 바뀌어도 최신 낙관 순서를 재 hydration 입력으로 유지한다', async () => {
+  jest
+    .spyOn(AsyncStorage, 'setItem')
+    .mockRejectedValueOnce(new Error('disk full'))
+    .mockRejectedValueOnce(new Error('still full'));
+  const { result, rerender } = await renderHook(
+    ({ ids }: { ids: string[] }) => useGroupCardOrder({ serverGroupIds: ids, userId: 'me' }),
+    { initialProps: { ids: ['a', 'b'] } },
+  );
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+
+  await act(async () => expect(result.current.commitOrder(['b', 'a'])).toBe(true));
+  await waitFor(() => expect(result.current.saveFailed).toBe(true));
+
+  await rerender({ ids: ['a', 'b', 'c'] });
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a', 'c']));
+  expect(result.current.saveFailed).toBe(true);
+
+  await act(async () => expect(result.current.commitOrder(['c', 'b', 'a'])).toBe(true));
+  await waitFor(() => expect(result.current.saveFailed).toBe(false));
+  expect(await readGroupCardOrder('me')).toEqual(['c', 'b', 'a']);
 });
 
 test('순서 저장 중 서버 목록이 바뀌어도 저장 완료 뒤 최신 순서로 다시 hydrate한다', async () => {

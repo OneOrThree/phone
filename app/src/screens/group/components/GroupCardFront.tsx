@@ -4,10 +4,15 @@ import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { GroupCardFlipTrigger } from '@/services/analyticsEvents';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  GROUP_CARD_EMOJI_LABELS,
+  type GroupCardEmoji,
+} from '../groupCardEmojiStore';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
-  emoji?: string;
+  emoji?: GroupCardEmoji;
   onFlip: (trigger: GroupCardFlipTrigger) => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
@@ -19,7 +24,7 @@ interface GroupCardFrontProps {
 
 export function GroupCardFront({
   group,
-  emoji = '🎯',
+  emoji = DEFAULT_GROUP_CARD_EMOJI,
   onFlip,
   reorderHandlers,
   onMoveStep,
@@ -55,7 +60,7 @@ export function GroupCardFront({
         style={s.body}
         onPress={() => onFlip('card_tap')}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, ${GROUP_CARD_EMOJI_LABELS[emoji]} 아이콘, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
         onAccessibilityAction={(event) => {
@@ -73,7 +78,14 @@ export function GroupCardFront({
             <Text style={s.pillText}>{privacyLabel}</Text>
           </View>
           <View style={s.emojiFrame}>
-            <Text style={s.emoji}>{emoji}</Text>
+            <Text
+              style={s.emoji}
+              accessible={false}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              {emoji}
+            </Text>
           </View>
         </View>
 

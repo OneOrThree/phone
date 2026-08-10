@@ -355,7 +355,11 @@ export default function GroupListScreen({
       return;
     }
     if (guideVisible && (guideBlocked || !appActive)) {
+      // 표시 중인 안내를 사용자가 다른 overlay/background로 중단했다면 같은 episode에서
+      // 즉시 다시 열지 않는다. route blur와 동일하게 다음 focus episode가 새로 판정한다.
+      invalidatedGuideEpisodeRef.current = viewEpisodeId;
       setGuideVisible(false);
+      setGuideQueued(false);
       if (backSource === 'guide') {
         setFlippedGroupId(null);
         setBackSource(null);
@@ -682,6 +686,16 @@ export default function GroupListScreen({
     [commitOrder, snapInterval],
   );
 
+  const restoreDragOrigin = useCallback(
+    (drag: { from: number }) => {
+      const origin = orderedGroupsRef.current[drag.from];
+      if (origin) activeIdentityRef.current = origin.groupId;
+      setActiveIndex(drag.from);
+      listRef.current?.scrollToOffset({ offset: drag.from * snapInterval, animated: true });
+    },
+    [snapInterval],
+  );
+
   const handlersFor = useCallback(
     (groupId: string) => {
       const cached = respondersRef.current.get(groupId);
@@ -762,19 +776,20 @@ export default function GroupListScreen({
           setDraggingGroupId(null);
           if (!drag) return;
           if (drag.moved && !drag.dropOutsideDeck) commitMove(drag.groupId, drag.target, 'drag');
-          else if (drag.moved) {
-            listRef.current?.scrollToOffset({ offset: drag.from * snapInterval, animated: true });
-          } else setOrderMenuGroupId(drag.groupId);
+          else if (drag.moved) restoreDragOrigin(drag);
+          else setOrderMenuGroupId(drag.groupId);
         },
         onPanResponderTerminate: () => {
+          const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
+          if (drag) restoreDragOrigin(drag);
         },
       });
       respondersRef.current.set(groupId, responder);
       return responder.panHandlers;
     },
-    [commitMove, hydrated, snapInterval, windowWidth],
+    [commitMove, hydrated, restoreDragOrigin, snapInterval, windowWidth],
   );
 
   useEffect(() => {

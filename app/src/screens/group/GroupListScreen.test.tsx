@@ -230,6 +230,38 @@ describe('카드 렌더', () => {
 
     await waitFor(() => expect(screen.getByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen());
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[group()]}
+        userId="guide-interrupted"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={1}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+    expect(screen.queryByTestId('group.deck.guide')).toBeNull();
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[group()]}
+        userId="guide-interrupted"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={2}
+        groupEntry="tab"
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
   });
 
   test('route blur는 이전 안내 queue를 폐기하고 다음 안정된 episode에서 다시 판정한다', async () => {
@@ -337,9 +369,19 @@ describe('카드 렌더', () => {
 
     await waitFor(() =>
       expect(
-        within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚'),
+        within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚', {
+          includeHiddenElements: true,
+        }),
       ).toBeOnTheScreen(),
     );
+    expect(screen.getByTestId(`group.card.${GROUP_ID}`).props.accessibilityLabel).toContain(
+      '책 아이콘',
+    );
+    expect(
+      within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚', {
+        includeHiddenElements: true,
+      }).props.accessible,
+    ).toBe(false);
   });
 
   test('아이콘 hydration이 끝나기 전에는 기본 아이콘 덱을 먼저 노출하지 않는다', async () => {
@@ -361,7 +403,9 @@ describe('카드 렌더', () => {
     });
     await waitFor(() =>
       expect(
-        within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚'),
+        within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚', {
+          includeHiddenElements: true,
+        }),
       ).toBeOnTheScreen(),
     );
     jest.mocked(AsyncStorage.getItem).mockImplementation(readStoredItem);
@@ -825,6 +869,48 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('responder terminate는 가장자리 자동 이동 offset과 활성 페이지를 출발점으로 복원한다', async () => {
+    const thirdId = `${GROUP_ID}-third`;
+    await renderList([
+      group(),
+      group({ groupId: GROUP_ID_2, name: '저녁 스터디' }),
+      group({ groupId: thirdId, name: '주말 모각공' }),
+    ]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const list = screen.getByTestId('group.list.items');
+    const snapInterval = list.props.snapToInterval as number;
+    const responderEvent = {
+      nativeEvent: { pageX: 100 },
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, { dx: 10, moveX: 999 });
+      fireEvent(list, 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: snapInterval } },
+      });
+    });
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 4');
+
+    await act(async () => {
+      grip.props.onResponderTerminate?.(responderEvent, {});
+    });
+
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 4');
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2, thirdId]);
+    expect(logGroupCardReordered).not.toHaveBeenCalled();
   });
 
   test('grip을 가장자리에서 잡았다는 이유만으로 첫 move에 다음 slot으로 넘기지 않는다', async () => {

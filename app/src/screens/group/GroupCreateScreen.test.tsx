@@ -176,6 +176,27 @@ describe('내 카드 아이콘 로컬 draft', () => {
 
     await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🎯'));
   });
+
+  test('아이콘 저장 실패는 선택값을 pending으로 유지하고 생성 흐름을 막지 않는다', async () => {
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    await renderScreen();
+    await typeName('아이콘 재시도 그룹');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.create.cardEmoji.📚'));
+    });
+
+    await press('만들기');
+
+    await waitFor(() =>
+      expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+        surface: 'create',
+        result: 'failed',
+      }),
+    );
+    expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚');
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('전송 계약 — 챌린지 없이 만든다(3차 §D18)', () => {

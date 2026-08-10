@@ -203,10 +203,8 @@ export default function GroupCreateScreen() {
           logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
         } catch {
           logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
-          Alert.alert(
-            '카드 아이콘을 저장하지 못했어요',
-            '그룹은 만들어졌고 기본 아이콘으로 표시됩니다. 설정에서 다시 바꿀 수 있어요.',
-          );
+          // 선택값은 런타임 pending 상태에 남아 목록에 그대로 표시되고 다음 활성화에서
+          // 자동 재시도된다. 이미 성공한 생성 흐름을 잘못된 기본 아이콘 안내로 막지 않는다.
         }
       }
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
