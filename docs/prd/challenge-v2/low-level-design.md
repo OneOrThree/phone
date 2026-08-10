@@ -192,20 +192,34 @@ List<GroupChallengeWindow> findActiveByGroupForUpdate(@Param("group") Group grou
 「`FOR UPDATE` 락 범위 밖 읽기 — 락이 판정에 실제로 쓰이는 값에는 적용되지 않는다」를
 적었는데 **과장이었다.** 근거 셋:
 
-1. PostgreSQL 은 `OF` 절 없는 `FOR UPDATE` 에서 **문장에 등장한 모든 테이블**의 행을 잠근다.
-   이 쿼리는 `FETCH` 이전에도 `WHERE` 에서 `c` 를 참조했으므로 부모 행은 이미 잠겨 있었다.
-2. 잠근 행은 남이 커밋할 수 없으니 뒤이은 조회도 같은 값을 읽는다(READ COMMITTED,
-   `GroupChallengeService` 에 격리 수준 재정의 없음).
-3. `repeatDays` 는 **생성 이후 갱신 경로 자체가 없다**(챌린지 수정 API 없음 — §A7).
-   잠금 여부와 무관하게 값이 변할 수 없다.
+1. **`repeatDays` 는 생성 이후 갱신 경로 자체가 없다**(챌린지 수정 API 없음 — §A7).
+   **잠금 범위가 무엇이든 값이 변할 수 없다.** 이 하나로 충분하다.
+2. 이 PR 이전에도 `WHERE` 절이 `c.status` · `c.deletedAt` 을 읽고 있었다. `JOIN` → `JOIN FETCH`
+   는 **읽는 대상을 늘리지 않는다** — 같은 값을 왕복 없이 가져올 뿐이다. 즉 이 변경이
+   **노출을 새로 만들지도, 없애지도 않는다.**
 
-> 📌 2026-08-11 정정. 근거 없는 「이 변경이 경합을 고쳤다」를 남기면 다음 사람이 **있지도 않은
-> 레이스를 전제로** 코드를 짠다 — GROMO-1285 가 지우고 있는 것과 같은 종류의 거짓 서술이다.
-> 구현(`bfix/GROMO-1270-…`)의 javadoc 도 같은 취지로 정정돼 있다.
-> ⚠️ 반대로 **JPA `PessimisticLockScope.NORMAL` 만 믿으면 안 된다는 지적 자체는 옳다** —
-> `@Lock(PESSIMISTIC_WRITE)` 의 JPA 계약은 조회 루트에만 걸린다. 여기서 부모까지 잠기는 것은
-> **PostgreSQL 의 `FOR UPDATE` 의미** 덕이지 JPA 가 보장해서가 아니다. 다른 DB로 옮기면 이
-> 전제가 깨진다.
+⚠️ **부모 행이 실제로 잠기는지는 확인하지 못했다 — 어느 쪽으로도 단정하지 마라.**
+`@Lock(PESSIMISTIC_WRITE)` 의 JPA 계약(`PessimisticLockScope.NORMAL`)은 **조회 루트에만** 걸린다.
+Hibernate 가 `FOR UPDATE` 를 alias 없이 내면 PostgreSQL 은 문장의 모든 테이블을 잠그지만,
+`FOR ... OF <alias>` 로 내면 루트만 잠근다. **어느 쪽인지는 실제 발행 SQL 을 봐야 한다** —
+이 배치에서 두 번 시도했으나 `logback-spring.xml` 의 `<root level="INFO">` 가 `org.hibernate.SQL`
+DEBUG 를 삼켜 확인에 실패했다.
+
+그래서 **부모 잠금에 기대는 서술을 전부 뺐다.** 동시 `endChallenge`/`deleteChallenge` 와의
+직렬화를 논하려면 발행 SQL 을 먼저 확인하고, 필요하면 **부모를 잠금 조회의 루트로 삼거나
+별도 `FOR UPDATE`** 를 취해야 한다. 그건 이 티켓 범위 밖이다.
+
+> 📌 **2026-08-11 정정 이력 (두 번 고쳤다).**
+> ⑴ 초판: 「`FOR UPDATE` 락 범위 밖 읽기를 `JOIN FETCH` 가 막는다」 → **과장**이었다.
+> ⑵ 1차 정정: 「PostgreSQL 이 `OF` 절 없는 `FOR UPDATE` 로 모든 테이블을 잠그므로 부모는 이미
+> 잠겨 있다」 → **이것도 확인되지 않은 주장이었다.** Hibernate 가 alias 를 붙여 내면 성립하지
+> 않는데, 발행 SQL 을 못 봤다.
+> ⑶ 현재: **잠금 범위에 기대는 서술을 전부 뺐다.** 근거는 `repeatDays` 불변성 하나로 충분하고,
+> 그건 잠금과 무관하게 성립한다.
+>
+> 근거 없는 「이 변경이 경합을 고쳤다」를 남기면 다음 사람이 **있지도 않은 레이스를 전제로**
+> 코드를 짠다 — GROMO-1285 가 지우고 있는 것과 같은 종류의 거짓 서술이다. 구현
+> (`bfix/GROMO-1270-…`)의 javadoc 도 같은 취지로 정정돼 있다.
 
 **⚠️ 이 리포지토리 파일은 GROMO-1270(WS-1)의 소유다.** 이 문서는 진단만 적는다.
 
