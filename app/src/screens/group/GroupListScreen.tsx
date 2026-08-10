@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  PanResponder,
   RefreshControl,
   StyleSheet,
   Text,
@@ -17,6 +18,7 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
+import { useGroupCardOrder } from './useGroupCardOrder';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -42,9 +44,12 @@ import { GroupCardFront } from './components/GroupCardFront';
 const TAB_BAR_SPACE = 74;
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
+const DRAG_EDGE = 60;
+const EDGE_PAGE_THROTTLE_MS = 260;
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
+  userId?: string | null;
   onSelect: (groupId: string) => void;
   onCreate: () => void;
   onFind: () => void;
@@ -54,6 +59,7 @@ export interface GroupListScreenProps {
 
 export default function GroupListScreen({
   groups,
+  userId = null,
   onSelect,
   onCreate,
   onFind,
@@ -65,11 +71,26 @@ export default function GroupListScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
-  const pageCount = groups.length + 1;
+  const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
+    serverGroupIds: groups.map((group) => group.groupId),
+    userId,
+  });
+  const orderedGroups = useMemo(() => {
+    if (!hydrated) return groups;
+    const groupById = new Map(groups.map((group) => [group.groupId, group]));
+    return orderedGroupIds.flatMap((groupId) => {
+      const group = groupById.get(groupId);
+      return group ? [group] : [];
+    });
+  }, [groups, hydrated, orderedGroupIds]);
+  const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
-  const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
+  const activeIdentityRef = useRef<string | null>(orderedGroups[0]?.groupId ?? null);
+  const orderedGroupsRef = useRef(orderedGroups);
+  orderedGroupsRef.current = orderedGroups;
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -94,11 +115,11 @@ export default function GroupListScreen({
     (page: number) => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
-      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
       setFlippedGroupId(null);
     },
-    [groups, pageCount, snapInterval],
+    [orderedGroups, pageCount, snapInterval],
   );
 
   const onMomentumScrollEnd = useCallback(
@@ -107,23 +128,110 @@ export default function GroupListScreen({
         0,
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
       );
-      const nextIdentity = groups[next]?.groupId ?? null;
+      const nextIdentity = orderedGroups[next]?.groupId ?? null;
       if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
       activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
     },
-    [groups, pageCount, snapInterval],
+    [orderedGroups, pageCount, snapInterval],
   );
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
     const identity = activeIdentityRef.current;
-    const next = identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
-    const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
-    activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    const next =
+      identity === null
+        ? orderedGroups.length
+        : orderedGroups.findIndex((g) => g.groupId === identity);
+    const safeIndex =
+      next >= 0 ? next : Math.min(activeIndex, Math.max(0, orderedGroups.length - 1));
+    activeIdentityRef.current = orderedGroups[safeIndex]?.groupId ?? null;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [activeIndex, groups, snapInterval]);
+  }, [activeIndex, orderedGroups, snapInterval]);
+
+  // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
+  // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
+  const dragRef = useRef<{ groupId: string; from: number; target: number } | null>(null);
+  const lastEdgePageAtRef = useRef(0);
+  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
+
+  const commitMove = useCallback(
+    (groupId: string, targetIndex: number) => {
+      const ids = orderedGroupsRef.current.map((group) => group.groupId);
+      const from = ids.indexOf(groupId);
+      const target = Math.max(0, Math.min(targetIndex, ids.length - 1));
+      if (from < 0 || from === target) return false;
+      const next = [...ids];
+      next.splice(from, 1);
+      next.splice(target, 0, groupId);
+      const committed = commitOrder(next);
+      if (committed) {
+        activeIdentityRef.current = groupId;
+        setActiveIndex(target);
+        listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
+      }
+      return committed;
+    },
+    [commitOrder, snapInterval],
+  );
+
+  const handlersFor = useCallback(
+    (groupId: string) => {
+      const cached = respondersRef.current.get(groupId);
+      if (cached) return cached.panHandlers;
+      const responder = PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
+          if (from < 0) return;
+          dragRef.current = { groupId, from, target: from };
+          lastEdgePageAtRef.current = 0;
+          setDraggingGroupId(groupId);
+          setFlippedGroupId(null);
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const drag = dragRef.current;
+          if (!drag) return;
+          const max = orderedGroupsRef.current.length - 1;
+          drag.target = Math.max(
+            0,
+            Math.min(drag.from + Math.round(gesture.dx / snapInterval), max),
+          );
+
+          const direction =
+            gesture.moveX < DRAG_EDGE ? -1 : gesture.moveX > windowWidth - DRAG_EDGE ? 1 : 0;
+          const now = Date.now();
+          if (direction !== 0 && now - lastEdgePageAtRef.current >= EDGE_PAGE_THROTTLE_MS) {
+            drag.target = Math.max(0, Math.min(drag.target + direction, max));
+            lastEdgePageAtRef.current = now;
+            listRef.current?.scrollToOffset({
+              offset: drag.target * snapInterval,
+              animated: true,
+            });
+          }
+        },
+        onPanResponderRelease: () => {
+          const drag = dragRef.current;
+          dragRef.current = null;
+          setDraggingGroupId(null);
+          if (drag) commitMove(drag.groupId, drag.target);
+        },
+        onPanResponderTerminate: () => {
+          dragRef.current = null;
+          setDraggingGroupId(null);
+        },
+      });
+      respondersRef.current.set(groupId, responder);
+      return responder.panHandlers;
+    },
+    [commitMove, snapInterval, windowWidth],
+  );
+
+  useEffect(() => {
+    respondersRef.current.clear();
+  }, [orderedGroupIds]);
 
   return (
     <View style={s.root} testID="group.list">
@@ -146,7 +254,7 @@ export default function GroupListScreen({
       <FlatList
         ref={listRef}
         testID="group.list.items"
-        data={groups}
+        data={orderedGroups}
         keyExtractor={(item) => item.groupId}
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -156,6 +264,7 @@ export default function GroupListScreen({
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum
+        scrollEnabled={draggingGroupId === null}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
           <View style={{ marginLeft: CARD_GAP }}>
@@ -165,7 +274,7 @@ export default function GroupListScreen({
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
             {flippedGroupId === item.groupId ? (
               <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
@@ -188,17 +297,31 @@ export default function GroupListScreen({
                 </TouchableOpacity>
               </View>
             ) : (
-              <GroupCardFront group={item} onFlip={() => setFlippedGroupId(item.groupId)} />
+              <GroupCardFront
+                group={item}
+                onFlip={() => draggingGroupId === null && setFlippedGroupId(item.groupId)}
+                reorderHandlers={handlersFor(item.groupId)}
+                canMovePrevious={index > 0}
+                canMoveNext={index < orderedGroups.length - 1}
+                onMoveStep={(step) => {
+                  const from = orderedGroupsRef.current.findIndex(
+                    (group) => group.groupId === item.groupId,
+                  );
+                  if (commitMove(item.groupId, from + step)) setFlippedGroupId(null);
+                }}
+              />
             )}
           </View>
         )}
       />
 
-      <PageIndicator
-        pageCount={pageCount}
-        activeIndex={activeIndex}
-        onSelectPage={selectPage}
-      />
+      {saveFailed && (
+        <Text style={s.saveError} accessibilityRole="alert">
+          순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.
+        </Text>
+      )}
+
+      <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
       <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
@@ -272,6 +395,12 @@ const s = StyleSheet.create({
   },
   backPrimaryText: { ...T.text.label, color: T.white },
   backLink: { ...T.text.caption, color: T.accent, textAlign: 'center' },
+  saveError: {
+    ...T.text.caption,
+    color: T.dangerInk,
+    textAlign: 'center',
+    paddingTop: T.space.xs,
+  },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
