@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GroupCardDeck, resolveDeckIndex } from './GroupCardDeck';
@@ -46,6 +46,33 @@ test('drag 종료와 momentum 종료가 모두 active card 확정 경로를 가�
   const deck = screen.getByTestId('group.cardDeck');
   expect(deck.props.onScrollEndDrag).toEqual(expect.any(Function));
   expect(deck.props.onMomentumScrollEnd).toEqual(expect.any(Function));
+
+  await act(async () => {
+    fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+  });
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 3');
+});
+
+test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한다', async () => {
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.cardDeck.indicator'), 'layout', {
+      nativeEvent: { layout: { width: 400 } },
+    });
+  });
+  const findDot = screen.getByTestId('group.cardDeck.indicator.dot.2');
+  expect(findDot.props.accessibilityLabel).toBe('그룹 찾기, 3 / 3');
+  await act(async () => {
+    fireEvent.press(findDot);
+  });
+  expect(findDot.props.accessibilityState).toEqual({ selected: true });
 });
 
 test('활성 그룹이 삭제되면 마지막 카드가 아니라 직전 위치를 새 범위로 clamp한다', () => {

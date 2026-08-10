@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useRef, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   useWindowDimensions,
@@ -11,6 +14,8 @@ import { FindMoreCard } from './FindMoreCard';
 
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
+const DOT_HIT_WIDTH = 44;
+const DOT_GAP = 4;
 
 export interface GroupCardDeckProps {
   groups: GroupSummaryResponse[];
@@ -44,6 +49,11 @@ export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps
   const orderKey = groupOrderKey(groups);
   const previousOrderKeyRef = useRef(orderKey);
   const previousSnapIntervalRef = useRef(snapInterval);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [indicatorWidth, setIndicatorWidth] = useState(0);
+  const pageCount = groups.length + 1;
+  const showDots =
+    indicatorWidth > 0 && pageCount * DOT_HIT_WIDTH + (pageCount - 1) * DOT_GAP <= indicatorWidth;
 
   const settleActiveCard = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -53,6 +63,7 @@ export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps
       );
       activeGroupIdRef.current = groups[index]?.groupId ?? null;
       activeIndexRef.current = index;
+      setActiveIndex(index);
     },
     [groups, snapInterval],
   );
@@ -69,31 +80,79 @@ export function GroupCardDeck({ groups, onFind, renderCard }: GroupCardDeckProps
     const index = resolveDeckIndex(groups, identity, activeIndexRef.current);
     activeGroupIdRef.current = groups[index]?.groupId ?? null;
     activeIndexRef.current = index;
+    setActiveIndex(index);
     listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: false });
   }, [groups, orderKey, snapInterval]);
 
+  const selectPage = (page: number) => {
+    listRef.current?.scrollToOffset({ offset: page * snapInterval, animated: true });
+    activeGroupIdRef.current = groups[page]?.groupId ?? null;
+    activeIndexRef.current = page;
+    setActiveIndex(page);
+  };
+
   return (
-    <FlatList
-      ref={listRef}
-      testID="group.cardDeck"
-      data={groups}
-      keyExtractor={(item) => item.groupId}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: SIDE_PEEK }}
-      ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-      snapToInterval={snapInterval}
-      snapToAlignment="start"
-      decelerationRate="fast"
-      disableIntervalMomentum
-      onMomentumScrollEnd={settleActiveCard}
-      onScrollEndDrag={settleActiveCard}
-      ListFooterComponent={
-        <View style={{ marginLeft: CARD_GAP }}>
-          <FindMoreCard width={cardWidth} onPress={onFind} />
-        </View>
-      }
-      renderItem={({ item }) => <View style={{ width: cardWidth }}>{renderCard(item)}</View>}
-    />
+    <View>
+      <FlatList
+        ref={listRef}
+        testID="group.cardDeck"
+        data={groups}
+        keyExtractor={(item) => item.groupId}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: SIDE_PEEK }}
+        ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+        snapToInterval={snapInterval}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        disableIntervalMomentum
+        onMomentumScrollEnd={settleActiveCard}
+        onScrollEndDrag={settleActiveCard}
+        ListFooterComponent={
+          <View style={{ marginLeft: CARD_GAP }}>
+            <FindMoreCard width={cardWidth} onPress={onFind} />
+          </View>
+        }
+        renderItem={({ item }) => <View style={{ width: cardWidth }}>{renderCard(item)}</View>}
+      />
+      <View
+        testID="group.cardDeck.indicator"
+        style={s.indicator}
+        onLayout={(event) => setIndicatorWidth(event.nativeEvent.layout.width)}
+      >
+        {showDots ? (
+          <View style={s.dots}>
+            {Array.from({ length: pageCount }, (_, page) => (
+              <Pressable
+                key={page}
+                testID={`group.cardDeck.indicator.dot.${page}`}
+                style={s.dotHit}
+                onPress={() => selectPage(page)}
+                accessibilityRole="button"
+                accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount}`}
+                accessibilityState={{ selected: page === activeIndex }}
+              >
+                <View style={[s.dot, page === activeIndex && s.dotActive]} />
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <Text
+            testID="group.cardDeck.indicator.counter"
+            accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+          >
+            {activeIndex + 1} / {pageCount}
+          </Text>
+        )}
+      </View>
+    </View>
   );
 }
+
+const s = StyleSheet.create({
+  indicator: { height: 44, alignItems: 'center', justifyContent: 'center' },
+  dots: { flexDirection: 'row', gap: DOT_GAP },
+  dotHit: { width: DOT_HIT_WIDTH, height: 44, alignItems: 'center', justifyContent: 'center' },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8CAD0' },
+  dotActive: { width: 18, backgroundColor: '#5E6AD2' },
+});
