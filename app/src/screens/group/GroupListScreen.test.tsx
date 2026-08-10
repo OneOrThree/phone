@@ -97,12 +97,21 @@ describe('카드 렌더', () => {
 
     await act(async () => {
       fireEvent(screen.getByTestId(`group.card.front.${GROUP_ID}`), 'layout', {
-        nativeEvent: { layout: { height: 420 } },
+        nativeEvent: { layout: { height: 620 } },
       });
     });
 
     expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
-      minHeight: 420,
+      minHeight: 620,
+    });
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.front.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { height: 540 } },
+      });
+    });
+    expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
+      minHeight: 540,
     });
   });
 
@@ -124,7 +133,7 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.scroller').props.alwaysBounceVertical).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
     expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
-      minHeight: 300,
+      minHeight: 520,
     });
   });
 
@@ -186,6 +195,10 @@ describe('콜백', () => {
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(GROUP_ID_2);
+    expect(
+      screen.getByTestId(`group.card.room.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .accessibilityRole,
+    ).toBe('button');
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {

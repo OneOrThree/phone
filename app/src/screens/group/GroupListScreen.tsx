@@ -60,7 +60,7 @@ const CARD_GAP = 12;
  * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
  * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
  */
-export const GROUP_CARD_HEIGHT = 300;
+export const GROUP_CARD_HEIGHT = 520;
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
@@ -129,7 +129,7 @@ export default function GroupListScreen({
   onBack,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, fontScale } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
@@ -147,9 +147,37 @@ export default function GroupListScreen({
   const pendingFaceFocusRef = useRef<{ groupId: string; face: 'front' | 'back' } | null>(null);
   const frontActionRefs = useRef(new Map<string, View | null>());
   const backTitleRefs = useRef(new Map<string, Text | null>());
-  const observeDeckHeight = useCallback((height: number) => {
-    setDeckMinHeight((current) => (height > current ? height : current));
-  }, []);
+  const measuredHeightsRef = useRef(new Map<string, number>());
+  const observeDeckHeight = useCallback(
+    (groupId: string, height: number) => {
+      measuredHeightsRef.current.set(groupId, height);
+      setDeckMinHeight(
+        Math.max(
+          GROUP_CARD_HEIGHT,
+          ...groups.map((group) => measuredHeightsRef.current.get(group.groupId) ?? 0),
+        ),
+      );
+    },
+    [groups],
+  );
+
+  useEffect(() => {
+    const currentIds = new Set(groups.map((group) => group.groupId));
+    for (const groupId of measuredHeightsRef.current.keys()) {
+      if (!currentIds.has(groupId)) measuredHeightsRef.current.delete(groupId);
+    }
+    setDeckMinHeight(
+      Math.max(
+        GROUP_CARD_HEIGHT,
+        ...groups.map((g) => measuredHeightsRef.current.get(g.groupId) ?? 0),
+      ),
+    );
+  }, [groups]);
+
+  useEffect(() => {
+    measuredHeightsRef.current.clear();
+    setDeckMinHeight(GROUP_CARD_HEIGHT);
+  }, [cardWidth, fontScale]);
 
   useEffect(() => {
     const pending = pendingFaceFocusRef.current;
@@ -349,7 +377,9 @@ export default function GroupListScreen({
                   style={[s.backPlaceholder, { minHeight: deckMinHeight }]}
                   nativeID={`group.card.summary.${item.groupId}`}
                   accessibilityLabelledBy={`group.card.disclosure.${item.groupId}`}
-                  onLayout={(event) => observeDeckHeight(event.nativeEvent.layout.height)}
+                  onLayout={(event) =>
+                    observeDeckHeight(item.groupId, event.nativeEvent.layout.height)
+                  }
                   testID={`group.card.back.${item.groupId}`}
                 >
                   <Text
@@ -369,6 +399,7 @@ export default function GroupListScreen({
                   <Pressable
                     style={s.backPrimary}
                     onPress={() => onSelect(item.groupId)}
+                    accessibilityRole="button"
                     testID={`group.card.room.${item.groupId}`}
                   >
                     <Text style={s.backPrimaryText}>방 전체 보기</Text>
@@ -393,7 +424,7 @@ export default function GroupListScreen({
                   pageIndex={groups.findIndex((group) => group.groupId === item.groupId)}
                   pageCount={pageCount}
                   minHeight={deckMinHeight}
-                  onHeightChange={observeDeckHeight}
+                  onHeightChange={(height) => observeDeckHeight(item.groupId, height)}
                   onFlip={() => flipCard(item.groupId)}
                   actionRef={(node) => {
                     frontActionRefs.current.set(item.groupId, node);
