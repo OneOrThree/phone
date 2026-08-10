@@ -71,6 +71,31 @@ export function parseGroupCardEmoji(raw: string | null): GroupCardEmojiMap {
 let storageQueue: Promise<unknown> = Promise.resolve();
 type EmojiListener = (groupId: string, emoji: GroupCardEmoji) => void;
 const emojiListeners = new Map<string, Set<EmojiListener>>();
+const saveFailureUsers = new Set<string>();
+const saveFailureListeners = new Map<string, Set<(failed: boolean) => void>>();
+
+export function setGroupCardEmojiSaveFailure(userId: string, failed: boolean): void {
+  if (failed) saveFailureUsers.add(userId);
+  else saveFailureUsers.delete(userId);
+  saveFailureListeners.get(userId)?.forEach((listener) => listener(failed));
+}
+
+export function readGroupCardEmojiSaveFailure(userId: string): boolean {
+  return saveFailureUsers.has(userId);
+}
+
+export function subscribeGroupCardEmojiSaveFailure(
+  userId: string,
+  listener: (failed: boolean) => void,
+): () => void {
+  const listeners = saveFailureListeners.get(userId) ?? new Set<(failed: boolean) => void>();
+  listeners.add(listener);
+  saveFailureListeners.set(userId, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) saveFailureListeners.delete(userId);
+  };
+}
 
 export function subscribeGroupCardEmoji(userId: string, listener: EmojiListener): () => void {
   const listeners = emojiListeners.get(userId) ?? new Set<EmojiListener>();
@@ -350,6 +375,8 @@ export function __resetGroupCardEmojiQueueForTest(): void {
   latestPendingSelection.clear();
   pendingVersion = 0;
   emojiListeners.clear();
+  saveFailureUsers.clear();
+  saveFailureListeners.clear();
   reconcileGenerationByUser.clear();
   reconcileRecoveryBucketByUser.clear();
 }

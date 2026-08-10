@@ -17,7 +17,11 @@ import { buildInviteShareMessage } from './inviteShare';
 import { createGroup } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
-import { __resetGroupCardEmojiQueueForTest, readGroupCardEmoji } from './groupCardEmojiStore';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  readGroupCardEmoji,
+  readGroupCardEmojiSaveFailure,
+} from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -216,6 +220,7 @@ describe('내 카드 아이콘 로컬 draft', () => {
       }),
     );
     expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🔥');
+    expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
   });
 
   test('로컬 저장 중 세션이 폐기되면 늦은 성공 이벤트를 새 계정에 귀속하지 않는다', async () => {

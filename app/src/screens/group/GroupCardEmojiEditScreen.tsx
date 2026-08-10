@@ -145,14 +145,17 @@ export default function GroupCardEmojiEditScreen() {
   const selectEmoji = useCallback(
     (emoji: GroupCardEmoji) => {
       setSelected(emoji);
-      if ((hasPendingSelection || saveFailed) && userId && baseline) {
+      const shouldRetryPending = hasPendingSelection || saveFailed;
+      if (shouldRetryPending && userId && baseline) {
         updatePendingGroupCardEmojiSelection(userId, groupId, emoji, baseline);
         setHasPendingSelection(emoji !== baseline);
       }
-      if (saveFailed && userId && baseline) {
+      if (shouldRetryPending && userId && baseline && emoji !== baseline) {
         const retry = ++changeRetryRef.current;
         const retryIdentity = identity;
         const retrySessionIdentity = sessionIdentityRef.current;
+        setSaving(true);
+        setSaveFailed(false);
         writeGroupCardEmoji(userId, groupId, emoji)
           .then(() => {
             if (retry !== changeRetryRef.current) {
@@ -168,6 +171,7 @@ export default function GroupCardEmojiEditScreen() {
             setHasPendingSelection(false);
             setBaseline(emoji);
             setSaveFailed(false);
+            setSaving(false);
           })
           .catch(() => {
             if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
@@ -176,7 +180,14 @@ export default function GroupCardEmojiEditScreen() {
             if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
               logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
             }
+            if (!activeRef.current) return;
+            setSaveFailed(true);
+            setSaving(false);
           });
+      } else if (shouldRetryPending && emoji === baseline) {
+        changeRetryRef.current++;
+        setSaveFailed(false);
+        setSaving(false);
       }
     },
     [baseline, groupId, hasPendingSelection, identity, saveFailed, sessionIdentityRef, userId],

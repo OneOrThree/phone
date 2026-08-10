@@ -35,6 +35,7 @@ import {
   clearPendingGroupCardEmoji,
   DEFAULT_GROUP_CARD_EMOJI,
   preservePendingGroupCardEmoji,
+  setGroupCardEmojiSaveFailure,
   writeGroupCardEmoji,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -206,12 +207,14 @@ export default function GroupCreateScreen() {
         writeGroupCardEmoji(userId, groupId, cardEmoji)
           .then(() => {
             clearPendingGroupCardEmoji(userId, groupId, cardEmoji);
+            setGroupCardEmojiSaveFailure(userId, false);
             if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
             }
           })
           .catch(() => {
             preservePendingGroupCardEmoji(userId, groupId, cardEmoji, 'create');
+            setGroupCardEmojiSaveFailure(userId, true);
             if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
               setEmojiSaveFailed(true);

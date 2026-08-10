@@ -22,8 +22,11 @@ import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 import {
   reconcileGroupCardEmojiBucket,
+  readGroupCardEmojiSaveFailure,
   retryPendingGroupCardEmojis,
+  setGroupCardEmojiSaveFailure,
   subscribeGroupCardEmoji,
+  subscribeGroupCardEmojiSaveFailure,
   type GroupCardEmojiBucket,
 } from './groupCardEmojiStore';
 
@@ -56,6 +59,7 @@ export default function GroupScreen() {
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
+  const [cardEmojiSaveFailed, setCardEmojiSaveFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -63,6 +67,15 @@ export default function GroupScreen() {
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
   const [transitioning, setTransitioning] = useState(false);
+
+  useEffect(() => {
+    if (!userId) {
+      setCardEmojiSaveFailed(false);
+      return;
+    }
+    setCardEmojiSaveFailed(readGroupCardEmojiSaveFailure(userId));
+    return subscribeGroupCardEmojiSaveFailure(userId, setCardEmojiSaveFailed);
+  }, [userId]);
 
   useEffect(() => {
     // 계정 전환 시 이전 계정의 로컬 표현 설정을 새 계정에 잠시라도 노출하지 않는다.
@@ -140,6 +153,7 @@ export default function GroupScreen() {
           (surface, result) => {
             if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface, result });
+              setGroupCardEmojiSaveFailure(userId, result === 'failed');
             }
           },
         );
@@ -316,6 +330,13 @@ export default function GroupScreen() {
         </TouchableOpacity>
       </View>
     ) : null;
+  const cardEmojiSaveNotice = cardEmojiSaveFailed ? (
+    <View style={s.banner} testID="group.cardEmoji.saveFailure">
+      <Text style={s.bannerText} accessibilityRole="alert">
+        내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+      </Text>
+    </View>
+  ) : null;
 
   // ── 게스트 — 호출 없이 로그인 유도(§5-3) ──
   if (isGuest) {
@@ -392,6 +413,7 @@ export default function GroupScreen() {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
+        {cardEmojiSaveNotice}
         <GroupListScreen
           groups={myGroups}
           cardEmojiByGroupId={cardEmojiByGroupId}
@@ -410,6 +432,7 @@ export default function GroupScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       {staleNotice}
+      {cardEmojiSaveNotice}
       <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
         <CharacterImage size={140} />
         <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>

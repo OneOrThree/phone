@@ -18,7 +18,11 @@ import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { writeGroupCardEmoji } from './groupCardEmojiStore';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  setGroupCardEmojiSaveFailure,
+  writeGroupCardEmoji,
+} from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -224,6 +228,7 @@ async function press(label: string) {
 }
 
 beforeEach(() => {
+  __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
   mockIsGuest = false;
   mockUserId = null;
@@ -344,6 +349,20 @@ describe('목록 분기(0/1/N)', () => {
 
     expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
     expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
+  });
+
+  test('생성 화면에서 늦게 실패한 로컬 아이콘 저장을 현재 그룹 화면에 알린다', async () => {
+    mockUserId = 'user-1';
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    await act(async () => setGroupCardEmojiSaveFailure('user-1', true));
+
+    expect(screen.getByTestId('group.cardEmoji.saveFailure')).toHaveTextContent(
+      /내 카드 아이콘을 저장하지 못했어요/,
+    );
+    await act(async () => setGroupCardEmojiSaveFailure('user-1', false));
+    expect(screen.queryByTestId('group.cardEmoji.saveFailure')).toBeNull();
   });
 
   test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {

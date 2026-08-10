@@ -5,6 +5,7 @@ import {
   __resetGroupCardEmojiQueueForTest,
   preservePendingGroupCardEmoji,
   readGroupCardEmoji,
+  readGroupCardEmojiResult,
   retryPendingGroupCardEmojis,
   subscribeGroupCardEmoji,
   writeGroupCardEmoji,
@@ -61,7 +62,6 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
 });
 
 test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을 닫는다', async () => {
-  preservePendingGroupCardEmoji('user-1', 'group-1', '📚');
   await render(<GroupCardEmojiEditScreen />);
   await screen.findByTestId('group.cardEmoji.save');
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
@@ -188,6 +188,59 @@ test('pending 선택을 카드와 편집기 초기값에 합성하되 저장 기
   );
   expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
+});
+
+test('pending으로 다시 연 편집기에서 다른 아이콘을 고르면 버튼 탭 없이 최신 선택을 저장한다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '🎯');
+  preservePendingGroupCardEmoji('user-1', 'group-1', '📚');
+  await render(<GroupCardEmojiEditScreen />);
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState.selected).toBe(true),
+  );
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
+
+  await waitFor(async () =>
+    expect(await readGroupCardEmojiResult('user-1', 'group-1')).toEqual({
+      status: 'ready',
+      emoji: '🔥',
+      storedEmoji: '🔥',
+    }),
+  );
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+  expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'settings',
+    result: 'success',
+  });
+});
+
+test('pending 선택 변경의 자동 저장 중에는 picker와 저장 버튼을 함께 잠근다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '🎯');
+  preservePendingGroupCardEmoji('user-1', 'group-1', '📚');
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const setItem = jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    await gate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+  setItem.mockClear();
+  await render(<GroupCardEmojiEditScreen />);
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState.selected).toBe(true),
+  );
+
+  fireEvent.press(screen.getByTestId('group.cardEmoji.🔥'));
+
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.📚')).toBeDisabled());
+  expect(screen.getByTestId('group.cardEmoji.save').props.accessibilityState).toEqual(
+    expect.objectContaining({ busy: true, disabled: true }),
+  );
+
+  await act(async () => release());
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled());
+  expect(setItem).toHaveBeenCalledTimes(1);
 });
 
 test('pending을 합성해 다시 연 편집기에서 디스크 기준값을 고르면 재시도를 취소한다', async () => {
