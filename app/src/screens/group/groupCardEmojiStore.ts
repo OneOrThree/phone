@@ -115,8 +115,10 @@ function sameBucket(a: GroupCardEmojiBucket, b: GroupCardEmojiBucket): boolean {
 export function reconcileGroupCardEmojiBucket(
   userId: string,
   serverGroupIds: readonly string[],
+  shouldContinue: () => boolean = () => true,
 ): Promise<GroupCardEmojiBucket> {
   return enqueueStorageOperation(async () => {
+    if (!shouldContinue()) return {};
     let raw: string | null;
     try {
       raw = await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji);
@@ -130,11 +132,16 @@ export function reconcileGroupCardEmojiBucket(
       Object.entries(current).filter(([groupId]) => validIds.has(groupId)),
     ) as GroupCardEmojiBucket;
 
+    if (!shouldContinue()) return {};
     if (parsed.needsRepair || !sameBucket(current, next)) {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.groupCardEmoji,
-        JSON.stringify({ ...parsed.value, [userId]: next }),
-      );
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.groupCardEmoji,
+          JSON.stringify({ ...parsed.value, [userId]: next }),
+        );
+      } catch {
+        // stale 정리는 best-effort다. 이미 정상적으로 읽은 현재 계정 아이콘은 UI에 유지한다.
+      }
     }
     return next;
   });
@@ -158,15 +165,22 @@ export function preservePendingGroupCardEmoji(
 export async function retryPendingGroupCardEmojis(
   userId: string,
   serverGroupIds: readonly string[],
+  shouldContinue: () => boolean = () => true,
 ): Promise<GroupCardEmojiBucket> {
+  if (!shouldContinue()) return {};
   const validIds = new Set(serverGroupIds);
   for (const [key, pending] of pendingEmojis) {
+    if (!shouldContinue()) return {};
     if (pending.userId === userId && !validIds.has(pending.groupId)) pendingEmojis.delete(key);
   }
   const candidates = [...pendingEmojis.values()].filter(
     (pending) => pending.userId === userId && validIds.has(pending.groupId),
   );
+  const visible = Object.fromEntries(
+    candidates.map((pending) => [pending.groupId, pending.emoji]),
+  ) as GroupCardEmojiBucket;
   for (const pending of candidates) {
+    if (!shouldContinue()) return visible;
     try {
       await writeGroupCardEmoji(pending.userId, pending.groupId, pending.emoji);
       const key = pendingKey(pending.userId, pending.groupId);
@@ -175,11 +189,14 @@ export async function retryPendingGroupCardEmojis(
       // 다음 그룹 화면 활성화에서 최신 pending 값만 다시 시도한다.
     }
   }
-  return Object.fromEntries(
-    [...pendingEmojis.values()]
-      .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
-      .map((pending) => [pending.groupId, pending.emoji]),
-  ) as GroupCardEmojiBucket;
+  return {
+    ...visible,
+    ...(Object.fromEntries(
+      [...pendingEmojis.values()]
+        .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
+        .map((pending) => [pending.groupId, pending.emoji]),
+    ) as GroupCardEmojiBucket),
+  };
 }
 
 export function __resetGroupCardEmojiQueueForTest(): void {

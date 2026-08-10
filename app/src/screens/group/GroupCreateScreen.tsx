@@ -401,6 +401,16 @@ export default function GroupCreateScreen() {
         </View>
 
         <Text style={s.label}>내 카드 아이콘</Text>
+        <View
+          style={s.cardPreview}
+          accessible
+          accessibilityLabel={`새 그룹 카드 미리보기 ${cardEmoji} ${name || '그룹 이름'}`}
+        >
+          <Text style={s.cardPreviewEmoji}>{cardEmoji}</Text>
+          <Text style={s.cardPreviewName} numberOfLines={1}>
+            {name || '그룹 이름'}
+          </Text>
+        </View>
         <GroupCardEmojiPicker
           value={cardEmoji}
           onChange={setCardEmoji}
@@ -600,6 +610,18 @@ const s = StyleSheet.create({
   },
   segText: { ...T.text.label, color: T.inkSub },
   segTextOn: { color: T.ink, fontWeight: '700' },
+  cardPreview: {
+    minHeight: 88,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+    padding: T.space.lg,
+    marginBottom: T.space.md,
+    borderRadius: 18,
+    backgroundColor: T.accent,
+  },
+  cardPreviewEmoji: { fontSize: 36 },
+  cardPreviewName: { ...T.text.subtitle, flex: 1, color: T.white },
 
   note: {
     flexDirection: 'row',
