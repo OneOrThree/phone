@@ -16,7 +16,7 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupCardIconSaveResult, logGroupViewed } from '@/services/analyticsEvents';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -52,7 +52,7 @@ const HEADER_TEXT_H = 30;
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { isGuest, userId } = useUser();
+  const { isGuest, userId, sessionIdentityRef } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
@@ -130,12 +130,18 @@ export default function GroupScreen() {
       let emojiBucket: GroupCardEmojiBucket | null = {};
       let pendingBucket: GroupCardEmojiBucket = {};
       if (userId) {
+        const retrySessionIdentity = sessionIdentityRef.current;
         // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
         // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
         pendingBucket = await retryPendingGroupCardEmojis(
           userId,
           rows.map((row) => row.groupId),
           () => seq === requestSeqRef.current,
+          (surface, result) => {
+            if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
+              logGroupCardIconSaveResult({ surface, result });
+            }
+          },
         );
         if (seq !== requestSeqRef.current) return;
         const storedBucket = await reconcileGroupCardEmojiBucket(
@@ -162,7 +168,7 @@ export default function GroupScreen() {
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [isGuest, userId]);
+  }, [isGuest, sessionIdentityRef, userId]);
 
   // mutation 성공 직후의 재조회 — 결과가 올 때까지(또는 실패가 확정될 때까지) 빈 상태를 렌더하지 않는다.
   const fetchAfterMutation = useCallback(() => {

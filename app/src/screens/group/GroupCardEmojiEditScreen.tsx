@@ -24,6 +24,7 @@ import {
   groupCardEmojiLabel,
   readGroupCardEmojiResult,
   preservePendingGroupCardEmoji,
+  restoreLatestPendingGroupCardEmoji,
   updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
   type GroupCardEmoji,
@@ -154,7 +155,11 @@ export default function GroupCardEmojiEditScreen() {
         const retrySessionIdentity = sessionIdentityRef.current;
         writeGroupCardEmoji(userId, groupId, emoji)
           .then(() => {
-            if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
+            if (retry !== changeRetryRef.current) {
+              restoreLatestPendingGroupCardEmoji(userId, groupId);
+              return;
+            }
+            if (identityRef.current !== retryIdentity) return;
             clearPendingGroupCardEmoji(userId, groupId, emoji);
             if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
               logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });

@@ -221,6 +221,7 @@ type PendingEmoji = {
   groupId: string;
   emoji: GroupCardEmoji;
   version: number;
+  surface: 'create' | 'settings';
 };
 const pendingEmojis = new Map<string, PendingEmoji>();
 const latestPendingSelection = new Map<string, { emoji: GroupCardEmoji; version: number }>();
@@ -234,10 +235,11 @@ export function preservePendingGroupCardEmoji(
   userId: string,
   groupId: string,
   emoji: GroupCardEmoji,
+  surface: 'create' | 'settings' = 'settings',
 ): void {
   const key = pendingKey(userId, groupId);
   const version = ++pendingVersion;
-  pendingEmojis.set(key, { userId, groupId, emoji, version });
+  pendingEmojis.set(key, { userId, groupId, emoji, version, surface });
   latestPendingSelection.set(key, { emoji, version });
   emitGroupCardEmoji(userId, groupId, emoji);
 }
@@ -251,10 +253,17 @@ export function updatePendingGroupCardEmojiSelection(
 ): void {
   const key = pendingKey(userId, groupId);
   const version = ++pendingVersion;
+  const surface = pendingEmojis.get(key)?.surface ?? 'settings';
   latestPendingSelection.set(key, { emoji: selected, version });
   if (selected === stored) pendingEmojis.delete(key);
-  else pendingEmojis.set(key, { userId, groupId, emoji: selected, version });
+  else pendingEmojis.set(key, { userId, groupId, emoji: selected, version, surface });
   emitGroupCardEmoji(userId, groupId, selected);
+}
+
+/** 오래된 비동기 쓰기의 emit 뒤 현재 pending 선택을 카드에 다시 합성한다. */
+export function restoreLatestPendingGroupCardEmoji(userId: string, groupId: string): void {
+  const latest = latestPendingSelection.get(pendingKey(userId, groupId));
+  if (latest) emitGroupCardEmoji(userId, groupId, latest.emoji);
 }
 
 export function clearPendingGroupCardEmoji(
@@ -285,6 +294,7 @@ export async function retryPendingGroupCardEmojis(
   userId: string,
   serverGroupIds: readonly string[],
   shouldContinue: () => boolean = () => true,
+  onResult?: (surface: 'create' | 'settings', result: 'success' | 'failed') => void,
 ): Promise<GroupCardEmojiBucket> {
   if (!shouldContinue()) return {};
   const validIds = new Set(serverGroupIds);
@@ -307,6 +317,7 @@ export async function retryPendingGroupCardEmojis(
     if (pendingEmojis.get(key)?.version !== pending.version) continue;
     try {
       await writeGroupCardEmoji(pending.userId, pending.groupId, pending.emoji);
+      onResult?.(pending.surface, 'success');
       const current = pendingEmojis.get(key);
       if (current?.version === pending.version) {
         pendingEmojis.delete(key);
@@ -319,6 +330,7 @@ export async function retryPendingGroupCardEmojis(
         if (latest) emitGroupCardEmoji(pending.userId, pending.groupId, latest.emoji);
       }
     } catch {
+      onResult?.(pending.surface, 'failed');
       // 다음 그룹 화면 활성화에서 최신 pending 값만 다시 시도한다.
     }
   }

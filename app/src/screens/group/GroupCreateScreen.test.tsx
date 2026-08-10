@@ -200,7 +200,7 @@ describe('내 카드 아이콘 로컬 draft', () => {
     await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
   });
 
-  test('생성 후 로컬 저장 실패는 inline으로 알리고 중복 생성 없이 복귀 경로를 제공한다', async () => {
+  test('생성 후 로컬 저장 실패가 생성 완료 이동을 막지 않고 pending으로 남는다', async () => {
     jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
     await renderScreen();
     await typeName('저장은 실패');
@@ -208,14 +208,14 @@ describe('내 카드 아이콘 로컬 draft', () => {
 
     await press('만들기');
 
-    expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
-    expect(screen.getByTestId('group.create.submit')).toBeDisabled();
-    expect(screen.getByTestId('group.create.cardEmoji.continue')).toBeOnTheScreen();
-    expect(mockNav.goBack).not.toHaveBeenCalled();
-    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
-      surface: 'create',
-      result: 'failed',
-    });
+    await waitFor(() => expect(mockNav.goBack).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+        surface: 'create',
+        result: 'failed',
+      }),
+    );
+    expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🔥');
   });
 
   test('로컬 저장 중 세션이 폐기되면 늦은 성공 이벤트를 새 계정에 귀속하지 않는다', async () => {
@@ -232,6 +232,8 @@ describe('내 카드 아이콘 로컬 draft', () => {
     await typeName('세션 전환 그룹');
     fireEvent.press(screen.getByText('만들기'));
     await startedGate;
+
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
 
     mockSessionIdentity.current.active = false;
     await act(async () => release());
@@ -254,10 +256,12 @@ describe('내 카드 아이콘 로컬 draft', () => {
     fireEvent.press(screen.getByText('만들기'));
     await startedGate;
 
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
+
     mockSessionIdentity.current.active = false;
     await act(async () => reject(new Error('disk full')));
 
-    expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
+    expect(screen.queryByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeNull();
     expect(logGroupCardIconSaveResult).not.toHaveBeenCalled();
   });
 
