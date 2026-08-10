@@ -116,12 +116,17 @@ interface RefreshResponse {
 // 이미 사용된 토큰으로 갱신을 시도해 실패 → 일부 요청만 로그아웃되는 경합이 생긴다.
 let refreshPromise: Promise<string> | null = null;
 
-function refreshAccessToken(lease?: AuthSessionTransitionLease): Promise<string> {
+function refreshAccessToken(
+  lease?: AuthSessionTransitionLease,
+  expectedGeneration?: number,
+): Promise<string> {
   // 전환 작업 자신이 이미 mutex를 소유하면 전역 single-flight가 잠금 뒤에서 기다리고 있을 수
   // 있으므로 그 Promise에 합류하지 않는다. 현재 전환 안에서 직접 갱신하고, 바깥 refresh는 잠금
   // 해제 뒤 회전된 최신 refresh token으로 이어 간다.
-  if (ownsAuthSessionTransition(lease)) return doRefreshAccessToken(lease);
-  refreshPromise ??= doRefreshAccessToken().finally(() => {
+  if (ownsAuthSessionTransition(lease)) {
+    return doRefreshAccessToken(lease, expectedGeneration);
+  }
+  refreshPromise ??= doRefreshAccessToken(undefined, expectedGeneration).finally(() => {
     refreshPromise = null;
   });
   return refreshPromise;
@@ -130,11 +135,17 @@ function refreshAccessToken(lease?: AuthSessionTransitionLease): Promise<string>
 // 토큰 갱신. 인터셉터 루프를 피하기 위해 인스턴스(api)가 아닌 bare axios 사용.
 class StaleAuthRefreshError extends Error {}
 
-async function doRefreshAccessToken(lease?: AuthSessionTransitionLease): Promise<string> {
+async function doRefreshAccessToken(
+  lease?: AuthSessionTransitionLease,
+  expectedGeneration?: number,
+): Promise<string> {
   // 외부 refresh는 요청 시작 전부터 저장 완료까지 전환 mutex를 소유한다. 인증 전환 안에서 호출된
   // refresh는 전달받은 lease로 같은 잠금을 재사용해 중첩 획득 교착을 피한다.
   const release = ownsAuthSessionTransition(lease) ? null : await acquireAuthSessionTransition();
   try {
+    if (expectedGeneration !== undefined && getAuthSessionGeneration() !== expectedGeneration) {
+      throw new StaleAuthRefreshError('stale auth refresh');
+    }
     const sessionGeneration = getAuthSessionGeneration();
     const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
     if (!refreshToken) throw new Error('no refresh token');
@@ -207,6 +218,11 @@ if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
 }
 
 api.interceptors.request.use(async (config) => {
+  const sessionConfig = config as RetriableConfig;
+  // 요청이 시작된 세션과 인증 전환 소유권을 401 재시도까지 보존한다. 응답 시점의 전역 상태를
+  // 새로 읽으면 이전 계정 요청을 새 계정 토큰으로 다시 보낼 수 있다.
+  sessionConfig._authSessionGeneration ??= getAuthSessionGeneration();
+  sessionConfig._authTransitionToken ??= activeAuthTransitionToken;
   // 호출부가 토큰을 명시했으면 그대로 둔다(GROMO-1049) — 세션 저장처럼 **어느 계정 것인지 검증한 뒤**
   // 보내는 요청이 있는데, 여기서 매번 저장소를 다시 읽으면 검증 시점과 전송 시점 사이에 계정이
   // 바뀌었을 때 옛 계정의 기록이 새 계정으로 커밋된다(코덱스 리뷰 P1).
@@ -222,6 +238,8 @@ api.interceptors.request.use(async (config) => {
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
+  _authSessionGeneration?: number;
+  _authTransitionToken?: symbol | null;
   // 401 재발급 재시도를 건너뛴다 — 특정 계정으로 보내야 하는 요청은 재발급 토큰이 **전환된 계정**
   // 것일 수 있어, 재시도가 곧 계정 오귀속이 된다(GROMO-1049). 그냥 실패시켜 대기열로 보낸다.
   _noAuthRetry?: boolean;
@@ -235,7 +253,17 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && original && !original._retry && !original._noAuthRetry) {
       original._retry = true;
       try {
-        const newToken = await refreshAccessToken();
+        const requestGeneration = original._authSessionGeneration ?? getAuthSessionGeneration();
+        if (requestGeneration !== getAuthSessionGeneration()) {
+          throw new StaleAuthRefreshError('stale auth refresh');
+        }
+        const transitionLease = original._authTransitionToken
+          ? { token: original._authTransitionToken }
+          : undefined;
+        const newToken = await refreshAccessToken(transitionLease, requestGeneration);
+        if (requestGeneration !== getAuthSessionGeneration()) {
+          throw new StaleAuthRefreshError('stale auth refresh');
+        }
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       } catch (refreshError) {
