@@ -18,9 +18,11 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
-  consumeGroupEntry,
-  peekGroupEntry,
+  claimGroupEntry,
+  consumeClaimedGroupEntry,
+  discardQueuedGroupEntry,
   type GroupEntrySource,
+  type GroupEntryToken,
 } from '@/navigation/groupEntrySource';
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
@@ -108,9 +110,15 @@ export default function GroupScreen() {
   // 실제 새 focus를 만든 외부 진입만 navigationRef가 넣은 invite|push를 한 번 소비한다.
   const hasFocusedRef = useRef(false);
   const nextFocusFromTabRef = useRef(false);
-  const viewEpisodeRef = useRef<{ id: number; source: GroupEntrySource; logged: boolean }>({
+  const viewEpisodeRef = useRef<{
+    id: number;
+    source: GroupEntrySource;
+    token: GroupEntryToken | null;
+    logged: boolean;
+  }>({
     id: 0,
     source: 'unknown',
+    token: null,
     logged: false,
   });
 
@@ -144,7 +152,7 @@ export default function GroupScreen() {
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
-        episode.source = consumeGroupEntry(episode.source);
+        episode.source = consumeClaimedGroupEntry(episode);
         logGroupViewed({
           group_entry: episode.source,
           group_count_bucket: groupCountBucket(rows.length),
@@ -174,19 +182,25 @@ export default function GroupScreen() {
         !hasFocusedRef.current || nextFocusFromTabRef.current ? 'tab' : 'return';
       nextFocusFromTabRef.current = false;
       hasFocusedRef.current = true;
+      const claim = claimGroupEntry(fallback);
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: peekGroupEntry(fallback),
+        ...claim,
         logged: false,
       };
       fetchGroups();
       return () => {
         requestSeqRef.current++;
+        // 인증된 episode가 성공 전 끝났으면 그 외부 진입도 끝난 것이다. 게스트 invite는 로그인
+        // 승격을 위해 유지하고, 시트 닫기(closeInvite)에서만 명시적으로 폐기한다.
+        if (!isGuest) discardQueuedGroupEntry(claim.token);
       };
-    }, [fetchGroups]),
+    }, [fetchGroups, isGuest]),
   );
 
   const closeInvite = useCallback(() => {
+    const episode = viewEpisodeRef.current;
+    if (episode.source === 'invite') discardQueuedGroupEntry(episode.token);
     clearPendingInvite();
     setInvite(null);
   }, []);

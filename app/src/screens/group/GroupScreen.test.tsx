@@ -161,10 +161,12 @@ jest.mock('./components/GroupInviteSheet', () => {
     groupId,
     onJoined,
     onLogin,
+    onClose,
   }: {
     groupId: string;
     onJoined: (joinedGroupId: string) => void;
     onLogin: () => void;
+    onClose: () => void;
   }) {
     return (
       <RNView>
@@ -173,6 +175,9 @@ jest.mock('./components/GroupInviteSheet', () => {
         </RNTouchable>
         <RNTouchable onPress={onLogin}>
           <RNText>초대-로그인</RNText>
+        </RNTouchable>
+        <RNTouchable onPress={onClose}>
+          <RNText>초대-닫기</RNText>
         </RNTouchable>
       </RNView>
     );
@@ -617,6 +622,18 @@ describe('게스트 초대 로그인(§6-6)', () => {
     expect(screen.queryByText('초대-로그인')).toBeNull();
     // 버퍼는 살아 있어야 로그인 후 리마운트에서 같은 그룹 프리뷰로 복귀한다.
     expect(mockClear).not.toHaveBeenCalled();
+  });
+
+  test('시트를 명시적으로 닫으면 보존하던 invite source도 함께 폐기한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockIsGuest = true;
+    mockPendingInvite = GROUP_ID;
+    await renderScreen();
+
+    await press('초대-닫기');
+
+    expect(peekGroupEntry('tab')).toBe('tab');
+    expect(mockClear).toHaveBeenCalledTimes(1);
   });
 
   // App.tsx의 applyStoredSession은 로그인 전후 userId가 같은 경우(계정 연결)를 따로 분기한다 —

@@ -1,6 +1,8 @@
 import {
   clearPendingGroupEntry,
+  claimGroupEntry,
   consumeGroupEntry,
+  consumeClaimedGroupEntry,
   discardQueuedGroupEntry,
   peekGroupEntry,
   queueDirectGroupEntry,
@@ -40,5 +42,15 @@ test('비동기 우회는 자신이 예약한 source만 폐기한다', () => {
   expect(discardQueuedGroupEntry(rejectedPushToken)).toBe(false);
   expect(peekGroupEntry('tab')).toBe('invite');
   expect(discardQueuedGroupEntry(inviteToken)).toBe(true);
+  expect(peekGroupEntry('tab')).toBe('tab');
+});
+
+test('episode claim은 성공 전 source를 보존하고 성공 시 자기 token만 소비한다', () => {
+  queueDirectGroupEntry('push');
+  const claim = claimGroupEntry('tab');
+
+  expect(claim.source).toBe('push');
+  expect(peekGroupEntry('tab')).toBe('push');
+  expect(consumeClaimedGroupEntry(claim)).toBe('push');
   expect(peekGroupEntry('tab')).toBe('tab');
 });

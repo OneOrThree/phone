@@ -112,7 +112,12 @@ function Tab({
       accessibilityState={{ selected: focused }}
       accessibilityLabel={route.name}
       onPress={() => {
-        if (!focused) navigation.navigate(route.name);
+        const event = navigation.emit({
+          type: 'tabPress',
+          target: route.key,
+          canPreventDefault: true,
+        });
+        if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
       }}
     >
       <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />

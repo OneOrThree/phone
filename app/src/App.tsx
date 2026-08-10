@@ -275,6 +275,9 @@ function App() {
     setOnboardingCutoutUri(null);
     setOnboarded(false);
     setUser(null);
+    // 위 비동기 로그아웃 왕복 중 도착한 링크가 source를 다시 예약했을 수 있다. 네비게이터를 내린
+    // 완료 경계에서 한 번 더 비워 다음 로그인 계정으로 넘어가지 않게 한다.
+    clearPendingGroupEntry();
   }
 
   // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.

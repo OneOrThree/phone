@@ -4,6 +4,11 @@ type DirectGroupEntrySource = Extract<GroupEntrySource, 'invite' | 'push' | 'unk
 
 export type GroupEntryToken = number;
 
+export interface ClaimedGroupEntry {
+  source: GroupEntrySource;
+  token: GroupEntryToken | null;
+}
+
 // 외부 진입이 실제로 GroupScreen의 새 focus를 만들 때만 쌓는 1회성 값이다.
 // 이미 focus된 화면에 도착한 warm invite/push는 이 모듈을 호출하지 않는다.
 let pendingDirectEntry: { source: DirectGroupEntrySource; token: GroupEntryToken } | null = null;
@@ -22,10 +27,23 @@ export function peekGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
   return pendingDirectEntry?.source ?? fallback;
 }
 
+// focus episode가 외부 진입 원인을 자기 로컬 상태로 귀속할 때 쓴다. 이 시점엔 서버 목록 성공이
+// 아직 아니므로 전역 pending은 유지하고, 성공·blur·명시적 취소가 같은 token으로 마무리한다.
+export function claimGroupEntry(fallback: GroupEntrySource): ClaimedGroupEntry {
+  return pendingDirectEntry
+    ? { source: pendingDirectEntry.source, token: pendingDirectEntry.token }
+    : { source: fallback, token: null };
+}
+
 export function consumeGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
   const source = pendingDirectEntry?.source ?? fallback;
   pendingDirectEntry = null;
   return source;
+}
+
+export function consumeClaimedGroupEntry(claim: ClaimedGroupEntry): GroupEntrySource {
+  discardQueuedGroupEntry(claim.token);
+  return claim.source;
 }
 
 // 비동기 우회를 시작한 호출이 자신이 예약한 source만 폐기한다. 그 사이 로그인 승격을 기다리는
