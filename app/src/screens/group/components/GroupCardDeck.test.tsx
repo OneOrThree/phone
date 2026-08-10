@@ -34,6 +34,13 @@ test('서버 data에 찾기 카드를 섞지 않고 가로 snap 덱으로 렌더
   expect(
     screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
   ).toHaveLength(1);
+  expect(
+    screen.getByTestId('group.cardDeck.findMorePage', { includeHiddenElements: true }).props
+      .pointerEvents,
+  ).toBe('none');
+  await act(async () => {
+    fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 100_000 } } });
+  });
   fireEvent.press(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }));
   expect(onFind).toHaveBeenCalledTimes(1);
 });
@@ -101,6 +108,15 @@ test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴
   expect(
     screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
   ).toBeOnTheScreen();
+  expect(screen.getByTestId('group.cardDeck.page.group-0').props.pointerEvents).toBe('auto');
+  expect(
+    screen.getByTestId('group.cardDeck.page.group-1', { includeHiddenElements: true }).props
+      .pointerEvents,
+  ).toBe('none');
+  expect(
+    screen.getByTestId('group.cardDeck.findMorePage', { includeHiddenElements: true }).props
+      .pointerEvents,
+  ).toBe('none');
 });
 
 test('포커스된 인디케이터가 counter에서 dots로 바뀐 때 현재 페이지로 포커스를 잇는다', async () => {
@@ -175,4 +191,31 @@ test('부모가 전달한 stable groupId를 초기 페이지와 후속 복원의
     />,
   );
   expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('3 / 4');
+});
+
+test('순서 변경 렌더는 effect 전에 직전 활성 groupId의 새 offset으로 시작한다', async () => {
+  const groups = [group(0), group(1), group(2)];
+  const view = await render(
+    <GroupCardDeck
+      groups={groups}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  const deck = screen.getByTestId('group.cardDeck');
+  await act(async () => {
+    fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+  });
+
+  await view.rerender(
+    <GroupCardDeck
+      groups={[group(1), group(0), group(2)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  expect(screen.getByTestId('group.cardDeck').props.contentOffset.x).toBe(0);
 });

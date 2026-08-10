@@ -66,6 +66,13 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
   const previousShowDotsRef = useRef(showDots);
   const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
+  // 폭·순서가 바뀌는 렌더에서는 passive effect를 기다리지 않고, 직전 stable identity가
+  // 새 배치에서 차지하는 offset으로 FlatList를 다시 마운트한다. 그래야 이전 픽셀 offset이
+  // 새 snapInterval의 다른 카드로 한 프레임 해석되지 않는다.
+  const restoreIdentity =
+    previousActiveInputRef.current !== activeGroupId ? activeGroupId : activeGroupIdRef.current;
+  const restoredIndex = resolveDeckIndex(groups, restoreIdentity, activeIndexRef.current);
+  const layoutKey = `${orderKey}\u0001${snapInterval}`;
 
   useEffect(() => {
     if (previousShowDotsRef.current === showDots) return;
@@ -118,12 +125,13 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
   return (
     <View>
       <FlatList
+        key={layoutKey}
         ref={listRef}
         testID="group.cardDeck"
         data={groups}
         keyExtractor={(item) => item.groupId}
         horizontal
-        contentOffset={{ x: initialIndex * snapInterval, y: 0 }}
+        contentOffset={{ x: restoredIndex * snapInterval, y: 0 }}
         getItemLayout={(_, index) => ({
           length: snapInterval,
           offset: index * snapInterval,
@@ -140,7 +148,9 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
         onScrollEndDrag={settleActiveCard}
         ListFooterComponent={
           <View
+            testID="group.cardDeck.findMorePage"
             style={{ marginLeft: CARD_GAP }}
+            pointerEvents={activeIndex === groups.length ? 'auto' : 'none'}
             accessibilityElementsHidden={activeIndex !== groups.length}
             importantForAccessibility={
               activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
@@ -156,7 +166,9 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
         }
         renderItem={({ item, index }) => (
           <View
+            testID={`group.cardDeck.page.${item.groupId}`}
             style={{ width: cardWidth }}
+            pointerEvents={index === activeIndex ? 'auto' : 'none'}
             accessibilityElementsHidden={index !== activeIndex}
             importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
           >
