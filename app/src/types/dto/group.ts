@@ -309,6 +309,10 @@ export interface CreateBetResponse {
   betId: string;
 }
 
+// 챌린지가 도는 요일(ISO 축약 — LLD §2). 서버는 월=1…일=7 비트마스크로 접어 저장하지만
+// API 계약은 이 문자열 배열이다(docs/prd/challenge/low-level-design.md §2.1).
+export type ChallengeRepeatDay = 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN';
+
 // POST /groups/{id}/challenges — 챌린지 생성(방장만). DURATION·TIME_WINDOW 둘 다 만든다
 // (계약 §2 — V20부터 창 판정·창 목표분을 서버가 지원한다).
 // TIME_WINDOW일 때 durationMinutes는 **필수**다(0 < x ≤ 창 길이, 위반 INVALID_MISSION_PARAMS).
@@ -317,10 +321,15 @@ export interface CreateChallengeRequest {
   missionType: MissionType;
   durationMinutes: number; // 하루/창 목표(분)
   // TIME_WINDOW 전용 — "HH:mm:ss" KST 벽시계 문자열(GROMO-1225). 서버가 읽는 값이
-  // '매일 반복 시간대'(time-of-day)라 날짜·오프셋 없이 시각만 보낸다.
+  // '반복 시간대'(time-of-day)라 날짜·오프셋 없이 시각만 보낸다.
   // (구앱 하위 호환: 서버는 종전 ISO Instant도 이중 수용한다.)
   windowStart?: string;
   windowEnd?: string;
+  // 도는 요일(GROMO-1273) — 필수·1개 이상(정책 §A3·FR-4, 비면 CHALLENGE_REPEAT_DAYS_REQUIRED 400).
+  repeatDays: ChallengeRepeatDay[];
+  // 내기(GROMO-1428) — **생성 시에만** 결정하고 이후 불변이다(N26). 안 실으면 내기 없음.
+  // stake는 1~3,000(N30) — 위반은 BET_INVALID_STAKE 400.
+  bet?: { enabled: boolean; stake: number };
 }
 
 // POST 응답의 미참여자 — SCREEN_TIME 챌린지에서 스크린타임 권한을 허용하지 않은 멤버.

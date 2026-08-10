@@ -52,6 +52,45 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
     Optional<GroupChallengeBetSession> findByBetIdAndSessionDate(UUID betId, LocalDate sessionDate);
 
     /**
+     * 회차 lazy 개설 전용 멱등 INSERT(GROMO-1408) — {@code ON CONFLICT (bet_id, session_date)
+     * DO NOTHING}. JPA {@code saveAndFlush} + 유니크 위반 catch 로는 복구가 불가능하다: Postgres 는
+     * 제약 위반 즉시 <b>현재 트랜잭션을 aborted</b> 로 만들어 catch 안의 어떤 조회도 "current
+     * transaction is aborted" 로 실패한다 — 승자 행으로 합류하지 못하고 join-week 전체가 500 으로
+     * 무너진다. DO NOTHING 은 예외 자체를 내지 않으므로 같은 트랜잭션에서 곧바로 재조회해 승자
+     * 행으로 진행할 수 있다(동시 개설 상대의 미커밋 행과 충돌하면 그 커밋까지 대기 후 DO NOTHING).
+     *
+     * <p>값(미션 스냅샷)은 {@code GroupBetService.newSession} 이 조립한 엔티티에서 그대로 옮긴다 —
+     * 영속화 경로만 네이티브고 조립 규칙은 단일 지점 유지. status 는 항상 OPEN, 재시도 카운터는 0.
+     *
+     * @return 1 = 이 호출이 개설했다, 0 = 동시 개설이 선점했다(재조회로 합류)
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "INSERT INTO group_challenge_bet_sessions "
+            + "(id, bet_id, group_id, challenge_id, session_date, stake, goal_minutes, "
+            + "mission_category, mission_type, window_start, window_end, status, "
+            + "starts_at, join_closes_at, closes_at, settle_after, settle_attempts, created_at, updated_at) "
+            + "VALUES (:id, :betId, :groupId, :challengeId, :sessionDate, :stake, :goalMinutes, "
+            + ":missionCategory, :missionType, :windowStart, :windowEnd, 'OPEN', "
+            + ":startsAt, :joinClosesAt, :closesAt, :settleAfter, 0, now(), now()) "
+            + "ON CONFLICT (bet_id, session_date) DO NOTHING", nativeQuery = true)
+    int insertOpenIgnoringConflict(
+            @Param("id") UUID id,
+            @Param("betId") UUID betId,
+            @Param("groupId") UUID groupId,
+            @Param("challengeId") UUID challengeId,
+            @Param("sessionDate") LocalDate sessionDate,
+            @Param("stake") int stake,
+            @Param("goalMinutes") Integer goalMinutes,
+            @Param("missionCategory") String missionCategory,
+            @Param("missionType") String missionType,
+            @Param("windowStart") java.time.LocalTime windowStart,
+            @Param("windowEnd") java.time.LocalTime windowEnd,
+            @Param("startsAt") Instant startsAt,
+            @Param("joinClosesAt") Instant joinClosesAt,
+            @Param("closesAt") Instant closesAt,
+            @Param("settleAfter") Instant settleAfter);
+
+    /**
      * 그룹 탈퇴 연동 대상 — 이 그룹에서 유저가 참가 중인 OPEN 회차 id. 실제 처리는 id 별로
      * {@link #findByIdForUpdate} 잠금 후 <b>참가 행을 재조회</b>한다(이 조회와 잠금 사이에 취소·
      * 정산이 끝났을 수 있다 — 1258 P0 이중 환불의 재발 방지 축). id 오름차순은 데드락 예방.
