@@ -274,6 +274,12 @@ export default function FocusResultScreen() {
   // 동작 없이 피드백만 내는 것을 막는다(아래 footer 주석 참고).
   const [leaving, setLeaving] = useState(false);
   const celebrationStarted = useRef(false);
+  // 진행 중인 '연출 대기' 예약 — 재생 도중 '동작 줄이기'가 켜지면 기다릴 연출이 사라지므로
+  // 남은 대기를 버리고 즉시 다음 단계로 넘긴다(아래 effect).
+  const pendingCelebrateRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    run: () => void;
+  } | null>(null);
 
   // 별점 요청(GROMO-980) — 집중 세션 '정상 완료'(긍정적 순간)에 조건 충족 시 1회 노출.
   // 중도 이탈(정지·이탈 타임아웃) 세션은 요청하지 않는다 — 부정적 순간에 영구 마커('단 한 번의
@@ -380,23 +386,23 @@ export default function FocusResultScreen() {
       //    여기서 기다리기만 한다. 조회가 실패해도 false로 확정되므로 멈추지 않는다.
       await whenReduceMotionReady();
       if (cancelled) return;
-      timers.push(
-        setTimeout(
-          () => {
-            // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
-            // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
-            AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(
-              () => {},
-            );
-            setWeekModalVisible(true);
-          },
-          // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms).
-          // ⚠️ m.delay를 통과시킨다 — '동작 줄이기'면 팝 자체가 재생되지 않는데 대기만 남으면
-          //    정적 ✓를 보며 아무 일도 없는 1.2초를 기다리게 된다(codex 리뷰).
-          //    타이머 자체는 남으므로 주 1회 도장 기록·모달 노출 순서는 그대로다.
-          delayRef.current(firstPopToday ? 1200 : 400),
-        ),
-      );
+      // 주 1회 도장은 모달이 실제로 뜨는 순간 기록 — 딜레이 중 화면을 떠나면(타이머 취소)
+      // 다음 결과 진입에서 다시 뜰 수 있다(PR 227 리뷰).
+      const openWeekModal = () => {
+        pendingCelebrateRef.current = null;
+        AsyncStorage.setItem(STORAGE_KEYS.focusWeekStreakCelebratedWeek, mondayKey).catch(() => {});
+        setWeekModalVisible(true);
+      };
+      // 팝이 재생된 경우엔 팝 종료 후(1200ms), 아니면 짧게(400ms).
+      // ⚠️ m.delay를 통과시킨다 — '동작 줄이기'면 팝 자체가 재생되지 않는데 대기만 남으면
+      //    정적 ✓를 보며 아무 일도 없는 1.2초를 기다리게 된다(codex 리뷰).
+      //    타이머 자체는 남으므로 주 1회 도장 기록·모달 노출 순서는 그대로다.
+      const timer = setTimeout(openWeekModal, delayRef.current(firstPopToday ? 1200 : 400));
+      // ⚠️ 대기 시간은 예약할 때 **한 번** 계산된다. 재생 도중 사용자가 '동작 줄이기'를 켜면
+      //    팝은 즉시 사라지는데 이 타이머는 반응하지 않아, 아무 연출도 없는 정지 시간이 최대
+      //    1.2초 남는다(codex 리뷰). 아래 effect가 그때 이 예약을 앞당긴다.
+      pendingCelebrateRef.current = { timer, run: openWeekModal };
+      timers.push(timer);
     })();
     return () => {
       cancelled = true;
@@ -410,6 +416,18 @@ export default function FocusResultScreen() {
     //    reduce가 이미 확정돼 있다.
   }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
+
+  // ⚠️ 재생 도중 '동작 줄이기'가 켜지면 **남은 대기를 버리고 즉시 진행**한다. 대기 시간은
+  //    예약할 때 한 번 계산되므로, 그대로 두면 팝은 사라졌는데 아무 일도 없는 정지 시간이
+  //    최대 1.2초 남는다(codex 리뷰). 판정 effect는 재시작하지 않는다 — 그건 진행 중인
+  //    판정을 죽여 마커 미기록·모달 누락을 부른다(D-29).
+  useEffect(() => {
+    if (!m.reduce) return;
+    const pending = pendingCelebrateRef.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pending.run();
+  }, [m.reduce]);
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>

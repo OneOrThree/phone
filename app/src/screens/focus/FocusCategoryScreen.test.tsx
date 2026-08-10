@@ -190,4 +190,19 @@ describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
     await pressSame();
     expect(screen.getByTestId('method.sheet')).toBeTruthy();
   });
+
+  // ⚠️ 대기 시간은 예약할 때 한 번 계산된다. 재생 도중 '동작 줄이기'를 켜면 알약은 이미
+  //    제자리인데 아무 일도 없는 410ms가 그대로 남는다(codex 리뷰).
+  test('재생 도중 동작 줄이기를 켜면 남은 대기를 버리고 즉시 연다', async () => {
+    mockReady = true;
+    mockReduce = false;
+    const { rerender } = await renderScreen();
+    await pressOther();
+    await advance(100); // 아직 410ms 전 — 시트는 닫혀 있다
+    expect(screen.queryByTestId('method.sheet')).toBeNull();
+
+    mockReduce = true; // 사용자가 재생 도중 설정을 켰다
+    await rerender();
+    expect(screen.getByTestId('method.sheet')).toBeTruthy();
+  });
 });

@@ -82,6 +82,16 @@ export function TimerMethodSheet({
     startProceed(mode, m.delay(SLIDE_MS + 60));
   };
 
+  // ⚠️ 재생 도중 '동작 줄이기'가 켜지면 **남은 대기를 버리고 즉시 진행**한다. 대기 시간은
+  //    예약할 때 한 번 계산되므로, 그대로 두면 알약은 이미 제자리인데 아무 일도 없는 410ms가
+  //    남는다(codex 리뷰).
+  useEffect(() => {
+    if (!m.reduce || !picked || !proceedRef.current) return;
+    clearTimeout(proceedRef.current);
+    proceedRef.current = null;
+    onSelect(picked);
+  }, [m.reduce, picked, onSelect]);
+
   // 설정이 확정되면 보류해 둔 탭을 확정된 값으로 진행시킨다.
   // ⚠️ 의존성에 m(useMotion 반환 객체)을 넣지 말 것 — reduce/ready가 바뀔 때마다 새 객체라
   //    일회성 진행이 중복 실행된다. 원시값 m.ready만 넣고, 지연은 이 렌더의 m으로 계산한다.
