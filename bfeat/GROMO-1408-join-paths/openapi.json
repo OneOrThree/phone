@@ -1002,6 +1002,88 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/sessions/{sessionId}/join": {
+      "post": {
+        "tags": [
+          "Group Bet"
+        ],
+        "summary": "회차 참여 (신 경로, GROMO-1408 · LLD §2.2)",
+        "description": "빈 바디. 앱이 카드의 bet.session.sessionId 로 지목한 회차에 참가하고 참가비를 즉시 차감한다(에스크로). 회차가 이미 있어야 호출 가능한 축이다 — lazy 개설은 join-next·join-week·00:05 크론의 몫. 참가 마감은 박제 joinClosesAt(창형 \u003d 창 시작, 하루형 \u003d 회차 종료) 기준이고, SCREEN_TIME 회차는 서버가 스크린타임 권한을 확인한다(N50). 다른 그룹의 회차 id 는 404 다(IDOR).",
+        "operationId": "joinSession",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "참여 성공 — {sessionId, sessionDate, stake, balanceAfter}",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_MISSION_PARAMS",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinSessionResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "그룹 없음 / BET_NOT_FOUND(회차 없음·그룹 불일치) / 챌린지 삭제됨",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinSessionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BET_CLOSED(참가 마감) / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED / BET_ALREADY_FAILED / BET_SCREENTIME_PERMISSION_REQUIRED / BET_INSUFFICIENT_BALANCE / BET_CHALLENGE_INACTIVE",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{groupId}/join": {
       "post": {
         "tags": [
@@ -1295,88 +1377,6 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/CreateChallengeResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/groups/{groupId}/challenges/{challengeId}/join": {
-      "post": {
-        "tags": [
-          "Group Bet"
-        ],
-        "summary": "오늘 회차 참여 (신 경로, GROMO-1408)",
-        "description": "빈 바디. 오늘 회차에 참가하고 참가비를 즉시 차감한다(에스크로). 회차가 없으면 N35 조건(활성 요일 + 참가 가능 시각) 아래 lazy 개설 후 참가한다. 참가 마감은 박제 joinClosesAt(창형 \u003d 창 시작, 하루형 \u003d 회차 종료) 기준이다. SCREEN_TIME 챌린지는 서버가 스크린타임 권한을 확인한다(N50).",
-        "operationId": "joinToday",
-        "parameters": [
-          {
-            "name": "groupId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "challengeId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "참여 성공 — {sessionId, sessionDate, stake, balanceAfter}",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/JoinSessionResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "INVALID_MISSION_PARAMS",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/JoinSessionResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "게스트 / 그룹원 아님",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/JoinSessionResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정·오늘은 회차가 서지 않는 날)",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/JoinSessionResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "BET_CLOSED(참가 마감) / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED / BET_ALREADY_FAILED / BET_SCREENTIME_PERMISSION_REQUIRED / BET_INSUFFICIENT_BALANCE / BET_CHALLENGE_INACTIVE",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/JoinSessionResponse"
                 }
               }
             }
@@ -5082,6 +5082,50 @@
         }
       }
     },
+    "/api/v1/groups/{groupId}/sessions/{sessionId}/participation": {
+      "delete": {
+        "tags": [
+          "Group Bet"
+        ],
+        "summary": "회차 참여 취소 (신 경로, GROMO-1423 · LLD §2.2)",
+        "description": "본인 참가를 무르고 참가비를 환불한다. 취소 마감(N22): 시작 전 참가는 회차 시작까지(유예 없음), 시작 후 참가(하루형)는 min(참가+5분, 회차 종료)까지. 예약분(join-next·join-week)도 같은 규칙이다. 마지막 참가자가 떠나면 회차는 \"없던 일\"로 삭제된다.",
+        "operationId": "leaveSession",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "취소 성공 (본인 참가비 환불)"
+          },
+          "403": {
+            "description": "게스트 / 그룹원 아님"
+          },
+          "404": {
+            "description": "그룹 없음 / BET_NOT_FOUND(회차 없음·그룹 불일치)"
+          },
+          "409": {
+            "description": "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료) / BET_LEAVE_CLOSED(취소 마감 경과)"
+          }
+        }
+      }
+    },
     "/api/v1/groups/{groupId}/members/{targetUserId}": {
       "delete": {
         "tags": [
@@ -5208,7 +5252,7 @@
           "Group Bet"
         ],
         "summary": "챌린지 내기 취소",
-        "description": "개설자 본인 \u0026\u0026 참가자가 개설자 1명뿐 \u0026\u0026 OPEN 일 때만 취소할 수 있다. 판돈은 환불된다. 정산 배치와 겹치면 CAS 게이트에서 한쪽만 이긴다 (정산이 먼저면 BET_NOT_OPEN).",
+        "description": "개설자 본인 \u0026\u0026 참가자가 개설자 1명뿐 \u0026\u0026 OPEN 일 때만 취소할 수 있다. 판돈은 환불된다. 취소 마감(N22·GROMO-1423)도 철회와 같은 규칙이다 — 시작 전 참가는 회차 시작까지, 시작 후 참가(하루형)는 참가+5분(회차 종료 상한)까지. 정산 배치와 겹치면 CAS 게이트에서 한쪽만 이긴다(정산이 먼저면 BET_NOT_OPEN).",
         "operationId": "cancelBet",
         "parameters": [
           {
@@ -5241,7 +5285,7 @@
             "description": "그룹 없음 / BET_NOT_FOUND"
           },
           "409": {
-            "description": "BET_CANCEL_HAS_OTHERS(타 참가자 존재) / BET_NOT_OPEN(이미 종료·이중 취소)"
+            "description": "BET_CANCEL_HAS_OTHERS(타 참가자 존재) / BET_NOT_OPEN(이미 종료·이중 취소) / BET_LEAVE_CLOSED(취소 마감 경과)"
           }
         }
       }
@@ -5664,6 +5708,27 @@
           }
         }
       },
+      "JoinSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "stake": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balanceAfter": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "JoinGroupRequest": {
         "type": "object",
         "properties": {
@@ -5776,27 +5841,6 @@
           },
           "nickname": {
             "type": "string"
-          }
-        }
-      },
-      "JoinSessionResponse": {
-        "type": "object",
-        "properties": {
-          "sessionId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "sessionDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "stake": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "balanceAfter": {
-            "type": "integer",
-            "format": "int32"
           }
         }
       },
