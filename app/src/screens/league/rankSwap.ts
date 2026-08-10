@@ -37,9 +37,44 @@ import { M } from '@/constants/motion';
 //
 //    중간 기록은 지어낸 숫자가 아니다. 누적 집중 시간은 **단조 증가**라, 직전에 화면에 있던 값과
 //    새 서버 값 사이의 모든 값은 그 사용자가 실제로 거쳐 온 값이다 — 이미 이 저장소가 쓰는
-//    count-up(AnimatedNumber) 연출과 같은 지위다. 아래 램프는 그 구간을 단계 수로 나눠 오르되,
-//    각 단계에서 **그 순간 앞지르는 상대보다는 반드시 위**가 되도록 올려 잡는다.
+//    count-up(AnimatedNumber) 연출과 같은 지위다.
 //    ⚠️ 마지막 단계의 값은 예외 없이 **서버 최종값**이다. 중간값이 화면에 남으면 진짜 버그다.
+
+// ── 단계 기록은 **프레임 전체**를 보고 배정한다 (GROMO-1475) ───────────────────
+//
+// 지키는 불변식은 둘이다.
+//   ① **프레임 정합** — 각 프레임의 표시 기록은 그 프레임의 순서를 따라 **비증가**한다.
+//      예외는 하나뿐이고 그건 버그가 아니라 연출이다: **리드 프레임**에서 상승 행이
+//      *바로 다음 프레임에 앞지를 상대*보다 큰 값을 먼저 보여 준다 — 정본 §6이 요구하는
+//      자리 이동의 '원인'이 그 역전이다. 90ms 뒤 자리가 따라오며 곧바로 해소된다.
+//   ② **기록 불감소** — 각 행의 값은 `[직전 표시값, 서버 최종값]` 구간 안이다.
+//
+// 예전 배정은 **상승 행 하나**만 제약했다(방금 앞지른 상대보다 크고, 아직 안 넘은 다음 상대보다
+// 작게). 그래서 한 응답에서 여러 사용자의 기록이 함께 오르면 상승에 참여하지 않는 행이 곧장
+// 서버 최종값으로 튀어, "아래 행이 위 행보다 큰 기록"이 300ms 남았다(codex 리뷰, PR #561).
+//
+// 지금은 프레임 하나를 통째로 배정한다 — **위에서부터 천장을 눌러 내린다**:
+//     v(1) = f(1),  v(i) = min(f(i), v(i-1))
+// 정의상 그 프레임 순서를 따라 비증가고(①), 각 행이 가질 수 있는 **최댓값**이다. 그래서 이
+// 배정이 ②(v ≥ 직전 표시값)를 못 지키면 **어떤 배정도 못 지킨다** — 판정이 곧 가능성 판정이다.
+//
+// ⚠️ **두 불변식이 동시에 성립할 수 없는 입력이 있다.** 아래 행의 출발값이 위 행의 최종값보다
+//    크면(위 행의 천장이 아래 행의 바닥보다 낮으면) ①을 지키려면 기록을 깎아야 하고, ②를
+//    지키려면 순서가 깨진 프레임을 보여야 한다. 그때는 **단계화를 통째로 생략하고 최신 배열로
+//    즉시 간다**(결정 로그 N01). 점수 감소 갱신에 이미 쓰던 그 처방이다 — 기록을 거짓말하지도,
+//    깨진 프레임을 보이지도 않는다.
+//
+// 판정은 **두 순서만** 본다(O(n), 중간 스냅샷 불필요). 인접 스왑 정렬은 역전을 만들지 않고
+// 풀기만 하므로, 한 쌍의 상하 관계는 재생 내내 최대 한 번 `from` 관계 → `to` 관계로만 바뀐다.
+// 즉 어떤 중간 프레임에서 q가 r 위에 있다면 그건 `from`에서든 `to`에서든 이미 그랬다는 뜻이다.
+// 따라서
+//   · `to`에서 최종값이 비증가하고 (마지막 프레임은 서버 값 그대로라 우리가 고칠 수 없다)
+//   · `from`의 각 자리에서 **접두 최소 최종값 ≥ 그 행의 출발값** 이면
+// 모든 중간 프레임이 자동으로 성립한다.
+//
+// 프레임 사이 단조성도 같은 이유로 공짜다. r 위로 새로 끼어드는 행 q는 r을 앞지른 행뿐인데,
+// 그건 `to`에서 q가 r 위라는 뜻이라 f(q) ≥ f(r) ≥ (그때까지의 천장)이다 — 천장이 내려갈 일이
+// 없다. 마지막 프레임의 천장은 `to`의 접두 최소 = 각자의 최종값이라 언제나 서버 값으로 끝난다.
 
 /** 스왑 간격(ms) — 시안 `SWAP_GAP`. 완급 없이 같은 호흡으로 연달아. */
 export const SWAP_GAP_MS = 300;
@@ -69,6 +104,32 @@ export interface RankSwapFrame {
 }
 
 /**
+ * `from`을 `to` 순서로 만드는 **인접 스왑**을 순서대로 훑는다(삽입 정렬 = 최소 전치 횟수).
+ * 스냅샷을 만들지 않고 콜백에 넘기므로, 호출부가 **필요한 구간만** 복사할 수 있다.
+ * 반환값은 총 스왑 횟수. 같은 입력이면 두 번 돌려도 같은 순서를 준다(결정적).
+ */
+function walkAdjacentSwaps(
+  from: readonly string[],
+  targetIndex: ReadonlyMap<string, number>,
+  onSwap: (index: number, work: readonly string[]) => void,
+): number {
+  const work = [...from];
+  let n = 0;
+  for (let i = 1; i < work.length; i += 1) {
+    let j = i;
+    while (j > 0 && targetIndex.get(work[j - 1])! > targetIndex.get(work[j])!) {
+      const above = work[j - 1];
+      work[j - 1] = work[j];
+      work[j] = above;
+      j -= 1;
+      onSwap(n, work);
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/**
  * `from` 순서·기록에서 `to` 순서·기록으로 가는 **재생 계획**을 만든다.
  *
  * 프레임은 한 칸 이동마다 두 장씩 나온다 — 시안의 호흡 그대로다:
@@ -77,37 +138,13 @@ export interface RankSwapFrame {
  * 빈 배열을 돌려주면 "재생할 것이 없다" = 최신 배열을 그대로 그리면 된다는 뜻이다. 인접 스왑
  * 연출은 **행 노드의 동일성**을 전제하는데(정본 §6), 아래는 그 전제가 깨진 상황이라 중간 순서를
  * 그려도 의미가 없다: 순서가 이미 같다 · 길이가 다르다 · 구성원이 다르다 · 키에 중복이 있다.
+ * 여기에 더해 **두 불변식이 동시에 성립하지 않는 입력**도 빈 배열이다(위 GROMO-1475 주석) —
+ * 점수가 줄어든 갱신 · 최종값이 최종 순서와 어긋나는 응답 · 아래 행의 출발값이 위 행의 최종값을
+ * 넘는 배치.
  *
  * @param finalSeconds 새 응답의 기록(초) — 도착점
  * @param startSeconds **직전에 화면에 있던** 기록(초) — 출발점. 없는 키는 최종값에서 출발한다.
  */
-/**
- * `from`을 `to` 순서로 만드는 **인접 스왑**을 순서대로 훑는다(삽입 정렬 = 최소 전치 횟수).
- * 스냅샷을 만들지 않고 콜백에 넘기므로, 호출부가 **필요한 구간만** 복사할 수 있다.
- * 반환값은 총 스왑 횟수. 같은 입력이면 두 번 돌려도 같은 순서를 준다(결정적).
- */
-function walkAdjacentSwaps(
-  from: readonly string[],
-  targetIndex: ReadonlyMap<string, number>,
-  onSwap: (index: number, rising: string, falling: string, work: readonly string[]) => void,
-): number {
-  const work = [...from];
-  let n = 0;
-  for (let i = 1; i < work.length; i += 1) {
-    let j = i;
-    while (j > 0 && targetIndex.get(work[j - 1])! > targetIndex.get(work[j])!) {
-      const above = work[j - 1];
-      const below = work[j];
-      work[j - 1] = below;
-      work[j] = above;
-      j -= 1;
-      onSwap(n, below, above, work);
-      n += 1;
-    }
-  }
-  return n;
-}
-
 export function rankSwapFrames(
   from: readonly string[],
   to: readonly string[],
@@ -122,105 +159,88 @@ export function rankSwapFrames(
   if (targetIndex.size !== to.length) return [];
   if (from.some((key) => !targetIndex.has(key))) return [];
 
+  const finalOf = (key: string): number => finalSeconds.get(key) ?? 0;
+  /** 직전에 화면에 있던 값 = 그 행의 **바닥**. 없는 키는 이미 최종값을 보이고 있었다고 본다. */
+  const startOf = (key: string): number => startSeconds.get(key) ?? finalOf(key);
+
+  // ⚠️ **점수가 하나라도 줄었으면 단계화를 통째로 건너뛴다.** 주 경계(월요일 KST)나 재집계면
+  //    같은 구성원이 새 주 점수로 재정렬되는데, 이전 주 누적을 하한으로 붙들면 새 순서와 옛
+  //    기록이 최대 2초간 함께 표시되다 마지막에 급락한다(codex 리뷰). "올라가는 과정"이라는
+  //    이 연출의 전제 자체가 성립하지 않는 갱신이다. (= 불변식 ②가 아예 불가능한 입력)
+  if (from.some((key) => finalOf(key) < startOf(key))) return [];
+  // 도착점 자체가 정합해야 한다 — 마지막 프레임은 서버 최종값 그대로라 우리가 고칠 수 없다.
+  // (서버는 totalFocusSeconds 내림차순으로 순위를 주므로 평시엔 늘 참이다.)
+  for (let i = 1; i < to.length; i += 1) {
+    if (finalOf(to[i - 1]) < finalOf(to[i])) return [];
+  }
+  // 출발점에서도 두 불변식이 함께 성립하는가 — 위 행들의 천장(접두 최소 최종값)이 이 행의
+  // 바닥보다 낮으면 모순이다. 이 둘만 통과하면 중간 프레임 전부가 성립한다(위 주석의 근거).
+  let admissible = Number.POSITIVE_INFINITY;
+  for (const key of from) {
+    admissible = Math.min(admissible, finalOf(key));
+    if (admissible < startOf(key)) return [];
+  }
+
   // 인접 스왑만으로 from을 to로 정렬한다(삽입 정렬 = 최소 전치 횟수 = 역전 수).
-  // 스왑마다 **누가 올라가고 누가 밀려났는지**를 남긴다 — 기록 단계값을 정하려면 그 순간
-  // 누구를 앞질렀는지가 필요하다.
   //
   // ⚠️ 순서 스냅샷은 여기서 만들지 않는다. 상위 100명이 크게 뒤집히는 갱신(주 경계 등)이면
   //    역전이 최대 4,950번인데, 재생하는 건 마지막 6단계뿐이라 나머지 스냅샷은 만들자마자
   //    버려진다 — 100항목 배열 4,950개(약 49만 참조)를 **렌더 중 동기적으로** 만드는 셈이다
   //    (codex 리뷰). 그래서 1차는 세기만 하고, 필요한 구간만 2차에서 만든다.
-  const risers: string[] = [];
-  const fallers: string[] = [];
-  const total = walkAdjacentSwaps(from, targetIndex, (_i, rising, falling) => {
-    risers.push(rising);
-    fallers.push(falling);
-  });
+  const total = walkAdjacentSwaps(from, targetIndex, () => {});
   if (total === 0) return [];
 
-  // 상한 초과분은 **첫 한 단계로 묶는다**(위 SWAP_MAX_STEPS 주석). 묶인 구간의 스왑도 기록
-  // 계산에는 그대로 통과시킨다 — 그래야 묶음 프레임의 값이 "건너뛴 상대까지 전부 앞지른 값"이
-  // 되어, 여러 칸을 한 번에 오르는 그 이동과 숫자가 어긋나지 않는다.
+  // 상한 초과분은 **첫 한 단계로 묶는다**(위 SWAP_MAX_STEPS 주석). 묶음의 기록은 따로 계산할
+  // 게 없다 — 값은 **묶음이 끝난 그 프레임의 순서**로 배정되므로, 건너뛴 상대까지 전부 앞지른
+  // 값이 저절로 나온다.
   const bundledUpTo = total > maxSteps ? total - maxSteps : 0;
 
   // 실제로 재생되는 구간(묶음 경계 이후)의 순서만 만든다 — 최대 maxSteps개다.
   const orders = new Map<number, string[]>();
-  walkAdjacentSwaps(from, targetIndex, (i, _rising, _falling, work) => {
+  walkAdjacentSwaps(from, targetIndex, (i, work) => {
     if (i >= bundledUpTo) orders.set(i, [...work]);
   });
-
-  // 각 행이 '올라가는 쪽'으로 참여하는 스왑 인덱스 — 램프의 분모와 '마지막 상승' 판정에 쓴다.
-  const riseAt = new Map<string, number[]>();
-  risers.forEach((key, i) => {
-    const list = riseAt.get(key);
-    if (list) list.push(i);
-    else riseAt.set(key, [i]);
-  });
-
-  const finalOf = (key: string): number => finalSeconds.get(key) ?? 0;
-
-  // ⚠️ **점수가 하나라도 줄었으면 단계화를 통째로 건너뛴다.** 주 경계(월요일 KST)나 재집계면
-  //    같은 구성원이 새 주 점수로 재정렬되는데, 이전 주 누적을 하한으로 붙들면 새 순서와 옛
-  //    기록이 최대 2초간 함께 표시되다 마지막에 급락한다(codex 리뷰). "올라가는 과정"이라는
-  //    이 연출의 전제 자체가 성립하지 않는 갱신이다.
-  if ([...startSeconds].some(([key, prev]) => finalOf(key) < prev)) return [];
-  // 지금 화면에 표시 중인 기록. 상승하는 행만 **직전 표시값**에서 출발한다(아직 안 자란 상태);
-  // 밀려나는 행은 기록이 줄지 않으므로 처음부터 최종값 그대로다.
-  const shown = new Map<string, number>();
-  riseAt.forEach((_, key) => shown.set(key, startSeconds.get(key) ?? finalOf(key)));
-  const shownOf = (key: string): number => shown.get(key) ?? finalOf(key);
 
   const frames: RankSwapFrame[] = [];
   let prevOrder: string[] = [...from];
   let step = 0;
-  for (let i = 0; i < total; i += 1) {
-    const rising = risers[i];
-    const rises = riseAt.get(rising)!;
-    const nth = rises.indexOf(i) + 1;
-    const finalR = finalOf(rising);
-    if (nth === rises.length) {
-      // 이 행의 마지막 상승 — 서버 최종값으로 확정한다.
-      shown.set(rising, finalR);
-    } else {
-      const startR = startSeconds.get(rising) ?? finalR;
-      // 직전 표시값 → 최종값을 상승 횟수로 나눈 램프. 다만 이 프레임에서 앞지르는 상대보다는
-      // 반드시 위여야 순서와 숫자가 서로 모순되지 않는다(정본 "바로 위 사람을 앞지르는 값").
-      const ramp = Math.round(startR + ((finalR - startR) * nth) / rises.length);
-      // ⚠️ **동점으로 앞선 경우에는 같은 기록을 허용한다.** 서버는 동점이면 userId 오름차순으로
-      //    순위를 가르므로(LeagueRankingQueryRepository), 무조건 +1을 하면 마지막 단계에서 서버
-      //    값으로 되떨어지며 **실제로 존재하지 않은 집중 시간**이 잠깐 노출된다(codex 리뷰).
-      const tiedAtFinal = finalR === finalOf(fallers[i]);
-      const overtake = shownOf(fallers[i]) + (tiedAtFinal ? 0 : 1);
-      // ⚠️ **아직 넘지 않은 다음 상대보다는 작아야 한다.** 최종 증가폭이 크면(3위→1위 등)
-      //    ramp가 다음 상대의 기록까지 넘어서, 행은 아직 2위인데 표시 기록은 1위보다 큰
-      //    모순이 다음 단계까지 300ms 남는다 — 단계별 기록으로 상승의 원인을 설명하려던
-      //    연출이 정반대로 뒤집힌다(codex 리뷰).
-      const nextFaller = fallers[rises[nth]];
-      const ceiling = nextFaller === undefined ? finalR : Math.min(finalR, shownOf(nextFaller) - 1);
-      // 방금 앞지른 상대보다는 반드시 커야 하므로, 천장이 그보다 낮으면 overtake를 택한다
-      // (두 제약이 충돌하는 건 상대 둘의 기록이 붙어 있을 때뿐이고, 그때는 '넘었다'가 우선이다).
-      shown.set(rising, Math.max(overtake, Math.min(ceiling, Math.max(ramp, shownOf(rising)))));
-      // ⚠️ **두 제약이 충돌하면 이 스왑은 프레임을 내지 않는다.** 방금 넘은 상대와 아직 안 넘은
-      //    상대의 기록이 같거나 1초 차이면 사이에 쓸 정수가 없어, overtake를 택하는 순간 아직
-      //    아래에 있는 상대보다 큰 값이 표시된다(codex 리뷰). 그 중간 상태를 **보여주지 않고**
-      //    다음 스왑과 한 단계로 묶는다 — 동점 블록을 함께 지나가는 셈이다.
-      //    (마지막 상승이면 위 분기라 여기 오지 않는다 — 최종값은 항상 그려진다.)
-      if (ceiling < overtake) continue;
-    }
-    // 묶인 구간은 기록만 반영하고 프레임은 내지 않는다.
-    if (i < bundledUpTo) continue;
-    const at = step * (SWAP_LEAD_MS + SWAP_GAP_MS);
-    const seconds = overridesOf(shown, finalSeconds);
-    // 기록이 먼저 자라고(prevOrder 유지), LEAD 뒤에 자리가 바뀐다.
-    frames.push({ at, order: prevOrder, seconds });
+  for (let i = bundledUpTo; i < total; i += 1) {
     const order = orders.get(i)!;
+    // 값은 **자리 이동이 끝난 뒤의 순서**로 배정한다. 그 값을 먼저 보여 주고(prevOrder 유지),
+    // LEAD 뒤에 자리가 따라온다 — 리드 프레임의 역전이 곧 이 이동의 '원인'이다(정본 §6).
+    const seconds = overridesOf(ceilingSeconds(order, finalOf), finalSeconds);
+    const at = step * (SWAP_LEAD_MS + SWAP_GAP_MS);
+    frames.push({ at, order: prevOrder, seconds });
     frames.push({ at: at + SWAP_LEAD_MS, order, seconds: new Map(seconds) });
     prevOrder = order;
     step += 1;
   }
+  // ⚠️ 재생 구간은 최소 한 단계라 여기서 프레임이 비지는 않는다. 그래도 무가드로 마지막
+  //    프레임을 건드리면 `TypeError: Cannot set properties of undefined`로 화면이 통째로
+  //    날아간다 — 상한·묶음 규칙이 바뀌어도 안전하도록 막아 둔다(GROMO-1475).
+  if (frames.length === 0) return [];
   // 마지막 프레임은 예외 없이 서버 최종값이다 — 중간값이 화면에 남지 않는다는 보장.
+  // (`to`에서 최종값이 비증가라는 위 검사 덕에 이 대입은 천장 배정과 같은 값이다.)
   frames[frames.length - 1].seconds = new Map();
   return frames;
+}
+
+/**
+ * 한 프레임의 표시 기록 — **위에서부터 천장을 눌러 내린다**: `v(i) = min(f(i), v(i-1))`.
+ * 정의상 이 순서를 따라 비증가고(불변식 ①), 각 행이 가질 수 있는 최댓값이다.
+ * 바닥(직전 표시값)은 여기서 다시 보지 않는다 — 위쪽 판정이 이미 `천장 ≥ 바닥`을 확인했다.
+ */
+function ceilingSeconds(
+  order: readonly string[],
+  finalOf: (key: string) => number,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  let ceiling = Number.POSITIVE_INFINITY;
+  for (const key of order) {
+    ceiling = Math.min(ceiling, finalOf(key));
+    out.set(key, ceiling);
+  }
+  return out;
 }
 
 /** 최종값과 다른 항목만 남긴다 — 덮어쓸 게 없으면 빈 Map이 되어 호출부가 최신 값을 그대로 쓴다. */
