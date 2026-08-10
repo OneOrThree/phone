@@ -211,3 +211,21 @@ describe('프리셋 내용', () => {
     });
   });
 });
+
+// ⚠️ 프리셋은 "인자가 유한하다"는 전제로 참조를 캐싱한다(CSS animationName은 참조 동등성으로
+//    재시작을 판단하므로 캐시가 필수다). 동적 delay를 넘기는 호출부가 생기면 캐시가 무한히
+//    자라는데, 눈에 띄는 증상이 없어 조용히 샌다. 그 조기 경보가 사라지지 않게 잠근다.
+describe('프리셋 캐시 누수 경보', () => {
+  it('임계치를 넘으면 경고하되 프리셋당 한 번만 찍는다', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // 32개 임계치를 확실히 넘긴다 — delay 값마다 캐시 항목이 하나씩 생긴다
+      for (let i = 0; i < 50; i += 1) fadeIn(1000 + i);
+      const calls = warn.mock.calls.filter((c) => String(c[0]).includes('fadeIn'));
+      expect(calls).toHaveLength(1);
+      expect(String(calls[0][0])).toContain('[motion]');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
