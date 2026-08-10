@@ -107,4 +107,40 @@ describe('진입 시차 고정', () => {
       jest.useRealTimers();
     }
   });
+
+  // 궤적 타이머가 도는 중에 같은 행이 **다시 내려가면**(핀 필터·리그 전환·새 재정렬 계획)
+  // 정리 함수가 그 타이머를 취소해 setRising(false)가 영영 오지 않는다 — 그 행이 zIndex 2를
+  // 영구히 들고 앉아 진짜 상승 행을 덮는다(codex 리뷰).
+  test('궤적 중에 다시 내려가면 상승 표시를 그 자리에서 내린다', async () => {
+    jest.useFakeTimers();
+    try {
+      const view = await render(
+        <RankRowShell index={3}>
+          <View testID="row" />
+        </RankRowShell>,
+      );
+      await view.rerender(
+        <RankRowShell index={1}>
+          <View testID="row" />
+        </RankRowShell>,
+      );
+      expect(zIndexOf('row')).toBe(2);
+
+      // 궤적이 끝나기 전에 다시 하강 — 타이머는 취소되지만 표시는 즉시 내려가야 한다
+      await view.rerender(
+        <RankRowShell index={4}>
+          <View testID="row" />
+        </RankRowShell>,
+      );
+      expect(zIndexOf('row')).toBe(1);
+
+      // 시간이 흘러도 되살아나지 않는다
+      await act(async () => {
+        jest.advanceTimersByTime(M.dur.base * 2);
+      });
+      expect(zIndexOf('row')).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

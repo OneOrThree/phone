@@ -49,7 +49,14 @@ export function RankRowShell({ index, onLayout, children }: Props) {
   useEffect(() => {
     const moved = index < prevIndexRef.current;
     prevIndexRef.current = index;
-    if (!moved) return undefined;
+    if (!moved) {
+      // ⚠️ 상승 표시를 **여기서 반드시 내린다.** 궤적 타이머가 아직 도는 중에 핀 필터·리그
+      //    전환·새 재정렬 계획으로 같은 행이 다시 내려가면, 정리 함수가 그 타이머를 취소해
+      //    버려서 `setRising(false)`가 영영 오지 않는다. 그 행은 zIndex 2를 영구히 들고
+      //    앉아 진짜 상승 행을 덮는다(codex 리뷰).
+      setRising(false);
+      return undefined;
+    }
     setRising(true);
     const t = setTimeout(() => setRising(false), M.dur.base);
     return () => clearTimeout(t);
