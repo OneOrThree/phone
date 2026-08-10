@@ -106,10 +106,12 @@ public class GroupChallengeResponse {
      * (하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다).
      *
      * <p><b>이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.</b> V5 가 인라인 파라미터를 CTI
-     * 상세 테이블로 이관할 때 {@code WHERE type = 'TIME_WINDOW' AND window_start IS NOT NULL AND
-     * window_end IS NOT NULL} 로 백필했다 — 시각이 null 이던 구 행은 챌린지 행만 남고 상세가
-     * 만들어지지 않았다. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
-     * <b>앱이 「null == INACTIVE」로 단정하면 그 경우에 어긋난다.</b>
+     * 상세 테이블로 이관할 때 백필을 <b>두 번</b> 했다 — ⑴ 챌린지 자체의 {@code window_start}·
+     * {@code window_end} 가 NOT NULL 인 행, ⑵ 그게 null 이어도 <b>그룹의 미션 설정</b>이
+     * {@code type}·{@code category} 까지 일치하고 시각이 있는 경우(그룹 값 폴백). 따라서 상세가
+     * 없는 행은 <b>둘 다 없었던 경우</b>다 — 챌린지 값이 null 이고, 그룹 폴백도 (종류·카테고리가
+     * 다르거나 시각이 null 이라) 적용되지 않은 행. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는
+     * 않는다. <b>앱이 「null == INACTIVE」로 단정하면 그 경우에 어긋난다.</b>
      *
      * <p>요일 반복(B1, GROMO-1260)은 배선이 끝났다 — {@code GroupBetService#repeatDaysOf} 가
      * 챌린지의 {@code repeatDays} 마스크를 넘기고 {@code RepeatSchedule#next} 가 그중 다음
