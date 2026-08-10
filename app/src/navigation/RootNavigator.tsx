@@ -15,7 +15,7 @@ import {
   GroupCreateScreen,
   GroupRoomRouteScreen,
   NoticeScreen,
-  GroupBetHistoryScreen,
+  GroupChallengeHistoryScreen,
   GroupSettingsScreen,
   GroupCardEmojiEditScreen,
   GroupProfileEditScreen,
@@ -125,8 +125,9 @@ export function RootNavigator() {
         <Stack.Screen name="GroupCreate" component={GroupCreateScreen} />
         <Stack.Screen name="GroupRoom" component={GroupRoomRouteScreen} />
         <Stack.Screen name="GroupNotice" component={NoticeScreen} />
-        {/* 내기 히스토리(GROMO-1221) — 챌린지 카드 위 지난 내기 결과 시트에서 push */}
-        <Stack.Screen name="GroupBetHistory" component={GroupBetHistoryScreen} />
+        {/* 그룹 챌린지 내역(GROMO-1277) — 그룹방 링크(전체) · 지난 결과 시트(챌린지 필터)에서 push.
+            이력의 소유자가 그룹이라 챌린지가 삭제돼도 이 화면은 살아 있다(N6-1) */}
+        <Stack.Screen name="GroupChallengeHistory" component={GroupChallengeHistoryScreen} />
         {/* 그룹 운영(3차) — 방장 전용. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 관리 허브이며
             여기서 위임·멤버관리·공지권한으로 갈라진다 */}
         <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />
