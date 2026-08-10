@@ -86,3 +86,25 @@ test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한
   expect(screen.getByTestId('group.card.room.g1')).toBeOnTheScreen();
   expect(screen.queryByText('현재 집중 0명')).toBeNull();
 });
+
+test('그룹 활동 수는 ACTIVE 상태만 센다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: { status: 'loading' },
+        challenges: {
+          status: 'ready',
+          data: [
+            { id: 'active', status: 'ACTIVE' },
+            { id: 'inactive', status: 'INACTIVE' },
+          ] as never,
+        },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('진행 중인 활동 1개')).toBeOnTheScreen();
+});

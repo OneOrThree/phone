@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import type { LeagueMemberResponse } from '@/types/api';
 import { todayStrKst } from '@/utils/localDate';
@@ -30,6 +30,8 @@ export interface GroupCardData {
 /** 카드 화면 하나가 소유하는 adapter와 60초 polling 수명을 React에 연결한다. */
 export function useGroupCardData({ userId, groupIds, screenFocused }: Params): GroupCardData {
   const adapter = useMemo(() => new GroupCardSummaryAdapter(sharedFocus), []);
+  const openedGroupIdsRef = useRef(new Set<string>());
+  const openedUserIdRef = useRef<string | null>(userId);
   const [date, setDate] = useState(todayStrKst);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [, render] = useState(0);
@@ -42,7 +44,20 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
   );
 
   useEffect(() => {
+    if (openedUserIdRef.current !== userId) {
+      openedGroupIdsRef.current.clear();
+      openedUserIdRef.current = userId;
+    }
+    const currentGroupIds = new Set(groupIds);
+    for (const openedGroupId of openedGroupIdsRef.current) {
+      if (!currentGroupIds.has(openedGroupId)) openedGroupIdsRef.current.delete(openedGroupId);
+    }
     adapter.setScope(userId ? { userId, date, groupIds } : null);
+    // 이미 뒷면을 연 카드는 KST 날짜가 바뀌어 날짜별 detail/challenge cache가 idle로
+    // 교체되더라도 사용자 조작을 다시 기다리지 않고 새 날짜 dependency를 시작한다.
+    for (const openedGroupId of openedGroupIdsRef.current) {
+      adapter.ensureBack(openedGroupId).catch(() => undefined);
+    }
     render((value) => value + 1);
   }, [adapter, date, groupIds, groupKey, userId]);
 
@@ -86,6 +101,7 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
 
   const ensureBack = useCallback(
     (groupId: string) => {
+      openedGroupIdsRef.current.add(groupId);
       controller?.activate();
       adapter.ensureBack(groupId).catch(() => undefined);
     },

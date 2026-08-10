@@ -181,28 +181,31 @@ describe('콜백', () => {
     expect(screen.queryByTestId('group.list.back')).toBeNull();
   });
 
-  test('당겨서 새로고침 — 조회가 끝날 때까지만 인디케이터를 세운다', async () => {
+  test('가로 덱에서도 헤더 새로고침을 누를 수 있고 조회 중 연타를 막는다', async () => {
     // 조회가 끝나는 시점을 테스트가 쥔다 — 인디케이터가 '도는 동안'과 '끝난 뒤'를 나눠 본다.
     let finish!: () => void;
     onRefresh.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
     await renderList([group()]);
 
-    // RefreshControl은 리스트의 자식이라 fireEvent가 위로 훑어 찾지 못한다(RNTL 14는 UNSAFE_*
-    // 쿼리도 없다) — FlatList에 넘긴 요소를 리스트 props에서 직접 집는다.
-    const control = () => screen.getByTestId('group.list.items').props.refreshControl.props;
-    expect(control().refreshing).toBe(false);
-
     await act(async () => {
-      control().onRefresh();
+      fireEvent.press(screen.getByTestId('group.list.refresh'));
     });
     expect(onRefresh).toHaveBeenCalledTimes(1);
-    expect(control().refreshing).toBe(true);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.list.refresh'));
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
 
     // 끝나면 반드시 내린다 — 안 내리면 스피너가 영구히 남는다.
     await act(async () => {
       finish();
     });
-    expect(control().refreshing).toBe(false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.list.refresh'));
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(2);
   });
 });
 

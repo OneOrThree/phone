@@ -37,6 +37,10 @@ export function GroupCardBack({
   const memberIds =
     detail.status === 'ready' ? detail.data.members.map((member) => member.userId) : [];
   const focusCount = deriveGroupFocusCount(memberIds, focus);
+  const activeChallengeCount =
+    challenges.status === 'ready'
+      ? challenges.data.filter((challenge) => challenge.status === 'ACTIVE').length
+      : 0;
 
   return (
     <View style={s.root} testID={`group.card.back.${group.groupId}`}>
@@ -97,7 +101,7 @@ export function GroupCardBack({
       <View style={s.section}>
         <Text style={s.sectionTitle}>그룹 활동</Text>
         {challenges.status === 'ready' ? (
-          <Text style={s.body}>진행 중인 활동 {challenges.data.length}개</Text>
+          <Text style={s.body}>진행 중인 활동 {activeChallengeCount}개</Text>
         ) : challenges.status === 'error' ? (
           <TouchableOpacity onPress={() => onRetry('challenges')}>
             <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>

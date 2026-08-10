@@ -5,7 +5,6 @@ import {
   FlatList,
   findNodeHandle,
   PanResponder,
-  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -554,6 +553,16 @@ export default function GroupListScreen({
           </TouchableOpacity>
         )}
         <Text style={s.headerTitle}>내 그룹</Text>
+        <TouchableOpacity
+          style={s.refreshBtn}
+          onPress={handleRefresh}
+          disabled={refreshing}
+          accessibilityRole="button"
+          accessibilityLabel="그룹 새로고침"
+          testID="group.list.refresh"
+        >
+          <Ionicons name="refresh" size={18} color={T.inkSub} />
+        </TouchableOpacity>
       </View>
 
       <View
@@ -582,13 +591,6 @@ export default function GroupListScreen({
             <View style={{ marginLeft: CARD_GAP }}>
               <FindMoreCard width={cardWidth} onPress={onFind} />
             </View>
-          }
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={T.accent}
-            />
           }
           renderItem={({ item, index }) => (
             <View
@@ -708,6 +710,15 @@ const s = StyleSheet.create({
     paddingBottom: T.space.md,
   },
   headerTitle: { ...T.text.title, color: T.ink },
+  refreshBtn: {
+    marginLeft: 'auto',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 1,
+  },
   // 그룹 스택 화면(GroupCreateScreen s.backBtn)과 같은 규격 — 32/r16/white/border
   backBtn: {
     width: 32,
