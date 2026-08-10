@@ -188,13 +188,26 @@ export default function GroupSettingsScreen() {
       </View>
     );
   } else {
-    // ── 허브 — 방장은 관리 행 + 나가기, 비방장은 나가기만 ──
+    // ── 허브 — 내 카드 아이콘은 역할 공통, 서버 운영 행만 방장 전용 ──
     body = (
       <ScrollView
         style={s.scroll}
         contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + T.space.xxl }]}
         showsVerticalScrollIndicator={false}
       >
+        {me && (
+          <>
+            <Text style={s.sectionTitle}>내 설정</Text>
+            <View style={s.navGroup}>
+              {navRow(
+                'color-palette-outline',
+                '내 카드 아이콘',
+                () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
+                'group.settings.cardEmoji',
+              )}
+            </View>
+          </>
+        )}
         {isOwner && (
           <>
             <Text style={s.sectionTitle}>그룹 관리</Text>
