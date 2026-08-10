@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  useWindowDimensions,
   View,
   type LayoutChangeEvent,
   type StyleProp,
@@ -17,6 +21,8 @@ import { T } from '@/constants/theme';
 import { enterUp } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { FindMoreCard } from './components/FindMoreCard';
+import { PageIndicator } from './components/PageIndicator';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -40,6 +46,8 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 
 // 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
 const TAB_BAR_SPACE = 74;
+const SIDE_PEEK = 24;
+const CARD_GAP = 12;
 
 /**
  * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
@@ -106,6 +114,8 @@ export interface GroupListScreenProps {
   onFind: () => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
+  // 단계별 개발 중인 덱은 명시적으로 켠 테스트/통합 화면에서만 노출한다.
+  enableCardDeck?: boolean;
 }
 
 export default function GroupListScreen({
@@ -115,9 +125,29 @@ export default function GroupListScreen({
   onFind,
   onRefresh,
   onBack,
+  enableCardDeck = false,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(groups[0]?.groupId ?? null);
+  const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
+  const snapInterval = cardWidth + CARD_GAP;
+  const pageCount = groups.length + 1;
+  const groupFingerprint = groups.map((group) => group.groupId).join('|');
+  const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
+  const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
+  const activeIndexRef = useRef(0);
+  const previousGroupFingerprintRef = useRef(groupFingerprint);
+  const previousSnapIntervalRef = useRef(snapInterval);
+  const previousEnableCardDeckRef = useRef(enableCardDeck);
+  const stableActiveIndex =
+    activeGroupId === null ? groups.length : groups.findIndex((g) => g.groupId === activeGroupId);
+  const renderedActiveIndex =
+    stableActiveIndex >= 0
+      ? stableActiveIndex
+      : Math.min(activeIndex, Math.max(0, groups.length - 1));
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -138,6 +168,165 @@ export default function GroupListScreen({
     }
   }, [onRefresh]);
 
+  const selectPage = useCallback(
+    (page: number) => {
+      const next = Math.max(0, Math.min(page, pageCount - 1));
+      listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
+      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      setActiveGroupId(groups[next]?.groupId ?? null);
+      activeIndexRef.current = next;
+      setActiveIndex(next);
+    },
+    [groups, pageCount, snapInterval],
+  );
+
+  const settlePage = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const next = Math.max(
+        0,
+        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
+      );
+      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      setActiveGroupId(groups[next]?.groupId ?? null);
+      activeIndexRef.current = next;
+      setActiveIndex(next);
+    },
+    [groups, pageCount, snapInterval],
+  );
+
+  // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
+  useEffect(() => {
+    const reactivated = enableCardDeck && !previousEnableCardDeckRef.current;
+    previousEnableCardDeckRef.current = enableCardDeck;
+    if (!enableCardDeck) return;
+    const orderChanged = previousGroupFingerprintRef.current !== groupFingerprint;
+    const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
+    previousGroupFingerprintRef.current = groupFingerprint;
+    previousSnapIntervalRef.current = snapInterval;
+    if (!orderChanged && !intervalChanged && !reactivated) return;
+
+    const identity = activeIdentityRef.current;
+    const next =
+      identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
+    const safeIndex =
+      next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
+    activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    setActiveGroupId(groups[safeIndex]?.groupId ?? null);
+    activeIndexRef.current = safeIndex;
+    setActiveIndex(safeIndex);
+    listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
+  }, [enableCardDeck, groupFingerprint, groups, snapInterval]);
+
+  const refreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
+  );
+  const groupList = (
+    <FlatList
+      ref={listRef}
+      testID="group.list.items"
+      data={groups}
+      keyExtractor={(item) => item.groupId}
+      horizontal={enableCardDeck}
+      showsHorizontalScrollIndicator={false}
+      CellRendererComponent={GroupListCell}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={
+        enableCardDeck ? [s.listContent, { paddingHorizontal: SIDE_PEEK }] : s.legacyListContent
+      }
+      ItemSeparatorComponent={
+        enableCardDeck ? () => <View style={{ width: CARD_GAP }} /> : undefined
+      }
+      snapToInterval={enableCardDeck ? snapInterval : undefined}
+      snapToAlignment={enableCardDeck ? 'start' : undefined}
+      decelerationRate={enableCardDeck ? 'fast' : 'normal'}
+      disableIntervalMomentum={enableCardDeck}
+      onMomentumScrollEnd={enableCardDeck ? settlePage : undefined}
+      onScrollEndDrag={enableCardDeck ? settlePage : undefined}
+      ListFooterComponent={
+        enableCardDeck ? (
+          <View
+            style={{ marginLeft: CARD_GAP }}
+            pointerEvents={renderedActiveIndex === groups.length ? 'auto' : 'none'}
+            accessibilityElementsHidden={renderedActiveIndex !== groups.length}
+            importantForAccessibility={
+              renderedActiveIndex === groups.length ? 'auto' : 'no-hide-descendants'
+            }
+            testID="group.deck.findMorePage"
+          >
+            <FindMoreCard
+              width={cardWidth}
+              position={pageCount}
+              pageCount={pageCount}
+              onPress={onFind}
+              focusable={renderedActiveIndex === groups.length}
+            />
+          </View>
+        ) : null
+      }
+      refreshControl={enableCardDeck ? undefined : refreshControl}
+      renderItem={({ item, index }) => {
+        const active = !enableCardDeck || index === renderedActiveIndex;
+        return (
+          <View
+            pointerEvents={active ? 'auto' : 'none'}
+            accessibilityElementsHidden={!active}
+            importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
+            testID={`group.list.cardPage.${item.groupId}`}
+          >
+            <TouchableOpacity
+              style={[s.card, enableCardDeck ? [s.deckCard, { width: cardWidth }] : s.legacyCard]}
+              activeOpacity={0.85}
+              onPress={() => onSelect(item.groupId)}
+              focusable={active}
+              accessibilityRole="button"
+              accessibilityLabel={
+                enableCardDeck
+                  ? `${item.name}${item.description ? `, ${item.description}` : ''}, ${item.isPrivate ? '비밀방' : '공개방'}, ${item.role === 'OWNER' ? '방장' : '멤버'}, ${item.currentMembers}/${item.maxMembers}명, 현재 ${index + 1}/${pageCount} 페이지`
+                  : undefined
+              }
+              testID={`group.list.card.${item.groupId}`}
+            >
+              <View style={s.cardMain}>
+                <View style={s.cardTitleRow}>
+                  <Text style={s.cardName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {item.isPrivate && (
+                    <Ionicons
+                      name="lock-closed"
+                      size={14}
+                      color={T.inkSub}
+                      accessibilityLabel="비공개 그룹"
+                    />
+                  )}
+                  {item.role === 'OWNER' && (
+                    <MaterialCommunityIcons
+                      name="crown"
+                      size={16}
+                      color={T.accent}
+                      accessibilityLabel="내가 방장"
+                    />
+                  )}
+                </View>
+                {!!item.description && (
+                  <Text style={s.cardDesc} numberOfLines={2}>
+                    {item.description}
+                  </Text>
+                )}
+              </View>
+              <View style={s.cardRight}>
+                <Text style={s.cardCount}>
+                  {item.currentMembers}/{item.maxMembers}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+              </View>
+            </TouchableOpacity>
+          </View>
+        );
+      }}
+    />
+  );
+
   return (
     <View style={s.root} testID="group.list">
       <View style={s.header}>
@@ -156,63 +345,24 @@ export default function GroupListScreen({
         <Text style={s.headerTitle}>내 그룹</Text>
       </View>
 
-      <FlatList
-        testID="group.list.items"
-        data={groups}
-        keyExtractor={(item) => item.groupId}
-        contentContainerStyle={s.listContent}
-        CellRendererComponent={GroupListCell}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
-        }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={s.card}
-            activeOpacity={0.85}
-            onPress={() => onSelect(item.groupId)}
-            testID={`group.list.card.${item.groupId}`}
-          >
-            <View style={s.cardMain}>
-              {/* 1행: 이름 + 비공개 자물쇠 */}
-              <View style={s.cardTitleRow}>
-                <Text style={s.cardName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                {item.isPrivate && (
-                  <Ionicons
-                    name="lock-closed"
-                    size={14}
-                    color={T.inkSub}
-                    accessibilityLabel="비공개 그룹"
-                  />
-                )}
-                {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠는 그대로 둔다) */}
-                {item.role === 'OWNER' && (
-                  <MaterialCommunityIcons
-                    name="crown"
-                    size={16}
-                    color={T.accent}
-                    accessibilityLabel="내가 방장"
-                  />
-                )}
-              </View>
-              {/* 2행: 소개 — 백엔드가 목록 응답에 description을 실어줄 때만 노출 */}
-              {!!item.description && (
-                <Text style={s.cardDesc} numberOfLines={2}>
-                  {item.description}
-                </Text>
-              )}
-            </View>
-            <View style={s.cardRight}>
-              <Text style={s.cardCount}>
-                {item.currentMembers}/{item.maxMembers}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
-            </View>
-          </TouchableOpacity>
-        )}
-      />
+      {enableCardDeck ? (
+        <ScrollView
+          style={s.deckRefreshHost}
+          contentContainerStyle={s.deckRefreshContent}
+          refreshControl={refreshControl}
+          testID="group.deck.refresh"
+        >
+          {groupList}
+          <PageIndicator
+            pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+            pageKeys={[...groups.map((group) => group.groupId), 'find-more']}
+            activeIndex={renderedActiveIndex}
+            onSelectPage={selectPage}
+          />
+        </ScrollView>
+      ) : (
+        groupList
+      )}
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
       <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
@@ -263,7 +413,14 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  listContent: { paddingHorizontal: T.space.xl, paddingBottom: T.space.md, gap: T.space.md },
+  listContent: { paddingBottom: T.space.md },
+  deckRefreshHost: { flex: 1 },
+  deckRefreshContent: { flexGrow: 1 },
+  legacyListContent: {
+    paddingHorizontal: T.space.xl,
+    paddingBottom: T.space.md,
+    gap: T.space.md,
+  },
 
   // 카드 표면은 T.paperAlt — 그룹 탭 배경이 흰 캔버스(T.paperLight)라 T.white 카드는 묻힌다
   // (그룹방의 초대·공지 카드와 같은 기준).
@@ -280,6 +437,8 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     paddingVertical: T.space.lg,
   },
+  legacyCard: { minHeight: 58 },
+  deckCard: { minHeight: 220 },
   cardMain: { flex: 1, gap: 4, minWidth: 0 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
