@@ -35,3 +35,5 @@ supabase/.temp/
 
 # Android 환경별 빌드 자격 파일 (keystore·google-services·비번 — 커밋 금지, 별도 공유)
 android/credentials/
+# Android 릴리즈 서명 자격 (템플릿: android/keystore.properties.example — keystore 파일 자체는 루트 .gitignore의 *.keystore로 차단)
+android/keystore.properties
