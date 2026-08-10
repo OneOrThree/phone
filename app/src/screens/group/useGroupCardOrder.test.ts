@@ -66,3 +66,28 @@ test('로컬 쓰기 실패에도 현재 세션 순서는 유지하고 다음 커
   });
   await waitFor(() => expect(result.current.saveFailed).toBe(false));
 });
+
+test('이전 계정의 늦은 저장 실패가 새 계정 오류 상태를 바꾸지 않는다', async () => {
+  let rejectOldWrite: (error: Error) => void = () => undefined;
+  const { result, rerender } = await renderHook(
+    ({ userId }: { userId: string }) => useGroupCardOrder({ serverGroupIds: ['a', 'b'], userId }),
+    { initialProps: { userId: 'u1' } },
+  );
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(
+    () =>
+      new Promise<void>((_, reject) => {
+        rejectOldWrite = reject;
+      }),
+  );
+
+  await act(async () => {
+    result.current.commitOrder(['b', 'a']);
+  });
+  await rerender({ userId: 'u2' });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  await act(async () => rejectOldWrite(new Error('old account write failed')));
+
+  expect(result.current.saveFailed).toBe(false);
+  expect(result.current.orderedGroupIds).toEqual(['a', 'b']);
+});
