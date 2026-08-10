@@ -111,9 +111,9 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props.accessibilityLabel).toContain(
       '내 카드 아이콘 책',
     );
-    expect(
-      screen.getByTestId(`group.list.card.${GROUP_ID_2}`).props.accessibilityLabel,
-    ).toContain('내 카드 아이콘 목표');
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID_2}`).props.accessibilityLabel).toContain(
+      '내 카드 아이콘 목표',
+    );
   });
 });
 
