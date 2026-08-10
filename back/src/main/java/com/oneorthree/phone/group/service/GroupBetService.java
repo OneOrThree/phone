@@ -101,6 +101,15 @@ public class GroupBetService {
      */
     static final String WITHDRAWN_USER_NICKNAME = "탈퇴한 사용자";
 
+    /** 창형 정산 그레이스(분) — 늦게 확정되는 창 데이터를 받는 여유(N12). settle_after = 창 종료 + 30분. */
+    static final int WINDOW_SETTLE_GRACE_MINUTES = 30;
+
+    /** 하루형 FOCUS 정산 그레이스(시간) — 자정 넘겨 끝난 세션 수용(기존 01:00 배치와 짝). */
+    static final int DURATION_FOCUS_SETTLE_GRACE_HOURS = 1;
+
+    /** 하루형 SCREEN_TIME 정산 그레이스(시간) — 다음날 첫 앱 실행 보고 수용(기존 12:00 배치와 짝). */
+    static final int DURATION_SCREEN_TIME_SETTLE_GRACE_HOURS = 12;
+
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupRepository groupRepository;
