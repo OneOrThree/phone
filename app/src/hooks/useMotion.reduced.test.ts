@@ -1,6 +1,7 @@
 // useMotion — '동작 줄이기'가 **켜진** 경우. 세 가지 애니메이션 시스템을 각각 어떻게 끄는지가
 // 이 훅의 전부라, 경로별로 하나씩 잠근다.
 import { renderHook } from '@testing-library/react-native';
+import { enterUp } from '@/constants/motion';
 import { useMotion } from './useMotion';
 
 jest.mock('./useReduceMotion', () => ({
@@ -39,5 +40,10 @@ describe('useMotion (reduce=true)', () => {
     const { result } = await renderHook(() => useMotion());
     expect(result.current.delay(1100)).toBe(0);
     expect(result.current.delay(0)).toBe(0);
+  });
+
+  it('enter도 undefined다 — 확정된 reduce에서는 진입 연출이 없다', async () => {
+    const { result } = await renderHook(() => useMotion());
+    expect(result.current.enter(enterUp(0))).toBeUndefined();
   });
 });

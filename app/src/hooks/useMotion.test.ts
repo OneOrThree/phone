@@ -1,7 +1,7 @@
 // useMotion — '동작 줄이기'가 **꺼진** 경우. 켜진 경우는 useMotion.reduced.test.ts 로 분리했다
 // (모듈 목이 파일 스코프라 한 파일에 두 값을 섞을 수 없다).
 import { renderHook } from '@testing-library/react-native';
-import { M } from '@/constants/motion';
+import { M, enterUp } from '@/constants/motion';
 import { useMotion } from './useMotion';
 
 jest.mock('./useReduceMotion', () => ({
@@ -39,5 +39,11 @@ describe('useMotion (reduce=false)', () => {
     const first = result.current;
     await rerender({});
     expect(result.current).toBe(first);
+  });
+
+  it('enter는 확정됐고 reduce가 아니면 스타일을 그대로 통과시킨다', async () => {
+    const { result } = await renderHook(() => useMotion());
+    const style = enterUp(0);
+    expect(result.current.enter(style)).toBe(style);
   });
 });
