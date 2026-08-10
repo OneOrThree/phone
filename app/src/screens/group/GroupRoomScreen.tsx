@@ -464,6 +464,10 @@ export default function GroupRoomScreen({
     };
 
     if (detailResult.status === 'rejected') {
+      if (roomViewedGroupIdRef.current !== groupId) {
+        // 최초 목적지 렌더가 실패한 interaction은 재시도로 성공해도 원래 카드 CTA 결과가 아니다.
+        cardInteractionRef.current = interruptCardInteraction(cardInteractionRef.current);
+      }
       const code = groupErrorCode(detailResult.reason);
       if (code === 'MEMBER_ONLY') {
         // 서버가 활성 인증 뒤 멤버십 부재를 확인한 사후조건이라 직접 수렴할 수 있다.

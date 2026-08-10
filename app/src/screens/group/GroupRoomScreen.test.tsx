@@ -322,6 +322,26 @@ describe('카드 방문 귀속', () => {
       }),
     );
   });
+
+  test('최초 상세 실패 뒤 재시도 성공은 원래 카드 interaction으로 귀속하지 않는다', async () => {
+    mockGetGroupDetail.mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await renderRoom({
+      entrySource: 'group_card',
+      interactionId: 'interaction-before-initial-error',
+      interactionAcceptedAt: Date.now(),
+    });
+    expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
+
+    await press('다시 시도');
+    await waitFor(() =>
+      expect(logGroupRoomViewed).toHaveBeenCalledWith({
+        group_id: GROUP_ID,
+        entry_source: 'group_card',
+      }),
+    );
+  });
 });
 
 describe('상세·공지 오류 분리', () => {

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import * as ReactNative from 'react-native';
 import {
   AccessibilityInfo,
   AppState,
   FlatList,
-  findNodeHandle,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -361,6 +361,14 @@ export default function GroupListScreen({
         });
       }
       setBackSource('user');
+      if (trigger === 'accessibility_action') {
+        backLayoutWaitersRef.current.set(groupId, () => {
+          requestAnimationFrame(() => {
+            const node = ReactNative.findNodeHandle(backTitleRef.current);
+            if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+          });
+        });
+      }
       setFlippedGroupId(groupId);
       logGroupCardFlipped({
         to_face: 'back',
@@ -586,7 +594,7 @@ export default function GroupListScreen({
     setGuideVisible(false);
     setGuideQueued(false);
     requestAnimationFrame(() => {
-      const node = findNodeHandle(backTitleRef.current);
+      const node = ReactNative.findNodeHandle(backTitleRef.current);
       if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
     });
   }, []);

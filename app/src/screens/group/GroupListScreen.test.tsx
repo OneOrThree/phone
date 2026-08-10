@@ -6,7 +6,8 @@
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { View } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
+import * as ReactNative from 'react-native';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { logGroupCardFlipped, logGroupCarouselPaged } from '@/services/analyticsEvents';
@@ -195,6 +196,11 @@ describe('콜백', () => {
   });
 
   test('스크린리더 activate flip은 accessibility_action trigger로 기록한다', async () => {
+    jest.useFakeTimers();
+    const findNode = jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(7);
+    const focus = jest
+      .spyOn(AccessibilityInfo, 'setAccessibilityFocus')
+      .mockImplementation(() => undefined);
     await renderList([group()]);
 
     await act(async () => {
@@ -206,6 +212,16 @@ describe('콜백', () => {
     expect(logGroupCardFlipped).toHaveBeenCalledWith(
       expect.objectContaining({ to_face: 'back', trigger: 'accessibility_action' }),
     );
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.back.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { width: 300, height: 300 } },
+      });
+    });
+    await act(async () => jest.runAllTimers());
+    expect(focus).toHaveBeenCalledWith(7);
+    findNode.mockRestore();
+    focus.mockRestore();
+    jest.useRealTimers();
   });
 
   test('뒷면에서 앞면으로 돌아가는 접근성 activate도 accessibility_action으로 기록한다', async () => {
