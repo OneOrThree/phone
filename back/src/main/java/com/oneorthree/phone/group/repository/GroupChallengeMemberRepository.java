@@ -58,6 +58,31 @@ public interface GroupChallengeMemberRepository extends JpaRepository<GroupChall
                           @Param("measuredAt") Instant measuredAt);
 
     /**
+     * 보고 축 {@code (challengeId, userId, usageDate)} 의 <b>트랜잭션 스코프 advisory lock</b>
+     * (GROMO-1407) — 창 사용분 쓰기(upsert)와 참가 시 무효화(delete)를 직렬화한다.
+     *
+     * <p><b>왜 행 잠금이 아니라 advisory 인가</b>: 잠글 행이 <b>아직 없을 수도</b> 있다(첫 보고는
+     * INSERT 다). 회차 행을 대신 잠그면 같은 회차의 <b>모든 참가자·모든 표시용 보고</b>가 한 줄에
+     * 서고 정산과도 부딪혀, N34 가 전제한 저지연 보고 경로가 무너진다. advisory 키를
+     * <b>유저·날짜 단위</b>로 끊으면 같은 사람의 자기 요청끼리만 직렬화된다.
+     *
+     * <p><b>키 충돌</b>: {@code hashtextextended} 는 64비트 결정적 해시라 서로 다른 축이 같은 키로
+     * 접힐 확률이 사실상 없고, 접히더라도 <b>정확성은 그대로다</b> — 무관한 두 요청이 잠깐 줄을 설
+     * 뿐(지연만 는다). 잠금은 트랜잭션 종료 시 자동 해제되므로 누수도 없다.
+     *
+     * <p><b>잠금 순서</b>: 보고 경로는 {@code advisory → 회차 행}, 참가 경로는
+     * {@code 회차 행 → advisory} 다. 역순이지만 교착이 성립하려면 같은 유저가 "이미 참가자"이면서
+     * 동시에 "참가 중"이어야 하는데, 참가 경로는 그 경우 사전 검사에서
+     * {@code BET_ALREADY_JOINED} 로 끝나 advisory 까지 오지 않는다.
+     *
+     * @param key 축 문자열 {@code "{challengeId}:{userId}:{usageDate}"}
+     * @return 항상 true — 반환값이 아니라 <b>호출 자체</b>가 잠금이다(void 반환은 매핑이 불가해 상수를 돌려준다)
+     */
+    @Query(value = "SELECT true FROM (SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))) locked",
+            nativeQuery = true)
+    boolean lockReportAxis(@Param("key") String key);
+
+    /**
      * 참가 <b>직전</b>까지 쌓인 보고를 지운다(GROMO-1407 — 선기록 계열 차단). 참가 시점에 행을
      * 없애면 "미보고" 상태로 되돌아가고, 참가 이후의 보고만 참가자 게이트(회차 락 · OPEN · 시작
      * 이후)를 통과해 다시 쌓인다.

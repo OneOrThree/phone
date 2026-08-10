@@ -106,6 +106,14 @@ public class GroupBetWindowUsageService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
+        // 보고 축(챌린지·유저·날짜) 직렬화 — 참가 시 무효화(invalidatePreJoinReport)와 같은 키다.
+        // 참가자 판정을 읽기 <b>전</b>에 잡아야 "미참가로 읽고 → 무효화가 지나간 뒤 → 표시용으로
+        // 커밋"이라는 순서가 성립하지 않는다. 표시용 갈래에도 걸리는 게 핵심이다(그 갈래가 바로
+        // 이 경합의 승자 경로다). 같은 유저·같은 날짜의 자기 요청끼리만 줄을 서므로 참가자 간
+        // 경합은 생기지 않는다(N34 저지연 설계 유지).
+        groupChallengeMemberRepository.lockReportAxis(
+                reportAxisKey(challengeId, userId, request.getUsageDate()));
+
         // 대상 회차 = 보고 날짜의 회차. 참가 행이 있으면 이 보고는 돈이 걸린 값이다(판정 소스).
         // 없으면(내기 꺼짐·미참가) 표시용 보고다 — 판정은 참가자만 대상이라 정산과 무관하다.
         GroupChallengeBetSession target = groupChallengeBetSessionRepository
@@ -184,6 +192,16 @@ public class GroupBetWindowUsageService {
      *
      * <p>창형 SCREEN_TIME 회차에만 의미가 있다 — 다른 조합은 이 테이블을 판정 소스로 쓰지 않는다.
      *
+     * <p><b>보장 범위(정확히)</b>: {@code MANDATORY} 는 <b>참가 행 생성과 이 삭제가 같은 트랜잭션에서
+     * 함께 커밋/롤백된다</b>는 것만 보장한다 — 그것만으로는 <b>동시에 들어온 보고</b>를 막지 못한다.
+     * 참가 트랜잭션이 참가 행을 아직 커밋하기 전이면 보고 쪽은 그 행을 못 보고(READ COMMITTED)
+     * "미참가 = 표시용"으로 갈라져 무잠금으로 쓰는데, 그 커밋이 이 삭제보다 <b>뒤</b>면 심긴 값이
+     * 그대로 살아남는다. 그래서 삭제 전에 보고 축
+     * ({@code challengeId, userId, usageDate}) advisory lock 을 잡아 <b>동시 보고와 직렬화</b>한다
+     * ({@link GroupChallengeMemberRepository#lockReportAxis}). 두 순서 모두 안전하다: 보고가 먼저면
+     * 그 값이 이 삭제에 지워지고, 삭제가 먼저면 보고가 기다렸다가 <b>참가자 게이트</b>(회차 락 ·
+     * OPEN · 시작 이후)를 통과해 쓴다.
+     *
      * @param session 방금 참가한 회차(미션 스냅샷으로 조합·날짜를 읽는다)
      * @param userId  참가자
      */
@@ -193,12 +211,24 @@ public class GroupBetWindowUsageService {
                 || session.getMissionType() != MissionType.TIME_WINDOW) {
             return;
         }
+        UUID challengeId = session.getChallenge().getId();
+        // 동시 보고와의 직렬화 — 이 잠금이 없으면 무효화 직후에 커밋되는 선기록이 살아남는다.
+        groupChallengeMemberRepository.lockReportAxis(
+                reportAxisKey(challengeId, userId, session.getSessionDate()));
         int cleared = groupChallengeMemberRepository.deleteWindowUsage(
                 session.getChallenge().getId(), userId, session.getSessionDate());
         if (cleared > 0) {
             log.info("참가 전 창 사용분 보고 무효화 — sessionId={}, challengeId={}, userId={}, usageDate={}, 삭제 {}행",
                     session.getId(), session.getChallenge().getId(), userId, session.getSessionDate(), cleared);
         }
+    }
+
+    /**
+     * 보고 축 키 — 쓰기(upsert)와 무효화(delete)가 <b>같은 문자열</b>을 써야 직렬화가 성립한다.
+     * 해시·잠금 자체는 Postgres 가 한다({@link GroupChallengeMemberRepository#lockReportAxis}).
+     */
+    private static String reportAxisKey(UUID challengeId, UUID userId, LocalDate usageDate) {
+        return challengeId + ":" + userId + ":" + usageDate;
     }
 
     /**

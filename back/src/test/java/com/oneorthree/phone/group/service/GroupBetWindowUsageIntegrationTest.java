@@ -38,8 +38,14 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -381,6 +387,112 @@ class GroupBetWindowUsageIntegrationTest extends IntegrationTestBase {
 
         assertThatThrownBy(() -> groupBetWindowUsageService.invalidatePreJoinReport(today, member.getId()))
                 .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    // ── 보고 × 참가 동시성 (PR #573 잔여 경합) ─────────────────────────────
+
+    /**
+     * 참가 트랜잭션을 흉내 낸다 — {@code GroupBetService.stakeIn} 과 같은 순서(참가 행 생성 →
+     * 무효화)로, 커밋 직전까지 잠금을 쥔 채 머문다.
+     */
+    private Future<?> joinTransactionHolding(ExecutorService pool, GroupChallengeBetSession session,
+            User user, boolean insertParticipant, CountDownLatch lockHeld, long holdMillis,
+            List<String> order) {
+        return pool.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+            if (insertParticipant) {
+                groupChallengeBetParticipantRepository.save(GroupChallengeBetParticipant.builder()
+                        .session(session).user(user).build());
+            }
+            groupBetWindowUsageService.invalidatePreJoinReport(session, user.getId());
+            lockHeld.countDown();
+            try {
+                Thread.sleep(holdMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            order.add("join-commit");
+        }));
+    }
+
+    @Test
+    @DisplayName("같은 축(챌린지·유저·날짜)의 보고는 무효화가 커밋될 때까지 기다린다 — advisory lock 직렬화")
+    void reportWaitsWhileInvalidationHoldsTheSameAxisLock() throws Exception {
+        GroupChallengeBetSession today = startedToday();
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> joinCall = joinTransactionHolding(pool, today, member, false, lockHeld, 700, order);
+            assertThat(lockHeld.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // 잠금을 쥔 상태에서 같은 축의 보고를 넣는다 — 커밋 전에는 진행하지 못해야 한다.
+            Future<?> reportCall = pool.submit(() -> {
+                reportBet(member, report(TODAY, 0, Instant.now()));
+                order.add("report-done");
+            });
+            joinCall.get(20, TimeUnit.SECONDS);
+            reportCall.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 무효화 트랜잭션이 끝난 뒤에야 보고가 완료됐다 — "무효화 직후 커밋되는 선기록"이 불가능하다.
+        assertThat(order).containsExactly("join-commit", "report-done");
+    }
+
+    @Test
+    @DisplayName("다른 축(다른 유저)의 보고는 막히지 않는다 — 참가자 간 경합 없음(N34 저지연 유지)")
+    void reportOnAnotherAxisIsNotBlocked() throws Exception {
+        GroupChallengeBetSession today = startedToday();
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> joinCall = joinTransactionHolding(pool, today, member, false, lockHeld, 700, order);
+            assertThat(lockHeld.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // 다른 유저의 보고 — 키가 달라 줄을 서지 않는다.
+            Future<?> reportCall = pool.submit(() -> {
+                reportBet(bettor, report(TODAY, 15, Instant.now()));
+                order.add("report-done");
+            });
+            reportCall.get(20, TimeUnit.SECONDS);
+            joinCall.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(order).containsExactly("report-done", "join-commit");
+        assertThat(storedReport(betChallenge, bettor, TODAY))
+                .get().extracting(GroupChallengeMember::getProgressMinutes).isEqualTo(15);
+    }
+
+    @Test
+    @DisplayName("참가(참가 행+무효화) × 보고 동시 실행 — 교착·예외 없이 끝나고 상태가 한쪽으로 확정된다")
+    void concurrentJoinAndReportSettleWithoutDeadlock() throws Exception {
+        GroupChallengeBetSession today = startedToday();
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // 참가 행까지 넣는 진짜 참가 순서 — 보고 경로(advisory → 회차 행)와 잠금 순서가 반대라
+            // 교착이 나면 여기서 드러난다.
+            Future<?> joinCall = joinTransactionHolding(pool, today, member, true, lockHeld, 300, order);
+            Future<?> reportCall = pool.submit(() -> {
+                reportBet(member, report(TODAY, 0, Instant.now()));
+                order.add("report-done");
+            });
+            joinCall.get(20, TimeUnit.SECONDS);
+            reportCall.get(20, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 참가는 성립했고, 남은 보고 행이 있다면 그것은 무효화 <b>이후</b>에 참가자 게이트를 통과한
+        // 값뿐이다(무효화 이전 값은 지워졌다). 둘 다 예외 없이 끝났다는 것이 이 테스트의 핵심이다.
+        assertThat(groupChallengeBetParticipantRepository
+                .existsBySessionIdAndUserId(today.getId(), member.getId())).isTrue();
+        assertThat(order).contains("join-commit", "report-done");
     }
 
     // ── FR-9 양립 증명 ───────────────────────────────────────────────────
