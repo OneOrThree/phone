@@ -290,7 +290,17 @@ export default function GroupFindSheet({
   }
 
   return (
-    <SheetShell onClose={onClose} asModal>
+    <SheetShell
+      onClose={onClose}
+      // ⚠️ 퇴장이 시작되면 **검색 세대를 즉시 올린다.** onClose는 220ms 뒤라 그동안 컴포넌트가
+      //    살아 있어, 그 사이 도착한 응답이 결과를 반영하고 계측(logGroupSearchPerformed)까지
+      //    쏜다 — 사용자가 이미 닫은 검색의 결과 수가 노출 지표로 집계된다(codex 리뷰).
+      //    종전에는 딤 탭이 곧 언마운트라 아래 cleanup이 그 자리에서 막았다.
+      onClosing={() => {
+        searchSeqRef.current++;
+      }}
+      asModal
+    >
       <Text style={s.title}>그룹 찾기</Text>
       <Text style={s.sub}>이름으로 공개 그룹을 찾아 바로 참여할 수 있어요.</Text>
 
