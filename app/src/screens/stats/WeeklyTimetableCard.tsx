@@ -1,6 +1,6 @@
 // 주 탭 요일별 집중 타임라인(GROMO-778) — 요일(열)×세로 시간축. 세션을 날짜별로 분할해 해당 요일
 // 칼럼에 과목 색 블록으로 그린다. 색 매핑(tagId→태그명→과목색)·조회 패턴은 '오늘 타임테이블'(FocusTimetable)과 동일.
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Line } from 'react-native-svg';
@@ -110,18 +110,35 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => v
         ]);
         if (cancelled) return;
         setTagNames(new Map(tags.map((t) => [t.tagId, t.name])));
-        const nextBlocks = weekdayFocusBlocks(sessions, weekStart.getTime());
-        setBlocks(nextBlocks);
-        // 데이터 로드 완료 신호 — 카드가 공유 버튼을 열어준다(GROMO-1070 리뷰 반영).
-        // 블록 수를 함께 넘긴다: 늘었을 때만 새 노드가 마운트되며 growUp이 다시 돌기 때문에,
-        // 캡처 대기 기준 시각을 그때만 다시 잡는다(codex 리뷰).
-        onLoaded?.(nextBlocks.length);
+        setBlocks(weekdayFocusBlocks(sessions, weekStart.getTime()));
+        // 로드 완료 신호(onLoaded)는 여기서 보내지 않는다 — 아래 useEffect 주석 참고.
       })();
       return () => {
         cancelled = true;
       };
-    }, [onLoaded]),
+    }, []),
   );
+
+  // 로드 완료 신호 — 카드가 공유 버튼을 열어주고, 훅이 캡처 대기 기준 시각을 잡는다(GROMO-1070).
+  //
+  // ⚠️ 데이터가 도착한 틱이 아니라 **블록이 실제로 마운트된 커밋 뒤**에 보낸다(codex 리뷰).
+  //    setBlocks() 시점의 plotW는 아직 0이라 세션 블록(Animated.View)이 하나도 없다. 블록은
+  //    다음 레이아웃의 onLayout이 폭을 채운 뒤 `plotW > 0` 분기에서야 마운트되고 growUp도 그때
+  //    시작한다. 데이터 도착 시각을 기준으로 삼으면 느린 기기·바쁜 JS 스레드에서 레이아웃이
+  //    밀린 만큼 대기가 짧아져 마지막 블록의 중간 프레임이 그대로 캡처된다.
+  //    useEffect는 커밋 뒤에 도므로, `plotW > 0`인 렌더의 이 효과가 곧 '블록이 붙은 직후'다.
+  //    같은 이유로 공유 버튼도 이때 열어야 한다 — plotW가 0인 동안 찍으면 격자도 블록도 없는
+  //    빈 플롯이 PNG가 된다.
+  //
+  // ⚠️ deps에 plotW가 있어 기기 회전·화면 폭 변화로 다시 돌지만 기준 시각이 리셋되지는 않는다.
+  //    훅이 **진입할 블록 수가 늘었을 때만** 갱신하는데, 폭만 바뀌는 경우엔 같은 key의 노드가
+  //    재사용되고 growUp 스타일도 인덱스별 캐시된 같은 참조라 애니메이션이 재생되지 않는다.
+  //    반대로 주 이동·재조회로 블록이 늘면 새 노드가 마운트되며 growUp이 다시 도는데, 그때는
+  //    blocks 참조가 바뀌어 이 효과가 다시 돌아 기준 시각이 갱신된다.
+  useEffect(() => {
+    if (blocks === null || plotW <= 0) return;
+    onLoaded?.(blocks.length);
+  }, [blocks, plotW, onLoaded]);
 
   if (blocks === null) {
     return <CardBodyLoading height={WTT_BODY_BLOCK_H} testID="stats.weeklyTimetable.loading" />;
@@ -188,6 +205,7 @@ function WeeklyTimetable({ onLoaded }: { onLoaded?: (animatedCount: number) => v
           ))}
         </View>
         <View
+          testID="stats.weeklyTimetable.plot"
           style={[s.wttPlot, { height: WTT_BODY_H }]}
           onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}
         >

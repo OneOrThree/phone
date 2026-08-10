@@ -43,13 +43,13 @@ export function useTimetableShareCapture({
   // 공유 파일명 생성기 — 예: () => '260711_타임테이블' (캡처 시점에 오늘 날짜로 만든다)
   makeFileName: () => string;
   /**
-   * 캡처 대상 안에서 도는 **진입 애니메이션의 총 재생 시간(ms)**. 데이터가 도착한 시점부터
-   * 이만큼은 캡처를 미룬다 (GROMO-1381).
+   * 캡처 대상 안에서 도는 **진입 애니메이션의 총 재생 시간(ms)**. 진입할 노드가 마운트된
+   * 시점(=`onLoaded` 호출 시점)부터 이만큼은 캡처를 미룬다 (GROMO-1381).
    *
-   * ⚠️ 왜 필요한가 — `WeeklyTimetable`은 데이터 로드 콜백에서 `setBlocks()`와 **같은 틱**에
-   *    `onLoaded()`를 부른다. 즉 공유 버튼이 눌릴 수 있게 되는 순간이 곧 세션 블록의
-   *    `growUp`(scaleY 0→1)이 막 시작되는 순간이다. 그대로 찍으면 **찌그러진 막대가 PNG에
-   *    구워져** 사용자가 저장·공유한다.
+   * ⚠️ 왜 필요한가 — `WeeklyTimetable`은 세션 블록이 마운트되는 커밋 직후에 `onLoaded()`를
+   *    부른다. 즉 공유 버튼이 눌릴 수 있게 되는 순간이 곧 세션 블록의 `growUp`(scaleY 0→1)이
+   *    막 시작되는 순간이다. 그대로 찍으면 **찌그러진 막대가 PNG에 구워져** 사용자가
+   *    저장·공유한다.
    *
    * 진입이 없는 카드(일 탭 타임테이블)는 넘기지 않는다 — 기본값 0이면 대기가 사라진다.
    * '동작 줄이기'에서도 0이다(`m.delay()` 통과) — 애니메이션이 없으니 기다릴 게 없다.
@@ -64,9 +64,11 @@ export function useTimetableShareCapture({
   disabled: boolean;
   // 브랜드 캐릭터 이미지 로드/실패 콜백 — ShareBrandFooter/ShareDayFrame에 넘긴다
   onCharReady: () => void;
-  // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 조회 후 호출.
+  // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 호출.
   // 인자는 **이번 렌더에서 진입 애니메이션이 붙는 노드 수**(주간 세션 블록 개수).
   // 늘었을 때만 캡처 대기 기준 시각을 다시 잡는다.
+  // ⚠️ 진입이 있는 카드는 조회가 끝난 틱이 아니라 **그 노드가 실제로 마운트된 커밋 뒤**에
+  //    불러야 한다 — 마운트가 밀린 만큼 대기가 짧아진다(WeeklyTimetableCard 주석 참고).
   onLoaded: (animatedCount?: number) => void;
   onShare: () => Promise<void>;
 } {
@@ -78,7 +80,8 @@ export function useTimetableShareCapture({
   const [capturing, setCapturing] = useState(false);
   // 타임테이블 데이터 로드 완료 여부 — 로딩 중(격자 스피너)에 공유하면 빈 이미지가 캡처되므로 막는다.
   const [ready, setReady] = useState(false);
-  // 진입 애니메이션이 마지막으로 시작된 시각.
+  // 진입 애니메이션이 마지막으로 시작된 시각. 호출부가 **노드가 마운트된 커밋 뒤**에
+  // onLoaded를 부르므로, 이 값이 곧 growUp이 실제로 시작한 시각이다(codex 리뷰).
   //
   // ⚠️ 갱신 조건이 "데이터가 왔을 때"가 아니라 **"진입할 노드가 늘었을 때"** 인 이유:
   //    진입 스타일은 인덱스별로 캐시된 참조라, 재조회로 같은 개수가 다시 그려지면 기존 노드가
