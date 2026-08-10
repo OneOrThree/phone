@@ -99,6 +99,9 @@ export default function LeagueResultScreen() {
   // 승급 축하 파티클 — 결과 뱃지가 완전히 도착한 뒤에만 터진다(시퀀스 후).
   const [celebrate, setCelebrate] = useState(false);
   // ⚠️ m을 effect 의존성에 넣지 않는다 — 아래 시퀀스 effect 주석 참고. 대신 최신 delay를 ref로 읽는다.
+  // ready는 **한 번 true가 되면 다시 false가 되지 않는다** — 그래서 deps에 넣어도 시퀀스가
+  // 중복 재생되지 않는다(m 전체를 넣으면 reduce 토글마다 다시 돈다).
+  const ready = m.ready;
   const delayRef = useRef(m.delay);
   delayRef.current = m.delay;
   // 축하(햅틱·컨페티)는 화면당 1회. 시퀀스가 어떤 이유로 다시 돌더라도 보상 피드백은 반복하지 않는다.
@@ -116,6 +119,11 @@ export default function LeagueResultScreen() {
     return () => clearTimeout(t);
   }, [celebrate]);
   useEffect(() => {
+    // ⚠️ '동작 줄이기' 값이 **확정되기 전에는 시작하지 않는다.** useReduceMotion은 확정 전을
+    //    보수적으로 true로 읽는데, 그 값으로 시퀀스를 시작하면 대기가 전부 0으로 눌린다.
+    //    이후 false로 확정돼도 이 effect는 (중복 재생 방지를 위해) 다시 돌지 않으므로,
+    //    설정을 켜지 않은 사용자도 300/1100ms 대기와 뱃지 전환을 통째로 잃는다(codex 리뷰).
+    if (!ready) return undefined;
     let cancelled = false;
     setShowTo(false);
     setCelebrate(false);
@@ -182,7 +190,7 @@ export default function LeagueResultScreen() {
     //    확정되는 경우 포함) 이 effect가 다시 돌아 **이미 끝난 화면의 시퀀스를 처음부터 재생**하고,
     //    승급이면 hapticSuccess·컨페티까지 다시 발생한다 — 보상 피드백이 중복된다(codex 리뷰).
     //    대기 값은 delayRef로 타이머를 걸 때의 최신 값을 읽고, 축하는 celebratedRef로 1회만 낸다.
-  }, [type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
+  }, [ready, type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
 
   // '동작 줄이기'가 **재생 도중** 켜진 경우 — 위 시퀀스 effect는 다시 돌지 않고(의존성에서 뺐다),
   // delayRef는 **앞으로 새로 만들 단계**의 대기만 줄인다. 이미 시작된 delay·timing·spring은
