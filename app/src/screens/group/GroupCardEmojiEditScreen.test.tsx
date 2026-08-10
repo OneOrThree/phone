@@ -4,6 +4,7 @@ import GroupCardEmojiEditScreen from './GroupCardEmojiEditScreen';
 import {
   __resetGroupCardEmojiQueueForTest,
   readGroupCardEmoji,
+  retryPendingGroupCardEmojis,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
 
@@ -20,6 +21,8 @@ jest.mock('@react-navigation/native', () => ({
 
 const mockUser = { userId: 'user-1' as string | null };
 jest.mock('@/store/UserContext', () => ({ useUser: () => mockUser }));
+jest.mock('@/services/analyticsEvents', () => ({ logGroupCardIconSaveResult: jest.fn() }));
+const { logGroupCardIconSaveResult } = jest.requireMock('@/services/analyticsEvents');
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -52,6 +55,10 @@ test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
 
   await waitFor(async () => expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🔥'));
+  expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'settings',
+    result: 'success',
+  });
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });
 
@@ -69,6 +76,12 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   );
   expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
   expect(mockGoBack).not.toHaveBeenCalled();
+  expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'settings',
+    result: 'failed',
+  });
+  await retryPendingGroupCardEmojis('user-1', ['group-1']);
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🧠');
 });
 
 test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성화한다', async () => {
