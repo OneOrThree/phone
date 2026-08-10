@@ -28,13 +28,21 @@ public interface GroupChallengeWindowRepository extends JpaRepository<GroupChall
      * 끌어오면 왕복이 사라진다.
      *
      * <p>⚠️ <b>이건 성능 이유지 정합성 구멍을 막는 게 아니다.</b> 종전 주석은 "지연 로딩은
-     * {@code FOR UPDATE} 밖의 별도 스냅샷이라 다른 값을 읽는다"고 적었는데 과장이다 — PostgreSQL 은
-     * {@code OF} 절 없는 {@code FOR UPDATE} 에서 <b>문장에 등장한 모든 테이블</b>의 행을 잠그고,
-     * 이 쿼리는 {@code FETCH} 이전에도 {@code WHERE} 에서 {@code c} 를 참조했으므로 부모 행은
-     * 이미 잠겨 있었다. 잠근 행은 남이 커밋할 수 없으니 뒤이은 조회도 같은 값을 읽는다(READ
-     * COMMITTED, 이 서비스에 격리 수준 재정의 없음). 게다가 {@code repeatDays} 는 생성 이후
-     * 갱신 경로 자체가 없다(챌린지 수정 API 없음). 근거 없는 "이 변경이 경합을 고쳤다"는 서술을
-     * 남기면 다음 사람이 있지도 않은 레이스를 전제로 코드를 짠다(spring-reviewer 지적).
+     * {@code FOR UPDATE} 밖의 별도 스냅샷이라 다른 값을 읽는다"고 적었는데 과장이다. 근거는
+     * 잠금 범위가 아니라 <b>{@code repeatDays} 의 불변성</b>이다 — 생성 이후 갱신 경로 자체가
+     * 없다(챌린지 수정 API 없음). 잠금이 어디까지 걸리든 값이 변할 수 없다. 게다가 이 변경
+     * 이전에도 {@code WHERE} 가 {@code c.status}·{@code c.deletedAt} 을 읽고 있었으므로
+     * {@code JOIN} → {@code JOIN FETCH} 는 <b>읽는 대상을 늘리지도 줄이지도 않는다.</b>
+     *
+     * <p>⚠️ <b>부모 행이 실제로 잠기는지는 확인하지 못했다 — 어느 쪽으로도 단정하지 마라.</b>
+     * {@code @Lock(PESSIMISTIC_WRITE)} 의 JPA 계약({@code PessimisticLockScope.NORMAL})은
+     * 조회 루트에만 걸린다. Hibernate 가 alias 없이 {@code FOR UPDATE} 를 내면 PostgreSQL 은
+     * 문장의 모든 테이블을 잠그지만, {@code FOR ... OF <alias>} 로 내면 루트만 잠근다.
+     * 발행 SQL 확인을 두 번 시도했으나 {@code logback-spring.xml} 의 {@code <root level="INFO">}
+     * 가 {@code org.hibernate.SQL} DEBUG 를 삼켜 실패했다. 동시 {@code endChallenge}/
+     * {@code deleteChallenge} 와의 직렬화를 논하려면 <b>먼저 발행 SQL 을 볼 것</b>.
+     * 근거 없는 "이 변경이 경합을 고쳤다"는 서술을 남기면 다음 사람이 있지도 않은 레이스를
+     * 전제로 코드를 짠다(리뷰 지적 ×2).
      *
      * <p>겹침 판정 자체는 KST 벽시계 시각(time-of-day)과 요일 비트 연산이라 SQL 이 아니라
      * 서비스({@code GroupChallengeService})에서 한다. window 상세 행 존재 자체가 type=TIME_WINDOW
