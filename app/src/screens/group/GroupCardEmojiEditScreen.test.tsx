@@ -16,8 +16,9 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const mockGoBack = jest.fn();
+const mockIsFocused = jest.fn(() => true);
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack }),
+  useNavigation: () => ({ goBack: mockGoBack, isFocused: mockIsFocused }),
   useRoute: () => ({ params: { groupId: 'group-1' } }),
 }));
 
@@ -38,6 +39,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
   mockUser.userId = 'user-1';
+  mockIsFocused.mockReturnValue(true);
   mockSessionIdentity.current = { userId: 'user-1', active: true };
 });
 
@@ -266,6 +268,26 @@ test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
 });
 
+test('저장 중 다른 route가 위에 열리면 완료 콜백이 새 화면을 pop하지 않는다', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    await gate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  fireEvent.press(screen.getByTestId('group.cardEmoji.save'));
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled());
+
+  mockIsFocused.mockReturnValue(false);
+  await act(async () => release());
+
+  await waitFor(async () => expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚'));
+  expect(mockGoBack).not.toHaveBeenCalled();
+});
+
 test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추가로 pop하지 않는다', async () => {
   let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => {
@@ -284,6 +306,7 @@ test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추�
     await gate;
     await Promise.resolve();
   });
+  await readGroupCardEmoji('user-1', 'group-1');
 
   expect(mockGoBack).not.toHaveBeenCalled();
   expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
