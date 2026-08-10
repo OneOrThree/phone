@@ -21,7 +21,6 @@ import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { triggerLogout } from '@/services/api';
-import { isCurrentAnalyticsUserId } from '@/services/analytics';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
@@ -33,7 +32,11 @@ import { useUser } from '@/store/UserContext';
 import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
+  clearPendingGroupCardEmoji,
+  hasPendingGroupCardEmojis,
   DEFAULT_GROUP_CARD_EMOJI,
+  preservePendingGroupCardEmoji,
+  setGroupCardEmojiSaveFailure,
   writeGroupCardEmoji,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -73,7 +76,7 @@ const VISIBILITY_CAPTION = {
 
 export default function GroupCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { userId } = useUser();
+  const { userId, sessionIdentityRef } = useUser();
 
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
@@ -83,6 +86,7 @@ export default function GroupCreateScreen() {
   // 생성 전에는 groupId가 없으므로 로컬 draft로만 보관한다.
   const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji>(DEFAULT_GROUP_CARD_EMOJI);
   const [submitting, setSubmitting] = useState(false);
+  const [emojiSaveFailed, setEmojiSaveFailed] = useState(false);
 
   // 생성 성공한 비공개 그룹 — 값이 있으면 초대 링크 다이얼로그가 뜬다(§6-2 3번).
   // 이름을 id와 **함께** 들고 있는 이유: 요청이 떠 있는 동안에도 이름 입력은 열려 있어서,
@@ -199,17 +203,25 @@ export default function GroupCreateScreen() {
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
       if (userId) {
-        const ownerUserId = userId;
-        // 호출 즉시 런타임 pending에 선택값이 남으므로 로컬 RMW 완료는 서버 생성 성공 뒤
-        // 화면 전환의 선행조건이 아니다. 결과 계측만 비동기로 마무리하고 목록에서 재시도한다.
-        writeGroupCardEmoji(ownerUserId, groupId, cardEmoji)
+        const saveSessionIdentity = sessionIdentityRef.current;
+        preservePendingGroupCardEmoji(userId, groupId, cardEmoji, 'create');
+        writeGroupCardEmoji(userId, groupId, cardEmoji)
           .then(() => {
-            if (isCurrentAnalyticsUserId(ownerUserId))
+            clearPendingGroupCardEmoji(userId, groupId, cardEmoji);
+            setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
+            if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
+            }
           })
           .catch(() => {
-            if (isCurrentAnalyticsUserId(ownerUserId))
+            // 저장 시작 전에 만든 pending을 그대로 유지한다. 이 실패가 resolve되기 전에 그룹
+            // 화면의 재시도가 이미 같은 세대를 가져갔다면 여기서 새 세대를 만들면 성공한
+            // 재시도가 오래된 후보로 취급되어 pending을 지우지 못한다.
+            setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
+            if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
+              setEmojiSaveFailed(true);
+            }
           });
       }
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
@@ -404,12 +416,29 @@ export default function GroupCreateScreen() {
         </View>
 
         <Text style={s.label}>내 카드 아이콘</Text>
+        <View
+          style={s.cardPreview}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          testID="group.create.cardEmoji.preview"
+        >
+          <Text style={s.cardPreviewEmoji}>{cardEmoji}</Text>
+          <Text style={s.cardPreviewName} numberOfLines={1}>
+            {name || '그룹 이름'}
+          </Text>
+        </View>
         <GroupCardEmojiPicker
           value={cardEmoji}
           onChange={setCardEmoji}
-          disabled={submitting}
           testIDPrefix="group.create.cardEmoji"
+          disabled={submitting}
         />
+        {emojiSaveFailed && (
+          <Text style={s.errorText} accessibilityLiveRegion="polite">
+            내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+          </Text>
+        )}
 
         {/* ── CTA ── */}
         <TouchableOpacity
@@ -438,6 +467,11 @@ export default function GroupCreateScreen() {
           <View style={s.card}>
             <Text style={s.cardTitle}>비공개 그룹을 만들었어요 🎉</Text>
             <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해주세요.</Text>
+            {emojiSaveFailed && (
+              <Text style={s.errorText} accessibilityLiveRegion="polite">
+                내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+              </Text>
+            )}
             <View style={s.cardActions}>
               <TouchableOpacity style={s.cardOutlineBtn} activeOpacity={0.85} onPress={copyLink}>
                 <Text style={s.cardOutlineText}>{copied ? '복사했어요' : '링크 복사'}</Text>
@@ -582,6 +616,18 @@ const s = StyleSheet.create({
   },
   segText: { ...T.text.label, color: T.inkSub },
   segTextOn: { color: T.ink, fontWeight: '700' },
+  cardPreview: {
+    minHeight: 88,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+    padding: T.space.lg,
+    marginBottom: T.space.md,
+    borderRadius: 18,
+    backgroundColor: T.accent,
+  },
+  cardPreviewEmoji: { fontSize: 36 },
+  cardPreviewName: { ...T.text.subtitle, flex: 1, color: T.white },
 
   note: {
     flexDirection: 'row',
@@ -609,7 +655,6 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
-
   // 초대 링크 다이얼로그 — 탈퇴 확인 모달과 같은 스크림·카드 규격
   overlay: {
     flex: 1,

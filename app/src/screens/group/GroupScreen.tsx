@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
@@ -16,18 +16,32 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconSaveResult,
+  logGroupFindOpened,
+  logGroupViewed,
+} from '@/services/analyticsEvents';
+import type { CardInteractionContext } from '@/services/cardInteraction';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
   clearPendingGroupEntry,
   consumeGroupEntry,
-  peekGroupEntry,
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
-import type { CardInteractionContext } from '@/services/cardInteraction';
+import {
+  getPendingGroupCardEmojiBucket,
+  hasPendingGroupCardEmojis,
+  readGroupCardEmojiSaveFailure,
+  reconcileGroupCardEmojiBucket,
+  retryPendingGroupCardEmojis,
+  setGroupCardEmojiSaveFailure,
+  subscribeGroupCardEmoji,
+  subscribeGroupCardEmojiSaveFailure,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
 
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
@@ -52,6 +66,7 @@ function groupCountBucket(count: number): GroupCountBucket {
   if (count <= 10) return '6_10';
   return '11_plus';
 }
+
 // 최초 로딩 자리표시자로 그릴 카드 수 — 첫 화면에 들어오는 만큼만(화면당 동시 스켈레톤 상한 12).
 const SKELETON_CARDS = 3;
 // 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
@@ -61,22 +76,47 @@ const HEADER_TEXT_H = 30;
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const isScreenFocused = useIsFocused();
-  const { isGuest, userId } = useUser();
+  const { isGuest, userId, sessionIdentityRef } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
-  const [groupsRevision, setGroupsRevision] = useState(0);
-  const [deckExposure, setDeckExposure] = useState<{ episodeId: number; entry: GroupEntrySource }>({
-    episodeId: 0,
-    entry: 'unknown',
-  });
+  const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
+  const [cardEmojiHydratedIdentity, setCardEmojiHydratedIdentity] = useState<string | null>(null);
+  const [cardEmojiHydratedGroupIds, setCardEmojiHydratedGroupIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [cardEmojiSaveFailed, setCardEmojiSaveFailed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [screenFocused, setScreenFocused] = useState(false);
+  const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
+  const [successfulListVersion, setSuccessfulListVersion] = useState(0);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
   const [transitioning, setTransitioning] = useState(false);
+
+  useEffect(() => {
+    if (!userId) {
+      setCardEmojiSaveFailed(false);
+      return;
+    }
+    setCardEmojiSaveFailed(readGroupCardEmojiSaveFailure(userId));
+    return subscribeGroupCardEmojiSaveFailure(userId, setCardEmojiSaveFailed);
+  }, [userId]);
+
+  useEffect(() => {
+    // 계정 전환 시 이전 계정의 로컬 표현 설정을 새 계정에 잠시라도 노출하지 않는다.
+    setCardEmojiByGroupId({});
+    setCardEmojiHydratedIdentity(null);
+    setCardEmojiHydratedGroupIds(new Set());
+    if (!userId) {
+      return;
+    }
+    return subscribeGroupCardEmoji(userId, (groupId, emoji) => {
+      setCardEmojiByGroupId((current) => ({ ...current, [groupId]: emoji }));
+    });
+  }, [userId]);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
@@ -140,28 +180,68 @@ export default function GroupScreen() {
     try {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
+      // 멤버십 정본은 로컬 아이콘 복구보다 먼저 화면에 반영한다. pending 재시도가 storage queue에
+      // 대기해도 새 목록·덱 입력·guide episode를 지연시키지 않는다.
       setGroups(rows);
-      setGroupsRevision((revision) => revision + 1);
+      setSuccessfulListEpisode(viewEpisodeRef.current.id);
+      setSuccessfulListVersion((version) => version + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
-        // source는 focus 시작 때 이 episode에 귀속됐다. 실패 뒤 같은 episode의 재시도에서는
-        // 그 값을 유지하고, 성공한 전체 목록이 확정된 이 시점에만 한 번 발행한다.
         episode.logged = true;
         logGroupViewed({
           group_entry: episode.source,
           group_count_bucket: groupCountBucket(rows.length),
         });
-        setDeckExposure({ episodeId: episode.id, entry: episode.source });
       }
-      // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
+
+      let emojiBucket: GroupCardEmojiBucket | null = {};
+      let pendingBucket: GroupCardEmojiBucket = {};
+      if (userId) {
+        const retrySessionIdentity = sessionIdentityRef.current;
+        const groupIds = rows.map((row) => row.groupId);
+        pendingBucket = getPendingGroupCardEmojiBucket(userId, groupIds);
+        setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
+        // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
+        // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
+        pendingBucket = await retryPendingGroupCardEmojis(
+          userId,
+          groupIds,
+          () => seq === requestSeqRef.current,
+          (surface, result) => {
+            if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
+              logGroupCardIconSaveResult({ surface, result });
+            }
+          },
+        );
+        if (seq !== requestSeqRef.current) return;
+        if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
+          setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId, groupIds));
+        }
+        const storedBucket = await reconcileGroupCardEmojiBucket(
+          userId,
+          groupIds,
+          () => seq === requestSeqRef.current,
+        ).catch(() => null);
+        // 디스크 재시도가 계속 실패해도 이번 실행에서 고른 최신 아이콘은 카드에 유지한다.
+        emojiBucket = storedBucket === null ? null : { ...storedBucket, ...pendingBucket };
+      }
+      if (seq !== requestSeqRef.current) return;
+      if (emojiBucket === null) {
+        // 로컬 읽기 실패는 '설정 없음'이 아니다. 기존 카드 상태 위에 이번 실행 pending만 합성한다.
+        setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
+      } else {
+        setCardEmojiByGroupId(emojiBucket);
+        setCardEmojiHydratedIdentity(userId ?? 'anonymous');
+        setCardEmojiHydratedGroupIds(new Set(rows.map((row) => row.groupId)));
+      }
     } catch {
       if (seq !== requestSeqRef.current) return;
       setError(true);
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [isGuest]);
+  }, [isGuest, sessionIdentityRef, userId]);
 
   // mutation 성공 직후의 재조회 — 결과가 올 때까지(또는 실패가 확정될 때까지) 빈 상태를 렌더하지 않는다.
   const fetchAfterMutation = useCallback(() => {
@@ -173,18 +253,19 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
+      setScreenFocused(true);
       const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        // 인증 사용자의 direct source는 이 focus episode가 즉시 소유한다. 성공 전 blur되어도
-        // 전역 버퍼에 남지 않아 다음 일반 진입을 오염시키지 않고, 같은 episode의 재시도는
-        // viewEpisodeRef의 source를 그대로 쓴다. 게스트만 로그인 리마운트를 위해 peek한다.
-        source: isGuest ? peekGroupEntry(fallback) : consumeGroupEntry(fallback),
+        // 게스트 초대 화면은 목록 성공 이벤트를 만들지 않는다. 여기서 invite source까지
+        // 소비하면 로그인 후 인증 목록의 첫 episode가 tab/return으로 오귀속된다.
+        source: isGuest && peekPendingInvite() ? fallback : consumeGroupEntry(fallback),
         logged: false,
       };
       fetchGroups();
       return () => {
+        setScreenFocused(false);
         requestSeqRef.current++;
       };
     }, [fetchGroups, isGuest]),
@@ -203,8 +284,8 @@ export default function GroupScreen() {
     //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
     if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
-    // 게스트는 목록 성공 이벤트가 없어 invite source를 소비하지 못한다. 사용자가 시트를 닫아
-    // 진입 흐름을 끝냈다면 오래된 invite가 다음 일반 진입을 오염시키지 않게 함께 폐기한다.
+    // 게스트 초대는 로그인 뒤 귀속하려고 direct source 소비를 미룬다. 사용자가 시트를 직접
+    // 닫은 경우 그 출처까지 함께 폐기해야 이후 일반 로그인 episode가 invite로 오귀속되지 않는다.
     clearPendingGroupEntry();
     setInvite(null);
   }, []);
@@ -264,31 +345,45 @@ export default function GroupScreen() {
   // 목록에서 그룹을 골랐다 — A-9 이후 목록이 항상 기본 화면이라 소속 수와 무관하게 그룹방을
   // 스택에 push 한다(목록 화면은 스스로 navigate 하지 않고 이 콜백에 위임한다).
   const onSelectGroup = useCallback(
-    (groupId: string, interaction: CardInteractionContext) => {
+    (groupId: string, entrySource: 'group_find' | 'unknown' = 'unknown') => {
       // 위 초대 목적지 소비와 같은 이유로 challengeId를 명시로 비운다(types.ts GroupRoom 주석).
       navigation.navigate('GroupRoom', {
         groupId,
         challengeId: undefined,
-        entrySource: 'group_card',
-        ...interaction,
+        entrySource,
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
       });
     },
     [navigation],
   );
 
-  const onFocusGroup = useCallback(
+  const onSelectCardGroup = useCallback(
+    (groupId: string, interaction?: CardInteractionContext) => {
+      if (!interaction) {
+        onSelectGroup(groupId);
+        return;
+      }
+      navigation.navigate('GroupRoom', {
+        groupId,
+        challengeId: undefined,
+        entrySource: 'group_card',
+        interactionId: interaction.interactionId,
+        interactionAcceptedAt: interaction.interactionAcceptedAt,
+      });
+    },
+    [navigation, onSelectGroup],
+  );
+
+  const onStartCardFocus = useCallback(
     (groupId: string, interaction: CardInteractionContext) => {
       navigation.navigate('FocusCategory', {
         initialGroupId: groupId,
         entrySource: 'group_card',
-        ...interaction,
+        interactionId: interaction.interactionId,
+        interactionAcceptedAt: interaction.interactionAcceptedAt,
       });
     },
-    [navigation],
-  );
-
-  const onSettingsGroup = useCallback(
-    (groupId: string) => navigation.navigate('GroupSettings', { groupId }),
     [navigation],
   );
 
@@ -296,15 +391,9 @@ export default function GroupScreen() {
   const onOpenGroup = useCallback(
     (groupId: string) => {
       setFindOpen(false);
-      navigation.navigate('GroupRoom', {
-        groupId,
-        challengeId: undefined,
-        entrySource: 'group_find',
-        interactionId: undefined,
-        interactionAcceptedAt: undefined,
-      });
+      onSelectGroup(groupId, 'group_find');
     },
-    [navigation],
+    [onSelectGroup],
   );
 
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
@@ -354,6 +443,13 @@ export default function GroupScreen() {
         </TouchableOpacity>
       </View>
     ) : null;
+  const cardEmojiSaveNotice = cardEmojiSaveFailed ? (
+    <View style={s.banner} testID="group.cardEmoji.saveFailure">
+      <Text style={s.bannerText} accessibilityRole="alert">
+        내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+      </Text>
+    </View>
+  ) : null;
 
   // ── 게스트 — 호출 없이 로그인 유도(§5-3) ──
   if (isGuest) {
@@ -430,21 +526,25 @@ export default function GroupScreen() {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
+        {cardEmojiSaveNotice}
         <GroupListScreen
           groups={myGroups}
-          groupsRevision={groupsRevision}
-          isScreenFocused={isScreenFocused}
           userId={userId}
-          onSelect={onSelectGroup}
-          onFocus={onFocusGroup}
-          onSettings={onSettingsGroup}
-          viewEpisodeId={deckExposure.episodeId}
-          groupEntry={deckExposure.entry}
-          guideBlocked={findOpen || invite !== null}
-          guideScreenFocused={isScreenFocused}
+          cardEmojiByGroupId={cardEmojiByGroupId}
+          cardEmojiHydrated={cardEmojiHydratedIdentity === (userId ?? 'anonymous')}
+          cardEmojiHydratedGroupIds={cardEmojiHydratedGroupIds}
+          onSelect={onSelectCardGroup}
+          onStartFocus={onStartCardFocus}
+          onOpenSettings={(groupId) => navigation.navigate('GroupSettings', { groupId })}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}
+          screenFocused={screenFocused}
+          entrySource={viewEpisodeRef.current.source}
+          viewEpisodeId={viewEpisodeRef.current.id}
+          guideBlocked={findOpen || invite !== null}
+          dataReady={successfulListEpisode === viewEpisodeRef.current.id}
+          successfulListVersion={successfulListVersion}
         />
         {findSheet}
         {inviteSheet}
@@ -456,6 +556,7 @@ export default function GroupScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       {staleNotice}
+      {cardEmojiSaveNotice}
       <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
         <CharacterImage size={140} />
         <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>
@@ -471,7 +572,10 @@ export default function GroupScreen() {
         <TouchableOpacity
           style={s.outlineBtn}
           activeOpacity={0.85}
-          onPress={() => setFindOpen(true)}
+          onPress={() => {
+            logGroupFindOpened({ entry_point: 'empty' });
+            setFindOpen(true);
+          }}
           testID="group.find.entry"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>

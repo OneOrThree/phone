@@ -34,7 +34,6 @@ const COMMON_PARAMS: Record<string, string> = {
 // 최초 1회 랜덤 UUID를 생성해 AsyncStorage에 영속한다. 기기 재설치 시 갱신.
 // (expo-application/device 미설치 환경 대응 — 네이티브 식별자 대신 자체 발급)
 let deviceId: string | null = null;
-let currentAnalyticsUserId: string | null = null;
 
 function randomUuid(): string {
   // RN에 crypto.randomUUID 보장이 없어 간이 UUIDv4 생성(디바이스 식별 용도로 충분).
@@ -156,15 +155,9 @@ export function track(name: string, params?: Record<string, unknown>): void {
 // User-ID 설정/해제. opaque UUID만 허용(PII 금지). null이면 게스트.
 export function setUserId(id: string | null): void {
   if (DEBUG) console.log('[analytics] setUserId', id);
-  currentAnalyticsUserId = id;
   const a = getAnalytics();
   if (!a) return;
   a.setUserId(id).catch(() => {});
-}
-
-/** 지연 작업의 결과 이벤트가 작업을 시작한 계정에 여전히 귀속되는지 확인한다. */
-export function isCurrentAnalyticsUserId(id: string): boolean {
-  return currentAnalyticsUserId === id;
 }
 
 // User Property 설정. boolean은 문자열로, null이면 해제. PII 금지(닉네임/생년월일 등 금지).

@@ -32,8 +32,8 @@ import {
   joinBet,
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
-import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
+import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -226,8 +226,8 @@ function challenge(over: Partial<GroupChallengeResponse> = {}): GroupChallengeRe
   };
 }
 
-async function renderRoom(props: Partial<React.ComponentProps<typeof GroupRoomScreen>> = {}) {
-  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} {...props} />);
+async function renderRoom() {
+  const result = await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
   await act(async () => {});
   return result;
 }
@@ -271,6 +271,7 @@ async function press(label: string) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  resetCardInteractionStateForTest();
   // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
   await AsyncStorage.clear();
   mockFocusEntries.length = 0;
@@ -283,31 +284,76 @@ beforeEach(async () => {
   mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   appStateHandler = null;
-  resetCardInteractionStateForTest();
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
     return { remove: jest.fn() } as never;
   });
 });
 
-test('background 상태에서 마운트된 카드 방 진입 intent는 방문 결과에 귀속하지 않는다', async () => {
-  const previousState = AppState.currentState;
-  Object.assign(AppState, { currentState: 'background' });
-  mockGetGroupDetail.mockResolvedValue(detail());
-  mockGetAnnouncements.mockResolvedValue([]);
+describe('카드 CTA 결과 귀속', () => {
+  test('30초 안의 Room 최초 성공만 같은 interaction_id로 한 번 연결한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const acceptedAt = Date.now() - 29_000;
 
-  await renderRoom({
-    entrySource: 'group_card',
-    interactionId: 'interaction-background',
-    interactionAcceptedAt: Date.now(),
+    const { rerender } = await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="11111111-1111-4111-8111-111111111111"
+        interactionAcceptedAt={acceptedAt}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    await act(async () => {
+      rerender(
+        <GroupRoomScreen
+          groupId={GROUP_ID}
+          entrySource="group_card"
+          interactionId="11111111-1111-4111-8111-111111111111"
+          interactionAcceptedAt={acceptedAt}
+          onLeft={onLeft}
+        />,
+      );
+    });
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} entrySource="unknown" onLeft={onLeft} />);
+    });
+    await act(async () => {});
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
   });
 
-  await waitFor(() =>
-    expect(logGroupRoomViewed).toHaveBeenCalledWith(
-      expect.objectContaining({ interaction_id: undefined }),
-    ),
-  );
-  Object.assign(AppState, { currentState: previousState });
+  test('30초 초과 성공은 방문 결과를 남기되 interaction_id를 싣지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="22222222-2222-4222-8222-222222222222"
+        interactionAcceptedAt={Date.now() - 30_001}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: undefined,
+    });
+  });
 });
 
 describe('상세·공지 오류 분리', () => {

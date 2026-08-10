@@ -50,17 +50,15 @@ export function TabGuideOverlay({
   steps,
   onFinish,
   visible: controlledVisible,
-  completionMode = 'internal',
-  allowRequestClose = true,
-  testID = 'guide.overlay',
+  onRequestClose,
 }: {
   storageKey: string;
   steps: GuideStep[];
   onFinish?: () => void; // 마지막 스텝을 닫은 직후 — 투어 중 옮긴 스크롤 원복 등
+  /** 별도 queue가 완료 key를 이미 판정한 화면은 두 번째 저장소 read 없이 즉시 표시한다. */
   visible?: boolean;
-  completionMode?: 'internal' | 'external';
-  allowRequestClose?: boolean;
-  testID?: string;
+  /** 제어형 guide는 Android 뒤로가기를 완료가 아닌 중단으로 처리한다. */
+  onRequestClose?: () => void;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
   const [internalVisible, setInternalVisible] = useState(false);
@@ -70,7 +68,6 @@ export function TabGuideOverlay({
   // steps는 렌더마다 새 배열일 수 있어 ref로 최신값만 읽는다 — 스텝 전환 시에만 재측정
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
-
   const controlled = controlledVisible !== undefined;
   const visible = controlled ? controlledVisible : internalVisible;
 
@@ -80,10 +77,6 @@ export function TabGuideOverlay({
       if (v !== '1') setInternalVisible(true);
     });
   }, [controlled, storageKey]);
-
-  useEffect(() => {
-    if (visible) setIdx(0);
-  }, [visible]);
 
   // 스텝이 바뀔 때마다 스포트라이트 결정 — prepare(스크롤 등) → rect 또는 앵커 측정. 없으면 전체 딤
   const step = steps[idx];
@@ -123,11 +116,9 @@ export function TabGuideOverlay({
       return;
     }
     if (!controlled) setInternalVisible(false);
-    if (completionMode === 'internal') {
-      AsyncStorage.setItem(storageKey, '1').catch(() => {});
-      // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
-      logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
-    }
+    AsyncStorage.setItem(storageKey, '1').catch(() => {});
+    // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
+    logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
     onFinish?.();
   }
 
@@ -145,25 +136,14 @@ export function TabGuideOverlay({
 
   return (
     <Modal
+      testID="guide.overlay.modal"
       transparent
       statusBarTranslucent
       animationType="fade"
-      onRequestClose={allowRequestClose ? advance : () => {}}
+      onRequestClose={onRequestClose ?? advance}
     >
       {/* Maestro E2E — 코치마크 식별·진행용(GROMO-947). 사라질 때까지 탭해서 닫는다. */}
-      <Pressable
-        testID={testID}
-        style={s.flex1}
-        onPress={advance}
-        accessibilityRole="button"
-        accessibilityLabel={`단계 ${idx + 1}/${steps.length}. ${step.text}. ${idx + 1 < steps.length ? '다음' : '시작'}`}
-        accessibilityActions={[
-          { name: 'activate', label: idx + 1 < steps.length ? '다음' : '시작' },
-        ]}
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'activate') advance();
-        }}
-      >
+      <Pressable testID="guide.overlay" style={s.flex1} onPress={advance}>
         {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가
             구멍 밖 전부를 덮는다(안쪽 모서리 = borderRadius - borderWidth). 구멍 없으면 전체 딤 */}
         {hole ? (

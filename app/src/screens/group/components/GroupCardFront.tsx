@@ -1,47 +1,51 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { RefObject } from 'react';
+import type { ComponentRef, Ref } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import type { GroupCardFlipTrigger } from '@/services/analyticsEvents';
-import {
-  DEFAULT_GROUP_CARD_EMOJI,
-  GROUP_CARD_EMOJI_LABELS,
-  type GroupCardEmoji,
-} from '../groupCardEmojiStore';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
-  emoji?: GroupCardEmoji;
-  onFlip: (trigger: GroupCardFlipTrigger) => void;
+  emoji?: string;
+  emojiLabel?: string;
+  position?: number;
+  pageCount?: number;
+  reorderCount?: number;
+  gripRef?: Ref<View>;
+  disclosureRef?: Ref<ComponentRef<typeof Pressable>>;
+  onFlip: () => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
-  cardRef?: RefObject<View | null>;
-  bodyRef?: RefObject<View | null>;
 }
 
 export function GroupCardFront({
   group,
-  emoji = DEFAULT_GROUP_CARD_EMOJI,
+  emoji = '🎯',
+  emojiLabel = '과녁',
+  position = 1,
+  pageCount = 1,
+  reorderCount = pageCount,
+  gripRef,
+  disclosureRef,
   onFlip,
   reorderHandlers,
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
-  cardRef,
-  bodyRef,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
-    <View ref={cardRef} style={s.root} testID={`group.card.front.${group.groupId}`}>
+    <View style={s.root} testID={`group.card.front.${group.groupId}`}>
       <View
+        ref={gripRef}
         style={s.grip}
         testID={`group.card.grip.${group.groupId}`}
         accessibilityRole="adjustable"
         accessibilityLabel={`${group.name} 카드 순서`}
+        accessibilityValue={{ text: `${position}/${reorderCount}` }}
         accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
         accessibilityActions={[
           ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
@@ -56,16 +60,12 @@ export function GroupCardFront({
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
-        ref={bodyRef}
+        ref={disclosureRef}
         style={s.body}
-        onPress={() => onFlip('card_tap')}
+        onPress={onFlip}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, ${GROUP_CARD_EMOJI_LABELS[emoji]} 아이콘, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${emojiLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
-        accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'activate') onFlip('accessibility_action');
-        }}
         testID={`group.card.${group.groupId}`}
       >
         <View style={s.art}>
@@ -78,12 +78,7 @@ export function GroupCardFront({
             <Text style={s.pillText}>{privacyLabel}</Text>
           </View>
           <View style={s.emojiFrame}>
-            <Text
-              style={s.emoji}
-              accessible={false}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
+            <Text style={s.emoji} testID={`group.list.emoji.${group.groupId}`}>
               {emoji}
             </Text>
           </View>

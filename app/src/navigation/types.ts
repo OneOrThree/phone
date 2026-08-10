@@ -3,6 +3,8 @@
 import type { FocusTimerMode, PomodoroConfig } from '@/screens/focus/types';
 import type { CardInteractionRouteContext, FocusEntrySource } from '@/services/cardInteraction';
 
+export type { FocusEntrySource };
+
 export type V2RootStackParamList = {
   Main: undefined; // 4탭 + FAB
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
@@ -11,12 +13,12 @@ export type V2RootStackParamList = {
   CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
   // 02 과목 선택 (홈 ● 집중 FAB에서 진입). initialGroupId: 그룹방 FAB에서 진입 시 — 세션까지 넘겨
   // 집중 세션이 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입하게 한다(F2 Part2).
-  FocusCategory: {
-    initialGroupId: string | undefined;
-    entrySource: FocusEntrySource;
-    interactionId: string | undefined;
-    interactionAcceptedAt: number | undefined;
-  };
+  FocusCategory:
+    | ({
+        initialGroupId?: string;
+        entrySource?: FocusEntrySource;
+      } & CardInteractionRouteContext)
+    | undefined;
   FocusSession: {
     subjectId: string;
     subjectName: string;
@@ -68,10 +70,7 @@ export type V2RootStackParamList = {
     //    다른 그룹에 참여하는 경로 — @claude 리뷰). 키를 필수로 두면 모든 호출부가 값을
     //    명시하게 되어 컴파일 시점에 이 불변식이 강제된다.
     challengeId: string | undefined;
-    entrySource: FocusEntrySource | undefined;
-    interactionId: string | undefined;
-    interactionAcceptedAt: number | undefined;
-  };
+  } & CardInteractionRouteContext;
   GroupNotice: {
     groupId: string;
     canWrite: boolean; // 방장·공지 권한 멤버 여부 — false면 작성/수정/삭제 진입점을 렌더하지 않는다(403 예방)

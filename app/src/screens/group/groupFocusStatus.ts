@@ -25,6 +25,7 @@ type Listener = () => void;
 type RankingLoader = (date: string) => Promise<LeagueMemberResponse[]>;
 
 const cacheKey = (userId: string, date: string) => `${userId}\u0000${date}`;
+const IDLE_STATE: GroupFocusStatusState = Object.freeze({ status: 'idle' });
 
 /** 화면의 모든 카드가 공유하는 category 없는 ranking 원본 cache. */
 export class GroupFocusStatusStore {
@@ -34,7 +35,8 @@ export class GroupFocusStatusStore {
   constructor(private readonly load: RankingLoader) {}
 
   getState(userId: string, date: string): GroupFocusStatusState {
-    return this.entries.get(cacheKey(userId, date))?.state ?? { status: 'idle' };
+    // useSyncExternalStore는 변경 전 snapshot의 참조 동일성을 요구한다.
+    return this.entries.get(cacheKey(userId, date))?.state ?? IDLE_STATE;
   }
 
   subscribe(userId: string, date: string, listener: Listener): () => void {
@@ -71,6 +73,12 @@ export class GroupFocusStatusStore {
     }
   }
 
+  clearDate(userId: string, date: string): void {
+    const key = cacheKey(userId, date);
+    this.entries.delete(key);
+    this.emit(key);
+  }
+
   private start(
     userId: string,
     date: string,
@@ -78,9 +86,7 @@ export class GroupFocusStatusStore {
   ): Promise<GroupFocusStatusState> {
     const key = cacheKey(userId, date);
     const entry: CacheEntry = {
-      // 최초 요청만 loading이다. 이미 확인된 complete 값은 polling/foreground refresh가
-      // 끝날 때까지 유지하고, 성공 응답 또는 실패(stale)에서만 교체한다.
-      state: previous?.lastComplete ? previous.state : { status: 'loading' },
+      state: { status: 'loading' },
       lastComplete: previous?.lastComplete ?? null,
       inFlight: null,
     };
@@ -146,8 +152,20 @@ export interface GroupFocusPollingOptions {
   userId: string;
   getDate?: () => string;
   intervalMs?: number;
+  getMsUntilNextDate?: () => number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function msUntilNextKstDate(now = Date.now()): number {
+  const kst = new Date(now + KST_OFFSET_MS);
+  const nextKstMidnightUtc =
+    Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + 1) - KST_OFFSET_MS;
+  return Math.max(1, nextKstMidnightUtc - now);
 }
 
 /** 첫 back 뒤의 foreground 60초 수명을 화면/앱 수명과 분리해 검증 가능한 controller로 둔다. */
@@ -160,16 +178,24 @@ export class GroupFocusPollingController {
     hasGroups: false,
   };
   private timer: ReturnType<typeof setInterval> | null = null;
+  private dateBoundaryTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeDate: string | null = null;
   private readonly getDate: () => string;
   private readonly intervalMs: number;
+  private readonly getMsUntilNextDate: () => number;
   private readonly setIntervalFn: typeof setInterval;
   private readonly clearIntervalFn: typeof clearInterval;
+  private readonly setTimeoutFn: typeof setTimeout;
+  private readonly clearTimeoutFn: typeof clearTimeout;
 
   constructor(private readonly options: GroupFocusPollingOptions) {
     this.getDate = options.getDate ?? todayStrKst;
     this.intervalMs = options.intervalMs ?? 60_000;
+    this.getMsUntilNextDate = options.getMsUntilNextDate ?? msUntilNextKstDate;
     this.setIntervalFn = options.setIntervalFn ?? setInterval;
     this.clearIntervalFn = options.clearIntervalFn ?? clearInterval;
+    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+    this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
   }
 
   /** 사용자 첫 back과 코치마크 3→4가 공유하는 진입점. */
@@ -177,8 +203,8 @@ export class GroupFocusPollingController {
     if (this.disposed || this.activated) return;
     this.activated = true;
     if (!this.canRun()) return;
-    // 새 화면 수명은 이전 mount의 ready cache도 즉시 갱신한다. 동일 key의 in-flight는 retry가 공유한다.
-    this.refresh();
+    const date = this.prepareDate();
+    this.options.store.ensure(this.options.userId, date);
     this.startTimer();
   }
 
@@ -202,6 +228,10 @@ export class GroupFocusPollingController {
   dispose(): void {
     this.disposed = true;
     this.stopTimer();
+    // 화면 세션의 warm cache를 다음 마운트가 재사용하지 않게 한다. 그렇지 않으면 새 controller의
+    // 첫 ensure가 ready entry를 보고 요청을 생략해 최대 60초 동안 이전 세션 값을 보여 준다.
+    if (this.activeDate) this.options.store.clearDate(this.options.userId, this.activeDate);
+    this.activeDate = null;
   }
 
   private canRun(): boolean {
@@ -215,20 +245,45 @@ export class GroupFocusPollingController {
   }
 
   private refresh(): Promise<GroupFocusStatusState> {
-    return this.options.store.retry(this.options.userId, this.getDate());
+    return this.options.store.retry(this.options.userId, this.prepareDate());
+  }
+
+  private prepareDate(): string {
+    const nextDate = this.getDate();
+    if (this.activeDate && this.activeDate !== nextDate) {
+      this.options.store.clearDate(this.options.userId, this.activeDate);
+    }
+    this.activeDate = nextDate;
+    return nextDate;
   }
 
   private startTimer(): void {
-    if (this.timer !== null) return;
-    this.timer = this.setIntervalFn(() => {
+    if (this.timer === null) {
+      this.timer = this.setIntervalFn(() => {
+        if (this.canRun()) this.refresh();
+      }, this.intervalMs);
+    }
+    this.scheduleDateBoundary();
+  }
+
+  private scheduleDateBoundary(): void {
+    if (this.dateBoundaryTimer !== null || !this.canRun()) return;
+    this.dateBoundaryTimer = this.setTimeoutFn(() => {
+      this.dateBoundaryTimer = null;
       if (this.canRun()) this.refresh();
-    }, this.intervalMs);
+      this.scheduleDateBoundary();
+    }, this.getMsUntilNextDate());
   }
 
   private stopTimer(): void {
-    if (this.timer === null) return;
-    this.clearIntervalFn(this.timer);
-    this.timer = null;
+    if (this.timer !== null) {
+      this.clearIntervalFn(this.timer);
+      this.timer = null;
+    }
+    if (this.dateBoundaryTimer !== null) {
+      this.clearTimeoutFn(this.dateBoundaryTimer);
+      this.dateBoundaryTimer = null;
+    }
   }
 }
 

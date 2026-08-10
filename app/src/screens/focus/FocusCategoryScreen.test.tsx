@@ -7,14 +7,11 @@
 // ⚠️ 애니메이션 중간 프레임·이징은 단언하지 않는다 — jest에서 워클릿·CSS 전환은 목이다.
 //    여기서 보는 건 "시퀀스가 언제 시작·완주하는가"라는 순서 계약뿐이다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AppState } from 'react-native';
 import FocusCategoryScreen from './FocusCategoryScreen';
 import type { Subject } from './types';
 
 let mockReduce = true;
 let mockReady = false;
-let mockRouteParams: Record<string, unknown> | undefined;
-const mockInvalidateCardInteraction = jest.fn();
 // ⚠️ 두 export를 모두 목킹해야 한다 — 하나만 두면 나머지를 쓰는 코드가 undefined를 부른다.
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
@@ -33,13 +30,7 @@ const WAIT_MS = MOCK_SLIDE_MS + 60;
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
-  useRoute: () => ({ params: mockRouteParams }),
-}));
-
-jest.mock('@/services/cardInteraction', () => ({
-  invalidateCardInteraction: (interactionId?: string) =>
-    mockInvalidateCardInteraction(interactionId),
-  normalizeFocusEntrySource: (source?: string) => source ?? 'unknown',
+  useRoute: () => ({ params: undefined }),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -132,8 +123,6 @@ jest.mock('./components/TimerMethodSheet', () => {
 beforeEach(() => {
   mockReduce = true;
   mockReady = false;
-  mockRouteParams = undefined;
-  mockInvalidateCardInteraction.mockClear();
   jest.useFakeTimers();
 });
 afterEach(() => {
@@ -157,22 +146,6 @@ const pressOther = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[1].i
 const pressSame = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[0].id}`));
 
 describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
-  test('background 상태에서 마운트된 카드 진입 intent를 즉시 만료한다', async () => {
-    mockRouteParams = {
-      initialGroupId: 'group-1',
-      entrySource: 'group_card',
-      interactionId: 'interaction-background',
-      interactionAcceptedAt: Date.now(),
-    };
-    const previousState = AppState.currentState;
-    Object.assign(AppState, { currentState: 'background' });
-
-    await renderScreen();
-
-    expect(mockInvalidateCardInteraction).toHaveBeenCalledWith('interaction-background');
-    Object.assign(AppState, { currentState: previousState });
-  });
-
   test('설정이 확정되기 전에는 시퀀스를 시작하지 않는다', async () => {
     await renderScreen();
     await pressOther();

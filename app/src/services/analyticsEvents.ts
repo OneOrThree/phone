@@ -413,6 +413,9 @@ export function logNudgeTapped(p: { type: NudgeType }): void {
 // 'deferred_invite' = 미설치 상태에서 링크를 누르고 설치 후 복원된 초대(초대 링크 스펙 §4-3).
 // C-1: 참가 코드는 폐기됐다(§0) — 'code'는 발행되지 않던 데드 값이라 제거. 검색·초대·복원 초대만 남긴다.
 export type GroupJoinMethod = 'search' | 'invite' | 'deferred_invite';
+export type GroupCardAction = 'focus' | 'room' | 'settings';
+export type GroupCardRole = 'owner' | 'member';
+export type GroupCardBackSource = 'user' | 'guide';
 
 export function logGroupCreateStarted(): void {
   track('group_create_started');
@@ -434,10 +437,7 @@ export function logGroupViewed(p: {
   track('group_viewed', p);
 }
 
-export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
-export type GroupCardPageTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
-export type GroupCardReorderTrigger = 'drag' | 'pointer_control' | 'accessibility_action';
-
+// 그룹 카드 덱. 그룹 이름·ID·로컬 순서·아이콘 glyph는 고카디널리티/로컬 표현값이라 싣지 않는다.
 export function logGroupCardDeckViewed(p: {
   group_count_bucket: GroupCountBucket;
   group_entry: GroupEntry;
@@ -448,14 +448,14 @@ export function logGroupCardDeckViewed(p: {
 
 export function logGroupCardFlipped(p: {
   to_face: 'front' | 'back';
-  trigger: GroupCardFlipTrigger;
+  trigger: 'card_tap' | 'accessibility_action';
   group_count_bucket: GroupCountBucket;
 }): void {
   track('group_card_flipped', p);
 }
 
 export function logGroupCarouselPaged(p: {
-  trigger: GroupCardPageTrigger;
+  trigger: 'swipe' | 'indicator_press' | 'accessibility_action';
   from_index: number;
   to_index: number;
   group_count_bucket: GroupCountBucket;
@@ -464,21 +464,12 @@ export function logGroupCarouselPaged(p: {
 }
 
 export function logGroupCardReordered(p: {
-  trigger: GroupCardReorderTrigger;
+  trigger: 'drag' | 'pointer_control' | 'accessibility_action';
   from_index: number;
   to_index: number;
   group_count_bucket: GroupCountBucket;
 }): void {
   track('group_card_reordered', p);
-}
-
-export function logGroupCardActionClicked(p: {
-  action: 'focus' | 'room' | 'settings';
-  role: 'owner' | 'member';
-  back_source: 'user' | 'guide';
-  interaction_id: string;
-}): void {
-  track('group_card_action_clicked', p);
 }
 
 export function logGroupCardIconSaveResult(p: {
@@ -487,20 +478,24 @@ export function logGroupCardIconSaveResult(p: {
 }): void {
   track('group_card_icon_save_result', p);
 }
-
 export function logGroupCardIconEditorViewed(): void {
   track('group_card_icon_editor_viewed', { surface: 'settings' });
 }
-
-export function logGroupDeckGuideReadFailed(): void {
-  track('group_deck_guide_read_failed');
-}
-
-export function logGroupDeckGuideWriteFailed(): void {
-  track('guide_complete_write_failed', { guide: 'groupDeck:v1' });
+export function logGroupFindOpened(p: {
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
+}): void {
+  track('group_find_opened', p);
 }
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
+export function logGroupCardActionClicked(p: {
+  action: GroupCardAction;
+  role: GroupCardRole;
+  back_source: GroupCardBackSource;
+  interaction_id: string;
+}): void {
+  track('group_card_action_clicked', p);
+}
 export function logGroupRoomViewed(p: {
   group_id: string;
   entry_source: FocusEntrySource;

@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AccessibilityInfo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentRef,
+  type ReactNode,
+} from 'react';
+import {
   ActivityIndicator,
+  AccessibilityInfo,
   AppState,
   FlatList,
-  findNodeHandle,
   PanResponder,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,42 +26,20 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ReactNative from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
-import { STORAGE_KEYS } from '@/types/storage';
-import { enterUp } from '@/constants/motion';
-import { useMotion } from '@/hooks/useMotion';
-import type { GroupSummaryResponse } from '@/types/dto/group';
-import { FindMoreCard } from './components/FindMoreCard';
-import { PageIndicator } from './components/PageIndicator';
-import { GroupCardFront } from './components/GroupCardFront';
-import { GroupCardBack } from './components/GroupCardBack';
-import { useGroupCardOrder } from './useGroupCardOrder';
-import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
-import {
-  DEFAULT_GROUP_CARD_EMOJI,
-  readGroupCardEmoji,
-  reconcileGroupCardEmojis,
-  retryPendingGroupCardEmojis,
-  type GroupCardEmoji,
-} from './groupCardEmojiStore';
-import { GroupCardSummaryAdapter } from './groupCardSummary';
-import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
-import { todayStrKst } from '@/utils/localDate';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logGroupCardActionClicked,
   logGroupCardDeckViewed,
   logGroupCardFlipped,
   logGroupCardReordered,
   logGroupCarouselPaged,
-  logGroupDeckGuideReadFailed,
-  logGroupDeckGuideWriteFailed,
-  logTabGuideCompleted,
-  type GroupCardReorderTrigger,
+  logGroupFindOpened,
   type GroupCountBucket,
   type GroupEntry,
 } from '@/services/analyticsEvents';
@@ -60,13 +47,30 @@ import {
   createCardInteractionContext,
   type CardInteractionContext,
 } from '@/services/cardInteraction';
+import { STORAGE_KEYS } from '@/types/storage';
+import type { LeagueMemberResponse } from '@/types/api';
+import { enterUp } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
+import type { GroupSummaryResponse } from '@/types/dto/group';
+import { todayStrKst } from '@/utils/localDate';
+import { FindMoreCard } from './components/FindMoreCard';
+import { PageIndicator } from './components/PageIndicator';
+import { GroupCardFront } from './components/GroupCardFront';
+import { GroupCardBack } from './components/GroupCardBack';
+import { GroupCardSummaryAdapter } from './groupCardSummary';
+import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
+import { useGroupCardOrder } from './useGroupCardOrder';
 import {
-  completeGroupDeckGuide,
-  GROUP_DECK_GUIDE_ID,
+  DEFAULT_GROUP_CARD_EMOJI,
+  groupCardEmojiLabel,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
+import {
   isGroupDeckGuideCompletedInSession,
-  resolveGroupDeckGuideDecision,
-  type GroupDeckGuideReadState,
-} from './groupDeckGuide';
+  markGroupDeckGuideCompletedInSession,
+  reserveUnknownGroupDeckGuideAttempt,
+} from './groupDeckGuideSession';
+import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -94,54 +98,22 @@ const SIDE_PEEK = 24;
 const CARD_GAP = 12;
 const DRAG_EDGE = 60;
 const EDGE_PAGE_THROTTLE_MS = 260;
-const GUIDE_CHARACTER = require('@/assets/character_study.png');
-
-function groupCountBucket(count: number): GroupCountBucket {
-  if (count === 1) return '1';
-  if (count <= 5) return '2_5';
-  if (count <= 10) return '6_10';
-  return '11_plus';
-}
-
-export function resolveDragTarget(
-  from: number,
-  pointerDelta: number,
-  edgeOffset: number,
-  edgeDirection: -1 | 0 | 1,
-  max: number,
-): { target: number; edgeOffset: number } {
-  const pointerTarget = Math.max(0, Math.min(from + pointerDelta, max));
-  const nextEdgeOffset = Math.max(
-    -pointerTarget,
-    Math.min(edgeOffset + edgeDirection, max - pointerTarget),
-  );
-  return {
-    target: pointerTarget + nextEdgeOffset,
-    edgeOffset: nextEdgeOffset,
-  };
-}
-
-export function groupDeckResponderLayoutKey(windowWidth: number, snapInterval: number): string {
-  return `${windowWidth}:${snapInterval}`;
-}
-
-export function resolveDragRestoreIndex(
-  groupIds: readonly string[],
-  groupId: string,
-  fallbackIndex: number,
-): number {
-  const stableIndex = groupIds.indexOf(groupId);
-  return stableIndex >= 0 ? stableIndex : Math.min(fallbackIndex, Math.max(0, groupIds.length - 1));
-}
 
 /**
- * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
- * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
- * 아래 s.card의 minHeight로도 걸어 둔다 — 스켈레톤과 실제 카드가 **같은 값에 묶여 있어야**
- * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
- * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
+ * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유한다.
+ * 앞면·뒷면의 300pt 최소 높이와 반드시 같은 값이어야 데이터 도착 때 화면이 밀리지 않는다.
  */
 export const GROUP_CARD_HEIGHT = 300;
+
+// GroupCardSummaryAdapter는 화면별 focus 구독을 직접 소유하지 않는다. GroupFocusStatusStore는
+// user/date scope별 구독만 제공하므로, 아래 facade로 조회·재시도만 연결하고 화면 effect에서
+// 현재 scope를 구독해 snapshot 갱신을 전달한다.
+const groupCardSummaryFocusDependency = {
+  getState: (userId: string, date: string) => groupFocusStatusStore.getState(userId, date),
+  ensure: (userId: string, date: string) => groupFocusStatusStore.ensure(userId, date),
+  retry: (userId: string, date: string) => groupFocusStatusStore.retry(userId, date),
+  subscribe: (_listener: () => void) => () => undefined,
+};
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
@@ -194,70 +166,71 @@ function GroupListCell({
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
-  groupsRevision?: number;
-  isScreenFocused?: boolean;
   userId?: string | null;
+  cardEmojiByGroupId?: GroupCardEmojiBucket;
+  cardEmojiHydrated?: boolean;
+  cardEmojiHydratedGroupIds?: ReadonlySet<string>;
   onSelect: (groupId: string, interaction: CardInteractionContext) => void;
-  onFocus: (groupId: string, interaction: CardInteractionContext) => void;
-  onSettings: (groupId: string) => void;
-  viewEpisodeId: number;
-  groupEntry: GroupEntry;
-  guideBlocked?: boolean;
-  guideScreenFocused?: boolean;
+  onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
+  onOpenSettings?: (groupId: string) => void;
   onCreate: () => void;
   onFind: () => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
+  screenFocused?: boolean;
+  entrySource?: GroupEntry;
+  viewEpisodeId?: number;
+  guideBlocked?: boolean;
+  dataReady?: boolean;
+  successfulListVersion?: number;
+}
+
+function groupCountBucket(count: number): GroupCountBucket {
+  if (count === 0) return '0';
+  if (count === 1) return '1';
+  if (count <= 5) return '2_5';
+  if (count <= 10) return '6_10';
+  return '11_plus';
 }
 
 export default function GroupListScreen({
   groups,
-  groupsRevision = 0,
-  isScreenFocused = true,
   userId = null,
+  cardEmojiByGroupId = {},
+  cardEmojiHydrated = true,
+  cardEmojiHydratedGroupIds,
   onSelect,
-  onFocus,
-  onSettings,
-  viewEpisodeId,
-  groupEntry,
-  guideBlocked = false,
-  guideScreenFocused = true,
+  onStartFocus,
+  onOpenSettings,
   onCreate,
   onFind,
   onRefresh,
   onBack,
+  screenFocused = true,
+  entrySource = 'unknown',
+  viewEpisodeId = 0,
+  guideBlocked = false,
+  dataReady = true,
+  successfulListVersion = 0,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
-  const [backSource, setBackSource] = useState<'guide' | 'user' | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
-  const [orderMenuGroupId, setOrderMenuGroupId] = useState<string | null>(null);
-  const orderMenuGroupIdRef = useRef<string | null>(null);
-  orderMenuGroupIdRef.current = orderMenuGroupId;
-  // RN 부팅 직후 currentState가 null일 수 있다. background/inactive 신호 전에는 foreground
-  // 후보로 두고 listener가 이후 확정한다.
-  const [appActive, setAppActive] = useState(
-    AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-  );
-  const [summaryDate, setSummaryDate] = useState(todayStrKst);
-  const [exposedEpisodeId, setExposedEpisodeId] = useState<number | null>(null);
-  const [guideQueued, setGuideQueued] = useState(false);
-  const [guideVisible, setGuideVisible] = useState(false);
-  const invalidatedGuideEpisodeRef = useRef<number | null>(null);
-  const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
-  const [emojiScopeLoaded, setEmojiScopeLoaded] = useState<string | null>(null);
-  const reconciledEmojiRevisionRef = useRef<string | null>(null);
-  const [deckLayoutScope, setDeckLayoutScope] = useState<string | null>(null);
-  const [, setSummaryVersion] = useState(0);
+  const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
-  const deckLayoutKey = `${emojiScopeLoaded ?? 'emoji-pending'}\u0000${snapInterval}`;
+  const isCardEmojiKnown = (groupId: string) =>
+    cardEmojiByGroupId[groupId] !== undefined ||
+    (cardEmojiHydrated &&
+      (cardEmojiHydratedGroupIds === undefined || cardEmojiHydratedGroupIds.has(groupId)));
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
     serverGroupIds: groups.map((group) => group.groupId),
     userId,
+    successfulListVersion,
   });
   const orderedGroups = useMemo(() => {
     if (!hydrated) return groups;
@@ -267,251 +240,67 @@ export default function GroupListScreen({
       return group ? [group] : [];
     });
   }, [groups, hydrated, orderedGroupIds]);
-  const emojiScope = `${userId ?? ''}\u0000${groups.map((group) => group.groupId).join('\u0000')}`;
-  const deckInteractive = exposedEpisodeId === viewEpisodeId;
   const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
-  // hydration 전 서버 첫 카드를 현재 위치로 확정하지 않는다. undefined는 아직 위치 미확정,
-  // null은 사용자가 끝의 찾기 카드를 선택한 상태다.
-  const activeIdentityRef = useRef<string | null | undefined>(undefined);
+  const activeIdentityRef = useRef<string | null>(null);
+  const programmaticMomentumCountRef = useRef(0);
+  const actionAcceptedRef = useRef(false);
+  const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
+  const roomReturnFocusGroupIdRef = useRef<string | null>(null);
+  const roomReturnWasBlurredRef = useRef(false);
+  const [roomReturnReadyGroupId, setRoomReturnReadyGroupId] = useState<string | null>(null);
+  const activeInitializedRef = useRef(false);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
-  const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
-  const returnFocusTargetRef = useRef<'room' | 'settings'>('room');
-  const guideFrontRef = useRef<View | null>(null);
-  const guideBackRef = useRef<View | null>(null);
-  const frontFocusRef = useRef<View | null>(null);
-  const backFocusRef = useRef<View | null>(null);
-  const roomReturnFocusRef = useRef<View | null>(null);
-  const settingsReturnFocusRef = useRef<View | null>(null);
-  const actionLockedRef = useRef(false);
-  const [pendingFrontFocusGroupId, setPendingFrontFocusGroupId] = useState<string | null>(null);
-  const [pendingBackFocusGroupId, setPendingBackFocusGroupId] = useState<string | null>(null);
-  const summaryAdapter = useMemo(() => new GroupCardSummaryAdapter(groupFocusStatusStore), []);
-  const focusPolling = useMemo(
+  const [date, setDate] = useState(todayStrKst);
+  const groupIdsKey = groups.map((group) => group.groupId).join('\u0000');
+  const countBucket = groupCountBucket(groups.length);
+  const deckViewedEpisodeRef = useRef<number | null>(null);
+  const deckViewPendingEpisodeRef = useRef<number | null>(null);
+  const [deckInputEpisode, setDeckInputEpisode] = useState<number | null>(null);
+  const [deckGuideVisible, setDeckGuideVisible] = useState(false);
+  const [guidePrimaryFocusGroupId, setGuidePrimaryFocusGroupId] = useState<string | null>(null);
+  const [frontFocusGroupId, setFrontFocusGroupId] = useState<string | null>(null);
+  const deckGuideVisibleRef = useRef(false);
+  deckGuideVisibleRef.current = deckGuideVisible;
+  const viewEpisodeRef = useRef(viewEpisodeId);
+  viewEpisodeRef.current = viewEpisodeId;
+  const guideInterruptedEpisodeRef = useRef<number | null>(null);
+  const guideBackGroupIdRef = useRef<string | null>(null);
+  const deckGuideAnchorRef = useRef<View | null>(null);
+  const activeCardGuideAnchorRef = useRef<View | null>(null);
+  const reorderFirstOptionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const reorderGripRefs = useRef(new Map<string, View>());
+  const frontDisclosureRefs = useRef(new Map<string, View>());
+  const [, refreshSummary] = useState(0);
+  const summaryAdapterRef = useRef<GroupCardSummaryAdapter<LeagueMemberResponse[]> | null>(null);
+  if (summaryAdapterRef.current === null) {
+    summaryAdapterRef.current = new GroupCardSummaryAdapter(groupCardSummaryFocusDependency);
+  }
+  const summaryAdapter = summaryAdapterRef.current;
+  const focusController = useMemo(
     () =>
       userId ? new GroupFocusPollingController({ store: groupFocusStatusStore, userId }) : null,
     [userId],
   );
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      setAppActive(state === 'active');
-      if (state === 'active') setSummaryDate(todayStrKst());
-    });
-    const dateTimer = setInterval(() => setSummaryDate(todayStrKst()), 30_000);
-    return () => {
-      subscription.remove();
-      clearInterval(dateTimer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isScreenFocused) actionLockedRef.current = false;
-  }, [isScreenFocused]);
-
-  // 완료 key read와 현재 blocking overlay 판정이 끝나기 전에는 덱을 열지 않는다. 이 시점의
-  // guide_state를 episode의 불변 노출 값으로 기록하고, pending이었다면 blocker 해제 뒤 queue를 연다.
-  useEffect(() => {
-    if (
-      !hydrated ||
-      emojiScopeLoaded !== emojiScope ||
-      deckLayoutScope !== deckLayoutKey ||
-      !guideScreenFocused ||
-      invalidatedGuideEpisodeRef.current === viewEpisodeId ||
-      exposedEpisodeId === viewEpisodeId
-    )
-      return;
-    let canceled = false;
-    const settle = (readState: GroupDeckGuideReadState) => {
-      if (canceled || !guideScreenFocused) return;
-      const decision = resolveGroupDeckGuideDecision(readState, guideBlocked);
-      logGroupCardDeckViewed({
-        group_count_bucket: groupCountBucket(orderedGroups.length),
-        group_entry: groupEntry,
-        guide_state: decision.exposure,
-      });
-      setGuideQueued(decision.queue);
-      setExposedEpisodeId(viewEpisodeId);
-    };
-    AsyncStorage.getItem(STORAGE_KEYS.guideGroupDeck)
-      .then((value) =>
-        settle(value === '1' || isGroupDeckGuideCompletedInSession() ? 'completed' : 'incomplete'),
-      )
-      .catch(() => {
-        logGroupDeckGuideReadFailed();
-        settle('unknown');
-      });
-    return () => {
-      canceled = true;
-    };
-  }, [
-    exposedEpisodeId,
-    deckLayoutKey,
-    deckLayoutScope,
-    emojiScope,
-    emojiScopeLoaded,
-    groupEntry,
-    guideBlocked,
-    guideScreenFocused,
-    hydrated,
-    orderedGroups.length,
-    viewEpisodeId,
-  ]);
-
-  useEffect(() => {
-    if (!guideQueued || guideVisible || guideBlocked || !guideScreenFocused || !appActive) return;
-    setGuideVisible(true);
-  }, [appActive, guideBlocked, guideQueued, guideScreenFocused, guideVisible]);
-
-  useEffect(() => {
-    if (!guideScreenFocused) {
-      invalidatedGuideEpisodeRef.current = viewEpisodeId;
-      setGuideVisible(false);
-      // route 이탈 중에는 목록·episode가 바뀔 수 있으므로 이전 queue를 재사용하지 않는다.
-      setGuideQueued(false);
-      // 안내는 다음 노출 때 1단계부터 시작한다. 4단계 시연으로 뒤집힌 face도 함께 초기화한다.
-      if (backSource === 'guide') {
-        setFlippedGroupId(null);
-        setBackSource(null);
-      }
-      return;
-    }
-    if (guideVisible && (guideBlocked || !appActive)) {
-      // 표시 중인 안내를 사용자가 다른 overlay/background로 중단했다면 같은 episode에서
-      // 즉시 다시 열지 않는다. route blur와 동일하게 다음 focus episode가 새로 판정한다.
-      invalidatedGuideEpisodeRef.current = viewEpisodeId;
-      setGuideVisible(false);
-      setGuideQueued(false);
-      if (backSource === 'guide') {
-        setFlippedGroupId(null);
-        setBackSource(null);
-      }
-    }
-  }, [appActive, backSource, guideBlocked, guideScreenFocused, guideVisible, viewEpisodeId]);
-
-  useEffect(() => {
-    focusPolling?.setLifecycle({
-      screenFocused: isScreenFocused,
-      appActive,
-      hasGroups: groups.length > 0,
-    });
-  }, [appActive, focusPolling, groups.length, isScreenFocused]);
-
-  useEffect(() => () => focusPolling?.dispose(), [focusPolling]);
-
-  useEffect(() => {
-    summaryAdapter.setScope(
-      userId ? { userId, date: summaryDate, groupIds: groups.map((group) => group.groupId) } : null,
-    );
-    setSummaryVersion((version) => version + 1);
-    if (flippedGroupId) summaryAdapter.ensureBack(flippedGroupId).catch(() => undefined);
-  }, [flippedGroupId, groups, summaryAdapter, summaryDate, userId]);
-
-  const guideSteps = useMemo<GuideStep[]>(
-    () => [
-      {
-        text: '내 그룹이 카드로 모였어. 같이 둘러보자!',
-        character: GUIDE_CHARACTER,
-        anchor: guideFrontRef,
-      },
-      {
-        text:
-          orderedGroups.length >= 2
-            ? '옆으로 넘기면 다른 그룹을 볼 수 있어.'
-            : '이 카드가 내 그룹이야. 그룹이 늘면 옆으로 넘길 수 있어.',
-        character: GUIDE_CHARACTER,
-        anchor: guideFrontRef,
-      },
-      {
-        text: '카드를 탭하면 오늘의 방 상태를 볼 수 있어.',
-        character: GUIDE_CHARACTER,
-        anchor: guideFrontRef,
-      },
-      {
-        text: '여기서 바로 집중하거나 방 전체를 열 수 있어.',
-        character: GUIDE_CHARACTER,
-        anchor: guideBackRef,
-        prepare: async () => {
-          const groupId = orderedGroups[activeIndex]?.groupId ?? orderedGroups[0]?.groupId;
-          if (!groupId) return;
-          setFlippedGroupId(groupId);
-          setBackSource('guide');
-          summaryAdapter.ensureBack(groupId).catch(() => undefined);
-          focusPolling?.activate();
-          // conditional back 카드가 commit·layout된 다음 overlay가 measureInWindow를 호출한다.
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-          });
-        },
-      },
-    ],
-    [activeIndex, focusPolling, orderedGroups, summaryAdapter],
+  const retryBack = useCallback(
+    async (groupId: string) => {
+      await Promise.all([
+        summaryAdapter.retry(groupId, 'detail'),
+        summaryAdapter.retry(groupId, 'announcements'),
+        summaryAdapter.retry(groupId, 'challenges'),
+        summaryAdapter.retry(groupId, 'focus'),
+      ]);
+    },
+    [summaryAdapter],
   );
-
-  const finishGuide = useCallback(() => {
-    if (
-      completeGroupDeckGuide(
-        () => logTabGuideCompleted({ guide: GROUP_DECK_GUIDE_ID }),
-        () => AsyncStorage.setItem(STORAGE_KEYS.guideGroupDeck, '1'),
-        logGroupDeckGuideWriteFailed,
-      )
-    ) {
-      setGuideVisible(false);
-      setGuideQueued(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => setSummaryVersion((version) => version + 1);
-    const unsubscribeSummary = summaryAdapter.subscribe(refresh);
-    const unsubscribeFocus = userId
-      ? groupFocusStatusStore.subscribe(userId, summaryDate, refresh)
-      : () => undefined;
-    return () => {
-      unsubscribeSummary();
-      unsubscribeFocus();
-    };
-  }, [summaryAdapter, summaryDate, userId]);
-
-  useEffect(() => {
-    let active = true;
-    const groupIds = groups.map((group) => group.groupId);
-    const reconciliationKey = userId ? `${userId}\u0000${groupsRevision}` : null;
-    const shouldReconcile =
-      reconciliationKey !== null && reconciledEmojiRevisionRef.current !== reconciliationKey;
-    if (shouldReconcile) reconciledEmojiRevisionRef.current = reconciliationKey;
-    // pending 값은 메모리에서 즉시 읽을 수 있으므로 저장 재시도 queue가 덱 노출을 막지 않는다.
-    Promise.all(
-      groups.map(
-        async (group) => [group.groupId, await readGroupCardEmoji(userId, group.groupId)] as const,
-      ),
-    )
-      .then((entries) => {
-        if (active) {
-          setEmojis(Object.fromEntries(entries));
-          setEmojiScopeLoaded(emojiScope);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setEmojis({});
-          setEmojiScopeLoaded(emojiScope);
-        }
-      });
-    if (userId) {
-      retryPendingGroupCardEmojis(userId, groupIds)
-        .then(() => (shouldReconcile ? reconcileGroupCardEmojis(userId, groupIds) : undefined))
-        .catch(() => {
-          if (shouldReconcile && reconciledEmojiRevisionRef.current === reconciliationKey) {
-            reconciledEmojiRevisionRef.current = null;
-          }
-        });
-    }
-    return () => {
-      active = false;
-    };
-  }, [emojiScope, groups, groupsRevision, isScreenFocused, userId]);
+  const invalidateBack = useCallback(() => {
+    // 최신 scoped cache는 public invalidate API 대신 scope 밖 key를 prune한다. null로 한 번
+    // 내렸다가 현재 성공 목록 scope를 복원하면, 늦은 이전 응답도 버리면서 다음 retry가 새 요청을 연다.
+    const groupIds = groupIdsKey ? groupIdsKey.split('\u0000') : [];
+    summaryAdapter.setScope(null);
+    summaryAdapter.setScope(userId ? { userId, date, groupIds } : null);
+  }, [date, groupIdsKey, summaryAdapter, userId]);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -523,104 +312,300 @@ export default function GroupListScreen({
     [],
   );
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      const active = next === 'active';
+      setAppActive(active);
+      if (!active && deckGuideVisibleRef.current) {
+        deckGuideVisibleRef.current = false;
+        guideInterruptedEpisodeRef.current = viewEpisodeRef.current;
+        guideBackGroupIdRef.current = null;
+        setDeckGuideVisible(false);
+        setFlippedGroupId(null);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setDate(todayStrKst()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const groupIds = groupIdsKey ? groupIdsKey.split('\u0000') : [];
+    summaryAdapter.setScope(userId ? { userId, date, groupIds } : null);
+    const update = () => refreshSummary((revision) => revision + 1);
+    const unsubscribeSummary = summaryAdapter.subscribe(update);
+    const unsubscribeFocus = userId
+      ? groupFocusStatusStore.subscribe(userId, date, update)
+      : () => undefined;
+    return () => {
+      unsubscribeSummary();
+      unsubscribeFocus();
+    };
+  }, [date, groupIdsKey, summaryAdapter, userId]);
+
+  const previousDateRef = useRef(date);
+  useEffect(() => {
+    if (previousDateRef.current === date) return;
+    previousDateRef.current = date;
+    if (flippedGroupId === null) return;
+    // 날짜 scope 교체로 폐기된 뒷면 dependency와 focus 상태를 열린 카드에서 즉시 다시 채운다.
+    summaryAdapter.ensureBack(flippedGroupId);
+    focusController?.notifyFocusFlowReturn();
+  }, [date, flippedGroupId, focusController, summaryAdapter]);
+
+  const previousScreenFocusedRef = useRef(screenFocused);
+  useEffect(() => {
+    const returned = screenFocused && !previousScreenFocusedRef.current;
+    previousScreenFocusedRef.current = screenFocused;
+    if (!returned) return;
+    invalidateBack();
+    if (flippedGroupId !== null) retryBack(flippedGroupId).catch(() => undefined);
+  }, [flippedGroupId, invalidateBack, retryBack, screenFocused]);
+
+  useEffect(() => {
+    focusController?.setLifecycle({
+      screenFocused,
+      appActive,
+      hasGroups: groups.length > 0,
+    });
+  }, [appActive, focusController, groups.length, screenFocused]);
+
+  useEffect(() => () => focusController?.dispose(), [focusController]);
+
+  useEffect(() => {
+    if (screenFocused) actionAcceptedRef.current = false;
+    else if (roomReturnFocusGroupIdRef.current !== null) roomReturnWasBlurredRef.current = true;
+  }, [screenFocused]);
+
+  // 성공 목록과 로컬 순서가 확정된 뒤 focus episode마다 완료 key를 읽어 실제 guide 상태를 기록한다.
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !screenFocused ||
+      !appActive ||
+      !dataReady ||
+      guideInterruptedEpisodeRef.current === viewEpisodeId ||
+      deckViewedEpisodeRef.current === viewEpisodeId ||
+      deckViewPendingEpisodeRef.current === viewEpisodeId
+    )
+      return;
+    deckViewPendingEpisodeRef.current = viewEpisodeId;
+    let canceled = false;
+    const recordViewed = (guideState: 'shown' | 'pending' | 'completed' | 'unknown') => {
+      if (canceled) return;
+      logGroupCardDeckViewed({
+        group_count_bucket: countBucket,
+        group_entry: entrySource,
+        guide_state: guideState,
+      });
+      deckViewedEpisodeRef.current = viewEpisodeId;
+      deckViewPendingEpisodeRef.current = null;
+      setDeckInputEpisode(viewEpisodeId);
+    };
+    if (!userId) {
+      setDeckGuideVisible(false);
+      recordViewed('unknown');
+      return;
+    }
+    AsyncStorage.getItem(STORAGE_KEYS.guideGroupDeck)
+      .then((value) => {
+        const incomplete = value !== '1' && !isGroupDeckGuideCompletedInSession();
+        setDeckGuideVisible(incomplete);
+        recordViewed(incomplete ? (guideBlocked ? 'pending' : 'shown') : 'completed');
+      })
+      .catch(() => {
+        setDeckGuideVisible(reserveUnknownGroupDeckGuideAttempt());
+        recordViewed('unknown');
+      });
+    return () => {
+      canceled = true;
+      if (deckViewPendingEpisodeRef.current === viewEpisodeId) {
+        deckViewPendingEpisodeRef.current = null;
+      }
+    };
+  }, [
+    appActive,
+    countBucket,
+    dataReady,
+    entrySource,
+    guideBlocked,
+    hydrated,
+    screenFocused,
+    userId,
+    viewEpisodeId,
+  ]);
+
+  // 새 episode의 전체 목록 성공은 guide 판정에 필요하지만, 이미 한 번 입력을 연 덱은 재조회
+  // 실패 중에도 유지한다. 기존 데이터가 있는 오류를 영구 hydrating으로 바꾸지 않는다.
+  const deckInputReady = screenFocused && deckInputEpisode !== null;
+
+  const deckGuideSteps: GuideStep[] = useMemo(
+    () => [
+      {
+        text: '내 그룹이 카드로 모였어. 같이 둘러보자!',
+        character: require('@/assets/character_hi.png'),
+      },
+      {
+        text:
+          orderedGroups.length >= 2
+            ? '옆으로 넘기면 다른 그룹을 볼 수 있어.'
+            : '이 카드가 내 그룹이야. 그룹이 늘면 옆으로 넘길 수 있어.',
+        character: require('@/assets/character_study.png'),
+        anchor: deckGuideAnchorRef,
+      },
+      {
+        text: '카드를 탭하면 같은 자리에서 오늘의 방 상태를 볼 수 있어.',
+        character: require('@/assets/character_study.png'),
+        anchor: activeCardGuideAnchorRef,
+      },
+      {
+        text: '여기서 바로 집중하거나 방 전체를 열어봐.',
+        character: require('@/assets/character_happy.png'),
+        anchor: activeCardGuideAnchorRef,
+        prepare: async () => {
+          const groupId = activeIdentityRef.current ?? orderedGroups[0]?.groupId;
+          if (!userId || !groupId) return;
+          setFlippedGroupId(groupId);
+          guideBackGroupIdRef.current = groupId;
+          summaryAdapter.ensureBack(groupId);
+          focusController?.activate();
+          // conditional back tree와 실제 spotlight anchor layout이 commit된 뒤 측정한다.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+        },
+      },
+    ],
+    [focusController, orderedGroups, summaryAdapter, userId],
+  );
+
+  const interruptGuide = useCallback(() => {
+    if (!deckGuideVisibleRef.current) return;
+    deckGuideVisibleRef.current = false;
+    guideInterruptedEpisodeRef.current = viewEpisodeRef.current;
+    guideBackGroupIdRef.current = null;
+    setDeckGuideVisible(false);
+    setFlippedGroupId(null);
+  }, []);
+
+  const finishGuide = useCallback(() => {
+    const groupId = guideBackGroupIdRef.current;
+    markGroupDeckGuideCompletedInSession();
+    deckGuideVisibleRef.current = false;
+    setDeckGuideVisible(false);
+    if (groupId) setGuidePrimaryFocusGroupId(groupId);
+  }, []);
+
+  const previousGuideBlockedRef = useRef(guideBlocked);
+  useEffect(() => {
+    const becameBlocked = guideBlocked && !previousGuideBlockedRef.current;
+    previousGuideBlockedRef.current = guideBlocked;
+    if (becameBlocked) interruptGuide();
+  }, [guideBlocked, interruptGuide]);
+
   const handleRefresh = useCallback(async () => {
-    if (orderMenuGroupIdRef.current !== null) return;
     setRefreshing(true);
+    invalidateBack();
     try {
       await onRefresh();
-      if (flippedGroupId) await summaryAdapter.refreshBack(flippedGroupId);
+      if (flippedGroupId !== null) {
+        // 최신 main의 scoped cache에는 전체 invalidate API가 없다. 열린 뒷면의 네 dependency를
+        // 명시 retry해, 목록 갱신 뒤 stale snapshot을 재사용하지 않는다.
+        await retryBack(flippedGroupId);
+      }
     } finally {
       if (mountedRef.current) setRefreshing(false);
     }
-  }, [flippedGroupId, onRefresh, summaryAdapter]);
+  }, [flippedGroupId, invalidateBack, onRefresh, retryBack]);
 
   const selectPage = useCallback(
-    (page: number, trigger: 'indicator_press' | 'accessibility_action' = 'indicator_press') => {
-      if (!deckInteractive || orderMenuGroupIdRef.current !== null) return;
+    (page: number) => {
+      if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
-      const from = activeIndex;
-      if (from === next) return;
+      if (next === activeIndex) return;
       roomReturnRef.current = null;
+      logGroupCarouselPaged({
+        trigger: 'indicator_press',
+        from_index: activeIndex,
+        to_index: next,
+        group_count_bucket: countBucket,
+      });
+      programmaticMomentumCountRef.current += 1;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
       setFlippedGroupId(null);
-      setBackSource(null);
-      logGroupCarouselPaged({
-        trigger,
-        from_index: from,
-        to_index: next,
-        group_count_bucket: groupCountBucket(orderedGroups.length),
-      });
+      guideBackGroupIdRef.current = null;
     },
-    [activeIndex, deckInteractive, orderedGroups, pageCount, snapInterval],
+    [
+      activeIndex,
+      countBucket,
+      draggingGroupId,
+      orderedGroups,
+      pageCount,
+      reorderMenuGroupId,
+      snapInterval,
+    ],
   );
 
   const onMomentumScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const offset = event.nativeEvent.contentOffset.x;
-      const next = Math.max(0, Math.min(Math.round(offset / snapInterval), pageCount - 1));
+      const next = Math.max(
+        0,
+        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
+      );
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
-      const dragProgrammatic =
-        dragRef.current !== null ||
-        (dragProgrammaticOffsetRef.current !== null &&
-          Math.abs(dragProgrammaticOffsetRef.current - offset) < 1);
-      if (dragProgrammatic) {
-        dragProgrammaticOffsetRef.current = null;
-        activeIdentityRef.current = nextIdentity;
-        setActiveIndex(next);
-        return;
-      }
-      if (activeIdentityRef.current !== nextIdentity) {
+      const programmatic = dragRef.current !== null || programmaticMomentumCountRef.current > 0;
+      if (programmaticMomentumCountRef.current > 0) programmaticMomentumCountRef.current -= 1;
+      if (!programmatic && activeIdentityRef.current !== nextIdentity) {
         logGroupCarouselPaged({
           trigger: 'swipe',
           from_index: activeIndex,
           to_index: next,
-          group_count_bucket: groupCountBucket(orderedGroups.length),
+          group_count_bucket: countBucket,
         });
         setFlippedGroupId(null);
-        setBackSource(null);
+        guideBackGroupIdRef.current = null;
       }
       activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
     },
-    [activeIndex, orderedGroups, pageCount, snapInterval],
+    [activeIndex, countBucket, orderedGroups, pageCount, snapInterval],
   );
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
+    if (!hydrated) return;
+    if (!activeInitializedRef.current) {
+      activeInitializedRef.current = true;
+      activeIdentityRef.current = orderedGroups[0]?.groupId ?? null;
+    }
     const identity = activeIdentityRef.current;
     const next =
-      identity === undefined
-        ? 0
-        : identity === null
-          ? orderedGroups.length
-          : orderedGroups.findIndex((g) => g.groupId === identity);
+      identity === null
+        ? orderedGroups.length
+        : orderedGroups.findIndex((g) => g.groupId === identity);
     const safeIndex =
       next >= 0 ? next : Math.min(activeIndex, Math.max(0, orderedGroups.length - 1));
     activeIdentityRef.current = orderedGroups[safeIndex]?.groupId ?? null;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [activeIndex, orderedGroups, snapInterval]);
+  }, [activeIndex, hydrated, orderedGroups, snapInterval]);
 
-  const focusNode = useCallback((ref: { current: View | null }) => {
-    requestAnimationFrame(() => {
-      const node = findNodeHandle(ref.current);
-      if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
-    });
-  }, []);
-
-  // 복귀 판단은 출발 뒤 성공한 전체 목록 revision을 받은 뒤에만 한다. 조회 실패나 부분 응답을
-  // 탈퇴로 추정해 다른 카드를 복원하지 않는다.
+  // 방에서 돌아온 뒤 성공한 전체 목록과 로컬 순서가 모두 확정돼야 복귀 위치를 판정한다.
+  // 실패·부분 응답을 탈퇴로 오인하지 않고, 살아 있는 카드는 index가 바뀌어도 stable ID로 찾는다.
   useEffect(() => {
     const context = roomReturnRef.current;
     if (
-      !isScreenFocused ||
       !context ||
-      groupsRevision <= context.departureRevision ||
+      !screenFocused ||
+      !roomReturnWasBlurredRef.current ||
+      successfulListVersion <= context.departureRevision ||
       !hydrated ||
-      emojiScopeLoaded !== emojiScope ||
-      exposedEpisodeId !== viewEpisodeId
+      !dataReady
     )
       return;
 
@@ -628,7 +613,6 @@ export default function GroupListScreen({
       context,
       orderedGroups.map((group) => group.groupId),
     );
-    const returnFocusTarget = returnFocusTargetRef.current;
     roomReturnRef.current = null;
     if (target.kind === 'empty') return;
 
@@ -637,71 +621,38 @@ export default function GroupListScreen({
     listRef.current?.scrollToOffset({ offset: target.index * snapInterval, animated: false });
     if (target.kind === 'same_back') {
       setFlippedGroupId(target.groupId);
-      summaryAdapter.refreshBack(target.groupId).catch(() => undefined);
-      focusNode(returnFocusTarget === 'settings' ? settingsReturnFocusRef : roomReturnFocusRef);
+      summaryAdapter.ensureBack(target.groupId);
+      setRoomReturnReadyGroupId(target.groupId);
     } else {
+      setRoomReturnReadyGroupId(null);
+      roomReturnFocusGroupIdRef.current = null;
+      roomReturnWasBlurredRef.current = false;
       setFlippedGroupId(null);
-      setBackSource(null);
-      setPendingFrontFocusGroupId(target.groupId);
+      guideBackGroupIdRef.current = null;
+      setFrontFocusGroupId(target.groupId);
     }
   }, [
-    focusNode,
-    emojiScope,
-    emojiScopeLoaded,
-    exposedEpisodeId,
-    groupsRevision,
+    dataReady,
     hydrated,
-    isScreenFocused,
     orderedGroups,
+    screenFocused,
     snapInterval,
+    successfulListVersion,
     summaryAdapter,
-    viewEpisodeId,
   ]);
-
-  useEffect(() => {
-    if (
-      orderMenuGroupId !== null &&
-      !orderedGroups.some((group) => group.groupId === orderMenuGroupId)
-    ) {
-      setOrderMenuGroupId(null);
-    }
-  }, [orderMenuGroupId, orderedGroups]);
-
-  useEffect(() => {
-    if (pendingFrontFocusGroupId === null) return;
-    if (activeIdentityRef.current !== pendingFrontFocusGroupId || frontFocusRef.current === null)
-      return;
-    focusNode(frontFocusRef);
-    setPendingFrontFocusGroupId(null);
-  }, [focusNode, pendingFrontFocusGroupId]);
-
-  useEffect(() => {
-    if (pendingBackFocusGroupId === null) return;
-    if (flippedGroupId !== pendingBackFocusGroupId || backFocusRef.current === null) return;
-    focusNode(backFocusRef);
-    setPendingBackFocusGroupId(null);
-  }, [flippedGroupId, focusNode, pendingBackFocusGroupId]);
 
   // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
   // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
-  const dragRef = useRef<{
-    groupId: string;
-    from: number;
-    target: number;
-    edgeOffset: number;
-    edgePagingArmed: boolean;
-    dropOutsideDeck: boolean;
-    moved: boolean;
-  } | null>(null);
+  const dragRef = useRef<{ groupId: string; from: number; target: number } | null>(null);
   const lastEdgePageAtRef = useRef(0);
-  const dragProgrammaticOffsetRef = useRef<number | null>(null);
-  const responderLayoutKey = groupDeckResponderLayoutKey(windowWidth, snapInterval);
-  const respondersRef = useRef(
-    new Map<string, { layoutKey: string; responder: ReturnType<typeof PanResponder.create> }>(),
-  );
+  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
 
   const commitMove = useCallback(
-    (groupId: string, targetIndex: number, trigger: GroupCardReorderTrigger) => {
+    (
+      groupId: string,
+      targetIndex: number,
+      trigger: 'drag' | 'pointer_control' | 'accessibility_action',
+    ) => {
       const ids = orderedGroupsRef.current.map((group) => group.groupId);
       const from = ids.indexOf(groupId);
       const target = Math.max(0, Math.min(targetIndex, ids.length - 1));
@@ -711,158 +662,236 @@ export default function GroupListScreen({
       next.splice(target, 0, groupId);
       const committed = commitOrder(next);
       if (committed) {
+        roomReturnRef.current = null;
         logGroupCardReordered({
           trigger,
           from_index: from,
           to_index: target,
-          group_count_bucket: groupCountBucket(ids.length),
+          group_count_bucket: countBucket,
         });
         activeIdentityRef.current = groupId;
         setActiveIndex(target);
         listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
+        if (trigger === 'accessibility_action') {
+          const groupName = orderedGroupsRef.current.find(
+            (group) => group.groupId === groupId,
+          )?.name;
+          AccessibilityInfo.announceForAccessibility(
+            `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했습니다`,
+          );
+        }
       }
       return committed;
     },
-    [commitOrder, snapInterval],
-  );
-
-  const restoreDragOrigin = useCallback(
-    (drag: { from: number; groupId: string }) => {
-      const groupsNow = orderedGroupsRef.current;
-      const restoreIndex = resolveDragRestoreIndex(
-        groupsNow.map((group) => group.groupId),
-        drag.groupId,
-        drag.from,
-      );
-      const origin = groupsNow[restoreIndex];
-      if (origin) activeIdentityRef.current = origin.groupId;
-      setActiveIndex(restoreIndex);
-      dragProgrammaticOffsetRef.current = restoreIndex * snapInterval;
-      listRef.current?.scrollToOffset({ offset: restoreIndex * snapInterval, animated: true });
-    },
-    [snapInterval],
+    [commitOrder, countBucket, snapInterval],
   );
 
   const handlersFor = useCallback(
     (groupId: string) => {
-      const cached = respondersRef.current.get(groupId);
-      if (cached?.layoutKey === responderLayoutKey) return cached.responder.panHandlers;
+      // width/snap/order를 key에 포함해 effect 정리 전의 첫 render도 오래된 closure를 재사용하지 않는다.
+      const responderKey = `${groupId}:${windowWidth}:${snapInterval}:${orderedGroupIds.join(',')}`;
+      const cached = respondersRef.current.get(responderKey);
+      if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => hydrated && orderMenuGroupIdRef.current === null,
-        onMoveShouldSetPanResponder: () => hydrated && orderMenuGroupIdRef.current === null,
-        onPanResponderGrant: (event) => {
-          if (!hydrated || orderMenuGroupIdRef.current !== null) return;
-          roomReturnRef.current = null;
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          if (reorderMenuGroupId !== null) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
-          const startX = event.nativeEvent.pageX;
-          dragRef.current = {
-            groupId,
-            from,
-            target: from,
-            edgeOffset: 0,
-            edgePagingArmed:
-              typeof startX !== 'number' ||
-              (startX >= DRAG_EDGE && startX <= windowWidth - DRAG_EDGE),
-            dropOutsideDeck: false,
-            moved: false,
-          };
+          roomReturnRef.current = null;
+          dragRef.current = { groupId, from, target: from };
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
           setFlippedGroupId(null);
-          setBackSource(null);
+          guideBackGroupIdRef.current = null;
         },
         onPanResponderMove: (_event, gesture) => {
           const drag = dragRef.current;
           if (!drag) return;
-          if (Math.abs(gesture.dx) > 8) drag.moved = true;
+          if (Math.max(Math.abs(gesture.dx), Math.abs(gesture.dy)) < 6) return;
           const max = orderedGroupsRef.current.length - 1;
-          const rawPointerTarget = drag.from + gesture.dx / snapInterval;
-          // 그룹 카드 슬롯 밖(왼쪽 여백 또는 오른쪽 FindMoreCard)에 놓으면 순서 변경을 취소한다.
-          drag.dropOutsideDeck = rawPointerTarget < -0.5 || rawPointerTarget > max + 0.5;
-          const pointerDelta = Math.round(gesture.dx / snapInterval);
-          drag.target = resolveDragTarget(drag.from, pointerDelta, drag.edgeOffset, 0, max).target;
+          const pointerTarget = Math.max(
+            0,
+            Math.min(drag.from + Math.round(gesture.dx / snapInterval), max),
+          );
 
-          const inNeutralZone =
-            gesture.moveX >= DRAG_EDGE && gesture.moveX <= windowWidth - DRAG_EDGE;
-          if (inNeutralZone) drag.edgePagingArmed = true;
-          const direction = !drag.edgePagingArmed
-            ? 0
-            : gesture.moveX < DRAG_EDGE
-              ? -1
-              : gesture.moveX > windowWidth - DRAG_EDGE
-                ? 1
-                : 0;
+          const direction =
+            gesture.moveX < DRAG_EDGE ? -1 : gesture.moveX > windowWidth - DRAG_EDGE ? 1 : 0;
+          if (direction === 0) drag.target = pointerTarget;
+          if (direction < 0) drag.target = Math.min(drag.target, pointerTarget);
+          if (direction > 0) drag.target = Math.max(drag.target, pointerTarget);
           const now = Date.now();
           if (direction !== 0 && now - lastEdgePageAtRef.current >= EDGE_PAGE_THROTTLE_MS) {
-            const next = resolveDragTarget(
-              drag.from,
-              pointerDelta,
-              drag.edgeOffset,
-              direction,
-              max,
-            );
-            drag.edgeOffset = next.edgeOffset;
-            drag.target = next.target;
+            drag.target = Math.max(0, Math.min(drag.target + direction, max));
             lastEdgePageAtRef.current = now;
-            dragProgrammaticOffsetRef.current = drag.target * snapInterval;
+            programmaticMomentumCountRef.current += 1;
             listRef.current?.scrollToOffset({
               offset: drag.target * snapInterval,
               animated: true,
             });
           }
-          if (
-            (drag.target === max && gesture.moveX > windowWidth - SIDE_PEEK) ||
-            (drag.target === 0 && gesture.moveX < SIDE_PEEK)
-          ) {
-            drag.dropOutsideDeck = true;
-          }
         },
-        onPanResponderRelease: () => {
+        onPanResponderRelease: (_event, gesture) => {
           const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
           if (!drag) return;
-          if (drag.moved && !drag.dropOutsideDeck) commitMove(drag.groupId, drag.target, 'drag');
-          else if (drag.moved) restoreDragOrigin(drag);
-          else setOrderMenuGroupId(drag.groupId);
+          if (Math.abs(gesture.dx) < 6 && Math.abs(gesture.dy) < 6) {
+            setReorderMenuGroupId(drag.groupId);
+            return;
+          }
+          commitMove(drag.groupId, drag.target, 'drag');
         },
         onPanResponderTerminate: () => {
           const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
-          if (drag) restoreDragOrigin(drag);
+          if (!drag) return;
+          activeIdentityRef.current = drag.groupId;
+          setActiveIndex(drag.from);
+          listRef.current?.scrollToOffset({
+            offset: drag.from * snapInterval,
+            animated: false,
+          });
         },
       });
-      respondersRef.current.set(groupId, { layoutKey: responderLayoutKey, responder });
+      respondersRef.current.set(responderKey, responder);
       return responder.panHandlers;
     },
-    [commitMove, hydrated, responderLayoutKey, restoreDragOrigin, snapInterval, windowWidth],
+    [commitMove, orderedGroupIds, reorderMenuGroupId, snapInterval, windowWidth],
   );
 
   useEffect(() => {
     respondersRef.current.clear();
-  }, [hydrated, orderedGroupIds]);
+  }, [orderedGroupIds, reorderMenuGroupId, snapInterval, windowWidth]);
 
-  if (!hydrated || emojiScopeLoaded !== emojiScope) {
+  useEffect(() => {
+    if (
+      reorderMenuGroupId !== null &&
+      (!screenFocused || !orderedGroups.some((group) => group.groupId === reorderMenuGroupId))
+    ) {
+      setReorderMenuGroupId(null);
+    }
+  }, [orderedGroups, reorderMenuGroupId, screenFocused]);
+
+  useEffect(() => {
+    if (reorderMenuGroupId === null) return;
+    const frame = requestAnimationFrame(() => {
+      const node = ReactNative.findNodeHandle(reorderFirstOptionRef.current);
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [reorderMenuGroupId]);
+
+  const closeReorderMenu = useCallback((groupId: string, restoreFocus = true) => {
+    setReorderMenuGroupId(null);
+    if (!restoreFocus) return;
+    requestAnimationFrame(() => {
+      const node = ReactNative.findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+    });
+  }, []);
+
+  const flipToBack = useCallback(
+    (groupId: string) => {
+      if (!userId || draggingGroupId !== null || reorderMenuGroupId !== null) return;
+      roomReturnRef.current = null;
+      guideBackGroupIdRef.current = null;
+      setFlippedGroupId(groupId);
+      summaryAdapter.ensureBack(groupId);
+      focusController?.activate();
+      logGroupCardFlipped({
+        to_face: 'back',
+        trigger: 'card_tap',
+        group_count_bucket: countBucket,
+      });
+    },
+    [countBucket, draggingGroupId, focusController, reorderMenuGroupId, summaryAdapter, userId],
+  );
+
+  const flipToFront = useCallback(
+    (groupId: string) => {
+      if (flippedGroupId === null) return;
+      roomReturnRef.current = null;
+      guideBackGroupIdRef.current = null;
+      setFrontFocusGroupId(groupId);
+      setFlippedGroupId(null);
+      logGroupCardFlipped({
+        to_face: 'front',
+        trigger: 'card_tap',
+        group_count_bucket: countBucket,
+      });
+    },
+    [countBucket, flippedGroupId],
+  );
+
+  useEffect(() => {
+    if (frontFocusGroupId === null) return;
+    const frame = requestAnimationFrame(() => {
+      const node = ReactNative.findNodeHandle(
+        frontDisclosureRefs.current.get(frontFocusGroupId) ?? null,
+      );
+      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
+      setFrontFocusGroupId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [frontFocusGroupId]);
+
+  const acceptAction = useCallback(
+    (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
+      if (reorderMenuGroupId !== null || actionAcceptedRef.current) return null;
+      actionAcceptedRef.current = true;
+      const interaction = createCardInteractionContext();
+      logGroupCardActionClicked({
+        action,
+        role: group.role === 'OWNER' ? 'owner' : 'member',
+        back_source: guideBackGroupIdRef.current === group.groupId ? 'guide' : 'user',
+        interaction_id: interaction.interactionId,
+      });
+      return interaction;
+    },
+    [reorderMenuGroupId],
+  );
+
+  const invokeAcceptedAction = useCallback(
+    (
+      group: GroupSummaryResponse,
+      action: 'focus' | 'room' | 'settings',
+      invoke: (interaction: CardInteractionContext) => void,
+    ) => {
+      const interaction = acceptAction(group, action);
+      if (!interaction) return;
+      try {
+        invoke(interaction);
+      } catch (error) {
+        actionAcceptedRef.current = false;
+        throw error;
+      }
+    },
+    [acceptAction],
+  );
+
+  if (!hydrated || !deckInputReady) {
     return (
-      <View style={s.loading} testID="group.deck.loading">
-        <ActivityIndicator color={T.accent} />
+      <View style={s.root} testID="group.list">
+        <ActivityIndicator color={T.accent} testID="group.deck.hydrating" />
       </View>
     );
   }
 
   return (
     <View style={s.root} testID="group.list">
-      <View style={s.header}>
+      <View
+        style={s.header}
+        importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        testID="group.list.header"
+      >
         {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
         {onBack && (
           <TouchableOpacity
             style={s.backBtn}
-            onPress={() => {
-              if (orderMenuGroupIdRef.current === null) onBack();
-            }}
-            disabled={orderMenuGroupId !== null}
+            onPress={onBack}
             activeOpacity={0.7}
             accessibilityLabel="뒤로"
             testID="group.list.back"
@@ -871,267 +900,267 @@ export default function GroupListScreen({
           </TouchableOpacity>
         )}
         <Text style={s.headerTitle}>내 그룹</Text>
-        <TouchableOpacity
-          style={s.refreshBtn}
-          onPress={handleRefresh}
-          disabled={refreshing || orderMenuGroupId !== null}
-          accessibilityRole="button"
-          accessibilityLabel={refreshing ? '그룹 새로고침 중' : '그룹 새로고침'}
-          testID="group.list.refresh"
-        >
-          {refreshing ? (
-            <ActivityIndicator size="small" color={T.accent} />
-          ) : (
-            <Ionicons name="refresh" size={18} color={T.accent} />
-          )}
-        </TouchableOpacity>
       </View>
 
-      <FlatList
-        ref={listRef}
-        testID="group.list.items"
-        data={orderedGroups}
-        onLayout={() => setDeckLayoutScope(deckLayoutKey)}
-        pointerEvents={deckInteractive ? 'auto' : 'none'}
-        accessibilityElementsHidden={!deckInteractive}
-        importantForAccessibility={deckInteractive ? 'auto' : 'no-hide-descendants'}
-        keyExtractor={(item) => item.groupId}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-        ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-        snapToInterval={snapInterval}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum
-        CellRendererComponent={GroupListCell}
-        scrollEnabled={deckInteractive && draggingGroupId === null && orderMenuGroupId === null}
-        onScrollBeginDrag={() => {
-          roomReturnRef.current = null;
-        }}
-        onMomentumScrollEnd={onMomentumScrollEnd}
-        ListFooterComponent={
-          <View
-            style={{ marginLeft: CARD_GAP }}
-            accessibilityElementsHidden={activeIndex !== orderedGroups.length}
-            importantForAccessibility={
-              activeIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
-            }
-          >
-            <FindMoreCard
-              width={cardWidth}
-              onPress={() => {
-                if (orderMenuGroupIdRef.current === null) onFind();
-              }}
+      <View
+        ref={deckGuideAnchorRef}
+        collapsable={false}
+        style={s.deckContainer}
+        testID="group.deck.guideAnchor"
+      >
+        <FlatList
+          ref={listRef}
+          testID="group.list.items"
+          data={orderedGroups}
+          keyExtractor={(item) => item.groupId}
+          horizontal
+          CellRendererComponent={GroupListCell}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
+          ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+          snapToInterval={snapInterval}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          scrollEnabled={draggingGroupId === null && reorderMenuGroupId === null}
+          onScrollBeginDrag={() => {
+            // 취소되거나 네이티브가 momentum-end를 생략한 programmatic 이동이 다음 사용자 swipe를
+            // 삼키지 않도록 실제 손가락 스크롤 시작에서 억제 토큰을 폐기한다.
+            programmaticMomentumCountRef.current = 0;
+            roomReturnRef.current = null;
+            setFlippedGroupId(null);
+            guideBackGroupIdRef.current = null;
+          }}
+          onMomentumScrollEnd={onMomentumScrollEnd}
+          ListFooterComponent={
+            <View
+              style={{ marginLeft: CARD_GAP }}
+              accessible={activeIndex === orderedGroups.length ? undefined : false}
+              accessibilityElementsHidden={activeIndex !== orderedGroups.length}
+              importantForAccessibility={
+                activeIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
+              }
+              pointerEvents={activeIndex === orderedGroups.length ? 'auto' : 'none'}
+              testID="group.deck.findMoreWrapper"
+            >
+              <FindMoreCard
+                width={cardWidth}
+                position={pageCount}
+                pageCount={pageCount}
+                onPress={() => {
+                  roomReturnRef.current = null;
+                  logGroupFindOpened({ entry_point: 'end_card' });
+                  onFind();
+                }}
+              />
+            </View>
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={T.accent}
             />
-          </View>
-        }
-        renderItem={({ item, index }) => (
-          <View
-            style={{ width: cardWidth }}
-            testID={`group.list.card.${item.groupId}`}
-            accessibilityElementsHidden={activeIndex !== index}
-            importantForAccessibility={activeIndex === index ? 'auto' : 'no-hide-descendants'}
-          >
-            {flippedGroupId === item.groupId ? (
-              <GroupCardBack
-                group={item}
-                snapshot={summaryAdapter.getSnapshot(item.groupId)}
-                cardRef={activeIdentityRef.current === item.groupId ? guideBackRef : undefined}
-                backFocusRef={activeIdentityRef.current === item.groupId ? backFocusRef : undefined}
-                roomFocusRef={
-                  activeIdentityRef.current === item.groupId ? roomReturnFocusRef : undefined
+          }
+          renderItem={({ item, index }) => (
+            <View
+              style={{ width: cardWidth }}
+              testID={`group.list.card.${item.groupId}`}
+              accessible={index === activeIndex ? undefined : false}
+              accessibilityElementsHidden={index !== activeIndex}
+              importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
+              pointerEvents={index === activeIndex ? 'auto' : 'none'}
+            >
+              <View
+                ref={index === activeIndex ? activeCardGuideAnchorRef : undefined}
+                collapsable={false}
+                importantForAccessibility={
+                  reorderMenuGroupId === item.groupId ? 'no-hide-descendants' : 'auto'
                 }
-                settingsFocusRef={
-                  activeIdentityRef.current === item.groupId ? settingsReturnFocusRef : undefined
-                }
-                onRetry={(dependency) => {
-                  summaryAdapter.retry(item.groupId, dependency).catch(() => undefined);
-                }}
-                onRoom={() => {
-                  if (!deckInteractive || actionLockedRef.current) return;
-                  actionLockedRef.current = true;
-                  const interaction = createCardInteractionContext();
-                  logGroupCardActionClicked({
-                    action: 'room',
-                    role: item.role === 'OWNER' ? 'owner' : 'member',
-                    back_source: backSource ?? 'user',
-                    interaction_id: interaction.interactionId,
-                  });
-                  roomReturnRef.current = {
-                    groupId: item.groupId,
-                    sourceIndex: index,
-                    departureRevision: groupsRevision,
-                  };
-                  returnFocusTargetRef.current = 'room';
-                  onSelect(item.groupId, interaction);
-                }}
-                onFocus={() => {
-                  if (!deckInteractive || actionLockedRef.current) return;
-                  actionLockedRef.current = true;
-                  const interaction = createCardInteractionContext();
-                  logGroupCardActionClicked({
-                    action: 'focus',
-                    role: item.role === 'OWNER' ? 'owner' : 'member',
-                    back_source: backSource ?? 'user',
-                    interaction_id: interaction.interactionId,
-                  });
-                  onFocus(item.groupId, interaction);
-                }}
-                onSettings={() => {
-                  if (!deckInteractive || actionLockedRef.current) return;
-                  actionLockedRef.current = true;
-                  const interaction = createCardInteractionContext();
-                  logGroupCardActionClicked({
-                    action: 'settings',
-                    role: item.role === 'OWNER' ? 'owner' : 'member',
-                    back_source: backSource ?? 'user',
-                    interaction_id: interaction.interactionId,
-                  });
-                  roomReturnRef.current = {
-                    groupId: item.groupId,
-                    sourceIndex: index,
-                    departureRevision: groupsRevision,
-                  };
-                  returnFocusTargetRef.current = 'settings';
-                  onSettings(item.groupId);
-                }}
-                onFront={(trigger) => {
-                  if (!deckInteractive) return;
-                  roomReturnRef.current = null;
-                  setFlippedGroupId(null);
-                  setBackSource(null);
-                  if (trigger === 'accessibility_action') {
-                    setPendingFrontFocusGroupId(item.groupId);
-                  }
-                  logGroupCardFlipped({
-                    to_face: 'front',
-                    trigger,
-                    group_count_bucket: groupCountBucket(orderedGroups.length),
-                  });
-                }}
-              />
-            ) : (
-              <GroupCardFront
-                group={item}
-                emoji={emojis[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
-                cardRef={activeIdentityRef.current === item.groupId ? guideFrontRef : undefined}
-                bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
-                onFlip={(trigger) => {
-                  if (
-                    !deckInteractive ||
-                    draggingGroupId !== null ||
-                    orderMenuGroupIdRef.current !== null
+                testID={`group.card.content.${item.groupId}`}
+              >
+                {flippedGroupId === item.groupId ? (
+                  summaryAdapter.getSnapshot(item.groupId) && (
+                    <GroupCardBack
+                      group={item}
+                      snapshot={summaryAdapter.getSnapshot(item.groupId)!}
+                      onFlipBack={() => flipToFront(item.groupId)}
+                      onOpenSettings={() => {
+                        if (!onOpenSettings) return;
+                        invokeAcceptedAction(item, 'settings', () => onOpenSettings(item.groupId));
+                      }}
+                      onStartFocus={() => {
+                        if (!onStartFocus) return;
+                        invokeAcceptedAction(item, 'focus', (interaction) =>
+                          onStartFocus(item.groupId, interaction),
+                        );
+                      }}
+                      onOpenRoom={() => {
+                        invokeAcceptedAction(item, 'room', (interaction) => {
+                          roomReturnRef.current = {
+                            groupId: item.groupId,
+                            sourceIndex: index,
+                            departureRevision: successfulListVersion,
+                          };
+                          roomReturnFocusGroupIdRef.current = item.groupId;
+                          roomReturnWasBlurredRef.current = false;
+                          setRoomReturnReadyGroupId(null);
+                          try {
+                            onSelect(item.groupId, interaction);
+                          } catch (error) {
+                            roomReturnRef.current = null;
+                            roomReturnFocusGroupIdRef.current = null;
+                            roomReturnWasBlurredRef.current = false;
+                            setRoomReturnReadyGroupId(null);
+                            throw error;
+                          }
+                        });
+                      }}
+                      focusRoomOnMount={
+                        roomReturnReadyGroupId === item.groupId &&
+                        roomReturnWasBlurredRef.current &&
+                        roomReturnFocusGroupIdRef.current === item.groupId
+                      }
+                      onRoomFocusRestored={() => {
+                        setRoomReturnReadyGroupId(null);
+                        roomReturnFocusGroupIdRef.current = null;
+                        roomReturnWasBlurredRef.current = false;
+                      }}
+                      suppressInitialFocus={deckGuideVisible}
+                      focusPrimaryOnMount={guidePrimaryFocusGroupId === item.groupId}
+                      onPrimaryFocusRestored={() => setGuidePrimaryFocusGroupId(null)}
+                      onRetry={(section) => summaryAdapter.retry(item.groupId, section)}
+                    />
                   )
-                    return;
-                  roomReturnRef.current = null;
-                  if (activeIndex !== index) {
-                    listRef.current?.scrollToOffset({
-                      offset: index * snapInterval,
-                      animated: true,
-                    });
-                    activeIdentityRef.current = item.groupId;
-                    setActiveIndex(index);
-                  }
-                  setFlippedGroupId(item.groupId);
-                  setBackSource('user');
-                  if (trigger === 'accessibility_action') {
-                    setPendingBackFocusGroupId(item.groupId);
-                  }
-                  logGroupCardFlipped({
-                    to_face: 'back',
-                    trigger,
-                    group_count_bucket: groupCountBucket(orderedGroups.length),
-                  });
-                  summaryAdapter.ensureBack(item.groupId).catch(() => undefined);
-                  focusPolling?.activate();
-                }}
-                reorderHandlers={deckInteractive ? handlersFor(item.groupId) : undefined}
-                canMovePrevious={deckInteractive && index > 0}
-                canMoveNext={deckInteractive && index < orderedGroups.length - 1}
-                onMoveStep={(step) => {
-                  if (!deckInteractive || orderMenuGroupIdRef.current !== null) return;
-                  const from = orderedGroupsRef.current.findIndex(
-                    (group) => group.groupId === item.groupId,
-                  );
-                  if (commitMove(item.groupId, from + step, 'accessibility_action')) {
-                    roomReturnRef.current = null;
-                    setFlippedGroupId(null);
-                    setBackSource(null);
-                  }
-                }}
-              />
-            )}
-          </View>
-        )}
-      />
-
-      {orderMenuGroupId !== null && (
-        <View style={s.orderMenu} testID={`group.card.orderMenu.${orderMenuGroupId}`}>
-          <Text style={s.orderMenuTitle}>카드 순서 변경</Text>
-          <View style={s.orderMenuActions}>
-            <TouchableOpacity
-              style={s.orderMenuAction}
-              onPress={() => {
-                const from = orderedGroupsRef.current.findIndex(
-                  (group) => group.groupId === orderMenuGroupId,
-                );
-                commitMove(orderMenuGroupId, from - 1, 'pointer_control');
-              }}
-              disabled={orderedGroups[0]?.groupId === orderMenuGroupId}
-              testID="group.card.orderMenu.previous"
-            >
-              <Text style={s.backLink}>앞으로</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.orderMenuAction}
-              onPress={() => {
-                const from = orderedGroupsRef.current.findIndex(
-                  (group) => group.groupId === orderMenuGroupId,
-                );
-                commitMove(orderMenuGroupId, from + 1, 'pointer_control');
-              }}
-              disabled={orderedGroups[orderedGroups.length - 1]?.groupId === orderMenuGroupId}
-              testID="group.card.orderMenu.next"
-            >
-              <Text style={s.backLink}>뒤로</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.orderMenuAction}
-              onPress={() => setOrderMenuGroupId(null)}
-              testID="group.card.orderMenu.done"
-            >
-              <Text style={s.backLink}>완료</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+                ) : (
+                  <GroupCardFront
+                    group={item}
+                    emoji={cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
+                    emojiLabel={
+                      isCardEmojiKnown(item.groupId)
+                        ? groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])
+                        : '확인 중'
+                    }
+                    position={index + 1}
+                    pageCount={pageCount}
+                    reorderCount={orderedGroups.length}
+                    gripRef={(node) => {
+                      if (node) reorderGripRefs.current.set(item.groupId, node);
+                      else reorderGripRefs.current.delete(item.groupId);
+                    }}
+                    disclosureRef={(node) => {
+                      if (node) frontDisclosureRefs.current.set(item.groupId, node);
+                      else frontDisclosureRefs.current.delete(item.groupId);
+                    }}
+                    onFlip={() => flipToBack(item.groupId)}
+                    reorderHandlers={handlersFor(item.groupId)}
+                    canMovePrevious={index > 0}
+                    canMoveNext={index < orderedGroups.length - 1}
+                    onMoveStep={(step) => {
+                      const from = orderedGroupsRef.current.findIndex(
+                        (group) => group.groupId === item.groupId,
+                      );
+                      if (commitMove(item.groupId, from + step, 'accessibility_action')) {
+                        roomReturnRef.current = null;
+                        setFlippedGroupId(null);
+                      }
+                    }}
+                  />
+                )}
+              </View>
+              {reorderMenuGroupId === item.groupId && (
+                <View
+                  style={s.reorderMenu}
+                  accessibilityViewIsModal
+                  onAccessibilityEscape={() => closeReorderMenu(item.groupId)}
+                  testID={`group.card.reorderMenu.${item.groupId}`}
+                >
+                  <Text style={s.reorderTitle}>순서 변경</Text>
+                  <ScrollView
+                    style={s.reorderOptions}
+                    nestedScrollEnabled
+                    testID={`group.card.reorderOptions.${item.groupId}`}
+                  >
+                    {orderedGroups.map((target, targetIndex) => (
+                      <TouchableOpacity
+                        ref={targetIndex === 0 ? reorderFirstOptionRef : undefined}
+                        key={target.groupId}
+                        style={s.reorderOption}
+                        onPress={() => {
+                          commitMove(item.groupId, targetIndex, 'pointer_control');
+                          closeReorderMenu(item.groupId);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${targetIndex + 1}번째로 이동`}
+                        testID={`group.card.reorderTo.${item.groupId}.${targetIndex}`}
+                      >
+                        <Text style={s.reorderOptionText}>{targetIndex + 1}번째</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  <TouchableOpacity
+                    style={s.reorderClose}
+                    onPress={() => closeReorderMenu(item.groupId)}
+                    accessibilityRole="button"
+                    accessibilityLabel="순서 변경 닫기"
+                    testID={`group.card.reorderClose.${item.groupId}`}
+                  >
+                    <Text style={s.reorderCloseText}>완료</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+        />
+      </View>
 
       {saveFailed && (
-        <Text style={s.saveError} accessibilityRole="alert">
+        <Text
+          style={s.saveError}
+          accessibilityRole="alert"
+          importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        >
           순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.
         </Text>
       )}
 
-      <PageIndicator
-        pageCount={pageCount}
-        activeIndex={activeIndex}
-        onSelectPage={selectPage}
-        disabled={!deckInteractive}
-      />
+      <View
+        importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        testID="group.deck.controls"
+      >
+        <PageIndicator
+          activeIndex={activeIndex}
+          onSelectPage={selectPage}
+          pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
+          pageKeys={[...orderedGroups.map((group) => group.groupId), 'find-more']}
+        />
+        <TouchableOpacity
+          style={s.refreshButton}
+          onPress={handleRefresh}
+          disabled={refreshing}
+          accessibilityRole="button"
+          accessibilityLabel={refreshing ? '그룹 새로고침 중' : '그룹 새로고침'}
+          accessibilityState={{ busy: refreshing, disabled: refreshing }}
+          testID="group.deck.refresh"
+        >
+          <Ionicons name="refresh" size={18} color={T.inkSub} />
+          <Text style={s.refreshText}>{refreshing ? '새로고침 중…' : '새로고침'}</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
-      <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+      <View
+        style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}
+        importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        testID="group.list.footer"
+      >
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
           onPress={() => {
-            if (orderMenuGroupIdRef.current === null) {
-              roomReturnRef.current = null;
-              onCreate();
-            }
+            roomReturnRef.current = null;
+            onCreate();
           }}
-          disabled={orderMenuGroupId !== null}
           testID="group.list.create"
         >
           <Text style={s.primaryText}>그룹 만들기</Text>
@@ -1140,34 +1169,32 @@ export default function GroupListScreen({
           style={s.outlineBtn}
           activeOpacity={0.85}
           onPress={() => {
-            if (orderMenuGroupIdRef.current === null) {
-              roomReturnRef.current = null;
-              onFind();
-            }
+            roomReturnRef.current = null;
+            logGroupFindOpened({ entry_point: 'list' });
+            onFind();
           }}
-          disabled={orderMenuGroupId !== null}
           testID="group.list.find"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>
       </View>
 
-      <TabGuideOverlay
-        storageKey={STORAGE_KEYS.guideGroupDeck}
-        steps={guideSteps}
-        visible={guideVisible}
-        completionMode="external"
-        allowRequestClose={false}
-        testID="group.deck.guide"
-        onFinish={finishGuide}
-      />
+      {deckGuideVisible && screenFocused && appActive && !guideBlocked && (
+        <TabGuideOverlay
+          storageKey={STORAGE_KEYS.guideGroupDeck}
+          steps={deckGuideSteps}
+          visible
+          onFinish={finishGuide}
+          onRequestClose={interruptGuide}
+        />
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1 },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  deckContainer: { flex: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
@@ -1180,14 +1207,6 @@ const s = StyleSheet.create({
     paddingBottom: T.space.md,
   },
   headerTitle: { ...T.text.title, color: T.ink },
-  refreshBtn: {
-    width: 32,
-    height: 32,
-    marginLeft: 'auto',
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   // 그룹 스택 화면(GroupCreateScreen s.backBtn)과 같은 규격 — 32/r16/white/border
   backBtn: {
     width: 32,
@@ -1223,25 +1242,52 @@ const s = StyleSheet.create({
   },
   backPrimaryText: { ...T.text.label, color: T.white },
   backLink: { ...T.text.caption, color: T.accent, textAlign: 'center' },
+  reorderMenu: {
+    position: 'absolute',
+    top: 52,
+    right: T.space.md,
+    zIndex: 5,
+    minWidth: 132,
+    padding: T.space.sm,
+    borderRadius: 14,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  reorderTitle: { ...T.text.caption, color: T.inkMuted, padding: T.space.xs },
+  reorderOptions: { maxHeight: 220 },
+  reorderOption: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: T.space.sm,
+  },
+  reorderOptionText: { ...T.text.label, color: T.ink },
+  reorderClose: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: T.border,
+  },
+  reorderCloseText: { ...T.text.label, color: T.accent },
   saveError: {
     ...T.text.caption,
     color: T.dangerInk,
     textAlign: 'center',
     paddingTop: T.space.xs,
   },
-  orderMenu: {
-    marginHorizontal: T.space.xl,
-    padding: T.space.md,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: T.border,
-    backgroundColor: T.white,
-    gap: T.space.sm,
+  refreshButton: {
+    minHeight: 44,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: T.space.xs,
+    paddingHorizontal: T.space.lg,
   },
-  orderMenuTitle: { ...T.text.label, color: T.ink },
-  orderMenuActions: { flexDirection: 'row', justifyContent: 'space-around' },
-  orderMenuAction: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
-
+  refreshText: { ...T.text.caption, color: T.inkSub },
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
   primaryBtn: {

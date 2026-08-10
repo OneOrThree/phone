@@ -18,11 +18,6 @@ export function consumeGroupEntry(fallback: GroupEntrySource): GroupEntrySource 
   return source;
 }
 
-/** 성공한 전체 그룹 목록이 확정되기 전에는 direct source를 지우지 않고 episode에 복사한다. */
-export function peekGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
-  return pendingDirectSource ?? fallback;
-}
-
 export function clearPendingGroupEntry(): void {
   pendingDirectSource = null;
 }
