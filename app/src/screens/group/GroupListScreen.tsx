@@ -39,6 +39,7 @@ import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { GroupCardBack } from './components/GroupCardBack';
 import { useGroupCardOrder } from './useGroupCardOrder';
+import { useGroupCardEmojis } from './useGroupCardEmojis';
 import { useGroupCardData } from './useGroupCardData';
 import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
 import {
@@ -159,6 +160,11 @@ export default function GroupListScreen({
     });
   }, [groups, hydrated, orderedGroupIds]);
   const dataGroupIds = useMemo(() => orderedGroups.map((group) => group.groupId), [orderedGroups]);
+  const { hydrated: emojiHydrated, emojiFor } = useGroupCardEmojis({
+    userId,
+    groupIds: dataGroupIds,
+    reloadToken: groupsRevision,
+  });
   const { snapshots, ensureBack, retry } = useGroupCardData({
     userId,
     groupIds: dataGroupIds,
@@ -186,6 +192,7 @@ export default function GroupListScreen({
     typeof userId === 'string' &&
     orderedGroups.length > 0 &&
     hydrated &&
+    emojiHydrated &&
     deckLayoutReady &&
     activeAnchorGroupId === activeGroupId &&
     guideScreenFocused &&
@@ -622,6 +629,7 @@ export default function GroupListScreen({
               ) : (
                 <GroupCardFront
                   group={item}
+                  emoji={emojiFor(item.groupId)}
                   bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
                   onFlip={() => {
                     if (draggingGroupId !== null) return;
