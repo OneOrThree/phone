@@ -66,14 +66,15 @@ export class KeyedDependencyCache<T> {
     return this.start(key);
   }
 
-  retain(isValid: (key: string) => boolean): void {
+  retain(isValid: (key: string) => boolean, notify = true): boolean {
     let changed = false;
     for (const key of this.entries.keys()) {
       if (isValid(key)) continue;
       this.entries.delete(key);
       changed = true;
     }
-    if (changed) this.emit();
+    if (changed && notify) this.emit();
+    return changed;
   }
 
   private start(key: string): Promise<DependencyState<T>> {
@@ -143,6 +144,7 @@ export class GroupCardSummaryAdapter<TFocus> {
   private readonly detail: KeyedDependencyCache<GroupDetailResponse>;
   private readonly announcements: KeyedDependencyCache<GroupAnnouncementResponse[]>;
   private readonly challenges: KeyedDependencyCache<GroupChallengeResponse[]>;
+  private readonly unsubscribeDependencies: Array<() => void>;
 
   constructor(
     private readonly focus: SharedFocusDependency<TFocus>,
@@ -159,10 +161,12 @@ export class GroupCardSummaryAdapter<TFocus> {
     });
 
     const notify = () => this.notifySubscribers();
-    this.detail.subscribe(notify);
-    this.announcements.subscribe(notify);
-    this.challenges.subscribe(notify);
-    this.focus.subscribe(notify);
+    this.unsubscribeDependencies = [
+      this.detail.subscribe(notify),
+      this.announcements.subscribe(notify),
+      this.challenges.subscribe(notify),
+      this.focus.subscribe(notify),
+    ];
   }
 
   setScope(scope: GroupCardSummaryScope | null): void {
@@ -171,13 +175,17 @@ export class GroupCardSummaryAdapter<TFocus> {
     this.snapshots.clear();
     const groupIds = new Set(scope?.groupIds ?? []);
     const date = scope?.date;
+    // 세 dependency를 모두 정리하기 전에 중간 snapshot을 알리면 새 계정의 focus와 이전 계정의
+    // group cache가 한 렌더에서 섞인다. retain 알림을 억제하고 완성된 scope를 한 번만 발행한다.
     this.detail.retain(
       (key) => !accountChanged && groupIds.has(groupOnly(key)) && dateOnly(key) === date,
+      false,
     );
     this.challenges.retain(
       (key) => !accountChanged && groupIds.has(groupOnly(key)) && dateOnly(key) === date,
+      false,
     );
-    this.announcements.retain((groupId) => !accountChanged && groupIds.has(groupId));
+    this.announcements.retain((groupId) => !accountChanged && groupIds.has(groupId), false);
     this.emit();
   }
 
@@ -234,6 +242,13 @@ export class GroupCardSummaryAdapter<TFocus> {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  dispose(): void {
+    this.unsubscribeDependencies.splice(0).forEach((unsubscribe) => unsubscribe());
+    this.scope = null;
+    this.snapshots.clear();
+    this.listeners.clear();
   }
 
   private notifySubscribers(): void {
