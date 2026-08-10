@@ -32,6 +32,7 @@ interface PageIndicatorProps {
   activeIndex: number;
   disabled?: boolean;
   onSelectPage: (page: number) => void;
+  onAccessibilitySelectPage?: (page: number) => void;
 }
 
 export function pageAccessibilityLabel(label: string, page: number, pageCount: number): string {
@@ -43,6 +44,7 @@ export function PageIndicator({
   activeIndex,
   disabled = false,
   onSelectPage,
+  onAccessibilitySelectPage,
 }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const pageCount = pageLabels.length;
@@ -79,6 +81,12 @@ export function PageIndicator({
               style={s.dotHit}
               disabled={disabled}
               onPress={() => onSelectPage(page)}
+              accessibilityActions={[{ name: 'activate', label: '페이지 선택' }]}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'activate') {
+                  (onAccessibilitySelectPage ?? onSelectPage)(page);
+                }
+              }}
               onFocus={() => {
                 focusWithinRef.current = true;
               }}

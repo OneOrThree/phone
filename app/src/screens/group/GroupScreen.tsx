@@ -75,6 +75,7 @@ export default function GroupScreen() {
     AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
   );
   const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
+  const [successfulListRevision, setSuccessfulListRevision] = useState(0);
   const [summaryDate, setSummaryDate] = useState(todayStrKst);
   const cardSummaryRef = useRef(new GroupCardSummaryAdapter(groupFocusStatusStore));
   const focusPollingRef = useRef<GroupFocusPollingController | null>(null);
@@ -145,6 +146,7 @@ export default function GroupScreen() {
       if (seq !== requestSeqRef.current) return;
       setGroups(rows);
       setSuccessfulListEpisode(episodeId);
+      setSuccessfulListRevision((revision) => revision + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
@@ -232,7 +234,13 @@ export default function GroupScreen() {
     if (!groups.some((g) => g.groupId === target)) return;
     // challengeId를 **명시로 비운다** — 스택에 이미 GroupRoom이 있으면 파라미터가 병합돼
     // 직전 딥링크(챌린지 종료 푸시)의 지목이 이 방으로 새어 든다(types.ts GroupRoom 주석).
-    navigation.navigate('GroupRoom', { groupId: target, challengeId: undefined });
+    navigation.navigate('GroupRoom', {
+      groupId: target,
+      challengeId: undefined,
+      entrySource: 'invite',
+      interactionId: undefined,
+      interactionAcceptedAt: undefined,
+    });
   }, [groups, navigation]);
 
   // 검색으로 참여 완료 — 시트를 닫고 재조회.
@@ -244,7 +252,11 @@ export default function GroupScreen() {
   // 목록에서 그룹을 골랐다 — A-9 이후 목록이 항상 기본 화면이라 소속 수와 무관하게 그룹방을
   // 스택에 push 한다(목록 화면은 스스로 navigate 하지 않고 이 콜백에 위임한다).
   const onSelectGroup = useCallback(
-    (groupId: string, interaction?: CardInteractionContext) => {
+    (
+      groupId: string,
+      interaction?: CardInteractionContext,
+      nonCardSource: 'group_find' | 'unknown' = 'unknown',
+    ) => {
       // 위 초대 목적지 소비와 같은 이유로 challengeId를 명시로 비운다(types.ts GroupRoom 주석).
       navigation.navigate(
         'GroupRoom',
@@ -256,7 +268,13 @@ export default function GroupScreen() {
               interactionId: interaction.interactionId,
               interactionAcceptedAt: interaction.interactionAcceptedAt,
             }
-          : { groupId, challengeId: undefined },
+          : {
+              groupId,
+              challengeId: undefined,
+              entrySource: nonCardSource,
+              interactionId: undefined,
+              interactionAcceptedAt: undefined,
+            },
       );
     },
     [navigation],
@@ -278,7 +296,7 @@ export default function GroupScreen() {
   const onOpenGroup = useCallback(
     (groupId: string) => {
       setFindOpen(false);
-      onSelectGroup(groupId);
+      onSelectGroup(groupId, undefined, 'group_find');
     },
     [onSelectGroup],
   );
@@ -338,6 +356,13 @@ export default function GroupScreen() {
       unsubscribeFocus();
     };
   }, [myGroups, summaryDate, userId]);
+
+  // 새 focus episode와 명시 새로고침의 목록 성공 뒤, 실제로 열어 본 카드만 다시 읽는다.
+  // scope effect 다음에 배치해 탈퇴/신규 그룹 reconcile이 먼저 적용되도록 한다.
+  useEffect(() => {
+    if (successfulListRevision === 0) return;
+    cardSummaryRef.current.refreshLoaded().catch(() => {});
+  }, [successfulListRevision]);
 
   const ensureCardBack = useCallback((groupId: string) => {
     // 사용자 첫 flip과 guide 3→4가 같은 cache/in-flight dedupe 경로를 쓴다.

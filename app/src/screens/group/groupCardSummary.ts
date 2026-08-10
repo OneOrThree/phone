@@ -65,6 +65,12 @@ export class KeyedDependencyCache<T> {
     return this.start(key);
   }
 
+  refresh(key: string): Promise<DependencyState<T>> {
+    const entry = this.entries.get(key);
+    if (entry?.inFlight) return entry.inFlight;
+    return this.start(key);
+  }
+
   retain(isValid: (key: string) => boolean): void {
     let changed = false;
     for (const key of this.entries.keys()) {
@@ -137,6 +143,7 @@ const dateOnly = (key: string) => key.slice(key.indexOf('\u0000') + 1);
  */
 export class GroupCardSummaryAdapter<TFocus> {
   private scope: GroupCardSummaryScope | null = null;
+  private readonly loadedGroupIds = new Set<string>();
   private readonly detail: KeyedDependencyCache<GroupDetailResponse>;
   private readonly announcements: KeyedDependencyCache<GroupAnnouncementResponse[]>;
   private readonly challenges: KeyedDependencyCache<GroupChallengeResponse[]>;
@@ -159,6 +166,9 @@ export class GroupCardSummaryAdapter<TFocus> {
   setScope(scope: GroupCardSummaryScope | null): void {
     this.scope = scope;
     const groupIds = new Set(scope?.groupIds ?? []);
+    for (const groupId of this.loadedGroupIds) {
+      if (!groupIds.has(groupId)) this.loadedGroupIds.delete(groupId);
+    }
     const date = scope?.date;
     this.detail.retain((key) => groupIds.has(groupOnly(key)) && dateOnly(key) === date);
     this.challenges.retain((key) => groupIds.has(groupOnly(key)) && dateOnly(key) === date);
@@ -180,6 +190,7 @@ export class GroupCardSummaryAdapter<TFocus> {
   async ensureBack(groupId: string): Promise<void> {
     const scope = this.validScope(groupId);
     if (!scope) return;
+    this.loadedGroupIds.add(groupId);
     const datedKey = keyed(groupId, scope.date);
     const focusState = this.focus.getState(scope.userId, scope.date);
     const detailState = this.detail.getState(datedKey);
@@ -198,6 +209,24 @@ export class GroupCardSummaryAdapter<TFocus> {
         : focusState.status === 'idle'
           ? this.focus.ensure(scope.userId, scope.date)
           : Promise.resolve(focusState),
+    ]);
+  }
+
+  /** 목록 재조회/화면 복귀 뒤 이미 열어 본 카드만 새 read snapshot으로 갱신한다. */
+  async refreshLoaded(): Promise<void> {
+    const scope = this.scope;
+    if (!scope) return;
+    await Promise.all([...this.loadedGroupIds].map((groupId) => this.refreshBack(groupId)));
+  }
+
+  private async refreshBack(groupId: string): Promise<void> {
+    const scope = this.validScope(groupId);
+    if (!scope) return;
+    const datedKey = keyed(groupId, scope.date);
+    await Promise.all([
+      this.detail.refresh(datedKey),
+      this.announcements.refresh(groupId),
+      this.challenges.refresh(datedKey),
     ]);
   }
 

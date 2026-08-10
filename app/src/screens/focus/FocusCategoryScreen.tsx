@@ -222,6 +222,11 @@ export default function FocusCategoryScreen() {
   ) {
     if (!active) return;
     setSheet(null);
+    const interactionRoute = {
+      entrySource: params?.entrySource ?? 'unknown',
+      interactionId: params?.interactionId,
+      interactionAcceptedAt: params?.interactionAcceptedAt,
+    } as const;
     navigation.navigate('FocusSession', {
       subjectId: active.id,
       subjectName: active.name,
@@ -229,10 +234,17 @@ export default function FocusCategoryScreen() {
       goalSeconds: extra?.goalSeconds,
       pomodoro: extra?.pomodoro,
       initialGroupId,
-      entrySource: params?.entrySource,
-      interactionId: params?.interactionId,
-      interactionAcceptedAt: params?.interactionAcceptedAt,
+      ...interactionRoute,
     });
+    // FocusResult의 "다시 집중"은 이 route로 돌아온다. 첫 세션에 넘긴 카드 action을 여기서
+    // 비워 같은 interaction_id가 다음 세션 시작에도 재사용되지 않게 한다.
+    if (interactionRoute.interactionId) {
+      navigation.setParams({
+        entrySource: 'unknown',
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
+    }
   }
 
   return (

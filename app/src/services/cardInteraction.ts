@@ -3,8 +3,16 @@ export interface CardInteractionContext {
   interactionAcceptedAt: number;
 }
 
+export type AttributionEntrySource =
+  | 'group_card'
+  | 'group_room'
+  | 'group_find'
+  | 'invite'
+  | 'home_fab'
+  | 'unknown';
+
 export interface CardInteractionRouteContext {
-  entrySource?: 'group_card' | 'unknown';
+  entrySource?: AttributionEntrySource;
   interactionId?: string;
   interactionAcceptedAt?: number;
 }

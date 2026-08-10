@@ -8,6 +8,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { logGroupCardFlipped } from '@/services/analyticsEvents';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -187,6 +188,20 @@ describe('콜백', () => {
     await renderList([group({ name: longName })]);
 
     expect(screen.getByLabelText(new RegExp(longName))).toBeOnTheScreen();
+  });
+
+  test('스크린리더 activate flip은 accessibility_action trigger로 기록한다', async () => {
+    await renderList([group()]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+
+    expect(logGroupCardFlipped).toHaveBeenCalledWith(
+      expect.objectContaining({ to_face: 'back', trigger: 'accessibility_action' }),
+    );
   });
 
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {

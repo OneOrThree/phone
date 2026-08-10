@@ -65,4 +65,28 @@ describe('PageIndicator', () => {
     fireEvent.press(findPage);
     expect(onSelectPage).not.toHaveBeenCalled();
   });
+
+  test('스크린리더 activate는 별도 접근성 선택 trigger로 위임한다', async () => {
+    const onAccessibilitySelectPage = jest.fn();
+    await render(
+      <PageIndicator
+        pageLabels={['아침 집중방', '그룹 찾기']}
+        activeIndex={0}
+        onSelectPage={jest.fn()}
+        onAccessibilitySelectPage={onAccessibilitySelectPage}
+      />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator.dot.1'), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+
+    expect(onAccessibilitySelectPage).toHaveBeenCalledWith(1);
+  });
 });

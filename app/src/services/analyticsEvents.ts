@@ -116,6 +116,7 @@ export function logFocusSessionStarted(p: {
   has_tag: boolean;
   mode: FocusMode;
   goal_minutes?: number;
+  entry_source: 'group_card' | 'group_room' | 'group_find' | 'invite' | 'home_fab' | 'unknown';
   interaction_id?: string;
 }): void {
   track('focus_session_started', p);
@@ -490,7 +491,11 @@ export function logGroupDeckGuideWriteFailed(): void {
 }
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
-export function logGroupRoomViewed(p: { group_id: string; interaction_id?: string }): void {
+export function logGroupRoomViewed(p: {
+  group_id: string;
+  entry_source: 'group_card' | 'group_room' | 'group_find' | 'invite' | 'home_fab' | 'unknown';
+  interaction_id?: string;
+}): void {
   track('group_room_viewed', p);
 }
 export function logGroupTabViewed(p: { tab: string }): void {

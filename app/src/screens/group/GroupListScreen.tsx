@@ -29,6 +29,8 @@ import {
   logTabGuideCompleted,
   type GroupEntry,
   type GroupCountBucket,
+  type GroupCardFlipTrigger,
+  type GroupCarouselTrigger,
 } from '@/services/analyticsEvents';
 import {
   createCardInteractionContext,
@@ -214,7 +216,7 @@ export default function GroupListScreen({
   }, [onRefresh]);
 
   const selectPage = useCallback(
-    (page: number) => {
+    (page: number, trigger: GroupCarouselTrigger = 'indicator_press') => {
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       const nextIdentity = groups[next]?.groupId ?? null;
@@ -222,7 +224,7 @@ export default function GroupListScreen({
       if (activeIdentityRef.current !== nextIdentity) {
         setFlippedGroupId(null);
         logGroupCarouselPaged({
-          trigger: 'indicator_press',
+          trigger,
           from_index: from,
           to_index: next,
           group_count_bucket: groupCountBucket(groups.length),
@@ -273,7 +275,7 @@ export default function GroupListScreen({
   );
 
   const flipCard = useCallback(
-    (groupId: string) => {
+    (groupId: string, trigger: GroupCardFlipTrigger = 'card_tap') => {
       const index = groups.findIndex((group) => group.groupId === groupId);
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
@@ -294,7 +296,7 @@ export default function GroupListScreen({
       setFlippedGroupId(groupId);
       logGroupCardFlipped({
         to_face: 'back',
-        trigger: 'card_tap',
+        trigger,
         group_count_bucket: groupCountBucket(groups.length),
       });
       onEnsureBack?.(groupId);
@@ -595,7 +597,11 @@ export default function GroupListScreen({
                     }}
                   />
                 ) : (
-                  <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
+                  <GroupCardFront
+                    group={item}
+                    onFlip={() => flipCard(item.groupId)}
+                    onAccessibilityFlip={() => flipCard(item.groupId, 'accessibility_action')}
+                  />
                 )}
               </View>
             )}
@@ -606,6 +612,7 @@ export default function GroupListScreen({
             activeIndex={activeIndex}
             disabled={!guideInputReady || guideVisible}
             onSelectPage={selectPage}
+            onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
           />
         </View>
       </ScrollView>

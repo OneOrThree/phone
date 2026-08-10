@@ -140,4 +140,23 @@ describe('GroupCardSummaryAdapter', () => {
     expect(loaders.challenges).toHaveBeenCalledTimes(2);
     expect(loaders.announcements).toHaveBeenCalledTimes(1);
   });
+
+  test('목록 갱신 뒤 이미 열어 본 카드만 세 read dependency를 새로 읽는다', async () => {
+    const focus = createFocus();
+    const loaders = {
+      detail: jest.fn().mockImplementation((groupId: string) => Promise.resolve(detail(groupId))),
+      announcements: jest.fn().mockResolvedValue([]),
+      challenges: jest.fn().mockResolvedValue([]),
+    };
+    const adapter = new GroupCardSummaryAdapter(focus, loaders);
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A, GROUP_B] });
+    await adapter.ensureBack(GROUP_A);
+
+    await adapter.refreshLoaded();
+
+    expect(loaders.detail).toHaveBeenCalledTimes(2);
+    expect(loaders.detail).toHaveBeenLastCalledWith(GROUP_A, DATE);
+    expect(loaders.announcements).toHaveBeenCalledTimes(2);
+    expect(loaders.challenges).toHaveBeenCalledTimes(2);
+  });
 });

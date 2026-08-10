@@ -342,6 +342,7 @@ export default function FocusSessionScreen() {
     logFocusSessionStarted({
       has_tag: Boolean(subjectId),
       mode,
+      entry_source: entrySource ?? 'unknown',
       goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
       ...(interaction ? { interaction_id: interaction.interactionId } : {}),
     });

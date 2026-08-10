@@ -471,6 +471,7 @@ export default function GroupRoomScreen({
         const interaction = resolveCardInteraction(cardInteractionRef.current);
         logGroupRoomViewed({
           group_id: groupId,
+          entry_source: cardInteractionRef.current?.entrySource ?? 'unknown',
           ...(interaction ? { interaction_id: interaction.interactionId } : {}),
         });
       }
@@ -1058,7 +1059,12 @@ export default function GroupRoomScreen({
 
       {/* 그룹방 하단바(F2 Part2) — ▶ FAB는 이 그룹의 집중 세션(그룹 페이지 기본)으로 진입시킨다. */}
       <GroupRoomBottomBar
-        onFocusPress={() => navigation.navigate('FocusCategory', { initialGroupId: groupId })}
+        onFocusPress={() =>
+          navigation.navigate('FocusCategory', {
+            initialGroupId: groupId,
+            entrySource: 'group_room',
+          })
+        }
       />
 
       {/* ── 챌린지 만들기 시트(방장만) ── */}

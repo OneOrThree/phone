@@ -7,9 +7,15 @@ interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
   onFlip: () => void;
+  onAccessibilityFlip?: () => void;
 }
 
-export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFrontProps) {
+export function GroupCardFront({
+  group,
+  emoji = '🎯',
+  onFlip,
+  onAccessibilityFlip,
+}: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
@@ -20,6 +26,10 @@ export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFront
       <Pressable
         style={s.body}
         onPress={onFlip}
+        accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
+        }}
         accessibilityRole="button"
         accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"

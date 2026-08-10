@@ -479,7 +479,7 @@ describe('기존 매핑(푸시가 쓰는 중)', () => {
 
   test('gromo://focus → 과목 선택 화면', () => {
     navigateToDeepLink('gromo://focus');
-    expect(navigate).toHaveBeenCalledWith('FocusCategory');
+    expect(navigate).toHaveBeenCalledWith('FocusCategory', { entrySource: 'unknown' });
   });
 
   // 친구 푸시(티켓 1090)가 발행하는 링크를 받는 배선 — 계약 §2.
