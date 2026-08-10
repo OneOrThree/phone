@@ -71,6 +71,10 @@ export default function GroupListScreen({
   const pageCount = groups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
+  const activeIndexRef = useRef(0);
+  const orderKey = groups.map((group) => group.groupId).join('\u0000');
+  const previousOrderKeyRef = useRef(orderKey);
+  const previousSnapIntervalRef = useRef(snapInterval);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -98,23 +102,37 @@ export default function GroupListScreen({
       const nextIdentity = groups[next]?.groupId ?? null;
       if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
       activeIdentityRef.current = nextIdentity;
+      activeIndexRef.current = next;
       setActiveIndex(next);
     },
     [groups, pageCount, snapInterval],
   );
 
-  const settlePage = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const next = Math.max(
-        0,
-        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
-      );
+  const settleOffset = useCallback(
+    (offsetX: number) => {
+      const next = Math.max(0, Math.min(Math.round(offsetX / snapInterval), pageCount - 1));
       const nextIdentity = groups[next]?.groupId ?? null;
       if (activeIdentityRef.current !== nextIdentity) setFlippedGroupId(null);
       activeIdentityRef.current = nextIdentity;
+      activeIndexRef.current = next;
       setActiveIndex(next);
     },
     [groups, pageCount, snapInterval],
+  );
+
+  const onMomentumScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
+      settleOffset(event.nativeEvent.contentOffset.x),
+    [settleOffset],
+  );
+
+  const onScrollEndDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const target = event.nativeEvent.targetContentOffset?.x;
+      // iOS가 알려 준 최종 snap 위치만 확정한다. 임시 contentOffset은 momentum 종료가 맡는다.
+      if (typeof target === 'number') settleOffset(target);
+    },
+    [settleOffset],
   );
 
   const flipCard = useCallback(
@@ -124,6 +142,7 @@ export default function GroupListScreen({
       if (activeIdentityRef.current !== groupId) {
         listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
         activeIdentityRef.current = groupId;
+        activeIndexRef.current = index;
         setActiveIndex(index);
       }
       setFlippedGroupId(groupId);
@@ -133,95 +152,125 @@ export default function GroupListScreen({
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
+    const orderChanged = previousOrderKeyRef.current !== orderKey;
+    const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
+    previousOrderKeyRef.current = orderKey;
+    previousSnapIntervalRef.current = snapInterval;
+    if (!orderChanged && !intervalChanged) return;
+
     const identity = activeIdentityRef.current;
     const next =
       identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
-    const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
+    const safeIndex =
+      next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    activeIndexRef.current = safeIndex;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [activeIndex, groups, snapInterval]);
+  }, [groups, orderKey, snapInterval]);
 
   return (
-    <ScrollView
-      style={s.root}
-      contentContainerStyle={s.screenContent}
-      alwaysBounceVertical
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
-      }
-      testID="group.list"
-    >
-      <View style={s.header}>
-        {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
-        {onBack && (
-          <TouchableOpacity
-            style={s.backBtn}
-            onPress={onBack}
-            activeOpacity={0.7}
-            accessibilityLabel="뒤로"
-            testID="group.list.back"
-          >
-            <Ionicons name="chevron-back" size={18} color={T.inkSub} />
-          </TouchableOpacity>
-        )}
-        <Text style={s.headerTitle}>내 그룹</Text>
-      </View>
-
-      <FlatList
-        ref={listRef}
-        testID="group.list.items"
-        data={groups}
-        keyExtractor={(item) => item.groupId}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
-        ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-        snapToInterval={snapInterval}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum
-        onMomentumScrollEnd={settlePage}
-        onScrollEndDrag={settlePage}
-        ListFooterComponent={
-          <View style={{ marginLeft: CARD_GAP }}>
-            <FindMoreCard width={cardWidth} onPress={onFind} />
-          </View>
+    <View style={s.root} testID="group.list">
+      <ScrollView
+        style={s.scroller}
+        contentContainerStyle={s.screenContent}
+        alwaysBounceVertical
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
         }
-        renderItem={({ item }) => (
-          <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
-            {flippedGroupId === item.groupId ? (
-              <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
-                <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
-                  {item.name}
-                </Text>
-                <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
-                <TouchableOpacity
-                  style={s.backPrimary}
-                  onPress={() => onSelect(item.groupId)}
-                  testID={`group.card.room.${item.groupId}`}
-                >
-                  <Text style={s.backPrimaryText}>방 전체 보기</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setFlippedGroupId(null)}
-                  testID={`group.card.frontAction.${item.groupId}`}
-                >
-                  <Text style={s.backLink}>앞면으로</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
-            )}
-          </View>
-        )}
-      />
+        testID="group.list.scroller"
+      >
+        <View style={s.header}>
+          {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
+          {onBack && (
+            <TouchableOpacity
+              style={s.backBtn}
+              onPress={onBack}
+              activeOpacity={0.7}
+              accessibilityLabel="뒤로"
+              testID="group.list.back"
+            >
+              <Ionicons name="chevron-back" size={18} color={T.inkSub} />
+            </TouchableOpacity>
+          )}
+          <Text style={s.headerTitle}>내 그룹</Text>
+        </View>
 
-      <PageIndicator pageCount={pageCount} activeIndex={activeIndex} onSelectPage={selectPage} />
+        <FlatList
+          ref={listRef}
+          testID="group.list.items"
+          data={groups}
+          keyExtractor={(item) => item.groupId}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
+          ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+          snapToInterval={snapInterval}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          onMomentumScrollEnd={onMomentumScrollEnd}
+          onScrollEndDrag={onScrollEndDrag}
+          ListFooterComponent={
+            <View
+              style={{ marginLeft: CARD_GAP }}
+              accessibilityElementsHidden={activeIndex !== groups.length}
+              importantForAccessibility={
+                activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
+              }
+            >
+              <FindMoreCard width={cardWidth} onPress={onFind} />
+            </View>
+          }
+          renderItem={({ item }) => (
+            <View
+              style={{ width: cardWidth }}
+              accessibilityElementsHidden={item.groupId !== groups[activeIndex]?.groupId}
+              importantForAccessibility={
+                item.groupId === groups[activeIndex]?.groupId ? 'auto' : 'no-hide-descendants'
+              }
+              testID={`group.list.card.${item.groupId}`}
+            >
+              {flippedGroupId === item.groupId ? (
+                <View style={s.backPlaceholder} testID={`group.card.back.${item.groupId}`}>
+                  <Text style={s.backTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {item.name}
+                  </Text>
+                  <Text style={s.backDesc}>방 요약을 확인하고 다음 행동을 선택하세요.</Text>
+                  <TouchableOpacity
+                    style={s.backPrimary}
+                    onPress={() => onSelect(item.groupId)}
+                    testID={`group.card.room.${item.groupId}`}
+                  >
+                    <Text style={s.backPrimaryText}>방 전체 보기</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setFlippedGroupId(null)}
+                    testID={`group.card.frontAction.${item.groupId}`}
+                  >
+                    <Text style={s.backLink}>앞면으로</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <GroupCardFront group={item} onFlip={() => flipCard(item.groupId)} />
+              )}
+            </View>
+          )}
+        />
+
+        <PageIndicator
+          pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+          activeIndex={activeIndex}
+          onSelectPage={selectPage}
+        />
+      </ScrollView>
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
-      <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+      <View
+        style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}
+        testID="group.list.footer"
+      >
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
@@ -239,12 +288,13 @@ export default function GroupListScreen({
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  scroller: { flex: 1 },
   screenContent: { flexGrow: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).

@@ -5,7 +5,7 @@
 //     그룹에만** 붙는다. role을 뭉개면 남의 그룹에 방장 표시가 붙어 잘못된 권한을 기대하게 된다.
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -55,7 +55,7 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
 // ("overlapping act() calls") 다음 테스트의 렌더가 통째로 비는 일이 생긴다.
 async function press(testID: string) {
   await act(async () => {
-    fireEvent.press(screen.getByTestId(testID));
+    fireEvent.press(screen.getByTestId(testID, { includeHiddenElements: true }));
   });
 }
 
@@ -73,9 +73,11 @@ describe('카드 렌더', () => {
 
     expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
     expect(screen.getByText('2/5')).toBeOnTheScreen();
-    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
-    expect(screen.getByText('4/5')).toBeOnTheScreen();
-    expect(screen.getByTestId('group.deck.findMore')).toBeOnTheScreen();
+    expect(screen.getByText('저녁 스터디', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(
+      screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
   });
 
   test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
@@ -84,15 +86,20 @@ describe('카드 렌더', () => {
     );
     await renderList(groups);
 
-    expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
+    expect(
+      screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toHaveLength(1);
     expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
     expect(screen.getByTestId('group.list.items').props.onScrollEndDrag).toEqual(
       expect.any(Function),
     );
-    expect(screen.getByTestId('group.list').props.alwaysBounceVertical).toBe(true);
+    expect(screen.getByTestId('group.list.scroller').props.alwaysBounceVertical).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
+    expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
+      minHeight: 300,
+    });
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
@@ -141,6 +148,36 @@ describe('콜백', () => {
     expect(screen.getByLabelText(/매일 아침 함께 집중해요/)).toBeOnTheScreen();
   });
 
+  test('활성 카드만 접근성 트리에 남긴다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    expect(
+      screen.getByTestId(`group.list.card.${GROUP_ID}`).props.accessibilityElementsHidden,
+    ).toBe(false);
+    expect(
+      screen.getByTestId(`group.list.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .accessibilityElementsHidden,
+    ).toBe(true);
+  });
+
+  test('drag의 임시 offset은 무시하고 최종 target offset이 있을 때만 페이지를 확정한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await press(`group.card.${GROUP_ID_2}`);
+    const list = screen.getByTestId('group.list.items');
+
+    await act(async () => {
+      fireEvent(list, 'scrollEndDrag', { nativeEvent: { contentOffset: { x: 0 } } });
+    });
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
+
+    await act(async () => {
+      fireEvent(list, 'scrollEndDrag', {
+        nativeEvent: { contentOffset: { x: 999 }, targetContentOffset: { x: 0 } },
+      });
+    });
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
+  });
+
   test('현재 페이지 dot을 다시 눌러도 열린 뒷면을 유지한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
@@ -155,6 +192,10 @@ describe('콜백', () => {
 
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
     await renderList([group()]);
+
+    expect(
+      within(screen.getByTestId('group.list.scroller')).queryByTestId('group.list.footer'),
+    ).toBeNull();
 
     await press('group.list.create');
     expect(onCreate).toHaveBeenCalledTimes(1);
@@ -188,7 +229,7 @@ describe('콜백', () => {
 
     // RefreshControl은 리스트의 자식이라 fireEvent가 위로 훑어 찾지 못한다(RNTL 14는 UNSAFE_*
     // 쿼리도 없다) — FlatList에 넘긴 요소를 리스트 props에서 직접 집는다.
-    const control = () => screen.getByTestId('group.list').props.refreshControl.props;
+    const control = () => screen.getByTestId('group.list.scroller').props.refreshControl.props;
     expect(control().refreshing).toBe(false);
 
     await act(async () => {

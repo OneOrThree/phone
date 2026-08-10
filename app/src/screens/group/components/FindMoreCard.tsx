@@ -31,7 +31,7 @@ export function FindMoreCard({ width, onPress }: FindMoreCardProps) {
 
 const s = StyleSheet.create({
   card: {
-    minHeight: 220,
+    minHeight: 300,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
