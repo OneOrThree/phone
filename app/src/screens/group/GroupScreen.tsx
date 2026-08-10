@@ -18,6 +18,7 @@ import {
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
+  clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
   type GroupEntrySource,
@@ -183,6 +184,9 @@ export default function GroupScreen() {
 
   const closeInvite = useCallback(() => {
     clearPendingInvite();
+    // 게스트는 목록 성공 이벤트가 없어 invite source를 소비하지 못한다. 사용자가 시트를 닫아
+    // 진입 흐름을 끝냈다면 오래된 invite가 다음 일반 진입을 오염시키지 않게 함께 폐기한다.
+    clearPendingGroupEntry();
     setInvite(null);
   }, []);
 
@@ -400,6 +404,8 @@ export default function GroupScreen() {
           onSettings={onSettingsGroup}
           viewEpisodeId={deckExposure.episodeId}
           groupEntry={deckExposure.entry}
+          guideBlocked={findOpen || invite !== null}
+          guideScreenFocused={isScreenFocused}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
           onRefresh={fetchGroups}

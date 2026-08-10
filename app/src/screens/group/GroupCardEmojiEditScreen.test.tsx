@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupCardEmojiEditScreen from './GroupCardEmojiEditScreen';
-import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconEditorViewed,
+  logGroupCardIconSaveResult,
+} from '@/services/analyticsEvents';
 import {
   __resetGroupCardEmojiQueueForTest,
   readGroupCardEmoji,
@@ -18,7 +21,13 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ goBack: mockGoBack, addListener: jest.fn(() => jest.fn()) }),
   useRoute: () => ({ params: { groupId: 'group-1' } }),
 }));
-jest.mock('@/services/analyticsEvents', () => ({ logGroupCardIconSaveResult: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardIconEditorViewed: jest.fn(),
+  logGroupCardIconSaveResult: jest.fn(),
+}));
+const mockLogGroupCardIconEditorViewed = logGroupCardIconEditorViewed as jest.MockedFunction<
+  typeof logGroupCardIconEditorViewed
+>;
 const mockLogGroupCardIconSaveResult = logGroupCardIconSaveResult as jest.MockedFunction<
   typeof logGroupCardIconSaveResult
 >;
@@ -47,6 +56,7 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+  expect(mockLogGroupCardIconEditorViewed).toHaveBeenCalledTimes(1);
 });
 
 test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을 닫는다', async () => {

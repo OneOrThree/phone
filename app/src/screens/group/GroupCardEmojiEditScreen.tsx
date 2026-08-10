@@ -13,7 +13,10 @@ import {
   writeGroupCardEmoji,
   type GroupCardEmoji,
 } from './groupCardEmojiStore';
-import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconEditorViewed,
+  logGroupCardIconSaveResult,
+} from '@/services/analyticsEvents';
 
 type Route = RouteProp<V2RootStackParamList, 'GroupCardEmojiEdit'>;
 
@@ -28,6 +31,7 @@ export default function GroupCardEmojiEditScreen() {
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const savingRef = useRef(false);
+  const viewedRef = useRef(false);
 
   useEffect(
     () =>
@@ -44,6 +48,10 @@ export default function GroupCardEmojiEditScreen() {
       setBaseline(emoji);
       setSelected(emoji);
       setSaveFailed(false);
+      if (!viewedRef.current) {
+        viewedRef.current = true;
+        logGroupCardIconEditorViewed();
+      }
     });
     return () => {
       canceled = true;

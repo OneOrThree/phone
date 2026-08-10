@@ -15,9 +15,12 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { T } from '@/constants/theme';
+import { STORAGE_KEYS } from '@/types/storage';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
@@ -39,6 +42,9 @@ import {
   logGroupCardFlipped,
   logGroupCardReordered,
   logGroupCarouselPaged,
+  logGroupDeckGuideReadFailed,
+  logGroupDeckGuideWriteFailed,
+  logTabGuideCompleted,
   type GroupCardReorderTrigger,
   type GroupCountBucket,
   type GroupEntry,
@@ -47,6 +53,13 @@ import {
   createCardInteractionContext,
   type CardInteractionContext,
 } from '@/services/cardInteraction';
+import {
+  completeGroupDeckGuide,
+  GROUP_DECK_GUIDE_ID,
+  isGroupDeckGuideCompletedInSession,
+  resolveGroupDeckGuideDecision,
+  type GroupDeckGuideReadState,
+} from './groupDeckGuide';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -74,6 +87,7 @@ const SIDE_PEEK = 24;
 const CARD_GAP = 12;
 const DRAG_EDGE = 60;
 const EDGE_PAGE_THROTTLE_MS = 260;
+const GUIDE_CHARACTER = require('@/assets/character_study.png');
 
 function groupCountBucket(count: number): GroupCountBucket {
   if (count === 1) return '1';
@@ -106,6 +120,8 @@ export interface GroupListScreenProps {
   onSettings: (groupId: string) => void;
   viewEpisodeId: number;
   groupEntry: GroupEntry;
+  guideBlocked?: boolean;
+  guideScreenFocused?: boolean;
   onCreate: () => void;
   onFind: () => void;
   onRefresh: () => Promise<void>;
@@ -122,6 +138,8 @@ export default function GroupListScreen({
   onSettings,
   viewEpisodeId,
   groupEntry,
+  guideBlocked = false,
+  guideScreenFocused = true,
   onCreate,
   onFind,
   onRefresh,
@@ -134,9 +152,15 @@ export default function GroupListScreen({
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [orderMenuGroupId, setOrderMenuGroupId] = useState<string | null>(null);
-  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  // RN 부팅 직후 currentState가 null일 수 있다. background/inactive 신호 전에는 foreground
+  // 후보로 두고 listener가 이후 확정한다.
+  const [appActive, setAppActive] = useState(
+    AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+  );
   const [summaryDate, setSummaryDate] = useState(todayStrKst);
   const [exposedEpisodeId, setExposedEpisodeId] = useState<number | null>(null);
+  const [guideQueued, setGuideQueued] = useState(false);
+  const [guideVisible, setGuideVisible] = useState(false);
   const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
   const [, setSummaryVersion] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
@@ -188,15 +212,45 @@ export default function GroupListScreen({
     if (isScreenFocused) actionLockedRef.current = false;
   }, [isScreenFocused]);
 
+  // 완료 key read와 현재 blocking overlay 판정이 끝나기 전에는 덱을 열지 않는다. 이 시점의
+  // guide_state를 episode의 불변 노출 값으로 기록하고, pending이었다면 blocker 해제 뒤 queue를 연다.
   useEffect(() => {
     if (!hydrated || exposedEpisodeId === viewEpisodeId) return;
-    logGroupCardDeckViewed({
-      group_count_bucket: groupCountBucket(orderedGroups.length),
-      group_entry: groupEntry,
-      guide_state: 'unknown',
-    });
-    setExposedEpisodeId(viewEpisodeId);
-  }, [exposedEpisodeId, groupEntry, hydrated, orderedGroups.length, viewEpisodeId]);
+    let canceled = false;
+    const settle = (readState: GroupDeckGuideReadState) => {
+      if (canceled) return;
+      const decision = resolveGroupDeckGuideDecision(readState, guideBlocked);
+      logGroupCardDeckViewed({
+        group_count_bucket: groupCountBucket(orderedGroups.length),
+        group_entry: groupEntry,
+        guide_state: decision.exposure,
+      });
+      setGuideQueued(decision.queue);
+      setExposedEpisodeId(viewEpisodeId);
+    };
+    AsyncStorage.getItem(STORAGE_KEYS.guideGroupDeck)
+      .then((value) =>
+        settle(value === '1' || isGroupDeckGuideCompletedInSession() ? 'completed' : 'incomplete'),
+      )
+      .catch(() => {
+        logGroupDeckGuideReadFailed();
+        settle('unknown');
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [exposedEpisodeId, groupEntry, guideBlocked, hydrated, orderedGroups.length, viewEpisodeId]);
+
+  useEffect(() => {
+    if (!guideQueued || guideVisible || guideBlocked || !guideScreenFocused || !appActive) return;
+    setGuideVisible(true);
+  }, [appActive, guideBlocked, guideQueued, guideScreenFocused, guideVisible]);
+
+  useEffect(() => {
+    if (guideVisible && (guideBlocked || !guideScreenFocused || !appActive)) {
+      setGuideVisible(false);
+    }
+  }, [appActive, guideBlocked, guideScreenFocused, guideVisible]);
 
   useEffect(() => {
     focusPolling?.setLifecycle({
@@ -213,7 +267,40 @@ export default function GroupListScreen({
       userId ? { userId, date: summaryDate, groupIds: groups.map((group) => group.groupId) } : null,
     );
     setSummaryVersion((version) => version + 1);
-  }, [groups, summaryAdapter, summaryDate, userId]);
+    if (flippedGroupId) summaryAdapter.ensureBack(flippedGroupId).catch(() => undefined);
+  }, [flippedGroupId, groups, summaryAdapter, summaryDate, userId]);
+
+  const guideSteps = useMemo<GuideStep[]>(
+    () => [
+      { text: '내 그룹이 카드로 모였어. 같이 둘러보자!', character: GUIDE_CHARACTER },
+      {
+        text:
+          orderedGroups.length >= 2
+            ? '옆으로 넘기면 다른 그룹을 볼 수 있어.'
+            : '이 카드가 내 그룹이야. 그룹이 늘면 옆으로 넘길 수 있어.',
+        character: GUIDE_CHARACTER,
+      },
+      { text: '카드를 탭하면 오늘의 방 상태를 볼 수 있어.', character: GUIDE_CHARACTER },
+      {
+        text: '여기서 바로 집중하거나 방 전체를 열 수 있어.',
+        character: GUIDE_CHARACTER,
+      },
+    ],
+    [orderedGroups.length],
+  );
+
+  const finishGuide = useCallback(() => {
+    if (
+      completeGroupDeckGuide(
+        () => logTabGuideCompleted({ guide: GROUP_DECK_GUIDE_ID }),
+        () => AsyncStorage.setItem(STORAGE_KEYS.guideGroupDeck, '1'),
+        logGroupDeckGuideWriteFailed,
+      )
+    ) {
+      setGuideVisible(false);
+      setGuideQueued(false);
+    }
+  }, []);
 
   useEffect(() => {
     const refresh = () => setSummaryVersion((version) => version + 1);
@@ -671,6 +758,16 @@ export default function GroupListScreen({
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>
       </View>
+
+      <TabGuideOverlay
+        storageKey={STORAGE_KEYS.guideGroupDeck}
+        steps={guideSteps}
+        visible={guideVisible}
+        completionMode="external"
+        allowRequestClose={false}
+        testID="group.deck.guide"
+        onFinish={finishGuide}
+      />
     </View>
   );
 }

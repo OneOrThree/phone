@@ -161,10 +161,12 @@ jest.mock('./components/GroupInviteSheet', () => {
     groupId,
     onJoined,
     onLogin,
+    onClose,
   }: {
     groupId: string;
     onJoined: (joinedGroupId: string) => void;
     onLogin: () => void;
+    onClose: () => void;
   }) {
     return (
       <RNView>
@@ -173,6 +175,9 @@ jest.mock('./components/GroupInviteSheet', () => {
         </RNTouchable>
         <RNTouchable onPress={onLogin}>
           <RNText>초대-로그인</RNText>
+        </RNTouchable>
+        <RNTouchable onPress={onClose}>
+          <RNText>초대-닫기</RNText>
         </RNTouchable>
       </RNView>
     );
@@ -257,6 +262,18 @@ describe('group_viewed view episode', () => {
     expect(mockGetMyGroups).not.toHaveBeenCalled();
     expect(mockLogGroupViewed).not.toHaveBeenCalled();
     expect(peekGroupEntry('tab')).toBe('invite');
+  });
+
+  test('게스트가 초대 시트를 닫으면 보류된 invite source도 폐기한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockPendingInvite = GROUP_ID;
+    mockIsGuest = true;
+    await renderScreen();
+
+    await press('초대-닫기');
+
+    expect(mockClear).toHaveBeenCalledTimes(1);
+    expect(peekGroupEntry('tab')).toBe('tab');
   });
 
   test('성공한 전체 목록 뒤에만 group_entry와 count bucket을 한 번 발행한다', async () => {

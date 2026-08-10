@@ -10,6 +10,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupListScreen, { resolveDragTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { writeGroupCardEmoji } from './groupCardEmojiStore';
+import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
+import { STORAGE_KEYS } from '@/types/storage';
 import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
 import { getMyRanking } from '@/services/leagueApi';
 import {
@@ -69,6 +71,7 @@ async function renderList(
   back?: () => void,
   userId = 'user-1',
   waitHydrated = true,
+  guideBlocked = false,
 ) {
   const result = await render(
     <GroupListScreen
@@ -79,6 +82,7 @@ async function renderList(
       onSettings={onSettings}
       viewEpisodeId={1}
       groupEntry="tab"
+      guideBlocked={guideBlocked}
       onCreate={onCreate}
       onFind={onFind}
       onRefresh={onRefresh}
@@ -101,6 +105,8 @@ async function press(testID: string) {
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
+  resetGroupDeckGuideSessionForTests();
+  await AsyncStorage.setItem(STORAGE_KEYS.guideGroupDeck, '1');
   onRefresh.mockResolvedValue(undefined);
   jest.mocked(getGroupDetail).mockResolvedValue({ members: [] } as never);
   jest.mocked(getAnnouncements).mockResolvedValue([]);
@@ -136,8 +142,36 @@ describe('카드 렌더', () => {
     expect(logGroupCardDeckViewed).toHaveBeenCalledWith({
       group_count_bucket: '11_plus',
       group_entry: 'tab',
-      guide_state: 'unknown',
+      guide_state: 'completed',
     });
+  });
+
+  test('미완료 key는 실제 queue 획득 상태인 shown으로 노출하고 안내를 연다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    resetGroupDeckGuideSessionForTests();
+
+    await renderList([group()]);
+
+    expect(logGroupCardDeckViewed).toHaveBeenCalledWith({
+      group_count_bucket: '1',
+      group_entry: 'tab',
+      guide_state: 'shown',
+    });
+    await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
+  });
+
+  test('다른 overlay가 막고 있으면 미완료 안내를 pending으로 기록한다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    resetGroupDeckGuideSessionForTests();
+
+    await renderList([group()], undefined, 'user-1', true, true);
+
+    expect(logGroupCardDeckViewed).toHaveBeenCalledWith({
+      group_count_bucket: '1',
+      group_entry: 'tab',
+      guide_state: 'pending',
+    });
+    expect(screen.queryByTestId('group.deck.guide')).toBeNull();
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
