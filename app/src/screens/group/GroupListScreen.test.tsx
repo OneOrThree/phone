@@ -6,7 +6,7 @@
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { View } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 import GroupListScreen from './GroupListScreen';
 import { groupDeckCardWidth } from './groupDeckLayout';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -177,6 +177,8 @@ describe('콜백', () => {
   });
 
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
     await press(`group.card.${GROUP_ID_2}`);
@@ -194,6 +196,7 @@ describe('콜백', () => {
     expect(screen.getByLabelText('저녁 스터디, 2 / 3')).toBeOnTheScreen();
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
     expect(onSelect).not.toHaveBeenCalled();
+    expect(announce).toHaveBeenCalledWith('저녁 스터디 방 요약이 열렸어요');
 
     await press(`group.card.room.${GROUP_ID_2}`);
 
@@ -203,6 +206,7 @@ describe('콜백', () => {
       screen.getByTestId(`group.card.room.${GROUP_ID_2}`, { includeHiddenElements: true }).props
         .accessibilityRole,
     ).toBe('button');
+    announce.mockRestore();
   });
 
   test('접근성 이름은 긴 서버 원문을 축약하지 않는다', async () => {

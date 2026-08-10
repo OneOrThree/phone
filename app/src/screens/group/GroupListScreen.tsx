@@ -192,7 +192,11 @@ export default function GroupListScreen({
         : frontActionRefs.current.get(pending.groupId);
     const node = findNodeHandle(target ?? null);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [flippedGroupId]);
+    if (pending.face === 'back') {
+      const groupName = groups.find((group) => group.groupId === pending.groupId)?.name;
+      if (groupName) AccessibilityInfo.announceForAccessibility(`${groupName} 방 요약이 열렸어요`);
+    }
+  }, [flippedGroupId, groups]);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
