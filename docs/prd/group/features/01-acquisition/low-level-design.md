@@ -55,6 +55,7 @@ sequenceDiagram
     U->>X: 후보 선택 또는 참여
     X->>X: 전역 참여 잠금 획득
     X->>X: appInstanceId best-effort 조회
+    X->>X: group_join_attempted(result_track) 1회
     X->>S: joinMethod + 선택적 appInstanceId로 가입 요청
     U->>X: 다른 후보 또는 초대 선택
     X-->>U: 기존 요청이 끝날 때까지 참여 차단
@@ -66,10 +67,29 @@ sequenceDiagram
 ```
 
 - 검색 요청은 검색어가 바뀌거나 화면이 닫히면 이전 응답을 폐기한다. 늦은 결과가 현재 검색어를 덮지 않는다.
-- 위 그림은 `GRP-01` 목표 계약이다. 현재는 초대 가입만 분석 식별자 조회를 사용하며, 검색 가입은 후속 앱 작업에서 같은 경로로 맞춘다. 값이 없거나 조회가 실패해도 요청을 계속하며, 이때 서버 구조화 로그만 성공 정본으로 남는다.
+- 위 그림은 `GRP-01` 목표 계약이다. 현재 구현은 초대 화면이 시도 이벤트 뒤 식별자를 조회하고 검색은 식별자를 전달하지 않는다. 목표 계약에서는 두 경로를 모두 **식별자 조회 완료 → `result_track=ga4|s_log_only` 시도 이벤트 → 즉시 가입 API 호출** 순서로 변경한다. 값이 없거나 조회가 실패해도 요청을 계속하며, 이때 서버 구조화 로그만 성공 정본으로 남는다.
 - 참여 잠금은 검색과 초대가 공유한다. 한 요청의 중복 탭과 두 화면의 동시 가입을 막는다.
 - 초대 참여 중 다른 링크가 도착해도, 성공 콜백은 요청을 시작한 그룹을 사용한다.
 - 목록 재조회는 최신 요청만 화면에 반영한다. 계정 전환·화면 이탈 뒤 응답은 반영하지 않는다.
+- cold direct·deferred는 목록 0개 확정을 기다리지 않는다. 열린 F3 episode가 없을 때 `result_track=ga4`인 실제 API 전송 직전의 invite attempt만 `invite_intent` fallback을 열고, `s_log_only` 시도·sheet mount·게스트 로그인·rerender·foreground는 열지 않는다. 30분 안의 같은 pending/다른 링크 시도는 기존 episode에 진단 이벤트만 더한다.
+
+### 2.1 초대 링크 수명과 이탈 경합
+
+```mermaid
+stateDiagram-v2
+    [*] --> 활성: 현재 멤버가 발급
+    활성 --> 활성: 반복 발급은 같은 링크 반환
+    활성 --> 폐기: 탈퇴 · 강퇴 · 계정 탈퇴 · 그룹 종료
+    폐기 --> 새활성: 재가입 뒤 새 링크 발급
+
+    폐기: landing · match · private join 거절 · claim no-op
+    새활성: 새 slug만 사용 가능
+```
+
+- 링크는 논리 폐기해 click·claim 감사 관계를 보존한다. 전체 `(groupId, inviterId)` unique를 **active 버전 1개** 제약으로 migration하고, 재발급은 새 slug 행을 만든다. 폐기 뒤 claim은 멱등 no-op으로 끝나며 미claim click에 사용자를 새로 연결하지 않는다.
+- 멤버십 이탈과 링크 폐기는 같은 transaction에서 처리한다. 초대 write 경로는 slug를 잠금 없이 한 번 읽어 대상 ID를 찾은 뒤 **관련 user UUID 오름차순 → groupId 오름차순의 group·membership → active link ID** 순으로 잠그고 모든 조건을 재검증한다. 계정 탈퇴의 여러 그룹도 groupId 순서로 폐기하며, 발급·재발급은 `findActive`와 partial unique 충돌 재조회로 active slug 하나에 수렴한다.
+- private join·이탈·재발급은 위 순서로 직렬화한다. join이 먼저 commit한 경우만 가입이 남고 이탈·폐기가 먼저면 join은 일반 초대 오류로 끝나며, 동시 재발급은 같은 active slug를 반환한다.
+- 기존 attribution용 nullable 처리와 private authorization validator를 분리한다. authorization은 그룹 일치·미폐기·발급자 활성 멤버십을 모두 요구한다.
 
 ## 3. 오류와 복구
 
@@ -87,6 +107,7 @@ sequenceDiagram
 | slug 없는 구형 공개 링크      | 미리보기·가입 유지                 | attribution 없이 기존 조건으로 처리        |
 | slug 없는 구형 비공개 링크    | 새 링크 재요청 안내                | 강제 전환 뒤 가입 요청 거절·자동 승격 금지 |
 | 비공개 링크 누락·무효·불일치  | 동일한 일반 오류                   | 멤버십 미생성, 사용자 임의 재시도 금지     |
+| 폐기·발급자 이탈 private 링크 | 새 링크 재요청 안내                | landing·match·가입 만료, claim은 no-op     |
 | 검색 가입 분석 식별자 없음    | 가입 흐름 유지                     | S-LOG만 기록, GA4 결과로 가장하지 않음     |
 
 ## 4. 검증 gate
@@ -98,6 +119,9 @@ sequenceDiagram
 5. 빠른 검색어 변경, 두 초대 수신, 중복 탭, 계정 전환, 화면 이탈에서 늦은 응답이 현재 화면이나 목적지를 바꾸지 않는다.
 6. 비공개 생성 뒤 링크 발급·공유 실패가 이미 성공한 생성을 취소하거나 다시 보내지 않는다.
 7. 다음 앱 배포 전 생성·프로필의 invite-only 보장 문구를 제거한다. 서버가 `inviteSlug`를 가입 허가 조건으로 강제하기 전에는 링크 수신자 전용 가입을 완료로 판정하지 않는다.
-8. 검색·초대 가입에서 `join_method`와 선택적 `appInstanceId`가 서버까지 전달되며, 값 있음/없음의 GA4·S-LOG 분기가 가입 결과에 영향을 주지 않는다.
-9. parser·navigation은 slug 없는 링크를 계속 해석한다. 서버 강제 뒤 public legacy와 그룹에 일치하는 유효 private slug는 멤버십을 정확히 1건 만들고, private null·unknown·타 그룹 slug는 멤버십 생성 없이 같은 일반 오류가 된다.
+8. 검색·초대 가입에서 식별자 조회 뒤 `group_join_attempted(join_method,result_track)`와 API가 연속 실행되고 선택적 `appInstanceId`가 서버까지 전달된다. 값 있음/없음의 GA4·S-LOG 분기가 가입 결과에 영향을 주지 않는다.
+9. parser·navigation은 slug 없는 링크를 계속 해석한다. 서버 강제 뒤 public legacy와 그룹 일치·미폐기·발급자 활성 조건을 만족한 private slug는 멤버십을 정확히 1건 만들고, private null·unknown·타 그룹·폐기·발급자 이탈 slug는 멤버십 생성 없이 같은 일반 오류가 된다.
 10. slug 형식 앱의 최소 지원 버전·구형 비공개 링크 재발급 안내·강제 전환 시각을 먼저 배포한 뒤 서버 enforcement를 켠다. 구버전 직접 요청도 우회하지 못한다.
+11. issue→탈퇴·강퇴·계정 탈퇴→old landing·match·claim·private join 실패→재가입→old slug 실패→fresh issue 성공을 검증한다. OWNER 위임으로 활성 멤버십이 유지되면 기존 링크도 유지된다.
+12. private join·발급자 이탈·재발급이 경합해도 정해진 잠금 순서와 partial unique로 가입은 한 결과, 링크는 active slug 최대 1개에 수렴하며 deadlock·폐기 링크 재반환이 없다.
+13. cold direct·deferred 가입이 `group_viewed(0)` 없이 시작될 때 `result_track=ga4` attempt만 F3 episode를 정확히 1건 열고, `s_log_only`·preview·로그인 대기·rerender·같은 pending invite는 분모를 추가하지 않는다.

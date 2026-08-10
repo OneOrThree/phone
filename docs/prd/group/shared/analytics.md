@@ -38,7 +38,7 @@ flowchart LR
 | 01 획득 | `group_find_opened`             | screen·C       | 찾기 sheet가 실제 표시                                        | `entry_point`; open cycle당 1회                                                         |
 | 01 획득 | `invite_link_opened`            | action·C       | 설치된 앱이 초대 링크를 처리                                  | 기존 `group_id`, `slug`, `via`                                                          |
 | 01 획득 | `group_invite_sheet_viewed`     | screen·C       | 초대 preview sheet가 실제 표시                                | 기존 `group_id`, `slug`, `entry=link\|deferred`                                         |
-| 01 획득 | `group_join_attempted`          | action·C       | 검색·초대 가입 요청 직전                                      | `join_method`; 요청당 1회                                                               |
+| 01 획득 | `group_join_attempted`          | action·C       | 식별자 조회를 끝내고 검색·초대 가입 API를 보내기 직전         | `join_method`, `result_track`; 요청당 1회                                               |
 | 01 획득 | `group_joined`                  | result·S+S-LOG | 서버가 가입을 commit                                          | `join_method`; `appInstanceId`가 있으면 GA4에도 발행, 없으면 S-LOG만; 앱 중복 발행 금지 |
 | 02 탐색 | `group_card_deck_viewed`        | exposure·C     | 1개 이상 목록과 layout이 안정된 첫 렌더                       | `group_count_bucket`, `group_entry`, `guide_state`; focus당 1회                         |
 | 02 탐색 | `group_card_flipped`            | action·C       | 사용자 입력으로 face가 실제 변경                              | `to_face`, `trigger`, `group_count_bucket`; guide·animation·복귀 제외                   |
@@ -73,6 +73,7 @@ flowchart LR
 | `result`             | `success \| failed`                                                       |
 | `entry_source`       | `group_card \| group_room \| group_find \| invite \| home_fab \| unknown` |
 | `join_method`        | `search \| invite \| deferred_invite`                                     |
+| `result_track`       | `ga4 \| s_log_only`                                                       |
 | `trigger`            | `card_tap \| swipe \| indicator_press \| drag \| accessibility_action`    |
 | `leave_reason`       | `self \| kicked`                                                          |
 
@@ -82,7 +83,7 @@ flowchart LR
 - `group_left`의 최상위 서버 로그 `user_id`는 행위자가 아니라 **소속에서 빠진 사용자**다. 자발 이탈은 요청자, 강퇴는 `targetUserId`를 명시 오버로드로 기록하고 `leave_reason=self|kicked`로 구분한다. 방장 행위자 정보가 필요하면 기존 요청·감사 맥락을 사용하며 이벤트 payload에 raw ID를 중복 전송하지 않는다.
 - 현재 서버는 자발 이탈과 강퇴 모두 `group_id`만 남기고, 강퇴 로그의 최상위 `user_id`도 요청한 방장 MDC를 사용한다. 위 `group_left` 계약이 구현·export 검증되기 전에는 이 이벤트를 이탈률·강퇴율 KPI에 사용하지 않는다.
 - 현재 앱의 `group_viewed`는 소속 목록 확정 전에 발행하고 위 두 필수 속성을 보내지 않는다. 성공한 전체 목록 뒤로 발행 위치를 옮기고 typed payload를 검증하기 전에는 F3의 0개 사용자 분모로 사용하지 않는다.
-- 검색 가입도 초대 가입처럼 `getAppInstanceId()`를 best-effort로 읽어 `joinGroup` 요청에 전달한다. 조회 실패·미지원은 가입을 막지 않고 S-LOG 결과만 남기며, 검색 경로의 전달과 DebugView를 확인하기 전에는 GA4 F3 성공 전환으로 사용하지 않는다.
+- `GRP-01` 목표 계약은 검색·초대 가입 모두 `getAppInstanceId()`를 먼저 best-effort로 끝낸 뒤 `group_join_attempted(result_track=ga4|s_log_only)`와 `joinGroup`을 await 간격 없이 바로 이어 실행하는 것이다. 현재 초대는 시도 이벤트 뒤 식별자를 조회하고 검색은 식별자·`result_track`을 보내지 않는다. 조회 실패·미지원은 가입을 막지 않고 S-LOG 결과만 남기며, 두 경로의 순서·typed payload·DebugView를 확인하기 전에는 cold fallback을 포함한 GA4 F3 전환을 출시 지표로 사용하지 않는다.
 - 기존 `group_room_viewed` 외 새 카드 이벤트에는 raw `group_id`를 추가하지 않는다.
 
 ## 4. 공통 퍼널과 귀속
@@ -101,21 +102,25 @@ F2 내 그룹 탐색 → 행동 결과
       └─ focus → focus_session_started(entry_source=group_card)
 
 F3 그룹 획득 → 소속 반영
-  group_viewed(group_count_bucket=0)
+  empty opener: group_viewed(group_count_bucket=0)
     ├─ group_find_opened → [검색 선택] → group_join_attempted(search) → group_joined
     ├─ invite_link_opened → group_invite_sheet_viewed → group_join_attempted(invite|deferred_invite) → group_joined
     └─ group_create_started → group_create_submitted → group_created
+  cold invite fallback: 열린 episode 없이 group_join_attempted(invite|deferred_invite, result_track=ga4) → group_joined
   서버 성공 → 성공한 전체 소속 목록 확인 → 다음 목적 화면 노출
 ```
 
 - F1은 로그인 `user_id + ga_session_id` 고유 세션으로 본다. 탭 전환 뒤 10초 안의 `group_viewed(group_entry=tab)`만 navigation 성공으로 귀속한다.
 - F2의 뒷면 사용 가능은 같은 session에서 guide 완료와 사용자 flip의 합집합으로 dedupe한다. room 결과는 action 뒤 30초, focus 결과는 10분을 초기 귀속 window로 둔다.
 - F3에서 검색은 선택 단계다. 기본 목록에서 바로 가입해도 정상이다. 가입 결과 정본은 서버 `group_joined`, 생성 결과는 현재 앱 `group_created`이며 같은 결과의 앱·서버 중복 발행을 금지한다.
-- F3 집계 단위는 **획득 episode**다. 같은 Firebase `user_pseudo_id`에서 최초 `group_viewed(group_count_bucket=0)`가 episode를 열고, 성공 결과 또는 30분 경과 중 먼저 오는 시점에 닫는다. 열린 episode 안의 추가 0개 화면은 새 분모로 세지 않는다.
+- F3 집계 단위는 **획득 episode**이며 opener를 분리한다. 같은 Firebase `user_pseudo_id`의 첫 `group_viewed(group_count_bucket=0)`는 `empty`, 열린 episode가 없을 때 실제 API 전송 직전의 `group_join_attempted(invite|deferred_invite,result_track=ga4)`는 `invite_intent` fallback episode를 연다. 성공 결과 또는 30분 경과 중 먼저 오는 시점에 닫는다.
+- `invite_link_opened`는 설치된 앱이 direct URL을 처리한 진단 이벤트이고, `group_invite_sheet_viewed`는 direct·deferred preview 노출 이벤트다. 둘 자체는 F3 opener가 아니며, deferred 복원에서 과거 `invite_link_opened`를 재발행하지 않는다. 시트 노출·게스트 로그인 대기·오류만으로 분모를 만들지 않는다.
+- cold direct·deferred 가입은 최초 목록의 0개 확정을 기다리거나 UX를 막지 않는다. 먼저 발생한 `invite_intent`가 episode를 열며, 뒤늦은 0개 목록·rerender·foreground·같은 pending invite 재표시는 분모를 추가하지 않는다. 다른 링크의 실제 가입 요청도 기존 30분 episode가 열려 있으면 진단 시도만 남긴다.
 - 서버 `group_joined`의 `app_instance_id`는 클라이언트 `user_pseudo_id`와 같아야 한다. 현재 서버 MP에는 `ga_session_id`가 없으므로 F3 연결 키나 같은-session 조건으로 쓰지 않고, 첫 분모부터 **30분 이하**의 결과만 귀속한다.
-- 수락되어 실제 API가 전송된 `group_join_attempted`·`group_create_submitted`는 반복 시도 진단으로 모두 남기되 분모를 늘리지 않는다. validation 실패·잠금 거절·disabled tap은 시도 이벤트 0건이다.
+- 수락되어 실제 API가 전송된 `group_join_attempted`·`group_create_submitted`는 반복 시도 진단으로 모두 남기되 분모를 늘리지 않는다. 단, 열린 episode가 없는 direct·deferred 초대의 첫 `result_track=ga4` join attempt만 `invite_intent` 분모 1건이다. `s_log_only`·검색 attempt는 fallback opener가 아니다. validation 실패·잠금 거절·disabled tap은 시도 이벤트 0건이다.
 - 같은 episode의 최초 `group_joined` 또는 `group_created`만 전환 1건으로 센다. 재전송·재시도·두 번째 성공은 무시하고, 30분 밖 결과는 이전 분모에 귀속하지 않는다. 이후 성공한 전체 0개 목록을 다시 본 시점에만 새 episode를 연다.
-- `appInstanceId`가 없어 S-LOG만 남은 가입, episode 중 로그인 `user_id`가 바뀐 경우는 GA4 F3에서 제외한다. S-LOG 운영 집계와 GA4 전환율을 시간만으로 조인하거나 합산하지 않는다.
+- `empty`와 `invite_intent`는 분모의 의미가 다르므로 source별 전환율을 따로 보고하고 하나의 F3 비율로 합치지 않는다.
+- `appInstanceId`가 없어 `result_track=s_log_only`인 cold invite는 GA4 F3 episode·분모를 열지 않고 S-LOG 운영 지표에만 남긴다. 이미 열린 `empty` episode 안의 `s_log_only` 가입 시도는 계측 공백으로 별도 집계하며 제품 실패로 단정하지 않는다. episode 중 로그인 `user_id`가 바뀐 경우도 GA4 F3에서 제외하고, S-LOG 운영 집계와 GA4 전환율을 시간만으로 조인하거나 합산하지 않는다.
 - CTA 의도 뒤 결과가 없으면 취소·background·navigation 실패일 수 있다. 클릭을 성공으로 해석하지 않는다.
 
 ## 5. 구현·검증 게이트
@@ -127,6 +132,7 @@ F3 그룹 획득 → 소속 반영
 5. CTA 연타는 action 최대 1건이며 실제 목적 결과가 없으면 result 0건이어야 한다.
 6. raw payload에 그룹 이름·소개·glyph·asset·로컬 순서·raw `userId`가 없는지 확인한다.
 7. 서버 로그에서 자발 이탈은 `leave_reason=self`와 요청자 `user_id`, 강퇴는 `leave_reason=kicked`와 대상자 `user_id`로 기록되는지 검증한다.
-8. 검색·초대 가입 각각에서 `join_method`가 보존되고, `appInstanceId` 있음은 GA4+S-LOG, 없음은 비차단 S-LOG 결과가 되는지 검증한다.
+8. 검색·초대 가입 각각에서 식별자 조회가 끝난 직후 `group_join_attempted(join_method,result_track)`와 가입 API가 연속 호출되고, `appInstanceId` 있음은 GA4+S-LOG, 없음은 비차단 S-LOG 결과가 되는지 검증한다.
 9. F3 export fixture에서 같은/다른 `user_pseudo_id`, 29분 59초/30분 초과, 반복 0개 화면·시도·결과, 계정 전환을 검증해 episode당 분모·전환이 각각 최대 1건인지 확인한다.
-10. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.
+10. cold direct·deferred에서 `group_viewed(0)` 없이 `result_track=ga4` attempt→joined가 `invite_intent` episode 1·전환 1인지, `s_log_only`는 episode 0인지, 열린 `empty` episode 뒤 초대 시도는 분모 0건 추가인지, preview·로그인 대기만으로는 episode 0건인지 검증한다.
+11. 이벤트·대시보드 책임 역할과 DebugView 증거가 [구현 상태 정본](./implementation-status.md)에 배정되기 전에는 해당 분석 게이트를 완료로 표시하지 않는다.
