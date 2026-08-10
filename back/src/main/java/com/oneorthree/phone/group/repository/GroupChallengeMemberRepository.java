@@ -31,8 +31,8 @@ public interface GroupChallengeMemberRepository extends JpaRepository<GroupChall
      */
     @Modifying
     @Query(value = "INSERT INTO group_challenge_members"
-            + " (id, group_challenge_id, user_id, usage_date, progress_minutes, is_achieved, created_at, updated_at)"
-            + " VALUES (:id, :challengeId, :userId, :usageDate, :usedMinutes, false, now(), now())"
+            + " (id, group_challenge_id, user_id, usage_date, progress_minutes, created_at, updated_at)"
+            + " VALUES (:id, :challengeId, :userId, :usageDate, :usedMinutes, now(), now())"
             + " ON CONFLICT (group_challenge_id, user_id, usage_date)"
             + " DO UPDATE SET progress_minutes = EXCLUDED.progress_minutes, updated_at = now()", nativeQuery = true)
     void upsertWindowUsage(@Param("id") UUID id,

@@ -3,7 +3,7 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.dto.GroupBetSettlementSummaryResponse;
-import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,7 +17,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 내기 일 배치 진입점 — 전일자까지의 미정산 내기를 훑어 {@link GroupBetSettler} 에 한 건씩 넘긴다.
+ * 내기 일 배치 진입점 — 전일자까지의 미정산 <b>회차</b>(GROMO-1262)를 훑어 {@link GroupBetSettler}
+ * 에 한 건씩 넘긴다.
  *
  * <p>이 클래스에는 <b>트랜잭션이 없다</b>. 건별 트랜잭션(정산 실패 격리)이 목적이라, 여기서 하나로
  * 묶으면 한 건의 롤백이 전체를 되돌린다. 대상 id 조회도 각자 짧은 트랜잭션으로 끝난다.
@@ -42,7 +43,7 @@ public class GroupBetSettlementService {
     /** 실패 요약 로그에 실을 betId 상한 — 대량 실패 시 로그 한 줄이 무한정 길어지지 않게 자른다. */
     static final int FAILED_BET_ID_LOG_LIMIT = 20;
 
-    private final GroupChallengeBetRepository groupChallengeBetRepository;
+    private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupBetSettler groupBetSettler;
 
     /**
@@ -80,35 +81,40 @@ public class GroupBetSettlementService {
     public GroupBetSettlementSummaryResponse settleDueBets(LocalDate today, MissionCategory category) {
         long startedAtMillis = System.currentTimeMillis();
         List<UUID> targets = category == null
-                ? groupChallengeBetRepository.findIdsByStatusAndBetDateBefore(GroupBetStatus.OPEN, today)
-                : groupChallengeBetRepository.findIdsByStatusAndBetDateBeforeAndCategory(
+                ? groupChallengeBetSessionRepository
+                        .findIdsByStatusAndSessionDateBefore(GroupBetStatus.OPEN, today)
+                : groupChallengeBetSessionRepository.findIdsByStatusAndSessionDateBeforeAndCategory(
                         GroupBetStatus.OPEN, today, category);
 
         int settled = 0;
         int forfeited = 0;
         int skipped = 0;
-        List<UUID> failedBetIds = new ArrayList<>();
-        for (UUID betId : targets) {
+        List<UUID> failedSessionIds = new ArrayList<>();
+        for (UUID sessionId : targets) {
             try {
                 // 대상으로 집은 뒤 다른 실행(스케줄러 ↔ 수동 트리거)이 먼저 정산했을 수 있다.
                 // 그때는 최종 상태만 종료 상태일 뿐 이 호출은 지급을 안 했으므로 스킵으로 센다
-                // — 안 그러면 동시 실행 양쪽이 같은 내기를 각자 성과로 세어 요약·지표가 부풀려진다.
-                GroupBetSettler.SettleResult result = groupBetSettler.settle(betId);
+                // — 안 그러면 동시 실행 양쪽이 같은 회차를 각자 성과로 세어 요약·지표가 부풀려진다.
+                GroupBetSettler.SettleResult result = groupBetSettler.settle(sessionId);
                 if (!result.applied()) {
                     skipped++;
                 } else if (result.status() == GroupBetStatus.FORFEITED) {
                     forfeited++;
                 } else if (result.status() == GroupBetStatus.SETTLED) {
                     settled++;
+                } else {
+                    // UNUSED(참가자 0명 종료, GROMO-1404) — 지급·환불이 없는 정리라 성과 버킷에
+                    // 넣지 않고, 응답 shape 호환을 위해 스킵으로 센다(요약 합계 보존).
+                    skipped++;
                 }
             } catch (RuntimeException e) {
-                // 이 내기만 롤백된 상태다. 다른 내기 정산을 막지 않도록 삼키고 기록만 남긴다.
-                failedBetIds.add(betId);
-                log.error("내기 정산 실패 — 해당 건 롤백. betId={}", betId, e);
+                // 이 회차만 롤백된 상태다. 다른 회차 정산을 막지 않도록 삼키고 기록만 남긴다.
+                failedSessionIds.add(sessionId);
+                log.error("회차 정산 실패 — 해당 건 롤백. sessionId={}", sessionId, e);
             }
         }
 
-        int failed = failedBetIds.size();
+        int failed = failedSessionIds.size();
         long elapsedMillis = System.currentTimeMillis() - startedAtMillis;
         log.info("내기 일 배치 완료 — settledBefore={}, category={}, 대상={}, 분배={}, 몰수={}, 스킵={}, "
                 + "실패={}, elapsedMillis={}",
@@ -118,10 +124,10 @@ public class GroupBetSettlementService {
         // 실패했나" 를 한눈에 못 본다. 알림 규칙을 걸 수 있게 고정 포맷 한 줄로 다시 남긴다.
         // 크론이 카테고리별 2회로 나뉜 뒤로는 어느 배치의 실패인지도 함께 실어야 추적이 된다.
         if (failed > 0) {
-            log.error("내기 정산 실패 요약 — category={}, 실패 {}건, betIds={}{}",
+            log.error("내기 정산 실패 요약 — category={}, 실패 {}건, sessionIds={}{}",
                     category == null ? "ALL" : category,
                     failed,
-                    failedBetIds.stream().limit(FAILED_BET_ID_LOG_LIMIT).toList(),
+                    failedSessionIds.stream().limit(FAILED_BET_ID_LOG_LIMIT).toList(),
                     failed > FAILED_BET_ID_LOG_LIMIT
                             ? " (앞 " + FAILED_BET_ID_LOG_LIMIT + "건만 표시)" : "");
         }

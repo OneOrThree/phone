@@ -21,7 +21,7 @@ import {
   createChallenge,
   groupErrorCode,
 } from '@/services/groupApi';
-import { logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type {
@@ -75,6 +75,14 @@ const MINUTE_ITEMS = Array.from(
   { length: 60 / MINUTE_STEP },
   (_, i) => `${String(i * MINUTE_STEP).padStart(2, '0')}분`,
 );
+// 종료 분 휠 전용 — 자정 걸침 금지(§A6-1) 후 "22:00~23:59는 허용"이 정책의 유효 예시인데
+// 5분 눈금으로는 23:55가 상한이라 당일 마지막 시각을 표현할 수 없다(codex 리뷰, PR #565).
+// 59분 항목을 끝에 더해 어느 시든 HH:59를 고를 수 있게 한다(서버는 임의 time 수용).
+const END_MINUTE_ITEMS = [...MINUTE_ITEMS, '59분'];
+const endMinuteIndexOf = (minuteOfHour: number): number =>
+  minuteOfHour === 59 ? END_MINUTE_ITEMS.length - 1 : minuteOfHour / MINUTE_STEP;
+const endMinuteOf = (index: number): number =>
+  index === END_MINUTE_ITEMS.length - 1 ? 59 : index * MINUTE_STEP;
 
 // durationLabel까지 카테고리에서 파생시킨다 — 그룹 만들기 화면과 같은 문구다(같은 값을
 // 고르는 두 자리가 달라 보이면 안 된다는 이 파일의 전제를 라벨에도 적용).
@@ -494,6 +502,14 @@ export default function ChallengeComposeSheet({
         duration_minutes: durationMinutes,
         has_window: isWindow,
       });
+      // 내기를 켠 생성이면 별도 이벤트 — 내기 켜짐 비율(PRD §5)의 유일한 측정 소스다(N26).
+      if (stake !== null) {
+        logGroupBetEnabled({
+          stake,
+          mission_type: missionType,
+          mission_category: missionCategory,
+        });
+      }
       // 안내는 시트가 닫힌 뒤에도 남는 Alert로 띄운다 — 시트 안 문구로 두면 곧 사라진다.
       if (nonParticipants.length > 0) {
         Alert.alert('챌린지를 만들었어요', NON_PARTICIPANT_MESSAGE);
@@ -643,10 +659,10 @@ export default function ChallengeComposeSheet({
             </View>
             <View style={s.windowCol}>
               <DrumPicker
-                items={MINUTE_ITEMS}
-                selectedIndex={(windowEnd % 60) / MINUTE_STEP}
+                items={END_MINUTE_ITEMS}
+                selectedIndex={endMinuteIndexOf(windowEnd % 60)}
                 onChange={(i) =>
-                  commitWindow(windowStart, Math.floor(windowEnd / 60) * 60 + i * MINUTE_STEP)
+                  commitWindow(windowStart, Math.floor(windowEnd / 60) * 60 + endMinuteOf(i))
                 }
               />
             </View>

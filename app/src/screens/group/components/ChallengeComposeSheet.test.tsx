@@ -18,7 +18,7 @@ import { AccessibilityInfo, Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeComposeSheet, { type ExistingChallengeCombo } from './ChallengeComposeSheet';
 import { createChallenge } from '@/services/groupApi';
-import { logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type { CreateChallengeResponse } from '@/types/dto/group';
 
@@ -36,6 +36,7 @@ jest.mock('@/services/groupApi', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeCreated: jest.fn(),
+  logGroupBetEnabled: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
 }));
 
@@ -277,6 +278,76 @@ describe('전송값', () => {
     await pickDay('월');
     await press('만들기');
     expect(logGroupChallengeCreated).not.toHaveBeenCalled();
+  });
+
+  test('내기를 켠 생성은 group_bet_enabled를 함께 발행한다 — 지표의 유일한 소스 (PR #565 codex)', async () => {
+    await renderSheet();
+    await pickDay('월');
+    await typeStake('300');
+    await press('만들기');
+    expect(logGroupBetEnabled).toHaveBeenCalledWith({
+      stake: 300,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
+
+    // 참가비 없이 만들면 발행하지 않는다 — 내기 없는 생성은 켜짐 비율 분자가 아니다.
+    jest.clearAllMocks();
+    await renderSheet();
+    await pickDay('월');
+    await press('만들기');
+    expect(logGroupBetEnabled).not.toHaveBeenCalled();
+  });
+});
+
+// §A6-1(N25) — 창은 자정을 걸칠 수 없다. 요일이 회차를 가르는 축이라 창이 요일 경계를 넘으면
+// 판정·겹침·정산 귀속이 전부 모호해진다. 종전 GROMO-1110의 허용을 되돌린다 — 휠 선택 자체는
+// 막지 않고(되돌리면 규칙을 알 길이 없다) 인라인 안내 + CTA 잠금으로 이유를 말한다.
+describe('자정 걸침 창 금지', () => {
+  test('시작 > 종료는 안내를 띄우고 제출을 막는다 — 되돌리면 다시 만들 수 있다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await pickDay('월');
+    // 종료를 08시로 — 09:00~08:00 자정 걸침이다.
+    await pressNth('8시', 1);
+
+    expect(screen.getByTestId('group.challenge.windowInvalid')).toBeOnTheScreen();
+    expect(screen.getByText(MIDNIGHT_CAPTION)).toBeOnTheScreen();
+    await press('만들기');
+    expect(mockCreateChallenge).not.toHaveBeenCalled();
+
+    // 종료를 13시로 고치면 안내가 사라지고 제출된다.
+    await pressNth('13시', 1);
+    expect(screen.queryByTestId('group.challenge.windowInvalid')).toBeNull();
+    await press('만들기');
+    expect(mockCreateChallenge).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.objectContaining({ windowStart: '09:00:00', windowEnd: '13:00:00' }),
+    );
+  });
+
+  test('시작 = 종료도 같은 안내로 막는다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await pickDay('월');
+    // 종료를 09시로 — 시작(09:00)과 같은 시각이다.
+    await pressNth('9시', 1);
+
+    expect(screen.getByText(MIDNIGHT_CAPTION)).toBeOnTheScreen();
+    await press('만들기');
+    expect(mockCreateChallenge).not.toHaveBeenCalled();
+  });
+
+  test('무효 창에서는 목표분 칩을 잠그지 않는다 — 창 안내가 이미 CTA를 막고 있다', async () => {
+    await renderSheet();
+    await press('시간대');
+    await pressNth('8시', 1);
+
+    // 길이 파생(칩 잠금)이 무효 창의 0분 길이로 전부 잠겨 버리면 원인이 두 갈래로 보인다.
+    expect(screen.getByTestId('group.challenge.duration.180')).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ disabled: false }),
+    );
   });
 });
 
@@ -984,8 +1055,10 @@ describe('다음 도는 날 적용 안내', () => {
     expect(mockNowSeconds).toHaveBeenCalledWith('Asia/Seoul');
   });
 
-  test('창이 아직 안 끝났으면 안내가 없다', async () => {
-    mockNowSeconds.mockReturnValue(10 * 3600); // 창 한가운데
+  // 창 진행 중(10:00)에도 안내가 떠야 한다 — 서버는 창 시작 후 당일 회차를 만들지 않으므로(N35)
+  // "오늘부터"라는 오인이 바로 이 구간에서 생긴다(PR #565 codex).
+  test('창 진행 중에도(시작은 지났으니) 안내가 뜬다', async () => {
+    mockNowSeconds.mockReturnValue(10 * 3600); // 창 한가운데 — 시작(09:00)은 지났다
     await renderSheet();
     await press('시간대');
     await pickAllDays();

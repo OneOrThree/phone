@@ -1,7 +1,6 @@
 package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -621,8 +620,8 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("GB 유저 프로필 → timeZone 은 Europe/London (앱 업로드 날짜 축의 정본, GROMO-1252)")
-    void getProfileReturnsUserZoneForGb() {
+    @DisplayName("GB 유저 프로필도 timeZone 은 Asia/Seoul — 날짜 축 KST 고정(GROMO-1259, 해외 유저는 L5 수용)")
+    void getProfileReturnsKstZoneForGb() {
         User user = User.builder().id(USER_ID).nickname("oscar").countryCode("GB").build();
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user));
         given(userWalletRepository.findById(USER_ID))
@@ -632,7 +631,7 @@ class UserServiceTest {
         given(userFocusTimeSettingsRepository.findById(USER_ID)).willReturn(Optional.of(
                 UserFocusTimeSettings.builder().userId(USER_ID).dailyFocusTimeGoalMinutes(90).build()));
 
-        assertThat(userService.getProfile(USER_ID).timeZone()).isEqualTo("Europe/London");
+        assertThat(userService.getProfile(USER_ID).timeZone()).isEqualTo("Asia/Seoul");
     }
 
     @Test

@@ -538,6 +538,11 @@ export function logGroupChallengeCreated(
 export function logGroupChallengeDeleted(p: ChallengeMissionParams): void {
   track('group_challenge_deleted', p);
 }
+// 내기 켬 — PRD §5 성공 지표 "내기 켜짐 비율"의 측정 소스. v2에서 내기는 생성 시에만 켜지므로
+// (N26 — 이후 불변) 생성 성공 경로가 유일한 발행 지점이다. 여기 없으면 지표가 영원히 0이다.
+export function logGroupBetEnabled(p: { stake: number } & ChallengeMissionParams): void {
+  track('group_bet_enabled', p);
+}
 
 // ── 그룹 챌린지 결과(확장 배치 A3) [C] ── (challenge-impl-2026-08/contract.md §2 계측 표)
 // 퍼널 "챌린지 생성 → 내기 → **결과 확인** → 재참여"의 결과 확인 칸. API 이벤트가 아니라
