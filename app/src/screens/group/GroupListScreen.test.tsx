@@ -8,6 +8,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 import GroupListScreen from './GroupListScreen';
+import { groupDeckCardWidth } from './groupDeckLayout';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -66,6 +67,9 @@ beforeEach(() => {
 });
 
 describe('카드 렌더', () => {
+  test('스켈레톤과 실제 덱이 공유할 카드 폭은 화면별 동일 peek 공식을 쓴다', () => {
+    expect([320, 430, 768].map(groupDeckCardWidth)).toEqual([272, 382, 720]);
+  });
   test('이름과 n/m 인원을 서버가 준 순서 그대로 그린다', async () => {
     await renderList([
       group(),
@@ -250,6 +254,19 @@ describe('콜백', () => {
       });
     });
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 3');
+  });
+
+  test('뒷면에서 가로 스와이프를 시작하면 즉시 앞면으로 정리한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await press(`group.card.${GROUP_ID}`);
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'scrollBeginDrag');
+    });
+
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(screen.getByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen();
   });
 
   test('peek flip 이동 중 다른 페이지에 정착하면 보류한 flip을 폐기한다', async () => {

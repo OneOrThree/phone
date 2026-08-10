@@ -27,6 +27,7 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
+import { GROUP_DECK_SIDE_PEEK, groupDeckCardWidth } from './groupDeckLayout';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -50,7 +51,7 @@ import { GroupCardFront } from './components/GroupCardFront';
 
 // 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
 const TAB_BAR_SPACE = 74;
-const SIDE_PEEK = 24;
+const SIDE_PEEK = GROUP_DECK_SIDE_PEEK;
 const CARD_GAP = 12;
 
 /**
@@ -134,7 +135,7 @@ export default function GroupListScreen({
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
   const [deckMinHeight, setDeckMinHeight] = useState(GROUP_CARD_HEIGHT);
-  const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
+  const cardWidth = groupDeckCardWidth(windowWidth);
   const snapInterval = cardWidth + CARD_GAP;
   const pageCount = groups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
@@ -251,6 +252,11 @@ export default function GroupListScreen({
     [settleOffset],
   );
 
+  const onScrollBeginDrag = useCallback(() => {
+    pendingFlipGroupIdRef.current = null;
+    setFlippedGroupId(null);
+  }, []);
+
   const onScrollEndDrag = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const target = event.nativeEvent.targetContentOffset?.x;
@@ -345,6 +351,7 @@ export default function GroupListScreen({
           decelerationRate="fast"
           disableIntervalMomentum
           onMomentumScrollEnd={onMomentumScrollEnd}
+          onScrollBeginDrag={onScrollBeginDrag}
           onScrollEndDrag={onScrollEndDrag}
           ListFooterComponent={
             <View

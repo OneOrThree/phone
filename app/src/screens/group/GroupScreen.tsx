@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +18,7 @@ import {
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
@@ -42,6 +43,7 @@ const TAB_BAR_SPACE = 74;
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { isGuest } = useUser();
@@ -307,7 +309,7 @@ export default function GroupScreen() {
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
           <View style={s.skeletonDeck} testID="group.deck.skeleton">
-            <View style={s.skeletonCard}>
+            <View style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}>
               <Skeleton w="100%" h={GROUP_CARD_HEIGHT} radius={22} />
             </View>
             <View style={s.skeletonPeek}>
@@ -404,7 +406,7 @@ const s = StyleSheet.create({
     paddingLeft: 24,
     overflow: 'hidden',
   },
-  skeletonCard: { width: '88%' },
+  skeletonCard: {},
   skeletonPeek: { width: 36 },
   body: {
     flex: 1,
