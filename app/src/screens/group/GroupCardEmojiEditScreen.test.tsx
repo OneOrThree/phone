@@ -34,9 +34,11 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
   await render(<GroupCardEmojiEditScreen />);
 
   await waitFor(() =>
-    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual({
-      selected: true,
-    }),
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual(
+      expect.objectContaining({
+        selected: true,
+      }),
+    ),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
@@ -62,9 +64,9 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
 
   expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
-  expect(screen.getByTestId('group.cardEmoji.🧠').props.accessibilityState).toEqual({
-    selected: true,
-  });
+  expect(screen.getByTestId('group.cardEmoji.🧠').props.accessibilityState).toEqual(
+    expect.objectContaining({ selected: true }),
+  );
   expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
   expect(mockGoBack).not.toHaveBeenCalled();
 });
@@ -84,18 +86,61 @@ test('계정 전환 시 이전 계정 선택을 노출하지 않고 새 계정 b
   await writeGroupCardEmoji('user-2', 'group-1', '🔥');
   const view = await render(<GroupCardEmojiEditScreen />);
   await waitFor(() =>
-    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual({
-      selected: true,
-    }),
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    ),
   );
 
   mockUser.userId = 'user-2';
   await view.rerender(<GroupCardEmojiEditScreen />);
 
   await waitFor(() =>
-    expect(screen.getByTestId('group.cardEmoji.🔥').props.accessibilityState).toEqual({
-      selected: true,
-    }),
+    expect(screen.getByTestId('group.cardEmoji.🔥').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    ),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+});
+
+test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버리지 않는다', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    await gate;
+    await originalSetItem(key, value);
+  });
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  fireEvent.press(screen.getByTestId('group.cardEmoji.save'));
+
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.🔥')).toBeDisabled());
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🔥')));
+  expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState.selected).toBe(true);
+
+  release();
+  await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
+});
+
+test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추가로 pop하지 않는다', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => gate);
+  const view = await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  fireEvent.press(screen.getByTestId('group.cardEmoji.save'));
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.🔥')).toBeDisabled());
+
+  view.unmount();
+  release();
+  await act(async () => Promise.resolve());
+
+  expect(mockGoBack).not.toHaveBeenCalled();
 });

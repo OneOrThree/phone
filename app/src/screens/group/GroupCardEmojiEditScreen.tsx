@@ -28,22 +28,31 @@ export default function GroupCardEmojiEditScreen() {
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const requestRef = useRef(0);
+  const activeRef = useRef(true);
   const identity = `${userId ?? 'anonymous'}:${groupId}`;
   const identityRef = useRef(identity);
   identityRef.current = identity;
 
   useEffect(() => {
-    const request = ++requestRef.current;
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const requests = requestRef;
+    const request = ++requests.current;
     const requestedIdentity = identity;
-    void readGroupCardEmoji(userId, groupId).then((emoji) => {
-      if (request !== requestRef.current || identityRef.current !== requestedIdentity) return;
+    readGroupCardEmoji(userId, groupId).then((emoji) => {
+      if (request !== requests.current || identityRef.current !== requestedIdentity) return;
       setBaseline(emoji);
       setSelected(emoji);
       setLoadedIdentity(requestedIdentity);
       setSaveFailed(false);
     });
     return () => {
-      requestRef.current++;
+      requests.current++;
     };
   }, [groupId, identity, userId]);
 
@@ -57,15 +66,15 @@ export default function GroupCardEmojiEditScreen() {
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
-      if (identityRef.current !== saveIdentity) return;
+      if (!activeRef.current || identityRef.current !== saveIdentity) return;
       setBaseline(selected);
       navigation.goBack();
     } catch {
-      if (identityRef.current !== saveIdentity) return;
+      if (!activeRef.current || identityRef.current !== saveIdentity) return;
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
-      if (identityRef.current === saveIdentity) setSaving(false);
+      if (activeRef.current && identityRef.current === saveIdentity) setSaving(false);
     }
   }, [changed, groupId, identity, navigation, ready, saving, selected, userId]);
 
@@ -75,6 +84,7 @@ export default function GroupCardEmojiEditScreen() {
         <TouchableOpacity
           style={s.backBtn}
           onPress={() => navigation.goBack()}
+          disabled={saving}
           accessibilityLabel="뒤로"
           activeOpacity={0.7}
         >
@@ -88,7 +98,7 @@ export default function GroupCardEmojiEditScreen() {
           <ActivityIndicator color={T.accent} />
         ) : (
           <>
-            <GroupCardEmojiPicker value={selected} onChange={setSelected} />
+            <GroupCardEmojiPicker value={selected} onChange={setSelected} disabled={saving} />
             {saveFailed && (
               <Text style={s.error} accessibilityLiveRegion="polite">
                 내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
