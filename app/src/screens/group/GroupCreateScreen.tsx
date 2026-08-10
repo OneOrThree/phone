@@ -125,7 +125,7 @@ export default function GroupCreateScreen() {
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
-  const canSubmit = trimmedName.length > 0 && !submitting;
+  const canSubmit = trimmedName.length > 0 && userId !== null && !submitting;
 
   function bumpMembers(dir: 1 | -1) {
     setMaxMembers((prev) => Math.max(MEMBERS_MIN, Math.min(MEMBERS_MAX, prev + dir)));
@@ -428,6 +428,11 @@ export default function GroupCreateScreen() {
         {emojiSaveFailed && (
           <Text style={s.errorText} accessibilityLiveRegion="polite">
             내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+          </Text>
+        )}
+        {userId === null && (
+          <Text style={s.errorText} accessibilityLiveRegion="polite">
+            계정을 확인하고 있어요. 잠시 후 다시 시도해주세요.
           </Text>
         )}
 

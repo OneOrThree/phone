@@ -138,9 +138,15 @@ describe('카드 렌더', () => {
     expect(await screen.findByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen();
     expect(logGroupCardDeckViewed).toHaveBeenCalledTimes(1);
     expect(await screen.findByTestId('guide.overlay')).toBeOnTheScreen();
+    expect(
+      jest
+        .mocked(AsyncStorage.getItem)
+        .mock.calls.filter(([key]) => key === STORAGE_KEYS.guideGroupDeck),
+    ).toHaveLength(1);
     await press('guide.overlay');
     await press('guide.overlay');
     await press('guide.overlay');
+    expect(await screen.findByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
     await press('guide.overlay');
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.guideGroupDeck, '1');
   });
@@ -596,9 +602,56 @@ describe('콜백', () => {
     expect(getAnnouncements).toHaveBeenCalledTimes(2);
     expect(getChallenges).toHaveBeenCalledTimes(2);
   });
+
+  test('가로 덱은 별도 새로고침 버튼으로 목록과 열린 뒷면을 갱신한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await waitFor(() => expect(getGroupDetail).toHaveBeenCalledTimes(1));
+
+    await press('group.deck.refresh');
+
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(getGroupDetail).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('제스처 중재와 재정렬', () => {
+  test('순서 메뉴가 열리면 TalkBack에서 카드 본문과 화면 CTA를 숨긴다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+
+    expect(
+      screen.getByTestId(`group.card.content.${GROUP_ID}`, { includeHiddenElements: true }).props
+        .importantForAccessibility,
+    ).toBe('no-hide-descendants');
+    expect(
+      screen.getByTestId('group.list.header', { includeHiddenElements: true }).props
+        .importantForAccessibility,
+    ).toBe('no-hide-descendants');
+    expect(
+      screen.getByTestId('group.deck.controls', { includeHiddenElements: true }).props
+        .importantForAccessibility,
+    ).toBe('no-hide-descendants');
+    expect(
+      screen.getByTestId('group.list.footer', { includeHiddenElements: true }).props
+        .importantForAccessibility,
+    ).toBe('no-hide-descendants');
+  });
+
   test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);

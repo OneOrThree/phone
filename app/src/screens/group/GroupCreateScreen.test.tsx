@@ -50,7 +50,8 @@ jest.mock('@react-navigation/native', () => ({
   }),
 }));
 
-jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) }));
+let mockUserId: string | null = 'user-1';
+jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: mockUserId }) }));
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardIconSaveResult: jest.fn(),
@@ -131,6 +132,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
+  mockUserId = 'user-1';
   mockNav.beforeRemove = null;
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
@@ -139,6 +141,19 @@ beforeEach(async () => {
 });
 
 describe('내 카드 아이콘 로컬 draft', () => {
+  test('userId가 확정되기 전에는 선택값을 잃는 그룹 생성을 막는다', async () => {
+    mockUserId = null;
+    await renderScreen();
+    await typeName('신원 확인 중');
+
+    expect(screen.getByTestId('group.create.submit')).toBeDisabled();
+    expect(
+      screen.getByText('계정을 확인하고 있어요. 잠시 후 다시 시도해주세요.'),
+    ).toBeOnTheScreen();
+    await press('만들기');
+    expect(mockCreateGroup).not.toHaveBeenCalled();
+  });
+
   test('선택값은 create body에 넣지 않고 성공 응답 groupId에만 저장한다', async () => {
     await renderScreen();
     await typeName('아침 6시 집중방');

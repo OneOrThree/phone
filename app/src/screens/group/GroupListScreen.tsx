@@ -366,9 +366,16 @@ export default function GroupListScreen({
       {
         text: '여기서 바로 집중하거나 방 전체를 열어봐.',
         character: require('@/assets/character_happy.png'),
+        prepare: () => {
+          const groupId = activeIdentityRef.current ?? orderedGroups[0]?.groupId;
+          if (!groupId) return;
+          setFlippedGroupId(groupId);
+          summaryAdapter.ensureBack(groupId);
+          focusController?.activate();
+        },
       },
     ],
-    [orderedGroups.length],
+    [focusController, orderedGroups, summaryAdapter],
   );
 
   const handleRefresh = useCallback(async () => {
@@ -646,7 +653,11 @@ export default function GroupListScreen({
 
   return (
     <View style={s.root} testID="group.list">
-      <View style={s.header}>
+      <View
+        style={s.header}
+        importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        testID="group.list.header"
+      >
         {/* 백버튼 규격은 그룹 스택 화면(GroupCreateScreen·NoticeScreen)의 s.backBtn과 같은 32/r16 */}
         {onBack && (
           <TouchableOpacity
@@ -718,67 +729,74 @@ export default function GroupListScreen({
             importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
             pointerEvents={index === activeIndex ? 'auto' : 'none'}
           >
-            {flippedGroupId === item.groupId ? (
-              summaryAdapter.getSnapshot(item.groupId) && (
-                <GroupCardBack
-                  group={item}
-                  snapshot={summaryAdapter.getSnapshot(item.groupId)!}
-                  onFlipBack={flipToFront}
-                  onOpenSettings={() => {
-                    if (!onOpenSettings) return;
-                    invokeAcceptedAction(item, 'settings', () => onOpenSettings(item.groupId));
-                  }}
-                  onStartFocus={() => {
-                    if (!onStartFocus) return;
-                    invokeAcceptedAction(item, 'focus', (interaction) =>
-                      onStartFocus(item.groupId, interaction),
-                    );
-                  }}
-                  onOpenRoom={() => {
-                    invokeAcceptedAction(item, 'room', (interaction) => {
-                      roomReturnFocusGroupIdRef.current = item.groupId;
-                      roomReturnWasBlurredRef.current = false;
-                      try {
-                        onSelect(item.groupId, interaction);
-                      } catch (error) {
-                        roomReturnFocusGroupIdRef.current = null;
+            <View
+              importantForAccessibility={
+                reorderMenuGroupId === item.groupId ? 'no-hide-descendants' : 'auto'
+              }
+              testID={`group.card.content.${item.groupId}`}
+            >
+              {flippedGroupId === item.groupId ? (
+                summaryAdapter.getSnapshot(item.groupId) && (
+                  <GroupCardBack
+                    group={item}
+                    snapshot={summaryAdapter.getSnapshot(item.groupId)!}
+                    onFlipBack={flipToFront}
+                    onOpenSettings={() => {
+                      if (!onOpenSettings) return;
+                      invokeAcceptedAction(item, 'settings', () => onOpenSettings(item.groupId));
+                    }}
+                    onStartFocus={() => {
+                      if (!onStartFocus) return;
+                      invokeAcceptedAction(item, 'focus', (interaction) =>
+                        onStartFocus(item.groupId, interaction),
+                      );
+                    }}
+                    onOpenRoom={() => {
+                      invokeAcceptedAction(item, 'room', (interaction) => {
+                        roomReturnFocusGroupIdRef.current = item.groupId;
                         roomReturnWasBlurredRef.current = false;
-                        throw error;
-                      }
-                    });
+                        try {
+                          onSelect(item.groupId, interaction);
+                        } catch (error) {
+                          roomReturnFocusGroupIdRef.current = null;
+                          roomReturnWasBlurredRef.current = false;
+                          throw error;
+                        }
+                      });
+                    }}
+                    focusRoomOnMount={
+                      roomReturnWasBlurredRef.current &&
+                      roomReturnFocusGroupIdRef.current === item.groupId
+                    }
+                    onRoomFocusRestored={() => {
+                      roomReturnFocusGroupIdRef.current = null;
+                      roomReturnWasBlurredRef.current = false;
+                    }}
+                    onRetry={(section) => summaryAdapter.retry(item.groupId, section)}
+                  />
+                )
+              ) : (
+                <GroupCardFront
+                  group={item}
+                  emoji={cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
+                  emojiLabel={groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}
+                  position={index + 1}
+                  pageCount={pageCount}
+                  onFlip={() => flipToBack(item.groupId)}
+                  reorderHandlers={handlersFor(item.groupId)}
+                  canMovePrevious={index > 0}
+                  canMoveNext={index < orderedGroups.length - 1}
+                  onMoveStep={(step) => {
+                    const from = orderedGroupsRef.current.findIndex(
+                      (group) => group.groupId === item.groupId,
+                    );
+                    if (commitMove(item.groupId, from + step, 'accessibility_action')) {
+                      setFlippedGroupId(null);
+                    }
                   }}
-                  focusRoomOnMount={
-                    roomReturnWasBlurredRef.current &&
-                    roomReturnFocusGroupIdRef.current === item.groupId
-                  }
-                  onRoomFocusRestored={() => {
-                    roomReturnFocusGroupIdRef.current = null;
-                    roomReturnWasBlurredRef.current = false;
-                  }}
-                  onRetry={(section) => summaryAdapter.retry(item.groupId, section)}
                 />
-              )
-            ) : (
-              <GroupCardFront
-                group={item}
-                emoji={cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
-                emojiLabel={groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}
-                position={index + 1}
-                pageCount={pageCount}
-                onFlip={() => flipToBack(item.groupId)}
-                reorderHandlers={handlersFor(item.groupId)}
-                canMovePrevious={index > 0}
-                canMoveNext={index < orderedGroups.length - 1}
-                onMoveStep={(step) => {
-                  const from = orderedGroupsRef.current.findIndex(
-                    (group) => group.groupId === item.groupId,
-                  );
-                  if (commitMove(item.groupId, from + step, 'accessibility_action')) {
-                    setFlippedGroupId(null);
-                  }
-                }}
-              />
-            )}
+              )}
+            </View>
             {reorderMenuGroupId === item.groupId && (
               <View
                 style={s.reorderMenu}
@@ -824,21 +842,46 @@ export default function GroupListScreen({
       />
 
       {saveFailed && (
-        <Text style={s.saveError} accessibilityRole="alert">
+        <Text
+          style={s.saveError}
+          accessibilityRole="alert"
+          importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        >
           순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.
         </Text>
       )}
 
-      <PageIndicator
-        pageCount={pageCount}
-        activeIndex={activeIndex}
-        disabled={draggingGroupId !== null || reorderMenuGroupId !== null}
-        onSelectPage={selectPage}
-        pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
-      />
+      <View
+        importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        testID="group.deck.controls"
+      >
+        <PageIndicator
+          pageCount={pageCount}
+          activeIndex={activeIndex}
+          disabled={draggingGroupId !== null || reorderMenuGroupId !== null}
+          onSelectPage={selectPage}
+          pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
+        />
+        <TouchableOpacity
+          style={s.refreshButton}
+          onPress={handleRefresh}
+          disabled={refreshing}
+          accessibilityRole="button"
+          accessibilityLabel={refreshing ? '그룹 새로고침 중' : '그룹 새로고침'}
+          accessibilityState={{ busy: refreshing, disabled: refreshing }}
+          testID="group.deck.refresh"
+        >
+          <Ionicons name="refresh" size={18} color={T.inkSub} />
+          <Text style={s.refreshText}>{refreshing ? '새로고침 중…' : '새로고침'}</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
-      <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+      <View
+        style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}
+        importantForAccessibility={reorderMenuGroupId ? 'no-hide-descendants' : 'auto'}
+        testID="group.list.footer"
+      >
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
@@ -864,6 +907,7 @@ export default function GroupListScreen({
         <TabGuideOverlay
           storageKey={STORAGE_KEYS.guideGroupDeck}
           steps={deckGuideSteps}
+          visible
           onFinish={() => setDeckGuideVisible(false)}
         />
       )}
@@ -950,6 +994,16 @@ const s = StyleSheet.create({
     textAlign: 'center',
     paddingTop: T.space.xs,
   },
+  refreshButton: {
+    minHeight: 44,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: T.space.xs,
+    paddingHorizontal: T.space.lg,
+  },
+  refreshText: { ...T.text.caption, color: T.inkSub },
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
   primaryBtn: {

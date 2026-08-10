@@ -1,7 +1,16 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
+import * as ReactNative from 'react-native';
 import { PageIndicator, requiredDotsWidth, resolveIndicatorMode } from './PageIndicator';
 
 describe('PageIndicator', () => {
+  beforeEach(() => {
+    jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => undefined);
+    jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(7);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
   test('실측 폭과 N+1 페이지 수로 dots/counter를 결정한다', () => {
     expect(requiredDotsWidth(5)).toBe(236);
     expect(requiredDotsWidth(6)).toBe(284);
@@ -62,5 +71,27 @@ describe('PageIndicator', () => {
     expect(dot.props.accessibilityState).toEqual(
       expect.objectContaining({ selected: false, disabled: true }),
     );
+  });
+
+  test('dots에서 counter로 바뀌면 현재 indicator 접근성 포커스를 이어 준다', async () => {
+    jest.useFakeTimers();
+    await render(<PageIndicator pageCount={3} activeIndex={1} onSelectPage={jest.fn()} />);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+    fireEvent(screen.getByTestId('group.deck.indicator.dot.1'), 'focus');
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 120 } },
+      });
+    });
+    await act(async () => jest.runAllTimers());
+
+    expect(screen.getByTestId('group.deck.indicator.counter')).toBeOnTheScreen();
+    expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(7);
+    jest.useRealTimers();
   });
 });
