@@ -2,7 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
-import com.oneorthree.phone.common.util.CountryZoneResolver;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.domain.Occupation;
@@ -97,7 +97,7 @@ public class UserService {
             user.setCountryCode(body.getCountryCode());
         }
 
-        LocalDate today = todayOf(user);
+        LocalDate today = todayOf();
         UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         screenSettings.changeGoal(body.getDailyScreenTimeGoalMinutes(), today);
@@ -124,12 +124,11 @@ public class UserService {
 
         // 날짜는 한 번만 구해 두 설정에 같은 값을 넘긴다(코드리뷰) — 각자 todayOf 를 부르면
         // 자정을 걸칠 때 두 설정의 발효일이 하루 어긋나, 방금 끝난 날짜의 리포트가 한쪽은 새 목표로
-        // 다른 쪽은 직전 목표로 판정된다. 국가 변경을 먼저 반영한 뒤 계산하는 것도 setupProfile 과 동일.
-        LocalDate today = todayOf(user);
-        // 국가 변경(시간대 이동)은 목표 이력 정렬 대상이 아니다 — 발효일은 바꾼 시점의 유저 로컬
-        // 날짜로 남겨 둔다. 나라를 옮기면 그 하루가 어긋날 수 있지만, 그걸 맞추려던 정렬 로직이
-        // 오히려 평범한 프로필 수정(닉네임 저장이 countryCode 를 늘 함께 보낸다)까지 건드려
-        // 지급을 틀리게 했다(코드리뷰 4회). 목표를 실제로 바꿀 때만 이력을 남긴다.
+        // 다른 쪽은 직전 목표로 판정된다.
+        // GROMO-1259: 날짜 축이 KST 고정이 되면서 국가 변경은 발효일 계산에 아무 영향이 없다
+        // (구 "국가 변경은 목표 이력 정렬 대상이 아니다" 논쟁 자체가 소멸). 목표를 실제로 바꿀 때만
+        // 이력을 남기는 규칙은 유지한다.
+        LocalDate today = todayOf();
         if (body.getDailyScreenTimeGoalMinutes() != null) {
             UserScreenTimeSettings screenSettings = userScreenTimeSettingsRepository.findById(userId)
                     .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
@@ -203,11 +202,11 @@ public class UserService {
     }
 
     /**
-     * 목표 이력(GROMO-1049)의 기준일 — 유저 country_code 파생 존의 오늘.
-     * 지급·판정이 유저 로컬 날짜 버킷을 쓰므로 발효일도 같은 기준이어야 어긋나지 않는다.
+     * 목표 이력(GROMO-1049)의 기준일 — KST 오늘 (GROMO-1259).
+     * 지급·판정이 KST 날짜 버킷을 쓰므로 발효일도 같은 기준이어야 어긋나지 않는다.
      */
-    private LocalDate todayOf(User user) {
-        return LocalDate.now(CountryZoneResolver.resolve(user.getCountryCode()));
+    private LocalDate todayOf() {
+        return LocalDate.now(ZonePolicy.KST);
     }
 
     @Transactional
@@ -243,6 +242,11 @@ public class UserService {
         // NOT_FOUND 로 터진다. 친구 정리(friendships 락 구간)보다도 앞이라 "락 보유 구간을
         // 줄인다" 규율과도 어긋나지 않는다.
         groupBetService.releaseFromAllOpenBets(user);
+
+        // 판정 근거 박제 (GROMO-1423) — 위 해제가 환불하지 못하고 정산 대상으로 남긴 OPEN 참가 행에,
+        // 아래 nullify 로 통계가 사라지기 전 시점의 달성·진행분을 박제한다. 순서 제약: 반드시
+        // releaseFromAllOpenBets 뒤(남는 행만 박제) · focus/daily nullify 앞(근거가 살아 있을 때).
+        groupBetService.freezeEvidenceForAccountErasure(user);
 
         // 활성 멤버십 이탈 (GROMO-801) — 안 하면 탈퇴자가 is_left=false 유령 멤버로 남아 멤버
         // 목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다. solo 방장 멤버십은 위
@@ -314,7 +318,8 @@ public class UserService {
                 user.getStatVisibility() != null ? user.getStatVisibility().name() : null,
                 occupation,
                 // 서버 날짜 버킷 존 — 앱이 업로드 날짜 키를 같은 축으로 만들게 내려준다(GROMO-1252).
-                CountryZoneResolver.resolve(user.getCountryCode()).getId()
+                // GROMO-1259 부터 항상 KST 고정(country_code 무관, N8/FR-19 — 해외 유저는 L5 수용).
+                ZonePolicy.KST.getId()
         );
     }
 
@@ -333,7 +338,10 @@ public class UserService {
 
     @Transactional
     public void updateScreenTimePermission(UUID userId, UpdateScreenTimePermissionRequest request) {
-        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+        // 배타 잠금 (GROMO-1409·N50) — 내기 참여의 권한 가드가 같은 행을 공유 잠금으로 읽는다.
+        // 잠금이 없으면 "참여가 true 를 읽음 → 여기서 false 커밋 → 참여가 차감 커밋" 인터리빙에서
+        // 보고 수단이 없는 유저가 유료 회차에 남는다(미보고 = 미달성이라 확정 패배).
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setScreenTimePermissionGranted(request.getGranted());
     }
@@ -345,7 +353,7 @@ public class UserService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        settings.changeGoal(dailyScreenTimeGoalMinutes, todayOf(user));
+        settings.changeGoal(dailyScreenTimeGoalMinutes, todayOf());
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "screen_time", "goal_minutes", dailyScreenTimeGoalMinutes));
     }
@@ -357,7 +365,7 @@ public class UserService {
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         UserFocusTimeSettings settings = userFocusTimeSettingsRepository.findById(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        settings.changeGoal(dailyFocusTimeGoalMinutes, todayOf(user));
+        settings.changeGoal(dailyFocusTimeGoalMinutes, todayOf());
         userActivityEventLogger.log(UserActivityEvent.GOAL_SET,
                 Map.of("goal_type", "focus_time", "goal_minutes", dailyFocusTimeGoalMinutes));
     }

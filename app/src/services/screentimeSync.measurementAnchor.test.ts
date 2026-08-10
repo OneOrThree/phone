@@ -22,8 +22,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   nativeSupportsUsageBucketEvents: jest.fn(() => true),
 }));
 jest.mock('@/services/groupApi', () => ({
-  getMyGroups: jest.fn(),
-  getChallenges: jest.fn(),
+  getMyOpenBetSessions: jest.fn(async () => []),
 }));
 jest.mock('@/services/windowUsageApi', () => ({
   putWindowUsage: jest.fn(),

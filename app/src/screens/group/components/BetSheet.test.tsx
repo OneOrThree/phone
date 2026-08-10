@@ -15,9 +15,9 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import BetSheet from './BetSheet';
-import { createBet, joinBet } from '@/services/groupApi';
+import { createBet, joinBet, joinSession } from '@/services/groupApi';
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
-import type { GroupChallengeBet, GroupChallengeResponse } from '@/types/dto/group';
+import type { GroupBetSession, GroupChallengeBet, GroupChallengeResponse } from '@/types/dto/group';
 
 // 첫 렌더가 RN 모듈을 콜드 로드하는 무거운 스위트라 CI 러너에선 기본 5s를 넘겨 flaky timeout이 났다 —
 // 로직이 아니라 콜드 스타트 지연이므로 이 파일 한정으로 타임아웃을 넉넉히 준다.
@@ -30,10 +30,12 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 // groupErrorCode는 실제 구현을 남긴다(code 분기까지 검증).
+// joinSession은 챌린지 v2 회차 참여 경로(GROMO-1275) — 신서버 응답(bet.session)에서만 나간다.
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   createBet: jest.fn(),
   joinBet: jest.fn(),
+  joinSession: jest.fn(),
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({
@@ -75,7 +77,8 @@ jest.mock('@react-navigation/native', () => ({
 
 // 잔액은 CoinContext가 정본 — Provider 대신 훅을 대체해 잔액·미상 여부와 refresh 호출을 직접 본다.
 // coinsVersion은 '이 잔액이 몇 번째로 받아 온 값인가' — 서버 부족 판정을 풀어도 되는지의 기준이다.
-let mockCoins = 100;
+// 기본 잔액은 최고 프리셋(3,000 — N30 상한)까지 잠기지 않는 값 — 부족 시나리오는 각 테스트가 내려 잡는다.
+let mockCoins = 5000;
 let mockCoinsLoaded = true;
 let mockCoinsVersion = 1;
 const mockRefresh = jest.fn(async () => true);
@@ -94,6 +97,7 @@ jest.mock('@/store/CoinContext', () => ({
 
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
+const mockJoinSession = joinSession as jest.MockedFunction<typeof joinSession>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const CHALLENGE_ID = 'c1';
@@ -181,26 +185,28 @@ async function submit() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCoins = 100;
+  mockCoins = 5000;
   mockCoinsLoaded = true;
   mockCoinsVersion = 1;
   mockUserId = 'u1';
   mockNowSec = 10 * 3600;
   mockCreateBet.mockResolvedValue({ betId: BET_ID });
   mockJoinBet.mockResolvedValue(undefined);
+  mockJoinSession.mockResolvedValue(undefined);
 });
 
 describe('개설 모드', () => {
-  test('기본 참가비는 가장 낮은 10이고 date는 오늘(KST)이다', async () => {
+  // 프리셋은 상한 대비 비율(10/30/50/100% — N30)이라 상한 3,000 기준 300/900/1,500/3,000이다.
+  test('기본 참가비는 가장 낮은 300이고 date는 오늘(KST)이다', async () => {
     await renderSheet('create');
     await submit();
 
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 10,
+      stake: 300,
       date: '2026-08-01',
     });
     expect(logGroupBetCreated).toHaveBeenCalledWith({
-      stake: 10,
+      stake: 300,
       mission_type: 'DURATION',
       mission_category: 'FOCUS',
     });
@@ -210,16 +216,16 @@ describe('개설 모드', () => {
   test('고른 참가비가 그대로 나간다', async () => {
     await renderSheet('create');
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.1500'));
     });
     await submit();
 
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 50,
+      stake: 1500,
       date: '2026-08-01',
     });
     expect(logGroupBetCreated).toHaveBeenCalledWith({
-      stake: 50,
+      stake: 1500,
       mission_type: 'DURATION',
       mission_category: 'FOCUS',
     });
@@ -228,8 +234,8 @@ describe('개설 모드', () => {
   test('챌린지 요약과 내 코인을 함께 보여준다', async () => {
     await renderSheet('create');
     expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
-    // 판돈 칩에도 '100'이 있어 문구가 아니라 자리(testID)로 잡는다.
-    expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('100');
+    // 판돈 칩과 값이 겹칠 수 있어 문구가 아니라 자리(testID)로 잡는다.
+    expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('5000');
     // 시트를 열 때 서버 잔액을 다시 받는다 — 판돈 차감·정산 지급은 서버가 하기 때문이다.
     expect(mockRefresh).toHaveBeenCalled();
   });
@@ -251,16 +257,16 @@ describe('개설 모드', () => {
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
-  // 숫자만 있으면 VoiceOver는 "10 30 50 100"이라고만 읽는다 — 무엇을 고르는 자리인지도,
+  // 숫자만 있으면 VoiceOver는 "300 900 1500 3000"이라고만 읽는다 — 무엇을 고르는 자리인지도,
   // 무엇이 골라졌는지도 알 수 없다. 바로 위 '내 코인'과 값이 겹치면 더 모호하다(F9).
   test('참가비 칩은 단위와 선택 상태까지 읽힌다', async () => {
     await renderSheet('create');
 
-    const chip10 = screen.getByTestId('group.bet.stake.10');
-    expect(chip10).toHaveProp('accessibilityRole', 'button');
-    expect(chip10).toHaveProp('accessibilityLabel', '참가비 10코인');
-    expect(chip10).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
-    expect(screen.getByTestId('group.bet.stake.50')).toHaveProp(
+    const chip300 = screen.getByTestId('group.bet.stake.300');
+    expect(chip300).toHaveProp('accessibilityRole', 'button');
+    expect(chip300).toHaveProp('accessibilityLabel', '참가비 300코인');
+    expect(chip300).toHaveProp('accessibilityState', expect.objectContaining({ selected: true }));
+    expect(screen.getByTestId('group.bet.stake.1500')).toHaveProp(
       'accessibilityState',
       expect.objectContaining({ selected: false }),
     );
@@ -280,7 +286,7 @@ describe('참가 모드', () => {
     });
     expect(onDone).toHaveBeenCalled();
     // 참가 모드는 판돈을 고르는 자리가 아니다 — 개설자가 정한 값을 받아들일 뿐이다.
-    expect(screen.queryByTestId('group.bet.stake.50')).toBeNull();
+    expect(screen.queryByTestId('group.bet.stake.1500')).toBeNull();
   });
 
   // 시트는 **살아 있는 challenge**를 받는다(부모가 매 렌더 파생) — 열어 둔 사이 내가 목표를
@@ -328,25 +334,25 @@ describe('참가 모드', () => {
 
 describe('잔액 부족', () => {
   test('참가비보다 코인이 적으면 CTA를 잠그고 부족분을 적는다', async () => {
-    mockCoins = 20;
+    mockCoins = 500;
     await renderSheet('create');
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.1500'));
     });
 
-    expect(screen.getByText('코인이 부족해요 (30 필요)')).toBeOnTheScreen();
+    expect(screen.getByText('코인이 부족해요 (1000 필요)')).toBeOnTheScreen();
     await submit();
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
 
   test('참가비를 낮추면 다시 열린다', async () => {
-    mockCoins = 20;
+    mockCoins = 500;
     await renderSheet('create');
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.1500'));
     });
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.10'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.300'));
     });
 
     expect(screen.getByText('내기 열기')).toBeOnTheScreen();
@@ -393,7 +399,7 @@ describe('잔액 미상', () => {
 
   test('잔액을 받은 뒤에는 미상 안내가 사라진다', async () => {
     await renderSheet('create');
-    expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('100');
+    expect(screen.getByTestId('group.bet.balance')).toHaveTextContent('5000');
     expect(screen.queryByText('잔액을 불러오지 못했어요')).toBeNull();
   });
 });
@@ -427,7 +433,7 @@ describe('에러 분기', () => {
     await submit();
 
     // 부족분은 CTA 라벨이 규격대로 들고 있다(§1) — 같은 문장을 인라인에 또 적지 않는다.
-    expect(screen.getByText('코인이 부족해요 (5 필요)')).toBeOnTheScreen();
+    expect(screen.getByText('코인이 부족해요 (295 필요)')).toBeOnTheScreen();
     expect(screen.queryByText('코인이 부족해요')).toBeNull();
   });
 
@@ -438,14 +444,14 @@ describe('에러 분기', () => {
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(400, 'INSUFFICIENT_CURRENCY'));
     await renderSheet('create');
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.1500'));
     });
     await submit();
     expect(mockCreateBet).toHaveBeenCalledTimes(1);
 
     // 더 큰 판돈 — 앞선 판정이 그대로 근거다.
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.100'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.3000'));
     });
     expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
     await submit();
@@ -453,13 +459,13 @@ describe('에러 분기', () => {
 
     // 더 낮은 판돈 — 400은 다른(더 큰) 금액에 대한 판정이라 더 이상 근거가 아니다.
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.30'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.900'));
     });
     expect(screen.queryByText('코인이 부족해요')).toBeNull();
 
     await submit();
     expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 30,
+      stake: 900,
       date: '2026-08-01',
     });
   });
@@ -759,8 +765,8 @@ describe('전송 중', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  // 10을 보낸 뒤 100을 누를 수 있으면, 서버엔 10이 간 채 화면의 마지막 선택만 100이 된다 —
-  // 성공 후 사용자는 자기가 100을 걸었다고 오인한다. 금액이 확정된 뒤엔 칩을 잠근다.
+  // 300을 보낸 뒤 3000을 누를 수 있으면, 서버엔 300이 간 채 화면의 마지막 선택만 3000이 된다 —
+  // 성공 후 사용자는 자기가 3000을 걸었다고 오인한다. 금액이 확정된 뒤엔 칩을 잠근다.
   test('전송 중에는 참가비를 바꿀 수 없다', async () => {
     let finish: (v: { betId: string }) => void = () => {};
     mockCreateBet.mockImplementationOnce(
@@ -773,13 +779,13 @@ describe('전송 중', () => {
     await submit();
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.100'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.3000'));
     });
-    expect(screen.getByTestId('group.bet.stake.100')).toHaveProp(
+    expect(screen.getByTestId('group.bet.stake.3000')).toHaveProp(
       'accessibilityState',
       expect.objectContaining({ selected: false, disabled: true }),
     );
-    expect(screen.getByTestId('group.bet.stake.10')).toHaveProp(
+    expect(screen.getByTestId('group.bet.stake.300')).toHaveProp(
       'accessibilityState',
       expect.objectContaining({ selected: true }),
     );
@@ -787,9 +793,9 @@ describe('전송 중', () => {
     await act(async () => {
       finish({ betId: BET_ID });
     });
-    // 나간 금액도 처음 고른 10 그대로다.
+    // 나간 금액도 처음 고른 300 그대로다.
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 10,
+      stake: 300,
       date: '2026-08-01',
     });
   });
@@ -937,7 +943,7 @@ describe('몰수 고지·창 내기 문구', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(2);
     expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 10,
+      stake: 300,
       date: '2026-08-02',
     });
     expect(alertSpy).toHaveBeenCalledWith(
@@ -969,8 +975,7 @@ describe('참가비 직접 입력', () => {
     });
   });
 
-  test('경계값 1·1000은 허용된다', async () => {
-    mockCoins = 1000; // 잔액 부족 잠금과 겹치지 않게 — 여기서 보는 건 범위 경계뿐이다.
+  test('경계값 1·3000은 허용된다', async () => {
     await renderSheet('create');
     await act(async () => {
       fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '1');
@@ -981,28 +986,28 @@ describe('참가비 직접 입력', () => {
       date: '2026-08-01',
     });
 
-    // 성공 후 submitting은 열린 채 남는다(시트는 닫히는 전제) — 1000은 새 시트에서 본다.
+    // 성공 후 submitting은 열린 채 남는다(시트는 닫히는 전제) — 3000은 새 시트에서 본다.
     await renderSheet('create');
     await act(async () => {
-      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '1000');
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '3000');
     });
     await submit();
     expect(mockCreateBet).toHaveBeenLastCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 1000,
+      stake: 3000,
       date: '2026-08-01',
     });
   });
 
   // 모달 금지(스펙) — 잠긴 CTA 옆에 같은 근거를 인라인으로 말한다. 문장은 서버
   // BET_INVALID_STAKE 메시지와 같다(같은 사실을 두 자리에서 달리 말하지 않는다).
-  test('범위 밖(0·1001)·빈 값이면 CTA를 잠그고 인라인으로 알린다', async () => {
+  test('범위 밖(0·3001)·빈 값이면 CTA를 잠그고 인라인으로 알린다', async () => {
     await renderSheet('create');
 
-    for (const bad of ['0', '1001', '']) {
+    for (const bad of ['0', '3001', '']) {
       await act(async () => {
         fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), bad);
       });
-      expect(screen.getByText('참가비는 1~1,000코인 사이로 입력해 주세요')).toBeOnTheScreen();
+      expect(screen.getByText('참가비는 1~3,000코인 사이로 입력해 주세요')).toBeOnTheScreen();
       await submit();
       expect(mockCreateBet).not.toHaveBeenCalled();
     }
@@ -1022,14 +1027,14 @@ describe('참가비 직접 입력', () => {
       fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '');
     });
     await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.stake.50'));
+      fireEvent.press(screen.getByTestId('group.bet.stake.1500'));
     });
 
-    expect(screen.getByTestId('group.bet.stake.input')).toHaveProp('value', '50');
-    expect(screen.queryByText('참가비는 1~1,000코인 사이로 입력해 주세요')).toBeNull();
+    expect(screen.getByTestId('group.bet.stake.input')).toHaveProp('value', '1500');
+    expect(screen.queryByText('참가비는 1~3,000코인 사이로 입력해 주세요')).toBeNull();
     await submit();
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 50,
+      stake: 1500,
       date: '2026-08-01',
     });
   });
@@ -1037,17 +1042,17 @@ describe('참가비 직접 입력', () => {
   test('직접 입력이 프리셋과 같으면 칩이 선택 상태로 켜진다 — 칩은 입력값의 파생 표시다', async () => {
     await renderSheet('create');
     await act(async () => {
-      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '30');
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '900');
     });
-    expect(screen.getByTestId('group.bet.stake.30')).toHaveProp(
+    expect(screen.getByTestId('group.bet.stake.900')).toHaveProp(
       'accessibilityState',
       expect.objectContaining({ selected: true }),
     );
 
     await act(async () => {
-      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '31');
+      fireEvent.changeText(screen.getByTestId('group.bet.stake.input'), '901');
     });
-    expect(screen.getByTestId('group.bet.stake.30')).toHaveProp(
+    expect(screen.getByTestId('group.bet.stake.900')).toHaveProp(
       'accessibilityState',
       expect.objectContaining({ selected: false }),
     );
@@ -1074,7 +1079,7 @@ describe('마감 후 내일 내기', () => {
 
     expect(mockCreateBet).toHaveBeenCalledTimes(1);
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 10,
+      stake: 300,
       date: '2026-08-02',
     });
     expect(onDone).toHaveBeenCalled();
@@ -1087,7 +1092,7 @@ describe('마감 후 내일 내기', () => {
     expect(screen.queryByTestId('group.bet.tomorrowNote')).toBeNull();
     await submit();
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 10,
+      stake: 300,
       date: '2026-08-01',
     });
   });
@@ -1105,7 +1110,7 @@ describe('마감 후 내일 내기', () => {
     expect(screen.queryByTestId('group.bet.tomorrowNote')).toBeNull();
     await submit();
     expect(mockCreateBet).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      stake: 10,
+      stake: 300,
       date: '2026-08-01',
     });
   });
@@ -1119,8 +1124,8 @@ describe('마감 후 내일 내기', () => {
     await submit();
 
     expect(mockCreateBet).toHaveBeenCalledTimes(2);
-    expect(mockCreateBet.mock.calls[0][2]).toEqual({ stake: 10, date: '2026-08-01' });
-    expect(mockCreateBet.mock.calls[1][2]).toEqual({ stake: 10, date: '2026-08-02' });
+    expect(mockCreateBet.mock.calls[0][2]).toEqual({ stake: 300, date: '2026-08-01' });
+    expect(mockCreateBet.mock.calls[1][2]).toEqual({ stake: 300, date: '2026-08-02' });
     expect(alertSpy).toHaveBeenCalledWith(
       '내일 내기로 열었어요',
       '오늘 시간대가 끝나 내일 시간대부터 적용돼요.',
@@ -1128,7 +1133,7 @@ describe('마감 후 내일 내기', () => {
     expect(onDone).toHaveBeenCalled();
     // 재시도 성공도 실제 개설이다 — 계측이 발행된다.
     expect(logGroupBetCreated).toHaveBeenCalledWith({
-      stake: 10,
+      stake: 300,
       mission_type: 'TIME_WINDOW',
       mission_category: 'FOCUS',
     });
@@ -1181,5 +1186,183 @@ describe('마감 후 내일 내기', () => {
       '오늘 내기만 열 수 있어요',
       '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.',
     );
+  });
+});
+
+// ── 챌린지 v2 — 하루형 참가 시트 진행분 공개(GROMO-1275, N16·§C4·FR-34) ─────────
+// '오늘'은 2026-08-01(KST), 벽시계 10:00 고정 — 자정까지 남은 시간 14시간.
+describe('하루형 진행분 공개 (GROMO-1275)', () => {
+  const SESSION_ID = 's-today';
+  function daySession(over: Partial<GroupBetSession> = {}): GroupBetSession {
+    return {
+      sessionId: SESSION_ID,
+      sessionDate: '2026-08-01',
+      stake: 30,
+      goalMinutes: 60,
+      pot: 60,
+      status: 'OPEN',
+      startsAt: '2026-07-31T15:00:00Z',
+      joinClosesAt: '2026-08-01T14:59:59Z',
+      myLeaveDeadlineAt: null,
+      closesAt: '2026-08-01T14:59:59Z',
+      myJoined: false,
+      myAchievedNow: false,
+      participants: [
+        { userId: 'u2', nickname: '민지', progressMinutes: 52, achieved: false },
+        { userId: 'u3', nickname: '준호', progressMinutes: 18, achieved: false },
+      ],
+      ...over,
+    };
+  }
+  // 신서버 하루형 챌린지 — bet에 오늘 회차가 실려 있다(N36 브리지 필드는 기존 bet() 그대로).
+  function dayOver(
+    sessionOver: Partial<GroupBetSession> = {},
+    over: Partial<GroupChallengeResponse> = {},
+  ): Partial<GroupChallengeResponse> {
+    return {
+      bet: bet({ enabled: true, session: daySession(sessionOver) }),
+      // 내 진행분 — 카드 진행 리스트와 같은 소스(memberProgress). u1이 나다.
+      memberProgress: [
+        { userId: 'u1', nickname: '재영', progressMinutes: 0, achieved: false },
+        { userId: 'u2', nickname: '민지', progressMinutes: 52, achieved: false },
+      ],
+      ...over,
+    };
+  }
+
+  test('기존 참가자의 진행분과 나를 함께 보여주고, 남은 시간을 적는다', async () => {
+    await renderSheet('join', dayOver());
+
+    // 헤더 — 오늘 남은 시간(KST 자정까지). 10:00 고정이라 14시간.
+    expect(screen.getByText(/오늘 남은 시간 14시간/)).toBeOnTheScreen();
+    expect(screen.getByText('지금 참여 중인 사람')).toBeOnTheScreen();
+    expect(screen.getByText('민지')).toBeOnTheScreen();
+    expect(screen.getByText('52/60분')).toBeOnTheScreen();
+    expect(screen.getByText('18/60분')).toBeOnTheScreen();
+    // 나 — 아직 참가 전이지만 출발선 비교의 기준이라 함께 그린다(FOCUS는 값 없음 = 0분).
+    expect(screen.getByText('나')).toBeOnTheScreen();
+    expect(screen.getByText('0/60분')).toBeOnTheScreen();
+    // 출발선 안내(§C4) — 몰수 룰 노트에 이어 붙는다.
+    expect(screen.getByText(/먼저 시작한 사람이 유리해요/)).toBeOnTheScreen();
+  });
+
+  test('회차가 있으면 joinSession으로 참가한다 — 레거시 joinBet이 아니다', async () => {
+    await renderSheet('join', dayOver());
+    await submit();
+
+    expect(mockJoinSession).toHaveBeenCalledWith(GROUP_ID, SESSION_ID);
+    expect(mockJoinBet).not.toHaveBeenCalled();
+    expect(logGroupBetJoined).toHaveBeenCalledWith({
+      stake: 30,
+      mission_type: 'DURATION',
+      mission_category: 'FOCUS',
+    });
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('남은 시간이 부족하면 경고만 하고 버튼은 살아 있다(N23·FR-35-1)', async () => {
+    mockNowSec = 23 * 3600 + 30 * 60; // 23:30 — 남은 30분 < 목표 60분
+    await renderSheet('join', dayOver());
+
+    expect(screen.getByTestId('group.bet.timeShort')).toHaveTextContent(
+      '남은 30분으로 60분을 채우기는 어려워요',
+    );
+    // 차단하지 않는다 — 확정(이미 초과)과 불리(시간 부족)는 다르다.
+    await submit();
+    expect(mockJoinSession).toHaveBeenCalledWith(GROUP_ID, SESSION_ID);
+  });
+
+  test('남은 시간이 충분하면 경고가 없다', async () => {
+    await renderSheet('join', dayOver());
+    expect(screen.queryByTestId('group.bet.timeShort')).toBeNull();
+  });
+
+  test('SCREEN_TIME 미집계는 —로 적고 시간 부족 경고를 세우지 않는다(3상)', async () => {
+    mockNowSec = 23 * 3600 + 30 * 60;
+    await renderSheet(
+      'join',
+      dayOver(
+        {
+          participants: [{ userId: 'u2', nickname: '민지', progressMinutes: null, achieved: null }],
+        },
+        {
+          missionCategory: 'SCREEN_TIME',
+          memberProgress: [
+            { userId: 'u1', nickname: '재영', progressMinutes: null, achieved: null },
+          ],
+        },
+      ),
+    );
+
+    // 미집계는 0분이 아니다 — 민지·나 둘 다 '—'.
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
+    // 스크린타임은 시간을 채우는 미션이 아니다 — 경고 자체가 성립하지 않는다.
+    expect(screen.queryByTestId('group.bet.timeShort')).toBeNull();
+  });
+
+  test('참가 시트 잔액 표기는 「참가비 N · 내 잔액 M」까지다(N46) — 차감 후 값 병기 금지', async () => {
+    await renderSheet('join', dayOver());
+    expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent(
+      '참가비 30 · 내 잔액 5000',
+    );
+  });
+
+  // #570 codex ⑦ — 시트를 연 뒤 정산·무효화가 먼저 끝나면 회차가 닫힌다. 재시도해도 같은 실패다.
+  test('BET_NOT_OPEN — 이미 끝난 날임을 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_OPEN'));
+    await renderSheet('join', dayOver());
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '이미 끝난 날이에요',
+      '결과가 나왔거나 닫힌 날이라 참가할 수 없어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('BET_SESSION_CLOSED — 마감을 알리고 닫는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_SESSION_CLOSED'));
+    await renderSheet('join', dayOver());
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith('마감됐어요', '이미 마감돼 참가할 수 없어요.');
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('BET_SCREENTIME_PERMISSION_REQUIRED — 권한 안내로 알리고 닫는다(N50)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinSession.mockRejectedValueOnce(
+      axiosErrorWith(409, 'BET_SCREENTIME_PERMISSION_REQUIRED'),
+    );
+    await renderSheet('join', dayOver());
+    await submit();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참가할 수 없어요',
+      '스크린타임 권한을 허용해야 참여할 수 있어요.',
+    );
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  test('BET_INSUFFICIENT_BALANCE — 잔액 부족 판정으로 승격해 CTA를 잠근다', async () => {
+    mockJoinSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_INSUFFICIENT_BALANCE'));
+    await renderSheet('join', dayOver());
+    await submit();
+
+    expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
+    await submit();
+    expect(mockJoinSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('창형·구서버(session 없음)는 종전 참가자 칩 렌더 그대로다', async () => {
+    // 구서버 — session 필드 자체가 없다 → 레거시 joinBet 경로·칩 목록.
+    await renderSheet('join', { bet: bet() });
+    expect(screen.getByText('참가자 2명')).toBeOnTheScreen();
+    expect(screen.queryByTestId('group.bet.dayProgress')).toBeNull();
+    await submit();
+    expect(mockJoinBet).toHaveBeenCalledWith(GROUP_ID, BET_ID);
+    expect(mockJoinSession).not.toHaveBeenCalled();
   });
 });

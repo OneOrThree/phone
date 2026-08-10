@@ -45,6 +45,13 @@ class GroupChallengeV20MigrationTest {
     private static final UUID GROUP_ID = UUID.randomUUID();
     private static final UUID USER_ID = UUID.randomUUID();
 
+    /**
+     * 이 테스트의 종착 스키마 — V33 고정. V34+ 가 이 시대의 전제를 재정의한다(repeat_days·started_at
+     * NOT NULL, 창 컬럼 time 전환·개명, V20 부분 유니크 완화, V28 상한 CHECK 교체). 그 이후 규약은
+     * {@code GroupChallengeV34~V36MigrationTest} 가 잇고, 여기는 해당 마이그레이션 시대의 계약을 지킨다.
+     */
+    private static final MigrationVersion ERA_END = MigrationVersion.fromVersion("33");
+
     @BeforeEach
     void resetSchema() {
         JdbcTemplate jdbcTemplate = jdbcTemplate();
@@ -63,7 +70,7 @@ class GroupChallengeV20MigrationTest {
         UUID latest = insertChallenge(jdbcTemplate, "DURATION", "FOCUS", daysAgo(1));
         UUID otherCombo = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         assertThat(softDeleted(jdbcTemplate, oldest)).isTrue();
         assertThat(softDeleted(jdbcTemplate, middle)).isTrue();
@@ -89,7 +96,7 @@ class GroupChallengeV20MigrationTest {
         insertChallenge(jdbcTemplate, smaller, "DURATION", "FOCUS", sameCreatedAt);
         insertChallenge(jdbcTemplate, larger, "DURATION", "FOCUS", sameCreatedAt);
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         assertThat(softDeleted(jdbcTemplate, smaller)).isTrue();
         assertThat(softDeleted(jdbcTemplate, larger)).isFalse();
@@ -109,7 +116,7 @@ class GroupChallengeV20MigrationTest {
         jdbcTemplate.execute("ALTER TABLE group_challenge_bets"
                 + " RENAME CONSTRAINT group_challenge_bets_status_check TO ck_legacy_renamed_status");
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         insertBet(jdbcTemplate, challengeId, "FORFEITED", LocalDate.of(2026, 8, 1), 30);
         insertBet(jdbcTemplate, challengeId, "CANCELED", LocalDate.of(2026, 8, 2), 30);
@@ -132,7 +139,7 @@ class GroupChallengeV20MigrationTest {
         jdbcTemplate.execute("ALTER TABLE group_challenge_members"
                 + " RENAME CONSTRAINT ukiwe9880osh6noglltq8seipts TO uk_legacy_renamed_member");
 
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
 
         // 날짜별 보고 1행 — 다른 날짜는 허용, 같은 (챌린지, 유저, 날짜) 는 거부
         insertMember(jdbcTemplate, challengeId, LocalDate.of(2026, 8, 1));
@@ -144,7 +151,7 @@ class GroupChallengeV20MigrationTest {
     @Test
     @DisplayName("창 목표분 — 양수만 허용하고 null 은 기존 창 챌린지(판정불가)로 남는다")
     void addsNullableWindowGoalWithPositiveCheck() {
-        migrate(MigrationVersion.LATEST);
+        migrate(ERA_END);
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         insertGroup(jdbcTemplate);
         UUID challengeId = insertChallenge(jdbcTemplate, "TIME_WINDOW", "FOCUS", daysAgo(1));
@@ -199,6 +206,13 @@ class GroupChallengeV20MigrationTest {
                 UUID.randomUUID(), GROUP_ID, challengeId, USER_ID, stake, Date.valueOf(betDate), status);
     }
 
+    // is_achieved 를 반드시 넣어야 한다 — V1 부터 NOT NULL 이고 기본값이 없으며, 드롭은 V37
+    // (GROMO-1265)이다. 이 클래스의 모든 migrate 타깃은 ERA_END(=V33) 이하라 컬럼이 살아 있다.
+    //
+    // ⚠️ 이 자리는 형제 PR 두 개가 서로를 못 보고 반대 방향으로 고쳐 main 을 깨뜨린 지점이다:
+    // GROMO-1265(#564)는 "LATEST 까지 올리니 컬럼이 없다"며 지웠고, GROMO-1406(#567)은 같은 시기에
+    // 타깃을 ERA_END(V33)로 내렸다. 각자의 base 에서는 둘 다 그린이었지만 합쳐지면 실패한다.
+    // 타깃을 V37 이상으로 올릴 때에만 컬럼을 다시 빼야 한다.
     private void insertMember(JdbcTemplate jdbcTemplate, UUID challengeId, LocalDate usageDate) {
         jdbcTemplate.update(
                 "INSERT INTO group_challenge_members"
@@ -215,6 +229,7 @@ class GroupChallengeV20MigrationTest {
                 challengeId, durationMinutes);
     }
 
+    /** 검증 대상은 V20 시점의 역사다 — LATEST 로 올리면 V39(2계층 재편)가 구 스키마를 걷어가 버린다. */
     private void migrate(MigrationVersion target) {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())

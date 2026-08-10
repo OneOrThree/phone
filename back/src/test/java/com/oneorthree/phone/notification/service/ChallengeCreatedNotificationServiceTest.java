@@ -137,6 +137,21 @@ class ChallengeCreatedNotificationServiceTest {
     }
 
     @Test
+    @DisplayName("생성 직후 종료된(ENDED) 챌린지 이벤트 → 발송하지 않음 — AFTER_COMMIT 재조회 시점 기준")
+    void skipsEndedChallenge() {
+        // 생성 커밋 → 워커 실행 전에 그룹장이 종료(OPEN 내기 없으면 가능) — "지금 참여해보세요" 가
+        // 끝난 챌린지에 나가면 안 된다. 재조회가 status=ACTIVE 를 함께 확인한다.
+        GroupChallenge challenge = durationChallenge();
+        challenge.end();
+        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
+
+        int sent = service.sendCreatedNotifications(event(), NOW);
+
+        assertThat(sent).isZero();
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("삭제된 챌린지 이벤트 → 발송하지 않음")
     void skipsDeletedChallenge() {
         GroupChallenge challenge = durationChallenge();
@@ -282,12 +297,32 @@ class ChallengeCreatedNotificationServiceTest {
         given(groupChallengeWindowRepository.findByChallengeIdIn(anyCollection()))
                 .willReturn(List.of(GroupChallengeWindow.builder()
                         .challengeId(CHALLENGE_ID).challenge(challenge)
-                        .windowStartAt(timeOfDay(LocalTime.of(21, 0)))
-                        .windowEndAt(timeOfDay(LocalTime.of(23, 30)))
+                        .windowStart(LocalTime.of(21, 0))
+                        .windowEnd(LocalTime.of(23, 30))
                         .durationMinutes(30)
                         .build()));
 
         assertThat(service.missionLabel(challenge)).isEqualTo("매일 21:00~23:30 30분 스크린타임");
+    }
+
+    @Test
+    @DisplayName("TIME_WINDOW 문구 — 요일이 매일이 아니면 '월·수·금' 처럼 실제 요일을 나열한다 (GROMO-1260)")
+    void composesTimeWindowMessageWithRepeatDays() {
+        // 월·수·금(1|4|16=21) 창형 — 고정 "매일" 은 이 챌린지에 거짓 문구다(@codex 리뷰 ④).
+        GroupChallenge challenge = GroupChallenge.builder()
+                .id(CHALLENGE_ID).group(group())
+                .category(MissionCategory.SCREEN_TIME).type(MissionType.TIME_WINDOW)
+                .repeatDays(0b0010101)
+                .status(GroupChallengeStatus.ACTIVE).createdAt(CREATED_AT).build();
+        given(groupChallengeWindowRepository.findByChallengeIdIn(anyCollection()))
+                .willReturn(List.of(GroupChallengeWindow.builder()
+                        .challengeId(CHALLENGE_ID).challenge(challenge)
+                        .windowStart(LocalTime.of(21, 0))
+                        .windowEnd(LocalTime.of(23, 30))
+                        .durationMinutes(30)
+                        .build()));
+
+        assertThat(service.missionLabel(challenge)).isEqualTo("월·수·금 21:00~23:30 30분 스크린타임");
     }
 
     @Test
@@ -337,11 +372,6 @@ class ChallengeCreatedNotificationServiceTest {
 
     private static User user(UUID id) {
         return User.builder().id(id).nickname("유저").deviceToken("token-" + id).build();
-    }
-
-    /** 창 시각은 KST 벽시계 time-of-day 로 해석된다(WindowFocusAggregator.timeOfDay, GROMO-1100). */
-    private static Instant timeOfDay(LocalTime time) {
-        return LocalDate.EPOCH.atTime(time).atZone(ZoneId.of("Asia/Seoul")).toInstant();
     }
 
     private void givenChallenge(GroupChallenge challenge) {

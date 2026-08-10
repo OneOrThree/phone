@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.dto;
 
 import com.oneorthree.phone.group.domain.GroupBetStatus;
+import com.oneorthree.phone.group.domain.GroupBetVoidReason;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -26,6 +27,13 @@ public class GroupBetHistoryItemResponse {
     private int stake;
     private int pot;
     private GroupBetStatus status;
+
+    /**
+     * 종료 사유(N55) — {@code VOIDED}(인원 미달·챌린지 삭제)와 24h 데드라인 자동 환불
+     * ({@code REFUNDED} + {@code REFUND_DEADLINE})에만 채워진다. 사유가 없으면 내역이 "달성자 0명
+     * 환불"과 "시스템 미정산 환불"을 구분하지 못한다. 추가 전용 — 구앱은 무시한다(N36).
+     */
+    private GroupBetVoidReason voidReason;
     private Instant settledAt;
 
     /** 정산 시점의 목표 분 스냅샷 — null = 미기록(V29 이전 정산). 항상 직렬화한다(계약 §1). */
