@@ -4,6 +4,7 @@ import {
   FOCUS_ATTRIBUTION_TTL_MS,
   invalidateCardInteraction,
   normalizeFocusEntrySource,
+  resolveFocusSessionRouteContext,
   resetCardInteractionStateForTest,
   ROOM_ATTRIBUTION_TTL_MS,
 } from './cardInteraction';
@@ -107,5 +108,20 @@ describe('카드 CTA 상관키', () => {
   test('source가 없는 구버전 진입은 unknown으로 정규화한다', () => {
     expect(normalizeFocusEntrySource()).toBe('unknown');
     expect(normalizeFocusEntrySource('group_room')).toBe('group_room');
+  });
+
+  test('navigation 실패 후 재시도는 최초 source를 보존하고 상관키만 제거한다', () => {
+    const context = {
+      entrySource: 'group_card' as const,
+      interactionId: ID_A,
+      interactionAcceptedAt: 1_000,
+    };
+
+    expect(resolveFocusSessionRouteContext(context, true)).toEqual(context);
+    expect(resolveFocusSessionRouteContext(context, false)).toEqual({
+      entrySource: 'group_card',
+      interactionId: undefined,
+      interactionAcceptedAt: undefined,
+    });
   });
 });
