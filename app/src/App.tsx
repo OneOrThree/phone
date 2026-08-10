@@ -234,6 +234,9 @@ function App() {
     if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
     try {
       const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+      // 저장소 읽기도 비동기다. 그 사이 새 인증이 토큰을 교체했다면 방금 읽은 refresh token은
+      // 새 세션 소유일 수 있으므로 서버 logout에 넘기기 직전에 다시 확인한다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
       if (refreshToken) await logout(refreshToken);
     } catch {}
     // 위 네트워크 대기 중 새 로그인/게스트 승격이 시작됐다면 이 로그아웃은 이전 세션의

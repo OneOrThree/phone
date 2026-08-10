@@ -92,6 +92,19 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     expect(mockApi.get).toHaveBeenCalledWith('/api/v1/groups');
   });
 
+  test('NOT_FOUND 보조 재확인은 목록·상세 모두 401 auth retry를 끈다', async () => {
+    await getMyGroups({ noAuthRetry: true });
+    expect(mockApi.get).toHaveBeenCalledWith('/api/v1/groups', { _noAuthRetry: true });
+
+    jest.clearAllMocks();
+    mockApi.get.mockResolvedValue({ data: {} });
+    await getGroupDetail(GROUP_ID, '2026-08-02', { noAuthRetry: true });
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}`, {
+      params: { date: '2026-08-02' },
+      _noAuthRetry: true,
+    });
+  });
+
   test('GET /api/v1/groups/search — query 파라미터', async () => {
     await searchGroups('집중');
     expect(mockApi.get).toHaveBeenCalledWith('/api/v1/groups/search', {

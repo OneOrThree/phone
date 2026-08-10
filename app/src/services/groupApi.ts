@@ -64,8 +64,15 @@ export async function createGroup(body: CreateGroupRequest): Promise<CreateGroup
 }
 
 // GET /api/v1/groups — 내가 참여 중인 그룹 목록. 그룹 1개 전제라 화면은 [0]만 쓴다(§6-1).
-export async function getMyGroups(): Promise<GroupSummaryResponse[]> {
-  const { data } = await api.get<GroupSummaryResponse[]>('/api/v1/groups');
+export async function getMyGroups(options?: {
+  noAuthRetry?: boolean;
+}): Promise<GroupSummaryResponse[]> {
+  const response = options?.noAuthRetry
+    ? await api.get<GroupSummaryResponse[]>('/api/v1/groups', { _noAuthRetry: true } as Parameters<
+        typeof api.get
+      >[1])
+    : await api.get<GroupSummaryResponse[]>('/api/v1/groups');
+  const { data } = response;
   return data;
 }
 
@@ -109,10 +116,15 @@ export async function getGroupOverview(groupId: string): Promise<GroupOverviewRe
 // GET /api/v1/groups/{groupId}?date — 그룹 상세(그룹원만).
 // date는 서버 필수 파라미터라 누락 시 400. 멤버 '오늘 집중분'의 기준일이며 서버가 KST로
 // 판정하므로 KST 날짜를 보낸다(§3-1-1, GROMO-1219).
-export async function getGroupDetail(groupId: string, date?: string): Promise<GroupDetailResponse> {
+export async function getGroupDetail(
+  groupId: string,
+  date?: string,
+  options?: { noAuthRetry?: boolean },
+): Promise<GroupDetailResponse> {
   const { data } = await api.get<GroupDetailResponse>(`/api/v1/groups/${groupId}`, {
     params: { date: date ?? todayStrKst() },
-  });
+    ...(options?.noAuthRetry ? { _noAuthRetry: true } : {}),
+  } as Parameters<typeof api.get>[1]);
   return data;
 }
 

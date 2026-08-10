@@ -38,10 +38,12 @@ export async function resolveGroupRoomNotFound({
 
   // 둘은 함께 시작해 느린 목록이 불명확 detail의 보조 증거가 될 수 있게 하되, detail만으로
   // 결론이 나면 목록을 기다리지 않는다. allSettled wrapper를 즉시 붙여 늦은 reject도 흡수한다.
-  const detailPromise = Promise.allSettled([getGroupDetail(groupId, date)]).then(
+  const detailPromise = Promise.allSettled([
+    getGroupDetail(groupId, date, { noAuthRetry: true }),
+  ]).then(([result]) => result);
+  const groupsPromise = Promise.allSettled([getMyGroups({ noAuthRetry: true })]).then(
     ([result]) => result,
   );
-  const groupsPromise = Promise.allSettled([getMyGroups()]).then(([result]) => result);
   const detailResult = await detailPromise;
 
   if (detailResult.status === 'fulfilled') {

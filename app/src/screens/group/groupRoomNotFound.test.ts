@@ -54,7 +54,8 @@ test('활성 인증 뒤 최신 detail이 성공하면 방을 유지한다', asyn
     resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
   ).resolves.toEqual({ kind: 'detail', detail });
   expect(mockGetMyProfile).toHaveBeenCalledWith({ noAuthRetry: true });
-  expect(mockGetGroupDetail).toHaveBeenCalledWith(GROUP_ID, DATE);
+  expect(mockGetGroupDetail).toHaveBeenCalledWith(GROUP_ID, DATE, { noAuthRetry: true });
+  expect(mockGetMyGroups).toHaveBeenCalledWith({ noAuthRetry: true });
 });
 
 test('프로필 NOT_FOUND는 그룹 이탈이 아니라 공통 세션 복구로 넘긴다', async () => {
