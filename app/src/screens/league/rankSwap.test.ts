@@ -166,4 +166,30 @@ describe('rankSwapFrames — 상한', () => {
     expect(frames[1].order).toEqual(to);
     expect(frames[1].seconds.size).toBe(0);
   });
+
+  // ⚠️ 스냅샷을 필요한 구간만 만들도록 2패스로 바꿨다(렌더 중 4,950개 배열 할당 제거).
+  //    최적화 전후로 **출력이 완전히 같아야** 한다. 무작위 대신 고정 케이스로 잠근다.
+  test('큰 역전에서도 재생 구간이 상한을 지키고 마지막은 최종 순서다', () => {
+    const bigFrom = Array.from({ length: 40 }, (_, i) => `u${i}`);
+    const bigTo = [...bigFrom].reverse(); // 완전 역순 = 역전 780번
+    const finalSeconds = new Map(bigFrom.map((k, i) => [k, 1000 + i * 10]));
+    const startSeconds = new Map(bigFrom.map((k) => [k, 500]));
+    const frames = rankSwapFrames(bigFrom, bigTo, finalSeconds, startSeconds);
+
+    // 리드 프레임 + 자리이동 프레임이 쌍으로 나오므로 프레임 수는 2 × 재생 단계 수다.
+    expect(frames.length).toBe(2 * SWAP_MAX_STEPS);
+    expect(frames[frames.length - 1].order).toEqual(bigTo);
+    // 마지막 프레임은 덮어쓰기가 없다 = 서버 최종값 그대로.
+    expect(frames[frames.length - 1].seconds.size).toBe(0);
+  });
+
+  test('상한 이하의 역전은 스냅샷 축소와 무관하게 전부 재생된다', () => {
+    const smallFrom = ['a', 'b', 'c', 'd', 'e'];
+    const smallTo = ['c', 'a', 'b', 'd', 'e']; // 역전 2번
+    const finalSeconds = new Map(smallTo.map((k, i) => [k, 900 - i * 10]));
+    const startSeconds = new Map(smallFrom.map((k) => [k, 800]));
+    const frames = rankSwapFrames(smallFrom, smallTo, finalSeconds, startSeconds);
+    expect(frames.length).toBe(4);
+    expect(frames[frames.length - 1].order).toEqual(smallTo);
+  });
 });

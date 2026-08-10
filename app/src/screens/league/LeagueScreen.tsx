@@ -207,6 +207,12 @@ export default function LeagueScreen() {
   // 내 순위 — 위 리스트와 같은 파생값에서만 계산
   const myIdx = visibleRanking.findIndex((r) => r.userId === MY_USER_ID);
   const above = myIdx > 0 ? visibleRanking[myIdx - 1] : null;
+  // ⚠️ 격차 계산에는 **단계별 내 기록**을 쓴다. 재정렬을 한 칸씩 재생하는 동안 목록의 기록은
+  //    단계값인데 여기만 서버 최종값(mySeconds)을 쓰면, 아직 4위·3위가 보이는 프레임에서
+  //    `above - my`가 음수가 되고 hms가 0으로 눌러 `▲ N위까지 00:00:00`이 뜬다(codex 리뷰).
+  //    목록 밖(top-100 밖)이면 애초에 단계화 대상이 아니므로 최종값 그대로다 — mySeconds는
+  //    목록이 아니라 내 세션 합산에서 오기 때문에 그때도 유효한 값이다(useLeagueRanking 주석).
+  const stagedMySeconds = myIdx >= 0 ? visibleRanking[myIdx].totalFocusSeconds : mySeconds;
 
   // 넛지 노출 — '내 순위 스트립'(▲ N위까지 M분)이 실제 순위와 함께 뜰 때(rank) 진입당 1회.
   // 랭킹 비동기 로드로 myIdx가 뒤늦게 확정돼도 focusSeq 기준으로 딱 1회만 발화(중복 방지).
@@ -510,7 +516,7 @@ export default function LeagueScreen() {
                   </Text>
                   <Text style={s.myStripGap} numberOfLines={1} allowFontScaling={false}>
                     {above
-                      ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - mySeconds)}`
+                      ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - stagedMySeconds)}`
                       : '지금 1위예요'}
                   </Text>
                   <Ionicons name="chevron-down" size={13} color={T.accentDeep} />
@@ -584,7 +590,10 @@ export default function LeagueScreen() {
                   seconds={row.totalFocusSeconds}
                   isMe={isMe}
                   pinned={pinned.has(row.userId)}
-                  deltaSeconds={pinnedOnly && !isMe ? row.totalFocusSeconds - mySeconds : undefined}
+                  // row.totalFocusSeconds가 단계값이므로 비교 대상도 단계값이어야 한다(위 주석).
+                  deltaSeconds={
+                    pinnedOnly && !isMe ? row.totalFocusSeconds - stagedMySeconds : undefined
+                  }
                   isFocusing={row.isFocusing}
                   focusStartedAt={row.focusStartedAt}
                   focusTagName={row.focusTagName}

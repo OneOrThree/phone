@@ -81,6 +81,33 @@ export interface RankSwapFrame {
  * @param finalSeconds 새 응답의 기록(초) — 도착점
  * @param startSeconds **직전에 화면에 있던** 기록(초) — 출발점. 없는 키는 최종값에서 출발한다.
  */
+/**
+ * `from`을 `to` 순서로 만드는 **인접 스왑**을 순서대로 훑는다(삽입 정렬 = 최소 전치 횟수).
+ * 스냅샷을 만들지 않고 콜백에 넘기므로, 호출부가 **필요한 구간만** 복사할 수 있다.
+ * 반환값은 총 스왑 횟수. 같은 입력이면 두 번 돌려도 같은 순서를 준다(결정적).
+ */
+function walkAdjacentSwaps(
+  from: readonly string[],
+  targetIndex: ReadonlyMap<string, number>,
+  onSwap: (index: number, rising: string, falling: string, work: readonly string[]) => void,
+): number {
+  const work = [...from];
+  let n = 0;
+  for (let i = 1; i < work.length; i += 1) {
+    let j = i;
+    while (j > 0 && targetIndex.get(work[j - 1])! > targetIndex.get(work[j])!) {
+      const above = work[j - 1];
+      const below = work[j];
+      work[j - 1] = below;
+      work[j] = above;
+      j -= 1;
+      onSwap(n, below, above, work);
+      n += 1;
+    }
+  }
+  return n;
+}
+
 export function rankSwapFrames(
   from: readonly string[],
   to: readonly string[],
@@ -96,32 +123,31 @@ export function rankSwapFrames(
   if (from.some((key) => !targetIndex.has(key))) return [];
 
   // 인접 스왑만으로 from을 to로 정렬한다(삽입 정렬 = 최소 전치 횟수 = 역전 수).
-  // 스왑마다 결과 순서와 함께 **누가 올라가고 누가 밀려났는지**를 남긴다 — 기록 단계값을
-  // 정하려면 그 순간 누구를 앞질렀는지가 필요하다.
-  const work = [...from];
-  const orders: string[][] = [];
+  // 스왑마다 **누가 올라가고 누가 밀려났는지**를 남긴다 — 기록 단계값을 정하려면 그 순간
+  // 누구를 앞질렀는지가 필요하다.
+  //
+  // ⚠️ 순서 스냅샷은 여기서 만들지 않는다. 상위 100명이 크게 뒤집히는 갱신(주 경계 등)이면
+  //    역전이 최대 4,950번인데, 재생하는 건 마지막 6단계뿐이라 나머지 스냅샷은 만들자마자
+  //    버려진다 — 100항목 배열 4,950개(약 49만 참조)를 **렌더 중 동기적으로** 만드는 셈이다
+  //    (codex 리뷰). 그래서 1차는 세기만 하고, 필요한 구간만 2차에서 만든다.
   const risers: string[] = [];
   const fallers: string[] = [];
-  for (let i = 1; i < work.length; i += 1) {
-    let j = i;
-    while (j > 0 && targetIndex.get(work[j - 1])! > targetIndex.get(work[j])!) {
-      const above = work[j - 1];
-      const below = work[j];
-      work[j - 1] = below;
-      work[j] = above;
-      j -= 1;
-      orders.push([...work]);
-      risers.push(below);
-      fallers.push(above);
-    }
-  }
-  const total = orders.length;
+  const total = walkAdjacentSwaps(from, targetIndex, (_i, rising, falling) => {
+    risers.push(rising);
+    fallers.push(falling);
+  });
   if (total === 0) return [];
 
   // 상한 초과분은 **첫 한 단계로 묶는다**(위 SWAP_MAX_STEPS 주석). 묶인 구간의 스왑도 기록
   // 계산에는 그대로 통과시킨다 — 그래야 묶음 프레임의 값이 "건너뛴 상대까지 전부 앞지른 값"이
   // 되어, 여러 칸을 한 번에 오르는 그 이동과 숫자가 어긋나지 않는다.
   const bundledUpTo = total > maxSteps ? total - maxSteps : 0;
+
+  // 실제로 재생되는 구간(묶음 경계 이후)의 순서만 만든다 — 최대 maxSteps개다.
+  const orders = new Map<number, string[]>();
+  walkAdjacentSwaps(from, targetIndex, (i, _rising, _falling, work) => {
+    if (i >= bundledUpTo) orders.set(i, [...work]);
+  });
 
   // 각 행이 '올라가는 쪽'으로 참여하는 스왑 인덱스 — 램프의 분모와 '마지막 상승' 판정에 쓴다.
   const riseAt = new Map<string, number[]>();
@@ -163,8 +189,9 @@ export function rankSwapFrames(
     const seconds = overridesOf(shown, finalSeconds);
     // 기록이 먼저 자라고(prevOrder 유지), LEAD 뒤에 자리가 바뀐다.
     frames.push({ at, order: prevOrder, seconds });
-    frames.push({ at: at + SWAP_LEAD_MS, order: orders[i], seconds: new Map(seconds) });
-    prevOrder = orders[i];
+    const order = orders.get(i)!;
+    frames.push({ at: at + SWAP_LEAD_MS, order, seconds: new Map(seconds) });
+    prevOrder = order;
     step += 1;
   }
   // 마지막 프레임은 예외 없이 서버 최종값이다 — 중간값이 화면에 남지 않는다는 보장.
