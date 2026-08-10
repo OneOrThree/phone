@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -213,6 +214,103 @@ export default function GroupListScreen({
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
   }, [enableCardDeck, groupFingerprint, groups, snapInterval]);
 
+  const refreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
+  );
+  const groupList = (
+    <FlatList
+      ref={listRef}
+      testID="group.list.items"
+      data={groups}
+      keyExtractor={(item) => item.groupId}
+      horizontal={enableCardDeck}
+      showsHorizontalScrollIndicator={false}
+      CellRendererComponent={GroupListCell}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={
+        enableCardDeck ? [s.listContent, { paddingHorizontal: SIDE_PEEK }] : s.legacyListContent
+      }
+      ItemSeparatorComponent={
+        enableCardDeck ? () => <View style={{ width: CARD_GAP }} /> : undefined
+      }
+      snapToInterval={enableCardDeck ? snapInterval : undefined}
+      snapToAlignment={enableCardDeck ? 'start' : undefined}
+      decelerationRate={enableCardDeck ? 'fast' : 'normal'}
+      disableIntervalMomentum={enableCardDeck}
+      onMomentumScrollEnd={enableCardDeck ? settlePage : undefined}
+      onScrollEndDrag={enableCardDeck ? settlePage : undefined}
+      ListFooterComponent={
+        enableCardDeck ? (
+          <View
+            style={{ marginLeft: CARD_GAP }}
+            pointerEvents={renderedActiveIndex === groups.length ? 'auto' : 'none'}
+            accessibilityElementsHidden={renderedActiveIndex !== groups.length}
+            importantForAccessibility={
+              renderedActiveIndex === groups.length ? 'auto' : 'no-hide-descendants'
+            }
+            testID="group.deck.findMorePage"
+          >
+            <FindMoreCard width={cardWidth} onPress={onFind} />
+          </View>
+        ) : null
+      }
+      refreshControl={enableCardDeck ? undefined : refreshControl}
+      renderItem={({ item, index }) => {
+        const active = !enableCardDeck || index === renderedActiveIndex;
+        return (
+          <View
+            pointerEvents={active ? 'auto' : 'none'}
+            accessibilityElementsHidden={!active}
+            importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
+            testID={`group.list.cardPage.${item.groupId}`}
+          >
+            <TouchableOpacity
+              style={[s.card, enableCardDeck ? [s.deckCard, { width: cardWidth }] : s.legacyCard]}
+              activeOpacity={0.85}
+              onPress={() => onSelect(item.groupId)}
+              testID={`group.list.card.${item.groupId}`}
+            >
+              <View style={s.cardMain}>
+                <View style={s.cardTitleRow}>
+                  <Text style={s.cardName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {item.isPrivate && (
+                    <Ionicons
+                      name="lock-closed"
+                      size={14}
+                      color={T.inkSub}
+                      accessibilityLabel="비공개 그룹"
+                    />
+                  )}
+                  {item.role === 'OWNER' && (
+                    <MaterialCommunityIcons
+                      name="crown"
+                      size={16}
+                      color={T.accent}
+                      accessibilityLabel="내가 방장"
+                    />
+                  )}
+                </View>
+                {!!item.description && (
+                  <Text style={s.cardDesc} numberOfLines={2}>
+                    {item.description}
+                  </Text>
+                )}
+              </View>
+              <View style={s.cardRight}>
+                <Text style={s.cardCount}>
+                  {item.currentMembers}/{item.maxMembers}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
+              </View>
+            </TouchableOpacity>
+          </View>
+        );
+      }}
+    />
+  );
+
   return (
     <View style={s.root} testID="group.list">
       <View style={s.header}>
@@ -231,92 +329,22 @@ export default function GroupListScreen({
         <Text style={s.headerTitle}>내 그룹</Text>
       </View>
 
-      <FlatList
-        ref={listRef}
-        testID="group.list.items"
-        data={groups}
-        keyExtractor={(item) => item.groupId}
-        horizontal={enableCardDeck}
-        alwaysBounceVertical
-        showsHorizontalScrollIndicator={false}
-        CellRendererComponent={GroupListCell}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={
-          enableCardDeck ? [s.listContent, { paddingHorizontal: SIDE_PEEK }] : s.legacyListContent
-        }
-        ItemSeparatorComponent={
-          enableCardDeck ? () => <View style={{ width: CARD_GAP }} /> : undefined
-        }
-        snapToInterval={enableCardDeck ? snapInterval : undefined}
-        snapToAlignment={enableCardDeck ? 'start' : undefined}
-        decelerationRate={enableCardDeck ? 'fast' : 'normal'}
-        disableIntervalMomentum={enableCardDeck}
-        onMomentumScrollEnd={enableCardDeck ? settlePage : undefined}
-        onScrollEndDrag={enableCardDeck ? settlePage : undefined}
-        ListFooterComponent={
-          enableCardDeck ? (
-            <View style={{ marginLeft: CARD_GAP }}>
-              <FindMoreCard width={cardWidth} onPress={onFind} />
-            </View>
-          ) : null
-        }
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
-        }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[s.card, enableCardDeck ? [s.deckCard, { width: cardWidth }] : s.legacyCard]}
-            activeOpacity={0.85}
-            onPress={() => onSelect(item.groupId)}
-            testID={`group.list.card.${item.groupId}`}
-          >
-            <View style={s.cardMain}>
-              {/* 1행: 이름 + 비공개 자물쇠 */}
-              <View style={s.cardTitleRow}>
-                <Text style={s.cardName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                {item.isPrivate && (
-                  <Ionicons
-                    name="lock-closed"
-                    size={14}
-                    color={T.inkSub}
-                    accessibilityLabel="비공개 그룹"
-                  />
-                )}
-                {/* 방장 표시 — 멤버 타일과 같은 왕관(자물쇠는 그대로 둔다) */}
-                {item.role === 'OWNER' && (
-                  <MaterialCommunityIcons
-                    name="crown"
-                    size={16}
-                    color={T.accent}
-                    accessibilityLabel="내가 방장"
-                  />
-                )}
-              </View>
-              {/* 2행: 소개 — 백엔드가 목록 응답에 description을 실어줄 때만 노출 */}
-              {!!item.description && (
-                <Text style={s.cardDesc} numberOfLines={2}>
-                  {item.description}
-                </Text>
-              )}
-            </View>
-            <View style={s.cardRight}>
-              <Text style={s.cardCount}>
-                {item.currentMembers}/{item.maxMembers}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
-            </View>
-          </TouchableOpacity>
-        )}
-      />
-
-      {enableCardDeck && (
-        <PageIndicator
-          pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
-          activeIndex={renderedActiveIndex}
-          onSelectPage={selectPage}
-        />
+      {enableCardDeck ? (
+        <ScrollView
+          style={s.deckRefreshHost}
+          contentContainerStyle={s.deckRefreshContent}
+          refreshControl={refreshControl}
+          testID="group.deck.refresh"
+        >
+          {groupList}
+          <PageIndicator
+            pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
+            activeIndex={renderedActiveIndex}
+            onSelectPage={selectPage}
+          />
+        </ScrollView>
+      ) : (
+        groupList
       )}
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
@@ -369,6 +397,8 @@ const s = StyleSheet.create({
   },
 
   listContent: { paddingBottom: T.space.md },
+  deckRefreshHost: { flex: 1 },
+  deckRefreshContent: { flexGrow: 1 },
   legacyListContent: {
     paddingHorizontal: T.space.xl,
     paddingBottom: T.space.md,
