@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -98,7 +98,15 @@ export default function CharacterSelectScreen() {
   // 종전엔 Alert의 '확인' 버튼 onPress에 popToTop이 달려 있었다(GROMO-1381 §6-5). 토스트는
   // 버튼이 없으므로 부작용을 잃지 않게 여기서 직접 부른다 — ToastProvider가 NavigationContainer
   // 바깥이라 배너는 화면 전환을 넘어 그대로 살아남는다.
+  // ⚠️ **재진입을 막는다.** 종전 Alert는 첫 탭 즉시 모달로 입력을 가로막았지만 토스트는 안 막고,
+  //    `popToTop()` 전환이 끝나기 전에 한 번 더 누르면 같은 토스트가 큐에 두 개 쌓여 약 4.4초
+  //    연속 표시되고 내비게이션 액션도 중복 발행된다(codex 리뷰).
+  //    ref 가드인 이유: state로 잠그면 리렌더 한 프레임 사이에 두 번째 탭이 들어온다.
+  //    (같은 전환에 `leaving` 가드를 두는 FocusResultScreen과 같은 규율이다.)
+  const equippedRef = useRef(false);
   const equip = useCallback(() => {
+    if (equippedRef.current) return;
+    equippedRef.current = true;
     setChoice(selected);
     show({ message: '캐릭터를 변경했어요', tone: 'success' });
     navigation.popToTop();
