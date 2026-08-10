@@ -60,7 +60,7 @@
 특히 자주 되짚게 되는 자리:
 
 - 창 겹침 정책 원문 — `docs/prd/challenge/policy.md:179-202` (§A5)
-- 겹침 판정 기대 구현 — `docs/prd/challenge/low-level-design.md:1014-1036` (§3.6)
+- 겹침 판정 기대 구현 — `docs/prd/challenge/low-level-design.md:1020-1042` (§3.6)
 - 백엔드 배선표 — `docs/prd/challenge/policy.md:945-964` (§9.2, B8 = 1270 · B13 = 1285)
 - 폐기 코드 잔존 지시 — `docs/prd/challenge/low-level-design.md:842-844`
 

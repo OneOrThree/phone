@@ -9,9 +9,9 @@
 ## 1. 구현 계약 — `conflicts()`
 
 **결정**: 아래 코드가 GROMO-1270의 **구현 계약**이다. 상위 정본
-`docs/prd/challenge/low-level-design.md:1014-1036` §3.6에 이미 적혀 있고, 구현은 이걸 옮긴다.
+`docs/prd/challenge/low-level-design.md:1020-1042` §3.6에 이미 적혀 있고, 구현은 이걸 옮긴다.
 
-### 정본 원문 (`docs/prd/challenge/low-level-design.md:1014-1036`, verbatim)
+### 정본 원문 (`docs/prd/challenge/low-level-design.md:1020-1042`, verbatim)
 
 > ### 3.6 창 겹침 판정 — 요일 ∧ 시간대 ∧ 15분 간격
 >
@@ -132,7 +132,7 @@ A는 `23:45–00:00` 눈금 안, B는 `00:00–00:15` 눈금 안이다 — **공
 
 ## 3. 구현 주의 — 조사에서 나온 함정 2건
 
-### 3-1. `findActiveByGroupForUpdate`는 `JOIN`이지 `JOIN FETCH`가 아니다 (N+1 + 락 밖 읽기)
+### 3-1. `findActiveByGroupForUpdate`는 `JOIN`이지 `JOIN FETCH`가 아니다 (N+1)
 
 **문제**: 겹침 판정에 **요일 마스크가 새로 필요해진다.** 그런데 마스크는 창 상세
 (`GroupChallengeWindow`)가 아니라 부모 `GroupChallenge`가 들고 있다.
@@ -158,16 +158,35 @@ List<GroupChallengeWindow> findActiveByGroupForUpdate(@Param("group") Group grou
 
 그래서 `rejectWindowOverlap` 루프에서 `existing.getChallenge().getRepeatDays()` 를 읽으면:
 
-1. **N+1** — 활성 창형 수만큼 `SELECT group_challenges` 가 추가로 나간다.
-2. **`FOR UPDATE` 락 범위 밖 읽기** — 배타 락은 `group_challenge_windows` 행에 걸렸는데
-   요일 마스크는 락이 안 걸린 부모 행에서 별도 쿼리로 읽는다. 동시 생성·삭제와 직렬화하려고
-   락을 잡은 목적(같은 javadoc이 선언한다)이 **판정에 실제로 쓰이는 값에는 적용되지 않는다.**
+1. **N+1** — 활성 창형 수만큼 `SELECT group_challenges` 가 추가로 나간다. 활성 상한이 4라
+   최대 4회지만, 겹침 검사는 창형 생성마다 도는 경로다.
 
 **해결(둘 중 하나)**:
 
-- `JOIN` → **`JOIN FETCH`** 로 바꿔 부모를 같은 쿼리·같은 락으로 싣는다, 또는
-- **`(repeatDays, windowStart, windowEnd)` 프로젝션**으로 필요한 3값만 뽑는다 — 엔티티가
-  필요 없으므로 이쪽이 더 정직하다.
+- `JOIN` → **`JOIN FETCH`** 로 바꿔 부모 컬럼을 같은 쿼리에 싣는다, 또는
+- **`(repeatDays, windowStart, windowEnd)` 프로젝션**으로 필요한 3값만 뽑는다.
+
+`JOIN FETCH` 를 택하면 반환 타입이 유지돼 소프트딜리트 제외 회귀 테스트를 안 건드리고,
+서비스 테스트가 실물 엔티티로 프로덕션과 같은 모양을 태울 수 있다(시임 우회 금지).
+
+**⚠️ 이건 성능 이유지 정합성 구멍을 막는 게 아니다.** 이 문서 초판은 두 번째 이유로
+「`FOR UPDATE` 락 범위 밖 읽기 — 락이 판정에 실제로 쓰이는 값에는 적용되지 않는다」를
+적었는데 **과장이었다.** 근거 셋:
+
+1. PostgreSQL 은 `OF` 절 없는 `FOR UPDATE` 에서 **문장에 등장한 모든 테이블**의 행을 잠근다.
+   이 쿼리는 `FETCH` 이전에도 `WHERE` 에서 `c` 를 참조했으므로 부모 행은 이미 잠겨 있었다.
+2. 잠근 행은 남이 커밋할 수 없으니 뒤이은 조회도 같은 값을 읽는다(READ COMMITTED,
+   `GroupChallengeService` 에 격리 수준 재정의 없음).
+3. `repeatDays` 는 **생성 이후 갱신 경로 자체가 없다**(챌린지 수정 API 없음 — §A7).
+   잠금 여부와 무관하게 값이 변할 수 없다.
+
+> 📌 2026-08-11 정정. 근거 없는 「이 변경이 경합을 고쳤다」를 남기면 다음 사람이 **있지도 않은
+> 레이스를 전제로** 코드를 짠다 — GROMO-1285 가 지우고 있는 것과 같은 종류의 거짓 서술이다.
+> 구현(`bfix/GROMO-1270-…`)의 javadoc 도 같은 취지로 정정돼 있다.
+> ⚠️ 반대로 **JPA `PessimisticLockScope.NORMAL` 만 믿으면 안 된다는 지적 자체는 옳다** —
+> `@Lock(PESSIMISTIC_WRITE)` 의 JPA 계약은 조회 루트에만 걸린다. 여기서 부모까지 잠기는 것은
+> **PostgreSQL 의 `FOR UPDATE` 의미** 덕이지 JPA 가 보장해서가 아니다. 다른 DB로 옮기면 이
+> 전제가 깨진다.
 
 **⚠️ 이 리포지토리 파일은 GROMO-1270(WS-1)의 소유다.** 이 문서는 진단만 적는다.
 
