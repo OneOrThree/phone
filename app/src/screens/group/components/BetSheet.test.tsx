@@ -95,7 +95,8 @@ jest.mock('@/store/CoinContext', () => ({
   }),
 }));
 
-// 선택지 없는 결과 통보는 토스트로 나간다(GROMO-1491 / 정책 D8·D19) — useToast는 Provider
+// 선택지 없는 결과 통보는 토스트로 나간다(GROMO-1491 / 정책 D8·D19 —
+// docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본) — useToast는 Provider
 // 밖에서 throw하므로 훅 자체를 목으로 대체한다.
 const mockToastShow = jest.fn();
 jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));

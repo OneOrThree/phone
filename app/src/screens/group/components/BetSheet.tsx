@@ -366,7 +366,8 @@ export default function BetSheet({
     } catch (e) {
       // 경합·마감 직후 대비(계약 §3): 오늘 날짜로 보냈는데 그 사이 창이 닫혔다면(BET_CLOSED)
       // 내일 날짜로 정확히 1회 재시도한다. 성공하면 같은 '내일 적용' 안내를 토스트로 세운다 —
-      // 시트는 곧 닫히므로 인라인 안내는 설 자리가 없다(선택지 없는 결과 통보라 정책 D8/D19).
+      // 시트는 곧 닫히므로 인라인 안내는 설 자리가 없다(선택지 없는 결과 통보라 정책 D8/D19 —
+      // docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
       if (isCreate && isWindowChallenge && !betForTomorrow && groupErrorCode(e) === 'BET_CLOSED') {
         try {
           await requestCreate(tomorrowStrKst());

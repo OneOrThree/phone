@@ -46,8 +46,9 @@ jest.mock('@react-navigation/native', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({ logGroupTabViewed: jest.fn() }));
 
-// 조치가 필요 없는 실패 통보는 tone:'error' 토스트로 나간다(GROMO-1491 / 정책 D19) —
-// useToast는 Provider 밖에서 throw하므로 훅 자체를 목으로 대체한다.
+// 조치가 필요 없는 실패 통보는 tone:'error' 토스트로 나간다(GROMO-1491 / 정책 D19 —
+// docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본) — useToast는 Provider
+// 밖에서 throw하므로 훅 자체를 목으로 대체한다.
 const mockToastShow = jest.fn();
 jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
 

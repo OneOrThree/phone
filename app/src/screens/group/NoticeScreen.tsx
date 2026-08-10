@@ -161,7 +161,8 @@ export default function NoticeScreen() {
     setComposeOpen(false);
     setEditing(null);
     fetchNotices();
-    // 재시도해도 같은 결과인 종결 통보 — 조치가 없으므로 tone:'error' 토스트로 알린다(정책 D19).
+    // 재시도해도 같은 결과인 종결 통보 — 조치가 없으므로 tone:'error' 토스트로 알린다
+    // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
     // 시트(NoticeComposeSheet)는 SheetShell 기본형(asModal=false)이라 배너를 가리지 않지만,
     // 순서는 그대로 **닫은 뒤** 알리는 쪽을 지킨다.
     show({ message: '이미 삭제된 공지라 수정할 수 없어요', tone: 'error' });

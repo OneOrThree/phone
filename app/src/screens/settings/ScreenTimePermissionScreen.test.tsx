@@ -1,4 +1,5 @@
-// ScreenTimePermissionScreen '측정 대상 앱 설정' 통보 계약 테스트 — GROMO-1491(정책 D19).
+// ScreenTimePermissionScreen '측정 대상 앱 설정' 통보 계약 테스트 — GROMO-1491
+// (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
 //
 // 여기서 잠그는 것은 **통보 채널이 무엇이냐** 하나다.
 //  1) '다음날 적용' 예약 성공(A안 GROMO-942)은 선택지 없는 결과 통보라 tone:'success' 토스트다.
@@ -115,8 +116,9 @@ describe("측정 대상 '다음날 적용' 예약 통보", () => {
     // 예약 자체는 그대로 나간다(통보 채널만 바뀐다).
     expect(mockSetPendingApplyDate).toHaveBeenCalled();
     expect(mockPromote).not.toHaveBeenCalled();
+    // 제목이 없는 채널이므로 '예약'이라는 요점이 본문에 남아 있어야 한다.
     expect(mockToastShow).toHaveBeenCalledWith({
-      message: '오늘은 기존 대상, 내일부터 앱·카테고리 3개로 측정해요',
+      message: '변경을 예약했어요 — 내일부터 앱·카테고리 3개로 측정해요',
       tone: 'success',
     });
     expect(Alert.alert).not.toHaveBeenCalled();

@@ -162,13 +162,15 @@ export default function GroupOwnerTransferScreen() {
         // HTTP status가 아니라 code로 분기한다(§3-2). NOT_FOUND·MEMBER_ONLY는 방어적으로 나눈다.
         switch (groupErrorCode(e)) {
           // 두 코드 모두 **재시도해도 같은 결과**인 종결 통보다 — 사용자가 할 수 있는 조치가
-          // 없으므로 확인 버튼이 필요 없는 tone:'error' 토스트로 알린다(정책 D19).
+          // 없으므로 확인 버튼이 필요 없는 tone:'error' 토스트로 알린다
+          // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
           // 반면 아래 default('잠시 후 다시 시도')는 재시도가 유효해 Alert로 남긴다.
           case 'NOT_FOUND':
             show({ message: '이미 사라졌거나 나간 그룹이에요', tone: 'error' });
             break;
           case 'MEMBER_ONLY':
-            show({ message: '방장이 아니라서 방장을 넘길 수 없어요', tone: 'error' });
+            // 화면 제목이 이미 「방장 넘기기」라 목적어를 되풀이하지 않는다.
+            show({ message: '방장이 아니라서 넘길 수 없어요', tone: 'error' });
             break;
           default:
             Alert.alert('방장을 넘기지 못했어요', '잠시 후 다시 시도해주세요.');

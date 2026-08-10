@@ -78,8 +78,12 @@ jest.mock('@/utils/localDate', () => ({
   todayStr: jest.fn(() => '2026-07-31'),
   todayStrKst: jest.fn(() => '2026-08-01'),
 }));
-// 조치가 필요 없는 실패 통보는 tone:'error' 토스트다(GROMO-1491 / 정책 D19) — 훅 자체를 목으로
-// 대체한다(카드를 ToastProvider로 감싸지 않아도 되게, GroupProfileEditScreen.test 관행).
+// 조치가 필요 없는 통보는 확인 버튼 없는 토스트다 — 훅 자체를 목으로 대체한다(카드를
+// ToastProvider로 감싸지 않아도 되게, GroupProfileEditScreen.test 관행).
+// 톤은 두 갈래로 갈린다: **진짜 못 한 것**(마감 지남·정산됨·권한 없음)만 tone:'error'이고,
+// '이미 …' 계열(이미 참여 중·이미 정리됨·이미 취소됨)은 원하던 상태가 이미 성립한 것이라
+// tone을 **생략**해 중립 배너로 낸다(오너 결정 2026-08-11). 아래 단언들이 그 경계를 잠근다.
+// 근거: GROMO-1491 / 정책 D19 — docs/prd/motion-v2/policy.md(상위 정본 병합 전까지 여기가 정본).
 const mockToastShow = jest.fn();
 jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
 // 주간 대상 산출은 '오늘'이 주(월~일) 어디냐에 따라 갈린다 — 요일을 옮기는 테스트만 이 목의
@@ -1350,7 +1354,7 @@ describe('참가 철회', () => {
 
     // 조치가 없는 종결 통보라 확인 버튼이 필요 없다 → tone:'error' 토스트(GROMO-1491 / D19).
     expect(mockToastShow).toHaveBeenCalledWith({
-      message: '내기가 시작된 뒤에는 참여를 뺄 수 없어요',
+      message: '내기가 시작된 뒤라 참여 취소를 못 했어요',
       tone: 'error',
     });
     // 실패 통보 Alert는 서지 않는다 — 여기 유일한 Alert는 위에서 누른 '참여 취소' 확인이다.
@@ -1819,10 +1823,11 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
     });
 
     expect(mockLeaveSession).not.toHaveBeenCalled();
-    // 조치가 없는 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    // 조치가 없는 종결 통보라 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    // tone 없음(중립 배너)까지 잠근다 — 이미 원하던 상태라 danger를 쓰지 않는다
+    // (오너 결정 2026-08-11). tone:'error'가 붙으면 이 단언이 깨진다.
     expect(mockToastShow).toHaveBeenCalledWith({
       message: '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요',
-      tone: 'error',
     });
     expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
@@ -2241,10 +2246,11 @@ describe('오늘 참여 취소 (N22)', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
-    // 조치가 없는 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    // 조치가 없는 종결 통보라 토스트다(GROMO-1491 / D19) — Alert는 확인 1회뿐.
+    // tone 없음(중립 배너)까지 잠근다 — 이미 원하던 상태라 danger를 쓰지 않는다
+    // (오너 결정 2026-08-11).
     expect(mockToastShow).toHaveBeenCalledWith({
       message: '이미 취소된 참여예요 — 최신 상태로 새로고침할게요',
-      tone: 'error',
     });
     expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
@@ -2434,9 +2440,10 @@ describe('오늘 참여 취소 (N22)', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
+    // tone 없음(중립 배너)까지 잠근다 — 이미 원하던 상태라 danger를 쓰지 않는다
+    // (오너 결정 2026-08-11).
     expect(mockToastShow).toHaveBeenCalledWith({
       message: '이미 정리된 날이에요 — 최신 상태로 새로고침할게요',
-      tone: 'error',
     });
     expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
@@ -2800,10 +2807,10 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
       fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
     });
 
-    // 이미 원하던 상태인 종결 통보라 tone:'error' 토스트다(GROMO-1491 / D19).
+    // 이미 원하던 상태인 종결 통보라 확인 버튼 없는 토스트다(GROMO-1491 / D19). 단 **중립 배너**다 —
+    // 아무것도 잘못되지 않았으므로 danger를 쓰지 않는다(오너 결정 2026-08-11). tone 없음을 잠근다.
     expect(mockToastShow).toHaveBeenCalledWith({
       message: '이번 주 남은 날은 이미 모두 참여하고 있어요',
-      tone: 'error',
     });
     expect(alertSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
