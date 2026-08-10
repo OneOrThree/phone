@@ -6,6 +6,7 @@ import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
 import type { GroupCardFlipTrigger } from '@/services/analyticsEvents';
+import { categoryLabel, missionLabel } from './challengeLabel';
 
 interface Props {
   group: GroupSummaryResponse;
@@ -37,6 +38,10 @@ export function GroupCardBack({
       : null;
   const loading =
     snapshot === null || snapshot.detail.status === 'idle' || snapshot.detail.status === 'loading';
+  const latestAnnouncement =
+    snapshot?.announcements.status === 'ready' ? snapshot.announcements.data[0] : undefined;
+  const latestChallenge =
+    snapshot?.challenges.status === 'ready' ? snapshot.challenges.data[0] : undefined;
 
   return (
     <View style={s.root} testID={`group.card.back.${group.groupId}`}>
@@ -66,16 +71,30 @@ export function GroupCardBack({
         <Text style={s.body}>집중 상태를 불러오는 중이에요.</Text>
       )}
       {snapshot?.announcements.status === 'ready' ? (
-        <Text style={s.body} numberOfLines={1}>
-          공지 {snapshot.announcements.data.length}개
-        </Text>
+        latestAnnouncement ? (
+          <Text
+            style={s.body}
+            numberOfLines={1}
+            accessibilityLabel={`최신 공지, ${latestAnnouncement.title}, ${latestAnnouncement.content}`}
+          >
+            최신 공지 · {latestAnnouncement.title} — {latestAnnouncement.content}
+          </Text>
+        ) : (
+          <Text style={s.body}>새 공지가 없어요.</Text>
+        )
       ) : snapshot?.announcements.status === 'error' ? (
         <RetryRow label="공지를 불러오지 못했어요." onPress={() => onRetry('announcements')} />
       ) : (
         <Text style={s.body}>공지를 불러오는 중이에요.</Text>
       )}
       {snapshot?.challenges.status === 'ready' ? (
-        <Text style={s.body}>그룹 활동 {snapshot.challenges.data.length}개</Text>
+        latestChallenge ? (
+          <Text style={s.body} numberOfLines={1}>
+            그룹 활동 · {missionLabel(latestChallenge) ?? categoryLabel(latestChallenge)}
+          </Text>
+        ) : (
+          <Text style={s.body}>진행 중인 그룹 활동이 없어요.</Text>
+        )
       ) : snapshot?.challenges.status === 'error' ? (
         <RetryRow label="그룹 활동을 불러오지 못했어요." onPress={() => onRetry('challenges')} />
       ) : (

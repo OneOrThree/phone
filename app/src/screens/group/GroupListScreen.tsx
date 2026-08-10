@@ -6,7 +6,6 @@ import {
   FlatList,
   findNodeHandle,
   PanResponder,
-  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -227,6 +226,7 @@ export default function GroupListScreen({
   const [guideQueued, setGuideQueued] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
   const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
+  const [emojiScopeLoaded, setEmojiScopeLoaded] = useState<string | null>(null);
   const [, setSummaryVersion] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
@@ -242,6 +242,7 @@ export default function GroupListScreen({
       return group ? [group] : [];
     });
   }, [groups, hydrated, orderedGroupIds]);
+  const emojiScope = `${userId ?? ''}\u0000${groups.map((group) => group.groupId).join('\u0000')}`;
   const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   // hydration 전 서버 첫 카드를 현재 위치로 확정하지 않는다. undefined는 아직 위치 미확정,
@@ -254,6 +255,7 @@ export default function GroupListScreen({
   const roomFocusRef = useRef<View | null>(null);
   const actionLockedRef = useRef(false);
   const [pendingFrontFocusGroupId, setPendingFrontFocusGroupId] = useState<string | null>(null);
+  const [pendingBackFocusGroupId, setPendingBackFocusGroupId] = useState<string | null>(null);
   const summaryAdapter = useMemo(() => new GroupCardSummaryAdapter(groupFocusStatusStore), []);
   const focusPolling = useMemo(
     () =>
@@ -312,9 +314,19 @@ export default function GroupListScreen({
   }, [appActive, guideBlocked, guideQueued, guideScreenFocused, guideVisible]);
 
   useEffect(() => {
-    if (guideVisible && (guideBlocked || !guideScreenFocused || !appActive)) {
+    if (!guideScreenFocused) {
       setGuideVisible(false);
+      // route 이탈 중에는 목록·episode가 바뀔 수 있으므로 이전 queue를 재사용하지 않는다.
+      setGuideQueued(false);
       // 안내는 다음 노출 때 1단계부터 시작한다. 4단계 시연으로 뒤집힌 face도 함께 초기화한다.
+      if (backSource === 'guide') {
+        setFlippedGroupId(null);
+        setBackSource(null);
+      }
+      return;
+    }
+    if (guideVisible && (guideBlocked || !appActive)) {
+      setGuideVisible(false);
       if (backSource === 'guide') {
         setFlippedGroupId(null);
         setBackSource(null);
@@ -400,13 +412,21 @@ export default function GroupListScreen({
       ),
     )
       .then((entries) => {
-        if (active) setEmojis(Object.fromEntries(entries));
+        if (active) {
+          setEmojis(Object.fromEntries(entries));
+          setEmojiScopeLoaded(emojiScope);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) {
+          setEmojis({});
+          setEmojiScopeLoaded(emojiScope);
+        }
+      });
     return () => {
       active = false;
     };
-  }, [groups, groupsRevision, isScreenFocused, userId]);
+  }, [emojiScope, groups, groupsRevision, isScreenFocused, userId]);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -528,6 +548,13 @@ export default function GroupListScreen({
     setPendingFrontFocusGroupId(null);
   }, [focusNode, pendingFrontFocusGroupId]);
 
+  useEffect(() => {
+    if (pendingBackFocusGroupId === null) return;
+    if (flippedGroupId !== pendingBackFocusGroupId || roomFocusRef.current === null) return;
+    focusNode(roomFocusRef);
+    setPendingBackFocusGroupId(null);
+  }, [flippedGroupId, focusNode, pendingBackFocusGroupId]);
+
   // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
   // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
   const dragRef = useRef<{
@@ -535,6 +562,7 @@ export default function GroupListScreen({
     from: number;
     target: number;
     edgeOffset: number;
+    edgePagingArmed: boolean;
     moved: boolean;
   } | null>(null);
   const lastEdgePageAtRef = useRef(0);
@@ -573,11 +601,21 @@ export default function GroupListScreen({
       const responder = PanResponder.create({
         onStartShouldSetPanResponder: () => hydrated,
         onMoveShouldSetPanResponder: () => hydrated,
-        onPanResponderGrant: () => {
+        onPanResponderGrant: (event) => {
           if (!hydrated) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
-          dragRef.current = { groupId, from, target: from, edgeOffset: 0, moved: false };
+          const startX = event.nativeEvent.pageX;
+          dragRef.current = {
+            groupId,
+            from,
+            target: from,
+            edgeOffset: 0,
+            edgePagingArmed:
+              typeof startX !== 'number' ||
+              (startX >= DRAG_EDGE && startX <= windowWidth - DRAG_EDGE),
+            moved: false,
+          };
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
           setFlippedGroupId(null);
@@ -591,8 +629,16 @@ export default function GroupListScreen({
           const pointerDelta = Math.round(gesture.dx / snapInterval);
           drag.target = resolveDragTarget(drag.from, pointerDelta, drag.edgeOffset, 0, max).target;
 
-          const direction =
-            gesture.moveX < DRAG_EDGE ? -1 : gesture.moveX > windowWidth - DRAG_EDGE ? 1 : 0;
+          const inNeutralZone =
+            gesture.moveX >= DRAG_EDGE && gesture.moveX <= windowWidth - DRAG_EDGE;
+          if (inNeutralZone) drag.edgePagingArmed = true;
+          const direction = !drag.edgePagingArmed
+            ? 0
+            : gesture.moveX < DRAG_EDGE
+              ? -1
+              : gesture.moveX > windowWidth - DRAG_EDGE
+                ? 1
+                : 0;
           const now = Date.now();
           if (direction !== 0 && now - lastEdgePageAtRef.current >= EDGE_PAGE_THROTTLE_MS) {
             const next = resolveDragTarget(
@@ -634,7 +680,7 @@ export default function GroupListScreen({
     respondersRef.current.clear();
   }, [hydrated, orderedGroupIds]);
 
-  if (!hydrated || exposedEpisodeId !== viewEpisodeId) {
+  if (!hydrated || emojiScopeLoaded !== emojiScope || exposedEpisodeId !== viewEpisodeId) {
     return (
       <View style={s.loading} testID="group.deck.loading">
         <ActivityIndicator color={T.accent} />
@@ -658,6 +704,20 @@ export default function GroupListScreen({
           </TouchableOpacity>
         )}
         <Text style={s.headerTitle}>내 그룹</Text>
+        <TouchableOpacity
+          style={s.refreshBtn}
+          onPress={handleRefresh}
+          disabled={refreshing}
+          accessibilityRole="button"
+          accessibilityLabel={refreshing ? '그룹 새로고침 중' : '그룹 새로고침'}
+          testID="group.list.refresh"
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color={T.accent} />
+          ) : (
+            <Ionicons name="refresh" size={18} color={T.accent} />
+          )}
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -677,15 +737,23 @@ export default function GroupListScreen({
         scrollEnabled={draggingGroupId === null}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
-          <View style={{ marginLeft: CARD_GAP }}>
+          <View
+            style={{ marginLeft: CARD_GAP }}
+            accessibilityElementsHidden={activeIndex !== orderedGroups.length}
+            importantForAccessibility={
+              activeIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
+            }
+          >
             <FindMoreCard width={cardWidth} onPress={onFind} />
           </View>
         }
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.accent} />
-        }
         renderItem={({ item, index }) => (
-          <View style={{ width: cardWidth }} testID={`group.list.card.${item.groupId}`}>
+          <View
+            style={{ width: cardWidth }}
+            testID={`group.list.card.${item.groupId}`}
+            accessibilityElementsHidden={activeIndex !== index}
+            importantForAccessibility={activeIndex === index ? 'auto' : 'no-hide-descendants'}
+          >
             {flippedGroupId === item.groupId ? (
               <GroupCardBack
                 group={item}
@@ -738,6 +806,9 @@ export default function GroupListScreen({
                 onFront={(trigger) => {
                   setFlippedGroupId(null);
                   setBackSource(null);
+                  if (trigger === 'accessibility_action') {
+                    setPendingFrontFocusGroupId(item.groupId);
+                  }
                   logGroupCardFlipped({
                     to_face: 'front',
                     trigger,
@@ -762,6 +833,9 @@ export default function GroupListScreen({
                   }
                   setFlippedGroupId(item.groupId);
                   setBackSource('user');
+                  if (trigger === 'accessibility_action') {
+                    setPendingBackFocusGroupId(item.groupId);
+                  }
                   logGroupCardFlipped({
                     to_face: 'back',
                     trigger,
@@ -882,6 +956,14 @@ const s = StyleSheet.create({
     paddingBottom: T.space.md,
   },
   headerTitle: { ...T.text.title, color: T.ink },
+  refreshBtn: {
+    width: 32,
+    height: 32,
+    marginLeft: 'auto',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   // 그룹 스택 화면(GroupCreateScreen s.backBtn)과 같은 규격 — 32/r16/white/border
   backBtn: {
     width: 32,

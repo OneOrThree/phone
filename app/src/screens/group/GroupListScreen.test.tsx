@@ -102,12 +102,18 @@ async function renderList(
 // ("overlapping act() calls") 다음 테스트의 렌더가 통째로 비는 일이 생긴다.
 async function press(testID: string) {
   await act(async () => {
-    fireEvent.press(screen.getByTestId(testID));
+    fireEvent.press(screen.getByTestId(testID, { includeHiddenElements: true }));
   });
 }
 
+const readStoredItem = async (key: string): Promise<string | null> => {
+  const values = await AsyncStorage.multiGet([key]);
+  return values[0]?.[1] ?? null;
+};
+
 beforeEach(async () => {
   jest.clearAllMocks();
+  jest.mocked(AsyncStorage.getItem).mockImplementation(readStoredItem);
   await AsyncStorage.clear();
   resetGroupDeckGuideSessionForTests();
   await AsyncStorage.setItem(STORAGE_KEYS.guideGroupDeck, '1');
@@ -127,9 +133,11 @@ describe('카드 렌더', () => {
 
     expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
     expect(screen.getByText('2/5')).toBeOnTheScreen();
-    expect(screen.getByText('저녁 스터디')).toBeOnTheScreen();
-    expect(screen.getByText('4/5')).toBeOnTheScreen();
-    expect(screen.getByTestId('group.deck.findMore')).toBeOnTheScreen();
+    expect(screen.getByText('저녁 스터디', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(
+      screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
   });
 
   test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {
@@ -138,7 +146,9 @@ describe('카드 렌더', () => {
     );
     await renderList(groups);
 
-    expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
+    expect(
+      screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toHaveLength(1);
     expect(screen.getByTestId('group.list.items').props.data).toEqual(groups);
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
@@ -222,6 +232,35 @@ describe('카드 렌더', () => {
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
   });
 
+  test('route blur는 이전 안내 queue를 폐기하고 다음 안정된 episode에서 다시 판정한다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    resetGroupDeckGuideSessionForTests();
+    const props = {
+      groups: [group()],
+      userId: 'guide-blur',
+      onSelect,
+      onFocus,
+      onSettings,
+      groupEntry: 'tab' as const,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused />);
+    await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
+
+    await view.rerender(
+      <GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused={false} />,
+    );
+    expect(screen.queryByTestId('group.deck.guide')).toBeNull();
+
+    await view.rerender(<GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused />);
+    expect(screen.queryByTestId('group.deck.guide')).toBeNull();
+
+    await view.rerender(<GroupListScreen {...props} viewEpisodeId={2} guideScreenFocused />);
+    await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
+  });
+
   test('다른 overlay가 막고 있으면 미완료 안내를 pending으로 기록한다', async () => {
     await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
     resetGroupDeckGuideSessionForTests();
@@ -263,6 +302,32 @@ describe('카드 렌더', () => {
       ).toBeOnTheScreen(),
     );
   });
+
+  test('아이콘 hydration이 끝나기 전에는 기본 아이콘 덱을 먼저 노출하지 않는다', async () => {
+    let finishEmojiRead!: (value: string | null) => void;
+    jest.mocked(AsyncStorage.getItem).mockImplementation((key) => {
+      if (key === STORAGE_KEYS.groupCardEmoji) {
+        return new Promise((resolve) => {
+          finishEmojiRead = resolve;
+        });
+      }
+      return readStoredItem(key);
+    });
+
+    await renderList([group()], undefined, 'emoji-hydration', false);
+    expect(screen.getByTestId('group.deck.loading')).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.front.${GROUP_ID}`)).toBeNull();
+
+    await act(async () => {
+      finishEmojiRead(JSON.stringify({ 'emoji-hydration': { [GROUP_ID]: '📚' } }));
+    });
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId(`group.card.front.${GROUP_ID}`)).getByText('📚'),
+      ).toBeOnTheScreen(),
+    );
+    jest.mocked(AsyncStorage.getItem).mockImplementation(readStoredItem);
+  });
 });
 
 describe('콜백', () => {
@@ -273,6 +338,25 @@ describe('콜백', () => {
 
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
     expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+  });
+
+  test('비활성 이웃 카드는 터치 peek을 유지하되 접근성 트리에서는 숨긴다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props).toEqual(
+      expect.objectContaining({
+        accessibilityElementsHidden: false,
+        importantForAccessibility: 'auto',
+      }),
+    );
+    expect(
+      screen.getByTestId(`group.list.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props,
+    ).toEqual(
+      expect.objectContaining({
+        accessibilityElementsHidden: true,
+        importantForAccessibility: 'no-hide-descendants',
+      }),
+    );
   });
 
   test('보조기술의 앞·뒷면 전환은 accessibility_action으로 기록한다', async () => {
@@ -355,6 +439,45 @@ describe('콜백', () => {
     expect(getAnnouncements).toHaveBeenCalledWith(GROUP_ID);
     expect(getChallenges).toHaveBeenCalledWith(GROUP_ID, expect.any(String));
     expect(getMyRanking).toHaveBeenCalledWith(undefined, expect.any(String));
+  });
+
+  test('뒷면은 응답 순서 첫 공지와 그룹 활동의 compact 내용을 표시한다', async () => {
+    jest
+      .mocked(getAnnouncements)
+      .mockResolvedValue([
+        { id: 'notice-1', title: '오늘 모임', content: '저녁 8시에 시작해요', createdAt: '' },
+      ]);
+    jest.mocked(getChallenges).mockResolvedValue([
+      {
+        id: 'challenge-1',
+        missionType: 'DURATION',
+        missionCategory: 'FOCUS',
+        durationMinutes: 60,
+        windowStart: null,
+        windowEnd: null,
+        status: 'ACTIVE',
+        createdAt: '',
+        canParticipate: true,
+        memberProgress: [],
+      } as never,
+    ]);
+    await renderList([group()]);
+
+    await press(`group.card.${GROUP_ID}`);
+
+    expect(
+      await screen.findByText('최신 공지 · 오늘 모임 — 저녁 8시에 시작해요'),
+    ).toBeOnTheScreen();
+    expect(screen.getByText('그룹 활동 · 하루 60분 집중')).toBeOnTheScreen();
+  });
+
+  test('공지와 그룹 활동이 없으면 개수 0 대신 명시적 빈 상태를 표시한다', async () => {
+    await renderList([group()]);
+
+    await press(`group.card.${GROUP_ID}`);
+
+    expect(await screen.findByText('새 공지가 없어요.')).toBeOnTheScreen();
+    expect(screen.getByText('진행 중인 그룹 활동이 없어요.')).toBeOnTheScreen();
   });
 
   test('뒷면 핵심 CTA는 새 상관키와 함께 이 그룹 집중으로 이동한다', async () => {
@@ -463,28 +586,23 @@ describe('콜백', () => {
     expect(delayOf()).toBe(mounted);
   });
 
-  test('당겨서 새로고침 — 조회가 끝날 때까지만 인디케이터를 세운다', async () => {
+  test('명시적 새로고침 버튼은 조회가 끝날 때까지만 잠기고 인디케이터를 세운다', async () => {
     // 조회가 끝나는 시점을 테스트가 쥔다 — 인디케이터가 '도는 동안'과 '끝난 뒤'를 나눠 본다.
     let finish!: () => void;
     onRefresh.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
     await renderList([group()]);
 
-    // RefreshControl은 리스트의 자식이라 fireEvent가 위로 훑어 찾지 못한다(RNTL 14는 UNSAFE_*
-    // 쿼리도 없다) — FlatList에 넘긴 요소를 리스트 props에서 직접 집는다.
-    const control = () => screen.getByTestId('group.list.items').props.refreshControl.props;
-    expect(control().refreshing).toBe(false);
-
     await act(async () => {
-      control().onRefresh();
+      fireEvent.press(screen.getByTestId('group.list.refresh'));
     });
     expect(onRefresh).toHaveBeenCalledTimes(1);
-    expect(control().refreshing).toBe(true);
+    expect(screen.getByTestId('group.list.refresh').props.accessibilityState.disabled).toBe(true);
 
     // 끝나면 반드시 내린다 — 안 내리면 스피너가 영구히 남는다.
     await act(async () => {
       finish();
     });
-    expect(control().refreshing).toBe(false);
+    expect(screen.getByTestId('group.list.refresh').props.accessibilityState.disabled).toBe(false);
   });
 });
 
@@ -555,6 +673,33 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('grip을 가장자리에서 잡았다는 이유만으로 첫 move에 다음 slot으로 넘기지 않는다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: { pageX: 999 },
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, { dx: 10, moveX: 999 });
+      grip.props.onResponderRelease?.(responderEvent, { dx: 10, moveX: 999 });
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2]);
+    expect(logGroupCardReordered).not.toHaveBeenCalled();
   });
 
   test('grip 짧은 탭은 포인터 순서 변경 UI를 연다', async () => {
