@@ -19,8 +19,10 @@ import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
 import {
   __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
   readGroupCardEmoji,
   readGroupCardEmojiSaveFailure,
+  setGroupCardEmojiSaveFailure,
 } from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -220,6 +222,18 @@ describe('내 카드 아이콘 로컬 draft', () => {
       }),
     );
     expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🔥');
+    expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
+  });
+
+  test('새 그룹 아이콘 저장 성공도 다른 그룹 pending의 실패 경고를 지우지 않는다', async () => {
+    preservePendingGroupCardEmoji('user-1', 'older-group', '📚');
+    setGroupCardEmojiSaveFailure('user-1', true);
+    await renderScreen();
+    await typeName('새 그룹');
+
+    await press('만들기');
+
+    await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🎯'));
     expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
   });
 

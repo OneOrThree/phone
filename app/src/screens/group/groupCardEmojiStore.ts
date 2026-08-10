@@ -316,11 +316,11 @@ export function clearPendingGroupCardEmoji(
 
 export function hasPendingGroupCardEmojis(
   userId: string,
-  serverGroupIds: readonly string[],
+  serverGroupIds?: readonly string[],
 ): boolean {
-  const validIds = new Set(serverGroupIds);
+  const validIds = serverGroupIds ? new Set(serverGroupIds) : null;
   return [...pendingEmojis.values()].some(
-    (pending) => pending.userId === userId && validIds.has(pending.groupId),
+    (pending) => pending.userId === userId && (validIds === null || validIds.has(pending.groupId)),
   );
 }
 

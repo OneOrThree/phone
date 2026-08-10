@@ -33,6 +33,7 @@ import { buildInviteShareMessage } from './inviteShare';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   clearPendingGroupCardEmoji,
+  hasPendingGroupCardEmojis,
   DEFAULT_GROUP_CARD_EMOJI,
   preservePendingGroupCardEmoji,
   setGroupCardEmojiSaveFailure,
@@ -207,7 +208,7 @@ export default function GroupCreateScreen() {
         writeGroupCardEmoji(userId, groupId, cardEmoji)
           .then(() => {
             clearPendingGroupCardEmoji(userId, groupId, cardEmoji);
-            setGroupCardEmojiSaveFailure(userId, false);
+            setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
             if (saveSessionIdentity.active && saveSessionIdentity.userId === userId) {
               logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
             }
