@@ -34,6 +34,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class GroupBetController {
 
+    // 브리지 경로 사용량 계측(N36 · 제거 판단 GROMO-1238)은 LegacyBetBridgeLogInterceptor 가 한다 —
+    // 여기서 찍으면 인자 검증을 통과한 호출만 세어 실패하는 구앱 호출이 집계에서 빠진다.
+
     private final GroupBetService groupBetService;
     private final GroupBetJoinService groupBetJoinService;
 
@@ -145,7 +148,8 @@ public class GroupBetController {
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
         @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음"),
         @ApiResponse(responseCode = "409",
-                description = "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED / BET_CLOSED(date 가 오늘이 아님)")
+                description = "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED"
+                        + " / BET_CLOSED(오늘·내일 아님 / 비활성 요일 / 창 마감)")
     })
     @PostMapping("/groups/{groupId}/challenges/{challengeId}/bets")
     public ResponseEntity<CreateBetResponse> createBet(

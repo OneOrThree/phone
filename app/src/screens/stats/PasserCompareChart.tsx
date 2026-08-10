@@ -1,8 +1,14 @@
 // ST3 합격자 비교 티저 — 과목별 나 vs 합격자 평균 레이더 차트(표시용 고정값,
 // ComingSoon 블러 아래에 깔림).
+//
+// ⚠️ 진입 애니메이션을 **일부러 넣지 않았다**(GROMO-1381). 진입 연출의 뜻은 "데이터가
+//    도착했다"인데 이 차트에는 도착할 데이터가 없다(고정 티저다). 게다가 ComingSoon의
+//    BlurView + '준비 중' 오버레이에 덮여 있어 움직여도 사실상 보이지 않는다.
+//    합격자 데이터가 실제로 붙는 시점에 다른 차트와 같은 규칙(growUp)으로 넣는다.
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Line, Polygon } from 'react-native-svg';
 import { T } from '@/constants/theme';
+import { RADAR_SIZE } from './constants';
 
 const RADAR_AXES = [
   { name: '노동법', mine: 0.78, passer: 0.92 },
@@ -11,7 +17,7 @@ const RADAR_AXES = [
   { name: '사회보험법', mine: 0.4, passer: 0.62 },
   { name: '경영학', mine: 0.65, passer: 0.6 },
 ];
-const RADAR_SIZE = 210;
+// RADAR_SIZE는 constants.ts — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다.
 const RADAR_R = 72;
 
 // 축 i의 반지름 비율 frac(0~1) 지점 좌표 — 12시 방향부터 시계 방향 균등 분할

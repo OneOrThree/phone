@@ -38,6 +38,16 @@ public interface GroupChallengeRepository extends JpaRepository<GroupChallenge, 
             @Param("id") UUID id, @Param("group") Group group);
 
     /**
+     * 그룹 스코프 없는 잠금 조회(GROMO-1411 배치·N35) — 자동 개설({@code ensureSession})이 챌린지
+     * 행을 잠가 삭제·레거시 개설과 직렬화한다. 유저 요청 경로는 항상 그룹 검증이 있는
+     * {@link #findByIdAndGroupAndDeletedAtIsNullForUpdate}/{@link
+     * #findByIdAndGroupAndDeletedAtIsNullForShare} 를 쓸 것 — 이 메서드는 배치 전용이다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from GroupChallenge c where c.id = :id and c.deletedAt is null")
+    Optional<GroupChallenge> findByIdAndDeletedAtIsNullForUpdate(@Param("id") UUID id);
+
+    /**
      * 신 참여 경로(GROMO-1408·1414) 전용 — 같은 조회 + 챌린지 행 <b>공유 락</b>(SELECT … FOR SHARE).
      *
      * <p>참여(회차 lazy 개설 포함)는 이 공유 락 아래에서만 진행한다(계약 §3): 종료·삭제의 배타 락

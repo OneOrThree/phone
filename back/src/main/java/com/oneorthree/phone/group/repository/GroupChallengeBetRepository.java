@@ -1,6 +1,5 @@
 package com.oneorthree.phone.group.repository;
 
-import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -23,15 +22,8 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
     /** 설정 1:1 조회 — 레거시 개설 브리지가 "이미 설정이 있나"를 본다. */
     Optional<GroupChallengeBet> findByChallengeId(UUID challengeId);
 
-    /**
-     * 챌린지 삭제 가드(호출부: {@code GroupChallengeService.deleteChallenge}) — 해당 status 의
-     * <b>회차</b>가 걸려 있는지 본다. 시그니처는 재편 전 그대로, 판정 축만 회차로 옮겼다.
-     */
-    @Query("SELECT COUNT(s) > 0 FROM GroupChallengeBetSession s "
-            + "WHERE s.challenge.id = :challengeId AND s.status = :status")
-    boolean existsByChallengeIdAndStatus(
-            @Param("challengeId") UUID challengeId,
-            @Param("status") GroupBetStatus status);
+    // 구 삭제 가드 existsByChallengeIdAndStatus 는 GROMO-1272(삭제 = OPEN 회차 무효화+환불)로
+    // 폐기 — 호출부가 GroupBetSettler.voidOpenSessionsForChallengeDelete 로 대체됐다.
 
     /**
      * 휴면 배지(GROMO-1201) 판정용 — "이 챌린지에 내기가 걸린 적 있나". 재편 후에는 설정 행의
@@ -39,6 +31,32 @@ public interface GroupChallengeBetRepository extends JpaRepository<GroupChalleng
      */
     @Query("SELECT b.challenge.id FROM GroupChallengeBet b WHERE b.challenge.id IN :challengeIds")
     List<UUID> findChallengeIdsWithAnyBet(@Param("challengeIds") Collection<UUID> challengeIds);
+
+    /**
+     * 자동 개설 스캔 대상(GROMO-1411 배치·N35) — 내기가 켜진 설정 중 챌린지가 살아 있는(ACTIVE·
+     * 미삭제) 것의 <b>챌린지 id</b>. 엔티티가 아니라 id 만 뽑는 이유는 개설이 챌린지 단위로
+     * 트랜잭션을 새로 열어 처리되기 때문이다(한 건 실패가 다른 건을 말아먹지 않게).
+     */
+    @Query("SELECT b.challenge.id FROM GroupChallengeBet b JOIN b.challenge c "
+            + "WHERE b.enabled = true "
+            + "AND c.status = com.oneorthree.phone.group.domain.GroupChallengeStatus.ACTIVE "
+            + "AND c.deletedAt IS NULL ORDER BY b.id")
+    List<UUID> findActiveEnabledChallengeIds();
+
+    /**
+     * 카드 조립용(GROMO-1418) — <b>켜져 있는 설정</b>을 챌린지 목록 단위로 배치 로드한다. 회차가
+     * 하루도 없는 챌린지(마지막 참가자 취소로 회차 행 삭제 / lazy 개설 전)도 "내기가 걸려 있다"는
+     * 사실은 설정 행에 남아 있으므로, 회차 조회만으로 카드를 만들면 신앱이 {@code bet=null} 을
+     * "내기 꺼짐"으로 읽어 참여 진입점을 지운다.
+     *
+     * <p>끝났거나(ACTIVE 아님) 삭제된 챌린지는 제외한다 — 참여할 수 없는 챌린지에 내기 진입점을
+     * 세우지 않는다({@link #findActiveEnabledChallengeIds} 와 같은 기준).
+     */
+    @Query("SELECT b FROM GroupChallengeBet b JOIN FETCH b.challenge c "
+            + "WHERE c.id IN :challengeIds AND b.enabled = true "
+            + "AND c.status = com.oneorthree.phone.group.domain.GroupChallengeStatus.ACTIVE "
+            + "AND c.deletedAt IS NULL")
+    List<GroupChallengeBet> findEnabledByChallengeIdIn(@Param("challengeIds") Collection<UUID> challengeIds);
 
     /**
      * 휴면 배지 판정용 — <b>OPEN 회차</b>가 걸려 있는 챌린지. 일부러 날짜 무관이다(재편 전 주석

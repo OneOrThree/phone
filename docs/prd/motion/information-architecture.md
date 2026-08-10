@@ -66,7 +66,9 @@ flowchart TB
 | --- | --- | --- | --- |
 | 홈 카드 | 🟥 즉시 표시 | 🟦 `enterUp` stagger 60ms | PR7 |
 | 통계 카드 8종 | 🟥 스피너 → 즉시 교체 | 🟦 스켈레톤 → `enterUp` | PR4·PR7 |
-| 차트(막대·도넛·캘린더·타임테이블) | 🟥 정적 | 🟦 `growUp` 패턴 확산 | PR7 |
+| 꺾은선 차트(요일별·주차별) | 🟥 정적 | 🟦 draw-on 좌→우 (D16) | PR7 |
+| 도넛 · 캘린더 | 🟥 정적 | 🟦 링·행 `fadeIn` + 범례 `enterUp` | PR7 |
+| 주간 타임테이블 세션 블록 | 🟥 정적 | 🟦 `growUp` | PR7 |
 | 집중 결과 주간 막대 | 🟩 stagger 80ms | 🟦 60ms로 조정 | PR1 |
 | 리그 순위 리스트 | 🟥 즉시 표시 | 🟦 `enterUp` | PR7 |
 | 그룹 목록 | 🟥 스피너 → 즉시 교체 | 🟦 스켈레톤 → `enterUp` | PR4·PR7 |
@@ -87,7 +89,7 @@ flowchart TB
 | 코인 · 스트릭 수치 | 🟥 즉시 교체 | 🟦 `AnimatedNumber` 카운트업 | PR6 |
 | 온보딩 진행 세그먼트 | 🟥 즉시 색 변경 | 🟦 `ProgressBar` | PR6 |
 | 집중 카운트다운 · 뽀모도로 | 🟥 진행 어포던스 없음 | 🟦 `ProgressRing` | PR8 |
-| 뽀모도로 페이즈 전환 | 🟥 무표시 | 🟦 크로스페이드 + `hapticMedium` | PR8 |
+| 뽀모도로 페이즈 전환 | 🟩 2연속 진동(GROMO-864) | 🟦 크로스페이드 추가 (진동은 그대로) | PR8 |
 | 리그 순위 재정렬 | 🟥 통째 교체 | 🟦 `LinearTransition` | PR7 |
 | 리그 리스트 펼침 | 🟥 `LayoutAnimation`(충돌 위험) | 🟦 `LinearTransition`으로 치환 | PR7 |
 | 탭바 하이라이트 | 🟩 알약 슬라이드 350ms | 🟩 유지(토큰 이관) | PR1 |

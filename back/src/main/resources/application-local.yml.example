@@ -5,6 +5,11 @@
 #   Flyway 의존성(spring-boot-flyway)이 추가돼 기본적으로 Flyway 가 활성화되는데, local 은
 #   ddl-auto: update 로 스키마를 관리하므로 Flyway 를 끄지 않으면, 이미 만들어진 로컬 스키마에
 #   V1__baseline.sql 을 실행하려다(베이스라인 마킹 없음) bootRun 이 실패합니다.
+#
+# ℹ️ ShedLock(GROMO-1283): `shedlock` 테이블은 JPA 엔티티가 아니라 V45 마이그레이션에서만 생기는데
+#   local 은 Flyway 를 끄므로 스키마에 없습니다. common/config/ShedLockSchemaInitializer 가
+#   local·ci 프로파일에서 부팅 시 같은 DDL 로 만들어 주므로 손으로 만들 필요는 없습니다 —
+#   그 빈이 없으면 모든 크론이 첫 락 쿼리에서 relation "shedlock" does not exist 로 죽습니다.
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/tt_db

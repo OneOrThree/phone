@@ -37,6 +37,11 @@ jest.mock('@/store/UserContext', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({ logGroupOwnerTransferred: jest.fn() }));
 
+// 위임 성공 통보가 전역 토스트로 나간다(GROMO-1381) — useToast는 Provider 밖에서 throw하므로
+// 훅 자체를 목으로 대체한다(화면을 ToastProvider로 감싸지 않아도 되게).
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
+
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -161,6 +166,21 @@ describe('위임 확정 + source별 후속', () => {
     expect(mockWithdrawGroup).not.toHaveBeenCalled();
     expect(mockGoBack).toHaveBeenCalled();
     expect(mockPopToTop).not.toHaveBeenCalled();
+  });
+
+  // 성공 통보는 Alert가 아니라 토스트로 나간다(GROMO-1381 알럿 이관) — 직후 goBack이라
+  // 화면 전환을 넘어 살아남아야 해서 전역 토스트를 쓴다. 확인 Alert(위임 전)는 그대로 Alert다.
+  test('위임 성공은 새 방장 이름을 담은 토스트로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await mountAndSelect('u2');
+
+    await confirmTransfer(alertSpy);
+
+    expect(mockToastShow).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('수빈') }),
+    );
+    // 확인 Alert 1건 외에 성공 Alert가 추가로 뜨지 않는다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
   });
 
   test("source==='withdraw'면 위임 성공 직후 withdrawGroup까지 부르고 루트로 복귀한다", async () => {

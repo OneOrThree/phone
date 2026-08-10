@@ -7,9 +7,11 @@
 //
 // 캡처 폭 = 카드 폭(화면 안)이라 화면 밖으로 안 넓혀 잘림이 없다. 캡처 직후 chrome을 즉시 원복해
 // 공유 시트가 떠 있는 동안 카드가 변형된 채 남지 않게 한다(PR 386 리뷰와 동일 취지).
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Share, Platform, type ViewStyle } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
+import { useMotion } from '@/hooks/useMotion';
+import { whenReduceMotionReady } from '@/hooks/useReduceMotion';
 import { logStatsShared, type StatsShareCard } from '@/services/analyticsEvents';
 
 // 캐릭터 onLoad가 끝내 안 와도 공유가 막히지 않도록 하는 상한(FocusSessionScreen 캡처 선례 참고).
@@ -26,14 +28,34 @@ const CAPTURE_FRAME: ViewStyle = {
 const nextFrame = (): Promise<void> =>
   new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
+/** 지정 시각까지 대기. 이미 지났으면 곧바로 진행한다(대기 0). */
+const waitUntil = (at: number): Promise<void> => {
+  const left = at - Date.now();
+  return left > 0 ? new Promise((resolve) => setTimeout(resolve, left)) : Promise.resolve();
+};
+
 export function useTimetableShareCapture({
   card,
   makeFileName,
+  enterMs = 0,
 }: {
   // 계측 구분용 카드 종류
   card: StatsShareCard;
   // 공유 파일명 생성기 — 예: () => '260711_타임테이블' (캡처 시점에 오늘 날짜로 만든다)
   makeFileName: () => string;
+  /**
+   * 캡처 대상 안에서 도는 **진입 애니메이션의 총 재생 시간(ms)**. 진입할 노드가 마운트된
+   * 시점(=`onLoaded` 호출 시점)부터 이만큼은 캡처를 미룬다 (GROMO-1381).
+   *
+   * ⚠️ 왜 필요한가 — `WeeklyTimetable`은 세션 블록이 마운트되는 커밋 직후에 `onLoaded()`를
+   *    부른다. 즉 공유 버튼이 눌릴 수 있게 되는 순간이 곧 세션 블록의 `growUp`(scaleY 0→1)이
+   *    막 시작되는 순간이다. 그대로 찍으면 **찌그러진 막대가 PNG에 구워져** 사용자가
+   *    저장·공유한다.
+   *
+   * 진입이 없는 카드(일 탭 타임테이블)는 넘기지 않는다 — 기본값 0이면 대기가 사라진다.
+   * '동작 줄이기'에서도 0이다(`m.delay()` 통과) — 애니메이션이 없으니 기다릴 게 없다.
+   */
+  enterMs?: number;
 }): {
   shotRef: React.RefObject<View | null>;
   capturing: boolean;
@@ -43,10 +65,15 @@ export function useTimetableShareCapture({
   disabled: boolean;
   // 브랜드 캐릭터 이미지 로드/실패 콜백 — ShareBrandFooter/ShareDayFrame에 넘긴다
   onCharReady: () => void;
-  // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 조회 후 호출
-  onLoaded: () => void;
+  // 타임테이블 데이터 로드 완료 신호 — FocusTimetable/WeeklyTimetable이 호출.
+  // 인자는 **이번 렌더에서 진입 애니메이션이 붙는 노드들의 키**(주간 세션 블록의 신원).
+  // 그중 직전에 없던 키가 하나라도 있으면(=새로 마운트된 노드) 캡처 대기 기준 시각을 다시 잡는다.
+  // ⚠️ 진입이 있는 카드는 조회가 끝난 틱이 아니라 **그 노드가 실제로 마운트된 커밋 뒤**에
+  //    불러야 한다 — 마운트가 밀린 만큼 대기가 짧아진다(WeeklyTimetableCard 주석 참고).
+  onLoaded: (animatedKeys?: string[]) => void;
   onShare: () => Promise<void>;
 } {
+  const m = useMotion();
   const shotRef = useRef<View | null>(null);
   const [sharing, setSharing] = useState(false);
   // 캡처 전용 상태 — 브랜드 chrome 렌더 조건. sharing은 공유 시트가 닫혀야 풀리므로 그걸 쓰면
@@ -54,7 +81,81 @@ export function useTimetableShareCapture({
   const [capturing, setCapturing] = useState(false);
   // 타임테이블 데이터 로드 완료 여부 — 로딩 중(격자 스피너)에 공유하면 빈 이미지가 캡처되므로 막는다.
   const [ready, setReady] = useState(false);
-  const onLoaded = useCallback(() => setReady(true), []);
+  // 진입 애니메이션이 마지막으로 시작된 시각. 호출부가 **노드가 마운트된 커밋 뒤**에
+  // onLoaded를 부르므로, 이 값이 곧 growUp이 실제로 시작한 시각이다(codex 리뷰).
+  //
+  // ⚠️ 갱신 조건이 "데이터가 왔을 때"가 아니라 **"진입할 노드가 늘었을 때"** 인 이유:
+  //    진입 스타일은 인덱스별로 캐시된 참조라, 재조회로 같은 개수가 다시 그려지면 기존 노드가
+  //    재사용돼 애니메이션이 **재생되지 않는다.** 그때까지 기준 시각을 갱신하면 움직이는 것도
+  //    없는데 공유만 1초 넘게 늦어진다.
+  //    반대로 화면을 떠난 사이 새 세션이 생겨 **블록이 늘면** 새 노드가 마운트되며 growUp이
+  //    다시 돈다 — 그 경우엔 갱신해야 새 블록의 중간 프레임을 찍지 않는다(codex 리뷰).
+  // ⚠️ deps는 빈 배열을 유지해야 한다 — WeeklyTimetable/FocusTimetable의 useFocusEffect가
+  //    onLoaded를 의존성으로 잡고 있어, 참조가 바뀌면 재조회 루프가 된다.
+  const loadedAtRef = useRef(0);
+  // ⚠️ 진입은 '동작 줄이기'가 **확정된 뒤에야** 시작한다(m.enter가 그전까지 시작 프레임에
+  //    붙들어 둔다). 그래서 마감 시각의 기준은 데이터 도착과 확정 시각 중 **늦은 쪽**이다.
+  //    도착 시각만 쓰면 확정이 늦은 콜드 스타트에서 대기가 그만큼 짧아져 중간 프레임이 찍힌다.
+  const readyAtRef = useRef<number | null>(null);
+  // ⚠️ onShare는 비동기라 await 이전 렌더의 m을 계속 붙들고 있다. 미확정 당시의 m.delay는
+  //    0을 돌려주므로, 확정된 뒤에는 **ref로 최신 함수**를 읽어야 한다(codex 리뷰).
+  const delayRef = useRef(m.delay);
+  delayRef.current = m.delay;
+  const readyRef = useRef(m.ready);
+  readyRef.current = m.ready;
+  // 확정된 시각을 한 번만 기록한다. 이미 확정돼 있었다면 마운트 시점이 곧 그 시각이라,
+  // loadedAt보다 이르므로 아래 max()에서 자연히 무시된다.
+  useEffect(() => {
+    let alive = true;
+    whenReduceMotionReady().then(() => {
+      if (!alive) return;
+      if (readyAtRef.current === null) readyAtRef.current = Date.now();
+      // 확정 전에 마운트된 블록의 대기 길이를 이제 정한다 — Enter가 진입을 시작하는 시점과 같다.
+      if (waitPendingRef.current) {
+        waitMsRef.current = delayRef.current(enterMs);
+        waitPendingRef.current = false;
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [enterMs]);
+  // 직전에 진입 애니메이션이 붙어 있던 노드들의 **신원**(키). 개수가 아니다 — 아래 주석 참고.
+  const enterKeysRef = useRef<Set<string>>(new Set());
+  // 블록이 마운트되던 순간에 확정한 대기 길이(ms). 아래 onLoaded 주석 참고.
+  const waitMsRef = useRef(0);
+  // 아직 확정을 못 한 상태로 마운트가 있었는가 — '동작 줄이기'가 확정되면 그때 값을 채운다.
+  const waitPendingRef = useRef(false);
+  const onLoaded = useCallback(
+    (animatedKeys: string[] = []) => {
+      // ⚠️ 조건은 "처음 왔는가"도 "개수가 늘었는가"도 아니라 **"새로 마운트된 노드가 있는가"** 다.
+      //    · 기록이 없는 주는 빈 배열이 오는데, 재생될 애니메이션이 하나도 없는데도 마감 시각을
+      //      잡으면 그 사용자는 공유를 눌러도 1초 넘게 아무 반응이 없다(codex 리뷰).
+      //    · **개수로는 부족하다.** 블록 키가 신원(요일·분 구간·태그)이 된 뒤로는, 화면이 다른
+      //      스택 화면 아래에 남은 채 주 경계를 넘겨 재조회되면 **개수가 같거나 줄어도** 키가
+      //      달라진 블록이 새로 마운트되며 growUp을 재생한다. 그때 대기를 갱신하지 않으면
+      //      곧바로 공유했을 때 중간 프레임이 캡처된다(codex 리뷰).
+      const hasNewNode = animatedKeys.some((key) => !enterKeysRef.current.has(key));
+      if (hasNewNode) {
+        loadedAtRef.current = Date.now();
+        // ⚠️ 대기 길이도 **블록이 진입을 시작하는 그 시점의 설정으로** 확정한다. 공유 시점의
+        //    m.delay를 읽으면, 그 사이 설정을 켠 사용자에게 이미 시작된 growUp이 도는데도 대기가
+        //    0이 되어 중간 크기 블록이 캡처된다(codex 리뷰).
+        //    ⚠️ 아직 **미확정**이면 여기서 정하지 않는다 — 그때의 보수적 reduce=true는 실제 설정이
+        //       아니고(0을 돌려준다), Enter도 확정될 때까지 진입을 미룬다. 확정되는 시점에 위
+        //       whenReduceMotionReady 콜백이 채운다.
+        if (readyRef.current) {
+          waitMsRef.current = delayRef.current(enterMs);
+          waitPendingRef.current = false;
+        } else {
+          waitPendingRef.current = true;
+        }
+      }
+      enterKeysRef.current = new Set(animatedKeys);
+      setReady(true);
+    },
+    [enterMs],
+  );
 
   // 브랜드 캐릭터 로드 대기 게이트 — onLoad(실패 시 폴백 기본 에셋의 onLoad)가 오면 푼다(멱등). fast path에선 타임아웃을
   // 걷어 댕글링 타이머·중복 resolve를 막는다.
@@ -78,16 +179,53 @@ export function useTimetableShareCapture({
     [],
   );
 
+  // 진입 애니메이션이 끝날 때까지 기다린다 — **마감 시각이 안정될 때까지 반복해서** 읽는다.
+  //
+  // ⚠️ 한 번만 읽으면 안 된다. 기다리는 사이에 재조회가 끝나 새 블록이 마운트되면 `onLoaded`가
+  //    더 늦은 마감을 기록하는데, 이미 복사해 둔 값으로 기다리던 공유는 그 갱신을 못 본다
+  //    (codex 리뷰). 마감은 새 마운트에서만 앞으로 밀리고 마운트는 유한하므로 이 루프는 끝난다.
+  // ⚠️ `loadedAt` 0은 "기다릴 진입이 아예 없다"는 **센티넬**이다(기록 없는 주 등). 거기에
+  //    확정 시각을 끼워 넣으면 아무것도 자라지 않는 화면에서 1초 넘게 붙잡는다.
+  const settleEntrance = useCallback(async () => {
+    for (;;) {
+      const startedAt =
+        loadedAtRef.current > 0
+          ? Math.max(loadedAtRef.current, readyAtRef.current ?? loadedAtRef.current)
+          : 0;
+      const deadline = startedAt + waitMsRef.current;
+      if (Date.now() >= deadline) return;
+      await waitUntil(deadline);
+    }
+  }, []);
+
   const onShare = useCallback(async () => {
     if (sharing) return;
     setSharing(true);
-    setCapturing(true);
     try {
-      // 1) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지
-      await waitCharReady();
-      // 2) chrome·여백이 커밋·페인트된 뒤 캡처(두 프레임 대기). 여백은 내용 폭 불변이라 재측정 없음.
+      // 1) 캡처 대상의 진입 애니메이션이 끝난 뒤 진행 — 중간 프레임(찌그러진 세션 막대)이
+      //    PNG에 구워지는 것을 막는다. 이미 지난 시각이면 대기 0이라, 카드가 뜬 지 한참 뒤에
+      //    누르는 보통의 경우엔 아무 비용이 없다.
+      //    ⚠️ **capturing을 켜기 전에** 기다린다. 켜 놓고 기다리면 그 1초 남짓 동안 캡처 전용
+      //       chrome(브랜드 밴드·여백)이 실제 화면에 그대로 보이고 카드가 늘어난다(codex 리뷰).
+      //    ⚠️ '동작 줄이기' 확정을 **먼저** 기다린다. 미확정 구간의 보수적 reduce=true는
+      //       m.delay를 0으로 만들어 대기를 통째로 건너뛴다 — 설정을 켜지 않은 사용자의
+      //       진입 애니메이션이 도는 중에 캡처가 찍힌다(결정 D-30).
+      await whenReduceMotionReady();
+      await settleEntrance();
+      // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지.
+      //    ⚠️ 게이트를 **chrome을 붙이기 전에 등록**한다. 등록 전에 이미지 onLoad가 오면 신호를
+      //       잃고 CHAR_READY_TIMEOUT(1.5초)을 통째로 기다리게 된다.
+      const charReady = waitCharReady();
+      setCapturing(true);
+      await charReady;
+      // 3) chrome·여백이 커밋·페인트된 뒤 캡처(두 프레임 대기). 여백은 내용 폭 불변이라 재측정 없음.
       await nextFrame();
       await nextFrame();
+      // ⚠️ **여기서 한 번 더 확인한다.** 위 캐릭터 게이트·두 프레임을 기다리는 사이에 재조회가
+      //    끝나 새 블록이 자라기 시작할 수 있다(화면 재진입은 이전 블록을 유지한 채 조회하므로
+      //    공유 버튼이 잠기지 않는다). 마감 시각을 처음 한 번만 읽으면 그 갱신을 놓쳐 중간
+      //    프레임이 그대로 PNG가 된다(codex 리뷰).
+      await settleEntrance();
       const uri = await captureRef(shotRef, {
         format: 'png',
         quality: 1,
@@ -110,7 +248,7 @@ export function useTimetableShareCapture({
       setCapturing(false);
       setSharing(false);
     }
-  }, [sharing, waitCharReady, makeFileName, card]);
+  }, [sharing, waitCharReady, settleEntrance, makeFileName, card]);
 
   return {
     shotRef,
