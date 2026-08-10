@@ -403,11 +403,9 @@ Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TI
   id                 uuid        [pk]
   group_challenge_id uuid        [not null, note: 'FK → group_challenges.id']
   user_id            uuid        [not null, note: 'FK → users.id']
-  usage_date         date        [note: '보고 대상 날짜(KST). 창 사용분 업로드 경로는 항상 채운다 — migration V20']
+  usage_date         date        [not null, note: '보고 대상 날짜(KST). V37 에서 NOT NULL 승격(GROMO-1266) — NULL 잔재 행은 삭제로 정리. migration V20·V37']
 
-  progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값']
-  is_achieved        boolean     [not null, default: false, note: '목표 달성 여부']
-  achieved_at        timestamptz [note: '달성 확정 시각, null이면 진행 중/미달성']
+  progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값. 판정(달성)은 저장하지 않고 조회 시 계산 — 구 is_achieved·achieved_at 은 V37 에서 드롭(GROMO-1265)']
 
   created_at         timestamptz [not null, default: `now()`]
   updated_at         timestamptz
@@ -845,9 +843,9 @@ Table daily_screen_time_stats [note: '유저별 일일 스크린타임 집계 (�
   id                           uuid    [pk]
   user_id                      uuid    [note: 'nullable — 탈퇴 유저 익명 보존 (FK → users.id)']
 
-  date                         date    [not null, note: '유저 country_code 파생 ZoneId 기준 로컬 날짜 (GROMO-561)']
+  date                         date    [not null, note: 'KST 로컬 날짜 (GROMO-1259 — 저장축 KST 고정. 구 country_code 파생 존(GROMO-561)은 폐지, 해외 유저 어긋남은 L5 수용)']
 
-  total_screen_time_minutes    integer [not null, default: 0, note: '앱 전송 실제 스크린타임(분)']
+  total_screen_time_minutes    integer [note: '앱 전송 실제 스크린타임(분). null = 미집계(V38, GROMO-1267) — "0분 사용"과 구분(FR-16). 판정은 null 을 미보고(미달성)로 해석']
   is_screen_time_goal_achieved boolean [not null, default: false, note: '스크린타임 목표 달성 여부 (클라 계산값)']
   is_screen_time_finalized     boolean [not null, default: false, note: '오늘 row 확정 여부 — interim(false)이면 현재 목표로 재계산, final(true)이면 클라 스냅샷 사용. GROMO-805, V10']
 

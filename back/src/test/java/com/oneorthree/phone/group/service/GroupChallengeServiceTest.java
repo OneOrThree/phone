@@ -399,6 +399,35 @@ class GroupChallengeServiceTest {
     }
 
     @Test
+    @DisplayName("SCREEN_TIME 미집계 row(minutes null) 는 행 없음과 동일하게 null(판정 불가)로 전파 (GROMO-1267)")
+    void getChallengesPropagatesNullForUnmeasuredScreenTimeRow() {
+        // given: 목표 60분 · 둘 다 권한 동의 · 재영은 50분 사용(달성) · 수빈은 row 는 있으나 미집계(null)
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        GroupChallenge challenge = durationChallenge(group, MissionCategory.SCREEN_TIME);
+        List<GroupMember> members = givenGroupWithTwoMembers(group, user, challenge);
+        givenDurationDetail(60);
+        givenScreenTimePermission(USER_ID, OTHER_USER_ID);
+        given(dailyScreenTimeStatRepository.findByUserInAndDate(
+                members.stream().map(GroupMember::getUser).toList(), TODAY))
+                .willReturn(List.of(
+                        DailyScreenTimeStat.builder()
+                                .user(user).date(TODAY).totalScreenTimeMinutes(50).build(),
+                        DailyScreenTimeStat.builder()
+                                .user(members.get(1).getUser()).date(TODAY).build()));   // 미집계 — minutes null
+
+        // when
+        List<GroupChallengeResponse> result = groupChallengeService.getChallenges(GROUP_ID, USER_ID, TODAY);
+
+        // then: "0분 사용 = 달성"으로 뒤집히지 않는다 — 미집계는 3상(null) 그대로(FR-16)
+        List<ChallengeMemberProgressResponse> progress = result.get(0).getMemberProgress();
+        assertThat(progress.get(0).getProgressMinutes()).isEqualTo(50);
+        assertThat(progress.get(0).getAchieved()).isTrue();
+        assertThat(progress.get(1).getProgressMinutes()).isNull();
+        assertThat(progress.get(1).getAchieved()).isNull();
+    }
+
+    @Test
     @DisplayName("SCREEN_TIME 권한 미동의 멤버는 통계가 남아 있어도 진행률 null (비참여자와 동일 취급)")
     void getChallengesExcludesScreenTimeNonParticipants() {
         // given: 재영만 권한 동의 · 수빈은 권한 철회했지만 철회 전 통계 행(30분)이 남아 있음
