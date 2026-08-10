@@ -10,7 +10,10 @@ import { render, screen } from '@testing-library/react-native';
 import { Skeleton, SkeletonCard, SkeletonText } from './Skeleton';
 
 let mockReduce = false;
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => true,
+}));
 
 beforeEach(() => {
   mockReduce = false;

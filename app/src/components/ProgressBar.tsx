@@ -65,6 +65,17 @@ export function ProgressBar({
   }, [entered]);
   const shown = entered || m.reduce ? clamped : 0;
 
+  // ⚠️ delay는 **최초 채우기에만** 쓴다. 그대로 두면 이후 모든 width 변경에도 걸려서,
+  //    새로고침으로 값이 갱신될 때 숫자는 즉시 바뀌는데 진행바만 delay(예: 470ms) 동안 옛 값을
+  //    유지하다 600ms에 걸쳐 따라간다 — 두 표시가 최대 1초 넘게 어긋난다(codex 리뷰).
+  //    delay의 목적은 "카드 진입이 끝난 뒤 차오르기 시작"이라는 **1회성 순서 맞춤**이다.
+  const [delayUsed, setDelayUsed] = useState(delay <= 0);
+  useEffect(() => {
+    if (delayUsed || !entered) return;
+    const id = setTimeout(() => setDelayUsed(true), delay);
+    return () => clearTimeout(id);
+  }, [delayUsed, entered, delay]);
+
   // 소수점 둘째 자리까지 — 부동소수 오차(0.1+0.2)로 '30.000000000000004%' 같은 값이 나가지 않게.
   const widthPct = `${Math.round(shown * 10000) / 100}%` as const;
   const cap = radius ?? height / 2;
@@ -84,7 +95,14 @@ export function ProgressBar({
         style={[
           s.fill,
           { width: widthPct, backgroundColor: color, borderRadius: cap },
-          m.css(transition({ property: 'width', duration: M.dur.slow, curve: 'standard', delay })),
+          m.css(
+            transition({
+              property: 'width',
+              duration: M.dur.slow,
+              curve: 'standard',
+              delay: delayUsed ? 0 : delay,
+            }),
+          ),
         ]}
       />
     </View>
