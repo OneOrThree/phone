@@ -183,7 +183,9 @@ export default function GroupScreen() {
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: consumeGroupEntry(fallback),
+        // 게스트 초대 화면은 목록 성공 이벤트를 만들지 않는다. 여기서 invite source까지
+        // 소비하면 로그인 후 인증 목록의 첫 episode가 tab/return으로 오귀속된다.
+        source: isGuest && peekPendingInvite() ? fallback : consumeGroupEntry(fallback),
         logged: false,
       };
       fetchGroups();
@@ -191,7 +193,7 @@ export default function GroupScreen() {
         setScreenFocused(false);
         requestSeqRef.current++;
       };
-    }, [fetchGroups]),
+    }, [fetchGroups, isGuest]),
   );
 
   const closeInvite = useCallback(() => {
