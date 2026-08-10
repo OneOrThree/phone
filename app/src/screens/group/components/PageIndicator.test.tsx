@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import {
   PageIndicator,
   pageAccessibilityLabel,
@@ -57,5 +58,24 @@ describe('PageIndicator', () => {
 
   test('dot 접근성 이름은 그룹명과 현재/전체 위치를 함께 제공한다', () => {
     expect(pageAccessibilityLabel('아침 집중방', 0, 3)).toBe('아침 집중방, 1 / 3');
+  });
+
+  test('인디케이터 밖의 포커스는 mode 전환 때 가져오지 않는다', async () => {
+    const focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus');
+    await render(
+      <PageIndicator
+        pageLabels={['아침 집중방', '그룹 찾기']}
+        activeIndex={0}
+        onSelectPage={jest.fn()}
+      />,
+    );
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+
+    expect(focus).not.toHaveBeenCalled();
+    focus.mockRestore();
   });
 });

@@ -39,11 +39,11 @@ export function pageAccessibilityLabel(label: string, page: number, pageCount: n
 
 export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
+  const [focusWithin, setFocusWithin] = useState(false);
   const pageCount = pageLabels.length;
+  const safeActiveIndex = Math.max(0, Math.min(activeIndex, Math.max(0, pageCount - 1)));
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
   const previousModeRef = useRef(mode);
-  const focusWithinRef = useRef(false);
-  const screenReaderEnabledRef = useRef(false);
   const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
 
@@ -53,29 +53,15 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
-      if (mounted) screenReaderEnabledRef.current = enabled;
-    });
-    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', (enabled) => {
-      screenReaderEnabledRef.current = enabled;
-    });
-    return () => {
-      mounted = false;
-      subscription.remove();
-    };
-  }, []);
-
-  useEffect(() => {
     if (previousModeRef.current === mode) return;
     previousModeRef.current = mode;
-    if (!focusWithinRef.current && !screenReaderEnabledRef.current) return;
-    const target = mode === 'counter' ? counterRef.current : dotRefs.current[activeIndex];
+    if (!focusWithin) return;
+    const target = mode === 'counter' ? counterRef.current : dotRefs.current[safeActiveIndex];
     // 키보드 입력 포커스와 스크린리더 접근성 포커스는 별개라 둘 다 이전한다.
     target?.focus();
     const node = findNodeHandle(target);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [activeIndex, mode]);
+  }, [focusWithin, mode, safeActiveIndex]);
 
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
@@ -90,18 +76,18 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
               style={s.dotHit}
               onPress={() => onSelectPage(page)}
               onFocus={() => {
-                focusWithinRef.current = true;
+                setFocusWithin(true);
               }}
               onBlur={() => {
-                focusWithinRef.current = false;
+                setFocusWithin(false);
               }}
               accessibilityRole="button"
               accessibilityLabel={pageAccessibilityLabel(pageLabels[page] ?? '', page, pageCount)}
-              accessibilityState={{ selected: page === activeIndex }}
+              accessibilityState={{ selected: page === safeActiveIndex }}
               testID={`group.deck.indicator.dot.${page}`}
             >
               <View
-                style={[s.dot, page === activeIndex && s.dotActive]}
+                style={[s.dot, page === safeActiveIndex && s.dotActive]}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
               />
@@ -114,17 +100,17 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
           style={s.counterHit}
           accessible
           accessibilityRole="text"
-          accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
           onFocus={() => {
-            focusWithinRef.current = true;
+            setFocusWithin(true);
           }}
           onBlur={() => {
-            focusWithinRef.current = false;
+            setFocusWithin(false);
           }}
           testID="group.deck.indicator.counter"
         >
           <Text style={s.counter}>
-            {activeIndex + 1} / {pageCount}
+            {safeActiveIndex + 1} / {pageCount}
           </Text>
         </Pressable>
       )}

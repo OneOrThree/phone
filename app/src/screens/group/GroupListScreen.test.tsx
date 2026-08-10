@@ -112,6 +112,37 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
   });
 
+  test('목록 축소와 indicator mode 전환이 겹쳐도 확정된 stable index를 선택한다', async () => {
+    const groups = Array.from({ length: 6 }, (_, index) =>
+      group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
+    );
+    const view = await renderList(groups);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 320 } },
+      });
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 3500 } },
+      });
+    });
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('6 / 7');
+
+    await view.rerender(
+      <GroupListScreen
+        groups={groups.slice(0, 2)}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        enableCardDeck
+      />,
+    );
+
+    expect(screen.getByTestId('group.deck.indicator.dot.1').props.accessibilityState).toEqual({
+      selected: true,
+    });
+  });
+
   test('자물쇠는 비공개 그룹에만, 방장 배지는 내가 OWNER인 그룹에만 붙는다', async () => {
     await renderList([
       group({ isPrivate: true, role: 'OWNER' }),

@@ -66,6 +66,7 @@ export default function GroupListScreen({
   const { width: windowWidth } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(groups[0]?.groupId ?? null);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const pageCount = groups.length + 1;
@@ -75,6 +76,12 @@ export default function GroupListScreen({
   const activeIndexRef = useRef(0);
   const previousGroupFingerprintRef = useRef(groupFingerprint);
   const previousSnapIntervalRef = useRef(snapInterval);
+  const stableActiveIndex =
+    activeGroupId === null ? groups.length : groups.findIndex((g) => g.groupId === activeGroupId);
+  const renderedActiveIndex =
+    stableActiveIndex >= 0
+      ? stableActiveIndex
+      : Math.min(activeIndex, Math.max(0, groups.length - 1));
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -100,6 +107,7 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = groups[next]?.groupId ?? null;
+      setActiveGroupId(groups[next]?.groupId ?? null);
       activeIndexRef.current = next;
       setActiveIndex(next);
     },
@@ -113,6 +121,7 @@ export default function GroupListScreen({
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
       );
       activeIdentityRef.current = groups[next]?.groupId ?? null;
+      setActiveGroupId(groups[next]?.groupId ?? null);
       activeIndexRef.current = next;
       setActiveIndex(next);
     },
@@ -134,6 +143,7 @@ export default function GroupListScreen({
     const safeIndex =
       next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    setActiveGroupId(groups[safeIndex]?.groupId ?? null);
     activeIndexRef.current = safeIndex;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
@@ -239,7 +249,7 @@ export default function GroupListScreen({
       {enableCardDeck && (
         <PageIndicator
           pageLabels={[...groups.map((group) => group.name), '그룹 찾기']}
-          activeIndex={activeIndex}
+          activeIndex={renderedActiveIndex}
           onSelectPage={selectPage}
         />
       )}
