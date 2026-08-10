@@ -56,8 +56,12 @@ jobs:
           # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
           provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
           tags: ${{ env.APP_IMAGE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 캐시는 러너와 같은 리전의 GAR(ci-cache) — prod-ci와 같은 저장소를 쓴다.
+          # gha 캐시는 GCP 러너 ↔ GitHub 캐시 서비스 크로스클라우드 왕복이라
+          # 히트조차 ~50s로 GAR 히트(~5s)의 10배가 걸렸다.
+          # 태그를 arm64(prod)와 나눠 서로의 캐시를 덮어쓰지 않게 한다.
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
 
       - name: 결과 요약
         run: |

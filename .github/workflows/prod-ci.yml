@@ -85,8 +85,12 @@ jobs:
           tags: ${{ env.ECR_REPO }}:${{ github.sha }}
           # 캐시는 러너 동일 리전 GAR(ci-cache) — gha 크로스 클라우드 왕복 제거.
           # dev(cd.yml)는 기존 gha 캐시 유지 결정이라 캐시 공유 없음(prod 자기 캐시만).
-          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree/ci-cache/back:cache-arm64
-          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree/ci-cache/back:cache-arm64,mode=max
+          # 프로젝트가 oneorthree → oneorthree2로 이전됐다(GROMO-956). 구 프로젝트의
+          # GAR은 이미 사라져 이 경로로는 캐시 export가 실패한다. 러너(gromo-dev-build)의
+          # SA도 신 프로젝트 저장소에만 writer 권한이 있다.
+          # 캐시는 이관하지 않았으므로 전환 후 첫 빌드 1회는 콜드다.
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-arm64
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-arm64,mode=max
 
       # SemVer 자동 산정 (GROMO-788) — release 머지를 만든 PR의 라벨로 범프 결정.
       #   release:major / release:minor / release:patch (미지정 시 patch)
