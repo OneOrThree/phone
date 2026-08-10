@@ -66,3 +66,29 @@ test('로컬 쓰기 실패에도 현재 세션 순서는 유지하고 다음 커
   });
   await waitFor(() => expect(result.current.saveFailed).toBe(false));
 });
+
+test('순서 저장 중 서버 목록이 바뀌어도 저장 완료 뒤 최신 순서로 다시 hydrate한다', async () => {
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    started();
+    await writeGate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+  const { result, rerender } = await renderHook(
+    ({ ids }: { ids: string[] }) => useGroupCardOrder({ serverGroupIds: ids, userId: 'me' }),
+    { initialProps: { ids: ['a', 'b'] } },
+  );
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+
+  await act(async () => expect(result.current.commitOrder(['b', 'a'])).toBe(true));
+  await startedGate;
+  await rerender({ ids: ['a', 'b', 'c'] });
+  expect(result.current.hydrated).toBe(false);
+
+  await act(async () => release());
+  await waitFor(() => expect(result.current.orderedGroupIds).toEqual(['b', 'a', 'c']));
+  expect(await readGroupCardOrder('me')).toEqual(['b', 'a', 'c']);
+});

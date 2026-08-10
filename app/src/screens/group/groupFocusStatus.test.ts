@@ -56,7 +56,7 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     });
   });
 
-  test('loading·최초 error는 미산출이고 이전 complete 뒤 갱신 실패만 stale count를 유지한다', async () => {
+  test('최초 loading·error는 미산출이고 complete는 갱신 중 유지한 뒤 실패 시 stale이 된다', async () => {
     const refresh = deferred<LeagueMemberResponse[]>();
     const load = jest
       .fn()
@@ -66,9 +66,13 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     await store.ensure(USER_ID, DATE);
     const pending = store.retry(USER_ID, DATE);
 
-    expect(store.getState(USER_ID, DATE)).toEqual({ status: 'loading' });
+    expect(store.getState(USER_ID, DATE)).toEqual({
+      status: 'ready',
+      data: [member('a', true)],
+    });
     expect(deriveGroupFocusCount(['a'], store.getState(USER_ID, DATE))).toEqual({
-      status: 'unavailable',
+      status: 'ready',
+      count: 1,
     });
     refresh.reject(new Error('network'));
     await pending;

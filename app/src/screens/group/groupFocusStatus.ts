@@ -78,7 +78,9 @@ export class GroupFocusStatusStore {
   ): Promise<GroupFocusStatusState> {
     const key = cacheKey(userId, date);
     const entry: CacheEntry = {
-      state: { status: 'loading' },
+      // 최초 요청만 loading이다. 이미 확인된 complete 값은 polling/foreground refresh가
+      // 끝날 때까지 유지하고, 성공 응답 또는 실패(stale)에서만 교체한다.
+      state: previous?.lastComplete ? previous.state : { status: 'loading' },
       lastComplete: previous?.lastComplete ?? null,
       inFlight: null,
     };

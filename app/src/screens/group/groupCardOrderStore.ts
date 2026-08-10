@@ -60,6 +60,9 @@ function enqueueWrite(task: () => Promise<void>): Promise<void> {
 
 export async function readGroupCardOrder(userId: string): Promise<string[] | null> {
   try {
+    // hydration도 같은 key의 앞선 RMW가 끝난 뒤 읽는다. 저장 직후 serverKey가 바뀌어
+    // 새 목록을 hydrate하더라도 저장 전 snapshot으로 최신 사용자 순서를 되돌리지 않는다.
+    await writeQueue;
     const map = parseGroupCardOrder(await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder));
     return map[userId] ?? null;
   } catch {
