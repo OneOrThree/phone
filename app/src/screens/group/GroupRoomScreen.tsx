@@ -34,6 +34,13 @@ import {
   logGroupRoomViewed,
 } from '@/services/analyticsEvents';
 import { issueInviteLink } from '@/services/inviteLinkApi';
+import {
+  consumeCardInteraction,
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+  ROOM_ATTRIBUTION_TTL_MS,
+  type FocusEntrySource,
+} from '@/services/cardInteraction';
 import { todayStrKst } from '@/utils/localDate';
 import type {
   GroupAnnouncementResponse,
@@ -161,6 +168,9 @@ function settledBetSignature(challenges: GroupChallengeResponse[], userId: strin
 
 export interface GroupRoomScreenProps {
   groupId: string;
+  entrySource?: FocusEntrySource;
+  interactionId?: string;
+  interactionAcceptedAt?: number;
   // 챌린지 종료 푸시가 지목한 챌린지(GROMO-1088) — 진입 직후 이 챌린지의 결과 모달을 자동으로 연다.
   // 딥링크 진입에만 실린다(목록 탭 진입은 undefined). 자세한 규칙은 아래 focusPendingRef 주석.
   focusChallengeId?: string;
@@ -179,6 +189,9 @@ export interface GroupRoomScreenProps {
 
 export default function GroupRoomScreen({
   groupId,
+  entrySource: rawEntrySource,
+  interactionId: rawInteractionId,
+  interactionAcceptedAt: rawInteractionAcceptedAt,
   focusChallengeId,
   summary,
   onLeft,
@@ -190,6 +203,9 @@ export default function GroupRoomScreen({
   const { userId } = useUser();
   // 잔액은 CoinContext가 정본이다 — 여기서는 '서버가 정산했다'를 감지했을 때만 다시 받는다.
   const { refresh: refreshCoins } = useCoins();
+  const entrySource = normalizeFocusEntrySource(rawEntrySource);
+  const interactionId = entrySource === 'group_card' ? rawInteractionId : undefined;
+  const interactionAcceptedAt = entrySource === 'group_card' ? rawInteractionAcceptedAt : undefined;
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
   // null = 아직 한 번도 못 받음. '공지 없음(빈 배열)'과 '공지 조회 실패'를 구분한다 —
@@ -233,9 +249,9 @@ export default function GroupRoomScreen({
   // 직전 조회에서 본 '내 정산 내기' 서명(settledBetSignature). null = 아직 한 번도 못 받음 —
   // 첫 조회는 비교 대상이 없어 재조회하지 않는다(마운트 시 CoinContext가 이미 잔액을 받는다).
   const settledSigRef = useRef<string | null>(null);
-  // 그룹방 방문 계측(group_room_viewed)을 그룹당 1회로 묶는 기준 — 마지막으로 발행한 groupId.
-  // 새로고침·포그라운드 복귀 재조회·같은 방 재포커스에선 재발행하지 않고, 그룹을 바꾸면 다시 발행한다.
-  const roomViewedGroupIdRef = useRef<string | null>(null);
+  // 그룹방 방문 결과의 view episode 키 — 같은 route의 새로고침·재렌더에는 재발행하지 않는다.
+  // 같은 그룹이라도 새 카드 CTA interaction이면 별도 episode이고, ID 소비는 전역 exact-once 가드가 맡는다.
+  const roomViewedKeyRef = useRef<string | null>(null);
   // 지금 떠 있는 결과 모달의 노출 시각·키 — dwell_ms 계산과 노출 이벤트/가드 1회 실행용.
   const resultShownAtRef = useRef<number | null>(null);
   const resultShownKeyRef = useRef<string | null>(null);
@@ -457,10 +473,19 @@ export default function GroupRoomScreen({
       pendingLeaveRef.current = false;
       setDetail(resolvedDetail);
       loadedDateRef.current = date;
-      // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — 그룹당 1회.
-      if (roomViewedGroupIdRef.current !== groupId) {
-        roomViewedGroupIdRef.current = groupId;
-        logGroupRoomViewed({ group_id: groupId });
+      // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — route episode당 1회.
+      const roomViewedKey = `${groupId}:${entrySource}:${interactionId ?? 'none'}`;
+      if (roomViewedKeyRef.current !== roomViewedKey) {
+        roomViewedKeyRef.current = roomViewedKey;
+        const attributedInteractionId = consumeCardInteraction(
+          { entrySource, interactionId, interactionAcceptedAt },
+          ROOM_ATTRIBUTION_TTL_MS,
+        );
+        logGroupRoomViewed({
+          group_id: groupId,
+          entry_source: entrySource,
+          interaction_id: attributedInteractionId,
+        });
       }
     }
 
@@ -500,7 +525,7 @@ export default function GroupRoomScreen({
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
     return true;
-  }, [groupId, onLeft, userId, refreshCoins]);
+  }, [groupId, onLeft, userId, refreshCoins, entrySource, interactionId, interactionAcceptedAt]);
 
   // 최초 진입·재시도 — 스피너를 세우고 조회한다(당겨서 새로고침은 RefreshControl이 표시).
   const reload = useCallback(() => {
@@ -521,8 +546,9 @@ export default function GroupRoomScreen({
       return () => {
         focusedRef.current = false;
         requestSeqRef.current++;
+        invalidateCardInteraction(interactionId);
       };
-    }, [reload]),
+    }, [reload, interactionId]),
   );
 
   // 지목이 바뀌면 재조회한다(GROMO-1088, 코덱스 리뷰) — 이 방이 이미 떠 있는 채로 **같은 그룹의
@@ -542,11 +568,14 @@ export default function GroupRoomScreen({
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') return;
+      if (state !== 'active') {
+        invalidateCardInteraction(interactionId);
+        return;
+      }
       if (focusedRef.current || loadedDateRef.current !== todayStrKst()) reload();
     });
     return () => sub.remove();
-  }, [reload]);
+  }, [reload, interactionId]);
 
   // 초대 링크가 도착하면 이 화면이 소유한 시트를 전부 내린다 — 초대 시트와 이 시트들은 모두
   // SheetShell asModal(RN 네이티브 Modal)이라 동시에 뜨면 딤이 2겹으로 포개지고, 플랫폼별 모달
@@ -1046,7 +1075,14 @@ export default function GroupRoomScreen({
 
       {/* 그룹방 하단바(F2 Part2) — ▶ FAB는 이 그룹의 집중 세션(그룹 페이지 기본)으로 진입시킨다. */}
       <GroupRoomBottomBar
-        onFocusPress={() => navigation.navigate('FocusCategory', { initialGroupId: groupId })}
+        onFocusPress={() =>
+          navigation.navigate('FocusCategory', {
+            initialGroupId: groupId,
+            entrySource: 'group_room',
+            interactionId: undefined,
+            interactionAcceptedAt: undefined,
+          })
+        }
       />
 
       {/* ── 챌린지 만들기 시트(방장만) ── */}
