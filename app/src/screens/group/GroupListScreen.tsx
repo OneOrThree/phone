@@ -60,6 +60,7 @@ import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { GroupCardBack } from './components/GroupCardBack';
+import { GroupCardFlip } from './components/GroupCardFlip';
 import { useGroupCardOrder } from './useGroupCardOrder';
 import { useGroupCardEmojis } from './useGroupCardEmojis';
 import { useGroupCardData } from './useGroupCardData';
@@ -226,6 +227,8 @@ export default function GroupListScreen({
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const refreshRequestRef = useRef(0);
+  const draggingGroupIdRef = useRef<string | null>(null);
+  draggingGroupIdRef.current = draggingGroupId;
   const reorderMenuGroupIdRef = useRef<string | null>(null);
   reorderMenuGroupIdRef.current = reorderMenuGroupId;
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
@@ -266,7 +269,13 @@ export default function GroupListScreen({
     reloadToken: groupsRevision,
   });
   const refreshGroups = useCallback(() => {
-    if (refreshingRef.current) return;
+    // iOS는 RefreshControl.enabled를 무시하므로 handler에서도 순서 변경 episode를 잠근다.
+    if (
+      refreshingRef.current ||
+      reorderMenuGroupIdRef.current !== null ||
+      draggingGroupIdRef.current !== null
+    )
+      return;
     const request = ++refreshRequestRef.current;
     refreshingRef.current = true;
     setRefreshing(true);
@@ -327,6 +336,14 @@ export default function GroupListScreen({
       ? stableActiveIndex
       : Math.min(activeIndex, Math.max(0, orderedGroups.length - 1));
   const activeGroupId = orderedGroups[renderedActiveIndex]?.groupId ?? null;
+
+  useEffect(() => {
+    const menuGroupId = reorderMenuGroupIdRef.current;
+    if (menuGroupId !== null && !orderedGroups.some((group) => group.groupId === menuGroupId)) {
+      reorderMenuGroupIdRef.current = null;
+      setReorderMenuGroupId(null);
+    }
+  }, [orderedGroups]);
   const guideEligible =
     typeof userId === 'string' &&
     orderedGroups.length > 0 &&
@@ -1056,81 +1073,91 @@ export default function GroupListScreen({
                     }
                     testID={`group.list.card.${item.groupId}`}
                   >
-                    {flippedGroupId === item.groupId ? (
-                      <GroupCardBack
-                        group={item}
-                        userId={userId}
-                        cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
-                        position={index + 1}
-                        pageCount={pageCount}
-                        snapshot={snapshots[item.groupId]}
-                        roomRef={
-                          activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
-                        }
-                        backFocusRef={
-                          activeIdentityRef.current === item.groupId ? backFocusRef : undefined
-                        }
-                        settingsRef={
-                          activeIdentityRef.current === item.groupId ? settingsFocusRef : undefined
-                        }
-                        onFlipFront={flipToFront}
-                        onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
-                        onStartFocus={() => {
-                          runCardAction(item, 'focus', (interaction) =>
-                            onStartFocus(item.groupId, interaction),
-                          );
-                        }}
-                        onOpenSettings={() => {
-                          runCardAction(item, 'settings', () => {
-                            roomReturnRef.current = {
-                              groupId: item.groupId,
-                              sourceIndex: index,
-                              departureRevision: groupsRevision,
-                            };
-                            returnFocusTargetRef.current = 'settings';
-                            onOpenSettings(item.groupId);
-                          });
-                        }}
-                        onOpenRoom={() => {
-                          runCardAction(item, 'room', (interaction) => {
-                            roomReturnRef.current = {
-                              groupId: item.groupId,
-                              sourceIndex: index,
-                              departureRevision: groupsRevision,
-                            };
-                            returnFocusTargetRef.current = 'room';
-                            onSelect(item.groupId, interaction);
-                          });
-                        }}
-                        onRetry={(dependency) => retry(item.groupId, dependency)}
-                      />
-                    ) : (
-                      <GroupCardFront
-                        group={item}
-                        cardRef={item.groupId === activeGroupId ? guideFrontRef : undefined}
-                        emoji={emojiFor(item.groupId)}
-                        position={index + 1}
-                        pageCount={pageCount}
-                        active={item.groupId === activeGroupId}
-                        bodyRef={
-                          activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
-                        }
-                        onFlip={() => flipToBack(item.groupId)}
-                        onAccessibilityFlip={() => flipToBack(item.groupId, 'accessibility_action')}
-                        reorderHandlers={handlersFor(item.groupId)}
-                        canMovePrevious={index > 0}
-                        canMoveNext={index < orderedGroups.length - 1}
-                        onMoveStep={(step) => {
-                          if (reorderMenuGroupIdRef.current !== null) return;
-                          roomReturnRef.current = null;
-                          const from = orderedGroupsRef.current.findIndex(
-                            (group) => group.groupId === item.groupId,
-                          );
-                          if (commitMove(item.groupId, from + step, 'accessibility_action'))
-                            setFlippedGroupId(null);
-                        }}
-                      />
-                    )}
+                    <GroupCardFlip
+                      groupId={item.groupId}
+                      minHeight={GROUP_CARD_HEIGHT}
+                      flipped={flippedGroupId === item.groupId}
+                      back={
+                        <GroupCardBack
+                          group={item}
+                          userId={userId}
+                          cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
+                          position={index + 1}
+                          pageCount={pageCount}
+                          snapshot={snapshots[item.groupId]}
+                          roomRef={
+                            activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
+                          }
+                          backFocusRef={
+                            activeIdentityRef.current === item.groupId ? backFocusRef : undefined
+                          }
+                          settingsRef={
+                            activeIdentityRef.current === item.groupId
+                              ? settingsFocusRef
+                              : undefined
+                          }
+                          onFlipFront={flipToFront}
+                          onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
+                          onStartFocus={() => {
+                            runCardAction(item, 'focus', (interaction) =>
+                              onStartFocus(item.groupId, interaction),
+                            );
+                          }}
+                          onOpenSettings={() => {
+                            runCardAction(item, 'settings', () => {
+                              roomReturnRef.current = {
+                                groupId: item.groupId,
+                                sourceIndex: index,
+                                departureRevision: groupsRevision,
+                              };
+                              returnFocusTargetRef.current = 'settings';
+                              onOpenSettings(item.groupId);
+                            });
+                          }}
+                          onOpenRoom={() => {
+                            runCardAction(item, 'room', (interaction) => {
+                              roomReturnRef.current = {
+                                groupId: item.groupId,
+                                sourceIndex: index,
+                                departureRevision: groupsRevision,
+                              };
+                              returnFocusTargetRef.current = 'room';
+                              onSelect(item.groupId, interaction);
+                            });
+                          }}
+                          onRetry={(dependency) => retry(item.groupId, dependency)}
+                        />
+                      }
+                      front={
+                        <GroupCardFront
+                          group={item}
+                          cardRef={item.groupId === activeGroupId ? guideFrontRef : undefined}
+                          emoji={emojiFor(item.groupId)}
+                          position={index + 1}
+                          pageCount={pageCount}
+                          active={item.groupId === activeGroupId}
+                          bodyRef={
+                            activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
+                          }
+                          onFlip={() => flipToBack(item.groupId)}
+                          onAccessibilityFlip={() =>
+                            flipToBack(item.groupId, 'accessibility_action')
+                          }
+                          reorderHandlers={handlersFor(item.groupId)}
+                          canMovePrevious={index > 0}
+                          canMoveNext={index < orderedGroups.length - 1}
+                          onMoveStep={(step) => {
+                            if (reorderMenuGroupIdRef.current !== null) return;
+                            roomReturnRef.current = null;
+                            const from = orderedGroupsRef.current.findIndex(
+                              (group) => group.groupId === item.groupId,
+                            );
+                            if (commitMove(item.groupId, from + step, 'accessibility_action'))
+                              setFlippedGroupId(null);
+                          }}
+                        />
+                      }
+                    />
                     {reorderMenuGroupId === item.groupId && (
                       <View style={s.reorderMenu} testID={`group.card.reorderMenu.${item.groupId}`}>
                         <Text style={s.reorderTitle}>순서 변경</Text>

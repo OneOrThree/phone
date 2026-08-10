@@ -135,7 +135,9 @@ describe('카드 렌더', () => {
 
     expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
     expect(screen.getByText('2/5')).toBeOnTheScreen();
-    expect(screen.getByText('저녁 스터디', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(
+      screen.getAllByText('저녁 스터디', { includeHiddenElements: true }).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toHaveStyle({
       shadowOpacity: 0.16,
@@ -433,6 +435,12 @@ describe('제스처 중재와 재정렬', () => {
 
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
+
+    // iOS는 RefreshControl.enabled를 적용하지 않으므로 handler도 같은 잠금을 가져야 한다.
+    await act(async () => {
+      screen.getByTestId('group.list.scroller').props.refreshControl.props.onRefresh();
+    });
+    expect(onRefresh).not.toHaveBeenCalled();
 
     // 메뉴가 열린 동안 다른 카드·페이지·헤더 전이는 같은 포인터 episode를 가로채지 않는다.
     await press(`group.card.${GROUP_ID_2}`);

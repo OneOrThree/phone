@@ -4,6 +4,7 @@ import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
+import { categoryLabel, missionLabel } from './challengeLabel';
 
 interface Props {
   group: GroupSummaryResponse;
@@ -63,10 +64,10 @@ export function GroupCardBack({
     ].slice(0, 5);
   })();
   const focusCount = deriveGroupFocusCount(memberIds, focus);
-  const activeChallengeCount =
+  const activeChallenges =
     challenges.status === 'ready'
-      ? challenges.data.filter((challenge) => challenge.status === 'ACTIVE').length
-      : 0;
+      ? challenges.data.filter((challenge) => challenge.status === 'ACTIVE')
+      : [];
 
   return (
     <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
@@ -124,9 +125,18 @@ export function GroupCardBack({
       <View style={s.section}>
         <Text style={s.sectionTitle}>공지</Text>
         {announcements.status === 'ready' ? (
-          <Text style={s.body} numberOfLines={1}>
-            {announcements.data[0]?.title ?? '새 공지가 없어요'}
-          </Text>
+          announcements.data[0] ? (
+            <View>
+              <Text style={s.body} numberOfLines={1}>
+                {announcements.data[0].title}
+              </Text>
+              <Text style={s.muted} numberOfLines={2} testID="group.card.announcement.content">
+                {announcements.data[0].content}
+              </Text>
+            </View>
+          ) : (
+            <Text style={s.body}>새 공지가 없어요</Text>
+          )
         ) : announcements.status === 'error' ? (
           <TouchableOpacity onPress={() => onRetry('announcements')}>
             <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
@@ -139,7 +149,31 @@ export function GroupCardBack({
       <View style={s.section}>
         <Text style={s.sectionTitle}>그룹 활동</Text>
         {challenges.status === 'ready' ? (
-          <Text style={s.body}>진행 중인 활동 {activeChallengeCount}개</Text>
+          activeChallenges.length > 0 ? (
+            <View style={s.activityList}>
+              {activeChallenges.map((challenge) => {
+                const myProgress = challenge.memberProgress?.find(
+                  (progress) => progress.userId === userId,
+                );
+                const progressText =
+                  myProgress === undefined
+                    ? null
+                    : myProgress.progressMinutes === null
+                      ? '내 진행 미집계'
+                      : `내 진행 ${myProgress.progressMinutes}${challenge.durationMinutes ? `/${challenge.durationMinutes}` : ''}분${myProgress.achieved === true ? ' · 달성' : ''}`;
+                return (
+                  <View key={challenge.id} testID={`group.card.activity.${challenge.id}`}>
+                    <Text style={s.body} numberOfLines={1}>
+                      {missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge)}
+                    </Text>
+                    {progressText !== null && <Text style={s.muted}>{progressText}</Text>}
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={s.body}>진행 중인 활동이 없어요</Text>
+          )
         ) : challenges.status === 'error' ? (
           <TouchableOpacity onPress={() => onRetry('challenges')}>
             <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
@@ -201,6 +235,7 @@ const s = StyleSheet.create({
   title: { ...T.text.heading, color: T.ink, flex: 1 },
   section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
   sectionTitle: { ...T.text.label, color: T.ink },
+  activityList: { gap: T.space.xs },
   body: { ...T.text.caption, color: T.ink },
   muted: { ...T.text.caption, color: T.inkSub },
   error: { ...T.text.caption, color: T.dangerInk },

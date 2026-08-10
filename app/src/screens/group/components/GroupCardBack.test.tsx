@@ -64,7 +64,7 @@ test('완전한 focus 응답에서만 확인된 0명을 표시한다', async () 
 
   expect(screen.getByText('현재 집중 0명')).toBeOnTheScreen();
   expect(screen.getByText('새 공지가 없어요')).toBeOnTheScreen();
-  expect(screen.getByText('진행 중인 활동 0개')).toBeOnTheScreen();
+  expect(screen.getByText('진행 중인 활동이 없어요')).toBeOnTheScreen();
 });
 
 test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한다', async () => {
@@ -171,24 +171,99 @@ test('현재 사용자가 상위 5명 밖이어도 선두에 두고 나머지 �
   expect(screen.queryByText(/다섯째/)).toBeNull();
 });
 
-test('그룹 활동 수는 ACTIVE 상태만 센다', async () => {
+test('최신 공지의 제목과 본문을 원문 순서로 표시하고 본문은 두 줄로 제한한다', async () => {
   await render(
     <GroupCardBack
       {...baseProps}
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: {
+          status: 'ready',
+          data: [
+            {
+              id: 'notice-1',
+              title: '오늘 일정',
+              content: '오늘은 오전 9시에 함께 시작합니다.',
+              createdAt: '2026-08-11T00:00:00Z',
+            },
+          ],
+        },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('오늘 일정')).toBeOnTheScreen();
+  expect(screen.getByText('오늘은 오전 9시에 함께 시작합니다.')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.announcement.content').props.numberOfLines).toBe(2);
+});
+
+test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 compact row로 유지한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      userId="me"
       snapshot={{
         detail: { status: 'loading' },
         announcements: { status: 'loading' },
         challenges: {
           status: 'ready',
           data: [
-            { id: 'active', status: 'ACTIVE' },
-            { id: 'inactive', status: 'INACTIVE' },
-          ] as never,
+            {
+              id: 'first',
+              status: 'ACTIVE',
+              missionType: 'DURATION',
+              missionCategory: 'FOCUS',
+              durationMinutes: 60,
+              windowStart: null,
+              windowEnd: null,
+              createdAt: '2026-08-11T00:00:00Z',
+              canParticipate: true,
+              memberProgress: [
+                { userId: 'me', nickname: '나', progressMinutes: 25, achieved: false },
+              ],
+            },
+            {
+              id: 'inactive',
+              status: 'INACTIVE',
+              missionType: 'DURATION',
+              missionCategory: 'FOCUS',
+              durationMinutes: 10,
+              windowStart: null,
+              windowEnd: null,
+              createdAt: '2026-08-10T00:00:00Z',
+              canParticipate: false,
+              memberProgress: null,
+            },
+            {
+              id: 'second',
+              status: 'ACTIVE',
+              missionType: 'TIME_WINDOW',
+              missionCategory: 'SCREEN_TIME',
+              durationMinutes: 30,
+              windowStart: '09:00:00',
+              windowEnd: '12:00:00',
+              createdAt: '2026-08-09T00:00:00Z',
+              canParticipate: true,
+              memberProgress: [
+                { userId: 'me', nickname: '나', progressMinutes: 30, achieved: true },
+              ],
+            },
+          ],
         },
         focus: { status: 'loading' },
       }}
     />,
   );
 
-  expect(screen.getByText('진행 중인 활동 1개')).toBeOnTheScreen();
+  const rows = screen.getAllByTestId(/^group\.card\.activity\./);
+  expect(rows.map((row) => row.props.testID)).toEqual([
+    'group.card.activity.first',
+    'group.card.activity.second',
+  ]);
+  expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
+  expect(screen.getByText('내 진행 25/60분')).toBeOnTheScreen();
+  expect(screen.getByText('매일 09:00~12:00 30분 이하 스크린타임')).toBeOnTheScreen();
+  expect(screen.getByText('내 진행 30/30분 · 달성')).toBeOnTheScreen();
 });
