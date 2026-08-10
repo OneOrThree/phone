@@ -209,11 +209,20 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    Eligible{"인증됨 · 성공한 전체 목록 1개 이상<br/>로컬 설정 합성·덱·기준점 완료<br/>화면 전환·팝업·시트·다른 안내 없음?"}
+    Eligible{"인증됨 · 성공한 전체 목록 1개 이상<br/>로컬 설정 합성·덱·기준점 완료?"}
     Eligible -->|아니오| Deck["카드 덱을 그대로 사용<br/>조건이 갖춰지면 다시 판정"]
     Eligible -->|예| Stored{"이 기기에서 v1 안내를<br/>완료했는가?"}
-    Stored -->|예| Deck
-    Stored -->|아니오 · 읽기 실패| Guide["1~3단계 · 다음"]
+    Stored -->|예| Completed["노출 completed 1회<br/>그 뒤 카드 입력 허용"]
+    Completed --> Deck
+    Stored -->|아니오 · slot 즉시 획득| Guide["노출 shown 1회<br/>1~3단계 · 다음"]
+    Stored -->|아니오 · blocking overlay| Queued["노출 pending 1회<br/>그 뒤 카드 입력 허용 · queue 대기"]
+    Stored -->|읽기 실패| UnknownQueued["노출 unknown 1회<br/>그 뒤 카드 입력 허용 · fallback queue 대기"]
+    Queued --> Guide["slot 획득<br/>1~3단계 · 다음"]
+    UnknownQueued --> UnknownGuide["slot 획득<br/>1~3단계 · 다음"]
+    Queued -->|blur · background · unmount · 계정/소속 변경| QueueCancelled["대기 취소 · 기존 노출 유지<br/>다음 focus에서 재판정"]
+    UnknownQueued -->|blur · background · unmount · 계정/소속 변경| QueueCancelled
+    QueueCancelled --> Deck
+    UnknownGuide --> Prepare
 
     Guide --> Prepare["3→4단계에서 동일 ensure 경로 호출<br/>idle만 1회 시작 · loading/ready/error 재사용"]
     Prepare --> NoEvent["사용자 뒤집기·페이지 이동 이벤트 0건<br/>응답 완료를 기다리지 않음"]
@@ -224,15 +233,17 @@ flowchart TD
     Persist -->|실패| WriteFail["운영 오류만 기록<br/>현재 사용자의 완료는 취소하지 않음"]
     WriteFail --> Deck
 
-    Guide -->|화면 이탈 · 계정/소속 변경 · 다른 팝업·시트·안내 등장| Interrupted["미완료<br/>완료 이벤트·저장 없음"]
-    Prepare -->|중단| Interrupted
-    Step4 -->|화면 이탈 · 계정/소속 변경 · 다른 팝업·시트·안내 등장| Interrupted
+    Guide -->|route 이탈 · background · unmount · 계정/소속/활성 카드 변경 · blocking overlay| Interrupted["미완료<br/>완료 이벤트·저장 없음"]
+    UnknownGuide -->|route 이탈 · background · unmount · 계정/소속/활성 카드 변경 · blocking overlay| Interrupted
+    Prepare -->|같은 중단 조건| Interrupted
+    Step4 -->|같은 중단 조건| Interrupted
     Interrupted --> Deck
 
     Layout["회전 · 기준점 측정 실패"] -.-> Fallback["안내를 끝내지 않고 전체 어둡게 표시<br/>다음 단계에서 다시 측정"]
 ```
 
 - 완료 기록은 기기 전체 키 `gromo:guide:groupDeck:v1`을 사용한다.
+- `group_card_deck_viewed`는 completion key read와 queue 등록 결과가 확정된 뒤 view episode당 1회 발행한다. 완료 key는 `guide_state=completed`, 미완료 queue가 즉시 slot을 받으면 `shown`, blocking overlay 대기는 `pending`, read failure 뒤 fallback queue 등록은 `unknown`이다. 노출 helper를 호출하기 전에는 카드 입력을 수락하지 않으며, 이후 slot 획득·중단·완료에는 이미 발행한 값을 취소하거나 보정하지 않는다.
 - 1~3단계 행동은 `다음`, 마지막 행동만 `시작`이다.
 - 완료 기록 읽기에 실패해도 현재 화면 세션에서는 안내를 한 번만 시도한다.
 - 4단계는 각 요약 영역의 `불러오는 중 · 표시 가능 · 오류`를 그대로 보여 준다.
@@ -262,7 +273,7 @@ flowchart LR
 
 - guide와 user flip이 같은 session에 모두 있으면 뒷면 사용 가능 단계는 한 번으로 dedupe한다.
 - `back_source=guide`는 사용자가 face를 다시 바꾸기 전까지만 유지한다.
-- 카드 CTA의 context는 Room 성공 결과와 FocusSession 최초 진입까지 보존하며 다른 카드의 늦은 결과에 재사용하지 않는다. Focus CTA는 `initialGroupId`와 `entrySource=group_card`를 `FocusCategory → FocusSession`까지 그대로 전달하고, 최초 진입 이벤트는 이 route context를 사용한다.
+- 카드 CTA 수락마다 비식별 UUID `interaction_id`를 새로 만들고 action과 Room/Focus route context에 보존한다. 결과는 같은 ID의 미소비 intent만 exact match해 한 번 소비하며 action별 최신 intent 추정은 금지한다. Room은 30초, Focus는 10분을 넘기면 만료되고 취소·실패·background·route 시작 실패는 소비·결과 귀속 0건이다. Focus CTA는 `initialGroupId`, `entrySource=group_card`, `interaction_id`를 `FocusCategory → FocusSession`까지 그대로 전달하고, 최초 진입 이벤트는 이 route context를 사용한다. `interaction_id` payload는 공통 사전을 따라 typed helper 한 경로에만 넣는다.
 - 그룹명·소개·아이콘 glyph·asset·로컬 순서·raw `userId`를 payload에 넣지 않는다.
 
 ---
@@ -281,10 +292,10 @@ flowchart LR
 
 필수 출시 게이트는 네 가지다.
 
-1. **정체성·복귀:** 5·10개 카드의 drag 및 단일 포인터 popover cross-page 재정렬, 목록 갱신·방 왕복 뒤에도 같은 `groupId`를 가리키며, 찾기 카드·사라진 카드는 순서에 넣거나 복원하지 않는다.
+1. **정체성·복귀:** 5·10·11개 이상 카드의 drag 및 단일 포인터 popover cross-page 재정렬, 목록 갱신·방 왕복 뒤에도 같은 `groupId`를 가리키며, 찾기 카드·사라진 카드는 순서에 넣거나 복원하지 않는다.
 2. **개인화·늦은 응답:** 빠른 변경과 계정 전환에서도 최신 의도와 계정 영역을 보존하고, 과거 응답을 다른 카드에 표시하지 않는다.
 3. **데이터 신뢰:** 부분 실패는 해당 영역에만 남고, 집중 상태의 불명·실패·100 이상을 `0명`으로 표시하지 않는다. 첫 back 전 polling 0회, 활성화 뒤 60초 주기, background 중단, foreground·KST 전환 즉시 갱신, 동일 key in-flight 1회를 fake timer와 통합 테스트로 확인한다.
-4. **안내·접근성·계측:** 안내의 읽기·중단·저장 실패와 자동 전환을 각각 검증한다. cold는 새 요청 4회, warm·in-flight·error는 새 요청 0회, mixed는 idle 수만큼 시작하고 자동 전환의 사용자 이벤트는 0건이어야 한다. drag 없는 popover의 5·10개 cross-page 이동, disabled 경계·FindMore 제외·focus/popover 유지를 검증한다. 완료 이벤트는 저장 성공과 무관하게 1건이다. `entrySource=group_card`가 Focus 세션 시작까지 보존되는지와 DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
+4. **안내·접근성·계측:** 안내의 read→queue 등록 뒤 덱 노출 1회와 `shown|pending|completed|unknown`, 노출 전 카드 action 0건, 중단·저장 실패·자동 전환을 각각 검증한다. cold는 새 요청 4회, warm·in-flight·error는 새 요청 0회, mixed는 idle 수만큼 시작하고 자동 전환의 사용자 이벤트는 0건이어야 한다. drag 없는 popover의 5·10·11개 이상 cross-page 이동, disabled 경계·FindMore 제외·focus/popover 유지를 검증한다. 완료 이벤트는 저장 성공과 무관하게 1건이다. focused warm invite→blur→탭 복귀는 `return`, invite→push 연속 도착은 pending source 0건인지 확인한다. CTA `interaction_id`의 exact match·1회 consume·TTL/취소·첫 결과 전 background 0귀속, `entrySource=group_card`의 Focus 세션 시작 보존과 DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
 
 ## 9. 확정된 구현 결정
 
@@ -294,8 +305,8 @@ flowchart LR
 
 ### 9.2 안내 시작의 안정 신호와 대기 수명
 
-안내 queue에는 다음 조건이 모두 참일 때만 등록한다: 인증 사용자, 성공한 전체 groups 1개 이상, 순서·아이콘 hydration 완료, active 카드와 필수 anchor layout 완료, navigation transition idle, blocking modal·sheet·다른 guide 없음.
+안내 queue에는 다음 조건이 모두 참일 때 등록한다: 인증 사용자, 성공한 전체 groups 1개 이상, 순서·아이콘 hydration 완료, active 카드와 필수 anchor layout 완료, navigation transition idle. blocking modal·sheet·다른 guide가 있으면 등록을 버리지 않고 slot을 기다리며, blocker가 사라졌을 때만 overlay를 시작한다.
 
-queue 대기는 카드 사용을 차단하지 않으며 고정 시간 timeout을 두지 않는다. slot을 받기 전에 screen blur·background·unmount·계정/멤버십 변경이 발생하면 현재 요청을 취소하고 다음 focus에서 다시 판정한다. 안내 시작 뒤 anchor가 사라지거나 폭이 바뀌면 중단하지 않고 전체 dim fallback으로 계속하며 다음 단계에서 재측정한다.
+queue 등록 결과의 노출 helper가 호출된 뒤에는 카드 사용을 차단하지 않으며 고정 시간 timeout을 두지 않는다. slot을 받기 전에 screen blur·background·unmount·계정/멤버십 변경이 발생하면 현재 요청을 취소하고 다음 focus에서 다시 판정한다. 안내 시작 뒤 동일 화면의 anchor 측정 실패·폭 변화는 전체 dim fallback으로 계속하고 다음 단계에서 재측정한다. route·목록 변경으로 active anchor 대상 자체가 사라지면 안내를 중단한다.
 
 queue 대기 중 사용자가 먼저 back을 열 수 있다. 이후 안내가 3→4에 도달하면 §4의 동일 ensure 경로를 호출하므로 이미 준비됐거나 진행 중인 dependency를 다시 보내지 않는다.

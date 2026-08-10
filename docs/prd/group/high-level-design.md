@@ -145,6 +145,13 @@ flowchart TD
     Failure["요청 실패 또는 늦은 응답"] --> Scope{"어느 범위의 실패인가?"}
     Scope -->|전체 소속 목록| ListError["그룹 화면 오류<br/>소속·개인 설정 정리 금지"]
     Scope -->|detail 성공 뒤 공지·하위 영역| SectionError["그 영역만 오류 표시<br/>현행은 공용 방 재조회 · 다른 영역 유지"]
+    Scope -->|detail MEMBER_ONLY| MemberGone["활성 인증 뒤 미소속 사후조건<br/>안전 복귀"]
+    Scope -->|detail NOT_FOUND| AuthCheck["인증 상태 재확인"]
+    AuthCheck -->|비활성 · 탈퇴 계정| SessionRecover["세션 안전 복구<br/>성공 처리 없음"]
+    AuthCheck -->|인증 유효| DetailScope["성공한 최신 detail · 목록 scope 확인"]
+    DetailScope -->|최신 detail 성공| RoomKeep["현재 방·기존 성공 영역 유지"]
+    DetailScope -->|그룹 부재 · 미소속 확인| MembershipGone
+    DetailScope -->|불명 · 재확인 실패| SafeState["현재 안전 상태 유지<br/>오류 · 재시도"]
     Scope -->|변경 요청| MutationError["서버 값 유지<br/>중복 요청 없이 명시적 재시도"]
     Scope -->|소속 없음 확인| MembershipGone["해당 groupId 화면 종료<br/>남은 내 그룹 또는 빈 상태"]
 
@@ -157,6 +164,8 @@ flowchart TD
 - 그룹방의 영역별 오류 표시는 격리되어 있지만 현재 `다시 시도`는 공용 방 재조회다. 특정 영역 요청만 다시 보내는 개선 상태는 [공통 구현 상태](./shared/implementation-status.md)의 `GRP-03`이 소유한다.
 - 네트워크 실패는 탈퇴·강퇴·그룹 종료의 증거가 아니다.
 - `403/404`도 기능별 의미를 확인한 뒤 소속 없음과 단순 권한 변경을 구분한다.
+- detail의 `MEMBER_ONLY`는 활성 인증 뒤 요청자 미소속이라는 사후조건일 때만 직접 안전 복귀한다. `NOT_FOUND`는 최초 조회와 기존 detail 재확인 모두에서 계정 비활성·탈퇴와 그룹 부재를 함께 뜻할 수 있으므로 즉시 소속 없음이나 `onLeft`로 처리하지 않는다.
+- `NOT_FOUND`는 인증을 먼저 재확인한다. 비활성·탈퇴 계정은 성공 처리 없이 세션을 안전 복구하고, 인증 유효 뒤 성공한 최신 detail·전체 목록 scope가 group 부재·미소속을 확인할 때만 안전 복귀한다. 불명·재확인 실패는 현재 안전 상태와 오류·재시도를 유지한다.
 - 불완전한 값은 `0명`이나 빈 공지처럼 정상 데이터로 강하하지 않는다.
 
 ---
@@ -188,6 +197,6 @@ flowchart LR
 | 03   | 그룹 활동    | [착수 카드](./features/03-activity/README.md)    | [HLD](./features/03-activity/high-level-design.md) · [LLD](./features/03-activity/low-level-design.md)       |
 | 04   | 그룹 운영    | [착수 카드](./features/04-operation/README.md)   | [HLD](./features/04-operation/high-level-design.md) · [LLD](./features/04-operation/low-level-design.md)     |
 
-분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 카드·방·글로벌 FAB·source 없는 외부 진입은 각각 `entrySource=group_card|group_room|home_fab|unknown`을 정하고, 공통 Focus route/helper는 이를 `FocusSession` 최초 화면 진입 이벤트까지 보존한다. 이벤트는 marker API 성공을 뜻하지 않으며 `initialGroupId`로 source를 추론하지 않는다. 공통 이벤트명·속성·발행 주체·금지 정보는 [그룹 공통 분석 계약](./shared/analytics.md), 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 각각 소유한다.
+분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 카드·방·글로벌 FAB·source 없는 외부 진입은 각각 `entrySource=group_card|group_room|home_fab|unknown`을 정하고, 공통 Focus route/helper는 이를 `FocusSession` 최초 화면 진입 이벤트까지 보존한다. 카드 CTA는 수락마다 비식별 `interaction_id`를 새로 만들어 Room·Focus의 최초 결과까지 보존하고 정확히 같은 키 한 건에만 귀속한다. 이미 focused인 그룹 화면에 warm invite·push가 도착하면 기존 `group_viewed` source를 덮어쓰거나 새 화면 이벤트를 만들지 않는다. 이벤트는 marker API 성공을 뜻하지 않으며 `initialGroupId`로 source를 추론하지 않는다. 공통 이벤트명·속성·발행 주체·금지 정보는 [그룹 공통 분석 계약](./shared/analytics.md), 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 각각 소유한다.
 
 통합 HLD는 기능 사이의 연결 정본이고 기능 HLD는 내부 책임·API 경계를 보완한다. 문서 종류별 충돌은 [문서 지도](./README.md#2-정본은-문서-종류별로-결정한다)의 범위 규칙으로 해결한다.

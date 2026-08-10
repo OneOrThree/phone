@@ -58,7 +58,14 @@ flowchart TD
     Load --> N["공지"]
     Load --> Child["하위 활동 기능"]
     D -->|성공| Core["그룹방 핵심 화면 · 집중 FAB"]
-    D -->|실패·기존 detail 없음| DetailError["전체 오류 · 다시 시도"]
+    D -->|MEMBER_ONLY| MemberOnly["활성 인증 뒤 미소속 사후조건\n목록·탐색으로 안전 복귀"]
+    D -->|NOT_FOUND| AuthCheck["인증 상태 재확인"]
+    AuthCheck -->|비활성 · 탈퇴 계정| SessionRecover["세션 안전 복구\n성공 처리 없음"]
+    AuthCheck -->|인증 유효| ScopeCheck["최신 detail · 성공한 전체 목록 재확인"]
+    ScopeCheck -->|그룹 부재 · 미소속 확인| SafeReturn["목록·탐색으로 안전 복귀"]
+    ScopeCheck -->|detail 성공| Core
+    ScopeCheck -->|의미 불명 · 재확인 실패| DetailError["현재 안전 상태 유지\n오류 · 재시도"]
+    D -->|그 밖의 실패·기존 detail 없음| DetailError
 
     N --> NoticeState["독립 로딩 · 오류 표시"]
     Child --> ChildState["독립 로딩 · 오류 표시"]
@@ -74,11 +81,15 @@ flowchart TD
 - 상세가 성공한 뒤 공지와 하위 활동은 서로 독립적으로 성공하거나 실패할 수 있다. 이 하위 영역의 실패는 다른 성공 영역과 집중 진입을 막지 않는다.
 - 여기서 독립은 **오류 표시와 응답 반영의 격리**를 뜻한다. 현재 각 영역의 `다시 시도`는 공용 방 재조회를 실행하며, 해당 요청만 보내는 영역별 retry는 [구현 상태 정본](../../shared/implementation-status.md)의 남은 작업이다.
 - 하위 활동 기능의 오류는 detail이 준비된 그룹방 전체를 거짓 빈 상태로 만들지 않는다.
-- 네트워크 실패는 탈퇴·강퇴의 증거가 아니다. 서버가 현재 소속 없음으로 확인한 경우에만 상위 탐색으로 안전하게 돌아간다.
+- 현재 서버 `getGroupDetail`은 활성 사용자 조회 실패와 그룹 부재에 모두 `NOT_FOUND`를 쓰고, 활성 사용자·그룹 확인 뒤 멤버십 부재에는 `MEMBER_ONLY`를 쓴다. 현행 `GroupRoomScreen`은 두 code 모두 즉시 `onLeft`로 처리하므로, `NOT_FOUND`의 scope 재확인·세션 복구는 미구현이다.
+- 목표 계약에서 `MEMBER_ONLY`는 서버가 활성 인증 뒤 반환한 요청자 미소속 사후조건일 때만 직접 수렴할 수 있다. `NOT_FOUND`와 네트워크·재확인 실패는 탈퇴·강퇴의 증거가 아니며 즉시 `onLeft`하지 않는다.
+- 인증 유효 뒤 최신 detail이 성공하면 방을 유지한다. 성공한 최신 전체 그룹 목록 또는 명확한 최신 membership scope가 group 부재·미소속을 확인할 때만 상위 탐색으로 안전하게 돌아간다. 이 확인이 실패하거나 의미가 불명하면 기존 detail이 있으면 이를 유지하고, 없으면 전체 오류·재시도를 표시한다.
 
 ## 4. 구현 경계
 
 - 그룹방은 선택한 `groupId`의 서버 정보를 직접 조회한다. 카드 요약 캐시를 방의 정본으로 사용하지 않는다.
+- 카드 CTA가 Room route를 열면 수락 시 만든 비식별 `interaction_id`를 `entrySource=group_card`와 함께 해당 route context에만 보존한다. Room은 최초 성공 렌더에 같은 값을 한 번만 전달하고, route 재사용·취소·실패 뒤의 stale 값은 소비하지 않는다. 첫 결과 전 app background·예상 route chain 이탈·target unmount에는 pending 키를 제거하며 재개 결과에는 싣지 않는다. 그룹방 FAB·외부 진입처럼 `group_card`가 아닌 source에는 `interaction_id`가 없다. 이름·형식·귀속 window는 [공통 분석 계약](../../shared/analytics.md)이 정본이다.
 - 집중 버튼은 `initialGroupId`와 `entrySource=group_room`을 기존 집중 흐름에 함께 전달한다. 공통 Focus route/helper는 source를 `FocusSession`까지 그대로 보존하고 최초 화면 진입·세션 시작 처리 시 `focus_session_started(entry_source=group_room)`를 1회 발행한다. 이 이벤트는 marker API 성공과 독립이며 rerender에서 다시 발행하지 않는다. 같은 공통 경계가 글로벌 FAB의 `home_fab`와 source 없는 구버전·외부 진입의 `unknown`도 정규화하고, `group_card`는 02 작업 패키지가 전달한다. `initialGroupId`로 source를 추론하지 않는다. 집중이 끝나면 시작한 그룹방 맥락으로 돌아와 필요한 정보를 다시 확인한다.
+- 카드 CTA가 Focus를 연 경우에만 공통 Focus route/helper가 같은 `interaction_id`를 `FocusCategory → FocusSession` 결과까지 보존한다. Room FAB의 `group_room`, 글로벌 FAB의 `home_fab`, source 없는 `unknown`은 이 값을 전달하지 않으며 route 재사용 시 이전 카드 값을 남기지 않는다.
 - 공지 변경은 서버 성공 뒤 목록을 다시 확인한다. 권한은 요청 시 서버가 최종 검증한다.
 - 챌린지 관련 화면·API·동시성·계측·테스트는 [챌린지 PRD](../../../challenge/prd.md)·[HLD](../../../challenge/high-level-design.md)·[LLD](../../../challenge/low-level-design.md)를 정본으로 연결한다.

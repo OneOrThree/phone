@@ -233,13 +233,13 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 
 ### 4.1 그룹 카드 첫 노출 코치마크
 
-이 안내는 **앱 가입 온보딩이 아니다.** 인증을 마치거나 앱을 최초 실행한 시점이 아니라, 인증 사용자의 성공한 전체 그룹 목록이 1개 이상이고 `GroupListScreen`의 카드·인디케이터 layout이 안정된 순간에만 실제 카드 덱 위에 뜬다. 따라서 게스트, `userId` 미확정, loading/error/빈 상태, 다른 modal·sheet·guide가 열린 상태에서는 시작하지 않고 안정된 다음 진입까지 대기한다.
+이 안내는 **앱 가입 온보딩이 아니다.** 인증을 마치거나 앱을 최초 실행한 시점이 아니라, 인증 사용자의 성공한 전체 그룹 목록이 1개 이상이고 `GroupListScreen`의 카드·인디케이터 layout이 안정된 순간에만 실제 카드 덱 위에 뜬다. 게스트, `userId` 미확정, loading/error/빈 상태에서는 queue에 등록하지 않는다. 다른 modal·sheet·guide가 열려 있으면 같은 focus의 overlay queue에서 slot을 기다리고, slot 전에 focus가 끝나면 다음 안정 진입에서 다시 판정한다.
 
 | 항목          | 정보 구조 계약                                                                                                                                                                                        |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 완료 범위     | 기기 전역 1회. `AsyncStorage('gromo:guide:groupDeck:v1') === '1'`이면 시작하지 않는다. 계정별 bucket이나 가입 온보딩 완료 key를 사용하지 않는다                                                       |
 | 안내 표현     | 기존 정적 그로몬 + 말풍선 + 단계 dot + dim/spotlight overlay. 그룹 카드의 `내 카드 아이콘`이나 사용자의 커스텀 캐릭터를 쓰지 않는다                                                                   |
-| 시작 전제     | `groups.length >= 1`, stable layout, 다른 overlay 없음, session에서 아직 시도하지 않음                                                                                                                |
+| 시작 전제     | `groups.length >= 1`, stable layout, session에서 아직 시도하지 않음. 다른 overlay가 있으면 같은 focus의 queue에서 대기                                                                                |
 | 입력 우선순위 | overlay의 화면 탭 또는 접근성 `다음` action으로 1~3단계를 진행하고 마지막은 `시작` action을 쓴다. 별도 skip·닫기·replay·도움말 진입점은 없다                                                          |
 | 종료 결과     | 마지막 `시작`이 overlay를 닫으면 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행한 뒤 key에 `'1'` 쓰기를 시도한다. 활성 첫 카드의 back face와 해당 카드의 접근성 focus를 유지한다 |
 
@@ -251,8 +251,9 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 | 4    | back의 요약·CTA 영역 | `character_happy` · `집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 방 전체를 열어봐.`                                               | 마지막 진행 뒤 overlay 종료, back·focus 유지                          |
 
 - 3→4의 시스템 전환은 사용자의 flip이 아니다. 카드가 중앙에 있지 않은 상태라면 첫 카드로 scroll을 복원한 뒤 back으로 전환하며, 이 시연 때문에 사용자 `flip`·`page` analytics 이벤트를 발행하지 않는다. 정상적인 첫 back과 같은 ensure 경로를 호출해 cold `idle` dependency만 각 1회 시작하고, 이미 `loading|ready|error|coverage-unknown`이면 현재 상태를 재사용해 전환 시점의 새 요청을 보내지 않는다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션 상태와 CTA를 그대로 보여 준다. 이후 현재 집중 상태의 60초 polling은 별도 refresh cycle이다.
-- 중간 background, route 이탈, unmount는 완료가 아니므로 key를 쓰지 않고, 안정된 다음 진입에 1단계부터 다시 시도한다. guide key read 실패도 카드 덱을 막지 않으며 세션 메모리로 최대 1회만 보여 준다.
-- 마지막 `시작`으로 overlay가 닫히는 즉시 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행한다. key write 실패도 이 완료 이벤트를 취소하지 않으며 `guide_complete_write_failed` telemetry로만 구분한다. 다음 앱 실행에서는 다시 노출될 수 있다. anchor 측정 실패나 layout 폭 변경 중에는 잘못된 spotlight를 그리지 않고 전체 dim과 문구만 유지한 뒤 다음 단계에서 재측정한다.
+- completion key read와 queue 등록 결과가 확정되기 전에는 카드 사용자 입력을 수락하지 않는다. 완료 key는 `guide_state=completed`, 미완료 key가 즉시 slot을 받으면 `shown`, blocking overlay를 기다리면 `pending`, read 실패 뒤 fallback queue를 등록하면 `unknown`으로 덱 노출을 먼저 기록한다. 이후 slot을 받아도 같은 view episode의 노출을 보정하지 않는다.
+- 중간 background, route 이탈, unmount, 계정·멤버십·활성 그룹 변경, blocking overlay 등장은 완료가 아니므로 key를 쓰지 않고, 안정된 다음 진입에 1단계부터 다시 시도한다. guide key read 실패도 카드 덱을 막지 않으며 세션 메모리로 최대 1회만 보여 준다.
+- 마지막 `시작`으로 overlay가 닫히는 즉시 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행한다. key write 실패도 이 완료 이벤트를 취소하지 않으며 `guide_complete_write_failed` telemetry로만 구분한다. 다음 앱 실행에서는 다시 노출될 수 있다. 동일 화면의 anchor 측정 실패나 layout 폭 변경 중에는 잘못된 spotlight를 그리지 않고 전체 dim과 문구만 유지한 뒤 다음 단계에서 재측정한다. route·목록 변경으로 대상 자체가 사라지면 fallback하지 않고 안내를 중단한다.
 - Reduce Motion에서는 spotlight 이동·카드 3D flip을 쓰지 않고 짧은 cross-fade로 face를 바꾼다. VoiceOver에서는 `단계 n/4`, 현재 문구, `다음` 또는 마지막 단계의 `시작` action을 읽으며 spotlight만으로 뜻을 전달하지 않는다.
 
 ---

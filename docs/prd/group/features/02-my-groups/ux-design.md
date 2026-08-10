@@ -20,7 +20,7 @@
 
 1. 한 화면에는 한 그룹 카드를 크게 보여 주고, 좌우 이동으로 다른 그룹을 탐색하는 페이지형 캐러셀을 사용한다.
 2. **그룹 카드 앞면을 탭하면 같은 카드가 뒤집혀 방 요약을 보여 준다.** 앞면 탭으로 `GroupRoom`에 바로 들어가지 않는다.
-3. 뒷면의 **`방 전체 보기`만** full-screen `GroupRoom` 라우트를 push한다.
+3. 뒷면의 **`방 전체 보기`만** full-screen `GroupRoom` 라우트를 push한다. 수락된 CTA마다 비식별 UUID `interaction_id`를 만들고 결과 route까지 보존해, 결과를 같은 의도와만 한 번 연결한다.
 4. 모든 그룹 카드의 상단 visual plane은 **고정 인디고 `#5E6AD2`** 를 쓴다. 그룹별 그라데이션·색조·선화 마크는 쓰지 않는다.
 5. 카드 중앙의 **`내 카드 아이콘`** 은 이 계정·이 기기에서만 보이는 개인 설정이다. OWNER와 MEMBER 모두 같은 12개 중 고를 수 있고, 로컬 값이 없거나 손상되면 `🎯`을 쓴다.
 6. 카드 뒷면의 집중 정보는 **`1명 집중 중`과 같은 한 줄 상태**만 표시한다. 팀 누적·오늘 합계·`HH:MM`은 표시하지 않는다.
@@ -58,7 +58,7 @@
 
 ### 1.1 첫 카드 덱 코치마크
 
-코치마크는 **앱 가입 온보딩을 연장하거나 재생하는 UI가 아니다.** `gromo:onboardingComplete`와 무관하게, 성공한 인증 사용자에게 그룹이 1개 이상 있고 카드 덱의 첫 layout이 안정됐을 때만 카드 위에 뜬다. 다른 modal·sheet·guide가 있으면 그 overlay가 닫힌 뒤 안정된 렌더까지 기다린다.
+코치마크는 **앱 가입 온보딩을 연장하거나 재생하는 UI가 아니다.** `gromo:onboardingComplete`와 무관하게, 성공한 인증 사용자에게 그룹이 1개 이상 있고 카드 덱의 첫 layout이 안정됐을 때만 eligibility를 판정한다. 다른 modal·sheet·guide가 있으면 queue에 대기한다. 완료 key는 `guide_state=completed`, 미완료 queue가 즉시 slot을 받으면 `shown`, blocking overlay 대기는 `pending`, read 실패 뒤 fallback queue 등록은 `unknown`으로 덱 노출을 계측한다. 이 노출을 먼저 기록한 뒤 카드 입력을 허용하며, 대기 중 덱 사용은 막지 않는다.
 
 ```text
 groups >= 1 + stable layout + no overlay + guide key 없음
@@ -99,7 +99,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 
 ### 2.2 인디케이터
 
-- 페이지 수는 그룹 수 + 끝 카드 1이다.
+- 페이지 수는 그룹 수 + 끝 카드 1이다. 서버 응답이 11개 이상이어도 모든 그룹과 끝 카드를 렌더하며, 지표 bucket은 `11_plus`다.
 - dots와 compact `현재 / 전체` 사이에 **고정 페이지 수 경계는 두지 않는다.** 매 layout에서 인디케이터가 실제로 쓸 수 있는 폭을 측정해 mode를 정한다.
 - 인디케이터 영역은 좌우에 각각 20pt gutter를 둔다. 각 dot은 최소 44×44pt의 독립된 hit slot을 가지며 slot 사이는 4pt를 띄운다. 작은 시각 dot과 활성 pill은 이 44pt slot 안에 배치하고 인접 slot을 침범하지 않는다.
 - 페이지 수를 `N`, 측정된 인디케이터 전체 폭을 `W`라 할 때 dots에 쓸 수 있는 폭은 `W − 40pt`, 필요한 폭은 `N × 44pt + (N − 1) × 4pt`다. 필요한 폭이 가용 폭 이하이면 dots, 넘으면 compact `현재 / 전체`를 쓴다.
@@ -379,7 +379,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 - CTA 클릭과 방 표시·FocusSession 최초 진입은 서로 다른 단계다. 집중 이벤트는 marker API 성공을 뜻하지 않는다.
 - 아이콘 glyph·그룹 이름·버튼 문구·로컬 순서는 payload에 넣지 않는다.
 
-이벤트 이름·속성·F1~F3 귀속은 [공통 분석 계약](../../shared/analytics.md), 카드 surface의 once guard는 [HLD §6](./high-level-design.md#6-그룹-카드-첫-노출-코치마크-계약)을 따른다.
+이벤트 이름·속성·F1~F3 귀속은 [공통 분석 계약](../../shared/analytics.md), 카드 surface의 once guard는 [HLD §6](./high-level-design.md#6-그룹-카드-첫-노출-코치마크-계약)을 따른다. 덱 노출은 completion key read와 overlay queue 판정 뒤 확정된 `guide_state`에서만 focus당 한 번이며, CTA 결과는 수락 때 생성한 `interaction_id`의 exact match·1회 consume·각 window 안에서만 귀속한다.
 
 ## 10. 캐러셀 공통 상태
 
@@ -388,6 +388,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 | 게스트/초기 로딩/전면 에러/0개         | 기존 `GroupScreen` 상태 분기를 유지                                                                                                              |
 | 그룹 1개                               | 그룹 앞면 1장 + 오른쪽 `그룹 찾기` 카드 peek, 총 2페이지                                                                                         |
 | 그룹 10개                              | 총 11페이지. 인디케이터는 실제 가용 폭 계산 결과에 따라 dots 또는 `현재 / 11`                                                                    |
+| 그룹 11개 이상                         | 모든 그룹 + 끝 카드. 실제 총 페이지로 compact/dots를 계산하고 `11_plus`로만 계측하며 일부를 숨기거나 잘라내지 않음                               |
 | 마지막 페이지                          | 점선·무채색 `그룹 찾기` 카드. 탭하면 기존 찾기 sheet                                                                                             |
 | 재조회 실패·기존 데이터 있음           | 캐러셀 위 stale notice, 기존 카드 상태 유지                                                                                                      |
 | 로컬 순서 복원 중                      | 초기 로딩 상태 유지. 서버 순서가 먼저 보였다가 재배치되는 flash 금지                                                                             |
@@ -497,7 +498,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 
 | 범위      | 최소 조건                                                                             |
 | --------- | ------------------------------------------------------------------------------------- |
-| 화면      | 320·390·430·768pt, 그룹 1·5·10개, 회전·분할 화면                                      |
+| 화면      | 320·390·430·768pt, 그룹 1·5·10·11개 이상, 회전·분할 화면                              |
 | 텍스트    | 기본·150%·200%, 긴 한글·무공백 영문·조합 이모지 이름                                  |
 | 입력      | touch·mouse 단일 포인터(tap/click popover)·keyboard·VoiceOver·TalkBack, Reduce Motion |
 | 데이터    | 영역별 loading·empty·error·부분 성공, 집중 0/N/미산출                                 |

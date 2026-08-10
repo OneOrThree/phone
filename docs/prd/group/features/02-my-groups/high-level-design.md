@@ -195,6 +195,8 @@ flowchart TD
 
 가장자리 이동은 덱이 page 위치를, 공용 reorder primitive가 drag·popover·접근성 action의 stable ID 이동 의도를 소유한다. drag는 유효 그룹 slot drop 때만 commit하고, popover·접근성 action은 유효한 앞/뒤 한 slot마다 즉시 같은 reducer를 commit한다. popover가 page 경계를 넘으면 덱은 programmatic 이동 뒤 같은 카드의 popover와 focus를 유지한다. popover의 열기·닫기 focus와 CTA 차단은 [UX 정본](./ux-design.md#42-재정렬-grip과-저장-피드백)과 [LLD §3](./low-level-design.md#3-한-번의-입력은-한-가지-결과만-만든다)을 따른다. 구체 list 속성, animation 값, drag 임계, testID는 구현 코드와 테스트가 정본이다.
 
+서버의 목표 상한이 10개여도 경합으로 11개 이상 응답이 오면 덱은 전체 그룹과 마지막 `FindMoreCard`를 렌더한다. indicator는 실제 페이지 수로 계산하고 `group_count_bucket=11_plus`로 계측한다. reorder·로컬 순서는 실제 stable `groupId`만 대상으로 하며 FindMoreCard를 slot·sentinel·이동 대상으로 취급하지 않는다.
+
 ## 5. 상태 소유권
 
 | 상태                     | 소유자                    | 신원·수명                                             |
@@ -212,10 +214,10 @@ flowchart TD
 
 ### 6.1 trigger·저장·queue
 
-`GroupScreen`은 인증 사용자에게서 **성공한 전체** `GET /groups` 목록이 1개 이상이고 `GroupListScreen`의 카드 폭·활성 첫 카드·필수 anchor layout이 안정됐을 때만 eligibility를 계산한다. guest, userId 미확정, loading/error/부분 목록, groups=0, 다른 modal/sheet/guide가 열린 상태에서는 시작하지 않는다. 다른 overlay가 먼저 닫힌 뒤에도 화면이 안정돼 있으면 queue에서 다시 판정한다.
+`GroupScreen`은 인증 사용자에게서 **성공한 전체** `GET /groups` 목록이 1개 이상이고 `GroupListScreen`의 카드 폭·활성 첫 카드·필수 anchor layout이 안정됐을 때 eligibility를 계산한다. guest, userId 미확정, loading/error/부분 목록, groups=0에서는 queue에 넣지 않는다. 다른 modal/sheet/guide가 열려 있으면 eligibility를 버리지 않고 queue가 blocking overlay 대기로 판정하며, slot을 받기 전 화면이 끝나면 다음 focus에서 다시 판정한다.
 
 - 완료 key는 AsyncStorage `gromo:guide:groupDeck:v1`, 값 `1`이며 **기기 단위 v1 1회**다. userId bucket으로 나누지 않는다. key 없음은 미완료, `1`은 완료다.
-- key read 성공 뒤 미완료면 queue에 넣고, 완료면 카드 덱을 바로 사용하게 한다. read 실패는 덱을 막지 않으며 `keyState=unknown`과 session memory로 이번 세션에 최대 1회만 시도한다. 다음 진입에서는 다시 read한다.
+- key read 성공 뒤 미완료면 queue에 넣고, 완료면 카드 덱을 바로 사용하게 한다. read 실패는 덱을 막지 않으며 `keyState=unknown`과 session memory로 이번 세션에 최대 1회만 시도한다. 다음 진입에서는 다시 read한다. queue 등록 결과가 즉시 slot 획득이면 `shown`, blocking overlay 대기면 `pending`, read 실패의 fallback queue 등록이면 `unknown`이다. 해당 노출 이벤트를 typed helper에 넘긴 뒤에만 카드 사용자 입력을 수락하며, 이후 slot 획득으로 값을 보정하지 않는다.
 - 화면 탭 또는 접근성 `다음` action으로 1~3단계를 진행하고 마지막은 `시작` action을 쓴다. skip/replay는 제공하지 않는다. 마지막 `시작`으로 overlay가 닫힌 직후 `tab_guide_completed`를 현재 session 1회 발행하고, 이어 key write를 best-effort로 시도한다. 중간 background/unmount/route 이탈은 event·write 없이 `interrupted` 처리한다.
 - key write 실패는 사용자 완료 결과나 `tab_guide_completed`를 취소하지 않는다. `sessionCompleted`로 현재 foreground session의 중복 overlay를 막고 카드 사용을 계속 허용하며, `guide_complete_write_failed` 운영 telemetry만 남긴다. 다음 앱 진입에는 다시 노출될 수 있다.
 
@@ -243,19 +245,19 @@ flowchart TD
 
 - overlay는 `단계 n/4`, 현재 원문, `다음` 또는 마지막 단계의 `시작` action을 읽는다. spotlight만으로 의미를 전달하지 않으며 화면 탭과 동등한 접근성 action을 제공한다.
 - Reduce Motion에서는 overlay/face 전환을 cross-fade 또는 즉시 교체한다. 숨은 face·비활성 CTA는 focus tree에 남기지 않고, 마지막 단계 종료 시 active back의 첫 의미 있는 CTA 또는 요약 제목으로 focus를 복원한다.
-- overlay가 열린 동안 다른 modal/sheet/guide는 queue에서 대기한다. anchor가 사라지는 route 이탈·background·카드 목록 변경은 guide를 즉시 닫되 완료로 저장하지 않는다. 카드·멤버십·서버 데이터는 롤백하거나 추정하지 않는다.
+- overlay가 열린 동안 일반 modal/sheet/guide는 queue에서 대기한다. route 이탈·background·unmount·계정/멤버십/활성 카드 변경 또는 blocking overlay 등장은 guide를 즉시 닫되 완료로 저장하지 않는다. 동일 화면의 anchor 측정 실패·폭 변경은 전체 dim fallback으로 계속한다. 카드·멤버십·서버 데이터는 롤백하거나 추정하지 않는다.
 
 ### 6.4 guide 계측 계약
 
-정확한 이벤트 이름·속성은 [공통 분석 계약 §2](../../shared/analytics.md#2-기능별-이벤트-사전)에서만 정의한다. 이 기능은 발행 위치와 1회 처리만 소유한다.
+정확한 이벤트 이름·속성은 [공통 분석 계약 §2](../../shared/analytics.md#2-기능별-이벤트cohort-fact-사전)에서만 정의한다. 이 기능은 발행 위치와 1회 처리만 소유한다.
 
-| 상태 변화                   | 발행 책임               | 발행하지 않는 경우                             |
-| --------------------------- | ----------------------- | ---------------------------------------------- |
-| 덱이 실제 사용 가능해짐     | 그룹 화면               | rerender·resize·안내 단계 이동                 |
-| 사용자 flip·page·reorder    | 해당 상태를 commit한 덱 | animation·route 복귀·안내 자동 전환·취소·no-op |
-| CTA 흐름 수락               | 선택된 카드             | disabled·연타·목적 흐름 시작 실패              |
-| 로컬 아이콘 저장 결과       | 로컬 설정 경계          | glyph 선택만 변경·쓰기 전                      |
-| 마지막 `시작`으로 안내 종료 | 안내 조정자             | 단계별 `다음`·중단·저장 key 쓰기만 완료        |
+| 상태 변화                   | 발행 책임               | 발행하지 않는 경우                                                |
+| --------------------------- | ----------------------- | ----------------------------------------------------------------- |
+| guide 상태가 확정된 덱 노출 | 그룹 화면               | completion key read·queue 등록 전, rerender·resize·안내 단계 이동 |
+| 사용자 flip·page·reorder    | 해당 상태를 commit한 덱 | animation·route 복귀·안내 자동 전환·취소·no-op                    |
+| CTA 흐름 수락               | 선택된 카드             | disabled·연타·목적 흐름 시작 실패                                 |
+| 로컬 아이콘 저장 결과       | 로컬 설정 경계          | glyph 선택만 변경·쓰기 전                                         |
+| 마지막 `시작`으로 안내 종료 | 안내 조정자             | 단계별 `다음`·중단·저장 key 쓰기만 완료                           |
 
 guide key 읽기/쓰기 실패, anchor fallback, 중단은 사용자 행동 이벤트가 아닌 이유별 운영 telemetry로 남긴다. 그룹명·소개·emoji glyph·로컬 순서·그로몬 asset 이름은 payload에 넣지 않는다.
 
@@ -264,10 +266,11 @@ guide key 읽기/쓰기 실패, anchor fallback, 중단은 사용자 행동 이�
 이벤트 이름·공통 속성·발행 주체·F1~F3 귀속 window·금지 payload는 [그룹 공통 분석 계약](../../shared/analytics.md)이 정본이다. 이 기능은 §6.4의 카드·guide 이벤트가 **실제 UI 상태 변경에서 한 번만** 발생하도록 구현한다. Room에는 `entry_source=group_card`를 직접 전달하고, Focus에는 `initialGroupId`와 `entrySource=group_card`를 함께 넘겨 `FocusCategory → FocusSession → focus_session_started`까지 보존한다. `focus_session_started`는 FocusSession 최초 화면 진입·세션 시작 처리 시 발행하며 marker API 성공을 뜻하지 않는다. source를 `initialGroupId`에서 추론하지 않는다.
 
 - 모든 신규 클라이언트 이벤트는 앱의 typed helper 한 경로로 보낸다.
-- `group_card_deck_viewed`는 화면 focus당 1회, flip·page·reorder는 사용자의 실제 상태 변경당 1회다.
+- `group_card_deck_viewed`는 성공한 목록·안정 layout 뒤 completion key read와 queue 등록 결과가 확정된 view episode당 1회다. 완료 key는 `completed`, 미완료 queue가 즉시 slot을 받아 overlay를 시작하면 `shown`, blocking overlay 대기는 `pending`, read 실패의 session fallback queue 등록은 `unknown`이다. 그룹 화면은 노출 helper 호출 뒤에만 사용자 입력을 열고, 이후 slot 획득·중단·완료에는 이미 발행한 값을 취소하거나 보정하지 않는다.
 - 안내의 자동 scroll/back, animation 완료, rerender, resize, route 복귀, 취소·no-op은 사용자 행동 이벤트가 아니다.
 - `back_source=guide`는 안내가 만든 back을 사용자가 다시 flip하기 전까지만 유지한다.
 - 그룹명·소개·아이콘 glyph·asset·로컬 순서·raw `userId`는 payload에 넣지 않는다.
+- CTA가 수락되면 카드가 비식별 UUID `interaction_id`를 만들고 action과 Room/Focus route context에 보존한다. 결과는 같은 ID의 미소비 intent만 exact match해 한 번 소비한다. Room 30초·Focus 10분 window를 넘기거나 취소·실패·background·route 시작 실패면 소비·결과 귀속은 0건이다. 이 속성은 [공통 분석 계약](../../shared/analytics.md)의 사전을 따라 typed helper 한 경로에만 추가한다.
 
 ### 6.6 이 기능의 전환 흐름
 
