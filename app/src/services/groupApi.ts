@@ -8,6 +8,7 @@ import { api } from '@/services/api';
 import { logGroupChallengeDeleted, type GroupJoinMethod } from '@/services/analyticsEvents';
 import { todayStrKst } from '@/utils/localDate';
 import type {
+  ChallengeDeletionPreviewResponse,
   CreateAnnouncementRequest,
   CreateBetRequest,
   CreateBetResponse,
@@ -23,7 +24,13 @@ import type {
   GroupSearchResponse,
   GroupSettingsResponse,
   GroupSummaryResponse,
+  JoinNextSessionResponse,
+  JoinWeekResponse,
   MissionCategory,
+  MyBetSessionsResponse,
+  MyChallengeResultEntry,
+  MyChallengeResultsResponse,
+  MyOpenBetSession,
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
@@ -43,6 +50,12 @@ export const BET_LEAVE_CLOSED = 'BET_LEAVE_CLOSED'; // 409 시작 이후(집계 
 // 내기 히스토리(GROMO-1221, 서버 계약 #510/GROMO-1207).
 export const BET_NOT_FOUND = 'BET_NOT_FOUND'; // 404 커서가 이 챌린지의 내기가 아님(무효 커서)
 export const INVALID_PAGE_REQUEST = 'INVALID_PAGE_REQUEST'; // 400 size 범위 밖(1~100)
+// 챌린지 v2 회차 참여(정본 docs/prd/challenge/low-level-design.md §2.2 에러 표).
+export const BET_SESSION_NOT_FOUND = 'BET_SESSION_NOT_FOUND'; // 404 회차 없음 / 그룹 불일치
+export const BET_SESSION_CLOSED = 'BET_SESSION_CLOSED'; // 409 참가 마감(now ≥ joinClosesAt)
+export const BET_SCREENTIME_PERMISSION_REQUIRED = 'BET_SCREENTIME_PERMISSION_REQUIRED'; // 409 (N50)
+export const BET_INSUFFICIENT_BALANCE = 'BET_INSUFFICIENT_BALANCE'; // 409 잔액 부족(join-week은 총액)
+export const INVALID_SESSION_DATES = 'INVALID_SESSION_DATES'; // 400 join-week 지정 날짜 무효·중복
 
 // POST /api/v1/groups — 그룹 생성. password·description은 보내지 않는다(§3-1-3).
 export async function createGroup(body: CreateGroupRequest): Promise<CreateGroupResponse> {
@@ -299,6 +312,119 @@ export async function getBetHistory(
 export async function leaveBet(groupId: string, betId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}/participation`);
 }
+
+// ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, 서버 병렬 구현 중) ──────────
+
+// GET /api/v1/me/challenge-results?since=&limit= — 내 정산 완료 회차(그룹 무관, N53).
+// 결과 모달 큐의 유일한 소스다 — 카드 조회(getChallenges)와 분리됐다: 탈퇴자도 자기 결과를
+// 봐야 하고(C8), 안 본 결과 여럿이 최신 1건으로 접히면 안 된다. 최근 30일·최대 10건은 서버 계약.
+// 방어: results 키가 없거나 배열이 아니면 빈 배열 — 큐가 없을 뿐 화면은 무영향.
+export async function getMyChallengeResults(page?: {
+  since?: string;
+  limit?: number;
+}): Promise<MyChallengeResultEntry[]> {
+  const { data } = await api.get<MyChallengeResultsResponse>(
+    '/api/v1/me/challenge-results',
+    // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
+    { params: { since: page?.since, limit: page?.limit } },
+  );
+  return Array.isArray(data?.results) ? data.results : [];
+}
+
+// GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).
+// screentimeSync의 창 사용분 보고 대상 탐색축 — 그룹 목록 순회로는 탈퇴자·종료된 챌린지의
+// 진행 중 회차를 못 찾는다(탈퇴 즉시 목록에서 사라진다).
+export async function getMyOpenBetSessions(): Promise<MyOpenBetSession[]> {
+  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
+    params: { status: 'OPEN' },
+  });
+  return Array.isArray(data?.sessions) ? data.sessions : [];
+}
+
+// 위와 같은 조회의 **계정 박제** 변형(codex 리뷰 P1 — 추가 전용 규약에 따라 기존 함수를 고치지
+// 않고 새로 둔다). 사일런트 푸시 flush처럼 '어느 계정인지 검증한 뒤' 도는 흐름은, 검증과 전송
+// 사이에 계정이 바뀌면 인터셉터가 **전송 시점의 토큰**(교체된 계정)을 붙여 남의 회차를 읽어 온다.
+// 검증한 그 토큰을 직접 실어 그 창을 닫는다 — 401 재발급 재시도도 끈다(재발급 토큰은 전환된
+// 계정 것일 수 있어 재시도가 곧 계정 오귀속이다. focusApi.commitSession과 같은 규칙).
+export async function getMyOpenBetSessionsWithToken(
+  accessToken: string,
+): Promise<MyOpenBetSession[]> {
+  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
+    params: { status: 'OPEN' },
+    headers: { Authorization: `Bearer ${accessToken}` },
+    _noAuthRetry: true,
+  } as Parameters<typeof api.get>[1]);
+  return Array.isArray(data?.sessions) ? data.sessions : [];
+}
+
+// ── 챌린지 v2 — 회차(세션) 참여 4종 + 삭제 프리플라이트 + 내 OPEN 회차 ──────────
+// 계약 정본 docs/prd/challenge/low-level-design.md §2 (서버 병렬 구현 중 — LLD가 정본).
+// 기존 내기 API(createBet·joinBet·leaveBet·cancelBet)는 N36 브리지 동안 그대로 남는다 —
+// 구서버(회차 모델 없음) 응답을 받은 화면은 종전 경로를 계속 쓴다(제거는 별도 티켓).
+
+// POST /api/v1/groups/{groupId}/sessions/{sessionId}/join — 오늘 회차 참여(즉시 차감), 204.
+// 바디는 항상 {} 다 — joinBet과 같은 이유(생략하면 서버 415).
+export async function joinSession(groupId: string, sessionId: string): Promise<void> {
+  await api.post<void>(`/api/v1/groups/${groupId}/sessions/${sessionId}/join`, {});
+}
+
+// POST /api/v1/groups/{groupId}/challenges/{challengeId}/join-next — **다음 활성일 1건** 예약
+// (N45 · FR-31-1). 회차가 없으면 서버가 lazy 생성 후 참가시킨다. 오늘 회차는 이 경로가 아니라
+// joinSession을 쓴다 — 경로가 겹치면 "지금 내는 돈이 오늘 것인지 다음 것인지"가 흐려진다(LLD §2.2).
+// 응답 sessionDate는 카드 nextSessionAt과 같은 함수를 타므로 화면과 결제 대상이 어긋나지 않는다.
+export async function joinNextSession(
+  groupId: string,
+  challengeId: string,
+): Promise<JoinNextSessionResponse> {
+  const { data } = await api.post<JoinNextSessionResponse>(
+    `/api/v1/groups/${groupId}/challenges/${challengeId}/join-next`,
+    {},
+  );
+  return data;
+}
+
+// POST /api/v1/groups/{groupId}/challenges/{challengeId}/join-week — 이번 주 남은 날 일괄 예약
+// (N14·§C2). sessionDates로 대상을 **지정**한다(부분 예약 — 잔액 부족 시 가능한 날만).
+// 전체가 한 트랜잭션: 총액 선검사 후 전부 성공 or 전부 실패(BET_INSUFFICIENT_BALANCE는 총액 기준).
+// 이미 참가한 날짜는 서버가 조용히 건너뛰고, 활성일이 아닌 날짜·중복은 INVALID_SESSION_DATES 400.
+export async function joinWeekSessions(
+  groupId: string,
+  challengeId: string,
+  sessionDates: string[],
+): Promise<JoinWeekResponse> {
+  const { data } = await api.post<JoinWeekResponse>(
+    `/api/v1/groups/${groupId}/challenges/${challengeId}/join-week`,
+    { sessionDates },
+  );
+  return data;
+}
+
+// DELETE /api/v1/groups/{groupId}/sessions/{sessionId}/participation — 회차 참여 취소, 204.
+// 취소는 **회차 단위**다(§C8 — 일괄 취소 없음). 허용 창은 서버가 정본(N22: 시작 전 참가 →
+// 회차 시작까지 / 시작 후 참가 → 참가+5분, 회차 종료 상한). 에러: BET_NOT_JOINED(409) ·
+// BET_LEAVE_CLOSED(409) · BET_NOT_OPEN(409) · BET_SESSION_NOT_FOUND(404).
+export async function leaveSession(groupId: string, sessionId: string): Promise<void> {
+  await api.delete<void>(`/api/v1/groups/${groupId}/sessions/${sessionId}/participation`);
+}
+
+// GET /api/v1/groups/{groupId}/challenges/{challengeId}/deletion-preview — 그룹장 전용
+// 삭제 영향 프리플라이트(N49 · K11 해소). 카드의 bet.session은 오늘 1건뿐이라 주간 예약분이
+// 빠진다 — 진행 중 삭제 경고의 수치는 반드시 이 응답으로 만든다(FR-12-1). 실패하면 삭제를
+// 진행하지 않는다 — 수치 없는 경고는 경고가 아니다.
+export async function getChallengeDeletionPreview(
+  groupId: string,
+  challengeId: string,
+): Promise<ChallengeDeletionPreviewResponse> {
+  const { data } = await api.get<ChallengeDeletionPreviewResponse>(
+    `/api/v1/groups/${groupId}/challenges/${challengeId}/deletion-preview`,
+  );
+  return data;
+}
+
+// (GET /api/v1/me/bet-sessions 는 위 `getMyOpenBetSessions` 하나로 합쳤다 — 두 워크스트림이
+//  같은 엔드포인트를 각자 미러링했고 응답 shape 이 동일했다. 카드 응답에 예약한 미래 회차의
+//  sessionId 가 없어 예약분 취소가 이 목록에서 (challengeId, sessionDate) 로 대상을 찾는다는
+//  용도도 그대로다.)
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.
 // HTTP status가 아니라 이 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409라

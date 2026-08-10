@@ -4,10 +4,10 @@ import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
-import com.oneorthree.phone.group.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.dto.PushDispatchSummaryResponse;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -42,7 +42,7 @@ import static org.mockito.Mockito.verify;
  * 정산 결과 푸시의 <b>대상 산출·문구·dedup</b> 단위 테스트.
  *
  * <p>여기서 잠그는 성질은 셋이다: ① 승/패/몰수 문구가 참가자 상태로 정확히 갈리는가,
- * ② 이미 보낸 (유저, 내기) 조합이 재실행에서 0건 발송으로 빠지는가,
+ * ② 이미 보낸 (유저, 회차) 조합이 재실행에서 0건 발송으로 빠지는가,
  * ③ 발송이 성사된 건만 sent_log 에 남는가(quiet hours 스킵을 발송으로 오기록하지 않기).
  */
 @ExtendWith(MockitoExtension.class)
@@ -52,7 +52,7 @@ class BetResultNotificationServiceTest {
     private static final UUID GROUP_ID = UUID.randomUUID();
 
     @Mock
-    private GroupChallengeBetRepository groupChallengeBetRepository;
+    private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     @Mock
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock
@@ -68,36 +68,38 @@ class BetResultNotificationServiceTest {
         return User.builder().id(id).nickname("유저" + id).deviceToken("token-" + id).build();
     }
 
-    private static GroupChallengeBet bet(GroupBetStatus status, int stake) {
+    private static GroupChallengeBetSession bet(GroupBetStatus status, int stake) {
         Group group = Group.builder().id(GROUP_ID).name("그룹").build();
         GroupChallenge challenge = GroupChallenge.builder().id(UUID.randomUUID()).group(group).build();
-        return GroupChallengeBet.builder()
+        LocalDate sessionDate = LocalDate.of(2026, 8, 1);
+        return GroupChallengeBetSession.builder()
                 .id(UUID.randomUUID())
                 .group(group)
                 .challenge(challenge)
                 .stake(stake)
-                .betDate(LocalDate.of(2026, 8, 1))
+                .sessionDate(sessionDate)
                 .status(status)
                 .settledAt(NOW.minusSeconds(3600))
                 .build();
     }
 
     private static GroupChallengeBetParticipant participant(
-            GroupChallengeBet bet, User user, Boolean achieved, Integer payout) {
+            GroupChallengeBetSession session, User user, Boolean achieved, Integer payout) {
         return GroupChallengeBetParticipant.builder()
                 .id(UUID.randomUUID())
-                .bet(bet)
+                .session(session)
                 .user(user)
                 .achieved(achieved)
                 .payout(payout)
                 .build();
     }
 
-    private void givenBets(List<GroupChallengeBet> bets, List<GroupChallengeBetParticipant> participants) {
-        given(groupChallengeBetRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
-                .willReturn(bets);
-        if (!bets.isEmpty()) {
-            given(groupChallengeBetParticipantRepository.findByBetIdIn(anyCollection()))
+    private void givenBets(List<GroupChallengeBetSession> sessions,
+            List<GroupChallengeBetParticipant> participants) {
+        given(groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
+                .willReturn(sessions);
+        if (!sessions.isEmpty()) {
+            given(groupChallengeBetParticipantRepository.findBySessionIdIn(anyCollection()))
                     .willReturn(participants);
         }
     }
@@ -126,7 +128,7 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("승자에게는 받은 금액이, 패자에게는 잃은 참가비가 실린 문구가 나간다")
     void composesWinnerAndLoserBodies() {
-        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 50);
+        GroupChallengeBetSession settled = bet(GroupBetStatus.SETTLED, 50);
         User winner = user(UUID.randomUUID());
         User loser = user(UUID.randomUUID());
         givenBets(List.of(settled), List.of(
@@ -149,7 +151,7 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("몰수 내기는 참가자 전원에게 소멸 문구 — 달성 플래그와 무관하다")
     void composesForfeitedBodyForEveryone() {
-        GroupChallengeBet forfeited = bet(GroupBetStatus.FORFEITED, 30);
+        GroupChallengeBetSession forfeited = bet(GroupBetStatus.FORFEITED, 30);
         User first = user(UUID.randomUUID());
         User second = user(UUID.randomUUID());
         givenBets(List.of(forfeited), List.of(
@@ -168,7 +170,7 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("푸시 payload 에 딥링크와 종류(type·groupId)가 실린다 — 앱 A3 소비 계약")
     void carriesDeepLinkAndTypeInData() {
-        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 10);
+        GroupChallengeBetSession settled = bet(GroupBetStatus.SETTLED, 10);
         User winner = user(UUID.randomUUID());
         givenBets(List.of(settled), List.of(participant(settled, winner, true, 20)));
         givenNoSentLogs();
@@ -187,7 +189,7 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("이미 보낸 (유저, 내기) 는 재실행에서 dedup — 발송 0건")
     void skipsAlreadySentCombinations() {
-        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 50);
+        GroupChallengeBetSession settled = bet(GroupBetStatus.SETTLED, 50);
         User winner = user(UUID.randomUUID());
         givenBets(List.of(settled), List.of(participant(settled, winner, true, 50)));
         given(notificationSentLogRepository.findByTypeAndUserIdInSince(
@@ -209,7 +211,7 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("quiet hours 등으로 발송이 안 되면 sent_log 를 남기지 않는다 — 다음 크론이 재시도")
     void doesNotLogWhenNotSent() {
-        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 50);
+        GroupChallengeBetSession settled = bet(GroupBetStatus.SETTLED, 50);
         User winner = user(UUID.randomUUID());
         givenBets(List.of(settled), List.of(participant(settled, winner, true, 50)));
         givenNoSentLogs();
@@ -224,9 +226,9 @@ class BetResultNotificationServiceTest {
     }
 
     @Test
-    @DisplayName("발송 성사 건만 sent_log 로 저장된다 — targetUserId 는 betId")
+    @DisplayName("발송 성사 건만 sent_log 로 저장된다 — targetUserId 는 회차 id")
     void savesLogForSentOnly() {
-        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 50);
+        GroupChallengeBetSession settled = bet(GroupBetStatus.SETTLED, 50);
         User winner = user(UUID.randomUUID());
         givenBets(List.of(settled), List.of(participant(settled, winner, true, 50)));
         givenNoSentLogs();
@@ -246,7 +248,7 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("탈퇴한 유저는 발송 대상에서 빠진다")
     void skipsDeletedUsers() {
-        GroupChallengeBet settled = bet(GroupBetStatus.SETTLED, 50);
+        GroupChallengeBetSession settled = bet(GroupBetStatus.SETTLED, 50);
         User deleted = User.builder()
                 .id(UUID.randomUUID()).nickname("탈퇴").deviceToken("t").isDeleted(true).build();
         givenBets(List.of(settled), List.of(participant(settled, deleted, true, 50)));
@@ -260,27 +262,27 @@ class BetResultNotificationServiceTest {
     @Test
     @DisplayName("최근 정산 건이 없으면 아무 조회도 더 하지 않는다")
     void returnsEmptySummaryWhenNoSettlements() {
-        given(groupChallengeBetRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
+        given(groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
                 .willReturn(List.of());
 
         PushDispatchSummaryResponse summary = service.sendBetResultNotifications(NOW);
 
         assertThat(summary.targetCount()).isZero();
         assertThat(summary.sentCount()).isZero();
-        verify(groupChallengeBetParticipantRepository, never()).findByBetIdIn(anyCollection());
+        verify(groupChallengeBetParticipantRepository, never()).findBySessionIdIn(anyCollection());
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    @DisplayName("대상 상태는 SETTLED·FORFEITED 뿐 — CANCELED 는 결과가 아니라 조회에 넣지 않는다")
+    @DisplayName("대상 상태는 SETTLED·FORFEITED 뿐 — UNUSED·VOIDED·REFUNDED 는 이 푸시의 대상이 아니다(N52)")
     void queriesOnlyResultStatuses() {
-        given(groupChallengeBetRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
+        given(groupChallengeBetSessionRepository.findByStatusInAndSettledAtSince(anyCollection(), any()))
                 .willReturn(List.of());
 
         service.sendBetResultNotifications(NOW);
 
         ArgumentCaptor<Collection<GroupBetStatus>> captor = ArgumentCaptor.forClass(Collection.class);
-        verify(groupChallengeBetRepository).findByStatusInAndSettledAtSince(captor.capture(), any());
+        verify(groupChallengeBetSessionRepository).findByStatusInAndSettledAtSince(captor.capture(), any());
         assertThat(captor.getValue())
                 .containsExactlyInAnyOrder(GroupBetStatus.SETTLED, GroupBetStatus.FORFEITED);
     }

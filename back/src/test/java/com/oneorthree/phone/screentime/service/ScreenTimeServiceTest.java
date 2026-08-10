@@ -249,8 +249,8 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total 0 저장, flag 미설정, 이벤트·알림 미발사")
-    void interimNullActualMinutesStoresZeroAndNoFlag() {
+    @DisplayName("interim(오늘) & actualScreenTimeMinutes null(측정 누락) → total null(미집계) 저장, flag 미설정, 이벤트·알림 미발사")
+    void interimNullActualMinutesStoresNullAndNoFlag() {
         User user = normalUser();
         Instant todayAt = todayAt();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -263,7 +263,8 @@ class ScreenTimeServiceTest {
 
         ArgumentCaptor<DailyScreenTimeStat> captor = ArgumentCaptor.forClass(DailyScreenTimeStat.class);
         verify(dailyScreenTimeStatRepository).save(captor.capture());
-        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isEqualTo(0); // null → 0
+        // GROMO-1267(FR-16): 측정 누락은 0 으로 뭉개지 않고 null(미집계)로 남긴다 — "0분 사용"과 구분.
+        assertThat(captor.getValue().getTotalScreenTimeMinutes()).isNull();
         assertThat(captor.getValue().isScreenTimeGoalAchieved()).isFalse();
         assertThat(captor.getValue().isScreenTimeFinalized()).isFalse();
         verify(notificationPort, never()).notify(any(UUID.class), anyBoolean());
@@ -315,11 +316,11 @@ class ScreenTimeServiceTest {
         verify(notificationPort).notify(USER_ID, true);
     }
 
-    // ── country_code 파생 ZoneId 환산 (date-bucketing) ─────────────────────
+    // ── KST 로컬 날짜 환산 (date-bucketing, GROMO-1259 KST 고정) ────────────
 
     @Test
-    @DisplayName("KST 자정 경계 → 유저 country_code(KR) 파생 ZoneId 기준 로컬 날짜로 귀속")
-    void saveScreenTimeUsesCountryZoneForLocalDate() {
+    @DisplayName("KST 자정 경계 → KST 로컬 날짜로 귀속 (GROMO-1259 저장축 KST 고정)")
+    void saveScreenTimeUsesKstForLocalDate() {
         User user = normalUser(); // KR
         // 2020-01-01T15:30:00Z == 2020-01-02 00:30 KST → 로컬 날짜 01-02 (UTC 였다면 01-01 로 오귀속)
         Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z");
@@ -340,10 +341,10 @@ class ScreenTimeServiceTest {
     }
 
     @Test
-    @DisplayName("country_code null → Asia/Seoul 폴백 기준 로컬 날짜 (GROMO-1252)")
-    void saveScreenTimeNullCountryFallsBackToSeoul() {
+    @DisplayName("country_code null 이어도 동일하게 KST 로컬 날짜 (GROMO-1259 — 날짜 축은 country_code 무관)")
+    void saveScreenTimeNullCountryStillUsesKst() {
         User user = User.builder().id(USER_ID).isGuest(false).build(); // countryCode null
-        // 2020-01-01T15:30:00Z == 2020-01-02 00:30 KST → 폴백 존(Asia/Seoul) 로컬 날짜 01-02
+        // 2020-01-01T15:30:00Z == 2020-01-02 00:30 KST → KST 로컬 날짜 01-02
         Instant reportedAt = Instant.parse("2020-01-01T15:30:00Z");
         LocalDate fallbackDate = LocalDate.of(2020, 1, 2);
 

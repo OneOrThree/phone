@@ -15,6 +15,11 @@ import { logInviteLinkOpened } from '@/services/analyticsEvents';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 
+// 환불 푸시(refund=1)가 태우는 잔액 재조회 신호 — 실제 조회는 CoinProvider가 한다.
+jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
+const mockRequestCoinRefresh = jest.requireMock('@/store/coinRefreshSignal')
+  .requestCoinRefresh as jest.Mock;
+
 // 그룹 딥링크(창 종료 푸시)의 1개/2개+ 분기가 목록 조회에 매달린다 — 네트워크 없이 목으로 준다.
 jest.mock('@/services/groupApi', () => ({ getMyGroups: jest.fn() }));
 const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as jest.Mock;
@@ -314,6 +319,92 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
 
     expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
     expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+  });
+
+  // 결과성 푸시(result=1 — push.ts가 BET_RESULT 등에 합성)는 멤버십 게이트를 우회한다
+  // (PR #566 리뷰 P1). 탈퇴자는 목록에 그 그룹이 없어 여기서 잘리면, 참가자 스코프 결과를
+  // 부르는 GroupRoomScreen(MEMBER_ONLY → 결과 모달 소비 후 onLeft)에 도달조차 못 한다 —
+  // 다른 소속 그룹이 없으면 정산 통지를 볼 통로가 0이 된다(N53·C8).
+  describe('결과성 푸시(result=1)의 멤버십 게이트 우회', () => {
+    test('탈퇴자(내 그룹 목록에 없음)여도 그룹방을 push 한다 — 목록 조회 자체를 생략', async () => {
+      mockGetMyGroups.mockResolvedValue([summary('other-1')]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: undefined,
+      });
+      // 게이트 우회는 조회 생략이다 — 소속 여부와 무관하게 화면(MEMBER_ONLY 처리)이 받는다.
+      expect(mockGetMyGroups).not.toHaveBeenCalled();
+    });
+
+    test('challenge와 함께 실려도 두 파라미터 모두 그룹방까지 흘린다', async () => {
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&challenge=${CHALLENGE_ID}&result=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: CHALLENGE_ID,
+      });
+      expect(mockGetMyGroups).not.toHaveBeenCalled();
+    });
+
+    test('result=1이 아니면(비결과성·변조값) 기존 게이트 그대로다', async () => {
+      mockGetMyGroups.mockResolvedValue([summary('other-1')]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=2`);
+      await flushAsync();
+
+      expect(mockGetMyGroups).toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    });
+  });
+
+  // 환불 푸시(refund=1 — push.ts가 BET_VOID_REFUND에 합성)는 잔액 재조회를 태운다(codex 리뷰 P2).
+  // 삭제된 챌린지는 결과 모달 대상에서 빠지고(challengeResult.ts의 voidReason 필터) 그룹의
+  // 챌린지 목록에도 남지 않아, 이 표식이 없으면 GroupRoomScreen의 어떤 경로도 잔액을 다시
+  // 받지 않는다 — 환불 전 잔액이 앱이 살아 있는 내내 화면에 남는다.
+  describe('환불 푸시(refund=1)의 잔액 재조회', () => {
+    test('환불 딥링크로 진입하면 잔액 재조회를 요청한다', async () => {
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
+      await flushAsync();
+
+      expect(mockRequestCoinRefresh).toHaveBeenCalledTimes(1);
+      // 이동 자체는 결과성 푸시와 동일하다 — 잔액 갱신이 라우팅을 바꾸지 않는다.
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: undefined,
+      });
+    });
+
+    // 그룹방 push가 성사되지 않아도(그룹 탭 폴백) 잔액은 갱신돼야 한다 — 환불된 코인은
+    // 그룹 소속과 무관한 내 재산이고, 이 푸시 말고는 알려 줄 사건이 없다.
+    test('g가 깨져 그룹방까지 못 가도 잔액은 다시 받는다', async () => {
+      navigateToDeepLink('gromo://group?g=abc&refund=1');
+      await flushAsync();
+
+      expect(mockRequestCoinRefresh).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith('Main', { screen: '그룹' });
+      expect(navigate).not.toHaveBeenCalledWith('GroupRoom', expect.anything());
+    });
+
+    test('표식 없는 일반 그룹 푸시는 종전대로 — 잔액을 건드리지 않는다', async () => {
+      mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+      await flushAsync();
+
+      expect(mockRequestCoinRefresh).not.toHaveBeenCalled();
+    });
+
+    test('변조된 값(refund=2)은 무시한다', async () => {
+      mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&refund=2`);
+      await flushAsync();
+
+      expect(mockRequestCoinRefresh).not.toHaveBeenCalled();
+    });
   });
 
   test('목록 조회가 실패해도 그룹 탭 이동은 유지된다(폴백)', async () => {
