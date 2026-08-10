@@ -42,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -132,6 +131,8 @@ public class GroupBetService {
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
+    private final GroupBetSessionFactory groupBetSessionFactory;
+    private final GroupBetWindowUsageService groupBetWindowUsageService;
 
     // ── 개설 브리지 / 참가 ──────────────────────────────────────────────
 
@@ -189,7 +190,7 @@ public class GroupBetService {
         try {
             // saveAndFlush — INSERT 를 지금 내보내야 유니크 위반이 이 try 안에서 잡힌다.
             session = groupChallengeBetSessionRepository.saveAndFlush(
-                    newSession(bet, group, challenge, target, sessionDate));
+                    groupBetSessionFactory.create(bet, group, challenge, target, sessionDate));
         } catch (DataIntegrityViolationException e) {
             // 사전 검사와 동시 개설이 겹친 레이스 — 유니크(설정·날짜당 회차 1개) 위반을 결정적인
             // 409 로 강하한다. 이 시점엔 참가비가 아직 걷히지 않았다(stakeIn 전).
@@ -390,10 +391,7 @@ public class GroupBetService {
             }
             // CTI 유실 등으로 판정 불가면 건너뛴다(조기 확정과 같은 태도) — 정산도 같은 이유로
             // 실패·백오프를 타므로 여기서 탈퇴를 막을 이유가 없다.
-            Optional<GroupBetJudge.Target> target = groupBetJudge.resolve(session.getChallenge())
-                    .map(t -> session.getGoalMinutes() == null
-                            ? t
-                            : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()));
+            Optional<GroupBetJudge.Target> target = groupBetJudge.ofSession(session);
             if (target.isEmpty()) {
                 continue;
             }
@@ -401,7 +399,9 @@ public class GroupBetService {
                     .progressMinutes(target.get(), session.getSessionDate(), List.of(user))
                     .get(user.getId());
             if (GroupBetJudge.isAchieved(target.get(), minutes)) {
-                mine.get().confirmWin(minutes == null ? 0 : minutes);
+                // 확정 시각도 함께 박제한다(V42 achieved_at) — 탈퇴 박제도 "승리가 닫힌 순간"이
+                // 있는 사건이라 조기 확정과 같은 축을 남긴다.
+                mine.get().confirmWin(minutes == null ? 0 : minutes, Instant.now());
                 log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
                         sessionId, user.getId(), minutes);
             }
@@ -514,11 +514,12 @@ public class GroupBetService {
                         .session(session)
                         .user(user)
                         .build());
-        // TODO(머지 배선 — B6/GROMO-1407): 여기에 groupBetWindowUsageService.invalidatePreJoinReport(
-        // session, user.getId()) 가 들어간다(참가 전 창 사용분 선기록 무효화, @Transactional MANDATORY).
-        // 이 워크트리엔 GroupBetWindowUsageService 가 없어 호출만 비워 둔다. 신·구 참여 경로가 전부 이
-        // 메서드를 지나므로(joinSession·joinNext·joinWeek·레거시 createBet/joinBet) 한 줄이면 전 경로가
-        // 덮인다 — join-week 다건도 회차마다 stakeIn 을 부르므로 회차 단위 호출이 보장된다.
+        // 참가 전에 쌓인 창 사용분 보고는 버린다(GROMO-1407 선기록 계열 차단) — 참가 이후의 보고만
+        // 참가자 게이트를 통과한다. 무효화 본체·근거는 GroupBetWindowUsageService 에 있다.
+        // 신·구 참여 경로가 전부 이 메서드를 지나므로(joinSession·joinNext·joinWeek·레거시
+        // createBet/joinBet) 한 줄이면 전 경로가 덮인다 — join-week 다건도 회차마다 stakeIn 을
+        // 부르므로 회차 단위 호출이 보장된다.
+        groupBetWindowUsageService.invalidatePreJoinReport(session, user.getId());
         boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE,
                 session.getStake(), stakeKey(session.getId(), participant.getId()));
         if (!applied) {
@@ -561,58 +562,17 @@ public class GroupBetService {
     }
 
     /**
-     * 회차 행 조립 — <b>미션 스냅샷 박제</b>(GROMO-1263): 카테고리·방식·목표분·창 시각·참가비를
-     * 챌린지·설정에서 복사한다. 챌린지가 삭제돼도 내역 한 줄이 조인 없이 온전해야 한다(N6-1).
+     * 회차 행 조립 — <b>미션 스냅샷 박제</b>(GROMO-1263). 실제 조립은
+     * {@link GroupBetSessionFactory} 단일 지점이 하고 이 메서드는 <b>얇은 위임</b>이다.
      *
-     * <p>시각 계산: 하루형은 회차일 00:00 ~ 익일 00:00(KST), 창형은 창 시작 ~ 창 종료(자정 걸침
-     * 레거시 창은 익일 종료). {@code joinClosesAt} 은 LLD §1.1 정의(창형 = 창 시작, 하루형 = 회차
-     * 종료)대로 박제하되, 브리지 기간의 레거시 참가 가드는 종전 규칙(창 종료까지)을 유지한다 —
-     * 이 값의 강제는 신 참여 API(B4)의 몫이다.
+     * <p>신 참여 경로({@code GroupBetJoinService} 의 lazy 개설)와 레거시 개설 브리지·자동 개설
+     * 스캔이 <b>같은 조립</b>을 써야 한다 — 사본이 둘이면 개설 경로에 따라 참가 마감·정산 시각이
+     * 조용히 갈린다(회차는 그 값들을 박제하므로 되돌릴 수도 없다). B5 의 호출부를 유지하면서
+     * 구현을 하나로 모으기 위해 시그니처만 남긴다.
      */
     GroupChallengeBetSession newSession(GroupChallengeBet bet, Group group,
             GroupChallenge challenge, GroupBetJudge.Target target, LocalDate sessionDate) {
-        LocalTime windowStart = null;
-        LocalTime windowEnd = null;
-        Instant startsAt;
-        Instant closesAt;
-        Instant joinClosesAt;
-        Instant settleAfter;
-        if (target.windowed()) {
-            // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 time 으로 저장된다 — Instant→LocalTime
-            // 변환(WindowFocusAggregator.timeOfDay)이 더는 필요 없다.
-            windowStart = target.window().getWindowStart();
-            windowEnd = target.window().getWindowEnd();
-            startsAt = sessionDate.atTime(windowStart).atZone(KST).toInstant();
-            LocalDate endDate = windowStart.isBefore(windowEnd) ? sessionDate : sessionDate.plusDays(1);
-            closesAt = endDate.atTime(windowEnd).atZone(KST).toInstant();
-            joinClosesAt = startsAt;
-            settleAfter = closesAt.plusSeconds(WINDOW_SETTLE_GRACE_MINUTES * 60L);
-        } else {
-            startsAt = sessionDate.atStartOfDay(KST).toInstant();
-            closesAt = sessionDate.plusDays(1).atStartOfDay(KST).toInstant();
-            joinClosesAt = closesAt;
-            int graceHours = target.category() == MissionCategory.SCREEN_TIME
-                    ? DURATION_SCREEN_TIME_SETTLE_GRACE_HOURS
-                    : DURATION_FOCUS_SETTLE_GRACE_HOURS;
-            settleAfter = closesAt.plusSeconds(graceHours * 3600L);
-        }
-        return GroupChallengeBetSession.builder()
-                .bet(bet)
-                .group(group)
-                .challenge(challenge)
-                .sessionDate(sessionDate)
-                .stake(bet.getStake())
-                .goalMinutes(target.goalMinutes())
-                .missionCategory(challenge.getCategory())
-                .missionType(challenge.getType())
-                .windowStart(windowStart)
-                .windowEnd(windowEnd)
-                .status(GroupBetStatus.OPEN)
-                .startsAt(startsAt)
-                .joinClosesAt(joinClosesAt)
-                .closesAt(closesAt)
-                .settleAfter(settleAfter)
-                .build();
+        return groupBetSessionFactory.create(bet, group, challenge, target, sessionDate);
     }
 
     // ── 조회 조립 (GroupChallengeService 가 챌린지 카드에 얹는다) ─────────────
@@ -717,6 +677,8 @@ public class GroupBetService {
                     .stake(session.getStake())
                     .pot(session.getStake() * participants.size())
                     .status(session.getStatus())
+                    // 종료 사유(N55) — REFUNDED 가 "달성자 0명"인지 "24h 미정산 자동 환불"인지 구분.
+                    .voidReason(session.getVoidReason())
                     .goalMinutes(session.getGoalMinutes())
                     .results(toResultParticipants(participants))
                     .build());
@@ -766,6 +728,8 @@ public class GroupBetService {
                             .stake(session.getStake())
                             .pot(session.getStake() * participants.size())
                             .status(session.getStatus())
+                            // 종료 사유(N55) — 내역에서도 환불 사유가 구분돼야 한다.
+                            .voidReason(session.getVoidReason())
                             .settledAt(session.getSettledAt())
                             .goalMinutes(session.getGoalMinutes())
                             .results(toResultParticipants(participants))
@@ -779,11 +743,12 @@ public class GroupBetService {
     }
 
     /**
-     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})과 히스토리 공용.
-     * 탈퇴자는 닉네임만 {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
+     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})·히스토리·참가자 스코프
+     * 결과 조회({@code GroupBetQueryService}) 공용. 탈퇴자는 닉네임만
+     * {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
      * 명단·인원수·pot 은 정산 당시 사실이라 절대 불변이다(계약 §1).
      */
-    private List<GroupBetResultParticipantResponse> toResultParticipants(
+    static List<GroupBetResultParticipantResponse> toResultParticipants(
             List<GroupChallengeBetParticipant> participants) {
         return participants.stream()
                 .map(p -> GroupBetResultParticipantResponse.builder()
@@ -800,7 +765,7 @@ public class GroupBetService {
      * 명단 표시용 닉네임 — 탈퇴자(is_deleted, PII 파기로 nickname=null)는 고정 문구로 치환한다.
      * 탈퇴자 처리를 <b>출력(명단) 층에서만</b> 하는 계약(§1)의 단일 지점이다.
      */
-    private static String displayNickname(User user) {
+    static String displayNickname(User user) {
         return user.isDeleted() ? WITHDRAWN_USER_NICKNAME : user.getNickname();
     }
 
@@ -831,14 +796,14 @@ public class GroupBetService {
     }
 
     /**
-     * 회차 스냅샷 기반 판정 대상 — 참가 가드·창 마감 검사가 챌린지 CTI 를 다시 읽되, 목표분은
-     * 회차 박제값(GROMO-1263)으로 덮는다(챌린지 목표가 이후 바뀌어도 이 회차의 기준은 불변).
+     * 회차 스냅샷 기반 판정 대상 — 참가 가드·창 마감 검사가 <b>정산과 같은 커널·같은 박제값</b>을
+     * 본다(GROMO-1263 · GROMO-1280). 챌린지가 이후 바뀌거나 삭제돼도 이 회차의 기준은 불변이다.
      */
     GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
-        return groupBetJudge.resolve(session.getChallenge())
-                .map(t -> session.getGoalMinutes() == null
-                        ? t
-                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()))
+        // 스냅샷이 정본이다 — CTI 를 먼저 읽고 목표분만 덮어쓰던 종전 판(창 시각은 챌린지 현재값을
+        // 따라갔다)은 커널의 ofSession 으로 대체됐다(GROMO-1280). 챌린지가 삭제·수정돼도 회차의
+        // 판정 기준은 개설 시점 그대로다.
+        return groupBetJudge.ofSession(session)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
     }
 
@@ -913,6 +878,12 @@ public class GroupBetService {
      *   <li><b>SCREEN_TIME</b>: 이미 목표를 초과해 패배가 확정된 유저를 거절
      *       ({@code BET_ALREADY_FAILED}) — 질 게 정해진 참가비 투입 방지</li>
      * </ul>
+     *
+     * <p><b>여기서 막지 않는 것 — 측정 권한 없는 SCREEN_TIME 참여(N50, GROMO-1409)</b>. 판정 커널이
+     * 권한 없는 유저를 미계측으로 보므로(GROMO-1280) 그런 유저는 이 가드를 <b>항상 통과</b>하고
+     * 정산에서 FR-21 로 확정 패배한다. 권한 확인·전용 에러
+     * ({@code BET_SCREENTIME_PERMISSION_REQUIRED})는 참여 가드 티켓의 몫이라 여기서 임의 코드로
+     * 대신 막지 않는다 — 그 티켓이 들어오기 전까지 남는 알려진 구멍이다.
      */
     void requireEligibleToStake(GroupBetJudge.Target target, User user, LocalDate date) {
         Integer minutes = groupBetJudge.progressMinutes(target, date, List.of(user)).get(user.getId());

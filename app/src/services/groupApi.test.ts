@@ -15,6 +15,7 @@ import {
   getAnnouncements,
   getBetHistory,
   getChallenges,
+  getGroupChallengeHistory,
   getGroupDetail,
   getGroupOverview,
   getMyGroups,
@@ -225,6 +226,28 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       `/api/v1/groups/${GROUP_ID}/challenges/${CHALLENGE_ID}/bets`,
       { params: { cursor: BET_ID, size: 20 } },
     );
+  });
+
+  // 그룹 챌린지 내역(GROMO-1277 · N6-1) — **경로가 챌린지에 종속되지 않는 것**이 계약의 핵심이다.
+  // 챌린지가 삭제돼도 조회돼야 하므로 챌린지별 보기조차 경로가 아니라 challengeId 쿼리다(IA §5).
+  test('GET /{groupId}/challenge-history — 챌린지별 보기도 같은 경로의 쿼리 필터다', async () => {
+    mockApi.get.mockResolvedValue({
+      data: { content: [], size: 20, hasNext: false, nextCursor: null },
+    });
+
+    await getGroupChallengeHistory(GROUP_ID, { size: 20 });
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenge-history`, {
+      params: { cursor: undefined, size: 20, challengeId: undefined },
+    });
+
+    await getGroupChallengeHistory(GROUP_ID, {
+      cursor: BET_ID,
+      size: 20,
+      challengeId: CHALLENGE_ID,
+    });
+    expect(mockApi.get).toHaveBeenLastCalledWith(`/api/v1/groups/${GROUP_ID}/challenge-history`, {
+      params: { cursor: BET_ID, size: 20, challengeId: CHALLENGE_ID },
+    });
   });
 
   // TIME_WINDOW 생성(확장 배치) — 창 시각·목표분이 additive로 실린다.
