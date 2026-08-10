@@ -25,6 +25,7 @@ import {
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
+import { triggerLogout } from '@/services/api';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -109,6 +110,7 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 jest.mock('./groupRoomNotFound', () => ({ resolveGroupRoomNotFound: jest.fn() }));
+jest.mock('@/services/api', () => ({ triggerLogout: jest.fn() }));
 
 // 날짜 경계를 테스트가 직접 옮긴다. kstDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
 // 실물을 쓴다(challengeResult.ts). 조회 기준일·내기 생성 경로는 전부 KST 버전이다(GROMO-1219 —
@@ -138,6 +140,7 @@ const mockYesterdayStrKst = jest.requireMock('@/utils/localDate').yesterdayStrKs
 const mockResolveGroupRoomNotFound = resolveGroupRoomNotFound as jest.MockedFunction<
   typeof resolveGroupRoomNotFound
 >;
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
@@ -344,6 +347,29 @@ describe('상세·공지 오류 분리', () => {
 
     expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
     expect(onLeft).not.toHaveBeenCalled();
+  });
+
+  test('최신 요청의 session_recovery만 공통 로그아웃을 실행한다', async () => {
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockResolveGroupRoomNotFound.mockResolvedValueOnce({ kind: 'session_recovery' });
+
+    await renderRoom();
+
+    expect(mockTriggerLogout).toHaveBeenCalledTimes(1);
+  });
+
+  test('blur로 무효화된 session_recovery 응답은 현재 세션을 로그아웃하지 않는다', async () => {
+    let resolveRecovery!: (value: { kind: 'session_recovery' }) => void;
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockResolveGroupRoomNotFound.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRecovery = resolve)),
+    );
+    await renderRoom();
+
+    await blur();
+    await act(async () => resolveRecovery({ kind: 'session_recovery' }));
+
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
   });
 
   test('기존 detail 갱신의 NOT_FOUND도 불명확하면 데이터를 보존하고 배너로 재시도한다', async () => {
@@ -1733,6 +1759,25 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
   // 막히지만(MEMBER_ONLY) 결과 큐는 참가자 스코프라 응답에 온다 — onLeft로 화면을 내리기 전에
   // 모달부터 소비시키고, 마지막 결과를 닫을 때 이탈을 잇는다.
   describe('탈퇴자(MEMBER_ONLY)의 결과 소비 후 이탈', () => {
+    test('NOT_FOUND 재확인 중 마지막 결과를 닫아도 확정 직후 즉시 이탈한다', async () => {
+      let resolveAbsence!: (value: { kind: 'membership_absent' }) => void;
+      mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      mockResolveGroupRoomNotFound.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveAbsence = resolve)),
+      );
+      await renderRoom();
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+      });
+      expect(onLeft).not.toHaveBeenCalled();
+
+      await act(async () => resolveAbsence({ kind: 'membership_absent' }));
+      await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
+    });
+
     test('결과가 있으면 onLeft를 미루고 모달부터 보여준다 — 닫으면 그때 onLeft', async () => {
       mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));

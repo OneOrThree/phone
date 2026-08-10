@@ -18,6 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { useUser } from '@/store/UserContext';
+import { triggerLogout } from '@/services/api';
 import { useCoins } from '@/store/CoinContext';
 import {
   deleteChallenge,
@@ -79,8 +80,7 @@ const NOTICE_PREVIEW = 3;
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
 type GridCell =
-  | { kind: 'member'; member: GroupDetailMemberResponse; rank: number }
-  | { kind: 'invite' };
+  { kind: 'member'; member: GroupDetailMemberResponse; rank: number } | { kind: 'invite' };
 
 // 리스트를 n개씩 잘라 행 배열로 만든다(3열 그리드 — flexWrap 대신 행 단위로 그려
 // 마지막 행에도 같은 폭이 유지되게 한다).
@@ -253,6 +253,9 @@ export default function GroupRoomScreen({
   // 뒤로 미루는 플래그
   // (PR #566 리뷰 ② — 탈퇴자도 자기 정산 결과는 본다, N53·C8). 마지막 결과를 닫을 때 발화한다.
   const pendingLeaveRef = useRef(false);
+  const resultQueueRef = useRef<ChallengeResultCandidate[]>([]);
+  const activeUserIdRef = useRef(userId);
+  activeUserIdRef.current = userId;
   // 지목 변경을 재조회로 잇기 위한 직전 값 — 아래 이펙트 주석 참고.
   const focusSeenRef = useRef<{ groupId: string; challengeId?: string }>({
     groupId,
@@ -279,6 +282,7 @@ export default function GroupRoomScreen({
     resultShownAtRef.current = null;
     resultShownKeyRef.current = null;
     pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
+    resultQueueRef.current = [];
     setResultQueue([]);
     setDetail(null);
     setNotices(null);
@@ -333,7 +337,6 @@ export default function GroupRoomScreen({
     // 상세 처리보다 **먼저** 둔다(PR #566 리뷰 ②) — 탈퇴자(MEMBER_ONLY)의 onLeft 판단이 "지금
     // 보여줄 결과가 있는가"를 알아야 하기 때문. 큐는 참가자 스코프라 멤버십과 무관하게 성립한다.
     // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
-    let queuedResults = 0; // 이번 조회로 큐에 실린 결과 수 — 아래 탈퇴 분기의 이탈 유예 근거
     // '보여줄 결과가 없다'와 **'있는지 모르겠다'**를 가르는 값(codex 후속 리뷰 P2). 결과 조회
     // 실패·가드 읽기 실패가 여기 해당한다 — 모르는 채로 탈퇴자를 방에서 내보내면(onLeft) 다른
     // 소속 그룹이 없는 사용자에겐 '다음 조회'가 없어 정산 결과를 영영 못 본다(N53·C8).
@@ -384,23 +387,18 @@ export default function GroupRoomScreen({
       if (!unseenKnown) {
         resultsUnknown = true;
       } else {
-        queuedResults = next.length;
-        setResultQueue((prev) => {
-          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
-          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
-          // **빈 정본이 와도 이 헤드만은 남긴다** — 사용자가 읽고 있는 모달을 응답 하나로
-          // 걷어내는 것도 사고다. 닫는 순간 큐에서 빠지고(onResultClose) 그 뒤엔 정본만 남는다.
-          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
-          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
-          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
-          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
-          //    가려져 있던 결과는 서버가 여전히 내려 주는 한 unseen에 그대로 남아 next로 돌아온다 —
-          //    돌아오지 않았다면 서버가 제외한 것이므로 여기서 함께 사라지는 것이 옳다.
-          const head = prev[0];
-          if (!head) return next;
-          if (resultShownKeyRef.current !== head.sessionId) return next;
-          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
-        });
+        // 떠 있는 모달(맨 앞)은 유지한다. ref도 같은 tick에 갱신해 NOT_FOUND 재확인을 기다리는
+        // 동안 사용자가 마지막 결과를 닫아도 이탈 판단이 과거 큐를 읽지 않게 한다.
+        const previousHead = resultQueueRef.current[0];
+        const resolvedQueue =
+          previousHead && resultShownKeyRef.current === previousHead.sessionId
+            ? [
+                previousHead,
+                ...next.filter((candidate) => candidate.sessionId !== previousHead.sessionId),
+              ]
+            : next;
+        resultQueueRef.current = resolvedQueue;
+        setResultQueue(resolvedQueue);
       }
     } else if (userId) {
       // 결과 조회 자체가 실패했다 — 역시 '없다'가 아니라 '모른다'다(게스트는 참가 회차가
@@ -414,7 +412,7 @@ export default function GroupRoomScreen({
     // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
     // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
     const convergeMembershipAbsence = (): boolean => {
-      if (queuedResults > 0 || resultShownKeyRef.current !== null || pendingLeaveRef.current) {
+      if (resultQueueRef.current.length > 0 || resultShownKeyRef.current !== null) {
         pendingLeaveRef.current = true;
         setError(true);
         return true;
@@ -436,14 +434,15 @@ export default function GroupRoomScreen({
         // NOT_FOUND는 활성 사용자 부재와 그룹 부재가 같은 code다. 인증을 재확인하고, 유효한
         // 세션이면 최신 detail/전체 목록 scope가 결론을 낼 때만 방 유지 또는 이탈로 수렴한다.
         const resolution = await resolveGroupRoomNotFound({ groupId, date, userId: userId ?? '' });
-        if (seq !== requestSeqRef.current) return false;
+        if (seq !== requestSeqRef.current || activeUserIdRef.current !== userId) return false;
         if (resolution.kind === 'detail') {
           resolvedDetail = resolution.detail;
         } else if (resolution.kind === 'membership_absent') {
           if (!convergeMembershipAbsence()) return false;
         } else {
-          // session_recovery는 공통 로그아웃 경계를 이미 시작했다. 트리가 남아 있는 동안에도
-          // 성공 복귀로 보이지 않게 안전 오류를 둔다. 재확인 실패도 같은 명시 재시도 상태다.
+          if (resolution.kind === 'session_recovery') triggerLogout();
+          // session_recovery는 최신 요청·계정 확인 뒤 공통 로그아웃 경계를 시작한다. 트리가
+          // 남아 있는 동안에도 성공 복귀로 보이지 않게 안전 오류를 둔다.
           setError(true);
         }
       } else {
@@ -632,7 +631,11 @@ export default function GroupRoomScreen({
     resultShownAtRef.current = null;
     resultShownKeyRef.current = null;
     if (shownAt !== null) logGroupChallengeResultClosed({ dwell_ms: Date.now() - shownAt });
-    setResultQueue((queue) => queue.slice(1));
+    setResultQueue((queue) => {
+      const next = queue.slice(1);
+      resultQueueRef.current = next;
+      return next;
+    });
     // 탈퇴 감지로 미뤄 둔 이탈(PR #566 리뷰 ②) — 마지막 결과를 닫는 순간 부모에게 넘긴다.
     // resultQueue.length는 이 콜백의 클로저 값(방금 닫은 장 포함)이라 1 이하 = 이번이 마지막.
     if (pendingLeaveRef.current && resultQueue.length <= 1) {

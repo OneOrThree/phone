@@ -1,4 +1,3 @@
-import { triggerLogout } from '@/services/api';
 import { getGroupDetail, getMyGroups, groupErrorCode } from '@/services/groupApi';
 import { getMyProfile } from '@/services/userApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
@@ -28,17 +27,19 @@ export async function resolveGroupRoomNotFound({
   } catch (error) {
     if (groupErrorCode(error) === 'NOT_FOUND') {
       // 토큰은 살아 있지만 users 활성 행이 없는 탈퇴/비활성 세션이다. 그룹 이탈 성공으로
-      // 보이지 않고 앱의 공통 세션 정리 경계로 넘긴다.
-      triggerLogout();
+      // 보이지 않고 호출자의 최신 요청·계정 확인 뒤 공통 세션 정리 경계로 넘긴다.
       return { kind: 'session_recovery' };
     }
     return { kind: 'retry' };
   }
 
-  const [detailResult, groupsResult] = await Promise.allSettled([
-    getGroupDetail(groupId, date),
-    getMyGroups(),
-  ]);
+  // 둘은 함께 시작해 느린 목록이 불명확 detail의 보조 증거가 될 수 있게 하되, detail만으로
+  // 결론이 나면 목록을 기다리지 않는다. allSettled wrapper를 즉시 붙여 늦은 reject도 흡수한다.
+  const detailPromise = Promise.allSettled([getGroupDetail(groupId, date)]).then(
+    ([result]) => result,
+  );
+  const groupsPromise = Promise.allSettled([getMyGroups()]).then(([result]) => result);
+  const detailResult = await detailPromise;
 
   if (detailResult.status === 'fulfilled') {
     if (detailResult.value.id === groupId) {
@@ -47,6 +48,8 @@ export async function resolveGroupRoomNotFound({
   } else if (groupErrorCode(detailResult.reason) === 'MEMBER_ONLY') {
     return { kind: 'membership_absent' };
   }
+
+  const groupsResult = await groupsPromise;
 
   // 성공한 전체 목록에서 target이 사라졌다면 그룹 부재·미소속 scope가 확정된다.
   // target이 남아 있거나 목록을 못 받았으면 detail 실패와 모순/불명 상태라 retry한다.
