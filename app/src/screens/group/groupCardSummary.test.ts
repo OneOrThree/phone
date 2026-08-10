@@ -29,7 +29,9 @@ function createFocus(): SharedFocusDependency<string[]> & {
   state: FocusDependencyState<string[]>;
   ensure: jest.Mock;
   retry: jest.Mock;
+  emit: () => void;
 } {
+  const listeners = new Set<() => void>();
   return {
     state: { status: 'idle' },
     getState() {
@@ -40,6 +42,13 @@ function createFocus(): SharedFocusDependency<string[]> & {
       return Promise.resolve(undefined);
     }),
     retry: jest.fn().mockResolvedValue(undefined),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emit() {
+      listeners.forEach((listener) => listener());
+    },
   };
 }
 
@@ -141,5 +150,55 @@ describe('GroupCardSummaryAdapter', () => {
     expect(loaders.detail).toHaveBeenCalledTimes(2);
     expect(loaders.challenges).toHaveBeenCalledTimes(2);
     expect(loaders.announcements).toHaveBeenCalledTimes(1);
+  });
+
+  test('계정이 바뀌면 같은 groupId의 ready 및 in-flight cache를 모두 폐기한다', async () => {
+    const oldDetail = deferred<never>();
+    const focus = createFocus();
+    const loaders = {
+      detail: jest
+        .fn()
+        .mockImplementationOnce(() => oldDetail.promise)
+        .mockResolvedValueOnce(detail(GROUP_A)),
+      announcements: jest.fn().mockResolvedValue([]),
+      challenges: jest.fn().mockResolvedValue([]),
+    };
+    const adapter = new GroupCardSummaryAdapter(focus, loaders);
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+    const oldRequest = adapter.ensureBack(GROUP_A);
+
+    const nextUserId = '00000000-0000-0000-0000-000000000002';
+    focus.state = { status: 'idle' };
+    adapter.setScope({ userId: nextUserId, date: DATE, groupIds: [GROUP_A] });
+    await adapter.ensureBack(GROUP_A);
+    oldDetail.resolve(detail(GROUP_A));
+    await oldRequest;
+
+    expect(loaders.detail).toHaveBeenCalledTimes(2);
+    expect(loaders.announcements).toHaveBeenCalledTimes(2);
+    expect(loaders.challenges).toHaveBeenCalledTimes(2);
+    expect(focus.ensure).toHaveBeenLastCalledWith(nextUserId, DATE);
+  });
+
+  test('dependency가 바뀌기 전에는 snapshot 참조를 유지하고 focus 변경도 알린다', () => {
+    const focus = createFocus();
+    const adapter = new GroupCardSummaryAdapter(focus, {
+      detail: jest.fn(),
+      announcements: jest.fn(),
+      challenges: jest.fn(),
+    });
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+    const listener = jest.fn();
+    adapter.subscribe(listener);
+
+    const first = adapter.getSnapshot(GROUP_A);
+    expect(adapter.getSnapshot(GROUP_A)).toBe(first);
+
+    focus.state = { status: 'ready', data: [] };
+    focus.emit();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(adapter.getSnapshot(GROUP_A)).not.toBe(first);
+    expect(adapter.getSnapshot(GROUP_A)?.focus.status).toBe('ready');
   });
 });
