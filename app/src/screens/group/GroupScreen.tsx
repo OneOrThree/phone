@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { CharacterImage } from '@/components/character/CharacterImage';
@@ -49,9 +49,11 @@ function groupCountBucket(count: number): GroupCountBucket {
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const isScreenFocused = useIsFocused();
   const { isGuest, userId } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
+  const [groupsRevision, setGroupsRevision] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -123,6 +125,7 @@ export default function GroupScreen() {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
       setGroups(rows);
+      setGroupsRevision((revision) => revision + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
@@ -343,6 +346,8 @@ export default function GroupScreen() {
         {staleNotice}
         <GroupListScreen
           groups={myGroups}
+          groupsRevision={groupsRevision}
+          isScreenFocused={isScreenFocused}
           userId={userId}
           onSelect={onSelectGroup}
           onCreate={openCreate}
