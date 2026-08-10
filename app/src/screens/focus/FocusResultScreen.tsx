@@ -615,7 +615,9 @@ export default function FocusResultScreen() {
                           // ⚠️ 실패(cellsFailed)도 **기다림 종료**다. 성공만 보면 조회가
                           //    실패했을 때 막대가 scaleY 0에 영구히 갇혀, 로컬로 확정된 오늘
                           //    막대까지 숨고 주간 합계와 빈 차트가 모순된다(codex 리뷰).
-                          key={cellsSettled ? 'settled' : 'pending'}
+                          // ⚠️ **key로 재마운트시키지 않는다.** 재마운트하면 인스턴스에 얼려 둔
+                          //    진입 결정이 폐기돼, 기다리는 동안 '동작 줄이기'를 켰다 끈 경우
+                          //    이미 보이던 막대를 scaleY 0으로 접었다 다시 키운다(codex 리뷰).
                           height={h}
                           isToday={isToday}
                           index={i}
@@ -901,10 +903,13 @@ function WeekBar({
       style={[
         s.bar,
         { height, backgroundColor: isToday ? T.accent : T.sand },
-        // 도착 전에는 시작 프레임에서 기다린다 — 오늘 막대는 이미 값이 있어 완성 높이로 먼저
-        // 보였다가, 응답이 오며 growUp이 붙으면 0으로 접혔다 다시 자란다(codex 리뷰).
+        // 도착 전에는 **진입 결정과 무관하게** 시작 프레임에서 기다린다. 오늘 막대는 이미 값이
+        // 있어 완성 높이로 먼저 보였다가 응답이 오며 growUp이 붙으면 0으로 접혔다 자란다.
+        // ⚠️ 여기서 `enter &&`로 갈라 두면, 기다리는 동안 '동작 줄이기'가 켜져 있던 사용자에게만
+        //    막대가 먼저 보이고 그 뒤 설정을 끄면 접혔다 자란다(codex 리뷰). 누구에게나 같은
+        //    시작 상태로 기다리면 그 갈림 자체가 없다 — reduce 사용자는 도착 시 그냥 나타난다.
         // ⚠️ 실패면 기다림을 끝내되 연출은 붙이지 않는다. 로컬로 확정된 오늘 막대는 보여야 한다.
-        settled ? (animate ? enter : undefined) : enter && GROW_PENDING,
+        settled ? (animate ? enter : undefined) : GROW_PENDING,
       ]}
     />
   );
