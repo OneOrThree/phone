@@ -348,7 +348,7 @@ export default function GroupListScreen({
     previousScreenFocusedRef.current = screenFocused;
     if (!returned) return;
     invalidateBack();
-    if (flippedGroupId !== null) void retryBack(flippedGroupId);
+    if (flippedGroupId !== null) retryBack(flippedGroupId).catch(() => undefined);
   }, [flippedGroupId, invalidateBack, retryBack, screenFocused]);
 
   useEffect(() => {
