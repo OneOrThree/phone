@@ -29,6 +29,7 @@ jest.mock('react-native-safe-area-context', () => ({
 const mockReduce = { on: false };
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce.on,
+  useReduceMotionReady: () => true,
 }));
 
 // PanResponder는 내부 gestureState를 touchHistory로만 갱신해 jest로 제스처를 흉내 낼 수 없다.
