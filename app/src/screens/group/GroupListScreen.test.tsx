@@ -534,9 +534,9 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID_2, GROUP_ID]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
-    expect(
-      screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.accessibilityValue,
-    ).toEqual({ text: '2/3' });
+    expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.accessibilityValue).toEqual({
+      text: '2/3',
+    });
     expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
   });
 
@@ -558,9 +558,9 @@ describe('제스처 중재와 재정렬', () => {
       grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
     });
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
-    expect(screen.getByTestId(`group.card.reorderOptions.${GROUP_ID}`).props.nestedScrollEnabled).toBe(
-      true,
-    );
+    expect(
+      screen.getByTestId(`group.card.reorderOptions.${GROUP_ID}`).props.nestedScrollEnabled,
+    ).toBe(true);
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
 
     await press(`group.card.${GROUP_ID}`);
