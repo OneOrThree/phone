@@ -82,6 +82,11 @@ function toAuthError(e: unknown, fallback: string): Error {
 
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
+  // 인증 응답을 인계받은 즉시 이전 세션의 진행 중 요청부터 무효화한다. 이 호출이
+  // AsyncStorage/accountSwitchHandler 뒤에 있으면 그 await 창에서 완료된 이전 그룹방의
+  // session_recovery가 방금 인계받은 새 인증까지 로그아웃할 수 있다.
+  // 같은 userId의 게스트→소셜 승격도 세션 교체이므로 예외 없이 올린다.
+  markAuthSessionReplacement();
   // 다른 계정으로 갈아타는 로그인이면 새 토큰 저장 전에 계정 전환 훅 실행(같은 userId 재로그인은 통과)
   const prevToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
   const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
@@ -89,9 +94,6 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
   if (prevToken && prevUserId && nextUserId && prevUserId !== nextUserId) {
     await accountSwitchHandler?.(prevToken);
   }
-  // 새 토큰 저장보다 먼저 세대를 올려 이전 세션에서 진행 중인 화면 요청을 무효화한다.
-  // 같은 userId를 유지하는 게스트→소셜 승격도 세션 교체이므로 예외 없이 올린다.
-  markAuthSessionReplacement();
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
   await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
 
