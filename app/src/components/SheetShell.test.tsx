@@ -425,8 +425,12 @@ describe('닫는 동안의 딤', () => {
     await act(async () => {
       mockPanConfigs[0].onPanResponderGrant({}, { dy: 0, vy: 0 });
     });
-    // 손가락은 아직 움직이지 않았다 — 딤도 그대로여야 한다.
-    expect(dimOpacity()).toBeCloseTo(before, 5);
+    // ⚠️ "값이 그대로"를 단언하면 안 된다 — 등장 페이드(dimProgress 0→1)가 **아직 도는 중**이라
+    //    프레임이 하나만 지나도 딤은 정상적으로 더 짙어진다. 실제로 CI에서 그 차이로 붉었다.
+    //    잠글 성질은 **단조**다: 손가락을 움직이지 않았으니 딤이 이 프레임에 **옅어지면 안 된다**.
+    //    감쇠를 절대 translateY로 재면 남은 등장 거리만큼 계수가 1 아래로 떨어져 여기서 잡힌다.
+    //    (윗 테스트 '퇴장 중 …다시 어두워지지 않는다'와 같은 결의 단조 단언이라 타이밍에 기대지 않는다.)
+    expect(dimOpacity()).toBeGreaterThanOrEqual(before);
   });
 });
 
