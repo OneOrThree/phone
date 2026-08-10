@@ -108,9 +108,13 @@ export function resolveDragTarget(
   edgeDirection: -1 | 0 | 1,
   max: number,
 ): { target: number; edgeOffset: number } {
-  const nextEdgeOffset = edgeOffset + edgeDirection;
+  const pointerTarget = Math.max(0, Math.min(from + pointerDelta, max));
+  const nextEdgeOffset = Math.max(
+    -pointerTarget,
+    Math.min(edgeOffset + edgeDirection, max - pointerTarget),
+  );
   return {
-    target: Math.max(0, Math.min(from + pointerDelta + nextEdgeOffset, max)),
+    target: pointerTarget + nextEdgeOffset,
     edgeOffset: nextEdgeOffset,
   };
 }
@@ -225,6 +229,7 @@ export default function GroupListScreen({
   const [exposedEpisodeId, setExposedEpisodeId] = useState<number | null>(null);
   const [guideQueued, setGuideQueued] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
+  const invalidatedGuideEpisodeRef = useRef<number | null>(null);
   const [emojis, setEmojis] = useState<Record<string, GroupCardEmoji>>({});
   const [emojiScopeLoaded, setEmojiScopeLoaded] = useState<string | null>(null);
   const [, setSummaryVersion] = useState(0);
@@ -251,8 +256,11 @@ export default function GroupListScreen({
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
   const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
+  const returnFocusTargetRef = useRef<'room' | 'settings'>('room');
   const frontFocusRef = useRef<View | null>(null);
-  const roomFocusRef = useRef<View | null>(null);
+  const backFocusRef = useRef<View | null>(null);
+  const roomReturnFocusRef = useRef<View | null>(null);
+  const settingsReturnFocusRef = useRef<View | null>(null);
   const actionLockedRef = useRef(false);
   const [pendingFrontFocusGroupId, setPendingFrontFocusGroupId] = useState<string | null>(null);
   const [pendingBackFocusGroupId, setPendingBackFocusGroupId] = useState<string | null>(null);
@@ -282,10 +290,16 @@ export default function GroupListScreen({
   // 완료 key read와 현재 blocking overlay 판정이 끝나기 전에는 덱을 열지 않는다. 이 시점의
   // guide_state를 episode의 불변 노출 값으로 기록하고, pending이었다면 blocker 해제 뒤 queue를 연다.
   useEffect(() => {
-    if (!hydrated || exposedEpisodeId === viewEpisodeId) return;
+    if (
+      !hydrated ||
+      !guideScreenFocused ||
+      invalidatedGuideEpisodeRef.current === viewEpisodeId ||
+      exposedEpisodeId === viewEpisodeId
+    )
+      return;
     let canceled = false;
     const settle = (readState: GroupDeckGuideReadState) => {
-      if (canceled) return;
+      if (canceled || !guideScreenFocused) return;
       const decision = resolveGroupDeckGuideDecision(readState, guideBlocked);
       logGroupCardDeckViewed({
         group_count_bucket: groupCountBucket(orderedGroups.length),
@@ -306,7 +320,15 @@ export default function GroupListScreen({
     return () => {
       canceled = true;
     };
-  }, [exposedEpisodeId, groupEntry, guideBlocked, hydrated, orderedGroups.length, viewEpisodeId]);
+  }, [
+    exposedEpisodeId,
+    groupEntry,
+    guideBlocked,
+    guideScreenFocused,
+    hydrated,
+    orderedGroups.length,
+    viewEpisodeId,
+  ]);
 
   useEffect(() => {
     if (!guideQueued || guideVisible || guideBlocked || !guideScreenFocused || !appActive) return;
@@ -315,6 +337,7 @@ export default function GroupListScreen({
 
   useEffect(() => {
     if (!guideScreenFocused) {
+      invalidatedGuideEpisodeRef.current = viewEpisodeId;
       setGuideVisible(false);
       // route 이탈 중에는 목록·episode가 바뀔 수 있으므로 이전 queue를 재사용하지 않는다.
       setGuideQueued(false);
@@ -332,7 +355,7 @@ export default function GroupListScreen({
         setBackSource(null);
       }
     }
-  }, [appActive, backSource, guideBlocked, guideScreenFocused, guideVisible]);
+  }, [appActive, backSource, guideBlocked, guideScreenFocused, guideVisible, viewEpisodeId]);
 
   useEffect(() => {
     focusPolling?.setLifecycle({
@@ -442,10 +465,11 @@ export default function GroupListScreen({
     setRefreshing(true);
     try {
       await onRefresh();
+      if (flippedGroupId) await summaryAdapter.refreshBack(flippedGroupId);
     } finally {
       if (mountedRef.current) setRefreshing(false);
     }
-  }, [onRefresh]);
+  }, [flippedGroupId, onRefresh, summaryAdapter]);
 
   const selectPage = useCallback(
     (page: number, trigger: 'indicator_press' | 'accessibility_action' = 'indicator_press') => {
@@ -524,6 +548,7 @@ export default function GroupListScreen({
       context,
       orderedGroups.map((group) => group.groupId),
     );
+    const returnFocusTarget = returnFocusTargetRef.current;
     roomReturnRef.current = null;
     if (target.kind === 'empty') return;
 
@@ -532,13 +557,22 @@ export default function GroupListScreen({
     listRef.current?.scrollToOffset({ offset: target.index * snapInterval, animated: false });
     if (target.kind === 'same_back') {
       setFlippedGroupId(target.groupId);
-      focusNode(roomFocusRef);
+      summaryAdapter.refreshBack(target.groupId).catch(() => undefined);
+      focusNode(returnFocusTarget === 'settings' ? settingsReturnFocusRef : roomReturnFocusRef);
     } else {
       setFlippedGroupId(null);
       setBackSource(null);
       setPendingFrontFocusGroupId(target.groupId);
     }
-  }, [focusNode, groupsRevision, hydrated, isScreenFocused, orderedGroups, snapInterval]);
+  }, [
+    focusNode,
+    groupsRevision,
+    hydrated,
+    isScreenFocused,
+    orderedGroups,
+    snapInterval,
+    summaryAdapter,
+  ]);
 
   useEffect(() => {
     if (pendingFrontFocusGroupId === null) return;
@@ -550,8 +584,8 @@ export default function GroupListScreen({
 
   useEffect(() => {
     if (pendingBackFocusGroupId === null) return;
-    if (flippedGroupId !== pendingBackFocusGroupId || roomFocusRef.current === null) return;
-    focusNode(roomFocusRef);
+    if (flippedGroupId !== pendingBackFocusGroupId || backFocusRef.current === null) return;
+    focusNode(backFocusRef);
     setPendingBackFocusGroupId(null);
   }, [flippedGroupId, focusNode, pendingBackFocusGroupId]);
 
@@ -758,7 +792,13 @@ export default function GroupListScreen({
               <GroupCardBack
                 group={item}
                 snapshot={summaryAdapter.getSnapshot(item.groupId)}
-                focusRef={activeIdentityRef.current === item.groupId ? roomFocusRef : undefined}
+                backFocusRef={activeIdentityRef.current === item.groupId ? backFocusRef : undefined}
+                roomFocusRef={
+                  activeIdentityRef.current === item.groupId ? roomReturnFocusRef : undefined
+                }
+                settingsFocusRef={
+                  activeIdentityRef.current === item.groupId ? settingsReturnFocusRef : undefined
+                }
                 onRetry={(dependency) => {
                   summaryAdapter.retry(item.groupId, dependency).catch(() => undefined);
                 }}
@@ -777,6 +817,7 @@ export default function GroupListScreen({
                     sourceIndex: index,
                     departureRevision: groupsRevision,
                   };
+                  returnFocusTargetRef.current = 'room';
                   onSelect(item.groupId, interaction);
                 }}
                 onFocus={() => {
@@ -801,6 +842,12 @@ export default function GroupListScreen({
                     back_source: backSource ?? 'user',
                     interaction_id: interaction.interactionId,
                   });
+                  roomReturnRef.current = {
+                    groupId: item.groupId,
+                    sourceIndex: index,
+                    departureRevision: groupsRevision,
+                  };
+                  returnFocusTargetRef.current = 'settings';
                   onSettings(item.groupId);
                 }}
                 onFront={(trigger) => {

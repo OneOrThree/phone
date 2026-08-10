@@ -247,7 +247,7 @@ export default function GroupScreen() {
     navigation.navigate('GroupRoom', {
       groupId: target,
       challengeId: undefined,
-      entrySource: undefined,
+      entrySource: 'invite',
       interactionId: undefined,
       interactionAcceptedAt: undefined,
     });
@@ -297,7 +297,7 @@ export default function GroupScreen() {
       navigation.navigate('GroupRoom', {
         groupId,
         challengeId: undefined,
-        entrySource: undefined,
+        entrySource: 'group_find',
         interactionId: undefined,
         interactionAcceptedAt: undefined,
       });

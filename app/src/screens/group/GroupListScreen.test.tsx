@@ -261,6 +261,45 @@ describe('카드 렌더', () => {
     await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
   });
 
+  test('route blur 뒤 완료된 비동기 안내 판정은 이전 episode queue를 다시 세우지 않는다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    resetGroupDeckGuideSessionForTests();
+    let finishGuideRead!: (value: string | null) => void;
+    const pendingGuideRead = new Promise<string | null>((resolve) => {
+      finishGuideRead = resolve;
+    });
+    jest
+      .mocked(AsyncStorage.getItem)
+      .mockImplementation((key) =>
+        key === STORAGE_KEYS.guideGroupDeck ? pendingGuideRead : readStoredItem(key),
+      );
+    const props = {
+      groups: [group()],
+      userId: 'guide-async-blur',
+      onSelect,
+      onFocus,
+      onSettings,
+      groupEntry: 'tab' as const,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused />);
+
+    await view.rerender(
+      <GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused={false} />,
+    );
+    await act(async () => finishGuideRead(null));
+    expect(logGroupCardDeckViewed).not.toHaveBeenCalled();
+
+    await view.rerender(<GroupListScreen {...props} viewEpisodeId={1} guideScreenFocused />);
+    expect(screen.queryByTestId('group.deck.guide')).toBeNull();
+
+    await view.rerender(<GroupListScreen {...props} viewEpisodeId={2} guideScreenFocused />);
+    await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
+    jest.mocked(AsyncStorage.getItem).mockImplementation(readStoredItem);
+  });
+
   test('다른 overlay가 막고 있으면 미완료 안내를 pending으로 기록한다', async () => {
     await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
     resetGroupDeckGuideSessionForTests();
@@ -604,6 +643,18 @@ describe('콜백', () => {
     });
     expect(screen.getByTestId('group.list.refresh').props.accessibilityState.disabled).toBe(false);
   });
+
+  test('뒷면에서 명시적 새로고침하면 ready 요약 dependency도 다시 읽는다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await waitFor(() => expect(getGroupDetail).toHaveBeenCalledTimes(1));
+
+    await press('group.list.refresh');
+
+    await waitFor(() => expect(getGroupDetail).toHaveBeenCalledTimes(2));
+    expect(getAnnouncements).toHaveBeenCalledTimes(2);
+    expect(getChallenges).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('제스처 중재와 재정렬', () => {
@@ -646,6 +697,14 @@ describe('제스처 중재와 재정렬', () => {
 
     expect(first.target).toBe(1);
     expect(second.target).toBe(2);
+  });
+
+  test('가장자리 밖 offset은 누적하지 않아 반대 방향 입력에 즉시 반응한다', () => {
+    const atEnd = resolveDragTarget(3, 0, 0, 1, 3);
+    const back = resolveDragTarget(3, 0, atEnd.edgeOffset, -1, 3);
+
+    expect(atEnd).toEqual({ target: 3, edgeOffset: 0 });
+    expect(back).toEqual({ target: 2, edgeOffset: -1 });
   });
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {

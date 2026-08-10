@@ -11,7 +11,9 @@ import { categoryLabel, missionLabel } from './challengeLabel';
 interface Props {
   group: GroupSummaryResponse;
   snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | null;
-  focusRef?: RefObject<View | null>;
+  backFocusRef?: RefObject<View | null>;
+  roomFocusRef?: RefObject<View | null>;
+  settingsFocusRef?: RefObject<View | null>;
   onRoom: () => void;
   onFocus: () => void;
   onSettings: () => void;
@@ -22,7 +24,9 @@ interface Props {
 export function GroupCardBack({
   group,
   snapshot,
-  focusRef,
+  backFocusRef,
+  roomFocusRef,
+  settingsFocusRef,
   onRoom,
   onFocus,
   onSettings,
@@ -101,17 +105,25 @@ export function GroupCardBack({
         <Text style={s.body}>그룹 활동을 불러오는 중이에요.</Text>
       )}
       <TouchableOpacity
-        ref={focusRef}
+        ref={backFocusRef}
         style={s.primary}
         onPress={onFocus}
         testID={`group.card.focus.${group.groupId}`}
       >
         <Text style={s.primaryText}>이 그룹으로 집중</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onRoom} testID={`group.card.room.${group.groupId}`}>
+      <TouchableOpacity
+        ref={roomFocusRef}
+        onPress={onRoom}
+        testID={`group.card.room.${group.groupId}`}
+      >
         <Text style={s.link}>방 전체 보기</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onSettings} testID={`group.card.settings.${group.groupId}`}>
+      <TouchableOpacity
+        ref={settingsFocusRef}
+        onPress={onSettings}
+        testID={`group.card.settings.${group.groupId}`}
+      >
         <Text style={s.link}>⋯ 그룹 설정</Text>
       </TouchableOpacity>
       <TouchableOpacity

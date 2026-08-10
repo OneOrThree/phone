@@ -142,4 +142,30 @@ describe('GroupCardSummaryAdapter', () => {
     expect(loaders.challenges).toHaveBeenCalledTimes(2);
     expect(loaders.announcements).toHaveBeenCalledTimes(1);
   });
+
+  test('명시적 refresh는 ready dependency를 다시 읽고 같은 in-flight 요청을 공유한다', async () => {
+    const pending = deferred<never>();
+    const focus = createFocus();
+    const loaders = {
+      detail: jest
+        .fn()
+        .mockResolvedValueOnce(detail(GROUP_A))
+        .mockImplementationOnce(() => pending.promise),
+      announcements: jest.fn().mockResolvedValue([]),
+      challenges: jest.fn().mockResolvedValue([]),
+    };
+    const adapter = new GroupCardSummaryAdapter(focus, loaders);
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+    await adapter.ensureBack(GROUP_A);
+
+    const first = adapter.refreshBack(GROUP_A);
+    const second = adapter.refreshBack(GROUP_A);
+
+    expect(loaders.detail).toHaveBeenCalledTimes(2);
+    expect(loaders.announcements).toHaveBeenCalledTimes(2);
+    expect(loaders.challenges).toHaveBeenCalledTimes(2);
+    pending.resolve(detail(GROUP_A));
+    await Promise.all([first, second]);
+    expect(loaders.detail).toHaveBeenCalledTimes(2);
+  });
 });

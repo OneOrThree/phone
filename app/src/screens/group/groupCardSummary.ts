@@ -65,6 +65,12 @@ export class KeyedDependencyCache<T> {
     return this.start(key);
   }
 
+  refresh(key: string): Promise<DependencyState<T>> {
+    const entry = this.entries.get(key);
+    if (entry?.inFlight) return entry.inFlight;
+    return this.start(key);
+  }
+
   retain(isValid: (key: string) => boolean): void {
     let changed = false;
     for (const key of this.entries.keys()) {
@@ -189,6 +195,23 @@ export class GroupCardSummaryAdapter<TFocus> {
       focusState.status === 'idle'
         ? this.focus.ensure(scope.userId, scope.date)
         : Promise.resolve(focusState),
+    ]);
+  }
+
+  /**
+   * 성공한 목록 revision이나 사용자의 명시적 새로고침 뒤 현재 카드 요약을 재검증한다.
+   * ready/error 여부와 무관하게 새 요청을 시작하되, 이미 진행 중인 같은 key 요청은 공유한다.
+   * focus는 별도 polling store가 lifecycle에 맞춰 갱신하므로 여기서는 방에서 바뀔 수 있는
+   * 그룹 상세·공지·활동 dependency만 다시 읽는다.
+   */
+  async refreshBack(groupId: string): Promise<void> {
+    const scope = this.validScope(groupId);
+    if (!scope) return;
+    const datedKey = keyed(groupId, scope.date);
+    await Promise.all([
+      this.detail.refresh(datedKey),
+      this.announcements.refresh(groupId),
+      this.challenges.refresh(datedKey),
     ]);
   }
 
