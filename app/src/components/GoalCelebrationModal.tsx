@@ -117,7 +117,12 @@ export function GoalCelebrationModal({
               (codex 리뷰). 그 전에는 opacity 0으로 접어 둬 '컸다가 줄어드는' 프레임도 없앤다. */}
           <Animated.View
             testID="goalCelebration.character"
-            style={charReady ? m.css(pop()) : s.charPending}
+            // ⚠️ `m.ready`도 함께 본다. 미확정 구간의 보수적 reduce=true는 `m.css(pop())`을
+            //    undefined로 만들어 캐릭터를 **최종 크기로 먼저 노출**하는데, 이후 false로
+            //    확정되면 이미 보이던 래퍼에 팝이 뒤늦게 붙어 0배율로 사라졌다 나타난다
+            //    (codex 리뷰). 확정될 때까지는 pending(opacity 0)을 유지한다 — 팝의 시작
+            //    프레임과 같은 상태라 어느 쪽으로 확정되든 이어지는 그림에 끊김이 없다.
+            style={charReady && m.ready ? m.css(pop()) : s.charPending}
           >
             <CharacterImage
               size={104}
