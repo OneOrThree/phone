@@ -35,7 +35,11 @@ import { GroupCardBack } from './components/GroupCardBack';
 import { GroupCardSummaryAdapter } from './groupCardSummary';
 import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
 import { useGroupCardOrder } from './useGroupCardOrder';
-import { DEFAULT_GROUP_CARD_EMOJI, type GroupCardEmojiBucket } from './groupCardEmojiStore';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  groupCardEmojiLabel,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -488,6 +492,7 @@ export default function GroupListScreen({
               <GroupCardFront
                 group={item}
                 emoji={cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
+                emojiLabel={groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}
                 onFlip={() => flipToBack(item.groupId)}
                 reorderHandlers={handlersFor(item.groupId)}
                 canMovePrevious={index > 0}

@@ -6,6 +6,7 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
+  emojiLabel?: string;
   onFlip: () => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
@@ -16,6 +17,7 @@ interface GroupCardFrontProps {
 export function GroupCardFront({
   group,
   emoji = '🎯',
+  emojiLabel = '과녁',
   onFlip,
   reorderHandlers,
   onMoveStep,
@@ -48,7 +50,7 @@ export function GroupCardFront({
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${emojiLabel}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >
