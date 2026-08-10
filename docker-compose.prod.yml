@@ -85,7 +85,9 @@ services:
       DD_SITE: ${DD_SITE:-us5.datadoghq.com}
       DD_ENV: prod
       DD_HOSTNAME: gromo-prod
-      DD_TAGS: "env:prod service:gromo-back-prod"
+      # 전역 태그에 service 를 넣지 않는다 — nginx 메트릭이 gromo-nginx-prod 와 gromo-back-prod 를
+      # 동시에 갖게 되어 컨테이너별 분리가 깨진다. 근거는 docker-compose.datadog.yml 주석 (GROMO-1489).
+      DD_TAGS: "env:prod"
       # 로그 수집 — 컨테이너 stdout tail
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"

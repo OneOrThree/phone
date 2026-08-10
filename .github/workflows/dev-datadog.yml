@@ -144,10 +144,15 @@ jobs:
           # stdout 을 내지 않아, tailer 가 멀쩡해도 증가량 0 → false failure 가 된다.
           # 프로브가 있으면 "로그가 났는데 안 잡힘"만 실패로 남아 판정이 tailer 상태만 반영한다.
           # container_collect_all 대상이 되도록 DD_CONTAINER_EXCLUDE 에 없는 이름을 쓴다.
+          # 프로브가 못 뜨면 증가량 판정의 전제가 깨진다 — 그대로 진행하면 정상 tailer 를 "증가 없음"으로
+          # 실패시키는 false failure 가 된다. 경고 후 계속 가지 않고 여기서 멈춘다:
+          # 검증 전제를 세우지 못했으면 통과도 실패도 아니라 '검증 불가'이고, 그걸 통과로 흘리면
+          # 이 스텝 전체가 의미를 잃는다.
           docker rm -f dd-collection-probe >/dev/null 2>&1 || true
           if ! docker run -d --rm --name dd-collection-probe alpine:3.20 \
                  sh -c 'i=0; while [ $i -lt 14 ]; do echo "GROMO-1489 collection probe $i"; i=$((i+1)); sleep 5; done' >/dev/null 2>&1; then
-            echo "::warning::프로브 컨테이너 기동 실패 — 저트래픽이면 로그 증가량 판정이 false failure 를 낼 수 있음"
+            echo "::error::프로브 컨테이너를 띄우지 못했습니다(alpine:3.20 pull 실패·자원 부족 등) — 로그 수집 검증의 전제를 세울 수 없어 중단합니다"
+            exit 1
           fi
 
           echo "수집 표본이 쌓이도록 60초 대기..."
@@ -260,7 +265,13 @@ jobs:
           om_err=$(jq -r '.runnerStats.Checks.openmetrics // {} | to_entries[]
                           | select((.value.LastError // "") != "")
                           | "  \(.value.CheckName): \(.value.LastError)"' /tmp/dd-after.json)
-          echo "OpenMetrics 정상 인스턴스: ${om_ok}개"
+          om_samples() {
+            jq -r '[.runnerStats.Checks.openmetrics // {} | to_entries[]
+                    | .value.TotalMetricSamples // 0] | add // 0' "$1"
+          }
+          om_smp_before=$(om_samples /tmp/dd-before.json)
+          om_smp_after=$(om_samples /tmp/dd-after.json)
+          echo "OpenMetrics 정상 인스턴스: ${om_ok}개 · 샘플 ${om_smp_before} -> ${om_smp_after}"
           if [ "${om_ok:-0}" -eq 0 ] 2>/dev/null; then
             echo "::error::OpenMetrics 정상 인스턴스 없음 — 커스텀 메트릭(RED·HikariCP·JVM)이 수집되지 않습니다."
             echo "  확인: app 이미지에 com.datadoghq.ad.checks 라벨이 있는지(구 이미지 롤백 여부), app:9091/actuator/prometheus 도달 여부"
@@ -269,6 +280,19 @@ jobs:
           elif [ -n "$om_err" ]; then
             echo "::warning::일부 OpenMetrics 인스턴스가 실패 중"
             echo "$om_err"
+          fi
+
+          # 인스턴스가 에러 없이 등록돼도 샘플이 0일 수 있다 — 엔드포인트는 200 인데 back/Dockerfile 의
+          # metrics 허용 목록이 실제 메트릭 이름과 안 맞는 경우다(Micrometer 이름 변경, 패턴 오타).
+          # 이 PR 이 그 목록을 conf.yaml 에서 이미지 라벨로 옮겼으므로 오타 시 정확히 이 상태가 된다.
+          if [ "${om_ok:-0}" -gt 0 ] 2>/dev/null; then
+            if [ "$s_before" = "$s_after" ] && [ "${om_smp_after:-0}" -le "${om_smp_before:-0}" ] 2>/dev/null; then
+              echo "::error::OpenMetrics 샘플이 늘지 않음 — 스크레이프는 되는데 수집된 메트릭이 없습니다. back/Dockerfile 의 metrics 허용 목록이 실제 메트릭 이름과 맞는지 확인하세요(카운터는 _total 접미사를 뗀 이름으로 매칭)"
+              fail=1
+            elif [ "${om_smp_after:-0}" -eq 0 ] 2>/dev/null; then
+              echo "::error::OpenMetrics 샘플 0건 — metrics 허용 목록과 실제 메트릭 이름 불일치 가능"
+              fail=1
+            fi
           fi
 
           [ "$fail" -eq 0 ] || { echo "수집 검증 실패 — 위 오류 참고"; exit 1; }

@@ -20,7 +20,11 @@ services:
       DD_SITE: ${DD_SITE:-us5.datadoghq.com}
       DD_ENV: dev
       DD_HOSTNAME: gromo-dev
-      DD_TAGS: "env:dev service:gromo-back-dev"
+      # 전역 태그에 service 를 넣지 않는다 (GROMO-1489). DD_TAGS 는 Agent 가 내보내는 **모든** 시계열에
+      # 붙으므로, 여기에 service:gromo-back-dev 를 두면 db 컨테이너 메트릭이 자기 라벨(gromo-db-dev)과
+      # 전역 태그를 동시에 갖게 되어 컨테이너별 service 분리가 무의미해진다.
+      # service 는 컨테이너 라벨(com.datadoghq.tags.service)과 app 의 DD_SERVICE 가 각각 책임진다.
+      DD_TAGS: "env:dev"
       # 로그 수집 — 컨테이너 stdout tail
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
