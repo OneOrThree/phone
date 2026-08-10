@@ -86,6 +86,13 @@ describe('focusReadoutLayout — 기기 × 글자 배율', () => {
     expect(pomo.charSize).toBeLessThan(plain.charSize);
   });
 
+  // ⚠️ 카운트다운은 링을 포기해도 '목표 HH:MM:SS' 줄을 계속 그린다(codex 리뷰).
+  test('링을 포기한 카운트다운은 목표 라벨 높이까지 예산에 넣는다', () => {
+    const plain = focusReadoutLayout(647, 375, 3.1, true, false, false);
+    const goal = focusReadoutLayout(647, 375, 3.1, true, false, true);
+    expect(goal.charSize).toBeLessThan(plain.charSize);
+  });
+
   // 하한(MIN_FIT)이 "없는 공간을 만들어 내는" 걸 막는다. 어떤 조합에서도 실제 합계가
   // 가용 높이를 넘으면 리드아웃이 페이저를 밀어내 캐릭터·도트가 겹친다.
   test('어떤 기기 × 배율 × 모드에서도 실제 합계가 가용 높이를 넘지 않는다', () => {
@@ -93,8 +100,12 @@ describe('focusReadoutLayout — 기기 × 글자 배율', () => {
       for (const fontScale of [1.0, 1.15, 1.35, 2.0, 2.6, 3.1]) {
         for (const wantRing of [true, false]) {
           for (const withBadges of [true, false]) {
-            const l = focusReadoutLayout(availH, w, fontScale, wantRing, withBadges);
-            expect(readoutUsedHeight(l, fontScale, withBadges)).toBeLessThanOrEqual(availH);
+            for (const withGoal of [true, false]) {
+              const l = focusReadoutLayout(availH, w, fontScale, wantRing, withBadges, withGoal);
+              expect(readoutUsedHeight(l, fontScale, withBadges, withGoal)).toBeLessThanOrEqual(
+                availH,
+              );
+            }
           }
         }
       }

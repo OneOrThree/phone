@@ -73,12 +73,16 @@ const READOUT_RING = { total: 105, text: 48 };
 export const TIMER_LINE_RATIO = 1.08;
 export const PLAIN_BASE = 50; // paddingBottom 20 + 과목명 30
 export const POMODORO_EXTRA = 55; // 세트배지 34 + 세트도트 21
-function plainChrome(fontScale: number, withBadges: boolean) {
+// ⚠️ 카운트다운은 링을 포기해도 '목표 HH:MM:SS' 줄을 계속 그린다 — 라벨 한 줄(15pt) + marginTop 4.
+//    이걸 빼면 작은 화면에서 캐릭터가 남은 높이를 다 먹어 리드아웃이 가용 높이를 넘는다(codex 리뷰).
+export const GOAL_EXTRA = 22; // lineH(15)=18 + marginTop 4
+function plainChrome(fontScale: number, withBadges: boolean, withGoal: boolean) {
   const timerLine = T.text.timer.fontSize * Math.max(fontScale, 1) * TIMER_LINE_RATIO;
   return {
-    total: PLAIN_BASE + (withBadges ? POMODORO_EXTRA : 0) + timerLine,
-    // 과목명 22 + (뽀모도로면 배지·도트의 글자 몫 ≈ 33). 타이머 몫은 위 total이 이미 배율을 먹었다.
-    text: 22 + (withBadges ? 33 : 0),
+    total: PLAIN_BASE + (withBadges ? POMODORO_EXTRA : 0) + (withGoal ? GOAL_EXTRA : 0) + timerLine,
+    // 과목명 22 + (뽀모도로면 배지·도트의 글자 몫 ≈ 33) + (카운트다운이면 목표 라벨 18).
+    // 타이머 몫은 위 total이 이미 배율을 먹었다.
+    text: 22 + (withBadges ? 33 : 0) + (withGoal ? 18 : 0),
   };
 }
 
@@ -99,8 +103,9 @@ function solve(
   fontScale: number,
   withRing: boolean,
   withBadges: boolean,
+  withGoal: boolean,
 ): ReadoutLayout {
-  const chrome = withRing ? READOUT_RING : plainChrome(fontScale, withBadges);
+  const chrome = withRing ? READOUT_RING : plainChrome(fontScale, withBadges, withGoal);
   // 배율이 1보다 작아도 예산을 늘려 잡지 않는다 — 작은 글자로 얻은 여유는 그냥 여백으로 둔다.
   const grow = Math.max(fontScale, 1) - 1;
   const budgetH = Math.max(0, availableH - (CHROME_FRAME + chrome.total + chrome.text * grow));
@@ -150,6 +155,7 @@ function solve(
  * @param fontScale  시스템 글자 배율 (`useWindowDimensions().fontScale`)
  * @param wantRing   진행률이 정의되는 모드인가 (카운트업은 목표가 없어 false)
  * @param withBadges 뽀모도로인가 — 링을 포기해도 세트배지·세트도트는 계속 그려지므로 예산에 넣는다
+ * @param withGoal   카운트다운인가 — 링을 포기해도 '목표 HH:MM:SS' 줄이 계속 그려진다
  */
 export function focusReadoutLayout(
   availableH: number,
@@ -157,14 +163,17 @@ export function focusReadoutLayout(
   fontScale: number,
   wantRing: boolean,
   withBadges = false,
+  withGoal = false,
 ): ReadoutLayout {
-  if (!wantRing) return solve(availableH, availableW, fontScale, false, withBadges);
-  const ringed = solve(availableH, availableW, fontScale, true, withBadges);
+  if (!wantRing) return solve(availableH, availableW, fontScale, false, withBadges, withGoal);
+  const ringed = solve(availableH, availableW, fontScale, true, withBadges, withGoal);
   // 링 배치를 쓰려면 세로(캐릭터가 최소치 이상)와 가로(링이 화면 폭 안) 둘 다 만족해야 한다.
   // 하나라도 못 지키면 숫자만 남기는 배치로 내려간다 — 정보는 숫자에 그대로 남는다.
   const fitsV = ringed.charSize >= MIN_CHAR;
   const fitsH = ringed.ringSize <= Math.max(0, availableW - H_MARGIN);
-  return fitsV && fitsH ? ringed : solve(availableH, availableW, fontScale, false, withBadges);
+  return fitsV && fitsH
+    ? ringed
+    : solve(availableH, availableW, fontScale, false, withBadges, withGoal);
 }
 
 /**
@@ -176,8 +185,9 @@ export function readoutUsedHeight(
   layout: ReadoutLayout,
   fontScale: number,
   withBadges = false,
+  withGoal = false,
 ): number {
-  const chrome = layout.showRing ? READOUT_RING : plainChrome(fontScale, withBadges);
+  const chrome = layout.showRing ? READOUT_RING : plainChrome(fontScale, withBadges, withGoal);
   const grow = Math.max(fontScale, 1) - 1;
   return CHROME_FRAME + chrome.total + chrome.text * grow + layout.charSize + layout.ringSize;
 }
