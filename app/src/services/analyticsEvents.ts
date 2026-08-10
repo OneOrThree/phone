@@ -478,6 +478,9 @@ export function logGroupCardIconSaveResult(p: {
 }): void {
   track('group_card_icon_save_result', p);
 }
+export function logGroupCardIconEditorViewed(): void {
+  track('group_card_icon_editor_viewed', { surface: 'settings' });
+}
 export function logGroupFindOpened(p: {
   entry_point: 'empty' | 'list' | 'header' | 'end_card';
 }): void {

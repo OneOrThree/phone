@@ -7,9 +7,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
-import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconEditorViewed,
+  logGroupCardIconSaveResult,
+} from '@/services/analyticsEvents';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
+  clearPendingGroupCardEmoji,
+  groupCardEmojiLabel,
   readGroupCardEmoji,
   preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
@@ -43,6 +48,10 @@ export default function GroupCardEmojiEditScreen() {
   }, []);
 
   useEffect(() => {
+    logGroupCardIconEditorViewed();
+  }, [identity]);
+
+  useEffect(() => {
     const requests = requestRef;
     const request = ++requests.current;
     const requestedIdentity = identity;
@@ -68,14 +77,15 @@ export default function GroupCardEmojiEditScreen() {
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
-      logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
+      clearPendingGroupCardEmoji(userId, groupId);
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
+      logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       setBaseline(selected);
       navigation.goBack();
     } catch {
       preservePendingGroupCardEmoji(userId, groupId, selected);
-      logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
+      logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
@@ -103,6 +113,17 @@ export default function GroupCardEmojiEditScreen() {
           <ActivityIndicator color={T.accent} />
         ) : (
           <>
+            <View
+              style={s.cardPreview}
+              accessible={false}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              testID="group.cardEmoji.preview"
+            >
+              <Text style={s.cardPreviewEmoji}>{selected}</Text>
+              <Text style={s.cardPreviewLabel}>내 그룹 카드</Text>
+              <Text style={s.cardPreviewName}>{groupCardEmojiLabel(selected)}</Text>
+            </View>
             <GroupCardEmojiPicker value={selected} onChange={setSelected} disabled={saving} />
             {saveFailed && (
               <Text style={s.error} accessibilityLiveRegion="polite">
@@ -115,10 +136,15 @@ export default function GroupCardEmojiEditScreen() {
               onPress={save}
               activeOpacity={0.85}
               accessibilityRole="button"
+              accessibilityLabel={saving ? '저장 중…' : '저장'}
+              accessibilityState={{ disabled: !changed || saving || !userId, busy: saving }}
               testID="group.cardEmoji.save"
             >
               {saving ? (
-                <ActivityIndicator color={T.white} />
+                <View style={s.savingContent}>
+                  <ActivityIndicator color={T.white} accessible={false} />
+                  <Text style={s.saveText}>저장 중…</Text>
+                </View>
               ) : (
                 <Text style={s.saveText}>저장</Text>
               )}
@@ -152,6 +178,17 @@ const s = StyleSheet.create({
   },
   title: { ...T.text.heading, fontWeight: '800', color: T.ink },
   body: { flex: 1, paddingHorizontal: T.space.xl, paddingTop: T.space.xl },
+  cardPreview: {
+    minHeight: 132,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: T.space.xl,
+    backgroundColor: T.accent,
+  },
+  cardPreviewEmoji: { fontSize: 42 },
+  cardPreviewLabel: { ...T.text.caption, color: T.white, marginTop: T.space.sm },
+  cardPreviewName: { ...T.text.subtitle, color: T.white, marginTop: T.space.xs },
   error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.lg },
   saveButton: {
     height: 52,
@@ -162,5 +199,6 @@ const s = StyleSheet.create({
     marginTop: T.space.xxl,
   },
   saveButtonDisabled: { opacity: 0.5 },
+  savingContent: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   saveText: { ...T.text.subtitle, color: T.white },
 });

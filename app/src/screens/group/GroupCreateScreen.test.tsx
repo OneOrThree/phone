@@ -218,6 +218,11 @@ describe('내 카드 아이콘 로컬 draft', () => {
     await renderScreen();
     expect(screen.getByLabelText('카드 아이콘 책')).toBeOnTheScreen();
     expect(screen.getByLabelText('카드 아이콘 목표')).toBeOnTheScreen();
+    const preview = screen.getByTestId('group.create.cardEmoji.preview', {
+      includeHiddenElements: true,
+    });
+    expect(preview.props.accessible).toBe(false);
+    expect(preview.props.importantForAccessibility).toBe('no-hide-descendants');
   });
 });
 

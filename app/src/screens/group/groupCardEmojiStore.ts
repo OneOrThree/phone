@@ -66,6 +66,22 @@ export function parseGroupCardEmoji(raw: string | null): GroupCardEmojiMap {
 }
 
 let storageQueue: Promise<unknown> = Promise.resolve();
+type EmojiListener = (groupId: string, emoji: GroupCardEmoji) => void;
+const emojiListeners = new Map<string, Set<EmojiListener>>();
+
+export function subscribeGroupCardEmoji(userId: string, listener: EmojiListener): () => void {
+  const listeners = emojiListeners.get(userId) ?? new Set<EmojiListener>();
+  listeners.add(listener);
+  emojiListeners.set(userId, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) emojiListeners.delete(userId);
+  };
+}
+
+function emitGroupCardEmoji(userId: string, groupId: string, emoji: GroupCardEmoji): void {
+  emojiListeners.get(userId)?.forEach((listener) => listener(groupId, emoji));
+}
 
 function enqueueStorageOperation<T>(task: () => Promise<T>): Promise<T> {
   const current = storageQueue.then(task);
@@ -103,6 +119,7 @@ export function writeGroupCardEmoji(
         [userId]: { ...map[userId], [groupId]: emoji },
       }),
     );
+    emitGroupCardEmoji(userId, groupId, emoji);
   });
 }
 
@@ -185,4 +202,5 @@ export async function retryPendingGroupCardEmojis(
 export function __resetGroupCardEmojiQueueForTest(): void {
   storageQueue = Promise.resolve();
   pendingEmojis.clear();
+  emojiListeners.clear();
 }

@@ -26,6 +26,7 @@ import GroupInviteSheet from './components/GroupInviteSheet';
 import {
   reconcileGroupCardEmojiBucket,
   retryPendingGroupCardEmojis,
+  subscribeGroupCardEmoji,
   type GroupCardEmojiBucket,
 } from './groupCardEmojiStore';
 
@@ -75,6 +76,16 @@ export default function GroupScreen() {
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
   const [transitioning, setTransitioning] = useState(false);
+
+  useEffect(() => {
+    if (!userId) {
+      setCardEmojiByGroupId({});
+      return;
+    }
+    return subscribeGroupCardEmoji(userId, (groupId, emoji) => {
+      setCardEmojiByGroupId((current) => ({ ...current, [groupId]: emoji }));
+    });
+  }, [userId]);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
