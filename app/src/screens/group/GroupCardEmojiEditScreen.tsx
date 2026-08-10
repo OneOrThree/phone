@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -108,7 +115,12 @@ export default function GroupCardEmojiEditScreen() {
         <Text style={s.title}>내 카드 아이콘</Text>
       </View>
 
-      <View style={[s.body, { paddingBottom: insets.bottom + T.space.xxl }]}>
+      <ScrollView
+        style={s.body}
+        contentContainerStyle={[s.bodyContent, { paddingBottom: insets.bottom + T.space.xxl }]}
+        keyboardShouldPersistTaps="handled"
+        testID="group.cardEmoji.content"
+      >
         {!ready ? (
           <ActivityIndicator color={T.accent} />
         ) : (
@@ -151,7 +163,7 @@ export default function GroupCardEmojiEditScreen() {
             </TouchableOpacity>
           </>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -177,7 +189,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   title: { ...T.text.heading, fontWeight: '800', color: T.ink },
-  body: { flex: 1, paddingHorizontal: T.space.xl, paddingTop: T.space.xl },
+  body: { flex: 1 },
+  bodyContent: { flexGrow: 1, paddingHorizontal: T.space.xl, paddingTop: T.space.xl },
   cardPreview: {
     minHeight: 132,
     borderRadius: 20,

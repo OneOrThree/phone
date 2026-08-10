@@ -52,6 +52,9 @@ test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 �
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
   expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
   expect(logGroupCardIconEditorViewed).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('group.cardEmoji.content').props.keyboardShouldPersistTaps).toBe(
+    'handled',
+  );
 });
 
 test('변경 저장은 서버 요청 없이 로컬 bucket만 바꾸고 화면을 닫는다', async () => {
