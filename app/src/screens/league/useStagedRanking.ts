@@ -75,7 +75,10 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const targetOrder = items.map((item) => item.userId);
-  const targetKey = targetOrder.join(KEY_SEP);
+  // ⚠️ 순서뿐 아니라 **기록도 키에 넣는다.** 같은 순서로 점수만 갱신된 응답이 재생 도중 오면,
+  //    키가 그대로라 옛 기준으로 만든 단계값을 계속 쓴다 — 바로 위 사용자의 기록이 바뀌었는데
+  //    상승 행은 옛 기준값을 들고 그 위로 올라가 표시와 순위가 300ms 어긋난다(codex 리뷰).
+  const targetKey = items.map((item) => `${item.userId}:${item.totalFocusSeconds}`).join(KEY_SEP);
   // '동작 줄이기'면 중간 단계를 만들지 않는다 — 순서도 기록도 곧장 최종값이다.
   // 아직 **미확정**(ready=false)일 때도 마찬가지다 — useReduceMotion은 확정 전을 보수적으로
   // true로 읽으므로 그 값으로 시퀀스를 시작할 수는 없는데, 그렇다고 확정될 때까지 기다리면

@@ -191,23 +191,35 @@ describe('재생 도중 재갱신', () => {
     });
     expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
 
-    // 아직 두 칸이 남았는데 새 응답이 도착 — 이번엔 내가 다시 밀려 원래 자리로 간다
-    const reverted = rows(BEFORE);
+    // 아직 두 칸이 남았는데 새 응답 도착 — 이번엔 c가 크게 올라 1위가 된다.
+    // ⚠️ 기록이 **줄지 않는** 갱신이어야 한다. 줄어드는 갱신은 주 경계로 보고 단계화를
+    //    건너뛰므로(아래 별도 테스트) 이 시나리오를 못 본다.
+    const next = rows([
+      ['c', 20000],
+      ['me', 10800],
+      ['a', 9000],
+      ['b', 7200],
+    ]);
     await act(async () => {
-      rerender(reverted);
+      rerender(next);
     });
-    // 버려진 계획의 다음 단계(['a','me','b','c'])로 튀지 않는다 — 화면 순서 그대로에서 재출발
+    // 버려진 계획의 다음 단계로 튀지 않는다 — 화면 순서 그대로에서 재출발
     expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
+  });
 
+  // ⚠️ 주 경계(월요일 KST)·재집계면 같은 구성원이 **새 주 점수**로 재정렬된다. 이전 주 누적을
+  //    하한으로 붙들면 새 순서와 옛 기록이 함께 표시되다 마지막에 급락한다(codex 리뷰).
+  test('점수가 줄어든 갱신은 단계화하지 않고 곧장 최신 배열이다', async () => {
+    const { result, rerender } = await mount(rows(AFTER));
+    const resetWeek = rows([
+      ['a', 300],
+      ['b', 200],
+      ['c', 100],
+      ['me', 0],
+    ]);
     await act(async () => {
-      jest.advanceTimersByTime(SWAP_LEAD_MS);
+      rerender(resetWeek);
     });
-    expect(result.current).toBe(reverted);
-
-    // 살아 있는 시퀀스는 하나뿐이라, 시간이 더 흘러도 순서가 다시 흔들리지 않는다
-    await act(async () => {
-      jest.advanceTimersByTime((SWAP_LEAD_MS + SWAP_GAP_MS) * 5);
-    });
-    expect(result.current).toBe(reverted);
+    expect(result.current).toBe(resetWeek);
   });
 });

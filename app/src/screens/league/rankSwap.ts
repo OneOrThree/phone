@@ -158,6 +158,12 @@ export function rankSwapFrames(
   });
 
   const finalOf = (key: string): number => finalSeconds.get(key) ?? 0;
+
+  // ⚠️ **점수가 하나라도 줄었으면 단계화를 통째로 건너뛴다.** 주 경계(월요일 KST)나 재집계면
+  //    같은 구성원이 새 주 점수로 재정렬되는데, 이전 주 누적을 하한으로 붙들면 새 순서와 옛
+  //    기록이 최대 2초간 함께 표시되다 마지막에 급락한다(codex 리뷰). "올라가는 과정"이라는
+  //    이 연출의 전제 자체가 성립하지 않는 갱신이다.
+  if ([...startSeconds].some(([key, prev]) => finalOf(key) < prev)) return [];
   // 지금 화면에 표시 중인 기록. 상승하는 행만 **직전 표시값**에서 출발한다(아직 안 자란 상태);
   // 밀려나는 행은 기록이 줄지 않으므로 처음부터 최종값 그대로다.
   const shown = new Map<string, number>();
@@ -180,7 +186,11 @@ export function rankSwapFrames(
       // 직전 표시값 → 최종값을 상승 횟수로 나눈 램프. 다만 이 프레임에서 앞지르는 상대보다는
       // 반드시 위여야 순서와 숫자가 서로 모순되지 않는다(정본 "바로 위 사람을 앞지르는 값").
       const ramp = Math.round(startR + ((finalR - startR) * nth) / rises.length);
-      const overtake = shownOf(fallers[i]) + 1;
+      // ⚠️ **동점으로 앞선 경우에는 같은 기록을 허용한다.** 서버는 동점이면 userId 오름차순으로
+      //    순위를 가르므로(LeagueRankingQueryRepository), 무조건 +1을 하면 마지막 단계에서 서버
+      //    값으로 되떨어지며 **실제로 존재하지 않은 집중 시간**이 잠깐 노출된다(codex 리뷰).
+      const tiedAtFinal = finalR === finalOf(fallers[i]);
+      const overtake = shownOf(fallers[i]) + (tiedAtFinal ? 0 : 1);
       // ⚠️ **아직 넘지 않은 다음 상대보다는 작아야 한다.** 최종 증가폭이 크면(3위→1위 등)
       //    ramp가 다음 상대의 기록까지 넘어서, 행은 아직 2위인데 표시 기록은 1위보다 큰
       //    모순이 다음 단계까지 300ms 남는다 — 단계별 기록으로 상승의 원인을 설명하려던
