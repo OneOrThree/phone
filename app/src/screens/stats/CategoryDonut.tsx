@@ -19,6 +19,15 @@ interface DonutSeg {
   frac: number; // 전체 대비 비중(0~1) — 링 구간 길이·범례 %
   color: string;
   name: string;
+  /**
+   * 범례 행의 신원. React key 로 쓴다.
+   *
+   * ⚠️ **인덱스를 키로 쓰면 안 된다.** 서버 items 는 집중분 내림차순이라 새 과목이 목록
+   *    앞이나 중간에 끼어든다. 인덱스 키면 기존 행이 다른 과목으로 재사용되고 마지막
+   *    노드만 새로 마운트돼, 정작 새 과목은 즉시 나타나고 기존 마지막 과목이 enterUp 을
+   *    재생한다(codex 리뷰). 타임테이블 블록과 같은 부류의 문제다.
+   */
+  key: string;
   timeLabel: string; // 범례 시간 표기 — 탭별 포맷(주·월 HH:MM, 일 HH:MM:SS)이 달라 문자열로 받음
 }
 
@@ -51,9 +60,9 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
             strokeWidth={DONUT_STROKE}
             fill="none"
           />
-          {placed.map((sg, i) => (
+          {placed.map((sg) => (
             <Circle
-              key={i}
+              key={sg.key}
               cx={half}
               cy={half}
               r={r}
@@ -79,7 +88,7 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
             부모의 useMotion 결정에 묶이면 그 사이 '동작 줄이기'를 켠 사용자에게도 페이드된다
             (codex 리뷰). 뷰를 새로 끼운 게 아니라 원래 있던 Animated.View를 대신한다. */}
         {placed.map((sg, i) => (
-          <Enter key={i} preset={enterUp(i)} style={s.donutLegendRow}>
+          <Enter key={sg.key} preset={enterUp(i)} style={s.donutLegendRow}>
             <View style={[s.donutLegendDot, { backgroundColor: sg.color }]} />
             <Text style={s.donutLegendName} numberOfLines={1}>
               {sg.name}
@@ -127,6 +136,8 @@ export function CategoryDonut({
     frac: it.totalFocusMinutes / denom,
     color: T.subjectPalette[i % T.subjectPalette.length],
     name: it.tagName ?? '미분류',
+    // tagId 가 신원이다. 없는 응답(미분류)은 이름으로 잇는다 — 한 목록에 미분류는 하나뿐이다.
+    key: it.tagId ?? `name:${it.tagName ?? '미분류'}`,
     timeLabel: fmtHm(it.totalFocusMinutes),
   }));
   return <DonutBase segs={segs} totalLabel={fmtHm(total)} />;
@@ -156,6 +167,7 @@ export function SubjectDonut({
       frac: x.accumulatedSeconds / denom,
       color: x.color,
       name: x.name,
+      key: x.id, // 로컬 과목 id 가 신원이다
       // 초→분은 버림 — fmtHm의 반올림에 맡기면 30초가 00:01로 과대 표기돼
       // 중앙 HH:MM:SS와 모순된다(코드리뷰 반영)
       timeLabel: fmtHm(Math.floor(x.accumulatedSeconds / 60)),
@@ -165,6 +177,8 @@ export function SubjectDonut({
       frac: unclassified / denom,
       color: T.inkMuted, // 과목 팔레트와 겹치지 않는 중립 회색
       name: '미분류',
+      // 과목 id 와 부딪히지 않는 고정 키 — 미분류 행은 목록에 하나뿐이다.
+      key: 'unclassified',
       timeLabel: fmtHm(Math.floor(unclassified / 60)),
     });
   }

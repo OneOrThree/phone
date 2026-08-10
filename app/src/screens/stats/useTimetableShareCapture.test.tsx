@@ -164,6 +164,33 @@ describe('useTimetableShareCapture 진입 대기', () => {
     expect(mockCaptureAt).toHaveLength(1);
   });
 
+  // ⚠️ 마감 시각을 **한 번만 읽으면** 놓치는 경쟁. 화면 재진입은 이전 블록을 유지한 채
+  //    재조회하므로 공유 버튼이 잠기지 않는다 — 캐릭터 게이트·프레임을 기다리는 사이에
+  //    조회가 끝나 새 블록이 자라기 시작하면, 이미 복사해 둔 마감으로 기다리던 공유는 그
+  //    갱신을 못 보고 중간 프레임을 찍는다(codex 리뷰).
+  test('기다리는 사이 재조회가 끝나면 새 진입만큼 더 기다린다', async () => {
+    const { result } = await setup(ENTER_MS);
+    await act(async () => {
+      result.current.onLoaded(['mon:540:600:t1']);
+    });
+    await drain(ENTER_MS + 50); // 첫 진입 종료 — 이 시점의 마감은 이미 지났다
+
+    await act(async () => {
+      result.current.onShare().catch(() => {});
+    });
+    // 캐릭터 게이트를 기다리는 사이 재조회가 끝나 새 블록이 마운트된다
+    await act(async () => {
+      result.current.onLoaded(['mon:540:600:t1', 'tue:540:600:t1']);
+    });
+    await act(async () => {
+      result.current.onCharReady();
+    });
+    await drain(300);
+    expect(mockCaptureAt).toHaveLength(0); // 새 진입 대기를 다시 읽었다는 증거
+    await drain(ENTER_MS);
+    expect(mockCaptureAt).toHaveLength(1);
+  });
+
   // 반대 방향 가드 — 같은 블록이 다시 보고되는 것(폭 변화·회전)에는 대기를 새로 잡지 않는다.
   // 잡으면 사용자가 공유를 눌러도 1초 넘게 아무 반응이 없다.
   test('같은 블록이 다시 보고되면 대기를 새로 잡지 않는다', async () => {

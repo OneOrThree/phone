@@ -179,6 +179,25 @@ export function useTimetableShareCapture({
     [],
   );
 
+  // 진입 애니메이션이 끝날 때까지 기다린다 — **마감 시각이 안정될 때까지 반복해서** 읽는다.
+  //
+  // ⚠️ 한 번만 읽으면 안 된다. 기다리는 사이에 재조회가 끝나 새 블록이 마운트되면 `onLoaded`가
+  //    더 늦은 마감을 기록하는데, 이미 복사해 둔 값으로 기다리던 공유는 그 갱신을 못 본다
+  //    (codex 리뷰). 마감은 새 마운트에서만 앞으로 밀리고 마운트는 유한하므로 이 루프는 끝난다.
+  // ⚠️ `loadedAt` 0은 "기다릴 진입이 아예 없다"는 **센티넬**이다(기록 없는 주 등). 거기에
+  //    확정 시각을 끼워 넣으면 아무것도 자라지 않는 화면에서 1초 넘게 붙잡는다.
+  const settleEntrance = useCallback(async () => {
+    for (;;) {
+      const startedAt =
+        loadedAtRef.current > 0
+          ? Math.max(loadedAtRef.current, readyAtRef.current ?? loadedAtRef.current)
+          : 0;
+      const deadline = startedAt + waitMsRef.current;
+      if (Date.now() >= deadline) return;
+      await waitUntil(deadline);
+    }
+  }, []);
+
   const onShare = useCallback(async () => {
     if (sharing) return;
     setSharing(true);
@@ -192,13 +211,7 @@ export function useTimetableShareCapture({
       //       m.delay를 0으로 만들어 대기를 통째로 건너뛴다 — 설정을 켜지 않은 사용자의
       //       진입 애니메이션이 도는 중에 캡처가 찍힌다(결정 D-30).
       await whenReduceMotionReady();
-      // ⚠️ loadedAt 0은 "기다릴 진입이 아예 없다"는 **센티넬**이다(기록 없는 주 등).
-      //    거기에 확정 시각을 끼워 넣으면 아무것도 자라지 않는 화면에서 1초 넘게 붙잡는다.
-      const startedAt =
-        loadedAtRef.current > 0
-          ? Math.max(loadedAtRef.current, readyAtRef.current ?? loadedAtRef.current)
-          : 0;
-      await waitUntil(startedAt + waitMsRef.current);
+      await settleEntrance();
       // 2) 브랜드 캐릭터(마스코트/누끼)가 그려진 뒤 진행 — 빈/깨진 이미지 방지.
       //    ⚠️ 게이트를 **chrome을 붙이기 전에 등록**한다. 등록 전에 이미지 onLoad가 오면 신호를
       //       잃고 CHAR_READY_TIMEOUT(1.5초)을 통째로 기다리게 된다.
@@ -208,6 +221,11 @@ export function useTimetableShareCapture({
       // 3) chrome·여백이 커밋·페인트된 뒤 캡처(두 프레임 대기). 여백은 내용 폭 불변이라 재측정 없음.
       await nextFrame();
       await nextFrame();
+      // ⚠️ **여기서 한 번 더 확인한다.** 위 캐릭터 게이트·두 프레임을 기다리는 사이에 재조회가
+      //    끝나 새 블록이 자라기 시작할 수 있다(화면 재진입은 이전 블록을 유지한 채 조회하므로
+      //    공유 버튼이 잠기지 않는다). 마감 시각을 처음 한 번만 읽으면 그 갱신을 놓쳐 중간
+      //    프레임이 그대로 PNG가 된다(codex 리뷰).
+      await settleEntrance();
       const uri = await captureRef(shotRef, {
         format: 'png',
         quality: 1,
@@ -230,7 +248,7 @@ export function useTimetableShareCapture({
       setCapturing(false);
       setSharing(false);
     }
-  }, [sharing, waitCharReady, makeFileName, card]);
+  }, [sharing, waitCharReady, settleEntrance, makeFileName, card]);
 
   return {
     shotRef,
