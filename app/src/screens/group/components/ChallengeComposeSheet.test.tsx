@@ -351,56 +351,6 @@ describe('자정 걸침 창 금지', () => {
   });
 });
 
-// §A6-1(N25) — 창은 자정을 걸칠 수 없다. 요일이 회차를 가르는 축이라 창이 요일 경계를 넘으면
-// 판정·겹침·정산 귀속이 전부 모호해진다. 종전 GROMO-1110의 허용을 되돌린다 — 휠 선택 자체는
-// 막지 않고(되돌리면 규칙을 알 길이 없다) 인라인 안내 + CTA 잠금으로 이유를 말한다.
-describe('자정 걸침 창 금지', () => {
-  test('시작 > 종료는 안내를 띄우고 제출을 막는다 — 되돌리면 다시 만들 수 있다', async () => {
-    await renderSheet();
-    await press('시간대');
-    await pickDay('월');
-    // 종료를 08시로 — 09:00~08:00 자정 걸침이다.
-    await pressNth('8시', 1);
-
-    expect(screen.getByTestId('group.challenge.windowInvalid')).toBeOnTheScreen();
-    expect(screen.getByText(MIDNIGHT_CAPTION)).toBeOnTheScreen();
-    await press('만들기');
-    expect(mockCreateChallenge).not.toHaveBeenCalled();
-
-    // 종료를 13시로 고치면 안내가 사라지고 제출된다.
-    await pressNth('13시', 1);
-    expect(screen.queryByTestId('group.challenge.windowInvalid')).toBeNull();
-    await press('만들기');
-    expect(mockCreateChallenge).toHaveBeenCalledWith(
-      GROUP_ID,
-      expect.objectContaining({ windowStart: '09:00:00', windowEnd: '13:00:00' }),
-    );
-  });
-
-  test('시작 = 종료도 같은 안내로 막는다', async () => {
-    await renderSheet();
-    await press('시간대');
-    await pickDay('월');
-    // 종료를 09시로 — 시작(09:00)과 같은 시각이다.
-    await pressNth('9시', 1);
-
-    expect(screen.getByText(MIDNIGHT_CAPTION)).toBeOnTheScreen();
-    await press('만들기');
-    expect(mockCreateChallenge).not.toHaveBeenCalled();
-  });
-
-  test('무효 창에서는 목표분 칩을 잠그지 않는다 — 창 안내가 이미 CTA를 막고 있다', async () => {
-    await renderSheet();
-    await press('시간대');
-    await pressNth('8시', 1);
-
-    // 길이 파생(칩 잠금)이 무효 창의 0분 길이로 전부 잠겨 버리면 원인이 두 갈래로 보인다.
-    expect(screen.getByTestId('group.challenge.duration.180')).toHaveProp(
-      'accessibilityState',
-      expect.objectContaining({ disabled: false }),
-    );
-  });
-});
 
 describe('목표분 칩 × 창 길이', () => {
   test('창 길이를 넘는 칩은 잠긴다 — 눌러도 선택되지 않는다', async () => {
