@@ -473,6 +473,18 @@ describe('콜백', () => {
     await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
   });
 
+  test('뒷면 접근성 Escape는 같은 카드의 앞면을 복원한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    await act(async () => {
+      screen.getByTestId(`group.card.back.${GROUP_ID}`).props.onAccessibilityEscape();
+    });
+
+    expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
   test('그룹방에서 돌아오면 같은 뒷면의 방 전체 보기 CTA로 포커스를 복원한다', async () => {
     const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
     const props = {
@@ -756,6 +768,46 @@ describe('콜백', () => {
 });
 
 describe('제스처 중재와 재정렬', () => {
+  test('같은 목록의 다음 성공 generation은 실패한 순서 저장을 다시 시도한다', async () => {
+    const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
+    const props = {
+      groups,
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+      successfulListVersion: 1,
+    };
+    const view = await render(<GroupListScreen {...props} />);
+    await screen.findByTestId(`group.card.grip.${GROUP_ID}`);
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.grip.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+    });
+    expect(
+      await screen.findByText('순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.'),
+    ).toBeOnTheScreen();
+
+    await view.rerender(<GroupListScreen {...props} successfulListVersion={2} />);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText('순서를 저장하지 못했어요. 다음 변경 때 다시 시도합니다.'),
+      ).toBeNull(),
+    );
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID_2, GROUP_ID]);
+  });
+
   test('순서 메뉴가 열리면 TalkBack에서 카드 본문과 화면 CTA를 숨긴다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 

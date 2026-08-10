@@ -179,6 +179,7 @@ export interface GroupListScreenProps {
   viewEpisodeId?: number;
   guideBlocked?: boolean;
   dataReady?: boolean;
+  successfulListVersion?: number;
 }
 
 function groupCountBucket(count: number): GroupCountBucket {
@@ -205,6 +206,7 @@ export default function GroupListScreen({
   viewEpisodeId = 0,
   guideBlocked = false,
   dataReady = true,
+  successfulListVersion = 0,
 }: GroupListScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -219,6 +221,7 @@ export default function GroupListScreen({
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
     serverGroupIds: groups.map((group) => group.groupId),
     userId,
+    successfulListVersion,
   });
   const orderedGroups = useMemo(() => {
     if (!hydrated) return groups;

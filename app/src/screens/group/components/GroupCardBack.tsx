@@ -98,7 +98,11 @@ export function GroupCardBack({
       : null;
 
   return (
-    <View style={s.root} testID={`group.card.back.${group.groupId}`}>
+    <View
+      style={s.root}
+      onAccessibilityEscape={onFlipBack}
+      testID={`group.card.back.${group.groupId}`}
+    >
       <View style={s.header}>
         <TouchableOpacity
           ref={frontActionRef}

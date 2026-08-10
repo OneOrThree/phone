@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import GroupCardEmojiEditScreen, { ownsGroupCardIconSaveResult } from './GroupCardEmojiEditScreen';
+import GroupCardEmojiEditScreen, {
+  claimGroupCardEmojiSave,
+  ownsGroupCardIconSaveResult,
+} from './GroupCardEmojiEditScreen';
 import {
   __resetGroupCardEmojiQueueForTest,
   preservePendingGroupCardEmoji,
@@ -223,6 +226,16 @@ test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버
   release();
   await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
+});
+
+test('저장 연타 수락 가드는 React 상태 반영 전에도 한 번만 true를 반환한다', () => {
+  const savingRef = { current: false };
+
+  expect(claimGroupCardEmojiSave(savingRef)).toBe(true);
+  expect(claimGroupCardEmojiSave(savingRef)).toBe(false);
+
+  savingRef.current = false;
+  expect(claimGroupCardEmojiSave(savingRef)).toBe(true);
 });
 
 test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추가로 pop하지 않는다', async () => {
