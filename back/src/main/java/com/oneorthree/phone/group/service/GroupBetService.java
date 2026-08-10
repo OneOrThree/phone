@@ -275,12 +275,15 @@ public class GroupBetService {
     }
 
     /**
-     * 참가 철회(GROMO-1102) — <b>시작 전</b>인 OPEN 회차에서 호출자 본인의 참가만 무르고 본인
-     * 참가비를 환불한다. 남은 참가자가 있으면 회차는 유지되고, 마지막 참가자가 떠나면 회차를
-     * "없던 일"로 삭제한다(구 CANCELED 의 재편 후 표현 — {@link #cancelBet} 과 같은 규칙).
+     * 참가 철회(GROMO-1102 → 취소 마감 분기 N22) — <b>취소 마감 전</b>인 OPEN 회차에서 호출자
+     * 본인의 참가만 무르고 본인 참가비를 환불한다. 남은 참가자가 있으면 회차는 유지되고, 마지막
+     * 참가자가 떠나면 회차를 "없던 일"로 삭제한다(구 CANCELED 의 재편 후 표현 —
+     * {@link #cancelBet} 과 같은 규칙).
      *
-     * <p>"시작 전" 판정은 회차에 박제된 {@code startsAt} 하나로 끝난다(GROMO-1263) — 창형은 창 시작,
-     * 하루형은 회차일 00:00 KST 라 구 조합별 분기와 같은 값이다.
+     * <p>판정은 {@link #leaveDeadline} 단일 지점이다 — 카드 응답의
+     * {@code bet.session.myLeaveDeadlineAt}(GROMO-1418)이 <b>같은 함수</b>를 싣는다. 종전처럼
+     * {@code startsAt} 만 보면 하루형 당일 참가자는 화면이 알려준 유예(참가+5분) 안에 눌러도
+     * 무조건 {@code BET_LEAVE_CLOSED} 라, 응답이 거짓말을 하고 환불이 막힌다.
      */
     @Transactional
     public void leaveBet(UUID groupId, UUID sessionId, UUID userId) {
@@ -300,7 +303,7 @@ public class GroupBetService {
         if (!session.isOpen()) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-        if (!Instant.now().isBefore(session.getStartsAt())) {
+        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
             throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
 

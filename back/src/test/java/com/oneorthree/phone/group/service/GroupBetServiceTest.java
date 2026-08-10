@@ -1668,12 +1668,42 @@ class GroupBetServiceTest {
                 .delete(any(GroupChallengeBetParticipant.class));
     }
 
+    /** 참가 시각을 지정한 내 참가 행 — 취소 마감(N22)이 참가 시점 기준이라 경계 테스트에 필요하다. */
+    private GroupChallengeBetParticipant myParticipantJoinedAt(
+            GroupChallengeBetSession target, Instant joinedAt) {
+        return GroupChallengeBetParticipant.builder()
+                .id(PARTICIPANT_ID)
+                .session(target)
+                .user(member())
+                .createdAt(joinedAt)
+                .build();
+    }
+
     @Test
-    @DisplayName("하루형 당일 회차 철회 → BET_LEAVE_CLOSED — 시작(00:00 KST)이 이미 지났다")
-    void leaveBetRejectsSameDayDurationSession() {
+    @DisplayName("하루형 당일 참가 — 참가+5분 유예 안이면 철회 성공 (N22, 응답 myLeaveDeadlineAt 과 같은 판정)")
+    void leaveBetAllowsSameDayDurationWithinGrace() {
+        givenMember();
+        // 시작(자정)은 이미 지났고 참가는 1분 전 — 유예(5분) 안이다.
+        GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
+        GroupChallengeBetParticipant mine =
+                myParticipantJoinedAt(session, Instant.now().minus(1, ChronoUnit.MINUTES));
+        givenLeaveEntry(session, mine, participantOf(session, OTHER_USER_ID));
+        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+
+        groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID);
+
+        verify(groupChallengeBetParticipantRepository).delete(mine);
+        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+                eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("하루형 당일 참가 — 유예 5분이 지나면 BET_LEAVE_CLOSED (경계 바깥)")
+    void leaveBetRejectsSameDayDurationAfterGrace() {
         givenMember();
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
-        givenLeaveEntry(session, participantOf(session, USER_ID));
+        givenLeaveEntry(session,
+                myParticipantJoinedAt(session, Instant.now().minus(6, ChronoUnit.MINUTES)));
 
         assertThatThrownBy(() -> groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
@@ -1681,6 +1711,40 @@ class GroupBetServiceTest {
         assertNoRefundIssued();
         verify(groupChallengeBetParticipantRepository, never())
                 .delete(any(GroupChallengeBetParticipant.class));
+    }
+
+    @Test
+    @DisplayName("시작 전 참가(예약분)는 유예가 붙지 않는다 — 시작이 지나면 참가 직후여도 BET_LEAVE_CLOSED (N22)")
+    void leaveBetGivesNoGraceToPreStartJoin() {
+        givenMember();
+        // 창이 1분 전에 시작됐고, 나는 그 2분 전(시작 전)에 참가했다 → 마감은 창 시작 = 이미 지남.
+        Instant startedAt = Instant.now().minus(1, ChronoUnit.MINUTES);
+        GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today(), startedAt);
+        givenLeaveEntry(session,
+                myParticipantJoinedAt(session, startedAt.minus(2, ChronoUnit.MINUTES)));
+
+        assertThatThrownBy(() -> groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
+        assertNoRefundIssued();
+    }
+
+    @Test
+    @DisplayName("응답의 myLeaveDeadlineAt 과 철회 판정이 같은 함수를 쓴다 — 화면이 거짓말하지 않는다")
+    void leaveDeadlineIsSharedByResponseAndLeaveGuard() {
+        givenMember();
+        GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
+        // 마감(참가+5분)이 방금 지난 참가 행 — 응답이 주는 값과 서비스 판정이 같은 경계여야 한다.
+        Instant joinedAt = Instant.now().minus(GroupBetService.LEAVE_GRACE).minusSeconds(1);
+        GroupChallengeBetParticipant mine = myParticipantJoinedAt(session, joinedAt);
+        givenLeaveEntry(session, mine);
+
+        assertThat(GroupBetService.leaveDeadline(session, mine))
+                .isEqualTo(joinedAt.plus(GroupBetService.LEAVE_GRACE))
+                .isBefore(Instant.now());
+        assertThatThrownBy(() -> groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
     }
 
     @Test
@@ -1700,11 +1764,13 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("창형 — 창이 이미 시작됐으면 BET_LEAVE_CLOSED")
+    @DisplayName("창형 — 창이 이미 시작됐으면 BET_LEAVE_CLOSED (창 시작 전에 참가한 경우)")
     void leaveBetRejectsWindowSessionAfterWindowStarts() {
         givenMember();
         GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today(), oneHourAgo());
-        givenLeaveEntry(session, participantOf(session, USER_ID));
+        // 창 시작 전에 참가 → 마감은 창 시작(N22, 유예 없음)이라 이미 지났다.
+        givenLeaveEntry(session,
+                myParticipantJoinedAt(session, session.getStartsAt().minusSeconds(600)));
 
         assertThatThrownBy(() -> groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID))
                 .isInstanceOf(GroupException.class)

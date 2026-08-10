@@ -11,7 +11,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -26,18 +25,13 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 @Tag(name = "Group Bet", description = "그룹 챌린지 내기 (개설/참가/히스토리). 현재 판 조회는 챌린지 목록 API 의 bet/lastSettledBet 필드")
-@Slf4j
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class GroupBetController {
 
-    /**
-     * 레거시 브리지 경로 사용량 마커(N36) — 구앱만 이 4경로(개설/참가/취소/철회)를 부른다(신앱은
-     * join·join-next·join-week — B5). 로그 집계가 브리지 제거 시점(GROMO-1238) 판단의 근거다.
-     * 실패 요청도 사용이므로 검증 전(컨트롤러 진입)에 남긴다.
-     */
-    private static final String BRIDGE_MARKER = "[legacy-bet-bridge]";
+    // 브리지 경로 사용량 계측(N36 · 제거 판단 GROMO-1238)은 LegacyBetBridgeLogInterceptor 가 한다 —
+    // 여기서 찍으면 인자 검증을 통과한 호출만 세어 실패하는 구앱 호출이 집계에서 빠진다.
 
     private final GroupBetService groupBetService;
 
@@ -64,8 +58,6 @@ public class GroupBetController {
             @Valid @RequestBody CreateBetRequest request,
             @LoginUser UUID userId
     ) {
-        log.info("{} createBet — groupId={}, challengeId={}, userId={}",
-                BRIDGE_MARKER, groupId, challengeId, userId);
         CreateBetResponse response = groupBetService.createBet(groupId, challengeId, userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -86,7 +78,6 @@ public class GroupBetController {
             @PathVariable UUID betId,
             @LoginUser UUID userId
     ) {
-        log.info("{} joinBet — groupId={}, betId={}, userId={}", BRIDGE_MARKER, groupId, betId, userId);
         groupBetService.joinBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -109,7 +100,6 @@ public class GroupBetController {
             @PathVariable UUID betId,
             @LoginUser UUID userId
     ) {
-        log.info("{} cancelBet — groupId={}, betId={}, userId={}", BRIDGE_MARKER, groupId, betId, userId);
         groupBetService.cancelBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -133,7 +123,6 @@ public class GroupBetController {
             @PathVariable UUID betId,
             @LoginUser UUID userId
     ) {
-        log.info("{} leaveBet — groupId={}, betId={}, userId={}", BRIDGE_MARKER, groupId, betId, userId);
         groupBetService.leaveBet(groupId, betId, userId);
         return ResponseEntity.noContent().build();
     }

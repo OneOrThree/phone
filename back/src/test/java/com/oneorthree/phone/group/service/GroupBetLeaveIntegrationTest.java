@@ -410,10 +410,27 @@ class GroupBetLeaveIntegrationTest extends IntegrationTestBase {
     // ── 철회 거절 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("하루형 당일 회차 → BET_LEAVE_CLOSED — 시작(00:00 KST)이 이미 지나 무를 수 없다")
-    void sameDayDurationSessionCannotBeLeft() {
+    @DisplayName("하루형 당일 참가 → 참가 후 5분 유예 안이라 철회·환불된다 (N22 — 시작이 자정이라 '시작 전'이 없다)")
+    void sameDayDurationSessionCanBeLeftWithinGrace() {
         User opener = memberUser("개설자", GroupMemberRole.MEMBER);
         GroupChallengeBetSession session = sessionOn(challenge, today(), GroupBetStatus.OPEN);
+        // 방금 저장된 참가 행이라 createdAt = now — 유예(5분) 안이다.
+        participant(session, opener);
+
+        groupBetService.leaveBet(group.getId(), session.getId(), opener.getId());
+
+        assertThat(balanceOf(opener)).isEqualTo(BALANCE_AFTER_STAKE + STAKE);
+        assertThat(refundCountOf(opener)).isEqualTo(1);
+        assertThat(participantsOf(session)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("전일자 하루형 회차(배치 전 OPEN 잔존) → 유예가 회차 종료로 상한돼 BET_LEAVE_CLOSED (N22)")
+    void startedYesterdayDurationSessionCannotBeLeft() {
+        User opener = memberUser("개설자", GroupMemberRole.MEMBER);
+        // 종료(오늘 00:00)가 이미 지나, 참가 직후여도 min(참가+5분, 종료) = 종료 → 마감이다.
+        GroupChallengeBetSession session =
+                sessionOn(challenge, today().minusDays(1), GroupBetStatus.OPEN);
         participant(session, opener);
 
         assertThatThrownBy(() -> groupBetService.leaveBet(group.getId(), session.getId(), opener.getId()))
