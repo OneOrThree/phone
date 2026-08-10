@@ -3,10 +3,12 @@ import { View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { cubicBezier } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { M, transition } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import { GlassPillFill, isLiquidGlassSupported } from '@/components/liquidGlass';
 import { PressableScale } from '@/components/PressableScale';
@@ -47,11 +49,12 @@ const BAR_STROKE = 'rgba(255,255,255,0.75)';
 // (iOS 26 리퀴드 글래스 탭 스위처 참고 — 굴절 필터는 RN에서 불가, 반투명 타원+오버슛으로 질감만)
 const HIGHLIGHT_W = 60;
 const HIGHLIGHT_H = 38;
-const highlightSlide = {
-  transitionProperty: 'transform',
-  transitionDuration: 350,
-  transitionTimingFunction: cubicBezier(0.34, 1.56, 0.64, 1), // 슉 미끄러지고 살짝 넘쳤다 안착
-} as const;
+// 슉 미끄러지고 살짝 넘쳤다 안착 — 값은 M.dur.base · M.curve.overshoot가 정본.
+const highlightSlide = transition({
+  property: 'transform',
+  duration: M.dur.base,
+  curve: 'overshoot',
+});
 
 // 상단 가운데가 파인 라운드 바 경로. 파임 호는 FAB 중심(cx, -FAB_LIFT)·반지름 NOTCH_R 원의
 // 바 상단선(y=0) 아래 부분 — 교점 반너비 a = √(R²-lift²).
@@ -128,6 +131,8 @@ function Tab({
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const rootNav = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  // '동작 줄이기'면 알약이 미끄러지지 않고 선택 탭으로 즉시 이동한다(transform은 그대로 적용).
+  const m = useMotion();
   // 파임 경로는 실제 폭 기준으로 그린다 — onLayout 측정 전에는 배경 생략
   const [barW, setBarW] = useState(0);
 
@@ -150,7 +155,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               s.highlight,
               isLiquidGlassSupported && s.highlightGlassHost,
               { transform: [{ translateX: tabCenterX(barW, state.index) - HIGHLIGHT_W / 2 }] },
-              highlightSlide,
+              m.css(highlightSlide),
             ]}
           >
             <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor="rgba(255,255,255,0.45)" />
