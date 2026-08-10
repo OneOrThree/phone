@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { RefObject } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
-import { T } from '@/constants/theme';
+import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
 
@@ -17,6 +17,7 @@ interface GroupCardFrontProps {
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
   bodyRef?: RefObject<View | null>;
+  active?: boolean;
 }
 
 export function GroupCardFront({
@@ -31,6 +32,7 @@ export function GroupCardFront({
   canMovePrevious = false,
   canMoveNext = false,
   bodyRef,
+  active = true,
 }: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
@@ -40,6 +42,7 @@ export function GroupCardFront({
         style={s.grip}
         testID={`group.card.grip.${group.groupId}`}
         accessibilityRole="adjustable"
+        focusable={active}
         accessibilityLabel={`${group.name} 카드 순서`}
         accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
         accessibilityActions={[
@@ -52,11 +55,12 @@ export function GroupCardFront({
         }}
         {...reorderHandlers}
       >
-        <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
+        <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
       </View>
       <Pressable
         ref={bodyRef}
         style={s.body}
+        focusable={active}
         onPress={onFlip}
         accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
         onAccessibilityAction={(event) => {
@@ -76,34 +80,48 @@ export function GroupCardFront({
             />
             <Text style={s.pillText}>{privacyLabel}</Text>
           </View>
-          <View style={s.emojiFrame}>
-            <Text style={s.emoji}>{emoji}</Text>
+          <View style={s.emojiOrbit}>
+            <View style={s.emojiOrbitDash}>
+              <View style={s.emojiFrame}>
+                <Text style={s.emoji}>{emoji}</Text>
+              </View>
+            </View>
           </View>
         </View>
 
         <View style={s.info}>
-          <View style={s.nameRow}>
-            <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
-              {group.name}
-            </Text>
-            {group.role === 'OWNER' && (
-              <View style={s.ownerChip}>
-                <Text style={s.ownerText}>방장</Text>
-              </View>
+          <View style={s.infoInner}>
+            <View style={s.nameRow}>
+              <Text style={s.name} numberOfLines={1} ellipsizeMode="tail">
+                {group.name}
+              </Text>
+              {group.role === 'OWNER' && (
+                <View style={s.ownerChip}>
+                  <MaterialCommunityIcons name="crown-outline" size={14} color={T.accentDeep} />
+                  <Text style={s.ownerText}>방장</Text>
+                </View>
+              )}
+            </View>
+            {!!group.description && (
+              <Text style={s.desc} numberOfLines={2}>
+                {group.description}
+              </Text>
             )}
-          </View>
-          {!!group.description && (
-            <Text style={s.desc} numberOfLines={2}>
-              {group.description}
-            </Text>
-          )}
-          <View style={s.footer}>
-            <Text style={s.count}>
-              {group.currentMembers}/{group.maxMembers}
-            </Text>
-            <View style={s.flipHint}>
-              <Text style={s.flipText}>뒤집어 방 보기</Text>
-              <MaterialCommunityIcons name="rotate-3d-variant" size={14} color={T.inkSub} />
+            <View style={s.footer}>
+              <View style={s.countBadge}>
+                <MaterialCommunityIcons
+                  name="account-multiple-outline"
+                  size={18}
+                  color={T.accentDeep}
+                />
+                <Text style={s.count}>
+                  {group.currentMembers}/{group.maxMembers}
+                </Text>
+              </View>
+              <View style={s.flipHint}>
+                <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
+                <Text style={s.flipText}>뒤집어 방 보기</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -113,65 +131,121 @@ export function GroupCardFront({
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, minHeight: 300, borderRadius: 22, overflow: 'hidden' },
+  root: {
+    flex: 1,
+    minHeight: 520,
+    borderRadius: 28,
+    overflow: 'hidden',
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
   body: { flex: 1 },
   grip: {
     position: 'absolute',
-    top: T.space.sm,
-    right: T.space.md,
+    top: T.space.lg,
+    right: T.space.lg,
     zIndex: 2,
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: withAlpha(T.white, 0.92),
   },
   art: {
     flex: 1,
-    minHeight: 170,
-    padding: T.space.lg,
+    minHeight: 310,
+    padding: T.space.xl,
     backgroundColor: T.accent,
   },
   privacyPill: {
     alignSelf: 'flex-start',
-    height: 24,
-    paddingHorizontal: T.space.sm,
-    borderRadius: 12,
+    minHeight: 32,
+    paddingHorizontal: T.space.md,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: T.space.xs,
-    backgroundColor: T.accentDeep,
+    backgroundColor: withAlpha(T.accentDeep, 0.76),
   },
-  pillText: { ...T.text.caption, color: T.white },
-  emojiFrame: {
+  pillText: { ...T.text.label, color: T.white },
+  emojiOrbit: {
     alignSelf: 'center',
     marginVertical: 'auto',
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 154,
+    height: 154,
+    borderRadius: 77,
+    padding: 17,
+    borderWidth: 2,
+    borderColor: withAlpha(T.white, 0.34),
+  },
+  emojiOrbitDash: {
+    flex: 1,
+    borderRadius: 60,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: withAlpha(T.white, 0.34),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: T.accentDeep,
   },
-  emoji: { fontSize: 44 },
-  info: { minHeight: 130, padding: T.space.lg, gap: T.space.xs, backgroundColor: T.white },
+  emojiFrame: {
+    width: 76,
+    height: 76,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withAlpha(T.white, 0.16),
+  },
+  emoji: { fontSize: 46 },
+  info: {
+    width: '132%',
+    alignSelf: 'center',
+    minHeight: 245,
+    marginTop: -64,
+    paddingTop: 94,
+    borderTopLeftRadius: 240,
+    borderTopRightRadius: 240,
+    backgroundColor: T.white,
+  },
+  infoInner: {
+    flex: 1,
+    width: '76%',
+    alignSelf: 'center',
+    paddingHorizontal: T.space.sm,
+    paddingBottom: 56,
+    gap: T.space.sm,
+  },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   name: { ...T.text.heading, color: T.ink, flexShrink: 1, minWidth: 0 },
   ownerChip: {
-    height: 22,
+    minHeight: 30,
     paddingHorizontal: T.space.sm,
-    borderRadius: 11,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
     justifyContent: 'center',
     backgroundColor: T.accentBg,
   },
   ownerText: { ...T.text.caption, color: T.accentDeep },
-  desc: { ...T.text.caption, color: T.inkSub },
+  desc: { ...T.text.body, color: T.inkSub },
   footer: {
     marginTop: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  count: { ...T.text.label, color: T.inkSub, fontVariant: ['tabular-nums'] },
+  countBadge: {
+    minHeight: 36,
+    paddingHorizontal: T.space.md,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.sm,
+    backgroundColor: T.accentBg,
+  },
+  count: { ...T.text.label, color: T.accentDeep, fontVariant: ['tabular-nums'] },
   flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  flipText: { ...T.text.caption, color: T.inkSub },
+  flipText: { ...T.text.label, color: T.inkSub },
 });

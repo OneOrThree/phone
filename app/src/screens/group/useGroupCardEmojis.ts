@@ -37,12 +37,17 @@ export function useGroupCardEmojis({ userId, groupIds, reloadToken = 0 }: Params
     }
 
     const idsForRead = groupKey ? groupKey.split('\u0000') : [];
-    Promise.all([
-      retryPendingGroupCardEmojis(userId, idsForRead),
-      reconcileGroupCardEmojiBucket(userId, idsForRead).catch(() => ({})),
-    ]).then(([pending, stored]) => {
-      if (current) setState({ identity, emojis: { ...stored, ...pending } });
-    });
+    // pending 쓰기가 모두 끝난 뒤 디스크 bucket을 다시 읽는다. 병렬 실행하면 첫/둘째 retry
+    // 사이의 중간 상태를 hydrate하고 성공한 pending도 큐에서 사라져 화면에서 누락될 수 있다.
+    retryPendingGroupCardEmojis(userId, idsForRead)
+      .catch(() => ({}))
+      .then(async (pending) => ({
+        stored: await reconcileGroupCardEmojiBucket(userId, idsForRead).catch(() => ({})),
+        pending,
+      }))
+      .then(({ pending, stored }) => {
+        if (current) setState({ identity, emojis: { ...stored, ...pending } });
+      });
     return () => {
       current = false;
     };

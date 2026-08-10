@@ -130,6 +130,7 @@ export function navigateToDeepLink(link: string): void {
       break;
     case 'focus':
       navigationRef.navigate('FocusCategory', {
+        initialGroupId: undefined,
         entrySource: 'unknown',
         interactionId: undefined,
         interactionAcceptedAt: undefined,

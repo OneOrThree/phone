@@ -301,31 +301,12 @@ describe('콜백', () => {
     expect(delayOf()).toBe(mounted);
   });
 
-  test('가로 덱에서도 헤더 새로고침을 누를 수 있고 조회 중 연타를 막는다', async () => {
-    // 조회가 끝나는 시점을 테스트가 쥔다 — 인디케이터가 '도는 동안'과 '끝난 뒤'를 나눠 본다.
-    let finish!: () => void;
-    onRefresh.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
+  test('가로 덱 헤더는 원형 찾기·만들기만 제공하고 큰 하단 CTA와 새로고침 버튼은 두지 않는다', async () => {
     await renderList([group()]);
 
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('group.list.refresh'));
-    });
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('group.list.refresh'));
-    });
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-
-    // 끝나면 반드시 내린다 — 안 내리면 스피너가 영구히 남는다.
-    await act(async () => {
-      finish();
-    });
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('group.list.refresh'));
-    });
-    expect(onRefresh).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('group.list.find')).toHaveStyle({ width: 44, height: 44 });
+    expect(screen.getByTestId('group.list.create')).toHaveStyle({ width: 48, height: 48 });
+    expect(screen.queryByTestId('group.list.refresh')).toBeNull();
   });
 });
 

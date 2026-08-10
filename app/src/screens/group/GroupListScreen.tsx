@@ -27,7 +27,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
@@ -92,8 +91,6 @@ import {
 // 렌더는 SafeAreaView 없이 컨텐츠만 — 탭 셸(SafeAreaView·배경)은 GroupScreen이 감싼다.
 // 빈 배열은 다루지 않는다: 0건은 GroupScreen이 빈 상태로 가로채므로 여기 오지 않는다.
 
-// 플로팅 탭바가 가리는 하단 여백(그룹 탭 공통 기준 — GroupScreen·그룹방과 같은 값)
-const TAB_BAR_SPACE = 74;
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
 const DRAG_EDGE = 60;
@@ -123,7 +120,7 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
  * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
  * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
  */
-export const GROUP_CARD_HEIGHT = 300;
+export const GROUP_CARD_HEIGHT = 520;
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
@@ -207,7 +204,6 @@ export default function GroupListScreen({
   onFind,
   onStartFocus = () => undefined,
   onOpenSettings = () => undefined,
-  onRefresh,
   onBack,
   guideBlocked = false,
   guideScreenFocused = true,
@@ -217,9 +213,7 @@ export default function GroupListScreen({
   guideDataFailed = false,
   onEnsureBack,
 }: GroupListScreenProps) {
-  const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeStableGroupId, setActiveStableGroupId] = useState<string | null>(null);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
@@ -352,7 +346,6 @@ export default function GroupListScreen({
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
-  const mountedRef = useRef(true);
   useEffect(() => {
     guideVisibleRef.current = guideVisible;
   }, [guideVisible]);
@@ -360,7 +353,6 @@ export default function GroupListScreen({
 
   useEffect(
     () => () => {
-      mountedRef.current = false;
       if (guideVisibleRef.current) logGroupDeckGuideInterrupted({ reason: 'unmount' });
     },
     [],
@@ -379,15 +371,6 @@ export default function GroupListScreen({
     });
     return () => subscription.remove();
   }, []);
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await onRefresh();
-    } finally {
-      if (mountedRef.current) setRefreshing(false);
-    }
-  }, [onRefresh]);
 
   const focusNode = useCallback((ref: { current: View | null }) => {
     requestAnimationFrame(() => {
@@ -870,16 +853,28 @@ export default function GroupListScreen({
           </TouchableOpacity>
         )}
         <Text style={s.headerTitle}>내 그룹</Text>
-        <TouchableOpacity
-          style={s.refreshBtn}
-          onPress={handleRefresh}
-          disabled={refreshing}
-          accessibilityRole="button"
-          accessibilityLabel="그룹 새로고침"
-          testID="group.list.refresh"
-        >
-          <Ionicons name="refresh" size={18} color={T.inkSub} />
-        </TouchableOpacity>
+        <View style={s.headerActions}>
+          <TouchableOpacity
+            style={s.searchBtn}
+            onPress={onFind}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="그룹 찾기"
+            testID="group.list.find"
+          >
+            <Ionicons name="search" size={22} color={T.inkSub} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.createBtn}
+            onPress={onCreate}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="그룹 만들기"
+            testID="group.list.create"
+          >
+            <Ionicons name="add" size={28} color={T.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View
@@ -931,6 +926,7 @@ export default function GroupListScreen({
                     position={pageCount}
                     pageCount={pageCount}
                     onPress={onFind}
+                    focusable={renderedActiveIndex === orderedGroups.length}
                   />
                 </View>
               }
@@ -986,6 +982,7 @@ export default function GroupListScreen({
                       emoji={emojiFor(item.groupId)}
                       position={index + 1}
                       pageCount={pageCount}
+                      active={item.groupId === activeGroupId}
                       bodyRef={
                         activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
                       }
@@ -1052,26 +1049,6 @@ export default function GroupListScreen({
         )}
       </View>
 
-      {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
-      <View style={[s.footer, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
-        <TouchableOpacity
-          style={s.primaryBtn}
-          activeOpacity={0.85}
-          onPress={onCreate}
-          testID="group.list.create"
-        >
-          <Text style={s.primaryText}>그룹 만들기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={s.outlineBtn}
-          activeOpacity={0.85}
-          onPress={onFind}
-          testID="group.list.find"
-        >
-          <Text style={s.outlineText}>그룹 찾기</Text>
-        </TouchableOpacity>
-      </View>
-
       <TabGuideOverlay
         storageKey={STORAGE_KEYS.guideGroupDeck}
         steps={guideSteps}
@@ -1099,14 +1076,29 @@ const s = StyleSheet.create({
     paddingBottom: T.space.md,
   },
   headerTitle: { ...T.text.title, color: T.ink },
-  refreshBtn: {
+  headerActions: {
     marginLeft: 'auto',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+  },
+  searchBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    opacity: 1,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  createBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accent,
   },
   // 그룹 스택 화면(GroupCreateScreen s.backBtn)과 같은 규격 — 32/r16/white/border
   backBtn: {
@@ -1173,28 +1165,4 @@ const s = StyleSheet.create({
     textAlign: 'center',
     paddingTop: T.space.xs,
   },
-
-  footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
-  // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
-  primaryBtn: {
-    alignSelf: 'stretch',
-    height: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: T.accent,
-  },
-  primaryText: { ...T.text.subtitle, color: T.white },
-  outlineBtn: {
-    alignSelf: 'stretch',
-    height: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: T.space.md,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  outlineText: { ...T.text.subtitle, color: T.ink },
 });

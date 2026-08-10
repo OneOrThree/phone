@@ -235,6 +235,7 @@ export class GroupCardSummaryAdapter<TFocus> {
       this.detail.refresh(datedKey),
       this.announcements.refresh(groupId),
       this.challenges.refresh(datedKey),
+      this.focus.retry(scope.userId, scope.date),
     ]);
   }
 

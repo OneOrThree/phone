@@ -160,8 +160,8 @@ export function GroupCardBack({
 const s = StyleSheet.create({
   root: {
     flex: 1,
-    minHeight: 300,
-    borderRadius: 22,
+    minHeight: 520,
+    borderRadius: 28,
     padding: T.space.lg,
     backgroundColor: T.white,
     gap: T.space.sm,
