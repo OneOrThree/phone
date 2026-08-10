@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_GROUP_CARD_EMOJI,
-  readGroupCardEmojis,
+  reconcileGroupCardEmojiBucket,
+  retryPendingGroupCardEmojis,
   type GroupCardEmoji,
   type GroupCardEmojiBucket,
 } from './groupCardEmojiStore';
@@ -36,8 +37,11 @@ export function useGroupCardEmojis({ userId, groupIds, reloadToken = 0 }: Params
     }
 
     const idsForRead = groupKey ? groupKey.split('\u0000') : [];
-    readGroupCardEmojis(userId, idsForRead).then((emojis) => {
-      if (current) setState({ identity, emojis });
+    Promise.all([
+      retryPendingGroupCardEmojis(userId, idsForRead),
+      reconcileGroupCardEmojiBucket(userId, idsForRead).catch(() => ({})),
+    ]).then(([pending, stored]) => {
+      if (current) setState({ identity, emojis: { ...stored, ...pending } });
     });
     return () => {
       current = false;

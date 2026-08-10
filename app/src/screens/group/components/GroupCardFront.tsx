@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { groupCardEmojiLabel } from '../groupCardEmojiStore';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
@@ -52,7 +53,7 @@ export function GroupCardFront({
         style={s.body}
         onPress={onFlip}
         accessibilityRole="button"
-        accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
+        accessibilityLabel={`${group.name}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
         testID={`group.card.${group.groupId}`}
       >
