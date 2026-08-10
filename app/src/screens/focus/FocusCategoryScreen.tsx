@@ -61,6 +61,9 @@ export default function FocusCategoryScreen() {
   useEffect(() => {
     interactionTransferredRef.current = false;
     startTransitionRef.current = false;
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const appSub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') invalidateCardInteraction(interactionId);
     });

@@ -171,6 +171,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         haptic="light"
         onPress={() =>
           rootNav.navigate('FocusCategory', {
+            initialGroupId: undefined,
             entrySource: 'home_fab',
             interactionId: undefined,
             interactionAcceptedAt: undefined,

@@ -101,6 +101,7 @@ export class GroupFocusStatusStore {
       entry.state = state;
       entry.inFlight = null;
       if (state.status === 'ready') entry.lastComplete = state.data;
+      if (state.status === 'coverage-unknown') entry.lastComplete = null;
       this.emit(key);
       return state;
     });
@@ -174,7 +175,8 @@ export class GroupFocusPollingController {
     if (this.disposed || this.activated) return;
     this.activated = true;
     if (!this.canRun()) return;
-    this.options.store.ensure(this.options.userId, this.getDate());
+    // 새 화면 수명은 이전 mount의 ready cache도 즉시 갱신한다. 동일 key의 in-flight는 retry가 공유한다.
+    this.refresh();
     this.startTimer();
   }
 

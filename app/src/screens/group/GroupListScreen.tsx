@@ -214,6 +214,7 @@ export default function GroupListScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
+  const [backSource, setBackSource] = useState<'guide' | 'user' | null>(null);
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [orderMenuGroupId, setOrderMenuGroupId] = useState<string | null>(null);
   // RN 부팅 직후 currentState가 null일 수 있다. background/inactive 신호 전에는 foreground
@@ -313,8 +314,13 @@ export default function GroupListScreen({
   useEffect(() => {
     if (guideVisible && (guideBlocked || !guideScreenFocused || !appActive)) {
       setGuideVisible(false);
+      // 안내는 다음 노출 때 1단계부터 시작한다. 4단계 시연으로 뒤집힌 face도 함께 초기화한다.
+      if (backSource === 'guide') {
+        setFlippedGroupId(null);
+        setBackSource(null);
+      }
     }
-  }, [appActive, guideBlocked, guideScreenFocused, guideVisible]);
+  }, [appActive, backSource, guideBlocked, guideScreenFocused, guideVisible]);
 
   useEffect(() => {
     focusPolling?.setLifecycle({
@@ -352,6 +358,7 @@ export default function GroupListScreen({
           const groupId = orderedGroups[activeIndex]?.groupId ?? orderedGroups[0]?.groupId;
           if (!groupId) return;
           setFlippedGroupId(groupId);
+          setBackSource('guide');
           summaryAdapter.ensureBack(groupId).catch(() => undefined);
           focusPolling?.activate();
         },
@@ -429,6 +436,7 @@ export default function GroupListScreen({
       activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
       setFlippedGroupId(null);
+      setBackSource(null);
       logGroupCarouselPaged({
         trigger,
         from_index: from,
@@ -454,6 +462,7 @@ export default function GroupListScreen({
           group_count_bucket: groupCountBucket(orderedGroups.length),
         });
         setFlippedGroupId(null);
+        setBackSource(null);
       }
       activeIdentityRef.current = nextIdentity;
       setActiveIndex(next);
@@ -506,6 +515,7 @@ export default function GroupListScreen({
       focusNode(roomFocusRef);
     } else {
       setFlippedGroupId(null);
+      setBackSource(null);
       setPendingFrontFocusGroupId(target.groupId);
     }
   }, [focusNode, groupsRevision, hydrated, isScreenFocused, orderedGroups, snapInterval]);
@@ -571,6 +581,7 @@ export default function GroupListScreen({
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
           setFlippedGroupId(null);
+          setBackSource(null);
         },
         onPanResponderMove: (_event, gesture) => {
           const drag = dragRef.current;
@@ -690,7 +701,7 @@ export default function GroupListScreen({
                   logGroupCardActionClicked({
                     action: 'room',
                     role: item.role === 'OWNER' ? 'owner' : 'member',
-                    back_source: 'user',
+                    back_source: backSource ?? 'user',
                     interaction_id: interaction.interactionId,
                   });
                   roomReturnRef.current = {
@@ -707,7 +718,7 @@ export default function GroupListScreen({
                   logGroupCardActionClicked({
                     action: 'focus',
                     role: item.role === 'OWNER' ? 'owner' : 'member',
-                    back_source: 'user',
+                    back_source: backSource ?? 'user',
                     interaction_id: interaction.interactionId,
                   });
                   onFocus(item.groupId, interaction);
@@ -719,13 +730,14 @@ export default function GroupListScreen({
                   logGroupCardActionClicked({
                     action: 'settings',
                     role: item.role === 'OWNER' ? 'owner' : 'member',
-                    back_source: 'user',
+                    back_source: backSource ?? 'user',
                     interaction_id: interaction.interactionId,
                   });
                   onSettings(item.groupId);
                 }}
                 onFront={(trigger) => {
                   setFlippedGroupId(null);
+                  setBackSource(null);
                   logGroupCardFlipped({
                     to_face: 'front',
                     trigger,
@@ -749,6 +761,7 @@ export default function GroupListScreen({
                     setActiveIndex(index);
                   }
                   setFlippedGroupId(item.groupId);
+                  setBackSource('user');
                   logGroupCardFlipped({
                     to_face: 'back',
                     trigger,
@@ -765,8 +778,10 @@ export default function GroupListScreen({
                   const from = orderedGroupsRef.current.findIndex(
                     (group) => group.groupId === item.groupId,
                   );
-                  if (commitMove(item.groupId, from + step, 'accessibility_action'))
+                  if (commitMove(item.groupId, from + step, 'accessibility_action')) {
                     setFlippedGroupId(null);
+                    setBackSource(null);
+                  }
                 }}
               />
             )}

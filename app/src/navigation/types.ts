@@ -11,9 +11,12 @@ export type V2RootStackParamList = {
   CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
   // 02 과목 선택 (홈 ● 집중 FAB에서 진입). initialGroupId: 그룹방 FAB에서 진입 시 — 세션까지 넘겨
   // 집중 세션이 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입하게 한다(F2 Part2).
-  FocusCategory:
-    | ({ initialGroupId?: string; entrySource?: FocusEntrySource } & CardInteractionRouteContext)
-    | undefined;
+  FocusCategory: {
+    initialGroupId: string | undefined;
+    entrySource: FocusEntrySource;
+    interactionId: string | undefined;
+    interactionAcceptedAt: number | undefined;
+  };
   FocusSession: {
     subjectId: string;
     subjectName: string;

@@ -85,6 +85,24 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     });
   });
 
+  test('coverage-unknown이 확인되면 이전 complete fallback을 폐기한다', async () => {
+    const complete = [member('a', true)];
+    const incomplete = Array.from({ length: 100 }, (_, index) => member(String(index), false));
+    const load = jest
+      .fn()
+      .mockResolvedValueOnce(complete)
+      .mockResolvedValueOnce(incomplete)
+      .mockRejectedValueOnce(new Error('network'));
+    const store = new GroupFocusStatusStore(load);
+
+    await store.ensure(USER_ID, DATE);
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE)).toEqual({ status: 'coverage-unknown' });
+
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('error');
+  });
+
   test('같은 userId+date의 in-flight 요청은 ensure와 refresh가 공유한다', async () => {
     const pending = deferred<LeagueMemberResponse[]>();
     const load = jest.fn(() => pending.promise);
@@ -120,6 +138,24 @@ describe('GroupFocusPollingController', () => {
     expect(load).toHaveBeenCalledTimes(1);
     await flushPromises();
     jest.advanceTimersByTime(60_000);
+    expect(load).toHaveBeenCalledTimes(2);
+    controller.dispose();
+  });
+
+  test('새 controller의 첫 활성화는 이전 ready cache도 즉시 갱신한다', async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const store = new GroupFocusStatusStore(load);
+    await store.ensure(USER_ID, DATE);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    const controller = new GroupFocusPollingController({
+      store,
+      userId: USER_ID,
+      getDate: () => DATE,
+    });
+    controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    controller.activate();
+
     expect(load).toHaveBeenCalledTimes(2);
     controller.dispose();
   });

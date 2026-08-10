@@ -34,6 +34,9 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardFlipped: jest.fn(),
   logGroupCardReordered: jest.fn(),
   logGroupCarouselPaged: jest.fn(),
+  logGroupDeckGuideReadFailed: jest.fn(),
+  logGroupDeckGuideWriteFailed: jest.fn(),
+  logTabGuideCompleted: jest.fn(),
 }));
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -181,6 +184,42 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.deck.guide').props.accessibilityLabel).toMatch(
       /^단계 4\/4\..*시작$/,
     );
+
+    await press('group.deck.guide');
+    await press(`group.card.room.${GROUP_ID}`);
+    expect(logGroupCardActionClicked).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'room', back_source: 'guide' }),
+    );
+  });
+
+  test('4단계 시연 중 안내가 가려지면 다시 시작할 앞면으로 복원한다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    resetGroupDeckGuideSessionForTests();
+    const view = await renderList([group()], undefined, 'guide-interrupted');
+
+    await press('group.deck.guide');
+    await press('group.deck.guide');
+    await press('group.deck.guide');
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+
+    await view.rerender(
+      <GroupListScreen
+        groups={[group()]}
+        userId="guide-interrupted"
+        onSelect={onSelect}
+        onFocus={onFocus}
+        onSettings={onSettings}
+        viewEpisodeId={1}
+        groupEntry="tab"
+        guideBlocked
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen());
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
   });
 
   test('다른 overlay가 막고 있으면 미완료 안내를 pending으로 기록한다', async () => {

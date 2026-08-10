@@ -580,6 +580,9 @@ export default function GroupRoomScreen({
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
   useEffect(() => {
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
         invalidateCardInteraction(interactionId);

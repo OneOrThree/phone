@@ -115,7 +115,12 @@ export function navigateToDeepLink(link: string): void {
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
-      navigationRef.navigate('FocusCategory');
+      navigationRef.navigate('FocusCategory', {
+        initialGroupId: undefined,
+        entrySource: 'unknown',
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
       break;
     case 'home':
       navigationRef.navigate('Main', { screen: '홈' } as never);
