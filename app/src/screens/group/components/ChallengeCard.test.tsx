@@ -1701,6 +1701,71 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
     });
     expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
   });
+
+  // 자정 드리프트(#570 codex ③) — 요청이 나가 있는 사이 서버가 다음 활성일을 새로 계산하면
+  // 화면과 다른 날짜에 참가비가 걸린다. 참가는 이미 성립했으므로 성공 처리하되 **침묵하지 않는다**.
+  test('응답 날짜가 화면과 다르면 실제 예약된 날짜를 명시로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockJoinNextSession.mockResolvedValue({
+      sessionId: 's-drift',
+      sessionDate: '2026-08-05', // 화면은 8/3(월)을 보여줬다
+      stake: 30,
+    });
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(restingOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.joinNext.submit'));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '예약된 날짜가 바뀌었어요',
+      expect.stringContaining('8/5(수)로 예약됐어요'),
+    );
+    // 성공은 성공대로 — 재조회를 태워 카드가 실제 예약 상태로 갈아 끼워진다.
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('날짜가 같으면 드리프트 안내가 없다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderCard(restingOver());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.joinNext.submit'));
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── v2 응답의 내기 꺼짐(#570 codex ①) — bet=null은 "생성 시 껐다 = 불변"(N26)이다 ──
+describe('v2 내기 꺼짐 (N26)', () => {
+  test('v2 응답(repeatDays 존재)의 bet=null에는 내기 걸기 진입점을 세우지 않는다', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+    });
+    // 레거시 개설 버튼도, 내기 영역 자체도 없다(ux §05 분기 0 — 영역 자체가 없다).
+    expect(screen.queryByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('구서버(repeatDays 없음)의 bet=null에는 종전 개설 진입점이 그대로 선다', async () => {
+    await renderCard({ bet: null });
+    expect(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeOnTheScreen();
+  });
 });
 
 // ── 챌린지 v2 — 이번 주 남은 날 전부(GROMO-1276, N14·§C2) ──────────────────────
@@ -1776,6 +1841,93 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
       bet: bet(),
     });
     expect(screen.queryByTestId(`group.bet.week.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  // 부분 예약을 여러 날 해 둔 경우(#570 codex ②) — nextSessionJoined는 가장 가까운 1건뿐이라
+  // 카드 응답만으로는 나머지 예약일을 모른다. 시트를 **열 때** 내 OPEN 목록에서 예약일 전체를
+  // 받아 뺀다 — 합계가 실제 나갈 돈보다 부풀면 안 된다(N15).
+  test('이미 예약해 둔 날은 시트를 열 때 대상·합계에서 빠진다', async () => {
+    mockGetMyOpenBetSessions.mockResolvedValue([
+      {
+        sessionId: 's-sun',
+        groupId: GROUP_ID,
+        challengeId: CHALLENGE_ID,
+        sessionDate: '2026-08-02', // 일요일은 이미 예약했다
+        missionCategory: 'FOCUS',
+        missionType: 'DURATION',
+        goalMinutes: 60,
+        windowStart: null,
+        windowEnd: null,
+        closesAt: '2026-08-02T14:59:59Z',
+        settleAfter: '2026-08-02T15:00:00Z',
+      },
+    ]);
+    await renderCard(weekendOver());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent(
+      '1일 × 30코인 = 합계 30코인',
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+    });
+    expect(mockJoinWeekSessions).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, ['2026-08-01']);
+  });
+
+  test('남은 날을 전부 예약해 뒀으면 시트 대신 사실을 알리고 재조회를 태운다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetMyOpenBetSessions.mockResolvedValue(
+      ['2026-08-01', '2026-08-02'].map((d, i) => ({
+        sessionId: `s-${i}`,
+        groupId: GROUP_ID,
+        challengeId: CHALLENGE_ID,
+        sessionDate: d,
+        missionCategory: 'FOCUS' as const,
+        missionType: 'DURATION' as const,
+        goalMinutes: 60,
+        windowStart: null,
+        windowEnd: null,
+        closesAt: `${d}T14:59:59Z`,
+        settleAfter: `${d}T15:00:00Z`,
+      })),
+    );
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(weekendOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '이미 참여했어요',
+      '이번 주 남은 날은 이미 모두 참여하고 있어요.',
+    );
+    expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('예약 현황 조회가 실패하면 시트를 열지 않는다 — 부푼 합계로 돈을 받지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetMyOpenBetSessions.mockRejectedValue(axiosErrorWith(500));
+    await renderCard(weekendOver());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 정보를 확인하지 못했어요',
+      '잠시 후 다시 시도해주세요.',
+    );
+    expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
   });
 });
 

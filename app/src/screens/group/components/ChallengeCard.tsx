@@ -463,19 +463,54 @@ export default function ChallengeCard({
 
   // v2 시트(다음 활성일 예약·주간 예약) — 카드가 직접 연다(히스토리 push와 같은 이유로 부모
   // 배선을 늘리지 않는다). groupId는 조회 캐시 역참조 — 미적중이면 공통 문구.
-  const [betV2Sheet, setBetV2Sheet] = useState<'next' | 'week' | null>(null);
+  const [betV2Sheet, setBetV2Sheet] = useState<'next' | null>(null);
+  // 주간 시트가 그릴 대상 날짜 — **열 때 확정**한다(아래 openWeekSheet). null = 닫힘.
+  const [weekSheetDates, setWeekSheetDates] = useState<string[] | null>(null);
+  const weekOpenLock = useRef(false);
   // 진행 중 삭제 2단계(GROMO-1425) — 프리플라이트 수치가 도착해야만 열린다(N49).
   const [deletePreview, setDeletePreview] = useState<ChallengeDeletionPreviewResponse | null>(null);
   const deleteLock = useRef(false);
   const cachedGroupId = challengeGroupId(challenge.id);
 
-  function openBetV2(kind: 'next' | 'week') {
+  function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
       Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해주세요.');
       return;
     }
-    setBetV2Sheet(kind);
+    setBetV2Sheet('next');
+  }
+
+  // 주간 시트 열기 — 카드의 nextSessionJoined는 **가장 가까운 1건**만 말한다(N45). 부분 예약을
+  // 여러 날 해 뒀으면 나머지 예약일이 후보에 남아 합계가 부풀고 축소 제안까지 오염된다(#570
+  // codex). 내 OPEN 회차 목록(1419 취소 동선과 같은 API)에서 이 챌린지의 예약일 **전체**를 받아
+  // 뺀 집합으로만 시트를 연다 — 화면이 보여주는 돈과 실제 나갈 돈이 어긋나면 안 된다(N15).
+  async function openWeekSheet() {
+    if (cachedGroupId === null) {
+      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해주세요.');
+      return;
+    }
+    if (weekOpenLock.current) return; // 조회가 도는 동안의 연타 방지(leaveLock 관행)
+    weekOpenLock.current = true;
+    try {
+      const mine = await getMyOpenBetSessions();
+      const reserved = new Set(
+        mine.filter((m) => m.challengeId === challenge.id).map((m) => m.sessionDate),
+      );
+      const dates = weekDates.filter((d) => !reserved.has(d));
+      if (dates.length === 0) {
+        // 남은 날을 전부 예약해 뒀다 — 낡은 버튼이었다. 사실을 알리고 카드를 최신으로 갈아 끼운다.
+        Alert.alert('이미 참여했어요', '이번 주 남은 날은 이미 모두 참여하고 있어요.');
+        onBetChanged?.();
+        return;
+      }
+      setWeekSheetDates(dates);
+    } catch {
+      // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
+      Alert.alert('참여 정보를 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+    } finally {
+      weekOpenLock.current = false;
+    }
   }
 
   // 예약해 둔 다음 활성일의 참여 취소(1419) — 카드 응답에는 미래 회차 sessionId가 없어(오늘
@@ -808,8 +843,12 @@ export default function ChallengeCard({
 
       {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 카드 하단 ──
           끝난 챌린지에 내기가 하나도 없으면 영역 자체를 두지 않는다 — 열 수 없는 자리에
-          구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다. */}
-      {betSupported && (bet !== null || betOpenable) && (
+          구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다.
+          ⚠️ v2 응답(repeatDays 존재)의 bet === null은 "생성 시 내기를 껐다 = 불변"(N26·ux §05
+          분기 0)이다 — 레거시 「내기 걸기」(createBet) 진입점을 세우면 신서버에선 영구 실패
+          버튼이고, 브리지가 받아 주면 생성 시 선택을 거스른다(#570 codex). 영역 자체를 두지
+          않는다. 구서버(표식 없음)는 종전 개설 플로우 그대로다. */}
+      {betSupported && (bet !== null || (betOpenable && repeatDays === null)) && (
         <View style={s.betArea}>
           {nextJoinable && bet !== null && nextDate !== null ? (
             // ⓪-v2 오늘 회차가 없다(신서버 쉬는 날 — LLD §2.1 분기 1, GROMO-1419).
@@ -841,7 +880,7 @@ export default function ChallengeCard({
                   style={[s.joinNextBtn, betLocked && s.joinNextBtnOff]}
                   activeOpacity={0.85}
                   disabled={betLocked}
-                  onPress={() => openBetV2('next')}
+                  onPress={openJoinNextSheet}
                   accessibilityRole="button"
                   testID={`group.bet.joinNext.${challenge.id}`}
                 >
@@ -971,7 +1010,7 @@ export default function ChallengeCard({
               style={[s.weekBtn, betLocked && s.betLeaveBtnOff]}
               activeOpacity={0.8}
               disabled={betLocked}
-              onPress={() => openBetV2('week')}
+              onPress={openWeekSheet}
               accessibilityRole="button"
               testID={`group.bet.week.${challenge.id}`}
             >
@@ -1022,7 +1061,7 @@ export default function ChallengeCard({
           groupId={cachedGroupId}
           challengeId={challenge.id}
           label={label ?? categoryLabel(challenge)}
-          sessionDayLabel={fmtMonthDayDow(nextDate)}
+          sessionDate={nextDate}
           startTimeLabel={startHHmm}
           stake={bet.stake}
           onClose={() => setBetV2Sheet(null)}
@@ -1033,18 +1072,19 @@ export default function ChallengeCard({
         />
       )}
 
-      {/* 이번 주 남은 날 일괄 예약(GROMO-1276) — 대상 날짜는 카드가 산출한 weekDates 그대로. */}
-      {betV2Sheet === 'week' && bet !== null && weekDates.length > 0 && cachedGroupId !== null && (
+      {/* 이번 주 남은 날 일괄 예약(GROMO-1276) — 대상 날짜는 열 때 예약 현황까지 반영해 확정한
+          weekSheetDates다(위 openWeekSheet — #570 codex ②). */}
+      {weekSheetDates !== null && bet !== null && cachedGroupId !== null && (
         <JoinWeekSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
           label={label ?? categoryLabel(challenge)}
-          dates={weekDates}
+          dates={weekSheetDates}
           startTimeLabel={startHHmm}
           stake={bet.stake}
-          onClose={() => setBetV2Sheet(null)}
+          onClose={() => setWeekSheetDates(null)}
           onDone={() => {
-            setBetV2Sheet(null);
+            setWeekSheetDates(null);
             onBetChanged?.();
           }}
         />

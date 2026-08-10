@@ -51,9 +51,17 @@ export default function JoinWeekSheet({
   onClose,
   onDone,
 }: JoinWeekSheetProps) {
-  const { coins, coinsLoaded, refresh } = useCoins();
+  const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 서버가 확정한 잔액 부족(BetSheet insufficientVerdict 패턴 그대로 — #570 codex) — refresh가
+  // 실패하거나 낡은 큰 잔액이 남아 있어도 "그 총액으로는 안 된다"는 이미 확정이다. 안 잠그면
+  // 같은 실패를 반복 전송한다. 판정은 그 총액 **이상**에 유효하고, 푸는 건 판정보다 **나중에**
+  // 도착한 권위 있는 잔액이 낼 수 있다고 말할 때뿐이다.
+  const [insufficientVerdict, setInsufficientVerdict] = useState<{
+    total: number;
+    coinsVersion: number;
+  } | null>(null);
   const submitLock = useRef(false);
 
   // 시트를 열 때 서버 잔액을 다시 받는다(BetSheet §0-3과 같은 이유).
@@ -65,11 +73,20 @@ export default function JoinWeekSheet({
   // 잔액 미상이면 부족 판정을 하지 않는다(3상) — 판정은 서버 총액 선검사가 확정해 준다.
   const loaded = !!coinsLoaded;
   const insufficient = loaded && total > coins;
-  // 부분 예약 제안 — 지금 잔액으로 되는 날수(앞 날짜부터). 전액이 되면 제안 자체가 없다.
+  // 판정 이후에 도착한 잔액이 '낼 수 있다'고 말하는가 — 그때만 서버 판정을 푼다(BetSheet와 동일).
+  const balanceOverridesVerdict =
+    insufficientVerdict !== null &&
+    loaded &&
+    coinsVersion > insufficientVerdict.coinsVersion &&
+    total <= coins;
+  const serverInsufficient =
+    insufficientVerdict !== null && total >= insufficientVerdict.total && !balanceOverridesVerdict;
+  // 부분 예약 제안 — **권위 있는 잔액**으로만 계산한다(앞 날짜부터). 서버 판정만 있고 새 잔액이
+  // 아직 없으면 제안하지 않는다 — 낡은 잔액으로 만든 축소 제안은 또 같은 실패를 보낸다.
   const affordableCount = insufficient ? Math.min(Math.floor(coins / stake), dates.length) : 0;
   const partialDates = dates.slice(0, affordableCount);
   const partialTotal = affordableCount * stake;
-  const fullDisabled = submitting || insufficient;
+  const fullDisabled = submitting || insufficient || serverInsufficient;
 
   function failAndReload(title: string, message: string) {
     Alert.alert(title, message);
@@ -78,6 +95,15 @@ export default function JoinWeekSheet({
 
   async function submit(targetDates: string[]) {
     if (submitting || submitLock.current || targetDates.length === 0) return;
+    // 서버 판정이 잡은 총액 이상은 다시 보내지 않는다 — CTA 잠금과 같은 근거의 최후 가드.
+    const targetTotal = targetDates.length * stake;
+    if (
+      insufficientVerdict !== null &&
+      !balanceOverridesVerdict &&
+      targetTotal >= insufficientVerdict.total
+    ) {
+      return;
+    }
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
@@ -89,11 +115,14 @@ export default function JoinWeekSheet({
       return;
     } catch (e) {
       switch (groupErrorCode(e)) {
-        // 총액 기준 잔액 부족(LLD §2.2) — 잔액을 다시 받아 부분 예약 제안을 갱신한다.
+        // 총액 기준 잔액 부족(LLD §2.2) — 판정을 상태로 승격해 CTA를 잠근다(BetSheet 패턴).
+        // 전체·부분 대상 재계산은 refresh가 실어 온 **권위 있는 새 잔액**이 도착한 뒤에만 돈다.
+        // 버전은 클로저가 아니라 latestCoinsVersion()에서 읽는다 — 요청이 나가 있는 사이 도착한
+        // (차감 전) 잔액이 '판정 이후'로 세어져 즉시 다시 열리는 창을 막는다(BetSheet와 동일).
         case BET_INSUFFICIENT_BALANCE:
         case 'INSUFFICIENT_CURRENCY':
           refresh();
-          setErrorMsg('코인이 부족해요');
+          setInsufficientVerdict({ total: targetTotal, coinsVersion: latestCoinsVersion() });
           break;
         // 보낸 날짜가 더 이상 유효하지 않다(자정 경계·챌린지 변경 경합) — 낡은 화면이다.
         case INVALID_SESSION_DATES:
@@ -158,6 +187,9 @@ export default function JoinWeekSheet({
         </Text>
       </View>
 
+      {/* 서버가 확정한 부족 — 새 잔액이 아직 안 와 부족분·부분 제안을 계산할 수 없을 때의 안내.
+          잔액이 도착하면 아래 insufficient 블록이 부족분·축소 제안까지 이어받는다(BetSheet 규칙). */}
+      {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
       {/* 부분 예약 안내(§C2) — 전체가 안 되는 이유와 되는 범위를 같은 자리에서 말한다. */}
       {insufficient && (
         <Text style={s.error} testID="group.bet.week.shortage">

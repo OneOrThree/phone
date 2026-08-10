@@ -10,6 +10,8 @@ import {
   joinNextSession,
 } from '@/services/groupApi';
 import { useCoins } from '@/store/CoinContext';
+import { todayStrKst } from '@/utils/localDate';
+import { fmtMonthDayDow } from '../challengeSchedule';
 import BetBalanceRow from './BetBalanceRow';
 
 // 다음 활성일 1건 예약 확인 시트(GROMO-1419 — N45·FR-31-1).
@@ -29,9 +31,11 @@ export interface JoinNextSheetProps {
   challengeId: string;
   // 미션 요약 라벨(카드와 같은 문장 — missionLabel ?? categoryLabel).
   label: string;
-  // 예약 대상 날짜 표기 — 카드 nextSessionAt에서 파생한 '8/12(수)'. 서버 join-next가 같은
-  // 함수(RepeatSchedule.next)를 타므로 화면과 결제 대상이 어긋나지 않는다(LLD §2.2).
-  sessionDayLabel: string;
+  // 예약 대상 날짜 'YYYY-MM-DD' — 카드 nextSessionAt에서 파생. 서버 join-next가 같은 함수
+  // (RepeatSchedule.next)를 타므로 보통은 화면과 결제 대상이 같지만(LLD §2.2), 자정을 넘겨
+  // 제출하면 서버가 새로 계산한 다음 활성일이 이 값과 달라질 수 있다 — 아래 submit의 드리프트
+  // 방어 2겹(선제 차단 + 응답 대조)이 그 축이다(#570 codex).
+  sessionDate: string;
   // 창형이면 시작 시각 'HH:mm' — 하루형은 null(자정 시작이라 시각 표기가 노이즈다).
   startTimeLabel: string | null;
   stake: number;
@@ -45,7 +49,7 @@ export default function JoinNextSheet({
   groupId,
   challengeId,
   label,
-  sessionDayLabel,
+  sessionDate,
   startTimeLabel,
   stake,
   onClose,
@@ -56,6 +60,11 @@ export default function JoinNextSheet({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // 같은 틱 연타 방지 — state는 리렌더 뒤에야 보인다(BetSheet submit 관행).
   const submitLock = useRef(false);
+  // 시트를 연 시점의 KST 기준일 — 자정을 넘겨 제출하면 화면의 '다음 활성일'이 이미 낡은
+  // 값이라(서버는 새 오늘 기준으로 다시 계산한다) 돈이 다른 날짜에 걸릴 수 있다. 흔한 드리프트
+  // 경로는 제출 직전 재검증으로 **선제 차단**한다(#570 codex — betForTomorrow의 고정 관행과 짝).
+  const [openedTodayKst] = useState<string>(() => todayStrKst());
+  const sessionDayLabel = fmtMonthDayDow(sessionDate);
 
   // 시트를 열 때 서버 잔액을 다시 받는다 — 낡은 잔액으로 CTA를 열어 주지 않는다(BetSheet §0-3).
   useEffect(() => {
@@ -73,13 +82,31 @@ export default function JoinNextSheet({
 
   async function submit() {
     if (disabled || submitLock.current) return;
+    // 자정을 넘겼다 — 화면의 다음 활성일이 낡았을 수 있다. 돈이 나가기 **전에** 끊고 다시 열게
+    // 한다(성공 후 안내보다 선제 차단이 낫다 — 흔한 드리프트 경로는 전부 여기서 잡힌다).
+    if (todayStrKst() !== openedTodayKst) {
+      failAndReload(
+        '날짜가 바뀌었어요',
+        '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어주세요.',
+      );
+      return;
+    }
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      await joinNextSession(groupId, challengeId);
+      const joined = await joinNextSession(groupId, challengeId);
       // 예약분도 즉시 전액 에스크로다(N15) — 빠진 잔액을 곧바로 맞춘다.
       refresh();
+      // 드리프트 잔여 경로(요청이 나가 있는 사이 자정 경과 등) — 참가는 이미 성립했으므로 되돌리지
+      // 않되(환불 아님 — 취소는 사용자의 선택으로 남긴다), **실제 예약된 날짜를 침묵 없이** 알린다.
+      // 화면이 보여준 날짜와 결제된 날짜가 다른데 조용히 성공 처리하면 사용자는 모른 채 당한다.
+      if (joined.sessionDate !== sessionDate) {
+        Alert.alert(
+          '예약된 날짜가 바뀌었어요',
+          `${fmtMonthDayDow(joined.sessionDate)}로 예약됐어요. 원하지 않으면 그 날짜가 시작되기 전에 참여를 취소할 수 있어요.`,
+        );
+      }
       onDone();
       return;
     } catch (e) {

@@ -28,9 +28,16 @@ jest.mock('@/services/groupApi', () => ({
 
 let mockCoins = 240;
 let mockCoinsLoaded = true;
+let mockCoinsVersion = 1;
 const mockRefresh = jest.fn(async () => true);
 jest.mock('@/store/CoinContext', () => ({
-  useCoins: () => ({ coins: mockCoins, coinsLoaded: mockCoinsLoaded, refresh: mockRefresh }),
+  useCoins: () => ({
+    coins: mockCoins,
+    coinsLoaded: mockCoinsLoaded,
+    coinsVersion: mockCoinsVersion,
+    latestCoinsVersion: () => mockCoinsVersion,
+    refresh: mockRefresh,
+  }),
 }));
 
 const mockJoinWeek = joinWeekSessions as jest.MockedFunction<typeof joinWeekSessions>;
@@ -52,8 +59,8 @@ function axiosErrorWith(status: number, code?: string): AxiosError {
   });
 }
 
-async function renderWeek(dates: string[] = DATES) {
-  const result = await render(
+function weekElement(dates: string[] = DATES) {
+  return (
     <JoinWeekSheet
       groupId={GROUP_ID}
       challengeId={CHALLENGE_ID}
@@ -63,8 +70,12 @@ async function renderWeek(dates: string[] = DATES) {
       stake={30}
       onClose={onClose}
       onDone={onDone}
-    />,
+    />
   );
+}
+
+async function renderWeek(dates: string[] = DATES) {
+  const result = await render(weekElement(dates));
   await act(async () => {});
   return result;
 }
@@ -73,6 +84,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCoins = 240;
   mockCoinsLoaded = true;
+  mockCoinsVersion = 1;
   mockJoinWeek.mockResolvedValue({ joined: [], totalStake: 90 });
 });
 
@@ -154,9 +166,11 @@ test('INVALID_SESSION_DATES — 낡은 화면임을 알리고 닫는다', async 
   expect(onDone).toHaveBeenCalled();
 });
 
-test('총액 기준 BET_INSUFFICIENT_BALANCE — 잔액을 다시 받고 인라인으로 알린다', async () => {
+// 서버 판정 유지(#570 codex — BetSheet insufficientVerdict 패턴): refresh가 안 끝났거나 낡은 큰
+// 잔액이 남아 있어도(여기선 240 ≥ 90) "그 총액으로는 안 된다"는 이미 확정 — 반복 전송을 막는다.
+test('총액 기준 BET_INSUFFICIENT_BALANCE — 판정을 유지해 CTA를 잠그고, 판정 이후 잔액만 푼다', async () => {
   mockJoinWeek.mockRejectedValueOnce(axiosErrorWith(409, 'BET_INSUFFICIENT_BALANCE'));
-  await renderWeek();
+  const { rerender } = await renderWeek();
   mockRefresh.mockClear();
   await act(async () => {
     fireEvent.press(screen.getByTestId('group.bet.week.submit'));
@@ -165,4 +179,21 @@ test('총액 기준 BET_INSUFFICIENT_BALANCE — 잔액을 다시 받고 인라�
   expect(screen.getByText('코인이 부족해요')).toBeOnTheScreen();
   expect(mockRefresh).toHaveBeenCalled();
   expect(onDone).not.toHaveBeenCalled();
+
+  // 클라 잔액(240)은 총액(90)을 낼 수 있다고 말하지만 — 판정보다 낡은 값이라 근거가 아니다.
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+  expect(mockJoinWeek).toHaveBeenCalledTimes(1);
+
+  // 판정 **이후에 도착한** 권위 있는 잔액이 낼 수 있다고 하면 그때 푼다.
+  mockCoinsVersion = 2;
+  await act(async () => {
+    rerender(weekElement());
+  });
+  expect(screen.queryByText('코인이 부족해요')).toBeNull();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+  expect(mockJoinWeek).toHaveBeenCalledTimes(2);
 });
