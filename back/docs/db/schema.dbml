@@ -399,13 +399,14 @@ Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challe
   duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
 }
 
-Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert, 마지막 값 승리)'] {
+Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert. V42 부터 measured_at 단조 갱신: 저장값보다 오래된 보고는 조용히 무시, GROMO-1407·N34)'] {
   id                 uuid        [pk]
   group_challenge_id uuid        [not null, note: 'FK → group_challenges.id']
   user_id            uuid        [not null, note: 'FK → users.id']
   usage_date         date        [note: '보고 대상 날짜(KST). 창 사용분 업로드 경로는 항상 채운다 — migration V20']
 
   progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값']
+  measured_at        timestamptz [note: '클라 측정 시각 — 역전 보고 방어의 비교 축(V42, N34). null = 도입 전 레거시 행("시각 모름" — 어떤 보고든 갱신 허용). 미래(+2분 초과)는 API 가 400 거절']
   is_achieved        boolean     [not null, default: false, note: '목표 달성 여부']
   achieved_at        timestamptz [note: '달성 확정 시각, null이면 진행 중/미달성']
 

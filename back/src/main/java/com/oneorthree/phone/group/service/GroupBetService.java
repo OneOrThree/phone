@@ -597,11 +597,12 @@ public class GroupBetService {
     }
 
     /**
-     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})과 히스토리 공용.
-     * 탈퇴자는 닉네임만 {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
+     * 정산 결과 참가자 한 줄 변환 — 최근 정산({@code loadLastSettledBets})·히스토리·참가자 스코프
+     * 결과 조회({@code GroupBetQueryService}) 공용. 탈퇴자는 닉네임만
+     * {@link #WITHDRAWN_USER_NICKNAME} 로 치환한다(GROMO-1220, D1) —
      * 명단·인원수·pot 은 정산 당시 사실이라 절대 불변이다(계약 §1).
      */
-    private List<GroupBetResultParticipantResponse> toResultParticipants(
+    static List<GroupBetResultParticipantResponse> toResultParticipants(
             List<GroupChallengeBetParticipant> participants) {
         return participants.stream()
                 .map(p -> GroupBetResultParticipantResponse.builder()
@@ -618,7 +619,7 @@ public class GroupBetService {
      * 명단 표시용 닉네임 — 탈퇴자(is_deleted, PII 파기로 nickname=null)는 고정 문구로 치환한다.
      * 탈퇴자 처리를 <b>출력(명단) 층에서만</b> 하는 계약(§1)의 단일 지점이다.
      */
-    private static String displayNickname(User user) {
+    static String displayNickname(User user) {
         return user.isDeleted() ? WITHDRAWN_USER_NICKNAME : user.getNickname();
     }
 

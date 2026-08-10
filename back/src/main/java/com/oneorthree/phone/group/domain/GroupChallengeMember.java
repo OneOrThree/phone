@@ -61,6 +61,14 @@ public class GroupChallengeMember {
     @Column(name = "usage_date")
     private LocalDate usageDate;
 
+    /**
+     * 클라 측정 시각(V42, GROMO-1407·N34) — upsert 가 이 값으로 역전 보고를 무시한다(저장값보다
+     * 오래된 보고는 조용히 버려진다). null 은 measured_at 도입 전 레거시 행 — "시각 모름"이라 어떤
+     * 보고든 갱신을 허용한다. 쓰기는 {@code upsertWindowUsage} 네이티브 경로가 소유한다.
+     */
+    @Column(name = "measured_at")
+    private Instant measuredAt;
+
     // 미사용 — 판정은 조회 시 계산이라 이 플래그를 갱신하지 않는다(스키마 잔재).
     @Column(name = "is_achieved", nullable = false)
     @Builder.Default

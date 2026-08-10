@@ -1,6 +1,5 @@
 package com.oneorthree.phone.group.service;
 
-import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
@@ -17,7 +16,6 @@ import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
 import com.oneorthree.phone.group.dto.GroupChallengeResponse;
-import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -80,7 +78,6 @@ public class GroupChallengeService {
     private final ApplicationEventPublisher eventPublisher;
 
     private static final int SECONDS_PER_DAY = 86_400;
-    private static final int MAX_WINDOW_USAGE_MINUTES = 1_440;
     /** 일 목표(DURATION) 상한 — 하루는 1440분(GROMO-1205). DB 는 V28 CHECK 가 같은 값으로 최후 방어한다. */
     private static final int MAX_DURATION_GOAL_MINUTES = 1_440;
 
@@ -666,38 +663,8 @@ public class GroupChallengeService {
         groupChallenge.softDelete();
     }
 
-    /**
-     * 스크린타임 창 사용분 보고 — (챌린지, 유저, 날짜)당 1행 upsert. 중간 보고를 허용하고 마지막 값이
-     * 이긴다(창 종료 전 부분 집계 → 종료 후 최종 보고로 덮어쓰기).
-     *
-     * <p>값은 <b>클라 신뢰</b>다 — 서버가 검증할 수단이 없어 범위(0~{@value #MAX_WINDOW_USAGE_MINUTES})만
-     * 확인하고 그대로 저장한다(리스크 수용, 확정 정책). measuredAt 은 저장하지 않고 로그로만 남긴다.
-     */
-    @Transactional
-    public void reportWindowUsage(UUID groupId, UUID challengeId, UUID userId, WindowUsageReportRequest request) {
-        User user = requireActiveUser(userId);
-
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        groupMemberRepository.findByUserAndGroup(user, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-
-        GroupChallenge challenge = groupChallengeRepository.findByIdAndGroupAndDeletedAtIsNull(challengeId, group)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-        if (challenge.getCategory() != MissionCategory.SCREEN_TIME
-                || challenge.getType() != MissionType.TIME_WINDOW) {
-            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-        }
-        if (request.getUsedMinutes() < 0 || request.getUsedMinutes() > MAX_WINDOW_USAGE_MINUTES) {
-            throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
-        }
-
-        groupChallengeMemberRepository.upsertWindowUsage(
-                Generators.timeBasedEpochRandomGenerator().generate(),
-                challengeId, userId, request.getDate(), request.getUsedMinutes());
-        log.info("창 사용분 보고 — challengeId={}, userId={}, date={}, usedMinutes={}, measuredAt={}",
-                challengeId, userId, request.getDate(), request.getUsedMinutes(), request.getMeasuredAt());
-    }
+    // 스크린타임 창 사용분 보고는 GroupBetWindowUsageService 로 분리됐다(GROMO-1407) — 보고 자격이
+    // 회차 참가자까지 확장되며(N43) 회차 연동이 생겼기 때문이다(계약 §5: 회차 연동은 새 클래스로).
 
     // TIME_WINDOW 상세의 Instant를 Asia/Seoul 벽시계 기준 "HH:mm:ss" 문자열로 변환 (GROMO-1100 KST 해석 통일).
     // 그룹 상세·오버뷰(GroupService, GROMO-1206)와 같은 단일 출구(timeOfDayString)를 쓴다.
@@ -711,11 +678,11 @@ public class GroupChallengeService {
     }
 
     /**
-     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1237) — 챌린지 생성·삭제·창 사용분
-     * 보고처럼 users 행은 <b>읽기만 하고</b> 그룹 상태를 변경하는 트랜잭션의 요청자 로드. 락 없는
+     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1237) — 챌린지 생성·삭제처럼
+     * users 행은 <b>읽기만 하고</b> 그룹 상태를 변경하는 트랜잭션의 요청자 로드. 락 없는
      * findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아 탈퇴한 방장의
-     * 그룹 상태 변경(createGroup #516 과 같은 계열)이나 (challenge, user, date) upsert 유령 행이
-     * 남을 수 있다. 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
+     * 그룹 상태 변경(createGroup #516 과 같은 계열)이 남을 수 있다.
+     * 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
      * READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404). 게스트는 기존 가드 그대로
      * GUEST_FORBIDDEN(403).
      *

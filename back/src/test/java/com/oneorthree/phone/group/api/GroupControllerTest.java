@@ -8,7 +8,9 @@ import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.dto.GroupDetailResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
+import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
+import com.oneorthree.phone.group.service.GroupBetWindowUsageService;
 import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;
@@ -31,6 +33,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,6 +66,9 @@ class GroupControllerTest {
 
     @MockitoBean
     private GroupChallengeService groupChallengeService;
+
+    @MockitoBean
+    private GroupBetWindowUsageService groupBetWindowUsageService;
 
     @MockitoBean
     private GroupMemberService groupMemberService;
@@ -160,6 +166,48 @@ class GroupControllerTest {
                 .andExpect(jsonPath("$[0].private").doesNotExist())
                 // F6: 목록 응답에 description(소개)이 실리는지 검증(매핑 회귀 방지)
                 .andExpect(jsonPath("$[0].description").value("비밀 소개"));
+    }
+
+    @Test
+    @DisplayName("창 사용분 보고 — 신앱 payload {usageDate, progressMinutes, measuredAt} 바인딩")
+    void reportWindowUsageBindsNewFieldNames() throws Exception {
+        mockMvc.perform(put("/api/v1/groups/{groupId}/challenges/{challengeId}/window-usage",
+                        GROUP_ID, GROUP_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"usageDate":"2026-08-10","progressMinutes":24,
+                                 "measuredAt":"2026-08-10T14:03:00Z"}
+                                """)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isNoContent());
+
+        ArgumentCaptor<WindowUsageReportRequest> captor =
+                ArgumentCaptor.forClass(WindowUsageReportRequest.class);
+        verify(groupBetWindowUsageService).reportWindowUsage(any(), any(), any(), captor.capture());
+        assertThat(captor.getValue().getUsageDate()).isEqualTo(java.time.LocalDate.parse("2026-08-10"));
+        assertThat(captor.getValue().getProgressMinutes()).isEqualTo(24);
+        assertThat(captor.getValue().getMeasuredAt())
+                .isEqualTo(java.time.Instant.parse("2026-08-10T14:03:00Z"));
+    }
+
+    @Test
+    @DisplayName("창 사용분 보고 — 구앱 payload {date, usedMinutes} 도 같은 필드로 수용된다(브리지)")
+    void reportWindowUsageBridgesLegacyFieldNames() throws Exception {
+        mockMvc.perform(put("/api/v1/groups/{groupId}/challenges/{challengeId}/window-usage",
+                        GROUP_ID, GROUP_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"2026-08-10","usedMinutes":90}
+                                """)
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isNoContent());
+
+        ArgumentCaptor<WindowUsageReportRequest> captor =
+                ArgumentCaptor.forClass(WindowUsageReportRequest.class);
+        verify(groupBetWindowUsageService).reportWindowUsage(any(), any(), any(), captor.capture());
+        assertThat(captor.getValue().getUsageDate()).isEqualTo(java.time.LocalDate.parse("2026-08-10"));
+        assertThat(captor.getValue().getProgressMinutes()).isEqualTo(90);
+        assertThat(captor.getValue().getMeasuredAt()).isNull();
     }
 
     @Test
