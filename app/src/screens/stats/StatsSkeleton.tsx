@@ -29,6 +29,7 @@ import { calendarRowCount, mergeCardOrder } from './format';
 export function StatsSkeleton({
   period,
   savedOrder,
+  subjectCount,
 }: {
   period: StatsPeriod;
   /**
@@ -40,6 +41,13 @@ export function StatsSkeleton({
    *    없는 카드 처리가 두 곳에서 갈리면 결국 같은 증상이 난다.
    */
   savedOrder?: string[];
+  /**
+   * 과목 개수(SubjectContext) — 도넛 범례 행 수의 추정치.
+   *
+   * ⚠️ 범례가 6줄부터 132px 링보다 높아진다. 이걸 안 넘기면 과목을 많이 만든 사용자는
+   *    도착 순간 도넛 카드가 수십 px 자라 아래 카드들이 밀린다(codex 리뷰).
+   */
+  subjectCount: number;
 }) {
   // 목표 달성 카드의 캘린더 행 수 — **실제 그리드와 같은 함수**로 구한다(format.calendarRows).
   // 월은 달마다 5행이거나 6행이라 상수로 박으면 도착 순간 한 행이 갑자기 늘어난다.
@@ -48,7 +56,12 @@ export function StatsSkeleton({
   // 카드가 짧아지지 않는다.
   const { width } = useWindowDimensions();
 
-  const cards = skeletonCards({ period, calendarRows: rows, screenWidth: width });
+  const cards = skeletonCards({
+    period,
+    calendarRows: rows,
+    screenWidth: width,
+    subjectCount,
+  });
   const byKey = new Map(cards.map((c) => [c.key, c]));
   const ordered = mergeCardOrder(
     cards.map((c) => c.key),

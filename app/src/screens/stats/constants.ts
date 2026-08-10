@@ -68,8 +68,24 @@ export const FIRST_START_BODY_H = CHART_BLOCK_H + HINT_H; // 184
 
 /** 과목별 도넛 지름 — CategoryDonut이 읽는다 */
 export const DONUT_SIZE = 132;
-/** 도넛 블록 = 위 간격 + 링(범례는 링보다 낮다) */
-export const DONUT_BLOCK_H = T.space.sm + DONUT_SIZE; // 140
+/** 범례 한 줄 = 캡션 한 줄(색 점 10px보다 크다) */
+const DONUT_LEGEND_ROW_H = lineH(T.text.caption.fontSize); // 16
+
+/**
+ * 도넛 블록 높이 = 위 간격 + max(링, 범례).
+ *
+ * ⚠️ **범례가 항상 링보다 낮다고 가정하면 안 된다.** 범례는 행마다 `T.space.sm` 간격을
+ *    누적하므로 6줄(=136px)부터 132px 링을 넘어선다. 과목 개수엔 상한이 없으므로 과목을
+ *    많이 만든 사용자는 도착 순간 카드가 수십 px 자라 아래 카드들이 밀린다(codex 리뷰).
+ */
+export function donutBlockH(legendRows: number): number {
+  const legend =
+    legendRows > 0 ? DONUT_LEGEND_ROW_H * legendRows + T.space.sm * (legendRows - 1) : 0;
+  return T.space.sm + Math.max(DONUT_SIZE, legend);
+}
+
+/** 범례가 링보다 낮을 때(5줄 이하)의 블록 높이 — 빈 상태 자리표시자가 쓴다 */
+export const DONUT_BLOCK_H = donutBlockH(0); // 140
 
 /** '나 vs 평균' 막대 2세트(CompareBars) — 축 조회 중 이 높이를 예약한다 */
 export const COMPARE_BARS_H =
@@ -164,6 +180,9 @@ export const LONGEST_BODY_H = HERO_H + HINT_H; // 59
  *   호출부가 `calendarRowCount(period, 0)`(format.ts)로 구해 넘긴다 — 실제 그리드와 같은 식을
  *   써야 도착 순간 한 행이 갑자기 늘어나지 않는다.
  *   여기서 직접 구하지 않는 이유는 format.ts가 이미 이 모듈을 import하고 있어서다(순환 참조 회피).
+ * @param subjectCount 과목 개수(SubjectContext). 도넛 범례 행 수의 추정치다 — 주·월은 서버
+ *   집계라 로딩 중엔 알 수 없고, 일도 '미분류' 행이 붙을지는 총합이 와야 정해진다. 정확한
+ *   값이 아니라 **범례가 링을 넘기는 구간(6줄 이상)을 놓치지 않기 위한** 값이다.
  * @param screenWidth 화면 폭. 캘린더 셀 높이가 폭에서 파생되므로(aspectRatio) 반드시 실제
  *   값(useWindowDimensions)을 넘긴다 — 고정값으로 두면 큰 화면에서 카드가 짧아진다.
  */
@@ -171,10 +190,12 @@ export function skeletonCards({
   period,
   calendarRows,
   screenWidth,
+  subjectCount,
 }: {
   period: StatsPeriod;
   calendarRows: number;
   screenWidth: number;
+  subjectCount: number;
 }): { key: string; height: number }[] {
   const cards: { key: string; height: number }[] = [
     { key: 'total', height: CARD_CHROME_H + HERO_H + COMPARE_H },
@@ -185,7 +206,7 @@ export function skeletonCards({
           ? CARD_CHROME_H + STAMP_BLOCK_H
           : CARD_CHROME_H + calendarBlockH(calendarRows, screenWidth),
     },
-    { key: 'category', height: CARD_CHROME_H + DONUT_BLOCK_H },
+    { key: 'category', height: CARD_CHROME_H + donutBlockH(subjectCount) },
   ];
   if (period === 'DAY') {
     cards.push({ key: 'timetable', height: CARD_CHROME_H + TT_BLOCK_H });

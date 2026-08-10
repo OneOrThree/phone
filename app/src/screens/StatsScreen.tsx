@@ -491,7 +491,11 @@ export default function StatsScreen() {
       {firstLoad || !orderLoaded ? (
         // 저장된 순서를 읽은 뒤라면 그 순서로 그린다 — 기본 순서로 두면 큰 카드를 위로
         // 올려 둔 사용자의 화면이 로딩 완료 순간 통째로 밀린다.
-        <StatsSkeleton period={period} savedOrder={orderLoaded ? cardOrder[period] : undefined} />
+        <StatsSkeleton
+          period={period}
+          savedOrder={orderLoaded ? cardOrder[period] : undefined}
+          subjectCount={subjects.length}
+        />
       ) : (
         // 카드 목록 — 항상 드래그 가능(GROMO-762 개편). 카드 오른쪽 위 핸들을 잡아 끌면 순서가
         // 바뀌고 놓을 때마다 저장. 탭을 바꾸면 그 탭의 순서를 편집(탭별 저장)

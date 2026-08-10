@@ -28,25 +28,30 @@ describe('StatsSkeleton', () => {
     ['WEEK', 9],
     ['MONTH', 9],
   ] as const)('%s 탭은 카드 %i장을 그린다 — 상한 12장 이내', async (period, count) => {
-    await render(<StatsSkeleton period={period} />);
+    await render(<StatsSkeleton period={period} subjectCount={3} />);
     const cards = screen.getAllByTestId(/^stats\.skeleton\./, HIDDEN);
     expect(cards).toHaveLength(count);
     expect(cards.length).toBeLessThanOrEqual(12);
   });
 
   test('일 탭에만 타임테이블이, 주·월에만 첫 시작 카드가 있다', async () => {
-    await render(<StatsSkeleton period="DAY" />);
+    await render(<StatsSkeleton period="DAY" subjectCount={3} />);
     expect(screen.queryByTestId('stats.skeleton.timetable', HIDDEN)).not.toBeNull();
     expect(screen.queryByTestId('stats.skeleton.firstStart', HIDDEN)).toBeNull();
 
-    await render(<StatsSkeleton period="WEEK" />);
+    await render(<StatsSkeleton period="WEEK" subjectCount={3} />);
     expect(screen.queryByTestId('stats.skeleton.timetable', HIDDEN)).toBeNull();
     expect(screen.queryByTestId('stats.skeleton.firstStart', HIDDEN)).not.toBeNull();
   });
 
   test('카드 높이는 constants의 계산값이 그대로 스타일로 내려간다', async () => {
-    await render(<StatsSkeleton period="WEEK" />);
-    for (const c of skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W })) {
+    await render(<StatsSkeleton period="WEEK" subjectCount={3} />);
+    for (const c of skeletonCards({
+      period: 'WEEK',
+      calendarRows: 1,
+      screenWidth: W,
+      subjectCount: 3,
+    })) {
       const style = StyleSheet.flatten(
         screen.getByTestId(`stats.skeleton.${c.key}`, HIDDEN).props.style,
       );
@@ -57,10 +62,9 @@ describe('StatsSkeleton', () => {
 
   test('주간 타임테이블 카드는 본문 높이(400)가 있어 다른 카드보다 확실히 높다', async () => {
     const byKey = new Map(
-      skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W }).map((c) => [
-        c.key,
-        c.height,
-      ]),
+      skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W, subjectCount: 3 }).map(
+        (c) => [c.key, c.height],
+      ),
     );
     // 실제 카드가 WTT_BODY_H(400)를 쓰므로 스켈레톤도 그만큼 커야 도착 순간 튀지 않는다
     expect(byKey.get('firstStart')).toBeGreaterThan(400);
@@ -76,6 +80,7 @@ describe('StatsSkeleton', () => {
       period: 'WEEK',
       calendarRows: 1,
       screenWidth: W,
+      subjectCount: 3,
     }).find((c) => c.key === 'firstStart')!.height;
     // 트랙(400) + 요일 헤더 + 슬롯 + 공유 버튼 + 카드 프레임
     expect(firstStart).toBe(CARD_CHROME_H + WTT_BODY_BLOCK_H + SHARE_BTN_H);
@@ -83,12 +88,17 @@ describe('StatsSkeleton', () => {
   });
 
   test('펄스는 묶음 한 겹에만 걸리고 카드들은 정적으로 그려진다', async () => {
-    await render(<StatsSkeleton period="WEEK" />);
+    await render(<StatsSkeleton period="WEEK" subjectCount={3} />);
     // reanimated가 호스트 뷰 style에서 CSS 애니메이션 프로퍼티를 걷어가므로 jestInlineStyle로 본다
     const inline = (testID: string) =>
       StyleSheet.flatten(screen.getByTestId(testID, HIDDEN).props.jestInlineStyle);
     expect(inline('stats.skeleton').animationName).toBeDefined();
-    for (const c of skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W })) {
+    for (const c of skeletonCards({
+      period: 'WEEK',
+      calendarRows: 1,
+      screenWidth: W,
+      subjectCount: 3,
+    })) {
       expect(inline(`stats.skeleton.${c.key}`).animationName).toBeUndefined();
     }
   });
@@ -104,6 +114,7 @@ describe('StatsSkeleton', () => {
         period: 'MONTH',
         calendarRows: calendarRowCount('MONTH', 0),
         screenWidth: W,
+        subjectCount: 3,
       }).find((c) => c.key === 'goalAchieve')!.height;
 
     test('6행 달(2026-08: 앞 빈칸 5 + 31일)이 5행 달(2026-07)보다 한 행만큼 높다', () => {
@@ -117,7 +128,7 @@ describe('StatsSkeleton', () => {
 
     test('렌더된 스켈레톤 카드에도 그 높이가 그대로 내려간다', async () => {
       jest.setSystemTime(new Date('2026-08-10T09:00:00+09:00'));
-      await render(<StatsSkeleton period="MONTH" />);
+      await render(<StatsSkeleton period="MONTH" subjectCount={3} />);
       const style = StyleSheet.flatten(
         screen.getByTestId('stats.skeleton.goalAchieve', HIDDEN).props.style,
       );
@@ -129,7 +140,7 @@ describe('StatsSkeleton', () => {
   // 카드가 짧아져 로딩 완료 순간 아래가 전부 밀린다(codex 리뷰).
   test('캘린더 카드 높이는 화면 폭에 따라 달라진다', () => {
     const goalOn = (screenWidth: number) =>
-      skeletonCards({ period: 'MONTH', calendarRows: 6, screenWidth }).find(
+      skeletonCards({ period: 'MONTH', calendarRows: 6, screenWidth, subjectCount: 3 }).find(
         (c) => c.key === 'goalAchieve',
       )!.height;
     // 넓은 화면일수록 셀이 커지므로 카드도 커진다 — 6행이면 차이가 눈에 띄게 벌어진다
@@ -148,13 +159,15 @@ describe('StatsSkeleton', () => {
 
   test('저장된 순서를 실제 목록과 같은 규칙(mergeCardOrder)으로 반영한다', async () => {
     const saved = ['firstStart', 'delta', 'total'];
-    await render(<StatsSkeleton period="WEEK" savedOrder={saved} />);
+    await render(<StatsSkeleton period="WEEK" savedOrder={saved} subjectCount={3} />);
     const keys = renderedKeys();
     // 사용자가 맨 위로 올려 둔 큰 카드(주간 타임테이블)가 실제로 첫 장이다
     expect(keys[0]).toBe('firstStart');
     expect(keys).toEqual(
       mergeCardOrder(
-        skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W }).map((c) => c.key),
+        skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: W, subjectCount: 3 }).map(
+          (c) => c.key,
+        ),
         saved,
       ),
     );
@@ -162,7 +175,7 @@ describe('StatsSkeleton', () => {
 
   test('저장에 없는 키는 채워 넣고, 이제 없는 키는 버린다', async () => {
     // 'grass'는 폐기된 카드 키 — 무시돼야 하고, 기본 카드는 하나도 빠지면 안 된다
-    await render(<StatsSkeleton period="DAY" savedOrder={['grass', 'longest']} />);
+    await render(<StatsSkeleton period="DAY" savedOrder={['grass', 'longest']} subjectCount={3} />);
     const keys = renderedKeys();
     expect(keys).not.toContain('grass');
     expect(keys).toHaveLength(7);
@@ -170,14 +183,33 @@ describe('StatsSkeleton', () => {
   });
 
   test('저장된 순서가 없으면 기본 순서 그대로다', async () => {
-    await render(<StatsSkeleton period="WEEK" />);
+    await render(<StatsSkeleton period="WEEK" subjectCount={3} />);
     expect(renderedKeys()[0]).toBe('total');
   });
 
   test('스크린리더 포커스에서 제외된다 — 내용 없는 자리표시자다', async () => {
-    await render(<StatsSkeleton period="DAY" />);
+    await render(<StatsSkeleton period="DAY" subjectCount={3} />);
     expect(screen.queryByTestId('stats.skeleton.total')).toBeNull();
     const node = screen.getByTestId('stats.skeleton.total', HIDDEN);
     expect(node.props.accessibilityElementsHidden).toBe(true);
+  });
+});
+
+// ⚠️ 범례는 행마다 T.space.sm를 누적하므로 6줄부터 132px 링보다 높아진다. 링 높이로 고정하면
+//    과목을 많이 만든 사용자는 도착 순간 도넛 카드가 자라 아래 카드들이 밀린다(codex 리뷰).
+describe('도넛 카드 높이 — 범례 행 수', () => {
+  const category = (subjectCount: number) =>
+    skeletonCards({ period: 'WEEK', calendarRows: 1, screenWidth: 375, subjectCount }).find(
+      (c) => c.key === 'category',
+    )!.height;
+
+  test('5줄까지는 링이 지배해 높이가 같다', () => {
+    expect(category(5)).toBe(category(0));
+    expect(category(3)).toBe(category(0));
+  });
+
+  test('6줄부터는 범례가 링을 넘어 카드가 더 높아진다', () => {
+    expect(category(6)).toBeGreaterThan(category(5));
+    expect(category(9)).toBeGreaterThan(category(6));
   });
 });
