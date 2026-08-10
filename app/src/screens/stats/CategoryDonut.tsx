@@ -101,12 +101,26 @@ function DonutBase({ segs, totalLabel }: { segs: DonutSeg[]; totalLabel: string 
 export function CategoryDonut({
   items,
   total,
+  reservedHeight,
 }: {
   items: { tagId: string | null; tagName: string | null; totalFocusMinutes: number }[];
   total: number;
+  /**
+   * 스켈레톤이 이 카드에 예약했던 본문 높이. 조회가 실패해 `items`가 비면 여기까지 줄어드는
+   * 대신 이 높이를 유지한다.
+   *
+   * ⚠️ 없으면 과목을 많이 쓴 사용자에게 **로딩이 끝나는 순간 카드가 수축한다.** 스켈레톤은
+   *    오늘 사용 과목 수로 범례 높이를 예약하는데(예: 10개 → 약 240px), 실패 응답은 빈
+   *    배열로 내려와 최소 높이(140px)만 남기므로 아래 카드가 100px 위로 튄다(codex 리뷰).
+   */
+  reservedHeight?: number;
 }) {
   if (items.length === 0) {
-    return <CardBodyEmpty height={DONUT_BLOCK_H}>아직 기록이 없어요</CardBodyEmpty>;
+    return (
+      <CardBodyEmpty height={Math.max(DONUT_BLOCK_H, reservedHeight ?? 0)}>
+        아직 기록이 없어요
+      </CardBodyEmpty>
+    );
   }
   const denom = total || 1;
   const segs = items.map((it, i) => ({

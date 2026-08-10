@@ -49,7 +49,7 @@ import { CategoryDonut, SubjectDonut } from './stats/CategoryDonut';
 import { DeltaRow } from './stats/DeltaRow';
 import { GoalDayStamps } from './stats/GoalCards';
 import { CalendarCard } from './stats/CalendarCard';
-import { FOCUS_COLOR, HERO_H, PHONE_COLOR } from './stats/constants';
+import { FOCUS_COLOR, HERO_H, PHONE_COLOR, donutBlockH } from './stats/constants';
 import { cs } from './stats/cardStyles';
 
 // v2 내 통계 화면(GROMO-604) — 홈 '오늘' 카드의 '자세히'에서 진입.
@@ -295,6 +295,9 @@ export default function StatsScreen() {
             <CategoryDonut
               items={data.category?.items ?? []}
               total={data.category?.totalFocusMinutes ?? 0}
+              // 스켈레톤이 예약했던 높이와 **같은 식**으로 계산한다 — 조회가 실패해 빈 배열이
+              // 내려와도 카드가 수축하지 않게(위 subjectCount 주석과 세트).
+              reservedHeight={donutBlockH(usedSubjectCount)}
             />
           ) : (
             <SubjectDonut rows={subjects} totalSeconds={todayFocusSeconds} />
