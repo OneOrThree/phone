@@ -7,7 +7,7 @@ import {
   type WithTimingConfig,
 } from 'react-native-reanimated';
 import { M, staggerDelay } from '@/constants/motion';
-import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useReduceMotion, useReduceMotionReady } from '@/hooks/useReduceMotion';
 
 // '동작 줄이기'(손쉬운 사용 › 동작) 단일 게이트 (GROMO-1381 / 설계 §3).
 //
@@ -27,6 +27,12 @@ import { useReduceMotion } from '@/hooks/useReduceMotion';
 export type Motion = {
   /** 시스템 '동작 줄이기'가 켜져 있는가. 확정 전(비동기 조회 중)에는 보수적으로 true. */
   reduce: boolean;
+  /**
+   * 위 값이 **확정됐는가**. 확정 전의 보수적 true를 실제 설정처럼 써서 되돌릴 수 없는 결정을
+   * 내리면 안 된다 — 특히 **단계 시퀀스의 시작**은 확정될 때까지 미룬다. 그러지 않으면 설정을
+   * 켜지 않은 사용자도 대기가 0으로 눌려 연출을 통째로 잃는다(codex 리뷰).
+   */
+  ready: boolean;
   /**
    * reduce면 애니메이션 없이 목표값을 그대로 돌려준다.
    * ⚠️ JS 스레드 전용 — useAnimatedStyle·useAnimatedProps·useAnimatedReaction·useDerivedValue·
@@ -60,10 +66,12 @@ export type Motion = {
  */
 export function useMotion(): Motion {
   const reduce = useReduceMotion();
+  const ready = useReduceMotionReady();
 
   return useMemo<Motion>(
     () => ({
       reduce,
+      ready,
       // ⚠️ reduceMotion: M.never를 강제로 얹는다. reanimated의 기본값(ReduceMotion.System)은
       //    모듈 로드 시 1회 계산한 정적 플래그라, '동작 줄이기'를 켠 채 앱을 켰다가 실행 중에
       //    끄면 여기서는 애니메이션을 내주는데 그 플래그가 계속 억제한다. 판단은 이 훅만 한다.
@@ -74,6 +82,6 @@ export function useMotion(): Motion {
       delay: (ms) => (reduce ? 0 : ms),
       stagger: (index, step) => (reduce ? 0 : staggerDelay(index, step)),
     }),
-    [reduce],
+    [reduce, ready],
   );
 }
