@@ -36,6 +36,21 @@ public record PushMessage(
     }
 
     /**
+     * 사일런트(data-only) 메시지(GROMO-1281, FR-22) — 표시할 notification 없이 data 만 싣는다.
+     * FCM 조립부는 {@link #isSilent()} 를 보고 notification 블록을 빼고 iOS
+     * {@code content-available} 백그라운드 헤더를 얹는다. 앱은 표시 없이 깨어나 업로드 큐를
+     * flush 한다(계약: {@code data.silent == 'flush'}).
+     */
+    public static PushMessage silent(Map<String, String> data) {
+        return new PushMessage(null, null, null, false, data);
+    }
+
+    /** title 없음 = 사일런트 — 표시 푸시는 항상 제목이 있다(apns.md 문구 규약). */
+    public boolean isSilent() {
+        return title == null;
+    }
+
+    /**
      * FCM {@code message.data} 로 나갈 최종 맵 — 추가 data 위에 link 를 얹는다.
      * link 가 null 이면 키 자체를 빼 FCM 이 null 값으로 400 을 뱉는 일을 막는다.
      */

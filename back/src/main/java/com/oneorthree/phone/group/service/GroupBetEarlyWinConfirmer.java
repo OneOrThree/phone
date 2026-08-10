@@ -55,12 +55,6 @@ public class GroupBetEarlyWinConfirmer {
     private final ApplicationEventPublisher eventPublisher;
 
     /**
-     * 집중 기록 반영 직후 호출(같은 트랜잭션) — {@code dates} 는 이번 세션이 통계에 귀속된 날짜들이다
-     * (자정 걸침 세션은 2일). 실패가 집중 세션 저장을 되돌리면 안 되는 부가 경로이므로, 판정 불가
-     * (CTI 유실 등)는 건너뛰고 예외는 삼키지 않는다 — 여기서 나는 예외는 잠금·flush 계열이라 삼켜도
-     * 트랜잭션은 이미 rollback-only 다.
-     */
-    /**
      * 조기 확정 대상 회차를 <b>미리 잠근다</b> — 지갑을 만지기 <b>전에</b> 호출해야 한다(계약 §3
      * 전역 락 순서: 회차 행 → 지갑).
      *
@@ -91,6 +85,12 @@ public class GroupBetEarlyWinConfirmer {
                 .findUnconfirmedOpenFocusTargetsByUserAndDates(user.getId(), dates);
     }
 
+    /**
+     * 집중 기록 반영 직후 호출(같은 트랜잭션) — {@code dates} 는 이번 세션이 통계에 귀속된 날짜들이다
+     * (자정 걸침 세션은 2일). 실패가 집중 세션 저장을 되돌리면 안 되는 부가 경로이므로, 판정 불가
+     * (CTI 유실 등)는 건너뛰고 예외는 삼키지 않는다 — 여기서 나는 예외는 잠금·flush 계열이라 삼켜도
+     * 트랜잭션은 이미 rollback-only 다.
+     */
     public void confirmWins(User user, Collection<LocalDate> dates) {
         if (dates.isEmpty()) {
             return;
@@ -125,9 +125,11 @@ public class GroupBetEarlyWinConfirmer {
                 continue;
             }
             GroupChallengeBetParticipant participant = current.get();
-            // 목표는 회차 박제값(GROMO-1263). CTI 유실이면 판정 불가 — 조기 확정만 건너뛴다
-            // (정산은 어차피 같은 이유로 실패·백오프를 탄다. 집중 저장을 막을 이유가 없다).
-            Optional<GroupBetJudge.Target> target0 = resolveTarget(session);
+            // 판정 기준은 회차 박제 스냅샷(GROMO-1263) — 정산(GroupBetSettler)이 쓰는 것과
+            // <b>같은 커널·같은 대상</b>이라 조기 확정과 최종 정산이 갈릴 수 없다(GROMO-1280).
+            // 스냅샷도 CTI 도 없으면 판정 불가 — 조기 확정만 건너뛴다(정산은 어차피 같은 이유로
+            // 실패·백오프를 탄다. 집중 저장을 막을 이유가 없다).
+            Optional<GroupBetJudge.Target> target0 = groupBetJudge.ofSession(session);
             if (target0.isEmpty()) {
                 continue;
             }
@@ -146,12 +148,5 @@ public class GroupBetEarlyWinConfirmer {
                         session.getId(), user.getId(), minutes);
             }
         }
-    }
-
-    private Optional<GroupBetJudge.Target> resolveTarget(GroupChallengeBetSession session) {
-        return groupBetJudge.resolve(session.getChallenge())
-                .map(t -> session.getGoalMinutes() == null
-                        ? t
-                        : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()));
     }
 }

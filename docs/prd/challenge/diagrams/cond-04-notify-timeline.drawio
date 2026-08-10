@@ -62,7 +62,7 @@
         <mxCell id="b3" value="dedup&#10;NotificationSentLog 기준" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="460" y="330" width="170" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="b4" value="조용한 시간 필터&#10;23–07시는 표시 푸시만 차단" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="b4" value="조용한 시간 필터&#10;야간 설정 구간은 표시 푸시만 차단" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="660" y="330" width="170" height="60" as="geometry" />
         </mxCell>
         <mxCell id="b5" value="발송 (FCM)&#10;실패하면 이력을 안 남긴다&#10;→ 다음 틱이 다시 집는다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">

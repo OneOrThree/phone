@@ -113,8 +113,7 @@ public class GroupBetJoinService {
         // 무위험 참가 가드(FR-35)는 진행분이 존재하는 오늘 회차에만 건다. 목표분은 회차 박제값이 기준.
         LocalDate today = GroupBetService.today();
         if (session.getSessionDate().equals(today)) {
-            groupBetService.requireEligibleToStake(
-                    targetWithGoal(target, session), user, today);
+            groupBetService.requireEligibleToStake(targetOf(session), user, today);
         }
         requireBalance(user, session.getStake());
         groupBetService.stakeIn(session, user);
@@ -360,7 +359,7 @@ public class GroupBetJoinService {
      */
     private boolean eligibleToStakeToday(JoinContext ctx, GroupChallengeBetSession session, LocalDate today) {
         try {
-            groupBetService.requireEligibleToStake(targetWithGoal(ctx.target(), session), ctx.user(), today);
+            groupBetService.requireEligibleToStake(targetOf(session), ctx.user(), today);
             return true;
         } catch (GroupException e) {
             log.info("join-week 오늘 스킵(N39) — 자격 가드 {}. sessionId={}, userId={}",
@@ -401,14 +400,13 @@ public class GroupBetJoinService {
     }
 
     /**
-     * 자격 가드용 판정 대상 — 목표분을 회차 박제값(GROMO-1263)으로 덮는다. 챌린지 목표가 개설 후
-     * 바뀌어도 이 회차의 기준은 불변이어야 참가 가드와 정산이 같은 기준을 쓴다.
+     * 자격 가드용 판정 대상 — <b>회차 스냅샷 전체</b>가 기준이다(GROMO-1263 · GROMO-1280).
+     * 종전에는 목표분만 박제값으로 덮고 창 시각·카테고리는 챌린지 현재값을 따라갔는데, 커널
+     * ({@link GroupBetJudge#ofSession})이 넷 다 회차 행에서 읽는다 — 참가 가드와 정산이 같은
+     * 함수·같은 대상을 쓰므로 "가드는 통과했는데 정산 기준은 달랐다"가 성립하지 않는다.
      */
-    private static GroupBetJudge.Target targetWithGoal(
-            GroupBetJudge.Target target, GroupChallengeBetSession session) {
-        return session.getGoalMinutes() == null
-                ? target
-                : new GroupBetJudge.Target(target.challenge(), session.getGoalMinutes(), target.window());
+    private GroupBetJudge.Target targetOf(GroupChallengeBetSession session) {
+        return groupBetService.targetOf(session);
     }
 
     /**

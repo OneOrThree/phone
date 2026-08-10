@@ -1,0 +1,193 @@
+import { useEffect, useReducer, useRef } from 'react';
+import { useMotion } from '@/hooks/useMotion';
+import { rankSwapFrames, type RankSwapFrame } from './rankSwap';
+
+// 순위 재정렬을 **한 칸씩** 재생시키는 어댑터 (GROMO-1381 / 정본 low-level-design.md §6).
+//
+// 서버 갱신(useLeagueRanking)은 새 순위 배열을 한 번에 갈아끼운다. 그대로 렌더하면 8위→4위
+// 갱신에서 네 번의 인접 스왑이 아니라 관련 행들이 동시에 서로를 가로질러 한 번에 이동한다 —
+// 정본이 요구하는 상승 "과정"이 사라진다(codex 리뷰).
+//
+// 늦추는 것은 순서만이 아니라 **기록도 함께**다. 정본은 "자리가 바뀌기 직전에 내 기록과 막대가
+// 먼저 자란다 — 바로 위 사람을 앞지르는 값이라야 상승이 납득된다"고 못 박는다. 순서만 늦추면
+// 4위 자리에 1위 기록이 붙은 채 자리만 세 번 바뀌어, 표시된 순서와 표시된 숫자가 서로 모순되는
+// 프레임이 2초 가까이 남는다(codex 리뷰). 단계값 계산은 rankSwapFrames가 쥔다.
+//
+// ⚠️ 이 훅은 **데이터를 붙들지 않는다.** 최신 배열을 받아 순서를 다시 세우고 단계 기록만
+//    덮어쓴다 — 마지막 프레임의 덮어쓰기는 비어 있어 언제나 서버 최종값으로 끝난다.
+//
+// ⚠️ 재생 계획을 **렌더 중에** 세운다(useEffect가 아니다). effect로 미루면 새 배열이 도착한 렌더가
+//    최종 순서·최종 기록 그대로 한 번 커밋되고, 그 커밋에서 레이아웃 애니메이션이 이미 '여러 칸
+//    한 번에'로 발화한다 — 되돌리는 두 번째 커밋이 뒤따라도 이 훅이 막으려던 그 이동을 이미
+//    보여 준 뒤다. 렌더 중에 정하면 커밋은 한 번뿐이고 그 커밋이 곧 첫 프레임이다.
+
+interface Keyed {
+  userId: string;
+  totalFocusSeconds: number;
+  // 집중 중인 행은 화면에 `totalFocusSeconds`가 아니라 **진행 경과를 더한 라이브 합계**가
+  // 그려진다(RankRow → LiveFocusTime). 단계화의 하한("기록은 줄지 않는다")은 화면에 실제로
+  // 보이던 값이어야 하므로 이 훅도 그 사실을 알아야 한다 — 아래 endedLive 참고.
+  isFocusing?: boolean;
+  focusStartedAt?: string | null;
+}
+
+/** effect 의존성이 아니라 렌더 중 비교에 쓰는 순서 키. 구분자는 userId에 없는 문자면 된다. */
+const KEY_SEP = '|';
+
+/** 화면에 그릴 순서를 최신 데이터에 입힌다. 못 입히면 null(=연출 포기). */
+function reorder<T extends Keyed>(items: T[], order: string[]): T[] | null {
+  if (order.length !== items.length) return null;
+  const byKey = new Map(items.map((item) => [item.userId, item]));
+  if (byKey.size !== items.length) return null;
+  const out: T[] = [];
+  for (const key of order) {
+    const item = byKey.get(key);
+    // 진행 중이던 순서가 새 응답의 구성원과 어긋나면 연출을 포기하고 최신 배열로 간다
+    if (item === undefined) return null;
+    out.push(item);
+  }
+  return out;
+}
+
+/** 한 프레임을 최신 데이터에 입힌다 — 순서를 세우고 단계 기록만 덮어쓴다. */
+function applyFrame<T extends Keyed>(items: T[], frame: RankSwapFrame | null): T[] {
+  if (frame === null) return items;
+  const ordered = reorder(items, frame.order);
+  if (ordered === null) return items;
+  if (frame.seconds.size === 0) return ordered;
+  return ordered.map((item) => {
+    const staged = frame.seconds.get(item.userId);
+    if (staged === undefined || staged === item.totalFocusSeconds) return item;
+    // 제네릭 T를 유지하려면 스프레드 대신 Object.assign — 교차 타입이라 T에 그대로 대입된다.
+    return Object.assign({}, item, { totalFocusSeconds: staged });
+  });
+}
+
+export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
+  const m = useMotion();
+  const [, bumpFrame] = useReducer((n: number) => n + 1, 0);
+
+  // null = 재생 중이 아님(최신 배열을 그대로 그린다).
+  const frameRef = useRef<RankSwapFrame | null>(null);
+  // 아직 재생하지 않은 프레임들(at은 시퀀스 시작 기준 절대 시각).
+  const pendingRef = useRef<RankSwapFrame[]>([]);
+  const lastTargetRef = useRef<string | null>(null);
+  // **이전 렌더까지** 화면에 있던 순서·기록 — 다음 갱신이 여기서 출발한다(아래에서 갱신).
+  const shownOrderRef = useRef<string[]>([]);
+  const shownSecondsRef = useRef<Map<string, number>>(new Map());
+  // 직전 렌더에서 **라이브 표기 중이던** 행들. 세션 종료 갱신을 감지하는 데만 쓴다(아래).
+  const shownLiveRef = useRef<Set<string>>(new Set());
+  // 이번 렌더에서 계획이 새로 정해졌는가 — effect가 타이머를 다시 걸어야 한다는 신호.
+  const rescheduleRef = useRef(false);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // 계획 세대 — 계획이 바뀔 때마다 올린다. 예약된 콜백은 자기 세대가 아직 최신일 때만 실행한다.
+  //
+  // ⚠️ 이게 없으면 **커밋과 passive effect 사이**가 구멍이다. 계획 교체는 렌더 본문에서
+  //    일어나는데(위 `targetKey` 분기) 옛 타이머는 아래 effect에서야 걷힌다. 그 사이에 옛
+  //    타이머가 만료되면 콜백이 방금 세운 `frameRef`를 옛 프레임으로 덮어쓰고, 그게 옛 계획의
+  //    **마지막** 프레임이면 `pendingRef`까지 비워 새 계획을 통째로 날린다 — 최신 재정렬이
+  //    생략되거나 옛 순서가 잠깐 되돌아온다(codex 리뷰).
+  //    타이머 콜백과 React의 passive effect 플러시는 둘 다 매크로태스크라 순서가 보장되지 않아,
+  //    "effect가 먼저 돌 것"에 기댈 수 없다.
+  const planGenRef = useRef(0);
+
+  const targetOrder = items.map((item) => item.userId);
+  // ⚠️ 순서뿐 아니라 **기록도 키에 넣는다.** 같은 순서로 점수만 갱신된 응답이 재생 도중 오면,
+  //    키가 그대로라 옛 기준으로 만든 단계값을 계속 쓴다 — 바로 위 사용자의 기록이 바뀌었는데
+  //    상승 행은 옛 기준값을 들고 그 위로 올라가 표시와 순위가 300ms 어긋난다(codex 리뷰).
+  const targetKey = items.map((item) => `${item.userId}:${item.totalFocusSeconds}`).join(KEY_SEP);
+  // '동작 줄이기'면 중간 단계를 만들지 않는다 — 순서도 기록도 곧장 최종값이다.
+  // 아직 **미확정**(ready=false)일 때도 마찬가지다 — useReduceMotion은 확정 전을 보수적으로
+  // true로 읽으므로 그 값으로 시퀀스를 시작할 수는 없는데, 그렇다고 확정될 때까지 기다리면
+  // 낡은 순위가 화면에 남는다. 데이터를 붙드는 쪽이 더 나쁘므로 즉시 반영을 택한다.
+  // (첫 로드는 어차피 구성원이 통째로 바뀌어 계획이 만들어지지 않는다.)
+  const staged = !m.reduce && m.ready;
+
+  // ⚠️ **집중 중이던 사람의 세션 종료 갱신은 단계화하지 않는다.**
+  //    집중 중인 행은 화면에 `totalFocusSeconds + 진행 경과`(LiveFocusTime)가 그려지는데,
+  //    `shownSecondsRef`에는 서버 기준값만 들어 있다. 기준 1,000초에 3,600초를 진행해 4,600초가
+  //    보이던 사용자의 종료 응답이 4,600초로 확정되면, 단계 계획은 하한을 1,000으로 잡아
+  //    첫 램프를 3,001초 같은 중간값에서 시작한다 — 화면의 숫자가 **줄었다가 회복한다**
+  //    (codex 리뷰). 집중을 막 끝내고 순위를 확인하는, 이 화면에서 가장 주목도가 높은 순간이다.
+  //
+  //    하한을 라이브 합계로 올리는 쪽은 택하지 않았다 — rankSwap의 감소 가드(rankSwap.ts:166)가
+  //    "하나라도 줄면 전체 생략"이라, 집중 중인 사람이 있는 한 거의 모든 갱신에서 단계화가
+  //    통째로 꺼진다. 반대로 그 행만 기록 단계화에서 빼면 그 행이 혼자 최종값으로 튀어
+  //    "아래 행이 위 행보다 큰 기록" 프레임이 생기는데, 그건 프레임 전체 정합 문제라
+  //    별도 티켓(1475)에서 설계로 닫는다.
+  //    여기서는 **그 갱신 한 번만** 건너뛴다 — 순서는 즉시 최종, 다음 갱신부터 정상 재생.
+  const endedLive = items.some(
+    (item) => shownLiveRef.current.has(item.userId) && item.isFocusing !== true,
+  );
+
+  if (targetKey !== lastTargetRef.current) {
+    lastTargetRef.current = targetKey;
+    // 재생 도중 또 갱신이 오면 **큐를 쌓지 않고 갈아탄다.** 두 시퀀스가 겹치면 같은 행에
+    // 서로 다른 목표가 걸려 순서가 엉킨다. 지금 화면에 그려져 있던 순서·기록에서 새 목표까지
+    // 다시 계산한다 — 살아 있는 시퀀스는 늘 하나고 최신 목표가 이긴다.
+    const frames =
+      staged && !endedLive
+        ? rankSwapFrames(
+            shownOrderRef.current,
+            targetOrder,
+            new Map(items.map((item) => [item.userId, item.totalFocusSeconds])),
+            shownSecondsRef.current,
+          )
+        : [];
+    frameRef.current = frames.length > 0 ? frames[0] : null;
+    pendingRef.current = frames.slice(1);
+    rescheduleRef.current = true;
+    // 계획을 바꾼 **그 자리에서** 세대를 올린다 — effect를 기다리면 위 주석의 구멍이 열린다.
+    planGenRef.current++;
+  } else if (!staged && (frameRef.current !== null || pendingRef.current.length > 0)) {
+    // 재생 도중 '동작 줄이기'가 켜졌다 — 남은 단계를 버리고 최종 순서·최종 기록으로 점프한다.
+    frameRef.current = null;
+    pendingRef.current = [];
+    rescheduleRef.current = true;
+    // 여기서도 세대를 올린다 — 안 올리면 옛 타이머가 점프한 화면에 중간 단계를 되돌려 놓는다.
+    planGenRef.current++;
+  }
+
+  const rendered = applyFrame(items, frameRef.current);
+  shownOrderRef.current = rendered.map((item) => item.userId);
+  shownSecondsRef.current = new Map(rendered.map((item) => [item.userId, item.totalFocusSeconds]));
+  shownLiveRef.current = new Set(
+    rendered
+      .filter((item) => item.isFocusing === true && item.focusStartedAt != null)
+      .map((item) => item.userId),
+  );
+
+  useEffect(() => {
+    if (!rescheduleRef.current) return;
+    rescheduleRef.current = false;
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    const pending = pendingRef.current;
+    const gen = planGenRef.current;
+    pending.forEach((frame, i) => {
+      const isLast = i === pending.length - 1;
+      timersRef.current.push(
+        setTimeout(() => {
+          // 낡은 계획의 콜백은 아무것도 건드리지 않는다 — 위 planGenRef 주석 참고.
+          if (gen !== planGenRef.current) return;
+          // 마지막 프레임은 계획을 비운다 — 최신 배열을 그대로 통과시켜, 이후 갱신이 낡은
+          // 순서·기록에 갇히지 않게 한다(마지막 프레임의 순서·기록은 최신 배열과 같다).
+          frameRef.current = isLast ? null : frame;
+          if (isLast) pendingRef.current = [];
+          bumpFrame();
+        }, frame.at),
+      );
+    });
+    // ⚠️ 정리 함수를 두지 않는다. 의존성 배열이 없어 매 렌더 정리가 돌면 방금 건 타이머가
+    //    다음 렌더에서 바로 걷힌다(단계가 하나도 재생되지 않는다). 언마운트 정리는 아래 별도.
+  });
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, []);
+
+  return rendered;
+}

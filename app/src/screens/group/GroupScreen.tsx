@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { Skeleton, SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -23,7 +24,7 @@ import {
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
-import GroupListScreen from './GroupListScreen';
+import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
@@ -50,6 +51,12 @@ function groupCountBucket(count: number): GroupCountBucket {
   if (count <= 10) return '6_10';
   return '11_plus';
 }
+
+// 최초 로딩 자리표시자로 그릴 카드 수 — 첫 화면에 들어오는 만큼만(화면당 동시 스켈레톤 상한 12).
+const SKELETON_CARDS = 3;
+// 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
+// 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
+const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
@@ -177,7 +184,18 @@ export default function GroupScreen() {
     }, [fetchGroups]),
   );
 
-  const closeInvite = useCallback(() => {
+  // ⚠️ 시트 퇴장 애니메이션(220ms) **뒤에** 불린다. 그 사이 새 초대 링크가 도착해 시트 내용이
+  //    B로 바뀌었을 수 있는데, 확인 없이 지우면 방금 온 초대장이 조용히 증발한다(codex 리뷰).
+  //    닫기를 요청한 초대가 지금도 떠 있는 그 초대일 때만 버퍼를 비운다.
+  //    인자 없이 부르면 "무조건 닫기"다 — 참여 성공(onInviteJoined)처럼 어떤 초대가 떠 있든
+  //    시트를 내려야 하는 경로에서 쓴다.
+  const inviteRef = useRef(invite);
+  inviteRef.current = invite;
+  const closeInvite = useCallback((requested?: PendingInvite | null) => {
+    const current = inviteRef.current;
+    // ⚠️ groupId로 식별한다. slug는 구형 초대 링크에서 null이라, 구형 링크 두 개가 220ms 안에
+    //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
+    if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
     setInvite(null);
   }, []);
@@ -300,11 +318,16 @@ export default function GroupScreen() {
   ) : null;
 
   const inviteSheet = invite ? (
+    // ⚠️ key로 초대별 인스턴스를 분리한다. 초대 A의 퇴장(220ms) 안에 B가 도착하면 세대 검증이
+    //    B의 상태는 지켜 주지만, key가 없으면 B가 **퇴장을 마친 같은 SheetShell을 재사용**한다
+    //    — translateY는 화면 밖, dim 0, closingRef=true, pointerEvents='none' 상태 그대로라
+    //    B가 보이지도 닫히지도 않는다(codex 리뷰).
     <GroupInviteSheet
+      key={invite.groupId}
       groupId={invite.groupId}
       slug={invite.slug}
       entry={invite.entry}
-      onClose={closeInvite}
+      onClose={() => closeInvite(invite)}
       onJoined={onInviteJoined}
       onLogin={onInviteLogin}
     />
@@ -354,9 +377,21 @@ export default function GroupScreen() {
   if (groups === null && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
-        </View>
+        {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 카드 3장으로, 도착할 화면과
+            같은 자리·같은 높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
+            펄스(무한 루프)도 함께 언마운트된다.
+            묶음 전체를 SkeletonGroup 하나로 감싸 펄스를 이 한 겹에만 건다 — 블록마다 루프를
+            돌리면 "화면당 무한 루프 1개" 상한을 위반한다(codex 리뷰). */}
+        <SkeletonGroup testID="group.list.skeleton">
+          <View style={s.skeletonHeader}>
+            <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
+          </View>
+          <View style={s.skeletonList}>
+            {Array.from({ length: SKELETON_CARDS }, (_, i) => (
+              <SkeletonCard key={i} height={GROUP_CARD_HEIGHT} />
+            ))}
+          </View>
+        </SkeletonGroup>
         {inviteSheet}
       </SafeAreaView>
     );
@@ -445,7 +480,13 @@ const s = StyleSheet.create({
   // 탭 화면은 흰 캔버스 — 홈·리그·전체와 같은 배경이라야 탭 전환에서 배경이 튀지 않는다.
   // (그룹의 스택 화면 GroupCreate·GroupNotice는 FriendAdd·알림과 같은 T.bg를 유지한다.)
   root: { flex: 1, backgroundColor: T.paperLight },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // 로딩 자리표시자 — 여백은 GroupListScreen의 header·listContent와 같은 값이어야 자리가 맞는다.
+  skeletonHeader: {
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.md,
+  },
+  skeletonList: { paddingHorizontal: T.space.xl, gap: T.space.md },
   body: {
     flex: 1,
     alignItems: 'center',

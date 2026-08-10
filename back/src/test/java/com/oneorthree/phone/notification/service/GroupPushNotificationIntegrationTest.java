@@ -77,7 +77,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
             LocalDate.now(KST).plusDays(1).atTime(23, 45).atZone(KST).toInstant();
 
     @Autowired
-    BetResultNotificationService betResultNotificationService;
+    BetEventNotificationService betEventNotificationService;
     @Autowired
     ChallengeWindowEndNotificationService challengeWindowEndNotificationService;
     @Autowired
@@ -159,6 +159,11 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     private GroupChallengeBetSession settledBet(GroupBetStatus status) {
+        return settledBet(status, NOW.minusSeconds(3600));
+    }
+
+    /** 정산 시각을 지정하는 오버로드 — 묶음 슬롯이 정산 시각 기준이라 조용한 시간 시나리오에 필요하다. */
+    private GroupChallengeBetSession settledBet(GroupBetStatus status, Instant settledAt) {
         GroupChallenge challenge = groupChallengeRepository.save(GroupChallenge.builder()
                 .group(group)
                 .category(MissionCategory.FOCUS)
@@ -184,7 +189,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
                 .joinClosesAt(DAY.atStartOfDay(KST).toInstant())
                 .closesAt(DAY.atStartOfDay(KST).toInstant())
                 .settleAfter(DAY.atStartOfDay(KST).toInstant())
-                .settledAt(NOW.minusSeconds(3600))
+                .settledAt(settledAt)
                 .build());
     }
 
@@ -201,24 +206,45 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("정산 결과 푸시 — 참가자 전원에게 1회, 재실행은 dedup 으로 0건 발송")
+    @DisplayName("정산 결과 푸시 — 참가자 전원에게 1회, 재실행은 사건 클레임 dedup 으로 0건 발송")
     void betResultSendsOnceAndDedupsOnRerun() {
         GroupChallengeBetSession bet = settledBet(GroupBetStatus.SETTLED);
         participant(bet, winner, true, 100);
         participant(bet, loser, false, 0);
 
-        PushDispatchSummaryResponse first = betResultNotificationService.sendBetResultNotifications(NOW);
+        PushDispatchSummaryResponse first = betEventNotificationService.rescanAndFlush(NOW);
         assertThat(first.targetCount()).isEqualTo(2);
         assertThat(first.sentCount()).isEqualTo(2);
         assertThat(first.dedupedCount()).isZero();
         assertThat(logsOf(NotificationSentLog.TYPE_BET_RESULT, winner, loser))
                 .hasSize(2)
-                .allSatisfy(sentLog -> assertThat(sentLog.getTargetUserId()).isEqualTo(bet.getId()));
+                .allSatisfy(sentLog -> assertThat(sentLog.getSubjectId()).isEqualTo(bet.getId()));
 
-        PushDispatchSummaryResponse second = betResultNotificationService.sendBetResultNotifications(NOW);
+        PushDispatchSummaryResponse second = betEventNotificationService.rescanAndFlush(NOW);
         assertThat(second.sentCount()).isZero();
         assertThat(second.dedupedCount()).isEqualTo(2);
         assertThat(logsOf(NotificationSentLog.TYPE_BET_RESULT, winner, loser)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("N41 — 같은 kind 의 연속 사건(회차 두 개)은 둘 다 발송된다 (사건 단위 dedup)")
+    void sameKindConsecutiveEventsBothSend() {
+        GroupChallengeBetSession firstBet = settledBet(GroupBetStatus.SETTLED);
+        participant(firstBet, winner, true, 100);
+        PushDispatchSummaryResponse first = betEventNotificationService.rescanAndFlush(NOW);
+        assertThat(first.sentCount()).isEqualTo(1);
+
+        // 첫 발송(슬롯 SENT) 뒤에 같은 kind 의 두 번째 회차가 정산된다 — 슬롯 단위 dedup 이었다면
+        // 이 사건이 충돌로 스킵돼 돈이 걸린 결과 알림이 유실된다(N41 의 핵심 반례).
+        GroupChallengeBetSession secondBet = settledBet(GroupBetStatus.SETTLED);
+        participant(secondBet, winner, true, 70);
+        PushDispatchSummaryResponse second = betEventNotificationService.rescanAndFlush(NOW);
+
+        assertThat(second.sentCount()).isEqualTo(1);
+        assertThat(second.dedupedCount()).isEqualTo(1);
+        assertThat(logsOf(NotificationSentLog.TYPE_BET_RESULT, winner))
+                .extracting(NotificationSentLog::getSubjectId)
+                .containsExactlyInAnyOrder(firstBet.getId(), secondBet.getId());
     }
 
     @Test
@@ -230,7 +256,7 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
         participant(bet, winner, false, 0);
         participant(bet, loser, false, 0);
 
-        PushDispatchSummaryResponse summary = betResultNotificationService.sendBetResultNotifications(NOW);
+        PushDispatchSummaryResponse summary = betEventNotificationService.rescanAndFlush(NOW);
 
         assertThat(summary.sentCount()).isEqualTo(1);
         assertThat(summary.skippedCount()).isEqualTo(1);
@@ -240,21 +266,29 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("정산 결과 푸시 — quiet hours 경계: 06:59 는 미발송·무기록, 07:00 은 발송된다")
-    void betResultRespectsQuietHoursBoundary() {
-        GroupChallengeBetSession bet = settledBet(GroupBetStatus.SETTLED);
+    @DisplayName("N44 — quiet hours 의 결과는 버려지지 않고 이월(DEFERRED)돼 07:00 에 발송된다")
+    void betResultDefersDuringQuietHoursAndFlushesAtSeven() {
+        // 하루형 자정 정산이 이 규칙의 실제 대상이다 — 00:05 정산분이 조용한 시간에 걸린다.
+        // (묶음 슬롯이 정산 시각 기준이라, 정산이 발송 시각보다 뒤인 픽스처는 애초에 발송 차례가 아니다.)
+        GroupChallengeBetSession bet =
+                settledBet(GroupBetStatus.SETTLED, DAY.atTime(0, 5).atZone(KST).toInstant());
         participant(bet, winner, true, 100);
 
-        PushDispatchSummaryResponse duringQuiet = betResultNotificationService
-                .sendBetResultNotifications(DAY.atTime(6, 59).atZone(KST).toInstant());
+        // 06:59 — 조용한 시간. 종전 스펙(버림)과 달리 클레임을 DEFERRED 로 이월한다(N44).
+        PushDispatchSummaryResponse duringQuiet = betEventNotificationService
+                .rescanAndFlush(DAY.atTime(6, 59).atZone(KST).toInstant());
         assertThat(duringQuiet.sentCount()).isZero();
         assertThat(duringQuiet.skippedCount()).isEqualTo(1);
+        // 실발송 전이라 sent_at 이 없다 — 발송 이력 조회(sentAt 필터)에 잡히지 않는다.
         assertThat(logsOf(NotificationSentLog.TYPE_BET_RESULT, winner)).isEmpty();
 
-        // 기본 구간은 [23:00, 07:00) — 07:00 정각은 발송 허용이다(PushNotificationService 계약).
-        PushDispatchSummaryResponse afterQuiet = betResultNotificationService
-                .sendBetResultNotifications(DAY.atTime(7, 0).atZone(KST).toInstant());
+        // 기본 구간은 [23:00, 07:00) — 07:00 정각 틱의 flush 가 이월분을 발송한다.
+        PushDispatchSummaryResponse afterQuiet = betEventNotificationService
+                .rescanAndFlush(DAY.atTime(7, 0).atZone(KST).toInstant());
         assertThat(afterQuiet.sentCount()).isEqualTo(1);
+        assertThat(logsOf(NotificationSentLog.TYPE_BET_RESULT, winner))
+                .singleElement()
+                .satisfies(sentLog -> assertThat(sentLog.getSubjectId()).isEqualTo(bet.getId()));
     }
 
     @Test
@@ -374,16 +408,21 @@ class GroupPushNotificationIntegrationTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("정산 결과 푸시 — UNUSED·VOIDED 회차는 결과가 아니라 발송 대상에서 빠진다(N52)")
-    void betResultIgnoresUnusedAndVoidedSessions() {
-        GroupChallengeBetSession unused = settledBet(GroupBetStatus.UNUSED);
+    @DisplayName("UNUSED 는 알림 제외(N52), VOIDED 는 BET_VOID_REFUND 환불 통지로 나간다(N48)")
+    void unusedIsSilentAndVoidedNotifiesRefund() {
+        settledBet(GroupBetStatus.UNUSED);
         GroupChallengeBetSession voided = settledBet(GroupBetStatus.VOIDED);
         participant(voided, winner, null, null);
 
-        PushDispatchSummaryResponse summary = betResultNotificationService.sendBetResultNotifications(NOW);
+        PushDispatchSummaryResponse summary = betEventNotificationService.rescanAndFlush(NOW);
 
-        assertThat(summary.targetCount()).isZero();
+        // UNUSED 는 참가자 0명이라 대상 자체가 없고, VOIDED 참가자는 환불 통지 1건을 받는다.
+        assertThat(summary.targetCount()).isEqualTo(1);
+        assertThat(summary.sentCount()).isEqualTo(1);
         assertThat(logsOf(NotificationSentLog.TYPE_BET_RESULT, winner, loser)).isEmpty();
+        assertThat(logsOf(NotificationSentLog.TYPE_BET_VOID_REFUND, winner))
+                .singleElement()
+                .satisfies(sentLog -> assertThat(sentLog.getSubjectId()).isEqualTo(voided.getId()));
     }
 
     /** 다른 테스트가 남긴 데이터에 걸려 넘어지지 않도록, 이 클래스가 만든 그룹만 본다는 사실을 고정. */

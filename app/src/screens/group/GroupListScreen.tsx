@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
   AppState,
@@ -10,10 +10,14 @@ import {
   TouchableOpacity,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
   useWindowDimensions,
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
@@ -38,6 +42,8 @@ import {
   createCardInteractionContext,
   type CardInteractionContext,
 } from '@/services/cardInteraction';
+import { enterUp } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
@@ -98,6 +104,64 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
   if (count <= 5) return '2_5';
   if (count <= 10) return '6_10';
   return '11_plus';
+}
+
+/**
+ * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
+ * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
+ * 아래 s.card의 minHeight로도 걸어 둔다 — 스켈레톤과 실제 카드가 **같은 값에 묶여 있어야**
+ * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
+ * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
+ */
+export const GROUP_CARD_HEIGHT = 58;
+
+// FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
+// (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
+//  같은 모양을 로컬 타입으로 둔다.)
+//
+// ⚠️ **여기 있는 props는 하나도 떨어뜨리면 안 된다.** 특히 `onFocusCapture`는 VirtualizedList가
+//    마지막 포커스 셀을 기록해 가상화 렌더 영역 안에 유지하는 경로다 — 삼키면 스크롤·목록 갱신
+//    때 포커스된 카드가 재활용되면서 스크린리더/키보드 포커스를 잃는다(codex 리뷰).
+//    그래서 아래 구현은 index/children만 꺼내고 **나머지는 통째로 전달**한다.
+interface CellProps {
+  index: number;
+  children: ReactNode;
+  cellKey?: string;
+  item?: GroupSummaryResponse;
+  style?: StyleProp<ViewStyle>;
+  onLayout?: (event: LayoutChangeEvent) => void;
+  // 우리는 해석하지 않고 그대로 전달만 한다 — RN 내부 셀 타입의 FocusEvent는 DOM 계열이라
+  // 여기서 같은 이름으로 재선언하면 오히려 타입이 어긋난다.
+  onFocusCapture?: unknown;
+}
+
+// 카드 진입 시차 — FlatList가 셀마다 두르는 래퍼 View를 Animated.View로 갈아끼운다.
+// 트리에 뷰를 **새로 끼우지 않으므로** testID 셀렉터(E2E) 계약이 그대로다.
+// 모듈 스코프 컴포넌트라 렌더마다 타입이 바뀌지 않는다 — 매 렌더 새 컴포넌트를 만들면 셀이
+// 통째로 리마운트되어 진입 애니메이션이 계속 다시 재생된다.
+//
+// ⚠️ 진입 시차 인덱스는 **마운트 시점 값으로 고정한다.** enterUp은 인덱스별 캐시라 참조가
+//    갈리고, Reanimated CSS는 참조 동등성으로 애니메이션 재시작을 판단한다. 목록은 재조회로
+//    갱신되고(생성·참여·나가기 뒤 서버 순서가 바뀔 수 있다) 셀은 groupId 키로 살아남으므로,
+//    인덱스를 그대로 넘기면 순서가 밀린 카드들이 이유 없이 다시 떠오른다(claude 리뷰 —
+//    리그 랭킹 행과 같은 결함이고, 여기 고치는 비용은 두 줄이다).
+// ⚠️ 얼리는 것은 enterUp의 **인자**다. m.css()는 매 렌더 통과시켜야 '동작 줄이기'가 반영된다.
+// index·children과, 호스트 뷰가 모르는 값(item·cellKey)만 꺼내고 나머지는 통째로 전달한다.
+function GroupListCell({
+  index,
+  children,
+  item: _item,
+  cellKey: _cellKey,
+  style,
+  ...rest
+}: CellProps) {
+  const m = useMotion();
+  const enterIndex = useRef(index).current;
+  return (
+    <Animated.View {...rest} style={[style, m.enter(enterUp(enterIndex))]}>
+      {children}
+    </Animated.View>
+  );
 }
 
 export interface GroupListScreenProps {
@@ -810,6 +874,7 @@ export default function GroupListScreen({
           testID="group.list.items"
           data={orderedGroups}
           keyExtractor={(item) => item.groupId}
+          CellRendererComponent={GroupListCell}
           horizontal
           scrollEnabled={
             guideInputReady &&

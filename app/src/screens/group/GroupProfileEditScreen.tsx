@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { useUser } from '@/store/UserContext';
+import { useToast } from '@/store/ToastContext';
 import { getGroupDetail, groupErrorCode, updateGroup } from '@/services/groupApi';
 import { logGroupSettingsUpdated } from '@/services/analyticsEvents';
 import type { GroupDetailResponse, UpdateGroupRequest } from '@/types/dto/group';
@@ -49,6 +50,8 @@ export default function GroupProfileEditScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId } = useRoute<GroupProfileEditRoute>().params;
   const { userId } = useUser();
+  // 성공 통보용 전역 토스트 — 확인 버튼이 필요 없는 한 줄 알림.
+  const { show } = useToast();
 
   const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -153,7 +156,9 @@ export default function GroupProfileEditScreen() {
       });
       setName(trimmedName);
       setDescription(trimmedDescription);
-      Alert.alert('저장했어요', '그룹 설정을 변경했어요.');
+      // 성공 통보는 읽고 흘려도 되는 한 줄이라 Alert 대신 토스트로 알린다(GROMO-1381).
+      // 실패 알럿(아래 catch)은 사용자가 사유를 읽고 조치해야 하므로 Alert로 남긴다.
+      show({ message: '그룹 설정을 저장했어요', tone: 'success' });
     } catch (e) {
       // 정원을 현재 인원 미만으로 줄인 경우 — 사유를 그대로 알려준다(§3-2 code 분기).
       if (groupErrorCode(e) === 'MAX_MEMBERS_TOO_SMALL') {
