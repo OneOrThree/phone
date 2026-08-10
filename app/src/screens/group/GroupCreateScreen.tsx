@@ -409,8 +409,10 @@ export default function GroupCreateScreen() {
         <Text style={s.label}>내 카드 아이콘</Text>
         <View
           style={s.cardPreview}
-          accessible
-          accessibilityLabel={`새 그룹 카드 미리보기 ${cardEmoji} ${name || '그룹 이름'}`}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          testID="group.create.cardEmoji.preview"
         >
           <Text style={s.cardPreviewEmoji}>{cardEmoji}</Text>
           <Text style={s.cardPreviewName} numberOfLines={1}>

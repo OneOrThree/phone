@@ -17,6 +17,7 @@ import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { writeGroupCardEmoji } from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -46,8 +47,9 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 let mockIsGuest = false;
+let mockUserId: string | null = null;
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ isGuest: mockIsGuest }),
+  useUser: () => ({ isGuest: mockIsGuest, userId: mockUserId }),
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({ logGroupViewed: jest.fn() }));
@@ -75,16 +77,19 @@ jest.mock('./GroupListScreen', () => {
     onCreate,
     onFind,
     onRefresh,
+    cardEmojiByGroupId,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (groupId: string) => void;
     onCreate: () => void;
     onFind: () => void;
     onRefresh: () => Promise<void>;
+    cardEmojiByGroupId: Record<string, string>;
   }) {
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
+        <RNText>{`아이콘-${cardEmojiByGroupId[groups[0]?.groupId] ?? '없음'}`}</RNText>
         {groups.map((g) => (
           <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
             <RNText>{`목록-${g.name}`}</RNText>
@@ -213,6 +218,7 @@ async function press(label: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsGuest = false;
+  mockUserId = null;
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
   // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는
@@ -315,6 +321,20 @@ describe('목록 분기(0/1/N)', () => {
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
     expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', { groupId: GROUP_ID });
+  });
+
+  test('설정 저장 성공은 서버 목록 재조회 없이 현재 카드 아이콘을 갱신한다', async () => {
+    mockUserId = 'user-1';
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(screen.getByText('아이콘-없음')).toBeOnTheScreen();
+
+    await act(async () => {
+      await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
+    });
+
+    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
+    expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
