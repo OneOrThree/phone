@@ -287,16 +287,22 @@ export default function GroupListScreen({
   const summaryAdapter = summaryAdapterRef.current;
   const scheduleFrontFocus = useCallback((groupId: string) => {
     if (frontFocusFrameRef.current !== null) cancelAnimationFrame(frontFocusFrameRef.current);
-    frontFocusFrameRef.current = requestAnimationFrame(() => {
-      frontFocusFrameRef.current = null;
-      if (!appActiveRef.current || guideBlockedRef.current) return;
-      const node = ReactNative.findNodeHandle(frontDisclosureRefs.current.get(groupId) ?? null);
-      // 가상화된 먼 셀은 scroll 직후 아직 마운트되지 않을 수 있다. ref가 등록될 때까지
-      // 요청을 유지하고 disclosureRef callback에서 다시 예약한다.
-      if (node === null) return;
-      AccessibilityInfo.setAccessibilityFocus(node);
-      setFrontFocusGroupId((current) => (current === groupId ? null : current));
-    });
+    const schedule = () => {
+      frontFocusFrameRef.current = requestAnimationFrame(() => {
+        frontFocusFrameRef.current = null;
+        if (!appActiveRef.current || guideBlockedRef.current) return;
+        const node = ReactNative.findNodeHandle(frontDisclosureRefs.current.get(groupId) ?? null);
+        // 가상화된 먼 셀뿐 아니라 native handle commit도 한 프레임 늦을 수 있다. 사용자가
+        // 요청을 취소하지 않은 동안에는 다음 프레임으로 재예약한다.
+        if (node === null) {
+          if (frontFocusGroupIdRef.current === groupId) schedule();
+          return;
+        }
+        AccessibilityInfo.setAccessibilityFocus(node);
+        setFrontFocusGroupId((current) => (current === groupId ? null : current));
+      });
+    };
+    schedule();
   }, []);
 
   const cancelPendingFrontFocus = useCallback(() => {

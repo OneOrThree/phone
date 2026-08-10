@@ -660,11 +660,7 @@ describe('콜백', () => {
     expect(setFocus).not.toHaveBeenCalled();
 
     jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
-    await view.rerender(
-      <GroupListScreen {...props} groups={[second]} screenFocused successfulListVersion={2} />,
-    );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(setFocus).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
   });
 
   test('fallback 포커스 대기 중 다른 페이지를 선택하면 과거 요청을 폐기한다', async () => {
