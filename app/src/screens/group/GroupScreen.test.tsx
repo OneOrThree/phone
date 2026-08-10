@@ -51,11 +51,17 @@ jest.mock('@react-navigation/native', () => ({
 
 let mockIsGuest = false;
 let mockUserId: string | null = null;
+const mockSessionIdentity = { current: { userId: null as string | null, active: true } };
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ isGuest: mockIsGuest, userId: mockUserId }),
+  useUser: () => ({
+    isGuest: mockIsGuest,
+    userId: mockUserId,
+    sessionIdentityRef: mockSessionIdentity,
+  }),
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardIconSaveResult: jest.fn(),
   logGroupFindOpened: jest.fn(),
   logGroupViewed: jest.fn(),
 }));
@@ -259,6 +265,7 @@ beforeEach(() => {
   clearPendingGroupEntry();
   mockIsGuest = false;
   mockUserId = null;
+  mockSessionIdentity.current = { userId: null, active: true };
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
   // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는

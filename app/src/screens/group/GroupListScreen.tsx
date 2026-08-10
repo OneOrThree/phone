@@ -167,6 +167,8 @@ export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   userId?: string | null;
   cardEmojiByGroupId?: GroupCardEmojiBucket;
+  cardEmojiHydrated?: boolean;
+  cardEmojiHydratedGroupIds?: ReadonlySet<string>;
   onSelect: (groupId: string, interaction: CardInteractionContext) => void;
   onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
   onOpenSettings?: (groupId: string) => void;
@@ -194,6 +196,8 @@ export default function GroupListScreen({
   groups,
   userId = null,
   cardEmojiByGroupId = {},
+  cardEmojiHydrated = true,
+  cardEmojiHydratedGroupIds,
   onSelect,
   onStartFocus,
   onOpenSettings,
@@ -218,6 +222,10 @@ export default function GroupListScreen({
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
+  const isCardEmojiKnown = (groupId: string) =>
+    cardEmojiByGroupId[groupId] !== undefined ||
+    (cardEmojiHydrated &&
+      (cardEmojiHydratedGroupIds === undefined || cardEmojiHydratedGroupIds.has(groupId)));
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
     serverGroupIds: groups.map((group) => group.groupId),
     userId,
@@ -962,7 +970,11 @@ export default function GroupListScreen({
                   <GroupCardFront
                     group={item}
                     emoji={cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
-                    emojiLabel={groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}
+                    emojiLabel={
+                      isCardEmojiKnown(item.groupId)
+                        ? groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])
+                        : '확인 중'
+                    }
                     position={index + 1}
                     pageCount={pageCount}
                     reorderCount={orderedGroups.length}

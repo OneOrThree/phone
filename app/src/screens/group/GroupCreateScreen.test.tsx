@@ -17,7 +17,14 @@ import { buildInviteShareMessage } from './inviteShare';
 import { createGroup } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
-import { __resetGroupCardEmojiQueueForTest, readGroupCardEmoji } from './groupCardEmojiStore';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
+  readGroupCardEmoji,
+  readGroupCardEmojiSaveFailure,
+  retryPendingGroupCardEmojis,
+  setGroupCardEmojiSaveFailure,
+} from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -50,8 +57,10 @@ jest.mock('@react-navigation/native', () => ({
   }),
 }));
 
-let mockUserId: string | null = 'user-1';
-jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: mockUserId }) }));
+const mockSessionIdentity = { current: { userId: 'user-1' as string | null, active: true } };
+jest.mock('@/store/UserContext', () => ({
+  useUser: () => ({ userId: 'user-1', sessionIdentityRef: mockSessionIdentity }),
+}));
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardIconSaveResult: jest.fn(),
@@ -132,8 +141,8 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
-  mockUserId = 'user-1';
   mockNav.beforeRemove = null;
+  mockSessionIdentity.current = { userId: 'user-1', active: true };
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockCreateGroup.mockResolvedValue({ groupId: GROUP_ID, code: 'ignored' });
@@ -141,19 +150,6 @@ beforeEach(async () => {
 });
 
 describe('내 카드 아이콘 로컬 draft', () => {
-  test('userId가 확정되기 전에는 선택값을 잃는 그룹 생성을 막는다', async () => {
-    mockUserId = null;
-    await renderScreen();
-    await typeName('신원 확인 중');
-
-    expect(screen.getByTestId('group.create.submit')).toBeDisabled();
-    expect(
-      screen.getByText('계정을 확인하고 있어요. 잠시 후 다시 시도해주세요.'),
-    ).toBeOnTheScreen();
-    await press('만들기');
-    expect(mockCreateGroup).not.toHaveBeenCalled();
-  });
-
   test('선택값은 create body에 넣지 않고 성공 응답 groupId에만 저장한다', async () => {
     await renderScreen();
     await typeName('아침 6시 집중방');
@@ -211,7 +207,7 @@ describe('내 카드 아이콘 로컬 draft', () => {
     await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
   });
 
-  test('생성 후 로컬 저장 실패는 inline으로 알리고 중복 생성 없이 복귀 경로를 제공한다', async () => {
+  test('생성 후 로컬 저장 실패가 생성 완료 이동을 막지 않고 pending으로 남는다', async () => {
     jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
     await renderScreen();
     await typeName('저장은 실패');
@@ -219,14 +215,97 @@ describe('내 카드 아이콘 로컬 draft', () => {
 
     await press('만들기');
 
-    expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
-    expect(screen.getByTestId('group.create.submit')).toBeDisabled();
-    expect(screen.getByTestId('group.create.cardEmoji.continue')).toBeOnTheScreen();
-    expect(mockNav.goBack).not.toHaveBeenCalled();
-    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
-      surface: 'create',
-      result: 'failed',
+    await waitFor(() => expect(mockNav.goBack).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+        surface: 'create',
+        result: 'failed',
+      }),
+    );
+    expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🔥');
+    expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
+  });
+
+  test('생성 저장 실패 전에 예약된 재시도 성공을 새 pending 세대로 되살리지 않는다', async () => {
+    let started: () => void = () => undefined;
+    let reject: (reason: Error) => void = () => undefined;
+    const startedGate = new Promise<void>((resolve) => (started = resolve));
+    const firstWrite = new Promise<void>((_resolve, rejectPromise) => {
+      reject = rejectPromise;
     });
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => {
+      started();
+      await firstWrite;
+    });
+    await renderScreen();
+    await typeName('재시도 세대 그룹');
+    fireEvent.press(screen.getByText('만들기'));
+    await startedGate;
+
+    const retry = retryPendingGroupCardEmojis('user-1', [GROUP_ID]);
+    await act(async () => reject(new Error('disk full')));
+    await retry;
+
+    expect(await retryPendingGroupCardEmojis('user-1', [GROUP_ID])).toEqual({});
+  });
+
+  test('새 그룹 아이콘 저장 성공도 다른 그룹 pending의 실패 경고를 지우지 않는다', async () => {
+    preservePendingGroupCardEmoji('user-1', 'older-group', '📚');
+    setGroupCardEmojiSaveFailure('user-1', true);
+    await renderScreen();
+    await typeName('새 그룹');
+
+    await press('만들기');
+
+    await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🎯'));
+    expect(readGroupCardEmojiSaveFailure('user-1')).toBe(true);
+  });
+
+  test('로컬 저장 중 세션이 폐기되면 늦은 성공 이벤트를 새 계정에 귀속하지 않는다', async () => {
+    let started: () => void = () => undefined;
+    let release: () => void = () => undefined;
+    const startedGate = new Promise<void>((resolve) => (started = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+      started();
+      await gate;
+      await AsyncStorage.multiSet([[key, value]]);
+    });
+    await renderScreen();
+    await typeName('세션 전환 그룹');
+    fireEvent.press(screen.getByText('만들기'));
+    await startedGate;
+
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
+
+    mockSessionIdentity.current.active = false;
+    await act(async () => release());
+
+    await waitFor(() => expect(mockNav.goBack).toHaveBeenCalledTimes(1));
+    expect(logGroupCardIconSaveResult).not.toHaveBeenCalled();
+  });
+
+  test('로컬 저장 중 세션이 폐기되면 늦은 실패 이벤트도 새 계정에 귀속하지 않는다', async () => {
+    let started: () => void = () => undefined;
+    let reject: (reason: Error) => void = () => undefined;
+    const startedGate = new Promise<void>((resolve) => (started = resolve));
+    const gate = new Promise<void>((_resolve, rejectPromise) => (reject = rejectPromise));
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async () => {
+      started();
+      await gate;
+    });
+    await renderScreen();
+    await typeName('세션 전환 실패 그룹');
+    fireEvent.press(screen.getByText('만들기'));
+    await startedGate;
+
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
+
+    mockSessionIdentity.current.active = false;
+    await act(async () => reject(new Error('disk full')));
+
+    expect(screen.queryByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeNull();
+    expect(logGroupCardIconSaveResult).not.toHaveBeenCalled();
   });
 
   test('picker는 glyph 대신 고정된 의미 이름을 접근성 label로 제공한다', async () => {
