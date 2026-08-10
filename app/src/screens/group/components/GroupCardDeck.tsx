@@ -32,7 +32,12 @@ export interface GroupCardDeckProps {
   groups: GroupSummaryResponse[];
   activeGroupId: string | null;
   onFind: () => void;
-  renderCard: (group: GroupSummaryResponse, position: number, pageCount: number) => ReactElement;
+  renderCard: (
+    group: GroupSummaryResponse,
+    position: number,
+    pageCount: number,
+    active: boolean,
+  ) => ReactElement;
   onPeekPress?: (group: GroupSummaryResponse) => void;
 }
 
@@ -284,7 +289,7 @@ export function GroupCardDeck({
               pointerEvents={index === activeIndex ? 'auto' : 'none'}
               testID={`group.cardDeck.pageBody.${item.groupId}`}
             >
-              {renderCard(item, index + 1, pageCount)}
+              {renderCard(item, index + 1, pageCount, index === activeIndex)}
             </View>
             {index !== activeIndex && (
               <Pressable
@@ -294,6 +299,7 @@ export function GroupCardDeck({
                   listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
                 }}
                 accessible={false}
+                focusable={false}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
                 testID={`group.cardDeck.peek.${item.groupId}`}
@@ -362,10 +368,10 @@ export function GroupCardDeck({
 }
 
 const s = StyleSheet.create({
-  indicator: { height: 44, alignItems: 'center', justifyContent: 'center' },
+  indicator: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: { width: DOT_HIT_WIDTH, height: 44, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C8CAD0' },
   dotActive: { width: 18, backgroundColor: '#5E6AD2' },
-  counterHit: { minHeight: 44, justifyContent: 'center' },
+  counterHit: { minHeight: 44, paddingVertical: 8, justifyContent: 'center' },
 });

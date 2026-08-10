@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, Text } from 'react-native';
+import { AccessibilityInfo, Pressable, StyleSheet, Text } from 'react-native';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GroupCardDeck, resolveDeckIndex, resolveDotFocusKey } from './GroupCardDeck';
 
@@ -78,7 +78,18 @@ test('활성 카드 control이 위치를 이름에 병합하도록 position과 p
     />,
   );
 
-  expect(renderCard).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'group-0' }), 1, 3);
+  expect(renderCard).toHaveBeenCalledWith(
+    expect.objectContaining({ groupId: 'group-0' }),
+    1,
+    3,
+    true,
+  );
+  expect(renderCard).toHaveBeenCalledWith(
+    expect.objectContaining({ groupId: 'group-1' }),
+    2,
+    3,
+    false,
+  );
   expect(screen.getByLabelText('그룹 0, 현재 1/3 페이지')).toBeOnTheScreen();
 });
 
@@ -226,6 +237,49 @@ test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴
     screen.getByTestId('group.cardDeck.findMorePage', { includeHiddenElements: true }).props
       .pointerEvents,
   ).toBe('none');
+});
+
+test('비활성 카드의 D-pad control과 peek overlay를 focusable 대상에서 제외한다', async () => {
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item, _position, _pageCount, active) => (
+        <Pressable testID={`control.${item.groupId}`} focusable={active} />
+      )}
+    />,
+  );
+
+  expect(screen.getByTestId('control.group-0').props.focusable).toBe(true);
+  expect(
+    screen.getByTestId('control.group-1', { includeHiddenElements: true }).props.focusable,
+  ).toBe(false);
+  expect(
+    screen.getByTestId('group.cardDeck.peek.group-1', { includeHiddenElements: true }).props
+      .focusable,
+  ).toBe(false);
+});
+
+test('compact indicator는 텍스트 확대 시 고정 높이로 잘리지 않는다', async () => {
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  const indicatorStyle = StyleSheet.flatten(
+    screen.getByTestId('group.cardDeck.indicator').props.style,
+  );
+  const counterStyle = StyleSheet.flatten(
+    screen.getByTestId('group.cardDeck.indicator.counter').props.style,
+  );
+  expect(indicatorStyle.height).toBeUndefined();
+  expect(indicatorStyle.minHeight).toBe(44);
+  expect(counterStyle).toEqual(expect.objectContaining({ minHeight: 44, paddingVertical: 8 }));
 });
 
 test('비활성 peek 탭은 내부 카드 입력 대신 페이지 선택과 peek 콜백을 한 번 실행한다', async () => {
