@@ -142,4 +142,24 @@ describe('GroupCardSummaryAdapter', () => {
     expect(loaders.challenges).toHaveBeenCalledTimes(2);
     expect(loaders.announcements).toHaveBeenCalledTimes(1);
   });
+
+  test('목록 새로고침이나 그룹방 복귀 invalidate 뒤 모든 뒷면 dependency를 다시 읽는다', async () => {
+    const focus = createFocus();
+    const loaders = {
+      detail: jest.fn().mockResolvedValue(detail(GROUP_A)),
+      announcements: jest.fn().mockResolvedValue([]),
+      challenges: jest.fn().mockResolvedValue([]),
+    };
+    const adapter = new GroupCardSummaryAdapter(focus, loaders);
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+    await adapter.ensureBack(GROUP_A);
+
+    adapter.invalidateBack();
+    expect(adapter.getSnapshot(GROUP_A)?.detail.status).toBe('idle');
+    await adapter.ensureBack(GROUP_A);
+
+    expect(loaders.detail).toHaveBeenCalledTimes(2);
+    expect(loaders.announcements).toHaveBeenCalledTimes(2);
+    expect(loaders.challenges).toHaveBeenCalledTimes(2);
+  });
 });

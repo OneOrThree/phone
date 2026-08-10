@@ -163,15 +163,20 @@ jest.mock('./components/GroupInviteSheet', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
   return function MockInvite({
     groupId,
+    onClose,
     onJoined,
     onLogin,
   }: {
     groupId: string;
+    onClose: () => void;
     onJoined: (joinedGroupId: string) => void;
     onLogin: () => void;
   }) {
     return (
       <RNView>
+        <RNTouchable onPress={onClose}>
+          <RNText>초대-닫기</RNText>
+        </RNTouchable>
         <RNTouchable onPress={() => onJoined(mockJoinedIdOverride ?? groupId)}>
           <RNText>초대-참여완료</RNText>
         </RNTouchable>
@@ -614,6 +619,24 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
 });
 
 describe('게스트 초대 로그인(§6-6)', () => {
+  test('초대 시트를 닫으면 보류한 invite 진입 출처도 폐기한다', async () => {
+    mockIsGuest = true;
+    mockPendingInvite = GROUP_ID;
+    queueDirectGroupEntry('invite');
+    const view = await renderScreen();
+
+    await press('초대-닫기');
+
+    mockIsGuest = false;
+    mockPendingInvite = null;
+    mockGetMyGroups.mockResolvedValueOnce([]);
+    await view.rerender(<GroupScreen />);
+    expect(mockLogGroupViewed).toHaveBeenLastCalledWith({
+      group_entry: 'return',
+      group_count_bucket: '0',
+    });
+  });
+
   test('시트만 내리고 초대 버퍼는 남긴 채 계정 화면으로 보낸다', async () => {
     mockIsGuest = true;
     mockPendingInvite = GROUP_ID;

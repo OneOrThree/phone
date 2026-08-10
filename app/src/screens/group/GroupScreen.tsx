@@ -19,7 +19,11 @@ import {
 import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
-import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  consumeGroupEntry,
+  type GroupEntrySource,
+} from '@/navigation/groupEntrySource';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -237,6 +241,9 @@ export default function GroupScreen() {
     //    연달아 오면 둘 다 null이어서 비교를 통과해 버린다(codex 리뷰). 초대의 본체는 groupId다.
     if (requested && current && current.groupId !== requested.groupId) return;
     clearPendingInvite();
+    // 게스트 초대는 로그인 뒤 귀속하려고 direct source 소비를 미룬다. 사용자가 시트를 직접
+    // 닫은 경우 그 출처까지 함께 폐기해야 이후 일반 로그인 episode가 invite로 오귀속되지 않는다.
+    clearPendingGroupEntry();
     setInvite(null);
   }, []);
 

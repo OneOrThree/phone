@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import {
   logGroupCardActionClicked,
   logGroupCardDeckViewed,
@@ -219,6 +220,7 @@ export default function GroupListScreen({
   const deckViewedEpisodeRef = useRef<number | null>(null);
   const deckViewPendingEpisodeRef = useRef<number | null>(null);
   const [deckInputEpisode, setDeckInputEpisode] = useState<number | null>(null);
+  const [deckGuideVisible, setDeckGuideVisible] = useState(false);
   const [, refreshSummary] = useState(0);
   const summaryAdapterRef = useRef<GroupCardSummaryAdapter<LeagueMemberResponse[]> | null>(null);
   if (summaryAdapterRef.current === null) {
@@ -277,6 +279,15 @@ export default function GroupListScreen({
     focusController?.notifyFocusFlowReturn();
   }, [date, flippedGroupId, focusController, summaryAdapter]);
 
+  const previousScreenFocusedRef = useRef(screenFocused);
+  useEffect(() => {
+    const returned = screenFocused && !previousScreenFocusedRef.current;
+    previousScreenFocusedRef.current = screenFocused;
+    if (!returned) return;
+    summaryAdapter.invalidateBack();
+    if (flippedGroupId !== null) summaryAdapter.ensureBack(flippedGroupId);
+  }, [flippedGroupId, screenFocused, summaryAdapter]);
+
   useEffect(() => {
     focusController?.setLifecycle({
       screenFocused,
@@ -298,14 +309,13 @@ export default function GroupListScreen({
       !hydrated ||
       !screenFocused ||
       !dataReady ||
-      guideBlocked ||
       deckViewedEpisodeRef.current === viewEpisodeId ||
       deckViewPendingEpisodeRef.current === viewEpisodeId
     )
       return;
     deckViewPendingEpisodeRef.current = viewEpisodeId;
     let canceled = false;
-    const recordViewed = (guideState: 'completed' | 'pending' | 'unknown') => {
+    const recordViewed = (guideState: 'shown' | 'pending' | 'completed' | 'unknown') => {
       if (canceled) return;
       logGroupCardDeckViewed({
         group_count_bucket: countBucket,
@@ -318,9 +328,12 @@ export default function GroupListScreen({
     };
     AsyncStorage.getItem(STORAGE_KEYS.guideGroupDeck)
       .then((value) => {
-        recordViewed(value === '1' ? 'completed' : 'pending');
+        const incomplete = value !== '1';
+        setDeckGuideVisible(incomplete);
+        recordViewed(incomplete ? (guideBlocked ? 'pending' : 'shown') : 'completed');
       })
       .catch(() => {
+        setDeckGuideVisible(false);
         recordViewed('unknown');
       });
     return () => {
@@ -333,14 +346,43 @@ export default function GroupListScreen({
 
   const deckInputReady = screenFocused && deckInputEpisode === viewEpisodeId;
 
+  const deckGuideSteps: GuideStep[] = useMemo(
+    () => [
+      {
+        text: '내 그룹이 카드로 모였어. 같이 둘러보자!',
+        character: require('@/assets/character_hi.png'),
+      },
+      {
+        text:
+          orderedGroups.length >= 2
+            ? '옆으로 넘기면 다른 그룹을 볼 수 있어.'
+            : '이 카드가 내 그룹이야. 그룹이 늘면 옆으로 넘길 수 있어.',
+        character: require('@/assets/character_study.png'),
+      },
+      {
+        text: '카드를 탭하면 같은 자리에서 오늘의 방 상태를 볼 수 있어.',
+        character: require('@/assets/character_study.png'),
+      },
+      {
+        text: '여기서 바로 집중하거나 방 전체를 열어봐.',
+        character: require('@/assets/character_happy.png'),
+      },
+    ],
+    [orderedGroups.length],
+  );
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    // 당겨서 새로고침은 사용자가 명시적으로 최신 상태를 요구한 경계다. 이전 ready/error를
+    // 먼저 폐기해, 후속 목록 요청의 성공 여부와 무관하게 다음 flip이 오래된 요약을 재사용하지 않는다.
+    summaryAdapter.invalidateBack();
     try {
       await onRefresh();
+      if (flippedGroupId !== null) await summaryAdapter.ensureBack(flippedGroupId);
     } finally {
       if (mountedRef.current) setRefreshing(false);
     }
-  }, [onRefresh]);
+  }, [flippedGroupId, onRefresh, summaryAdapter]);
 
   const selectPage = useCallback(
     (page: number) => {
@@ -817,6 +859,14 @@ export default function GroupListScreen({
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>
       </View>
+
+      {deckGuideVisible && screenFocused && !guideBlocked && (
+        <TabGuideOverlay
+          storageKey={STORAGE_KEYS.guideGroupDeck}
+          steps={deckGuideSteps}
+          onFinish={() => setDeckGuideVisible(false)}
+        />
+      )}
     </View>
   );
 }

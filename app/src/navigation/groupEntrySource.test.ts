@@ -19,3 +19,10 @@ test('focus 전에 연속 외부 진입이 와도 최초 source를 덮어쓰지 
 
   expect(consumeGroupEntry('tab')).toBe('invite');
 });
+
+test('명시적으로 닫은 외부 진입은 다음 인증 episode에 남지 않는다', () => {
+  queueDirectGroupEntry('invite');
+  clearPendingGroupEntry();
+
+  expect(consumeGroupEntry('tab')).toBe('tab');
+});

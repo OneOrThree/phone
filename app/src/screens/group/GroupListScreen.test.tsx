@@ -5,13 +5,13 @@
 //     그룹에만** 붙는다. role을 뭉개면 남의 그룹에 방장 표시가 붙어 잘못된 권한을 기대하게 된다.
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AccessibilityInfo, View } from 'react-native';
 import * as ReactNative from 'react-native';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { getChallenges } from '@/services/groupApi';
+import { getAnnouncements, getChallenges, getGroupDetail } from '@/services/groupApi';
 import { getMyRanking } from '@/services/leagueApi';
 import {
   logGroupCardActionClicked,
@@ -36,6 +36,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardReordered: jest.fn(),
   logGroupCarouselPaged: jest.fn(),
   logGroupFindOpened: jest.fn(),
+  logTabGuideCompleted: jest.fn(),
 }));
 
 jest.mock('@/services/groupApi', () => ({
@@ -136,6 +137,12 @@ describe('카드 렌더', () => {
     await act(async () => release());
     expect(await screen.findByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen();
     expect(logGroupCardDeckViewed).toHaveBeenCalledTimes(1);
+    expect(await screen.findByTestId('guide.overlay')).toBeOnTheScreen();
+    await press('guide.overlay');
+    await press('guide.overlay');
+    await press('guide.overlay');
+    await press('guide.overlay');
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.guideGroupDeck, '1');
   });
 
   test('같은 focus episode에서 sheet 차단 상태가 바뀌어도 덱 노출을 중복 기록하지 않는다', async () => {
@@ -335,6 +342,7 @@ describe('콜백', () => {
     };
     const view = await render(<GroupListScreen {...props} screenFocused viewEpisodeId={0} />);
     await press(`group.card.${GROUP_ID}`);
+    await waitFor(() => expect(getGroupDetail).toHaveBeenCalledTimes(1));
     await press(`group.card.room.${GROUP_ID}`);
     setFocus.mockClear();
 
@@ -344,6 +352,9 @@ describe('콜백', () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
     expect(setFocus).toHaveBeenCalledTimes(1);
+    expect(getGroupDetail).toHaveBeenCalledTimes(2);
+    expect(getAnnouncements).toHaveBeenCalledTimes(2);
+    expect(getChallenges).toHaveBeenCalledTimes(2);
   });
 
   test('KST 날짜가 바뀌면 열린 뒷면의 날짜 의존 요약과 focus를 즉시 다시 조회한다', async () => {
@@ -571,6 +582,19 @@ describe('콜백', () => {
       finish();
     });
     expect(control().refreshing).toBe(false);
+  });
+
+  test('열린 뒷면은 당겨서 새로고침 뒤 기존 read API를 다시 조합한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+    await waitFor(() => expect(getGroupDetail).toHaveBeenCalledTimes(1));
+
+    const control = screen.getByTestId('group.list.items').props.refreshControl.props;
+    await act(async () => control.onRefresh());
+
+    expect(getGroupDetail).toHaveBeenCalledTimes(2);
+    expect(getAnnouncements).toHaveBeenCalledTimes(2);
+    expect(getChallenges).toHaveBeenCalledTimes(2);
   });
 });
 

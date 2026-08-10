@@ -75,6 +75,12 @@ export class KeyedDependencyCache<T> {
     if (changed) this.emit();
   }
 
+  clear(): void {
+    if (this.entries.size === 0) return;
+    this.entries.clear();
+    this.emit();
+  }
+
   private start(key: string): Promise<DependencyState<T>> {
     const entry: CacheEntry<T> = { state: { status: 'loading' }, inFlight: null };
     this.entries.set(key, entry);
@@ -190,6 +196,16 @@ export class GroupCardSummaryAdapter<TFocus> {
         ? this.focus.ensure(scope.userId, scope.date)
         : Promise.resolve(focusState),
     ]);
+  }
+
+  /**
+   * 성공 목록 새로고침이나 그룹방 복귀 때 이전 ready/error 결과를 버린다. 진행 중이던 요청도
+   * Map identity 검증에서 폐기되므로, invalidate 뒤 시작한 최신 요청을 늦게 덮지 못한다.
+   */
+  invalidateBack(): void {
+    this.detail.clear();
+    this.announcements.clear();
+    this.challenges.clear();
   }
 
   async retry(groupId: string, dependency: GroupDependency): Promise<void> {
