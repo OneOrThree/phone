@@ -371,6 +371,14 @@ describe('카드 렌더', () => {
     expect(peek.props.accessibilityElementsHidden).toBe(true);
     expect(peek.props.importantForAccessibility).toBe('no-hide-descendants');
     expect(peek.props.pointerEvents).toBe('none');
+    expect(
+      screen.getByTestId(`group.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .focusable,
+    ).toBe(false);
+    expect(
+      screen.getByTestId(`group.card.grip.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .focusable,
+    ).toBe(false);
   });
 
   test('현재 계정의 저장 아이콘을 카드에 적용하고 미설정은 🎯로 표시한다', async () => {

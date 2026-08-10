@@ -993,6 +993,7 @@ export default function GroupListScreen({
                       position={index + 1}
                       pageCount={pageCount}
                       reorderCount={orderedGroups.length}
+                      active={index === activeIndex}
                       gripRef={(node) => {
                         if (node) reorderGripRefs.current.set(item.groupId, node);
                         else reorderGripRefs.current.delete(item.groupId);
