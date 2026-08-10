@@ -11,14 +11,25 @@
 // ⚠️ reanimated는 CSS 애니메이션 프로퍼티를 호스트 뷰의 style에서 걷어내 자체 관리로 넘긴다 —
 //    그래서 단언은 props.jestInlineStyle로 한다.
 import { render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { View } from 'react-native';
 import { RankRowShell } from './RankRowShell';
 
 // 껍데기 자신에겐 testID가 없다(실제 리스트에서도 없다 — Maestro는 행 안쪽을 집는다).
 // 자식에 testID를 두고 부모(=껍데기 루트 Animated.View)를 집는다.
+function zIndexOf(testID: string): number | undefined {
+  const shell = screen.getByTestId(testID).parent;
+  const flat = StyleSheet.flatten(shell?.props.style) as { zIndex?: number } | undefined;
+  return flat?.zIndex;
+}
+
+// 스타일이 배열(zIndex + 진입 프리셋)이 되면서 평탄화가 필요해졌다.
 function delayOf(testID: string): string | undefined {
   const shell = screen.getByTestId(testID).parent;
-  return shell?.props.jestInlineStyle?.animationDelay;
+  const flat = StyleSheet.flatten(shell?.props.jestInlineStyle) as
+    | { animationDelay?: string }
+    | undefined;
+  return flat?.animationDelay;
 }
 
 describe('진입 시차 고정', () => {
@@ -50,5 +61,32 @@ describe('진입 시차 고정', () => {
 
     // stagger 기본 간격 60ms × 3
     expect(delayOf('row')).toBe('180ms');
+  });
+
+  // ⚠️ 스왑 중에는 올라가는 행이 위에 그려져야 한다 — 기본 그리기 순서로는 밀려나는 행이
+  //    주인공을 덮는다(codex 리뷰, 정본 시안도 상승 2 · 하강 1을 명시).
+  test('자리가 올라간 행은 스왑 동안 위에 그려진다', async () => {
+    const view = await render(
+      <RankRowShell index={3}>
+        <View testID="row" />
+      </RankRowShell>,
+    );
+    expect(zIndexOf('row')).toBe(1);
+
+    // 3번째 → 1번째로 올라간 커밋
+    await view.rerender(
+      <RankRowShell index={1}>
+        <View testID="row" />
+      </RankRowShell>,
+    );
+    expect(zIndexOf('row')).toBe(2);
+
+    // 자리가 그대로인 다음 단계에서는 되돌아간다
+    await view.rerender(
+      <RankRowShell index={1}>
+        <View testID="row" />
+      </RankRowShell>,
+    );
+    expect(zIndexOf('row')).toBe(1);
   });
 });

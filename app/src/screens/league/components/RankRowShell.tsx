@@ -1,5 +1,5 @@
-import { useRef, type ReactNode } from 'react';
-import type { LayoutChangeEvent } from 'react-native';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { StyleSheet, type LayoutChangeEvent } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { enterUp } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
@@ -35,13 +35,30 @@ interface Props {
 export function RankRowShell({ index, onLayout, children }: Props) {
   const m = useMotion();
   const enterIndex = useRef(index).current;
+  // ⚠️ 스왑 중에는 **올라가는 행이 위에 그려져야 한다.** 목표 배열에서 상승 행이 먼저·하강 행이
+  //    나중 형제라 기본 그리기 순서로는 밀려나는 행이 위를 덮는다 — 두 카드가 교차하는 동안
+  //    이 연출의 주인공이 가려진다(codex 리뷰). 정본 시안(ui.html)도 상승 2 · 하강 1을 명시한다.
+  //    layout 트랜지션은 originX/Y·크기만 다루므로 zIndex는 스타일로 준다.
+  //    ⚠️ 직전 렌더의 자리와 비교한다. 이 값은 자리가 바뀐 **그 커밋**에서만 참이고, 다음
+  //       단계(390ms 뒤) 렌더에서 자연히 1로 돌아간다 — 트랜지션이 도는 동안만 유지된다.
+  const prevIndexRef = useRef(index);
+  const rising = index < prevIndexRef.current;
+  useEffect(() => {
+    prevIndexRef.current = index;
+  }, [index]);
   return (
     <Animated.View
       layout={m.css(rankSwap)}
-      style={m.enter(enterUp(enterIndex))}
+      style={[rising ? z.rising : z.falling, m.enter(enterUp(enterIndex))]}
       onLayout={onLayout}
     >
       {children}
     </Animated.View>
   );
 }
+
+// 스왑 중 그리기 순서 — 정본 시안(ui.html)의 상승 2 · 하강 1.
+const z = StyleSheet.create({
+  rising: { zIndex: 2 },
+  falling: { zIndex: 1 },
+});
