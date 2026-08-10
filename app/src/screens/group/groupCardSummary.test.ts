@@ -201,4 +201,50 @@ describe('GroupCardSummaryAdapter', () => {
     expect(adapter.getSnapshot(GROUP_A)).not.toBe(first);
     expect(adapter.getSnapshot(GROUP_A)?.focus.status).toBe('ready');
   });
+
+  test('계정 전환은 세 캐시를 모두 폐기한 snapshot을 한 번만 알린다', async () => {
+    const focus = createFocus();
+    const adapter = new GroupCardSummaryAdapter(focus, {
+      detail: jest.fn().mockResolvedValue(detail(GROUP_A)),
+      announcements: jest.fn().mockResolvedValue([{ id: 'notice-a' }]),
+      challenges: jest.fn().mockResolvedValue([{ id: 'challenge-a' }]),
+    });
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+    await adapter.ensureBack(GROUP_A);
+
+    const snapshots: Array<ReturnType<typeof adapter.getSnapshot>> = [];
+    adapter.subscribe(() => snapshots.push(adapter.getSnapshot(GROUP_A)));
+    focus.state = { status: 'idle' };
+    adapter.setScope({
+      userId: '00000000-0000-0000-0000-000000000002',
+      date: DATE,
+      groupIds: [GROUP_A],
+    });
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toEqual({
+      detail: { status: 'idle' },
+      announcements: { status: 'idle' },
+      challenges: { status: 'idle' },
+      focus: { status: 'idle' },
+    });
+  });
+
+  test('dispose 뒤에는 focus 갱신이 폐기된 adapter 구독자를 깨우지 않는다', () => {
+    const focus = createFocus();
+    const adapter = new GroupCardSummaryAdapter(focus, {
+      detail: jest.fn(),
+      announcements: jest.fn(),
+      challenges: jest.fn(),
+    });
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+    const listener = jest.fn();
+    adapter.subscribe(listener);
+
+    adapter.dispose();
+    focus.emit();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(adapter.getSnapshot(GROUP_A)).toBeNull();
+  });
 });
