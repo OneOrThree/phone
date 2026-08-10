@@ -132,6 +132,7 @@ stateDiagram-v2
     state "가입 검토" as Review
     state "생성 중" as Creating
     state "성공한 전체 소속 목록 확인" as Refresh
+    state "소속 목록 오류" as RefreshError
     state "현재 그룹 소속 중" as Active
     state "다른 내 그룹 탐색" as OtherGroups
     state "방 사용" as Room
@@ -146,6 +147,8 @@ stateDiagram-v2
     Creating --> Refresh: 서버 생성 성공
     Creating --> None: 취소 또는 실패
     Refresh --> Active: 대상 groupId가 목록에 확인됨
+    Refresh --> RefreshError: 조회 실패 또는 부분 응답
+    RefreshError --> Refresh: 다시 시도
 
     Active --> Room: 그룹 방 열기
     Room --> Active: 뒤로 가기
