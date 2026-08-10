@@ -244,6 +244,31 @@ export function calendarPage(period: 'WEEK' | 'MONTH', offset: number): Calendar
   };
 }
 
+/**
+ * 캘린더 그리드를 7칸 행으로 나눈 결과 — 월은 1일 요일 정렬용 앞 빈 칸 + 마지막 행 채움 빈 칸.
+ *
+ * ⚠️ **행 수를 아는 곳이 두 군데다** — 실제 그리드(CalendarCard)와 로딩 스켈레톤의 카드 높이
+ *    (constants.skeletonCards). 같은 식을 두 번 구현하면 어긋난다. 월은 달마다 5행이거나
+ *    6행이라(예: 2026-08 = 앞 빈칸 5 + 31일 = 36칸 = 6행) 어긋나면 도착 순간 카드가 한 행
+ *    (≈52px) 갑자기 커진다. 그래서 분할을 여기 한 번만 두고 양쪽이 이걸 쓴다.
+ */
+export function calendarRows(period: 'WEEK' | 'MONTH', offset: number): (string | null)[][] {
+  const page = calendarPage(period, offset);
+  const slots: (string | null)[] = [
+    ...Array.from({ length: page.leadingBlanks }, () => null),
+    ...page.days,
+  ];
+  while (slots.length % 7 !== 0) slots.push(null);
+  const rows: (string | null)[][] = [];
+  for (let i = 0; i < slots.length; i += 7) rows.push(slots.slice(i, i + 7));
+  return rows;
+}
+
+/** 캘린더 그리드 행 수 — 스켈레톤 카드 높이 계산용. 분할은 calendarRows 한 곳에만 있다. */
+export function calendarRowCount(period: 'WEEK' | 'MONTH', offset: number): number {
+  return calendarRows(period, offset).length;
+}
+
 // 막대/점 1개(집중/폰 사용 공용).
 export interface StatBar {
   label: string;

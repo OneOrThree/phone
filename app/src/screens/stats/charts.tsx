@@ -1,9 +1,16 @@
 // 통계 공용 차트 — 분량 축 선그래프(LineChart)와 첫 시작 시각 점 차트(FirstStartChart).
 // 세로축·격자·탭 말풍선 스캐폴딩(스타일)을 공유해 한 파일에 둔다.
-import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
+import Animated, {
+  useAnimatedProps,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
+import { M, fadeIn } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { getAllFocusSessions } from '@/services/focusApi';
@@ -17,10 +24,89 @@ import {
   type StatBar,
   type StartTimePoint,
 } from './format';
-import { FOCUS_COLOR } from './constants';
+import { CHART_BLOCK_H, CHART_H, FIRST_START_BODY_H, FOCUS_COLOR } from './constants';
+import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 
-const CHART_H = 120;
+// 진입 애니메이션을 걸려면 Animated 컴포넌트여야 한다 — 격자·라벨은 제자리에 둔 채
+// **플롯 캔버스(SVG)만** 움직인다(GROMO-1381).
+const AnimatedSvg = Animated.createAnimatedComponent(Svg);
+const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+// 꺾은선 진입 — **왼쪽에서 오른쪽으로 그린다**(정책 D16).
+//
+// ⚠️ growUp(scaleY 0→1)은 **막대 전용**이다. 막대는 '값이 곧 높이'라 바닥에서 자라는 게 값의
+//    의미와 같지만, 꺾은선의 의미는 **시간축을 따라 이어지는 궤적**이다. 선 전체를 아래에서
+//    눌렀다 펴면 모든 요일이 동시에 자라 "왼쪽부터 지나온 시간"이라는 뜻이 사라지고,
+//    오버슛 구간에서는 선이 목표 높이를 넘었다 돌아와 값이 실제보다 크게 보이는 프레임이 생긴다.
+//
+// 구현은 `ProgressRing`과 같은 기법이다 — 선 길이만큼의 파선을 깔고 시작 오프셋만 당긴다.
+// 매 프레임 points를 다시 만들지 않아도 선이 자란다.
+//
+// ⚠️ **시퀀스 전체는 선 그리기(entrance)보다 점 팝(quick) 하나만큼 길다.**
+//    선이 끝나는 순간(진행률 `LINE_SPAN`)에 맞춰 마지막 점의 팝이 **시작**하고, 남은 구간에서
+//    끝난다. 이 여유가 없으면 누적 길이 비율이 1인 마지막 점은 팝에 쓸 시간이 0이라 반지름이
+//    0에 머문 채 끝나 **영영 보이지 않는다**(codex 리뷰). 다른 점들은 뒤에 선이 더 남아 있어
+//    저절로 시간이 확보되므로, 마지막 점만 겪는 문제다.
+const DRAW_MS = M.dur.entrance + M.dur.quick;
+/** 선 그리기가 끝나는 진행률. 이 뒤 구간은 마지막 점의 팝에 쓴다. */
+const LINE_SPAN = M.dur.entrance / DRAW_MS;
+/** 점 하나가 튀어나오는 데 쓰는 진행률 폭 */
+const DOT_POP_SPAN = M.dur.quick / DRAW_MS;
+
+// 점이 뜨는 시점 = 그 점까지의 **누적 길이 비율**.
+// ⚠️ `i * 60ms` 같은 상수 시차를 쓰면 안 된다 — 구간마다 길이가 달라(꺾임이 클수록 길다)
+//    점이 선보다 먼저 뜨거나 뒤늦게 따라온다.
+export function drawOnRatios(pts: { x: number; y: number }[]): { total: number; at: number[] } {
+  if (pts.length < 2) return { total: 0, at: pts.map(() => 0) };
+  const segs = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i].x, p.y - pts[i].y));
+  const total = segs.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  return { total, at: [0, ...segs.map((s) => (acc += s) / (total || 1))] };
+}
+
+/**
+ * 점 하나가 뜨고(start) 제 크기가 되는(end) 진행률 구간.
+ *
+ * ⚠️ `end`가 1을 넘으면 그 점은 **끝까지 제 크기가 되지 못한다.** 특히 누적 길이 비율이 1인
+ *    마지막 점은 여유가 0이면 반지름 0에 머문 채 끝나 영영 보이지 않는다(codex 리뷰).
+ */
+export function dotWindow(at: number): { start: number; end: number } {
+  const start = at * LINE_SPAN;
+  return { start, end: start + DOT_POP_SPAN };
+}
+
+// 점 하나 — 선이 자기 자리를 지나가는 순간 튀어나온다.
+// ⚠️ 워클릿 안에서는 산술만 쓴다(이징 객체를 부르지 않는다). easeOutBack을 식으로 편다.
+function DrawOnDot({
+  cx,
+  cy,
+  r,
+  color,
+  at,
+  progress,
+}: {
+  cx: number;
+  cy: number;
+  r: number;
+  color: string;
+  at: number;
+  progress: SharedValue<number>;
+}) {
+  const animatedProps = useAnimatedProps(() => {
+    // 선이 이 점을 지나가는 시각 — 선 그리기 구간(LINE_SPAN) 안으로 눌러 매핑한다.
+    const start = at * LINE_SPAN;
+    const p = progress.value;
+    if (p < start) return { r: 0, opacity: 0 };
+    const k = Math.min(1, (p - start) / DOT_POP_SPAN);
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    const e = k >= 1 ? 1 : 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2;
+    return { r: r * e, opacity: 1 };
+  });
+  return <AnimatedCircle cx={cx} cy={cy} fill={color} animatedProps={animatedProps} />;
+}
 
 // 선그래프 — BarChart와 같은 데이터(StatBar[])·세로축 구조를 쓰되 값을 점+꺾은선으로 잇는다(주 탭, GROMO-761).
 // 점의 x좌표는 아래 라벨 칼럼(flex 균등 분할)의 중앙과 일치. 직선·원은 SVG가 필요해 react-native-svg 사용.
@@ -30,11 +116,34 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
   const [plotW, setPlotW] = useState(0);
   // 탭한 칼럼의 실값 말풍선(GROMO-849) — 같은 칼럼 재탭이면 닫힘. 기간 탭 전환 시 언마운트로 초기화.
   const [picked, setPicked] = useState<number | null>(null);
-  if (bars.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
-  }
+  const mo = useMotion();
+
+  // 그리기 진행률 0→1. 선의 dash 오프셋과 점의 등장 시점을 한 값으로 묶는다.
+  // ⚠️ 훅은 아래 빈 상태 early return **앞**에 있어야 한다(훅 순서 규칙).
+  const progress = useSharedValue(0);
+  // 진입은 **인스턴스당 1회**다. 이전 구현(CSS animationName)이 노드 마운트에만 재생됐던 것과
+  // 같게 맞춘다 — 탭 전환·재조회로 값이 바뀔 때마다 다시 그리면 산만하다.
+  const startedRef = useRef(false);
+  useEffect(() => {
+    // ⚠️ `mo.ready` 전에는 시작하지 않는다. '동작 줄이기' 조회가 끝나기 전 `mo.reduce`는
+    //    보수적으로 true라, 그 값으로 확정하면 설정을 켜지 않은 사용자가 연출을 영영 잃는다
+    //    (정책 D-30). 확정 전에는 시작 상태(선 없음)로 대기한다.
+    // ⚠️ `plotW > 0`이라야 좌표가 정해진다 — 그 전에 시작하면 길이 0짜리 선을 그린다.
+    if (startedRef.current || plotW <= 0 || !mo.ready) return;
+    startedRef.current = true;
+    progress.value = 0;
+    // reduce면 mo.timing이 목표값을 그대로 돌려준다 — 즉시 완성된 선.
+    progress.value = mo.timing(1, {
+      // 선(entrance) + 마지막 점 팝(quick). 위 LINE_SPAN 주석 참고.
+      duration: DRAW_MS,
+      easing: M.curve.standard.fn,
+    });
+  }, [mo, plotW, progress]);
+
+  // ⚠️ 좌표 계산을 빈 상태 early return **위로** 올렸다 — 아래 `useAnimatedProps`가 선 길이를
+  //    필요로 하는데, 훅은 조건부로 부를 수 없다. bars가 비면 pts도 비고 total은 0이 된다.
   const axisMax = axisCeil(Math.max(...bars.map((b) => b.value), 1));
-  const step = plotW / bars.length;
+  const step = plotW / (bars.length || 1);
   const tip = picked != null && picked < bars.length && !bars[picked].future ? bars[picked] : null;
   const tipX = step * ((picked ?? 0) + 0.5);
   const tipY = tip ? CHART_H - (tip.value / axisMax) * CHART_H : 0;
@@ -47,6 +156,16 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
       y: CHART_H - (b.value / axisMax) * CHART_H,
       current: b.current,
     }));
+  const draw = drawOnRatios(pts);
+  const lineProps = useAnimatedProps(() => ({
+    // 선은 LINE_SPAN 에서 이미 완성된다 — 남은 구간은 마지막 점의 팝 몫이다.
+    strokeDashoffset: draw.total * (1 - Math.min(1, progress.value / LINE_SPAN)),
+  }));
+
+  if (bars.length === 0) {
+    // 빈 상태도 조회 중과 같은 높이 — 한 줄로 줄면 아래 카드가 통째로 올라온다
+    return <CardBodyEmpty height={CHART_BLOCK_H}>아직 기록이 없어요</CardBodyEmpty>;
+  }
   return (
     <View style={s.chartPlotRow}>
       {/* 세로축 — 상한·⅔·⅓ 눈금 3줄 (막대 차트와 동일) */}
@@ -69,23 +188,31 @@ export function LineChart({ bars, color }: { bars: StatBar[]; color: string }) {
         {plotW > 0 && (
           // 캔버스를 점 반지름만큼 사방으로 키우고 음수 마진으로 되돌림 — 상단(최댓값)·바닥(0)의
           // 점이 캔버스 경계에서 잘리지 않게 (SVG는 자기 영역 밖을 클리핑)
+          // 캔버스 자체는 움직이지 않는다 — 선과 점만 그려진다(정책 D16, 위 drawOnRatios 주석).
           <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
-            <Polyline
+            <AnimatedPolyline
               points={pts.map((p) => `${p.x + DOT_PAD},${p.y + DOT_PAD}`).join(' ')}
               fill="none"
               stroke={color}
               strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              // 선 길이만큼의 파선 하나 — 오프셋을 0까지 당기면 왼쪽부터 그려진다.
+              strokeDasharray={`${draw.total} ${draw.total}`}
+              animatedProps={lineProps}
             />
             {pts.map((p, i) => (
-              <Circle
+              <DrawOnDot
                 key={i}
                 cx={p.x + DOT_PAD}
                 cy={p.y + DOT_PAD}
                 r={p.current ? 4.5 : 3}
-                fill={color}
+                color={color}
+                at={draw.at[i] ?? 0}
+                progress={progress}
               />
             ))}
-            {/* 선택 강조 링 — 탭한 점 둘레 */}
+            {/* 선택 강조 링 — 탭한 점 둘레. 사용자가 탭해서 뜨는 것이라 진입 연출과 무관하다. */}
             {tip && (
               <Circle
                 cx={tipX + DOT_PAD}
@@ -186,16 +313,12 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   );
 
   if (points === null) {
-    return (
-      <View style={cs.compareLoading}>
-        <ActivityIndicator color={T.accent} size="small" />
-      </View>
-    );
+    return <CardBodyLoading height={FIRST_START_BODY_H} testID="stats.firstStart.loading" />;
   }
 
   const vals = points.filter((p) => !p.future && p.minutes != null).map((p) => p.minutes as number);
   if (vals.length === 0) {
-    return <Text style={cs.emptyText}>아직 기록이 없어요</Text>;
+    return <CardBodyEmpty height={FIRST_START_BODY_H}>아직 기록이 없어요</CardBodyEmpty>;
   }
 
   // 세로축 경계 — 정시로 내리고 폭을 3시간 배수로 맞춰 ⅓·⅔ 눈금도 정시가 되게 한다
@@ -246,23 +369,7 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
           <View style={[s.chartGridLine, s.chartGridLower]} />
           <View style={[s.chartGridLine, s.chartGridBottom]} />
           {plotW > 0 && (
-            <Svg width={plotW + DOT_PAD * 2} height={CHART_H + DOT_PAD * 2} style={s.lineSvg}>
-              {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
-              {pts.map((p, i) => (
-                <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
-              ))}
-              {/* 선택 강조 링 — 탭한 점 둘레 */}
-              {tipMin != null && (
-                <Circle
-                  cx={tipX + DOT_PAD}
-                  cy={tipY + DOT_PAD}
-                  r={8}
-                  stroke={FOCUS_COLOR}
-                  strokeWidth={2}
-                  fill="none"
-                />
-              )}
-            </Svg>
+            <FirstStartPlot plotW={plotW} pts={pts} tipMin={tipMin} tipX={tipX} tipY={tipY} />
           )}
           {/* 칼럼별 탭 영역 — 해당 칼럼 아무 데나 탭하면 첫 시작 시각 표시 */}
           <View style={s.lineTapRow}>
@@ -313,10 +420,60 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   );
 }
 
+// ⚠️ **자기 useMotion을 갖는 게 이 컴포넌트의 존재 이유다.** 이 플롯은 세션 조회와 plotW
+//    레이아웃이 끝난 **뒤에야** 마운트되는데, 부모(FirstStartChart)의 진입 결정에 묶이면
+//    조회 중 사용자가 '동작 줄이기'를 켰어도 과거 결정대로 페이드된다(codex 리뷰).
+//    캘린더 행·주간 블록에 Enter를 쓴 것과 같은 처방이고, 여기는 Animated.View가 아니라
+//    AnimatedSvg라 Enter 대신 컴포넌트로 뺐다 — 뷰를 새로 끼운 게 아니다(D-04 유지).
+function FirstStartPlot({
+  plotW,
+  pts,
+  tipMin,
+  tipX,
+  tipY,
+}: {
+  plotW: number;
+  pts: { x: number; y: number }[];
+  tipMin: number | null;
+  tipX: number;
+  tipY: number;
+}) {
+  const mo = useMotion();
+  return (
+    <AnimatedSvg
+      width={plotW + DOT_PAD * 2}
+      height={CHART_H + DOT_PAD * 2}
+      // ⚠️ 여기만 growUp이 아니다. 이 차트의 세로축은 **시각**이라 바닥이 0이 아니다
+      // (axisMin은 데이터에서 정해진다). 바닥부터 자라게 하면 "0에서 이만큼 커졌다"는
+      // 뜻이 되어 값의 의미를 왜곡한다 — 이동 없이 불투명도만 쓰는 fadeIn을 고른다.
+      style={[s.lineSvg, mo.enter(fadeIn())]}
+    >
+      {/* 선 없이 점만이라 크게(r 5, DOT_PAD 안) — 오늘 강조는 크기 대신 라벨 볼드만 */}
+      {pts.map((p, i) => (
+        <Circle key={i} cx={p.x + DOT_PAD} cy={p.y + DOT_PAD} r={5} fill={FOCUS_COLOR} />
+      ))}
+      {/* 선택 강조 링 — 탭한 점 둘레 */}
+      {tipMin != null && (
+        <Circle
+          cx={tipX + DOT_PAD}
+          cy={tipY + DOT_PAD}
+          r={8}
+          stroke={FOCUS_COLOR}
+          strokeWidth={2}
+          fill="none"
+        />
+      )}
+    </AnimatedSvg>
+  );
+}
+
 const s = StyleSheet.create({
   chartPlotRow: { flexDirection: 'row', marginTop: T.space.lg },
-  // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지
+  // 선그래프 — 확장 캔버스를 음수 마진으로 되돌려 레이아웃(격자 정렬)은 그대로 유지.
+  // transformOrigin은 growUp(scaleY 0→1)이 **바닥부터** 자라기 위한 정적 스타일이다
+  // (애니메이션 프로퍼티가 아니라 여기 있어야 한다 — motion.ts growUp 주석).
   lineSvg: {
+    transformOrigin: 'bottom',
     marginTop: -DOT_PAD,
     marginBottom: -DOT_PAD,
     marginLeft: -DOT_PAD,
