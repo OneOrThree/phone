@@ -449,8 +449,16 @@ export default function ChallengeCard({
   // 내기가 켜져 있는가 — **betConfig가 있으면 그것이 정본**이다(오늘 회차 유무와 무관한 설정).
   // 없으면 종전대로 오늘 내기 객체에서 읽는다(브리지 응답·구서버).
   const betOn = betConfig !== undefined ? betConfig.enabled : bet !== null && bet.enabled !== false;
-  // 예약 확인 시트에 적을 참가비 — 오늘 회차가 없으면 설정값이 유일한 출처다.
-  const reserveStake = bet?.stake ?? betConfig?.stake ?? 0;
+  // 참가비 두 축을 구분한다(#572/B8 — 돈 경로 계약):
+  //   reserveStake  = **지금 설정값**(betConfig) — 아직 열리지 않은 회차에 앞으로 박제될 금액.
+  //                   주간 예약(join-week)은 대상이 여러 날이고 각 날짜의 박제값을 알 수 없어
+  //                   이 값으로 합계를 낸다(실제와 갈리면 서버 총액 판정이 정본 — 알려진 한계).
+  //   nextStake     = **다음 활성일 회차에 박제된 금액**(nextSessionStake). 회차가 이미 열려
+  //                   있으면 `join-next`가 차감하는 건 이 값이다 — 설정이 낮아졌거나 브리지
+  //                   기간에 구앱이 다른 stake로 열었으면 둘이 갈리고, 이 값을 안 보면 화면이
+  //                   안내한 금액보다 더 많이 차감된다. null(회차 미개설)이면 설정값으로 폴백.
+  const reserveStake = betConfig?.stake ?? bet?.stake ?? 0;
+  const nextStake = challenge.nextSessionStake ?? reserveStake;
   // 오늘 회차로 더 참가할 수 없다(회차 없음 = 쉬는 날·미개설 / 참가 마감 경과) — 이 카드의 행동은
   // '다음 활성일 예약'으로 넘어간다. 단 **이미 참가 중이면** 참여 중 행·취소 동선이 우선이다.
   const todayJoinClosed =
@@ -467,7 +475,8 @@ export default function ChallengeCard({
     betOn &&
     betOpenable &&
     challenge.canParticipate &&
-    reserveStake > 0 &&
+    // 예약 진입점의 금액 축은 박제값(nextStake)이다 — 안내와 차감이 어긋나면 안 된다.
+    nextStake > 0 &&
     nextDate !== null;
   // 「이번 주 남은 날 전부」(GROMO-1276 — N14·§C2) 대상 산출: 이번 주(KST 월~일) 남은 활성일 중
   // 참가 가능 회차. 오늘은 '지금 참여 가능한 미참가 회차'일 때만(창형은 참가 마감 전 — N39와 같은
@@ -993,11 +1002,12 @@ export default function ChallengeCard({
             // ⓪-v2 오늘 참가가 닫혔다(쉬는 날·회차 미개설·참가 마감 경과 — LLD §2.1 분기 1,
             //    GROMO-1419). 다음 활성일 시각·참가비를 보여주고 **1건**을 지금 예약하게 한다(N45).
             //    이미 예약했으면 버튼 대신 예약 상태 + 「참여 취소」 동선이다(N27·FR-31-1).
-            //    참가비는 오늘 회차가 없어도 알 수 있다 — betConfig가 정본이다(reserveStake).
+            //    참가비는 **다음 회차에 박제된 값**(nextStake)이다 — 회차가 이미 열려 있으면
+            //    설정값과 갈릴 수 있고, 그때 차감되는 건 박제값이다(#572/B8).
             <>
               <View style={s.betRow}>
                 <Text style={s.betText}>{nextDayPhrase(nextDate, todayKst, startHHmm)}</Text>
-                <Text style={s.betTomorrowTag}>{reserveStake}코인</Text>
+                <Text style={s.betTomorrowTag}>{nextStake}코인</Text>
                 {challenge.nextSessionJoined === true && (
                   <>
                     <Text style={s.betJoinedTag}>참여 중</Text>
@@ -1005,7 +1015,7 @@ export default function ChallengeCard({
                       style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
                       activeOpacity={0.8}
                       disabled={leaveBusy}
-                      onPress={() => confirmLeaveNext(reserveStake)}
+                      onPress={() => confirmLeaveNext(nextStake)}
                       accessibilityRole="button"
                       accessibilityLabel={`${fmtMonthDayDow(nextDate)} 참여 취소`}
                       testID={`group.bet.leaveNext.${challenge.id}`}
@@ -1240,15 +1250,16 @@ export default function ChallengeCard({
           갈아 끼운다(카드가 시트·API를 직접 쥐는 이유는 히스토리 push와 같다 — 부모는 형제
           워크스트림 전유라 배선을 늘리지 않는다). */}
       {/* ⚠️ 마운트 조건에 `bet !== null`을 두면 **회차 없는 날 버튼이 무반응**이 된다(#570 codex ①)
-          — 그 날이 바로 이 시트가 필요한 날이다. 참가비 축은 betConfig까지 포함한 reserveStake다. */}
-      {betV2Sheet === 'next' && reserveStake > 0 && nextDate !== null && cachedGroupId !== null && (
+          — 그 날이 바로 이 시트가 필요한 날이다. 금액 축은 **박제값 우선**(nextStake)이다. */}
+      {betV2Sheet === 'next' && nextStake > 0 && nextDate !== null && cachedGroupId !== null && (
         <JoinNextSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
           label={label ?? categoryLabel(challenge)}
           sessionDate={nextDate}
           startTimeLabel={startHHmm}
-          stake={reserveStake}
+          // 표시·잔액 부족 판정 모두 이 값 축이다 — join-next가 실제로 차감하는 금액.
+          stake={nextStake}
           onClose={() => setBetV2Sheet(null)}
           onDone={() => {
             setBetV2Sheet(null);

@@ -130,6 +130,33 @@ test('잔액이 모자라면 CTA가 부족분을 들고 잠긴다', async () => 
   expect(mockJoinNext).not.toHaveBeenCalled();
 });
 
+// #572/B8 — 카드가 넘기는 stake는 **다음 회차의 박제값**이다(설정값이 아니다). 시트의 표시·
+// 잔액 판정이 같은 축을 써야 안내 금액과 차감 금액이 어긋나지 않는다.
+test('전달받은 참가비로 표시·잔액 판정을 한다 — 두 자리가 같은 축이다', async () => {
+  mockCoins = 60;
+  await render(
+    <JoinNextSheet
+      groupId={GROUP_ID}
+      challengeId={CHALLENGE_ID}
+      label="하루 60분 집중"
+      sessionDate={SESSION_DATE}
+      startTimeLabel={null}
+      stake={100} // 박제값 — 설정값(30)보다 크다
+      onClose={onClose}
+      onDone={onDone}
+    />,
+  );
+  await act(async () => {});
+
+  expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent('참가비 100 · 내 잔액 60');
+  // 판정도 같은 값으로 — 설정값(30)으로 재면 낼 수 있다고 잘못 열린다.
+  expect(screen.getByTestId('group.bet.joinNext.submit')).toHaveTextContent(
+    '코인이 부족해요 (40 필요)',
+  );
+  await submit();
+  expect(mockJoinNext).not.toHaveBeenCalled();
+});
+
 // #570 codex ② — BetSheet insufficientVerdict 패턴 이식.
 test('BET_INSUFFICIENT_BALANCE — 판정을 유지해 CTA를 잠그고, 판정 이후 잔액만 푼다', async () => {
   mockJoinNext.mockRejectedValueOnce(axiosErrorWith(409, 'BET_INSUFFICIENT_BALANCE'));

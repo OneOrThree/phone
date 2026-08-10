@@ -1907,6 +1907,47 @@ describe('v2 내기 꺼짐 (N26)', () => {
     ]);
   });
 
+  // #572/B8 nextSessionStake — 회차는 개설 시점 stake를 **박제**한다. 설정이 낮아졌거나
+  // 브리지 기간에 구앱이 다른 stake로 열었으면 설정값과 갈리고, 그때 차감되는 건 박제값이다.
+  // 안내 금액과 차감 금액이 어긋나면 사용자가 안내보다 더 잃는다 — 표시·판정 축을 박제값에 맞춘다.
+  test('다음 회차에 박제된 참가비가 있으면 카드·시트가 그 금액으로 안내한다', async () => {
+    await render(
+      <ChallengeCard
+        challenge={challenge({
+          repeatDays: ['MON', 'WED', 'FRI'],
+          activeToday: false,
+          nextSessionAt: NEXT_MON_AT,
+          bet: null,
+          betConfig: { enabled: true, stake: 30 }, // 지금 설정값
+          nextSessionStake: 100, // 이미 열린 다음 회차의 박제값 — 실제 차감액
+        })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+
+    // 카드 칩도 박제값으로 — 여기서 30을 적으면 시트에서 금액이 뒤바뀐 것처럼 읽힌다.
+    expect(screen.getByText('100코인')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`));
+    });
+    // 시트의 표시·잔액 판정 축(stake prop)도 같은 값이다.
+    expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent(/참가비 100 · 내 잔액/);
+  });
+
+  test('nextSessionStake가 null이면 설정값으로 폴백한다 — 회차 미개설이라 설정값이 박제된다', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 30 },
+      nextSessionStake: null,
+    });
+    expect(screen.getByText('30코인')).toBeOnTheScreen();
+  });
+
   test('betConfig.enabled=false면 v2 규칙대로 내기 영역 자체가 없다', async () => {
     await renderCard({
       repeatDays: ['MON', 'WED', 'FRI'],
