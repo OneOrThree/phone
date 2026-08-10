@@ -115,10 +115,13 @@ export default function GroupScreen() {
         const pendingBucket = await retryPendingGroupCardEmojis(
           userId,
           rows.map((row) => row.groupId),
+          () => seq === requestSeqRef.current,
         );
+        if (seq !== requestSeqRef.current) return;
         const storedBucket = await reconcileGroupCardEmojiBucket(
           userId,
           rows.map((row) => row.groupId),
+          () => seq === requestSeqRef.current,
         ).catch(() => ({}));
         // 디스크 재시도가 계속 실패해도 이번 실행에서 고른 최신 아이콘은 카드에 유지한다.
         emojiBucket = { ...storedBucket, ...pendingBucket };

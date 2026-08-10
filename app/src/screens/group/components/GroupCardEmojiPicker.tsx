@@ -15,10 +15,18 @@ export function GroupCardEmojiPicker({
   testIDPrefix = 'group.cardEmoji',
   disabled = false,
 }: Props) {
+  const moveSelection = (from: number, step: -1 | 1) => {
+    const next = (from + step + GROUP_CARD_EMOJI_OPTIONS.length) % GROUP_CARD_EMOJI_OPTIONS.length;
+    onChange(GROUP_CARD_EMOJI_OPTIONS[next].emoji);
+  };
   return (
-    <View accessibilityRole="radiogroup">
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel="내 카드 아이콘"
+      accessibilityHint="이 기기에서 나에게만 보여요. 방향키로 선택을 이동할 수 있어요."
+    >
       <View style={s.grid}>
-        {GROUP_CARD_EMOJI_OPTIONS.map(({ emoji, label }) => {
+        {GROUP_CARD_EMOJI_OPTIONS.map(({ emoji, label }, index) => {
           const selected = value === emoji;
           return (
             <Pressable
@@ -28,7 +36,25 @@ export function GroupCardEmojiPicker({
               disabled={disabled}
               accessibilityRole="radio"
               accessibilityLabel={`카드 아이콘 ${label}`}
-              accessibilityState={{ selected, disabled }}
+              accessibilityState={{ selected, checked: selected, disabled }}
+              accessibilityActions={[
+                { name: 'increment', label: '다음 아이콘' },
+                { name: 'decrement', label: '이전 아이콘' },
+              ]}
+              onAccessibilityAction={(event) => {
+                if (disabled) return;
+                if (event.nativeEvent.actionName === 'increment') moveSelection(index, 1);
+                if (event.nativeEvent.actionName === 'decrement') moveSelection(index, -1);
+              }}
+              {...({
+                onKeyDown: (event: { nativeEvent: { key?: string } }) => {
+                  if (disabled) return;
+                  const key = event.nativeEvent.key;
+                  if (key === 'ArrowRight' || key === 'ArrowDown') moveSelection(index, 1);
+                  if (key === 'ArrowLeft' || key === 'ArrowUp') moveSelection(index, -1);
+                  if (key === 'Enter' || key === ' ') onChange(emoji);
+                },
+              } as object)}
               testID={`${testIDPrefix}.${emoji}`}
             >
               <Text style={s.emoji}>{emoji}</Text>
