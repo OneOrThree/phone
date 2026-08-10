@@ -24,6 +24,7 @@ jest.mock('@/store/CharacterContext', () => ({
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => false,
   useReduceMotionReady: () => true,
+  whenReduceMotionReady: () => Promise.resolve(),
 }));
 
 // 팝 래퍼는 시작 프레임이 opacity 0이라 RNTL 기본 질의에서 숨김 처리된다 — 숨김 포함으로 집는다.
