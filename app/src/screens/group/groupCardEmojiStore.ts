@@ -20,6 +20,9 @@ export type GroupCardEmoji = (typeof GROUP_CARD_EMOJI_OPTIONS)[number]['emoji'];
 export const GROUP_CARD_EMOJIS = GROUP_CARD_EMOJI_OPTIONS.map((option) => option.emoji);
 export const DEFAULT_GROUP_CARD_EMOJI: GroupCardEmoji = '🎯';
 export type GroupCardEmojiBucket = Record<string, GroupCardEmoji>;
+export type GroupCardEmojiReadResult =
+  | { status: 'ready'; emoji: GroupCardEmoji }
+  | { status: 'error' };
 type GroupCardEmojiMap = Record<string, GroupCardEmojiBucket>;
 type ParsedEmojiMap = { value: GroupCardEmojiMap; needsRepair: boolean };
 
@@ -89,19 +92,27 @@ function enqueueStorageOperation<T>(task: () => Promise<T>): Promise<T> {
   return current;
 }
 
+export async function readGroupCardEmojiResult(
+  userId: string | null,
+  groupId: string,
+): Promise<GroupCardEmojiReadResult> {
+  if (!userId) return { status: 'ready', emoji: DEFAULT_GROUP_CARD_EMOJI };
+  return enqueueStorageOperation(async () => {
+    try {
+      const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+      return { status: 'ready', emoji: normalizeGroupCardEmoji(map[userId]?.[groupId]) };
+    } catch {
+      return { status: 'error' };
+    }
+  });
+}
+
 export async function readGroupCardEmoji(
   userId: string | null,
   groupId: string,
 ): Promise<GroupCardEmoji> {
-  if (!userId) return DEFAULT_GROUP_CARD_EMOJI;
-  return enqueueStorageOperation(async () => {
-    try {
-      const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
-      return normalizeGroupCardEmoji(map[userId]?.[groupId]);
-    } catch {
-      return DEFAULT_GROUP_CARD_EMOJI;
-    }
-  });
+  const result = await readGroupCardEmojiResult(userId, groupId);
+  return result.status === 'ready' ? result.emoji : DEFAULT_GROUP_CARD_EMOJI;
 }
 
 /** 같은 key의 계정×그룹 RMW 전체를 직렬화해 서로 다른 bucket의 동시 저장을 보존한다. */
@@ -128,12 +139,19 @@ function sameBucket(a: GroupCardEmojiBucket, b: GroupCardEmojiBucket): boolean {
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }
 
+const reconcileGenerationByUser = new Map<string, number>();
+
 /** 성공한 전체 GET /groups에서만 호출해 현재 계정 bucket의 stale groupId를 제거한다. */
 export function reconcileGroupCardEmojiBucket(
   userId: string,
   serverGroupIds: readonly string[],
+  shouldContinue: () => boolean = () => true,
 ): Promise<GroupCardEmojiBucket> {
+  const generation = (reconcileGenerationByUser.get(userId) ?? 0) + 1;
+  reconcileGenerationByUser.set(userId, generation);
+  const isCurrent = () => reconcileGenerationByUser.get(userId) === generation && shouldContinue();
   return enqueueStorageOperation(async () => {
+    if (!isCurrent()) return {};
     let raw: string | null;
     try {
       raw = await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji);
@@ -147,11 +165,23 @@ export function reconcileGroupCardEmojiBucket(
       Object.entries(current).filter(([groupId]) => validIds.has(groupId)),
     ) as GroupCardEmojiBucket;
 
+    if (!isCurrent()) return {};
     if (parsed.needsRepair || !sameBucket(current, next)) {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.groupCardEmoji,
-        JSON.stringify({ ...parsed.value, [userId]: next }),
-      );
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.groupCardEmoji,
+          JSON.stringify({ ...parsed.value, [userId]: next }),
+        );
+        if (!isCurrent()) {
+          // 같은 storage queue 뒤에 최신 reconcile이 대기한다. 먼저 원본을 복원해 최신 요청이
+          // superseded prune 결과가 아닌 실제 이전 bucket에서 다시 계산하게 한다.
+          if (raw === null) await AsyncStorage.removeItem(STORAGE_KEYS.groupCardEmoji);
+          else await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, raw);
+          return {};
+        }
+      } catch {
+        // stale 정리는 best-effort다. 이미 정상적으로 읽은 현재 계정 아이콘은 UI에 유지한다.
+      }
     }
     return next;
   });
@@ -187,15 +217,22 @@ export function clearPendingGroupCardEmoji(
 export async function retryPendingGroupCardEmojis(
   userId: string,
   serverGroupIds: readonly string[],
+  shouldContinue: () => boolean = () => true,
 ): Promise<GroupCardEmojiBucket> {
+  if (!shouldContinue()) return {};
   const validIds = new Set(serverGroupIds);
   for (const [key, pending] of pendingEmojis) {
+    if (!shouldContinue()) return {};
     if (pending.userId === userId && !validIds.has(pending.groupId)) pendingEmojis.delete(key);
   }
   const candidates = [...pendingEmojis.values()].filter(
     (pending) => pending.userId === userId && validIds.has(pending.groupId),
   );
+  const visible = Object.fromEntries(
+    candidates.map((pending) => [pending.groupId, pending.emoji]),
+  ) as GroupCardEmojiBucket;
   for (const pending of candidates) {
+    if (!shouldContinue()) return visible;
     try {
       await writeGroupCardEmoji(pending.userId, pending.groupId, pending.emoji);
       const key = pendingKey(pending.userId, pending.groupId);
@@ -204,15 +241,19 @@ export async function retryPendingGroupCardEmojis(
       // 다음 그룹 화면 활성화에서 최신 pending 값만 다시 시도한다.
     }
   }
-  return Object.fromEntries(
-    [...pendingEmojis.values()]
-      .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
-      .map((pending) => [pending.groupId, pending.emoji]),
-  ) as GroupCardEmojiBucket;
+  return {
+    ...visible,
+    ...(Object.fromEntries(
+      [...pendingEmojis.values()]
+        .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
+        .map((pending) => [pending.groupId, pending.emoji]),
+    ) as GroupCardEmojiBucket),
+  };
 }
 
 export function __resetGroupCardEmojiQueueForTest(): void {
   storageQueue = Promise.resolve();
   pendingEmojis.clear();
   emojiListeners.clear();
+  reconcileGenerationByUser.clear();
 }

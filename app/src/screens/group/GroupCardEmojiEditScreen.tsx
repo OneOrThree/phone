@@ -22,7 +22,7 @@ import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   clearPendingGroupCardEmoji,
   groupCardEmojiLabel,
-  readGroupCardEmoji,
+  readGroupCardEmojiResult,
   preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
   type GroupCardEmoji,
@@ -41,6 +41,8 @@ export default function GroupCardEmojiEditScreen() {
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const requestRef = useRef(0);
   const activeRef = useRef(true);
   const identity = `${userId ?? 'anonymous'}:${groupId}`;
@@ -62,8 +64,17 @@ export default function GroupCardEmojiEditScreen() {
     const requests = requestRef;
     const request = ++requests.current;
     const requestedIdentity = identity;
-    readGroupCardEmoji(userId, groupId).then((emoji) => {
+    setLoadFailed(false);
+    readGroupCardEmojiResult(userId, groupId).then((result) => {
       if (request !== requests.current || identityRef.current !== requestedIdentity) return;
+      if (result.status === 'error') {
+        setBaseline(null);
+        setSelected(null);
+        setLoadedIdentity(requestedIdentity);
+        setLoadFailed(true);
+        return;
+      }
+      const emoji = result.emoji;
       setBaseline(emoji);
       setSelected(emoji);
       setLoadedIdentity(requestedIdentity);
@@ -72,7 +83,7 @@ export default function GroupCardEmojiEditScreen() {
     return () => {
       requests.current++;
     };
-  }, [groupId, identity, userId]);
+  }, [groupId, identity, loadAttempt, userId]);
 
   const ready = loadedIdentity === identity && selected !== null && baseline !== null;
   const changed = ready && selected !== baseline;
@@ -85,14 +96,16 @@ export default function GroupCardEmojiEditScreen() {
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
       clearPendingGroupCardEmoji(userId, groupId);
-      if (!activeRef.current || identityRef.current !== saveIdentity) return;
+      if (identityRef.current !== saveIdentity) return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
+      if (!activeRef.current) return;
       setBaseline(selected);
       navigation.goBack();
     } catch {
       preservePendingGroupCardEmoji(userId, groupId, selected);
-      if (!activeRef.current || identityRef.current !== saveIdentity) return;
+      if (identityRef.current !== saveIdentity) return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
+      if (!activeRef.current) return;
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
@@ -121,7 +134,21 @@ export default function GroupCardEmojiEditScreen() {
         keyboardShouldPersistTaps="handled"
         testID="group.cardEmoji.content"
       >
-        {!ready ? (
+        {loadFailed ? (
+          <View style={s.loadError}>
+            <Text style={s.error} accessibilityRole="alert">
+              내 카드 아이콘을 불러오지 못했어요.
+            </Text>
+            <TouchableOpacity
+              style={s.retryButton}
+              onPress={() => setLoadAttempt((attempt) => attempt + 1)}
+              accessibilityRole="button"
+              testID="group.cardEmoji.retry"
+            >
+              <Text style={s.retryText}>다시 시도</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !ready ? (
           <ActivityIndicator color={T.accent} />
         ) : (
           <>
@@ -203,6 +230,9 @@ const s = StyleSheet.create({
   cardPreviewLabel: { ...T.text.caption, color: T.white, marginTop: T.space.sm },
   cardPreviewName: { ...T.text.subtitle, color: T.white, marginTop: T.space.xs },
   error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.lg },
+  loadError: { alignItems: 'center', justifyContent: 'center', flex: 1 },
+  retryButton: { minHeight: 44, justifyContent: 'center', marginTop: T.space.md },
+  retryText: { ...T.text.label, color: T.accent },
   saveButton: {
     height: 52,
     borderRadius: 16,
