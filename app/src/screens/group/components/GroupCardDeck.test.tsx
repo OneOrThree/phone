@@ -31,8 +31,10 @@ test('서버 data에 찾기 카드를 섞지 않고 가로 snap 덱으로 렌더
   expect(deck.props.data).toEqual(groups);
   expect(deck.props.horizontal).toBe(true);
   expect(deck.props.disableIntervalMomentum).toBe(true);
-  expect(screen.getAllByTestId('group.deck.findMore')).toHaveLength(1);
-  fireEvent.press(screen.getByTestId('group.deck.findMore'));
+  expect(
+    screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+  ).toHaveLength(1);
+  fireEvent.press(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }));
   expect(onFind).toHaveBeenCalledTimes(1);
 });
 
@@ -71,11 +73,32 @@ test('실측 폭에 따라 dots를 표시하고 찾기 페이지까지 선택한
     });
   });
   const findDot = screen.getByTestId('group.cardDeck.indicator.dot.2');
-  expect(findDot.props.accessibilityLabel).toBe('그룹 찾기, 3 / 3');
+  expect(findDot.props.accessibilityLabel).toBe('그룹 찾기, 3 / 3 페이지로 이동');
   await act(async () => {
     fireEvent.press(findDot);
   });
   expect(findDot.props.accessibilityState).toEqual({ selected: true });
+});
+
+test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴다', async () => {
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text testID={`body.${item.groupId}`}>{item.name}</Text>}
+    />,
+  );
+
+  expect(screen.getByText('그룹 0')).toBeOnTheScreen();
+  expect(screen.queryByText('그룹 1')).toBeNull();
+  expect(screen.queryByTestId('group.deck.findMore')).toBeNull();
+  expect(
+    screen.getByText('그룹 1', { includeHiddenElements: true }),
+  ).toBeOnTheScreen();
+  expect(
+    screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
+  ).toBeOnTheScreen();
 });
 
 test('dots 폭은 좌우 20pt gutter를 제외한 가용 폭으로 판정한다', async () => {

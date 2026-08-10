@@ -123,11 +123,25 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
         onMomentumScrollEnd={settleActiveCard}
         onScrollEndDrag={settleActiveCard}
         ListFooterComponent={
-          <View style={{ marginLeft: CARD_GAP }}>
+          <View
+            style={{ marginLeft: CARD_GAP }}
+            accessibilityElementsHidden={activeIndex !== groups.length}
+            importantForAccessibility={
+              activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
+            }
+          >
             <FindMoreCard width={cardWidth} onPress={onFind} />
           </View>
         }
-        renderItem={({ item }) => <View style={{ width: cardWidth }}>{renderCard(item)}</View>}
+        renderItem={({ item, index }) => (
+          <View
+            style={{ width: cardWidth }}
+            accessibilityElementsHidden={index !== activeIndex}
+            importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
+          >
+            {renderCard(item)}
+          </View>
+        )}
       />
       <View
         testID="group.cardDeck.indicator"
@@ -143,7 +157,7 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
                 style={s.dotHit}
                 onPress={() => selectPage(page)}
                 accessibilityRole="button"
-                accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount}`}
+                accessibilityLabel={`${groups[page]?.name ?? '그룹 찾기'}, ${page + 1} / ${pageCount} 페이지로 이동`}
                 accessibilityState={{ selected: page === activeIndex }}
               >
                 <View style={[s.dot, page === activeIndex && s.dotActive]} />
