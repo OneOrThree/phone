@@ -6,6 +6,7 @@
 //  2) 이 화면은 **스스로 navigate 하지 않는다** — 탭·만들기·찾기 모두 prop 콜백으로만 나간다.
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -42,6 +43,7 @@ async function renderList(groups: GroupSummaryResponse[], back?: () => void) {
   return await render(
     <GroupListScreen
       groups={groups}
+      userId="user-1"
       onSelect={onSelect}
       onCreate={onCreate}
       onFind={onFind}
@@ -59,8 +61,9 @@ async function press(testID: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  await AsyncStorage.clear();
   onRefresh.mockResolvedValue(undefined);
 });
 
@@ -128,7 +131,7 @@ describe('콜백', () => {
     const longName = '공백 없는 매우 긴 그룹 이름 ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     await renderList([group({ name: longName })]);
 
-    expect(screen.getByLabelText(new RegExp(longName))).toBeOnTheScreen();
+    expect(screen.getAllByLabelText(new RegExp(longName)).length).toBeGreaterThan(0);
   });
 
   test('하단 CTA 2개는 각각 onCreate·onFind로만 나간다', async () => {
@@ -180,5 +183,51 @@ describe('콜백', () => {
       finish();
     });
     expect(control().refreshing).toBe(false);
+  });
+});
+
+describe('제스처 중재와 재정렬', () => {
+  test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.grip.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'increment' },
+      });
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID_2, GROUP_ID]);
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, { dx: 400, moveX: 390 });
+      grip.props.onResponderTerminate?.(responderEvent, {});
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2]);
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
   });
 });

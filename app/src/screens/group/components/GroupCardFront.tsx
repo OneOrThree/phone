@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -7,14 +7,41 @@ interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
   onFlip: () => void;
+  reorderHandlers?: GestureResponderHandlers;
+  onMoveStep?: (step: -1 | 1) => void;
+  canMovePrevious?: boolean;
+  canMoveNext?: boolean;
 }
 
-export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFrontProps) {
+export function GroupCardFront({
+  group,
+  emoji = '🎯',
+  onFlip,
+  reorderHandlers,
+  onMoveStep,
+  canMovePrevious = false,
+  canMoveNext = false,
+}: GroupCardFrontProps) {
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
     <View style={s.root} testID={`group.card.front.${group.groupId}`}>
-      <View style={s.grip} accessibilityElementsHidden>
+      <View
+        style={s.grip}
+        testID={`group.card.grip.${group.groupId}`}
+        accessibilityRole="adjustable"
+        accessibilityLabel={`${group.name} 카드 순서`}
+        accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+        accessibilityActions={[
+          ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
+          ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
+          if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
+        }}
+        {...reorderHandlers}
+      >
         <MaterialCommunityIcons name="drag-horizontal-variant" size={24} color={T.white} />
       </View>
       <Pressable
@@ -73,7 +100,16 @@ export function GroupCardFront({ group, emoji = '🎯', onFlip }: GroupCardFront
 const s = StyleSheet.create({
   root: { flex: 1, minHeight: 300, borderRadius: 22, overflow: 'hidden' },
   body: { flex: 1 },
-  grip: { position: 'absolute', top: T.space.md, right: T.space.lg, zIndex: 2 },
+  grip: {
+    position: 'absolute',
+    top: T.space.sm,
+    right: T.space.md,
+    zIndex: 2,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   art: {
     flex: 1,
     minHeight: 170,

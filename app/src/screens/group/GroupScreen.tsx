@@ -49,7 +49,7 @@ function groupCountBucket(count: number): GroupCountBucket {
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { isGuest } = useUser();
+  const { isGuest, userId } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -343,6 +343,7 @@ export default function GroupScreen() {
         {staleNotice}
         <GroupListScreen
           groups={myGroups}
+          userId={userId}
           onSelect={onSelectGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
