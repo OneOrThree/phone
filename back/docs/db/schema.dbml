@@ -406,13 +406,14 @@ Table group_challenge_windows [note: 'TIME_WINDOW 챌린지 상세 (group_challe
   duration_minutes integer     [note: '창 내 목표 시간(분), 0 < x ≤ 창 길이. null 이면 판정불가(내기 개설 불가) — 목표분 없는 기존 창 챌린지. migration V20']
 }
 
-Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert, 마지막 값 승리)'] {
+Table group_challenge_members [note: '스크린타임 창(TIME_WINDOW×SCREEN_TIME) 사용분의 날짜별 유저 보고 저장 (V1 이후 미사용이던 테이블을 V20 에서 usage_date 추가로 재활용 — 클라 신뢰 upsert. V43 부터 measured_at 단조 갱신: 저장값보다 오래된 보고는 조용히 무시, GROMO-1407·N34)'] {
   id                 uuid        [pk]
   group_challenge_id uuid        [not null, note: 'FK → group_challenges.id']
   user_id            uuid        [not null, note: 'FK → users.id']
   usage_date         date        [not null, note: '보고 대상 날짜(KST). V37 에서 NOT NULL 승격(GROMO-1266) — NULL 잔재 행은 삭제로 정리. migration V20·V37']
 
   progress_minutes   integer     [not null, default: 0, note: '해당 날짜 창 내 사용분(분) 보고값. 판정(달성)은 저장하지 않고 조회 시 계산 — 구 is_achieved·achieved_at 은 V37 에서 드롭(GROMO-1265)']
+  measured_at        timestamptz [note: '클라 측정 시각 — 역전 보고 방어의 비교 축(V43, N34). null = 도입 전 레거시 행("시각 모름" — 어떤 보고든 갱신 허용). 미래(+2분 초과)는 API 가 400 거절']
 
   created_at         timestamptz [not null, default: `now()`]
   updated_at         timestamptz
@@ -488,6 +489,7 @@ Table group_challenge_bet_participants [note: '내기 회차 참가자(V39 — �
 
   indexes {
     (session_id, user_id) [unique, name: 'uq_group_challenge_bet_participants_session_user', note: '회차당 참가 1행 — 중복 참가 방어']
+    (user_id, session_id) [name: 'idx_group_challenge_bet_participants_user_session', note: '참가자 스코프 조회(/me/bet-sessions·/me/challenge-results)와 탈퇴 연동의 user_id 선두 축 — 유니크는 선두가 session_id 라 못 쓴다. migration V44']
   }
 }
 
@@ -894,15 +896,35 @@ Table daily_screen_time_stats [note: '유저별 일일 스크린타임 집계 (�
 // 9. 알림 (서버 푸시)
 // ────────────────────────────────────────────
 
-Table notification_sent_logs [note: '발송 이력 로그 (GROMO-579). RANK_OVERTAKE 순위 추월 푸시의 48h 쿨다운·주2회 상한 판정용 — 실발송(FCM SENT) 건만 기록. migration v26'] {
+Table notification_sent_logs [note: '발송 이력 로그 (GROMO-579) + 사건 단위 클레임 파이프라인 (GROMO-1417 · N41 · N44, V45). 종전 트리거는 실발송(FCM SENT) 건만 기록하고, 내기 사건 알림(BET_RESULT · BET_VOID_REFUND · BET_SILENT_FLUSH)은 발송 전 PENDING 선점 → SENT 전이로 다중 인스턴스 이중 발송을 막는다. migration v26 → v45'] {
   id             uuid        [pk]
 
   user_id        uuid        [not null, note: 'FK → users.id (수신자)']
 
-  type           varchar     [not null, note: "발송 종류 (현재 'RANK_OVERTAKE')"]
+  type           varchar     [not null, note: "발송 종류 (RANK_OVERTAKE · BET_RESULT · CHALLENGE_* · FRIEND_* · BET_VOID_REFUND · BET_SILENT_FLUSH)"]
   target_user_id uuid        [note: '대상 유저(라이벌) — 추월=대표 라이벌, 없으면 null (nullable, FK → users.id)']
 
-  sent_at        timestamptz [not null, note: '실발송 시각']
+  sent_at        timestamptz [note: '실발송 시각 — PENDING/DEFERRED 클레임 행은 발송 전이라 null (V45 에서 NOT NULL 해제)']
+
+  kind           varchar     [not null, note: '사건 dedup 축의 종류 (V45) — 기존 행은 type 백필. 유니크 (user_id, kind, subject_id) 의 축']
+  subject_id     uuid        [note: '사건 대상 id (V45) — 내기 계열은 회차 id. 레거시 행은 null (유니크에서 서로 충돌하지 않음)']
+  status         varchar     [not null, default: "'SENT'", note: "클레임 상태 (V45): 'PENDING'(선점, 리스 10분) | 'DEFERRED'(조용한 시간 이월 — N44) | 'SENT'"]
+  claimed_at     timestamptz [note: '선점 시각 (V45) — PENDING 리스 만료(10분) 판정 기준']
+  group_id       uuid        [note: '묶음 메타 (V45) — (유저 × 그룹 × 슬롯) 묶음 축, dedup 키 아님 (N20 · N41)']
+  slot_at        timestamptz [note: '묶음 메타 (V45) — 사건이 속한 15분 시간슬롯 (이월돼도 원래 슬롯 유지 — N44)']
+  next_attempt_at timestamptz [note: '이월 클레임의 다음 시도 시각 (V45) — 이월 시점의 조용한 시간 종료 시각. 없으면 조용한 시간 내내 매 틱 같은 DEFERRED 전량을 재처리한다']
+
+  indexes {
+    (user_id, kind, subject_id) [unique, name: 'uq_notification_sent_logs_user_kind_subject', note: '사건 단위 선점 유니크 — INSERT ON CONFLICT DO NOTHING 대상 (N41)']
+    (status, next_attempt_at, claimed_at) [name: 'idx_notification_sent_logs_unsent_claims', note: "부분 인덱스 WHERE status <> 'SENT' — 미발송 클레임 스캔 + 도래한 이월분만 조회"]
+  }
+}
+
+Table shedlock [note: 'ShedLock 분산 락 (GROMO-1283 · policy §E4, V45) — 챌린지·정산·알림 크론의 멀티 인스턴스 중복 실행 차단. shedlock-provider-jdbc-template 표준 스키마'] {
+  name       varchar(64)  [pk, note: '락 이름 — @SchedulerLock(name) 크론별 고유']
+  lock_until timestamp    [not null]
+  locked_at  timestamp    [not null]
+  locked_by  varchar(255) [not null]
 }
 
 // ────────────────────────────────────────────
