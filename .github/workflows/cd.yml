@@ -24,7 +24,8 @@ concurrency:
 
 env:
   AWS_REGION: ap-northeast-2
-  ENV_SECRET_ID: oneorthree/phone
+  # dev 리소스는 prod와 같은 계정(808715036056)에 있다. 구 계정(876225478226)은 쓰지 않는다.
+  ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest
 
@@ -84,7 +85,7 @@ jobs:
       - name: AWS 자격증명 (OIDC, keyless)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          role-to-assume: arn:aws:iam::808715036056:role/gromo-dev-github-actions
           aws-region: ${{ env.AWS_REGION }}
 
       # 값을 GITHUB_ENV가 아니라 .env 파일로 떨어뜨린다.

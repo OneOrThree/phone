@@ -37,13 +37,13 @@ jobs:
       - name: AWS 자격증명 설정
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          role-to-assume: arn:aws:iam::808715036056:role/gromo-dev-github-actions
           aws-region: ap-northeast-2
 
       - name: AWS Secrets Manager에서 시크릿 로드
         run: |
           SECRET=$(aws secretsmanager get-secret-value \
-            --secret-id oneorthree/phone \
+            --secret-id gromo/dev/env \
             --region ap-northeast-2 \
             --query SecretString --output text)
           # compose 보간용 DB/app 시크릿 (app·db 서비스가 참조)
