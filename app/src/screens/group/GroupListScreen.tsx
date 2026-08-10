@@ -5,6 +5,8 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -13,6 +15,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
+import { PageIndicator } from './components/PageIndicator';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -59,8 +62,12 @@ export default function GroupListScreen({
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
+  const pageCount = groups.length + 1;
+  const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
+  const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -81,6 +88,38 @@ export default function GroupListScreen({
     }
   }, [onRefresh]);
 
+  const selectPage = useCallback(
+    (page: number) => {
+      const next = Math.max(0, Math.min(page, pageCount - 1));
+      listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
+      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      setActiveIndex(next);
+    },
+    [groups, pageCount, snapInterval],
+  );
+
+  const onMomentumScrollEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const next = Math.max(
+        0,
+        Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
+      );
+      activeIdentityRef.current = groups[next]?.groupId ?? null;
+      setActiveIndex(next);
+    },
+    [groups, pageCount, snapInterval],
+  );
+
+  // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
+  useEffect(() => {
+    const identity = activeIdentityRef.current;
+    const next = identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
+    const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
+    activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    setActiveIndex(safeIndex);
+    listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
+  }, [activeIndex, groups, snapInterval]);
+
   return (
     <View style={s.root} testID="group.list">
       <View style={s.header}>
@@ -100,6 +139,7 @@ export default function GroupListScreen({
       </View>
 
       <FlatList
+        ref={listRef}
         testID="group.list.items"
         data={groups}
         keyExtractor={(item) => item.groupId}
@@ -111,6 +151,7 @@ export default function GroupListScreen({
         snapToAlignment="start"
         decelerationRate="fast"
         disableIntervalMomentum
+        onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
           <View style={{ marginLeft: CARD_GAP }}>
             <FindMoreCard width={cardWidth} onPress={onFind} />
@@ -165,6 +206,12 @@ export default function GroupListScreen({
             </View>
           </TouchableOpacity>
         )}
+      />
+
+      <PageIndicator
+        pageCount={pageCount}
+        activeIndex={activeIndex}
+        onSelectPage={selectPage}
       />
 
       {/* ── 하단 고정 CTA — 빈 상태(GroupScreen)와 같은 52/r16 규격을 그대로 쓴다 ── */}
