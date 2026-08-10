@@ -7295,6 +7295,10 @@
           "nextSessionJoined": {
             "type": "boolean"
           },
+          "nextSessionStake": {
+            "type": "integer",
+            "format": "int32"
+          },
           "dormant": {
             "type": "boolean"
           }
