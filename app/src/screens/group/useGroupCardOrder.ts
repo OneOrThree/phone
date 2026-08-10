@@ -84,7 +84,18 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
         !read.readFailed &&
         (read.needsRepair || (stored !== null && !isSameGroupOrder(stored, reconciled)))
       ) {
-        void writeGroupCardOrder(userId, reconciled).catch(() => undefined);
+        pendingByUserRef.current.set(userId, reconciled);
+        writeGroupCardOrder(userId, reconciled)
+          .then(() => {
+            const latest = pendingByUserRef.current.get(userId);
+            if (!latest || !isSameGroupOrder(latest, reconciled)) return;
+            pendingByUserRef.current.delete(userId);
+          })
+          .catch(() => {
+            if (mounted.current && identityRef.current === identity) {
+              setState((current) => current && { ...current, saveFailed: true });
+            }
+          });
       }
     })();
 
