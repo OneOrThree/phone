@@ -45,6 +45,20 @@ test('서버 data에 찾기 카드를 섞지 않고 가로 snap 덱으로 렌더
   expect(onFind).toHaveBeenCalledTimes(1);
 });
 
+test('후반 그룹이 초기 활성 카드면 첫 렌더 배치를 그 index에서 시작한다', async () => {
+  const groups = Array.from({ length: 12 }, (_, index) => group(index));
+  await render(
+    <GroupCardDeck
+      groups={groups}
+      activeGroupId="group-10"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  expect(screen.getByTestId('group.cardDeck').props.initialScrollIndex).toBe(10);
+});
+
 test('momentum은 최종 종료에서, momentum 없는 drag는 target offset에서만 확정한다', async () => {
   await render(
     <GroupCardDeck

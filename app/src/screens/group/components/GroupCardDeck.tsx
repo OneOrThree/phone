@@ -186,6 +186,7 @@ export function GroupCardDeck({
         data={groups}
         keyExtractor={(item) => item.groupId}
         horizontal
+        initialScrollIndex={restoredIndex < groups.length ? restoredIndex : undefined}
         contentOffset={{ x: restoredIndex * snapInterval, y: 0 }}
         getItemLayout={(_, index) => ({
           length: snapInterval,
