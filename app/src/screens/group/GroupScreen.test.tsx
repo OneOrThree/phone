@@ -291,6 +291,24 @@ describe('group_viewed view episode', () => {
     });
   });
 
+  test('게스트는 invite source를 소비하지 않고 로그인 후 첫 목록 성공에 전달한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockIsGuest = true;
+    const view = await renderScreen();
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+
+    mockIsGuest = false;
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await view.rerender(<GroupScreen />);
+    await act(async () => {});
+
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'invite',
+      group_count_bucket: '1',
+    });
+  });
+
   test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {
     mockGetMyGroups.mockResolvedValue([summary()]);
     await renderScreen();

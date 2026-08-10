@@ -18,11 +18,13 @@ export interface CardInteractionRouteContext {
 }
 
 export const CARD_INTERACTION_TTL_MS = 10 * 60 * 1000;
+export const GROUP_ROOM_INTERACTION_TTL_MS = 30 * 1000;
 
 /** 카드 CTA에서 시작한 context만 짧은 TTL 안에서 결과 이벤트에 귀속한다. */
 export function resolveCardInteraction(
   context: CardInteractionRouteContext | null | undefined,
   now = Date.now(),
+  ttlMs = CARD_INTERACTION_TTL_MS,
 ): CardInteractionContext | null {
   if (
     context?.entrySource !== 'group_card' ||
@@ -30,7 +32,7 @@ export function resolveCardInteraction(
     context.interactionId.length === 0 ||
     typeof context.interactionAcceptedAt !== 'number' ||
     now < context.interactionAcceptedAt ||
-    now - context.interactionAcceptedAt > CARD_INTERACTION_TTL_MS
+    now - context.interactionAcceptedAt > ttlMs
   ) {
     return null;
   }

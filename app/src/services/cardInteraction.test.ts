@@ -1,4 +1,8 @@
-import { CARD_INTERACTION_TTL_MS, resolveCardInteraction } from './cardInteraction';
+import {
+  CARD_INTERACTION_TTL_MS,
+  GROUP_ROOM_INTERACTION_TTL_MS,
+  resolveCardInteraction,
+} from './cardInteraction';
 
 describe('resolveCardInteraction', () => {
   const acceptedAt = 1_000_000;
@@ -20,5 +24,22 @@ describe('resolveCardInteraction', () => {
   test('미래 timestamp와 불완전 context는 귀속하지 않는다', () => {
     expect(resolveCardInteraction(context, acceptedAt - 1)).toBeNull();
     expect(resolveCardInteraction({ entrySource: 'group_card' }, acceptedAt)).toBeNull();
+  });
+
+  test('방 CTA 결과는 별도 30초 TTL 안에서만 귀속한다', () => {
+    expect(
+      resolveCardInteraction(
+        context,
+        acceptedAt + GROUP_ROOM_INTERACTION_TTL_MS,
+        GROUP_ROOM_INTERACTION_TTL_MS,
+      ),
+    ).not.toBeNull();
+    expect(
+      resolveCardInteraction(
+        context,
+        acceptedAt + GROUP_ROOM_INTERACTION_TTL_MS + 1,
+        GROUP_ROOM_INTERACTION_TTL_MS,
+      ),
+    ).toBeNull();
   });
 });

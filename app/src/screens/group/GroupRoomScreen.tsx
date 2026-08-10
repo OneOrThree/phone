@@ -34,6 +34,7 @@ import {
   logGroupRoomViewed,
 } from '@/services/analyticsEvents';
 import {
+  GROUP_ROOM_INTERACTION_TTL_MS,
   resolveCardInteraction,
   type CardInteractionRouteContext,
 } from '@/services/cardInteraction';
@@ -468,7 +469,11 @@ export default function GroupRoomScreen({
       // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — 그룹당 1회.
       if (roomViewedGroupIdRef.current !== groupId) {
         roomViewedGroupIdRef.current = groupId;
-        const interaction = resolveCardInteraction(cardInteractionRef.current);
+        const interaction = resolveCardInteraction(
+          cardInteractionRef.current,
+          Date.now(),
+          GROUP_ROOM_INTERACTION_TTL_MS,
+        );
         logGroupRoomViewed({
           group_id: groupId,
           entry_source: cardInteractionRef.current?.entrySource ?? 'unknown',

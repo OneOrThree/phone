@@ -24,7 +24,11 @@ import {
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
-import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
+import {
+  consumeGroupEntry,
+  peekGroupEntry,
+  type GroupEntrySource,
+} from '@/navigation/groupEntrySource';
 import { todayStrKst } from '@/utils/localDate';
 import GroupListScreen from './GroupListScreen';
 import { GroupCardSummaryAdapter } from './groupCardSummary';
@@ -177,10 +181,10 @@ export default function GroupScreen() {
     useCallback(() => {
       setScreenFocused(true);
       const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
-      hasFocusedRef.current = true;
+      if (!isGuest) hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: consumeGroupEntry(fallback),
+        source: isGuest ? peekGroupEntry(fallback) : consumeGroupEntry(fallback),
         logged: false,
       };
       setSuccessfulListEpisode(null);
@@ -189,7 +193,7 @@ export default function GroupScreen() {
         setScreenFocused(false);
         requestSeqRef.current++;
       };
-    }, [fetchGroups]),
+    }, [fetchGroups, isGuest]),
   );
 
   const closeInvite = useCallback(() => {

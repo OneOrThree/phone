@@ -18,6 +18,11 @@ export function consumeGroupEntry(fallback: GroupEntrySource): GroupEntrySource 
   return source;
 }
 
+/** 게스트 단계처럼 이벤트를 발행할 수 없는 episode에서 source를 소비하지 않고 읽는다. */
+export function peekGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
+  return pendingDirectSource ?? fallback;
+}
+
 export function clearPendingGroupEntry(): void {
   pendingDirectSource = null;
 }
