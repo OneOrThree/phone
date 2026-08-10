@@ -77,33 +77,22 @@ test('인증 전환 안의 만료 토큰 갱신은 보유한 mutex를 재사용�
   expect(await AsyncStorage.getItem(STORAGE_KEYS.refreshToken)).toBe('rotated-refresh');
 });
 
-test('인증 전환 내부 api 요청의 401도 같은 mutex 소유권으로 갱신한다', async () => {
+test('인증 전환 중 발생한 관련 없는 api 401은 lease 없이 폐기한다', async () => {
   await AsyncStorage.multiSet([
     [STORAGE_KEYS.accessToken, expiredAccessToken],
     [STORAGE_KEYS.refreshToken, 'guest-refresh'],
   ]);
-  jest.spyOn(axios, 'post').mockResolvedValue({
-    data: { accessToken: 'fresh-access', refreshToken: 'rotated-refresh' },
-  });
+  const refresh = jest.spyOn(axios, 'post');
 
-  const response = await runAuthSessionTransition(() =>
-    api.get('/inside-transition', {
-      adapter: async (config) => {
-        if (!('_retry' in config)) {
-          return Promise.reject({ config, response: { status: 401 } });
-        }
-        return {
-          data: 'ok',
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config,
-        };
-      },
-    }),
-  );
+  await expect(
+    runAuthSessionTransition(() =>
+      api.get('/inside-transition', {
+        adapter: async (config) => Promise.reject({ config, response: { status: 401 } }),
+      }),
+    ),
+  ).rejects.toThrow('stale auth refresh');
 
-  expect(response.data).toBe('ok');
+  expect(refresh).not.toHaveBeenCalled();
 });
 
 test('세션 교체 전에 시작한 401 요청은 새 계정 토큰으로 재시도하지 않는다', async () => {

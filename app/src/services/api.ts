@@ -219,10 +219,9 @@ if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
 
 api.interceptors.request.use(async (config) => {
   const sessionConfig = config as RetriableConfig;
-  // 요청이 시작된 세션과 인증 전환 소유권을 401 재시도까지 보존한다. 응답 시점의 전역 상태를
-  // 새로 읽으면 이전 계정 요청을 새 계정 토큰으로 다시 보낼 수 있다.
+  // 요청이 시작된 세대를 401 재시도까지 보존한다. 응답 시점의 전역 상태를 새로 읽으면 이전
+  // 계정 요청을 새 계정 토큰으로 다시 보낼 수 있다.
   sessionConfig._authSessionGeneration ??= getAuthSessionGeneration();
-  sessionConfig._authTransitionToken ??= activeAuthTransitionToken;
   // 호출부가 토큰을 명시했으면 그대로 둔다(GROMO-1049) — 세션 저장처럼 **어느 계정 것인지 검증한 뒤**
   // 보내는 요청이 있는데, 여기서 매번 저장소를 다시 읽으면 검증 시점과 전송 시점 사이에 계정이
   // 바뀌었을 때 옛 계정의 기록이 새 계정으로 커밋된다(코덱스 리뷰 P1).
@@ -239,7 +238,6 @@ api.interceptors.request.use(async (config) => {
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
   _authSessionGeneration?: number;
-  _authTransitionToken?: symbol | null;
   // 401 재발급 재시도를 건너뛴다 — 특정 계정으로 보내야 하는 요청은 재발급 토큰이 **전환된 계정**
   // 것일 수 있어, 재시도가 곧 계정 오귀속이 된다(GROMO-1049). 그냥 실패시켜 대기열로 보낸다.
   _noAuthRetry?: boolean;
@@ -257,10 +255,14 @@ api.interceptors.response.use(
         if (requestGeneration !== getAuthSessionGeneration()) {
           throw new StaleAuthRefreshError('stale auth refresh');
         }
-        const transitionLease = original._authTransitionToken
-          ? { token: original._authTransitionToken }
-          : undefined;
-        const newToken = await refreshAccessToken(transitionLease, requestGeneration);
+        // 공유 api 요청은 인증 전환의 소유 작업인지 판별할 async-local 문맥이 없다. 전환 중인
+        // 모든 요청에 전역 lease를 부여하면 무관한 화면 요청도 single-flight를 우회한다. 따라서
+        // 전환이 활성인 동안 401이 된 공유 요청은 폐기하고, 명시적 lease는 getFreshAccessToken
+        // 호출처럼 인증 작업이 직접 소유권을 전달한 경로에서만 사용한다.
+        if (activeAuthTransitionToken !== null) {
+          throw new StaleAuthRefreshError('stale auth refresh');
+        }
+        const newToken = await refreshAccessToken(undefined, requestGeneration);
         if (requestGeneration !== getAuthSessionGeneration()) {
           throw new StaleAuthRefreshError('stale auth refresh');
         }

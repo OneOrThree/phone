@@ -6,9 +6,9 @@ import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { HotUpdater } from '@hot-updater/react-native';
 import {
-  acquireAuthSessionTransition,
   getAuthSessionGeneration,
   getUserIdFromToken,
+  runAuthSessionTransition,
   setLogoutHandler,
   setReloginHandler,
 } from '@/services/api';
@@ -229,8 +229,7 @@ function App() {
     clearPendingGroupEntry();
     clearPendingInvite();
     const logoutSessionGeneration = getAuthSessionGeneration();
-    const releaseAuthTransition = await acquireAuthSessionTransition();
-    try {
+    await runAuthSessionTransition(async () => {
       // 기다리는 동안 새 로그인 저장이 먼저 끝났다면 이 로그아웃은 이전 세션 작업이다.
       if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
       // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
@@ -307,9 +306,7 @@ function App() {
       setUser(null);
       clearPendingGroupEntry();
       clearPendingInvite();
-    } finally {
-      releaseAuthTransition();
-    }
+    });
   }
 
   // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.

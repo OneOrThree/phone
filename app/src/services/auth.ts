@@ -13,7 +13,6 @@ import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbs
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   API_URL,
-  api,
   type AuthSessionTransitionLease,
   getFreshAccessToken,
   getUserIdFromToken,
@@ -365,7 +364,9 @@ export function guestLogin(): Promise<LoginResult> {
 
 // POST /api/v1/auth/logout — 서버 리프레시 토큰 무효화. 로컬 세션 정리는 호출부(App.tsx handleLogout) 담당.
 export async function logout(refreshToken: string): Promise<void> {
-  await api.post('/api/v1/auth/logout', { refreshToken });
+  // 호출부가 인증 전환 mutex를 소유한 채 기다린다. 공유 api의 401 refresh는 같은 mutex를
+  // 재획득해 교착하므로, refresh token 본문만 필요한 logout은 bare 요청으로 보낸다.
+  await axios.post(`${API_URL}/api/v1/auth/logout`, { refreshToken });
 }
 
 // ── 마지막 사용 소셜 provider (GROMO-602) ──
