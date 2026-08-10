@@ -62,6 +62,28 @@ test('stale 순서 복구 쓰기 실패도 안내하고 다음 전체 목록에�
   expect(await readGroupCardOrder('me')).toEqual(['b', 'a', 'c']);
 });
 
+test('동일한 성공 목록도 새 version이면 실패한 쓰기를 재시도한다', async () => {
+  const { result, rerender } = await renderHook(
+    ({ version }: { version: number }) =>
+      useGroupCardOrder({
+        serverGroupIds: ['a', 'b'],
+        userId: 'me',
+        successfulListVersion: version,
+      }),
+    { initialProps: { version: 1 } },
+  );
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  await act(async () => {
+    result.current.commitOrder(['b', 'a']);
+  });
+  await waitFor(() => expect(result.current.saveFailed).toBe(true));
+
+  await rerender({ version: 2 });
+  await waitFor(() => expect(result.current.saveFailed).toBe(false));
+  expect(await readGroupCardOrder('me')).toEqual(['b', 'a']);
+});
+
 test('계정 전환 직후 이전 계정 순서를 노출하지 않고 새 bucket으로 hydrate한다', async () => {
   await writeGroupCardOrder('u1', ['b', 'a']);
   await writeGroupCardOrder('u2', ['a', 'b']);

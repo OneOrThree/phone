@@ -19,7 +19,7 @@ function uniqueIds(values: readonly unknown[]): string[] {
 }
 
 export function parseGroupCardOrderState(raw: string | null): ParsedGroupOrder {
-  if (!raw) return { value: {}, needsRepair: false };
+  if (raw === null) return { value: {}, needsRepair: false };
   try {
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -40,6 +40,19 @@ export function parseGroupCardOrderState(raw: string | null): ParsedGroupOrder {
     return { value: result, needsRepair };
   } catch {
     return { value: {}, needsRepair: true };
+  }
+}
+
+function needsRepairForUser(raw: string | null, userId: string): boolean {
+  if (raw === null) return false;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return true;
+    if (!Object.prototype.hasOwnProperty.call(value, userId)) return false;
+    const ids = (value as Record<string, unknown>)[userId];
+    return !Array.isArray(ids) || uniqueIds(ids).length !== ids.length;
+  } catch {
+    return true;
   }
 }
 
@@ -68,6 +81,45 @@ export function isSameGroupOrder(a: readonly string[], b: readonly string[]): bo
 }
 
 let writeQueue: Promise<void> = Promise.resolve();
+export interface PendingGroupCardOrder {
+  ids: string[];
+  status: 'inflight' | 'failed';
+  version: number;
+}
+const sessionPendingOrders = new Map<string, PendingGroupCardOrder>();
+let pendingVersion = 0;
+
+export function getPendingGroupCardOrder(userId: string): PendingGroupCardOrder | undefined {
+  return sessionPendingOrders.get(userId);
+}
+
+export function setPendingGroupCardOrder(
+  userId: string,
+  ids: readonly string[],
+  status: PendingGroupCardOrder['status'],
+): PendingGroupCardOrder {
+  const pending = { ids: uniqueIds(ids), status, version: ++pendingVersion };
+  sessionPendingOrders.set(userId, pending);
+  return pending;
+}
+
+export function updatePendingGroupCardOrderStatus(
+  userId: string,
+  version: number,
+  status: PendingGroupCardOrder['status'],
+): boolean {
+  const pending = sessionPendingOrders.get(userId);
+  if (!pending || pending.version !== version) return false;
+  pending.status = status;
+  return true;
+}
+
+export function clearPendingGroupCardOrder(userId: string, version: number): boolean {
+  const pending = sessionPendingOrders.get(userId);
+  if (!pending || pending.version !== version) return false;
+  sessionPendingOrders.delete(userId);
+  return true;
+}
 
 function enqueueWrite(task: () => Promise<void>): Promise<void> {
   const current = writeQueue.then(task);
@@ -87,12 +139,11 @@ export async function readGroupCardOrderState(userId: string): Promise<GroupCard
   const pendingWrites = writeQueue;
   try {
     await pendingWrites;
-    const parsed = parseGroupCardOrderState(
-      await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder),
-    );
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder);
+    const parsed = parseGroupCardOrderState(raw);
     return {
       order: parsed.value[userId] ?? null,
-      needsRepair: parsed.needsRepair,
+      needsRepair: needsRepairForUser(raw, userId),
       readFailed: false,
     };
   } catch {
@@ -121,4 +172,6 @@ export function writeGroupCardOrder(userId: string, groupIds: readonly string[])
 
 export function __resetGroupCardOrderQueueForTest(): void {
   writeQueue = Promise.resolve();
+  sessionPendingOrders.clear();
+  pendingVersion = 0;
 }

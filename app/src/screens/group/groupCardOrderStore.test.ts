@@ -5,6 +5,7 @@ import {
   parseGroupCardOrder,
   parseGroupCardOrderState,
   readGroupCardOrder,
+  readGroupCardOrderState,
   reconcileGroupCardOrder,
   writeGroupCardOrder,
 } from './groupCardOrderStore';
@@ -43,10 +44,23 @@ test('손상된 저장값은 안전하게 빈 map으로 읽는다', () => {
 
 test('저장값 부재와 파싱 손상을 구분한다', () => {
   expect(parseGroupCardOrderState(null)).toEqual({ value: {}, needsRepair: false });
+  expect(parseGroupCardOrderState('')).toEqual({ value: {}, needsRepair: true });
   expect(parseGroupCardOrderState('{broken')).toEqual({ value: {}, needsRepair: true });
   expect(parseGroupCardOrderState(JSON.stringify({ u1: 'bad' }))).toEqual({
     value: {},
     needsRepair: true,
+  });
+});
+
+test('다른 계정 bucket 손상은 현재 계정 복구 상태로 전파하지 않는다', async () => {
+  await AsyncStorage.setItem(
+    STORAGE_KEYS.groupCardOrder,
+    JSON.stringify({ me: ['a'], other: 'bad' }),
+  );
+  expect(await readGroupCardOrderState('me')).toEqual({
+    order: ['a'],
+    needsRepair: false,
+    readFailed: false,
   });
 });
 
