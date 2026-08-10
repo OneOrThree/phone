@@ -211,6 +211,16 @@ export interface GroupChallengeResponse {
   nextSessionAt?: string;
   // 다음 활성일 회차를 이미 예약했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태 분기(N45).
   nextSessionJoined?: boolean;
+  // 내기 설정(#572/B8 additive) — **오늘 회차 유무와 무관한 챌린지 단위 설정**이다.
+  // "설정은 켜져 있는데 오늘 회차만 없는 날"(마지막 참가자 취소로 회차 삭제·lazy 개설 전)에
+  // 서버는 `bet=null`을 주므로, bet만 보면 참여할 수 없는 챌린지가 된다. 설정을 bet 객체에
+  // 겹쳐 담지 않은 이유는 구앱 계약(`bet != null` → `betId` 유효)이 깨지기 때문이다.
+  // 필드 부재 = 이 개념을 모르는 응답(구서버·브리지) — 그때는 종전대로 bet에서 읽는다.
+  betConfig?: { enabled: boolean; stake: number };
+  // 가장 최근 정산 회차(카드 '지난 결과' 1줄 + 정산 감지용 — LLD §2.1 · N53).
+  // 결과 **모달 큐**는 이 필드가 아니라 참가자 스코프 `/me/challenge-results`가 소스다(A2 소유) —
+  // 분업을 깨지 않는다. 구서버는 lastSettledBet만 주므로 앱은 둘 다 수용한다(v2 우선).
+  lastSettledSession?: LastSettledSession | null;
 }
 
 // ── 내기(3차·확장) — 계약 정본 docs/app/challenge-impl-2026-08/contract.md §2 ──
@@ -432,6 +442,32 @@ export interface ChallengeDeletionPreviewSession {
 export interface ChallengeDeletionPreviewResponse {
   openSessions: ChallengeDeletionPreviewSession[]; // 예약된 미래 날짜까지 전부
   totalRefund: number; // 무효화 시 돌려줄 총액
+}
+
+// 가장 최근 **정산 완료 회차** — 카드의 '지난 결과' 한 줄 표시용(LLD §2.1 · N53).
+// LastSettledBet(구)의 회차판이다: betDate → sessionDate, + sessionId·voidReason·내 결과 요약.
+export interface LastSettledSessionResult {
+  userId: string;
+  nickname: string;
+  achieved: boolean | null;
+  payout: number | null;
+  // 정산 판정에 쓴 실측 분 — 3상(undefined=구서버, null=미집계·과거분, number=실측).
+  progressMinutes?: number | null;
+}
+
+export interface LastSettledSession {
+  sessionId: string;
+  sessionDate: string; // 'YYYY-MM-DD'
+  stake: number;
+  pot: number;
+  status: GroupBetSessionStatus;
+  // VOIDED만 값이 있다 — SHORT_PARTICIPANTS(인원 미달 무산) | CHALLENGE_DELETED(삭제 무효화).
+  voidReason?: string | null;
+  goalMinutes?: number | null;
+  myJoined?: boolean;
+  myAchieved?: boolean | null;
+  myPayout?: number | null;
+  results: LastSettledSessionResult[];
 }
 
 // GET /me/bet-sessions?status=OPEN 항목 — 내가 참가비를 건 OPEN 회차(그룹 무관, LLD §2.1).

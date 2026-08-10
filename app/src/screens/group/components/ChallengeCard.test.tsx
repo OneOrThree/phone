@@ -179,6 +179,11 @@ async function renderCard(over: Partial<GroupChallengeResponse> = {}, betLocked 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // 회차 참가 마감(joinClosesAt) 판정은 서버가 준 **절대 시각**과 지금을 비교한다(벽시계 초가
+  // 아니다 — 자정 걸침·기기 시계 사고 회피). '지금'을 고정하지 않으면 픽스처의 마감 시각이
+  // 실제 실행일 기준으로 이미 지나 테스트가 날짜와 함께 썩는다. KST 10:00 = 01:00Z로 못 박는다
+  // (아래 mockNowSec 10:00과 같은 순간 — 두 시간축이 어긋나면 분기 판정이 서로 모순된다).
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-01T01:00:00Z'));
   mockNowSec = 10 * 3600; // KST 10:00 — 시각을 바꾼 테스트가 남긴 값을 되돌린다.
   mockLeaveBet.mockResolvedValue(undefined);
   mockCancelBet.mockResolvedValue(undefined);
@@ -1765,6 +1770,162 @@ describe('v2 내기 꺼짐 (N26)', () => {
   test('구서버(repeatDays 없음)의 bet=null에는 종전 개설 진입점이 그대로 선다', async () => {
     await renderCard({ bet: null });
     expect(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeOnTheScreen();
+  });
+
+  // #572/B8 betConfig — "설정은 켜졌는데 오늘 회차만 없는 날"(마지막 참가자 취소·lazy 개설 전).
+  // bet=null만 보고 접으면 **참여할 수 없는 챌린지**가 된다.
+  test('betConfig.enabled=true · bet=null이면 예약 진입점을 세운다(오늘 참가 버튼은 없다)', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 50 },
+    });
+
+    expect(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toHaveTextContent(
+      '8/3(월) 참여하기',
+    );
+    // 참가비는 회차가 없어도 설정에서 읽는다.
+    expect(screen.getByText('50코인')).toBeOnTheScreen();
+    // 오늘 회차가 없으니 오늘 참가 행도, 레거시 개설 버튼도 없다.
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('betConfig.enabled=false면 v2 규칙대로 내기 영역 자체가 없다', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: false, stake: 50 },
+    });
+    expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`group.bet.create.${CHALLENGE_ID}`)).toBeNull();
+  });
+});
+
+// ── 오늘 참가 마감 경과(#570 codex ③) · 권한 없는 예약 진입점(#570 codex ④) ──────────
+describe('오늘 참가 마감·권한 가드', () => {
+  // 창형 09:00~12:00, 오늘(8/1 토)이 활성일. 회차는 정산 전까지 OPEN이지만 참가 마감은 창 시작이다.
+  const closedTodaySession = (over: Partial<GroupBetSession> = {}): GroupBetSession => ({
+    sessionId: 's-closed',
+    sessionDate: '2026-08-01',
+    stake: 30,
+    goalMinutes: 90,
+    pot: 60,
+    status: 'OPEN',
+    startsAt: '2026-08-01T00:00:00Z', // KST 09:00 — 지금(KST 10:00)은 창 안이다
+    joinClosesAt: '2026-08-01T00:00:00Z',
+    myLeaveDeadlineAt: null,
+    closesAt: '2026-08-01T03:00:00Z',
+    myJoined: false,
+    myAchievedNow: false,
+    participants: [],
+    ...over,
+  });
+  const windowOver = (
+    over: Partial<GroupChallengeResponse> = {},
+    sessionOver: Partial<GroupBetSession> = {},
+  ): Partial<GroupChallengeResponse> => ({
+    missionType: 'TIME_WINDOW',
+    windowStart: '09:00:00',
+    windowEnd: '12:00:00',
+    repeatDays: ['SAT', 'MON'],
+    activeToday: true,
+    nextSessionAt: NEXT_MON_AT,
+    bet: bet({ enabled: true, session: closedTodaySession(sessionOver) }),
+    ...over,
+  });
+
+  test('참가 마감이 지났으면 오늘 참가 버튼 대신 다음 활성일 예약으로 전환한다', async () => {
+    await renderCard(windowOver());
+
+    // 누르면 항상 실패하는 「참가하기」가 서면 안 된다(BET_SESSION_CLOSED).
+    expect(screen.queryByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toHaveTextContent(
+      '8/3(월) 참여하기',
+    );
+  });
+
+  test('마감이 지나도 이미 참가 중이면 참여 중 행이 우선이다', async () => {
+    // 브리지는 레거시 4필드를 **오늘 회차 기준으로 병기**한다(N36) — 픽스처도 두 축을 맞춘다.
+    await renderCard({
+      ...windowOver({}, { myJoined: true }),
+      bet: bet({ enabled: true, myJoined: true, session: closedTodaySession({ myJoined: true }) }),
+    });
+    expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+  });
+
+  test('마감 전이면 종전대로 오늘 참가 행이 선다', async () => {
+    await renderCard(
+      windowOver({}, { joinClosesAt: '2026-08-01T05:00:00Z' }), // KST 14:00 — 아직 열려 있다
+    );
+    expect(screen.getByTestId(`group.bet.join.${CHALLENGE_ID}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('canParticipate=false면 예약 진입점(단건·주간)을 세우지 않는다 — 서버가 N50으로 거절한다', async () => {
+    await renderCard(windowOver({ canParticipate: false, missionCategory: 'SCREEN_TIME' }));
+
+    expect(screen.getByText('스크린타임 권한이 없어 참여할 수 없어요')).toBeOnTheScreen();
+    expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`group.bet.week.${CHALLENGE_ID}`)).toBeNull();
+  });
+});
+
+// ── v2 지난 결과 소비(#570 codex ①) — lastSettledSession 우선, 구서버는 lastSettledBet ──
+describe('지난 결과 v2 (lastSettledSession)', () => {
+  test('v2 필드가 있으면 그것으로 지난 결과 줄을 그린다', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 30 },
+      lastSettledSession: {
+        sessionId: 's-past',
+        sessionDate: '2026-07-31',
+        stake: 30,
+        pot: 90,
+        status: 'SETTLED',
+        goalMinutes: 60,
+        myJoined: true,
+        myAchieved: true,
+        myPayout: 45,
+        results: [
+          { userId: 'u1', nickname: '재영', achieved: true, payout: 45 },
+          { userId: 'u2', nickname: '수빈', achieved: false, payout: 0 },
+        ],
+      },
+    });
+    expect(screen.getByText('지난 내기(7월 31일): 2명 중 1명 달성')).toBeOnTheScreen();
+  });
+
+  test('v2 필드가 없으면 구서버 lastSettledBet로 폴백한다', async () => {
+    await renderCard({ bet: bet(), lastSettledBet: lastSettledBet() });
+    expect(screen.getByText('지난 내기(7월 31일): 3명 중 2명 달성')).toBeOnTheScreen();
+  });
+
+  test('참가자 0명으로 닫힌 회차(UNUSED)는 지난 결과로 그리지 않는다(N52)', async () => {
+    await renderCard({
+      repeatDays: ['MON'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: null,
+      betConfig: { enabled: true, stake: 30 },
+      lastSettledSession: {
+        sessionId: 's-unused',
+        sessionDate: '2026-07-31',
+        stake: 30,
+        pot: 0,
+        status: 'UNUSED',
+        results: [],
+      },
+    });
+    expect(screen.queryByText(/지난 내기/)).toBeNull();
   });
 });
 

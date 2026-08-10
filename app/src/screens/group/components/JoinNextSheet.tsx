@@ -55,9 +55,17 @@ export default function JoinNextSheet({
   onClose,
   onDone,
 }: JoinNextSheetProps) {
-  const { coins, coinsLoaded, refresh } = useCoins();
+  const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 서버가 확정한 잔액 부족(BetSheet insufficientVerdict 패턴 — #570 codex ②). refresh가 실패하거나
+  // 낡은 큰 잔액이 남아 있어도 "이 참가비로는 안 된다"는 이미 확정이다 — 안 잠그면 같은 실패를
+  // 반복 전송한다. 푸는 건 판정 **이후 버전**의 권위 있는 잔액이 감당한다고 말할 때뿐이다
+  // (크기만 보면 판정 직후의 낡은 잔액이 판정을 스스로 즉시 풀어 버린다).
+  const [insufficientVerdict, setInsufficientVerdict] = useState<{
+    stake: number;
+    coinsVersion: number;
+  } | null>(null);
   // 같은 틱 연타 방지 — state는 리렌더 뒤에야 보인다(BetSheet submit 관행).
   const submitLock = useRef(false);
   // 시트를 연 시점의 KST 기준일 — 자정을 넘겨 제출하면 화면의 '다음 활성일'이 이미 낡은
@@ -73,7 +81,16 @@ export default function JoinNextSheet({
 
   // 잔액을 모르면 부족 판정을 하지 않는다 — 모르는 값으로 사용자를 잠그지 않는다(BetSheet F1).
   const insufficient = !!coinsLoaded && stake > coins;
-  const disabled = submitting || insufficient;
+  // 판정 이후에 도착한 잔액이 '낼 수 있다'고 말하는가 — 그때만 서버 판정을 푼다(BetSheet와 동일).
+  const balanceOverridesVerdict =
+    insufficientVerdict !== null &&
+    !!coinsLoaded &&
+    coinsVersion > insufficientVerdict.coinsVersion &&
+    stake <= coins;
+  // 참가비는 이 시트에서 바꿀 수 없다(개설자가 정한 값) — 판정은 같은 금액에 그대로 유효하다.
+  const serverInsufficient =
+    insufficientVerdict !== null && stake >= insufficientVerdict.stake && !balanceOverridesVerdict;
+  const disabled = submitting || insufficient || serverInsufficient;
 
   function failAndReload(title: string, message: string) {
     Alert.alert(title, message);
@@ -116,11 +133,13 @@ export default function JoinNextSheet({
           refresh();
           onDone();
           return;
-        // 서버가 확정한 잔액 부족 — 잔액을 다시 받고 인라인으로 알린다(재시도 가능 실패).
+        // 서버가 확정한 잔액 부족 — 판정을 상태로 승격해 CTA를 잠근다(BetSheet 패턴 · #570 ②).
+        // 버전은 클로저(coinsVersion)가 아니라 latestCoinsVersion()에서 읽는다 — 요청이 나가 있는
+        // 사이 도착한(차감 전) 잔액이 '판정 이후'로 세어져 CTA를 즉시 다시 여는 창을 막는다.
         case BET_INSUFFICIENT_BALANCE:
         case 'INSUFFICIENT_CURRENCY':
           refresh();
-          setErrorMsg('코인이 부족해요');
+          setInsufficientVerdict({ stake, coinsVersion: latestCoinsVersion() });
           break;
         // SCREEN_TIME 권한 가드(N50) — 이 시트에서 재시도해도 같은 결과다.
         case BET_SCREENTIME_PERMISSION_REQUIRED:
@@ -170,6 +189,9 @@ export default function JoinNextSheet({
       {/* 잔액 표기 — N46 단독 소유 컴포넌트 재사용(1424). 미상이면 '—'(3상). */}
       <BetBalanceRow amount={stake} coins={coinsLoaded ? coins : null} />
 
+      {/* 서버가 확정한 부족 — 잔액이 아직 안 와 부족분을 계산할 수 없을 때만 이 문장이 선다.
+          잔액이 도착하면 CTA 라벨이 규격대로 부족분을 들고 있으므로 같은 말을 두 번 하지 않는다. */}
+      {serverInsufficient && !insufficient && <Text style={s.error}>코인이 부족해요</Text>}
       {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
 
       <TouchableOpacity

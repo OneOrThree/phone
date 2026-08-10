@@ -38,6 +38,7 @@ import {
   repeatDayOf,
   weekRemainingActiveDates,
 } from '../challengeSchedule';
+import { pickLastSettled } from '../lastSettledView';
 import { categoryLabel, missionLabel } from './challengeLabel';
 import {
   UNMEASURED,
@@ -256,7 +257,12 @@ export default function ChallengeCard({
   // 모든 카드에 눌러도 없는 엔드포인트로 나가 실패만 하는 '내기 걸기'가 선다(코덱스 리뷰).
   // 내기를 아는 서버는 없을 때 null을 **명시로** 내려준다(백 GroupChallengeResponse는 NON_NULL
   // 생략을 쓰지 않는다) — 백엔드가 그 DTO에 @JsonInclude(NON_NULL)을 붙이면 이 판정이 깨진다.
-  const betKnown = challenge.bet !== undefined;
+  // v2 내기 설정(#572/B8 additive) — **오늘 회차 유무와 무관한** 챌린지 단위 설정이다.
+  // 서버는 "설정은 켜져 있는데 오늘 회차만 없는 날"(마지막 참가자 취소로 회차 삭제·lazy 개설 전)에
+  // `bet=null`을 주는데, 그것만 보고 영역을 접으면 **참여할 수 없는 챌린지**가 된다.
+  // `bet` 객체에 설정을 겹쳐 담지 않은 이유는 구앱 계약(`bet != null` → `betId` 유효)이 깨져서다.
+  const betConfig = challenge.betConfig;
+  const betKnown = challenge.bet !== undefined || betConfig !== undefined;
   const isWindow = challenge.missionType === 'TIME_WINDOW';
   const isScreenTime = challenge.missionCategory === 'SCREEN_TIME';
   const betSupported =
@@ -421,38 +427,68 @@ export default function ChallengeCard({
       : '';
 
   // ── 회차 모델(신서버 — bet.session 필드 존재) 파생. undefined = 구서버(종전 렌더). ──
-  // 다음 활성일 1건 예약 진입점(GROMO-1419 — N45·FR-31-1): 오늘 회차가 없는(쉬는 날·창 지난 뒤
-  // 회차 미개설) 신서버 카드에서만. 미래 회차라 무위험 참가 검사(이미 달성·초과)로 잠그지 않는다.
+  // 오늘 회차의 참가 마감이 지났는가 — 창형은 창이 열리는 순간 잠기지만(§C3) 회차 자체는
+  // 정산 전까지 OPEN으로 남는다. 그 구간을 '참가 가능'으로 읽으면 카드가 「참가하기」를 세우고
+  // 누르면 항상 BET_SESSION_CLOSED로 실패한다(#570 codex ③). 마감 판정은 서버가 준
+  // joinClosesAt이 정본이다 — 앱이 창 시작 시각으로 재구성하지 않는다(기기 시계·자정 걸침 사고).
+  // 파싱 실패는 '마감 안 됨'으로 둔다(서버가 최종 판정 — 멀쩡한 참가를 앱이 막지 않는다).
+  const todaySessionClosed = (() => {
+    const closesAt = bet?.session?.joinClosesAt;
+    if (closesAt === undefined) return false;
+    const ms = Date.parse(closesAt);
+    return !Number.isNaN(ms) && Date.now() >= ms;
+  })();
+  // 이 응답이 v2인가 — 표식은 요일 반복(repeatDays) 또는 내기 설정(betConfig)이다.
+  const isV2 = repeatDays !== null || betConfig !== undefined;
+  // 내기가 켜져 있는가 — **betConfig가 있으면 그것이 정본**이다(오늘 회차 유무와 무관한 설정).
+  // 없으면 종전대로 오늘 내기 객체에서 읽는다(브리지 응답·구서버).
+  const betOn = betConfig !== undefined ? betConfig.enabled : bet !== null && bet.enabled !== false;
+  // 예약 확인 시트에 적을 참가비 — 오늘 회차가 없으면 설정값이 유일한 출처다.
+  const reserveStake = bet?.stake ?? betConfig?.stake ?? 0;
+  // 오늘 회차로 더 참가할 수 없다(회차 없음 = 쉬는 날·미개설 / 참가 마감 경과) — 이 카드의 행동은
+  // '다음 활성일 예약'으로 넘어간다. 단 **이미 참가 중이면** 참여 중 행·취소 동선이 우선이다.
+  const todayJoinClosed =
+    isV2 &&
+    (bet === null ||
+      (bet.session !== undefined &&
+        (bet.session === null || (todaySessionClosed && !bet.session.myJoined))));
+  // 다음 활성일 1건 예약 진입점(GROMO-1419 — N45·FR-31-1): 오늘 참가가 닫힌 신서버 카드에서만.
+  // 미래 회차라 무위험 참가 검사(이미 달성·초과)로 잠그지 않는다.
+  // SCREEN_TIME 권한 없음(canParticipate=false)이면 서버가 join-next를 N50으로 거절한다 —
+  // "권한이 없어 참여할 수 없어요" 안내 옆에 돈 나가는 버튼을 세우지 않는다(#570 codex ④).
   const nextJoinable =
-    bet !== null &&
-    bet.session === null &&
+    todayJoinClosed &&
+    betOn &&
     betOpenable &&
-    bet.enabled !== false &&
+    challenge.canParticipate &&
+    reserveStake > 0 &&
     nextDate !== null;
   // 「이번 주 남은 날 전부」(GROMO-1276 — N14·§C2) 대상 산출: 이번 주(KST 월~일) 남은 활성일 중
-  // 참가 가능 회차. 오늘은 '지금 참여 가능한 미참가 회차'일 때만(창형은 창 시작 전 — N39와 같은
+  // 참가 가능 회차. 오늘은 '지금 참여 가능한 미참가 회차'일 때만(창형은 참가 마감 전 — N39와 같은
   // 원리로 참여 불가능한 오늘을 담으면 서버 400으로 전체가 죽는다). 이미 예약한 다음 활성일은
   // 뺀다 — 합계 표기가 실제 나갈 돈보다 부풀면 안 된다(서버는 조용히 건너뛰지만 표기가 거짓이 된다).
   const weekDates = (() => {
     if (
       repeatDays === null ||
-      bet === null ||
-      bet.session === undefined ||
-      bet.enabled === false ||
-      !betOpenable
+      !betOn ||
+      reserveStake <= 0 ||
+      !betOpenable ||
+      // 회차 모델을 모르는 브리지 응답(bet은 있는데 session 필드가 없다)에는 주간 예약을 걸지 않는다.
+      (bet !== null && bet.session === undefined) ||
+      // 권한 없는 SCREEN_TIME은 join-week도 N50으로 전부 거절된다 — 대상 자체를 만들지 않는다.
+      !challenge.canParticipate
     ) {
       return [];
     }
-    const todaySession = bet.session;
+    const todaySession = bet?.session ?? null;
     const todayEligible =
       activeToday &&
       todaySession !== null &&
       todaySession.status === 'OPEN' &&
       !todaySession.myJoined &&
       !myBlockedNow &&
-      (!isWindow ||
-        (challenge.windowStart !== null &&
-          nowSecondsInZone(KST_ZONE) < timeStrToSeconds(challenge.windowStart)));
+      // 참가 마감(joinClosesAt) 경과 판정은 창 시각 재구성이 아니라 서버 값이 정본이다(위 주석).
+      !todaySessionClosed;
     const future = weekRemainingActiveDates(repeatDays, todayKst, false).filter(
       (d) => !(challenge.nextSessionJoined === true && d === nextDate),
     );
@@ -673,7 +709,9 @@ export default function ChallengeCard({
       },
     ]);
   }
-  const lastBet = challenge.lastSettledBet ?? null;
+  // 지난 결과 1건 — v2 lastSettledSession 우선, 없으면 구서버 lastSettledBet 폴백(#570 codex ①).
+  // 선택·정규화는 lastSettledView가 단독으로 쥔다(결과 시트는 A2 소유라 props를 바꾸지 않는다).
+  const lastBet = pickLastSettled(challenge);
   const lastResults = lastBet?.results ?? [];
   // achieved는 3상이다(계약 §3) — null(미판정)을 미달성으로 세면 달성 인원이 과소 집계된다.
   const lastAchieved = lastResults.filter((r) => r.achieved === true).length;
@@ -844,20 +882,24 @@ export default function ChallengeCard({
       {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 카드 하단 ──
           끝난 챌린지에 내기가 하나도 없으면 영역 자체를 두지 않는다 — 열 수 없는 자리에
           구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다.
-          ⚠️ v2 응답(repeatDays 존재)의 bet === null은 "생성 시 내기를 껐다 = 불변"(N26·ux §05
-          분기 0)이다 — 레거시 「내기 걸기」(createBet) 진입점을 세우면 신서버에선 영구 실패
-          버튼이고, 브리지가 받아 주면 생성 시 선택을 거스른다(#570 codex). 영역 자체를 두지
-          않는다. 구서버(표식 없음)는 종전 개설 플로우 그대로다. */}
-      {betSupported && (bet !== null || (betOpenable && repeatDays === null)) && (
+          ⚠️ v2 응답의 bet === null은 두 가지다 — **betConfig가 정본**이다(#572/B8):
+            · betConfig.enabled === true  → 설정은 켜졌고 **오늘 회차만 없다**(쉬는 날·미개설).
+              영역을 그리고 **예약 진입점만** 세운다(오늘 참가 버튼은 회차가 없으니 없다).
+            · betConfig 없음(=꺼짐)      → "생성 시 내기를 껐다 = 불변"(N26·ux §05 분기 0).
+              영역 자체를 두지 않는다 — 레거시 「내기 걸기」를 세우면 신서버에선 영구 실패
+              버튼이고 브리지가 받아 주면 생성 시 선택을 거스른다(#570 codex ①).
+          구서버(betConfig·repeatDays 모두 없음)는 종전 개설 플로우 그대로다. */}
+      {betSupported && (bet !== null || (betOpenable && (!isV2 || betOn))) && (
         <View style={s.betArea}>
-          {nextJoinable && bet !== null && nextDate !== null ? (
-            // ⓪-v2 오늘 회차가 없다(신서버 쉬는 날 — LLD §2.1 분기 1, GROMO-1419).
-            //    다음 활성일 시각·참가비를 보여주고 **1건**을 지금 예약할 수 있게 한다(N45).
+          {nextJoinable && nextDate !== null ? (
+            // ⓪-v2 오늘 참가가 닫혔다(쉬는 날·회차 미개설·참가 마감 경과 — LLD §2.1 분기 1,
+            //    GROMO-1419). 다음 활성일 시각·참가비를 보여주고 **1건**을 지금 예약하게 한다(N45).
             //    이미 예약했으면 버튼 대신 예약 상태 + 「참여 취소」 동선이다(N27·FR-31-1).
+            //    참가비는 오늘 회차가 없어도 알 수 있다 — betConfig가 정본이다(reserveStake).
             <>
               <View style={s.betRow}>
                 <Text style={s.betText}>{nextDayPhrase(nextDate, todayKst, startHHmm)}</Text>
-                <Text style={s.betTomorrowTag}>{bet.stake}코인</Text>
+                <Text style={s.betTomorrowTag}>{reserveStake}코인</Text>
                 {challenge.nextSessionJoined === true && (
                   <>
                     <Text style={s.betJoinedTag}>참여 중</Text>
@@ -865,7 +907,7 @@ export default function ChallengeCard({
                       style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
                       activeOpacity={0.8}
                       disabled={leaveBusy}
-                      onPress={() => confirmLeaveNext(bet.stake)}
+                      onPress={() => confirmLeaveNext(reserveStake)}
                       accessibilityRole="button"
                       accessibilityLabel={`${fmtMonthDayDow(nextDate)} 참여 취소`}
                       testID={`group.bet.leaveNext.${challenge.id}`}
@@ -908,10 +950,11 @@ export default function ChallengeCard({
                 {closedBet?.kind === 'cancel' ? BET_CANCELED_CAPTION : BET_LEFT_CAPTION}
               </Text>
             </>
-          ) : bet === null ? (
-            // ① 아직 내기가 없다 — 아웃라인 소형 버튼. 카드 본체(진행 리스트)보다 약하게 둔다.
+          ) : bet === null && !isV2 ? (
+            // ① 아직 내기가 없다(**구서버만**) — 아웃라인 소형 버튼. 카드 본체보다 약하게 둔다.
             //    이미 확정된 사람(FOCUS 달성·SCREEN_TIME 초과)은 개설도 서버가 거절하므로
             //    (BET_ALREADY_ACHIEVED · BET_ALREADY_FAILED) 미리 잠그고 사유를 적는다.
+            //    v2엔 "내기 걸기"라는 행위가 없다(생성 시 1회 결정·불변 — N26).
             <>
               <TouchableOpacity
                 style={[s.betCreateBtn, createBlocked && s.betCreateBtnOff]}
@@ -927,6 +970,13 @@ export default function ChallengeCard({
               </TouchableOpacity>
               {myBlockedNow && <Text style={s.caption}>{blockedCreateCaption}</Text>}
             </>
+          ) : bet === null ? (
+            // ①-v2 내기는 켜져 있는데(betConfig) 오늘 회차가 없고 예약 진입점도 못 세우는 조합 —
+            //    스크린타임 권한 없음(위 캡션이 사유를 말한다)·다음 활성일 미상(구·경계 응답).
+            //    누를 자리 없이 설정만 적는다. 영역을 비우면 내기가 없는 챌린지로 읽힌다.
+            <View style={s.betRow}>
+              <Text style={[s.betText, s.betTextOff]}>🪙 참가비 {reserveStake}</Text>
+            </View>
           ) : bet.myJoined && !rejoinable ? (
             // ③ 내가 참여 중 — 참가비·적립금·인원. '참여 중' 칩은 아직 열려 있는 내기에만 붙인다
             //    (정산이 끝난 내기에 '참여 중'을 달면 지금도 진행 중인 것으로 읽힌다).
@@ -969,8 +1019,11 @@ export default function ChallengeCard({
                 </TouchableOpacity>
               )}
             </View>
-          ) : bet.status === 'OPEN' && betOpenable ? (
+          ) : bet.status === 'OPEN' && betOpenable && !todayJoinClosed ? (
             // ② 열려 있는데 나는 미참가 — 행 전체가 참가 진입점.
+            //    ⚠️ 회차는 정산 전까지 OPEN으로 남지만 참가 마감(joinClosesAt)은 먼저 지난다 —
+            //    그 구간을 여기로 흘리면 눌러도 항상 실패하는 「참가하기」가 선다(#570 codex ③).
+            //    todayJoinClosed면 위 ⓪-v2(다음 활성일 예약)나 아래 정보 행으로 간다.
             //    이미 확정된 사람은 서버가 거절하므로(FOCUS는 BET_ALREADY_ACHIEVED,
             //    SCREEN_TIME은 BET_ALREADY_FAILED) 미리 잠근다.
             //    방금 철회한 카드(rejoinable)도 이 자리로 온다(GROMO-1112) — 철회 후 재참여 동선을
