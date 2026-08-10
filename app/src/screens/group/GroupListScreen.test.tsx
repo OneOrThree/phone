@@ -302,5 +302,9 @@ describe('콜백', () => {
       screen.getByTestId('group.deck.findMorePage', { includeHiddenElements: true }).props
         .pointerEvents,
     ).toBe('none');
+    expect(screen.getByLabelText(`아침 6시 집중방, 현재 1/3 페이지`)).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
   });
 });

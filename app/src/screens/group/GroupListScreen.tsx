@@ -250,7 +250,12 @@ export default function GroupListScreen({
             }
             testID="group.deck.findMorePage"
           >
-            <FindMoreCard width={cardWidth} onPress={onFind} />
+            <FindMoreCard
+              width={cardWidth}
+              position={pageCount}
+              pageCount={pageCount}
+              onPress={onFind}
+            />
           </View>
         ) : null
       }
@@ -268,6 +273,10 @@ export default function GroupListScreen({
               style={[s.card, enableCardDeck ? [s.deckCard, { width: cardWidth }] : s.legacyCard]}
               activeOpacity={0.85}
               onPress={() => onSelect(item.groupId)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                enableCardDeck ? `${item.name}, 현재 ${index + 1}/${pageCount} 페이지` : undefined
+              }
               testID={`group.list.card.${item.groupId}`}
             >
               <View style={s.cardMain}>
