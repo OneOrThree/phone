@@ -601,6 +601,16 @@ describe('콜백', () => {
     expect(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`)).toHaveStyle({ minHeight: 44 });
   });
 
+  test('뒷면 오류 재시도 동작도 최소 44pt 터치 영역을 가진다', async () => {
+    jest.mocked(getGroupDetail).mockRejectedValueOnce(new Error('detail failed'));
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('group.card.retry')).toHaveStyle({ minHeight: 44 }),
+    );
+  });
+
   test('복귀 목록 revision 전에 수락한 다른 카드 입력은 이전 카드 복원을 취소한다', async () => {
     const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
     const view = await renderList(groups);
@@ -1119,6 +1129,9 @@ describe('제스처 중재와 재정렬', () => {
     });
     expect(screen.getByTestId(`group.card.orderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
+    expect(screen.getByTestId('group.card.orderMenu.previous')).toHaveStyle({ minHeight: 44 });
+    expect(screen.getByTestId('group.card.orderMenu.next')).toHaveStyle({ minHeight: 44 });
+    expect(screen.getByTestId('group.card.orderMenu.done')).toHaveStyle({ minHeight: 44 });
 
     // 메뉴가 열린 동안 화면 밖 카드 flip과 indicator 이동은 수락하지 않는다.
     await press(`group.card.${GROUP_ID_2}`);

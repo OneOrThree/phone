@@ -157,7 +157,12 @@ function RetryRow({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <View style={s.retryRow}>
       <Text style={s.body}>{label}</Text>
-      <TouchableOpacity onPress={onPress} accessibilityRole="button">
+      <TouchableOpacity
+        style={s.secondaryAction}
+        onPress={onPress}
+        accessibilityRole="button"
+        testID="group.card.retry"
+      >
         <Text style={s.retry}>다시 시도</Text>
       </TouchableOpacity>
     </View>

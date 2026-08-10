@@ -17,6 +17,7 @@ import {
   logGroupCardIconEditorViewed,
   logGroupCardIconSaveResult,
 } from '@/services/analyticsEvents';
+import { isCurrentAnalyticsUserId } from '@/services/analytics';
 
 type Route = RouteProp<V2RootStackParamList, 'GroupCardEmojiEdit'>;
 
@@ -67,14 +68,17 @@ export default function GroupCardEmojiEditScreen() {
     savingRef.current = true;
     setSaving(true);
     setSaveFailed(false);
+    const ownerUserId = userId;
     try {
-      await writeGroupCardEmoji(userId, groupId, selected);
-      logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
+      await writeGroupCardEmoji(ownerUserId, groupId, selected);
+      if (isCurrentAnalyticsUserId(ownerUserId))
+        logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       setBaseline(selected);
       savingRef.current = false;
       navigation.goBack();
     } catch {
-      logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
+      if (isCurrentAnalyticsUserId(ownerUserId))
+        logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {

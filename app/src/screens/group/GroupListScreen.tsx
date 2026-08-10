@@ -1071,6 +1071,7 @@ export default function GroupListScreen({
           <Text style={s.orderMenuTitle}>카드 순서 변경</Text>
           <View style={s.orderMenuActions}>
             <TouchableOpacity
+              style={s.orderMenuAction}
               onPress={() => {
                 const from = orderedGroupsRef.current.findIndex(
                   (group) => group.groupId === orderMenuGroupId,
@@ -1083,6 +1084,7 @@ export default function GroupListScreen({
               <Text style={s.backLink}>앞으로</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={s.orderMenuAction}
               onPress={() => {
                 const from = orderedGroupsRef.current.findIndex(
                   (group) => group.groupId === orderMenuGroupId,
@@ -1095,6 +1097,7 @@ export default function GroupListScreen({
               <Text style={s.backLink}>뒤로</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={s.orderMenuAction}
               onPress={() => setOrderMenuGroupId(null)}
               testID="group.card.orderMenu.done"
             >
@@ -1237,6 +1240,7 @@ const s = StyleSheet.create({
   },
   orderMenuTitle: { ...T.text.label, color: T.ink },
   orderMenuActions: { flexDirection: 'row', justifyContent: 'space-around' },
+  orderMenuAction: { minHeight: 44, justifyContent: 'center' },
 
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)

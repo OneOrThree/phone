@@ -25,6 +25,10 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardIconEditorViewed: jest.fn(),
   logGroupCardIconSaveResult: jest.fn(),
 }));
+const mockAnalyticsSession = { current: true };
+jest.mock('@/services/analytics', () => ({
+  isCurrentAnalyticsUserId: jest.fn(() => mockAnalyticsSession.current),
+}));
 const mockLogGroupCardIconEditorViewed = logGroupCardIconEditorViewed as jest.MockedFunction<
   typeof logGroupCardIconEditorViewed
 >;
@@ -41,6 +45,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
   mockUser.userId = 'user-1';
+  mockAnalyticsSession.current = true;
 });
 
 test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 값에는 저장을 비활성화한다', async () => {
