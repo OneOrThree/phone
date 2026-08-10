@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { GROUP_CARD_EMOJI_OPTIONS, type GroupCardEmoji } from '../groupCardEmojiStore';
@@ -15,9 +16,11 @@ export function GroupCardEmojiPicker({
   testIDPrefix = 'group.cardEmoji',
   disabled = false,
 }: Props) {
+  const optionRefs = useRef<Array<{ focus?: () => void } | null>>([]);
   const moveSelection = (from: number, step: -1 | 1) => {
     const next = (from + step + GROUP_CARD_EMOJI_OPTIONS.length) % GROUP_CARD_EMOJI_OPTIONS.length;
     onChange(GROUP_CARD_EMOJI_OPTIONS[next].emoji);
+    optionRefs.current[next]?.focus?.();
   };
   return (
     <View
@@ -30,6 +33,9 @@ export function GroupCardEmojiPicker({
           const selected = value === emoji;
           return (
             <Pressable
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
               key={emoji}
               style={[s.option, selected && s.selected, disabled && s.disabled]}
               onPress={() => onChange(emoji)}
