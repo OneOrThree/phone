@@ -178,16 +178,52 @@ rankSwapFrames(from, to, finalSeconds, startSeconds, maxSteps) → RankSwapFrame
 | --- | --- | --- |
 | 1 | 순서가 이미 같다 / 길이가 다르다 / 구성원이 다르다 / 키 중복 | `rankSwap.ts:118-123`·`:139` |
 | 2 | **점수가 하나라도 줄었다** | `rankSwap.ts:166` |
-| 3 | **두 불변식을 동시에 만족하는 배정이 없다** (신규 · D17) | — |
+| 3 | **불변식을 동시에 만족하는 배정이 없다** (신규 · D17) — 아래 ③. 위 행부터 훑으며 천장을 접두 최소로 좁히고 `천장 < 바닥`이면 포기 | — (신규) |
+| 4 | 도착 순서 자체가 비증가가 아니다 — `to`에서 `final(to[i-1]) < final(to[i])` (신규 · ①′의 전제) | — (신규) |
 
-**불변식(정책 D17 재게시)**
+**불변식(정책 D17 재게시)** — ①에는 **리드 프레임 예외가 있다.** 이 예외는 정책이 정본이고
+([D17](policy.md#d17)의 ⚠️ 항목), 아래 수식은 그것을 기계적으로 옮긴 것이다.
+
+한 칸 이동은 프레임 **두 장**으로 나온다(`rankSwap.ts:212-218`):
+
+| 프레임 | `at` | `order` | `seconds` |
+| --- | --- | --- | --- |
+| **리드** | `step × (LEAD+GAP)` | **`prevOrder`**(자리는 아직 그대로) | 이동이 **끝난 뒤 순서**로 배정된 값 |
+| **자리** | `+ SWAP_LEAD_MS`(90ms) | `order`(이동 완료) | 같은 값 |
+
+즉 리드 프레임에는 **곧 맞바꿀 쌍 하나가 반드시 역전돼 있다** — 그 역전이 자리 이동의 원인이고
+정본 §6이 요구하는 연출이다. 따라서:
 
 ```
-① 프레임 내 비증가 : ∀ 프레임 f, ∀ i<j  →  value(f, row_i) ≥ value(f, row_j)
-② 행별 구간       : ∀ 프레임 f, ∀ 행 r  →  prevShown(r) ≤ value(f, r) ≤ final(r)
+①′ 프레임 내 비증가 (리드 프레임 예외)
+    ∀ 프레임 f, ∀ i<j  →  value(f, row_i) ≥ value(f, row_j)
+    단, f가 리드 프레임이고 (row_i, row_j)가 **바로 다음 프레임에서 자리를 맞바꾸는 인접 쌍**
+    이면 면제한다(90ms 안에 해소된다). 그 밖의 역전은 전부 위반.
+
+②  행별 구간
+    ∀ 프레임 f, ∀ 행 r  →  prevShown(r) ≤ value(f, r) ≤ final(r)
+
+③  배정 가능성 (사전 판정 — 위 표 #3)
+    ∀ 행 r  →  start(r) ≤ min{ final(r′) : r′ 는 from에서 r 위(자기 포함) }
+    (= 아래 행의 바닥이 위 행들의 천장보다 높으면 ①′·②를 함께 만족할 배정이 없다)
 ```
 
-**마지막 프레임은 예외 없이 서버 최종값이다**(`rankSwap.ts:221-222`). 이 보장은 유지한다.
+**⚠️ "전 프레임 비증가"를 문자 그대로 단언하면 연출이 깨진다.** 그 단언은 리드 프레임을 위반으로
+잡아내고, 그것을 통과시키려면 자리 이동의 원인이 되는 역전을 없애야 한다 — 보존 대상인 회귀
+테스트(`rankSwap.test.ts` *"각 단계의 기록은 그 순간 앞지르는 상대보다 위다"*)와 정면으로 충돌한다.
+
+**프레임 순회 헬퍼 명세** — 프레임을 **한 장씩** 보면 ①′을 판정할 수 없다. 헬퍼는 **`f`와 `f+1`을
+짝지어** 읽는다.
+
+| 입력 | 판정 |
+| --- | --- |
+| 프레임 `f`의 역전 쌍 목록 | 값을 **`f.order` 순서로**(= 그 프레임이 실제로 그리는 행 순서) 훑어 구한다. 서버가 준 `to` 순서로 훑으면 리드 프레임을 아예 못 본다 |
+| `f`가 마지막 프레임 | 역전이 하나라도 있으면 **위반**(해소할 다음 프레임이 없다) |
+| `f.order === f₊₁.order` | 자리 이동이 없는 프레임이므로 **예외 없음** — 역전이 있으면 위반 |
+| `f.order ≠ f₊₁.order` | 두 순서의 차이는 **인접 전치 1회**여야 한다. 그 전치 쌍 **하나만** 면제하고, 다른 역전이 남으면 위반 |
+
+**마지막 프레임은 예외 없이 서버 최종값이다**(`rankSwap.ts:221-222`). 이 보장은 유지한다 —
+위 표의 "마지막 프레임에는 역전이 없다"와 같은 사실의 두 표현이다.
 
 ### 4.2 함께 닫는 잠복 크래시
 
@@ -236,17 +272,50 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
           ├ 섹션 헤더(:537)
           └ RankRowShell × N(:559)
 
-[이후]  <View>
+[이후]  <View>                                              ← position:relative
           ├ Animated.FlatList
-          │    ListHeaderComponent = 포디움 + 섹션 헤더
+          │    ListHeaderComponent = 포디움 + **스트립 높이 스페이서** + 섹션 헤더
           │    data = listRows · keyExtractor = userId
           │    renderItem = RankRowShell(layout={m.css(rankSwap)})   ← 그대로
-          └ 내 순위 스트립 (리스트 **밖 오버레이**, absolute)          ← 항상 보이므로 거동 동일
+          │    onScroll = useAnimatedScrollHandler → scrollY(shared value)
+          └ 내 순위 스트립 (absolute · translateY = clamp(stripTop − scrollY, 0, ∞))
+                                                     ← **sticky 거동을 손수 재현한다**
 ```
 
 **스트립을 밖으로 빼는 이유** — `stickyHeaderIndices`는 **자식 인덱스 계약**이라 FlatList의
-셀 인덱스와 뜻이 다르다. 스트립은 스크롤 위치와 무관하게 **항상 보이는 요소**이므로 오버레이로
-빼도 사용자가 보는 거동이 같다(그게 sticky의 목적이었다).
+셀 인덱스와 뜻이 다르다. 헤더 안에 넣어도 sticky가 되지 않으므로 리스트 밖으로 뺀다.
+
+### 5.1.1 ⚠️ 스트립은 **현재 거동을 그대로 재현한다** (오너 결정 · 시안 ⓑ)
+
+> **오너 결정(2026-08-11): "리그 순위 스트립 기존사항 유지".** 즉 **스크롤이 포디움을 넘을
+> 때만 스트립이 위에 붙는다.** 첫 화면 인상이 지금과 같아야 한다 — **포디움이 가려지지 않는다.**
+> 시안 [ui.html](ui.html) §②가 이 ⓑ안으로 그려져 있다.
+
+**"리스트 밖으로 뺐으니 항상 떠 있어도 거동이 같다"는 틀렸다.** 지금 스트립은 **포디움 아래에서
+출발해** 스크롤하면서 위로 올라붙는다. 처음부터 맨 위에 띄우면 **포디움 상단이 스트립 뒤로 들어가**
+첫 화면 인상이 달라진다. 이 문서 초판이 ⓐ(항상 오버레이)로 적혀 있었다(2026-08-11 정정).
+
+**재현 방식 — 오프셋을 직접 추적한다.**
+
+| 항목 | 명세 |
+| --- | --- |
+| `scrollY` | `useAnimatedScrollHandler`로 잡는 **shared value**. `scrollEventThrottle={16}` |
+| `stripTop` | 헤더 안 **스페이서의 `onLayout` y**(콘텐츠 좌표). 포디움 유무(`showPodium`)로 값이 달라지므로 **상수로 박지 않고 측정한다** |
+| 스트립 위치 | `useAnimatedStyle` → `translateY: Math.max(stripTop - scrollY, 0)` |
+| 헤더 스페이서 | **스트립 높이만큼 자리를 비워 둔다.** RN의 sticky 자식도 콘텐츠 흐름에서 자리를 차지한다 — 스페이서가 없으면 랭킹 행들이 스트립 높이만큼 위로 올라온다 |
+
+**⚠️ 등장 경계에서 떨림이 생기지 않게 하는 것이 이 티켓의 구현 과제다.**
+
+| 함정 | 왜 떨리나 | 처방 |
+| --- | --- | --- |
+| `scrollY`를 **React state**로 들고 `setState`로 갱신 | 매 프레임 리렌더 + JS 스레드 왕복이라 경계에서 한 박자 늦게 붙는다. 단계 재생(390ms 간격 리렌더)과 겹치면 눈에 띈다 | shared value + `useAnimatedStyle`(UI 스레드). **JS 스레드로 넘기지 않는다** |
+| 경계에서 **마운트/언마운트 토글**(`scrollY > stripTop && <Strip/>`) | 붙는 순간 노드가 새로 생겨 한 프레임 깜빡인다 | **항상 마운트**하고 `translateY`만 바꾼다. 조건부 렌더 금지 |
+| `stripTop`이 **측정 전 0** | 첫 프레임에 스트립이 맨 위에 붙었다가 측정 후 내려온다 | 측정 전에는 스트립을 **그리지 않는다**(opacity 0) — 첫 프레임 한 장이고 사용자 조작 전이다 |
+| 클램프 없이 `stripTop - scrollY` | 위로 당기는 바운스(음수 `scrollY`)에서 스트립이 아래로 밀린다 | 상한도 클램프: `min(max(stripTop - scrollY, 0), stripTop)` |
+| 포디움 접힘/펼침으로 `stripTop`이 바뀜 | 측정이 늦어 한 프레임 어긋난다 | `showPodium` 변화 시 스페이서 `onLayout`이 다시 불린다 — 그 값만 쓰고 이전 값을 캐시하지 않는다 |
+
+**검증** — 수동 QA(§9)에 "스크롤을 포디움 경계 앞뒤로 천천히 왕복" 항목을 포함한다.
+경계에서 스트립이 **한 번도 깜빡이지 않아야** 한다.
 
 ### 5.2 무효가 되는 것 — 스크롤 제어
 
@@ -261,11 +330,36 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
 
 | 목록 | layout 애니메이션 | 비고 |
 | --- | --- | --- |
-| 순위 목록 | `RankRowShell`의 `layout={m.css(rankSwap)}` **유지**(`RankRowShell.tsx:66`) | `itemLayoutAnimation`을 **얹지 않는다.** 둘을 겹치면 같은 노드의 layout을 두 시스템이 다툰다 |
-| 친구 그리드 | **`itemLayoutAnimation={springify(new LinearTransition())}`** | `LeagueScreen.tsx:684`의 `sortedFriends.map`을 `Animated.FlatList` + `numColumns={2}`로 |
+| 순위 목록(1열) | `RankRowShell`의 **행별** `layout={m.css(rankSwap)}` **유지**(`RankRowShell.tsx:66`) | `itemLayoutAnimation`을 **얹지 않는다.** 둘을 겹치면 같은 노드의 layout을 두 시스템이 다툰다 ([D22](policy.md#d22)) |
+| 친구 그리드(**2열**) | **카드별** `layout={m.css(FRIEND_LAYOUT)}` | `itemLayoutAnimation`은 **쓸 수 없다** — 아래 ⚠️ |
 
-`springify`는 `app/src/constants/motion.ts:256-274` — 기본값 `M.spring.snappy` + `ReduceMotion.Never`
-(게이트는 `useMotion` 한 곳만 판단한다).
+**⚠️ 2열 `FlatList`에는 `itemLayoutAnimation`을 지정할 수 없다.** 현 의존성
+`react-native-reanimated@4.5.0`(`app/package.json:65`)이 소스에서 명시적으로 금지한다 —
+`app/node_modules/react-native-reanimated/src/component/FlatList.tsx:64-69` verbatim:
+
+> *Lets you pass layout animation directly to the FlatList item. Works only with a single-column
+> `Animated.FlatList`, `numColumns` property cannot be greater than 1.*
+
+**대체 설계 — 2열은 유지하고 카드마다 `layout`을 단다.** 이 화면의 포디움이 이미 같은 처방이다:
+
+```ts
+// LeagueScreen.tsx:74·:77 — 포디움의 선례를 그대로 따른다
+const AnimatedFriendCard = Animated.createAnimatedComponent(TouchableOpacity);
+const FRIEND_LAYOUT = springify(new LinearTransition()); // 모듈 상수 — 매 렌더 새 빌더 금지
+// renderItem / map 안에서
+<AnimatedFriendCard key={f.userId} layout={m.css(FRIEND_LAYOUT)} … />
+```
+
+| 왜 이 모양인가 | 근거 |
+| --- | --- |
+| **래퍼를 새로 끼우지 않는다** — 카드 자체(`TouchableOpacity`)를 애니메이션 컴포넌트로 만든다 | 노드 수 불변 → Maestro `testID` 셀렉터 계약 유지. 포디움 주석이 같은 이유를 적어 뒀다(`LeagueScreen.tsx:69-71`) · 정본 D13(래퍼 금지) |
+| **빌더는 모듈 상수** | `PODIUM_LAYOUT`(`:77`)과 같다. `springify`는 빌더 **인스턴스**를 받으므로 렌더마다 새로 만들면 안 된다 |
+| **게이트는 `m.css()` 한 곳** | `springify`(`app/src/constants/motion.ts:256-274`)의 기본값은 `M.spring.snappy` + `ReduceMotion.Never`다 — '동작 줄이기' 판단은 `useMotion` 한 곳만 한다 |
+| **컨테이너는 2열 그대로** | 목적은 재정렬 전환이지 가상화가 아니다. 친구 수는 화면 하나 분량이라 `Animated.FlatList`+`numColumns={2}`로 바꿀 이유가 없다 — `sortedFriends.map`(→ `useMemo`, §5.4) 유지로 충분하다 |
+
+> **이 절은 D22를 뒤집지 않는다** — 오너 결정은 *"친구 그리드에 재정렬 전환을 붙인다"*이고,
+> 연출 결과(`LinearTransition` + `M.spring.snappy`)는 그대로다. 바뀐 것은 **실행 불가능했던
+> 수단**뿐이다([D22](policy.md#d22)의 📌 각주).
 
 ### 5.4 함께 정리하는 것
 
@@ -287,29 +381,78 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
 (`:292` 처리 중 · `:329` 쿼터 조회 · 액션 영역 1개). 완성 신호는 정적 텍스트
 `'나만의 그로몬 생성 성공'`(`:322`)이다.
 
-### 6.2 이후
+### 6.2 ⚠️ 먼저 — `cutout → moderate → save`는 **연속된 3단계가 아니다**
+
+이 문서 초판이 셋을 **하나의 진행률**로 묶어 명세했다. **틀렸다**(2026-08-11 정정). 코드로 확인한
+실제 흐름은 이렇다 — **사이에 사용자 입력 대기가 있다.**
+
+| # | 코드 | 무엇을 하나 | 끝나면 |
+| --- | --- | --- | --- |
+| 1 | `runCutout()` `CharacterCreator.tsx:144-154` | 온디바이스 누끼(`cutoutSubject`) | **즉시 `setPhase('ready')`**(`:153`) |
+| — | — | **⏸ 사용자가 편집(회전·다시 고르기)하고 '저장'을 누를 때까지 기다린다** | — |
+| 2 | `save()` `:216-259` | 캡처 → `moderateImage`(`:226`) → `saveCustomCharacter`(`:244`) | `onSaved(uri)` 또는 `setPhase('ready')` |
+
+**하나로 묶으면 반드시 깨진다** — 링이 35%에서 **사용자 입력을 기다리며 멈춰 있고**(진행 중인
+줄 아는데 아무 일도 안 일어난다), 리빌 시점이 누끼 완료와 어긋나 **저장이 끝나야** 캐릭터가
+드러난다. 정작 사용자가 자기 캐릭터를 처음 보는 순간은 **누끼가 끝난 그때**다.
+
+### 6.3 이후 — 두 구간을 따로 명세한다
+
+**구간 A — 누끼(`phase === 'working'`) · 리빌의 대상**
 
 | 구간 | 표시 | 토큰 |
 | --- | --- | --- |
-| 처리 중(`phase === 'working'`) | `ProgressRing` + `'물건만 오려내는 중…'` | 링은 `M.dur.base` 전환(`ProgressRing.tsx:84-88`) |
-| **완성 순간** | 마스크가 벗겨지며 캐릭터가 드러난다 + 파티클 | `M.spring.bouncy` · `M.dur.celebrate`(1200) |
+| 진행 중 | `ProgressRing`(불확정 회전) + `'물건만 오려내는 중…'` | 링은 `M.dur.base` 전환(`ProgressRing.tsx:84-88`) |
+| **완성 순간**(`:153` `setPhase('ready')`) | 마스크가 벗겨지며 캐릭터가 드러난다 + 파티클 | `M.spring.bouncy` · `M.dur.celebrate`(1200) |
 | 완성 직후 | `hapticSuccess()` + 완성 통보 문구 | — |
 | '동작 줄이기' ON | **파티클·리빌만 생략.** 완성 통보·햅틱은 유지 | [정본 D7](../motion/policy.md#d7)과 같은 원리 |
 
-**진행 신호를 어떻게 만드나** — 실제 작업은 3단계 비동기(cutout → moderate → save)이고 각 단계의
-진척률을 알 수 없다. **단계 경계만 확정 진행률로 쓰고, 단계 안은 불확정(회전)으로 둔다.**
-`ProgressRing`은 `progress: number`(0~1)를 받으므로(`ProgressRing.tsx:35`) 단계 경계에서 값을 올린다.
+**⚠️ `result.cutout === false`면 리빌도 햅틱도 없다.** `runCutout`은 실패해도 `phase`를 `ready`로
+되돌리므로(`:153`) **`phase` 전이만 보면 실패와 성공이 구분되지 않는다.** 판정은
+`cut.cutout`(`:152`가 `setError(cut.cutout ? null : …)`로 쓰는 그 값)으로 한다. 오려내지 못한
+사진에 축하를 붙이면 **에러 배너와 축하가 같은 화면에 뜬다.**
+
+**구간 B — 저장(`phase === 'checking'` / `'saving'`) · 축하가 아니다**
+
+| 구간 | 표시 | 붙이지 않는 것 |
+| --- | --- | --- |
+| `checking`(`:219`) · `saving`(`:243`) | **진행 표시만** — 기존 잠금 규율(`busy` `:265`) 그대로 | **햅틱 · 리빌 · 파티클 금지** |
+
+**왜 금지인가** — [D21](policy.md#d21)이 등급 3을 준 것은 **누끼가 완성된 순간**이다. 저장은 그
+뒤에 오는 **별개의 짧은 대기**이고, 여기에 축하를 한 번 더 붙이면 `hapticSuccess`의 제약
+(`app/src/utils/haptics.ts:24` — *"축하 표면에만 쓴다. 일반 성공 토스트에 붙이면 특별한 순간의
+인상이 닳는다"*)을 같은 화면에서 두 번 쓰는 셈이 된다. 저장 성공의 통보는 **호출부(`onSaved`)가
+받는 화면 전환**이 이미 한다.
+
+**진행 신호를 어떻게 만드나** — 두 구간 모두 **진척률을 알 수 없다.** 구간 A는 단일 비동기 1건,
+구간 B는 2건(모더레이션 → 저장)이다. 그래서:
+
+| 구간 | 링 |
+| --- | --- |
+| A(누끼) | **불확정 회전 하나.** 확정 진행률 눈금이 없다 — 나눌 단계 경계가 없다 |
+| B(저장) | 경계가 하나뿐이다(모더레이션 통과 → 저장). `checking` 0.5 · `saving` 1.0으로 **두 칸만** 올린다 |
+
+`ProgressRing`은 `progress: number`(0~1)를 받는다(`ProgressRing.tsx:35`).
 
 **⚠️ `ProgressRing` 사용 시 유의**
 
 - **첫 마운트에는 애니메이션이 없다** — 현재 값 그대로 그린다(`ProgressRing.tsx:21-22`). 0에서 시작하려면 0으로 마운트한다.
 - `decorative` prop은 **링의 progressbar 역할만** 없앤다(자식은 계속 읽힌다). 가운데에 정확한 값을 읽어 주는 텍스트가 없으면 **켜지 않는다.**
 
-**⚠️ 실패 3경로에서 중간 상태로 굳지 않는다** — `phase`가 `ready`로 되돌아오는 경로가 셋이다
-(모더레이션 `unavailable` / 쿼터 차단 / `catch`). 세 경로 모두에서 링과 리빌이 정리돼야 하고,
-언마운트 가드 `activeRef`(`CharacterCreator.tsx:132-138`)와의 상호작용을 확인한다.
+**⚠️ 실패 경로에서 중간 상태로 굳지 않는다** — `phase`가 `ready`로 되돌아오는 경로가 **구간마다** 있다.
 
-**⚠️ 무한 루프는 화면당 1개 이하** — 불확정 구간 회전이 그 1개다. 완성 뒤 반드시 멈춘다(IA §2 공통 상한).
+| 구간 | 경로 | 무엇이 정리돼야 하나 |
+| --- | --- | --- |
+| A(누끼) | `cut.cutout === false`(`:152-153`) — **`phase`는 성공과 똑같이 `ready`가 된다** | 링 정지 + **리빌·햅틱 미발화**. 에러 배너만 남는다 |
+| B(저장) | 모더레이션 `unavailable`(`:231`) · 차단(`:238`) · `catch`(`:257`) | 링이 진행률을 든 채 굳지 않게 **초기화**. 리빌은 애초에 없다 |
+
+세 경로 모두 언마운트 가드 `activeRef`(`CharacterCreator.tsx:132-138`)와의 상호작용을 확인한다 —
+`activeRef.current === false`면 `setPhase`조차 하지 않고 빠져나가므로(`:228`·`:245`) **링 정리를
+`phase` 전이에만 매달면 안 된다.**
+
+**⚠️ 무한 루프는 화면당 1개 이하** — 불확정 회전이 그 1개다(IA §2 공통 상한). 구간 A와 B는
+**동시에 존재하지 않으므로**(A가 끝나야 사용자가 저장을 누른다) 상한을 넘지 않는다. 각 구간이
+끝나는 순간 반드시 멈춘다.
 
 **⚠️ `captureRef` 경계** — 저장은 `captureViewRef`(`:127`, `:297`)를 통째로 PNG로 굽는다. 결정 `D-22`가
 못 박은 규율 그대로 **리빌 transform은 그 ref 바깥에 건다.** 안쪽에 걸면 찌그러진 중간 프레임이 구워진다.
@@ -325,11 +468,28 @@ D17이 이 함수를 다시 쓰므로 **같은 PR에서** 가드한다(빈 배�
 const all = await getAllFocusSessions(from, to).catch(() => [] as FocusSessionResponse[]);
 setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
 
-// 이후: 실패를 별도 상태로 든다 (CalendarCard 패턴)
-//   points === null && !failed → 로딩
-//   points === null &&  failed → 실패(안내 + 재시도)
-//   points.length === 0        → 진짜 무데이터
+// 이후: 실패를 **별도 플래그**로 든다 (CalendarCard 패턴 · 정책 D20)
+const [points, setPoints] = useState<StartTimePoint[] | null>(null); // null = 아직 없음
+const [fetchFailed, setFetchFailed] = useState(false);               // 실패는 여기 하나
+
+// ⚠️ 렌더 판정 순서가 계약이다 — **실패가 points보다 먼저다.**
+if (fetchFailed)       return <실패: 안내 + 재시도 />;
+if (points === null)   return <로딩 />;
+if (points.length === 0) return <빈 상태: '아직 기록이 없어요' />;
 ```
+
+**⚠️ 왜 `null` 하나로 로딩·실패를 겸하면 안 되나** — 겸하면 **최초 로딩에도 실패 UI가 뜬다.**
+정책 D20의 표가 그래서 세 상태를 판별 가능하게 정의한다.
+
+**⚠️ 왜 실패를 `points`보다 먼저 판정하나** — 이전 조회가 성공해 `points`가 남아 있어도 마찬가지다.
+**첫 조회가 빈 결과(`[]`)였던 신규 사용자**가 재진입했다가 재조회에 실패하면, `points`를 먼저 보는
+순서에서는 실패했는데도 `'아직 기록이 없어요'`가 다시 뜨고 **재시도 버튼도 없다** — 이 티켓이
+없애려던 바로 그 화면이다. `CalendarCard`도 실패를 우선한다.
+
+**⚠️ '다시 시도' 버튼은 `load()`를 그대로 걸지 않는다** — 남아 있던 `points`가 있으면 누른 순간
+실패 안내가 사라지고 **낡은 차트가 정상 결과처럼** 돌아온다. `retry()`는 `setPoints(null)` 후
+재조회해 **로딩으로 되돌린다**(재진입 재조회는 stale-while-revalidate가 맞지만, 사용자가 직접 누른
+재시도는 진행 중임이 보여야 한다).
 
 ### 7.2 재사용하는 것 — `CalendarCard`가 사실상 정본이다
 
@@ -360,7 +520,8 @@ setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
 
 | 파일 | 잠그는 규칙 |
 | --- | --- |
-| `screens/league/rankSwap.test.ts` | **D17 재정렬** — 모순 입력에서 `[]` · 전 프레임 비증가 단언(프레임 순회 헬퍼) · 여러 사용자 기록이 동시에 오르는 응답 · **빈 프레임 무가드 회귀**(`:222`) |
+| `screens/league/rankSwap.test.ts` | **D17 재정렬** — ③ 배정 불가 입력에서 `[]` · **①′ 단언**(프레임 순회 헬퍼가 `f`·`f₊₁`을 짝지어 읽고, **리드 프레임의 맞바꿈 쌍 하나만** 면제) · 여러 사용자 기록이 동시에 오르는 응답 · **빈 프레임 무가드 회귀**(`:222`) |
+| ⚠️ 같은 파일 — **작성 금지** | **"전 프레임 비증가"를 문자 그대로 단언하는 테스트.** 리드 프레임의 역전은 자리 이동의 **원인**이라 그 단언은 정본 §6이 요구하는 연출을 위반으로 잡는다([§4.1](#41-rankswapframes-반환-계약-d17)) |
 | `screens/league/useStagedRanking.test.ts` | 기존 11개 유지. 특히 `:231` **"옛 계획의 타이머가 뒤늦게 터져도 새 계획을 지우지 않는다"**가 1476 이관 후에도 통과 |
 | `screens/league/components/RankRowShell.test.tsx` | 기존 4개 — FlatList 전환 후에도 `layout` prop·zIndex 규칙 유지 |
 | `screens/stats/charts.test.tsx` | **실패 ≠ 무데이터** 2건 + `FIRST_START_BODY_H` 불변 |
@@ -379,6 +540,11 @@ jest에서 워클릿은 모킹돼 실제로 실행되지 않는다.
 - **1482 세 곳은 앱을 켜고 1초 안에** 그 화면에서 조작해야 재현된다(미확정 구간이 그만큼 짧다).
   콜드 스타트 → ① 온보딩/홈 상세 사용시간 분석 진입 ② 과목 순서 드래그 ③ 통계 주 탭 꺾은선.
   **'동작 줄이기'를 켠 상태와 끈 상태 양쪽 다.**
-- **1494**는 실제 사진으로 누끼 1회 + **실패 3경로**(비행기 모드로 모더레이션 실패 등).
-- **1493**은 순위 갱신 + 리그 드롭다운 전환 + **내 행 자동 스크롤**(내 행이 첫 화면 밖일 때/안일 때).
+- **1494**는 **두 구간을 따로** 본다(§6.2·§6.3) —
+  ① 실제 사진으로 누끼 1회(리빌·햅틱이 **누끼가 끝난 그 순간** 나는가, 저장 뒤가 아닌가)
+  ② **누끼 실패**(오려낼 물체가 없는 사진 — 리빌·햅틱이 **나지 않아야** 한다)
+  ③ 저장 실패 경로(비행기 모드로 모더레이션 실패 — 저장 구간에 축하가 붙지 않는가).
+- **1493**은 순위 갱신 + 리그 드롭다운 전환 + **내 행 자동 스크롤**(내 행이 첫 화면 밖일 때/안일 때)
+  + **내 순위 스트립**: 첫 화면에서 포디움이 가려지지 않는가 · **포디움 경계 앞뒤로 천천히 왕복**할 때
+  스트립이 한 번도 깜빡이지 않는가(§5.1.1).
 - **1491**은 이관한 실패 통보를 **VoiceOver 켜고** 한 번씩 — 알럿은 자동으로 읽히지만 토스트는 아니다.

@@ -16,7 +16,7 @@
 | 표면 | 현재 | 이후 | 티켓 |
 | --- | --- | --- | --- |
 | 리그 순위 리스트 | 🟩 `enterUp` (`RankRowShell.tsx:67` · 마운트 시점 인덱스 고정) | 🟩 **유지** — FlatList 전환 후에도 같다 | 1493 |
-| 리그 **친구 그리드** | 🟥 전환 없음 — `sortedFriends.map`(`LeagueScreen.tsx:684`)에 layout prop이 0개다 | 🟦 `itemLayoutAnimation={springify(new LinearTransition())}` | 1493 |
+| 리그 **친구 그리드**(2열) | 🟥 전환 없음 — `sortedFriends.map`(`LeagueScreen.tsx:684`)에 layout prop이 0개다 | 🟦 **카드별** `layout={m.css(springify(new LinearTransition()))}` — 포디움(`:74`·`:77`·`:408`)과 같은 처방. ⚠️ `itemLayoutAnimation`은 **2열에서 쓸 수 없다**([D22](policy.md#d22)) | 1493 |
 | 통계 꺾은선 차트 진입(draw-on) | 🟥 재생 중 '동작 줄이기'를 켜도 **끝까지 재생된다**(`charts.tsx:132` 1회 래치) | 🟦 재생 중 전환이 즉시 최종 상태로 끊긴다 | 1482 |
 
 > ⚠️ 상위 IA §3.1의 `리그 순위 리스트 | 🟥 즉시 표시 | 🟦 enterUp | PR7` 행은 **이미 해소됐다.**
@@ -33,7 +33,7 @@
 | 과목 순서 **드래그 안착** | 🟥 `m.ready && m.reduce`가 미확정을 **모션 허용**으로 취급(`DraggableSubjectRows.tsx:60`) | 🟦 미확정 = **즉시 완료**(드래그 중인 행 제외) | 1482 |
 | 리그 순위 재정렬 | 🟩 `rankSwap` — 가로 ±9pt 왕복 궤적 + `M.spring.snappy` originY + zIndex 상승/하강 | 🟩 **유지**([D22](policy.md#d22)) | 1493 |
 | 리그 순위 **단계 재생** | 🟩 프레임 계획(순서 + 기록을 함께 단계화) | 🟦 두 불변식이 충돌하는 입력이면 **단계화 생략**([D17](policy.md#d17)) | 1475 |
-| 리그 리스트 **컨테이너** | 🟥 `ScrollView`(`LeagueScreen.tsx:373`) — 가상화 없음, 스티키는 자식 인덱스 계약 | 🟦 `Animated.FlatList` + 내 순위 스트립을 **리스트 밖 오버레이**로 | 1493 |
+| 리그 리스트 **컨테이너** | 🟥 `ScrollView`(`LeagueScreen.tsx:373`) — 가상화 없음, 스티키는 자식 인덱스 계약 | 🟦 `Animated.FlatList` + 내 순위 스트립은 리스트 밖 오버레이로 빼되 **sticky 거동을 손수 재현**(오프셋 추적 · 오너 결정 "기존사항 유지") | 1493 |
 
 > ⚠️ 상위 IA §3.2의 두 행이 **낡았다.** 병합 시 교체한다.
 > - `리그 순위 재정렬 | 🟥 통째 교체 | 🟦 LinearTransition | PR7` → 위 행(`rankSwap`이 이미 붙어 있다)
@@ -72,7 +72,8 @@
 
 | 표면 | 현재 | 이후 | 티켓 |
 | --- | --- | --- | --- |
-| **누끼(캐릭터) 완성** | 🟥 `ActivityIndicator` + 정적 텍스트 `'나만의 그로몬 생성 성공'`(`CharacterCreator.tsx:292`·`:322`) — 모션 프리미티브 0개 | 🟦 `ProgressRing` → **완성 리빌**(`M.spring.bouncy` · `M.dur.celebrate`) + `hapticSuccess` ([D21](policy.md#d21)) | 1494 |
+| **누끼(캐릭터) 완성** — `runCutout` 완료 순간(`CharacterCreator.tsx:153`) | 🟥 `ActivityIndicator` + 정적 텍스트 `'나만의 그로몬 생성 성공'`(`CharacterCreator.tsx:292`·`:322`) — 모션 프리미티브 0개 | 🟦 `ProgressRing` → **완성 리빌**(`M.spring.bouncy` · `M.dur.celebrate`) + `hapticSuccess` ([D21](policy.md#d21)) | 1494 |
+| 캐릭터 **저장**(`checking`/`saving`) | 🟩 진행 표시 없음(`busy` 잠금만) | 🟦 **진행 표시만 · 등급 3 아님** — 햅틱·리빌·파티클 금지. 누끼 완성과 **별개 구간**이다(사이에 사용자 입력 대기) | 1494 |
 
 **'동작 줄이기' ON에서의 거동**은 상위 IA §5의 등급 3 행을 그대로 따른다 —
 **파티클·리빌만 생략하고 완성 통보·햅틱·문구는 유지한다.**
