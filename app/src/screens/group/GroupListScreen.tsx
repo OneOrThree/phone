@@ -662,8 +662,15 @@ export default function GroupListScreen({
         },
         onPanResponderTerminate: () => {
           stopEdgePaging();
+          const drag = dragRef.current;
           dragRef.current = null;
           setDraggingGroupId(null);
+          if (!drag) return;
+          activeIdentityRef.current = drag.groupId;
+          activeIndexRef.current = drag.from;
+          setActiveStableGroupId(drag.groupId);
+          setActiveIndex(drag.from);
+          listRef.current?.scrollToOffset({ offset: drag.from * snapInterval, animated: false });
         },
       });
       respondersRef.current.set(responderKey, responder);

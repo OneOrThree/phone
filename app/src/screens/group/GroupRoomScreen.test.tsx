@@ -291,6 +291,36 @@ beforeEach(async () => {
 });
 
 describe('카드 CTA 결과 귀속', () => {
+  test('마운트 시점에 이미 백그라운드면 Room interaction을 즉시 폐기한다', async () => {
+    const appState = AppState as typeof AppState & { currentState: AppStateStatus | null };
+    const previousState = appState.currentState;
+    appState.currentState = 'background';
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const acceptedAt = Date.now();
+
+    try {
+      await render(
+        <GroupRoomScreen
+          groupId={GROUP_ID}
+          entrySource="group_card"
+          interactionId="interaction-before-room-mount"
+          interactionAcceptedAt={acceptedAt}
+          onLeft={onLeft}
+        />,
+      );
+      await act(async () => {});
+
+      expect(logGroupRoomViewed).toHaveBeenCalledWith({
+        group_id: GROUP_ID,
+        entry_source: 'group_card',
+        interaction_id: undefined,
+      });
+    } finally {
+      appState.currentState = previousState;
+    }
+  });
+
   test('30초 안의 Room 최초 성공만 같은 interaction_id로 한 번 연결한다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);

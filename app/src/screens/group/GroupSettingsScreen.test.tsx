@@ -8,10 +8,12 @@
 //  (프로필 편집 폼 자체는 GroupProfileEditScreen.test.tsx 에서 검증한다.)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupSettingsScreen from './GroupSettingsScreen';
 import { getGroupDetail, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
+import { STORAGE_KEYS } from '@/types/storage';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -132,8 +134,9 @@ async function pressLeaveAndConfirm(alertSpy: jest.SpyInstance) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  await AsyncStorage.clear();
   mockUser.userId = 'me';
   mockGetGroupDetail.mockResolvedValue(detail());
   mockWithdrawGroup.mockResolvedValue(undefined);
@@ -141,10 +144,16 @@ beforeEach(() => {
 
 describe('허브 — 행 노출', () => {
   test('방장은 역할 공통 아이콘 + 관리 행 + 나가기를 본다', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.groupCardEmoji,
+      JSON.stringify({ me: { [GROUP_ID]: '🌅' } }),
+    );
     await renderScreen();
 
-    expect(screen.getByTestId('group.settings.cardEmoji')).toBeOnTheScreen();
-    expect(screen.getByText('이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+    const emojiRow = screen.getByTestId('group.settings.cardEmoji');
+    expect(emojiRow).toBeOnTheScreen();
+    expect(screen.getByText('🌅 일출 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+    expect(emojiRow).toHaveProp('accessibilityLabel', '내 카드 아이콘, 현재 일출');
     expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();

@@ -7,7 +7,7 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View } from 'react-native';
+import { FlatList, View } from 'react-native';
 import GroupListScreen, { advanceEdgeTarget } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -487,7 +487,9 @@ describe('제스처 중재와 재정렬', () => {
   });
 
   test('grip drag 취소는 순서·flip 상태를 바꾸지 않는다', async () => {
+    const scrollSpy = jest.spyOn(FlatList.prototype, 'scrollToOffset');
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    scrollSpy.mockClear();
     const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
     const responderEvent = {
       nativeEvent: {},
@@ -511,5 +513,6 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(scrollSpy).toHaveBeenLastCalledWith({ offset: 0, animated: false });
   });
 });
