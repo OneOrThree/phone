@@ -141,6 +141,7 @@ export default function GroupListScreen({
   const activeIndexRef = useRef(0);
   const previousGroupFingerprintRef = useRef(groupFingerprint);
   const previousSnapIntervalRef = useRef(snapInterval);
+  const previousEnableCardDeckRef = useRef(enableCardDeck);
   const stableActiveIndex =
     activeGroupId === null ? groups.length : groups.findIndex((g) => g.groupId === activeGroupId);
   const renderedActiveIndex =
@@ -195,12 +196,14 @@ export default function GroupListScreen({
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
+    const reactivated = enableCardDeck && !previousEnableCardDeckRef.current;
+    previousEnableCardDeckRef.current = enableCardDeck;
     if (!enableCardDeck) return;
     const orderChanged = previousGroupFingerprintRef.current !== groupFingerprint;
     const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
     previousGroupFingerprintRef.current = groupFingerprint;
     previousSnapIntervalRef.current = snapInterval;
-    if (!orderChanged && !intervalChanged) return;
+    if (!orderChanged && !intervalChanged && !reactivated) return;
 
     const identity = activeIdentityRef.current;
     const next =
@@ -224,6 +227,7 @@ export default function GroupListScreen({
       data={groups}
       keyExtractor={(item) => item.groupId}
       horizontal={enableCardDeck}
+      contentOffset={enableCardDeck ? { x: renderedActiveIndex * snapInterval, y: 0 } : undefined}
       showsHorizontalScrollIndicator={false}
       CellRendererComponent={GroupListCell}
       showsVerticalScrollIndicator={false}
@@ -255,6 +259,7 @@ export default function GroupListScreen({
               position={pageCount}
               pageCount={pageCount}
               onPress={onFind}
+              focusable={renderedActiveIndex === groups.length}
             />
           </View>
         ) : null
@@ -273,6 +278,7 @@ export default function GroupListScreen({
               style={[s.card, enableCardDeck ? [s.deckCard, { width: cardWidth }] : s.legacyCard]}
               activeOpacity={0.85}
               onPress={() => onSelect(item.groupId)}
+              focusable={active}
               accessibilityRole="button"
               accessibilityLabel={
                 enableCardDeck ? `${item.name}, 현재 ${index + 1}/${pageCount} 페이지` : undefined

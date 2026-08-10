@@ -41,6 +41,7 @@ describe('PageIndicator', () => {
       selected: false,
     });
     expect(screen.getByTestId('group.deck.indicator')).toHaveStyle({ height: 44 });
+    expect(screen.getByTestId('group.deck.indicator')).toHaveStyle({ marginTop: -56 });
     expect(screen.getByTestId('group.deck.indicator.dot.0')).toHaveStyle({ height: 44 });
   });
 

@@ -149,6 +149,29 @@ describe('카드 렌더', () => {
     });
   });
 
+  test('덱을 런타임에 다시 활성화하면 stable 현재 페이지 offset을 복원한다', async () => {
+    const groups = [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })];
+    const props = {
+      groups,
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} enableCardDeck />);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+    });
+
+    await view.rerender(<GroupListScreen {...props} enableCardDeck={false} />);
+    await view.rerender(<GroupListScreen {...props} enableCardDeck />);
+
+    expect(screen.getByTestId('group.list.items').props.contentOffset.x).toBeGreaterThan(0);
+    expect(screen.getByLabelText(`저녁 스터디, 현재 2/3 페이지`)).toBeOnTheScreen();
+  });
+
   test('자물쇠는 비공개 그룹에만, 방장 배지는 내가 OWNER인 그룹에만 붙는다', async () => {
     await renderList([
       group({ isPrivate: true, role: 'OWNER' }),
@@ -294,14 +317,22 @@ describe('콜백', () => {
     expect(
       screen.getByTestId(`group.list.cardPage.${GROUP_ID}`).props.importantForAccessibility,
     ).toBe('auto');
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props.focusable).toBe(true);
     expect(
       screen.getByTestId(`group.list.cardPage.${GROUP_ID_2}`, { includeHiddenElements: true }).props
         .importantForAccessibility,
     ).toBe('no-hide-descendants');
     expect(
+      screen.getByTestId(`group.list.card.${GROUP_ID_2}`, { includeHiddenElements: true }).props
+        .focusable,
+    ).toBe(false);
+    expect(
       screen.getByTestId('group.deck.findMorePage', { includeHiddenElements: true }).props
         .pointerEvents,
     ).toBe('none');
+    expect(
+      screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }).props.focusable,
+    ).toBe(false);
     expect(screen.getByLabelText(`아침 6시 집중방, 현재 1/3 페이지`)).toBeOnTheScreen();
     expect(
       screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),

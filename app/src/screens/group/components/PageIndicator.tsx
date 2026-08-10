@@ -119,7 +119,14 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
 }
 
 const s = StyleSheet.create({
-  container: { height: 44, alignItems: 'center', justifyContent: 'center' },
+  container: {
+    height: 44,
+    marginTop: -56,
+    marginBottom: T.space.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {
     width: DOT_HIT_WIDTH,
@@ -127,8 +134,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.borderDark },
-  dotActive: { width: 18, backgroundColor: T.accent },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.borderDark },
+  dotActive: { width: 36, backgroundColor: T.accent },
   counterHit: { minHeight: 44, justifyContent: 'center' },
   counter: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
 });
