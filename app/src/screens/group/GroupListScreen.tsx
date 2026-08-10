@@ -107,6 +107,7 @@ function GroupListCell({
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   cardEmojiByGroupId?: GroupCardEmojiBucket;
+  cardEmojiHydrated?: boolean;
   onSelect: (groupId: string) => void;
   onCreate: () => void;
   onFind: () => void;
@@ -117,6 +118,7 @@ export interface GroupListScreenProps {
 export default function GroupListScreen({
   groups,
   cardEmojiByGroupId = {},
+  cardEmojiHydrated = true,
   onSelect,
   onCreate,
   onFind,
@@ -179,7 +181,7 @@ export default function GroupListScreen({
             activeOpacity={0.85}
             onPress={() => onSelect(item.groupId)}
             accessibilityRole="button"
-            accessibilityLabel={`${item.name}${item.description ? `, ${item.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`}
+            accessibilityLabel={`${item.name}${item.description ? `, ${item.description}` : ''}, ${cardEmojiHydrated || cardEmojiByGroupId[item.groupId] ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`}
             testID={`group.list.card.${item.groupId}`}
           >
             <Text
@@ -187,7 +189,9 @@ export default function GroupListScreen({
               accessible={false}
               testID={`group.list.emoji.${item.groupId}`}
             >
-              {cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
+              {cardEmojiHydrated || cardEmojiByGroupId[item.groupId]
+                ? (cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI)
+                : '…'}
             </Text>
             <View style={s.cardMain}>
               {/* 1행: 이름 + 비공개 자물쇠 */}

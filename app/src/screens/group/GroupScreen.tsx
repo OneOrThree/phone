@@ -61,6 +61,7 @@ export default function GroupScreen() {
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
+  const [cardEmojiHydratedIdentity, setCardEmojiHydratedIdentity] = useState<string | null>(null);
   const [cardEmojiSaveFailed, setCardEmojiSaveFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -191,6 +192,7 @@ export default function GroupScreen() {
         setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
       } else {
         setCardEmojiByGroupId(emojiBucket);
+        setCardEmojiHydratedIdentity(userId ?? 'anonymous');
       }
     } catch {
       if (seq !== requestSeqRef.current) return;
@@ -433,6 +435,7 @@ export default function GroupScreen() {
         <GroupListScreen
           groups={myGroups}
           cardEmojiByGroupId={cardEmojiByGroupId}
+          cardEmojiHydrated={cardEmojiHydratedIdentity === (userId ?? 'anonymous')}
           onSelect={onSelectGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}

@@ -91,6 +91,7 @@ jest.mock('./GroupListScreen', () => {
     onFind,
     onRefresh,
     cardEmojiByGroupId,
+    cardEmojiHydrated,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (groupId: string) => void;
@@ -98,11 +99,12 @@ jest.mock('./GroupListScreen', () => {
     onFind: () => void;
     onRefresh: () => Promise<void>;
     cardEmojiByGroupId: Record<string, string>;
+    cardEmojiHydrated: boolean;
   }) {
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
-        <RNText>{`아이콘-${cardEmojiByGroupId[groups[0]?.groupId] ?? '없음'}`}</RNText>
+        <RNText>{`아이콘-${cardEmojiByGroupId[groups[0]?.groupId] ?? (cardEmojiHydrated ? '없음' : '불러오는 중')}`}</RNText>
         {groups.map((g) => (
           <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
             <RNText>{`목록-${g.name}`}</RNText>
@@ -383,6 +385,27 @@ describe('목록 분기(0/1/N)', () => {
     expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
     expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
     await act(async () => release());
+  });
+
+  test('저장 아이콘 hydration 전에는 목록을 먼저 표시하되 기본값으로 확정하지 않는다', async () => {
+    mockUserId = 'user-1';
+    await writeGroupCardEmoji('user-1', GROUP_ID, '📚');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
+      await gate;
+      return originalGetItem(key);
+    });
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+
+    expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.getByText('아이콘-불러오는 중')).toBeOnTheScreen();
+    expect(screen.queryByText('아이콘-없음')).toBeNull();
+    await act(async () => release());
+    expect(await screen.findByText('아이콘-📚')).toBeOnTheScreen();
   });
 
   test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {
