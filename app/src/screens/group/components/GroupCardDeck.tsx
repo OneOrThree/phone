@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import {
   AccessibilityInfo,
   FlatList,
@@ -25,6 +32,7 @@ export interface GroupCardDeckProps {
   activeGroupId: string | null;
   onFind: () => void;
   renderCard: (group: GroupSummaryResponse) => ReactElement;
+  onPeekPress?: (group: GroupSummaryResponse) => void;
 }
 
 export function resolveDeckIndex(
@@ -43,7 +51,13 @@ const groupOrderKey = (groups: readonly GroupSummaryResponse[]) =>
 
 // 운영 GroupListScreen을 교체하기 전, 덱 자체의 폭·snap·stable identity만 독립 검증하는 컴포넌트다.
 // 앞면·인디케이터·flip 계약이 합쳐질 때 이 경계를 운영 화면에 연결한다.
-export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: GroupCardDeckProps) {
+export function GroupCardDeck({
+  groups,
+  activeGroupId,
+  onFind,
+  renderCard,
+  onPeekPress,
+}: GroupCardDeckProps) {
   const { width: windowWidth } = useWindowDimensions();
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const initialIndex = resolveDeckIndex(groups, activeGroupId, 0);
@@ -72,7 +86,6 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
   const restoreIdentity =
     previousActiveInputRef.current !== activeGroupId ? activeGroupId : activeGroupIdRef.current;
   const restoredIndex = resolveDeckIndex(groups, restoreIdentity, activeIndexRef.current);
-  const layoutKey = `${orderKey}\u0001${snapInterval}`;
 
   useEffect(() => {
     if (previousShowDotsRef.current === showDots) return;
@@ -90,15 +103,21 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
         0,
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), groups.length),
       );
+      const changed = activeIndexRef.current !== index;
       activeGroupIdRef.current = groups[index]?.groupId ?? null;
       activeIndexRef.current = index;
       setActiveIndex(index);
+      if (changed) {
+        AccessibilityInfo.announceForAccessibility(
+          `${groups[index]?.name ?? '그룹 찾기'}, ${index + 1} / ${pageCount} 페이지`,
+        );
+      }
     },
-    [groups, snapInterval],
+    [groups, pageCount, snapInterval],
   );
 
   // 회전·분할 화면과 서버 목록 reconcile 뒤에도 index가 아닌 stable groupId를 새 간격에 복원한다.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const orderChanged = previousOrderKeyRef.current !== orderKey;
     const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
     const activeInputChanged = previousActiveInputRef.current !== activeGroupId;
@@ -125,7 +144,6 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
   return (
     <View>
       <FlatList
-        key={layoutKey}
         ref={listRef}
         testID="group.cardDeck"
         data={groups}
@@ -168,7 +186,6 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
           <View
             testID={`group.cardDeck.page.${item.groupId}`}
             style={{ width: cardWidth }}
-            pointerEvents={index === activeIndex ? 'auto' : 'none'}
             accessibilityElementsHidden={index !== activeIndex}
             importantForAccessibility={index === activeIndex ? 'auto' : 'no-hide-descendants'}
           >
@@ -180,7 +197,25 @@ export function GroupCardDeck({ groups, activeGroupId, onFind, renderCard }: Gro
                 {`${item.name}, 현재 ${index + 1}/${pageCount} 페이지`}
               </Text>
             )}
-            {renderCard(item)}
+            <View
+              pointerEvents={index === activeIndex ? 'auto' : 'none'}
+              testID={`group.cardDeck.pageBody.${item.groupId}`}
+            >
+              {renderCard(item)}
+            </View>
+            {index !== activeIndex && (
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => {
+                  selectPage(index);
+                  onPeekPress?.(item);
+                }}
+                accessible={false}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                testID={`group.cardDeck.peek.${item.groupId}`}
+              />
+            )}
           </View>
         )}
       />

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { AccessibilityInfo, Text } from 'react-native';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GroupCardDeck, resolveDeckIndex } from './GroupCardDeck';
 
@@ -108,15 +108,59 @@ test('현재 페이지 외 카드와 끝 카드는 접근성 트리에서 숨긴
   expect(
     screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
   ).toBeOnTheScreen();
-  expect(screen.getByTestId('group.cardDeck.page.group-0').props.pointerEvents).toBe('auto');
+  expect(screen.getByTestId('group.cardDeck.pageBody.group-0').props.pointerEvents).toBe('auto');
   expect(
-    screen.getByTestId('group.cardDeck.page.group-1', { includeHiddenElements: true }).props
+    screen.getByTestId('group.cardDeck.pageBody.group-1', { includeHiddenElements: true }).props
       .pointerEvents,
   ).toBe('none');
   expect(
     screen.getByTestId('group.cardDeck.findMorePage', { includeHiddenElements: true }).props
       .pointerEvents,
   ).toBe('none');
+});
+
+test('비활성 peek 탭은 내부 카드 입력 대신 페이지 선택과 peek 콜백을 한 번 실행한다', async () => {
+  const onPeekPress = jest.fn();
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      onPeekPress={onPeekPress}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent.press(
+      screen.getByTestId('group.cardDeck.peek.group-1', { includeHiddenElements: true }),
+    );
+  });
+
+  expect(onPeekPress).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'group-1' }));
+  expect(screen.getByTestId('group.cardDeck.indicator.counter')).toHaveTextContent('2 / 3');
+});
+
+test('스와이프 확정은 새 페이지를 한 번만 능동 안내한다', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+  announce.mockClear();
+  await render(
+    <GroupCardDeck
+      groups={[group(0), group(1)]}
+      activeGroupId="group-0"
+      onFind={jest.fn()}
+      renderCard={(item) => <Text>{item.name}</Text>}
+    />,
+  );
+  const deck = screen.getByTestId('group.cardDeck');
+  await act(async () => {
+    fireEvent(deck, 'scrollEndDrag', { nativeEvent: { contentOffset: { x: 400 } } });
+    fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
+  });
+
+  expect(announce).toHaveBeenCalledTimes(1);
+  expect(announce).toHaveBeenCalledWith('그룹 1, 2 / 3 페이지');
+  announce.mockRestore();
 });
 
 test('포커스된 인디케이터가 counter에서 dots로 바뀐 때 현재 페이지로 포커스를 잇는다', async () => {
@@ -200,22 +244,24 @@ test('순서 변경 렌더는 effect 전에 직전 활성 groupId의 새 offset�
       groups={groups}
       activeGroupId="group-0"
       onFind={jest.fn()}
-      renderCard={(item) => <Text>{item.name}</Text>}
+      renderCard={(item) => <Text testID={`body.${item.groupId}`}>{item.name}</Text>}
     />,
   );
   const deck = screen.getByTestId('group.cardDeck');
   await act(async () => {
     fireEvent(deck, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 400 } } });
   });
+  const activeCardBody = screen.getByTestId('body.group-1');
 
   await view.rerender(
     <GroupCardDeck
       groups={[group(1), group(0), group(2)]}
       activeGroupId="group-0"
       onFind={jest.fn()}
-      renderCard={(item) => <Text>{item.name}</Text>}
+      renderCard={(item) => <Text testID={`body.${item.groupId}`}>{item.name}</Text>}
     />,
   );
 
   expect(screen.getByTestId('group.cardDeck').props.contentOffset.x).toBe(0);
+  expect(screen.getByTestId('body.group-1')).toBe(activeCardBody);
 });
