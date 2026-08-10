@@ -80,7 +80,10 @@ jest.mock('./GroupListScreen', () => {
     onRefresh,
   }: {
     groups: { groupId: string; name: string }[];
-    onSelect: (groupId: string) => void;
+    onSelect: (
+      groupId: string,
+      interaction: { interactionId: string; interactionAcceptedAt: number },
+    ) => void;
     onCreate: () => void;
     onFind: () => void;
     onRefresh: () => Promise<void>;
@@ -89,7 +92,15 @@ jest.mock('./GroupListScreen', () => {
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
         {groups.map((g) => (
-          <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
+          <RNTouchable
+            key={g.groupId}
+            onPress={() =>
+              onSelect(g.groupId, {
+                interactionId: 'card-interaction',
+                interactionAcceptedAt: 1234,
+              })
+            }
+          >
             <RNText>{`목록-${g.name}`}</RNText>
           </RNTouchable>
         ))}
@@ -172,13 +183,16 @@ const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroup
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const GROUP_ID_3 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
-function roomParams(groupId: string, entrySource: 'group_find' | 'invite' | 'unknown') {
+function roomParams(
+  groupId: string,
+  entrySource: 'group_card' | 'group_find' | 'invite' | 'unknown',
+) {
   return {
     groupId,
     challengeId: undefined,
     entrySource,
-    interactionId: undefined,
-    interactionAcceptedAt: undefined,
+    interactionId: entrySource === 'group_card' ? 'card-interaction' : undefined,
+    interactionAcceptedAt: entrySource === 'group_card' ? 1234 : undefined,
   };
 }
 
@@ -389,7 +403,7 @@ describe('목록 분기(0/1/N)', () => {
 
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'unknown'));
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'group_card'));
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
@@ -399,7 +413,7 @@ describe('목록 분기(0/1/N)', () => {
     expect(screen.getByText('목록 2건')).toBeOnTheScreen();
 
     await press('목록-저녁 스터디');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'unknown'));
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'group_card'));
   });
 
   // GROMO-1088 — 스택에 이미 GroupRoom이 있으면 파라미터가 얕게 병합된다. challengeId 키를
