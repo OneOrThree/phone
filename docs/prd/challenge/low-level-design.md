@@ -231,7 +231,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
   "status": "ACTIVE",
   "startedAt": "2026-08-01T02:11:00Z",
   "activeToday": true,                   // 오늘이 repeatDays에 있나
-  "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. ACTIVE면 항상 채워지고 끝난 챌린지(INACTIVE)만 null
+  "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. INACTIVE면 null. ACTIVE도 창형인데 창 상세가 없으면 null(아래 ⚠️)
   "nextSessionJoined": false,            // 다음 회차를 이미 예약했나 (N45 버튼 상태 — 내기 켜짐일 때만 의미)
   "canParticipate": true,                // FOCUS면 항상 true, SCREEN_TIME은 권한 여부
   "memberProgress": [                    // null = 미계산 (date 없음 · 비활성 요일)
@@ -275,6 +275,18 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
   },
 }]
 ```
+
+> **⚠️ `nextSessionAt` 은 ACTIVE 에서도 null 이 될 수 있다 — 「null == INACTIVE」로 단정하지 마라.**
+> 창형(`TIME_WINDOW`)인데 `group_challenge_windows` 상세가 없으면 `GroupBetService#loadNextSessions`
+> 가 그 챌린지를 **의도적으로 건너뛴다** — 시작 시각을 모르면 다음 회차를 계산할 수 없고, 하루형으로
+> 간주해 자정을 주면 서지도 않을 회차를 예고하기 때문이다(그 자리 주석이 직접 그렇게 적고 있다).
+>
+> **이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.** V5 가 인라인 파라미터를 CTI 상세
+> 테이블로 이관할 때 `WHERE type = 'TIME_WINDOW' AND window_start IS NOT NULL AND window_end IS NOT NULL`
+> 로 백필했다 — **시각이 null 이던 구 행은 챌린지 행만 남고 상세가 만들어지지 않았다.**
+> 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
+>
+> 📌 2026-08-11 정정(PR #610 codex 리뷰). 서버 DTO javadoc 도 같은 취지로 정정돼 있다(GROMO-1285).
 
 > **결과 모달 큐는 이 응답에 없다 (N53).** 여기 있는 `lastSettledSession`은 카드의 "지난 결과 +
 > 정산 근거" 한 줄 표시용 **그룹 기준 최신 1건**일 뿐이다. 모달 큐는 참가자 스코프
