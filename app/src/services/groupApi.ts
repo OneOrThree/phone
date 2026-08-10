@@ -332,6 +332,22 @@ export async function getMyOpenBetSessions(): Promise<MyOpenBetSession[]> {
   return Array.isArray(data?.sessions) ? data.sessions : [];
 }
 
+// 위와 같은 조회의 **계정 박제** 변형(codex 리뷰 P1 — 추가 전용 규약에 따라 기존 함수를 고치지
+// 않고 새로 둔다). 사일런트 푸시 flush처럼 '어느 계정인지 검증한 뒤' 도는 흐름은, 검증과 전송
+// 사이에 계정이 바뀌면 인터셉터가 **전송 시점의 토큰**(교체된 계정)을 붙여 남의 회차를 읽어 온다.
+// 검증한 그 토큰을 직접 실어 그 창을 닫는다 — 401 재발급 재시도도 끈다(재발급 토큰은 전환된
+// 계정 것일 수 있어 재시도가 곧 계정 오귀속이다. focusApi.commitSession과 같은 규칙).
+export async function getMyOpenBetSessionsWithToken(
+  accessToken: string,
+): Promise<MyOpenBetSession[]> {
+  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
+    params: { status: 'OPEN' },
+    headers: { Authorization: `Bearer ${accessToken}` },
+    _noAuthRetry: true,
+  } as Parameters<typeof api.get>[1]);
+  return Array.isArray(data?.sessions) ? data.sessions : [];
+}
+
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.
 // HTTP status가 아니라 이 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409라
 // status만으론 구분되지 않는다(§3-2). 모르는 code는 화면에서 공통 문구로 떨어뜨린다.

@@ -129,10 +129,10 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   // 트리 밖(푸시 딥링크 등)에서 올라온 재조회 요청을 받는다(codex 리뷰 P2) — 환불 푸시처럼
   // **잔액만 바뀌고 화면에 걸리는 사건이 없는** 경우, 이 배선이 없으면 앱이 살아 있는 내내
   // 환불 전 잔액이 그대로 남는다(결과 모달·정산 서명 어느 경로에도 걸리지 않는다).
+  // refresh의 반환값(반영됐는가)을 그대로 넘긴다 — 신호 쪽이 '성공까지 보류 유지'를 판단하는
+  // 근거다. 실패·시퀀스 가드에 밀린 미반영을 성공으로 치면 요청이 조용히 증발한다.
   useEffect(() => {
-    setCoinRefreshListener(() => {
-      refresh();
-    });
+    setCoinRefreshListener(refresh);
     return () => setCoinRefreshListener(null);
   }, [refresh]);
 

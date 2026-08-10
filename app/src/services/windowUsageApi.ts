@@ -15,10 +15,28 @@ export interface WindowUsageRequest {
 
 // PUT /api/v1/groups/{groupId}/challenges/{challengeId}/window-usage → 204.
 // 실패는 호출부에서 무시한다 — upsert 멱등이라 다음 sync에서 최신값으로 재시도하면 된다.
+//
+// accessToken(선택) — **계정 박제**(codex 리뷰 P1). 넘기면 그 토큰으로 보내고 401 재발급
+// 재시도를 끈다. 창 사용분은 '어느 계정의 타임라인인가'를 확인한 뒤 보고하는 값인데, 확인과
+// 전송 사이에 계정이 바뀌면 인터셉터가 **전송 시점의 토큰**을 붙여 A의 스크린타임이 B의 OPEN
+// 회차에 보고된다 — 돈이 걸린 판정이라 오귀속은 곧 남의 승패를 바꾼다. 재발급 토큰 역시
+// 전환된 계정 것일 수 있어 재시도를 끄는 것까지가 한 세트다(focusApi.commitSession과 같은 규칙).
+// 생략하면 종전대로 인터셉터가 저장된 토큰을 붙인다(기존 호출부 동작 불변).
 export async function putWindowUsage(
   groupId: string,
   challengeId: string,
   body: WindowUsageRequest,
+  accessToken?: string | null,
 ): Promise<void> {
-  await api.put<void>(`/api/v1/groups/${groupId}/challenges/${challengeId}/window-usage`, body);
+  const config = accessToken
+    ? ({
+        headers: { Authorization: `Bearer ${accessToken}` },
+        _noAuthRetry: true,
+      } as Parameters<typeof api.put>[2])
+    : undefined;
+  await api.put<void>(
+    `/api/v1/groups/${groupId}/challenges/${challengeId}/window-usage`,
+    body,
+    config,
+  );
 }

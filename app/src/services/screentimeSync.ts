@@ -7,7 +7,8 @@ import ScreenTimeModule, {
 import type { UsageBucketEvent } from '@/services/ScreenTimeModule';
 import { saveScreenTime } from '@/services/screentimeApi';
 import { getHeatmap } from '@/services/statsApi';
-import { getMyOpenBetSessions } from '@/services/groupApi';
+import { getMyOpenBetSessionsWithToken } from '@/services/groupApi';
+import { getFreshAccessToken, getUserIdFromToken } from '@/services/api';
 import { putWindowUsage } from '@/services/windowUsageApi';
 import {
   readPendingScreenTimeCelebration,
@@ -654,8 +655,22 @@ export async function syncWindowUsage(userId: string): Promise<void> {
   const owner = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered);
   if (owner !== userId) return;
 
+  // ── 계정 박제(codex 리뷰 P1) ─────────────────────────────────────────────────────
+  // 여기까지의 게이트는 전부 **userId(호출 시점의 계정)** 기준인데, 정작 아래 HTTP 요청들은
+  // 인터셉터가 **전송 시점에 저장소에 있는 토큰**을 붙인다. 사일런트 푸시 flush는 백그라운드에서
+  // 수 초~수십 초 돌고, 그 사이 사용자가 앱을 열어 로그아웃하거나 다른 계정으로 갈아탈 수 있다 —
+  // 그러면 **A의 스크린타임 타임라인이 B의 OPEN 회차에 보고돼 B의 판정을 오염시킨다**(돈 경로).
+  //
+  // 그래서 시작 시점에 토큰을 확보해 신원을 대조하고(불일치면 아무것도 보내지 않는다 — 잘못된
+  // 계정에 쓰느니 안 쓰는 쪽이 항상 옳다), **검증한 그 토큰을 이 sync의 모든 요청에 직접 싣는다.**
+  // 대조만으로는 TOCTOU 창이 남지만(대조~전송 사이 교체), 토큰을 박제하면 그 창에서도 요청은
+  // 여전히 A로 나간다 — 루프가 길어도 계정이 섞이지 않는 이유가 이것이다.
+  // 토큰 조회 실패(갱신 실패 포함)도 스킵 — 다음 sync가 재시도한다(보고는 멱등).
+  const accessToken = await getFreshAccessToken().catch(() => null);
+  if (!accessToken || getUserIdFromToken(accessToken) !== userId) return;
+
   // 내 OPEN 회차 조회(참가자 스코프 — 그룹 무관, N43) — 실패는 무시하고 다음 sync에서 다시 본다.
-  const sessions = await getMyOpenBetSessions().catch(() => null);
+  const sessions = await getMyOpenBetSessionsWithToken(accessToken).catch(() => null);
   if (!sessions || sessions.length === 0) return;
 
   const now = new Date();
@@ -761,11 +776,14 @@ export async function syncWindowUsage(userId: string): Promise<void> {
       // measuredAt 동봉(N34) — 서버가 역전 보고(사일런트 푸시 sync와 포그라운드 sync의 경합,
       // 타임아웃 지연 도착)를 measured_at 비교로 조용히 무시한다. 돈 경로라 '마지막 도착이
       // 이긴다'로 둘 수 없다.
-      await putWindowUsage(session.groupId, session.challengeId, {
-        usageDate: kstDate,
-        progressMinutes: usedMinutes,
-        measuredAt,
-      });
+      // 박제한 토큰을 실어 보낸다(위 '계정 박제' 주석) — 루프가 길어져 도중에 계정이 바뀌어도
+      // 이 보고는 측정 주체인 그 계정으로만 나간다.
+      await putWindowUsage(
+        session.groupId,
+        session.challengeId,
+        { usageDate: kstDate, progressMinutes: usedMinutes, measuredAt },
+        accessToken,
+      );
     } catch {
       continue; // 실패 무시 — upsert 멱등, 다음 sync가 최신값으로 재시도
     }

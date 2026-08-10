@@ -21,8 +21,27 @@ test('PUT /{groupId}/challenges/{challengeId}/window-usage — 바디를 그대�
     measuredAt: '2026-08-02T04:00:00.000Z',
   };
   await putWindowUsage(GROUP_ID, CHALLENGE_ID, body);
+  // 토큰을 넘기지 않으면 config 없이(=인터셉터가 저장 토큰을 붙이는 종전 동작) 나간다.
   expect(mockApi.put).toHaveBeenCalledWith(
     `/api/v1/groups/${GROUP_ID}/challenges/${CHALLENGE_ID}/window-usage`,
     body,
+    undefined,
+  );
+});
+
+// 계정 박제(codex 리뷰 P1) — 검증한 토큰을 직접 싣고 401 재발급 재시도를 끈다.
+// 재발급 토큰은 **전환된 계정** 것일 수 있어, 재시도가 곧 남의 회차에 쓰는 일이 된다.
+test('accessToken을 넘기면 그 토큰을 싣고 401 재발급 재시도를 끈다', async () => {
+  mockApi.put.mockResolvedValue({ data: undefined });
+  const body = {
+    usageDate: '2026-08-02',
+    progressMinutes: 45,
+    measuredAt: '2026-08-02T04:00:00.000Z',
+  };
+  await putWindowUsage(GROUP_ID, CHALLENGE_ID, body, 'token-u1');
+  expect(mockApi.put).toHaveBeenCalledWith(
+    `/api/v1/groups/${GROUP_ID}/challenges/${CHALLENGE_ID}/window-usage`,
+    body,
+    { headers: { Authorization: 'Bearer token-u1' }, _noAuthRetry: true },
   );
 });

@@ -16,7 +16,8 @@ import {
 import { localDateStr } from '@/utils/localDate';
 import ScreenTimeModule, { nativeSupportsUsageBucketEvents } from '@/services/ScreenTimeModule';
 import type { UsageBucketEvent } from '@/services/ScreenTimeModule';
-import { getMyOpenBetSessions } from '@/services/groupApi';
+import { getMyOpenBetSessionsWithToken } from '@/services/groupApi';
+import { getFreshAccessToken, getUserIdFromToken } from '@/services/api';
 import { putWindowUsage } from '@/services/windowUsageApi';
 import {
   logScreentimeWindowReported,
@@ -27,6 +28,10 @@ import type { MyOpenBetSession } from '@/types/dto/group';
 
 jest.mock('@/services/api', () => ({
   api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  // 계정 박제(codex 리뷰 P1) — sync 시작 시 토큰을 확보해 신원을 대조하고, 그 토큰을 모든
+  // 요청에 직접 싣는다. 여기서는 JWT를 만들지 않고 두 함수를 직접 통제한다.
+  getFreshAccessToken: jest.fn(),
+  getUserIdFromToken: jest.fn(),
 }));
 jest.mock('@/services/ScreenTimeModule', () => ({
   __esModule: true,
@@ -38,7 +43,7 @@ jest.mock('@/services/ScreenTimeModule', () => ({
   nativeSupportsUsageBucketEvents: jest.fn(() => true),
 }));
 jest.mock('@/services/groupApi', () => ({
-  getMyOpenBetSessions: jest.fn(),
+  getMyOpenBetSessionsWithToken: jest.fn(),
 }));
 jest.mock('@/services/windowUsageApi', () => ({
   putWindowUsage: jest.fn(),
@@ -67,7 +72,9 @@ const actualLocalDate = jest.requireActual('@/utils/localDate');
 const mockLocalDateStr = localDateStr as jest.Mock;
 const mockSupports = nativeSupportsUsageBucketEvents as jest.Mock;
 const mockGetEvents = ScreenTimeModule.getUsageBucketEvents as jest.Mock;
-const mockGetSessions = getMyOpenBetSessions as jest.Mock;
+const mockGetSessions = getMyOpenBetSessionsWithToken as jest.Mock;
+const mockGetFreshToken = getFreshAccessToken as jest.Mock;
+const mockUserIdFromToken = getUserIdFromToken as jest.Mock;
 const mockPut = putWindowUsage as jest.Mock;
 const mockLogReported = logScreentimeWindowReported as jest.Mock;
 const mockLogUnsupported = logScreentimeWindowUnsupported as jest.Mock;
@@ -75,6 +82,8 @@ const mockLogUnsupported = logScreentimeWindowUnsupported as jest.Mock;
 const USER_ID = 'u1';
 const GROUP_ID = 'g1';
 const CHALLENGE_ID = 'c1';
+// 이 sync가 시작 시점에 검증해 박제하는 토큰 — 모든 요청이 이걸 실어야 한다(계정 오귀속 방지).
+const TOKEN = 'token-u1';
 
 // 로컬(KST 고정) 시각의 epoch초 — 창 경계·발화 시각 픽스처용.
 function epochSec(dateStr: string, time: string): number {
@@ -120,6 +129,9 @@ beforeEach(async () => {
   // 권한 검사(codex ⑥)는 syncWindowUsage 내부 공통 방어다 — 기본은 허용 상태로 깔아 둔다.
   (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('approved');
   mockGetEvents.mockResolvedValue([]);
+  // 기본은 '시작 시점의 계정이 그대로' — 계정 교체 시나리오만 테스트에서 뒤집는다.
+  mockGetFreshToken.mockResolvedValue(TOKEN);
+  mockUserIdFromToken.mockImplementation((t: string) => (t === TOKEN ? USER_ID : 'other-user'));
   // 비KST 시뮬레이션 테스트가 남긴 치환을 실물 위임으로 복구 — clearAllMocks는 구현을 지우지
   // 않으므로 매 테스트 기본 구현을 다시 심는다.
   mockLocalDateStr.mockImplementation((d: Date) => actualLocalDate.localDateStr(d));
@@ -360,6 +372,76 @@ describe('syncWindowUsage — 가드', () => {
     expect(mockPut).not.toHaveBeenCalled();
   });
 
+  // ── 계정 박제(codex 리뷰 P1) ──
+  // 창 보고는 돈이 걸린 판정의 입력이다. 사일런트 flush가 A로 시작한 뒤 앱이 열려 로그아웃·계정
+  // 교체가 일어나면, 인터셉터가 전송 시점의 토큰을 붙이는 한 A의 타임라인이 B의 OPEN 회차로
+  // 간다. 잘못된 계정에 쓰느니 안 쓰는 쪽이 항상 옳다.
+  describe('계정 교체 방어', () => {
+    test('sync 도중 계정이 바뀌어도 시작 시점 계정의 토큰으로만 보낸다', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0));
+      await setup([session()]);
+      mockGetEvents.mockResolvedValue([ev('2026-08-02', '10:00', 45)]);
+      // 회차 목록을 받아 오는 사이 사용자가 앱을 열어 B로 갈아탔다 — 이제 저장소 토큰은 B 것이다.
+      mockGetSessions.mockImplementation(async () => {
+        mockGetFreshToken.mockResolvedValue('token-u2');
+        return [session()];
+      });
+
+      await syncWindowUsage(USER_ID);
+
+      // 보고는 여전히 A의 토큰으로 나간다 — 전송 시점 저장소를 다시 읽지 않는다.
+      expect(mockGetSessions).toHaveBeenCalledWith(TOKEN);
+      expect(mockPut).toHaveBeenCalledTimes(1);
+      expect(mockPut).toHaveBeenCalledWith(
+        GROUP_ID,
+        CHALLENGE_ID,
+        expect.objectContaining({ progressMinutes: 45 }),
+        TOKEN,
+      );
+      expect(mockPut).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        'token-u2',
+      );
+    });
+
+    test('시작 시점에 이미 계정이 다르면 아무것도 보내지 않는다(fail-closed)', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0));
+      await setup([session()]);
+      mockGetEvents.mockResolvedValue([ev('2026-08-02', '10:00', 45)]);
+      // 사일런트 flush가 A를 확인한 직후 B로 교체됐다 — 이 sync는 통째로 접는다.
+      mockGetFreshToken.mockResolvedValue('token-u2');
+
+      await syncWindowUsage(USER_ID);
+
+      expect(mockGetSessions).not.toHaveBeenCalled();
+      expect(mockPut).not.toHaveBeenCalled();
+    });
+
+    test('로그아웃(토큰 없음)이면 보내지 않는다', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0));
+      await setup([session()]);
+      mockGetFreshToken.mockResolvedValue(null);
+
+      await syncWindowUsage(USER_ID);
+
+      expect(mockGetSessions).not.toHaveBeenCalled();
+      expect(mockPut).not.toHaveBeenCalled();
+    });
+
+    test('토큰 갱신 실패(throw)도 스킵 — 확신 없는 계정으로 보고하지 않는다', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0));
+      await setup([session()]);
+      mockGetFreshToken.mockRejectedValue(new Error('refresh failed'));
+
+      await syncWindowUsage(USER_ID); // throw 없이 끝나야 한다
+
+      expect(mockGetSessions).not.toHaveBeenCalled();
+      expect(mockPut).not.toHaveBeenCalled();
+    });
+  });
+
   test('회차 목록 조회 실패는 삼키고 이번 sync를 접는다 — 다음 sync가 재시도', async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 7, 2, 13, 0));
     await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, USER_ID);
@@ -424,16 +506,20 @@ describe('syncWindowUsage — 보고(회차 축)', () => {
 
     expect(mockPut).toHaveBeenCalledTimes(2);
     // usageDate = 회차의 sessionDate(KST) · measuredAt 동봉(N34 — 역전 보고 서버 판정 축).
-    expect(mockPut).toHaveBeenNthCalledWith(1, GROUP_ID, CHALLENGE_ID, {
-      usageDate: '2026-08-01',
-      progressMinutes: 60,
-      measuredAt: new Date().toISOString(),
-    });
-    expect(mockPut).toHaveBeenNthCalledWith(2, GROUP_ID, CHALLENGE_ID, {
-      usageDate: '2026-08-02',
-      progressMinutes: 45,
-      measuredAt: new Date().toISOString(),
-    });
+    expect(mockPut).toHaveBeenNthCalledWith(
+      1,
+      GROUP_ID,
+      CHALLENGE_ID,
+      { usageDate: '2026-08-01', progressMinutes: 60, measuredAt: new Date().toISOString() },
+      TOKEN,
+    );
+    expect(mockPut).toHaveBeenNthCalledWith(
+      2,
+      GROUP_ID,
+      CHALLENGE_ID,
+      { usageDate: '2026-08-02', progressMinutes: 45, measuredAt: new Date().toISOString() },
+      TOKEN,
+    );
     expect(mockLogReported).toHaveBeenCalledTimes(2);
     expect(mockLogReported).toHaveBeenCalledWith({ minutes: 60, is_final: true });
     expect(mockLogReported).toHaveBeenCalledWith({ minutes: 45, is_final: true });
@@ -453,11 +539,12 @@ describe('syncWindowUsage — 보고(회차 축)', () => {
 
     await syncWindowUsage(USER_ID);
     expect(mockPut).toHaveBeenCalledTimes(1);
-    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      usageDate: '2026-08-02',
-      progressMinutes: 15,
-      measuredAt: new Date().toISOString(),
-    });
+    expect(mockPut).toHaveBeenCalledWith(
+      GROUP_ID,
+      CHALLENGE_ID,
+      { usageDate: '2026-08-02', progressMinutes: 15, measuredAt: new Date().toISOString() },
+      TOKEN,
+    );
     expect(mockLogReported).toHaveBeenCalledWith({ minutes: 15, is_final: false });
 
     // 같은 값 — 스킵.
@@ -473,6 +560,7 @@ describe('syncWindowUsage — 보고(회차 축)', () => {
       GROUP_ID,
       CHALLENGE_ID,
       expect.objectContaining({ progressMinutes: 30 }),
+      TOKEN,
     );
   });
 
@@ -529,11 +617,16 @@ describe('syncWindowUsage — 비KST 로컬 축·보존 게이트(GROMO-1242)', 
     expect(mockGetEvents).toHaveBeenCalledWith('2026-08-03');
     expect(mockGetEvents).not.toHaveBeenCalledWith('2026-08-02'); // KST 날짜 키 조회 금지
     expect(mockPut).toHaveBeenCalledTimes(1);
-    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      usageDate: '2026-08-02', // 보고 축은 KST 회차 날짜 불변
-      progressMinutes: 45,
-      measuredAt: new Date().toISOString(),
-    });
+    expect(mockPut).toHaveBeenCalledWith(
+      GROUP_ID,
+      CHALLENGE_ID,
+      {
+        usageDate: '2026-08-02', // 보고 축은 KST 회차 날짜 불변
+        progressMinutes: 45,
+        measuredAt: new Date().toISOString(),
+      },
+      TOKEN,
+    );
   });
 
   test('보존 게이트 — 필요 dayKey가 로컬 어제 미만이면 그 회차 전체를 skip(putWindowUsage 미호출)', async () => {
@@ -564,11 +657,12 @@ describe('syncWindowUsage — 비KST 로컬 축·보존 게이트(GROMO-1242)', 
 
     // 어제 회차는 통째로 skip — 부분합(0분) 보고 금지. 오늘 회차만 보고된다.
     expect(mockPut).toHaveBeenCalledTimes(1);
-    expect(mockPut).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, {
-      usageDate: '2026-08-02',
-      progressMinutes: 45,
-      measuredAt: new Date().toISOString(),
-    });
+    expect(mockPut).toHaveBeenCalledWith(
+      GROUP_ID,
+      CHALLENGE_ID,
+      { usageDate: '2026-08-02', progressMinutes: 45, measuredAt: new Date().toISOString() },
+      TOKEN,
+    );
     expect(mockGetEvents).not.toHaveBeenCalledWith('2026-07-30'); // 게이트가 조회 전에 자른다
   });
 
