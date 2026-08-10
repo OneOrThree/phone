@@ -150,8 +150,20 @@ export interface GroupFocusPollingOptions {
   userId: string;
   getDate?: () => string;
   intervalMs?: number;
+  getMsUntilNextDate?: () => number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function msUntilNextKstDate(now = Date.now()): number {
+  const kst = new Date(now + KST_OFFSET_MS);
+  const nextKstMidnightUtc =
+    Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + 1) - KST_OFFSET_MS;
+  return Math.max(1, nextKstMidnightUtc - now);
 }
 
 /** 첫 back 뒤의 foreground 60초 수명을 화면/앱 수명과 분리해 검증 가능한 controller로 둔다. */
@@ -164,17 +176,24 @@ export class GroupFocusPollingController {
     hasGroups: false,
   };
   private timer: ReturnType<typeof setInterval> | null = null;
+  private dateBoundaryTimer: ReturnType<typeof setTimeout> | null = null;
   private activeDate: string | null = null;
   private readonly getDate: () => string;
   private readonly intervalMs: number;
+  private readonly getMsUntilNextDate: () => number;
   private readonly setIntervalFn: typeof setInterval;
   private readonly clearIntervalFn: typeof clearInterval;
+  private readonly setTimeoutFn: typeof setTimeout;
+  private readonly clearTimeoutFn: typeof clearTimeout;
 
   constructor(private readonly options: GroupFocusPollingOptions) {
     this.getDate = options.getDate ?? todayStrKst;
     this.intervalMs = options.intervalMs ?? 60_000;
+    this.getMsUntilNextDate = options.getMsUntilNextDate ?? msUntilNextKstDate;
     this.setIntervalFn = options.setIntervalFn ?? setInterval;
     this.clearIntervalFn = options.clearIntervalFn ?? clearInterval;
+    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+    this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
   }
 
   /** 사용자 첫 back과 코치마크 3→4가 공유하는 진입점. */
@@ -233,16 +252,32 @@ export class GroupFocusPollingController {
   }
 
   private startTimer(): void {
-    if (this.timer !== null) return;
-    this.timer = this.setIntervalFn(() => {
+    if (this.timer === null) {
+      this.timer = this.setIntervalFn(() => {
+        if (this.canRun()) this.refresh();
+      }, this.intervalMs);
+    }
+    this.scheduleDateBoundary();
+  }
+
+  private scheduleDateBoundary(): void {
+    if (this.dateBoundaryTimer !== null || !this.canRun()) return;
+    this.dateBoundaryTimer = this.setTimeoutFn(() => {
+      this.dateBoundaryTimer = null;
       if (this.canRun()) this.refresh();
-    }, this.intervalMs);
+      this.scheduleDateBoundary();
+    }, this.getMsUntilNextDate());
   }
 
   private stopTimer(): void {
-    if (this.timer === null) return;
-    this.clearIntervalFn(this.timer);
-    this.timer = null;
+    if (this.timer !== null) {
+      this.clearIntervalFn(this.timer);
+      this.timer = null;
+    }
+    if (this.dateBoundaryTimer !== null) {
+      this.clearTimeoutFn(this.dateBoundaryTimer);
+      this.dateBoundaryTimer = null;
+    }
   }
 }
 
