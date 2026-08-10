@@ -195,6 +195,11 @@ export class GroupFocusPollingController {
     if (this.canRun()) this.refresh();
   }
 
+  /** 사용자가 누른 명시적 새로고침은 60초 tick을 기다리지 않고 현재 focus cache를 갱신한다. */
+  refreshNow(): Promise<GroupFocusStatusState> | null {
+    return this.canRun() ? this.refresh() : null;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.stopTimer();

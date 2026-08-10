@@ -168,4 +168,26 @@ describe('GroupFocusPollingController', () => {
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
     controller.dispose();
   });
+
+  test('명시적 새로고침은 활성 lifecycle에서 즉시 갱신하고 비활성 상태에서는 요청하지 않는다', async () => {
+    const load = jest.fn().mockResolvedValue([]);
+    const store = new GroupFocusStatusStore(load);
+    const controller = new GroupFocusPollingController({
+      store,
+      userId: USER_ID,
+      getDate: () => DATE,
+    });
+    controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
+    expect(controller.refreshNow()).toBeNull();
+
+    controller.activate();
+    await flushPromises();
+    await controller.refreshNow();
+    expect(load).toHaveBeenCalledTimes(2);
+
+    controller.setLifecycle({ screenFocused: false, appActive: true, hasGroups: true });
+    expect(controller.refreshNow()).toBeNull();
+    expect(load).toHaveBeenCalledTimes(2);
+    controller.dispose();
+  });
 });

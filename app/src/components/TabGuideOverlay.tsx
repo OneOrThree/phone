@@ -50,12 +50,15 @@ export function TabGuideOverlay({
   steps,
   onFinish,
   visible: controlledVisible,
+  onRequestClose,
 }: {
   storageKey: string;
   steps: GuideStep[];
   onFinish?: () => void; // 마지막 스텝을 닫은 직후 — 투어 중 옮긴 스크롤 원복 등
   /** 별도 queue가 완료 key를 이미 판정한 화면은 두 번째 저장소 read 없이 즉시 표시한다. */
   visible?: boolean;
+  /** 제어형 guide는 Android 뒤로가기를 완료가 아닌 중단으로 처리한다. */
+  onRequestClose?: () => void;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
   const [internalVisible, setInternalVisible] = useState(false);
@@ -132,7 +135,13 @@ export function TabGuideOverlay({
     : { bottom: winH - (hole ? hole.y : winH * 0.62) + 18 };
 
   return (
-    <Modal transparent statusBarTranslucent animationType="fade" onRequestClose={advance}>
+    <Modal
+      testID="guide.overlay.modal"
+      transparent
+      statusBarTranslucent
+      animationType="fade"
+      onRequestClose={onRequestClose ?? advance}
+    >
       {/* Maestro E2E — 코치마크 식별·진행용(GROMO-947). 사라질 때까지 탭해서 닫는다. */}
       <Pressable testID="guide.overlay" style={s.flex1} onPress={advance}>
         {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가

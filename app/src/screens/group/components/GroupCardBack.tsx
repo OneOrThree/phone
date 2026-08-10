@@ -24,6 +24,9 @@ interface Props {
   onOpenRoom: () => void;
   focusRoomOnMount?: boolean;
   onRoomFocusRestored?: () => void;
+  suppressInitialFocus?: boolean;
+  focusPrimaryOnMount?: boolean;
+  onPrimaryFocusRestored?: () => void;
   onRetry: (section: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
 }
 
@@ -47,23 +50,41 @@ export function GroupCardBack({
   onOpenRoom,
   focusRoomOnMount = false,
   onRoomFocusRestored,
+  suppressInitialFocus = false,
+  focusPrimaryOnMount = false,
+  onPrimaryFocusRestored,
   onRetry,
 }: Props) {
   const frontActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const primaryActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
   const roomActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
+  const focusHandledRef = useRef(false);
+  const roomRestoreHandledRef = useRef(false);
   const onRoomFocusRestoredRef = useRef(onRoomFocusRestored);
   onRoomFocusRestoredRef.current = onRoomFocusRestored;
+  const onPrimaryFocusRestoredRef = useRef(onPrimaryFocusRestored);
+  onPrimaryFocusRestoredRef.current = onPrimaryFocusRestored;
   useEffect(() => {
+    // 방 복귀는 네트워크 후속 렌더에서 prop이 false로 바뀌어도 기본 mount 포커스로 되돌리지 않는다.
+    if (roomRestoreHandledRef.current) return;
+    if (focusRoomOnMount) roomRestoreHandledRef.current = true;
+    else if (suppressInitialFocus || focusHandledRef.current) return;
+    else focusHandledRef.current = true;
     const frame = requestAnimationFrame(() => {
       const node = ReactNative.findNodeHandle(
-        focusRoomOnMount ? roomActionRef.current : frontActionRef.current,
+        focusRoomOnMount
+          ? roomActionRef.current
+          : focusPrimaryOnMount
+            ? primaryActionRef.current
+            : frontActionRef.current,
       );
       if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
       if (focusRoomOnMount) onRoomFocusRestoredRef.current?.();
+      else if (focusPrimaryOnMount) onPrimaryFocusRestoredRef.current?.();
       else AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusRoomOnMount, group.name]);
+  }, [focusPrimaryOnMount, focusRoomOnMount, group.name, suppressInitialFocus]);
   const detail = snapshot.detail.status === 'ready' ? snapshot.detail.data : null;
   const focus = deriveGroupFocusCount(
     detail?.members.map((member) => member.userId) ?? [],
@@ -185,6 +206,7 @@ export function GroupCardBack({
 
       <View style={s.actions}>
         <TouchableOpacity
+          ref={primaryActionRef}
           style={s.primary}
           onPress={onStartFocus}
           accessibilityRole="button"

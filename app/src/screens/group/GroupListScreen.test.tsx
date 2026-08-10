@@ -7,7 +7,7 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AccessibilityInfo, View } from 'react-native';
+import { AccessibilityInfo, AppState, View } from 'react-native';
 import * as ReactNative from 'react-native';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -21,6 +21,7 @@ import {
   logGroupFindOpened,
 } from '@/services/analyticsEvents';
 import { groupFocusStatusStore } from './groupFocusStatus';
+import { resetGroupDeckGuideSessionForTests } from './groupDeckGuideSession';
 import { STORAGE_KEYS } from '@/types/storage';
 import * as localDate from '@/utils/localDate';
 
@@ -70,6 +71,8 @@ const onCreate = jest.fn();
 const onFind = jest.fn();
 const onRefresh = jest.fn<Promise<void>, []>();
 const onBack = jest.fn();
+const defaultStorageGetItem = jest.mocked(AsyncStorage.getItem).getMockImplementation()!;
+const defaultStorageSetItem = jest.mocked(AsyncStorage.setItem).getMockImplementation()!;
 
 // render는 반드시 await 한다 — React 19 + RNTL 14에서는 렌더가 비동기라
 // 동기 호출만 하면 screen이 채워지지 않는다(그룹 테스트 3종 공통 관행).
@@ -99,11 +102,18 @@ async function press(testID: string) {
 }
 
 beforeEach(async () => {
+  jest.mocked(AsyncStorage.getItem).mockImplementation(defaultStorageGetItem);
+  jest.mocked(AsyncStorage.setItem).mockImplementation(defaultStorageSetItem);
   jest.clearAllMocks();
+  resetGroupDeckGuideSessionForTests();
   jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
   jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => undefined);
+  AppState.currentState = 'active';
   jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(1);
   await AsyncStorage.clear();
+  await AsyncStorage.setItem(STORAGE_KEYS.guideGroupDeck, '1');
+  jest.mocked(AsyncStorage.getItem).mockClear();
+  jest.mocked(AsyncStorage.setItem).mockClear();
   groupFocusStatusStore.clearUser('user-1');
   jest.mocked(getChallenges).mockResolvedValue([]);
   jest.mocked(getMyRanking).mockResolvedValue([]);
@@ -147,8 +157,18 @@ describe('카드 렌더', () => {
     await press('guide.overlay');
     await press('guide.overlay');
     expect(await screen.findByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.deck.guideAnchor')).toBeOnTheScreen();
+    expect(screen.getByTestId(`group.card.content.${GROUP_ID}`)).toBeOnTheScreen();
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    setFocus.mockClear();
     await press('guide.overlay');
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(STORAGE_KEYS.guideGroupDeck, '1');
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
+
+    await press(`group.card.focus.${GROUP_ID}`);
+    expect(logGroupCardActionClicked).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'focus', back_source: 'guide' }),
+    );
   });
 
   test('같은 focus episode에서 sheet 차단 상태가 바뀌어도 덱 노출을 중복 기록하지 않는다', async () => {
@@ -170,6 +190,76 @@ describe('카드 렌더', () => {
     await act(async () => Promise.resolve());
 
     expect(logGroupCardDeckViewed).toHaveBeenCalledTimes(1);
+  });
+
+  test('완료 key 조회 실패 fallback은 같은 앱 세션에서 한 번만 노출한다', async () => {
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key) => {
+      if (key === STORAGE_KEYS.guideGroupDeck) throw new Error('read failed');
+      return (await AsyncStorage.multiGet([key]))[0]?.[1] ?? null;
+    });
+
+    const first = await renderList([group()]);
+    expect(await screen.findByTestId('guide.overlay')).toBeOnTheScreen();
+    await first.unmount();
+
+    await renderList([group()]);
+    await screen.findByTestId(`group.card.${GROUP_ID}`);
+    expect(screen.queryByTestId('guide.overlay')).toBeNull();
+  });
+
+  test('완료 key 저장 실패 뒤에도 같은 앱 세션에서는 가이드를 반복하지 않는다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+      if (key === STORAGE_KEYS.guideGroupDeck) throw new Error('write failed');
+      await AsyncStorage.multiSet([[key, value]]);
+    });
+
+    const first = await renderList([group()]);
+    expect(await screen.findByTestId('guide.overlay')).toBeOnTheScreen();
+    await press('guide.overlay');
+    await press('guide.overlay');
+    await press('guide.overlay');
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    setFocus.mockClear();
+    await press('guide.overlay');
+    await waitFor(() => expect(screen.queryByTestId('guide.overlay')).toBeNull());
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
+    await first.unmount();
+
+    await renderList([group()]);
+    await screen.findByTestId(`group.card.${GROUP_ID}`);
+    expect(screen.queryByTestId('guide.overlay')).toBeNull();
+  });
+
+  test('백그라운드 전환은 가이드를 완료 처리 없이 현재 episode에서 중단한다', async () => {
+    let onAppStateChange: ((state: string) => void) | undefined;
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+      onAppStateChange = listener as (state: string) => void;
+      return { remove: jest.fn() };
+    });
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+
+    await renderList([group()]);
+    expect(await screen.findByTestId('guide.overlay')).toBeOnTheScreen();
+    await act(async () => onAppStateChange?.('background'));
+
+    expect(screen.queryByTestId('guide.overlay')).toBeNull();
+    expect(AsyncStorage.setItem).not.toHaveBeenCalledWith(STORAGE_KEYS.guideGroupDeck, '1');
+    await act(async () => onAppStateChange?.('active'));
+    expect(screen.queryByTestId('guide.overlay')).toBeNull();
+  });
+
+  test('Android 뒤로가기는 다음 단계나 완료가 아니라 가이드 중단으로 처리한다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    await renderList([group()]);
+    expect(await screen.findByTestId('guide.overlay')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('guide.overlay.modal'), 'requestClose');
+    });
+
+    expect(screen.queryByTestId('guide.overlay')).toBeNull();
+    expect(AsyncStorage.setItem).not.toHaveBeenCalledWith(STORAGE_KEYS.guideGroupDeck, '1');
   });
 
   test('이름과 n/m 인원을 서버가 준 순서 그대로 그린다', async () => {
@@ -325,11 +415,9 @@ describe('콜백', () => {
     await renderList([group()]);
 
     await press(`group.card.${GROUP_ID}`);
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    expect(announce).toHaveBeenCalledWith('아침 6시 집중방 방 요약이 열렸습니다');
+    await waitFor(() =>
+      expect(announce).toHaveBeenCalledWith('아침 6시 집중방 방 요약이 열렸습니다'),
+    );
     expect(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`).props.hitSlop).toBe(6);
     expect(screen.getByTestId(`group.card.settings.${GROUP_ID}`).props.hitSlop).toBe(6);
   });
@@ -612,6 +700,7 @@ describe('콜백', () => {
 
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(getGroupDetail).toHaveBeenCalledTimes(2);
+    expect(getMyRanking).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -669,7 +758,7 @@ describe('제스처 중재와 재정렬', () => {
     ).toEqual([GROUP_ID_2, GROUP_ID]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
     expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.accessibilityValue).toEqual({
-      text: '2/3',
+      text: '2/2',
     });
     expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
   });
@@ -691,6 +780,7 @@ describe('제스처 중재와 재정렬', () => {
       grip.props.onResponderGrant?.(responderEvent);
       grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
     });
+    await waitFor(() => expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(1));
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     expect(
       screen.getByTestId(`group.card.reorderOptions.${GROUP_ID}`).props.nestedScrollEnabled,

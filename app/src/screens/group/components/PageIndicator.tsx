@@ -81,6 +81,9 @@ export function PageIndicator({
               onFocus={() => {
                 indicatorFocusedRef.current = true;
               }}
+              onBlur={() => {
+                indicatorFocusedRef.current = false;
+              }}
               accessibilityRole="button"
               accessibilityState={{ selected: page === activeIndex, disabled }}
               accessibilityLabel={`${pageLabels[page] ?? `${page + 1}번째`}, ${page + 1} / ${pageCount} 페이지로 이동`}
@@ -99,6 +102,9 @@ export function PageIndicator({
           accessibilityRole="text"
           onFocus={() => {
             indicatorFocusedRef.current = true;
+          }}
+          onBlur={() => {
+            indicatorFocusedRef.current = false;
           }}
           accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
           testID="group.deck.indicator.counter"

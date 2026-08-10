@@ -9,6 +9,7 @@ interface GroupCardFrontProps {
   emojiLabel?: string;
   position?: number;
   pageCount?: number;
+  reorderCount?: number;
   onFlip: () => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
@@ -22,6 +23,7 @@ export function GroupCardFront({
   emojiLabel = '과녁',
   position = 1,
   pageCount = 1,
+  reorderCount = pageCount,
   onFlip,
   reorderHandlers,
   onMoveStep,
@@ -37,7 +39,7 @@ export function GroupCardFront({
         testID={`group.card.grip.${group.groupId}`}
         accessibilityRole="adjustable"
         accessibilityLabel={`${group.name} 카드 순서`}
-        accessibilityValue={{ text: `${position}/${pageCount}` }}
+        accessibilityValue={{ text: `${position}/${reorderCount}` }}
         accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
         accessibilityActions={[
           ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),

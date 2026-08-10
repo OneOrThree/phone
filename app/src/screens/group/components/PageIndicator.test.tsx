@@ -81,17 +81,22 @@ describe('PageIndicator', () => {
         nativeEvent: { layout: { width: 400 } },
       });
     });
-    fireEvent(screen.getByTestId('group.deck.indicator.dot.1'), 'focus');
+    const dot = screen.getByTestId('group.deck.indicator.dot.1');
+    expect(dot.props.onBlur).toEqual(expect.any(Function));
+    fireEvent(dot, 'focus');
 
     await act(async () => {
       fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
         nativeEvent: { layout: { width: 120 } },
       });
     });
-    await act(async () => jest.runAllTimers());
+    await act(async () => {
+      jest.runAllTimers();
+    });
 
-    expect(screen.getByTestId('group.deck.indicator.counter')).toBeOnTheScreen();
+    const counter = screen.getByTestId('group.deck.indicator.counter');
+    expect(counter).toBeOnTheScreen();
+    expect(counter.props.onBlur).toEqual(expect.any(Function));
     expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(7);
-    jest.useRealTimers();
   });
 });
