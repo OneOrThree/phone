@@ -256,7 +256,12 @@ export default function GroupListScreen({
                 activeIndex === groups.length ? 'auto' : 'no-hide-descendants'
               }
             >
-              <FindMoreCard width={cardWidth} onPress={onFind} />
+              <FindMoreCard
+                width={cardWidth}
+                position={pageCount}
+                pageCount={pageCount}
+                onPress={onFind}
+              />
             </View>
           }
           renderItem={({ item }) => (

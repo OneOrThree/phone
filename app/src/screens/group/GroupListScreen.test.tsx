@@ -78,6 +78,9 @@ describe('카드 렌더', () => {
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('그룹 찾기, 현재 3/3 페이지', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
     expect(screen.getByLabelText(/아침 6시 집중방.*1 \/ 3/)).toBeOnTheScreen();
     expect(
       screen.getByTestId(`group.card.grip.${GROUP_ID}`, { includeHiddenElements: true }).props,
