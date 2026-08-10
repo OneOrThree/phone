@@ -21,7 +21,7 @@ export const GROUP_CARD_EMOJIS = GROUP_CARD_EMOJI_OPTIONS.map((option) => option
 export const DEFAULT_GROUP_CARD_EMOJI: GroupCardEmoji = '🎯';
 export type GroupCardEmojiBucket = Record<string, GroupCardEmoji>;
 export type GroupCardEmojiReadResult =
-  | { status: 'ready'; emoji: GroupCardEmoji; storedEmoji: GroupCardEmoji }
+  | { status: 'ready'; emoji: GroupCardEmoji; storedEmoji: GroupCardEmoji; pending: boolean }
   | { status: 'error' };
 type GroupCardEmojiMap = Record<string, GroupCardEmojiBucket>;
 type ParsedEmojiMap = { value: GroupCardEmojiMap; needsRepair: boolean };
@@ -71,6 +71,57 @@ export function parseGroupCardEmoji(raw: string | null): GroupCardEmojiMap {
 let storageQueue: Promise<unknown> = Promise.resolve();
 type EmojiListener = (groupId: string, emoji: GroupCardEmoji) => void;
 const emojiListeners = new Map<string, Set<EmojiListener>>();
+const saveFailureUsers = new Set<string>();
+const saveFailureListeners = new Map<string, Set<(failed: boolean) => void>>();
+// 무효화된 prune 뒤 원본 복원이 실패하면 잘려 나간 현재 계정 bucket만 보존한다.
+// reconcile뿐 아니라 일반 저장도 이를 최신 raw 아래에 병합해 앱 종료 전 복구를 영속화한다.
+const reconcileRecoveryBucketByUser = new Map<string, GroupCardEmojiBucket>();
+
+function mergeRecoveryBuckets(
+  map: GroupCardEmojiMap,
+  recoveryEntries: readonly (readonly [string, GroupCardEmojiBucket])[],
+): GroupCardEmojiMap {
+  return recoveryEntries.reduce<GroupCardEmojiMap>(
+    (nextMap, [recoveryUserId, recoveryBucket]) => ({
+      ...nextMap,
+      [recoveryUserId]: { ...recoveryBucket, ...nextMap[recoveryUserId] },
+    }),
+    map,
+  );
+}
+
+function clearPersistedRecoveryBuckets(
+  recoveryEntries: readonly (readonly [string, GroupCardEmojiBucket])[],
+): void {
+  recoveryEntries.forEach(([recoveryUserId, recoveryBucket]) => {
+    if (reconcileRecoveryBucketByUser.get(recoveryUserId) === recoveryBucket) {
+      reconcileRecoveryBucketByUser.delete(recoveryUserId);
+    }
+  });
+}
+
+export function setGroupCardEmojiSaveFailure(userId: string, failed: boolean): void {
+  if (failed) saveFailureUsers.add(userId);
+  else saveFailureUsers.delete(userId);
+  saveFailureListeners.get(userId)?.forEach((listener) => listener(failed));
+}
+
+export function readGroupCardEmojiSaveFailure(userId: string): boolean {
+  return saveFailureUsers.has(userId);
+}
+
+export function subscribeGroupCardEmojiSaveFailure(
+  userId: string,
+  listener: (failed: boolean) => void,
+): () => void {
+  const listeners = saveFailureListeners.get(userId) ?? new Set<(failed: boolean) => void>();
+  listeners.add(listener);
+  saveFailureListeners.set(userId, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) saveFailureListeners.delete(userId);
+  };
+}
 
 export function subscribeGroupCardEmoji(userId: string, listener: EmojiListener): () => void {
   const listeners = emojiListeners.get(userId) ?? new Set<EmojiListener>();
@@ -101,6 +152,7 @@ export async function readGroupCardEmojiResult(
       status: 'ready',
       emoji: DEFAULT_GROUP_CARD_EMOJI,
       storedEmoji: DEFAULT_GROUP_CARD_EMOJI,
+      pending: false,
     };
   }
   return enqueueStorageOperation(async () => {
@@ -108,7 +160,12 @@ export async function readGroupCardEmojiResult(
       const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
       const storedEmoji = normalizeGroupCardEmoji(map[userId]?.[groupId]);
       const pendingEmoji = pendingEmojis.get(pendingKey(userId, groupId))?.emoji;
-      return { status: 'ready', emoji: pendingEmoji ?? storedEmoji, storedEmoji };
+      return {
+        status: 'ready',
+        emoji: pendingEmoji ?? storedEmoji,
+        storedEmoji,
+        pending: pendingEmoji !== undefined,
+      };
     } catch {
       return { status: 'error' };
     }
@@ -131,13 +188,18 @@ export function writeGroupCardEmoji(
 ): Promise<void> {
   return enqueueStorageOperation(async () => {
     const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+    const recoveryEntries = [...reconcileRecoveryBucketByUser.entries()];
+    const recoveredMap = mergeRecoveryBuckets(map, recoveryEntries);
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardEmoji,
       JSON.stringify({
-        ...map,
-        [userId]: { ...map[userId], [groupId]: emoji },
+        ...recoveredMap,
+        [userId]: { ...recoveredMap[userId], [groupId]: emoji },
       }),
     );
+    // 성공한 RMW에 병합된 모든 계정 복구본만 비운다. 이후 세대가 같은 계정에 새로
+    // 복구본을 만들었다면 참조가 달라지므로 다음 저장까지 유지한다.
+    clearPersistedRecoveryBuckets(recoveryEntries);
     emitGroupCardEmoji(userId, groupId, emoji);
   });
 }
@@ -148,9 +210,6 @@ function sameBucket(a: GroupCardEmojiBucket, b: GroupCardEmojiBucket): boolean {
 }
 
 const reconcileGenerationByUser = new Map<string, number>();
-// 무효화된 prune 뒤 원본 복원이 실패하면 잘려 나간 현재 계정 bucket만 보존한다. 다음
-// reconcile은 이를 최신 raw bucket 아래에 병합해, 그 사이의 새 아이콘·다른 계정 저장을 되돌리지 않는다.
-const reconcileRecoveryBucketByUser = new Map<string, GroupCardEmojiBucket>();
 
 /** 성공한 전체 GET /groups에서만 호출해 현재 계정 bucket의 stale groupId를 제거한다. */
 export function reconcileGroupCardEmojiBucket(
@@ -171,43 +230,39 @@ export function reconcileGroupCardEmojiBucket(
       return null;
     }
     const parsed = parseGroupCardEmojiState(raw);
-    const recoveryBucket = reconcileRecoveryBucketByUser.get(userId);
-    const current = recoveryBucket
-      ? { ...recoveryBucket, ...parsed.value[userId] }
-      : (parsed.value[userId] ?? {});
+    const recoveryEntries = [...reconcileRecoveryBucketByUser.entries()];
+    const recoveredMap = mergeRecoveryBuckets(parsed.value, recoveryEntries);
+    const current = recoveredMap[userId] ?? {};
     const validIds = new Set(serverGroupIds);
     const next = Object.fromEntries(
       Object.entries(current).filter(([groupId]) => validIds.has(groupId)),
     ) as GroupCardEmojiBucket;
 
     if (!isCurrent()) return {};
-    if (recoveryBucket || parsed.needsRepair || !sameBucket(current, next)) {
+    if (recoveryEntries.length > 0 || parsed.needsRepair || !sameBucket(current, next)) {
       try {
         await AsyncStorage.setItem(
           STORAGE_KEYS.groupCardEmoji,
-          JSON.stringify({ ...parsed.value, [userId]: next }),
+          JSON.stringify({ ...recoveredMap, [userId]: next }),
         );
         if (!isCurrent()) {
           // 같은 storage queue 뒤에 최신 reconcile이 대기한다. 먼저 원본을 복원해 최신 요청이
           // superseded prune 결과가 아닌 실제 이전 bucket에서 다시 계산하게 한다.
           try {
-            if (recoveryBucket) {
-              await AsyncStorage.setItem(
-                STORAGE_KEYS.groupCardEmoji,
-                JSON.stringify({ ...parsed.value, [userId]: current }),
-              );
+            if (recoveryEntries.length > 0) {
+              await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, JSON.stringify(recoveredMap));
             } else if (raw === null) {
               await AsyncStorage.removeItem(STORAGE_KEYS.groupCardEmoji);
             } else {
               await AsyncStorage.setItem(STORAGE_KEYS.groupCardEmoji, raw);
             }
-            reconcileRecoveryBucketByUser.delete(userId);
+            clearPersistedRecoveryBuckets(recoveryEntries);
           } catch {
             reconcileRecoveryBucketByUser.set(userId, current);
           }
           return {};
         }
-        reconcileRecoveryBucketByUser.delete(userId);
+        clearPersistedRecoveryBuckets(recoveryEntries);
       } catch {
         // stale 정리는 best-effort다. 이미 정상적으로 읽은 현재 계정 아이콘은 UI에 유지한다.
       }
@@ -221,6 +276,7 @@ type PendingEmoji = {
   groupId: string;
   emoji: GroupCardEmoji;
   version: number;
+  surface: 'create' | 'settings';
 };
 const pendingEmojis = new Map<string, PendingEmoji>();
 const latestPendingSelection = new Map<string, { emoji: GroupCardEmoji; version: number }>();
@@ -234,10 +290,11 @@ export function preservePendingGroupCardEmoji(
   userId: string,
   groupId: string,
   emoji: GroupCardEmoji,
+  surface: 'create' | 'settings' = 'settings',
 ): void {
   const key = pendingKey(userId, groupId);
   const version = ++pendingVersion;
-  pendingEmojis.set(key, { userId, groupId, emoji, version });
+  pendingEmojis.set(key, { userId, groupId, emoji, version, surface });
   latestPendingSelection.set(key, { emoji, version });
   emitGroupCardEmoji(userId, groupId, emoji);
 }
@@ -251,10 +308,17 @@ export function updatePendingGroupCardEmojiSelection(
 ): void {
   const key = pendingKey(userId, groupId);
   const version = ++pendingVersion;
+  const surface = pendingEmojis.get(key)?.surface ?? 'settings';
   latestPendingSelection.set(key, { emoji: selected, version });
   if (selected === stored) pendingEmojis.delete(key);
-  else pendingEmojis.set(key, { userId, groupId, emoji: selected, version });
+  else pendingEmojis.set(key, { userId, groupId, emoji: selected, version, surface });
   emitGroupCardEmoji(userId, groupId, selected);
+}
+
+/** 오래된 비동기 쓰기의 emit 뒤 현재 pending 선택을 카드에 다시 합성한다. */
+export function restoreLatestPendingGroupCardEmoji(userId: string, groupId: string): void {
+  const latest = latestPendingSelection.get(pendingKey(userId, groupId));
+  if (latest) emitGroupCardEmoji(userId, groupId, latest.emoji);
 }
 
 export function clearPendingGroupCardEmoji(
@@ -280,11 +344,35 @@ export function clearPendingGroupCardEmoji(
   return true;
 }
 
+export function hasPendingGroupCardEmojis(
+  userId: string,
+  serverGroupIds?: readonly string[],
+): boolean {
+  const validIds = serverGroupIds ? new Set(serverGroupIds) : null;
+  return [...pendingEmojis.values()].some(
+    (pending) => pending.userId === userId && (validIds === null || validIds.has(pending.groupId)),
+  );
+}
+
+/** 저장 queue를 기다리지 않고 현재 계정의 유효한 optimistic 아이콘을 화면에 합성한다. */
+export function getPendingGroupCardEmojiBucket(
+  userId: string,
+  serverGroupIds: readonly string[],
+): GroupCardEmojiBucket {
+  const validIds = new Set(serverGroupIds);
+  return Object.fromEntries(
+    [...pendingEmojis.values()]
+      .filter((pending) => pending.userId === userId && validIds.has(pending.groupId))
+      .map((pending) => [pending.groupId, pending.emoji]),
+  ) as GroupCardEmojiBucket;
+}
+
 /** 그룹 화면 활성화 뒤 성공한 전체 목록에 포함된 최신 pending 값만 재시도한다. */
 export async function retryPendingGroupCardEmojis(
   userId: string,
   serverGroupIds: readonly string[],
   shouldContinue: () => boolean = () => true,
+  onResult?: (surface: 'create' | 'settings', result: 'success' | 'failed') => void,
 ): Promise<GroupCardEmojiBucket> {
   if (!shouldContinue()) return {};
   const validIds = new Set(serverGroupIds);
@@ -307,6 +395,7 @@ export async function retryPendingGroupCardEmojis(
     if (pendingEmojis.get(key)?.version !== pending.version) continue;
     try {
       await writeGroupCardEmoji(pending.userId, pending.groupId, pending.emoji);
+      onResult?.(pending.surface, 'success');
       const current = pendingEmojis.get(key);
       if (current?.version === pending.version) {
         pendingEmojis.delete(key);
@@ -319,6 +408,7 @@ export async function retryPendingGroupCardEmojis(
         if (latest) emitGroupCardEmoji(pending.userId, pending.groupId, latest.emoji);
       }
     } catch {
+      onResult?.(pending.surface, 'failed');
       // 다음 그룹 화면 활성화에서 최신 pending 값만 다시 시도한다.
     }
   }
@@ -338,6 +428,8 @@ export function __resetGroupCardEmojiQueueForTest(): void {
   latestPendingSelection.clear();
   pendingVersion = 0;
   emojiListeners.clear();
+  saveFailureUsers.clear();
+  saveFailureListeners.clear();
   reconcileGenerationByUser.clear();
   reconcileRecoveryBucketByUser.clear();
 }

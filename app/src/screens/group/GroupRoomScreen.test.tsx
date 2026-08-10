@@ -32,6 +32,8 @@ import {
   joinBet,
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
+import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
+import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -77,7 +79,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeResultShown: jest.fn(),
   logGroupChallengeResultClosed: jest.fn(),
 }));
-const { logGroupInviteShared, logGroupChallengeResultShown } = jest.requireMock(
+const { logGroupInviteShared, logGroupChallengeResultShown, logGroupRoomViewed } = jest.requireMock(
   '@/services/analyticsEvents',
 );
 
@@ -115,6 +117,8 @@ jest.mock('@/services/groupApi', () => ({
   joinBet: jest.fn(),
 }));
 
+jest.mock('./groupRoomNotFound', () => ({ resolveGroupRoomNotFound: jest.fn() }));
+
 // 날짜 경계를 테스트가 직접 옮긴다. kstDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
 // 실물을 쓴다(challengeResult.ts). 조회 기준일·내기 생성 경로는 전부 KST 버전이다(GROMO-1219 —
 // 서버 날짜 판정이 KST 고정). **로컬 버전은 일부러 다른 날짜로 고정한다** — 코드가 로컬 축을
@@ -140,6 +144,9 @@ const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockTodayStrKst = todayStrKst as jest.MockedFunction<typeof todayStrKst>;
 const mockYesterdayStrKst = jest.requireMock('@/utils/localDate').yesterdayStrKst as jest.Mock;
+const mockResolveGroupRoomNotFound = resolveGroupRoomNotFound as jest.MockedFunction<
+  typeof resolveGroupRoomNotFound
+>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
@@ -264,6 +271,7 @@ async function press(label: string) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  resetCardInteractionStateForTest();
   // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
   await AsyncStorage.clear();
   mockFocusEntries.length = 0;
@@ -272,12 +280,79 @@ beforeEach(async () => {
   // 챌린지·결과 큐는 대부분의 케이스에서 관심사가 아니다 — 빈 목록을 기본값으로 깔아 둔다.
   mockGetChallenges.mockResolvedValue([]);
   mockGetMyChallengeResults.mockResolvedValue([]);
+  mockResolveGroupRoomNotFound.mockResolvedValue({ kind: 'retry' });
   mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   appStateHandler = null;
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
     return { remove: jest.fn() } as never;
+  });
+});
+
+describe('카드 CTA 결과 귀속', () => {
+  test('30초 안의 Room 최초 성공만 같은 interaction_id로 한 번 연결한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const acceptedAt = Date.now() - 29_000;
+
+    const { rerender } = await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="11111111-1111-4111-8111-111111111111"
+        interactionAcceptedAt={acceptedAt}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    await act(async () => {
+      rerender(
+        <GroupRoomScreen
+          groupId={GROUP_ID}
+          entrySource="group_card"
+          interactionId="11111111-1111-4111-8111-111111111111"
+          interactionAcceptedAt={acceptedAt}
+          onLeft={onLeft}
+        />,
+      );
+    });
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} entrySource="unknown" onLeft={onLeft} />);
+    });
+    await act(async () => {});
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+  });
+
+  test('30초 초과 성공은 방문 결과를 남기되 interaction_id를 싣지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="22222222-2222-4222-8222-222222222222"
+        interactionAcceptedAt={Date.now() - 30_001}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: undefined,
+    });
   });
 });
 
@@ -309,6 +384,57 @@ describe('상세·공지 오류 분리', () => {
     mockGetGroupDetail.mockResolvedValueOnce(detail());
     await press('다시 시도');
     await waitFor(() => expect(screen.queryByText('최신 정보를 불러오지 못했어요')).toBeNull());
+  });
+
+  test('NOT_FOUND 재확인 detail이 성공하면 현재 방을 유지한다', async () => {
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockResolveGroupRoomNotFound.mockResolvedValueOnce({ kind: 'detail', detail: detail() });
+
+    await renderRoom();
+
+    expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
+    expect(onLeft).not.toHaveBeenCalled();
+    expect(mockResolveGroupRoomNotFound).toHaveBeenCalledWith({
+      groupId: GROUP_ID,
+      date: '2026-08-01',
+      userId: 'me',
+    });
+  });
+
+  test('NOT_FOUND scope가 미소속을 확정할 때만 목록으로 복귀한다', async () => {
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockResolveGroupRoomNotFound.mockResolvedValueOnce({ kind: 'membership_absent' });
+
+    await renderRoom();
+
+    expect(onLeft).toHaveBeenCalledTimes(1);
+  });
+
+  test('NOT_FOUND 의미 불명은 전면 오류·재시도이며 onLeft하지 않는다', async () => {
+    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await renderRoom();
+
+    expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
+    expect(onLeft).not.toHaveBeenCalled();
+  });
+
+  test('기존 detail 갱신의 NOT_FOUND도 불명확하면 데이터를 보존하고 배너로 재시도한다', async () => {
+    mockGetGroupDetail
+      .mockResolvedValueOnce(detail())
+      .mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    mockGetAnnouncements.mockResolvedValue([]);
+    await renderRoom();
+
+    await focus();
+
+    expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
+    expect(screen.getByText('수빈')).toBeOnTheScreen();
+    expect(screen.getByText('최신 정보를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(onLeft).not.toHaveBeenCalled();
   });
 
   test('공지만 실패하면 "공지 없음"으로 위장하지 않는다', async () => {

@@ -22,8 +22,11 @@ import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
   clearPendingGroupCardEmoji,
   groupCardEmojiLabel,
+  hasPendingGroupCardEmojis,
   readGroupCardEmojiResult,
   preservePendingGroupCardEmoji,
+  restoreLatestPendingGroupCardEmoji,
+  setGroupCardEmojiSaveFailure,
   updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
   type GroupCardEmoji,
@@ -38,6 +41,13 @@ export function ownsGroupCardIconSaveResult(
   return session.active && session.userId === userId;
 }
 
+/** React state commit 전에도 저장 수락을 한 번으로 제한한다. */
+export function claimGroupCardEmojiSave(savingRef: { current: boolean }): boolean {
+  if (savingRef.current) return false;
+  savingRef.current = true;
+  return true;
+}
+
 /** 서버 그룹 프로필과 독립된 현재 계정·기기의 카드 표현 설정 편집 화면. */
 export default function GroupCardEmojiEditScreen() {
   const insets = useSafeAreaInsets();
@@ -49,11 +59,13 @@ export default function GroupCardEmojiEditScreen() {
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [hasPendingSelection, setHasPendingSelection] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const requestRef = useRef(0);
   const changeRetryRef = useRef(0);
   const activeRef = useRef(true);
+  const savingRef = useRef(false);
   const identity = `${userId ?? 'anonymous'}:${groupId}`;
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -86,6 +98,8 @@ export default function GroupCardEmojiEditScreen() {
       const emoji = result.emoji;
       setBaseline(result.storedEmoji);
       setSelected(emoji);
+      // 기본 🎯처럼 pending과 정규화된 디스크 값이 같아도 저장 실패 세대는 존재할 수 있다.
+      setHasPendingSelection(result.pending);
       setLoadedIdentity(requestedIdentity);
       setSaveFailed(false);
     });
@@ -95,10 +109,11 @@ export default function GroupCardEmojiEditScreen() {
   }, [groupId, identity, loadAttempt, userId]);
 
   const ready = loadedIdentity === identity && selected !== null && baseline !== null;
-  const changed = ready && selected !== baseline;
+  const changed = ready && (selected !== baseline || hasPendingSelection);
 
   const save = useCallback(async () => {
-    if (!userId || !selected || !changed || saving || !ready) return;
+    if (!userId || !selected || !changed || saving || !ready || !claimGroupCardEmojiSave(savingRef))
+      return;
     const saveIdentity = identity;
     const saveSessionIdentity = sessionIdentityRef.current;
     changeRetryRef.current++;
@@ -107,9 +122,14 @@ export default function GroupCardEmojiEditScreen() {
     // 네이티브 뒤로가기·스와이프로 화면이 먼저 닫혀도 현재 실행의 카드는 수락한 선택을 즉시 쓴다.
     // 성공하면 아래에서 pending을 지우고, 실패하면 다음 그룹 화면 활성화에서 재시도한다.
     preservePendingGroupCardEmoji(userId, groupId, selected);
+    setHasPendingSelection(true);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
       clearPendingGroupCardEmoji(userId, groupId);
+      setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
+      if (activeRef.current && identityRef.current === saveIdentity) {
+        setHasPendingSelection(false);
+      }
       if (
         identityRef.current !== saveIdentity ||
         !ownsGroupCardIconSaveResult(saveSessionIdentity, userId)
@@ -118,20 +138,26 @@ export default function GroupCardEmojiEditScreen() {
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current) return;
       setBaseline(selected);
+      // 저장 중 다른 route가 이 화면 위에 열렸다면 그 route를 잘못 pop하지 않는다.
       if (!navigation.isFocused()) return;
       navigation.goBack();
     } catch {
-      preservePendingGroupCardEmoji(userId, groupId, selected);
-      if (
-        identityRef.current !== saveIdentity ||
-        !ownsGroupCardIconSaveResult(saveSessionIdentity, userId)
-      )
-        return;
+      // 저장 수락 전에 만든 pending 세대를 그대로 유지한다. 화면 이탈로 GroupScreen 재시도가
+      // 같은 세대를 이미 가져갔다면 여기서 새 버전을 만들면 성공한 재시도가 이를 지우지 못한다.
+      const ownsFailure =
+        identityRef.current === saveIdentity &&
+        ownsGroupCardIconSaveResult(saveSessionIdentity, userId);
+      if (ownsFailure) {
+        // 화면이 먼저 닫혀도 GroupScreen이 같은 계정의 실패와 pending을 안내할 수 있어야 한다.
+        setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
+      }
+      if (!ownsFailure) return;
       logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       if (!activeRef.current) return;
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
+      savingRef.current = false;
       if (activeRef.current && identityRef.current === saveIdentity) setSaving(false);
     }
   }, [changed, groupId, identity, navigation, ready, saving, selected, sessionIdentityRef, userId]);
@@ -139,33 +165,58 @@ export default function GroupCardEmojiEditScreen() {
   const selectEmoji = useCallback(
     (emoji: GroupCardEmoji) => {
       setSelected(emoji);
-      if (saveFailed && userId && baseline) {
+      const shouldRetryPending = hasPendingSelection || saveFailed;
+      if (shouldRetryPending && userId && baseline) {
         updatePendingGroupCardEmojiSelection(userId, groupId, emoji, baseline);
+        setHasPendingSelection(emoji !== baseline);
+      }
+      if (shouldRetryPending && userId && baseline && emoji !== baseline) {
         const retry = ++changeRetryRef.current;
         const retryIdentity = identity;
         const retrySessionIdentity = sessionIdentityRef.current;
+        setSaving(true);
+        setSaveFailed(false);
         writeGroupCardEmoji(userId, groupId, emoji)
           .then(() => {
-            if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
+            if (retry !== changeRetryRef.current) {
+              restoreLatestPendingGroupCardEmoji(userId, groupId);
+              return;
+            }
+            if (identityRef.current !== retryIdentity) return;
             clearPendingGroupCardEmoji(userId, groupId, emoji);
+            setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
             if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
               logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
             }
             if (!activeRef.current) return;
+            setHasPendingSelection(false);
             setBaseline(emoji);
             setSaveFailed(false);
+            setSaving(false);
           })
           .catch(() => {
             if (retry !== changeRetryRef.current || identityRef.current !== retryIdentity) return;
-            // 기준값으로 되돌린 선택도 앞선 자동 쓰기 뒤 실패할 수 있으므로 최신 값으로 보존한다.
-            preservePendingGroupCardEmoji(userId, groupId, emoji);
-            if (ownsGroupCardIconSaveResult(retrySessionIdentity, userId)) {
+            // updatePendingGroupCardEmojiSelection이 만든 현재 세대를 유지한다. 실패 시 같은 값을
+            // 다시 preserve하면 이미 예약된 GroupScreen 재시도를 오래된 세대로 만들어 버린다.
+            const ownsFailure = ownsGroupCardIconSaveResult(retrySessionIdentity, userId);
+            if (ownsFailure) {
+              setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
               logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
             }
+            if (!activeRef.current) return;
+            setSaveFailed(true);
+            setSaving(false);
           });
+      } else if (shouldRetryPending && emoji === baseline) {
+        changeRetryRef.current++;
+        if (userId) {
+          setGroupCardEmojiSaveFailure(userId, hasPendingGroupCardEmojis(userId));
+        }
+        setSaveFailed(false);
+        setSaving(false);
       }
     },
-    [baseline, groupId, identity, saveFailed, sessionIdentityRef, userId],
+    [baseline, groupId, hasPendingSelection, identity, saveFailed, sessionIdentityRef, userId],
   );
 
   return (
