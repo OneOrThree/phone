@@ -4,6 +4,7 @@ import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.currency.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.repository.CurrencyTransactionRepository;
 import com.oneorthree.phone.group.domain.Group;
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
@@ -49,6 +50,11 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -218,57 +224,115 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
                 Timestamp.from(createdAt), participantId);
     }
 
-    // ── join (오늘 회차) ─────────────────────────────────────────────────
+    /**
+     * 하루형 OPEN 회차 — 00:05 스케줄러가 세워 둔 상태를 재현한다. 단건 참여({@code joinSession})는
+     * 회차가 <b>이미 있어야</b> 호출되는 축이라(LLD §2.2) 픽스처로 미리 세운다.
+     */
+    private GroupChallengeBetSession openSessionOn(
+            GroupChallenge target, GroupChallengeBet config, LocalDate date) {
+        Instant closesAt = date.plusDays(1).atStartOfDay(KST).toInstant();
+        return groupChallengeBetSessionRepository.save(GroupChallengeBetSession.builder()
+                .bet(config).group(group).challenge(target)
+                .sessionDate(date)
+                .stake(STAKE)
+                .goalMinutes(target.getType() == MissionType.TIME_WINDOW ? 15 : GOAL_MINUTES)
+                .missionCategory(target.getCategory())
+                .missionType(target.getType())
+                .status(GroupBetStatus.OPEN)
+                .startsAt(date.atStartOfDay(KST).toInstant())
+                .joinClosesAt(closesAt)
+                .closesAt(closesAt)
+                .settleAfter(closesAt)
+                .build());
+    }
+
+    /** 오늘 회차(기본 챌린지) — 가장 많이 쓰는 형태. */
+    private GroupChallengeBetSession todaySession() {
+        return openSessionOn(challenge, betConfig, today());
+    }
+
+    // ── join (회차 단건, LLD §2.2) ───────────────────────────────────────
 
     @Test
-    @DisplayName("join — 오늘 회차가 없으면 lazy 개설 후 참가하고 참가비가 즉시 차감된다")
-    void joinTodayCreatesSessionAndStakes() {
-        JoinSessionResponse response = groupBetJoinService.joinToday(group.getId(), challenge.getId(),
+    @DisplayName("join — 지목한 회차에 참가하고 참가비가 즉시 차감된다. 재호출은 BET_ALREADY_JOINED")
+    void joinSessionStakesAndRejectsDuplicate() {
+        GroupChallengeBetSession session = todaySession();
+
+        JoinSessionResponse response = groupBetJoinService.joinSession(group.getId(), session.getId(),
                 member.getId());
 
+        assertThat(response.getSessionId()).isEqualTo(session.getId());
         assertThat(response.getSessionDate()).isEqualTo(today());
         assertThat(response.getStake()).isEqualTo(STAKE);
         assertThat(response.getBalanceAfter()).isEqualTo(BALANCE - STAKE);
         assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
-        GroupChallengeBetSession session = groupChallengeBetSessionRepository
-                .findByBetIdAndSessionDate(betConfig.getId(), today()).orElseThrow();
-        assertThat(session.getId()).isEqualTo(response.getSessionId());
-        assertThat(session.isOpen()).isTrue();
-        assertThat(session.getStake()).isEqualTo(STAKE);
-        assertThat(session.getGoalMinutes()).isEqualTo(GOAL_MINUTES);
         assertThat(groupChallengeBetParticipantRepository
                 .existsBySessionIdAndUserId(session.getId(), member.getId())).isTrue();
 
         assertThatThrownBy(() ->
-                groupBetJoinService.joinToday(group.getId(), challenge.getId(), member.getId()))
+                groupBetJoinService.joinSession(group.getId(), session.getId(), member.getId()))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_ALREADY_JOINED);
+        assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
     }
 
     @Test
-    @DisplayName("join — 창 시작이 지난 창형 오늘은 BET_CLOSED 고 회차도 남지 않는다 (N35 시각 조건)")
-    void joinTodayRejectsStartedWindowWithoutLeakingSession() {
+    @DisplayName("join — 참가 마감(joinClosesAt = 창 시작)이 지난 창형 회차는 BET_CLOSED (FR-33)")
+    void joinSessionRejectsAfterJoinCloses() {
         GroupChallenge windowed = startedWindowChallenge(group);
         GroupChallengeBet windowedConfig = configOf(windowed);
+        // 창 00:00~00:15 회차 — 박제 joinClosesAt(창 시작)이 이미 지났다. 레거시 브리지는 창 종료까지
+        // 열어 두지만 신 경로는 joinClosesAt 을 강제한다.
+        Instant windowStart = today().atStartOfDay(KST).toInstant();
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(windowedConfig).group(group).challenge(windowed)
+                        .sessionDate(today())
+                        .stake(STAKE)
+                        .goalMinutes(15)
+                        .missionCategory(MissionCategory.FOCUS)
+                        .missionType(MissionType.TIME_WINDOW)
+                        .windowStart(LocalTime.MIDNIGHT)
+                        .windowEnd(LocalTime.of(0, 15))
+                        .status(GroupBetStatus.OPEN)
+                        .startsAt(windowStart)
+                        .joinClosesAt(windowStart)
+                        .closesAt(windowStart.plusSeconds(900))
+                        .settleAfter(windowStart.plusSeconds(900))
+                        .build());
 
         assertThatThrownBy(() ->
-                groupBetJoinService.joinToday(group.getId(), windowed.getId(), member.getId()))
+                groupBetJoinService.joinSession(group.getId(), session.getId(), member.getId()))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_CLOSED);
-        // 트랜잭션 롤백 — lazy 생성이 시도됐어도 참가 마감 회차가 남으면 안 된다(N35).
-        assertThat(groupChallengeBetSessionRepository
-                .findByBetIdAndSessionDate(windowedConfig.getId(), today())).isEmpty();
         assertThat(balanceOf(member)).isEqualTo(BALANCE);
+        assertThat(countByType(member, CurrencyTransactionType.BET_STAKE)).isZero();
     }
 
     @Test
-    @DisplayName("IDOR — 다른 그룹의 챌린지 id 를 끼워 넣으면 404 로 끊긴다 (1414)")
-    void joinRejectsForeignChallengeId() {
+    @DisplayName("IDOR — 남의 그룹 회차 id·챌린지 id 를 끼워 넣으면 404 로 끊긴다 (1414)")
+    void joinRejectsForeignIds() {
         GroupChallenge foreign = durationChallenge(otherGroup, MissionCategory.FOCUS);
-        configOf(foreign);
+        GroupChallengeBet foreignConfig = groupChallengeBetRepository.save(GroupChallengeBet.builder()
+                .group(otherGroup).challenge(foreign).stake(STAKE).enabled(true).build());
+        Instant closesAt = today().plusDays(1).atStartOfDay(KST).toInstant();
+        GroupChallengeBetSession foreignSession = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(foreignConfig).group(otherGroup).challenge(foreign)
+                        .sessionDate(today()).stake(STAKE).goalMinutes(GOAL_MINUTES)
+                        .missionCategory(MissionCategory.FOCUS).missionType(MissionType.DURATION)
+                        .status(GroupBetStatus.OPEN)
+                        .startsAt(today().atStartOfDay(KST).toInstant())
+                        .joinClosesAt(closesAt).closesAt(closesAt).settleAfter(closesAt)
+                        .build());
 
+        // 회차 축 — 내 그룹 경로에 남의 회차 id → BET_NOT_FOUND(그룹 스코프 검증)
+        assertThatThrownBy(() ->
+                groupBetJoinService.joinSession(group.getId(), foreignSession.getId(), member.getId()))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_NOT_FOUND);
+        // 챌린지 축 — 남의 챌린지 id → NOT_FOUND
         for (ThrowingJoin call : List.<ThrowingJoin>of(
-                () -> groupBetJoinService.joinToday(group.getId(), foreign.getId(), member.getId()),
                 () -> groupBetJoinService.joinNext(group.getId(), foreign.getId(), member.getId()),
                 () -> groupBetJoinService.joinWeek(group.getId(), foreign.getId(), member.getId(), null))) {
             assertThatThrownBy(call::run)
@@ -276,6 +340,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
                     .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_FOUND);
         }
         assertThat(balanceOf(member)).isEqualTo(BALANCE);
+        assertThat(groupChallengeBetParticipantRepository
+                .existsBySessionIdAndUserId(foreignSession.getId(), member.getId())).isFalse();
     }
 
     private interface ThrowingJoin {
@@ -427,24 +493,28 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
         // 잔액 0 + 권한 없음 — 잔액 검사가 먼저라면 BET_INSUFFICIENT_BALANCE 가 나와 순서 위반이 드러난다.
         User broke = memberUser("무일푼", 0);
 
+        GroupChallengeBetSession session = openSessionOn(screenTime, screenTimeConfig, today());
+
         for (ThrowingJoin call : List.<ThrowingJoin>of(
-                () -> groupBetJoinService.joinToday(group.getId(), screenTime.getId(), broke.getId()),
+                () -> groupBetJoinService.joinSession(group.getId(), session.getId(), broke.getId()),
                 () -> groupBetJoinService.joinNext(group.getId(), screenTime.getId(), broke.getId()),
                 () -> groupBetJoinService.joinWeek(group.getId(), screenTime.getId(), broke.getId(), null))) {
             assertThatThrownBy(call::run)
                     .isInstanceOf(GroupException.class)
                     .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_SCREENTIME_PERMISSION_REQUIRED);
         }
-        // 차감 전 가드 — 참가·회차·거래 어느 것도 남지 않는다.
+        // 차감 전 가드 — 참가·거래 어느 것도 남지 않고, 예약 경로가 만들 뻔한 미래 회차도 롤백된다.
         assertThat(countByType(broke, CurrencyTransactionType.BET_STAKE)).isZero();
-        assertThat(groupChallengeBetSessionRepository
-                .findByBetIdAndSessionDate(screenTimeConfig.getId(), today())).isEmpty();
+        assertThat(groupChallengeBetParticipantRepository
+                .existsBySessionIdAndUserId(session.getId(), broke.getId())).isFalse();
+        assertThat(groupChallengeBetSessionRepository.findByBetIdAndSessionDate(
+                screenTimeConfig.getId(), RepeatSchedule.next(RepeatSchedule.EVERYDAY, today()))).isEmpty();
 
         // 권한 보고값이 false 여도 같다 — 행 부재와 미허용은 동급이다.
         userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
                 .userId(broke.getId()).screenTimePermissionGranted(false).build());
         assertThatThrownBy(() ->
-                groupBetJoinService.joinToday(group.getId(), screenTime.getId(), broke.getId()))
+                groupBetJoinService.joinSession(group.getId(), session.getId(), broke.getId()))
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_SCREENTIME_PERMISSION_REQUIRED);
     }
@@ -453,11 +523,11 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     @DisplayName("N50 — 권한이 허용된 유저의 SCREEN_TIME 참여는 통과한다")
     void screenTimePermissionGrantedUserJoins() {
         GroupChallenge screenTime = durationChallenge(group, MissionCategory.SCREEN_TIME);
-        configOf(screenTime);
+        GroupChallengeBetSession session = openSessionOn(screenTime, configOf(screenTime), today());
         userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
                 .userId(member.getId()).screenTimePermissionGranted(true).build());
 
-        JoinSessionResponse response = groupBetJoinService.joinToday(group.getId(), screenTime.getId(),
+        JoinSessionResponse response = groupBetJoinService.joinSession(group.getId(), session.getId(),
                 member.getId());
 
         assertThat(response.getBalanceAfter()).isEqualTo(BALANCE - STAKE);
@@ -471,8 +541,9 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
         membership.leave();
         groupMemberRepository.save(membership);
 
+        GroupChallengeBetSession session = todaySession();
         for (ThrowingJoin call : List.<ThrowingJoin>of(
-                () -> groupBetJoinService.joinToday(group.getId(), challenge.getId(), member.getId()),
+                () -> groupBetJoinService.joinSession(group.getId(), session.getId(), member.getId()),
                 () -> groupBetJoinService.joinNext(group.getId(), challenge.getId(), member.getId()),
                 () -> groupBetJoinService.joinWeek(group.getId(), challenge.getId(), member.getId(), null))) {
             assertThatThrownBy(call::run)
@@ -488,7 +559,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     @Test
     @DisplayName("N22 — 시작 후 참가(하루형)는 참가+5분 안에서만 무를 수 있다")
     void afterStartJoinLeavesOnlyWithinGrace() {
-        JoinSessionResponse joined = groupBetJoinService.joinToday(group.getId(), challenge.getId(),
+        GroupChallengeBetSession session = todaySession();
+        JoinSessionResponse joined = groupBetJoinService.joinSession(group.getId(), session.getId(),
                 member.getId());
 
         // 방금 참가(유예 안) — 취소 성공, 환불 1회, 단독 참가라 회차도 "없던 일".
@@ -498,7 +570,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
         assertThat(groupChallengeBetSessionRepository.findById(joined.getSessionId())).isEmpty();
 
         // 재참여 후 참가 시각을 6분 전으로 되돌리면(유예 밖) — BET_LEAVE_CLOSED, 환불 없음.
-        JoinSessionResponse rejoined = groupBetJoinService.joinToday(group.getId(), challenge.getId(),
+        GroupChallengeBetSession reopened = todaySession();
+        JoinSessionResponse rejoined = groupBetJoinService.joinSession(group.getId(), reopened.getId(),
                 member.getId());
         UUID participantId = groupChallengeBetParticipantRepository
                 .findBySessionIdAndUserId(rejoined.getSessionId(), member.getId()).orElseThrow().getId();
@@ -509,6 +582,14 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
         assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+
+        // 레거시 취소 브리지도 같은 마감을 본다(codex P1 ② — 신 참여 sessionId 로 마감 우회 금지).
+        assertThatThrownBy(() ->
+                groupBetService.cancelBet(group.getId(), rejoined.getSessionId(), member.getId()))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
+        assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+        assertThat(countByType(member, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
     }
 
     @Test
@@ -525,8 +606,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
         assertThat(balanceOf(member)).isEqualTo(BALANCE);
 
         // 시작 전 참가 + 회차 시작 경과 — 5분 유예가 붙으면 "시작 후 환불 없음"이 깨진다.
-        JoinSessionResponse today = groupBetJoinService.joinToday(group.getId(), challenge.getId(),
-                member.getId());
+        JoinSessionResponse today = groupBetJoinService.joinSession(group.getId(),
+                todaySession().getId(), member.getId());
         UUID todayParticipant = groupChallengeBetParticipantRepository
                 .findBySessionIdAndUserId(today.getSessionId(), member.getId()).orElseThrow().getId();
         // 참가 시각을 회차 시작(오늘 00:00 KST) 전으로 되돌린다 — "시작 전에 참가" 분기 강제.
@@ -542,10 +623,10 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     @DisplayName("FR-40 — 그룹 탈퇴 정리도 같은 규칙: 취소 마감 지난 회차는 정산 잔류, 시작 전 회차만 환불")
     void groupWithdrawKeepsStartedSessionsAndRefundsFutureOnes() {
         // 오늘 회차(시작 후 참가) — 참가 시각을 유예 밖으로 되돌려 "취소 마감 경과" 상태를 만든다.
-        JoinSessionResponse todaySession = groupBetJoinService.joinToday(group.getId(), challenge.getId(),
-                member.getId());
+        JoinSessionResponse todayJoined = groupBetJoinService.joinSession(group.getId(),
+                todaySession().getId(), member.getId());
         UUID todayParticipant = groupChallengeBetParticipantRepository
-                .findBySessionIdAndUserId(todaySession.getSessionId(), member.getId()).orElseThrow().getId();
+                .findBySessionIdAndUserId(todayJoined.getSessionId(), member.getId()).orElseThrow().getId();
         backdateParticipant(todayParticipant, Instant.now().minus(Duration.ofMinutes(6)));
         // 내일 회차(예약분) — 시작 전이라 탈퇴 시 환불 대상.
         JoinSessionResponse reserved = groupBetJoinService.joinNext(group.getId(), challenge.getId(),
@@ -555,8 +636,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
 
         // 시작된 회차: 참가·에스크로가 정산 대상으로 남는다(명단은 정산 시 "탈퇴한 사용자").
         assertThat(groupChallengeBetParticipantRepository
-                .existsBySessionIdAndUserId(todaySession.getSessionId(), member.getId())).isTrue();
-        assertThat(groupChallengeBetSessionRepository.findById(todaySession.getSessionId())).isPresent();
+                .existsBySessionIdAndUserId(todayJoined.getSessionId(), member.getId())).isTrue();
+        assertThat(groupChallengeBetSessionRepository.findById(todayJoined.getSessionId())).isPresent();
         // 시작 전 회차: 환불 + 참가 제거, 마지막 참가자였으니 회차도 "없던 일".
         assertThat(groupChallengeBetParticipantRepository
                 .existsBySessionIdAndUserId(reserved.getSessionId(), member.getId())).isFalse();
@@ -564,5 +645,42 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
         // 환불은 정확히 1회(예약분) — 오늘 참가비는 판에 남아 잔액은 BALANCE - STAKE.
         assertThat(countByType(member, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
         assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+    }
+
+    // ── lazy 개설 경합 (codex P1 ① 회귀) ─────────────────────────────────
+
+    @Test
+    @DisplayName("동시 join-next — 회차 유니크 경합에서 진 쪽도 승자 회차로 합류한다 (ON CONFLICT DO NOTHING)")
+    void concurrentJoinNextConvergesOnSingleSession() throws Exception {
+        // 구현이 saveAndFlush + DataIntegrityViolation catch 였을 때: Postgres 가 제약 위반 시 트랜잭션을
+        // aborted 로 만들어 catch 안의 재조회가 "current transaction is aborted" 로 죽었다 — 진 쪽은
+        // 승자 행으로 합류하지 못하고 500 + 전체 롤백이었다.
+        User second = memberUser("동시참가자", BALANCE);
+        LocalDate expected = RepeatSchedule.next(RepeatSchedule.EVERYDAY, today());
+        CyclicBarrier startTogether = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<JoinSessionResponse>> calls = List.of(member, second).stream()
+                    .map(user -> pool.submit(() -> {
+                        startTogether.await(10, TimeUnit.SECONDS);
+                        return groupBetJoinService.joinNext(group.getId(), challenge.getId(), user.getId());
+                    }))
+                    .toList();
+            // 둘 다 성공해야 한다 — 경합에서 진 쪽이 예외로 죽으면 여기서 드러난다.
+            List<UUID> sessionIds = new ArrayList<>();
+            for (Future<JoinSessionResponse> call : calls) {
+                sessionIds.add(call.get(20, TimeUnit.SECONDS).getSessionId());
+            }
+            // 같은 회차 1건으로 수렴(UNIQUE (bet_id, session_date))하고 둘 다 참가자다.
+            assertThat(sessionIds).hasSize(2).containsOnly(sessionIds.get(0));
+            UUID sessionId = groupChallengeBetSessionRepository
+                    .findByBetIdAndSessionDate(betConfig.getId(), expected).orElseThrow().getId();
+            assertThat(sessionIds).containsOnly(sessionId);
+            assertThat(groupChallengeBetParticipantRepository.countBySessionId(sessionId)).isEqualTo(2);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+        assertThat(balanceOf(second)).isEqualTo(BALANCE - STAKE);
     }
 }

@@ -244,6 +244,11 @@ public class UserService {
         // 줄인다" 규율과도 어긋나지 않는다.
         groupBetService.releaseFromAllOpenBets(user);
 
+        // 판정 근거 박제 (GROMO-1423) — 위 해제가 환불하지 못하고 정산 대상으로 남긴 OPEN 참가 행에,
+        // 아래 nullify 로 통계가 사라지기 전 시점의 달성·진행분을 박제한다. 순서 제약: 반드시
+        // releaseFromAllOpenBets 뒤(남는 행만 박제) · focus/daily nullify 앞(근거가 살아 있을 때).
+        groupBetService.freezeEvidenceForAccountErasure(user);
+
         // 활성 멤버십 이탈 (GROMO-801) — 안 하면 탈퇴자가 is_left=false 유령 멤버로 남아 멤버
         // 목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다. solo 방장 멤버십은 위
         // A-2 블록이 이미 leave 했으므로 이 활성 조회에 다시 잡히지 않는다.

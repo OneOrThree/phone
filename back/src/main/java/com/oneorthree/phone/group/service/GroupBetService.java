@@ -264,6 +264,13 @@ public class GroupBetService {
         if (!session.isOpen()) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
+        // 취소 마감(N22, GROMO-1423) — 이 브리지에도 신 경로와 같은 단일 판정점을 건다. 신 참여
+        // (join·join-next·join-week)가 만든 회차 id 를 이 경로에 넣으면 참가자 수·OPEN 만 보고 전액
+        // 환불되던 구멍(codex P1 ②): 하루형 5분 유예·창형/예약분의 회차 시작 마감이 전부 우회됐다.
+        // 구앱의 "개설 직후 취소"는 참가+5분 유예 안이라 그대로 성립한다.
+        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
+            throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
+        }
 
         groupChallengeBetParticipantRepository.delete(mine);
         refundStake(session, user, mine.getId());
@@ -343,6 +350,61 @@ public class GroupBetService {
     public void releaseFromAllOpenBets(User user) {
         releaseSessions(groupChallengeBetSessionRepository
                 .findOpenSessionIdsByParticipantUserId(user.getId()), user);
+    }
+
+    /**
+     * 계정 탈퇴 직전 판정 근거 박제(GROMO-1423, codex P1 ③) — 탈퇴 정리
+     * ({@link #releaseFromAllOpenBets})가 환불하지 못하고 <b>정산 대상으로 남기는</b> OPEN 참가
+     * 행마다, 통계 nullify 전 시점의 달성 여부·진행분을 참가 행에 박제한다.
+     * {@code UserService.withdraw} 가 회차 정리 <b>후</b>·통계 nullify <b>전</b>에 부른다.
+     *
+     * <p>이게 없으면 nullify 가 focus/daily 통계를 지워 FOCUS·하루형 SCREEN_TIME 판정이 0분/미보고로
+     * 왜곡된다 — 실제 달성자가 미달성으로 떨어져 <b>남은 참가자들의 지급액까지 틀어진다</b>. 박제 축은
+     * 조기 확정({@code GroupChallengeBetParticipant#confirmWin}, GROMO-1268)과 동일하다 — 달성 시점에
+     * {@code achieved=true} + 실측 분. 미달성 참가자는 박제하지 않는다: 관측이 끝났으므로 정산의
+     * 미보고=미달성 확정과 결론이 같고, {@code achieved} 는 null 로 남아 "판정 안 됨" 의미가 유지된다.
+     *
+     * <p>창형 SCREEN_TIME 의 클라 보고분({@code group_challenge_members})은 탈퇴가 지우지 않으므로
+     * 박제 없이도 정산이 그대로 읽는다 — 그래도 같은 규칙으로 박제해 두면 판정 소스가 하나로 줄 뿐
+     * 결론은 같다(멱등·무해).
+     */
+    @Transactional
+    public void freezeEvidenceForAccountErasure(User user) {
+        List<UUID> sessionIds =
+                groupChallengeBetSessionRepository.findOpenSessionIdsByParticipantUserId(user.getId());
+        for (UUID sessionId : sessionIds) {   // id 오름차순 — 잠금 순서 규약(계약 §3)
+            Optional<GroupChallengeBetSession> locked = groupChallengeBetSessionRepository
+                    .findByIdForUpdate(sessionId)
+                    .filter(GroupChallengeBetSession::isOpen);
+            if (locked.isEmpty()) {
+                continue;   // 잠금 대기 중 정산됨 — 결과를 존중한다.
+            }
+            GroupChallengeBetSession session = locked.get();
+            Optional<GroupChallengeBetParticipant> mine = groupChallengeBetParticipantRepository
+                    .findBySessionIdAndUserId(sessionId, user.getId());
+            // 재조회(P0 ③) 후: 행이 없으면 이미 정리됐고, achieved 가 있으면 조기 확정(GROMO-1268)이
+            // 먼저 박제했다 — 둘 다 할 일이 없다.
+            if (mine.isEmpty() || mine.get().getAchieved() != null) {
+                continue;
+            }
+            // CTI 유실 등으로 판정 불가면 건너뛴다(조기 확정과 같은 태도) — 정산도 같은 이유로
+            // 실패·백오프를 타므로 여기서 탈퇴를 막을 이유가 없다.
+            Optional<GroupBetJudge.Target> target = groupBetJudge.resolve(session.getChallenge())
+                    .map(t -> session.getGoalMinutes() == null
+                            ? t
+                            : new GroupBetJudge.Target(t.challenge(), session.getGoalMinutes(), t.window()));
+            if (target.isEmpty()) {
+                continue;
+            }
+            Integer minutes = groupBetJudge
+                    .progressMinutes(target.get(), session.getSessionDate(), List.of(user))
+                    .get(user.getId());
+            if (GroupBetJudge.isAchieved(target.get(), minutes)) {
+                mine.get().confirmWin(minutes == null ? 0 : minutes);
+                log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
+                        sessionId, user.getId(), minutes);
+            }
+        }
     }
 
     private void releaseSessions(List<UUID> sessionIds, User user) {
@@ -439,6 +501,11 @@ public class GroupBetService {
                         .session(session)
                         .user(user)
                         .build());
+        // TODO(머지 배선 — B6/GROMO-1407): 여기에 groupBetWindowUsageService.invalidatePreJoinReport(
+        // session, user.getId()) 가 들어간다(참가 전 창 사용분 선기록 무효화, @Transactional MANDATORY).
+        // 이 워크트리엔 GroupBetWindowUsageService 가 없어 호출만 비워 둔다. 신·구 참여 경로가 전부 이
+        // 메서드를 지나므로(joinSession·joinNext·joinWeek·레거시 createBet/joinBet) 한 줄이면 전 경로가
+        // 덮인다 — join-week 다건도 회차마다 stakeIn 을 부르므로 회차 단위 호출이 보장된다.
         boolean applied = currencyLedgerService.debit(user, CurrencyTransactionType.BET_STAKE,
                 session.getStake(), stakeKey(session.getId(), participant.getId()));
         if (!applied) {

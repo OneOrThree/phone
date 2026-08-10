@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.service;
 
+import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupChallenge;
@@ -23,7 +24,6 @@ import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -77,28 +78,49 @@ public class GroupBetJoinService {
     // ── 참여 3종 (GROMO-1408) ───────────────────────────────────────────
 
     /**
-     * 오늘 회차 참여 — 회차가 없으면 N35 조건(활성 요일 + 참가 가능 시각) 아래 lazy 개설 후 참가한다.
-     * 오늘이 비활성 요일이면 회차가 설 수 없으므로 404({@code BET_NOT_FOUND}) — 그 날의 동선은
-     * {@code join-next} 다(N45).
+     * 회차 단건 참여(LLD §2.2 {@code POST /groups/{gid}/sessions/{sid}/join}) — 앱이 카드의
+     * {@code bet.session.sessionId} 로 지목한 <b>이미 존재하는</b> 회차에 참가한다. lazy 개설은 이
+     * 축의 일이 아니다(join-next·join-week·00:05 크론 담당) — 회차가 없으면 404 다.
+     *
+     * <p>IDOR(GROMO-1414): 회차는 그룹 스코프로 검증하고, 챌린지 공유 락은 회차의 소속 챌린지에서
+     * 파생한다 — 다른 그룹의 회차 id 를 끼워 넣으면 {@code BET_NOT_FOUND} 다. 락 순서는 다른 참여
+     * 경로와 같게 <b>챌린지(FOR SHARE) → 회차(FOR UPDATE)</b> — 회차를 먼저 잠그면 챌린지부터
+     * 잠그는 종료·삭제 경로와 AB-BA 교착이 된다.
      */
-    public JoinSessionResponse joinToday(UUID groupId, UUID challengeId, UUID userId) {
-        JoinContext ctx = openJoinContext(groupId, challengeId, userId);
-        LocalDate today = GroupBetService.today();
-        if (!RepeatSchedule.activeOn(ctx.repeatDays(), today)) {
-            throw new GroupException(GroupErrorCode.BET_NOT_FOUND);
+    public JoinSessionResponse joinSession(UUID groupId, UUID sessionId, UUID userId) {
+        User user = groupBetService.requireActiveUser(userId);
+        Group group = groupBetService.requireGroupMembershipForShare(user, groupId);
+        // 잠금 없는 그룹 스코프 조회 — 소속 챌린지를 알아내 락 순서(챌린지 → 회차)를 지키기 위한
+        // 선행 읽기다. 존재·검증의 정본은 아래 잠금 재조회다.
+        GroupChallengeBetSession preRead = groupChallengeBetSessionRepository.findById(sessionId)
+                .filter(s -> s.getGroup().getId().equals(group.getId()))
+                .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
+        GroupChallenge challenge = groupChallengeRepository
+                .findByIdAndGroupAndDeletedAtIsNullForShare(preRead.getChallenge().getId(), group)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+        if (challenge.getStatus() != GroupChallengeStatus.ACTIVE) {
+            throw new GroupException(GroupErrorCode.BET_CHALLENGE_INACTIVE);
         }
-        GroupChallengeBetSession session = lockSession(ensureSession(ctx, today));
+        GroupBetJudge.Target target = groupBetJudge.resolve(challenge)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS));
+        requireScreenTimePermission(challenge, user);
+
+        GroupChallengeBetSession session = lockSession(preRead);
         requireJoinStillOpen(session);
         if (groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(session.getId(), userId)) {
             throw new GroupException(GroupErrorCode.BET_ALREADY_JOINED);
         }
         // 무위험 참가 가드(FR-35)는 진행분이 존재하는 오늘 회차에만 건다. 목표분은 회차 박제값이 기준.
-        groupBetService.requireEligibleToStake(targetWithSessionGoal(ctx, session), ctx.user(), today);
-        requireBalance(ctx.user(), session.getStake());
-        groupBetService.stakeIn(session, ctx.user());
-        log.info("내기 오늘 회차 참여 — sessionId={}, challengeId={}, userId={}, stake={}",
-                session.getId(), challengeId, userId, session.getStake());
-        return joinResponse(session, ctx.user());
+        LocalDate today = GroupBetService.today();
+        if (session.getSessionDate().equals(today)) {
+            groupBetService.requireEligibleToStake(
+                    targetWithGoal(target, session), user, today);
+        }
+        requireBalance(user, session.getStake());
+        groupBetService.stakeIn(session, user);
+        log.info("내기 회차 참여 — sessionId={}, challengeId={}, userId={}, stake={}",
+                session.getId(), challenge.getId(), userId, session.getStake());
+        return joinResponse(session, user);
     }
 
     /**
@@ -258,25 +280,37 @@ public class GroupBetJoinService {
     /**
      * 회차 확보(lazy 개설, GROMO-1410 ③) — 있으면 그대로, 없으면 미션 스냅샷을 박제해 만든다.
      * 호출 전 챌린지 행 FOR SHARE + 활성 재확인이 끝나 있어야 한다(삭제·종료와의 직렬화).
-     * UNIQUE (bet_id, session_date) 가 동시 개설(00:05 스케줄러·레거시 브리지·다른 참여자)을
-     * 방어한다 — 위반이면 이긴 쪽 행을 다시 읽는다.
+     *
+     * <p>동시 개설(00:05 스케줄러·레거시 브리지·다른 참여자) 방어는 <b>네이티브 멱등 INSERT</b>
+     * ({@code ON CONFLICT DO NOTHING})다 — {@code saveAndFlush} + 유니크 위반 catch 는 Postgres 가
+     * 제약 위반 시 트랜잭션을 aborted 로 만들어 catch 안의 재조회가 "current transaction is
+     * aborted" 로 죽는다(codex P1 ①). DO NOTHING 은 예외가 없으므로 같은 트랜잭션이 살아 있고,
+     * join-week 의 "전체 한 트랜잭션" 원자성(참가·차감 포함)도 그대로다.
      */
     private GroupChallengeBetSession ensureSession(JoinContext ctx, LocalDate date) {
-        return groupChallengeBetSessionRepository
-                .findByBetIdAndSessionDate(ctx.bet().getId(), date)
-                .orElseGet(() -> {
-                    try {
-                        return groupChallengeBetSessionRepository.saveAndFlush(groupBetService
-                                .newSession(ctx.bet(), ctx.group(), ctx.challenge(), ctx.target(), date));
-                    } catch (DataIntegrityViolationException e) {
-                        // 동시 개설 레이스 패배 — 유니크가 남긴 승자 행으로 진행한다.
-                        return groupChallengeBetSessionRepository
-                                .findByBetIdAndSessionDate(ctx.bet().getId(), date)
-                                .orElseThrow(() -> new IllegalStateException(
-                                        "회차 유니크 위반 후 재조회 실패 — betId=" + ctx.bet().getId()
-                                                + ", date=" + date, e));
-                    }
-                });
+        Optional<GroupChallengeBetSession> existing = groupChallengeBetSessionRepository
+                .findByBetIdAndSessionDate(ctx.bet().getId(), date);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        // 조립 규칙(미션 스냅샷 박제)은 newSession 단일 지점 — 영속화 경로만 네이티브로 갈아탄다.
+        GroupChallengeBetSession assembled = groupBetService
+                .newSession(ctx.bet(), ctx.group(), ctx.challenge(), ctx.target(), date);
+        int inserted = groupChallengeBetSessionRepository.insertOpenIgnoringConflict(
+                Generators.timeBasedEpochRandomGenerator().generate(),
+                ctx.bet().getId(), ctx.group().getId(), ctx.challenge().getId(), date,
+                assembled.getStake(), assembled.getGoalMinutes(),
+                assembled.getMissionCategory().name(), assembled.getMissionType().name(),
+                assembled.getWindowStart(), assembled.getWindowEnd(),
+                assembled.getStartsAt(), assembled.getJoinClosesAt(),
+                assembled.getClosesAt(), assembled.getSettleAfter());
+        if (inserted == 0) {
+            log.info("회차 lazy 개설 스킵 — 동시 개설 선점, 승자 행으로 합류. betId={}, date={}",
+                    ctx.bet().getId(), date);
+        }
+        return groupChallengeBetSessionRepository.findByBetIdAndSessionDate(ctx.bet().getId(), date)
+                .orElseThrow(() -> new IllegalStateException(
+                        "멱등 개설 후 재조회 실패 — betId=" + ctx.bet().getId() + ", date=" + date));
     }
 
     /** 회차 행 배타 잠금 재조회 — 다건 잠금은 호출측이 id 오름차순을 보장한다(계약 §3). */
@@ -324,7 +358,7 @@ public class GroupBetJoinService {
      */
     private boolean eligibleToStakeToday(JoinContext ctx, GroupChallengeBetSession session, LocalDate today) {
         try {
-            groupBetService.requireEligibleToStake(targetWithSessionGoal(ctx, session), ctx.user(), today);
+            groupBetService.requireEligibleToStake(targetWithGoal(ctx.target(), session), ctx.user(), today);
             return true;
         } catch (GroupException e) {
             log.info("join-week 오늘 스킵(N39) — 자격 가드 {}. sessionId={}, userId={}",
@@ -368,11 +402,11 @@ public class GroupBetJoinService {
      * 자격 가드용 판정 대상 — 목표분을 회차 박제값(GROMO-1263)으로 덮는다. 챌린지 목표가 개설 후
      * 바뀌어도 이 회차의 기준은 불변이어야 참가 가드와 정산이 같은 기준을 쓴다.
      */
-    private GroupBetJudge.Target targetWithSessionGoal(JoinContext ctx, GroupChallengeBetSession session) {
+    private static GroupBetJudge.Target targetWithGoal(
+            GroupBetJudge.Target target, GroupChallengeBetSession session) {
         return session.getGoalMinutes() == null
-                ? ctx.target()
-                : new GroupBetJudge.Target(ctx.target().challenge(), session.getGoalMinutes(),
-                        ctx.target().window());
+                ? target
+                : new GroupBetJudge.Target(target.challenge(), session.getGoalMinutes(), target.window());
     }
 
     /**

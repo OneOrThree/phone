@@ -104,10 +104,13 @@ public class GroupBetSettler {
         List<GroupBetPayoutCalculator.Entry> entries = participants.stream()
                 .map(p -> {
                     UUID userId = p.getUser().getId();
-                    Integer minutes = progressMinutes.get(userId);
+                    Integer minutes = measuredOrFrozen(progressMinutes.get(userId), p);
+                    // 사전 박제(achieved=true — 조기 확정 GROMO-1268 / 계정 탈퇴 근거 박제 GROMO-1423)는
+                    // 불가역(FR-23) — 판정을 다시 뒤집지 않는다. 실측이 있으면 진행분은 실측이 이긴다.
+                    boolean achieved = Boolean.TRUE.equals(p.getAchieved())
+                            || GroupBetJudge.isAchieved(target, minutes);
                     return new GroupBetPayoutCalculator.Entry(userId,
-                            minutes == null ? 0 : minutes,
-                            GroupBetJudge.isAchieved(target, minutes));
+                            minutes == null ? 0 : minutes, achieved);
                 })
                 .toList();
 
@@ -152,6 +155,16 @@ public class GroupBetSettler {
      * 그대로다. FOCUS 의 무기록(null)은 판정이 0분으로 본 것이므로 0 으로 확정해 저장하고,
      * SCREEN_TIME 의 미보고(null)는 "미계측"이라 null 그대로 남긴다(0분 사용과 구분 — 앱 "—" 표시).
      */
+    /**
+     * 실측 우선, 없으면 참가 행 박제값 폴백(GROMO-1423) — 계정 탈퇴가 통계를 nullify 한 참가자는
+     * 실측이 사라진다(FOCUS 0분·SCREEN_TIME 미보고로 접혀 판정·잔여 순위·근거 기록이 전부 왜곡).
+     * 탈퇴 직전 박제된 {@code progressMinutes} 가 그 유저의 마지막 진실이다. 실측이 존재하는 정상
+     * 참가자는 항상 실측이 이긴다(LLD §5.2 — 박제값 순위 왜곡 방지).
+     */
+    private static Integer measuredOrFrozen(Integer measured, GroupChallengeBetParticipant participant) {
+        return measured != null ? measured : participant.getProgressMinutes();
+    }
+
     private Map<UUID, Integer> evidenceMinutes(
             GroupBetJudge.Target target,
             List<GroupChallengeBetParticipant> participants,
@@ -159,7 +172,7 @@ public class GroupBetSettler {
         Map<UUID, Integer> evidence = new HashMap<>();
         for (GroupChallengeBetParticipant participant : participants) {
             UUID userId = participant.getUser().getId();
-            Integer minutes = progressMinutes.get(userId);
+            Integer minutes = measuredOrFrozen(progressMinutes.get(userId), participant);
             if (minutes == null && target.category() == MissionCategory.FOCUS) {
                 minutes = 0;
             }

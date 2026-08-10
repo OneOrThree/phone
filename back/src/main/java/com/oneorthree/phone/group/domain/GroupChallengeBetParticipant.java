@@ -75,6 +75,26 @@ public class GroupChallengeBetParticipant {
     private Instant createdAt;
 
     /**
+     * 개인 승리 조기 확정(GROMO-1268, N11·FR-23) — <b>불가역</b>이다. 목표분이 나중에 바뀌어도
+     * 회차 박제값으로 판정했으므로 번복 사유가 없다. FOCUS 회차 전용이다 — SCREEN_TIME 은 값이
+     * 하루 종일 늘어나는 지표라 "먼저 확정"이 성립하지 않는다(조기 확정하면 이후 목표 초과가
+     * 정산에서 뒤집히지 못한다).
+     *
+     * <p>계정 탈퇴의 판정 근거 박제(GROMO-1423)도 같은 축을 쓴다 — 탈퇴는 관측이 끝나는 지점이라
+     * "그 시점 달성"이 마지막 진실이고(SCREEN_TIME 포함 — 기기가 더는 보고하지 않는다), 통계
+     * nullify 뒤에도 이 값이 정산 판정에 남는다.
+     *
+     * <p>{@code progressMinutes} 는 확정 시점 실측이지만 <b>박제가 아니다</b> — 정산이 전원 최종값으로
+     * 다시 잰다(잔여 코인 순위가 박제값으로 엉뚱한 승자에게 가는 것을 막는다, LLD §5.2). 실측이
+     * 사라진 탈퇴자만 이 값으로 폴백한다({@code GroupBetSettler}).
+     * 호출 전제: 회차 행 잠금 아래 + {@code achieved == null}.
+     */
+    public void confirmWin(int progressMinutes) {
+        this.achieved = true;
+        this.progressMinutes = progressMinutes;
+    }
+
+    /**
      * 정산 결과 기록. 재실행은 내기 status 가드로 막으므로 여기서는 덮어쓰기만 한다.
      *
      * @param progressMinutes 판정에 쓴 실측 분 — 미계측(SCREEN_TIME 미보고)이면 null
