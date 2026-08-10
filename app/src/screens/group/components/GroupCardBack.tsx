@@ -5,6 +5,7 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
+import type { GroupCardFlipTrigger } from '@/services/analyticsEvents';
 
 interface Props {
   group: GroupSummaryResponse;
@@ -13,7 +14,7 @@ interface Props {
   onRoom: () => void;
   onFocus: () => void;
   onSettings: () => void;
-  onFront: () => void;
+  onFront: (trigger: GroupCardFlipTrigger) => void;
   onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
 }
 
@@ -94,7 +95,14 @@ export function GroupCardBack({
       <TouchableOpacity onPress={onSettings} testID={`group.card.settings.${group.groupId}`}>
         <Text style={s.link}>⋯ 그룹 설정</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onFront} testID={`group.card.frontAction.${group.groupId}`}>
+      <TouchableOpacity
+        onPress={() => onFront('card_tap')}
+        accessibilityActions={[{ name: 'activate', label: '앞면으로' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') onFront('accessibility_action');
+        }}
+        testID={`group.card.frontAction.${group.groupId}`}
+      >
         <Text style={s.link}>앞면으로</Text>
       </TouchableOpacity>
     </View>

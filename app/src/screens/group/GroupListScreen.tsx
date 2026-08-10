@@ -348,9 +348,16 @@ export default function GroupListScreen({
       {
         text: '여기서 바로 집중하거나 방 전체를 열 수 있어.',
         character: GUIDE_CHARACTER,
+        prepare: () => {
+          const groupId = orderedGroups[activeIndex]?.groupId ?? orderedGroups[0]?.groupId;
+          if (!groupId) return;
+          setFlippedGroupId(groupId);
+          summaryAdapter.ensureBack(groupId).catch(() => undefined);
+          focusPolling?.activate();
+        },
       },
     ],
-    [orderedGroups.length],
+    [activeIndex, focusPolling, orderedGroups, summaryAdapter],
   );
 
   const finishGuide = useCallback(() => {
@@ -717,11 +724,11 @@ export default function GroupListScreen({
                   });
                   onSettings(item.groupId);
                 }}
-                onFront={() => {
+                onFront={(trigger) => {
                   setFlippedGroupId(null);
                   logGroupCardFlipped({
                     to_face: 'front',
-                    trigger: 'card_tap',
+                    trigger,
                     group_count_bucket: groupCountBucket(orderedGroups.length),
                   });
                 }}
@@ -731,12 +738,20 @@ export default function GroupListScreen({
                 group={item}
                 emoji={emojis[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
                 bodyRef={activeIdentityRef.current === item.groupId ? frontFocusRef : undefined}
-                onFlip={() => {
+                onFlip={(trigger) => {
                   if (draggingGroupId !== null) return;
+                  if (activeIndex !== index) {
+                    listRef.current?.scrollToOffset({
+                      offset: index * snapInterval,
+                      animated: true,
+                    });
+                    activeIdentityRef.current = item.groupId;
+                    setActiveIndex(index);
+                  }
                   setFlippedGroupId(item.groupId);
                   logGroupCardFlipped({
                     to_face: 'back',
-                    trigger: 'card_tap',
+                    trigger,
                     group_count_bucket: groupCountBucket(orderedGroups.length),
                   });
                   summaryAdapter.ensureBack(item.groupId).catch(() => undefined);

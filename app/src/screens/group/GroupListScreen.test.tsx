@@ -159,6 +159,28 @@ describe('카드 렌더', () => {
       guide_state: 'shown',
     });
     await waitFor(() => expect(screen.getByTestId('group.deck.guide')).toBeOnTheScreen());
+    expect(screen.getByTestId('group.deck.guide').props.accessibilityLabel).toMatch(
+      /^단계 1\/4\..*다음$/,
+    );
+  });
+
+  test('안내 4단계 진입 전에 활성 카드 뒷면과 lazy dependency를 연다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    resetGroupDeckGuideSessionForTests();
+    await renderList([group()], undefined, 'guide-user');
+
+    await press('group.deck.guide');
+    await press('group.deck.guide');
+    await press('group.deck.guide');
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`group.card.back.${GROUP_ID}`)).toBeOnTheScreen(),
+    );
+    expect(getGroupDetail).toHaveBeenCalledWith(GROUP_ID, expect.any(String));
+    expect(getMyRanking).toHaveBeenCalledWith(undefined, expect.any(String));
+    expect(screen.getByTestId('group.deck.guide').props.accessibilityLabel).toMatch(
+      /^단계 4\/4\..*시작$/,
+    );
   });
 
   test('다른 overlay가 막고 있으면 미완료 안내를 pending으로 기록한다', async () => {
@@ -205,6 +227,37 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('peek으로 보이는 이웃 카드를 탭하면 먼저 그 카드를 활성 페이지로 만든 뒤 뒤집는다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await press(`group.card.${GROUP_ID_2}`);
+
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
+    expect(screen.getByTestId(`group.card.back.${GROUP_ID_2}`)).toBeOnTheScreen();
+  });
+
+  test('보조기술의 앞·뒷면 전환은 accessibility_action으로 기록한다', async () => {
+    await renderList([group()]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+    expect(logGroupCardFlipped).toHaveBeenLastCalledWith(
+      expect.objectContaining({ to_face: 'back', trigger: 'accessibility_action' }),
+    );
+
+    await act(async () => {
+      fireEvent(screen.getByTestId(`group.card.frontAction.${GROUP_ID}`), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+    });
+    expect(logGroupCardFlipped).toHaveBeenLastCalledWith(
+      expect.objectContaining({ to_face: 'front', trigger: 'accessibility_action' }),
+    );
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 

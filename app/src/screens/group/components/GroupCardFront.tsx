@@ -3,11 +3,12 @@ import type { RefObject } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderHandlers } from 'react-native';
 import { T } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import type { GroupCardFlipTrigger } from '@/services/analyticsEvents';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
-  onFlip: () => void;
+  onFlip: (trigger: GroupCardFlipTrigger) => void;
   reorderHandlers?: GestureResponderHandlers;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
@@ -50,10 +51,14 @@ export function GroupCardFront({
       <Pressable
         ref={bodyRef}
         style={s.body}
-        onPress={onFlip}
+        onPress={() => onFlip('card_tap')}
         accessibilityRole="button"
         accessibilityLabel={`${group.name}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명`}
         accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
+        accessibilityActions={[{ name: 'activate', label: '방 요약 보기' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') onFlip('accessibility_action');
+        }}
         testID={`group.card.${group.groupId}`}
       >
         <View style={s.art}>
