@@ -484,7 +484,7 @@ flowchart LR
         B3["POST /groups/{gid}/challenges/{cid}/end"]
         B4["DELETE /groups/{gid}/challenges/{cid}"]
     end
-    subgraph report["보고 (멤버)"]
+    subgraph report["보고 (멤버 + 그 날짜 회차의 참가자)"]
         C1["PUT /groups/{gid}/challenges/{cid}/window-usage"]
     end
     subgraph bet["회차 참여 (멤버)"]
@@ -497,6 +497,13 @@ flowchart LR
         E2["POST /groups/sessions/notify"]
     end
 ```
+
+> **창 사용분 보고는 앱이 조용히 버려지는 경우를 알아야 한다 (LLD §2.2).** 서버는 자격·시각
+> 게이트에 걸린 보고를 에러가 아니라 **204로 무시**하므로, 204를 "저장됨"으로 낙관 반영하면 안 된다.
+> 앱이 맞춰야 할 축은 셋이다 — ⑴ **`measuredAt`을 반드시 싣는다**(참가한 회차의 보고는 시각이
+> 없으면 저장되지 않는다) ⑵ 값은 **누적값**을 보낸다(버려진 구간을 다음 sync가 복원한다)
+> ⑶ **회차가 없는 날짜의 보고는 오늘·어제까지만** 의미가 있다(그보다 오래된 날짜는 무시된다 —
+> `gromo:screentime:windowReports`의 "어제 기준 prune"과 같은 폭이다).
 
 | 리소스 | 소유 컨트롤러 |
 |---|---|
