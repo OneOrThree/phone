@@ -78,7 +78,7 @@ groups >= 1 + stable layout + no overlay + guide key 없음
 | 4    | `character_happy` · back 요약/CTA    | 집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 방 전체를 열어봐.                                             | overlay 종료 후 back·focus 유지     |
 
 - 코치마크가 열린 동안 카드 tap, page swipe, reorder, CTA는 모두 잠근다. 화면 탭과 보조기술의 `다음` action으로 1~3단계를 진행하고 마지막은 `시작` action을 쓴다. skip, 닫기, replay는 제공하지 않는다.
-- 3→4는 사용자가 만든 flip이 아니다. 필요하면 첫 카드를 중앙으로 programmatic scroll한 다음 back을 보여 주며, 이 시연의 scroll/face 변경에는 사용자 `group_card_flipped`·`group_carousel_paged` 이벤트를 발행하지 않는다. 다만 정상적인 첫 back과 동일하게 detail·공지·챌린지와 날짜별 공유 리그 lazy 조회를 정확히 한 번 시작한다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션의 loading·ready·error 상태와 CTA를 그대로 보여 준다.
+- 3→4는 사용자가 만든 flip이 아니다. 필요하면 첫 카드를 중앙으로 programmatic scroll한 다음 back을 보여 주며, 이 시연의 scroll/face 변경에는 사용자 `group_card_flipped`·`group_carousel_paged` 이벤트를 발행하지 않는다. 다만 정상적인 첫 back과 동일하게 detail·공지·챌린지와 KST 날짜별 공유 리그 lazy 조회를 정확히 한 번 시작한다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션의 loading·ready·error 상태와 CTA를 그대로 보여 준다.
 - 마지막 `시작`은 overlay를 닫는 즉시 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행하고, 그 뒤 `AsyncStorage('gromo:guide:groupDeck:v1') = '1'`을 시도한다. background·route 이탈·unmount는 완료가 아니고, read 실패는 session memory로 중복을 막은 채 현재 session에서 최대 1회 시도한다. key write 실패도 완료 이벤트를 취소하지 않으며 `guide_complete_write_failed` telemetry로만 구분하고 다음 앱 실행의 재노출을 허용한다.
 - anchor를 측정하지 못했거나 폭이 바뀌면 spotlight를 잘못 그리지 않고 전체 dim + 말풍선으로 fallback하고, 다음 단계에서 재측정한다.
 

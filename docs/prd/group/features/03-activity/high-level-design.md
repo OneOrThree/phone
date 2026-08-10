@@ -60,15 +60,19 @@ flowchart TD
     D -->|성공| Core["그룹방 핵심 화면 · 집중 FAB"]
     D -->|실패·기존 detail 없음| DetailError["전체 오류 · 다시 시도"]
 
-    N --> NoticeState["자체 로딩 · 오류 · 재시도"]
-    Child --> ChildState["자체 로딩 · 오류 · 재시도"]
+    N --> NoticeState["독립 로딩 · 오류 표시"]
+    Child --> ChildState["독립 로딩 · 오류 표시"]
     NoticeState -.-> Core
     ChildState -.-> Core
+    NoticeState --> Retry["현행 다시 시도<br/>공용 방 재조회"]
+    ChildState --> Retry
+    Retry --> Load
 ```
 
 - 상세는 그룹방 shell과 집중 FAB를 표시하기 위한 선행 데이터다. 최초 상세 조회가 실패하고 기존 detail도 없으면 전체 오류와 재시도만 표시한다.
 - 상세·공지·하위 활동 요청은 함께 시작할 수 있지만, detail 성공 전에는 방 shell·공지·집중 FAB를 표시하지 않는다.
 - 상세가 성공한 뒤 공지와 하위 활동은 서로 독립적으로 성공하거나 실패할 수 있다. 이 하위 영역의 실패는 다른 성공 영역과 집중 진입을 막지 않는다.
+- 여기서 독립은 **오류 표시와 응답 반영의 격리**를 뜻한다. 현재 각 영역의 `다시 시도`는 공용 방 재조회를 실행하며, 해당 요청만 보내는 영역별 retry는 [구현 상태 정본](../../shared/implementation-status.md)의 남은 작업이다.
 - 하위 활동 기능의 오류는 detail이 준비된 그룹방 전체를 거짓 빈 상태로 만들지 않는다.
 - 네트워크 실패는 탈퇴·강퇴의 증거가 아니다. 서버가 현재 소속 없음으로 확인한 경우에만 상위 탐색으로 안전하게 돌아간다.
 

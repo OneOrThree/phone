@@ -38,7 +38,7 @@ flowchart LR
 
 1. **앞면 탭과 라우트를 분리.** 앞면 탭은 같은 카드의 뒷면으로 flip하며 navigation을 일으키지 않는다. 기존 `onSelect(groupId)`는 뒷면 `방 전체 보기`에서만 호출한다.
 2. **의존성 추가 회피.** 전용 캐러셀 라이브러리(`react-native-reanimated-carousel` 등)를 새로 넣지 않는다 — 사내에 네이티브 페이징 선례가 있고(`FocusSessionScreen`의 `pagingEnabled` ScrollView, `DrumPicker`의 `snapToInterval` FlatList), reanimated 4.5.0이 이미 설치돼 있어 peek 모션까지 자급 가능.
-3. **기존 API 네 개를 조합한다.** 카드 뒷면을 처음 열 때 해당 `groupId`의 detail·announcements·challenges 세 요청을 lazy 병렬 조회하고, category를 보내지 않은 기존 `GET /api/v1/league/me/ranking?date`의 전체 사용자 현재 집중 상태 원본 응답은 화면 전체에서 날짜별 한 번만 조회·캐시한다. 카드 전용 endpoint는 추가하지 않는다.
+3. **기존 API 네 개를 조합한다.** 카드 뒷면을 처음 열 때 해당 `groupId`의 detail·announcements·challenges 세 요청을 lazy 병렬 조회하고, category를 보내지 않은 기존 `GET /api/v1/league/me/ranking?date`의 전체 사용자 현재 집중 상태 원본 응답은 화면 전체에서 KST 날짜별 한 번만 조회·캐시한다. 카드 전용 endpoint는 추가하지 않는다.
 4. **카드 표현은 개인 로컬 설정.** 앞면 배경은 모든 그룹이 `#5E6AD2`; 그룹별 색·그라데이션·선화 아이콘은 없다. `내 카드 아이콘`은 현재 계정이 이 기기에서 보는 카드에만 적용하며 그룹의 서버 속성이나 OWNER 권한이 아니다.
 5. **서버 계약을 늘리지 않는다.** 이모지는 Create/Update request와 Summary/Detail/Search/Overview response, DB, OpenAPI 어디에도 추가하지 않는다. 앱은 userId별 AsyncStorage 값만 읽고, 미설정·손상·신규·가입 그룹은 `🎯`로 fallback한다. 집중 인원도 기존 그룹 상세 멤버 ID와 기존 전체 사용자 현재 집중 상태 응답을 앱에서 join하므로 이 기능의 서버 변경은 0건이다.
 6. **도메인 경계를 유지.** 앞면 탭은 같은 자리에서 카드를 뒤집고, 뒷면 `방 전체 보기`만 `GroupRoom` route를 연다. 카드의 하위 기능 영역은 기존 응답을 compact하게 투영할 뿐 상태·정렬·진행률 의미를 만들지 않으며 [챌린지 문서](../../../challenge/README.md)를 따른다.
@@ -120,7 +120,7 @@ flowchart LR
 - 카드 뒷면을 처음 열 때 사용하는 집중 상태 API: category를 보내지 않은 `GET /api/v1/league/me/ranking?date`의 원본 응답.
 - AsyncStorage는 네트워크 응답을 대체하지 않는다. 화면 진입의 `GET /api/v1/groups`로 확정한 소속 groupId에 대해 현재 계정의 표시 순서와 개인 카드 아이콘만 reconcile한다.
 - 그룹 상세는 멤버십과 `members[].userId`의 정본이다. `isFocusing`을 그룹 상세 DTO에 추가하지 않는다.
-- 현재 집중 상태 adapter는 category를 보내지 않고 날짜를 명시한 원본 배열을 보존한다. 포커스 세션 UI가 정렬·축약한 12명 결과는 그룹 집계에 사용하지 않는다.
+- 현재 집중 상태 adapter는 category를 보내지 않고 KST 날짜를 명시한 원본 배열을 보존한다. 포커스 세션 UI가 정렬·축약한 12명 결과는 그룹 집계에 사용하지 않는다.
 - `/api/v1/league/me/ranking?date` 재사용은 그룹 화면에 리그 UI나 리그 기능을 추가하는 것이 아니다. 기존 응답의 `isFocusing` 값만 현재 집중 상태 판단에 재사용한다.
 
 ### 3.1 카드 뒷면을 처음 열 때와 화면 공유 현재 집중 상태 데이터
@@ -149,7 +149,7 @@ flowchart TD
 
 카드 전용 request/response와 그룹 상세 필드 확장을 만들지 않는다. 현행 그룹 상세의 `members[].userId`를 멤버십 정본으로, category를 생략한 현행 `GET /api/v1/league/me/ranking?date=YYYY-MM-DD`의 원본 `LeagueMemberResponse[]`를 현재 집중 상태 정본으로 사용한다. 운영 eligible 사용자(`is_deleted=false AND is_guest=false`) 100명 미만은 출시 전제이며, 런타임 앱은 이 수를 받지 않는다.
 
-- 현행 `getMyRanking(category?)`에 날짜 인자가 없다. 계획된 wrapper 확장 `getMyRanking(category?, date = todayStrKst())`이 기존 endpoint에 category를 보내지 않는 `getMyRanking(undefined, date)` 호출을 가능하게 하며, 서버 계약 변경은 아니다.
+- 현행 `getMyRanking(category?)`에 날짜 인자가 없다. 계획된 wrapper 확장 `getMyRanking(category?, date = todayStrKst())`이 기존 endpoint에 category를 보내지 않는 호출을 가능하게 하며, 서버 계약 변경은 아니다. 그룹 detail·하위 기능·리그 호출 인자와 `userId + KST date` cache key는 한 refresh cycle 시작 시 한 번 얻은 동일한 `todayStrKst()` 결과를 사용하며 기기 로컬 날짜를 섞지 않는다.
 - 포커스 세션 UI용 adapter는 본인 제외·핀 우선 정렬 뒤 12명만 남기므로 재사용하지 않는다. 그룹 화면은 원본 배열을 보존하는 전용 adapter를 한 번만 소유한다.
 - 완전한 현재 집중 상태 데이터에 없는 `userId`는 `false`로 본다. 단, 운영 출시 전제가 유효하고 **성공한 raw 응답 길이가 100 미만일 때만** 유효하다. 요청 loading/error나 100행 coverage-unknown 응답은 0명으로 강하하지 않고 집중 섹션을 독립 loading/error로 표시한다.
 - 운영 eligible 사용자 수 90~99명은 warning/대체 계약 준비 신호다. unknown 또는 100 이상이면 출시를 차단하고 대체 계약을 먼저 배포한다. 런타임의 100행 응답은 실제 총원을 구분할 수 없으므로 coverage-unknown telemetry를 남기고 count를 미산출한다.
@@ -171,10 +171,10 @@ flowchart TD
 
 ### 3.4 로딩·캐시·무효화
 
-- detail·announcements·challenges와 화면 공유 현재 집중 상태 데이터는 각각 `idle → loading → ready|error` 상태를 갖고, 현재 집중 상태 데이터에는 별도 `coverage-unknown` 상태가 있다. detail/challenges cache key는 `groupId + date`, announcements key는 `groupId`, 현재 집중 상태 key는 `userId + date`다.
-- 그룹 화면의 현재 집중 상태 adapter는 같은 날짜의 진행 중 요청과 준비된 원본 배열을 공유한다. 여러 카드의 뒷면을 빠르게 처음 열어도 `/api/v1/league/me/ranking`은 refresh cycle당 한 번만 호출하며 카드별 요청으로 증폭시키지 않는다.
+- detail·announcements·challenges와 화면 공유 현재 집중 상태 데이터는 각각 `idle → loading → ready|error` 상태를 갖고, 현재 집중 상태 데이터에는 별도 `coverage-unknown` 상태가 있다. detail/challenges cache key는 `groupId + KST date`, announcements key는 `groupId`, 현재 집중 상태 key는 `userId + KST date`다.
+- 그룹 화면의 현재 집중 상태 adapter는 같은 KST 날짜의 진행 중 요청과 준비된 원본 배열을 공유한다. 여러 카드의 뒷면을 빠르게 처음 열어도 `/api/v1/league/me/ranking`은 refresh cycle당 한 번만 호출하며 카드별 요청으로 증폭시키지 않는다.
 - 같은 화면 세션에서 앞/뒤를 반복할 때 각 ready cache를 즉시 사용한다. 카드 전용 cache type은 만들지 않는다.
-- 날짜가 바뀌면 detail·challenges와 현재 집중 상태 데이터를 새 date key로 조회한다. 앱 foreground·집중 시작/종료·pull-to-refresh에서는 화면 공유 현재 집중 상태 데이터를 한 번 갱신하고, detail/challenges와 필요한 공지를 기존 규칙대로 갱신한다.
+- KST 날짜가 바뀌면 detail·challenges와 현재 집중 상태 데이터를 새 KST date key로 조회한다. 앱 foreground·집중 시작/종료·pull-to-refresh에서는 화면 공유 현재 집중 상태 데이터를 한 번 갱신하고, detail/challenges와 필요한 공지를 기존 규칙대로 갱신한다.
 - 요청 중 다른 카드로 이동해도 응답은 groupId key에만 쓴다. 현재 카드에 낡은 응답을 덮어쓰지 않는다.
 - 한 요청의 실패는 해당 섹션에서만 retry한다. 현재 집중 상태 loading은 집중 영역 skeleton, 최초 error는 `집중 현황을 불러오지 못했어요 · 다시 시도`, 100행 coverage-unknown은 `집중 현황을 확인할 수 없어요`로 분리하며 모두 `0명`으로 표시하지 않는다. refresh 실패에 이전의 완전한 ready 데이터가 있으면 stale 표시와 함께 count를 유지할 수 있다.
 
@@ -194,14 +194,14 @@ flowchart TD
 
 ## 5. 상태 소유권
 
-| 상태                     | 소유자                    | 신원·수명                                         |
-| ------------------------ | ------------------------- | ------------------------------------------------- |
-| 현재 페이지·앞/뒤·drag   | 카드 덱                   | stable `groupId`; 화면이 살아 있는 동안           |
-| 상세·공지·하위 기능 요약 | 카드 데이터 adapter       | `groupId + date` 또는 `groupId`; 영역별 독립 상태 |
-| 현재 집중 상태           | 그룹 화면 공유 adapter    | `userId + date`; refresh cycle당 in-flight 1회    |
-| 카드 순서·내 카드 아이콘 | 계정별 로컬 store         | 성공한 전체 소속 목록과 reconcile; 서버 쓰기 없음 |
-| 안내 진행·완료           | 그룹 화면의 overlay queue | 기기 완료 key + 현재 session 가드                 |
-| 방 복귀 맥락             | 그룹 화면                 | 출발 `groupId`·face·focus; index는 보조 위치      |
+| 상태                     | 소유자                    | 신원·수명                                             |
+| ------------------------ | ------------------------- | ----------------------------------------------------- |
+| 현재 페이지·앞/뒤·drag   | 카드 덱                   | stable `groupId`; 화면이 살아 있는 동안               |
+| 상세·공지·하위 기능 요약 | 카드 데이터 adapter       | `groupId + KST date` 또는 `groupId`; 영역별 독립 상태 |
+| 현재 집중 상태           | 그룹 화면 공유 adapter    | `userId + KST date`; refresh cycle당 in-flight 1회    |
+| 카드 순서·내 카드 아이콘 | 계정별 로컬 store         | 성공한 전체 소속 목록과 reconcile; 서버 쓰기 없음     |
+| 안내 진행·완료           | 그룹 화면의 overlay queue | 기기 완료 key + 현재 session 가드                     |
+| 방 복귀 맥락             | 그룹 화면                 | 출발 `groupId`·face·focus; index는 보조 위치          |
 
 상태 전이, 저장 race, 늦은 응답 폐기, 복귀 fallback은 [LLD](./low-level-design.md)가 실행 정본이다. HLD에서는 같은 상태를 타입·Map·hook 이름으로 다시 정의하지 않는다.
 

@@ -248,7 +248,7 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 | 3    | 활성 카드 본문       | `character_study` · `카드를 탭하면 이 자리에서 오늘의 방 상태가 열려.`                                                                  | 다음 단계로 넘어갈 때 시스템이 활성 카드를 programmatic back으로 전환 |
 | 4    | back의 요약·CTA 영역 | `character_happy` · `집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 방 전체를 열어봐.`                                               | 마지막 진행 뒤 overlay 종료, back·focus 유지                          |
 
-- 3→4의 시스템 전환은 사용자의 flip이 아니다. 카드가 중앙에 있지 않은 상태라면 첫 카드로 scroll을 복원한 뒤 back으로 전환하며, 이 시연 때문에 사용자 `flip`·`page` analytics 이벤트를 발행하지 않는다. 다만 정상적인 첫 back과 동일하게 detail·공지·챌린지와 날짜별 공유 리그 lazy 조회를 정확히 한 번 시작한다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션의 loading·ready·error 상태와 CTA를 그대로 보여 준다.
+- 3→4의 시스템 전환은 사용자의 flip이 아니다. 카드가 중앙에 있지 않은 상태라면 첫 카드로 scroll을 복원한 뒤 back으로 전환하며, 이 시연 때문에 사용자 `flip`·`page` analytics 이벤트를 발행하지 않는다. 다만 정상적인 첫 back과 동일하게 detail·공지·챌린지와 KST 날짜별 공유 리그 lazy 조회를 정확히 한 번 시작한다. 코치마크는 응답을 기다리지 않고 4단계에서 각 섹션의 loading·ready·error 상태와 CTA를 그대로 보여 준다.
 - 중간 background, route 이탈, unmount는 완료가 아니므로 key를 쓰지 않고, 안정된 다음 진입에 1단계부터 다시 시도한다. guide key read 실패도 카드 덱을 막지 않으며 세션 메모리로 최대 1회만 보여 준다.
 - 마지막 `시작`으로 overlay가 닫히는 즉시 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행한다. key write 실패도 이 완료 이벤트를 취소하지 않으며 `guide_complete_write_failed` telemetry로만 구분한다. 다음 앱 실행에서는 다시 노출될 수 있다. anchor 측정 실패나 layout 폭 변경 중에는 잘못된 spotlight를 그리지 않고 전체 dim과 문구만 유지한 뒤 다음 단계에서 재측정한다.
 - Reduce Motion에서는 spotlight 이동·카드 3D flip을 쓰지 않고 짧은 cross-fade로 face를 바꾼다. VoiceOver에서는 `단계 n/4`, 현재 문구, `다음` 또는 마지막 단계의 `시작` action을 읽으며 spotlight만으로 뜻을 전달하지 않는다.

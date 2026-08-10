@@ -124,7 +124,7 @@ flowchart TB
 
     Group --> State["영역별 상태<br/>불러오는 중 · 표시 가능 · 오류"]
     Focus --> State
-    State --> Valid{"응답의 계정 · 날짜 · groupId가<br/>아직 유효한가?"}
+    State --> Valid{"응답의 계정 · KST 날짜 · groupId가<br/>아직 유효한가?"}
     Valid -->|예| Correct["해당 카드와 영역에만 반영"]
     Valid -->|아니오| Discard["늦은 응답 폐기<br/>다른 카드에 표시 금지"]
 
@@ -151,7 +151,7 @@ stateDiagram-v2
     state "범위 불확실" as CoverageUnknown
 
     [*] --> Idle
-    Idle --> Loading: 현재 계정·날짜 조회
+    Idle --> Loading: 현재 계정·KST 날짜 조회
     Loading --> Ready: raw 요청 성공 AND 원본 응답 100행 미만
     Loading --> Unavailable: 요청 실패
     Loading --> CoverageUnknown: 원본 길이 100
@@ -163,13 +163,13 @@ stateDiagram-v2
     CoverageUnknown: 집중 인원 미산출
     CoverageUnknown: 0명 표시 금지
 
-    Ready --> Loading: 새로고침 · 날짜 변경
+    Ready --> Loading: 새로고침 · KST 날짜 변경
     Unavailable --> Loading: 다시 시도
     CoverageUnknown --> Loading: 관측 복구 · 계약 전환
 ```
 
 - 운영 `eligible_user_count < 100`은 출시 전제이고 런타임 앱에는 없다. 성공한 원본 응답 길이 `< 100`일 때만 응답에 없는 멤버를 `집중하지 않음`으로 본다.
-- 현재 집중 상태는 `현재 계정 + 날짜` 기준으로 화면에서 공유하고, 동시에 같은 요청을 여러 번 보내지 않는다.
+- 현재 집중 상태는 한 refresh cycle에서 얻은 `현재 계정 + todayStrKst()` 기준으로 화면에서 공유하고, 동시에 같은 요청을 여러 번 보내지 않는다. 요청 인자와 cache key에 기기 로컬 날짜를 섞지 않는다.
 - 운영 수 90~99명에서는 대체 계약의 담당자·티켓·배포일을 확정한다. 운영 수 unknown 또는 100 이상이면 출시를 차단하고 대체 계약을 먼저 배포한다.
 - 런타임 raw 응답 100행·loading·error는 미산출이며 0명으로 표시하지 않는다.
 
