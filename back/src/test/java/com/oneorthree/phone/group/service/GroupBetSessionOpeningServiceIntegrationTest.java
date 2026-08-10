@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.MissionCategory;
 import com.oneorthree.phone.group.domain.MissionType;
+import com.oneorthree.phone.group.domain.RepeatSchedule;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeDurationRepository;
@@ -96,8 +97,14 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
     // ── 픽스처 ──────────────────────────────────────────────────────────
 
     private GroupChallenge durationChallenge() {
+        return durationChallenge(RepeatSchedule.EVERYDAY);
+    }
+
+    /** 반복 요일(비트마스크)을 지정하는 하루형 챌린지 — 활성 요일 게이트 검증용. */
+    private GroupChallenge durationChallenge(int repeatDays) {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
-                .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION).build());
+                .group(group).category(MissionCategory.FOCUS).type(MissionType.DURATION)
+                .repeatDays(repeatDays).build());
         challenges.add(saved);
         // category 는 V36 이후 NOT NULL — 복합 FK 가 부모 챌린지 카테고리와의 일치를 강제한다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
@@ -209,6 +216,37 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("비활성 요일에는 회차를 개설하지 않는다 — 쉬는 날 OPEN 회차 + 레거시 참가비 유입 차단")
+    void doesNotOpenSessionOnInactiveWeekday() {
+        LocalDate today = LocalDate.now(KST);
+        // 오늘을 뺀 나머지 요일만 켠 챌린지 — 오늘은 쉬는 날이다.
+        int withoutToday = RepeatSchedule.EVERYDAY & ~RepeatSchedule.bit(today.getDayOfWeek());
+        GroupChallenge resting = durationChallenge(withoutToday);
+        GroupChallengeBet config = betConfig(resting, true);
+
+        assertThat(ensure(resting, today)).isEmpty();
+        assertThat(groupChallengeBetSessionRepository
+                .findByBetIdAndSessionDate(config.getId(), today)).isEmpty();
+
+        // 같은 챌린지라도 활성 요일(내일 이후 첫 활성일)에는 정상 개설된다 — 게이트가 요일 축으로만 막는다.
+        LocalDate activeDay = RepeatSchedule.next(withoutToday, today);
+        assertThat(ensure(resting, activeDay)).isPresent();
+    }
+
+    @Test
+    @DisplayName("보증 스캔도 비활성 요일 챌린지를 건너뛴다 — 스캔 경로에도 같은 게이트가 걸린다")
+    void ensureTodaySessionsSkipsInactiveWeekday() {
+        LocalDate today = LocalDate.now(KST);
+        int withoutToday = RepeatSchedule.EVERYDAY & ~RepeatSchedule.bit(today.getDayOfWeek());
+        GroupChallengeBet resting = betConfig(durationChallenge(withoutToday), true);
+
+        groupBetScheduler.ensureTodaySessions();
+
+        assertThat(groupChallengeBetSessionRepository
+                .findByBetIdAndSessionDate(resting.getId(), today)).isEmpty();
+    }
+
+    @Test
     @DisplayName("보증 스캔 — 내기 켜진 활성 챌린지의 오늘 회차를 일괄 개설한다")
     void ensureTodaySessionsOpensAllEligible() {
         GroupChallenge eligible = durationChallenge();
@@ -228,11 +266,12 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
         assertThat(groupChallengeBetSessionRepository
                 .findByBetIdAndSessionDate(configs.get(1).getId(), today)).isEmpty();
 
-        // 재스캔은 새로 만들지 않는다(캐치업 멱등).
+        // 재스캔은 새로 만들지 않는다(캐치업 멱등) — 기존 회차는 "신규 개설"로 세지 않는다.
+        // 여기서 0 이 아니면 개설 장애 감시 지표가 매 틱 양수로 오염된다(GROMO-1411 후속 ⑦).
         int reopened = groupBetScheduler.ensureTodaySessions();
         assertThat(groupChallengeBetSessionRepository
                 .findByBetIdAndSessionDate(config.getId(), today).orElseThrow().getId())
                 .isEqualTo(session.orElseThrow().getId());
-        assertThat(reopened).isLessThanOrEqualTo(opened);
+        assertThat(reopened).isZero();
     }
 }

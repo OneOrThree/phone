@@ -21,19 +21,35 @@ public interface GroupChallengeBetParticipantRepository
 
     /**
      * 조기 확정 대상(GROMO-1268, N11) — 유저가 참가 중인 그 날짜의 <b>FOCUS</b> OPEN 회차에서 아직
-     * 미확정({@code achieved IS NULL})인 참가 행. 미션 스냅샷의 카테고리로 거르므로(SCREEN_TIME 은
-     * 조기 확정 자체가 성립하지 않는다 — FR-23) 챌린지 조인이 없다. 회차 id 오름차순 — 호출측이
-     * 이 순서로 <b>전부 잠근 뒤</b> 판정한다(탈퇴 연동 등 오름차순 경로와의 교차 데드락 방지, §5.4).
+     * 미확정({@code achieved IS NULL})인 참가 행의 <b>식별자만</b>. 미션 스냅샷의 카테고리로
+     * 거르므로(SCREEN_TIME 은 조기 확정 자체가 성립하지 않는다 — FR-23) 챌린지 조인이 없다.
+     * 회차 id 오름차순 — 호출측이 이 순서로 <b>전부 잠근 뒤</b> 판정한다(탈퇴 연동 등 오름차순
+     * 경로와의 교차 데드락 방지, §5.4).
+     *
+     * <p><b>엔티티가 아니라 id 를 돌려주는 것이 계약이다.</b> 엔티티로 받으면 대상 참가 행이
+     * 영속성 컨텍스트(1차 캐시)에 올라가고, 회차 락을 기다리는 동안 취소·탈퇴가 그 행을 지워도
+     * 이후 {@code findById} 가 DB 를 보지 않고 <b>캐시된 유령 엔티티</b>를 돌려준다. 그 유령을
+     * 수정하면 flush 가 0건 UPDATE 로 터져 집중 세션 저장·통계·보상 트랜잭션 전체가 롤백된다
+     * (남의 취소 때문에 내 집중 기록이 사라진다). id 만 받으면 잠금 후 첫 로드가 실제 DB 읽기라
+     * 삭제가 그대로 보인다.
      */
-    @Query("SELECT p FROM GroupChallengeBetParticipant p JOIN p.session s "
+    @Query("SELECT p.id AS participantId, p.session.id AS sessionId "
+            + "FROM GroupChallengeBetParticipant p JOIN p.session s "
             + "WHERE p.user.id = :userId AND p.achieved IS NULL "
             + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
             + "AND s.sessionDate IN :dates "
             + "AND s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS "
             + "ORDER BY s.id")
-    List<GroupChallengeBetParticipant> findUnconfirmedOpenFocusByUserAndDates(
+    List<UnconfirmedFocusTarget> findUnconfirmedOpenFocusTargetsByUserAndDates(
             @Param("userId") UUID userId,
             @Param("dates") Collection<LocalDate> dates);
+
+    /** {@link #findUnconfirmedOpenFocusTargetsByUserAndDates} 프로젝션 — 참가 행 · 그 회차. */
+    interface UnconfirmedFocusTarget {
+        UUID getParticipantId();
+
+        UUID getSessionId();
+    }
 
     /**
      * 조기 정산 전원 확정 검사(GROMO-1268) — 미확정({@code achieved IS NULL}) 참가자 수.

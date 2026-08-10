@@ -218,7 +218,11 @@ public class GroupBetSettler {
         if (!session.isOpen()) {
             return SettleResult.skipped(session.getStatus());
         }
-        if (Instant.now().isBefore(session.getJoinClosesAt())) {
+        // 실효 참가 마감 = closes_at(브리지 기간) — 스캔 술어
+        // ({@code findOpenPastJoinDeadlineWithFewParticipants})와 반드시 같은 기준이어야 한다.
+        // 구앱 참가 가드가 창 종료까지 허용하므로 박제된 join_closes_at(창 시작)으로 닫으면
+        // 원래 허용된 시간 안의 참가를 되물린다. B8 이 참가 마감을 전환하면 둘 다 되돌린다.
+        if (Instant.now().isBefore(session.getClosesAt())) {
             return SettleResult.skipped(session.getStatus());
         }
         List<GroupChallengeBetParticipant> participants =

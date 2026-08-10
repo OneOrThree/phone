@@ -388,15 +388,17 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
     void closesShortSessionsAtJoinDeadline() {
         Instant now = Instant.now();
         LocalDate today = LocalDate.now(KST);
+        // 하루형은 참가 마감 = 회차 종료(익일 00:00)라 두 값이 같다 — 팩토리가 만드는 실제 형태다.
+        // (창형의 두 값이 갈리는 브리지 케이스는 doesNotVoidWindowedSoloSessionBeforeLegacyJoinDeadline)
         Instant deadlinePassed = now.minus(Duration.ofMinutes(10));
         Instant future = now.plus(Duration.ofHours(3));
         GroupChallenge challenge = durationChallenge(MissionCategory.FOCUS);
 
-        GroupChallengeBetSession empty = session(challenge, today, deadlinePassed, future, future);
+        GroupChallengeBetSession empty = session(challenge, today, deadlinePassed, deadlinePassed, future);
         GroupChallengeBetSession solo = session(durationChallenge(MissionCategory.FOCUS),
-                today, deadlinePassed, future, future);
+                today, deadlinePassed, deadlinePassed, future);
         GroupChallengeBetSession pair = session(durationChallenge(MissionCategory.FOCUS),
-                today, deadlinePassed, future, future);
+                today, deadlinePassed, deadlinePassed, future);
         User alone = stakedUser("혼자");
         join(solo, alone);
         User p1 = stakedUser("둘중하나");
@@ -435,6 +437,43 @@ class GroupBetSettleTriggerIntegrationTest extends IntegrationTestBase {
                     assertThat(p.getAchieved()).isNull();
                     assertThat(p.getPayout()).isEqualTo(STAKE);
                 });
+    }
+
+    @Test
+    @DisplayName("창형 단독 참가 회차는 창 시작 직후 무산되지 않는다 — 브리지 참가 허용 시간(창 종료)까지 산다(④)")
+    void doesNotVoidWindowedSoloSessionBeforeLegacyJoinDeadline() {
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.now(KST);
+        // 창은 이미 시작(= 박제 join_closes_at 경과)했지만 아직 끝나지 않았다. 구앱 참가 가드
+        // (requireWindowStillOpen)는 이 구간에도 두 번째 참가자를 받아 준다.
+        GroupChallengeBetSession running = session(windowChallenge(MissionCategory.FOCUS),
+                today, now.minus(Duration.ofMinutes(30)), now.plus(Duration.ofHours(1)),
+                now.plus(Duration.ofMinutes(90)));
+        User solo = stakedUser("창중단독");
+        join(running, solo);
+
+        // 스캔이 아직 집지 않는다 — 실효 참가 마감(창 종료)이 지나지 않았다.
+        assertThat(groupChallengeBetSessionRepository
+                .findOpenPastJoinDeadlineWithFewParticipants(Instant.now()))
+                .doesNotContain(running.getId());
+        // 건별 진입점도 같은 기준이라 스킵한다(스캔↔처리 기준 불일치 금지).
+        assertThat(groupBetSettler.closeShortOrUnused(running.getId()).applied()).isFalse();
+        assertThat(reload(running).getStatus()).isEqualTo(GroupBetStatus.OPEN);
+        assertThat(refundsOf(solo)).isZero();
+
+        // 창이 끝난 회차는 같은 조건에서 즉시 무산·환불된다(N47 의 본래 목적은 보존).
+        GroupChallengeBetSession finished = session(windowChallenge(MissionCategory.FOCUS),
+                today, now.minus(Duration.ofHours(3)), now.minus(Duration.ofMinutes(10)),
+                now.plus(Duration.ofMinutes(20)));
+        User lonely = stakedUser("창종료단독");
+        join(finished, lonely);
+
+        assertThat(groupChallengeBetSessionRepository
+                .findOpenPastJoinDeadlineWithFewParticipants(Instant.now()))
+                .contains(finished.getId());
+        assertThat(groupBetSettler.closeShortOrUnused(finished.getId()))
+                .isEqualTo(new GroupBetSettler.SettleResult(GroupBetStatus.VOIDED, true));
+        assertThat(refundsOf(lonely)).isEqualTo(1);
     }
 
     @Test

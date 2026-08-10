@@ -231,14 +231,26 @@ public interface GroupChallengeBetSessionRepository extends JpaRepository<GroupC
             @Param("now") Instant now);
 
     /**
-     * 참가 마감 인원 미달 크론 대상(GROMO-1412, N47·FR-36) — {@code join_closes_at} 이 지났는데
-     * 참가자가 2명 미만인 OPEN 회차 id. 정산 그레이스를 기다리지 않고 즉시 무산·환불하기 위한
-     * 스캔이다(창형은 창 전체 + 30분 동안 혼자 남은 참가비가 묶이는 문제 — 기존 K1). 건별 처리는
-     * 잠금 후 재확인하므로 여기서는 잠금 없이 집기만 한다. id 오름차순은 데드락 예방 규약.
+     * 참가 마감 인원 미달 크론 대상(GROMO-1412, N47·FR-36) — 참가 마감이 지났는데 참가자가 2명
+     * 미만인 OPEN 회차 id. 정산 그레이스를 기다리지 않고 즉시 무산·환불하기 위한 스캔이다(혼자 남은
+     * 참가비가 창 전체 + 30분 동안 묶이는 문제 — 기존 K1). 건별 처리는 잠금 후 재확인하므로 여기서는
+     * 잠금 없이 집기만 한다. id 오름차순은 데드락 예방 규약.
+     *
+     * <p><b>브리지 기간에는 {@code closes_at}(회차 종료)이 실효 참가 마감이다</b> — {@code
+     * join_closes_at} 이 아니다. 스냅샷의 {@code join_closes_at} 은 to-be 정의(창형 = 창 시작,
+     * LLD §1.1)로 박제돼 있지만, 구앱 브리지(N36)의 참가 가드
+     * ({@code GroupBetService.requireWindowStillOpen})는 여전히 <b>창 종료까지</b> 참가를 허용한다.
+     * 박제값으로 무산시키면 창 시작 직후 첫 틱에 혼자인 창형 회차가 닫혀, 원래 허용된 시간 안에
+     * 들어온 구앱의 두 번째 참가자가 거절된다 — 게다가 참가자가 2명 이상인 회차는 같은 시각에
+     * 참가가 계속 되므로 "인원수에 따라 참가 가능 시간이 달라지는" 비일관이 생긴다. 하루형은
+     * {@code join_closes_at == closes_at} 이라 이 선택으로 동작이 달라지지 않는다.
+     *
+     * <p>⚠️ <b>참가 마감을 {@code join_closes_at} 으로 전환(B8·N36 브리지 종료)할 때 이 술어도
+     * 함께 되돌려야 한다</b> — 그때는 두 값이 같은 의미가 되므로 보정이 불필요해진다.
      */
     @Query("SELECT s.id FROM GroupChallengeBetSession s "
             + "WHERE s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
-            + "AND s.joinClosesAt <= :now "
+            + "AND s.closesAt <= :now "
             + "AND (SELECT COUNT(p) FROM GroupChallengeBetParticipant p WHERE p.session = s) < 2 "
             + "ORDER BY s.id")
     List<UUID> findOpenPastJoinDeadlineWithFewParticipants(@Param("now") Instant now);
