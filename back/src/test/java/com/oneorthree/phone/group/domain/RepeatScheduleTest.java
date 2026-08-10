@@ -78,6 +78,29 @@ class RepeatScheduleTest {
     }
 
     @Test
+    @DisplayName("요일 교집합 — 한 요일이라도 겹치면 true, 완전 분리면 false (창 겹침 §A5 의 1관문)")
+    void overlapsChecksWeekdayIntersection() {
+        int tueThu = RepeatSchedule.maskOf(Set.of(DayOfWeek.TUESDAY, DayOfWeek.THURSDAY));
+        int wedThu = RepeatSchedule.maskOf(Set.of(DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY));
+
+        // 월수금 vs 화목 — 교집합 ∅ 라 같은 시간대여도 창 겹침이 아니다
+        assertThat(RepeatSchedule.overlaps(MON_WED_FRI, tueThu)).isFalse();
+        // 월수금 vs 수목 — 수요일 하나만 겹쳐도 true(그날 하나의 행동이 두 목표를 채운다)
+        assertThat(RepeatSchedule.overlaps(MON_WED_FRI, wedThu)).isTrue();
+        // 매일은 무엇과도 겹치고, 같은 마스크끼리는 당연히 겹친다
+        assertThat(RepeatSchedule.overlaps(RepeatSchedule.EVERYDAY, tueThu)).isTrue();
+        assertThat(RepeatSchedule.overlaps(MON_WED_FRI, MON_WED_FRI)).isTrue();
+        // 대칭이다 — 인자 순서로 답이 갈리면 "누가 기존 창인가"가 판정을 바꾼다
+        assertThat(RepeatSchedule.overlaps(tueThu, MON_WED_FRI))
+                .isEqualTo(RepeatSchedule.overlaps(MON_WED_FRI, tueThu));
+        // 단일 요일끼리
+        assertThat(RepeatSchedule.overlaps(
+                RepeatSchedule.bit(DayOfWeek.MONDAY), RepeatSchedule.bit(DayOfWeek.MONDAY))).isTrue();
+        assertThat(RepeatSchedule.overlaps(
+                RepeatSchedule.bit(DayOfWeek.MONDAY), RepeatSchedule.bit(DayOfWeek.SUNDAY))).isFalse();
+    }
+
+    @Test
     @DisplayName("범위 밖 마스크(0·128)는 활성일 계산을 거부한다 — DB CHECK(1~127)와 같은 경계")
     void rejectsMaskOutOfRange() {
         assertThat(RepeatSchedule.isValidMask(0)).isFalse();
@@ -87,6 +110,12 @@ class RepeatScheduleTest {
         assertThatThrownBy(() -> RepeatSchedule.next(0, MONDAY))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> RepeatSchedule.remainingThisWeek(128, MONDAY))
+                .isInstanceOf(IllegalArgumentException.class);
+        // 교집합도 같은 가드를 쓴다 — 0(요일 없음)을 "아무것과도 안 겹침"으로 조용히 통과시키면
+        // 저장 불가한 마스크가 겹침 검사를 무력화하는 우회로가 된다
+        assertThatThrownBy(() -> RepeatSchedule.overlaps(0, RepeatSchedule.EVERYDAY))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RepeatSchedule.overlaps(RepeatSchedule.EVERYDAY, 128))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

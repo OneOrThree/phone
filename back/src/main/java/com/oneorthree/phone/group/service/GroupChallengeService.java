@@ -91,6 +91,11 @@ public class GroupChallengeService {
     private static final int MAX_SCREEN_TIME_DURATION_GOAL_MINUTES = 720;
     /** 창형 SCREEN_TIME 목표 눈금(§A6-3) — 스크린타임 측정 최소 단위 15분의 배수만 받는다. */
     private static final int SCREEN_TIME_GOAL_STEP_MINUTES = 15;
+    /**
+     * 창끼리 요구하는 최소 간격(§A5 · GROMO-1270) — 스크린타임 창이 15분 눈금이라 그보다 좁으면
+     * 눈금 하나가 두 창에 걸쳐 어느 쪽 성과인지 갈리지 않는다. 창형 FOCUS 의 5분 관용치도 이 안이다.
+     */
+    private static final int WINDOW_GAP_SECONDS = SCREEN_TIME_GOAL_STEP_MINUTES * 60;
     /** 그룹당 활성 챌린지 상한(FR-1 · §A4) — 그룹 행 배타 락 아래의 사전 검사로 강제한다. */
     private static final int MAX_ACTIVE_CHALLENGES = 4;
 
@@ -444,7 +449,7 @@ public class GroupChallengeService {
             windowEnd = parseWindowTimeParam(request.getWindowEnd());
             validateTimeWindowParams(
                     request.getMissionCategory(), windowStart, windowEnd, request.getDurationMinutes());
-            rejectWindowOverlap(group, windowStart, windowEnd);
+            rejectWindowOverlap(group, repeatDaysMask, windowStart, windowEnd);
         } else {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
@@ -605,31 +610,48 @@ public class GroupChallengeService {
     }
 
     /**
-     * 활성 창형과 KST 시각대가 겹치면 거부 — 같은 시간대 행동 하나로 내기 2개 중복 보상을 막는다(§A5).
+     * 활성 창형과 부딪히면 거부 — 같은 시간대 행동 하나로 내기 2개 중복 보상을 막는다(§A5 · LLD §3.6).
      * 창형 복수 허용(FR-3 · GROMO-1422)에 맞춰 <b>카테고리 무관 전건</b>과 비교한다(종전의 같은 카테고리
      * 건너뛰기는 카테고리×타입당 1개 시절의 전제였다).
      *
-     * <p>기존 창 행을 FOR UPDATE 로 잠가 동시 생성·삭제와 직렬화한다(챌린지 행 락 관행 재사용).
-     * 맞닿음(끝==시작)은 겹침이 아니다(종전 겹침 검사와 동일).
+     * <p>판정은 <b>요일 교집합 ≠ ∅ ∧ 시간대 간격 &lt; 15분</b>(GROMO-1270) — 요일이 안 겹치면
+     * 시간대가 똑같아도 서로 다른 날의 일이라 통과시킨다.
      *
-     * <p>한계(후속 GROMO-1270): 요일 교집합(요일이 안 겹치면 시간대가 같아도 무방)과 15분 간격 규칙은
-     * 아직 반영 전이다 — 그때까지는 요일 무관하게 시간대만으로 겹침을 판정한다(엄격한 쪽으로 보수적).
+     * <p>기존 창 행을 FOR UPDATE 로 잠가 동시 생성·삭제와 직렬화한다(챌린지 행 락 관행 재사용).
+     * 부모 챌린지의 요일 마스크는 같은 잠긴 쿼리가 JOIN FETCH 로 함께 실어 온다 — 루프에서 LAZY
+     * 프록시를 깨우면 N+1 이자 락 밖 읽기다.
      */
-    private void rejectWindowOverlap(Group group, LocalTime start, LocalTime end) {
+    private void rejectWindowOverlap(Group group, int repeatDaysMask, LocalTime start, LocalTime end) {
         for (GroupChallengeWindow existing : groupChallengeWindowRepository.findActiveByGroupForUpdate(group)) {
-            if (windowsOverlap(start, end, existing.getWindowStart(), existing.getWindowEnd())) {
+            if (windowsConflict(repeatDaysMask, start, end,
+                    existing.getChallenge().getRepeatDays(),
+                    existing.getWindowStart(), existing.getWindowEnd())) {
                 throw new GroupException(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
             }
         }
     }
 
     /**
-     * 창 [s, e) 두 개의 겹침 — 자정 걸침이 금지(§A6-1)라 <b>단일 구간 비교</b>로 충분하다
-     * (종전의 2구간 전개(daySegments)는 걸침 허용 시절의 잔재였다 — GROMO-1406 되돌리기).
+     * 창 두 개가 부딪히는가 — {@code (요일 교집합 ≠ ∅) ∧ (시간대 간격 < 15분)}(§A5 · LLD §3.6).
+     *
+     * <p>자정 걸침이 금지(§A6-1)라 창 하나가 <b>단일 구간</b> {@code [시작, 끝)} 이고, 그래서 간격
+     * 규칙이 "양쪽으로 15분씩 부풀린 뒤 평범한 구간 겹침"이라는 한 줄로 끝난다(걸침을 허용하면
+     * 창마다 2구간이라 2×2 비교가 됐다 — GROMO-1406 되돌리기).
+     *
+     * <p>간격은 <b>strict &lt;</b> 라 정확히 15분은 허용한다(12:00 종료 vs 12:15 시작 = OK,
+     * 12:10 시작 = 409). 맞닿음(끝==시작, 간격 0)은 이제 겹침이다 — 스크린타임 측정 눈금이 15분이라
+     * 경계 눈금 하나가 두 창에 걸치기 때문이다.
      */
-    private static boolean windowsOverlap(LocalTime aStart, LocalTime aEnd,
-            LocalTime bStart, LocalTime bEnd) {
-        return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+    private static boolean windowsConflict(int maskA, LocalTime aStart, LocalTime aEnd,
+            int maskB, LocalTime bStart, LocalTime bEnd) {
+        if (!RepeatSchedule.overlaps(maskA, maskB)) {
+            return false;
+        }
+        int aStartSec = aStart.toSecondOfDay();
+        int aEndSec = aEnd.toSecondOfDay();
+        int bStartSec = bStart.toSecondOfDay();
+        int bEndSec = bEnd.toSecondOfDay();
+        return aStartSec - WINDOW_GAP_SECONDS < bEndSec && bStartSec - WINDOW_GAP_SECONDS < aEndSec;
     }
 
     /** 창 길이(분) — 시작 < 종료 불변식(§A6-1) 아래라 단순 차다. */
