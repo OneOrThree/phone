@@ -30,6 +30,7 @@ const cacheKey = (userId: string, date: string) => `${userId}\u0000${date}`;
 export class GroupFocusStatusStore {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly listeners = new Map<string, Set<Listener>>();
+  private readonly allListeners = new Set<Listener>();
 
   constructor(private readonly load: RankingLoader) {}
 
@@ -46,6 +47,11 @@ export class GroupFocusStatusStore {
       listeners.delete(listener);
       if (listeners.size === 0) this.listeners.delete(key);
     };
+  }
+
+  subscribeAll(listener: Listener): () => void {
+    this.allListeners.add(listener);
+    return () => this.allListeners.delete(listener);
   }
 
   ensure(userId: string, date: string): Promise<GroupFocusStatusState> {
@@ -116,6 +122,7 @@ export class GroupFocusStatusStore {
 
   private emit(key: string): void {
     this.listeners.get(key)?.forEach((listener) => listener());
+    this.allListeners.forEach((listener) => listener());
   }
 }
 

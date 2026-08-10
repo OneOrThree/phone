@@ -13,6 +13,7 @@ const sharedFocus: SharedFocusDependency<LeagueMemberResponse[]> = {
   getState: (userId, date) => groupFocusStatusStore.getState(userId, date),
   ensure: (userId, date) => groupFocusStatusStore.ensure(userId, date),
   retry: (userId, date) => groupFocusStatusStore.retry(userId, date),
+  subscribe: (listener) => groupFocusStatusStore.subscribeAll(listener),
 };
 
 interface Params {
@@ -62,16 +63,8 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
   }, [adapter, date, groupIds, groupKey, userId]);
 
   useEffect(() => {
-    if (!userId) return adapter.subscribe(() => render((value) => value + 1));
-    const unsubscribeSummary = adapter.subscribe(() => render((value) => value + 1));
-    const unsubscribeFocus = groupFocusStatusStore.subscribe(userId, date, () =>
-      render((value) => value + 1),
-    );
-    return () => {
-      unsubscribeSummary();
-      unsubscribeFocus();
-    };
-  }, [adapter, date, userId]);
+    return adapter.subscribe(() => render((value) => value + 1));
+  }, [adapter]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -98,6 +91,8 @@ export function useGroupCardData({ userId, groupIds, screenFocused }: Params): G
   }, [appActive, screenFocused]);
 
   useEffect(() => () => controller?.dispose(), [controller]);
+
+  useEffect(() => () => adapter.dispose(), [adapter]);
 
   const ensureBack = useCallback(
     (groupId: string) => {
