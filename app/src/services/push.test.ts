@@ -33,6 +33,8 @@ jest.mock('@/screens/focus/pendingFocusUploads', () => ({
 jest.mock('@/services/screentimeSync', () => ({
   syncWindowUsage: jest.fn(async () => {}),
 }));
+// 백그라운드 커밋이 트리를 깨우는 신호 — 실제 재조회는 CoinProvider가 한다.
+jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
 jest.mock('@/services/analyticsEvents', () => ({
   logNotificationOpened: jest.fn(),
   logNotificationPermissionResult: jest.fn(),
@@ -80,6 +82,8 @@ jest.mock('@react-native-firebase/messaging', () => {
 const mockNavigateToDeepLink = navigateToDeepLink as jest.MockedFunction<typeof navigateToDeepLink>;
 const mockFlushFocus = flushPendingFocusUploads as jest.Mock;
 const mockMarkBackgroundCommit = markBackgroundFocusCommit as jest.Mock;
+const mockRequestCoinRefresh = jest.requireMock('@/store/coinRefreshSignal')
+  .requestCoinRefresh as jest.Mock;
 const mockSyncWindow = syncWindowUsage as jest.Mock;
 const { getFreshAccessToken } = jest.requireMock('@/services/api');
 const { scheduleNotificationAsync } = jest.requireMock('expo-notifications');
@@ -265,27 +269,32 @@ describe('사일런트 flush(data.silent=flush)', () => {
   // 백그라운드 커밋 → 잔액 갱신 예약(codex 리뷰 P2). 여기서 커밋된 저장은 서버 잔액을 바꾸고
   // 큐를 비우므로, 사실을 남기지 않으면 포그라운드로 돌아온 PendingFocusUploader가 빈 큐를
   // flush 하며 '커밋 없음'으로 읽어 잔액을 영영 다시 받지 않는다(낡은 잔액 고착).
-  test('백그라운드 flush가 커밋했으면 잔액 갱신 마커를 남긴다', async () => {
+  // 커밋 확정 시점에 **두 갈래**로 알린다(codex 후속 리뷰 P2): 살아 있는 프로세스는 신호로
+  // 즉시(복귀 이벤트와의 순서 의존 제거), 프로세스가 죽는 경우는 영속 마커로.
+  test('백그라운드 flush가 커밋했으면 신호를 쏘고 마커도 남긴다', async () => {
     mockFlushFocus.mockResolvedValue(true);
     registerBackgroundFlushHandler();
     await backgroundHandler?.(silent);
 
+    expect(mockRequestCoinRefresh).toHaveBeenCalledTimes(1);
     expect(mockMarkBackgroundCommit).toHaveBeenCalledTimes(1);
   });
 
-  test('커밋이 없었으면 마커를 남기지 않는다 — 불필요한 잔액 조회를 만들지 않는다', async () => {
+  test('커밋이 없었으면 신호도 마커도 없다 — 불필요한 잔액 조회를 만들지 않는다', async () => {
     mockFlushFocus.mockResolvedValue(false);
     registerBackgroundFlushHandler();
     await backgroundHandler?.(silent);
 
+    expect(mockRequestCoinRefresh).not.toHaveBeenCalled();
     expect(mockMarkBackgroundCommit).not.toHaveBeenCalled();
   });
 
-  test('flush가 던지면 마커도 남기지 않는다(커밋 여부를 모른다)', async () => {
+  test('flush가 던지면 신호·마커 모두 없다(커밋 여부를 모른다)', async () => {
     mockFlushFocus.mockRejectedValue(new Error('network'));
     registerBackgroundFlushHandler();
     await backgroundHandler?.(silent);
 
+    expect(mockRequestCoinRefresh).not.toHaveBeenCalled();
     expect(mockMarkBackgroundCommit).not.toHaveBeenCalled();
   });
 

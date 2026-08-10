@@ -19,6 +19,9 @@ export function PendingFocusUploader() {
     // 이미 큐를 비웠으면 여기 flush는 '커밋 없음'을 돌려주므로, 마커가 없으면 백그라운드에서
     // 늘어난 잔액이 영영 화면에 오지 않는다. 둘 중 하나라도 커밋이면 다시 받는다
     // (중복 호출 무해 — 서버 재조회일 뿐이고 refresh는 throw하지 않는다).
+    // 마커는 **프로세스가 죽었다 살아난 경우**를 받는다 — 살아 있는 프로세스에서는
+    // pushBackground가 커밋 시점에 coinRefreshSignal로 CoinProvider를 직접 깨우므로,
+    // 이 자리의 폴링이 겹침 구간(백그라운드 flush 진행 중 active 전환)을 놓쳐도 잔액은 맞는다.
     const flush = () => {
       Promise.all([
         flushPendingFocusUploads(userId).catch(() => false),

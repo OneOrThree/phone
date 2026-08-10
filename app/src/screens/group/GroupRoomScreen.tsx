@@ -343,6 +343,13 @@ export default function GroupRoomScreen({
         : null;
     if (resultEntries !== null && userId) {
       const candidates = pickChallengeResults(resultEntries);
+      // 성공 응답은 **빈 배열도 정본**이다(codex 후속 리뷰 P2). 예전엔 후보가 0건이면 분기를
+      // 통째로 건너뛰어 기존 큐가 그대로 남았다 — 다른 시트에 가려 대기하던 결과가 그 사이
+      // 서버에서 제외되면(다른 기기에서 챌린지 삭제 → FR-44-4로 응답에서 빠짐) 시트를 닫는
+      // 순간 **서버가 이미 지운 과거 결과**가 뜬다. 삭제 환불 푸시와 겹치면 같은 사건 이중
+      // 통지(N48이 금지하는 형태)가 된다. 실패 응답은 여기 오지 않는다(resultEntries === null) —
+      // 네트워크 실패로 대기 결과를 잃지 않는다.
+      let next: ChallengeResultCandidate[] = [];
       if (candidates.length > 0) {
         const unseen = await filterUnseenChallengeResults(userId, candidates);
         // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
@@ -362,25 +369,28 @@ export default function GroupRoomScreen({
             focusPendingRef.current = null;
           }
         }
-        const next = [
+        next = [
           ...focused,
           ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
         ];
-        queuedResults = next.length;
-        setResultQueue((prev) => {
-          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
-          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
-          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
-          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
-          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
-          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
-          //    가려져 있던 결과는 노출 마커가 없어 unseen에 그대로 남으므로 next에서 잃지 않는다.
-          const head = prev[0];
-          if (!head) return next;
-          if (resultShownKeyRef.current !== head.sessionId) return next;
-          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
-        });
       }
+      queuedResults = next.length;
+      setResultQueue((prev) => {
+        // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
+        // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
+        // **빈 정본이 와도 이 헤드만은 남긴다** — 사용자가 읽고 있는 모달을 응답 하나로
+        // 걷어내는 것도 사고다. 닫는 순간 큐에서 빠지고(onResultClose) 그 뒤엔 정본만 남는다.
+        // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
+        //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
+        //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
+        //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
+        //    가려져 있던 결과는 서버가 여전히 내려 주는 한 unseen에 그대로 남아 next로 돌아온다 —
+        //    돌아오지 않았다면 서버가 제외한 것이므로 여기서 함께 사라지는 것이 옳다.
+        const head = prev[0];
+        if (!head) return next;
+        if (resultShownKeyRef.current !== head.sessionId) return next;
+        return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
+      });
     }
 
     if (detailResult.status === 'fulfilled') {

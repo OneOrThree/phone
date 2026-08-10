@@ -1712,6 +1712,77 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     });
   });
 
+  // 성공 응답은 빈 배열도 정본이다(codex 후속 리뷰 P2). 예전엔 후보 0건이면 큐 반영 자체를
+  // 건너뛰어, 시트에 가려 대기하던 결과가 서버에서 제외된 뒤에도 살아남았다 — 시트를 닫는
+  // 순간 **서버가 이미 지운 과거 결과**가 뜨고, 삭제 환불 푸시와 겹치면 N48이 금지하는
+  // 같은 사건 이중 통지가 된다.
+  describe('성공한 빈 응답의 큐 반영', () => {
+    test('시트에 가려 대기하던 결과가 서버에서 빠지면 큐에서도 사라진다(N48)', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+
+      // 초대 시트가 떠 있어 결과가 큐에서 대기만 하는 상태.
+      const { rerender } = await render(
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />,
+      );
+      await act(async () => {});
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 그 사이 다른 기기에서 챌린지가 삭제돼 서버가 이 회차를 응답에서 제외했다(FR-44-4).
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await blur();
+      await focus();
+
+      // 시트를 닫아도 사라진 결과가 되살아나선 안 된다 — 환불 푸시가 이미 알린 사건이다.
+      await act(async () => {
+        rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+      });
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+    });
+
+    test('실제로 떠 있는 모달은 빈 응답에도 걷어내지 않는다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      await renderRoom();
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+
+      // 재조회가 빈 정본을 들고 와도 사용자가 읽던 모달을 응답 하나로 지우지 않는다.
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await blur();
+      await focus();
+      expect(screen.getByTestId('group.challengeResult')).toBeOnTheScreen();
+
+      // 닫으면 정본대로 비어 있다 — 뒤에 남아 있던 장이 따라 뜨지 않는다.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+      });
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+    });
+
+    test('조회 실패는 대기 큐를 건드리지 않는다 — 네트워크 실패로 결과를 잃지 않는다', async () => {
+      mockGetGroupDetail.mockResolvedValue(detail());
+      mockGetAnnouncements.mockResolvedValue([]);
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+
+      const { rerender } = await render(
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />,
+      );
+      await act(async () => {});
+
+      mockGetMyChallengeResults.mockRejectedValue(new Error('network'));
+      await blur();
+      await focus();
+
+      // 시트를 닫으면 대기하던 결과가 그대로 뜬다.
+      await act(async () => {
+        rerender(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />);
+      });
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+    });
+  });
+
   test('결과 조회가 실패해도 방 화면은 무영향이다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);

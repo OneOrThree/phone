@@ -54,6 +54,12 @@ async function writeQueue(queue: PendingFocusUpload[]): Promise<void> {
 // 백그라운드는 React 트리가 없어 refreshCoins(useCoins 훅)를 부를 수 없으므로, **커밋 사실만**
 // AsyncStorage에 남겨(앱이 그 사이 종료돼도 살아남는다) 다음 포그라운드 flush가 이어받게 한다.
 //
+// ⚠️ 이 마커는 **프로세스가 죽는 경우의 보험**이지 정규 경로가 아니다(codex 후속 리뷰 P2).
+// JS 컨텍스트가 살아 있으면 pushBackground가 커밋 시점에 coinRefreshSignal로 곧장 깨운다 —
+// 마커만 두면 '백그라운드 flush가 도는 도중 앱이 active로 전환'된 겹침 구간에서 복귀 쪽
+// flush는 flushing 가드로 즉시 false를, 마커는 아직 기록 전이라 false를 받아 갱신이 통째로
+// 유실된다. 두 경로가 겹쳐 조회가 한 번 더 나가는 것은 무해하다(멱등한 서버 재조회).
+//
 // 값은 계정 없는 단순 플래그다 — 잔액 재조회는 '지금 로그인한 계정의 잔액을 다시 받는' 동작이라
 // 남의 마커를 소비해 한 번 더 조회해도 무해하고(서버 재조회일 뿐), 놓치는 쪽이 더 나쁘다.
 export async function markBackgroundFocusCommit(): Promise<void> {

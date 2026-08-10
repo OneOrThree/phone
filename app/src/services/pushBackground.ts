@@ -13,6 +13,7 @@ import {
   markBackgroundFocusCommit,
 } from '@/screens/focus/pendingFocusUploads';
 import { syncWindowUsage } from '@/services/screentimeSync';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 
 // 이 메시지가 flush 트리거인가 — 계약 키는 data.silent === 'flush'(LLD §6.2 배선 스케치).
 export function isSilentFlush(data?: Record<string, unknown>): boolean {
@@ -35,10 +36,21 @@ export async function runSilentFlush(): Promise<void> {
     await syncWindowUsage(userId).catch(() => {});
     // 반환값(committed)을 버리지 않는다(codex 리뷰 P2) — 백그라운드에서 커밋된 저장은 서버
     // 잔액을 바꾸고 큐를 비우므로, 포그라운드 복귀 시 PendingFocusUploader가 flush 결과만
-    // 보면 '커밋 없음(빈 큐)'으로 읽어 잔액을 영영 다시 받지 않는다. 여기선 refreshCoins
-    // (useCoins 훅)를 부를 수 없으니 커밋 사실만 마커로 남겨 복귀 시점에 이어받게 한다.
+    // 보면 '커밋 없음(빈 큐)'으로 읽어 잔액을 영영 다시 받지 않는다.
+    //
+    // 갱신은 **커밋이 확정되는 이 순간** 두 갈래로 알린다(codex 후속 리뷰 P2):
+    //  1) requestCoinRefresh — JS 컨텍스트가 살아 있는 동안의 정규 경로. 복귀 이벤트와의
+    //     순서 의존이 사라진다. 마커만 두면, 이 flush가 도는 **도중에** 앱이 active로 바뀐
+    //     겹침 구간에서 복귀 쪽 flush는 flushing 가드로 즉시 false를 받고 마커도 아직 없어
+    //     아무것도 못 보고 끝나며, 뒤늦게 남은 마커를 집어갈 주체가 사라진다.
+    //  2) markBackgroundFocusCommit — **프로세스가 죽는 경우**의 보험(headless 기동 후 종료).
+    //     신호는 메모리에만 있어 프로세스와 함께 사라지므로 영속 기록이 따로 필요하다.
+    // 두 경로가 겹쳐도 무해하다 — refresh는 멱등한 서버 재조회일 뿐이다(중복 GET 1회).
     const committed = await flushPendingFocusUploads(userId).catch(() => false);
-    if (committed) await markBackgroundFocusCommit();
+    if (committed) {
+      requestCoinRefresh();
+      await markBackgroundFocusCommit();
+    }
   } catch {
     // 토큰 조회 실패 포함 — 백그라운드라 알릴 곳이 없다. 포그라운드 sync가 흡수한다.
   }
