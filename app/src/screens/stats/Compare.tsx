@@ -1,7 +1,7 @@
 // ST1 비교 블록(총 집중시간 카드 하단) — 주=리그 랭킹 기반(CompareWeek),
 // 일/월=평균 집계 API 기반(ComparePeriod). 축 칩·나 vs 평균 바는 공용.
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
@@ -16,7 +16,8 @@ import {
 import { STORAGE_KEYS } from '@/types/storage';
 import { fmtMinutes } from '@/utils/timeFormat';
 import { periodKey } from './format';
-import { cs } from './cardStyles';
+import { COMPARE_BARS_H } from './constants';
+import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
 
 // ST1 비교(주간 실데이터) — 전체/같은 카테고리는 리그 랭킹(주간 아레나 집계) 평균, 친구는 평균
 // 집계 API(compareAverages 공용 헬퍼). 리그가 주간 집계라 '주' 탭에서만 유효 —
@@ -77,11 +78,9 @@ export function CompareWeek({ myMinutes }: { myMinutes: number }) {
         }}
       />
       {!loaded ? (
-        <View style={cs.compareLoading}>
-          <ActivityIndicator color={T.accent} size="small" />
-        </View>
+        <CardBodyLoading height={COMPARE_BARS_H} testID="stats.compare.loading" />
       ) : avg == null ? (
-        <Text style={cs.emptyText}>{emptyNote}</Text>
+        <CardBodyEmpty height={COMPARE_BARS_H}>{emptyNote}</CardBodyEmpty>
       ) : (
         <CompareBars myMinutes={myMinutes} avg={avg} avgLabel={avgLabel} />
       )}
@@ -164,11 +163,9 @@ export function ComparePeriod({ period, myMinutes }: { period: StatsPeriod; myMi
         }}
       />
       {cur === undefined ? (
-        <View style={cs.compareLoading}>
-          <ActivityIndicator color={T.accent} size="small" />
-        </View>
+        <CardBodyLoading height={COMPARE_BARS_H} testID="stats.compare.loading" />
       ) : cur.avg == null ? (
-        <Text style={cs.emptyText}>{emptyNote(axis, cur.count)}</Text>
+        <CardBodyEmpty height={COMPARE_BARS_H}>{emptyNote(axis, cur.count)}</CardBodyEmpty>
       ) : (
         <CompareBars myMinutes={myMinutes} avg={cur.avg} avgLabel={avgLabel} />
       )}

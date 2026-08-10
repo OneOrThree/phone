@@ -1,0 +1,342 @@
+// useStagedRanking — 서버가 새 순위 배열을 한 번에 갈아끼워도 **순서와 기록을 함께** 한 칸씩
+// 재생한다는 계약. 정본 docs/prd/motion/low-level-design.md §6.
+//
+// 잠그는 규칙:
+//   ① 여러 칸 상승은 중간 순서를 거쳐 간다 (한 번의 긴 이동이 아니다)
+//   ② 자리가 바뀌기 **직전에** 기록이 먼저 자라고, 그 값은 그 순간 앞지르는 상대보다 위다
+//   ③ 재생이 끝나면 순서·기록 모두 서버 최종값이다 (중간값이 남지 않는다)
+//   ④ '동작 줄이기'면 중간 단계 없이 최종값으로 즉시 간다
+//   ⑤ 재생 도중 또 갱신이 오면 큐가 쌓이지 않는다 — 지금 화면 상태에서 새 목표로 갈아탄다
+//
+// ⚠️ 애니메이션의 중간 프레임·이징은 단언하지 않는다(워클릿은 jest에서 목이다 — 정책 D14).
+//    여기서 보는 것은 훅이 돌려주는 **배열의 순서와 숫자**뿐이다.
+import { act, renderHook } from '@testing-library/react-native';
+import { useStagedRanking } from './useStagedRanking';
+import { SWAP_GAP_MS, SWAP_LEAD_MS } from './rankSwap';
+
+let mockReduce = false;
+let mockReady = true;
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => mockReady,
+  whenReduceMotionReady: () => Promise.resolve(),
+}));
+
+interface Row {
+  userId: string;
+  totalFocusSeconds: number;
+}
+const rows = (spec: [string, number][]): Row[] =>
+  spec.map(([userId, totalFocusSeconds]) => ({ userId, totalFocusSeconds }));
+const idsOf = (list: Row[]): string[] => list.map((r) => r.userId);
+const secOf = (list: Row[], userId: string): number =>
+  list.find((r) => r.userId === userId)!.totalFocusSeconds;
+
+// a·b·c는 자리만 밀리고, me만 4위 → 1위. 기록은 30분에서 3시간으로 뛰었다.
+const BEFORE: [string, number][] = [
+  ['a', 9000],
+  ['b', 7200],
+  ['c', 5400],
+  ['me', 1800],
+];
+const AFTER: [string, number][] = [
+  ['me', 10800],
+  ['a', 9000],
+  ['b', 7200],
+  ['c', 5400],
+];
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  mockReduce = false;
+  mockReady = true;
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+async function mount(initial: Row[]) {
+  return renderHook((props: Row[]) => useStagedRanking(props), { initialProps: initial });
+}
+
+describe('한 칸씩 재생 — 순서와 기록이 함께 간다', () => {
+  test('4위→1위는 세 번의 인접 스왑을 거치고, 스왑마다 기록이 먼저 자란다', async () => {
+    const before = rows(BEFORE);
+    const { result, rerender } = await mount(before);
+    expect(result.current).toBe(before);
+
+    const after = rows(AFTER);
+    await act(async () => {
+      rerender(after);
+    });
+
+    // ① 자리는 아직 그대로인데 ② 기록은 이미 c(5400)를 앞질렀다 — 이게 다음 스왑의 이유다.
+    //    최종값(10800)을 미리 보여 주지 않는다: 4위 자리에 1위 기록이 붙으면 순서와 숫자가
+    //    서로 모순된다(codex 리뷰).
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'c', 'me']);
+    expect(secOf(result.current, 'me')).toBeGreaterThan(5400);
+    expect(secOf(result.current, 'me')).toBeLessThan(10800);
+
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_LEAD_MS);
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
+
+    // 다음 칸을 오르기 전에 b(7200)를 앞지른다
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_GAP_MS);
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
+    expect(secOf(result.current, 'me')).toBeGreaterThan(7200);
+    expect(secOf(result.current, 'me')).toBeLessThan(10800);
+
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_LEAD_MS);
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'me', 'b', 'c']);
+
+    // 마지막 칸 직전의 기록은 서버 최종값이다 — 중간값이 화면에 남지 않는다
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_GAP_MS);
+    });
+    expect(secOf(result.current, 'me')).toBe(10800);
+
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_LEAD_MS);
+    });
+    expect(result.current).toBe(after);
+  });
+
+  test('밀려나는 행의 기록은 재생 내내 서버 값 그대로다', async () => {
+    const { result, rerender } = await mount(rows(BEFORE));
+    await act(async () => {
+      rerender(rows(AFTER));
+    });
+    for (let t = 0; t < 4; t += 1) {
+      expect(secOf(result.current, 'a')).toBe(9000);
+      expect(secOf(result.current, 'b')).toBe(7200);
+      expect(secOf(result.current, 'c')).toBe(5400);
+      await act(async () => {
+        jest.advanceTimersByTime(SWAP_LEAD_MS + SWAP_GAP_MS);
+      });
+    }
+  });
+
+  test('구성원이 바뀌는 갱신(첫 로드·리그 전환)은 곧장 최신 배열이다', async () => {
+    const { result, rerender } = await mount([]);
+    const loaded = rows(BEFORE);
+    await act(async () => {
+      rerender(loaded);
+    });
+    expect(result.current).toBe(loaded);
+  });
+});
+
+describe("'동작 줄이기'", () => {
+  test('reduce면 중간 단계 없이 최종 순서·최종 기록으로 즉시 간다', async () => {
+    mockReduce = true;
+    const { result, rerender } = await mount(rows(BEFORE));
+    const after = rows(AFTER);
+    await act(async () => {
+      rerender(after);
+    });
+    expect(result.current).toBe(after);
+  });
+
+  test('아직 미확정(ready=false)이어도 낡은 순서·기록을 붙들지 않는다', async () => {
+    // useReduceMotion은 확정 전을 보수적으로 true로 읽는다. 그 값으로 시퀀스를 시작할 수는
+    // 없지만, 확정될 때까지 기다리면 낡은 순위가 화면에 남는다 — 즉시 반영을 택했다.
+    mockReduce = true;
+    mockReady = false;
+    const { result, rerender } = await mount(rows(BEFORE));
+    const after = rows(AFTER);
+    await act(async () => {
+      rerender(after);
+    });
+    expect(result.current).toBe(after);
+  });
+
+  test('재생 도중 reduce가 켜지면 남은 단계를 건너뛰고 최종값으로 간다', async () => {
+    const { result, rerender } = await mount(rows(BEFORE));
+    const after = rows(AFTER);
+    await act(async () => {
+      rerender(after);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_LEAD_MS);
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
+
+    mockReduce = true;
+    await act(async () => {
+      rerender(after);
+    });
+    expect(result.current).toBe(after);
+    // 예약돼 있던 나머지 단계가 뒤늦게 순서·기록을 되돌리지 않는다
+    await act(async () => {
+      jest.advanceTimersByTime((SWAP_LEAD_MS + SWAP_GAP_MS) * 5);
+    });
+    expect(result.current).toBe(after);
+  });
+});
+
+describe('재생 도중 재갱신', () => {
+  test('큐가 쌓이지 않는다 — 지금 화면 상태에서 새 목표로 갈아탄다', async () => {
+    const { result, rerender } = await mount(rows(BEFORE));
+    await act(async () => {
+      rerender(rows(AFTER));
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SWAP_LEAD_MS);
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
+
+    // 아직 두 칸이 남았는데 새 응답 도착 — 이번엔 c가 크게 올라 1위가 된다.
+    // ⚠️ 기록이 **줄지 않는** 갱신이어야 한다. 줄어드는 갱신은 주 경계로 보고 단계화를
+    //    건너뛰므로(아래 별도 테스트) 이 시나리오를 못 본다.
+    const next = rows([
+      ['c', 20000],
+      ['me', 10800],
+      ['a', 9000],
+      ['b', 7200],
+    ]);
+    await act(async () => {
+      rerender(next);
+    });
+    // 버려진 계획의 다음 단계로 튀지 않는다 — 화면 순서 그대로에서 재출발
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'me', 'c']);
+  });
+
+  // ⚠️ 주 경계(월요일 KST)·재집계면 같은 구성원이 **새 주 점수**로 재정렬된다. 이전 주 누적을
+  //    하한으로 붙들면 새 순서와 옛 기록이 함께 표시되다 마지막에 급락한다(codex 리뷰).
+  test('점수가 줄어든 갱신은 단계화하지 않고 곧장 최신 배열이다', async () => {
+    const { result, rerender } = await mount(rows(AFTER));
+    const resetWeek = rows([
+      ['a', 300],
+      ['b', 200],
+      ['c', 100],
+      ['me', 0],
+    ]);
+    await act(async () => {
+      rerender(resetWeek);
+    });
+    expect(result.current).toBe(resetWeek);
+  });
+
+  // ⚠️ 계획 교체는 **렌더 본문**에서 일어나는데 옛 타이머는 passive effect에서야 걷힌다.
+  //    둘 사이에 옛 타이머가 만료되면(둘 다 매크로태스크라 순서 보장이 없다) 콜백이 방금 세운
+  //    계획을 덮어쓴다 — 특히 옛 계획의 **마지막** 콜백은 pendingRef까지 비워 새 계획을 통째로
+  //    지운다(codex 리뷰). 그 순간은 fake timer로 재현할 수 없으므로, 예약된 콜백을 붙잡아
+  //    직접 호출해 같은 상황을 만든다.
+  test('교체된 옛 계획의 타이머가 뒤늦게 터져도 새 계획을 지우지 않는다', async () => {
+    const scheduled: (() => void)[] = [];
+    const realSetTimeout = global.setTimeout;
+    const spy = jest.spyOn(global, 'setTimeout').mockImplementation(((
+      cb: () => void,
+      ms?: number,
+    ) => {
+      scheduled.push(cb);
+      return realSetTimeout(cb, ms);
+    }) as unknown as typeof setTimeout);
+
+    const { result, rerender } = await mount(rows(BEFORE));
+    await act(async () => {
+      rerender(rows(AFTER));
+    });
+    const planA = [...scheduled];
+    expect(planA.length).toBeGreaterThan(0);
+
+    // 재생 도중 새 응답 — 계획 B로 갈아탄다(기록은 줄지 않는다: 주 경계 취급을 피한다)
+    const next = rows([
+      ['c', 20000],
+      ['me', 10800],
+      ['a', 9000],
+      ['b', 7200],
+    ]);
+    scheduled.length = 0;
+    await act(async () => {
+      rerender(next);
+    });
+    expect(scheduled.length).toBeGreaterThan(0); // 계획 B도 예약됐다
+
+    // 옛 계획의 마지막 콜백이 뒤늦게 만료된 상황
+    await act(async () => {
+      planA[planA.length - 1]();
+    });
+
+    // 계획 B가 살아 있다 — 가드가 없으면 여기서 곧장 최신 배열(next)이 되어 재정렬이 생략된다
+    expect(result.current).not.toBe(next);
+
+    // 그리고 계획 B는 끝까지 재생돼 최종 배열에 도착한다
+    await act(async () => {
+      jest.advanceTimersByTime((SWAP_LEAD_MS + SWAP_GAP_MS) * 6);
+    });
+    expect(result.current).toBe(next);
+    spy.mockRestore();
+  });
+
+  // 집중 중인 행은 화면에 `totalFocusSeconds + 진행 경과`가 그려지는데(LiveFocusTime) 훅이 든
+  // 하한은 서버 기준값뿐이다. 세션 종료 응답을 그대로 단계화하면 첫 램프가 기준값 근처에서
+  // 시작해 **숫자가 줄었다가 회복한다** — 집중을 막 끝내고 순위를 보는 순간이다(codex 리뷰).
+  test('집중 중이던 사람의 세션 종료 갱신은 단계화하지 않고 곧장 최신 배열이다', async () => {
+    // me가 집중 중: 기준 1000초에 진행 경과가 더해져 화면엔 4600초가 보이고 있었다
+    const focusing = [
+      { userId: 'a', totalFocusSeconds: 9000 },
+      { userId: 'b', totalFocusSeconds: 7200 },
+      { userId: 'c', totalFocusSeconds: 5400 },
+      {
+        userId: 'me',
+        totalFocusSeconds: 1000,
+        isFocusing: true,
+        focusStartedAt: '2026-08-10T00:00:00.000Z',
+      },
+    ];
+    const { result, rerender } = await mount(focusing as unknown as Row[]);
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'c', 'me']);
+
+    // 세션 종료 — 서버가 4600초로 확정하며 1위가 된다
+    const ended = rows([
+      ['me', 10800],
+      ['a', 9000],
+      ['b', 7200],
+      ['c', 5400],
+    ]);
+    await act(async () => {
+      rerender(ended);
+    });
+    // 단계 중간값(1000~10800 사이)을 거치지 않는다 — 순서도 기록도 곧장 최종이다
+    expect(result.current).toBe(ended);
+  });
+
+  // 위 생략은 **그 갱신 한 번만** 이다. 종료 이후의 평범한 갱신까지 꺼지면 연출이 사실상 사라진다.
+  test('세션 종료 이후의 다음 갱신은 다시 정상 재생된다', async () => {
+    const focusing = [
+      { userId: 'a', totalFocusSeconds: 9000 },
+      { userId: 'b', totalFocusSeconds: 7200 },
+      { userId: 'c', totalFocusSeconds: 5400 },
+      {
+        userId: 'me',
+        totalFocusSeconds: 1000,
+        isFocusing: true,
+        focusStartedAt: '2026-08-10T00:00:00.000Z',
+      },
+    ];
+    const { result, rerender } = await mount(focusing as unknown as Row[]);
+    await act(async () => {
+      rerender(
+        rows([
+          ['a', 9000],
+          ['b', 7200],
+          ['c', 5400],
+          ['me', 5000],
+        ]),
+      );
+    });
+
+    // 이제 아무도 집중 중이 아니다 — 다음 상승은 단계화된다
+    await act(async () => {
+      rerender(rows(AFTER));
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'c', 'me']); // 아직 안 올랐다 = 재생 중
+  });
+});

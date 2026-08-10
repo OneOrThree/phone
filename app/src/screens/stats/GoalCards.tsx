@@ -8,15 +8,15 @@ import { T } from '@/constants/theme';
 import type { TodayStatsResponse } from '@/types/dto/stats';
 import { useFocus } from '@/store/FocusContext';
 import { fmtHm } from '@/utils/timeFormat';
-import { FOCUS_COLOR } from './constants';
-import { cs } from './cardStyles';
+import { FOCUS_COLOR, STAMP_BLOCK_H, STAMP_ICON_SIZE } from './constants';
+import { CardBodyEmpty } from './CardBodySlot';
 
 // 일 탭 — 오늘 2목표 스탬프. 집중 현재값은 홈·타임테이블과 같은 로컬 오늘 누적(서버 today.focus는
 // 업로드 지연이 있어 총계 카드와 어긋난다) + 목표는 서버값. 폰 사용은 서버 today.screenTime.
 export function GoalDayStamps({ today }: { today: TodayStatsResponse | null }) {
   const { todayFocusSeconds } = useFocus();
   if (today === null) {
-    return <Text style={cs.emptyText}>목표 정보를 불러오지 못했어요</Text>;
+    return <CardBodyEmpty height={STAMP_BLOCK_H}>목표 정보를 불러오지 못했어요</CardBodyEmpty>;
   }
   return (
     <View style={s.stampRow}>
@@ -124,10 +124,11 @@ const s = StyleSheet.create({
   stampOn: { borderColor: T.successBorder, backgroundColor: T.successBg },
   stampFail: { borderColor: T.dangerBorder, backgroundColor: T.dangerBg },
   stampProgress: { borderColor: T.noteBorder, backgroundColor: T.noteBg },
+  // 아이콘 지름은 constants.ts — 로딩 스켈레톤이 같은 값으로 카드 높이를 잡는다(GROMO-1381)
   stampIc: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: STAMP_ICON_SIZE,
+    height: STAMP_ICON_SIZE,
+    borderRadius: STAMP_ICON_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: T.space.sm,

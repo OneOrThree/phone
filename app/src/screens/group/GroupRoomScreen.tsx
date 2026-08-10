@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   AppState,
   Platform,
@@ -17,6 +16,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
 import {
@@ -75,6 +75,16 @@ import { GroupRoomBottomBar, GROUP_BOTTOM_BAR_SPACE } from './components/GroupRo
 const COLS = 3;
 // 공지 섹션에 노출하는 최근 공지 수(나머지는 '모두보기')
 const NOTICE_PREVIEW = 3;
+
+// ── 최초 로딩 자리표시자 치수 ── (GROMO-1381)
+// 도착할 화면과 같은 자리를 잡아야 데이터가 왔을 때 레이아웃이 튀지 않는다. 값은 전부 아래
+// StyleSheet의 실제 규격에서 계산한 것이라, 규격을 바꾸면 이 상수도 같이 고쳐야 한다.
+// 섹션 라벨 한 줄(T.text.label 15pt)
+const SK_LABEL_H = 18;
+// ⚠️ 공지 카드 자리표시자 상수는 두지 않는다 — 한 장의 높이는 상수로 확정되지만 **몇 장이
+//    올지**를 로딩 시점에 알 방법이 없다. 자세한 근거는 아래 skeletonBody 주석.
+// 멤버 타일 한 칸: paddingVertical 12×2 + border 1×2 + 아바타 44 + gap 4×3 + 텍스트 3줄(16×3)
+const SK_TILE_H = 130;
 
 // 멤버 그리드 한 칸 — 멤버 타일 또는 마지막의 '＋ 초대' 타일.
 type GridCell =
@@ -728,27 +738,96 @@ export default function GroupRoomScreen({
 
   // 상세 도착 전(로딩·에러) 분기에도 결과 모달은 그린다(PR #566 리뷰 ②) — 탈퇴자(MEMBER_ONLY)는
   // detail이 영영 없어서, 본문 분기에만 모달을 두면 참가자 스코프 결과 큐가 화면에 닿지 못한다.
+  // ⚠️ 로딩 전용 분기는 이 브랜치에서 사라졌다(스켈레톤이 본문 안에 있다) — 로딩 중에는 본문이
+  //    그려지므로 모달도 본문 쪽에서 함께 나간다. 남은 조기 반환은 에러 분기 하나뿐이다.
   const resultModal =
     resultVisible && currentResult !== null ? (
       <ChallengeResultModal result={currentResult} onClose={onResultClose} />
     ) : null;
 
-  // ── 최초 로딩 — 중앙 스피너(§5-4) ──
-  if (loading && !detail) {
-    return (
-      <View style={s.fill}>
-        {!!backButton && <View style={s.backRow}>{backButton}</View>}
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
-        </View>
-        {resultModal}
+  // 헤더 — 로딩 분기와 본문이 **같은 노드**를 쓴다. name·인원은 이미 summary 폴백이 있어
+  // (위 `detail?.name ?? summary?.name` — 상세 도착 전 헤더를 먼저 그리려고 둔 장치다)
+  // 상세를 기다릴 필요가 없고, 덕분에 데이터가 도착해도 헤더가 제자리에서 글자만 채워진다.
+  // ⚠️ 헤더는 스켈레톤 묶음 **밖**에 둔다 — SkeletonGroup은 accessibilityElementsHidden이라
+  //    안에 넣으면 스크린리더에서 백버튼(유일한 탈출 경로)과 설정 진입이 사라진다.
+  const headerRow = (
+    <View style={s.header}>
+      {/* 라우트 진입에서만 — 규격은 그룹 만들기·공지 화면의 원형 백버튼과 같다(§5-1) */}
+      {backButton}
+      <View style={s.headerLeft}>
+        <Text style={s.title} numberOfLines={1}>
+          {name}
+        </Text>
+        {isPrivate && <Ionicons name="lock-closed" size={15} color={T.inkSub} />}
+        {/* 정원을 모르는 동안(요약 없이 첫 조회 중)은 '0/0'을 쓰지 않는다 — 상세가 오면 항상 1 이상이라
+            본문 렌더에는 영향이 없다. */}
+        {maxMembers > 0 && (
+          <Text style={s.count}>
+            {memberCount}/{maxMembers}
+          </Text>
+        )}
       </View>
-    );
-  }
+      <TouchableOpacity
+        style={s.moreBtn}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('GroupSettings', { groupId })}
+        accessibilityLabel="그룹 설정"
+      >
+        <Ionicons name="ellipsis-horizontal" size={18} color={T.ink} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  // ── 최초 로딩 — 화면 실루엣 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
+  //
+  // ⚠️ 로딩이라고 **화면을 다른 트리로 갈아끼우지 않는다**(codex 리뷰). 예전에는 로딩 동안 별도
+  //    트리(View > View)를 돌려줬는데, 상세가 도착하는 순간 껍데기가 통째로 바뀌면서 헤더가
+  //    언마운트→재마운트됐다. 같은 JSX 변수(headerRow)를 써도 부모 트리가 다르면 네이티브 노드는
+  //    유지되지 않는다 — 응답을 기다리며 백버튼·그룹 설정에 스크린리더/키보드 포커스를 두고 있던
+  //    사용자는 그 순간 포커스를 잃는다. 껍데기(ScrollView + headerRow)는 로딩 전후로 **같은
+  //    자리에 그대로** 두고 본문만 바꾼다.
+  //
+  // 자리표시자는 섹션 라벨과 멤버 그리드만 잡는다. 데이터가 오면 이 블록이 사라져 펄스(무한 루프)도
+  // 함께 언마운트된다. 블록이 여러 개라 SkeletonGroup 한 겹에만 펄스를 건다 — 블록마다 돌리면
+  // 무한 루프가 여러 개 생겨 "화면당 1개" 상한을 구조적으로 위반한다(codex 리뷰).
+  const showSkeleton = loading && !detail;
+  const skeletonBody = (
+    <SkeletonGroup style={s.skeletonBody} testID="group.room.skeleton">
+      {/* 공지·챌린지 모두 **카드 자리표시자를 두지 않는다** — 섹션 라벨만 세운다(codex 리뷰).
+          로딩 중에는 **몇 장이 올지 알 수 없다.** 공지는 0장(빈 상태 카드)일 수도 최대
+          NOTICE_PREVIEW(3)장일 수도 있는데, 목록 조회 전에 개수를 알려 주는 경로가 없다 —
+          그룹 요약(GroupSummaryResponse)에도 공지 수·유무 필드가 없고 이전 응답 캐시도 없다.
+          한 장으로 고정하면 3장이 도착하는 순간 아래 섹션이 100pt 넘게 밀려, 자리표시자를
+          넣은 목적(레이아웃 안정화) 자체를 거스른다. 챌린지도 같은 이유다(카드 높이가 참가자
+          수에 따라 달라지고, 개수도 모른다). 추정 대신 비워 두면 어긋남은 '아래로 늘어나는'
+          방향뿐이라 이미 읽은 요소가 위로 튀어 오르지 않는다.
+          멤버 그리드는 다르다 — 타일 높이가 상수이고 한 행(COLS)은 인원과 무관하게 항상 찬다. */}
+      <View style={s.sectionHead}>
+        <Skeleton w={44} h={SK_LABEL_H} radius={6} />
+      </View>
+      <View style={s.sectionHead}>
+        <Skeleton w={60} h={SK_LABEL_H} radius={6} />
+      </View>
+      <View style={s.sectionHead}>
+        <Skeleton w={44} h={SK_LABEL_H} radius={6} />
+      </View>
+      <View style={s.gridRow}>
+        {Array.from({ length: COLS }, (_, i) => (
+          <View key={i} style={s.gridPad}>
+            <Skeleton w="100%" h={SK_TILE_H} radius={14} />
+          </View>
+        ))}
+      </View>
+    </SkeletonGroup>
+  );
 
   // ── 에러 + 다시 시도 ──
+  // ⚠️ 여기는 로딩과 달리 화면을 통째로 바꾼다 — 포커스를 유지할 대상 자체가 없기 때문이다.
+  //    이 분기에는 그룹 설정 버튼도 제목도 없고(백버튼만 남는다) 남길 본문도 없다. 로딩→성공은
+  //    "같은 화면이 채워지는" 전환이지만, 로딩→실패는 "다른 화면으로 가는" 전환이다.
   // 탈퇴 유예(pendingLeaveRef) 중에는 이 화면이 결과 모달의 배경이다 — 전면 다크 모달 뒤라
   // 보이지 않고, 마지막 결과를 닫으면 onResultClose가 onLeft로 잇는다(PR #566 리뷰 ②).
+  // 그래서 이 분기에도 resultModal을 반드시 그린다.
   if (error && !detail) {
     return (
       <View style={s.fill}>
@@ -798,8 +877,13 @@ export default function GroupRoomScreen({
         testID="group.room.scroll"
         contentContainerStyle={[s.content, { paddingBottom: bottomSpace }]}
         showsVerticalScrollIndicator={false}
+        // 첫 조회가 도는 동안에는 당겨서 새로고침을 달지 않는다 — load()에 동시 실행 가드가 없어
+        // 같은 요청이 하나 더 나가고, 스켈레톤이 이미 "불러오는 중"을 말하고 있어 재시도 수단이
+        // 필요하지 않다. 실패하면 아래 에러 분기의 '다시 시도'가 받는다.
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
+          showSkeleton ? undefined : (
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />
+          )
         }
       >
         {/* ── 재조회 실패 배너 — 기존 데이터를 지우지 않고 '지금 보는 값이 옛것'임을 알린다 ── */}
@@ -812,216 +896,202 @@ export default function GroupRoomScreen({
           </View>
         )}
 
-        {/* ── 헤더 ── */}
-        <View style={s.header}>
-          {/* 라우트 진입에서만 — 규격은 그룹 만들기·공지 화면의 원형 백버튼과 같다(§5-1) */}
-          {backButton}
-          <View style={s.headerLeft}>
-            <Text style={s.title} numberOfLines={1}>
-              {name}
-            </Text>
-            {isPrivate && <Ionicons name="lock-closed" size={15} color={T.inkSub} />}
-            <Text style={s.count}>
-              {memberCount}/{maxMembers}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={s.moreBtn}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('GroupSettings', { groupId })}
-            accessibilityLabel="그룹 설정"
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color={T.ink} />
-          </TouchableOpacity>
-        </View>
+        {/* ── 헤더 ── 로딩 중에도 **같은 자리에 그대로** 남는다(위 showSkeleton 주석) */}
+        {headerRow}
 
-        {/* ── 공지 ── */}
-        <View style={s.sectionHead}>
-          <Text style={s.sectionTitle}>공지</Text>
-          {noticeList.length > 0 && (
-            <TouchableOpacity
-              style={s.moreRow}
-              activeOpacity={0.7}
-              onPress={openNotice}
-              hitSlop={12}
-            >
-              <Text style={s.moreLink}>모두보기</Text>
-              <Ionicons name="chevron-forward" size={11} color={T.accent} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* 공지를 못 받은 채 목록이 비어 있음 — '없음'과 구분해서 알린다(문구·아이콘 모두 danger).
-            이 상태에선 작성 진입을 막는다(서버엔 이미 공지가 있는데 없다고 보고 또 쓰는 것을 예방). */}
-        {noticeFailed ? (
-          <View style={s.emptyNotice}>
-            <View style={s.emptyErrorRow}>
-              <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
-              <Text style={s.emptyErrorText}>공지를 불러오지 못했어요</Text>
-            </View>
-            <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
-              <Text style={s.writeText}>다시 시도</Text>
-            </TouchableOpacity>
-          </View>
-        ) : noticeList.length === 0 ? (
-          <View style={s.emptyNotice}>
-            <Text style={s.emptyNoticeText}>아직 공지가 없어요</Text>
-            {canWriteNotice && (
-              <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={openNotice}>
-                <Text style={s.writeText}>공지 쓰기</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+        {showSkeleton ? (
+          skeletonBody
         ) : (
-          <View style={s.noticeList}>
-            {/* 목록은 있는데 갱신만 실패 — 기존 공지를 그대로 두고 한 줄로 알린다. */}
-            {noticeError && <Text style={s.bannerText}>공지를 새로고침하지 못했어요</Text>}
-            {noticeList.slice(0, NOTICE_PREVIEW).map((n) => (
-              <TouchableOpacity
-                key={n.id}
-                style={s.noticeCard}
-                activeOpacity={0.85}
-                onPress={openNotice}
-              >
-                <Text style={s.noticeTitle} numberOfLines={1}>
-                  {n.title}
-                </Text>
-                <Text style={s.noticeDate}>{fmtNoticeDate(n.createdAt)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+          <>
+            {/* ── 공지 ── */}
+            <View style={s.sectionHead}>
+              <Text style={s.sectionTitle}>공지</Text>
+              {noticeList.length > 0 && (
+                <TouchableOpacity
+                  style={s.moreRow}
+                  activeOpacity={0.7}
+                  onPress={openNotice}
+                  hitSlop={12}
+                >
+                  <Text style={s.moreLink}>모두보기</Text>
+                  <Ionicons name="chevron-forward" size={11} color={T.accent} />
+                </TouchableOpacity>
+              )}
+            </View>
 
-        {/* ── 챌린지(2차 §3-2) — 공지 아래·멤버 그리드 위 ── */}
-        <View style={s.sectionHead}>
-          <Text style={s.sectionTitle}>챌린지</Text>
-          {/* 조회 실패 중에는 이 진입점도 함께 막는다 — 아래 빈 상태의 '만들기'만 막으면
+            {/* 공지를 못 받은 채 목록이 비어 있음 — '없음'과 구분해서 알린다(문구·아이콘 모두 danger).
+            이 상태에선 작성 진입을 막는다(서버엔 이미 공지가 있는데 없다고 보고 또 쓰는 것을 예방). */}
+            {noticeFailed ? (
+              <View style={s.emptyNotice}>
+                <View style={s.emptyErrorRow}>
+                  <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
+                  <Text style={s.emptyErrorText}>공지를 불러오지 못했어요</Text>
+                </View>
+                <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
+                  <Text style={s.writeText}>다시 시도</Text>
+                </TouchableOpacity>
+              </View>
+            ) : noticeList.length === 0 ? (
+              <View style={s.emptyNotice}>
+                <Text style={s.emptyNoticeText}>아직 공지가 없어요</Text>
+                {canWriteNotice && (
+                  <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={openNotice}>
+                    <Text style={s.writeText}>공지 쓰기</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <View style={s.noticeList}>
+                {/* 목록은 있는데 갱신만 실패 — 기존 공지를 그대로 두고 한 줄로 알린다. */}
+                {noticeError && <Text style={s.bannerText}>공지를 새로고침하지 못했어요</Text>}
+                {noticeList.slice(0, NOTICE_PREVIEW).map((n) => (
+                  <TouchableOpacity
+                    key={n.id}
+                    style={s.noticeCard}
+                    activeOpacity={0.85}
+                    onPress={openNotice}
+                  >
+                    <Text style={s.noticeTitle} numberOfLines={1}>
+                      {n.title}
+                    </Text>
+                    <Text style={s.noticeDate}>{fmtNoticeDate(n.createdAt)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* ── 챌린지(2차 §3-2) — 공지 아래·멤버 그리드 위 ── */}
+            <View style={s.sectionHead}>
+              <Text style={s.sectionTitle}>챌린지</Text>
+              {/* 조회 실패 중에는 이 진입점도 함께 막는다 — 아래 빈 상태의 '만들기'만 막으면
               existingCombos가 빈 배열인 채로 시트가 열려, 서버에 이미 있는 조합을 고를 수
               있게 되고 생성은 ACTIVE_CHALLENGE_EXISTS로 확정 실패한다. */}
-          {isOwner && !challengeFailed && (
-            <TouchableOpacity
-              style={s.addBtn}
-              activeOpacity={0.7}
-              onPress={() => setComposeOpen(true)}
-              hitSlop={12}
-              accessibilityLabel="챌린지 만들기"
-              testID="group.challenge.add"
-            >
-              <Ionicons name="add" size={16} color={T.accent} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* 공지와 같은 규격 — 목록이 빈 채 실패면 '없음'으로 위장하지 않고 재시도를 세운다.
-            이 상태에선 만들기 진입도 막는다(서버에 이미 있는 챌린지를 중복 생성하면 409로 튕긴다). */}
-        {challengeFailed ? (
-          <View style={s.emptyNotice}>
-            <View style={s.emptyErrorRow}>
-              <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
-              <Text style={s.emptyErrorText}>챌린지를 불러오지 못했어요</Text>
-            </View>
-            <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
-              <Text style={s.writeText}>다시 시도</Text>
-            </TouchableOpacity>
-          </View>
-        ) : challengeList.length === 0 ? (
-          <View style={s.emptyNotice}>
-            <Text style={s.emptyNoticeText}>아직 챌린지가 없어요</Text>
-            {isOwner && (
-              <TouchableOpacity
-                style={s.writeBtn}
-                activeOpacity={0.85}
-                onPress={() => setComposeOpen(true)}
-              >
-                <Text style={s.writeText}>챌린지 만들기</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          <View style={s.noticeList}>
-            {/* 목록은 있는데 갱신만 실패 — 기존 카드를 그대로 두고 한 줄로 알린다. */}
-            {challengeError && <Text style={s.bannerText}>챌린지를 새로고침하지 못했어요</Text>}
-            {challengeList.map((c) => (
-              <ChallengeCard
-                key={c.id}
-                challenge={c}
-                isOwner={!!isOwner}
-                myUserId={userId}
-                onDelete={onDeleteChallenge}
-                // 재조회 실패 중에는 내기 진입도 함께 잠근다(GROMO-1026) — 지금 카드는 낡은
-                // 스냅샷이라, 그 팟·참가자를 보고 돈을 거는 요청을 서버는 정상 수락해 버린다.
-                // 오류 응답 분기로는 못 잡는 '잘못된 사전 표시'라 진입 자체를 막고,
-                // 다음 성공 조회(setChallengeError(false))가 다시 연다.
-                betLocked={betBusy || challengeError}
-                // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠져도 서버는 챌린지를
-                // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
-                // 표시가 반영되지 않은 낡은 카드가 화면에 남는다.
-                onBetChanged={load}
-                onOpenBet={(mode) =>
-                  setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
-                }
-              />
-            ))}
-          </View>
-        )}
-
-        {/* ── 멤버 ── */}
-        <View style={s.sectionHead}>
-          <Text style={s.sectionTitle}>멤버</Text>
-        </View>
-        <View style={s.grid}>
-          {memberRows.map((row, rowIdx) => (
-            <View key={`row-${rowIdx}`} style={s.gridRow}>
-              {row.map((cell) =>
-                cell.kind === 'invite' ? (
-                  <TouchableOpacity
-                    key="invite"
-                    style={[s.inviteTile, isFull && s.inviteTileOff]}
-                    activeOpacity={0.85}
-                    disabled={isFull}
-                    onPress={() => onInvite()}
-                  >
-                    <Ionicons name="add" size={22} color={isFull ? T.inkMuted : T.accent} />
-                    <Text style={[s.inviteTileText, isFull && s.inviteTileTextOff]}>
-                      {isFull ? '정원 가득' : '초대'}
-                    </Text>
-                  </TouchableOpacity>
-                ) : (
-                  <MemberTile
-                    key={cell.member.userId}
-                    nickname={cell.member.nickname}
-                    focusTimeMinutes={cell.member.focusTimeMinutes}
-                    totalFocusMinutes={cell.member.totalFocusMinutes}
-                    rank={cell.rank}
-                    isOwner={cell.member.role === 'OWNER'}
-                    isMe={cell.member.userId === userId}
-                    // GROMO-1200 멤버 선택 → 나와 통계 비교(리그 비교 화면 재사용).
-                    onPress={() => {
-                      // userId 없이는 isMe가 무조건 false라, 내 타일을 눌러도 나를 '타인'으로
-                      // 열어 나에게 친구 신청 버튼이 뜬다. 진입을 막는 편이 낫다
-                      // (리그 LeagueScreen의 `if (!myUserId) return;`과 같은 가드).
-                      if (!userId) return;
-                      navigation.navigate('FriendProfile', {
-                        userId: cell.member.userId,
-                        nickname: cell.member.nickname,
-                        // 그룹 멤버는 tier 미보유 → 플레이스홀더(FriendProfile이 getPublicProfile로 교정).
-                        tierLevel: 1,
-                        // 관계는 FriendProfile이 fetchFriends로 재동기화(초기값만 false).
-                        isFriend: false,
-                        // 본인 타일이면 비교 없이 내 통계만(리그 '내 행'과 동일, GROMO-940).
-                        isMe: cell.member.userId === userId,
-                      });
-                    }}
-                  />
-                ),
+              {isOwner && !challengeFailed && (
+                <TouchableOpacity
+                  style={s.addBtn}
+                  activeOpacity={0.7}
+                  onPress={() => setComposeOpen(true)}
+                  hitSlop={12}
+                  accessibilityLabel="챌린지 만들기"
+                  testID="group.challenge.add"
+                >
+                  <Ionicons name="add" size={16} color={T.accent} />
+                </TouchableOpacity>
               )}
-              {/* 마지막 행 빈 칸 — 남는 칸을 채워 타일 폭을 고정한다 */}
-              {Array.from({ length: COLS - row.length }).map((_, i) => (
-                <View key={`pad-${i}`} style={s.gridPad} />
+            </View>
+
+            {/* 공지와 같은 규격 — 목록이 빈 채 실패면 '없음'으로 위장하지 않고 재시도를 세운다.
+            이 상태에선 만들기 진입도 막는다(서버에 이미 있는 챌린지를 중복 생성하면 409로 튕긴다). */}
+            {challengeFailed ? (
+              <View style={s.emptyNotice}>
+                <View style={s.emptyErrorRow}>
+                  <Ionicons name="alert-circle-outline" size={15} color={T.dangerInk} />
+                  <Text style={s.emptyErrorText}>챌린지를 불러오지 못했어요</Text>
+                </View>
+                <TouchableOpacity style={s.writeBtn} activeOpacity={0.85} onPress={reload}>
+                  <Text style={s.writeText}>다시 시도</Text>
+                </TouchableOpacity>
+              </View>
+            ) : challengeList.length === 0 ? (
+              <View style={s.emptyNotice}>
+                <Text style={s.emptyNoticeText}>아직 챌린지가 없어요</Text>
+                {isOwner && (
+                  <TouchableOpacity
+                    style={s.writeBtn}
+                    activeOpacity={0.85}
+                    onPress={() => setComposeOpen(true)}
+                  >
+                    <Text style={s.writeText}>챌린지 만들기</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <View style={s.noticeList}>
+                {/* 목록은 있는데 갱신만 실패 — 기존 카드를 그대로 두고 한 줄로 알린다. */}
+                {challengeError && <Text style={s.bannerText}>챌린지를 새로고침하지 못했어요</Text>}
+                {challengeList.map((c) => (
+                  <ChallengeCard
+                    key={c.id}
+                    challenge={c}
+                    isOwner={!!isOwner}
+                    myUserId={userId}
+                    onDelete={onDeleteChallenge}
+                    // 재조회 실패 중에는 내기 진입도 함께 잠근다(GROMO-1026) — 지금 카드는 낡은
+                    // 스냅샷이라, 그 팟·참가자를 보고 돈을 거는 요청을 서버는 정상 수락해 버린다.
+                    // 오류 응답 분기로는 못 잡는 '잘못된 사전 표시'라 진입 자체를 막고,
+                    // 다음 성공 조회(setChallengeError(false))가 다시 연다.
+                    betLocked={betBusy || challengeError}
+                    // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠져도 서버는 챌린지를
+                    // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
+                    // 표시가 반영되지 않은 낡은 카드가 화면에 남는다.
+                    onBetChanged={load}
+                    onOpenBet={(mode) =>
+                      setBetSheet({ challengeId: c.id, mode, betId: c.bet?.betId ?? null })
+                    }
+                  />
+                ))}
+              </View>
+            )}
+
+            {/* ── 멤버 ── */}
+            <View style={s.sectionHead}>
+              <Text style={s.sectionTitle}>멤버</Text>
+            </View>
+            <View style={s.grid}>
+              {memberRows.map((row, rowIdx) => (
+                <View key={`row-${rowIdx}`} style={s.gridRow}>
+                  {row.map((cell) =>
+                    cell.kind === 'invite' ? (
+                      <TouchableOpacity
+                        key="invite"
+                        style={[s.inviteTile, isFull && s.inviteTileOff]}
+                        activeOpacity={0.85}
+                        disabled={isFull}
+                        onPress={() => onInvite()}
+                      >
+                        <Ionicons name="add" size={22} color={isFull ? T.inkMuted : T.accent} />
+                        <Text style={[s.inviteTileText, isFull && s.inviteTileTextOff]}>
+                          {isFull ? '정원 가득' : '초대'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <MemberTile
+                        key={cell.member.userId}
+                        nickname={cell.member.nickname}
+                        focusTimeMinutes={cell.member.focusTimeMinutes}
+                        totalFocusMinutes={cell.member.totalFocusMinutes}
+                        rank={cell.rank}
+                        isOwner={cell.member.role === 'OWNER'}
+                        isMe={cell.member.userId === userId}
+                        // GROMO-1200 멤버 선택 → 나와 통계 비교(리그 비교 화면 재사용).
+                        onPress={() => {
+                          // userId 없이는 isMe가 무조건 false라, 내 타일을 눌러도 나를 '타인'으로
+                          // 열어 나에게 친구 신청 버튼이 뜬다. 진입을 막는 편이 낫다
+                          // (리그 LeagueScreen의 `if (!myUserId) return;`과 같은 가드).
+                          if (!userId) return;
+                          navigation.navigate('FriendProfile', {
+                            userId: cell.member.userId,
+                            nickname: cell.member.nickname,
+                            // 그룹 멤버는 tier 미보유 → 플레이스홀더(FriendProfile이 getPublicProfile로 교정).
+                            tierLevel: 1,
+                            // 관계는 FriendProfile이 fetchFriends로 재동기화(초기값만 false).
+                            isFriend: false,
+                            // 본인 타일이면 비교 없이 내 통계만(리그 '내 행'과 동일, GROMO-940).
+                            isMe: cell.member.userId === userId,
+                          });
+                        }}
+                      />
+                    ),
+                  )}
+                  {/* 마지막 행 빈 칸 — 남는 칸을 채워 타일 폭을 고정한다 */}
+                  {Array.from({ length: COLS - row.length }).map((_, i) => (
+                    <View key={`pad-${i}`} style={s.gridPad} />
+                  ))}
+                </View>
               ))}
             </View>
-          ))}
-        </View>
+          </>
+        )}
       </ScrollView>
 
       {/* 그룹방 하단바(F2 Part2) — ▶ FAB는 이 그룹의 집중 세션(그룹 페이지 기본)으로 진입시킨다. */}
@@ -1194,6 +1264,9 @@ const s = StyleSheet.create({
     backgroundColor: T.accent,
   },
   writeText: { ...T.text.label, color: T.white },
+
+  // 로딩 자리표시자 묶음 — 바깥 s.content가 패딩을 주므로 블록 간 간격만 s.content와 맞춘다.
+  skeletonBody: { gap: T.space.md },
 
   grid: { gap: T.space.md },
   gridRow: { flexDirection: 'row', gap: T.space.md },
