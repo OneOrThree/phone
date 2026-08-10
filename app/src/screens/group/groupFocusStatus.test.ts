@@ -118,6 +118,26 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     pending.resolve([]);
     await Promise.all(requests);
   });
+
+  test('coverage-unknown 이후 실패에서는 이전 complete 숫자를 되살리지 않는다', async () => {
+    const rows100 = Array.from({ length: 100 }, (_, index) => member(String(index), false));
+    const load = jest
+      .fn()
+      .mockResolvedValueOnce([member('a', true)])
+      .mockResolvedValueOnce(rows100)
+      .mockRejectedValueOnce(new Error('network'));
+    const store = new GroupFocusStatusStore(load);
+
+    await store.ensure(USER_ID, DATE);
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('coverage-unknown');
+
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('error');
+    expect(deriveGroupFocusCount(['a'], store.getState(USER_ID, DATE))).toEqual({
+      status: 'unavailable',
+    });
+  });
 });
 
 describe('GroupFocusPollingController', () => {
@@ -180,11 +200,15 @@ describe('GroupFocusPollingController', () => {
     controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
     controller.activate();
     await flushPromises();
+    const oldDateListener = jest.fn();
+    store.subscribe(USER_ID, DATE, oldDateListener);
     date = '2026-08-11';
     jest.advanceTimersByTime(60_000);
 
     expect(load).toHaveBeenNthCalledWith(1, DATE);
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
+    expect(oldDateListener).toHaveBeenCalledTimes(1);
+    expect(store.getState(USER_ID, DATE).status).toBe('idle');
     controller.dispose();
   });
 });
