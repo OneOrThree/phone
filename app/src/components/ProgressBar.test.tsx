@@ -92,12 +92,23 @@ describe('ProgressBar', () => {
   // ⚠️ 회귀 방어(codex 리뷰) — CSS transition은 **이전 렌더와 값이 달라야** 실행된다.
   //    첫 렌더부터 최종 폭으로 그리면 채우기 연출이 통째로 재생되지 않는데, "화면에 들어올 때
   //    이미 계산된 진행률을 넘긴다"가 오히려 기본 사용 경로다. 첫 프레임 0%가 그 방지 장치다.
+  // ⚠️ 이 테스트는 **가짜 타이머가 필수**다. rAF 목이 setTimeout(0)이라, 실시간 타이머에서는
+  //    부하가 걸린 CI에서 render를 await 하는 사이에 진입 프레임이 이미 지나가 첫 단언이
+  //    '60%'를 본다(실제로 CI에서 났다). 시간을 우리가 밀어야 '첫 프레임'을 관찰할 수 있다.
   test('첫 프레임은 0%에서 시작해 목표 폭으로 전환된다 — 진입 시 채우기가 재생되게', async () => {
-    await render(<ProgressBar progress={0.6} color={T.accent} testID="bar" />);
-    expect(fillStyle('bar').width).toBe('0%');
-    await waitFor(() => expect(fillStyle('bar').width).toBe('60%'));
-    // 접근성 값은 첫 프레임부터 **최종값**이어야 한다 — VoiceOver가 0%를 읽으면 안 된다.
-    expect(screen.getByTestId('bar').props.accessibilityValue).toMatchObject({ now: 60 });
+    jest.useFakeTimers();
+    try {
+      await render(<ProgressBar progress={0.6} color={T.accent} testID="bar" />);
+      expect(fillStyle('bar').width).toBe('0%');
+      // 접근성 값은 첫 프레임부터 **최종값**이어야 한다 — VoiceOver가 0%를 읽으면 안 된다.
+      expect(screen.getByTestId('bar').props.accessibilityValue).toMatchObject({ now: 60 });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      expect(fillStyle('bar').width).toBe('60%');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('reduce=true면 전환 스타일도 2단계 진입도 없이 곧바로 최종 폭이다', async () => {

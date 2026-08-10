@@ -6,6 +6,8 @@ import {
   type WithSpringConfig,
   type WithTimingConfig,
 } from 'react-native-reanimated';
+import type { CSSAnimationProperties } from 'react-native-reanimated';
+import type { ViewStyle } from 'react-native';
 import { M, staggerDelay } from '@/constants/motion';
 import { useReduceMotion, useReduceMotionReady } from '@/hooks/useReduceMotion';
 
@@ -45,9 +47,23 @@ export type Motion = {
   /**
    * CSS 애니메이션 스타일·layout 애니메이션 prop을 reduce면 통째로 끈다.
    * RN이 스타일 배열의 undefined를 무시하므로 호출부에 조건문이 필요 없다:
-   *   `style={[s.card, m.css(enterUp(i))]}`
+   *   `style={[s.card, m.css(highlightSlide)]}` (⚠️ **진입 프리셋은 `enter()`를 쓴다**)
    */
   css<S>(style: S): S | undefined;
+  /**
+   * **진입 애니메이션 전용** CSS 스타일. `css()`와 하나 다르다 — '동작 줄이기'가 **확정되기
+   * 전에는 진입의 시작 프레임(`animationName.from`)을 돌려준다.**
+   *
+   * ⚠️ 진입 스타일에 `css()`를 쓰면 미확정 구간의 보수적 `reduce=true`가 스타일을 통째로
+   *    걷어내 요소가 **최종 상태로 먼저 노출**된다. 이후 `false`로 확정되면 이미 보이던 같은
+   *    노드에 애니메이션이 붙으며 `fillMode:'backwards'`의 시작 상태로 **사라졌다가 다시
+   *    나타난다.** 이 배치에서만 서로 다른 파일에서 8번 나왔다(결정 D-30).
+   *    시작 프레임에서 기다리면 어느 쪽으로 확정되든 이어지는 그림에 끊김이 없다.
+   *
+   * 시작 프레임을 못 찾는 스타일(키프레임에 `from`이 없음)은 `undefined`를 돌려준다 —
+   * 그런 프리셋은 진입용이 아니다.
+   */
+  enter(style: CSSAnimationProperties): CSSAnimationProperties | ViewStyle | undefined;
   /** reduce면 0. 단계 시퀀스는 지연만 없애고 **반드시 완주시킨다** — 아래 주석 참고. */
   delay(ms: number): number;
   /** reduce면 0. 아니면 staggerMaxSteps 상한을 적용한 시차. */
@@ -79,6 +95,13 @@ export function useMotion(): Motion {
       timing: (to, cfg) => (reduce ? to : withTiming(to, { ...cfg, reduceMotion: M.never })),
       spring: (to, cfg) => (reduce ? to : withSpring(to, { ...cfg, reduceMotion: M.never })),
       css: (style) => (reduce ? undefined : style),
+      enter: (style) => {
+        if (ready) return reduce ? undefined : style;
+        const frames = style.animationName;
+        return typeof frames === 'object' && frames !== null && 'from' in frames
+          ? (frames as { from: ViewStyle }).from
+          : undefined;
+      },
       delay: (ms) => (reduce ? 0 : ms),
       stagger: (index, step) => (reduce ? 0 : staggerDelay(index, step)),
     }),
