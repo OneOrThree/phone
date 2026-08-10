@@ -676,6 +676,8 @@ export default function GroupListScreen({
               >
                 <FindMoreCard
                   width={cardWidth}
+                  position={groups.length + 1}
+                  pageCount={pageCount}
                   onPress={() => {
                     if (!guideInputReady || guideVisible) return;
                     onFind();
@@ -768,6 +770,7 @@ export default function GroupListScreen({
       <TabGuideOverlay
         storageKey={STORAGE_KEYS.guideGroupDeck}
         steps={guideSteps}
+        accessibilityTitle="그룹 카드 안내"
         // blocking sheet와 RN Modal을 같은 commit에 마운트하지 않는다. state interruption은 아래
         // effect가 계측/queue를 정리하되, 렌더 경계에서는 blocker가 즉시 overlay를 내린다.
         visible={guideVisible && !guideBlocked}

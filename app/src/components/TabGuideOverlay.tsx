@@ -53,6 +53,7 @@ export function TabGuideOverlay({
   completionMode = 'internal',
   allowRequestClose = true,
   testID = 'guide.overlay',
+  accessibilityTitle,
 }: {
   storageKey: string;
   steps: GuideStep[];
@@ -62,11 +63,18 @@ export function TabGuideOverlay({
   completionMode?: 'internal' | 'external';
   allowRequestClose?: boolean;
   testID?: string;
+  accessibilityTitle?: string;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
+  const viewportKey = `${winW}x${winH}`;
   const [internalVisible, setInternalVisible] = useState(false);
   const [idx, setIdx] = useState(0);
-  const [hole, setHole] = useState<Hole>(null);
+  const [measuredHole, setMeasuredHole] = useState<{
+    viewportKey: string;
+    value: Hole;
+  } | null>(null);
+  // 화면 크기가 바뀐 첫 렌더부터 이전 좌표를 숨긴다. 새 anchor 측정이 끝날 때까지 전체 dim이다.
+  const hole = measuredHole?.viewportKey === viewportKey ? measuredHole.value : null;
   const holeReq = useRef(0); // 늦게 도착한 이전 스텝 측정 무시용
   // steps는 렌더마다 새 배열일 수 있어 ref로 최신값만 읽는다 — 스텝 전환 시에만 재측정
   const stepsRef = useRef(steps);
@@ -100,17 +108,20 @@ export function TabGuideOverlay({
     const measure = () => {
       if (req !== holeReq.current) return;
       if (st?.rect) {
-        setHole(scaleRect(st.rect));
+        setMeasuredHole({ viewportKey, value: scaleRect(st.rect) });
         return;
       }
       const node = st?.anchor?.current;
       if (!node) {
-        setHole(null);
+        setMeasuredHole({ viewportKey, value: null });
         return;
       }
       node.measureInWindow((x, y, w, h) => {
         if (req !== holeReq.current) return;
-        setHole(w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null);
+        setMeasuredHole({
+          viewportKey,
+          value: w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null,
+        });
       });
     };
 
@@ -119,7 +130,7 @@ export function TabGuideOverlay({
       return;
     }
 
-    setHole(null); // 스크롤로 화면이 움직이는 동안엔 전체 딤
+    setMeasuredHole({ viewportKey, value: null }); // 준비 동안엔 전체 딤
     try {
       const prepared = st.prepare();
       if (prepared && typeof prepared.then === 'function') {
@@ -130,7 +141,7 @@ export function TabGuideOverlay({
     } catch {
       measure();
     }
-  }, [visible, effectiveIdx]);
+  }, [visible, effectiveIdx, viewportKey]);
 
   if (!visible || !step) return null;
 
@@ -173,7 +184,7 @@ export function TabGuideOverlay({
         style={s.flex1}
         onPress={advance}
         accessibilityRole="button"
-        accessibilityLabel={`단계 ${idx + 1}/${steps.length}. ${step.text}. ${idx + 1 < steps.length ? '다음' : '시작'}`}
+        accessibilityLabel={`${accessibilityTitle ? `${accessibilityTitle}, ` : ''}단계 ${idx + 1}/${steps.length}. ${step.text}. ${idx + 1 < steps.length ? '다음' : '시작'}`}
         accessibilityActions={[
           { name: 'activate', label: idx + 1 < steps.length ? '다음' : '시작' },
         ]}
@@ -186,6 +197,7 @@ export function TabGuideOverlay({
         {hole ? (
           <>
             <View
+              testID={`${testID}.cutout`}
               style={[
                 s.cutout,
                 {
@@ -213,7 +225,7 @@ export function TabGuideOverlay({
             />
           </>
         ) : (
-          <View style={[s.dim, StyleSheet.absoluteFill]} />
+          <View testID={`${testID}.dim`} style={[s.dim, StyleSheet.absoluteFill]} />
         )}
 
         {/* 캐릭터 + 말풍선 */}

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Dimensions, View } from 'react-native';
 import { TabGuideOverlay, type GuideStep } from './TabGuideOverlay';
 import { logTabGuideCompleted } from '@/services/analyticsEvents';
 
@@ -72,4 +73,56 @@ test('마지막 단계에서 중단 후 재개해도 이전 prepare 없이 1단�
 
   expect(screen.getByLabelText('단계 1/4. 첫 단계. 다음')).toBeOnTheScreen();
   expect(lastPrepare).toHaveBeenCalledTimes(1);
+});
+
+test('접근성 제목을 단계 안내 앞에 포함한다', async () => {
+  await render(
+    <TabGuideOverlay
+      storageKey="gromo:guide:groupDeck:v1"
+      steps={[{ text: '카드를 확인해요', character }]}
+      visible
+      accessibilityTitle="그룹 카드 안내"
+    />,
+  );
+
+  expect(
+    screen.getByLabelText('그룹 카드 안내, 단계 1/1. 카드를 확인해요. 시작'),
+  ).toBeOnTheScreen();
+});
+
+test('화면 크기가 바뀌면 이전 spotlight를 숨기고 새 anchor를 다시 측정한다', async () => {
+  const originalWindow = Dimensions.get('window');
+  const originalScreen = Dimensions.get('screen');
+  const callbacks: ((x: number, y: number, w: number, h: number) => void)[] = [];
+  const anchor = {
+    current: {
+      measureInWindow: (callback: (x: number, y: number, w: number, h: number) => void) => {
+        callbacks.push(callback);
+      },
+    } as unknown as View,
+  };
+  const steps: GuideStep[] = [{ text: '대상', character, anchor }];
+  const view = await render(
+    <TabGuideOverlay storageKey="gromo:guide:resize" steps={steps} visible />,
+  );
+
+  await act(async () => callbacks[0]?.(10, 20, 100, 80));
+  expect(screen.getByTestId('guide.overlay.cutout')).toBeOnTheScreen();
+
+  await act(async () => {
+    Dimensions.set({
+      window: { ...originalWindow, width: originalWindow.height, height: originalWindow.width },
+      screen: { ...originalScreen, width: originalScreen.height, height: originalScreen.width },
+    });
+  });
+  await view.rerender(<TabGuideOverlay storageKey="gromo:guide:resize" steps={steps} visible />);
+
+  expect(screen.getByTestId('guide.overlay.dim')).toBeOnTheScreen();
+  expect(callbacks).toHaveLength(2);
+  await act(async () => callbacks[1]?.(30, 40, 120, 90));
+  expect(screen.getByTestId('guide.overlay.cutout')).toBeOnTheScreen();
+
+  await act(async () => {
+    Dimensions.set({ window: originalWindow, screen: originalScreen });
+  });
 });

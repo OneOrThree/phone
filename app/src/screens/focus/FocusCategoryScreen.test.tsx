@@ -16,7 +16,15 @@ let mockReady = false;
 let mockRouteParams: Record<string, unknown> | undefined;
 const mockNavigate = jest.fn();
 const mockSetParams = jest.fn();
+const mockAddNavigationListener = jest.fn();
 let mockAppStateHandler: ((state: AppStateStatus) => void) | null = null;
+let mockBlurHandler: (() => void) | null = null;
+const mockNavigation = {
+  navigate: mockNavigate,
+  goBack: jest.fn(),
+  setParams: mockSetParams,
+  addListener: mockAddNavigationListener,
+};
 // ⚠️ 두 export를 모두 목킹해야 한다 — 하나만 두면 나머지를 쓰는 코드가 undefined를 부른다.
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
@@ -34,7 +42,7 @@ jest.mock('@/components/liquidGlass', () => ({
 const WAIT_MS = MOCK_SLIDE_MS + 60;
 
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate, goBack: jest.fn(), setParams: mockSetParams }),
+  useNavigation: () => mockNavigation,
   useRoute: () => ({ params: mockRouteParams }),
 }));
 
@@ -131,6 +139,11 @@ beforeEach(() => {
   mockReady = false;
   mockRouteParams = undefined;
   mockAppStateHandler = null;
+  mockBlurHandler = null;
+  mockAddNavigationListener.mockImplementation((event: string, handler: () => void) => {
+    if (event === 'blur') mockBlurHandler = handler;
+    return jest.fn();
+  });
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     mockAppStateHandler = handler as (state: AppStateStatus) => void;
     return { remove: jest.fn() } as never;
@@ -167,6 +180,22 @@ test('카드 focus CTA 문맥은 앱 비활성 전환에서 즉시 취소한다'
   await renderScreen();
 
   await act(async () => mockAppStateHandler?.('background'));
+
+  expect(mockSetParams).toHaveBeenCalledWith({
+    interactionId: undefined,
+    interactionAcceptedAt: undefined,
+  });
+});
+
+test('카드 focus CTA 문맥은 route blur에서도 즉시 취소한다', async () => {
+  mockRouteParams = {
+    entrySource: 'group_card',
+    interactionId: 'interaction-before-blur',
+    interactionAcceptedAt: Date.now(),
+  };
+  await renderScreen();
+
+  await act(async () => mockBlurHandler?.());
 
   expect(mockSetParams).toHaveBeenCalledWith({
     interactionId: undefined,

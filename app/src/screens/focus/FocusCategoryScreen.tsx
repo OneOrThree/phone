@@ -60,6 +60,15 @@ export default function FocusCategoryScreen() {
     });
     return () => sub.remove();
   }, [navigation, params?.interactionId]);
+  useEffect(() => {
+    if (!params?.interactionId) return;
+    return navigation.addListener('blur', () => {
+      navigation.setParams({
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
+    });
+  }, [navigation, params?.interactionId]);
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();

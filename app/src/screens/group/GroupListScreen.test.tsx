@@ -322,6 +322,18 @@ describe('콜백', () => {
     ).toBeOnTheScreen();
   });
 
+  test('활성 찾기 카드의 접근성 이름에도 현재 페이지와 전체 페이지 수를 포함한다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const snapInterval = screen.getByTestId('group.list.items').props.snapToInterval;
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: snapInterval * 2 } },
+      });
+    });
+
+    expect(screen.getByLabelText('그룹 찾기, 현재 3/3 페이지')).toBeOnTheScreen();
+  });
+
   test('스크린리더 activate flip은 accessibility_action trigger로 기록한다', async () => {
     jest.useFakeTimers();
     const findNode = jest.spyOn(ReactNative, 'findNodeHandle').mockReturnValue(7);
