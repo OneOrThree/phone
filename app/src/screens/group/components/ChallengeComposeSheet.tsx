@@ -132,12 +132,10 @@ const WINDOW_SCREEN_TIME_CAPTION =
   '권한을 허용한 멤버만 참여해요. ' +
   '사용 시간은 15분 단위로 집계돼 오차가 있을 수 있어요. 앱 버전이나 기기 상태에 따라 집계가 늦거나 누락될 수 있어요';
 
-// 오늘 창이 이미 시작된 시간대로 만들 때의 안내 — 창은 반복되는 time-of-day라 오늘 몫만 놓칠 뿐
-// 챌린지는 정상 생성된다. 막지 않고 사실만 알린다. 기준은 창 **시작**이다(N35 — 창형 당일 회차는
-// 창 시작 전에만 개설되므로, 10:00에 09:00~12:00 창을 만들면 오늘은 이미 적용되지 않는다. 종료
-// 기준 안내는 09:00~12:00 사이 생성자를 "오늘부터"로 오인시킨다 — PR #565 codex 리뷰). 요일
-// 반복(§A3) 뒤로 "내일"이 다음 활성일이라는 보장이 없어져 「다음 도는 날」로 말한다(GROMO-1273).
-const WINDOW_PASSED_NOTE = '오늘 시간대가 이미 시작돼 다음 도는 날부터 적용돼요';
+// 오늘 창이 이미 지난 시간대로 만들 때의 안내 — 창은 반복되는 time-of-day라 오늘 몫만 지났을 뿐
+// 챌린지는 정상 생성된다. 막지 않고 사실만 알린다. 요일 반복(§A3) 뒤로 "내일"이 다음 활성일이라는
+// 보장이 없어져 「다음 도는 날」로 말한다(GROMO-1273).
+const WINDOW_PASSED_NOTE = '오늘 시간대가 지나 다음 도는 날부터 적용돼요';
 
 // 자정 걸침 창 금지(§A6-1·N25) — 요일이 회차를 가르는 축인데 창이 요일 경계를 넘으면 판정일·
 // 겹침 검사·정산 귀속이 전부 모호해진다. 서버도 시작<종료를 강제하므로(INVALID_MISSION_PARAMS)
@@ -219,14 +217,6 @@ function createErrorMessage(e: unknown): string {
         '요일이 겹치는 다른 시간대 챌린지와 시간이 겹치거나 간격이 15분보다 좁아요. ' +
         '겹치지 않는 요일을 고르거나 시간대를 15분 이상 띄워 주세요.'
       );
-    // 시트를 연 뒤 다른 기기에서 그룹장이 위임되면 화면 권한 정보가 낡는다 — 서버는
-    // NOT_OWNER(403)로 거부하는데 이건 재시도로 풀리지 않는 영구 실패라 "잠시 후 다시"로
-    // 안내하면 거짓말이다(codex 리뷰, PR #565).
-    // 구 서버는 NOT_OWNER, LLD v2 계약은 CHALLENGE_FORBIDDEN — 어느 쪽이 오든 같은 영구
-    // 실패다. 서버(B1)가 당장은 NOT_OWNER를 유지하지만 계약 코드도 함께 받아 앞뒤 호환.
-    case 'CHALLENGE_FORBIDDEN':
-    case 'NOT_OWNER':
-      return '그룹장만 챌린지를 만들 수 있어요. 그룹장이 바뀌었는지 확인해 주세요.';
     // 아래 4종은 클라가 선제 검증하므로 보통 오지 않는다 — 레이스·구클라 대비 전용 문구만 유지.
     case 'CHALLENGE_REPEAT_DAYS_REQUIRED':
       return '도는 요일을 하나 이상 골라 주세요.';
@@ -353,15 +343,14 @@ export default function ChallengeComposeSheet({
   // (칩 잠금·목표 클램프·지남 안내)을 전부 멈추고 안내 한 줄 + CTA 잠금으로 수렴시킨다.
   const windowValid = windowStart < windowEnd;
   const windowLength = windowValid ? windowEnd - windowStart : 0;
-  // 오늘 창이 이미 시작됐나 — **오늘이 도는 요일이고** KST 현재 시각이 창 시작을 넘겼을 때만
-  // 말이 된다(오늘 안 도는 챌린지에 이 안내는 거짓이다). 서버의 당일 개설 조건이 "창 시작
-  // 전"(N35)이라 안내 축도 시작이어야 한다 — 종료 축이면 창 진행 중 생성자가 오늘부터라고
-  // 오인한다. 판정 축은 반드시 KST 벽시계다 — 기기 로컬 시각은 비KST 기기에서 하루 어긋난다.
+  // 오늘 창이 이미 지났나 — **오늘이 도는 요일이고** KST 현재 시각이 종료를 넘겼을 때만 말이
+  // 된다(오늘 안 도는 챌린지에 "오늘 시간대가 지나"는 거짓 안내다). 판정 축은 반드시 KST
+  // 벽시계다 — 기기 로컬 시각을 쓰면 비KST 기기에서 하루 어긋난 안내가 뜬다.
   const windowPassedToday =
     isWindow &&
     windowValid &&
     repeatDays.includes(kstTodayRepeatDay()) &&
-    nowSecondsInZone('Asia/Seoul') >= windowStart * 60;
+    nowSecondsInZone('Asia/Seoul') >= windowEnd * 60;
   // 창 길이를 넘는 목표는 서버가 INVALID_MISSION_PARAMS로 거부한다 — 칩을 미리 잠근다.
   // (무효 창에서는 길이가 무의미하므로 잠그지 않는다 — 창 안내가 이미 CTA를 막고 있다.)
   const chipDisabled = (m: number): boolean => isWindow && windowValid && m > windowLength;
@@ -372,27 +361,9 @@ export default function ChallengeComposeSheet({
   //  · 하루형: 1 ≤ x ≤ 카테고리 상한(FOCUS 1,080 / SCREEN_TIME 720 — N51)
   //  · 창형: 0 < x ≤ 창 길이, SCREEN_TIME은 15분 배수(A6-3), FOCUS는 목표 > 5분(A6-4)
   // 빈 값은 치우는 중일 뿐이라 빨간 줄을 띄우지 않는다(CTA만 잠근다).
-  // 유효한 목표가 아예 없는 창 — SCREEN_TIME은 15분 미만(15분 배수 부재), FOCUS는 5분
-  // 이하(관용치 규칙상 목표 > 5 필요, A6-4). commitWindow가 목표를 비워두는데(빈 값 =
-  // 캡션 없이 CTA 잠금) 그러면 화면에 "왜 안 되는지"가 안 남고, 값을 넣으면 "5분보다
-  // 길어야"↔"최대 5분" 상충 안내가 번갈아 뜬다. 목표가 아니라 창 자체의 문제라 창 축에서
-  // 안내한다(codex 리뷰 2건, PR #565).
-  const windowTooShortForStep =
-    isWindow &&
-    windowValid &&
-    (missionCategory === 'SCREEN_TIME'
-      ? windowLength < SCREEN_TIME_STEP
-      : windowLength <= WINDOW_FOCUS_MIN_EXCLUSIVE);
   let durationValid = false;
   let durationCaption: string | null = null;
-  if (windowTooShortForStep) {
-    // 값 입력 여부와 무관하게 이 안내가 이긴다 — 달성 불가능한 안내로 덮이면 사용자는 그
-    // 값을 넣고 또 막힌다.
-    durationCaption =
-      missionCategory === 'SCREEN_TIME'
-        ? `시간대가 최소 ${SCREEN_TIME_STEP}분은 되어야 해요. 시간대를 늘려 주세요`
-        : `시간대가 ${WINDOW_FOCUS_MIN_EXCLUSIVE}분보다 길어야 해요. 시간대를 늘려 주세요`;
-  } else if (durationMinutes !== null) {
+  if (durationMinutes !== null) {
     if (!isWindow) {
       durationValid = durationMinutes >= 1 && durationMinutes <= DURATION_MAX[missionCategory];
       if (!durationValid) durationCaption = durationRangeCaption(missionCategory);
@@ -481,9 +452,7 @@ export default function ChallengeComposeSheet({
       const snapped =
         missionCategory === 'SCREEN_TIME'
           ? Math.floor(length / SCREEN_TIME_STEP) * SCREEN_TIME_STEP
-          : length > WINDOW_FOCUS_MIN_EXCLUSIVE
-            ? length
-            : 0; // FOCUS ≤5분 창 — 유효 목표가 없다(A6-4). 비워서 창 축 안내가 받는다
+          : length;
       // SCREEN_TIME 창이 15분 미만이면 유효한 15분 배수 목표 자체가 없다 — length 폴백은
       // 비눈금 값이라 CTA만 잠긴 채 남는다(지키려던 것과 정반대). 빈 값으로 비워 입력을
       // 다시 받는다(빈 값은 에러 캡션 없이 CTA만 잠근다).

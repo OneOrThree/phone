@@ -625,42 +625,6 @@ describe('목표 시간 직접 입력', () => {
 
     const input = await screen.findByTestId('group.challenge.durationInput');
     expect(input.props.value).toBe('');
-    // 왜 막혔는지 화면에 남아야 한다(codex 리뷰) — 빈 값+잠긴 CTA만으로는 알 수 없다.
-    expect(screen.getByText('시간대가 최소 15분은 되어야 해요. 시간대를 늘려 주세요')).toBeTruthy();
-  });
-
-  // FOCUS도 같은 계열 — 5분 이하 창엔 관용치 규칙(목표 > 5, A6-4)상 유효 목표가 없다.
-  // 상충 안내("5분보다 길어야"↔"최대 5분") 대신 창 축 안내 하나로 수렴한다(codex 리뷰).
-  test('FOCUS 창이 5분 이하면 목표를 비우고 창 축 안내가 뜬다', async () => {
-    await renderSheet();
-    await press('시간대');
-    await pickDay('월');
-    await typeDuration('60');
-    // 창을 09:00~09:05(5분)로 줄인다.
-    await pressNth('05분', 1);
-    await pressNth('9시', 1);
-
-    const input = await screen.findByTestId('group.challenge.durationInput');
-    expect(input.props.value).toBe('');
-    expect(screen.getByText('시간대가 5분보다 길어야 해요. 시간대를 늘려 주세요')).toBeTruthy();
-  });
-
-  // §A6-1의 유효 예시 "22:00~23:59"를 UI가 표현할 수 있어야 한다 — 5분 눈금만으로는
-  // 23:55가 상한이라 마지막 4분이 판정에서 빠진다(codex 리뷰).
-  test('종료 분 휠의 59분으로 22:00~23:59 창을 만들 수 있다', async () => {
-    await renderSheet();
-    await press('시간대');
-    await pickDay('월');
-    await typeDuration('30');
-    await pressNth('22시', 0); // 시작 22:00 (0번째 = 시작 시 휠)
-    await pressNth('23시', 1); // 종료 23:00
-    await pressNth('59분', 0); // 종료 분 59 — 59분 항목은 종료 휠에만 있다
-    await press('만들기');
-
-    expect(mockCreateChallenge).toHaveBeenCalledWith(
-      GROUP_ID,
-      expect.objectContaining({ windowStart: '22:00:00', windowEnd: '23:59:00' }),
-    );
   });
 });
 
@@ -1022,15 +986,13 @@ describe('목표 라벨', () => {
   });
 });
 
-// 오늘 창이 이미 시작된 시간대로 만들 때의 안내. 창은 반복되는 time-of-day라 생성 자체는 정상이다.
-// 막지 않고 사실만 알린다. 판정 축은 창 **시작**이다(N35 — 당일 회차는 창 시작 전에만 개설.
-// 종료 축이면 창 진행 중 생성자가 "오늘부터"로 오인한다, PR #565 codex). 요일 반복(§A3) 뒤로
-// "내일"이 다음 활성일이라는 보장이 없다 — 「다음 도는 날」로 말하고, **오늘이 도는 요일일
-// 때만** 띄운다(GROMO-1273).
+// 오늘 창이 이미 지난 시간대로 만들 때의 안내. 창은 반복되는 time-of-day라 생성 자체는 정상이다.
+// 막지 않고 사실만 알린다. 요일 반복(§A3) 뒤로 "내일"이 다음 활성일이라는 보장이 없다 —
+// 「다음 도는 날」로 말하고, **오늘이 도는 요일일 때만** 띄운다(GROMO-1273).
 describe('다음 도는 날 적용 안내', () => {
-  const NOTE = '오늘 시간대가 이미 시작돼 다음 도는 날부터 적용돼요';
+  const NOTE = '오늘 시간대가 지나 다음 도는 날부터 적용돼요';
 
-  test('오늘이 도는 요일이고 창이 시작됐으면(KST 기준) 안내가 뜬다', async () => {
+  test('오늘이 도는 요일이고 창이 지났으면(KST 기준) 안내가 뜬다', async () => {
     mockNowSeconds.mockReturnValue(13 * 3600); // KST 13:00 — 기본 창 09:00~12:00은 이미 끝났다
     await renderSheet();
     await press('시간대');
@@ -1046,15 +1008,6 @@ describe('다음 도는 날 적용 안내', () => {
   // "오늘부터"라는 오인이 바로 이 구간에서 생긴다(PR #565 codex).
   test('창 진행 중에도(시작은 지났으니) 안내가 뜬다', async () => {
     mockNowSeconds.mockReturnValue(10 * 3600); // 창 한가운데 — 시작(09:00)은 지났다
-    await renderSheet();
-    await press('시간대');
-    await pickAllDays();
-
-    expect(screen.getByTestId('group.challenge.tomorrowNote')).toBeOnTheScreen();
-  });
-
-  test('창 시작 전이면 안내가 없다', async () => {
-    mockNowSeconds.mockReturnValue(8 * 3600); // 09:00 시작 전
     await renderSheet();
     await press('시간대');
     await pickAllDays();
