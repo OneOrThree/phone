@@ -253,6 +253,9 @@ export default function GroupRoomScreen({
   // 다른 챌린지 푸시를 탭) 다시 무장한다.
   const focusPendingRef = useRef<string | null>(null);
   const focusKeyRef = useRef<string | null>(null);
+  // 탈퇴 감지(MEMBER_ONLY·NOT_FOUND) 시 이탈(onLeft)을 결과 모달 소비 뒤로 미루는 플래그
+  // (PR #566 리뷰 ② — 탈퇴자도 자기 정산 결과는 본다, N53·C8). 마지막 결과를 닫을 때 발화한다.
+  const pendingLeaveRef = useRef(false);
   // 지목 변경을 재조회로 잇기 위한 직전 값 — 아래 이펙트 주석 참고.
   const focusSeenRef = useRef<{ groupId: string; challengeId?: string }>({
     groupId,
@@ -278,6 +281,7 @@ export default function GroupRoomScreen({
     // 이전 그룹의 결과 모달도 즉시 접는다 — 전환 중 남의 그룹 결과가 새 화면 위에 뜨면 안 된다.
     resultShownAtRef.current = null;
     resultShownKeyRef.current = null;
+    pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
     setResultQueue([]);
     setDetail(null);
     setNotices(null);
@@ -328,6 +332,57 @@ export default function GroupRoomScreen({
     );
     if (seq !== requestSeqRef.current) return false;
 
+    // ── 챌린지 결과 모달 후보 산출(GROMO-1279) — 성공한 조회만으로 계산한다(부분 실패 무영향). ──
+    // 상세 처리보다 **먼저** 둔다(PR #566 리뷰 ②) — 탈퇴자(MEMBER_ONLY)의 onLeft 판단이 "지금
+    // 보여줄 결과가 있는가"를 알아야 하기 때문. 큐는 참가자 스코프라 멤버십과 무관하게 성립한다.
+    // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
+    let queuedResults = 0; // 이번 조회로 큐에 실린 결과 수 — 아래 탈퇴 분기의 이탈 유예 근거
+    const resultEntries =
+      myResultsResult.status === 'fulfilled' && Array.isArray(myResultsResult.value)
+        ? myResultsResult.value
+        : null;
+    if (resultEntries !== null && userId) {
+      const candidates = pickChallengeResults(resultEntries);
+      if (candidates.length > 0) {
+        const unseen = await filterUnseenChallengeResults(userId, candidates);
+        // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
+        if (seq !== requestSeqRef.current) return false;
+        // 푸시가 지목한 챌린지(GROMO-1088)는 같은 challengeId의 **최신 1건이 unseen일 때만**
+        // 큐 앞자리에 세우고 소비한다(PR #566 리뷰 ③). SESSION_END 푸시는 정산 **전**에 오므로
+        // 방금 끝난 회차는 아직 이 큐에 없다 — 이때 seen 우회로 지난 회차를 재노출하며 지목까지
+        // 소비하면, 정작 새 결과가 정산돼 도착했을 때 지목이 죽어 있다. 매치가 전부 본 결과뿐이면
+        // 소비하지 않고 유지한다("후보에 없으면 소비하지 않는다"와 같은 원리 — 다음 재조회가
+        // 이어받는다). candidates는 sessionDate 내림차순이라 첫 매치가 최신이다.
+        const focusId = focusPendingRef.current;
+        let focused: ChallengeResultCandidate[] = [];
+        if (focusId) {
+          const newest = candidates.find((c) => c.challengeId === focusId);
+          if (newest && unseen.some((u) => u.sessionId === newest.sessionId)) {
+            focused = [newest];
+            focusPendingRef.current = null;
+          }
+        }
+        const next = [
+          ...focused,
+          ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
+        ];
+        queuedResults = next.length;
+        setResultQueue((prev) => {
+          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
+          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
+          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
+          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
+          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
+          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
+          //    가려져 있던 결과는 노출 마커가 없어 unseen에 그대로 남으므로 next에서 잃지 않는다.
+          const head = prev[0];
+          if (!head) return next;
+          if (resultShownKeyRef.current !== head.sessionId) return next;
+          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
+        });
+      }
+    }
+
     if (detailResult.status === 'fulfilled') {
       setDetail(detailResult.value);
       loadedDateRef.current = date;
@@ -341,11 +396,22 @@ export default function GroupRoomScreen({
       // 부모가 빈 상태로 되돌린다(§3-2).
       const code = groupErrorCode(detailResult.reason);
       if (code === 'MEMBER_ONLY' || code === 'NOT_FOUND') {
-        // 부모가 이 화면을 내린다 — 로딩 플래그를 되돌릴 대상이 없으므로 최신 아님으로 반환한다.
-        onLeft();
-        return false;
+        // 탈퇴자도 자기 정산 결과는 본다(N53·C8 — PR #566 리뷰 ②): 방금 큐에 실린 결과 또는
+        // 이미 떠 있는 모달이 있으면 onLeft를 **미룬다** — 마지막 결과를 닫을 때 onResultClose가
+        // 이어서 부른다. 결과 큐는 참가자 스코프라 멤버십을 잃어도 응답에 온다. 배경은 에러
+        // 분기로 세워 둔다(전면 다크 모달 뒤라 보이지 않고, 모달이 닫히면 곧 부모가 화면을 내린다).
+        if (queuedResults > 0 || resultShownKeyRef.current !== null || pendingLeaveRef.current) {
+          pendingLeaveRef.current = true;
+          setError(true);
+        } else {
+          // 보여줄 결과가 없으면 종전대로 즉시 — 부모가 이 화면을 내린다(로딩 플래그를 되돌릴
+          // 대상이 없으므로 최신 아님으로 반환).
+          onLeft();
+          return false;
+        }
+      } else {
+        setError(true);
       }
-      setError(true);
     }
 
     if (noticeResult.status === 'fulfilled') {
@@ -382,50 +448,6 @@ export default function GroupRoomScreen({
       }
     } else {
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
-    }
-
-    // ── 챌린지 결과 모달 후보 산출(GROMO-1279) — 성공한 조회만으로 계산한다(부분 실패 무영향). ──
-    // Array.isArray 방어: allSettled는 mock·구서버의 비정상 값도 fulfilled로 통과시킨다.
-    const resultEntries =
-      myResultsResult.status === 'fulfilled' && Array.isArray(myResultsResult.value)
-        ? myResultsResult.value
-        : null;
-    if (resultEntries !== null && userId) {
-      const candidates = pickChallengeResults(resultEntries);
-      if (candidates.length > 0) {
-        const unseen = await filterUnseenChallengeResults(userId, candidates);
-        // 가드 조회를 기다리는 사이 새 조회·그룹 전환이 끼어들었으면 이 결과는 낡았다.
-        if (seq !== requestSeqRef.current) return false;
-        // 푸시가 지목한 챌린지는 **1회 가드를 건너뛰고** 큐 앞자리에 세운다(GROMO-1088) —
-        // 사용자가 알림을 직접 탭한 명시적 요청이라, 앱을 먼저 열어 이미 본 결과여도 응해야 한다.
-        // 후보에 없으면(아직 정산 전) 소비하지 않고 다음 조회로 넘긴다.
-        // ⚠️ 최신 1건으로 좁힌다(PR #566 리뷰) — 요일 반복에서 같은 challengeId의 지난 회차가
-        //    큐(30일)에 여럿 남는데, 푸시(challengeId만 싣는다)가 가리키는 건 방금 정산된
-        //    회차 하나다. 전부 우회시키면 이미 본 지난 회차까지 앞자리에 재노출된다.
-        //    candidates는 sessionDate 내림차순(pickChallengeResults)이라 [0]이 최신이다.
-        const focusId = focusPendingRef.current;
-        const focused = focusId
-          ? candidates.filter((c) => c.challengeId === focusId).slice(0, 1)
-          : [];
-        if (focused.length > 0) focusPendingRef.current = null;
-        const next = [
-          ...focused,
-          ...unseen.filter((c) => !focused.some((f) => f.sessionId === c.sessionId)),
-        ];
-        setResultQueue((prev) => {
-          // 떠 있는 모달(맨 앞)은 유지한다 — 노출 마커 기록 전에 재조회가 끼어들어도
-          // 보고 있던 결과가 사라지거나, 닫은 뒤 같은 결과가 또 뜨지 않게 한다.
-          // ⚠️ 유지하는 것은 **실제로 떠 있는** 모달뿐이다(코덱스 리뷰). 다른 시트(⋯ 메뉴·만들기·
-          //    내기·초대)에 가려 대기 중인 결과까지 맨 앞에 붙들면, 그 사이 탭한 지목이 뒤로 밀려
-          //    시트를 닫았을 때 사용자가 누른 결과가 아니라 무관한 결과가 먼저 열린다.
-          //    '떠 있는가'의 기준은 노출 이펙트가 세우고 닫을 때 비우는 resultShownKeyRef다.
-          //    가려져 있던 결과는 노출 마커가 없어 unseen에 그대로 남으므로 next에서 잃지 않는다.
-          const head = prev[0];
-          if (!head) return next;
-          if (resultShownKeyRef.current !== head.sessionId) return next;
-          return [head, ...next.filter((c) => c.sessionId !== head.sessionId)];
-        });
-      }
     }
     return true;
   }, [groupId, onLeft, userId, refreshCoins]);
@@ -540,6 +562,10 @@ export default function GroupRoomScreen({
     // 가드 키는 계정 스코프다(IA §8) — userId 없이는 큐 자체가 만들어지지 않아(load의 userId
     // 가드) 여기 도달하지 않지만, 방어적으로 있을 때만 기록한다.
     if (userId) markChallengeResultSeen(userId, currentResult.sessionId, currentResult.date);
+    // 정산 결과를 보여주는 순간 잔액도 맞춘다(PR #566 리뷰 ⑤) — 결과 큐가 그룹 무관 소스(N53)가
+    // 되며 다른 그룹·ENDED 챌린지의 정산은 현재 방의 settledBetSignature가 감지하지 못한다.
+    // 중복 호출 무해(서버 재조회일 뿐)·실패 무해(refreshCoins는 throw 없이 false — 다음 조회 재시도).
+    refreshCoins();
     logGroupChallengeResultShown({
       // 소스가 /me/challenge-results로 바뀌며(N53) 미션 메타가 응답에 없다 — 대신 정산 결말을
       // 싣는다(무산·환불 노출도 이 이벤트가 세야 한다).
@@ -549,7 +575,7 @@ export default function GroupRoomScreen({
       achiever_count: currentResult.achievers.length,
       member_count: currentResult.memberCount,
     });
-  }, [resultVisible, currentResult, userId]);
+  }, [resultVisible, currentResult, userId, refreshCoins]);
 
   const onResultClose = useCallback(() => {
     const shownAt = resultShownAtRef.current;
@@ -557,7 +583,13 @@ export default function GroupRoomScreen({
     resultShownKeyRef.current = null;
     if (shownAt !== null) logGroupChallengeResultClosed({ dwell_ms: Date.now() - shownAt });
     setResultQueue((queue) => queue.slice(1));
-  }, []);
+    // 탈퇴 감지로 미뤄 둔 이탈(PR #566 리뷰 ②) — 마지막 결과를 닫는 순간 부모에게 넘긴다.
+    // resultQueue.length는 이 콜백의 클로저 값(방금 닫은 장 포함)이라 1 이하 = 이번이 마지막.
+    if (pendingLeaveRef.current && resultQueue.length <= 1) {
+      pendingLeaveRef.current = false;
+      onLeft();
+    }
+  }, [resultQueue.length, onLeft]);
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
@@ -664,6 +696,13 @@ export default function GroupRoomScreen({
     </TouchableOpacity>
   ) : null;
 
+  // 상세 도착 전(로딩·에러) 분기에도 결과 모달은 그린다(PR #566 리뷰 ②) — 탈퇴자(MEMBER_ONLY)는
+  // detail이 영영 없어서, 본문 분기에만 모달을 두면 참가자 스코프 결과 큐가 화면에 닿지 못한다.
+  const resultModal =
+    resultVisible && currentResult !== null ? (
+      <ChallengeResultModal result={currentResult} onClose={onResultClose} />
+    ) : null;
+
   // ── 최초 로딩 — 중앙 스피너(§5-4) ──
   if (loading && !detail) {
     return (
@@ -672,11 +711,14 @@ export default function GroupRoomScreen({
         <View style={s.center}>
           <ActivityIndicator color={T.accent} />
         </View>
+        {resultModal}
       </View>
     );
   }
 
   // ── 에러 + 다시 시도 ──
+  // 탈퇴 유예(pendingLeaveRef) 중에는 이 화면이 결과 모달의 배경이다 — 전면 다크 모달 뒤라
+  // 보이지 않고, 마지막 결과를 닫으면 onResultClose가 onLeft로 잇는다(PR #566 리뷰 ②).
   if (error && !detail) {
     return (
       <View style={s.fill}>
@@ -688,6 +730,7 @@ export default function GroupRoomScreen({
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
+        {resultModal}
       </View>
     );
   }
@@ -996,9 +1039,7 @@ export default function GroupRoomScreen({
       )}
 
       {/* ── 챌린지 결과 모달(A3) — 큐 맨 앞 한 장. 닫으면 다음 결과로 넘어간다 ── */}
-      {resultVisible && currentResult !== null && (
-        <ChallengeResultModal result={currentResult} onClose={onResultClose} />
-      )}
+      {resultModal}
     </>
   );
 }

@@ -3,11 +3,10 @@
 // 서버(392)는 firebase-admin으로 발송한다. iOS는 오는 알림을 표시/라우팅만 담당한다.
 import messaging, { type FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import * as Notifications from 'expo-notifications';
-import { api, getFreshAccessToken, getUserIdFromToken } from '@/services/api';
+import { api } from '@/services/api';
 import { addToInbox } from '@/services/notificationInbox';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
-import { flushPendingFocusUploads } from '@/screens/focus/pendingFocusUploads';
-import { syncWindowUsage } from '@/services/screentimeSync';
+import { isSilentFlush, runSilentFlush } from '@/services/pushBackground';
 import {
   logNotificationOpened,
   logNotificationPermissionResult,
@@ -125,31 +124,6 @@ function saveToInbox(msg: FirebaseMessagingTypes.RemoteMessage | null): void {
 // 캐시된 콜드스타트 딥링크로 재이동하지 않도록 가드한다.
 let initialNotificationHandled = false;
 
-// ── 사일런트(data-only) 푸시 → 업로드 큐 flush (GROMO-1286 · FR-22 · LLD §6.2) ──
-// 서버는 창형 정산 그레이스에 앱을 깨워(iOS content-available) 마지막 보고를 시킨다.
-// 화면 이동·배너 없음(IA §4.2 — 사일런트 행은 "큐 flush 전용")이다.
-
-// 이 메시지가 flush 트리거인가 — 계약 키는 data.silent === 'flush'(LLD §6.2 배선 스케치).
-function isSilentFlush(data?: Record<string, unknown>): boolean {
-  return data?.silent === 'flush';
-}
-
-// flush 본체 — 집중 세션 재시도 큐 + 창 사용분 보고(1420과 같은 탐색축: GET /me/bet-sessions).
-// 백그라운드 컨텍스트라 React 트리(UserContext)가 없다 — 계정은 저장된 토큰에서 직접 판별한다.
-// iOS 백그라운드 실행 시간 제약 안에서 '수신 즉시 sync 킥'이 최선이고, 각 단계 실패는 삼킨다
-// (둘 다 멱등 — 다음 포그라운드 sync가 최신값으로 재시도한다).
-async function runSilentFlush(): Promise<void> {
-  try {
-    const token = await getFreshAccessToken();
-    const userId = token ? getUserIdFromToken(token) : null;
-    if (!userId) return; // 게스트·로그아웃 — flush할 계정 큐가 없다
-    await flushPendingFocusUploads(userId).catch(() => {});
-    await syncWindowUsage(userId).catch(() => {});
-  } catch {
-    // 토큰 조회 실패 포함 — 백그라운드라 알릴 곳이 없다. 포그라운드 sync가 흡수한다.
-  }
-}
-
 // 1) FCM 토큰 발급 + 서버 등록. 로그인(토큰 보유) 상태에서만 호출.
 // 알림 권한 요청은 여기가 유일한 지점 — 미결정(NOT_DETERMINED)일 때만 1회 요청해
 // 토큰 등록 기회를 주고, 이미 결정된 상태면 상태만 확인한다(중복 프롬프트 없음).
@@ -182,15 +156,9 @@ export async function registerPushToken(): Promise<string | null> {
 export function setupPushListeners(): () => void {
   const unsubscribers: Array<() => void> = [];
 
-  // 백그라운드 data-only 수신 → flush(GROMO-1286). setBackgroundMessageHandler는 해제 API가
-  // 없는 단일 핸들러라(재호출 = 교체) teardown 없이 등록만 한다 — 핸들러 자체가 flush 전용이라
-  // 재로그인으로 재등록돼도 동작이 같다.
-  // ⚠️ 앱이 **종료(killed)** 상태면 iOS는 사일런트 푸시로 JS를 깨우지 않을 수 있다(전원/저전력
-  // 정책) — 이 배선은 백그라운드 생존 중인 앱까지가 목표고, 종료 상태 유실은 다음 포그라운드
-  // sync가 흡수한다(서버 upsert 멱등).
-  messaging().setBackgroundMessageHandler(async (msg) => {
-    if (isSilentFlush(msg?.data)) await runSilentFlush();
-  });
+  // 백그라운드 data-only 수신 → flush 배선은 **index.ts 최상위**가 pushBackground.
+  // registerBackgroundFlushHandler로 담당한다(codex 리뷰 ① — 종료 상태 headless 기동은 이펙트
+  // 도달 전이라 여기서 등록하면 늦는다). 이 함수는 포그라운드 수신 경로만 배선한다.
 
   // 토큰 갱신 → 재등록
   unsubscribers.push(messaging().onTokenRefresh((token) => putDeviceToken(token)));

@@ -7,8 +7,11 @@
 //     서버는 link를 싣지 않는 계약이라 이 배선이 없으면 탭해도 아무 데도 안 간다.
 //  3) BET_VOID_REFUND는 그룹방까지만 — challenge 파라미터를 싣지 않는다(N48 이중 통지 금지).
 //  4) 미지원 타입 + groupId는 그룹 탭 폴백 — 크래시·무반응 금지.
-//  5) 사일런트(data.silent='flush') 수신 → 업로드 큐 flush(집중 세션 + 창 사용분, 1420과 같은 축).
+//  5) 사일런트(data.silent='flush') 수신 → 업로드 큐 flush(창 사용분 먼저 — 1420과 같은 축).
+//     백그라운드 등록은 pushBackground.registerBackgroundFlushHandler(index.ts 최상위) 몫이다 —
+//     PushGate 이펙트 등록만으로는 종료 상태 headless 기동에서 no-op이 메시지를 삼킨다(리뷰 ①).
 import { handleInitialNotification, setupPushListeners } from './push';
+import { registerBackgroundFlushHandler } from './pushBackground';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
 import { flushPendingFocusUploads } from '@/screens/focus/pendingFocusUploads';
 import { syncWindowUsage } from '@/services/screentimeSync';
@@ -204,29 +207,40 @@ describe('레거시 폴백(구 바이너리 호환 — 제거하지 않는다)',
 });
 
 // 사일런트 data-only 푸시 → 업로드 큐 flush (GROMO-1286 · FR-22). 화면 이동·배너 없음.
+// 백그라운드 핸들러는 index.ts 최상위가 registerBackgroundFlushHandler로 등록한다(리뷰 ①).
 describe('사일런트 flush(data.silent=flush)', () => {
   const silent = { messageId: 'm-silent', data: { silent: 'flush' } };
 
-  test('백그라운드 수신 — 집중 세션 큐와 창 사용분 sync를 깨운다(1420과 같은 탐색축)', async () => {
-    setupPushListeners();
+  test('백그라운드(index.ts 등록) 수신 — 창 사용분 sync **먼저**, 그다음 집중 큐(리뷰 ④)', async () => {
+    registerBackgroundFlushHandler();
     await backgroundHandler?.(silent);
 
-    expect(mockFlushFocus).toHaveBeenCalledWith('me');
     expect(mockSyncWindow).toHaveBeenCalledWith('me');
+    expect(mockFlushFocus).toHaveBeenCalledWith('me');
+    // 순서 락 — 사일런트 실행 시간 제한에서 집중 큐(최대 50건 순차)가 먼저 돌면 이 푸시의
+    // 존재 이유(FR-22 마지막 창 보고)에 도달하지 못한다.
+    expect(mockSyncWindow.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFlushFocus.mock.invocationCallOrder[0],
+    );
     expect(mockNavigateToDeepLink).not.toHaveBeenCalled(); // 화면 이동 없음(IA §4.2)
+  });
+
+  test('setupPushListeners는 백그라운드 핸들러를 등록하지 않는다 — index.ts 선등록을 덮으면 안 된다', () => {
+    setupPushListeners();
+    expect(backgroundHandler).toBeNull();
   });
 
   test('포그라운드 수신 — flush만 하고 빈 로컬 배너를 만들지 않는다', async () => {
     setupPushListeners();
     await messageHandler?.(silent);
 
-    expect(mockFlushFocus).toHaveBeenCalledWith('me');
     expect(mockSyncWindow).toHaveBeenCalledWith('me');
+    expect(mockFlushFocus).toHaveBeenCalledWith('me');
     expect(scheduleNotificationAsync).not.toHaveBeenCalled();
   });
 
   test('silent가 아닌 백그라운드 메시지는 flush를 깨우지 않는다', async () => {
-    setupPushListeners();
+    registerBackgroundFlushHandler();
     await backgroundHandler?.(message({ type: 'BET_RESULT', groupId: GROUP_ID }));
 
     expect(mockFlushFocus).not.toHaveBeenCalled();
@@ -235,7 +249,7 @@ describe('사일런트 flush(data.silent=flush)', () => {
 
   test('로그아웃(토큰 없음)이면 flush하지 않는다 — 남의 계정 큐를 만들지 않는다', async () => {
     getFreshAccessToken.mockResolvedValue(null);
-    setupPushListeners();
+    registerBackgroundFlushHandler();
     await backgroundHandler?.(silent);
 
     expect(mockFlushFocus).not.toHaveBeenCalled();
@@ -245,7 +259,16 @@ describe('사일런트 flush(data.silent=flush)', () => {
   test('flush 실패는 삼킨다 — 수신 핸들러가 던지면 다음 푸시 처리까지 죽는다', async () => {
     mockFlushFocus.mockRejectedValue(new Error('network'));
     mockSyncWindow.mockRejectedValue(new Error('network'));
-    setupPushListeners();
+    registerBackgroundFlushHandler();
     await expect(backgroundHandler?.(silent)).resolves.toBeUndefined();
+  });
+
+  test('이중 실행 멱등 — 두 번 수신해도 각 단계가 그대로 다시 돌 뿐 부작용이 없다', async () => {
+    registerBackgroundFlushHandler();
+    await backgroundHandler?.(silent);
+    await backgroundHandler?.(silent);
+    // 창 보고는 upsert+measuredAt 역전 무시(N34), 집중 큐는 flushing 가드 — 호출 자체는 매번 나간다.
+    expect(mockSyncWindow).toHaveBeenCalledTimes(2);
+    expect(mockFlushFocus).toHaveBeenCalledTimes(2);
   });
 });

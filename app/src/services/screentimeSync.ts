@@ -639,6 +639,15 @@ export async function syncWindowUsage(userId: string): Promise<void> {
     }
     return;
   }
+  // 권한 검사(codex 리뷰 ⑥) — 포그라운드 진입점(syncScreenTimeUsage)만 권한을 보면 **사일런트
+  // 푸시 직행 경로**(pushBackground.runSilentFlush → 이 함수)가 권한 철회 후 잔존 타임라인으로
+  // 과소 보고할 수 있다 — 스크린타임은 낮을수록 유리라 곧 허위 달성이다. 모든 호출 경로 공통
+  // 방어로 여기서 직접 확인하고, 조회 실패도 스킵한다(오보고 금지 — 다음 sync가 재시도).
+  try {
+    if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return;
+  } catch {
+    return;
+  }
   // 버킷 모니터가 이 계정 소유로 등록돼 있을 때만 — 미등록(측정 대상 미선택)이면 타임라인이
   // 항상 비어 '0분 사용'과 '미측정'이 구분되지 않는다(일일 동기화의 0분 스킵과 같은 취지).
   // 미보고면 서버가 판정불가로 두는 게 맞고, 0분 오보고는 스크린타임 창 내기의 오달성이 된다.

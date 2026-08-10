@@ -1577,6 +1577,9 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     await waitFor(async () => {
       expect(await AsyncStorage.getItem('gromo:sessionResult:me:s1')).toBe('2026-07-31');
     });
+    // 잔액 동기화(PR #566 리뷰 ⑤) — 결과 큐는 그룹 무관 소스라 현재 방 서명이 못 잡는 정산
+    // (다른 그룹·ENDED)도 실려 온다. 모달 노출 = 정산 통지이므로 그 순간 잔액을 다시 받는다.
+    expect(mockRefreshCoins).toHaveBeenCalled();
 
     // 닫으면 사라진다.
     await act(async () => {
@@ -1665,6 +1668,50 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
     expect(screen.queryByTestId('group.challengeResult')).toBeNull();
   });
 
+  // 탈퇴자도 자기 정산 결과는 본다(N53·C8 — PR #566 리뷰 ②). 카드 조회는 멤버십 검증으로
+  // 막히지만(MEMBER_ONLY) 결과 큐는 참가자 스코프라 응답에 온다 — onLeft로 화면을 내리기 전에
+  // 모달부터 소비시키고, 마지막 결과를 닫을 때 이탈을 잇는다.
+  describe('탈퇴자(MEMBER_ONLY)의 결과 소비 후 이탈', () => {
+    test('결과가 있으면 onLeft를 미루고 모달부터 보여준다 — 닫으면 그때 onLeft', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockResolvedValue([
+        resultEntry(),
+        resultEntry({ sessionId: 's2', sessionDate: '2026-07-30' }),
+      ]);
+      await renderRoom();
+
+      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(onLeft).not.toHaveBeenCalled();
+
+      // 첫 장을 닫아도 아직 — 큐가 남아 있다.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+      });
+      expect(screen.getByTestId('group.challengeResult')).toBeOnTheScreen();
+      expect(onLeft).not.toHaveBeenCalled();
+
+      // 마지막 장을 닫는 순간 부모에게 넘긴다.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
+      });
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+      expect(onLeft).toHaveBeenCalledTimes(1);
+    });
+
+    test('보여줄 결과가 없으면 종전대로 즉시 onLeft', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await renderRoom();
+
+      expect(onLeft).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+    });
+  });
+
   test('결과 조회가 실패해도 방 화면은 무영향이다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -1687,20 +1734,33 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       return result;
     }
 
-    test('이미 본 결과(1회 가드 기록됨)여도 모달을 연다', async () => {
+    // SESSION_END 푸시는 정산 **전**에 온다 — 방금 끝난 회차는 아직 큐에 없고, 있는 것은 지난
+    // (이미 본) 회차뿐이다. 이때 seen 우회로 지난 회차를 재노출하며 지목을 소비하면, 새 결과가
+    // 정산돼 도착했을 때 지목이 죽어 있다(PR #566 리뷰 ③).
+    test('매치가 전부 본 결과뿐이면 재노출하지 않고 지목을 유지한다 — 새 결과 도착 시 그때 연다', async () => {
       await AsyncStorage.setItem('gromo:sessionResult:me:s1', '2026-07-31');
       mockGetGroupDetail.mockResolvedValue(detail());
       mockGetAnnouncements.mockResolvedValue([]);
-      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]); // s1 — 이미 본 지난 회차
 
       await renderWithFocus('c1');
 
+      // 재노출 없음 — 지난 회차가 다시 뜨면 사용자는 그것이 방금 결과인 줄 안다.
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+
+      // 정산이 끝나 새 회차가 도착한 재조회 — 유지된 지목이 그때 소비된다.
+      mockGetMyChallengeResults.mockResolvedValue([
+        resultEntry(),
+        resultEntry({ sessionId: 's2', sessionDate: '2026-08-01' }),
+      ]);
+      await blur();
+      await focus();
+
       expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
-      expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
+      expect(screen.getByText('8월 1일 결과')).toBeOnTheScreen();
     });
 
     test('닫은 뒤 재조회에서 다시 뜨지 않는다(1회 소비 + 노출 가드)', async () => {
-      await AsyncStorage.setItem('gromo:sessionResult:me:s1', '2026-07-31');
       mockGetGroupDetail.mockResolvedValue(detail());
       mockGetAnnouncements.mockResolvedValue([]);
       mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);

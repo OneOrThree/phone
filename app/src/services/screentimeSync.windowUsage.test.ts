@@ -117,6 +117,8 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
   mockSupports.mockReturnValue(true);
+  // 권한 검사(codex ⑥)는 syncWindowUsage 내부 공통 방어다 — 기본은 허용 상태로 깔아 둔다.
+  (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('approved');
   mockGetEvents.mockResolvedValue([]);
   // 비KST 시뮬레이션 테스트가 남긴 치환을 실물 위임으로 복구 — clearAllMocks는 구현을 지우지
   // 않으므로 매 테스트 기본 구현을 다시 심는다.
@@ -331,6 +333,24 @@ describe('syncWindowUsage — 가드', () => {
     expect(mockGetSessions).not.toHaveBeenCalled();
     expect(mockPut).not.toHaveBeenCalled();
     expect(mockLogUnsupported).toHaveBeenCalledTimes(1);
+  });
+
+  // 사일런트 푸시 직행 경로(pushBackground → syncWindowUsage)는 syncScreenTimeUsage의 권한
+  // 검사를 지나지 않는다 — 권한 철회 후 잔존 타임라인으로 과소 보고(허위 달성)하지 않게
+  // 이 함수가 스스로 확인해야 한다(codex 리뷰 ⑥).
+  test('스크린타임 권한이 approved가 아니면 스킵 — 잔존 타임라인 과소 보고 금지', async () => {
+    (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockResolvedValue('denied');
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, USER_ID);
+    await syncWindowUsage(USER_ID);
+    expect(mockGetSessions).not.toHaveBeenCalled();
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  test('권한 조회가 실패해도 스킵한다 — 확신 없는 보고를 만들지 않는다', async () => {
+    (ScreenTimeModule.getAuthorizationStatus as jest.Mock).mockRejectedValue(new Error('native'));
+    await AsyncStorage.setItem(STORAGE_KEYS.screentimeBucketMonitorRegistered, USER_ID);
+    await syncWindowUsage(USER_ID); // throw 없이 끝나야 한다
+    expect(mockPut).not.toHaveBeenCalled();
   });
 
   test('버킷 모니터가 이 계정 소유가 아니면 스킵 — 미측정 0분을 오보고하지 않는다', async () => {
