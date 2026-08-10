@@ -2,7 +2,9 @@
 // (동작이 없는 버튼에 소리·햅틱·스케일이 남으면 피드백 언어가 어긋난다)
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { StyleSheet } from 'react-native';
 import { TabBar } from './TabBar';
+import { tabBarSafeBottom } from './tabBarLayout';
 import { playTapSound } from '@/utils/sound';
 import { hapticSelect } from '@/utils/haptics';
 
@@ -77,6 +79,30 @@ describe('TabBar 피드백 정책', () => {
     await renderTabBar(0);
     fireEvent.press(screen.getByTestId('tabbar.tab.홈'));
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+// 이 값이 실제 레이아웃보다 작으면 탭바·FAB가 위 화면(홈 오늘 카드)을 덮는다 —
+// 수식을 다시 쓰는 대신 **그려진 탭바에서 읽어** 비교한다(레이아웃만 바뀌고 수식은 안 바뀌는 드리프트 차단).
+describe('TabBar 안전 여백(GROMO-1487)', () => {
+  test('tabBarSafeBottom은 실제로 그려진 탭바+FAB 높이와 일치한다', async () => {
+    const view = await renderTabBar(0);
+    type Node = { props: { style?: unknown }; children: Node[] };
+    const box = (style?: unknown) => (StyleSheet.flatten(style) ?? {}) as Record<string, number>;
+    const tree = view.toJSON() as unknown as Node;
+
+    const wrap = box(tree.props.style); // 탭바 래퍼(절대 배치, bottom:0)
+    const bar = box(tree.children[0]?.props.style); // 유리 바
+    const fabTop = box(screen.getByTestId('tabbar.fab').props.style).top;
+
+    // 세이프에어리어 하단 0(목) — wrap은 최소 T.space.sm를 깔고, FAB는 바 위로 -top만큼 솟는다
+    expect(tabBarSafeBottom(0)).toBe(
+      wrap.paddingTop + bar.height + wrap.paddingBottom + Math.max(0, -fabTop),
+    );
+  });
+
+  test('하단 인셋이 최소 여백보다 크면 그만큼 더 내려앉는다', async () => {
+    expect(tabBarSafeBottom(34)).toBe(tabBarSafeBottom(0) + (34 - 8));
   });
 });
 

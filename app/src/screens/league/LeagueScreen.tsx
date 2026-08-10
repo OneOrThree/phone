@@ -37,6 +37,7 @@ import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
   logLeagueViewed,
@@ -56,8 +57,6 @@ import {
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
 // 친구 목록·받은 요청 수(./useFriends)·핀(./usePinned)은 실데이터.
 
-// 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
-const TAB_BAR_SPACE = 74;
 // 리그 드롭다운의 '전체' 항목 라벨
 const LEAGUE_ALL = '전체';
 // 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
@@ -377,7 +376,7 @@ export default function LeagueScreen() {
             listHeight.current = e.nativeEvent.layout.height;
           }}
           stickyHeaderIndices={showPodium ? [1] : [0]}
-          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 16 }}
+          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 16 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -640,7 +639,7 @@ export default function LeagueScreen() {
         /* ── 친구 탭 — 검색·추가 엔트리 + 친구 2열 그리드 (시안 "친구 탭") ── */
         <ScrollView
           style={s.list}
-          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 20 }}
+          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 20 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
