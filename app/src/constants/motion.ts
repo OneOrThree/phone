@@ -1,3 +1,4 @@
+import type { ViewStyle } from 'react-native';
 import { Easing, ReduceMotion, cubicBezier } from 'react-native-reanimated';
 import type {
   CSSAnimationProperties,
@@ -270,4 +271,15 @@ export function springify<B extends SpringifiableBuilder>(
       //    켜고 끄는 판단은 useMotion 한 곳만 한다(codex 리뷰).
       .reduceMotion(ReduceMotion.Never) as B
   );
+}
+
+/**
+ * 진입 프리셋의 **시작 프레임**(`animationName.from`). 확정 전 "기다리는 모습"으로 쓴다.
+ * 키프레임에 `from`이 없으면 undefined — 그런 프리셋은 진입용이 아니다.
+ */
+export function startFrameOf(style: CSSAnimationProperties): ViewStyle | undefined {
+  const frames = style.animationName;
+  return typeof frames === 'object' && frames !== null && 'from' in frames
+    ? (frames as { from: ViewStyle }).from
+    : undefined;
 }
