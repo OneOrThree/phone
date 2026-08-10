@@ -1,0 +1,278 @@
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { T } from '@/constants/theme';
+import { SheetShell } from '@/components/SheetShell';
+import {
+  BET_INSUFFICIENT_BALANCE,
+  BET_SCREENTIME_PERMISSION_REQUIRED,
+  INVALID_SESSION_DATES,
+  groupErrorCode,
+  joinWeekSessions,
+} from '@/services/groupApi';
+import { useCoins } from '@/store/CoinContext';
+import { fmtMonthDayDow } from '../challengeSchedule';
+import BetBalanceRow from './BetBalanceRow';
+
+// 「이번 주 남은 날 전부」 예약 확인 시트(GROMO-1276 — N14·§C2).
+//
+// 총액을 **먼저** 보여주고 즉시 전액을 묶는다(N15 즉시 에스크로 체감) — "N일 × 참가비 = 총
+// 얼마가 지금 빠진다"가 CTA를 누르기 전에 읽혀야 한다. 전송은 sessionDates **명시 지정**이다
+// (LLD §2.2) — 화면에 보여준 날짜 집합과 서버가 계산한 집합이 어긋나면 보여준 것과 다른 돈이
+// 나간다. 전체가 한 트랜잭션(전부 성공 or 전부 실패, 총액 선검사)이다.
+//
+// **부분 예약(§C2)**: 잔액이 전부를 감당하지 못해도 전체 버튼을 죽이고 끝내지 않는다 —
+// 몇 개까지 되는지 적고, 가능한 날수만 예약하는 축소 액션을 준다(앞 날짜부터 — 먼저 오는
+// 날이 먼저 도는 날이다). 그 선택도 유저가 한다(ux §09).
+//
+// 취소는 날짜 단위다(§C8 — 일괄 취소 없음) — 노트가 그 사실을 미리 말한다. 「회차」 금지(N28).
+
+export interface JoinWeekSheetProps {
+  groupId: string;
+  challengeId: string;
+  // 미션 요약 라벨(카드와 같은 문장).
+  label: string;
+  // 예약 대상 날짜들('YYYY-MM-DD', 오름차순) — 카드가 repeatDays·오늘 참여 가능 여부에서 산출.
+  dates: string[];
+  // 창형이면 시작 시각 'HH:mm' — 행마다 날짜 옆에 적는다. 하루형은 null.
+  startTimeLabel: string | null;
+  stake: number;
+  onClose: () => void;
+  // 성공(또는 성공과 같게 취급) — 카드가 시트를 내리고 부모 재조회를 태운다.
+  onDone: () => void;
+}
+
+export default function JoinWeekSheet({
+  groupId,
+  challengeId,
+  label,
+  dates,
+  startTimeLabel,
+  stake,
+  onClose,
+  onDone,
+}: JoinWeekSheetProps) {
+  const { coins, coinsLoaded, refresh } = useCoins();
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const submitLock = useRef(false);
+
+  // 시트를 열 때 서버 잔액을 다시 받는다(BetSheet §0-3과 같은 이유).
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const total = dates.length * stake;
+  // 잔액 미상이면 부족 판정을 하지 않는다(3상) — 판정은 서버 총액 선검사가 확정해 준다.
+  const loaded = !!coinsLoaded;
+  const insufficient = loaded && total > coins;
+  // 부분 예약 제안 — 지금 잔액으로 되는 날수(앞 날짜부터). 전액이 되면 제안 자체가 없다.
+  const affordableCount = insufficient ? Math.min(Math.floor(coins / stake), dates.length) : 0;
+  const partialDates = dates.slice(0, affordableCount);
+  const partialTotal = affordableCount * stake;
+  const fullDisabled = submitting || insufficient;
+
+  function failAndReload(title: string, message: string) {
+    Alert.alert(title, message);
+    onDone();
+  }
+
+  async function submit(targetDates: string[]) {
+    if (submitting || submitLock.current || targetDates.length === 0) return;
+    submitLock.current = true;
+    setSubmitting(true);
+    setErrorMsg(null);
+    try {
+      await joinWeekSessions(groupId, challengeId, targetDates);
+      // 예약분 전액이 그 자리에서 묶였다(N15) — 잔액을 곧바로 맞춘다.
+      refresh();
+      onDone();
+      return;
+    } catch (e) {
+      switch (groupErrorCode(e)) {
+        // 총액 기준 잔액 부족(LLD §2.2) — 잔액을 다시 받아 부분 예약 제안을 갱신한다.
+        case BET_INSUFFICIENT_BALANCE:
+        case 'INSUFFICIENT_CURRENCY':
+          refresh();
+          setErrorMsg('코인이 부족해요');
+          break;
+        // 보낸 날짜가 더 이상 유효하지 않다(자정 경계·챌린지 변경 경합) — 낡은 화면이다.
+        case INVALID_SESSION_DATES:
+          failAndReload('참여할 수 있는 날이 바뀌었어요', '최신 상태로 새로고침할게요.');
+          return;
+        case BET_SCREENTIME_PERMISSION_REQUIRED:
+          failAndReload('참여할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
+          return;
+        case 'NOT_FOUND':
+        case 'CHALLENGE_NOT_FOUND':
+          failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
+          return;
+        case 'MEMBER_ONLY':
+          failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
+          return;
+        case 'GUEST_FORBIDDEN':
+          failAndReload('로그인이 필요해요', '게스트는 코인을 쓸 수 없어요.');
+          return;
+        default:
+          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      submitLock.current = false;
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <SheetShell onClose={submitting ? () => {} : onClose} asModal dismissible={!submitting}>
+      <Text style={s.title}>이번 주 남은 날</Text>
+      <Text style={s.sub}>{label}</Text>
+
+      {/* 날짜별 참가비 — "N일 × 참가비"가 행으로 먼저 읽히고, 합계가 아래에서 못을 박는다. */}
+      <View style={s.dayList} testID="group.bet.week.days">
+        {dates.map((d) => (
+          <View
+            key={d}
+            style={s.dayRow}
+            accessible
+            accessibilityLabel={`${fmtMonthDayDow(d)} 참가비 ${stake}코인`}
+          >
+            <Text style={s.dayText}>
+              {fmtMonthDayDow(d)}
+              {startTimeLabel !== null ? ` ${startTimeLabel}` : ''}
+            </Text>
+            <Text style={s.dayStake}>{stake}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* 합계 + 잔액 — 잔액 표기는 N46 단독 소유 컴포넌트(1424) 재사용. 차감 후 값 병기 금지. */}
+      <Text style={s.totalText} testID="group.bet.week.total">
+        {dates.length}일 × {stake}코인 = 합계 {total}코인
+      </Text>
+      <BetBalanceRow label="합계" amount={total} coins={loaded ? coins : null} />
+
+      {/* 즉시 에스크로 + 취소 단위(§C8 — 날짜 단위, 일괄 취소 없음). */}
+      <View style={s.note}>
+        <Text style={s.noteText}>
+          참여하면 {total}코인이 지금 모두 빠져나가요. 취소는 하루씩 따로 할 수 있어요 — 시작 전
+          날짜는 시작 전까지 전액 돌려받아요.
+        </Text>
+      </View>
+
+      {/* 부분 예약 안내(§C2) — 전체가 안 되는 이유와 되는 범위를 같은 자리에서 말한다. */}
+      {insufficient && (
+        <Text style={s.error} testID="group.bet.week.shortage">
+          코인이 {total - coins} 부족해요.
+          {affordableCount > 0
+            ? ` ${affordableCount}일(${partialTotal}코인)만 참여할 수 있어요`
+            : ' 참여할 수 있는 날이 없어요'}
+        </Text>
+      )}
+      {errorMsg !== null && <Text style={s.error}>{errorMsg}</Text>}
+
+      <TouchableOpacity
+        style={[s.submitBtn, fullDisabled && s.submitBtnOff]}
+        activeOpacity={0.85}
+        disabled={fullDisabled}
+        onPress={() => submit(dates)}
+        accessibilityRole="button"
+        testID="group.bet.week.submit"
+      >
+        {submitting ? (
+          <ActivityIndicator color={T.white} />
+        ) : (
+          <Text style={s.submitText}>{dates.length}일 전부 참여</Text>
+        )}
+      </TouchableOpacity>
+
+      {/* 잔액 부족 시 축소 액션 — 전체 버튼을 죽이고 끝내지 않는다(§C2). 선택은 유저가 한다. */}
+      {insufficient && affordableCount > 0 && !submitting && (
+        <TouchableOpacity
+          style={s.partialBtn}
+          activeOpacity={0.8}
+          onPress={() => submit(partialDates)}
+          accessibilityRole="button"
+          testID="group.bet.week.partial"
+        >
+          <Text style={s.partialText}>
+            {affordableCount}일만 참여 ({partialTotal}코인)
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      <TouchableOpacity
+        style={s.ghostBtn}
+        activeOpacity={0.7}
+        disabled={submitting}
+        onPress={onClose}
+        testID="group.bet.week.close"
+      >
+        <Text style={s.ghostText}>그만두기</Text>
+      </TouchableOpacity>
+    </SheetShell>
+  );
+}
+
+const s = StyleSheet.create({
+  title: { ...T.text.body, fontWeight: '800', color: T.ink },
+  sub: { ...T.text.label, fontWeight: '500', color: T.inkMuted, marginTop: 2 },
+  dayList: { marginTop: T.space.lg, gap: T.space.xs },
+  dayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: T.space.sm,
+  },
+  dayText: { ...T.text.caption, fontWeight: '600', color: T.inkSub },
+  dayStake: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.inkSub,
+    fontVariant: ['tabular-nums'],
+  },
+  totalText: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.ink,
+    marginTop: T.space.md,
+    fontVariant: ['tabular-nums'],
+  },
+  note: {
+    backgroundColor: T.noteBg,
+    borderWidth: 1,
+    borderColor: T.noteBorder,
+    borderRadius: 14,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
+    marginTop: T.space.md,
+  },
+  noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, lineHeight: 19 },
+  error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.md },
+  submitBtn: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: T.space.lg,
+  },
+  submitBtnOff: { opacity: 0.5 },
+  submitText: { ...T.text.subtitle, color: T.white },
+  // 축소 액션 — 주 CTA보다 약한 아웃라인(돈이 덜 나가는 대안이지 취소가 아니다).
+  partialBtn: {
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: T.space.sm,
+  },
+  partialText: { ...T.text.label, color: T.accent },
+  ghostBtn: {
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: T.space.xs,
+  },
+  ghostText: { ...T.text.label, color: T.inkSub },
+});

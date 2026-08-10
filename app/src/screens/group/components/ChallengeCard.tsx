@@ -12,15 +12,32 @@ import {
   BET_NOT_OPEN,
   cancelBet,
   challengeGroupId,
+  getChallengeDeletionPreview,
+  getMyOpenBetSessions,
   groupErrorCode,
   leaveBet,
+  leaveSession,
 } from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
-import type { ChallengeMemberProgress, GroupChallengeResponse } from '@/types/dto/group';
+import type {
+  ChallengeDeletionPreviewResponse,
+  ChallengeMemberProgress,
+  GroupChallengeResponse,
+} from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import {
+  REPEAT_DAY_LABELS,
+  REPEAT_DAY_ORDER,
+  fmtMonthDayDow,
+  fmtRelativeDay,
+  hhmmOf,
+  kstDateOfInstant,
+  repeatDayOf,
+  weekRemainingActiveDates,
+} from '../challengeSchedule';
 import { categoryLabel, missionLabel } from './challengeLabel';
 import {
   UNMEASURED,
@@ -28,6 +45,9 @@ import {
   progressFractionA11y,
   unmeasuredA11y,
 } from './progressFormat';
+import ChallengeDeleteSheet from './ChallengeDeleteSheet';
+import JoinNextSheet from './JoinNextSheet';
+import JoinWeekSheet from './JoinWeekSheet';
 import LastBetResultSheet from './LastBetResultSheet';
 
 // 챌린지 카드(그룹방 챌린지 섹션 1장) — 명세 docs/app/group-plan-2.md §3-2.
@@ -80,6 +100,9 @@ const BET_CANCELED_CAPTION = '내기를 취소했어요. 참가비는 잔액으�
 // 철회해도 챌린지를 지우지 않고 남겨 두므로(백엔드 테스트가 잠근다) 카드가 사유를 한 줄로 말한다.
 // 배지 문구 '휴면'은 계약 §2 고정 — '비활성'은 INACTIVE 노출 대비 예약어라 쓰지 않는다.
 const DORMANT_CAPTION = '참가자가 없어요';
+// 비활성 요일(FR-16-2) — 카드를 감추지 않고 진행 리스트 자리에 쉬는 날임을 적는다.
+// 진행률을 재지 않는 날이라(서버 memberProgress null) '아무도 안 했다'로 읽히면 안 된다.
+const REST_CAPTION = '오늘은 쉬는 날이에요';
 // 창(TIME_WINDOW) 시각의 해석 시간대 — 계약 §1: 저장된 창 시각은 Asia/Seoul 벽시계다.
 // 서버 "HH:mm:ss"와 현재를 같은 벽시계 공간에서 비교한다(challengeTime 유틸 관례).
 const KST_ZONE = 'Asia/Seoul';
@@ -90,6 +113,14 @@ const KST_ZONE = 'Asia/Seoul';
 function monthDay(betDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(betDate);
   return m ? `${Number(m[2])}월 ${Number(m[3])}일` : betDate;
+}
+
+// 다음 활성일 문구(FR-16-1) — 상대·절대를 섞는다(ux §02 note): 오늘·내일이면 그대로, 그 밖은
+// '다음 8/12(수)'. "3일 뒤" 같은 상대 표현은 쓰지 않는다 — 요일 반복에서는 날짜가 곧 정보다.
+function nextDayPhrase(dateStr: string, today: string, time: string | null): string {
+  const rel = fmtRelativeDay(dateStr, today);
+  const timePart = time !== null ? ` ${time}` : '';
+  return rel === '오늘' || rel === '내일' ? `${rel}${timePart}` : `다음 ${rel}${timePart}`;
 }
 
 // 멤버 한 명의 진행 표기 — 위 3상 규칙 그대로.
@@ -343,6 +374,162 @@ export default function ChallengeCard({
   // (⓪ 정보 행의 참가비·적립금 표기와 같은 규칙).
   const joinMembers = rejoinable ? betMembers - 1 : betMembers;
 
+  // ── 요일 반복(GROMO-1274) — additive 필드가 있는 신서버 응답에서만 산다. 없으면(구서버)
+  //    아래 파생이 전부 비활성으로 접혀 **종전 렌더 그대로**다(방어 — 브리핑 공통 규칙). ──
+  const repeatDays =
+    Array.isArray(challenge.repeatDays) && challenge.repeatDays.length > 0
+      ? challenge.repeatDays
+      : null;
+  const todayKst = todayStrKst();
+  const todayRepeatDay = repeatDayOf(todayKst);
+  // 오늘이 도는 날인가 — 서버 activeToday가 있으면 **우선**하고(판정 정본은 서버 KST), 없으면
+  // repeatDays에서 파생한다(같은 KST 날짜축 — GROMO-1219).
+  const activeToday =
+    repeatDays !== null
+      ? (challenge.activeToday ?? (todayRepeatDay !== null && repeatDays.includes(todayRepeatDay)))
+      : true;
+  // 비활성 요일 — 카드를 감추지 않고 가라앉힌다(FR-16-2). 끝난 챌린지는 침강 대신 기존 표시.
+  const resting = repeatDays !== null && !activeToday && challenge.status === 'ACTIVE';
+  // 다음 활성일(오늘 제외 — LLD §2.1 계약) — 표기는 KST 날짜로 접는다. 파싱 실패는 표기 생략.
+  const nextDate =
+    challenge.nextSessionAt !== undefined ? kstDateOfInstant(challenge.nextSessionAt) : null;
+  const startHHmm =
+    isWindow && challenge.windowStart !== null ? hhmmOf(challenge.windowStart) : null;
+  // 요일 줄 오른쪽 문구 — 회차 상태를 따른다(ux §02 표). '오늘 09:00'을 창이 끝난 뒤에도 두면
+  // 거짓말이 된다. 하루형 활성일은 자정 시작·자정 종료라 '진행 중'이 하루 종일 사실이다.
+  const nextLine = (() => {
+    if (repeatDays === null) return null;
+    if (activeToday) {
+      if (isWindow && challenge.windowStart !== null && challenge.windowEnd !== null) {
+        const nowSec = nowSecondsInZone(KST_ZONE);
+        const startSec = timeStrToSeconds(challenge.windowStart);
+        const endSec = timeStrToSeconds(challenge.windowEnd);
+        if (nowSec < startSec) return `오늘 ${startHHmm}`;
+        if (nowSec < endSec) return `진행 중 · ${hhmmOf(challenge.windowEnd)} 종료`;
+        return nextDate !== null ? nextDayPhrase(nextDate, todayKst, startHHmm) : null;
+      }
+      return '진행 중 · 자정 종료';
+    }
+    return nextDate !== null ? nextDayPhrase(nextDate, todayKst, startHHmm) : null;
+  })();
+  // 요일 줄 음성 안내 — 배지 7칸을 낱자로 읽으면 뜻이 전달되지 않아 한 문장으로 묶는다(진행 행 관례).
+  const dowA11y =
+    repeatDays !== null
+      ? `매주 ${REPEAT_DAY_ORDER.filter((d) => repeatDays.includes(d))
+          .map((d) => REPEAT_DAY_LABELS[REPEAT_DAY_ORDER.indexOf(d)])
+          .join('·')} 반복${nextLine !== null ? ` · ${nextLine}` : ''}`
+      : '';
+
+  // ── 회차 모델(신서버 — bet.session 필드 존재) 파생. undefined = 구서버(종전 렌더). ──
+  // 다음 활성일 1건 예약 진입점(GROMO-1419 — N45·FR-31-1): 오늘 회차가 없는(쉬는 날·창 지난 뒤
+  // 회차 미개설) 신서버 카드에서만. 미래 회차라 무위험 참가 검사(이미 달성·초과)로 잠그지 않는다.
+  const nextJoinable =
+    bet !== null &&
+    bet.session === null &&
+    betOpenable &&
+    bet.enabled !== false &&
+    nextDate !== null;
+  // 「이번 주 남은 날 전부」(GROMO-1276 — N14·§C2) 대상 산출: 이번 주(KST 월~일) 남은 활성일 중
+  // 참가 가능 회차. 오늘은 '지금 참여 가능한 미참가 회차'일 때만(창형은 창 시작 전 — N39와 같은
+  // 원리로 참여 불가능한 오늘을 담으면 서버 400으로 전체가 죽는다). 이미 예약한 다음 활성일은
+  // 뺀다 — 합계 표기가 실제 나갈 돈보다 부풀면 안 된다(서버는 조용히 건너뛰지만 표기가 거짓이 된다).
+  const weekDates = (() => {
+    if (
+      repeatDays === null ||
+      bet === null ||
+      bet.session === undefined ||
+      bet.enabled === false ||
+      !betOpenable
+    ) {
+      return [];
+    }
+    const todaySession = bet.session;
+    const todayEligible =
+      activeToday &&
+      todaySession !== null &&
+      todaySession.status === 'OPEN' &&
+      !todaySession.myJoined &&
+      !myBlockedNow &&
+      (!isWindow ||
+        (challenge.windowStart !== null &&
+          nowSecondsInZone(KST_ZONE) < timeStrToSeconds(challenge.windowStart)));
+    const future = weekRemainingActiveDates(repeatDays, todayKst, false).filter(
+      (d) => !(challenge.nextSessionJoined === true && d === nextDate),
+    );
+    return todayEligible ? [todayKst, ...future] : future;
+  })();
+  // 남은 날이 1개 이하면 숨긴다 — 단건 참여와 같아져 의미가 없다(LLD §2.2).
+  const weekEligible = weekDates.length >= 2;
+
+  // v2 시트(다음 활성일 예약·주간 예약) — 카드가 직접 연다(히스토리 push와 같은 이유로 부모
+  // 배선을 늘리지 않는다). groupId는 조회 캐시 역참조 — 미적중이면 공통 문구.
+  const [betV2Sheet, setBetV2Sheet] = useState<'next' | 'week' | null>(null);
+  // 진행 중 삭제 2단계(GROMO-1425) — 프리플라이트 수치가 도착해야만 열린다(N49).
+  const [deletePreview, setDeletePreview] = useState<ChallengeDeletionPreviewResponse | null>(null);
+  const deleteLock = useRef(false);
+  const cachedGroupId = challengeGroupId(challenge.id);
+
+  function openBetV2(kind: 'next' | 'week') {
+    if (cachedGroupId === null) {
+      // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
+      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해주세요.');
+      return;
+    }
+    setBetV2Sheet(kind);
+  }
+
+  // 예약해 둔 다음 활성일의 참여 취소(1419) — 카드 응답에는 미래 회차 sessionId가 없어(오늘
+  // 회차만 실린다) 내 OPEN 회차 목록에서 (챌린지, 날짜)로 대상을 찾는다. 검증은 서버가 정본.
+  async function doLeaveNext() {
+    if (leaveLock.current || nextDate === null) return;
+    leaveLock.current = true;
+    setLeaveBusy(true);
+    try {
+      if (cachedGroupId === null) throw new Error('unknown groupId');
+      const mine = await getMyOpenBetSessions();
+      const target = mine.find((m) => m.challengeId === challenge.id && m.sessionDate === nextDate);
+      if (target === undefined) {
+        // 이미 취소됐거나 목록이 낡았다 — 사실만 알리고 정리는 재조회에 맡긴다(철회 실패 결).
+        Alert.alert('참여 취소를 못 했어요', '예약을 찾지 못했어요. 화면을 새로고침해 주세요.');
+        return;
+      }
+      await leaveSession(cachedGroupId, target.sessionId);
+      // 환불 반영은 서버가 정본 — 잔액·카드(nextSessionJoined)를 다시 받는다.
+      refreshCoins();
+      onBetChanged?.();
+    } catch (e) {
+      switch (groupErrorCode(e)) {
+        case BET_LEAVE_CLOSED:
+          Alert.alert('참여 취소를 못 했어요', '취소할 수 있는 시간이 지났어요.');
+          break;
+        case BET_NOT_JOINED:
+          Alert.alert('참여 취소를 못 했어요', '참여 중이 아니에요. 화면을 새로고침해 주세요.');
+          break;
+        case BET_NOT_OPEN:
+          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 날이에요.');
+          break;
+        default:
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
+      }
+    } finally {
+      leaveLock.current = false;
+      setLeaveBusy(false);
+    }
+  }
+
+  // 확인 한 겹 — 버튼 문구는 「참여 취소」다(N27 — 돈이 걸린 행동이라 무엇을 취소하는지 드러낸다).
+  function confirmLeaveNext(stake: number) {
+    if (nextDate === null) return;
+    Alert.alert(
+      '참여 취소',
+      `${fmtMonthDayDow(nextDate)} 참여를 취소하고 참가비 ${stake}코인을 돌려받을까요?`,
+      [
+        { text: '아니요', style: 'cancel' },
+        { text: '참여 취소', style: 'destructive', onPress: () => doLeaveNext() },
+      ],
+    );
+  }
+
   // 철회 실행 — 검증은 서버가 정본이다(레이스로 조건이 깨졌으면 에러 코드로 돌아온다).
   async function doLeaveBet(betId: string, stake: number, participantsCount: number) {
     // 같은 틱 연타 방지 — state(leaveBusy)는 리렌더 뒤에야 보인다(ComposeSheet.submitLock 관행).
@@ -457,18 +644,54 @@ export default function ChallengeCard({
   const lastAchieved = lastResults.filter((r) => r.achieved === true).length;
 
   // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-  function confirmDelete() {
-    if (!isOwner) return;
+  // 진행 중(OPEN 회차 없음)이 아닐 땐 여기서 끝난다 — 안 위험할 때도 두 번 물으면 경고가
+  // 의미를 잃는다(N29).
+  function confirmDeleteOneStep() {
     Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
       { text: '취소', style: 'cancel' },
       { text: '삭제', style: 'destructive', onPress: () => onDelete(challenge.id) },
     ]);
   }
 
+  // 삭제 진입(GROMO-1425) — 신서버(요일 반복 응답)에서는 deletion-preview 프리플라이트(N49)로
+  // 걸린 돈을 먼저 확인한다. 참가비가 걸린 날이 있으면 1단계 확인 뒤 **수치 경고 시트**(2단계)를
+  // 거친다(FR-12-1). 프리플라이트가 실패하면 삭제를 진행하지 않는다 — 수치 없는 경고는 경고가
+  // 아니다. 구서버(repeatDays 부재 — 프리뷰 엔드포인트도 없다)는 종전 1단계 확인 그대로다.
+  async function confirmDelete() {
+    if (!isOwner) return;
+    if (repeatDays === null) {
+      confirmDeleteOneStep();
+      return;
+    }
+    if (deleteLock.current) return; // 프리플라이트가 도는 동안의 연타 방지(leaveLock 관행)
+    deleteLock.current = true;
+    try {
+      if (cachedGroupId === null) throw new Error('unknown groupId'); // 캐시 미적중 — 공통 실패로.
+      const preview = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
+      if (preview.openSessions.length === 0) {
+        confirmDeleteOneStep();
+        return;
+      }
+      Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
+        { text: '취소', style: 'cancel' },
+        { text: '삭제', style: 'destructive', onPress: () => setDeletePreview(preview) },
+      ]);
+    } catch {
+      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+    } finally {
+      deleteLock.current = false;
+    }
+  }
+
   return (
     // 카드 자체는 더 이상 아무 제스처도 받지 않는다(GROMO-1101 — 롱프레스 삭제 제거).
     // 눌리는 자리는 전부 안쪽의 명시적 버튼이다.
-    <View style={s.card} testID={`group.challenge.card.${challenge.id}`}>
+    // 비활성 요일엔 카드 전체가 가라앉는다(FR-16-2) — 감추지는 않는다(그룹은 "우리가 지키기로
+    // 한 것"의 전체 모습을 항상 봐야 한다). 오늘 도는 카드와 쉬는 카드가 한눈에 갈린다.
+    <View
+      style={[s.card, resting && s.cardResting]}
+      testID={`group.challenge.card.${challenge.id}`}
+    >
       <View style={s.head}>
         <View style={s.icon}>
           <Ionicons
@@ -504,15 +727,51 @@ export default function ChallengeCard({
         )}
       </View>
 
+      {/* ── 요일 배지 + 다음 회차(FR-16-1, GROMO-1274) — 미션 라벨 바로 아래(ux §02 위계 2번).
+          repeatDays를 모르는 구서버 응답에는 그리지 않는다(종전 렌더 유지). 배지 3상:
+          오늘이자 활성(accent 채움) · 활성(accentBg) · 쉬는 요일(track). */}
+      {repeatDays !== null && (
+        <View style={s.dowRow} accessible accessibilityLabel={dowA11y}>
+          {REPEAT_DAY_ORDER.map((day, i) => {
+            const on = repeatDays.includes(day);
+            const isTodayCell = on && activeToday && day === todayRepeatDay;
+            return (
+              <Text
+                key={day}
+                style={[s.dow, on && s.dowOn, isTodayCell && s.dowToday]}
+                testID={`group.challenge.dow.${challenge.id}.${day}`}
+              >
+                {REPEAT_DAY_LABELS[i]}
+              </Text>
+            );
+          })}
+          {nextLine !== null && (
+            <Text
+              style={s.dowNext}
+              numberOfLines={1}
+              testID={`group.challenge.next.${challenge.id}`}
+            >
+              {nextLine}
+            </Text>
+          )}
+        </View>
+      )}
+
       {/* SCREEN_TIME 뜻 한 줄 — 창(TIME_WINDOW) 카드는 라벨이 이미 시간대·목표를 말하므로
           '오늘 …' 문장 대신 측정 한계 고지(계약 필수 문구)를 세운다. */}
       {isScreenTime && !isWindow && <Text style={s.caption}>{SCREEN_TIME_CAPTION}</Text>}
       {isScreenTime && isWindow && <Text style={s.caption}>{WINDOW_MEASURE_CAPTION}</Text>}
       {!challenge.canParticipate && <Text style={s.warn}>{NO_PERMISSION_CAPTION}</Text>}
 
-      {rows === null && <Text style={s.caption}>{NO_PROGRESS_CAPTION}</Text>}
+      {/* 쉬는 날엔 진행률을 재지 않는다(서버 memberProgress null) — '진행률을 표시하지 않는
+          챌린지'로 오독되지 않게 사유를 갈아 끼운다(FR-16-2). */}
+      {resting ? (
+        <Text style={s.caption}>{REST_CAPTION}</Text>
+      ) : (
+        rows === null && <Text style={s.caption}>{NO_PROGRESS_CAPTION}</Text>
+      )}
 
-      {!!rows && rows.length > 0 && (
+      {!resting && !!rows && rows.length > 0 && (
         <View style={s.progressList}>
           {rows.map((p) => {
             const isMe = !!myUserId && p.userId === myUserId;
@@ -545,14 +804,52 @@ export default function ChallengeCard({
         </View>
       )}
 
-      {hasUnmeasured && <Text style={s.caption}>{UNMEASURED_CAPTION}</Text>}
+      {!resting && hasUnmeasured && <Text style={s.caption}>{UNMEASURED_CAPTION}</Text>}
 
       {/* ── 내기 영역(3차 §1) — 진행 리스트 아래, 카드 하단 ──
           끝난 챌린지에 내기가 하나도 없으면 영역 자체를 두지 않는다 — 열 수 없는 자리에
           구분선만 남기면 무엇이 빠졌는지 알 수 없는 빈칸이 된다. */}
       {betSupported && (bet !== null || betOpenable) && (
         <View style={s.betArea}>
-          {leftByMe && !rejoinable && bet !== null ? (
+          {nextJoinable && bet !== null && nextDate !== null ? (
+            // ⓪-v2 오늘 회차가 없다(신서버 쉬는 날 — LLD §2.1 분기 1, GROMO-1419).
+            //    다음 활성일 시각·참가비를 보여주고 **1건**을 지금 예약할 수 있게 한다(N45).
+            //    이미 예약했으면 버튼 대신 예약 상태 + 「참여 취소」 동선이다(N27·FR-31-1).
+            <>
+              <View style={s.betRow}>
+                <Text style={s.betText}>{nextDayPhrase(nextDate, todayKst, startHHmm)}</Text>
+                <Text style={s.betTomorrowTag}>{bet.stake}코인</Text>
+                {challenge.nextSessionJoined === true && (
+                  <>
+                    <Text style={s.betJoinedTag}>참여 중</Text>
+                    <TouchableOpacity
+                      style={[s.betLeaveBtn, leaveBusy && s.betLeaveBtnOff]}
+                      activeOpacity={0.8}
+                      disabled={leaveBusy}
+                      onPress={() => confirmLeaveNext(bet.stake)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${fmtMonthDayDow(nextDate)} 참여 취소`}
+                      testID={`group.bet.leaveNext.${challenge.id}`}
+                    >
+                      <Text style={s.betLeaveText}>참여 취소</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+              {challenge.nextSessionJoined !== true && (
+                <TouchableOpacity
+                  style={[s.joinNextBtn, betLocked && s.joinNextBtnOff]}
+                  activeOpacity={0.85}
+                  disabled={betLocked}
+                  onPress={() => openBetV2('next')}
+                  accessibilityRole="button"
+                  testID={`group.bet.joinNext.${challenge.id}`}
+                >
+                  <Text style={s.joinNextText}>{fmtMonthDayDow(nextDate)} 참여하기</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          ) : leftByMe && !rejoinable && bet !== null ? (
             // ⓪ 방금 내가 빠졌는데 **다시 들어갈 자리가 없다** — 취소(내기를 통째로 닫았다)이거나
             //    마지막 참가자의 철회(서버가 내기를 CANCELED로 닫는다 — 챌린지는 휴면으로
             //    남는다, GROMO-1201)이거나 끝난 챌린지다. 영역을 비우면 방금 한 일이 사라진 것처럼 보이므로
@@ -667,6 +964,20 @@ export default function ChallengeCard({
               {isFutureBet && <Text style={s.betTomorrowTag}>내일 시작</Text>}
             </View>
           )}
+          {/* 「이번 주 남은 날 전부」(GROMO-1276 — FR-31·N14) — 남은 참가 가능 날이 2개
+              이상일 때만(1개면 단건 참여와 같아 의미가 없다 — LLD §2.2). 문구에 「회차」 금지(N28). */}
+          {weekEligible && (
+            <TouchableOpacity
+              style={[s.weekBtn, betLocked && s.betLeaveBtnOff]}
+              activeOpacity={0.8}
+              disabled={betLocked}
+              onPress={() => openBetV2('week')}
+              accessibilityRole="button"
+              testID={`group.bet.week.${challenge.id}`}
+            >
+              <Text style={s.weekText}>이번 주 남은 날 전부</Text>
+            </TouchableOpacity>
+          )}
           {/* 휴면 사유 한 줄(GROMO-1201) — 칩만으로는 '휴면'이 왜인지 알 수 없다. 새 내기가
               서면 서버가 휴면을 해제하므로 개설 진입점('내기 걸기')은 그대로 살려 둔다. */}
           {challenge.dormant === true && <Text style={s.caption}>{DORMANT_CAPTION}</Text>}
@@ -702,6 +1013,55 @@ export default function ChallengeCard({
           onClose={() => setLastBetView(null)}
         />
       )}
+
+      {/* 다음 활성일 1건 예약 확인(GROMO-1419) — 성공하면 부모 재조회로 nextSessionJoined를
+          갈아 끼운다(카드가 시트·API를 직접 쥐는 이유는 히스토리 push와 같다 — 부모는 형제
+          워크스트림 전유라 배선을 늘리지 않는다). */}
+      {betV2Sheet === 'next' && bet !== null && nextDate !== null && cachedGroupId !== null && (
+        <JoinNextSheet
+          groupId={cachedGroupId}
+          challengeId={challenge.id}
+          label={label ?? categoryLabel(challenge)}
+          sessionDayLabel={fmtMonthDayDow(nextDate)}
+          startTimeLabel={startHHmm}
+          stake={bet.stake}
+          onClose={() => setBetV2Sheet(null)}
+          onDone={() => {
+            setBetV2Sheet(null);
+            onBetChanged?.();
+          }}
+        />
+      )}
+
+      {/* 이번 주 남은 날 일괄 예약(GROMO-1276) — 대상 날짜는 카드가 산출한 weekDates 그대로. */}
+      {betV2Sheet === 'week' && bet !== null && weekDates.length > 0 && cachedGroupId !== null && (
+        <JoinWeekSheet
+          groupId={cachedGroupId}
+          challengeId={challenge.id}
+          label={label ?? categoryLabel(challenge)}
+          dates={weekDates}
+          startTimeLabel={startHHmm}
+          stake={bet.stake}
+          onClose={() => setBetV2Sheet(null)}
+          onDone={() => {
+            setBetV2Sheet(null);
+            onBetChanged?.();
+          }}
+        />
+      )}
+
+      {/* 진행 중 삭제 2단계 경고(GROMO-1425) — deletion-preview 수치가 도착한 뒤에만 열린다. */}
+      {deletePreview !== null && (
+        <ChallengeDeleteSheet
+          label={label ?? categoryLabel(challenge)}
+          preview={deletePreview}
+          onConfirm={() => {
+            setDeletePreview(null);
+            onDelete(challenge.id);
+          }}
+          onClose={() => setDeletePreview(null)}
+        />
+      )}
     </View>
   );
 }
@@ -717,7 +1077,57 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     gap: T.space.xs,
   },
+  // 비활성 요일 침강(FR-16-2) — 지우지 않고 옅게. 요일 배지·다음 회차는 그대로 읽힌다.
+  cardResting: { opacity: 0.62 },
   head: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  // ── 요일 배지 행(GROMO-1274, ux §02) — 7칸 고정 + 오른쪽 다음 회차 문구. ──
+  dowRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  dow: {
+    ...T.text.caption,
+    fontWeight: '600',
+    color: T.inkFaint,
+    backgroundColor: T.track,
+    borderRadius: 6,
+    width: 22,
+    height: 22,
+    textAlign: 'center',
+    lineHeight: 22,
+    overflow: 'hidden',
+  },
+  dowOn: { color: T.accentDeep, backgroundColor: T.accentBg },
+  dowToday: { color: T.white, backgroundColor: T.accent },
+  dowNext: {
+    ...T.text.caption,
+    fontWeight: '600',
+    color: T.inkSub,
+    marginLeft: 'auto',
+    flexShrink: 1,
+    fontVariant: ['tabular-nums'],
+  },
+  // 다음 활성일 참여 버튼(GROMO-1419) — 쉬는 날 카드의 유일한 행동이라 채운 와이드 버튼(ux §05 ①).
+  joinNextBtn: {
+    marginTop: T.space.sm,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  joinNextBtnOff: { opacity: 0.5 },
+  joinNextText: { ...T.text.label, color: T.white },
+  // 「이번 주 남은 날 전부」 — 개설 버튼과 같은 소형 아웃라인 위계(주 동선은 단건 참여다).
+  weekBtn: {
+    marginTop: T.space.sm,
+    alignSelf: 'flex-start',
+    height: 32,
+    paddingHorizontal: T.space.md,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekText: { ...T.text.caption, color: T.accent },
   // 방장 삭제 X — 파괴 동작이지만 확인 Alert가 한 겹 있어 아이콘은 옅게(inkMuted) 둔다.
   // marginLeft:auto로 우측 끝 고정 — 라벨(flexShrink)이 길어도 자리를 뺏기지 않는다.
   deleteBtn: {

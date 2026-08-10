@@ -6,15 +6,25 @@
 //  2) 삭제는 방장만(우측 상단 X — GROMO-1101), 그리고 **확인 Alert를 거친 뒤에만** onDelete가
 //     불린다 — 오탭으로 챌린지가 사라지면 되돌릴 방법이 없다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import type { AlertButton } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import ChallengeCard from './ChallengeCard';
-import { cancelBet, challengeGroupId, leaveBet } from '@/services/groupApi';
+import {
+  cancelBet,
+  challengeGroupId,
+  getChallengeDeletionPreview,
+  getMyOpenBetSessions,
+  joinNextSession,
+  joinWeekSessions,
+  leaveBet,
+  leaveSession,
+} from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { T } from '@/constants/theme';
 import type {
   ChallengeMemberProgress,
+  GroupBetSession,
   GroupChallengeBet,
   GroupChallengeResponse,
   LastSettledBet,
@@ -26,11 +36,17 @@ jest.setTimeout(20000);
 
 // 카드가 참가 철회의 API·계측을 직접 쥔다(부모 GroupRoomScreen이 A3 전유라 콜백을 못 늘린 흡수) —
 // groupErrorCode는 실제 구현을 남긴다(철회 에러 code 분기까지 검증).
+// 챌린지 v2(1276·1419·1425)의 신설 API도 카드·카드가 여는 시트가 직접 쥔다 — 같은 이유로 목이다.
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   leaveBet: jest.fn(),
   cancelBet: jest.fn(),
   challengeGroupId: jest.fn(),
+  getChallengeDeletionPreview: jest.fn(),
+  getMyOpenBetSessions: jest.fn(),
+  leaveSession: jest.fn(),
+  joinNextSession: jest.fn(),
+  joinWeekSessions: jest.fn(),
 }));
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupBetCanceled: jest.fn(),
@@ -70,6 +86,15 @@ jest.mock('@/utils/challengeTime', () => ({
 const mockLeaveBet = leaveBet as jest.MockedFunction<typeof leaveBet>;
 const mockCancelBet = cancelBet as jest.MockedFunction<typeof cancelBet>;
 const mockChallengeGroupId = challengeGroupId as jest.MockedFunction<typeof challengeGroupId>;
+const mockGetDeletionPreview = getChallengeDeletionPreview as jest.MockedFunction<
+  typeof getChallengeDeletionPreview
+>;
+const mockGetMyOpenBetSessions = getMyOpenBetSessions as jest.MockedFunction<
+  typeof getMyOpenBetSessions
+>;
+const mockLeaveSession = leaveSession as jest.MockedFunction<typeof leaveSession>;
+const mockJoinNextSession = joinNextSession as jest.MockedFunction<typeof joinNextSession>;
+const mockJoinWeekSessions = joinWeekSessions as jest.MockedFunction<typeof joinWeekSessions>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const CHALLENGE_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
@@ -158,6 +183,15 @@ beforeEach(() => {
   mockLeaveBet.mockResolvedValue(undefined);
   mockCancelBet.mockResolvedValue(undefined);
   mockChallengeGroupId.mockReturnValue(GROUP_ID);
+  mockGetDeletionPreview.mockResolvedValue({ openSessions: [], totalRefund: 0 });
+  mockGetMyOpenBetSessions.mockResolvedValue([]);
+  mockLeaveSession.mockResolvedValue(undefined);
+  mockJoinNextSession.mockResolvedValue({
+    sessionId: 's-next',
+    sessionDate: '2026-08-03',
+    stake: 30,
+  });
+  mockJoinWeekSessions.mockResolvedValue({ joined: [], totalStake: 0 });
 });
 
 describe('미션 라벨', () => {
@@ -1466,5 +1500,413 @@ describe('휴면 배지', () => {
       fireEvent.press(screen.getByTestId(`group.bet.create.${CHALLENGE_ID}`));
     });
     expect(onOpenBet).toHaveBeenCalledWith('create');
+  });
+});
+
+// ── 챌린지 v2 — 요일 배지·다음 회차(GROMO-1274) ────────────────────────────────
+// '오늘'은 KST 2026-08-01(토), 벽시계 10:00 고정(상단 mock). 다음 활성일 픽스처는 8/3(월) —
+// KST 자정 시작 = '2026-08-02T15:00:00Z'(하루형 회차 시작 instant).
+const NEXT_MON_AT = '2026-08-02T15:00:00Z';
+
+describe('요일 배지·다음 회차 (GROMO-1274)', () => {
+  test('repeatDays가 있으면 7칸 배지와 다음 활성일 문구를 그린다', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+    });
+
+    for (const day of ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']) {
+      expect(screen.getByTestId(`group.challenge.dow.${CHALLENGE_ID}.${day}`)).toBeOnTheScreen();
+    }
+    // 하루형은 시각 표기가 없다(자정 시작) — 날짜·요일만.
+    expect(screen.getByTestId(`group.challenge.next.${CHALLENGE_ID}`)).toHaveTextContent(
+      '다음 8/3(월)',
+    );
+  });
+
+  test('구서버 응답(repeatDays 없음)에는 배지 행을 그리지 않는다 — 종전 렌더 유지', async () => {
+    await renderCard();
+    expect(screen.queryByTestId(`group.challenge.dow.${CHALLENGE_ID}.MON`)).toBeNull();
+    expect(screen.queryByTestId(`group.challenge.next.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('비활성 요일엔 진행 리스트 자리에 쉬는 날 문구가 서고 카드가 가라앉는다(FR-16-2)', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      memberProgress: null, // 서버는 비활성 요일에 진행률을 재지 않는다
+    });
+
+    expect(screen.getByText('오늘은 쉬는 날이에요')).toBeOnTheScreen();
+    // '진행률을 표시하지 않는 챌린지'로 오독되면 안 된다 — 캡션을 갈아 끼운다.
+    expect(screen.queryByText('이 챌린지는 진행률을 표시하지 않아요')).toBeNull();
+    // 카드 전체 침강 — 감추지 않고 옅게(스타일로 판정).
+    const card = screen.getByTestId(`group.challenge.card.${CHALLENGE_ID}`);
+    expect(StyleSheet.flatten(card.props.style)).toMatchObject({ opacity: expect.any(Number) });
+  });
+
+  test('서버 activeToday가 있으면 우선한다 — 활성이면 침강하지 않고 진행 중 문구', async () => {
+    await renderCard({ repeatDays: ['SAT'], activeToday: true, nextSessionAt: NEXT_MON_AT });
+
+    expect(screen.queryByText('오늘은 쉬는 날이에요')).toBeNull();
+    // 하루형 활성일은 자정 시작·자정 종료 — 하루 종일 '진행 중'이 사실이다.
+    expect(screen.getByTestId(`group.challenge.next.${CHALLENGE_ID}`)).toHaveTextContent(
+      '진행 중 · 자정 종료',
+    );
+    const card = screen.getByTestId(`group.challenge.card.${CHALLENGE_ID}`);
+    expect(StyleSheet.flatten(card.props.style).opacity).toBeUndefined();
+  });
+
+  test('창형 활성일 — 창 시작 전엔 오늘 시각, 창이 끝나면 다음 활성일로 말한다', async () => {
+    const windowOver: Partial<GroupChallengeResponse> = {
+      missionType: 'TIME_WINDOW',
+      windowStart: '11:00:00',
+      windowEnd: '12:00:00',
+      repeatDays: ['SAT', 'MON'],
+      activeToday: true,
+      nextSessionAt: NEXT_MON_AT,
+    };
+    // 10:00(고정) < 11:00 — 아직 시작 전.
+    await renderCard(windowOver);
+    expect(screen.getByTestId(`group.challenge.next.${CHALLENGE_ID}`)).toHaveTextContent(
+      '오늘 11:00',
+    );
+
+    // 13:00 — 오늘 창이 끝났다. '오늘 11:00'으로 두면 거짓말이 된다(ux §02).
+    mockNowSec = 13 * 3600;
+    await renderCard(windowOver);
+    expect(screen.getByTestId(`group.challenge.next.${CHALLENGE_ID}`)).toHaveTextContent(
+      '다음 8/3(월) 11:00',
+    );
+  });
+
+  test('요일 줄은 한 문장으로 읽힌다(a11y)', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+    });
+    expect(screen.getByLabelText('매주 월·수·금 반복 · 다음 8/3(월)')).toBeOnTheScreen();
+  });
+});
+
+// ── 챌린지 v2 — 다음 활성일 1건 예약(GROMO-1419, N45·FR-31-1) ──────────────────
+describe('다음 활성일 참여 (GROMO-1419)', () => {
+  // 신서버 쉬는 날 카드 — 오늘 회차 없음(bet.session === null) + 다음 활성일 8/3(월).
+  const restingOver = (
+    betOver: Partial<GroupChallengeBet> = {},
+  ): Partial<GroupChallengeResponse> => ({
+    repeatDays: ['MON', 'WED', 'FRI'],
+    activeToday: false,
+    nextSessionAt: NEXT_MON_AT,
+    memberProgress: null,
+    bet: bet({ enabled: true, session: null, myJoined: false, participants: [], ...betOver }),
+  });
+
+  test('오늘 회차가 없으면 날짜가 적힌 참여 버튼이 선다', async () => {
+    await renderCard(restingOver());
+    expect(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toHaveTextContent(
+      '8/3(월) 참여하기',
+    );
+  });
+
+  test('버튼 → 확인 시트 → 참여까지 — join-next 한 건이 나가고 재조회를 태운다', async () => {
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(restingOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.joinNext.${CHALLENGE_ID}`));
+    });
+    // 확인 시트 — 예약 대상 날짜가 CTA에도 박혀 있다(FR-31-1: 버튼 문구는 날짜로 쓴다).
+    expect(screen.getByTestId('group.bet.joinNext.submit')).toHaveTextContent('8/3(월) 참여하기');
+    // 잔액 표기는 N46 단독 소유 컴포넌트(1424) — 「참가비 N · 내 잔액 M」 형식.
+    // (이 스위트의 CoinContext 목은 잔액을 싣지 않아 미상 '—'가 온다 — 형식만 잠근다.)
+    expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent(/참가비 30 · 내 잔액/);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.joinNext.submit'));
+    });
+    expect(mockJoinNextSession).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID);
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('이미 예약했으면(nextSessionJoined) 버튼 대신 예약 상태와 참여 취소가 선다', async () => {
+    await renderCard({ ...restingOver(), nextSessionJoined: true });
+
+    expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
+    expect(screen.getByText('참여 중')).toBeOnTheScreen();
+    // 버튼 문구는 「참여 취소」다(N27) — 그냥 '취소'는 시트 닫기와 헷갈린다.
+    expect(screen.getByTestId(`group.bet.leaveNext.${CHALLENGE_ID}`)).toHaveTextContent(
+      '참여 취소',
+    );
+  });
+
+  test('참여 취소 — 내 OPEN 목록에서 (챌린지, 날짜)로 찾아 날짜 단위로 취소한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetMyOpenBetSessions.mockResolvedValue([
+      {
+        sessionId: 's-reserved',
+        groupId: GROUP_ID,
+        challengeId: CHALLENGE_ID,
+        sessionDate: '2026-08-03',
+        missionCategory: 'FOCUS',
+        missionType: 'DURATION',
+        goalMinutes: 60,
+        windowStart: null,
+        windowEnd: null,
+        closesAt: '2026-08-03T14:59:59Z',
+        settleAfter: '2026-08-03T15:00:00Z',
+      },
+    ]);
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({ ...restingOver(), nextSessionJoined: true })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveNext.${CHALLENGE_ID}`));
+    });
+    const calls = alertSpy.mock.calls;
+    const buttons = calls[calls.length - 1][2] as AlertButton[] | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(mockLeaveSession).toHaveBeenCalledWith(GROUP_ID, 's-reserved');
+    expect(mockRefreshCoins).toHaveBeenCalled();
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('구서버(bet.session 필드 없음)에는 버튼이 서지 않는다 — 종전 렌더 유지', async () => {
+    await renderCard({
+      repeatDays: ['MON', 'WED', 'FRI'],
+      activeToday: false,
+      nextSessionAt: NEXT_MON_AT,
+      bet: bet(), // session 필드 자체가 없다
+    });
+    expect(screen.queryByTestId(`group.bet.joinNext.${CHALLENGE_ID}`)).toBeNull();
+  });
+});
+
+// ── 챌린지 v2 — 이번 주 남은 날 전부(GROMO-1276, N14·§C2) ──────────────────────
+describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
+  // 오늘 8/1(토)·내일 8/2(일)이 활성 — 남은 참가 가능 날 2개(주는 월~일이라 8/3(월)은 다음 주다).
+  const openSession = (over: Partial<GroupBetSession> = {}): GroupBetSession => ({
+    sessionId: 's-today',
+    sessionDate: '2026-08-01',
+    stake: 30,
+    goalMinutes: 60,
+    pot: 0,
+    status: 'OPEN',
+    startsAt: '2026-07-31T15:00:00Z',
+    joinClosesAt: '2026-08-01T14:59:59Z',
+    myLeaveDeadlineAt: null,
+    closesAt: '2026-08-01T14:59:59Z',
+    myJoined: false,
+    myAchievedNow: false,
+    participants: [],
+    ...over,
+  });
+  const weekendOver = (
+    sessionOver: Partial<GroupBetSession> = {},
+  ): Partial<GroupChallengeResponse> => ({
+    repeatDays: ['SAT', 'SUN'],
+    activeToday: true,
+    nextSessionAt: '2026-08-01T15:00:00Z', // 8/2(일) 자정 시작
+    bet: bet({ enabled: true, session: openSession(sessionOver), myJoined: false }),
+  });
+
+  test('남은 참가 가능 날이 2개 이상이면 버튼이 서고, 시트가 합계를 먼저 말한다', async () => {
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(weekendOver())}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.week.${CHALLENGE_ID}`));
+    });
+
+    // N일 × 참가비 = 총액이 지금 빠진다는 사실이 CTA 전에 읽힌다(N15).
+    expect(screen.getByTestId('group.bet.week.total')).toHaveTextContent(
+      '2일 × 30코인 = 합계 60코인',
+    );
+    // 잔액 표기는 N46 컴포넌트 재사용 — 합계 라벨(미상 잔액은 '—' — 형식만 잠근다).
+    expect(screen.getByTestId('group.bet.balanceRow')).toHaveTextContent(/합계 60 · 내 잔액/);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+    });
+    // 오늘 포함 이번 주 남은 활성일 전부를 **명시 지정**으로 보낸다(부분 예약 계약 — LLD §2.2).
+    expect(mockJoinWeekSessions).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID, [
+      '2026-08-01',
+      '2026-08-02',
+    ]);
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  test('오늘 회차에 이미 참가했으면 오늘을 빼고 — 남은 날 1개라 버튼 자체가 없다', async () => {
+    await renderCard(weekendOver({ myJoined: true }));
+    expect(screen.queryByTestId(`group.bet.week.${CHALLENGE_ID}`)).toBeNull();
+  });
+
+  test('구서버(bet.session 필드 없음)에는 버튼이 없다', async () => {
+    await renderCard({
+      repeatDays: ['SAT', 'SUN'],
+      activeToday: true,
+      bet: bet(),
+    });
+    expect(screen.queryByTestId(`group.bet.week.${CHALLENGE_ID}`)).toBeNull();
+  });
+});
+
+// ── 챌린지 v2 — 진행 중 삭제 2단계 경고(GROMO-1425, N29·N49·FR-12-1) ────────────
+describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
+  const v2Over: Partial<GroupChallengeResponse> = {
+    repeatDays: ['MON', 'WED', 'FRI'],
+    activeToday: false,
+    nextSessionAt: NEXT_MON_AT,
+  };
+
+  async function renderOwner(over: Partial<GroupChallengeResponse> = {}) {
+    return render(
+      <ChallengeCard
+        challenge={challenge({ ...v2Over, ...over })}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+      />,
+    );
+  }
+
+  async function pressDeleteX() {
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.challenge.delete.${CHALLENGE_ID}`));
+    });
+  }
+
+  function lastAlertButtons(alertSpy: jest.SpyInstance): AlertButton[] | undefined {
+    const calls = alertSpy.mock.calls;
+    return calls[calls.length - 1][2] as AlertButton[] | undefined;
+  }
+
+  test('참가비가 걸린 날이 없으면 기존 1단계 확인으로 끝난다 — 안 위험할 때 두 번 묻지 않는다(N29)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({ openSessions: [], totalRefund: 0 });
+    await renderOwner();
+    await pressDeleteX();
+
+    expect(mockGetDeletionPreview).toHaveBeenCalledWith(GROUP_ID, CHALLENGE_ID);
+    expect(alertSpy).toHaveBeenCalledWith(
+      '챌린지 삭제',
+      '이 챌린지를 삭제할까요?',
+      expect.anything(),
+    );
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+    expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+    expect(screen.queryByTestId('group.challenge.delete.confirm')).toBeNull();
+  });
+
+  test('참가비가 걸린 날이 있으면 1단계 뒤 수치 경고 시트를 거쳐야 삭제된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [
+        { sessionDate: '2026-08-01', participantCount: 3, pot: 90 },
+        { sessionDate: '2026-08-03', participantCount: 2, pot: 60 },
+      ],
+      totalRefund: 150,
+    });
+    await renderOwner();
+    await pressDeleteX();
+
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+    // 1단계만으로는 삭제되지 않는다 — 2단계 시트가 수치를 들고 선다.
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByText('지금 진행 중인 챌린지예요')).toBeOnTheScreen();
+    expect(screen.getByText('8/1(토)')).toBeOnTheScreen();
+    expect(screen.getByText('3명 · 90코인')).toBeOnTheScreen();
+    expect(screen.getByText(/적립금 150코인이 전원에게 돌아갑니다/)).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
+    });
+    expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  test('그만두기는 삭제 없이 시트만 접는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    await renderOwner();
+    await pressDeleteX();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.delete.dismiss'));
+    });
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByText('지금 진행 중인 챌린지예요')).toBeNull();
+  });
+
+  test('프리플라이트가 실패하면 삭제로 진행하지 않는다 — 수치 없는 경고는 경고가 아니다(N49)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockRejectedValue(axiosErrorWith(500));
+    await renderOwner();
+    await pressDeleteX();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '삭제 영향을 확인하지 못했어요',
+      '잠시 후 다시 시도해주세요.',
+    );
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  test('구서버(repeatDays 없음)는 프리플라이트 없이 종전 1단계 확인 그대로다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await render(
+      <ChallengeCard challenge={challenge()} isOwner onDelete={onDelete} onOpenBet={onOpenBet} />,
+    );
+    await pressDeleteX();
+
+    expect(mockGetDeletionPreview).not.toHaveBeenCalled();
+    await act(async () => {
+      lastAlertButtons(alertSpy)
+        ?.find((b) => b.text === '삭제')
+        ?.onPress?.();
+    });
+    expect(onDelete).toHaveBeenCalledWith(CHALLENGE_ID);
   });
 });
