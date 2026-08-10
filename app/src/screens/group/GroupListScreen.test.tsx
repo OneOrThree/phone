@@ -751,11 +751,6 @@ describe('콜백', () => {
     expect(announce).not.toHaveBeenCalled();
 
     jest.mocked(ReactNative.findNodeHandle).mockReturnValue(null);
-    await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={2} />);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(setFocus).not.toHaveBeenCalled();
-
-    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
     await view.rerender(
       <GroupListScreen {...props} screenFocused guideBlocked successfulListVersion={2} />,
     );
@@ -766,7 +761,10 @@ describe('콜백', () => {
       <GroupListScreen {...props} screenFocused guideBlocked={false} successfulListVersion={2} />,
     );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(setFocus).toHaveBeenCalledWith(1);
+    expect(setFocus).not.toHaveBeenCalled();
+
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
   });
 
   test('뒷면 복귀 포커스 대기 중 페이지를 선택하면 과거 요청을 폐기한다', async () => {
