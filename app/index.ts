@@ -1,8 +1,6 @@
-import { LogBox } from 'react-native';
+import { LogBox, Platform } from 'react-native';
 import { registerRootComponent } from 'expo';
 import * as Sentry from '@sentry/react-native';
-import { initializeKakaoSDK } from '@react-native-kakao/core';
-import messaging from '@react-native-firebase/messaging';
 import { initDatadog } from './src/services/datadog';
 
 // Sentry 에러 리포팅 초기화 — 가능한 한 앱 시작 최상단에서 호출해야 한다.
@@ -17,7 +15,9 @@ Sentry.init({
 });
 
 // Datadog RUM 초기화(GROMO-928) — 성능 관측 전용(에러는 위 Sentry 담당). 키 미설정 시 no-op.
-initDatadog();
+if (Platform.OS !== 'web') {
+  initDatadog();
+}
 
 // RN Firebase v22 namespaced API deprecation 경고 억제 — 공식 silence 플래그(모듈러 마이그레이션 전까지).
 const g = globalThis as { RNFB_SILENCE_MODULAR_DEPRECATION_WARNINGS?: boolean };
@@ -29,11 +29,20 @@ LogBox.ignoreLogs([
   'This method is deprecated (as well as all React Native Firebase namespaced API)',
 ]);
 
-initializeKakaoSDK('af3ff0c5b4fb9cd38b78428b88add65d');
+// 카카오·FCM은 네이티브 앱 부트스트랩에서만 로드한다. 정적 import로 두면 웹 번들에서
+// Firebase App 초기화 전 messaging()과 Kakao native key 검증이 실행돼 루트 렌더링 전에 중단된다.
+if (Platform.OS !== 'web') {
+  const { initializeKakaoSDK } =
+    require('@react-native-kakao/core') as typeof import('@react-native-kakao/core');
+  const { default: messaging } =
+    require('@react-native-firebase/messaging') as typeof import('@react-native-firebase/messaging');
 
-// 백그라운드/종료 상태 원격 메시지 핸들러 — 앱 생명주기 밖(최상위)에서 1회 등록해야 한다.
-// 알림(alert) 메시지는 OS가 자동 표시하므로 여기선 data-only 처리만 담당(현재 no-op).
-messaging().setBackgroundMessageHandler(async () => {});
+  initializeKakaoSDK('af3ff0c5b4fb9cd38b78428b88add65d');
+
+  // 백그라운드/종료 상태 원격 메시지 핸들러 — 앱 생명주기 밖(최상위)에서 1회 등록해야 한다.
+  // 알림(alert) 메시지는 OS가 자동 표시하므로 여기선 data-only 처리만 담당(현재 no-op).
+  messaging().setBackgroundMessageHandler(async () => {});
+}
 
 // App 모듈은 Sentry.init 이후에 로드한다 — 정적 import는 파일 본문보다 먼저 실행되므로,
 // App 최상위 초기화(Facebook SDK 등)에서 나는 에러까지 잡으려면 require로 로드를 늦춰야 한다(코덱스 리뷰).

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
@@ -42,7 +42,7 @@ type Method = Extract<AuthMethod, 'kakao' | 'apple' | 'google'>;
 type IconName = keyof typeof Ionicons.glyphMap;
 
 // 노출 소셜 제공자(순서 고정) — key로 서버 provider 문자열과 매칭, fn은 게스트 로그인용.
-const PROVIDERS: {
+const ALL_PROVIDERS: {
   key: Provider;
   method: Method;
   name: string;
@@ -79,6 +79,8 @@ const PROVIDERS: {
     fn: googleLogin,
   },
 ];
+
+const PROVIDERS = Platform.OS === 'web' ? [] : ALL_PROVIDERS;
 
 // 탈퇴 플로우 카드 모달 상태 머신 — 셋 중 하나만 열린다(동시 노출 불가, GROMO-1210).
 //   confirm            : 탈퇴 재확인(파괴적 동작)

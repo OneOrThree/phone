@@ -60,7 +60,9 @@ const ALL_PROVIDERS: {
 ];
 
 // 애플 로그인은 expo-apple-authentication이 iOS 전용 — 안드로이드에선 버튼 미노출(GROMO-998).
-const PROVIDERS = ALL_PROVIDERS.filter((p) => p.method !== 'apple' || Platform.OS === 'ios');
+const PROVIDERS = ALL_PROVIDERS.filter(
+  (p) => Platform.OS !== 'web' && (p.method !== 'apple' || Platform.OS === 'ios'),
+);
 
 export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);

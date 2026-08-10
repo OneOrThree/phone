@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Text, TextInput, AppState } from 'react-native';
+import { Text, TextInput, AppState, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
-import { HotUpdater } from '@hot-updater/react-native';
 import { setLogoutHandler, setReloginHandler, getUserIdFromToken } from '@/services/api';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
@@ -54,8 +52,12 @@ import OnboardingFlow, {
   type V2OnboardingData,
 } from '@/screens/onboarding';
 
-// Facebook SDK 초기화 — 앱 시작 시 1회.
-FacebookSettings.initializeSDK();
+// Facebook SDK 초기화 — 네이티브 앱 시작 시 1회. 웹에서는 소셜 로그인을 제공하지 않는다.
+if (Platform.OS !== 'web') {
+  const { Settings: FacebookSettings } =
+    require('react-native-fbsdk-next') as typeof import('react-native-fbsdk-next');
+  FacebookSettings.initializeSDK();
+}
 
 // 준비 시험 백필(GROMO-758) — 서버 occupation(757)을 로컬 focusCategory로 복원한다.
 // 준비 시험 표시(useFocusCategory)가 로컬 전용이라 재로그인·새 기기에선 '미설정'이 되는 문제 대응.
@@ -81,6 +83,10 @@ type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
   ...(TextInput as unknown as FontScalable).defaultProps,
   allowFontScaling: false,
 };
+
+const styles = StyleSheet.create({
+  webRoot: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
+});
 
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
@@ -452,7 +458,8 @@ function App() {
         key={user?.userId ?? 'guest'}
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
-        initialIsGuest={user?.isGuest}
+        // 웹 로컬 디버그는 게스트 토큰으로 인증하지만 전체 UI 확인을 위해 기능 게이트를 연다.
+        initialIsGuest={Platform.OS === 'web' ? false : user?.isGuest}
         initialGoalSeconds={
           onboardingFocusGoalSeconds ??
           (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)
@@ -494,7 +501,10 @@ function App() {
   // DeepLinkGate — 딥링크(그룹 초대) 수신. **인증 분기 밖**에 둔다: 로그인·온보딩 화면에서
   // 누른 초대 링크도 버퍼에 담겨야 로그인 후 같은 그룹 프리뷰로 이어진다(§6-6).
   return (
-    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+    <SafeAreaProvider
+      initialMetrics={initialWindowMetrics}
+      style={Platform.OS === 'web' ? styles.webRoot : undefined}
+    >
       <DeepLinkGate />
       <RageTapDetector>{content}</RageTapDetector>
     </SafeAreaProvider>
@@ -516,13 +526,19 @@ function OtaUpdateGateScreen({ progress }: { progress: number }) {
 // hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,
 // 있으면 내려받는 동안 준비 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
 // baseURL은 공개 엔드포인트(비밀값 아님). 채널은 네이티브 설정(HOT_UPDATER_CHANNEL=production)을 따른다.
-const OtaWrappedApp = HotUpdater.wrap({
-  baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
-  updateStrategy: 'appVersion',
-  fallbackComponent: OtaUpdateGateScreen,
-  // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
-})<Record<string, unknown>>(App);
-
 // E2E(Maestro) 빌드는 OTA 게이트를 우회한다(GROMO-947) — 대본 실행 중 스테일 OTA 번들이
 // 내려와 testID 없는 구 JS로 교체되는 오염 방지. EXPO_PUBLIC_E2E는 scripts/e2e.sh가 빌드 시 주입.
-export default process.env.EXPO_PUBLIC_E2E === '1' ? App : OtaWrappedApp;
+// 웹 배포는 호스팅에서 JS 번들을 교체하므로 네이티브 OTA 게이트를 로드하지 않는다.
+let ExportedApp = App;
+if (process.env.EXPO_PUBLIC_E2E !== '1' && Platform.OS !== 'web') {
+  const { HotUpdater } =
+    require('@hot-updater/react-native') as typeof import('@hot-updater/react-native');
+  ExportedApp = HotUpdater.wrap({
+    baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
+    updateStrategy: 'appVersion',
+    fallbackComponent: OtaUpdateGateScreen,
+    // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
+  })<Record<string, unknown>>(App) as typeof App;
+}
+
+export default ExportedApp;

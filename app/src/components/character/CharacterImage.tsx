@@ -8,7 +8,7 @@
 //    집중 세션 캐릭터는 스냅샷(saveCharacterSnapshot)으로 Live Activity·가림막에도 반영됨.
 
 import { useEffect, useState } from 'react';
-import { Image, type ImageProps } from 'react-native';
+import { Image, Platform, type ImageProps } from 'react-native';
 
 export type CharacterVariant = 'default' | 'study';
 
@@ -19,10 +19,12 @@ const SOURCES: Record<CharacterVariant, number> = {
 
 // 캐릭터 에셋 프리캐시(GROMO-848) — 축하 모달처럼 갑자기 노출되는 화면에서 첫 로드
 // (dev는 Metro 다운로드) 지연으로 캐릭터가 늦게 뜨는 것을 줄인다. 실패해도 무해.
-Object.values(SOURCES).forEach((mod) => {
-  const src = Image.resolveAssetSource(mod);
-  if (src?.uri) Image.prefetch(src.uri).catch(() => {});
-});
+if (Platform.OS !== 'web') {
+  Object.values(SOURCES).forEach((mod) => {
+    const src = Image.resolveAssetSource(mod);
+    if (src?.uri) Image.prefetch(src.uri).catch(() => {});
+  });
+}
 
 export function CharacterImage({
   size,
