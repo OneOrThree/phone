@@ -173,24 +173,12 @@ describe('허브 — 행 노출', () => {
     expect(screen.getByText('현재 아이콘 책 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
   });
 
-  test('로컬 아이콘 읽기 전에는 기본 이름 대신 미확정 상태를 표시한다', async () => {
-    await writeGroupCardEmoji('me', GROUP_ID, '📚');
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
-    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
-      await gate;
-      return originalGetItem(key);
-    });
+  test('첫 아이콘 읽기 실패는 기본 목표가 아니라 확인 불가 상태로 표시한다', async () => {
+    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('unavailable'));
+    await renderScreen();
 
-    const view = await render(<GroupSettingsScreen />);
-    await screen.findByTestId('group.settings.leave');
-    expect(screen.getByText(/아이콘 불러오는 중/)).toBeOnTheScreen();
+    expect(await screen.findByText(/현재 아이콘을 확인할 수 없어요/)).toBeOnTheScreen();
     expect(screen.queryByText(/현재 아이콘 목표/)).toBeNull();
-
-    await act(async () => release());
-    expect(await screen.findByText(/현재 아이콘 책/)).toBeOnTheScreen();
-    view.unmount();
   });
 
   test('포커스 재조회에서 로컬 읽기가 실패하면 표시 중인 아이콘 이름을 유지한다', async () => {

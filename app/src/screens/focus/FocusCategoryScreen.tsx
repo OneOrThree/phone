@@ -65,6 +65,11 @@ export default function FocusCategoryScreen() {
   useEffect(() => {
     interactionTransferredRef.current = false;
     startTransitionRef.current = false;
+    // CTA 수락 뒤 이 화면이 마운트되기 전에 앱이 이미 background가 된 경우 listener는 그
+    // 전환을 받지 못한다. 현재 상태도 먼저 확인해 오래된 intent를 복귀 뒤 세션에 넘기지 않는다.
+    if (AppState.currentState === 'inactive' || AppState.currentState === 'background') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') invalidateCardInteraction(interactionId);
     });
