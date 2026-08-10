@@ -35,6 +35,7 @@ import { GroupCardBack } from './components/GroupCardBack';
 import { GroupCardSummaryAdapter } from './groupCardSummary';
 import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
 import { useGroupCardOrder } from './useGroupCardOrder';
+import { DEFAULT_GROUP_CARD_EMOJI, type GroupCardEmojiBucket } from './groupCardEmojiStore';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -66,6 +67,7 @@ const EDGE_PAGE_THROTTLE_MS = 260;
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   userId?: string | null;
+  cardEmojiByGroupId?: GroupCardEmojiBucket;
   onSelect: (groupId: string) => void;
   onStartFocus?: (groupId: string) => void;
   onOpenSettings?: (groupId: string) => void;
@@ -88,6 +90,7 @@ function groupCountBucket(count: number): GroupCountBucket {
 export default function GroupListScreen({
   groups,
   userId = null,
+  cardEmojiByGroupId = {},
   onSelect,
   onStartFocus,
   onOpenSettings,
@@ -484,6 +487,7 @@ export default function GroupListScreen({
             ) : (
               <GroupCardFront
                 group={item}
+                emoji={cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI}
                 onFlip={() => flipToBack(item.groupId)}
                 reorderHandlers={handlersFor(item.groupId)}
                 canMovePrevious={index > 0}
@@ -628,7 +632,6 @@ const s = StyleSheet.create({
     textAlign: 'center',
     paddingTop: T.space.xs,
   },
-
   footer: { paddingHorizontal: T.space.xxl, paddingTop: T.space.md },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격 — GroupScreen 빈 상태와 같은 값)
   primaryBtn: {
