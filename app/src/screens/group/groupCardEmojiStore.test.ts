@@ -9,9 +9,14 @@ import {
   parseGroupCardEmoji,
   readGroupCardEmoji,
   readGroupCardEmojiForEdit,
+  readGroupCardEmojiResult,
   reconcileGroupCardEmojiBucket,
   preservePendingGroupCardEmoji,
+  restoreLatestPendingGroupCardEmoji,
   retryPendingGroupCardEmojis,
+  hasPendingGroupCardEmojis,
+  subscribeGroupCardEmoji,
+  updatePendingGroupCardEmojiSelection,
   writeGroupCardEmoji,
 } from './groupCardEmojiStore';
 
@@ -62,6 +67,12 @@ test('userId×groupId로 값을 격리하고 미설정은 🎯로 읽는다', as
   expect(await readGroupCardEmoji(null, 'g1')).toBe('🎯');
 });
 
+test('읽기 실패는 실제 미설정 기본값과 구분한다', async () => {
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
+
+  expect(await readGroupCardEmojiResult('u1', 'g1')).toEqual({ status: 'error' });
+});
+
 test('편집용 읽기는 저장소 오류를 기본값으로 확정하지 않고 호출자에게 전달한다', async () => {
   jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporary read failure'));
 
@@ -93,10 +104,9 @@ test('읽기는 호출 시점에 대기 중인 쓰기 뒤에서 최신 아이콘
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
   jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
     await gate;
-    await originalSetItem(key, value);
+    await AsyncStorage.multiSet([[key, value]]);
   });
   const write = writeGroupCardEmoji('u1', 'g1', '📚');
   const read = readGroupCardEmoji('u1', 'g1');
@@ -118,28 +128,200 @@ test('성공한 전체 목록에서만 현재 계정의 stale 그룹 아이콘�
   });
 });
 
-test('stale repair 쓰기가 실패해도 검증해 읽은 현재 그룹 아이콘은 hydrate에 유지한다', async () => {
-  await AsyncStorage.setItem(
-    'gromo:groups:cardEmoji:v1',
-    JSON.stringify({ u1: { g1: '📚', gone: '🔥' } }),
-  );
-  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+test('진행 중 prune이 새 목록으로 무효화되면 원본 bucket을 복원한 뒤 최신 목록을 적용한다', async () => {
+  await writeGroupCardEmoji('u1', 'a', '📚');
+  await writeGroupCardEmoji('u1', 'b', '🔥');
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    started();
+    await writeGate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
 
-  await expect(reconcileGroupCardEmojiBucket('u1', ['g1'])).resolves.toEqual({ g1: '📚' });
+  const stale = reconcileGroupCardEmojiBucket('u1', ['a']);
+  await startedGate;
+  const latest = reconcileGroupCardEmojiBucket('u1', ['a', 'b']);
+  release();
+
+  await Promise.all([stale, latest]);
+  expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
 });
 
 test('실패한 최신 pending 아이콘은 다음 그룹 화면 활성화에서 재시도한다', async () => {
-  preservePendingGroupCardEmoji('u1', 'g1', '🔥');
-  await retryPendingGroupCardEmojis('u1', ['g1']);
+  const onResult = jest.fn();
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥', 'create');
+  await retryPendingGroupCardEmojis('u1', ['g1'], () => true, onResult);
   expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+  expect(onResult).toHaveBeenCalledWith('create', 'success');
 });
 
 test('pending 재시도가 실패해도 최신 아이콘을 화면 합성값으로 반환한다', async () => {
+  const onResult = jest.fn();
   preservePendingGroupCardEmoji('u1', 'g1', '🔥');
   jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('still full'));
 
-  await expect(retryPendingGroupCardEmojis('u1', ['g1'])).resolves.toEqual({ g1: '🔥' });
-  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🎯');
+  await expect(retryPendingGroupCardEmojis('u1', ['g1'], () => true, onResult)).resolves.toEqual({
+    g1: '🔥',
+  });
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+  expect(onResult).toHaveBeenCalledWith('settings', 'failed');
+});
+
+test('여러 pending의 혼합 결과는 마지막 결과가 아니라 남은 항목 전체로 판정한다', async () => {
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥');
+  preservePendingGroupCardEmoji('u1', 'g2', '📚');
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('g1 failed'));
+
+  await retryPendingGroupCardEmojis('u1', ['g1', 'g2']);
+
+  expect(hasPendingGroupCardEmojis('u1', ['g1', 'g2'])).toBe(true);
+  expect(hasPendingGroupCardEmojis('u1', ['g2'])).toBe(false);
+});
+
+test('오래된 자동 쓰기 뒤에는 메모리의 최신 pending 선택을 다시 알린다', () => {
+  const emitted: string[] = [];
+  preservePendingGroupCardEmoji('u1', 'g1', '📚');
+  updatePendingGroupCardEmojiSelection('u1', 'g1', '🔥', '🎯');
+  const unsubscribe = subscribeGroupCardEmoji('u1', (_groupId, emoji) => emitted.push(emoji));
+
+  restoreLatestPendingGroupCardEmoji('u1', 'g1');
+
+  expect(emitted).toEqual(['🔥']);
+  unsubscribe();
+});
+
+test('진행 중인 pending 재시도보다 새 선택이 늦게 들어오면 최신 아이콘을 다시 알린다', async () => {
+  preservePendingGroupCardEmoji('u1', 'g1', '📚');
+  const emitted: string[] = [];
+  const unsubscribe = subscribeGroupCardEmoji('u1', (_groupId, emoji) => emitted.push(emoji));
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    started();
+    await writeGate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+
+  const retry = retryPendingGroupCardEmojis('u1', ['g1']);
+  await startedGate;
+  updatePendingGroupCardEmojiSelection('u1', 'g1', '🔥', '🎯');
+  release();
+  await retry;
+
+  expect(emitted.at(-1)).toBe('🔥');
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+  unsubscribe();
+});
+
+test('무효화된 prune의 원본 복원이 실패해도 최신 reconcile은 원본에서 다시 계산한다', async () => {
+  await writeGroupCardEmoji('u1', 'a', '📚');
+  await writeGroupCardEmoji('u1', 'b', '🔥');
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  let call = 0;
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+    call++;
+    if (call === 1) {
+      started();
+      await writeGate;
+      return AsyncStorage.multiSet([[key, value]]);
+    }
+    if (call === 2) throw new Error('restore unavailable');
+    return AsyncStorage.multiSet([[key, value]]);
+  });
+
+  const stale = reconcileGroupCardEmojiBucket('u1', ['a']);
+  await startedGate;
+  const latest = reconcileGroupCardEmojiBucket('u1', ['a', 'b']);
+  release();
+
+  await Promise.all([stale, latest]);
+  expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
+});
+
+test('다른 계정의 후속 저장도 모든 복구 대기 bucket을 앱 재시작 전에 영속화한다', async () => {
+  await writeGroupCardEmoji('u1', 'a', '📚');
+  await writeGroupCardEmoji('u1', 'b', '🔥');
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  let call = 0;
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+    call++;
+    if (call === 1) {
+      started();
+      await writeGate;
+      return AsyncStorage.multiSet([[key, value]]);
+    }
+    if (call === 2) throw new Error('restore unavailable');
+    return AsyncStorage.multiSet([[key, value]]);
+  });
+
+  const stale = reconcileGroupCardEmojiBucket('u1', ['a']);
+  await startedGate;
+  const invalidator = reconcileGroupCardEmojiBucket('u1', ['a', 'b'], () => false);
+  release();
+  await Promise.all([stale, invalidator]);
+
+  await writeGroupCardEmoji('u2', 'other', '🧠');
+
+  expect(parseGroupCardEmoji(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1'))).toEqual({
+    u1: { a: '📚', b: '🔥' },
+    u2: { other: '🧠' },
+  });
+
+  // 프로세스 메모리의 recovery bucket 없이도 영속 저장만으로 복구되어야 한다.
+  __resetGroupCardEmojiQueueForTest();
+
+  expect(await readGroupCardEmoji('u1', 'a')).toBe('📚');
+  expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
+  expect(await readGroupCardEmoji('u2', 'other')).toBe('🧠');
+});
+
+test('다른 계정의 reconcile도 모든 복구 bucket을 보존하며 자신의 stale 값만 정리한다', async () => {
+  await writeGroupCardEmoji('u1', 'a', '📚');
+  await writeGroupCardEmoji('u1', 'b', '🔥');
+  await writeGroupCardEmoji('u2', 'keep', '🧠');
+  await writeGroupCardEmoji('u2', 'gone', '⚡');
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  let call = 0;
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+    call++;
+    if (call === 1) {
+      started();
+      await writeGate;
+      return AsyncStorage.multiSet([[key, value]]);
+    }
+    if (call === 2) throw new Error('restore unavailable');
+    return AsyncStorage.multiSet([[key, value]]);
+  });
+
+  const stale = reconcileGroupCardEmojiBucket('u1', ['a']);
+  await startedGate;
+  const invalidator = reconcileGroupCardEmojiBucket('u1', ['a', 'b'], () => false);
+  release();
+  await Promise.all([stale, invalidator]);
+
+  await reconcileGroupCardEmojiBucket('u2', ['keep']);
+  expect(parseGroupCardEmoji(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1'))).toEqual({
+    u1: { a: '📚', b: '🔥' },
+    u2: { keep: '🧠' },
+  });
+
+  __resetGroupCardEmojiQueueForTest();
+  expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
+  expect(await readGroupCardEmoji('u2', 'gone')).toBe('🎯');
 });
 
 test('성공한 전체 목록에서 사라진 그룹의 pending 값도 폐기한다', async () => {
