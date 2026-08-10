@@ -1,11 +1,12 @@
-# Feature LLD — 내 그룹 카드 덱 v1.1
+# Feature LLD — 내 그룹 카드 덱
 
-| 항목 | 내용 |
-| --- | --- |
+| 항목      | 내용                                                                                                                             |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 시작      | [구현 착수 카드](./README.md)                                                                                                    |
 | 상위 정본 | [그룹 PRD](../../prd.md) · [Feature PRD](./prd.md) · [Feature IA](./information-architecture.md) · [HLD](./high-level-design.md) |
-| 역할 | 카드 덱의 상태 전이·실패 복구·검증 기준을 그림으로 확정한다. |
-| 문서 범위 | 구현 정책과 예외만 다룬다. 코드·타입·컴포넌트 목록·시각 수치는 반복하지 않는다. |
-| 구현 상태 | **⬜ 설계 완료·구현 미착수** — 카드 덱·플립·재정렬·로컬 아이콘·안내의 실행 계약 |
+| 역할      | 카드 덱의 상태 전이·실패 복구·검증 기준을 그림으로 확정한다.                                                                     |
+| 문서 범위 | 구현 정책과 예외만 다룬다. 코드·타입·컴포넌트 목록·시각 수치는 반복하지 않는다.                                                  |
+| 구현 상태 | [공통 상태 정본](../../shared/implementation-status.md)의 `GRP-02`를 따른다.                                                     |
 
 PRD가 제품 결정을, IA가 화면과 정보 구조를, HLD가 시스템 책임을 정한다. 이 문서는 그 결정을 바꾸지 않고 **어떤 상태 전이만 허용할지**를 정한다.
 
@@ -35,7 +36,7 @@ flowchart TB
     Room --> Return["뒤로 가기<br/>소속 변경 가능성이 있으면 목록 재조회"]
     Return --> Exists{"출발 groupId가<br/>아직 소속 목록에 있는가?"}
     Exists -->|예| Restore["같은 그룹 · 뒷면 · 위치 · 초점 복원"]
-    Exists -->|아니오 · 다른 그룹 있음| Fallback["가장 가까운 유효 카드의 앞면"]
+    Exists -->|아니오 · 다른 그룹 있음| Fallback["저장한 출발 index에 남은 카드<br/>범위를 넘으면 마지막 카드 · 앞면"]
     Exists -->|아니오 · 그룹 없음| Empty
 ```
 
@@ -43,6 +44,7 @@ flowchart TB
 - 끝의 그룹 찾기 카드는 서버 그룹, 저장 순서, 순서 변경 대상이 아니다. 다만 전체 페이지 수와 현재 페이지 표시에는 `그룹 수 + 1`로 포함한다.
 - 실패하거나 일부만 받은 목록은 탈퇴·삭제의 증거로 쓰지 않는다.
 - 가입·생성 직후에도 전체 목록 재조회가 성공해야 카드 덱으로 전환한다.
+- 방 진입 시 저장한 출발 index에 현재 목록의 카드가 있으면 그 카드를, index가 범위를 넘으면 마지막 카드를 앞면으로 연다. 남은 그룹이 없으면 빈 상태로 간다.
 
 ---
 
@@ -70,6 +72,14 @@ flowchart TB
 - 순서와 아이콘 저장은 각각 순서대로 처리하며, 저장 직전에 최신 값을 합성해 마지막 선택이 이긴다.
 - 늦은 과거 작업은 다른 계정의 화면·오류·이벤트를 바꾸지 못한다.
 - 생성 화면의 아이콘은 서버가 생성에 성공해 `groupId`가 생긴 뒤에만 저장한다.
+
+| 저장 목적      | key                         | 최소 shape·수명                                                       |
+| -------------- | --------------------------- | --------------------------------------------------------------------- |
+| 카드 순서      | `gromo:groups:cardOrder:v1` | `{ [userId]: groupId[] }`; 성공한 전체 목록에서만 reconcile           |
+| 내 카드 아이콘 | `gromo:groups:cardEmoji:v1` | `{ [userId]: { [groupId]: allowlistedEmoji } }`; 미설정 fallback `🎯` |
+| 첫 안내 완료   | `gromo:guide:groupDeck:v1`  | 기기 전역 값 `1`; 사용자 완료 뒤 best-effort 저장                     |
+
+순서와 아이콘은 서로 다른 key별 queue에서 read-modify-write를 직렬화한다. 저장 실패는 서버 성공을 취소하지 않고 현재 session UI를 rollback하지 않는다.
 
 ---
 
@@ -169,7 +179,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    Eligible{"인증됨 · 성공한 전체 목록 1개 이상<br/>덱과 기준점 안정 · 화면 전환과<br/>가로막는 팝업·시트·다른 안내 없음?"}
+    Eligible{"인증됨 · 성공한 전체 목록 1개 이상<br/>로컬 설정 합성·덱·기준점 완료<br/>화면 전환·팝업·시트·다른 안내 없음?"}
     Eligible -->|아니오| Deck["카드 덱을 그대로 사용<br/>조건이 갖춰지면 다시 판정"]
     Eligible -->|예| Stored{"이 기기에서 v1 안내를<br/>완료했는가?"}
     Stored -->|예| Deck
@@ -184,9 +194,9 @@ flowchart TD
     Persist -->|실패| WriteFail["운영 오류만 기록<br/>현재 사용자의 완료는 취소하지 않음"]
     WriteFail --> Deck
 
-    Guide -->|화면 이탈 · 계정/소속 변경 · 다른 안내 등장| Interrupted["미완료<br/>완료 이벤트·저장 없음"]
+    Guide -->|화면 이탈 · 계정/소속 변경 · 다른 팝업·시트·안내 등장| Interrupted["미완료<br/>완료 이벤트·저장 없음"]
     Prepare -->|중단| Interrupted
-    Step4 -->|화면 이탈 · 계정/소속 변경 · 다른 안내 등장| Interrupted
+    Step4 -->|화면 이탈 · 계정/소속 변경 · 다른 팝업·시트·안내 등장| Interrupted
     Interrupted --> Deck
 
     Layout["회전 · 기준점 측정 실패"] -.-> Fallback["안내를 끝내지 않고 전체 어둡게 표시<br/>다음 단계에서 다시 측정"]
@@ -201,53 +211,28 @@ flowchart TD
 
 ---
 
-## 7. 계측은 노출·의도·결과를 분리한다
+## 7. 카드 기능의 계측 상태
+
+이벤트 이름·속성·F1 앱 진입·F3 획득 퍼널·결과 귀속 window는 [그룹 공통 분석 계약](../../shared/analytics.md)이 정본이다. LLD는 카드 기능의 상태 전이와 발행 금지만 고정한다.
 
 ```mermaid
 flowchart LR
-    subgraph F1["F1 · 앱에서 그룹 화면까지"]
-        Main["앱 메인 사용 가능<br/>app_main_viewed · C"] --> Entry{"그룹 진입 방식"}
-        Entry -->|탭| Tab["실제 탭 전환<br/>main_tab_selected · C"]
-        Tab -->|10초 안| Viewed["그룹 화면 실제 표시<br/>group_viewed · C"]
-        Entry -->|초대 · 푸시 · 직접 진입| Viewed
-    end
+    Deck["덱 실제 노출"] --> User["사용자 back flip"]
+    Deck --> Guide["안내 완료"]
+    User --> Ready["뒷면 사용 가능"]
+    Guide --> Ready
+    Ready --> Intent["CTA 의도 수락"]
+    Intent --> Room["방 성공 결과"]
+    Intent --> Focus["집중 시작 성공 결과"]
 
-    subgraph F2["F2 · 카드에서 실제 행동까지"]
-        Viewed --> DeckViewed["카드 덱 실제 노출<br/>group_card_deck_viewed"]
-        DeckViewed --> BackPath{"어떻게 뒷면을<br/>사용할 수 있게 되었나?"}
-        BackPath -->|사용자가 직접 뒤집음| Flipped["group_card_flipped"]
-        BackPath -->|첫 안내 완료| Guided["tab_guide_completed"]
-        Flipped --> BackReady["뒷면 사용 가능"]
-        Guided --> BackReady
-        BackReady --> Intent["행동 의도 수락<br/>group_card_action_clicked"]
-        Intent -->|방 전체 보기 성공| RoomResult["group_room_viewed<br/>entry_source=group_card"]
-        Intent -->|집중 시작 성공| FocusResult["focus_session_started<br/>entry_source=group_card"]
-    end
-
-    subgraph F3["F3 · 그룹이 없는 사용자의 획득"]
-        Empty["소속 그룹 0개"] --> Acquire{"획득 방식"}
-        Acquire -->|찾기| Find["group_find_opened · C<br/>검색은 선택 단계"]
-        Acquire -->|초대| Invite["invite_link_opened → sheet_viewed · C"]
-        Find --> JoinAttempt["group_join_attempted · C"]
-        Invite --> JoinAttempt
-        JoinAttempt --> Joined["group_joined · S"]
-        Acquire -->|만들기| CreateStart["group_create_started · C"]
-        CreateStart --> CreateSubmit["group_create_submitted · C"]
-        CreateSubmit --> Created["group_created · C"]
-        Joined --> Refresh["전체 목록 재조회 성공 · 1개 이상"]
-        Created --> Refresh
-        Refresh --> DeckViewed
-    end
-
-    DeckViewed -.-> Diagnostic["페이지 이동 · 순서 변경 · 아이콘 저장 결과"]
-    Diagnostic -.-> Rule["탐색·품질 진단일 뿐<br/>방 표시·집중 시작 결과가 아님"]
+    Program["안내 자동 back · scroll"] -.->|"사용자 flip · page 이벤트 0건"| Ready
+    Noop["rerender · resize · 취소 · no-op"] -.->|"사용자 이벤트 0건"| Intent
 ```
 
-- 화면을 본 것, 행동을 선택한 것, 실제 결과가 발생한 것을 서로 다른 단계로 기록한다.
-- 자동 전환, 다시 그리기, 크기 변경, 애니메이션, 취소, 재시도는 사용자 행동 이벤트가 아니다.
-- 클라이언트 이벤트는 공통 계측 경계를 통해 한 번만 발행한다.
-- 그룹명·소개·아이콘 문자·전체 순서·원본 userId는 이벤트에 넣지 않는다.
-- `C`는 클라이언트, `S`는 서버 확정 결과다. 세부 이벤트 속성·`back_source` 수명·방 30초/집중 10분 결과 귀속은 [HLD §6.4~6.6](./high-level-design.md#64-guide-계측-계약)을 정본으로 사용한다.
+- guide와 user flip이 같은 session에 모두 있으면 뒷면 사용 가능 단계는 한 번으로 dedupe한다.
+- `back_source=guide`는 사용자가 face를 다시 바꾸기 전까지만 유지한다.
+- 카드 CTA의 context는 Room·Focus 성공 결과까지 보존하며 다른 카드의 늦은 결과에 재사용하지 않는다.
+- 그룹명·소개·아이콘 glyph·asset·로컬 순서·raw `userId`를 payload에 넣지 않는다.
 
 ---
 
@@ -270,7 +255,14 @@ flowchart LR
 3. **데이터 신뢰:** 부분 실패는 해당 영역에만 남고, 집중 상태의 불명·실패·100 이상을 `0명`으로 표시하지 않는다.
 4. **안내·접근성·계측:** 안내의 읽기·중단·저장 실패와 자동 전환을 각각 검증한다. 자동 전환의 사용자 이벤트는 0건이고 완료 이벤트는 저장 성공과 무관하게 1건이다. 그룹명은 모든 위치에서 1줄 말줄임, 접근성 이름은 원문 전체이며, DebugView의 노출 → 의도 → 결과 순서·중복·금지 정보를 확인한다.
 
-## 9. 구현 전에 확정할 두 가지
+## 9. 확정된 구현 결정
 
-1. 방에서 돌아왔을 때 출발 그룹이 사라진 경우, `가장 가까운 유효 카드`를 고르는 정확한 우선순위.
-2. 첫 안내의 `덱과 기준점이 안정됨`을 판정하는 신호와 다른 안내를 기다리는 최대 시간.
+### 9.1 출발 그룹이 사라진 복귀
+
+방 진입 때 `{ groupId, sourceIndex, face }`를 저장한다. 전체 목록 재확인 뒤 `groupId`가 없으면 새 목록의 `min(sourceIndex, groups.length - 1)` 카드를 앞면으로 연다. 즉 같은 시각 slot에 들어온 다음 카드를 우선하고, 출발이 마지막이었다면 남은 마지막 카드로 간다. 목록이 비면 기존 빈 상태로 간다.
+
+### 9.2 안내 시작의 안정 신호와 대기 수명
+
+안내 queue에는 다음 조건이 모두 참일 때만 등록한다: 인증 사용자, 성공한 전체 groups 1개 이상, 순서·아이콘 hydration 완료, active 카드와 필수 anchor layout 완료, navigation transition idle, blocking modal·sheet·다른 guide 없음.
+
+queue 대기는 카드 사용을 차단하지 않으며 고정 시간 timeout을 두지 않는다. slot을 받기 전에 screen blur·background·unmount·계정/멤버십 변경이 발생하면 현재 요청을 취소하고 다음 focus에서 다시 판정한다. 안내 시작 뒤 anchor가 사라지거나 폭이 바뀌면 중단하지 않고 전체 dim fallback으로 계속하며 다음 단계에서 재측정한다.

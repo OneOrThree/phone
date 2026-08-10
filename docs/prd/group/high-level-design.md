@@ -9,22 +9,9 @@
 
 ---
 
-## 0. 구현 상태
+## 0. 구현 상태 읽기
 
-기준은 **2026-08-10 `origin/main`(`595bd822`)**이다. 배포·스토어 출시 상태를 뜻하지 않는다.
-
-| 표시         | 의미                                              |
-| ------------ | ------------------------------------------------- |
-| ✅ 구현됨    | 현재 앱·서버 코드에서 주요 흐름 확인              |
-| 🟡 일부 구현 | 핵심 코드는 있으나 일부 정책·안전장치·검증이 남음 |
-| ⬜ 미구현    | 문서 계약은 있으나 대응 코드를 확인하지 못함      |
-
-| 기능            | 상태                | 현재 코드에서 확인                                          | 남은 범위                                                                                 |
-| --------------- | ------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 01 그룹 획득    | 🟡 일부 구현        | 찾기·직접/복원 초대·생성·가입·목록 재확인·초대 대상 방 이동 | 비공개 그룹의 invite-only 서버 enforcement, 생성 요청의 같은 순간 이중 탭 방지            |
-| 02 내 그룹 탐색 | ⬜ 설계 완료·미구현 | 기능 문서의 덱·플립·재정렬·로컬 아이콘·guide 계약           | 앱 덱/플립/재정렬/아이콘/guide 코드와 이벤트·검증 전체                                    |
-| 03 그룹 활동    | 🟡 일부 구현        | 그룹방·멤버·공지·집중 진입                                  | 최초 detail 실패 시 전체 오류와 집중 숨김; detail 성공 뒤 공지·하위 영역만 독립 실패 격리 |
-| 04 그룹 운영    | 🟡 일부 구현        | 설정 허브·프로필·위임·강퇴·공지 권한·나가기                 | 일부 하위 화면의 최신 역할 재검증·통합 E2E, 02 P1 아이콘 편집 의존성                      |
+현재 구현 여부, 남은 작업, 책임 역할과 출시 gate는 [그룹 구현 상태 정본](./shared/implementation-status.md)에서만 관리한다. 이 HLD의 그림은 목표 책임과 연결을 설명하며 구현 완료를 뜻하지 않는다.
 
 ---
 
@@ -192,13 +179,13 @@ flowchart LR
 
 ## 6. 기능별 상세 정본
 
-| 번호 | 기능         | HLD                                                        | LLD                                                       |
-| ---- | ------------ | ---------------------------------------------------------- | --------------------------------------------------------- |
-| 01   | 그룹 획득    | [상세 HLD](./features/01-acquisition/high-level-design.md) | [상세 LLD](./features/01-acquisition/low-level-design.md) |
-| 02   | 내 그룹 탐색 | [상세 HLD](./features/02-my-groups/high-level-design.md)   | [상세 LLD](./features/02-my-groups/low-level-design.md)   |
-| 03   | 그룹 활동    | [상세 HLD](./features/03-activity/high-level-design.md)    | [상세 LLD](./features/03-activity/low-level-design.md)    |
-| 04   | 그룹 운영    | [상세 HLD](./features/04-operation/high-level-design.md)   | [상세 LLD](./features/04-operation/low-level-design.md)   |
+| 번호 | 기능         | 시작점                                           | 상세 설계                                                                                                    |
+| ---- | ------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| 01   | 그룹 획득    | [착수 카드](./features/01-acquisition/README.md) | [HLD](./features/01-acquisition/high-level-design.md) · [LLD](./features/01-acquisition/low-level-design.md) |
+| 02   | 내 그룹 탐색 | [착수 카드](./features/02-my-groups/README.md)   | [HLD](./features/02-my-groups/high-level-design.md) · [LLD](./features/02-my-groups/low-level-design.md)     |
+| 03   | 그룹 활동    | [착수 카드](./features/03-activity/README.md)    | [HLD](./features/03-activity/high-level-design.md) · [LLD](./features/03-activity/low-level-design.md)       |
+| 04   | 그룹 운영    | [착수 카드](./features/04-operation/README.md)   | [HLD](./features/04-operation/high-level-design.md) · [LLD](./features/04-operation/low-level-design.md)     |
 
-분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 소유한다. 공통 이벤트명·속성·발행 주체·금지 정보의 문서 정본은 [02 HLD의 공통 분석 이벤트 사전](./features/02-my-groups/high-level-design.md#65-공통-분석-이벤트-사전)에 한 번만 둔다.
+분석 이벤트의 의미상 소유 기능은 `01=찾기·초대·생성·가입`, `02=그룹 화면·카드·가이드·개인 아이콘`, `03=방·집중·공지`, `04=역할·멤버십 변경`이다. 공통 이벤트명·속성·발행 주체·금지 정보는 [그룹 공통 분석 계약](./shared/analytics.md), 챌린지 계측은 [챌린지 문서 세트](../challenge/README.md)가 각각 소유한다.
 
-통합 HLD는 기능 사이의 연결 정본이고, 세부 API·상태·테스트가 충돌할 때는 상위 PRD·IA를 확인한 뒤 해당 기능 HLD에서 결정한다.
+통합 HLD는 기능 사이의 연결 정본이고 기능 HLD는 내부 책임·API 경계를 보완한다. 문서 종류별 충돌은 [문서 지도](./README.md#2-정본은-문서-종류별로-결정한다)의 범위 규칙으로 해결한다.

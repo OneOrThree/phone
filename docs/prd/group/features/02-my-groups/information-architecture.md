@@ -1,120 +1,39 @@
 # Feature IA — 내 그룹 캐러셀·카드 플립: 정보 구조
 
-| 항목 | 내용                                                                                                                                             |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 상위 | [그룹 전체 IA](../../information-architecture.md) · [Feature PRD](./prd.md)                                                                                           |
-| 범위 | 화면 위치 · 상태 트리 · 카드 앞/뒷면 정보 위계 · 내비게이션 · 권한별 설정                                                                        |
-| 상태 | **v1.1 정보구조 정본** — 카드 플립·기기 로컬 순서·사용자별 `내 카드 아이콘`·기존 전역 리그 라이브 합성·그룹 카드 첫 노출 코치마크 정보 구조 확정 |
-| 구현 상태 | **⬜ 설계 완료·구현 미착수** — 카드 덱·플립·재정렬·로컬 아이콘·안내는 아직 앱에 구현되지 않음 |
+| 항목 | 내용                                                                                                   |
+| ---- | ------------------------------------------------------------------------------------------------------ |
+| 시작 | [구현 착수 카드](./README.md)                                                                          |
+| 상위 | [그룹 전체 IA](../../information-architecture.md) · [Feature PRD](./prd.md)                            |
+| 범위 | 화면 위치 · 상태 트리 · 카드 앞/뒷면 정보 위계 · 내비게이션 · 권한별 설정                              |
+| 상태 | **기능 정보구조 정본** — 구현 상태는 [공통 상태 정본](../../shared/implementation-status.md)을 따른다. |
 
 이 문서는 **"무엇을, 어떤 순서/위계로 보여주는가"** 만 다룬다. 어떻게 움직이는지(제스처·모션)는 [ux-design.md](./ux-design.md), 어떻게 구현하는지는 [high-level-design.md](./high-level-design.md)·[low-level-design.md](./low-level-design.md).
 
-> **현실성 전제:** 작성 시점의 실제 행동 데이터는 0이다. `eligible_user_count < 100`은 운영상 출시 전제일 뿐 런타임 앱에는 전달되지 않는다. 앱은 성공한 전역 리그 원본 응답 길이가 100 미만일 때만 top100 완전성을 적용하며, `length === 100`·loading·error는 미산출(0명 금지)이다. 운영 수가 unknown 또는 100 이상이면 출시는 차단하고 대체 계약을 먼저 정한다.
+정확성·규모 전제는 [HLD](./high-level-design.md#3-시스템api-경계와-데이터-흐름), 실행 상태는 [LLD](./low-level-design.md)를 따른다. IA는 그 값을 화면에서 어디에 둘지만 결정한다.
 
 ---
 
-## 정책 지도 — 비개발 동료용
-
-### 정본 우선순위와 이 문서의 역할
-
-제품의 **왜·무엇·성공 판단**은 [prd.md](./prd.md)가 정한다. 이 문서는 그 결정을 사용자가
-보는 정보·화면 경계·복귀 규칙으로 번역한다. HLD는 시스템 책임 경계를, LLD는 구현과 테스트
-방법을 구체화한다. 충돌하면 **PRD → IA/HLD → LLD** 순으로 해석하고, 같은 계층의 충돌은 PRD에
-되돌려 결정한다.
-
-### 0.1 화면과 이동 경계
-
-```mermaid
-flowchart TD
-    APP["앱의 글로벌 그룹 탭"] --> READY{"인증과 성공한 전체 그룹 목록이<br/>사용 가능한가"}
-    READY -->|아니오| EXISTING["현행 게스트 · 불러오는 중 · 오류 화면"]
-    READY -->|예| STATE{"내 그룹이 있는가"}
-
-    STATE -->|"0개"| EMPTY["빈 상태\n만들기 · 찾기"]
-    EMPTY --> ACQUIRE["생성 또는 가입 성공"]
-    APP -->|초대 링크| INVITE["기존 초대 미리보기"]
-    INVITE --> ACQUIRE
-    ACQUIRE --> REFRESH{"전체 그룹 목록 재조회가<br/>성공했고 1개 이상인가"}
-    REFRESH -->|예| DECK
-    REFRESH -->|아니오 · 부분 응답| EXISTING
-
-    STATE -->|"1개 이상"| DECK["내 그룹 덱\n각 그룹의 안정된 정체성·순서"]
-    DECK --> FRONT["앞면\n이름 · 역할 · 기본 식별 정보"]
-    FRONT --> BACK["뒷면\n현재 집중 · 챌린지 · 공지 · 멤버 요약"]
-    BACK --> FOCUS["이 그룹으로 집중\n선택 그룹을 맥락으로 시작"]
-    BACK --> ROOM["방 전체 보기\n더 많은 정보와 관리"]
-    ROOM --> STILL_MEMBER{"돌아올 때도<br/>그 그룹에 소속되어 있는가"}
-    STILL_MEMBER -->|예| RETURN["같은 그룹 · 같은 뒷면<br/>같은 위치 · 접근성 초점"]
-    STILL_MEMBER -->|아니오 · 다른 그룹 있음| SAFE_CARD["남은 유효 카드의 앞면"]
-    STILL_MEMBER -->|아니오 · 0개| EMPTY
-    RETURN --> BACK
-```
-
-### 0.2 앞면·뒷면·전체 방의 정보 위계
+## 0. 정보 경계 요약
 
 ```mermaid
 flowchart LR
-    FRONT["앞면<br/>어느 그룹인가?<br/>이름 · 역할 · 기본 식별"] --> BACK["뒷면<br/>지금 어떤 상태인가?<br/>집중 · 챌린지 · 공지 · 멤버 요약"]
-    BACK --> CHOICE{"무엇을 할까?"}
-    CHOICE -->|바로 행동| FOCUS["이 그룹으로 집중"]
-    CHOICE -->|상세 · 관리| ROOM["기존 전체 방"]
+    List["내 그룹 탐색"] --> Front["앞면<br/>어느 그룹인가"]
+    Front --> Back["같은 자리의 뒷면<br/>지금 어떤 상태인가"]
+    Back --> Focus["바로 집중"]
+    Back --> Room["전체 방<br/>상세·관리"]
+    Room --> Return{"출발 그룹이<br/>아직 있는가?"}
+    Return -->|예| Back
+    Return -->|아니오| Safe["남은 카드 앞면 또는 빈 상태"]
 
-    ROLE["방장과 멤버의 차이<br/>관리 항목만 역할에 따라 분기"] -.-> ROOM
-    COMMON["공통 약속<br/>요약 읽기 · 집중 · 전체 방 보기는 동일"] -.-> BACK
-    BOUNDARY["하지 않음<br/>앞면에서 전체 방으로 즉시 이동<br/>뒷면에 전체 방 기능을 모두 복제"] -.-> FRONT
+    Front -.->|"직행하지 않음"| Room
+    Back -.->|"전체 방 기능을 복제하지 않음"| Room
 ```
 
-### 0.3 정보 신뢰·부분 실패·규모 경계
-
-```mermaid
-flowchart TB
-    BACK["카드 뒷면 정보"] --> SECTIONS["그룹 상세 · 공지 · 챌린지<br/>각 영역이 독립적으로 상태를 가짐"]
-    SECTIONS --> PARTIAL["한 영역 실패는 그 영역만 오류 · 재시도<br/>다른 정보와 가능한 행동은 유지"]
-
-    BACK --> COMPLETE{"성공한 원본 리그 응답이<br/>100행 미만인가?"}
-    COMPLETE -->|예| FACT["확인된 0명 또는 N명 표시"]
-    COMPLETE -->|불러오는 중| LOADING["불러오는 중 표시"]
-    COMPLETE -->|요청 실패| ERROR["집중 영역만 오류 · 재시도<br/>0명 표시 금지"]
-    COMPLETE -->|100행| UNKNOWN["확인할 수 없음<br/>0명 표시 금지"]
-
-    NAME["시각 이름<br/>한 줄 말줄임"] --> ACCESS["보조기술 이름<br/>서버 원문 전체"]
-
-    SCALE["운영 적격 사용자 수"] -->|0~89명| TEMP["현재 조합 출시 전제"]
-    SCALE -->|90~99명| PREPARE["대체 계약 담당자 · 티켓 · 배포일 확정"]
-    SCALE -->|값을 알 수 없음 또는 100 이상| SWITCH["출시 차단 · 대체 계약 선행"]
-```
-
-### 0.4 첫 카드 덱 안내의 사용자 약속
-
-```mermaid
-flowchart TD
-    ELIGIBLE{"인증 · 성공한 전체 목록 1개 이상<br/>덱과 강조 위치 안정 · 다른 안내 없음?"}
-    ELIGIBLE -->|아니오| USE["현행 상태 또는 카드 덱 사용"]
-    ELIGIBLE -->|예 · 기기에서 미완료| GUIDE["4단계 안내<br/>1 ~ 3 다음 · 4 시작"]
-    ELIGIBLE -->|예 · 이미 완료| USE
-
-    GUIDE -->|중단 · 화면 이탈 · 계정·소속 변경| INTERRUPT["완료 기록·완료 이벤트 없음<br/>안전한 카드 상태로 복귀"]
-    INTERRUPT --> USE
-    GUIDE -->|마지막 시작| COMPLETE_GUIDE["안내 닫기 · 뒷면과 접근성 초점 유지<br/>완료 이벤트 1회"]
-    COMPLETE_GUIDE --> USE
-    COMPLETE_GUIDE --> PERSIST["기기 완료 기록 저장 시도"]
-    PERSIST -->|실패| TELEMETRY["운영 오류만 기록<br/>사용자 완료는 취소하지 않음"]
-
-    DEMO["안내가 만든 자동 카드 뒤집기<br/>사용자 행동 이벤트 0건 · 정보 조회는 시작"] -.-> GUIDE
-```
-
-| 정책          | 사용자에게 보이는 결과                                                                                    | 지켜야 하는 경계                                                            |
-| ------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 정보 계층     | 앞면은 빠른 식별, 뒷면은 지금 행동을 고르는 데 필요한 요약, 전체 방은 상세·관리다                         | 앞면 탭만으로 전체 방에 이동하지 않는다                                     |
-| 상태 분기     | 그룹이 없으면 획득 경로를, 하나 이상이면 언제나 내 그룹 덱을 먼저 보여준다                                | 빈 상태·게스트·불러오는 중·오류를 덱으로 가장하지 않는다                    |
-| 정체성과 복귀 | 같은 그룹이 여전히 소속 목록에 있으면 보던 그룹·면·위치를 유지하고, 아니면 안전한 앞면·빈 상태로 복귀한다 | 순서는 개인 기기 선호일 뿐 멤버십 사실이나 다른 사람의 화면을 바꾸지 않는다 |
-| 신뢰와 실패   | 확인된 정보만 단정하고, 한 영역의 실패가 나머지 정보나 행동을 막지 않는다                                 | 불완전한 집중 정보는 0명으로 표시하지 않는다                                |
-| 역할과 접근성 | 역할에 따라 관리 기능만 달라지고, 읽기·집중·전체 방 보기의 핵심 경로는 이해 가능해야 한다                 | 시각적 줄임이 보조기술의 원문 정보나 조작 가능성을 줄이지 않는다            |
-
-아래 §1 이후의 화면 구조·상태·필드 표는 이 정책 지도를 검증 가능한 상세로 풀어 쓴 **부록성 정보
-구조 정본**이다. 구현 구성요소·저장 방식·네트워크 호출은 HLD·LLD에서만 확정한다.
-
----
+- 앞면은 식별, 뒷면은 행동 선택에 필요한 요약, 전체 방은 상세·관리다.
+- 소속 1개 이상에서만 덱을 보이며 guest·loading·error·0개 상태를 덱으로 가장하지 않는다.
+- 역할 차이는 관리 항목에서만 생긴다. 요약 읽기·집중·전체 방 보기는 OWNER와 MEMBER에게 공통이다.
+- 시각 이름은 1줄로 줄여도 접근성 이름은 서버 원문 전체를 사용한다.
+- 데이터 불명·실패는 0명·없음으로 바꾸지 않는다. 정확한 실패 상태는 HLD·LLD가 소유한다.
 
 ## 1. 화면 위치 (Navigation map)
 
@@ -136,56 +55,35 @@ flowchart TD
 - `GroupListScreen`은 **그룹 탭의 첫 화면**(A-9: 소속 1개부터 항상 목록). 자체 백버튼 없음(`onBack` 미전달이 정상).
 - 캐러셀은 `GroupScreen`의 **"1건 이상" 분기만** 대체한다. 게스트/로딩/에러/빈 상태 화면은 위치·소유 불변.
 - **카드 앞면 탭은 라우트 이동이 아니다.** `GroupRoom` push는 뒷면의 명시적 `방 전체 보기`에서만 일어난다.
-- 이 흐름의 노출·의도·결과 이벤트 정본은 [HLD §6.5 공통 분석 이벤트 사전](./high-level-design.md#65-공통-분석-이벤트-사전)과 [§6.6 퍼널·결과 귀속](./high-level-design.md#66-f1f2f3-퍼널과-결과-귀속)이다. 앱 main shell, 글로벌 탭 선택,
-  `GroupScreen` 도달, 덱 노출, back CTA 수락, 방/집중 결과를 서로 다른 단계로 기록한다.
+- 이 흐름의 노출·의도·결과는 [공통 분석 계약](../../shared/analytics.md)에 따라 서로 다른 단계로 기록한다.
 
-### 1.1 화면 결과의 semantic event
+### 1.1 화면 결과와 분석 의미
 
-아래는 정보 구조상 결과가 실제로 발생한 지점만 연결한 것이다. 버튼 원문이나 그룹 이름은 payload에
-넣지 않으며, 이벤트의 속성·중복 규칙은 [HLD §6.5](./high-level-design.md#65-공통-분석-이벤트-사전)·[§6.6](./high-level-design.md#66-f1f2f3-퍼널과-결과-귀속)을 따른다.
-
-| 화면 결과                                                 | semantic event                                                                                                                                       | 분류                              |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| 인증/게스트 main 탭 shell이 입력 가능해짐                 | `app_main_viewed`                                                                                                                                    | 신규                              |
-| 비활성 글로벌 `그룹` 탭이 실제 선택됨                     | `main_tab_selected(tab=group)`                                                                                                                       | 신규                              |
-| 그룹 화면이 focus되어 표시됨                              | `group_viewed(group_entry=tab\|invite\|push\|return\|unknown)`                                                                                       | 기존 속성 보강                    |
-| 생성 폼이 표시됨 / 유효한 `만들기` 수락 / create API 성공 | `group_create_started(entry_point=empty\|header)` / `group_create_submitted(entry_point, is_private)` / `group_created`                              | 기존 속성 보강 / 신규 / 신규      |
-| 빈 상태·헤더·끝 카드에서 찾기 sheet가 표시됨              | `group_find_opened(entry_point=empty\|header\|end_card)`                                                                                             | 신규                              |
-| 그룹 1개 이상 덱이 조작 가능해짐                          | `group_card_deck_viewed`                                                                                                                             | 신규                              |
-| back CTA가 수락됨 → 실제 방/집중 결과가 성공              | `group_card_action_clicked(action=room\|focus)` → `group_room_viewed(entry_source=group_card)` 또는 `focus_session_started(entry_source=group_card)` | 신규 action / 기존 결과 속성 보강 |
-
-`다시 시도`, 일반 뒤로가기, sheet 닫기, 생성·집중 흐름의 취소는 이 표의 제품 이벤트가 아니다. 결과 이벤트가
-없으면 클릭 이후 취소·오류·이탈로 보고 운영 telemetry와 함께 판단한다.
-
-그룹 0개 사용자의 획득 흐름은 `group_find_opened → [group_search_performed 선택] → group_join_attempted(search) → group_joined`,
-`invite_link_opened → group_invite_sheet_viewed(entry=link|deferred) → group_join_attempted(invite|deferred_invite) → group_joined`다.
-생성 경로는 `group_create_started → group_create_submitted → group_created → group_card_deck_viewed`다.
-여기서 `group_entry`는 그룹 화면 진입 출처이고, 초대 sheet의 기존 `entry=link|deferred`와 섞지 않는다.
+IA는 화면 결과를 **그룹 화면 도달 → 덱 노출 → 뒷면 사용 가능 → CTA 의도 → 방/집중 성공**으로 구분한다. 구체 이벤트 이름·속성·F1~F3 퍼널은 [공통 분석 계약](../../shared/analytics.md), 카드 surface의 발행 시점은 [HLD §6.4](./high-level-design.md#64-guide-계측-계약)를 따른다. 다시 시도·뒤로가기·sheet 닫기·취소는 성공 결과가 아니다.
 
 ---
 
 ## 2. 상태 트리 (State tree) — 화면 상태와 카드 로컬 상태
 
-화면 수준 상태는 계속 `GroupScreen`이 소유한다. 카드 face·요약 로딩·현재 화면 순서는 `GroupListScreen` 로컬 상태이고, 재정렬 선호 순서와 `내 카드 아이콘`만 서로 다른 `AsyncStorage` key에 계정별로 영속한다.
+화면 수준 상태는 그룹 화면이, 현재 카드·앞뒷면·요약은 내 그룹 탐색 화면이 소유한다. 순서와 내 카드 아이콘만 현재 계정·기기에 남고, 소속과 권한은 서버 목록을 따른다.
 
-```
-GroupScreen
-├── isGuest ─────────────► [게스트 안내 + 로그인 CTA]          (불변)
-├── groups===null & loading ─► [중앙 스피너]                   (불변)
-├── (null | 전이) & error ──► [에러 + 다시 시도]               (불변)
-├── myGroups.length === 0 ──► [빈 상태: 만들기 · 찾기]          (불변)
-└── myGroups.length >= 1 ──► ★ GroupListScreen  ← 캐러셀로 교체
-        + staleNotice (재조회 실패 인라인 배너)                 (불변, 캐러셀 위에 얹힘)
-        + findSheet / inviteSheet (오버레이)                    (불변)
-        + orderedGroupIds                                      (서버 집합 + userId별 기기 저장 순서 reconcile)
-        + cardEmojiByGroupId                                   (현재 userId의 기기 로컬 groupId→emoji, 기본 🎯)
-        + flippedGroupId: string | null                         (동시에 최대 1장)
-        + detail[groupId+date]: idle|loading|ready|error        (멤버 userId·preview·정원)
-        + leagueLive[date]: idle|loading|ready|error            (전역 top100 원본, 모든 카드 공유)
-        + announcements[groupId]: idle|loading|ready|error      (현행 최신순 목록의 첫 공지)
-        + challenges[groupId+date]: idle|loading|ready|error    (현행 목록 API 재사용)
-        + groupDeckGuide: idle|reading|waiting-stable|showing(1..4)|session-complete
-          (기기 전역 `gromo:guide:groupDeck:v1`; 가입 온보딩과 별개)
+```mermaid
+flowchart TD
+    Enter["그룹 화면"] --> State{"인증·전체 목록 상태"}
+    State -->|게스트| Guest["로그인 안내"]
+    State -->|불러오는 중| Loading["중앙 로딩"]
+    State -->|실패·부분 응답| Error["오류 · 다시 시도"]
+    State -->|성공 · 0개| Empty["빈 상태<br/>만들기 · 찾기"]
+    State -->|성공 · 1개 이상| Deck["내 그룹 카드 덱"]
+
+    Deck --> Front["현재 카드 앞면"]
+    Front --> Back["같은 그룹 뒷면 요약"]
+    Deck --> Find["마지막 찾기 카드"]
+    Back --> Section["영역별 로딩 · 정보 · 오류"]
+    Back --> Action["집중 · 방 · 설정"]
+
+    Local["현재 계정·기기<br/>순서 · 내 카드 아이콘"] -.-> Deck
+    Server["서버<br/>소속 · 역할 · 그룹 정보"] --> Deck
 ```
 
 **설계 함의**: 캐러셀은 "빈 배열"을 다루지 않는다(0건은 `GroupScreen`이 가로챔). 캐러셀에 도달하면 **항상 최소 1건**이다.
@@ -285,19 +183,16 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 | ---- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 헤더 | 앞면으로 돌아가기 · 그룹 이름 · `⋯ 설정` | 좁은 영역의 이름은 1줄, overflow 시 첫 줄 끝 `…`. 설정 항목은 role에 따라 §5.2처럼 분기                                                                                                                                 |
 | 1    | **현재 집중 인원**                       | 상세 `members[].userId`와 공유 전역 리그 원본을 join해 `isFocusing === true`인 그룹원 수를 별도 시간·제목 없이 `n명 집중 중` 한 줄로 표시. 완전성이 확인된 성공 응답(`<100`행)에 없는 ID는 `false`, 0명도 `0명 집중 중` |
-| 2    | **챌린지 목록**                          | 현행 GroupRoom의 `GroupChallengeResponse[]`를 서버 최신순 그대로 표시. 단일 대표 선정·상태 필터·`UPCOMING` 합성 없음                                                                                                    |
+| 2    | **하위 기능 요약**                       | 기존 응답의 신원·순서를 유지한 compact 표시. 상태·정렬·진행률 의미는 [챌린지 정본](../../../challenge/README.md)을 따름                                                                                                 |
 | 3    | **최신 공지 1개**                        | `createdAt` 내림차순 첫 항목. 없으면 `아직 공지가 없어요`                                                                                                                                                               |
 | 4    | **멤버 요약**                            | `현재/정원`과 최대 5명의 preview. 전체 명단은 GroupRoom에서 확인                                                                                                                                                        |
 | 5    | **주 액션 2개**                          | `이 그룹으로 집중` · `방 전체 보기`                                                                                                                                                                                     |
 
-- 첫 flip에서 기존 detail·announcements·challenges 세 요청을 병렬 lazy load하고, `localDate`의 공유 리그 cache가 없으면 카테고리 미전달 `GET /api/v1/league/me/ranking?date=YYYY-MM-DD`도 한 번 시작한다. 로딩 중에는 같은 위계를 유지하는 skeleton, 실패 시 해당 섹션의 인라인 오류와 `다시 시도`를 보여준다.
-- 세 요청은 독립 상태다. 일부 요청이 실패하거나 섹션만 비어 있어도 전체 뒷면과 두 CTA를 오류로 만들지 않는다.
-- 챌린지 목록은 `GET /api/v1/groups/{groupId}/challenges?date=YYYY-MM-DD` 응답을 사용한다. 서버가 `createdAt DESC`로 준 순서를 유지하며 클라이언트가 `status`로 거르거나 다시 정렬하지 않는다.
-- 카드 뒷면의 챌린지 영역은 고정 카드 높이 안에서 세로 스크롤한다. 각 항목의 카테고리·방식·목표·시간대·멤버 진행 의미는 현행 `ChallengeCard`와 같고, 생성·삭제·내기 같은 변경 동작은 전체 방에 둔다.
+- 첫 flip에서 요약에 필요한 기존 읽기 정보를 불러온다. 요청 조합·cache·중복 방지는 [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름)이 소유한다.
+- 각 정보 영역은 독립 상태다. 로딩 중에는 같은 위계의 skeleton, 실패 시 해당 영역의 인라인 오류와 `다시 시도`를 보여 주며 전체 뒷면과 가능한 CTA를 오류로 만들지 않는다.
+- 하위 기능 요약은 기존 응답을 read-only로 투영하며 카드 IA가 상태·정렬·진행률을 다시 정의하지 않는다.
 - 최신 공지는 현행 announcements 최신순 응답의 첫 항목만 사용한다. 카드 전용 limit·정렬 API는 만들지 않는다.
-- 집중 현황은 `leagueApi.getMyRanking()` 원본 또는 동일한 전용 query hook을 쓴다. `useSessionLeagueMembers`는 자기 제외와 `MAX_MEMBERS=12` slice가 있으므로 정보 원천으로 쓰지 않는다.
-- `LeagueRankingQueryRepository`가 `users LEFT JOIN daily_focus_stats`로 0초 사용자도 포함한다. 운영 eligible 사용자 수가 100명 미만이라는 출시 전제 아래, 런타임의 성공 원본 응답 길이가 100 미만일 때만 응답에 없는 그룹원 ID를 `false`로 본다.
-- 그룹 상세·리그 DTO·DB를 바꾸거나 새 endpoint를 만들지 않는다. 운영 eligible 사용자 90명에서 경고·대체 안을 착수하며, unknown 또는 100 이상이면 출시를 차단하고 live 필드·batch endpoint·live pagination 중 하나의 대체 계약을 먼저 배포한다. 런타임 리그 응답 `length === 100`은 coverage 불명 telemetry 신호로 남긴다.
+- 집중 현황은 완전성이 확인된 기존 원본과 그룹 멤버를 조합한다. 원본 축약 금지·90/100 출시 gate·불명 상태 계산은 [HLD §3.2](./high-level-design.md#32-기존-그룹-상세-현재-집중-상태-응답의-client-join)와 [LLD §5](./low-level-design.md#5-현재-집중-인원은-완전한-정보에서만-계산한다)가 소유한다.
 - `방 전체 보기`만 `GroupRoom` 라우트를 연다. 뒤로 오면 같은 그룹의 뒷면과 carousel 위치로 복귀한다.
 
 ### 3.4 헤더·끝 찾기 카드
@@ -332,7 +227,7 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 | 좌우 스와이프           | (내부 상태)                | 페이지 index 변경 + 인디케이터 갱신 (+ `group_carousel_paged` 계측)                 |
 | ~~당겨서 새로고침~~     | ~~`onRefresh()`~~          | 호출 지점 없음. 갱신은 `GroupScreen` 포커스 재조회                                  |
 
-**`onSelect` 의미 변경:** 콜백 시그니처는 유지하지만 호출 지점은 앞면 카드 전체에서 뒷면 `방 전체 보기`로 이동한다. 따라서 기존 카드 탭 라우팅 테스트는 v1.1 카드 플립 계약에 맞게 갱신한다.
+**`onSelect` 의미 변경:** 콜백 시그니처는 유지하지만 호출 지점은 앞면 카드 전체에서 뒷면 `방 전체 보기`로 이동한다. 따라서 기존 카드 탭 라우팅 테스트는 카드 플립 계약에 맞게 갱신한다.
 
 ### 4.1 그룹 카드 첫 노출 코치마크
 
@@ -425,79 +320,36 @@ GroupProfileEdit  (OWNER only)
 
 ---
 
-## 6. 데이터 경계
+## 6. 정보 원천과 화면 위치
 
-앞면과 뒷면은 데이터 수명주기가 다르다.
+| 정보                     | 보이는 위치       | 원천·신뢰 규칙                                       |
+| ------------------------ | ----------------- | ---------------------------------------------------- |
+| 소속·이름·역할·인원      | 앞면·뒷면         | 서버 그룹 정보; 로컬 값으로 복원·추정하지 않음       |
+| 카드 순서·내 카드 아이콘 | 앞면·설정         | 현재 계정·기기 표현; 다른 사용자·기기에 영향 없음    |
+| 집중 현황                | 뒷면              | 기존 집중 상태와 그룹 멤버를 조합; 불완전하면 미산출 |
+| 공지·하위 기능           | 뒷면 compact 영역 | 기존 서버 응답; 실패는 해당 영역에만 표시            |
+| 상세·관리                | 전체 그룹 방·설정 | 기존 route가 다시 조회; 카드 요약은 정본이 아님      |
+| 첫 안내 완료             | 카드 위 overlay   | 기기 1회 상태; 소속·가입 onboarding과 분리           |
 
-| 면                    | 원천                                                                    | 규칙                                                                                         |
-| --------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 앞면 그룹 정보        | `GET /groups` → `GroupSummaryResponse`                                  | 이름·소개·인원·역할·공개 범위. 응답에는 카드 아이콘 필드가 없음                              |
-| 앞면 내 카드 아이콘   | `AsyncStorage('gromo:groups:cardEmoji:v1')`                             | `{ [userId]: { [groupId]: emoji } }`. 현재 계정·기기의 값만 합성하고 없으면 `🎯`             |
-| 그룹 덱 코치마크 완료 | `AsyncStorage('gromo:guide:groupDeck:v1')`                              | 기기 전역 `'1'` = 완료. 그룹 목록·멤버십·카드 순서와 독립이며 가입 온보딩 key가 아님         |
-| 생성 아이콘 연결      | `POST /groups` 응답의 `CreateGroupResponse.groupId` + 같은 AsyncStorage | 선택값은 Create body에서 제외. API 성공 뒤 반환 ID에만 로컬 저장                             |
-| 그룹 프로필 편집      | `GET /groups/{id}` + `PATCH /groups/{id}`                               | OWNER의 이름·소개·정원·공개 범위만 처리. 카드 아이콘을 읽거나 쓰지 않음                      |
-| 뒷면 상세             | `GET /groups/{id}?date=YYYY-MM-DD`                                      | 첫 flip에서 lazy load. `members[].userId`를 집중 현황 join key로 쓰고 멤버 preview·정원 표시 |
-| 공유 집중 현황        | `GET /api/v1/league/me/ranking?date=YYYY-MM-DD` (카테고리 미전달)       | `localDate`별 원본 top100을 한 번 받아 모든 카드가 공유. `userId -> isFocusing` map으로 합성 |
-| 뒷면 공지             | `GET /groups/{id}/announcements`                                        | 첫 flip에서 lazy load. 현행 서버 최신순 배열의 첫 항목 1개만 표시                            |
-| 뒷면 챌린지           | `GET /groups/{id}/challenges?date=YYYY-MM-DD`                           | 현행 GroupRoom과 같은 `GroupChallengeResponse[]`. 최신순 목록 그대로 렌더                    |
-| 전체 방               | 기존 GroupRoom 상세/공지 + 같은 challenges 조회                         | `방 전체 보기` 후 route에서 기존 전체 데이터 로드. 챌린지 내용·순서는 뒷면과 동일            |
-
-- 뒷면 때문에 모든 그룹의 detail·announcements·challenges를 캐러셀 진입 시 선조회하지 않는다.
-- 그룹 Create/Update 요청과 Summary/Detail/Search/Overview 응답, DB·OpenAPI에는 `emoji`를 추가하지 않는다. OWNER 여부도 로컬 아이콘 편집 권한과 무관하다.
-- `userId`가 확정되지 않은 상태에서는 아이콘 저장소를 읽거나 쓰지 않고 `🎯`로 표시한다.
-- 성공한 전체 `GET /groups`의 ID 집합과 현재 `userId`의 아이콘 map을 reconcile해 stale `groupId`와 허용 밖 값을 제거한다. 목록 오류·부분 응답에서는 삭제하지 않고 다른 사용자 bucket은 유지한다.
-- 서버 변경은 **0건**이다. 카테고리 미전달 전역 리그 원본과 그룹 상세 멤버 ID를 클라이언트에서 join하며, 기존 API·DTO·DB·OpenAPI를 바꾸지 않는다.
-- 운영 출시 전제는 `eligible_user_count = COUNT(users WHERE is_deleted=false AND is_guest=false) < 100`이다. 이 값은 런타임 앱에 전달되지 않는다. 90명에서 경고·대체 안을 착수하며, unknown 또는 100 이상이면 출시를 차단하고 그룹 live 필드·그룹 멤버 batch live endpoint·live pagination 중 하나의 대체 계약을 먼저 배포한다. 런타임의 성공 raw 응답 길이 `<100`만 complete이고, `length === 100`·loading·error는 coverage 불명(0명 금지)이다.
-- 챌린지는 현행 DTO의 `ACTIVE | INACTIVE`, nullable `memberProgress`, `bet?`, `lastSettledBet?` 의미를 유지한다. 앱에 없는 `UPCOMING`, 단일 `title`, `progressPercent`, 연속일수 필드를 새로 정의하지 않는다.
-- room summary와 challenge 목록은 그룹 멤버 전용 응답이다.
+API·cache key·reconcile·coverage 계산은 [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름)과 [LLD](./low-level-design.md), 챌린지의 상태·권한·결과는 [챌린지 문서](../../../challenge/README.md)가 정본이다.
 
 ---
 
-## 7. 경계·엣지와 사용성 게이트
+## 7. 정보구조 예외
 
-| 상황                                                    | IA 규칙                                                                                                                                                                                          |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 페이지 인디케이터                                       | 실측 컨테이너 폭과 산식으로 dots/compact 결정. 고정 pageCount 임계값 없음                                                                                                                        |
-| 회전·분할 화면                                          | 새 폭으로 mode 재계산. active `groupId`와 index는 유지                                                                                                                                           |
-| 찾기 카드                                               | 항상 마지막. 재정렬 대상·drop 대상 아님                                                                                                                                                          |
-| 로컬 아이콘 없음/손상/미지원                            | 앞면과 picker 기준값에서 `🎯`                                                                                                                                                                    |
-| 내 카드 아이콘 변경 없음                                | 현재 로컬값 preselect, 같은 값을 고르면 저장 disabled                                                                                                                                            |
-| OWNER·MEMBER 아이콘 저장 성공                           | 현재 세션 카드와 기준값을 즉시 갱신. 성공 toast 없음                                                                                                                                             |
-| OWNER·MEMBER 아이콘 저장 실패                           | picker·현재 선택값 유지, inline 오류와 로컬 쓰기 재시도                                                                                                                                          |
-| 생성 성공·아이콘 로컬 쓰기 실패                         | 그룹 POST를 반복하지 않음. 세션 선택값 유지 + inline 오류 + 로컬 저장만 재시도                                                                                                                   |
-| MEMBER 그룹 프로필 접근                                 | `내 카드 아이콘`은 접근 가능. OWNER 전용 `GroupProfileEdit` 메뉴·deep link·PATCH는 기존 권한으로 차단                                                                                            |
-| 첫 flip 데이터 로딩                                     | detail·announcements·challenges 섹션별 skeleton. 앞면으로 즉시 복귀 가능                                                                                                                         |
-| 뒷면 요청 일부/전체 실패                                | 실패한 섹션만 인라인 오류 + 재시도. 성공 섹션과 CTA 유지, full room을 자동으로 열지 않음                                                                                                         |
-| 완전성이 확인된 리그 성공 응답(`<100`행)에 멤버 ID 누락 | 운영 출시 전제가 유효할 때만 `false`. 오늘 집중분으로 추정하지 않음                                                                                                                   |
-| 리그 loading / 요청 실패                                | `0명`으로 오인하지 않고 집중 현황 블록만 skeleton 또는 인라인 오류 + 재시도                                                                                                                      |
-| 리그 응답 `length === 100`                              | coverage 불명 telemetry를 남기고 집중 인원을 미산출한다. 런타임 전체를 차단하지 않음                                                                                                                      |
-| 운영 eligible 사용자 90~99명 / unknown·100 이상                            | 90~99명에서 경고·대체 안 착수. unknown·100 이상이면 카드 덱 출시를 차단하고 대체 계약을 먼저 배포                                                                                                               |
-| 챌린지 없음                                             | `아직 챌린지가 없어요`                                                                                                                                                                           |
-| 공지 없음                                               | `아직 공지가 없어요`                                                                                                                                                                             |
-| 현재 집중 0명                                           | `0명 집중 중`                                                                                                                                                                                    |
-| 방 전체 보기 후 복귀                                    | 같은 카드 위치와 뒷면 유지                                                                                                                                                                       |
-| 재정렬 후 화면/앱 재진입                                | 같은 기기·같은 `userId`의 저장 순서를 서버 소속 집합과 reconcile해 복원                                                                                                                          |
-| 신규 그룹                                               | 저장 순서를 유지하고 신규 ID를 서버 상대 순서대로 뒤에 append                                                                                                                                    |
-| 탈퇴·강퇴·중복/stale ID                                 | 성공한 서버 전체 목록에 없는 ID와 중복을 순서에서 제거하고, 현재 사용자 아이콘 map의 stale ID도 제거                                                                                             |
-| 순서 저장 손상·읽기 실패                                | 서버 순서 fallback 후 정상 배열 저장을 재시도                                                                                                                                                    |
-| 순서 쓰기 실패                                          | 현재 세션 UI 순서 유지 + inline 실패 상태 1회. 다음 진입은 마지막 정상값 또는 서버 순서                                                                                                          |
-| 다른 계정·기기·재설치                                   | 순서와 아이콘 모두 `userId`별 분리. 다른 기기와 앱 삭제·데이터 초기화 후 복원은 지원하지 않음                                                                                                    |
-| 그룹 나가기                                             | MEMBER는 성공 후 제거하고 인접 카드로 이동. OWNER는 먼저 방장 위임 후 나가며, 마지막 그룹이면 `GroupScreen` 빈 상태                                                                              |
-| 재조회 실패(기존 데이터 있음)                           | 캐러셀 위 `staleNotice` 배너(불변). 캐러셀 자체는 유지.                                                                                                                                          |
-| 긴 이름 overflow fixture                                | 앞면·뒷면·검색·목록형 행은 모두 1줄이며 overflow 시 첫 줄 끝 `…`. 모든 위치의 접근성 이름은 축약하지 않은 원문 전체                                                                              |
-| 코치마크 trigger                                        | 성공한 인증 사용자 그룹 목록 1개 이상 + stable layout + 다른 overlay 없음일 때만 session당 최대 1회. 게스트·미확정 userId·loading/error·0개에서는 미노출                                         |
-| guide key read 실패                                     | 카드 덱은 즉시 사용 가능. 현재 session에서만 최대 1회 시도하고 다음 진입에서 read 재시도                                                                                                         |
-| guide key write 실패                                    | 마지막 `시작`의 완료 event는 이미 1회 발행한다. `guide_complete_write_failed` telemetry를 남기고, overlay·카드 back·focus는 유지한다. session에는 재노출하지 않으며 다음 앱 실행에서 재노출 가능 |
-| 코치마크 중단                                           | background·route 이탈·unmount는 완료 저장하지 않음. 안정된 다음 진입에서 1단계부터                                                                                                               |
-| spotlight anchor 실패                                   | 잘못된 anchor 대신 전체 dim + 말풍선으로 fallback, 다음 단계에서 재측정                                                                                                                          |
+| 상황                      | 사용자에게 남길 구조                                         |
+| ------------------------- | ------------------------------------------------------------ |
+| 그룹 찾기 카드            | 항상 마지막 페이지이며 그룹 데이터·재정렬 대상이 아님        |
+| 회전·폭 변화              | 표시 방식이 바뀌어도 active `groupId`와 현재 페이지를 유지   |
+| 아이콘 없음·손상          | 앞면과 편집기에서 `🎯` fallback                              |
+| 아이콘·순서 저장 실패     | 현재 선택·순서를 유지하고 해당 설정 영역에만 오류 표시       |
+| 첫 뒷면 로딩              | 영역별 skeleton을 보이며 앞면으로 즉시 돌아갈 수 있음        |
+| 뒷면 일부 실패            | 실패 영역만 오류·재시도; 다른 정보와 가능한 CTA 유지         |
+| 집중 정보 불명·실패       | 미산출·오류로 표시하고 `0명` 금지                            |
+| 공지·하위 기능 없음       | 각 영역의 명시적 빈 상태                                     |
+| 방 복귀 중 출발 그룹 소멸 | LLD의 deterministic fallback으로 남은 카드 앞면 또는 빈 상태 |
+| 계정·기기 변경            | 개인 설정을 섞지 않고 다른 기기·재설치 복원은 약속하지 않음  |
+| 긴 이름                   | 모든 surface 1줄 말줄임, 접근성 이름은 원문 전체             |
+| 안내 중단·저장 실패       | 완료와 미완료를 구분하고 카드 사용은 막지 않음               |
 
-`PageIndicator` QA는 아래 화면 폭×그룹 수 매트릭스를 고정 fixture로 사용한다. `availableWidth`는 각 컨테이너 폭에서 좌우 20pt씩을 뺀 값이며 페이지 수는 그룹 수+찾기 카드 1이다.
-
-| 컨테이너 폭 | available | 그룹 1 / 2p | 그룹 5 / 6p | 그룹 6 / 7p | 그룹 7 / 8p | 그룹 10 / 11p |
-| ----------- | --------: | ----------- | ----------- | ----------- | ----------- | ------------- |
-| 320pt       |     280pt | dots        | compact     | compact     | compact     | compact       |
-| 390pt       |     350pt | dots        | dots        | dots        | compact     | compact       |
-| 430pt       |     390pt | dots        | dots        | dots        | dots        | compact       |
-| 768pt       |     728pt | dots        | dots        | dots        | dots        | dots          |
-
-각 셀은 하드코딩한 제품 임계값이 아니라 동일 산식의 회귀 fixture다. 폭이 경계값과 같을 때는 `requiredDotWidth <= availableWidth` 규칙에 따라 dots를 쓴다. 회전·분할 화면 QA는 mode 변경 전후의 active `groupId`와 index가 같은지도 함께 검증한다.
+indicator 폭 fixture, gesture, 접근성, 안내 문구의 사용성 검증은 [UX 정본](./ux-design.md), 저장·응답·복귀·안내 state machine은 [LLD](./low-level-design.md)가 소유한다.

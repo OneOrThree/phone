@@ -9,16 +9,11 @@
 
 ---
 
-## 0. 구현 상태
+## 0. 실행 정본 읽기
 
-| 기능            | 상태                | ✅ 구현됨                                                  | ⬜ 남은 구현·검증                                                                                    |
-| --------------- | ------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 01 그룹 획득    | 🟡 일부 구현        | 검색·초대·가입 잠금, 생성·목록 수렴, 늦은 응답 격리        | 비공개 그룹의 invite-only 서버 enforcement, 생성 submit의 동기식 이중 실행 잠금                      |
-| 02 내 그룹 탐색 | ⬜ 설계 완료·미구현 | 기능 문서의 상태·경합·복구·검증 계약                       | 덱·플립·재정렬·아이콘·guide 코드와 테스트·계측 전체                                                  |
-| 03 그룹 활동    | 🟡 일부 구현        | 그룹방 세대 guard·공지 변경·집중 `groupId` 전달            | 최초 detail 실패의 전체 오류/집중 숨김 개선, detail 성공 뒤 하위 영역 독립성 검증, 집중 이중 탭 잠금 |
-| 04 그룹 운영    | 🟡 일부 구현        | 요청 잠금·위임 후 이탈·공지 권한 rollback·서버 멤버십 전이 | 위임/공지 권한 화면의 최신 역할 guard와 통합·접근성 E2E, 02 P1 아이콘 편집 의존성                    |
-
-챌린지의 내부 실행 상태와 검증은 이 표에서 완료 여부를 판단하지 않으며 [챌린지 LLD](../challenge/low-level-design.md)로 이관한다.
+- 현재 구현 여부와 남은 작업은 [구현 상태 정본](./shared/implementation-status.md), 이벤트 이름·속성·귀속은 [공통 분석 계약](./shared/analytics.md)을 따른다.
+- 이 문서는 기능 사이의 상태·경합·복구만 고정한다. 기능 내부 코드 시작점과 테스트 위치는 각 기능의 착수 카드에서 찾는다.
+- 챌린지 내부 상태·검증은 [챌린지 LLD](../challenge/low-level-design.md)로 이관한다.
 
 ---
 
@@ -124,19 +119,19 @@ flowchart LR
     Unit["기능 단위"] --> Contract["기능 연결"]
     Contract --> Journey["생애주기 E2E"]
     Journey --> Analytics["계측 검증"]
-    Analytics --> Release["P0 통과 후 제한 출시"]
+    Analytics --> Release["기능별 필수 gate 통과 후 제한 출시"]
 ```
 
 1. 찾기·직접 초대·로그인 뒤 복원 초대·생성 모두 성공 뒤 전체 목록 확인으로 합류한다.
 2. 재정렬·방 왕복·포커스 복귀·운영 변경 뒤 같은 `groupId`가 유지되며 사라진 그룹은 복원하지 않는다.
 3. A→B 계정 전환, A→B 그룹 이동, 날짜 변경, 화면 종료 뒤 늦은 응답이 현재 화면을 오염시키지 않는다.
-4. 최초 detail 실패는 전체 오류와 재시도로 처리하고, detail 성공 뒤 공지·하위 영역 중 하나의 실패만 다른 성공 영역과 가능한 행동을 막지 않는다.
+4. 최초 detail 실패는 전체 오류와 재시도로 처리하는 현재 수용 계약을 회귀 검증한다. detail 성공 뒤 공지·하위 영역 중 하나의 실패는 다른 성공 영역과 가능한 행동을 막지 않는다.
 5. 위임 후 나가기, 강퇴, 마지막 멤버 이탈, 공지 권한 변경이 서버 상태에 정확히 수렴한다.
 6. 초대·푸시·카드·방·집중 결과의 화면 노출, 의도, 성공 이벤트가 중복 없이 올바른 기능에 귀속된다.
 
-## 7. 기능별 상세 LLD
+## 7. 기능별 구현 시작점
 
-- [01 그룹 획득](./features/01-acquisition/low-level-design.md)
-- [02 내 그룹 탐색](./features/02-my-groups/low-level-design.md)
-- [03 그룹 활동](./features/03-activity/low-level-design.md)
-- [04 그룹 운영](./features/04-operation/low-level-design.md)
+- [01 그룹 획득 착수 카드](./features/01-acquisition/README.md) · [LLD](./features/01-acquisition/low-level-design.md)
+- [02 내 그룹 탐색 착수 카드](./features/02-my-groups/README.md) · [LLD](./features/02-my-groups/low-level-design.md)
+- [03 그룹 활동 착수 카드](./features/03-activity/README.md) · [LLD](./features/03-activity/low-level-design.md)
+- [04 그룹 운영 착수 카드](./features/04-operation/README.md) · [LLD](./features/04-operation/low-level-design.md)
