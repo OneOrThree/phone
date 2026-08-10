@@ -286,6 +286,11 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > 로 백필했다 — **시각이 null 이던 구 행은 챌린지 행만 남고 상세가 만들어지지 않았다.**
 > 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
 >
+> **같은 분기를 타는 필드가 셋이다.** 조립부가 `nextSessions.containsKey(...) ? … : null` 이므로
+> `nextSessionAt` 뿐 아니라 **`nextSessionJoined` 와 `nextSessionStake` 도 그 경우 null** 이다 —
+> 위 예시의 `"nextSessionJoined": false` 는 **정상 경로의 값**이지 불변식이 아니다.
+> `nextSessionJoined` 를 「false = 미예약」으로 단정하면 그 챌린지에서 틀린다.
+>
 > 📌 2026-08-11 정정(PR #610 codex 리뷰). 서버 DTO javadoc 도 같은 취지로 정정돼 있다(GROMO-1285).
 
 > **결과 모달 큐는 이 응답에 없다 (N53).** 여기 있는 `lastSettledSession`은 카드의 "지난 결과 +

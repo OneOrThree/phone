@@ -40,7 +40,7 @@
 **결정**: `GroupErrorCode.BET_FOCUS_ONLY` **상수 자체는 남긴다.** 발급 경로가 없다는 것과
 이름을 지워도 된다는 것은 다른 얘기다.
 
-**근거**: 상위 정본 `docs/prd/challenge/low-level-design.md:842-844`가 그렇게 지시한다. **이 배치가
+**근거**: 상위 정본 `docs/prd/challenge/low-level-design.md` **§2.2 「폐기되는 코드」**가 그렇게 지시한다. **이 배치가
 정정한 뒤의** 현재 문면이다(정정 경위는 아래 ⚠️).
 
 > **폐기되는 코드**: `BET_FOCUS_ONLY` 하나뿐이다. FOCUS 전용 게이트가 사라져 발생 경로가 없다
@@ -105,7 +105,7 @@
 **왜 이걸 굳이 적나**: 구현 시점에 "그럼 15분은 어디서 나온 숫자냐"를 다시 논의하면
 근거 없이 값이 흔들린다. 근거는 이미 정본에 있고, 그대로 인용해 둔다.
 
-### 정본 원문 (`docs/prd/challenge/policy.md:179-202`, verbatim)
+### 정본 원문 (`docs/prd/challenge/policy.md` **§A5**, verbatim)
 
 > ### A5. 창의 겹침 — 요일 ∧ 시간대
 >
@@ -162,7 +162,7 @@
 
 ### §9.2 배선표에서의 자리
 
-상위 정본 `docs/prd/challenge/policy.md:956`:
+상위 정본 `docs/prd/challenge/policy.md` **§9.2 배선표**:
 
 ```
 | P1 | B8 | 겹침 검사에 요일 교집합 + 15분 간격 반영 (N4) · **GROMO-1270** |
