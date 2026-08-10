@@ -98,8 +98,13 @@ public class GroupChallengeResponse {
      * 담당한다. 끝난 챌린지(INACTIVE)는 null 이고, ACTIVE 는 <b>거의 항상</b> 채워진다 —
      * 예외는 <b>창형인데 창 상세가 없는</b> 경우 하나뿐이다. 시작 시각을 모르면 다음 회차를
      * 계산할 수 없어 {@code GroupBetService#loadNextSessions} 가 그 챌린지를 건너뛴다
-     * (하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다). CTI 상 정상 데이터에서는
-     * 발생하지 않지만, 앱이 「null == INACTIVE」로 단정하면 그 한 경우에 어긋난다.
+     * (하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다).
+     *
+     * <p><b>이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.</b> V5 가 인라인 파라미터를 CTI
+     * 상세 테이블로 이관할 때 {@code WHERE type = 'TIME_WINDOW' AND window_start IS NOT NULL AND
+     * window_end IS NOT NULL} 로 백필했다 — 시각이 null 이던 구 행은 챌린지 행만 남고 상세가
+     * 만들어지지 않았다. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
+     * <b>앱이 「null == INACTIVE」로 단정하면 그 경우에 어긋난다.</b>
      *
      * <p>요일 반복(B1, GROMO-1260)은 배선이 끝났다 — {@code GroupBetService#repeatDaysOf} 가
      * 챌린지의 {@code repeatDays} 마스크를 넘기고 {@code RepeatSchedule#next} 가 그중 다음
