@@ -107,7 +107,7 @@ export default function GroupListScreen({
             activeOpacity={0.85}
             onPress={() => onSelect(item.groupId)}
             accessibilityRole="button"
-            accessibilityLabel={`${item.name}, 내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`}
+            accessibilityLabel={`${item.name}${item.description ? `, ${item.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`}
             testID={`group.list.card.${item.groupId}`}
           >
             <Text

@@ -7,9 +7,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useUser } from '@/store/UserContext';
-import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconEditorViewed,
+  logGroupCardIconSaveResult,
+} from '@/services/analyticsEvents';
 import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
 import {
+  clearPendingGroupCardEmoji,
   readGroupCardEmoji,
   preservePendingGroupCardEmoji,
   writeGroupCardEmoji,
@@ -43,6 +47,10 @@ export default function GroupCardEmojiEditScreen() {
   }, []);
 
   useEffect(() => {
+    logGroupCardIconEditorViewed();
+  }, [identity]);
+
+  useEffect(() => {
     const requests = requestRef;
     const request = ++requests.current;
     const requestedIdentity = identity;
@@ -68,14 +76,15 @@ export default function GroupCardEmojiEditScreen() {
     setSaveFailed(false);
     try {
       await writeGroupCardEmoji(userId, groupId, selected);
-      logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
+      clearPendingGroupCardEmoji(userId, groupId, selected);
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
+      logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       setBaseline(selected);
       navigation.goBack();
     } catch {
       preservePendingGroupCardEmoji(userId, groupId, selected);
-      logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       if (!activeRef.current || identityRef.current !== saveIdentity) return;
+      logGroupCardIconSaveResult({ surface: 'settings', result: 'failed' });
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
