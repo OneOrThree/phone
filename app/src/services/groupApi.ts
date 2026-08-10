@@ -18,6 +18,7 @@ import type {
   CreateGroupResponse,
   GroupAnnouncementResponse,
   GroupBetHistorySliceResponse,
+  GroupChallengeHistorySliceResponse,
   GroupChallengeResponse,
   GroupDetailResponse,
   GroupOverviewResponse,
@@ -303,6 +304,9 @@ export async function cancelBet(groupId: string, betId: string): Promise<void> {
 // cursor는 직전 페이지 마지막 항목의 betId — 생략하면 첫 페이지(getFocusSessions와 같은 keyset 결).
 // 에러: INVALID_PAGE_REQUEST(400) · BET_NOT_FOUND(404 무효 커서 — 화면은 기존 페이지를 유지하고
 // 인라인으로만 알린다) · 첫 페이지 404(NOT_FOUND)는 전면 에러.
+//
+// ⚠️ **호출부 없음(GROMO-1277 이후)** — 화면은 아래 `getGroupChallengeHistory`(그룹 축)로 옮겼다.
+//    구 API 표면은 N36 브리지 기간의 계약이라 여기서 지우지 않는다(제거는 브리지 철거 1418).
 export async function getBetHistory(
   groupId: string,
   challengeId: string,
@@ -437,6 +441,27 @@ export async function getChallengeDeletionPreview(
 //  같은 엔드포인트를 각자 미러링했고 응답 shape 이 동일했다. 카드 응답에 예약한 미래 회차의
 //  sessionId 가 없어 예약분 취소가 이 목록에서 (challengeId, sessionDate) 로 대상을 찾는다는
 //  용도도 그대로다.)
+
+// GET /api/v1/groups/{groupId}/challenge-history?cursor&size&challengeId — **그룹 축** 회차 내역
+// (GROMO-1277 · N6-1 · LLD §2.1). 챌린지가 삭제돼도 조회된다 — 그래서 경로가 챌린지에
+// 종속되지 않는다. 구 `getBetHistory`(챌린지 축)를 대체하고, **챌린지별 보기는 별도 경로가
+// 아니라 이 엔드포인트의 `challengeId` 필터**다(IA §1 — 화면을 둘로 나눌 이유가 없다).
+//
+// size는 서버 필수(범위 밖이면 INVALID_PAGE_REQUEST 400)라 호출부가 상수로 고정해 항상 싣는다.
+// cursor는 직전 페이지 마지막 항목의 sessionId — 생략하면 첫 페이지(getBetHistory와 같은 keyset 결).
+// 에러: INVALID_PAGE_REQUEST(400) · BET_NOT_FOUND(404 무효 커서 — 화면은 받은 페이지를 유지하고
+// 인라인으로만 알린다) · NOT_FOUND(404 사라진 그룹) · MEMBER_ONLY(403).
+export async function getGroupChallengeHistory(
+  groupId: string,
+  page: { cursor?: string; size: number; challengeId?: string },
+): Promise<GroupChallengeHistorySliceResponse> {
+  const { data } = await api.get<GroupChallengeHistorySliceResponse>(
+    `/api/v1/groups/${groupId}/challenge-history`,
+    // undefined 키는 axios가 직렬화하지 않는다 — 첫 페이지·필터 없는 조회에 빈 값이 실리지 않는다.
+    { params: { cursor: page.cursor, size: page.size, challengeId: page.challengeId } },
+  );
+  return data;
+}
 
 // 서버 에러 바디({ code, message })의 code를 뽑는다. axios 에러가 아니거나 바디가 없으면 null.
 // HTTP status가 아니라 이 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409라

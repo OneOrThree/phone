@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -15,6 +16,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,6 +33,15 @@ public class FcmPushNotificationClient implements PushNotificationPort {
 
     private static final String FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
     private static final String FCM_BASE_URL = "https://fcm.googleapis.com";
+
+    /** 연결 타임아웃 — FCM 은 국내에서 수백 ms 안에 붙는다. 5초면 정상 지연은 다 덮는다. */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    /**
+     * 읽기 타임아웃 — 단건 발송 응답이 10초를 넘기면 FCM 이상이다. 실패로 접고 다음 유저로
+     * 넘어가는 편이 낫다(호출측이 건별로 격리하고, 미발송 건은 재훑기·다음 틱이 회수한다).
+     */
+    static final Duration READ_TIMEOUT = Duration.ofSeconds(10);
 
     private final RestClient restClient;
     private final GoogleCredentials credentials;
@@ -57,8 +68,18 @@ public class FcmPushNotificationClient implements PushNotificationPort {
         } catch (IOException e) {
             throw new IllegalStateException("FCM 서비스 계정 키 파싱 실패 — base64/JSON 형식을 확인하세요", e);
         }
-        // 선례: auth/client 의 RestClient 직조립 — 발송 경로는 send()에서 /v1/projects/{id}/messages:send
-        this.restClient = RestClient.builder().baseUrl(FCM_BASE_URL).build();
+        // 선례: auth/client 의 RestClient 직조립 — 발송 경로는 send()에서 /v1/projects/{id}/messages:send.
+        // 타임아웃은 필수다: 발송은 유저 1명당 blocking 호출이고 크론이 대상 수만큼 순차로 돈다.
+        // 무제한이면 FCM 이 멎는 순간 크론 하나가 영원히 실행 중이 되어 ① ShedLock 상한을 넘겨 락이
+        // 만료되고(다른 인스턴스가 같은 크론 시작 → dedup 없는 발송은 중복 도착) ② 스케줄러 스레드를
+        // 붙잡아 다른 크론까지 굶긴다. 이 값이 크론의 최악 실행시간(= 타임아웃 × 대상 수) 계산의 축이다.
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
+        requestFactory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = RestClient.builder()
+                .baseUrl(FCM_BASE_URL)
+                .requestFactory(requestFactory)
+                .build();
     }
 
 
@@ -103,10 +124,24 @@ public class FcmPushNotificationClient implements PushNotificationPort {
     /**
      * FCM HTTP v1 메시지 페이로드 조립 — package-private (단위 테스트 대상).
      * soundEnabled true 일 때만 apns.payload.aps.sound = "default" 포함.
+     *
+     * <p><b>사일런트(data-only, GROMO-1281)</b>: notification 블록을 빼고 data 만 싣는다.
+     * iOS 는 {@code aps.content-available=1} + 헤더 {@code apns-push-type: background} ·
+     * {@code apns-priority: 5}(Apple 이 background 푸시에 요구하는 조합)로 앱을 깨우고,
+     * Android 는 data-only 메시지의 기본 우선순위가 normal 이라 Doze 에서 지연되므로
+     * {@code priority: HIGH} 로 올린다 — 그레이스 30분 안에 flush 가 도착해야 정산이 데이터를 본다.
      */
     Map<String, Object> buildMessagePayload(String deviceToken, PushMessage message) {
         Map<String, Object> fcmMessage = new LinkedHashMap<>();
         fcmMessage.put("token", deviceToken);
+        if (message.isSilent()) {
+            fcmMessage.put("data", message.toDataPayload());
+            fcmMessage.put("apns", Map.of(
+                    "headers", Map.of("apns-push-type", "background", "apns-priority", "5"),
+                    "payload", Map.of("aps", Map.of("content-available", 1))));
+            fcmMessage.put("android", Map.of("priority", "HIGH"));
+            return Map.of("message", fcmMessage);
+        }
         fcmMessage.put("notification", Map.of("title", message.title(), "body", message.body()));
         // data = 추가 키(type·groupId 등) + link. 종전 트리거는 추가 키가 없어 {"link": …} 그대로다.
         fcmMessage.put("data", message.toDataPayload());

@@ -1,10 +1,12 @@
 import { AxiosError, AxiosHeaders } from 'axios';
+import { triggerLogout } from '@/services/api';
 import { getGroupDetail, getMyGroups } from '@/services/groupApi';
 import { getMyProfile } from '@/services/userApi';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import type { GroupDetailResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { UserProfileResponse } from '@/types/dto/user';
 
+jest.mock('@/services/api', () => ({ triggerLogout: jest.fn() }));
 jest.mock('@/services/groupApi', () => {
   const axios = jest.requireActual('axios').default as typeof import('axios').default;
   return {
@@ -18,6 +20,7 @@ jest.mock('@/services/groupApi', () => {
 });
 jest.mock('@/services/userApi', () => ({ getMyProfile: jest.fn() }));
 
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockGetMyProfile = getMyProfile as jest.MockedFunction<typeof getMyProfile>;
@@ -53,9 +56,7 @@ test('활성 인증 뒤 최신 detail이 성공하면 방을 유지한다', asyn
   await expect(
     resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
   ).resolves.toEqual({ kind: 'detail', detail });
-  expect(mockGetMyProfile).toHaveBeenCalledWith({ noAuthRetry: true });
-  expect(mockGetGroupDetail).toHaveBeenCalledWith(GROUP_ID, DATE, { noAuthRetry: true });
-  expect(mockGetMyGroups).toHaveBeenCalledWith({ noAuthRetry: true });
+  expect(mockGetGroupDetail).toHaveBeenCalledWith(GROUP_ID, DATE);
 });
 
 test('프로필 NOT_FOUND는 그룹 이탈이 아니라 공통 세션 복구로 넘긴다', async () => {
@@ -64,6 +65,7 @@ test('프로필 NOT_FOUND는 그룹 이탈이 아니라 공통 세션 복구로 
   await expect(
     resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
   ).resolves.toEqual({ kind: 'session_recovery' });
+  expect(mockTriggerLogout).toHaveBeenCalledTimes(1);
   expect(mockGetGroupDetail).not.toHaveBeenCalled();
   expect(mockGetMyGroups).not.toHaveBeenCalled();
 });
@@ -78,24 +80,7 @@ test('프로필 재확인 실패·계정 불일치는 성공으로 추정하지 
   await expect(
     resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
   ).resolves.toEqual({ kind: 'retry' });
-});
-
-test('detail 성공은 끝나지 않은 전체 목록을 기다리지 않고 즉시 반환한다', async () => {
-  mockGetGroupDetail.mockResolvedValue(detail);
-  mockGetMyGroups.mockImplementation(() => new Promise(() => undefined));
-
-  await expect(
-    resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
-  ).resolves.toEqual({ kind: 'detail', detail });
-});
-
-test('detail MEMBER_ONLY도 끝나지 않은 전체 목록을 기다리지 않고 즉시 반환한다', async () => {
-  mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
-  mockGetMyGroups.mockImplementation(() => new Promise(() => undefined));
-
-  await expect(
-    resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
-  ).resolves.toEqual({ kind: 'membership_absent' });
+  expect(mockTriggerLogout).not.toHaveBeenCalled();
 });
 
 test('최신 detail의 MEMBER_ONLY는 미소속 scope로 확정한다', async () => {

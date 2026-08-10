@@ -9,7 +9,6 @@ import com.oneorthree.phone.group.dto.GroupDetailResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
-import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;
 import org.junit.jupiter.api.DisplayName;
@@ -60,9 +59,6 @@ class GroupControllerTest {
 
     @MockitoBean
     private GroupAnnouncementService groupAnnouncementService;
-
-    @MockitoBean
-    private GroupChallengeService groupChallengeService;
 
     @MockitoBean
     private GroupMemberService groupMemberService;

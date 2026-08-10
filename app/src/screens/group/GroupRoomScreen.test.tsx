@@ -9,7 +9,15 @@
 //  2) 포그라운드 복귀. 그룹 탭이 포커스된 채 백그라운드에 있다 자정을 넘겨 돌아오면
 //     useFocusEffect가 다시 돌지 않아 '오늘 집중분'이 전날 값으로 남았다.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, AppState, Share, type AppStateStatus } from 'react-native';
+import {
+  Alert,
+  AppState,
+  Share,
+  StyleSheet,
+  type AppStateStatus,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupRoomScreen from './GroupRoomScreen';
@@ -24,8 +32,8 @@ import {
   joinBet,
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
+import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
-import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -71,7 +79,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeResultShown: jest.fn(),
   logGroupChallengeResultClosed: jest.fn(),
 }));
-const { logGroupInviteShared, logGroupChallengeResultShown } = jest.requireMock(
+const { logGroupInviteShared, logGroupChallengeResultShown, logGroupRoomViewed } = jest.requireMock(
   '@/services/analyticsEvents',
 );
 
@@ -110,10 +118,6 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 jest.mock('./groupRoomNotFound', () => ({ resolveGroupRoomNotFound: jest.fn() }));
-jest.mock('@/services/api', () => ({
-  getAuthSessionGeneration: jest.fn(),
-  triggerLogout: jest.fn(),
-}));
 
 // 날짜 경계를 테스트가 직접 옮긴다. kstDateStr은 결과 후보의 createdAt 판정이 실제로 돌게
 // 실물을 쓴다(challengeResult.ts). 조회 기준일·내기 생성 경로는 전부 KST 버전이다(GROMO-1219 —
@@ -143,11 +147,6 @@ const mockYesterdayStrKst = jest.requireMock('@/utils/localDate').yesterdayStrKs
 const mockResolveGroupRoomNotFound = resolveGroupRoomNotFound as jest.MockedFunction<
   typeof resolveGroupRoomNotFound
 >;
-const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
-const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
-  typeof getAuthSessionGeneration
->;
-let mockAuthSessionGeneration = 0;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const INVITE_URL = `https://link.oneorthree.world/l/${SLUG}?g=${GROUP_ID}`;
@@ -272,8 +271,7 @@ async function press(label: string) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  mockAuthSessionGeneration = 0;
-  mockGetAuthSessionGeneration.mockImplementation(() => mockAuthSessionGeneration);
+  resetCardInteractionStateForTest();
   // 결과 모달 1회 가드가 파일 안 테스트끼리 새지 않게 비운다(공식 mock은 인메모리 영속).
   await AsyncStorage.clear();
   mockFocusEntries.length = 0;
@@ -289,6 +287,72 @@ beforeEach(async () => {
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
     appStateHandler = handler as (state: AppStateStatus) => void;
     return { remove: jest.fn() } as never;
+  });
+});
+
+describe('카드 CTA 결과 귀속', () => {
+  test('30초 안의 Room 최초 성공만 같은 interaction_id로 한 번 연결한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const acceptedAt = Date.now() - 29_000;
+
+    const { rerender } = await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="11111111-1111-4111-8111-111111111111"
+        interactionAcceptedAt={acceptedAt}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    await act(async () => {
+      rerender(
+        <GroupRoomScreen
+          groupId={GROUP_ID}
+          entrySource="group_card"
+          interactionId="11111111-1111-4111-8111-111111111111"
+          interactionAcceptedAt={acceptedAt}
+          onLeft={onLeft}
+        />,
+      );
+    });
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerender(<GroupRoomScreen groupId={GROUP_ID} entrySource="unknown" onLeft={onLeft} />);
+    });
+    await act(async () => {});
+    expect(logGroupRoomViewed).toHaveBeenCalledTimes(1);
+  });
+
+  test('30초 초과 성공은 방문 결과를 남기되 interaction_id를 싣지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+
+    await render(
+      <GroupRoomScreen
+        groupId={GROUP_ID}
+        entrySource="group_card"
+        interactionId="22222222-2222-4222-8222-222222222222"
+        interactionAcceptedAt={Date.now() - 30_001}
+        onLeft={onLeft}
+      />,
+    );
+    await act(async () => {});
+
+    expect(logGroupRoomViewed).toHaveBeenCalledWith({
+      group_id: GROUP_ID,
+      entry_source: 'group_card',
+      interaction_id: undefined,
+    });
   });
 });
 
@@ -356,59 +420,6 @@ describe('상세·공지 오류 분리', () => {
 
     expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
     expect(onLeft).not.toHaveBeenCalled();
-  });
-
-  test('최신 요청의 session_recovery만 공통 로그아웃을 실행한다', async () => {
-    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
-    mockResolveGroupRoomNotFound.mockResolvedValueOnce({ kind: 'session_recovery' });
-
-    await renderRoom();
-
-    expect(mockTriggerLogout).toHaveBeenCalledTimes(1);
-  });
-
-  test('blur로 무효화된 session_recovery 응답은 현재 세션을 로그아웃하지 않는다', async () => {
-    let resolveRecovery!: (value: { kind: 'session_recovery' }) => void;
-    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
-    mockResolveGroupRoomNotFound.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveRecovery = resolve)),
-    );
-    await renderRoom();
-
-    await blur();
-    await act(async () => resolveRecovery({ kind: 'session_recovery' }));
-
-    expect(mockTriggerLogout).not.toHaveBeenCalled();
-  });
-
-  test('같은 userId여도 access token이 교체된 session_recovery는 새 세션을 로그아웃하지 않는다', async () => {
-    let resolveRecovery!: (value: { kind: 'session_recovery' }) => void;
-    mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
-    mockResolveGroupRoomNotFound.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveRecovery = resolve)),
-    );
-    await renderRoom();
-
-    // 게스트→소셜 승격은 userId를 유지할 수 있지만 인증 세대는 교체된다.
-    mockAuthSessionGeneration += 1;
-    await act(async () => resolveRecovery({ kind: 'session_recovery' }));
-
-    expect(mockTriggerLogout).not.toHaveBeenCalled();
-    expect(onLeft).not.toHaveBeenCalled();
-  });
-
-  test('detail NOT_FOUND 도착 전에 인증 세대가 바뀌면 전역 재확인을 시작하지 않는다', async () => {
-    let rejectDetail!: (reason: unknown) => void;
-    mockGetGroupDetail.mockImplementationOnce(
-      () => new Promise((_, reject) => (rejectDetail = reject)),
-    );
-    await renderRoom();
-
-    mockAuthSessionGeneration += 1;
-    await act(async () => rejectDetail(axiosErrorWith(404, 'NOT_FOUND')));
-
-    expect(mockResolveGroupRoomNotFound).not.toHaveBeenCalled();
-    expect(mockTriggerLogout).not.toHaveBeenCalled();
   });
 
   test('기존 detail 갱신의 NOT_FOUND도 불명확하면 데이터를 보존하고 배너로 재시도한다', async () => {
@@ -1596,6 +1607,48 @@ describe('⋯ 버튼 → 그룹 설정', () => {
   });
 });
 
+// 챌린지 내역 링크(GROMO-1277 · N6-1) — **이력의 소유자는 그룹이다.** 그래서 진입점이 챌린지
+// 목록의 상태에 매달리면 안 된다: 챌린지가 하나도 없거나 조회가 실패한 순간에도 "돈이 오간
+// 기록은 사라지지 않는다"는 약속을 확인할 수 있어야 한다.
+describe('챌린지 내역 링크', () => {
+  test('그룹 축 내역 화면으로 필터 없이 이동한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValue([challenge()]);
+    await renderRoom();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.challenge.history'));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('GroupChallengeHistory', {
+      groupId: GROUP_ID,
+      challengeId: undefined,
+      challengeLabel: undefined,
+    });
+    // **키를 생략하지 않는다.** 이미 필터된 내역이 스택에 남아 있으면 React Navigation의 얕은
+    // 파라미터 병합(`{ ...route.params, ...params }`)이 직전 진입의 challengeId를 그대로 남긴다 —
+    // 다른 그룹방을 딥링크로 올린 뒤 전체 내역을 눌러도 남의 챌린지 필터가 새어 든다(codex 리뷰).
+    // toHaveBeenCalledWith는 `undefined` 값과 키 부재를 같게 보므로 키 존재를 따로 못 박는다.
+    const params = mockNavigate.mock.calls[0][1];
+    expect(params).toHaveProperty('challengeId', undefined);
+    expect(params).toHaveProperty('challengeLabel', undefined);
+  });
+
+  test('챌린지가 없거나 조회가 실패해도 링크는 선다 — 내역은 챌린지와 함께 죽지 않는다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    mockGetChallenges.mockResolvedValueOnce([]);
+    await renderRoom();
+    expect(screen.getByTestId('group.challenge.history')).toBeOnTheScreen();
+
+    mockGetChallenges.mockRejectedValueOnce(new Error('network'));
+    await renderRoom();
+    expect(screen.getByText('챌린지를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.challenge.history')).toBeOnTheScreen();
+  });
+});
+
 // ── 초대 링크 공유(초대 링크 스펙 §4-2 ①·§7-4) ─────────────────────────────────
 // 링크는 서버가 발급한 url 만 나간다. 앱이 조립하던 구 링크(github.io)는 실제로 404였고,
 // slug 가 빠지면 클릭→설치→가입이 어느 초대에서 왔는지 서버가 영영 이을 수 없다.
@@ -1798,25 +1851,6 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
   // 막히지만(MEMBER_ONLY) 결과 큐는 참가자 스코프라 응답에 온다 — onLeft로 화면을 내리기 전에
   // 모달부터 소비시키고, 마지막 결과를 닫을 때 이탈을 잇는다.
   describe('탈퇴자(MEMBER_ONLY)의 결과 소비 후 이탈', () => {
-    test('NOT_FOUND 재확인 중 마지막 결과를 닫아도 확정 직후 즉시 이탈한다', async () => {
-      let resolveAbsence!: (value: { kind: 'membership_absent' }) => void;
-      mockGetGroupDetail.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
-      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
-      mockResolveGroupRoomNotFound.mockImplementationOnce(
-        () => new Promise((resolve) => (resolveAbsence = resolve)),
-      );
-      await renderRoom();
-
-      expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('group.challengeResult.close'));
-      });
-      expect(onLeft).not.toHaveBeenCalled();
-
-      await act(async () => resolveAbsence({ kind: 'membership_absent' }));
-      await waitFor(() => expect(onLeft).toHaveBeenCalledTimes(1));
-    });
-
     test('결과가 있으면 onLeft를 미루고 모달부터 보여준다 — 닫으면 그때 onLeft', async () => {
       mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
       mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
@@ -2163,8 +2197,13 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       // 최신(7/31) 1건만 우회로 뜨고, 이미 본 지난 회차(7/28·7/25)는 큐에 없다.
       expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
       expect(screen.getByText('7월 31일 결과')).toBeOnTheScreen();
-      fireEvent.press(screen.getByText('확인'));
-      await act(async () => {});
+      // ⚠️ press 를 act 로 감싼다. 밖에서 부르면 이 탭이 띄우는 상태 갱신과 마커 쓰기가
+      //    테스트가 끝난 뒤에도 열린 act 스코프에 남아, **다음 테스트의 render 가 통째로
+      //    빈 트리가 된다**("overlapping act() calls"). 실제로 뒤따르는 로딩 실루엣 테스트
+      //    3개가 단독 실행은 통과하고 전체 실행에서만 깨졌다.
+      await act(async () => {
+        fireEvent.press(screen.getByText('확인'));
+      });
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
       // 이 테스트가 심은 마커만 걷는다 — 스토리지 목은 스위트 전체에서 살아남아 뒤 테스트를
       // 오염시킨다. clear()는 목 내부 상태를 통째로 리셋해 다른 누수를 만들 수 있어 쓰지 않는다.
@@ -2185,5 +2224,112 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
 
       expect(screen.queryByTestId('group.challengeResult')).toBeNull();
     });
+  });
+});
+
+// ── 최초 로딩 실루엣(GROMO-1381) ──────────────────────────────────────────────
+//
+// ⚠️ 스크린리더·키보드 **포커스 자체는 jest에서 검증할 수 없다.** 그래서 포커스를 단언하지 않고,
+//    포커스가 사라지는 **원인**(노드 재마운트)을 검증 가능한 명제로 바꿔 잠근다 — 헤더 버튼이
+//    로딩 전후로 **같은 조상 사슬**(같은 ScrollView 아래)에 있다. 부모 트리가 달라지면 네이티브
+//    노드가 새로 마운트되고, 그때 포커스가 사라진다(codex 리뷰).
+describe('최초 로딩 실루엣', () => {
+  const HIDDEN = { includeHiddenElements: true } as const;
+
+  // RTL 인스턴스에서 실제로 쓰는 부분만 좁힌 형태(@types/react-test-renderer가 없다).
+  interface TreeNode {
+    parent: TreeNode | null;
+    children: (TreeNode | string)[];
+    props: { testID?: string; style?: StyleProp<ViewStyle> };
+  }
+  const asNode = (value: unknown): TreeNode => value as TreeNode;
+
+  /** 이 노드 위로 올라가며 만나는 testID들 — '어느 컨테이너 아래에 있는가'의 지문 */
+  function ancestorTestIDs(node: TreeNode): string[] {
+    const ids: string[] = [];
+    for (let cur = node.parent; cur != null; cur = cur.parent) {
+      if (typeof cur.props.testID === 'string') ids.push(cur.props.testID);
+    }
+    return ids;
+  }
+
+  /** 서브트리에서 스타일로 확정된 높이들 — 자리표시자가 무엇을 잡고 있는지 본다 */
+  function heightsUnder(node: TreeNode): number[] {
+    const out: number[] = [];
+    const visit = (n: TreeNode) => {
+      const height = StyleSheet.flatten(n.props.style)?.height;
+      if (typeof height === 'number') out.push(height);
+      n.children.forEach((child) => {
+        if (typeof child !== 'string') visit(child);
+      });
+    };
+    visit(node);
+    return out;
+  }
+
+  /** 상세 응답을 테스트가 붙잡는다 — 그동안 화면은 로딩 상태로 남는다. */
+  async function renderPending() {
+    let settle!: (value: GroupDetailResponse) => void;
+    // ⚠️ `mockReset()`을 먼저 부른다. 전역 beforeEach 의 `clearAllMocks()`는 **호출 기록만**
+    //    지우고 `mockResolvedValueOnce` 큐는 남긴다. 앞선 테스트가 소비하지 않고 남긴 once 값이
+    //    있으면 상세가 즉시 도착해 로딩 상태가 성립하지 않는다 — 단독 실행은 통과하고 전체
+    //    실행에서만 깨지는 순서 종속이 된다(실제로 겪음).
+    mockGetGroupDetail.mockReset();
+    mockGetGroupDetail.mockImplementation(
+      () =>
+        new Promise<GroupDetailResponse>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    // 공지 3장 — 로딩 중엔 개수를 알 수 없다는 것이 이 블록의 요점이다.
+    mockGetAnnouncements.mockResolvedValue([
+      notice({ id: 'a1' }),
+      notice({ id: 'a2' }),
+      notice({ id: 'a3' }),
+    ]);
+    await renderRoom();
+    return async () => {
+      await act(async () => {
+        settle(detail());
+      });
+    };
+  }
+
+  test('헤더는 로딩 전후로 같은 스크롤 컨테이너 아래에 남는다', async () => {
+    const finish = await renderPending();
+
+    expect(screen.getByTestId('group.room.skeleton', HIDDEN)).toBeTruthy();
+    const whileLoading = ancestorTestIDs(asNode(screen.getByLabelText('그룹 설정')));
+    expect(whileLoading).toContain('group.room.scroll');
+
+    await finish();
+
+    expect(screen.queryByTestId('group.room.skeleton', HIDDEN)).toBeNull();
+    expect(screen.getByText('아침 6시 집중방')).toBeOnTheScreen();
+    // 본문만 바뀌었다 — 헤더가 놓인 자리는 그대로다(= 노드가 재마운트되지 않았다)
+    expect(ancestorTestIDs(asNode(screen.getByLabelText('그룹 설정')))).toEqual(whileLoading);
+  });
+
+  test('공지 자리에 고정 카드 자리표시자를 두지 않는다 — 몇 장이 올지 모른다', async () => {
+    const finish = await renderPending();
+
+    const heights = heightsUnder(asNode(screen.getByTestId('group.room.skeleton', HIDDEN)));
+    // 로딩 시점에 알 수 있는 것만 잡는다: 섹션 라벨 높이와 멤버 타일 한 행
+    expect(heights).toContain(18);
+    expect(heights).toContain(130);
+    // 공지 카드 한 장(62)을 고정으로 잡으면 3장이 도착하는 순간 아래가 100pt 넘게 밀린다.
+    // 개수를 알려 주는 경로가 없으므로 아예 잡지 않는다.
+    expect(heights).not.toContain(62);
+
+    await finish();
+    expect(screen.getAllByText('오늘 6시에 모여요')).toHaveLength(3);
+  });
+
+  test('첫 조회가 도는 동안에는 당겨서 새로고침을 달지 않는다', async () => {
+    const finish = await renderPending();
+    expect(refreshControl()).toBeUndefined();
+
+    await finish();
+    expect(refreshControl()).toBeTruthy();
   });
 });

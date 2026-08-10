@@ -7,7 +7,6 @@ export const cs = StyleSheet.create({
   // 히어로 숫자 — '숫자가 주인공' 규칙: 항상 지표색(기본 집중=초록). 폰 지표만 PHONE_COLOR로 덮어쓴다
   bigStat: { ...T.text.title, color: FOCUS_COLOR },
   emptyText: { ...T.text.body, color: T.inkMuted, paddingVertical: T.space.sm },
-  compareLoading: { paddingVertical: T.space.xl, alignItems: 'center' },
   // 공유하기 — 타임테이블 카드 하단 오른쪽(헤더에 두면 순서 편집 핸들과 겹침)
   shareBtn: {
     flexDirection: 'row',

@@ -1,6 +1,6 @@
 import { StyleSheet, type ColorValue } from 'react-native';
-import { cubicBezier } from 'react-native-reanimated';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { M, transition } from '@/constants/motion';
 import { T, withAlpha } from '@/constants/theme';
 
 // GROMO-848 리퀴드 글래스 선택 연출 공통 모듈 — 탭바·집중 플로우 선택 UI가 공유한다.
@@ -10,14 +10,19 @@ import { T, withAlpha } from '@/constants/theme';
 
 export { isLiquidGlassSupported };
 
-export const SLIDE_MS = 350;
+// 알약 슬라이드 시간 — 값은 M.dur.base가 정본이다. export 이름은 유지한다(호출부가
+// `setTimeout(..., SLIDE_MS + 60)`으로 연출이 끝나길 기다린다: TimerMethodSheet·FocusCategoryScreen).
+export const SLIDE_MS = M.dur.base;
 
-export const glassSlide = {
-  transitionProperty: ['transform', 'opacity'] as ('transform' | 'opacity')[],
-  transitionDuration: SLIDE_MS,
-  // 탭바(1.56)보다 오버슛을 낮춘 커브 — 세로 이동 거리가 길어 같은 값이면 과하게 튄다
-  transitionTimingFunction: cubicBezier(0.3, 1.15, 0.5, 1), // 슉 미끄러지고 아주 살짝 넘쳤다 안착
-} as const;
+// 탭바(overshoot 1.56)보다 오버슛을 낮춘 glide 커브 — 세로 이동 거리가 길어 같은 값이면
+// 과하게 튄다. 슉 미끄러지고 아주 살짝 넘쳤다 안착.
+// ⚠️ transitionDuration은 숫자(350)에서 문자열('350ms')로 표기만 바뀐다 — reanimated의
+//    normalizeTimeUnit이 둘을 같은 350ms로 정규화하므로 런타임 동작은 동일하다.
+export const glassSlide = transition({
+  property: ['transform', 'opacity'],
+  duration: SLIDE_MS,
+  curve: 'glide',
+});
 
 // 폴백 알약 질감(미지원 기기) — 틴트 유리 + 옅은 포인트색 테두리.
 // (탭바식 흰 테두리는 흰 카드 위를 미끄러질 때 흰 줄로 도드라져 제거)

@@ -3,6 +3,8 @@
 // 시간대는 jest.config.js에서 Asia/Seoul로 고정 — 세션 시각은 +09:00 오프셋으로 명시한다.
 import {
   calendarPage,
+  calendarRowCount,
+  calendarRows,
   dailyFirstStartMinutes,
   dayNum,
   firstStartPoints,
@@ -356,6 +358,42 @@ describe('calendarPage', () => {
     const py = calendarPage('MONTH', -7);
     expect(py.label).toBe('2025년 12월');
     expect(py.days[0]).toBe('2025-12-01');
+  });
+});
+
+describe('calendarRows / calendarRowCount', () => {
+  // 실제 그리드와 로딩 스켈레톤의 카드 높이가 **같은 식**을 쓰게 하려고 뽑아낸 함수다.
+  // 월은 달마다 5행이거나 6행이라, 한쪽만 상수로 박으면 도착 순간 한 행이 갑자기 늘어난다.
+  test('WEEK은 언제나 1행 7칸이고 빈 칸이 없다', () => {
+    const rows = calendarRows('WEEK', 0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveLength(7);
+    expect(rows[0].every((d) => d != null)).toBe(true);
+    expect(calendarRowCount('WEEK', 0)).toBe(1);
+  });
+
+  test('MONTH 5행 달 — 2026년 7월(1일 수요일, 빈 칸 2 + 31일 = 33칸)', () => {
+    expect(calendarRowCount('MONTH', 0)).toBe(5);
+    const rows = calendarRows('MONTH', 0);
+    expect(rows).toHaveLength(5);
+    expect(rows[0].slice(0, 2)).toEqual([null, null]); // 1일 요일 정렬 빈 칸
+    expect(rows[0][2]).toBe('2026-07-01');
+    expect(rows[4][4]).toBe('2026-07-31'); // 빈 칸 2개만큼 밀려 5번째 칸이 말일
+    expect(rows[4].slice(5)).toEqual([null, null]); // 마지막 행 채움
+  });
+
+  test('MONTH 6행 달 — 2026년 8월(1일 토요일, 빈 칸 5 + 31일 = 36칸)', () => {
+    jest.setSystemTime(new Date('2026-08-10T09:00:00+09:00'));
+    expect(calendarRowCount('MONTH', 0)).toBe(6);
+    expect(calendarRows('MONTH', 0)).toHaveLength(6);
+  });
+
+  test('모든 행은 정확히 7칸이고, 날짜는 하나도 빠지지 않는다', () => {
+    jest.setSystemTime(new Date('2026-03-10T09:00:00+09:00')); // 3월도 6행 달
+    const rows = calendarRows('MONTH', 0);
+    expect(rows).toHaveLength(6);
+    expect(rows.every((r) => r.length === 7)).toBe(true);
+    expect(rows.flat().filter((d) => d != null)).toHaveLength(31);
   });
 });
 

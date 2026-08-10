@@ -71,6 +71,11 @@ dependencies {
 	// UUID v7 생성 (시간 정렬, B-tree 인덱스 지역성 최적화)
 	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
 
+	// ShedLock (GROMO-1283) — 챌린지·정산·알림 크론의 멀티 인스턴스 중복 실행 차단.
+	// 저장소는 기존 PostgreSQL(shedlock 테이블, V45) — jdbc-template provider 표준 구성.
+	implementation 'net.javacrumbs.shedlock:shedlock-spring:5.16.0'
+	implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.16.0'
+
 	// BIZEVENT 구조화 JSON 로그 인코더 (GROMO-384)
 	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
 

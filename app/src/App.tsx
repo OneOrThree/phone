@@ -43,6 +43,7 @@ import { EquipmentProvider, transferEquipment } from '@/store/EquipmentContext';
 import { CharacterProvider, transferCharacter } from '@/store/CharacterContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
+import { ToastProvider } from '@/store/ToastContext';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
@@ -523,10 +524,18 @@ function App() {
   // RageTapDetector — 전역 연타(좌절 신호) 계측. UI 없이 터치 버블링만 관찰(GROMO-782).
   // DeepLinkGate — 딥링크(그룹 초대) 수신. **인증 분기 밖**에 둔다: 로그인·온보딩 화면에서
   // 누른 초대 링크도 버퍼에 담겨야 로그인 후 같은 그룹 프리뷰로 이어진다(§6-6).
+  // ToastProvider — **인증 분기 밖**, SafeAreaProvider 바로 안에 둔다(GROMO-1381 / 정책 D8).
+  //  · content 안(로그인 후 트리)에 넣으면 로그인·온보딩 화면에서 토스트를 못 쓴다.
+  //  · NavigationContainer는 여기가 아니라 RootNavigator 안이다. 그 밖에 있어야 화면 전환
+  //    (GroupOwnerTransferScreen의 goBack 직후 통보 등)을 넘어 배너가 살아남는다.
+  //  · children 뒤에 배너를 그리므로 탭바·FAB·비모달 시트 위에 온다.
+  //    (RN Modal은 별도 윈도라 예외 — Toast.tsx 헤더 주석 참고)
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <DeepLinkGate />
-      <RageTapDetector>{content}</RageTapDetector>
+      <ToastProvider>
+        <DeepLinkGate />
+        <RageTapDetector>{content}</RageTapDetector>
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }
