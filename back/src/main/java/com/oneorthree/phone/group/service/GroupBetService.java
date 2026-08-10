@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.MissionType;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetHistoryItemResponse;
@@ -404,15 +405,10 @@ public class GroupBetService {
                 log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
                         sessionId, user.getId(), minutes);
             }
-            groupChallengeBetParticipantRepository.delete(mine.get());
-            refundStake(session, user, mine.get().getId());
-            long remaining = groupChallengeBetParticipantRepository.countBySessionId(session.getId());
-            if (remaining == 0) {
-                // 유저 개설 회차가 비면 "없던 일" — 구 자동 취소(CANCELED)의 재편 후 표현이다.
-                groupChallengeBetSessionRepository.delete(session);
-            }
-            log.info("내기 참가 해제 — 탈퇴 연동. sessionId={}, userId={}, stake={} 환불, 잔여 {}명",
-                    session.getId(), user.getId(), session.getStake(), remaining);
+            // 여기서 끝이다 — 이 메서드는 <b>판정 근거만 남긴다</b>. 참가 행 삭제·환불·빈 회차 정리는
+            // 전부 releaseFromAllOpenBets(→ releaseSessions)의 "취소 마감 전" 분기 소유다. 두 책임이
+            // 섞이면 마감이 지나 정산 대상으로 남긴 참가를 이 루프가 도로 환불해, 계정 탈퇴가 취소
+            // 마감을 우회하는 환불 경로가 된다(FR-40 위반 — 실제로 병합 충돌 해소 중 되살아났던 회귀).
         }
     }
 
@@ -462,12 +458,20 @@ public class GroupBetService {
      *   <li><b>시작 전에 참가</b>(창형·예약분) → 회차 시작까지. 유예 없음 — max(시작, 참가+5분)으로
      *       쓰면 창 시작 직전 참가자가 시작 후 5분까지 취소할 수 있어 "시작 후 환불 없음"이 깨진다
      *       (창 초반을 보고 발을 빼는 각도가 생긴다).</li>
-     *   <li><b>시작 후에 참가</b>(하루형 — 시작이 자정이라 "시작 전"이 없다) → min(참가+5분, 회차 종료).
-     *       종료 상한이 없으면 23:58 참가의 유예가 00:03 까지 살아 자정 정산(CAS)과 경합한다.</li>
+     *   <li><b>시작 후에 참가</b>(하루형 전용) → min(참가+5분, 회차 종료). 하루형은 시작이 자정이라
+     *       "시작 전"이 영영 오지 않아 오탭 구제가 필요하다. 종료 상한이 없으면 23:58 참가의 유예가
+     *       00:03 까지 살아 자정 정산(CAS)과 경합한다.</li>
      * </ul>
+     *
+     * <p><b>창형은 시작 후 참가에도 유예가 없다</b> — 창형의 시작 시각이 곧 취소 마감이다. 레거시 참가
+     * 경로({@code createBet}·{@code joinBet}, N36 브리지)는 창형을 <b>창 종료까지</b> 열어 두므로
+     * {@code createdAt >= startsAt} 인 창형 참가자가 실제로 존재한다. 그들에게 5분 유예를 주면
+     * <b>진행 중인 창을 눈으로 확인한 뒤</b> 판돈을 빼는 각도가 생긴다(N22 는 하루형 오탭 구제가
+     * 취지이지 창형 관전 후 이탈 허용이 아니다).
      */
     static Instant leaveDeadline(GroupChallengeBetSession session, GroupChallengeBetParticipant participant) {
-        if (participant.getCreatedAt().isBefore(session.getStartsAt())) {
+        if (session.getMissionType() == MissionType.TIME_WINDOW
+                || participant.getCreatedAt().isBefore(session.getStartsAt())) {
             return session.getStartsAt();
         }
         Instant graceEnd = participant.getCreatedAt().plus(LEAVE_GRACE);

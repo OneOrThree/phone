@@ -3,6 +3,8 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
+import com.oneorthree.phone.group.domain.MissionCategory;
+import com.oneorthree.phone.group.domain.MissionType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -30,9 +32,16 @@ class GroupBetLeaveDeadlineTest {
     private static final Instant CLOSES_AT = DATE.plusDays(1).atStartOfDay(KST).toInstant();
 
     private static GroupChallengeBetSession session(Instant startsAt, Instant closesAt) {
+        return session(startsAt, closesAt, MissionType.DURATION);
+    }
+
+    private static GroupChallengeBetSession session(
+            Instant startsAt, Instant closesAt, MissionType missionType) {
         return GroupChallengeBetSession.builder()
                 .sessionDate(DATE)
                 .stake(30)
+                .missionCategory(MissionCategory.FOCUS)
+                .missionType(missionType)
                 .status(GroupBetStatus.OPEN)
                 .startsAt(startsAt)
                 .joinClosesAt(closesAt)
@@ -95,6 +104,35 @@ class GroupBetLeaveDeadlineTest {
 
         assertThat(GroupBetService.leaveDeadline(session, participant))
                 .isEqualTo(STARTS_AT.plus(Duration.ofMinutes(5)));
+    }
+
+    @Test
+    @DisplayName("창형은 시작 후 참가에도 유예가 없다 — 마감은 창 시작이다 (창 관전 후 이탈 차단)")
+    void windowSessionNeverGrantsGraceAfterStart() {
+        // 레거시 참가 경로(N36 브리지)는 창형을 창 종료까지 열어 두므로 createdAt >= startsAt 인
+        // 창형 참가자가 실제로 존재한다. 유예를 주면 진행 중인 창을 확인하고 판돈을 뺄 수 있다.
+        Instant windowStart = DATE.atTime(9, 0).atZone(KST).toInstant();
+        Instant windowEnd = DATE.atTime(11, 0).atZone(KST).toInstant();
+        GroupChallengeBetSession session = session(windowStart, windowEnd, MissionType.TIME_WINDOW);
+        GroupChallengeBetParticipant joinedMidWindow =
+                participantAt(windowStart.plus(Duration.ofMinutes(30)));
+
+        Instant deadline = GroupBetService.leaveDeadline(session, joinedMidWindow);
+
+        assertThat(deadline).isEqualTo(windowStart);
+        // 참가 직후(유예 안에 해당할 시각)에도 이미 마감이다.
+        assertThat(joinedMidWindow.getCreatedAt().isBefore(deadline)).isFalse();
+    }
+
+    @Test
+    @DisplayName("창형 — 창 시작 전 참가의 마감도 창 시작 그대로다 (분기 통일)")
+    void windowSessionBeforeStartKeepsStartDeadline() {
+        Instant windowStart = DATE.atTime(9, 0).atZone(KST).toInstant();
+        Instant windowEnd = DATE.atTime(11, 0).atZone(KST).toInstant();
+        GroupChallengeBetSession session = session(windowStart, windowEnd, MissionType.TIME_WINDOW);
+
+        assertThat(GroupBetService.leaveDeadline(session, participantAt(windowStart.minusSeconds(1))))
+                .isEqualTo(windowStart);
     }
 
     @Test

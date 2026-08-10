@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeBet;
+import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
@@ -28,6 +29,8 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.domain.UserScreenTimeSettings;
 import com.oneorthree.phone.user.domain.UserWallet;
@@ -72,9 +75,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>IDOR — 다른 그룹의 챌린지 id 는 404 (8차 리뷰)</li>
  * </ul>
  *
- * <p>활성 요일은 B1 머지 전 시임(매일 = 127) 기준이라 날짜 기대값을
- * {@link RepeatSchedule#remainingThisWeek} 로 테스트 안에서 같이 계산한다 — 요일 고정 기대값을
- * 박으면 실행 요일에 따라 흔들린다.
+ * <p>날짜 기대값은 {@link RepeatSchedule} 로 테스트 안에서 같이 계산한다 — 요일 고정 기대값을
+ * 박으면 실행 요일에 따라 흔들린다. 요일 반복 판정(FR-30)은 "오늘 요일만 활성"인 챌린지로
+ * 결정적으로 재현한다(같은 요일은 이번 주에 다시 오지 않는다).
  */
 class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
 
@@ -107,6 +110,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     @Autowired
     UserWalletRepository userWalletRepository;
     @Autowired
+    DailyFocusStatRepository dailyFocusStatRepository;
+    @Autowired
     JdbcTemplate jdbcTemplate;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
@@ -137,6 +142,8 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     void tearDown() {
         users.forEach(u -> currencyTransactionRepository
                 .deleteAll(currencyTransactionRepository.findByUserOrderByCreatedAtDesc(u)));
+        users.forEach(u -> dailyFocusStatRepository
+                .deleteAll(dailyFocusStatRepository.findByUserIdInAndDate(List.of(u.getId()), today())));
         // 회차·참가는 서비스가 lazy 생성하므로 그룹 스코프 SQL 로 일괄 정리한다.
         for (Group g : List.of(group, otherGroup)) {
             jdbcTemplate.update("DELETE FROM group_challenge_bet_participants WHERE session_id IN "
@@ -178,8 +185,14 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     }
 
     private GroupChallenge durationChallenge(Group owner, MissionCategory category) {
+        return durationChallenge(owner, category, RepeatSchedule.EVERYDAY);
+    }
+
+    /** 활성 요일 마스크를 지정하는 하루형 챌린지 — 요일 반복 판정(FR-30·§A3) 테스트용. */
+    private GroupChallenge durationChallenge(Group owner, MissionCategory category, int repeatDays) {
         GroupChallenge saved = groupChallengeRepository.save(GroupChallenge.builder()
-                .group(owner).category(category).type(MissionType.DURATION).build());
+                .group(owner).category(category).type(MissionType.DURATION)
+                .repeatDays(repeatDays).build());
         // V36(GROMO-1405) 이후 category 는 NOT NULL 비정규화 사본이다 — 복합 FK 가 부모와 일치를
         // 강제하므로 부모 챌린지와 같은 값을 넣어야 한다.
         groupChallengeDurationRepository.save(GroupChallengeDuration.builder()
@@ -371,6 +384,70 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
                 .isInstanceOf(GroupException.class)
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_ALREADY_JOINED);
         assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+    }
+
+    @Test
+    @DisplayName("join-next — 비활성 요일은 건너뛴다: 오늘 요일만 도는 챌린지는 다음 주 같은 요일(+7)")
+    void joinNextSkipsInactiveWeekdays() {
+        // 활성 요일이 오늘 하나뿐인 챌린지 — 시임이 EVERYDAY 로 굳어 있으면 "내일" 회차를 만들고
+        // 참가비를 걷는다(FR-30 위반, 돈 경로). 실행 요일과 무관하게 결정적이다.
+        int todayOnly = RepeatSchedule.bit(today().getDayOfWeek());
+        GroupChallenge weekly = durationChallenge(group, MissionCategory.SCREEN_TIME, todayOnly);
+        GroupChallengeBet weeklyConfig = configOf(weekly);
+        userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
+                .userId(member.getId()).screenTimePermissionGranted(true).build());
+
+        JoinSessionResponse response = groupBetJoinService.joinNext(group.getId(), weekly.getId(),
+                member.getId());
+
+        assertThat(response.getSessionDate()).isEqualTo(today().plusDays(7));
+        // 내일(비활성 요일) 회차는 만들어지지도 않았다.
+        assertThat(groupChallengeBetSessionRepository
+                .findByBetIdAndSessionDate(weeklyConfig.getId(), today().plusDays(1))).isEmpty();
+        assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+    }
+
+    @Test
+    @DisplayName("join-week — 비활성 요일에는 회차도 참가비도 없다: 오늘 요일만 도는 챌린지는 오늘 1건")
+    void joinWeekCoversOnlyActiveWeekdays() {
+        int todayOnly = RepeatSchedule.bit(today().getDayOfWeek());
+        GroupChallenge weekly = durationChallenge(group, MissionCategory.SCREEN_TIME, todayOnly);
+        GroupChallengeBet weeklyConfig = configOf(weekly);
+        userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
+                .userId(member.getId()).screenTimePermissionGranted(true).build());
+
+        JoinWeekResponse response = groupBetJoinService.joinWeek(group.getId(), weekly.getId(),
+                member.getId(), null);
+
+        // 같은 요일은 이번 주에 다시 오지 않는다 — 남은 활성일은 오늘 하나뿐.
+        assertThat(response.getJoined()).extracting(JoinWeekResponse.JoinedSession::getSessionDate)
+                .containsExactly(today());
+        assertThat(response.getTotalStake()).isEqualTo(STAKE);
+        assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+        // 나머지 요일에는 회차 자체가 서지 않는다(EVERYDAY 시임이었다면 여기서 드러난다).
+        for (int i = 1; i <= 6; i++) {
+            assertThat(groupChallengeBetSessionRepository
+                    .findByBetIdAndSessionDate(weeklyConfig.getId(), today().plusDays(i))).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("join-week 지정 날짜 — 비활성 요일을 찍으면 INVALID_SESSION_DATES 400")
+    void joinWeekRejectsInactiveWeekday() {
+        int todayOnly = RepeatSchedule.bit(today().getDayOfWeek());
+        GroupChallenge weekly = durationChallenge(group, MissionCategory.SCREEN_TIME, todayOnly);
+        GroupChallengeBet weeklyConfig = configOf(weekly);
+        userScreenTimeSettingsRepository.save(UserScreenTimeSettings.builder()
+                .userId(member.getId()).screenTimePermissionGranted(true).build());
+        JoinWeekRequest request = weekRequest(List.of(today().plusDays(1)));
+
+        assertThatThrownBy(() ->
+                groupBetJoinService.joinWeek(group.getId(), weekly.getId(), member.getId(), request))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.INVALID_SESSION_DATES);
+        assertThat(balanceOf(member)).isEqualTo(BALANCE);
+        assertThat(groupChallengeBetSessionRepository
+                .findByBetIdAndSessionDate(weeklyConfig.getId(), today().plusDays(1))).isEmpty();
     }
 
     // ── join-week (주간 부분 예약, N39) ──────────────────────────────────
@@ -648,6 +725,92 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
         // 환불은 정확히 1회(예약분) — 오늘 참가비는 판에 남아 잔액은 BALANCE - STAKE.
         assertThat(countByType(member, CurrencyTransactionType.BET_REFUND)).isEqualTo(1);
         assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+    }
+
+    @Test
+    @DisplayName("N22 창형 — 레거시 경로로 창 시작 후 참가한 사람은 유예 없이 즉시 취소 불가 (관전 후 이탈 차단)")
+    void windowParticipantJoinedAfterStartCannotLeaveOrCancel() {
+        GroupChallenge windowed = startedWindowChallenge(group);
+        GroupChallengeBet windowedConfig = configOf(windowed);
+        // 창 09:00~11:00 이 이미 시작된 상태를 박제 시각으로 재현한다(레거시 참가 경로는 창 종료까지
+        // 참가를 허용하므로 createdAt >= startsAt 인 창형 참가자가 실제로 존재한다).
+        Instant windowStart = Instant.now().minus(Duration.ofMinutes(30));
+        GroupChallengeBetSession session = groupChallengeBetSessionRepository.save(
+                GroupChallengeBetSession.builder()
+                        .bet(windowedConfig).group(group).challenge(windowed)
+                        .sessionDate(today()).stake(STAKE).goalMinutes(15)
+                        .missionCategory(MissionCategory.FOCUS)
+                        .missionType(MissionType.TIME_WINDOW)
+                        .windowStart(LocalTime.MIDNIGHT).windowEnd(LocalTime.of(0, 15))
+                        .status(GroupBetStatus.OPEN)
+                        .startsAt(windowStart)
+                        .joinClosesAt(windowStart)
+                        .closesAt(windowStart.plus(Duration.ofHours(2)))
+                        .settleAfter(windowStart.plus(Duration.ofHours(2)))
+                        .build());
+        // 창 시작 1분 뒤 참가(= 방금 참가) — 하루형 규칙이었다면 5분 유예 안이라 무를 수 있었다.
+        GroupChallengeBetParticipant mine = groupChallengeBetParticipantRepository.save(
+                GroupChallengeBetParticipant.builder().session(session).user(member).build());
+        backdateParticipant(mine.getId(), windowStart.plus(Duration.ofMinutes(1)));
+
+        assertThatThrownBy(() ->
+                groupBetService.leaveBet(group.getId(), session.getId(), member.getId()))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
+        // 단독 참가자라 레거시 취소 브리지 조건도 만족하지만 같은 마감에 막힌다.
+        assertThatThrownBy(() ->
+                groupBetService.cancelBet(group.getId(), session.getId(), member.getId()))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
+        assertThat(countByType(member, CurrencyTransactionType.BET_REFUND)).isZero();
+        assertThat(groupChallengeBetParticipantRepository
+                .existsBySessionIdAndUserId(session.getId(), member.getId())).isTrue();
+    }
+
+    // ── 계정 탈퇴 근거 박제 (codex P1 ① 회귀) ────────────────────────────
+
+    @Test
+    @DisplayName("탈퇴 근거 박제는 환불하지 않는다 — 마감 지난 참가는 행·에스크로가 그대로 남는다")
+    void freezeEvidenceNeverRefundsOrDeletesParticipation() {
+        // 병합 충돌 해소가 박제 루프 안에 delete + refundStake 를 되살렸던 회귀(FR-40 우회 환불).
+        // UserService.withdraw 와 같은 순서(해제 → 박제)로 부른다.
+        GroupChallengeBetSession session = todaySession();
+        groupBetJoinService.joinSession(group.getId(), session.getId(), member.getId());
+        UUID participantId = groupChallengeBetParticipantRepository
+                .findBySessionIdAndUserId(session.getId(), member.getId()).orElseThrow().getId();
+        backdateParticipant(participantId, Instant.now().minus(Duration.ofMinutes(6)));   // 취소 마감 경과
+
+        groupBetService.releaseFromAllOpenBets(member);
+        groupBetService.freezeEvidenceForAccountErasure(member);
+
+        // 참가 행·회차 잔존 + 환불 0 — 계정 탈퇴가 취소 마감을 우회하는 환불 경로가 아니다.
+        assertThat(groupChallengeBetParticipantRepository
+                .existsBySessionIdAndUserId(session.getId(), member.getId())).isTrue();
+        assertThat(groupChallengeBetSessionRepository.findById(session.getId())).isPresent();
+        assertThat(countByType(member, CurrencyTransactionType.BET_REFUND)).isZero();
+        assertThat(balanceOf(member)).isEqualTo(BALANCE - STAKE);
+    }
+
+    @Test
+    @DisplayName("탈퇴 근거 박제 — 달성 상태면 achieved/progressMinutes 가 참가 행에 박제된다")
+    void freezeEvidenceRecordsAchievementSnapshot() {
+        GroupChallengeBetSession session = todaySession();
+        groupBetJoinService.joinSession(group.getId(), session.getId(), member.getId());
+        UUID participantId = groupChallengeBetParticipantRepository
+                .findBySessionIdAndUserId(session.getId(), member.getId()).orElseThrow().getId();
+        backdateParticipant(participantId, Instant.now().minus(Duration.ofMinutes(6)));
+        // 목표(120분) 이상 집중한 상태 — nullify 전이라면 정산이 달성으로 볼 값이다.
+        dailyFocusStatRepository.save(DailyFocusStat.builder()
+                .user(member).date(today()).totalFocusSeconds((GOAL_MINUTES + 10) * 60).build());
+
+        groupBetService.releaseFromAllOpenBets(member);
+        groupBetService.freezeEvidenceForAccountErasure(member);
+
+        GroupChallengeBetParticipant frozen = groupChallengeBetParticipantRepository
+                .findById(participantId).orElseThrow();
+        assertThat(frozen.getAchieved()).isTrue();
+        assertThat(frozen.getProgressMinutes()).isEqualTo(GOAL_MINUTES + 10);
+        assertThat(countByType(member, CurrencyTransactionType.BET_REFUND)).isZero();
     }
 
     // ── lazy 개설 경합 (codex P1 ① 회귀) ─────────────────────────────────

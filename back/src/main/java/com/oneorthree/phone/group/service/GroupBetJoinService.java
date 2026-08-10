@@ -336,7 +336,9 @@ public class GroupBetJoinService {
         if (challenge.getCategory() != MissionCategory.SCREEN_TIME) {
             return;
         }
-        boolean granted = userScreenTimeSettingsRepository.findById(user.getId())
+        // 공유 잠금 조회 — 권한 회수(UserService.updateScreenTimePermission 의 배타 잠금)와 설정 행에서
+        // 직렬화한다. 락 없이 읽으면 확인과 차감 사이에 회수가 끼어들어 보고 못 하는 유료 참가가 남는다.
+        boolean granted = userScreenTimeSettingsRepository.findByIdForShare(user.getId())
                 .map(UserScreenTimeSettings::isScreenTimePermissionGranted)
                 .orElse(false);
         if (!granted) {
@@ -410,12 +412,16 @@ public class GroupBetJoinService {
     }
 
     /**
-     * 챌린지의 활성 요일 마스크 — <b>B1(GROMO-1260) 머지 전 임시 시임</b>. base 에 {@code repeat_days}
-     * 컬럼이 없어 매일(127)로 고정한다. 머지 시 코디네이터가 {@code challenge.getRepeatDays()} 로
-     * 배선한다(이 메서드 한 줄).
+     * 챌린지의 활성 요일 마스크(§A3 · GROMO-1260) — 회차가 서는 날의 단일 소유자
+     * {@link RepeatSchedule} 이 해석한다. 회차는 <b>활성 요일에만</b> 선다(FR-30) — 이 값이 EVERYDAY
+     * 로 굳어 있으면 월요일만 도는 챌린지에서 join-next 가 화요일 회차를 만들고 join-week 이 남은
+     * 모든 요일에 참가비를 걷는다(돈 경로).
+     *
+     * <p>V34 로 기존 행은 EVERYDAY(127)로 백필됐고 DB CHECK 가 1~127 을 강제하므로 마스크는 항상
+     * 유효하다 — 방어적 폴백을 두지 않는다(무효값은 드러나야 한다).
      */
-    private int repeatDaysOf(GroupChallenge challenge) {
-        return RepeatSchedule.EVERYDAY;
+    private static int repeatDaysOf(GroupChallenge challenge) {
+        return challenge.getRepeatDays();
     }
 
     private JoinSessionResponse joinResponse(GroupChallengeBetSession session, User user) {

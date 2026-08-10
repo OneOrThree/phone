@@ -338,7 +338,10 @@ public class UserService {
 
     @Transactional
     public void updateScreenTimePermission(UUID userId, UpdateScreenTimePermissionRequest request) {
-        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+        // 배타 잠금 (GROMO-1409·N50) — 내기 참여의 권한 가드가 같은 행을 공유 잠금으로 읽는다.
+        // 잠금이 없으면 "참여가 true 를 읽음 → 여기서 false 커밋 → 참여가 차감 커밋" 인터리빙에서
+        // 보고 수단이 없는 유저가 유료 회차에 남는다(미보고 = 미달성이라 확정 패배).
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setScreenTimePermissionGranted(request.getGranted());
     }
