@@ -15,7 +15,10 @@ import { AccessibilityInfo, Platform } from 'react-native';
 import { ToastProvider, useToast, type ToastOptions } from './ToastContext';
 
 // reduce 상태에 따라 퇴장 지연(220 vs 0)이 달라져 타이머 전진량이 흔들린다 — 끄고 고정한다.
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => false }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => false,
+  useReduceMotionReady: () => true,
+}));
 
 const EXIT_MS = 220; // M.dur.quick
 

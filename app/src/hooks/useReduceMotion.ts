@@ -74,3 +74,16 @@ export function useReduceMotion(): boolean {
   // null(미확정) → true: 확정 전에는 애니메이션을 생략한다
   return useSyncExternalStore(subscribe, getSnapshot) ?? true;
 }
+
+/**
+ * '동작 줄이기' 값이 **확정됐는가**. 초기 비동기 조회가 끝나기 전에는 false.
+ *
+ * ⚠️ `useReduceMotion()`은 미확정 구간을 보수적으로 `true`로 읽는다(그게 옳다 — 설정을 켠
+ *    사용자가 첫 프레임 애니메이션을 보는 것보다 낫다). 그런데 그 `true`를 **실제 설정처럼**
+ *    써서 되돌릴 수 없는 결정을 내리면 안 된다. 예: 단계 시퀀스의 대기 시간을 0으로 만들어
+ *    시작해 버리면, 설정을 켜지 않은 사용자도 연출을 통째로 잃는다(codex 리뷰).
+ *    "지금 이 값으로 시작해도 되는가"를 물어야 하는 곳에서 이 훅을 쓴다.
+ */
+export function useReduceMotionReady(): boolean {
+  return useSyncExternalStore(subscribe, getSnapshot) !== null;
+}

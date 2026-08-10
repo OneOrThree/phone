@@ -6,7 +6,10 @@ import { M } from '@/constants/motion';
 import { AnimatedNumber } from './AnimatedNumber';
 
 let mockReduce = false;
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => true,
+}));
 
 beforeEach(() => {
   mockReduce = false;

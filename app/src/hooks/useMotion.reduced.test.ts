@@ -3,7 +3,10 @@
 import { renderHook } from '@testing-library/react-native';
 import { useMotion } from './useMotion';
 
-jest.mock('./useReduceMotion', () => ({ useReduceMotion: () => true }));
+jest.mock('./useReduceMotion', () => ({
+  useReduceMotion: () => true,
+  useReduceMotionReady: () => true,
+}));
 
 describe('useMotion (reduce=true)', () => {
   it('css는 undefined를 돌려준다 — 스타일 배열에서 사라진다', async () => {

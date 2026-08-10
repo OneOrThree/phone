@@ -6,7 +6,10 @@ import { T } from '@/constants/theme';
 import { ProgressRing } from './ProgressRing';
 
 let mockReduce = false;
-jest.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => mockReduce }));
+jest.mock('@/hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduce,
+  useReduceMotionReady: () => true,
+}));
 
 beforeEach(() => {
   mockReduce = false;
