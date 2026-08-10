@@ -274,4 +274,69 @@ describe('재생 도중 재갱신', () => {
     expect(result.current).toBe(next);
     spy.mockRestore();
   });
+
+  // 집중 중인 행은 화면에 `totalFocusSeconds + 진행 경과`가 그려지는데(LiveFocusTime) 훅이 든
+  // 하한은 서버 기준값뿐이다. 세션 종료 응답을 그대로 단계화하면 첫 램프가 기준값 근처에서
+  // 시작해 **숫자가 줄었다가 회복한다** — 집중을 막 끝내고 순위를 보는 순간이다(codex 리뷰).
+  test('집중 중이던 사람의 세션 종료 갱신은 단계화하지 않고 곧장 최신 배열이다', async () => {
+    // me가 집중 중: 기준 1000초에 진행 경과가 더해져 화면엔 4600초가 보이고 있었다
+    const focusing = [
+      { userId: 'a', totalFocusSeconds: 9000 },
+      { userId: 'b', totalFocusSeconds: 7200 },
+      { userId: 'c', totalFocusSeconds: 5400 },
+      {
+        userId: 'me',
+        totalFocusSeconds: 1000,
+        isFocusing: true,
+        focusStartedAt: '2026-08-10T00:00:00.000Z',
+      },
+    ];
+    const { result, rerender } = await mount(focusing as unknown as Row[]);
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'c', 'me']);
+
+    // 세션 종료 — 서버가 4600초로 확정하며 1위가 된다
+    const ended = rows([
+      ['me', 10800],
+      ['a', 9000],
+      ['b', 7200],
+      ['c', 5400],
+    ]);
+    await act(async () => {
+      rerender(ended);
+    });
+    // 단계 중간값(1000~10800 사이)을 거치지 않는다 — 순서도 기록도 곧장 최종이다
+    expect(result.current).toBe(ended);
+  });
+
+  // 위 생략은 **그 갱신 한 번만** 이다. 종료 이후의 평범한 갱신까지 꺼지면 연출이 사실상 사라진다.
+  test('세션 종료 이후의 다음 갱신은 다시 정상 재생된다', async () => {
+    const focusing = [
+      { userId: 'a', totalFocusSeconds: 9000 },
+      { userId: 'b', totalFocusSeconds: 7200 },
+      { userId: 'c', totalFocusSeconds: 5400 },
+      {
+        userId: 'me',
+        totalFocusSeconds: 1000,
+        isFocusing: true,
+        focusStartedAt: '2026-08-10T00:00:00.000Z',
+      },
+    ];
+    const { result, rerender } = await mount(focusing as unknown as Row[]);
+    await act(async () => {
+      rerender(
+        rows([
+          ['a', 9000],
+          ['b', 7200],
+          ['c', 5400],
+          ['me', 5000],
+        ]),
+      );
+    });
+
+    // 이제 아무도 집중 중이 아니다 — 다음 상승은 단계화된다
+    await act(async () => {
+      rerender(rows(AFTER));
+    });
+    expect(idsOf(result.current)).toEqual(['a', 'b', 'c', 'me']); // 아직 안 올랐다 = 재생 중
+  });
 });

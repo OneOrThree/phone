@@ -24,6 +24,11 @@ import { rankSwapFrames, type RankSwapFrame } from './rankSwap';
 interface Keyed {
   userId: string;
   totalFocusSeconds: number;
+  // 집중 중인 행은 화면에 `totalFocusSeconds`가 아니라 **진행 경과를 더한 라이브 합계**가
+  // 그려진다(RankRow → LiveFocusTime). 단계화의 하한("기록은 줄지 않는다")은 화면에 실제로
+  // 보이던 값이어야 하므로 이 훅도 그 사실을 알아야 한다 — 아래 endedLive 참고.
+  isFocusing?: boolean;
+  focusStartedAt?: string | null;
 }
 
 /** effect 의존성이 아니라 렌더 중 비교에 쓰는 순서 키. 구분자는 userId에 없는 문자면 된다. */
@@ -70,6 +75,8 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
   // **이전 렌더까지** 화면에 있던 순서·기록 — 다음 갱신이 여기서 출발한다(아래에서 갱신).
   const shownOrderRef = useRef<string[]>([]);
   const shownSecondsRef = useRef<Map<string, number>>(new Map());
+  // 직전 렌더에서 **라이브 표기 중이던** 행들. 세션 종료 갱신을 감지하는 데만 쓴다(아래).
+  const shownLiveRef = useRef<Set<string>>(new Set());
   // 이번 렌더에서 계획이 새로 정해졌는가 — effect가 타이머를 다시 걸어야 한다는 신호.
   const rescheduleRef = useRef(false);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -96,19 +103,37 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
   // (첫 로드는 어차피 구성원이 통째로 바뀌어 계획이 만들어지지 않는다.)
   const staged = !m.reduce && m.ready;
 
+  // ⚠️ **집중 중이던 사람의 세션 종료 갱신은 단계화하지 않는다.**
+  //    집중 중인 행은 화면에 `totalFocusSeconds + 진행 경과`(LiveFocusTime)가 그려지는데,
+  //    `shownSecondsRef`에는 서버 기준값만 들어 있다. 기준 1,000초에 3,600초를 진행해 4,600초가
+  //    보이던 사용자의 종료 응답이 4,600초로 확정되면, 단계 계획은 하한을 1,000으로 잡아
+  //    첫 램프를 3,001초 같은 중간값에서 시작한다 — 화면의 숫자가 **줄었다가 회복한다**
+  //    (codex 리뷰). 집중을 막 끝내고 순위를 확인하는, 이 화면에서 가장 주목도가 높은 순간이다.
+  //
+  //    하한을 라이브 합계로 올리는 쪽은 택하지 않았다 — rankSwap의 감소 가드(rankSwap.ts:166)가
+  //    "하나라도 줄면 전체 생략"이라, 집중 중인 사람이 있는 한 거의 모든 갱신에서 단계화가
+  //    통째로 꺼진다. 반대로 그 행만 기록 단계화에서 빼면 그 행이 혼자 최종값으로 튀어
+  //    "아래 행이 위 행보다 큰 기록" 프레임이 생기는데, 그건 프레임 전체 정합 문제라
+  //    별도 티켓(1475)에서 설계로 닫는다.
+  //    여기서는 **그 갱신 한 번만** 건너뛴다 — 순서는 즉시 최종, 다음 갱신부터 정상 재생.
+  const endedLive = items.some(
+    (item) => shownLiveRef.current.has(item.userId) && item.isFocusing !== true,
+  );
+
   if (targetKey !== lastTargetRef.current) {
     lastTargetRef.current = targetKey;
     // 재생 도중 또 갱신이 오면 **큐를 쌓지 않고 갈아탄다.** 두 시퀀스가 겹치면 같은 행에
     // 서로 다른 목표가 걸려 순서가 엉킨다. 지금 화면에 그려져 있던 순서·기록에서 새 목표까지
     // 다시 계산한다 — 살아 있는 시퀀스는 늘 하나고 최신 목표가 이긴다.
-    const frames = staged
-      ? rankSwapFrames(
-          shownOrderRef.current,
-          targetOrder,
-          new Map(items.map((item) => [item.userId, item.totalFocusSeconds])),
-          shownSecondsRef.current,
-        )
-      : [];
+    const frames =
+      staged && !endedLive
+        ? rankSwapFrames(
+            shownOrderRef.current,
+            targetOrder,
+            new Map(items.map((item) => [item.userId, item.totalFocusSeconds])),
+            shownSecondsRef.current,
+          )
+        : [];
     frameRef.current = frames.length > 0 ? frames[0] : null;
     pendingRef.current = frames.slice(1);
     rescheduleRef.current = true;
@@ -126,6 +151,11 @@ export function useStagedRanking<T extends Keyed>(items: T[]): T[] {
   const rendered = applyFrame(items, frameRef.current);
   shownOrderRef.current = rendered.map((item) => item.userId);
   shownSecondsRef.current = new Map(rendered.map((item) => [item.userId, item.totalFocusSeconds]));
+  shownLiveRef.current = new Set(
+    rendered
+      .filter((item) => item.isFocusing === true && item.focusStartedAt != null)
+      .map((item) => item.userId),
+  );
 
   useEffect(() => {
     if (!rescheduleRef.current) return;
