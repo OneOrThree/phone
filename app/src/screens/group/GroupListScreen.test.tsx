@@ -176,6 +176,23 @@ describe('콜백', () => {
     expect(collapse).toHaveStyle({ minWidth: 44, minHeight: 44 });
   });
 
+  test('뒷면에서 Escape는 앞면으로 돌아가고 기존 포커스 복원 경로를 사용한다', async () => {
+    await renderList([group()]);
+    await press(`group.card.${GROUP_ID}`);
+
+    const stopPropagation = jest.fn();
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list'), 'keyDown', {
+        nativeEvent: { key: 'Escape', repeat: false },
+        stopPropagation,
+      });
+    });
+
+    expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+    expect(screen.getByTestId(`group.card.${GROUP_ID}`)).toBeOnTheScreen();
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
     announce.mockClear();

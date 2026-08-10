@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import {
   AccessibilityInfo,
   FlatList,
@@ -53,6 +61,13 @@ import { GROUP_DECK_SIDE_PEEK, groupDeckCardWidth } from './groupDeckLayout';
 const TAB_BAR_SPACE = 74;
 const SIDE_PEEK = GROUP_DECK_SIDE_PEEK;
 const CARD_GAP = 12;
+
+// RN 0.81 native View는 물리 키보드 keyDown을 전달하지만 현재 공개 ViewProps 선언은
+// generated 타입보다 뒤처져 있다. 실제 지원 prop만 좁게 보강해 web/태블릿 Escape를 받는다.
+type PhysicalKeyDownEvent = NativeSyntheticEvent<{ key: string; repeat?: boolean }>;
+const KeyboardAwareView = View as unknown as ComponentType<
+  ComponentProps<typeof View> & { onKeyDown?: (event: PhysicalKeyDownEvent) => void }
+>;
 
 /**
  * 카드 한 장의 높이 — 앞면·뒷면과 로딩 스켈레톤(GroupScreen)이
@@ -288,6 +303,11 @@ export default function GroupListScreen({
     [groups, snapInterval],
   );
 
+  const flipToFront = useCallback((groupId: string) => {
+    pendingFaceFocusRef.current = { groupId, face: 'front' };
+    setFlippedGroupId((current) => (current === groupId ? null : current));
+  }, []);
+
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
     const orderChanged = previousOrderKeyRef.current !== orderKey;
@@ -313,7 +333,20 @@ export default function GroupListScreen({
   }, [groups, orderKey, snapInterval]);
 
   return (
-    <View style={s.root} testID="group.list">
+    <KeyboardAwareView
+      style={s.root}
+      testID="group.list"
+      onKeyDown={(event) => {
+        if (
+          event.nativeEvent.key !== 'Escape' ||
+          event.nativeEvent.repeat ||
+          flippedGroupId === null
+        )
+          return;
+        event.stopPropagation();
+        flipToFront(flippedGroupId);
+      }}
+    >
       <ScrollView
         style={s.scroller}
         contentContainerStyle={s.screenContent}
@@ -417,10 +450,7 @@ export default function GroupListScreen({
                   </Pressable>
                   <Pressable
                     style={s.backLinkHit}
-                    onPress={() => {
-                      pendingFaceFocusRef.current = { groupId: item.groupId, face: 'front' };
-                      setFlippedGroupId(null);
-                    }}
+                    onPress={() => flipToFront(item.groupId)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded: true }}
                     nativeID={`group.card.disclosure.${item.groupId}`}
@@ -476,7 +506,7 @@ export default function GroupListScreen({
           <Text style={s.outlineText}>그룹 찾기</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAwareView>
   );
 }
 
