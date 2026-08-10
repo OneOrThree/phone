@@ -36,8 +36,20 @@ jest.mock('react-native-safe-area-context', () => {
 // 포커스 재조회를 테스트에서 다시 트리거하려고 콜백을 모아 둔다(그룹 생성 화면에서 돌아오는 상황).
 const mockFocusRunners = new Set<() => void | (() => void)>();
 const mockNavigate = jest.fn();
+let mockTabPressListener: (() => void) | null = null;
+let mockNavigationFocused = false;
+const mockNavigation = {
+  navigate: mockNavigate,
+  addListener: jest.fn((_event: string, listener: () => void) => {
+    mockTabPressListener = listener;
+    return () => {
+      if (mockTabPressListener === listener) mockTabPressListener = null;
+    };
+  }),
+  isFocused: jest.fn(() => mockNavigationFocused),
+};
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
+  useNavigation: () => mockNavigation,
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
@@ -223,6 +235,8 @@ beforeEach(() => {
   mockIsGuest = false;
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
+  mockTabPressListener = null;
+  mockNavigationFocused = false;
   // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는
   // 여전히 groupId 하나라, 테스트는 groupId만 지정하고 나머지는 여기서 감싼다.
   mockPeek.mockImplementation(() =>
@@ -280,6 +294,34 @@ describe('group_viewed view episode', () => {
     });
 
     await refocus();
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('다른 탭에서 탭바의 그룹 버튼으로 재진입하면 tab으로 기록한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockNavigationFocused = false;
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'tab',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('현재 그룹 탭 재선택은 뒤이은 자식 화면 복귀를 tab으로 오염시키지 않는다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockNavigationFocused = true;
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
     expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
       group_entry: 'return',
       group_count_bucket: '1',

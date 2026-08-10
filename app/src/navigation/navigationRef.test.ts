@@ -12,11 +12,11 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import { discardQueuedGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
 jest.mock('@/navigation/groupEntrySource', () => ({
-  clearPendingGroupEntry: jest.fn(),
+  discardQueuedGroupEntry: jest.fn(),
   queueDirectGroupEntry: jest.fn(),
 }));
 
@@ -31,8 +31,8 @@ const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as j
 const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
   typeof queueDirectGroupEntry
 >;
-const mockClearPendingGroupEntry = clearPendingGroupEntry as jest.MockedFunction<
-  typeof clearPendingGroupEntry
+const mockDiscardQueuedGroupEntry = discardQueuedGroupEntry as jest.MockedFunction<
+  typeof discardQueuedGroupEntry
 >;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
@@ -49,6 +49,7 @@ const inviteListener = jest.fn();
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQueueDirectGroupEntry.mockReturnValue(101);
   jest.spyOn(navigationRef, 'isReady').mockReturnValue(true);
   // 지연 이동 가드가 읽는 현재 화면 — 기본은 '딥링크가 옮겨 둔 그룹 탭에 그대로 있다'.
   currentRoute.mockReturnValue({ key: '그룹-1', name: '그룹' });
@@ -188,7 +189,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     await flushAsync();
 
     expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
-    expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
+    expect(mockDiscardQueuedGroupEntry).toHaveBeenCalledWith(101);
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
@@ -386,7 +387,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       await flushAsync();
 
       expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
-      expect(mockClearPendingGroupEntry).toHaveBeenCalledTimes(1);
+      expect(mockDiscardQueuedGroupEntry).toHaveBeenCalledWith(null);
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,

@@ -38,6 +38,7 @@ import { CharacterProvider, transferCharacter } from '@/store/CharacterContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
 import { RootNavigator } from '@/navigation/RootNavigator';
+import { clearPendingGroupEntry } from '@/navigation/groupEntrySource';
 import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
@@ -215,6 +216,9 @@ function App() {
   }, []);
 
   async function handleLogout() {
+    // 모듈 전역의 외부 그룹 진입 source는 명시적 로그아웃에서 폐기한다. 게스트→소셜 로그인은
+    // 이 핸들러를 타지 않으므로 invite 승격 보존은 유지되고, 다음 계정으로의 source 누수만 막는다.
+    clearPendingGroupEntry();
     // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
     // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
     // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
