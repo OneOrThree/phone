@@ -18,6 +18,7 @@ import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { groupCardEmojiLabel, readGroupCardEmojiResult } from './groupCardEmojiStore';
 
 // 그룹 설정 = 관리 허브 (root stack 'GroupSettings') — 3차 A-1. 그룹방 ⋯ 버튼에서 바로 진입한다.
 //
@@ -46,6 +47,12 @@ export default function GroupSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const cardEmojiIdentity = `${userId ?? 'anonymous'}:${groupId}`;
+  const [cardEmojiState, setCardEmojiState] = useState<{
+    identity: string;
+    name: string;
+  } | null>(null);
+  const cardEmojiName = cardEmojiState?.identity === cardEmojiIdentity ? cardEmojiState.name : null;
   // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
   const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
 
@@ -76,6 +83,23 @@ export default function GroupSettingsScreen() {
         requestSeqRef.current++;
       };
     }, [load]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      readGroupCardEmojiResult(userId, groupId).then((result) => {
+        if (active && result.status === 'ready') {
+          setCardEmojiState({
+            identity: cardEmojiIdentity,
+            name: groupCardEmojiLabel(result.emoji),
+          });
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }, [cardEmojiIdentity, groupId, userId]),
   );
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(GroupRoomScreen과 동일).
@@ -137,13 +161,17 @@ export default function GroupSettingsScreen() {
     label: string,
     onPress: () => void,
     testID: string,
+    helper?: string,
   ) {
     return (
       <TouchableOpacity style={s.navRow} activeOpacity={0.7} onPress={onPress} testID={testID}>
         <View style={s.navIcon}>
           <Ionicons name={icon} size={17} color={T.accent} />
         </View>
-        <Text style={s.navLabel}>{label}</Text>
+        <View style={s.navText}>
+          <Text style={s.navLabel}>{label}</Text>
+          {helper && <Text style={s.navHelper}>{helper}</Text>}
+        </View>
         <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
       </TouchableOpacity>
     );
@@ -188,13 +216,29 @@ export default function GroupSettingsScreen() {
       </View>
     );
   } else {
-    // ── 허브 — 방장은 관리 행 + 나가기, 비방장은 나가기만 ──
+    // ── 허브 — 내 카드 아이콘은 역할 공통, 서버 운영 행만 방장 전용 ──
     body = (
       <ScrollView
         style={s.scroll}
         contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + T.space.xxl }]}
         showsVerticalScrollIndicator={false}
       >
+        {me && (
+          <>
+            <Text style={s.sectionTitle}>내 설정</Text>
+            <View style={s.navGroup}>
+              {navRow(
+                'color-palette-outline',
+                '내 카드 아이콘',
+                () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
+                'group.settings.cardEmoji',
+                cardEmojiName
+                  ? `현재 아이콘 ${cardEmojiName} · 이 기기에서 나에게만 보여요`
+                  : '아이콘 불러오는 중 · 이 기기에서 나에게만 보여요',
+              )}
+            </View>
+          </>
+        )}
         {isOwner && (
           <>
             <Text style={s.sectionTitle}>그룹 관리</Text>
@@ -322,7 +366,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: T.accentBg,
   },
-  navLabel: { ...T.text.label, flex: 1, color: T.ink },
+  navText: { flex: 1, gap: 2 },
+  navLabel: { ...T.text.label, color: T.ink },
+  navHelper: { ...T.text.caption, color: T.inkSub },
 
   // 그룹 나가기 — 관리 행과 같은 카드 규격, 위험 색(accentAlt)
   leaveRow: {

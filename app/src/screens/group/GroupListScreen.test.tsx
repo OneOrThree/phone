@@ -190,6 +190,28 @@ describe('카드 렌더', () => {
     expect(screen.queryByLabelText('비공개 그룹')).toBeNull();
     expect(screen.queryByLabelText('내가 방장')).toBeNull();
   });
+
+  test('현재 계정의 저장 아이콘을 카드에 적용하고 미설정은 🎯로 표시한다', async () => {
+    await render(
+      <GroupListScreen
+        groups={[group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]}
+        cardEmojiByGroupId={{ [GROUP_ID]: '📚' }}
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    expect(screen.getByTestId(`group.list.emoji.${GROUP_ID}`)).toHaveTextContent('📚');
+    expect(screen.getByTestId(`group.list.emoji.${GROUP_ID_2}`)).toHaveTextContent('🎯');
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`).props.accessibilityLabel).toContain(
+      '내 카드 아이콘 책',
+    );
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID_2}`).props.accessibilityLabel).toContain(
+      '내 카드 아이콘 목표',
+    );
+  });
 });
 
 describe('콜백', () => {

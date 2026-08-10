@@ -16,10 +16,21 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupCardIconSaveResult, logGroupViewed } from '@/services/analyticsEvents';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
+import {
+  reconcileGroupCardEmojiBucket,
+  getPendingGroupCardEmojiBucket,
+  hasPendingGroupCardEmojis,
+  readGroupCardEmojiSaveFailure,
+  retryPendingGroupCardEmojis,
+  setGroupCardEmojiSaveFailure,
+  subscribeGroupCardEmoji,
+  subscribeGroupCardEmojiSaveFailure,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
 
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
@@ -46,9 +57,15 @@ const HEADER_TEXT_H = 30;
 export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
-  const { isGuest } = useUser();
+  const { isGuest, userId, sessionIdentityRef } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
+  const [cardEmojiByGroupId, setCardEmojiByGroupId] = useState<GroupCardEmojiBucket>({});
+  const [cardEmojiHydratedIdentity, setCardEmojiHydratedIdentity] = useState<string | null>(null);
+  const [cardEmojiHydratedGroupIds, setCardEmojiHydratedGroupIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [cardEmojiSaveFailed, setCardEmojiSaveFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -56,6 +73,28 @@ export default function GroupScreen() {
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
   const [transitioning, setTransitioning] = useState(false);
+
+  useEffect(() => {
+    if (!userId) {
+      setCardEmojiSaveFailed(false);
+      return;
+    }
+    setCardEmojiSaveFailed(readGroupCardEmojiSaveFailure(userId));
+    return subscribeGroupCardEmojiSaveFailure(userId, setCardEmojiSaveFailed);
+  }, [userId]);
+
+  useEffect(() => {
+    // 계정 전환 시 이전 계정의 로컬 표현 설정을 새 계정에 잠시라도 노출하지 않는다.
+    setCardEmojiByGroupId({});
+    setCardEmojiHydratedIdentity(null);
+    setCardEmojiHydratedGroupIds(new Set());
+    if (!userId) {
+      return;
+    }
+    return subscribeGroupCardEmoji(userId, (groupId, emoji) => {
+      setCardEmojiByGroupId((current) => ({ ...current, [groupId]: emoji }));
+    });
+  }, [userId]);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
@@ -109,16 +148,65 @@ export default function GroupScreen() {
     try {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
+      // 멤버십 정본은 로컬 아이콘 복구보다 먼저 화면에 반영한다. 생성 직후 최초 로컬 쓰기와
+      // pending 재시도가 같은 storage queue에서 대기해도 빈 화면/이전 목록에 사용자를 묶지 않는다.
       setGroups(rows);
-      // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
+      let emojiBucket: GroupCardEmojiBucket | null = {};
+      let pendingBucket: GroupCardEmojiBucket = {};
+      if (userId) {
+        const retrySessionIdentity = sessionIdentityRef.current;
+        pendingBucket = getPendingGroupCardEmojiBucket(
+          userId,
+          rows.map((row) => row.groupId),
+        );
+        setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
+        // 서버 목록 성공 뒤에만 pending 재시도와 stale prune을 수행한다. 로컬 실패는 성공한
+        // 멤버십 목록을 오류 화면으로 바꾸지 않고 기본 🎯 표시로 격리한다.
+        pendingBucket = await retryPendingGroupCardEmojis(
+          userId,
+          rows.map((row) => row.groupId),
+          () => seq === requestSeqRef.current,
+          (surface, result) => {
+            if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
+              logGroupCardIconSaveResult({ surface, result });
+            }
+          },
+        );
+        if (seq !== requestSeqRef.current) return;
+        if (retrySessionIdentity.active && retrySessionIdentity.userId === userId) {
+          setGroupCardEmojiSaveFailure(
+            userId,
+            hasPendingGroupCardEmojis(
+              userId,
+              rows.map((row) => row.groupId),
+            ),
+          );
+        }
+        const storedBucket = await reconcileGroupCardEmojiBucket(
+          userId,
+          rows.map((row) => row.groupId),
+          () => seq === requestSeqRef.current,
+        ).catch(() => null);
+        // 디스크 재시도가 계속 실패해도 이번 실행에서 고른 최신 아이콘은 카드에 유지한다.
+        emojiBucket = storedBucket === null ? null : { ...storedBucket, ...pendingBucket };
+      }
+      if (seq !== requestSeqRef.current) return;
+      if (emojiBucket === null) {
+        // 로컬 읽기 실패는 '설정 없음'이 아니다. 기존 카드 상태 위에 이번 실행 pending만 합성한다.
+        setCardEmojiByGroupId((current) => ({ ...current, ...pendingBucket }));
+      } else {
+        setCardEmojiByGroupId(emojiBucket);
+        setCardEmojiHydratedIdentity(userId ?? 'anonymous');
+        setCardEmojiHydratedGroupIds(new Set(rows.map((row) => row.groupId)));
+      }
     } catch {
       if (seq !== requestSeqRef.current) return;
       setError(true);
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [isGuest]);
+  }, [isGuest, sessionIdentityRef, userId]);
 
   // mutation 성공 직후의 재조회 — 결과가 올 때까지(또는 실패가 확정될 때까지) 빈 상태를 렌더하지 않는다.
   const fetchAfterMutation = useCallback(() => {
@@ -278,6 +366,13 @@ export default function GroupScreen() {
         </TouchableOpacity>
       </View>
     ) : null;
+  const cardEmojiSaveNotice = cardEmojiSaveFailed ? (
+    <View style={s.banner} testID="group.cardEmoji.saveFailure">
+      <Text style={s.bannerText} accessibilityRole="alert">
+        내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+      </Text>
+    </View>
+  ) : null;
 
   // ── 게스트 — 호출 없이 로그인 유도(§5-3) ──
   if (isGuest) {
@@ -354,8 +449,12 @@ export default function GroupScreen() {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {staleNotice}
+        {cardEmojiSaveNotice}
         <GroupListScreen
           groups={myGroups}
+          cardEmojiByGroupId={cardEmojiByGroupId}
+          cardEmojiHydrated={cardEmojiHydratedIdentity === (userId ?? 'anonymous')}
+          cardEmojiHydratedGroupIds={cardEmojiHydratedGroupIds}
           onSelect={onSelectGroup}
           onCreate={openCreate}
           onFind={() => setFindOpen(true)}
@@ -371,6 +470,7 @@ export default function GroupScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       {staleNotice}
+      {cardEmojiSaveNotice}
       <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
         <CharacterImage size={140} />
         <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>

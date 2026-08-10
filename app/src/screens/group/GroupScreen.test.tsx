@@ -13,10 +13,17 @@
 //  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도/게스트 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
+  setGroupCardEmojiSaveFailure,
+  writeGroupCardEmoji,
+} from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -46,11 +53,19 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 let mockIsGuest = false;
+let mockUserId: string | null = null;
+const mockSessionIdentity = { current: { userId: null as string | null, active: true } };
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ isGuest: mockIsGuest }),
+  useUser: () => {
+    mockSessionIdentity.current.userId = mockUserId;
+    return { isGuest: mockIsGuest, userId: mockUserId, sessionIdentityRef: mockSessionIdentity };
+  },
 }));
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupViewed: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupViewed: jest.fn(),
+  logGroupCardIconSaveResult: jest.fn(),
+}));
 
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -75,16 +90,34 @@ jest.mock('./GroupListScreen', () => {
     onCreate,
     onFind,
     onRefresh,
+    cardEmojiByGroupId,
+    cardEmojiHydrated,
+    cardEmojiHydratedGroupIds,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (groupId: string) => void;
     onCreate: () => void;
     onFind: () => void;
     onRefresh: () => Promise<void>;
+    cardEmojiByGroupId: Record<string, string>;
+    cardEmojiHydrated: boolean;
+    cardEmojiHydratedGroupIds?: ReadonlySet<string>;
   }) {
+    const emojiStatus = (groupId: string) =>
+      cardEmojiByGroupId[groupId] ??
+      (cardEmojiHydrated &&
+      (cardEmojiHydratedGroupIds === undefined || cardEmojiHydratedGroupIds.has(groupId))
+        ? '없음'
+        : '불러오는 중');
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
+        <RNText>{`아이콘-${emojiStatus(groups[0]?.groupId)}`}</RNText>
+        {groups.map((group) => (
+          <RNText
+            key={`emoji-${group.groupId}`}
+          >{`아이콘상태-${group.groupId}-${emojiStatus(group.groupId)}`}</RNText>
+        ))}
         {groups.map((g) => (
           <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
             <RNText>{`목록-${g.name}`}</RNText>
@@ -219,9 +252,13 @@ async function press(label: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  __resetGroupCardEmojiQueueForTest();
+  await AsyncStorage.clear();
   jest.clearAllMocks();
   mockIsGuest = false;
+  mockUserId = null;
+  mockSessionIdentity.current = { userId: null, active: true };
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
   // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는
@@ -324,6 +361,113 @@ describe('목록 분기(0/1/N)', () => {
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
     expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'unknown'));
+  });
+
+  test('설정 저장 성공은 서버 목록 재조회 없이 현재 카드 아이콘을 갱신한다', async () => {
+    mockUserId = 'user-1';
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(screen.getByText('아이콘-없음')).toBeOnTheScreen();
+
+    await act(async () => {
+      await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
+    });
+
+    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
+    expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
+  });
+
+  test('생성 화면에서 늦게 실패한 로컬 아이콘 저장을 현재 그룹 화면에 알린다', async () => {
+    mockUserId = 'user-1';
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+
+    await act(async () => setGroupCardEmojiSaveFailure('user-1', true));
+
+    expect(screen.getByTestId('group.cardEmoji.saveFailure')).toHaveTextContent(
+      /내 카드 아이콘을 저장하지 못했어요/,
+    );
+    await act(async () => setGroupCardEmojiSaveFailure('user-1', false));
+    expect(screen.queryByTestId('group.cardEmoji.saveFailure')).toBeNull();
+  });
+
+  test('생성 직후 pending 재시도가 지연돼도 서버 목록을 먼저 표시한다', async () => {
+    mockUserId = 'user-1';
+    preservePendingGroupCardEmoji('user-1', GROUP_ID, '🔥', 'create');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+      await gate;
+      await originalSetItem(key, value);
+    });
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+
+    expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
+    await act(async () => release());
+  });
+
+  test('저장 아이콘 hydration 전에는 목록을 먼저 표시하되 기본값으로 확정하지 않는다', async () => {
+    mockUserId = 'user-1';
+    await writeGroupCardEmoji('user-1', GROUP_ID, '📚');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
+      await gate;
+      return originalGetItem(key);
+    });
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+
+    expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.getByText('아이콘-불러오는 중')).toBeOnTheScreen();
+    expect(screen.queryByText('아이콘-없음')).toBeNull();
+    await act(async () => release());
+    expect(await screen.findByText('아이콘-📚')).toBeOnTheScreen();
+  });
+
+  test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {
+    mockUserId = 'user-1';
+    await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(await screen.findByText('아이콘-🔥')).toBeOnTheScreen();
+
+    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await refocus();
+
+    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
+  });
+
+  test('새로 추가된 그룹은 해당 groupId의 로컬 아이콘을 읽기 전에 기본값으로 확정하지 않는다', async () => {
+    mockUserId = 'user-1';
+    await writeGroupCardEmoji('user-1', GROUP_ID_2, '📚');
+    // 첫 목록의 stale prune 저장을 실패시켜 재가입 그룹 아이콘이 디스크에 남는 조건을 만든다.
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('prune failed'));
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(await screen.findByText(`아이콘상태-${GROUP_ID}-없음`)).toBeOnTheScreen();
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
+      await gate;
+      return originalGetItem(key);
+    });
+    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
+    await refocus();
+
+    expect(await screen.findByText('목록 2건')).toBeOnTheScreen();
+    expect(screen.getByText(`아이콘상태-${GROUP_ID_2}-불러오는 중`)).toBeOnTheScreen();
+    await act(async () => release());
+    expect(await screen.findByText(`아이콘상태-${GROUP_ID_2}-📚`)).toBeOnTheScreen();
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {

@@ -21,6 +21,11 @@ import { T } from '@/constants/theme';
 import { enterUp } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  groupCardEmojiLabel,
+  type GroupCardEmojiBucket,
+} from './groupCardEmojiStore';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 
@@ -56,7 +61,7 @@ const CARD_GAP = 12;
  * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
  * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
  */
-export const GROUP_CARD_HEIGHT = 58;
+export const GROUP_CARD_HEIGHT = 68;
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
@@ -109,6 +114,9 @@ function GroupListCell({
 
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
+  cardEmojiByGroupId?: GroupCardEmojiBucket;
+  cardEmojiHydrated?: boolean;
+  cardEmojiHydratedGroupIds?: ReadonlySet<string>;
   onSelect: (groupId: string) => void;
   onCreate: () => void;
   onFind: () => void;
@@ -120,6 +128,9 @@ export interface GroupListScreenProps {
 
 export default function GroupListScreen({
   groups,
+  cardEmojiByGroupId = {},
+  cardEmojiHydrated = true,
+  cardEmojiHydratedGroupIds,
   onSelect,
   onCreate,
   onFind,
@@ -167,6 +178,11 @@ export default function GroupListScreen({
       if (mountedRef.current) setRefreshing(false);
     }
   }, [onRefresh]);
+
+  const isCardEmojiKnown = (groupId: string) =>
+    cardEmojiByGroupId[groupId] !== undefined ||
+    (cardEmojiHydrated &&
+      (cardEmojiHydratedGroupIds === undefined || cardEmojiHydratedGroupIds.has(groupId)));
 
   const selectPage = useCallback(
     (page: number) => {
@@ -266,6 +282,7 @@ export default function GroupListScreen({
       refreshControl={enableCardDeck ? undefined : refreshControl}
       renderItem={({ item, index }) => {
         const active = !enableCardDeck || index === renderedActiveIndex;
+        const cardEmojiKnown = isCardEmojiKnown(item.groupId);
         return (
           <View
             pointerEvents={active ? 'auto' : 'none'}
@@ -281,11 +298,20 @@ export default function GroupListScreen({
               accessibilityRole="button"
               accessibilityLabel={
                 enableCardDeck
-                  ? `${item.name}${item.description ? `, ${item.description}` : ''}, ${item.isPrivate ? '비밀방' : '공개방'}, ${item.role === 'OWNER' ? '방장' : '멤버'}, ${item.currentMembers}/${item.maxMembers}명, 현재 ${index + 1}/${pageCount} 페이지`
-                  : undefined
+                  ? `${item.name}${item.description ? `, ${item.description}` : ''}, ${item.isPrivate ? '비밀방' : '공개방'}, ${item.role === 'OWNER' ? '방장' : '멤버'}, ${item.currentMembers}/${item.maxMembers}명, 현재 ${index + 1}/${pageCount} 페이지, ${cardEmojiKnown ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}`
+                  : `${item.name}${item.description ? `, ${item.description}` : ''}, ${cardEmojiKnown ? `내 카드 아이콘 ${groupCardEmojiLabel(cardEmojiByGroupId[item.groupId])}` : '내 카드 아이콘 불러오는 중'}, ${item.isPrivate ? '비공개 그룹' : '공개 그룹'}, ${item.role === 'OWNER' ? '내가 방장, ' : ''}${item.currentMembers}/${item.maxMembers}명`
               }
               testID={`group.list.card.${item.groupId}`}
             >
+              <Text
+                style={s.cardEmoji}
+                accessible={false}
+                testID={`group.list.emoji.${item.groupId}`}
+              >
+                {cardEmojiKnown
+                  ? (cardEmojiByGroupId[item.groupId] ?? DEFAULT_GROUP_CARD_EMOJI)
+                  : '…'}
+              </Text>
               <View style={s.cardMain}>
                 <View style={s.cardTitleRow}>
                   <Text style={s.cardName} numberOfLines={1}>
@@ -440,6 +466,7 @@ const s = StyleSheet.create({
   legacyCard: { minHeight: 58 },
   deckCard: { minHeight: 220 },
   cardMain: { flex: 1, gap: 4, minWidth: 0 },
+  cardEmoji: { fontSize: 28, lineHeight: 34 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   cardName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   cardDesc: { ...T.text.caption, color: T.inkSub },
