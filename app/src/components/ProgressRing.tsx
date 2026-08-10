@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
@@ -67,12 +67,25 @@ export function ProgressRing({
 
   const offset = useSharedValue(target);
 
+  // ⚠️ 원주가 바뀌면 **애니메이션 없이 즉시 맞춘다.**
+  //    `offset`은 비율이 아니라 **그 원주 기준의 절대 길이**다. 세션 도중 시스템 글자 크기나
+  //    창 크기가 바뀌어 링이 커지면 `strokeDasharray`는 그 프레임에 새 원주로 갈아타는데
+  //    `offset`만 옛 원주 기준 값으로 남아, 50%이던 링이 61%처럼 보였다가 350ms에 걸쳐
+  //    제자리로 돌아온다(codex 리뷰). 진행률이 잠깐이라도 틀리게 보이면 안 되는 표시다.
+  //    크기 변화는 사용자가 일으킨 레이아웃 사건이지 값의 변화가 아니므로 연출할 것도 없다.
+  const prevCircumferenceRef = useRef(circumference);
   useEffect(() => {
+    const resized = prevCircumferenceRef.current !== circumference;
+    prevCircumferenceRef.current = circumference;
+    if (resized) {
+      offset.value = target;
+      return;
+    }
     offset.value = m.timing(target, {
       duration: M.dur.base,
       easing: M.curve.standard.fn,
     });
-  }, [m, offset, target]);
+  }, [m, offset, target, circumference]);
 
   const animatedProps = useAnimatedProps(() => ({ strokeDashoffset: offset.value }));
 
