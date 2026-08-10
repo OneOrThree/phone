@@ -11,7 +11,6 @@ import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -213,29 +212,28 @@ class GroupBetServiceTest {
 
     /** 일 목표(DURATION) 대상. 카테고리만 갈아끼워 4조합의 절반을 만든다. */
     private GroupBetJudge.Target durationTarget(MissionCategory category) {
-        return new GroupBetJudge.Target(challenge(category, MissionType.DURATION), GOAL_MINUTES, null);
+        return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.DURATION,
+                GOAL_MINUTES, null, null);
     }
 
     /** 창 목표(TIME_WINDOW) 대상 — 창 시각은 스냅샷 박제 검증에 쓰인다(09:00~12:00 KST). */
     private GroupBetJudge.Target windowTarget(MissionCategory category) {
-        GroupChallenge windowChallenge = challenge(category, MissionType.TIME_WINDOW);
-        return new GroupBetJudge.Target(windowChallenge, GOAL_MINUTES, GroupChallengeWindow.builder()
-                .challengeId(CHALLENGE_ID)
-                .challenge(windowChallenge)
-                .windowStart(LocalTime.parse("09:00"))
-                .windowEnd(LocalTime.parse("12:00"))
-                .durationMinutes(GOAL_MINUTES)
-                .build());
+        // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 값 그 자체다 — 판정 대상도 CTI 엔티티가 아니라
+        // 회차 스냅샷과 같은 값(LocalTime)을 든다(GROMO-1280).
+        return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.TIME_WINDOW,
+                GOAL_MINUTES, LocalTime.parse("09:00"), LocalTime.parse("12:00"));
     }
 
     /**
-     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분.
+     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분. 개설은 살아 있는 챌린지에서
+     * ({@code resolve}), 참가는 회차 스냅샷에서({@code ofSession}) 같은 대상을 얻는다(GROMO-1280).
      *
      * @param closesAt 창 마감(창형만). null 이면 DURATION 처럼 마감 검사가 없다
-     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미보고)
+     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미계측)
      */
     private void givenTarget(GroupBetJudge.Target target, Instant closesAt, Integer minutes) {
-        given(groupBetJudge.resolve(any())).willReturn(Optional.of(target));
+        lenient().when(groupBetJudge.resolve(any())).thenReturn(Optional.of(target));
+        lenient().when(groupBetJudge.ofSession(any())).thenReturn(Optional.of(target));
         lenient().when(groupBetJudge.windowClosesAt(eq(target), any()))
                 .thenReturn(Optional.ofNullable(closesAt));
         lenient().when(groupBetJudge.progressMinutes(eq(target), any(), any()))
