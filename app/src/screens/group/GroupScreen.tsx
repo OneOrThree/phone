@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
-import { Skeleton, SkeletonCard, SkeletonGroup } from '@/components/Skeleton';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -37,8 +37,6 @@ import GroupInviteSheet from './components/GroupInviteSheet';
 // 플로팅 탭바가 가리는 하단 여백(리그·홈 화면과 동일 기준)
 const TAB_BAR_SPACE = 74;
 
-// 최초 로딩 자리표시자로 그릴 카드 수 — 첫 화면에 들어오는 만큼만(화면당 동시 스켈레톤 상한 12).
-const SKELETON_CARDS = 3;
 // 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
 // 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
 const HEADER_TEXT_H = 30;
@@ -299,8 +297,8 @@ export default function GroupScreen() {
   if (groups === null && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 카드 3장으로, 도착할 화면과
-            같은 자리·같은 높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
+        {/* 중앙 스피너 대신 캐러셀 실루엣(GROMO-1381) — 헤더 + 300pt 카드 + 다음 카드 peek로,
+            도착할 가로 덱과 같은 방향·높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
             펄스(무한 루프)도 함께 언마운트된다.
             묶음 전체를 SkeletonGroup 하나로 감싸 펄스를 이 한 겹에만 건다 — 블록마다 루프를
             돌리면 "화면당 무한 루프 1개" 상한을 위반한다(codex 리뷰). */}
@@ -308,10 +306,13 @@ export default function GroupScreen() {
           <View style={s.skeletonHeader}>
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
-          <View style={s.skeletonList}>
-            {Array.from({ length: SKELETON_CARDS }, (_, i) => (
-              <SkeletonCard key={i} height={GROUP_CARD_HEIGHT} />
-            ))}
+          <View style={s.skeletonDeck} testID="group.deck.skeleton">
+            <View style={s.skeletonCard}>
+              <Skeleton w="100%" h={GROUP_CARD_HEIGHT} radius={22} />
+            </View>
+            <View style={s.skeletonPeek}>
+              <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
+            </View>
           </View>
         </SkeletonGroup>
         {inviteSheet}
@@ -397,7 +398,14 @@ const s = StyleSheet.create({
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
   },
-  skeletonList: { paddingHorizontal: T.space.xl, gap: T.space.md },
+  skeletonDeck: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingLeft: 24,
+    overflow: 'hidden',
+  },
+  skeletonCard: { width: '88%' },
+  skeletonPeek: { width: 36 },
   body: {
     flex: 1,
     alignItems: 'center',
