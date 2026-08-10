@@ -56,6 +56,8 @@ export function PageIndicator({ pageLabels, activeIndex, onSelectPage }: PageInd
     previousModeRef.current = mode;
     if (!focusWithinRef.current) return;
     const target = mode === 'counter' ? counterRef.current : dotRefs.current[activeIndex];
+    // 키보드 입력 포커스와 스크린리더 접근성 포커스는 별개라 둘 다 이전한다.
+    target?.focus();
     const node = findNodeHandle(target);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
   }, [activeIndex, mode]);

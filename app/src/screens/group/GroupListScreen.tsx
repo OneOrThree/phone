@@ -69,8 +69,12 @@ export default function GroupListScreen({
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const pageCount = groups.length + 1;
+  const groupFingerprint = groups.map((group) => group.groupId).join('|');
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(groups[0]?.groupId ?? null);
+  const activeIndexRef = useRef(0);
+  const previousGroupFingerprintRef = useRef(groupFingerprint);
+  const previousSnapIntervalRef = useRef(snapInterval);
 
   // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
   // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
@@ -96,6 +100,7 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(page, pageCount - 1));
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = groups[next]?.groupId ?? null;
+      activeIndexRef.current = next;
       setActiveIndex(next);
     },
     [groups, pageCount, snapInterval],
@@ -108,6 +113,7 @@ export default function GroupListScreen({
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
       );
       activeIdentityRef.current = groups[next]?.groupId ?? null;
+      activeIndexRef.current = next;
       setActiveIndex(next);
     },
     [groups, pageCount, snapInterval],
@@ -116,14 +122,22 @@ export default function GroupListScreen({
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useEffect(() => {
     if (!enableCardDeck) return;
+    const orderChanged = previousGroupFingerprintRef.current !== groupFingerprint;
+    const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
+    previousGroupFingerprintRef.current = groupFingerprint;
+    previousSnapIntervalRef.current = snapInterval;
+    if (!orderChanged && !intervalChanged) return;
+
     const identity = activeIdentityRef.current;
     const next =
       identity === null ? groups.length : groups.findIndex((g) => g.groupId === identity);
-    const safeIndex = next >= 0 ? next : Math.min(activeIndex, Math.max(0, groups.length - 1));
+    const safeIndex =
+      next >= 0 ? next : Math.min(activeIndexRef.current, Math.max(0, groups.length - 1));
     activeIdentityRef.current = groups[safeIndex]?.groupId ?? null;
+    activeIndexRef.current = safeIndex;
     setActiveIndex(safeIndex);
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
-  }, [activeIndex, enableCardDeck, groups, snapInterval]);
+  }, [enableCardDeck, groupFingerprint, groups, snapInterval]);
 
   return (
     <View style={s.root} testID="group.list">
