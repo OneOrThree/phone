@@ -20,6 +20,7 @@ import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
+import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
@@ -117,6 +118,11 @@ class FocusServiceTest {
 
     @Mock
     private CurrencyLedgerService currencyLedgerService;
+
+    // 그룹 내기 조기 확정 배선(GROMO-1268) — 세션 저장·종료 경로가 커밋 편승 호출만 하는지는
+    // 통합 테스트(GroupBetEarlyWinIntegrationTest)가 본다. 여기서는 부수 호출로만 존재한다.
+    @Mock
+    private GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");

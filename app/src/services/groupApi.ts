@@ -28,8 +28,10 @@ import type {
   JoinNextSessionResponse,
   JoinWeekResponse,
   MissionCategory,
-  MyBetSession,
   MyBetSessionsResponse,
+  MyChallengeResultEntry,
+  MyChallengeResultsResponse,
+  MyOpenBetSession,
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
@@ -315,6 +317,50 @@ export async function leaveBet(groupId: string, betId: string): Promise<void> {
   await api.delete<void>(`/api/v1/groups/${groupId}/bets/${betId}/participation`);
 }
 
+// ── 챌린지 v2 — 참가자 스코프 /me 엔드포인트 (LLD §2.1, 서버 병렬 구현 중) ──────────
+
+// GET /api/v1/me/challenge-results?since=&limit= — 내 정산 완료 회차(그룹 무관, N53).
+// 결과 모달 큐의 유일한 소스다 — 카드 조회(getChallenges)와 분리됐다: 탈퇴자도 자기 결과를
+// 봐야 하고(C8), 안 본 결과 여럿이 최신 1건으로 접히면 안 된다. 최근 30일·최대 10건은 서버 계약.
+// 방어: results 키가 없거나 배열이 아니면 빈 배열 — 큐가 없을 뿐 화면은 무영향.
+export async function getMyChallengeResults(page?: {
+  since?: string;
+  limit?: number;
+}): Promise<MyChallengeResultEntry[]> {
+  const { data } = await api.get<MyChallengeResultsResponse>(
+    '/api/v1/me/challenge-results',
+    // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
+    { params: { since: page?.since, limit: page?.limit } },
+  );
+  return Array.isArray(data?.results) ? data.results : [];
+}
+
+// GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).
+// screentimeSync의 창 사용분 보고 대상 탐색축 — 그룹 목록 순회로는 탈퇴자·종료된 챌린지의
+// 진행 중 회차를 못 찾는다(탈퇴 즉시 목록에서 사라진다).
+export async function getMyOpenBetSessions(): Promise<MyOpenBetSession[]> {
+  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
+    params: { status: 'OPEN' },
+  });
+  return Array.isArray(data?.sessions) ? data.sessions : [];
+}
+
+// 위와 같은 조회의 **계정 박제** 변형(codex 리뷰 P1 — 추가 전용 규약에 따라 기존 함수를 고치지
+// 않고 새로 둔다). 사일런트 푸시 flush처럼 '어느 계정인지 검증한 뒤' 도는 흐름은, 검증과 전송
+// 사이에 계정이 바뀌면 인터셉터가 **전송 시점의 토큰**(교체된 계정)을 붙여 남의 회차를 읽어 온다.
+// 검증한 그 토큰을 직접 실어 그 창을 닫는다 — 401 재발급 재시도도 끈다(재발급 토큰은 전환된
+// 계정 것일 수 있어 재시도가 곧 계정 오귀속이다. focusApi.commitSession과 같은 규칙).
+export async function getMyOpenBetSessionsWithToken(
+  accessToken: string,
+): Promise<MyOpenBetSession[]> {
+  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
+    params: { status: 'OPEN' },
+    headers: { Authorization: `Bearer ${accessToken}` },
+    _noAuthRetry: true,
+  } as Parameters<typeof api.get>[1]);
+  return Array.isArray(data?.sessions) ? data.sessions : [];
+}
+
 // ── 챌린지 v2 — 회차(세션) 참여 4종 + 삭제 프리플라이트 + 내 OPEN 회차 ──────────
 // 계약 정본 docs/prd/challenge/low-level-design.md §2 (서버 병렬 구현 중 — LLD가 정본).
 // 기존 내기 API(createBet·joinBet·leaveBet·cancelBet)는 N36 브리지 동안 그대로 남는다 —
@@ -379,15 +425,10 @@ export async function getChallengeDeletionPreview(
   return data;
 }
 
-// GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 OPEN 회차(그룹 무관, N43 탐색축).
-// 카드 응답에는 예약한 미래 회차의 sessionId가 없어(오늘 회차만 실린다) — 예약분 참여 취소가
-// 이 목록에서 (challengeId, sessionDate)로 대상을 찾는다.
-export async function getMyOpenBetSessions(): Promise<MyBetSession[]> {
-  const { data } = await api.get<MyBetSessionsResponse>('/api/v1/me/bet-sessions', {
-    params: { status: 'OPEN' },
-  });
-  return data.sessions ?? [];
-}
+// (GET /api/v1/me/bet-sessions 는 위 `getMyOpenBetSessions` 하나로 합쳤다 — 두 워크스트림이
+//  같은 엔드포인트를 각자 미러링했고 응답 shape 이 동일했다. 카드 응답에 예약한 미래 회차의
+//  sessionId 가 없어 예약분 취소가 이 목록에서 (challengeId, sessionDate) 로 대상을 찾는다는
+//  용도도 그대로다.)
 
 // GET /api/v1/groups/{groupId}/challenge-history?cursor&size&challengeId — **그룹 축** 회차 내역
 // (GROMO-1277 · N6-1 · LLD §2.1). 챌린지가 삭제돼도 조회된다 — 그래서 경로가 챌린지에

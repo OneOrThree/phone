@@ -271,6 +271,25 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
         long getOverlapSeconds();
     }
 
+    /**
+     * 창 겹침 <b>ACTIVE(진행 중)</b> 세션 존재 검사 (GROMO-1413, N37) — FOCUS×TIME_WINDOW 회차의
+     * CRON/MANUAL 정산 대기 가드 전용. {@link #sumOverlapSecondsInWindow} 는 완료 세션만 계수하므로
+     * ({@code ended_at IS NOT NULL}), 창을 걸쳐 아직 도는 세션은 정산 시점에 창 안 집중분이 0으로
+     * 굳는다 — 정산은 불가역이라 승자가 패자로 확정될 수 있어, 남아 있으면 이번 틱을 스킵한다.
+     *
+     * <p>정산은 창 종료 이후에만 도니, 지금도 도는({@code ended_at IS NULL}) ACTIVE 세션은
+     * {@code started_at < :winEnd} 면 창 꼬리와 반드시 겹친다(시작이 창 종료 뒤면 무관). 대기 상한은
+     * 세션 종료·orphan 자동 마감({@code AUTO_CLOSED} — ACTIVE 가 아니게 된다)이고, 24h 환불이 최후
+     * 방어선이다.
+     */
+    @Query("SELECT COUNT(s) > 0 FROM FocusSession s "
+            + "WHERE s.user.id IN :userIds "
+            + "AND s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.ACTIVE "
+            + "AND s.endedAt IS NULL AND s.startedAt < :winEnd")
+    boolean existsActiveOverlappingWindow(
+            @Param("userIds") Collection<UUID> userIds,
+            @Param("winEnd") Instant winEnd);
+
     // 태그 rename 세션 재연결(GROMO-754) — 옛(소프트삭제) 태그를 참조하던 세션 전부를 새로 채택한 태그로 재지정한다.
     // rename = 옛 UserFocusTag softDelete + 새 이름 재채택(GROMO-673)이라, 재연결 없으면 과거 세션이 소프트삭제 태그를
     // 계속 참조해 by-category 통계에서 '미분류'로 강등된다. 날짜 조건 없이 전체기간을 옮긴다(총량 불변, 귀속만 이동).

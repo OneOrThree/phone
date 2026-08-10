@@ -41,6 +41,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
@@ -116,6 +117,10 @@ class GroupBetServiceTest {
      */
     @Mock
     private GroupBetJudge groupBetJudge;
+
+    /** 순수 조립 컴포넌트 — 실제 인스턴스로 스냅샷 박제 값(창 시각·마감·정산 시각)까지 그대로 검증한다. */
+    @Spy
+    private GroupBetSessionFactory groupBetSessionFactory = new GroupBetSessionFactory();
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 

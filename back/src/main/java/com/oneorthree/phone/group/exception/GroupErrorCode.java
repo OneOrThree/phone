@@ -48,7 +48,8 @@ public enum GroupErrorCode {
     // 반대로 이미 목표를 초과한 유저는 패배가 확정이라 판돈 투입을 막는다.
     BET_ALREADY_FAILED(HttpStatus.CONFLICT, "이미 목표 시간을 넘겨서 참가할 수 없어요"),
     BET_CHALLENGE_INACTIVE(HttpStatus.CONFLICT, "종료된 챌린지에는 내기를 걸 수 없어요"),
-    CHALLENGE_HAS_OPEN_BET(HttpStatus.CONFLICT, "진행 중인 내기가 있어 삭제할 수 없어요"),
+    // 구 CHALLENGE_HAS_OPEN_BET(409, "진행 중인 내기가 있어 삭제 불가")는 GROMO-1272 로 폐기 —
+    // to-be(FR-12)는 삭제가 언제든 가능하고 OPEN 회차를 무효화·전원 환불한다.
     BET_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "내기는 개설자만 취소할 수 있어요"),
     BET_CANCEL_HAS_OTHERS(HttpStatus.CONFLICT, "다른 참가자가 있어 취소할 수 없어요"),
     // BET_CLOSED(참가 마감 — 날짜 경과 포함)와 구분되는 취소 전용 코드: "내기가 OPEN 이 아니다"만

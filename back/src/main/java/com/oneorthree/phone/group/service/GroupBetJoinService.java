@@ -56,9 +56,9 @@ import java.util.UUID;
  * <p><b>참가 마감(FR-33)</b>: 신 경로는 회차에 박제된 {@code joinClosesAt}(창형 = 창 시작, 하루형 =
  * 회차 종료)을 강제한다 — 창 종료까지 열어 두는 레거시 브리지와 다른 점이다.
  *
- * <p><b>활성 요일(임시 시임)</b>: B1(GROMO-1260)의 {@code repeat_days} 가 이 브랜치 base 에 없어
- * {@link #repeatDaysOf} 가 매일(127)로 고정돼 있다 — B1 머지 후 코디네이터가
- * {@code challenge.getRepeatDays()} 로 배선한다(한 줄).
+ * <p><b>활성 요일</b>: B1(GROMO-1260)의 {@code repeat_days} 로 실제 판정한다
+ * ({@link #repeatDaysOf} → {@code challenge.getRepeatDays()}) — 회차는 활성 요일에만 선다(FR-30).
+ * 자동 개설 스캔({@code GroupBetSessionOpeningService})도 같은 {@link RepeatSchedule} 판정을 쓴다.
  */
 @Slf4j
 @Service

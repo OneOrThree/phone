@@ -2,7 +2,6 @@ package com.oneorthree.phone.group.service;
 
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.group.domain.Group;
-import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeMember;
@@ -78,6 +77,9 @@ public class GroupChallengeService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final DailyScreenTimeStatRepository dailyScreenTimeStatRepository;
     private final GroupBetService groupBetService;
+    /** 삭제 연동(GROMO-1272) — OPEN 회차 무효화·전원 환불. */
+    private final GroupBetSettler groupBetSettler;
+    /** 생성 시 내기 배선(GROMO-1410) — 신 참여 경로의 진입점. */
     private final GroupBetJoinService groupBetJoinService;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final WindowFocusAggregator windowFocusAggregator;
@@ -737,18 +739,18 @@ public class GroupChallengeService {
         }
 
         // 이미 삭제된 챌린지는 조회 단계에서 걸러져 NOT_FOUND — 중복 DELETE 가 404 로 떨어진다.
-        // 행을 잠그고 읽는 이유는 아래 OPEN 내기 가드를 내기 개설과 직렬화하기 위해서다 —
-        // 락이 없으면 검사와 softDelete 사이에 다른 그룹원의 개설이 끼어들 수 있다.
+        // 행을 잠그고 읽는 이유는 아래 회차 무효화를 참여·개설(같은 챌린지 행 락)과 직렬화하기
+        // 위해서다 — 락이 없으면 무효화 스캔과 softDelete 사이에 새 참가가 끼어들어 삭제된
+        // 챌린지에 참가비가 걸린 회차가 매달린다(종전 삭제 락 유지 — N42 계열).
         GroupChallenge groupChallenge = groupChallengeRepository
                 .findByIdAndGroupAndDeletedAtIsNullForUpdate(challengeId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        // 챌린지를 지우면 목록 조회(deletedAt IS NULL)에서 빠져 그 내기가 앱에서 보이지 않게 된다 —
-        // 판돈은 에스크로된 채 묶여 있고 정산 배치는 그대로 돌기 때문에 "사라진 내기에 돈이 걸린" 상태가
-        // 된다. 정산이 끝날 때까지는 삭제를 막는다(다음날 배치 이후엔 지울 수 있다).
-        if (groupChallengeBetRepository.existsByChallengeIdAndStatus(challengeId, GroupBetStatus.OPEN)) {
-            throw new GroupException(GroupErrorCode.CHALLENGE_HAS_OPEN_BET);
-        }
+        // to-be(FR-12, GROMO-1272): 삭제는 언제든 가능하다 — 종전 "OPEN 있으면 삭제 차단"
+        // (CHALLENGE_HAS_OPEN_BET)을 대체한다. OPEN 회차(예약된 미래 포함)는 전부
+        // VOIDED(CHALLENGE_DELETED) 로 무효화하고 참가비를 전원 환불한다(0명 회차는 UNUSED —
+        // N52). 정산 완료 회차는 불변이다(FR-13). 같은 트랜잭션이라 삭제와 환불이 원자다.
+        groupBetSettler.voidOpenSessionsForChallengeDelete(challengeId);
 
         groupChallenge.softDelete();
     }
@@ -784,8 +786,11 @@ public class GroupChallengeService {
             return;
         }
 
-        // FR-11: OPEN 회차(현행 스키마에서는 OPEN 내기)가 하나라도 있으면 종료 불가 — 결정적 409.
-        if (groupChallengeBetRepository.existsByChallengeIdAndStatus(challengeId, GroupBetStatus.OPEN)) {
+        // FR-11: OPEN 회차가 하나라도 있으면 종료 불가 — 결정적 409.
+        // 원래는 bets.status 를 봤지만(GROMO-1406 작성 시점의 스키마) 2계층 재편(GROMO-1262)으로
+        // status 축이 회차로 옮겨가며 `existsByChallengeIdAndStatus` 가 폐기됐다. 같은 뜻을 회차
+        // 축에서 묻는 기존 쿼리를 재사용한다 — 새 리포지토리 주입 없이 단건으로 부른다.
+        if (!groupChallengeBetRepository.findChallengeIdsWithOpenBet(List.of(challengeId)).isEmpty()) {
             throw new GroupException(GroupErrorCode.CHALLENGE_END_BLOCKED);
         }
 

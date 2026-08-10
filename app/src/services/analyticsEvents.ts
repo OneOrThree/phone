@@ -544,13 +544,16 @@ export function logGroupBetEnabled(p: { stake: number } & ChallengeMissionParams
   track('group_bet_enabled', p);
 }
 
-// ── 그룹 챌린지 결과(확장 배치 A3) [C] ── (challenge-impl-2026-08/contract.md §2 계측 표)
+// ── 그룹 챌린지 결과(확장 배치 A3 → v2 GROMO-1279) [C] ──
 // 퍼널 "챌린지 생성 → 내기 → **결과 확인** → 재참여"의 결과 확인 칸. API 이벤트가 아니라
 // 모달 노출/닫기라 클라 소유가 자연스럽다.
-// achieved는 **내 결과**다 — null(집계 중)이면 파라미터를 싣지 않는다(sanitize가 undefined 생략).
+// v2: 소스가 /me/challenge-results(N53)로 바뀌며 미션 메타가 응답에 없다 — mission_* 는
+// 옵셔널로 남기고(구 데이터 연속성), 대신 정산 결말(status)을 싣는다(무산·환불 노출 집계).
+// achieved는 **내 결과**다 — null(미판정)이면 파라미터를 싣지 않는다(sanitize가 undefined 생략).
 export function logGroupChallengeResultShown(p: {
-  mission_type: string;
-  mission_category: string;
+  mission_type?: string;
+  mission_category?: string;
+  status?: string;
   achieved?: boolean;
   achiever_count: number;
   member_count: number;
