@@ -25,6 +25,7 @@ interface UserContextValue {
   goalSecondsRef: RefObject<number>;
   screenTimeGoalSeconds: number; // 하루 목표 사용시간(핸드폰)
   setScreenTimeGoalSeconds: (v: number) => void;
+  sessionIdentityRef: RefObject<{ userId: string | null; active: boolean }>;
 }
 
 interface UserProviderProps {
@@ -58,6 +59,15 @@ export function UserProvider({
     initialScreenTimeGoalSeconds ?? 4 * 3600,
   );
   const goalSecondsRef = useRef(3 * 3600);
+  // 화면 자체가 닫힌 경우와 계정 Provider가 교체된 경우를 비동기 작업이 구분하는 토큰이다.
+  const sessionIdentityRef = useRef({ userId, active: true });
+
+  useEffect(
+    () => () => {
+      sessionIdentityRef.current.active = false;
+    },
+    [],
+  );
 
   const setGoalSeconds = useCallback((v: number) => {
     goalSecondsRef.current = v;
@@ -91,6 +101,7 @@ export function UserProvider({
         goalSecondsRef,
         screenTimeGoalSeconds,
         setScreenTimeGoalSeconds,
+        sessionIdentityRef,
       }}
     >
       {children}
