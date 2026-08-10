@@ -36,7 +36,11 @@ export function RankRowShell({ index, onLayout, children }: Props) {
   const m = useMotion();
   const enterIndex = useRef(index).current;
   return (
-    <Animated.View layout={m.css(rankSwap)} style={m.css(enterUp(enterIndex))} onLayout={onLayout}>
+    <Animated.View
+      layout={m.css(rankSwap)}
+      style={m.enter(enterUp(enterIndex))}
+      onLayout={onLayout}
+    >
       {children}
     </Animated.View>
   );

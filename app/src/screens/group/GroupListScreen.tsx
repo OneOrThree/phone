@@ -93,7 +93,7 @@ function GroupListCell({
   const m = useMotion();
   const enterIndex = useRef(index).current;
   return (
-    <Animated.View {...rest} style={[style, m.css(enterUp(enterIndex))]}>
+    <Animated.View {...rest} style={[style, m.enter(enterUp(enterIndex))]}>
       {children}
     </Animated.View>
   );
