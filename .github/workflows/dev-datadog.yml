@@ -139,13 +139,26 @@ jobs:
             exit 1
           fi
 
+          # 대기 구간에 **반드시 로그가 나오도록** 프로브 컨테이너를 띄운다.
+          # 이게 없으면 dev 저트래픽 구간(앱이 idle 이고 /health 는 로그를 안 남긴다)에 아무 컨테이너도
+          # stdout 을 내지 않아, tailer 가 멀쩡해도 증가량 0 → false failure 가 된다.
+          # 프로브가 있으면 "로그가 났는데 안 잡힘"만 실패로 남아 판정이 tailer 상태만 반영한다.
+          # container_collect_all 대상이 되도록 DD_CONTAINER_EXCLUDE 에 없는 이름을 쓴다.
+          docker rm -f dd-collection-probe >/dev/null 2>&1 || true
+          if ! docker run -d --rm --name dd-collection-probe alpine:3.20 \
+                 sh -c 'i=0; while [ $i -lt 14 ]; do echo "GROMO-1489 collection probe $i"; i=$((i+1)); sleep 5; done' >/dev/null 2>&1; then
+            echo "::warning::프로브 컨테이너 기동 실패 — 저트래픽이면 로그 증가량 판정이 false failure 를 낼 수 있음"
+          fi
+
           echo "수집 표본이 쌓이도록 60초 대기..."
           sleep 60
 
           if ! snapshot /tmp/dd-after.json; then
+            docker rm -f dd-collection-probe >/dev/null 2>&1 || true
             echo "::error::대기 후 agent status -j 실패 — Agent 가 죽었을 수 있음"
             exit 1
           fi
+          docker rm -f dd-collection-probe >/dev/null 2>&1 || true
 
           fail=0
 
@@ -154,10 +167,16 @@ jobs:
           #    문자열 "null" 을 돌려주고 `${before:-0}` 는 (unset/빈 문자열이 아니므로) 발동하지 않아
           #    `[ 5 -le null ]` 같은 잘못된 비교가 된다. `-e` 가 없으니 스크립트는 죽지 않고 `[` 의 비정상
           #    종료가 if 문맥에서 그냥 "거짓"이 되어 조용히 통과한다 — 이 스텝이 막으려는 바로 그 패턴이다.
+          # 존재만 보지 않고 **타입까지** 본다. `jq -e '.a.b'` 는 값이 있기만 하면 참이라, Agent 갱신으로
+          # LogsProcessed 가 객체 같은 다른 타입이 되면 가드를 통과한 뒤 `[ 5 -le {...} ]` 가 되어 비교가
+          # 에러로 죽고, if 문맥에서 그냥 "거짓"이 되어 로그 판정을 통째로 건너뛴 채 통과한다.
+          # tonumber 는 현재 값(문자열 "173")은 그대로 통과시키고 숫자로 못 바꾸는 타입만 걸러낸다.
           for f in /tmp/dd-before.json /tmp/dd-after.json; do
-            for path in '.logsStats.metrics.LogsProcessed' '.runnerStats.Checks' '.agent_start_nano'; do
-              if ! jq -e "$path" "$f" >/dev/null 2>&1; then
-                echo "::error::agent status JSON 스키마 변경 — $f 에 $path 없음. 이 스텝의 파싱을 갱신해야 한다"
+            for expr in '.logsStats.metrics.LogsProcessed | tonumber' \
+                        '.agent_start_nano | tonumber' \
+                        '.runnerStats.Checks | type == "object"'; do
+              if ! jq -e "$expr" "$f" >/dev/null 2>&1; then
+                echo "::error::agent status JSON 스키마 변경 — $f 에서 [$expr] 실패. 이 스텝의 파싱을 갱신해야 한다"
                 fail=1
               fi
             done
@@ -201,6 +220,24 @@ jobs:
           echo "container/docker 체크 인스턴스: ${cnt}개"
           if [ "${cnt:-0}" -eq 0 ] 2>/dev/null; then
             echo "::error::container/docker 체크가 하나도 등록되지 않음 — docker.sock 마운트·권한 또는 Autodiscovery 초기화 실패"
+            fail=1
+          fi
+
+          # 등록·무에러만으로는 부족하다 — **이 PR 이 고치려는 원래 장애가 정확히 이 상태였다.**
+          # 실측 당시 dev 의 container 체크는 [OK] 이면서 Metric Samples: Last Run 0, Total 0 이었다
+          # (workloadmeta 가 비어 스크레이프할 컨테이너를 못 찾음). 그래서 샘플이 실제로 늘어나는지 본다.
+          samples() {
+            jq -r '[.runnerStats.Checks.container // {}, .runnerStats.Checks.docker // {}]
+                   | map(to_entries | map(.value.TotalMetricSamples // 0) | add // 0) | add // 0' "$1"
+          }
+          smp_before=$(samples /tmp/dd-before.json)
+          smp_after=$(samples /tmp/dd-after.json)
+          echo "container/docker 메트릭 샘플: ${smp_before} -> ${smp_after}"
+          if [ "$s_before" = "$s_after" ] && [ "${smp_after:-0}" -le "${smp_before:-0}" ] 2>/dev/null; then
+            echo "::error::60초 동안 컨테이너 메트릭 샘플이 늘지 않음 — 체크는 등록됐지만 수집이 비어 있습니다(원래 장애와 같은 상태). workloadmeta/docker API 응답을 확인하세요"
+            fail=1
+          elif [ "${smp_after:-0}" -eq 0 ] 2>/dev/null; then
+            echo "::error::컨테이너 메트릭 샘플 0건"
             fail=1
           fi
           errs=$(jq -r '.runnerStats.Checks | to_entries[]
