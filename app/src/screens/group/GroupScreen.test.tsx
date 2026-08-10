@@ -16,7 +16,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
-import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
+import {
+  clearPendingGroupEntry,
+  peekGroupEntry,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
@@ -304,6 +308,16 @@ describe('group_viewed view episode', () => {
       group_entry: 'return',
       group_count_bucket: '1',
     });
+  });
+
+  test('게스트 화면에서는 invite source를 소비하지 않고 로그인 재마운트용으로 보존한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockIsGuest = true;
+    await renderScreen();
+
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('invite');
   });
 
   test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {

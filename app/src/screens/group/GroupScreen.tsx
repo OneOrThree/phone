@@ -17,7 +17,11 @@ import {
 } from '@/navigation/navigationRef';
 import { logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
-import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
+import {
+  consumeGroupEntry,
+  peekGroupEntry,
+  type GroupEntrySource,
+} from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen from './GroupListScreen';
 import GroupFindSheet from './components/GroupFindSheet';
@@ -130,6 +134,7 @@ export default function GroupScreen() {
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
+        episode.source = consumeGroupEntry(episode.source);
         logGroupViewed({
           group_entry: episode.source,
           group_count_bucket: groupCountBucket(rows.length),
@@ -159,7 +164,7 @@ export default function GroupScreen() {
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        source: consumeGroupEntry(fallback),
+        source: peekGroupEntry(fallback),
         logged: false,
       };
       fetchGroups();

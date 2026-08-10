@@ -380,6 +380,19 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   // 부르는 GroupRoomScreen(MEMBER_ONLY → 결과 모달 소비 후 onLeft)에 도달조차 못 한다 —
   // 다른 소속 그룹이 없으면 정산 통지를 볼 통로가 0이 된다(N53·C8).
   describe('결과성 푸시(result=1)의 멤버십 게이트 우회', () => {
+    test('다른 화면에서 즉시 GroupRoom으로 우회하면 다음 그룹 episode source를 남기지 않는다', async () => {
+      currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
+      await flushAsync();
+
+      expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: undefined,
+      });
+    });
+
     test('탈퇴자(내 그룹 목록에 없음)여도 그룹방을 push 한다 — 목록 조회 자체를 생략', async () => {
       mockGetMyGroups.mockResolvedValue([summary('other-1')]);
       navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);

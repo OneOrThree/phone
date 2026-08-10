@@ -12,6 +12,10 @@ export function queueDirectGroupEntry(source: DirectGroupEntrySource): void {
   if (pendingDirectSource === null) pendingDirectSource = source;
 }
 
+export function peekGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
+  return pendingDirectSource ?? fallback;
+}
+
 export function consumeGroupEntry(fallback: GroupEntrySource): GroupEntrySource {
   const source = pendingDirectSource ?? fallback;
   pendingDirectSource = null;
