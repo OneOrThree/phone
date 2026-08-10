@@ -13,6 +13,7 @@ import { LoginManager, AccessToken, AuthenticationToken } from 'react-native-fbs
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   API_URL,
+  acquireAuthSessionTransition,
   api,
   getFreshAccessToken,
   getUserIdFromToken,
@@ -82,39 +83,65 @@ function toAuthError(e: unknown, fallback: string): Error {
 
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
-  // 서버 인증이 성공해 교체할 세션이 확정된 뒤에만 세대를 올린다. provider 취소·서버 실패까지
-  // 기존 로그아웃/복구를 영구 취소하면 현재 세션이 남았는데도 정리만 중단된다. 이 호출은 첫 await
-  // 앞에 두어, 아래 토큰 저장과 경합하는 이전 세션의 후속 부작용은 계속 차단한다.
-  markAuthSessionReplacement();
-  // 다른 계정으로 갈아타는 로그인이면 새 토큰 저장 전에 계정 전환 훅 실행(같은 userId 재로그인은 통과)
-  const prevToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-  const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
-  const nextUserId = getUserIdFromToken(data.accessToken);
-  if (prevToken && prevUserId && nextUserId && prevUserId !== nextUserId) {
-    await accountSwitchHandler?.(prevToken);
-  }
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-  await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
+  const releaseAuthTransition = await acquireAuthSessionTransition();
+  const sessionKeys = [
+    STORAGE_KEYS.accessToken,
+    STORAGE_KEYS.refreshToken,
+    STORAGE_KEYS.user,
+  ] as const;
+  let previousSession: readonly (readonly [string, string | null])[] = [];
+  let sessionWriteStarted = false;
+  try {
+    previousSession = await AsyncStorage.multiGet([...sessionKeys]);
+    const prevToken =
+      previousSession.find(([key]) => key === STORAGE_KEYS.accessToken)?.[1] ?? null;
+    const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
+    const nextUserId = getUserIdFromToken(data.accessToken);
 
-  // 게스트/소셜 구분 플래그 — 로그인 시점의 진실. 서버가 isGuest를 응답에 주면(GROMO-606)
-  // 프로필 병합에서 그 값이 우선한다(...profile 이 뒤에 spread).
-  let result: LoginResult;
-  if (!data.isNewUser) {
-    // 병합 실패는 무시 — 프로필 필드만 빠질 뿐 로그인 자체는 진행한다(기존 동작 유지).
-    const profile = await getMyProfile().catch(() => ({}));
-    result = { isGuest, ...data, ...profile };
-  } else {
-    result = { isGuest, ...data };
+    // 토큰 둘 중 하나만 남는 부분 저장도 실패로 간주하고 아래 snapshot으로 복구한다.
+    sessionWriteStarted = true;
+    await AsyncStorage.multiSet([
+      [STORAGE_KEYS.accessToken, data.accessToken],
+      [STORAGE_KEYS.refreshToken, data.refreshToken],
+    ]);
+
+    // 게스트/소셜 구분 플래그 — 로그인 시점의 진실. 서버가 isGuest를 응답에 주면(GROMO-606)
+    // 프로필 병합에서 그 값이 우선한다(...profile 이 뒤에 spread).
+    let result: LoginResult;
+    if (!data.isNewUser) {
+      // 병합 실패는 무시 — 프로필 필드만 빠질 뿐 로그인 자체는 진행한다(기존 동작 유지).
+      const profile = await getMyProfile().catch(() => ({}));
+      result = { isGuest, ...data, ...profile };
+    } else {
+      result = { isGuest, ...data };
+    }
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));
+
+    // 이전 계정 API 정리는 prevToken을 명시해서 호출하므로 새 토큰 저장 뒤에도 안전하다. 세션 로컬
+    // snapshot이 모두 저장된 뒤 실행해 저장 실패가 기존 계정 정리만 남기는 상황을 피한다.
+    if (prevToken && prevUserId && nextUserId && prevUserId !== nextUserId) {
+      await accountSwitchHandler?.(prevToken);
+    }
+
+    // 세션 세대는 로컬 세션 전체가 커밋된 뒤에만 올린다. 이 구간은 로그아웃과 mutex로 직렬화되어
+    // 같은 userId 승격 중 multiRemove가 끼어들어 로컬 데이터와 device token을 지울 수 없다.
+    markAuthSessionReplacement();
+    setServerZone(result.timeZone);
+    await claimStoredInviteAttribution();
+    return result;
+  } catch (error) {
+    if (sessionWriteStarted) {
+      // multiSet 자체가 부분 실패했을 수도 있으므로 세 키를 모두 제거한 뒤 이전 snapshot만 복원한다.
+      await AsyncStorage.multiRemove([...sessionKeys]).catch(() => {});
+      const restorable = previousSession.filter(
+        (entry): entry is readonly [string, string] => entry[1] !== null,
+      );
+      if (restorable.length > 0) await AsyncStorage.multiSet([...restorable]).catch(() => {});
+    }
+    throw error;
+  } finally {
+    releaseAuthTransition();
   }
-  // 서버 날짜 버킷 존(GROMO-1252) — 로그인 직후 첫 세션도 서버와 같은 축으로 업로드 키를 만든다.
-  // 신규 유저(프로필 미조회)면 undefined → 모듈 폴백(Asia/Seoul) 유지, 다음 프로필 조회에서 갱신.
-  setServerZone(result.timeZone);
-  await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));
-  // 토큰 저장이 끝난 지금이 **결정론적 결합이 가능한 가장 이른 시점**이다(초대 링크 스펙 §2-3 ③).
-  // 소셜 5종·게스트·게스트→소셜 승격이 전부 이 함수로 합류하므로 배선은 여기 한 곳뿐이다.
-  // 실패는 서비스가 삼킨다 — 어트리뷰션 때문에 로그인이 막히면 안 된다.
-  await claimStoredInviteAttribution();
-  return result;
 }
 
 export async function kakaoLogin(): Promise<LoginResult> {

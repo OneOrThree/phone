@@ -27,6 +27,7 @@ let onLogout: (() => void) | null = null;
 // 같은 세션의 연장이므로 올리지 않는다. userId가 같은 승격에서도 이전 요청의 후속 부작용을
 // 취소할 수 있도록 화면은 요청 시작/완료 시 이 동기 세대를 비교한다.
 let authSessionGeneration = 0;
+let authTransitionTail: Promise<void> = Promise.resolve();
 
 export function getAuthSessionGeneration(): number {
   return authSessionGeneration;
@@ -34,6 +35,22 @@ export function getAuthSessionGeneration(): number {
 
 export function markAuthSessionReplacement(): void {
   authSessionGeneration += 1;
+}
+
+/** 로그인 세션 저장과 로그아웃 삭제가 서로의 중간 단계에 끼어들지 않게 하는 프로세스 mutex. */
+export async function acquireAuthSessionTransition(): Promise<() => void> {
+  const previous = authTransitionTail;
+  let unlock!: () => void;
+  authTransitionTail = new Promise<void>((resolve) => {
+    unlock = resolve;
+  });
+  await previous;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    unlock();
+  };
 }
 
 export function setLogoutHandler(fn: (() => void) | null): void {

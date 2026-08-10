@@ -6,6 +6,7 @@ import axios from 'axios';
 import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
 import { HotUpdater } from '@hot-updater/react-native';
 import {
+  acquireAuthSessionTransition,
   getAuthSessionGeneration,
   getUserIdFromToken,
   setLogoutHandler,
@@ -221,76 +222,83 @@ function App() {
 
   async function handleLogout() {
     const logoutSessionGeneration = getAuthSessionGeneration();
-    // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
-    // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
-    // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
-    // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
+    const releaseAuthTransition = await acquireAuthSessionTransition();
     try {
-      const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-      if (accessToken) await deleteDeviceToken(accessToken);
-    } catch {}
-    // 디바이스 토큰 해제 대기 중 새 인증이 시작됐다면 새 refresh token을 읽어 서버에서
-    // 무효화하면 안 된다. 두 번째 서버 요청 전에 이전 로그아웃의 소유권을 재검증한다.
-    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
-    try {
-      const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
-      // 저장소 읽기도 비동기다. 그 사이 새 인증이 토큰을 교체했다면 방금 읽은 refresh token은
-      // 새 세션 소유일 수 있으므로 서버 logout에 넘기기 직전에 다시 확인한다.
+      // 기다리는 동안 새 로그인 저장이 먼저 끝났다면 이 로그아웃은 이전 세션 작업이다.
       if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
-      if (refreshToken) await logout(refreshToken);
-    } catch {}
-    // 위 네트워크 대기 중 새 로그인/게스트 승격이 시작됐다면 이 로그아웃은 이전 세션의
-    // 작업이다. 새 세션의 토큰·캐시·React 상태를 지우지 않고 여기서 끝낸다.
-    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
-    // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
-    abortTagEdits();
-    // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
-    // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
-    abortFocusRestore();
-    // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
-    // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
-    resetServerZone();
-    // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
-    await AsyncStorage.multiRemove([
-      STORAGE_KEYS.accessToken,
-      STORAGE_KEYS.refreshToken,
-      STORAGE_KEYS.user,
-      STORAGE_KEYS.onboardingComplete,
-      STORAGE_KEYS.focusCategory,
-      // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
-      STORAGE_KEYS.goalPending,
-      STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
-      STORAGE_KEYS.notificationSettings,
-      STORAGE_KEYS.statVisibility,
-      STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
-      STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
-      STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
-      // equipment·ownedItems는 여기서 지우지 않는다 — 지우는 방식은 아직 마운트된 이전
-      // Provider가 지운 키에 도로 써넣는 레이스가 있고, 보유 아이템은 아이템 API 부재로
-      // 로컬이 유일한 구매 기록이다. 각 Context가 계정별 맵으로 분리 보관해 누출을
-      // 막는다(GROMO-936 코덱스 리뷰).
-      // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
-      STORAGE_KEYS.focusGoalCelebratedDate,
-      STORAGE_KEYS.focusGoalCelebratePending,
-      STORAGE_KEYS.screentimeLastRewardedDate,
-      STORAGE_KEYS.screentimeCelebratePending,
-    ]);
-    // multiRemove가 네이티브 큐에서 실행되는 동안 새 인증 시도가 시작될 수 있다. 인증 저장은
-    // 이 삭제 뒤에 큐잉되므로 토큰은 보존되지만, 아래 인메모리 초기화까지 실행하면 방금 로그인한
-    // 사용자를 다시 로그인 화면으로 보내므로 세대를 한 번 더 확인한다.
-    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
-    // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
-    // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
-    await clearInbox();
-    if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
-    // 안드로이드 홈 위젯 스냅샷 초기화 — 위젯이 읽는 네이티브 SharedPreferences는 위
-    // multiRemove로 안 지워져 이전 계정 과목·공부시간이 런처에 남는다(GROMO-1006 코드리뷰 반영).
-    StudyWidgetModule.updateTopSubjects([]).catch(() => {});
-    setOnboardingFocusGoalSeconds(null);
-    setOnboardingScreenTimeGoalSeconds(null);
-    setOnboardingCutoutUri(null);
-    setOnboarded(false);
-    setUser(null);
+      // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
+      // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
+      // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
+      // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
+      try {
+        const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+        if (accessToken) await deleteDeviceToken(accessToken);
+      } catch {}
+      // 디바이스 토큰 해제 대기 중 새 인증이 시작됐다면 새 refresh token을 읽어 서버에서
+      // 무효화하면 안 된다. 두 번째 서버 요청 전에 이전 로그아웃의 소유권을 재검증한다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      try {
+        const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+        // 저장소 읽기도 비동기다. 그 사이 새 인증이 토큰을 교체했다면 방금 읽은 refresh token은
+        // 새 세션 소유일 수 있으므로 서버 logout에 넘기기 직전에 다시 확인한다.
+        if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+        if (refreshToken) await logout(refreshToken);
+      } catch {}
+      // 위 네트워크 대기 중 새 로그인/게스트 승격이 시작됐다면 이 로그아웃은 이전 세션의
+      // 작업이다. 새 세션의 토큰·캐시·React 상태를 지우지 않고 여기서 끝낸다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
+      abortTagEdits();
+      // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
+      // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
+      abortFocusRestore();
+      // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
+      // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
+      resetServerZone();
+      // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.accessToken,
+        STORAGE_KEYS.refreshToken,
+        STORAGE_KEYS.user,
+        STORAGE_KEYS.onboardingComplete,
+        STORAGE_KEYS.focusCategory,
+        // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
+        STORAGE_KEYS.goalPending,
+        STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
+        STORAGE_KEYS.notificationSettings,
+        STORAGE_KEYS.statVisibility,
+        STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
+        STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
+        STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
+        // equipment·ownedItems는 여기서 지우지 않는다 — 지우는 방식은 아직 마운트된 이전
+        // Provider가 지운 키에 도로 써넣는 레이스가 있고, 보유 아이템은 아이템 API 부재로
+        // 로컬이 유일한 구매 기록이다. 각 Context가 계정별 맵으로 분리 보관해 누출을
+        // 막는다(GROMO-936 코덱스 리뷰).
+        // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
+        STORAGE_KEYS.focusGoalCelebratedDate,
+        STORAGE_KEYS.focusGoalCelebratePending,
+        STORAGE_KEYS.screentimeLastRewardedDate,
+        STORAGE_KEYS.screentimeCelebratePending,
+      ]);
+      // multiRemove가 네이티브 큐에서 실행되는 동안 새 인증 시도가 시작될 수 있다. 인증 저장은
+      // 이 삭제 뒤에 큐잉되므로 토큰은 보존되지만, 아래 인메모리 초기화까지 실행하면 방금 로그인한
+      // 사용자를 다시 로그인 화면으로 보내므로 세대를 한 번 더 확인한다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
+      // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
+      await clearInbox();
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 안드로이드 홈 위젯 스냅샷 초기화 — 위젯이 읽는 네이티브 SharedPreferences는 위
+      // multiRemove로 안 지워져 이전 계정 과목·공부시간이 런처에 남는다(GROMO-1006 코드리뷰 반영).
+      StudyWidgetModule.updateTopSubjects([]).catch(() => {});
+      setOnboardingFocusGoalSeconds(null);
+      setOnboardingScreenTimeGoalSeconds(null);
+      setOnboardingCutoutUri(null);
+      setOnboarded(false);
+      setUser(null);
+    } finally {
+      releaseAuthTransition();
+    }
   }
 
   // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.
