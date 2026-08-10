@@ -311,8 +311,8 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
       setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
     } catch {
       if (reqRef.current !== seq) return;
-      // ⚠️ 빈 배열을 넣지 않는다 — 실패는 '기록 없음'이 아니다. 이미 그린 점이 있으면
-      //    그대로 두고(재진입 재조회 실패), 그릴 게 없을 때만 실패 안내로 분기한다.
+      // ⚠️ 빈 배열을 넣지 않는다 — 실패는 '기록 없음'이 아니다. points는 손대지 않고
+      //    실패 플래그만 세운다(아래 렌더에서 실패가 points보다 우선한다).
       setFetchFailed(true);
     }
   }, [period]);
@@ -328,17 +328,21 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   );
 
   // 로딩·실패·무데이터 세 상태를 화면에서 구분한다(CalendarCard의 noData/failed/loading과 같은 파생).
+  // ⚠️ **실패가 points보다 먼저다.** 이전 조회가 성공해 points가 남아 있어도 마찬가지다 —
+  //    첫 조회가 빈 결과([])였던 신규 사용자가 재진입했다가 재조회에 실패하면, points를 먼저
+  //    보는 순서에서는 실패했는데도 "아직 기록이 없어요"가 다시 뜨고 재시도 버튼도 없다.
+  //    이 티켓이 없애려던 바로 그 화면이다(codex 리뷰). CalendarCard도 실패를 우선한다.
+  if (fetchFailed) {
+    return (
+      <View style={s.errorBody} testID="stats.firstStart.error">
+        <Text style={s.errorText}>불러오지 못했어요</Text>
+        <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={load}>
+          <Text style={s.retryText}>다시 시도</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   if (points === null) {
-    if (fetchFailed) {
-      return (
-        <View style={s.errorBody} testID="stats.firstStart.error">
-          <Text style={s.errorText}>불러오지 못했어요</Text>
-          <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={load}>
-            <Text style={s.retryText}>다시 시도</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
     return <CardBodyLoading height={FIRST_START_BODY_H} testID="stats.firstStart.loading" />;
   }
 

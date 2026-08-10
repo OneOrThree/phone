@@ -106,6 +106,20 @@ describe('FirstStartChart 조회 실패', () => {
     expect(style.height).toBe(FIRST_START_BODY_H);
   });
 
+  // ⚠️ 이 경로가 이 티켓의 핵심이다(codex 리뷰). 첫 조회가 **성공했지만 빈 결과**였던 신규
+  //    사용자는 points === [] 로 남는다. 그 뒤 재진입 재조회가 실패할 때 points 를 먼저 보면
+  //    실패했는데도 "아직 기록이 없어요"가 다시 뜨고 재시도 버튼도 없다 — 고치려던 화면 그대로다.
+  test('빈 결과를 받은 뒤 재조회가 실패하면 "기록 없음"이 아니라 실패 안내다', async () => {
+    getAllMock.mockResolvedValueOnce([]).mockRejectedValue(new Error('network down'));
+    const view = await render(<FirstStartChart period="WEEK" />);
+    expect(await screen.findByText('아직 기록이 없어요')).toBeTruthy();
+    // 기간 축이 바뀌면 load 가 다시 돈다 — 화면 재진입 재조회와 같은 경로다
+    await view.rerender(<FirstStartChart period="MONTH" />);
+    expect(await screen.findByText('불러오지 못했어요')).toBeTruthy();
+    expect(screen.queryByText('아직 기록이 없어요')).toBeNull();
+    expect(screen.getByText('다시 시도')).toBeTruthy();
+  });
+
   test('"다시 시도"를 누르면 실제로 재조회한다', async () => {
     getAllMock.mockRejectedValueOnce(new Error('network down')).mockResolvedValue([]);
     await render(<FirstStartChart period="WEEK" />);
