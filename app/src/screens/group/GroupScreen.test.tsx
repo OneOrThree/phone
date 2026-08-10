@@ -13,6 +13,7 @@
 //  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도/게스트 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
@@ -430,6 +431,20 @@ describe('목록 분기(0/1/N)', () => {
 
     expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
     expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
+  });
+
+  test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {
+    mockUserId = 'user-1';
+    await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await renderScreen();
+    expect(await screen.findByText('아이콘-🔥')).toBeOnTheScreen();
+
+    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+    await refocus();
+
+    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {

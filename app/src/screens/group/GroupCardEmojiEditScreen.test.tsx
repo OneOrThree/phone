@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import GroupCardEmojiEditScreen from './GroupCardEmojiEditScreen';
+import GroupCardEmojiEditScreen, { ownsGroupCardIconSaveResult } from './GroupCardEmojiEditScreen';
 import {
   __resetGroupCardEmojiQueueForTest,
   preservePendingGroupCardEmoji,
@@ -20,7 +20,8 @@ jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({ params: { groupId: 'group-1' } }),
 }));
 
-const mockUser = { userId: 'user-1' as string | null };
+const mockSessionIdentity = { current: { userId: 'user-1' as string | null, active: true } };
+const mockUser = { userId: 'user-1' as string | null, sessionIdentityRef: mockSessionIdentity };
 jest.mock('@/store/UserContext', () => ({ useUser: () => mockUser }));
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardIconEditorViewed: jest.fn(),
@@ -36,6 +37,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
   mockUser.userId = 'user-1';
+  mockSessionIdentity.current = { userId: 'user-1', active: true };
 });
 
 test('현재 계정×그룹 아이콘을 선택 상태로 불러오고 같은 값에는 저장을 비활성화한다', async () => {
@@ -101,6 +103,32 @@ test('쓰기 실패는 선택을 유지하고 inline 오류와 재시도 가능�
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🧠');
 });
 
+test('저장 실패 뒤 선택을 되돌리면 오래된 pending을 폐기하고 현재 카드를 기준값으로 복원한다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '🎯');
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.save')));
+
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.🎯')));
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+  expect(await retryPendingGroupCardEmojis('user-1', ['group-1'])).toEqual({});
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('🎯');
+});
+
+test('pending 선택을 카드와 편집기 초기값에 합성하되 저장 기준값은 디스크 값으로 유지한다', async () => {
+  await writeGroupCardEmoji('user-1', 'group-1', '🎯');
+  preservePendingGroupCardEmoji('user-1', 'group-1', '📚');
+  await render(<GroupCardEmojiEditScreen />);
+
+  await waitFor(() =>
+    expect(screen.getByTestId('group.cardEmoji.📚').props.accessibilityState.selected).toBe(true),
+  );
+  expect(screen.getByTestId('group.cardEmoji.save')).not.toBeDisabled();
+  expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
+});
+
 test('userId 미확정은 로컬 bucket을 만들지 않고 저장을 비활성화한다', async () => {
   mockUser.userId = null;
   await render(<GroupCardEmojiEditScreen />);
@@ -141,6 +169,12 @@ test('계정 전환 시 이전 계정 선택을 노출하지 않고 새 계정 b
     ),
   );
   expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
+});
+
+test('계정 Provider가 폐기되거나 다른 계정이면 이전 저장 결과의 소유권을 인정하지 않는다', () => {
+  expect(ownsGroupCardIconSaveResult({ userId: 'user-1', active: true }, 'user-1')).toBe(true);
+  expect(ownsGroupCardIconSaveResult({ userId: 'user-1', active: false }, 'user-1')).toBe(false);
+  expect(ownsGroupCardIconSaveResult({ userId: 'user-2', active: true }, 'user-1')).toBe(false);
 });
 
 test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버리지 않는다', async () => {
@@ -184,8 +218,11 @@ test('저장 중 화면이 먼저 unmount되면 완료 콜백이 스택을 추�
   await waitFor(() => expect(screen.getByTestId('group.cardEmoji.🔥')).toBeDisabled());
 
   view.unmount();
-  release();
-  await act(async () => Promise.resolve());
+  await act(async () => {
+    release();
+    await gate;
+    await Promise.resolve();
+  });
 
   expect(mockGoBack).not.toHaveBeenCalled();
   expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({

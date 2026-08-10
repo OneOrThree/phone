@@ -152,7 +152,36 @@ test('pending 재시도가 실패해도 최신 아이콘을 화면 합성값으�
   jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('still full'));
 
   await expect(retryPendingGroupCardEmojis('u1', ['g1'])).resolves.toEqual({ g1: '🔥' });
-  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🎯');
+  expect(await readGroupCardEmoji('u1', 'g1')).toBe('🔥');
+});
+
+test('무효화된 prune의 원본 복원이 실패해도 최신 reconcile은 원본에서 다시 계산한다', async () => {
+  await writeGroupCardEmoji('u1', 'a', '📚');
+  await writeGroupCardEmoji('u1', 'b', '🔥');
+  let started: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const startedGate = new Promise<void>((resolve) => (started = resolve));
+  const writeGate = new Promise<void>((resolve) => (release = resolve));
+  const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
+  let call = 0;
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+    call++;
+    if (call === 1) {
+      started();
+      await writeGate;
+      return originalSetItem(key, value);
+    }
+    if (call === 2) throw new Error('restore unavailable');
+    return originalSetItem(key, value);
+  });
+
+  const stale = reconcileGroupCardEmojiBucket('u1', ['a']);
+  await startedGate;
+  const latest = reconcileGroupCardEmojiBucket('u1', ['a', 'b']);
+  release();
+
+  await Promise.all([stale, latest]);
+  expect(await readGroupCardEmoji('u1', 'b')).toBe('🔥');
 });
 
 test('성공한 전체 목록에서 사라진 그룹의 pending 값도 폐기한다', async () => {
