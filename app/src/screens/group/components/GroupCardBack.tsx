@@ -44,7 +44,9 @@ export function GroupCardBack({
   const notice =
     snapshot.announcements.status === 'ready' ? snapshot.announcements.data[0] : undefined;
   const challengeCount =
-    snapshot.challenges.status === 'ready' ? snapshot.challenges.data.length : null;
+    snapshot.challenges.status === 'ready'
+      ? snapshot.challenges.data.filter((challenge) => challenge.status === 'ACTIVE').length
+      : null;
 
   return (
     <View style={s.root} testID={`group.card.back.${group.groupId}`}>
@@ -80,6 +82,8 @@ export function GroupCardBack({
       <ScrollView style={s.body} contentContainerStyle={s.bodyContent}>
         {snapshot.focus.status === 'error' ? (
           <SectionError label="집중 현황을 불러오지 못했어요" onRetry={() => onRetry('focus')} />
+        ) : snapshot.focus.status === 'coverage-unknown' ? (
+          <Text style={s.muted}>집중 현황을 확인할 수 없어요</Text>
         ) : focus.status === 'unavailable' || !detail ? (
           <Text style={s.muted}>집중 현황을 확인하는 중…</Text>
         ) : focus.status === 'stale' ? (

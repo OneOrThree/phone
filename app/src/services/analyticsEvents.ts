@@ -479,7 +479,7 @@ export function logGroupCardIconSaveResult(p: {
   track('group_card_icon_save_result', p);
 }
 export function logGroupFindOpened(p: {
-  entry_point: 'end_card' | 'header' | 'empty_state';
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
 }): void {
   track('group_find_opened', p);
 }

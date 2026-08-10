@@ -82,13 +82,10 @@ const DRAG_EDGE = 60;
 const EDGE_PAGE_THROTTLE_MS = 260;
 
 /**
- * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유하는 상수.
- * 내역: paddingVertical 16×2 + borderWidth 1×2 + 이름 한 줄(T.text.subtitle 19pt ≈ 23) = 58.
- * 아래 s.card의 minHeight로도 걸어 둔다 — 스켈레톤과 실제 카드가 **같은 값에 묶여 있어야**
- * 카드 규격이 바뀔 때 자리표시자만 옛 치수로 남는 일이 없다. 소개(description)가 있는 카드는
- * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
+ * 카드 한 장의 최소 높이 — 로딩 스켈레톤(GroupScreen)이 같은 실루엣을 그리도록 공유한다.
+ * 앞면·뒷면의 300pt 최소 높이와 반드시 같은 값이어야 데이터 도착 때 화면이 밀리지 않는다.
  */
-export const GROUP_CARD_HEIGHT = 58;
+export const GROUP_CARD_HEIGHT = 300;
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
@@ -207,6 +204,7 @@ export default function GroupListScreen({
   const pageCount = orderedGroups.length + 1;
   const listRef = useRef<FlatList<GroupSummaryResponse>>(null);
   const activeIdentityRef = useRef<string | null>(null);
+  const programmaticMomentumCountRef = useRef(0);
   const activeInitializedRef = useRef(false);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
@@ -321,6 +319,7 @@ export default function GroupListScreen({
           group_count_bucket: countBucket,
         });
       }
+      if (next !== activeIndex) programmaticMomentumCountRef.current += 1;
       listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
       activeIdentityRef.current = orderedGroups[next]?.groupId ?? null;
       setActiveIndex(next);
@@ -336,7 +335,9 @@ export default function GroupListScreen({
         Math.min(Math.round(event.nativeEvent.contentOffset.x / snapInterval), pageCount - 1),
       );
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
-      if (activeIdentityRef.current !== nextIdentity) {
+      const programmatic = dragRef.current !== null || programmaticMomentumCountRef.current > 0;
+      if (programmaticMomentumCountRef.current > 0) programmaticMomentumCountRef.current -= 1;
+      if (!programmatic && activeIdentityRef.current !== nextIdentity) {
         logGroupCarouselPaged({
           trigger: 'swipe',
           from_index: activeIndex,
@@ -443,6 +444,7 @@ export default function GroupListScreen({
           if (direction !== 0 && now - lastEdgePageAtRef.current >= EDGE_PAGE_THROTTLE_MS) {
             drag.target = Math.max(0, Math.min(drag.target + direction, max));
             lastEdgePageAtRef.current = now;
+            programmaticMomentumCountRef.current += 1;
             listRef.current?.scrollToOffset({
               offset: drag.target * snapInterval,
               animated: true,
@@ -482,6 +484,15 @@ export default function GroupListScreen({
   useEffect(() => {
     respondersRef.current.clear();
   }, [orderedGroupIds, reorderMenuGroupId, snapInterval, windowWidth]);
+
+  useEffect(() => {
+    if (
+      reorderMenuGroupId !== null &&
+      (!screenFocused || !orderedGroups.some((group) => group.groupId === reorderMenuGroupId))
+    ) {
+      setReorderMenuGroupId(null);
+    }
+  }, [orderedGroups, reorderMenuGroupId, screenFocused]);
 
   const flipToBack = useCallback(
     (groupId: string) => {
@@ -564,6 +575,11 @@ export default function GroupListScreen({
         decelerationRate="fast"
         disableIntervalMomentum
         scrollEnabled={draggingGroupId === null && reorderMenuGroupId === null}
+        onScrollBeginDrag={() => {
+          // 취소되거나 네이티브가 momentum-end를 생략한 programmatic 이동이 다음 사용자 swipe를
+          // 삼키지 않도록 실제 손가락 스크롤 시작에서 억제 토큰을 폐기한다.
+          programmaticMomentumCountRef.current = 0;
+        }}
         onMomentumScrollEnd={onMomentumScrollEnd}
         ListFooterComponent={
           <View style={{ marginLeft: CARD_GAP }}>
@@ -676,7 +692,10 @@ export default function GroupListScreen({
         <TouchableOpacity
           style={s.outlineBtn}
           activeOpacity={0.85}
-          onPress={onFind}
+          onPress={() => {
+            logGroupFindOpened({ entry_point: 'list' });
+            onFind();
+          }}
           testID="group.list.find"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>

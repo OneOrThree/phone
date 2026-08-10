@@ -17,7 +17,7 @@ import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import { clearPendingGroupEntry, queueDirectGroupEntry } from '@/navigation/groupEntrySource';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -52,7 +52,10 @@ jest.mock('@/store/UserContext', () => ({
   useUser: () => ({ isGuest: mockIsGuest }),
 }));
 
-jest.mock('@/services/analyticsEvents', () => ({ logGroupViewed: jest.fn() }));
+jest.mock('@/services/analyticsEvents', () => ({
+  logGroupFindOpened: jest.fn(),
+  logGroupViewed: jest.fn(),
+}));
 
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -178,6 +181,7 @@ const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockPeek = peekPendingInvite as jest.MockedFunction<typeof peekPendingInvite>;
 const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingInvite>;
 const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroupViewed>;
+const mockLogGroupFindOpened = logGroupFindOpened as jest.MockedFunction<typeof logGroupFindOpened>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
@@ -391,6 +395,9 @@ describe('목록 분기(0/1/N)', () => {
 
     expect(screen.getByText('함께 집중할 그룹을 만들어보세요')).toBeOnTheScreen();
     expect(screen.queryByText('목록 0건')).toBeNull();
+
+    await press('그룹 찾기');
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'empty' });
   });
 
   test('1건 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {

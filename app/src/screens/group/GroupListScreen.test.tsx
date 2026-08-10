@@ -8,13 +8,17 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View } from 'react-native';
-import GroupListScreen from './GroupListScreen';
+import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { getChallenges } from '@/services/groupApi';
+import { getMyRanking } from '@/services/leagueApi';
 import {
   logGroupCardActionClicked,
   logGroupCardFlipped,
+  logGroupCarouselPaged,
   logGroupFindOpened,
 } from '@/services/analyticsEvents';
+import { groupFocusStatusStore } from './groupFocusStatus';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -91,6 +95,9 @@ async function press(testID: string) {
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
+  groupFocusStatusStore.clearUser('user-1');
+  jest.mocked(getChallenges).mockResolvedValue([]);
+  jest.mocked(getMyRanking).mockResolvedValue([]);
   onRefresh.mockResolvedValue(undefined);
 });
 
@@ -119,6 +126,7 @@ describe('카드 렌더', () => {
     expect(screen.getByTestId('group.list.items').props.horizontal).toBe(true);
     expect(screen.getByTestId('group.list.items').props.disableIntervalMomentum).toBe(true);
     expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 12');
+    expect(GROUP_CARD_HEIGHT).toBe(300);
   });
 
   test('자물쇠는 비공개 그룹에만, 방장 표시는 내가 OWNER인 그룹에만 붙는다', async () => {
@@ -199,6 +207,26 @@ describe('콜백', () => {
     expect(onOpenSettings).toHaveBeenCalledWith(GROUP_ID);
   });
 
+  test('뒷면은 ACTIVE 챌린지만 집계하고 coverage unknown을 로딩과 구분한다', async () => {
+    jest.mocked(getChallenges).mockResolvedValue([
+      { id: 'active', status: 'ACTIVE' },
+      { id: 'inactive', status: 'INACTIVE' },
+    ] as never);
+    jest.mocked(getMyRanking).mockResolvedValue(
+      Array.from({ length: 100 }, (_, index) => ({
+        userId: `user-${index}`,
+        isFocusing: false,
+      })) as never,
+    );
+    await renderList([group()]);
+
+    await press(`group.card.${GROUP_ID}`);
+
+    expect(await screen.findByText('진행 중 1개')).toBeOnTheScreen();
+    expect(await screen.findByText('집중 현황을 확인할 수 없어요')).toBeOnTheScreen();
+    expect(screen.queryByText('집중 현황을 확인하는 중…')).toBeNull();
+  });
+
   test('각 CTA 수락은 고유 interaction ID와 정본 trigger를 기록한다', async () => {
     await renderList([group()]);
     await press(`group.card.${GROUP_ID}`);
@@ -239,6 +267,7 @@ describe('콜백', () => {
 
     await press('group.list.find');
     expect(onFind).toHaveBeenCalledTimes(1);
+    expect(logGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'list' });
   });
 
   // 그룹 1건에서 ⋯ 메뉴로 '잠깐 열어 본' 목록은 되돌아갈 길이 카드 탭뿐이었다 —
@@ -411,6 +440,65 @@ describe('제스처 중재와 재정렬', () => {
         .props.data.map((item: GroupSummaryResponse) => item.groupId),
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
+  });
+
+  test('grip 가장자리의 자동 이동은 사용자 swipe 이벤트로 기록하지 않는다', async () => {
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const list = screen.getByTestId('group.list.items');
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, { dx: 400, dy: 0, moveX: 999 });
+      list.props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: list.props.snapToInterval, y: 0 } },
+      });
+    });
+
+    expect(logGroupCarouselPaged).not.toHaveBeenCalled();
+  });
+
+  test('열린 순서 메뉴의 그룹이 사라지거나 화면이 blur되면 잠금을 해제한다', async () => {
+    const first = group();
+    const second = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
+    const { rerender } = await renderList([first, second]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = {
+      nativeEvent: {},
+      touchHistory: {
+        touchBank: [],
+        numberActiveTouches: 0,
+        indexOfSingleActiveTouch: -1,
+        mostRecentTimeStamp: 0,
+      },
+    };
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
+    });
+
+    await rerender(
+      <GroupListScreen
+        groups={[second]}
+        userId="user-1"
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+    expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
   });
 
   test('탭 임계값 전 edge 좌표는 페이지 이동 목표를 만들지 않는다', async () => {

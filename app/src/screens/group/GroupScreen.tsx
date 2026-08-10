@@ -16,7 +16,7 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import { consumeGroupEntry, type GroupEntrySource } from '@/navigation/groupEntrySource';
@@ -489,7 +489,10 @@ export default function GroupScreen() {
         <TouchableOpacity
           style={s.outlineBtn}
           activeOpacity={0.85}
-          onPress={() => setFindOpen(true)}
+          onPress={() => {
+            logGroupFindOpened({ entry_point: 'empty' });
+            setFindOpen(true);
+          }}
           testID="group.find.entry"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>
