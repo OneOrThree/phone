@@ -299,6 +299,15 @@ export default function GroupListScreen({
     });
   }, []);
 
+  const cancelPendingFrontFocus = useCallback(() => {
+    if (frontFocusFrameRef.current !== null) {
+      cancelAnimationFrame(frontFocusFrameRef.current);
+      frontFocusFrameRef.current = null;
+    }
+    frontFocusGroupIdRef.current = null;
+    setFrontFocusGroupId(null);
+  }, []);
+
   useEffect(
     () => () => {
       if (frontFocusFrameRef.current !== null) cancelAnimationFrame(frontFocusFrameRef.current);
@@ -554,6 +563,7 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(page, pageCount - 1));
       if (next === activeIndex) return;
       roomReturnRef.current = null;
+      cancelPendingFrontFocus();
       logGroupCarouselPaged({
         trigger: 'indicator_press',
         from_index: activeIndex,
@@ -569,6 +579,7 @@ export default function GroupListScreen({
     },
     [
       activeIndex,
+      cancelPendingFrontFocus,
       countBucket,
       draggingGroupId,
       orderedGroups,
@@ -694,6 +705,7 @@ export default function GroupListScreen({
       const committed = commitOrder(next);
       if (committed) {
         roomReturnRef.current = null;
+        cancelPendingFrontFocus();
         logGroupCardReordered({
           trigger,
           from_index: from,
@@ -714,7 +726,7 @@ export default function GroupListScreen({
       }
       return committed;
     },
-    [commitOrder, countBucket, snapInterval],
+    [cancelPendingFrontFocus, commitOrder, countBucket, snapInterval],
   );
 
   const handlersFor = useCallback(
@@ -731,6 +743,7 @@ export default function GroupListScreen({
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
           roomReturnRef.current = null;
+          cancelPendingFrontFocus();
           dragRef.current = { groupId, from, target: from };
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
@@ -790,7 +803,14 @@ export default function GroupListScreen({
       respondersRef.current.set(responderKey, responder);
       return responder.panHandlers;
     },
-    [commitMove, orderedGroupIds, reorderMenuGroupId, snapInterval, windowWidth],
+    [
+      cancelPendingFrontFocus,
+      commitMove,
+      orderedGroupIds,
+      reorderMenuGroupId,
+      snapInterval,
+      windowWidth,
+    ],
   );
 
   useEffect(() => {
@@ -828,6 +848,7 @@ export default function GroupListScreen({
     (groupId: string) => {
       if (!userId || draggingGroupId !== null || reorderMenuGroupId !== null) return;
       roomReturnRef.current = null;
+      cancelPendingFrontFocus();
       guideBackGroupIdRef.current = null;
       setFlippedGroupId(groupId);
       summaryAdapter.ensureBack(groupId);
@@ -838,13 +859,22 @@ export default function GroupListScreen({
         group_count_bucket: countBucket,
       });
     },
-    [countBucket, draggingGroupId, focusController, reorderMenuGroupId, summaryAdapter, userId],
+    [
+      cancelPendingFrontFocus,
+      countBucket,
+      draggingGroupId,
+      focusController,
+      reorderMenuGroupId,
+      summaryAdapter,
+      userId,
+    ],
   );
 
   const flipToFront = useCallback(
     (groupId: string) => {
       if (flippedGroupId === null) return;
       roomReturnRef.current = null;
+      cancelPendingFrontFocus();
       guideBackGroupIdRef.current = null;
       setFrontFocusGroupId(groupId);
       setFlippedGroupId(null);
@@ -854,7 +884,7 @@ export default function GroupListScreen({
         group_count_bucket: countBucket,
       });
     },
-    [countBucket, flippedGroupId],
+    [cancelPendingFrontFocus, countBucket, flippedGroupId],
   );
 
   useEffect(() => {
@@ -952,6 +982,7 @@ export default function GroupListScreen({
             // 삼키지 않도록 실제 손가락 스크롤 시작에서 억제 토큰을 폐기한다.
             programmaticMomentumCountRef.current = 0;
             roomReturnRef.current = null;
+            cancelPendingFrontFocus();
             setFlippedGroupId(null);
             guideBackGroupIdRef.current = null;
           }}
@@ -973,6 +1004,7 @@ export default function GroupListScreen({
                 pageCount={pageCount}
                 onPress={() => {
                   roomReturnRef.current = null;
+                  cancelPendingFrontFocus();
                   logGroupFindOpened({ entry_point: 'end_card' });
                   onFind();
                 }}
@@ -1013,6 +1045,7 @@ export default function GroupListScreen({
                         if (!onOpenSettings) return;
                         invokeAcceptedAction(item, 'settings', () => {
                           roomReturnRef.current = null;
+                          cancelPendingFrontFocus();
                           roomReturnFocusGroupIdRef.current = null;
                           roomReturnWasBlurredRef.current = false;
                           setRoomReturnReadyGroupId(null);
@@ -1023,6 +1056,7 @@ export default function GroupListScreen({
                         if (!onStartFocus) return;
                         invokeAcceptedAction(item, 'focus', (interaction) => {
                           roomReturnRef.current = null;
+                          cancelPendingFrontFocus();
                           roomReturnFocusGroupIdRef.current = null;
                           roomReturnWasBlurredRef.current = false;
                           setRoomReturnReadyGroupId(null);
@@ -1031,6 +1065,7 @@ export default function GroupListScreen({
                       }}
                       onOpenRoom={() => {
                         invokeAcceptedAction(item, 'room', (interaction) => {
+                          cancelPendingFrontFocus();
                           roomReturnRef.current = {
                             groupId: item.groupId,
                             sourceIndex: index,
@@ -1052,6 +1087,9 @@ export default function GroupListScreen({
                       }}
                       focusRoomOnMount={
                         roomReturnReadyGroupId === item.groupId &&
+                        screenFocused &&
+                        appActive &&
+                        !guideBlocked &&
                         roomReturnWasBlurredRef.current &&
                         roomReturnFocusGroupIdRef.current === item.groupId
                       }
@@ -1199,6 +1237,7 @@ export default function GroupListScreen({
           activeOpacity={0.85}
           onPress={() => {
             roomReturnRef.current = null;
+            cancelPendingFrontFocus();
             onCreate();
           }}
           testID="group.list.create"
@@ -1210,6 +1249,7 @@ export default function GroupListScreen({
           activeOpacity={0.85}
           onPress={() => {
             roomReturnRef.current = null;
+            cancelPendingFrontFocus();
             logGroupFindOpened({ entry_point: 'list' });
             onFind();
           }}

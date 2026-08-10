@@ -67,9 +67,10 @@ export function GroupCardBack({
   useEffect(() => {
     // 방 복귀는 네트워크 후속 렌더에서 prop이 false로 바뀌어도 기본 mount 포커스로 되돌리지 않는다.
     if (roomRestoreHandledRef.current) return;
-    if (focusRoomOnMount) roomRestoreHandledRef.current = true;
-    else if (suppressInitialFocus || focusHandledRef.current) return;
-    else focusHandledRef.current = true;
+    if (!focusRoomOnMount) {
+      if (suppressInitialFocus || focusHandledRef.current) return;
+      focusHandledRef.current = true;
+    }
     const frame = requestAnimationFrame(() => {
       const node = ReactNative.findNodeHandle(
         focusRoomOnMount
@@ -78,9 +79,14 @@ export function GroupCardBack({
             ? primaryActionRef.current
             : frontActionRef.current,
       );
-      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-      if (focusRoomOnMount) onRoomFocusRestoredRef.current?.();
-      else if (focusPrimaryOnMount) onPrimaryFocusRestoredRef.current?.();
+      // 차단 overlay/background 전환으로 frame이 취소되거나 ref가 아직 없으면 복귀 요청을
+      // 소비하지 않는다. 실제 포커스를 보낸 시점에만 handled/완료 callback을 확정한다.
+      if (node === null) return;
+      AccessibilityInfo.setAccessibilityFocus(node);
+      if (focusRoomOnMount) {
+        roomRestoreHandledRef.current = true;
+        onRoomFocusRestoredRef.current?.();
+      } else if (focusPrimaryOnMount) onPrimaryFocusRestoredRef.current?.();
       else AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
     });
     return () => cancelAnimationFrame(frame);

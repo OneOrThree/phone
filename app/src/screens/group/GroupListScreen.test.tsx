@@ -667,6 +667,101 @@ describe('콜백', () => {
     expect(setFocus).toHaveBeenCalledWith(1);
   });
 
+  test('fallback 포커스 대기 중 다른 페이지를 선택하면 과거 요청을 폐기한다', async () => {
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const first = group();
+    const second = group({ groupId: GROUP_ID_2, name: '저녁 스터디' });
+    const props = {
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(
+      <GroupListScreen
+        {...props}
+        groups={[first, second]}
+        screenFocused
+        successfulListVersion={1}
+      />,
+    );
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await view.rerender(
+      <GroupListScreen
+        {...props}
+        groups={[first, second]}
+        screenFocused={false}
+        successfulListVersion={1}
+      />,
+    );
+
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(null);
+    await view.rerender(
+      <GroupListScreen {...props} groups={[second]} screenFocused successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const indicator = screen.getByTestId('group.deck.indicator');
+    await act(async () => {
+      fireEvent(indicator, 'layout', {
+        nativeEvent: { layout: { width: 320, height: 44, x: 0, y: 0 } },
+      });
+    });
+    await press('group.deck.indicator.dot.1');
+
+    setFocus.mockClear();
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
+    await view.rerender(
+      <GroupListScreen {...props} groups={[second]} screenFocused successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).not.toHaveBeenCalled();
+  });
+
+  test('같은 뒷면 복귀 포커스도 blocker가 풀리고 실제 node를 찾을 때까지 유지한다', async () => {
+    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const props = {
+      groups: [group()],
+      userId: 'user-1',
+      onSelect,
+      onStartFocus,
+      onOpenSettings,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(
+      <GroupListScreen {...props} screenFocused successfulListVersion={1} />,
+    );
+    await press(`group.card.${GROUP_ID}`);
+    await press(`group.card.room.${GROUP_ID}`);
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused={false} successfulListVersion={1} />,
+    );
+
+    setFocus.mockClear();
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(null);
+    await view.rerender(<GroupListScreen {...props} screenFocused successfulListVersion={2} />);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).not.toHaveBeenCalled();
+
+    jest.mocked(ReactNative.findNodeHandle).mockReturnValue(1);
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused guideBlocked successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).not.toHaveBeenCalled();
+
+    await view.rerender(
+      <GroupListScreen {...props} screenFocused guideBlocked={false} successfulListVersion={2} />,
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(setFocus).toHaveBeenCalledWith(1);
+  });
+
   test.each([
     ['집중', `group.card.focus.${GROUP_ID}`, onStartFocus],
     ['설정', `group.card.settings.${GROUP_ID}`, onOpenSettings],
