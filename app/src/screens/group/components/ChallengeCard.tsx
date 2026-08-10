@@ -652,8 +652,14 @@ export default function ChallengeCard({
           Alert.alert('이미 취소된 참여예요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
           onBetChanged?.();
           break;
+        // 카드를 그린 뒤 회차가 닫혔다(정산·마감) — 위 두 코드와 같은 **종결 상태**다.
+        // 재조회 없이 두면 이미 정산된 회차에 「참여 취소」 버튼이 계속 떠서 같은 실패를
+        // 반복해 누르게 된다. 레거시 경로(doLeaveBet·doCancelBet)는 조건이 깨진 응답이 오면
+        // 버튼이 스스로 사라지는 구조라 자연 재조회에 맡기지만, v2 예약/당일 취소는 버튼 노출이
+        // 서버 스냅샷(nextSessionJoined·myLeaveDeadlineAt)에 묶여 있어 재조회가 유일한 해소다.
         case BET_NOT_OPEN:
           Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 날이에요.');
+          onBetChanged?.();
           break;
         default:
           Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
@@ -696,8 +702,14 @@ export default function ChallengeCard({
           Alert.alert('이미 취소된 참여예요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
           onBetChanged?.();
           break;
+        // 카드를 그린 뒤 회차가 닫혔다(정산·마감) — 위 두 코드와 같은 **종결 상태**다.
+        // 재조회 없이 두면 이미 정산된 회차에 「참여 취소」 버튼이 계속 떠서 같은 실패를
+        // 반복해 누르게 된다. 레거시 경로(doLeaveBet·doCancelBet)는 조건이 깨진 응답이 오면
+        // 버튼이 스스로 사라지는 구조라 자연 재조회에 맡기지만, v2 예약/당일 취소는 버튼 노출이
+        // 서버 스냅샷(nextSessionJoined·myLeaveDeadlineAt)에 묶여 있어 재조회가 유일한 해소다.
         case BET_NOT_OPEN:
           Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 날이에요.');
+          onBetChanged?.();
           break;
         default:
           Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');

@@ -2113,6 +2113,39 @@ describe('오늘 참여 취소 (N22)', () => {
     expect(onBetChanged).toHaveBeenCalled();
   });
 
+  // #570 리뷰 — BET_NOT_OPEN도 종결 상태다. 재조회를 안 태우면 이미 정산된 회차에
+  // 「참여 취소」 버튼이 계속 떠서 같은 실패를 반복해 누르게 된다.
+  test('BET_NOT_OPEN도 종결 상태로 알리고 재조회를 태운다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveSession.mockRejectedValueOnce(axiosErrorWith(409, 'BET_NOT_OPEN'));
+    const onBetChanged = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge(joinedOver())}
+        isOwner={false}
+        myUserId="u1"
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onBetChanged={onBetChanged}
+      />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leaveToday.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+      | AlertButton[]
+      | undefined;
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 취소를 못 했어요',
+      '이미 정산됐거나 닫힌 날이에요.',
+    );
+    expect(onBetChanged).toHaveBeenCalled();
+  });
+
   test('유예가 남아 있으면 「참여 취소」와 남은 시간이 뜬다', async () => {
     await renderCard(joinedOver());
 
