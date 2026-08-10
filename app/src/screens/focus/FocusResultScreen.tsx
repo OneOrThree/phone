@@ -283,10 +283,7 @@ export default function FocusResultScreen() {
   const celebrationPendingRef = useRef(false);
   // 진행 중인 '연출 대기' 예약 — 재생 도중 '동작 줄이기'가 켜지면 기다릴 연출이 사라지므로
   // 남은 대기를 버리고 즉시 다음 단계로 넘긴다(아래 effect).
-  const pendingCelebrateRef = useRef<{
-    timer: ReturnType<typeof setTimeout>;
-    run: () => void;
-  } | null>(null);
+  const pendingCelebrateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 별점 요청(GROMO-980) — 집중 세션 '정상 완료'(긍정적 순간)에 조건 충족 시 1회 노출.
   // 중도 이탈(정지·이탈 타임아웃) 세션은 요청하지 않는다 — 부정적 순간에 영구 마커('단 한 번의
@@ -417,11 +414,10 @@ export default function FocusResultScreen() {
       // ⚠️ m.delay를 통과시킨다 — '동작 줄이기'면 팝 자체가 재생되지 않는데 대기만 남으면
       //    정적 ✓를 보며 아무 일도 없는 1.2초를 기다리게 된다(codex 리뷰).
       //    타이머 자체는 남으므로 주 1회 도장 기록·모달 노출 순서는 그대로다.
+      // ⚠️ 예약해 뒀다는 사실 자체가 별점 요청의 스킵 조건이다(위 maybeRequestReview 가드).
+      //    "곧 뜬다"를 아는 유일한 표식이라 반드시 남긴다.
       const timer = setTimeout(openWeekModal, delayRef.current(firstPopToday ? 1200 : 400));
-      // ⚠️ 대기 시간은 예약할 때 **한 번** 계산된다. 재생 도중 사용자가 '동작 줄이기'를 켜면
-      //    팝은 즉시 사라지는데 이 타이머는 반응하지 않아, 아무 연출도 없는 정지 시간이 최대
-      //    1.2초 남는다(codex 리뷰). 아래 effect가 그때 이 예약을 앞당긴다.
-      pendingCelebrateRef.current = { timer, run: openWeekModal };
+      pendingCelebrateRef.current = timer;
       timers.push(timer);
     })().finally(() => {
       // 예약이 잡혔으면 pendingCelebrateRef가 이어받고, 아니면 축하가 없다는 뜻이다.
@@ -440,17 +436,12 @@ export default function FocusResultScreen() {
   }, [cellsLoaded, todayStreakDone, weekStreakComplete, mondayKey, today, userId]);
   const weekTotal = (week?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
 
-  // ⚠️ 재생 도중 '동작 줄이기'가 켜지면 **남은 대기를 버리고 즉시 진행**한다. 대기 시간은
-  //    예약할 때 한 번 계산되므로, 그대로 두면 팝은 사라졌는데 아무 일도 없는 정지 시간이
-  //    최대 1.2초 남는다(codex 리뷰). 판정 effect는 재시작하지 않는다 — 그건 진행 중인
-  //    판정을 죽여 마커 미기록·모달 누락을 부른다(D-29).
-  useEffect(() => {
-    if (!m.reduce) return;
-    const pending = pendingCelebrateRef.current;
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    pending.run();
-  }, [m.reduce]);
+  // ⚠️ **재생 도중 설정을 켜도 이 예약은 앞당기지 않는다.** 앞선 라운드에 "팝이 즉시 사라지니
+  //    남은 대기도 버린다"로 고쳤었는데, 그 뒤 팝이 `Enter`로 바뀌면서 전제가 사라졌다 —
+  //    `Enter`는 진입 결정을 얼려서 **이미 시작된 팝을 걷어내지 않는다**(그게 '붙었다 떨어지는'
+  //    사고를 막는 방식이다). 앞당기면 아직 도는 팝 위로 축하 모달이 겹친다(codex 리뷰).
+  //    같은 라운드의 과목·타이머 선택 쪽 앞당김은 그대로 둔다 — 그쪽 연출(glassSlide)은 CSS
+  //    전환이라 `m.css`를 통해 설정을 켜는 즉시 실제로 사라진다.
   // 이번 달 합계 — 주간과 동일하게 방금 세션 보정분(adjustedToday - serverToday)을 더한다(월도 오늘 포함)
   const monthTotal = (month?.totalFocusMinutes ?? 0) + (adjustedToday - serverToday);
   const dayMinutes = (d: string) =>
