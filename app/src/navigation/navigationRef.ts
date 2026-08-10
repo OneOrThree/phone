@@ -7,6 +7,7 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
+import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -89,6 +90,11 @@ export function navigateToDeepLink(link: string): void {
   // 첫 세그먼트가 빈 문자열이 되어 'join'에 닿지 못한다.
   const invite = parseInviteLink(link);
   if (invite) {
+    // 이미 그룹 화면이 focus된 warm invite는 현재 episode와 다음 source를 바꾸지 않는다.
+    // 다른 화면에서 실제 새 focus를 만드는 direct entry만 GroupScreen이 1회 소비한다.
+    if (navigationRef.getCurrentRoute?.()?.name !== '그룹') {
+      queueDirectGroupEntry('invite');
+    }
     navigationRef.navigate('Main', { screen: '그룹' } as never);
     // 6a invite_link_opened(스펙 §4-3) — '링크로 앱이 열렸다'는 사실 자체가 퍼널 단계다.
     // via는 링크 형식으로 가른다: https 프리픽스면 Universal Link, 아니면 랜딩의 스킴 점프.
@@ -122,6 +128,9 @@ export function navigateToDeepLink(link: string): void {
       // refund=1(환불 푸시)은 잔액 재조회를 요청한다 — 삭제 환불은 결과 모달에서 빠지고 챌린지
       // 목록에도 안 남아, 이 표식이 없으면 화면 어느 경로도 잔액을 다시 받지 않는다(codex 리뷰 P2).
       // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
+      if (navigationRef.getCurrentRoute?.()?.name !== '그룹') {
+        queueDirectGroupEntry('push');
+      }
       if (readRefundFlag(link)) requestCoinRefresh();
       navigateToGroup(seq, readGroupParam(link), readChallengeParam(link), readResultFlag(link));
       break;

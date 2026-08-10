@@ -12,8 +12,10 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
+import { queueDirectGroupEntry } from '@/navigation/groupEntrySource';
 
 jest.mock('@/services/analyticsEvents', () => ({ logInviteLinkOpened: jest.fn() }));
+jest.mock('@/navigation/groupEntrySource', () => ({ queueDirectGroupEntry: jest.fn() }));
 
 // 환불 푸시(refund=1)가 태우는 잔액 재조회 신호 — 실제 조회는 CoinProvider가 한다.
 jest.mock('@/store/coinRefreshSignal', () => ({ requestCoinRefresh: jest.fn() }));
@@ -23,6 +25,9 @@ const mockRequestCoinRefresh = jest.requireMock('@/store/coinRefreshSignal')
 // 그룹 딥링크(창 종료 푸시)의 1개/2개+ 분기가 목록 조회에 매달린다 — 네트워크 없이 목으로 준다.
 jest.mock('@/services/groupApi', () => ({ getMyGroups: jest.fn() }));
 const mockGetMyGroups = jest.requireMock('@/services/groupApi').getMyGroups as jest.Mock;
+const mockQueueDirectGroupEntry = queueDirectGroupEntry as jest.MockedFunction<
+  typeof queueDirectGroupEntry
+>;
 
 // navigateToDeepLink의 group 분기는 목록 조회를 비동기로 기다린다 — 마이크로태스크를 비운다.
 async function flushAsync() {
@@ -108,6 +113,22 @@ describe('초대 링크', () => {
     expect(peekPendingInvite()).toEqual({ groupId: GROUP_ID, slug: SLUG, entry: 'deferred' });
     expect(logInviteLinkOpened).not.toHaveBeenCalled();
   });
+
+  test('다른 화면에서 온 invite만 다음 view episode source로 예약한다', () => {
+    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+
+    navigateToDeepLink(`gromo://join?g=${GROUP_ID}`);
+
+    expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('invite');
+  });
+
+  test('이미 focus된 그룹 화면의 warm invite는 현재·다음 source를 건드리지 않는다', () => {
+    currentRoute.mockReturnValue({ key: '그룹-1', name: '그룹' });
+
+    navigateToDeepLink(`gromo://join?g=${GROUP_ID}`);
+
+    expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
+  });
 });
 
 // 컨테이너 onReady에서 도는 flush — 준비 전 링크를 흘려보내는 일 외에,
@@ -150,6 +171,25 @@ describe('컨테이너 준비(onReady)', () => {
 describe('그룹 딥링크(챌린지 종료 푸시)', () => {
   const summary = (groupId: string) => ({ groupId }) as never;
   const CHALLENGE_ID = '0198aa11-2b3c-7d4e-8f50-6a7b8c9d0e1f';
+
+  test('다른 화면에서 온 push만 다음 view episode source로 예약한다', async () => {
+    currentRoute.mockReturnValue({ key: '홈-1', name: '홈' });
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(mockQueueDirectGroupEntry).toHaveBeenCalledWith('push');
+  });
+
+  test('이미 focus된 그룹 화면의 warm push는 다음 source를 만들지 않는다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+
+    navigateToDeepLink(`gromo://group?g=${GROUP_ID}`);
+    await flushAsync();
+
+    expect(mockQueueDirectGroupEntry).not.toHaveBeenCalled();
+  });
 
   test('그룹이 1개여도 그룹방을 push 한다(A-9 이후 목록이 기본 화면)', async () => {
     mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
