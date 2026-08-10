@@ -2,10 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 
 type GroupOrderMap = Record<string, string[]>;
-interface ParsedGroupOrder {
-  value: GroupOrderMap;
-  needsRepair: boolean;
-}
 
 function uniqueIds(values: readonly unknown[]): string[] {
   const seen = new Set<string>();
@@ -18,46 +14,20 @@ function uniqueIds(values: readonly unknown[]): string[] {
   return result;
 }
 
-export function parseGroupCardOrderState(raw: string | null): ParsedGroupOrder {
-  if (raw === null) return { value: {}, needsRepair: false };
+export function parseGroupCardOrder(raw: string | null): GroupOrderMap {
+  if (!raw) return {};
   try {
     const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { value: {}, needsRepair: true };
-    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
 
     const result: GroupOrderMap = {};
-    let needsRepair = false;
     for (const [userId, ids] of Object.entries(value)) {
-      if (!Array.isArray(ids)) {
-        needsRepair = true;
-        continue;
-      }
-      const normalized = uniqueIds(ids);
-      if (normalized.length !== ids.length) needsRepair = true;
-      result[userId] = normalized;
+      if (Array.isArray(ids)) result[userId] = uniqueIds(ids);
     }
-    return { value: result, needsRepair };
+    return result;
   } catch {
-    return { value: {}, needsRepair: true };
+    return {};
   }
-}
-
-function needsRepairForUser(raw: string | null, userId: string): boolean {
-  if (raw === null) return false;
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return true;
-    if (!Object.prototype.hasOwnProperty.call(value, userId)) return false;
-    const ids = (value as Record<string, unknown>)[userId];
-    return !Array.isArray(ids) || uniqueIds(ids).length !== ids.length;
-  } catch {
-    return true;
-  }
-}
-
-export function parseGroupCardOrder(raw: string | null): GroupOrderMap {
-  return parseGroupCardOrderState(raw).value;
 }
 
 /**
@@ -81,45 +51,6 @@ export function isSameGroupOrder(a: readonly string[], b: readonly string[]): bo
 }
 
 let writeQueue: Promise<void> = Promise.resolve();
-export interface PendingGroupCardOrder {
-  ids: string[];
-  status: 'inflight' | 'failed';
-  version: number;
-}
-const sessionPendingOrders = new Map<string, PendingGroupCardOrder>();
-let pendingVersion = 0;
-
-export function getPendingGroupCardOrder(userId: string): PendingGroupCardOrder | undefined {
-  return sessionPendingOrders.get(userId);
-}
-
-export function setPendingGroupCardOrder(
-  userId: string,
-  ids: readonly string[],
-  status: PendingGroupCardOrder['status'],
-): PendingGroupCardOrder {
-  const pending = { ids: uniqueIds(ids), status, version: ++pendingVersion };
-  sessionPendingOrders.set(userId, pending);
-  return pending;
-}
-
-export function updatePendingGroupCardOrderStatus(
-  userId: string,
-  version: number,
-  status: PendingGroupCardOrder['status'],
-): boolean {
-  const pending = sessionPendingOrders.get(userId);
-  if (!pending || pending.version !== version) return false;
-  pending.status = status;
-  return true;
-}
-
-export function clearPendingGroupCardOrder(userId: string, version: number): boolean {
-  const pending = sessionPendingOrders.get(userId);
-  if (!pending || pending.version !== version) return false;
-  sessionPendingOrders.delete(userId);
-  return true;
-}
 
 function enqueueWrite(task: () => Promise<void>): Promise<void> {
   const current = writeQueue.then(task);
@@ -127,32 +58,16 @@ function enqueueWrite(task: () => Promise<void>): Promise<void> {
   return current;
 }
 
-export interface GroupCardOrderRead {
-  order: string[] | null;
-  needsRepair: boolean;
-  readFailed: boolean;
-}
-
-export async function readGroupCardOrderState(userId: string): Promise<GroupCardOrderRead> {
-  // 호출 시점까지 enqueue된 쓰기가 끝난 다음 읽는다. 재정렬 직후 재마운트가 이전 값을
-  // hydrate해 최신 선택을 덮는 것을 막는다. 이후 enqueue된 쓰기는 이 읽기의 대상이 아니다.
-  const pendingWrites = writeQueue;
-  try {
-    await pendingWrites;
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder);
-    const parsed = parseGroupCardOrderState(raw);
-    return {
-      order: parsed.value[userId] ?? null,
-      needsRepair: needsRepairForUser(raw, userId),
-      readFailed: false,
-    };
-  } catch {
-    return { order: null, needsRepair: false, readFailed: true };
-  }
-}
-
 export async function readGroupCardOrder(userId: string): Promise<string[] | null> {
-  return (await readGroupCardOrderState(userId)).order;
+  try {
+    // hydration도 같은 key의 앞선 RMW가 끝난 뒤 읽는다. 저장 직후 serverKey가 바뀌어
+    // 새 목록을 hydrate하더라도 저장 전 snapshot으로 최신 사용자 순서를 되돌리지 않는다.
+    await writeQueue;
+    const map = parseGroupCardOrder(await AsyncStorage.getItem(STORAGE_KEYS.groupCardOrder));
+    return map[userId] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -172,6 +87,4 @@ export function writeGroupCardOrder(userId: string, groupIds: readonly string[])
 
 export function __resetGroupCardOrderQueueForTest(): void {
   writeQueue = Promise.resolve();
-  sessionPendingOrders.clear();
-  pendingVersion = 0;
 }
