@@ -237,6 +237,11 @@ export function SheetShell({
   //    확정돼도 되돌릴 수 없다. 확정 전에는 화면 밖에 그대로 둔다.
   useEffect(() => {
     if (!m.reduce || closingRef.current || !enteredRef.current) return;
+    // ⚠️ **등장 활성 상태도 함께 끈다.** 여기서 스프링을 취소해 놓고 enterActiveRef를 true로
+    //    두면, 이후 패널 높이가 바뀔 때 onPanelLayout이 아직 진입 중이라고 보고 높이 보정
+    //    withSpring(reduceMotion: M.never)을 다시 건다 — 방금 '동작 줄이기'를 켠 사용자에게
+    //    시트가 다시 움직인다(codex 리뷰).
+    enterActiveRef.current = false;
     translateY.value = 0;
     dimProgress.value = 1;
   }, [m.reduce, translateY, dimProgress]);
@@ -450,7 +455,13 @@ export function SheetShell({
     //    **늘어난 만큼 상단이 즉시 위로 튀어나온다.** 남은 이동만 기존 스프링을 따라가므로
     //    등장이 끊겨 보인다(codex 리뷰). 증감분을 translateY로 상쇄해 상단을 연속으로 만든다.
     //    (값을 대입하면 진행 중 스프링이 취소되므로, 상쇄한 위치에서 스프링을 다시 건다.)
-    if (enterActiveRef.current && !closingRef.current && dragStartYRef.current === 0) {
+    // reduceRef도 함께 본다 — 위 스냅과 이 경로 둘 중 하나만 막으면 순서에 따라 샌다.
+    if (
+      enterActiveRef.current &&
+      !reduceRef.current &&
+      !closingRef.current &&
+      dragStartYRef.current === 0
+    ) {
       const delta = h - prev;
       if (delta !== 0) {
         translateY.value = translateY.value + delta;
