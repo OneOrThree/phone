@@ -342,8 +342,16 @@ export interface CreateChallengeResponse {
 // /me/challenge-results에는 실리지 않지만, 모르는 상태가 와도 화면이 죽지 않게 유니온에 둔다.
 export type BetSessionStatus = 'OPEN' | 'SETTLED' | 'FORFEITED' | 'VOIDED' | 'REFUNDED' | 'UNUSED';
 
-// VOIDED 회차의 무효 사유(N33) — 사유 없이 VOIDED 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다.
-export type BetSessionVoidReason = 'SHORT_PARTICIPANTS' | 'CHALLENGE_DELETED';
+// 회차의 무효·환불 사유(N33 · N48) — 사유 없이 상태 하나면 "인원 부족" 카피가 삭제 건까지 거짓말한다.
+// 인원 미달 값이 **두 이름으로 갈려 있다**: 서버 enum·V41 CHECK 는 `INSUFFICIENT_PARTICIPANTS`,
+// LLD §2.1·IA §4.3 예시는 `SHORT_PARTICIPANTS`(policy N33 이 영문 이름을 정하지 않아 각자 굳었다).
+// 둘 다 유니온에 둔다 — 서버 값만 받으면 문서 카피가 죽고, 문서 값만 받으면 실제 응답이 안 맞는다.
+// REFUND_DEADLINE 은 24h 자동 환불(REFUNDED) 사유다 — N48 이 사유 축을 VOIDED 밖으로 넓혔다.
+export type BetSessionVoidReason =
+  | 'SHORT_PARTICIPANTS'
+  | 'INSUFFICIENT_PARTICIPANTS'
+  | 'CHALLENGE_DELETED'
+  | 'REFUND_DEADLINE';
 
 // GET /me/challenge-results의 인별 정산 결과 한 줄. LastSettledBetResult와 같은 3상 규칙 —
 // achieved·payout null = 미판정(부분 정산 실패), progressMinutes null = 미집계(0분 아님).

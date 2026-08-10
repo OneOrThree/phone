@@ -101,7 +101,12 @@ export function settlementNotice(result: ChallengeResultCandidate): string | nul
       return `아무도 달성하지 못해 적립금 ${result.pot}코인이 사라졌어요`;
     case 'VOIDED':
       // 사유를 모르는 VOIDED(신설 사유 등)는 인원 부족이라고 지어내지 않는다 — 환불 사실만 말한다.
-      return result.voidReason === 'SHORT_PARTICIPANTS'
+      // 인원 미달 값은 **문서와 서버가 갈려 있다** — LLD §2.1·IA §4.3 예시는 `SHORT_PARTICIPANTS`,
+      // 서버 enum·V41 CHECK 는 `INSUFFICIENT_PARTICIPANTS`(policy N33 은 영문 이름을 정하지 않았다).
+      // 한쪽만 보면 IA §4.3 이 규정한 카피가 **한 번도 뜨지 않고** 일반 폴백으로 강하한다 —
+      // 둘 다 같은 문장으로 접는다(A3 `lastSettledView.VOID_REASON_ALIASES` 와 같은 처리).
+      return result.voidReason === 'SHORT_PARTICIPANTS' ||
+        result.voidReason === 'INSUFFICIENT_PARTICIPANTS'
         ? '참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요'
         : '내기가 무산돼 참가비를 돌려드렸어요';
     case 'REFUNDED':

@@ -205,6 +205,16 @@ describe('ChallengeResultModal 정산 결말', () => {
     ).toBeNull();
   });
 
+  // **서버가 실제로 보내는 값**은 INSUFFICIENT_PARTICIPANTS다(enum·V41 CHECK). 문서 예시값
+  // (SHORT_PARTICIPANTS)만 받으면 IA §4.3 카피가 한 번도 뜨지 않고 폴백으로 강하한다.
+  test('VOIDED(INSUFFICIENT_PARTICIPANTS)도 같은 인원 부족 문구를 쓴다', () => {
+    expect(
+      settlementNotice(
+        candidate(null, { status: 'VOIDED', voidReason: 'INSUFFICIENT_PARTICIPANTS' }),
+      ),
+    ).toBe('참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요');
+  });
+
   test('사유를 모르는 VOIDED는 인원 부족이라고 지어내지 않는다', () => {
     expect(settlementNotice(candidate(null, { status: 'VOIDED', voidReason: null }))).toBe(
       '내기가 무산돼 참가비를 돌려드렸어요',
