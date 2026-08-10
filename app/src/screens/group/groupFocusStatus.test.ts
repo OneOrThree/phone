@@ -30,18 +30,37 @@ async function flushPromises() {
 }
 
 describe('GroupFocusStatusStore coverage와 count', () => {
-  test('raw 99행 이하는 완전한 응답이며 확인된 0명과 N명을 계산한다', async () => {
-    const rows = [member('a', true), member('b', false)];
+  test.each([0, 89, 90, 99])(
+    'raw %i행은 완전한 응답이며 확인된 0명과 N명을 계산한다',
+    async (rowCount) => {
+      const rows = Array.from({ length: rowCount }, (_, index) =>
+        member(String(index), index === 0),
+      );
+      const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
+      await store.ensure(USER_ID, DATE);
+
+      expect(store.getState(USER_ID, DATE).status).toBe('ready');
+      expect(deriveGroupFocusCount(['missing'], store.getState(USER_ID, DATE))).toEqual({
+        status: 'ready',
+        count: 0,
+      });
+      if (rowCount > 0) {
+        expect(deriveGroupFocusCount(['0', '1'], store.getState(USER_ID, DATE))).toEqual({
+          status: 'ready',
+          count: 1,
+        });
+      }
+    },
+  );
+
+  test('멤버가 아닌 ranking 행은 카운트에서 제외한다', async () => {
+    const rows = [member('outside', true), member('inside', false)];
     const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
     await store.ensure(USER_ID, DATE);
 
-    expect(deriveGroupFocusCount(['x'], store.getState(USER_ID, DATE))).toEqual({
+    expect(deriveGroupFocusCount(['inside'], store.getState(USER_ID, DATE))).toEqual({
       status: 'ready',
       count: 0,
-    });
-    expect(deriveGroupFocusCount(['a', 'b', 'missing'], store.getState(USER_ID, DATE))).toEqual({
-      status: 'ready',
-      count: 1,
     });
   });
 
