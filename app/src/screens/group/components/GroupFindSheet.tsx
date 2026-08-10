@@ -110,6 +110,8 @@ export default function GroupFindSheet({
   // 갱신에 토큰이 없으면(검색어 A 참여 실패 → refresh(A) 중 사용자가 B 입력) 늦게 온 A 응답이
   // B 결과를 덮어 입력창과 목록이 어긋난다. 검색어가 바뀌는 즉시 시퀀스를 올려 전부 무효화한다.
   const searchSeqRef = useRef(0);
+  // 진행 중인 디바운스 타이머 — 퇴장 시작 시 세대와 함께 걷는다(아래 onClosing).
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 언마운트(시트 닫힘·링크 수신) 시에도 시퀀스를 올려 진행 중 요청의 setState를 막는다.
   useEffect(
@@ -159,8 +161,14 @@ export default function GroupFindSheet({
     // 디바운스 타이머가 뜨기 전에 올린다 — 아직 응답이 안 온 이전 요청(주 검색·조용한 갱신)이 여기서 죽는다.
     const seq = ++searchSeqRef.current;
     setSearching(true);
-    const timer = setTimeout(() => runSearch(q, seq, true), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    // ⚠️ 타이머를 ref에도 둔다 — 퇴장이 시작되면(onClosing) 여기서 걷어야 한다. 종전에는 닫기가
+    //    곧 언마운트라 아래 cleanup이 막았지만, 이제 220ms 동안 살아 있어 그 사이 디바운스가
+    //    만료되면 **닫힌 검색이 실제로 서버를 호출한다**(응답만 버려질 뿐이다 — codex 리뷰).
+    debounceRef.current = setTimeout(() => runSearch(q, seq, true), SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    };
   }, [q, runSearch]);
 
   // 참여 실패 후 목록만 조용히 갱신한다(사용자가 친 검색이 아니므로 계측은 쏘지 않는다).
@@ -290,7 +298,20 @@ export default function GroupFindSheet({
   }
 
   return (
-    <SheetShell onClose={onClose} asModal>
+    <SheetShell
+      onClose={onClose}
+      // ⚠️ 퇴장이 시작되면 **검색 세대를 즉시 올린다.** onClose는 220ms 뒤라 그동안 컴포넌트가
+      //    살아 있어, 그 사이 도착한 응답이 결과를 반영하고 계측(logGroupSearchPerformed)까지
+      //    쏜다 — 사용자가 이미 닫은 검색의 결과 수가 노출 지표로 집계된다(codex 리뷰).
+      //    종전에는 딤 탭이 곧 언마운트라 아래 cleanup이 그 자리에서 막았다.
+      onClosing={() => {
+        searchSeqRef.current++;
+        // 아직 안 뜬 디바운스도 걷는다 — 세대만 올리면 요청은 나가고 응답만 버려진다.
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }}
+      asModal
+    >
       <Text style={s.title}>그룹 찾기</Text>
       <Text style={s.sub}>이름으로 공개 그룹을 찾아 바로 참여할 수 있어요.</Text>
 

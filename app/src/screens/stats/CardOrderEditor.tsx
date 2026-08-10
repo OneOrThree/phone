@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'rea
 import { View, Animated, PanResponder, ScrollView, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { LIST_PAD_H } from './constants';
 
 // 통계 카드 순서 편집(GROMO-762) — 별도 편집 모드 없이 항상 카드 오른쪽 위에 드래그 핸들을 띄우고,
 // 핸들을 잡아 카드 자체를 위아래로 끌면 순서가 바뀐다. 드래그를 놓을 때마다 onReorder로 확정.
@@ -241,7 +242,7 @@ export function CardOrderEditor({ cards, onReorder, scrollViewRef }: Props) {
 const s = StyleSheet.create({
   flex1: { flex: 1 },
   // StatsScreen s.scroll과 같은 여백 — 편집 모드에서도 카드가 같은 자리에 보이도록
-  content: { paddingHorizontal: T.space.xl, paddingBottom: 40 },
+  content: { paddingHorizontal: LIST_PAD_H, paddingBottom: 40 },
   flow: { gap: T.space.lg },
   frozenItem: { position: 'absolute', left: 0, right: 0 },
   dragItem: {

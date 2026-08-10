@@ -111,6 +111,10 @@ export default function NoticeComposeSheet({
 
   return (
     // 저장 중에는 딤 탭·그랩바 드래그로 닫히지 않게 막는다. 키보드 회피는 SheetShell이 공통 처리한다.
+    // ⚠️ 이 시트에는 닫기 CTA가 없다 — 닫는 길이 딤 탭·그랩바 드래그뿐이라 둘 다 SheetShell이
+    //    내부에서 가로챈다. 그래서 퇴장 애니메이션(GROMO-1381)에 useSheetClose() 이관이 필요 없다.
+    //    키보드가 떠 있어도 안전하다: 패널은 bottom=keyboardHeight로 올라가고 퇴장은 그만큼을
+    //    더한 거리를 translateY로 내려가므로 두 값이 겹치지 않는다.
     <SheetShell onClose={submitting ? () => {} : onClose} dismissible={!submitting}>
       <Text style={s.title}>{isEdit ? '공지 수정' : '공지 쓰기'}</Text>
       <Text style={s.sub}>그룹원 모두에게 보여요.</Text>

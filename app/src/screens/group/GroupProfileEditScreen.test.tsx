@@ -42,6 +42,11 @@ jest.mock('@/store/UserContext', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({ logGroupSettingsUpdated: jest.fn() }));
 
+// 저장 성공 통보가 전역 토스트로 나간다(GROMO-1381) — useToast는 Provider 밖에서 throw하므로
+// 훅 자체를 목으로 대체한다(화면을 ToastProvider로 감싸지 않아도 되게).
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
+
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -186,6 +191,21 @@ describe('저장 — 바뀐 필드만 PATCH(부분 수정)', () => {
 
     await press('group.profile.save');
     expect(mockUpdateGroup).toHaveBeenCalledTimes(1);
+  });
+
+  // 성공 통보는 Alert가 아니라 토스트로 나간다(GROMO-1381 알럿 이관). 실패 알럿은 그대로 Alert다.
+  test('저장 성공은 Alert 없이 토스트로 알린다', async () => {
+    await renderScreen();
+
+    await act(async () => {
+      fireEvent.changeText(screen.getByDisplayValue('아침 6시 집중방'), '저녁 스터디');
+    });
+    await press('group.profile.save');
+
+    expect(mockToastShow).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('저장') }),
+    );
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   test('정원을 현재 인원 미만으로 줄이면 서버 MAX_MEMBERS_TOO_SMALL를 안내한다', async () => {

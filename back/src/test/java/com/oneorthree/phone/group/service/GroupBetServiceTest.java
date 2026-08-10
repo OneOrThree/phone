@@ -11,7 +11,6 @@ import com.oneorthree.phone.group.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
-import com.oneorthree.phone.group.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.domain.GroupMember;
 import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -122,6 +121,14 @@ class GroupBetServiceTest {
     @Spy
     private GroupBetSessionFactory groupBetSessionFactory = new GroupBetSessionFactory();
 
+    /**
+     * 참가 시 선기록 무효화(GROMO-1407)의 위임처 — 참가 행 생성과 <b>같은 트랜잭션</b>에서 그
+     * (챌린지, 유저, 회차 날짜)의 기존 창 사용분 보고를 지운다. 여기서는 배선만 본다(무효화 자체의
+     * 동작은 {@code GroupBetWindowUsageIntegrationTest}).
+     */
+    @Mock
+    private GroupBetWindowUsageService groupBetWindowUsageService;
+
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
@@ -213,29 +220,28 @@ class GroupBetServiceTest {
 
     /** 일 목표(DURATION) 대상. 카테고리만 갈아끼워 4조합의 절반을 만든다. */
     private GroupBetJudge.Target durationTarget(MissionCategory category) {
-        return new GroupBetJudge.Target(challenge(category, MissionType.DURATION), GOAL_MINUTES, null);
+        return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.DURATION,
+                GOAL_MINUTES, null, null);
     }
 
     /** 창 목표(TIME_WINDOW) 대상 — 창 시각은 스냅샷 박제 검증에 쓰인다(09:00~12:00 KST). */
     private GroupBetJudge.Target windowTarget(MissionCategory category) {
-        GroupChallenge windowChallenge = challenge(category, MissionType.TIME_WINDOW);
-        return new GroupBetJudge.Target(windowChallenge, GOAL_MINUTES, GroupChallengeWindow.builder()
-                .challengeId(CHALLENGE_ID)
-                .challenge(windowChallenge)
-                .windowStart(LocalTime.parse("09:00"))
-                .windowEnd(LocalTime.parse("12:00"))
-                .durationMinutes(GOAL_MINUTES)
-                .build());
+        // V35(GROMO-1406) 이후 창 시각은 KST 벽시계 값 그 자체다 — 판정 대상도 CTI 엔티티가 아니라
+        // 회차 스냅샷과 같은 값(LocalTime)을 든다(GROMO-1280).
+        return new GroupBetJudge.Target(CHALLENGE_ID, category, MissionType.TIME_WINDOW,
+                GOAL_MINUTES, LocalTime.parse("09:00"), LocalTime.parse("12:00"));
     }
 
     /**
-     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분.
+     * 판정 소스 스텁 — 대상 해석 + 창 마감 시각 + 내 진행분. 개설은 살아 있는 챌린지에서
+     * ({@code resolve}), 참가는 회차 스냅샷에서({@code ofSession}) 같은 대상을 얻는다(GROMO-1280).
      *
      * @param closesAt 창 마감(창형만). null 이면 DURATION 처럼 마감 검사가 없다
-     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미보고)
+     * @param minutes  내 진행분. null 이면 데이터 없음(FOCUS=0분, SCREEN_TIME=미계측)
      */
     private void givenTarget(GroupBetJudge.Target target, Instant closesAt, Integer minutes) {
-        given(groupBetJudge.resolve(any())).willReturn(Optional.of(target));
+        lenient().when(groupBetJudge.resolve(any())).thenReturn(Optional.of(target));
+        lenient().when(groupBetJudge.ofSession(any())).thenReturn(Optional.of(target));
         lenient().when(groupBetJudge.windowClosesAt(eq(target), any()))
                 .thenReturn(Optional.ofNullable(closesAt));
         lenient().when(groupBetJudge.progressMinutes(eq(target), any(), any()))
@@ -713,6 +719,23 @@ class GroupBetServiceTest {
         verify(groupChallengeBetParticipantRepository).save(any());
         verify(currencyLedgerService).debit(any(), eq(CurrencyTransactionType.BET_STAKE), eq(30),
                 eq("session:" + SESSION_ID + ":stake:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("참가 시 그 날짜의 기존 창 사용분 보고를 무효화한다 — 참가 전 선기록 차단(GROMO-1407)")
+    void joinBetInvalidatesPreJoinWindowUsageReport() {
+        givenMember();
+        GroupChallengeBetSession target = session(GroupBetStatus.OPEN, today());
+        given(groupChallengeBetSessionRepository.findByIdAndGroupIdForUpdate(SESSION_ID, GROUP_ID))
+                .willReturn(Optional.of(target));
+        given(groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(SESSION_ID, USER_ID))
+                .willReturn(false);
+        givenFocusDuration(30);
+
+        groupBetService.joinBet(GROUP_ID, SESSION_ID, USER_ID);
+
+        // 참가 경로가 무효화를 위임한다 — 조합별 적용 여부 판단은 위임처가 회차 스냅샷으로 한다.
+        verify(groupBetWindowUsageService).invalidatePreJoinReport(target, USER_ID);
     }
 
     @Test

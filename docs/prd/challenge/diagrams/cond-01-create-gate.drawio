@@ -16,7 +16,7 @@
         <mxCell id="g1" value="1. 그룹 OWNER인가" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="132" width="300" height="44" as="geometry" />
         </mxCell>
-        <mxCell id="e1" value="CHALLENGE_FORBIDDEN · 403" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="e1" value="NOT_OWNER · 403" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="137" width="300" height="34" as="geometry" />
         </mxCell>
 
@@ -37,7 +37,7 @@
         <mxCell id="g4" value="4. 하루형이면 — 같은 카테고리 활성 챌린지 없음" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="318" width="300" height="44" as="geometry" />
         </mxCell>
-        <mxCell id="e4" value="CHALLENGE_ALREADY_EXISTS · 409" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="e4" value="CHALLENGE_DUPLICATE · 409" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="323" width="300" height="34" as="geometry" />
         </mxCell>
 

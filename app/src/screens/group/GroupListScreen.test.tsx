@@ -7,6 +7,7 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View } from 'react-native';
 import GroupListScreen from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import {
@@ -254,6 +255,61 @@ describe('콜백', () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
     expect(screen.queryByTestId('group.list.back')).toBeNull();
+  });
+
+  // 진입 시차를 붙이려고 셀 래퍼(FlatList 기본 View)를 Animated.View로 갈아끼웠다 —
+  // 그 과정에서 VirtualizedList가 넘기는 props를 삼키면 안 된다. 특히 onFocusCapture는
+  // 마지막 포커스 셀을 가상화 렌더 영역에 유지하는 경로라, 잃으면 스크롤·갱신 때
+  // 스크린리더/키보드 포커스가 사라진다.
+  test('셀 래퍼는 VirtualizedList가 넘긴 props(onFocusCapture 포함)를 그대로 전달한다', async () => {
+    await renderList([group()]);
+    // 셀 래퍼는 리스트 내부가 그리는 노드라 트리에서 직접 집기 어렵다 —
+    // RefreshControl과 같은 방식으로 리스트 props에서 컴포넌트를 꺼내 직접 렌더한다.
+    const Cell = screen.getByTestId('group.list.items').props.CellRendererComponent;
+    const onFocusCapture = jest.fn();
+    const onLayout = jest.fn();
+
+    await render(
+      <Cell index={0} cellKey="c0" item={group()} onFocusCapture={onFocusCapture} testID="cell">
+        <View testID="cell.child" />
+      </Cell>,
+    );
+
+    expect(screen.getByTestId('cell').props.onFocusCapture).toBe(onFocusCapture);
+    expect(screen.getByTestId('cell.child')).toBeOnTheScreen();
+
+    await render(
+      <Cell index={0} onLayout={onLayout} testID="cell2">
+        <View />
+      </Cell>,
+    );
+    expect(screen.getByTestId('cell2').props.onLayout).toBe(onLayout);
+  });
+
+  // 진입 시차는 인덱스별로 캐싱된 스타일 객체이고 Reanimated CSS는 참조 동등성으로 재시작을
+  // 판단한다 — 재조회로 목록 순서가 바뀔 때 살아남은 카드가 이유 없이 다시 떠오르지 않도록
+  // 셀은 마운트 시점 인덱스를 붙들어야 한다.
+  // (reanimated가 CSS 프로퍼티를 style에서 걷어내므로 단언은 jestInlineStyle로 한다.)
+  test('셀 진입 시차는 마운트 시점 자리에 고정된다(목록 순서가 바뀌어도 재생 없음)', async () => {
+    await renderList([group()]);
+    const Cell = screen.getByTestId('group.list.items').props.CellRendererComponent;
+
+    const { rerender } = await render(
+      <Cell index={0} testID="cell">
+        <View />
+      </Cell>,
+    );
+    const delayOf = () => screen.getByTestId('cell').props.jestInlineStyle?.[1]?.animationDelay;
+    const mounted = delayOf();
+    expect(mounted).toBe('0ms');
+
+    await rerender(
+      <Cell index={3} testID="cell">
+        <View />
+      </Cell>,
+    );
+
+    expect(delayOf()).toBe(mounted);
   });
 
   test('당겨서 새로고침 — 조회가 끝날 때까지만 인디케이터를 세운다', async () => {

@@ -240,7 +240,7 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
         int withoutToday = RepeatSchedule.EVERYDAY & ~RepeatSchedule.bit(today.getDayOfWeek());
         GroupChallengeBet resting = betConfig(durationChallenge(withoutToday), true);
 
-        groupBetScheduler.ensureTodaySessions();
+        groupBetScheduler.openTodaySessions();
 
         assertThat(groupChallengeBetSessionRepository
                 .findByBetIdAndSessionDate(resting.getId(), today)).isEmpty();
@@ -255,7 +255,7 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
         betConfig(disabled, false);
 
         // 스캔 루프는 스케줄러 빈에 있다 — 서비스 안 루프는 자기 호출로 @Transactional 을 우회한다.
-        int opened = groupBetScheduler.ensureTodaySessions();
+        int opened = groupBetScheduler.openTodaySessions();
 
         LocalDate today = LocalDate.now(KST);
         Optional<GroupChallengeBetSession> session =
@@ -268,7 +268,7 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
 
         // 재스캔은 새로 만들지 않는다(캐치업 멱등) — 기존 회차는 "신규 개설"로 세지 않는다.
         // 여기서 0 이 아니면 개설 장애 감시 지표가 매 틱 양수로 오염된다(GROMO-1411 후속 ⑦).
-        int reopened = groupBetScheduler.ensureTodaySessions();
+        int reopened = groupBetScheduler.openTodaySessions();
         assertThat(groupChallengeBetSessionRepository
                 .findByBetIdAndSessionDate(config.getId(), today).orElseThrow().getId())
                 .isEqualTo(session.orElseThrow().getId());
