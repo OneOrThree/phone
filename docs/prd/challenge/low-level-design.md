@@ -231,7 +231,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
   "status": "ACTIVE",
   "startedAt": "2026-08-01T02:11:00Z",
   "activeToday": true,                   // 오늘이 repeatDays에 있나
-  "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. null 없음
+  "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. ACTIVE면 항상 채워지고 끝난 챌린지(INACTIVE)만 null
   "nextSessionJoined": false,            // 다음 회차를 이미 예약했나 (N45 버튼 상태 — 내기 켜짐일 때만 의미)
   "canParticipate": true,                // FOCUS면 항상 true, SCREEN_TIME은 권한 여부
   "memberProgress": [                    // null = 미계산 (date 없음 · 비활성 요일)
@@ -839,9 +839,15 @@ static Instant leaveDeadline(BetSession s, BetParticipant p) {
 **응답에 `myLeaveDeadlineAt`을 실어 앱이 카운트다운**한다. 서버 시각 기준이므로 앱이
 `created_at + 5분`을 자체 계산하지 않는다 — 기기 시계가 틀어지면 버튼이 어긋난다.
 
-**폐기되는 코드**: `BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` · `BET_CANCEL_HAS_OTHERS` ·
-`BET_FOCUS_ONLY`. 개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다.
+**폐기되는 코드**: `BET_FOCUS_ONLY` 하나뿐이다. FOCUS 전용 게이트가 사라져 발생 경로가 없다
+(`GroupBetService.java:174` — 「게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음). 카테고리 제한은 없다」).
 값 자체는 **잔존**시킨다 — 구앱이 code 문자열로 분기하므로 이름을 지우지 않는다(발급만 멈춘다).
+
+> **📌 2026-08-11 구현 대조 정정.** 종전 이 문단은 `BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` ·
+> `BET_CANCEL_HAS_OTHERS` 도 함께 「개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다」고 적었으나
+> **사실이 아니다.** 셋 다 지금도 던져진다 — `GroupBetService.java:193,205,572`(ALREADY_EXISTS) ·
+> `:270`(CANCEL_FORBIDDEN) · `:272`(CANCEL_HAS_OTHERS). 개설·취소 개념은 남아 있다.
+> **이 문장을 근거로 throw 경로를 지우면 안 된다** — 살아 있는 실패 모드가 조용히 사라진다.
 
 ### 2.3 배치 (관리자 키)
 
