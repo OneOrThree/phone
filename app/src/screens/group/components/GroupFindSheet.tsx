@@ -126,6 +126,11 @@ export default function GroupFindSheet({
   // 실제 검색 호출. measure=true는 사용자가 친 검색(계측·로딩 표시 대상),
   // false는 참여 실패 후의 조용한 갱신이다.
   const runSearch = useCallback(async (target: string, seq: number, measure: boolean) => {
+    // 검색 세대와 별개로 **인증 세대**를 캡처한다 — 유저 부재 분기의 로그아웃은 이 요청이 속한
+    // 세션에만 적용돼야 한다(참여 분기와 같은 이유, sessionErrors.ts 주석).
+    // ⚠️ 호출부가 아니라 여기서 잡는다 — 디바운스가 만료된 **실제 요청 시점**의 세션이어야 한다.
+    //    이펙트에서 잡으면 300ms 전 세대라, 그 사이 세션이 바뀌면 로그아웃이 조용히 무시된다.
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const rows = (await searchGroups(target)).filter(isJoinable);
       if (seq !== searchSeqRef.current) return;
@@ -135,7 +140,17 @@ export default function GroupFindSheet({
       // 빈 쿼리(공개방 기본 목록)는 사용자가 친 검색이 아니라 계측하지 않는다 — target이 있을 때만 쏜다.
       if (measure && target)
         logGroupSearchPerformed({ query_length: target.length, result_count: rows.length });
-    } catch {
+    } catch (e) {
+      // 유저 부재(GROMO-1247)는 '이 검색어의 실패'가 아니라 **계정 자체가 없어진 것**이다 —
+      // searchGroups도 requireActiveUser를 타는 인증 API라 같은 코드가 온다. 재시도로는 절대
+      // 안 풀리므로 일반 실패로 두면 사용자는 빈 목록과 '다시 시도'만 무한히 반복한다.
+      // 참여 분기와 같은 이유로 **검색 세대와 무관하게** 처리하고(화면 상태가 아니라 계정 상태다),
+      // 목록도 문구도 건드리지 않은 채 세션 정리로 보낸다.
+      // ⚠️ measure로 가르지 않는다 — 조용한 갱신이라도 계정 부재는 조용히 넘길 사안이 아니다.
+      if (groupErrorCode(e) === USER_NOT_FOUND) {
+        promptSessionExpired(requestSessionGeneration);
+        return;
+      }
       if (seq !== searchSeqRef.current) return;
       // 주 검색 실패는 목록을 비우고 실패 상태를 세운다. 조용한 갱신 실패는 기존 목록을
       // 그대로 두고 조용히 넘어간다(사용자가 시작한 조회가 아니라 알릴 것이 없다).
