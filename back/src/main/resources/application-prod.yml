@@ -77,6 +77,10 @@ link:
   base-url: ${LINK_BASE_URL:https://link.oneorthree.world}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT}
+  # prod 는 Cloudflare → nginx → app 체인이고 app 은 포트를 열지 않아(docker-compose.prod.yml)
+  # app-network 의 nginx 말고는 도달할 수 없다 — 전달 헤더를 읽는 게 맞는 유일한 환경이라
+  # 기본값과 같더라도 명시해 둔다. 오리진이 직접 열리게 바뀌면 이 값을 비워야 한다.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:CF-Connecting-IP,X-Forwarded-For}
   store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
 
 # GA4 Measurement Protocol 서버 이벤트 (초대 링크 퍼널, 스펙 §6-2) — prod 만 실전송.
