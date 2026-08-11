@@ -193,10 +193,27 @@ export default function ScreenTimePermissionScreen() {
         await AsyncStorage.setItem(STORAGE_KEYS.selectionApplyDate, applyDate);
         await ScreenTimeModule.setPendingSelectionApplyDate(applyDate);
         setPendingApply(true); // 측정 대상 행 배지 즉시 반영
-        Alert.alert(
-          '측정 대상 변경 예약됨',
-          `내일부터 앱·카테고리 ${total}개로 측정해요. 오늘은 기존 대상으로 계속 측정돼요.`,
-        );
+        // 선택지 없는 결과 통보 → 토스트(정책 D8/D19 — docs/prd/motion-v2/policy.md, 상위 정본
+        // 병합 전까지 여기가 정본). 토스트엔 제목 줄이 없으므로 "즉시 반영이 아니라 **예약**"
+        // 이라는 이 통보의 요점을 본문 첫 마디로 끌어온다 — 빠뜨리면 "지금 바뀌었다"로 읽힌다
+        // (옛 Alert 제목이 '측정 대상 변경 예약됨'으로 하던 몫이다).
+        // ⚠️ 아래 '설정 완료'와 **같은 계약**으로 구 바이너리에서는 Alert를 유지한다 —
+        //    nativeSupportsPendingApplyDate()(GROMO-942 빌드)가 true여도 `dismissed`(GROMO-1381
+        //    빌드)까지 있다는 보장은 없다. 그쪽 presentAppPicker는 모달 dismiss 완료를 기다리지
+        //    않고 promise를 풀어서, 토스트가 아직 떠 있는 피커 아래에서 등장 연출과 2200ms
+        //    타이머를 시작한다. 그쪽은 제목이 '예약'을 이미 말하고 2줄 제약도 없으므로 본문은
+        //    오늘/내일 대비를 그대로 둔다.
+        if (counts.dismissed) {
+          show({
+            message: `변경을 예약했어요 — 내일부터 앱·카테고리 ${total}개로 측정해요`,
+            tone: 'success',
+          });
+        } else {
+          Alert.alert(
+            '측정 대상 변경 예약됨',
+            `오늘은 기존 대상, 내일부터 앱·카테고리 ${total}개로 측정해요`,
+          );
+        }
         return;
       }
 

@@ -21,6 +21,7 @@ import {
 } from '@/services/groupApi';
 import { logGroupBetCanceled } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
+import { useToast } from '@/store/ToastContext';
 import { todayStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type {
@@ -247,6 +248,7 @@ export default function ChallengeCard({
   // (재조회는 선택 콜백 onBetChanged로만 열어 둔다). groupId도 같은 이유로
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
+  const { show } = useToast();
   const [leaveBusy, setLeaveBusy] = useState(false);
   // 철회·취소 성공의 낙관 반영 — 재조회 응답이 도착하기 전까지는 카드가 스스로 '빠짐/닫힘'을
   // 그린다(onBetChanged를 받지 못한 카드는 다음 자연 재조회까지). betId를 쥐므로 같은 내기를
@@ -690,7 +692,14 @@ export default function ChallengeCard({
       const targets = weekEntries.filter((e) => !reserved.has(e.date));
       if (targets.length === 0) {
         // 남은 날을 전부 예약해 뒀다 — 낡은 버튼이었다. 사실을 알리고 카드를 최신으로 갈아 끼운다.
-        Alert.alert('이미 참여했어요', '이번 주 남은 날은 이미 모두 참여하고 있어요.');
+        // 이미 원하던 상태인 종결 통보라 확인 버튼이 필요 없다 → 토스트
+        // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
+        // ⚠️ tone 생략(중립 배너)은 의도다 — **이미 원하던 상태**라 아무것도 잘못되지 않았으므로
+        //    danger 배너를 쓰지 않는다. 빨강은 진짜 못 한 것(마감 지남·정산됨 등)에만 남겨야
+        //    신호가 산다. 톤이 둘뿐이라 생략(기본 중립)이 가장 가까운 표현이고, 「성공」이라고
+        //    주장하지 않으려고 tone:'success'를 명시하지도 않는다(오너 결정 2026-08-11).
+        //    아래 '이미 …' 계열 5곳도 같은 근거로 tone을 생략한다.
+        show({ message: '이번 주 남은 날은 이미 모두 참여하고 있어요' });
         onBetChanged?.();
         return;
       }
@@ -716,7 +725,9 @@ export default function ChallengeCard({
       if (target === undefined) {
         // 이미 취소됐거나 예약이 사라졌다 — 취소할 대상이 없는 **종결 상태**다. 재조회로 카드의
         // 예약 표시를 걷어 준다(안 그러면 없는 예약을 계속 취소하려 든다 — 아래 404와 같은 결).
-        Alert.alert('이미 정리된 예약이에요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
+        // 조치가 없는 결과 통보라 확인 버튼 없이 토스트로 알린다(정책 D19).
+        // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
+        show({ message: '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요' });
         onBetChanged?.();
         return;
       }
@@ -727,19 +738,18 @@ export default function ChallengeCard({
     } catch (e) {
       switch (groupErrorCode(e)) {
         // 목록을 받은 뒤 회차가 사라졌다(삭제·정산) — 취소할 대상이 없는 종결 상태다(#570 ③).
+        // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_SESSION_NOT_FOUND:
-          Alert.alert(
-            '이미 정리된 예약이에요',
-            '취소할 참여가 없어요. 최신 상태로 새로고침할게요.',
-          );
+          show({ message: '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요' });
           onBetChanged?.();
           break;
         case BET_LEAVE_CLOSED:
-          Alert.alert('참여 취소를 못 했어요', '취소할 수 있는 시간이 지났어요.');
+          show({ message: '취소할 수 있는 시간이 지나 참여 취소를 못 했어요', tone: 'error' });
           break;
         // 다른 기기에서 이미 취소했다 — 404와 같은 "취소할 대상이 없음"이다(#570 codex ④).
+        // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_NOT_JOINED:
-          Alert.alert('이미 취소된 참여예요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
+          show({ message: '이미 취소된 참여예요 — 최신 상태로 새로고침할게요' });
           onBetChanged?.();
           break;
         // 카드를 그린 뒤 회차가 닫혔다(정산·마감) — 위 두 코드와 같은 **종결 상태**다.
@@ -748,7 +758,7 @@ export default function ChallengeCard({
         // 버튼이 스스로 사라지는 구조라 자연 재조회에 맡기지만, v2 예약/당일 취소는 버튼 노출이
         // 서버 스냅샷(nextSessionJoined·myLeaveDeadlineAt)에 묶여 있어 재조회가 유일한 해소다.
         case BET_NOT_OPEN:
-          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 날이에요.');
+          show({ message: '이미 정산됐거나 닫힌 날이라 참여 취소를 못 했어요', tone: 'error' });
           onBetChanged?.();
           break;
         default:
@@ -780,16 +790,18 @@ export default function ChallengeCard({
         // 카드를 그린 뒤 회차가 사라졌다(삭제·정산) — **취소할 대상이 없는 종결 상태**다.
         // 공통 문구('잠시 후 다시 시도')로 떨어뜨리면 영원히 같은 실패를 반복하게 되므로,
         // 사실을 알리고 카드를 최신으로 갈아 끼운다(#570 codex ③).
+        // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_SESSION_NOT_FOUND:
-          Alert.alert('이미 정리된 날이에요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
+          show({ message: '이미 정리된 날이에요 — 최신 상태로 새로고침할게요' });
           onBetChanged?.();
           break;
         case BET_LEAVE_CLOSED:
-          Alert.alert('참여 취소를 못 했어요', '취소할 수 있는 시간이 지났어요.');
+          show({ message: '취소할 수 있는 시간이 지나 참여 취소를 못 했어요', tone: 'error' });
           break;
         // 다른 기기에서 이미 취소했다 — 404와 같은 "취소할 대상이 없음"이다(#570 codex ④).
+        // tone 생략 = 중립 배너 — 이미 원하던 상태라 danger를 쓰지 않는다(오너 결정 2026-08-11).
         case BET_NOT_JOINED:
-          Alert.alert('이미 취소된 참여예요', '취소할 참여가 없어요. 최신 상태로 새로고침할게요.');
+          show({ message: '이미 취소된 참여예요 — 최신 상태로 새로고침할게요' });
           onBetChanged?.();
           break;
         // 카드를 그린 뒤 회차가 닫혔다(정산·마감) — 위 두 코드와 같은 **종결 상태**다.
@@ -798,7 +810,7 @@ export default function ChallengeCard({
         // 버튼이 스스로 사라지는 구조라 자연 재조회에 맡기지만, v2 예약/당일 취소는 버튼 노출이
         // 서버 스냅샷(nextSessionJoined·myLeaveDeadlineAt)에 묶여 있어 재조회가 유일한 해소다.
         case BET_NOT_OPEN:
-          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 날이에요.');
+          show({ message: '이미 정산됐거나 닫힌 날이라 참여 취소를 못 했어요', tone: 'error' });
           onBetChanged?.();
           break;
         default:
@@ -858,11 +870,12 @@ export default function ChallengeCard({
       switch (groupErrorCode(e)) {
         // 세 코드 모두 이 카드 상태로는 재시도해도 같은 결과다 — 사실만 알리고, 화면 정리는
         // 다음 자연 재조회에 맡긴다(버튼은 조건이 깨진 최신 응답이 오면 스스로 사라진다).
-        // 제목은 v2 경로(doLeaveToday·doLeaveNext)와 같은 문장이다 — 같은 행동을 되돌리는
-        // 실패인데 화면마다 다른 이름으로 부르면 유저는 다른 기능이라고 읽는다(N27).
+        // 문구는 v2 경로(doLeaveToday·doLeaveNext)와 같은 동사('참여 취소')를 쓴다 — 같은 행동을
+        // 되돌리는 실패인데 화면마다 다른 이름으로 부르면 유저는 다른 기능이라고 읽는다(N27).
         case BET_LEAVE_CLOSED:
-          Alert.alert('참여 취소를 못 했어요', '내기가 시작된 뒤에는 뺄 수 없어요.');
+          show({ message: '내기가 시작된 뒤라 참여 취소를 못 했어요', tone: 'error' });
           break;
+        // ❌ 유지 — '화면을 새로고침해 주세요'는 사용자 조치를 요구한다(정책 D19).
         case BET_NOT_JOINED:
           Alert.alert(
             '참여 취소를 못 했어요',
@@ -870,7 +883,7 @@ export default function ChallengeCard({
           );
           break;
         case BET_NOT_OPEN:
-          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 내기예요.');
+          show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
           Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
@@ -915,15 +928,15 @@ export default function ChallengeCard({
     } catch (e) {
       switch (groupErrorCode(e)) {
         // 재시도해도 같은 결과다 — 사실만 알리고 화면 정리는 다음 자연 재조회에 맡긴다(위와 동일).
-        // 제목은 참여를 무르는 다른 경로들과 같은 문장이다(N27).
+        // 취소 실패는 사유만 말한다 — 실패했다는 사실은 방금 누른 「참여 취소」 버튼 문맥이 준다.
         case BET_CANCEL_FORBIDDEN:
-          Alert.alert('참여 취소를 못 했어요', '내기를 연 사람만 취소할 수 있어요.');
+          show({ message: '내기를 연 사람만 취소할 수 있어요', tone: 'error' });
           break;
         case BET_CANCEL_HAS_OTHERS:
-          Alert.alert('참여 취소를 못 했어요', '다른 참가자가 있어 취소할 수 없어요.');
+          show({ message: '다른 참가자가 있어 취소할 수 없어요', tone: 'error' });
           break;
         case BET_NOT_OPEN:
-          Alert.alert('참여 취소를 못 했어요', '이미 정산됐거나 닫힌 내기예요.');
+          show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
           Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');

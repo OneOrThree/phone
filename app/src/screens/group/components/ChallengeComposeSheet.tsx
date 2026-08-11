@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Alert,
   Keyboard,
   Platform,
   StyleSheet,
@@ -22,6 +21,7 @@ import {
   groupErrorCode,
 } from '@/services/groupApi';
 import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
+import { useToast } from '@/store/ToastContext';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
 import { nowSecondsInZone } from '@/utils/challengeTime';
 import type {
@@ -144,7 +144,11 @@ const WINDOW_MIDNIGHT_CAPTION =
   '시간대는 하루 안에서 끝나야 해요. 자정 이후는 다음 날 챌린지로 만들어 주세요';
 
 // SCREEN_TIME 생성 후 미참여자가 있을 때의 안내 — 생성 자체는 성공이므로 실패로 보이게 쓰지 않는다.
-const NON_PARTICIPANT_MESSAGE = '일부 멤버는 스크린타임 권한이 없어 참여할 수 없어요';
+// 토스트는 한 줄(numberOfLines=2)이라 제목·본문을 나눌 수 없다 — 생성 결과와 미참여 사실을 한
+// 문장에 담되 2줄 안에 들어가게 줄였다(옛 Alert: '챌린지를 만들었어요' / '일부 멤버는 스크린타임
+// 권한이 없어 참여할 수 없어요').
+const CREATED_WITH_NON_PARTICIPANTS_MESSAGE =
+  '챌린지를 만들었어요 — 스크린타임 권한이 없는 멤버는 빠져요';
 
 // 이미 있는 조합을 고를 수 없는 이유 — 세그먼트 아래 한 줄로 알린다.
 const TAKEN_CAPTION = '이미 있는 종류·방식은 기존 챌린지를 삭제해야 다시 만들 수 있어요';
@@ -276,6 +280,8 @@ export default function ChallengeComposeSheet({
   onClose,
   onCreated,
 }: ChallengeComposeSheetProps) {
+  // 아래 키보드 이펙트가 이미 `show`(keyboardDidShow 구독)를 쓴다 — 이름을 겹치지 않게 받는다.
+  const { show: showToast } = useToast();
   const isTaken = (category: MissionCategory, type: MissionType): boolean =>
     existingCombos.some((c) => c.category === category && c.type === type);
   const categoryFullyTaken = (category: MissionCategory): boolean =>
@@ -510,11 +516,15 @@ export default function ChallengeComposeSheet({
           mission_category: missionCategory,
         });
       }
-      // 안내는 시트가 닫힌 뒤에도 남는 Alert로 띄운다 — 시트 안 문구로 두면 곧 사라진다.
-      if (nonParticipants.length > 0) {
-        Alert.alert('챌린지를 만들었어요', NON_PARTICIPANT_MESSAGE);
-      }
+      // 안내는 시트가 닫힌 뒤에도 남는 토스트로 띄운다 — 시트 안 문구로 두면 곧 사라진다.
+      // 선택지 없는 결과 통보라 확인 버튼이 필요 없다(정책 D8/D19 — docs/prd/motion-v2/policy.md,
+      // 상위 정본 병합 전까지 여기가 정본).
+      // ⚠️ 순서 주의 — 이 시트는 SheetShell asModal(RN Modal)이라 토스트가 그 **아래**에 깔린다
+      //    (Toast.tsx 헤더 주석). onCreated()로 먼저 닫고 나서 알린다.
       onCreated();
+      if (nonParticipants.length > 0) {
+        showToast({ message: CREATED_WITH_NON_PARTICIPANTS_MESSAGE, tone: 'success' });
+      }
     } catch (e) {
       // 실패했을 때만 잠금을 푼다 — 성공 경로는 onCreated가 시트를 닫으므로 잠긴 채 끝낸다.
       submitLock.current = false;

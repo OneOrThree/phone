@@ -95,6 +95,12 @@ jest.mock('@/store/CoinContext', () => ({
   }),
 }));
 
+// 선택지 없는 결과 통보는 토스트로 나간다(GROMO-1491 / 정책 D8·D19 —
+// docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본) — useToast는 Provider
+// 밖에서 throw하므로 훅 자체를 목으로 대체한다.
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
+
 const mockCreateBet = createBet as jest.MockedFunction<typeof createBet>;
 const mockJoinBet = joinBet as jest.MockedFunction<typeof joinBet>;
 const mockJoinSession = joinSession as jest.MockedFunction<typeof joinSession>;
@@ -1116,7 +1122,7 @@ describe('마감 후 내일 내기', () => {
   });
 
   // 클라 시계로는 아직 열려 있었는데 서버가 마감을 확정한 경합 — 실패 모달 대신 내일 날짜로
-  // 정확히 1회 재시도한다. 시트는 닫히므로 안내는 Alert로 세운다(계약 §3).
+  // 정확히 1회 재시도한다. 시트는 닫히므로 안내는 토스트로 세운다(계약 §3 · 정책 D8/D19).
   test('BET_CLOSED 경합 — 내일 날짜로 1회 재시도하고 성공하면 같은 안내를 알린다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockCreateBet.mockRejectedValueOnce(axiosErrorWith(409, 'BET_CLOSED'));
@@ -1126,11 +1132,16 @@ describe('마감 후 내일 내기', () => {
     expect(mockCreateBet).toHaveBeenCalledTimes(2);
     expect(mockCreateBet.mock.calls[0][2]).toEqual({ stake: 300, date: '2026-08-01' });
     expect(mockCreateBet.mock.calls[1][2]).toEqual({ stake: 300, date: '2026-08-02' });
-    expect(alertSpy).toHaveBeenCalledWith(
-      '내일 내기로 열었어요',
-      '오늘 시간대가 끝나 내일 시간대부터 적용돼요.',
-    );
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '오늘 시간대가 끝나 내일 내기로 열었어요',
+      tone: 'success',
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
     expect(onDone).toHaveBeenCalled();
+    // ⚠️ 시트는 RN Modal이라 토스트가 그 아래 깔린다 — 닫은 **뒤** 알려야 보인다.
+    expect(onDone.mock.invocationCallOrder[0]).toBeLessThan(
+      mockToastShow.mock.invocationCallOrder[0],
+    );
     // 재시도 성공도 실제 개설이다 — 계측이 발행된다.
     expect(logGroupBetCreated).toHaveBeenCalledWith({
       stake: 300,

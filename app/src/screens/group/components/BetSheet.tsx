@@ -28,6 +28,7 @@ import {
 } from '@/services/groupApi';
 import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
+import { useToast } from '@/store/ToastContext';
 import { useUser } from '@/store/UserContext';
 // KST 고정 버전을 쓴다 — bet_date는 서버가 KST로 판정하므로(계약 §1·§3) 기기 로컬 날짜를
 // 보내면 비KST 기기에서 하루 어긋난다. 창 종료 판정(nowSecondsInZone('Asia/Seoul'))과 같은 축.
@@ -92,11 +93,12 @@ const STAKE_DEFAULT = STAKE_OPTIONS[0];
 const STAKE_RANGE_CAPTION = '참가비는 1~3,000코인 사이로 입력해 주세요';
 
 // 시간대 마감 후 내일 적용(계약 §3, GROMO-1103) — 실패 모달 대신 처음부터 내일 내기로 연다.
-// 시트 안 안내(열 때 이미 마감을 안 경우)와 Alert(경합 재시도로 내일 내기가 된 경우 — 시트가
-// 닫히므로 인라인 자리가 없다)가 같은 문장을 쓴다.
+// 시트 안 안내(열 때 이미 마감을 안 경우)와 토스트(경합 재시도로 내일 내기가 된 경우 — 시트가
+// 닫히므로 인라인 자리가 없다)가 같은 사실을 말한다.
 const TOMORROW_NOTE = '오늘 시간대가 끝나 내일 시간대부터 적용돼요';
-const TOMORROW_ALERT_TITLE = '내일 내기로 열었어요';
-const TOMORROW_ALERT_BODY = '오늘 시간대가 끝나 내일 시간대부터 적용돼요.';
+// 토스트는 한 줄(numberOfLines=2)이라 제목·본문을 나눌 수 없다 — 개설 결과와 그 이유를
+// 한 문장에 담는다(옛 Alert: '내일 내기로 열었어요' / '오늘 시간대가 끝나 내일 시간대부터 적용돼요.').
+const TOMORROW_TOAST_MESSAGE = '오늘 시간대가 끝나 내일 내기로 열었어요';
 
 // 몰수 룰(계약 확정 정책) — 승자 0명이면 환불이 아니라 **전액 소멸**이다. 돈이 걸리는 자리라
 // 개설·참가 양쪽 모두에서 고지한다(구 문구 '전액 환불돼요'는 V19 룰 — 그대로 두면 거짓말이 된다).
@@ -175,6 +177,7 @@ export default function BetSheet({
 }: BetSheetProps) {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
+  const { show } = useToast();
   // SCREEN_TIME의 차단 판정(이미 목표 초과)은 부모가 내려주지 않아 — myAchieved prop은 FOCUS
   // 의미(이미 달성)로 이미 배선돼 있고 부모(GroupRoomScreen)는 A3 전유다 — 내 진행 행을
   // 시트가 직접 읽는다. 카드의 myBlockedNow와 같은 근거·같은 3상 규칙이다.
@@ -362,14 +365,17 @@ export default function BetSheet({
       onDone();
     } catch (e) {
       // 경합·마감 직후 대비(계약 §3): 오늘 날짜로 보냈는데 그 사이 창이 닫혔다면(BET_CLOSED)
-      // 내일 날짜로 정확히 1회 재시도한다. 성공하면 같은 '내일 적용' 안내를 Alert로 세운다 —
-      // 시트는 곧 닫히므로 인라인 안내는 설 자리가 없다.
+      // 내일 날짜로 정확히 1회 재시도한다. 성공하면 같은 '내일 적용' 안내를 토스트로 세운다 —
+      // 시트는 곧 닫히므로 인라인 안내는 설 자리가 없다(선택지 없는 결과 통보라 정책 D8/D19 —
+      // docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
       if (isCreate && isWindowChallenge && !betForTomorrow && groupErrorCode(e) === 'BET_CLOSED') {
         try {
           await requestCreate(tomorrowStrKst());
           refresh();
-          Alert.alert(TOMORROW_ALERT_TITLE, TOMORROW_ALERT_BODY);
+          // ⚠️ 순서 주의 — 이 시트는 SheetShell asModal(RN Modal)이라 토스트가 그 **아래**에
+          //    깔린다(Toast.tsx 헤더 주석). onDone()으로 먼저 닫고 나서 알린다.
           onDone();
+          show({ message: TOMORROW_TOAST_MESSAGE, tone: 'success' });
           return;
         } catch (retryError) {
           // 재시도 실패는 원래 에러 분기로 보낸다 — 내일 날짜를 모르는 구서버는 BET_CLOSED를

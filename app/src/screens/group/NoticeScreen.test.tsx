@@ -46,6 +46,12 @@ jest.mock('@react-navigation/native', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({ logGroupTabViewed: jest.fn() }));
 
+// 조치가 필요 없는 실패 통보는 tone:'error' 토스트로 나간다(GROMO-1491 / 정책 D19 —
+// docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본) — useToast는 Provider
+// 밖에서 throw하므로 훅 자체를 목으로 대체한다.
+const mockToastShow = jest.fn();
+jest.mock('@/store/ToastContext', () => ({ useToast: () => ({ show: mockToastShow }) }));
+
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   getAnnouncements: jest.fn(),
@@ -143,7 +149,13 @@ describe('수정 대상이 사라진 경우', () => {
     // 시트에 문구만 남기고 끝내면 사라진 카드가 목록에 그대로 남는다 — 닫고 재조회한다.
     await waitFor(() => expect(mockGetAnnouncements).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('공지 수정')).toBeNull();
-    expect(Alert.alert).toHaveBeenLastCalledWith('공지 수정 실패', '이미 삭제된 공지예요.');
+    // 종결 통보(조치 없음)라 확인 Alert가 아니라 tone:'error' 토스트다(GROMO-1491 / D19).
+    expect(mockToastShow).toHaveBeenCalledWith({
+      message: '이미 삭제된 공지라 수정할 수 없어요',
+      tone: 'error',
+    });
+    // 이 흐름의 유일한 Alert는 카드 롱프레스 메뉴다 — 실패 통보 Alert가 추가로 뜨지 않는다.
+    expect(Alert.alert).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('등록된 공지가 없어요')).toBeOnTheScreen();
   });
 
