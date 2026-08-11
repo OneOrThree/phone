@@ -54,11 +54,12 @@ export function todayOverlapSeconds(startISO: string, endISO: string): number {
 }
 
 // ── KST(Asia/Seoul) 고정 버전 ──────────────────────────────────────────
-// ⚠️ **이 계열은 '서버 축'의 근사치다** (docs/date-axis.md §2, GROMO-1254). 서버 축의 정의는
-// 서버가 프로필로 내려주는 존(utils/serverZone)이고, 이 계열은 그 존이 Asia/Seoul일 때(=KR
-// 계정·프로필 미수신 폴백) 정확히 같은 값이 된다. 두 표현이 갈리는 경우는 정의상 서버 버킷이
-// KST가 아닌 경우라 이 계열이 틀린 쪽이다. **새로 만드는 서버 결합 지점은 serverZone을 쓴다.**
-// 기존 사용처의 일괄 이전은 후속 과제(문서 §6 G1) — 한 체인 안에서 두 표현을 섞지는 말 것.
+// ✅ **이 계열이 '서버 축'의 정확한 표현이다** (docs/date-axis.md §2). 서버는 판정·저장·조회의
+// 날짜 버킷이 전부 KST 고정이다 — 정본은 백엔드 ZonePolicy.KST 상수 하나이고, GROMO-1259가
+// country_code 파생 존(CountryZoneResolver)을 **폐지**하면서 저장축까지 KST로 통일했다.
+// 해외 유저가 "내 하루"와 어긋나는 것은 수용된 한계다(챌린지 정책 L5 — 한국 타깃 서비스).
+// **서버 결합 지점은 이 계열을 쓴다.** utils/serverZone은 1259 이전 잔재라 새로 쓰지 않는다
+// (서버가 상수를 내려주므로 얻는 것이 없고, 낡은 프로필 캐시라는 오염 경로만 남는다 — 문서 §6 G1).
 //
 // 서버는 내기·챌린지·창 사용분 보고의 날짜 판정이 전부 KST 고정이다(내기 계약 §1·§3) — 기기
 // 로컬 날짜를 보내면 비KST 기기에서 하루 어긋난 날짜로 나가 BET_CLOSED·오귀속을 맞는다.
@@ -71,10 +72,10 @@ export function todayOverlapSeconds(startISO: string, endISO: string): number {
 // 남은 todayStr(로컬) 사용처는 두 부류뿐이다: ① 진짜 코스메틱(공유 파일명·dev fixture —
 // 서버로 안 나가고 데이터와 비교되지 않는 값) ② 측정/저장(dayChange·FocusContext·
 // SubjectContext 등 — 기기 로컬이 정본 축).
-// 알려진 한계: 서버 버킷 존은 country_code 파생(CountryZoneResolver)이라 country_code가 KR이
-// 아닌 유저는 서버 버킷이 KST가 아닐 수 있다. 이 계열을 쓰는 기존 사용처는 그 구간에서 하루
-// 어긋난다 — 종전 주석의 "완전 해소는 서버 존 협상 필요"는 GROMO-1252에서 해소됐고
-// (서버가 프로필로 timeZone을 내려준다) 남은 것은 사용처 이전뿐이다(docs/date-axis.md §6 G1).
+// 종전 주석의 "서버 버킷 존은 country_code 파생이라 KR이 아닌 유저는 KST가 아닐 수 있다"는
+// **더는 사실이 아니다** — GROMO-1259가 리졸버를 제거하고 서버 저장축을 KST로 고정했다.
+// 남은 어긋남은 서버 축이 아니라 **기기 축**이다: 비KST 기기의 사용자 체감 하루가 앱의 하루와
+// 다르다(수용 한계 L5). 그래서 로컬 누적을 서버 집계와 합칠 때는 kstLocalSameDay 게이트를 쓴다.
 // Intl 미지원/오류 시 로컬 폴백 — challengeTime.nowSecondsInZone과 같은 관례다.
 // 날짜 이동은 setDate가 아니라 절대 ms 가산이다: Date는 절대 시각이라 +86_400_000ms 후를 KST로
 // 포맷하면 정확히 KST 다음 날이 된다(KST는 DST가 없다).

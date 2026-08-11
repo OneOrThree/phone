@@ -25,14 +25,13 @@ import {
   yesterdayStr,
   localDateStr,
   yesterdayStrKst,
-  zoneDateStr,
+  kstDateStr,
 } from '@/utils/localDate';
-import { getServerZone } from '@/utils/serverZone';
 import { timeStrToSeconds } from '@/utils/challengeTime';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
 // 올려 daily_screen_time_stats(통계 화면 폰 사용량 지표의 소스)를 채운다.
-// 서버는 (user, reportedAt의 유저 타임존 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
+// 서버는 (user, reportedAt의 KST 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
 //
 // 달성 여부 프로토콜:
 //  - 당일 중간 동기화는 goalAchieved=false 고정. 스크린타임 달성(목표 '이내')은 하루가 끝나야
@@ -42,10 +41,12 @@ import { timeStrToSeconds } from '@/utils/challengeTime';
 //    Monitor는 앱과 무관하게 돌므로 어제 앱을 안 열었어도 마감되며, 처리한 날짜를 계정 스코프로
 //    마킹해 같은 날짜 중복 전송을 막는다. 서버가 null 분값을 0으로 덮어쓰므로 분값은 반드시 함께 보낸다.
 //
-// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 서버는 reportedAt을 유저 타임존
-// (country_code 파생, 미설정 시 UTC 폴백)의 날짜로 환산하는데 현재 앱은 countryCode를 보내지
-// 않아 UTC 폴백 유저가 존재한다. 정오 instant는 기기 오프셋 UTC-11~+12 범위에서 UTC로 환산해도
-// 같은 날짜라, 자정 경계(예: KST 아침 = UTC 전날 밤)의 날짜 오귀속을 막는다.
+// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 이 모듈의 측정 축은 로컬(익스텐션이
+// 로컬 하루로 버킷을 자른다)인데 서버 저장 축은 KST 고정이라(back ZonePolicy.KST, GROMO-1259 —
+// 종전 주석의 'country_code 파생 존·UTC 폴백'은 그때 폐지됐다), 두 축을 잇는 값이 필요하다.
+// 정오를 쓰는 이유: 기기 오프셋 UTC-11~+12 범위에서는 로컬 정오를 KST로 환산해도 같은 날짜라,
+// 자정 경계(예: 로컬 아침 = KST 전날 밤)의 날짜 오귀속을 막는다. 그 범위 밖은 인접 버킷에
+// 앉는다 — 수용된 한계(docs/date-axis.md §6 G2).
 
 // 마지막 성공 동기화 상태 — 어제분 마감(분값 보존)과 무변화 스킵 판단에 쓴다.
 // 디바이스 전역 키라 계정을 함께 기록해 다른 계정의 기록에 오염되지 않게 한다.
@@ -146,11 +147,16 @@ function localNoonInstant(dateStr: string): string {
 
 // 로컬 측정일('YYYY-MM-DD') → 그 날의 보고가 서버에서 앉는 **날짜 버킷**(GROMO-1254).
 // 이 모듈의 측정·마감 축은 로컬(익스텐션 gregorianDayString)이지만, 서버는 우리가 보낸
-// reportedAt(= localNoonInstant) instant를 유저 존(프로필 timeZone — utils/serverZone)으로 잘라
-// 버킷을 정한다. 그래서 "서버 heatmap에서 이 측정일을 찾으려면 무슨 키인가"는 두 축의 합성이다.
-// 서버 존을 모르는 구간(프로필 미수신)의 폴백은 Asia/Seoul — 서버 CountryZoneResolver 폴백과 같다.
-function serverBucketDateOf(localDayKey: string): string {
-  return zoneDateStr(new Date(localNoonInstant(localDayKey)), getServerZone());
+// reportedAt(= localNoonInstant) instant를 **KST 고정**으로 잘라 버킷을 정한다
+// (back ZonePolicy.KST — GROMO-1259가 country_code 파생 존을 폐지하고 저장·조회 축을 KST로 통일).
+// 그래서 "서버 heatmap에서 이 측정일을 찾으려면 무슨 키인가"는 두 축의 합성이다.
+//
+// ⚠️ 존을 utils/serverZone(getServerZone)에서 읽지 않는다 — 그건 프로필 응답 캐시라
+// 1259 이전에 저장된 값(예: Europe/London)이 남아 있고 콜드 스타트의 프로필 갱신이 실패하면
+// 계속 그 과거 값을 돌려준다. 그 상태로 커서를 잡으면 스트릭이 엉뚱한 셀에서 시작해 1일로
+// 끊긴다 — 이 함수가 고치려던 결함이 다른 원인으로 재현된다(codex pre-PR 게이트 P2).
+function kstBucketDateOf(localDayKey: string): string {
+  return kstDateStr(new Date(localNoonInstant(localDayKey)));
 }
 
 async function readSyncState(userId: string): Promise<ScreenTimeSyncState | null> {
@@ -202,9 +208,9 @@ async function writeClosedDate(userId: string, date: string): Promise<void> {
 //     트리거하는 것도 로컬 자정 넘김(closedDate !== yesterdayStr())이다. 집중 목표 축하가
 //     KST로 간 이유(goalCelebration — 달성 판정이 **서버** KST 버킷)가 여기엔 성립하지 않는다.
 //     소비 측(HomeScreen p.date · screentimeLastRewardedDate)도 같은 로컬 축이라 체인이 온전하다.
-//  ② 연속 달성일 카운트 = **서버 버킷 축**. 이건 서버 heatmap 셀을 뒤로 세는 데이터 결합
-//     계산이라 커서·조회 창이 셀과 같은 축이어야 한다. 종전엔 로컬 측정일에서 그대로 후진해,
-//     서버 존과 기기 존이 갈린 유저는 존재하는 셀을 못 찾아 스트릭이 매번 1일로 리셋됐다.
+//  ② 연속 달성일 카운트 = **서버 버킷 축(= KST 고정, back ZonePolicy.KST)**. 이건 서버 heatmap
+//     셀을 뒤로 세는 데이터 결합 계산이라 커서·조회 창이 셀과 같은 축이어야 한다. 종전엔 로컬
+//     측정일에서 그대로 후진해, 비KST 기기는 존재하는 셀을 못 찾아 스트릭이 매번 1일로 리셋됐다.
 async function scheduleYesterdayScreenTimeCelebration(
   achievedDate: string,
   goalMinutes?: number,
@@ -216,11 +222,11 @@ async function scheduleYesterdayScreenTimeCelebration(
 
   // achievedDate(어제)는 달성 확정 → 1일. 그 전날부터 60일 창을 넓혀가며 연속 달성일을 센다.
   // ② 커서의 출발점은 로컬 측정일이 아니라 **그 보고가 서버에서 앉는 셀**이다 — 우리가 방금
-  // saveScreenTime으로 올린 instant(localNoonInstant(achievedDate))를 서버 존으로 자른 값.
+  // saveScreenTime으로 올린 instant(localNoonInstant(achievedDate))를 KST로 자른 값.
   // 이후 산술은 이 문자열에 대한 순수 달력 산술이라, 아래 localDateStr는 존 변환이 아니라
   // parts 생성자로 만든 달력 Date의 포매팅이다(stats/format.heatmapRange와 같은 관례).
   let days = 1;
-  const [ay, am, ad] = serverBucketDateOf(achievedDate).split('-').map(Number);
+  const [ay, am, ad] = kstBucketDateOf(achievedDate).split('-').map(Number);
   const cursor = new Date(ay, am - 1, ad);
   cursor.setDate(cursor.getDate() - 1);
   const CHUNK_DAYS = 60;

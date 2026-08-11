@@ -1,16 +1,20 @@
 # 날짜 축(date axis) 규약
 
 앱이 "오늘"이라고 부르는 날짜에는 **축이 세 개** 있다. 어떤 값을 어느 축에서 뽑느냐를
-틀리면 비KST 기기·비KR 계정에서 **하루씩 어긋난 화면**이 나온다 — 오늘 칸을 비켜 찍힌 마커,
+틀리면 **비KST 기기**에서 하루씩 어긋난 화면이 나온다 — 오늘 칸을 비켜 찍힌 마커,
 빈 캘린더, 두 번 뜨는 축하 모달, 매번 1일로 리셋되는 연속 달성일.
 
-이 문서가 **정본**이다. 종전엔 `app/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
+이 문서가 **앱 쪽 정본**이다. 종전엔 `app/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
 분류표는 PR #531 본문에만 있어 저장소 어디에도 없었다(GROMO-1236 → GROMO-1254).
 날짜 축은 stats·focus·group·league·screentime 을 가로지르므로 `docs/prd/<기능>/` 에 담을 수
 없다 — `docs/README.md` 의 "기능 문서가 아닌 팀 전체 규약은 `docs/` 최상위" 규정을 따른다.
 
-관련 티켓: GROMO-1219(내기·챌린지 KST) → GROMO-1236(전수 1차 이전) →
-GROMO-1252(서버 존 도입) → **GROMO-1254(전수 감사·정본화)**.
+> **서버 축 자체의 정본은 백엔드 `back/src/main/java/com/oneorthree/phone/common/util/ZonePolicy.java`
+> 다**(§2). 앱 문서·주석과 어긋나면 그쪽이 맞다.
+
+관련 티켓: GROMO-1219(내기·챌린지 KST) → GROMO-1236(앱 전수 1차 이전) →
+GROMO-1252(서버 존 문자열 도입) → **GROMO-1259(서버 저장축까지 KST 고정·리졸버 제거)** →
+**GROMO-1254(앱 전수 감사·정본화)**.
 
 ---
 
@@ -44,48 +48,65 @@ GROMO-1252(서버 존 도입) → **GROMO-1254(전수 감사·정본화)**.
 
 ---
 
-## 2. "서버 축"이란 무엇인가 — KST 하드코딩 vs serverZone
+## 2. "서버 축"이란 무엇인가 — **KST 고정이다**
 
-**서버는 `country_code` 에서 존을 파생해 날짜 버킷을 자른다**(`CountryZoneResolver` —
-KR/JP/GB 매핑 + `Asia/Seoul` 폴백). 앱은 그 존을 두 가지 방식으로 표현한다:
+> **서버의 판정·저장·조회 날짜 버킷은 전부 KST(`Asia/Seoul`) 고정이다.**
+> 정본은 백엔드 `common/util/ZonePolicy.java` 의 `ZonePolicy.KST` 한 상수다.
 
-| 표현 | 유틸 | 도입 |
-| --- | --- | --- |
-| **KST 하드코딩** | `todayStrKst()` · `tomorrowStrKst()` · `yesterdayStrKst()` · `kstDateStr()` · `kstTodayDate()` · `kstLocalSameDay()` | GROMO-1219 / 1236 |
-| **서버가 내려준 존** | `serverTodayStr()` · `serverZoneAlignedWithLocal()` (`utils/serverZone.ts`, `GET /users/me → timeZone`) | GROMO-1252 |
+```java
+/** 모든 날짜 버킷·판정의 단일 기준 존. */
+public static final ZoneId KST = ZoneId.of("Asia/Seoul");
+```
+
+`GROMO-1259` 가 이렇게 통일했다. 종전엔 통계 **저장** 일자만 유저 `country_code` 파생 존
+(`CountryZoneResolver`, GROMO-561)으로 갈렸는데, 챌린지 판정·카드·정산은 처음부터 KST 고정이라
+저장축이 갈리면 판정 경로와 저장 버킷이 어긋났다(챌린지 정책 B3 — 구 D6 갭.
+**JP 가 UTC+9 라 우연히 무해해 드러나지 않았다**). 그래서 저장축까지 KST 로 통일하고
+**리졸버를 제거했다.** 지금 `back/` 에 `CountryZoneResolver` 클래스는 존재하지 않는다.
+
+수용된 한계 **L5**: 해외 유저는 "내 하루"와 앱의 하루가 어긋난다 — 한국 타깃 서비스라 수용
+(`docs/prd/challenge/prd.md` L5 · `policy.md` B3).
 
 ### 판정 (GROMO-1254)
 
-> **`serverZone` 이 서버 축의 정의다. `todayStrKst()` 계열은 그것의 근사치이며,
-> 폴백 존이 `Asia/Seoul` 이라 KR 계정에서는 정확히 같은 값이다.**
+> **`todayStrKst()` 계열이 서버 축의 정확한 표현이다.**
+> **`utils/serverZone.ts` 계열은 1259 이전 세계관의 잔재다.**
 
-근거:
+| 표현 | 유틸 | 위상 |
+| --- | --- | --- |
+| **KST 고정** | `todayStrKst()` · `tomorrowStrKst()` · `yesterdayStrKst()` · `kstDateStr()` · `kstTodayDate()` · `kstLocalSameDay()` | ✅ **정확** — 서버 `ZonePolicy.KST` 와 정의상 같다 |
+| 서버가 내려준 존 | `serverTodayStr()` · `serverZoneAlignedWithLocal()` (`utils/serverZone.ts`) | ⚠️ **잔재** — 아래 참고 |
 
-1. **두 축은 `serverZone !== 'Asia/Seoul'` 일 때만 갈린다.** 그리고 그 경우는 정의상
-   **서버 버킷이 KST가 아닌** 경우다 — 즉 갈리는 순간 KST 쪽이 틀렸다는 뜻이다.
-   `serverZone ≥ KST` 가 모든 지점에서 성립하고, 갈리는 곳에서는 **엄격히 더 정확하다.**
-2. **1236 이 KST 하드코딩을 고른 이유가 이미 해소됐다.** 당시 주석은 *"완전 해소는 서버 존
-   협상 필요"* 라고 적었는데, GROMO-1252 가 그 협상을 마쳤다(서버가 프로필로 `timeZone` 을
-   내려준다). 존 매핑을 앱이 복제하지 않고 받은 문자열을 그대로 쓴다.
-3. **폴백이 서버와 같다.** 프로필 미수신 구간(온보딩 첫 세션·오프라인 첫 실행·구버전 서버)의
-   `serverZone` 폴백은 `Asia/Seoul` 이고, 서버도 `country_code` 가 null 이면 같은 폴백을 쓴다.
-   그 구간에서도 축이 일치한다.
+`GET /users/me → timeZone` 은 **GROMO-1259 부터 항상 `ZonePolicy.KST.getId()`**, 즉 상수
+`"Asia/Seoul"` 을 돌려준다(`UserProfileResponse` javadoc · `UserService:311` 확인). 그러니
+`serverZone` 은 *살아 있는 서버에 대해서는* 틀리지 않는다 — 상수를 한 바퀴 돌려받을 뿐이다.
+
+**문제는 그게 캐시라는 점이다.** `getServerZone()` 이 `Asia/Seoul` 이 아닌 값을 돌려주는
+경로는 하나뿐이고, 그건 전부 오염이다:
+
+- `App.tsx:177` 이 캐시된 프로필(`gromo:user`)로 **먼저** 존을 세운다
+- 그 캐시가 **1259 배포 이전**에 저장됐으면 `Europe/London` 같은 값이 들어 있다
+- 콜드 스타트의 `getMyProfile()` 이 실패(오프라인)하면 그 과거 값이 **세션 내내 유지된다**
+
+즉 `serverZone` 은 이제 **정확도를 더해 주지 않고, 낡은 캐시라는 오염 경로만 남긴다.**
+GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여기 걸렸다 — 앵커를
+`getServerZone()` 으로 잘랐더니 낡은 캐시에서 커서가 엉뚱한 셀에 앉아,
+고치려던 "스트릭이 1일로 끊김"이 **다른 원인으로 재현**됐다(codex pre-PR 게이트 P2).
 
 ### 그래서 지금 무엇을 쓰는가
 
-- **새로 고치는 서버 결합 지점**은 `serverZone` 을 쓴다. 이미 손대는 줄에 알려진 근사치를
-  새로 박아 넣지 않는다.
-- **기존 `todayStrKst()` 함대는 이번 티켓에서 옮기지 않는다.** 모든 `*Api.ts` 의 `date`
-  기본값 + 통계 그리드 앵커(`kstTodayDate`)를 한꺼번에 갈아엎는 대형 변경이고,
-  `serverZone` 은 프로필 수신 시점에 따라 값이 변하는 **모듈 전역 가변 상태**라
-  기본 인자에서 부르는 것과 렌더 중 부르는 것의 타이밍 계약을 따로 검토해야 한다.
-  → **후속 티켓 후보**(§6).
+- **서버 결합 지점은 KST 계열(`todayStrKst()` · `kstDateStr()` · `kstTodayDate()`)을 쓴다.**
+  새 지점도, 고치는 지점도 마찬가지다.
+- **`getServerZone()` 을 새로 끌어다 쓰지 않는다.** 서버가 상수를 내려주므로 얻는 것이 없고,
+  낡은 캐시 오염만 받는다.
 - **절대 하지 말 것: 한 체인 안에서 두 표현을 섞는 것.** 같은 체인의 발행·조회·비교가
   `todayStrKst()` 와 `serverTodayStr()` 로 갈리면 **세 번째 축**이 생긴다.
 
-현재 `serverZone` 축에 있는 지점: `focusRestore.todayRestoreSeconds` ·
-`sessionSaveVerdict.isTodayVerdict` · `blockToday`(서버 키 맵) ·
-`screentimeSync.serverBucketDateOf`(연속 달성일 앵커).
+> ⚠️ **이 절은 한 번 반대로 쓰였다.** GROMO-1254 초안은 *"`serverZone` 이 서버 축의 정의이고
+> `todayStrKst` 는 근사치"* 라고 판정했는데, 근거로 삼은 `CountryZoneResolver` 는 **1259 에서
+> 이미 삭제된 클래스**였다. 1252(serverZone 도입)보다 **1259 가 나중**이다.
+> 앱 주석만 읽고 서버 정본을 확인하지 않으면 같은 실수를 반복한다 —
+> **축 판정의 정본은 `back/.../ZonePolicy.java` 다.**
 
 ---
 
@@ -100,16 +121,19 @@ KR/JP/GB 매핑 + `Asia/Seoul` 폴백). 앱은 그 존을 두 가지 방식으�
 | `todayOverlapSeconds(startISO, endISO)` | 로컬 | 자정 걸친 세션의 '오늘 몫' 초 |
 | `zoneDateStr(date, tz)` | 임의 존 | `Date → 지정 IANA 존의 'YYYY-MM-DD'`. 존 미지원·Intl 오류면 로컬 폴백 |
 | `zoneSameWallClock(tz, date?)` | — | 그 존과 기기 로컬의 **자정 경계가 겹치는가** (날짜 라벨이 아니라 '날짜+시:분' 비교) |
-| `todayStrKst()` · `tomorrowStrKst()` · `yesterdayStrKst()` · `kstDateStr(date)` | KST | 서버 축(근사) |
+| `todayStrKst()` · `tomorrowStrKst()` · `yesterdayStrKst()` · `kstDateStr(date)` | KST | **서버 축**(§2) |
 | `kstLocalSameDay()` | — | 기기가 지금 UTC+9 인가 — 로컬 누적을 서버 KST 집계와 합쳐도 되는지의 게이트 |
 
-### `app/src/utils/serverZone.ts` (GROMO-1252)
+### `app/src/utils/serverZone.ts` (GROMO-1252) — ⚠️ 1259 이전 잔재
+
+서버가 `timeZone` 으로 **상수 `Asia/Seoul`** 만 내려주므로(§2) 이 계열은 더 이상 정확도를
+더하지 않는다. **새 코드에서 쓰지 않는다.** 기존 소비처 3곳의 위상은 §6 G1 참고.
 
 | 함수 | 용도 |
 | --- | --- |
-| `setServerZone(zone)` / `resetServerZone()` / `getServerZone()` | 프로필 응답·캐시에서 받은 존 보관. 로그아웃·계정 전환 시 폴백으로 리셋 |
-| `serverTodayStr()` | 서버 존 기준 오늘 |
-| `serverZoneAlignedWithLocal()` | 서버 버킷 경계와 로컬 하루 경계가 지금 겹치는가 |
+| `setServerZone(zone)` / `resetServerZone()` / `getServerZone()` | 프로필 응답·**캐시**에서 받은 존 보관. 로그아웃·계정 전환 시 폴백(`Asia/Seoul`)으로 리셋 |
+| `serverTodayStr()` | 보관된 존 기준 오늘 |
+| `serverZoneAlignedWithLocal()` | 보관된 존의 하루 경계와 로컬 하루 경계가 지금 겹치는가 |
 
 ### `app/src/screens/stats/format.ts` (통계 그리드 앵커)
 
@@ -166,10 +190,10 @@ KR/JP/GB 매핑 + `Asia/Seoul` 폴백). 앱은 그 존을 두 가지 방식으�
 | `stats/CalendarCard.tsx:72,143` · `charts.tsx:301` · `MonthWeeklyChart.tsx:37,44` · `LongestSessionStat.tsx:34` · `WeeklyTimetableCard.tsx:123` | `kstTodayDate()` / `todayStrKst()` | KST | 〃 |
 | `StatsScreen.tsx:134` | `kstTodayDate()` | KST | 표시 월 라벨이 그리드와 같은 축 |
 | **`league/components/DuoDayChart.tsx:38`** | **`kstTodayWeekdayIndex()`** | **KST** | **GROMO-1254 수정.** 배열이 `heatmapRange('WEEK')`(KST) 셀을 요일별로 접은 값인데 마커만 로컬 요일이었다 |
-| **`services/screentimeSync.ts` 연속 달성일 커서·조회 창** | **`serverBucketDateOf()`** | **serverZone** | **GROMO-1254 수정.** 서버 heatmap 셀을 뒤로 세는 계산인데 로컬 측정일에서 후진했다 |
-| `focus/focusRestore.ts:64-65` | `serverTodayStr()` + `serverZoneAlignedWithLocal()` | serverZone | 서버 `focusSecondsByDate` 인덱싱 (GROMO-1252) |
-| `focus/sessionSaveVerdict.ts:29` | `serverTodayStr()` | serverZone | 서버가 귀속시킨 날짜와 비교 |
-| `focus/blockToday.ts:65` | `zoneDateStr(ms, zone)` | serverZone | 서버 키 맵 |
+| **`services/screentimeSync.ts` 연속 달성일 커서·조회 창** | **`kstBucketDateOf()`** | **KST** | **GROMO-1254 수정.** 서버 heatmap 셀을 뒤로 세는 계산인데 로컬 측정일에서 후진했다 |
+| `focus/focusRestore.ts:64-65` | `serverTodayStr()` + `serverZoneAlignedWithLocal()` | serverZone ⚠️ | 서버 `focusSecondsByDate` 인덱싱 (GROMO-1252). **1259 이후 사실상 KST** — §6 G1 |
+| `focus/sessionSaveVerdict.ts:29` | `serverTodayStr()` | serverZone ⚠️ | 서버가 귀속시킨 날짜와 비교. 〃 |
+| `focus/blockToday.ts:65` | `zoneDateStr(ms, getServerZone())` | serverZone ⚠️ | 서버 키 맵. 〃 |
 
 ### ② 측정 / 저장 — 기기 로컬 (정본)
 
@@ -274,6 +298,7 @@ jest.mock('@/utils/localDate', () => ({
 
 | # | 내용 |
 | --- | --- |
-| G1 | **`todayStrKst()` 함대의 `serverZone` 이전** — 모든 `*Api.ts` 의 `date` 기본값 + 통계 그리드 앵커(`kstTodayDate`). §2 판정상 옳은 방향이지만 대형 변경이라 GROMO-1254 범위 밖. `serverZone` 이 가변 모듈 전역이라 **기본 인자 평가 시점**(프로필 수신 전/후) 계약을 함께 정해야 한다 |
-| G2 | `screentimeSync` 의 `reportedAt = localNoonInstant(어제)` — 로컬 정오는 오프셋 −11~+12 에서만 같은 날짜다. 서버 존 차이가 12h 를 넘으면 보고가 인접 버킷에 앉는다. GROMO-1254 는 그 사실을 **인정하고**(`serverBucketDateOf` 가 같은 instant 를 서버 존으로 잘라 연속 달성일 앵커를 맞춘다) 보고 instant 자체는 건드리지 않았다 |
-| G3 | `screentimeSync` 스크린타임 축하의 **판정 축(로컬)과 표시 데이터 축(서버)** 이 구조적으로 다르다 — 로컬로 마감한 어제가 서버에서는 다른 셀에 앉을 수 있다. 서버가 클라 판정(`achieved`)을 신뢰하는 현 프로토콜에서는 값이 어긋나지 않지만, 서버가 자체 판정으로 바뀌면 재검토가 필요하다 |
+| **G1** | **`utils/serverZone.ts` 소비처 3곳을 KST 로 되돌리기** — `focusRestore.todayRestoreSeconds` · `sessionSaveVerdict.isTodayVerdict` · `blockToday`(서버 키 맵). §2 판정상 `serverZone` 은 상수를 돌려받는 우회로일 뿐이고 **낡은 캐시 오염 경로**만 추가한다. 되돌리면 `serverTodayStr()`→`todayStrKst()`, `serverZoneAlignedWithLocal()`→`kstLocalSameDay()`, `zoneDateStr(ms, getServerZone())`→`kstDateStr(ms)` 이고 `serverZone.ts` 와 `App.tsx`·`auth.ts`·`userApi.ts` 의 배선까지 제거 가능하다. **이 티켓 범위 밖 — 판정만 기록한다.** ⚠️ 되돌리기 전에 확인할 것: 서버 `UserProfileResponse.timeZone` 이 계속 상수인가(향후 유저별 존이 부활하면 이 판정이 다시 뒤집힌다), 그리고 `blockToday` 의 local/server 이중 맵이 두 축을 모두 필요로 하는지 |
+| ~~G1(폐기)~~ | ~~`todayStrKst()` 함대의 `serverZone` 이전~~ — GROMO-1254 초안의 판정이었으나 **전제가 틀렸다**(`CountryZoneResolver` 는 1259 에서 삭제됨). 방향이 정반대다 → 위 G1 |
+| G2 | `screentimeSync` 의 `reportedAt = localNoonInstant(어제)` — 로컬 정오는 기기 오프셋 −11~+12 에서만 KST 와 같은 날짜다. 그 밖(예: UTC−12 · UTC+13)에서는 보고가 인접 KST 버킷에 앉는다. GROMO-1254 는 그 사실을 **인정하고**(`kstBucketDateOf` 가 같은 instant 를 KST 로 잘라 연속 달성일 앵커를 맞춘다) 보고 instant 자체는 건드리지 않았다 |
+| G3 | `screentimeSync` 스크린타임 축하의 **판정 축(로컬)과 표시 데이터 축(KST)** 이 구조적으로 다르다 — 로컬로 마감한 어제가 서버에서는 다른 셀에 앉을 수 있다(L5 의 앱 쪽 그림자). 서버가 클라 판정(`achieved`)을 신뢰하는 현 프로토콜에서는 값이 어긋나지 않지만, 서버가 자체 판정으로 바뀌면 재검토가 필요하다 |
