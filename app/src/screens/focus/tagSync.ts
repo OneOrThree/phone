@@ -14,7 +14,7 @@ async function refreshCache(): Promise<void> {
   cache = new Map(tags.map((t) => [t.name, t.tagId]));
 }
 
-export async function ensureFocusTagId(
+async function ensureFocusTagIdOperation(
   name: string,
   userId: string | null,
 ): Promise<string | null> {
@@ -37,6 +37,22 @@ export async function ensureFocusTagId(
   }
 }
 
+// 조회/생성 경로도 인증 전환의 drain 대상이다. 편집 큐와 같은 gate·세대를 사용해 전환 전에
+// 시작한 작업은 끝까지 이전 토큰으로 마치고, 전환 준비 뒤 시작한 작업은 commit 시 폐기하거나
+// rollback 시 이전 세션에서 재개한다.
+export function ensureFocusTagId(name: string, userId: string | null): Promise<string | null> {
+  const gen = editGeneration;
+  const pauseGate = editPauseGate;
+  const operation = (async () => {
+    if (pauseGate) await pauseGate;
+    if (gen !== editGeneration) return null;
+    return ensureFocusTagIdOperation(name, userId);
+  })();
+  activeEnsures.add(operation);
+  operation.finally(() => activeEnsures.delete(operation)).catch(() => {});
+  return operation;
+}
+
 // ── 과목 편집 → 서버 태그 반영 (GROMO-677) ─────────────────────────────────
 // SubjectContext의 생성/이름변경/삭제를 서버에 동기화한다. 전부 fire-and-forget —
 // 실패해도 던지지 않는다(오프라인 등). 못 맞춘 생성분은 업로드 시 ensureFocusTagId가 자가치유.
@@ -46,16 +62,55 @@ export async function ensureFocusTagId(
 
 let editChain: Promise<void> = Promise.resolve();
 let editGeneration = 0;
+let editPauseGate: Promise<void> | null = null;
+const activeEnsures = new Set<Promise<string | null>>();
 function enqueueEdit(task: () => Promise<void>): void {
-  // 등록 시점 세대를 캡처 — 계정 전환(abortTagEdits) 뒤에 차례가 오면 실행하지 않는다.
+  // 등록 시점의 pause gate와 세대를 캡처한다. 계정 전환 준비 뒤 들어온 편집은 전환 결과가
+  // 결정될 때까지 기다렸다가, rollback이면 이전 계정에서 계속하고 commit이면 건너뛴다.
   const gen = editGeneration;
-  const run = () => (gen === editGeneration ? task() : Promise.resolve());
+  const pauseGate = editPauseGate;
+  const run = async () => {
+    if (pauseGate) await pauseGate;
+    if (gen === editGeneration) await task();
+  };
   editChain = editChain.then(run, run);
+}
+
+export interface TagEditTransition {
+  commit: () => void;
+  rollback: () => void;
+}
+
+// 새 토큰을 저장하기 전에 이미 실행 중이거나 대기 중인 이전 계정 편집을 모두 끝낸다.
+// 준비 이후 들어온 편집은 gate 뒤에 세워 저장 성공 시 폐기하고, 실패 시 이전 세션에서 재개한다.
+export async function beginTagEditTransition(): Promise<TagEditTransition> {
+  const tailBeforePause = editChain;
+  let releasePause!: () => void;
+  editPauseGate = new Promise<void>((resolve) => {
+    releasePause = resolve;
+  });
+  // gate 설정 전 시작한 ensure 작업의 현재 snapshot도 함께 drain한다. gate 설정 뒤 들어오는
+  // ensure는 위에서 pauseGate를 기다리므로 이 snapshot에서 빠져도 새 토큰으로 실행되지 않는다.
+  await Promise.allSettled([tailBeforePause, ...activeEnsures]);
+
+  let settled = false;
+  const settle = (committed: boolean) => {
+    if (settled) return;
+    settled = true;
+    if (committed) editGeneration++;
+    editPauseGate = null;
+    releasePause();
+  };
+  return {
+    commit: () => settle(true),
+    rollback: () => settle(false),
+  };
 }
 
 // 로그아웃/계정 전환 시 대기 중인 편집 동기화를 폐기한다(리뷰 반영) — 큐에 남은 이전 계정의
 // 생성/이름변경/삭제가 새 계정 토큰으로 실행되며 새 계정 태그를 오염시키는 누출 방지.
-// 이미 실행에 들어간 1건은 중단할 수 없지만, 큐 대기분은 세대 불일치로 전부 스킵된다.
+// 동기 호출이 필요한 비인증 초기화용이다. 인증 전환은 beginTagEditTransition으로 실행 중 작업까지
+// drain한 뒤 커밋/롤백한다.
 export function abortTagEdits(): void {
   editGeneration++;
 }

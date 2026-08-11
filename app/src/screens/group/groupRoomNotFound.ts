@@ -1,4 +1,4 @@
-import { triggerLogout } from '@/services/api';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import { getGroupDetail, getMyGroups, groupErrorCode } from '@/services/groupApi';
 import { getMyProfile } from '@/services/userApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
@@ -21,6 +21,9 @@ export async function resolveGroupRoomNotFound({
   date: string;
   userId: string;
 }): Promise<GroupRoomNotFoundResolution> {
+  // 재확인 도중 같은 UUID의 게스트→소셜 승격이 완료될 수 있다. userId 비교만으로는 구분되지
+  // 않으므로 요청 시작 세대를 로그아웃 경계까지 전달해 오래된 NOT_FOUND를 폐기한다.
+  const requestSessionGeneration = getAuthSessionGeneration();
   try {
     const profile = await getMyProfile();
     // /users/me가 다른 id를 돌려주는 것은 정상 계약이 아니다. 현재 세션을 성공으로 간주하지 않는다.
@@ -29,7 +32,7 @@ export async function resolveGroupRoomNotFound({
     if (groupErrorCode(error) === 'NOT_FOUND') {
       // 토큰은 살아 있지만 users 활성 행이 없는 탈퇴/비활성 세션이다. 그룹 이탈 성공으로
       // 보이지 않고 앱의 공통 세션 정리 경계로 넘긴다.
-      triggerLogout();
+      triggerLogout(requestSessionGeneration);
       return { kind: 'session_recovery' };
     }
     return { kind: 'retry' };
