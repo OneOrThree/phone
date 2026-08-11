@@ -2555,8 +2555,8 @@ class FocusServiceTest {
         // when: 새 블록 경계는 언제나 직전 마커 시작보다 뒤다(정상 회전)
         focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, withinClampWindow(10)));
 
-        // then: 마감(UPDATE)이 INSERT 보다 먼저다. 순서가 뒤집히면 V47 부분 유니크(user_id WHERE ended_at
-        // IS NULL)가 INSERT 를 거절해 정상 흐름이 500 이 된다.
+        // then: 마감(UPDATE)이 INSERT 보다 먼저다. 순서가 뒤집히면 "유저당 열린 마커 1개"가 깨지고,
+        // 후속 티켓의 부분 유니크 인덱스가 붙은 뒤에는 INSERT 가 거절돼 정상 흐름이 500 이 된다.
         InOrder order = inOrder(focusSessionRepository);
         order.verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
         order.verify(focusSessionRepository).save(any(FocusSession.class));

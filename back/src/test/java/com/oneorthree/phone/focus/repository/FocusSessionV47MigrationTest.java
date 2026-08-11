@@ -5,25 +5,29 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V47(유저당 라이브 마커 1개 — 백필 + 부분 유니크 인덱스)의 실 PostgreSQL 마이그레이션 검증 (GROMO-1287).
+ * V47(유저당 라이브 마커 1개 — <b>백필</b>)의 실 PostgreSQL 마이그레이션 검증 (GROMO-1287).
  *
- * <p>JPA 는 부분 유니크 인덱스를 표현할 수 없어 ci 프로파일(create-drop) 스키마에는 이 인덱스가 없다.
- * 그래서 "마이그레이션이 이걸 만드는가"는 여기서만 확인된다 — 테스트가 인덱스를 손수 만들어 주면
+ * <p>ci 프로파일은 {@code create-drop} + Flyway 비활성이라 마이그레이션 SQL 이 한 번도 실행되지 않는다.
+ * 백필이 실제로 무엇을 하는지는 여기서만 확인된다 — 테스트가 결과 상태를 손수 만들어 주면
  * 프로덕션 배선의 부재가 가려진다(ShedLockIntegrationTest 전례).
+ *
+ * <p><b>부분 유니크 인덱스는 V47 에 없다(후속 티켓)</b>. prod 롤백이 Flyway 를 유지한 채 이미지만
+ * 되돌리므로, close-then-open 이 안착하기 전에 인덱스를 넣으면 롤백된 구버전 서버가 마커 회전마다
+ * 유니크 위반 500 을 낸다. 그래서 <b>인덱스가 없다는 것</b>도 여기서 못 박는다 — 누군가 되살리면
+ * 이 테스트가 먼저 깨져 롤백 위험을 다시 검토하게 된다.
  */
 class FocusSessionV47MigrationTest {
 
@@ -61,14 +65,14 @@ class FocusSessionV47MigrationTest {
     }
 
     @Test
-    @DisplayName("유저당 다중 라이브 마커가 있는 상태에서도 마이그레이션이 통과한다 — 백필이 최신 1건만 남긴다")
-    void backfillsDuplicateLiveMarkersSoTheUniqueIndexCanBeCreated() {
+    @DisplayName("유저당 다중 라이브 마커를 최신 1건만 남기고 정리한다 — 정산 가드·isFocusing 오염 해소")
+    void backfillLeavesOnlyTheNewestLiveMarkerPerUser() {
         // given: V46 스키마 + 프로덕션에 실제로 있는 오염(유저 A 에 열린 마커 3개)
         migrate("46");
         seedDuplicateLiveMarkers();
         assertThat(openMarkerCount(USER_A)).isEqualTo(3);
 
-        // when: V47 — 백필(①)이 먼저 돌지 않으면 여기서 유니크 위반으로 부팅이 막힌다
+        // when: V47 백필
         migrate("47");
 
         // then: 유저 A 의 열린 마커는 가장 최신 1건뿐
@@ -88,6 +92,11 @@ class FocusSessionV47MigrationTest {
         // 역전(ended_at < started_at) 없음
         assertThat(endedAtOf(A_OLDEST)).isAfter(T00);
         assertThat(endedAtOf(A_MIDDLE)).isAfter(T01);
+
+        // 정산 대기 가드(GROMO-1287)와의 관계: 백필의 ended_at 은 '지금'이 아니라 과거값이라
+        // 가드의 '방금 닫힌 마커' 유예창(5분)에 걸리지 않는다 → 배포 직후 창형 FOCUS 정산이 멈추지 않는다.
+        assertThat(endedAtOf(A_OLDEST)).isBefore(Instant.now().minus(Duration.ofMinutes(5)));
+        assertThat(endedAtOf(A_MIDDLE)).isBefore(Instant.now().minus(Duration.ofMinutes(5)));
     }
 
     @Test
@@ -115,65 +124,41 @@ class FocusSessionV47MigrationTest {
     }
 
     @Test
-    @DisplayName("인덱스는 status='ACTIVE' 가 아니라 ended_at IS NULL 을 술어로 만들어진다")
-    void createsPartialUniqueIndexOnEndedAtIsNull() {
+    @DisplayName("V47 은 부분 유니크 인덱스를 만들지 않는다 — prod 롤백(이미지만 교체) 안전을 위해 후속 배포로 분리")
+    void doesNotCreateUniqueIndexYetSoOldImagesCanRollBack() {
         migrate("47");
 
-        String definition = jdbc.queryForObject(
-                "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'"
-                        + " AND tablename = 'focus_sessions' AND indexname = 'uq_focus_sessions_live_marker'",
-                String.class);
+        // 인덱스가 생겼다면 이 단언이 먼저 깨진다 — 되살리기 전에 롤백 위험(구버전 startFocusSession 이
+        // 열린 마커를 닫지 않고 INSERT → 마커 회전마다 유니크 위반 500)을 다시 검토하라는 신호다.
+        assertThat(jdbc.queryForList(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
+                        + " AND tablename = 'focus_sessions'",
+                String.class))
+                .doesNotContain("uq_focus_sessions_live_marker");
 
-        assertThat(definition)
-                .contains("CREATE UNIQUE INDEX")
-                .contains("(user_id)")
-                .contains("WHERE (ended_at IS NULL)")
-                .doesNotContain("status");
-    }
-
-    @Test
-    @DisplayName("같은 유저의 두 번째 라이브 마커 INSERT 는 거절된다 — 중복 시작 차단")
-    void rejectsSecondLiveMarkerForSameUser() {
-        migrate("47");
+        // 그래서 지금은 DB 가 두 번째 라이브 마커를 막지 않는다 — 불변식은 서비스 레이어가 지킨다
+        // (FocusService.startFocusSession: users 행 배타 락 + close-then-open + startedAt 단조성).
         insertUser(USER_A);
-        insertSession(A_NEWEST, USER_A, T00, null, "ACTIVE");
-
-        assertThatThrownBy(() -> insertSession(UUID.randomUUID(), USER_A, T01, null, "ACTIVE"))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("uq_focus_sessions_live_marker");
+        insertSession(A_OLDEST, USER_A, T00, null, "ACTIVE");
+        assertThatCode(() -> insertSession(A_NEWEST, USER_A, T01, null, "ACTIVE"))
+                .doesNotThrowAnyException();
     }
 
     @Test
-    @DisplayName("마커 회전(close-then-open)은 통과한다 — 이 순서가 뒤집히면 정상 흐름이 500 이 된다")
-    void allowsCloseThenOpenMarkerRotation() {
+    @DisplayName("마커 회전(close-then-open) SQL 순서는 백필 이후에도 그대로 성립한다")
+    void closeThenOpenRotationLeavesExactlyOneLiveMarker() {
         migrate("47");
         insertUser(USER_A);
         insertSession(A_OLDEST, USER_A, T00, null, "ACTIVE");
 
         // 서버 startFocusSession 이 하는 순서 그대로: 열린 마커 원자 마감 → 새 마커 INSERT
-        assertThatCode(() -> {
-            jdbc.update("UPDATE focus_sessions SET status = 'AUTO_CLOSED', ended_at = ?"
-                            + " WHERE user_id = ? AND ended_at IS NULL",
-                    Timestamp.from(T01), USER_A);
-            insertSession(A_NEWEST, USER_A, T01, null, "ACTIVE");
-        }).doesNotThrowAnyException();
+        jdbc.update("UPDATE focus_sessions SET status = 'AUTO_CLOSED', ended_at = ?"
+                        + " WHERE user_id = ? AND ended_at IS NULL",
+                Timestamp.from(T01), USER_A);
+        insertSession(A_NEWEST, USER_A, T01, null, "ACTIVE");
 
         assertThat(openMarkerCount(USER_A)).isEqualTo(1);
-
-        // 반대로 마감 없이(= open-then-close) 열면 거절된다 — 인덱스가 실제로 강제하고 있다는 대조군
-        assertThatThrownBy(() -> insertSession(UUID.randomUUID(), USER_A, T20, null, "ACTIVE"))
-                .isInstanceOf(DataIntegrityViolationException.class);
-    }
-
-    @Test
-    @DisplayName("탈퇴(user_id NULL) 행은 여러 개가 미종료로 공존해도 인덱스가 막지 않는다")
-    void allowsMultipleOpenRowsWithNullUser() {
-        migrate("47");
-
-        assertThatCode(() -> {
-            insertSession(WITHDRAWN_1, null, T00, null, "ACTIVE");
-            insertSession(WITHDRAWN_2, null, T01, null, "ACTIVE");
-        }).doesNotThrowAnyException();
+        assertThat(statusOf(A_OLDEST)).isEqualTo("AUTO_CLOSED");
     }
 
     // ── 시드 ────────────────────────────────────────────────────────────────

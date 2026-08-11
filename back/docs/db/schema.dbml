@@ -572,9 +572,14 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
 
   created_at         timestamptz        [not null, default: `now()`]
 
-  indexes {
-    (user_id) [unique, name: 'uq_focus_sessions_live_marker', note: 'V47/GROMO-1287 — 부분 유니크 인덱스 WHERE ended_at IS NULL. 「유저당 라이브 마커(미종료 세션) 1개」 불변식. 술어가 status = ACTIVE 가 아닌 이유: ended_at 만 채워지고 ACTIVE 로 남은 레거시 완료 행까지 계수돼 인덱스 생성이 실패하고, 라이브 판정 기준과도 어긋난다. user_id 가 null 인 행(탈퇴)은 Postgres 유니크가 NULL 을 중복으로 보지 않아 자연히 빠진다. JPA 는 부분 유니크를 표현할 수 없어 엔티티에는 없다 — ci(create-drop) 스키마에도 없고 검증은 FocusSessionV47MigrationTest']
-  }
+  // 인덱스: PK 외에 없다. (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도
+  // 존재한 적이 없어 GROMO-1287 에서 삭제했다 — 없는 것을 문서가 있다고 말하고 있었다.)
+  //
+  // 「유저당 라이브 마커(ended_at IS NULL) 1개」 불변식은 현재 **서비스 레이어**가 지킨다
+  // (FocusService.startFocusSession: users 행 배타 락 + close-then-open + startedAt 단조성).
+  // 이를 DB 로 강제하는 부분 유니크 인덱스 — (user_id) WHERE ended_at IS NULL — 는 **후속 티켓**이다:
+  // prod 롤백이 Flyway 를 유지한 채 이미지만 되돌리므로, close-then-open 이 안착하기 전에 인덱스를
+  // 넣으면 롤백된 구버전 서버가 마커 회전마다 유니크 위반 500 을 낸다. V47 은 백필만 한다.
 }
 
 Table focus_session_pomodoros [note: 'POMODORO 세션 상세 (focus_sessions 1:1, POMODORO 타입 세션만 행 존재). 타입별 필드 분리(CTI)로 focus_sessions NULL 오염 방지'] {

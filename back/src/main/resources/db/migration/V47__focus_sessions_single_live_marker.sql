@@ -7,21 +7,24 @@
 -- FocusSessionRepository.existsActiveOverlappingWindow(GROMO-1413) 정산 대기 가드가 계속 참이라
 -- 그 회차 내기 정산이 그만큼 밀린다(최악의 경우 24h 자동 환불로 내기 무효).
 --
--- ⚠️ 순서가 계약이다: ① 백필 → ② 부분 유니크 인덱스.
---    프로덕션에는 이미 유저당 다중 미종료 행이 있다(그게 이 티켓이다). 백필 없이 인덱스를 만들면
---    CREATE UNIQUE INDEX 가 중복으로 실패해 배포(부팅)가 막힌다 — V28 이 CHECK 로 겪은 것과 같은 함정.
+-- ⚠️ 이 마이그레이션은 **백필만** 한다. 부분 유니크 인덱스는 일부러 뺐다.
 --
--- ⚠️ 술어는 status = 'ACTIVE' 가 아니라 ended_at IS NULL 이다.
---    FocusSessionStatus.ACTIVE javadoc: "GROMO-610 시절 레거시 경로로 endedAt 만 채워지고 ACTIVE 로 남은
---    완료 세션도 존재할 수 있다". status 술어를 쓰면 그 레거시 완료 행까지 유니크에 계수돼 인덱스 생성이
---    실패하고, 반대로 진짜 라이브 판정(모든 조회가 ended_at IS NULL 로 한다)과도 어긋난다.
+--    prod 롤백은 Flyway 를 그대로 두고 **이미지만 되돌린다**(back/CLAUDE.md "Per profile" +
+--    .github/workflows/prod-rollback.yml 이 image_sha 만 받는다). 그래서 유니크 인덱스를 여기서
+--    만들면, V47 적용 후 이전 이미지로 롤백했을 때 **인덱스는 DB 에 남고** 구버전 startFocusSession
+--    (열린 마커를 닫지 않고 INSERT)이 뽀모도로 회전·리플레이 start 마다 유니크 위반 500 을 낸다.
 --
--- 서버측 짝(같은 티켓): startFocusSession 이 close-then-open 으로 바뀌어, 새 마커 INSERT 직전에
--- 같은 유저의 열린 마커를 AUTO_CLOSED 로 마감한다(FocusSessionRepository.autoCloseOpenMarkersOf).
--- 이 인덱스는 그 뒤에 얹는 2차 방어선이다 — 인덱스만 걸면 뽀모도로 「마커 회전」(구 마커 마감 전에
--- 신 마커를 여는 정상 흐름, GROMO-873)이 500 으로 터진다.
+--    인덱스는 close-then-open 이 prod 에 안착한 뒤 **별도 배포**로 넣는다(후속 티켓). Flyway 는
+--    pending 을 순서대로 전부 돌리므로, 같은 PR 에 V48 로 넣어도 같은 배포에 적용돼 의미가 없다 —
+--    "앞 배포가 안착한 뒤"를 강제할 수 있는 유일한 방법이 파일을 다음 PR 로 미루는 것이다.
+--
+--    그때까지 「유저당 라이브 마커 1개」는 서비스 레이어가 지킨다: users 행 배타 락(동시 start 직렬화)
+--    + close-then-open + startedAt 단조성. 열린 마커를 만드는 경로가 startFocusSession 하나뿐이라
+--    (POST 완료 저장은 항상 ended_at 을 채운다) 이 조합으로 불변식이 성립한다. 인덱스는 2차 방어선이다.
+--
+-- 백필은 롤백에도 무해하다 — 구버전 서버가 보기엔 그냥 정리된 상태이고, 되돌릴 필요가 없다.
 
--- ── ① 백필: 유저당 최신 1건만 남기고 나머지 열린 마커를 마감 ─────────────
+-- ── 백필: 유저당 최신 1건만 남기고 나머지 열린 마커를 마감 ───────────────
 -- 남기는 쪽 = started_at 이 가장 최신인 마커. findLiveSessionsByUserIdIn 의 ORDER BY started_at DESC 가
 -- 이미 "여럿이면 최신을 고른다"를 관례로 세워뒀으므로, 백필이 남기는 행과 조회가 보던 행이 일치한다.
 --
@@ -59,12 +62,6 @@ UPDATE public.focus_sessions s
  WHERE s.id = m.id
    AND m.recency > 1;
 
--- ── ② 부분 유니크 인덱스 ────────────────────────────────────────────────
--- 이름을 명시한다(V20 교훈: 뒤 마이그레이션이 이름-무관 드롭을 반복하지 않도록 제약/인덱스명을 박는다).
--- JPA 는 부분 유니크를 표현할 수 없어 엔티티 @Table(indexes=...) 에는 없다 — 따라서 ci 프로파일
--- (create-drop) 스키마에도 없고, 실 SQL 검증은 FocusSessionV47MigrationTest 가 맡는다.
--- 부수 효과: focus_sessions 는 PK 외 인덱스가 하나도 없었다. 이 인덱스는
--- findLiveSessionsByUserIdIn / findUserIdsWithLiveSession (user_id IN … AND ended_at IS NULL) 도 탄다.
-CREATE UNIQUE INDEX uq_focus_sessions_live_marker
-    ON public.focus_sessions (user_id)
-    WHERE ended_at IS NULL;
+-- 정산 대기 가드(GroupBetSettler)와의 관계: 여기서 채우는 ended_at 은 **과거값**(다음 마커 시작 또는
+-- +12h)이라, GROMO-1287 이 넓힌 가드의 '방금 닫힌 마커' 유예창(5분)에 걸리지 않는다 —
+-- 배포 직후 창형 FOCUS 정산이 무더기로 멈추는 일이 없다.
