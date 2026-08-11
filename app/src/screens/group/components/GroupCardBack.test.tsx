@@ -210,6 +210,7 @@ test('최신 공지의 제목과 본문을 원문 순서로 표시하고 본문�
   expect(screen.getByText('오늘 일정')).toBeOnTheScreen();
   expect(screen.getByText('오늘은 오전 9시에 함께 시작합니다.')).toBeOnTheScreen();
   expect(screen.getByTestId('group.card.announcement.content').props.numberOfLines).toBe(2);
+  expect(screen.getByTestId('group.card.announcement.content')).toHaveStyle(GROUP_CARD_USER_TEXT);
 });
 
 test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 compact row로 유지한다', async () => {

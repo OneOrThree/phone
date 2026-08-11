@@ -142,7 +142,11 @@ export function GroupCardBack({
                 <Text style={s.body} numberOfLines={1}>
                   {announcements.data[0].title}
                 </Text>
-                <Text style={s.muted} numberOfLines={2} testID="group.card.announcement.content">
+                <Text
+                  style={s.announcementBody}
+                  numberOfLines={2}
+                  testID="group.card.announcement.content"
+                >
                   {announcements.data[0].content}
                 </Text>
               </View>
@@ -267,6 +271,7 @@ const s = StyleSheet.create({
   sectionTitle: { ...T.text.label, color: T.ink },
   activityList: { gap: T.space.xs },
   body: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.ink },
+  announcementBody: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.inkSub },
   muted: { ...T.text.caption, color: T.inkSub },
   error: { ...T.text.caption, color: T.dangerInk },
   actions: { marginTop: 'auto', gap: T.space.xs },
