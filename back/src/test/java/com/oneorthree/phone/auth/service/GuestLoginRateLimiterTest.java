@@ -1,9 +1,13 @@
 package com.oneorthree.phone.auth.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -84,6 +88,62 @@ class GuestLoginRateLimiterTest {
         clock.advance(Duration.ofHours(1));
 
         assertThatCode(() -> limiter.check("1.1.1.1")).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("IPv6 는 /64 프리픽스로 센다 — 같은 프리픽스에서 주소만 바꿔도 한도를 새로 못 받는다")
+    void countsIpv6ByPrefix() {
+        limiter.check("2001:db8:0:1::1");
+        limiter.check("2001:db8:0:1::2");
+        limiter.check("2001:db8:0:1:aaaa:bbbb:cccc:dddd");
+
+        assertThatThrownBy(() -> limiter.check("2001:db8:0:1::9"))
+                .isInstanceOf(AuthException.class);
+        // 다른 /64 는 별개 버킷
+        assertThatCode(() -> limiter.check("2001:db8:0:2::1")).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("차단 로그는 윈도당 한 번만 — 계속 두드려도 로그가 요청 수만큼 늘지 않는다")
+    void logsBlockOncePerWindow() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GuestLoginRateLimiter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            for (int i = 0; i < 3; i++) {
+                limiter.check("1.1.1.1");
+            }
+            for (int i = 0; i < 5; i++) {
+                assertThatThrownBy(() -> limiter.check("1.1.1.1")).isInstanceOf(AuthException.class);
+            }
+
+            assertThat(appender.list).hasSize(1);
+
+            // 윈도가 바뀌면 다시 한 번은 남는다
+            clock.advance(Duration.ofHours(1));
+            for (int i = 0; i < 4; i++) {
+                try {
+                    limiter.check("1.1.1.1");
+                } catch (AuthException ignored) {
+                    // 새 윈도를 소진시키는 게 목적
+                }
+            }
+            assertThat(appender.list).hasSize(2);
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    @DisplayName("잘못된 설정은 기동 단계에서 죽인다 — 조용히 보호가 꺼지거나 전부 막히는 걸 막는다")
+    void rejectsInvalidConfig() {
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(0, Duration.ofHours(1), clock))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, Duration.ZERO, clock))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, Duration.ofMinutes(-1), clock))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

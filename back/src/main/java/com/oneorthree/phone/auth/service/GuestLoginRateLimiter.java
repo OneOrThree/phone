@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,7 +24,8 @@ import java.util.Map;
  *
  * <p><b>축은 IP 하나다.</b> 기기 축은 넣지 않았다 — 클라이언트가 기기 식별자를 보내지 않을뿐더러,
  * 보내더라도 값이 클라이언트 소유라 헤더만 바꾸면 우회된다. 대량 생성 공격에 대해 방어력이 0 인 축은
- * 넣어봐야 코드만 는다.
+ * 넣어봐야 코드만 는다. 다만 <b>IPv6 는 주소가 아니라 {@code /64} 프리픽스 단위</b>로 센다 —
+ * 회선 하나에 프리픽스가 통째로 할당돼서 주소 단위로는 셀 의미가 없다.
  *
  * <p><b>저장소는 프로세스 메모리다</b>(DB·Redis 없음). 현재 dev/prod 는 호스트 한 대에 app 컨테이너
  * 하나(compose)라 인스턴스별 카운터 = 전역 카운터다. 인스턴스를 늘리는 순간 실효 한도가 인스턴스 수만큼
@@ -61,6 +64,15 @@ public class GuestLoginRateLimiter {
 
     // 테스트에서 시계를 고정해 윈도 만료를 결정적으로 검증하기 위한 생성자.
     GuestLoginRateLimiter(int maxPerWindow, Duration window, Clock clock) {
+        // 설정이 잘못 배포되면 기동 단계에서 죽인다 (PR #621 코드리뷰 P2). 윈도가 0/음수면 매 요청이
+        // 만료 판정을 받아 카운트가 늘 1로 초기화돼 보호가 조용히 사라지고, 한도가 0 이하면 모든
+        // 게스트 로그인이 막힌다 — 둘 다 런타임에 알아채기 어려운 실패라 부팅에서 끊는 게 낫다.
+        if (maxPerWindow <= 0) {
+            throw new IllegalArgumentException("auth.guest.rate-limit.max-per-window 는 양수여야 합니다: " + maxPerWindow);
+        }
+        if (window == null || window.isZero() || window.isNegative()) {
+            throw new IllegalArgumentException("auth.guest.rate-limit.window 는 양수여야 합니다: " + window);
+        }
         this.maxPerWindow = maxPerWindow;
         this.window = window;
         this.clock = clock;
@@ -75,17 +87,25 @@ public class GuestLoginRateLimiter {
      */
     public void check(String clientIp) {
         Instant now = clock.instant();
+        String key = bucketKey(clientIp);
 
-        Window current = windows.compute(clientIp, (ip, existing) ->
-                existing == null || isExpired(existing, now)
-                        ? new Window(now, 1)
-                        : new Window(existing.startedAt(), existing.count() + 1));
+        Window current = windows.compute(key, (ip, existing) -> {
+            if (existing == null || isExpired(existing, now)) {
+                return new Window(now, 1, false);
+            }
+            // 한도+1 에서 카운트를 멈춘다 — 차단 중에도 계속 올리면 이론상 int 가 넘쳐 음수가 되면서
+            // 제한이 풀린다. 멈춰도 판정(> 한도)은 그대로 유지된다.
+            int next = Math.min(existing.count() + 1, maxPerWindow + 1);
+            return new Window(existing.startedAt(), next, existing.count() > maxPerWindow);
+        });
 
         if (current.count() > maxPerWindow) {
-            // 원본 IP 는 남기지 않는다 — 이 로그는 prod 에서 파일로 보존되고 Datadog 으로도 나가는데,
-            // %mask 변환기가 IP 는 안 가린다 (PR #621 코드리뷰 P1). 차단 대응엔 대역까지면 충분하다.
-            log.warn("게스트 생성 레이트리밋 차단 — ip={}, count={} (윈도 {} 당 {}회)",
-                    anonymize(clientIp), current.count(), window, maxPerWindow);
+            // 윈도당 첫 차단만 남긴다 (PR #621 코드리뷰 P1). 매 차단마다 찍으면 인증 없는 호출자가
+            // 요청 수에 비례해 로그 처리량·보존 용량·Datadog 수집 비용을 부풀릴 수 있다.
+            if (!current.blockAlreadyLogged()) {
+                log.warn("게스트 생성 레이트리밋 차단 — ip={} (윈도 {} 당 {}회 초과, 이 윈도의 이후 차단은 로그 생략)",
+                        anonymize(key), window, maxPerWindow);
+            }
             throw new AuthException(AuthErrorCode.GUEST_CREATION_RATE_LIMITED);
         }
     }
@@ -94,18 +114,45 @@ public class GuestLoginRateLimiter {
         return !now.isBefore(candidate.startedAt().plus(window));
     }
 
-    /** IPv4 는 마지막 옥텟을, IPv6 는 하위 그룹을 지운다 — 대역은 남기고 개인 식별은 끊는다. */
-    private static String anonymize(String clientIp) {
-        int lastDot = clientIp.lastIndexOf('.');
-        if (lastDot > 0) {
-            return clientIp.substring(0, lastDot) + ".x";
-        }
-        String[] groups = clientIp.split(":");
-        if (groups.length < 3) {
-            // IP 리터럴이 아님(예: remoteAddr 조차 없을 때의 "unknown") — 가릴 개인정보가 없다.
+    /**
+     * 레이트리밋 버킷 키 — IPv6 는 {@code /64} 프리픽스로 접는다 (PR #621 코드리뷰 P1).
+     *
+     * <p>IPv6 는 가정용 회선 하나에도 {@code /64} 이상이 통째로 할당돼서, 주소를 그대로 키로 쓰면
+     * 공격자가 자기 프리픽스 안에서 소스 주소만 바꿔가며 한도를 무한히 새로 받는다. 초대링크 클릭
+     * 기록이 쓰는 원본 IP 값은 건드리지 않고 여기서만 접는다.
+     */
+    private static String bucketKey(String clientIp) {
+        // ':' 가 없으면 IPv4 이거나 IP 가 아닌 값("unknown")이라 그대로 쓴다. 이 가드가 있어야
+        // getByName 이 호스트명으로 오인해 DNS 조회로 새지 않는다(':' 포함 문자열은 리터럴로만 해석).
+        if (clientIp.indexOf(':') < 0) {
             return clientIp;
         }
-        return String.join(":", groups[0], groups[1], groups[2]) + ":x";
+        try {
+            byte[] address = InetAddress.getByName(clientIp).getAddress();
+            if (address.length != 16) {
+                // IPv4 매핑 주소(::ffff:1.2.3.4)는 4바이트로 돌아온다 — IPv4 취급.
+                return clientIp;
+            }
+            StringBuilder prefix = new StringBuilder(20);
+            for (int i = 0; i < 8; i += 2) {
+                prefix.append(Integer.toHexString(((address[i] & 0xff) << 8) | (address[i + 1] & 0xff)));
+                prefix.append(':');
+            }
+            return prefix.append(":/64").toString();
+        } catch (UnknownHostException e) {
+            // IPv6 리터럴이 아니면 원문 그대로 — 정규화 실패가 제한 자체를 풀어주면 안 된다.
+            return clientIp;
+        }
+    }
+
+    /** IPv4 는 마지막 옥텟을 지운다 — 대역은 남기고 개인 식별은 끊는다. */
+    private static String anonymize(String bucketKey) {
+        int lastDot = bucketKey.lastIndexOf('.');
+        if (lastDot > 0) {
+            return bucketKey.substring(0, lastDot) + ".x";
+        }
+        // IPv6 는 이미 /64 프리픽스로 접힌 키고, "unknown" 등은 가릴 개인정보가 없다.
+        return bucketKey;
     }
 
     /**
@@ -123,7 +170,13 @@ public class GuestLoginRateLimiter {
         });
     }
 
-    /** IP 하나의 현재 윈도 — 시작 시각과 그 윈도에서 센 요청 수. */
-    private record Window(Instant startedAt, int count) {
+    /**
+     * 버킷 하나의 현재 윈도.
+     *
+     * @param startedAt 윈도 시작 시각
+     * @param count 이 윈도에서 센 요청 수 (한도+1 에서 포화)
+     * @param blockAlreadyLogged 이 윈도에서 앞선 요청이 이미 차단·기록됐는가 — 로그 1회 제한용
+     */
+    private record Window(Instant startedAt, int count, boolean blockAlreadyLogged) {
     }
 }
