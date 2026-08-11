@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -88,6 +89,7 @@ export default function GroupFindSheet({
   const joinLocked = useJoinLocked();
   // 참여 실패 문구 — 시트 안에서 인라인으로 띄운다(Alert 아님, 파일 상단 규칙).
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const q = query.trim();
 
   // 검색 시퀀스 — **주 검색과 조용한 갱신이 같은 카운터를 쓴다**.
@@ -96,6 +98,20 @@ export default function GroupFindSheet({
   const searchSeqRef = useRef(0);
   // 진행 중인 디바운스 타이머 — 퇴장 시작 시 세대와 함께 걷는다(아래 onClosing).
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // iOS는 SheetShell이 panel bottom을 올리는 단일 owner다. Android의 RN Modal은 별도
+  // window라 검색 결과 하단만 keyboardDidShow 높이만큼 보정한다.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (event) => {
+      setAndroidKeyboardHeight(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // 언마운트(시트 닫힘·링크 수신) 시에도 시퀀스를 올려 진행 중 요청의 setState를 막는다.
   useEffect(
@@ -376,6 +392,9 @@ export default function GroupFindSheet({
 
         {emptyNotice !== null && <View style={s.emptyBox}>{emptyNotice}</View>}
       </ScrollView>
+      {androidKeyboardHeight > 0 && (
+        <View style={{ height: androidKeyboardHeight }} testID="group.find.androidKeyboardSpacer" />
+      )}
     </SheetShell>
   );
 }
