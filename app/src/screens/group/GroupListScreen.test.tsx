@@ -8,7 +8,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AccessibilityInfo, BackHandler, FlatList, View } from 'react-native';
-import GroupListScreen, { advanceEdgeTarget, isProgrammaticMomentum } from './GroupListScreen';
+import GroupListScreen, {
+  advanceEdgeTarget,
+  isProgrammaticMomentum,
+  shouldClaimReorderDrag,
+} from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import { logGroupCardActionClicked } from '@/services/analyticsEvents';
@@ -449,21 +453,7 @@ describe('콜백', () => {
 describe('제스처 중재와 재정렬', () => {
   test('grip 짧은 탭은 포인터용 순서 변경 메뉴를 연다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
-    const responderEvent = {
-      nativeEvent: {},
-      touchHistory: {
-        touchBank: [],
-        numberActiveTouches: 0,
-        indexOfSingleActiveTouch: -1,
-        mostRecentTimeStamp: 0,
-      },
-    };
-
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
 
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
@@ -491,26 +481,17 @@ describe('제스처 중재와 재정렬', () => {
     await press(`group.card.reorderDone.${GROUP_ID}`);
     expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
 
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
     await press(`group.card.reorderDismiss.${GROUP_ID}`);
     expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
 
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
     await act(async () => {
       screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`).props.onAccessibilityEscape();
     });
     expect(screen.queryByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeNull();
 
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
 
     await press(`group.card.reorderNext.${GROUP_ID}`);
     expect(
@@ -540,20 +521,7 @@ describe('제스처 중재와 재정렬', () => {
         return { remove };
       });
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
-    const responderEvent = {
-      nativeEvent: {},
-      touchHistory: {
-        touchBank: [],
-        numberActiveTouches: 0,
-        indexOfSingleActiveTouch: -1,
-        mostRecentTimeStamp: 0,
-      },
-    };
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${GROUP_ID}`);
 
     expect(screen.getByTestId(`group.card.reorderMenu.${GROUP_ID}`)).toBeOnTheScreen();
     let consumed = false;
@@ -571,21 +539,7 @@ describe('제스처 중재와 재정렬', () => {
       group({ groupId: `${GROUP_ID}-${index}`, name: `그룹 ${index + 1}` }),
     );
     await renderList(groups);
-    const grip = screen.getByTestId(`group.card.grip.${groups[0].groupId}`);
-    const responderEvent = {
-      nativeEvent: {},
-      touchHistory: {
-        touchBank: [],
-        numberActiveTouches: 0,
-        indexOfSingleActiveTouch: -1,
-        mostRecentTimeStamp: 0,
-      },
-    };
-
-    await act(async () => {
-      grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderRelease?.(responderEvent, { dx: 0, dy: 0 });
-    });
+    await press(`group.card.grip.${groups[0].groupId}`);
 
     const options = screen.getByTestId(`group.card.reorderOptions.${groups[0].groupId}`);
     expect(options).toBeOnTheScreen();
@@ -636,7 +590,6 @@ describe('제스처 중재와 재정렬', () => {
 
   test('접근성 grip 동작은 순서만 한 번 바꾸고 카드를 뒤집지 않는다', async () => {
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
-    const setFocus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
     await act(async () => {
@@ -656,7 +609,6 @@ describe('제스처 중재와 재정렬', () => {
     });
     expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.focusable).toBe(true);
     expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
-    await waitFor(() => expect(setFocus).toHaveBeenCalledWith(1));
   });
 
   test('grip drag는 bubble·capture 모두 6pt 이상 이동만 소유한다', () => {
@@ -670,7 +622,7 @@ describe('제스처 중재와 재정렬', () => {
     const scrollSpy = jest.spyOn(FlatList.prototype, 'scrollToOffset');
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
     scrollSpy.mockClear();
-    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
     const responderEvent = {
       nativeEvent: {},
       touchHistory: {

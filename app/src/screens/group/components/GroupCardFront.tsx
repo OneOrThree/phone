@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { Ref, RefObject } from 'react';
+import type { ComponentRef, Ref, RefObject } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -27,7 +27,7 @@ interface GroupCardFrontProps {
   canMoveNext?: boolean;
   cardRef?: RefObject<View | null>;
   bodyRef?: RefObject<View | null>;
-  gripRef?: Ref<View>;
+  gripRef?: Ref<ComponentRef<typeof Pressable>>;
   active?: boolean;
 }
 
@@ -55,26 +55,29 @@ export function GroupCardFront({
   return (
     <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
       <View style={s.root}>
-        <View
-          ref={gripRef}
-          style={s.grip}
-          testID={`group.card.grip.${group.groupId}`}
-          accessibilityRole="adjustable"
-          focusable={active}
-          accessibilityLabel={`${group.name} 카드 순서`}
-          accessibilityValue={{ text: `${position}/${reorderCount}` }}
-          accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
-          accessibilityActions={[
-            ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
-            ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
-          ]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
-            if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
-          }}
-          {...reorderHandlers}
-        >
-          <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
+        <View style={s.grip} testID={`group.card.gripDrag.${group.groupId}`} {...reorderHandlers}>
+          <Pressable
+            ref={gripRef}
+            style={s.gripButton}
+            testID={`group.card.grip.${group.groupId}`}
+            accessibilityRole="adjustable"
+            focusable={active}
+            disabled={!active}
+            onPress={onOpenReorderMenu}
+            accessibilityLabel={`${group.name} 카드 순서`}
+            accessibilityValue={{ text: `${position}/${reorderCount}` }}
+            accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+            accessibilityActions={[
+              ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
+              ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
+            ]}
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'decrement' && canMovePrevious) onMoveStep?.(-1);
+              if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
+            }}
+          >
+            <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
+          </Pressable>
         </View>
         <Pressable
           ref={bodyRef}
@@ -86,6 +89,8 @@ export function GroupCardFront({
             if (event.nativeEvent.actionName === 'activate') (onAccessibilityFlip ?? onFlip)();
           }}
           accessibilityRole="button"
+          accessibilityState={{ expanded: false }}
+          aria-controls={disclosureId}
           accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
           accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
           testID={`group.card.${group.groupId}`}

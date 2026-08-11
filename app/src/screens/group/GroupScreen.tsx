@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -416,7 +416,7 @@ export default function GroupScreen() {
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
           <View style={s.skeletonDeck} testID="group.deck.skeleton">
-            <View style={s.skeletonCard}>
+            <View style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}>
               <Skeleton w="100%" h={GROUP_CARD_HEIGHT} radius={22} />
             </View>
             <View style={s.skeletonPeek}>
@@ -524,7 +524,7 @@ const s = StyleSheet.create({
     paddingLeft: 24,
     overflow: 'hidden',
   },
-  skeletonCard: { width: '88%' },
+  skeletonCard: {},
   skeletonPeek: { width: 36 },
   body: {
     flex: 1,

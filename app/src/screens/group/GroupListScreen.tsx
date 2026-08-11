@@ -112,6 +112,10 @@ export function isProgrammaticMomentum(
   return targetOffset !== null && Math.abs(targetOffset - settledOffset) < 1;
 }
 
+export function shouldClaimReorderDrag(dx: number, dy: number): boolean {
+  return Math.max(Math.abs(dx), Math.abs(dy)) >= 6;
+}
+
 const GUIDE_CHARACTER = {
   hi: require('@/assets/character_hi.png'),
   study: require('@/assets/character_study.png'),
@@ -739,6 +743,11 @@ export default function GroupListScreen({
         AccessibilityInfo.announceForAccessibility(
           `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했습니다`,
         );
+        requestAnimationFrame(() => {
+          if (!mountedRef.current) return;
+          const node = findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
+          if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
+        });
       }
       return committed;
     },
@@ -751,8 +760,11 @@ export default function GroupListScreen({
       const cached = respondersRef.current.get(responderKey);
       if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => reorderMenuGroupIdRef.current === null,
-        onMoveShouldSetPanResponder: () => reorderMenuGroupIdRef.current === null,
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          reorderMenuGroupIdRef.current === null && shouldClaimReorderDrag(gesture.dx, gesture.dy),
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          reorderMenuGroupIdRef.current === null && shouldClaimReorderDrag(gesture.dx, gesture.dy),
         onPanResponderGrant: () => {
           if (reorderMenuGroupIdRef.current !== null) return;
           roomReturnRef.current = null;
@@ -1265,6 +1277,12 @@ export default function GroupListScreen({
                             flipToBack(item.groupId, 'accessibility_action')
                           }
                           reorderHandlers={handlersFor(item.groupId)}
+                          onOpenReorderMenu={() => {
+                            if (reorderMenuGroupIdRef.current !== null) return;
+                            roomReturnRef.current = null;
+                            reorderMenuGroupIdRef.current = item.groupId;
+                            setReorderMenuGroupId(item.groupId);
+                          }}
                           canMovePrevious={index > 0}
                           canMoveNext={index < orderedGroups.length - 1}
                           onMoveStep={(step) => {
