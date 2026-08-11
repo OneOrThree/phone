@@ -74,23 +74,42 @@ export function GroupCardBack({
   useEffect(() => {
     // 방 복귀는 네트워크 후속 렌더에서 prop이 false로 바뀌어도 기본 mount 포커스로 되돌리지 않는다.
     if (roomRestoreHandledRef.current) return;
-    if (focusRoomOnMount) roomRestoreHandledRef.current = true;
-    else if (suppressInitialFocus || focusHandledRef.current) return;
-    else focusHandledRef.current = true;
-    const frame = requestAnimationFrame(() => {
-      const node = ReactNative.findNodeHandle(
-        focusRoomOnMount
-          ? roomActionRef.current
-          : focusPrimaryOnMount
-            ? primaryActionRef.current
-            : frontActionRef.current,
-      );
-      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-      if (focusRoomOnMount) onRoomFocusRestoredRef.current?.();
-      else if (focusPrimaryOnMount) onPrimaryFocusRestoredRef.current?.();
-      else AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
-    });
-    return () => cancelAnimationFrame(frame);
+    if (!focusRoomOnMount) {
+      if (suppressInitialFocus || focusHandledRef.current) return;
+      focusHandledRef.current = true;
+    }
+    let cancelled = false;
+    let frame: number | null = null;
+    const scheduleFocus = () => {
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (cancelled) return;
+        const node = ReactNative.findNodeHandle(
+          focusRoomOnMount
+            ? roomActionRef.current
+            : focusPrimaryOnMount
+              ? primaryActionRef.current
+              : frontActionRef.current,
+        );
+        // 가상화/네이티브 commit 사이에는 ref가 있어도 handle이 한 프레임 늦을 수 있다.
+        // 방 복귀만 lifecycle cleanup 전까지 재예약하고 실제 포커스 뒤에 요청을 소비한다.
+        if (node === null) {
+          if (focusRoomOnMount) scheduleFocus();
+          return;
+        }
+        AccessibilityInfo.setAccessibilityFocus(node);
+        if (focusRoomOnMount) {
+          roomRestoreHandledRef.current = true;
+          onRoomFocusRestoredRef.current?.();
+        } else if (focusPrimaryOnMount) onPrimaryFocusRestoredRef.current?.();
+        else AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
+      });
+    };
+    scheduleFocus();
+    return () => {
+      cancelled = true;
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, [focusPrimaryOnMount, focusRoomOnMount, group.name, suppressInitialFocus]);
   const detail = snapshot.detail.status === 'ready' ? snapshot.detail.data : null;
   const focus = deriveGroupFocusCount(

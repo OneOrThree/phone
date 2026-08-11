@@ -71,6 +71,7 @@ import {
   markGroupDeckGuideCompletedInSession,
   reserveUnknownGroupDeckGuideAttempt,
 } from './groupDeckGuideSession';
+import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -225,6 +226,10 @@ export default function GroupListScreen({
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const appActiveRef = useRef(appActive);
+  appActiveRef.current = appActive;
+  const guideBlockedRef = useRef(guideBlocked);
+  guideBlockedRef.current = guideBlocked;
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
   const snapInterval = cardWidth + CARD_GAP;
   const isCardEmojiKnown = (groupId: string) =>
@@ -249,8 +254,10 @@ export default function GroupListScreen({
   const activeIdentityRef = useRef<string | null>(null);
   const programmaticMomentumCountRef = useRef(0);
   const actionAcceptedRef = useRef(false);
+  const roomReturnRef = useRef<GroupRoomReturnContext | null>(null);
   const roomReturnFocusGroupIdRef = useRef<string | null>(null);
   const roomReturnWasBlurredRef = useRef(false);
+  const [roomReturnReadyGroupId, setRoomReturnReadyGroupId] = useState<string | null>(null);
   const activeInitializedRef = useRef(false);
   const orderedGroupsRef = useRef(orderedGroups);
   orderedGroupsRef.current = orderedGroups;
@@ -263,6 +270,9 @@ export default function GroupListScreen({
   const [deckGuideVisible, setDeckGuideVisible] = useState(false);
   const [guidePrimaryFocusGroupId, setGuidePrimaryFocusGroupId] = useState<string | null>(null);
   const [frontFocusGroupId, setFrontFocusGroupId] = useState<string | null>(null);
+  const frontFocusGroupIdRef = useRef(frontFocusGroupId);
+  frontFocusGroupIdRef.current = frontFocusGroupId;
+  const frontFocusFrameRef = useRef<number | null>(null);
   const deckGuideVisibleRef = useRef(false);
   deckGuideVisibleRef.current = deckGuideVisible;
   const viewEpisodeRef = useRef(viewEpisodeId);
@@ -280,6 +290,46 @@ export default function GroupListScreen({
     summaryAdapterRef.current = new GroupCardSummaryAdapter(groupCardSummaryFocusDependency);
   }
   const summaryAdapter = summaryAdapterRef.current;
+  const scheduleFrontFocus = useCallback((groupId: string) => {
+    if (frontFocusFrameRef.current !== null) cancelAnimationFrame(frontFocusFrameRef.current);
+    const schedule = () => {
+      frontFocusFrameRef.current = requestAnimationFrame(() => {
+        frontFocusFrameRef.current = null;
+        if (!appActiveRef.current || guideBlockedRef.current) return;
+        const node = ReactNative.findNodeHandle(frontDisclosureRefs.current.get(groupId) ?? null);
+        // 가상화된 먼 셀뿐 아니라 native handle commit도 한 프레임 늦을 수 있다. 사용자가
+        // 요청을 취소하지 않은 동안에는 다음 프레임으로 재예약한다.
+        if (node === null) {
+          if (frontFocusGroupIdRef.current === groupId) schedule();
+          return;
+        }
+        AccessibilityInfo.setAccessibilityFocus(node);
+        setFrontFocusGroupId((current) => (current === groupId ? null : current));
+      });
+    };
+    schedule();
+  }, []);
+
+  const cancelPendingFrontFocus = useCallback(() => {
+    if (frontFocusFrameRef.current !== null) {
+      cancelAnimationFrame(frontFocusFrameRef.current);
+      frontFocusFrameRef.current = null;
+    }
+    frontFocusGroupIdRef.current = null;
+    setFrontFocusGroupId(null);
+    // 사용자가 새 페이지/행동의 소유권을 잡으면 아직 node를 기다리는 뒷면 복귀 포커스도
+    // 함께 폐기한다. 그렇지 않으면 과거 카드가 다시 마운트될 때 포커스를 빼앗을 수 있다.
+    roomReturnFocusGroupIdRef.current = null;
+    roomReturnWasBlurredRef.current = false;
+    setRoomReturnReadyGroupId(null);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (frontFocusFrameRef.current !== null) cancelAnimationFrame(frontFocusFrameRef.current);
+    },
+    [],
+  );
   const focusController = useMemo(
     () =>
       userId ? new GroupFocusPollingController({ store: groupFocusStatusStore, userId }) : null,
@@ -528,6 +578,8 @@ export default function GroupListScreen({
       if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       if (next === activeIndex) return;
+      roomReturnRef.current = null;
+      cancelPendingFrontFocus();
       logGroupCarouselPaged({
         trigger: 'indicator_press',
         from_index: activeIndex,
@@ -543,6 +595,7 @@ export default function GroupListScreen({
     },
     [
       activeIndex,
+      cancelPendingFrontFocus,
       countBucket,
       draggingGroupId,
       orderedGroups,
@@ -596,6 +649,56 @@ export default function GroupListScreen({
     listRef.current?.scrollToOffset({ offset: safeIndex * snapInterval, animated: false });
   }, [activeIndex, hydrated, orderedGroups, snapInterval]);
 
+  // 방에서 돌아온 뒤 성공한 전체 목록과 로컬 순서가 모두 확정돼야 복귀 위치를 판정한다.
+  // 실패·부분 응답을 탈퇴로 오인하지 않고, 살아 있는 카드는 index가 바뀌어도 stable ID로 찾는다.
+  useEffect(() => {
+    const context = roomReturnRef.current;
+    if (
+      !context ||
+      !screenFocused ||
+      !appActive ||
+      guideBlocked ||
+      !roomReturnWasBlurredRef.current ||
+      successfulListVersion <= context.departureRevision ||
+      !hydrated ||
+      !dataReady
+    )
+      return;
+
+    const target = resolveGroupRoomReturn(
+      context,
+      orderedGroups.map((group) => group.groupId),
+    );
+    roomReturnRef.current = null;
+    if (target.kind === 'empty') return;
+
+    activeIdentityRef.current = target.groupId;
+    setActiveIndex(target.index);
+    listRef.current?.scrollToOffset({ offset: target.index * snapInterval, animated: false });
+    if (target.kind === 'same_back') {
+      setFlippedGroupId(target.groupId);
+      summaryAdapter.ensureBack(target.groupId);
+      setRoomReturnReadyGroupId(target.groupId);
+    } else {
+      setRoomReturnReadyGroupId(null);
+      roomReturnFocusGroupIdRef.current = null;
+      roomReturnWasBlurredRef.current = false;
+      setFlippedGroupId(null);
+      guideBackGroupIdRef.current = null;
+      setFrontFocusGroupId(target.groupId);
+    }
+  }, [
+    appActive,
+    dataReady,
+    guideBlocked,
+    hydrated,
+    orderedGroups,
+    screenFocused,
+    snapInterval,
+    successfulListVersion,
+    summaryAdapter,
+  ]);
+
   // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
   // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
   const dragRef = useRef<{ groupId: string; from: number; target: number } | null>(null);
@@ -617,6 +720,8 @@ export default function GroupListScreen({
       next.splice(target, 0, groupId);
       const committed = commitOrder(next);
       if (committed) {
+        roomReturnRef.current = null;
+        cancelPendingFrontFocus();
         logGroupCardReordered({
           trigger,
           from_index: from,
@@ -641,7 +746,7 @@ export default function GroupListScreen({
       }
       return committed;
     },
-    [commitOrder, countBucket, snapInterval],
+    [cancelPendingFrontFocus, commitOrder, countBucket, snapInterval],
   );
 
   const handlersFor = useCallback(
@@ -662,6 +767,8 @@ export default function GroupListScreen({
           if (reorderMenuGroupId !== null) return;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
+          roomReturnRef.current = null;
+          cancelPendingFrontFocus();
           dragRef.current = { groupId, from, target: from };
           lastEdgePageAtRef.current = 0;
           setDraggingGroupId(groupId);
@@ -721,7 +828,14 @@ export default function GroupListScreen({
       respondersRef.current.set(responderKey, responder);
       return responder.panHandlers;
     },
-    [commitMove, orderedGroupIds, reorderMenuGroupId, snapInterval, windowWidth],
+    [
+      cancelPendingFrontFocus,
+      commitMove,
+      orderedGroupIds,
+      reorderMenuGroupId,
+      snapInterval,
+      windowWidth,
+    ],
   );
 
   useEffect(() => {
@@ -758,6 +872,8 @@ export default function GroupListScreen({
   const flipToBack = useCallback(
     (groupId: string, trigger: 'card_tap' | 'accessibility_action' = 'card_tap') => {
       if (!userId || draggingGroupId !== null || reorderMenuGroupId !== null) return;
+      roomReturnRef.current = null;
+      cancelPendingFrontFocus();
       guideBackGroupIdRef.current = null;
       setFlippedGroupId(groupId);
       summaryAdapter.ensureBack(groupId);
@@ -768,12 +884,22 @@ export default function GroupListScreen({
         group_count_bucket: countBucket,
       });
     },
-    [countBucket, draggingGroupId, focusController, reorderMenuGroupId, summaryAdapter, userId],
+    [
+      cancelPendingFrontFocus,
+      countBucket,
+      draggingGroupId,
+      focusController,
+      reorderMenuGroupId,
+      summaryAdapter,
+      userId,
+    ],
   );
 
   const flipToFront = useCallback(
     (groupId: string, trigger: 'card_tap' | 'accessibility_action' = 'card_tap') => {
       if (flippedGroupId === null) return;
+      roomReturnRef.current = null;
+      cancelPendingFrontFocus();
       guideBackGroupIdRef.current = null;
       setFrontFocusGroupId(groupId);
       setFlippedGroupId(null);
@@ -783,20 +909,13 @@ export default function GroupListScreen({
         group_count_bucket: countBucket,
       });
     },
-    [countBucket, flippedGroupId],
+    [cancelPendingFrontFocus, countBucket, flippedGroupId],
   );
 
   useEffect(() => {
-    if (frontFocusGroupId === null) return;
-    const frame = requestAnimationFrame(() => {
-      const node = ReactNative.findNodeHandle(
-        frontDisclosureRefs.current.get(frontFocusGroupId) ?? null,
-      );
-      if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-      setFrontFocusGroupId(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [frontFocusGroupId]);
+    if (frontFocusGroupId === null || !appActive || guideBlocked) return;
+    scheduleFrontFocus(frontFocusGroupId);
+  }, [appActive, frontFocusGroupId, guideBlocked, scheduleFrontFocus]);
 
   const acceptAction = useCallback(
     (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
@@ -895,6 +1014,8 @@ export default function GroupListScreen({
               // 취소되거나 네이티브가 momentum-end를 생략한 programmatic 이동이 다음 사용자 swipe를
               // 삼키지 않도록 실제 손가락 스크롤 시작에서 억제 토큰을 폐기한다.
               programmaticMomentumCountRef.current = 0;
+              roomReturnRef.current = null;
+              cancelPendingFrontFocus();
               setFlippedGroupId(null);
               guideBackGroupIdRef.current = null;
             }}
@@ -915,6 +1036,8 @@ export default function GroupListScreen({
                   position={pageCount}
                   pageCount={pageCount}
                   onPress={() => {
+                    roomReturnRef.current = null;
+                    cancelPendingFrontFocus();
                     logGroupFindOpened({ entry_point: 'end_card' });
                     onFind();
                   }}
@@ -956,38 +1079,60 @@ export default function GroupListScreen({
                         }
                         onOpenSettings={() => {
                           if (!onOpenSettings) return;
-                          invokeAcceptedAction(item, 'settings', () =>
-                            onOpenSettings(item.groupId),
-                          );
+                          invokeAcceptedAction(item, 'settings', () => {
+                            roomReturnRef.current = null;
+                            cancelPendingFrontFocus();
+                            onOpenSettings(item.groupId);
+                          });
                         }}
                         onStartFocus={() => {
                           if (!onStartFocus) return;
-                          invokeAcceptedAction(item, 'focus', (interaction) =>
-                            onStartFocus(item.groupId, interaction),
-                          );
+                          invokeAcceptedAction(item, 'focus', (interaction) => {
+                            roomReturnRef.current = null;
+                            cancelPendingFrontFocus();
+                            onStartFocus(item.groupId, interaction);
+                          });
                         }}
                         onOpenRoom={() => {
                           invokeAcceptedAction(item, 'room', (interaction) => {
+                            cancelPendingFrontFocus();
+                            roomReturnRef.current = {
+                              groupId: item.groupId,
+                              sourceIndex: index,
+                              departureRevision: successfulListVersion,
+                            };
                             roomReturnFocusGroupIdRef.current = item.groupId;
                             roomReturnWasBlurredRef.current = false;
+                            setRoomReturnReadyGroupId(null);
                             try {
                               onSelect(item.groupId, interaction);
                             } catch (error) {
+                              roomReturnRef.current = null;
                               roomReturnFocusGroupIdRef.current = null;
                               roomReturnWasBlurredRef.current = false;
+                              setRoomReturnReadyGroupId(null);
                               throw error;
                             }
                           });
                         }}
                         focusRoomOnMount={
+                          roomReturnReadyGroupId === item.groupId &&
+                          screenFocused &&
+                          appActive &&
+                          !guideBlocked &&
                           roomReturnWasBlurredRef.current &&
                           roomReturnFocusGroupIdRef.current === item.groupId
                         }
                         onRoomFocusRestored={() => {
+                          setRoomReturnReadyGroupId(null);
                           roomReturnFocusGroupIdRef.current = null;
                           roomReturnWasBlurredRef.current = false;
                         }}
-                        suppressInitialFocus={deckGuideVisible}
+                        suppressInitialFocus={
+                          deckGuideVisible ||
+                          actionAcceptedRef.current ||
+                          roomReturnFocusGroupIdRef.current === item.groupId
+                        }
                         focusPrimaryOnMount={guidePrimaryFocusGroupId === item.groupId}
                         onPrimaryFocusRestored={() => setGuidePrimaryFocusGroupId(null)}
                         onRetry={(section) => summaryAdapter.retry(item.groupId, section)}
@@ -1011,8 +1156,14 @@ export default function GroupListScreen({
                         else reorderGripRefs.current.delete(item.groupId);
                       }}
                       disclosureRef={(node) => {
-                        if (node) frontDisclosureRefs.current.set(item.groupId, node);
-                        else frontDisclosureRefs.current.delete(item.groupId);
+                        if (node) {
+                          frontDisclosureRefs.current.set(item.groupId, node);
+                          if (frontFocusGroupIdRef.current === item.groupId) {
+                            scheduleFrontFocus(item.groupId);
+                          }
+                        } else {
+                          frontDisclosureRefs.current.delete(item.groupId);
+                        }
                       }}
                       onFlip={() => flipToBack(item.groupId)}
                       onAccessibilityFlip={() => flipToBack(item.groupId, 'accessibility_action')}
@@ -1121,7 +1272,11 @@ export default function GroupListScreen({
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}
-          onPress={onCreate}
+          onPress={() => {
+            roomReturnRef.current = null;
+            cancelPendingFrontFocus();
+            onCreate();
+          }}
           testID="group.list.create"
         >
           <Text style={s.primaryText}>그룹 만들기</Text>
@@ -1130,6 +1285,8 @@ export default function GroupListScreen({
           style={s.outlineBtn}
           activeOpacity={0.85}
           onPress={() => {
+            roomReturnRef.current = null;
+            cancelPendingFrontFocus();
             logGroupFindOpened({ entry_point: 'list' });
             onFind();
           }}
@@ -1219,9 +1376,15 @@ const s = StyleSheet.create({
   },
   reorderTitle: { ...T.text.caption, color: T.inkMuted, padding: T.space.xs },
   reorderOptions: { maxHeight: 220 },
-  reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
+  reorderOption: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: T.space.sm,
+  },
   reorderOptionText: { ...T.text.label, color: T.ink },
   reorderClose: {
+    minWidth: 44,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
