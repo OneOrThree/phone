@@ -21,7 +21,6 @@ interface GroupCardFrontProps {
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
-  onOpenReorderMenu?: () => void;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
@@ -40,7 +39,6 @@ export function GroupCardFront({
   onFlip,
   onAccessibilityFlip,
   reorderHandlers,
-  onOpenReorderMenu,
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
@@ -63,7 +61,6 @@ export function GroupCardFront({
             accessibilityRole="adjustable"
             focusable={active}
             disabled={!active}
-            onPress={onOpenReorderMenu}
             accessibilityLabel={`${group.name} 카드 순서`}
             accessibilityValue={{ text: `${position}/${reorderCount}` }}
             accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
