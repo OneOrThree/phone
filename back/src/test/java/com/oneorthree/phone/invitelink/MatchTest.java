@@ -231,7 +231,7 @@ class MatchTest extends InviteLinkTestSupport {
     private ResultActions match(String ip, String deviceId, String appInstanceId) throws Exception {
         return mockMvc.perform(post("/l/match")
                 .contentType(MediaType.APPLICATION_JSON)
-                .header("CF-Connecting-IP", ip)
+                .header("X-Real-IP", ip)
                 .content("{\"os\":\"ios\",\"deviceId\":\"" + deviceId
                         + "\",\"appInstanceId\":\"" + appInstanceId + "\"}"));
     }
@@ -239,7 +239,7 @@ class MatchTest extends InviteLinkTestSupport {
     private ResultActions postMatch(String body) throws Exception {
         return mockMvc.perform(post("/l/match")
                 .contentType(MediaType.APPLICATION_JSON)
-                .header("CF-Connecting-IP", CLICK_IP)
+                .header("X-Real-IP", CLICK_IP)
                 .content(body));
     }
 

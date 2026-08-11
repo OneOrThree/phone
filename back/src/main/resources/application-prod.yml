@@ -77,10 +77,15 @@ link:
   base-url: ${LINK_BASE_URL:https://link.oneorthree.world}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT}
-  # prod 는 Cloudflare → nginx → app 체인이고 app 은 포트를 열지 않아(docker-compose.prod.yml)
-  # app-network 의 nginx 말고는 도달할 수 없다 — 전달 헤더를 읽는 게 맞는 유일한 환경이라
-  # 기본값과 같더라도 명시해 둔다. 오리진이 직접 열리게 바뀌면 이 값을 비워야 한다.
-  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:CF-Connecting-IP,X-Forwarded-For}
+  # X-Real-IP '만' 신뢰한다. 인프라 레포의 nginx.conf 는 set_real_ip_from 으로 Cloudflare 대역을
+  # 나열하고 real_ip_header CF-Connecting-IP 를 걸어, TCP 피어가 CF 대역일 때만 그 헤더를 믿어
+  # $remote_addr 을 복원한 뒤 proxy_set_header X-Real-IP $remote_addr 로 넘긴다. 그래서
+  #   - CF 경유: X-Real-IP = 진짜 클라이언트 IP
+  #   - 오리진 직접 접속: realip 이 무시 → X-Real-IP = 접속자의 진짜 IP
+  # 이고, 클라이언트가 X-Real-IP 를 보내도 nginx 가 덮어써서 위조가 안 된다.
+  # 반대로 CF-Connecting-IP·X-Forwarded-For 는 nginx 가 덮어쓰지 않고 통과시키므로(XFF 는 뒤에
+  # 이어붙일 뿐 첫 토큰이 호출자 값) 오리진에 직접 붙으면 레이트리밋 키를 마음대로 고를 수 있다.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:X-Real-IP}
   store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
 
 # GA4 Measurement Protocol 서버 이벤트 (초대 링크 퍼널, 스펙 §6-2) — prod 만 실전송.

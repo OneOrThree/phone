@@ -149,7 +149,7 @@ class AuthControllerTest {
     void guestLoginWithinLimitReturns200() throws Exception {
         given(authService.guestLogin()).willReturn(new GuestLoginResponse("at", "rt", true));
 
-        mockMvc.perform(post("/api/v1/auth/guest").header("X-Forwarded-For", "203.0.113.10"))
+        mockMvc.perform(post("/api/v1/auth/guest").header("X-Real-IP", "203.0.113.10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").value("at"))
                 .andDo(print());
@@ -161,11 +161,11 @@ class AuthControllerTest {
         given(authService.guestLogin()).willReturn(new GuestLoginResponse("at", "rt", true));
 
         for (int i = 0; i < 2; i++) {
-            mockMvc.perform(post("/api/v1/auth/guest").header("X-Forwarded-For", "203.0.113.20"))
+            mockMvc.perform(post("/api/v1/auth/guest").header("X-Real-IP", "203.0.113.20"))
                     .andExpect(status().isOk());
         }
 
-        mockMvc.perform(post("/api/v1/auth/guest").header("X-Forwarded-For", "203.0.113.20"))
+        mockMvc.perform(post("/api/v1/auth/guest").header("X-Real-IP", "203.0.113.20"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("GUEST_CREATION_RATE_LIMITED"))
                 .andDo(print());

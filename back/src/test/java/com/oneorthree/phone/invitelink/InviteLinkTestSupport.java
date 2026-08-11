@@ -135,7 +135,7 @@ public abstract class InviteLinkTestSupport extends IntegrationTestBase {
     protected ResultActions hitLanding(String slug, String ip) throws Exception {
         return mockMvc.perform(get("/l/{slug}", slug)
                         .header("User-Agent", IPHONE_UA)
-                        .header("CF-Connecting-IP", ip))
+                        .header("X-Real-IP", ip))
                 .andExpect(status().isOk());
     }
 
