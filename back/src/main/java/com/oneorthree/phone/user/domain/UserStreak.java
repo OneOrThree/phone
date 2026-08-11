@@ -63,7 +63,7 @@ public class UserStreak {
      * 다음 세션 저장 때만 리셋하므로, 조회만 하는 유저에게도 공백이 즉시 반영되도록 판정을 도메인에 둔다.
      * lastSessionDate 가 오늘·어제면 유지, 미래(시계 오차 등)면 저장값을 그대로 신뢰한다.
      *
-     * @param today 클라 로컬 기준 오늘
+     * @param today 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘
      * @return 만료 반영된 현재 연속일 (끊겼으면 0)
      */
     public int currentStreakAsOf(LocalDate today) {

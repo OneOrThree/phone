@@ -152,9 +152,10 @@ public class RankOvertakeNotificationService {
         // 오늘 이미 집중한 유저 = 오늘(KST 하루)에 종료된 완료 세션 ∪ 지금 진행 중(라이브) 세션 (GROMO-851).
         // startedAt 기준을 쓰지 않는다 — 고아 자동종료(AUTO_CLOSED)·사용자 취소(CANCELED) 세션은 실집중 0분인데도
         // '오늘 집중함'으로 오판돼, 오늘 아무것도 안 한 유저가 추월 넛지를 못 받았다(GROMO-841 과 같은 결함).
-        // 완료 판정은 endedAt 이 KST 오늘 구간에 든 세션으로 본다: ① DailyFocusStat.date 는 country_code 존 로컬
-        // 버킷(GROMO-803)이라 KST 오늘과 어긋날 수 있어(비-KST 유저 오검출) 절대시각 윈도우가 타임존에 견고하고,
-        // ② 자정 넘겨 끝난 세션도 종료일 기준이라 포함된다.
+        // 완료 판정은 endedAt 이 KST 오늘 구간에 든 세션으로 본다 — 자정을 넘겨 끝난 세션도 종료일 기준이라
+        // 포함되기 때문. 사전집계(DailyFocusStat.date) 조회로 바꾸지 말 것.
+        // (도입 당시엔 "DailyFocusStat.date 가 country_code 존 버킷이라 KST 오늘과 어긋난다"는 근거도 있었으나,
+        //  GROMO-1259 의 저장축 KST 고정으로 그 근거는 해소됐다. 위 자정 경계 이유만으로 이 윈도우를 유지한다.)
         Set<UUID> focusedTodayUserIds = new HashSet<>(focusSessionRepository
                 .findUserIdsWithCompletedFocusEndedBetween(userIds, startOfTodayKst, startOfTomorrowKst));
         focusedTodayUserIds.addAll(focusSessionRepository

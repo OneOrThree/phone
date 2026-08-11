@@ -27,7 +27,7 @@
  *       자동 종료 orphan 세션({@code sweepOrphanSessions})은 통계·스트릭에 반영하지 않으며, GROMO-804 로 상태를
  *       {@code AUTO_CLOSED} 로 표시해 by-category 실시간 집계에서도 제외된다(과거엔 ACTIVE 로 남아 leak).</li>
  *   <li><b>스크린타임</b>: 앱이 매일 전송 → {@code ScreenTimeService.saveScreenTime} 이
- *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = country_code 존 로컬 날짜(GROMO-561).
+ *       {@code DailyScreenTimeStat} 적재. 버킷 날짜 = KST 고정 날짜(GROMO-1259, {@code ZonePolicy}).
  *       목표 달성 플래그(GROMO-805): <b>최종 보고</b>(isFinal=true 또는 과거 날짜)만 <b>클라 신뢰</b>
  *       ({@code screenTimeGoalAchieved} 그대로 저장, 서버 재판정 안 함 — 과거 목표를 서버가 모름)하고 finalized 로 표시한다.
  *       <b>interim(오늘·미마감)</b>은 total 만 갱신하고 flag/finalized 는 미확정(신규 row 기본값 false, 기존 flag 보존).</li>
@@ -42,7 +42,7 @@
  *   <li>{@code GET /stats/streak} — UserStreak 조회.</li>
  *   <li>{@code GET /stats/today} — DailyFocusStat/DailyScreenTimeStat + 현재 목표로 재계산(사전집계).</li>
  *   <li>{@code GET /stats/focus} — DailyFocusStat 초합 → 분 환산(사전집계), 직전 구간 delta.</li>
- *   <li>{@code GET /stats/by-category} — FocusSession <b>실시간</b> 집계(country_code 존 윈도우, 태그별; GROMO-803).
+ *   <li>{@code GET /stats/by-category} — FocusSession <b>실시간</b> 집계(KST 고정 윈도우, 태그별; GROMO-803·1259).
  *       <b>GROMO-1252</b>: 창과 <b>겹치는</b> 세션을 모두 골라 기여분을 창으로 클리핑해 더한다(종전엔 endedAt 이
  *       창 안인 세션의 전체 길이를 더해, 자정을 걸친 세션에서 사전집계 총합과 과목별 합이 어긋났다).</li>
  *   <li>{@code GET /stats/screen-time} — DailyScreenTimeStat 합산(사전집계), 목표 달성 정보.</li>
@@ -56,9 +56,9 @@
  *   </tr>
  *   <tr>
  *     <td>날짜 기준</td>
- *     <td>쓰기 버킷 = country_code 존 로컬 날짜, 자정 걸치면 날짜별 분할(GROMO-803/1252, 561과 정합)</td>
- *     <td>쓰기 버킷 = country_code 존(GROMO-561)</td>
- *     <td>조회 {@code date} = 클라 로컬(GROMO-643)</td>
+ *     <td>쓰기 버킷 = KST 고정 날짜, 자정 걸치면 날짜별 분할(GROMO-803/1252, 1259 로 KST 고정)</td>
+ *     <td>쓰기 버킷 = KST 고정(GROMO-1259)</td>
+ *     <td>조회 {@code date} = 서버 판정 축 KST 고정(GROMO-643·1259)</td>
  *   </tr>
  *   <tr>
  *     <td>단위·내림</td>

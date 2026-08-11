@@ -97,7 +97,7 @@ public class GroupChallengeService {
     /**
      * 그룹 챌린지 목록. {@code date} 를 주면 멤버별 당일 진행률({@code memberProgress})을 함께 채운다.
      *
-     * @param date 클라 로컬 타임존 기준 오늘(그룹 상세의 focusTimeMinutes 와 같은 의미).
+     * @param date 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(그룹 상세의 focusTimeMinutes 와 같은 의미).
      *             null 이면 진행률을 계산하지 않는다(기존 클라이언트 호환).
      */
     public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {

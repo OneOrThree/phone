@@ -221,7 +221,7 @@ public class FriendService {
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
         Map<UUID, Integer> tierLevels = leagueTierLookup.tierLevelsByUserId(otherIds);
         // GROMO-822: 상대 userId 들의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 1회 배치 조회(N+1 방지).
-        // date 는 클라 로컬 타임존 기준 오늘(/pins 와 동일). 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
+        // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(/pins 와 동일). 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
         Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(otherIds, date);
         return others.stream()
                 .map(other -> {
@@ -274,7 +274,7 @@ public class FriendService {
             return List.of();
         }
 
-        // GROMO-643: 클라 로컬 날짜(date)로 오늘 집계 조회 (저장과 동일 기준, UTC 산정 제거)
+        // GROMO-643·1259: 서버 판정 축(KST 고정) 날짜(date)로 오늘 집계 조회 (DailyFocusStat 저장 버킷과 동일 축)
         Map<UUID, Integer> focusMap = dailyFocusStatRepository.findByUserInAndDate(friends, date).stream()
                 // GROMO-642: 초 저장 → 분 환산
                 .collect(Collectors.toMap(s -> s.getUser().getId(), s -> s.getTotalFocusSeconds() / 60));

@@ -50,7 +50,8 @@ public class GroupChallengeController {
     private final GroupBetWindowUsageService groupBetWindowUsageService;
 
     @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
-            + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
+            + " date(선택, 서버 판정 축 KST 고정 기준 오늘 — 기기 로컬 날짜가 아니다)를 주면"
+            + " 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
             + " — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null."
             + " TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치),"
             + " SCREEN_TIME 은 클라 보고값(미보고 = null)."

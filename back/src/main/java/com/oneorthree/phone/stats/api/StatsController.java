@@ -54,7 +54,8 @@ public class StatsController {
             description = "현재 연속일·최장 연속일·마지막 집중일. 기록 없으면 0/0/null."
                     + " currentStreak 은 read-time 으로 만료된다(GROMO-847): lastSessionDate 가 어제 이전이면"
                     + " 공백으로 끊긴 것으로 보아 0 을 반환한다(longestStreak·lastSessionDate 는 원본 유지)."
-                    + " date 는 클라 로컬 기준 '오늘'(required, GROMO-643 관례)."
+                    + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 '오늘'(required)"
+                    + " — 기기 로컬 날짜가 아니다. 로컬 날짜를 보내면 비-KST 기기에서 인접 버킷이 조회된다."
                     + " friends 지정 시 해당 친구(또는 PUBLIC)의 스트릭을 조회, 미지정 시 self.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),

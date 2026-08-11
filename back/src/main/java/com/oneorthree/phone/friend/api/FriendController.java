@@ -96,7 +96,7 @@ public class FriendController {
     @Operation(summary = "친구 목록 조회",
             description = "ACCEPTED·미삭제 친구 목록. isPinned는 내가 핀한 친구면 true. 각 친구의 집중 라이브 정보"
                     + "(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. "
-                    + "date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).")
+                    + "date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 기기 로컬 날짜가 아니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")

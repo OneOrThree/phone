@@ -901,7 +901,7 @@ public class FocusService {
         }
         userActivityEventLogger.log(UserActivityEvent.FOCUS_SESSION_COMPLETED, sessionPayload);
 
-        // ── DailyFocusStat upsert: statDate(country_code 존 로컬 날짜 버킷, GROMO-803) 기준 (user, date) 멱등 누적 ──
+        // ── DailyFocusStat upsert: statDate(KST 고정 날짜 버킷, GROMO-803·1259) 기준 (user, date) 멱등 누적 ──
         // GROMO-1252: 자정을 걸친 세션은 날짜별 조각으로 나눠 각 날짜에 가산한다. 오름차순 순회 —
         // 이벤트 로그가 시간순으로 남는다.
 
@@ -985,7 +985,7 @@ public class FocusService {
             // GROMO-806: 스트릭 인정 게이트 — 그날 누적 집중이 STREAK_MIN_SECONDS(10분) 이상일 때만 갱신한다.
             // (예: 5분+6분 → 1회차 누적 300초<600 미갱신, 2회차 누적 660초>=600 갱신. 이미 인정된 날 재호출은
             //  기존 same-day 멱등이 무변화를 보장.) 세션 저장·일별 집계와 같은 트랜잭션(원자적),
-            //  날짜 기준 동일(country_code 존 로컬 날짜, GROMO-803).
+            //  날짜 기준 동일(KST 고정 날짜, GROMO-803·1259).
             // GROMO-1252: 판정은 '쪼갠 뒤' 그 날짜 누적 기준 — 23:55~00:05 처럼 양쪽 다 5분이면 양쪽 다 미인정.
             boolean sliceQualified = sliceDayTotal >= STREAK_MIN_SECONDS;
             if (sliceQualified) {
@@ -1045,7 +1045,7 @@ public class FocusService {
                                          int goalRewardCoins) {
     }
 
-    /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(country_code 존 로컬 날짜, GROMO-803). */
+    /** 일일 집중 목표 달성(false→true 전이) 이벤트 발행 — date 는 ISO(KST 고정 날짜, GROMO-803·1259). */
     private void logDailyFocusGoalAchieved(LocalDate statDate, int totalFocusMinutes, int goalMinutes) {
         userActivityEventLogger.log(UserActivityEvent.DAILY_FOCUS_GOAL_ACHIEVED, Map.of(
                 "date", statDate.toString(),

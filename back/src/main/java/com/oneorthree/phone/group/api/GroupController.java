@@ -137,7 +137,8 @@ public class GroupController {
     }
 
     @Operation(summary = "그룹 상세 조회", description = "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환."
-            + " date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD) — 멤버별 오늘 집중분 집계 기준.")
+            + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 멤버별 오늘 집중분 집계 기준,"
+            + " 기기 로컬 날짜가 아니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류"),

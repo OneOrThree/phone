@@ -110,9 +110,10 @@ public class LeagueReengagementNotificationService {
             return 0;
         }
         // 오늘 이미 집중한 유저 = 오늘(KST 하루)에 종료된 완료 세션 ∪ 지금 진행 중(라이브) 세션.
-        // 완료 판정은 endedAt 이 KST 오늘 구간에 든 세션(취소·orphan 자동종료 제외)으로 본다:
-        //   ① DailyFocusStat.date 는 country_code 존 로컬 버킷(GROMO-803)이라 KST 오늘과 어긋날 수 있어(비-KST 유저 오검출),
-        //      절대시각 endedAt-KST-윈도우로 잡아야 타임존에 견고하다. ② 자정 넘겨 끝난 세션도 종료일 기준이라 포함된다.
+        // 완료 판정은 endedAt 이 KST 오늘 구간에 든 세션(취소·orphan 자동종료 제외)으로 본다 —
+        // 자정을 넘겨 끝난 세션도 종료일 기준이라 포함되기 때문. 사전집계(DailyFocusStat.date) 조회로 바꾸지 말 것.
+        // (도입 당시엔 "DailyFocusStat.date 가 country_code 존 버킷이라 KST 오늘과 어긋난다"는 근거도 있었으나,
+        //  GROMO-1259 의 저장축 KST 고정으로 그 근거는 해소됐다. 위 자정 경계 이유만으로 이 윈도우를 유지한다.)
         // startedAt 기준을 쓰지 않는다 — orphan 자동종료(AUTO_CLOSED)·미종료 세션은 실집중 0인데도 '오늘 집중함'으로 오판되기 때문.
         Instant startToday = today.atStartOfDay(KST).toInstant();
         Instant startTomorrow = today.plusDays(1).atStartOfDay(KST).toInstant();

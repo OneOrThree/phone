@@ -40,7 +40,7 @@ public class FocusLiveInfoLookup {
      * 당일 집계도 없고 진행 중 세션도 없는 유저는 맵에서 빠진다(호출측이 get 시 기본값 0/false/null 처리).
      *
      * @param userIds 조회할 유저 ID 목록
-     * @param date    당일 집계 기준 날짜(클라 로컬 타임존 기준 오늘 — /pins 와 동일 기준)
+     * @param date    당일 집계 기준 날짜(서버 판정 축 KST 고정 기준 오늘 — /pins 와 동일 기준, GROMO-1259)
      * @return userId→FocusLiveInfo 맵 (집계·라이브 둘 다 없는 유저는 미포함)
      */
     public Map<UUID, FocusLiveInfo> liveInfoByUserId(Collection<UUID> userIds, LocalDate date) {
