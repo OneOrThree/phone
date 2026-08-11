@@ -272,12 +272,12 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 그룹 목록 | 덱 카드(가로) | `enterUp(i)` — **이미 적용됨** | base | i × 60 | 2 |
 | 그룹방 | 로딩 | `SkeletonGroup` — **이미 적용됨** | 1200 loop | — | 1 |
 | 그룹방 | 챌린지 카드 M개 | `enterUp(i)` | base | i × 60 | 2 |
-| 그룹방 | 멤버 3열 그리드 | **행 단위** `fadeIn(m.stagger(rowIdx))` | quick | row × 60 | 2 |
+| 그룹방 | 멤버 3열 그리드 | **행 단위** `fadeIn(m.stagger(rowIdx))` | quick | row × 60 | **1** |
 | 그룹방 | 멤버 타일 | `PressableScale` (타일 루트 = 이미 `TouchableOpacity`) | press | 0 | 1 |
 | 챌린지 카드 | **내부 버튼만** 눌림 | `PressableScale` — 카드 루트는 **비터치 `View` 유지** | press | 0 | 1 |
 | 챌린지 카드 | 멤버 진행 수치 | **없음(등급 0)** — [D25-1](policy.md#d25) | — | — | 0 |
 | 챌린지 내역 | 첫 로딩 | **구조적 스켈레톤**(`Skeleton` 조합) × 3 — `SkeletonCard` 아님 ([D25-3](policy.md#d25)) | 1200 loop | — | 1 |
-| 챌린지 내역 | 리스트 행 | `enterUp(i)` (`CellRendererComponent`) | base | i × 60 | 2 |
+| 챌린지 내역 | 리스트 행 | `enterUp(pageIdx)` — **페이지 내 인덱스**(`CellRendererComponent`). ⚠️ 절대 인덱스 금지 — 아래 | base | pageIdx × 60 | 2 |
 | 챌린지 결과 | 캐릭터 | **`pop()`** | slow | 0 | 3 |
 | 챌린지 결과 | 명단 3구획 | `enterUp(i)` | base | i × 60 | 2 |
 | 베팅 | 시트 참여자 진행 바 | **없음(등급 0)** — 최대 10행이라 `ProgressBar` 금지 ([D25-2](policy.md#d25)) | — | — | 0 |
@@ -343,6 +343,7 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 
 - **stagger 축은 챌린지 카드 하나뿐이다.** 멤버 그리드까지 `enterUp(i)`를 걸면 0에서 다시 시작하는 시차가 한 화면에 둘 생겨 "리스트가 두 번 그려진다"로 읽힌다. 그리고 그리드는 대부분 **첫 화면 밖**이라, 보이지도 않는 연출에 프레임을 쓴다.
 - 그리드는 **행 단위 `fadeIn(m.stagger(rowIdx))`** 이다. ⚠️ `fadeIn`은 **인덱스가 아니라 지연 ms**를 받는다 — `fadeIn(rowIdx)`로 쓰면 행 지연이 0·1·2ms가 되어 시차가 통째로 사라진다(위 계약표). 타일마다 걸면 `staggerMaxSteps`(6)를 **2행 만에** 다 써 3행부터 전부 같은 칸에 뭉친다. 행 단위면 정원 상한(**최대 10명** — `GroupCreateScreen.tsx:58`)이 곧 **4행**이라 6칸 안에 온전히 들어간다. 렌더 구조가 이미 `memberRows.map(row => row.map(cell))`(`GroupRoomScreen.tsx:1125-1175`)이라 **행 래퍼가 이미 있다** — 뷰를 새로 끼우지 않는다(정책 D13).
+- **등급은 1이다(2가 아니다).** `fadeIn`은 `M.dur.quick`(220ms) **고정**인데 [IA §2](information-architecture.md)의 등급 2는 `base`·`slow`·`entrance`만 허용한다 — 등급 2로 적으면 **구현자가 프리미티브와 등급 계약을 동시에 만족할 수 없다**. 등급을 낮추는 쪽이 [D24](policy.md#d24)의 "한 단계 낮춘다"와도 맞는다. 등급 2를 굳이 지키려면 `enterUp`(base) 계열로 갈아타야 하는데, 그건 위 첫 불릿이 배제한 축(stagger 둘)이다.
 - 챌린지 카드에 `enterUp(i)`를 걸 자리는 `GroupRoomScreen.tsx:1072-1092`의 `.map()`이다. 키가 `c.id`라 노드 동일성이 유지된다.
 
 **눌림은 카드가 아니라 버튼에 건다**
@@ -400,6 +401,10 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 **그룹 목록 — 이미 끝나 있다** (`GroupScreen.tsx`는 껍데기고 실물은 `GroupListScreen.tsx`다)
 
 세로 목록이 아니라 **가로 카드 덱**이다. 하이드레이션 스켈레톤(`:1137-1141`) → `FlatList horizontal`(`:1144`) 이고, 진입 시차는 `CellRendererComponent`를 `Animated.View`로 갈아끼워 건다(`GroupListScreen.tsx:175-190`). 뷰를 새로 끼우지 않으므로 E2E `testID` 계약이 그대로다 — **챌린지 내역 리스트도 같은 기법을 쓴다.**
+
+> ⚠️ **다만 챌린지 내역은 페이지네이션 목록이라 인덱스 축이 다르다.** 가로 덱은 한 번에 다 오지만 내역은 `loadMore`로 이어 붙는다. `enterUp`에 **절대 인덱스**를 넘기면 21번째 행부터 전부 상한 `staggerMaxSteps`(6) × 60 = **360ms 동안 `animationFillMode: 'backwards'`로 투명 대기**한다. 이 화면은 `loadingMore`가 끝나는 즉시 꼬리 스피너를 지우므로, 사용자는 **빈 영역을 보다가 행이 나타나는** 것을 겪는다 — 스피너도 없고 내용도 없는 구간이 생긴다.
+>
+> 그래서 **페이지 내 인덱스**(`index - 이번 페이지 시작 오프셋`)를 넘긴다. 각 페이지가 자기 안에서 0부터 시차를 매기므로 어느 페이지든 첫 행이 즉시 뜬다. 첫 페이지만 걸고 이후는 시차 없이(`enterUp(0)`) 붙이는 것도 같은 목적을 달성하며, 둘 중 어느 쪽이든 **절대 인덱스만 아니면 된다**.
 
 > ⚠️ **`GroupCardDeck.tsx`는 배선돼 있지 않다.** `GroupCardDeck.test.tsx` 말고는 import 하는 곳이 없다 — 화면이 쓰는 것은 `GroupListScreen`의 `FlatList` + `PageIndicator` + `GroupCardFlip`(`:1210`)/`GroupCardFront`(`:1270`)/`GroupCardBack`(`:1219`)이다. 여기에 모션을 얹으면 **아무 화면에서도 보이지 않는다.**
 

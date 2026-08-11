@@ -273,9 +273,13 @@
 
 | 층 | 지금 | 이후 |
 | --- | --- | --- |
-| 카드(본문) | 레거시 `Animated` opacity + scale 0.85→1 | RN `Modal`의 `animationType="fade"`만 (이미 `:271`에 있다 — 지금은 페이드와 팝이 겹쳐 두 번 들어온다) |
+| 카드(본문) | 레거시 `Animated` opacity + scale 0.85→1 | RN `Modal`의 `animationType={m.reduce ? 'none' : 'fade'}` (`:271`에 이미 `"fade"`가 있다 — 지금은 페이드와 팝이 겹쳐 두 번 들어온다) |
 | 캐릭터 | 없음 | **`pop()`** — `GoalCelebrationModal.tsx:123-136`과 같은 `<Enter preset={pop()}>` |
 | 명단 3구획 | 한 번에 표시 | `enterUp(i)` |
+
+> ⚠️ **`animationType`도 reduce-motion을 타야 한다.** RN `Modal`의 전환은 네이티브가 그리므로 `useMotion`을 **통과하지 않는다** — 레거시 팝만 걷어내고 `"fade"`를 그대로 두면 '동작 줄이기'에서 여전히 재생되고, [HLD](high-level-design.md)의 *"`useMotion`을 거치지 않는 애니메이션이 없다"* 계약과 **이 결정이 부채를 해소한다는 목적** 둘 다 못 지킨다. 그래서 `m.reduce`로 갈라 `"none"`을 준다.
+>
+> 같은 축의 선례가 [D3](#d3)다 — 거기서는 `SheetShell`이 전환을 **직접 그리려고** `"none"`을 골랐고, 여기서는 **접근성 때문에** 조건부로 고른다. 이유는 다르지만 둘 다 "네이티브 전환은 게이트 밖"이라는 같은 사실 위에 있다.
 
 **근거 — 곡선 차이는 지킬 만한 값이 아니다 (실측)**
 
