@@ -77,8 +77,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // startedAt >= liveSince: 미종료여도 orphan 타임아웃(12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 버려진 세션은
     // '라이브'에서 제외한다(findUserIdsWithLiveSession, GROMO-841 과 동일 기준). 이 응답이 focusStartedAt 을 노출하므로
     // 하한이 없으면 12시간 전 시작한 죽은 세션이 '집중 중'으로 보인다.
-    // ORDER BY startedAt DESC: 단일 라이브 세션을 강제하는 가드가 없어(중복 시작 가능) 한 유저에 미종료 세션이 여럿일 때,
-    // 호출측이 최신 세션을 결정적으로 고르게 한다(정렬 없으면 startedAt·태그명이 호출마다 뒤집힐 수 있음).
+    // ORDER BY startedAt DESC: GROMO-1287 이 close-then-open(FocusService.startFocusSession) + V47 부분 유니크
+    // (user_id WHERE ended_at IS NULL)로 "유저당 열린 마커 1개"를 강제하기 전에는 중복 시작이 가능해 한 유저에
+    // 미종료 세션이 여럿일 수 있었다. 이제 DB 가 불변식을 보장하지만 정렬은 남긴다 — 결과가 유저당 1건이면
+    // 정렬 비용이 사실상 0 이고, 인덱스가 없는 ci 스키마(create-drop — JPA 는 부분 유니크를 표현 못 한다)와
+    // 마이그레이션 이전 스냅샷에서도 호출측이 최신 세션을 결정적으로 고르게 하는 2차 방어선이다.
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
             + "LEFT JOIN FETCH ft.defaultTag "
@@ -193,6 +196,43 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "s.endedAt = :endedAt "
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
+
+    /**
+     * 유저당 단일 라이브 마커 불변식(GROMO-1287) — 새 마커를 열기 전에 <b>같은 유저의 열린 마커를 전부</b>
+     * {@code AUTO_CLOSED} 로 원자 마감한다. 단일 벌크 UPDATE 라 조회-판정-수정 사이 창이 없고,
+     * 걸린 행은 그대로 잠겨 동시 PATCH/취소와 직렬화된다.
+     *
+     * <p><b>왜 신규 상태값이 아니라 {@code AUTO_CLOSED} 재사용인가</b> — 세 배선이 이미 이 값에 걸려 있다.
+     * <ul>
+     *   <li><b>보상 보존</b>: {@code endFocusSession} 은 마감 경합(영향 row=0)에서 상태를 다시 읽어
+     *       CANCELED/AUTO_CLOSED 면 {@code SESSION_DISCARDED} 를 돌려주고, 앱은 그 코드에서만
+     *       POST 완료 저장으로 폴백해 시간·코인을 살린다({@code uploadFocusBlock.ts}). 신규 상태값은
+     *       그 분기를 못 타 {@code SESSION_ALREADY_ENDED} 로 떨어지고 → 앱이 폴백하지 않아
+     *       <b>그 블록의 집중 시간과 코인이 영구 유실</b>된다.</li>
+     *   <li><b>이중집계 방지</b>: 집계 쿼리는 전부 "제외 목록"(NOT IN(CANCELED, AUTO_CLOSED)) 방식이라
+     *       신규 상태값은 자동으로 <b>포함</b>된다 — 폴백 POST 가 만든 완료 행과 이 마커가 같이 계수돼
+     *       통계·정산이 두 번 센다.</li>
+     *   <li><b>CHECK 무변경</b>: V9 가 이미 {@code AUTO_CLOSED} 를 focus_sessions_status_check 에 넣어뒀다.
+     *       신규 값은 CHECK 재정의 마이그레이션이 또 필요하다.</li>
+     * </ul>
+     * 의미상으로도 같다 — 유저가 끝내지 않아 서버가 대신 마감한 마커이고, 종료 시각 신뢰도가 낮아
+     * 통계·스트릭에 미반영한다는 {@code AUTO_CLOSED} 의 정의 그대로다(스윕은 12h 상한, 이쪽은 재시작 시점).
+     *
+     * <p>{@code user} 가 non-null 이라 탈퇴로 {@code user_id} 가 null 이 된 행({@link #nullifyUser})은
+     * 자연히 대상에서 빠진다 — V47 부분 유니크가 NULL 을 중복으로 보지 않는 것과 같은 결.
+     *
+     * <p>{@code clearAutomatically}/{@code flushAutomatically} 는 기본값(false) 그대로다
+     * ({@code markAutoClosedIfOpen} 관례). 호출측(startFocusSession)은 이 시점에 마커 엔티티를 영속성
+     * 컨텍스트에 올려두지 않고, 컨텍스트를 비우면 직전에 잠근 {@code user} 가 detach 돼 이후 INSERT 가 깨진다.
+     *
+     * @return 마감된 행 수(0이면 열린 마커가 없었던 정상 경로)
+     */
+    @Modifying
+    @Query("UPDATE FocusSession s "
+            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "s.endedAt = :closedAt "
+            + "WHERE s.user = :user AND s.endedAt IS NULL")
+    int autoCloseOpenMarkersOf(@Param("user") User user, @Param("closedAt") Instant closedAt);
 
     // 원자적 조건부 유저 취소(GROMO-733) — 진행 중(endedAt IS NULL)인 경우에만 CANCELED 로 마감하고 취소 시각을 채운다.
     // 반환값(영향 row 수)이 1이면 이 요청이 취소를 성사시킨 것이고, 0이면 이미 종료/취소된 세션(멱등 — 재취소·이중 취소 차단).

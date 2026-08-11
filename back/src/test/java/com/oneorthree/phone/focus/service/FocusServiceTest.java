@@ -45,6 +45,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -71,6 +72,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -2415,7 +2417,7 @@ class FocusServiceTest {
         Instant startedAt = withinClampWindow(30);
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
         given(focusSessionRepository.save(any(FocusSession.class)))
@@ -2447,7 +2449,7 @@ class FocusServiceTest {
     void startFocusSessionDefaultsStartedAt() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, null);
 
@@ -2466,7 +2468,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void startFocusSessionUserNotFound() {
         // given
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START);
 
         // when & then
@@ -2484,7 +2486,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
 
@@ -2503,7 +2505,7 @@ class FocusServiceTest {
     void startFocusSessionPersistsFocusType() {
         // given: 요청에 focusType=POMODORO
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, FocusType.POMODORO);
 
@@ -2521,7 +2523,7 @@ class FocusServiceTest {
     void startFocusSessionDefaultsFocusTypeToInfinite() {
         // given: 요청 focusType=null
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, null);
 
@@ -2532,6 +2534,71 @@ class FocusServiceTest {
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
         assertThat(captor.getValue().getFocusType()).isEqualTo(FocusType.INFINITE);
+    }
+
+    // ── startFocusSession — 유저당 라이브 마커 1개 불변식(GROMO-1287) ────────
+
+    @Test
+    @DisplayName("열린 마커가 있는 채로 start → 기존 마커를 먼저 마감한 뒤 새 마커 1개만 INSERT (close-then-open)")
+    void startFocusSessionClosesOpenMarkerBeforeInsert() {
+        // given: 이 유저에게 아직 열린 마커가 1개 남아 있다(마감 쿼리가 1행 영향)
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(1);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, withinClampWindow(10)));
+
+        // then: 마감(UPDATE)이 INSERT 보다 먼저다. 순서가 뒤집히면 V47 부분 유니크(user_id WHERE ended_at
+        // IS NULL)가 INSERT 를 거절해 정상 흐름이 500 이 된다.
+        InOrder order = inOrder(focusSessionRepository);
+        order.verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        order.verify(focusSessionRepository).save(any(FocusSession.class));
+        // 새 마커는 진행 중(endedAt null)으로 저장되고, 마커는 정확히 1건만 만들어진다
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getEndedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("동시 start 직렬화 — 유저 로드는 공유 락이 아니라 배타 락(findActiveByIdForUpdate)")
+    void startFocusSessionLocksUserRowExclusively() {
+        // given: 마커가 하나도 없는 유저(마감 대상 0행) — 이때 잠글 focus_sessions 행이 없어
+        // users 행이 유일한 직렬화 지점이다.
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(0);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
+
+        // then: 공유 락 경로를 타면 두 동시 요청이 서로를 못 보고 둘 다 INSERT 한다
+        verify(userRepository).findActiveByIdForUpdate(USER_ID);
+        verify(userRepository, never()).findActiveByIdForShare(USER_ID);
+    }
+
+    @Test
+    @DisplayName("마감 시각은 서버 now — 클램프로 과거가 될 수 있는 새 마커 startedAt 을 쓰지 않는다")
+    void startFocusSessionClosesMarkersAtServerNow() {
+        // given: 클라가 5분 전(클램프 창 안) startedAt 을 보낸다 → 새 마커 startedAt 은 과거다
+        User user = User.builder().id(USER_ID).build();
+        Instant clientStartedAt = withinClampWindow(280);
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(1);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        Instant before = Instant.now();
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, clientStartedAt));
+
+        // then: 마감 시각이 새 마커 startedAt 이었다면 구 마커가 그보다 늦게 시작한 경우
+        // endedAt < startedAt 역전이 생긴다. now 는 어떤 마커의 startedAt(생성 시 미래 0분 클램프)보다도 뒤다.
+        ArgumentCaptor<Instant> closedAt = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), closedAt.capture());
+        assertThat(closedAt.getValue()).isAfterOrEqualTo(before);
+        assertThat(closedAt.getValue()).isAfter(clientStartedAt);
     }
 
     // ── endFocusSession — 라이브 세션 종료(GROMO-610) ────────────────────────
@@ -2952,7 +3019,7 @@ class FocusServiceTest {
         // given: 창(과거 5분) 밖의 startedAt
         Instant backdated = Instant.now().minus(Duration.ofHours(12));
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when

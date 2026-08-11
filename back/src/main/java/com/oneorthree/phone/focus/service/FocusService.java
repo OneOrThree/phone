@@ -665,14 +665,40 @@ public class FocusService {
     /**
      * 라이브 집중 세션 시작(GROMO-610) — startedAt 만 기록한 진행 중(endedAt NULL) 세션을 INSERT.
      * 통계·스트릭은 종료(PATCH) 시점에 귀속하므로 여기서는 건드리지 않는다.
+     *
+     * <p><b>close-then-open (GROMO-1287)</b> — 새 마커를 열기 전에 같은 유저의 열린 마커를 원자적으로
+     * 마감한다. 종전엔 기존 마커를 조회조차 하지 않고 무조건 INSERT 해서 "유저당 라이브 마커 1개"를
+     * 강제하는 것이 아무것도 없었다. 고아 마커가 남으면 ① 친구·리그 {@code isFocusing} 이 최대 12시간
+     * (orphan 스윕 주기) 참으로 남고 ② {@code existsActiveOverlappingWindow}(GROMO-1413) 정산 대기
+     * 가드가 계속 참이라 그 회차 정산이 최대 12시간 밀리고 최악의 경우 24h 자동 환불로 내기가 무효화된다.
+     *
+     * <p>마감 status 를 {@code AUTO_CLOSED} 로 쓰는 이유(신규 상태값을 만들지 않은 이유)는
+     * {@link FocusSessionRepository#autoCloseOpenMarkersOf} 주석 참고 — 요약하면 집계 제외 관례
+     * (NOT IN(CANCELED, AUTO_CLOSED))와 PATCH 409 분기(→ SESSION_DISCARDED → 앱 POST 폴백)가
+     * 이미 이 값에 배선돼 있어 <b>유저 보상 경로가 보존</b>되기 때문이다.
+     *
+     * <p>{@code endedAt} 은 서버 수신 시각({@code now}) 이다. 새 마커의 {@code startedAt} 은 클램프 창
+     * (과거 5분)만큼 과거일 수 있어 구 마커의 {@code startedAt} 보다 앞설 수 있지만, {@code now} 는
+     * 어떤 마커의 {@code startedAt}(생성 시점에 미래 0분으로 클램프됨)보다도 항상 뒤라 역전이 없다.
+     *
+     * <p>동시 start 직렬화 — 여기서만 users 행을 <b>배타</b> 락으로 잡는다({@link #requireActiveUserForUpdate}).
+     * 마커가 아직 하나도 없을 때는 잠글 마커 행 자체가 없어 users 행이 유일한 직렬화 지점이고, 직렬화가
+     * 없으면 동시 요청 2건이 각자 "열린 마커 없음"을 보고 둘 다 INSERT 해 V47 부분 유니크 인덱스에서
+     * 한쪽이 500 으로 터진다.
      */
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
-        User user = requireActiveUser(userId);
+        User user = requireActiveUserForUpdate(userId);
 
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
-        Instant startedAt = clampToServerNow(body.startedAt(), Instant.now());
+        Instant now = Instant.now();
+        Instant startedAt = clampToServerNow(body.startedAt(), now);
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
+
+        // GROMO-1287: 열린 마커 원자적 마감 — INSERT 앞에 둬야 V47 부분 유니크(ended_at IS NULL)를 통과한다.
+        // 뽀모도로 마커 회전(앱이 구 마커를 비동기 PATCH 로 마감하며 새 블록을 여는 정상 흐름)에서 구 마커가
+        // 아직 열려 있어도 여기서 닫히므로 INSERT 가 유니크 위반으로 터지지 않는다.
+        focusSessionRepository.autoCloseOpenMarkersOf(user, now);
 
         // GROMO-733: focus_type 인입 — null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
         FocusSession saved = focusSessionRepository.save(FocusSession.builder()
@@ -835,6 +861,24 @@ public class FocusService {
      */
     private User requireActiveUser(UUID userId) {
         return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 활성 검증 + <b>배타</b> 락 (GROMO-1287) — 라이브 마커 시작 전용.
+     *
+     * <p>{@link #requireActiveUser}(공유 락)와 달리 배타 락을 쓰는 이유는 탈퇴 직렬화가 아니라
+     * <b>같은 유저의 동시 start 직렬화</b>다. "유저당 열린 마커 1개" 불변식을 세우려면 close-then-open
+     * 전체가 유저 단위로 직렬화돼야 하는데, 열린 마커가 하나도 없는 상태에서는 잠글 {@code focus_sessions}
+     * 행이 없다 — 그러면 동시 요청 2건이 각자 마감할 것을 못 찾고 둘 다 INSERT 해 V47 부분 유니크에서
+     * 한쪽이 500 이 된다. users 행이 유일한 공통 직렬화 지점이라 여기서 잡는다.
+     *
+     * <p>승급 교착 없음(UserRepository "락 선택 원칙") — 트랜잭션 시작 직후 <b>처음부터</b> 배타 락을
+     * 잡으며, 같은 트랜잭션에서 공유 락을 먼저 잡는 경로가 없다. 잠금 순서도 기존 규율
+     * (users → focus_sessions → 지갑 → daily_focus_stats) 그대로다.
+     */
+    private User requireActiveUserForUpdate(UUID userId) {
+        return userRepository.findActiveByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
     }
 
