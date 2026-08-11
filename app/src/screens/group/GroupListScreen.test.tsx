@@ -102,6 +102,35 @@ beforeEach(async () => {
 });
 
 describe('카드 렌더', () => {
+  test('안내 중 blocking overlay가 생긴 render에서는 가이드 Modal을 즉시 내린다', async () => {
+    resetGroupDeckGuideSessionForTests();
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    const props = {
+      groups: [group()],
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+      userId: 'user-1',
+      guideEpisode: 1,
+      guideDataReady: true,
+    };
+    const view = await render(<GroupListScreen {...props} />);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 520 } },
+      });
+      fireEvent(screen.getByTestId(`group.list.card.${GROUP_ID}`), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 520 } },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('group.list.guide')).toBeOnTheScreen());
+
+    await view.rerender(<GroupListScreen {...props} guideBlocked />);
+    expect(screen.queryByTestId('group.list.guide')).toBeNull();
+  });
+
   test('로컬 순서를 읽기 전에는 서버 첫 카드를 노출하지 않고 hydrate된 0번부터 시작한다', async () => {
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardOrder,

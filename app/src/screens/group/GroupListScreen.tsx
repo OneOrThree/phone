@@ -69,6 +69,7 @@ import { useGroupCardData } from './useGroupCardData';
 import { resolveGroupRoomReturn, type GroupRoomReturnContext } from './groupRoomReturn';
 import {
   GROUP_DECK_GUIDE_ID,
+  claimGroupDeckGuideUnknownFallback,
   completeGroupDeckGuide,
   groupDeckGuideSteps,
   isGroupDeckGuideCompletedInSession,
@@ -951,6 +952,10 @@ export default function GroupListScreen({
   }, [groupEntry, guideEligible, guideEpisode, orderedGroups.length]);
 
   const startGuide = useCallback(() => {
+    if (guideReadStateRef.current === 'unknown' && !claimGroupDeckGuideUnknownFallback()) {
+      setGuideQueued(false);
+      return;
+    }
     const firstGroupId = orderedGroups[0]?.groupId;
     if (!firstGroupId) return;
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -1403,7 +1408,10 @@ export default function GroupListScreen({
       <TabGuideOverlay
         storageKey={STORAGE_KEYS.guideGroupDeck}
         steps={guideSteps}
-        visible={guideVisible}
+        accessibilityTitle="그룹 카드 안내"
+        // blocking sheet와 RN Modal을 같은 commit에 마운트하지 않는다. interruption effect는
+        // 계측·queue를 정리하고, 렌더 경계에서는 blocker가 overlay를 즉시 내린다.
+        visible={guideVisible && !guideBlocked}
         completionMode="external"
         allowRequestClose={false}
         testID="group.list.guide"
