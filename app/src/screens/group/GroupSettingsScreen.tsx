@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -46,9 +45,11 @@ type GroupSettingsRoute = RouteProp<V2RootStackParamList, 'GroupSettings'>;
 // 나가기 플로우 카드 모달 상태 머신 — 하나만 열린다(GROMO-1251, AccountScreen 탈퇴 플로우와 같은 형태).
 //   leaveConfirm : 나가기 재확인(파괴적 동작 — 정책 D8 「확인이 필요한 2버튼」이라 토스트 대상이 아니다)
 //   hostBlocked  : 방장 블록(HOST_WITHDRAW) — 위임 화면으로 유도
-// ⚠️ 확인 카드를 닫았다가 블록 카드를 새로 띄우면 iOS에서 연속 present/dismiss가 경합해 뒤 카드가
-//    안 뜬다. 한 인스턴스의 **내용만 갈아** 그 경합을 없앤다(GROMO-1210에서 확인한 실패 모드).
-type LeaveModalState = { kind: 'leaveConfirm' } | { kind: 'hostBlocked' };
+//   leaveFailed  : 나가기 실패(재시도 유효) — 문구는 종전 네이티브 Alert 그대로
+// ⚠️ 확인 카드를 닫았다가 다른 카드/Alert를 새로 띄우면 iOS에서 연속 present/dismiss가 경합해
+//    **뒤엣것이 안 뜬다**(GROMO-1210에서 확인한 실패 모드). 그래서 종결 안내는 닫고 새로 띄우는
+//    대신 한 인스턴스의 **내용만 갈아** 보여준다.
+type LeaveModalState = { kind: 'leaveConfirm' } | { kind: 'hostBlocked' } | { kind: 'leaveFailed' };
 
 export default function GroupSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -149,25 +150,37 @@ export default function GroupSettingsScreen() {
         // 있음'과 같이 묶으면 탈퇴·비활성 세션을 「나가기 성공」으로 위장해 목록으로 돌려보낸다.
         // 그룹은 그대로 있고 사용자는 그 사실을 모른 채 로그인만 만료돼 있다.
         case USER_NOT_FOUND:
-          setLeaveModal(null);
+          // ⚠️ 카드를 **닫지 않는다.** 닫으면서 Alert를 띄우면 iOS에서 Modal dismiss와 Alert
+          //    present가 같은 틱에 경합해 안내가 안 뜰 수 있는데, 그러면 **확인 버튼에만 있는
+          //    로그아웃 경로가 통째로 사라진다**(세션 복구 유실). 카드는 그대로 둔 채 그 위에
+          //    띄운다 — 확인하면 로그아웃이 트리를 갈아치우고, 낡은 세대라 안내가 생략되면
+          //    (sessionErrors ①) 카드는 취소 가능한 상태로 남는다.
           promptSessionExpired(requestSessionGeneration);
           break;
         case 'NOT_FOUND':
         case 'MEMBER_ONLY':
-          // 이미 빠져 있는 상태 — 성공과 같게 취급한다.
+          // 이미 빠져 있는 상태 — 성공과 같게 취급한다(화면 자체가 사라지므로 카드를 먼저 내린다).
           setLeaveModal(null);
           navigation.popToTop();
           break;
         default:
-          setLeaveModal(null);
-          Alert.alert('그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
+          // 실패 안내도 같은 카드 인스턴스의 내용 교체로 보여준다 — 닫고 Alert를 띄우던 종전
+          // 순서가 위와 같은 경합을 만든다. 문구는 종전 Alert 그대로다.
+          setLeaveModal({ kind: 'leaveFailed' });
       }
     } finally {
       setLeaving(false);
     }
   }, [groupId, leaving, navigation]);
 
-  const closeLeaveModal = useCallback(() => setLeaveModal(null), []);
+  // ⚠️ 나가기 요청이 나가 있는 동안엔 **어떤 닫기도 받지 않는다**(보조 버튼·스크림 탭·하드웨어 백).
+  //    닫히면 사용자는 취소했다고 믿는데 요청은 그대로 진행돼 **성공하면 실제로 그룹에서 나간다** —
+  //    되돌릴 수 없는 동작에 "취소한 척하고 나가지는" 경로를 열어 두면 안 된다.
+  //    (요청을 중간에 끊을 수단이 없으므로 '닫힘 = 취소'가 참이 되도록 닫힘 쪽을 막는다.)
+  const closeLeaveModal = useCallback(() => {
+    if (leaving) return;
+    setLeaveModal(null);
+  }, [leaving]);
 
   // 닫힘 페이드아웃 동안 내용이 확인 카드로 되튀지 않게 마지막 내용을 ref로 유지한다(AccountScreen 선례).
   const lastLeaveModalRef = useRef<LeaveModalState>({ kind: 'leaveConfirm' });
@@ -175,31 +188,55 @@ export default function GroupSettingsScreen() {
   const shownLeaveModal = leaveModal ?? lastLeaveModalRef.current;
 
   // 상태별 카드 내용 — 문구는 기존 네이티브 Alert 그대로다(표면만 바꾼다, GROMO-1210 원칙).
-  const leaveCard =
-    shownLeaveModal.kind === 'hostBlocked'
-      ? {
-          title: '방장은 바로 나갈 수 없어요',
-          body: '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
-          primaryLabel: '방장 넘기고 나가기',
-          onPrimary: () => {
-            setLeaveModal(null);
-            navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' });
-          },
-          secondaryLabel: '취소',
-          testID: 'group.settings.hostBlocked',
-        }
-      : {
-          // 확인 문구 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-          title: '그룹 나가기',
-          body: `${groupName}에서 나갈까요?`,
-          primaryLabel: '나가기',
-          onPrimary: () => doLeave(),
-          // 요청이 나가 있는 동안 재탭을 막는다(doLeave의 leaving 가드와 이중 방어).
-          primaryDisabled: leaving,
-          destructive: true,
-          secondaryLabel: '취소',
-          testID: 'group.settings.leave.confirm',
-        };
+  let leaveCard: {
+    title: string;
+    body: string;
+    primaryLabel: string;
+    onPrimary: () => void;
+    primaryDisabled?: boolean;
+    destructive?: boolean;
+    secondaryLabel?: string;
+    testID: string;
+  };
+  switch (shownLeaveModal.kind) {
+    case 'hostBlocked':
+      leaveCard = {
+        title: '방장은 바로 나갈 수 없어요',
+        body: '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+        primaryLabel: '방장 넘기고 나가기',
+        onPrimary: () => {
+          setLeaveModal(null);
+          navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' });
+        },
+        secondaryLabel: '취소',
+        testID: 'group.settings.hostBlocked',
+      };
+      break;
+    case 'leaveFailed':
+      leaveCard = {
+        title: '그룹 나가기 실패',
+        body: '잠시 후 다시 시도해주세요.',
+        primaryLabel: '확인',
+        onPrimary: closeLeaveModal,
+        testID: 'group.settings.leaveFailed',
+      };
+      break;
+    default:
+      leaveCard = {
+        // 확인 문구 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
+        title: '그룹 나가기',
+        body: `${groupName}에서 나갈까요?`,
+        primaryLabel: '나가기',
+        onPrimary: () => doLeave(),
+        // 요청이 나가 있는 동안 재탭을 막는다(doLeave의 leaving 가드와 이중 방어).
+        primaryDisabled: leaving,
+        destructive: true,
+        // 진행 중엔 '취소' 자체를 렌더하지 않는다 — 위 closeLeaveModal 가드가 눌러도 무시하지만,
+        // 누를 수 있게 두면 "눌렀는데 아무 일도 없다"가 되어 그 또한 거짓 신호다.
+        secondaryLabel: leaving ? undefined : '취소',
+        testID: 'group.settings.leave.confirm',
+      };
+  }
 
   // 헤더 — 원형 백버튼 + 좌측 정렬 제목(그룹 만들기·프로필 화면과 같은 규격, §5-1).
   const header = (

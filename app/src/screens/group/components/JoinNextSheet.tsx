@@ -190,8 +190,14 @@ export default function JoinNextSheet({
       }
     } finally {
       submitLock.current = false;
+      // ⚠️ 제출 표시는 **반드시 finally에서** 푼다. switch의 `return` 분기들이 이 줄을 건너뛰기
+      //    때문이다. 종전엔 그 분기들이 전부 failAndReload → onDone()으로 시트를 닫아 가려져
+      //    있었는데, 유저 부재 분기는 세대가 갈리면 아무것도 띄우지 않고 돌아온다(sessionErrors ①)
+      //    — 그때 submitting이 true로 남으면 SheetShell이 dismissible={false}인 채 스피너에
+      //    영구 고정돼 앱 재시작 외엔 빠져나갈 수 없다. '조용히 버린다'는 아무 일도 없었던
+      //    것처럼 보여야지 화면을 잠그면 안 된다.
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   return (

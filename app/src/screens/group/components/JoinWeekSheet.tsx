@@ -211,8 +211,11 @@ export default function JoinWeekSheet({
       }
     } finally {
       submitLock.current = false;
+      // ⚠️ 제출 표시는 **반드시 finally에서** 푼다 — switch의 `return` 분기들이 이 줄을 건너뛴다.
+      //    유저 부재 분기는 세대가 갈리면 아무것도 띄우지 않고 돌아오므로(sessionErrors ①),
+      //    여기서 안 풀면 시트가 dismissible={false} + 스피너로 영구 고정된다(JoinNextSheet 동일).
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   return (

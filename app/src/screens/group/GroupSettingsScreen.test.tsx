@@ -342,6 +342,9 @@ describe('그룹 나가기', () => {
 
     await pressLeaveAndConfirm();
 
+    // ⚠️ 카드를 닫으면서 Alert를 띄우면 iOS에서 dismiss·present가 경합해 안내가 유실되고,
+    //    그러면 확인 버튼에만 있는 로그아웃 경로까지 사라진다 — 카드는 열어 둔 채 띄운다.
+    expect(screen.getByTestId('group.settings.leave.confirm')).toBeOnTheScreen();
     expect(mockPopToTop).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
       '로그인이 필요해요',
@@ -371,6 +374,62 @@ describe('그룹 나가기', () => {
     expect(mockTriggerLogout).toHaveBeenCalledWith(7);
     // 인자 없는 호출이면 새 세션까지 끊긴다 — 절대 그렇게 부르지 않는다.
     expect(mockTriggerLogout).not.toHaveBeenCalledWith(undefined);
+    alertSpy.mockRestore();
+  });
+
+  // 4라운드 P1-2 — **파괴적 동작에 "취소한 척"이 있으면 안 된다.** 요청이 나가 있는 동안
+  // 보조 버튼·스크림 탭으로 카드가 닫히면 사용자는 취소됐다고 믿지만 요청은 그대로 성공해
+  // 실제로 그룹에서 나간다. 요청을 끊을 수단이 없으므로 닫힘 쪽을 막아 '닫힘 = 취소'를 참으로 만든다.
+  test('나가기 요청 중에는 취소·스크림 탭으로 카드가 닫히지 않는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    // 응답이 오지 않는 요청 — 진행 중 상태를 그대로 관찰한다.
+    mockWithdrawGroup.mockReturnValueOnce(new Promise<void>(() => {}));
+    await renderScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave.confirm.primary'));
+    });
+
+    // '취소'는 아예 렌더되지 않는다 — 눌리는데 아무 일도 없으면 그 또한 거짓 신호다.
+    expect(screen.queryByTestId('group.settings.leave.confirm.secondary')).toBeNull();
+    // 스크림 탭도 닫지 않는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave.confirm.backdrop'));
+    });
+    expect(screen.getByTestId('group.settings.leave.confirm')).toBeOnTheScreen();
+    // 주 버튼도 잠겨 재요청이 나가지 않는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave.confirm.primary'));
+    });
+    expect(mockWithdrawGroup).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  // 4라운드 P1-3 — 실패 안내도 카드를 닫고 Alert를 띄우면 같은 present/dismiss 경합에 걸린다.
+  // 같은 인스턴스의 내용 교체로 보여준다(문구는 종전 Alert 그대로).
+  test('그 밖의 실패는 Alert가 아니라 같은 카드의 내용 교체로 알린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(500, 'SOMETHING_ELSE'));
+    await renderScreen();
+
+    await pressLeaveAndConfirm();
+
+    expect(screen.getByTestId('group.settings.leaveFailed')).toBeOnTheScreen();
+    expect(screen.getByText('그룹 나가기 실패')).toBeOnTheScreen();
+    expect(screen.getByText('잠시 후 다시 시도해주세요.')).toBeOnTheScreen();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockPopToTop).not.toHaveBeenCalled();
+
+    // 확인하면 닫힌다(요청이 끝났으므로 닫기 가드가 풀려 있다).
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leaveFailed.primary'));
+    });
+    expect(screen.queryByTestId('group.settings.leaveFailed')).toBeNull();
     alertSpy.mockRestore();
   });
 
