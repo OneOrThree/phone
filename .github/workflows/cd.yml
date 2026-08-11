@@ -24,7 +24,7 @@ concurrency:
 
 env:
   AWS_REGION: ap-northeast-2
-  # dev 리소스는 prod와 같은 계정(808715036056)에 있다. 구 계정(876225478226)은 쓰지 않는다.
+  # dev 리소스는 prod와 같은 신 AWS 계정(808715036056)에 있다.
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest

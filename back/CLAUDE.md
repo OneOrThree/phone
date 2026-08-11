@@ -102,7 +102,10 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
 ## Deploy
 
 - **Dev**: `cd.yml` builds a Docker image on `main` push and deploys to AWS
-  (secrets from Secrets Manager `oneorthree/phone`); health check at `/health`.
+  (OIDC role `gromo-dev-github-actions`, region `ap-northeast-2`, runtime secrets from
+  Secrets Manager `gromo/dev/env`); health check at `/health`. Dev images use GAR, not
+  ECR; host-bootstrap secrets (`gromo/dev/app-server`, `gromo/dev/ci-runner`) remain
+  instance-role-only and are not loaded by the deployment workflow.
 - **Prod**: `prod-ci.yml` (on `release`) builds + pushes the image →
   `prod-cd.yml` deploys it (auto via `workflow_run`, or manual dispatch by SHA);
   `prod-rollback.yml` rolls back manually.
