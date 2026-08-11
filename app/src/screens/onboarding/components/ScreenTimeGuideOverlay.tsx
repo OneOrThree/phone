@@ -213,12 +213,16 @@ const s = StyleSheet.create({
   btnLabels: { flexDirection: 'row', gap: 20, marginTop: T.space.sm },
   btnLabel: { flex: 1, textAlign: 'center', ...T.text.caption },
   // 왼쪽 '계속' 위 말풍선 — 버튼 행 기준 절대 배치(행 높이 46 + 간격 14)
+  // 버튼 행 **위쪽 모서리**에 붙인다(bottom '100%' = 부모 높이만큼 위). 예전엔 60(=버튼 46 +
+  // 간격 14) 고정이었는데, 버튼이 글자 배율 따라 자라면 말풍선 화살표가 버튼 안으로 내려와
+  // '계속' 라벨과 겹친다(코덱스 리뷰). 퍼센트로 잡으면 버튼 높이와 무관하게 항상 위에 뜬다.
   bubbleWrap: {
     position: 'absolute',
     left: 0,
     right: '50%',
     marginRight: T.space.sm + 2,
-    bottom: 60,
+    bottom: '100%',
+    marginBottom: 14,
     alignItems: 'center',
   },
   bubble: {

@@ -535,7 +535,9 @@ export default function LeagueScreen() {
               {myIdx >= 0 ? (
                 <>
                   <Text style={s.myStripRank}>내 순위 {myIdx + 1}위</Text>
-                  <Text style={s.myStripGap} numberOfLines={1}>
+                  {/* numberOfLines를 안 건다 — 접혀서 새 줄을 얻어도 한 줄로 묶으면
+                      지키려던 순위·시간 수치가 다시 말줄임된다(코덱스 리뷰). */}
+                  <Text style={s.myStripGap}>
                     {above
                       ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - stagedMySeconds)}`
                       : '지금 1위예요'}
@@ -748,8 +750,9 @@ export default function LeagueScreen() {
                             </View>
                           )}
                           {/* 카드 폭이 '48%' 고정인데 HH:MM:SS는 공백이 없어 줄바꿈이 안 된다 —
-                              배율을 안 묶으면 글자 중간에서 깨진다(코드리뷰). 옆 정적 분기
-                              (fmtMinutes)는 공백에서 접히므로 상한이 필요 없다. */}
+                              배율을 안 묶으면 글자 중간에서 깨진다(코드리뷰). 정적 분기의
+                              fmtMinutes도 'HH:MM:00'이라 같은 상한을 걸어야 두 분기 높이가 맞는다
+                              (코덱스 리뷰 — '공백에서 접힌다'고 적었던 건 틀렸다). */}
                           <LiveFocusTime
                             baseSeconds={(f.focusTimeMinutes ?? 0) * 60}
                             focusStartedAt={f.focusStartedAt ?? null}
@@ -763,6 +766,7 @@ export default function LeagueScreen() {
                             s.friendFocusTime,
                             (f.focusTimeMinutes ?? 0) > 0 && s.friendFocusTimeOn,
                           ]}
+                          maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                         >
                           {fmtMinutes(f.focusTimeMinutes ?? 0)}
                         </Text>
@@ -838,7 +842,15 @@ const s = StyleSheet.create({
     paddingTop: T.space.md,
     paddingBottom: T.space.md,
   },
-  headerToggle: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
+  // flexShrink/maxWidth 둘 다 필요 — headerTitle만 줄여 봐야 부모가 안 줄면 소용없고,
+  // header의 flexWrap은 토글을 다음 줄로 옮길 뿐 토글 자체를 줄이지 않는다(코덱스 리뷰).
+  headerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
   headerTitle: { ...T.text.title, color: T.ink, flexShrink: 1 },
   deadline: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
 

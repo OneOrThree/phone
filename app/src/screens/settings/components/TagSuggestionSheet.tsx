@@ -178,9 +178,12 @@ const s = StyleSheet.create({
   listScroll: { maxHeight: 320 },
   list: { gap: T.space.sm },
 
+  // 세로 패딩이 다른 CTA(12)보다 작다 — 선택이 있으면 '추가하기' + 'N개 선택됨' **두 줄**이
+  // 렌더돼 내용이 약 40pt다. 12를 주면 64pt가 돼 기본 배율에서 높이가 변하고(52 → 64) 선택
+  // 유무에 따라 시트가 튄다(코덱스 리뷰). 4면 두 줄이어도 48 < 52라 minHeight가 이긴다.
   primaryBtn: {
     minHeight: 52,
-    paddingVertical: T.space.md,
+    paddingVertical: T.space.xs,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

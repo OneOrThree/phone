@@ -893,10 +893,11 @@ const s = StyleSheet.create({
     gap: T.space.sm,
     marginTop: T.space.sm,
   },
+  // TextInput 본체라 세로 패딩을 안 준다 — 안드는 includeFontPadding 때문에 라인박스가
+  // iOS보다 두꺼워 44 - 24 = 20pt 안에 한 줄이 아슬아슬하게 들어간다. minHeight만으로 충분.
   stakeInput: {
     flex: 1,
     minHeight: 44,
-    paddingVertical: T.space.md,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: T.chipBorder,
