@@ -182,7 +182,7 @@ test('뒷면의 실제 조작 요소는 빈 영역 뒤집기로 버블링하지 
   );
 
   await act(async () => {
-    fireEvent.press(screen.getByLabelText('아침 집중방 그룹 옵션'));
+    fireEvent.press(screen.getByLabelText('그룹 설정'));
     fireEvent.press(screen.getByText(/멤버 정보를 확인하지 못했어요/));
     fireEvent.press(screen.getByTestId('group.card.focus.g1'));
     fireEvent.press(screen.getByTestId('group.card.room.g1'));
