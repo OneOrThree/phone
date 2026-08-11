@@ -40,6 +40,27 @@ describe('FIXED_BOX_FONT_SCALE_MAX', () => {
     expect(FIXED_BOX_FONT_SCALE_MAX).toBeGreaterThanOrEqual(1.35);
   });
 
+  // 랭킹 행(핀 모드)은 이 앱에서 가로가 가장 빠듯한 줄이다 — 순위·티어·아바타·핀이 전부 고정
+  // 폭이라 이름 칸만 줄어든다. "부호 붙은 격차(+HH:MM:SS)가 행을 넘긴다"는 리뷰 지적이 있었는데
+  // 실제로는 넘치지 않는다(아래 계산). 다만 고정 폭을 하나라도 늘리면 그때 진짜로 넘치므로,
+  // 근거를 여기 못 박아 둔다. 값 출처: LeagueScreen `s.list`(paddingHorizontal 16),
+  // RankRow `s.row`(paddingHorizontal 12, gap 12) · `s.rank` 22 · TierBadge 30 · MemberAvatar 36 ·
+  // `s.pinBtn` 26.
+  test('상한 배율에서 랭킹 행이 가장 긴 격차 문구를 담고도 넘치지 않는다', () => {
+    const NARROWEST_DEVICE = 375; // 최소 지원 iOS 16.4 → SE2/SE3가 하한. 320pt 기기는 대상 밖.
+    const inner = NARROWEST_DEVICE - 16 * 2 - 12 * 2;
+    const fixed = 22 + 30 + 36 + 26 + 12 * 5; // 고정 폭 자식 4개 + 자식 6개 사이 간격 5
+    const budget = inner - fixed; // 이름 칸 + 시간 칸이 나눠 쓸 폭
+
+    // 최악: 주간 168시간(세 자리 시) + 부호. 숫자 0.6em · 콜론 0.3em · 부호 0.55em.
+    const worstTime = T.text.label.fontSize * FIXED_BOX_FONT_SCALE_MAX * (7 * 0.6 + 2 * 0.3);
+    const worstDelta =
+      T.text.caption.fontSize * FIXED_BOX_FONT_SCALE_MAX * (0.55 + 7 * 0.6 + 2 * 0.3);
+
+    // 시간 칸은 둘 중 넓은 쪽을 차지하고, 남는 폭이 있어야 이름이 한 글자라도 보인다.
+    expect(Math.max(worstTime, worstDelta)).toBeLessThan(budget);
+  });
+
   test('상한을 거는 토큰에는 lineHeight가 없다 — 안드로이드에서 줄 상자만 자란다', () => {
     // 안드 <Text>는 fontSize에만 상한을 넘기고 lineHeight는 시스템 배율 전체를 먹는다
     // (TextAttributeProps.kt). 상한을 쓰는 자리의 토큰에 lineHeight가 생기면 그 순간 깨진다.
