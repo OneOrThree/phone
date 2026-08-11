@@ -148,10 +148,6 @@ export function GroupCardFront({
                     {group.currentMembers}/{group.maxMembers}
                   </Text>
                 </View>
-                <View style={s.flipHint}>
-                  <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
-                  <Text style={s.flipText}>뒤집어 방 보기</Text>
-                </View>
               </View>
             </ScrollView>
           </View>
@@ -293,6 +289,4 @@ const s = StyleSheet.create({
     backgroundColor: T.accentBg,
   },
   count: { ...T.text.label, color: T.accentDeep, fontVariant: ['tabular-nums'] },
-  flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  flipText: { ...T.text.label, color: T.inkSub },
 });

@@ -474,12 +474,25 @@ export default function GroupListScreen({
     [],
   );
 
-  const handleFlipTransition = useCallback(
-    (transitioning: boolean) => {
-      setFlipAnimating(transitioning);
-      if (!transitioning) {
-        focusNode(flippedGroupIdRef.current === null ? frontFocusRef : backFocusRef);
-      }
+  const handleFlipTransition = useCallback((transitioning: boolean) => {
+    setFlipAnimating(transitioning);
+  }, []);
+
+  const handleFlipTransitionComplete = useCallback(
+    (face: 'front' | 'back', groupId: string) => {
+      if (
+        !mountedRef.current ||
+        !wasScreenFocusedRef.current ||
+        guideVisibleRef.current ||
+        guideBlockedRef.current ||
+        activeIdentityRef.current !== groupId
+      )
+        return;
+      const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
+      AccessibilityInfo.announceForAccessibility(
+        `${groupName ?? '그룹'} 카드 ${face === 'back' ? '뒷면' : '앞면'}입니다`,
+      );
+      focusNode(face === 'back' ? backFocusRef : frontFocusRef);
     },
     [focusNode],
   );
@@ -1246,6 +1259,9 @@ export default function GroupListScreen({
                       skipTransition={skipFlipTransition}
                       onTransitioningChange={
                         item.groupId === activeGroupId ? handleFlipTransition : undefined
+                      }
+                      onTransitionComplete={
+                        item.groupId === activeGroupId ? handleFlipTransitionComplete : undefined
                       }
                       back={
                         <GroupCardBack

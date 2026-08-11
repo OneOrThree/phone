@@ -89,22 +89,8 @@ export default function GroupFindSheet({
   const joinLocked = useJoinLocked();
   // 참여 실패 문구 — 시트 안에서 인라인으로 띄운다(Alert 아님, 파일 상단 규칙).
   const [joinError, setJoinError] = useState<string | null>(null);
-  // 키보드가 바텀시트를 덮는 문제 보정 — 패널은 하단 고정이라 자체적으로 올라가지 않는다.
-  // 자식 끝에 키보드 높이만큼 여백을 깔면 패널 내용이 키보드 위로 올라온다.
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const q = query.trim();
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   // 검색 시퀀스 — **주 검색과 조용한 갱신이 같은 카운터를 쓴다**.
   // 갱신에 토큰이 없으면(검색어 A 참여 실패 → refresh(A) 중 사용자가 B 입력) 늦게 온 A 응답이
@@ -112,6 +98,20 @@ export default function GroupFindSheet({
   const searchSeqRef = useRef(0);
   // 진행 중인 디바운스 타이머 — 퇴장 시작 시 세대와 함께 걷는다(아래 onClosing).
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // iOS는 SheetShell이 panel bottom을 올리는 단일 owner다. Android의 RN Modal은 별도
+  // window라 검색 결과 하단만 keyboardDidShow 높이만큼 보정한다.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (event) => {
+      setAndroidKeyboardHeight(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // 언마운트(시트 닫힘·링크 수신) 시에도 시퀀스를 올려 진행 중 요청의 setState를 막는다.
   useEffect(
@@ -392,9 +392,9 @@ export default function GroupFindSheet({
 
         {emptyNotice !== null && <View style={s.emptyBox}>{emptyNotice}</View>}
       </ScrollView>
-
-      {/* 키보드 높이만큼 밀어 올린다(패널 자체 paddingBottom과 겹치지 않게 insets 분은 제외하지 않는다) */}
-      {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}
+      {androidKeyboardHeight > 0 && (
+        <View style={{ height: androidKeyboardHeight }} testID="group.find.androidKeyboardSpacer" />
+      )}
     </SheetShell>
   );
 }

@@ -184,17 +184,19 @@ public class GroupController {
         return ResponseEntity.ok(groupAnnouncementService.getAnnouncements(groupId, userId));
     }
 
-    @Operation(summary = "그룹 설정 수정", description = "OWNER만 가능. name/maxMembers/password 부분 수정.")
+    @Operation(summary = "그룹 설정 수정",
+            description = "OWNER만 가능. name/description/maxMembers/password 부분 수정.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "수정 성공"),
-            @ApiResponse(responseCode = "400", description = "maxMembers < 현재 멤버 수"),
+            @ApiResponse(responseCode = "400",
+                    description = "이름·소개·정원 입력 제약 위반 / maxMembers < 현재 멤버 수"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
             @ApiResponse(responseCode = "404", description = "그룹 없음")
     })
     @PatchMapping("/groups/{groupId}")
     public ResponseEntity<Void> updateGroup(
             @PathVariable UUID groupId,
-            @RequestBody UpdateGroupRequest request,
+            @Valid @RequestBody UpdateGroupRequest request,
             @LoginUser UUID userId
     ) {
         groupService.updateGroup(groupId, userId, request);
