@@ -228,6 +228,60 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('앞·뒷면 모두 시각 전환 문구를 표시하지 않는다', async () => {
+    await renderList([group()]);
+
+    expect(screen.queryByText('뒤집어 방 보기')).toBeNull();
+    await press(`group.card.${GROUP_ID}`);
+    await finishCardFlip();
+    expect(screen.queryByText('앞면으로')).toBeNull();
+  });
+
+  test('빠른 연타에도 완료 면만 한 번씩 알리고 뒷면 기본 활성화로 복귀한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group()]);
+
+    const front = screen.getByTestId(`group.card.${GROUP_ID}`);
+    await act(async () => {
+      fireEvent.press(front);
+      fireEvent.press(front);
+    });
+    expect(announce).not.toHaveBeenCalled();
+    await finishCardFlip();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 뒷면입니다');
+
+    await act(async () => {
+      const backTitle = screen.getByTestId(`group.card.backTitle.${GROUP_ID}`);
+      fireEvent(backTitle, 'accessibilityTap');
+      fireEvent(backTitle, 'accessibilityTap');
+    });
+    await finishCardFlip();
+    expect(announce).toHaveBeenCalledTimes(2);
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 앞면입니다');
+  });
+
+  test('화면을 이탈한 뒤 완료된 flip은 면 안내나 접근성 포커스를 만들지 않는다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const focus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const props = {
+      groups: [group()],
+      userId: null,
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} isScreenFocused />);
+
+    await press(`group.card.${GROUP_ID}`);
+    await view.rerender(<GroupListScreen {...props} isScreenFocused={false} />);
+    await finishCardFlip();
+
+    expect(announce).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
