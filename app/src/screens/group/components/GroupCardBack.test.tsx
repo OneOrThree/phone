@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { GroupCardBack } from './GroupCardBack';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
 const group: GroupSummaryResponse = {
   groupId: 'g1',
@@ -126,6 +127,18 @@ test('설정 버튼의 접근성 이름에 대상 그룹을 포함한다', async
   await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
 
   expect(screen.getByLabelText('아침 집중방 그룹 옵션')).toBeOnTheScreen();
+});
+
+test('혼합 영문·한글 그룹명에 그룹 카드 공통 글꼴을 적용한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      group={{ ...group, name: 'Morning 아침 집중방' }}
+      snapshot={undefined}
+    />,
+  );
+
+  expect(screen.getByText('Morning 아침 집중방')).toHaveStyle(GROUP_CARD_USER_TEXT);
 });
 
 test('현재 사용자가 상위 5명 밖이어도 선두에 두고 나머지 서버 순서를 보존한다', async () => {

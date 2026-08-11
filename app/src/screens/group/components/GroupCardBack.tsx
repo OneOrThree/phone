@@ -7,6 +7,7 @@ import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
 import { repeatDayOf } from '../challengeSchedule';
 import { categoryLabel, missionLabel } from './challengeLabel';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
 interface Props {
   group: GroupSummaryResponse;
@@ -259,13 +260,13 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: T.space.sm,
   },
-  title: { ...T.text.heading, color: T.ink, flex: 1 },
+  title: { ...T.text.heading, ...GROUP_CARD_USER_TEXT, color: T.ink, flex: 1 },
   section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
   summaryScroll: { flex: 1 },
   summaryContent: { gap: T.space.sm },
   sectionTitle: { ...T.text.label, color: T.ink },
   activityList: { gap: T.space.xs },
-  body: { ...T.text.caption, color: T.ink },
+  body: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.ink },
   muted: { ...T.text.caption, color: T.inkSub },
   error: { ...T.text.caption, color: T.dangerInk },
   actions: { marginTop: 'auto', gap: T.space.xs },
