@@ -963,27 +963,45 @@ class GroupServiceTest {
     @Test
     @DisplayName("존재하지 않는 groupId → GroupException")
     void getGroupOverviewGroupNotFound() {
-        // given
+        // given: 요청자는 멀쩡하다 — 그래야 그룹 부재가 단독 원인이 된다 (GROMO-1247 순서 계약)
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(normalUser()));
         given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID_99, USER_ID))
-                .isInstanceOf(GroupException.class);
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test
     @DisplayName("존재하지 않는 userId → UserException")
     void getGroupOverviewUserNotFound() {
-        // given
-        Group group = Group.builder().id(GROUP_ID).name("그룹")
-                .maxMembers(10).status(GroupStatus.WAITING).build();
-
-        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        // given: 그룹은 존재해도 요청자가 없으면 유저 부재가 먼저다 (GROMO-1247)
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupService.getGroupOverview(GROUP_ID, USER_ID))
-                .isInstanceOf(UserException.class);
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("getGroupOverview — 탈퇴 유저 + 없는 그룹이 겹쳐도 USER_NOT_FOUND 가 이긴다 (GROMO-1247 codex P2)")
+    void getGroupOverviewUserAbsenceWinsOverGroupAbsence() {
+        // 둘 다 없는 조합이 이 티켓의 사각지대였다. 그룹 조회가 앞서면 그룹 부재가 먼저 던져져
+        // 클라가 "사라진 그룹"으로 잘못 안내하고, 정작 필요한 재로그인 안내는 영영 못 받는다.
+        // 요청자 검증이 먼저라는 순서 계약을 여기서 잠근다 — 되돌리면 이 테스트가 빨개진다.
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() -> groupService.getGroupOverview(GROUP_ID_99, USER_ID));
+
+        assertThat(thrown).isInstanceOf(UserException.class);
+        assertThat(((UserException) thrown).getErrorCode().name()).isEqualTo("USER_NOT_FOUND");
+        // 순서 계약의 본체: 그룹 조회에 도달하지 않는다. 도달하면(= 순서가 되돌아가면)
+        // GroupException 이 먼저 나와 위 단언이 깨진다.
+        verify(groupRepository, never()).findById(GROUP_ID_99);
     }
 
     // ── renewGroupCode (GROMO-347) ────────────────────────────────────────

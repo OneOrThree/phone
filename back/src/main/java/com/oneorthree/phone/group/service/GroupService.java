@@ -407,12 +407,22 @@ public class GroupService {
     }
 
     public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {
-        Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        //
+        // 요청자 검증이 그룹 조회보다 <b>먼저</b>여야 한다 (GROMO-1247) — 순서가 곧 계약이다.
+        // 그룹 조회가 앞서면 "탈퇴 유저 + 없는 groupId" 조합에서 그룹 부재가 먼저 던져져
+        // USER_NOT_FOUND 에 도달하지 못하고, 클라는 재로그인이 답인 상황을 "사라진 그룹"으로
+        // 잘못 안내한다 — 이 티켓이 없애려던 오귀속이 바로 그 조합에서 되살아난다.
+        // 형제 경로(getMyGroups·getGroupDetail·getGroupSettings·joinGroup…)는 전부 users 를
+        // 먼저 읽으므로 이 순서가 표준이고, 여기만 뒤집혀 있었다.
+        //
+        // 잠금 순서 무영향: 이 경로는 두 조회 모두 무락(findByIdAndIsDeletedFalse·findById)이라
+        // 교착 위험이 없고, 오히려 쓰기 경로의 users → group 순서와 일치하게 정렬된다.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
 
