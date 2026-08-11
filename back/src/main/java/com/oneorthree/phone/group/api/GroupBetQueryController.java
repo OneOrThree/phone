@@ -41,7 +41,9 @@ public class GroupBetQueryController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "INVALID_STATUS_FILTER(status ≠ OPEN)"),
-        @ApiResponse(responseCode = "403", description = "게스트")
+        @ApiResponse(responseCode = "403", description = "게스트"),
+        // 그룹 스코프가 없는 경로라 404 는 USER_NOT_FOUND 하나뿐이다(GROMO-1247).
+        @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/me/bet-sessions")
     public ResponseEntity<MyBetSessionsResponse> getMyBetSessions(
@@ -65,7 +67,9 @@ public class GroupBetQueryController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "INVALID_PAGE_REQUEST(limit 범위 밖) / since 형식 오류"),
-        @ApiResponse(responseCode = "403", description = "게스트")
+        @ApiResponse(responseCode = "403", description = "게스트"),
+        // 그룹 스코프가 없는 경로라 404 는 USER_NOT_FOUND 하나뿐이다(GROMO-1247).
+        @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/me/challenge-results")
     public ResponseEntity<MyChallengeResultsResponse> getMyChallengeResults(
@@ -84,7 +88,9 @@ public class GroupBetQueryController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / NOT_OWNER(그룹장 아님)"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음(타 그룹 챌린지 포함 — IDOR 차단)")
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음 / 챌린지 없음 — 타 그룹 챌린지 포함, IDOR 차단)"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/challenges/{challengeId}/deletion-preview")
     public ResponseEntity<ChallengeDeletionPreviewResponse> getDeletionPreview(
@@ -106,7 +112,9 @@ public class GroupBetQueryController {
         @ApiResponse(responseCode = "200", description = "조회 성공"),
         @ApiResponse(responseCode = "400", description = "INVALID_PAGE_REQUEST(size 범위 밖)"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND(커서가 이 그룹 회차가 아님)")
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(커서가 이 그룹 회차가 아님)"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/challenge-history")
     public ResponseEntity<GroupChallengeHistorySliceResponse> getGroupChallengeHistory(

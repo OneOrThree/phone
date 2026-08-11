@@ -71,6 +71,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.tuple;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -380,16 +381,17 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("유저 없음·탈퇴 선커밋 → UserException(NOT_FOUND), 그룹 저장 안 함 (D9 — 종전 GUEST_FORBIDDEN 오분류 정정)")
+    @DisplayName("유저 없음·탈퇴 선커밋 → UserException(USER_NOT_FOUND), 그룹 저장 안 함 (D9 — 종전 GUEST_FORBIDDEN 오분류 정정)")
     void createGroupUserNotFound() {
         // given: 없는 유저와 탈퇴가 먼저 커밋된 유저는 공유 락 조회에서 똑같이 빈 결과다
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
         // when & then: joinGroup 등 형제 경로와 같은 404 — 부작용(그룹 저장) 없음
+        // GROMO-1247: 그룹 부재(GroupErrorCode.NOT_FOUND)와 구분되는 요청자 전용 코드다.
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 60)))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(groupRepository, never()).save(any());
     }
 
@@ -1450,6 +1452,38 @@ class GroupServiceTest {
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(GroupException.class);
+    }
+
+    @Test
+    @DisplayName("joinGroup — 유저 부재와 그룹 부재는 서로 다른 code 로 나간다 (GROMO-1247)")
+    void joinGroupSeparatesUserAbsenceFromGroupAbsence() {
+        // 이 티켓의 본질은 "한 엔드포인트가 두 부재를 구분해 내보내는가"다. joinGroup 은 한 메서드
+        // 안에 두 orElseThrow 가 나란히 있어 그 대조를 가장 좁게 잡는다. 앱은 응답 바디의 code
+        // 문자열로만 분기하므로(GlobalExceptionHandler 가 enum name() 을 그대로 싣는다)
+        // enum 상수가 아니라 name() 을 단언한다 — 이름이 바뀌면 앱 분기가 조용히 죽는다.
+
+        // (1) 유저 부재 — 재로그인만이 탈출구다
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+        Throwable userThrown = catchThrowable(
+                () -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()));
+        assertThat(userThrown).isInstanceOf(UserException.class);
+        UserException userAbsent = (UserException) userThrown;
+
+        // (2) 그룹 부재 — 같은 엔드포인트, 같은 404, 다른 결론("사라진 그룹")
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(groupRepository.findById(GROUP_ID_99)).willReturn(Optional.empty());
+        Throwable groupThrown = catchThrowable(
+                () -> groupService.joinGroup(GROUP_ID_99, USER_ID, new JoinGroupRequest()));
+        assertThat(groupThrown).isInstanceOf(GroupException.class);
+        GroupException groupAbsent = (GroupException) groupThrown;
+
+        // 둘 다 404 인데 code 가 달라야 클라가 갈라 안내할 수 있다
+        assertThat(userAbsent.getErrorCode().getStatus())
+                .isEqualTo(groupAbsent.getErrorCode().getStatus());
+        assertThat(userAbsent.getErrorCode().name()).isEqualTo("USER_NOT_FOUND");
+        assertThat(groupAbsent.getErrorCode().name()).isEqualTo("NOT_FOUND");
+        assertThat(userAbsent.getErrorCode().name())
+                .isNotEqualTo(groupAbsent.getErrorCode().name());
     }
 
     @Test
