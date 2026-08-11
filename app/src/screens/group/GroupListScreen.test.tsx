@@ -7,7 +7,7 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AccessibilityInfo, BackHandler, FlatList, View } from 'react-native';
+import { AccessibilityInfo, BackHandler, FlatList, StyleSheet, View } from 'react-native';
 import GroupListScreen, {
   advanceEdgeTarget,
   isProgrammaticMomentum,
@@ -472,8 +472,11 @@ describe('콜백', () => {
   test('낮은 화면에서도 카드 하단까지 스크롤하고 탭바 위 여백을 확보한다', async () => {
     await renderList([group()]);
     const scroller = screen.getByTestId('group.list.scroller');
+    const indicator = StyleSheet.flatten(screen.getByTestId('group.deck.indicator').props.style);
     expect(scroller.props.scrollEnabled).toBe(true);
     expect(scroller.props.nestedScrollEnabled).toBe(true);
+    expect(indicator).toEqual(expect.objectContaining({ minHeight: 44, marginTop: 0 }));
+    expect(indicator.height).toBeUndefined();
     // 여백은 탭바가 실제로 덮는 높이에서 파생한다(GROMO-1487) — 예전 상수 74는 FAB가 바 위로
     // 솟은 만큼을 빼먹어 마지막 카드가 FAB에 가렸다. 숫자를 다시 적으면 그 실수가 되돌아온다.
     expect(scroller.props.contentContainerStyle).toEqual(
@@ -481,6 +484,20 @@ describe('콜백', () => {
         expect.objectContaining({ paddingBottom: tabBarSafeBottom(34) }), // 목 인셋 하단 34
       ]),
     );
+  });
+
+  test('가로 스와이프 settle은 외부 인디케이터의 현재 index를 갱신하고 페이지를 안내한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+    });
+
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
+    expect(announce).toHaveBeenCalledWith('저녁 스터디, 2 / 3 페이지');
   });
 });
 

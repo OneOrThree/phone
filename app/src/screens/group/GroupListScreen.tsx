@@ -587,6 +587,9 @@ export default function GroupListScreen({
           to_index: next,
           group_count_bucket: groupCountBucket(orderedGroups.length),
         });
+        AccessibilityInfo.announceForAccessibility(
+          `${orderedGroups[next]?.name ?? '그룹 찾기'}, ${next + 1} / ${pageCount} 페이지`,
+        );
       }
       const pendingFlip = pendingFlipRef.current;
       if (pendingFlip?.groupId === nextIdentity && nextIdentity !== null) {
