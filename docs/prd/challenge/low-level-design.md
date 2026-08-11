@@ -231,7 +231,7 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
   "status": "ACTIVE",
   "startedAt": "2026-08-01T02:11:00Z",
   "activeToday": true,                   // 오늘이 repeatDays에 있나
-  "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. null 없음
+  "nextSessionAt": "2026-08-12T00:00:00Z", // **오늘을 제외한** 다음 활성일의 회차 시작. INACTIVE면 null. ACTIVE도 창형인데 창 상세가 없으면 null(아래 ⚠️)
   "nextSessionJoined": false,            // 다음 회차를 이미 예약했나 (N45 버튼 상태 — 내기 켜짐일 때만 의미)
   "canParticipate": true,                // FOCUS면 항상 true, SCREEN_TIME은 권한 여부
   "memberProgress": [                    // null = 미계산 (date 없음 · 비활성 요일)
@@ -275,6 +275,25 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
   },
 }]
 ```
+
+> **⚠️ `nextSessionAt` 은 ACTIVE 에서도 null 이 될 수 있다 — 「null == INACTIVE」로 단정하지 마라.**
+> 창형(`TIME_WINDOW`)인데 `group_challenge_windows` 상세가 없으면 `GroupBetService#loadNextSessions`
+> 가 그 챌린지를 **의도적으로 건너뛴다** — 시작 시각을 모르면 다음 회차를 계산할 수 없고, 하루형으로
+> 간주해 자정을 주면 서지도 않을 회차를 예고하기 때문이다(그 자리 주석이 직접 그렇게 적고 있다).
+>
+> **이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.** V5 가 인라인 파라미터를 CTI 상세
+> 테이블로 이관할 때 백필을 **두 번** 했다 — ⑴ 챌린지 자체의 `window_start`·`window_end` 가
+> NOT NULL 인 행, ⑵ 그게 null 이어도 **그룹의 미션 설정**이 `type`·`category` 까지 일치하고
+> 시각이 있으면 그 값으로(그룹 폴백, `NOT EXISTS` 가드). 따라서 **상세가 없는 행은 둘 다 없었던
+> 경우**다 — 챌린지 값이 null 이고, 그룹 폴백도 종류·카테고리가 다르거나 시각이 null 이라
+> 적용되지 않은 행. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는 않는다.
+>
+> **같은 분기를 타는 필드가 셋이다.** 조립부가 `nextSessions.containsKey(...) ? … : null` 이므로
+> `nextSessionAt` 뿐 아니라 **`nextSessionJoined` 와 `nextSessionStake` 도 그 경우 null** 이다 —
+> 위 예시의 `"nextSessionJoined": false` 는 **정상 경로의 값**이지 불변식이 아니다.
+> `nextSessionJoined` 를 「false = 미예약」으로 단정하면 그 챌린지에서 틀린다.
+>
+> 📌 2026-08-11 정정(PR #610 codex 리뷰). 서버 DTO javadoc 도 같은 취지로 정정돼 있다(GROMO-1285).
 
 > **결과 모달 큐는 이 응답에 없다 (N53).** 여기 있는 `lastSettledSession`은 카드의 "지난 결과 +
 > 정산 근거" 한 줄 표시용 **그룹 기준 최신 1건**일 뿐이다. 모달 큐는 참가자 스코프
@@ -839,9 +858,15 @@ static Instant leaveDeadline(BetSession s, BetParticipant p) {
 **응답에 `myLeaveDeadlineAt`을 실어 앱이 카운트다운**한다. 서버 시각 기준이므로 앱이
 `created_at + 5분`을 자체 계산하지 않는다 — 기기 시계가 틀어지면 버튼이 어긋난다.
 
-**폐기되는 코드**: `BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` · `BET_CANCEL_HAS_OTHERS` ·
-`BET_FOCUS_ONLY`. 개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다.
+**폐기되는 코드**: `BET_FOCUS_ONLY` 하나뿐이다. FOCUS 전용 게이트가 사라져 발생 경로가 없다
+(`GroupBetService.java:174` — 「게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음). 카테고리 제한은 없다」).
 값 자체는 **잔존**시킨다 — 구앱이 code 문자열로 분기하므로 이름을 지우지 않는다(발급만 멈춘다).
+
+> **📌 2026-08-11 구현 대조 정정.** 종전 이 문단은 `BET_ALREADY_EXISTS` · `BET_CANCEL_FORBIDDEN` ·
+> `BET_CANCEL_HAS_OTHERS` 도 함께 「개설·취소 개념이 사라지면서 전부 발생 경로가 없어진다」고 적었으나
+> **사실이 아니다.** 셋 다 지금도 던져진다 — `GroupBetService.java:193,205,572`(ALREADY_EXISTS) ·
+> `:270`(CANCEL_FORBIDDEN) · `:272`(CANCEL_HAS_OTHERS). 개설·취소 개념은 남아 있다.
+> **이 문장을 근거로 throw 경로를 지우면 안 된다** — 살아 있는 실패 모드가 조용히 사라진다.
 
 ### 2.3 배치 (관리자 키)
 
@@ -1014,21 +1039,34 @@ flowchart LR
 ### 3.6 창 겹침 판정 — 요일 ∧ 시간대 ∧ 15분 간격
 
 ```java
-static final int GAP_SECONDS = 15 * 60;
+static final long GAP_NANOS = 15L * 60 * 1_000_000_000;
 
-// 창은 자정을 걸치지 않으므로 [시작, 끝) 초 구간이 **항상 하나**다
-static int[] daySegment(LocalTime start, LocalTime end) {
-    return new int[]{start.toSecondOfDay(), end.toSecondOfDay()};   // start < end 보장
+// 창은 자정을 걸치지 않으므로 [시작, 끝) 구간이 **항상 하나**다
+static long[] daySegment(LocalTime start, LocalTime end) {
+    return new long[]{start.toNanoOfDay(), end.toNanoOfDay()};   // start < end 보장
 }
 
 static boolean conflicts(int maskA, LocalTime sA, LocalTime eA,
                          int maskB, LocalTime sB, LocalTime eB) {
     if ((maskA & maskB) == 0) return false;              // 요일이 안 겹치면 무조건 OK
-    int[] a = daySegment(sA, eA), b = daySegment(sB, eB);
+    long[] a = daySegment(sA, eA), b = daySegment(sB, eB);
     // 15분 간격까지 요구 — 양쪽으로 GAP만큼 부풀려 겹침 검사
-    return a[0] - GAP_SECONDS < b[1] && b[0] - GAP_SECONDS < a[1];
+    return a[0] - GAP_NANOS < b[1] && b[0] - GAP_NANOS < a[1];
 }
 ```
+
+> **📌 2026-08-11 정정 — 비교 단위는 초가 아니라 나노초다.**
+> 이 스케치의 초판은 `GAP_SECONDS` + `toSecondOfDay()` 를 썼는데, **그대로 구현하면 계약이 깨진다.**
+> `toSecondOfDay()` 는 **소수 초를 버린다.**
+>
+> **반례** — A 가 `12:00:00.500` 에 끝나고 B 가 `12:15:00.000` 에 시작하면 실제 간격은
+> **14분 59.5초**인데, 초로 깎으면 양쪽 다 `12:00:00`·`12:15:00` 이 되어 정확히 900초로 계산돼
+> **통과한다.**
+>
+> **소수 초는 실재한다.** 구앱 형식의 ISO Instant(`2026-08-05T12:00:00.500Z`)가
+> `WindowFocusAggregator.parseRequestTime` 을 거치며 나노초를 보존하고, DB 컬럼도 `time(6)` 이다.
+> 구현(`GroupChallengeService.windowsConflict`)은 `toNanoOfDay()` 로 비교한다 — 이 문서가
+> 구현을 따라온 것이다.
 
 **자정 걸침 금지가 이 함수를 절반으로 줄인다.** 걸치는 창을 허용하면 한 창이 `[s, 86400)` +
 `[0, e)` **두 구간**으로 쪼개져 2×2 중첩 루프가 필요했고, 거기에 "`D+1 00:00~01:00` 부분은
