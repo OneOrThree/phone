@@ -14,6 +14,16 @@ jobs:
   lint:
     runs-on: [self-hosted, ci, spot]
 
+    # 러너(gromo-dev-build)는 e2-medium(2 vCPU / 4 GB)이다. NODE_OPTIONS 를 안 주면 Node 가
+    # 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는 양보다 낮게 잡혀 Typecheck 가
+    # "Ineffective mark-compacts near heap limit" 으로 죽었다 — OS OOM killer 가 아니라
+    # V8 자체 상한이다. 앱 PR 3건(#606·#612·#616)이 전부 같은 지점에서 실패했다 (GROMO-1513).
+    #
+    # 2048 인 이유: 로컬 실측 peak RSS 가 880 MB 라 성장 여유까지 충분하고, 4 GB 박스에서
+    # OS·npm·러너 에이전트 몫을 남긴다. 3072 는 스왑 위험이 있어 피한다.
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
