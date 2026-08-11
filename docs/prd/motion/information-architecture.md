@@ -81,11 +81,11 @@ flowchart TB
 | 그룹 목록 — **가로 카드 덱** | 🟩 스켈레톤 → 셀 `enterUp(i)` (`GroupListScreen.tsx:175-190`·`:1137-1141`) | 🟩 유지 | PR4·PR7 |
 | 그룹방 첫 진입 | 🟩 `SkeletonGroup` (`GroupRoomScreen.tsx:853-881`) | 🟩 유지 | PR4 |
 | 그룹방 챌린지 카드 목록 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1072-1092`) | 🟦 `enterUp(i)` | 1524 |
-| 그룹방 멤버 3열 그리드 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1125-1175` · `MemberTile.tsx` 모션 0개) | 🟦 **행 단위** `fadeIn(m.stagger(rowIdx))` — 인덱스가 아니라 **ms**를 넘긴다 ([정책 D24](policy.md#d24)). ⚠️ **이 행만 등급 1**이다 — `fadeIn`은 `quick`(220ms) 고정이라 이 절의 등급 2 duration(`base`·`slow`·`entrance`)을 만족할 수 없다. D24가 「한 단계 낮춘다」고 한 그 결과다 | 1524 |
+| 그룹방 멤버 3열 그리드 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1125-1175` · `MemberTile.tsx` 모션 0개) | 🟦 **시차 없이** `fadeIn(0)`으로 함께 ([정책 D24](policy.md#d24)) — 지연 축은 챌린지 카드 하나뿐이라 그리드는 **행 수·정원과 무관**하다. ⚠️ **이 행만 등급 1**이다 — `fadeIn`은 `quick`(220ms) 고정이라 이 절의 등급 2 duration(`base`·`slow`·`entrance`)을 만족할 수 없다. D24가 「한 단계 낮춘다」고 한 그 결과다 | 1524 |
 | 챌린지 내역 첫 로딩 | 🟥 풀스크린 스피너 (`GroupChallengeHistoryScreen.tsx:289-297`) | 🟦 **구조적 스켈레톤** — 카드 높이가 가변이라 `SkeletonCard` 불가 ([정책 D25-3](policy.md#d25)) | 1524 |
 | 챌린지 내역 리스트 행 | 🟥 즉시 표시 (`GroupChallengeHistoryScreen.tsx:330-333`) | 🟦 `enterUp(pageIdx)` — 그룹 덱과 같은 `CellRendererComponent` 기법이되 **페이지 내 인덱스**다. ⚠️ 절대 인덱스를 넘기면 21번째 행부터 360ms 투명 대기(LLD 참조) | 1524 |
 | 챌린지 결과 명단 3구획 | 🟥 한 번에 표시 (`ChallengeResultModal.tsx:322-358`) | 🟦 `enterUp(i)` | 1524 |
-| 그룹 카드 앞↔뒤 플립 | 🟨 `290ms`/reduce `150ms` 하드코딩 (`GroupCardFlip.tsx:67`) | 🟨 **[정책 D15](policy.md#d15) 표에 등록됨** (근거 [D25-4](policy.md#d25)) | — |
+| 그룹 카드 앞↔뒤 플립 | 🟨 `290ms`/reduce `150ms` 하드코딩 (`GroupCardFlip.tsx:67`) | 🟨 **`290`만 [정책 D15](policy.md#d15) 표에 등록됨** (근거 [D25-4](policy.md#d25)). ⚠️ **reduce의 `150`은 등록하지 않는다** — D25-4가 `m.reduce`면 **즉시 대입**을 명세하므로 예외로 올리면 감사가 접근성 위반을 통과시킨다. 현재 코드의 `150`은 예외가 아니라 **알려진 갭**이고 1524에서 없앤다 | 1524 |
 | 온보딩 공감 카드 | 🟩 `SlideInUp` 스프링 | 🟩 유지 | — |
 | 온보딩 스텝 전환 | 🟥 하드컷 | 🟦 크로스페이드 | PR8 |
 | 로그인 버튼군 | 🟥 즉시 표시 | 🟦 `enterUp` | PR6 |
