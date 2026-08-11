@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 게스트 계정 생성({@code POST /auth/guest})을 <b>클라이언트 IP 당 고정 윈도</b> 횟수로 제한한다 (GROMO-1510).
@@ -34,6 +35,17 @@ import java.util.Map;
  * <p><b>한도는 프로퍼티로 뺐다.</b> 통신사 CGNAT·학교/카페 공용 와이파이는 여러 실사용자가 IP 하나를
  * 공유해서, 너무 조이면 정상 신규 유저의 온보딩이 막힌다(가장 비싼 오탐). 데모·심의처럼 한 망에서
  * 대량 가입이 예상되면 배포 없이 값만 올린다.
+ *
+ * <p><b>전역 상한은 키 위조에 대한 2차 방어선이다</b> (PR #621 코드리뷰 P1). IP 별 한도는 키를
+ * 자유롭게 고를 수 있으면 통째로 무력화되는데(요청마다 새 버킷), 오리진이 Cloudflare 를 거치지 않고
+ * 직접 닿을 수 있는 배포에서는 앞단 nginx 가 전달 헤더를 덮어쓰지 않는 한 그 전제가 깨진다. 전역
+ * 카운터는 키를 아무리 돌려도 우회되지 않아 대량 생성의 총량을 묶는다. <b>근본 해결은 nginx 가
+ * 전달 헤더를 덮어쓰고 오리진 방화벽을 Cloudflare 대역으로 제한하는 것</b>이고, 그 설정은 이
+ * 레포가 아니라 인프라 레포에 있다 — 여기서는 총량만 묶는다.
+ *
+ * <p>전역 상한은 IP 한도를 통과한 요청만 센다. 한 IP 를 두들겨 전역 예산을 태우고 정상 가입을
+ * 막는 길을 만들지 않기 위해서다. 기본값(1시간당 300)은 정상 트래픽이 닿을 일이 없도록 IP 한도의
+ * 30배로 잡았다 — 그래도 활성 공격 중에는 신규 가입이 느려질 수 있다는 게 이 방어선의 대가다.
  */
 @Slf4j
 @Component
@@ -51,31 +63,43 @@ public class GuestLoginRateLimiter {
     private static final int MAX_TRACKED_IPS = 10_000;
 
     private final Map<String, Window> windows = boundedLru();
+    private final AtomicReference<Window> globalWindow = new AtomicReference<>();
     private final int maxPerWindow;
+    private final int maxGlobalPerWindow;
     private final Duration window;
     private final Clock clock;
 
     @Autowired
     public GuestLoginRateLimiter(
             @Value("${auth.guest.rate-limit.max-per-window:10}") int maxPerWindow,
+            @Value("${auth.guest.rate-limit.max-per-window-global:300}") int maxGlobalPerWindow,
             @Value("${auth.guest.rate-limit.window:1h}") Duration window) {
-        this(maxPerWindow, window, Clock.systemUTC());
+        this(maxPerWindow, maxGlobalPerWindow, window, Clock.systemUTC());
     }
 
     // 테스트에서 시계를 고정해 윈도 만료를 결정적으로 검증하기 위한 생성자.
-    GuestLoginRateLimiter(int maxPerWindow, Duration window, Clock clock) {
+    GuestLoginRateLimiter(int maxPerWindow, int maxGlobalPerWindow, Duration window, Clock clock) {
         // 설정이 잘못 배포되면 기동 단계에서 죽인다 (PR #621 코드리뷰 P2). 윈도가 0/음수면 매 요청이
         // 만료 판정을 받아 카운트가 늘 1로 초기화돼 보호가 조용히 사라지고, 한도가 0 이하면 모든
         // 게스트 로그인이 막힌다 — 둘 다 런타임에 알아채기 어려운 실패라 부팅에서 끊는 게 낫다.
-        if (maxPerWindow <= 0) {
-            throw new IllegalArgumentException("auth.guest.rate-limit.max-per-window 는 양수여야 합니다: " + maxPerWindow);
-        }
+        // 상한은 Integer.MAX_VALUE 도 막는다 — 포화 계산의 '한도+1' 이 넘쳐 음수가 되면 판정이
+        // 영원히 거짓이 되어 제한이 조용히 꺼진다.
+        requirePositiveLimit("auth.guest.rate-limit.max-per-window", maxPerWindow);
+        requirePositiveLimit("auth.guest.rate-limit.max-per-window-global", maxGlobalPerWindow);
         if (window == null || window.isZero() || window.isNegative()) {
             throw new IllegalArgumentException("auth.guest.rate-limit.window 는 양수여야 합니다: " + window);
         }
         this.maxPerWindow = maxPerWindow;
+        this.maxGlobalPerWindow = maxGlobalPerWindow;
         this.window = window;
         this.clock = clock;
+    }
+
+    private static void requirePositiveLimit(String property, int value) {
+        if (value <= 0 || value == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    property + " 는 1 이상 " + Integer.MAX_VALUE + " 미만이어야 합니다: " + value);
+        }
     }
 
     /**
@@ -89,25 +113,37 @@ public class GuestLoginRateLimiter {
         Instant now = clock.instant();
         String key = bucketKey(clientIp);
 
-        Window current = windows.compute(key, (ip, existing) -> {
-            if (existing == null || isExpired(existing, now)) {
-                return new Window(now, 1, false);
-            }
-            // 한도+1 에서 카운트를 멈춘다 — 차단 중에도 계속 올리면 이론상 int 가 넘쳐 음수가 되면서
-            // 제한이 풀린다. 멈춰도 판정(> 한도)은 그대로 유지된다.
-            int next = Math.min(existing.count() + 1, maxPerWindow + 1);
-            return new Window(existing.startedAt(), next, existing.count() > maxPerWindow);
-        });
-
-        if (current.count() > maxPerWindow) {
+        Window perIp = windows.compute(key, (ip, existing) -> advance(existing, now, maxPerWindow));
+        if (perIp.count() > maxPerWindow) {
             // 윈도당 첫 차단만 남긴다 (PR #621 코드리뷰 P1). 매 차단마다 찍으면 인증 없는 호출자가
             // 요청 수에 비례해 로그 처리량·보존 용량·Datadog 수집 비용을 부풀릴 수 있다.
-            if (!current.blockAlreadyLogged()) {
+            if (!perIp.blockAlreadyLogged()) {
                 log.warn("게스트 생성 레이트리밋 차단 — ip={} (윈도 {} 당 {}회 초과, 이 윈도의 이후 차단은 로그 생략)",
                         anonymize(key), window, maxPerWindow);
             }
             throw new AuthException(AuthErrorCode.GUEST_CREATION_RATE_LIMITED);
         }
+
+        // IP 한도에서 이미 막힌 요청은 전역 카운터를 건드리지 않는다 — 한 IP 를 두들겨 전역 예산을
+        // 태워서 정상 유저 가입까지 막는 길을 만들면 안 된다.
+        Window global = globalWindow.updateAndGet(existing -> advance(existing, now, maxGlobalPerWindow));
+        if (global.count() > maxGlobalPerWindow) {
+            if (!global.blockAlreadyLogged()) {
+                log.warn("게스트 생성 전역 레이트리밋 차단 — 윈도 {} 당 {}회 초과 (키 위조·분산 생성 의심)",
+                        window, maxGlobalPerWindow);
+            }
+            throw new AuthException(AuthErrorCode.GUEST_CREATION_RATE_LIMITED);
+        }
+    }
+
+    /** 윈도를 한 칸 진행시킨다 — 만료됐으면 새로 시작하고, 아니면 {@code cap+1} 까지만 센다. */
+    private Window advance(Window existing, Instant now, int cap) {
+        if (existing == null || isExpired(existing, now)) {
+            return new Window(now, 1, false);
+        }
+        // cap+1 에서 카운트를 멈춘다 — 차단 중에도 계속 올리면 이론상 int 가 넘쳐 음수가 되면서
+        // 제한이 풀린다. 멈춰도 판정(> cap)은 그대로 유지된다.
+        return new Window(existing.startedAt(), Math.min(existing.count() + 1, cap + 1), existing.count() > cap);
     }
 
     private boolean isExpired(Window candidate, Instant now) {

@@ -47,8 +47,9 @@ class GuestLoginRateLimiterTest {
     }
 
     private final MovableClock clock = new MovableClock();
+    // IP 한도 검증이 목적인 테스트들이라 전역 상한은 닿지 않을 만큼 크게 둔다(전역은 아래 전용 테스트).
     private final GuestLoginRateLimiter limiter =
-            new GuestLoginRateLimiter(3, Duration.ofHours(1), clock);
+            new GuestLoginRateLimiter(3, 1_000_000, Duration.ofHours(1), clock);
 
     @Test
     @DisplayName("한도까지는 통과하고 한도 초과분부터 429 로 끊는다")
@@ -136,13 +137,61 @@ class GuestLoginRateLimiterTest {
     }
 
     @Test
+    @DisplayName("전역 상한은 키를 바꿔도 우회되지 않는다 — 키 위조로 IP 한도를 피해도 총량은 묶인다")
+    void globalCapSurvivesKeyRotation() {
+        GuestLoginRateLimiter limited = new GuestLoginRateLimiter(3, 5, Duration.ofHours(1), clock);
+
+        // 매번 다른 IP = IP 한도는 전부 통과하지만 전역 5회에서 걸린다.
+        for (int i = 0; i < 5; i++) {
+            int n = i;
+            assertThatCode(() -> limited.check("203.0.113." + n)).doesNotThrowAnyException();
+        }
+
+        assertThatThrownBy(() -> limited.check("203.0.113.99"))
+                .isInstanceOf(AuthException.class)
+                .extracting(e -> ((AuthException) e).getErrorCode())
+                .isEqualTo(AuthErrorCode.GUEST_CREATION_RATE_LIMITED);
+
+        // 윈도가 지나면 전역도 풀린다
+        clock.advance(Duration.ofHours(1));
+        assertThatCode(() -> limited.check("203.0.113.99")).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("IP 한도에서 막힌 요청은 전역 예산을 태우지 않는다 — 한 IP 를 두들겨 정상 가입을 막을 수 없다")
+    void blockedByIpLimitDoesNotConsumeGlobalBudget() {
+        GuestLoginRateLimiter limited = new GuestLoginRateLimiter(3, 5, Duration.ofHours(1), clock);
+
+        // 한 IP 로 3회 통과 + 50회 차단 — 전역 카운터는 3 에서 멈춰 있어야 한다.
+        for (int i = 0; i < 53; i++) {
+            try {
+                limited.check("1.1.1.1");
+            } catch (AuthException ignored) {
+                // 두들기는 게 목적
+            }
+        }
+
+        // 전역 예산이 5 - 3 = 2 회 남아 있어야 정상 유저가 들어온다.
+        assertThatCode(() -> limited.check("2.2.2.2")).doesNotThrowAnyException();
+        assertThatCode(() -> limited.check("3.3.3.3")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> limited.check("4.4.4.4")).isInstanceOf(AuthException.class);
+    }
+
+    @Test
     @DisplayName("잘못된 설정은 기동 단계에서 죽인다 — 조용히 보호가 꺼지거나 전부 막히는 걸 막는다")
     void rejectsInvalidConfig() {
-        assertThatThrownBy(() -> new GuestLoginRateLimiter(0, Duration.ofHours(1), clock))
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(0, 300, Duration.ofHours(1), clock))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, Duration.ZERO, clock))
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, 0, Duration.ofHours(1), clock))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, Duration.ofMinutes(-1), clock))
+        // 한도+1 이 넘쳐 제한이 조용히 꺼지는 값도 막는다
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(Integer.MAX_VALUE, 300, Duration.ofHours(1), clock))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, Integer.MAX_VALUE, Duration.ofHours(1), clock))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, 300, Duration.ZERO, clock))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new GuestLoginRateLimiter(10, 300, Duration.ofMinutes(-1), clock))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
