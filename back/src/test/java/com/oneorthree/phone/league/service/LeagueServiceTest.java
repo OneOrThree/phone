@@ -196,6 +196,21 @@ class LeagueServiceTest {
     }
 
     @Test
+    @DisplayName("내 티어 조회 - 공백-only 닉네임 레거시 행 → assigned=false")
+    void getMyTierBlankNicknameIsUnassigned() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
+                .id(USER_ID)
+                .nickname("   ")
+                .tierLevel(3)
+                .build()));
+
+        LeagueTierResponse response = leagueService.getMyTier(USER_ID, NOW);
+
+        assertThat(response.assigned()).isFalse();
+        verify(leagueTierConfigRepository, never()).findById(any());
+    }
+
+    @Test
     @DisplayName("내 티어 조회 - 닉네임 등록한 게스트 → assigned=true(온보딩 완주자는 리그 참가)")
     void getMyTierGuestWithNicknameIsAssigned() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()

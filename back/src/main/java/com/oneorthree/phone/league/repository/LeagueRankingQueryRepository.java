@@ -26,6 +26,8 @@ public class LeagueRankingQueryRepository {
     // 리그 모수 = 온보딩 완주 유저 (GROMO-1508). 서버가 가진 완주 신호는 nickname 존재가 유일하다
     // (닉네임이 온보딩 마지막 스텝, 게스트도 같은 경로). is_guest 기준은 게스트 완주자를 배제하고
     // 온보딩 이탈한 소셜 유저(nickname = null)를 이름 없는 행으로 편입시켜 양쪽이 틀렸다.
+    // 빈 문자열·공백-only 까지 거르는 이유: GROMO-1215 이전 PATCH 경로는 "" 를 그대로 저장했고
+    // 그 레거시 행을 정리한 마이그레이션이 없다. NULL 만 걸러선 같은 이름 없는 행이 그대로 남는다.
     private static final String WEEKLY_TOTALS = """
             SELECT u.id AS user_id,
                    u.nickname AS nickname,
@@ -37,6 +39,7 @@ public class LeagueRankingQueryRepository {
                AND d.date BETWEEN :fromDate AND :toDate
              WHERE u.is_deleted = false
                AND u.nickname IS NOT NULL
+               AND btrim(u.nickname) <> ''
             """;
 
     private static final String GROUP_BY_USER = """
@@ -107,7 +110,7 @@ public class LeagueRankingQueryRepository {
                 + " LEFT JOIN daily_focus_stats d ON d.user_id = u.id"
                 + " AND d.date BETWEEN :fromDate AND :toDate"
                 + " CROSS JOIN target t"
-                + " WHERE u.is_deleted = false AND u.nickname IS NOT NULL"
+                + " WHERE u.is_deleted = false AND u.nickname IS NOT NULL AND btrim(u.nickname) <> ''"
                 + " GROUP BY u.id, t.user_id, t.total_focus_seconds"
                 + " HAVING COALESCE(SUM(d.total_focus_seconds), 0) > t.total_focus_seconds"
                 + " OR (COALESCE(SUM(d.total_focus_seconds), 0) = t.total_focus_seconds"

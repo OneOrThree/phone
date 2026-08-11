@@ -160,7 +160,7 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("리그 모수는 nickname 기준 — 닉네임 있는 게스트는 편입, 온보딩 미완주(nickname null)는 제외")
+    @DisplayName("리그 모수는 nickname 기준 — 닉네임 있는 게스트는 편입, 온보딩 미완주(null·공백)는 제외")
     void includesGuestWithNicknameAndExcludesUsersWithoutNickname() {
         // 게스트라도 온보딩을 완주해 닉네임을 등록했으면 리그 모수다 (GROMO-1508).
         User guestWithNickname = userRepository.save(User.builder()
@@ -174,8 +174,16 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
                 .occupation(Occupation.CODING)
                 .tierLevel(3)
                 .build());
+        // GROMO-1215 이전 PATCH 경로가 저장한 공백-only 레거시 행 — NULL 이 아니라 술어를 통과하면
+        // 같은 이름 없는 행이 그대로 남는다 (코드리뷰 반영).
+        User blankNicknameLegacy = userRepository.save(User.builder()
+                .nickname("   ")
+                .occupation(Occupation.CODING)
+                .tierLevel(3)
+                .build());
         saveStat(guestWithNickname, MONDAY, 50);
         saveStat(onboardingDropout, MONDAY, 9999);
+        saveStat(blankNicknameLegacy, MONDAY, 8888);
         flushFixtures();
 
         assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100))
@@ -187,6 +195,8 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         assertThat(leagueRankingQueryRepository.findRankOf(guestWithNickname.getId(), MONDAY, TUESDAY))
                 .isPresent();
         assertThat(leagueRankingQueryRepository.findRankOf(onboardingDropout.getId(), MONDAY, TUESDAY))
+                .isEmpty();
+        assertThat(leagueRankingQueryRepository.findRankOf(blankNicknameLegacy.getId(), MONDAY, TUESDAY))
                 .isEmpty();
     }
 

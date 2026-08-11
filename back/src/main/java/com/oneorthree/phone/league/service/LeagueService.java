@@ -63,9 +63,10 @@ public class LeagueService {
     LeagueTierResponse getMyTier(UUID userId, Instant now) {
         return userRepository.findById(userId)
                 .filter(user -> !user.isDeleted())
-                // 온보딩 미완주(nickname null)는 리그 미참가 — assigned=false(중립)로 반환해 클라이언트가
+                // 온보딩 미완주(닉네임 없음)는 리그 미참가 — assigned=false(중립)로 반환해 클라이언트가
                 // 미배정으로 처리한다. 게스트라도 닉네임까지 등록했으면 참가한다 (GROMO-1508).
-                .filter(user -> user.getNickname() != null)
+                // 빈 문자열까지 보는 이유는 랭킹 쿼리와 동일 — GROMO-1215 이전 "" 레거시 행 (코드리뷰 반영).
+                .filter(user -> user.getNickname() != null && !user.getNickname().isBlank())
                 .map(user -> new LeagueTierResponse(
                         true,
                         user.getTierLevel(),
