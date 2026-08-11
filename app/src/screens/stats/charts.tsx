@@ -1,7 +1,7 @@
 // 통계 공용 차트 — 분량 축 선그래프(LineChart)와 첫 시작 시각 점 차트(FirstStartChart).
 // 세로축·격자·탭 말풍선 스캐폴딩(스타일)을 공유해 한 파일에 둔다.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, TouchableOpacity } from 'react-native';
 import Animated, {
   useAnimatedProps,
   useSharedValue,
@@ -14,7 +14,6 @@ import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
 import type { StatsPeriod } from '@/types/dto/stats';
 import { getAllFocusSessions } from '@/services/focusApi';
-import type { FocusSessionResponse } from '@/types/dto/focus';
 import { axisCeil, fmtAxis, fmtHm } from '@/utils/timeFormat';
 import { localDateStr } from '@/utils/localDate';
 import {
@@ -280,38 +279,79 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   const [plotW, setPlotW] = useState(0);
   // 탭한 칼럼의 시작 시각 말풍선(GROMO-849) — LineChart와 같은 패턴, 값만 시각(HH:MM)
   const [picked, setPicked] = useState<number | null>(null);
+  // 조회 실패(GROMO-1474). 실패를 빈 배열로 뭉개면 "아직 기록이 없어요"가 떠 네트워크 장애가
+  // '기록 없음'으로 둔갑하고 재시도 경로도 사라진다 — CalendarCard와 같은 처방으로 분리한다.
+  const [fetchFailed, setFetchFailed] = useState(false);
+  // 조회 세대 — 응답 폐기 기준. 화면 이탈·기간 변경·재시도가 세대를 올리면 그 전에 띄운 조회의
+  // 응답은 버린다(예전 `cancelled` 지역 플래그와 같은 역할인데, 재시도 버튼처럼 이펙트 **밖**에서
+  // 시작한 조회도 같은 기준으로 묶인다).
+  const reqRef = useRef(0);
+
+  // 조회 한 번. 화면 포커스와 '다시 시도' 버튼이 같은 본체를 쓴다 — 재시도용 카운터 상태를
+  // 따로 두고 의존성에 끼워 넣는 방식보다 트리거가 눈에 보인다.
+  const load = useCallback(async () => {
+    const seq = ++reqRef.current;
+    // 새 조회가 시작되면 이전 실패 표시를 지운다 — 재시도 중에는 로딩으로 돌아간다
+    setFetchFailed(false);
+    // 조회 시작점: 주=이번 주 월요일, 월=이달 1일이 낀 주의 월요일('N월 주별' 차트와 동일 구간).
+    // 서버 /focus-session은 startedAt 필터라 '그날 시작한 세션'과 정확히 일치한다.
+    // 축은 KST(GROMO-1236 P2) — 점 버킷(dailyFirstStartMinutes)·그리드가 KST 일이므로 조회
+    // 하한도 KST 월요일 자정 '순간'이어야 경계 세션이 빠지지 않는다. +09:00 고정 오프셋은
+    // KST가 DST 없는 존이라 안전.
+    const kstToday = kstTodayDate();
+    const from = new Date(
+      period === 'WEEK' ? kstToday : new Date(kstToday.getFullYear(), kstToday.getMonth(), 1),
+    );
+    const dow = from.getDay(); // 0=일..6=토
+    from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
+    const fromInstant = new Date(`${localDateStr(from)}T00:00:00+09:00`);
+    try {
+      const all = await getAllFocusSessions(fromInstant.toISOString(), new Date().toISOString());
+      if (reqRef.current !== seq) return;
+      setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
+    } catch {
+      if (reqRef.current !== seq) return;
+      // ⚠️ 빈 배열을 넣지 않는다 — 실패는 '기록 없음'이 아니다. points는 손대지 않고
+      //    실패 플래그만 세운다(아래 렌더에서 실패가 points보다 우선한다).
+      setFetchFailed(true);
+    }
+  }, [period]);
+
+  // '다시 시도' 전용 트리거. 화면 포커스 재조회와 달리 **직전 화면을 비우고** 다시 조회한다.
+  // ⚠️ load를 그대로 버튼에 걸면, 이전 조회의 points가 남아 있는 경우 누른 순간 실패 안내가
+  //    사라지고 **낡은 차트가 정상 결과처럼** 돌아온다 — 조회가 지연되면 사용자는 눌렀는지조차
+  //    알 수 없이 옛 데이터를 무기한 본다(codex 리뷰). 재진입 재조회는 stale-while-revalidate가
+  //    맞지만, 사용자가 직접 누른 재시도는 진행 중임이 보여야 한다.
+  const retry = useCallback(() => {
+    setPoints(null);
+    load();
+  }, [load]);
 
   // 화면 재진입마다 재조회 — 세션 종료 후 돌아와도 방금 세션이 반영(타임테이블과 동일 패턴)
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      (async () => {
-        // 조회 시작점: 주=이번 주 월요일, 월=이달 1일이 낀 주의 월요일('N월 주별' 차트와 동일 구간).
-        // 서버 /focus-session은 startedAt 필터라 '그날 시작한 세션'과 정확히 일치한다.
-        // 축은 KST(GROMO-1236 P2) — 점 버킷(dailyFirstStartMinutes)·그리드가 KST 일이므로 조회
-        // 하한도 KST 월요일 자정 '순간'이어야 경계 세션이 빠지지 않는다. +09:00 고정 오프셋은
-        // KST가 DST 없는 존이라 안전.
-        const kstToday = kstTodayDate();
-        const from = new Date(
-          period === 'WEEK' ? kstToday : new Date(kstToday.getFullYear(), kstToday.getMonth(), 1),
-        );
-        const dow = from.getDay(); // 0=일..6=토
-        from.setDate(from.getDate() - (dow === 0 ? 6 : dow - 1));
-        const fromInstant = new Date(`${localDateStr(from)}T00:00:00+09:00`);
-        // 조회 실패 → 빈 차트("아직 기록이 없어요")로 표시
-        const all = await getAllFocusSessions(
-          fromInstant.toISOString(),
-          new Date().toISOString(),
-        ).catch(() => [] as FocusSessionResponse[]);
-        if (cancelled) return;
-        setPoints(firstStartPoints(period, dailyFirstStartMinutes(all)));
-      })();
+      load();
       return () => {
-        cancelled = true;
+        reqRef.current++; // 이탈 시 진행 중 응답 폐기(언마운트 후 setState 방지)
       };
-    }, [period]),
+    }, [load]),
   );
 
+  // 로딩·실패·무데이터 세 상태를 화면에서 구분한다(CalendarCard의 noData/failed/loading과 같은 파생).
+  // ⚠️ **실패가 points보다 먼저다.** 이전 조회가 성공해 points가 남아 있어도 마찬가지다 —
+  //    첫 조회가 빈 결과([])였던 신규 사용자가 재진입했다가 재조회에 실패하면, points를 먼저
+  //    보는 순서에서는 실패했는데도 "아직 기록이 없어요"가 다시 뜨고 재시도 버튼도 없다.
+  //    이 티켓이 없애려던 바로 그 화면이다(codex 리뷰). CalendarCard도 실패를 우선한다.
+  if (fetchFailed) {
+    return (
+      <View style={s.errorBody} testID="stats.firstStart.error">
+        <Text style={s.errorText}>불러오지 못했어요</Text>
+        <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retry}>
+          <Text style={s.retryText}>다시 시도</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   if (points === null) {
     return <CardBodyLoading height={FIRST_START_BODY_H} testID="stats.firstStart.loading" />;
   }
@@ -504,6 +544,20 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     fontVariant: ['tabular-nums'],
   },
+  // 조회 실패 안내(GROMO-1474) — 문구·버튼 모양은 같은 화면의 CalendarCard와 같은 값이다.
+  // 한 화면에서 실패 표현이 갈리면 같은 장애가 카드마다 다른 사고처럼 보인다.
+  // ⚠️ 높이는 CardBodyLoading과 같은 **고정** FIRST_START_BODY_H — 실패 표시가 더 짧으면
+  //    아래 카드가 위로 튄다(로딩↔실패↔본문 전환 내내 카드가 미동도 하지 않아야 한다).
+  errorBody: { height: FIRST_START_BODY_H, alignItems: 'center', justifyContent: 'center' },
+  errorText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
+  retryBtn: {
+    marginTop: T.space.sm,
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.xs,
+  },
+  retryText: { ...T.text.caption, fontWeight: '700', color: T.white },
   chartAxisCol: { width: 36, height: CHART_H },
   chartAxisLabel: {
     ...T.text.caption,
