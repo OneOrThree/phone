@@ -231,20 +231,38 @@ jobs:
           # 등록·무에러만으로는 부족하다 — **이 PR 이 고치려는 원래 장애가 정확히 이 상태였다.**
           # 실측 당시 dev 의 container 체크는 [OK] 이면서 Metric Samples: Last Run 0, Total 0 이었다
           # (workloadmeta 가 비어 스크레이프할 컨테이너를 못 찾음). 그래서 샘플이 실제로 늘어나는지 본다.
-          samples() {
-            jq -r '[.runnerStats.Checks.container // {}, .runnerStats.Checks.docker // {}]
-                   | map(to_entries | map(.value.TotalMetricSamples // 0) | add // 0) | add // 0' "$1"
+          # ⚠️ 합산하면 안 된다(codex 리뷰). container 와 docker 를 더하면 docker 만 샘플을 내고
+          #    container 가 0 인 상태에서도 합계가 늘어 통과한다 — **복구 대상이 바로 container** 라
+          #    그 0 건이 docker 샘플에 가려진다. 그래서 체크별로 따로 본다.
+          samples() {   # $1=json  $2=체크 이름
+            jq -r --arg k "$2" '[.runnerStats.Checks[$k] // {} | to_entries[]
+                                 | .value.TotalMetricSamples // 0] | add // 0' "$1"
           }
-          smp_before=$(samples /tmp/dd-before.json)
-          smp_after=$(samples /tmp/dd-after.json)
-          echo "container/docker 메트릭 샘플: ${smp_before} -> ${smp_after}"
-          if [ "$s_before" = "$s_after" ] && [ "${smp_after:-0}" -le "${smp_before:-0}" ] 2>/dev/null; then
-            echo "::error::60초 동안 컨테이너 메트릭 샘플이 늘지 않음 — 체크는 등록됐지만 수집이 비어 있습니다(원래 장애와 같은 상태). workloadmeta/docker API 응답을 확인하세요"
-            fail=1
-          elif [ "${smp_after:-0}" -eq 0 ] 2>/dev/null; then
-            echo "::error::컨테이너 메트릭 샘플 0건"
-            fail=1
-          fi
+          for chk in container docker; do
+            b=$(samples /tmp/dd-before.json "$chk")
+            a=$(samples /tmp/dd-after.json "$chk")
+            n=$(jq -r --arg k "$chk" '.runnerStats.Checks[$k] // {} | to_entries | length' /tmp/dd-after.json)
+            echo "${chk} 체크: 인스턴스 ${n}개, 메트릭 샘플 ${b} -> ${a}"
+
+            if [ "${n:-0}" -eq 0 ] 2>/dev/null; then
+              # container 는 복구 대상이라 부재 자체가 실패다. docker 는 보조 지표라 경고만 남긴다.
+              if [ "$chk" = container ]; then
+                echo "::error::container 체크가 등록되지 않음 — workloadmeta/Autodiscovery 초기화 실패"
+                fail=1
+              else
+                echo "  (docker 체크 미등록 — container 가 살아 있으면 치명적이지 않다)"
+              fi
+              continue
+            fi
+
+            if [ "$s_before" = "$s_after" ] && [ "${a:-0}" -le "${b:-0}" ] 2>/dev/null; then
+              echo "::error::60초 동안 ${chk} 메트릭 샘플이 늘지 않음 — 체크는 등록됐지만 수집이 비어 있습니다(원래 장애와 같은 상태). workloadmeta/docker API 응답을 확인하세요"
+              fail=1
+            elif [ "${a:-0}" -eq 0 ] 2>/dev/null; then
+              echo "::error::${chk} 메트릭 샘플 0건"
+              fail=1
+            fi
+          done
           errs=$(jq -r '.runnerStats.Checks | to_entries[]
                         | select(.key == "container" or .key == "docker")
                         | .value | to_entries[]

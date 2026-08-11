@@ -88,13 +88,9 @@ services:
       datadog-agent:
         condition: service_started
 
-  # db 도 통합 서비스 태그를 갖는다 (GROMO-1489) — 없으면 Postgres 로그·컨테이너 메트릭이 service 태그 없이
-  # 컨테이너명(phone-db)으로 떨어져 app 과 같은 화면에서 묶이지 않는다. prod 의 nginx 와 같은 처리.
-  db:
-    labels:
-      com.datadoghq.tags.env: "dev"
-      com.datadoghq.tags.service: "gromo-db-dev"
-      com.datadoghq.tags.version: "16-alpine"
+  # db 의 통합 서비스 태그는 여기가 아니라 docker-compose.dev.yml 에 있다 (GROMO-1489).
+  # 오버레이에만 두면 datadog 토글마다 db 설정이 달라져 compose 가 컨테이너를 재생성하고,
+  # 그때마다 PostgreSQL 연결이 끊긴다(codex 리뷰). 기본 파일에 두면 토글 전후 설정이 같다.
 
 volumes:
   datadog_agent_run:
