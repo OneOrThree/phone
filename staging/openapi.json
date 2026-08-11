@@ -1741,7 +1741,7 @@
             }
           },
           "400": {
-            "description": "BET_FOCUS_ONLY(집중 챌린지 아님) / BET_INVALID_STAKE / INSUFFICIENT_CURRENCY",
+            "description": "BET_INVALID_STAKE / INSUFFICIENT_CURRENCY",
             "content": {
               "*/*": {
                 "schema": {
