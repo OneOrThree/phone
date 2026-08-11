@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { GroupCardBack } from './GroupCardBack';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
 const group: GroupSummaryResponse = {
   groupId: 'g1',
@@ -137,6 +138,18 @@ test('설정은 시각 텍스트 없이 원형 아이콘과 접근성 이름을 
   expect(screen.queryByText(/설정/)).toBeNull();
 });
 
+test('혼합 영문·한글 그룹명에 그룹 카드 공통 글꼴을 적용한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      group={{ ...group, name: 'Morning 아침 집중방' }}
+      snapshot={undefined}
+    />,
+  );
+
+  expect(screen.getByText('Morning 아침 집중방')).toHaveStyle(GROUP_CARD_USER_TEXT);
+});
+
 test('빈 영역 포인터 wrapper는 키보드 포커스 순서에서 제외한다', async () => {
   await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
 
@@ -264,6 +277,7 @@ test('최신 공지의 제목과 본문을 원문 순서로 표시하고 본문�
   expect(screen.getByText('오늘 일정')).toBeOnTheScreen();
   expect(screen.getByText('오늘은 오전 9시에 함께 시작합니다.')).toBeOnTheScreen();
   expect(screen.getByTestId('group.card.announcement.content').props.numberOfLines).toBe(2);
+  expect(screen.getByTestId('group.card.announcement.content')).toHaveStyle(GROUP_CARD_USER_TEXT);
 });
 
 test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 compact row로 유지한다', async () => {

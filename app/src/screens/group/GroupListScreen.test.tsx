@@ -31,6 +31,7 @@ import {
 } from '@/services/analyticsEvents';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
+import { GROUP_CARD_USER_TEXT } from './components/groupCardLayout';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -249,6 +250,13 @@ describe('카드 렌더', () => {
     expect(
       screen.getByTestId('group.deck.findMore', { includeHiddenElements: true }),
     ).toBeOnTheScreen();
+  });
+
+  test('앞면의 혼합 영문·한글 이름과 소개에 같은 글꼴 family를 적용한다', async () => {
+    await renderList([group({ name: 'Morning 아침 집중방', description: 'Study 함께 집중해요' })]);
+
+    expect(screen.getByText('Morning 아침 집중방')).toHaveStyle(GROUP_CARD_USER_TEXT);
+    expect(screen.getByText('Study 함께 집중해요')).toHaveStyle(GROUP_CARD_USER_TEXT);
   });
 
   test('그룹 수와 무관하게 찾기 카드는 정확히 한 장이고 서버 data에는 섞이지 않는다', async () => {

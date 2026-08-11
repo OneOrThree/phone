@@ -11,6 +11,7 @@ import {
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
@@ -254,7 +255,13 @@ const s = StyleSheet.create({
   },
   infoScroll: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
-  name: { ...T.text.heading, color: T.ink, flexShrink: 1, minWidth: 0 },
+  name: {
+    ...T.text.heading,
+    ...GROUP_CARD_USER_TEXT,
+    color: T.ink,
+    flexShrink: 1,
+    minWidth: 0,
+  },
   ownerChip: {
     minHeight: 30,
     paddingHorizontal: T.space.sm,
@@ -266,7 +273,7 @@ const s = StyleSheet.create({
     backgroundColor: T.accentBg,
   },
   ownerText: { ...T.text.caption, color: T.accentDeep },
-  desc: { ...T.text.body, color: T.inkSub },
+  desc: { ...T.text.body, ...GROUP_CARD_USER_TEXT, color: T.inkSub },
   footer: {
     marginTop: 'auto',
     flexDirection: 'row',
