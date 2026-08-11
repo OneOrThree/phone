@@ -45,7 +45,11 @@ export function myLiveTotalSeconds({
   shownFloor: number;
 }): number {
   // 서버 스냅샷 미확보(그룹 미가입·조회 실패·자정 넘겨 무효화) — 종전 로컬 집계로 폴백.
-  // 폴백도 바닥을 함께 적용해 서버↔로컬 경로를 오갈 때 값이 튀지 않게 한다.
-  const raw = serverBase == null ? localFallback : serverBase + delta;
-  return Math.max(raw, shownFloor);
+  // ⚠️ 폴백에는 바닥을 적용하지 않고, 호출부도 이 값을 바닥에 되먹이지 않는다(코덱스 리뷰 ⑥):
+  // 로컬 축 값은 KST 날짜와 다른 몫이라 KST 바닥에 섞이면 안 된다. 비KST 기기가 KST 자정을
+  // 넘긴 직후엔 스냅샷 기준일이 아직 전날이라 이 경로를 타는데, 그때 로컬 당일 누적(예: 5시간)이
+  // 새 KST 날의 바닥으로 굳으면 다음 폴링이 올바른 작은 값을 줘도 max가 계속 이겨 과대 표시된다.
+  // 폴백 값 자체는 로컬 축에서 이미 단조라 바닥 없이도 뒤로 밀리지 않는다.
+  if (serverBase == null) return localFallback;
+  return Math.max(serverBase + delta, shownFloor);
 }

@@ -1273,7 +1273,9 @@ export default function FocusSessionScreen() {
       liveTodaySeconds,
     shownFloor: gridShownRef.current.seconds,
   });
-  gridShownRef.current.seconds = gridTotalSeconds;
+  // 바닥은 **서버 축으로 계산한 값만** 되먹인다(코덱스 리뷰 ⑥) — 폴백은 로컬 축이라 KST 바닥에
+  // 섞으면 비KST 기기가 KST 자정을 넘긴 직후 로컬 당일 누적이 새 날의 바닥으로 굳는다.
+  if (gridServerToday != null) gridShownRef.current.seconds = gridTotalSeconds;
   const myGridMe = {
     nickname: nickname || '나',
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)

@@ -46,6 +46,22 @@ describe('myLiveTotalSeconds', () => {
     ).toBe(300);
   });
 
+  it('로컬 폴백 값이 KST 바닥에 섞이지 않는다', () => {
+    // 비KST 기기가 KST 자정을 넘긴 직후 — 스냅샷 기준일이 아직 전날이라 폴백을 타는 구간에
+    // 로컬 당일 누적(5시간)이 쌓였다. 다음 폴링이 새 KST 날의 올바른 값(10분)을 주면 그대로
+    // 10분이어야 한다 — 바닥에 5시간이 굳었다면 계속 과대 표시된다 (코덱스 리뷰 ⑥).
+    expect(
+      myLiveTotalSeconds({ serverBase: 600, delta: 0, localFallback: 18000, shownFloor: 0 }),
+    ).toBe(600);
+  });
+
+  it('폴백 구간에서는 바닥을 적용하지 않는다', () => {
+    // 서버 축 바닥(2400)이 남아 있어도 폴백 값(45)을 그대로 돌려준다 — 축이 다르므로.
+    expect(
+      myLiveTotalSeconds({ serverBase: null, delta: 30, localFallback: 45, shownFloor: 2400 }),
+    ).toBe(45);
+  });
+
   it('다른 기기가 올린 몫으로 서버가 앞서가면 서버 값을 따른다', () => {
     expect(
       myLiveTotalSeconds({ serverBase: 3000, delta: 15, localFallback: 0, shownFloor: 2400 }),
