@@ -9,11 +9,15 @@
 //   2) 재시도가 실제로 재조회를 일으킨다 — offset 0은 부모 retryCurrent, 과거는 카드 재조회.
 //   3) 실패는 캐시하지 않는다 — 실패한 키는 요청 기록에서 지워야 재시도가 같은 키를 다시 판다.
 //      (성공한 키는 반대로 캐시된다 — 대조군을 같이 세워야 '캐시가 통째로 죽은' 회귀도 잡힌다)
-//   4) 재시도가 성공하면 에러 표시가 사라진다.
-//      ⚠️ 성공 핸들러의 `failedKeys` 삭제 자체는 **화면으로 관측되지 않는다** — `failed`가
-//         `noData` 뒤에 가려져 있고, 성공 응답이 `pastCells[key]`를 채우는 순간 그 키는 영원히
+//   4) 재시도가 성공하면 에러 표시가 사라지고 **그 페이지 데이터가 뜬다**.
+//      ⚠️ 성공 핸들러의 `failedKeys` 삭제 자체는 화면으로 관측되지 않는다 — `failed`가
+//         `noData` 뒤에 가려져 있고, 성공 응답이 `pastCells[key]`를 채우는 순간 그 키는
 //         `noData=false`가 되기 때문이다(그 줄을 지워도 이 파일은 전부 통과한다 — 확인함).
-//         그래서 여기서는 사용자에게 보이는 계약(에러가 걷히고 그 페이지 데이터가 뜬다)을 잠근다.
+//         그래서 이 축이 잠그는 건 삭제 여부가 아니라 **사용자에게 보이는 결과**다.
+//         데이터가 실제로 왔는지 확인하려면 기간 총합 조회를 죽여 헤더가 셀 합산 폴백을
+//         타게 해야 한다 — 총합이 살아 있으면 heatmap 이 비어도 헤더 숫자가 맞아 버린다.
+//      ⚠️ 반대로 `retryPage`의 `failedKeys` 삭제는 관측된다 — 요청이 도는 **중간 상태**에서
+//         에러가 걷히고 로딩이 뜨는지로 본다. 두 번째 응답을 보류시켜야 그 순간을 잡을 수 있다.
 //
 // ⚠️ 이 RTL(v14)의 `render`·`fireEvent`는 **async**다. `await` 없이 쓰면 다음 쿼리가
 //    'render function has not been called'로 엉뚱하게 터진다.
@@ -49,6 +53,32 @@ const mockGetPeriodStats = getFocusPeriodStats as jest.MockedFunction<typeof get
 
 const ERROR_TEXT = '불러오지 못했어요';
 const RETRY_TEXT = '다시 시도';
+// 로딩 오버레이엔 텍스트가 없어 testID 로 잡는다(codex 리뷰) — 이게 없으면
+// 「에러 대신 로딩」 계약을 단언할 수단이 없다.
+const LOADING_TESTID = 'stats.calendar.loading';
+
+// ⚠️ 기준 시각을 고정한다(codex 리뷰). 아래 pastWeek 는 **모듈 로드 시 한 번** 계산되는데
+//    CalendarCard 는 렌더할 때마다 calendarPage 를 다시 계산한다. 실행이 KST 월요일 00:00
+//    경계를 넘으면 둘이 서로 다른 주를 가리켜, 코드가 그대로여도 조회 인자·셀 단언이
+//    간헐 실패한다. 시계만 고정하고 타이머는 실제 것을 쓴다 — 타이머까지 가짜로 만들면
+//    RTL 의 async render/flush 가 멈춘다.
+jest.useFakeTimers({
+  now: new Date('2026-08-11T03:00:00Z'), // KST 2026-08-11(화) 12:00 — 주 경계에서 멀다
+  doNotFake: [
+    'setTimeout',
+    'clearTimeout',
+    'setInterval',
+    'clearInterval',
+    'setImmediate',
+    'clearImmediate',
+    'nextTick',
+    'queueMicrotask',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+    'performance',
+    'hrtime',
+  ],
+});
 
 // 지난 주 페이지 — 과거 페이지 경로(카드 자체 조회)의 조회 키·기준일이 여기서 나온다
 const pastWeek = calendarPage('WEEK', -1);
@@ -137,6 +167,9 @@ describe('CalendarCard 조회 실패 — 실패와 빈 기록은 다른 화면�
     expect(screen.queryByText(ERROR_TEXT)).toBeNull();
     expect(screen.queryByText(RETRY_TEXT)).toBeNull();
     expect(screen.getByText('총 집중 —')).toBeTruthy();
+    // 「에러 대신 로딩」이므로 로딩 표시가 **실제로 떠 있는지**까지 본다(codex 리뷰).
+    // 없음(에러 아님)만 단언하면 loading 계산이나 오버레이를 통째로 지워도 통과한다.
+    expect(screen.getByTestId(LOADING_TESTID)).toBeTruthy();
   });
 
   test('과거 페이지 실패는 카드 자신의 failedKeys로 판정한다 — 부모 cells가 정상이어도 에러다', async () => {
@@ -169,7 +202,16 @@ describe('CalendarCard 재시도 — 두 경로 다 실제로 다시 조회한�
   });
 
   test('과거 페이지의 재시도는 같은 키를 다시 조회한다 — 실패를 캐시하지 않기 때문이다', async () => {
-    mockGetHeatmap.mockRejectedValue(new Error('network'));
+    mockGetHeatmap.mockRejectedValueOnce(new Error('network'));
+    // 두 번째 요청은 **보류**시킨다(codex 리뷰). 곧바로 reject 하면 재시도 중간 상태를 한 번도
+    // 관측하지 못해, retryPage 가 failedKeys 를 지우는 줄을 없애도 호출 횟수·최종 에러 단언이
+    // 모두 통과한다 — 요청이 도는 동안 옛 실패 화면이 남는 회귀를 그냥 놓친다.
+    let rejectSecond: (e: Error) => void = () => {};
+    mockGetHeatmap.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        rejectSecond = reject;
+      }),
+    );
     const { retryCurrent } = await renderCard([]);
     await goPrev();
     expect(mockGetHeatmap).toHaveBeenCalledTimes(1);
@@ -180,19 +222,32 @@ describe('CalendarCard 재시도 — 두 경로 다 실제로 다시 조회한�
     expect(mockGetHeatmap).toHaveBeenNthCalledWith(2, pastKey, pastAnchor);
     // 과거 페이지는 부모 재조회가 아니다 — 부모를 부르면 현재 기간만 새로 오고 이 페이지는 그대로다
     expect(retryCurrent).not.toHaveBeenCalled();
-    expect(screen.getByText(ERROR_TEXT)).toBeTruthy(); // 두 번째도 실패했으니 에러 유지
+
+    // 재시도를 누른 직후: 에러·버튼이 걷히고 로딩으로 바뀌어야 한다.
+    expect(screen.queryByText(ERROR_TEXT)).toBeNull();
+    expect(screen.queryByText(RETRY_TEXT)).toBeNull();
+    expect(screen.getByTestId(LOADING_TESTID)).toBeTruthy();
+
+    // 두 번째도 실패로 끝내면 다시 에러로 돌아온다.
+    await act(async () => {
+      rejectSecond(new Error('network'));
+      await Promise.resolve();
+    });
+    expect(screen.getByText(ERROR_TEXT)).toBeTruthy();
   });
 
   test('재시도가 성공하면 에러 표시가 사라지고 그 페이지 데이터가 뜬다', async () => {
     mockGetHeatmap.mockRejectedValueOnce(new Error('network'));
     mockGetHeatmap.mockResolvedValueOnce([cell(pastKey, 45)]);
-    mockGetPeriodStats.mockResolvedValue(periodStats(45));
+    // ⚠️ 기간 총합 조회를 **일부러 실패**시킨다(codex 리뷰). 이게 성공하면 헤더의 45분이
+    //    periodStats 에서 나와, heatmap 응답이 비어 있거나 잘못 저장돼도 단언이 통과한다.
+    //    총합 조회를 죽이면 헤더는 셀 합산 폴백을 타므로, 45분은 **heatmap 셀에서만** 나올 수 있다.
+    mockGetPeriodStats.mockRejectedValue(new Error('network'));
     await renderCard([]);
     await goPrev();
     expect(screen.getByText(ERROR_TEXT)).toBeTruthy();
 
     await pressRetry();
-    // 성공 응답이 failedKeys에서 키를 지우지 않으면 데이터가 왔는데도 에러가 남는다
     expect(screen.queryByText(ERROR_TEXT)).toBeNull();
     expect(screen.queryByText(RETRY_TEXT)).toBeNull();
     expect(screen.getByText('총 집중 0시간 45분')).toBeTruthy();
@@ -201,7 +256,8 @@ describe('CalendarCard 재시도 — 두 경로 다 실제로 다시 조회한�
   test('실패한 페이지는 재시도 버튼 없이 다시 들어와도 재조회된다 — 실패가 캐시되지 않는다', async () => {
     mockGetHeatmap.mockRejectedValueOnce(new Error('network'));
     mockGetHeatmap.mockResolvedValueOnce([cell(pastKey, 45)]);
-    mockGetPeriodStats.mockResolvedValue(periodStats(45));
+    // 위 테스트와 같은 이유로 총합 조회를 죽여 45분이 heatmap 셀에서만 나오게 한다(codex 리뷰).
+    mockGetPeriodStats.mockRejectedValue(new Error('network'));
     await renderCard([]);
     await goPrev();
     expect(screen.getByText(ERROR_TEXT)).toBeTruthy();
