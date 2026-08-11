@@ -24,6 +24,7 @@ import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
 import { calendarPage, calendarRows, grassLevel, kstTodayDate } from './format';
 import { CAL_CELL_ASPECT, CAL_GRID_GAP, CAL_RAMP, WEEK_DAYS } from './constants';
+import { CardBodyError } from './CardBodySlot';
 
 interface Props {
   period: 'WEEK' | 'MONTH';
@@ -309,14 +310,9 @@ export function CalendarCard({
             <ActivityIndicator color={T.accent} />
           </View>
         ) : null}
-        {failed ? (
-          <View style={[s.loadingOverlay, s.errorOverlay]}>
-            <Text style={s.errorText}>불러오지 못했어요</Text>
-            <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retryPage}>
-              <Text style={s.retryText}>다시 시도</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
+        {/* 실패 안내는 셀 그리드 **위에 겹치는** 오버레이 — 그리드가 이미 높이를 잡고 있어
+            자리 예약(height)이 필요 없다(첫 시작 카드는 본문 자리를 대신해 고정 높이를 쓴다). */}
+        {failed ? <CardBodyError overlay onRetry={retryPage} /> : null}
       </View>
 
       {pickedInfo != null && (
@@ -404,17 +400,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 조회 실패 안내 — 중립 셀 위에 읽히도록 반투명 배경 + 재시도 버튼(친구 목록 에러 패턴 축소판)
-  errorOverlay: { backgroundColor: withAlpha(T.white, 0.75) },
-  errorText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
-  retryBtn: {
-    marginTop: T.space.sm,
-    backgroundColor: T.accent,
-    borderRadius: 999,
-    paddingHorizontal: T.space.lg,
-    paddingVertical: T.space.xs,
-  },
-  retryText: { ...T.text.caption, fontWeight: '700', color: T.white },
   pickbar: {
     marginTop: T.space.sm,
     paddingVertical: T.space.sm,
