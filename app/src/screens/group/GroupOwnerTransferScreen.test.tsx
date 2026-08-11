@@ -240,6 +240,27 @@ describe('위임 확정 + source별 후속', () => {
     expect(mockTransferOwner).not.toHaveBeenCalled();
   });
 
+  // 되돌릴 수 없는 동작이라 「닫힘 = 취소」가 참이어야 한다 — 진행 중에는 모든 닫기·재실행을 막는다.
+  test('위임 요청 중에는 취소·스크림·재탭이 모두 막힌다', async () => {
+    // 응답이 오지 않는 요청 — 진행 중 상태를 그대로 관찰한다.
+    mockTransferOwner.mockReturnValueOnce(new Promise<void>(() => {}));
+    await mountAndSelect('u2');
+    await confirmTransfer();
+
+    // '취소'는 아예 렌더되지 않는다 — 눌리는데 아무 일도 없으면 그 또한 거짓 신호다.
+    expect(screen.queryByTestId('group.owner.transfer.confirm.secondary')).toBeNull();
+    // 스크림 탭도 닫지 않는다 — 닫히면 위임이 취소된 것처럼 보이지만 요청은 계속돼 방장이 바뀐다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.owner.transfer.confirm.backdrop'));
+    });
+    expect(screen.getByTestId('group.owner.transfer.confirm')).toBeOnTheScreen();
+    // 주 버튼 재탭도 병렬 요청을 만들지 않는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.owner.transfer.confirm.primary'));
+    });
+    expect(mockTransferOwner).toHaveBeenCalledTimes(1);
+  });
+
   test("source==='withdraw'면 위임 성공 직후 withdrawGroup까지 부르고 루트로 복귀한다", async () => {
     mockRoute.params = { groupId: GROUP_ID, source: 'withdraw' };
     await mountAndSelect('u3');

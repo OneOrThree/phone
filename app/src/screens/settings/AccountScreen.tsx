@@ -105,6 +105,8 @@ export default function AccountScreen() {
   // 연동 목록(로딩 전 null). 재진입마다 최신화.
   const [links, setLinks] = useState<SocialLinkResponse[] | null>(null);
   const [busy, setBusy] = useState<Method | null>(null); // 게스트 로그인 진행 중인 provider
+  // 연동 해제 진행 중 — 확인 카드의 모든 닫기·재실행을 막는다(아래 unlink 카드 주석).
+  const [unlinking, setUnlinking] = useState(false);
   const [modal, setModal] = useState<AccountModalState | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
 
@@ -177,6 +179,8 @@ export default function AccountScreen() {
   //    있다(codex 리뷰). 그래서 요청 동안 카드를 **열어 둔 채**로 두고 결과만 갈아 끼운다 —
   //    GroupSettingsScreen 의 나가기 실패와 같은 처방이다.
   const runUnlink = async (provider: Provider) => {
+    if (unlinking) return; // 확인 버튼 연타로 요청이 병렬 전송되지 않게(codex 리뷰)
+    setUnlinking(true);
     try {
       await unlinkSocialAccount(provider);
       await loadLinks();
@@ -196,6 +200,8 @@ export default function AccountScreen() {
               body: '연동 해제에 실패했어요. 잠시 후 다시 시도해 주세요.',
             },
       );
+    } finally {
+      setUnlinking(false);
     }
   };
 
@@ -248,7 +254,12 @@ export default function AccountScreen() {
     }
   };
 
-  const closeModal = () => setModal(null);
+  // 요청 진행 중에는 닫지 않는다 — 스크림 탭·하드웨어 백도 여기로 온다(codex 리뷰).
+  // 탈퇴(withdrawing)는 성공 시 화면 자체가 사라지고, 연동 해제(unlinking)는 결과가 카드로 온다.
+  const closeModal = () => {
+    if (unlinking || withdrawing) return;
+    setModal(null);
+  };
 
   // 카드 모달은 단일 인스턴스로 상태에 따라 내용만 바꾼다 — confirm→블록 안내가 같은 모달의
   // 내용 교체가 되어 iOS의 연속 present/dismiss 경합(뒤 모달이 안 뜨는 문제)이 없다.
@@ -313,7 +324,11 @@ export default function AccountScreen() {
           runUnlink(provider);
         },
         destructive: true,
-        secondaryLabel: '취소',
+        primaryDisabled: unlinking,
+        // ⚠️ 요청 중에는 닫기 경로를 막는다 — 취소·스크림으로 카드가 닫히면 해제가 취소된 것처럼
+        //    보이지만 요청은 계속되어 실제로 연동이 풀린다. 「닫힘 = 취소」가 참이어야 한다.
+        //    취소 버튼은 아예 렌더하지 않는다(가드만 두면 "눌렀는데 아무 일도 없다"가 된다).
+        secondaryLabel: unlinking ? undefined : '취소',
         testID: 'account.unlink.confirm',
       };
       break;

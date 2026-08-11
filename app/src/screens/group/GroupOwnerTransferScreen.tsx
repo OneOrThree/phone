@@ -186,20 +186,29 @@ export default function GroupOwnerTransferScreen() {
           // 위장하면 사용자는 멀쩡한 그룹을 의심하며 재시도만 반복한다. 유일한 탈출구인
           // 재로그인으로 보낸다(토스트가 아니라 확인이 필요한 안내 — 세션을 끊는 동작이다).
           case USER_NOT_FOUND:
+            // ⚠️ 카드를 **연 채** 띄운다. Alert 는 RN Modal 위에 뜨므로 닫힘이 진행 중이 아니면
+            //    경합하지 않는다 — 반대로 닫고 띄우면 dismiss 와 present 가 부딪혀 안내가 사라지고,
+            //    이 분기는 그 확인 버튼이 로그아웃까지 쥐고 있어 세션 복구 경로가 통째로 없어진다.
             promptSessionExpired(requestSessionGeneration);
             break;
           // 두 코드 모두 **재시도해도 같은 결과**인 종결 통보다 — 사용자가 할 수 있는 조치가
           // 없으므로 확인 버튼이 필요 없는 tone:'error' 토스트로 알린다
           // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
           // 반면 아래 default('잠시 후 다시 시도')는 재시도가 유효해 Alert로 남긴다.
+          // ⚠️ 토스트 경로는 카드를 **닫고** 띄운다. Toast 는 RN Modal 아래에 깔려(Toast.tsx:20-22)
+          //    카드가 열려 있으면 사용자가 실패 이유를 아예 못 본다. 토스트는 네이티브 present 가
+          //    아니라 RN 뷰라, Alert 와 달리 닫힘과 부딪히지 않는다 — 그래서 이쪽만 먼저 닫는다.
           case 'NOT_FOUND':
+            setConfirmOpen(false);
             show({ message: '이미 사라졌거나 나간 그룹이에요', tone: 'error' });
             break;
           case 'MEMBER_ONLY':
             // 화면 제목이 이미 「방장 넘기기」라 목적어를 되풀이하지 않는다.
+            setConfirmOpen(false);
             show({ message: '방장이 아니라서 넘길 수 없어요', tone: 'error' });
             break;
           default:
+            // 재시도가 유효한 실패라 Alert 유지(D8). 위 USER_NOT_FOUND 와 같은 이유로 카드는 연 채다.
             Alert.alert('방장을 넘기지 못했어요', '잠시 후 다시 시도해주세요.');
         }
       } finally {
@@ -351,9 +360,17 @@ export default function GroupOwnerTransferScreen() {
             //    실패 경로는 카드가 남아 사용자가 취소로 빠져나간다.
             doTransfer(confirmTarget);
           }}
-          secondaryLabel="취소"
-          onSecondary={() => setConfirmOpen(false)}
-          onRequestClose={() => setConfirmOpen(false)}
+          primaryDisabled={submitting}
+          // ⚠️ 요청 중에는 **모든 닫기 경로를 막는다**. 취소·스크림·백으로 카드가 닫히면 위임이
+          //    취소된 것처럼 보이지만 transferOwner 는 계속되어 실제 방장이 바뀐다 — 되돌릴 수
+          //    없는 동작이라 「닫힘 = 취소」가 참이어야 한다. 취소 버튼은 아예 렌더하지 않는다:
+          //    가드만 두면 "눌렀는데 아무 일도 없다"가 되어 그것도 거짓 신호다(GroupSettingsScreen 과 같은 처방).
+          secondaryLabel={submitting ? undefined : '취소'}
+          onSecondary={submitting ? undefined : () => setConfirmOpen(false)}
+          onRequestClose={() => {
+            if (submitting) return;
+            setConfirmOpen(false);
+          }}
           testID="group.owner.transfer.confirm"
         />
       )}

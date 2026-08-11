@@ -285,6 +285,32 @@ describe('로그아웃·연동 해제 확인 카드', () => {
     expect(mockUnlinkSocialAccount).toHaveBeenCalledWith('KAKAO');
   });
 
+  // 되돌릴 수 없는 동작이라 「닫힘 = 취소」가 참이어야 한다 — 진행 중에는 모든 닫기·재실행을 막는다.
+  test('연동 해제 요청 중에는 취소·스크림·재탭이 모두 막힌다', async () => {
+    // 응답이 오지 않는 요청 — 진행 중 상태를 그대로 관찰한다.
+    mockUnlinkSocialAccount.mockReturnValueOnce(new Promise<void>(() => {}));
+    await render(<AccountScreen />);
+    await act(async () => {
+      fireEvent.press(await screen.findByText('카카오'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.unlink.confirm.primary'));
+    });
+
+    // '취소'는 아예 렌더되지 않는다 — 눌리는데 아무 일도 없으면 그 또한 거짓 신호다.
+    expect(screen.queryByTestId('account.unlink.confirm.secondary')).toBeNull();
+    // 스크림 탭도 닫지 않는다 — 닫히면 해제가 취소된 것처럼 보이지만 요청은 계속된다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.unlink.confirm.backdrop'));
+    });
+    expect(screen.getByTestId('account.unlink.confirm')).toBeOnTheScreen();
+    // 주 버튼 재탭도 병렬 요청을 만들지 않는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.unlink.confirm.primary'));
+    });
+    expect(mockUnlinkSocialAccount).toHaveBeenCalledTimes(1);
+  });
+
   // 실패 안내는 **같은 카드 안에서** 낸다 — 카드를 먼저 닫고 Alert를 띄우면 iOS에서 dismiss와
   // present가 같은 틱에 경합해 안내가 아예 안 뜬다(codex 리뷰). 문구는 종전 Alert 그대로다.
   test('마지막 로그인 수단 해제(409)는 카드 내용을 실패 안내로 갈아 끼운다 — Alert를 띄우지 않는다', async () => {
