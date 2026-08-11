@@ -20,7 +20,14 @@ import {
 } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
-import { todayStr, yesterdayStr, localDateStr, yesterdayStrKst } from '@/utils/localDate';
+import {
+  todayStr,
+  yesterdayStr,
+  localDateStr,
+  yesterdayStrKst,
+  zoneDateStr,
+} from '@/utils/localDate';
+import { getServerZone } from '@/utils/serverZone';
 import { timeStrToSeconds } from '@/utils/challengeTime';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
@@ -137,6 +144,15 @@ function localNoonInstant(dateStr: string): string {
   return new Date(y, m - 1, d, 12, 0, 0).toISOString();
 }
 
+// 로컬 측정일('YYYY-MM-DD') → 그 날의 보고가 서버에서 앉는 **날짜 버킷**(GROMO-1254).
+// 이 모듈의 측정·마감 축은 로컬(익스텐션 gregorianDayString)이지만, 서버는 우리가 보낸
+// reportedAt(= localNoonInstant) instant를 유저 존(프로필 timeZone — utils/serverZone)으로 잘라
+// 버킷을 정한다. 그래서 "서버 heatmap에서 이 측정일을 찾으려면 무슨 키인가"는 두 축의 합성이다.
+// 서버 존을 모르는 구간(프로필 미수신)의 폴백은 Asia/Seoul — 서버 CountryZoneResolver 폴백과 같다.
+function serverBucketDateOf(localDayKey: string): string {
+  return zoneDateStr(new Date(localNoonInstant(localDayKey)), getServerZone());
+}
+
 async function readSyncState(userId: string): Promise<ScreenTimeSyncState | null> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState);
@@ -179,18 +195,32 @@ async function writeClosedDate(userId: string, date: string): Promise<void> {
 // 어제 스크린타임 목표 달성 축하 예약(GROMO-629). '연속 목표달성'은 heatmap의
 // screenTimeGoalAchieved를 어제(달성일)부터 뒤로 세어 계산한다 — 포커스 목표 스트릭과 동일 방식
 // (별도 API 불필요, 실패한 날은 heatmap 갭이라 자연히 리셋). 조회 실패 시 연속 1일로 폴백.
+//
+// ⚠️ 이 함수 안에는 **축이 두 개** 산다(GROMO-1254 — 하나로 합치면 반대쪽이 깨진다):
+//  ① 하루 1회 가드·예약 신선도(today) = **로컬**. 달성 판정 자체가 로컬 축이기 때문이다 —
+//     달성은 네이티브 버킷 분값(익스텐션 로컬 하루)을 로컬 목표와 비교해 앱이 내리고, 마감을
+//     트리거하는 것도 로컬 자정 넘김(closedDate !== yesterdayStr())이다. 집중 목표 축하가
+//     KST로 간 이유(goalCelebration — 달성 판정이 **서버** KST 버킷)가 여기엔 성립하지 않는다.
+//     소비 측(HomeScreen p.date · screentimeLastRewardedDate)도 같은 로컬 축이라 체인이 온전하다.
+//  ② 연속 달성일 카운트 = **서버 버킷 축**. 이건 서버 heatmap 셀을 뒤로 세는 데이터 결합
+//     계산이라 커서·조회 창이 셀과 같은 축이어야 한다. 종전엔 로컬 측정일에서 그대로 후진해,
+//     서버 존과 기기 존이 갈린 유저는 존재하는 셀을 못 찾아 스트릭이 매번 1일로 리셋됐다.
 async function scheduleYesterdayScreenTimeCelebration(
   achievedDate: string,
   goalMinutes?: number,
 ): Promise<void> {
-  const today = todayStr();
+  const today = todayStr(); // ① 로컬 — 위 주석 참고
   // 하루 1회 가드 — 오늘 이미 노출했거나 이미 오늘 예약이 있으면 재계산·재예약하지 않는다.
   if ((await AsyncStorage.getItem(STORAGE_KEYS.screentimeLastRewardedDate)) === today) return;
   if ((await readPendingScreenTimeCelebration())?.date === today) return;
 
   // achievedDate(어제)는 달성 확정 → 1일. 그 전날부터 60일 창을 넓혀가며 연속 달성일을 센다.
+  // ② 커서의 출발점은 로컬 측정일이 아니라 **그 보고가 서버에서 앉는 셀**이다 — 우리가 방금
+  // saveScreenTime으로 올린 instant(localNoonInstant(achievedDate))를 서버 존으로 자른 값.
+  // 이후 산술은 이 문자열에 대한 순수 달력 산술이라, 아래 localDateStr는 존 변환이 아니라
+  // parts 생성자로 만든 달력 Date의 포매팅이다(stats/format.heatmapRange와 같은 관례).
   let days = 1;
-  const [ay, am, ad] = achievedDate.split('-').map(Number);
+  const [ay, am, ad] = serverBucketDateOf(achievedDate).split('-').map(Number);
   const cursor = new Date(ay, am - 1, ad);
   cursor.setDate(cursor.getDate() - 1);
   const CHUNK_DAYS = 60;

@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import { T } from '@/constants/theme';
 import { axisCeil, fmtAxis } from '@/utils/timeFormat';
+import { kstTodayWeekdayIndex } from '@/screens/stats/format';
 import type { CompareByDay } from '../mock';
 
 // 요일별 나/상대 비교 카드 — 프로필 상세의 집중시간·폰 사용시간 비교 공용(색만 교체).
@@ -34,8 +35,11 @@ export function DuoDayChart({
 }: Props) {
   const [plotW, setPlotW] = useState(0);
   const axisMax = axisCeil(Math.max(...data.mine, ...(soloMine ? [] : data.theirs), 1));
-  // 이번 주(월~일) 고정이라 오늘 요일까지만 점을 찍는다(월=0)
-  const todayIdx = (new Date().getDay() + 6) % 7;
+  // 이번 주(월~일) 고정이라 오늘 요일까지만 점을 찍는다(월=0).
+  // 축은 KST(GROMO-1254) — data는 heatmapRange('WEEK')(KST)로 받은 셀을 byWeekday로 접은 배열이라
+  // 마커만 로컬 요일이면(종전 new Date().getDay()) 비KST 기기에서 오늘 칸이 한 칸 어긋나고,
+  // slice(0, todayIdx+1)가 이미 온 요일을 잘라 버리거나 안 온 요일을 0으로 이어 급락처럼 그린다.
+  const todayIdx = kstTodayWeekdayIndex();
   const step = plotW / DAYS.length;
   const pts = (series: number[]) =>
     DAYS.slice(0, todayIdx + 1).map((_, i) => ({

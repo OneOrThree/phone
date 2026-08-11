@@ -8,6 +8,7 @@ import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { DurationDrumPicker } from '@/components/DurationDrumPicker';
 import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
+import { localDateStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { FOCUS_GOAL_MINUTES, GOAL_STEP_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
@@ -33,14 +34,6 @@ function fmt(totalMinutes: number): string {
   if (h && m) return `${h}시간 ${m}분`;
   if (h) return `${h}시간`;
   return `${m}분`;
-}
-
-// Date → 'YYYY-MM-DD'(로컬 기준) — goalPending 발효일 저장용.
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
 }
 
 // ── 목표 하나(집중 또는 사용)를 편집하는 카드 ─────────────────────────────
@@ -153,7 +146,8 @@ export default function GoalsScreen() {
       .catch(() => setLoaded(true));
   }, []);
 
-  // 내일(발효일).
+  // 내일(발효일). 축은 로컬 — 사용자가 체감하는 '내일'이고, 발효 판정(PendingGoalApplier)도
+  // 같은 로컬 축으로 대조한다(docs/date-axis.md 분류 ② 측정/저장).
   const tomorrow = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -189,7 +183,7 @@ export default function GoalsScreen() {
             userId,
             ...next,
             effectiveDate:
-              sameAsPending && prev.effectiveDate ? prev.effectiveDate : toISODate(tomorrow),
+              sameAsPending && prev.effectiveDate ? prev.effectiveDate : localDateStr(tomorrow),
           }),
         );
       } else {
