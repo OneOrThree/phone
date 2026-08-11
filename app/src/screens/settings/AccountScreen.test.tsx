@@ -7,11 +7,14 @@
 //  3) 위임 대상이 없거나(0개) 목록 조회에 실패하면 일반 안내 카드로 폴백.
 //  4) HOST_WITHDRAW가 아닌 오류(무관한 400 포함)는 방장 문구 없이 일반 오류 Alert.
 //  5) 탈퇴 성공 시 triggerLogout까지 이어진다(무회귀).
+//  6) 로그아웃·연동 해제 확인도 네이티브 2버튼 Alert가 아니라 같은 카드 모달이다
+//     (GROMO-1251 — 정책 D8: 확인이 필요한 2버튼은 토스트 대상이 아니라 표면만 카드로 옮긴다).
+//     문구는 기존 Alert 그대로이고, 실패 안내(재시도 유도)는 Alert로 남는다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import AccountScreen from './AccountScreen';
-import { getSocialLinks, withdraw } from '@/services/userApi';
+import { getSocialLinks, unlinkSocialAccount, withdraw } from '@/services/userApi';
 import { getMyGroups } from '@/services/groupApi';
 import { triggerLogout } from '@/services/api';
 import { clearLastAuthProvider } from '@/services/auth';
@@ -86,6 +89,9 @@ const mockClearLastAuthProvider = clearLastAuthProvider as jest.MockedFunction<
 const mockLogWithdrawalConfirmed = logWithdrawalConfirmed as jest.MockedFunction<
   typeof logWithdrawalConfirmed
 >;
+const mockUnlinkSocialAccount = unlinkSocialAccount as jest.MockedFunction<
+  typeof unlinkSocialAccount
+>;
 
 // 서버 에러 바디({ code })를 실은 axios 에러 — 화면은 status가 아니라 code로 분기한다.
 function axiosErrorWith(status: number, code: string): AxiosError {
@@ -130,6 +136,7 @@ beforeEach(() => {
   mockGetSocialLinks.mockResolvedValue([{ provider: 'KAKAO', linkedAt: '2026-01-01T00:00:00Z' }]);
   mockWithdraw.mockResolvedValue(undefined);
   mockGetMyGroups.mockResolvedValue([]);
+  mockUnlinkSocialAccount.mockResolvedValue(undefined);
 });
 
 describe('회원 탈퇴 — 방장 블록(HOST_WITHDRAW)', () => {
@@ -226,5 +233,76 @@ describe('회원 탈퇴 — 그 외 경로', () => {
     expect(mockClearLastAuthProvider).toHaveBeenCalled();
     expect(mockTriggerLogout).toHaveBeenCalled();
     expect(screen.queryByTestId('account.withdraw.confirm')).toBeNull();
+  });
+});
+
+// GROMO-1251 — 확인이 필요한 2버튼 Alert를 같은 카드 모달 인스턴스로 이관했다(정책 D8).
+// 문구는 기존 Alert 그대로이고, 실동작은 카드를 닫은 **뒤** 실행된다.
+describe('로그아웃·연동 해제 확인 카드', () => {
+  test('로그아웃은 확인 카드를 거쳐야 실행된다(취소하면 세션이 유지된다)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await render(<AccountScreen />);
+    await act(async () => {
+      fireEvent.press(await screen.findByText('로그아웃'));
+    });
+
+    expect(screen.getByTestId('account.logout.confirm')).toBeOnTheScreen();
+    expect(screen.getByText('로그아웃할까요?')).toBeOnTheScreen();
+    // 카드가 떴을 뿐 아직 로그아웃되지 않았다.
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
+    // 네이티브 Alert로 새지 않는다.
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.logout.confirm.secondary'));
+    });
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(await screen.findByText('로그아웃'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.logout.confirm.primary'));
+    });
+    expect(mockTriggerLogout).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  test('연동 해제는 확인 카드의 해제를 눌러야 요청이 나간다', async () => {
+    await render(<AccountScreen />);
+    await act(async () => {
+      fireEvent.press(await screen.findByText('카카오'));
+    });
+
+    expect(screen.getByTestId('account.unlink.confirm')).toBeOnTheScreen();
+    expect(screen.getByText('카카오 연동 해제')).toBeOnTheScreen();
+    expect(screen.getByText('카카오 연동을 해제할까요?')).toBeOnTheScreen();
+    expect(mockUnlinkSocialAccount).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.unlink.confirm.primary'));
+    });
+    expect(mockUnlinkSocialAccount).toHaveBeenCalledWith('KAKAO');
+  });
+
+  // 실패는 재시도가 걸린 안내라 Alert로 남는다(정책 D8 「실패 중 사용자 조치가 필요한 것」).
+  test('마지막 로그인 수단 해제(409)는 카드가 아니라 Alert로 안내한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockUnlinkSocialAccount.mockRejectedValueOnce(axiosErrorWith(409, 'LAST_SOCIAL_LINK'));
+    await render(<AccountScreen />);
+    await act(async () => {
+      fireEvent.press(await screen.findByText('카카오'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.unlink.confirm.primary'));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '해제할 수 없어요',
+      '마지막 로그인 수단은 해제할 수 없어요.',
+    );
+    // 확인 카드는 요청 전에 이미 닫혔다 — Alert가 모달 위에 겹치지 않는다.
+    expect(screen.queryByTestId('account.unlink.confirm')).toBeNull();
+    alertSpy.mockRestore();
   });
 });

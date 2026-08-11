@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,9 +14,11 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
+import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import { getGroupDetail, groupErrorCode, transferOwner, withdrawGroup } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupOwnerTransferred } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse, GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -101,6 +103,8 @@ export default function GroupOwnerTransferScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // 위임(+source별 후속)이 진행 중인가 — 재탭·재선택·뒤로가기를 잠근다.
   const [submitting, setSubmitting] = useState(false);
+  // 위임 확인 카드(GROMO-1251) — 네이티브 2버튼 Alert에서 이관.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // 마운트 시 1회(재시도 시 재호출) — 멤버 목록만 있으면 되므로 date 없이 부른다(오늘 집중분은 안 쓴다).
   const load = useCallback(async () => {
@@ -161,6 +165,12 @@ export default function GroupOwnerTransferScreen() {
       } catch (e) {
         // HTTP status가 아니라 code로 분기한다(§3-2). NOT_FOUND·MEMBER_ONLY는 방어적으로 나눈다.
         switch (groupErrorCode(e)) {
+          // 유저 부재(GROMO-1247) — 그룹이 아니라 **내 계정**이 없다. '그룹을 찾을 수 없어요'로
+          // 위장하면 사용자는 멀쩡한 그룹을 의심하며 재시도만 반복한다. 유일한 탈출구인
+          // 재로그인으로 보낸다(토스트가 아니라 확인이 필요한 안내 — 세션을 끊는 동작이다).
+          case USER_NOT_FOUND:
+            promptSessionExpired();
+            break;
           // 두 코드 모두 **재시도해도 같은 결과**인 종결 통보다 — 사용자가 할 수 있는 조치가
           // 없으므로 확인 버튼이 필요 없는 tone:'error' 토스트로 알린다
           // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
@@ -182,17 +192,20 @@ export default function GroupOwnerTransferScreen() {
     [groupId, source, submitting, navigation, show],
   );
 
-  // '넘기기' 탭 — 확인 Alert를 거친 뒤에만 위임한다(되돌릴 수 없는 동작).
+  // '넘기기' 탭 — 확인 카드를 거친 뒤에만 위임한다(되돌릴 수 없는 동작).
+  // 확인은 선택지가 있는 2버튼이라 토스트 대상이 아니다(정책 D8) — 표면만 네이티브 Alert에서
+  // 앱 컨셉 카드로 바꿨다(GROMO-1251). 문구는 그대로다.
   const onSubmit = useCallback(() => {
     if (submitting || selectedMember === null) return;
-    const target = selectedMember;
-    // withdraw 경로는 위임 뒤 곧바로 나가므로 그 사실을 확인 문구에 함께 알린다.
-    const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나갑니다.' : '';
-    Alert.alert('방장 넘기기', `${target.nickname}님에게 방장을 넘길까요?${withdrawNote}`, [
-      { text: '취소', style: 'cancel' },
-      { text: '넘기기', style: 'destructive', onPress: () => doTransfer(target) },
-    ]);
-  }, [submitting, selectedMember, source, doTransfer]);
+    setConfirmOpen(true);
+  }, [submitting, selectedMember]);
+
+  // withdraw 경로는 위임 뒤 곧바로 나가므로 그 사실을 확인 문구에 함께 알린다.
+  const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나갑니다.' : '';
+  // 닫힘 페이드아웃 동안 이름이 사라지지 않게 마지막 대상을 ref로 유지한다(AccountScreen 선례).
+  const lastTargetRef = useRef<GroupDetailMemberResponse | null>(null);
+  if (selectedMember !== null) lastTargetRef.current = selectedMember;
+  const confirmTarget = selectedMember ?? lastTargetRef.current;
 
   // 로딩·에러 분기에도 원형 백버튼을 세운다 — 첫 조회가 도는 동안·실패했을 때 탈출구가 필요하다.
   const header = (
@@ -299,6 +312,28 @@ export default function GroupOwnerTransferScreen() {
             </TouchableOpacity>
           </View>
         </>
+      )}
+
+      {/* 위임 확인 카드 — 문구는 기존 Alert에서 그대로 이식(카피 정본, GROMO-1251).
+          ⚠️ 확인 즉시 카드를 **닫고** 위임을 시작한다. 종전 Alert도 버튼 탭 → 알럿 닫힘 →
+             onPress 순서였고, 무엇보다 실패 통보 토스트(D19)는 RN Modal이 떠 있으면 그
+             **아래**에 깔려 안 보인다(Toast.tsx 주석) — 카드를 띄운 채 요청하면 안 된다. */}
+      {confirmTarget !== null && (
+        <ConfirmCardModal
+          visible={confirmOpen}
+          title="방장 넘기기"
+          body={`${confirmTarget.nickname}님에게 방장을 넘길까요?${withdrawNote}`}
+          primaryLabel="넘기기"
+          destructive
+          onPrimary={() => {
+            setConfirmOpen(false);
+            doTransfer(confirmTarget);
+          }}
+          secondaryLabel="취소"
+          onSecondary={() => setConfirmOpen(false)}
+          onRequestClose={() => setConfirmOpen(false)}
+          testID="group.owner.transfer.confirm"
+        />
       )}
     </SafeAreaView>
   );

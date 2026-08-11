@@ -206,16 +206,40 @@ export interface GroupChallengeResponse {
   repeatDays?: ChallengeRepeatDay[];
   // 오늘(서버 KST)이 repeatDays에 있는가 — 있으면 이 값을 **우선**한다(클라 파생은 보조).
   activeToday?: boolean;
-  // **오늘을 제외한** 다음 활성일의 회차 시작(ISO Instant, KST 벽시계로 해석해 표기). null 없음
-  // 계약이지만 구서버·경계 대비 optional로 받는다. activeToday와 배타가 아니다(LLD §2.1).
+  // **오늘을 제외한** 다음 활성일의 회차 시작(ISO Instant, KST 벽시계로 해석해 표기).
+  // activeToday와 배타가 아니다(LLD §2.1).
+  //
+  // ⚠️ 종전 서술("null 없음 계약이지만 구서버·경계 대비 optional로 받는다")은 **거짓이다** —
+  //    한 줄 안에서 스스로를 반박했고, 서버는 실제로 null을 내려보낸다(계약 테스트
+  //    GroupChallengeControllerTest가 `"nextSessionAt":null`을 그대로 단언한다). null 경로는 둘이다:
+  //      ① INACTIVE 챌린지 — `GroupBetService#loadNextSessions`가 ACTIVE만 훑는다.
+  //      ② **창형인데 창 상세가 없는 챌린지** — 시작 시각을 모르면 다음 회차를 계산할 수 없어
+  //         같은 함수가 의도적으로 건너뛴다(하루형으로 간주해 자정을 주면 서지도 않을 회차를
+  //         예고하게 된다). V5 마이그레이션이 `type='TIME_WINDOW' AND window_start IS NOT NULL
+  //         AND window_end IS NOT NULL`인 행만 상세로 옮겼으므로, 시각이 null이던 구 행은 상세가
+  //         아예 만들어지지 않았다 — 이론이 아니라 **레거시 데이터에 실재한다**(신규 생성 경로는
+  //         상세를 항상 만들므로 새로 생기지는 않는다).
+  //    ⇒ 「null == INACTIVE」로 단정하면 ②에서 틀린다 — 살아 있는 챌린지를 끝난 것으로 그린다.
+  //    optional인 이유는 따로다: 이 축(GROMO-1418) 자체를 모르는 구서버는 **필드가 없다**.
+  //    즉 undefined = '다음 회차를 모르는 서버', null = '서버는 알지만 이 챌린지엔 없음'이다.
+  // ⚠️ 아래 타입은 아직 `| null`을 싣지 않는다 — 넓히면 `!== undefined`로만 거르는 호출부
+  //    (ChallengeCard)가 컴파일 에러가 나서 같이 고쳐야 한다. 지금은 `Date.parse(null) → NaN`
+  //    덕에 **우연히** 안전할 뿐이므로, 새 호출부는 `!= null`로 거른다.
   nextSessionAt?: string;
   // 다음 활성일 회차를 이미 예약했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태 분기(N45).
+  // ⚠️ nextSessionAt과 **같은 분기를 탄다** — 서버 조립부가 셋 다
+  //    `nextSessions.containsKey(...) ? … : null`이라(GroupChallengeService), 위 ②에서는
+  //    false가 아니라 **null**이다. null을 「미예약」으로 읽으면 이미 예약한 회차에 참여 버튼을
+  //    다시 세우게 된다.
   nextSessionJoined?: boolean;
   // 다음 활성일 회차에 **박제된** 참가비(#572/B8 additive) — `join-next`가 실제 차감할 금액이다.
   // `betConfig.stake`는 **지금 설정값**이라 둘이 갈릴 수 있다: 회차는 개설 시점 stake를 박제하고,
   // 브리지 기간엔 구앱이 다른 stake로 개설할 수도 있다. 설정이 낮아진 경우 이 값을 안 보면
   // 화면이 안내한 금액보다 **더 많이 차감**된다 — 예약 시트의 표시·판정은 이 값이 우선이다.
   // null = 회차 미개설(예약 시점에 현재 설정값이 박제된다) → 종전대로 betConfig.stake를 쓴다.
+  // ⚠️ 위 ②(창형인데 창 상세 없음)에서도 같은 containsKey 분기로 null이 온다 — '미개설'과
+  //    '다음 회차 자체가 없음'이 같은 null이라 이 값만으로는 둘을 못 가른다. 가르려면
+  //    nextSessionAt이 null인지 함께 본다.
   nextSessionStake?: number | null;
   // 내기 설정(#572/B8 additive) — **오늘 회차 유무와 무관한 챌린지 단위 설정**이다.
   // "설정은 켜져 있는데 오늘 회차만 없는 날"(마지막 참가자 취소로 회차 삭제·lazy 개설 전)에

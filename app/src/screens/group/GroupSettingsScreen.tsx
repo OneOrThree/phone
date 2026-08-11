@@ -16,6 +16,7 @@ import { T } from '@/constants/theme';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import {
@@ -41,6 +42,13 @@ import {
 
 type GroupSettingsRoute = RouteProp<V2RootStackParamList, 'GroupSettings'>;
 
+// 나가기 플로우 카드 모달 상태 머신 — 하나만 열린다(GROMO-1251, AccountScreen 탈퇴 플로우와 같은 형태).
+//   leaveConfirm : 나가기 재확인(파괴적 동작 — 정책 D8 「확인이 필요한 2버튼」이라 토스트 대상이 아니다)
+//   hostBlocked  : 방장 블록(HOST_WITHDRAW) — 위임 화면으로 유도
+// ⚠️ 확인 카드를 닫았다가 블록 카드를 새로 띄우면 iOS에서 연속 present/dismiss가 경합해 뒤 카드가
+//    안 뜬다. 한 인스턴스의 **내용만 갈아** 그 경합을 없앤다(GROMO-1210에서 확인한 실패 모드).
+type LeaveModalState = { kind: 'leaveConfirm' } | { kind: 'hostBlocked' };
+
 export default function GroupSettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -53,8 +61,9 @@ export default function GroupSettingsScreen() {
   const [leaving, setLeaving] = useState(false);
   const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji | null>(null);
   const [cardEmojiLoadFailed, setCardEmojiLoadFailed] = useState(false);
-  // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
-  const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
+  // 나가기 확인 + 방장 블록(HOST_WITHDRAW) 안내 — 네이티브 Alert 대신 앱 컨셉 카드 모달
+  // (GROMO-1210 블록 안내 · GROMO-1251 확인 이관).
+  const [leaveModal, setLeaveModal] = useState<LeaveModalState | null>(null);
 
   // 요청 시퀀스 — 겹친 조회 중 늦게 온 이전 응답이 최신을 덮지 않게 한다(그룹 3화면 공통 패턴).
   const requestSeqRef = useRef(0);
@@ -119,19 +128,30 @@ export default function GroupSettingsScreen() {
     setLeaving(true);
     try {
       await withdrawGroup(groupId);
+      setLeaveModal(null); // 화면이 사라지기 전에 카드를 내린다(모달을 띄운 채 언마운트하지 않는다)
       navigation.popToTop(); // 그룹 목록(스택 최하단)으로 복귀
     } catch (e) {
       switch (groupErrorCode(e)) {
         case 'HOST_WITHDRAW':
           // A-2: 방장은 바로 나갈 수 없다 — 카드 모달로 위임 화면 유도(위임 직후 자동 나가기까지).
-          setHostBlockedOpen(true);
+          // 확인 카드를 닫지 않고 **내용만** 블록 안내로 바꾼다(위 상태 머신 주석).
+          setLeaveModal({ kind: 'hostBlocked' });
+          break;
+        // 유저 부재(GROMO-1247) — 없어진 건 그룹이 아니라 **내 계정**이다. 아래 '이미 빠져
+        // 있음'과 같이 묶으면 탈퇴·비활성 세션을 「나가기 성공」으로 위장해 목록으로 돌려보낸다.
+        // 그룹은 그대로 있고 사용자는 그 사실을 모른 채 로그인만 만료돼 있다.
+        case USER_NOT_FOUND:
+          setLeaveModal(null);
+          promptSessionExpired();
           break;
         case 'NOT_FOUND':
         case 'MEMBER_ONLY':
           // 이미 빠져 있는 상태 — 성공과 같게 취급한다.
+          setLeaveModal(null);
           navigation.popToTop();
           break;
         default:
+          setLeaveModal(null);
           Alert.alert('그룹 나가기 실패', '잠시 후 다시 시도해주세요.');
       }
     } finally {
@@ -139,13 +159,39 @@ export default function GroupSettingsScreen() {
     }
   }, [groupId, leaving, navigation]);
 
-  const confirmLeave = useCallback(() => {
-    // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
-    Alert.alert('그룹 나가기', `${groupName}에서 나갈까요?`, [
-      { text: '취소', style: 'cancel' },
-      { text: '나가기', style: 'destructive', onPress: () => doLeave() },
-    ]);
-  }, [groupName, doLeave]);
+  const closeLeaveModal = useCallback(() => setLeaveModal(null), []);
+
+  // 닫힘 페이드아웃 동안 내용이 확인 카드로 되튀지 않게 마지막 내용을 ref로 유지한다(AccountScreen 선례).
+  const lastLeaveModalRef = useRef<LeaveModalState>({ kind: 'leaveConfirm' });
+  if (leaveModal !== null) lastLeaveModalRef.current = leaveModal;
+  const shownLeaveModal = leaveModal ?? lastLeaveModalRef.current;
+
+  // 상태별 카드 내용 — 문구는 기존 네이티브 Alert 그대로다(표면만 바꾼다, GROMO-1210 원칙).
+  const leaveCard =
+    shownLeaveModal.kind === 'hostBlocked'
+      ? {
+          title: '방장은 바로 나갈 수 없어요',
+          body: '그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.',
+          primaryLabel: '방장 넘기고 나가기',
+          onPrimary: () => {
+            setLeaveModal(null);
+            navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' });
+          },
+          secondaryLabel: '취소',
+          testID: 'group.settings.hostBlocked',
+        }
+      : {
+          // 확인 문구 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
+          title: '그룹 나가기',
+          body: `${groupName}에서 나갈까요?`,
+          primaryLabel: '나가기',
+          onPrimary: () => doLeave(),
+          // 요청이 나가 있는 동안 재탭을 막는다(doLeave의 leaving 가드와 이중 방어).
+          primaryDisabled: leaving,
+          destructive: true,
+          secondaryLabel: '취소',
+          testID: 'group.settings.leave.confirm',
+        };
 
   // 헤더 — 원형 백버튼 + 좌측 정렬 제목(그룹 만들기·프로필 화면과 같은 규격, §5-1).
   const header = (
@@ -196,7 +242,7 @@ export default function GroupSettingsScreen() {
     <TouchableOpacity
       style={s.leaveRow}
       activeOpacity={0.7}
-      onPress={confirmLeave}
+      onPress={() => setLeaveModal({ kind: 'leaveConfirm' })}
       disabled={leaving || detail === null}
       testID="group.settings.leave"
     >
@@ -305,20 +351,13 @@ export default function GroupSettingsScreen() {
       {header}
       {body}
 
-      {/* 방장 블록 안내 — 문구는 기존 Alert에서 그대로 이식(카피 정본, GROMO-1210) */}
+      {/* 나가기 확인 + 방장 블록 안내 — 문구는 기존 Alert에서 그대로 이식(카피 정본,
+          GROMO-1210·1251). 한 인스턴스의 내용만 바꾼다(위 상태 머신 주석). */}
       <ConfirmCardModal
-        visible={hostBlockedOpen}
-        title="방장은 바로 나갈 수 없어요"
-        body="그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요."
-        primaryLabel="방장 넘기고 나가기"
-        onPrimary={() => {
-          setHostBlockedOpen(false);
-          navigation.navigate('GroupOwnerTransfer', { groupId, source: 'withdraw' });
-        }}
-        secondaryLabel="취소"
-        onSecondary={() => setHostBlockedOpen(false)}
-        onRequestClose={() => setHostBlockedOpen(false)}
-        testID="group.settings.hostBlocked"
+        visible={leaveModal !== null}
+        {...leaveCard}
+        onSecondary={closeLeaveModal}
+        onRequestClose={closeLeaveModal}
       />
     </SafeAreaView>
   );

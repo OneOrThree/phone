@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
 import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -236,6 +237,12 @@ export default function GroupFindSheet({
       // 로그인 유도만 Alert로 남긴다 — 시트를 닫고 다른 화면으로 보내는 흐름이라 인라인이 사라진다.
       if (code === 'GUEST_FORBIDDEN') {
         goLogin();
+        return;
+      }
+      // 유저 부재(내 계정이 없어졌다, GROMO-1247) — 그룹 쪽 사정이 아니므로 목록도 문구도
+      // 건드리지 않고 세션 정리로 보낸다. 위 둘과 같은 이유로 검색 세대와 무관하게 처리한다.
+      if (code === USER_NOT_FOUND) {
+        promptSessionExpired();
         return;
       }
       // 나머지는 '그 검색어의 그 행'에서만 의미가 있는 실패다 — 세대가 바뀌었으면 조용히 버린다.

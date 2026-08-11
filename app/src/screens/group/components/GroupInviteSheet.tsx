@@ -5,6 +5,7 @@ import { T } from '@/constants/theme';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
 import { getAppInstanceId } from '@/services/analytics';
 import type { GroupOverviewResponse } from '@/types/dto/group';
@@ -77,6 +78,8 @@ const BLOCK_TEXT: Record<BlockReason, string> = {
 };
 
 // 404 판정 — 에러 바디의 code가 원칙이지만(§3-2), 바디 없는 404도 '사라진 그룹'으로 본다.
+// ⚠️ 유저 부재(USER_NOT_FOUND)도 404다 — 이 함수는 그것까지 true로 삼키므로 **호출부가 먼저
+//    걸러야 한다**(GROMO-1247). 여기서 걸러내지 않는 이유는 바디 없는 404 폴백을 유지하기 위해서다.
 function isGone(e: unknown): boolean {
   if (groupErrorCode(e) === 'NOT_FOUND') return true;
   return axios.isAxiosError(e) && e.response?.status === 404;
@@ -213,7 +216,13 @@ export default function GroupInviteSheet({
         else if (ov.memberCount >= ov.maxMembers) setBlock('full');
       } catch (e) {
         if (!alive) return;
-        if (isGone(e)) setGone(true);
+        // ⚠️ 유저 부재를 먼저 본다 — 이 코드도 404라 isGone이 그대로 삼켜 "사라진 그룹"으로
+        //    둔갑시킨다(GROMO-1247). 프리뷰는 실패 상태로 남겨 로그아웃 언마운트 전까지
+        //    참여 성공처럼 보이지 않게 한다.
+        if (groupErrorCode(e) === USER_NOT_FOUND) {
+          promptSessionExpired();
+          setFailed(true);
+        } else if (isGone(e)) setGone(true);
         else setFailed(true);
       } finally {
         if (alive) setLoading(false);
@@ -266,6 +275,12 @@ export default function GroupInviteSheet({
       // (계측은 요청 직전에 이미 나갔다 — 여기서 다시 쏘면 한 번의 시도가 두 번으로 세어진다.)
       if (code === 'ALREADY_MEMBER') {
         joinedRef.current(target);
+        return;
+      }
+      // 유저 부재(내 계정이 없어졌다, GROMO-1247) — 그룹이 아니라 세션의 사실이라 위와 같은
+      // 이유로 시트 세대와 무관하게 처리한다. '사라진 그룹'으로 위장하지 않는다.
+      if (code === USER_NOT_FOUND) {
+        promptSessionExpired();
         return;
       }
       // 나머지는 target 프리뷰에만 의미가 있는 실패다 — 시트가 다른 그룹으로 갈렸으면 버린다.

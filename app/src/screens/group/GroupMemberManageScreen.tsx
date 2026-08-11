@@ -8,6 +8,7 @@ import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, kickMember } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupMemberKicked } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -123,6 +124,13 @@ export default function GroupMemberManageScreen() {
         removeMember(target.userId);
       } catch (e) {
         const code = groupErrorCode(e);
+        // 유저 부재(GROMO-1247) — 없어진 건 대상 멤버가 아니라 **내 계정**이다. 목록에서 지우면
+        // 강퇴가 성공한 것처럼 보이므로, 행은 그대로 두고(잠금만 풀고) 재로그인으로 보낸다.
+        if (code === USER_NOT_FOUND) {
+          unlockMember(target.userId);
+          promptSessionExpired();
+          return;
+        }
         // 이미 나간 멤버(NOT_FOUND·MEMBER_ONLY)는 결과가 강퇴와 같으므로 목록에서 제거로 취급한다.
         if (code === 'NOT_FOUND' || code === 'MEMBER_ONLY') {
           removeMember(target.userId);

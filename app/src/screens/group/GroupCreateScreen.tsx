@@ -20,8 +20,8 @@ import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { triggerLogout } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
   logGroupCardIconSaveResult,
@@ -149,27 +149,13 @@ export default function GroupCreateScreen() {
           `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
         );
         return;
-      // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정. 유효 JWT라
-      // 401 인터셉터도 안 타고, 재시도로 절대 안 풀린다. 유일한 탈출구가 재로그인이라
-      // 취소 없는 단일 확인으로 로그아웃 유도(AccountScreen 탈퇴 성공 경로의 triggerLogout 선례).
+      // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정.
+      // 문구·형태·로그아웃 유도는 services/sessionErrors.ts가 정본으로 들고 있다(GROMO-1241).
+      // ⚠️ 신구 코드를 **병기**한다 — 서버가 유저 부재를 USER_NOT_FOUND로 나누기 전에 앱이 먼저
+      //    배포되므로, NOT_FOUND를 떼면 서버 배포 전까지 이 재로그인 유도가 조용히 죽는다.
       case 'NOT_FOUND':
-        Alert.alert(
-          '로그인이 필요해요',
-          '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
-          [
-            {
-              text: '확인',
-              // 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 이 화면의
-              // beforeRemove 가드와 무관하고, submittingRef는 submit()의 finally가 이미 풀었다
-              // (#530 claude 리뷰). 버튼 핸들러에서 부르는 건 사용자가 안내를 읽고 확인한 뒤
-              // 세션을 정리하는 UX 순서일 뿐이다.
-              onPress: () => triggerLogout(),
-            },
-            // 단일 탈출구 강제 — iOS는 바깥 탭 닫기가 없지만, 취소 불가 의도를 명시해 두면
-            // 안드로이드 지원 시 백 버튼 무콜백 닫힘(로그아웃 미실행 잔류)을 막는다(#530 codex).
-          ],
-          { cancelable: false },
-        );
+      case USER_NOT_FOUND:
+        promptSessionExpired();
         return;
       default: {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;

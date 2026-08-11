@@ -9,6 +9,7 @@ import {
   groupErrorCode,
   joinWeekSessions,
 } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
@@ -186,6 +187,11 @@ export default function JoinWeekSheet({
           return;
         case BET_SCREENTIME_PERMISSION_REQUIRED:
           failAndReload('참여할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
+          return;
+        // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
+        // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
+        case USER_NOT_FOUND:
+          promptSessionExpired();
           return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':

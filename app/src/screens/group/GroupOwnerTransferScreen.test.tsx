@@ -3,7 +3,8 @@
 // 이 화면의 핵심 계약은 두 가지다:
 //  1) 위임 대상은 **본인을 제외한 전 멤버**다(방장은 자기에게 넘길 수 없다).
 //  2) 위임 성공 뒤 동작이 source로 갈린다 — withdraw만 위임 직후 그룹 나가기까지 이어간다.
-// 확인 Alert는 spyOn으로 잡아 '넘기기' 액션의 onPress를 직접 호출해 확정 흐름을 검증한다.
+// 확인은 네이티브 Alert가 아니라 앱 컨셉 카드 모달이다(GROMO-1251 — 정책 D8의 「확인이 필요한
+// 2버튼」은 토스트가 아니라 2버튼 형태를 유지하되 표면만 카드로 옮긴다). 문구는 기존 그대로.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -98,7 +99,7 @@ async function mountScreen() {
   await act(async () => {});
 }
 
-// 마운트 → 대상 멤버 선택 → '넘기기' 탭까지. 확인 Alert는 confirmTransfer가 이어서 누른다.
+// 마운트 → 대상 멤버 선택 → '넘기기' 탭까지. 확인 카드는 confirmTransfer가 이어서 누른다.
 async function mountAndSelect(targetUserId: string) {
   await mountScreen();
   await act(async () => {
@@ -121,21 +122,29 @@ function axiosErrorWith(status: number, code?: string): AxiosError {
   });
 }
 
-// 확인 Alert('방장 넘기기')의 '넘기기' 액션을 직접 눌러 위임을 확정한다.
-async function confirmTransfer(alertSpy: jest.SpyInstance) {
+// 확인 카드('방장 넘기기')의 '넘기기'를 눌러 위임을 확정한다(GROMO-1251 — 종전 네이티브 Alert).
+async function confirmTransfer() {
+  expect(screen.getByTestId('group.owner.transfer.confirm')).toBeOnTheScreen();
   await act(async () => {
-    await alertSpy.mock.calls[0][2]
-      ?.find((b: { text?: string }) => b.text === '넘기기')
-      ?.onPress?.();
+    fireEvent.press(screen.getByTestId('group.owner.transfer.confirm.primary'));
   });
 }
 
+// 확인이 카드로 옮겨져(GROMO-1251) 이 화면에서 Alert는 '재시도가 유효한 실패'에만 남는다.
+// 스파이는 스위트 공통으로 걸어 두고, 각 테스트가 "Alert가 아예 안 떴다"까지 단언한다.
+let alertSpy: jest.SpyInstance;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockRoute.params = { groupId: GROUP_ID, source: 'settings' };
   mockGetGroupDetail.mockResolvedValue(detail());
   mockTransferOwner.mockResolvedValue(undefined);
   mockWithdrawGroup.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  alertSpy.mockRestore();
 });
 
 describe('위임 대상 목록', () => {
@@ -161,20 +170,18 @@ describe('위임 대상 목록', () => {
 
 describe('위임 확정 + source별 후속', () => {
   test('멤버 선택 후 넘기기→확인 시 transferOwner와 계측이 올바른 source로 나간다', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await mountAndSelect('u2');
 
-    await confirmTransfer(alertSpy);
+    await confirmTransfer();
 
     expect(mockTransferOwner).toHaveBeenCalledWith(GROUP_ID, 'u2');
     expect(mockLog).toHaveBeenCalledWith({ group_id: GROUP_ID, source: 'settings' });
   });
 
   test("source==='settings'면 위임 성공 후 나가기를 부르지 않고 goBack한다", async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await mountAndSelect('u2');
 
-    await confirmTransfer(alertSpy);
+    await confirmTransfer();
 
     expect(mockWithdrawGroup).not.toHaveBeenCalled();
     expect(mockGoBack).toHaveBeenCalled();
@@ -182,26 +189,39 @@ describe('위임 확정 + source별 후속', () => {
   });
 
   // 성공 통보는 Alert가 아니라 토스트로 나간다(GROMO-1381 알럿 이관) — 직후 goBack이라
-  // 화면 전환을 넘어 살아남아야 해서 전역 토스트를 쓴다. 확인 Alert(위임 전)는 그대로 Alert다.
+  // 화면 전환을 넘어 살아남아야 해서 전역 토스트를 쓴다.
   test('위임 성공은 새 방장 이름을 담은 토스트로 알린다', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await mountAndSelect('u2');
 
-    await confirmTransfer(alertSpy);
+    await confirmTransfer();
 
     expect(mockToastShow).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('수빈') }),
     );
-    // 확인 Alert 1건 외에 성공 Alert가 추가로 뜨지 않는다.
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    // 확인까지 카드로 옮겨져(GROMO-1251) 성공 흐름엔 네이티브 Alert가 하나도 뜨지 않는다.
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  // 확인 카드 문구는 기존 Alert 그대로다 — withdraw 경로만 '넘긴 뒤 나갑니다'를 덧붙인다.
+  test('확인 카드는 대상 이름을 담고, withdraw 경로엔 나가기 예고가 붙는다', async () => {
+    mockRoute.params = { groupId: GROUP_ID, source: 'withdraw' };
+    await mountAndSelect('u2');
+
+    expect(
+      screen.getByText('수빈님에게 방장을 넘길까요?\n넘긴 뒤 그룹에서 나갑니다.'),
+    ).toBeOnTheScreen();
+    // 취소하면 위임은 나가지 않는다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.owner.transfer.confirm.secondary'));
+    });
+    expect(mockTransferOwner).not.toHaveBeenCalled();
   });
 
   test("source==='withdraw'면 위임 성공 직후 withdrawGroup까지 부르고 루트로 복귀한다", async () => {
     mockRoute.params = { groupId: GROUP_ID, source: 'withdraw' };
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await mountAndSelect('u3');
 
-    await confirmTransfer(alertSpy);
+    await confirmTransfer();
 
     expect(mockTransferOwner).toHaveBeenCalledWith(GROUP_ID, 'u3');
     expect(mockLog).toHaveBeenCalledWith({ group_id: GROUP_ID, source: 'withdraw' });
@@ -218,24 +238,39 @@ describe('위임 실패 통보', () => {
     ['NOT_FOUND', 404, '이미 사라졌거나 나간 그룹이에요'],
     ['MEMBER_ONLY', 403, '방장이 아니라서 넘길 수 없어요'],
   ])('%s는 tone:error 토스트로 알린다', async (code, status, message) => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockTransferOwner.mockRejectedValueOnce(axiosErrorWith(status, code));
     await mountAndSelect('u2');
 
-    await confirmTransfer(alertSpy);
+    await confirmTransfer();
 
     expect(mockToastShow).toHaveBeenCalledWith({ message, tone: 'error' });
-    // 확인 Alert 1건 외에 실패 Alert가 추가로 뜨지 않는다.
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    // 실패 Alert가 뜨지 않는다(확인도 카드로 옮겨져 이 흐름엔 Alert가 0건이다).
+    expect(alertSpy).not.toHaveBeenCalled();
     expect(mockGoBack).not.toHaveBeenCalled();
   });
 
+  // GROMO-1247 — 유저 부재는 '그룹을 찾을 수 없어요'가 아니다. 없어진 건 내 계정이라
+  // 재시도·다른 대상 선택으로 풀리지 않는다. 유일한 탈출구인 재로그인으로 보낸다.
+  test('유저 부재(USER_NOT_FOUND)는 그룹 부재로 위장하지 않고 재로그인을 유도한다', async () => {
+    mockTransferOwner.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await mountAndSelect('u2');
+
+    await confirmTransfer();
+
+    expect(mockToastShow).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '로그인이 필요해요',
+      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      [expect.objectContaining({ text: '확인' })],
+      { cancelable: false },
+    );
+  });
+
   test('그 밖의 실패는 재시도가 유효하므로 Alert로 남는다', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockTransferOwner.mockRejectedValueOnce(axiosErrorWith(500));
     await mountAndSelect('u2');
 
-    await confirmTransfer(alertSpy);
+    await confirmTransfer();
 
     expect(alertSpy).toHaveBeenLastCalledWith(
       '방장을 넘기지 못했어요',

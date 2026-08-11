@@ -5,6 +5,10 @@
 //  2) 관리 행은 각각 올바른 라우트·파라미터로 navigate 한다.
 //  3) 나가기: 성공 → popToTop(목록 복귀). 방장(HOST_WITHDRAW) → 위임 화면 유도.
 //     이미 빠져 있음(NOT_FOUND·MEMBER_ONLY) → 성공과 같게 popToTop.
+//     **유저 부재(USER_NOT_FOUND) → popToTop이 아니라 재로그인 유도**(GROMO-1247) —
+//     없어진 건 그룹이 아니라 내 계정이라 목록으로 돌려보내면 '나가기 성공'으로 위장된다.
+//  4) 나가기 확인은 네이티브 Alert가 아니라 앱 컨셉 카드 모달이다(GROMO-1251, 정책 D8의
+//     「확인이 필요한 2버튼」은 토스트 대상이 아니므로 카드로 옮겼다). 문구는 기존 그대로.
 //  (프로필 편집 폼 자체는 GroupProfileEditScreen.test.tsx 에서 검증한다.)
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
@@ -128,13 +132,16 @@ async function renderScreen() {
   return result;
 }
 
-// 나가기 확인 Alert의 '나가기' 버튼을 눌러 요청을 보낸다.
-async function pressLeaveAndConfirm(alertSpy: jest.SpyInstance) {
+// 나가기 확인 카드의 '나가기' 버튼을 눌러 요청을 보낸다(GROMO-1251 — 종전 네이티브 Alert).
+async function pressLeaveAndConfirm() {
   await act(async () => {
     fireEvent.press(screen.getByTestId('group.settings.leave'));
   });
+  // 확인 카드가 실제로 떠야 한다 — 문구는 기존 Alert에서 그대로 옮겼다.
+  expect(screen.getByTestId('group.settings.leave.confirm')).toBeOnTheScreen();
+  expect(screen.getByText('아침 6시 집중방에서 나갈까요?')).toBeOnTheScreen();
   await act(async () => {
-    alertSpy.mock.calls[0][2]?.find((b: { text?: string }) => b.text === '나가기')?.onPress?.();
+    fireEvent.press(screen.getByTestId('group.settings.leave.confirm.primary'));
   });
 }
 
@@ -249,10 +256,12 @@ describe('그룹 나가기', () => {
     mockWithdrawGroup.mockResolvedValueOnce(undefined);
     await renderScreen();
 
-    await pressLeaveAndConfirm(alertSpy);
+    await pressLeaveAndConfirm();
 
     expect(mockWithdrawGroup).toHaveBeenCalledWith(GROUP_ID);
     expect(mockPopToTop).toHaveBeenCalled();
+    // 확인이 카드로 옮겨져(GROMO-1251) 이 흐름엔 네이티브 Alert가 한 번도 뜨지 않는다.
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 
@@ -261,16 +270,17 @@ describe('그룹 나가기', () => {
     mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(409, 'HOST_WITHDRAW'));
     await renderScreen();
 
-    await pressLeaveAndConfirm(alertSpy);
+    await pressLeaveAndConfirm();
 
-    // 네이티브 Alert 강하 없이 앱 컨셉 카드 모달이 뜬다(GROMO-1210) — 문구는 기존 그대로.
+    // 확인 카드가 닫혔다 다시 뜨는 게 아니라 **같은 인스턴스의 내용이 바뀐다**(iOS 연속
+    // present/dismiss 경합 회피, GROMO-1210) — 문구는 기존 그대로.
     expect(screen.getByTestId('group.settings.hostBlocked')).toBeOnTheScreen();
     expect(screen.getByText('방장은 바로 나갈 수 없어요')).toBeOnTheScreen();
     expect(
       screen.getByText('그룹을 이어갈 멤버에게 방장을 넘기면 나갈 수 있어요.'),
     ).toBeOnTheScreen();
-    // Alert는 나가기 확인(나갈까요?) 한 번뿐 — 블록 안내가 Alert로 새지 않는다.
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    // 확인·블록 안내 어느 쪽도 네이티브 Alert로 새지 않는다.
+    expect(alertSpy).not.toHaveBeenCalled();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.settings.hostBlocked.primary'));
@@ -289,11 +299,47 @@ describe('그룹 나가기', () => {
     mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(403, 'MEMBER_ONLY'));
     await renderScreen();
 
-    await pressLeaveAndConfirm(alertSpy);
+    await pressLeaveAndConfirm();
 
     expect(mockPopToTop).toHaveBeenCalled();
-    // 확인 Alert(나갈까요?) 외에 추가 실패 Alert는 없다.
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    // 실패 Alert도 뜨지 않는다(결과가 성공과 같다).
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  // GROMO-1247 — 서버가 유저 부재와 그룹 부재에 같은 NOT_FOUND를 쓰던 오귀속의 최악 사례.
+  // 탈퇴·비활성 세션을 '나가기 성공'으로 위장해 목록으로 돌려보내면, 그룹은 멀쩡히 남아 있는데
+  // 사용자는 나갔다고 믿는다. 유저 부재 전용 코드는 재로그인으로 보낸다.
+  test('유저 부재(USER_NOT_FOUND)는 나가기 성공으로 위장하지 않고 재로그인을 유도한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await renderScreen();
+
+    await pressLeaveAndConfirm();
+
+    expect(mockPopToTop).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '로그인이 필요해요',
+      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      [expect.objectContaining({ text: '확인' })],
+      { cancelable: false },
+    );
+    alertSpy.mockRestore();
+  });
+
+  // 브리지 대비 — 서버가 코드를 나누기 전(구서버)엔 그룹 부재가 계속 NOT_FOUND로 온다.
+  // 그 경로의 동작(성공과 같게 popToTop)은 그대로 남아 있어야 한다.
+  test('기존 NOT_FOUND(그룹 부재) 경로는 종전대로 목록으로 돌아간다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(404, 'NOT_FOUND'));
+    await renderScreen();
+
+    await pressLeaveAndConfirm();
+
+    expect(mockPopToTop).toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 });

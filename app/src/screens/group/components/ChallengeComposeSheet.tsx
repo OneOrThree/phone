@@ -20,6 +20,7 @@ import {
   createChallenge,
   groupErrorCode,
 } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetEnabled, logGroupChallengeCreated } from '@/services/analyticsEvents';
 import { useToast } from '@/store/ToastContext';
 import { WINDOW_FOCUS_TOLERANCE_NOTICE } from './progressFormat';
@@ -528,6 +529,13 @@ export default function ChallengeComposeSheet({
     } catch (e) {
       // 실패했을 때만 잠금을 푼다 — 성공 경로는 onCreated가 시트를 닫으므로 잠긴 채 끝낸다.
       submitLock.current = false;
+      // 유저 부재(GROMO-1247)는 시트 안 문구로 풀 수 없는 세션 문제다 — '사라진 그룹이에요'로
+      // 위장하지 않고 재로그인으로 보낸다. 인라인 문구는 세우지 않는다(로그아웃이 트리를 갈아치운다).
+      if (groupErrorCode(e) === USER_NOT_FOUND) {
+        promptSessionExpired();
+        setSubmitting(false);
+        return;
+      }
       setErrorMsg(createErrorMessage(e));
       setSubmitting(false);
     }

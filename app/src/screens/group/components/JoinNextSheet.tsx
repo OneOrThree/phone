@@ -9,6 +9,7 @@ import {
   groupErrorCode,
   joinNextSession,
 } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
@@ -165,6 +166,11 @@ export default function JoinNextSheet({
         case BET_SESSION_CLOSED:
         case 'BET_NOT_OPEN':
           failAndReload('참여할 수 없어요', '참여할 수 있는 시간이 지났어요. 새로고침할게요.');
+          return;
+        // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
+        // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
+        case USER_NOT_FOUND:
+          promptSessionExpired();
           return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':
