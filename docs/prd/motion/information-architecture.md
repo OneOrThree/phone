@@ -60,6 +60,13 @@ flowchart TB
 
 ## 3. 표면 지도 — 등급 × 현재 상태
 
+> **PR 열의 `1524`** — GROMO-1382/1381 은 그룹·챌린지 두 도메인을 **일부러 제외**했다(화면이 더 바뀔
+> 예정이었다). 그 사이 화면이 자리를 잡아 GROMO-1402 가 표면 지도를 얹었고, 구현은 **GROMO-1524** 가
+> 맡는다. PR1~PR8 은 1381 배치의 칸이고 `1524` 는 그 뒤에 오는 별도 배치다.
+>
+> ⚠️ **PR1~PR8 칸의 🟥 는 2026-08-09 스냅샷이다.** 그 배치는 이미 머지됐으므로 "현재"로 읽지 않는다 —
+> 그룹·챌린지 행(2026-08-12 실측)만 오늘 코드 기준이다. 나머지 도메인의 현행 상태는 코드에서 확인한다.
+
 ### 3.1 진입 (등급 2)
 
 | 표면 | 현재 | 이후 | PR |
@@ -71,7 +78,14 @@ flowchart TB
 | 주간 타임테이블 세션 블록 | 🟥 정적 | 🟦 `growUp` | PR7 |
 | 집중 결과 주간 막대 | 🟩 stagger 80ms | 🟦 60ms로 조정 | PR1 |
 | 리그 순위 리스트 | 🟥 즉시 표시 | 🟦 `enterUp` | PR7 |
-| 그룹 목록 | 🟥 스피너 → 즉시 교체 | 🟦 스켈레톤 → `enterUp` | PR4·PR7 |
+| 그룹 목록 — **가로 카드 덱** | 🟩 스켈레톤 → 셀 `enterUp(i)` (`GroupListScreen.tsx:175-190`·`:1137-1141`) | 🟩 유지 | PR4·PR7 |
+| 그룹방 첫 진입 | 🟩 `SkeletonGroup` (`GroupRoomScreen.tsx:853-881`) | 🟩 유지 | PR4 |
+| 그룹방 챌린지 카드 목록 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1072-1092`) | 🟦 `enterUp(i)` | 1524 |
+| 그룹방 멤버 3열 그리드 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1125-1175` · `MemberTile.tsx` 모션 0개) | 🟦 **행 단위** `fadeIn(i)` ([정책 D24](policy.md#d24)) | 1524 |
+| 챌린지 내역 첫 로딩 | 🟥 풀스크린 스피너 (`GroupChallengeHistoryScreen.tsx:289-297`) | 🟦 스켈레톤 | 1524 |
+| 챌린지 내역 리스트 행 | 🟥 즉시 표시 (`GroupChallengeHistoryScreen.tsx:330-333`) | 🟦 `enterUp(i)` — 그룹 덱과 같은 `CellRendererComponent` 기법 | 1524 |
+| 챌린지 결과 명단 3구획 | 🟥 한 번에 표시 (`ChallengeResultModal.tsx:322-358`) | 🟦 `enterUp(i)` | 1524 |
+| 그룹 카드 앞↔뒤 플립 | 🟨 `290ms`/reduce `150ms` 하드코딩 (`GroupCardFlip.tsx:67`) | 🟨 예외로 확정 ([정책 D25](policy.md#d25)) | — |
 | 온보딩 공감 카드 | 🟩 `SlideInUp` 스프링 | 🟩 유지 | — |
 | 온보딩 스텝 전환 | 🟥 하드컷 | 🟦 크로스페이드 | PR8 |
 | 로그인 버튼군 | 🟥 즉시 표시 | 🟦 `enterUp` | PR6 |
@@ -93,6 +107,11 @@ flowchart TB
 | 리그 순위 재정렬 | 🟥 통째 교체 | 🟦 `LinearTransition` | PR7 |
 | 리그 리스트 펼침 | 🟥 `LayoutAnimation`(충돌 위험) | 🟦 `LinearTransition`으로 치환 | PR7 |
 | 탭바 하이라이트 | 🟩 알약 슬라이드 350ms | 🟩 유지(토큰 이관) | PR1 |
+| 그룹·챌린지 시트 9종 등장 | 🟩 `SheetShell` `spring.snappy` | 🟩 유지 | PR3 |
+| 내기 시트 참여자 진행 바 | 🟥 `width` 직접 대입 (`BetSheet.tsx:693-704`) | 🟦 `ProgressBar` | 1524 |
+| 챌린지 카드 멤버 진행 수치 | 🟥 즉시 교체 (`ChallengeCard.tsx:1199-1229`) | **🟨 등급 0 유지** — 반복 요소라 `AnimatedNumber` 금지 ([정책 D25](policy.md#d25)) | — |
+| 챌린지 내역 다음 페이지 꼬리 | 🟨 `ActivityIndicator` (`GroupChallengeHistoryScreen.tsx:363-368`) | 🟨 유지 — 꼬리 스피너는 스켈레톤 대상이 아니다 | — |
+| 시트 CTA 제출 중 | 🟨 버튼 안 `ActivityIndicator` (`ChallengeComposeSheet.tsx:798` · `BetSheet.tsx:807`) | 🟨 유지 | — |
 
 ### 3.3 피드백 (등급 1)
 
@@ -102,6 +121,10 @@ flowchart TB
 | 성공 통보 | 🟥 `Alert.alert` 149곳 | 🟦 토스트 ~20곳 이관 | PR5 |
 | 확인 필요 · 실패 | 🟩 `Alert.alert` | 🟩 **유지** ([정책 D8](policy.md#d8)) | — |
 | 캐릭터 장착 성공 | 🟥 시스템 알럿 | 🟦 토스트 + `pop` 리빌 | PR5·PR8 |
+| 챌린지 카드 성공 통보 | 🟩 `useToast` 이관됨 (`ChallengeCard.tsx:24,251`) | 🟩 유지 | PR5 |
+| 챌린지 카드 확인·실패 알럿 **20곳** | 🟩 `Alert.alert` — 전부 파괴적 확인·실패 | 🟩 **유지** ([정책 D8](policy.md#d8)) | — |
+| 그룹방 실패 통보 3곳 | 🟩 `Alert.alert` (`GroupRoomScreen.tsx:644,715,747`) | 🟩 유지 | — |
+| 멤버 타일 · 챌린지 카드 눌림 | 🟥 `TouchableOpacity activeOpacity` (`MemberTile.tsx:58-65`) | 🟦 `PressableScale` | 1524 |
 
 ### 3.4 축하 (등급 3)
 
@@ -112,8 +135,8 @@ flowchart TB
 | 주간 스트릭 완성 | 🟩 모달 + 컨페티 | 🟦 동일 | PR2 |
 | 일일 스트릭 ✓ · 코인 획득 | 🟩 `checkPop` | 🟩 유지(토큰 이관) | PR1 |
 | 리그 승급 | 🟥 단계 시퀀스는 있으나 **컨페티 없음** · 반짝임이 정적 | 🟦 컨페티 + `hapticSuccess` | PR8 |
-| 챌린지 결과 | 🟩 팝인 모달 | 🟦 멤버 결과 리스트 stagger | PR8 |
-| 베팅 승리 | 🟥 평문 시트 | 🟦 `pop` + 토스트 | PR8 |
+| 챌린지 결과 | 🟥 **레거시 `Animated` 팝인** — `duration 420`(사다리 밖) · `Easing.out(Easing.back(1.2))`(`M.curve` 밖) · `useMotion`을 안 타 **'동작 줄이기'를 무시한다** (`ChallengeResultModal.tsx:259-268,285-294`) | 🟦 템플릿(`GoalCelebrationModal`) 배치로 흡수 — 카드=Modal `fade` · 캐릭터 `pop()` · 명단 `enterUp(i)` ([정책 D23](policy.md#d23)) | 1524 |
+| 베팅 승리 | 🟥 색상 텍스트뿐 — 시트 자체는 `SheetShell`로 이미 등장하고(`LastBetResultSheet.tsx:196`), 승패는 `deltaPlus`/`deltaMinus` 색상만이다 (`:277-286`). 모션 프리미티브 **0개** | 🟦 내 행만 `pop` — 시트 전체를 축하로 올리지 않는다(정산 통지가 본체다) | 1524 |
 | 세션 완료 | 🟥 헤더 문구만 | 🟦 합계 카운트업 | PR6 |
 
 ---
@@ -170,3 +193,7 @@ flowchart LR
 | 리그 승급에 컨페티 없음 · 반짝임 정적 | `LeagueResultScreen.tsx` | PR8 |
 | `LayoutAnimation` ↔ Reanimated 레이아웃 충돌 위험 | `LeagueScreen.tsx:219,227` | PR7 |
 | 오버슛 커브 두 파일 복붙 | `TabBar` · `FocusResultScreen` | PR1 |
+| 챌린지 결과 모달이 '동작 줄이기'를 무시 · 사다리 밖 값 2개 | `ChallengeResultModal.tsx:259-268` | 1524 ([D23](policy.md#d23)) |
+| 그룹방 진입 연출 0개 (챌린지 카드 · 멤버 그리드) | `GroupRoomScreen.tsx:1072,1125` · `MemberTile.tsx` | 1524 |
+| 챌린지 내역 첫 로딩이 풀스크린 스피너 | `GroupChallengeHistoryScreen.tsx:289-297` | 1524 |
+| 내기 시트 진행 바가 `width` 직접 대입 | `BetSheet.tsx:693-704` | 1524 |

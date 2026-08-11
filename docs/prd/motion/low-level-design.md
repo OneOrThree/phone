@@ -15,8 +15,8 @@
 | `src/constants/motion.ts` | ~120 | **토큰 정본.** `M.dur` · `M.curve`(`.css`/`.fn` 쌍) · `M.spring` · `M.stagger` · `M.preset` · `ms()` |
 | `src/constants/motion.test.ts` | ~60 | 값 고정 + duration 오름차순 가드 |
 | `src/hooks/useMotion.ts` | ~70 | reduce-motion 3계 게이트. `useReduceMotion` 위 얇은 층 |
-| `src/hooks/useMotion.test.tsx` | ~70 | reduce=false 분기 |
-| `src/hooks/useMotion.reduced.test.tsx` | ~70 | reduce=true 분기 (모듈 스코프 단일 인스턴스라 파일 분리) |
+| `src/hooks/useMotion.test.ts` | ~70 | reduce=false 분기 |
+| `src/hooks/useMotion.reduced.test.ts` | ~70 | reduce=true 분기 (모듈 스코프 단일 인스턴스라 파일 분리) |
 
 ### 1.2 신규 프리미티브 (6 파일)
 
@@ -269,6 +269,18 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 리그 결과 | 승급 컨페티 | `ConfettiBurst` + `hapticSuccess` | celebrate | 시퀀스 후 | 3 |
 | 시트 전체 | 등장 | `spring.snappy` | ≈base | 0 | 1 |
 | 전역 | 토스트 | `spring.snappy` | quick | 0 | 1 |
+| 그룹 목록 | 덱 카드(가로) | `enterUp(i)` — **이미 적용됨** | base | i × 60 | 2 |
+| 그룹방 | 로딩 | `SkeletonGroup` — **이미 적용됨** | 1200 loop | — | 1 |
+| 그룹방 | 챌린지 카드 M개 | `enterUp(i)` | base | i × 60 | 2 |
+| 그룹방 | 멤버 3열 그리드 | **행 단위** `fadeIn(rowIdx)` | quick | row × 60 | 2 |
+| 그룹방 | 멤버 타일 · 카드 눌림 | `PressableScale` | press | 0 | 1 |
+| 챌린지 카드 | 멤버 진행 수치 | **없음(등급 0)** — [D25](policy.md#d25) | — | — | 0 |
+| 챌린지 내역 | 첫 로딩 | `SkeletonCard` × 3 | 1200 loop | — | 1 |
+| 챌린지 내역 | 리스트 행 | `enterUp(i)` (`CellRendererComponent`) | base | i × 60 | 2 |
+| 챌린지 결과 | 캐릭터 | **`pop()`** | slow | 0 | 3 |
+| 챌린지 결과 | 명단 3구획 | `enterUp(i)` | base | i × 60 | 2 |
+| 베팅 | 시트 참여자 진행 바 | `ProgressBar` | slow | i × 60 | 1 |
+| 베팅 | 지난 결과 내 행 | `pop` | slow | 0 | 3 |
 
 > ⚠️ **페이즈 전환에 `hapticMedium`을 새로 붙이지 않는다.** 이 경계에는 이미
 > `Vibration.vibrate([0, 400, 200, 400])`(iOS는 `[0, 500]`)가 붙어 있다 — GROMO-864에서
@@ -301,6 +313,25 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 - 순위 번호는 **자리에 붙는 값**이라 순서가 바뀔 때마다 다시 매긴다.
 - **전제: 행 노드의 동일성이 유지돼야 한다.** 순서만 바뀌고 노드가 재생성되면 애니메이션이 성립하지 않는다. ✅ 확인됨 — `LeagueScreen.tsx:369,517`이 이미 `key={m.userId}`를 쓴다(인덱스 키가 아님). 리스트가 `.map()`+`ScrollView`라 `itemLayoutAnimation` 대신 **행마다 `layout={LinearTransition…}`** 을 직접 붙이는 형태가 된다.
 
+**그룹방 — 한 화면에 리스트가 둘이다** (챌린지 카드 M개 + 멤버 타일 N개)
+
+> ⚠️ 아래 `GroupRoomScreen.tsx`는 전부 **`app/src/screens/group/GroupRoomScreen.tsx`** 다.
+> `app/src/legacy/screens/`에 같은 이름의 **동결된 옛 파일**이 하나 더 있다 — 줄 번호를 그쪽에서 찾으면 맞지 않는다.
+
+`GroupRoomScreen.tsx:76-77`이 적어 둔 레이아웃 순서가 그대로 진입 순서다 — 헤더 → 공지 → 챌린지 → 멤버 3열 그리드. 두 리스트가 **하나의 `ScrollView` 안에** 있고 멤버 그리드가 맨 끝이다.
+
+- **stagger 축은 챌린지 카드 하나뿐이다.** 멤버 그리드까지 `enterUp(i)`를 걸면 0에서 다시 시작하는 시차가 한 화면에 둘 생겨 "리스트가 두 번 그려진다"로 읽힌다. 그리고 그리드는 대부분 **첫 화면 밖**이라, 보이지도 않는 연출에 프레임을 쓴다.
+- 그리드는 **행 단위 `fadeIn`** 이다. 타일마다 걸면 `staggerMaxSteps`(6)에 **2행 만에** 닿아 3행부터는 전부 같은 칸에 뭉친다 — 시차가 아니라 그냥 지연이 된다. 행 단위면 정원(서버가 주는 `maxMembers`)까지 단조 증가한다. 렌더 구조가 이미 `memberRows.map(row => row.map(cell))`(`GroupRoomScreen.tsx:1125-1175`)이라 **행 래퍼가 이미 있다** — 뷰를 새로 끼우지 않는다(정책 D13).
+- 챌린지 카드에 `enterUp(i)`를 걸 자리는 `GroupRoomScreen.tsx:1072-1092`의 `.map()`이다. 키가 `c.id`라 노드 동일성이 유지된다.
+
+**그룹 목록 — 이미 끝나 있다** (`GroupScreen.tsx`는 껍데기고 실물은 `GroupListScreen.tsx`다)
+
+세로 목록이 아니라 **가로 카드 덱**이다. 하이드레이션 스켈레톤(`:1137-1141`) → `FlatList horizontal`(`:1144`) 이고, 진입 시차는 `CellRendererComponent`를 `Animated.View`로 갈아끼워 건다(`GroupListScreen.tsx:175-190`). 뷰를 새로 끼우지 않으므로 E2E `testID` 계약이 그대로다 — **챌린지 내역 리스트도 같은 기법을 쓴다.**
+
+> ⚠️ **`GroupCardDeck.tsx`는 배선돼 있지 않다.** `GroupCardDeck.test.tsx` 말고는 import 하는 곳이 없다 — 화면이 쓰는 것은 `GroupListScreen`의 `FlatList` + `PageIndicator` + `GroupCardFlip`(`:1210`)/`GroupCardFront`(`:1270`)/`GroupCardBack`(`:1219`)이다. 여기에 모션을 얹으면 **아무 화면에서도 보이지 않는다.**
+
+> ⚠️ **그룹방의 반복 요소에 `AnimatedNumber`를 쓰지 않는다** ([정책 D25](policy.md#d25)). 멤버 타일 N개 × 챌린지 카드 M개 × 진행 행 K개라 P5(JS 스레드 애니메이션 화면당 3개)가 즉시 깨진다. `ProgressBar`는 CSS transition(UI 스레드)이라 P5 대상이 아니지만, **한 번에 하나만 보이는 표면**(내기 시트)에만 둔다.
+
 > **홈 stagger는 첫 마운트에서만.** 탭 복귀 시 재생하면 앱이 느려 보인다. `useRef(false)` 가드로 1회만.
 
 ---
@@ -310,8 +341,8 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 | 테스트 파일 | 잠그는 규칙 |
 | --- | --- |
 | `constants/motion.test.ts` | duration 6값 고정 · **오름차순 가드** · 베지어 제어점 · spring 파라미터 |
-| `hooks/useMotion.test.tsx` | reduce=false → `css(x)===x` · `delay(n)===n` · `stagger(3)===180` |
-| `hooks/useMotion.reduced.test.tsx` | reduce=true → `css(x)===undefined` · `timing(1)===1` · `delay(n)===0` |
+| `hooks/useMotion.test.ts` | reduce=false → `css(x)===x` · `delay(n)===n` · `stagger(3)===180` |
+| `hooks/useMotion.reduced.test.ts` | reduce=true → `css(x)===undefined` · `timing(1)===1` · `delay(n)===0` |
 | `components/Skeleton.test.tsx` | reduce → `animationName` 부재 · a11y 숨김 |
 | `components/ProgressBar.test.tsx` | `progress=0.5` → 계산된 width 50% · a11y value |
 | `components/AnimatedNumber.test.tsx` | fake timer 후 최종 텍스트 · reduce면 첫 프레임 최종값 · a11y 라벨 |
@@ -319,6 +350,15 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 | `components/SheetShell.test.tsx` | §4.4 기존 규칙 전부 + 퇴장 후 `onClose` + reduce 시 애니메이션 스타일 부재 |
 | `components/PressableScale.test.tsx` | **무수정 통과**가 톤 변경(PR2)의 안전망 |
 | 알럿 이관 지점별 | `Alert.alert` **미호출** + `show` 호출 |
+| `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · 멤버 그리드는 **행 수만큼**의 delay 단계(타일 수가 아니다) · reduce → 둘 다 `animationName` 부재 |
+| `screens/group/components/MemberTile.test.tsx` (신규) | 눌림이 `PressableScale` 경유 · `onPress` 없으면 비활성 유지 |
+| `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 |
+| `screens/group/GroupChallengeHistoryScreen.test.tsx` | 첫 로딩에 `ActivityIndicator` **미사용** + 스켈레톤 `testID` 존재 · **꼬리 스피너는 그대로 존재**(회귀 방지) |
+| `screens/group/components/BetSheet.test.tsx` | 참여자 행이 `ProgressBar` 경유 · `progress` 값이 `dayBarPercent`와 일치 |
+
+> ⚠️ **꼬리 스피너를 지웠는지가 아니라 남았는지를 단언한다.** 챌린지 내역의 `ListFooterComponent`
+> 스피너(`GroupChallengeHistoryScreen.tsx:363-368`)와 시트 CTA 안 스피너는 **스켈레톤 대상이 아니다** —
+> "스피너를 전부 없앤다"로 읽고 지우면 다음 페이지 로딩이 무음이 된다.
 
 **작성 금지** — 애니메이션 중간 프레임·타이밍·이징 곡선 단언. jest에서 워클릿은 모킹돼 실제로 실행되지 않는다 ([정책 D14](policy.md#d14)).
 
@@ -384,3 +424,4 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 | `150 + order * 250` | `ProblemEmpathyStep.tsx:15` | "알림이 연달아 도착"하는 **서사 연출** |
 | `FLIP_MS` | `FlipClock.tsx` | 가로모드 전용 3D 플립. 이번 범위 밖 |
 | 강등 3단계 `1500ms` 대기 | `LeagueResultScreen.tsx:98` | 연출 호흡. `m.delay()`만 통과시키고 값은 유지 |
+| `290` · reduce `150` | `GroupCardFlip.tsx:67` | 그룹 카드 앞↔뒤 **3D 플립**. `rotateY 180°`의 지각 임계라 duration 사다리와 다른 축이다 ([정책 D25](policy.md#d25)) |
