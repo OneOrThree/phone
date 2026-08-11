@@ -77,6 +77,7 @@ export function GroupCardBack({
       style={s.root}
       onPress={onFlipFront}
       accessible={false}
+      focusable={false}
       testID={`group.card.back.${group.groupId}`}
     >
       <View style={s.header}>

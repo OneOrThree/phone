@@ -475,7 +475,14 @@ export default function GroupListScreen({
 
   const handleFlipTransitionComplete = useCallback(
     (face: 'front' | 'back', groupId: string) => {
-      if (!mountedRef.current || activeIdentityRef.current !== groupId) return;
+      if (
+        !mountedRef.current ||
+        !wasScreenFocusedRef.current ||
+        guideVisibleRef.current ||
+        guideBlockedRef.current ||
+        activeIdentityRef.current !== groupId
+      )
+        return;
       const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
       AccessibilityInfo.announceForAccessibility(
         `${groupName ?? '그룹'} 카드 ${face === 'back' ? '뒷면' : '앞면'}입니다`,

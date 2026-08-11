@@ -128,6 +128,13 @@ test('설정 버튼의 접근성 이름에 대상 그룹을 포함한다', async
   expect(screen.getByLabelText('아침 집중방 그룹 옵션')).toBeOnTheScreen();
 });
 
+test('빈 영역 포인터 wrapper는 키보드 포커스 순서에서 제외한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.back.g1').props.focusable).toBe(false);
+  expect(screen.getByTestId('group.card.backTitle.g1').props.focusable).not.toBe(false);
+});
+
 test('시각 전환 CTA 없이 카드 빈 영역 탭과 실제 접근성 노드의 기본 활성화로 앞면을 연다', async () => {
   const onAccessibilityFlipFront = jest.fn();
   await render(
