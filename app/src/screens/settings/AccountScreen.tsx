@@ -95,7 +95,8 @@ type AccountModalState =
   | { kind: 'hostBlocked'; count: number; target: { groupId: string; name: string } }
   | { kind: 'hostBlockedNoList' }
   | { kind: 'logout' }
-  | { kind: 'unlink'; provider: Provider; name: string };
+  | { kind: 'unlink'; provider: Provider; name: string }
+  | { kind: 'unlinkFailed'; title: string; body: string };
 
 export default function AccountScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -170,19 +171,31 @@ export default function AccountScreen() {
   };
 
   // 연동 해제 실행 — 확인 카드의 '해제'가 부른다. 마지막 수단이면 서버가 409 → 안내 후 목록 유지.
-  // ⚠️ 실패 안내는 Alert 그대로다(정책 D8: 사용자 조치·재시도가 걸린 실패는 유지). 카드를 먼저
-  //    닫고(호출부) 요청을 보내므로 Alert가 모달 위에 겹치지도 않는다.
+  // ⚠️ 실패 안내를 **같은 카드 안에서** 낸다(문구는 종전 Alert 그대로 — 정책 D8상 재시도가 걸린
+  //    실패라 유지 대상이고, 바뀌는 건 표면뿐이다). 카드를 먼저 닫고 Alert 를 띄우면 iOS 에서
+  //    fade dismissal 과 native Alert presentation 이 **같은 틱에 경합**해 안내가 아예 안 뜰 수
+  //    있다(codex 리뷰). 그래서 요청 동안 카드를 **열어 둔 채**로 두고 결과만 갈아 끼운다 —
+  //    GroupSettingsScreen 의 나가기 실패와 같은 처방이다.
   const runUnlink = async (provider: Provider) => {
     try {
       await unlinkSocialAccount(provider);
       await loadLinks();
+      setModal(null); // 성공 경로에서만 닫는다
     } catch (e) {
       const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-      if (status === 409) {
-        Alert.alert('해제할 수 없어요', '마지막 로그인 수단은 해제할 수 없어요.');
-      } else {
-        Alert.alert('오류', '연동 해제에 실패했어요. 잠시 후 다시 시도해 주세요.');
-      }
+      setModal(
+        status === 409
+          ? {
+              kind: 'unlinkFailed',
+              title: '해제할 수 없어요',
+              body: '마지막 로그인 수단은 해제할 수 없어요.',
+            }
+          : {
+              kind: 'unlinkFailed',
+              title: '오류',
+              body: '연동 해제에 실패했어요. 잠시 후 다시 시도해 주세요.',
+            },
+      );
     }
   };
 
@@ -295,8 +308,8 @@ export default function AccountScreen() {
         body: `${name} 연동을 해제할까요?`,
         primaryLabel: '해제',
         onPrimary: () => {
-          setModal(null);
-          // runUnlink는 자체적으로 실패를 잡아 안내한다 — reject되지 않으므로 그대로 부른다.
+          // ⚠️ 여기서 카드를 닫지 않는다 — runUnlink 가 성공 시 닫고 실패 시 내용을 교체한다.
+          //    닫고 나서 안내를 띄우면 dismiss 와 present 가 경합한다(위 runUnlink 주석).
           runUnlink(provider);
         },
         destructive: true,
@@ -305,6 +318,17 @@ export default function AccountScreen() {
       };
       break;
     }
+    case 'unlinkFailed':
+      // 확인 카드가 그대로 열린 채 내용만 갈린 상태 — 닫힘 애니메이션이 시작되지 않았으므로
+      // 안내가 경합으로 사라질 여지가 없다. 재시도는 사용자가 목록에서 다시 누른다.
+      card = {
+        title: shownModal.title,
+        body: shownModal.body,
+        primaryLabel: '확인',
+        onPrimary: () => setModal(null),
+        testID: 'account.unlink.failed',
+      };
+      break;
     case 'hostBlockedNoList':
       card = {
         title: '탈퇴할 수 없어요',

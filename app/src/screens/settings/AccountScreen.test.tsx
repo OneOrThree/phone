@@ -285,8 +285,9 @@ describe('로그아웃·연동 해제 확인 카드', () => {
     expect(mockUnlinkSocialAccount).toHaveBeenCalledWith('KAKAO');
   });
 
-  // 실패는 재시도가 걸린 안내라 Alert로 남는다(정책 D8 「실패 중 사용자 조치가 필요한 것」).
-  test('마지막 로그인 수단 해제(409)는 카드가 아니라 Alert로 안내한다', async () => {
+  // 실패 안내는 **같은 카드 안에서** 낸다 — 카드를 먼저 닫고 Alert를 띄우면 iOS에서 dismiss와
+  // present가 같은 틱에 경합해 안내가 아예 안 뜬다(codex 리뷰). 문구는 종전 Alert 그대로다.
+  test('마지막 로그인 수단 해제(409)는 카드 내용을 실패 안내로 갈아 끼운다 — Alert를 띄우지 않는다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockUnlinkSocialAccount.mockRejectedValueOnce(axiosErrorWith(409, 'LAST_SOCIAL_LINK'));
     await render(<AccountScreen />);
@@ -297,12 +298,16 @@ describe('로그아웃·연동 해제 확인 카드', () => {
       fireEvent.press(screen.getByTestId('account.unlink.confirm.primary'));
     });
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      '해제할 수 없어요',
-      '마지막 로그인 수단은 해제할 수 없어요.',
-    );
-    // 확인 카드는 요청 전에 이미 닫혔다 — Alert가 모달 위에 겹치지 않는다.
-    expect(screen.queryByTestId('account.unlink.confirm')).toBeNull();
+    // 카드가 닫히지 않고 내용만 갈렸다 — 닫힘 애니메이션이 시작되지 않으므로 경합할 여지가 없다.
+    expect(await screen.findByTestId('account.unlink.failed')).toBeOnTheScreen();
+    expect(screen.getByText('마지막 로그인 수단은 해제할 수 없어요.')).toBeOnTheScreen();
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // 확인 버튼으로 닫힌다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account.unlink.failed.primary'));
+    });
+    expect(screen.queryByTestId('account.unlink.failed')).toBeNull();
     alertSpy.mockRestore();
   });
 });

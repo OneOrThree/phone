@@ -343,7 +343,12 @@ export default function GroupOwnerTransferScreen() {
           primaryLabel="넘기기"
           destructive
           onPrimary={() => {
-            setConfirmOpen(false);
+            // ⚠️ 여기서 카드를 닫지 않는다(codex 리뷰). 실패 경로가 Alert 를 띄우는데, 닫기를
+            //    먼저 걸면 iOS 에서 fade dismissal 과 native Alert presentation 이 같은 틱에
+            //    경합해 안내가 아예 안 뜬다 — 유저 부재 분기는 그 Alert 의 확인 버튼이
+            //    로그아웃까지 쥐고 있어 세션 복구 경로가 통째로 사라진다.
+            //    성공 경로는 화면이 전환되므로(goBack·popToTop) 따로 닫을 필요가 없고,
+            //    실패 경로는 카드가 남아 사용자가 취소로 빠져나간다.
             doTransfer(confirmTarget);
           }}
           secondaryLabel="취소"
