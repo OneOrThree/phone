@@ -379,7 +379,7 @@ Table group_challenges [note: '그룹 챌린지 (집중/스크린타임 미션).
 
   status             challenge_status   [not null, default: 'ACTIVE', note: 'ACTIVE / ENDED — 수명주기(policy §A8). V2 의 INACTIVE 를 V34 가 ENDED 로 복원. 서버에서만 전환 (유저 수정 불가)']
 
-  repeat_days        smallint           [not null, note: '도는 요일 비트마스크(§A3) — ISO 요일(월=1…일=7)을 1<<(dow-1) 로 접음: 월=1…일=64, 매일=127. CHECK 1 ≤ x ≤ 127 (요일 하나는 반드시). 기존 행 백필=127. migration V34']
+  repeat_days        integer            [not null, note: '도는 요일 비트마스크(§A3) — ISO 요일(월=1…일=7)을 1<<(dow-1) 로 접음: 월=1…일=64, 매일=127. CHECK 1 ≤ x ≤ 127 (요일 하나는 반드시). 기존 행 백필=127. V34 추가(smallint), V46 integer 확장']
   started_at         timestamptz        [not null, note: '활동 시작 시각 — 생성 즉시 돌기 시작(기존 행 백필=created_at). migration V34']
   ended_at           timestamptz        [note: '종료(ENDED 전이) 시각 — null 이면 진행 중. 레거시 INACTIVE→ENDED 행은 created_at 근사 백필. migration V34']
 

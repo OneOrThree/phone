@@ -114,7 +114,8 @@ const s = StyleSheet.create({
   labelEn: { color: T.inkMuted, fontWeight: '500' },
   inputRow: { position: 'relative', justifyContent: 'center' },
   input: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 14,
     backgroundColor: T.white,
     borderWidth: 1.5,

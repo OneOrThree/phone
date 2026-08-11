@@ -197,19 +197,32 @@ const s = StyleSheet.create({
   cardBody: { marginTop: T.space.sm, fontSize: 14, lineHeight: 21 },
   btnRow: { flexDirection: 'row', gap: 20, marginTop: T.space.xl },
   flex1: { flex: 1 },
-  pill: { flex: 1, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  // borderRadius를 999로 두는 이유 — 높이가 배율 따라 자라도 알약 모양이 유지된다
+  // (23은 height 46의 절반이라 높이가 늘면 모서리만 각져 보인다).
+  pill: {
+    flex: 1,
+    minHeight: 46,
+    paddingVertical: T.space.xs,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   pillRing: { borderWidth: 3 },
   pillText: { fontSize: 16, fontWeight: '600' },
   denyText: { color: T.white },
   btnLabels: { flexDirection: 'row', gap: 20, marginTop: T.space.sm },
   btnLabel: { flex: 1, textAlign: 'center', ...T.text.caption },
   // 왼쪽 '계속' 위 말풍선 — 버튼 행 기준 절대 배치(행 높이 46 + 간격 14)
+  // 버튼 행 **위쪽 모서리**에 붙인다(bottom '100%' = 부모 높이만큼 위). 예전엔 60(=버튼 46 +
+  // 간격 14) 고정이었는데, 버튼이 글자 배율 따라 자라면 말풍선 화살표가 버튼 안으로 내려와
+  // '계속' 라벨과 겹친다(코덱스 리뷰). 퍼센트로 잡으면 버튼 높이와 무관하게 항상 위에 뜬다.
   bubbleWrap: {
     position: 'absolute',
     left: 0,
     right: '50%',
     marginRight: T.space.sm + 2,
-    bottom: 60,
+    bottom: '100%',
+    marginBottom: 14,
     alignItems: 'center',
   },
   bubble: {

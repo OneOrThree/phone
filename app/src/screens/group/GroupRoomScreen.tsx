@@ -1250,7 +1250,8 @@ const s = StyleSheet.create({
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·공지 화면과 같은 값(§G-4)
   retryBtn: {
     marginTop: T.space.lg,
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',
@@ -1358,7 +1359,8 @@ const s = StyleSheet.create({
   emptyErrorRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   emptyErrorText: { ...T.text.caption, color: T.dangerInk },
   writeBtn: {
-    height: 40,
+    minHeight: 40,
+    paddingVertical: T.space.xs,
     paddingHorizontal: T.space.xl,
     borderRadius: 12,
     alignItems: 'center',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Text, TextInput, AppState, Platform, StyleSheet } from 'react-native';
+import { AppState, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -84,18 +84,8 @@ async function backfillFocusCategory(profile: { occupation?: unknown }): Promise
   } catch {}
 }
 
-// 앱 전체 글씨를 디자인 크기로 고정(기기 '텍스트 크기' 설정 무시) → 화면 간 크기 일관.
-// 홈은 네이티브 리포트 뷰와 맞추려 이미 고정이었는데, 나머지 화면도 같은 기준으로 통일한다.
-type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
-(Text as unknown as FontScalable).defaultProps = {
-  ...(Text as unknown as FontScalable).defaultProps,
-  allowFontScaling: false,
-};
-(TextInput as unknown as FontScalable).defaultProps = {
-  ...(TextInput as unknown as FontScalable).defaultProps,
-  allowFontScaling: false,
-};
-
+// 전역 글자 크기 고정은 GROMO-1485 에서 제거됐다(기기 '텍스트 크기' 설정 존중).
+// 웹 루트 폭 제한만 남긴다 — 브라우저 전체 폭으로 늘어나면 모바일 레이아웃이 무너진다.
 const styles = StyleSheet.create({
   webRoot: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
 });

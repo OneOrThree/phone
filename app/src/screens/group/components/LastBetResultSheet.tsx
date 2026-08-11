@@ -419,7 +419,8 @@ const s = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   closeBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

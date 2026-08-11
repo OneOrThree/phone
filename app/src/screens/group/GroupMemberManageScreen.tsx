@@ -270,7 +270,8 @@ const s = StyleSheet.create({
   emptyDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, textAlign: 'center' },
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·공지 화면과 같은 값.
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',
@@ -299,7 +300,8 @@ const s = StyleSheet.create({
   rowName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   // 강퇴 버튼은 파괴적 톤(accentAlt) — 되돌릴 수 없는 액션임을 색으로도 알린다.
   kickBtn: {
-    height: 34,
+    minHeight: 34,
+    paddingVertical: T.space.xs,
     paddingHorizontal: T.space.md,
     borderRadius: 10,
     alignItems: 'center',

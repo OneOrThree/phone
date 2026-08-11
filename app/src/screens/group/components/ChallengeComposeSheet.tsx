@@ -841,7 +841,8 @@ const s = StyleSheet.create({
   dowRow: { flexDirection: 'row', gap: T.space.xs },
   dowChip: {
     flex: 1,
-    height: 40,
+    minHeight: 40,
+    paddingVertical: T.space.xs,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
@@ -862,7 +863,8 @@ const s = StyleSheet.create({
   chips: { flexDirection: 'row', gap: T.space.sm },
   chip: {
     flex: 1,
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -887,7 +889,8 @@ const s = StyleSheet.create({
     borderColor: T.border,
     borderRadius: 13,
     paddingHorizontal: T.space.md,
-    height: 46,
+    minHeight: 46,
+    paddingVertical: T.space.md,
     marginTop: T.space.sm,
   },
   inputBoxError: { borderColor: T.dangerInk, backgroundColor: T.dangerBg },
@@ -915,7 +918,8 @@ const s = StyleSheet.create({
 
   // 시트 CTA = 52 / r16 (그룹 시트 공통 규격).
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

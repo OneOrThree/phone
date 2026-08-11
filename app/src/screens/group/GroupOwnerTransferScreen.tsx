@@ -331,7 +331,8 @@ const s = StyleSheet.create({
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 화면 공통 규격(§G-4).
   retryBtn: {
     marginTop: T.space.lg,
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',
@@ -394,7 +395,8 @@ const s = StyleSheet.create({
   },
   // 화면 CTA = 52 / r16 (그룹 화면 공통 규격).
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',

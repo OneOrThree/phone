@@ -17,6 +17,7 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import { logGroupCardActionClicked } from '@/services/analyticsEvents';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardActionClicked: jest.fn(),
@@ -473,8 +474,12 @@ describe('콜백', () => {
     const scroller = screen.getByTestId('group.list.scroller');
     expect(scroller.props.scrollEnabled).toBe(true);
     expect(scroller.props.nestedScrollEnabled).toBe(true);
+    // 여백은 탭바가 실제로 덮는 높이에서 파생한다(GROMO-1487) — 예전 상수 74는 FAB가 바 위로
+    // 솟은 만큼을 빼먹어 마지막 카드가 FAB에 가렸다. 숫자를 다시 적으면 그 실수가 되돌아온다.
     expect(scroller.props.contentContainerStyle).toEqual(
-      expect.arrayContaining([expect.objectContaining({ paddingBottom: 108 })]),
+      expect.arrayContaining([
+        expect.objectContaining({ paddingBottom: tabBarSafeBottom(34) }), // 목 인셋 하단 34
+      ]),
     );
   });
 });

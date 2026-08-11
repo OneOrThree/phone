@@ -508,7 +508,8 @@ const s = StyleSheet.create({
   notice: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.md },
 
   primaryBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -519,7 +520,8 @@ const s = StyleSheet.create({
   primaryBtnOff: { opacity: 0.5 },
   primaryText: { ...T.text.subtitle, color: T.white },
   ghostBtn: {
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: T.space.xs,

@@ -15,7 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T, withAlpha } from '@/constants/theme';
+import { FIXED_BOX_FONT_SCALE_MAX, T, withAlpha } from '@/constants/theme';
 import { springify } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { tierByLevel } from '@/constants/tiers';
@@ -37,6 +37,7 @@ import { LiveFocusTime } from './components/LiveFocusTime';
 import { MemberAvatar } from './components/MemberAvatar';
 import { TierBadge } from './components/TierBadge';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
   logLeagueViewed,
@@ -56,11 +57,12 @@ import {
 // 친구 탭: 친구 검색·추가 엔트리 + 친구 2열 그리드(카드 탭 → 프로필 상세 FriendProfile).
 // 친구 목록·받은 요청 수(./useFriends)·핀(./usePinned)은 실데이터.
 
-// 탭바가 차지하는 높이(홈 '오늘' 카드 marginBottom 선례와 동일 기준)
-const TAB_BAR_SPACE = 74;
 // 리그 드롭다운의 '전체' 항목 라벨
 const LEAGUE_ALL = '전체';
-// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유
+// 자동/탭 스크롤 시 sticky 스트립에 내 행이 가리지 않게 두는 위 여유.
+// 실측(onLayout) 전까지 쓰는 기본값 — 글자 배율을 키우면 스트립이 이보다 두꺼워지므로
+// 실제 높이를 재서 덮어쓴다(코드리뷰). 이 상수만 믿으면 배율이 큰 기기에서 내 행이
+// 스트립 밑에 깔린 채로 멈춘다.
 const MY_STRIP_SPACE = 70;
 // 포디움 메달 그라데이션 (1·2·3위 — 골드/실버/브론즈, 밝은 쪽→진한 쪽)
 const MEDAL_GRAD = [T.medalGrad.gold, T.medalGrad.silver, T.medalGrad.bronze];
@@ -238,7 +240,10 @@ export default function LeagueScreen() {
       listRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
-    listRef.current?.scrollTo({ y: Math.max(myRowY.current - MY_STRIP_SPACE, 0), animated: true });
+    listRef.current?.scrollTo({
+      y: Math.max(myRowY.current - myStripH.current, 0),
+      animated: true,
+    });
   }
 
   // 드롭다운에서 리그 선택 — 최상단(포디움)부터 보여주고, 내 행이 화면 밖이면 자동 스크롤 예약
@@ -299,6 +304,8 @@ export default function LeagueScreen() {
   // 첫 진입 사용법 안내(GROMO-652) — 캐릭터가 리그 경쟁·티어·친구 탭을 차례로 설명
   const segmentRef = useRef<View | null>(null);
   const headerRef = useRef<View | null>(null);
+  // sticky '내 순위' 스트립의 실제 높이 — 스크롤 오프셋 계산에 쓴다(위 MY_STRIP_SPACE 주석 참고).
+  const myStripH = useRef(MY_STRIP_SPACE);
   const guideSteps: GuideStep[] = [
     {
       text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
@@ -355,7 +362,13 @@ export default function LeagueScreen() {
       {/* ── 헤더: 좌상단 마감 카운트다운 + 우측 제목(탭=리그 선택 드롭다운) ── */}
       {tab === 'league' && (
         <View style={s.header} ref={headerRef} collapsable={false}>
-          <Text style={s.deadline} allowFontScaling={false}>
+          {/* 마감·제목은 한 줄에 나란히 놓이는데 둘 다 고정 배치라, 접근성 배율에서 그대로
+              커지면 서로를 파고든다(코덱스 리뷰) — 상한을 걸고 마감 쪽은 줄어들게 둔다. */}
+          <Text
+            style={s.deadline}
+            numberOfLines={1}
+            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
+          >
             {deadlineLabel ?? ''}
           </Text>
           <TouchableOpacity
@@ -363,7 +376,9 @@ export default function LeagueScreen() {
             activeOpacity={0.7}
             onPress={() => setLeagueMenuOpen(true)}
           >
-            <Text style={s.headerTitle}>{title}</Text>
+            <Text style={s.headerTitle} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
+              {title}
+            </Text>
             <Ionicons name="chevron-down" size={17} color={T.inkSub} />
           </TouchableOpacity>
         </View>
@@ -377,7 +392,7 @@ export default function LeagueScreen() {
             listHeight.current = e.nativeEvent.layout.height;
           }}
           stickyHeaderIndices={showPodium ? [1] : [0]}
-          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 16 }}
+          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 16 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -467,10 +482,12 @@ export default function LeagueScreen() {
                             focusStartedAt={member.focusStartedAt}
                             format={hms}
                             style={[s.podiumTime, s.podiumTimeFocusing]}
+                            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                           />
                         </>
                       ) : (
-                        <Text style={s.podiumTime} allowFontScaling={false}>
+                        // 포디움 열은 width 100 고정 — 넘치면 옆 포디움·핀 버튼과 겹친다(코덱스 리뷰)
+                        <Text style={s.podiumTime} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>
                           {hms(member.totalFocusSeconds)}
                         </Text>
                       )}
@@ -495,7 +512,12 @@ export default function LeagueScreen() {
 
           {/* ── 내 순위 스트립 — 스크롤해도 상단 고정(sticky).
                탭=내 행으로 / 내가 없는 리그에선 핀 안내 + 전체 리그 이동 ── */}
-          <View style={s.myStripWrap}>
+          <View
+            style={s.myStripWrap}
+            onLayout={(e) => {
+              myStripH.current = e.nativeEvent.layout.height;
+            }}
+          >
             <TouchableOpacity
               style={s.myStrip}
               activeOpacity={0.85}
@@ -511,10 +533,10 @@ export default function LeagueScreen() {
             >
               {myIdx >= 0 ? (
                 <>
-                  <Text style={s.myStripRank} allowFontScaling={false}>
-                    내 순위 {myIdx + 1}위
-                  </Text>
-                  <Text style={s.myStripGap} numberOfLines={1} allowFontScaling={false}>
+                  <Text style={s.myStripRank}>내 순위 {myIdx + 1}위</Text>
+                  {/* numberOfLines를 안 건다 — 접혀서 새 줄을 얻어도 한 줄로 묶으면
+                      지키려던 순위·시간 수치가 다시 말줄임된다(코덱스 리뷰). */}
+                  <Text style={s.myStripGap}>
                     {above
                       ? `▲ ${myIdx}위까지 ${hms(above.totalFocusSeconds - stagedMySeconds)}`
                       : '지금 1위예요'}
@@ -573,7 +595,7 @@ export default function LeagueScreen() {
                             const rowBottom = myRowY.current + 56; // 행 높이 근사값
                             if (listHeight.current > 0 && rowBottom > listHeight.current) {
                               listRef.current?.scrollTo({
-                                y: Math.max(myRowY.current - MY_STRIP_SPACE, 0),
+                                y: Math.max(myRowY.current - myStripH.current, 0),
                                 animated: false,
                               });
                             }
@@ -640,7 +662,7 @@ export default function LeagueScreen() {
         /* ── 친구 탭 — 검색·추가 엔트리 + 친구 2열 그리드 (시안 "친구 탭") ── */
         <ScrollView
           style={s.list}
-          contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE + 20 }}
+          contentContainerStyle={{ paddingBottom: tabBarSafeBottom(insets.bottom) + 20 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -726,10 +748,15 @@ export default function LeagueScreen() {
                               </Text>
                             </View>
                           )}
+                          {/* 카드 폭이 '48%' 고정인데 HH:MM:SS는 공백이 없어 줄바꿈이 안 된다 —
+                              배율을 안 묶으면 글자 중간에서 깨진다(코드리뷰). 정적 분기의
+                              fmtMinutes도 'HH:MM:00'이라 같은 상한을 걸어야 두 분기 높이가 맞는다
+                              (코덱스 리뷰 — '공백에서 접힌다'고 적었던 건 틀렸다). */}
                           <LiveFocusTime
                             baseSeconds={(f.focusTimeMinutes ?? 0) * 60}
                             focusStartedAt={f.focusStartedAt ?? null}
                             style={s.friendFocusTimeLive}
+                            maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                           />
                         </>
                       ) : (
@@ -738,6 +765,7 @@ export default function LeagueScreen() {
                             s.friendFocusTime,
                             (f.focusTimeMinutes ?? 0) > 0 && s.friendFocusTimeOn,
                           ]}
+                          maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}
                         >
                           {fmtMinutes(f.focusTimeMinutes ?? 0)}
                         </Text>
@@ -801,17 +829,29 @@ export default function LeagueScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paperLight },
 
+  // 마감 문구와 제목이 한 줄에 못 들어가면 접는다 — 안 접으면 줄어들 수 있는 쪽(마감)만
+  // 말줄임돼 정작 남은 시간이 사라진다(코드리뷰).
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: T.space.xs,
     paddingHorizontal: T.space.xl,
     paddingTop: T.space.md,
     paddingBottom: T.space.md,
   },
-  headerToggle: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  headerTitle: { ...T.text.title, color: T.ink },
-  deadline: { ...T.text.caption, color: T.inkSub },
+  // flexShrink/maxWidth 둘 다 필요 — headerTitle만 줄여 봐야 부모가 안 줄면 소용없고,
+  // header의 flexWrap은 토글을 다음 줄로 옮길 뿐 토글 자체를 줄이지 않는다(코덱스 리뷰).
+  headerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
+  headerTitle: { ...T.text.title, color: T.ink, flexShrink: 1 },
+  deadline: { ...T.text.caption, color: T.inkSub, flexShrink: 1 },
 
   // 리그 선택 드롭다운
   menuBackdrop: { flex: 1, backgroundColor: withAlpha(T.night.bottom, 0.25) },
@@ -874,6 +914,7 @@ const s = StyleSheet.create({
     paddingTop: T.space.xs,
     paddingBottom: T.space.md,
   },
+  // width 100은 FIXED_BOX_FONT_SCALE_MAX의 근거다 — 바꾸면 constants/theme.test.ts도 같이 고칠 것.
   podiumCol: { alignItems: 'center', gap: T.space.xs, width: 100 },
   podiumColFirst: { marginBottom: T.space.lg },
   // 메달 — 왕관(1위)+그라데이션 원형 배지를 세로로 쌓는다
@@ -946,9 +987,12 @@ const s = StyleSheet.create({
 
   // 내 순위 스트립 (sticky) — 밑 리스트가 비치지 않게 배경을 깐다
   myStripWrap: { backgroundColor: T.paperLight, paddingTop: 2, paddingBottom: T.space.sm },
+  // 글자를 키우면 순위·격차 두 문구가 한 줄에 못 들어간다. 줄여서 말줄임하면 정작 넛지
+  // 수치(격차)가 사라지므로, 자리가 모자라면 아래로 접히게 둔다(코드리뷰).
   myStrip: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: T.space.sm,
     backgroundColor: T.noteBg,
     borderWidth: 1.5,
@@ -957,10 +1001,14 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.md,
     paddingVertical: T.space.md,
   },
-  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep },
+  myStripRank: { ...T.text.label, fontWeight: '800', color: T.accentDeep, flexShrink: 1 },
+  // flexBasis 'auto' — 접히기 전엔 종전처럼 남는 폭을 채워 오른쪽 정렬(flex:1과 동일),
+  // 안 들어가면 제 폭을 요구하며 다음 줄로 내려간다(flexBasis 0이면 접히지 않고 짜부라진다).
   myStripGap: {
     ...T.text.caption,
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
     textAlign: 'right',
     color: T.inkSub,
     fontVariant: ['tabular-nums'],

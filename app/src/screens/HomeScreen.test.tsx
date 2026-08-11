@@ -6,6 +6,8 @@
 // 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다 — jest에서 워클릿은 목이라 거짓 안정감이다.
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
+import { T } from '@/constants/theme';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -233,6 +235,15 @@ describe('HomeScreen 진입 stagger', () => {
     expect(screen.getByTestId('home.screen')).toBeTruthy();
     expect(screen.getByTestId('home.today.detail')).toBeTruthy();
     expect(screen.getByText('공부 집중')).toBeTruthy();
+  });
+});
+
+describe('HomeScreen 오늘 카드 여백(GROMO-1487)', () => {
+  test('카드 아래 여백은 탭바가 덮는 높이에서 나온다 — 매직넘버 74가 아니다', async () => {
+    await render(<HomeScreen />);
+    // 하단 인셋 34(목) → 탭바가 덮는 높이 + 한 칸. 예전 규칙(34 + 74 = 108)과는 다른 값이다.
+    expect(styleOf('home.today.card').marginBottom).toBe(tabBarSafeBottom(34) + T.space.sm);
+    expect(styleOf('home.today.card').marginBottom).toBeGreaterThan(34 + 74);
   });
 });
 

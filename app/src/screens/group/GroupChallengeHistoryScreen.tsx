@@ -430,7 +430,8 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

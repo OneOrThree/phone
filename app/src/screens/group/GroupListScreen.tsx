@@ -34,6 +34,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { T } from '@/constants/theme';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
@@ -1101,7 +1102,10 @@ export default function GroupListScreen({
 
       <ScrollView
         style={s.deckScroller}
-        contentContainerStyle={[s.deckScrollerContent, { paddingBottom: insets.bottom + 74 }]}
+        contentContainerStyle={[
+          s.deckScrollerContent,
+          { paddingBottom: tabBarSafeBottom(insets.bottom) },
+        ]}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         directionalLockEnabled
