@@ -17,7 +17,7 @@
 //    적용된다. 표정으로만 의미를 전달하는 화면은 문구·색으로도 같은 뜻이 서게 만들 것.
 
 import { useEffect, useState } from 'react';
-import { Image, type ImageProps } from 'react-native';
+import { Image, Platform, type ImageProps } from 'react-native';
 
 export type CharacterVariant = 'default' | 'study' | 'happy' | 'hi' | 'sensitive';
 
@@ -33,10 +33,13 @@ const SOURCES: Record<CharacterVariant, number> = {
 // (dev는 Metro 다운로드) 지연으로 캐릭터가 늦게 뜨는 것을 줄인다. 실패해도 무해.
 // SOURCES를 순회하므로 variant를 늘리면 자동으로 함께 프리캐시된다(릴리즈는 번들 로컬 에셋이라
 // 사실상 no-op, dev만 Metro에서 받아 온다).
-Object.values(SOURCES).forEach((mod) => {
-  const src = Image.resolveAssetSource(mod);
-  if (src?.uri) Image.prefetch(src.uri).catch(() => {});
-});
+// 웹은 제외 — resolveAssetSource가 웹에서 다르게 동작해 프리캐시가 무의미하다(GROMO-1484).
+if (Platform.OS !== 'web') {
+  Object.values(SOURCES).forEach((mod) => {
+    const src = Image.resolveAssetSource(mod);
+    if (src?.uri) Image.prefetch(src.uri).catch(() => {});
+  });
+}
 
 export function CharacterImage({
   size,
