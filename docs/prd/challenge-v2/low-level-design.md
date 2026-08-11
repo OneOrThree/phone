@@ -16,21 +16,29 @@
 > ### 3.6 창 겹침 판정 — 요일 ∧ 시간대 ∧ 15분 간격
 >
 > ```java
-> static final int GAP_SECONDS = 15 * 60;
+> static final long GAP_NANOS = 15L * 60 * 1_000_000_000;
 >
-> // 창은 자정을 걸치지 않으므로 [시작, 끝) 초 구간이 **항상 하나**다
-> static int[] daySegment(LocalTime start, LocalTime end) {
->     return new int[]{start.toSecondOfDay(), end.toSecondOfDay()};   // start < end 보장
+> // 창은 자정을 걸치지 않으므로 [시작, 끝) 구간이 **항상 하나**다
+> static long[] daySegment(LocalTime start, LocalTime end) {
+>     return new long[]{start.toNanoOfDay(), end.toNanoOfDay()};   // start < end 보장
 > }
 >
 > static boolean conflicts(int maskA, LocalTime sA, LocalTime eA,
 >                          int maskB, LocalTime sB, LocalTime eB) {
 >     if ((maskA & maskB) == 0) return false;              // 요일이 안 겹치면 무조건 OK
->     int[] a = daySegment(sA, eA), b = daySegment(sB, eB);
+>     long[] a = daySegment(sA, eA), b = daySegment(sB, eB);
 >     // 15분 간격까지 요구 — 양쪽으로 GAP만큼 부풀려 겹침 검사
->     return a[0] - GAP_SECONDS < b[1] && b[0] - GAP_SECONDS < a[1];
+>     return a[0] - GAP_NANOS < b[1] && b[0] - GAP_NANOS < a[1];
 > }
 > ```
+
+⚠️ **위 인용은 2026-08-11 정정 후 문면이다.** 정본 초판은 `GAP_SECONDS` + `toSecondOfDay()` 였고,
+**그대로 구현하면 계약이 깨진다** — `toSecondOfDay()` 가 소수 초를 버리기 때문이다.
+A 가 `12:00:00.500` 에 끝나고 B 가 `12:15:00.000` 에 시작하면 실제 **14분 59.5초**인데
+초로 깎으면 정확히 900초가 되어 통과한다. 소수 초는 실재한다 — 구앱 ISO Instant 경로
+(`WindowFocusAggregator.parseRequestTime`)가 나노초를 보존하고 DB 컬럼도 `time(6)` 이다.
+**GROMO-1270 구현은 처음부터 `toNanoOfDay()` 로 갔고**(codex 1차 리뷰 반영,
+`GroupChallengeService.windowsConflict` javadoc 에 근거 기재), 이번에 문서가 구현을 따라왔다.
 >
 > **자정 걸침 금지가 이 함수를 절반으로 줄인다.** 걸치는 창을 허용하면 한 창이 `[s, 86400)` +
 > `[0, e)` **두 구간**으로 쪼개져 2×2 중첩 루프가 필요했고, 거기에 "`D+1 00:00~01:00` 부분은
@@ -51,7 +59,7 @@ private static boolean windowsOverlap(LocalTime aStart, LocalTime aEnd,
 | 축 | 지금 | 계약 |
 |---|---|---|
 | 요일 | **안 본다** — 요일 무관 시간대만 비교 | `(maskA & maskB) == 0` 이면 **즉시 false** |
-| 간격 | 없음 — 맞닿음(끝==시작)은 통과 | 양쪽 `GAP_SECONDS`(900) 만큼 부풀려 비교 |
+| 간격 | 없음 — 맞닿음(끝==시작)은 통과 | 양쪽 `GAP_NANOS`(900×10⁹) 만큼 부풀려 비교 — **초로 깎으면 안 된다**(위 ⚠️) |
 | 부등호 | `isBefore` (strict) | `a[0] - GAP < b[1] && b[0] - GAP < a[1]` (strict) |
 
 **부등호가 strict인 것이 정책의 핵심**이다 — §A5 예시 `월수금 12:15–14:00 ✓` 가

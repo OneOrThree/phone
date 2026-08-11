@@ -1039,21 +1039,34 @@ flowchart LR
 ### 3.6 창 겹침 판정 — 요일 ∧ 시간대 ∧ 15분 간격
 
 ```java
-static final int GAP_SECONDS = 15 * 60;
+static final long GAP_NANOS = 15L * 60 * 1_000_000_000;
 
-// 창은 자정을 걸치지 않으므로 [시작, 끝) 초 구간이 **항상 하나**다
-static int[] daySegment(LocalTime start, LocalTime end) {
-    return new int[]{start.toSecondOfDay(), end.toSecondOfDay()};   // start < end 보장
+// 창은 자정을 걸치지 않으므로 [시작, 끝) 구간이 **항상 하나**다
+static long[] daySegment(LocalTime start, LocalTime end) {
+    return new long[]{start.toNanoOfDay(), end.toNanoOfDay()};   // start < end 보장
 }
 
 static boolean conflicts(int maskA, LocalTime sA, LocalTime eA,
                          int maskB, LocalTime sB, LocalTime eB) {
     if ((maskA & maskB) == 0) return false;              // 요일이 안 겹치면 무조건 OK
-    int[] a = daySegment(sA, eA), b = daySegment(sB, eB);
+    long[] a = daySegment(sA, eA), b = daySegment(sB, eB);
     // 15분 간격까지 요구 — 양쪽으로 GAP만큼 부풀려 겹침 검사
-    return a[0] - GAP_SECONDS < b[1] && b[0] - GAP_SECONDS < a[1];
+    return a[0] - GAP_NANOS < b[1] && b[0] - GAP_NANOS < a[1];
 }
 ```
+
+> **📌 2026-08-11 정정 — 비교 단위는 초가 아니라 나노초다.**
+> 이 스케치의 초판은 `GAP_SECONDS` + `toSecondOfDay()` 를 썼는데, **그대로 구현하면 계약이 깨진다.**
+> `toSecondOfDay()` 는 **소수 초를 버린다.**
+>
+> **반례** — A 가 `12:00:00.500` 에 끝나고 B 가 `12:15:00.000` 에 시작하면 실제 간격은
+> **14분 59.5초**인데, 초로 깎으면 양쪽 다 `12:00:00`·`12:15:00` 이 되어 정확히 900초로 계산돼
+> **통과한다.**
+>
+> **소수 초는 실재한다.** 구앱 형식의 ISO Instant(`2026-08-05T12:00:00.500Z`)가
+> `WindowFocusAggregator.parseRequestTime` 을 거치며 나노초를 보존하고, DB 컬럼도 `time(6)` 이다.
+> 구현(`GroupChallengeService.windowsConflict`)은 `toNanoOfDay()` 로 비교한다 — 이 문서가
+> 구현을 따라온 것이다.
 
 **자정 걸침 금지가 이 함수를 절반으로 줄인다.** 걸치는 창을 허용하면 한 창이 `[s, 86400)` +
 `[0, e)` **두 구간**으로 쪼개져 2×2 중첩 루프가 필요했고, 거기에 "`D+1 00:00~01:00` 부분은
