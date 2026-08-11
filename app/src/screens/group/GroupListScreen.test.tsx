@@ -7,16 +7,21 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AccessibilityInfo, FlatList, PanResponder, View } from 'react-native';
+import { AccessibilityInfo, AppState, FlatList, PanResponder, View } from 'react-native';
 import GroupListScreen, {
   advanceEdgeTarget,
+  isPointInsideDeck,
   isProgrammaticMomentum,
   resolveReorderTranslation,
   shouldClaimReorderDrag,
 } from './GroupListScreen';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
-import { logGroupCardActionClicked, logGroupCardReordered } from '@/services/analyticsEvents';
+import {
+  logGroupCardActionClicked,
+  logGroupCardReordered,
+  logGroupCarouselPaged,
+} from '@/services/analyticsEvents';
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 
@@ -112,9 +117,13 @@ function panResponderEvent() {
 
 function mockDirectPanResponder() {
   return jest.spyOn(PanResponder, 'create').mockImplementation((config) => {
-    const gesture = { dx: 0, dy: 0, moveX: 0 };
+    const gesture = { dx: 0, dy: 0, moveX: 0, moveY: 0 };
     return {
       panHandlers: {
+        onMoveShouldSetResponder: (event: never, next: typeof gesture) =>
+          config.onMoveShouldSetPanResponder?.(event, next as never),
+        onMoveShouldSetResponderCapture: (event: never, next: typeof gesture) =>
+          config.onMoveShouldSetPanResponderCapture?.(event, next as never),
         onResponderGrant: (event: never) => config.onPanResponderGrant?.(event, gesture as never),
         onResponderMove: (event: never, next: typeof gesture) =>
           config.onPanResponderMove?.(event, next as never),
@@ -126,6 +135,16 @@ function mockDirectPanResponder() {
     } as unknown as ReturnType<typeof PanResponder.create>;
   });
 }
+
+async function layoutDeck() {
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 60, width: 420, height: 540 } },
+    });
+  });
+}
+
+const INSIDE_DECK = { moveX: 210, moveY: 200 };
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -532,20 +551,26 @@ describe('제스처 중재와 재정렬', () => {
   test('drag 중 잡은 카드가 손가락을 따르고 인접 카드가 빈 슬롯으로 이동한 뒤 한 번만 commit한다', async () => {
     const panSpy = mockDirectPanResponder();
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await layoutDeck();
     const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
     const snapInterval = screen.getByTestId('group.list.items').props.snapToInterval as number;
     const dragX = Math.ceil(snapInterval * 0.6);
     const responderEvent = panResponderEvent();
     await act(async () => {
       grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderMove?.(responderEvent, { dx: dragX, dy: 0, moveX: 200 });
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: dragX,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
     });
 
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
     expect(screen.getByTestId('group.list.scroller').props.scrollEnabled).toBe(false);
-    expect(screen.getByTestId(`group.card.reorderMotion.${GROUP_ID}`)).toHaveStyle({
-      transform: [{ translateX: dragX }],
-    });
+    expect(
+      screen.getByTestId(`group.card.dragOverlay.${GROUP_ID}`, { includeHiddenElements: true }),
+    ).toHaveStyle({ transform: [{ translateX: dragX }] });
+    expect(screen.getByTestId(`group.card.reorderMotion.${GROUP_ID}`)).toHaveStyle({ opacity: 0 });
     expect(
       screen
         .getByTestId('group.list.items')
@@ -553,7 +578,11 @@ describe('제스처 중재와 재정렬', () => {
     ).toEqual([GROUP_ID, GROUP_ID_2]);
 
     await act(async () => {
-      grip.props.onResponderRelease?.(responderEvent, { dx: dragX, dy: 0 });
+      grip.props.onResponderRelease?.(responderEvent, {
+        dx: dragX,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
     });
 
     expect(
@@ -575,19 +604,32 @@ describe('제스처 중재와 재정렬', () => {
       group({ groupId: GROUP_ID_2, name: '저녁 스터디' }),
       group({ groupId: GROUP_ID_3, name: '주말 스터디' }),
     ]);
+    await layoutDeck();
     jest.useFakeTimers();
     const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
     const responderEvent = panResponderEvent();
 
     await act(async () => {
       grip.props.onResponderGrant?.(responderEvent);
-      grip.props.onResponderMove?.(responderEvent, { dx: 7, dy: 0, moveX: 10_000 });
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        moveX: 10_000,
+        moveY: INSIDE_DECK.moveY,
+      });
       jest.advanceTimersByTime(260);
     });
-    expect(screen.getByTestId('group.list.items').props.removeClippedSubviews).toBe(false);
+    expect(screen.getByTestId('group.list.items').props.windowSize).toBeUndefined();
+    expect(
+      screen.getByTestId(`group.card.dragOverlay.${GROUP_ID}`, { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
 
     await act(async () => {
-      grip.props.onResponderRelease?.(responderEvent, { dx: 7, dy: 0 });
+      grip.props.onResponderRelease?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
       jest.runOnlyPendingTimers();
     });
 
@@ -602,6 +644,199 @@ describe('제스처 중재와 재정렬', () => {
     );
     jest.useRealTimers();
     panSpy.mockRestore();
+  });
+
+  test('실제 deck layout 경계 밖 drop은 순서를 저장하지 않고 source stable ID로 복원한다', async () => {
+    const panSpy = mockDirectPanResponder();
+    const scrollSpy = jest.spyOn(FlatList.prototype, 'scrollToOffset');
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await layoutDeck();
+    scrollSpy.mockClear();
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 400,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
+      grip.props.onResponderRelease?.(responderEvent, {
+        dx: 400,
+        dy: 0,
+        moveX: INSIDE_DECK.moveX,
+        moveY: 900,
+      });
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2]);
+    expect(logGroupCardReordered).not.toHaveBeenCalled();
+    expect(scrollSpy).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+    panSpy.mockRestore();
+    scrollSpy.mockRestore();
+  });
+
+  test('edge paging 뒤 원점으로 돌아온 release는 rollback하고 viewport도 source로 복원한다', async () => {
+    const panSpy = mockDirectPanResponder();
+    const scrollSpy = jest.spyOn(FlatList.prototype, 'scrollToOffset');
+    await renderList([
+      group(),
+      group({ groupId: GROUP_ID_2, name: '저녁 스터디' }),
+      group({ groupId: GROUP_ID_3, name: '주말 스터디' }),
+    ]);
+    await layoutDeck();
+    jest.useFakeTimers();
+    scrollSpy.mockClear();
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        moveX: 10_000,
+        moveY: INSIDE_DECK.moveY,
+      });
+      jest.advanceTimersByTime(260);
+      grip.props.onResponderRelease?.(responderEvent, {
+        dx: 0,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
+    });
+
+    expect(
+      screen
+        .getByTestId('group.list.items')
+        .props.data.map((item: GroupSummaryResponse) => item.groupId),
+    ).toEqual([GROUP_ID, GROUP_ID_2, GROUP_ID_3]);
+    expect(screen.queryByTestId(`group.card.dragOverlay.${GROUP_ID}`)).toBeNull();
+    expect(scrollSpy).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+    expect(logGroupCardReordered).not.toHaveBeenCalled();
+    jest.useRealTimers();
+    panSpy.mockRestore();
+    scrollSpy.mockRestore();
+  });
+
+  test('edge episode의 모든 늦은 momentum completion은 release 뒤에도 swipe로 처리하지 않는다', async () => {
+    const panSpy = mockDirectPanResponder();
+    await renderList([
+      group(),
+      group({ groupId: GROUP_ID_2, name: '저녁 스터디' }),
+      group({ groupId: GROUP_ID_3, name: '주말 스터디' }),
+    ]);
+    await layoutDeck();
+    jest.useFakeTimers();
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+    const snapInterval = screen.getByTestId('group.list.items').props.snapToInterval as number;
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        moveX: 10_000,
+        moveY: INSIDE_DECK.moveY,
+      });
+      jest.advanceTimersByTime(260);
+      grip.props.onResponderRelease?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
+    });
+    jest.useRealTimers();
+    jest.mocked(logGroupCarouselPaged).mockClear();
+
+    const list = screen.getByTestId('group.list.items');
+    await act(async () => {
+      list.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: snapInterval } } });
+      list.props.onMomentumScrollEnd({ nativeEvent: { contentOffset: { x: snapInterval * 2 } } });
+    });
+
+    expect(logGroupCarouselPaged).not.toHaveBeenCalled();
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('3 / 4');
+    panSpy.mockRestore();
+  });
+
+  test('refresh가 이미 진행 중이면 grip responder claim과 grant를 모두 거부한다', async () => {
+    const panSpy = mockDirectPanResponder();
+    let finishRefresh: () => void = () => undefined;
+    onRefresh.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishRefresh = resolve;
+      }),
+    );
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await layoutDeck();
+
+    await act(async () => {
+      screen.getByTestId('group.list.scroller').props.refreshControl.props.onRefresh();
+    });
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+    expect(
+      grip.props.onMoveShouldSetResponder?.(responderEvent, {
+        dx: 20,
+        dy: 0,
+        ...INSIDE_DECK,
+      }),
+    ).toBe(false);
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+    });
+    expect(screen.queryByTestId(`group.card.dragOverlay.${GROUP_ID}`)).toBeNull();
+
+    await act(async () => finishRefresh());
+    panSpy.mockRestore();
+  });
+
+  test('background는 진행 중 drag와 edge timer를 취소하고 source로 rollback한다', async () => {
+    const panSpy = mockDirectPanResponder();
+    const scrollSpy = jest.spyOn(FlatList.prototype, 'scrollToOffset');
+    let appStateHandler: ((state: 'background') => void) | undefined;
+    const appStateSpy = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((_event, listener) => {
+        appStateHandler = listener as (state: 'background') => void;
+        return { remove: jest.fn() } as ReturnType<typeof AppState.addEventListener>;
+      });
+    const view = await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    await layoutDeck();
+    jest.useFakeTimers();
+    scrollSpy.mockClear();
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        moveX: 10_000,
+        moveY: INSIDE_DECK.moveY,
+      });
+      appStateHandler?.('background');
+    });
+    const callsAfterCancel = scrollSpy.mock.calls.length;
+    await act(async () => jest.advanceTimersByTime(1_000));
+
+    expect(screen.queryByTestId(`group.card.dragOverlay.${GROUP_ID}`)).toBeNull();
+    expect(scrollSpy).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+    expect(scrollSpy).toHaveBeenCalledTimes(callsAfterCancel);
+    expect(logGroupCardReordered).not.toHaveBeenCalled();
+    jest.useRealTimers();
+    await view.unmount();
+    appStateSpy.mockRestore();
+    panSpy.mockRestore();
+    scrollSpy.mockRestore();
   });
 
   test('preview translation은 stable slot 사이 카드만 한 칸 비운다', () => {
@@ -624,6 +859,15 @@ describe('제스처 중재와 재정렬', () => {
     expect(isProgrammaticMomentum(400, 399.5)).toBe(true);
     expect(isProgrammaticMomentum(400, 360)).toBe(false);
     expect(isProgrammaticMomentum(null, 400)).toBe(false);
+  });
+
+  test('drop 좌표는 측정한 deck rectangle 안쪽일 때만 유효하다', () => {
+    const bounds = { x: 20, y: 100, width: 320, height: 520 };
+    expect(isPointInsideDeck(20, 100, bounds)).toBe(true);
+    expect(isPointInsideDeck(340, 620, bounds)).toBe(true);
+    expect(isPointInsideDeck(19, 200, bounds)).toBe(false);
+    expect(isPointInsideDeck(200, 621, bounds)).toBe(false);
+    expect(isPointInsideDeck(200, 200, null)).toBe(false);
   });
 
   test('순서 저장 실패는 앱 재실행 시 이전 순서로 돌아갈 수 있음을 알린다', async () => {
@@ -698,5 +942,58 @@ describe('제스처 중재와 재정렬', () => {
     ).toEqual([GROUP_ID, GROUP_ID_2]);
     expect(screen.queryByTestId(`group.card.back.${GROUP_ID}`)).toBeNull();
     expect(scrollSpy).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+  });
+
+  // RNTL의 전역 screen은 명시적 unmount 뒤 비워진다. unmount 계약은 suite의 마지막에 검증한다.
+  test('route blur와 unmount도 진행 중 drag episode를 취소한다', async () => {
+    const panSpy = mockDirectPanResponder();
+    const scrollSpy = jest.spyOn(FlatList.prototype, 'scrollToOffset');
+    const appStateSpy = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockReturnValue({ remove: jest.fn() } as ReturnType<typeof AppState.addEventListener>);
+    const props = {
+      groups: [group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })],
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} isScreenFocused />);
+    await layoutDeck();
+    const responderEvent = panResponderEvent();
+    let grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 200,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
+    });
+    await view.rerender(<GroupListScreen {...props} isScreenFocused={false} />);
+    expect(screen.queryByTestId(`group.card.dragOverlay.${GROUP_ID}`)).toBeNull();
+    expect(scrollSpy).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+
+    await view.rerender(<GroupListScreen {...props} isScreenFocused />);
+    await layoutDeck();
+    jest.useFakeTimers();
+    grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        moveX: 10_000,
+        moveY: INSIDE_DECK.moveY,
+      });
+    });
+    const beforeUnmount = scrollSpy.mock.calls.length;
+    await view.unmount();
+    act(() => jest.advanceTimersByTime(1_000));
+    expect(scrollSpy).toHaveBeenCalledTimes(beforeUnmount);
+    jest.useRealTimers();
+    appStateSpy.mockRestore();
+    panSpy.mockRestore();
+    scrollSpy.mockRestore();
   });
 });
