@@ -1,5 +1,7 @@
 package com.oneorthree.phone.focus.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -24,6 +26,13 @@ import java.util.UUID;
  *                  가리키는 세션이 없다
  */
 public record FocusSessionStartResponse(
+        // 이 프로젝트 DTO 중 처음으로 @Schema 를 붙인다 — 서술(javadoc·@ApiResponse)만으로는 생성 문서의
+        // **스키마 필드 자체**가 여전히 non-null 로 나가, 클라 타입 생성기·소비자가 null 을 전제하지 않는다.
+        @Schema(nullable = true,
+                description = "생성된 진행 중 세션 id. null 이면 이 요청으로 마커를 만들지 않았다"
+                        + "(이미 열린 마커가 이 요청보다 논리적으로 나중에 시작한 경우 — 백그라운드 복귀 "
+                        + "리플레이의 과거 블록·요청 도착 역전·재전송). 그 블록은 마커 없이 "
+                        + "POST /focus-session 으로 올린다. 다른 마커의 id 를 대신 쓰면 안 된다")
         UUID sessionId,
         Instant startedAt
 ) {
