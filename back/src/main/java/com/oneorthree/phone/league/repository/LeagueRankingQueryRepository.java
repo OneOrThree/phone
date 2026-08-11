@@ -23,6 +23,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class LeagueRankingQueryRepository {
 
+    // 리그 모수 = 온보딩 완주 유저 (GROMO-1508). 서버가 가진 완주 신호는 nickname 존재가 유일하다
+    // (닉네임이 온보딩 마지막 스텝, 게스트도 같은 경로). is_guest 기준은 게스트 완주자를 배제하고
+    // 온보딩 이탈한 소셜 유저(nickname = null)를 이름 없는 행으로 편입시켜 양쪽이 틀렸다.
     private static final String WEEKLY_TOTALS = """
             SELECT u.id AS user_id,
                    u.nickname AS nickname,
@@ -33,7 +36,7 @@ public class LeagueRankingQueryRepository {
                 ON d.user_id = u.id
                AND d.date BETWEEN :fromDate AND :toDate
              WHERE u.is_deleted = false
-               AND u.is_guest = false
+               AND u.nickname IS NOT NULL
             """;
 
     private static final String GROUP_BY_USER = """
@@ -104,7 +107,7 @@ public class LeagueRankingQueryRepository {
                 + " LEFT JOIN daily_focus_stats d ON d.user_id = u.id"
                 + " AND d.date BETWEEN :fromDate AND :toDate"
                 + " CROSS JOIN target t"
-                + " WHERE u.is_deleted = false AND u.is_guest = false"
+                + " WHERE u.is_deleted = false AND u.nickname IS NOT NULL"
                 + " GROUP BY u.id, t.user_id, t.total_focus_seconds"
                 + " HAVING COALESCE(SUM(d.total_focus_seconds), 0) > t.total_focus_seconds"
                 + " OR (COALESCE(SUM(d.total_focus_seconds), 0) = t.total_focus_seconds"
@@ -179,8 +182,8 @@ public class LeagueRankingQueryRepository {
 
     /**
      * 지정 유저들만의 정산용 집계 (GROMO-1239 재개 시 userIds 지정 경로). 기존 정산 쿼리의 골격
-     * (WEEKLY_TOTALS — 활성·비게스트 필터 포함)을 그대로 재사용하고 id IN 필터와 가입 컷오프만
-     * 더한다. 탈퇴/게스트/경계 이후 가입 유저를 지정하면 결과에서 조용히 빠진다 — 정산 대상이
+     * (WEEKLY_TOTALS — 활성·온보딩 완주 필터 포함)을 그대로 재사용하고 id IN 필터와 가입 컷오프만
+     * 더한다. 탈퇴/온보딩 미완주/경계 이후 가입 유저를 지정하면 결과에서 조용히 빠진다 — 정산 대상이
      * 아니기 때문이다.
      */
     public List<LeagueRankingRow> findWeeklyTotalsForUsers(LocalDate fromDate, LocalDate toDate,

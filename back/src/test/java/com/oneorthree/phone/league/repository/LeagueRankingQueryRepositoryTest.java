@@ -160,25 +160,34 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
     }
 
     @Test
-    @DisplayName("게스트 유저는 랭킹·정산·내순위 집계에서 모두 제외된다")
-    void excludesGuestUsers() {
-        User active = saveUser("activeUser", Occupation.CODING, false);
-        User guest = userRepository.save(User.builder()
+    @DisplayName("리그 모수는 nickname 기준 — 닉네임 있는 게스트는 편입, 온보딩 미완주(nickname null)는 제외")
+    void includesGuestWithNicknameAndExcludesUsersWithoutNickname() {
+        // 게스트라도 온보딩을 완주해 닉네임을 등록했으면 리그 모수다 (GROMO-1508).
+        User guestWithNickname = userRepository.save(User.builder()
+                .nickname("닉네임게스트")
                 .occupation(Occupation.CODING)
                 .tierLevel(3)
                 .isGuest(true)
                 .build());
-        saveStat(active, MONDAY, 50);
-        saveStat(guest, MONDAY, 9999);
+        // 소셜 로그인 후 온보딩을 이탈한 유령 유저 — 이름 없는 랭킹 행·0초 STAY 정산의 원인이었다.
+        User onboardingDropout = userRepository.save(User.builder()
+                .occupation(Occupation.CODING)
+                .tierLevel(3)
+                .build());
+        saveStat(guestWithNickname, MONDAY, 50);
+        saveStat(onboardingDropout, MONDAY, 9999);
         flushFixtures();
 
         assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100))
                 .extracting(LeagueRankingRow::userId)
-                .containsExactly(active.getId());
+                .containsExactly(guestWithNickname.getId());
         assertThat(leagueRankingQueryRepository.findWeeklyTotalsForSettlement(MONDAY, TUESDAY, null, 100))
                 .extracting(LeagueRankingRow::userId)
-                .containsExactly(active.getId());
-        assertThat(leagueRankingQueryRepository.findRankOf(guest.getId(), MONDAY, TUESDAY)).isEmpty();
+                .containsExactly(guestWithNickname.getId());
+        assertThat(leagueRankingQueryRepository.findRankOf(guestWithNickname.getId(), MONDAY, TUESDAY))
+                .isPresent();
+        assertThat(leagueRankingQueryRepository.findRankOf(onboardingDropout.getId(), MONDAY, TUESDAY))
+                .isEmpty();
     }
 
     @Test
