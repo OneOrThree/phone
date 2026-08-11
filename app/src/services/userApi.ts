@@ -44,8 +44,15 @@ export async function updateProfile(body: UserProfileUpdateRequest): Promise<voi
 }
 
 // GET /api/v1/users/me — 본인 프로필 조회.
-export async function getMyProfile(): Promise<UserProfileResponse> {
-  const { data } = await api.get<UserProfileResponse>('/api/v1/users/me');
+export async function getMyProfile(options?: {
+  noAuthRetry?: boolean;
+}): Promise<UserProfileResponse> {
+  const response = options?.noAuthRetry
+    ? await api.get<UserProfileResponse>('/api/v1/users/me', { _noAuthRetry: true } as Parameters<
+        typeof api.get
+      >[1])
+    : await api.get<UserProfileResponse>('/api/v1/users/me');
+  const { data } = response;
   return data;
 }
 

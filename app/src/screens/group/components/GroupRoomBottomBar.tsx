@@ -8,6 +8,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { discardInitialGroupRoomReturn } from '@/navigation/groupEntrySource';
 
 // 그룹방 전용 하단바(F2 Part2) — 앱 커스텀 TabBar와 같은 모양(글래스 노치 바 + 4탭 + 중앙 ▶ FAB).
 // 그룹방은 탭 네비 밖(스택 화면)이라 실제 TabBar(BottomTabBarProps 결합)를 못 붙여 비주얼만 복제한다.
@@ -88,8 +89,13 @@ export function GroupRoomBottomBar({ onFocusPress }: { onFocusPress: () => void 
 
   // 그룹방(스택) → Main 탭 셸의 해당 탭으로. 그룹방은 pop 되고 그 탭이 열린다.
   // Main 파라미터는 undefined 타입이라 중첩 네비는 캐스팅으로 넘긴다(RN 런타임은 지원).
-  const goTab = (name: string) =>
+  const goTab = (name: string) => {
+    // 결과성 push가 lazy 그룹 목록을 건너뛴 경우의 `return` 표식은 방을 닫아 그룹 목록으로
+    // 돌아갈 때만 유효하다. 홈/리그/전체로 흐름을 끝내면 나중의 직접 그룹 탭 진입을 오염시키지
+    // 않도록 먼저 폐기한다.
+    discardInitialGroupRoomReturn();
     (nav.navigate as unknown as (n: string, p?: object) => void)('Main', { screen: name });
+  };
 
   return (
     <View

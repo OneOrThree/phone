@@ -637,6 +637,7 @@ export default function HomeScreen() {
             <PressableScale
               style={s.settingsBtn}
               scaleTo={0.92}
+              accessibilityLabel={hasNotifications ? '알림 보기, 읽지 않은 알림 있음' : '알림 보기'}
               onPress={() => {
                 logHomeButtonTapped({ button: 'notification_bell', destination: 'Notifications' });
                 navigation.navigate('Notifications');

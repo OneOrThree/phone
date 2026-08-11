@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
     paths:
-      - 'back/**'
+      - "back/**"
   workflow_dispatch:
 
 concurrency:
@@ -21,8 +21,45 @@ jobs:
   test:
     uses: ./.github/workflows/test-backend.yml
 
+  # 이미지가 실제로 빌드되는지 PR 시점에 확인하고, 같은 김에 GAR 캐시를 채운다.
+  # push는 하지 않는다 — dev 태그는 latest 하나뿐이라 PR 빌드가 올라가면
+  # 머지되지도 않은 이미지가 배포 대상 태그를 덮어쓴다.
+  # prod-ci가 PR에서 push: false로 빌드만 하고 cache-to는 그대로 두는 것과 같은 모양이다.
+  #
+  # 여기서 채운 cache-amd64를 머지 후 cd.yml의 build job이 그대로 받으므로,
+  # 실제 배포 빌드가 콜드에서 시작하지 않는다.
+  build:
+    name: 이미지 빌드 검증 · 캐시 적재
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin asia-northeast3-docker.pkg.dev
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 빌드 (push 없음, 캐시만 적재)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./back
+          file: ./back/Dockerfile
+          push: false
+          provenance: false
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
+
   pr-report:
-    needs: [checkstyle, spotbugs, test]
+    needs: [checkstyle, spotbugs, test, build]
     if: false
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 5
@@ -46,7 +83,7 @@ jobs:
           CHECKSTYLE_RESULT: ${{ needs.checkstyle.result }}
           SPOTBUGS_RESULT: ${{ needs.spotbugs.result }}
           TEST_RESULT: ${{ needs.test.result }}
-          BUILD_RESULT: ${{ needs.build-image.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
         run: python3 .github/scripts/generate-pr-comment.py
 
       - name: Post or update PR comment
@@ -82,4 +119,3 @@ jobs:
                 body,
               });
             }
-

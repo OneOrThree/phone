@@ -18,6 +18,11 @@ import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
+import {
+  groupCardEmojiLabel,
+  readGroupCardEmojiForEdit,
+  type GroupCardEmoji,
+} from './groupCardEmojiStore';
 
 // 그룹 설정 = 관리 허브 (root stack 'GroupSettings') — 3차 A-1. 그룹방 ⋯ 버튼에서 바로 진입한다.
 //
@@ -46,11 +51,14 @@ export default function GroupSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji | null>(null);
+  const [cardEmojiLoadFailed, setCardEmojiLoadFailed] = useState(false);
   // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
   const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
 
   // 요청 시퀀스 — 겹친 조회 중 늦게 온 이전 응답이 최신을 덮지 않게 한다(그룹 3화면 공통 패턴).
   const requestSeqRef = useRef(0);
+  const emojiRequestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
     const seq = ++requestSeqRef.current;
@@ -76,6 +84,29 @@ export default function GroupSettingsScreen() {
         requestSeqRef.current++;
       };
     }, [load]),
+  );
+
+  // 편집 화면에서 돌아올 때 현재 계정×그룹의 로컬 선택을 다시 읽는다. 저장소 오류를 기본
+  // 아이콘으로 위장하지 않아, 설정 행이 실제 선택과 다른 값을 현재값으로 안내하지 않게 한다.
+  useFocusEffect(
+    useCallback(() => {
+      const seq = ++emojiRequestSeqRef.current;
+      setCardEmoji(null);
+      setCardEmojiLoadFailed(false);
+      readGroupCardEmojiForEdit(userId, groupId).then(
+        (emoji) => {
+          if (seq !== emojiRequestSeqRef.current) return;
+          setCardEmoji(emoji);
+        },
+        () => {
+          if (seq !== emojiRequestSeqRef.current) return;
+          setCardEmojiLoadFailed(true);
+        },
+      );
+      return () => {
+        emojiRequestSeqRef.current++;
+      };
+    }, [groupId, userId]),
   );
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(GroupRoomScreen과 동일).
@@ -137,13 +168,25 @@ export default function GroupSettingsScreen() {
     label: string,
     onPress: () => void,
     testID: string,
+    helper?: string,
+    accessibilityLabel?: string,
   ) {
     return (
-      <TouchableOpacity style={s.navRow} activeOpacity={0.7} onPress={onPress} testID={testID}>
+      <TouchableOpacity
+        style={s.navRow}
+        activeOpacity={0.7}
+        onPress={onPress}
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+      >
         <View style={s.navIcon}>
           <Ionicons name={icon} size={17} color={T.accent} />
         </View>
-        <Text style={s.navLabel}>{label}</Text>
+        <View style={s.navText}>
+          <Text style={s.navLabel}>{label}</Text>
+          {helper && <Text style={s.navHelper}>{helper}</Text>}
+        </View>
         <Ionicons name="chevron-forward" size={16} color={T.inkMuted} />
       </TouchableOpacity>
     );
@@ -188,13 +231,39 @@ export default function GroupSettingsScreen() {
       </View>
     );
   } else {
-    // ── 허브 — 방장은 관리 행 + 나가기, 비방장은 나가기만 ──
+    const currentEmojiLabel = cardEmoji === null ? null : groupCardEmojiLabel(cardEmoji);
+    const cardEmojiHelper = cardEmojiLoadFailed
+      ? '현재 아이콘을 불러오지 못했어요'
+      : currentEmojiLabel === null
+        ? '현재 아이콘 불러오는 중…'
+        : `${cardEmoji} ${currentEmojiLabel} · 이 기기에서 나에게만 보여요`;
+    const cardEmojiAccessibilityLabel = cardEmojiLoadFailed
+      ? '내 카드 아이콘, 현재 아이콘을 불러오지 못했어요'
+      : currentEmojiLabel === null
+        ? '내 카드 아이콘, 현재 아이콘 불러오는 중'
+        : `내 카드 아이콘, 현재 ${currentEmojiLabel}, 이 기기에서 나에게만 보여요`;
+    // ── 허브 — 내 카드 아이콘은 역할 공통, 서버 운영 행만 방장 전용 ──
     body = (
       <ScrollView
         style={s.scroll}
         contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + T.space.xxl }]}
         showsVerticalScrollIndicator={false}
       >
+        {me && (
+          <>
+            <Text style={s.sectionTitle}>내 설정</Text>
+            <View style={s.navGroup}>
+              {navRow(
+                'color-palette-outline',
+                '내 카드 아이콘',
+                () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
+                'group.settings.cardEmoji',
+                cardEmojiHelper,
+                cardEmojiAccessibilityLabel,
+              )}
+            </View>
+          </>
+        )}
         {isOwner && (
           <>
             <Text style={s.sectionTitle}>그룹 관리</Text>
@@ -323,7 +392,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: T.accentBg,
   },
-  navLabel: { ...T.text.label, flex: 1, color: T.ink },
+  navText: { flex: 1, gap: 2 },
+  navLabel: { ...T.text.label, color: T.ink },
+  navHelper: { ...T.text.caption, color: T.inkSub },
 
   // 그룹 나가기 — 관리 행과 같은 카드 규격, 위험 색(accentAlt)
   leaveRow: {
