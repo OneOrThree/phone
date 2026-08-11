@@ -181,9 +181,17 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
                 .occupation(Occupation.CODING)
                 .tierLevel(3)
                 .build());
+        // 유니코드 공백-only — Java isBlank() 는 걸러도 btrim 은 통과시키던 값. 두 판정이 어긋나면
+        // 티어는 미배정인데 랭킹엔 뜨는 상태가 된다 (코드리뷰 반영).
+        User unicodeBlankLegacy = userRepository.save(User.builder()
+                .nickname("\u2003\u2003")
+                .occupation(Occupation.CODING)
+                .tierLevel(3)
+                .build());
         saveStat(guestWithNickname, MONDAY, 50);
         saveStat(onboardingDropout, MONDAY, 9999);
         saveStat(blankNicknameLegacy, MONDAY, 8888);
+        saveStat(unicodeBlankLegacy, MONDAY, 7777);
         flushFixtures();
 
         assertThat(leagueRankingQueryRepository.findTop(MONDAY, TUESDAY, null, 100))
@@ -197,6 +205,8 @@ class LeagueRankingQueryRepositoryTest extends RepositoryTestBase {
         assertThat(leagueRankingQueryRepository.findRankOf(onboardingDropout.getId(), MONDAY, TUESDAY))
                 .isEmpty();
         assertThat(leagueRankingQueryRepository.findRankOf(blankNicknameLegacy.getId(), MONDAY, TUESDAY))
+                .isEmpty();
+        assertThat(leagueRankingQueryRepository.findRankOf(unicodeBlankLegacy.getId(), MONDAY, TUESDAY))
                 .isEmpty();
     }
 

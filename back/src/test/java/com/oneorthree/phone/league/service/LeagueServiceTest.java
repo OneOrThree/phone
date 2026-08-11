@@ -196,11 +196,11 @@ class LeagueServiceTest {
     }
 
     @Test
-    @DisplayName("내 티어 조회 - 공백-only 닉네임 레거시 행 → assigned=false")
+    @DisplayName("내 티어 조회 - 공백-only 닉네임 레거시 행 → assigned=false (유니코드 공백 포함, 랭킹 쿼리와 동일 판정)")
     void getMyTierBlankNicknameIsUnassigned() {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(User.builder()
                 .id(USER_ID)
-                .nickname("   ")
+                .nickname("\u2003\u2003")
                 .tierLevel(3)
                 .build()));
 
