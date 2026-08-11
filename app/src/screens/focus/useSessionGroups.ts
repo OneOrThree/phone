@@ -82,9 +82,16 @@ export function useSessionGroups({
         next.push({ groupId: g.groupId, groupName: g.name, members });
       });
       setGroups(next);
-      // 전 그룹 조회가 실패한 회차는 직전 값을 유지한다 — null로 되돌리면 내 셀이 로컬 축으로
-      // 되돌아갔다가 다음 폴링에 다시 서버 축으로 튄다. 기준일은 이 응답을 받은 today.
-      if (myMinutes != null) setMyFocus({ day: today, minutes: myMinutes });
+      // 그룹이 0개인 성공 응답은 **폐기**다(코덱스 리뷰 ⑨) — 세션 중 마지막 그룹에서 나가거나
+      // 강퇴되면 이후 폴링이 상세 요청을 하나도 만들지 않아 옛 스냅샷이 영영 갱신되지 않는다.
+      // 내 셀은 친구·리그 페이지까지 공유하므로 그 화면들도 함께 낡은 기준값에 묶인다.
+      if (myGroups.length === 0) {
+        setMyFocus(null);
+      } else if (myMinutes != null) {
+        // 그룹은 있는데 전 그룹 상세가 실패한 회차는 직전 값을 유지한다 — null로 되돌리면 내 셀이
+        // 로컬 축으로 되돌아갔다가 다음 폴링에 다시 서버 축으로 튄다. 기준일은 이 응답의 today.
+        setMyFocus({ day: today, minutes: myMinutes });
+      }
     } catch {
       // 네트워크 실패 시 기존 상태 유지 — 다음 폴링에서 재시도.
     }
