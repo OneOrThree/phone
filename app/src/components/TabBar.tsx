@@ -10,15 +10,22 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { M, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
-import { GlassPillFill, isLiquidGlassSupported } from '@/components/liquidGlass';
+import {
+  GlassPillFill,
+  glassBarFill,
+  glassBarHighlight,
+  glassBarStroke,
+  glassBarTint,
+  isLiquidGlassSupported,
+} from '@/components/liquidGlass';
+import { BAR_H, FAB_LIFT, FAB_R } from '@/components/tabBarLayout';
 import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
 
 // 커스텀 탭바 — Claude Design "01 홈" 시안: 글래스 바 + 4탭 + 중앙 FAB(집중 시작).
 // 바 배경은 SVG 패스 — 상단 가운데가 FAB 모양으로 오목하게 파인다(겹침 대신 안착).
 
-const BAR_H = 56;
-
+// 치수는 tabBarLayout.ts가 정본 — 화면들이 ESM(liquid-glass) 없이 쓸 수 있어야 해서 분리했다.
 // GROMO-652: 홈 첫 진입 가이드가 중앙 FAB를 스포트라이트하기 위한 윈도 좌표.
 // wrap(bottom:0, paddingTop=T.space.sm, paddingBottom=max(insets.bottom, T.space.sm))과
 // fab(top: T.space.sm - FAB_LIFT - FAB_R, 중앙 정렬) 레이아웃을 그대로 수식화한 값 —
@@ -38,12 +45,9 @@ export function fabWindowRect(
   };
 }
 const BAR_R = 28; // 바 모서리
-const FAB_R = 28; // FAB 반지름(56/2)
 const NOTCH_R = FAB_R + 5; // 파임 반지름 — FAB 둘레에 5px 숨통
-const FAB_LIFT = -8; // FAB 중심의 바 상단선 대비 높이 — 양수=위로 뜸, 0=반 안착, 음수=더 깊이 안착
-// 유리 느낌 — 기존 0.96이 탁해 보여 투명도를 크게 낮춤(파임 형태라 BlurView 마스킹 불가, 반투명으로 대체)
-const BAR_FILL = 'rgba(252,250,246,0.55)';
-const BAR_STROKE = 'rgba(255,255,255,0.75)';
+// 유리 느낌 — 기존 0.96이 탁해 보여 투명도를 크게 낮춤(파임 형태라 BlurView 마스킹 불가, 반투명으로 대체).
+// 색은 glassBarFill/glassBarStroke(liquidGlass.tsx)가 정본 — 그룹방 하단바와 같은 값을 쓴다.
 
 // 리퀴드 글래스 하이라이트 — 선택 탭을 감싸는 유리 알약(타원)이 탭 전환마다 미끄러져 이동
 // (iOS 26 리퀴드 글래스 탭 스위처 참고 — 굴절 필터는 RN에서 불가, 반투명 타원+오버슛으로 질감만)
@@ -145,7 +149,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       <View style={s.bar} onLayout={(e) => setBarW(e.nativeEvent.layout.width)}>
         {barW > 0 && (
           <Svg width={barW} height={BAR_H} style={StyleSheet.absoluteFill}>
-            <Path d={barPath(barW)} fill={BAR_FILL} stroke={BAR_STROKE} strokeWidth={1} />
+            <Path d={barPath(barW)} fill={glassBarFill} stroke={glassBarStroke} strokeWidth={1} />
           </Svg>
         )}
         {barW > 0 && (
@@ -159,7 +163,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               m.css(highlightSlide),
             ]}
           >
-            <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor="rgba(255,255,255,0.45)" />
+            <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor={glassBarTint} />
           </Animated.View>
         )}
         <Tab index={0} state={state} navigation={navigation} />
@@ -237,9 +241,7 @@ const s = StyleSheet.create({
     width: HIGHLIGHT_W,
     height: HIGHLIGHT_H,
     borderRadius: HIGHLIGHT_H / 2,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
+    ...glassBarHighlight,
   },
   // 네이티브 유리를 쓸 땐 자체 배경·테두리를 끈다(채움은 GlassPillFill)
   highlightGlassHost: { backgroundColor: 'transparent', borderWidth: 0 },

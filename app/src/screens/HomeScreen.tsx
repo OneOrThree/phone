@@ -45,6 +45,7 @@ import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { PressableScale } from '@/components/PressableScale';
 import { fabWindowRect } from '@/components/TabBar';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { kstLocalSameDay, todayStr } from '@/utils/localDate';
@@ -87,6 +88,13 @@ const ENTER_TOTAL_MS = staggerDelay(CARD_ENTER_INDEX) + M.dur.base;
 // 진행바는 카드가 **자리를 잡은 뒤** 찬다(설계 §6). 카드 진입과 같은 시차(120)를 주면 둘이
 // 거의 동시에 재생돼 순서가 성립하지 않는다 — 진입 완료 시각에 맞춘다.
 const BAR_DELAY = ENTER_TOTAL_MS;
+
+// 캐릭터 크기 — 짧은 세로 화면(iPhone SE 667 등)에선 줄인다(GROMO-1487).
+// 216 그대로면 캐릭터 + '캐릭터 변경'(약 46)이 남는 높이를 넘어 버튼이 접히는 선 아래로 내려간다.
+// 기준 700은 "SE(667)는 줄이고 그 위(8 Plus 736 이상)는 손대지 않는다" 선이다.
+const CHAR_SIZE = 216;
+const CHAR_SIZE_SHORT = 176;
+const SHORT_SCREEN_H = 700;
 
 // 초 → "N시간 M분" (목표 표시용)
 function hm(totalSeconds: number): string {
@@ -616,6 +624,10 @@ export default function HomeScreen() {
               </View>
               <View style={s.nameCol}>
                 <View style={s.nameRow}>
+                  {/* 닉네임은 최대 10자 — 320pt급 폭에선 순위 배지·알림 벨을 밀어낸다.
+                      기본 배율에서 줄이는 건 닉네임뿐이고 배지·벨은 그대로 둔다(GROMO-1487).
+                      다만 기기 글자 크기를 키우면 배지 안 '12위'까지 같이 커져 닉네임을 0으로
+                      줄여도 모자라므로, 배지·티어 줄에도 flexShrink를 뒀다(GROMO-1485). */}
                   <Text style={s.nickname} numberOfLines={1}>
                     {nickname}
                   </Text>
@@ -656,7 +668,7 @@ export default function HomeScreen() {
                 reduce 처리는 컴포넌트 안에 있으므로 호출부에서 다시 분기하지 않는다. */}
             <AnimatedCharacter
               testID="home.character"
-              size={216}
+              size={winH < SHORT_SCREEN_H ? CHAR_SIZE_SHORT : CHAR_SIZE}
               sourceUri={activeSource ?? undefined}
               // 다른 탭으로 가도 홈은 언마운트되지 않는다(MainTabs에 unmountOnBlur 없음) —
               // 보이지도 않는 캐릭터의 무한 호흡이 앱 세션 내내 UI 스레드를 먹는다(codex 리뷰).
@@ -679,8 +691,15 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* ── 오늘 요약 카드 (하단 탭바 바로 위 고정, 스크롤 밖) ── (진입 stagger 2) */}
+        {/* 아래 여백 = 탭바가 덮는 높이(FAB 솟은 만큼 포함) + 한 칸 — 홈 인디케이터가 없는
+            기기(iPhone SE 등)에서 FAB가 카드 아래쪽을 덮던 문제를 막는다(GROMO-1487). */}
         <Animated.View
-          style={[s.card, { marginBottom: insets.bottom + 74 }, enter(CARD_ENTER_INDEX)]}
+          testID="home.today.card"
+          style={[
+            s.card,
+            { marginBottom: tabBarSafeBottom(insets.bottom) + T.space.sm },
+            enter(CARD_ENTER_INDEX),
+          ]}
           ref={todayCardRef}
           collapsable={false}
         >
@@ -809,9 +828,9 @@ const s = StyleSheet.create({
     paddingTop: T.space.sm,
     paddingBottom: T.space.sm,
   },
-  // 글자를 키우면 닉네임·순위 배지가 알림 벨을 밀어낸다 — 이름 칸이 줄어들게 한다(GROMO-1485).
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.md, flexShrink: 1 },
-  nameCol: { flexShrink: 1 },
+  // flex:1 — 남는 폭을 다 쓰되, 좁아지면 여기가 줄어 알림 벨(고정 40)이 밀려나지 않는다.
+  profileRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: T.space.md },
+  nameCol: { flex: 1 },
   avatar: {
     width: 44,
     height: 44,
@@ -821,7 +840,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, flexShrink: 1 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
   nickname: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   rankBadge: {
     flexDirection: 'row',
@@ -865,8 +884,10 @@ const s = StyleSheet.create({
     borderColor: T.chipBg,
   },
 
-  // 방 + 캐릭터 — 가운데를 채우고, 카드를 하단으로 밀어냄
-  room: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: T.space.xs },
+  // 방 + 캐릭터 — 남는 높이를 채워 가운데 정렬하되, **줄어들지는 않는다**(flex:1 아님).
+  // flexBasis가 내용 높이라 짧은 세로 화면에선 스크롤이 생길 뿐 캐릭터가 눌리지 않는다
+  // (flex:1이면 basis 0이라 남는 높이가 캐릭터보다 작을 때 위아래가 잘렸다, GROMO-1487).
+  room: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', marginTop: T.space.xs },
   // 캐릭터 변경 pill — 캐릭터 바로 아래, 은은한 인디고 틴트
   changeCharBtn: {
     flexDirection: 'row',
@@ -896,10 +917,13 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
+  // 제목 | 칩 묶음 — 한 줄에 다 안 들어가면 칩 묶음이 통째로 아랫줄로 내려간다(잘림 대신 줄바꿈).
+  // 오른쪽 정렬은 marginLeft:'auto'가 맡는다 — space-between은 줄바꿈되면 왼쪽으로 붙는다.
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: T.space.sm,
     marginBottom: T.space.md,
   },
   cardTitle: { ...T.text.subtitle, color: T.ink },
@@ -907,7 +931,12 @@ const s = StyleSheet.create({
   moreBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   more: { ...T.text.label, color: T.accent },
   // 연속 공부 칩(GROMO-630)
-  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.sm,
+    marginLeft: 'auto',
+  },
   streakChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -946,7 +975,8 @@ const s = StyleSheet.create({
     marginBottom: T.space.sm,
   },
   metricValue: { ...T.text.stat, color: T.ink },
-  goalText: { ...T.text.caption, color: T.inkMuted },
+  // 좁은 폭에서 값(고정 폭)과 부딪히면 목표 쪽이 줄어 말줄임된다 — 값이 잘리는 것보다 낫다.
+  goalText: { ...T.text.caption, color: T.inkMuted, flexShrink: 1 },
   usageReport: { width: '100%', height: 50, marginTop: 1 },
   // 권한 미허용 안내(GROMO-986) — 리포트(높이 50) 자리를 그대로 차지해 카드 레이아웃 유지
   permissionWrap: {

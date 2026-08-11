@@ -6,6 +6,8 @@
 // 애니메이션 중간 프레임·타이밍·이징은 단언하지 않는다 — jest에서 워클릿은 목이라 거짓 안정감이다.
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
+import { T } from '@/constants/theme';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -94,11 +96,8 @@ jest.mock('@/services/analyticsEvents', () => ({
   logHomeRefreshed: jest.fn(),
 }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
-// TabBar는 fabWindowRect(투어 스포트라이트 좌표) 하나 때문에 들어온다 — 전이로 딸려오는
-// @callstack/liquid-glass가 ESM이라 목으로 끊지 않으면 스위트가 로드 단계에서 죽는다.
-jest.mock('@/components/TabBar', () => ({
-  fabWindowRect: () => ({ x: 0, y: 0, width: 0, height: 0 }),
-}));
+// (TabBar에서 fabWindowRect(투어 스포트라이트 좌표) 하나만 쓴다. 전이로 딸려오던
+//  @callstack/liquid-glass는 jest.setup.js가 통째로 스텁하므로 목이 필요없다.)
 
 let mockReduce = false;
 jest.mock('@/hooks/useReduceMotion', () => ({
@@ -236,6 +235,15 @@ describe('HomeScreen 진입 stagger', () => {
     expect(screen.getByTestId('home.screen')).toBeTruthy();
     expect(screen.getByTestId('home.today.detail')).toBeTruthy();
     expect(screen.getByText('공부 집중')).toBeTruthy();
+  });
+});
+
+describe('HomeScreen 오늘 카드 여백(GROMO-1487)', () => {
+  test('카드 아래 여백은 탭바가 덮는 높이에서 나온다 — 매직넘버 74가 아니다', async () => {
+    await render(<HomeScreen />);
+    // 하단 인셋 34(목) → 탭바가 덮는 높이 + 한 칸. 예전 규칙(34 + 74 = 108)과는 다른 값이다.
+    expect(styleOf('home.today.card').marginBottom).toBe(tabBarSafeBottom(34) + T.space.sm);
+    expect(styleOf('home.today.card').marginBottom).toBeGreaterThan(34 + 74);
   });
 });
 

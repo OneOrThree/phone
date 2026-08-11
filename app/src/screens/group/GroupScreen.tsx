@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { CharacterImage } from '@/components/character/CharacterImage';
+import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
 import type { GroupSummaryResponse } from '@/types/dto/group';
@@ -43,9 +44,6 @@ import GroupInviteSheet from './components/GroupInviteSheet';
 // 여러 개든 항상 목록을 먼저 보여주는** 것으로 통일했다 — 목록 카드를 탭하면 소속 수와
 // 무관하게 GroupRoom 라우트로 push 한다(내장 렌더·showList 분기 제거).
 // 초대 링크로 들어온 경우엔 어느 분기 위에든 GroupInviteSheet를 덮어 띄운다(§6-6).
-
-// 플로팅 탭바가 가리는 하단 여백(리그·홈 화면과 동일 기준)
-const TAB_BAR_SPACE = 74;
 
 function groupCountBucket(count: number): GroupCountBucket {
   if (count === 0) return '0';
@@ -378,7 +376,7 @@ export default function GroupScreen() {
   if (isGuest) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+        <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
           <CharacterImage size={140} />
           <Text style={s.title}>로그인하고 그룹을 시작해요</Text>
           <Text style={s.desc}>
@@ -433,7 +431,7 @@ export default function GroupScreen() {
   if ((groups === null || transitioning) && error) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+        <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
           <Text style={s.title}>그룹을 불러오지 못했어요</Text>
           <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchGroups()}>
@@ -480,7 +478,7 @@ export default function GroupScreen() {
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       {staleNotice}
-      <View style={[s.body, { paddingBottom: insets.bottom + TAB_BAR_SPACE }]}>
+      <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
         <CharacterImage size={140} />
         <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>
         <Text style={s.desc}>그룹을 찾거나 직접 만들 수 있어요</Text>
