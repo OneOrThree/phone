@@ -39,7 +39,7 @@ import static org.mockito.Mockito.verify;
  * GroupAnnouncementService 단위 테스트 골격.
  *
  * <p>대상: 공지 생성/조회/수정/삭제.
- * 핵심 검증 포인트는 게스트 차단, 멤버십 존재, 그리고 공지 관리 권한
+ * 핵심 검증 포인트는 멤버십 존재, 그리고 공지 관리 권한
  * (GROMO-676: OWNER ∨ group_members.announcement_permission=ALLOW).
  */
 @ExtendWith(MockitoExtension.class)
@@ -133,10 +133,11 @@ class GroupAnnouncementServiceTest {
     }
 
     @Test
-    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
-    void createAnnouncementGuestForbidden() {
-        // given: 게스트 유저
+    @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void createAnnouncementAllowsGuest() {
+        // given: 게스트 유저, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user(true)));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         CreateAnnouncementRequest request = new CreateAnnouncementRequest("제목", "내용");
 
@@ -144,7 +145,7 @@ class GroupAnnouncementServiceTest {
         assertThatThrownBy(() -> groupAnnouncementService.createAnnouncement(GROUP_ID, USER_ID, request))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
         verify(groupAnnouncementRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
@@ -226,16 +227,17 @@ class GroupAnnouncementServiceTest {
     }
 
     @Test
-    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
-    void getAnnouncementsGuestForbidden() {
-        // given: 게스트 유저
+    @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void getAnnouncementsAllowsGuest() {
+        // given: 게스트 유저, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(user(true)));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupAnnouncementService.getAnnouncements(GROUP_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test

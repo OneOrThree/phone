@@ -472,10 +472,6 @@ public class GroupService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
@@ -596,9 +592,6 @@ public class GroupService {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -669,12 +662,13 @@ public class GroupService {
     }
 
     /**
-     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1226) — 그룹 생성·참여처럼
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1226) — 그룹 생성·참여처럼
      * users 행을 <b>읽기만 하고</b> 그 값을 변경(멤버십 저장)의 근거로 쓰는 트랜잭션의 요청자 로드.
      * 락 없는 findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아
      * 탈퇴의 정리 스캔 이후·커밋 이전에 낀 변경이 유령(탈퇴자 소유 그룹·멤버십)으로 남는다.
      * 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
-     * is_deleted=true 를 보고 NOT_FOUND(404) 로 거절된다. 게스트는 GUEST_FORBIDDEN(403).
+     * is_deleted=true 를 보고 NOT_FOUND(404) 로 거절된다. 게스트도 소셜 로그인 유저와 동일하게
+     * 통과한다(GROMO-1509 — 그룹 도메인 게스트 차단 전면 해제).
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
      * {@code @Transactional(readOnly = true)} 라 Postgres 가 FOR SHARE 를 거절한다
@@ -682,12 +676,8 @@ public class GroupService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        User user = userRepository.findActiveByIdForShare(userId)
+        return userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
     }
 
     /**
