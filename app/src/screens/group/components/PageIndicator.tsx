@@ -158,12 +158,13 @@ export function PageIndicator({
 
 const s = StyleSheet.create({
   container: {
-    height: 44,
-    marginTop: -56,
+    // FlatList의 카드 영역 다음에 문서 흐름대로 놓인다. 음수 여백으로 카드 위에
+    // 겹치지 않으며, counter 텍스트가 커질 때는 44pt보다 세로로 늘어날 수 있다.
+    minHeight: 44,
+    marginTop: 0,
     marginBottom: T.space.md,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
   },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {

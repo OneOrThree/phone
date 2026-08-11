@@ -1,7 +1,15 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { T } from '@/constants/theme';
 import { PageIndicator, requiredDotsWidth, resolveIndicatorMode } from './PageIndicator';
 
 describe('PageIndicator', () => {
+  function indicatorMarkStyle(page: number) {
+    const mark = screen.getByTestId(`group.deck.indicator.dot.${page}`).children[0];
+    if (typeof mark === 'string') throw new Error('인디케이터 mark View가 필요합니다');
+    return StyleSheet.flatten(mark.props.style);
+  }
+
   test('실측 폭과 N+1 페이지 수로 dots/counter를 결정한다', () => {
     expect(requiredDotsWidth(5)).toBe(236);
     expect(requiredDotsWidth(6)).toBe(284);
@@ -24,6 +32,31 @@ describe('PageIndicator', () => {
     );
 
     expect(onSelectPage).toHaveBeenCalledWith(2);
+  });
+
+  test('카드와 겹치지 않는 독립 영역에서 active pill과 inactive dot을 유지한다', async () => {
+    await render(<PageIndicator pageCount={3} activeIndex={1} onSelectPage={jest.fn()} />);
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.indicator'), 'layout', {
+        nativeEvent: { layout: { width: 400 } },
+      });
+    });
+
+    const container = StyleSheet.flatten(screen.getByTestId('group.deck.indicator').props.style);
+    const inactive = indicatorMarkStyle(0);
+    const active = indicatorMarkStyle(1);
+
+    expect(container).toEqual(
+      expect.objectContaining({ minHeight: 44, marginTop: 0, marginBottom: T.space.md }),
+    );
+    expect(container.height).toBeUndefined();
+    expect(container.zIndex).toBeUndefined();
+    expect(inactive).toEqual(
+      expect.objectContaining({ width: 8, height: 8, backgroundColor: T.borderDark }),
+    );
+    expect(active).toEqual(
+      expect.objectContaining({ width: 36, height: 8, backgroundColor: T.accent }),
+    );
   });
 
   test('접근성 activate는 전용 trigger 콜백으로 페이지를 선택한다', async () => {
