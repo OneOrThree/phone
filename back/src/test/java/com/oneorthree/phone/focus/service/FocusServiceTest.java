@@ -2641,19 +2641,53 @@ class FocusServiceTest {
         FocusSessionStartResponse second =
                 focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, boundaryAt));
 
-        // then: ② 는 마커를 닫지도(autoClose) 새로 만들지도(save) 않는다 — 최신 마커가 유일한 라이브
+        // then: ② 는 마커를 닫지도(autoClose) 새로 만들지도(save) 않는다 — 최신 마커가 유일한 라이브.
+        // (1라운드 P1: ② 가 최신 마커를 AUTO_CLOSED 로 닫고 과거 시각 마커를 라이브로 만들었다)
         assertThat(first.sessionId()).isEqualTo(newerMarkerId);
         verify(focusSessionRepository, times(1)).save(any(FocusSession.class));
         verify(focusSessionRepository, times(1)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
-        // 그리고 앱이 진짜 라이브 마커로 수렴하도록 그 id·startedAt 을 그대로 돌려준다(멱등 no-op).
-        // 4xx 로 거절하면 앱 liveIdRef 가 비어 라이브 표시가 사라진다.
-        assertThat(second.sessionId()).isEqualTo(newerMarkerId);
-        assertThat(second.startedAt()).isEqualTo(capAt);
+        // 그리고 ② 는 sessionId=null 을 받는다 — **기존 마커 id 를 재사용하면 안 된다**.
+        // ①·② 는 서로 다른 블록이라, 같은 id 를 주면 뒤늦은 PATCH 가 SESSION_ALREADY_ENDED(앱이 POST
+        // 폴백을 하지 않는 코드)를 받아 그 블록의 시간·코인이 영구 유실된다. null 이면 앱이
+        // uploadFocusBlock 의 '마커 없음' 경로로 곧바로 POST 해 적립을 지킨다.
+        assertThat(second.sessionId()).isNull();
     }
 
     @Test
-    @DisplayName("동률(같은 startedAt) 재요청 → 새 마커를 만들지 않고 기존 마커 id 를 그대로 돌려준다(멱등)")
-    void duplicateStartWithSameStartedAtIsIdempotent() {
+    @DisplayName("역순 도착한 두 start 는 서로 다른 응답을 받는다 — 같은 마커 id 를 공유하지 않는다(적립 유실 차단)")
+    void reorderedStartsNeverShareTheSameMarkerId() {
+        // given: 서로 다른 두 집중 블록의 start (각 블록은 자기 응답의 sessionId 로 PATCH 한다)
+        Instant earlierBlock = withinClampWindow(240);
+        Instant laterBlock = withinClampWindow(30);
+        User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000e1");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder()
+                        .id(markerId).user(user)
+                        .startedAt(((FocusSession) inv.getArgument(0)).getStartedAt())
+                        .build());
+        FocusSession created = FocusSession.builder().id(markerId).user(user).startedAt(laterBlock).build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(created));
+
+        // when: 나중 블록이 먼저 도착, 이른 블록이 뒤늦게 도착
+        FocusSessionStartResponse withMarker =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, laterBlock));
+        FocusSessionStartResponse withoutMarker =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, earlierBlock));
+
+        // then: 두 블록이 같은 마커를 PATCH 하는 일이 없다 — 하나는 마커 id, 하나는 null
+        assertThat(withMarker.sessionId()).isEqualTo(markerId);
+        assertThat(withoutMarker.sessionId()).isNull();
+        assertThat(withoutMarker.sessionId()).isNotEqualTo(withMarker.sessionId());
+        // null 응답에도 startedAt 은 채워 보낸다(구앱이 필드 존재를 전제해도 안전) — 가리키는 세션은 없다
+        assertThat(withoutMarker.startedAt()).isEqualTo(earlierBlock);
+    }
+
+    @Test
+    @DisplayName("동률(같은 startedAt) 재요청 → 마커를 새로 만들지도 닫지도 않고 sessionId=null")
+    void duplicateStartWithSameStartedAtCreatesNoMarker() {
         // given: 같은 경계 시각으로 두 번 계산·재전송된 start
         Instant boundaryAt = withinClampWindow(60);
         User user = User.builder().id(USER_ID).build();
@@ -2667,8 +2701,9 @@ class FocusServiceTest {
         FocusSessionStartResponse response =
                 focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, boundaryAt));
 
-        // then: 회전하면 같은 시각의 새 행이 생기고, 먼저 응답을 받아 id 를 기록한 앱이 닫힌 마커를 든다
-        assertThat(response.sessionId()).isEqualTo(markerId);
+        // then: 회전하면 같은 시각의 새 행이 생기고, 먼저 응답을 받아 id 를 기록한 앱이 닫힌 마커를 든다.
+        // 그렇다고 기존 id 를 재사용하면 두 블록이 같은 마커를 PATCH 해 한쪽 적립이 유실된다 → null.
+        assertThat(response.sessionId()).isNull();
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
         verify(focusSessionRepository, never()).autoCloseOpenMarkersOf(any(), any());
     }
@@ -2706,9 +2741,10 @@ class FocusServiceTest {
         //  최신 마커를 AUTO_CLOSED 한 뒤 자기 마커를 남겼다 — 이 티켓의 2차 P1 회귀.)
         verify(focusSessionRepository, times(1)).save(any(FocusSession.class));
         verify(focusSessionRepository, times(1)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
-        // 버스트의 모든 요청이 같은 id 를 돌려받아 앱(liveIdRef)이 그 마커로 수렴한다 → POST 폴백·유령 마커 없음
+        // 마커는 첫 요청 것 하나뿐이고, 뒤늦게 도착한 블록은 sessionId=null 을 받아 POST 로 적립한다.
+        // (같은 id 를 공유시키면 두 블록이 같은 마커를 PATCH 해 한쪽이 SESSION_ALREADY_ENDED → 적립 유실)
         assertThat(first.sessionId()).isEqualTo(markerId);
-        assertThat(second.sessionId()).isEqualTo(markerId);
+        assertThat(second.sessionId()).isNull();
     }
 
     @Test
@@ -2728,9 +2764,8 @@ class FocusServiceTest {
         FocusSessionStartResponse response = focusService.startFocusSession(USER_ID,
                 new FocusSessionStartRequest(null, Instant.now().minus(Duration.ofHours(12))));
 
-        // then: 저장값(now)이 아니라 원래 요청 시각(12시간 전)으로 판정 → 회전 없음, 기존 마커 반환
-        assertThat(response.sessionId()).isEqualTo(markerId);
-        assertThat(response.startedAt()).isEqualTo(markerStartedAt);
+        // then: 저장값(now)이 아니라 원래 요청 시각(12시간 전)으로 판정 → 회전 없음, 마커 미생성(null)
+        assertThat(response.sessionId()).isNull();
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
         verify(focusSessionRepository, never()).autoCloseOpenMarkersOf(any(), any());
     }

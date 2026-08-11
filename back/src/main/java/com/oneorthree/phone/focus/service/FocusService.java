@@ -696,14 +696,33 @@ public class FocusService {
      * 남아 소비처의 "최신 우선" 정렬이 오히려 최신을 지켜줬으므로, 이 방어는 <b>불변식과 한 몸</b>이다.
      * <ul>
      *   <li>열린 마커의 {@code startedAt} 보다 <b>엄격히 늦은</b> 요청만 회전으로 인정한다.</li>
-     *   <li>그렇지 않으면 <b>기존 마커를 그대로 두고 그 id·startedAt 을 돌려준다</b>(멱등 no-op).
-     *       에러로 거절하지 않는 이유: 앱은 응답의 {@code sessionId} 를 마커 참조로 쓰는데
-     *       ({@code liveIdRef}), 4xx 를 주면 참조가 비어 그 블록의 종료가 마커 없는 POST 폴백으로 가고
-     *       라이브 표시가 사라진다. 기존 마커 id 를 주면 앱이 <b>진짜 라이브 마커로 수렴</b>한다.
-     *       재시도로 같은 요청이 두 번 와도 같은 id 가 나가 멱등이다.</li>
-     *   <li>동률(같은 시각)도 no-op 이다 — 회전해 봐야 같은 시각의 새 행일 뿐인데, 먼저 응답을 받아
+     *   <li>그렇지 않으면 <b>기존 마커를 건드리지 않고 {@code sessionId = null} 을 돌려준다</b>
+     *       (= "이 요청으로는 마커를 만들지 않았다"). 자세한 이유는 아래 별도 문단.</li>
+     *   <li>동률(같은 시각)도 마찬가지다 — 회전해 봐야 같은 시각의 새 행일 뿐인데, 먼저 응답을 받아
      *       id 를 기록한 앱이 닫힌 마커를 들게 된다.</li>
      * </ul>
+     *
+     * <p><b>왜 기존 마커 id 를 재사용하면 안 되는가(codex 리뷰 P1 3차 — 적립 유실)</b>. 역순 도착한
+     * start 들은 <b>서로 다른 집중 블록</b>이다. 그 전부에 같은 마커 id 를 주면 각 블록의
+     * {@code settleFocusBlock} 이 같은 id 로 PATCH 를 보내고, 먼저 도착한 하나만 적립된다 — 나머지는
+     * {@code SESSION_ALREADY_ENDED} 를 받는데 앱은 <b>그 코드에서만 POST 폴백을 하지 않는다</b>
+     * ({@code uploadFocusBlock.ts}: 이미 커밋된 마커로 보고 종결). 그래서 그 블록의 집중 시간과 코인이
+     * <b>영구 유실</b>된다. 서버는 재전송(같은 블록)과 역순 도착(다른 블록)을 구분할 수단이 없으므로,
+     * "id 를 재사용해도 멱등"이라는 전제 자체가 성립하지 않는다 — 재사용을 아예 하지 않는다.
+     *
+     * <p><b>왜 4xx 가 아니라 {@code sessionId = null} 인가</b>. 앱은 이미 "마커 없는 블록"을 1급 경로로
+     * 갖고 있다 — {@code uploadFocusBlock(sessionId: null)} 은 PATCH 를 통째로 건너뛰고 곧바로
+     * {@code POST /focus-session} 으로 적립한다(오프라인 시작 블록이 쓰는 그 길). 없던 길을 내는 게
+     * 아니라 있는 길로 보내는 것이라 <b>앱 수정 없이 하위호환</b>이다. 4xx 를 주면 앱이
+     * {@code logFocusMarkerStartFailed} 만 남기는데, 그때도 POST 로 가긴 하지만 실패로 계측돼 지표가
+     * 오염되고 정상 동작을 에러로 표현하게 된다.
+     *
+     * <p><b>이 블록이 잃는 것(수용, GROMO-1214 와의 관계)</b>: 마커를 안 거치므로 1214 가 세운
+     * "서버 발급 마커를 거쳐야만 지급" 성질을 잃고 구 POST 경로(클라 신뢰)로 적립된다. 오프라인 시작
+     * 블록이 이미 지고 있는 <b>기존 트레이드</b>이지 새 구멍이 아니고, 대안은 그 블록의 시간·코인을
+     * 통째로 잃는 것이라 이쪽을 받는다. 라이브 표시도 잃지만 이 분기가 걸리는 블록은 전부 <b>과거
+     * 블록</b>(리플레이 버스트·도착 역전)이라 실시간 표시 가치가 애초에 없고, 살아남는 마커는 언제나
+     * 최신 것이다.
      *
      * <p><b>순서 판정은 클램프 <em>이전</em> 클라 시각으로 한다(codex 리뷰 P1 2차)</b>. 저장값은 종전대로
      * {@link #clampToServerNow} 를 거치지만, 그 클램프 값을 판정에 쓰면 규칙이 무력화된다 — 5분 넘게
@@ -711,7 +730,7 @@ public class FocusService {
      * 치환</b>돼 논리적 순서 정보가 사라지고 도착 순서만 남는다. 그러면 늦게 도착한(논리적으로 이른)
      * 요청의 값이 오히려 더 커서 단조성을 통과해 최신 마커를 닫는다. 원래 요청 시각을 순서 키로 쓰면
      * 그 버스트의 요청들이 전부 "이미 열린 마커(= 서버 now)보다 이르다"로 판정돼 <b>마커 1개로 수렴</b>
-     * 하고, 모든 요청이 같은 id 를 돌려받아 앱도 그 마커로 수렴한다(회전 churn·POST 폴백 없음).
+     * 한다 — 첫 요청만 마커를 갖고, 나머지 블록은 {@code sessionId = null} 을 받아 POST 로 적립한다.
      *
      * <p><b>클램프 이전 값을 판정에 써도 안전한 이유</b>: 이 값은 <b>저장되지 않고</b> 비교에만 쓰인다
      * (GROMO-1214 의 위조 방어 = "저장·집계에 클라 시각이 들어가지 않는다"는 그대로다). 조회
@@ -726,13 +745,15 @@ public class FocusService {
      * 앱 변경이 필요해 이 티켓 범위 밖이다. 남는 것:
      * <ul>
      *   <li>기기 시계가 크게 <b>앞선</b> 클라 — 매 start 가 판정을 통과해 회전 churn 이 생긴다.
-     *       크게 <b>뒤처진</b> 클라 — 열린 마커가 있는 동안 회전이 계속 no-op 이 된다(마커가 PATCH·취소로
-     *       닫히면 다음 start 가 정상 생성). 어느 쪽도 저장값은 클램프되므로 통계·보상과 무관하고
-     *       영향이 그 유저 자신에 한정된다.</li>
-     *   <li>규칙이 보수적이라(이르거나 같으면 회전 안 함) 드물게 논리적으로 더 늦은 요청이 no-op 될 수
-     *       있다. 그 경우에도 라이브 마커는 <b>정확히 1개</b> 남고 시각 차이는 최대 클램프 창(5분)이다.</li>
+     *       크게 <b>뒤처진</b> 클라 — 열린 마커가 있는 동안 새 마커가 계속 안 생기고 그 블록들이 POST
+     *       경로로 간다(마커가 PATCH·취소로 닫히면 다음 start 가 정상 생성). 어느 쪽도 저장값은
+     *       클램프되므로 통계·보상과 무관하고 영향이 그 유저 자신에 한정된다.</li>
+     *   <li>규칙이 보수적이라(이르거나 같으면 회전 안 함) 드물게 논리적으로 더 늦은 요청이 마커를
+     *       못 받을 수 있다. 그 블록도 POST 로 <b>온전히 적립</b>되고, 라이브 마커는 정확히 1개 남는다.</li>
      * </ul>
-     * 잔여는 {@code FocusSessionOrphanScheduler}(12h 스윕)가 덮는다 — 불변식이 서도 스윕을 남긴 이유다.
+     * <b>어느 한계에서도 적립은 잃지 않는다</b> — 마커를 못 받은 블록은 항상 POST 경로가 받는다.
+     * 라이브 표시 잔여는 {@code FocusSessionOrphanScheduler}(12h 스윕)가 덮는다 — 불변식이 서도
+     * 스윕을 남긴 이유다.
      */
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
@@ -751,8 +772,11 @@ public class FocusService {
         Optional<FocusSession> liveMarker =
                 focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user);
         if (liveMarker.isPresent() && !orderKey.isAfter(liveMarker.get().getStartedAt())) {
-            FocusSession live = liveMarker.get();
-            return new FocusSessionStartResponse(live.getId(), live.getStartedAt());
+            // 마커를 만들지 않았음을 sessionId=null 로 알린다. **기존 마커 id 를 재사용하면 안 된다** —
+            // 역순 도착한 start 들은 서로 다른 블록이라, 같은 id 를 주면 뒤늦은 PATCH 가
+            // SESSION_ALREADY_ENDED(앱이 POST 폴백을 하지 않는 코드)를 받아 그 블록의 시간·코인이
+            // 영구 유실된다. null 이면 앱이 uploadFocusBlock 의 '마커 없음' 경로로 곧바로 POST 한다.
+            return new FocusSessionStartResponse(null, startedAt);
         }
 
         // GROMO-1287: 열린 마커 원자적 마감 — INSERT 앞에 둬야 V47 부분 유니크(ended_at IS NULL)를 통과한다.
