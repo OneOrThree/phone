@@ -30,7 +30,7 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/dev-app/back:latest
+  APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest
   RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
 
 jobs:
@@ -68,8 +68,10 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 캐시는 러너와 같은 리전의 GAR(ci-cache)를 사용한다.
+          # prod의 arm64 캐시와 태그를 분리해 아키텍처별 캐시를 덮어쓰지 않는다.
+          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
+          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
 
       - name: 결과 요약
         run: |
