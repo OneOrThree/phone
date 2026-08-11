@@ -55,7 +55,7 @@ import {
   type ReadoutLayout,
 } from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { todayStr, todayStrKst } from '@/utils/localDate';
+import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import {
   newBlockToday,
   creditTick,
@@ -1272,6 +1272,8 @@ export default function FocusSessionScreen() {
       (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
       liveTodaySeconds,
     shownFloor: gridShownRef.current.seconds,
+    // 서버 버킷이 KST 고정(GROMO-1259)이라 동축 판정은 기기 오프셋이 KST인지로 족하다.
+    sameAxis: kstLocalSameDay(),
   });
   // 바닥은 **서버 축으로 계산한 값만** 되먹인다(코덱스 리뷰 ⑥) — 폴백은 로컬 축이라 KST 바닥에
   // 섞으면 비KST 기기가 KST 자정을 넘긴 직후 로컬 당일 누적이 새 날의 바닥으로 굳는다.

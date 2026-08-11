@@ -23,8 +23,9 @@ export function liveTotalSeconds(
 //
 //   serverBase    — 방금 폴링한 서버 스냅샷의 내 KST 오늘 집중초. 없으면 null.
 //   delta         — 미정산(업로드 전) 블록의 KST 오늘 몫.
-//   localFallback — 서버 스냅샷 미확보 시 쓸 종전 로컬 축 집계.
+//   localFallback — 로컬 축 집계. 스냅샷 미확보 시의 대체값이자, 동축일 때의 하한 후보.
 //   shownFloor    — 같은 KST 날짜에 이미 표시했던 최대값(호출부가 ref로 들고 있다가 넘긴다).
+//   sameAxis      — 기기 로컬 하루와 KST 하루의 경계가 겹치는가(kstLocalSameDay).
 //
 // 되밀림 방지는 **표시값의 단조성**으로 한다(코덱스 리뷰 ③·④). 블록이 정산되면 delta가 0으로
 // 리셋되는데 그 몫이 서버 스냅샷에 반영되기까지는 폴링 한 주기(업로드가 대기열로 가면 더)가
@@ -38,11 +39,13 @@ export function myLiveTotalSeconds({
   delta,
   localFallback,
   shownFloor,
+  sameAxis,
 }: {
   serverBase: number | null;
   delta: number;
   localFallback: number;
   shownFloor: number;
+  sameAxis: boolean;
 }): number {
   // 서버 스냅샷 미확보(그룹 미가입·조회 실패·자정 넘겨 무효화) — 종전 로컬 집계로 폴백.
   // ⚠️ 폴백에는 바닥을 적용하지 않고, 호출부도 이 값을 바닥에 되먹이지 않는다(코덱스 리뷰 ⑥):
@@ -51,5 +54,10 @@ export function myLiveTotalSeconds({
   // 새 KST 날의 바닥으로 굳으면 다음 폴링이 올바른 작은 값을 줘도 max가 계속 이겨 과대 표시된다.
   // 폴백 값 자체는 로컬 축에서 이미 단조라 바닥 없이도 뒤로 밀리지 않는다.
   if (serverBase == null) return localFallback;
-  return Math.max(serverBase + delta, shownFloor);
+  // 동축이면 로컬 집계도 하한 후보다(코덱스 리뷰 ⑦) — 서버는 분 내림(GroupService `/ 60`)이라
+  // 스냅샷이 도착하는 순간 초 단위 나머지가 잘려 타일이 최대 59초 뒤로 간다(첫 응답 전엔 초까지
+  // 정확한 폴백을 보여주고 있었으므로 눈에 띄는 되밀림이다).
+  // 경계가 겹칠 때만 섞는다 — 갈린 축의 로컬 누적은 다른 KST 날짜 몫이라 ⑥의 과대 표시가 된다.
+  const floor = sameAxis ? Math.max(shownFloor, localFallback) : shownFloor;
+  return Math.max(serverBase + delta, floor);
 }
