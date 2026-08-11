@@ -142,7 +142,12 @@ class GroupControllerTest {
     @DisplayName("그룹 생성 이름이 비분리 공백뿐이거나 양방향 제어문자를 포함하면 400으로 거절한다")
     void createGroupRejectsUnicodeWhitespaceAndBidiControls() throws Exception {
         for (String name : List.of(
-                "\u00A0\u202F", "\u200B", "공부방\u202E가짜 안내", "공부방\u2066가짜 안내")) {
+                "\u00A0\u202F",
+                "\u200B",
+                "\uFE0F",
+                "\u034F",
+                "공부방\u202E가짜 안내",
+                "공부방\u2066가짜 안내")) {
             mockMvc.perform(post("/api/v1/groups")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
@@ -197,6 +202,8 @@ class GroupControllerTest {
                 "　",
                 "\u00A0\u202F",
                 "\u200B",
+                "\uFE0F",
+                "\u034F",
                 "공부방\n가짜 안내",
                 "공부방\u0000가짜 안내",
                 "공부방\u202E가짜 안내",
@@ -209,6 +216,22 @@ class GroupControllerTest {
         }
 
         verify(groupService, never()).updateGroup(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("그룹 수정은 표시 문자와 결합된 variation selector를 허용한다")
+    void updateGroupAllowsVariationSelectorWithVisibleBase() throws Exception {
+        String name = "별\uFE0F 모임";
+
+        mockMvc.perform(patch("/api/v1/groups/{groupId}", GROUP_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("name", name)))
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isNoContent());
+
+        ArgumentCaptor<UpdateGroupRequest> captor = ArgumentCaptor.forClass(UpdateGroupRequest.class);
+        verify(groupService).updateGroup(eq(GROUP_ID), eq(LOGIN_USER_ID), captor.capture());
+        assertThat(captor.getValue().getName()).isEqualTo(name);
     }
 
     @Test
