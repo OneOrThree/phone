@@ -85,7 +85,7 @@ flowchart TB
 | 챌린지 내역 첫 로딩 | 🟥 풀스크린 스피너 (`GroupChallengeHistoryScreen.tsx:289-297`) | 🟦 **구조적 스켈레톤** — 카드 높이가 가변이라 `SkeletonCard` 불가 ([정책 D25-3](policy.md#d25)) | 1524 |
 | 챌린지 내역 리스트 행 | 🟥 즉시 표시 (`GroupChallengeHistoryScreen.tsx:330-333`) | 🟦 `enterUp(i)` — 그룹 덱과 같은 `CellRendererComponent` 기법 | 1524 |
 | 챌린지 결과 명단 3구획 | 🟥 한 번에 표시 (`ChallengeResultModal.tsx:322-358`) | 🟦 `enterUp(i)` | 1524 |
-| 그룹 카드 앞↔뒤 플립 | 🟨 `290ms`/reduce `150ms` 하드코딩 (`GroupCardFlip.tsx:67`) | 🟨 예외로 확정 ([정책 D25](policy.md#d25)) | — |
+| 그룹 카드 앞↔뒤 플립 | 🟨 `290ms`/reduce `150ms` 하드코딩 (`GroupCardFlip.tsx:67`) | 🟨 **[정책 D15](policy.md#d15) 표에 등록됨** (근거 [D25-4](policy.md#d25)) | — |
 | 온보딩 공감 카드 | 🟩 `SlideInUp` 스프링 | 🟩 유지 | — |
 | 온보딩 스텝 전환 | 🟥 하드컷 | 🟦 크로스페이드 | PR8 |
 | 로그인 버튼군 | 🟥 즉시 표시 | 🟦 `enterUp` | PR6 |
@@ -125,7 +125,7 @@ flowchart TB
 | 챌린지 카드 확인·실패 알럿 **20곳** | 🟩 `Alert.alert` — 전부 파괴적 확인·실패 | 🟩 **유지** ([정책 D8](policy.md#d8)) | — |
 | 그룹방 실패 통보 3곳 | 🟩 `Alert.alert` (`GroupRoomScreen.tsx:644,715,747`) | 🟩 유지 | — |
 | 멤버 타일 눌림 | 🟥 `TouchableOpacity activeOpacity` (`MemberTile.tsx:58-65`) | 🟦 루트를 `PressableScale`로 — 타일 전체가 원래 탭 대상이다 | 1524 |
-| 챌린지 카드 눌림 | 🟥 카드 **안쪽 버튼 11개**가 `TouchableOpacity` | 🟦 **그 버튼들만** `PressableScale`. **카드 루트는 비터치 `View` 유지**(`ChallengeCard.tsx:1113-1116`, GROMO-1101) — 루트에 얹으면 없던 카드 전체 탭 동선이 생긴다 | 1524 |
+| 챌린지 카드 눌림 | 🟥 카드 **안쪽 버튼 10개**가 `TouchableOpacity` | 🟦 **그 10개만** `PressableScale`. **카드 루트는 비터치 `View` 유지**(`ChallengeCard.tsx:1113-1116`, GROMO-1101) — 루트에 얹으면 없던 카드 전체 탭 동선이 생긴다. `leaveCountdown`은 버튼이 아니라 **표시용 `<Text>`** 라 제외(`:1384`) | 1524 |
 
 ### 3.4 축하 (등급 3)
 
@@ -137,7 +137,7 @@ flowchart TB
 | 일일 스트릭 ✓ · 코인 획득 | 🟩 `checkPop` | 🟩 유지(토큰 이관) | PR1 |
 | 리그 승급 | 🟥 단계 시퀀스는 있으나 **컨페티 없음** · 반짝임이 정적 | 🟦 컨페티 + `hapticSuccess` | PR8 |
 | 챌린지 결과 | 🟥 **레거시 `Animated` 팝인** — `duration 420`(사다리 밖) · `Easing.out(Easing.back(1.2))`(`M.curve` 밖) · `useMotion`을 안 타 **'동작 줄이기'를 무시한다** (`ChallengeResultModal.tsx:259-268,285-294`) | 🟦 템플릿(`GoalCelebrationModal`) 배치로 흡수 — 카드=Modal `fade` · 캐릭터 `pop()` · 명단 `enterUp(i)` ([정책 D23](policy.md#d23)) | 1524 |
-| 베팅 승리 | 🟥 색상 텍스트뿐 — 시트 자체는 `SheetShell`로 이미 등장하고(`LastBetResultSheet.tsx:196`), 승패는 `deltaPlus`/`deltaMinus` 색상만이다 (`:277-286`). 모션 프리미티브 **0개** | 🟦 내 행만 `pop` — 시트 전체를 축하로 올리지 않는다(정산 통지가 본체다) | 1524 |
+| 베팅 승리 | 🟥 색상 텍스트뿐 — 시트 자체는 `SheetShell`로 이미 등장하고(`LastBetResultSheet.tsx:196`), 승패는 `deltaPlus`/`deltaMinus` 색상만이다 (`:277-286`). 모션 프리미티브 **0개** | 🟦 **내가 이긴 행에만** `pop` — `isMe && !pending && achieved === true && delta > 0` (`:246-249`). `isMe`만 보면 **진 사람에게 축하가 재생된다**. 시트 전체를 축하로 올리지도 않는다(정산 통지가 본체다) | 1524 |
 | 세션 완료 | 🟥 헤더 문구만 | 🟦 합계 카운트업 | PR6 |
 
 ---

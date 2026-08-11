@@ -558,7 +558,9 @@
   .mtile .nm { font-size: 9.5px; font-weight: 700; }
   .mtile .tm { font-size: 9.5px; font-weight: 800; color: var(--accent-deep); }
 
-  /* 내기 시트 참여자 진행 바 — 여기만 ProgressBar 를 쓴다(정책 D25) */
+  /* 내기 시트 참여자 진행 바 — **정적이다**(등급 0). 참가자마다 한 행이라 최대 10개가
+     동시에 떠 D10 의 width 애니메이션 상한(1~3)을 넘고, 둥근 캡이라 scaleX 로도 못 간다
+     (정책 D25-2). 채우기 연출을 넣지 않는다 — 폭은 처음부터 최종값이다. */
   .brow { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 10px; }
   .brow .bn { width: 34px; font-weight: 700; color: var(--ink-sub); }
   .brow .bt { flex: 1; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }

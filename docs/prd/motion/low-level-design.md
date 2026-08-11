@@ -46,7 +46,7 @@
 | `src/screens/StatsScreen.tsx` | 554 | 491 + 카드 8종 | 스켈레톤 |
 | `src/screens/stats/charts.tsx` | 470 | `LineChart` 렌더부 | **좌→우 draw-on**(정책 D16) — `AnimatedPolyline` `strokeDashoffset` + 점별 `AnimatedCircle`. ⚠️ `growUp` 아님 |
 | `src/screens/stats/CategoryDonut.tsx` | 190 | `DonutBase` | 링 `fadeIn` + 범례 `enterUp(i)`. ⚠️ `growUp`은 원을 타원으로 눌러 못 쓴다 |
-| `src/screens/stats/CalendarCard.tsx` | 420 | 그리드 행 | 행 단위 `fadeIn(i)` — 값 축이 없어 `growUp`이 뜻을 못 만든다 |
+| `src/screens/stats/CalendarCard.tsx` | 420 | 그리드 행 | 행 단위 `fadeIn(m.stagger(ri))` — 값 축이 없어 `growUp`이 뜻을 못 만든다 |
 | `src/screens/stats/WeeklyTimetableCard.tsx` | 330 | 세션 블록 | **`growUp(j)`** — 블록 자체가 '시간만큼 자란 막대'라 여기는 맞다 |
 | `src/screens/league/LeagueScreen.tsx` | 1063 | 219 · 227 · 리스트 | `LayoutAnimation`→`LinearTransition` · `enterUp` |
 | `src/screens/league/LeagueResultScreen.tsx` | 408 | 87–125 · 승급 분기 | `m.delay()` · 컨페티 + `hapticSuccess` |
@@ -258,7 +258,7 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 통계 | 카드 8종 로딩 | `SkeletonCard` | 1200 loop | — | 1 |
 | 통계 | 꺾은선 차트 진입 | **draw-on**(`strokeDashoffset`) | entrance | i × 60 | 2 |
 | 통계 | 도넛 진입 | 링 `fadeIn` + 범례 `enterUp(i)` | base | i × 60 | 2 |
-| 통계 | 캘린더 진입 | 행 단위 `fadeIn(i)` | base | i × 60 | 2 |
+| 통계 | 캘린더 진입 | 행 단위 `fadeIn(m.stagger(ri))` | base | ri × 60 | 2 |
 | 통계 | 타임테이블 세션 블록 | **`growUp(j)`** | entrance | j × 60 | 2 |
 | 집중 세션 | 카운트다운·뽀모도로 | `ProgressRing` | 연속 | — | 1 |
 | 집중 세션 | 페이즈 전환 | 크로스페이드 (진동은 기존 2연속 유지) | quick | 0 | 1 |
@@ -281,7 +281,7 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 챌린지 결과 | 캐릭터 | **`pop()`** | slow | 0 | 3 |
 | 챌린지 결과 | 명단 3구획 | `enterUp(i)` | base | i × 60 | 2 |
 | 베팅 | 시트 참여자 진행 바 | **없음(등급 0)** — 최대 10행이라 `ProgressBar` 금지 ([D25-2](policy.md#d25)) | — | — | 0 |
-| 베팅 | 지난 결과 내 행 | `pop()` — 내 행 **1개뿐**이라 지연 인자 불필요 | slow | 0 | 3 |
+| 베팅 | 지난 결과 **내가 이긴** 행 | `pop()` — 조건은 아래 ⚠️. 내 행 1개뿐이라 지연 인자 불필요 | slow | 0 | 3 |
 
 **프리미티브 인자 계약 — 인덱스를 받는 것과 밀리초를 받는 것은 다르다**
 
@@ -349,23 +349,42 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 
 `ChallengeCard`의 **루트는 비터치 `View`** 다(`ChallengeCard.tsx:1113-1116`). GROMO-1101이 롱프레스 삭제를 없애며 의도적으로 제스처를 걷어냈고, 파일 주석이 *"눌리는 자리는 전부 안쪽의 명시적 버튼이다"* 라고 못박아 뒀다. **카드 루트에 `PressableScale`을 얹으면 안 된다** — 중첩 터치가 생기고, 지금까지 없던 "카드 전체 탭" 동선이 새로 열린다.
 
-`PressableScale`로 바꿀 자리는 카드 안의 버튼들이다 (`testID` 기준):
+`PressableScale`로 바꿀 자리는 카드 안의 **실제 터치 버튼 10개**다. 아래는 `ChallengeCard.tsx`에서 `<TouchableOpacity`가 열리는 줄이며, **10개 전부 `onPress`를 갖고 있음을 개별 확인**했다:
 
-| 자리 | testID | 위치 |
-| --- | --- | --- |
-| 챌린지 삭제 X | `group.challenge.delete.{id}` | `ChallengeCard.tsx:1138-1148` |
-| 다음 회차 참가 | `group.bet.joinNext.{id}` | `:1263` |
-| 내기 열기 | `group.bet.create.{id}` | `:1301` |
-| 오늘 참여 취소 | `group.bet.leaveToday.{id}` | `:1343` |
-| 내기에서 빠지기 | `group.bet.leave.{id}` | `:1356` |
-| 내기 닫기 | `group.bet.cancel.{id}` | `:1373` |
-| 취소 카운트다운 | `group.bet.leaveCountdown.{id}` | `:1387` |
-| 참가 | `group.bet.join.{id}` | `:1408` |
-| 다음 회차 빠지기 | `group.bet.leaveNext.{id}` | `:1444` |
-| 이번 주 참가 | `group.bet.week.{id}` | `:1459` |
-| 지난 내기 | `group.bet.last.{id}` | `:1479` |
+| 자리 | testID | `<TouchableOpacity` 줄 | `onPress` |
+| --- | --- | --- | --- |
+| 챌린지 삭제 X | `group.challenge.delete.{id}` | `:1138` | `confirmDelete` |
+| 다음 회차 참가 | `group.bet.joinNext.{id}` | `:1257` | `openJoinNextSheet` |
+| 내기 열기 | `group.bet.create.{id}` | `:1295` | `openBet('create')` |
+| 오늘 참여 취소 | `group.bet.leaveToday.{id}` | `:1336` | `confirmLeaveToday(...)` |
+| 내기에서 빠지기 | `group.bet.leave.{id}` | `:1349` | `confirmLeaveBet` |
+| 내기 닫기 | `group.bet.cancel.{id}` | `:1366` | `confirmCancelBet` |
+| 참가 | `group.bet.join.{id}` | `:1402` | `openBet('join')` |
+| 다음 회차 빠지기 | `group.bet.leaveNext.{id}` | `:1437` | `confirmLeaveNext(nextStake)` |
+| 이번 주 참가 | `group.bet.week.{id}` | `:1453` | `openWeekSheet` |
+| 지난 내기 | `group.bet.last.{id}` | `:1474` | `setLastBetView({kind:'last'})` |
+
+> ⚠️ **`group.bet.leaveCountdown.{id}`는 버튼이 아니다.** `ChallengeCard.tsx:1384`의 `<LeaveCountdown>`은 `onPress` 없는 **표시 전용 `<Text>`** 다(`:137-171` — 남은 시간을 초 단위로 다시 그리는 자식으로, 매초 리렌더를 카드 본체에서 떼어내려고 분리한 것이다). 여기에 `PressableScale`을 얹으면 **비대화형 요소를 버튼으로 만들고** 통과할 수 없는 테스트가 생긴다. 카드 안의 `<TouchableOpacity`는 정확히 **10개**이고 이 컴포넌트는 그중에 없다.
 
 `MemberTile`은 반대다 — 루트가 이미 `TouchableOpacity`(`MemberTile.tsx:58-65`)이고 타일 전체가 탭 대상이므로(멤버 통계 비교로 이동, GROMO-1200) **루트를 그대로 `PressableScale`로 바꾼다.** 동선이 늘지 않는다.
+
+**지난 내기 결과의 `pop`은 `isMe`가 아니라 `isMe && 승리`에만 건다**
+
+`LastBetResultSheet`의 행은 **참가자 전원**에게 렌더되고 `isMe`는 **강조 스타일만** 고른다(`LastBetResultSheet.tsx:246-257` — `s.rowMe`·`s.nicknameMe`). `isMe`를 그대로 조건으로 쓰면 **진 사람·미판정인 사람에게 등급 3 축하 연출이 재생된다.** [IA §3.4](information-architecture.md)가 지정한 대상은 "베팅 **승리**"다.
+
+판정은 그 파일이 이미 계산해 둔 지역 변수로 한다(`:247-249`):
+
+```ts
+const isMe    = !!myUserId && r.userId === myUserId;
+const pending = r.payout === null || r.achieved === null;   // 미판정
+const delta   = pending ? 0 : (r.payout as number) - lastBet.stake;
+
+const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← pop 조건
+```
+
+- **`delta > 0`이 핵심이다.** 전원이 달성하면 `payout === stake`가 되어 `delta === 0` — 달성은 했지만 **딴 것이 없다.** 축하할 사건이 아니다.
+- **`achieved === true`를 함께 본다.** 서버가 계약을 어겨 `achieved:null`인데 `payout`이 온 경우를 축하로 칠하지 않는다 — `ChallengeCard.tsx:1205`가 같은 이유로 `p.achieved === true && p.progressMinutes !== null`을 쓴다.
+- **승자 0명 결말(`REFUNDED`·`FORFEITED`)은 자동으로 걸러진다.** 환불이면 `delta === 0`, 몰수면 `delta === -stake`다. 배너 상태를 따로 볼 필요가 없다.
 
 **챌린지 내역 스켈레톤 — `SkeletonCard`를 쓸 수 없다**
 
@@ -406,7 +425,7 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 | 알럿 이관 지점별 | `Alert.alert` **미호출** + `show` 호출 |
 | `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · 멤버 그리드는 **행 수만큼**의 delay 단계(타일 수가 아니다) · **행 delay가 `0/1/2ms`가 아니라 `0/60/120ms`** (`fadeIn`에 인덱스를 넘기는 사고 차단) · reduce → 둘 다 `animationName` 부재 |
 | `screens/group/components/MemberTile.test.tsx` (신규) | 눌림이 `PressableScale` 경유 · `onPress` 없으면 비활성 유지 |
-| `screens/group/components/ChallengeCard.test.tsx` | **카드 루트에 `onPress`가 없다**(비터치 `View` 유지 — 회귀 방지) · 내부 버튼 11개가 `PressableScale` 경유 |
+| `screens/group/components/ChallengeCard.test.tsx` | **카드 루트에 `onPress`가 없다**(비터치 `View` 유지 — 회귀 방지) · 내부 버튼 **10개**가 `PressableScale` 경유 · **`group.bet.leaveCountdown`은 여전히 눌리지 않는다**(표시용 `<Text>` — 버튼화 방지) |
 | `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 |
 | `screens/group/GroupChallengeHistoryScreen.test.tsx` | 첫 로딩에 `ActivityIndicator` **미사용** + 스켈레톤 `testID` 존재 · `SkeletonCard` **미사용**(높이 상수가 없다 — D25-3) · **꼬리 스피너는 그대로 존재**(회귀 방지) |
 | `screens/group/components/BetSheet.test.tsx` | 참여자 행에 `ProgressBar`·전환 스타일이 **없다**(D25-2 회귀 방지) · 폭이 `dayBarPercent` 그대로 |
@@ -473,10 +492,16 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 
 ## 9. 의도적 예외 (토큰 밖)
 
-| 값 | 위치 | 이유 |
-| --- | --- | --- |
-| `FILL_MS 2000` · `HOLD_MS 900` · `FINISH_MS 300` | `ScreenTimeAnalyzingOverlay.tsx:18–21` | 네이티브 리포트 렌더 **가드 타임**. 모션 토큰과 같이 움직이면 안 됨 |
-| `150 + order * 250` | `ProblemEmpathyStep.tsx:15` | "알림이 연달아 도착"하는 **서사 연출** |
-| `FLIP_MS` | `FlipClock.tsx` | 가로모드 전용 3D 플립. 이번 범위 밖 |
-| 강등 3단계 `1500ms` 대기 | `LeagueResultScreen.tsx:98` | 연출 호흡. `m.delay()`만 통과시키고 값은 유지 |
-| `290` · reduce `150` | `GroupCardFlip.tsx:67` | 그룹 카드 앞↔뒤 **3D 플립**. `rotateY 180°`의 지각 임계라 duration 사다리와 다른 축이다 ([정책 D25](policy.md#d25)) |
+> ⚠️ **정본은 [정책 D15](policy.md#d15)의 표다.** 이 절은 구현자가 한 문서 안에서 보도록 둔 사본이며,
+> 감사가 리터럴을 판정할 때 보는 목록은 D15 쪽이다. 어긋나면 D15가 맞다.
+
+| 값 | 위치 | D15 등록 | 이유 |
+| --- | --- | --- | --- |
+| `FILL_MS 2000` · `HOLD_MS 900` · `FINISH_MS 300` | `ScreenTimeAnalyzingOverlay.tsx:18–21` | ✅ | 네이티브 리포트 렌더 **가드 타임**. 모션 토큰과 같이 움직이면 안 됨 |
+| `150 + order * 250` | `ProblemEmpathyStep.tsx:15` | ✅ | "알림이 연달아 도착"하는 **서사 연출** |
+| `290` · reduce `150` | `GroupCardFlip.tsx:67` | ✅ | 그룹 카드 앞↔뒤 **3D 플립**. `rotateY 180°`의 지각 임계라 duration 사다리와 다른 축이다 ([정책 D25-4](policy.md#d25)) |
+| `FLIP_MS` | `FlipClock.tsx` | ❌ **미등록** | 가로모드 전용 3D 플립. GROMO-1382가 "이번 범위 밖"으로 두고 **감사하지 않은** 값이라, 영구 예외로 올릴지 판단이 남아 있다 |
+| 강등 3단계 `1500ms` 대기 | `LeagueResultScreen.tsx:98` | ❌ **미등록** | 연출 호흡. `m.delay()`만 통과시키고 값은 유지 |
+
+> ⚠️ **아래 2건은 D15 표에 없다.** 이 절에만 적혀 있어 지금 상태로 구현 감사를 돌리면 **위반으로 잡힌다.**
+> 둘 다 GROMO-1402의 범위 밖 값이라 여기서 임의로 등록하지 않았다 — **오너 판단이 필요한 미결 항목**이다.
