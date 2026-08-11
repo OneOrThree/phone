@@ -374,6 +374,26 @@ describe('그룹 나가기', () => {
     alertSpy.mockRestore();
   });
 
+  // GROMO-1247 2라운드 — 응답→표시 구간에 세션이 교체되면(게스트→소셜 승격) 이 404는
+  // **지난 세션의 것**이다. 로그아웃이 막히는 것만으로는 부족하다 — 방금 로그인에 성공한
+  // 사용자에게 만료 안내가 뜨면 그 안내 자체가 거짓말이고, 취소 불가라 닫지도 못한다.
+  test('세대가 바뀐 뒤 도착한 유저 부재는 안내도 로그아웃도 없이 조용히 버린다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await renderScreen();
+    // 요청은 세대 7에서 나가고(첫 호출), 응답 처리 시점엔 이미 8이다(그 뒤 호출).
+    mockGetAuthSessionGeneration.mockReturnValueOnce(7).mockReturnValue(8);
+
+    await pressLeaveAndConfirm();
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
+    // 새 세션에서는 이 나가기 요청이 애초에 무의미하다 — 목록으로 튕기지도 않는다.
+    expect(mockPopToTop).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
   // GROMO-1247 P2 — **화면 진입 시점의 404**는 액션 실패와 다른 자리다. 활성 users 행이 이미
   // 없는 세션으로 들어오면 첫 상세 조회가 404로 떨어지는데, 코드를 안 보면 '다시 시도'만
   // 무한히 누르게 된다(재시도로 절대 안 풀린다).

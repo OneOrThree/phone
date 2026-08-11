@@ -1,5 +1,5 @@
 import { Alert } from 'react-native';
-import { triggerLogout } from '@/services/api';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 
 // 유저 부재(활성 users 행 없음) 전용 서버 코드와 **그 유일한 처방**을 한자리에 둔다(GROMO-1247).
 //
@@ -20,7 +20,8 @@ export const USER_NOT_FOUND = 'USER_NOT_FOUND';
 //
 // ⚠️ `requestSessionGeneration` 은 **요청을 띄우기 직전**의 `getAuthSessionGeneration()` 이다.
 //    필수 인자로 둔 이유: 빠뜨리면 조용히 틀리기 때문이다. 게스트→소셜 승격(triggerRelogin)이
-//    이 응답 **뒤에** 완료되면 죽은 세션의 404가 **새로 성립한 세션**을 로그아웃시킨다.
+//    이 응답 **뒤에** 완료되면 죽은 세션의 404가 **새로 성립한 세션**을 로그아웃시키고,
+//    막더라도 방금 로그인한 사용자에게 만료 안내가 뜬다(아래 ①②가 각각 막는다).
 //    세대는 '낡아서 버릴 값'이 아니라 **이 응답이 어느 세션의 것인지 식별하는 표식**이다 —
 //    세대가 그대로면(= 아직 그 세션) 로그아웃이 정상 실행되고, 바뀌었으면 App.tsx의 로그아웃
 //    핸들러가 스스로 무시한다(api.ts triggerLogout 계약 · groupRoomNotFound.ts 선례).
@@ -35,10 +36,20 @@ export const USER_NOT_FOUND = 'USER_NOT_FOUND';
 //    순서다. 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 화면의
 //    beforeRemove 가드·진행 중 요청과 무관하다(#530 claude 리뷰).
 export function promptSessionExpired(requestSessionGeneration: number): void {
+  // ① **띄우기 전** — 이 응답이 이미 지난 세션의 것이면 조용히 버린다. 게스트→소셜 승격이
+  //    응답과 안내 사이에 끝나면, 방금 로그인에 성공한 사용자에게 "로그인 정보가 만료됐어요"가
+  //    뜨고 cancelable:false라 확인 말고는 닫을 수도 없다. 로그아웃은 ②가 막지만 **안내 자체가
+  //    거짓말**이다. 새 세션에서 그 요청은 애초에 무의미하므로 화면은 아무 안내 없이 둔다.
+  if (getAuthSessionGeneration() !== requestSessionGeneration) return;
   Alert.alert(
     '로그인이 필요해요',
     '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
-    [{ text: '확인', onPress: () => triggerLogout(requestSessionGeneration) }],
+    [
+      // ② **확인 시점** — ①을 통과했어도 안내를 읽는 사이 세션이 교체될 수 있다. 세대를 넘겨
+      //    App.tsx 로그아웃 핸들러가 스스로 대조하게 한다. 두 검사는 **다른 구간**을 막는다:
+      //    ①은 응답→표시 구간, ②는 표시→확인 구간. 하나로 합칠 수 없다.
+      { text: '확인', onPress: () => triggerLogout(requestSessionGeneration) },
+    ],
     { cancelable: false },
   );
 }
