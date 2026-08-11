@@ -18,19 +18,27 @@ export const USER_NOT_FOUND = 'USER_NOT_FOUND';
 // 유효 JWT라 401 인터셉터도 안 타고 재시도로 절대 안 풀린다. 유일한 탈출구가 재로그인이라
 // 취소 없는 단일 확인으로 로그아웃까지 유도한다(AccountScreen 탈퇴 성공 경로의 triggerLogout 선례).
 //
+// ⚠️ `requestSessionGeneration` 은 **요청을 띄우기 직전**의 `getAuthSessionGeneration()` 이다.
+//    필수 인자로 둔 이유: 빠뜨리면 조용히 틀리기 때문이다. 게스트→소셜 승격(triggerRelogin)이
+//    이 응답 **뒤에** 완료되면 죽은 세션의 404가 **새로 성립한 세션**을 로그아웃시킨다.
+//    세대는 '낡아서 버릴 값'이 아니라 **이 응답이 어느 세션의 것인지 식별하는 표식**이다 —
+//    세대가 그대로면(= 아직 그 세션) 로그아웃이 정상 실행되고, 바뀌었으면 App.tsx의 로그아웃
+//    핸들러가 스스로 무시한다(api.ts triggerLogout 계약 · groupRoomNotFound.ts 선례).
+//    ⤷ 확인 버튼까지 시간이 열려 있다는 사실이 오히려 세대를 넘겨야 할 이유다. 그 사이가
+//      정확히 세션이 교체될 수 있는 구간이다.
+//    ⤷ GROMO-1241 이 세대 없이 부른 것은 의도가 아니라 **순서**다: `triggerLogout` 의
+//      `expectedGeneration` 파라미터 자체가 GROMO-1481(#597, 2026-08-11)에서 생겼고
+//      1241(#530)은 2026-08-08 이라 넘길 인자가 없었다. 따라서 예외를 둘 근거가 아니다.
 // ⚠️ cancelable:false — iOS는 바깥 탭 닫기가 없지만, 취소 불가 의도를 명시해 두면 안드로이드
 //    지원 시 백 버튼 무콜백 닫힘(로그아웃 미실행 잔류)을 막는다(#530 codex 리뷰).
 // ⚠️ 로그아웃을 버튼 핸들러에서 부르는 건 사용자가 안내를 읽고 확인한 뒤 세션을 정리하는 UX
 //    순서다. 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 화면의
 //    beforeRemove 가드·진행 중 요청과 무관하다(#530 claude 리뷰).
-// ⚠️ 세대(triggerLogout(expectedGeneration))는 넘기지 않는다 — 확인 탭까지 시간이 열려 있어
-//    요청 시각의 세대는 이미 낡았다. 요청 응답만으로 자동 로그아웃하는 경로(groupRoomNotFound)만
-//    세대를 넘긴다.
-export function promptSessionExpired(): void {
+export function promptSessionExpired(requestSessionGeneration: number): void {
   Alert.alert(
     '로그인이 필요해요',
     '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
-    [{ text: '확인', onPress: () => triggerLogout() }],
+    [{ text: '확인', onPress: () => triggerLogout(requestSessionGeneration) }],
     { cancelable: false },
   );
 }

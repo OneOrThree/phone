@@ -4,6 +4,7 @@ import axios from 'axios';
 import { T } from '@/constants/theme';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
@@ -191,6 +192,8 @@ export default function GroupInviteSheet({
     // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
     // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
     setGuestBlocked(false);
+    // 프리뷰 조회를 띄우기 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts).
+    const requestSessionGeneration = getAuthSessionGeneration();
     (async () => {
       try {
         const ov = await getGroupOverview(groupId);
@@ -220,7 +223,7 @@ export default function GroupInviteSheet({
         //    둔갑시킨다(GROMO-1247). 프리뷰는 실패 상태로 남겨 로그아웃 언마운트 전까지
         //    참여 성공처럼 보이지 않게 한다.
         if (groupErrorCode(e) === USER_NOT_FOUND) {
-          promptSessionExpired();
+          promptSessionExpired(requestSessionGeneration);
           setFailed(true);
         } else if (isGone(e)) setGone(true);
         else setFailed(true);
@@ -246,6 +249,8 @@ export default function GroupInviteSheet({
     // 그때 이 결과(정원·404·오류 문구)를 그대로 반영하면 **다른 그룹의 프리뷰**가 오염된다.
     const target = groupId;
     const isStale = () => groupIdRef.current !== target;
+    // 시트 세대(isStale)와 별개인 **인증 세대** — 유저 부재 분기의 로그아웃 판정용.
+    const requestSessionGeneration = getAuthSessionGeneration();
     setJoinError(null);
     try {
       // 계측은 **요청 직전**에 쏜다 — 이름 그대로 '시도'이고, 서버가 소유한 group_joined의
@@ -280,7 +285,7 @@ export default function GroupInviteSheet({
       // 유저 부재(내 계정이 없어졌다, GROMO-1247) — 그룹이 아니라 세션의 사실이라 위와 같은
       // 이유로 시트 세대와 무관하게 처리한다. '사라진 그룹'으로 위장하지 않는다.
       if (code === USER_NOT_FOUND) {
-        promptSessionExpired();
+        promptSessionExpired(requestSessionGeneration);
         return;
       }
       // 나머지는 target 프리뷰에만 의미가 있는 실패다 — 시트가 다른 그룹으로 갈렸으면 버린다.

@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupSettingsScreen from './GroupSettingsScreen';
 import { getGroupDetail, withdrawGroup } from '@/services/groupApi';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
@@ -64,8 +65,30 @@ jest.mock('@/services/groupApi', () => ({
   withdrawGroup: jest.fn(),
 }));
 
+// 유저 부재 분기가 부르는 세션 경계 — 실제 모듈은 App이 등록한 핸들러로 트리를 리셋하므로
+// 여기선 **어떤 세대로 불렸는지**만 본다(GROMO-1247 P1).
+jest.mock('@/services/api', () => ({
+  ...jest.requireActual('@/services/api'),
+  getAuthSessionGeneration: jest.fn(() => 0),
+  triggerLogout: jest.fn(),
+}));
+
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockWithdrawGroup = withdrawGroup as jest.MockedFunction<typeof withdrawGroup>;
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
+
+// Alert의 확인 버튼을 눌러 로그아웃까지 진행한다(재로그인 안내는 취소 없는 단일 확인이다).
+function pressReloginConfirm(alertSpy: jest.SpyInstance): void {
+  const [, , buttons] = alertSpy.mock.calls[0] as unknown as [
+    string,
+    string,
+    { text: string; onPress?: () => void }[],
+  ];
+  buttons[0].onPress?.();
+}
 
 // 서버 에러 바디({ code })를 실은 axios 에러 — 화면은 status가 아니라 code로 분기한다.
 function axiosErrorWith(status: number, code: string): AxiosError {
@@ -150,6 +173,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   __resetGroupCardEmojiQueueForTest();
   mockUser.userId = 'me';
+  mockGetAuthSessionGeneration.mockReturnValue(0);
   mockGetGroupDetail.mockResolvedValue(detail());
   mockWithdrawGroup.mockResolvedValue(undefined);
 });
@@ -325,6 +349,66 @@ describe('그룹 나가기', () => {
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );
+    alertSpy.mockRestore();
+  });
+
+  // GROMO-1247 P1 — 로그아웃은 **요청을 띄운 그 세션**에만 적용돼야 한다. 안내를 읽는 사이
+  // 게스트→소셜 승격이 끝나면(세대 증가) 죽은 세션의 404가 새로 성립한 세션을 끊어선 안 된다.
+  // 여기선 헬퍼가 확인 시점이 아니라 **요청 시작 시점**의 세대를 넘기는지까지 잠근다 —
+  // 그 대조는 App.tsx 로그아웃 핸들러가 한다(api.ts triggerLogout 계약).
+  test('유저 부재 로그아웃은 요청 시작 시점의 인증 세대를 넘긴다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockResolvedValue(memberDetail());
+    mockWithdrawGroup.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await renderScreen();
+    // 나가기 요청은 세대 7에서 나가고, 그 뒤 세션이 교체돼 세대가 8이 된다.
+    mockGetAuthSessionGeneration.mockReturnValue(7);
+
+    await pressLeaveAndConfirm();
+    mockGetAuthSessionGeneration.mockReturnValue(8);
+    pressReloginConfirm(alertSpy);
+
+    expect(mockTriggerLogout).toHaveBeenCalledWith(7);
+    // 인자 없는 호출이면 새 세션까지 끊긴다 — 절대 그렇게 부르지 않는다.
+    expect(mockTriggerLogout).not.toHaveBeenCalledWith(undefined);
+    alertSpy.mockRestore();
+  });
+
+  // GROMO-1247 P2 — **화면 진입 시점의 404**는 액션 실패와 다른 자리다. 활성 users 행이 이미
+  // 없는 세션으로 들어오면 첫 상세 조회가 404로 떨어지는데, 코드를 안 보면 '다시 시도'만
+  // 무한히 누르게 된다(재시도로 절대 안 풀린다).
+  test('진입 조회가 USER_NOT_FOUND면 재시도 안내에 가두지 않고 재로그인을 유도한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetAuthSessionGeneration.mockReturnValue(4);
+    mockGetGroupDetail.mockRejectedValue(axiosErrorWith(404, 'USER_NOT_FOUND'));
+
+    await render(<GroupSettingsScreen />);
+    await act(async () => {});
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      '로그인이 필요해요',
+      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      [expect.objectContaining({ text: '확인' })],
+      { cancelable: false },
+    );
+    // 안내와 별개로 화면은 실패 상태로 남는다 — 로그아웃 언마운트 전까지 성공처럼 보이면 안 된다.
+    expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
+    pressReloginConfirm(alertSpy);
+    expect(mockTriggerLogout).toHaveBeenCalledWith(4);
+    alertSpy.mockRestore();
+  });
+
+  // 진입 조회의 **일반 실패**는 종전 그대로 재시도 안내다 — 위 분기가 전부를 삼키면 안 된다.
+  test('진입 조회의 다른 실패는 종전대로 에러+다시 시도로 남는다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetGroupDetail.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_ELSE'));
+
+    await render(<GroupSettingsScreen />);
+    await act(async () => {});
+
+    expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 

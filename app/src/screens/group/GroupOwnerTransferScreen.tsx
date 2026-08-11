@@ -17,6 +17,7 @@ import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupDetail, groupErrorCode, transferOwner, withdrawGroup } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupOwnerTransferred } from '@/services/analyticsEvents';
@@ -110,10 +111,14 @@ export default function GroupOwnerTransferScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(false);
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const data = await getGroupDetail(groupId);
       setDetail(data);
-    } catch {
+    } catch (e) {
+      // 진입 조회의 유저 부재(GROMO-1247) — 위임 실패 분기와 **다른 자리**다. 여기서 안 보면
+      // 이미 없는 계정으로 들어온 화면이 '다시 시도'만 반복하게 된다(재시도로 안 풀린다).
+      if (groupErrorCode(e) === USER_NOT_FOUND) promptSessionExpired(requestSessionGeneration);
       setError(true);
     } finally {
       setLoading(false);
@@ -134,6 +139,8 @@ export default function GroupOwnerTransferScreen() {
     async (target: GroupDetailMemberResponse) => {
       if (submitting) return;
       setSubmitting(true);
+      // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+      const requestSessionGeneration = getAuthSessionGeneration();
       try {
         await transferOwner(groupId, target.userId);
         // 계측은 위임이 실제로 성공한 뒤에만 발행한다(source는 시작 경로).
@@ -169,7 +176,7 @@ export default function GroupOwnerTransferScreen() {
           // 위장하면 사용자는 멀쩡한 그룹을 의심하며 재시도만 반복한다. 유일한 탈출구인
           // 재로그인으로 보낸다(토스트가 아니라 확인이 필요한 안내 — 세션을 끊는 동작이다).
           case USER_NOT_FOUND:
-            promptSessionExpired();
+            promptSessionExpired(requestSessionGeneration);
             break;
           // 두 코드 모두 **재시도해도 같은 결과**인 종결 통보다 — 사용자가 할 수 있는 조치가
           // 없으므로 확인 버튼이 필요 없는 tone:'error' 토스트로 알린다

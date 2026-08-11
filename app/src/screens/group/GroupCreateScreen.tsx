@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { getAuthSessionGeneration } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { issueInviteLink } from '@/services/inviteLinkApi';
@@ -132,7 +133,8 @@ export default function GroupCreateScreen() {
   }
 
   // 서버 에러 분기 — HTTP status가 아니라 code로 본다(§3-2). 400 검증 에러만 필드 하이라이트.
-  function handleError(e: unknown) {
+  // requestSessionGeneration = 요청 직전의 인증 세대(유저 부재 분기의 로그아웃 판정용).
+  function handleError(e: unknown, requestSessionGeneration: number) {
     switch (groupErrorCode(e)) {
       case 'GUEST_FORBIDDEN':
         Alert.alert('로그인이 필요해요', '게스트는 그룹을 만들 수 없어요.', [
@@ -155,7 +157,7 @@ export default function GroupCreateScreen() {
       //    배포되므로, NOT_FOUND를 떼면 서버 배포 전까지 이 재로그인 유도가 조용히 죽는다.
       case 'NOT_FOUND':
       case USER_NOT_FOUND:
-        promptSessionExpired();
+        promptSessionExpired(requestSessionGeneration);
         return;
       default: {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
@@ -176,6 +178,9 @@ export default function GroupCreateScreen() {
     submittingRef.current = true;
     setSubmitting(true);
     setNameError(null);
+    // 요청을 띄우기 직전의 인증 세대 — 응답이 오는 사이(그리고 안내를 확인하는 사이) 세션이
+    // 교체되면 이 응답의 로그아웃은 새 세션에 적용되면 안 된다(sessionErrors.ts 주석).
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const { groupId } = await createGroup({
         name: trimmedName,
@@ -210,7 +215,7 @@ export default function GroupCreateScreen() {
         navigation.goBack();
       }
     } catch (e) {
-      handleError(e);
+      handleError(e, requestSessionGeneration);
     } finally {
       submittingRef.current = false;
       setSubmitting(false);

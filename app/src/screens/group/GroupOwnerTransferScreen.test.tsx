@@ -11,6 +11,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import GroupOwnerTransferScreen from './GroupOwnerTransferScreen';
 import { getGroupDetail, transferOwner, withdrawGroup } from '@/services/groupApi';
 import { logGroupOwnerTransferred } from '@/services/analyticsEvents';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import type { GroupDetailMemberResponse, GroupDetailResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -52,10 +53,31 @@ jest.mock('@/services/groupApi', () => ({
   withdrawGroup: jest.fn(),
 }));
 
+// 유저 부재 분기가 부르는 세션 경계(GROMO-1247) — 어떤 세대로 불렸는지만 본다.
+jest.mock('@/services/api', () => ({
+  ...jest.requireActual('@/services/api'),
+  getAuthSessionGeneration: jest.fn(() => 0),
+  triggerLogout: jest.fn(),
+}));
+
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockTransferOwner = transferOwner as jest.MockedFunction<typeof transferOwner>;
 const mockWithdrawGroup = withdrawGroup as jest.MockedFunction<typeof withdrawGroup>;
 const mockLog = logGroupOwnerTransferred as jest.MockedFunction<typeof logGroupOwnerTransferred>;
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
+
+// 재로그인 안내(취소 없는 단일 확인)의 확인 버튼을 눌러 로그아웃까지 진행한다.
+function pressReloginConfirm(spy: jest.SpyInstance): void {
+  const [, , buttons] = spy.mock.calls[0] as unknown as [
+    string,
+    string,
+    { text: string; onPress?: () => void }[],
+  ];
+  buttons[0].onPress?.();
+}
 
 function member(over: Partial<GroupDetailMemberResponse>): GroupDetailMemberResponse {
   return {
@@ -137,6 +159,7 @@ let alertSpy: jest.SpyInstance;
 beforeEach(() => {
   jest.clearAllMocks();
   alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockGetAuthSessionGeneration.mockReturnValue(0);
   mockRoute.params = { groupId: GROUP_ID, source: 'settings' };
   mockGetGroupDetail.mockResolvedValue(detail());
   mockTransferOwner.mockResolvedValue(undefined);
@@ -252,6 +275,7 @@ describe('위임 실패 통보', () => {
   // GROMO-1247 — 유저 부재는 '그룹을 찾을 수 없어요'가 아니다. 없어진 건 내 계정이라
   // 재시도·다른 대상 선택으로 풀리지 않는다. 유일한 탈출구인 재로그인으로 보낸다.
   test('유저 부재(USER_NOT_FOUND)는 그룹 부재로 위장하지 않고 재로그인을 유도한다', async () => {
+    mockGetAuthSessionGeneration.mockReturnValue(3);
     mockTransferOwner.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
     await mountAndSelect('u2');
 
@@ -264,6 +288,40 @@ describe('위임 실패 통보', () => {
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );
+    // 로그아웃은 **요청을 띄운 세션**에만 적용된다 — 안내를 읽는 사이 세션이 교체되면
+    // App.tsx 핸들러가 이 세대를 대조해 무시한다(GROMO-1247 P1).
+    pressReloginConfirm(alertSpy);
+    expect(mockTriggerLogout).toHaveBeenCalledWith(3);
+    expect(mockTriggerLogout).not.toHaveBeenCalledWith(undefined);
+  });
+
+  // 진입 조회(멤버 목록)의 404 — 위임 실패와 **다른 자리**다. 이미 없는 계정으로 들어오면
+  // 여기서 안 잡을 경우 '멤버를 불러오지 못했어요 → 다시 시도'만 무한히 누르게 된다.
+  test('진입 조회가 USER_NOT_FOUND면 재시도 안내에 가두지 않고 재로그인을 유도한다', async () => {
+    mockGetAuthSessionGeneration.mockReturnValue(6);
+    mockGetGroupDetail.mockRejectedValue(axiosErrorWith(404, 'USER_NOT_FOUND'));
+
+    await mountScreen();
+
+    expect(screen.getByText('멤버를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(alertSpy).toHaveBeenCalledWith(
+      '로그인이 필요해요',
+      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      [expect.objectContaining({ text: '확인' })],
+      { cancelable: false },
+    );
+    pressReloginConfirm(alertSpy);
+    expect(mockTriggerLogout).toHaveBeenCalledWith(6);
+  });
+
+  test('진입 조회의 다른 실패는 종전대로 에러+다시 시도로 남는다', async () => {
+    mockGetGroupDetail.mockRejectedValue(axiosErrorWith(500));
+
+    await mountScreen();
+
+    expect(screen.getByText('멤버를 불러오지 못했어요')).toBeOnTheScreen();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockTriggerLogout).not.toHaveBeenCalled();
   });
 
   test('그 밖의 실패는 재시도가 유효하므로 Alert로 남는다', async () => {

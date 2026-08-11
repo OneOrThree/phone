@@ -9,6 +9,7 @@ import {
   groupErrorCode,
   joinNextSession,
 } from '@/services/groupApi';
+import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
@@ -119,6 +120,8 @@ export default function JoinNextSheet({
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
+    // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const joined = await joinNextSession(groupId, challengeId);
       // 참여 계측(#570 codex ⑧) — 성공 시에만. 예약도 참여 결심 1건이다(session_count=1).
@@ -170,7 +173,7 @@ export default function JoinNextSheet({
         // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
         // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
         case USER_NOT_FOUND:
-          promptSessionExpired();
+          promptSessionExpired(requestSessionGeneration);
           return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':

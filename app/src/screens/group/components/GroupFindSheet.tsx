@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
+import { getAuthSessionGeneration } from '@/services/api';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
@@ -212,6 +213,9 @@ export default function GroupFindSheet({
     // 그때 늦게 도착한 A의 실패를 그대로 반영하면 A용 오류 문구가 B 화면에 뜨고, refreshResults가
     // B의 세대 번호로 A를 다시 조회해 유효한 요청처럼 B 결과를 덮는다.
     const seq = searchSeqRef.current;
+    // 검색 세대와 별개로 **인증 세대**도 캡처한다 — 유저 부재 분기의 로그아웃은 이 요청이 속한
+    // 세션에만 적용돼야 한다(sessionErrors.ts 주석). 검색 세대는 '어느 검색어의 행인가'만 말한다.
+    const requestSessionGeneration = getAuthSessionGeneration();
     setJoiningId(group.groupId);
     setJoinError(null);
     try {
@@ -240,9 +244,10 @@ export default function GroupFindSheet({
         return;
       }
       // 유저 부재(내 계정이 없어졌다, GROMO-1247) — 그룹 쪽 사정이 아니므로 목록도 문구도
-      // 건드리지 않고 세션 정리로 보낸다. 위 둘과 같은 이유로 검색 세대와 무관하게 처리한다.
+      // 건드리지 않고 세션 정리로 보낸다. 위 둘과 같은 이유로 **검색** 세대와는 무관하게 처리하되,
+      // 로그아웃 판정은 **인증** 세대가 맡는다(늦게 온 응답이 새 세션을 끊지 않게).
       if (code === USER_NOT_FOUND) {
-        promptSessionExpired();
+        promptSessionExpired(requestSessionGeneration);
         return;
       }
       // 나머지는 '그 검색어의 그 행'에서만 의미가 있는 실패다 — 세대가 바뀌었으면 조용히 버린다.

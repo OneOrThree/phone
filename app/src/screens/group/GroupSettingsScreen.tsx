@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import type { GroupDetailResponse } from '@/types/dto/group';
@@ -73,12 +74,17 @@ export default function GroupSettingsScreen() {
     const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(false);
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const d = await getGroupDetail(groupId);
       if (seq !== requestSeqRef.current) return;
       setDetail(d);
-    } catch {
+    } catch (e) {
       if (seq !== requestSeqRef.current) return;
+      // 진입 조회의 유저 부재(GROMO-1247) — 액션 실패와 **다른 자리**다. 여기서 코드를 안 보면
+      // 활성 users 행이 이미 없는 세션은 '다시 시도' 버튼만 무한히 누르게 된다(재시도로 안 풀린다).
+      // 에러 상태는 그대로 세운다 — 로그아웃 언마운트 전까지 화면이 성공처럼 보이면 안 된다.
+      if (groupErrorCode(e) === USER_NOT_FOUND) promptSessionExpired(requestSessionGeneration);
       setError(true);
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
@@ -126,6 +132,8 @@ export default function GroupSettingsScreen() {
   const doLeave = useCallback(async () => {
     if (leaving) return;
     setLeaving(true);
+    // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       await withdrawGroup(groupId);
       setLeaveModal(null); // 화면이 사라지기 전에 카드를 내린다(모달을 띄운 채 언마운트하지 않는다)
@@ -142,7 +150,7 @@ export default function GroupSettingsScreen() {
         // 그룹은 그대로 있고 사용자는 그 사실을 모른 채 로그인만 만료돼 있다.
         case USER_NOT_FOUND:
           setLeaveModal(null);
-          promptSessionExpired();
+          promptSessionExpired(requestSessionGeneration);
           break;
         case 'NOT_FOUND':
         case 'MEMBER_ONLY':
