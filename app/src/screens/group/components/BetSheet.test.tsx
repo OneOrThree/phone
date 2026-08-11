@@ -69,12 +69,6 @@ jest.mock('@/utils/challengeTime', () => ({
   nowSecondsInZone: jest.fn(() => mockNowSec),
 }));
 
-// 게스트 안내가 계정 설정으로 보낸다 — 시트가 직접 네비게이션을 쥔다(GroupFindSheet와 같은 관행).
-const mockNavigate = jest.fn();
-jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
-}));
-
 // 잔액은 CoinContext가 정본 — Provider 대신 훅을 대체해 잔액·미상 여부와 refresh 호출을 직접 본다.
 // coinsVersion은 '이 잔액이 몇 번째로 받아 온 값인가' — 서버 부족 판정을 풀어도 되는지의 기준이다.
 // 기본 잔액은 최고 프리셋(3,000 — N30 상한)까지 잠기지 않는 값 — 부족 시나리오는 각 테스트가 내려 잡는다.
@@ -708,23 +702,6 @@ describe('에러 분기', () => {
       '그룹에서 나갔거나 더 이상 멤버가 아니에요.',
     );
     expect(onDone).toHaveBeenCalled();
-  });
-
-  // 게스트는 재화를 쓸 수 없다 — '잠시 후 다시 시도'는 거짓이라 로그인 안내로 갈아 끼운다.
-  test('GUEST_FORBIDDEN — 로그인 안내로 바뀌고 계정 설정으로 보낸다', async () => {
-    mockCreateBet.mockRejectedValueOnce(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
-    await renderSheet('create');
-    await submit();
-
-    expect(screen.getByText('로그인하면 내기에 참여할 수 있어요')).toBeOnTheScreen();
-    expect(screen.queryByTestId('group.bet.submit')).toBeNull();
-    expect(onDone).not.toHaveBeenCalled();
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('group.bet.login'));
-    });
-    expect(onClose).toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('SettingsAccount');
   });
 
   test('BET_ALREADY_JOINED — 성공 취급(계측은 발행하지 않는다)', async () => {

@@ -194,9 +194,6 @@ export default function JoinWeekSheet({
         case 'MEMBER_ONLY':
           failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
           return;
-        case 'GUEST_FORBIDDEN':
-          failAndReload('로그인이 필요해요', '게스트는 코인을 쓸 수 없어요.');
-          return;
         default:
           setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
       }

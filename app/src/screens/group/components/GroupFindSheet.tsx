@@ -11,15 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
 import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
-import type { V2RootStackParamList } from '@/navigation/types';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 
 // 그룹 찾기 시트 — 명세 docs/app/group-plan.md §6-3 + 2차 docs/app/group-plan-2.md §3-3.
@@ -39,7 +36,7 @@ import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 // 에러 표현 규칙(그룹 시트 3종 공통 — GroupInviteSheet·NoticeComposeSheet와 같은 기준):
 //   · 시트 안에서 일어난 액션 실패는 **인라인 문구**로 띄운다. 시트가 이미 맥락을 쥐고 있어
 //     Alert를 겹치면 레이어가 두 겹이 되고, 확인을 눌러야 원래 화면으로 돌아온다.
-//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)과 **계정 전환 유도**(로그인)에만 쓴다.
+//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)에만 쓴다.
 
 // 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지(FriendAddScreen과 동일 기준)
 const SEARCH_DEBOUNCE_MS = 350;
@@ -73,7 +70,6 @@ export default function GroupFindSheet({
   onJoined,
   onOpenGroup,
 }: GroupFindSheetProps) {
-  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GroupSearchResponse[]>([]);
   // 열리자마자 공개방 기본 목록을 부르므로(A-10) 첫 렌더는 로딩으로 시작한다 —
@@ -189,15 +185,6 @@ export default function GroupFindSheet({
     runSearch(q, seq, true);
   }, [q, runSearch]);
 
-  // 게스트는 GroupScreen이 앞단에서 막지만, 서버가 403을 주면 시트를 닫고 로그인으로 보낸다(§5-3).
-  const goLogin = useCallback(() => {
-    onClose();
-    Alert.alert('로그인이 필요해요', '로그인하면 그룹에 참여할 수 있어요.', [
-      { text: '나중에', style: 'cancel' },
-      { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
-    ]);
-  }, [navigation, onClose]);
-
   async function join(group: GroupSearchResponse) {
     // 참여는 앱 전체에서 한 번에 하나만 나간다(joinLock.ts) — 초대 시트의 참여와 같은 잠금을 쓴다.
     // 잠금을 못 잡는 경우: 이 시트가 내려간 뒤에도 살아 있는 앞 요청, 또는 초대 시트가 쥔 잠금.
@@ -225,17 +212,12 @@ export default function GroupFindSheet({
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
       const code = groupErrorCode(e);
-      // 아래 둘은 화면 상태가 아니라 **실제 소속·계정 상태**의 결과라 검색 세대와 무관하게 처리한다.
+      // 아래는 화면 상태가 아니라 **실제 소속 상태**의 결과라 검색 세대와 무관하게 처리한다.
       if (code === 'ALREADY_MEMBER') {
         // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다.
         // (시도 계측은 요청 직전에 이미 나갔다 — 여기서 되돌릴 수단은 없고, 되돌릴 이유도 없다.
         //  실제 가입 여부는 서버가 소유한 group_joined가 말한다.)
         onJoined();
-        return;
-      }
-      // 로그인 유도만 Alert로 남긴다 — 시트를 닫고 다른 화면으로 보내는 흐름이라 인라인이 사라진다.
-      if (code === 'GUEST_FORBIDDEN') {
-        goLogin();
         return;
       }
       // 나머지는 '그 검색어의 그 행'에서만 의미가 있는 실패다 — 세대가 바뀌었으면 조용히 버린다.

@@ -22,7 +22,6 @@ import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
   clearPendingGroupEntry,
   consumeGroupEntry,
-  peekGroupEntry,
   consumeInitialGroupRoomReturn,
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
@@ -35,10 +34,9 @@ import GroupInviteSheet from './components/GroupInviteSheet';
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
 //
-//   진입 → isGuest ? [게스트 안내]
-//                  : getMyGroups() → 실패 [에러+재시도]
-//                                  / 0건      [빈 상태]
-//                                  / 1건 이상 <GroupListScreen/> (항상 목록이 기본 화면)
+//   진입 → getMyGroups() → 실패 [에러+재시도]
+//                        / 0건      [빈 상태]
+//                        / 1건 이상 <GroupListScreen/> (항상 목록이 기본 화면)
 //
 // 3차 전까진 소속이 1건이면 그룹방을 이 화면에 내장 렌더했지만, A-9에서 **소속이 1개든
 // 여러 개든 항상 목록을 먼저 보여주는** 것으로 통일했다 — 목록 카드를 탭하면 소속 수와
@@ -61,7 +59,7 @@ export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const isScreenFocused = useIsFocused();
-  const { isGuest, userId } = useUser();
+  const { userId } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [groupsRevision, setGroupsRevision] = useState(0);
@@ -78,7 +76,7 @@ export default function GroupScreen() {
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
   // 리스너 계약으로 받는다(navigationRef.ts 상단 주석 참고).
   //  · 마운트 시 peekPendingInvite() — 콜드 스타트에서 화면보다 링크가 먼저 도착한 경우를 이어받는다.
-  //    게스트가 링크로 들어와 로그인하면 앱 트리가 리마운트되는데, 버퍼가 남아 있어 같은 그룹으로 복귀한다.
+  //    링크로 들어온 뒤 로그인해 앱 트리가 리마운트돼도 버퍼가 남아 같은 그룹으로 복귀한다.
   //  · 버퍼를 비우는 곳은 여기뿐 — 시트가 닫히거나(onClose) 참여가 끝났을 때(onJoined)만 clear.
   // 버퍼가 slug·entry까지 들고 온다(초대 링크 스펙 §7-3) — 시트가 6b 이벤트·join 어트리뷰션에 쓴다.
   const [invite, setInvite] = useState<PendingInvite | null>(() => peekPendingInvite());
@@ -92,21 +90,6 @@ export default function GroupScreen() {
     });
     return () => setGroupInviteListener(null);
   }, []);
-
-  // 게스트 → 로그인 전환에서 초대 이어받기.
-  // 위 useState 초기화는 **마운트 1회**라 앱 트리가 리마운트될 때만 버퍼를 다시 읽는다. 그런데
-  // App.tsx의 applyStoredSession은 로그인 전후 userId가 같은 경우(게스트 계정에 소셜 provider를
-  // 연결)를 따로 분기하고, 그때는 <UserProvider key={userId}>가 그대로라 리마운트가 없다.
-  // isGuest는 prop 파생이라 리마운트 없이 갱신되지만 버퍼를 다시 읽을 계기가 없어 초대가 조용히
-  // 증발한다 — 전환 자체를 감지해 이어받는다(리마운트 경로에선 전환이 안 잡혀 무해).
-  const wasGuestRef = useRef(isGuest);
-  useEffect(() => {
-    const wasGuest = wasGuestRef.current;
-    wasGuestRef.current = isGuest;
-    if (!wasGuest || isGuest) return;
-    const pending = peekPendingInvite();
-    if (pending) setInvite(pending);
-  }, [isGuest]);
 
   // 요청 시퀀스 — 포커스마다 조회가 나가므로 탭을 빠르게 오가면 이전 응답이 늦게 도착해
   // 최신 목록을 덮을 수 있다(생성/참여 직후 빈 상태로 되돌아 보이는 형태).
@@ -142,9 +125,8 @@ export default function GroupScreen() {
   // 재조회하면 목록이 기본 화면이라(A-9), 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
   const pendingRoomIdRef = useRef<string | null>(null);
 
-  // 내 그룹 조회. 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다 — §5-3).
+  // 내 그룹 조회.
   const fetchGroups = useCallback(async () => {
-    if (isGuest) return;
     const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(false);
@@ -170,7 +152,7 @@ export default function GroupScreen() {
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [isGuest]);
+  }, []);
 
   // mutation 성공 직후의 재조회 — 결과가 올 때까지(또는 실패가 확정될 때까지) 빈 상태를 렌더하지 않는다.
   const fetchAfterMutation = useCallback(() => {
@@ -192,10 +174,9 @@ export default function GroupScreen() {
       hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
-        // 인증 사용자는 focus 시작 시 direct source를 이 episode가 소유한다. 조회 실패 후 같은
-        // episode에서 재시도할 때는 ref의 값을 유지하되, 다음 일반 진입으로 source를 흘리지 않는다.
-        // 게스트 초대만 로그인 뒤 리마운트를 위해 전역 버퍼를 보존한다.
-        source: isGuest ? peekGroupEntry(fallback) : consumeGroupEntry(fallback),
+        // focus 시작 시 direct source를 이 episode가 소유한다. 조회 실패 후 같은 episode에서
+        // 재시도할 때는 ref의 값을 유지하되, 다음 일반 진입으로 source를 흘리지 않는다.
+        source: consumeGroupEntry(fallback),
         logged: false,
       };
       setSuccessfulListEpisode(null);
@@ -203,7 +184,7 @@ export default function GroupScreen() {
       return () => {
         requestSeqRef.current++;
       };
-    }, [fetchGroups, isGuest]),
+    }, [fetchGroups]),
   );
 
   // ⚠️ 시트 퇴장 애니메이션(220ms) **뒤에** 불린다. 그 사이 새 초대 링크가 도착해 시트 내용이
@@ -222,15 +203,6 @@ export default function GroupScreen() {
     clearPendingGroupEntry();
     setInvite(null);
   }, []);
-
-  // 게스트 초대 → 로그인 유도(§6-6). **시트만 내리고 초대 버퍼는 남긴다** —
-  // 로그인하면 앱 트리가 리마운트되고 peekPendingInvite()가 같은 그룹 프리뷰를 다시 띄운다.
-  // clearPendingInvite를 부르는 closeInvite와 절대 혼용하지 않는다(버퍼를 지우면 초대가 증발한다).
-  // 시트를 내리는 이유는 RN 네이티브 Modal이라 계정 화면 위에 그대로 남아 로그인 버튼을 가리기 때문이다.
-  const onInviteLogin = useCallback(() => {
-    setInvite(null);
-    navigation.navigate('SettingsAccount');
-  }, [navigation]);
 
   // 초대로 참여 완료 — 버퍼를 비우고 재조회해 **그 초대장이 가리킨** 그룹방으로 전환한다.
   // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 초대 링크를 열었을 때(참여 성공·
@@ -356,7 +328,6 @@ export default function GroupScreen() {
       entry={invite.entry}
       onClose={() => closeInvite(invite)}
       onJoined={onInviteJoined}
-      onLogin={onInviteLogin}
     />
   ) : null;
 
@@ -371,29 +342,6 @@ export default function GroupScreen() {
         </TouchableOpacity>
       </View>
     ) : null;
-
-  // ── 게스트 — 호출 없이 로그인 유도(§5-3) ──
-  if (isGuest) {
-    return (
-      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
-          <CharacterImage size={140} />
-          <Text style={s.title}>로그인하고 그룹을 시작해요</Text>
-          <Text style={s.desc}>
-            게스트는 그룹에 참여할 수 없어요.{'\n'}로그인하면 바로 쓸 수 있어요.
-          </Text>
-          <TouchableOpacity
-            style={s.primaryBtn}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('SettingsAccount')}
-          >
-            <Text style={s.primaryText}>로그인하고 그룹 시작하기</Text>
-          </TouchableOpacity>
-        </View>
-        {inviteSheet}
-      </SafeAreaView>
-    );
-  }
 
   // ── 최초 로딩 — 중앙 스피너(§5-4). 목록을 한 번이라도 받았으면 절대 갈아끼우지 않는다. ──
   // 전이(생성 화면 왕복·참여 직후)도 여기서 제외한다: 만들지 않고 그냥 돌아와도 보고 있던
