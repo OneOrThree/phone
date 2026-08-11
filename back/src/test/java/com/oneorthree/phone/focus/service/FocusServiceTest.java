@@ -2748,6 +2748,54 @@ class FocusServiceTest {
     }
 
     @Test
+    @DisplayName("리플레이 버스트에서 뒤늦게 도착한 **더 늦은** 블록은 마커를 받는다 — 클램프된 저장값과 원시 시각을 섞어 비교하지 않는다")
+    void laterBlockArrivingAfterClampedEarlierBlockStillGetsMarker() {
+        // given: 90분 백그라운드 후 복귀 — 과거 경계 두 개가 리플레이된다(둘 다 클램프 창 밖).
+        // 이번엔 **논리적으로 이른** 블록이 먼저 도착해 마커를 만든다. 그 마커의 저장 startedAt 은
+        // 클램프되어 서버 now 가 되고, clientStartedAt 에는 원시 시각(90분 전)이 남는다.
+        Instant earlierBoundary = Instant.now().minus(Duration.ofMinutes(90));
+        Instant laterBoundary = Instant.now().minus(Duration.ofMinutes(60));
+        User user = User.builder().id(USER_ID).build();
+        UUID firstMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000d5");
+        UUID secondMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000d6");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> {
+                    FocusSession arg = inv.getArgument(0);
+                    return FocusSession.builder()
+                            .id(arg.getClientStartedAt() == earlierBoundary ? firstMarkerId : secondMarkerId)
+                            .user(user)
+                            .startedAt(arg.getStartedAt())
+                            .clientStartedAt(arg.getClientStartedAt())
+                            .build();
+                });
+        // DB 상태 그대로: 1번째엔 열린 마커 없음, 2번째엔 1번이 만든 마커.
+        // ⚠️ 그 마커의 startedAt 은 **클램프된 now**, clientStartedAt 은 **원시 90분 전**이다.
+        FocusSession created = FocusSession.builder()
+                .id(firstMarkerId).user(user)
+                .startedAt(Instant.now())
+                .clientStartedAt(earlierBoundary)
+                .build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(created));
+
+        // when: 이른 경계가 먼저, 더 늦은 경계가 뒤에 도착한다
+        FocusSessionStartResponse first =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, earlierBoundary));
+        FocusSessionStartResponse second =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, laterBoundary));
+
+        // then: ② 는 원시끼리 비교되어(60분 전 > 90분 전) 정상 회전한다 — 자기 마커를 받는다.
+        // 종전처럼 원시 orderKey 를 마커의 **클램프된 startedAt**(= now)과 비교하면 60분 전이 과거로
+        // 판정돼 ② 가 sessionId=null 을 받고, ① 의 업로드가 마커를 닫는 순간 라이브 마커가 사라진다.
+        // 그 블록이 5분 유예보다 길면 정산 가드도 풀려 현재 집중분이 빠진 채 내기가 확정된다(3차 P1).
+        verify(focusSessionRepository, times(2)).save(any(FocusSession.class));
+        verify(focusSessionRepository, times(2)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        assertThat(first.sessionId()).isEqualTo(firstMarkerId);
+        assertThat(second.sessionId()).isEqualTo(secondMarkerId);
+    }
+
+    @Test
     @DisplayName("클램프된(창 밖 과거) start 는 열린 마커를 닫지 못한다 — 클램프가 순서 판정을 무력화하지 않는다")
     void clampedBackdatedStartDoesNotSupersedeOpenMarker() {
         // given: 1분 전에 열린 마커 + 12시간 전 startedAt(창 밖 → 저장값은 now 로 클램프될 요청)

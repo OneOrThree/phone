@@ -572,14 +572,22 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
 
   created_at         timestamptz        [not null, default: `now()`]
 
-  // 인덱스: PK 외에 없다. (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도
-  // 존재한 적이 없어 GROMO-1287 에서 삭제했다 — 없는 것을 문서가 있다고 말하고 있었다.)
+  // (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도 존재한 적이 없어
+  // GROMO-1287 에서 삭제했다 — 없는 것을 문서가 있다고 말하고 있었다. 아래는 실제로 만든 것이다.)
   //
   // 「유저당 라이브 마커(ended_at IS NULL) 1개」 불변식은 현재 **서비스 레이어**가 지킨다
   // (FocusService.startFocusSession: users 행 배타 락 + close-then-open + startedAt 단조성).
   // 이를 DB 로 강제하는 부분 유니크 인덱스 — (user_id) WHERE ended_at IS NULL — 는 **후속 티켓**이다:
   // prod 롤백이 Flyway 를 유지한 채 이미지만 되돌리므로, close-then-open 이 안착하기 전에 인덱스를
-  // 넣으면 롤백된 구버전 서버가 마커 회전마다 유니크 위반 500 을 낸다. V47 은 백필만 한다.
+  // 넣으면 롤백된 구버전 서버가 마커 회전마다 유니크 위반 500 을 낸다.
+  //
+  // 다만 **비고유** 부분 인덱스는 롤백해도 INSERT 를 막지 않으므로 V47 이 함께 만든다 — 매 start 가
+  // 배타 락을 쥔 채 (user_id, ended_at IS NULL) 조회와 벌크 마감을 연달아 돌려, 인덱스가 없으면
+  // 요청마다 풀스캔 2회에 락 보유 시간까지 길어진다.
+
+  indexes {
+    (user_id, started_at) [name: 'idx_focus_sessions_live_marker', note: '라이브 마커 조회·마감 전용 **비고유** 부분 인덱스 (WHERE ended_at IS NULL, started_at DESC). migration V47. 유니크가 아닌 이유는 위 주석 — 롤백 호환']
+  }
 }
 
 Table focus_session_pomodoros [note: 'POMODORO 세션 상세 (focus_sessions 1:1, POMODORO 타입 세션만 행 존재). 타입별 필드 분리(CTI)로 focus_sessions NULL 오염 방지'] {

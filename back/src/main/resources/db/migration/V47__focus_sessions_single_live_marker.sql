@@ -65,3 +65,39 @@ UPDATE public.focus_sessions s
 -- 정산 대기 가드(GroupBetSettler)와의 관계: 여기서 채우는 ended_at 은 **과거값**(다음 마커 시작 또는
 -- +12h)이라, GROMO-1287 이 넓힌 가드의 '방금 닫힌 마커' 유예창(5분)에 걸리지 않는다 —
 -- 배포 직후 창형 FOCUS 정산이 무더기로 멈추는 일이 없다.
+
+-- ── 라이브 마커 조회용 **비고유** 부분 인덱스 (GROMO-1287 · codex 리뷰) ──────────────────────
+-- focus_sessions 에는 PK 외 인덱스가 하나도 없었다. 그런데 이제 모든 POST /focus-session/start 가
+-- users 행 배타 락을 쥔 채 (1) 최신 열린 마커 조회 (2) autoCloseOpenMarkersOf 를 연달아 실행한다.
+-- 둘 다 (user_id, ended_at IS NULL) 로 거르므로 인덱스가 없으면 **요청마다 테이블 풀스캔 2회**이고,
+-- 세션 이력이 쌓일수록 시작이 느려지는 데 그치지 않고 **배타 락 보유 시간까지 길어져** 같은 유저의
+-- 동시 start 가 그만큼 더 직렬화 대기한다.
+--
+-- ⚠️ 여기서 만드는 것은 **UNIQUE 가 아니다.** 유저당 1개 불변식은 이 마이그레이션 범위 밖이고
+-- (서비스 레이어의 close-then-open 이 담당한다), 부분 **유니크** 인덱스는 구버전 이미지로 롤백했을 때
+-- 그쪽 startFocusSession 이 열린 마커를 닫지 않고 INSERT 하므로 뽀모도로 회전을 500 으로 만든다
+-- (운영 롤백은 Flyway 를 유지하고 이미지만 교체한다 — back/CLAUDE.md · prod-rollback.yml).
+-- 비고유 인덱스는 INSERT 를 막지 않으므로 **롤백해도 안전하고**, 두 신규 쿼리는 그대로 태운다.
+-- 유니크 제약은 이 배포가 안착해 롤백 창이 닫힌 뒤 별도 마이그레이션으로 올린다(후속 티켓).
+--
+-- started_at DESC 를 포함하는 이유: 조회가 findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc 라
+-- 정렬까지 인덱스로 끝난다(마이그레이션 이전 스냅샷·ci 스키마처럼 열린 마커가 여럿이어도 동일).
+CREATE INDEX IF NOT EXISTS idx_focus_sessions_live_marker
+    ON public.focus_sessions (user_id, started_at DESC)
+ WHERE ended_at IS NULL;
+
+-- ── 마커 순서 판정용 원시 클라 시각 (GROMO-1287 · codex 리뷰) ────────────────────────────────
+-- started_at 은 clampToServerNow 를 거쳐 저장된다. 5분 넘게 백그라운드에 있다 여러 블록을 리플레이하면
+-- 과거 시각들이 **전부 서버 now 로 치환**돼 논리 순서가 지워지는데, 그때 새 요청의 **원시** 시각을
+-- 저장된(=클램프된) 값과 비교하면 축이 어긋난다 — 논리적으로 더 늦은 블록이 과거로 판정돼 마커를
+-- 못 받고, 라이브 표시가 비며 정산 가드(5분 유예)도 그 블록을 못 잡는다.
+-- 원시끼리 비교할 수 있도록 요청이 실어 보낸 값을 그대로 남긴다.
+--
+-- ⚠️ 순서 판정 **전용**이다. 저장·집계·보상은 여전히 started_at(클램프 값)만 쓴다 —
+-- GROMO-1214 의 "클라 시각이 저장·집계에 들어가지 않는다" 계약은 유지된다.
+-- NULL 허용이라 구버전 이미지로 롤백해도 무해하다(그쪽은 이 컬럼을 모르고 INSERT 한다).
+ALTER TABLE public.focus_sessions
+    ADD COLUMN IF NOT EXISTS client_started_at timestamptz;
+
+COMMENT ON COLUMN public.focus_sessions.client_started_at IS
+    '시작 요청의 클램프 이전 클라 시각 — 마커 순서 판정 전용(GROMO-1287). 저장·집계·보상은 started_at 을 쓴다. 레거시 행은 NULL 이라 판정측이 started_at 으로 폴백한다.';

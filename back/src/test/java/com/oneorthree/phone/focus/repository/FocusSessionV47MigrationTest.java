@@ -124,7 +124,7 @@ class FocusSessionV47MigrationTest {
     }
 
     @Test
-    @DisplayName("V47 은 부분 유니크 인덱스를 만들지 않는다 — prod 롤백(이미지만 교체) 안전을 위해 후속 배포로 분리")
+    @DisplayName("V47 은 비고유 부분 인덱스만 만든다 — 유니크는 prod 롤백(이미지만 교체) 안전을 위해 후속 배포로 분리")
     void doesNotCreateUniqueIndexYetSoOldImagesCanRollBack() {
         migrate("47");
 
@@ -134,7 +134,23 @@ class FocusSessionV47MigrationTest {
                 "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
                         + " AND tablename = 'focus_sessions'",
                 String.class))
-                .doesNotContain("uq_focus_sessions_live_marker");
+                .doesNotContain("uq_focus_sessions_live_marker")
+                // 반대로 **비고유** 부분 인덱스는 있어야 한다 — INSERT 를 막지 않아 롤백에 안전하면서
+                // 매 start 의 두 쿼리(최신 열린 마커 조회 · 벌크 마감)를 풀스캔에서 건져낸다.
+                // 없으면 배타 락을 쥔 채 테이블을 두 번 훑어 락 보유 시간까지 길어진다(codex 리뷰).
+                .contains("idx_focus_sessions_live_marker");
+
+        // 부분 인덱스의 술어·정렬이 실제 쿼리와 맞는지까지 본다 — 이름만 맞고 조건이 다르면
+        // 인덱스는 있는데 안 타는 상태가 된다(문서만 맞고 실물이 다른 그 사고를 이 티켓이 겪었다).
+        assertThat(jdbc.queryForObject(
+                "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'"
+                        + " AND tablename = 'focus_sessions'"
+                        + " AND indexname = 'idx_focus_sessions_live_marker'",
+                String.class))
+                .contains("user_id")
+                .contains("started_at DESC")
+                .contains("ended_at IS NULL")
+                .doesNotContain("UNIQUE");
 
         // 그래서 지금은 DB 가 두 번째 라이브 마커를 막지 않는다 — 불변식은 서비스 레이어가 지킨다
         // (FocusService.startFocusSession: users 행 배타 락 + close-then-open + startedAt 단조성).

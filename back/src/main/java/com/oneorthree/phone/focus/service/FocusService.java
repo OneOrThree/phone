@@ -773,7 +773,12 @@ public class FocusService {
         // 판정에만 쓰는 읽기다(엔티티를 변경하지 않으므로 아래 벌크 UPDATE 와 더티 라이트가 충돌하지 않는다).
         Optional<FocusSession> liveMarker =
                 focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user);
-        if (liveMarker.isPresent() && !orderKey.isAfter(liveMarker.get().getStartedAt())) {
+        // ⚠️ 비교 상대는 마커의 **원시** 시각이다(clientStartedAt). startedAt 은 클램프를 거친 값이라,
+        //    리플레이 버스트에서 앞선 요청이 now 로 치환돼 저장되면 뒤따르는 요청의 원시 시각이
+        //    그보다 과거로 보인다 — 논리적으로 더 늦은 블록이 마커를 못 받고 라이브 표시가 비며
+        //    정산 가드도 그 블록을 못 잡는다(codex 리뷰). 레거시·구버전이 만든 행은 null 이라
+        //    startedAt 으로 폴백한다 — 그 경우는 종전과 같은 근사치이고, 새로 생기는 마커부터 정확해진다.
+        if (liveMarker.isPresent() && !orderKey.isAfter(orderKeyOf(liveMarker.get()))) {
             // 마커를 만들지 않았음을 sessionId=null 로 알린다. **기존 마커 id 를 재사용하면 안 된다** —
             // 역순 도착한 start 들은 서로 다른 블록이라, 같은 id 를 주면 뒤늦은 PATCH 가
             // SESSION_ALREADY_ENDED(앱이 POST 폴백을 하지 않는 코드)를 받아 그 블록의 시간·코인이
@@ -793,9 +798,21 @@ public class FocusService {
                 .focusTag(tag)
                 .focusType(body.focusType() != null ? body.focusType() : FocusType.INFINITE)
                 .startedAt(startedAt)
+                // 순서 판정 전용 — 저장·집계·보상은 위 startedAt(클램프 값)만 본다.
+                .clientStartedAt(body.startedAt())
                 .build());
 
         return new FocusSessionStartResponse(saved.getId(), saved.getStartedAt());
+    }
+
+    /**
+     * 마커의 순서 판정 키 — 원시 클라 시각이 있으면 그것, 없으면 저장된 시작 시각.
+     *
+     * <p>레거시 행과 구버전 이미지가 만든 행은 {@code clientStartedAt} 이 null 이다. 그때는 종전과
+     * 같은 근사치(클램프 값)로 떨어지고, 새로 생기는 마커부터 원시끼리 비교돼 정확해진다.
+     */
+    private static Instant orderKeyOf(FocusSession marker) {
+        return marker.getClientStartedAt() != null ? marker.getClientStartedAt() : marker.getStartedAt();
     }
 
     /**
