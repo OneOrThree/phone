@@ -101,6 +101,40 @@ class RepeatScheduleTest {
     }
 
     @Test
+    @DisplayName("요일 회전 — 뒤로 미루기·앞으로 당기기, 일↔월 wrap, 0 회전은 항등 (창 자정 인접 §A5)")
+    void rotateShiftsWeekdaysCyclically() {
+        int monday = RepeatSchedule.bit(DayOfWeek.MONDAY);
+        int sunday = RepeatSchedule.bit(DayOfWeek.SUNDAY);
+
+        // +1 은 하루 뒤로 — 월→화, 월수금(21)→화목토(42)
+        assertThat(RepeatSchedule.rotate(monday, 1)).isEqualTo(RepeatSchedule.bit(DayOfWeek.TUESDAY));
+        assertThat(RepeatSchedule.rotate(MON_WED_FRI, 1)).isEqualTo(RepeatSchedule.maskOf(
+                List.of(DayOfWeek.TUESDAY, DayOfWeek.THURSDAY, DayOfWeek.SATURDAY)));
+        // −1 은 하루 앞으로 — 화→월(자정 인접 판정이 쓰는 방향)
+        assertThat(RepeatSchedule.rotate(RepeatSchedule.bit(DayOfWeek.TUESDAY), -1)).isEqualTo(monday);
+        // 주 경계 wrap — 일요일 밤 창과 월요일 새벽 창이 만나는 축
+        assertThat(RepeatSchedule.rotate(sunday, 1)).isEqualTo(monday);
+        assertThat(RepeatSchedule.rotate(monday, -1)).isEqualTo(sunday);
+        // 0 회전은 항등, 7 회전은 한 바퀴라 제자리, 7 이상·음수도 접어서 받는다
+        assertThat(RepeatSchedule.rotate(MON_WED_FRI, 0)).isEqualTo(MON_WED_FRI);
+        assertThat(RepeatSchedule.rotate(MON_WED_FRI, 7)).isEqualTo(MON_WED_FRI);
+        assertThat(RepeatSchedule.rotate(MON_WED_FRI, -7)).isEqualTo(MON_WED_FRI);
+        assertThat(RepeatSchedule.rotate(monday, 8)).isEqualTo(RepeatSchedule.bit(DayOfWeek.TUESDAY));
+        // 매일(127)은 회전 불변 — 자정 양옆 창이 둘 다 매일이면 어느 이동에서도 요일 게이트가 열린다
+        assertThat(RepeatSchedule.rotate(RepeatSchedule.EVERYDAY, 1)).isEqualTo(RepeatSchedule.EVERYDAY);
+        assertThat(RepeatSchedule.rotate(RepeatSchedule.EVERYDAY, -1)).isEqualTo(RepeatSchedule.EVERYDAY);
+        // 1~127 불변식이 자동 보존된다 — 어떤 유효 마스크를 어느 방향으로 돌려도 0 이 되지 않는다
+        for (int mask = RepeatSchedule.MIN_MASK; mask <= RepeatSchedule.MAX_MASK; mask++) {
+            for (int days = -7; days <= 7; days++) {
+                assertThat(RepeatSchedule.isValidMask(RepeatSchedule.rotate(mask, days))).isTrue();
+            }
+        }
+        // 범위 밖 마스크는 같은 가드에 걸린다
+        assertThatThrownBy(() -> RepeatSchedule.rotate(0, 1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RepeatSchedule.rotate(128, 1)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("범위 밖 마스크(0·128)는 활성일 계산을 거부한다 — DB CHECK(1~127)와 같은 경계")
     void rejectsMaskOutOfRange() {
         assertThat(RepeatSchedule.isValidMask(0)).isFalse();
