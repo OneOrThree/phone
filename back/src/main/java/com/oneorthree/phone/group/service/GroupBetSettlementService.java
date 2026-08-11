@@ -40,8 +40,8 @@ public class GroupBetSettlementService {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    /** 실패 요약 로그에 실을 betId 상한 — 대량 실패 시 로그 한 줄이 무한정 길어지지 않게 자른다. */
-    static final int FAILED_BET_ID_LOG_LIMIT = 20;
+    /** 실패 요약 로그에 실을 sessionId 상한 — 대량 실패 시 로그 한 줄이 무한정 길어지지 않게 자른다. */
+    static final int FAILED_SESSION_ID_LOG_LIMIT = 20;
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupBetSettler groupBetSettler;
@@ -115,9 +115,9 @@ public class GroupBetSettlementService {
             log.error("내기 정산 실패 요약 — category={}, 실패 {}건, sessionIds={}{}",
                     category == null ? "ALL" : category,
                     failed,
-                    failedSessionIds.stream().limit(FAILED_BET_ID_LOG_LIMIT).toList(),
-                    failed > FAILED_BET_ID_LOG_LIMIT
-                            ? " (앞 " + FAILED_BET_ID_LOG_LIMIT + "건만 표시)" : "");
+                    failedSessionIds.stream().limit(FAILED_SESSION_ID_LOG_LIMIT).toList(),
+                    failed > FAILED_SESSION_ID_LOG_LIMIT
+                            ? " (앞 " + FAILED_SESSION_ID_LOG_LIMIT + "건만 표시)" : "");
         }
         // refunded 버킷은 24h 데드라인 자동 환불(N21·GROMO-1411)이 다시 쓴다(종전엔 상시 0 레거시).
         // settledBefore 는 실행 기준일(KST) — 선택 축이 settle_after 로 바뀌었지만 shape 는 유지한다.

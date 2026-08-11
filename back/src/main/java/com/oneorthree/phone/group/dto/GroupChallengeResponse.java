@@ -61,7 +61,12 @@ public class GroupChallengeResponse {
 
     /**
      * 조회 {@code date} 의 진행 중 내기. 내기가 없거나 date 를 주지 않았으면 null 이다.
-     * 내기는 FOCUS + DURATION 챌린지에만 걸리므로 다른 챌린지에서는 항상 null 이다.
+     *
+     * <p><b>챌린지 종류로 제한되지 않는다.</b> 종전 서술("내기는 FOCUS + DURATION 챌린지에만
+     * 걸리므로 다른 챌린지에서는 항상 null")은 거짓이다 — FOCUS 전용 게이트가 사라졌고
+     * ({@code GroupBetService} — 「게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음).
+     * 카테고리 제한은 없다」) 판정도 카테고리×방식 조합을 전부 다룬다. SCREEN_TIME·TIME_WINDOW
+     * 응답에서도 이 필드가 채워질 수 있다. 이 서술을 믿고 분기하면 유효한 내기를 무시하게 된다.
      */
     private GroupBetResponse bet;
 
@@ -95,10 +100,22 @@ public class GroupChallengeResponse {
      * <b>오늘을 제외한</b> 다음 활성일의 회차 시작(신앱 카드의 "다음 회차" 축 — GROMO-1418,
      * LLD §2.1). 하루형은 다음 활성일 00:00 KST, 창형은 다음 활성일의 창 시작이다.
      * {@code activeToday} 와 배타가 아니라 보완이다 — 오늘 회차의 축은 {@code bet.session} 이
-     * 담당한다. ACTIVE 챌린지에는 항상 채워지고, 끝난 챌린지(INACTIVE)만 null 이다.
+     * 담당한다. 끝난 챌린지(INACTIVE)는 null 이고, ACTIVE 는 <b>거의 항상</b> 채워진다 —
+     * 예외는 <b>창형인데 창 상세가 없는</b> 경우 하나뿐이다. 시작 시각을 모르면 다음 회차를
+     * 계산할 수 없어 {@code GroupBetService#loadNextSessions} 가 그 챌린지를 건너뛴다
+     * (하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다).
      *
-     * <p>요일 반복(B1, GROMO-1260)이 이 base 에 없어 당장은 매일 활성(= 내일)으로 계산된다 —
-     * {@code GroupBetService#repeatDaysOf} 시임이 배선점이다.
+     * <p><b>이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.</b> V5 가 인라인 파라미터를 CTI
+     * 상세 테이블로 이관할 때 백필을 <b>두 번</b> 했다 — ⑴ 챌린지 자체의 {@code window_start}·
+     * {@code window_end} 가 NOT NULL 인 행, ⑵ 그게 null 이어도 <b>그룹의 미션 설정</b>이
+     * {@code type}·{@code category} 까지 일치하고 시각이 있는 경우(그룹 값 폴백). 따라서 상세가
+     * 없는 행은 <b>둘 다 없었던 경우</b>다 — 챌린지 값이 null 이고, 그룹 폴백도 (종류·카테고리가
+     * 다르거나 시각이 null 이라) 적용되지 않은 행. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는
+     * 않는다. <b>앱이 「null == INACTIVE」로 단정하면 그 경우에 어긋난다.</b>
+     *
+     * <p>요일 반복(B1, GROMO-1260)은 배선이 끝났다 — {@code GroupBetService#repeatDaysOf} 가
+     * 챌린지의 {@code repeatDays} 마스크를 넘기고 {@code RepeatSchedule#next} 가 그중 다음
+     * 활성일을 고른다. 쉬는 요일은 건너뛰므로 이 값은 "무조건 내일"이 아니다.
      */
     private Instant nextSessionAt;
 
@@ -106,6 +123,12 @@ public class GroupChallengeResponse {
      * 다음 활성일 회차를 내가 이미 예약(참가)했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태
      * 분기(N45 · GROMO-1418). {@code nextSessionAt} 날짜의 OPEN 회차에 내 참가 행이 있으면 true.
      * 회차가 아직 없으면(lazy 개설 전) false 다. INACTIVE 챌린지는 null.
+     *
+     * <p><b>{@code nextSessionAt} 과 같은 분기를 탄다</b> — 조립부가
+     * {@code nextSessions.containsKey(...) ? … : null} 이므로, 창형인데 창 상세가 없어
+     * {@code loadNextSessions} 가 건너뛴 챌린지에서는 <b>false 가 아니라 null</b> 이다
+     * ({@code nextSessionStake} 도 동일). 그 경우를 「미예약」으로 읽으면 틀린다 —
+     * 자세한 경위는 {@link #nextSessionAt} javadoc 참조.
      */
     private Boolean nextSessionJoined;
 
