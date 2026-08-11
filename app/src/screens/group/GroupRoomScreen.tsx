@@ -440,7 +440,7 @@ export default function GroupRoomScreen({
     // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
     // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
     const convergeMembershipAbsence = (): boolean => {
-      if (queuedResults > 0 || resultShownKeyRef.current !== null || pendingLeaveRef.current) {
+      if (queuedResults > 0 || resultShownKeyRef.current !== null) {
         pendingLeaveRef.current = true;
         setError(true);
         return true;
@@ -449,6 +449,9 @@ export default function GroupRoomScreen({
         setError(true);
         return true;
       }
+      // 이전 조회에서 결과 소비 뒤 이탈을 보류했더라도 최신 성공 응답이 결과 부재를 확정했고
+      // 실제 모달도 없다면 더 이상 onResultClose가 올 수 없다. 보류를 풀고 즉시 수렴한다.
+      pendingLeaveRef.current = false;
       onLeft();
       return false;
     };
@@ -582,9 +585,7 @@ export default function GroupRoomScreen({
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
   useEffect(() => {
-    // 화면 마운트보다 background 전환이 먼저였으면 change listener가 놓치므로 현재 상태에서
-    // 카드 interaction을 즉시 폐기한다.
-    if (AppState.currentState === 'inactive' || AppState.currentState === 'background') {
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
       invalidateCardInteraction(interactionId);
     }
     const sub = AppState.addEventListener('change', (state) => {

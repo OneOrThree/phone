@@ -8,6 +8,8 @@ import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
 import {
+  clearPendingDirectGroupEntry,
+  clearPendingGroupEntry,
   discardInitialGroupRoomReturn,
   markInitialGroupRoomReturn,
   queueDirectGroupEntry,
@@ -22,6 +24,16 @@ let pendingLink: string | null = null;
 // navigateToDeepLink 진입마다 올려서, 진행 중인 조회는 자기 세대가 최신일 때만 이동을 완료한다
 // (화면들이 쓰는 requestSeqRef와 같은 방식).
 let groupLinkSeq = 0;
+// 이 모듈이 아직 GroupScreen에 소비되지 않았을 수 있는 direct source를 예약한 세대.
+// 후속 딥링크나 지연 push 취소가 해당 source를 폐기할 때 최신 예약을 지우지 않도록 세대와 묶는다.
+let pendingGroupEntrySeq: number | null = null;
+
+function discardQueuedGroupEntry(seq?: number): void {
+  if (pendingGroupEntrySeq === null) return;
+  if (seq !== undefined && pendingGroupEntrySeq !== seq) return;
+  clearPendingGroupEntry();
+  pendingGroupEntrySeq = null;
+}
 
 // ── 그룹 초대 링크 수신 계약 (docs/app/group-plan.md §6-6) ───────────────────────────
 // 초대 프리뷰(GroupInviteSheet)는 **라우트가 아니라 GroupScreen 안의 오버레이**라 navigate()로 띄울 수
@@ -88,6 +100,9 @@ export function navigateToDeepLink(link: string): void {
   // 다시 탭하면, 세대를 여기서 올리지 않을 경우 먼저 시작한 조회가 뒤늦게 끝나며 최신 목적지
   // 위에 그룹방을 다시 열어 버린다.
   const seq = ++groupLinkSeq;
+  // 새 링크가 도착했다는 사실 자체가 이전 지연 push/invite 전환을 중단한다. 이전 source를
+  // 그대로 두면 나중에 사용자가 직접 그룹 탭을 열었을 때 오래된 유입으로 소비된다.
+  discardQueuedGroupEntry();
 
   // 초대 링크 판정은 **파서를 먼저** 태운다 — 파싱 규격의 단일 소스는 @/utils/inviteLink이고,
   // 파서가 받아주는 슬래시 변형(gromo:///join?g=…)을 여기서 경로 문자열로 다시 자르면
@@ -98,6 +113,7 @@ export function navigateToDeepLink(link: string): void {
     // 다른 화면에서 실제 새 focus를 만드는 direct entry만 GroupScreen이 1회 소비한다.
     if (navigationRef.getCurrentRoute?.()?.name !== '그룹') {
       queueDirectGroupEntry('invite');
+      pendingGroupEntrySeq = seq;
     }
     navigationRef.navigate('Main', { screen: '그룹' } as never);
     // 6a invite_link_opened(스펙 §4-3) — '링크로 앱이 열렸다'는 사실 자체가 퍼널 단계다.
@@ -121,6 +137,7 @@ export function navigateToDeepLink(link: string): void {
       break;
     case 'focus':
       navigationRef.navigate('FocusCategory', {
+        initialGroupId: undefined,
         entrySource: 'unknown',
         interactionId: undefined,
         interactionAcceptedAt: undefined,
@@ -145,6 +162,7 @@ export function navigateToDeepLink(link: string): void {
       // 아니다. 방을 닫은 뒤의 복귀를 push로 오염시키지 않도록 일반 push에만 예약한다.
       if (!(resultPush && groupId !== null) && currentRoute !== '그룹') {
         queueDirectGroupEntry('push');
+        pendingGroupEntrySeq = seq;
       }
       // 결과성 push는 목록 focus 전에 GroupRoom으로 곧바로 우회할 수 있다. 그룹 흐름 밖에서
       // 시작한 우회라면 방을 닫은 뒤 처음 보이는 목록은 탭 진입이 아니라 자식 화면 복귀다.
@@ -219,7 +237,10 @@ function navigateToGroup(
   resultPush: boolean,
 ): void {
   navigationRef.navigate('Main', { screen: '그룹' } as never);
-  if (!groupId) return;
+  if (!groupId) {
+    discardQueuedGroupEntry(seq);
+    return;
+  }
   // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
   pushGroupRoom(seq, groupId, challengeId, resultPush).catch(() => {});
 }
@@ -249,14 +270,30 @@ async function pushGroupRoom(
   if (!resultPush) {
     const groups = await getMyGroups();
     if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
-    if (!navigationRef.isReady()) return;
-    if (!isStillInGroupFlow()) return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
-    if (!groups.some((g) => g.groupId === groupId)) return;
+    if (!navigationRef.isReady()) {
+      discardQueuedGroupEntry(seq);
+      return;
+    }
+    if (!isStillInGroupFlow()) {
+      discardQueuedGroupEntry(seq);
+      return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
+    }
+    if (!groups.some((g) => g.groupId === groupId)) {
+      discardQueuedGroupEntry(seq);
+      return;
+    }
   }
-  if (!navigationRef.isReady()) return;
+  if (!navigationRef.isReady()) {
+    discardQueuedGroupEntry(seq);
+    return;
+  }
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
   // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이
   // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
+  // GroupRoom 우회가 확정되면 GroupScreen이 아직 소비하지 못한 push source를 폐기한다.
+  // 화면 fetch가 먼저 성공했다면 이미 소비된 뒤라 no-op이고, 우회가 먼저면 다음 episode 오염을 막는다.
+  clearPendingDirectGroupEntry();
+  if (pendingGroupEntrySeq === seq) pendingGroupEntrySeq = null;
   navigationRef.navigate('GroupRoom', {
     groupId,
     challengeId: challengeId ?? undefined,

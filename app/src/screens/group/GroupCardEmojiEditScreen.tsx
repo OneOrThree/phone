@@ -78,7 +78,7 @@ export default function GroupCardEmojiEditScreen() {
   }, []);
 
   useEffect(() => {
-    logGroupCardIconEditorViewed();
+    logGroupCardIconEditorViewed({ surface: 'settings' });
   }, [identity]);
 
   useEffect(() => {

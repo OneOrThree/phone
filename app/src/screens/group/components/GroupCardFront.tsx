@@ -11,12 +11,10 @@ import {
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
-import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
   emoji?: string;
-  emojiLabel?: string;
   position?: number;
   pageCount?: number;
   reorderCount?: number;
@@ -29,15 +27,13 @@ interface GroupCardFrontProps {
   canMoveNext?: boolean;
   cardRef?: RefObject<View | null>;
   bodyRef?: RefObject<View | null>;
-  disclosureRef?: Ref<ComponentRef<typeof Pressable>>;
-  gripRef?: Ref<View>;
+  gripRef?: Ref<ComponentRef<typeof Pressable>>;
   active?: boolean;
 }
 
 export function GroupCardFront({
   group,
   emoji = '🎯',
-  emojiLabel,
   position = 1,
   pageCount = 1,
   reorderCount = pageCount,
@@ -50,7 +46,6 @@ export function GroupCardFront({
   canMoveNext = false,
   cardRef,
   bodyRef,
-  disclosureRef,
   gripRef,
   active = true,
 }: GroupCardFrontProps) {
@@ -85,7 +80,7 @@ export function GroupCardFront({
           </Pressable>
         </View>
         <Pressable
-          ref={disclosureRef ?? bodyRef}
+          ref={bodyRef}
           style={s.body}
           focusable={active}
           onPress={onFlip}
@@ -96,7 +91,7 @@ export function GroupCardFront({
           accessibilityRole="button"
           accessibilityState={{ expanded: false }}
           aria-controls={disclosureId}
-          accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${emojiLabel ?? groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
+          accessibilityLabel={`${group.name}${group.description ? `, ${group.description}` : ''}, 내 카드 아이콘 ${groupCardEmojiLabel(emoji)}, ${privacyLabel}, ${group.role === 'OWNER' ? '방장, ' : ''}${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
           accessibilityHint="두 번 탭하면 이 카드의 방 요약을 봅니다"
           testID={`group.card.${group.groupId}`}
         >
@@ -112,9 +107,7 @@ export function GroupCardFront({
             <View style={s.emojiOrbit}>
               <View style={s.emojiOrbitDash}>
                 <View style={s.emojiFrame}>
-                  <Text style={s.emoji} testID={`group.list.emoji.${group.groupId}`}>
-                    {emoji}
-                  </Text>
+                  <Text style={s.emoji}>{emoji}</Text>
                 </View>
               </View>
             </View>
@@ -171,7 +164,7 @@ export function GroupCardFront({
 const s = StyleSheet.create({
   shadowShell: {
     flex: 1,
-    minHeight: GROUP_CARD_HEIGHT,
+    minHeight: 520,
     borderRadius: 28,
     backgroundColor: T.white,
     shadowColor: T.shadow,
@@ -182,7 +175,7 @@ const s = StyleSheet.create({
   },
   root: {
     flex: 1,
-    minHeight: GROUP_CARD_HEIGHT,
+    minHeight: 520,
     borderRadius: 28,
     overflow: 'hidden',
     backgroundColor: T.white,
@@ -300,6 +293,6 @@ const s = StyleSheet.create({
     backgroundColor: T.accentBg,
   },
   count: { ...T.text.label, color: T.accentDeep, fontVariant: ['tabular-nums'] },
-  flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, flexShrink: 1 },
-  flipText: { ...T.text.label, color: T.inkSub, flexShrink: 1 },
+  flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
+  flipText: { ...T.text.label, color: T.inkSub },
 });

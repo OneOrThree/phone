@@ -66,6 +66,12 @@ export class KeyedDependencyCache<T> {
     return this.start(key);
   }
 
+  refresh(key: string): Promise<DependencyState<T>> {
+    const entry = this.entries.get(key);
+    if (entry?.inFlight) return entry.inFlight;
+    return this.start(key);
+  }
+
   retain(isValid: (key: string) => boolean, notify = true): boolean {
     let changed = false;
     for (const key of this.entries.keys()) {
@@ -217,6 +223,19 @@ export class GroupCardSummaryAdapter<TFocus> {
       focusState.status === 'idle'
         ? this.focus.ensure(scope.userId, scope.date)
         : Promise.resolve(focusState),
+    ]);
+  }
+
+  /** 목록 재조회/화면 복귀 후 이미 열린 카드의 read API만 강제 갱신한다. */
+  async refreshBack(groupId: string): Promise<void> {
+    const scope = this.validScope(groupId);
+    if (!scope) return;
+    const datedKey = keyed(groupId, scope.date);
+    await Promise.all([
+      this.detail.refresh(datedKey),
+      this.announcements.refresh(groupId),
+      this.challenges.refresh(datedKey),
+      this.focus.retry(scope.userId, scope.date),
     ]);
   }
 

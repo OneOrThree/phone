@@ -1,265 +1,243 @@
-import { useEffect, useRef, type ComponentRef } from 'react';
-import {
-  AccessibilityInfo,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import * as ReactNative from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { todayStrKst } from '@/utils/localDate';
 import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
-import { GROUP_CARD_HEIGHT } from './groupCardLayout';
+import { repeatDayOf } from '../challengeSchedule';
+import { categoryLabel, missionLabel } from './challengeLabel';
 
 interface Props {
   group: GroupSummaryResponse;
-  snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]>;
-  onFlipBack: () => void;
-  onAccessibilityFlipBack?: () => void;
-  onOpenSettings: () => void;
+  userId?: string | null;
+  snapshot: GroupCardSummarySnapshot<LeagueMemberResponse[]> | undefined;
+  cardRef?: React.RefObject<View | null>;
+  onFlipFront: () => void;
+  onAccessibilityFlipFront?: () => void;
   onStartFocus: () => void;
   onOpenRoom: () => void;
-  focusRoomOnMount?: boolean;
-  onRoomFocusRestored?: () => void;
-  suppressInitialFocus?: boolean;
-  focusPrimaryOnMount?: boolean;
-  onPrimaryFocusRestored?: () => void;
-  onRetry: (section: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
-  minHeight?: number;
+  onOpenSettings: () => void;
+  onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
+  backFocusRef?: React.RefObject<View | null>;
+  roomRef?: React.RefObject<View | null>;
+  settingsRef?: React.RefObject<View | null>;
+  position?: number;
+  pageCount?: number;
 }
 
-function SectionError({ label, onRetry }: { label: string; onRetry: () => void }) {
-  return (
-    <View style={s.errorRow}>
-      <Text style={s.errorText}>{label}</Text>
-      <TouchableOpacity onPress={onRetry} accessibilityRole="button">
-        <Text style={s.retryText}>다시 시도</Text>
-      </TouchableOpacity>
-    </View>
-  );
+function LoadingLine({ label }: { label: string }) {
+  return <Text style={s.muted}>{label} 불러오는 중…</Text>;
 }
 
 export function GroupCardBack({
   group,
+  userId = null,
   snapshot,
-  onFlipBack,
-  onAccessibilityFlipBack,
-  onOpenSettings,
+  cardRef,
+  onFlipFront,
+  onAccessibilityFlipFront,
   onStartFocus,
   onOpenRoom,
-  focusRoomOnMount = false,
-  onRoomFocusRestored,
-  suppressInitialFocus = false,
-  focusPrimaryOnMount = false,
-  onPrimaryFocusRestored,
+  onOpenSettings,
   onRetry,
-  minHeight = GROUP_CARD_HEIGHT,
+  backFocusRef,
+  roomRef,
+  settingsRef,
+  position = 1,
+  pageCount = 1,
 }: Props) {
-  const disclosureId = `group-card-summary-${group.groupId}`;
-  const frontActionRef = useRef<ComponentRef<typeof Pressable>>(null);
-  const primaryActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
-  const roomActionRef = useRef<ComponentRef<typeof TouchableOpacity>>(null);
-  const focusHandledRef = useRef(false);
-  const roomRestoreHandledRef = useRef(false);
-  const onRoomFocusRestoredRef = useRef(onRoomFocusRestored);
-  onRoomFocusRestoredRef.current = onRoomFocusRestored;
-  const onPrimaryFocusRestoredRef = useRef(onPrimaryFocusRestored);
-  onPrimaryFocusRestoredRef.current = onPrimaryFocusRestored;
-  useEffect(() => {
-    // 방 복귀는 네트워크 후속 렌더에서 prop이 false로 바뀌어도 기본 mount 포커스로 되돌리지 않는다.
-    if (roomRestoreHandledRef.current) return;
-    if (!focusRoomOnMount) {
-      if (suppressInitialFocus || focusHandledRef.current) return;
-      focusHandledRef.current = true;
-    }
-    let cancelled = false;
-    let frame: number | null = null;
-    const scheduleFocus = () => {
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        if (cancelled) return;
-        const node = ReactNative.findNodeHandle(
-          focusRoomOnMount
-            ? roomActionRef.current
-            : focusPrimaryOnMount
-              ? primaryActionRef.current
-              : frontActionRef.current,
-        );
-        // 가상화/네이티브 commit 사이에는 ref가 있어도 handle이 한 프레임 늦을 수 있다.
-        // 방 복귀만 lifecycle cleanup 전까지 재예약하고 실제 포커스 뒤에 요청을 소비한다.
-        if (node === null) {
-          if (focusRoomOnMount) scheduleFocus();
-          return;
-        }
-        AccessibilityInfo.setAccessibilityFocus(node);
-        if (focusRoomOnMount) {
-          roomRestoreHandledRef.current = true;
-          onRoomFocusRestoredRef.current?.();
-        } else if (focusPrimaryOnMount) onPrimaryFocusRestoredRef.current?.();
-        else AccessibilityInfo.announceForAccessibility(`${group.name} 방 요약이 열렸습니다`);
-      });
-    };
-    scheduleFocus();
-    return () => {
-      cancelled = true;
-      if (frame !== null) cancelAnimationFrame(frame);
-    };
-  }, [focusPrimaryOnMount, focusRoomOnMount, group.name, suppressInitialFocus]);
-  const detail = snapshot.detail.status === 'ready' ? snapshot.detail.data : null;
-  const focus = deriveGroupFocusCount(
-    detail?.members.map((member) => member.userId) ?? [],
-    snapshot.focus,
-  );
-  const notice =
-    snapshot.announcements.status === 'ready' ? snapshot.announcements.data[0] : undefined;
-  const challengeCount =
-    snapshot.challenges.status === 'ready'
-      ? snapshot.challenges.data.filter((challenge) => challenge.status === 'ACTIVE').length
-      : null;
+  const detail = snapshot?.detail ?? { status: 'idle' as const };
+  const announcements = snapshot?.announcements ?? { status: 'idle' as const };
+  const challenges = snapshot?.challenges ?? { status: 'idle' as const };
+  const focus = snapshot?.focus ?? { status: 'idle' as const };
+  const memberIds =
+    detail.status === 'ready' ? detail.data.members.map((member) => member.userId) : [];
+  const memberPreview = (() => {
+    if (detail.status !== 'ready') return [];
+    const currentIndex = userId
+      ? detail.data.members.findIndex((member) => member.userId === userId)
+      : -1;
+    if (currentIndex <= 0) return detail.data.members.slice(0, 5);
+    return [
+      detail.data.members[currentIndex],
+      ...detail.data.members.slice(0, currentIndex),
+      ...detail.data.members.slice(currentIndex + 1),
+    ].slice(0, 5);
+  })();
+  const focusCount = deriveGroupFocusCount(memberIds, focus);
+  const activeChallenges =
+    challenges.status === 'ready'
+      ? challenges.data.filter((challenge) => challenge.status === 'ACTIVE')
+      : [];
 
   return (
-    <View
-      nativeID={disclosureId}
-      style={[s.root, { minHeight }]}
-      onAccessibilityEscape={onAccessibilityFlipBack ?? onFlipBack}
-      testID={`group.card.back.${group.groupId}`}
-    >
+    <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
       <View style={s.header}>
-        <Pressable
-          ref={frontActionRef}
-          style={s.headerButton}
-          onPress={onFlipBack}
-          accessibilityActions={[{ name: 'activate', label: '앞면 보기' }]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'activate')
-              (onAccessibilityFlipBack ?? onFlipBack)();
-          }}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: true }}
-          aria-controls={disclosureId}
-          accessibilityLabel="앞면 보기"
-          testID={`group.card.frontAction.${group.groupId}`}
-          hitSlop={6}
-        >
-          <Ionicons name="chevron-back" size={18} color={T.inkSub} />
-        </Pressable>
         <Text
           style={s.title}
           numberOfLines={1}
           ellipsizeMode="tail"
-          accessibilityLabel={group.name}
+          accessible
+          accessibilityRole="header"
+          accessibilityLabel={`${group.name}, 현재 ${position}/${pageCount} 페이지`}
         >
           {group.name}
         </Text>
         <TouchableOpacity
-          style={s.headerButton}
+          ref={settingsRef}
           onPress={onOpenSettings}
           accessibilityRole="button"
           accessibilityLabel={`${group.name} 그룹 옵션`}
           testID={`group.card.settings.${group.groupId}`}
-          hitSlop={6}
         >
-          <Ionicons name="ellipsis-horizontal" size={18} color={T.inkSub} />
+          <Text style={s.link}>⋯ 설정</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={s.body} contentContainerStyle={s.bodyContent}>
-        {snapshot.focus.status === 'error' ? (
-          <SectionError label="집중 현황을 불러오지 못했어요" onRetry={() => onRetry('focus')} />
-        ) : snapshot.focus.status === 'coverage-unknown' ? (
-          <Text style={s.muted}>집중 현황을 확인할 수 없어요</Text>
-        ) : focus.status === 'unavailable' || !detail ? (
-          <Text style={s.muted}>집중 현황을 확인하는 중…</Text>
-        ) : focus.status === 'stale' ? (
-          <View style={s.errorRow}>
-            <Text style={s.focus} testID={`group.card.focusCount.${group.groupId}`}>
-              마지막 확인 {focus.count}명 집중 중
-            </Text>
-            <TouchableOpacity onPress={() => onRetry('focus')} accessibilityRole="button">
-              <Text style={s.retryText}>새로고침</Text>
+      <ScrollView
+        style={s.summaryScroll}
+        contentContainerStyle={s.summaryContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+        testID="group.card.summaryScroll"
+      >
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>지금 방</Text>
+          {detail.status === 'idle' || detail.status === 'loading' ? (
+            <LoadingLine label="멤버" />
+          ) : detail.status === 'error' ? (
+            <TouchableOpacity onPress={() => onRetry('detail')}>
+              <Text style={s.error}>멤버 정보를 확인하지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
-          </View>
-        ) : (
-          <Text style={s.focus} testID={`group.card.focusCount.${group.groupId}`}>
-            현재 {focus.count}명 집중 중
-          </Text>
-        )}
-
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>챌린지</Text>
-          {snapshot.challenges.status === 'error' ? (
-            <SectionError
-              label="챌린지를 불러오지 못했어요"
-              onRetry={() => onRetry('challenges')}
-            />
-          ) : challengeCount === null ? (
-            <Text style={s.muted}>불러오는 중…</Text>
           ) : (
-            <Text style={s.summary}>
-              {challengeCount > 0 ? `진행 중 ${challengeCount}개` : '진행 중인 챌린지가 없어요'}
-            </Text>
+            <>
+              <Text style={s.body}>
+                {memberPreview.map((member) => member.nickname).join(' · ')}
+              </Text>
+              {focus.status === 'idle' || focus.status === 'loading' ? (
+                <LoadingLine label="집중 인원" />
+              ) : (
+                <Text style={s.muted}>
+                  {focusCount.status === 'unavailable'
+                    ? '현재 집중 인원 확인 불가'
+                    : `현재 집중 ${focusCount.count}명${focusCount.status === 'stale' ? ' · 이전 값' : ''}`}
+                </Text>
+              )}
+            </>
+          )}
+          {(focus.status === 'error' || focus.status === 'coverage-unknown') && (
+            <TouchableOpacity onPress={() => onRetry('focus')}>
+              <Text style={s.error}>집중 상태 다시 시도</Text>
+            </TouchableOpacity>
           )}
         </View>
 
         <View style={s.section}>
-          <Text style={s.sectionTitle}>최신 공지</Text>
-          {snapshot.announcements.status === 'error' ? (
-            <SectionError
-              label="공지를 불러오지 못했어요"
-              onRetry={() => onRetry('announcements')}
-            />
-          ) : snapshot.announcements.status !== 'ready' ? (
-            <Text style={s.muted}>불러오는 중…</Text>
-          ) : notice ? (
-            <Text style={s.summary} numberOfLines={2}>
-              {notice.title}
-            </Text>
+          <Text style={s.sectionTitle}>공지</Text>
+          {announcements.status === 'ready' ? (
+            announcements.data[0] ? (
+              <View>
+                <Text style={s.body} numberOfLines={1}>
+                  {announcements.data[0].title}
+                </Text>
+                <Text style={s.muted} numberOfLines={2} testID="group.card.announcement.content">
+                  {announcements.data[0].content}
+                </Text>
+              </View>
+            ) : (
+              <Text style={s.body}>새 공지가 없어요</Text>
+            )
+          ) : announcements.status === 'error' ? (
+            <TouchableOpacity onPress={() => onRetry('announcements')}>
+              <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
+            </TouchableOpacity>
           ) : (
-            <Text style={s.muted}>아직 공지가 없어요</Text>
+            <LoadingLine label="공지" />
           )}
         </View>
 
         <View style={s.section}>
-          <Text style={s.sectionTitle}>멤버</Text>
-          {snapshot.detail.status === 'error' ? (
-            <SectionError label="멤버를 불러오지 못했어요" onRetry={() => onRetry('detail')} />
-          ) : detail ? (
-            <Text style={s.summary}>
-              {detail.members
-                .slice(0, 5)
-                .map((member) => member.nickname)
-                .join(' · ') || '멤버가 없어요'}
-            </Text>
+          <Text style={s.sectionTitle}>그룹 활동</Text>
+          {challenges.status === 'ready' ? (
+            activeChallenges.length > 0 ? (
+              <View style={s.activityList}>
+                {activeChallenges.map((challenge) => {
+                  const myProgress = challenge.memberProgress?.find(
+                    (progress) => progress.userId === userId,
+                  );
+                  const repeatDays =
+                    Array.isArray(challenge.repeatDays) && challenge.repeatDays.length > 0
+                      ? challenge.repeatDays
+                      : null;
+                  const todayRepeatDay = repeatDayOf(todayStrKst());
+                  const activeToday =
+                    repeatDays === null
+                      ? true
+                      : (challenge.activeToday ??
+                        (todayRepeatDay !== null && repeatDays.includes(todayRepeatDay)));
+                  const progressText =
+                    challenge.memberProgress === null
+                      ? activeToday
+                        ? '이 챌린지는 진행률을 표시하지 않아요'
+                        : '오늘은 쉬는 날이에요'
+                      : myProgress === undefined
+                        ? null
+                        : myProgress.progressMinutes === null
+                          ? '내 진행 미집계'
+                          : `내 진행 ${myProgress.progressMinutes}${challenge.durationMinutes ? `/${challenge.durationMinutes}` : ''}분${myProgress.achieved === true ? ' · 달성' : ''}`;
+                  return (
+                    <View key={challenge.id} testID={`group.card.activity.${challenge.id}`}>
+                      <Text style={s.body} numberOfLines={1}>
+                        {missionLabel(challenge, { direction: true, everyday: false }) ??
+                          categoryLabel(challenge)}
+                      </Text>
+                      {progressText !== null && <Text style={s.muted}>{progressText}</Text>}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={s.body}>진행 중인 활동이 없어요</Text>
+            )
+          ) : challenges.status === 'error' ? (
+            <TouchableOpacity onPress={() => onRetry('challenges')}>
+              <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
+            </TouchableOpacity>
           ) : (
-            <Text style={s.muted}>불러오는 중…</Text>
+            <LoadingLine label="활동" />
           )}
         </View>
       </ScrollView>
 
       <View style={s.actions}>
         <TouchableOpacity
-          ref={primaryActionRef}
+          ref={backFocusRef}
           style={s.primary}
           onPress={onStartFocus}
-          accessibilityRole="button"
           testID={`group.card.focus.${group.groupId}`}
         >
           <Text style={s.primaryText}>이 그룹으로 집중</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          ref={roomActionRef}
+          ref={roomRef}
           style={s.secondary}
           onPress={onOpenRoom}
-          accessibilityRole="button"
           testID={`group.card.room.${group.groupId}`}
         >
           <Text style={s.secondaryText}>방 전체 보기</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onFlipFront}
+          accessibilityActions={[{ name: 'activate', label: '카드 앞면 보기' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'activate') {
+              (onAccessibilityFlipFront ?? onFlipFront)();
+            }
+          }}
+          testID={`group.card.frontAction.${group.groupId}`}
+        >
+          <Text style={s.link}>앞면으로</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -269,35 +247,30 @@ export function GroupCardBack({
 const s = StyleSheet.create({
   root: {
     flex: 1,
-    borderRadius: 22,
-    overflow: 'hidden',
+    minHeight: 520,
+    borderRadius: 28,
+    padding: T.space.lg,
     backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
+    gap: T.space.sm,
   },
   header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     gap: T.space.sm,
-    padding: T.space.md,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
   },
-  headerButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  title: { ...T.text.label, flex: 1, minWidth: 0, textAlign: 'center', color: T.ink },
-  body: { flex: 1 },
-  bodyContent: { padding: T.space.lg, gap: T.space.md },
-  focus: { ...T.text.subtitle, color: T.accentDeep },
-  section: { gap: T.space.xs },
-  sectionTitle: { ...T.text.caption, color: T.inkMuted },
-  summary: { ...T.text.caption, color: T.ink },
-  muted: { ...T.text.caption, color: T.inkMuted },
-  errorRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
-  errorText: { ...T.text.caption, flex: 1, color: T.dangerInk },
-  retryText: { ...T.text.caption, color: T.accent },
-  actions: { padding: T.space.lg, paddingTop: 0, gap: T.space.sm },
+  title: { ...T.text.heading, color: T.ink, flex: 1 },
+  section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
+  summaryScroll: { flex: 1 },
+  summaryContent: { gap: T.space.sm },
+  sectionTitle: { ...T.text.label, color: T.ink },
+  activityList: { gap: T.space.xs },
+  body: { ...T.text.caption, color: T.ink },
+  muted: { ...T.text.caption, color: T.inkSub },
+  error: { ...T.text.caption, color: T.dangerInk },
+  actions: { marginTop: 'auto', gap: T.space.xs },
   primary: {
-    height: 44,
+    height: 42,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -305,7 +278,7 @@ const s = StyleSheet.create({
   },
   primaryText: { ...T.text.label, color: T.white },
   secondary: {
-    height: 44,
+    height: 42,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -313,4 +286,5 @@ const s = StyleSheet.create({
     borderColor: T.border,
   },
   secondaryText: { ...T.text.label, color: T.ink },
+  link: { ...T.text.caption, color: T.accent, textAlign: 'center' },
 });

@@ -18,7 +18,11 @@ import { useUser } from '@/store/UserContext';
 import { getGroupDetail, groupErrorCode, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { groupCardEmojiLabel, readGroupCardEmojiResult } from './groupCardEmojiStore';
+import {
+  groupCardEmojiLabel,
+  readGroupCardEmojiForEdit,
+  type GroupCardEmoji,
+} from './groupCardEmojiStore';
 
 // 그룹 설정 = 관리 허브 (root stack 'GroupSettings') — 3차 A-1. 그룹방 ⋯ 버튼에서 바로 진입한다.
 //
@@ -36,10 +40,6 @@ import { groupCardEmojiLabel, readGroupCardEmojiResult } from './groupCardEmojiS
 //    OWNER일 때만 노출한다(포커스마다 재조회로 재동기화).
 
 type GroupSettingsRoute = RouteProp<V2RootStackParamList, 'GroupSettings'>;
-type CardEmojiState =
-  | { groupId: string; status: 'loading' }
-  | { groupId: string; status: 'ready'; name: string }
-  | { groupId: string; status: 'error' };
 
 export default function GroupSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -51,15 +51,14 @@ export default function GroupSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [cardEmojiState, setCardEmojiState] = useState<CardEmojiState>({
-    groupId,
-    status: 'loading',
-  });
+  const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji | null>(null);
+  const [cardEmojiLoadFailed, setCardEmojiLoadFailed] = useState(false);
   // 방장 블록(HOST_WITHDRAW) 안내 카드 모달 — 네이티브 Alert 대신 앱 컨셉 모달(GROMO-1210).
   const [hostBlockedOpen, setHostBlockedOpen] = useState(false);
 
   // 요청 시퀀스 — 겹친 조회 중 늦게 온 이전 응답이 최신을 덮지 않게 한다(그룹 3화면 공통 패턴).
   const requestSeqRef = useRef(0);
+  const emojiRequestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
     const seq = ++requestSeqRef.current;
@@ -87,34 +86,25 @@ export default function GroupSettingsScreen() {
     }, [load]),
   );
 
+  // 편집 화면에서 돌아올 때 현재 계정×그룹의 로컬 선택을 다시 읽는다. 저장소 오류를 기본
+  // 아이콘으로 위장하지 않아, 설정 행이 실제 선택과 다른 값을 현재값으로 안내하지 않게 한다.
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      setCardEmojiState((current) =>
-        current.groupId === groupId && current.status === 'ready'
-          ? current
-          : { groupId, status: 'loading' },
+      const seq = ++emojiRequestSeqRef.current;
+      setCardEmoji(null);
+      setCardEmojiLoadFailed(false);
+      readGroupCardEmojiForEdit(userId, groupId).then(
+        (emoji) => {
+          if (seq !== emojiRequestSeqRef.current) return;
+          setCardEmoji(emoji);
+        },
+        () => {
+          if (seq !== emojiRequestSeqRef.current) return;
+          setCardEmojiLoadFailed(true);
+        },
       );
-      readGroupCardEmojiResult(userId, groupId).then((result) => {
-        if (!active) return;
-        if (result.status === 'ready') {
-          setCardEmojiState({
-            groupId,
-            status: 'ready',
-            name: groupCardEmojiLabel(result.emoji),
-          });
-          return;
-        }
-        // 이미 확인한 값이 있는 포커스 재조회 실패는 그 값을 유지하되, 첫 읽기 실패는
-        // 기본 🎯를 확정값처럼 보이지 않고 별도 오류 상태로 표시한다.
-        setCardEmojiState((current) =>
-          current.groupId === groupId && current.status === 'ready'
-            ? current
-            : { groupId, status: 'error' },
-        );
-      });
       return () => {
-        active = false;
+        emojiRequestSeqRef.current++;
       };
     }, [groupId, userId]),
   );
@@ -123,12 +113,6 @@ export default function GroupSettingsScreen() {
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
   const isOwner = me?.role === 'OWNER';
   const groupName = detail?.name ?? '';
-  const cardEmojiHelper =
-    cardEmojiState.groupId !== groupId || cardEmojiState.status === 'loading'
-      ? '현재 아이콘 확인 중…'
-      : cardEmojiState.status === 'error'
-        ? '현재 아이콘을 확인할 수 없어요 · 이 기기에서 나에게만 보여요'
-        : `현재 아이콘 ${cardEmojiState.name} · 이 기기에서 나에게만 보여요`;
 
   const doLeave = useCallback(async () => {
     if (leaving) return;
@@ -185,9 +169,17 @@ export default function GroupSettingsScreen() {
     onPress: () => void,
     testID: string,
     helper?: string,
+    accessibilityLabel?: string,
   ) {
     return (
-      <TouchableOpacity style={s.navRow} activeOpacity={0.7} onPress={onPress} testID={testID}>
+      <TouchableOpacity
+        style={s.navRow}
+        activeOpacity={0.7}
+        onPress={onPress}
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+      >
         <View style={s.navIcon}>
           <Ionicons name={icon} size={17} color={T.accent} />
         </View>
@@ -239,6 +231,17 @@ export default function GroupSettingsScreen() {
       </View>
     );
   } else {
+    const currentEmojiLabel = cardEmoji === null ? null : groupCardEmojiLabel(cardEmoji);
+    const cardEmojiHelper = cardEmojiLoadFailed
+      ? '현재 아이콘을 불러오지 못했어요'
+      : currentEmojiLabel === null
+        ? '현재 아이콘 불러오는 중…'
+        : `${cardEmoji} ${currentEmojiLabel} · 이 기기에서 나에게만 보여요`;
+    const cardEmojiAccessibilityLabel = cardEmojiLoadFailed
+      ? '내 카드 아이콘, 현재 아이콘을 불러오지 못했어요'
+      : currentEmojiLabel === null
+        ? '내 카드 아이콘, 현재 아이콘 불러오는 중'
+        : `내 카드 아이콘, 현재 ${currentEmojiLabel}, 이 기기에서 나에게만 보여요`;
     // ── 허브 — 내 카드 아이콘은 역할 공통, 서버 운영 행만 방장 전용 ──
     body = (
       <ScrollView
@@ -256,6 +259,7 @@ export default function GroupSettingsScreen() {
                 () => navigation.navigate('GroupCardEmojiEdit', { groupId }),
                 'group.settings.cardEmoji',
                 cardEmojiHelper,
+                cardEmojiAccessibilityLabel,
               )}
             </View>
           </>

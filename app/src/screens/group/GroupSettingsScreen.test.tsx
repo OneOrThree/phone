@@ -6,14 +6,18 @@
 //  3) 나가기: 성공 → popToTop(목록 복귀). 방장(HOST_WITHDRAW) → 위임 화면 유도.
 //     이미 빠져 있음(NOT_FOUND·MEMBER_ONLY) → 성공과 같게 popToTop.
 //  (프로필 편집 폼 자체는 GroupProfileEditScreen.test.tsx 에서 검증한다.)
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupSettingsScreen from './GroupSettingsScreen';
 import { getGroupDetail, withdrawGroup } from '@/services/groupApi';
 import type { GroupDetailResponse } from '@/types/dto/group';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { __resetGroupCardEmojiQueueForTest, writeGroupCardEmoji } from './groupCardEmojiStore';
+import { STORAGE_KEYS } from '@/types/storage';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
+} from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -26,19 +30,14 @@ const mockNavigate = jest.fn();
 const mockPopToTop = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigation = { navigate: mockNavigate, popToTop: mockPopToTop, goBack: mockGoBack };
-const mockFocusRunners = new Set<() => void | (() => void)>();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
   useRoute: () => ({ params: { groupId: '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55' } }),
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
-      mockFocusRunners.add(cb);
       const cleanup = cb();
-      return () => {
-        mockFocusRunners.delete(cb);
-        if (typeof cleanup === 'function') cleanup();
-      };
+      return typeof cleanup === 'function' ? cleanup : undefined;
     }, [cb]);
   },
 }));
@@ -140,9 +139,9 @@ async function pressLeaveAndConfirm(alertSpy: jest.SpyInstance) {
 }
 
 beforeEach(async () => {
+  jest.clearAllMocks();
   await AsyncStorage.clear();
   __resetGroupCardEmojiQueueForTest();
-  jest.clearAllMocks();
   mockUser.userId = 'me';
   mockGetGroupDetail.mockResolvedValue(detail());
   mockWithdrawGroup.mockResolvedValue(undefined);
@@ -150,10 +149,19 @@ beforeEach(async () => {
 
 describe('허브 — 행 노출', () => {
   test('방장은 역할 공통 아이콘 + 관리 행 + 나가기를 본다', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.groupCardEmoji,
+      JSON.stringify({ me: { [GROUP_ID]: '🌅' } }),
+    );
     await renderScreen();
 
-    expect(screen.getByTestId('group.settings.cardEmoji')).toBeOnTheScreen();
-    expect(screen.getByText(/현재 아이콘 목표/)).toBeOnTheScreen();
+    const emojiRow = screen.getByTestId('group.settings.cardEmoji');
+    expect(emojiRow).toBeOnTheScreen();
+    expect(screen.getByText('🌅 일출 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
+    expect(emojiRow).toHaveProp(
+      'accessibilityLabel',
+      '내 카드 아이콘, 현재 일출, 이 기기에서 나에게만 보여요',
+    );
     expect(screen.getByTestId('group.settings.profile')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.transfer')).toBeOnTheScreen();
     expect(screen.getByTestId('group.settings.members')).toBeOnTheScreen();
@@ -166,35 +174,6 @@ describe('허브 — 행 노출', () => {
     expect(mockNavigate).toHaveBeenCalledWith('GroupProfileEdit', { groupId: GROUP_ID });
   });
 
-  test('아이콘 설정 행은 현재 계정·그룹의 선택 이름을 보조값으로 보여준다', async () => {
-    await writeGroupCardEmoji('me', GROUP_ID, '📚');
-    await renderScreen();
-
-    expect(screen.getByText('현재 아이콘 책 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
-  });
-
-  test('첫 아이콘 읽기 실패는 기본 목표가 아니라 확인 불가 상태로 표시한다', async () => {
-    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('unavailable'));
-    await renderScreen();
-
-    expect(await screen.findByText(/현재 아이콘을 확인할 수 없어요/)).toBeOnTheScreen();
-    expect(screen.queryByText(/현재 아이콘 목표/)).toBeNull();
-  });
-
-  test('포커스 재조회에서 로컬 읽기가 실패하면 표시 중인 아이콘 이름을 유지한다', async () => {
-    await writeGroupCardEmoji('me', GROUP_ID, '📚');
-    await renderScreen();
-    expect(screen.getByText(/현재 아이콘 책/)).toBeOnTheScreen();
-
-    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
-    await act(async () => {
-      mockFocusRunners.forEach((runner) => runner());
-    });
-
-    await waitFor(() => expect(screen.getByText(/현재 아이콘 책/)).toBeOnTheScreen());
-    expect(screen.queryByText(/현재 아이콘 목표/)).toBeNull();
-  });
-
   test('MEMBER도 아이콘과 나가기는 보지만 OWNER 관리 행은 보지 않는다', async () => {
     mockGetGroupDetail.mockResolvedValue(memberDetail());
     await renderScreen();
@@ -204,6 +183,18 @@ describe('허브 — 행 노출', () => {
     expect(screen.queryByTestId('group.settings.profile')).toBeNull();
     expect(screen.queryByTestId('group.settings.transfer')).toBeNull();
     expect(screen.queryByTestId('group.settings.members')).toBeNull();
+  });
+
+  test('저장 실패 pending 아이콘을 설정 행의 현재값으로 표시한다', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.groupCardEmoji,
+      JSON.stringify({ me: { [GROUP_ID]: '📚' } }),
+    );
+    preservePendingGroupCardEmoji('me', GROUP_ID, '🔥');
+
+    await renderScreen();
+
+    expect(await screen.findByText('🔥 불꽃 · 이 기기에서 나에게만 보여요')).toBeOnTheScreen();
   });
 
   test('OWNER와 MEMBER 모두 같은 로컬 아이콘 편집 route로 이동한다', async () => {

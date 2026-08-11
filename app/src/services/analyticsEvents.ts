@@ -416,6 +416,9 @@ export type GroupJoinMethod = 'search' | 'invite' | 'deferred_invite';
 export type GroupCardAction = 'focus' | 'room' | 'settings';
 export type GroupCardRole = 'owner' | 'member';
 export type GroupCardBackSource = 'user' | 'guide';
+export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
+export type GroupCarouselTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
+export type GroupCardReorderTrigger = 'drag' | 'pointer_control' | 'accessibility_action';
 
 export function logGroupCreateStarted(): void {
   track('group_create_started');
@@ -437,39 +440,55 @@ export function logGroupViewed(p: {
   track('group_viewed', p);
 }
 
-// 그룹 카드 덱. 그룹 이름·ID·로컬 순서·아이콘 glyph는 고카디널리티/로컬 표현값이라 싣지 않는다.
+export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
+
+// 그룹 덱이 성공한 전체 목록과 안정된 anchor를 확보하고, 완료 key read와 overlay queue 판정까지
+// 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹 식별 정보는 싣지 않는다.
 export function logGroupCardDeckViewed(p: {
-  group_count_bucket: GroupCountBucket;
   group_entry: GroupEntry;
-  guide_state: 'shown' | 'pending' | 'completed' | 'unknown';
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+  guide_state: GroupDeckGuideState;
 }): void {
   track('group_card_deck_viewed', p);
 }
 
 export function logGroupCardFlipped(p: {
   to_face: 'front' | 'back';
-  trigger: 'card_tap' | 'accessibility_action';
-  group_count_bucket: GroupCountBucket;
+  trigger: GroupCardFlipTrigger;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
 }): void {
   track('group_card_flipped', p);
 }
 
 export function logGroupCarouselPaged(p: {
-  trigger: 'swipe' | 'indicator_press' | 'accessibility_action';
+  trigger: GroupCarouselTrigger;
   from_index: number;
   to_index: number;
-  group_count_bucket: GroupCountBucket;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
 }): void {
   track('group_carousel_paged', p);
 }
 
 export function logGroupCardReordered(p: {
-  trigger: 'drag' | 'pointer_control' | 'accessibility_action';
+  trigger: GroupCardReorderTrigger;
   from_index: number;
   to_index: number;
-  group_count_bucket: GroupCountBucket;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
 }): void {
   track('group_card_reordered', p);
+}
+
+// guide 저장소/수명 오류는 사용자 행동 이벤트와 분리한다.
+export function logGroupDeckGuideReadFailed(): void {
+  track('group_deck_guide_read_failed');
+}
+export function logGroupDeckGuideInterrupted(p: {
+  reason: 'background' | 'route' | 'groups_changed' | 'blocking_overlay' | 'unmount';
+}): void {
+  track('group_deck_guide_interrupted', p);
+}
+export function logGroupDeckGuideWriteFailed(): void {
+  track('guide_complete_write_failed', { guide: 'groupDeck:v1' });
 }
 
 export function logGroupCardIconSaveResult(p: {
@@ -478,8 +497,8 @@ export function logGroupCardIconSaveResult(p: {
 }): void {
   track('group_card_icon_save_result', p);
 }
-export function logGroupCardIconEditorViewed(): void {
-  track('group_card_icon_editor_viewed', { surface: 'settings' });
+export function logGroupCardIconEditorViewed(p: { surface: 'settings' }): void {
+  track('group_card_icon_editor_viewed', p);
 }
 export function logGroupFindOpened(p: {
   entry_point: 'empty' | 'list' | 'header' | 'end_card';

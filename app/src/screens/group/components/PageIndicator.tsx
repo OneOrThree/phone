@@ -28,32 +28,28 @@ export function resolveIndicatorMode(measuredWidth: number, pageCount: number): 
 }
 
 interface PageIndicatorProps {
-  pageLabels: readonly string[];
-  pageKeys?: readonly string[];
+  pageCount: number;
   activeIndex: number;
+  pageLabels?: readonly string[];
+  disabled?: boolean;
   onSelectPage: (page: number) => void;
-}
-
-export function pageAccessibilityLabel(label: string, page: number, pageCount: number): string {
-  return `${label}, ${page + 1} / ${pageCount}`;
+  onAccessibilitySelectPage?: (page: number) => void;
 }
 
 export function PageIndicator({
-  pageLabels,
-  pageKeys = pageLabels,
+  pageCount,
   activeIndex,
+  pageLabels = [],
+  disabled = false,
   onSelectPage,
+  onAccessibilitySelectPage,
 }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const [focusWithin, setFocusWithin] = useState(false);
-  const pageCount = pageLabels.length;
   const safeActiveIndex = Math.max(0, Math.min(activeIndex, Math.max(0, pageCount - 1)));
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
   const previousModeRef = useRef(mode);
-  const pageKeySignature = pageKeys.join('\u0000');
-  const previousPageKeySignatureRef = useRef(pageKeySignature);
-  const focusedPageKeyRef = useRef<string | null>(null);
-  const dotRefs = useRef(new Map<string, View | null>());
+  const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
@@ -61,25 +57,25 @@ export function PageIndicator({
     setMeasuredWidth((current) => (current === next ? current : next));
   }, []);
 
+  const moveCounter = useCallback(
+    (delta: -1 | 1) => {
+      if (disabled) return;
+      const page = Math.max(0, Math.min(safeActiveIndex + delta, pageCount - 1));
+      if (page === safeActiveIndex) return;
+      (onAccessibilitySelectPage ?? onSelectPage)(page);
+    },
+    [disabled, onAccessibilitySelectPage, onSelectPage, pageCount, safeActiveIndex],
+  );
+
   useEffect(() => {
-    const modeChanged = previousModeRef.current !== mode;
-    const keysChanged = previousPageKeySignatureRef.current !== pageKeySignature;
+    if (previousModeRef.current === mode) return;
     previousModeRef.current = mode;
-    previousPageKeySignatureRef.current = pageKeySignature;
-    if (!modeChanged && !keysChanged) return;
     if (!focusWithin) return;
-    const focusedIndex = focusedPageKeyRef.current
-      ? pageKeys.indexOf(focusedPageKeyRef.current)
-      : -1;
-    const target =
-      mode === 'counter'
-        ? counterRef.current
-        : dotRefs.current.get(pageKeys[focusedIndex >= 0 ? focusedIndex : safeActiveIndex]);
-    // 키보드 입력 포커스와 스크린리더 접근성 포커스는 별개라 둘 다 이전한다.
+    const target = mode === 'counter' ? counterRef.current : dotRefs.current[safeActiveIndex];
     target?.focus();
-    const node = findNodeHandle(target ?? null);
+    const node = findNodeHandle(target);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [focusWithin, mode, pageKeySignature, pageKeys, safeActiveIndex]);
+  }, [focusWithin, mode, safeActiveIndex]);
 
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
@@ -87,23 +83,28 @@ export function PageIndicator({
         <View style={s.dots}>
           {Array.from({ length: pageCount }, (_, page) => (
             <Pressable
-              key={pageKeys[page] ?? page}
+              key={page}
               ref={(node) => {
-                dotRefs.current.set(pageKeys[page] ?? String(page), node);
+                dotRefs.current[page] = node;
               }}
               style={s.dotHit}
+              disabled={disabled}
               onPress={() => onSelectPage(page)}
+              accessibilityActions={[{ name: 'activate', label: '페이지 선택' }]}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'activate') {
+                  (onAccessibilitySelectPage ?? onSelectPage)(page);
+                }
+              }}
               onFocus={() => {
-                focusedPageKeyRef.current = pageKeys[page] ?? null;
                 setFocusWithin(true);
               }}
               onBlur={() => {
-                focusedPageKeyRef.current = null;
                 setFocusWithin(false);
               }}
               accessibilityRole="button"
-              accessibilityLabel={pageAccessibilityLabel(pageLabels[page] ?? '', page, pageCount)}
-              accessibilityState={{ selected: page === safeActiveIndex }}
+              accessibilityLabel={`${pageLabels[page] ?? (page === pageCount - 1 ? '그룹 찾기' : `${page + 1}번째 그룹`)}, ${page + 1} / ${pageCount}`}
+              accessibilityState={{ selected: page === safeActiveIndex, disabled }}
               testID={`group.deck.indicator.dot.${page}`}
             >
               <View
@@ -118,9 +119,26 @@ export function PageIndicator({
         <Pressable
           ref={counterRef}
           style={s.counterHit}
+          disabled={disabled}
           accessible
-          accessibilityRole="text"
+          accessibilityRole="adjustable"
           accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityHint="위아래로 쓸어 페이지를 이동합니다"
+          accessibilityValue={{
+            min: 1,
+            max: pageCount,
+            now: safeActiveIndex + 1,
+            text: `${safeActiveIndex + 1} / ${pageCount}`,
+          }}
+          accessibilityActions={[
+            { name: 'increment', label: '다음 페이지' },
+            { name: 'decrement', label: '이전 페이지' },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') moveCounter(1);
+            if (event.nativeEvent.actionName === 'decrement') moveCounter(-1);
+          }}
+          accessibilityState={{ disabled }}
           onFocus={() => {
             setFocusWithin(true);
           }}

@@ -13,18 +13,17 @@
 //  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도/게스트 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
 import {
   clearPendingGroupEntry,
+  peekGroupEntry,
   markInitialGroupRoomReturn,
   queueDirectGroupEntry,
 } from '@/navigation/groupEntrySource';
 import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
-import { writeGroupCardEmoji } from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -52,6 +51,7 @@ const mockNavigation = {
 };
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
+  useIsFocused: () => true,
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
@@ -66,18 +66,11 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 let mockIsGuest = false;
-let mockUserId: string | null = null;
-const mockSessionIdentity = { current: { userId: null as string | null, active: true } };
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({
-    isGuest: mockIsGuest,
-    userId: mockUserId,
-    sessionIdentityRef: mockSessionIdentity,
-  }),
+  useUser: () => ({ isGuest: mockIsGuest }),
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({
-  logGroupCardIconSaveResult: jest.fn(),
   logGroupFindOpened: jest.fn(),
   logGroupViewed: jest.fn(),
 }));
@@ -105,8 +98,6 @@ jest.mock('./GroupListScreen', () => {
     onCreate,
     onFind,
     onRefresh,
-    cardEmojiByGroupId,
-    dataReady,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (
@@ -114,22 +105,18 @@ jest.mock('./GroupListScreen', () => {
       interaction: { interactionId: string; interactionAcceptedAt: number },
     ) => void;
     onCreate: () => void;
-    onFind: () => void;
+    onFind: (entryPoint: 'header') => void;
     onRefresh: () => Promise<void>;
-    cardEmojiByGroupId: Record<string, string>;
-    dataReady?: boolean;
   }) {
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
-        <RNText>{`아이콘-${cardEmojiByGroupId[groups[0]?.groupId] ?? '없음'}`}</RNText>
-        <RNText>{`목록 데이터 ${dataReady ? '최신' : '이전 성공본'}`}</RNText>
         {groups.map((g) => (
           <RNTouchable
             key={g.groupId}
             onPress={() =>
               onSelect(g.groupId, {
-                interactionId: `interaction-${g.groupId}`,
+                interactionId: 'card-interaction',
                 interactionAcceptedAt: 1234,
               })
             }
@@ -140,7 +127,7 @@ jest.mock('./GroupListScreen', () => {
         <RNTouchable onPress={onCreate}>
           <RNText>목록-만들기</RNText>
         </RNTouchable>
-        <RNTouchable onPress={onFind}>
+        <RNTouchable onPress={() => onFind('header')}>
           <RNText>목록-찾기</RNText>
         </RNTouchable>
         <RNTouchable onPress={() => onRefresh()}>
@@ -230,7 +217,7 @@ function roomParams(
     groupId,
     challengeId: undefined,
     entrySource,
-    interactionId: entrySource === 'group_card' ? `interaction-${groupId}` : undefined,
+    interactionId: entrySource === 'group_card' ? 'card-interaction' : undefined,
     interactionAcceptedAt: entrySource === 'group_card' ? 1234 : undefined,
   };
 }
@@ -280,8 +267,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   clearPendingGroupEntry();
   mockIsGuest = false;
-  mockUserId = null;
-  mockSessionIdentity.current = { userId: null, active: true };
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
   mockNavigationFocused = false;
@@ -347,6 +332,29 @@ describe('group_viewed view episode', () => {
       group_entry: 'return',
       group_count_bucket: '1',
     });
+  });
+
+  test('게스트 화면에서는 invite source를 소비하지 않고 로그인 재마운트용으로 보존한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockIsGuest = true;
+    await renderScreen();
+
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('invite');
+  });
+
+  test('인증 direct 진입이 목록 성공 전에 중단되면 source를 다음 탭 episode로 넘기지 않는다', async () => {
+    queueDirectGroupEntry('invite');
+    mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
+
+    const view = await renderScreen();
+    // focus 시작과 동시에 이 episode가 source를 소유하므로, 화면이 떠 있는 동안 들어온
+    // 다음 direct source까지 cleanup이 지워 버리는 경쟁 조건도 없다.
+    expect(peekGroupEntry('tab')).toBe('tab');
+    await act(async () => view.unmount());
+
+    expect(peekGroupEntry('tab')).toBe('tab');
   });
 
   test('다른 탭에서 그룹 탭으로 재진입하면 tab으로 기록한다', async () => {
@@ -443,6 +451,7 @@ describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
     await renderScreen();
 
     await press('그룹 찾기');
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'empty' });
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
     await press('찾기-참여완료');
 
@@ -468,14 +477,12 @@ describe('일반 재조회 실패', () => {
     mockGetMyGroups.mockResolvedValueOnce([summary()]);
     await renderScreen();
     expect(screen.getByText('목록 1건')).toBeOnTheScreen();
-    expect(screen.getByText('목록 데이터 최신')).toBeOnTheScreen();
 
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
     await refocus();
 
     // 화면을 갈아엎지 않는다 — 보고 있던 목록을 그대로 두고 배너만 얹는다.
     expect(screen.getByText('목록 1건')).toBeOnTheScreen();
-    expect(screen.getByText('목록 데이터 이전 성공본')).toBeOnTheScreen();
     expect(screen.getByText('목록을 새로고침하지 못했어요')).toBeOnTheScreen();
 
     mockGetMyGroups.mockResolvedValueOnce([summary()]);
@@ -492,9 +499,6 @@ describe('목록 분기(0/1/N)', () => {
 
     expect(screen.getByText('함께 집중할 그룹을 만들어보세요')).toBeOnTheScreen();
     expect(screen.queryByText('목록 0건')).toBeNull();
-
-    await press('그룹 찾기');
-    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'empty' });
   });
 
   test('1건 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
@@ -507,34 +511,6 @@ describe('목록 분기(0/1/N)', () => {
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
     expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'group_card'));
-  });
-
-  test('설정 저장 성공은 서버 목록 재조회 없이 현재 카드 아이콘을 갱신한다', async () => {
-    mockUserId = 'user-1';
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await renderScreen();
-    expect(screen.getByText('아이콘-없음')).toBeOnTheScreen();
-
-    await act(async () => {
-      await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
-    });
-
-    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
-    expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
-  });
-
-  test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {
-    mockUserId = 'user-1';
-    await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await renderScreen();
-    expect(await screen.findByText('아이콘-🔥')).toBeOnTheScreen();
-
-    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await refocus();
-
-    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
@@ -600,6 +576,7 @@ describe('목록의 만들기·찾기 진입점', () => {
 
     await press('목록-찾기');
     expect(screen.getByText('찾기-참여완료')).toBeOnTheScreen();
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'header' });
 
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);
     await press('찾기-참여완료');
@@ -704,22 +681,16 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
 });
 
 describe('게스트 초대 로그인(§6-6)', () => {
-  test('초대 시트를 닫으면 보류한 invite 진입 출처도 폐기한다', async () => {
+  test('게스트가 초대 시트를 닫으면 보류한 invite 진입 출처도 폐기한다', async () => {
     mockIsGuest = true;
     mockPendingInvite = GROUP_ID;
     queueDirectGroupEntry('invite');
-    const view = await renderScreen();
+    await renderScreen();
 
     await press('초대-닫기');
 
-    mockIsGuest = false;
-    mockPendingInvite = null;
-    mockGetMyGroups.mockResolvedValueOnce([]);
-    await view.rerender(<GroupScreen />);
-    expect(mockLogGroupViewed).toHaveBeenLastCalledWith({
-      group_entry: 'return',
-      group_count_bucket: '0',
-    });
+    expect(mockClear).toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('tab');
   });
 
   test('시트만 내리고 초대 버퍼는 남긴 채 계정 화면으로 보낸다', async () => {

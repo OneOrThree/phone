@@ -50,15 +50,18 @@ export function TabGuideOverlay({
   steps,
   onFinish,
   visible: controlledVisible,
-  onRequestClose,
+  completionMode = 'internal',
+  allowRequestClose = true,
+  testID = 'guide.overlay',
 }: {
   storageKey: string;
   steps: GuideStep[];
   onFinish?: () => void; // 마지막 스텝을 닫은 직후 — 투어 중 옮긴 스크롤 원복 등
-  /** 별도 queue가 완료 key를 이미 판정한 화면은 두 번째 저장소 read 없이 즉시 표시한다. */
+  // groupDeck처럼 별도 queue/controller가 수명을 소유할 때만 사용한다.
   visible?: boolean;
-  /** 제어형 guide는 Android 뒤로가기를 완료가 아닌 중단으로 처리한다. */
-  onRequestClose?: () => void;
+  completionMode?: 'internal' | 'external';
+  allowRequestClose?: boolean;
+  testID?: string;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
   const [internalVisible, setInternalVisible] = useState(false);
@@ -68,6 +71,7 @@ export function TabGuideOverlay({
   // steps는 렌더마다 새 배열일 수 있어 ref로 최신값만 읽는다 — 스텝 전환 시에만 재측정
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
+
   const controlled = controlledVisible !== undefined;
   const visible = controlled ? controlledVisible : internalVisible;
 
@@ -78,20 +82,23 @@ export function TabGuideOverlay({
     });
   }, [controlled, storageKey]);
 
+  useEffect(() => {
+    if (visible) return;
+    // controlled guide가 숨겨진 commit에서 먼저 0단계로 되돌린다. 재노출 commit에서
+    // 마지막 단계의 stale prepare가 한 번 실행된 뒤 idx effect가 0으로 바꾸는 순서를 막는다.
+    holeReq.current++;
+    setIdx(0);
+    setHole(null);
+  }, [visible]);
+
   // 스텝이 바뀔 때마다 스포트라이트 결정 — prepare(스크롤 등) → rect 또는 앵커 측정. 없으면 전체 딤
   const step = steps[idx];
   useEffect(() => {
     if (!visible) return;
     const req = ++holeReq.current;
     const st = stepsRef.current[idx];
-    (async () => {
-      if (st?.prepare) {
-        setHole(null); // 스크롤로 화면이 움직이는 동안엔 전체 딤
-        try {
-          await st.prepare();
-        } catch {}
-        if (req !== holeReq.current) return;
-      }
+    const measure = () => {
+      if (req !== holeReq.current) return;
       if (st?.rect) {
         setHole(scaleRect(st.rect));
         return;
@@ -105,7 +112,24 @@ export function TabGuideOverlay({
         if (req !== holeReq.current) return;
         setHole(w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null);
       });
-    })();
+    };
+
+    if (!st?.prepare) {
+      measure();
+      return;
+    }
+
+    setHole(null); // 스크롤로 화면이 움직이는 동안엔 전체 딤
+    try {
+      const prepared = st.prepare();
+      if (prepared && typeof prepared.then === 'function') {
+        prepared.then(measure, measure);
+      } else {
+        measure();
+      }
+    } catch {
+      measure();
+    }
   }, [visible, idx]);
 
   if (!visible || !step) return null;
@@ -116,9 +140,11 @@ export function TabGuideOverlay({
       return;
     }
     if (!controlled) setInternalVisible(false);
-    AsyncStorage.setItem(storageKey, '1').catch(() => {});
-    // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
-    logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
+    if (completionMode === 'internal') {
+      AsyncStorage.setItem(storageKey, '1').catch(() => {});
+      // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
+      logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
+    }
     onFinish?.();
   }
 
@@ -136,14 +162,25 @@ export function TabGuideOverlay({
 
   return (
     <Modal
-      testID="guide.overlay.modal"
       transparent
       statusBarTranslucent
       animationType="fade"
-      onRequestClose={onRequestClose ?? advance}
+      onRequestClose={allowRequestClose ? advance : () => {}}
     >
       {/* Maestro E2E — 코치마크 식별·진행용(GROMO-947). 사라질 때까지 탭해서 닫는다. */}
-      <Pressable testID="guide.overlay" style={s.flex1} onPress={advance}>
+      <Pressable
+        testID={testID}
+        style={s.flex1}
+        onPress={advance}
+        accessibilityRole="button"
+        accessibilityLabel={`단계 ${idx + 1}/${steps.length}. ${step.text}. ${idx + 1 < steps.length ? '다음' : '시작'}`}
+        accessibilityActions={[
+          { name: 'activate', label: idx + 1 < steps.length ? '다음' : '시작' },
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') advance();
+        }}
+      >
         {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가
             구멍 밖 전부를 덮는다(안쪽 모서리 = borderRadius - borderWidth). 구멍 없으면 전체 딤 */}
         {hole ? (
@@ -189,7 +226,7 @@ export function TabGuideOverlay({
                   <View key={i} style={[s.dot, i === idx && s.dotOn]} />
                 ))}
               </View>
-              <Text style={s.hint}>{idx + 1 < steps.length ? '탭하여 계속' : '탭하여 시작'}</Text>
+              <Text style={s.hint}>{idx + 1 < steps.length ? '다음' : '시작'}</Text>
             </View>
             <View style={s.bubbleTail} />
           </View>

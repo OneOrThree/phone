@@ -32,8 +32,8 @@ import {
   joinBet,
 } from '@/services/groupApi';
 import { todayStrKst } from '@/utils/localDate';
-import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
+import { resetCardInteractionStateForTest } from '@/services/cardInteraction';
 import type {
   GroupAnnouncementResponse,
   GroupChallengeResponse,
@@ -291,6 +291,36 @@ beforeEach(async () => {
 });
 
 describe('카드 CTA 결과 귀속', () => {
+  test('마운트 시점에 이미 백그라운드면 Room interaction을 즉시 폐기한다', async () => {
+    const appState = AppState as typeof AppState & { currentState: AppStateStatus | null };
+    const previousState = appState.currentState;
+    appState.currentState = 'background';
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const acceptedAt = Date.now();
+
+    try {
+      await render(
+        <GroupRoomScreen
+          groupId={GROUP_ID}
+          entrySource="group_card"
+          interactionId="interaction-before-room-mount"
+          interactionAcceptedAt={acceptedAt}
+          onLeft={onLeft}
+        />,
+      );
+      await act(async () => {});
+
+      expect(logGroupRoomViewed).toHaveBeenCalledWith({
+        group_id: GROUP_ID,
+        entry_source: 'group_card',
+        interaction_id: undefined,
+      });
+    } finally {
+      appState.currentState = previousState;
+    }
+  });
+
   test('30초 안의 Room 최초 성공만 같은 interaction_id로 한 번 연결한다', async () => {
     mockGetGroupDetail.mockResolvedValue(detail());
     mockGetAnnouncements.mockResolvedValue([]);
@@ -1922,6 +1952,26 @@ describe('챌린지 결과 모달(GROMO-1279)', () => {
       expect(onLeft).not.toHaveBeenCalled();
 
       // 회복된 조회가 '정말 없다'를 확정하면 종전대로 즉시 이탈한다.
+      mockGetMyChallengeResults.mockResolvedValue([]);
+      await blur();
+      await focus();
+
+      expect(onLeft).toHaveBeenCalledTimes(1);
+    });
+
+    test('시트 뒤에서 보류한 결과가 최신 성공 조회에서 사라지면 이탈을 완료한다', async () => {
+      mockGetGroupDetail.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetAnnouncements.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetChallenges.mockRejectedValue(axiosErrorWith(403, 'MEMBER_ONLY'));
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+
+      await render(<GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} inviteOpen />);
+      await act(async () => {});
+      expect(screen.queryByTestId('group.challengeResult')).toBeNull();
+      expect(onLeft).not.toHaveBeenCalled();
+
+      // 모달이 실제로 열린 적은 없고, 최신 정본에서도 결과가 사라졌다. 이제 닫기 콜백은
+      // 영원히 오지 않으므로 보류 래치를 풀어야 한다.
       mockGetMyChallengeResults.mockResolvedValue([]);
       await blur();
       await focus();
