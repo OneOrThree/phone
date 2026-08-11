@@ -71,6 +71,27 @@ class ClientIpResolverTest {
     }
 
     @Test
+    @DisplayName("피어가 공인 IP 면 전달 헤더를 무시한다 — 오리진 직접 노출 시 헤더 위조로 신원을 고르는 걸 막는다")
+    void publicPeerCannotForgeHeaders() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("CF-Connecting-IP", "1.1.1.1");
+        request.addHeader("X-Forwarded-For", "9.9.9.9");
+        request.setRemoteAddr("203.0.113.7");
+
+        assertThat(resolver.resolve(request)).isEqualTo("203.0.113.7");
+    }
+
+    @Test
+    @DisplayName("루프백 피어는 프록시로 인정한다 — 같은 호스트 nginx 구성")
+    void loopbackPeerIsTrusted() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("CF-Connecting-IP", "1.1.1.1");
+        request.setRemoteAddr("127.0.0.1");
+
+        assertThat(resolver.resolve(request)).isEqualTo("1.1.1.1");
+    }
+
+    @Test
     @DisplayName("remoteAddr 조차 없으면 unknown — 해시 입력이 null 이 되어 터지지 않게 한다")
     void unknownWhenNothingAvailable() {
         MockHttpServletRequest request = new MockHttpServletRequest();

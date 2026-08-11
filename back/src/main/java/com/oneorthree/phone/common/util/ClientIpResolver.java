@@ -4,6 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 
 /**
@@ -22,6 +24,13 @@ import java.util.List;
  *
  * <p>초대링크 클릭 기록에 이어 게스트 생성 레이트리밋(GROMO-1510)도 쓰게 되어 {@code common/util}
  * 로 옮겼다. 프로퍼티 키는 이미 배포된 환경 설정과의 호환을 위해 {@code link.} 접두어를 유지한다.
+ *
+ * <p><b>신뢰 피어 게이트(PR #621 코드리뷰 P1)</b>: 위 "배포 전제"를 코드로 강제한다. 전달 헤더는
+ * <b>원격 피어가 사설망일 때만</b> 읽는다. prod 는 app 컨테이너가 포트를 열지 않고 같은 도커
+ * 네트워크의 nginx 만 붙으므로 피어가 늘 사설 IP 라 종전과 동작이 같고, dev 처럼 오리진이
+ * {@code 8080} 으로 직접 열린 환경에서는 피어가 공인 IP 라 헤더를 무시하고 remoteAddr 을 쓴다.
+ * 레이트리밋에서 이 구분이 중요한 이유는, 어트리뷰션 오염과 달리 <b>키를 위조할 수 있으면 제한
+ * 자체가 통째로 무력화</b>되기 때문이다 — 요청마다 헤더만 바꾸면 매번 새 버킷을 받는다.
  */
 @Component
 public class ClientIpResolver {
@@ -36,17 +45,42 @@ public class ClientIpResolver {
     }
 
     public String resolve(HttpServletRequest request) {
-        for (String header : trustedHeaders) {
-            // XFF 는 프록시가 이어붙인 목록이라 첫 토큰이 원 클라이언트다. 단일값 헤더에도 안전한 처리다.
-            String value = firstToken(request.getHeader(header.trim()));
-            if (value != null) {
-                return value;
+        String remoteAddr = request.getRemoteAddr();
+
+        // 앞단 프록시를 거쳐 온 요청일 때만 전달 헤더를 믿는다. 직접 닿은 요청의 헤더는 전부 호출자가
+        // 지어낸 값이라, 읽는 순간 호출자가 자기 신원을 마음대로 고르게 해주는 꼴이 된다.
+        if (isTrustedPeer(remoteAddr)) {
+            for (String header : trustedHeaders) {
+                // XFF 는 프록시가 이어붙인 목록이라 첫 토큰이 원 클라이언트다. 단일값 헤더에도 안전한 처리다.
+                String value = firstToken(request.getHeader(header.trim()));
+                if (value != null) {
+                    return value;
+                }
             }
         }
 
-        String remoteAddr = request.getRemoteAddr();
         // 해시 입력이 null 이 되면 NPE 로 랜딩 응답까지 죽는다 — 값을 못 구해도 문자열로 떨어뜨린다.
         return hasText(remoteAddr) ? remoteAddr.trim() : UNKNOWN;
+    }
+
+    /**
+     * 원격 피어가 앞단 프록시로 볼 만한 주소인가 — 사설망(RFC1918 등)·루프백만 인정한다.
+     *
+     * <p>CIDR 목록을 프로퍼티로 받는 대신 JDK 판정을 쓴다. prod 의 nginx 는 도커 브리지
+     * 네트워크(172.16/12)에 있어 항상 사설이고, 그 밖의 토폴로지는 아직 없다. 넣을 CIDR 이
+     * 생기면 그때 프로퍼티로 뺀다.
+     */
+    private boolean isTrustedPeer(String remoteAddr) {
+        if (!hasText(remoteAddr)) {
+            return false;
+        }
+        try {
+            // 서블릿 컨테이너가 주는 remoteAddr 은 항상 IP 리터럴이라 DNS 조회로 새지 않는다.
+            InetAddress peer = InetAddress.getByName(remoteAddr.trim());
+            return peer.isSiteLocalAddress() || peer.isLoopbackAddress() || peer.isLinkLocalAddress();
+        } catch (UnknownHostException e) {
+            return false;
+        }
     }
 
     private String firstToken(String headerValue) {

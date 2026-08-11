@@ -87,6 +87,23 @@ class GuestLoginRateLimiterTest {
     }
 
     @Test
+    @DisplayName("키가 상한을 넘겨 쏟아져도 맵은 상한에서 멈춘다 — 오래된 IP 가 밀려나며 카운터가 초기화된다")
+    void evictsOldestBeyondCap() {
+        limiter.check("1.1.1.1");
+        limiter.check("1.1.1.1");
+        limiter.check("1.1.1.1");
+        assertThatThrownBy(() -> limiter.check("1.1.1.1")).isInstanceOf(AuthException.class);
+
+        // 만료되지 않은 고유 키로 상한(10_000)을 넘겨 채운다 — 종전 구현은 여기서 맵이 무한히 커졌다.
+        for (int i = 0; i < 10_001; i++) {
+            limiter.check("10.%d.%d.%d".formatted(i / 65536, (i / 256) % 256, i % 256));
+        }
+
+        // 1.1.1.1 은 LRU 로 밀려나 새 윈도를 받는다 = 맵이 상한에서 잘렸다는 증거.
+        assertThatCode(() -> limiter.check("1.1.1.1")).doesNotThrowAnyException();
+    }
+
+    @Test
     @DisplayName("차단 중에도 윈도 시작 시각은 밀리지 않는다 — 계속 두드려도 윈도 끝에 풀린다")
     void blockedRequestsDoNotExtendWindow() {
         for (int i = 0; i < 3; i++) {

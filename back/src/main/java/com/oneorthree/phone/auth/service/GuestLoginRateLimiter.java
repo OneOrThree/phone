@@ -10,8 +10,9 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 게스트 계정 생성({@code POST /auth/guest})을 <b>클라이언트 IP 당 고정 윈도</b> 횟수로 제한한다 (GROMO-1510).
@@ -36,13 +37,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GuestLoginRateLimiter {
 
     /**
-     * 추적 IP 상한 — 넘으면 만료 항목을 청소한다. 맵이 무한히 크는 걸 막는 유일한 장치다.
-     * 만료 항목이 없을 만큼 넓게 분산된 공격이면 요청마다 1만 건 전수 스캔이 되지만(수십 마이크로초),
-     * 그 상황은 IP 단위 제한 자체가 무력한 구간이라 여기서 더 손보지 않는다.
+     * 추적 IP 상한 — <b>하드 상한</b>이다. 도달하면 만료 여부와 무관하게 가장 오래 안 쓰인 항목부터
+     * 밀어낸다(LRU). 만료 항목만 지우는 방식은 서로 다른 키가 상한을 넘겨 쏟아지면 아무것도 못 지운 채
+     * 맵이 계속 커져서, 인증 없는 호출자가 힙을 무한히 늘릴 수 있었다 (PR #621 코드리뷰 P1).
+     *
+     * <p>키 홍수로 밀려난 정상 IP 는 카운터가 초기화돼 한도를 새로 받는다 — 힙·CPU 를 확실히 묶는
+     * 대가로 그 구간의 제한 정확도를 포기한 것이다. 그 정도 규모의 분산 공격은 IP 단위 제한 자체가
+     * 답이 아니고, 공유 저장소로 올릴 때 같이 볼 문제다.
      */
     private static final int MAX_TRACKED_IPS = 10_000;
 
-    private final Map<String, Window> windows = new ConcurrentHashMap<>();
+    private final Map<String, Window> windows = boundedLru();
     private final int maxPerWindow;
     private final Duration window;
     private final Clock clock;
@@ -70,10 +75,6 @@ public class GuestLoginRateLimiter {
      */
     public void check(String clientIp) {
         Instant now = clock.instant();
-        if (windows.size() > MAX_TRACKED_IPS) {
-            // 값이 방금 갱신된 항목까지 같이 지워질 수 있지만, 결과는 그 IP 가 한도를 새로 받는 것뿐이다.
-            windows.entrySet().removeIf(entry -> isExpired(entry.getValue(), now));
-        }
 
         Window current = windows.compute(clientIp, (ip, existing) ->
                 existing == null || isExpired(existing, now)
@@ -81,14 +82,45 @@ public class GuestLoginRateLimiter {
                         : new Window(existing.startedAt(), existing.count() + 1));
 
         if (current.count() > maxPerWindow) {
+            // 원본 IP 는 남기지 않는다 — 이 로그는 prod 에서 파일로 보존되고 Datadog 으로도 나가는데,
+            // %mask 변환기가 IP 는 안 가린다 (PR #621 코드리뷰 P1). 차단 대응엔 대역까지면 충분하다.
             log.warn("게스트 생성 레이트리밋 차단 — ip={}, count={} (윈도 {} 당 {}회)",
-                    clientIp, current.count(), window, maxPerWindow);
+                    anonymize(clientIp), current.count(), window, maxPerWindow);
             throw new AuthException(AuthErrorCode.GUEST_CREATION_RATE_LIMITED);
         }
     }
 
     private boolean isExpired(Window candidate, Instant now) {
         return !now.isBefore(candidate.startedAt().plus(window));
+    }
+
+    /** IPv4 는 마지막 옥텟을, IPv6 는 하위 그룹을 지운다 — 대역은 남기고 개인 식별은 끊는다. */
+    private static String anonymize(String clientIp) {
+        int lastDot = clientIp.lastIndexOf('.');
+        if (lastDot > 0) {
+            return clientIp.substring(0, lastDot) + ".x";
+        }
+        String[] groups = clientIp.split(":");
+        if (groups.length < 3) {
+            // IP 리터럴이 아님(예: remoteAddr 조차 없을 때의 "unknown") — 가릴 개인정보가 없다.
+            return clientIp;
+        }
+        return String.join(":", groups[0], groups[1], groups[2]) + ":x";
+    }
+
+    /**
+     * 접근 순서 LRU — 상한을 넘기면 가장 오래 안 쓰인 항목이 자동으로 빠진다.
+     *
+     * <p>{@code ConcurrentHashMap} 으로 같은 하드 상한을 지키려면 요청마다 맵을 전수 스캔해야 해서
+     * 요청당 O(n) 이 된다. 게스트 로그인은 QPS 가 낮아 맵 단위 락이 그보다 훨씬 싸다.
+     */
+    private static Map<String, Window> boundedLru() {
+        return Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Window> eldest) {
+                return size() > MAX_TRACKED_IPS;
+            }
+        });
     }
 
     /** IP 하나의 현재 윈도 — 시작 시각과 그 윈도에서 센 요청 수. */
