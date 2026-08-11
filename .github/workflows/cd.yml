@@ -22,33 +22,40 @@ concurrency:
   group: cd-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 env:
   AWS_REGION: ap-northeast-2
-  ENV_SECRET_ID: oneorthree/phone
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
 
 jobs:
   build:
     name: 빌드 · GAR push
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30 # self-hosted 기본 360분 — 러너 장기 점유 방지
-    permissions:
-      contents: read
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
       - name: GAR 인증
         run: |
-          curl -s -H "Metadata-Flavor: Google" \
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -r .access_token \
+          | jq -er .access_token \
           | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
 
       - uses: docker/setup-buildx-action@v3
 
       - name: 이미지 빌드 및 push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./back
@@ -58,10 +65,11 @@ jobs:
           # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
           provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
           tags: ${{ env.APP_IMAGE }}
-          # 캐시는 러너와 같은 리전의 GAR(ci-cache) — prod-ci와 같은 저장소를 쓴다.
-          # gha 캐시는 GCP 러너 ↔ GitHub 캐시 서비스 크로스클라우드 왕복이라
-          # 히트조차 ~50s로 GAR 히트(~5s)의 10배가 걸렸다.
-          # 태그를 arm64(prod)와 나눠 서로의 캐시를 덮어쓰지 않게 한다.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          # 캐시는 러너와 같은 리전의 GAR(ci-cache)를 사용한다.
+          # prod의 arm64 캐시와 태그를 분리해 아키텍처별 캐시를 덮어쓰지 않는다.
           cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64
           cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-amd64,mode=max
 
@@ -86,45 +94,74 @@ jobs:
       - name: AWS 자격증명 (OIDC, keyless)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
 
-      # 값을 GITHUB_ENV가 아니라 .env 파일로 떨어뜨린다.
-      # compose가 같은 디렉터리의 .env를 자동으로 읽으므로 별도 옵션이 필요 없고,
-      # 배포 뒤에도 파일이 남아 수동으로 compose를 돌릴 때 같은 값이 쓰인다.
-      - name: 런타임 값 로드 (Secrets Manager → .env)
+      - name: AWS 계정 경계 확인
+        run: test "$(aws sts get-caller-identity --query Account --output text)" = 808715036056
+
+      # checkout sibling은 actions/checkout의 git clean 범위 밖이다. 배포 뒤 수동 compose와
+      # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
+      - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
+        env:
+          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
         run: |
-          umask 077
-          SECRET=$(aws secretsmanager get-secret-value \
+          set -euo pipefail
+          test -n "$IMAGE_DIGEST"
+          IMAGE_REPOSITORY="${APP_IMAGE%:*}"
+          aws secretsmanager get-secret-value \
             --secret-id "$ENV_SECRET_ID" \
-            --query SecretString --output text)
-          {
-            echo "APP_IMAGE=$APP_IMAGE"
-            echo "$SECRET" | jq -r '
-              {POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, JWT_SECRET,
-               GOOGLE_CLIENT_ID, APPLE_CLIENT_ID,
-               FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_JSON, OPENAI_API_KEY}
-              | to_entries[] | "\(.key)=\(.value)"'
-          } > .env
+            --query SecretString --output text \
+          | python3 .github/scripts/write-compose-env.py \
+              --output "$RUNTIME_ENV_FILE" \
+              --app-image "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
 
       - name: GAR 인증
         run: |
-          curl -s -H "Metadata-Flavor: Google" \
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -r .access_token \
+          | jq -er .access_token \
           | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
 
       - name: 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.sha }}
+          IMAGE_REVISION: ${{ github.sha }}
         run: |
-          docker compose -f docker-compose.dev.yml pull app
-          docker compose -f docker-compose.dev.yml up -d app
-          docker compose -f docker-compose.dev.yml ps
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            test -n "$DD_API_KEY"
+            compose+=(-f docker-compose.datadog.yml)
+            echo "DATADOG_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
+          else
+            echo "DATADOG_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
+          fi
+          "${compose[@]}" pull app
+          "${compose[@]}" up -d app
+          "${compose[@]}" ps
 
       - name: 헬스체크
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.sha }}
+          IMAGE_REVISION: ${{ github.sha }}
         run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          if [ "${DATADOG_OVERLAY_ENABLED:-0}" = 1 ]; then
+            compose+=(-f docker-compose.datadog.yml)
+          fi
           echo "앱 기동 대기 중..."
-          # 60초(12회)는 7/24 성공 때도 55초 턱걸이였음 — 부팅이 늘며 초과, 150초로 확장 (GROMO-1068)
-          for i in $(seq 1 30); do
+          # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
+          for i in $(seq 1 60); do
             sleep 5
             if curl -sf http://localhost:8080/health; then
               echo "헬스체크 통과"
@@ -132,7 +169,7 @@ jobs:
             fi
             echo "대기 중... ($((i*5))s)"
           done
-          docker compose -f docker-compose.dev.yml logs app
+          "${compose[@]}" logs app
           exit 1
 
       - name: 배포 실패 리포트

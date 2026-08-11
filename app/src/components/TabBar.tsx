@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -115,10 +115,16 @@ function Tab({
       accessibilityState={{ selected: focused }}
       accessibilityLabel={route.name}
       onPress={() => {
-        if (!focused) navigation.navigate(route.name);
+        const event = navigation.emit({
+          type: 'tabPress',
+          target: route.key,
+          canPreventDefault: true,
+        });
+        if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
       }}
     >
       <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
+      <Text style={[s.tabLabel, focused ? s.tabLabelSelected : s.tabLabelIdle]}>{route.name}</Text>
     </PressableScale>
   );
 }
@@ -211,7 +217,17 @@ const s = StyleSheet.create({
     elevation: 8,
   },
   // HIG 44pt+ 터치타겟 — 바 전체 높이(56)를 채워 아이콘만한 좁은 세로 탭이 안 되게(GROMO-846)
-  tab: { flex: 1, height: BAR_H, alignItems: 'center', justifyContent: 'center' },
+  tab: {
+    flex: 1,
+    minWidth: 44,
+    height: BAR_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  tabLabel: { fontSize: 10, lineHeight: 12, fontWeight: '600' },
+  tabLabelSelected: { color: T.accent },
+  tabLabelIdle: { color: T.inkMuted },
   fabSlot: { width: 72 },
   // 리퀴드 글래스 하이라이트 알약(타원) — 미지원 기기 폴백 질감 포함
   highlight: {

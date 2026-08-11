@@ -41,6 +41,13 @@ export function ownsGroupCardIconSaveResult(
   return session.active && session.userId === userId;
 }
 
+/** React state commit 전에도 저장 수락을 한 번으로 제한한다. */
+export function claimGroupCardEmojiSave(savingRef: { current: boolean }): boolean {
+  if (savingRef.current) return false;
+  savingRef.current = true;
+  return true;
+}
+
 /** 서버 그룹 프로필과 독립된 현재 계정·기기의 카드 표현 설정 편집 화면. */
 export default function GroupCardEmojiEditScreen() {
   const insets = useSafeAreaInsets();
@@ -58,6 +65,7 @@ export default function GroupCardEmojiEditScreen() {
   const requestRef = useRef(0);
   const changeRetryRef = useRef(0);
   const activeRef = useRef(true);
+  const savingRef = useRef(false);
   const identity = `${userId ?? 'anonymous'}:${groupId}`;
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -70,7 +78,7 @@ export default function GroupCardEmojiEditScreen() {
   }, []);
 
   useEffect(() => {
-    logGroupCardIconEditorViewed();
+    logGroupCardIconEditorViewed({ surface: 'settings' });
   }, [identity]);
 
   useEffect(() => {
@@ -104,7 +112,8 @@ export default function GroupCardEmojiEditScreen() {
   const changed = ready && (selected !== baseline || hasPendingSelection);
 
   const save = useCallback(async () => {
-    if (!userId || !selected || !changed || saving || !ready) return;
+    if (!userId || !selected || !changed || saving || !ready || !claimGroupCardEmojiSave(savingRef))
+      return;
     const saveIdentity = identity;
     const saveSessionIdentity = sessionIdentityRef.current;
     changeRetryRef.current++;
@@ -129,6 +138,8 @@ export default function GroupCardEmojiEditScreen() {
       logGroupCardIconSaveResult({ surface: 'settings', result: 'success' });
       if (!activeRef.current) return;
       setBaseline(selected);
+      // 저장 중 다른 route가 이 화면 위에 열렸다면 그 route를 잘못 pop하지 않는다.
+      if (!navigation.isFocused()) return;
       navigation.goBack();
     } catch {
       // 저장 수락 전에 만든 pending 세대를 그대로 유지한다. 화면 이탈로 GroupScreen 재시도가
@@ -146,6 +157,7 @@ export default function GroupCardEmojiEditScreen() {
       // 선택은 롤백하지 않는다. 사용자가 같은 버튼으로 최신 선택을 다시 저장할 수 있다.
       setSaveFailed(true);
     } finally {
+      savingRef.current = false;
       if (activeRef.current && identityRef.current === saveIdentity) setSaving(false);
     }
   }, [changed, groupId, identity, navigation, ready, saving, selected, sessionIdentityRef, userId]);

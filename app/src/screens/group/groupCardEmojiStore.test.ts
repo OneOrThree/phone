@@ -8,6 +8,7 @@ import {
   normalizeGroupCardEmoji,
   parseGroupCardEmoji,
   readGroupCardEmoji,
+  readGroupCardEmojiForEdit,
   readGroupCardEmojiResult,
   reconcileGroupCardEmojiBucket,
   preservePendingGroupCardEmoji,
@@ -70,6 +71,19 @@ test('읽기 실패는 실제 미설정 기본값과 구분한다', async () => 
   jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
 
   expect(await readGroupCardEmojiResult('u1', 'g1')).toEqual({ status: 'error' });
+});
+
+test('편집용 읽기는 저장소 오류를 기본값으로 확정하지 않고 호출자에게 전달한다', async () => {
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporary read failure'));
+
+  await expect(readGroupCardEmojiForEdit('u1', 'g1')).rejects.toThrow('temporary read failure');
+});
+
+test('편집·설정용 읽기는 오류를 전달하면서 최신 pending 선택을 합성한다', async () => {
+  await writeGroupCardEmoji('u1', 'g1', '📚');
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥');
+
+  await expect(readGroupCardEmojiForEdit('u1', 'g1')).resolves.toBe('🔥');
 });
 
 test('동시 RMW를 직렬화해 다른 계정·그룹과 같은 그룹의 마지막 선택을 보존한다', async () => {

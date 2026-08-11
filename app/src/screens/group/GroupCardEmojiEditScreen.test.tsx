@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import GroupCardEmojiEditScreen, { ownsGroupCardIconSaveResult } from './GroupCardEmojiEditScreen';
+import GroupCardEmojiEditScreen, {
+  claimGroupCardEmojiSave,
+  ownsGroupCardIconSaveResult,
+} from './GroupCardEmojiEditScreen';
 import {
   __resetGroupCardEmojiQueueForTest,
   hasPendingGroupCardEmojis,
@@ -20,8 +23,9 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const mockGoBack = jest.fn();
+const mockIsFocused = jest.fn(() => true);
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack }),
+  useNavigation: () => ({ goBack: mockGoBack, isFocused: mockIsFocused }),
   useRoute: () => ({ params: { groupId: 'group-1' } }),
 }));
 
@@ -46,6 +50,7 @@ beforeEach(async () => {
   __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
   mockUser.userId = 'user-1';
+  mockIsFocused.mockReturnValue(true);
   mockSessionIdentity.current = { userId: 'user-1', active: true };
 });
 
@@ -391,6 +396,39 @@ test('저장 중에는 picker와 뒤로 버튼을 잠가 마지막 선택을 버
   });
   await waitFor(() => expect(mockGoBack).toHaveBeenCalledTimes(1));
   expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚');
+});
+
+test('저장 연타 수락 가드는 React 상태 반영 전에도 한 번만 true를 반환한다', () => {
+  const savingRef = { current: false };
+
+  expect(claimGroupCardEmojiSave(savingRef)).toBe(true);
+  expect(claimGroupCardEmojiSave(savingRef)).toBe(false);
+
+  savingRef.current = false;
+  expect(claimGroupCardEmojiSave(savingRef)).toBe(true);
+});
+
+test('저장 중 다른 route가 위에 열리면 완료 콜백이 새 화면을 pop하지 않는다', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
+    await gate;
+    await AsyncStorage.multiSet([[key, value]]);
+  });
+  await render(<GroupCardEmojiEditScreen />);
+  await screen.findByTestId('group.cardEmoji.save');
+  await act(async () => fireEvent.press(screen.getByTestId('group.cardEmoji.📚')));
+  fireEvent.press(screen.getByTestId('group.cardEmoji.save'));
+  await waitFor(() => expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled());
+
+  mockIsFocused.mockReturnValue(false);
+  await act(async () => release());
+
+  await waitFor(async () => expect(await readGroupCardEmoji('user-1', 'group-1')).toBe('📚'));
+  expect(mockGoBack).not.toHaveBeenCalled();
+  expect(screen.getByTestId('group.cardEmoji.save')).toBeDisabled();
 });
 
 test('저장 중 화면이 먼저 unmount된 뒤 실패해도 계정 실패 상태와 pending을 유지한다', async () => {

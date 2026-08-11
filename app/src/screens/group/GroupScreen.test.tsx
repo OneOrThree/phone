@@ -13,17 +13,17 @@
 //  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도/게스트 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
-import type { GroupSummaryResponse } from '@/types/dto/group';
 import {
-  __resetGroupCardEmojiQueueForTest,
-  preservePendingGroupCardEmoji,
-  setGroupCardEmojiSaveFailure,
-  writeGroupCardEmoji,
-} from './groupCardEmojiStore';
+  clearPendingGroupEntry,
+  peekGroupEntry,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
+import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
+import type { GroupSummaryResponse } from '@/types/dto/group';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -37,8 +37,21 @@ jest.mock('react-native-safe-area-context', () => {
 // 포커스 재조회를 테스트에서 다시 트리거하려고 콜백을 모아 둔다(그룹 생성 화면에서 돌아오는 상황).
 const mockFocusRunners = new Set<() => void | (() => void)>();
 const mockNavigate = jest.fn();
+let mockTabPressListener: (() => void) | null = null;
+let mockNavigationFocused = false;
+const mockNavigation = {
+  navigate: mockNavigate,
+  addListener: jest.fn((_event: string, listener: () => void) => {
+    mockTabPressListener = listener;
+    return () => {
+      if (mockTabPressListener === listener) mockTabPressListener = null;
+    };
+  }),
+  isFocused: jest.fn(() => mockNavigationFocused),
+};
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
+  useNavigation: () => mockNavigation,
+  useIsFocused: () => true,
   useFocusEffect: (cb: () => void | (() => void)) => {
     const { useEffect } = require('react');
     useEffect(() => {
@@ -53,18 +66,13 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 let mockIsGuest = false;
-let mockUserId: string | null = null;
-const mockSessionIdentity = { current: { userId: null as string | null, active: true } };
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => {
-    mockSessionIdentity.current.userId = mockUserId;
-    return { isGuest: mockIsGuest, userId: mockUserId, sessionIdentityRef: mockSessionIdentity };
-  },
+  useUser: () => ({ isGuest: mockIsGuest }),
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({
+  logGroupFindOpened: jest.fn(),
   logGroupViewed: jest.fn(),
-  logGroupCardIconSaveResult: jest.fn(),
 }));
 
 jest.mock('@/services/groupApi', () => ({
@@ -90,43 +98,36 @@ jest.mock('./GroupListScreen', () => {
     onCreate,
     onFind,
     onRefresh,
-    cardEmojiByGroupId,
-    cardEmojiHydrated,
-    cardEmojiHydratedGroupIds,
   }: {
     groups: { groupId: string; name: string }[];
-    onSelect: (groupId: string) => void;
+    onSelect: (
+      groupId: string,
+      interaction: { interactionId: string; interactionAcceptedAt: number },
+    ) => void;
     onCreate: () => void;
-    onFind: () => void;
+    onFind: (entryPoint: 'header') => void;
     onRefresh: () => Promise<void>;
-    cardEmojiByGroupId: Record<string, string>;
-    cardEmojiHydrated: boolean;
-    cardEmojiHydratedGroupIds?: ReadonlySet<string>;
   }) {
-    const emojiStatus = (groupId: string) =>
-      cardEmojiByGroupId[groupId] ??
-      (cardEmojiHydrated &&
-      (cardEmojiHydratedGroupIds === undefined || cardEmojiHydratedGroupIds.has(groupId))
-        ? '없음'
-        : '불러오는 중');
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
-        <RNText>{`아이콘-${emojiStatus(groups[0]?.groupId)}`}</RNText>
-        {groups.map((group) => (
-          <RNText
-            key={`emoji-${group.groupId}`}
-          >{`아이콘상태-${group.groupId}-${emojiStatus(group.groupId)}`}</RNText>
-        ))}
         {groups.map((g) => (
-          <RNTouchable key={g.groupId} onPress={() => onSelect(g.groupId)}>
+          <RNTouchable
+            key={g.groupId}
+            onPress={() =>
+              onSelect(g.groupId, {
+                interactionId: 'card-interaction',
+                interactionAcceptedAt: 1234,
+              })
+            }
+          >
             <RNText>{`목록-${g.name}`}</RNText>
           </RNTouchable>
         ))}
         <RNTouchable onPress={onCreate}>
           <RNText>목록-만들기</RNText>
         </RNTouchable>
-        <RNTouchable onPress={onFind}>
+        <RNTouchable onPress={() => onFind('header')}>
           <RNText>목록-찾기</RNText>
         </RNTouchable>
         <RNTouchable onPress={() => onRefresh()}>
@@ -174,15 +175,20 @@ jest.mock('./components/GroupInviteSheet', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
   return function MockInvite({
     groupId,
+    onClose,
     onJoined,
     onLogin,
   }: {
     groupId: string;
+    onClose: () => void;
     onJoined: (joinedGroupId: string) => void;
     onLogin: () => void;
   }) {
     return (
       <RNView>
+        <RNTouchable onPress={onClose}>
+          <RNText>초대-닫기</RNText>
+        </RNTouchable>
         <RNTouchable onPress={() => onJoined(mockJoinedIdOverride ?? groupId)}>
           <RNText>초대-참여완료</RNText>
         </RNTouchable>
@@ -197,17 +203,22 @@ jest.mock('./components/GroupInviteSheet', () => {
 const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockPeek = peekPendingInvite as jest.MockedFunction<typeof peekPendingInvite>;
 const mockClear = clearPendingInvite as jest.MockedFunction<typeof clearPendingInvite>;
+const mockLogGroupViewed = logGroupViewed as jest.MockedFunction<typeof logGroupViewed>;
+const mockLogGroupFindOpened = logGroupFindOpened as jest.MockedFunction<typeof logGroupFindOpened>;
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const GROUP_ID_2 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
 const GROUP_ID_3 = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
-function roomParams(groupId: string, entrySource: 'group_find' | 'invite' | 'unknown') {
+function roomParams(
+  groupId: string,
+  entrySource: 'group_card' | 'group_find' | 'invite' | 'unknown',
+) {
   return {
     groupId,
     challengeId: undefined,
     entrySource,
-    interactionId: undefined,
-    interactionAcceptedAt: undefined,
+    interactionId: entrySource === 'group_card' ? 'card-interaction' : undefined,
+    interactionAcceptedAt: entrySource === 'group_card' ? 1234 : undefined,
   };
 }
 
@@ -252,15 +263,14 @@ async function press(label: string) {
   });
 }
 
-beforeEach(async () => {
-  __resetGroupCardEmojiQueueForTest();
-  await AsyncStorage.clear();
+beforeEach(() => {
   jest.clearAllMocks();
+  clearPendingGroupEntry();
   mockIsGuest = false;
-  mockUserId = null;
-  mockSessionIdentity.current = { userId: null, active: true };
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
+  mockNavigationFocused = false;
+  mockTabPressListener = null;
   // 버퍼는 이제 {groupId, slug, entry} 를 들고 온다(초대 링크 스펙 §7-3). 이 화면의 관심사는
   // 여전히 groupId 하나라, 테스트는 groupId만 지정하고 나머지는 여기서 감싼다.
   mockPeek.mockImplementation(() =>
@@ -271,6 +281,145 @@ beforeEach(async () => {
 // spyOn으로 만든 스파이만 되돌린다 — jest.mock 모듈 목에는 영향이 없다.
 afterEach(() => {
   jest.restoreAllMocks();
+  clearPendingGroupEntry();
+});
+
+describe('group_viewed view episode', () => {
+  test('성공한 전체 목록 뒤에만 group_entry와 count bucket을 한 번 발행한다', async () => {
+    mockGetMyGroups.mockResolvedValueOnce([]);
+
+    await renderScreen();
+
+    expect(mockLogGroupViewed).toHaveBeenCalledTimes(1);
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'tab',
+      group_count_bucket: '0',
+    });
+  });
+
+  test('목록 실패에는 발행하지 않고 같은 episode의 재시도 성공에서 한 번 발행한다', async () => {
+    mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
+    await renderScreen();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+
+    mockGetMyGroups.mockResolvedValueOnce(
+      Array.from({ length: 11 }, (_, index) => ({
+        ...summary(),
+        groupId: `0197e0c3-4d1b-7a2e-9f60-${String(index).padStart(12, '0')}`,
+      })),
+    );
+    await press('다시 시도');
+
+    expect(mockLogGroupViewed).toHaveBeenCalledTimes(1);
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'tab',
+      group_count_bucket: '11_plus',
+    });
+  });
+
+  test('실제 새 focus를 만든 direct source를 한 번 소비하고 다음 focus는 return이다', async () => {
+    queueDirectGroupEntry('invite');
+    mockGetMyGroups.mockResolvedValueOnce([summary()]).mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(1, {
+      group_entry: 'invite',
+      group_count_bucket: '1',
+    });
+
+    await refocus();
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('게스트 화면에서는 invite source를 소비하지 않고 로그인 재마운트용으로 보존한다', async () => {
+    queueDirectGroupEntry('invite');
+    mockIsGuest = true;
+    await renderScreen();
+
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+    expect(mockLogGroupViewed).not.toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('invite');
+  });
+
+  test('인증 direct 진입이 목록 성공 전에 중단되면 source를 다음 탭 episode로 넘기지 않는다', async () => {
+    queueDirectGroupEntry('invite');
+    mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
+
+    const view = await renderScreen();
+    // focus 시작과 동시에 이 episode가 source를 소유하므로, 화면이 떠 있는 동안 들어온
+    // 다음 direct source까지 cleanup이 지워 버리는 경쟁 조건도 없다.
+    expect(peekGroupEntry('tab')).toBe('tab');
+    await act(async () => view.unmount());
+
+    expect(peekGroupEntry('tab')).toBe('tab');
+  });
+
+  test('다른 탭에서 그룹 탭으로 재진입하면 tab으로 기록한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockNavigationFocused = false;
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'tab',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('focus 중 열린 warm invite로 돌아오면 return으로 기록한다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockPendingInvite = GROUP_ID;
+    mockNavigationFocused = false;
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('현재 그룹 탭 재선택은 뒤이은 자식 화면 복귀를 오염시키지 않는다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    mockNavigationFocused = true;
+    await act(async () => mockTabPressListener?.());
+    await refocus();
+
+    expect(mockLogGroupViewed).toHaveBeenNthCalledWith(2, {
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('목록을 건너뛴 결과 방의 첫 복귀는 return으로 기록한다', async () => {
+    markInitialGroupRoomReturn();
+    mockGetMyGroups.mockResolvedValueOnce([summary()]);
+
+    await renderScreen();
+
+    expect(mockLogGroupViewed).toHaveBeenCalledWith({
+      group_entry: 'return',
+      group_count_bucket: '1',
+    });
+  });
+
+  test('같은 episode의 새로고침은 view 이벤트를 추가하지 않는다', async () => {
+    mockGetMyGroups.mockResolvedValue([summary()]);
+    await renderScreen();
+
+    await press('목록-새로고침');
+
+    expect(mockLogGroupViewed).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
@@ -302,6 +451,7 @@ describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
     await renderScreen();
 
     await press('그룹 찾기');
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'empty' });
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
     await press('찾기-참여완료');
 
@@ -360,114 +510,7 @@ describe('목록 분기(0/1/N)', () => {
 
     // 목록 카드를 탭하면 소속 수와 무관하게 그룹방 라우트로 push 한다.
     await press('목록-아침 6시 집중방');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'unknown'));
-  });
-
-  test('설정 저장 성공은 서버 목록 재조회 없이 현재 카드 아이콘을 갱신한다', async () => {
-    mockUserId = 'user-1';
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await renderScreen();
-    expect(screen.getByText('아이콘-없음')).toBeOnTheScreen();
-
-    await act(async () => {
-      await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
-    });
-
-    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
-    expect(mockGetMyGroups).toHaveBeenCalledTimes(1);
-  });
-
-  test('생성 화면에서 늦게 실패한 로컬 아이콘 저장을 현재 그룹 화면에 알린다', async () => {
-    mockUserId = 'user-1';
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await renderScreen();
-
-    await act(async () => setGroupCardEmojiSaveFailure('user-1', true));
-
-    expect(screen.getByTestId('group.cardEmoji.saveFailure')).toHaveTextContent(
-      /내 카드 아이콘을 저장하지 못했어요/,
-    );
-    await act(async () => setGroupCardEmojiSaveFailure('user-1', false));
-    expect(screen.queryByTestId('group.cardEmoji.saveFailure')).toBeNull();
-  });
-
-  test('생성 직후 pending 재시도가 지연돼도 서버 목록을 먼저 표시한다', async () => {
-    mockUserId = 'user-1';
-    preservePendingGroupCardEmoji('user-1', GROUP_ID, '🔥', 'create');
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const originalSetItem = AsyncStorage.setItem.bind(AsyncStorage);
-    jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(async (key, value) => {
-      await gate;
-      await originalSetItem(key, value);
-    });
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-
-    await renderScreen();
-
-    expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
-    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
-    await act(async () => release());
-  });
-
-  test('저장 아이콘 hydration 전에는 목록을 먼저 표시하되 기본값으로 확정하지 않는다', async () => {
-    mockUserId = 'user-1';
-    await writeGroupCardEmoji('user-1', GROUP_ID, '📚');
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
-    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
-      await gate;
-      return originalGetItem(key);
-    });
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-
-    await renderScreen();
-
-    expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
-    expect(screen.getByText('아이콘-불러오는 중')).toBeOnTheScreen();
-    expect(screen.queryByText('아이콘-없음')).toBeNull();
-    await act(async () => release());
-    expect(await screen.findByText('아이콘-📚')).toBeOnTheScreen();
-  });
-
-  test('로컬 아이콘 읽기가 일시 실패하면 표시 중인 카드 아이콘을 기본값으로 덮지 않는다', async () => {
-    mockUserId = 'user-1';
-    await writeGroupCardEmoji('user-1', GROUP_ID, '🔥');
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await renderScreen();
-    expect(await screen.findByText('아이콘-🔥')).toBeOnTheScreen();
-
-    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporarily unavailable'));
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await refocus();
-
-    expect(screen.getByText('아이콘-🔥')).toBeOnTheScreen();
-  });
-
-  test('새로 추가된 그룹은 해당 groupId의 로컬 아이콘을 읽기 전에 기본값으로 확정하지 않는다', async () => {
-    mockUserId = 'user-1';
-    await writeGroupCardEmoji('user-1', GROUP_ID_2, '📚');
-    // 첫 목록의 stale prune 저장을 실패시켜 재가입 그룹 아이콘이 디스크에 남는 조건을 만든다.
-    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('prune failed'));
-    mockGetMyGroups.mockResolvedValueOnce([summary()]);
-    await renderScreen();
-    expect(await screen.findByText(`아이콘상태-${GROUP_ID}-없음`)).toBeOnTheScreen();
-
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const originalGetItem = AsyncStorage.getItem.bind(AsyncStorage);
-    jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(async (key) => {
-      await gate;
-      return originalGetItem(key);
-    });
-    mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary()]);
-    await refocus();
-
-    expect(await screen.findByText('목록 2건')).toBeOnTheScreen();
-    expect(screen.getByText(`아이콘상태-${GROUP_ID_2}-불러오는 중`)).toBeOnTheScreen();
-    await act(async () => release());
-    expect(await screen.findByText(`아이콘상태-${GROUP_ID_2}-📚`)).toBeOnTheScreen();
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID, 'group_card'));
   });
 
   test('2건 이상 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {
@@ -477,7 +520,7 @@ describe('목록 분기(0/1/N)', () => {
     expect(screen.getByText('목록 2건')).toBeOnTheScreen();
 
     await press('목록-저녁 스터디');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'unknown'));
+    expect(mockNavigate).toHaveBeenCalledWith('GroupRoom', roomParams(GROUP_ID_2, 'group_card'));
   });
 
   // GROMO-1088 — 스택에 이미 GroupRoom이 있으면 파라미터가 얕게 병합된다. challengeId 키를
@@ -533,6 +576,7 @@ describe('목록의 만들기·찾기 진입점', () => {
 
     await press('목록-찾기');
     expect(screen.getByText('찾기-참여완료')).toBeOnTheScreen();
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'header' });
 
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);
     await press('찾기-참여완료');
@@ -637,6 +681,18 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
 });
 
 describe('게스트 초대 로그인(§6-6)', () => {
+  test('게스트가 초대 시트를 닫으면 보류한 invite 진입 출처도 폐기한다', async () => {
+    mockIsGuest = true;
+    mockPendingInvite = GROUP_ID;
+    queueDirectGroupEntry('invite');
+    await renderScreen();
+
+    await press('초대-닫기');
+
+    expect(mockClear).toHaveBeenCalled();
+    expect(peekGroupEntry('tab')).toBe('tab');
+  });
+
   test('시트만 내리고 초대 버퍼는 남긴 채 계정 화면으로 보낸다', async () => {
     mockIsGuest = true;
     mockPendingInvite = GROUP_ID;

@@ -65,21 +65,24 @@ export default function FocusCategoryScreen() {
   useEffect(() => {
     interactionTransferredRef.current = false;
     startTransitionRef.current = false;
+    // CTA 직후 화면이 마운트되기 전에 background/inactive 이벤트가 지나간 경우에도
+    // 중단된 intent를 다음 포그라운드 세션에 귀속하지 않는다.
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') invalidateCardInteraction(interactionId);
     });
-    // 화면 단위 얕은 테스트처럼 listener 표면이 없는 navigation host도 안전하게 수용한다.
-    // 실제 React Navigation에서는 두 구독이 그대로 등록된다.
-    const blurSub = navigation.addListener?.('blur', () => {
+    const blurSub = navigation.addListener('blur', () => {
       if (!startTransitionRef.current) invalidateCardInteraction(interactionId);
     });
-    const focusSub = navigation.addListener?.('focus', () => {
+    const focusSub = navigation.addListener('focus', () => {
       startTransitionRef.current = false;
     });
     return () => {
       sub.remove();
-      blurSub?.();
-      focusSub?.();
+      blurSub();
+      focusSub();
       if (navigationCheckTimerRef.current) clearTimeout(navigationCheckTimerRef.current);
       if (!interactionTransferredRef.current) invalidateCardInteraction(interactionId);
     };
