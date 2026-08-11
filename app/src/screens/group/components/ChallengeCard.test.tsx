@@ -1561,6 +1561,32 @@ describe('당일 단독 개설자 취소 carve-out', () => {
       screen.queryByText('참여를 취소해 내기가 닫혔어요. 참가비는 잔액으로 돌아왔어요'),
     ).toBeNull();
   });
+
+  // 나머지 두 이관 코드 (GROMO-1491 / codex 리뷰) — 위 테스트는 HAS_OTHERS 하나만 덮었다.
+  // 세 코드가 각기 다른 문구로 갈리는데 둘이 안 잠겨 있어, 문구가 뒤바뀌거나 Alert 로
+  // 되돌아가도 스위트가 통과했다.
+  test.each([
+    ['BET_CANCEL_FORBIDDEN', '내기를 연 사람만 취소할 수 있어요'],
+    ['BET_NOT_OPEN', '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요'],
+  ])('내기 취소 거절 — %s 는 해당 문구의 error 토스트다', async (code, message) => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockCancelBet.mockRejectedValueOnce(axiosErrorWith(409, code));
+    await renderSolo();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.cancel.${CHALLENGE_ID}`));
+    });
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+
+    expect(mockToastShow).toHaveBeenCalledWith({ message, tone: 'error' });
+    // Alert 는 확인 1회뿐 — 통보가 Alert 로 되돌아가면 깨진다.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    // 실패했으므로 계측도 자리 캡션도 남지 않는다.
+    expect(logGroupBetCanceled).not.toHaveBeenCalled();
+  });
 });
 
 // 휴면 배지(GROMO-1201) — 마지막 참가자가 철회해도 서버는 챌린지를 지우지 않고 남긴다.
@@ -1831,6 +1857,79 @@ describe('다음 활성일 참여 (GROMO-1419)', () => {
     });
     expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(onBetChanged).toHaveBeenCalled();
+  });
+
+  // ── 이관 지점 고정 (GROMO-1491 / codex 리뷰) ────────────────────────────────
+  // 위 테스트들은 "API 호출 전 target 없음" 경로만 덮는다. 서버가 실제로 거절하는 네 코드는
+  // 통보 채널(토스트 ↔ Alert)도, 부수효과(onBetChanged 호출 여부)도 고정돼 있지 않았다.
+  // 그래서 토스트가 Alert로 되돌아가거나 재조회가 빠져도 스위트가 통과했다.
+  //
+  // ⚠️ 분기마다 부수효과가 **다르다** — 이게 이 표의 핵심이다.
+  //    종결 상태(이미 정리됨/이미 취소됨/이미 닫힘)는 재조회를 태워 버튼을 걷어내야 하고,
+  //    LEAVE_CLOSED 는 "시간이 지났다"는 사실만 알리고 화면은 자연 재조회에 맡긴다.
+  describe.each([
+    [
+      'BET_SESSION_NOT_FOUND',
+      '이미 정리된 예약이에요 — 최신 상태로 새로고침할게요',
+      undefined,
+      true,
+    ],
+    ['BET_LEAVE_CLOSED', '취소할 수 있는 시간이 지나 참여 취소를 못 했어요', 'error', false],
+    ['BET_NOT_JOINED', '이미 취소된 참여예요 — 최신 상태로 새로고침할게요', undefined, true],
+    ['BET_NOT_OPEN', '이미 정산됐거나 닫힌 날이라 참여 취소를 못 했어요', 'error', true],
+  ])('예약 취소 거절 — %s', (code, message, tone, refetches) => {
+    test(`토스트로 알리고(tone=${tone ?? '없음'}) 재조회는 ${refetches ? '태운다' : '안 태운다'}`, async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      mockGetMyOpenBetSessions.mockResolvedValue([
+        {
+          sessionId: 's-reserved',
+          groupId: GROUP_ID,
+          challengeId: CHALLENGE_ID,
+          sessionDate: '2026-08-03',
+          missionCategory: 'FOCUS',
+          missionType: 'DURATION',
+          goalMinutes: 60,
+          windowStart: null,
+          windowEnd: null,
+          closesAt: '2026-08-03T14:59:59Z',
+          settleAfter: '2026-08-03T15:00:00Z',
+        },
+      ]);
+      mockLeaveSession.mockRejectedValueOnce(axiosErrorWith(409, code));
+      const onBetChanged = jest.fn();
+      await render(
+        <ChallengeCard
+          challenge={challenge({ ...restingOver(), nextSessionJoined: true })}
+          isOwner={false}
+          onDelete={onDelete}
+          onOpenBet={onOpenBet}
+          onBetChanged={onBetChanged}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(`group.bet.leaveNext.${CHALLENGE_ID}`));
+      });
+      const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as
+        | AlertButton[]
+        | undefined;
+      await act(async () => {
+        buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
+      });
+
+      expect(mockLeaveSession).toHaveBeenCalledWith(GROUP_ID, 's-reserved');
+      // 통보는 토스트다 — tone 유무까지 잠근다(중립 배너 ↔ error 가 바뀌면 깨진다).
+      expect(mockToastShow).toHaveBeenCalledWith(
+        tone === undefined ? { message } : { message, tone },
+      );
+      // Alert 는 **확인 1회뿐**이어야 한다. 통보가 Alert 로 되돌아가면 2회가 되어 깨진다.
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+      if (refetches) {
+        expect(onBetChanged).toHaveBeenCalled();
+      } else {
+        expect(onBetChanged).not.toHaveBeenCalled();
+      }
+    });
   });
 
   test('구서버(bet.session 필드 없음)에는 버튼이 서지 않는다 — 종전 렌더 유지', async () => {
