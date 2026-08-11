@@ -228,6 +228,20 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('Android 비관성 drag는 contentOffset으로 현재 페이지를 확정하고 안내한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'scrollEndDrag', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(announce).toHaveBeenCalledWith('저녁 스터디, 2 / 3 페이지');
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 

@@ -357,6 +357,7 @@ export default function GroupListScreen({
   // grip 가장자리 자동 paging은 캐러셀 위치만 맞추는 programmatic 이동이다. 완료 offset과
   // 함께 보관해 실제 사용자 momentum만 swipe 계측으로 인정한다.
   const programmaticMomentumOffsetRef = useRef<number | null>(null);
+  const dragSettleFrameRef = useRef<number | null>(null);
   const groupFingerprint = orderedGroups.map((group) => group.groupId).join('|');
   const stableActiveIndex =
     activeStableGroupId === null
@@ -465,6 +466,10 @@ export default function GroupListScreen({
   useEffect(
     () => () => {
       mountedRef.current = false;
+      if (dragSettleFrameRef.current !== null) {
+        cancelAnimationFrame(dragSettleFrameRef.current);
+        dragSettleFrameRef.current = null;
+      }
     },
     [],
   );
@@ -603,6 +608,10 @@ export default function GroupListScreen({
 
   const onMomentumScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (dragSettleFrameRef.current !== null) {
+        cancelAnimationFrame(dragSettleFrameRef.current);
+        dragSettleFrameRef.current = null;
+      }
       const offsetX = event.nativeEvent.contentOffset.x;
       const programmaticOffset = programmaticMomentumOffsetRef.current;
       const isProgrammatic = isProgrammaticMomentum(programmaticOffset, offsetX);
@@ -615,10 +624,29 @@ export default function GroupListScreen({
   const onScrollEndDrag = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const target = event.nativeEvent.targetContentOffset?.x;
-      if (typeof target === 'number') settleOffset(target);
+      if (typeof target === 'number') {
+        settleOffset(target);
+        return;
+      }
+      const fallbackOffset = event.nativeEvent.contentOffset.x;
+      if (dragSettleFrameRef.current !== null) {
+        cancelAnimationFrame(dragSettleFrameRef.current);
+      }
+      // Android의 비관성 drag는 momentum 이벤트가 없으므로 다음 프레임에 현재 offset을
+      // 확정한다. 관성이 시작되면 onMomentumScrollBegin에서 이 예약을 취소한다.
+      dragSettleFrameRef.current = requestAnimationFrame(() => {
+        dragSettleFrameRef.current = null;
+        if (mountedRef.current) settleOffset(fallbackOffset);
+      });
     },
     [settleOffset],
   );
+
+  const onMomentumScrollBegin = useCallback(() => {
+    if (dragSettleFrameRef.current === null) return;
+    cancelAnimationFrame(dragSettleFrameRef.current);
+    dragSettleFrameRef.current = null;
+  }, []);
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useLayoutEffect(() => {
@@ -1176,6 +1204,7 @@ export default function GroupListScreen({
                   });
                 }}
                 onMomentumScrollEnd={onMomentumScrollEnd}
+                onMomentumScrollBegin={onMomentumScrollBegin}
                 onScrollEndDrag={onScrollEndDrag}
                 ListFooterComponent={
                   <View
