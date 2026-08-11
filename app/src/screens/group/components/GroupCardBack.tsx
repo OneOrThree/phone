@@ -80,23 +80,23 @@ export function GroupCardBack({
       testID={`group.card.back.${group.groupId}`}
     >
       <View style={s.header}>
-        <Text
-          style={s.title}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          accessible
-          accessibilityRole="header"
-          accessibilityLabel={`${group.name}, 현재 ${position}/${pageCount} 페이지`}
-          accessibilityHint="두 번 탭하면 카드 앞면을 봅니다"
-          accessibilityActions={[{ name: 'activate', label: '카드 앞면 보기' }]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'activate') {
-              (onAccessibilityFlipFront ?? onFlipFront)();
-            }
+        <Pressable
+          style={s.titleAction}
+          onPress={(event) => {
+            event.stopPropagation();
+            onFlipFront();
           }}
+          onAccessibilityTap={onAccessibilityFlipFront ?? onFlipFront}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}, 카드 뒷면, 현재 ${position}/${pageCount} 페이지`}
+          accessibilityHint="두 번 탭하면 카드 앞면을 봅니다"
+          accessibilityState={{ expanded: true }}
+          testID={`group.card.backTitle.${group.groupId}`}
         >
-          {group.name}
-        </Text>
+          <Text style={s.title} numberOfLines={1} ellipsizeMode="tail" accessible={false}>
+            {group.name}
+          </Text>
+        </Pressable>
         <TouchableOpacity
           ref={settingsRef}
           onPress={(event) => {
@@ -289,7 +289,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: T.space.sm,
   },
-  title: { ...T.text.heading, color: T.ink, flex: 1 },
+  titleAction: { flex: 1 },
+  title: { ...T.text.heading, color: T.ink },
   section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
   summaryScroll: { flex: 1 },
   summaryContent: { gap: T.space.sm },

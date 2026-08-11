@@ -237,6 +237,30 @@ describe('콜백', () => {
     expect(screen.queryByText('앞면으로')).toBeNull();
   });
 
+  test('빠른 연타에도 완료 면만 한 번씩 알리고 뒷면 기본 활성화로 복귀한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group()]);
+
+    const front = screen.getByTestId(`group.card.${GROUP_ID}`);
+    await act(async () => {
+      fireEvent.press(front);
+      fireEvent.press(front);
+    });
+    expect(announce).not.toHaveBeenCalled();
+    await finishCardFlip();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 뒷면입니다');
+
+    await act(async () => {
+      const backTitle = screen.getByTestId(`group.card.backTitle.${GROUP_ID}`);
+      fireEvent(backTitle, 'accessibilityTap');
+      fireEvent(backTitle, 'accessibilityTap');
+    });
+    await finishCardFlip();
+    expect(announce).toHaveBeenCalledTimes(2);
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 앞면입니다');
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 

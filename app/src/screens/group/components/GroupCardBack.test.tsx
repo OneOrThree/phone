@@ -128,7 +128,7 @@ test('설정 버튼의 접근성 이름에 대상 그룹을 포함한다', async
   expect(screen.getByLabelText('아침 집중방 그룹 옵션')).toBeOnTheScreen();
 });
 
-test('시각 전환 CTA 없이 카드 빈 영역 탭과 접근성 액션으로 앞면을 연다', async () => {
+test('시각 전환 CTA 없이 카드 빈 영역 탭과 실제 접근성 노드의 기본 활성화로 앞면을 연다', async () => {
   const onAccessibilityFlipFront = jest.fn();
   await render(
     <GroupCardBack
@@ -144,11 +144,11 @@ test('시각 전환 CTA 없이 카드 빈 영역 탭과 접근성 액션으로 �
   });
   expect(baseProps.onFlipFront).toHaveBeenCalledTimes(1);
 
-  await act(async () => {
-    fireEvent(screen.getByRole('header'), 'accessibilityAction', {
-      nativeEvent: { actionName: 'activate' },
-    });
-  });
+  const titleAction = screen.getByTestId('group.card.backTitle.g1');
+  expect(titleAction.props.accessibilityState).toEqual({ expanded: true });
+  expect(titleAction.props.accessibilityHint).toBe('두 번 탭하면 카드 앞면을 봅니다');
+  expect(screen.getByText('아침 집중방').props.accessible).toBe(false);
+  await act(async () => fireEvent(titleAction, 'accessibilityTap'));
   expect(onAccessibilityFlipFront).toHaveBeenCalledTimes(1);
 });
 
