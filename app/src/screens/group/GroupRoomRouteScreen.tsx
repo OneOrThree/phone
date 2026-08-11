@@ -38,8 +38,10 @@ export default function GroupRoomRouteScreen() {
     <SafeAreaView style={s.root} edges={['top']} testID="group.room.route">
       <GroupRoomScreen
         groupId={params.groupId}
+        entrySource={params.entrySource}
+        interactionId={params.interactionId}
+        interactionAcceptedAt={params.interactionAcceptedAt}
         focusChallengeId={params.challengeId}
-        cardInteraction={params}
         onLeft={goBack}
         onBack={goBack}
       />

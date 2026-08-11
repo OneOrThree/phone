@@ -10,21 +10,14 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 import FocusCategoryScreen from './FocusCategoryScreen';
 import type { Subject } from './types';
+import {
+  consumeCardInteraction,
+  FOCUS_ATTRIBUTION_TTL_MS,
+  resetCardInteractionStateForTest,
+} from '@/services/cardInteraction';
 
 let mockReduce = true;
 let mockReady = false;
-let mockRouteParams: Record<string, unknown> | undefined;
-const mockNavigate = jest.fn();
-const mockSetParams = jest.fn();
-const mockAddNavigationListener = jest.fn();
-let mockAppStateHandler: ((state: AppStateStatus) => void) | null = null;
-let mockBlurHandler: (() => void) | null = null;
-const mockNavigation = {
-  navigate: mockNavigate,
-  goBack: jest.fn(),
-  setParams: mockSetParams,
-  addListener: mockAddNavigationListener,
-};
 // ⚠️ 두 export를 모두 목킹해야 한다 — 하나만 두면 나머지를 쓰는 코드가 undefined를 부른다.
 jest.mock('@/hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduce,
@@ -41,6 +34,13 @@ jest.mock('@/components/liquidGlass', () => ({
 }));
 const WAIT_MS = MOCK_SLIDE_MS + 60;
 
+let mockRouteParams: Record<string, unknown> | undefined;
+const mockNavigation = {
+  navigate: jest.fn(),
+  goBack: jest.fn(),
+  getState: jest.fn(() => ({ index: 0, routes: [{ name: 'FocusCategory' }] })),
+  addListener: jest.fn(() => jest.fn()),
+};
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNavigation,
   useRoute: () => ({ params: mockRouteParams }),
@@ -134,25 +134,15 @@ jest.mock('./components/TimerMethodSheet', () => {
 });
 
 beforeEach(() => {
-  jest.clearAllMocks();
   mockReduce = true;
   mockReady = false;
   mockRouteParams = undefined;
-  mockAppStateHandler = null;
-  mockBlurHandler = null;
-  mockAddNavigationListener.mockImplementation((event: string, handler: () => void) => {
-    if (event === 'blur') mockBlurHandler = handler;
-    return jest.fn();
-  });
-  jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
-    mockAppStateHandler = handler as (state: AppStateStatus) => void;
-    return { remove: jest.fn() } as never;
-  });
+  resetCardInteractionStateForTest();
+  jest.clearAllMocks();
   jest.useFakeTimers();
 });
 afterEach(() => {
   jest.useRealTimers();
-  jest.restoreAllMocks();
 });
 
 const advance = async (ms: number) => {
@@ -171,39 +161,36 @@ const pressOther = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[1].i
 // 기본 선택과 같은 과목(s1) — 알약이 움직이지 않으므로 기다릴 연출이 없다.
 const pressSame = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[0].id}`));
 
-test('카드 focus CTA 문맥은 앱 비활성 전환에서 즉시 취소한다', async () => {
-  mockRouteParams = {
-    entrySource: 'group_card',
-    interactionId: 'interaction-1',
-    interactionAcceptedAt: Date.now(),
-  };
-  await renderScreen();
-
-  await act(async () => mockAppStateHandler?.('background'));
-
-  expect(mockSetParams).toHaveBeenCalledWith({
-    interactionId: undefined,
-    interactionAcceptedAt: undefined,
-  });
-});
-
-test('카드 focus CTA 문맥은 route blur에서도 즉시 취소한다', async () => {
-  mockRouteParams = {
-    entrySource: 'group_card',
-    interactionId: 'interaction-before-blur',
-    interactionAcceptedAt: Date.now(),
-  };
-  await renderScreen();
-
-  await act(async () => mockBlurHandler?.());
-
-  expect(mockSetParams).toHaveBeenCalledWith({
-    interactionId: undefined,
-    interactionAcceptedAt: undefined,
-  });
-});
-
 describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
+  test('마운트 시점에 이미 백그라운드면 카드 interaction을 즉시 폐기한다', async () => {
+    const appState = AppState as typeof AppState & { currentState: AppStateStatus | null };
+    const previousState = appState.currentState;
+    appState.currentState = 'background';
+    const acceptedAt = Date.now();
+    mockRouteParams = {
+      entrySource: 'group_card',
+      interactionId: 'interaction-before-mount',
+      interactionAcceptedAt: acceptedAt,
+    };
+
+    try {
+      await renderScreen();
+      expect(
+        consumeCardInteraction(
+          {
+            entrySource: 'group_card',
+            interactionId: 'interaction-before-mount',
+            interactionAcceptedAt: acceptedAt,
+          },
+          FOCUS_ATTRIBUTION_TTL_MS,
+          acceptedAt,
+        ),
+      ).toBeUndefined();
+    } finally {
+      appState.currentState = previousState;
+    }
+  });
+
   test('설정이 확정되기 전에는 시퀀스를 시작하지 않는다', async () => {
     await renderScreen();
     await pressOther();

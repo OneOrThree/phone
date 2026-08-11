@@ -1,59 +1,127 @@
 import {
-  CARD_INTERACTION_TTL_MS,
-  GROUP_ROOM_INTERACTION_TTL_MS,
-  interruptCardInteraction,
-  resolveCardInteraction,
+  consumeCardInteraction,
+  createCardInteractionContext,
+  FOCUS_ATTRIBUTION_TTL_MS,
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+  resolveFocusSessionRouteContext,
+  resetCardInteractionStateForTest,
+  ROOM_ATTRIBUTION_TTL_MS,
 } from './cardInteraction';
 
-describe('resolveCardInteraction', () => {
-  const acceptedAt = 1_000_000;
-  const context = {
-    entrySource: 'group_card' as const,
-    interactionId: 'interaction-1',
-    interactionAcceptedAt: acceptedAt,
-  };
+const ID_A = '11111111-1111-4111-8111-111111111111';
+const ID_B = '22222222-2222-4222-8222-222222222222';
 
-  test('group_card context만 TTL 안에서 결과 귀속에 사용한다', () => {
-    expect(resolveCardInteraction(context, acceptedAt + CARD_INTERACTION_TTL_MS)).toEqual({
-      interactionId: 'interaction-1',
-      interactionAcceptedAt: acceptedAt,
+beforeEach(() => resetCardInteractionStateForTest());
+
+describe('카드 CTA 상관키', () => {
+  test('수락마다 새 비식별 UUID를 만들고 시각은 route context에만 담는다', () => {
+    const first = createCardInteractionContext(100);
+    const second = createCardInteractionContext(200);
+
+    expect(first.interactionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(second.interactionId).not.toBe(first.interactionId);
+    expect(first.interactionAcceptedAt).toBe(100);
+    expect(second.interactionAcceptedAt).toBe(200);
+  });
+
+  test('Room은 30초 안의 같은 ID를 최초 결과 한 번에만 소비한다', () => {
+    const context = {
+      entrySource: 'group_card' as const,
+      interactionId: ID_A,
+      interactionAcceptedAt: 1_000,
+    };
+
+    expect(consumeCardInteraction(context, ROOM_ATTRIBUTION_TTL_MS, 31_000)).toBe(ID_A);
+    expect(consumeCardInteraction(context, ROOM_ATTRIBUTION_TTL_MS, 31_000)).toBeUndefined();
+  });
+
+  test('Focus는 10분 경계까지 귀속하고 초과하면 결과 ID를 생략한다', () => {
+    expect(
+      consumeCardInteraction(
+        {
+          entrySource: 'group_card',
+          interactionId: ID_A,
+          interactionAcceptedAt: 1_000,
+        },
+        FOCUS_ATTRIBUTION_TTL_MS,
+        601_000,
+      ),
+    ).toBe(ID_A);
+    expect(
+      consumeCardInteraction(
+        {
+          entrySource: 'group_card',
+          interactionId: ID_B,
+          interactionAcceptedAt: 1_000,
+        },
+        FOCUS_ATTRIBUTION_TTL_MS,
+        601_001,
+      ),
+    ).toBeUndefined();
+  });
+
+  test('background·route 취소로 만료한 ID는 재개 후 성공에도 귀속하지 않는다', () => {
+    invalidateCardInteraction(ID_A);
+
+    expect(
+      consumeCardInteraction(
+        {
+          entrySource: 'group_card',
+          interactionId: ID_A,
+          interactionAcceptedAt: 1_000,
+        },
+        FOCUS_ATTRIBUTION_TTL_MS,
+        2_000,
+      ),
+    ).toBeUndefined();
+  });
+
+  test('A 취소 뒤 B 성공은 B만 소비하고 non-card source의 남은 ID는 무시한다', () => {
+    invalidateCardInteraction(ID_A);
+
+    expect(
+      consumeCardInteraction(
+        { entrySource: 'group_card', interactionId: ID_A, interactionAcceptedAt: 1_000 },
+        ROOM_ATTRIBUTION_TTL_MS,
+        2_000,
+      ),
+    ).toBeUndefined();
+    expect(
+      consumeCardInteraction(
+        { entrySource: 'group_card', interactionId: ID_B, interactionAcceptedAt: 1_500 },
+        ROOM_ATTRIBUTION_TTL_MS,
+        2_000,
+      ),
+    ).toBe(ID_B);
+    expect(
+      consumeCardInteraction(
+        { entrySource: 'home_fab', interactionId: ID_A, interactionAcceptedAt: 1_000 },
+        FOCUS_ATTRIBUTION_TTL_MS,
+        2_000,
+      ),
+    ).toBeUndefined();
+  });
+
+  test('source가 없는 구버전 진입은 unknown으로 정규화한다', () => {
+    expect(normalizeFocusEntrySource()).toBe('unknown');
+    expect(normalizeFocusEntrySource('group_room')).toBe('group_room');
+  });
+
+  test('navigation 실패 후 재시도는 최초 source를 보존하고 상관키만 제거한다', () => {
+    const context = {
+      entrySource: 'group_card' as const,
+      interactionId: ID_A,
+      interactionAcceptedAt: 1_000,
+    };
+
+    expect(resolveFocusSessionRouteContext(context, true)).toEqual(context);
+    expect(resolveFocusSessionRouteContext(context, false)).toEqual({
+      entrySource: 'group_card',
+      interactionId: undefined,
+      interactionAcceptedAt: undefined,
     });
-    expect(resolveCardInteraction(context, acceptedAt + CARD_INTERACTION_TTL_MS + 1)).toBeNull();
-    expect(resolveCardInteraction({ ...context, entrySource: 'unknown' }, acceptedAt)).toBeNull();
-  });
-
-  test('미래 timestamp와 불완전 context는 귀속하지 않는다', () => {
-    expect(resolveCardInteraction(context, acceptedAt - 1)).toBeNull();
-    expect(resolveCardInteraction({ entrySource: 'group_card' }, acceptedAt)).toBeNull();
-  });
-
-  test('방 CTA 결과는 별도 30초 TTL 안에서만 귀속한다', () => {
-    expect(
-      resolveCardInteraction(
-        context,
-        acceptedAt + GROUP_ROOM_INTERACTION_TTL_MS,
-        GROUP_ROOM_INTERACTION_TTL_MS,
-      ),
-    ).not.toBeNull();
-    expect(
-      resolveCardInteraction(
-        context,
-        acceptedAt + GROUP_ROOM_INTERACTION_TTL_MS + 1,
-        GROUP_ROOM_INTERACTION_TTL_MS,
-      ),
-    ).toBeNull();
-  });
-});
-
-describe('interruptCardInteraction', () => {
-  test('진입 경로만 남기고 pending interaction 귀속은 제거한다', () => {
-    expect(
-      interruptCardInteraction({
-        entrySource: 'group_card',
-        interactionId: 'interaction-1',
-        interactionAcceptedAt: 1_000_000,
-      }),
-    ).toEqual({ entrySource: 'group_card' });
-    expect(interruptCardInteraction(undefined)).toBeUndefined();
   });
 });

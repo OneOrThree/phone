@@ -5,52 +5,69 @@ import org.junit.jupiter.api.Test;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 요일 스케줄 유틸 검증(§A3 · LLD §3.4) — 활성일 판정·다음/직전 활성일·주간 잔여 활성일.
- * 이후 회차 개설(B4)·참여(B5)가 이 유틸을 그대로 쓴다.
+ * 요일 반복 스케줄(§A3 · LLD §3.4) 비트마스크 단위 테스트 — 활성일 판정·다음/직전 활성일·주간 잔여
+ * 활성일이 개설(레거시 브리지 포함)·참여·카드 다음 회차 축의 공용 규칙이라 여기서 한 번에 고정한다.
  */
 class RepeatScheduleTest {
 
-    // 2026-08-10 은 월요일이다.
+    /** 2026-08-10 = 월요일 — 요일 계산의 기준 날짜. */
     private static final LocalDate MONDAY = LocalDate.of(2026, 8, 10);
-    private static final int MON_WED_FRI = 0b0010101;   // 월=1 · 수=4 · 금=16
+
+    /** 월=1 · 수=4 · 금=16. */
+    private static final int MON_WED_FRI = 0b0010101;
 
     @Test
-    @DisplayName("bit — ISO 요일 번호를 1<<(dow-1) 로 접는다: 월=1 … 일=64")
-    void mapsIsoDayNumbersToBits() {
+    @DisplayName("마스크 접기 — 월=1 … 일=64, 월수금=21, 평일=31, 매일=127")
+    void maskOfFoldsIsoDays() {
         assertThat(RepeatSchedule.bit(DayOfWeek.MONDAY)).isEqualTo(1);
         assertThat(RepeatSchedule.bit(DayOfWeek.SUNDAY)).isEqualTo(64);
-        assertThat(RepeatSchedule.maskOf(java.util.List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY,
+        assertThat(RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY,
                 DayOfWeek.FRIDAY))).isEqualTo(MON_WED_FRI);
+        assertThat(RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.TUESDAY,
+                DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY))).isEqualTo(31);
+        assertThat(RepeatSchedule.maskOf(List.of())).isZero();
+        assertThat(RepeatSchedule.EVERYDAY).isEqualTo(127);
     }
 
     @Test
-    @DisplayName("activeOn — 월수금 마스크에서 월·수는 도는 날, 화는 아니다")
-    void judgesActiveDay() {
-        assertThat(RepeatSchedule.activeOn(MON_WED_FRI, MONDAY)).isTrue();
-        assertThat(RepeatSchedule.activeOn(MON_WED_FRI, MONDAY.plusDays(1))).isFalse();   // 화
-        assertThat(RepeatSchedule.activeOn(MON_WED_FRI, MONDAY.plusDays(2))).isTrue();    // 수
+    @DisplayName("활성일 판정 — 마스크에 든 요일만 true, 매일 마스크는 항상 true")
+    void activeOnChecksDayBit() {
+        int monWedFri = RepeatSchedule.maskOf(
+                Set.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY));
+        assertThat(monWedFri).isEqualTo(MON_WED_FRI);
+        assertThat(RepeatSchedule.activeOn(monWedFri, MONDAY)).isTrue();
+        assertThat(RepeatSchedule.activeOn(monWedFri, MONDAY.plusDays(1))).isFalse(); // 화
+        assertThat(RepeatSchedule.activeOn(monWedFri, MONDAY.plusDays(2))).isTrue();  // 수
         assertThat(RepeatSchedule.activeOn(RepeatSchedule.EVERYDAY, MONDAY.plusDays(5))).isTrue();
     }
 
     @Test
-    @DisplayName("next/previous — 오늘을 제외한 다음·직전 활성일 (월수금에서 월요일 기준: 다음=수, 직전=금)")
-    void findsNextAndPreviousActiveDates() {
-        assertThat(RepeatSchedule.next(MON_WED_FRI, MONDAY)).isEqualTo(MONDAY.plusDays(2));      // 수
-        assertThat(RepeatSchedule.previous(MON_WED_FRI, MONDAY)).isEqualTo(MONDAY.minusDays(3)); // 지난 금
-        // 단일 요일 마스크 — 정확히 일주일 뒤·전.
-        int onlyMonday = RepeatSchedule.bit(DayOfWeek.MONDAY);
-        assertThat(RepeatSchedule.next(onlyMonday, MONDAY)).isEqualTo(MONDAY.plusDays(7));
-        assertThat(RepeatSchedule.previous(onlyMonday, MONDAY)).isEqualTo(MONDAY.minusDays(7));
+    @DisplayName("다음 활성일 — 오늘은 제외하고, 매일 마스크면 항상 내일")
+    void nextExcludesToday() {
+        int mondayOnly = RepeatSchedule.bit(DayOfWeek.MONDAY);
+        assertThat(RepeatSchedule.next(mondayOnly, MONDAY)).isEqualTo(MONDAY.plusDays(7));
+        assertThat(RepeatSchedule.next(MON_WED_FRI, MONDAY)).isEqualTo(MONDAY.plusDays(2)); // 수
+        assertThat(RepeatSchedule.next(RepeatSchedule.EVERYDAY, MONDAY)).isEqualTo(MONDAY.plusDays(1));
     }
 
     @Test
-    @DisplayName("remainingThisWeek — 오늘 포함 그 주(월~일)의 남은 활성일 (수요일 기준 월수금 → 수·금)")
-    void listsRemainingActiveDatesOfWeek() {
+    @DisplayName("이전 활성일 — next 와 대칭(결과 모달의 직전 회차일)")
+    void previousIsSymmetricToNext() {
+        int mondayOnly = RepeatSchedule.bit(DayOfWeek.MONDAY);
+        assertThat(RepeatSchedule.previous(mondayOnly, MONDAY)).isEqualTo(MONDAY.minusDays(7));
+        assertThat(RepeatSchedule.previous(MON_WED_FRI, MONDAY)).isEqualTo(MONDAY.minusDays(3)); // 지난 금
+    }
+
+    @Test
+    @DisplayName("이번 주 남은 활성일 — 오늘 포함, 일요일까지 오름차순")
+    void remainingThisWeekIncludesTodayThroughSunday() {
         LocalDate wednesday = MONDAY.plusDays(2);
         assertThat(RepeatSchedule.remainingThisWeek(MON_WED_FRI, wednesday))
                 .containsExactly(wednesday, MONDAY.plusDays(4));
@@ -61,8 +78,8 @@ class RepeatScheduleTest {
     }
 
     @Test
-    @DisplayName("유효 범위 밖 마스크(0·128)는 순회 유틸에서 즉시 거부된다 — DB CHECK 와 같은 경계")
-    void rejectsOutOfRangeMasks() {
+    @DisplayName("범위 밖 마스크(0·128)는 활성일 계산을 거부한다 — DB CHECK(1~127)와 같은 경계")
+    void rejectsMaskOutOfRange() {
         assertThat(RepeatSchedule.isValidMask(0)).isFalse();
         assertThat(RepeatSchedule.isValidMask(128)).isFalse();
         assertThat(RepeatSchedule.isValidMask(1)).isTrue();

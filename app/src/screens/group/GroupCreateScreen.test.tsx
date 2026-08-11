@@ -53,10 +53,13 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) }));
 
 jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardIconSaveResult: jest.fn(),
   logGroupCreateStarted: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));
-const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
+const { logGroupCardIconSaveResult, logGroupInviteShared } = jest.requireMock(
+  '@/services/analyticsEvents',
+);
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
@@ -147,6 +150,10 @@ describe('내 카드 아이콘 로컬 draft', () => {
 
     expect(mockCreateGroup.mock.calls[0][0]).not.toHaveProperty('emoji');
     await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
+    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+      surface: 'create',
+      result: 'success',
+    });
   });
 
   test('생성 실패에는 로컬 아이콘을 저장하지 않는다', async () => {
@@ -168,6 +175,49 @@ describe('내 카드 아이콘 로컬 draft', () => {
     await press('만들기');
 
     await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🎯'));
+  });
+
+  test('제출 중에는 picker를 잠가 화면 선택과 저장값이 갈리지 않는다', async () => {
+    let finishCreate: (value: CreateGroupResponse) => void = () => undefined;
+    mockCreateGroup.mockImplementationOnce(
+      () => new Promise<CreateGroupResponse>((resolve) => (finishCreate = resolve)),
+    );
+    await renderScreen();
+    await typeName('느린 생성');
+    await act(async () => fireEvent.press(screen.getByTestId('group.create.cardEmoji.📚')));
+    await press('만들기');
+
+    expect(screen.getByTestId('group.create.cardEmoji.🔥')).toBeDisabled();
+    await act(async () => fireEvent.press(screen.getByTestId('group.create.cardEmoji.🔥')));
+    expect(screen.getByTestId('group.create.cardEmoji.📚').props.accessibilityState.selected).toBe(
+      true,
+    );
+    await act(async () => finishCreate({ groupId: GROUP_ID, code: 'ignored' }));
+    await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
+  });
+
+  test('생성 후 로컬 저장 실패는 inline으로 알리고 중복 생성 없이 복귀 경로를 제공한다', async () => {
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    await renderScreen();
+    await typeName('저장은 실패');
+    await act(async () => fireEvent.press(screen.getByTestId('group.create.cardEmoji.🔥')));
+
+    await press('만들기');
+
+    expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.create.submit')).toBeDisabled();
+    expect(screen.getByTestId('group.create.cardEmoji.continue')).toBeOnTheScreen();
+    expect(mockNav.goBack).not.toHaveBeenCalled();
+    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+      surface: 'create',
+      result: 'failed',
+    });
+  });
+
+  test('picker는 glyph 대신 고정된 의미 이름을 접근성 label로 제공한다', async () => {
+    await renderScreen();
+    expect(screen.getByLabelText('카드 아이콘 책')).toBeOnTheScreen();
+    expect(screen.getByLabelText('카드 아이콘 목표')).toBeOnTheScreen();
   });
 });
 

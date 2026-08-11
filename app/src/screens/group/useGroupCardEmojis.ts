@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
 import {
   DEFAULT_GROUP_CARD_EMOJI,
-  readGroupCardEmojis,
+  reconcileGroupCardEmojiBucket,
+  retryPendingGroupCardEmojis,
   type GroupCardEmoji,
   type GroupCardEmojiBucket,
 } from './groupCardEmojiStore';
@@ -14,6 +16,7 @@ interface Params {
 
 interface EmojiState {
   identity: string | null;
+  userId: string | null;
   emojis: GroupCardEmojiBucket;
 }
 
@@ -24,21 +27,53 @@ interface EmojiState {
 export function useGroupCardEmojis({ userId, groupIds, reloadToken = 0 }: Params) {
   const groupKey = groupIds.join('\u0000');
   const identity = `${userId ?? 'guest'}:${groupKey}:${reloadToken}`;
-  const [state, setState] = useState<EmojiState>({ identity: null, emojis: {} });
+  const [state, setState] = useState<EmojiState>({ identity: null, userId: null, emojis: {} });
 
   useEffect(() => {
     let current = true;
     if (!userId) {
-      setState({ identity, emojis: {} });
+      setState({ identity, userId: null, emojis: {} });
       return () => {
         current = false;
       };
     }
 
     const idsForRead = groupKey ? groupKey.split('\u0000') : [];
-    readGroupCardEmojis(userId, idsForRead).then((emojis) => {
-      if (current) setState({ identity, emojis });
-    });
+    // pending 쓰기가 모두 끝난 뒤 디스크 bucket을 다시 읽는다. 병렬 실행하면 첫/둘째 retry
+    // 사이의 중간 상태를 hydrate하고 성공한 pending도 큐에서 사라져 화면에서 누락될 수 있다.
+    retryPendingGroupCardEmojis(
+      userId,
+      idsForRead,
+      () => current,
+      (surface, result) => {
+        if (current) logGroupCardIconSaveResult({ surface, result });
+      },
+    )
+      .catch(() => ({}))
+      .then(async (pending) => ({
+        stored: await reconcileGroupCardEmojiBucket(userId, idsForRead).catch(() => null),
+        pending,
+      }))
+      .then(({ pending, stored }) => {
+        if (!current) return;
+        setState((previous) => {
+          const fallback =
+            stored === null && previous.userId === userId
+              ? Object.fromEntries(
+                  idsForRead.flatMap((groupId) =>
+                    previous.emojis[groupId] === undefined
+                      ? []
+                      : [[groupId, previous.emojis[groupId]]],
+                  ),
+                )
+              : {};
+          return {
+            identity,
+            userId,
+            emojis: { ...(stored ?? fallback), ...pending },
+          };
+        });
+      });
     return () => {
       current = false;
     };

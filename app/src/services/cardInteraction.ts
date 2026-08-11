@@ -1,9 +1,7 @@
-export interface CardInteractionContext {
-  interactionId: string;
-  interactionAcceptedAt: number;
-}
+export const ROOM_ATTRIBUTION_TTL_MS = 30_000;
+export const FOCUS_ATTRIBUTION_TTL_MS = 10 * 60_000;
 
-export type AttributionEntrySource =
+export type FocusEntrySource =
   | 'group_card'
   | 'group_room'
   | 'group_find'
@@ -11,46 +9,19 @@ export type AttributionEntrySource =
   | 'home_fab'
   | 'unknown';
 
+export interface CardInteractionContext {
+  interactionId: string;
+  interactionAcceptedAt: number;
+}
+
 export interface CardInteractionRouteContext {
-  entrySource?: AttributionEntrySource;
+  entrySource?: FocusEntrySource;
   interactionId?: string;
   interactionAcceptedAt?: number;
 }
 
-export const CARD_INTERACTION_TTL_MS = 10 * 60 * 1000;
-export const GROUP_ROOM_INTERACTION_TTL_MS = 30 * 1000;
-
-/**
- * 앱이 비활성화되면 진행 중이던 카드 CTA 귀속은 끝낸다.
- * 진입 경로는 방문 이벤트에 남기되 interaction id/timestamp는 제거한다.
- */
-export function interruptCardInteraction(
-  context: CardInteractionRouteContext | null | undefined,
-): CardInteractionRouteContext | undefined {
-  return context?.entrySource ? { entrySource: context.entrySource } : undefined;
-}
-
-/** 카드 CTA에서 시작한 context만 짧은 TTL 안에서 결과 이벤트에 귀속한다. */
-export function resolveCardInteraction(
-  context: CardInteractionRouteContext | null | undefined,
-  now = Date.now(),
-  ttlMs = CARD_INTERACTION_TTL_MS,
-): CardInteractionContext | null {
-  if (
-    context?.entrySource !== 'group_card' ||
-    typeof context.interactionId !== 'string' ||
-    context.interactionId.length === 0 ||
-    typeof context.interactionAcceptedAt !== 'number' ||
-    now < context.interactionAcceptedAt ||
-    now - context.interactionAcceptedAt > ttlMs
-  ) {
-    return null;
-  }
-  return {
-    interactionId: context.interactionId,
-    interactionAcceptedAt: context.interactionAcceptedAt,
-  };
-}
+const consumedIds = new Set<string>();
+const invalidatedIds = new Set<string>();
 
 function randomUuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (token) => {
@@ -60,6 +31,68 @@ function randomUuid(): string {
   });
 }
 
+/**
+ * 카드 CTA가 실제로 수락된 시점에만 호출한다. 반환값은 route에만 전달하며 저장소에 쓰지 않는다.
+ */
 export function createCardInteractionContext(now = Date.now()): CardInteractionContext {
-  return { interactionId: randomUuid(), interactionAcceptedAt: now };
+  return {
+    interactionId: randomUuid(),
+    interactionAcceptedAt: now,
+  };
+}
+
+/**
+ * background, 목적 route 취소/이탈, navigation 실패 때 호출한다.
+ * route에 값이 남아도 이후 결과가 과거 의도에 귀속되지 않게 한다.
+ */
+export function invalidateCardInteraction(interactionId?: string): void {
+  if (interactionId) invalidatedIds.add(interactionId);
+}
+
+/**
+ * 성공 결과 이벤트 직전에 호출한다. 유효한 카드 intent만 최초 한 번 ID를 돌려준다.
+ * 결과 이벤트 자체는 반환값이 없어도 발행하며, 그 경우 interaction_id만 생략한다.
+ */
+export function consumeCardInteraction(
+  context: CardInteractionRouteContext,
+  ttlMs: number,
+  now = Date.now(),
+): string | undefined {
+  const { entrySource, interactionId, interactionAcceptedAt } = context;
+  if (entrySource !== 'group_card' || !interactionId || interactionAcceptedAt == null) {
+    return undefined;
+  }
+  if (consumedIds.has(interactionId) || invalidatedIds.has(interactionId)) return undefined;
+
+  const ageMs = now - interactionAcceptedAt;
+  if (ageMs < 0 || ageMs > ttlMs) {
+    invalidatedIds.add(interactionId);
+    return undefined;
+  }
+
+  consumedIds.add(interactionId);
+  return interactionId;
+}
+
+export function normalizeFocusEntrySource(source?: FocusEntrySource): FocusEntrySource {
+  return source ?? 'unknown';
+}
+
+/** FocusCategory의 재시도는 source를 보존하되, 이미 transfer/폐기한 상관키는 다시 넘기지 않는다. */
+export function resolveFocusSessionRouteContext(
+  context: CardInteractionRouteContext,
+  transferInteraction: boolean,
+): Required<Pick<CardInteractionRouteContext, 'entrySource'>> &
+  Pick<CardInteractionRouteContext, 'interactionId' | 'interactionAcceptedAt'> {
+  return {
+    entrySource: normalizeFocusEntrySource(context.entrySource),
+    interactionId: transferInteraction ? context.interactionId : undefined,
+    interactionAcceptedAt: transferInteraction ? context.interactionAcceptedAt : undefined,
+  };
+}
+
+/** 테스트 격리 전용. 런타임 호출 금지. */
+export function resetCardInteractionStateForTest(): void {
+  consumedIds.clear();
+  invalidatedIds.clear();
 }

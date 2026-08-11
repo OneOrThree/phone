@@ -30,18 +30,37 @@ async function flushPromises() {
 }
 
 describe('GroupFocusStatusStore coverage와 count', () => {
-  test('raw 99행 이하는 완전한 응답이며 확인된 0명과 N명을 계산한다', async () => {
-    const rows = [member('a', true), member('b', false)];
+  test.each([0, 89, 90, 99])(
+    'raw %i행은 완전한 응답이며 확인된 0명과 N명을 계산한다',
+    async (rowCount) => {
+      const rows = Array.from({ length: rowCount }, (_, index) =>
+        member(String(index), index === 0),
+      );
+      const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
+      await store.ensure(USER_ID, DATE);
+
+      expect(store.getState(USER_ID, DATE).status).toBe('ready');
+      expect(deriveGroupFocusCount(['missing'], store.getState(USER_ID, DATE))).toEqual({
+        status: 'ready',
+        count: 0,
+      });
+      if (rowCount > 0) {
+        expect(deriveGroupFocusCount(['0', '1'], store.getState(USER_ID, DATE))).toEqual({
+          status: 'ready',
+          count: 1,
+        });
+      }
+    },
+  );
+
+  test('멤버가 아닌 ranking 행은 카운트에서 제외한다', async () => {
+    const rows = [member('outside', true), member('inside', false)];
     const store = new GroupFocusStatusStore(jest.fn().mockResolvedValue(rows));
     await store.ensure(USER_ID, DATE);
 
-    expect(deriveGroupFocusCount(['x'], store.getState(USER_ID, DATE))).toEqual({
+    expect(deriveGroupFocusCount(['inside'], store.getState(USER_ID, DATE))).toEqual({
       status: 'ready',
       count: 0,
-    });
-    expect(deriveGroupFocusCount(['a', 'b', 'missing'], store.getState(USER_ID, DATE))).toEqual({
-      status: 'ready',
-      count: 1,
     });
   });
 
@@ -99,6 +118,26 @@ describe('GroupFocusStatusStore coverage와 count', () => {
     pending.resolve([]);
     await Promise.all(requests);
   });
+
+  test('coverage-unknown 이후 실패에서는 이전 complete 숫자를 되살리지 않는다', async () => {
+    const rows100 = Array.from({ length: 100 }, (_, index) => member(String(index), false));
+    const load = jest
+      .fn()
+      .mockResolvedValueOnce([member('a', true)])
+      .mockResolvedValueOnce(rows100)
+      .mockRejectedValueOnce(new Error('network'));
+    const store = new GroupFocusStatusStore(load);
+
+    await store.ensure(USER_ID, DATE);
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('coverage-unknown');
+
+    await store.retry(USER_ID, DATE);
+    expect(store.getState(USER_ID, DATE).status).toBe('error');
+    expect(deriveGroupFocusCount(['a'], store.getState(USER_ID, DATE))).toEqual({
+      status: 'unavailable',
+    });
+  });
 });
 
 describe('GroupFocusPollingController', () => {
@@ -149,27 +188,31 @@ describe('GroupFocusPollingController', () => {
     controller.dispose();
   });
 
-  test('KST 날짜 변경은 다음 tick의 새 cache key로 조회한다', async () => {
+  test('KST 자정 경계에서 interval을 기다리지 않고 새 cache key로 즉시 조회한다', async () => {
     let date = DATE;
-    const onDateChanged = jest.fn();
     const load = jest.fn().mockResolvedValue([]);
     const store = new GroupFocusStatusStore(load);
     const controller = new GroupFocusPollingController({
       store,
       userId: USER_ID,
       getDate: () => date,
-      onDateChanged,
+      getMsUntilNextDate: () => 1_000,
     });
     controller.setLifecycle({ screenFocused: true, appActive: true, hasGroups: true });
     controller.activate();
     await flushPromises();
+    const oldDateListener = jest.fn();
+    store.subscribe(USER_ID, DATE, oldDateListener);
+    jest.advanceTimersByTime(999);
+    expect(load).toHaveBeenCalledTimes(1);
+
     date = '2026-08-11';
-    jest.advanceTimersByTime(60_000);
+    jest.advanceTimersByTime(1);
 
     expect(load).toHaveBeenNthCalledWith(1, DATE);
     expect(load).toHaveBeenNthCalledWith(2, '2026-08-11');
-    expect(onDateChanged).toHaveBeenNthCalledWith(1, DATE);
-    expect(onDateChanged).toHaveBeenNthCalledWith(2, '2026-08-11');
+    expect(oldDateListener).toHaveBeenCalledTimes(1);
+    expect(store.getState(USER_ID, DATE).status).toBe('idle');
     controller.dispose();
   });
 });

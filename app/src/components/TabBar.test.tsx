@@ -28,6 +28,7 @@ jest.mock('@/components/liquidGlass', () => ({
 const ROUTE_NAMES = ['홈', '리그', '그룹', '전체'] as const;
 
 const navigate = jest.fn();
+const emit = jest.fn(() => ({ defaultPrevented: false }));
 
 async function renderTabBar(focusedIndex: number) {
   const props = {
@@ -35,7 +36,7 @@ async function renderTabBar(focusedIndex: number) {
       index: focusedIndex,
       routes: ROUTE_NAMES.map((name) => ({ key: `${name}-key`, name })),
     },
-    navigation: { navigate },
+    navigation: { navigate, emit },
   } as unknown as BottomTabBarProps;
   return await render(<TabBar {...props} />);
 }
@@ -60,7 +61,19 @@ describe('TabBar 피드백 정책', () => {
   test('비선택 탭을 누르면 해당 라우트로 이동한다', async () => {
     await renderTabBar(0);
     fireEvent.press(screen.getByTestId('tabbar.tab.전체'));
+    expect(emit).toHaveBeenCalledWith({
+      type: 'tabPress',
+      target: '전체-key',
+      canPreventDefault: true,
+    });
     expect(navigate).toHaveBeenCalledWith('전체');
+  });
+
+  test('tabPress가 취소되면 이동하지 않는다', async () => {
+    emit.mockReturnValueOnce({ defaultPrevented: true });
+    await renderTabBar(0);
+    fireEvent.press(screen.getByTestId('tabbar.tab.그룹'));
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   test('선택된 탭을 다시 눌러도 이동하지 않는다', async () => {
@@ -71,6 +84,18 @@ describe('TabBar 피드백 정책', () => {
 });
 
 describe('TabBar 접근성', () => {
+  test('네 탭은 아이콘 아래 라벨과 44pt 이상의 터치 높이를 유지한다', async () => {
+    await renderTabBar(2);
+    for (const name of ROUTE_NAMES) {
+      expect(screen.getByText(name)).toBeOnTheScreen();
+      expect(screen.getByTestId(`tabbar.tab.${name}`)).toHaveStyle({
+        minWidth: 44,
+        height: 56,
+      });
+    }
+    expect(screen.getByText('그룹')).toHaveStyle({ color: '#5E6AD2' });
+  });
+
   test('탭 역할·선택 상태·레이블을 노출한다', async () => {
     await renderTabBar(1);
     const selected = screen.getByTestId('tabbar.tab.리그');
@@ -86,6 +111,8 @@ describe('TabBar 접근성', () => {
 
   test('중앙 FAB는 버튼 역할 기본값을 갖는다', async () => {
     await renderTabBar(0);
-    expect(screen.getByTestId('tabbar.fab').props.accessibilityRole).toBe('button');
+    const fab = screen.getByTestId('tabbar.fab');
+    expect(fab.props.accessibilityRole).toBe('button');
+    expect(fab.props.accessibilityLabel).toBe('집중 시작');
   });
 });

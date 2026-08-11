@@ -37,6 +37,11 @@ import {
   logFocusTagUpdated,
   logFocusTagDeleted,
 } from '@/services/analyticsEvents';
+import {
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+  resolveFocusSessionRouteContext,
+} from '@/services/cardInteraction';
 
 // 02 과목 선택 — 홈 ● 집중 FAB → 이 화면. 행 탭 → 타이머 방식 시트(03) → 설정(04/05) → 세션.
 // 각 행: 과목명 + 누적 집중시간 + ⋮(탭=이름편집/삭제 팝오버, 잡고 위아래=순서 변경).
@@ -50,25 +55,38 @@ export default function FocusCategoryScreen() {
   // 그룹방 FAB로 진입했으면 initialGroupId를 세션까지 넘겨 그 그룹 페이지를 기본으로 연다(F2 Part2).
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusCategory'>>();
   const initialGroupId = params?.initialGroupId;
+  const entrySource = normalizeFocusEntrySource(params?.entrySource);
+  const interactionId = entrySource === 'group_card' ? params?.interactionId : undefined;
+  const interactionAcceptedAt =
+    entrySource === 'group_card' ? params?.interactionAcceptedAt : undefined;
+  const interactionTransferredRef = useRef(false);
+  const startTransitionRef = useRef(false);
+  const navigationCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    interactionTransferredRef.current = false;
+    startTransitionRef.current = false;
+    // CTA 직후 화면이 마운트되기 전에 background/inactive 이벤트가 지나간 경우에도
+    // 중단된 intent를 다음 포그라운드 세션에 귀속하지 않는다.
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active' || !params?.interactionId) return;
-      navigation.setParams({
-        interactionId: undefined,
-        interactionAcceptedAt: undefined,
-      });
+      if (state !== 'active') invalidateCardInteraction(interactionId);
     });
-    return () => sub.remove();
-  }, [navigation, params?.interactionId]);
-  useEffect(() => {
-    if (!params?.interactionId) return;
-    return navigation.addListener('blur', () => {
-      navigation.setParams({
-        interactionId: undefined,
-        interactionAcceptedAt: undefined,
-      });
+    const blurSub = navigation.addListener('blur', () => {
+      if (!startTransitionRef.current) invalidateCardInteraction(interactionId);
     });
-  }, [navigation, params?.interactionId]);
+    const focusSub = navigation.addListener('focus', () => {
+      startTransitionRef.current = false;
+    });
+    return () => {
+      sub.remove();
+      blurSub();
+      focusSub();
+      if (navigationCheckTimerRef.current) clearTimeout(navigationCheckTimerRef.current);
+      if (!interactionTransferredRef.current) invalidateCardInteraction(interactionId);
+    };
+  }, [navigation, entrySource, interactionId, interactionAcceptedAt]);
   const { width: winW } = useWindowDimensions();
   const { subjects, addSubject, renameSubject, deleteSubject, reorderSubjects, setSubjectColor } =
     useSubjects();
@@ -296,30 +314,38 @@ export default function FocusCategoryScreen() {
     mode: FocusTimerMode,
     extra?: { goalSeconds?: number; pomodoro?: PomodoroConfig },
   ) {
-    if (!active) return;
+    if (!active || startTransitionRef.current) return;
     setSheet(null);
-    const interactionRoute = {
-      entrySource: params?.entrySource ?? 'unknown',
-      interactionId: params?.interactionId,
-      interactionAcceptedAt: params?.interactionAcceptedAt,
-    } as const;
-    navigation.navigate('FocusSession', {
-      subjectId: active.id,
-      subjectName: active.name,
-      mode,
-      goalSeconds: extra?.goalSeconds,
-      pomodoro: extra?.pomodoro,
-      initialGroupId,
-      ...interactionRoute,
-    });
-    // FocusResult의 "다시 집중"은 이 route로 돌아온다. 첫 세션에 넘긴 카드 action을 여기서
-    // 비워 같은 interaction_id가 다음 세션 시작에도 재사용되지 않게 한다.
-    if (interactionRoute.interactionId) {
-      navigation.setParams({
-        entrySource: 'unknown',
-        interactionId: undefined,
-        interactionAcceptedAt: undefined,
+    const firstRouteTransfer = !interactionTransferredRef.current;
+    const sessionContext = resolveFocusSessionRouteContext(
+      { entrySource, interactionId, interactionAcceptedAt },
+      firstRouteTransfer,
+    );
+    startTransitionRef.current = true;
+    interactionTransferredRef.current = true;
+    try {
+      navigation.navigate('FocusSession', {
+        subjectId: active.id,
+        subjectName: active.name,
+        mode,
+        goalSeconds: extra?.goalSeconds,
+        pomodoro: extra?.pomodoro,
+        initialGroupId,
+        entrySource: sessionContext.entrySource,
+        interactionId: sessionContext.interactionId,
+        interactionAcceptedAt: sessionContext.interactionAcceptedAt,
       });
+      navigationCheckTimerRef.current = setTimeout(() => {
+        navigationCheckTimerRef.current = null;
+        const state = navigation.getState();
+        if (state.routes[state.index]?.name === 'FocusSession') return;
+        startTransitionRef.current = false;
+        invalidateCardInteraction(sessionContext.interactionId);
+      }, 500);
+    } catch (error) {
+      startTransitionRef.current = false;
+      invalidateCardInteraction(sessionContext.interactionId);
+      throw error;
     }
   }
 

@@ -1,9 +1,12 @@
 import {
+  clearPendingDirectGroupEntry,
   clearPendingGroupEntry,
+  consumeInitialGroupRoomReturn,
   consumeGroupEntry,
+  peekGroupEntry,
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
   queueDirectGroupEntry,
-  settlePendingPushGroupList,
-  waitForPendingPushGroupList,
 } from './groupEntrySource';
 
 afterEach(() => clearPendingGroupEntry());
@@ -22,12 +25,28 @@ test('focus 전에 연속 외부 진입이 와도 최초 source를 덮어쓰지 
   expect(consumeGroupEntry('tab')).toBe('invite');
 });
 
-test('push 목록 gate는 성공 episode 결과를 기다렸다 한 번 공유한다', async () => {
-  queueDirectGroupEntry('push');
-  const pending = waitForPendingPushGroupList();
-  expect(pending).not.toBeNull();
+test('성공 결과 전에는 source를 읽어도 소비하지 않는다', () => {
+  queueDirectGroupEntry('invite');
 
-  settlePendingPushGroupList(['group-1']);
-  await expect(pending).resolves.toEqual(['group-1']);
-  expect(waitForPendingPushGroupList()).toBeNull();
+  expect(peekGroupEntry('tab')).toBe('invite');
+  expect(peekGroupEntry('return')).toBe('invite');
+  expect(consumeGroupEntry('return')).toBe('invite');
+  expect(peekGroupEntry('return')).toBe('return');
+});
+
+test('초기 그룹방 복귀 표식은 전역 탭 이탈에서 폐기된다', () => {
+  markInitialGroupRoomReturn();
+  discardInitialGroupRoomReturn();
+
+  expect(consumeInitialGroupRoomReturn()).toBe(false);
+});
+
+test('직접 source만 폐기하면 결과 방의 최초 복귀 표식은 보존한다', () => {
+  queueDirectGroupEntry('push');
+  markInitialGroupRoomReturn();
+
+  clearPendingDirectGroupEntry();
+
+  expect(consumeGroupEntry('tab')).toBe('tab');
+  expect(consumeInitialGroupRoomReturn()).toBe(true);
 });

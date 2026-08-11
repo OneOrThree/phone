@@ -1,12 +1,21 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
-import { writeGroupCardEmoji } from './groupCardEmojiStore';
+import { logGroupCardIconSaveResult } from '@/services/analyticsEvents';
+import {
+  __resetGroupCardEmojiQueueForTest,
+  preservePendingGroupCardEmoji,
+  writeGroupCardEmoji,
+} from './groupCardEmojiStore';
 import { useGroupCardEmojis } from './useGroupCardEmojis';
+
+jest.mock('@/services/analyticsEvents', () => ({ logGroupCardIconSaveResult: jest.fn() }));
 
 beforeEach(async () => {
   await AsyncStorage.clear();
+  __resetGroupCardEmojiQueueForTest();
   jest.restoreAllMocks();
+  jest.clearAllMocks();
 });
 
 test('현재 계정의 저장 아이콘을 덱에 투영하고 미저장 그룹은 기본값을 쓴다', async () => {
@@ -57,4 +66,32 @@ test('목록 revision이 바뀌면 설정 화면에서 저장한 아이콘을 �
   await writeGroupCardEmoji('u1', 'g1', '🧠');
   await rerender({ revision: 2 });
   await waitFor(() => expect(result.current.emojiFor('g1')).toBe('🧠'));
+});
+
+test('목록 갱신 중 저장소 읽기가 실패하면 기존 표시 아이콘을 유지한다', async () => {
+  await writeGroupCardEmoji('u1', 'g1', '📚');
+  const { result, rerender } = await renderHook(
+    ({ revision }: { revision: number }) =>
+      useGroupCardEmojis({ userId: 'u1', groupIds: ['g1'], reloadToken: revision }),
+    { initialProps: { revision: 1 } },
+  );
+  await waitFor(() => expect(result.current.emojiFor('g1')).toBe('📚'));
+
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('temporary read failure'));
+  await rerender({ revision: 2 });
+
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  expect(result.current.emojiFor('g1')).toBe('📚');
+});
+
+test('pending 아이콘 재시도 결과를 원래 저장 surface로 계측한다', async () => {
+  preservePendingGroupCardEmoji('u1', 'g1', '🔥', 'create');
+  const { result } = await renderHook(() => useGroupCardEmojis({ userId: 'u1', groupIds: ['g1'] }));
+
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  expect(result.current.emojiFor('g1')).toBe('🔥');
+  expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+    surface: 'create',
+    result: 'success',
+  });
 });

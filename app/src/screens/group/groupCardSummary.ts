@@ -20,6 +20,7 @@ export interface SharedFocusDependency<T> {
   getState(userId: string, date: string): FocusDependencyState<T>;
   ensure(userId: string, date: string): Promise<unknown>;
   retry(userId: string, date: string): Promise<unknown>;
+  subscribe(listener: Listener): () => void;
 }
 
 interface CacheEntry<T> {
@@ -71,14 +72,15 @@ export class KeyedDependencyCache<T> {
     return this.start(key);
   }
 
-  retain(isValid: (key: string) => boolean): void {
+  retain(isValid: (key: string) => boolean, notify = true): boolean {
     let changed = false;
     for (const key of this.entries.keys()) {
       if (isValid(key)) continue;
       this.entries.delete(key);
       changed = true;
     }
-    if (changed) this.emit();
+    if (changed && notify) this.emit();
+    return changed;
   }
 
   private start(key: string): Promise<DependencyState<T>> {
@@ -131,7 +133,7 @@ const defaultLoaders: GroupCardSummaryLoaders = {
   challenges: getChallenges,
 };
 
-export type GroupDependency = 'detail' | 'announcements' | 'challenges' | 'focus';
+type GroupDependency = 'detail' | 'announcements' | 'challenges' | 'focus';
 
 const keyed = (groupId: string, date: string) => `${groupId}\u0000${date}`;
 const groupOnly = (key: string) => key.split('\u0000', 1)[0];
@@ -143,10 +145,12 @@ const dateOnly = (key: string) => key.slice(key.indexOf('\u0000') + 1);
  */
 export class GroupCardSummaryAdapter<TFocus> {
   private scope: GroupCardSummaryScope | null = null;
-  private readonly loadedGroupIds = new Set<string>();
+  private readonly listeners = new Set<Listener>();
+  private readonly snapshots = new Map<string, GroupCardSummarySnapshot<TFocus>>();
   private readonly detail: KeyedDependencyCache<GroupDetailResponse>;
   private readonly announcements: KeyedDependencyCache<GroupAnnouncementResponse[]>;
   private readonly challenges: KeyedDependencyCache<GroupChallengeResponse[]>;
+  private readonly unsubscribeDependencies: Array<() => void>;
 
   constructor(
     private readonly focus: SharedFocusDependency<TFocus>,
@@ -161,36 +165,55 @@ export class GroupCardSummaryAdapter<TFocus> {
       const separator = key.indexOf('\u0000');
       return loaders.challenges(key.slice(0, separator), key.slice(separator + 1));
     });
+
+    const notify = () => this.notifySubscribers();
+    this.unsubscribeDependencies = [
+      this.detail.subscribe(notify),
+      this.announcements.subscribe(notify),
+      this.challenges.subscribe(notify),
+      this.focus.subscribe(notify),
+    ];
   }
 
   setScope(scope: GroupCardSummaryScope | null): void {
+    const accountChanged = this.scope?.userId !== scope?.userId;
     this.scope = scope;
+    this.snapshots.clear();
     const groupIds = new Set(scope?.groupIds ?? []);
-    for (const groupId of this.loadedGroupIds) {
-      if (!groupIds.has(groupId)) this.loadedGroupIds.delete(groupId);
-    }
     const date = scope?.date;
-    this.detail.retain((key) => groupIds.has(groupOnly(key)) && dateOnly(key) === date);
-    this.challenges.retain((key) => groupIds.has(groupOnly(key)) && dateOnly(key) === date);
-    this.announcements.retain((groupId) => groupIds.has(groupId));
+    // 세 dependency를 모두 정리하기 전에 중간 snapshot을 알리면 새 계정의 focus와 이전 계정의
+    // group cache가 한 렌더에서 섞인다. retain 알림을 억제하고 완성된 scope를 한 번만 발행한다.
+    this.detail.retain(
+      (key) => !accountChanged && groupIds.has(groupOnly(key)) && dateOnly(key) === date,
+      false,
+    );
+    this.challenges.retain(
+      (key) => !accountChanged && groupIds.has(groupOnly(key)) && dateOnly(key) === date,
+      false,
+    );
+    this.announcements.retain((groupId) => !accountChanged && groupIds.has(groupId), false);
+    this.emit();
   }
 
   getSnapshot(groupId: string): GroupCardSummarySnapshot<TFocus> | null {
     const scope = this.validScope(groupId);
     if (!scope) return null;
+    const cached = this.snapshots.get(groupId);
+    if (cached) return cached;
     const datedKey = keyed(groupId, scope.date);
-    return {
+    const snapshot = {
       detail: this.detail.getState(datedKey),
       announcements: this.announcements.getState(groupId),
       challenges: this.challenges.getState(datedKey),
       focus: this.focus.getState(scope.userId, scope.date),
     };
+    this.snapshots.set(groupId, snapshot);
+    return snapshot;
   }
 
   async ensureBack(groupId: string): Promise<void> {
     const scope = this.validScope(groupId);
     if (!scope) return;
-    this.loadedGroupIds.add(groupId);
     const datedKey = keyed(groupId, scope.date);
     const focusState = this.focus.getState(scope.userId, scope.date);
     await Promise.all([
@@ -203,14 +226,8 @@ export class GroupCardSummaryAdapter<TFocus> {
     ]);
   }
 
-  /** 목록 재조회/화면 복귀 뒤 이미 열어 본 카드만 새 read snapshot으로 갱신한다. */
-  async refreshLoaded(): Promise<void> {
-    const scope = this.scope;
-    if (!scope) return;
-    await Promise.all([...this.loadedGroupIds].map((groupId) => this.refreshBack(groupId)));
-  }
-
-  private async refreshBack(groupId: string): Promise<void> {
+  /** 목록 재조회/화면 복귀 후 이미 열린 카드의 read API만 강제 갱신한다. */
+  async refreshBack(groupId: string): Promise<void> {
     const scope = this.validScope(groupId);
     if (!scope) return;
     const datedKey = keyed(groupId, scope.date);
@@ -218,6 +235,7 @@ export class GroupCardSummaryAdapter<TFocus> {
       this.detail.refresh(datedKey),
       this.announcements.refresh(groupId),
       this.challenges.refresh(datedKey),
+      this.focus.retry(scope.userId, scope.date),
     ]);
   }
 
@@ -241,12 +259,24 @@ export class GroupCardSummaryAdapter<TFocus> {
   }
 
   subscribe(listener: Listener): () => void {
-    const unsubscribers = [
-      this.detail.subscribe(listener),
-      this.announcements.subscribe(listener),
-      this.challenges.subscribe(listener),
-    ];
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  dispose(): void {
+    this.unsubscribeDependencies.splice(0).forEach((unsubscribe) => unsubscribe());
+    this.scope = null;
+    this.snapshots.clear();
+    this.listeners.clear();
+  }
+
+  private notifySubscribers(): void {
+    this.snapshots.clear();
+    this.emit();
+  }
+
+  private emit(): void {
+    this.listeners.forEach((listener) => listener());
   }
 
   private validScope(groupId: string): GroupCardSummaryScope | null {

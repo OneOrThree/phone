@@ -28,29 +28,27 @@ export function resolveIndicatorMode(measuredWidth: number, pageCount: number): 
 }
 
 interface PageIndicatorProps {
-  pageLabels: readonly string[];
+  pageCount: number;
   activeIndex: number;
+  pageLabels?: readonly string[];
   disabled?: boolean;
   onSelectPage: (page: number) => void;
   onAccessibilitySelectPage?: (page: number) => void;
 }
 
-export function pageAccessibilityLabel(label: string, page: number, pageCount: number): string {
-  return `${label}, ${page + 1} / ${pageCount}`;
-}
-
 export function PageIndicator({
-  pageLabels,
+  pageCount,
   activeIndex,
+  pageLabels = [],
   disabled = false,
   onSelectPage,
   onAccessibilitySelectPage,
 }: PageIndicatorProps) {
   const [measuredWidth, setMeasuredWidth] = useState(0);
-  const pageCount = pageLabels.length;
+  const [focusWithin, setFocusWithin] = useState(false);
+  const safeActiveIndex = Math.max(0, Math.min(activeIndex, Math.max(0, pageCount - 1)));
   const mode = resolveIndicatorMode(measuredWidth, pageCount);
   const previousModeRef = useRef(mode);
-  const focusWithinRef = useRef(false);
   const dotRefs = useRef<Array<View | null>>([]);
   const counterRef = useRef<View | null>(null);
 
@@ -59,14 +57,25 @@ export function PageIndicator({
     setMeasuredWidth((current) => (current === next ? current : next));
   }, []);
 
+  const moveCounter = useCallback(
+    (delta: -1 | 1) => {
+      if (disabled) return;
+      const page = Math.max(0, Math.min(safeActiveIndex + delta, pageCount - 1));
+      if (page === safeActiveIndex) return;
+      (onAccessibilitySelectPage ?? onSelectPage)(page);
+    },
+    [disabled, onAccessibilitySelectPage, onSelectPage, pageCount, safeActiveIndex],
+  );
+
   useEffect(() => {
     if (previousModeRef.current === mode) return;
     previousModeRef.current = mode;
-    if (!focusWithinRef.current) return;
-    const target = mode === 'counter' ? counterRef.current : dotRefs.current[activeIndex];
+    if (!focusWithin) return;
+    const target = mode === 'counter' ? counterRef.current : dotRefs.current[safeActiveIndex];
+    target?.focus();
     const node = findNodeHandle(target);
     if (node !== null) AccessibilityInfo.setAccessibilityFocus(node);
-  }, [activeIndex, mode]);
+  }, [focusWithin, mode, safeActiveIndex]);
 
   return (
     <View onLayout={onLayout} style={s.container} testID="group.deck.indicator">
@@ -88,18 +97,18 @@ export function PageIndicator({
                 }
               }}
               onFocus={() => {
-                focusWithinRef.current = true;
+                setFocusWithin(true);
               }}
               onBlur={() => {
-                focusWithinRef.current = false;
+                setFocusWithin(false);
               }}
               accessibilityRole="button"
-              accessibilityLabel={pageAccessibilityLabel(pageLabels[page] ?? '', page, pageCount)}
-              accessibilityState={{ selected: page === activeIndex, disabled }}
+              accessibilityLabel={`${pageLabels[page] ?? (page === pageCount - 1 ? '그룹 찾기' : `${page + 1}번째 그룹`)}, ${page + 1} / ${pageCount}`}
+              accessibilityState={{ selected: page === safeActiveIndex, disabled }}
               testID={`group.deck.indicator.dot.${page}`}
             >
               <View
-                style={[s.dot, page === activeIndex && s.dotActive]}
+                style={[s.dot, page === safeActiveIndex && s.dotActive]}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
               />
@@ -110,20 +119,36 @@ export function PageIndicator({
         <Pressable
           ref={counterRef}
           style={s.counterHit}
+          disabled={disabled}
           accessible
-          accessibilityRole="text"
-          accessibilityLabel={`현재 ${activeIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityRole="adjustable"
+          accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
+          accessibilityHint="위아래로 쓸어 페이지를 이동합니다"
+          accessibilityValue={{
+            min: 1,
+            max: pageCount,
+            now: safeActiveIndex + 1,
+            text: `${safeActiveIndex + 1} / ${pageCount}`,
+          }}
+          accessibilityActions={[
+            { name: 'increment', label: '다음 페이지' },
+            { name: 'decrement', label: '이전 페이지' },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') moveCounter(1);
+            if (event.nativeEvent.actionName === 'decrement') moveCounter(-1);
+          }}
           accessibilityState={{ disabled }}
           onFocus={() => {
-            focusWithinRef.current = true;
+            setFocusWithin(true);
           }}
           onBlur={() => {
-            focusWithinRef.current = false;
+            setFocusWithin(false);
           }}
           testID="group.deck.indicator.counter"
         >
           <Text style={s.counter}>
-            {activeIndex + 1} / {pageCount}
+            {safeActiveIndex + 1} / {pageCount}
           </Text>
         </Pressable>
       )}
@@ -132,7 +157,14 @@ export function PageIndicator({
 }
 
 const s = StyleSheet.create({
-  container: { height: 44, alignItems: 'center', justifyContent: 'center' },
+  container: {
+    height: 44,
+    marginTop: -56,
+    marginBottom: T.space.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
   dots: { flexDirection: 'row', gap: DOT_GAP, paddingHorizontal: INDICATOR_GUTTER },
   dotHit: {
     width: DOT_HIT_WIDTH,
@@ -140,8 +172,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.borderDark },
-  dotActive: { width: 18, backgroundColor: T.accent },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.borderDark },
+  dotActive: { width: 36, backgroundColor: T.accent },
   counterHit: { minHeight: 44, justifyContent: 'center' },
   counter: { ...T.text.caption, color: T.inkSub, fontVariant: ['tabular-nums'] },
 });

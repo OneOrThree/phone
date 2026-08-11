@@ -1,23 +1,34 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface FindMoreCardProps {
   width: number;
-  position: number;
-  pageCount: number;
   onPress: () => void;
+  position?: number;
+  pageCount?: number;
+  focusable?: boolean;
+  minHeight?: number;
 }
 
 /**
  * 캐러셀 끝에만 붙는 탐색 진입점이다.
  * 서버 그룹 배열이나 로컬 순서 배열에 sentinel로 넣지 않는다.
  */
-export function FindMoreCard({ width, position, pageCount, onPress }: FindMoreCardProps) {
+export function FindMoreCard({
+  width,
+  onPress,
+  position = 1,
+  pageCount = 1,
+  focusable = true,
+  minHeight = GROUP_CARD_HEIGHT,
+}: FindMoreCardProps) {
   return (
     <Pressable
-      style={[s.card, { width }]}
+      style={[s.card, { width, minHeight }]}
       onPress={onPress}
+      focusable={focusable}
       accessibilityRole="button"
       accessibilityLabel={`그룹 찾기, 현재 ${position}/${pageCount} 페이지`}
       testID="group.deck.findMore"
@@ -33,8 +44,8 @@ export function FindMoreCard({ width, position, pageCount, onPress }: FindMoreCa
 
 const s = StyleSheet.create({
   card: {
-    minHeight: 220,
-    borderRadius: 22,
+    minHeight: 520,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.sm,

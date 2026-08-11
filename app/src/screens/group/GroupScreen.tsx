@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AppState,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
@@ -23,24 +16,18 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupViewed } from '@/services/analyticsEvents';
+import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
   clearPendingGroupEntry,
   consumeGroupEntry,
   peekGroupEntry,
-  settlePendingPushGroupList,
+  consumeInitialGroupRoomReturn,
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
-import { todayStrKst } from '@/utils/localDate';
-import GroupListScreen, {
-  GROUP_CARD_GAP,
-  GROUP_CARD_HEIGHT,
-  GROUP_CARD_SIDE_PEEK,
-} from './GroupListScreen';
-import { GroupCardSummaryAdapter, type GroupDependency } from './groupCardSummary';
-import { GroupFocusPollingController, groupFocusStatusStore } from './groupFocusStatus';
 import type { CardInteractionContext } from '@/services/cardInteraction';
+import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
 
@@ -67,19 +54,20 @@ function groupCountBucket(count: number): GroupCountBucket {
   if (count <= 10) return '6_10';
   return '11_plus';
 }
-
 // 목록 헤더('내 그룹', T.text.title 26pt)의 글자 상자 높이 — 자리표시자가 같은 높이를 차지해야
 // 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
-  const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const skeletonCardWidth = Math.max(240, windowWidth - GROUP_CARD_SIDE_PEEK * 2);
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const isScreenFocused = useIsFocused();
   const { isGuest, userId } = useUser();
 
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
+  const [groupsRevision, setGroupsRevision] = useState(0);
+  const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -87,16 +75,6 @@ export default function GroupScreen() {
   // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
   const [transitioning, setTransitioning] = useState(false);
-  const [screenFocused, setScreenFocused] = useState(false);
-  const [appActive, setAppActive] = useState(
-    AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-  );
-  const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
-  const [successfulListRevision, setSuccessfulListRevision] = useState(0);
-  const [summaryDate, setSummaryDate] = useState(todayStrKst);
-  const cardSummaryRef = useRef(new GroupCardSummaryAdapter(groupFocusStatusStore));
-  const focusPollingRef = useRef<GroupFocusPollingController | null>(null);
-  const [, setCardSummaryVersion] = useState(0);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
   // 시트는 라우트가 아니라 이 화면 위의 오버레이라, 링크 수신은 navigationRef의 모듈 버퍼 +
@@ -141,11 +119,26 @@ export default function GroupScreen() {
   // 첫 마운트의 기본 진입은 tab, 이후 child/다른 화면에서 돌아온 focus는 return이며,
   // 실제 새 focus를 만든 외부 진입만 navigationRef가 넣은 invite|push를 한 번 소비한다.
   const hasFocusedRef = useRef(false);
+  const nextFocusFromTabRef = useRef(false);
   const viewEpisodeRef = useRef<{ id: number; source: GroupEntrySource; logged: boolean }>({
     id: 0,
     source: 'unknown',
     logged: false,
   });
+
+  // 같은 GroupScreen 인스턴스가 유지돼도 다른 탭에서 그룹 버튼을 누른 재진입은 `tab`이다.
+  // 자식 스택에서 돌아오는 focus에는 tabPress가 없으므로 `return`과 구분할 수 있다.
+  useEffect(() => {
+    const tabNavigation = navigation as unknown as {
+      addListener: (event: 'tabPress', listener: () => void) => () => void;
+      isFocused: () => boolean;
+    };
+    return tabNavigation.addListener('tabPress', () => {
+      // 이미 선택된 그룹 탭 재선택은 새 episode를 만들지 않으므로 다음 focus에 남기지 않는다.
+      // focus 중 열린 warm invite로 돌아오는 동작도 정책상 `return`이므로 tab 표식을 만들지 않는다.
+      if (!tabNavigation.isFocused() && !peekPendingInvite()) nextFocusFromTabRef.current = true;
+    });
+  }, [navigation]);
 
   // 초대 링크가 가리킨 그룹방 — 참여(또는 '이미 멤버') 판정 뒤 재조회가 끝날 때까지 목적지를 들고 있는다.
   // 재조회하면 목록이 기본 화면이라(A-9), 이 값을 잃으면 초대 링크가 '목록 열기'로 전락한다.
@@ -155,15 +148,14 @@ export default function GroupScreen() {
   const fetchGroups = useCallback(async () => {
     if (isGuest) return;
     const seq = ++requestSeqRef.current;
-    const episodeId = viewEpisodeRef.current.id;
     setLoading(true);
     setError(false);
     try {
       const rows = await getMyGroups();
       if (seq !== requestSeqRef.current) return;
       setGroups(rows);
-      setSuccessfulListEpisode(episodeId);
-      setSuccessfulListRevision((revision) => revision + 1);
+      setSuccessfulListEpisode(viewEpisodeRef.current.id);
+      setGroupsRevision((revision) => revision + 1);
       const episode = viewEpisodeRef.current;
       if (!episode.logged) {
         episode.logged = true;
@@ -172,13 +164,11 @@ export default function GroupScreen() {
           group_count_bucket: groupCountBucket(rows.length),
         });
       }
-      settlePendingPushGroupList(rows.map((group) => group.groupId));
       // 최신 목록을 받은 시점에만 전이가 끝난다 — 실패 때 풀면 빈 상태로 되돌아간다.
       setTransitioning(false);
     } catch {
       if (seq !== requestSeqRef.current) return;
       setError(true);
-      settlePendingPushGroupList(null);
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
@@ -194,22 +184,26 @@ export default function GroupScreen() {
   // cleanup에서 시퀀스를 올려 진행 중이던 요청을 무효화한다 — 화면을 떠난 뒤 setState가 도는 것을 막는다.
   useFocusEffect(
     useCallback(() => {
-      setScreenFocused(true);
-      const fallback: GroupEntrySource = hasFocusedRef.current ? 'return' : 'tab';
-      if (!isGuest) hasFocusedRef.current = true;
+      const returnedFromInitialRoom = consumeInitialGroupRoomReturn();
+      const fallback: GroupEntrySource = returnedFromInitialRoom
+        ? 'return'
+        : !hasFocusedRef.current || nextFocusFromTabRef.current
+          ? 'tab'
+          : 'return';
+      nextFocusFromTabRef.current = false;
+      hasFocusedRef.current = true;
       viewEpisodeRef.current = {
         id: viewEpisodeRef.current.id + 1,
+        // 인증 사용자는 focus 시작 시 direct source를 이 episode가 소유한다. 조회 실패 후 같은
+        // episode에서 재시도할 때는 ref의 값을 유지하되, 다음 일반 진입으로 source를 흘리지 않는다.
+        // 게스트 초대만 로그인 뒤 리마운트를 위해 전역 버퍼를 보존한다.
         source: isGuest ? peekGroupEntry(fallback) : consumeGroupEntry(fallback),
         logged: false,
       };
       setSuccessfulListEpisode(null);
       fetchGroups();
       return () => {
-        setScreenFocused(false);
         requestSeqRef.current++;
-        // 일반 push가 기다리던 성공 목록은 이 focus episode의 결과다. 사용자가 먼저 화면을
-        // 떠났다면 다음 수동 진입의 성공 목록이 과거 push를 되살리지 않도록 즉시 실패 정산한다.
-        settlePendingPushGroupList(null);
       };
     }, [fetchGroups, isGuest]),
   );
@@ -288,41 +282,34 @@ export default function GroupScreen() {
   const onSelectGroup = useCallback(
     (
       groupId: string,
+      entrySource: 'group_card' | 'group_find' | 'unknown' = 'unknown',
       interaction?: CardInteractionContext,
-      nonCardSource: 'group_find' | 'unknown' = 'unknown',
     ) => {
       // 위 초대 목적지 소비와 같은 이유로 challengeId를 명시로 비운다(types.ts GroupRoom 주석).
-      navigation.navigate(
-        'GroupRoom',
-        interaction
-          ? {
-              groupId,
-              challengeId: undefined,
-              entrySource: 'group_card',
-              interactionId: interaction.interactionId,
-              interactionAcceptedAt: interaction.interactionAcceptedAt,
-            }
-          : {
-              groupId,
-              challengeId: undefined,
-              entrySource: nonCardSource,
-              interactionId: undefined,
-              interactionAcceptedAt: undefined,
-            },
-      );
+      navigation.navigate('GroupRoom', {
+        groupId,
+        challengeId: undefined,
+        entrySource,
+        interactionId: interaction?.interactionId,
+        interactionAcceptedAt: interaction?.interactionAcceptedAt,
+      });
     },
     [navigation],
   );
 
   const onStartGroupFocus = useCallback(
-    (groupId: string, interaction: CardInteractionContext) => {
+    (groupId: string, interaction: CardInteractionContext) =>
       navigation.navigate('FocusCategory', {
         initialGroupId: groupId,
         entrySource: 'group_card',
         interactionId: interaction.interactionId,
         interactionAcceptedAt: interaction.interactionAcceptedAt,
-      });
-    },
+      }),
+    [navigation],
+  );
+
+  const onOpenGroupSettings = useCallback(
+    (groupId: string) => navigation.navigate('GroupSettings', { groupId }),
     [navigation],
   );
 
@@ -330,7 +317,7 @@ export default function GroupScreen() {
   const onOpenGroup = useCallback(
     (groupId: string) => {
       setFindOpen(false);
-      onSelectGroup(groupId, undefined, 'group_find');
+      onSelectGroup(groupId, 'group_find');
     },
     [onSelectGroup],
   );
@@ -343,76 +330,10 @@ export default function GroupScreen() {
   }, [navigation]);
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      setAppActive(state === 'active');
-    });
-    return () => subscription.remove();
+  const openFind = useCallback((entryPoint: 'empty' | 'list' | 'header' | 'end_card') => {
+    logGroupFindOpened({ entry_point: entryPoint });
+    setFindOpen(true);
   }, []);
-
-  useEffect(() => {
-    if (typeof userId !== 'string') return;
-    const controller = new GroupFocusPollingController({
-      store: groupFocusStatusStore,
-      userId,
-      onDateChanged: setSummaryDate,
-    });
-    focusPollingRef.current = controller;
-    return () => {
-      controller.dispose();
-      groupFocusStatusStore.clearUser(userId);
-      if (focusPollingRef.current === controller) focusPollingRef.current = null;
-    };
-  }, [userId]);
-
-  useEffect(() => {
-    focusPollingRef.current?.setLifecycle({
-      screenFocused,
-      appActive,
-      hasGroups: myGroups.length > 0,
-    });
-  }, [appActive, myGroups.length, screenFocused]);
-
-  useEffect(() => {
-    cardSummaryRef.current.setScope(
-      typeof userId !== 'string'
-        ? null
-        : { userId, date: summaryDate, groupIds: myGroups.map((group) => group.groupId) },
-    );
-    const notify = () => setCardSummaryVersion((version) => version + 1);
-    const unsubscribeSummary = cardSummaryRef.current.subscribe(notify);
-    const unsubscribeFocus =
-      typeof userId !== 'string'
-        ? () => {}
-        : groupFocusStatusStore.subscribe(userId, summaryDate, notify);
-    return () => {
-      unsubscribeSummary();
-      unsubscribeFocus();
-    };
-  }, [myGroups, summaryDate, userId]);
-
-  // 새 focus episode와 명시 새로고침의 목록 성공 뒤, 실제로 열어 본 카드만 다시 읽는다.
-  // scope effect 다음에 배치해 탈퇴/신규 그룹 reconcile이 먼저 적용되도록 한다.
-  useEffect(() => {
-    if (successfulListRevision === 0) return;
-    cardSummaryRef.current.refreshLoaded().catch(() => {});
-  }, [successfulListRevision]);
-
-  const ensureCardBack = useCallback((groupId: string) => {
-    // 사용자 첫 flip과 guide 3→4가 같은 cache/in-flight dedupe 경로를 쓴다.
-    focusPollingRef.current?.activate();
-    cardSummaryRef.current.ensureBack(groupId).catch(() => {});
-  }, []);
-
-  const retryCardBack = useCallback((groupId: string, dependency: GroupDependency) => {
-    if (dependency === 'focus') focusPollingRef.current?.activate();
-    cardSummaryRef.current.retry(groupId, dependency).catch(() => {});
-  }, []);
-
-  const getCardBackSnapshot = useCallback(
-    (groupId: string) => cardSummaryRef.current.getSnapshot(groupId),
-    [],
-  );
 
   // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
@@ -485,8 +406,8 @@ export default function GroupScreen() {
   if (groups === null && loading) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        {/* 중앙 스피너 대신 목록 실루엣(GROMO-1381) — 헤더 한 줄 + 가로 덱 한 장/다음 카드 peek로, 도착할 화면과
-            같은 자리·같은 높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
+        {/* 중앙 스피너 대신 캐러셀 실루엣(GROMO-1381) — 헤더 + 300pt 카드 + 다음 카드 peek로,
+            도착할 가로 덱과 같은 방향·높이를 미리 잡는다. 데이터가 오면 이 분기가 통째로 사라지므로
             펄스(무한 루프)도 함께 언마운트된다.
             묶음 전체를 SkeletonGroup 하나로 감싸 펄스를 이 한 겹에만 건다 — 블록마다 루프를
             돌리면 "화면당 무한 루프 1개" 상한을 위반한다(codex 리뷰). */}
@@ -494,19 +415,13 @@ export default function GroupScreen() {
           <View style={s.skeletonHeader}>
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
-          <View style={s.skeletonList}>
-            <Skeleton
-              w={skeletonCardWidth}
-              h={GROUP_CARD_HEIGHT}
-              radius={22}
-              testID="group.list.skeleton.card"
-            />
-            <Skeleton
-              w={GROUP_CARD_SIDE_PEEK}
-              h={GROUP_CARD_HEIGHT}
-              radius={22}
-              testID="group.list.skeleton.peek"
-            />
+          <View style={s.skeletonDeck} testID="group.deck.skeleton">
+            <View style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}>
+              <Skeleton w="100%" h={GROUP_CARD_HEIGHT} radius={22} />
+            </View>
+            <View style={s.skeletonPeek}>
+              <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
+            </View>
           </View>
         </SkeletonGroup>
         {inviteSheet}
@@ -539,22 +454,21 @@ export default function GroupScreen() {
         {staleNotice}
         <GroupListScreen
           groups={myGroups}
-          onSelect={onSelectGroup}
-          onStartFocus={onStartGroupFocus}
-          onCreate={openCreate}
-          onFind={() => setFindOpen(true)}
-          onRefresh={fetchGroups}
+          groupsRevision={groupsRevision}
+          isScreenFocused={isScreenFocused}
           userId={userId}
+          onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
+          onCreate={openCreate}
+          onFind={(entryPoint) => openFind(entryPoint)}
+          onStartFocus={onStartGroupFocus}
+          onOpenSettings={onOpenGroupSettings}
+          onRefresh={fetchGroups}
           guideBlocked={findOpen || invite !== null}
-          guideScreenFocused={screenFocused}
+          guideScreenFocused={isScreenFocused}
           guideEpisode={viewEpisodeRef.current.id}
+          groupEntry={viewEpisodeRef.current.source}
           guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
           guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
-          groupEntry={viewEpisodeRef.current.source}
-          onEnsureBack={ensureCardBack}
-          onRetryBack={retryCardBack}
-          getBackSnapshot={getCardBackSnapshot}
-          cardDataDate={summaryDate}
         />
         {findSheet}
         {inviteSheet}
@@ -581,7 +495,7 @@ export default function GroupScreen() {
         <TouchableOpacity
           style={s.outlineBtn}
           activeOpacity={0.85}
-          onPress={() => setFindOpen(true)}
+          onPress={() => openFind('empty')}
           testID="group.find.entry"
         >
           <Text style={s.outlineText}>그룹 찾기</Text>
@@ -604,12 +518,14 @@ const s = StyleSheet.create({
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
   },
-  skeletonList: {
+  skeletonDeck: {
     flexDirection: 'row',
-    paddingLeft: GROUP_CARD_SIDE_PEEK,
-    gap: GROUP_CARD_GAP,
+    gap: 12,
+    paddingLeft: 24,
     overflow: 'hidden',
   },
+  skeletonCard: {},
+  skeletonPeek: { width: 36 },
   body: {
     flex: 1,
     alignItems: 'center',
