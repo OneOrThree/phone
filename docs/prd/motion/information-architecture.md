@@ -81,8 +81,8 @@ flowchart TB
 | 그룹 목록 — **가로 카드 덱** | 🟩 스켈레톤 → 셀 `enterUp(i)` (`GroupListScreen.tsx:175-190`·`:1137-1141`) | 🟩 유지 | PR4·PR7 |
 | 그룹방 첫 진입 | 🟩 `SkeletonGroup` (`GroupRoomScreen.tsx:853-881`) | 🟩 유지 | PR4 |
 | 그룹방 챌린지 카드 목록 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1072-1092`) | 🟦 `enterUp(i)` | 1524 |
-| 그룹방 멤버 3열 그리드 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1125-1175` · `MemberTile.tsx` 모션 0개) | 🟦 **행 단위** `fadeIn(i)` ([정책 D24](policy.md#d24)) | 1524 |
-| 챌린지 내역 첫 로딩 | 🟥 풀스크린 스피너 (`GroupChallengeHistoryScreen.tsx:289-297`) | 🟦 스켈레톤 | 1524 |
+| 그룹방 멤버 3열 그리드 | 🟥 즉시 표시 (`GroupRoomScreen.tsx:1125-1175` · `MemberTile.tsx` 모션 0개) | 🟦 **행 단위** `fadeIn(m.stagger(rowIdx))` — 인덱스가 아니라 **ms**를 넘긴다 ([정책 D24](policy.md#d24)) | 1524 |
+| 챌린지 내역 첫 로딩 | 🟥 풀스크린 스피너 (`GroupChallengeHistoryScreen.tsx:289-297`) | 🟦 **구조적 스켈레톤** — 카드 높이가 가변이라 `SkeletonCard` 불가 ([정책 D25-3](policy.md#d25)) | 1524 |
 | 챌린지 내역 리스트 행 | 🟥 즉시 표시 (`GroupChallengeHistoryScreen.tsx:330-333`) | 🟦 `enterUp(i)` — 그룹 덱과 같은 `CellRendererComponent` 기법 | 1524 |
 | 챌린지 결과 명단 3구획 | 🟥 한 번에 표시 (`ChallengeResultModal.tsx:322-358`) | 🟦 `enterUp(i)` | 1524 |
 | 그룹 카드 앞↔뒤 플립 | 🟨 `290ms`/reduce `150ms` 하드코딩 (`GroupCardFlip.tsx:67`) | 🟨 예외로 확정 ([정책 D25](policy.md#d25)) | — |
@@ -108,8 +108,8 @@ flowchart TB
 | 리그 리스트 펼침 | 🟥 `LayoutAnimation`(충돌 위험) | 🟦 `LinearTransition`으로 치환 | PR7 |
 | 탭바 하이라이트 | 🟩 알약 슬라이드 350ms | 🟩 유지(토큰 이관) | PR1 |
 | 그룹·챌린지 시트 9종 등장 | 🟩 `SheetShell` `spring.snappy` | 🟩 유지 | PR3 |
-| 내기 시트 참여자 진행 바 | 🟥 `width` 직접 대입 (`BetSheet.tsx:693-704`) | 🟦 `ProgressBar` | 1524 |
-| 챌린지 카드 멤버 진행 수치 | 🟥 즉시 교체 (`ChallengeCard.tsx:1199-1229`) | **🟨 등급 0 유지** — 반복 요소라 `AnimatedNumber` 금지 ([정책 D25](policy.md#d25)) | — |
+| 내기 시트 참여자 진행 바 | 🟨 `width` 직접 대입 (`BetSheet.tsx:693-704`) | **🟨 현행 유지(등급 0)** — 참가자마다 한 행이라 **최대 10개**, D10의 `width` 상한(1~3) 초과 · 둥근 캡이라 `scaleX`도 불가 ([정책 D25-2](policy.md#d25)) | — |
+| 챌린지 카드 멤버 진행 수치 | 🟨 즉시 교체 (`ChallengeCard.tsx:1199-1229`) | **🟨 현행 유지(등급 0)** — 반복 요소라 `AnimatedNumber` 금지 ([정책 D25-1](policy.md#d25)) | — |
 | 챌린지 내역 다음 페이지 꼬리 | 🟨 `ActivityIndicator` (`GroupChallengeHistoryScreen.tsx:363-368`) | 🟨 유지 — 꼬리 스피너는 스켈레톤 대상이 아니다 | — |
 | 시트 CTA 제출 중 | 🟨 버튼 안 `ActivityIndicator` (`ChallengeComposeSheet.tsx:798` · `BetSheet.tsx:807`) | 🟨 유지 | — |
 
@@ -124,7 +124,8 @@ flowchart TB
 | 챌린지 카드 성공 통보 | 🟩 `useToast` 이관됨 (`ChallengeCard.tsx:24,251`) | 🟩 유지 | PR5 |
 | 챌린지 카드 확인·실패 알럿 **20곳** | 🟩 `Alert.alert` — 전부 파괴적 확인·실패 | 🟩 **유지** ([정책 D8](policy.md#d8)) | — |
 | 그룹방 실패 통보 3곳 | 🟩 `Alert.alert` (`GroupRoomScreen.tsx:644,715,747`) | 🟩 유지 | — |
-| 멤버 타일 · 챌린지 카드 눌림 | 🟥 `TouchableOpacity activeOpacity` (`MemberTile.tsx:58-65`) | 🟦 `PressableScale` | 1524 |
+| 멤버 타일 눌림 | 🟥 `TouchableOpacity activeOpacity` (`MemberTile.tsx:58-65`) | 🟦 루트를 `PressableScale`로 — 타일 전체가 원래 탭 대상이다 | 1524 |
+| 챌린지 카드 눌림 | 🟥 카드 **안쪽 버튼 11개**가 `TouchableOpacity` | 🟦 **그 버튼들만** `PressableScale`. **카드 루트는 비터치 `View` 유지**(`ChallengeCard.tsx:1113-1116`, GROMO-1101) — 루트에 얹으면 없던 카드 전체 탭 동선이 생긴다 | 1524 |
 
 ### 3.4 축하 (등급 3)
 
@@ -196,4 +197,3 @@ flowchart LR
 | 챌린지 결과 모달이 '동작 줄이기'를 무시 · 사다리 밖 값 2개 | `ChallengeResultModal.tsx:259-268` | 1524 ([D23](policy.md#d23)) |
 | 그룹방 진입 연출 0개 (챌린지 카드 · 멤버 그리드) | `GroupRoomScreen.tsx:1072,1125` · `MemberTile.tsx` | 1524 |
 | 챌린지 내역 첫 로딩이 풀스크린 스피너 | `GroupChallengeHistoryScreen.tsx:289-297` | 1524 |
-| 내기 시트 진행 바가 `width` 직접 대입 | `BetSheet.tsx:693-704` | 1524 |
