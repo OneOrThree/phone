@@ -18,14 +18,17 @@
 | `src/hooks/useMotion.test.tsx` | ~70 | reduce=false 분기 |
 | `src/hooks/useMotion.reduced.test.tsx` | ~70 | reduce=true 분기 (모듈 스코프 단일 인스턴스라 파일 분리) |
 
-### 1.2 신규 프리미티브 (6 파일)
+### 1.2 신규 프리미티브 (5 파일)
+
+> ⚠️ `src/components/ProgressRing.tsx`(SVG `strokeDashoffset` + `animatedProps`)는 PR6에서 만들었다가
+> **GROMO-1525에서 파일째 삭제**했다 — 유일한 사용처였던 집중 세션의 원형 진행 링을 오너 결정으로
+> 뺐기 때문이다(§6 참조). **재추가 예정이므로 되돌릴 때는 이 저장소의 1525 커밋을 되짚는다.**
 
 | 파일 | 예상 줄 | 역할 |
 | --- | --- | --- |
 | `src/components/Skeleton.tsx` | ~90 | `Skeleton` · `SkeletonText` · `SkeletonCard`. 불투명도 펄스 |
 | `src/components/AnimatedNumber.tsx` | ~80 | `<Text>` + JS 보간. 리프 전용 |
 | `src/components/ProgressBar.tsx` | ~70 | `width` 애니메이션(둥근 캡 유지) |
-| `src/components/ProgressRing.tsx` | ~90 | SVG `strokeDashoffset` + `animatedProps` |
 | `src/components/Toast.tsx` | ~110 | 단일 토스트 뷰 + a11y 공지 |
 | `src/store/ToastContext.tsx` | ~90 | 큐 · 자동해제 · `useToast()` |
 
@@ -41,7 +44,7 @@
 | `src/components/ConfettiBurst.tsx` | 253 | 렌더 진입부 | reduce면 미렌더 |
 | `src/components/ScreenTimeAnalyzingOverlay.tsx` | 93 | 45–50 | reduce면 즉시 100% (타이밍 상수는 🟨 예외로 유지) |
 | `src/screens/focus/FocusResultScreen.tsx` | 1044 | 57–80 · 426 · 519 | `growUp`/`checkPop`→`M.preset` · stagger 80→60 · `m.css()` |
-| `src/screens/focus/FocusSessionScreen.tsx` | 1560 | 렌더 계층만 | `ProgressRing` · 페이즈 크로스페이드 · 도트 전환 |
+| `src/screens/focus/FocusSessionScreen.tsx` | 1560 | 렌더 계층만 | 페이즈 크로스페이드 · 도트 전환 (진행 링은 GROMO-1525에서 제거) |
 | `src/screens/HomeScreen.tsx` | 840 | 132 · 590 · 카드 렌더 | `ProgressBar` · `AnimatedNumber` · `enterUp` |
 | `src/screens/StatsScreen.tsx` | 554 | 491 + 카드 8종 | 스켈레톤 |
 | `src/screens/stats/charts.tsx` | 470 | `LineChart` 렌더부 | **좌→우 draw-on**(정책 D16) — `AnimatedPolyline` `strokeDashoffset` + 점별 `AnimatedCircle`. ⚠️ `growUp` 아님 |
@@ -234,7 +237,6 @@ mount → entering → idle ⇄ dragging → closing → onClose()
 | `SkeletonCard` | `height` | 실제 카드 높이 상수를 **호출부가 넘긴다** |
 | `AnimatedNumber` | `value` `format?` `style?` `duration?` `testID?` | `accessibilityLabel`에 **최종 포맷값**. 중간 숫자를 읽지 않게 |
 | `ProgressBar` | `progress`(0~1) `color` `trackColor?` `height?` `radius?` `delay?` | `accessibilityRole="progressbar"` + `accessibilityValue={{ now, min:0, max:100 }}` |
-| `ProgressRing` | `size` `stroke` `progress` `color` `trackColor?` `children?` | 동일 |
 | `Toast` | (Context 경유) `message` `tone` `icon?` | **플랫폼당 공지 경로 하나** — Android `accessibilityLiveRegion="polite"` / iOS `announceForAccessibility()`. 둘 다 걸면 Android에서 두 번 읽힌다 ([정책 D8](policy.md#d8)) |
 
 **`useToast()`**
@@ -260,7 +262,6 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 통계 | 도넛 진입 | 링 `fadeIn` + 범례 `enterUp(i)` | base | i × 60 | 2 |
 | 통계 | 캘린더 진입 | 행 단위 `fadeIn(i)` | base | i × 60 | 2 |
 | 통계 | 타임테이블 세션 블록 | **`growUp(j)`** | entrance | j × 60 | 2 |
-| 집중 세션 | 카운트다운·뽀모도로 | `ProgressRing` | 연속 | — | 1 |
 | 집중 세션 | 페이즈 전환 | 크로스페이드 (진동은 기존 2연속 유지) | quick | 0 | 1 |
 | 집중 결과 | 주간 막대 | **`growUp(i)`** | entrance | i × 60 | 2 |
 | 집중 결과 | 스트릭 ✓ · 코인 | `pop` | slow | 400 | 3 |
@@ -269,6 +270,12 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 리그 결과 | 승급 컨페티 | `ConfettiBurst` + `hapticSuccess` | celebrate | 시퀀스 후 | 3 |
 | 시트 전체 | 등장 | `spring.snappy` | ≈base | 0 | 1 |
 | 전역 | 토스트 | `spring.snappy` | quick | 0 | 1 |
+
+> ⚠️ **집중 세션의 원형 진행 링은 표에서 빠졌다 — 실수가 아니라 GROMO-1525의 결정이다.**
+> PR8이 카운트다운·뽀모도로에 넣었던 `ProgressRing`(등급 1 · 연속)을 오너 지시로 걷어냈다.
+> 세 모드가 모두 숫자 배치 하나를 쓰며, 남은 시간은 숫자로 그대로 읽힌다. 같은 화면의 **페이즈
+> 전환 크로스페이드·캐릭터 호흡·페이저 도트는 그대로다.** 삭제된 값과 재추가 시 되살릴 근거는
+> [정책](policy.md)의 해당 결정 항목에 남겨 뒀다.
 
 > ⚠️ **페이즈 전환에 `hapticMedium`을 새로 붙이지 않는다.** 이 경계에는 이미
 > `Vibration.vibrate([0, 400, 200, 400])`(iOS는 `[0, 500]`)가 붙어 있다 — GROMO-864에서
@@ -280,7 +287,7 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 >
 > ⚠️ **"차트 = `growUp`"이 아니다** (정책 D16). `growUp`은 **막대 전용**이다 — 값이 곧 높이라 바닥에서 자라는 게 값의 의미와 같기 때문이다. 꺾은선은 시간축을 따라 이어지는 궤적이라 **왼쪽에서 오른쪽으로 그리고**(draw-on), 도넛은 `scaleY`가 원을 타원으로 눌러 뜻이 깨지므로 링 `fadeIn`, 캘린더는 값 축이 없어 행 `fadeIn`이다.
 
-**꺾은선 draw-on 구현.** `Polyline`에 선 길이만큼의 `strokeDasharray`를 깔고 `strokeDashoffset`을 길이 → 0으로 당긴다. `ProgressRing`과 같은 기법이며 같은 규칙을 따른다 — `Animated.createAnimatedComponent(Polyline)` + `useAnimatedProps`, 변환은 워클릿 콜백 **안에서** 처리(`SVGAdapter` 금지).
+**꺾은선 draw-on 구현.** `Polyline`에 선 길이만큼의 `strokeDasharray`를 깔고 `strokeDashoffset`을 길이 → 0으로 당긴다. 규칙은 — `Animated.createAnimatedComponent(Polyline)` + `useAnimatedProps`, 변환은 워클릿 콜백 **안에서** 처리(`SVGAdapter` 금지). ⚠️ 이 기법의 사내 선례는 원래 `ProgressRing`이었으나 그 파일이 GROMO-1525에서 삭제돼, 지금은 **`stats/charts.tsx`의 `LineChart`가 저장소의 유일한 애니메이션 사례**다(정적 사례로 `stats/CategoryDonut.tsx`가 있다).
 
 점은 선이 그 자리를 지나가는 순간 뜬다. 판정은 **각 점까지의 누적 길이 비율**이다:
 

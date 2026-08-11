@@ -17,7 +17,7 @@ flowchart TB
         P1["Skeleton"]
         P2["Toast + ToastContext"]
         P3["AnimatedNumber"]
-        P4["ProgressBar · ProgressRing"]
+        P4["ProgressBar"]
         P5["SheetShell(개편)"]
         P6["PressableScale(기존)"]
         P7["ConfettiBurst(기존)"]
