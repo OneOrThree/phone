@@ -684,7 +684,34 @@ public class FocusService {
      * <p>동시 start 직렬화 — 여기서만 users 행을 <b>배타</b> 락으로 잡는다({@link #requireActiveUserForUpdate}).
      * 마커가 아직 하나도 없을 때는 잠글 마커 행 자체가 없어 users 행이 유일한 직렬화 지점이고, 직렬화가
      * 없으면 동시 요청 2건이 각자 "열린 마커 없음"을 보고 둘 다 INSERT 해 V47 부분 유니크 인덱스에서
-     * 한쪽이 500 으로 터진다.
+     * 한쪽이 500 으로 터진다. 이 락이 아래 <b>startedAt 단조성</b> 판정의 전제이기도 하다 — 직렬화가
+     * 없으면 두 요청이 서로의 마커를 못 보고 판정 자체가 성립하지 않는다.
+     *
+     * <p><b>startedAt 단조성 — 순서 역전 방어(GROMO-1287, codex 리뷰 P1)</b>. 앱의
+     * {@code startLiveSession} 은 반환값이 없어 await 되지 않는다. 백그라운드 복귀 리플레이가
+     * 휴식→집중 경계와 크레딧 상한 처리에서 연달아 start 를 쏘면 두 요청이 동시에 날아가고,
+     * <b>더 이른 startedAt 을 든 요청이 나중에 도착</b>할 수 있다. 무조건 close-then-open 하면 그 늦은
+     * 요청이 방금 열린 최신 마커를 {@code AUTO_CLOSED} 로 닫고 과거 시각 마커가 라이브가 된다 —
+     * '집중 중' 경과가 부풀고, 직전 블록 업로드가 그마저 닫으면 라이브 마커가 통째로 사라진다.
+     * 불변식을 세우기 전에는 마커가 2개로 남아 소비처의 "최신 우선" 정렬이 오히려 최신을 지켜줬으므로,
+     * 이 방어는 <b>불변식과 한 몸</b>이다.
+     * <ul>
+     *   <li>열린 마커의 {@code startedAt} 보다 <b>엄격히 늦은</b> 요청만 회전으로 인정한다.</li>
+     *   <li>그렇지 않으면 <b>기존 마커를 그대로 두고 그 id·startedAt 을 돌려준다</b>(멱등 no-op).
+     *       에러로 거절하지 않는 이유: 앱은 응답의 {@code sessionId} 를 마커 참조로 쓰는데
+     *       ({@code liveIdRef}), 4xx 를 주면 참조가 비어 그 블록의 종료가 마커 없는 POST 폴백으로 가고
+     *       라이브 표시가 사라진다. 기존 마커 id 를 주면 앱이 <b>진짜 라이브 마커로 수렴</b>한다.
+     *       재시도로 같은 요청이 두 번 와도 같은 id 가 나가 멱등이다.</li>
+     *   <li>동률({@code startedAt} 동일)도 no-op 이다 — 회전해 봐야 같은 시각의 새 행일 뿐인데,
+     *       먼저 응답을 받아 id 를 기록한 앱이 닫힌 마커를 들게 된다.</li>
+     * </ul>
+     *
+     * <p><b>클램프가 이 규칙을 깨지 않는 이유</b>: {@link #clampToServerNow} 는 창 밖 값을 {@code now} 로
+     * <b>올릴</b> 뿐 내리지 않는다. 그리고 모든 기존 마커의 {@code startedAt} 은 생성 시점에 그 시점의
+     * {@code now} 이하로 클램프됐으므로 현재 {@code now} 보다 앞선다 — 클램프를 탄 요청은 항상 단조성을
+     * 통과한다. 클램프를 타지 않은(창 안) 요청이 기존 마커보다 이르려면 기존 마커가 <b>더 늦은</b>
+     * startedAt 으로 열려 있어야 하는데, 정상 회전에서 새 블록 경계는 언제나 직전 마커 시작보다 뒤다.
+     * 즉 이 규칙이 걸리는 경우는 순서 역전·중복 요청뿐이다.
      */
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
@@ -694,6 +721,15 @@ public class FocusService {
         Instant now = Instant.now();
         Instant startedAt = clampToServerNow(body.startedAt(), now);
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
+
+        // GROMO-1287(codex 리뷰 P1): startedAt 단조성 — 늦게 도착한 과거 start 는 최신 마커를 닫지 못한다.
+        // 판정에만 쓰는 읽기다(엔티티를 변경하지 않으므로 아래 벌크 UPDATE 와 더티 라이트가 충돌하지 않는다).
+        Optional<FocusSession> liveMarker =
+                focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user);
+        if (liveMarker.isPresent() && !startedAt.isAfter(liveMarker.get().getStartedAt())) {
+            FocusSession live = liveMarker.get();
+            return new FocusSessionStartResponse(live.getId(), live.getStartedAt());
+        }
 
         // GROMO-1287: 열린 마커 원자적 마감 — INSERT 앞에 둬야 V47 부분 유니크(ended_at IS NULL)를 통과한다.
         // 뽀모도로 마커 회전(앱이 구 마커를 비동기 PATCH 로 마감하며 새 블록을 여는 정상 흐름)에서 구 마커가

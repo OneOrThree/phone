@@ -335,6 +335,46 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         assertThat(focusSessionRepository.existsActiveOverlappingWindow(List.of(user.getId()), winEnd)).isFalse();
     }
 
+    // ── 단조성 판정용 최신 열린 마커 조회 (GROMO-1287 codex P1) ─────────────
+
+    @Test
+    @DisplayName("findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc — 열린 마커가 여럿이어도 가장 최신 1건")
+    void findsNewestOpenMarkerAmongSeveral() {
+        // given: 마이그레이션 이전 스냅샷·ci 스키마처럼 열린 마커가 여럿인 상태 + 완료 세션 1개
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user).startedAt(Instant.parse("2026-07-03T01:00:00Z")).build());
+        FocusSession newest = focusSessionRepository.save(FocusSession.builder()
+                .user(user).startedAt(Instant.parse("2026-07-03T03:00:00Z")).build());
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T05:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T06:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when & then: 완료 세션(더 늦게 시작)이 아니라 열린 마커 중 최신을 고른다
+        assertThat(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .get()
+                .extracting(FocusSession::getId)
+                .isEqualTo(newest.getId());
+    }
+
+    @Test
+    @DisplayName("findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc — 열린 마커가 없으면 빈 값")
+    void findsNoOpenMarkerWhenAllClosed() {
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        assertThat(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .isEmpty();
+    }
+
     // ── COMPLETED 세션 포함 (GROMO-733) ──────────────────────────────────
 
     @Test

@@ -198,6 +198,23 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
 
     /**
+     * 현재 열린 마커 중 <b>가장 최근에 시작한</b> 1건 (GROMO-1287) — {@code startFocusSession} 의
+     * startedAt 단조성 판정용.
+     *
+     * <p>왜 필요한가: 앱의 {@code startLiveSession} 은 반환값이 없어 await 되지 않는다
+     * ({@code FocusSessionScreen.tsx}). 백그라운드 복귀 리플레이가 휴식→집중 경계와 크레딧 상한 처리에서
+     * 연달아 start 를 쏘면 두 요청이 동시에 날아가고, <b>더 이른 startedAt 을 든 요청이 나중에 도착</b>할 수
+     * 있다. 그때 무조건 close-then-open 하면 방금 열린 최신 마커가 닫히고 과거 시각 마커가 라이브가 돼
+     * '집중 중' 경과가 부풀고, 직전 블록 업로드가 그마저 닫으면 라이브 마커가 사라진다.
+     * 호출측은 이 마커의 {@code startedAt} 보다 <b>엄격히 늦은</b> 요청만 회전으로 인정한다.
+     *
+     * <p>{@code ORDER BY startedAt DESC} — V47 이후 열린 마커는 유저당 1건이지만, 마이그레이션 이전
+     * 스냅샷과 ci(create-drop) 스키마에는 부분 유니크가 없어 여럿일 수 있다. 그때도 판정 기준이 흔들리지
+     * 않도록 {@code findLiveSessionsByUserIdIn} 과 같은 "최신 우선" 관례를 쓴다.
+     */
+    Optional<FocusSession> findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(User user);
+
+    /**
      * 유저당 단일 라이브 마커 불변식(GROMO-1287) — 새 마커를 열기 전에 <b>같은 유저의 열린 마커를 전부</b>
      * {@code AUTO_CLOSED} 로 원자 마감한다. 단일 벌크 UPDATE 라 조회-판정-수정 사이 창이 없고,
      * 걸린 행은 그대로 잠겨 동시 PATCH/취소와 직렬화된다.
