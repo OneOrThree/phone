@@ -625,7 +625,9 @@ export default function HomeScreen() {
               <View style={s.nameCol}>
                 <View style={s.nameRow}>
                   {/* 닉네임은 최대 10자 — 320pt급 폭에선 순위 배지·알림 벨을 밀어낸다.
-                      줄이는 건 닉네임뿐이고 배지·벨은 그대로 둔다(GROMO-1487). */}
+                      기본 배율에서 줄이는 건 닉네임뿐이고 배지·벨은 그대로 둔다(GROMO-1487).
+                      다만 기기 글자 크기를 키우면 배지 안 '12위'까지 같이 커져 닉네임을 0으로
+                      줄여도 모자라므로, 배지·티어 줄에도 flexShrink를 뒀다(GROMO-1485). */}
                   <Text style={s.nickname} numberOfLines={1}>
                     {nickname}
                   </Text>
@@ -638,7 +640,9 @@ export default function HomeScreen() {
                 </View>
                 <View style={s.tierRow}>
                   <Image source={tier.image} style={s.tierImg} />
-                  <Text style={s.tierText}>{tier.name}</Text>
+                  <Text style={s.tierText} numberOfLines={1}>
+                    {tier.name}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -840,6 +844,7 @@ const s = StyleSheet.create({
   nickname: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   rankBadge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 3,
     backgroundColor: T.blueBg,
@@ -847,10 +852,16 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.sm,
     paddingVertical: 2,
   },
-  rankText: { ...T.text.label, color: T.blue },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginTop: 2 },
+  rankText: { ...T.text.label, color: T.blue, flexShrink: 1 },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.xs,
+    marginTop: 2,
+    flexShrink: 1,
+  },
   tierImg: { width: 18, height: 18, resizeMode: 'contain' },
-  tierText: { ...T.text.label, color: T.inkSub },
+  tierText: { ...T.text.label, color: T.inkSub, flexShrink: 1 },
   settingsBtn: {
     width: 40,
     height: 40,

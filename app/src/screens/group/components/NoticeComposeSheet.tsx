@@ -194,7 +194,8 @@ const s = StyleSheet.create({
   contentInput: { minHeight: 112, maxHeight: 180 },
   error: { ...T.text.caption, color: T.dangerInk, marginBottom: T.space.md },
   saveBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

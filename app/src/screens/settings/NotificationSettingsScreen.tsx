@@ -330,7 +330,8 @@ const s = StyleSheet.create({
   pickerCol: { flex: 1 },
   colon: { ...T.text.title, color: T.inkSub, marginHorizontal: T.space.xs },
   confirmBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

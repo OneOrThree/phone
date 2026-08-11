@@ -259,7 +259,8 @@ const s = StyleSheet.create({
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, flex: 1, lineHeight: 19 },
 
   saveBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

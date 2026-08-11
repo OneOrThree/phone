@@ -541,7 +541,8 @@ const s = StyleSheet.create({
   // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격 — 시트 CTA와도 반경이 맞는다)
   primaryBtn: {
     alignSelf: 'stretch',
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -550,7 +551,8 @@ const s = StyleSheet.create({
   primaryText: { ...T.text.subtitle, color: T.white },
   outlineBtn: {
     alignSelf: 'stretch',
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -564,7 +566,8 @@ const s = StyleSheet.create({
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹방·공지 화면과 같은 값을 쓴다(§G-4).
   // 화면 CTA(52/stretch)와 구분해 "조회 실패 복구"라는 역할을 규격으로 드러낸다.
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

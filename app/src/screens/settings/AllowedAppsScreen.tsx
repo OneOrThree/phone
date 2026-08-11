@@ -219,7 +219,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.sm,
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: T.accent,
@@ -230,7 +231,8 @@ const s = StyleSheet.create({
 
   // 하단 완료 CTA(필드)
   doneBtn: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

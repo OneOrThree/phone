@@ -342,7 +342,8 @@ const s = StyleSheet.create({
   noteText: { ...T.text.caption, fontWeight: '500', color: T.inkSub, lineHeight: 19 },
   error: { ...T.text.caption, color: T.dangerInk, marginTop: T.space.md },
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
@@ -353,7 +354,8 @@ const s = StyleSheet.create({
   submitText: { ...T.text.subtitle, color: T.white },
   // 축소 액션 — 주 CTA보다 약한 아웃라인(돈이 덜 나가는 대안이지 취소가 아니다).
   partialBtn: {
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: T.accent,
@@ -363,7 +365,8 @@ const s = StyleSheet.create({
   },
   partialText: { ...T.text.label, color: T.accent },
   ghostBtn: {
-    height: 44,
+    minHeight: 44,
+    paddingVertical: T.space.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: T.space.xs,

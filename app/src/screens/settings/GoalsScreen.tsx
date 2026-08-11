@@ -306,7 +306,8 @@ const s = StyleSheet.create({
 
   // 저장 버튼(footer)
   saveBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

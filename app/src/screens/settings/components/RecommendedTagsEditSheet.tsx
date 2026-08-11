@@ -102,7 +102,8 @@ const s = StyleSheet.create({
   listScroll: { maxHeight: 320 },
   list: { gap: T.space.sm },
   doneBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',
