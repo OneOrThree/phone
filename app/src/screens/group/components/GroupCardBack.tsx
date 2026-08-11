@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { todayStrKst } from '@/utils/localDate';
@@ -100,15 +101,21 @@ export function GroupCardBack({
         </Pressable>
         <TouchableOpacity
           ref={settingsRef}
+          style={s.settingsButton}
           onPress={(event) => {
             event.stopPropagation();
             onOpenSettings();
           }}
           accessibilityRole="button"
-          accessibilityLabel={`${group.name} 그룹 옵션`}
+          accessibilityLabel="그룹 설정"
           testID={`group.card.settings.${group.groupId}`}
         >
-          <Text style={s.link}>⋯ 설정</Text>
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={22}
+            color={T.accentDeep}
+            testID={`group.card.settingsIcon.${group.groupId}`}
+          />
         </TouchableOpacity>
       </View>
 
@@ -292,6 +299,21 @@ const s = StyleSheet.create({
   },
   titleAction: { flex: 1 },
   title: { ...T.text.heading, color: T.ink },
+  settingsButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accentBg,
+    borderWidth: 1,
+    borderColor: T.sand,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
   section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
   summaryScroll: { flex: 1 },
   summaryContent: { gap: T.space.sm },

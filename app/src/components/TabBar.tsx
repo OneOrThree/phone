@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, StyleSheet, Platform, Text } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -127,8 +127,12 @@ function Tab({
         if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
       }}
     >
-      <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
-      <Text style={[s.tabLabel, focused ? s.tabLabelSelected : s.tabLabelIdle]}>{route.name}</Text>
+      <Ionicons
+        testID={`tabbar.icon.${route.name}`}
+        name={focused ? on : off}
+        size={26}
+        color={focused ? T.accent : T.inkMuted}
+      />
     </PressableScale>
   );
 }
@@ -227,11 +231,7 @@ const s = StyleSheet.create({
     height: BAR_H,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
   },
-  tabLabel: { fontSize: 10, lineHeight: 12, fontWeight: '600' },
-  tabLabelSelected: { color: T.accent },
-  tabLabelIdle: { color: T.inkMuted },
   fabSlot: { width: 72 },
   // 리퀴드 글래스 하이라이트 알약(타원) — 미지원 기기 폴백 질감 포함
   highlight: {

@@ -122,10 +122,19 @@ test('멤버를 받아도 focus가 조회 중이면 오류 대신 로딩을 표�
   expect(screen.queryByText('현재 집중 인원 확인 불가')).toBeNull();
 });
 
-test('설정 버튼의 접근성 이름에 대상 그룹을 포함한다', async () => {
+test('설정은 시각 텍스트 없이 원형 아이콘과 접근성 이름을 유지한다', async () => {
   await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
 
-  expect(screen.getByLabelText('아침 집중방 그룹 옵션')).toBeOnTheScreen();
+  const button = screen.getByLabelText('그룹 설정');
+  expect(button).toBeOnTheScreen();
+  expect(button).toHaveStyle({
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    shadowOpacity: 0.1,
+  });
+  expect(screen.getByTestId('group.card.settingsIcon.g1')).toBeOnTheScreen();
+  expect(screen.queryByText(/설정/)).toBeNull();
 });
 
 test('빈 영역 포인터 wrapper는 키보드 포커스 순서에서 제외한다', async () => {
