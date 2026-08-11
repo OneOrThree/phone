@@ -272,7 +272,7 @@ show({ message: '캐릭터를 변경했어요', tone: 'success' });
 | 그룹 목록 | 덱 카드(가로) | `enterUp(i)` — **이미 적용됨** | base | i × 60 | 2 |
 | 그룹방 | 로딩 | `SkeletonGroup` — **이미 적용됨** | 1200 loop | — | 1 |
 | 그룹방 | 챌린지 카드 M개 | `enterUp(i)` | base | i × 60 | 2 |
-| 그룹방 | 멤버 3열 그리드 | **행 단위** `fadeIn(m.stagger(rowIdx))` | quick | row × 60 | **1** |
+| 그룹방 | 멤버 3열 그리드 | **시차 없이** `fadeIn(0)` — 행마다 같은 지연 0 ([D24](policy.md#d24)) | quick | **0** | **1** |
 | 그룹방 | 멤버 타일 | `PressableScale` (타일 루트 = 이미 `TouchableOpacity`) | press | 0 | 1 |
 | 챌린지 카드 | **내부 버튼만** 눌림 | `PressableScale` — 카드 루트는 **비터치 `View` 유지** | press | 0 | 1 |
 | 챌린지 카드 | 멤버 진행 수치 | **없음(등급 0)** — [D25-1](policy.md#d25) | — | — | 0 |
@@ -344,7 +344,7 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 - **stagger 축은 챌린지 카드 하나뿐이다.** 멤버 그리드까지 시차를 걸면 0에서 다시 시작하는 지연이 한 화면에 둘 생겨 "리스트가 두 번 그려진다"로 읽힌다. 그리고 그리드는 대부분 **첫 화면 밖**이라, 보이지도 않는 연출에 프레임을 쓴다.
 - 그리드는 **시차 없이 `fadeIn(0)`** 이다 — 행마다 같은 지연 0을 주므로 사실상 한 번에 나타난다. ⚠️ **행 단위 `m.stagger(rowIdx)`도 안 된다**(2026-08-12 codex 리뷰): 프리미티브를 `enterUp`에서 `fadeIn`으로 낮춰도 **지연 축은 그대로 `0/60/120ms`** 라 위 불릿이 배제한 두 번째 축이 그대로 생긴다. 낮춘다는 것은 축을 **지우는** 것이다.
 - **정원 상한에 기대지 않는다.** 종전 서술은 "최대 10명이니 4행이라 `staggerMaxSteps`(6) 안에 들어간다"고 확정했는데, [정책 D25-1](policy.md#d25)이 이미 **`10`은 서버 불변식이 아니라고** 못박았다 — `UpdateGroupRequest`에 `@Max(10)`이 없어 API로 정원을 20으로 올린 그룹이 존재할 수 있고, 그러면 7행이 되어 전제가 깨진다. 지연 축이 없으면 **행 수와 무관하게** 성립한다. 렌더 구조가 이미 `memberRows.map(row => row.map(cell))`(`GroupRoomScreen.tsx:1125-1175`)이라 **행 래퍼가 이미 있다** — 뷰를 새로 끼우지 않는다(정책 D13).
-  ⚠️ **다만 성능 실측(P1·P2)은 정원이 큰 그룹에서도 다시 본다** — 연출은 사라져도 타일 개수 자체는 늘어난다.
+  ⚠️ **다만 성능 실측(P1)은 정원이 큰 그룹에서도 다시 본다** — 연출은 사라져도 타일 개수와 그만큼의 `CharacterImage` 는 늘어난다. **P2 는 아니다**: 그룹방 스켈레톤은 `SkeletonGroup` 한 묶음(고정 6블록, `GroupRoomScreen.tsx:855-881`)이고 데이터가 오면 타일이 나타나기 **전에** 언마운트되므로, 정원이 커져도 스켈레톤 **개수는 그대로**다(2026-08-12 codex 리뷰).
 - **등급은 1이다(2가 아니다).** `fadeIn`은 `M.dur.quick`(220ms) **고정**인데 [IA §2](information-architecture.md)의 등급 2는 `base`·`slow`·`entrance`만 허용한다 — 등급 2로 적으면 **구현자가 프리미티브와 등급 계약을 동시에 만족할 수 없다**. 등급을 낮추는 쪽이 [D24](policy.md#d24)의 "한 단계 낮춘다"와도 맞는다. 등급 2를 굳이 지키려면 `enterUp`(base) 계열로 갈아타야 하는데, 그건 위 첫 불릿이 배제한 축이다.
 - 챌린지 카드에 `enterUp(i)`를 걸 자리는 `GroupRoomScreen.tsx:1072-1092`의 `.map()`이다. 키가 `c.id`라 노드 동일성이 유지된다.
   ⚠️ **키만으로는 부족하다 — 인덱스를 고정해야 한다.** `load()`가 조회 결과로 `challengeList` 전체를 교체하므로 카드 하나가 삭제·추가되면 **살아남은 카드의 `i`가 바뀐다.** `key={c.id}`는 컴포넌트를 보존할 뿐 `enterUp(i)`가 **다른 프리셋 객체로 갈리는 것**은 막지 못해, 가만히 있던 카드가 다시 진입한다. `GroupListScreen.tsx:168-186`이 같은 이유로 **마운트 시 인덱스를 `useRef`로 고정**해 두었다 — 그 관행을 그대로 쓴다. 카드별 **최초 인덱스**(또는 노출 여부)를 고정하고, 이후 목록이 바뀌어도 그 값을 유지한다. 내역 리스트의 재마운트 계약(§ 아래)과 같은 축의 문제다.
@@ -372,7 +372,17 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 
 `MemberTile`은 반대다 — 루트가 이미 `TouchableOpacity`(`MemberTile.tsx:58-65`)이고 타일 전체가 탭 대상이므로(멤버 통계 비교로 이동, GROMO-1200) **루트를 그대로 `PressableScale`로 바꾼다.** 동선이 늘지 않는다.
 
-**지난 내기 결과의 `pop`은 `isMe`가 아니라 `isMe && 승리`에만 건다**
+**지난 내기 결과의 `pop`은 `isMe && 승리`이고, 그 행이 **실제로 보일 때만** 건다**
+
+⚠️ **가시성이 조건이다(2026-08-12 codex 리뷰).** `resultsScroll`은 `maxHeight: 190`이라 참가자가 6명 이상이면 나머지 행이 잘린다. 그리고 **내 행이 위에 온다는 보장이 없다** — 백엔드 `findBySessionIdIn`에 정렬 계약이 없고 앱도 `lastBet.results`를 **받은 순서 그대로** 렌더한다. 마운트 즉시 걸면 600ms 축하가 **화면 밖에서 끝나고**, 사용자가 스크롤해 내려왔을 땐 아무 일도 일어나지 않는다.
+
+**계약 두 줄**:
+1. **시트가 열릴 때 내 행이 첫 화면에 오도록 초기 스크롤을 맞춘다.** 이건 모션 이전에 **정보 우선순위** 문제다 — 내 결과를 보려고 여는 시트인데 내 행이 화면 밖이라는 것 자체가 결함이다. `results`에서 `isMe` 인덱스를 찾아 `scrollTo`(애니메이션 없이 — 진입과 겹치면 안 된다).
+2. **그래도 가려지면 `pop`을 걸지 않는다.** 등급 3 축하는 보이지 않으면 존재하지 않는 것이고, 안 보이는 연출에 프레임을 쓰는 건 [PRD §6.2](prd.md)의 P1이 걸리는 자리다. 등급 0으로 떨어뜨리는 편이 낫다.
+
+> 두 줄이 다 필요하다 — 1만 하면 스크롤이 실패하는 경우(레이아웃 전 호출·행이 아예 없음)를 못 막고, 2만 하면 **내가 이겼는데 축하가 영영 안 뜨는** 흔한 경우가 남는다.
+
+
 
 `LastBetResultSheet`의 행은 **참가자 전원**에게 렌더되고 `isMe`는 **강조 스타일만** 고른다(`LastBetResultSheet.tsx:246-257` — `s.rowMe`·`s.nicknameMe`). `isMe`를 그대로 조건으로 쓰면 **진 사람·미판정인 사람에게 등급 3 축하 연출이 재생된다.** [IA §3.4](information-architecture.md)가 지정한 대상은 "베팅 **승리**"다.
 
@@ -435,12 +445,14 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 | `components/SheetShell.test.tsx` | §4.4 기존 규칙 전부 + 퇴장 후 `onClose` + reduce 시 애니메이션 스타일 부재 |
 | `components/PressableScale.test.tsx` | **무수정 통과**가 톤 변경(PR2)의 안전망 |
 | 알럿 이관 지점별 | `Alert.alert` **미호출** + `show` 호출 |
-| `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · 멤버 그리드는 **행 수만큼**의 delay 단계(타일 수가 아니다) · **행 delay가 `0/1/2ms`가 아니라 `0/60/120ms`** (`fadeIn`에 인덱스를 넘기는 사고 차단) · reduce → 둘 다 `animationName` 부재 |
+| `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · **멤버 그리드는 모든 행의 delay가 `0`** — 시차 축은 챌린지 카드 하나뿐이다([D24](policy.md#d24)). ⚠️ 「행마다 다른 delay」를 단언하면 **정책이 금지한 두 번째 축을 테스트가 요구**하게 된다 · reduce → 둘 다 `animationName` 부재 |
 | `screens/group/components/MemberTile.test.tsx` (신규) | 눌림이 `PressableScale` 경유 · `onPress` 없으면 비활성 유지 |
 | `screens/group/components/ChallengeCard.test.tsx` | **카드 루트에 `onPress`가 없다**(비터치 `View` 유지 — 회귀 방지) · 내부 버튼 **10개**가 `PressableScale` 경유 · **`group.bet.leaveCountdown`은 여전히 눌리지 않는다**(표시용 `<Text>` — 버튼화 방지) |
 | `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 |
 | `screens/group/GroupChallengeHistoryScreen.test.tsx` | 첫 로딩에 `ActivityIndicator` **미사용** + 스켈레톤 `testID` 존재 · `SkeletonCard` **미사용**(높이 상수가 없다 — D25-3) · **꼬리 스피너는 그대로 존재**(회귀 방지) |
 | `screens/group/components/BetSheet.test.tsx` | 참여자 행에 `ProgressBar`·전환 스타일이 **없다**(D25-2 회귀 방지) · 폭이 `dayBarPercent` 그대로 |
+| `screens/group/components/LastBetResultSheet.test.tsx` | `isMe && 승리`에만 `pop` · 진 행·미판정 행엔 **부재** · **내 행이 6번째여도 초기 스크롤이 그 행을 보이게 한다** · 스크롤이 불가능하면 `pop`이 **걸리지 않는다**(안 보이는 축하 방지) |
+| `screens/group/components/ChallengeResultModal.test.tsx` (게이팅) | 캐릭터 `onLoad` **전에는** `Enter`가 비활성 · `onLoad` + `InteractionManager` 유휴 뒤에 활성 (`GoalCelebrationModal` 참조 구현과 같은 계약) |
 
 > ⚠️ **꼬리 스피너를 지웠는지가 아니라 남았는지를 단언한다.** 챌린지 내역의 `ListFooterComponent`
 > 스피너(`GroupChallengeHistoryScreen.tsx:363-368`)와 시트 CTA 안 스피너는 **스켈레톤 대상이 아니다** —

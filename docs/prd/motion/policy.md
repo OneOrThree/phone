@@ -277,6 +277,15 @@
 | 캐릭터 | 없음 | **`pop()`** — `GoalCelebrationModal.tsx:123-136`과 같은 `<Enter preset={pop()}>` |
 | 명단 3구획 | 한 번에 표시 | `enterUp(i)` |
 
+> ⚠️ **캐릭터가 준비된 뒤에 `pop`을 시작한다 — 마운트 즉시가 아니다.**
+> `GoalCelebrationModal`은 **참조 구현**이고([HLD](high-level-design.md)), 그 패턴의 핵심이
+> `charReady && uiIdle` + `InteractionManager` 게이팅이다. 저사양 기기나 콜드 디코딩에서
+> 번들 `Image`가 늦게 준비되면, 마운트에 건 600ms 연출은 **이미지가 보이기도 전에 끝난다** —
+> 사용자에게는 축하가 아예 없었던 것과 같고, 등급 3 표면에서 그건 결함이다.
+> **계약**: 캐릭터 `onLoad`와 UI 유휴가 **둘 다** 확인된 뒤 `Enter`를 활성화한다
+> (`active={charShown}`). 종전 서술은 배치만 옮기고 이 게이팅을 빠뜨려, 구현자가 참조 구현을
+> 보지 않으면 재현되지 않았다(2026-08-12 codex 리뷰).
+
 > ⚠️ **큐의 두 번째 결과부터는 `Modal` 페이드가 재생되지 않는다 — 진입 수단을 여기에만 두면 안 된다.**
 > 미확인 결과가 둘 이상이면 `GroupRoomScreen.tsx:680-685`·`:803-806`이 첫 결과를 닫을 때 큐만
 > `slice(1)` 하고 `resultVisible` 은 **`true` 로 유지**한다 — 같은 `Modal` 인스턴스의 **내용만** 다음
