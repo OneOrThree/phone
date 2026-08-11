@@ -15,7 +15,12 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
         ports:
-          - 5432:5432
+          # 호스트 포트를 고정하지 않는다. 러너 프로세스 3개(gromo-dev-build-1/2/3)가
+          # VM 한 대를 공유해서 호스트 포트도 공유한다 — 5432 를 박으면 동시에 도는
+          # 다른 백엔드 잡(generate-docs)과 부딪혀 컨테이너 기동 단계에서 즉사한다:
+          #   Bind for 0.0.0.0:5432 failed: port is already allocated
+          # 도커가 빈 포트를 고르게 두고, 실제 매핑 포트는 job.services 로 읽어 주입한다.
+          - 5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -53,6 +58,10 @@ jobs:
       - name: Run tests
         env:
           SPRING_PROFILES_ACTIVE: ci
+          # application-ci.yml 은 localhost:5432 를 하드코딩한다. 위에서 호스트 포트를
+          # 도커에 맡겼으므로 실제 매핑 포트로 덮어쓴다(Testcontainers 를 쓰는 테스트는
+          # @DynamicPropertySource 가 우선이라 영향 없다).
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:${{ job.services.postgres.ports['5432'] }}/tt_db
         run: ./gradlew test
 
       # - name: JaCoCo + OWASP
