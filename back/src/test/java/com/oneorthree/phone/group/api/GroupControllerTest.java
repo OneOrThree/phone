@@ -141,7 +141,8 @@ class GroupControllerTest {
     @Test
     @DisplayName("그룹 생성 이름이 비분리 공백뿐이거나 양방향 제어문자를 포함하면 400으로 거절한다")
     void createGroupRejectsUnicodeWhitespaceAndBidiControls() throws Exception {
-        for (String name : List.of("\u00A0\u202F", "공부방\u202E가짜 안내", "공부방\u2066가짜 안내")) {
+        for (String name : List.of(
+                "\u00A0\u202F", "\u200B", "공부방\u202E가짜 안내", "공부방\u2066가짜 안내")) {
             mockMvc.perform(post("/api/v1/groups")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
@@ -195,6 +196,7 @@ class GroupControllerTest {
                 " \t ",
                 "　",
                 "\u00A0\u202F",
+                "\u200B",
                 "공부방\n가짜 안내",
                 "공부방\u0000가짜 안내",
                 "공부방\u202E가짜 안내",

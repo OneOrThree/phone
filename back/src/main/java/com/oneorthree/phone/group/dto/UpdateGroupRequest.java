@@ -12,7 +12,7 @@ public class UpdateGroupRequest {
     // null 은 부분 수정에서 "미변경"이다. 값이 전달된 경우에만 생성 DTO와 같은 규칙을 적용한다.
     @Size(max = 50)
     @Pattern(
-            regexp = "^(?=.*[^\\p{javaWhitespace}\\p{Zs}])"
+            regexp = "^(?=.*[^\\p{javaWhitespace}\\p{Zs}\\p{Cf}])"
                     + "[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$",
             message = "그룹명은 공백일 수 없으며 개행이나 양방향 제어문자를 사용할 수 없습니다")
     private String name;
