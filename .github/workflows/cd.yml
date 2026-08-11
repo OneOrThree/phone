@@ -1,104 +1,164 @@
+# GROMO dev 서버 — CD (이미지 빌드 → GAR push → 앱 서버 배포)
+#
+# 구조는 prod(prod-ci → prod-cd)와 같다: CI가 이미지를 만들어 레지스트리에 올리고,
+# CD가 그걸 받아 배포한다. 예전에는 dev 서버 한 대가 빌드와 실행을 겸해서
+# 레지스트리를 거치지 않았는데, 러너를 빌드 서버로 분리하면서 통로가 필요해졌다.
+#
+# prod와 다른 점 — dev는 프로덕션이 아니라 롤백하지 않는다:
+#   - 태그가 latest 하나뿐이다. SHA·SemVer 태그를 남기지 않는다.
+#   - 따라서 이전 이미지로 되돌릴 수 없고, 복구는 재빌드가 유일한 경로다.
+#   - 레지스트리도 ECR이 아니라 GAR을 쓴다(러너와 같은 리전이라 왕복이 없다).
+
 name: CD
 
 on:
   push:
     branches: [main]
     paths:
-      - 'back/**'
+      - "back/**"
   workflow_dispatch:
 
 concurrency:
   group: cd-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  APP_IMAGE: asia-northeast3-docker.pkg.dev/oneorthree2/dev-app/back:latest
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+
 jobs:
-  deploy:
-    runs-on: [self-hosted, dev]
-    environment: production
-    timeout-minutes: 40
-    permissions:
-      id-token: write
-      contents: read
-    env:
-      # Datadog 오버레이를 보존해 배포할 때만 쓰인다 (아래 감지 스텝 참고) — OFF 상태면 미사용.
-      DD_API_KEY: ${{ secrets.DD_API_KEY }}
-      DD_SITE: us5.datadoghq.com
+  build:
+    name: 빌드 · GAR push
+    runs-on: [self-hosted, ci, spot]
+    timeout-minutes: 30 # self-hosted 기본 360분 — 러너 장기 점유 방지
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: AWS 자격증명 설정
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-phone
-          aws-region: ap-northeast-2
-
-      - name: AWS Secrets Manager에서 시크릿 로드
+      # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
+      - name: GAR 인증
         run: |
-          SECRET=$(aws secretsmanager get-secret-value \
-            --secret-id oneorthree/phone \
-            --region ap-northeast-2 \
-            --query SecretString --output text)
-          echo "POSTGRES_DB=$(echo $SECRET | jq -r '.POSTGRES_DB')" >> $GITHUB_ENV
-          echo "POSTGRES_USER=$(echo $SECRET | jq -r '.POSTGRES_USER')" >> $GITHUB_ENV
-          echo "POSTGRES_PASSWORD=$(echo $SECRET | jq -r '.POSTGRES_PASSWORD')" >> $GITHUB_ENV
-          echo "JWT_SECRET=$(echo $SECRET | jq -r '.JWT_SECRET')" >> $GITHUB_ENV
-          echo "GOOGLE_CLIENT_ID=$(echo $SECRET | jq -r '.GOOGLE_CLIENT_ID')" >> $GITHUB_ENV
-          echo "APPLE_CLIENT_ID=$(echo $SECRET | jq -r '.APPLE_CLIENT_ID')" >> $GITHUB_ENV
-          # FCM 발송 (GROMO-528) — 서비스 계정 JSON 은 base64 인코딩 문자열로 저장돼 있음 (시크릿 선등록 완료)
-          echo "FCM_PROJECT_ID=$(echo $SECRET | jq -r '.FCM_PROJECT_ID')" >> $GITHUB_ENV
-          echo "FCM_SERVICE_ACCOUNT_JSON=$(echo $SECRET | jq -r '.FCM_SERVICE_ACCOUNT_JSON')" >> $GITHUB_ENV
-          # 누끼 유해 이미지 모더레이션 (GROMO-1048) — OpenAI omni-moderation 서버 게이트(1044)용 키
-          echo "OPENAI_API_KEY=$(echo $SECRET | jq -r '.OPENAI_API_KEY')" >> $GITHUB_ENV
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
 
-      - name: Docker Buildx 설정
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Docker 이미지 빌드
+      - name: 이미지 빌드 및 push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ./back
           file: ./back/Dockerfile
-          push: false
-          load: true
-          tags: |
-            phone-app:${{ github.sha }}
-            phone-app:latest
+          push: true
+          # platforms 미지정 = 러너 네이티브(amd64). prod는 t4g라 arm64를 명시하지만
+          # dev 앱 서버도 같은 amd64라 맞출 필요가 없다.
+          provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
+          tags: ${{ env.APP_IMAGE }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # dev-datadog.yml 로 Datadog 을 켜 둔 상태면 그 배선(-javaagent·DD_* env·통합 서비스 태그 라벨)을
-      # 배포 후에도 유지한다 (GROMO-1233). dev 파일 단독으로 app 을 재생성하면 datadog 오버레이의 app
-      # override 가 통째로 벗겨져, Agent 는 살아 있는데 트레이스만 끊기고 로그 service 태그가 컨테이너명
-      # (phone-app)으로 폴백되는 상태가 됐다.
-      # 배포가 Datadog 을 강제로 켜지는 않는다 — 켜져 있던 상태만 보존해 수동 토글(up/down) 의미를 지킨다.
-      - name: Datadog 오버레이 감지
+      - name: 결과 요약
         run: |
-          if [ -z "$(docker ps -q -f 'name=^gromo-datadog-agent$')" ]; then
-            echo "COMPOSE_FILES=-f docker-compose.dev.yml" >> $GITHUB_ENV
-            echo "Datadog OFF — dev 파일 단독으로 배포"
-          elif [ -z "${DD_API_KEY}" ]; then
-            # docker-compose.datadog.yml 은 DD_API_KEY 를 `:?` 로 fail-fast 한다. 키가 비면 compose 파싱
-            # 단계에서 배포 전체가 죽으므로, 관측 배선이 배포를 막지 않도록 오버레이를 포기하고 경고만 남긴다.
-            echo "COMPOSE_FILES=-f docker-compose.dev.yml" >> $GITHUB_ENV
-            echo "::warning::Datadog Agent 는 기동 중이나 DD_API_KEY 미설정 — APM 오버레이 없이 배포한다(트레이스 끊김)"
-          else
-            echo "COMPOSE_FILES=-f docker-compose.dev.yml -f docker-compose.datadog.yml" >> $GITHUB_ENV
-            echo "Datadog ON — APM 오버레이를 포함해 배포"
-          fi
+          echo "### dev 이미지 push 완료 :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.APP_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 태그는 latest 단일 — 롤백 불가(재빌드로만 복구)" >> $GITHUB_STEP_SUMMARY
 
-      - name: Docker Compose 배포
+  deploy:
+    name: 앱 서버 배포
+    needs: build
+    runs-on: [self-hosted, dev]
+    environment: production
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 (OIDC, keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      - name: AWS 계정 경계 확인
+        run: test "$(aws sts get-caller-identity --query Account --output text)" = 808715036056
+
+      # checkout sibling은 actions/checkout의 git clean 범위 밖이다. 배포 뒤 수동 compose와
+      # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
+      - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
         env:
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
         run: |
-          docker compose $COMPOSE_FILES up -d app
-          docker compose $COMPOSE_FILES ps
+          set -euo pipefail
+          test -n "$IMAGE_DIGEST"
+          IMAGE_REPOSITORY="${APP_IMAGE%:*}"
+          aws secretsmanager get-secret-value \
+            --secret-id "$ENV_SECRET_ID" \
+            --query SecretString --output text \
+          | python3 .github/scripts/write-compose-env.py \
+              --output "$RUNTIME_ENV_FILE" \
+              --app-image "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - name: 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.sha }}
+          IMAGE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            test -n "$DD_API_KEY"
+            compose+=(-f docker-compose.datadog.yml)
+            echo "DATADOG_OVERLAY_ENABLED=1" >> "$GITHUB_ENV"
+          else
+            echo "DATADOG_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
+          fi
+          "${compose[@]}" pull app
+          "${compose[@]}" up -d app
+          "${compose[@]}" ps
 
       - name: 헬스체크
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.sha }}
+          IMAGE_REVISION: ${{ github.sha }}
         run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f docker-compose.dev.yml)
+          if [ "${DATADOG_OVERLAY_ENABLED:-0}" = 1 ]; then
+            compose+=(-f docker-compose.datadog.yml)
+          fi
           echo "앱 기동 대기 중..."
-          # 60초는 7/24에도 55초 턱걸이 → 150초 확장(GROMO-1068). 1233으로 Datadog APM 오버레이가
-          # 보존되면서 dd-trace 부착 부팅이 150초마저 초과(8/7 오탐 — 앱은 컷오프 직후 정상 기동),
-          # 300초로 재확장 (GROMO-1235)
+          # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
           for i in $(seq 1 60); do
             sleep 5
             if curl -sf http://localhost:8080/health; then
@@ -107,7 +167,7 @@ jobs:
             fi
             echo "대기 중... ($((i*5))s)"
           done
-          docker compose $COMPOSE_FILES logs app
+          "${compose[@]}" logs app
           exit 1
 
       - name: 배포 실패 리포트
