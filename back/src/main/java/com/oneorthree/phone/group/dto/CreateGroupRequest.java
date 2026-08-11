@@ -26,7 +26,10 @@ public class CreateGroupRequest {
 
     @NotBlank
     @Size(max = 50)
-    @Pattern(regexp = "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$", message = "그룹명에는 개행이나 제어문자를 사용할 수 없습니다")
+    @Pattern(
+            regexp = "^(?=.*[^\\p{javaWhitespace}\\p{Zs}])"
+                    + "[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$",
+            message = "그룹명은 공백일 수 없으며 개행이나 양방향 제어문자를 사용할 수 없습니다")
     private String name;
 
     private String password;

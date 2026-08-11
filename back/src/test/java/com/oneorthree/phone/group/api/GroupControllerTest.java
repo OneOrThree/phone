@@ -139,6 +139,22 @@ class GroupControllerTest {
     }
 
     @Test
+    @DisplayName("그룹 생성 이름이 비분리 공백뿐이거나 양방향 제어문자를 포함하면 400으로 거절한다")
+    void createGroupRejectsUnicodeWhitespaceAndBidiControls() throws Exception {
+        for (String name : List.of("\u00A0\u202F", "공부방\u202E가짜 안내", "공부방\u2066가짜 안내")) {
+            mockMvc.perform(post("/api/v1/groups")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "name", name,
+                                    "maxMembers", 5)))
+                            .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                    .andExpect(status().isBadRequest());
+        }
+
+        verify(groupService, never()).createGroup(any(), any());
+    }
+
+    @Test
     @DisplayName("그룹 수정은 한글 이름 50자·멀티라인 소개 200자 경계값을 허용한다")
     void updateGroupAcceptsUnicodeLengthBoundaries() throws Exception {
         String name = "가".repeat(50);
@@ -175,7 +191,14 @@ class GroupControllerTest {
     @Test
     @DisplayName("그룹 수정 이름이 공백뿐이거나 개행·제어문자를 포함하면 400으로 거절한다")
     void updateGroupRejectsInvalidNames() throws Exception {
-        for (String name : List.of(" \t ", "　", "공부방\n가짜 안내", "공부방\u0000가짜 안내")) {
+        for (String name : List.of(
+                " \t ",
+                "　",
+                "\u00A0\u202F",
+                "공부방\n가짜 안내",
+                "공부방\u0000가짜 안내",
+                "공부방\u202E가짜 안내",
+                "공부방\u2066가짜 안내")) {
             mockMvc.perform(patch("/api/v1/groups/{groupId}", GROUP_ID)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of("name", name)))
