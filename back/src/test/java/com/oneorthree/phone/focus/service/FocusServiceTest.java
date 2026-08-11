@@ -2674,13 +2674,75 @@ class FocusServiceTest {
     }
 
     @Test
-    @DisplayName("클램프된 start(창 밖 과거)는 now 로 올라가 단조성을 통과한다 — 정상 회전을 막지 않는다")
-    void clampedStartStillRotatesExistingMarker() {
-        // given: 열린 마커가 1분 전에 열려 있고, 새 요청은 12시간 전 startedAt(창 밖) → now 로 클램프
+    @DisplayName("5분+ 백그라운드 리플레이 버스트 — 도착이 뒤집혀도 마커 1개로 수렴하고 모두 같은 id 를 받는다")
+    void backgroundReplayBurstConvergesOnSingleMarker() {
+        // given: 90분 백그라운드 후 복귀 — 리플레이가 과거 경계 두 개로 start 를 연달아 쏜다(둘 다 fire-and-forget).
+        // 두 startedAt 모두 클램프 창(과거 5분) 밖이라 **저장값**은 각 요청의 서버 now 로 치환된다.
+        Instant earlierBoundary = Instant.now().minus(Duration.ofMinutes(90));
+        Instant laterBoundary = Instant.now().minus(Duration.ofMinutes(60));
+        User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder()
+                        .id(markerId)
+                        .user(user)
+                        .startedAt(((FocusSession) inv.getArgument(0)).getStartedAt())
+                        .build());
+        // DB 상태 그대로: 1번째 호출 시점엔 열린 마커 없음, 2번째 시점엔 1번이 만든 마커(startedAt = 서버 now).
+        FocusSession created = FocusSession.builder()
+                .id(markerId).user(user).startedAt(Instant.now()).build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(created));
+
+        // when: 논리적으로 '나중' 경계가 먼저 도착하고, '이른' 경계가 뒤늦게 도착한다(도착 역전)
+        FocusSessionStartResponse first =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, laterBoundary));
+        FocusSessionStartResponse second =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, earlierBoundary));
+
+        // then: 순서 판정을 **클램프 이전** 시각으로 하므로 ② 는 최신 마커를 닫지 못한다.
+        // (클램프 값으로 판정하면 둘 다 now 로 치환돼 나중에 도착한 ② 의 now 가 더 커서 단조성을 통과했고,
+        //  최신 마커를 AUTO_CLOSED 한 뒤 자기 마커를 남겼다 — 이 티켓의 2차 P1 회귀.)
+        verify(focusSessionRepository, times(1)).save(any(FocusSession.class));
+        verify(focusSessionRepository, times(1)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        // 버스트의 모든 요청이 같은 id 를 돌려받아 앱(liveIdRef)이 그 마커로 수렴한다 → POST 폴백·유령 마커 없음
+        assertThat(first.sessionId()).isEqualTo(markerId);
+        assertThat(second.sessionId()).isEqualTo(markerId);
+    }
+
+    @Test
+    @DisplayName("클램프된(창 밖 과거) start 는 열린 마커를 닫지 못한다 — 클램프가 순서 판정을 무력화하지 않는다")
+    void clampedBackdatedStartDoesNotSupersedeOpenMarker() {
+        // given: 1분 전에 열린 마커 + 12시간 전 startedAt(창 밖 → 저장값은 now 로 클램프될 요청)
         Instant markerStartedAt = withinClampWindow(60);
         User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
         FocusSession marker = FocusSession.builder()
-                .id(UUID.fromString("00000000-0000-0000-0000-0000000000c3"))
+                .id(markerId).user(user).startedAt(markerStartedAt).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(marker));
+
+        // when
+        FocusSessionStartResponse response = focusService.startFocusSession(USER_ID,
+                new FocusSessionStartRequest(null, Instant.now().minus(Duration.ofHours(12))));
+
+        // then: 저장값(now)이 아니라 원래 요청 시각(12시간 전)으로 판정 → 회전 없음, 기존 마커 반환
+        assertThat(response.sessionId()).isEqualTo(markerId);
+        assertThat(response.startedAt()).isEqualTo(markerStartedAt);
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(focusSessionRepository, never()).autoCloseOpenMarkersOf(any(), any());
+    }
+
+    @Test
+    @DisplayName("버스트 뒤의 새 경계(마커보다 뒤)는 다시 회전한다 — 마커가 영구 고착되지 않는다")
+    void freshBoundaryAfterReplayBurstRotatesAgain() {
+        // given: 리플레이 버스트가 남긴 마커(10분 전) + 복귀 후 실제로 지난 새 블록 경계(5초 전, 창 안)
+        Instant markerStartedAt = withinClampWindow(600);
+        User user = User.builder().id(USER_ID).build();
+        FocusSession marker = FocusSession.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000d3"))
                 .user(user).startedAt(markerStartedAt).build();
         given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
@@ -2689,10 +2751,9 @@ class FocusServiceTest {
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when
-        focusService.startFocusSession(USER_ID,
-                new FocusSessionStartRequest(null, Instant.now().minus(Duration.ofHours(12))));
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, withinClampWindow(5)));
 
-        // then: 클램프는 값을 now 로 '올리는' 방향이라 단조성을 통과한다 → 구 마커 마감 + 새 마커 생성
+        // then: 보수적 규칙이 마커를 영구히 붙잡지 않는다 — 진짜로 더 늦은 경계는 정상 회전
         verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());

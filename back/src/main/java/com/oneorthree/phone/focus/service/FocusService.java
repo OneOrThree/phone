@@ -687,14 +687,13 @@ public class FocusService {
      * 한쪽이 500 으로 터진다. 이 락이 아래 <b>startedAt 단조성</b> 판정의 전제이기도 하다 — 직렬화가
      * 없으면 두 요청이 서로의 마커를 못 보고 판정 자체가 성립하지 않는다.
      *
-     * <p><b>startedAt 단조성 — 순서 역전 방어(GROMO-1287, codex 리뷰 P1)</b>. 앱의
-     * {@code startLiveSession} 은 반환값이 없어 await 되지 않는다. 백그라운드 복귀 리플레이가
-     * 휴식→집중 경계와 크레딧 상한 처리에서 연달아 start 를 쏘면 두 요청이 동시에 날아가고,
-     * <b>더 이른 startedAt 을 든 요청이 나중에 도착</b>할 수 있다. 무조건 close-then-open 하면 그 늦은
-     * 요청이 방금 열린 최신 마커를 {@code AUTO_CLOSED} 로 닫고 과거 시각 마커가 라이브가 된다 —
-     * '집중 중' 경과가 부풀고, 직전 블록 업로드가 그마저 닫으면 라이브 마커가 통째로 사라진다.
-     * 불변식을 세우기 전에는 마커가 2개로 남아 소비처의 "최신 우선" 정렬이 오히려 최신을 지켜줬으므로,
-     * 이 방어는 <b>불변식과 한 몸</b>이다.
+     * <p><b>순서 역전 방어(GROMO-1287, codex 리뷰 P1)</b>. 앱의 {@code startLiveSession} 은 반환값이 없어
+     * await 되지 않는다. 백그라운드 복귀 리플레이가 휴식→집중 경계마다, 그리고 크레딧 상한 처리에서
+     * 연달아 start 를 쏘면 여러 요청이 동시에 날아가고 <b>논리적으로 더 이른 요청이 나중에 도착</b>할 수
+     * 있다. 무조건 close-then-open 하면 그 늦은 요청이 방금 열린 최신 마커를 {@code AUTO_CLOSED} 로 닫고
+     * 자기 마커를 라이브로 만든다 — 앱은 최신 논리 요청의 id 를 계속 참조하므로 종료가 POST 폴백으로
+     * 새고, 뒤늦게 생긴 마커는 12h 스윕까지 '집중 중'으로 남는다. 불변식을 세우기 전에는 마커가 여럿
+     * 남아 소비처의 "최신 우선" 정렬이 오히려 최신을 지켜줬으므로, 이 방어는 <b>불변식과 한 몸</b>이다.
      * <ul>
      *   <li>열린 마커의 {@code startedAt} 보다 <b>엄격히 늦은</b> 요청만 회전으로 인정한다.</li>
      *   <li>그렇지 않으면 <b>기존 마커를 그대로 두고 그 id·startedAt 을 돌려준다</b>(멱등 no-op).
@@ -702,16 +701,38 @@ public class FocusService {
      *       ({@code liveIdRef}), 4xx 를 주면 참조가 비어 그 블록의 종료가 마커 없는 POST 폴백으로 가고
      *       라이브 표시가 사라진다. 기존 마커 id 를 주면 앱이 <b>진짜 라이브 마커로 수렴</b>한다.
      *       재시도로 같은 요청이 두 번 와도 같은 id 가 나가 멱등이다.</li>
-     *   <li>동률({@code startedAt} 동일)도 no-op 이다 — 회전해 봐야 같은 시각의 새 행일 뿐인데,
-     *       먼저 응답을 받아 id 를 기록한 앱이 닫힌 마커를 들게 된다.</li>
+     *   <li>동률(같은 시각)도 no-op 이다 — 회전해 봐야 같은 시각의 새 행일 뿐인데, 먼저 응답을 받아
+     *       id 를 기록한 앱이 닫힌 마커를 들게 된다.</li>
      * </ul>
      *
-     * <p><b>클램프가 이 규칙을 깨지 않는 이유</b>: {@link #clampToServerNow} 는 창 밖 값을 {@code now} 로
-     * <b>올릴</b> 뿐 내리지 않는다. 그리고 모든 기존 마커의 {@code startedAt} 은 생성 시점에 그 시점의
-     * {@code now} 이하로 클램프됐으므로 현재 {@code now} 보다 앞선다 — 클램프를 탄 요청은 항상 단조성을
-     * 통과한다. 클램프를 타지 않은(창 안) 요청이 기존 마커보다 이르려면 기존 마커가 <b>더 늦은</b>
-     * startedAt 으로 열려 있어야 하는데, 정상 회전에서 새 블록 경계는 언제나 직전 마커 시작보다 뒤다.
-     * 즉 이 규칙이 걸리는 경우는 순서 역전·중복 요청뿐이다.
+     * <p><b>순서 판정은 클램프 <em>이전</em> 클라 시각으로 한다(codex 리뷰 P1 2차)</b>. 저장값은 종전대로
+     * {@link #clampToServerNow} 를 거치지만, 그 클램프 값을 판정에 쓰면 규칙이 무력화된다 — 5분 넘게
+     * 백그라운드에 있다가 여러 블록을 리플레이하면 과거 경계들이 <b>전부 각 요청의 서버 {@code now} 로
+     * 치환</b>돼 논리적 순서 정보가 사라지고 도착 순서만 남는다. 그러면 늦게 도착한(논리적으로 이른)
+     * 요청의 값이 오히려 더 커서 단조성을 통과해 최신 마커를 닫는다. 원래 요청 시각을 순서 키로 쓰면
+     * 그 버스트의 요청들이 전부 "이미 열린 마커(= 서버 now)보다 이르다"로 판정돼 <b>마커 1개로 수렴</b>
+     * 하고, 모든 요청이 같은 id 를 돌려받아 앱도 그 마커로 수렴한다(회전 churn·POST 폴백 없음).
+     *
+     * <p><b>클램프 이전 값을 판정에 써도 안전한 이유</b>: 이 값은 <b>저장되지 않고</b> 비교에만 쓰인다
+     * (GROMO-1214 의 위조 방어 = "저장·집계에 클라 시각이 들어가지 않는다"는 그대로다). 조회
+     * ({@code findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc})와 마감
+     * ({@code autoCloseOpenMarkersOf}) 모두 {@code user} 로 스코프되므로 남의 마커에는 닿지 않는다.
+     * 그래서 위조로 할 수 있는 최대치는 <b>자기 마커를 자기가 닫는 자해</b>(회전 강제) 또는
+     * <b>자기 마커 회전을 막는 것</b>이고, 둘 다 통계·코인·정산 금액을 움직이지 못한다 — 마감된 마커는
+     * {@code AUTO_CLOSED}(집계 제외)이고 종료 경로는 POST 폴백으로 시간·코인을 그대로 회수한다.
+     *
+     * <p><b>알려진 한계(수용)</b> — 근본 원인은 앱이 순서를 보장하지 않는 것이라(startLiveSession 이
+     * void 이고 요청에 시퀀스·nonce 도 없다) 서버 단독 완전 봉쇄는 불가능하다. 별도 순서 키를 받으려면
+     * 앱 변경이 필요해 이 티켓 범위 밖이다. 남는 것:
+     * <ul>
+     *   <li>기기 시계가 크게 <b>앞선</b> 클라 — 매 start 가 판정을 통과해 회전 churn 이 생긴다.
+     *       크게 <b>뒤처진</b> 클라 — 열린 마커가 있는 동안 회전이 계속 no-op 이 된다(마커가 PATCH·취소로
+     *       닫히면 다음 start 가 정상 생성). 어느 쪽도 저장값은 클램프되므로 통계·보상과 무관하고
+     *       영향이 그 유저 자신에 한정된다.</li>
+     *   <li>규칙이 보수적이라(이르거나 같으면 회전 안 함) 드물게 논리적으로 더 늦은 요청이 no-op 될 수
+     *       있다. 그 경우에도 라이브 마커는 <b>정확히 1개</b> 남고 시각 차이는 최대 클램프 창(5분)이다.</li>
+     * </ul>
+     * 잔여는 {@code FocusSessionOrphanScheduler}(12h 스윕)가 덮는다 — 불변식이 서도 스윕을 남긴 이유다.
      */
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
@@ -722,11 +743,14 @@ public class FocusService {
         Instant startedAt = clampToServerNow(body.startedAt(), now);
         UserFocusTag tag = resolveOwnedTag(userId, body.focusTagId());
 
-        // GROMO-1287(codex 리뷰 P1): startedAt 단조성 — 늦게 도착한 과거 start 는 최신 마커를 닫지 못한다.
+        // GROMO-1287(codex 리뷰 P1): 순서 역전 방어 — 늦게 도착한 '논리적으로 이른' start 는 최신 마커를
+        // 닫지 못한다. 순서 키는 **클램프 이전** 클라 시각이다(클램프 값을 쓰면 리플레이 버스트에서 전부
+        // now 로 치환돼 판정이 도착 순서로 붕괴한다 — javadoc 참고). 저장은 여전히 클램프 값(startedAt)으로 한다.
+        Instant orderKey = body.startedAt() != null ? body.startedAt() : now;
         // 판정에만 쓰는 읽기다(엔티티를 변경하지 않으므로 아래 벌크 UPDATE 와 더티 라이트가 충돌하지 않는다).
         Optional<FocusSession> liveMarker =
                 focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user);
-        if (liveMarker.isPresent() && !startedAt.isAfter(liveMarker.get().getStartedAt())) {
+        if (liveMarker.isPresent() && !orderKey.isAfter(liveMarker.get().getStartedAt())) {
             FocusSession live = liveMarker.get();
             return new FocusSessionStartResponse(live.getId(), live.getStartedAt());
         }
