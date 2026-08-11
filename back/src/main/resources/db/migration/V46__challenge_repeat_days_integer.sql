@@ -20,6 +20,15 @@
 -- Forward-only: 이미 적용된 V34 는 수정하지 않는다(Flyway 체크섬).
 -- smallint → integer 는 PostgreSQL 에서 무손실 확대 변환이라 USING 절이 필요 없고,
 -- 값·NOT NULL·CHECK(repeat_days BETWEEN 1 AND 127) 는 그대로 유지된다.
+--
+-- ⚠️ 다만 **테이블 재작성이 일어난다.** smallint(2B) 와 integer(4B) 는 저장 표현이 달라
+-- binary-coercible 이 아니다. 로컬 확인: ALTER 전후로 pg_class.relfilenode 가 바뀐다
+-- (16385 → 16390). 즉 이 구문은 재작성이 끝날 때까지 **ACCESS EXCLUSIVE 락**을 잡고
+-- 그동안 group_challenges 의 읽기·쓰기가 모두 막힌다.
+--
+-- dev 는 행이 적어 사실상 순간이지만, **prod 로 올릴 때는 테이블 크기를 먼저 확인**한다.
+-- 행이 많아지면 무중단이 필요하고, 그때는 이 방식 대신
+-- 새 컬럼 추가 → 백필 → 스왑 같은 절차를 밟아야 한다.
 
 ALTER TABLE group_challenges
     ALTER COLUMN repeat_days TYPE integer;
