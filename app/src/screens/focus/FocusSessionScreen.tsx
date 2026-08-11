@@ -61,8 +61,11 @@ import {
   creditTick,
   creditTicks,
   blockTodaySeconds,
+  blockServerTodaySeconds,
   type BlockToday,
 } from './blockToday';
+import { myLiveTotalSeconds } from '@/utils/liveFocus';
+import { serverZoneAlignedWithLocal } from '@/utils/serverZone';
 import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds, pauseCutAt } from './blockPause';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -199,7 +202,9 @@ export default function FocusSessionScreen() {
   });
   // 그룹 뷰(F2) — 내가 참여한 '그룹별로' 한 페이지씩. 각 그룹의 내 행은 제외하고 내 셀은 그리드가
   // 로컬 타이머로 따로 렌더한다(me). 라이브 집중중 신호는 group detail에 없어 오늘 집중분만 정적 표기한다.
-  const { groups: sessionGroups } = useSessionGroups({ excludeUserId: userId });
+  const { groups: sessionGroups, myFocusMinutes: myServerFocusMinutes } = useSessionGroups({
+    excludeUserId: userId,
+  });
   // 그룹 페이지 개수 — 페이저 점·뷰 계측이 동적 페이지 수를 알아야 해서 ref로 최신값을 들고 있는다.
   const groupCountRef = useRef(0);
   groupCountRef.current = sessionGroups.length;
@@ -1250,10 +1255,18 @@ export default function FocusSessionScreen() {
     nickname: nickname || '나',
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
     isFocusing: !paused && session.phase === 'focus' && !session.done,
-    totalSeconds:
-      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
-      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
-      liveTodaySeconds,
+    // 표시 기준은 멤버 셀과 같은 서버 날짜 버킷(GROMO-1246) — 위 로컬 집계는 서버 스냅샷이
+    // 없거나(그룹 미가입·조회 실패) 정산 직후 폴링 공백을 메우는 바닥값으로만 쓴다. 측정·저장
+    // 경로는 그대로다(1236의 "측정 축은 로컬 유지" 결정 유지 — 바뀌는 건 표시 결합부뿐).
+    totalSeconds: myLiveTotalSeconds({
+      serverBase: myServerFocusMinutes != null ? myServerFocusMinutes * 60 : null,
+      serverDelta: blockServerTodaySeconds(blockTodayRef.current),
+      localTotal:
+        (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
+        (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
+        liveTodaySeconds,
+      sameAxis: serverZoneAlignedWithLocal(),
+    }),
     tagName: subjectName,
   };
 

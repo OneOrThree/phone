@@ -29,7 +29,7 @@
 // 초는 [23:59:59, 00:00:00)이라 전날 몫 — 서버의 반열림 분할·todayOverlapSeconds와 같은 경계다
 // (안 맞추면 23:00~00:05 세션이 앱 301초·서버 300초로 갈린다).
 import { localDateStr, todayStr, zoneDateStr } from '@/utils/localDate';
-import { getServerZone } from '@/utils/serverZone';
+import { getServerZone, serverTodayStr } from '@/utils/serverZone';
 
 // 날짜 "YYYY-MM-DD" → 그 날짜에 발생한 이 블록의 집중 초.
 export type SecondsByDate = Record<string, number>;
@@ -98,6 +98,12 @@ function addRuns(
 // 오늘(기기 로컬) 몫 — 로컬 스토어(FocusContext·SubjectContext)가 '오늘' 하나만 보관하므로.
 export function blockTodaySeconds(state: BlockToday): number {
   return state.local[todayStr()] ?? 0;
+}
+
+// 서버 존 오늘 몫 — 서버 날짜 버킷 값 위에 얹을 '아직 서버에 없는 진행 중 몫'(GROMO-1246).
+// blockTodaySeconds의 server 축 짝이다. 축이 다르면 자정 경계에서 같은 tick의 귀속 날짜가 갈린다.
+export function blockServerTodaySeconds(state: BlockToday): number {
+  return state.server[serverTodayStr()] ?? 0;
 }
 
 // 서버가 이 업로드의 판정(그날 누적·스트릭)을 매긴 날짜 = 분포 맵의 마지막 비어있지 않은 날짜

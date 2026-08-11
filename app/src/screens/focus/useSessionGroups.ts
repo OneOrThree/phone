@@ -33,6 +33,14 @@ export function useSessionGroups({
   pollMs?: number;
 }) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
+  // 서버가 보는 내 오늘 집중분 — 멤버 목록과 **같은 응답**에서 뽑는다(GROMO-1246). 내 셀이
+  // 로컬 집계 대신 이 값을 기준으로 서면 같은 그리드의 숫자가 한 원천(서버 날짜 버킷)으로 정렬된다.
+  // 그룹 상세엔 항상 내 행이 있으므로 그룹이 하나라도 있으면 채워진다. 조회 실패한 그룹은
+  // details에서 걸러져 빠지고, 값이 갈리면 큰 쪽(가장 최신 반영본)을 쓴다.
+  // 한계: 이 값의 축은 위 조회의 date(KST 고정, GROMO-1236 규약)이고 얹는 델타는 서버 존
+  // (프로필 timeZone) 축이다 — 존 폴백이 Asia/Seoul이라 KR 유저는 동일하고, 갈리는 경우는
+  // 조회 date 자체가 이미 어긋난 기존 한계(localDate.ts 주석)라 여기서 따로 손대지 않는다.
+  const [myFocusMinutes, setMyFocusMinutes] = useState<number | null>(null);
   // 요청 세대 — 늦게 도착한 구세대 응답이 최신 결과를 덮지 않게 폐기.
   const requestSeqRef = useRef(0);
 
@@ -50,12 +58,16 @@ export function useSessionGroups({
       );
       if (seq !== requestSeqRef.current) return;
       const next: SessionGroup[] = [];
+      let myMinutes: number | null = null;
       myGroups.forEach((g, i) => {
         const d = details[i];
         if (d.status !== 'fulfilled') return;
         const members: LiveGridMember[] = [];
         for (const m of d.value.members) {
-          if (m.userId === excludeUserId) continue;
+          if (m.userId === excludeUserId) {
+            myMinutes = Math.max(myMinutes ?? 0, m.focusTimeMinutes ?? 0);
+            continue;
+          }
           if (members.length >= MAX_PER_GROUP) break;
           members.push({
             userId: m.userId,
@@ -70,6 +82,9 @@ export function useSessionGroups({
         next.push({ groupId: g.groupId, groupName: g.name, members });
       });
       setGroups(next);
+      // 전 그룹 조회가 실패한 회차는 직전 값을 유지한다 — null로 되돌리면 내 셀이 로컬 축으로
+      // 되돌아갔다가 다음 폴링에 다시 서버 축으로 튄다.
+      if (myMinutes != null) setMyFocusMinutes(myMinutes);
     } catch {
       // 네트워크 실패 시 기존 상태 유지 — 다음 폴링에서 재시도.
     }
@@ -88,5 +103,5 @@ export function useSessionGroups({
     };
   }, [refetch, pollMs]);
 
-  return { groups };
+  return { groups, myFocusMinutes };
 }
