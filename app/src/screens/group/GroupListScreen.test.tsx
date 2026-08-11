@@ -7,7 +7,14 @@
 //     (1건이면 목록을 접고 2건 이상이면 push 하는 분기는 GroupScreen이 쥔다.)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AccessibilityInfo, AppState, FlatList, PanResponder, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  FlatList,
+  PanResponder,
+  StyleSheet,
+  View,
+} from 'react-native';
 import GroupListScreen, {
   advanceEdgeTarget,
   isPointInsideDeck,
@@ -278,6 +285,74 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('Android 비관성 drag는 contentOffset으로 현재 페이지를 확정하고 안내한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'scrollEndDrag', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(announce).toHaveBeenCalledWith('저녁 스터디, 2 / 3 페이지');
+  });
+
+  test('앞·뒷면 모두 시각 전환 문구를 표시하지 않는다', async () => {
+    await renderList([group()]);
+
+    expect(screen.queryByText('뒤집어 방 보기')).toBeNull();
+    await press(`group.card.${GROUP_ID}`);
+    await finishCardFlip();
+    expect(screen.queryByText('앞면으로')).toBeNull();
+  });
+
+  test('빠른 연타에도 완료 면만 한 번씩 알리고 뒷면 기본 활성화로 복귀한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group()]);
+
+    const front = screen.getByTestId(`group.card.${GROUP_ID}`);
+    await act(async () => {
+      fireEvent.press(front);
+      fireEvent.press(front);
+    });
+    expect(announce).not.toHaveBeenCalled();
+    await finishCardFlip();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 뒷면입니다');
+
+    await act(async () => {
+      const backTitle = screen.getByTestId(`group.card.backTitle.${GROUP_ID}`);
+      fireEvent(backTitle, 'accessibilityTap');
+      fireEvent(backTitle, 'accessibilityTap');
+    });
+    await finishCardFlip();
+    expect(announce).toHaveBeenCalledTimes(2);
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 앞면입니다');
+  });
+
+  test('화면을 이탈한 뒤 완료된 flip은 면 안내나 접근성 포커스를 만들지 않는다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const focus = jest.mocked(AccessibilityInfo.setAccessibilityFocus);
+    const props = {
+      groups: [group()],
+      userId: null,
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} isScreenFocused />);
+
+    await press(`group.card.${GROUP_ID}`);
+    await view.rerender(<GroupListScreen {...props} isScreenFocused={false} />);
+    await finishCardFlip();
+
+    expect(announce).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
@@ -522,8 +597,11 @@ describe('콜백', () => {
   test('낮은 화면에서도 카드 하단까지 스크롤하고 탭바 위 여백을 확보한다', async () => {
     await renderList([group()]);
     const scroller = screen.getByTestId('group.list.scroller');
+    const indicator = StyleSheet.flatten(screen.getByTestId('group.deck.indicator').props.style);
     expect(scroller.props.scrollEnabled).toBe(true);
     expect(scroller.props.nestedScrollEnabled).toBe(true);
+    expect(indicator).toEqual(expect.objectContaining({ minHeight: 44, marginTop: 0 }));
+    expect(indicator.height).toBeUndefined();
     // 여백은 탭바가 실제로 덮는 높이에서 파생한다(GROMO-1487) — 예전 상수 74는 FAB가 바 위로
     // 솟은 만큼을 빼먹어 마지막 카드가 FAB에 가렸다. 숫자를 다시 적으면 그 실수가 되돌아온다.
     expect(scroller.props.contentContainerStyle).toEqual(
@@ -531,6 +609,20 @@ describe('콜백', () => {
         expect.objectContaining({ paddingBottom: tabBarSafeBottom(34) }), // 목 인셋 하단 34
       ]),
     );
+  });
+
+  test('가로 스와이프 settle은 외부 인디케이터의 현재 index를 갱신하고 페이지를 안내한다', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.items'), 'momentumScrollEnd', {
+        nativeEvent: { contentOffset: { x: 400 } },
+      });
+    });
+
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('2 / 3');
+    expect(announce).toHaveBeenCalledWith('저녁 스터디, 2 / 3 페이지');
   });
 });
 
