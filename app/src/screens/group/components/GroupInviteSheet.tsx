@@ -250,7 +250,11 @@ export default function GroupInviteSheet({
     const target = groupId;
     const isStale = () => groupIdRef.current !== target;
     // 시트 세대(isStale)와 별개인 **인증 세대** — 유저 부재 분기의 로그아웃 판정용.
-    const requestSessionGeneration = getAuthSessionGeneration();
+    // ⚠️ 실제 요청 **직전**에 다시 잡는다(아래). getAppInstanceId()가 비동기 네이티브 호출이라
+    //    그 사이 인증이 전환되면 joinGroup은 **새 세션으로** 나가는데 판정에는 옛 세대가 실려,
+    //    promptSessionExpired가 낡은 응답으로 보고 안내와 로그아웃을 둘 다 생략한다 —
+    //    유효한 USER_NOT_FOUND에서 재로그인 경로가 사라진다(codex 리뷰).
+    let requestSessionGeneration = getAuthSessionGeneration();
     setJoinError(null);
     try {
       // 계측은 **요청 직전**에 쏜다 — 이름 그대로 '시도'이고, 서버가 소유한 group_joined의
@@ -265,6 +269,8 @@ export default function GroupInviteSheet({
       // 서버 이벤트가 앱 SDK 이벤트와 같은 유저 타임라인에 붙는다(§2-3 ②).
       // 조회 실패는 null 이고, 그때는 필드를 빼고 보낸다(어트리뷰션만 약해질 뿐 참여는 진행).
       const appInstanceId = await getAppInstanceId();
+      // 요청 직전 재캡처 — 위 ⚠️ 참고. 이 값이 아래 catch의 USER_NOT_FOUND 판정에 쓰인다.
+      requestSessionGeneration = getAuthSessionGeneration();
       await joinGroup(target, {
         joinMethod,
         inviteSlug: slug ?? undefined,

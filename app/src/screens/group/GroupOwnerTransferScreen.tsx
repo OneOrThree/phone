@@ -148,11 +148,21 @@ export default function GroupOwnerTransferScreen() {
 
         if (source === 'withdraw') {
           // 위임 직후 나가기 — 이제 나는 MEMBER라 서버가 나가기를 허용한다.
+          // ⚠️ 세대를 **여기서 새로 잡는다**(codex 리뷰). 위 transferOwner 응답을 기다린 만큼
+          //    시간이 흘렀고, 그 사이 인증이 전환됐으면 이 요청은 새 세션으로 나간다 —
+          //    바깥 세대를 그대로 쓰면 낡은 응답으로 오판해 안내·로그아웃이 둘 다 생략된다.
+          const withdrawSessionGeneration = getAuthSessionGeneration();
           try {
             await withdrawGroup(groupId);
             // 그룹 목록 루트(그룹 탭)로 복귀 — 중간의 그룹방·설정 스택을 모두 걷어낸다.
             navigation.popToTop();
-          } catch {
+          } catch (we) {
+            // 유저 부재 — 위임은 끝났지만 **내 계정이 없다**. 나가기 실패로 안내하면 사용자는
+            // 그룹방에서 재시도만 반복한다(그 화면도 같은 이유로 실패한다). 재로그인으로 보낸다.
+            if (groupErrorCode(we) === USER_NOT_FOUND) {
+              promptSessionExpired(withdrawSessionGeneration);
+              return;
+            }
             // 위임은 이미 끝났다 — 나가기만 실패했음을 따로 알린다(재시도는 그룹방에서).
             Alert.alert(
               '그룹 나가기 실패',
