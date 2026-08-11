@@ -5,6 +5,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { StyleSheet } from 'react-native';
 import { TabBar } from './TabBar';
 import { tabBarSafeBottom } from './tabBarLayout';
+import { T } from '@/constants/theme';
 import { playTapSound } from '@/utils/sound';
 import { hapticSelect } from '@/utils/haptics';
 
@@ -107,16 +108,23 @@ describe('TabBar 안전 여백(GROMO-1487)', () => {
 });
 
 describe('TabBar 접근성', () => {
-  test('네 탭은 아이콘 아래 라벨과 44pt 이상의 터치 높이를 유지한다', async () => {
+  test('네 탭은 시각 라벨 없이 아이콘과 44pt 이상의 터치 영역을 유지한다', async () => {
     await renderTabBar(2);
     for (const name of ROUTE_NAMES) {
-      expect(screen.getByText(name)).toBeOnTheScreen();
-      expect(screen.getByTestId(`tabbar.tab.${name}`)).toHaveStyle({
+      expect(screen.queryByText(name)).toBeNull();
+      const tab = screen.getByTestId(`tabbar.tab.${name}`);
+      expect(tab).toHaveStyle({
         minWidth: 44,
         height: 56,
       });
+      expect(screen.getByTestId(`tabbar.icon.${name}`)).toBeOnTheScreen();
     }
-    expect(screen.getByText('그룹')).toHaveStyle({ color: '#5E6AD2' });
+  });
+
+  test('선택 아이콘은 accent, 비선택 아이콘은 muted 색을 유지한다', async () => {
+    await renderTabBar(2);
+    expect(screen.getByTestId('tabbar.icon.그룹')).toHaveStyle({ color: T.accent });
+    expect(screen.getByTestId('tabbar.icon.홈')).toHaveStyle({ color: T.inkMuted });
   });
 
   test('탭 역할·선택 상태·레이블을 노출한다', async () => {
