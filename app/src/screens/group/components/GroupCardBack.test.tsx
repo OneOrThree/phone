@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { GroupCardBack } from './GroupCardBack';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
@@ -148,6 +148,64 @@ test('혼합 영문·한글 그룹명에 그룹 카드 공통 글꼴을 적용�
   );
 
   expect(screen.getByText('Morning 아침 집중방')).toHaveStyle(GROUP_CARD_USER_TEXT);
+});
+
+test('빈 영역 포인터 wrapper는 키보드 포커스 순서에서 제외한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.back.g1').props.focusable).toBe(false);
+  expect(screen.getByTestId('group.card.backTitle.g1').props.focusable).not.toBe(false);
+});
+
+test('시각 전환 CTA 없이 카드 빈 영역 탭과 실제 접근성 노드의 기본 활성화로 앞면을 연다', async () => {
+  const onAccessibilityFlipFront = jest.fn();
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      onAccessibilityFlipFront={onAccessibilityFlipFront}
+      snapshot={undefined}
+    />,
+  );
+
+  expect(screen.queryByText('앞면으로')).toBeNull();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.card.back.g1'));
+  });
+  expect(baseProps.onFlipFront).toHaveBeenCalledTimes(1);
+
+  const titleAction = screen.getByTestId('group.card.backTitle.g1');
+  expect(titleAction.props.accessibilityState).toEqual({ expanded: true });
+  expect(titleAction.props.accessibilityHint).toBe('두 번 탭하면 카드 앞면을 봅니다');
+  expect(screen.getByText('아침 집중방').props.accessible).toBe(false);
+  await act(async () => fireEvent(titleAction, 'accessibilityTap'));
+  expect(onAccessibilityFlipFront).toHaveBeenCalledTimes(1);
+});
+
+test('뒷면의 실제 조작 요소는 빈 영역 뒤집기로 버블링하지 않는다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'error', error: new Error('detail') },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('그룹 설정'));
+    fireEvent.press(screen.getByText(/멤버 정보를 확인하지 못했어요/));
+    fireEvent.press(screen.getByTestId('group.card.focus.g1'));
+    fireEvent.press(screen.getByTestId('group.card.room.g1'));
+  });
+
+  expect(baseProps.onOpenSettings).toHaveBeenCalledTimes(1);
+  expect(baseProps.onRetry).toHaveBeenCalledWith('detail');
+  expect(baseProps.onStartFocus).toHaveBeenCalledTimes(1);
+  expect(baseProps.onOpenRoom).toHaveBeenCalledTimes(1);
+  expect(baseProps.onFlipFront).not.toHaveBeenCalled();
 });
 
 test('현재 사용자가 상위 5명 밖이어도 선두에 두고 나머지 서버 순서를 보존한다', async () => {

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { todayStrKst } from '@/utils/localDate';
 import type { LeagueMemberResponse } from '@/types/api';
@@ -74,22 +74,39 @@ export function GroupCardBack({
       : [];
 
   return (
-    <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
+    <Pressable
+      ref={cardRef}
+      style={s.root}
+      onPress={onFlipFront}
+      accessible={false}
+      focusable={false}
+      testID={`group.card.back.${group.groupId}`}
+    >
       <View style={s.header}>
-        <Text
-          style={s.title}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          accessible
-          accessibilityRole="header"
-          accessibilityLabel={`${group.name}, 현재 ${position}/${pageCount} 페이지`}
+        <Pressable
+          style={s.titleAction}
+          onPress={(event) => {
+            event.stopPropagation();
+            onFlipFront();
+          }}
+          onAccessibilityTap={onAccessibilityFlipFront ?? onFlipFront}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}, 카드 뒷면, 현재 ${position}/${pageCount} 페이지`}
+          accessibilityHint="두 번 탭하면 카드 앞면을 봅니다"
+          accessibilityState={{ expanded: true }}
+          testID={`group.card.backTitle.${group.groupId}`}
         >
-          {group.name}
-        </Text>
+          <Text style={s.title} numberOfLines={1} ellipsizeMode="tail" accessible={false}>
+            {group.name}
+          </Text>
+        </Pressable>
         <TouchableOpacity
           ref={settingsRef}
           style={s.settingsButton}
-          onPress={onOpenSettings}
+          onPress={(event) => {
+            event.stopPropagation();
+            onOpenSettings();
+          }}
           accessibilityRole="button"
           accessibilityLabel="그룹 설정"
           testID={`group.card.settings.${group.groupId}`}
@@ -115,7 +132,12 @@ export function GroupCardBack({
           {detail.status === 'idle' || detail.status === 'loading' ? (
             <LoadingLine label="멤버" />
           ) : detail.status === 'error' ? (
-            <TouchableOpacity onPress={() => onRetry('detail')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('detail');
+              }}
+            >
               <Text style={s.error}>멤버 정보를 확인하지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
           ) : (
@@ -135,7 +157,12 @@ export function GroupCardBack({
             </>
           )}
           {(focus.status === 'error' || focus.status === 'coverage-unknown') && (
-            <TouchableOpacity onPress={() => onRetry('focus')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('focus');
+              }}
+            >
               <Text style={s.error}>집중 상태 다시 시도</Text>
             </TouchableOpacity>
           )}
@@ -161,7 +188,12 @@ export function GroupCardBack({
               <Text style={s.body}>새 공지가 없어요</Text>
             )
           ) : announcements.status === 'error' ? (
-            <TouchableOpacity onPress={() => onRetry('announcements')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('announcements');
+              }}
+            >
               <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
           ) : (
@@ -213,7 +245,12 @@ export function GroupCardBack({
               <Text style={s.body}>진행 중인 활동이 없어요</Text>
             )
           ) : challenges.status === 'error' ? (
-            <TouchableOpacity onPress={() => onRetry('challenges')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('challenges');
+              }}
+            >
               <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
           ) : (
@@ -226,7 +263,10 @@ export function GroupCardBack({
         <TouchableOpacity
           ref={backFocusRef}
           style={s.primary}
-          onPress={onStartFocus}
+          onPress={(event) => {
+            event.stopPropagation();
+            onStartFocus();
+          }}
           testID={`group.card.focus.${group.groupId}`}
         >
           <Text style={s.primaryText}>이 그룹으로 집중</Text>
@@ -234,25 +274,16 @@ export function GroupCardBack({
         <TouchableOpacity
           ref={roomRef}
           style={s.secondary}
-          onPress={onOpenRoom}
+          onPress={(event) => {
+            event.stopPropagation();
+            onOpenRoom();
+          }}
           testID={`group.card.room.${group.groupId}`}
         >
           <Text style={s.secondaryText}>방 전체 보기</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={onFlipFront}
-          accessibilityActions={[{ name: 'activate', label: '카드 앞면 보기' }]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'activate') {
-              (onAccessibilityFlipFront ?? onFlipFront)();
-            }
-          }}
-          testID={`group.card.frontAction.${group.groupId}`}
-        >
-          <Text style={s.link}>앞면으로</Text>
-        </TouchableOpacity>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -271,7 +302,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: T.space.sm,
   },
-  title: { ...T.text.heading, ...GROUP_CARD_USER_TEXT, color: T.ink, flex: 1 },
+  titleAction: { flex: 1 },
+  title: { ...T.text.heading, ...GROUP_CARD_USER_TEXT, color: T.ink },
   settingsButton: {
     width: 48,
     height: 48,
