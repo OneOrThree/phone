@@ -15,7 +15,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'back/**'
+      - "back/**"
   workflow_dispatch:
 
 concurrency:
@@ -33,6 +33,8 @@ jobs:
     name: 빌드 · GAR push
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30 # self-hosted 기본 360분 — 러너 장기 점유 방지
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

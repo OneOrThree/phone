@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
     paths:
-      - 'back/**'
+      - "back/**"
   workflow_dispatch:
 
 concurrency:
@@ -32,6 +32,8 @@ jobs:
     name: 이미지 빌드 검증 · 캐시 적재
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -116,4 +118,3 @@ jobs:
                 body,
               });
             }
-
