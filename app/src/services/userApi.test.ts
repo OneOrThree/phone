@@ -1,7 +1,7 @@
 // userApi.getUserStats date 축 계약 테스트(GROMO-1236) — 타 유저 통계의 '오늘'·최근 7일 기준일도
 // 서버 KST 버킷 축이다. 러너 TZ가 KST라 값으론 축이 안 갈리므로 로컬 todayStr를 독극물로
 // 목킹한다(statsApi.test와 동일 패턴).
-import { getUserStats, updateProfile } from './userApi';
+import { getMyProfile, getUserStats, updateProfile } from './userApi';
 import { api } from '@/services/api';
 import { todayStrKst } from '@/utils/localDate';
 import { getServerZone, resetServerZone } from '@/utils/serverZone';
@@ -23,6 +23,12 @@ beforeEach(() => {
   mockGet.mockResolvedValue({ data: {} });
   mockPatch.mockResolvedValue({ data: undefined });
   resetServerZone();
+});
+
+test('부작용 없는 프로필 재확인은 401 auth retry를 끈다', async () => {
+  await getMyProfile({ noAuthRetry: true });
+
+  expect(mockGet).toHaveBeenCalledWith('/api/v1/users/me', { _noAuthRetry: true });
 });
 
 describe('date 기본값 = KST 오늘 (GROMO-1236)', () => {
