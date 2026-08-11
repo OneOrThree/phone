@@ -766,6 +766,48 @@ describe('제스처 중재와 재정렬', () => {
     panSpy.mockRestore();
   });
 
+  test('옛 edge offset과 같은 새 flip 이동은 현재 navigation이 우선 소비한다', async () => {
+    const panSpy = mockDirectPanResponder();
+    await renderList([
+      group(),
+      group({ groupId: GROUP_ID_2, name: '저녁 스터디' }),
+      group({ groupId: GROUP_ID_3, name: '주말 스터디' }),
+    ]);
+    await layoutDeck();
+    jest.useFakeTimers();
+    const grip = screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+    const snapInterval = screen.getByTestId('group.list.items').props.snapToInterval as number;
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+      grip.props.onResponderMove?.(responderEvent, {
+        dx: 7,
+        dy: 0,
+        moveX: 10_000,
+        moveY: INSIDE_DECK.moveY,
+      });
+      grip.props.onResponderRelease?.(responderEvent, {
+        dx: 0,
+        dy: 0,
+        ...INSIDE_DECK,
+      });
+    });
+    jest.useRealTimers();
+
+    await press(`group.card.${GROUP_ID_2}`);
+    await act(async () => {
+      screen.getByTestId('group.list.items').props.onMomentumScrollEnd({
+        nativeEvent: { contentOffset: { x: snapInterval } },
+      });
+    });
+
+    expect(
+      screen.getByTestId(`group.card.back.${GROUP_ID_2}`, { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    panSpy.mockRestore();
+  });
+
   test('refresh가 이미 진행 중이면 grip responder claim과 grant를 모두 거부한다', async () => {
     const panSpy = mockDirectPanResponder();
     let finishRefresh: () => void = () => undefined;

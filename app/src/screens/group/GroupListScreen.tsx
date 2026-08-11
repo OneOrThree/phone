@@ -432,6 +432,7 @@ export default function GroupListScreen({
   // edge paging 한 episode가 여러 animated scroll을 만들 수 있다. 마지막 offset 하나만 보관하면
   // release 뒤 늦게 도착한 앞선 momentum을 사용자 swipe로 오인하므로 generation별로 전부 둔다.
   const programmaticScrollEpisodesRef = useRef<ProgrammaticScrollEpisode[]>([]);
+  const currentProgrammaticTargetRef = useRef<number | null>(null);
   const dragGenerationRef = useRef(0);
   const dragRef = useRef<
     | (ReorderPreview & {
@@ -612,7 +613,9 @@ export default function GroupListScreen({
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndexRef.current;
       roomReturnRef.current = null;
-      listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
+      const targetOffset = next * snapInterval;
+      currentProgrammaticTargetRef.current = targetOffset;
+      listRef.current?.scrollToOffset({ offset: targetOffset, animated: true });
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
       const identityChanged = activeIdentityRef.current !== nextIdentity;
       if (pendingFlipRef.current?.groupId !== nextIdentity) pendingFlipRef.current = null;
@@ -673,6 +676,14 @@ export default function GroupListScreen({
   const onMomentumScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offsetX = event.nativeEvent.contentOffset.x;
+      const currentTarget = currentProgrammaticTargetRef.current;
+      if (currentTarget !== null && isProgrammaticMomentum(currentTarget, offsetX)) {
+        currentProgrammaticTargetRef.current = null;
+        // 같은 offset이 옛 edge episode에도 있더라도 현재 navigation이 우선 소유한다.
+        consumeProgrammaticOffset(offsetX);
+        if (draggingGroupIdRef.current === null) settleOffset(offsetX, false);
+        return;
+      }
       const isProgrammatic = consumeProgrammaticOffset(offsetX);
       // edge paging은 overlay 아래 슬롯만 이동시키는 내부 스크롤이다. 여기서 일반 캐러셀
       // settle을 실행하면 활성 identity가 옆 카드로 바뀐다.
@@ -830,6 +841,7 @@ export default function GroupListScreen({
         activeIndexRef.current = target;
         setActiveStableGroupId(groupId);
         setActiveIndex(target);
+        currentProgrammaticTargetRef.current = null;
         listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
         const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
         AccessibilityInfo.announceForAccessibility(
@@ -857,6 +869,7 @@ export default function GroupListScreen({
       activeIndexRef.current = currentIndex;
       setActiveStableGroupId(drag.groupId);
       setActiveIndex(currentIndex);
+      currentProgrammaticTargetRef.current = null;
       listRef.current?.scrollToOffset({
         offset: currentIndex * snapInterval,
         animated: false,
@@ -1022,7 +1035,9 @@ export default function GroupListScreen({
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
         pendingFlipRef.current = { groupId, trigger };
-        listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
+        const targetOffset = index * snapInterval;
+        currentProgrammaticTargetRef.current = targetOffset;
+        listRef.current?.scrollToOffset({ offset: targetOffset, animated: true });
         return;
       }
       completeUserFlipToBack(groupId, trigger);
@@ -1330,6 +1345,7 @@ export default function GroupListScreen({
                   // 실제 사용자 swipe가 시작되면 이전 edge episode의 유실된 completion은 더 이상
                   // 도착할 수 없다. 남은 programmatic offset을 여기서만 폐기한다.
                   programmaticScrollEpisodesRef.current = [];
+                  currentProgrammaticTargetRef.current = null;
                   roomReturnRef.current = null;
                   pendingFlipRef.current = null;
                   guideBackGroupIdRef.current = null;
