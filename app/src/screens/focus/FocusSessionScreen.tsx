@@ -342,14 +342,10 @@ export default function FocusSessionScreen() {
   //   + 미정산 경과의 오늘 몫(blockTodayRef — 자정을 걸친 세션에서 어제 몫은 빼고 센다)
   const gridPreSessionRef = useRef({ day: todayStr(), base: todayFocusSeconds });
   const gridSettledTodayRef = useRef({ day: todayStr(), seconds: 0 });
-  // 위 로컬 축 집계의 **서버 KST 축 짝**(GROMO-1246 코덱스 리뷰 ①·③). 표시는 멤버 셀과 같은
-  // KST 버킷으로 하고(서버는 GROMO-1259 ZonePolicy부터 전역 KST 고정), 로컬 축은 서버 스냅샷을
-  // 못 받았을 때의 폴백으로만 남는다.
-  //   gridServerBaseRef  — 세션 시작 시점(첫 스냅샷)의 서버 KST 오늘 몫. 정산분을 얹을 기준점.
-  //   gridSettledServerRef — 이 세션이 KST 오늘로 정산한 누적(서버가 아직 반영 못 했을 수 있는 몫).
-  // 둘 다 기준일을 함께 들고 KST 자정을 넘기면 스스로 리셋한다.
-  const gridServerBaseRef = useRef<{ day: string; base: number } | null>(null);
-  const gridSettledServerRef = useRef({ day: todayStrKst(), seconds: 0 });
+  // 내 그리드 셀 표시값의 **단조 바닥**(GROMO-1246 코덱스 리뷰 ③·④) — 같은 KST 날짜 안에서
+  // 이미 보여준 최대값. 블록 정산으로 델타가 0이 된 뒤 서버 스냅샷이 그 몫을 반영하기까지의
+  // 공백에 표시가 뒤로 밀리는 것을 막는다. 기준일을 함께 들고 KST 자정을 넘기면 0으로 리셋한다.
+  const gridShownRef = useRef({ day: todayStrKst(), seconds: 0 });
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
   // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
@@ -687,18 +683,6 @@ export default function FocusSessionScreen() {
           gridSettledTodayRef.current = { day: todayStr(), seconds: 0 };
         }
         gridSettledTodayRef.current.seconds += todaySeconds;
-      }
-      // 그리드 표시용 서버 KST 축 정산 누적(코덱스 리뷰 ③) — 로컬 적립과 달리 이 블록의 **KST 몫**을
-      // 센다. 이걸 안 쌓으면 정산으로 blockToday가 리셋된 뒤 다음 폴링까지 방금 정산한 블록이
-      // 내 타일에서 사라진다(업로드가 대기열로 가면 더 오래). 서버가 반영하면 myLiveTotalSeconds의
-      // max가 서버 값을 골라 이중 계상되지 않는다.
-      const kstToday = todayStrKst();
-      const kstSeconds = blockToday.server[kstToday] ?? 0;
-      if (kstSeconds > 0) {
-        if (gridSettledServerRef.current.day !== kstToday) {
-          gridSettledServerRef.current = { day: kstToday, seconds: 0 };
-        }
-        gridSettledServerRef.current.seconds += kstSeconds;
       }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
@@ -1267,35 +1251,34 @@ export default function FocusSessionScreen() {
   // 서버 스냅샷은 기준일이 오늘(KST)일 때만 유효 — 자정을 넘긴 채 폴링이 계속 실패하면 전날
   // 값이 남아 있다(코덱스 리뷰 ②). 그 회차는 폴백(로컬 집계)으로 내려간다.
   const gridServerToday = myFocus?.day === gridKstDay ? myFocus.minutes : null;
-  // 세션 시작 시점 기준점을 첫 유효 스냅샷으로 고정 — 이후 정산분은 여기에 얹는다.
-  // 날짜가 바뀌면(자정 통과) 새 날의 첫 스냅샷으로 다시 잡는다.
-  if (gridServerToday != null && gridServerBaseRef.current?.day !== gridKstDay) {
-    gridServerBaseRef.current = { day: gridKstDay, base: gridServerToday * 60 };
+  // 단조 바닥은 KST 날짜가 바뀌면 0으로 — 자정 이후 새 날의 값이 전날 최대값에 묶이면 안 된다.
+  if (gridShownRef.current.day !== gridKstDay) {
+    gridShownRef.current = { day: gridKstDay, seconds: 0 };
   }
   // 아직 정산되지 않은 집중초 중 '오늘' 몫(GROMO-1252 코드리뷰) — 그리드 셀·메뉴 드로어 공용.
   // session.elapsed 전체를 쓰면 ① 자정을 걸친 세션의 어제 몫까지 오늘로 표시되고(23:00~00:05
   // 세션이 65분으로 보이다가 정산 후 5분으로 줄어드는 역전) ② 뽀모도로처럼 이미 정산된 블록이
   // 저장분과 이중으로 잡힌다. 타이머 tick마다 리렌더되므로 ref를 그대로 읽어도 값이 따라 오른다.
   const liveTodaySeconds = blockTodaySeconds(blockTodayRef.current);
+  // 표시 기준은 멤버 셀과 같은 서버 KST 버킷(GROMO-1246) — 로컬 집계는 서버 스냅샷을 못
+  // 받았을 때(그룹 미가입·조회 실패·자정 넘겨 무효화)의 폴백으로만 쓴다. 측정·저장 경로는
+  // 그대로다(1236의 "측정 축은 로컬 유지" 결정 유지 — 바뀌는 건 표시 결합부뿐).
+  // 계산 결과를 바닥에 되먹여 다음 렌더의 하한으로 삼는다(정산 직후 되밀림 방지).
+  const gridTotalSeconds = myLiveTotalSeconds({
+    serverBase: gridServerToday != null ? gridServerToday * 60 : null,
+    delta: blockKstTodaySeconds(blockTodayRef.current),
+    localFallback:
+      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
+      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
+      liveTodaySeconds,
+    shownFloor: gridShownRef.current.seconds,
+  });
+  gridShownRef.current.seconds = gridTotalSeconds;
   const myGridMe = {
     nickname: nickname || '나',
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
     isFocusing: !paused && session.phase === 'focus' && !session.done,
-    // 표시 기준은 멤버 셀과 같은 서버 KST 버킷(GROMO-1246) — 로컬 집계는 서버 스냅샷을 못
-    // 받았을 때(그룹 미가입·조회 실패·자정 넘겨 무효화)의 폴백으로만 쓴다. 측정·저장 경로는
-    // 그대로다(1236의 "측정 축은 로컬 유지" 결정 유지 — 바뀌는 건 표시 결합부뿐).
-    totalSeconds: myLiveTotalSeconds({
-      serverBase: gridServerToday != null ? gridServerToday * 60 : null,
-      sessionBase:
-        gridServerBaseRef.current?.day === gridKstDay ? gridServerBaseRef.current.base : null,
-      settledServer:
-        gridSettledServerRef.current.day === gridKstDay ? gridSettledServerRef.current.seconds : 0,
-      delta: blockKstTodaySeconds(blockTodayRef.current),
-      localFallback:
-        (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
-        (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
-        liveTodaySeconds,
-    }),
+    totalSeconds: gridTotalSeconds,
     tagName: subjectName,
   };
 

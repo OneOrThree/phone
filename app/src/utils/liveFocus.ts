@@ -22,30 +22,30 @@ export function liveTotalSeconds(
 // 폴백**으로만 쓴다(로컬 축은 KST와 다른 날짜 몫일 수 있어 섞으면 안 된다).
 //
 //   serverBase    — 방금 폴링한 서버 스냅샷의 내 KST 오늘 집중초. 없으면 null.
-//   sessionBase   — 이 세션 시작 시점(첫 스냅샷)의 같은 값. 정산분을 얹을 기준점.
-//   settledServer — 이 세션이 KST 오늘로 정산한 누적 — 서버가 아직 반영 못 했을 수 있는 몫.
 //   delta         — 미정산(업로드 전) 블록의 KST 오늘 몫.
 //   localFallback — 서버 스냅샷 미확보 시 쓸 종전 로컬 축 집계.
+//   shownFloor    — 같은 KST 날짜에 이미 표시했던 최대값(호출부가 ref로 들고 있다가 넘긴다).
 //
-// max가 두 국면을 모두 옳게 만든다(코덱스 리뷰 ③):
-//   정산 직후·폴링 전 — serverBase는 아직 옛값, delta는 0으로 리셋 → sessionBase + settled 가 이겨
-//                       방금 정산한 블록이 표시에서 사라지지 않는다.
-//   폴링 반영 후     — serverBase가 그 정산분을 포함해 커진다 → serverBase가 이겨 이중 계상이 없다.
-// 오프라인이라 업로드가 대기열에 남아도 sessionBase + settled 쪽이 계속 바닥을 지킨다.
+// 되밀림 방지는 **표시값의 단조성**으로 한다(코덱스 리뷰 ③·④). 블록이 정산되면 delta가 0으로
+// 리셋되는데 그 몫이 서버 스냅샷에 반영되기까지는 폴링 한 주기(업로드가 대기열로 가면 더)가
+// 걸린다 — 그 구간에 raw 값이 뒤로 밀리므로 직전 표시값을 바닥으로 깐다.
+// 정산분을 따로 누적해 더하지 않는 이유: 그 방식은 "서버가 이 정산분을 이미 반영했는가"를
+// 알아야 하는데 알 수 없어서, 첫 스냅샷이 정산 뒤에 도착하면 같은 블록을 두 번 센다(④).
+// 단조 바닥값은 후보가 항상 raw 아니면 과거의 raw라 구조적으로 이중 계상이 불가능하다.
+// 오늘 집중시간이 뒤로 가는 서버 정정은 없다고 본다 — 날짜가 바뀌면 호출부가 바닥을 0으로 리셋한다.
 export function myLiveTotalSeconds({
   serverBase,
-  sessionBase,
-  settledServer,
   delta,
   localFallback,
+  shownFloor,
 }: {
   serverBase: number | null;
-  sessionBase: number | null;
-  settledServer: number;
   delta: number;
   localFallback: number;
+  shownFloor: number;
 }): number {
-  // 서버 스냅샷 미확보(그룹 미가입·조회 실패·자정 넘겨 무효화) — 종전 로컬 집계로 폴백
-  if (serverBase == null || sessionBase == null) return localFallback;
-  return Math.max(serverBase, sessionBase + settledServer) + delta;
+  // 서버 스냅샷 미확보(그룹 미가입·조회 실패·자정 넘겨 무효화) — 종전 로컬 집계로 폴백.
+  // 폴백도 바닥을 함께 적용해 서버↔로컬 경로를 오갈 때 값이 튀지 않게 한다.
+  const raw = serverBase == null ? localFallback : serverBase + delta;
+  return Math.max(raw, shownFloor);
 }

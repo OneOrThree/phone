@@ -31,17 +31,24 @@
 import { localDateStr, todayStr, todayStrKst, zoneDateStr } from '@/utils/localDate';
 import { getServerZone } from '@/utils/serverZone';
 
+// 서버 날짜 버킷의 고정 존 — 서버가 GROMO-1259(ZonePolicy)부터 판정·저장·조회를 전부 KST로
+// 자른다. 그리드 표시 축은 프로필이 내려준 문자열(serverZone)이 아니라 이 상수를 따른다.
+const KST = 'Asia/Seoul';
+
 // 날짜 "YYYY-MM-DD" → 그 날짜에 발생한 이 블록의 집중 초.
 export type SecondsByDate = Record<string, number>;
 
 export interface BlockToday {
-  local: SecondsByDate; // 기기 로컬 날짜 축 — 표시·로컬 적립용
+  local: SecondsByDate; // 기기 로컬 날짜 축 — 로컬 적립(FocusContext·SubjectContext)용
   server: SecondsByDate; // 서버 존 날짜 축 — 서버 업로드용
+  // 서버 날짜 버킷(KST 고정) 축 — 그리드 표시용(GROMO-1246). server 축과 따로 두는 이유는
+  // blockKstTodaySeconds 주석 참고. 구버전 저장 레코드엔 없어 소비처가 `?.`로 방어한다.
+  kst: SecondsByDate;
 }
 
 // 정산 직후(새 블록 시작) 상태.
 export function newBlockToday(): BlockToday {
-  return { local: {}, server: {} };
+  return { local: {}, server: {}, kst: {} };
 }
 
 // 집중 tick 1초 적립. at은 tick이 발생한 시각(1초의 끝).
@@ -63,6 +70,9 @@ export function creditTicks(state: BlockToday, firstAt: Date, count: number): Bl
   return {
     local: addRuns(state.local, firstCoveredMs, count, (ms) => localDateStr(new Date(ms))),
     server: addRuns(state.server, firstCoveredMs, count, (ms) => zoneDateStr(new Date(ms), zone)),
+    // 표시용 KST 축 — 존이 KST면 server와 같은 값이지만, 같은 run 단위 분할이라 추가 비용은
+    // 포맷 호출 수십 회 수준이다(위 성능 주석과 같은 근거).
+    kst: addRuns(state.kst ?? {}, firstCoveredMs, count, (ms) => zoneDateStr(new Date(ms), KST)),
   };
 }
 
@@ -101,13 +111,15 @@ export function blockTodaySeconds(state: BlockToday): number {
 }
 
 // 서버 버킷(KST) 오늘 몫 — 서버 날짜 버킷 값 위에 얹을 '아직 서버에 없는 진행 중 몫'(GROMO-1246).
-// blockTodaySeconds의 server 축 짝이다. 축이 다르면 자정 경계에서 같은 tick의 귀속 날짜가 갈린다.
-// 키를 serverTodayStr()가 아니라 todayStrKst()로 잡는 이유(코덱스 리뷰 ①): 서버는 GROMO-1259
-// (ZonePolicy)부터 판정·저장·조회 버킷이 전부 KST 고정이고, 이 값을 얹을 서버 스냅샷도 KST
-// 기준일로 조회한다. serverZone은 프로필이 내려준 문자열이라(지금은 항상 Asia/Seoul) 구버전
-// 서버·미갱신 프로필에서 KST가 아닐 수 있는데, 그러면 스냅샷과 델타의 축이 갈린다.
+// blockTodaySeconds의 KST 축 짝이다. 축이 다르면 자정 경계에서 같은 tick의 귀속 날짜가 갈린다.
+// server 맵을 KST 키로 읽지 않고 별도 축으로 집계하는 이유(코덱스 리뷰 ⑤): server 맵의 키는
+// creditTicks가 getServerZone()으로 만든다 — 지금은 항상 Asia/Seoul이지만 캐시·구버전 프로필에
+// Europe/London 같은 값이 남아 있으면 tick이 런던 날짜 키로 쌓여 KST 키 조회가 계속 0을
+// 반환하고, 세션 중에도 내 타일이 오르지 않는다.
+// 구버전 저장 레코드(kst 맵 도입 전)는 `?.`로 방어 — 그 세션은 표시 델타가 0이지만 다음 폴링이
+// 서버 값으로 정정한다.
 export function blockKstTodaySeconds(state: BlockToday): number {
-  return state.server[todayStrKst()] ?? 0;
+  return state.kst?.[todayStrKst()] ?? 0;
 }
 
 // 서버가 이 업로드의 판정(그날 누적·스트릭)을 매긴 날짜 = 분포 맵의 마지막 비어있지 않은 날짜
