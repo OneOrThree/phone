@@ -25,6 +25,9 @@ public class LocalCorsConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", cors);
+        // 설치 전 초대 복원(POST /l/match)은 /api 밖이라 여기 없으면 preflight 에 CORS 헤더가
+        // 붙지 않아 로컬 웹에서 조용히 실패한다 (코드리뷰).
+        source.registerCorsConfiguration("/l/**", cors);
 
         FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(source));
         // 인증 필터보다 먼저 preflight 요청을 처리해야 OPTIONS 요청이 401로 차단되지 않는다.

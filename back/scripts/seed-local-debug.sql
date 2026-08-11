@@ -517,6 +517,37 @@ ON CONFLICT (id) DO UPDATE SET
     focus_seconds_by_date = EXCLUDED.focus_seconds_by_date,
     total_distraction_seconds = EXCLUDED.total_distraction_seconds;
 
+-- 일일 집계를 실제 세션 합으로 맞춘다.
+-- daily_focus_stats 는 세션보다 먼저 들어가야 하고(세션이 daily_focus_stat_id 로 그 행을 참조)
+-- 그래서 위에서는 독립 수식으로 채운다. 그대로 두면 집계를 읽는 /stats/focus 와 세션을 읽는
+-- /stats/by-category 의 총합이 어긋나 통계 화면 디버깅이 틀어진다(코드리뷰).
+-- 세션이 달린 날(최근 30일)만 덮어쓰고, 나머지 60일은 위 수식 값을 그대로 둔다.
+-- 진행 중(라이브) 세션은 daily_focus_stat_id 가 없어 자연히 빠진다.
+UPDATE daily_focus_stats AS s
+SET total_focus_seconds = agg.focus_seconds,
+    total_distraction_seconds = agg.distraction_seconds,
+    session_count = agg.session_count,
+    is_focus_time_goal_achieved = agg.focus_seconds >= 3600,
+    updated_at = now()
+FROM (
+    SELECT sessions.daily_focus_stat_id AS stat_id,
+           sum(sessions.session_seconds)::integer AS focus_seconds,
+           sum(sessions.total_distraction_seconds)::integer AS distraction_seconds,
+           count(*)::integer AS session_count
+    FROM (
+        SELECT
+            daily_focus_stat_id,
+            total_distraction_seconds,
+            (SELECT sum(entry.value::integer)
+             FROM jsonb_each_text(focus_seconds_by_date) AS entry(key, value)) AS session_seconds
+        FROM focus_sessions
+        WHERE daily_focus_stat_id IS NOT NULL
+    ) AS sessions
+    WHERE sessions.session_seconds IS NOT NULL
+    GROUP BY sessions.daily_focus_stat_id
+) AS agg
+WHERE s.id = agg.stat_id;
+
 WITH live_users AS (
     SELECT id, row_number() OVER (ORDER BY id) AS user_no
     FROM users

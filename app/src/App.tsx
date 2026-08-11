@@ -459,8 +459,10 @@ function App() {
         key={user?.userId ?? 'guest'}
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
-        // 웹 로컬 디버그는 게스트 토큰으로 인증하지만 전체 UI 확인을 위해 기능 게이트를 연다.
-        initialIsGuest={Platform.OS === 'web' ? false : user?.isGuest}
+        // 웹 로컬 디버그(dev)는 게스트 토큰으로 인증하지만 전체 UI 확인을 위해 기능 게이트를 연다.
+        // 배포 웹은 승격 트리거가 없는 팀 dev 서버라 서버 값을 그대로 따른다 — 안 그러면 그룹·친구를
+        // 열어 준 뒤 GUEST_FORBIDDEN 을 받는다(코드리뷰). auth.web.ts 의 isGuest 규칙과 같은 기준.
+        initialIsGuest={Platform.OS === 'web' && __DEV__ ? false : user?.isGuest}
         initialGoalSeconds={
           onboardingFocusGoalSeconds ??
           (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)
