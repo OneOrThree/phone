@@ -146,6 +146,10 @@ class GroupControllerTest {
                 "\u200B",
                 "\uFE0F",
                 "\u034F",
+                "\u115F\u1160",
+                "\u2800",
+                "\u3164",
+                "\uFFA0",
                 "공부방\u202E가짜 안내",
                 "공부방\u2066가짜 안내")) {
             mockMvc.perform(post("/api/v1/groups")
@@ -204,6 +208,10 @@ class GroupControllerTest {
                 "\u200B",
                 "\uFE0F",
                 "\u034F",
+                "\u115F\u1160",
+                "\u2800",
+                "\u3164",
+                "\uFFA0",
                 "공부방\n가짜 안내",
                 "공부방\u0000가짜 안내",
                 "공부방\u202E가짜 안내",
