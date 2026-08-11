@@ -2,7 +2,7 @@
 // 특히 참여 실패 표현이 Alert가 아니라 **인라인**이라는 규칙(파일 상단 주석)을 여기서 잠근다 —
 // Alert로 되돌아가면 시트 위에 레이어가 두 겹이 되고 §11의 '정원 찬 그룹' 확인이 어긋난다.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Keyboard, type KeyboardEvent } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupFindSheet from './GroupFindSheet';
 import { getMyGroups, joinGroup, searchGroups } from '@/services/groupApi';
@@ -132,6 +132,37 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.useRealTimers();
+});
+
+describe('키보드 inset 소유권', () => {
+  test('GroupFindSheet는 별도 보정 없이 SheetShell의 iOS listener 하나만 사용하고 입력을 보존한다', async () => {
+    const handlers = new Map<string, (event: KeyboardEvent) => void>();
+    const listener = jest.spyOn(Keyboard, 'addListener').mockImplementation((event, callback) => {
+      handlers.set(event, callback);
+      return { remove: jest.fn() } as unknown as ReturnType<typeof Keyboard.addListener>;
+    });
+    mockSearchGroups.mockResolvedValue([]);
+
+    await renderSheet();
+    const input = screen.getByPlaceholderText('그룹 이름으로 검색');
+    await act(async () => fireEvent.changeText(input, '집중'));
+
+    expect(listener.mock.calls.map(([event]) => event)).toEqual([
+      'keyboardWillShow',
+      'keyboardWillHide',
+    ]);
+    await act(async () => {
+      handlers.get('keyboardWillShow')?.({
+        endCoordinates: { height: 320 },
+      } as KeyboardEvent);
+    });
+    expect(screen.getByPlaceholderText('그룹 이름으로 검색')).toBe(input);
+    expect(screen.getByPlaceholderText('그룹 이름으로 검색').props.value).toBe('집중');
+
+    await act(async () => handlers.get('keyboardWillHide')?.({} as KeyboardEvent));
+    expect(screen.getByPlaceholderText('그룹 이름으로 검색')).toBe(input);
+    listener.mockRestore();
+  });
 });
 
 describe('검색', () => {
