@@ -228,6 +228,15 @@ describe('카드 렌더', () => {
 });
 
 describe('콜백', () => {
+  test('앞·뒷면 모두 시각 전환 문구를 표시하지 않는다', async () => {
+    await renderList([group()]);
+
+    expect(screen.queryByText('뒤집어 방 보기')).toBeNull();
+    await press(`group.card.${GROUP_ID}`);
+    await finishCardFlip();
+    expect(screen.queryByText('앞면으로')).toBeNull();
+  });
+
   test('앞면 본문 탭은 같은 카드만 뒤집고 방 전체 보기에서만 onSelect한다', async () => {
     await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
 
