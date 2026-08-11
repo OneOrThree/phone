@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
     paths:
-      - 'back/**'
+      - "back/**"
   workflow_dispatch:
 
 concurrency:
@@ -32,15 +32,18 @@ jobs:
     name: 이미지 빌드 검증 · 캐시 적재
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud도 키 파일도 필요 없다
       - name: GAR 인증
         run: |
-          curl -s -H "Metadata-Flavor: Google" \
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -r .access_token \
+          | jq -er .access_token \
           | docker login -u oauth2accesstoken --password-stdin asia-northeast3-docker.pkg.dev
 
       - uses: docker/setup-buildx-action@v3
@@ -116,4 +119,3 @@ jobs:
                 body,
               });
             }
-

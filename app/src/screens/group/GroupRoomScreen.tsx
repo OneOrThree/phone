@@ -66,6 +66,7 @@ import ChallengeComposeSheet from './components/ChallengeComposeSheet';
 import ChallengeResultModal from './components/ChallengeResultModal';
 import MemberTile from './components/MemberTile';
 import { GroupRoomBottomBar, GROUP_BOTTOM_BAR_SPACE } from './components/GroupRoomBottomBar';
+import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 
 // 그룹방 — 명세 docs/app/group-plan.md §6-4.
 //
@@ -274,7 +275,8 @@ export default function GroupRoomScreen({
   // 다른 챌린지 푸시를 탭) 다시 무장한다.
   const focusPendingRef = useRef<string | null>(null);
   const focusKeyRef = useRef<string | null>(null);
-  // 탈퇴 감지(MEMBER_ONLY·NOT_FOUND) 시 이탈(onLeft)을 결과 모달 소비 뒤로 미루는 플래그
+  // 탈퇴 감지(MEMBER_ONLY 또는 NOT_FOUND scope 재확인 완료) 시 이탈(onLeft)을 결과 모달 소비
+  // 뒤로 미루는 플래그
   // (PR #566 리뷰 ② — 탈퇴자도 자기 정산 결과는 본다, N53·C8). 마지막 결과를 닫을 때 발화한다.
   const pendingLeaveRef = useRef(false);
   // 지목 변경을 재조회로 잇기 위한 직전 값 — 아래 이펙트 주석 참고.
@@ -432,8 +434,57 @@ export default function GroupRoomScreen({
       resultsUnknown = true;
     }
 
-    if (detailResult.status === 'fulfilled') {
-      setDetail(detailResult.value);
+    let resolvedDetail: GroupDetailResponse | null =
+      detailResult.status === 'fulfilled' ? detailResult.value : null;
+
+    // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
+    // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
+    const convergeMembershipAbsence = (): boolean => {
+      if (queuedResults > 0 || resultShownKeyRef.current !== null) {
+        pendingLeaveRef.current = true;
+        setError(true);
+        return true;
+      }
+      if (resultsUnknown) {
+        setError(true);
+        return true;
+      }
+      // 이전 조회에서 결과 소비 뒤 이탈을 보류했더라도 최신 성공 응답이 결과 부재를 확정했고
+      // 실제 모달도 없다면 더 이상 onResultClose가 올 수 없다. 보류를 풀고 즉시 수렴한다.
+      pendingLeaveRef.current = false;
+      onLeft();
+      return false;
+    };
+
+    if (detailResult.status === 'rejected') {
+      const code = groupErrorCode(detailResult.reason);
+      if (code === 'MEMBER_ONLY') {
+        // 서버가 활성 인증 뒤 멤버십 부재를 확인한 사후조건이라 직접 수렴할 수 있다.
+        if (!convergeMembershipAbsence()) return false;
+      } else if (code === 'NOT_FOUND') {
+        // NOT_FOUND는 활성 사용자 부재와 그룹 부재가 같은 code다. 인증을 재확인하고, 유효한
+        // 세션이면 최신 detail/전체 목록 scope가 결론을 낼 때만 방 유지 또는 이탈로 수렴한다.
+        const resolution = await resolveGroupRoomNotFound({ groupId, date, userId: userId ?? '' });
+        if (seq !== requestSeqRef.current) return false;
+        if (resolution.kind === 'detail') {
+          resolvedDetail = resolution.detail;
+        } else if (resolution.kind === 'membership_absent') {
+          if (!convergeMembershipAbsence()) return false;
+        } else {
+          // session_recovery는 공통 로그아웃 경계를 이미 시작했다. 트리가 남아 있는 동안에도
+          // 성공 복귀로 보이지 않게 안전 오류를 둔다. 재확인 실패도 같은 명시 재시도 상태다.
+          setError(true);
+        }
+      } else {
+        setError(true);
+      }
+    }
+
+    if (resolvedDetail !== null) {
+      // 최신 상세 성공은 현재 멤버십을 다시 증명한다. 앞선 실패에서 결과 모달 뒤 이탈을
+      // 예약했더라도 낡은 예약으로 방을 나가지 않게 해제한다.
+      pendingLeaveRef.current = false;
+      setDetail(resolvedDetail);
       loadedDateRef.current = date;
       // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — route episode당 1회.
       const previousRoomView = roomViewedRef.current;
@@ -453,34 +504,6 @@ export default function GroupRoomScreen({
           entry_source: entrySource,
           interaction_id: attributedInteractionId,
         });
-      }
-    } else {
-      // 이미 그룹이 사라졌거나 내가 멤버가 아니면 방을 잡고 있을 이유가 없다 —
-      // 부모가 빈 상태로 되돌린다(§3-2).
-      const code = groupErrorCode(detailResult.reason);
-      if (code === 'MEMBER_ONLY' || code === 'NOT_FOUND') {
-        // 탈퇴자도 자기 정산 결과는 본다(N53·C8 — PR #566 리뷰 ②): 방금 큐에 실린 결과 또는
-        // 이미 떠 있는 모달이 있으면 onLeft를 **미룬다** — 마지막 결과를 닫을 때 onResultClose가
-        // 이어서 부른다. 결과 큐는 참가자 스코프라 멤버십을 잃어도 응답에 온다. 배경은 에러
-        // 분기로 세워 둔다(전면 다크 모달 뒤라 보이지 않고, 모달이 닫히면 곧 부모가 화면을 내린다).
-        if (queuedResults > 0 || resultShownKeyRef.current !== null || pendingLeaveRef.current) {
-          pendingLeaveRef.current = true;
-          setError(true);
-        } else if (resultsUnknown) {
-          // 보여줄 결과가 있는지 **모른다**(결과 조회 실패·가드 읽기 실패 — codex 후속 리뷰 P2).
-          // 모르는 채로 내보내면 다른 소속 그룹이 없는 탈퇴자는 그 정산 결과를 영영 못 본다.
-          // 이번 회차만 이탈을 미루고 **래치하지 않는다**(pendingLeaveRef를 세우지 않는다) —
-          // 세우면 다음 조회가 '결과 없음'을 확인해도 영영 이탈하지 못하고 에러 화면에 갇힌다.
-          // 다음 조회가 판정에 성공하면 그때 결과를 띄우거나(위 분기) 즉시 이탈한다(아래).
-          setError(true);
-        } else {
-          // 보여줄 결과가 없으면 종전대로 즉시 — 부모가 이 화면을 내린다(로딩 플래그를 되돌릴
-          // 대상이 없으므로 최신 아님으로 반환).
-          onLeft();
-          return false;
-        }
-      } else {
-        setError(true);
       }
     }
 
@@ -562,6 +585,9 @@ export default function GroupRoomScreen({
   // 포그라운드 복귀 — 포커스는 유지된 채라 useFocusEffect가 다시 돌지 않는다.
   // 화면이 떠 있으면 재조회하고, 자정을 넘겼으면 포커스 여부와 무관하게 새 date로 다시 부른다.
   useEffect(() => {
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
         invalidateCardInteraction(interactionId);

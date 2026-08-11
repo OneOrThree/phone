@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { GROUP_CARD_HEIGHT } from './groupCardLayout';
 
 interface FindMoreCardProps {
   width: number;
-  position: number;
-  pageCount: number;
   onPress: () => void;
+  position?: number;
+  pageCount?: number;
   focusable?: boolean;
+  minHeight?: number;
 }
 
 /**
@@ -16,14 +18,15 @@ interface FindMoreCardProps {
  */
 export function FindMoreCard({
   width,
-  position,
-  pageCount,
   onPress,
+  position = 1,
+  pageCount = 1,
   focusable = true,
+  minHeight = GROUP_CARD_HEIGHT,
 }: FindMoreCardProps) {
   return (
     <Pressable
-      style={[s.card, { width }]}
+      style={[s.card, { width, minHeight }]}
       onPress={onPress}
       focusable={focusable}
       accessibilityRole="button"
@@ -41,8 +44,8 @@ export function FindMoreCard({
 
 const s = StyleSheet.create({
   card: {
-    minHeight: 220,
-    borderRadius: 22,
+    minHeight: 520,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.sm,

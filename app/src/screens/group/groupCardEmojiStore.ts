@@ -180,6 +180,21 @@ export async function readGroupCardEmoji(
   return result.status === 'ready' ? result.emoji : DEFAULT_GROUP_CARD_EMOJI;
 }
 
+/** 편집/설정 화면은 저장소 오류를 미설정 기본값으로 확정하면 안 되므로 실패를 전달한다. */
+export async function readGroupCardEmojiForEdit(
+  userId: string | null,
+  groupId: string,
+): Promise<GroupCardEmoji> {
+  if (!userId) return DEFAULT_GROUP_CARD_EMOJI;
+  return enqueueStorageOperation(async () => {
+    const map = parseGroupCardEmoji(await AsyncStorage.getItem(STORAGE_KEYS.groupCardEmoji));
+    return (
+      pendingEmojis.get(pendingKey(userId, groupId))?.emoji ??
+      normalizeGroupCardEmoji(map[userId]?.[groupId])
+    );
+  });
+}
+
 /** 같은 key의 계정×그룹 RMW 전체를 직렬화해 서로 다른 bucket의 동시 저장을 보존한다. */
 export function writeGroupCardEmoji(
   userId: string,

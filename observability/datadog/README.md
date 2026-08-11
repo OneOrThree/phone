@@ -21,18 +21,20 @@ dev 서버의 **인프라·컨테이너 메트릭 + 로그 + 앱 APM(분산 트�
 - `restart` — 재시작.
 - `down` — Datadog Agent 제거 + `app` 을 dev 파일 단독으로 재생성(평문, javaagent 없음) 복원.
 
-> `up`/`restart`/`down` 은 `dev-monitor.yml` 과 동일하게 self-hosted 러너·OIDC·AWS Secrets Manager 를 재사용한다.
+> `cd.yml`이 OIDC·AWS Secrets Manager로 만든 checkout 외부 `0600` runtime env를
+> `dev-monitor.yml`과 함께 재사용한다. 수동 관측 워크플로는 AWS 롤을 직접 인계하거나 시크릿을 다시 조회하지 않는다.
 
 ## 시크릿
 
-- `DD_API_KEY` — **GitHub Actions 리포 시크릿**. `gh secret set DD_API_KEY` 또는 Settings → Secrets and variables → Actions. checkout·AWS 인증에는 노출하지 않고 compose 실행·확인 step에만 주입한다.
+- `DD_API_KEY` — **GitHub Actions 리포 시크릿**. `gh secret set DD_API_KEY` 또는 Settings → Secrets and variables → Actions. checkout에는 노출하지 않고 compose 실행·확인 step에만 주입한다.
 - `DD_SITE` — `us5.datadoghq.com`(비밀 아님, 워크플로우 job env 하드코딩). Agent·APM 일치 필수.
 - DB/app 시크릿(`POSTGRES_*`·`JWT_SECRET` 등) — 신 AWS 계정(`808715036056`), 서울 리전(`ap-northeast-2`)의 Secrets Manager `gromo/dev/env` 사용.
 
-GitHub Actions는 장기 AWS 키를 저장하지 않고 OIDC로 `gromo-dev-github-actions` 롤을 인계한다. 이 롤의
-Secrets Manager 권한은 `gromo/dev/env` 조회로 제한한다. VM 부트스트랩용 `gromo/dev/app-server`와
-`gromo/dev/ci-runner`는 각 호스트의 인스턴스 롤만 읽으며 이 워크플로의 입력이 아니다. dev 이미지는
-ECR이 아니라 GAR(`asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache`)을 사용한다.
+`cd.yml`은 장기 AWS 키를 저장하지 않고 OIDC로 `gromo-dev-github-actions` 롤을 인계한다. 이 롤의
+Secrets Manager 권한은 `gromo/dev/env` 조회로 제한한다. Datadog·monitor 워크플로는 AWS 자격증명 없이
+그 결과 파일만 읽는다. VM 부트스트랩용 `gromo/dev/app-server`와 `gromo/dev/ci-runner`는 각 호스트의
+인스턴스 롤만 읽으며 배포·관측 워크플로의 입력이 아니다. dev 이미지는 ECR이 아니라
+GAR(`asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache`)을 사용한다.
 
 ## 확인 위치 (Datadog UI, us5)
 

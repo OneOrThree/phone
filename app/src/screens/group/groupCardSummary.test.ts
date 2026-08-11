@@ -108,6 +108,26 @@ describe('GroupCardSummaryAdapter', () => {
     expect(focus.retry).toHaveBeenCalledWith(USER_ID, DATE);
   });
 
+  test('목록 revision이 바뀐 뒤에는 이미 열린 카드의 모든 read dependency를 강제 갱신한다', async () => {
+    const focus = createFocus();
+    const loaders = {
+      detail: jest.fn().mockResolvedValue(detail(GROUP_A)),
+      announcements: jest.fn().mockResolvedValue([]),
+      challenges: jest.fn().mockResolvedValue([]),
+    };
+    const adapter = new GroupCardSummaryAdapter(focus, loaders);
+    adapter.setScope({ userId: USER_ID, date: DATE, groupIds: [GROUP_A] });
+
+    await adapter.ensureBack(GROUP_A);
+    await adapter.refreshBack(GROUP_A);
+
+    expect(loaders.detail).toHaveBeenCalledTimes(2);
+    expect(loaders.announcements).toHaveBeenCalledTimes(2);
+    expect(loaders.challenges).toHaveBeenCalledTimes(2);
+    expect(focus.ensure).toHaveBeenCalledTimes(1);
+    expect(focus.retry).toHaveBeenCalledWith(USER_ID, DATE);
+  });
+
   test('scope에서 사라진 그룹의 늦은 응답은 폐기하고 다른 카드에 넣지 않는다', async () => {
     const a = deferred<never>();
     const focus = createFocus();

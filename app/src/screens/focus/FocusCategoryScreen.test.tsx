@@ -7,8 +7,14 @@
 // ⚠️ 애니메이션 중간 프레임·이징은 단언하지 않는다 — jest에서 워클릿·CSS 전환은 목이다.
 //    여기서 보는 건 "시퀀스가 언제 시작·완주하는가"라는 순서 계약뿐이다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 import FocusCategoryScreen from './FocusCategoryScreen';
 import type { Subject } from './types';
+import {
+  consumeCardInteraction,
+  FOCUS_ATTRIBUTION_TTL_MS,
+  resetCardInteractionStateForTest,
+} from '@/services/cardInteraction';
 
 let mockReduce = true;
 let mockReady = false;
@@ -28,9 +34,16 @@ jest.mock('@/components/liquidGlass', () => ({
 }));
 const WAIT_MS = MOCK_SLIDE_MS + 60;
 
+let mockRouteParams: Record<string, unknown> | undefined;
+const mockNavigation = {
+  navigate: jest.fn(),
+  goBack: jest.fn(),
+  getState: jest.fn(() => ({ index: 0, routes: [{ name: 'FocusCategory' }] })),
+  addListener: jest.fn(() => jest.fn()),
+};
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
-  useRoute: () => ({ params: undefined }),
+  useNavigation: () => mockNavigation,
+  useRoute: () => ({ params: mockRouteParams }),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -123,6 +136,9 @@ jest.mock('./components/TimerMethodSheet', () => {
 beforeEach(() => {
   mockReduce = true;
   mockReady = false;
+  mockRouteParams = undefined;
+  resetCardInteractionStateForTest();
+  jest.clearAllMocks();
   jest.useFakeTimers();
 });
 afterEach(() => {
@@ -146,6 +162,35 @@ const pressOther = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[1].i
 const pressSame = () => fireEvent.press(screen.getByTestId(`row.${SUBJECTS[0].id}`));
 
 describe('FocusCategoryScreen 과목 선택 시퀀스 게이트', () => {
+  test('마운트 시점에 이미 백그라운드면 카드 interaction을 즉시 폐기한다', async () => {
+    const appState = AppState as typeof AppState & { currentState: AppStateStatus | null };
+    const previousState = appState.currentState;
+    appState.currentState = 'background';
+    const acceptedAt = Date.now();
+    mockRouteParams = {
+      entrySource: 'group_card',
+      interactionId: 'interaction-before-mount',
+      interactionAcceptedAt: acceptedAt,
+    };
+
+    try {
+      await renderScreen();
+      expect(
+        consumeCardInteraction(
+          {
+            entrySource: 'group_card',
+            interactionId: 'interaction-before-mount',
+            interactionAcceptedAt: acceptedAt,
+          },
+          FOCUS_ATTRIBUTION_TTL_MS,
+          acceptedAt,
+        ),
+      ).toBeUndefined();
+    } finally {
+      appState.currentState = previousState;
+    }
+  });
+
   test('설정이 확정되기 전에는 시퀀스를 시작하지 않는다', async () => {
     await renderScreen();
     await pressOther();

@@ -49,67 +49,155 @@ export function TabGuideOverlay({
   storageKey,
   steps,
   onFinish,
+  visible: controlledVisible,
+  completionMode = 'internal',
+  allowRequestClose = true,
+  testID = 'guide.overlay',
+  accessibilityTitle,
 }: {
   storageKey: string;
   steps: GuideStep[];
   onFinish?: () => void; // 마지막 스텝을 닫은 직후 — 투어 중 옮긴 스크롤 원복 등
+  // groupDeck처럼 별도 queue/controller가 수명을 소유할 때만 사용한다.
+  visible?: boolean;
+  completionMode?: 'internal' | 'external';
+  allowRequestClose?: boolean;
+  testID?: string;
+  accessibilityTitle?: string;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
-  const [visible, setVisible] = useState(false);
+  const viewportKey = `${winW}x${winH}`;
+  const [internalVisible, setInternalVisible] = useState(false);
   const [idx, setIdx] = useState(0);
-  const [hole, setHole] = useState<Hole>(null);
+  const [measuredHole, setMeasuredHole] = useState<{
+    viewportKey: string;
+    value: Hole;
+  } | null>(null);
+  // 화면 크기가 바뀐 첫 렌더부터 이전 좌표를 숨긴다. 새 anchor 측정이 끝날 때까지 전체 dim이다.
+  const hole = measuredHole?.viewportKey === viewportKey ? measuredHole.value : null;
   const holeReq = useRef(0); // 늦게 도착한 이전 스텝 측정 무시용
+  const prepareStateRef = useRef<{
+    stepIndex: number;
+    status: 'pending' | 'completed';
+    promise: Promise<void>;
+  } | null>(null);
   // steps는 렌더마다 새 배열일 수 있어 ref로 최신값만 읽는다 — 스텝 전환 시에만 재측정
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
 
+  const controlled = controlledVisible !== undefined;
+  const visible = controlled ? controlledVisible : internalVisible;
+  const previousVisibleRef = useRef(false);
+  // 재개 첫 렌더에서 idx state가 이전 마지막 단계여도 0단계를 사용한다. visible effect의
+  // setIdx(0)을 기다리면 같은 commit의 prepare effect가 이전 단계 prepare를 먼저 실행한다.
+  const effectiveIdx = visible && !previousVisibleRef.current ? 0 : idx;
+
   useEffect(() => {
+    if (controlled) return;
     AsyncStorage.getItem(storageKey).then((v) => {
-      if (v !== '1') setVisible(true);
+      if (v !== '1') setInternalVisible(true);
     });
-  }, [storageKey]);
+  }, [controlled, storageKey]);
+
+  useEffect(() => {
+    previousVisibleRef.current = visible;
+    if (visible) setIdx(0);
+  }, [visible]);
 
   // 스텝이 바뀔 때마다 스포트라이트 결정 — prepare(스크롤 등) → rect 또는 앵커 측정. 없으면 전체 딤
-  const step = steps[idx];
+  const step = steps[effectiveIdx];
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      prepareStateRef.current = null;
+      return;
+    }
     const req = ++holeReq.current;
-    const st = stepsRef.current[idx];
-    (async () => {
-      if (st?.prepare) {
-        setHole(null); // 스크롤로 화면이 움직이는 동안엔 전체 딤
-        try {
-          await st.prepare();
-        } catch {}
-        if (req !== holeReq.current) return;
-      }
+    const st = stepsRef.current[effectiveIdx];
+    const measure = () => {
+      if (req !== holeReq.current) return;
       if (st?.rect) {
-        setHole(scaleRect(st.rect));
+        setMeasuredHole({ viewportKey, value: scaleRect(st.rect) });
         return;
       }
       const node = st?.anchor?.current;
       if (!node) {
-        setHole(null);
+        setMeasuredHole({ viewportKey, value: null });
         return;
       }
       node.measureInWindow((x, y, w, h) => {
         if (req !== holeReq.current) return;
-        setHole(w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null);
+        setMeasuredHole({
+          viewportKey,
+          value: w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null,
+        });
       });
-    })();
-  }, [visible, idx]);
+    };
+
+    // 같은 단계의 prepare가 진행 중이면 viewport 변경 effect도 그 Promise를 함께 기다린다.
+    // 완료된 단계는 prepare를 되풀이하지 않고 현재 anchor만 다시 측정한다.
+    const existingPrepare =
+      prepareStateRef.current?.stepIndex === effectiveIdx ? prepareStateRef.current : null;
+    if (existingPrepare) {
+      if (existingPrepare.status === 'completed') measure();
+      else existingPrepare.promise.then(measure);
+      return;
+    }
+
+    if (!st?.prepare) {
+      measure();
+      return;
+    }
+
+    setMeasuredHole({ viewportKey, value: null }); // 준비 동안엔 전체 딤
+    try {
+      const prepared = st.prepare();
+      if (prepared && typeof prepared.then === 'function') {
+        const prepareState = {
+          stepIndex: effectiveIdx,
+          status: 'pending' as const,
+          promise: Promise.resolve(prepared).then(
+            () => undefined,
+            () => undefined,
+          ),
+        };
+        prepareStateRef.current = prepareState;
+        prepareState.promise.then(() => {
+          if (prepareStateRef.current === prepareState) {
+            prepareStateRef.current = { ...prepareState, status: 'completed' };
+          }
+          measure();
+        });
+      } else {
+        prepareStateRef.current = {
+          stepIndex: effectiveIdx,
+          status: 'completed',
+          promise: Promise.resolve(),
+        };
+        measure();
+      }
+    } catch {
+      prepareStateRef.current = {
+        stepIndex: effectiveIdx,
+        status: 'completed',
+        promise: Promise.resolve(),
+      };
+      measure();
+    }
+  }, [visible, effectiveIdx, viewportKey]);
 
   if (!visible || !step) return null;
 
   function advance() {
-    if (idx + 1 < steps.length) {
-      setIdx(idx + 1);
+    if (effectiveIdx + 1 < steps.length) {
+      setIdx(effectiveIdx + 1);
       return;
     }
-    setVisible(false);
-    AsyncStorage.setItem(storageKey, '1').catch(() => {});
-    // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
-    logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
+    if (!controlled) setInternalVisible(false);
+    if (completionMode === 'internal') {
+      AsyncStorage.setItem(storageKey, '1').catch(() => {});
+      // 마지막 스텝까지 보고 닫은 경우만 — guide는 키 접미(home/league/stats 등, GROMO-782)
+      logTabGuideCompleted({ guide: storageKey.replace('gromo:guide:', '') });
+    }
     onFinish?.();
   }
 
@@ -126,14 +214,32 @@ export function TabGuideOverlay({
     : { bottom: winH - (hole ? hole.y : winH * 0.62) + 18 };
 
   return (
-    <Modal transparent statusBarTranslucent animationType="fade" onRequestClose={advance}>
+    <Modal
+      transparent
+      statusBarTranslucent
+      animationType="fade"
+      onRequestClose={allowRequestClose ? advance : () => {}}
+    >
       {/* Maestro E2E — 코치마크 식별·진행용(GROMO-947). 사라질 때까지 탭해서 닫는다. */}
-      <Pressable testID="guide.overlay" style={s.flex1} onPress={advance}>
+      <Pressable
+        testID={testID}
+        style={s.flex1}
+        onPress={advance}
+        accessibilityRole="button"
+        accessibilityLabel={`${accessibilityTitle ? `${accessibilityTitle}, ` : ''}단계 ${effectiveIdx + 1}/${steps.length}. ${step.text}. ${effectiveIdx + 1 < steps.length ? '다음' : '시작'}`}
+        accessibilityActions={[
+          { name: 'activate', label: effectiveIdx + 1 < steps.length ? '다음' : '시작' },
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') advance();
+        }}
+      >
         {/* 딤 — 요소 모양(라운드)을 따라 뚫린 컷아웃: cutBw(화면 최대변)만큼 두꺼운 보더가
             구멍 밖 전부를 덮는다(안쪽 모서리 = borderRadius - borderWidth). 구멍 없으면 전체 딤 */}
         {hole ? (
           <>
             <View
+              testID={`${testID}.cutout`}
               style={[
                 s.cutout,
                 {
@@ -161,7 +267,7 @@ export function TabGuideOverlay({
             />
           </>
         ) : (
-          <View style={[s.dim, StyleSheet.absoluteFill]} />
+          <View testID={`${testID}.dim`} style={[s.dim, StyleSheet.absoluteFill]} />
         )}
 
         {/* 캐릭터 + 말풍선 */}
@@ -171,10 +277,10 @@ export function TabGuideOverlay({
             <View style={s.bubbleMeta}>
               <View style={s.dots}>
                 {steps.map((_, i) => (
-                  <View key={i} style={[s.dot, i === idx && s.dotOn]} />
+                  <View key={i} style={[s.dot, i === effectiveIdx && s.dotOn]} />
                 ))}
               </View>
-              <Text style={s.hint}>{idx + 1 < steps.length ? '탭하여 계속' : '탭하여 시작'}</Text>
+              <Text style={s.hint}>{effectiveIdx + 1 < steps.length ? '다음' : '시작'}</Text>
             </View>
             <View style={s.bubbleTail} />
           </View>
