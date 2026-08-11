@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  clearPendingGroupCardOrder,
+  getPendingGroupCardOrder,
   isSameGroupOrder,
   readGroupCardOrderState,
   reconcileGroupCardOrder,
+  setPendingGroupCardOrder,
+  updatePendingGroupCardOrderStatus,
   writeGroupCardOrder,
 } from './groupCardOrderStore';
 
@@ -10,6 +14,8 @@ interface Params {
   /** null은 목록 loading/error/부분 응답이다. 이때는 절대 reconcile/prune하지 않는다. */
   serverGroupIds: readonly string[] | null;
   userId: string | null;
+  /** 성공한 전체 목록 응답마다 증가한다. ID가 같아도 실패한 세션 쓰기를 다시 시도한다. */
+  successfulListVersion?: number;
 }
 
 interface GroupCardOrderState {
@@ -19,7 +25,11 @@ interface GroupCardOrderState {
   commitOrder: (groupIds: readonly string[]) => boolean;
 }
 
-export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCardOrderState {
+export function useGroupCardOrder({
+  serverGroupIds,
+  userId,
+  successfulListVersion = 0,
+}: Params): GroupCardOrderState {
   const [state, setState] = useState<{
     identity: string;
     ids: string[];
@@ -27,12 +37,8 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
   } | null>(null);
   const mounted = useRef(true);
   const orderRef = useRef<string[]>([]);
-  const userRef = useRef(userId);
-  userRef.current = userId;
   const identityRef = useRef('');
   const hydratedUserRef = useRef<string | null>(null);
-  // 디스크 쓰기 실패 뒤에도 계정별 최신 화면 순서를 세션 동안 보존한다.
-  const pendingByUserRef = useRef(new Map<string, string[]>());
 
   useEffect(() => {
     mounted.current = true;
@@ -58,29 +64,32 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
       const stored = read.order;
       if (canceled || !mounted.current) return;
 
-      const pending = userId ? pendingByUserRef.current.get(userId) : undefined;
+      const pending = userId ? getPendingGroupCardOrder(userId) : undefined;
       const memoryOrder = hydratedUserRef.current === userId ? orderRef.current : null;
       const reconciled = reconcileGroupCardOrder(
         ids,
-        pending ?? (read.readFailed ? memoryOrder : stored),
+        pending?.ids ?? (read.readFailed ? memoryOrder : stored),
       );
       orderRef.current = reconciled;
       hydratedUserRef.current = userId;
-      setState({ identity, ids: reconciled, saveFailed: pending !== undefined });
+      setState({ identity, ids: reconciled, saveFailed: pending?.status === 'failed' });
 
-      if (userId && pending) {
+      if (userId && pending?.status === 'failed') {
         // 새 그룹 append·탈퇴 prune을 실패한 최신 세션 순서에 합성한 뒤 즉시 재시도한다.
-        pendingByUserRef.current.set(userId, reconciled);
+        const retry = setPendingGroupCardOrder(userId, reconciled, 'inflight');
         writeGroupCardOrder(userId, reconciled)
           .then(() => {
-            const latest = pendingByUserRef.current.get(userId);
-            if (!latest || !isSameGroupOrder(latest, reconciled)) return;
-            pendingByUserRef.current.delete(userId);
+            if (!clearPendingGroupCardOrder(userId, retry.version)) return;
             if (mounted.current && identityRef.current === identity) {
               setState((current) => current && { ...current, saveFailed: false });
             }
           })
-          .catch(() => undefined);
+          .catch(() => {
+            if (!updatePendingGroupCardOrderStatus(userId, retry.version, 'failed')) return;
+            if (mounted.current && identityRef.current === identity) {
+              setState((current) => current && { ...current, saveFailed: true });
+            }
+          });
         return;
       }
 
@@ -90,14 +99,13 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
         !read.readFailed &&
         (read.needsRepair || (stored !== null && !isSameGroupOrder(stored, reconciled)))
       ) {
-        pendingByUserRef.current.set(userId, reconciled);
+        const repair = setPendingGroupCardOrder(userId, reconciled, 'inflight');
         writeGroupCardOrder(userId, reconciled)
           .then(() => {
-            const latest = pendingByUserRef.current.get(userId);
-            if (!latest || !isSameGroupOrder(latest, reconciled)) return;
-            pendingByUserRef.current.delete(userId);
+            clearPendingGroupCardOrder(userId, repair.version);
           })
           .catch(() => {
+            if (!updatePendingGroupCardOrderStatus(userId, repair.version, 'failed')) return;
             if (mounted.current && identityRef.current === identity) {
               setState((current) => current && { ...current, saveFailed: true });
             }
@@ -110,36 +118,37 @@ export function useGroupCardOrder({ serverGroupIds, userId }: Params): GroupCard
     };
     // serverKey가 배열의 값 동일성을 대표한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity, serverKey, userId]);
+  }, [identity, serverKey, successfulListVersion, userId]);
 
-  const commitOrder = useCallback((candidate: readonly string[]): boolean => {
-    const next = reconcileGroupCardOrder(orderRef.current, candidate);
-    if (isSameGroupOrder(next, orderRef.current)) return false;
+  const commitOrder = useCallback(
+    (candidate: readonly string[]): boolean => {
+      // 이 callback을 만든 계정/목록이 이미 교체됐거나 hydration 전이면 늦은 제스처를 거부한다.
+      if (identityRef.current !== identity || state?.identity !== identity) return false;
+      const next = reconcileGroupCardOrder(orderRef.current, candidate);
+      if (isSameGroupOrder(next, orderRef.current)) return false;
 
-    const currentUser = userRef.current;
-    const currentIdentity = identityRef.current;
-    orderRef.current = next;
-    setState((current) => (current ? { ...current, ids: next, saveFailed: false } : current));
-    if (currentUser) {
-      pendingByUserRef.current.set(currentUser, next);
-      writeGroupCardOrder(currentUser, next)
-        .then(() => {
-          const latest = pendingByUserRef.current.get(currentUser);
-          if (!latest || !isSameGroupOrder(latest, next)) return;
-          pendingByUserRef.current.delete(currentUser);
-          if (mounted.current && identityRef.current === currentIdentity) {
-            setState((current) => current && { ...current, saveFailed: false });
-          }
-        })
-        .catch(
-          () =>
-            mounted.current &&
-            identityRef.current === currentIdentity &&
-            setState((current) => current && { ...current, saveFailed: true }),
-        );
-    }
-    return true;
-  }, []);
+      orderRef.current = next;
+      setState((current) => (current ? { ...current, ids: next, saveFailed: false } : current));
+      if (userId) {
+        const write = setPendingGroupCardOrder(userId, next, 'inflight');
+        writeGroupCardOrder(userId, next)
+          .then(() => {
+            if (!clearPendingGroupCardOrder(userId, write.version)) return;
+            if (mounted.current && identityRef.current === identity) {
+              setState((current) => current && { ...current, saveFailed: false });
+            }
+          })
+          .catch(() => {
+            if (!updatePendingGroupCardOrderStatus(userId, write.version, 'failed')) return;
+            if (mounted.current && identityRef.current === identity) {
+              setState((current) => current && { ...current, saveFailed: true });
+            }
+          });
+      }
+      return true;
+    },
+    [identity, state?.identity, userId],
+  );
 
   // 계정 또는 서버 목록이 바뀐 직후에는 이전 identity의 값을 노출하지 않는다.
   return useMemo(

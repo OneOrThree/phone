@@ -266,6 +266,7 @@ export default function GroupListScreen({
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
     serverGroupIds: groups.map((group) => group.groupId),
     userId,
+    successfulListVersion: groupsRevision,
   });
   const orderedGroups = useMemo(() => {
     if (!hydrated) return [];
