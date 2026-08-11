@@ -1,12 +1,15 @@
 import { AxiosError, AxiosHeaders } from 'axios';
-import { triggerLogout } from '@/services/api';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import { getGroupDetail, getMyGroups } from '@/services/groupApi';
 import { getMyProfile } from '@/services/userApi';
 import { resolveGroupRoomNotFound } from './groupRoomNotFound';
 import type { GroupDetailResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { UserProfileResponse } from '@/types/dto/user';
 
-jest.mock('@/services/api', () => ({ triggerLogout: jest.fn() }));
+jest.mock('@/services/api', () => ({
+  getAuthSessionGeneration: jest.fn(),
+  triggerLogout: jest.fn(),
+}));
 jest.mock('@/services/groupApi', () => {
   const axios = jest.requireActual('axios').default as typeof import('axios').default;
   return {
@@ -21,6 +24,9 @@ jest.mock('@/services/groupApi', () => {
 jest.mock('@/services/userApi', () => ({ getMyProfile: jest.fn() }));
 
 const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockGetMyGroups = getMyGroups as jest.MockedFunction<typeof getMyGroups>;
 const mockGetMyProfile = getMyProfile as jest.MockedFunction<typeof getMyProfile>;
@@ -46,6 +52,7 @@ const summary = { groupId: GROUP_ID, name: '그룹' } as GroupSummaryResponse;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetAuthSessionGeneration.mockReturnValue(7);
   mockGetMyProfile.mockResolvedValue(profile);
 });
 
@@ -65,7 +72,7 @@ test('프로필 NOT_FOUND는 그룹 이탈이 아니라 공통 세션 복구로 
   await expect(
     resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
   ).resolves.toEqual({ kind: 'session_recovery' });
-  expect(mockTriggerLogout).toHaveBeenCalledTimes(1);
+  expect(mockTriggerLogout).toHaveBeenCalledWith(7);
   expect(mockGetGroupDetail).not.toHaveBeenCalled();
   expect(mockGetMyGroups).not.toHaveBeenCalled();
 });
