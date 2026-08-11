@@ -102,11 +102,21 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 - **절대 하지 말 것: 한 체인 안에서 두 표현을 섞는 것.** 같은 체인의 발행·조회·비교가
   `todayStrKst()` 와 `serverTodayStr()` 로 갈리면 **세 번째 축**이 생긴다.
 
-> ⚠️ **이 절은 한 번 반대로 쓰였다.** GROMO-1254 초안은 *"`serverZone` 이 서버 축의 정의이고
-> `todayStrKst` 는 근사치"* 라고 판정했는데, 근거로 삼은 `CountryZoneResolver` 는 **1259 에서
-> 이미 삭제된 클래스**였다. 1252(serverZone 도입)보다 **1259 가 나중**이다.
-> 앱 주석만 읽고 서버 정본을 확인하지 않으면 같은 실수를 반복한다 —
-> **축 판정의 정본은 `back/.../ZonePolicy.java` 다.**
+### ⚠️ 이 문서가 틀렸던 기록 — 둘 다 "그럴듯해서 검산 없이 통과한" 유형이다
+
+1. **전제를 확인하지 않았다.** GROMO-1254 초안은 *"`serverZone` 이 서버 축의 정의이고
+   `todayStrKst` 는 근사치"* 라고 판정했는데, 근거로 삼은 `CountryZoneResolver` 는 **1259 에서
+   이미 삭제된 클래스**였다. 1252(serverZone 도입)보다 **1259 가 나중**이다. 앱 주석
+   (`serverZone.ts:4`)이 그 클래스를 아직 정본처럼 서술하고 있었고, 서버를 열어 보지 않았다.
+   → **축 판정의 정본은 `back/.../ZonePolicy.java` 다. 앱 주석은 정본이 아니다.**
+2. **산수를 하지 않았다.** §6 G2 의 "로컬 정오가 KST 와 같은 날인 범위"를 `−11~+12` 로 적었는데,
+   실제 조건은 `X > −3` 이라 **양끝이 다 반대**였다 — 서쪽(미주)을 통째로 안전하다고 했고,
+   실제로 안전한 `+13/+14` 를 예외로 들었다. 한 줄만 계산해 보면 드러나는 오류였다.
+   → **날짜 축 문서는 계산이 근거다. 계산을 안 하고 쓰면 정본이 오히려 위험해진다** —
+   범위·경계를 적을 때는 반드시 양끝을 검산해 예시로 남긴다(G2 처럼).
+
+두 건 모두 **런타임 동작이 아니라 서술**에서 났고, 테스트로는 잡히지 않았다. 이 문서를 고칠 때는
+근거(서버 상수·계산)를 함께 인용하고, 리뷰어가 재검산할 수 있게 검산 예시를 붙인다.
 
 ---
 
@@ -209,7 +219,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | `focus/sessionSaveVerdict.ts:30,71` | `todayStr()` | 판정 발행 시점 날짜(로컬) — 소비처 `FocusResultScreen:272` 도 로컬 |
 | `focus/FocusResultScreen.tsx:~215` `todayLocal` | `todayStr()` | verdict 유효성 비교 — **강제 이전 금지**(같은 축끼리 비교) |
 | `services/screentimeSync.ts:116,282,283` | `todayStr()` / `yesterdayStr()` | 측정 시작일 앵커·마감 대상일 — 익스텐션이 로컬 하루로 버킷을 자른다 |
-| `services/screentimeSync.ts:137` `localNoonInstant` | 로컬 정오 | 기기 오프셋 −11~+12 전 범위에서 날짜 오귀속을 막는 보고 instant |
+| `services/screentimeSync.ts:137` `localNoonInstant` | 로컬 정오 | 로컬 측정일을 KST 저장 축으로 잇는 보고 instant. 자정 경계 오귀속을 막지만 **`UTC−3` 이하는 하루 밀린다**(§6 G2) |
 | `services/screentimeSync.ts:549,688` | `localDateStr` | 네이티브 dayKey 축 — **`todayStr`/`yesterdayStr` 금지**(주입점을 `localDateStr` 하나로) |
 | `services/screentimeSync.ts` 축하 하루 1회 가드(`today`) | `todayStr()` | 달성 **판정 자체가 로컬**(네이티브 버킷 분값 ≤ 로컬 목표) + 트리거도 로컬 자정 넘김 |
 | `HomeScreen.tsx:~397` 스크린타임 축하 비교 | `todayStr()` | 위 체인의 소비 측 |
@@ -300,5 +310,5 @@ jest.mock('@/utils/localDate', () => ({
 | --- | --- |
 | **G1** | **`utils/serverZone.ts` 소비처 3곳을 KST 로 되돌리기** — `focusRestore.todayRestoreSeconds` · `sessionSaveVerdict.isTodayVerdict` · `blockToday`(서버 키 맵). §2 판정상 `serverZone` 은 상수를 돌려받는 우회로일 뿐이고 **낡은 캐시 오염 경로**만 추가한다. 되돌리면 `serverTodayStr()`→`todayStrKst()`, `serverZoneAlignedWithLocal()`→`kstLocalSameDay()`, `zoneDateStr(ms, getServerZone())`→`kstDateStr(ms)` 이고 `serverZone.ts` 와 `App.tsx`·`auth.ts`·`userApi.ts` 의 배선까지 제거 가능하다. **이 티켓 범위 밖 — 판정만 기록한다.** ⚠️ 되돌리기 전에 확인할 것: 서버 `UserProfileResponse.timeZone` 이 계속 상수인가(향후 유저별 존이 부활하면 이 판정이 다시 뒤집힌다), 그리고 `blockToday` 의 local/server 이중 맵이 두 축을 모두 필요로 하는지 |
 | ~~G1(폐기)~~ | ~~`todayStrKst()` 함대의 `serverZone` 이전~~ — GROMO-1254 초안의 판정이었으나 **전제가 틀렸다**(`CountryZoneResolver` 는 1259 에서 삭제됨). 방향이 정반대다 → 위 G1 |
-| G2 | `screentimeSync` 의 `reportedAt = localNoonInstant(어제)` — 로컬 정오는 기기 오프셋 −11~+12 에서만 KST 와 같은 날짜다. 그 밖(예: UTC−12 · UTC+13)에서는 보고가 인접 KST 버킷에 앉는다. GROMO-1254 는 그 사실을 **인정하고**(`kstBucketDateOf` 가 같은 instant 를 KST 로 잘라 연속 달성일 앵커를 맞춘다) 보고 instant 자체는 건드리지 않았다 |
+| **G2** | **`screentimeSync` 의 `reportedAt = localNoonInstant(대상일)` 이 미주 전역에서 하루 밀린다.** 오프셋 `X` 의 로컬 정오는 KST 로 `21 − X` 시라, 같은 날짜 조건은 `0 ≤ 21 − X < 24` → **`X > UTC−3`**. 검산: UTC+14 → KST 같은 날 07:00 ✅ · UTC−2 → 같은 날 23:00 ✅ · **UTC−3 → 다음 날 00:00 ❌** · **UTC−8(LA) → 다음 날 05:00 ❌**. 즉 **UTC−3 이하(미주 대부분·Newfoundland −3:30 포함)** 는 로컬 측정일 `D` 의 보고가 KST `D+1` 버킷에 앉는다.<br>**영향은 시프트지 손상이 아니다** — 쓰기 경로 3곳(`:431` 어제 마감 · `:515` 마이그레이션 · `:532` 오늘 중간)이 전부 같은 `localNoonInstant` 를 쓰므로 시프트가 **균일**하다. 버킷 충돌·덮어쓰기·유실은 없고, 스크린타임 시리즈 전체가 KST 축에서 하루씩 밀릴 뿐이다. GROMO-1254 의 `kstBucketDateOf` 는 **같은 시프트를 그대로 재현**하므로 연속 달성일 앵커는 이 조건과 무관하게 맞는다.<br>**우선순위**: 영향 범위가 "오프셋 12h 초과"에서 **미주 전역**으로 넓어졌으나, 성격은 이미 수용된 한계 **L5**("해외 유저는 내 하루와 앱의 하루가 어긋난다")의 앱 쪽 그림자다. 한국 타깃 서비스인 한 **수용이 타당**하고, 해외 확장 시 L5 재검토와 **함께** 다뤄야 할 항목이다(단독 수정은 서버 KST 고정과 어긋나 오히려 위험). `reportedAt` 은 계약상 미접촉 |
 | G3 | `screentimeSync` 스크린타임 축하의 **판정 축(로컬)과 표시 데이터 축(KST)** 이 구조적으로 다르다 — 로컬로 마감한 어제가 서버에서는 다른 셀에 앉을 수 있다(L5 의 앱 쪽 그림자). 서버가 클라 판정(`achieved`)을 신뢰하는 현 프로토콜에서는 값이 어긋나지 않지만, 서버가 자체 판정으로 바뀌면 재검토가 필요하다 |
