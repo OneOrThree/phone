@@ -94,11 +94,8 @@ jest.mock('@/services/analyticsEvents', () => ({
   logHomeRefreshed: jest.fn(),
 }));
 jest.mock('@/components/TabGuideOverlay', () => ({ TabGuideOverlay: () => null }));
-// TabBar는 fabWindowRect(투어 스포트라이트 좌표) 하나 때문에 들어온다 — 전이로 딸려오는
-// @callstack/liquid-glass가 ESM이라 목으로 끊지 않으면 스위트가 로드 단계에서 죽는다.
-jest.mock('@/components/TabBar', () => ({
-  fabWindowRect: () => ({ x: 0, y: 0, width: 0, height: 0 }),
-}));
+// (TabBar에서 fabWindowRect(투어 스포트라이트 좌표) 하나만 쓴다. 전이로 딸려오던
+//  @callstack/liquid-glass는 jest.setup.js가 통째로 스텁하므로 목이 필요없다.)
 
 let mockReduce = false;
 jest.mock('@/hooks/useReduceMotion', () => ({
@@ -205,6 +202,27 @@ describe('HomeScreen 코인·스트릭 칩', () => {
     mockStreak = 0;
     await render(<HomeScreen />);
     expect(screen.queryByTestId('home.streak')).toBeNull();
+  });
+});
+
+describe('HomeScreen 접근성', () => {
+  test('알림 버튼은 읽지 않은 알림 상태를 레이블에 포함한다', async () => {
+    const { hasUnread } = jest.requireMock('@/services/notificationInbox') as {
+      hasUnread: jest.Mock;
+    };
+    hasUnread.mockResolvedValueOnce(true);
+
+    await render(<HomeScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '알림 보기, 읽지 않은 알림 있음' })).toBeTruthy(),
+    );
+  });
+
+  test('읽지 않은 알림이 없으면 기본 알림 레이블을 사용한다', async () => {
+    await render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '알림 보기' })).toBeTruthy());
   });
 });
 

@@ -6,22 +6,23 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
+import { glassBarFill, glassBarHighlight, glassBarStroke } from '@/components/liquidGlass';
 import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { discardInitialGroupRoomReturn } from '@/navigation/groupEntrySource';
 
 // 그룹방 전용 하단바(F2 Part2) — 앱 커스텀 TabBar와 같은 모양(글래스 노치 바 + 4탭 + 중앙 ▶ FAB).
 // 그룹방은 탭 네비 밖(스택 화면)이라 실제 TabBar(BottomTabBarProps 결합)를 못 붙여 비주얼만 복제한다.
 //  - ▶ FAB → onFocusPress(그룹방이 FocusCategory{initialGroupId}로 진입시킴): 그 그룹 집중 세션이 기본.
 //  - 4탭(홈/리그/그룹/전체) → Main 탭으로 이동. 그룹방에서 왔으므로 '그룹' 탭을 활성 표시(정적 하이라이트).
-// 상수·barPath는 components/TabBar.tsx와 동일 값(비주얼 일치) — TabBar가 export하지 않아 복제한다.
+// 치수 상수·barPath는 components/TabBar.tsx와 동일 값(비주얼 일치) — TabBar가 export하지 않아 복제한다.
+// 유리 표면 색만은 liquidGlass.tsx의 glassBar* 공용 값을 쓴다(GROMO-1488 — 복제하면 또 어긋난다).
 
 const BAR_H = 56;
 const BAR_R = 28;
 const FAB_R = 28;
 const NOTCH_R = FAB_R + 5;
 const FAB_LIFT = -8;
-const BAR_FILL = 'rgba(252,250,246,0.55)';
-const BAR_STROKE = 'rgba(255,255,255,0.75)';
 const HIGHLIGHT_W = 60;
 const HIGHLIGHT_H = 38;
 const FAB_SLOT = 72;
@@ -88,8 +89,13 @@ export function GroupRoomBottomBar({ onFocusPress }: { onFocusPress: () => void 
 
   // 그룹방(스택) → Main 탭 셸의 해당 탭으로. 그룹방은 pop 되고 그 탭이 열린다.
   // Main 파라미터는 undefined 타입이라 중첩 네비는 캐스팅으로 넘긴다(RN 런타임은 지원).
-  const goTab = (name: string) =>
+  const goTab = (name: string) => {
+    // 결과성 push가 lazy 그룹 목록을 건너뛴 경우의 `return` 표식은 방을 닫아 그룹 목록으로
+    // 돌아갈 때만 유효하다. 홈/리그/전체로 흐름을 끝내면 나중의 직접 그룹 탭 진입을 오염시키지
+    // 않도록 먼저 폐기한다.
+    discardInitialGroupRoomReturn();
     (nav.navigate as unknown as (n: string, p?: object) => void)('Main', { screen: name });
+  };
 
   return (
     <View
@@ -99,7 +105,7 @@ export function GroupRoomBottomBar({ onFocusPress }: { onFocusPress: () => void 
       <View style={s.bar} onLayout={(e) => setBarW(e.nativeEvent.layout.width)}>
         {barW > 0 && (
           <Svg width={barW} height={BAR_H} style={StyleSheet.absoluteFill}>
-            <Path d={barPath(barW)} fill={BAR_FILL} stroke={BAR_STROKE} strokeWidth={1} />
+            <Path d={barPath(barW)} fill={glassBarFill} stroke={glassBarStroke} strokeWidth={1} />
           </Svg>
         )}
         {barW > 0 && (
@@ -165,9 +171,7 @@ const s = StyleSheet.create({
     width: HIGHLIGHT_W,
     height: HIGHLIGHT_H,
     borderRadius: HIGHLIGHT_H / 2,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
+    ...glassBarHighlight,
   },
   fab: {
     position: 'absolute',

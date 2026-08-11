@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +10,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { M, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T } from '@/constants/theme';
-import { GlassPillFill, isLiquidGlassSupported } from '@/components/liquidGlass';
+import {
+  GlassPillFill,
+  glassBarFill,
+  glassBarHighlight,
+  glassBarStroke,
+  glassBarTint,
+  isLiquidGlassSupported,
+} from '@/components/liquidGlass';
 import { PressableScale } from '@/components/PressableScale';
 import type { V2RootStackParamList } from '@/navigation/types';
 
@@ -41,9 +48,8 @@ const BAR_R = 28; // 바 모서리
 const FAB_R = 28; // FAB 반지름(56/2)
 const NOTCH_R = FAB_R + 5; // 파임 반지름 — FAB 둘레에 5px 숨통
 const FAB_LIFT = -8; // FAB 중심의 바 상단선 대비 높이 — 양수=위로 뜸, 0=반 안착, 음수=더 깊이 안착
-// 유리 느낌 — 기존 0.96이 탁해 보여 투명도를 크게 낮춤(파임 형태라 BlurView 마스킹 불가, 반투명으로 대체)
-const BAR_FILL = 'rgba(252,250,246,0.55)';
-const BAR_STROKE = 'rgba(255,255,255,0.75)';
+// 유리 느낌 — 기존 0.96이 탁해 보여 투명도를 크게 낮춤(파임 형태라 BlurView 마스킹 불가, 반투명으로 대체).
+// 색은 glassBarFill/glassBarStroke(liquidGlass.tsx)가 정본 — 그룹방 하단바와 같은 값을 쓴다.
 
 // 리퀴드 글래스 하이라이트 — 선택 탭을 감싸는 유리 알약(타원)이 탭 전환마다 미끄러져 이동
 // (iOS 26 리퀴드 글래스 탭 스위처 참고 — 굴절 필터는 RN에서 불가, 반투명 타원+오버슛으로 질감만)
@@ -115,10 +121,16 @@ function Tab({
       accessibilityState={{ selected: focused }}
       accessibilityLabel={route.name}
       onPress={() => {
-        if (!focused) navigation.navigate(route.name);
+        const event = navigation.emit({
+          type: 'tabPress',
+          target: route.key,
+          canPreventDefault: true,
+        });
+        if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
       }}
     >
       <Ionicons name={focused ? on : off} size={26} color={focused ? T.accent : T.inkMuted} />
+      <Text style={[s.tabLabel, focused ? s.tabLabelSelected : s.tabLabelIdle]}>{route.name}</Text>
     </PressableScale>
   );
 }
@@ -139,7 +151,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       <View style={s.bar} onLayout={(e) => setBarW(e.nativeEvent.layout.width)}>
         {barW > 0 && (
           <Svg width={barW} height={BAR_H} style={StyleSheet.absoluteFill}>
-            <Path d={barPath(barW)} fill={BAR_FILL} stroke={BAR_STROKE} strokeWidth={1} />
+            <Path d={barPath(barW)} fill={glassBarFill} stroke={glassBarStroke} strokeWidth={1} />
           </Svg>
         )}
         {barW > 0 && (
@@ -153,7 +165,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               m.css(highlightSlide),
             ]}
           >
-            <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor="rgba(255,255,255,0.45)" />
+            <GlassPillFill borderRadius={HIGHLIGHT_H / 2} tintColor={glassBarTint} />
           </Animated.View>
         )}
         <Tab index={0} state={state} navigation={navigation} />
@@ -169,7 +181,14 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         style={s.fab}
         scaleTo={0.94}
         haptic="light"
-        onPress={() => rootNav.navigate('FocusCategory')}
+        accessibilityLabel="집중 시작"
+        onPress={() =>
+          rootNav.navigate('FocusCategory', {
+            entrySource: 'home_fab',
+            interactionId: undefined,
+            interactionAcceptedAt: undefined,
+          })
+        }
       >
         <View style={s.fabInner}>
           {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}
@@ -204,7 +223,17 @@ const s = StyleSheet.create({
     elevation: 8,
   },
   // HIG 44pt+ 터치타겟 — 바 전체 높이(56)를 채워 아이콘만한 좁은 세로 탭이 안 되게(GROMO-846)
-  tab: { flex: 1, height: BAR_H, alignItems: 'center', justifyContent: 'center' },
+  tab: {
+    flex: 1,
+    minWidth: 44,
+    height: BAR_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  tabLabel: { fontSize: 10, lineHeight: 12, fontWeight: '600' },
+  tabLabelSelected: { color: T.accent },
+  tabLabelIdle: { color: T.inkMuted },
   fabSlot: { width: 72 },
   // 리퀴드 글래스 하이라이트 알약(타원) — 미지원 기기 폴백 질감 포함
   highlight: {
@@ -214,9 +243,7 @@ const s = StyleSheet.create({
     width: HIGHLIGHT_W,
     height: HIGHLIGHT_H,
     borderRadius: HIGHLIGHT_H / 2,
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
+    ...glassBarHighlight,
   },
   // 네이티브 유리를 쓸 땐 자체 배경·테두리를 끈다(채움은 GlassPillFill)
   highlightGlassHost: { backgroundColor: 'transparent', borderWidth: 0 },

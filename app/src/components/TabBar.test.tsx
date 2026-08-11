@@ -19,15 +19,13 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
-// 네이티브 리퀴드 글래스는 jest에서 로드할 수 없다 — 폴백 경로로 고정
-jest.mock('@/components/liquidGlass', () => ({
-  isLiquidGlassSupported: false,
-  GlassPillFill: () => null,
-}));
+// (리퀴드 글래스 폴백 고정은 jest.setup.js가 @callstack/liquid-glass를 통째로 스텁해 처리한다.
+//  여기서 liquidGlass.tsx를 목으로 덮으면 glassBar* 색 상수까지 undefined가 된다.)
 
 const ROUTE_NAMES = ['홈', '리그', '그룹', '전체'] as const;
 
 const navigate = jest.fn();
+const emit = jest.fn(() => ({ defaultPrevented: false }));
 
 async function renderTabBar(focusedIndex: number) {
   const props = {
@@ -35,7 +33,7 @@ async function renderTabBar(focusedIndex: number) {
       index: focusedIndex,
       routes: ROUTE_NAMES.map((name) => ({ key: `${name}-key`, name })),
     },
-    navigation: { navigate },
+    navigation: { navigate, emit },
   } as unknown as BottomTabBarProps;
   return await render(<TabBar {...props} />);
 }
@@ -60,7 +58,19 @@ describe('TabBar 피드백 정책', () => {
   test('비선택 탭을 누르면 해당 라우트로 이동한다', async () => {
     await renderTabBar(0);
     fireEvent.press(screen.getByTestId('tabbar.tab.전체'));
+    expect(emit).toHaveBeenCalledWith({
+      type: 'tabPress',
+      target: '전체-key',
+      canPreventDefault: true,
+    });
     expect(navigate).toHaveBeenCalledWith('전체');
+  });
+
+  test('tabPress가 취소되면 이동하지 않는다', async () => {
+    emit.mockReturnValueOnce({ defaultPrevented: true });
+    await renderTabBar(0);
+    fireEvent.press(screen.getByTestId('tabbar.tab.그룹'));
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   test('선택된 탭을 다시 눌러도 이동하지 않는다', async () => {
@@ -71,6 +81,18 @@ describe('TabBar 피드백 정책', () => {
 });
 
 describe('TabBar 접근성', () => {
+  test('네 탭은 아이콘 아래 라벨과 44pt 이상의 터치 높이를 유지한다', async () => {
+    await renderTabBar(2);
+    for (const name of ROUTE_NAMES) {
+      expect(screen.getByText(name)).toBeOnTheScreen();
+      expect(screen.getByTestId(`tabbar.tab.${name}`)).toHaveStyle({
+        minWidth: 44,
+        height: 56,
+      });
+    }
+    expect(screen.getByText('그룹')).toHaveStyle({ color: '#5E6AD2' });
+  });
+
   test('탭 역할·선택 상태·레이블을 노출한다', async () => {
     await renderTabBar(1);
     const selected = screen.getByTestId('tabbar.tab.리그');
@@ -86,6 +108,8 @@ describe('TabBar 접근성', () => {
 
   test('중앙 FAB는 버튼 역할 기본값을 갖는다', async () => {
     await renderTabBar(0);
-    expect(screen.getByTestId('tabbar.fab').props.accessibilityRole).toBe('button');
+    const fab = screen.getByTestId('tabbar.fab');
+    expect(fab.props.accessibilityRole).toBe('button');
+    expect(fab.props.accessibilityLabel).toBe('집중 시작');
   });
 });
