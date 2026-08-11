@@ -1,4 +1,4 @@
-package com.oneorthree.phone.invitelink.support;
+package com.oneorthree.phone.common.util;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,6 +19,9 @@ import java.util.List;
  * (앱이 초대 시트 확인을 강제하므로 피해는 제한적이지만 어트리뷰션은 오염된다).
  * 그래서 신뢰할 헤더 목록을 프로퍼티({@code link.trusted-ip-headers})로 뺐다 — 그 전제가 깨진
  * 환경에서는 목록을 비워 remoteAddr 만 쓰게 만들 수 있다.
+ *
+ * <p>초대링크 클릭 기록에 이어 게스트 생성 레이트리밋(GROMO-1510)도 쓰게 되어 {@code common/util}
+ * 로 옮겼다. 프로퍼티 키는 이미 배포된 환경 설정과의 호환을 위해 {@code link.} 접두어를 유지한다.
  */
 @Component
 public class ClientIpResolver {

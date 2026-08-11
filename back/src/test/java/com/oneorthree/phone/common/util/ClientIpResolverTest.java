@@ -1,4 +1,4 @@
-package com.oneorthree.phone.invitelink.support;
+package com.oneorthree.phone.common.util;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
