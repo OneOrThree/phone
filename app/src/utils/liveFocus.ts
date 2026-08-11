@@ -13,29 +13,39 @@ export function liveTotalSeconds(
   return base + Math.max(0, (now - Date.parse(focusStartedAt)) / 1000);
 }
 
-// 내 그리드 셀의 오늘 총 집중초 (GROMO-1246) — 멤버 셀과 **같은 원천**(서버 오늘 버킷)을 기준으로
-// 삼고, 거기에 아직 서버에 없는 진행 중 세션 몫만 얹는다. 멤버 셀이 base + (now − focusStartedAt)
-// 인 것과 같은 구조라 같은 그리드 안의 숫자가 상호 검증된다.
-//   serverBase   — 서버 스냅샷의 내 오늘 집중초(멤버 목록과 같은 응답에서 뽑는다). 없으면 null.
-//   serverDelta  — 미정산(업로드 전) 블록 중 서버 날짜 축의 오늘 몫.
-//   localTotal   — 종전 로컬 집계(세션 전 몫 + 이 세션 정산분 + 미정산 몫, 기기 로컬 축).
-//   sameAxis     — 서버 날짜 버킷과 기기 로컬 하루의 경계가 겹치는가(serverZoneAlignedWithLocal).
-// 동축이면 max로 바닥을 깐다 — 정산 직후엔 그 블록이 serverDelta에서 빠지지만 다음 폴링 전까지는
-// serverBase에도 없어, 서버 값만 쓰면 표시가 한 번 뒤로 밀린다(로컬 집계엔 이미 들어 있다).
-// max라 이중 집계는 없고, 서버가 따라잡으면 서버 값이 그대로 이긴다(홈·결과 화면과 같은 관례).
-// 축이 갈린 날의 로컬 집계는 다른 날짜 몫이라 섞지 않는다(GROMO-1236 P2 공용 규칙).
+// 내 그리드 셀의 오늘 총 집중초 (GROMO-1246) — 멤버 셀과 **같은 원천·같은 축**(서버 KST 오늘
+// 버킷)으로 계산하고, 아직 서버 스냅샷에 없는 이 세션 몫만 얹는다. 멤버 셀이
+// base + (now − focusStartedAt) 인 것과 같은 구조라 같은 그리드 안의 숫자가 상호 검증된다.
+//
+// 축은 전부 KST 하나다 — 서버는 GROMO-1259(ZonePolicy)부터 판정·저장·조회 버킷이 전부 KST
+// 고정이라 기기 존과 무관하다. 그래서 기기 로컬 축 집계는 **서버 스냅샷을 못 받았을 때의
+// 폴백**으로만 쓴다(로컬 축은 KST와 다른 날짜 몫일 수 있어 섞으면 안 된다).
+//
+//   serverBase    — 방금 폴링한 서버 스냅샷의 내 KST 오늘 집중초. 없으면 null.
+//   sessionBase   — 이 세션 시작 시점(첫 스냅샷)의 같은 값. 정산분을 얹을 기준점.
+//   settledServer — 이 세션이 KST 오늘로 정산한 누적 — 서버가 아직 반영 못 했을 수 있는 몫.
+//   delta         — 미정산(업로드 전) 블록의 KST 오늘 몫.
+//   localFallback — 서버 스냅샷 미확보 시 쓸 종전 로컬 축 집계.
+//
+// max가 두 국면을 모두 옳게 만든다(코덱스 리뷰 ③):
+//   정산 직후·폴링 전 — serverBase는 아직 옛값, delta는 0으로 리셋 → sessionBase + settled 가 이겨
+//                       방금 정산한 블록이 표시에서 사라지지 않는다.
+//   폴링 반영 후     — serverBase가 그 정산분을 포함해 커진다 → serverBase가 이겨 이중 계상이 없다.
+// 오프라인이라 업로드가 대기열에 남아도 sessionBase + settled 쪽이 계속 바닥을 지킨다.
 export function myLiveTotalSeconds({
   serverBase,
-  serverDelta,
-  localTotal,
-  sameAxis,
+  sessionBase,
+  settledServer,
+  delta,
+  localFallback,
 }: {
   serverBase: number | null;
-  serverDelta: number;
-  localTotal: number;
-  sameAxis: boolean;
+  sessionBase: number | null;
+  settledServer: number;
+  delta: number;
+  localFallback: number;
 }): number {
-  if (serverBase == null) return localTotal; // 서버 스냅샷 미확보(그룹 미가입·조회 실패) — 종전 동작
-  const serverTotal = serverBase + serverDelta;
-  return sameAxis ? Math.max(serverTotal, localTotal) : serverTotal;
+  // 서버 스냅샷 미확보(그룹 미가입·조회 실패·자정 넘겨 무효화) — 종전 로컬 집계로 폴백
+  if (serverBase == null || sessionBase == null) return localFallback;
+  return Math.max(serverBase, sessionBase + settledServer) + delta;
 }

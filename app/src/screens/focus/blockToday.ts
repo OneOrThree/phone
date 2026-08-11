@@ -28,8 +28,8 @@
 // 경계 규약: tick은 '지나간 1초의 끝'에 발생하므로 귀속 시각은 tick 시각 − 1초다. 23:59:59→00:00:00
 // 초는 [23:59:59, 00:00:00)이라 전날 몫 — 서버의 반열림 분할·todayOverlapSeconds와 같은 경계다
 // (안 맞추면 23:00~00:05 세션이 앱 301초·서버 300초로 갈린다).
-import { localDateStr, todayStr, zoneDateStr } from '@/utils/localDate';
-import { getServerZone, serverTodayStr } from '@/utils/serverZone';
+import { localDateStr, todayStr, todayStrKst, zoneDateStr } from '@/utils/localDate';
+import { getServerZone } from '@/utils/serverZone';
 
 // 날짜 "YYYY-MM-DD" → 그 날짜에 발생한 이 블록의 집중 초.
 export type SecondsByDate = Record<string, number>;
@@ -100,10 +100,14 @@ export function blockTodaySeconds(state: BlockToday): number {
   return state.local[todayStr()] ?? 0;
 }
 
-// 서버 존 오늘 몫 — 서버 날짜 버킷 값 위에 얹을 '아직 서버에 없는 진행 중 몫'(GROMO-1246).
+// 서버 버킷(KST) 오늘 몫 — 서버 날짜 버킷 값 위에 얹을 '아직 서버에 없는 진행 중 몫'(GROMO-1246).
 // blockTodaySeconds의 server 축 짝이다. 축이 다르면 자정 경계에서 같은 tick의 귀속 날짜가 갈린다.
-export function blockServerTodaySeconds(state: BlockToday): number {
-  return state.server[serverTodayStr()] ?? 0;
+// 키를 serverTodayStr()가 아니라 todayStrKst()로 잡는 이유(코덱스 리뷰 ①): 서버는 GROMO-1259
+// (ZonePolicy)부터 판정·저장·조회 버킷이 전부 KST 고정이고, 이 값을 얹을 서버 스냅샷도 KST
+// 기준일로 조회한다. serverZone은 프로필이 내려준 문자열이라(지금은 항상 Asia/Seoul) 구버전
+// 서버·미갱신 프로필에서 KST가 아닐 수 있는데, 그러면 스냅샷과 델타의 축이 갈린다.
+export function blockKstTodaySeconds(state: BlockToday): number {
+  return state.server[todayStrKst()] ?? 0;
 }
 
 // 서버가 이 업로드의 판정(그날 누적·스트릭)을 매긴 날짜 = 분포 맵의 마지막 비어있지 않은 날짜
