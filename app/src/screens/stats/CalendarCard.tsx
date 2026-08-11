@@ -305,7 +305,10 @@ export function CalendarCard({
           ))}
         </View>
         {loading ? (
-          <View style={s.loadingOverlay}>
+          // testID 는 테스트 전용 손잡이다(GROMO-1499 / codex 리뷰) — 이 오버레이엔 텍스트가
+          // 없어서 「에러 대신 로딩」 계약을 단언할 방법이 이것뿐이다. 없으면 loading 계산을
+          // 통째로 지워도 테스트가 통과한다.
+          <View testID="stats.calendar.loading" style={s.loadingOverlay}>
             <ActivityIndicator color={T.accent} />
           </View>
         ) : null}
