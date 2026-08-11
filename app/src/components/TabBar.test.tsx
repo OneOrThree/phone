@@ -19,11 +19,8 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
-// 네이티브 리퀴드 글래스는 jest에서 로드할 수 없다 — 폴백 경로로 고정
-jest.mock('@/components/liquidGlass', () => ({
-  isLiquidGlassSupported: false,
-  GlassPillFill: () => null,
-}));
+// (리퀴드 글래스 폴백 고정은 jest.setup.js가 @callstack/liquid-glass를 통째로 스텁해 처리한다.
+//  여기서 liquidGlass.tsx를 목으로 덮으면 glassBar* 색 상수까지 undefined가 된다.)
 
 const ROUTE_NAMES = ['홈', '리그', '그룹', '전체'] as const;
 
