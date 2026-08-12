@@ -62,7 +62,7 @@ import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { GroupCardBack } from './components/GroupCardBack';
-import { GroupCardFlip } from './components/GroupCardFlip';
+import { GROUP_CARD_FLIP_SAFE_INSET, GroupCardFlip } from './components/GroupCardFlip';
 import { useGroupCardOrder } from './useGroupCardOrder';
 import { useGroupCardEmojis } from './useGroupCardEmojis';
 import { useGroupCardData } from './useGroupCardData';
@@ -1565,26 +1565,34 @@ export default function GroupListScreen({
                 onScrollEndDrag={onScrollEndDrag}
                 ListFooterComponent={
                   <View
-                    style={[{ marginLeft: CARD_GAP }, s.cardSurfaceScale]}
+                    style={[
+                      s.cardStage,
+                      {
+                        marginLeft: CARD_GAP,
+                        height: cardHeight + GROUP_CARD_FLIP_SAFE_INSET * 2,
+                      },
+                    ]}
                     accessibilityElementsHidden={renderedActiveIndex !== orderedGroups.length}
                     importantForAccessibility={
                       renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
                     }
                   >
-                    <FindMoreCard
-                      width={cardWidth}
-                      minHeight={cardHeight}
-                      position={pageCount}
-                      pageCount={pageCount}
-                      onPress={() => {
-                        if (
-                          holdingGroupIdRef.current === null &&
-                          draggingGroupIdRef.current === null
-                        )
-                          onFind('end_card');
-                      }}
-                      focusable={renderedActiveIndex === orderedGroups.length}
-                    />
+                    <View style={s.cardSurfaceScale}>
+                      <FindMoreCard
+                        width={cardWidth}
+                        minHeight={cardHeight}
+                        position={pageCount}
+                        pageCount={pageCount}
+                        onPress={() => {
+                          if (
+                            holdingGroupIdRef.current === null &&
+                            draggingGroupIdRef.current === null
+                          )
+                            onFind('end_card');
+                        }}
+                        focusable={renderedActiveIndex === orderedGroups.length}
+                      />
+                    </View>
                   </View>
                 }
                 renderItem={({ item, index }) => (
@@ -1735,13 +1743,13 @@ export default function GroupListScreen({
                     {
                       left: SIDE_PEEK,
                       width: cardWidth,
-                      height: cardHeight,
+                      height: cardHeight + GROUP_CARD_FLIP_SAFE_INSET * 2,
                       transform: [{ translateX: reorderPreview.fingerTranslateX }],
                     },
                   ]}
                   testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
                 >
-                  <View style={[s.cardSurfaceScale, s.dragOverlaySurface]}>
+                  <View style={[s.cardSurfaceScale, { height: cardHeight }]}>
                     <GroupCardFront
                       group={dragOverlayGroup}
                       emoji={emojiFor(dragOverlayGroup.groupId)}
@@ -1798,7 +1806,6 @@ const s = StyleSheet.create({
   deckScrollerContent: { flexGrow: 1 },
   deckAnchor: { position: 'relative' },
   cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
-  dragOverlaySurface: { flex: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
@@ -1848,11 +1855,13 @@ const s = StyleSheet.create({
   },
 
   listContent: { paddingBottom: T.space.md },
+  cardStage: { justifyContent: 'center' },
   deckSkeleton: {
     flexDirection: 'row',
     gap: CARD_GAP,
     paddingHorizontal: SIDE_PEEK,
-    paddingBottom: T.space.md + 44,
+    paddingTop: GROUP_CARD_FLIP_SAFE_INSET,
+    paddingBottom: T.space.md + 44 + GROUP_CARD_FLIP_SAFE_INSET,
     overflow: 'hidden',
   },
 
@@ -1882,6 +1891,7 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 0,
     zIndex: 10,
+    justifyContent: 'center',
     elevation: 10,
   },
   saveError: {

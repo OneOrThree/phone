@@ -169,7 +169,8 @@ export function GroupCardFront({
   );
 }
 
-const GRIP_RING_SIZE = 42;
+const GRIP_TOUCH_SIZE = 52;
+const GRIP_RING_SIZE = 50;
 const GRIP_RING_STROKE = 3;
 const GRIP_RING_RADIUS = (GRIP_RING_SIZE - GRIP_RING_STROKE) / 2;
 const GRIP_RING_CIRCUMFERENCE = 2 * Math.PI * GRIP_RING_RADIUS;
@@ -270,16 +271,16 @@ const s = StyleSheet.create({
     top: T.space.lg,
     right: T.space.lg,
     zIndex: 2,
-    width: 46,
-    height: 46,
+    width: GRIP_TOUCH_SIZE,
+    height: GRIP_TOUCH_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
   },
   gripButton: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   gripVisual: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: GRIP_TOUCH_SIZE,
+    height: GRIP_TOUCH_SIZE,
+    borderRadius: GRIP_TOUCH_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },

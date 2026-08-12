@@ -36,6 +36,7 @@ import {
 import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { GROUP_CARD_USER_TEXT } from './components/groupCardLayout';
+import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
 import { hapticMedium } from '@/utils/haptics';
 
 jest.mock('@/services/analyticsEvents', () => ({
@@ -268,8 +269,8 @@ describe('카드 렌더', () => {
       elevation: 5,
     });
     expect(screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`)).toHaveStyle({
-      width: 46,
-      height: 46,
+      width: 52,
+      height: 52,
     });
     expect(screen.getByTestId(`group.card.frontInfo.${GROUP_ID}`).props).toMatchObject({
       nestedScrollEnabled: true,
@@ -610,6 +611,24 @@ describe('콜백', () => {
     expect(screen.queryByTestId('group.list.refresh')).toBeNull();
   });
 
+  test('카드 순서 핸들은 누르기 쉬운 52pt 원형 터치 영역을 제공한다', async () => {
+    await renderList([group()]);
+
+    expect(screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`)).toHaveStyle({
+      width: 52,
+      height: 52,
+    });
+    expect(screen.getByTestId(`group.card.gripVisual.${GROUP_ID}`)).toHaveStyle({
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+    });
+    expect(screen.getByTestId(`group.card.gripProgress.${GROUP_ID}`).props).toMatchObject({
+      width: 50,
+      height: 50,
+    });
+  });
+
   test('세로 덱 scroller의 당겨서 새로고침은 중복 요청을 막고 완료 뒤 spinner를 내린다', async () => {
     let release: () => void = () => undefined;
     onRefresh.mockReturnValueOnce(
@@ -666,7 +685,10 @@ describe('콜백', () => {
     });
 
     expect(screen.getByTestId(`group.card.flipShell.${GROUP_ID}`)).toHaveStyle({
-      minHeight: expectedHeight,
+      height: expectedHeight + GROUP_CARD_FLIP_SAFE_INSET * 2,
+    });
+    expect(screen.getByTestId(`group.card.flipSurface.${GROUP_ID}`)).toHaveStyle({
+      height: expectedHeight,
     });
     expect(screen.getByTestId(`group.card.reorderSurface.${GROUP_ID}`)).toHaveStyle({
       transform: [{ scale: 0.97 }],
