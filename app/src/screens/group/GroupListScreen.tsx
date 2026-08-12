@@ -194,6 +194,11 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
  */
 export const GROUP_CARD_HEIGHT = 520;
 export const GROUP_LIST_HEADER_HEIGHT = 68;
+const GROUP_CARD_INDICATOR_HEIGHT = 44;
+// 카드 밖에서 항상 차지하는 세로 공간: 플립 투영 여백 + FlatList 하단 간격 +
+// 인디케이터 최소 터치 영역 + 인디케이터 하단 간격.
+export const GROUP_CARD_DECK_CHROME_HEIGHT =
+  GROUP_CARD_FLIP_SAFE_INSET * 2 + T.space.md + GROUP_CARD_INDICATOR_HEIGHT + T.space.md;
 
 /** 첫 layout 전에도 실제 SafeArea+헤더 구조로 덱 viewport를 예측해 520pt 중간 프레임을 막는다. */
 export function estimateGroupDeckViewportHeight(windowHeight: number, topInset: number): number {
@@ -202,14 +207,16 @@ export function estimateGroupDeckViewportHeight(windowHeight: number, topInset: 
 }
 
 /**
- * 카드가 탭바 위의 가용 세로를 대부분 채우되, 작은 화면에서는 기존 최소 높이를 지킨다.
- * 남은 10%는 카드 아래 indicator(44pt hit target 포함)가 차지하므로 큰 화면의 빈 띠만 줄고,
- * 작은 화면에서는 ScrollView로 카드 하단과 indicator까지 계속 접근할 수 있다.
+ * 카드가 탭바 위의 가용 세로를 대부분 채우되, 플립 투영 여백과 indicator를 먼저 예약한다.
+ * 카드 본체는 가용 높이의 90%를 상한으로 삼고, 작은 화면에서는 기존 최소 높이를 지킨다.
+ * 최소 높이가 예약 공간보다 큰 화면에서는 ScrollView로 카드 하단과 indicator에 접근한다.
  */
 export function resolveGroupCardHeight(viewportHeight: number, bottomInset: number): number {
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return GROUP_CARD_HEIGHT;
   const availableAboveTabBar = Math.max(0, viewportHeight - tabBarSafeBottom(bottomInset));
-  return Math.max(GROUP_CARD_HEIGHT, Math.floor(availableAboveTabBar * 0.9));
+  const availableForCard = Math.max(0, availableAboveTabBar - GROUP_CARD_DECK_CHROME_HEIGHT);
+  const proportionalCardHeight = Math.floor(availableAboveTabBar * 0.9);
+  return Math.max(GROUP_CARD_HEIGHT, Math.min(proportionalCardHeight, availableForCard));
 }
 
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.

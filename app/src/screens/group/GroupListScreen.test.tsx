@@ -18,6 +18,7 @@ import {
 import GroupListScreen, {
   advanceEdgeTarget,
   EDGE_PAGE_THROTTLE_MS,
+  GROUP_CARD_DECK_CHROME_HEIGHT,
   isPointInsideDeck,
   isProgrammaticMomentum,
   REORDER_HOLD_MS,
@@ -668,15 +669,18 @@ describe('콜백', () => {
     );
   });
 
-  test('큰 화면에서는 탭바 위 가용 높이의 90%로 카드를 늘려 하단 빈 공간을 줄인다', async () => {
+  test('플립 여백과 인디케이터를 먼저 예약하고 남은 높이 안에서 카드를 늘린다', async () => {
     await renderList([group()]);
 
     // iPhone 17 Pro(402×874pt)에서 top safe area(62pt)와 이 화면 header(68pt)를 뺀
-    // 실제 덱 viewport 기준값. 카드 570 + list/indicator 68 + tab safe 110 = 748pt라
-    // 큰 빈 띠 대신 4pt의 안전한 세로 스크롤만 남긴다.
+    // 실제 덱 viewport 기준값. 고정 플립 여백·인디케이터를 먼저 빼면 카드 가용 높이는
+    // 502pt이므로 최소 카드 520pt를 지키고 18pt의 안전한 세로 스크롤만 남긴다.
     const viewportHeight = 744;
     const expectedHeight = resolveGroupCardHeight(viewportHeight, 34);
-    expect(expectedHeight).toBe(570);
+    expect(expectedHeight).toBe(520);
+    expect(
+      expectedHeight + GROUP_CARD_DECK_CHROME_HEIGHT - (viewportHeight - tabBarSafeBottom(34)),
+    ).toBe(18);
 
     await act(async () => {
       fireEvent(screen.getByTestId('group.list.scroller'), 'layout', {
@@ -698,6 +702,15 @@ describe('콜백', () => {
     });
   });
 
+  test('충분히 큰 화면에서는 카드와 고정 플립·인디케이터 영역이 탭바 위에 모두 들어간다', () => {
+    const viewportHeight = 900;
+    const availableAboveTabBar = viewportHeight - tabBarSafeBottom(34);
+    const cardHeight = resolveGroupCardHeight(viewportHeight, 34);
+
+    expect(cardHeight).toBe(availableAboveTabBar - GROUP_CARD_DECK_CHROME_HEIGHT);
+    expect(cardHeight + GROUP_CARD_DECK_CHROME_HEIGHT).toBe(availableAboveTabBar);
+  });
+
   test('작거나 아직 측정되지 않은 화면에서는 카드 최소 높이 520을 유지한다', () => {
     expect(resolveGroupCardHeight(0, 34)).toBe(520);
     expect(resolveGroupCardHeight(650, 34)).toBe(520);
@@ -706,7 +719,7 @@ describe('콜백', () => {
   test('첫 layout 전에도 화면 높이에서 safe area와 실제 헤더를 빼 iPhone 17 Pro 덱을 예측한다', () => {
     const estimatedViewport = estimateGroupDeckViewportHeight(874, 62);
     expect(estimatedViewport).toBe(744);
-    expect(resolveGroupCardHeight(estimatedViewport, 34)).toBe(570);
+    expect(resolveGroupCardHeight(estimatedViewport, 34)).toBe(520);
   });
 
   test('가로 스와이프 settle은 외부 인디케이터의 현재 index를 갱신하고 페이지를 안내한다', async () => {
