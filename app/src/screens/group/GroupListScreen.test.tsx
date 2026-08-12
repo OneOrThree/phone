@@ -264,7 +264,7 @@ describe('카드 렌더', () => {
     expect(
       screen.getAllByText('저녁 스터디', { includeHiddenElements: true }).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getAllByText('4/5', { includeHiddenElements: true }).length).toBeGreaterThan(0);
     expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toHaveStyle({
       shadowOpacity: 0.16,
       elevation: 5,
@@ -694,9 +694,10 @@ describe('콜백', () => {
     expect(screen.getByTestId(`group.card.flipSurface.${GROUP_ID}`)).toHaveStyle({
       height: expectedHeight,
     });
-    expect(screen.getByTestId(`group.card.reorderSurface.${GROUP_ID}`)).toHaveStyle({
-      transform: [{ scale: 0.97 }],
-    });
+    expect(
+      StyleSheet.flatten(screen.getByTestId(`group.card.reorderSurface.${GROUP_ID}`).props.style)
+        ?.transform,
+    ).toBeUndefined();
     expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
       minHeight: expectedHeight,
     });

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import {
+  Alert,
+  Platform,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,7 +26,12 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
+import {
+  logGroupFindOpened,
+  logGroupInviteShared,
+  logGroupViewed,
+} from '@/services/analyticsEvents';
+import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
   clearPendingGroupEntry,
@@ -28,13 +42,13 @@ import {
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen, {
   estimateGroupDeckViewportHeight,
-  GROUP_CARD_SURFACE_SCALE,
   resolveGroupCardHeight,
 } from './GroupListScreen';
 import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
 import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
+import { buildInviteShareMessage } from './inviteShare';
 
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
@@ -291,6 +305,31 @@ export default function GroupScreen() {
     [navigation],
   );
 
+  const onInviteToGroup = useCallback(async (groupId: string, groupName: string) => {
+    let issuedInvite: { slug: string; url: string };
+    try {
+      issuedInvite = await issueInviteLink(groupId);
+    } catch {
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      return;
+    }
+    try {
+      const result = await Share.share({
+        message: buildInviteShareMessage(groupName, issuedInvite.url),
+      });
+      if (result.action === Share.sharedAction) {
+        logGroupInviteShared({
+          share_method: 'share_sheet',
+          confirmed: Platform.OS === 'ios',
+          slug: issuedInvite.slug,
+          group_id: groupId,
+        });
+      }
+    } catch {
+      // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
+    }
+  }, []);
+
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
     (groupId: string) => {
@@ -379,11 +418,7 @@ export default function GroupScreen() {
             }}
           >
             <View
-              style={[
-                s.skeletonCard,
-                s.cardSurfaceScale,
-                { width: groupDeckCardWidth(windowWidth) },
-              ]}
+              style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}
               testID="group.deck.skeleton.cardSurface"
             >
               <Skeleton
@@ -394,11 +429,7 @@ export default function GroupScreen() {
               />
             </View>
             <View
-              style={[
-                s.skeletonCard,
-                s.cardSurfaceScale,
-                { width: groupDeckCardWidth(windowWidth) },
-              ]}
+              style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}
               testID="group.deck.skeleton.peekSurface"
             >
               <Skeleton
@@ -448,6 +479,7 @@ export default function GroupScreen() {
           onFind={(entryPoint) => openFind(entryPoint)}
           onStartFocus={onStartGroupFocus}
           onOpenSettings={onOpenGroupSettings}
+          onInvite={onInviteToGroup}
           onRefresh={fetchGroups}
           guideBlocked={findOpen || invite !== null}
           guideScreenFocused={isScreenFocused}
@@ -516,7 +548,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   skeletonCard: {},
-  cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
   body: {
     flex: 1,
     alignItems: 'center',
