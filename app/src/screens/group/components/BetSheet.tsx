@@ -10,9 +10,10 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
-import { navigationRef } from '@/navigation/navigationRef';
 import {
   BET_ALREADY_FAILED,
   BET_INSUFFICIENT_BALANCE,
@@ -34,6 +35,7 @@ import { useUser } from '@/store/UserContext';
 import { todayStrKst, tomorrowStrKst } from '@/utils/localDate';
 import { nowSecondsInZone, timeStrToSeconds } from '@/utils/challengeTime';
 import type { GroupChallengeResponse } from '@/types/dto/group';
+import type { V2RootStackParamList } from '@/navigation/types';
 import { fmtKoreanDuration } from '../challengeSchedule';
 import type { BetSheetMode } from './ChallengeCard';
 import BetBalanceRow from './BetBalanceRow';
@@ -536,24 +538,7 @@ export default function BetSheet({
   }
 
   if (guestBlocked) {
-    return (
-      <SheetShell onClose={onClose} asModal>
-        <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
-        <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
-        <TouchableOpacity
-          style={s.submitBtn}
-          activeOpacity={0.85}
-          onPress={() => {
-            onClose();
-            navigationRef.navigate('SettingsAccount');
-          }}
-          testID="group.bet.login"
-        >
-          <Text style={s.submitText}>로그인하러 가기</Text>
-        </TouchableOpacity>
-        <DismissCta />
-      </SheetShell>
-    );
+    return <GuestBlockedView onClose={onClose} />;
   }
 
   return (
@@ -818,6 +803,28 @@ function DismissCta() {
     <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={close}>
       <Text style={s.ghostText}>다음에 할게요</Text>
     </TouchableOpacity>
+  );
+}
+
+function GuestBlockedView({ onClose }: { onClose: () => void }) {
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  return (
+    <SheetShell onClose={onClose} asModal>
+      <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
+      <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
+      <TouchableOpacity
+        style={s.submitBtn}
+        activeOpacity={0.85}
+        onPress={() => {
+          onClose();
+          navigation.navigate('SettingsAccount');
+        }}
+        testID="group.bet.login"
+      >
+        <Text style={s.submitText}>로그인하러 가기</Text>
+      </TouchableOpacity>
+      <DismissCta />
+    </SheetShell>
   );
 }
 
