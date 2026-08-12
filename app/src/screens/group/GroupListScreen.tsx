@@ -361,6 +361,7 @@ export default function GroupListScreen({
   const flippedGroupIdRef = useRef<string | null>(null);
   flippedGroupIdRef.current = flippedGroupId;
   const [flipAnimating, setFlipAnimating] = useState(false);
+  const [summaryScrollActive, setSummaryScrollActive] = useState(false);
   const [skipFlipTransition, setSkipFlipTransition] = useState(false);
   const flipAnimatingRef = useRef(false);
   flipAnimatingRef.current = flipAnimating;
@@ -1494,12 +1495,20 @@ export default function GroupListScreen({
           const next = event.nativeEvent.layout.height;
           setDeckViewportHeight((current) => (current === next ? current : next));
         }}
-        scrollEnabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
+        scrollEnabled={
+          guideInputReady && !guideVisible && !flipAnimating && !reorderBusy && !summaryScrollActive
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={refreshGroups}
-            enabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
+            enabled={
+              guideInputReady &&
+              !guideVisible &&
+              !flipAnimating &&
+              !reorderBusy &&
+              !summaryScrollActive
+            }
             tintColor={T.accent}
             colors={[T.accent]}
           />
@@ -1664,6 +1673,7 @@ export default function GroupListScreen({
                               });
                             }}
                             onInvite={() => onInvite(item.groupId, item.name)}
+                            onSummaryScrollActivityChange={setSummaryScrollActive}
                             onOpenRoom={() => {
                               runCardAction(item, 'room', (interaction) => {
                                 roomReturnRef.current = {

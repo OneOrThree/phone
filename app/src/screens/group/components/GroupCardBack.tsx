@@ -21,6 +21,7 @@ interface Props {
   onOpenRoom: () => void;
   onOpenSettings: () => void;
   onInvite: () => void;
+  onSummaryScrollActivityChange?: (active: boolean) => void;
   onRetry: (dependency: 'detail' | 'announcements' | 'challenges' | 'focus') => void;
   backFocusRef?: React.RefObject<View | null>;
   roomRef?: React.RefObject<View | null>;
@@ -96,6 +97,7 @@ export function GroupCardBack({
   onOpenRoom,
   onOpenSettings,
   onInvite,
+  onSummaryScrollActivityChange,
   onRetry,
   backFocusRef,
   roomRef,
@@ -133,14 +135,7 @@ export function GroupCardBack({
   const privacyLabel = group.isPrivate ? '비밀방' : '공개방';
 
   return (
-    <Pressable
-      ref={cardRef}
-      style={s.root}
-      onPress={onFlipFront}
-      accessible={false}
-      focusable={false}
-      testID={`group.card.back.${group.groupId}`}
-    >
+    <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
       <View style={s.cardFrame}>
         <View style={s.header}>
           <TouchableOpacity
@@ -205,6 +200,9 @@ export function GroupCardBack({
             contentContainerStyle={s.summaryContent}
             nestedScrollEnabled
             showsVerticalScrollIndicator
+            onTouchStart={() => onSummaryScrollActivityChange?.(true)}
+            onTouchEnd={() => onSummaryScrollActivityChange?.(false)}
+            onTouchCancel={() => onSummaryScrollActivityChange?.(false)}
             testID="group.card.summaryScroll"
           >
             <View style={s.liveSummary} accessibilityLiveRegion="polite">
@@ -436,7 +434,7 @@ export function GroupCardBack({
           </View>
         </View>
       </View>
-    </Pressable>
+    </View>
   );
 }
 

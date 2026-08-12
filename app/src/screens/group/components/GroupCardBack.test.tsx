@@ -210,14 +210,14 @@ test('혼합 영문·한글 그룹명에 그룹 카드 공통 글꼴을 적용�
   expect(screen.getByText('Morning 아침 집중방')).toHaveStyle(GROUP_CARD_USER_TEXT);
 });
 
-test('빈 영역 포인터 wrapper는 키보드 포커스 순서에서 제외한다', async () => {
+test('카드 컨테이너는 접근성 노드를 만들지 않고 제목 전환 동작만 포커스된다', async () => {
   await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
 
-  expect(screen.getByTestId('group.card.back.g1').props.focusable).toBe(false);
+  expect(screen.getByTestId('group.card.back.g1').props.accessible).not.toBe(true);
   expect(screen.getByTestId('group.card.backTitle.g1').props.focusable).not.toBe(false);
 });
 
-test('시각 전환 CTA 없이 카드 빈 영역 탭과 실제 접근성 노드의 기본 활성화로 앞면을 연다', async () => {
+test('스크롤 본문과 분리된 제목의 접근성 활성화로 앞면을 연다', async () => {
   const onAccessibilityFlipFront = jest.fn();
   await render(
     <GroupCardBack
@@ -228,10 +228,6 @@ test('시각 전환 CTA 없이 카드 빈 영역 탭과 실제 접근성 노드�
   );
 
   expect(screen.queryByText('앞면으로')).toBeNull();
-  await act(async () => {
-    fireEvent.press(screen.getByTestId('group.card.back.g1'));
-  });
-  expect(baseProps.onFlipFront).toHaveBeenCalledTimes(1);
 
   const titleAction = screen.getByTestId('group.card.backTitle.g1');
   expect(titleAction.props.accessibilityState).toEqual({ expanded: true });
@@ -504,8 +500,30 @@ test('활동 4개와 확대 가능한 본문은 bounded summary scroll 안에 �
   );
 
   expect(screen.getAllByTestId(/^group\.card\.activity\./)).toHaveLength(4);
-  expect(screen.getByTestId('group.card.summaryScroll').props.nestedScrollEnabled).toBe(true);
-  expect(screen.getByTestId('group.card.summaryScroll')).toHaveStyle({ flex: 1 });
+  const scroll = screen.getByTestId('group.card.summaryScroll');
+  expect(scroll.props.nestedScrollEnabled).toBe(true);
+  expect(scroll.props.showsVerticalScrollIndicator).toBe(true);
+  expect(scroll).toHaveStyle({ flex: 1 });
   expect(screen.getByTestId('group.card.focus.g1')).toBeOnTheScreen();
   expect(screen.getByTestId('group.card.room.g1')).toBeOnTheScreen();
+});
+
+test('본문 터치 동안 상위 덱 스크롤 잠금 상태를 전달한다', async () => {
+  const onSummaryScrollActivityChange = jest.fn();
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={undefined}
+      onSummaryScrollActivityChange={onSummaryScrollActivityChange}
+    />,
+  );
+
+  const scroll = screen.getByTestId('group.card.summaryScroll');
+  fireEvent(scroll, 'touchStart');
+  fireEvent(scroll, 'touchEnd');
+  fireEvent(scroll, 'touchCancel');
+
+  expect(onSummaryScrollActivityChange).toHaveBeenNthCalledWith(1, true);
+  expect(onSummaryScrollActivityChange).toHaveBeenNthCalledWith(2, false);
+  expect(onSummaryScrollActivityChange).toHaveBeenNthCalledWith(3, false);
 });

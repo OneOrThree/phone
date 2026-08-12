@@ -2,6 +2,7 @@ import type { InternalAxiosRequestConfig } from 'axios';
 import { findHandler } from './handlers';
 
 const GROUP_ID = '10000000-0000-0000-0000-000000000001';
+const OVERFLOW_GROUP_ID = '10000000-0000-0000-0000-000000000002';
 
 function config(url: string, params?: Record<string, string>): InternalAxiosRequestConfig {
   return { url, method: 'get', headers: {}, params } as InternalAxiosRequestConfig;
@@ -75,6 +76,19 @@ test('그룹 카드 기준 그룹의 멤버 7명 중 5명을 집중 중으로 �
   expect(
     ranking.filter((member) => memberIds.has(member.userId) && member.isFocusing),
   ).toHaveLength(5);
+});
+
+test('긴 카드 내부 스크롤 검증용 그룹은 챌린지 4개를 반환한다', () => {
+  const challenges = response(`/api/v1/groups/${OVERFLOW_GROUP_ID}/challenges`) as Array<{
+    id: string;
+  }>;
+
+  expect(challenges.map((challenge) => challenge.id)).toEqual([
+    `${OVERFLOW_GROUP_ID}-focus-60`,
+    `${OVERFLOW_GROUP_ID}-morning-window`,
+    `${OVERFLOW_GROUP_ID}-resume-90`,
+    `${OVERFLOW_GROUP_ID}-interview-45`,
+  ]);
 });
 
 test('그룹 챌린지 내역도 실서버로 빠지지 않고 mock 기록을 반환한다', () => {
