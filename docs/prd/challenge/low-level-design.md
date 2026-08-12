@@ -868,6 +868,26 @@ static Instant leaveDeadline(BetSession s, BetParticipant p) {
 > `:270`(CANCEL_FORBIDDEN) · `:272`(CANCEL_HAS_OTHERS). 개설·취소 개념은 남아 있다.
 > **이 문장을 근거로 throw 경로를 지우면 안 된다** — 살아 있는 실패 모드가 조용히 사라진다.
 
+**`refundedCount` 도 폐기 대상이 아니다 — 좀비였다가 되살아났다.** `GroupBetSettlementSummaryResponse.refundedCount`
+와 그 집계 코드는 **남긴다.** 24시간 데드라인 자동 전원 환불(N21 · GROMO-1411)이 이 버킷을 다시 쓰기
+때문이다. "상시 0인 레거시"였던 시절은 끝났다.
+
+| 축 | 증거 |
+|---|---|
+| 채움 | `GroupBetSettlementService.java:90-92` — `REFUNDED` 분기에서 `refunded++` |
+| 채움 | 같은 파일 `:124-125` — 응답에 `refunded` 를 실어 반환 |
+| 소비 | `GroupBetBatchController.java:83` — 감사 로그에 `summary.refundedCount()` 출력 |
+| 고정 | `GroupBetSettlementServiceTest.java:98,108` — "24h 자동 환불(N21)은 refunded 버킷으로 따로 센다"가 `isEqualTo(1)` 로 못 박는다 |
+
+지우면 **테스트가 즉시 빨개지고**, 통과시키려 테스트까지 지우면 24h 자동 환불의 **유일한 관측
+지점**이 사라진다.
+
+> ⚠️ **증거 표를 남기는 이유.** [§9.2](policy.md) B13 행에도 *"지우면 사고다"* 가 적혀 있지만
+> 금지만으로는 부족하다 — 다음 사람이 근거를 스스로 찾다 실패하면 결국 지운다. 특히 티켓 이름이
+> 「좀비 값 정리」처럼 읽히는 작업에서는 **살아 있다는 증거가 같은 자리에 있어야** 한다.
+> 같은 파일 `:122` 의 `// … (종전엔 상시 0 레거시)` 괄호는 좀비 프레이밍의 흔적이되 **틀린 서술은
+> 아니라서**(실제로 종전엔 그랬다) 그대로 둔다.
+
 ### 2.3 배치 (관리자 키)
 
 | 경로 | 동작 | 환경 |
