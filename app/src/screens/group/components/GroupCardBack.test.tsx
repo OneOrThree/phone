@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
-import { GroupCardBack } from './GroupCardBack';
+import { GroupCardBack, resolveVisibleAvatarCount } from './GroupCardBack';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
@@ -25,6 +25,98 @@ const baseProps = {
 };
 
 beforeEach(() => jest.clearAllMocks());
+
+function readyDetail(memberCount = 3, maxMembers = 7) {
+  return {
+    id: 'g1',
+    name: group.name,
+    description: null,
+    missionCategory: null,
+    missionType: null,
+    durationMinutes: null,
+    windowStart: null,
+    windowEnd: null,
+    maxMembers,
+    status: 'ACTIVE' as const,
+    members: Array.from({ length: memberCount }, (_, index) => ({
+      userId: `u${index + 1}`,
+      nickname: `${index + 1}번째`,
+      role: 'MEMBER' as const,
+      focusTimeMinutes: 0,
+      totalFocusMinutes: 0,
+    })),
+    code: null,
+    codeExpiresAt: null,
+    noticeGrantedUserIds: [],
+  };
+}
+
+test('상세 조회가 준비되면 헤더와 접근성 이름도 최신 인원수를 사용한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'ready', data: readyDetail() },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('공개방 · 3/7명')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.backTitle.g1').props.accessibilityLabel).toContain(
+    '공개방, 3/7명',
+  );
+});
+
+test('멤버 요약과 초대 버튼은 각각 탐색 가능한 형제 접근성 노드다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'ready', data: readyDetail(5, 10) },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  const summary = screen.getByTestId('group.card.memberSummary');
+  expect(summary.props.accessible).toBe(true);
+  expect(within(summary).queryByTestId('group.card.invite.g1')).toBeNull();
+  expect(screen.getByTestId('group.card.invite.g1').props.accessibilityRole).toBe('button');
+});
+
+test('좁은 멤버 영역은 보이는 아바타 수를 줄이고 초대 영역을 침범하지 않는다', async () => {
+  expect(resolveVisibleAvatarCount(120)).toBe(3);
+  expect(resolveVisibleAvatarCount(123)).toBe(4);
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'ready', data: readyDetail(6, 10) },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  const frame = screen.getByTestId('group.card.memberAvatarFrame');
+  expect(frame).toHaveStyle({ overflow: 'hidden' });
+  await act(async () => {
+    fireEvent(frame, 'layout', { nativeEvent: { layout: { width: 120 } } });
+  });
+
+  await waitFor(() =>
+    expect(screen.getAllByTestId(/^group\.card\.memberAvatar\./)).toHaveLength(3),
+  );
+  expect(screen.getByTestId('group.card.memberSummary').props.accessibilityLabel).toContain(
+    '외 3명',
+  );
+});
 
 test('뒷면은 상단 색선을 두지 않고 흰 표면과 낮은 하단 그림자로 구분한다', async () => {
   await render(<GroupCardBack {...baseProps} snapshot={undefined} />);

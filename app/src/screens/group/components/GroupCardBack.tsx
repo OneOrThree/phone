@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
@@ -31,6 +32,21 @@ interface Props {
 }
 
 type RetryDependency = Parameters<Props['onRetry']>[0];
+
+const MEMBER_PREVIEW_LIMIT = 5;
+const AVATAR_SIZE = 36;
+const AVATAR_OVERLAP = 7;
+
+export function resolveVisibleAvatarCount(availableWidth: number): number {
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return 1;
+  return Math.max(
+    1,
+    Math.min(
+      MEMBER_PREVIEW_LIMIT,
+      1 + Math.floor(Math.max(0, availableWidth - AVATAR_SIZE) / (AVATAR_SIZE - AVATAR_OVERLAP)),
+    ),
+  );
+}
 
 function LoadingLine({ label }: { label: string }) {
   return <Text style={s.muted}>{label} 불러오는 중…</Text>;
@@ -105,24 +121,28 @@ export function GroupCardBack({
   position = 1,
   pageCount = 1,
 }: Props) {
+  const [avatarStackWidth, setAvatarStackWidth] = useState<number | null>(null);
   const detail = snapshot?.detail ?? { status: 'idle' as const };
   const announcements = snapshot?.announcements ?? { status: 'idle' as const };
   const challenges = snapshot?.challenges ?? { status: 'idle' as const };
   const focus = snapshot?.focus ?? { status: 'idle' as const };
   const memberIds =
     detail.status === 'ready' ? detail.data.members.map((member) => member.userId) : [];
-  const memberPreview = (() => {
+  const memberPreviewCandidates = (() => {
     if (detail.status !== 'ready') return [];
     const currentIndex = userId
       ? detail.data.members.findIndex((member) => member.userId === userId)
       : -1;
-    if (currentIndex <= 0) return detail.data.members.slice(0, 5);
+    if (currentIndex <= 0) return detail.data.members.slice(0, MEMBER_PREVIEW_LIMIT);
     return [
       detail.data.members[currentIndex],
       ...detail.data.members.slice(0, currentIndex),
       ...detail.data.members.slice(currentIndex + 1),
-    ].slice(0, 5);
+    ].slice(0, MEMBER_PREVIEW_LIMIT);
   })();
+  const visibleAvatarCount =
+    avatarStackWidth === null ? MEMBER_PREVIEW_LIMIT : resolveVisibleAvatarCount(avatarStackWidth);
+  const memberPreview = memberPreviewCandidates.slice(0, visibleAvatarCount);
   const memberCount = detail.status === 'ready' ? detail.data.members.length : group.currentMembers;
   const maxMembers = detail.status === 'ready' ? detail.data.maxMembers : group.maxMembers;
   const memberOverflow =
@@ -161,7 +181,7 @@ export function GroupCardBack({
             }}
             onAccessibilityTap={() => (onAccessibilityFlipFront ?? onFlipFront)()}
             accessibilityRole="button"
-            accessibilityLabel={`${group.name}, 카드 뒷면, ${privacyLabel}, ${group.currentMembers}/${group.maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
+            accessibilityLabel={`${group.name}, 카드 뒷면, ${privacyLabel}, ${memberCount}/${maxMembers}명, 현재 ${position}/${pageCount} 페이지`}
             accessibilityHint="두 번 탭하면 카드 앞면을 봅니다"
             accessibilityState={{ expanded: true }}
             testID={`group.card.backTitle.${group.groupId}`}
@@ -170,7 +190,7 @@ export function GroupCardBack({
               {group.name}
             </Text>
             <Text style={s.headerMeta} numberOfLines={1} accessible={false}>
-              {privacyLabel} · {group.currentMembers}/{group.maxMembers}명
+              {privacyLabel} · {memberCount}/{maxMembers}명
             </Text>
           </Pressable>
 
@@ -356,37 +376,50 @@ export function GroupCardBack({
 
             <View style={s.divider} />
 
-            <View
-              style={s.memberRow}
-              accessible={detail.status === 'ready'}
-              accessibilityLabel={
-                detail.status === 'ready'
-                  ? `멤버 ${memberCount}/${maxMembers}명. ${memberPreview.map((member) => member.nickname).join(', ')}${memberOverflow > 0 ? ` 외 ${memberOverflow}명` : ''}`
-                  : undefined
-              }
-              testID="group.card.memberSummary"
-            >
-              <View style={s.memberCopy}>
-                <Text style={s.memberCount}>
-                  {memberCount}/{maxMembers}
-                </Text>
-                <Text style={s.memberCaption}>함께하는 멤버</Text>
+            <View style={s.memberRow}>
+              <View
+                style={s.memberSummary}
+                accessible={detail.status === 'ready'}
+                accessibilityLabel={
+                  detail.status === 'ready'
+                    ? `멤버 ${memberCount}/${maxMembers}명. ${memberPreview.map((member) => member.nickname).join(', ')}${memberOverflow > 0 ? ` 외 ${memberOverflow}명` : ''}`
+                    : undefined
+                }
+                testID="group.card.memberSummary"
+              >
+                <View style={s.memberCopy}>
+                  <Text style={s.memberCount}>
+                    {memberCount}/{maxMembers}
+                  </Text>
+                  <Text style={s.memberCaption}>함께하는 멤버</Text>
+                </View>
+                {detail.status === 'ready' ? (
+                  <View
+                    style={s.avatarStackFrame}
+                    onLayout={(event) => {
+                      const nextWidth = Math.floor(event.nativeEvent.layout.width);
+                      setAvatarStackWidth((current) =>
+                        current === nextWidth ? current : nextWidth,
+                      );
+                    }}
+                    testID="group.card.memberAvatarFrame"
+                  >
+                    <MemberAvatars members={memberPreview} />
+                  </View>
+                ) : detail.status === 'error' ? (
+                  <View style={s.memberState}>
+                    <RetryAction
+                      label="멤버를 불러오지 못했어요 · 다시 시도"
+                      dependency="detail"
+                      onRetry={onRetry}
+                    />
+                  </View>
+                ) : (
+                  <View style={s.memberState}>
+                    <LoadingLine label="멤버" />
+                  </View>
+                )}
               </View>
-              {detail.status === 'ready' ? (
-                <MemberAvatars members={memberPreview} />
-              ) : detail.status === 'error' ? (
-                <View style={s.memberState}>
-                  <RetryAction
-                    label="멤버를 불러오지 못했어요 · 다시 시도"
-                    dependency="detail"
-                    onRetry={onRetry}
-                  />
-                </View>
-              ) : (
-                <View style={s.memberState}>
-                  <LoadingLine label="멤버" />
-                </View>
-              )}
               {memberCount < maxMembers && (
                 <TouchableOpacity
                   style={s.inviteAction}
@@ -596,6 +629,14 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: T.space.md,
   },
+  memberSummary: {
+    minHeight: 48,
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+  },
   memberCopy: { flexShrink: 0 },
   memberCount: { ...T.text.label, color: T.ink },
   memberCaption: {
@@ -609,6 +650,11 @@ const s = StyleSheet.create({
     paddingLeft: T.space.xs,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  avatarStackFrame: {
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
   },
   avatar: {
     width: 36,

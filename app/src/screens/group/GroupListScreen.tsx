@@ -1101,7 +1101,8 @@ export default function GroupListScreen({
         onMoveShouldSetPanResponderCapture: () => false,
         // 0.3초가 지난 뒤 손가락이 움직여도 부모 FlatList가 responder를 가져가면 같은 touch의
         // drag episode가 끊긴다. 핸들에서 시작한 episode는 release까지 핸들이 소유한다.
-        onPanResponderTerminationRequest: () => false,
+        onPanResponderTerminationRequest: () =>
+          holdRef.current?.groupId !== groupId && dragRef.current?.groupId !== groupId,
         onPanResponderGrant: () => {
           if (
             refreshingRef.current ||

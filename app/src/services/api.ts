@@ -218,7 +218,7 @@ export const api: AxiosInstance = axios.create({
 });
 
 // 개발용 API 목킹(src/mocks) — dev 빌드 + EXPO_PUBLIC_USE_MOCK=true 일 때만 활성.
-// 등록된 경로만 목으로 응답하고 나머지는 실서버로 나간다. .env 변경 후엔 Metro 재시작 필요.
+// 등록된 경로만 목으로 응답하고 나머지는 로컬 오류로 차단한다. .env 변경 후엔 Metro 재시작 필요.
 if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
   enableApiMocks(api);
 }

@@ -1,5 +1,6 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { findHandler } from './handlers';
+import { MOCK_GUEST_USER_ID } from './fixtures/session';
 
 const GROUP_ID = '10000000-0000-0000-0000-000000000001';
 const OVERFLOW_GROUP_ID = '10000000-0000-0000-0000-000000000002';
@@ -107,6 +108,14 @@ test('게스트 온보딩에 필요한 사용자 read API를 mock으로 반환�
 
   expect(profile.nickname).toBe('QA 게스트');
   expect(occupations.map((item) => item.code)).toContain('FOCUS_BUILDING');
+});
+
+test('게스트 앱 부트스트랩의 재화와 장비 요청도 mock 안에서 완료한다', () => {
+  const currency = response('/api/v1/currency');
+  const equipment = response(`/api/v1/equipment/${MOCK_GUEST_USER_ID}`);
+
+  expect(currency).toBe(500);
+  expect(equipment).toEqual([]);
 });
 
 test('그룹 검색은 공개방만 이름으로 필터링한다', () => {
