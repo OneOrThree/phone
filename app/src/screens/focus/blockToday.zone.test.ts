@@ -48,3 +48,24 @@ it('GB 유저 — 업로드 키가 KST가 아니라 서버 존(Europe/London) �
 
   expect(s.server).toEqual({ '2026-08-08': 600, '2026-08-09': 600 });
 });
+
+// GROMO-1246 코덱스 리뷰 ⑤ — 그리드 표시 축(kst)은 serverZone 이 무엇이든 KST 로 쌓인다.
+// server 맵을 KST 키로 읽는 방식이었다면 이 케이스에서 조회가 0을 반환해(런던 날짜 키에만
+// 쌓여서) 세션 중에도 내 타일이 오르지 않는다.
+it('serverZone 이 비KST 여도 표시 축(kst)은 KST 자정에서 갈린다', () => {
+  setServerZone('Europe/London');
+  // KST 08-08 23:40 ~ 08-09 00:20 (40분) — 런던으로는 08-08 하루 안에 다 들어온다.
+  const s = runTicks(newBlockToday(), '2026-08-08T23:40:00+09:00', 2400);
+
+  expect(s.server).toEqual({ '2026-08-08': 2400 }); // 업로드 축은 종전대로 서버 존
+  expect(s.kst).toEqual({ '2026-08-08': 1200, '2026-08-09': 1200 }); // 표시 축은 KST
+});
+
+it('구버전 저장 레코드(kst 맵 없음)에도 tick 이 안전하게 쌓인다', () => {
+  setServerZone('Asia/Seoul');
+  // AsyncStorage 에 남아 있던 kst 없는 BlockToday 를 복원한 상황.
+  const legacy = { local: {}, server: {} } as unknown as BlockToday;
+  const s = runTicks(legacy, '2026-08-08T10:00:00+09:00', 60);
+
+  expect(s.kst).toEqual({ '2026-08-08': 60 });
+});

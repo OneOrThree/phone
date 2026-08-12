@@ -33,6 +33,14 @@ export function useSessionGroups({
   pollMs?: number;
 }) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
+  // 서버가 보는 내 오늘 집중분 — 멤버 목록과 **같은 응답**에서 뽑는다(GROMO-1246). 내 셀이
+  // 로컬 집계 대신 이 값을 기준으로 서면 같은 그리드의 숫자가 한 원천(서버 KST 버킷)으로 정렬된다.
+  // 그룹 상세엔 항상 내 행이 있으므로 그룹이 하나라도 있으면 채워진다. 조회 실패한 그룹은
+  // details에서 걸러져 빠지고, 값이 갈리면 큰 쪽(가장 최신 반영본)을 쓴다.
+  // 값과 **기준일을 함께** 들고 있는다(코덱스 리뷰 ②) — 조회 실패 시 직전 값을 유지하는데,
+  // 세션을 KST 자정 너머로 켜 둔 채 폴링이 계속 실패하면 전날 값이 오늘 몫으로 굳는다.
+  // 소비처가 day !== todayStrKst() 를 보고 스스로 폐기하게 날짜를 같이 노출한다.
+  const [myFocus, setMyFocus] = useState<{ day: string; minutes: number } | null>(null);
   // 요청 세대 — 늦게 도착한 구세대 응답이 최신 결과를 덮지 않게 폐기.
   const requestSeqRef = useRef(0);
 
@@ -50,12 +58,16 @@ export function useSessionGroups({
       );
       if (seq !== requestSeqRef.current) return;
       const next: SessionGroup[] = [];
+      let myMinutes: number | null = null;
       myGroups.forEach((g, i) => {
         const d = details[i];
         if (d.status !== 'fulfilled') return;
         const members: LiveGridMember[] = [];
         for (const m of d.value.members) {
-          if (m.userId === excludeUserId) continue;
+          if (m.userId === excludeUserId) {
+            myMinutes = Math.max(myMinutes ?? 0, m.focusTimeMinutes ?? 0);
+            continue;
+          }
           if (members.length >= MAX_PER_GROUP) break;
           members.push({
             userId: m.userId,
@@ -70,6 +82,16 @@ export function useSessionGroups({
         next.push({ groupId: g.groupId, groupName: g.name, members });
       });
       setGroups(next);
+      // 그룹이 0개인 성공 응답은 **폐기**다(코덱스 리뷰 ⑨) — 세션 중 마지막 그룹에서 나가거나
+      // 강퇴되면 이후 폴링이 상세 요청을 하나도 만들지 않아 옛 스냅샷이 영영 갱신되지 않는다.
+      // 내 셀은 친구·리그 페이지까지 공유하므로 그 화면들도 함께 낡은 기준값에 묶인다.
+      if (myGroups.length === 0) {
+        setMyFocus(null);
+      } else if (myMinutes != null) {
+        // 그룹은 있는데 전 그룹 상세가 실패한 회차는 직전 값을 유지한다 — null로 되돌리면 내 셀이
+        // 로컬 축으로 되돌아갔다가 다음 폴링에 다시 서버 축으로 튄다. 기준일은 이 응답의 today.
+        setMyFocus({ day: today, minutes: myMinutes });
+      }
     } catch {
       // 네트워크 실패 시 기존 상태 유지 — 다음 폴링에서 재시도.
     }
@@ -88,5 +110,5 @@ export function useSessionGroups({
     };
   }, [refetch, pollMs]);
 
-  return { groups };
+  return { groups, myFocus };
 }

@@ -49,14 +49,16 @@ import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
 import { focusReadoutLayout, PLAIN_TIMER_MIN_FONT_SCALE } from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { todayStr } from '@/utils/localDate';
+import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import {
   newBlockToday,
   creditTick,
   creditTicks,
   blockTodaySeconds,
+  blockKstTodaySeconds,
   type BlockToday,
 } from './blockToday';
+import { myLiveTotalSeconds } from '@/utils/liveFocus';
 import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds, pauseCutAt } from './blockPause';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -193,7 +195,7 @@ export default function FocusSessionScreen() {
   });
   // 그룹 뷰(F2) — 내가 참여한 '그룹별로' 한 페이지씩. 각 그룹의 내 행은 제외하고 내 셀은 그리드가
   // 로컬 타이머로 따로 렌더한다(me). 라이브 집중중 신호는 group detail에 없어 오늘 집중분만 정적 표기한다.
-  const { groups: sessionGroups } = useSessionGroups({ excludeUserId: userId });
+  const { groups: sessionGroups, myFocus } = useSessionGroups({ excludeUserId: userId });
   // 그룹 페이지 개수 — 페이저 점·뷰 계측이 동적 페이지 수를 알아야 해서 ref로 최신값을 들고 있는다.
   const groupCountRef = useRef(0);
   groupCountRef.current = sessionGroups.length;
@@ -334,6 +336,15 @@ export default function FocusSessionScreen() {
   //   + 미정산 경과의 오늘 몫(blockTodayRef — 자정을 걸친 세션에서 어제 몫은 빼고 센다)
   const gridPreSessionRef = useRef({ day: todayStr(), base: todayFocusSeconds });
   const gridSettledTodayRef = useRef({ day: todayStr(), seconds: 0 });
+  // 내 그리드 셀의 **정산 기준점**(GROMO-1246 코덱스 리뷰 ③·④·⑧) — 마지막 정산 직후 확정한
+  // KST 오늘 총합. 새 블록의 델타는 이 위에 쌓이고, 서버가 그 정산분을 반영하면 serverBase가
+  // 같은 총합으로 수렴해 이중 계상이 없다. 기준일을 함께 들고 KST 자정을 넘기면 0으로 리셋한다.
+  const gridSettledFloorRef = useRef({ day: todayStrKst(), seconds: 0 });
+  // 정산 시점에 읽을 최신 서버 스냅샷 — settleFocusBlock 이 렌더 값을 클로저로 못 잡아 ref 로 둔다.
+  // **기준일을 함께** 들고 있어야 한다(코덱스 리뷰 ⑩): 자정 전에 스냅샷을 받고 백그라운드에 있다가
+  // 자정을 넘겨 복귀하면 AppState 리플레이가 새 렌더보다 먼저 정산을 돌린다 — 그때 날짜 확인 없이
+  // 쓰면 전날 누적 위에 새 날 블록을 얹은 값이 오늘 기준점으로 굳어 하루 종일 과대 표시된다.
+  const gridServerSnapshotRef = useRef<{ day: string; seconds: number } | null>(null);
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
   // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
@@ -671,6 +682,23 @@ export default function FocusSessionScreen() {
           gridSettledTodayRef.current = { day: todayStr(), seconds: 0 };
         }
         gridSettledTodayRef.current.seconds += todaySeconds;
+      }
+      // 그리드 표시 기준점 확정(코덱스 리뷰 ⑧) — '그 시점 서버가 아는 값'과 '직전 기준점' 중 큰
+      // 쪽에 이번 블록의 KST 몫을 얹는다. 정산 시점에 serverBase 를 읽으므로 첫 스냅샷이 정산
+      // 뒤에 도착해도 같은 블록을 두 번 세지 않고(④), 다음 블록의 델타는 이 총합 위에 쌓인다(⑧).
+      const kstToday = todayStrKst();
+      const kstSeconds = blockToday.kst?.[kstToday] ?? 0;
+      if (kstSeconds > 0) {
+        const prevFloor =
+          gridSettledFloorRef.current.day === kstToday ? gridSettledFloorRef.current.seconds : 0;
+        // 스냅샷·직전 기준점 모두 **오늘(KST) 것일 때만** 쓴다 — 자정을 넘긴 리플레이가 렌더보다
+        // 먼저 여기 닿으면 둘 다 전날 값이라, 날짜를 안 보면 전날 총합이 오늘로 넘어온다(⑩).
+        const snap = gridServerSnapshotRef.current;
+        const snapshotSeconds = snap?.day === kstToday ? snap.seconds : 0;
+        gridSettledFloorRef.current = {
+          day: kstToday,
+          seconds: Math.max(snapshotSeconds, prevFloor) + kstSeconds,
+        };
       }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
@@ -1235,19 +1263,42 @@ export default function FocusSessionScreen() {
   // 내 그리드 셀(GROMO-932) — 오늘 총 집중 = 세션 전 오늘 몫 + 세션의 오늘 정산 몫 + 미정산 경과.
   // 집계 방식·자정 경계 규칙은 gridPreSessionRef 선언부 주석 참고. 타이머 틱마다 리렌더돼 오른다.
   const gridDay = todayStr();
+  const gridKstDay = todayStrKst();
+  // 서버 스냅샷은 기준일이 오늘(KST)일 때만 유효 — 자정을 넘긴 채 폴링이 계속 실패하면 전날
+  // 값이 남아 있다(코덱스 리뷰 ②). 그 회차는 폴백(로컬 집계)으로 내려간다.
+  const gridServerToday = myFocus?.day === gridKstDay ? myFocus.minutes : null;
+  // 정산 시점에 읽을 수 있게 최신 스냅샷을 ref 로 옮겨 둔다.
+  gridServerSnapshotRef.current =
+    gridServerToday != null ? { day: gridKstDay, seconds: gridServerToday * 60 } : null;
+  // 기준점은 KST 날짜가 바뀌면 0으로 — 자정 이후 새 날의 값이 전날 총합에 묶이면 안 된다.
+  if (gridSettledFloorRef.current.day !== gridKstDay) {
+    gridSettledFloorRef.current = { day: gridKstDay, seconds: 0 };
+  }
   // 아직 정산되지 않은 집중초 중 '오늘' 몫(GROMO-1252 코드리뷰) — 그리드 셀·메뉴 드로어 공용.
   // session.elapsed 전체를 쓰면 ① 자정을 걸친 세션의 어제 몫까지 오늘로 표시되고(23:00~00:05
   // 세션이 65분으로 보이다가 정산 후 5분으로 줄어드는 역전) ② 뽀모도로처럼 이미 정산된 블록이
   // 저장분과 이중으로 잡힌다. 타이머 tick마다 리렌더되므로 ref를 그대로 읽어도 값이 따라 오른다.
   const liveTodaySeconds = blockTodaySeconds(blockTodayRef.current);
+  // 표시 기준은 멤버 셀과 같은 서버 KST 버킷(GROMO-1246) — 로컬 집계는 서버 스냅샷을 못
+  // 받았을 때(그룹 미가입·조회 실패·자정 넘겨 무효화)의 폴백으로만 쓴다. 측정·저장 경로는
+  // 그대로다(1236의 "측정 축은 로컬 유지" 결정 유지 — 바뀌는 건 표시 결합부뿐).
+  // 계산 결과를 바닥에 되먹여 다음 렌더의 하한으로 삼는다(정산 직후 되밀림 방지).
+  const gridTotalSeconds = myLiveTotalSeconds({
+    serverBase: gridServerToday != null ? gridServerToday * 60 : null,
+    delta: blockKstTodaySeconds(blockTodayRef.current),
+    localFallback:
+      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
+      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
+      liveTodaySeconds,
+    settledFloor: gridSettledFloorRef.current.seconds,
+    // 서버 버킷이 KST 고정(GROMO-1259)이라 동축 판정은 기기 오프셋이 KST인지로 족하다.
+    sameAxis: kstLocalSameDay(),
+  });
   const myGridMe = {
     nickname: nickname || '나',
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
     isFocusing: !paused && session.phase === 'focus' && !session.done,
-    totalSeconds:
-      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
-      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
-      liveTodaySeconds,
+    totalSeconds: gridTotalSeconds,
     tagName: subjectName,
   };
 
