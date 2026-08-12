@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +61,9 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
     // findLiveSessionsByUserIdIn 라이브 하한 — 이보다 앞서 시작한 미종료 세션은 orphan 으로 보고 제외.
     // 07-03 윈도우 세션은 모두 포함되도록 이틀 앞으로 잡는다.
     private static final Instant LIVE_SINCE = Instant.parse("2026-07-01T00:00:00Z");
+
+    // 정산 대기 가드(existsPendingOverlappingSession) 기준 창 종료 시각.
+    private static final Instant WIN_END = Instant.parse("2026-07-03T02:00:00Z");
 
     private User user;
 
@@ -223,6 +227,240 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
         FocusSession reloaded = focusSessionRepository.findById(completed.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.ACTIVE);
         assertThat(reloaded.getEndedAt()).isEqualTo(userEndedAt);
+    }
+
+    // ── 라이브 마커 원자 마감(autoCloseOpenMarkersOf) — GROMO-1287 ────────────
+
+    @Test
+    @DisplayName("autoCloseOpenMarkersOf — 그 유저의 열린 마커를 전부 AUTO_CLOSED 로 마감하고, 완료 세션은 건드리지 않는다")
+    void autoCloseOpenMarkersClosesEveryOpenMarkerOfUser() {
+        // given: 같은 유저의 열린 마커 2개(중복 시작·마커 회전 잔재) + 이미 완료된 세션 1개
+        FocusSession older = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        FocusSession newer = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T03:00:00Z"))
+                .build());
+        FocusSession completed = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T00:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T00:30:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+        Instant closedAt = Instant.parse("2026-07-03T04:00:00Z");
+
+        // when: 새 마커를 열기 직전의 원자 마감
+        int updated = focusSessionRepository.autoCloseOpenMarkersOf(user, closedAt);
+        focusSessionRepository.flush();
+        entityManager.clear();   // 1차 캐시 비우고 DB 실제 값 재조회
+
+        // then: 열린 마커 2개만 AUTO_CLOSED + endedAt=closedAt. 완료 세션은 원본 그대로다
+        // (마감 대상이 endedAt IS NULL 이라 이미 통계·코인에 반영된 행은 절대 덮이지 않는다).
+        assertThat(updated).isEqualTo(2);
+        for (FocusSession marker : List.of(older, newer)) {
+            FocusSession reloaded = focusSessionRepository.findById(marker.getId()).orElseThrow();
+            assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.AUTO_CLOSED);
+            assertThat(reloaded.getEndedAt()).isEqualTo(closedAt);
+        }
+        FocusSession untouched = focusSessionRepository.findById(completed.getId()).orElseThrow();
+        assertThat(untouched.getStatus()).isEqualTo(FocusSessionStatus.COMPLETED);
+        assertThat(untouched.getEndedAt()).isEqualTo(Instant.parse("2026-07-03T00:30:00Z"));
+
+        // 그리고 라이브 조회에는 아무것도 남지 않는다 = isFocusing 오염 해소
+        assertThat(focusSessionRepository.findLiveSessionsByUserIdIn(List.of(user.getId()), LIVE_SINCE))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("autoCloseOpenMarkersOf — 다른 유저의 열린 마커는 건드리지 않는다")
+    void autoCloseOpenMarkersLeavesOtherUsersMarkersOpen() {
+        // given: 나와 남이 각각 열린 마커를 하나씩 갖고 있다
+        User other = userRepository.save(User.builder().nickname("남").build());
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        FocusSession othersMarker = focusSessionRepository.save(FocusSession.builder()
+                .user(other)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+
+        // when
+        int updated = focusSessionRepository.autoCloseOpenMarkersOf(user, Instant.parse("2026-07-03T04:00:00Z"));
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        // then: 내 것 1개만 마감. 남의 라이브 세션은 그대로 살아 있다
+        assertThat(updated).isEqualTo(1);
+        FocusSession reloaded = focusSessionRepository.findById(othersMarker.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(FocusSessionStatus.ACTIVE);
+        assertThat(reloaded.getEndedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("autoCloseOpenMarkersOf — 열린 마커가 없으면 0행(정상 경로, 예외 아님)")
+    void autoCloseOpenMarkersReturnsZeroWhenNoOpenMarker() {
+        // given: 완료 세션만 있는 유저
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when & then
+        assertThat(focusSessionRepository.autoCloseOpenMarkersOf(user, Instant.parse("2026-07-03T04:00:00Z")))
+                .isZero();
+    }
+
+    // ── 정산 대기 가드 (existsPendingOverlappingSession) — GROMO-1413 · GROMO-1287 ──
+
+    @Test
+    @DisplayName("창 겹침 ACTIVE 마커가 있으면 대기한다(종전 조건)")
+    void pendingGuardWaitsForRunningMarker() {
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+
+        assertThat(focusSessionRepository.existsPendingOverlappingSession(
+                List.of(user.getId()), WIN_END, WIN_END.minus(Duration.ofMinutes(5)))).isTrue();
+    }
+
+    @Test
+    @DisplayName("close-then-open 이 방금 닫은 마커도 대기 사유다 — 미저장 블록을 뺀 채 승패가 확정되면 안 된다")
+    void pendingGuardStillWaitsRightAfterMarkerAutoClosed() {
+        // given: 창과 겹치는 마커가 열려 있고, 다음 블록 start 가 그것을 즉시 AUTO_CLOSED 로 닫는다.
+        // 이 시점에 그 블록의 PATCH/POST 는 아직 서버에 도착하지 않았을 수 있다.
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        Instant closedAt = Instant.parse("2026-07-03T02:05:00Z");   // 창 종료 직후 회전
+        focusSessionRepository.autoCloseOpenMarkersOf(user, closedAt);
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        // then: 유예창(닫힌 지 5분 이내) 안에서는 계속 대기한다.
+        // 종전 가드(status=ACTIVE AND endedAt IS NULL)였다면 여기서 false 가 돼 정산이 진행됐고,
+        // 뒤늦게 POST 폴백이 적립해도 정산은 되돌릴 수 없었다(codex P1-a).
+        assertThat(focusSessionRepository.existsPendingOverlappingSession(
+                List.of(user.getId()), WIN_END, closedAt.minus(Duration.ofMinutes(1)))).isTrue();
+    }
+
+    @Test
+    @DisplayName("유예창을 넘긴 마감 마커는 가드를 잡지 않는다 — 대기는 반드시 끝난다")
+    void pendingGuardReleasesAfterGraceExpires() {
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        Instant closedAt = Instant.parse("2026-07-03T02:05:00Z");
+        focusSessionRepository.autoCloseOpenMarkersOf(user, closedAt);
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        // 마커의 endedAt 은 한 번 정해지면 안 바뀌므로 상한을 넘기면 자동으로 빠진다
+        assertThat(focusSessionRepository.existsPendingOverlappingSession(
+                List.of(user.getId()), WIN_END, closedAt.plus(Duration.ofMinutes(1)))).isFalse();
+    }
+
+    @Test
+    @DisplayName("정상 완료(COMPLETED)한 마커는 유예창 안이어도 대기 사유가 아니다 — 데이터가 이미 들어왔다")
+    void pendingGuardIgnoresCompletedSessions() {
+        // given: PATCH 가 제때 도착해 COMPLETED 로 마감된 세션(= 창 집계에 이미 반영됨)
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:05:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        // then: 정상 경로에는 추가 지연이 붙지 않는다
+        assertThat(focusSessionRepository.existsPendingOverlappingSession(
+                List.of(user.getId()), WIN_END, Instant.parse("2026-07-03T02:00:00Z"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("창 종료 뒤에 시작한 마커는 대기 사유가 아니다 — 새로 연 마커가 정산을 잡지 않는다")
+    void pendingGuardIgnoresMarkersStartedAfterWindowEnd() {
+        // given: close-then-open 의 '새 마커' — 창 종료 후 시작이라 창과 겹치지 않는다
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T02:05:00Z"))
+                .build());
+        focusSessionRepository.flush();
+
+        assertThat(focusSessionRepository.existsPendingOverlappingSession(
+                List.of(user.getId()), WIN_END, Instant.parse("2026-07-03T02:00:00Z"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("유저 취소(CANCELED)로 닫힌 마커도 유예창 안에서는 대기 사유다 — 그 블록은 POST 로 올라온다")
+    void pendingGuardWaitsForRecentlyCanceledMarker() {
+        // given: PATCH 를 못 태워 마커를 취소로 닫은 경우(uploadFocusBlock 의 onMarkerStillOpen 경로).
+        // 취소 뒤에 POST 가 온다 — 닫혔다고 바로 정산하면 그 블록이 빠진다.
+        FocusSession marker = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .build());
+        focusSessionRepository.flush();
+        Instant canceledAt = Instant.parse("2026-07-03T02:05:00Z");
+        focusSessionRepository.cancelSessionIfActive(marker.getId(), canceledAt);
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(focusSessionRepository.existsPendingOverlappingSession(
+                List.of(user.getId()), WIN_END, canceledAt.minus(Duration.ofMinutes(1)))).isTrue();
+    }
+
+    // ── 단조성 판정용 최신 열린 마커 조회 (GROMO-1287 codex P1) ─────────────
+
+    @Test
+    @DisplayName("findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc — 열린 마커가 여럿이어도 가장 최신 1건")
+    void findsNewestOpenMarkerAmongSeveral() {
+        // given: 마이그레이션 이전 스냅샷·ci 스키마처럼 열린 마커가 여럿인 상태 + 완료 세션 1개
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user).startedAt(Instant.parse("2026-07-03T01:00:00Z")).build());
+        FocusSession newest = focusSessionRepository.save(FocusSession.builder()
+                .user(user).startedAt(Instant.parse("2026-07-03T03:00:00Z")).build());
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T05:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T06:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        // when & then: 완료 세션(더 늦게 시작)이 아니라 열린 마커 중 최신을 고른다
+        assertThat(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .get()
+                .extracting(FocusSession::getId)
+                .isEqualTo(newest.getId());
+    }
+
+    @Test
+    @DisplayName("findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc — 열린 마커가 없으면 빈 값")
+    void findsNoOpenMarkerWhenAllClosed() {
+        focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(Instant.parse("2026-07-03T01:00:00Z"))
+                .endedAt(Instant.parse("2026-07-03T02:00:00Z"))
+                .status(FocusSessionStatus.COMPLETED)
+                .build());
+        focusSessionRepository.flush();
+
+        assertThat(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .isEmpty();
     }
 
     // ── COMPLETED 세션 포함 (GROMO-733) ──────────────────────────────────

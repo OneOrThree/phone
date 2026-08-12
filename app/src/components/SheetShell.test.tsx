@@ -18,9 +18,17 @@
 //    여기서 보는 것은 **판정 규칙과 최종 상태**뿐이다.
 import { useEffect } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Text, TouchableOpacity } from 'react-native';
+import {
+  Keyboard,
+  Platform,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  type KeyboardEvent,
+} from 'react-native';
 import { getAnimatedStyle } from 'react-native-reanimated';
 import { SheetShell, useSheetClose, useSheetClosing } from './SheetShell';
+import { T } from '@/constants/theme';
 
 // ⚠️ 퇴장이 시작되면 패널을 접근성 트리에서 숨기므로(accessibilityElementsHidden) RNTL 기본
 //    쿼리로는 안 잡힌다. 이 테스트들은 퇴장 **중**의 값을 봐야 하므로 숨김 요소도 포함한다.
@@ -62,6 +70,19 @@ const SCREEN_HEIGHT = 1334;
 const EXIT_SETTLE_MS = 400;
 // 등장 스프링(snappy)이 완전히 멎을 때까지 기다리는 여유. 여기서 보는 것은 **정지 상태**뿐이다.
 const ENTER_SETTLE_MS = 800;
+
+function observeKeyboard() {
+  const handlers = new Map<string, (event: KeyboardEvent) => void>();
+  const listener = jest.spyOn(Keyboard, 'addListener').mockImplementation((event, callback) => {
+    handlers.set(event, callback);
+    return { remove: jest.fn() } as unknown as ReturnType<typeof Keyboard.addListener>;
+  });
+  return { handlers, listener };
+}
+
+function keyboardEvent(height: number): KeyboardEvent {
+  return { endCoordinates: { height } } as KeyboardEvent;
+}
 
 async function renderShell(props: { dismissible?: boolean; children?: React.ReactNode } = {}) {
   const { children, ...rest } = props;
@@ -149,6 +170,81 @@ describe('패널 높이 상한', () => {
   test('패널 높이는 화면의 85%를 넘지 않는다', async () => {
     await renderShell();
     expect(panelStyle().maxHeight).toBeCloseTo(SCREEN_HEIGHT * 0.85);
+  });
+});
+
+describe('키보드 inset 단일 소유', () => {
+  test('iOS는 SheetShell이 open/close·safe-area를 보정하고 입력 포커스 트리를 유지한다', async () => {
+    expect(Platform.OS).toBe('ios');
+    const { handlers, listener } = observeKeyboard();
+    const onFocus = jest.fn();
+    const onBlur = jest.fn();
+    await renderShell({
+      children: <TextInput testID="input" defaultValue="집중" onFocus={onFocus} onBlur={onBlur} />,
+    });
+    const input = screen.getByTestId('input');
+    await act(async () => fireEvent(input, 'focus'));
+
+    expect(listener.mock.calls.map(([event]) => event)).toEqual([
+      'keyboardWillShow',
+      'keyboardWillHide',
+    ]);
+    await act(async () => handlers.get('keyboardWillShow')?.(keyboardEvent(300)));
+    expect(panelStyle()).toEqual(
+      expect.objectContaining({
+        bottom: 300,
+        maxHeight: (SCREEN_HEIGHT - 300) * 0.85,
+        paddingBottom: T.space.lg,
+      }),
+    );
+    expect(screen.getByTestId('input')).toBe(input);
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onBlur).not.toHaveBeenCalled();
+
+    await act(async () => {
+      handlers.get('keyboardWillHide')?.(keyboardEvent(0));
+    });
+    expect(panelStyle()).toEqual(
+      expect.objectContaining({
+        bottom: 0,
+        maxHeight: SCREEN_HEIGHT * 0.85,
+        paddingBottom: 34 + 20,
+      }),
+    );
+    expect(screen.getByTestId('input')).toBe(input);
+    listener.mockRestore();
+  });
+
+  test('Android는 앱 listener를 더하지 않고 windowSoftInputMode와 safe-area에 맡긴다', async () => {
+    const platform = jest.replaceProperty(Platform, 'OS', 'android');
+    const { listener } = observeKeyboard();
+    await renderShell();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(panelStyle()).toEqual(
+      expect.objectContaining({
+        bottom: 0,
+        maxHeight: SCREEN_HEIGHT * 0.85,
+        paddingBottom: 34 + 20,
+      }),
+    );
+    listener.mockRestore();
+    platform.restore();
+  });
+
+  test('iOS 키보드가 열린 상태에서도 그랩바 drag close가 완료된다', async () => {
+    expect(Platform.OS).toBe('ios');
+    const { handlers, listener } = observeKeyboard();
+    await renderShell();
+    await reportPanelHeight(400);
+    await act(async () => handlers.get('keyboardWillShow')?.(keyboardEvent(300)));
+
+    await act(async () => {
+      mockPanConfigs[0].onPanResponderRelease({}, { dy: 200, vy: 0 });
+    });
+    await settleExit();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    listener.mockRestore();
   });
 });
 

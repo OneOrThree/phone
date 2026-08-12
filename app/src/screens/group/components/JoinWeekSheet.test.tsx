@@ -7,6 +7,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import { Alert } from 'react-native';
 import JoinWeekSheet, { type JoinWeekEntry } from './JoinWeekSheet';
 import { joinWeekSessions } from '@/services/groupApi';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 
 jest.setTimeout(20000);
@@ -28,6 +29,13 @@ jest.mock('@/services/groupApi', () => ({
   joinWeekSessions: jest.fn(),
 }));
 
+// 유저 부재(GROMO-1247) 분기가 인증 세대를 본다 — 세대를 갈아 끼워 '낡은 응답'을 재현한다.
+jest.mock('@/services/api', () => ({
+  ...jest.requireActual('@/services/api'),
+  getAuthSessionGeneration: jest.fn(() => 0),
+  triggerLogout: jest.fn(),
+}));
+
 let mockCoins = 240;
 let mockCoinsLoaded = true;
 let mockCoinsVersion = 1;
@@ -43,6 +51,10 @@ jest.mock('@/store/CoinContext', () => ({
 }));
 
 const mockJoinWeek = joinWeekSessions as jest.MockedFunction<typeof joinWeekSessions>;
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
 
 const GROUP_ID = 'g1';
 const CHALLENGE_ID = 'c1';
@@ -87,6 +99,7 @@ async function renderWeek(entries: JoinWeekEntry[] = ENTRIES) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetAuthSessionGeneration.mockReturnValue(0);
   mockCoins = 240;
   mockCoinsLoaded = true;
   mockCoinsVersion = 1;
@@ -318,4 +331,42 @@ test('총액 기준 BET_INSUFFICIENT_BALANCE — 판정을 유지해 CTA를 잠�
     fireEvent.press(screen.getByTestId('group.bet.week.submit'));
   });
   expect(mockJoinWeek).toHaveBeenCalledTimes(2);
+});
+
+// GROMO-1247 — 유저 부재는 챌린지 부재가 아니라 **내 계정**이 없다는 뜻이다.
+test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않고 재로그인을 유도한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockGetAuthSessionGeneration.mockReturnValue(4);
+  mockJoinWeek.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+  await renderWeek();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+
+  expect(alertSpy).toHaveBeenCalledWith(
+    '로그인이 필요해요',
+    '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+    [expect.objectContaining({ text: '확인' })],
+    { cancelable: false },
+  );
+  expect(onDone).not.toHaveBeenCalled();
+  alertSpy.mockRestore();
+});
+
+// 4라운드 회귀 — 세대가 갈린 응답은 안내를 의도적으로 생략한다(sessionErrors ①). 그때 제출
+// 표시가 남으면 시트가 dismissible={false} + 스피너로 영구 고정된다(JoinNextSheet와 동일).
+test('낡은 세대의 유저 부재 — 안내 없이 버리되 시트는 닫을 수 있는 상태로 남는다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockGetAuthSessionGeneration.mockReturnValueOnce(4).mockReturnValue(5);
+  mockJoinWeek.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+  await renderWeek();
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('group.bet.week.submit'));
+  });
+
+  expect(alertSpy).not.toHaveBeenCalled();
+  expect(mockTriggerLogout).not.toHaveBeenCalled();
+  expect(screen.getByTestId('group.bet.week.close')).not.toBeDisabled();
+  expect(screen.getByTestId('group.bet.week.submit')).not.toBeDisabled();
+  alertSpy.mockRestore();
 });

@@ -8,6 +8,7 @@ import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import JoinNextSheet from './JoinNextSheet';
 import { joinNextSession } from '@/services/groupApi';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 
 jest.setTimeout(20000);
@@ -27,6 +28,13 @@ jest.mock('@/services/analyticsEvents', () => ({
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   joinNextSession: jest.fn(),
+}));
+
+// 유저 부재(GROMO-1247) 분기가 인증 세대를 본다 — 세대를 갈아 끼워 '낡은 응답'을 재현한다.
+jest.mock('@/services/api', () => ({
+  ...jest.requireActual('@/services/api'),
+  getAuthSessionGeneration: jest.fn(() => 0),
+  triggerLogout: jest.fn(),
 }));
 
 // '오늘'(KST)은 테스트가 고정한다 — 드리프트 선제 차단이 이 값을 본다.
@@ -51,6 +59,10 @@ jest.mock('@/store/CoinContext', () => ({
 }));
 
 const mockJoinNext = joinNextSession as jest.MockedFunction<typeof joinNextSession>;
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
 
 const GROUP_ID = 'g1';
 const CHALLENGE_ID = 'c1';
@@ -100,6 +112,7 @@ async function submit() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetAuthSessionGeneration.mockReturnValue(0);
   mockTodayKst = '2026-08-01';
   mockCoins = 240;
   mockCoinsLoaded = true;
@@ -240,4 +253,43 @@ test('BET_SCREENTIME_PERMISSION_REQUIRED — 권한 안내로 알리고 닫는�
     '스크린타임 권한을 허용해야 참여할 수 있어요.',
   );
   expect(onDone).toHaveBeenCalled();
+});
+
+// GROMO-1247 — 유저 부재는 챌린지 부재가 아니라 **내 계정**이 없다는 뜻이라 새로고침이 아니라
+// 재로그인으로 보낸다.
+test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않고 재로그인을 유도한다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockGetAuthSessionGeneration.mockReturnValue(4);
+  mockJoinNext.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+  await renderNext();
+  await submit();
+
+  expect(alertSpy).toHaveBeenCalledWith(
+    '로그인이 필요해요',
+    '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+    [expect.objectContaining({ text: '확인' })],
+    { cancelable: false },
+  );
+  // '사라진 챌린지예요'로 새로고침시키지 않는다.
+  expect(onDone).not.toHaveBeenCalled();
+  alertSpy.mockRestore();
+});
+
+// 4라운드 회귀 — 세대가 갈린(= 이미 새 세션이 성립한) 응답은 안내를 **의도적으로 생략**한다.
+// 그때 제출 표시가 남으면 시트가 dismissible={false} + 스피너로 영구 고정돼 앱 재시작 외엔
+// 빠져나갈 수 없다. '조용히 버린다'는 화면을 잠그는 게 아니다.
+test('낡은 세대의 유저 부재 — 안내 없이 버리되 시트는 닫을 수 있는 상태로 남는다', async () => {
+  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  // 요청은 세대 4에서 나가고(첫 호출), 응답 처리 시점엔 이미 5다(그 뒤 호출).
+  mockGetAuthSessionGeneration.mockReturnValueOnce(4).mockReturnValue(5);
+  mockJoinNext.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+  await renderNext();
+  await submit();
+
+  expect(alertSpy).not.toHaveBeenCalled();
+  expect(mockTriggerLogout).not.toHaveBeenCalled();
+  // 스피너·잠금이 풀려 있어야 한다 — 여기가 4라운드에 실제로 깨졌던 자리다.
+  expect(screen.getByTestId('group.bet.joinNext.close')).not.toBeDisabled();
+  expect(screen.getByTestId('group.bet.joinNext.submit')).toHaveTextContent('8/3(월) 참여하기');
+  alertSpy.mockRestore();
 });

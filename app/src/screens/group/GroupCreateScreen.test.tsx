@@ -68,10 +68,13 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 // NOT_FOUND(유저 부재) 분기가 부르는 재로그인 탈출구 — 실제 모듈은 App이 등록한 핸들러로
-// 온보딩 트리를 리셋하므로, 여기선 호출 여부만 본다. groupApi(requireActual)가 같은 모듈의
-// api 인스턴스를 import하므로 형태만 유지해 끼워 준다(createGroup은 어차피 위에서 목).
+// 온보딩 트리를 리셋하므로, 여기선 호출 여부와 **넘긴 세대**만 본다. groupApi(requireActual)가
+// 같은 모듈의 api 인스턴스를 import하므로 형태만 유지해 끼워 준다(createGroup은 어차피 위에서 목).
+// getAuthSessionGeneration은 요청 직전에 캡처되는 인증 세대다(GROMO-1247 — 로그아웃이 그 사이
+// 성립한 새 세션까지 끊지 않게 하는 표식).
 jest.mock('@/services/api', () => ({
   api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  getAuthSessionGeneration: jest.fn(() => 0),
   triggerLogout: jest.fn(),
 }));
 const { triggerLogout } = jest.requireMock('@/services/api');
@@ -443,30 +446,40 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
   // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정(GROMO-1241).
   // 유효 JWT라 401 인터셉터를 안 타므로 공통 문구로 뭉개면 재시도 막다른 골목이 된다 —
   // 취소 없는 단일 확인으로 재로그인(triggerLogout)까지 이어져야 한다.
-  test('NOT_FOUND — 재로그인 안내 Alert, 확인 시 triggerLogout(공통 실패 문구가 아니다)', async () => {
-    mockCreateGroup.mockRejectedValue(axiosErrorWith(404, 'NOT_FOUND'));
-    await renderScreen();
-    await typeName('아침 6시 집중방');
+  // ⚠️ 신구 코드를 **병기**한다 — 서버가 유저 부재를 USER_NOT_FOUND로 나누기 전에 앱이 먼저
+  //    배포되므로, 브리지 기간엔 NOT_FOUND로 오고 분리 후엔 USER_NOT_FOUND로 온다.
+  //    한쪽만 처리하면 그 기간 동안 이 재로그인 유도가 조용히 죽는다(GROMO-1247).
+  test.each([['NOT_FOUND'], ['USER_NOT_FOUND']])(
+    '%s — 재로그인 안내 Alert, 확인 시 triggerLogout(공통 실패 문구가 아니다)',
+    async (code) => {
+      mockCreateGroup.mockRejectedValue(axiosErrorWith(404, code));
+      await renderScreen();
+      await typeName('아침 6시 집중방');
 
-    await press('만들기');
+      await press('만들기');
 
-    expect(Alert.alert).toHaveBeenCalledWith(
-      '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
-      [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
-      // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
-      { cancelable: false },
-    );
-    expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+      expect(Alert.alert).toHaveBeenCalledWith(
+        '로그인이 필요해요',
+        '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+        [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
+        // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
+        { cancelable: false },
+      );
+      expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
 
-    // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
-    expect(triggerLogout).not.toHaveBeenCalled();
-    const [, , buttons] = (Alert.alert as jest.Mock).mock.calls[0];
-    await act(async () => {
-      buttons[0].onPress();
-    });
-    expect(triggerLogout).toHaveBeenCalledTimes(1);
-  });
+      // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
+      expect(triggerLogout).not.toHaveBeenCalled();
+      const [, , buttons] = (Alert.alert as jest.Mock).mock.calls[0];
+      await act(async () => {
+        buttons[0].onPress();
+      });
+      // 요청 시작 시점의 인증 세대를 넘긴다 — 안내를 읽는 사이 새 세션이 성립하면 App.tsx가
+      // 이 값을 대조해 무시한다(GROMO-1247 P1). 인자 없이 부르면 새 세션까지 끊긴다.
+      expect(triggerLogout).toHaveBeenCalledTimes(1);
+      expect(triggerLogout).toHaveBeenCalledWith(0);
+      expect(triggerLogout).not.toHaveBeenCalledWith(undefined);
+    },
+  );
 
   test('모르는 code는 공통 문구로 떨어진다', async () => {
     mockCreateGroup.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_NEW'));

@@ -160,7 +160,7 @@ public class GroupService {
     public List<GroupSummaryResponse> getMyGroups(UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
@@ -407,12 +407,22 @@ public class GroupService {
     }
 
     public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {
+        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        //
+        // 요청자 검증이 그룹 조회보다 <b>먼저</b>여야 한다 (GROMO-1247) — 순서가 곧 계약이다.
+        // 그룹 조회가 앞서면 "탈퇴 유저 + 없는 groupId" 조합에서 그룹 부재가 먼저 던져져
+        // USER_NOT_FOUND 에 도달하지 못하고, 클라는 재로그인이 답인 상황을 "사라진 그룹"으로
+        // 잘못 안내한다 — 이 티켓이 없애려던 오귀속이 바로 그 조합에서 되살아난다.
+        // 형제 경로(getMyGroups·getGroupDetail·getGroupSettings·joinGroup…)는 전부 users 를
+        // 먼저 읽으므로 이 순서가 표준이고, 여기만 뒤집혀 있었다.
+        //
+        // 잠금 순서 무영향: 이 경로는 두 조회 모두 무락(findByIdAndIsDeletedFalse·findById)이라
+        // 교착 위험이 없고, 오히려 쓰기 경로의 users → group 순서와 일치하게 정렬된다.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-
-        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
 
@@ -470,7 +480,7 @@ public class GroupService {
     public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -595,7 +605,7 @@ public class GroupService {
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }
@@ -674,7 +684,8 @@ public class GroupService {
      * 락 없는 findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아
      * 탈퇴의 정리 스캔 이후·커밋 이전에 낀 변경이 유령(탈퇴자 소유 그룹·멤버십)으로 남는다.
      * 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
-     * is_deleted=true 를 보고 NOT_FOUND(404) 로 거절된다. 게스트는 GUEST_FORBIDDEN(403).
+     * is_deleted=true 를 보고 USER_NOT_FOUND(404) 로 거절된다 — 그룹 부재(GroupErrorCode.NOT_FOUND)와
+     * 구분되는 <b>요청자 세션</b> 전용 코드다(GROMO-1247). 게스트는 GUEST_FORBIDDEN(403).
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
      * {@code @Transactional(readOnly = true)} 라 Postgres 가 FOR SHARE 를 거절한다
@@ -683,7 +694,7 @@ public class GroupService {
      */
     private User requireActiveUser(UUID userId) {
         User user = userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }

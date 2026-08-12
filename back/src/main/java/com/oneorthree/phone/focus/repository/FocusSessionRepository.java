@@ -77,8 +77,11 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     // startedAt >= liveSince: 미종료여도 orphan 타임아웃(12h)을 넘겼는데 아직 스윕(GROMO-804) 안 된 버려진 세션은
     // '라이브'에서 제외한다(findUserIdsWithLiveSession, GROMO-841 과 동일 기준). 이 응답이 focusStartedAt 을 노출하므로
     // 하한이 없으면 12시간 전 시작한 죽은 세션이 '집중 중'으로 보인다.
-    // ORDER BY startedAt DESC: 단일 라이브 세션을 강제하는 가드가 없어(중복 시작 가능) 한 유저에 미종료 세션이 여럿일 때,
-    // 호출측이 최신 세션을 결정적으로 고르게 한다(정렬 없으면 startedAt·태그명이 호출마다 뒤집힐 수 있음).
+    // ORDER BY startedAt DESC: GROMO-1287 의 close-then-open(FocusService.startFocusSession)이
+    // "유저당 열린 마커 1개"를 세우기 전에는 중복 시작이 가능해 한 유저에 미종료 세션이 여럿일 수 있었다.
+    // 이제 서비스 레이어가 불변식을 지키지만 정렬은 남긴다 — DB 부분 유니크 인덱스는 롤백 안전 때문에
+    // 후속 티켓이라(V47 주석 참고) 마이그레이션 이전 스냅샷·과거 잔재에서는 여전히 여럿일 수 있고,
+    // 결과가 1건이면 정렬 비용은 사실상 0 이다. 호출측이 최신 세션을 결정적으로 고르게 하는 2차 방어선.
     @Query("SELECT s FROM FocusSession s "
             + "LEFT JOIN FETCH s.focusTag ft "
             + "LEFT JOIN FETCH ft.defaultTag "
@@ -194,6 +197,60 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
             + "WHERE s.id = :id AND s.endedAt IS NULL")
     int markAutoClosedIfOpen(@Param("id") UUID id, @Param("endedAt") Instant endedAt);
 
+    /**
+     * 현재 열린 마커 중 <b>가장 최근에 시작한</b> 1건 (GROMO-1287) — {@code startFocusSession} 의
+     * startedAt 단조성 판정용.
+     *
+     * <p>왜 필요한가: 앱의 {@code startLiveSession} 은 반환값이 없어 await 되지 않는다
+     * ({@code FocusSessionScreen.tsx}). 백그라운드 복귀 리플레이가 휴식→집중 경계와 크레딧 상한 처리에서
+     * 연달아 start 를 쏘면 두 요청이 동시에 날아가고, <b>더 이른 startedAt 을 든 요청이 나중에 도착</b>할 수
+     * 있다. 그때 무조건 close-then-open 하면 방금 열린 최신 마커가 닫히고 과거 시각 마커가 라이브가 돼
+     * '집중 중' 경과가 부풀고, 직전 블록 업로드가 그마저 닫으면 라이브 마커가 사라진다.
+     * 호출측은 이 마커의 {@code startedAt} 보다 <b>엄격히 늦은</b> 요청만 회전으로 인정한다.
+     *
+     * <p>{@code ORDER BY startedAt DESC} — close-then-open 이후 열린 마커는 유저당 1건이지만, 그 이전에
+     * 쌓인 잔재는 여럿일 수 있다(DB 부분 유니크는 후속 티켓). 그때도 판정 기준이 흔들리지 않도록
+     * {@code findLiveSessionsByUserIdIn} 과 같은 "최신 우선" 관례를 쓴다.
+     */
+    Optional<FocusSession> findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(User user);
+
+    /**
+     * 유저당 단일 라이브 마커 불변식(GROMO-1287) — 새 마커를 열기 전에 <b>같은 유저의 열린 마커를 전부</b>
+     * {@code AUTO_CLOSED} 로 원자 마감한다. 단일 벌크 UPDATE 라 조회-판정-수정 사이 창이 없고,
+     * 걸린 행은 그대로 잠겨 동시 PATCH/취소와 직렬화된다.
+     *
+     * <p><b>왜 신규 상태값이 아니라 {@code AUTO_CLOSED} 재사용인가</b> — 세 배선이 이미 이 값에 걸려 있다.
+     * <ul>
+     *   <li><b>보상 보존</b>: {@code endFocusSession} 은 마감 경합(영향 row=0)에서 상태를 다시 읽어
+     *       CANCELED/AUTO_CLOSED 면 {@code SESSION_DISCARDED} 를 돌려주고, 앱은 그 코드에서만
+     *       POST 완료 저장으로 폴백해 시간·코인을 살린다({@code uploadFocusBlock.ts}). 신규 상태값은
+     *       그 분기를 못 타 {@code SESSION_ALREADY_ENDED} 로 떨어지고 → 앱이 폴백하지 않아
+     *       <b>그 블록의 집중 시간과 코인이 영구 유실</b>된다.</li>
+     *   <li><b>이중집계 방지</b>: 집계 쿼리는 전부 "제외 목록"(NOT IN(CANCELED, AUTO_CLOSED)) 방식이라
+     *       신규 상태값은 자동으로 <b>포함</b>된다 — 폴백 POST 가 만든 완료 행과 이 마커가 같이 계수돼
+     *       통계·정산이 두 번 센다.</li>
+     *   <li><b>CHECK 무변경</b>: V9 가 이미 {@code AUTO_CLOSED} 를 focus_sessions_status_check 에 넣어뒀다.
+     *       신규 값은 CHECK 재정의 마이그레이션이 또 필요하다.</li>
+     * </ul>
+     * 의미상으로도 같다 — 유저가 끝내지 않아 서버가 대신 마감한 마커이고, 종료 시각 신뢰도가 낮아
+     * 통계·스트릭에 미반영한다는 {@code AUTO_CLOSED} 의 정의 그대로다(스윕은 12h 상한, 이쪽은 재시작 시점).
+     *
+     * <p>{@code user} 가 non-null 이라 탈퇴로 {@code user_id} 가 null 이 된 행({@link #nullifyUser})은
+     * 자연히 대상에서 빠진다 — 탈퇴자 행은 라이브 판정 대상이 아니다.
+     *
+     * <p>{@code clearAutomatically}/{@code flushAutomatically} 는 기본값(false) 그대로다
+     * ({@code markAutoClosedIfOpen} 관례). 호출측(startFocusSession)은 이 시점에 마커 엔티티를 영속성
+     * 컨텍스트에 올려두지 않고, 컨텍스트를 비우면 직전에 잠근 {@code user} 가 detach 돼 이후 INSERT 가 깨진다.
+     *
+     * @return 마감된 행 수(0이면 열린 마커가 없었던 정상 경로)
+     */
+    @Modifying
+    @Query("UPDATE FocusSession s "
+            + "SET s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "s.endedAt = :closedAt "
+            + "WHERE s.user = :user AND s.endedAt IS NULL")
+    int autoCloseOpenMarkersOf(@Param("user") User user, @Param("closedAt") Instant closedAt);
+
     // 원자적 조건부 유저 취소(GROMO-733) — 진행 중(endedAt IS NULL)인 경우에만 CANCELED 로 마감하고 취소 시각을 채운다.
     // 반환값(영향 row 수)이 1이면 이 요청이 취소를 성사시킨 것이고, 0이면 이미 종료/취소된 세션(멱등 — 재취소·이중 취소 차단).
     // endSessionIfActive 미러 구조지만, 취소는 markAutoClosedIfOpen 처럼 status 를 벌크 UPDATE 에서 직접 세팅한다
@@ -272,23 +329,46 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     }
 
     /**
-     * 창 겹침 <b>ACTIVE(진행 중)</b> 세션 존재 검사 (GROMO-1413, N37) — FOCUS×TIME_WINDOW 회차의
-     * CRON/MANUAL 정산 대기 가드 전용. {@link #sumOverlapSecondsInWindow} 는 완료 세션만 계수하므로
-     * ({@code ended_at IS NOT NULL}), 창을 걸쳐 아직 도는 세션은 정산 시점에 창 안 집중분이 0으로
-     * 굳는다 — 정산은 불가역이라 승자가 패자로 확정될 수 있어, 남아 있으면 이번 틱을 스킵한다.
+     * 창 겹침 <b>반영 미확정</b> 세션 존재 검사 (GROMO-1413 N37, GROMO-1287 확장) —
+     * FOCUS×TIME_WINDOW 회차의 CRON/MANUAL 정산 대기 가드 전용.
+     * {@link #sumOverlapSecondsInWindow} 는 완료 세션만 계수하므로({@code ended_at IS NOT NULL}),
+     * 창을 걸친 블록이 아직 DB 에 안 들어왔는데 정산하면 그 몫이 0 으로 굳는다 — 정산은 불가역이라
+     * 승자가 패자로 확정될 수 있어, 남아 있으면 이번 틱을 스킵한다.
      *
-     * <p>정산은 창 종료 이후에만 도니, 지금도 도는({@code ended_at IS NULL}) ACTIVE 세션은
-     * {@code started_at < :winEnd} 면 창 꼬리와 반드시 겹친다(시작이 창 종료 뒤면 무관). 대기 상한은
-     * 세션 종료·orphan 자동 마감({@code AUTO_CLOSED} — ACTIVE 가 아니게 된다)이고, 24h 환불이 최후
-     * 방어선이다.
+     * <p><b>두 갈래를 본다</b>:
+     * <ol>
+     *   <li><b>아직 도는 마커</b>({@code status=ACTIVE AND ended_at IS NULL}) — 종전 조건 그대로.
+     *       정산은 창 종료 이후에만 도니 {@code started_at < :winEnd} 면 창 꼬리와 반드시 겹친다.</li>
+     *   <li><b>서버가 방금 대신 닫은 마커</b>({@code status IN (AUTO_CLOSED, CANCELED)} 이고
+     *       {@code ended_at >= :closedSince}) — <b>GROMO-1287 이 추가</b>. 이 상태의 마커는
+     *       "그 블록의 업로드가 아직 진행 중"이라는 신호다: 앱은 PATCH 가 409({@code SESSION_DISCARDED})
+     *       면 POST 로 폴백하고, PATCH 를 못 태운 경우엔 마커를 취소({@code CANCELED})한 뒤 POST 한다.
+     *       둘 다 <b>닫힌 뒤에 데이터가 들어온다</b>.</li>
+     * </ol>
+     *
+     * <p><b>왜 ② 가 필요한가</b>: {@code startFocusSession} 의 close-then-open(GROMO-1287)이 다음 블록
+     * 시작 시 이전 블록 마커를 즉시 {@code AUTO_CLOSED} 로 만든다. ① 만 보면 그 순간 가드가 풀려,
+     * 창 종료 직후 시작한 새 마커는 {@code started_at >= winEnd} 라 걸리지도 않는다 → 정산기가
+     * <b>미저장 블록을 뺀 채 승패를 확정</b>한다. 뒤늦게 POST 폴백이 적립해도 정산은 되돌릴 수 없다
+     * ("POST 폴백이 적립을 지킨다"는 안전망은 <b>정산에는 통하지 않는다</b>).
+     *
+     * <p><b>왜 시간 상한({@code closedSince})이 있는가</b>: ② 를 무제한으로 보면 이 티켓이 원래 고치려던
+     * 것(정산 무기한 지연 → 24h 자동 환불로 내기 무효)이 되돌아온다. 마커의 {@code ended_at} 은 한 번
+     * 정해지면 안 바뀌므로 상한을 넘기면 자동으로 빠진다 — <b>대기는 반드시 끝난다</b>.
+     * V47 백필이 닫은 과거 마커들도 {@code ended_at} 이 과거값이라 이 창에 걸리지 않는다(배포 직후
+     * 정산이 멈추지 않는다).
      */
     @Query("SELECT COUNT(s) > 0 FROM FocusSession s "
-            + "WHERE s.user.id IN :userIds "
-            + "AND s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.ACTIVE "
-            + "AND s.endedAt IS NULL AND s.startedAt < :winEnd")
-    boolean existsActiveOverlappingWindow(
+            + "WHERE s.user.id IN :userIds AND s.startedAt < :winEnd "
+            + "AND ((s.status = com.oneorthree.phone.focus.domain.FocusSessionStatus.ACTIVE "
+            + "      AND s.endedAt IS NULL) "
+            + "  OR (s.status IN (com.oneorthree.phone.focus.domain.FocusSessionStatus.AUTO_CLOSED, "
+            + "                   com.oneorthree.phone.focus.domain.FocusSessionStatus.CANCELED) "
+            + "      AND s.endedAt >= :closedSince))")
+    boolean existsPendingOverlappingSession(
             @Param("userIds") Collection<UUID> userIds,
-            @Param("winEnd") Instant winEnd);
+            @Param("winEnd") Instant winEnd,
+            @Param("closedSince") Instant closedSince);
 
     // 태그 rename 세션 재연결(GROMO-754) — 옛(소프트삭제) 태그를 참조하던 세션 전부를 새로 채택한 태그로 재지정한다.
     // rename = 옛 UserFocusTag softDelete + 새 이름 재채택(GROMO-673)이라, 재연결 없으면 과거 세션이 소프트삭제 태그를

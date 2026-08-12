@@ -40,8 +40,9 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 //    눌렀다 펴면 모든 요일이 동시에 자라 "왼쪽부터 지나온 시간"이라는 뜻이 사라지고,
 //    오버슛 구간에서는 선이 목표 높이를 넘었다 돌아와 값이 실제보다 크게 보이는 프레임이 생긴다.
 //
-// 구현은 `ProgressRing`과 같은 기법이다 — 선 길이만큼의 파선을 깔고 시작 오프셋만 당긴다.
+// 구현은 선 길이만큼의 파선을 깔고 시작 오프셋(`strokeDashoffset`)만 당기는 기법이다.
 // 매 프레임 points를 다시 만들지 않아도 선이 자란다.
+// (같은 기법을 쓰던 `ProgressRing`은 GROMO-1525에서 삭제됐다 — 정적 사례는 `CategoryDonut`.)
 //
 // ⚠️ **시퀀스 전체는 선 그리기(entrance)보다 점 팝(quick) 하나만큼 길다.**
 //    선이 끝나는 순간(진행률 `LINE_SPAN`)에 맞춰 마지막 점의 팝이 **시작**하고, 남은 구간에서

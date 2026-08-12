@@ -104,7 +104,8 @@ class GroupCreateWithdrawRaceIntegrationTest extends IntegrationTestBase {
                     createdGroupId.set(response.groupId());
                 } catch (UserException e) {
                     // 탈퇴가 먼저 커밋됐으면 활성 조회(공유 락)가 빈 결과 → 404 거절이 정상이다 (D9).
-                    assertThat(e.getErrorCode()).isEqualTo(UserErrorCode.NOT_FOUND);
+                    // 코드는 요청자 전용 USER_NOT_FOUND 다 (GROMO-1247).
+                    assertThat(e.getErrorCode()).isEqualTo(UserErrorCode.USER_NOT_FOUND);
                 }
             });
             Future<?> withdrawCall = pool.submit(() -> {

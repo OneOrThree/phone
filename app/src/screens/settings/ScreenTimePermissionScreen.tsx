@@ -20,7 +20,7 @@ import ScreenTimeModule, {
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
-import { tomorrowStr } from '@/utils/localDate';
+import { todayStr, tomorrowStr, yesterdayStr } from '@/utils/localDate';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
@@ -34,22 +34,13 @@ import { T } from '@/constants/theme';
 // 상태 카드가 권한 상태별 단일 진입점(GROMO-978): 요청 필요→권한 요청(허용 시 바로 앱 피커),
 // 허용됨→앱 피커, 거부됨→iOS는 설정 이동, 안드로이드는 Usage Access 재요청(GROMO-994).
 
-// 로컬(기기 시간대) 기준 'YYYY-MM-DD'.
-function ymd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 // 저장된 마지막 동기화 날짜 → 상대 라벨(오늘/어제/날짜).
+// 축은 로컬 — 대조 대상(screentimeLastSyncedDate)을 screentimeSync가 로컬 todayStr로 쓴다
+// (스크린타임 측정·마감 축, docs/date-axis.md 분류 ②).
 function syncLabel(raw: string): string {
   const date = raw.slice(0, 10); // 타임스탬프로 저장돼도 날짜부만 사용
-  const now = new Date();
-  if (date === ymd(now)) return '오늘';
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date === ymd(yesterday)) return '어제';
+  if (date === todayStr()) return '오늘';
+  if (date === yesterdayStr()) return '어제';
   return date;
 }
 
@@ -89,7 +80,8 @@ export default function ScreenTimePermissionScreen() {
         .then((raw) => !cancelled && setLastSynced(raw ? syncLabel(raw) : null))
         .catch(() => !cancelled && setLastSynced(null));
       AsyncStorage.getItem(STORAGE_KEYS.selectionApplyDate)
-        .then((d) => !cancelled && setPendingApply(!!d && d > ymd(new Date())))
+        // selectionApplyDate는 아래 tomorrowStr()로 예약한 로컬 날짜 — 대조도 같은 로컬 축이다.
+        .then((d) => !cancelled && setPendingApply(!!d && d > todayStr()))
         .catch(() => !cancelled && setPendingApply(false));
       return () => {
         cancelled = true;

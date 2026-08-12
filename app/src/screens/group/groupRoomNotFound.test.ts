@@ -66,16 +66,22 @@ test('활성 인증 뒤 최신 detail이 성공하면 방을 유지한다', asyn
   expect(mockGetGroupDetail).toHaveBeenCalledWith(GROUP_ID, DATE);
 });
 
-test('프로필 NOT_FOUND는 그룹 이탈이 아니라 공통 세션 복구로 넘긴다', async () => {
-  mockGetMyProfile.mockRejectedValue(axiosErrorWith(404, 'NOT_FOUND'));
+// 신구 코드를 **병기**한다(GROMO-1247) — 서버가 유저 부재를 USER_NOT_FOUND로 나누면 /users/me도
+// 그 코드로 답한다. NOT_FOUND만 보면 분리 직후부터 이 재확인이 세션 이상을 영영 못 알아채고
+// 'retry'로만 수렴해(무한 재시도) 그룹방이 조용히 멈춘다. 반대로 브리지 기간엔 NOT_FOUND가 온다.
+test.each([['NOT_FOUND'], ['USER_NOT_FOUND']])(
+  '프로필 %s는 그룹 이탈이 아니라 공통 세션 복구로 넘긴다',
+  async (code) => {
+    mockGetMyProfile.mockRejectedValue(axiosErrorWith(404, code));
 
-  await expect(
-    resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
-  ).resolves.toEqual({ kind: 'session_recovery' });
-  expect(mockTriggerLogout).toHaveBeenCalledWith(7);
-  expect(mockGetGroupDetail).not.toHaveBeenCalled();
-  expect(mockGetMyGroups).not.toHaveBeenCalled();
-});
+    await expect(
+      resolveGroupRoomNotFound({ groupId: GROUP_ID, date: DATE, userId: USER_ID }),
+    ).resolves.toEqual({ kind: 'session_recovery' });
+    expect(mockTriggerLogout).toHaveBeenCalledWith(7);
+    expect(mockGetGroupDetail).not.toHaveBeenCalled();
+    expect(mockGetMyGroups).not.toHaveBeenCalled();
+  },
+);
 
 test('프로필 재확인 실패·계정 불일치는 성공으로 추정하지 않는다', async () => {
   mockGetMyProfile.mockRejectedValueOnce(new Error('network'));

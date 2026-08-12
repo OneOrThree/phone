@@ -28,7 +28,6 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
-import { ProgressRing } from '@/components/ProgressRing';
 import { M, fadeIn, pop, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
@@ -48,12 +47,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
-import {
-  focusReadoutLayout,
-  PLAIN_TIMER_MIN_FONT_SCALE,
-  RING_STROKE,
-  type ReadoutLayout,
-} from './readoutLayout';
+import { focusReadoutLayout, PLAIN_TIMER_MIN_FONT_SCALE } from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
 import { todayStr } from '@/utils/localDate';
 import {
@@ -1258,19 +1252,18 @@ export default function FocusSessionScreen() {
   };
 
   // ── 렌더 계층(GROMO-1381) — 아래 블록은 세션 로직에 전혀 관여하지 않는다 ──────────────
-  // 캐릭터·링 크기와 링 표시 여부는 전부 readoutLayout.ts의 순수 함수가 정한다(단위 테스트로
+  // 캐릭터 크기와 타이머 지정 크기는 전부 readoutLayout.ts의 순수 함수가 정한다(단위 테스트로
   // 잠겨 있다). 여기서는 입력(가용 높이·폭·글자 배율·모드)만 넘긴다.
   // ⚠️ fontScale을 반드시 넘긴다 — Text의 allowFontScaling 기본값 때문에 시스템 글자 크기를
-  //    키운 사용자에게는 타이머가 다시 확대되어, 고정 pt 링을 뚫고 나간다(codex 리뷰).
+  //    키운 사용자에게는 타이머가 다시 확대되어, 그만큼 캐릭터 몫이 줄어야 한다(codex 리뷰).
   const layout = focusReadoutLayout(
     Math.max(0, height - insets.top - insets.bottom),
     width,
     fontScale,
-    mode !== 'countup', // 카운트업은 목표가 없어 진행률 자체가 정의되지 않는다
-    // ⚠️ 뽀모도로는 링을 포기해도 세트배지·세트도트를 계속 그린다 — 예산에 넣지 않으면
-    //    캐릭터를 크게 유지한 채 리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
+    // ⚠️ 뽀모도로는 세트배지·세트도트를 함께 그린다 — 예산에 넣지 않으면 캐릭터를 크게 유지한 채
+    //    리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
     mode === 'pomodoro',
-    // ⚠️ 카운트다운은 링을 포기해도 '목표 HH:MM:SS' 줄을 계속 그린다(codex 리뷰).
+    // ⚠️ 카운트다운은 '목표 HH:MM:SS' 줄을 함께 그린다(codex 리뷰).
     mode === 'countdown',
   );
   const charSize = layout.charSize;
@@ -1463,7 +1456,7 @@ export default function FocusSessionScreen() {
             key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
             갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
         <PhaseReadout key={session.phase}>
-          {renderReadout(mode, session, goal, pomo, subjectName, layout, timerTextStyle)}
+          {renderReadout(mode, session, goal, pomo, subjectName, timerTextStyle)}
         </PhaseReadout>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
@@ -1529,27 +1522,21 @@ export default function FocusSessionScreen() {
 // 타이머 바로 위엔 모드 안내 문구 대신 집중 중인 과목명을 보여준다(GROMO-848).
 // 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
 //
-// 진행 링(GROMO-1381) — '남은 시간'을 링으로도 읽게 한다. 숫자 텍스트는 링 가운데에 겹치되
-// 정렬·색·tabular-nums(s.bigTime)는 그대로 승계하고, 크기만 링에 맞춰 timerStyle로 덮는다.
-// ⚠️ 카운트업(무제한)에는 링을 그리지 않는다 — 목표가 없으면 진행률 자체가 정의되지 않는다.
-//    링이 없으니 폭 제약도 없어 timerStyle을 씌우지 않고 기본 52pt를 그대로 쓴다.
-// ⚠️ 링은 첫 마운트에 애니메이션이 없다(ProgressRing 헤더 주석). 이미 진행 중인 세션으로
-//    들어와도 남은 시간이 처음부터 정확히 그려진다 — 진입 연출은 호출부의 fadeIn이 담당한다.
+// ⚠️ GROMO-1525 — 세 모드가 **모두 같은 숫자 배치**를 쓴다. 1381이 카운트다운·뽀모도로에만
+//    씌웠던 원형 진행 링(`ProgressRing`)은 오너 결정으로 뺐다(재추가 예정). 진행률은 숫자로
+//    그대로 읽히므로 정보 손실은 없다. 진입 연출은 호출부의 fadeIn(PhaseReadout)이 담당한다.
 function renderReadout(
   mode: FocusTimerMode,
   session: SessionState,
   goal: number,
-  pomo: { focusMin: number; breakMin: number; sets: number },
+  pomo: { sets: number },
   subjectName: string,
-  layout: ReadoutLayout,
   timerStyle: TextStyle,
 ) {
-  // 링 없이 그리는 큰 숫자 — 카운트업의 기본 배치이자, 글자 배율이 커서 링을 포기했을 때의
-  // 폴백이기도 하다. 두 경로가 같은 코드를 쓰므로 한 곳에서 만든다.
-  // ⚠️ 여기에만 adjustsFontSizeToFit을 붙인다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
-  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 하는 최후 방어선이다.
-  //    링이 있는 경로에는 절대 붙이지 않는다 — 링 지름이 '지정 크기대로 그려진다'는 전제 위에 있다.
-  const plainTime = (
+  // 큰 숫자 — 세 모드 공용.
+  // ⚠️ adjustsFontSizeToFit은 최후 방어선이다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
+  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 한다.
+  const bigTime = (
     <Text
       style={[s.bigTime, timerStyle]}
       numberOfLines={1}
@@ -1560,37 +1547,13 @@ function renderReadout(
     </Text>
   );
 
-  // 큰 숫자 — 링을 그릴 수 있으면 링 가운데에, 아니면 위 평문으로. 링 유무 판정은 전부
-  // readoutLayout이 했고(글자 배율·화면 크기), 여기서는 결과만 반영한다.
-  const bigTime = (progress: number) =>
-    layout.showRing ? (
-      <ProgressRing
-        size={layout.ringSize}
-        stroke={RING_STROKE}
-        progress={progress}
-        color={T.night.gold}
-        trackColor={withAlpha(T.night.cream, 0.18)}
-        // ⚠️ 이 화면의 progress는 완료율이 아니라 **남은 비율**이다(시작 100 → 종료 0).
-        //    링에 progressbar 역할이 붙으면 스크린리더가 "100% 진행"으로 정반대로 읽는다.
-        //    가운데 타이머가 이미 정확한 값을 읽어 주므로 링은 장식으로 둔다(codex 리뷰).
-        decorative
-        testID="focus.progress.ring"
-      >
-        <Text style={[s.bigTime, timerStyle]} numberOfLines={1}>
-          {hms(session.display)}
-        </Text>
-      </ProgressRing>
-    ) : (
-      plainTime
-    );
-
   if (mode === 'countup') {
     return (
       <>
         <Text style={s.roSubject} numberOfLines={1}>
           {subjectName}
         </Text>
-        {plainTime}
+        {bigTime}
       </>
     );
   }
@@ -1600,13 +1563,12 @@ function renderReadout(
         <Text style={s.roSubject} numberOfLines={1}>
           {subjectName}
         </Text>
-        {bigTime(goal > 0 ? session.display / goal : 0)}
+        {bigTime}
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
     );
   }
-  // pomodoro — 진행률은 세션 전체가 아니라 '현재 페이즈' 안에서의 남은 비율이다(큰 숫자와 같은 축).
-  const phaseTotalSeconds = (session.phase === 'focus' ? pomo.focusMin : pomo.breakMin) * 60;
+  // pomodoro
   return (
     <>
       <View style={s.setBadgeRow}>
@@ -1620,7 +1582,7 @@ function renderReadout(
       <Text style={s.roSubject} numberOfLines={1}>
         {session.phase === 'focus' ? subjectName : '휴식'}
       </Text>
-      {bigTime(phaseTotalSeconds > 0 ? session.display / phaseTotalSeconds : 0)}
+      {bigTime}
       <View style={s.setDots}>
         {Array.from({ length: pomo.sets }).map((_, i) => (
           <View key={i} style={[s.setDot, i < session.setIndex && s.setDotOn]} />
@@ -1692,8 +1654,8 @@ const s = StyleSheet.create({
   },
   // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
   // ⚠️ 호출부에서 numberOfLines={1}로 **한 줄로 고정**한다. 과목명은 사용자가 자유 입력하는
-  //    값이라 길면 줄바꿈되는데, 위 CHROME_WITH_RING 예산이 과목명을 30pt(한 줄)로 계산하므로
-  //    늘어난 줄만큼 캐릭터·링과 리드아웃이 다시 겹친다(codex 리뷰).
+  //    값이라 길면 줄바꿈되는데, readoutLayout의 PLAIN_BASE 예산이 과목명을 30pt(한 줄)로
+  //    계산하므로 늘어난 줄만큼 캐릭터와 리드아웃이 다시 겹친다(codex 리뷰).
   roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,
