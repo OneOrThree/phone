@@ -62,7 +62,7 @@ import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
 import { GroupCardFront } from './components/GroupCardFront';
 import { GroupCardBack } from './components/GroupCardBack';
-import { GroupCardFlip } from './components/GroupCardFlip';
+import { GROUP_CARD_FLIP_SAFE_INSET, GroupCardFlip } from './components/GroupCardFlip';
 import { useGroupCardOrder } from './useGroupCardOrder';
 import { useGroupCardEmojis } from './useGroupCardEmojis';
 import { useGroupCardData } from './useGroupCardData';
@@ -1522,7 +1522,13 @@ export default function GroupListScreen({
                 onScrollEndDrag={onScrollEndDrag}
                 ListFooterComponent={
                   <View
-                    style={{ marginLeft: CARD_GAP }}
+                    style={[
+                      s.cardStage,
+                      {
+                        marginLeft: CARD_GAP,
+                        height: GROUP_CARD_HEIGHT + GROUP_CARD_FLIP_SAFE_INSET * 2,
+                      },
+                    ]}
                     accessibilityElementsHidden={renderedActiveIndex !== orderedGroups.length}
                     importantForAccessibility={
                       renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
@@ -1695,17 +1701,19 @@ export default function GroupListScreen({
                   ]}
                   testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
                 >
-                  <GroupCardFront
-                    group={dragOverlayGroup}
-                    emoji={emojiFor(dragOverlayGroup.groupId)}
-                    position={reorderPreview.target + 1}
-                    pageCount={pageCount}
-                    reorderCount={orderedGroups.length}
-                    reorderHoldMs={REORDER_HOLD_MS}
-                    reorderState="active"
-                    active={false}
-                    onFlip={() => undefined}
-                  />
+                  <View style={s.dragOverlaySurface}>
+                    <GroupCardFront
+                      group={dragOverlayGroup}
+                      emoji={emojiFor(dragOverlayGroup.groupId)}
+                      position={reorderPreview.target + 1}
+                      pageCount={pageCount}
+                      reorderCount={orderedGroups.length}
+                      reorderHoldMs={REORDER_HOLD_MS}
+                      reorderState="active"
+                      active={false}
+                      onFlip={() => undefined}
+                    />
+                  </View>
                 </View>
               )}
               {saveFailed && (
@@ -1798,11 +1806,13 @@ const s = StyleSheet.create({
   },
 
   listContent: { paddingBottom: T.space.md },
+  cardStage: { justifyContent: 'center' },
   deckSkeleton: {
     flexDirection: 'row',
     gap: CARD_GAP,
     paddingHorizontal: SIDE_PEEK,
-    paddingBottom: T.space.md + 44,
+    paddingTop: GROUP_CARD_FLIP_SAFE_INSET,
+    paddingBottom: T.space.md + 44 + GROUP_CARD_FLIP_SAFE_INSET,
     overflow: 'hidden',
   },
 
@@ -1832,9 +1842,11 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 0,
     zIndex: 10,
-    height: GROUP_CARD_HEIGHT,
+    height: GROUP_CARD_HEIGHT + GROUP_CARD_FLIP_SAFE_INSET * 2,
+    justifyContent: 'center',
     elevation: 10,
   },
+  dragOverlaySurface: { height: GROUP_CARD_HEIGHT },
   saveError: {
     ...T.text.caption,
     color: T.dangerInk,

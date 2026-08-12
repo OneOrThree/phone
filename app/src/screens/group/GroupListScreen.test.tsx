@@ -604,6 +604,24 @@ describe('콜백', () => {
     expect(screen.queryByTestId('group.list.refresh')).toBeNull();
   });
 
+  test('카드 순서 핸들은 누르기 쉬운 52pt 원형 터치 영역을 제공한다', async () => {
+    await renderList([group()]);
+
+    expect(screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`)).toHaveStyle({
+      width: 52,
+      height: 52,
+    });
+    expect(screen.getByTestId(`group.card.gripVisual.${GROUP_ID}`)).toHaveStyle({
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+    });
+    expect(screen.getByTestId(`group.card.gripProgress.${GROUP_ID}`).props).toMatchObject({
+      width: 50,
+      height: 50,
+    });
+  });
+
   test('세로 덱 scroller의 당겨서 새로고침은 중복 요청을 막고 완료 뒤 spinner를 내린다', async () => {
     let release: () => void = () => undefined;
     onRefresh.mockReturnValueOnce(

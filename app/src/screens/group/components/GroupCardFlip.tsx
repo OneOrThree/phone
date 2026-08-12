@@ -20,6 +20,14 @@ interface Props {
   skipTransition?: boolean;
 }
 
+// 3D 회전 중 face와 shadow가 원래 카드 rect 밖으로 투영돼도 상단 헤더나 덱 경계에서
+// 잘리지 않도록 카드 바깥에 확보하는 세로 안전 여백. 카드 자체 높이는 바꾸지 않는다.
+export const GROUP_CARD_FLIP_SAFE_INSET = 32;
+
+export function nextGroupCardRotationTurn(currentTurn: number): number {
+  return currentTurn + 1;
+}
+
 /** 같은 카드 rect 안에서 두 face를 유지하고 flip/cross-fade만 전환한다. */
 export function GroupCardFlip({
   groupId,
@@ -33,6 +41,9 @@ export function GroupCardFlip({
 }: Props) {
   const motion = useMotion();
   const progress = useSharedValue(flipped ? 1 : 0);
+  // 앞/뒤 상태를 0↔1로 되감으면 뒤→앞 전환이 반시계 방향이 된다. 회전 차수를
+  // 매번 1씩 올려 0°→180°→360°처럼 모든 플립을 같은 방향으로 진행시킨다.
+  const rotationTurnRef = useRef(flipped ? 1 : 0);
   const previousFlippedRef = useRef(flipped);
   const transitionGenerationRef = useRef(0);
   const completedGenerationRef = useRef(0);
@@ -41,10 +52,6 @@ export function GroupCardFlip({
   // prop이 바뀐 첫 commit부터 layout effect가 state를 올리기 전까지도 입력을 잠근다.
   const transitionRequested = previousFlippedRef.current !== flipped;
   const inputLocked = transitioning || (transitionRequested && !skipTransition);
-  // Y축 perspective는 가까워지는 모서리를 원래 face rect보다 크게 투영한다. 3D 전환 중에만
-  // 카드의 기존 라운드 rect로 잘라 헤더를 침범하지 않게 한다. 정지 상태와 Reduce Motion의
-  // cross-fade에는 clipping을 걸지 않아 앞면 shadow와 두 면의 기존 surface를 그대로 보존한다.
-  const clipProjectedFace = inputLocked && !motion.reduce;
 
   const finishTransition = useCallback(
     (generation: number, face: 'front' | 'back') => {
@@ -74,7 +81,8 @@ export function GroupCardFlip({
       fallbackTimerRef.current = null;
       setTransitioning(false);
       onTransitioningChange?.(false);
-      progress.value = flipped ? 1 : 0;
+      rotationTurnRef.current = flipped ? 1 : 0;
+      progress.value = rotationTurnRef.current;
       return;
     }
     setTransitioning(true);
@@ -83,8 +91,10 @@ export function GroupCardFlip({
     // Reanimated 완료 콜백이 정본이다. UI runtime이 취소/해제되는 비정상 경로에서도 입력이
     // 영구 잠기지 않도록 같은 duration의 JS fallback을 둔다(generation으로 stale 해제 차단).
     fallbackTimerRef.current = setTimeout(() => finishTransition(generation, targetFace), duration);
+    const targetRotationTurn = nextGroupCardRotationTurn(rotationTurnRef.current);
+    rotationTurnRef.current = targetRotationTurn;
     progress.value = withTiming(
-      flipped ? 1 : 0,
+      targetRotationTurn,
       {
         duration,
         easing: M.curve.standard.fn,
@@ -116,7 +126,7 @@ export function GroupCardFlip({
 
   const frontStyle = useAnimatedStyle(() =>
     motion.reduce
-      ? { opacity: 1 - progress.value }
+      ? { opacity: Math.abs((progress.value % 2) - 1) }
       : {
           opacity: 1,
           transform: [{ perspective: 1000 }, { rotateY: `${progress.value * 180}deg` }],
@@ -124,7 +134,7 @@ export function GroupCardFlip({
   );
   const backStyle = useAnimatedStyle(() =>
     motion.reduce
-      ? { opacity: progress.value }
+      ? { opacity: 1 - Math.abs((progress.value % 2) - 1) }
       : {
           opacity: 1,
           transform: [{ perspective: 1000 }, { rotateY: `${180 + progress.value * 180}deg` }],
@@ -133,37 +143,36 @@ export function GroupCardFlip({
 
   return (
     <View
-      style={[s.shell, { minHeight }, clipProjectedFace && s.projectedFaceClip]}
+      style={[s.stage, { height: minHeight + GROUP_CARD_FLIP_SAFE_INSET * 2 }]}
       testID={`group.card.flipShell.${groupId}`}
     >
-      <Animated.View
-        style={[s.face, frontStyle]}
-        pointerEvents={!inputLocked && !flipped ? 'auto' : 'none'}
-        accessibilityElementsHidden={inputLocked || flipped}
-        importantForAccessibility={inputLocked || flipped ? 'no-hide-descendants' : 'auto'}
-        testID={`group.card.flipFront.${groupId}`}
-      >
-        {front}
-      </Animated.View>
-      <Animated.View
-        style={[s.face, backStyle]}
-        pointerEvents={!inputLocked && flipped ? 'auto' : 'none'}
-        accessibilityElementsHidden={inputLocked || !flipped}
-        importantForAccessibility={!inputLocked && flipped ? 'auto' : 'no-hide-descendants'}
-        testID={`group.card.flipBack.${groupId}`}
-      >
-        {back}
-      </Animated.View>
+      <View style={[s.surface, { height: minHeight }]} testID={`group.card.flipSurface.${groupId}`}>
+        <Animated.View
+          style={[s.face, frontStyle]}
+          pointerEvents={!inputLocked && !flipped ? 'auto' : 'none'}
+          accessibilityElementsHidden={inputLocked || flipped}
+          importantForAccessibility={inputLocked || flipped ? 'no-hide-descendants' : 'auto'}
+          testID={`group.card.flipFront.${groupId}`}
+        >
+          {front}
+        </Animated.View>
+        <Animated.View
+          style={[s.face, backStyle]}
+          pointerEvents={!inputLocked && flipped ? 'auto' : 'none'}
+          accessibilityElementsHidden={inputLocked || !flipped}
+          importantForAccessibility={!inputLocked && flipped ? 'auto' : 'no-hide-descendants'}
+          testID={`group.card.flipBack.${groupId}`}
+        >
+          {back}
+        </Animated.View>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  shell: { position: 'relative' },
-  projectedFaceClip: {
-    borderRadius: 28,
-    overflow: 'hidden',
-  },
+  stage: { position: 'relative', justifyContent: 'center' },
+  surface: { position: 'relative', width: '100%' },
   face: {
     position: 'absolute',
     top: 0,

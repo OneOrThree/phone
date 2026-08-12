@@ -27,6 +27,7 @@ import {
 } from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
 import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -468,6 +469,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     paddingLeft: 24,
+    paddingVertical: GROUP_CARD_FLIP_SAFE_INSET,
     overflow: 'hidden',
   },
   skeletonCard: {},
