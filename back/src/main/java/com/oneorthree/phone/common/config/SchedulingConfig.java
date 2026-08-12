@@ -1,5 +1,6 @@
 package com.oneorthree.phone.common.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -7,7 +8,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 // 스케줄러 인프라 활성화 진입점 (@Scheduled 사용을 위한 설정)
 @Configuration
-@EnableScheduling
 public class SchedulingConfig {
 
     /**
@@ -67,4 +67,16 @@ public class SchedulingConfig {
         scheduler.setAwaitTerminationSeconds(30);
         return scheduler;
     }
+}
+
+/**
+ * {@code @Scheduled} 트리거 활성화 — CI 테스트에서는 픽스처를 변경하는 크론이 테스트 격리를 깨뜨리지
+ * 않도록 트리거만 끈다. {@link SchedulingConfig}의 스케줄러 빈과 크론 애노테이션은 남겨 배선 검증은
+ * 계속 수행할 수 있다.
+ */
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnProperty(prefix = "app.scheduling", name = "enabled", havingValue = "true",
+        matchIfMissing = true)
+@EnableScheduling
+class SchedulingActivationConfig {
 }
