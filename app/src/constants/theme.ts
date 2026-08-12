@@ -44,6 +44,7 @@ export const T = {
   successBg: '#F0F7F1', // 긍정 카드 배경
   successBorder: '#D6E9DA',
   dangerInk: '#C25F52', // 경고 텍스트
+  dangerInkStrong: '#B04C41', // 작은 오류 동작 텍스트 — paperAlt에서도 WCAG AA 대비 확보
   dangerBg: '#FBEFEC', // 경고 카드 배경
   dangerBorder: '#F3D9D4',
   flame: '#E8452C', // 스트릭 불꽃 아이콘(연속 공부, GROMO-630)

@@ -113,6 +113,29 @@ test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한
   expect(screen.queryByText('현재 집중 0명')).toBeNull();
 });
 
+test('오류 재시도는 카드 축소 후에도 44pt 터치 영역과 충분한 대비를 유지한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'error', error: new Error('detail') },
+        announcements: { status: 'error', error: new Error('announcements') },
+        challenges: { status: 'error', error: new Error('challenges') },
+        focus: { status: 'error', error: new Error('focus') },
+      }}
+    />,
+  );
+
+  for (const dependency of ['detail', 'focus', 'announcements', 'challenges']) {
+    const retry = screen.getByTestId(`group.card.retry.${dependency}`);
+    expect(retry).toHaveStyle({ minHeight: 46 });
+    expect(retry.props.accessibilityRole).toBe('button');
+  }
+  expect(screen.getByText(/멤버 정보를 확인하지 못했어요/)).toHaveStyle({
+    color: '#B04C41',
+  });
+});
+
 test('멤버를 받아도 focus가 조회 중이면 오류 대신 로딩을 표시한다', async () => {
   await render(
     <GroupCardBack

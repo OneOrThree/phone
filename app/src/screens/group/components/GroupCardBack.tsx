@@ -28,8 +28,36 @@ interface Props {
   pageCount?: number;
 }
 
+type RetryDependency = Parameters<Props['onRetry']>[0];
+
 function LoadingLine({ label }: { label: string }) {
   return <Text style={s.muted}>{label} 불러오는 중…</Text>;
+}
+
+function RetryAction({
+  label,
+  dependency,
+  onRetry,
+}: {
+  label: string;
+  dependency: RetryDependency;
+  onRetry: Props['onRetry'];
+}) {
+  return (
+    <TouchableOpacity
+      style={s.retryAction}
+      onPress={(event) => {
+        event.stopPropagation();
+        onRetry(dependency);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="실패한 정보를 다시 불러옵니다"
+      testID={`group.card.retry.${dependency}`}
+    >
+      <Text style={s.error}>{label}</Text>
+    </TouchableOpacity>
+  );
 }
 
 export function GroupCardBack({
@@ -132,14 +160,11 @@ export function GroupCardBack({
           {detail.status === 'idle' || detail.status === 'loading' ? (
             <LoadingLine label="멤버" />
           ) : detail.status === 'error' ? (
-            <TouchableOpacity
-              onPress={(event) => {
-                event.stopPropagation();
-                onRetry('detail');
-              }}
-            >
-              <Text style={s.error}>멤버 정보를 확인하지 못했어요 · 다시 시도</Text>
-            </TouchableOpacity>
+            <RetryAction
+              label="멤버 정보를 확인하지 못했어요 · 다시 시도"
+              dependency="detail"
+              onRetry={onRetry}
+            />
           ) : (
             <>
               <Text style={s.body}>
@@ -157,14 +182,7 @@ export function GroupCardBack({
             </>
           )}
           {(focus.status === 'error' || focus.status === 'coverage-unknown') && (
-            <TouchableOpacity
-              onPress={(event) => {
-                event.stopPropagation();
-                onRetry('focus');
-              }}
-            >
-              <Text style={s.error}>집중 상태 다시 시도</Text>
-            </TouchableOpacity>
+            <RetryAction label="집중 상태 다시 시도" dependency="focus" onRetry={onRetry} />
           )}
         </View>
 
@@ -188,14 +206,11 @@ export function GroupCardBack({
               <Text style={s.body}>새 공지가 없어요</Text>
             )
           ) : announcements.status === 'error' ? (
-            <TouchableOpacity
-              onPress={(event) => {
-                event.stopPropagation();
-                onRetry('announcements');
-              }}
-            >
-              <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
-            </TouchableOpacity>
+            <RetryAction
+              label="공지를 불러오지 못했어요 · 다시 시도"
+              dependency="announcements"
+              onRetry={onRetry}
+            />
           ) : (
             <LoadingLine label="공지" />
           )}
@@ -245,14 +260,11 @@ export function GroupCardBack({
               <Text style={s.body}>진행 중인 활동이 없어요</Text>
             )
           ) : challenges.status === 'error' ? (
-            <TouchableOpacity
-              onPress={(event) => {
-                event.stopPropagation();
-                onRetry('challenges');
-              }}
-            >
-              <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
-            </TouchableOpacity>
+            <RetryAction
+              label="활동을 불러오지 못했어요 · 다시 시도"
+              dependency="challenges"
+              onRetry={onRetry}
+            />
           ) : (
             <LoadingLine label="활동" />
           )}
@@ -332,7 +344,12 @@ const s = StyleSheet.create({
   body: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.ink },
   announcementBody: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.inkSub },
   muted: { ...T.text.caption, color: T.inkSub },
-  error: { ...T.text.caption, color: T.dangerInk },
+  retryAction: {
+    // GroupListScreen의 0.97 surface scale 뒤에도 iOS 44pt 기준을 넘긴다.
+    minHeight: 46,
+    justifyContent: 'center',
+  },
+  error: { ...T.text.caption, color: T.dangerInkStrong },
   actions: { marginTop: 'auto', gap: T.space.xs },
   primary: {
     height: 46,
