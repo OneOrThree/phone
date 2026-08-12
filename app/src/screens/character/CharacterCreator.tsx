@@ -27,6 +27,11 @@ import {
   recordCharacterGeneration,
   type CharacterQuota,
 } from '@/services/characterApi';
+import {
+  logCharacterCreated,
+  logCharacterSourceSelected,
+  type CharacterSelectionSource,
+} from '@/services/analyticsEvents';
 import { T } from '@/constants/theme';
 
 // 캐릭터 생성기(자립 컴포넌트) — 앨범/카메라로 사물 사진을 얻으면 온디바이스 누끼(Vision) 후
@@ -67,6 +72,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
   const { width } = useWindowDimensions();
 
   const [phase, setPhase] = useState<Phase>('idle');
+  const selectionSourceRef = useRef<CharacterSelectionSource | null>(null);
   const [result, setResult] = useState<SubjectMaskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 오브젝트 이미지 디코드 완료 여부 — cutout 반환 즉시 phase는 ready가 되지만 <Image>가
@@ -163,6 +169,8 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
     }).catch(() => null);
 
     if (!picked || picked.canceled || !picked.assets?.length) return;
+    selectionSourceRef.current = 'library';
+    logCharacterSourceSelected({ selection_source: 'library' });
     await runCutout(picked.assets[0]);
   }, [runCutout]);
 
@@ -180,6 +188,8 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
     }).catch(() => null);
 
     if (!shot || shot.canceled || !shot.assets?.length) return;
+    selectionSourceRef.current = 'camera';
+    logCharacterSourceSelected({ selection_source: 'camera' });
     await runCutout(shot.assets[0]);
   }, [runCutout]);
 
@@ -251,6 +261,7 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
       // 저장 성공 → 생성 1건을 서버 쿼터에 기록(best-effort). 네트워크 지연·타임아웃이 완료를
       // 막지 않도록 await 하지 않고 발사만 한다(함수 내부에서 실패를 이미 삼킨다).
       recordCharacterGeneration().catch(() => {});
+      logCharacterCreated({ selection_source: selectionSourceRef.current ?? 'library' });
       onSaved(uri);
     } catch {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');

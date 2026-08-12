@@ -19,7 +19,11 @@ import { SheetShell } from '@/components/SheetShell';
 import { getAuthSessionGeneration } from '@/services/api';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
-import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
+import {
+  logGroupJoinAttempted,
+  logGroupJoined,
+  logGroupSearchPerformed,
+} from '@/services/analyticsEvents';
 import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
@@ -241,6 +245,7 @@ export default function GroupFindSheet({
       // 서버가 소유한 group_joined([S])도 유입 경로를 알아야 초대 퍼널과 검색 유입을 가를 수 있다
       // (초대 링크 스펙 §4-3 8). 이 경로엔 초대 slug가 없다.
       await joinGroup(group.groupId, { joinMethod: 'search' });
+      logGroupJoined({ join_method: 'search' });
       onJoined();
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)

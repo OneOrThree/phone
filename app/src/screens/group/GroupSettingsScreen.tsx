@@ -12,6 +12,7 @@ import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { logGroupLeft } from '@/services/analyticsEvents';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
 import { useUser } from '@/store/UserContext';
 import { getAuthSessionGeneration } from '@/services/api';
@@ -137,6 +138,7 @@ export default function GroupSettingsScreen() {
     const requestSessionGeneration = getAuthSessionGeneration();
     try {
       await withdrawGroup(groupId);
+      logGroupLeft({ leave_reason: 'self' });
       setLeaveModal(null); // 화면이 사라지기 전에 카드를 내린다(모달을 띄운 채 언마운트하지 않는다)
       navigation.popToTop(); // 그룹 목록(스택 최하단)으로 복귀
     } catch (e) {

@@ -10,7 +10,7 @@ export type V2RootStackParamList = {
   Stats: undefined; // 통계 상세 (홈 '자세히'에서 진입)
   UsageDetail: undefined; // 앱별 사용시간 상세 (홈 '핸드폰 사용' 탭에서 진입)
   Notifications: undefined; // 알림 보관함 (홈 우측 상단 종에서 진입 — GROMO-661)
-  CurrencyHistory: undefined; // 시간조각(재화) 거래 내역 (전체 탭 잔액 행에서 진입)
+  CurrencyHistory: { entry?: 'home_chip' | 'menu_chip' } | undefined; // 시간조각 거래 내역
   // 02 과목 선택 (홈 ● 집중 FAB에서 진입). initialGroupId: 그룹방 FAB에서 진입 시 — 세션까지 넘겨
   // 집중 세션이 그 그룹의 '그룹: {그룹명}' 페이지로 기본 진입하게 한다(F2 Part2).
   FocusCategory:

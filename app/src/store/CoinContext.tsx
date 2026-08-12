@@ -13,6 +13,7 @@ import { api } from '@/services/api';
 import { useUser } from './UserContext';
 import { setCoinRefreshListener } from './coinRefreshSignal';
 import { STORAGE_KEYS } from '@/types/storage';
+import { logCurrencySpent } from '@/services/analyticsEvents';
 
 interface CoinContextValue {
   coins: number;
@@ -167,6 +168,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
       // 서버 CurrencyRequest 정식 필드는 type이다(671에서 reason → type 리네임, 구 페이로드는
       // @JsonAlias("reason") 흡수로만 동작) — 정식 필드로 정리해 alias 의존을 끊는다.
       await api.post('/api/v1/currency/spend', { amount: price, type: 'PURCHASE' });
+      logCurrencySpent({ type: 'PURCHASE', amount: price });
       setCoins((prev) => prev - price);
       setOwnedItemIds((prev) => [...prev, itemId]);
       return true;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,7 +26,12 @@ import {
   joinBet,
   joinSession,
 } from '@/services/groupApi';
-import { logGroupBetCreated, logGroupBetJoined } from '@/services/analyticsEvents';
+import {
+  logCurrencyInsufficient,
+  logCurrencySpent,
+  logGroupBetCreated,
+  logGroupBetJoined,
+} from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useToast } from '@/store/ToastContext';
 import { useUser } from '@/store/UserContext';
@@ -223,6 +228,7 @@ export default function BetSheet({
   const shortage = amount - coins;
   // 잔액을 모르면 부족 판정 자체를 하지 않는다 — 모르는 값으로 사용자를 잠그지 않는다(F1).
   const insufficient = coinsLoaded && shortage > 0;
+  const insufficientLoggedRef = useRef<number | null>(null);
   // 판정 이후에 도착한 잔액이 '낼 수 있다'고 말하는가 — 그때만 서버 판정을 푼다.
   const balanceOverridesVerdict =
     insufficientVerdict !== null &&
@@ -313,6 +319,12 @@ export default function BetSheet({
     (isCreate && !stakeValid) ||
     (!isCreate && bet === null);
 
+  useEffect(() => {
+    if (!insufficient || !stakeValid || insufficientLoggedRef.current === amount) return;
+    insufficientLoggedRef.current = amount;
+    logCurrencyInsufficient({ context: 'bet', required: amount, shortfall: shortage });
+  }, [amount, insufficient, shortage, stakeValid]);
+
   // 시트를 열 때 서버 잔액을 다시 받는다(§0-3).
   useEffect(() => {
     refresh();
@@ -332,6 +344,7 @@ export default function BetSheet({
       mission_type: challenge.missionType,
       mission_category: challenge.missionCategory,
     });
+    logCurrencySpent({ type: 'BET_STAKE', amount: amount });
   }
 
   async function submit() {
@@ -359,6 +372,7 @@ export default function BetSheet({
           mission_type: challenge.missionType,
           mission_category: challenge.missionCategory,
         });
+        logCurrencySpent({ type: 'BET_STAKE', amount: amount });
       }
       // 판돈이 빠진 잔액을 곧바로 맞춘다(응답을 기다리지 않는다 — 시트는 이미 닫힌다).
       refresh();

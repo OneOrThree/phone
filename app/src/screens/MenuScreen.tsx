@@ -24,6 +24,7 @@ import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { CURRENCY } from '@/constants/currency';
+import { logCurrencyChipTapped } from '@/services/analyticsEvents';
 
 // v2 '전체' 탭 = 설정 허브(SET·앱 설정). 프로필 헤더 + 시안 행 그룹 + 광고 배너.
 // 실제 동작(목표 편집·허용앱·스크린타임·로그아웃 등)은 각 하위 화면(settings/*)이 담당하고,
@@ -342,7 +343,10 @@ export default function MenuScreen() {
             iconBg={T.accentBg}
             label={CURRENCY.label}
             value={`${coins.toLocaleString()}개`}
-            onPress={() => navigation.navigate('CurrencyHistory')}
+            onPress={() => {
+              logCurrencyChipTapped({ location: 'menu' });
+              navigation.navigate('CurrencyHistory', { entry: 'menu_chip' });
+            }}
           />
         </SettingsSection>
 

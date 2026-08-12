@@ -12,6 +12,7 @@ import { localDateStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { FOCUS_GOAL_MINUTES, GOAL_STEP_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
+import { logGoalUpdated } from '@/services/analyticsEvents';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -189,6 +190,9 @@ export default function GoalsScreen() {
       } else {
         // 현재 목표와 동일하게 되돌림 → 기존 예약 취소.
         await AsyncStorage.removeItem(STORAGE_KEYS.goalPending);
+      }
+      if (focusChanged || usageChanged) {
+        logGoalUpdated({ changed_focus: focusChanged, changed_usage: usageChanged });
       }
     } catch {
       // 예약 저장/삭제 실패는 치명적이지 않음

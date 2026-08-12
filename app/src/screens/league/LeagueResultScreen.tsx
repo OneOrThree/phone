@@ -21,6 +21,7 @@ import { useMotion } from '@/hooks/useMotion';
 import { hapticSuccess } from '@/utils/haptics';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { logCurrencyEarned, logLeagueResultViewed } from '@/services/analyticsEvents';
 
 // 강등 시 '깨진 뱃지' 중간 연출 이미지 — 강등 전(from) 티어별(tierNdown.png)
 const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
@@ -61,11 +62,20 @@ export default function LeagueResultScreen() {
   const route = useRoute<RouteProp<V2RootStackParamList, 'LeagueResult'>>();
   const { type, fromLevel, toLevel, weekHours, weekStartAt, promotionBonusCoins } = route.params;
   const cfg = TYPE_CFG[type];
+  useEffect(() => {
+    logLeagueResultViewed({
+      result: type === 'promote' ? 'promoted' : type === 'demote' ? 'demoted' : 'maintain',
+    });
+  }, [type]);
   // 승급 보상 시간조각 — 서버가 실어 보낸 값만 쓴다(GROMO-1193). 클라 공식 폴백은 BE 머지 전
   // 임시 조치였는데, BE가 값을 내리는 지금은 **서버가 진짜 0을 준 경우**(지급 실패·미지급)에도
   // 공식으로 금액을 지어내 유령 배지를 띄운다.
   const bonusCoins = promotionBonusCoins ?? 0;
   const showBonus = type === 'promote' && bonusCoins > 0;
+  useEffect(() => {
+    if (!showBonus) return;
+    logCurrencyEarned({ type: 'LEAGUE_TIER_BONUS', amount: bonusCoins, is_batch: true });
+  }, [bonusCoins, showBonus]);
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때
   // useLeagueLastResult가 미확인 상태를 감지해 재노출 없이 ack만 재시도한다(멱등)

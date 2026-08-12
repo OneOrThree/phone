@@ -6,7 +6,11 @@ import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
-import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
+import {
+  logGroupInviteSheetViewed,
+  logGroupJoinAttempted,
+  logGroupJoined,
+} from '@/services/analyticsEvents';
 import { getAppInstanceId } from '@/services/analytics';
 import type { GroupOverviewResponse } from '@/types/dto/group';
 import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
@@ -256,6 +260,7 @@ export default function GroupInviteSheet({
         inviteSlug: slug ?? undefined,
         appInstanceId: appInstanceId ?? undefined,
       });
+      logGroupJoined({ join_method: joinMethod });
       // 성공만은 세대를 보지 않는다 — 실제로 target에 가입됐으므로 부모가 재조회해 그룹방으로
       // 넘어가야 한다. 여기서 버리면 사용자는 이미 가입한 채 다른 그룹 프리뷰를 계속 보게 된다.
       // 목적지도 현재 prop이 아니라 **이 요청이 겨냥한 target**이다(세대가 갈렸어도 가입된 건 target).

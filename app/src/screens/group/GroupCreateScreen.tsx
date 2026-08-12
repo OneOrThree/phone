@@ -26,6 +26,8 @@ import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import {
   logGroupCardIconSaveResult,
+  logGroupCreateSubmitted,
+  logGroupCreated,
   logGroupCreateStarted,
   logGroupInviteShared,
 } from '@/services/analyticsEvents';
@@ -172,6 +174,7 @@ export default function GroupCreateScreen() {
     submittingRef.current = true;
     setSubmitting(true);
     setNameError(null);
+    logGroupCreateSubmitted({ entry_point: 'list', is_private: isPrivate });
     // 요청을 띄우기 직전의 인증 세대 — 응답이 오는 사이(그리고 안내를 확인하는 사이) 세션이
     // 교체되면 이 응답의 로그아웃은 새 세션에 적용되면 안 된다(sessionErrors.ts 주석).
     const requestSessionGeneration = getAuthSessionGeneration();
@@ -183,6 +186,7 @@ export default function GroupCreateScreen() {
         maxMembers,
         isPrivate,
       });
+      logGroupCreated({ entry_point: 'list', is_private: isPrivate });
       // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
       // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
       let localSaveFailed = false;

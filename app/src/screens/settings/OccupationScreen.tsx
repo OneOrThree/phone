@@ -10,7 +10,11 @@ import { RecommendedTagsEditSheet } from '@/screens/settings/components/Recommen
 import { FOCUS_CATEGORY_GROUPS, occupationForCategory } from '@/constants/focusCategories';
 import { updateOccupation } from '@/services/userApi';
 import { getDefaultTags } from '@/services/focusApi';
-import { logFocusTagCreated, logFocusTagDeleted } from '@/services/analyticsEvents';
+import {
+  logFocusTagCreated,
+  logFocusTagDeleted,
+  logOccupationUpdated,
+} from '@/services/analyticsEvents';
 import { useSubjects } from '@/store/SubjectContext';
 import { useFocus } from '@/store/FocusContext';
 import type { Subject } from '@/screens/focus/types';
@@ -143,6 +147,7 @@ export default function OccupationScreen() {
   async function handleComplete(category: string, adds: string[], removes: Subject[]) {
     applySubjectDiff(adds, removes);
     await applyCategoryChange(category);
+    logOccupationUpdated();
     navigation.goBack();
   }
 

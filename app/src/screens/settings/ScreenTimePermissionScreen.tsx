@@ -19,6 +19,7 @@ import ScreenTimeModule, {
   nativeSupportsPendingApplyDate,
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { logScreenTimeSettingsChanged } from '@/services/analyticsEvents';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
 import { todayStr, tomorrowStr, yesterdayStr } from '@/utils/localDate';
 import { useUser } from '@/store/UserContext';
@@ -116,6 +117,10 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
+      logScreenTimeSettingsChanged({
+        setting: 'permission',
+        setting_value: granted ? 'granted' : 'denied',
+      });
       if (granted) {
         await editScreenTimeTargets();
       } else {
@@ -143,6 +148,10 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
+      logScreenTimeSettingsChanged({
+        setting: 'permission',
+        setting_value: granted ? 'granted' : 'denied',
+      });
     } catch (e) {
       Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
     } finally {

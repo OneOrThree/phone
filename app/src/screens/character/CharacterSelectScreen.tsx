@@ -10,6 +10,7 @@ import { useCharacter, type CharacterChoice } from '@/store/CharacterContext';
 import { useToast } from '@/store/ToastContext';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
+import { logCharacterEquipped, logCharacterSelectViewed } from '@/services/analyticsEvents';
 
 // 캐릭터 변경 화면 — 기본 그로몬 / 내가 만든 오브젝트 캐릭터(누끼) 중 하나를 장착한다.
 // 카드 탭은 선택 표시만 바꾸고(강조 테두리 + 체크 배지), 실제 장착(setChoice)은 하단
@@ -34,6 +35,10 @@ export default function CharacterSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { choice, customUri, setChoice } = useCharacter();
   const { show } = useToast();
+
+  useEffect(() => {
+    logCharacterSelectViewed({ entry_source: 'home_character_change' });
+  }, []);
 
   // 저장된 누끼를 실제로 그릴 수 있는지. 이미지 로드는 비동기라 세 상태가 필요하다.
   //  pending — 아직 로드 결과를 모름 / ok — 그려짐 / broken — 경로가 죽어 못 그림
@@ -108,6 +113,7 @@ export default function CharacterSelectScreen() {
     if (equippedRef.current) return;
     equippedRef.current = true;
     setChoice(selected);
+    logCharacterEquipped({ character_type: selected });
     show({ message: '캐릭터를 변경했어요', tone: 'success' });
     navigation.popToTop();
   }, [selected, setChoice, navigation, show]);

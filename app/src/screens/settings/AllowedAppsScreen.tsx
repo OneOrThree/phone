@@ -13,6 +13,7 @@ import {
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useToast } from '@/store/ToastContext';
 import { T } from '@/constants/theme';
+import { logAllowedAppsUpdated } from '@/services/analyticsEvents';
 
 // SET·집중 중 허용 앱 관리 화면.
 // 집중 세션 실드에서 예외로 열어줄 앱들을 고른다.
@@ -107,6 +108,7 @@ export default function AllowedAppsScreen() {
       if (!result) return; // 취소
       setCounts(result);
       setLoaded(true);
+      logAllowedAppsUpdated({ app_count: result.applications });
       // 변경 없이 '완료'하면 알럿 생략 (GROMO-637).
       // presentAllowedAppManager는 스와이프 취소가 불가해 완료 시 항상 현재 개수를 반환하므로,
       // 편집 전 스냅샷과 앱/카테고리/웹도메인 개수가 모두 같으면 실제 변경이 없는 것으로 본다.

@@ -11,6 +11,7 @@ import {
   logNotificationOpened,
   logNotificationPermissionResult,
   logPushOpened,
+  logPokeReceived,
   type NotificationType,
   type PushOpenedType,
 } from '@/services/analyticsEvents';
@@ -200,6 +201,7 @@ export function setupPushListeners(): () => void {
         return;
       }
       saveToInbox(msg);
+      if (notificationTypeFromData(msg?.data) === 'poke') logPokeReceived();
       try {
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -221,6 +223,7 @@ export function setupPushListeners(): () => void {
     messaging().onNotificationOpenedApp((msg) => {
       saveToInbox(msg);
       const type = notificationTypeFromData(msg?.data);
+      if (type === 'poke') logPokeReceived();
       if (type) logNotificationOpened({ type }); // 백그라운드 탭으로 앱 복귀
       const opened = pushOpenedTypeFromData(msg?.data);
       if (opened) logPushOpened({ type: opened }); // 정산 결과/창 종료 푸시(계약 §2)
@@ -247,6 +250,7 @@ export async function handleInitialNotification(): Promise<void> {
     const msg = await messaging().getInitialNotification();
     saveToInbox(msg);
     const type = notificationTypeFromData(msg?.data);
+    if (type === 'poke') logPokeReceived();
     if (type) logNotificationOpened({ type }); // 종료 상태에서 탭으로 콜드스타트
     const opened = pushOpenedTypeFromData(msg?.data);
     if (opened) logPushOpened({ type: opened }); // 정산 결과/창 종료 푸시(계약 §2)

@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T } from '@/constants/theme';
@@ -17,6 +17,8 @@ import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { getCurrencyTransactions } from '@/services/currencyApi';
 import type { CurrencyTransaction, CurrencyTransactionType } from '@/types/dto/currency';
 import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
+import { logCurrencyHistoryViewed } from '@/services/analyticsEvents';
+import type { V2RootStackParamList } from '@/navigation/types';
 
 // 시간조각(인게임 재화) 거래 내역 화면 — MenuScreen 잔액 행에서 진입.
 // GET /api/v1/currency/transactions(최신순)을 그대로 나열한다: 부호 있는 금액 + 사유 한글 라벨 + 날짜.
@@ -62,6 +64,7 @@ function listErrorMessage(e: unknown): string {
 
 export default function CurrencyHistoryScreen() {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<V2RootStackParamList, 'CurrencyHistory'>>();
   const { coins } = useCoins();
   // 잔액을 보여 주는 화면이라 포커스 시 서버 잔액을 다시 불러온다(내기 차감·정산 반영).
   useRefreshCoinsOnFocus();
@@ -81,6 +84,10 @@ export default function CurrencyHistoryScreen() {
       if (seq !== requestSeqRef.current) return;
       setTransactions(list);
       setStatus('ready');
+      logCurrencyHistoryViewed({
+        entry: route.params?.entry ?? 'menu_chip',
+        tx_count: list.length,
+      });
     } catch (e) {
       if (seq !== requestSeqRef.current) return;
       if (__DEV__) {
