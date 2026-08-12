@@ -289,7 +289,7 @@
             "description": "게스트 / 그룹원도 OPEN 회차 참가자도 아님"
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음"
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -340,7 +340,7 @@
             "description": "권한 없음 / 게스트"
           },
           "404": {
-            "description": "그룹 없음 / 공지 없음"
+            "description": "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       },
@@ -379,7 +379,7 @@
             "description": "권한 없음 / 게스트"
           },
           "404": {
-            "description": "그룹 없음 / 공지 없음"
+            "description": "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -960,6 +960,19 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupSummaryResponse"
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -1003,6 +1016,16 @@
           },
           "403": {
             "description": "게스트 계정 생성 불가",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateGroupResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1074,7 +1097,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / BET_NOT_FOUND(회차 없음·그룹 불일치) / 챌린지 삭제됨",
+            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / 챌린지 삭제됨 / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1136,7 +1159,7 @@
             "description": "게스트 접근 불가"
           },
           "404": {
-            "description": "그룹 없음"
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "정원 초과 / 이미 참여"
@@ -1218,7 +1241,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1300,7 +1323,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1374,7 +1397,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1465,7 +1488,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정)",
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(내기 미설정) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1537,7 +1560,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정)",
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(내기 미설정) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1595,7 +1618,7 @@
             "description": "게스트 / 그룹원 아님 / OWNER 아님"
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음(삭제 포함)"
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음 — 삭제 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "OPEN 회차 존재(CHALLENGE_END_BLOCKED)"
@@ -1681,7 +1704,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님)",
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1761,7 +1784,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음",
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1822,7 +1845,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "그룹 없음 / BET_NOT_FOUND"
+            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_CLOSED / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED"
@@ -1877,7 +1900,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -1930,7 +1953,7 @@
             "description": "OWNER 아님 / 게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "그룹 없음"
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -2357,7 +2380,7 @@
           "focus"
         ],
         "summary": "Focus Session 시작(라이브)",
-        "description": "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속. startedAt 이 서버 수신 시각 기준 [-5분, 0] 창을 벗어나면 서버 시각으로 대체한다(GROMO-1214).",
+        "description": "startedAt 만 기록한 진행 중(endedAt NULL) 세션을 생성한다. 생성 세션 id 를 반환해 이후 PATCH /focus-session 으로 종료할 때 참조한다. 통계·스트릭은 종료 시점에 귀속. startedAt 이 서버 수신 시각 기준 [-5분, 0] 창을 벗어나면 서버 시각으로 대체한다(GROMO-1214).\n\n라이브 마커는 **유저당 1개**다(GROMO-1287). 이미 열린 마커가 이 요청보다 논리적으로 나중에 시작한 경우(백그라운드 복귀 리플레이의 과거 블록·요청 도착 역전·재전송) 서버는 마커를 만들지 않고 **sessionId \u003d null** 로 201 을 돌려준다. 그때 클라는 그 블록을 마커 없이 POST /focus-session 으로 올린다 — **열려 있는 다른 마커의 id 를 대신 쓰면 안 된다**(서로 다른 블록이 같은 마커를 PATCH 하면 첫 요청만 적립되고 나머지는 SESSION_ALREADY_ENDED 를 받아 그 블록의 시간·코인이 영구 유실된다).",
         "operationId": "startFocusSession",
         "requestBody": {
           "content": {
@@ -2371,7 +2394,7 @@
         },
         "responses": {
           "201": {
-            "description": "시작 성공",
+            "description": "시작 성공. sessionId 가 null 이면 마커 미생성 — 그 블록은 POST /focus-session 으로",
             "content": {
               "*/*": {
                 "schema": {
@@ -2898,6 +2921,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "IP 당 게스트 생성 한도 초과(GUEST_CREATION_RATE_LIMITED) — 잠시 후 재시도",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestLoginResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -3334,7 +3367,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -3350,7 +3383,7 @@
           "Group"
         ],
         "summary": "그룹 설정 수정",
-        "description": "OWNER만 가능. name/maxMembers/password 부분 수정.",
+        "description": "OWNER만 가능. name/description/maxMembers/password 부분 수정.",
         "operationId": "updateGroup",
         "parameters": [
           {
@@ -3378,13 +3411,13 @@
             "description": "수정 성공"
           },
           "400": {
-            "description": "maxMembers \u003c 현재 멤버 수"
+            "description": "이름·소개·정원 입력 제약 위반 / maxMembers \u003c 현재 멤버 수"
           },
           "403": {
             "description": "OWNER 아님 / 게스트"
           },
           "404": {
-            "description": "그룹 없음"
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -3430,7 +3463,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -3477,7 +3510,7 @@
             "description": "OWNER 아님 / 게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "그룹 없음"
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -3518,7 +3551,7 @@
             "description": "OWNER 아님 / 게스트"
           },
           "404": {
-            "description": "그룹 없음 / 대상 멤버 없음"
+            "description": "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -4570,6 +4603,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyChallengeResultsResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -4616,6 +4659,16 @@
           },
           "403": {
             "description": "게스트",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyBetSessionsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -4921,7 +4974,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음",
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -4983,7 +5036,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음(타 그룹 챌린지 포함 — IDOR 차단)",
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음 — 타 그룹 챌린지 포함, IDOR 차단) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -5073,7 +5126,7 @@
             }
           },
           "404": {
-            "description": "그룹 없음 / BET_NOT_FOUND(커서가 이 그룹 회차가 아님)",
+            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(커서가 이 그룹 회차가 아님) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)",
             "content": {
               "*/*": {
                 "schema": {
@@ -5506,7 +5559,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "그룹 없음 / BET_NOT_FOUND(회차 없음·그룹 불일치)"
+            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료) / BET_LEAVE_CLOSED(취소 마감 경과)"
@@ -5553,7 +5606,7 @@
             "description": "OWNER 아님 / 게스트"
           },
           "404": {
-            "description": "그룹 없음 / 대상 멤버 없음"
+            "description": "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5588,7 +5641,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "그룹 없음"
+            "description": "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5629,7 +5682,7 @@
             "description": "게스트 / 그룹원 아님 / OWNER 아님"
           },
           "404": {
-            "description": "그룹 없음 / 챌린지 없음"
+            "description": "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           }
         }
       }
@@ -5670,7 +5723,7 @@
             "description": "게스트 / 그룹원 아님 / BET_CANCEL_FORBIDDEN(개설자 아님)"
           },
           "404": {
-            "description": "그룹 없음 / BET_NOT_FOUND"
+            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_CANCEL_HAS_OTHERS(타 참가자 존재) / BET_NOT_OPEN(이미 종료·이중 취소) / BET_LEAVE_CLOSED(취소 마감 경과)"
@@ -5714,7 +5767,7 @@
             "description": "게스트 / 그룹원 아님"
           },
           "404": {
-            "description": "그룹 없음 / BET_NOT_FOUND"
+            "description": "NOT_FOUND(그룹 없음) / BET_NOT_FOUND / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"
           },
           "409": {
             "description": "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료) / BET_LEAVE_CLOSED(시작 이후)"
@@ -6057,7 +6110,8 @@
           "name": {
             "type": "string",
             "maxLength": 50,
-            "minLength": 0
+            "minLength": 0,
+            "pattern": "^(?\u003d.*[^\\p{javaWhitespace}\\p{Z}\\p{C}\\p{M}\\u115F\\u1160\\u2800\\u3164\\uFFA0])[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$"
           },
           "password": {
             "type": "string"
@@ -6457,7 +6511,8 @@
         "properties": {
           "sessionId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "생성된 진행 중 세션 id. null 이면 이 요청으로 마커를 만들지 않았다(이미 열린 마커가 이 요청보다 논리적으로 나중에 시작한 경우 — 백그라운드 복귀 리플레이의 과거 블록·요청 도착 역전·재전송). 그 블록은 마커 없이 POST /focus-session 으로 올린다. 다른 마커의 id 를 대신 쓰면 안 된다"
           },
           "startedAt": {
             "type": "string",
@@ -6817,14 +6872,21 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 0,
+            "pattern": "^(?\u003d.*[^\\p{javaWhitespace}\\p{Z}\\p{C}\\p{M}\\u115F\\u1160\\u2800\\u3164\\uFFA0])[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 0
           },
           "maxMembers": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "maximum": 10,
+            "minimum": 1
           },
           "isPrivate": {
             "type": "boolean"
