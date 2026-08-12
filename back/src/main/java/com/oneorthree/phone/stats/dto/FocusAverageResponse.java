@@ -19,7 +19,7 @@ public record FocusAverageResponse(
         FocusAverageScope scope,
         /** 조회한 기간 종류 (DAY | WEEK | MONTH). */
         StatsPeriod period,
-        /** 집계 구간 시작일(클라 로컬 기준). */
+        /** 집계 구간 시작일(서버 판정 축 KST 고정 기준). */
         LocalDate from,
         /** 집계 구간 종료일(= 기준일). */
         LocalDate to,

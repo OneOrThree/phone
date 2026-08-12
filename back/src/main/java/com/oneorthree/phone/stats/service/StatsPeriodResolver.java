@@ -26,7 +26,7 @@ public class StatsPeriodResolver {
      * 현재 구간·직전 동일 길이 구간 경계를 계산한다.
      *
      * @param period 집계 기간(DAY/WEEK/MONTH)
-     * @param today  기준일(클라 로컬 기준 오늘)
+     * @param today  기준일(서버 판정 축 KST 고정 기준 오늘)
      * @return 현재 구간과 직전 구간 경계 묶음
      */
     public PeriodRange resolve(StatsPeriod period, LocalDate today) {

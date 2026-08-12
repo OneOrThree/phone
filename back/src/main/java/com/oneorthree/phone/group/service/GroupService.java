@@ -492,7 +492,7 @@ public class GroupService {
         List<GroupMember> groupMembers = activeMembersOf(group);
 
         List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
-        // GROMO-643: 클라 로컬 날짜(date)로 오늘 집계 조회 (UTC 산정 제거)
+        // GROMO-643·1259: 서버 판정 축(KST 고정) 날짜(date)로 오늘 집계 조회 (DailyFocusStat 저장 버킷과 동일 축)
         List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, date);
         Map<UUID, Integer> focusMap = focusStats.stream()
                 .collect((Collectors.toMap(
