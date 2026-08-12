@@ -27,6 +27,7 @@ import {
 } from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen, {
+  estimateGroupDeckViewportHeight,
   GROUP_CARD_SURFACE_SCALE,
   resolveGroupCardHeight,
 } from './GroupListScreen';
@@ -58,9 +59,11 @@ function groupCountBucket(count: number): GroupCountBucket {
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [loadingDeckViewportHeight, setLoadingDeckViewportHeight] = useState(0);
+  const [loadingDeckViewportHeight, setLoadingDeckViewportHeight] = useState(() =>
+    estimateGroupDeckViewportHeight(windowHeight, insets.top),
+  );
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const isScreenFocused = useIsFocused();
   const { userId } = useUser();
@@ -390,11 +393,15 @@ export default function GroupScreen() {
               />
             </View>
             <View
-              style={[s.skeletonPeek, s.cardSurfaceScale]}
+              style={[
+                s.skeletonCard,
+                s.cardSurfaceScale,
+                { width: groupDeckCardWidth(windowWidth) },
+              ]}
               testID="group.deck.skeleton.peekSurface"
             >
               <Skeleton
-                w={36}
+                w="100%"
                 h={loadingCardHeight}
                 radius={22}
                 testID="group.deck.skeleton.peek"
@@ -447,6 +454,7 @@ export default function GroupScreen() {
           groupEntry={viewEpisodeRef.current.source}
           guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
           guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
+          initialDeckViewportHeight={loadingDeckViewportHeight}
         />
         {findSheet}
         {inviteSheet}
@@ -496,7 +504,7 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.xl,
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
-    minHeight: 72,
+    minHeight: 68,
   },
   skeletonDeck: {
     flex: 1,
@@ -506,7 +514,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   skeletonCard: {},
-  skeletonPeek: { width: 36 },
   cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
   body: {
     flex: 1,

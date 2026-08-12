@@ -13,6 +13,7 @@
 //  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
 import { clearPendingInvite, peekPendingInvite } from '@/navigation/navigationRef';
@@ -140,6 +141,8 @@ jest.mock('./GroupListScreen', () => {
     __esModule: true,
     default: MockList,
     GROUP_CARD_SURFACE_SCALE: 0.97,
+    estimateGroupDeckViewportHeight: (windowHeight: number, topInset: number) =>
+      Math.max(0, windowHeight - Math.max(0, topInset) - 68),
     resolveGroupCardHeight: (viewportHeight: number, bottomInset: number) => {
       if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return 520;
       return Math.max(520, Math.floor((viewportHeight - tabBarSafeBottom(bottomInset)) * 0.9));
@@ -318,6 +321,15 @@ describe('최초 로딩 자리표시자', () => {
     ).toHaveStyle({
       transform: [{ scale: 0.97 }],
     });
+    const cardSurfaceStyle = StyleSheet.flatten(
+      screen.getByTestId('group.deck.skeleton.cardSurface', { includeHiddenElements: true }).props
+        .style,
+    );
+    const peekSurfaceStyle = StyleSheet.flatten(
+      screen.getByTestId('group.deck.skeleton.peekSurface', { includeHiddenElements: true }).props
+        .style,
+    );
+    expect(peekSurfaceStyle.width).toBe(cardSurfaceStyle.width);
   });
 });
 

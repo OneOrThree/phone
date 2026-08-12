@@ -193,6 +193,13 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
  * 이보다 커지므로, 데이터 도착 시 어긋남은 '아래로 늘어나는' 방향뿐이다(위로 줄어드는 점프 없음).
  */
 export const GROUP_CARD_HEIGHT = 520;
+export const GROUP_LIST_HEADER_HEIGHT = 68;
+
+/** 첫 layout 전에도 실제 SafeArea+헤더 구조로 덱 viewport를 예측해 520pt 중간 프레임을 막는다. */
+export function estimateGroupDeckViewportHeight(windowHeight: number, topInset: number): number {
+  if (!Number.isFinite(windowHeight) || windowHeight <= 0) return 0;
+  return Math.max(0, windowHeight - Math.max(0, topInset) - GROUP_LIST_HEADER_HEIGHT);
+}
 
 /**
  * 카드가 탭바 위의 가용 세로를 대부분 채우되, 작은 화면에서는 기존 최소 높이를 지킨다.
@@ -319,6 +326,8 @@ export interface GroupListScreenProps {
   guideDataFailed?: boolean;
   // 사용자 첫 back과 guide 3→4가 공유하는 lazy ensure 경로다.
   onEnsureBack?: (groupId: string) => void;
+  /** 최초 목록 로딩에서 이미 측정한 덱 높이를 넘겨 loading→ready 규격을 한 프레임도 끊지 않는다. */
+  initialDeckViewportHeight?: number;
 }
 
 export default function GroupListScreen({
@@ -340,10 +349,13 @@ export default function GroupListScreen({
   guideDataReady = true,
   guideDataFailed = false,
   onEnsureBack,
+  initialDeckViewportHeight,
 }: GroupListScreenProps) {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [deckViewportHeight, setDeckViewportHeight] = useState(0);
+  const [deckViewportHeight, setDeckViewportHeight] = useState(
+    () => initialDeckViewportHeight ?? estimateGroupDeckViewportHeight(windowHeight, insets.top),
+  );
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeStableGroupId, setActiveStableGroupId] = useState<string | null>(null);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
@@ -1508,11 +1520,11 @@ export default function GroupListScreen({
         >
           {!hydrated || !emojiHydrated ? (
             <SkeletonGroup style={s.deckSkeleton} testID="group.deck.hydrating">
-              <View style={s.cardSurfaceScale}>
+              <View style={s.cardSurfaceScale} testID="group.deck.hydrating.cardSurface">
                 <Skeleton w={cardWidth} h={cardHeight} radius={22} />
               </View>
-              <View style={s.cardSurfaceScale}>
-                <Skeleton w={36} h={cardHeight} radius={22} />
+              <View style={s.cardSurfaceScale} testID="group.deck.hydrating.peekSurface">
+                <Skeleton w={cardWidth} h={cardHeight} radius={22} />
               </View>
             </SkeletonGroup>
           ) : (

@@ -21,6 +21,7 @@ import GroupListScreen, {
   isPointInsideDeck,
   isProgrammaticMomentum,
   REORDER_HOLD_MS,
+  estimateGroupDeckViewportHeight,
   resolveGroupCardHeight,
   resolveReorderTranslation,
   shouldClaimReorderDrag,
@@ -678,6 +679,12 @@ describe('콜백', () => {
   test('작거나 아직 측정되지 않은 화면에서는 카드 최소 높이 520을 유지한다', () => {
     expect(resolveGroupCardHeight(0, 34)).toBe(520);
     expect(resolveGroupCardHeight(650, 34)).toBe(520);
+  });
+
+  test('첫 layout 전에도 화면 높이에서 safe area와 실제 헤더를 빼 iPhone 17 Pro 덱을 예측한다', () => {
+    const estimatedViewport = estimateGroupDeckViewportHeight(874, 62);
+    expect(estimatedViewport).toBe(744);
+    expect(resolveGroupCardHeight(estimatedViewport, 34)).toBe(570);
   });
 
   test('가로 스와이프 settle은 외부 인디케이터의 현재 index를 갱신하고 페이지를 안내한다', async () => {
