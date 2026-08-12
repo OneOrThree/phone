@@ -16,24 +16,19 @@ import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { CURRENCY } from '@/constants/currency';
 import { PressableScale } from '@/components/PressableScale';
 import { STORAGE_KEYS } from '@/types/storage';
-import { getFocusPeriodStats, getStreak, getHeatmap, getTodayStats } from '@/services/statsApi';
+import { getFocusPeriodStats, getStreak, getHeatmap } from '@/services/statsApi';
 import type {
   FocusPeriodStatsResponse,
   StreakResponse,
   HeatmapCellResponse,
 } from '@/types/dto/stats';
-import { kstLocalSameDay, localDateStr, todayStr, todayStrKst } from '@/utils/localDate';
-import { kstTodayDate } from '@/screens/stats/format';
+import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { useSubjects } from '@/store/SubjectContext';
 import { fmtMinutes, fmtHm, axisCeil, fmtAxis } from '@/utils/timeFormat';
 import { hms, thisWeekDates } from './format';
 import { fetchFocusAverage, fetchFriendsAverage } from '@/services/compareAverages';
-import {
-  celebrationDayKey,
-  readPendingCelebration,
-  schedulePendingCelebration,
-} from '@/services/goalCelebration';
+import { evaluateGoalCelebration } from './goalCelebrationVerdict';
 import { maybeRequestReview } from '@/services/storeReview';
 import { WeekStreakModal } from './components/WeekStreakModal';
 import { useFocus } from '@/store/FocusContext';
@@ -198,67 +193,14 @@ export default function FocusResultScreen() {
     };
   }, []);
 
-  // 목표 달성 판정(GROMO-630) — 결과 화면은 판정·예약만 하고, 모달은 결과 화면을 닫은 뒤
-  // 홈 진입 시 뜬다(오스카 결정). 누적은 로컬(FocusContext — 방금 세션 포함)과 서버 중 큰 값,
-  // 목표는 서버 우선·실패 시 로컬 — 방금 세션 업로드가 서버 집계에 늦어도(레이스) 놓치지 않는다.
-  // '연속 목표달성'은 일별 달성 플래그(heatmap)를 어제부터 뒤로 세어 오늘을 더한다 —
-  // '연속 공부'(하루 10분 스트릭)와 다른 값이므로 getStreak을 쓰지 않는다.
+  // 목표 달성 판정(GROMO-630) — 판정·예약 본체는 goalCelebrationVerdict로 분리했다(GROMO-1254).
+  // 종전엔 여기 익명 async IIFE로 인라인돼 있어 부를 진입점이 없었고, 그래서 GROMO-1236의 KST
+  // 이전이 회귀 그물 없이 착지했다(축 잠금은 goalCelebrationVerdict.axis.test.ts).
   // 상태를 건드리지 않는 순수 저장 작업이라 언마운트 가드를 두지 않는다 — "홈으로"를 서버
   // 응답보다 빨리 눌러 화면이 닫혀도 예약 저장은 끝까지 수행되고, 저장 완료는
   // goalCelebration 구독으로 홈에 전달돼 이미 홈에 도착한 뒤에도 모달이 뜬다(PR 225 리뷰).
   useEffect(() => {
-    (async () => {
-      try {
-        // 하루 1회 축하 가드 키 — 달성 판정 버킷(KST)과 같은 축(celebrationDayKey, GROMO-1236 P2
-        // 6라운드: 로컬 키는 한 KST 하루가 로컬 이틀에 걸릴 때 같은 달성을 두 번 축하했다.
-        // 예약·완료 기록·홈 비교까지 체인 전체가 이 키로 통일).
-        const dayKey = celebrationDayKey();
-        if ((await AsyncStorage.getItem(STORAGE_KEYS.focusGoalCelebratedDate)) === dayKey) return;
-        // 오늘 예약이 이미 있으면 재판정 불필요
-        if ((await readPendingCelebration())?.date === dayKey) return;
-        const stats = await getTodayStats().catch(() => null);
-        const goalMin = stats ? stats.focus.goalMinutes : Math.round(userGoalSeconds / 60);
-        // 측정 축은 로컬 소유(FocusContext 하루 누적) — 축이 갈린 날은 로컬 누적을 KST 집계와
-        // 합치지 않는다(kstLocalSameDay 공용 게이트, GROMO-1236 P2 5→6라운드. KR 기기는 행동 불변).
-        const localAccumMin = kstLocalSameDay() ? Math.floor(todayFocusSeconds / 60) : 0;
-        const todayMin = Math.max(stats?.focus.todayMinutes ?? 0, localAccumMin);
-        const achieved =
-          goalMin > 0 && ((stats?.focus.goalAchieved ?? false) || todayMin >= goalMin);
-        if (!achieved) return;
-        // 어제부터 뒤로 60일 단위로 조회 창을 넓혀가며 연속 달성일을 센다 — 고정 60일 창은
-        // 장기 스트릭을 최대 61일로 잘라먹는다(PR 225 리뷰). 창 안이 전부 달성이면 다음 창을
-        // 이어 조회하고, 빈 날을 만나면 멈춘다. 상한 12창(약 2년) — 과호출 방지.
-        let days = 1; // 오늘(방금 달성)
-        // 연속 달성일 계산은 heatmap(KST 일 버킷) 읽기 — 커서·조회 창도 KST 달력 날짜로 후진해야
-        // 비KST 기기에서 하루씩 어긋난 셀을 읽지 않는다(GROMO-1236 P2).
-        const cursor = kstTodayDate();
-        cursor.setDate(cursor.getDate() - 1);
-        const CHUNK_DAYS = 60;
-        const MAX_CHUNKS = 12;
-        for (let chunk = 0; chunk < MAX_CHUNKS; chunk += 1) {
-          const to = new Date(cursor);
-          const from = new Date(cursor);
-          from.setDate(from.getDate() - (CHUNK_DAYS - 1));
-          const cells = await getHeatmap(localDateStr(from), localDateStr(to)).catch(
-            () => [] as HeatmapCellResponse[],
-          );
-          const achievedByDate = new Map(cells.map((c) => [c.date, c.focusGoalAchieved]));
-          let gapFound = false;
-          for (let i = 0; i < CHUNK_DAYS; i += 1) {
-            if (!achievedByDate.get(localDateStr(cursor))) {
-              gapFound = true;
-              break;
-            }
-            days += 1;
-            cursor.setDate(cursor.getDate() - 1);
-          }
-          if (gapFound) break;
-        }
-        await schedulePendingCelebration({ date: dayKey, days, goalMinutes: goalMin });
-      } catch {
-        // 판정 실패 시 축하 생략 — 다음 결과 화면 진입에서 재판정된다
-      }
-    })();
+    evaluateGoalCelebration(todayFocusSeconds, userGoalSeconds).catch(() => {});
   }, [todayFocusSeconds, userGoalSeconds]);
 
   // 데이터 결합 키(heatmap 셀·주간 막대·오늘 값·미래 판정)는 KST — 서버 버킷·주간 합계와 같은
