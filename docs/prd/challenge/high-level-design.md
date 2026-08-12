@@ -134,7 +134,7 @@ sequenceDiagram
         S->>D: 시작 ≥ 종료면 400 (자정 걸침 금지)
         S->>D: 목표분 0 < x ≤ 창 길이 (FOCUS는 목표 > 관용치 5분)
         S->>D: SCREEN_TIME이면 목표분 15분 배수
-        S->>D: 기존 창과 (요일 ∩ ∧ 간격 < 15분) 검사
+        S->>D: 기존 창과 (요일 ∩ ∧ 간격 < 15분) 검사 — 하루 이동 m=0,±1 마다 (§A5)
     end
     S->>DB: challenges + CTI 상세 INSERT
     opt 내기 켬
