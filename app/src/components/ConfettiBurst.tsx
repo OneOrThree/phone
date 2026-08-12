@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
@@ -10,6 +10,7 @@ import Animated, {
   useSharedValue,
   withTiming,
   type CSSAnimationProperties,
+  type FrameInfo,
   type SharedValue,
 } from 'react-native-reanimated';
 import { useMotion } from '@/hooks/useMotion';
@@ -115,7 +116,7 @@ export function ConfettiBurst({ obstacle }: Props) {
   return <ConfettiBurstInner obstacle={obstacle} />;
 }
 
-function ConfettiBurstInner({ obstacle }: Props) {
+const ConfettiBurstInner = memo(function ConfettiBurstInner({ obstacle }: Props) {
   const { width: W, height: H } = useWindowDimensions();
   // 기울임 감지 — 컨페티가 떠 있는 동안만 구독(언마운트 시 자동 해제)
   const gravity = useAnimatedSensor(SensorType.GRAVITY);
@@ -126,16 +127,22 @@ function ConfettiBurstInner({ obstacle }: Props) {
   const slideVel = useSharedValue(0);
   // 이 컴포넌트는 '동작 줄이기'가 꺼져 있을 때만 마운트되므로 프레임 콜백을 조건부로 끌 필요가
   // 없다 — 켜지는 순간 통째로 언마운트된다.
-  useFrameCallback((frame) => {
-    const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
-    const g = gravity.sensor.value.x;
-    if (Math.abs(g) < 0.8) {
-      slideVel.value *= 0.8;
-    } else {
-      slideVel.value = (slideVel.value + g * 260 * dt) * 0.995;
-    }
-    slide.value += slideVel.value * dt;
-  });
+  const onFrame = useCallback(
+    (frame: FrameInfo) => {
+      'worklet';
+
+      const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
+      const g = gravity.sensor.value.x;
+      if (Math.abs(g) < 0.8) {
+        slideVel.value *= 0.8;
+      } else {
+        slideVel.value = (slideVel.value + g * 260 * dt) * 0.995;
+      }
+      slide.value += slideVel.value * dt;
+    },
+    [gravity, slide, slideVel],
+  );
+  useFrameCallback(onFrame);
 
   // 조각 파라미터·궤적은 1회 생성(useMemo) — 최종 낙하 x가 카드 폭 안이면 '쌓임',
   // 카드 가장자리 14% 구간이면 '미끄러짐', 밖이면 '통과 낙하'로 분기한다.
@@ -271,7 +278,7 @@ function ConfettiBurstInner({ obstacle }: Props) {
       )}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   piece: { position: 'absolute', top: -16 },
