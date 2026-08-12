@@ -53,8 +53,7 @@ const GROUP_DETAIL_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)$/;
 const GROUP_OVERVIEW_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/overview$/;
 const GROUP_ANNOUNCEMENTS_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/announcements$/;
 const GROUP_CHALLENGES_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenges$/;
-const GROUP_CHALLENGE_HISTORY_PATH =
-  /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenge-history$/;
+const GROUP_CHALLENGE_HISTORY_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenge-history$/;
 
 function groupPathId(pattern: RegExp, url: string | undefined): string {
   return pattern.exec(url ?? '')?.[1] ?? '';

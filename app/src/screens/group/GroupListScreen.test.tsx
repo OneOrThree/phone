@@ -163,7 +163,10 @@ async function layoutDeck() {
 
 type TestNode = ReturnType<typeof screen.getByTestId>;
 
-async function holdToActivate(grip: TestNode, responderEvent: ReturnType<typeof panResponderEvent>) {
+async function holdToActivate(
+  grip: TestNode,
+  responderEvent: ReturnType<typeof panResponderEvent>,
+) {
   jest.useFakeTimers();
   await act(async () => {
     grip.props.onResponderGrant?.(responderEvent);
@@ -789,9 +792,9 @@ describe('제스처 중재와 재정렬', () => {
         nativeEvent: { layout: { width: 420 } },
       });
     });
-    expect(
-      screen.getByTestId('group.deck.indicator.dot.0').props.accessibilityState,
-    ).toEqual(expect.objectContaining({ selected: true }));
+    expect(screen.getByTestId('group.deck.indicator.dot.0').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
     await holdToActivate(grip, responderEvent);
     await act(async () => {
       grip.props.onResponderMove?.(responderEvent, {
@@ -807,12 +810,12 @@ describe('제스처 중재와 재정렬', () => {
       screen.getByTestId(`group.card.dragOverlay.${GROUP_ID}`, { includeHiddenElements: true }),
     ).toHaveStyle({ transform: [{ translateX: dragX }] });
     expect(screen.getByTestId(`group.card.reorderMotion.${GROUP_ID}`)).toHaveStyle({ opacity: 0 });
-    expect(
-      screen.getByTestId('group.deck.indicator.dot.0').props.accessibilityState,
-    ).toEqual(expect.objectContaining({ selected: false, disabled: true }));
-    expect(
-      screen.getByTestId('group.deck.indicator.dot.1').props.accessibilityState,
-    ).toEqual(expect.objectContaining({ selected: true, disabled: true }));
+    expect(screen.getByTestId('group.deck.indicator.dot.0').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: false, disabled: true }),
+    );
+    expect(screen.getByTestId('group.deck.indicator.dot.1').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true, disabled: true }),
+    );
     expect(screen.getByTestId('group.deck.indicator.dot.1').props.accessibilityLabel).toBe(
       `${group().name}, 2 / 3`,
     );

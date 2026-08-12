@@ -1403,10 +1403,7 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.backBtn}
             onPress={() => {
-              if (
-                holdingGroupIdRef.current === null &&
-                draggingGroupIdRef.current === null
-              )
+              if (holdingGroupIdRef.current === null && draggingGroupIdRef.current === null)
                 onBack();
             }}
             disabled={reorderBusy}
@@ -1422,10 +1419,7 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.searchBtn}
             onPress={() => {
-              if (
-                holdingGroupIdRef.current === null &&
-                draggingGroupIdRef.current === null
-              )
+              if (holdingGroupIdRef.current === null && draggingGroupIdRef.current === null)
                 onFind('header');
             }}
             disabled={reorderBusy}
@@ -1439,10 +1433,7 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.createBtn}
             onPress={() => {
-              if (
-                holdingGroupIdRef.current === null &&
-                draggingGroupIdRef.current === null
-              )
+              if (holdingGroupIdRef.current === null && draggingGroupIdRef.current === null)
                 onCreate();
             }}
             disabled={reorderBusy}
@@ -1465,9 +1456,7 @@ export default function GroupListScreen({
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         directionalLockEnabled
-        scrollEnabled={
-          guideInputReady && !guideVisible && !flipAnimating && !reorderBusy
-        }
+        scrollEnabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1506,9 +1495,7 @@ export default function GroupListScreen({
                 horizontal
                 // 잡은 카드는 아래 overlay가 소유한다. source 셀을 끝까지 살리려고 windowSize를
                 // 전체 그룹 수로 키우지 않아 FlatList의 기본 가상화 범위를 그대로 보존한다.
-                scrollEnabled={
-                  guideInputReady && !guideVisible && !flipAnimating && !reorderBusy
-                }
+                scrollEnabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
                 ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
@@ -1691,36 +1678,36 @@ export default function GroupListScreen({
                     </ReorderMotionCard>
                   </View>
                 )}
-                />
+              />
 
-                {dragOverlayGroup && reorderPreview && (
-                  <View
-                    pointerEvents="none"
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                    style={[
-                      s.dragOverlay,
-                      {
-                        left: SIDE_PEEK,
-                        width: cardWidth,
-                        transform: [{ translateX: reorderPreview.fingerTranslateX }],
-                      },
-                    ]}
-                    testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
-                  >
-                    <GroupCardFront
-                      group={dragOverlayGroup}
-                      emoji={emojiFor(dragOverlayGroup.groupId)}
-                      position={reorderPreview.target + 1}
-                      pageCount={pageCount}
-                      reorderCount={orderedGroups.length}
-                      reorderHoldMs={REORDER_HOLD_MS}
-                      reorderState="active"
-                      active={false}
-                      onFlip={() => undefined}
-                    />
-                  </View>
-                )}
+              {dragOverlayGroup && reorderPreview && (
+                <View
+                  pointerEvents="none"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={[
+                    s.dragOverlay,
+                    {
+                      left: SIDE_PEEK,
+                      width: cardWidth,
+                      transform: [{ translateX: reorderPreview.fingerTranslateX }],
+                    },
+                  ]}
+                  testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
+                >
+                  <GroupCardFront
+                    group={dragOverlayGroup}
+                    emoji={emojiFor(dragOverlayGroup.groupId)}
+                    position={reorderPreview.target + 1}
+                    pageCount={pageCount}
+                    reorderCount={orderedGroups.length}
+                    reorderHoldMs={REORDER_HOLD_MS}
+                    reorderState="active"
+                    active={false}
+                    onFlip={() => undefined}
+                  />
+                </View>
+              )}
               {saveFailed && (
                 <Text style={s.saveError} accessibilityRole="alert">
                   순서를 저장하지 못했어요. 다음 변경 때 다시 시도하며, 앱을 다시 열면 이전 순서로
