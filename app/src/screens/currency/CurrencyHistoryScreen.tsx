@@ -65,6 +65,7 @@ function listErrorMessage(e: unknown): string {
 export default function CurrencyHistoryScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<V2RootStackParamList, 'CurrencyHistory'>>();
+  const entry = route.params?.entry ?? 'menu_chip';
   const { coins } = useCoins();
   // 잔액을 보여 주는 화면이라 포커스 시 서버 잔액을 다시 불러온다(내기 차감·정산 반영).
   useRefreshCoinsOnFocus();
@@ -85,7 +86,7 @@ export default function CurrencyHistoryScreen() {
       setTransactions(list);
       setStatus('ready');
       logCurrencyHistoryViewed({
-        entry: route.params?.entry ?? 'menu_chip',
+        entry,
         tx_count: list.length,
       });
     } catch (e) {
@@ -98,7 +99,7 @@ export default function CurrencyHistoryScreen() {
       setErrorMsg(listErrorMessage(e));
       setStatus('error');
     }
-  }, []);
+  }, [entry]);
 
   // 잔액과 같은 주기로 다시 불러온다(GROMO-1193) — 마운트 1회만 로드하면 화면을 다시 열었을 때
   // '갱신된 잔액 + 낡은 내역'이 나란히 뜬다(잔액은 위 useRefreshCoinsOnFocus가 매번 갱신).
