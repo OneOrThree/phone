@@ -352,7 +352,7 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 
 - **stagger 축은 챌린지 카드 하나뿐이다.** 멤버 그리드까지 시차를 걸면 0에서 다시 시작하는 지연이 한 화면에 둘 생겨 "리스트가 두 번 그려진다"로 읽힌다. 그리고 그리드는 대부분 **첫 화면 밖**이라, 보이지도 않는 연출에 프레임을 쓴다.
 - 그리드는 **래퍼 하나만 `fadeIn(0)`** 이다(`s.grid`, `GroupRoomScreen.tsx:1124`). ⚠️ **행 단위 `m.stagger(rowIdx)`도, 행마다 `fadeIn(0)`도 안 된다**(2026-08-12 codex 리뷰). 전자는 프리미티브만 낮췄을 뿐 **지연 축이 그대로 `0/60/120ms`** 라 위 불릿이 배제한 두 번째 축이 생기고, 후자는 지연은 없어도 **동시 애니메이션 수가 멤버 수만큼** 늘어난다 — `ScrollView`라 화면 밖 행까지 전부 마운트돼 함께 돈다. **시차와 개수는 다른 축**이고 래퍼 하나면 둘 다 닫힌다(멤버가 몇이든 애니메이션 1개).
-- **정원 상한에 기대지 않는다.** 종전 서술은 "최대 10명이니 4행이라 `staggerMaxSteps`(6) 안에 들어간다"고 확정했는데, [정책 D25-1](policy.md#d25)이 이미 **`10`은 서버 불변식이 아니라고** 못박았다 — `UpdateGroupRequest`에 `@Max(10)`이 없어 API로 정원을 20으로 올린 그룹이 존재할 수 있고, 그러면 7행이 되어 전제가 깨진다. 지연 축이 없으면 **행 수와 무관하게** 성립한다. 렌더 구조가 이미 `memberRows.map(row => row.map(cell))`(`GroupRoomScreen.tsx:1125-1175`)이라 **행 래퍼가 이미 있다** — 뷰를 새로 끼우지 않는다(정책 D13).
+- **정원 상한에 기대지 않는다.** 종전 서술은 "최대 10명이니 4행이라 `staggerMaxSteps`(6) 안에 들어간다"고 확정했다. 서버는 실제로 `@Max(10)` 을 강제하지만([D25-1](policy.md#d25)), **상한이 있다는 것과 그 숫자에 로직을 묶는 것은 다르다** — 상한은 제품 결정이라 바뀔 수 있고, 실제로 수정 API 검증은 **나중에 추가**됐다(GROMO-1202 · #626). 래퍼 하나만 페이드하면 **행 수와 무관하게** 성립하므로 이 논거를 아예 안 쓴다. 렌더 구조가 이미 `memberRows.map(row => row.map(cell))`(`GroupRoomScreen.tsx:1125-1175`)이라 **행 래퍼가 이미 있다** — 뷰를 새로 끼우지 않는다(정책 D13).
   ⚠️ **다만 성능 실측(P1)은 정원이 큰 그룹에서도 다시 본다** — 애니메이션은 1개로 고정돼도 **타일 개수와 그만큼의 `CharacterImage` 는** 늘어난다(연출이 아니라 렌더 비용이다). **P2 는 아니다**: 그룹방 스켈레톤은 `SkeletonGroup` 한 묶음(고정 6블록, `GroupRoomScreen.tsx:855-881`)이고 데이터가 오면 타일이 나타나기 **전에** 언마운트되므로, 정원이 커져도 스켈레톤 **개수는 그대로**다(2026-08-12 codex 리뷰).
 - **등급은 1이다(2가 아니다).** `fadeIn`은 `M.dur.quick`(220ms) **고정**인데 [IA §2](information-architecture.md)의 등급 2는 `base`·`slow`·`entrance`만 허용한다 — 등급 2로 적으면 **구현자가 프리미티브와 등급 계약을 동시에 만족할 수 없다**. 등급을 낮추는 쪽이 [D24](policy.md#d24)의 "한 단계 낮춘다"와도 맞는다. 등급 2를 굳이 지키려면 `enterUp`(base) 계열로 갈아타야 하는데, 그건 위 첫 불릿이 배제한 축이다.
 - 챌린지 카드에 `enterUp(i)`를 걸 자리는 `GroupRoomScreen.tsx:1072-1092`의 `.map()`이다. 키가 `c.id`라 노드 동일성이 유지된다.
@@ -460,7 +460,7 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 | `components/SheetShell.test.tsx` | §4.4 기존 규칙 전부 + 퇴장 후 `onClose` + reduce 시 애니메이션 스타일 부재 |
 | `components/PressableScale.test.tsx` | **무수정 통과**가 톤 변경(PR2)의 안전망 |
 | 알럿 이관 지점별 | `Alert.alert` **미호출** + `show` 호출 |
-| `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · **멤버 그리드는 애니메이션이 정확히 1개**(래퍼) — **멤버 수를 20으로 늘려도 1개**([D24](policy.md#d24)). ⚠️ 「행마다 delay `0`」을 단언하면 개수가 멤버 수에 비례하는 구현이 통과한다 · reduce → 둘 다 `animationName` 부재 |
+| `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · **멤버 그리드는 애니메이션이 정확히 1개**(래퍼) — **멤버 수를 20으로 늘려도 1개**([D24](policy.md#d24) — 서버는 10 을 강제하지만 이건 props 로 직접 넘기는 단위 테스트라 **상한이 바뀌어도 안전함**을 잠근다). ⚠️ 「행마다 delay `0`」을 단언하면 개수가 멤버 수에 비례하는 구현이 통과한다 · reduce → 둘 다 `animationName` 부재 |
 | `screens/group/components/MemberTile.test.tsx` (신규) | 눌림이 `PressableScale` 경유 · `onPress` 없으면 비활성 유지 |
 | `screens/group/components/ChallengeCard.test.tsx` | **카드 루트에 `onPress`가 없다**(비터치 `View` 유지 — 회귀 방지) · 내부 버튼 **10개**가 `PressableScale` 경유 · **`group.bet.leaveCountdown`은 여전히 눌리지 않는다**(표시용 `<Text>` — 버튼화 방지) |
 | `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 · **첫 결과에는 본문 전환이 없다**(Modal 페이드와 겹치지 않는다) · **`myAchieved=false`·미판정·VOIDED·REFUNDED·FORFEITED 에는 `pop` 부재**(페이드만) |
@@ -516,7 +516,7 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 기준 기기: iOS는 **최소 지원 16.4가 도는 최하위 기기 실물**(시뮬레이터 불인정), Android는 보급형 실기기.
 
 - [ ] **P1** 진입·전환 중 33ms 초과 프레임 0회 — PR3·PR6·PR7 · **1524 그룹방**
-  - ⚠️ **그룹방은 「정원이 큰 그룹」 데이터로 잰다.** 정원은 서버 불변식이 아니라(D25-1) API 로 20 이상이 될 수 있고, 데이터 도착 순간 그만큼의 타일과 `CharacterImage` 가 한꺼번에 마운트된다. `GroupRoomScreen.test.tsx` 의 「애니메이션 1개」 검사는 **프레임 시간을 재지 않으므로** 이 항목을 대신하지 못한다. 절차: 정원 20 그룹에서 **스켈레톤 → 콘텐츠 전환**을 실기기로 측정(2026-08-12 codex 리뷰)
+  - ⚠️ **그룹방은 「정원을 꽉 채운 10명」으로 잰다** — 서버가 `@Max(10)` 을 강제하므로(D25-1) 그게 최악 사례다. 데이터 도착 순간 10개의 타일과 `CharacterImage` 가 한꺼번에 마운트된다. `GroupRoomScreen.test.tsx` 의 「애니메이션 1개」 검사는 **프레임 시간을 재지 않으므로** 이 항목을 대신하지 못한다. 절차: 멤버 10명 그룹에서 **스켈레톤 → 콘텐츠 전환**을 실기기로 측정(2026-08-12 codex 리뷰)
 - [ ] **P2** 통계 스켈레톤 8~12개 동시 60fps — PR4
 - [ ] **P3** 컨페티 재생 중 45fps 이상 — PR8
 - [ ] **P4** 시트 탭 → 첫 프레임 100ms 이내 — PR3
