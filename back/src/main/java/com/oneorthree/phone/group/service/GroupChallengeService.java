@@ -108,7 +108,7 @@ public class GroupChallengeService {
     public List<GroupChallengeResponse> getChallenges(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기 — 무락 활성 필터 (GROMO-1237). readOnly 트랜잭션이라 락 금지(FOR SHARE 거절).
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
@@ -756,7 +756,8 @@ public class GroupChallengeService {
      * findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아 탈퇴한 방장의
      * 그룹 상태 변경(createGroup #516 과 같은 계열)이 남을 수 있다.
      * 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
-     * READ COMMITTED 재평가로 빈 결과 → NOT_FOUND(404). 게스트는 기존 가드 그대로
+     * READ COMMITTED 재평가로 빈 결과 → USER_NOT_FOUND(404) — 챌린지/그룹 부재와 구분되는
+     * <b>요청자 세션</b> 전용 코드다(GROMO-1247). 게스트는 기존 가드 그대로
      * GUEST_FORBIDDEN(403).
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
@@ -765,7 +766,7 @@ public class GroupChallengeService {
      */
     private User requireActiveUser(UUID userId) {
         User user = userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }

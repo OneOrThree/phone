@@ -51,7 +51,8 @@ public class GroupBetController {
         @ApiResponse(responseCode = "400", description = "INVALID_MISSION_PARAMS"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
         @ApiResponse(responseCode = "404",
-                description = "그룹 없음 / BET_NOT_FOUND(회차 없음·그룹 불일치) / 챌린지 삭제됨"),
+                description = "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치) / 챌린지 삭제됨"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_CLOSED(참가 마감) / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED"
                         + " / BET_ALREADY_FAILED / BET_SCREENTIME_PERMISSION_REQUIRED"
@@ -74,7 +75,9 @@ public class GroupBetController {
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "취소 성공 (본인 참가비 환불)"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND(회차 없음·그룹 불일치)"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음) / BET_NOT_FOUND(회차 없음·그룹 불일치)"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료)"
                         + " / BET_LEAVE_CLOSED(취소 마감 경과)")
@@ -97,7 +100,9 @@ public class GroupBetController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "예약 성공 — {sessionId, sessionDate, stake, balanceAfter}"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정)"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(내기 미설정)"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_ALREADY_JOINED(이미 예약) / BET_SCREENTIME_PERMISSION_REQUIRED"
                         + " / BET_INSUFFICIENT_BALANCE / BET_CHALLENGE_INACTIVE")
@@ -120,7 +125,9 @@ public class GroupBetController {
         @ApiResponse(responseCode = "400",
                 description = "INVALID_SESSION_DATES(빈 목록·중복·활성일 아님·이번 주 밖·과거)"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(내기 미설정)"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(내기 미설정)"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_SCREENTIME_PERMISSION_REQUIRED / BET_INSUFFICIENT_BALANCE(총액)"
                         + " / BET_CHALLENGE_INACTIVE")
@@ -146,7 +153,8 @@ public class GroupBetController {
         @ApiResponse(responseCode = "400",
                 description = "BET_INVALID_STAKE / INSUFFICIENT_CURRENCY"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_ALREADY_EXISTS / BET_ALREADY_ACHIEVED"
                         + " / BET_CLOSED(오늘·내일 아님 / 비활성 요일 / 창 마감)")
@@ -169,7 +177,9 @@ public class GroupBetController {
         @ApiResponse(responseCode = "204", description = "참가 성공"),
         @ApiResponse(responseCode = "400", description = "INSUFFICIENT_CURRENCY"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음) / BET_NOT_FOUND"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409", description = "BET_CLOSED / BET_ALREADY_JOINED / BET_ALREADY_ACHIEVED")
     })
     @PostMapping("/groups/{groupId}/bets/{betId}/join")
@@ -191,7 +201,9 @@ public class GroupBetController {
         @ApiResponse(responseCode = "204", description = "취소 성공 (판돈 환불)"),
         @ApiResponse(responseCode = "403",
                 description = "게스트 / 그룹원 아님 / BET_CANCEL_FORBIDDEN(개설자 아님)"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음) / BET_NOT_FOUND"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_CANCEL_HAS_OTHERS(타 참가자 존재) / BET_NOT_OPEN(이미 종료·이중 취소)"
                         + " / BET_LEAVE_CLOSED(취소 마감 경과)")
@@ -215,7 +227,9 @@ public class GroupBetController {
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "철회 성공 (본인 참가비 환불)"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-        @ApiResponse(responseCode = "404", description = "그룹 없음 / BET_NOT_FOUND"),
+        @ApiResponse(responseCode = "404",
+                description = "NOT_FOUND(그룹 없음) / BET_NOT_FOUND"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
         @ApiResponse(responseCode = "409",
                 description = "BET_NOT_JOINED(참가 이력 없음) / BET_NOT_OPEN(이미 종료)"
                         + " / BET_LEAVE_CLOSED(시작 이후)")
@@ -242,7 +256,8 @@ public class GroupBetController {
         @ApiResponse(responseCode = "400", description = "INVALID_PAGE_REQUEST(size 범위 밖)"),
         @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
         @ApiResponse(responseCode = "404",
-                description = "그룹 없음 / 챌린지 없음 / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님)")
+                description = "NOT_FOUND(그룹 없음 / 챌린지 없음) / BET_NOT_FOUND(커서가 이 챌린지의 내기가 아님)"
+                        + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/challenges/{challengeId}/bets")
     public ResponseEntity<GroupBetHistorySliceResponse> getBetHistory(

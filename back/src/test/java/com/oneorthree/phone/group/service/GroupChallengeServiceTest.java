@@ -303,16 +303,16 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 → UserException(NOT_FOUND) (GROMO-1237 활성 필터)")
+    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 → UserException(USER_NOT_FOUND) (GROMO-1237 활성 필터·1247)")
     void getChallengesUserNotFound() {
         // given: 무락 활성 조회가 빈 결과 — 탈퇴자 토큰 차단
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
-        // when & then
+        // when & then: 그룹·챌린지 부재와 구분되는 요청자 전용 코드(GROMO-1247)
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     // ── getChallenges: 멤버별 진행률(memberProgress) ────────────────────────

@@ -392,7 +392,7 @@ public class GroupBetWindowUsageService {
      */
     private User requireActiveUser(UUID userId) {
         User user = userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
         if (user.isGuest()) {
             throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
         }

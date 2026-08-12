@@ -62,7 +62,7 @@ public class GroupChallengeController {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 형식 오류"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/challenges")
     public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
@@ -86,7 +86,7 @@ public class GroupChallengeController {
                     + " / 자정 걸침·형식 오류(INVALID_MISSION_PARAMS) / 요일 빈 배열(CHALLENGE_REPEAT_DAYS_REQUIRED)"
                     + " / 스크린타임 창 목표 15분 배수 아님(CHALLENGE_GOAL_NOT_ALIGNED)"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음"),
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
             @ApiResponse(responseCode = "409", description = "활성 4개 상한(CHALLENGE_LIMIT_EXCEEDED)"
                     + " / 하루형 카테고리 활성 중복(CHALLENGE_DUPLICATE)"
                     + " / 활성 창형과 시간대 겹침(CHALLENGE_WINDOW_OVERLAP)")
@@ -112,7 +112,8 @@ public class GroupChallengeController {
                     + " / progressMinutes 범위(0~1440) 위반"
                     + " / INVALID_MEASURED_AT(measuredAt 이 서버 시각 +2분 초과)"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원도 OPEN 회차 참가자도 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PutMapping("/groups/{groupId}/challenges/{challengeId}/window-usage")
     public ResponseEntity<Void> reportChallengeWindowUsage(
@@ -131,7 +132,9 @@ public class GroupChallengeController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "종료 성공(멱등 포함)"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음(삭제 포함)"),
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 챌린지 없음 — 삭제 포함)"
+                            + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
             @ApiResponse(responseCode = "409", description = "OPEN 회차 존재(CHALLENGE_END_BLOCKED)")
     })
     @PostMapping("/groups/{groupId}/challenges/{challengeId}/end")
@@ -148,7 +151,8 @@ public class GroupChallengeController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "삭제 성공"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 챌린지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @DeleteMapping("/groups/{groupId}/challenges/{challengeId}")
     public ResponseEntity<Void> deleteGroupChallenge(

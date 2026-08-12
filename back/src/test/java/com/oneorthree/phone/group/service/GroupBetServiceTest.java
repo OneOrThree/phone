@@ -713,13 +713,14 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("탈퇴한 유저의 참가 시도 — 공유 락 활성 조회가 빈 결과 → NOT_FOUND, 판돈 미차감 (GROMO-801)")
+    @DisplayName("탈퇴한 유저의 참가 시도 — 공유 락 활성 조회가 빈 결과 → USER_NOT_FOUND, 판돈 미차감 (GROMO-801·1247)")
     void joinBetRejectsWithdrawnUser() {
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
+        // GROMO-1247: 내기·그룹 부재와 구분되는 요청자 전용 코드다.
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, SESSION_ID, USER_ID))
                 .isInstanceOf(UserException.class)
-                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.NOT_FOUND);
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
         assertNoStakeCharged();
     }
 
