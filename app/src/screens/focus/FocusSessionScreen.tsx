@@ -346,8 +346,11 @@ export default function FocusSessionScreen() {
   // KST 오늘 총합. 새 블록의 델타는 이 위에 쌓이고, 서버가 그 정산분을 반영하면 serverBase가
   // 같은 총합으로 수렴해 이중 계상이 없다. 기준일을 함께 들고 KST 자정을 넘기면 0으로 리셋한다.
   const gridSettledFloorRef = useRef({ day: todayStrKst(), seconds: 0 });
-  // 정산 시점에 읽을 최신 서버 스냅샷(초) — settleFocusBlock 이 렌더 값을 클로저로 못 잡아 ref 로 둔다.
-  const gridServerSnapshotRef = useRef<number | null>(null);
+  // 정산 시점에 읽을 최신 서버 스냅샷 — settleFocusBlock 이 렌더 값을 클로저로 못 잡아 ref 로 둔다.
+  // **기준일을 함께** 들고 있어야 한다(코덱스 리뷰 ⑩): 자정 전에 스냅샷을 받고 백그라운드에 있다가
+  // 자정을 넘겨 복귀하면 AppState 리플레이가 새 렌더보다 먼저 정산을 돌린다 — 그때 날짜 확인 없이
+  // 쓰면 전날 누적 위에 새 날 블록을 얹은 값이 오늘 기준점으로 굳어 하루 종일 과대 표시된다.
+  const gridServerSnapshotRef = useRef<{ day: string; seconds: number } | null>(null);
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
   // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
@@ -694,9 +697,13 @@ export default function FocusSessionScreen() {
       if (kstSeconds > 0) {
         const prevFloor =
           gridSettledFloorRef.current.day === kstToday ? gridSettledFloorRef.current.seconds : 0;
+        // 스냅샷·직전 기준점 모두 **오늘(KST) 것일 때만** 쓴다 — 자정을 넘긴 리플레이가 렌더보다
+        // 먼저 여기 닿으면 둘 다 전날 값이라, 날짜를 안 보면 전날 총합이 오늘로 넘어온다(⑩).
+        const snap = gridServerSnapshotRef.current;
+        const snapshotSeconds = snap?.day === kstToday ? snap.seconds : 0;
         gridSettledFloorRef.current = {
           day: kstToday,
-          seconds: Math.max(gridServerSnapshotRef.current ?? 0, prevFloor) + kstSeconds,
+          seconds: Math.max(snapshotSeconds, prevFloor) + kstSeconds,
         };
       }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
@@ -1267,7 +1274,8 @@ export default function FocusSessionScreen() {
   // 값이 남아 있다(코덱스 리뷰 ②). 그 회차는 폴백(로컬 집계)으로 내려간다.
   const gridServerToday = myFocus?.day === gridKstDay ? myFocus.minutes : null;
   // 정산 시점에 읽을 수 있게 최신 스냅샷을 ref 로 옮겨 둔다.
-  gridServerSnapshotRef.current = gridServerToday != null ? gridServerToday * 60 : null;
+  gridServerSnapshotRef.current =
+    gridServerToday != null ? { day: gridKstDay, seconds: gridServerToday * 60 } : null;
   // 기준점은 KST 날짜가 바뀌면 0으로 — 자정 이후 새 날의 값이 전날 총합에 묶이면 안 된다.
   if (gridSettledFloorRef.current.day !== gridKstDay) {
     gridSettledFloorRef.current = { day: gridKstDay, seconds: 0 };
