@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -327,15 +328,20 @@ public class AuthService {
         return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest());
     }
 
+    @Transactional
     public TokenRefreshResponse refreshToken(String refreshToken) {
         // refresh 타입만 허용 (GROMO-714) — access·구 토큰(type 없음 = null)은 거부한다.
         // 가드가 try 안에 있어야 extractType 이 만료·서명오류에 던지는 JwtException 도 401 로 변환된다
         // (InvalidTokenException 은 RuntimeException 이라 아래 catch 에 걸리지 않는다).
+        // 만료 시각도 여기서 함께 읽는다 — 아래 회전 판정이 토큰을 다시 파싱하면 그 사이 만료된
+        // 토큰이 401 이 아니라 500 으로 새는 창이 생긴다.
+        Date refreshExpiresAt;
         try {
             if (!JwtProvider.TYPE_REFRESH.equals(jwtProvider.extractType(refreshToken))) {
                 throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
             }
             jwtProvider.extractUserId(refreshToken);
+            refreshExpiresAt = jwtProvider.extractExpiration(refreshToken);
 
         } catch (JwtException e) {
             throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
@@ -347,7 +353,29 @@ public class AuthService {
 
         // 재발급도 재발급 시점 유저 상태로 — 게스트가 승격한 뒤 갱신한 AT 는 guest=false 가 된다 (GROMO-1229)
         String newAccessToken = jwtProvider.generateAccessToken(user.getId(), user.isGuest());
-        return new TokenRefreshResponse(newAccessToken);
+
+        // refresh 회전 (GROMO-1509) — 종전에는 refresh 를 재발급하지 않아 수명이 **로그인 시점부터
+        // 고정**이었다. 매일 쓰는 유저도 만료일이 오면 그대로 로그아웃됐고, 게스트에겐 그게 곧 계정
+        // 소실이다(guestLogin 은 언제나 새 User 를 만든다). 남은 수명이 절반 밑으로 떨어지면
+        // 갈아끼워, 계속 쓰는 한 세션이 끊기지 않게 한다. 회전 안 하는 갱신은 refreshToken=null 로
+        // 응답하고 클라이언트는 저장소를 건드리지 않는다.
+        if (!jwtProvider.isRefreshRotationDue(refreshExpiresAt, user.isGuest())) {
+            return new TokenRefreshResponse(newAccessToken, null);
+        }
+
+        // 해시 교체는 엔티티가 아니라 조건부 UPDATE 로 한다 — 위 해시 조회에 락이 없어서, 엔티티에
+        // 쓰면 full-row UPDATE 가 낡은 스냅샷으로 탈퇴가 세운 is_deleted·파기된 PII 를 되살린다
+        // (User 에 @Version·@DynamicUpdate 없음 — UserRepository.rotateRefreshTokenHash 주석).
+        String rotatedRefreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
+        int rotated = userRepository.rotateRefreshTokenHash(
+                user.getId(),
+                TokenHasher.sha256Hex(refreshToken),
+                TokenHasher.sha256Hex(rotatedRefreshToken));
+        if (rotated == 0) {
+            // 그 사이 탈퇴·로그아웃·다른 기기 로그인이 먼저 커밋됐다. 끊긴 세션은 되살리지 않는다.
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
+        return new TokenRefreshResponse(newAccessToken, rotatedRefreshToken);
     }
 
     @Transactional

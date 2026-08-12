@@ -204,6 +204,12 @@ export default function GroupScreen() {
     setInvite(null);
   }, []);
 
+  // 게스트 초대는 시트만 내리고 버퍼를 남긴 채 계정 화면으로 보낸다.
+  const onInviteLogin = useCallback(() => {
+    setInvite(null);
+    navigation.navigate('SettingsAccount');
+  }, [navigation]);
+
   // 초대로 참여 완료 — 버퍼를 비우고 재조회해 **그 초대장이 가리킨** 그룹방으로 전환한다.
   // ⚠️ 목적지를 ref로 옮긴 뒤에 버퍼를 비운다. 그러지 않으면 초대 링크를 열었을 때(참여 성공·
   //    이미 멤버 모두 이 콜백을 탄다) 재조회 후 목록만 떠서(A-9에서 목록이 항상 기본 화면)
@@ -328,6 +334,7 @@ export default function GroupScreen() {
       entry={invite.entry}
       onClose={() => closeInvite(invite)}
       onJoined={onInviteJoined}
+      onLogin={onInviteLogin}
     />
   ) : null;
 

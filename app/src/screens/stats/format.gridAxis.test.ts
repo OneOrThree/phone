@@ -8,6 +8,7 @@ import {
   firstStartPoints,
   heatmapBars,
   heatmapRange,
+  kstTodayWeekdayIndex,
   rollingWeekRange,
 } from './format';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
@@ -80,6 +81,17 @@ describe('마커 — current/future가 KST 오늘(앵커) 기준', () => {
     expect(bars[0]).toEqual({ label: '월', value: 60, current: false, future: false });
     expect(bars[2]).toEqual({ label: '수', value: 30, current: true, future: false });
     expect(bars.slice(3).every((b) => b.future === true)).toBe(true);
+  });
+
+  // 리그 요일 비교 차트(DuoDayChart)의 '오늘' 칸 — 배열이 heatmapRange('WEEK')(KST) 셀을 요일별로
+  // 접은 값이라 마커도 KST 앵커여야 한다(GROMO-1254). 앵커 3/4는 수요일 → 월=0 기준 인덱스 2.
+  // 시스템 시계(7/15)는 수요일이라 로컬 축으로 계산해도 값이 같으므로, 앵커를 일요일로 바꿔
+  // 앵커를 실제로 읽는지까지 확인한다(로컬 축이면 여전히 2가 나온다).
+  test('kstTodayWeekdayIndex: 월=0..일=6, 앵커에서 파생', () => {
+    expect(kstTodayWeekdayIndex()).toBe(2); // 2026-03-04 = 수
+    const localDate = jest.requireMock('@/utils/localDate') as { todayStrKst: jest.Mock };
+    localDate.todayStrKst.mockReturnValueOnce('2026-03-08'); // 일요일
+    expect(kstTodayWeekdayIndex()).toBe(6);
   });
 
   test('firstStartPoints WEEK: 같은 앵커 주·같은 마커 축', () => {

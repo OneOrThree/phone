@@ -9,6 +9,8 @@ import {
   groupErrorCode,
   joinNextSession,
 } from '@/services/groupApi';
+import { getAuthSessionGeneration } from '@/services/api';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
@@ -118,6 +120,8 @@ export default function JoinNextSheet({
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
+    // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const joined = await joinNextSession(groupId, challengeId);
       // 참여 계측(#570 codex ⑧) — 성공 시에만. 예약도 참여 결심 1건이다(session_count=1).
@@ -166,6 +170,11 @@ export default function JoinNextSheet({
         case 'BET_NOT_OPEN':
           failAndReload('참여할 수 없어요', '참여할 수 있는 시간이 지났어요. 새로고침할게요.');
           return;
+        // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
+        // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
+        case USER_NOT_FOUND:
+          promptSessionExpired(requestSessionGeneration);
+          return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':
           failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
@@ -178,8 +187,14 @@ export default function JoinNextSheet({
       }
     } finally {
       submitLock.current = false;
+      // ⚠️ 제출 표시는 **반드시 finally에서** 푼다. switch의 `return` 분기들이 이 줄을 건너뛰기
+      //    때문이다. 종전엔 그 분기들이 전부 failAndReload → onDone()으로 시트를 닫아 가려져
+      //    있었는데, 유저 부재 분기는 세대가 갈리면 아무것도 띄우지 않고 돌아온다(sessionErrors ①)
+      //    — 그때 submitting이 true로 남으면 SheetShell이 dismissible={false}인 채 스피너에
+      //    영구 고정돼 앱 재시작 외엔 빠져나갈 수 없다. '조용히 버린다'는 아무 일도 없었던
+      //    것처럼 보여야지 화면을 잠그면 안 된다.
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   return (

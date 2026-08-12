@@ -82,14 +82,21 @@ const ALL_PROVIDERS: {
 
 const PROVIDERS = Platform.OS === 'web' ? [] : ALL_PROVIDERS;
 
-// 탈퇴 플로우 카드 모달 상태 머신 — 셋 중 하나만 열린다(동시 노출 불가, GROMO-1210).
+// 계정 화면 카드 모달 상태 머신 — 하나만 열린다(동시 노출 불가, GROMO-1210).
 //   confirm            : 탈퇴 재확인(파괴적 동작)
 //   hostBlocked        : 방장 블록 — 위임 대상 그룹으로 유도
 //   hostBlockedNoList  : 방장 블록 — 위임 대상을 못 찾음(목록 0개·조회 실패) → 일반 안내
-type WithdrawModalState =
+//   logout             : 로그아웃 재확인(GROMO-1251 — 네이티브 2버튼 Alert에서 이관)
+//   unlink             : 소셜 연동 해제 재확인(GROMO-1251 — 위와 같음)
+// ⚠️ 확인이 필요한 2버튼 알럿만 옮긴다(정책 D8) — 실패 통보(연동 해제 실패·탈퇴 실패)는
+//    사용자 조치·재시도가 걸린 안내라 Alert로 남는다.
+type AccountModalState =
   | { kind: 'confirm' }
   | { kind: 'hostBlocked'; count: number; target: { groupId: string; name: string } }
-  | { kind: 'hostBlockedNoList' };
+  | { kind: 'hostBlockedNoList' }
+  | { kind: 'logout' }
+  | { kind: 'unlink'; provider: Provider; name: string }
+  | { kind: 'unlinkFailed'; title: string; body: string };
 
 export default function AccountScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
@@ -98,7 +105,9 @@ export default function AccountScreen() {
   // 연동 목록(로딩 전 null). 재진입마다 최신화.
   const [links, setLinks] = useState<SocialLinkResponse[] | null>(null);
   const [busy, setBusy] = useState<Method | null>(null); // 게스트 로그인 진행 중인 provider
-  const [withdrawModal, setWithdrawModal] = useState<WithdrawModalState | null>(null);
+  // 연동 해제 진행 중 — 확인 카드의 모든 닫기·재실행을 막는다(아래 unlink 카드 주석).
+  const [unlinking, setUnlinking] = useState(false);
+  const [modal, setModal] = useState<AccountModalState | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
 
   const loadLinks = useCallback(async () => {
@@ -163,43 +172,43 @@ export default function AccountScreen() {
     }
   };
 
-  // 연동 해제 — Alert 확인 후 실행. 마지막 수단이면 서버가 409 → 안내 후 목록 유지.
-  const confirmUnlink = (provider: Provider, name: string) => {
-    Alert.alert(`${name} 연동 해제`, `${name} 연동을 해제할까요?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '해제',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await unlinkSocialAccount(provider);
-            await loadLinks();
-          } catch (e) {
-            const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-            if (status === 409) {
-              Alert.alert('해제할 수 없어요', '마지막 로그인 수단은 해제할 수 없어요.');
-            } else {
-              Alert.alert('오류', '연동 해제에 실패했어요. 잠시 후 다시 시도해 주세요.');
+  // 연동 해제 실행 — 확인 카드의 '해제'가 부른다. 마지막 수단이면 서버가 409 → 안내 후 목록 유지.
+  // ⚠️ 실패 안내를 **같은 카드 안에서** 낸다(문구는 종전 Alert 그대로 — 정책 D8상 재시도가 걸린
+  //    실패라 유지 대상이고, 바뀌는 건 표면뿐이다). 카드를 먼저 닫고 Alert 를 띄우면 iOS 에서
+  //    fade dismissal 과 native Alert presentation 이 **같은 틱에 경합**해 안내가 아예 안 뜰 수
+  //    있다(codex 리뷰). 그래서 요청 동안 카드를 **열어 둔 채**로 두고 결과만 갈아 끼운다 —
+  //    GroupSettingsScreen 의 나가기 실패와 같은 처방이다.
+  const runUnlink = async (provider: Provider) => {
+    if (unlinking) return; // 확인 버튼 연타로 요청이 병렬 전송되지 않게(codex 리뷰)
+    setUnlinking(true);
+    try {
+      await unlinkSocialAccount(provider);
+      await loadLinks();
+      setModal(null); // 성공 경로에서만 닫는다
+    } catch (e) {
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      setModal(
+        status === 409
+          ? {
+              kind: 'unlinkFailed',
+              title: '해제할 수 없어요',
+              body: '마지막 로그인 수단은 해제할 수 없어요.',
             }
-          }
-        },
-      },
-    ]);
+          : {
+              kind: 'unlinkFailed',
+              title: '오류',
+              body: '연동 해제에 실패했어요. 잠시 후 다시 시도해 주세요.',
+            },
+      );
+    } finally {
+      setUnlinking(false);
+    }
   };
 
-  // 로그아웃 — 확인 후 등록된 로그아웃 핸들러 호출.
-  const confirmLogout = () => {
-    Alert.alert('로그아웃', '로그아웃할까요?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '로그아웃',
-        style: 'destructive',
-        onPress: () => {
-          logLogout(); // 세션 해제(setUserId null) 전에 발행 — 유저 귀속 유지
-          triggerLogout();
-        },
-      },
-    ]);
+  // 로그아웃 확정 — 확인 카드의 '로그아웃'이 부른다.
+  const runLogout = () => {
+    logLogout(); // 세션 해제(setUserId null) 전에 발행 — 유저 귀속 유지
+    triggerLogout();
   };
 
   // 회원 탈퇴 실행 — 성공 시 로그아웃까지. 방장 블록(HOST_WITHDRAW)이면 카드 모달로 위임 유도.
@@ -210,7 +219,7 @@ export default function AccountScreen() {
       await withdraw();
       logWithdrawalConfirmed(); // 탈퇴 API 성공 시에만 — 로그아웃(setUserId null) 전에 발행
       await clearLastAuthProvider(); // GROMO-602: 탈퇴 시에만 마지막 provider 초기화(로그아웃은 유지)
-      setWithdrawModal(null);
+      setModal(null);
       triggerLogout();
     } catch (e) {
       // §3-2: status가 아니라 서버 에러 code로 분기 — 무관한 400은 아래 일반 오류로 떨어진다.
@@ -228,16 +237,16 @@ export default function AccountScreen() {
         }
         if (ownedGroups.length > 0) {
           const target = ownedGroups[0];
-          setWithdrawModal({
+          setModal({
             kind: 'hostBlocked',
             count: ownedGroups.length,
             target: { groupId: target.groupId, name: target.name },
           });
         } else {
-          setWithdrawModal({ kind: 'hostBlockedNoList' });
+          setModal({ kind: 'hostBlockedNoList' });
         }
       } else {
-        setWithdrawModal(null);
+        setModal(null);
         Alert.alert('오류', '회원 탈퇴에 실패했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
@@ -245,17 +254,22 @@ export default function AccountScreen() {
     }
   };
 
-  const closeWithdrawModal = () => setWithdrawModal(null);
+  // 요청 진행 중에는 닫지 않는다 — 스크림 탭·하드웨어 백도 여기로 온다(codex 리뷰).
+  // 탈퇴(withdrawing)는 성공 시 화면 자체가 사라지고, 연동 해제(unlinking)는 결과가 카드로 온다.
+  const closeModal = () => {
+    if (unlinking || withdrawing) return;
+    setModal(null);
+  };
 
   // 카드 모달은 단일 인스턴스로 상태에 따라 내용만 바꾼다 — confirm→블록 안내가 같은 모달의
   // 내용 교체가 되어 iOS의 연속 present/dismiss 경합(뒤 모달이 안 뜨는 문제)이 없다.
   // 닫힘 페이드아웃 동안 내용이 confirm으로 되튀지 않게 마지막 내용을 ref로 유지한다.
-  const lastModalRef = useRef<WithdrawModalState>({ kind: 'confirm' });
-  if (withdrawModal !== null) lastModalRef.current = withdrawModal;
-  const shownModal = withdrawModal ?? lastModalRef.current;
+  const lastModalRef = useRef<AccountModalState>({ kind: 'confirm' });
+  if (modal !== null) lastModalRef.current = modal;
+  const shownModal = modal ?? lastModalRef.current;
 
-  // 상태별 카드 내용 — 문구는 기존 네이티브 Alert에서 그대로 이식(계약: 카피 정본, GROMO-1210).
-  let withdrawCard: {
+  // 상태별 카드 내용 — 문구는 기존 네이티브 Alert에서 그대로 이식(계약: 카피 정본, GROMO-1210·1251).
+  let card: {
     title: string;
     body: string;
     primaryLabel: string;
@@ -268,12 +282,12 @@ export default function AccountScreen() {
   switch (shownModal.kind) {
     case 'hostBlocked': {
       const { count, target } = shownModal;
-      withdrawCard = {
+      card = {
         title: '먼저 방장을 넘겨주세요',
         body: `방장으로 있는 그룹이 ${count}개 있어요.\n"${target.name}"의 방장을 넘기고 다시 탈퇴해 주세요.`,
         primaryLabel: '방장 넘기러 가기',
         onPrimary: () => {
-          setWithdrawModal(null);
+          setModal(null);
           navigation.navigate('GroupOwnerTransfer', { groupId: target.groupId, source: 'account' });
         },
         secondaryLabel: '나중에',
@@ -281,17 +295,66 @@ export default function AccountScreen() {
       };
       break;
     }
+    // ⚠️ 아래 둘은 확인만 받고 **카드를 먼저 닫은 뒤** 실동작을 부른다(GROMO-1251).
+    //    종전 Alert도 버튼 탭 → 알럿 닫힘 → onPress 순서였고, 실패 안내(Alert)나 후속 화면이
+    //    모달 위에 겹치지 않는다.
+    case 'logout':
+      card = {
+        title: '로그아웃',
+        body: '로그아웃할까요?',
+        primaryLabel: '로그아웃',
+        onPrimary: () => {
+          setModal(null);
+          runLogout();
+        },
+        destructive: true,
+        secondaryLabel: '취소',
+        testID: 'account.logout.confirm',
+      };
+      break;
+    case 'unlink': {
+      const { provider, name } = shownModal;
+      card = {
+        title: `${name} 연동 해제`,
+        body: `${name} 연동을 해제할까요?`,
+        primaryLabel: '해제',
+        onPrimary: () => {
+          // ⚠️ 여기서 카드를 닫지 않는다 — runUnlink 가 성공 시 닫고 실패 시 내용을 교체한다.
+          //    닫고 나서 안내를 띄우면 dismiss 와 present 가 경합한다(위 runUnlink 주석).
+          runUnlink(provider);
+        },
+        destructive: true,
+        primaryDisabled: unlinking,
+        // ⚠️ 요청 중에는 닫기 경로를 막는다 — 취소·스크림으로 카드가 닫히면 해제가 취소된 것처럼
+        //    보이지만 요청은 계속되어 실제로 연동이 풀린다. 「닫힘 = 취소」가 참이어야 한다.
+        //    취소 버튼은 아예 렌더하지 않는다(가드만 두면 "눌렀는데 아무 일도 없다"가 된다).
+        secondaryLabel: unlinking ? undefined : '취소',
+        testID: 'account.unlink.confirm',
+      };
+      break;
+    }
+    case 'unlinkFailed':
+      // 확인 카드가 그대로 열린 채 내용만 갈린 상태 — 닫힘 애니메이션이 시작되지 않았으므로
+      // 안내가 경합으로 사라질 여지가 없다. 재시도는 사용자가 목록에서 다시 누른다.
+      card = {
+        title: shownModal.title,
+        body: shownModal.body,
+        primaryLabel: '확인',
+        onPrimary: () => setModal(null),
+        testID: 'account.unlink.failed',
+      };
+      break;
     case 'hostBlockedNoList':
-      withdrawCard = {
+      card = {
         title: '탈퇴할 수 없어요',
         body: '그룹 방장은 위임 후 탈퇴할 수 있어요.',
         primaryLabel: '확인',
-        onPrimary: closeWithdrawModal,
+        onPrimary: closeModal,
         testID: 'account.withdraw.blocked',
       };
       break;
     default:
-      withdrawCard = {
+      card = {
         title: '정말 떠나시겠어요?',
         body: '탈퇴하면 쌓아온 집중 기록·티어가 모두 사라지고 되돌릴 수 없어요.',
         primaryLabel: '탈퇴할게요',
@@ -344,9 +407,21 @@ export default function AccountScreen() {
               />
             ))}
           </SettingsSection>
+          {/* 게스트 소실 고지 + 승격 유도 (GROMO-1509) — 종전 문구는 이점만 말하고 위험을 안 알렸다.
+              흔한 소실 경로는 미접속이 아니라 앱 삭제·기기 변경이라 그쪽을 앞에 둔다.
+              **일수를 단정하지 않는다**(코드리뷰 P1): 만료 기간은 서버 refresh 수명이 정하는데
+              앱은 스토어 심사를 거쳐 나가므로, 숫자를 박으면 서버 배포가 늦거나 값이 바뀔 때
+              앱이 거짓을 말하게 된다. 유저가 그 숫자로 할 수 있는 일도 없다 — 행동은 '소셜 연결'
+              하나뿐이라 정확한 일수는 고지 가치가 없다. */}
           <View style={s.note}>
             <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-            <Text style={s.noteText}>로그인하면 목표·집중 기록이 계정에 안전하게 저장돼요.</Text>
+            <Text style={s.noteText}>
+              지금은 로그인 없이 쓰는 중이에요. 기록은 서버에 저장되지만, 이 기기의 인증 정보로만
+              다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을
+              되찾을 수 없어요.
+              {'\n\n'}
+              소셜 로그인을 연결하면 지금까지 기록 그대로 옮겨가요.
+            </Text>
           </View>
           <SettingsSection>
             <SettingsRow
@@ -355,7 +430,7 @@ export default function AccountScreen() {
               iconBg={T.accentAltBg}
               label="회원 탈퇴"
               danger
-              onPress={() => setWithdrawModal({ kind: 'confirm' })}
+              onPress={() => setModal({ kind: 'confirm' })}
             />
           </SettingsSection>
         </>
@@ -376,7 +451,7 @@ export default function AccountScreen() {
                   sub="연동됨"
                   value="관리"
                   valueColor={T.successInk}
-                  onPress={() => confirmUnlink(p.key, p.name)}
+                  onPress={() => setModal({ kind: 'unlink', provider: p.key, name: p.name })}
                 />
               ))
             )}
@@ -388,7 +463,7 @@ export default function AccountScreen() {
               iconBg={T.accentAltBg}
               label="로그아웃"
               danger
-              onPress={confirmLogout}
+              onPress={() => setModal({ kind: 'logout' })}
             />
             <SettingsRow
               icon="person-remove-outline"
@@ -396,18 +471,20 @@ export default function AccountScreen() {
               iconBg={T.accentAltBg}
               label="회원 탈퇴"
               danger
-              onPress={() => setWithdrawModal({ kind: 'confirm' })}
+              onPress={() => setModal({ kind: 'confirm' })}
             />
           </SettingsSection>
         </>
       )}
 
-      {/* 탈퇴 플로우 카드 모달 — 재확인(파괴적)·방장 블록 안내를 한 인스턴스로 전환(GROMO-1210) */}
+      {/* 계정 화면 카드 모달 — 탈퇴 재확인·방장 블록 안내(GROMO-1210) + 로그아웃·연동 해제
+          재확인(GROMO-1251)을 한 인스턴스로 전환한다. 인스턴스를 나누면 iOS에서 연속
+          present/dismiss가 경합해 뒤 모달이 안 뜬다. */}
       <ConfirmCardModal
-        visible={withdrawModal !== null}
-        onRequestClose={closeWithdrawModal}
-        onSecondary={closeWithdrawModal}
-        {...withdrawCard}
+        visible={modal !== null}
+        onRequestClose={closeModal}
+        onSecondary={closeModal}
+        {...card}
       />
     </SettingsScaffold>
   );

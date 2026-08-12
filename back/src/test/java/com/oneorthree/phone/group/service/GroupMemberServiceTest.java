@@ -36,7 +36,7 @@ import static org.mockito.Mockito.verify;
  * GroupMemberService 단위 테스트.
  *
  * <p>대상: 방장 권한 이양(transferOwner), 그룹 탈퇴(withdrawGroup).
- * 핵심 검증 포인트는 게스트 차단, OWNER 권한, 멤버십 존재,
+ * 핵심 검증 포인트는 OWNER 권한, 멤버십 존재,
  * 그리고 탈퇴 시 멤버 수에 따른 분기(마지막 1명→그룹 close, OWNER 다수→차단, 일반멤버→삭제).
  */
 @ExtendWith(MockitoExtension.class)
@@ -105,37 +105,44 @@ class GroupMemberServiceTest {
         // 탈퇴가 먼저 커밋된 대상 — 활성 조회(공유 락)가 빈 결과를 돌려준다
         given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.empty());
 
+        // GROMO-1247: 여기는 대상 유저다 — 요청자 세션 사망 코드(USER_NOT_FOUND)로 새면 앱이
+        // 멀쩡한 방장을 로그아웃시킨다. 대상 부재는 기존 NOT_FOUND 그대로 유지한다.
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.NOT_FOUND)
+                .isNotEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
-    void transferOwnerGuestForbidden() {
-        // given: 요청자가 게스트
+    @DisplayName("게스트 요청자도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void transferOwnerAllowsGuest() {
+        // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User owner = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(owner));
+        given(userRepository.findActiveByIdForShare(TARGET_ID))
+                .willReturn(Optional.of(User.builder().id(TARGET_ID).build()));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test
-    @DisplayName("요청자 유저 없음·탈퇴 선커밋 → UserException(NOT_FOUND), 역할 변경 없음 (GROMO-1227)")
+    @DisplayName("요청자 유저 없음·탈퇴 선커밋 → UserException(USER_NOT_FOUND), 역할 변경 없음 (GROMO-1227·1247)")
     void transferOwnerUserNotFound() {
         // given: 없는 유저와 탈퇴 선커밋 유저는 공유 락 조회에서 똑같이 빈 결과다
         given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.empty());
 
         // when & then: 부작용 없이 거절 — 멤버십 로드조차 하지 않는다
+        // GROMO-1247: 요청자 세션 사망은 USER_NOT_FOUND — 대상 유저 부재(NOT_FOUND)와 다른 코드다.
         assertThatThrownBy(() -> groupMemberService.transferOwner(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(groupMemberRepository, never()).findByUserAndGroup(any(), any());
     }
 
@@ -237,14 +244,14 @@ class GroupMemberServiceTest {
     }
 
     @Test
-    @DisplayName("강퇴 요청자의 탈퇴 선커밋 → UserException(NOT_FOUND), 부작용 없음 (GROMO-1227)")
+    @DisplayName("강퇴 요청자의 탈퇴 선커밋 → UserException(USER_NOT_FOUND), 부작용 없음 (GROMO-1227·1247)")
     void kickRejectsWithdrawnRequester() {
         given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(userActivityEventLogger, never()).log(any(), any());
     }
 
@@ -263,10 +270,12 @@ class GroupMemberServiceTest {
         given(userRepository.findActiveByIdForShare(TARGET_ID)).willReturn(Optional.empty());
 
         // when & then: 거절 + 이탈 이벤트 없음
+        // GROMO-1247: 대상 유저 부재라 NOT_FOUND 유지 — transferOwner 대상과 같은 논증이다.
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.NOT_FOUND)
+                .isNotEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(userActivityEventLogger, never()).log(any(), any());
     }
 
@@ -334,17 +343,18 @@ class GroupMemberServiceTest {
     }
 
     @Test
-    @DisplayName("게스트 요청자 → GroupException(GUEST_FORBIDDEN)")
-    void kickGuestForbidden() {
-        // given: 요청자가 게스트
+    @DisplayName("게스트 요청자도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void kickAllowsGuest() {
+        // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User guest = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(guest));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     // ── withdrawGroup ─────────────────────────────────────────────────────
@@ -406,7 +416,7 @@ class GroupMemberServiceTest {
     }
 
     @Test
-    @DisplayName("그룹 탈퇴 요청자의 계정 탈퇴 선커밋 → UserException(NOT_FOUND), 내기 정리 미호출 (GROMO-1227)")
+    @DisplayName("그룹 탈퇴 요청자의 계정 탈퇴 선커밋 → UserException(USER_NOT_FOUND), 내기 정리 미호출 (GROMO-1227·1247)")
     void withdrawRejectsWithdrawnUser() {
         // given: 계정 탈퇴가 먼저 커밋된 유저 — 공유 락 조회가 빈 결과
         given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.empty());
@@ -415,22 +425,23 @@ class GroupMemberServiceTest {
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
         verify(groupBetService, never()).releaseFromOpenBets(any(), any());
     }
 
     @Test
-    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
-    void withdrawGuestForbidden() {
-        // given: 요청자가 게스트
+    @DisplayName("게스트 요청자도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void withdrawAllowsGuest() {
+        // given: 요청자가 게스트, 그룹은 없음 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User user = User.builder().id(OWNER_ID).isGuest(true).build();
         given(userRepository.findActiveByIdForShare(OWNER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupMemberService.withdrawGroup(GROUP_ID, OWNER_ID))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test

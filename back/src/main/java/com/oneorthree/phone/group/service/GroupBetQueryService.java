@@ -311,15 +311,11 @@ public class GroupBetQueryService {
     }
 
     /**
-     * 활성·게스트 검증의 락 없는 판(GROMO-1230) — 순수 읽기(readOnly) 경로 전용. Postgres 가
+     * 활성 검증의 락 없는 판(GROMO-1230) — 순수 읽기(readOnly) 경로 전용. Postgres 가
      * read-only 트랜잭션에서 FOR SHARE 를 거절하고, 순수 조회는 잠글 이유도 없다.
      */
     private User requireActiveUserNoLock(UUID userId) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
+        return userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
     }
 }

@@ -203,6 +203,16 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
             );
           })}
 
+          {/* 게스트 소실 고지 (GROMO-1509) — 게스트 계정은 서버에 남지만 되찾을 열쇠가 이 기기의
+              토큰뿐이라, 앱 삭제·기기 변경이면 복구 경로가 없다.
+              버튼 **위**에 둔다: 아래에 두면 작은 화면·큰 글자 배율에서 버튼은 보이는데 고지는
+              아직 스크롤 밖일 수 있고, 접근성 탐색 순서도 버튼을 먼저 만나 고지를 듣기 전에
+              눌러버린다. 선택 전 고지라는 목적이 배치로 지켜져야 한다(코드리뷰 P2). */}
+          <Text style={s.guestNotice} testID="login.guestNotice">
+            로그인 없이 시작하면 기록은 서버에 저장되지만, 이 기기의 인증 정보로만 다시 접근할 수
+            있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.
+          </Text>
+
           <TouchableOpacity
             testID="login.guest"
             onPress={runGuest}
@@ -273,6 +283,13 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   lastBadgeText: { ...T.text.caption, fontWeight: '800', color: T.white },
+  guestNotice: {
+    ...T.text.caption,
+    lineHeight: 17,
+    color: T.inkSub,
+    textAlign: 'center',
+    marginBottom: T.space.sm,
+  },
   terms: { ...T.text.caption, lineHeight: 17, color: T.inkMuted, textAlign: 'center' },
   termsLink: { color: T.link, textDecorationLine: 'underline' },
 });

@@ -67,6 +67,28 @@ public class GroupBetSettler {
     /** 정산 데드라인(N21) — {@code settle_after} 로부터 이 시간이 지나면 정산 대신 전원 환불한다. */
     public static final Duration REFUND_DEADLINE = Duration.ofHours(24);
 
+    /**
+     * 업로드 유예(GROMO-1287) — 서버가 <b>대신 닫은</b> 마커(AUTO_CLOSED·CANCELED)를 이 시간 동안은
+     * "그 블록의 업로드가 아직 진행 중"으로 보고 창형 FOCUS 정산을 기다린다.
+     *
+     * <p>close-then-open 은 다음 블록 시작 시 이전 마커를 즉시 닫는다. 그 순간 대기 가드를 풀면
+     * 아직 저장되지 않은 블록을 뺀 채 승패가 확정되고, 뒤늦은 POST 폴백이 적립해도 <b>정산은
+     * 되돌릴 수 없다</b>. 그래서 닫힌 직후 구간은 계속 기다린다.
+     *
+     * <p>값의 근거: 앱은 종료 시각이 4분(`uploadFocusBlock.PATCH_ENDED_AT_MAX_AGE_MS`)을 넘으면
+     * PATCH 를 포기하고 곧바로 POST 한다. 5분이면 그 전환과 왕복을 덮는다. 더 늘리면 이 티켓이 원래
+     * 고치려던 것(정산 지연 → {@link #REFUND_DEADLINE} 24h 자동 환불로 내기 무효)에 다시 가까워진다.
+     *
+     * <p><b>대기는 반드시 끝난다</b> — 마커의 {@code ended_at} 은 한 번 정해지면 안 바뀌므로 이 창을
+     * 넘기면 자동으로 가드에서 빠진다. 종전에는 고아 마커 하나가 orphan 스윕(12h)까지 가드를 붙잡았다
+     * (그게 이 티켓의 출발점이다) — close-then-open + 이 유예는 그 12h 를 5분으로 줄인다.
+     *
+     * <p><b>수용하는 한계</b>: 블록 종료 후 5분 넘게 오프라인이면 그 블록이 빠진 채 정산될 수 있다.
+     * 마커 기반 가드는 원래 best-effort 다 — 오프라인으로 <b>시작</b>한 블록은 마커 자체가 없어
+     * 종전에도 가드에 잡히지 않았다. 무한정 기다리다 24h 환불로 내기를 무효화하는 쪽이 더 나쁘다.
+     */
+    private static final Duration PENDING_UPLOAD_GRACE = Duration.ofMinutes(5);
+
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final FocusSessionRepository focusSessionRepository;
@@ -151,7 +173,7 @@ public class GroupBetSettler {
             if (now.isBefore(session.getSettleAfter())) {
                 return SettleResult.skipped(session.getStatus());
             }
-            if (shouldWaitForActiveFocusSessions(session, participants)) {
+            if (shouldWaitForActiveFocusSessions(session, participants, now)) {
                 log.info("회차 정산 대기 — 창 겹침 ACTIVE 집중 세션 잔존(N37), 다음 틱 재시도. "
                         + "sessionId={}, trigger={}", sessionId, trigger);
                 return SettleResult.skipped(session.getStatus());
@@ -427,9 +449,14 @@ public class GroupBetSettler {
      * 참가자 중 누가 마침 집중 중이라는 이유로 준비된 스크린타임 정산이 밀리고, 세션이 길면 24h
      * 자동 환불까지 간다(대기가 오히려 돈을 되돌린다). 창 경계는 회차 스냅샷(창 시각)에서 스스로
      * 계산한다 — 챌린지가 삭제돼도 판정이 온전하다.
+     *
+     * <p><b>GROMO-1287</b>: 아직 도는 마커뿐 아니라 <b>방금 서버가 대신 닫은 마커</b>도 대기 사유다
+     * ({@link com.oneorthree.phone.focus.repository.FocusSessionRepository#existsPendingOverlappingSession}).
+     * close-then-open 이 다음 블록 시작 시 이전 마커를 즉시 닫으므로, 그것만으로 가드를 풀면 아직
+     * 업로드되지 않은 블록을 뺀 채 승패가 확정된다.
      */
     private boolean shouldWaitForActiveFocusSessions(
-            GroupChallengeBetSession session, List<GroupChallengeBetParticipant> participants) {
+            GroupChallengeBetSession session, List<GroupChallengeBetParticipant> participants, Instant now) {
         if (session.getMissionCategory() != MissionCategory.FOCUS
                 || session.getMissionType() != MissionType.TIME_WINDOW
                 || session.getWindowStart() == null || session.getWindowEnd() == null
@@ -437,7 +464,8 @@ public class GroupBetSettler {
             return false;
         }
         List<UUID> userIds = participants.stream().map(p -> p.getUser().getId()).toList();
-        return focusSessionRepository.existsActiveOverlappingWindow(userIds, windowEndOf(session));
+        return focusSessionRepository.existsPendingOverlappingSession(
+                userIds, windowEndOf(session), now.minus(PENDING_UPLOAD_GRACE));
     }
 
     /**

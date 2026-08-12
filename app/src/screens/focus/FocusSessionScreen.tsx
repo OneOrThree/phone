@@ -28,7 +28,6 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
-import { ProgressRing } from '@/components/ProgressRing';
 import { M, fadeIn, pop, transition } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
@@ -48,21 +47,18 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
-import {
-  focusReadoutLayout,
-  PLAIN_TIMER_MIN_FONT_SCALE,
-  RING_STROKE,
-  type ReadoutLayout,
-} from './readoutLayout';
+import { focusReadoutLayout, PLAIN_TIMER_MIN_FONT_SCALE } from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { todayStr } from '@/utils/localDate';
+import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import {
   newBlockToday,
   creditTick,
   creditTicks,
   blockTodaySeconds,
+  blockKstTodaySeconds,
   type BlockToday,
 } from './blockToday';
+import { myLiveTotalSeconds } from '@/utils/liveFocus';
 import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds, pauseCutAt } from './blockPause';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -199,7 +195,7 @@ export default function FocusSessionScreen() {
   });
   // 그룹 뷰(F2) — 내가 참여한 '그룹별로' 한 페이지씩. 각 그룹의 내 행은 제외하고 내 셀은 그리드가
   // 로컬 타이머로 따로 렌더한다(me). 라이브 집중중 신호는 group detail에 없어 오늘 집중분만 정적 표기한다.
-  const { groups: sessionGroups } = useSessionGroups({ excludeUserId: userId });
+  const { groups: sessionGroups, myFocus } = useSessionGroups({ excludeUserId: userId });
   // 그룹 페이지 개수 — 페이저 점·뷰 계측이 동적 페이지 수를 알아야 해서 ref로 최신값을 들고 있는다.
   const groupCountRef = useRef(0);
   groupCountRef.current = sessionGroups.length;
@@ -340,6 +336,15 @@ export default function FocusSessionScreen() {
   //   + 미정산 경과의 오늘 몫(blockTodayRef — 자정을 걸친 세션에서 어제 몫은 빼고 센다)
   const gridPreSessionRef = useRef({ day: todayStr(), base: todayFocusSeconds });
   const gridSettledTodayRef = useRef({ day: todayStr(), seconds: 0 });
+  // 내 그리드 셀의 **정산 기준점**(GROMO-1246 코덱스 리뷰 ③·④·⑧) — 마지막 정산 직후 확정한
+  // KST 오늘 총합. 새 블록의 델타는 이 위에 쌓이고, 서버가 그 정산분을 반영하면 serverBase가
+  // 같은 총합으로 수렴해 이중 계상이 없다. 기준일을 함께 들고 KST 자정을 넘기면 0으로 리셋한다.
+  const gridSettledFloorRef = useRef({ day: todayStrKst(), seconds: 0 });
+  // 정산 시점에 읽을 최신 서버 스냅샷 — settleFocusBlock 이 렌더 값을 클로저로 못 잡아 ref 로 둔다.
+  // **기준일을 함께** 들고 있어야 한다(코덱스 리뷰 ⑩): 자정 전에 스냅샷을 받고 백그라운드에 있다가
+  // 자정을 넘겨 복귀하면 AppState 리플레이가 새 렌더보다 먼저 정산을 돌린다 — 그때 날짜 확인 없이
+  // 쓰면 전날 누적 위에 새 날 블록을 얹은 값이 오늘 기준점으로 굳어 하루 종일 과대 표시된다.
+  const gridServerSnapshotRef = useRef<{ day: string; seconds: number } | null>(null);
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
   // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
@@ -677,6 +682,23 @@ export default function FocusSessionScreen() {
           gridSettledTodayRef.current = { day: todayStr(), seconds: 0 };
         }
         gridSettledTodayRef.current.seconds += todaySeconds;
+      }
+      // 그리드 표시 기준점 확정(코덱스 리뷰 ⑧) — '그 시점 서버가 아는 값'과 '직전 기준점' 중 큰
+      // 쪽에 이번 블록의 KST 몫을 얹는다. 정산 시점에 serverBase 를 읽으므로 첫 스냅샷이 정산
+      // 뒤에 도착해도 같은 블록을 두 번 세지 않고(④), 다음 블록의 델타는 이 총합 위에 쌓인다(⑧).
+      const kstToday = todayStrKst();
+      const kstSeconds = blockToday.kst?.[kstToday] ?? 0;
+      if (kstSeconds > 0) {
+        const prevFloor =
+          gridSettledFloorRef.current.day === kstToday ? gridSettledFloorRef.current.seconds : 0;
+        // 스냅샷·직전 기준점 모두 **오늘(KST) 것일 때만** 쓴다 — 자정을 넘긴 리플레이가 렌더보다
+        // 먼저 여기 닿으면 둘 다 전날 값이라, 날짜를 안 보면 전날 총합이 오늘로 넘어온다(⑩).
+        const snap = gridServerSnapshotRef.current;
+        const snapshotSeconds = snap?.day === kstToday ? snap.seconds : 0;
+        gridSettledFloorRef.current = {
+          day: kstToday,
+          seconds: Math.max(snapshotSeconds, prevFloor) + kstSeconds,
+        };
       }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
@@ -1241,36 +1263,58 @@ export default function FocusSessionScreen() {
   // 내 그리드 셀(GROMO-932) — 오늘 총 집중 = 세션 전 오늘 몫 + 세션의 오늘 정산 몫 + 미정산 경과.
   // 집계 방식·자정 경계 규칙은 gridPreSessionRef 선언부 주석 참고. 타이머 틱마다 리렌더돼 오른다.
   const gridDay = todayStr();
+  const gridKstDay = todayStrKst();
+  // 서버 스냅샷은 기준일이 오늘(KST)일 때만 유효 — 자정을 넘긴 채 폴링이 계속 실패하면 전날
+  // 값이 남아 있다(코덱스 리뷰 ②). 그 회차는 폴백(로컬 집계)으로 내려간다.
+  const gridServerToday = myFocus?.day === gridKstDay ? myFocus.minutes : null;
+  // 정산 시점에 읽을 수 있게 최신 스냅샷을 ref 로 옮겨 둔다.
+  gridServerSnapshotRef.current =
+    gridServerToday != null ? { day: gridKstDay, seconds: gridServerToday * 60 } : null;
+  // 기준점은 KST 날짜가 바뀌면 0으로 — 자정 이후 새 날의 값이 전날 총합에 묶이면 안 된다.
+  if (gridSettledFloorRef.current.day !== gridKstDay) {
+    gridSettledFloorRef.current = { day: gridKstDay, seconds: 0 };
+  }
   // 아직 정산되지 않은 집중초 중 '오늘' 몫(GROMO-1252 코드리뷰) — 그리드 셀·메뉴 드로어 공용.
   // session.elapsed 전체를 쓰면 ① 자정을 걸친 세션의 어제 몫까지 오늘로 표시되고(23:00~00:05
   // 세션이 65분으로 보이다가 정산 후 5분으로 줄어드는 역전) ② 뽀모도로처럼 이미 정산된 블록이
   // 저장분과 이중으로 잡힌다. 타이머 tick마다 리렌더되므로 ref를 그대로 읽어도 값이 따라 오른다.
   const liveTodaySeconds = blockTodaySeconds(blockTodayRef.current);
+  // 표시 기준은 멤버 셀과 같은 서버 KST 버킷(GROMO-1246) — 로컬 집계는 서버 스냅샷을 못
+  // 받았을 때(그룹 미가입·조회 실패·자정 넘겨 무효화)의 폴백으로만 쓴다. 측정·저장 경로는
+  // 그대로다(1236의 "측정 축은 로컬 유지" 결정 유지 — 바뀌는 건 표시 결합부뿐).
+  // 계산 결과를 바닥에 되먹여 다음 렌더의 하한으로 삼는다(정산 직후 되밀림 방지).
+  const gridTotalSeconds = myLiveTotalSeconds({
+    serverBase: gridServerToday != null ? gridServerToday * 60 : null,
+    delta: blockKstTodaySeconds(blockTodayRef.current),
+    localFallback:
+      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
+      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
+      liveTodaySeconds,
+    settledFloor: gridSettledFloorRef.current.seconds,
+    // 서버 버킷이 KST 고정(GROMO-1259)이라 동축 판정은 기기 오프셋이 KST인지로 족하다.
+    sameAxis: kstLocalSameDay(),
+  });
   const myGridMe = {
     nickname: nickname || '나',
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
     isFocusing: !paused && session.phase === 'focus' && !session.done,
-    totalSeconds:
-      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
-      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
-      liveTodaySeconds,
+    totalSeconds: gridTotalSeconds,
     tagName: subjectName,
   };
 
   // ── 렌더 계층(GROMO-1381) — 아래 블록은 세션 로직에 전혀 관여하지 않는다 ──────────────
-  // 캐릭터·링 크기와 링 표시 여부는 전부 readoutLayout.ts의 순수 함수가 정한다(단위 테스트로
+  // 캐릭터 크기와 타이머 지정 크기는 전부 readoutLayout.ts의 순수 함수가 정한다(단위 테스트로
   // 잠겨 있다). 여기서는 입력(가용 높이·폭·글자 배율·모드)만 넘긴다.
   // ⚠️ fontScale을 반드시 넘긴다 — Text의 allowFontScaling 기본값 때문에 시스템 글자 크기를
-  //    키운 사용자에게는 타이머가 다시 확대되어, 고정 pt 링을 뚫고 나간다(codex 리뷰).
+  //    키운 사용자에게는 타이머가 다시 확대되어, 그만큼 캐릭터 몫이 줄어야 한다(codex 리뷰).
   const layout = focusReadoutLayout(
     Math.max(0, height - insets.top - insets.bottom),
     width,
     fontScale,
-    mode !== 'countup', // 카운트업은 목표가 없어 진행률 자체가 정의되지 않는다
-    // ⚠️ 뽀모도로는 링을 포기해도 세트배지·세트도트를 계속 그린다 — 예산에 넣지 않으면
-    //    캐릭터를 크게 유지한 채 리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
+    // ⚠️ 뽀모도로는 세트배지·세트도트를 함께 그린다 — 예산에 넣지 않으면 캐릭터를 크게 유지한 채
+    //    리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
     mode === 'pomodoro',
-    // ⚠️ 카운트다운은 링을 포기해도 '목표 HH:MM:SS' 줄을 계속 그린다(codex 리뷰).
+    // ⚠️ 카운트다운은 '목표 HH:MM:SS' 줄을 함께 그린다(codex 리뷰).
     mode === 'countdown',
   );
   const charSize = layout.charSize;
@@ -1463,7 +1507,7 @@ export default function FocusSessionScreen() {
             key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
             갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
         <PhaseReadout key={session.phase}>
-          {renderReadout(mode, session, goal, pomo, subjectName, layout, timerTextStyle)}
+          {renderReadout(mode, session, goal, pomo, subjectName, timerTextStyle)}
         </PhaseReadout>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
@@ -1529,27 +1573,21 @@ export default function FocusSessionScreen() {
 // 타이머 바로 위엔 모드 안내 문구 대신 집중 중인 과목명을 보여준다(GROMO-848).
 // 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
 //
-// 진행 링(GROMO-1381) — '남은 시간'을 링으로도 읽게 한다. 숫자 텍스트는 링 가운데에 겹치되
-// 정렬·색·tabular-nums(s.bigTime)는 그대로 승계하고, 크기만 링에 맞춰 timerStyle로 덮는다.
-// ⚠️ 카운트업(무제한)에는 링을 그리지 않는다 — 목표가 없으면 진행률 자체가 정의되지 않는다.
-//    링이 없으니 폭 제약도 없어 timerStyle을 씌우지 않고 기본 52pt를 그대로 쓴다.
-// ⚠️ 링은 첫 마운트에 애니메이션이 없다(ProgressRing 헤더 주석). 이미 진행 중인 세션으로
-//    들어와도 남은 시간이 처음부터 정확히 그려진다 — 진입 연출은 호출부의 fadeIn이 담당한다.
+// ⚠️ GROMO-1525 — 세 모드가 **모두 같은 숫자 배치**를 쓴다. 1381이 카운트다운·뽀모도로에만
+//    씌웠던 원형 진행 링(`ProgressRing`)은 오너 결정으로 뺐다(재추가 예정). 진행률은 숫자로
+//    그대로 읽히므로 정보 손실은 없다. 진입 연출은 호출부의 fadeIn(PhaseReadout)이 담당한다.
 function renderReadout(
   mode: FocusTimerMode,
   session: SessionState,
   goal: number,
-  pomo: { focusMin: number; breakMin: number; sets: number },
+  pomo: { sets: number },
   subjectName: string,
-  layout: ReadoutLayout,
   timerStyle: TextStyle,
 ) {
-  // 링 없이 그리는 큰 숫자 — 카운트업의 기본 배치이자, 글자 배율이 커서 링을 포기했을 때의
-  // 폴백이기도 하다. 두 경로가 같은 코드를 쓰므로 한 곳에서 만든다.
-  // ⚠️ 여기에만 adjustsFontSizeToFit을 붙인다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
-  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 하는 최후 방어선이다.
-  //    링이 있는 경로에는 절대 붙이지 않는다 — 링 지름이 '지정 크기대로 그려진다'는 전제 위에 있다.
-  const plainTime = (
+  // 큰 숫자 — 세 모드 공용.
+  // ⚠️ adjustsFontSizeToFit은 최후 방어선이다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
+  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 한다.
+  const bigTime = (
     <Text
       style={[s.bigTime, timerStyle]}
       numberOfLines={1}
@@ -1560,37 +1598,13 @@ function renderReadout(
     </Text>
   );
 
-  // 큰 숫자 — 링을 그릴 수 있으면 링 가운데에, 아니면 위 평문으로. 링 유무 판정은 전부
-  // readoutLayout이 했고(글자 배율·화면 크기), 여기서는 결과만 반영한다.
-  const bigTime = (progress: number) =>
-    layout.showRing ? (
-      <ProgressRing
-        size={layout.ringSize}
-        stroke={RING_STROKE}
-        progress={progress}
-        color={T.night.gold}
-        trackColor={withAlpha(T.night.cream, 0.18)}
-        // ⚠️ 이 화면의 progress는 완료율이 아니라 **남은 비율**이다(시작 100 → 종료 0).
-        //    링에 progressbar 역할이 붙으면 스크린리더가 "100% 진행"으로 정반대로 읽는다.
-        //    가운데 타이머가 이미 정확한 값을 읽어 주므로 링은 장식으로 둔다(codex 리뷰).
-        decorative
-        testID="focus.progress.ring"
-      >
-        <Text style={[s.bigTime, timerStyle]} numberOfLines={1}>
-          {hms(session.display)}
-        </Text>
-      </ProgressRing>
-    ) : (
-      plainTime
-    );
-
   if (mode === 'countup') {
     return (
       <>
         <Text style={s.roSubject} numberOfLines={1}>
           {subjectName}
         </Text>
-        {plainTime}
+        {bigTime}
       </>
     );
   }
@@ -1600,13 +1614,12 @@ function renderReadout(
         <Text style={s.roSubject} numberOfLines={1}>
           {subjectName}
         </Text>
-        {bigTime(goal > 0 ? session.display / goal : 0)}
+        {bigTime}
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
     );
   }
-  // pomodoro — 진행률은 세션 전체가 아니라 '현재 페이즈' 안에서의 남은 비율이다(큰 숫자와 같은 축).
-  const phaseTotalSeconds = (session.phase === 'focus' ? pomo.focusMin : pomo.breakMin) * 60;
+  // pomodoro
   return (
     <>
       <View style={s.setBadgeRow}>
@@ -1620,7 +1633,7 @@ function renderReadout(
       <Text style={s.roSubject} numberOfLines={1}>
         {session.phase === 'focus' ? subjectName : '휴식'}
       </Text>
-      {bigTime(phaseTotalSeconds > 0 ? session.display / phaseTotalSeconds : 0)}
+      {bigTime}
       <View style={s.setDots}>
         {Array.from({ length: pomo.sets }).map((_, i) => (
           <View key={i} style={[s.setDot, i < session.setIndex && s.setDotOn]} />
@@ -1692,8 +1705,8 @@ const s = StyleSheet.create({
   },
   // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
   // ⚠️ 호출부에서 numberOfLines={1}로 **한 줄로 고정**한다. 과목명은 사용자가 자유 입력하는
-  //    값이라 길면 줄바꿈되는데, 위 CHROME_WITH_RING 예산이 과목명을 30pt(한 줄)로 계산하므로
-  //    늘어난 줄만큼 캐릭터·링과 리드아웃이 다시 겹친다(codex 리뷰).
+  //    값이라 길면 줄바꿈되는데, readoutLayout의 PLAIN_BASE 예산이 과목명을 30pt(한 줄)로
+  //    계산하므로 늘어난 줄만큼 캐릭터와 리드아웃이 다시 겹친다(codex 리뷰).
   roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,

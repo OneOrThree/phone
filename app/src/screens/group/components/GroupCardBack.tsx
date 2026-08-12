@@ -1,4 +1,5 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { todayStrKst } from '@/utils/localDate';
 import type { LeagueMemberResponse } from '@/types/api';
@@ -7,6 +8,7 @@ import type { GroupCardSummarySnapshot } from '../groupCardSummary';
 import { deriveGroupFocusCount } from '../groupFocusStatus';
 import { repeatDayOf } from '../challengeSchedule';
 import { categoryLabel, missionLabel } from './challengeLabel';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
 interface Props {
   group: GroupSummaryResponse;
@@ -72,26 +74,49 @@ export function GroupCardBack({
       : [];
 
   return (
-    <View ref={cardRef} style={s.root} testID={`group.card.back.${group.groupId}`}>
+    <Pressable
+      ref={cardRef}
+      style={s.root}
+      onPress={onFlipFront}
+      accessible={false}
+      focusable={false}
+      testID={`group.card.back.${group.groupId}`}
+    >
       <View style={s.header}>
-        <Text
-          style={s.title}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          accessible
-          accessibilityRole="header"
-          accessibilityLabel={`${group.name}, 현재 ${position}/${pageCount} 페이지`}
+        <Pressable
+          style={s.titleAction}
+          onPress={(event) => {
+            event.stopPropagation();
+            onFlipFront();
+          }}
+          onAccessibilityTap={onAccessibilityFlipFront ?? onFlipFront}
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}, 카드 뒷면, 현재 ${position}/${pageCount} 페이지`}
+          accessibilityHint="두 번 탭하면 카드 앞면을 봅니다"
+          accessibilityState={{ expanded: true }}
+          testID={`group.card.backTitle.${group.groupId}`}
         >
-          {group.name}
-        </Text>
+          <Text style={s.title} numberOfLines={1} ellipsizeMode="tail" accessible={false}>
+            {group.name}
+          </Text>
+        </Pressable>
         <TouchableOpacity
           ref={settingsRef}
-          onPress={onOpenSettings}
+          style={s.settingsButton}
+          onPress={(event) => {
+            event.stopPropagation();
+            onOpenSettings();
+          }}
           accessibilityRole="button"
-          accessibilityLabel={`${group.name} 그룹 옵션`}
+          accessibilityLabel="그룹 설정"
           testID={`group.card.settings.${group.groupId}`}
         >
-          <Text style={s.link}>⋯ 설정</Text>
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={22}
+            color={T.accentDeep}
+            testID={`group.card.settingsIcon.${group.groupId}`}
+          />
         </TouchableOpacity>
       </View>
 
@@ -107,7 +132,12 @@ export function GroupCardBack({
           {detail.status === 'idle' || detail.status === 'loading' ? (
             <LoadingLine label="멤버" />
           ) : detail.status === 'error' ? (
-            <TouchableOpacity onPress={() => onRetry('detail')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('detail');
+              }}
+            >
               <Text style={s.error}>멤버 정보를 확인하지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
           ) : (
@@ -127,7 +157,12 @@ export function GroupCardBack({
             </>
           )}
           {(focus.status === 'error' || focus.status === 'coverage-unknown') && (
-            <TouchableOpacity onPress={() => onRetry('focus')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('focus');
+              }}
+            >
               <Text style={s.error}>집중 상태 다시 시도</Text>
             </TouchableOpacity>
           )}
@@ -141,7 +176,11 @@ export function GroupCardBack({
                 <Text style={s.body} numberOfLines={1}>
                   {announcements.data[0].title}
                 </Text>
-                <Text style={s.muted} numberOfLines={2} testID="group.card.announcement.content">
+                <Text
+                  style={s.announcementBody}
+                  numberOfLines={2}
+                  testID="group.card.announcement.content"
+                >
                   {announcements.data[0].content}
                 </Text>
               </View>
@@ -149,7 +188,12 @@ export function GroupCardBack({
               <Text style={s.body}>새 공지가 없어요</Text>
             )
           ) : announcements.status === 'error' ? (
-            <TouchableOpacity onPress={() => onRetry('announcements')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('announcements');
+              }}
+            >
               <Text style={s.error}>공지를 불러오지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
           ) : (
@@ -201,7 +245,12 @@ export function GroupCardBack({
               <Text style={s.body}>진행 중인 활동이 없어요</Text>
             )
           ) : challenges.status === 'error' ? (
-            <TouchableOpacity onPress={() => onRetry('challenges')}>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                onRetry('challenges');
+              }}
+            >
               <Text style={s.error}>활동을 불러오지 못했어요 · 다시 시도</Text>
             </TouchableOpacity>
           ) : (
@@ -214,7 +263,10 @@ export function GroupCardBack({
         <TouchableOpacity
           ref={backFocusRef}
           style={s.primary}
-          onPress={onStartFocus}
+          onPress={(event) => {
+            event.stopPropagation();
+            onStartFocus();
+          }}
           testID={`group.card.focus.${group.groupId}`}
         >
           <Text style={s.primaryText}>이 그룹으로 집중</Text>
@@ -222,25 +274,16 @@ export function GroupCardBack({
         <TouchableOpacity
           ref={roomRef}
           style={s.secondary}
-          onPress={onOpenRoom}
+          onPress={(event) => {
+            event.stopPropagation();
+            onOpenRoom();
+          }}
           testID={`group.card.room.${group.groupId}`}
         >
           <Text style={s.secondaryText}>방 전체 보기</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={onFlipFront}
-          accessibilityActions={[{ name: 'activate', label: '카드 앞면 보기' }]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'activate') {
-              (onAccessibilityFlipFront ?? onFlipFront)();
-            }
-          }}
-          testID={`group.card.frontAction.${group.groupId}`}
-        >
-          <Text style={s.link}>앞면으로</Text>
-        </TouchableOpacity>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -259,13 +302,30 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: T.space.sm,
   },
-  title: { ...T.text.heading, color: T.ink, flex: 1 },
+  titleAction: { flex: 1 },
+  title: { ...T.text.heading, ...GROUP_CARD_USER_TEXT, color: T.ink },
+  settingsButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: T.accentBg,
+    borderWidth: 1,
+    borderColor: T.sand,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
   section: { padding: T.space.sm, borderRadius: 12, backgroundColor: T.paperAlt, gap: 2 },
   summaryScroll: { flex: 1 },
   summaryContent: { gap: T.space.sm },
   sectionTitle: { ...T.text.label, color: T.ink },
   activityList: { gap: T.space.xs },
-  body: { ...T.text.caption, color: T.ink },
+  body: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.ink },
+  announcementBody: { ...T.text.caption, ...GROUP_CARD_USER_TEXT, color: T.inkSub },
   muted: { ...T.text.caption, color: T.inkSub },
   error: { ...T.text.caption, color: T.dangerInk },
   actions: { marginTop: 'auto', gap: T.space.xs },

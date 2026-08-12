@@ -312,18 +312,23 @@ class GroupBetHistoryIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("권한 — 비그룹원은 MEMBER_ONLY, 게스트는 GUEST_FORBIDDEN 으로 거절된다")
-    void rejectsNonMemberAndGuest() {
+    @DisplayName("권한 — 비그룹원만 MEMBER_ONLY, 게스트 그룹원은 일반 그룹원과 같은 이력을 본다 (GROMO-1509)")
+    void rejectsNonMemberButAllowsGuestMember() {
         settledSession(GroupBetStatus.SETTLED, BASE_DATE);
         User outsider = plainUser("비그룹원", false);
-        User guest = plainUser("게스트", true);
 
         assertThatThrownBy(() -> history(outsider.getId(), null, 10))
                 .isInstanceOfSatisfying(GroupException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
-        assertThatThrownBy(() -> history(guest.getId(), null, 10))
-                .isInstanceOfSatisfying(GroupException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.GUEST_FORBIDDEN));
+
+        // 게스트도 소셜 로그인 유저와 동일 취급 — 그룹원이기만 하면 막지 않는다
+        User guest = plainUser("게스트", true);
+        members.add(groupMemberRepository.save(GroupMember.builder()
+                .user(guest).group(group).role(GroupMemberRole.MEMBER).build()));
+
+        assertThat(history(guest.getId(), null, 10).content())
+                .isNotEmpty()
+                .hasSameSizeAs(history(member.getId(), null, 10).content());
     }
 
     @Test

@@ -686,14 +686,18 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("게스트는 개설 불가 → GUEST_FORBIDDEN")
-    void createBetRejectsGuest() {
+    @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 멤버십 검사까지 진행 후 MEMBER_ONLY (GROMO-1509)")
+    void createBetAllowsGuest() {
+        // given: 게스트지만 멤버십이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group()));
+        given(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER_ID, GROUP_ID))
+                .willReturn(Optional.empty());
 
         assertThatThrownBy(() ->
                 groupBetService.createBet(GROUP_ID, CHALLENGE_ID, USER_ID, request(30, today())))
                 .isInstanceOf(GroupException.class)
-                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GUEST_FORBIDDEN);
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
         assertNoStakeCharged();
     }
 
@@ -713,13 +717,14 @@ class GroupBetServiceTest {
     }
 
     @Test
-    @DisplayName("탈퇴한 유저의 참가 시도 — 공유 락 활성 조회가 빈 결과 → NOT_FOUND, 판돈 미차감 (GROMO-801)")
+    @DisplayName("탈퇴한 유저의 참가 시도 — 공유 락 활성 조회가 빈 결과 → USER_NOT_FOUND, 판돈 미차감 (GROMO-801·1247)")
     void joinBetRejectsWithdrawnUser() {
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
 
+        // GROMO-1247: 내기·그룹 부재와 구분되는 요청자 전용 코드다.
         assertThatThrownBy(() -> groupBetService.joinBet(GROUP_ID, SESSION_ID, USER_ID))
                 .isInstanceOf(UserException.class)
-                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.NOT_FOUND);
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
         assertNoStakeCharged();
     }
 

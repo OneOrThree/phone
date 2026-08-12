@@ -20,12 +20,18 @@ import {
 } from '@/services/analyticsEvents';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { HeatmapCellResponse } from '@/types/dto/stats';
-import { todayStr, yesterdayStr, localDateStr, yesterdayStrKst } from '@/utils/localDate';
+import {
+  todayStr,
+  yesterdayStr,
+  localDateStr,
+  yesterdayStrKst,
+  kstDateStr,
+} from '@/utils/localDate';
 import { timeStrToSeconds } from '@/utils/challengeTime';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
 // 올려 daily_screen_time_stats(통계 화면 폰 사용량 지표의 소스)를 채운다.
-// 서버는 (user, reportedAt의 유저 타임존 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
+// 서버는 (user, reportedAt의 KST 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
 //
 // 달성 여부 프로토콜:
 //  - 당일 중간 동기화는 goalAchieved=false 고정. 스크린타임 달성(목표 '이내')은 하루가 끝나야
@@ -35,10 +41,30 @@ import { timeStrToSeconds } from '@/utils/challengeTime';
 //    Monitor는 앱과 무관하게 돌므로 어제 앱을 안 열었어도 마감되며, 처리한 날짜를 계정 스코프로
 //    마킹해 같은 날짜 중복 전송을 막는다. 서버가 null 분값을 0으로 덮어쓰므로 분값은 반드시 함께 보낸다.
 //
-// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 서버는 reportedAt을 유저 타임존
-// (country_code 파생, 미설정 시 UTC 폴백)의 날짜로 환산하는데 현재 앱은 countryCode를 보내지
-// 않아 UTC 폴백 유저가 존재한다. 정오 instant는 기기 오프셋 UTC-11~+12 범위에서 UTC로 환산해도
-// 같은 날짜라, 자정 경계(예: KST 아침 = UTC 전날 밤)의 날짜 오귀속을 막는다.
+// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 이 모듈의 측정 축은 로컬(익스텐션이
+// 로컬 하루로 버킷을 자른다)인데 서버 저장 축은 KST 고정이라(back ZonePolicy.KST, GROMO-1259 —
+// 종전 주석의 'country_code 파생 존·UTC 폴백'은 그때 폐지됐다), 두 축을 잇는 값이 필요하다.
+// 정오를 쓰는 이유: 자정을 쓰면 아주 작은 오프셋 차이로도 날짜가 넘어가는데, 정오는 그 여유를
+// 최대로 벌어 준다. 다만 **모든 존을 덮지는 못한다** — 오프셋 X의 로컬 정오는 KST로 (21 − X)시라,
+// 같은 날짜로 남는 조건은 0 ≤ 21 − X < 24, 즉 **X > UTC−3** 이다.
+//   · UTC+9(KR)  정오 → KST 같은 날 12:00 ✅
+//   · UTC+14     정오 → KST 같은 날 07:00 ✅  (동쪽 끝까지 안전 — 상한은 걸리지 않는다)
+//   · UTC−2      정오 → KST 같은 날 23:00 ✅  (경계 직전)
+//   · UTC−3      정오 → KST **다음 날** 00:00 ❌ (정확히 자정 경계)
+//   · UTC−8(LA)  정오 → KST **다음 날** 05:00 ❌
+// 즉 UTC−3 이하(미주 대부분)는 로컬 측정일 D의 보고가 KST D+1 버킷에 앉는다. 세 군데 쓰기 경로가
+// 전부 같은 localNoonInstant를 쓰므로 **오프셋이 고정인 동안은** 시프트가 균일해 시리즈 전체가
+// 하루씩 밀릴 뿐이다(수용된 한계 L5의 그림자 — docs/date-axis.md §6 G2).
+// ⚠️ **다만 오프셋이 바뀌는 날에는 균일하지 않다 — 버킷 키가 단사(injective)가 아니게 된다.**
+// DST 전환이나 여행으로 이웃한 두 날의 오프셋이 UTC−3 경계를 사이에 두면 **두 로컬 날짜가 같은
+// KST 버킷으로 접힌다**. 예: America/St_Johns 2026-03-07 정오(UTC−3:30) → KST 03-08 00:30,
+// 2026-03-08 정오(UTC−2:30) → KST 03-08 23:30 — **둘 다 03-08**이다. 서버는 (user, 날짜) upsert라
+// 나중 보고가 앞 보고를 **덮어써 그 하루가 사라진다**. kstBucketDateOf 는 같은 접힘을 재현할 뿐
+// 이미 덮인 셀을 되살리지 못한다 — 스트릭이 그 지점에서 끊기는 것은 조회 축이 아니라 **저장이
+// 유실된** 결과다. 고치려면 reportedAt 자체가 로컬 날짜를 잃지 않아야 하고(예: 날짜를 별도 필드로
+// 보내기), 그건 이 티켓 범위 밖이다(G2).
+// ⚠️ 종전 주석의 'UTC-11~+12'는 검산 없이 쓴 오류였다(GROMO-1254 codex 게이트 P3): 서쪽을
+// 통째로 안전하다고 했고 실제로 안전한 +13/+14를 예외로 들어 **양끝이 다 반대**였다.
 
 // 마지막 성공 동기화 상태 — 어제분 마감(분값 보존)과 무변화 스킵 판단에 쓴다.
 // 디바이스 전역 키라 계정을 함께 기록해 다른 계정의 기록에 오염되지 않게 한다.
@@ -137,6 +163,20 @@ function localNoonInstant(dateStr: string): string {
   return new Date(y, m - 1, d, 12, 0, 0).toISOString();
 }
 
+// 로컬 측정일('YYYY-MM-DD') → 그 날의 보고가 서버에서 앉는 **날짜 버킷**(GROMO-1254).
+// 이 모듈의 측정·마감 축은 로컬(익스텐션 gregorianDayString)이지만, 서버는 우리가 보낸
+// reportedAt(= localNoonInstant) instant를 **KST 고정**으로 잘라 버킷을 정한다
+// (back ZonePolicy.KST — GROMO-1259가 country_code 파생 존을 폐지하고 저장·조회 축을 KST로 통일).
+// 그래서 "서버 heatmap에서 이 측정일을 찾으려면 무슨 키인가"는 두 축의 합성이다.
+//
+// ⚠️ 존을 utils/serverZone(getServerZone)에서 읽지 않는다 — 그건 프로필 응답 캐시라
+// 1259 이전에 저장된 값(예: Europe/London)이 남아 있고 콜드 스타트의 프로필 갱신이 실패하면
+// 계속 그 과거 값을 돌려준다. 그 상태로 커서를 잡으면 스트릭이 엉뚱한 셀에서 시작해 1일로
+// 끊긴다 — 이 함수가 고치려던 결함이 다른 원인으로 재현된다(codex pre-PR 게이트 P2).
+function kstBucketDateOf(localDayKey: string): string {
+  return kstDateStr(new Date(localNoonInstant(localDayKey)));
+}
+
 async function readSyncState(userId: string): Promise<ScreenTimeSyncState | null> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState);
@@ -179,18 +219,32 @@ async function writeClosedDate(userId: string, date: string): Promise<void> {
 // 어제 스크린타임 목표 달성 축하 예약(GROMO-629). '연속 목표달성'은 heatmap의
 // screenTimeGoalAchieved를 어제(달성일)부터 뒤로 세어 계산한다 — 포커스 목표 스트릭과 동일 방식
 // (별도 API 불필요, 실패한 날은 heatmap 갭이라 자연히 리셋). 조회 실패 시 연속 1일로 폴백.
+//
+// ⚠️ 이 함수 안에는 **축이 두 개** 산다(GROMO-1254 — 하나로 합치면 반대쪽이 깨진다):
+//  ① 하루 1회 가드·예약 신선도(today) = **로컬**. 달성 판정 자체가 로컬 축이기 때문이다 —
+//     달성은 네이티브 버킷 분값(익스텐션 로컬 하루)을 로컬 목표와 비교해 앱이 내리고, 마감을
+//     트리거하는 것도 로컬 자정 넘김(closedDate !== yesterdayStr())이다. 집중 목표 축하가
+//     KST로 간 이유(goalCelebration — 달성 판정이 **서버** KST 버킷)가 여기엔 성립하지 않는다.
+//     소비 측(HomeScreen p.date · screentimeLastRewardedDate)도 같은 로컬 축이라 체인이 온전하다.
+//  ② 연속 달성일 카운트 = **서버 버킷 축(= KST 고정, back ZonePolicy.KST)**. 이건 서버 heatmap
+//     셀을 뒤로 세는 데이터 결합 계산이라 커서·조회 창이 셀과 같은 축이어야 한다. 종전엔 로컬
+//     측정일에서 그대로 후진해, 비KST 기기는 존재하는 셀을 못 찾아 스트릭이 매번 1일로 리셋됐다.
 async function scheduleYesterdayScreenTimeCelebration(
   achievedDate: string,
   goalMinutes?: number,
 ): Promise<void> {
-  const today = todayStr();
+  const today = todayStr(); // ① 로컬 — 위 주석 참고
   // 하루 1회 가드 — 오늘 이미 노출했거나 이미 오늘 예약이 있으면 재계산·재예약하지 않는다.
   if ((await AsyncStorage.getItem(STORAGE_KEYS.screentimeLastRewardedDate)) === today) return;
   if ((await readPendingScreenTimeCelebration())?.date === today) return;
 
   // achievedDate(어제)는 달성 확정 → 1일. 그 전날부터 60일 창을 넓혀가며 연속 달성일을 센다.
+  // ② 커서의 출발점은 로컬 측정일이 아니라 **그 보고가 서버에서 앉는 셀**이다 — 우리가 방금
+  // saveScreenTime으로 올린 instant(localNoonInstant(achievedDate))를 KST로 자른 값.
+  // 이후 산술은 이 문자열에 대한 순수 달력 산술이라, 아래 localDateStr는 존 변환이 아니라
+  // parts 생성자로 만든 달력 Date의 포매팅이다(stats/format.heatmapRange와 같은 관례).
   let days = 1;
-  const [ay, am, ad] = achievedDate.split('-').map(Number);
+  const [ay, am, ad] = kstBucketDateOf(achievedDate).split('-').map(Number);
   const cursor = new Date(ay, am - 1, ad);
   cursor.setDate(cursor.getDate() - 1);
   const CHUNK_DAYS = 60;

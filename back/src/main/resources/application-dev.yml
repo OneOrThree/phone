@@ -27,6 +27,9 @@ jwt:
   # 찔러볼 때 1시간마다 재발급해야 하는 불편이 생긴다. dev 만 30일로 두고 prod 는 3600(1시간) 유지.
   access-expiration: 2592000
   refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
@@ -95,6 +98,10 @@ link:
   base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT:dev-salt}
+  # dev 는 앞단 프록시가 없다(docker-compose.dev.yml 은 app·db 뿐) — 전달 헤더가 정당할 수 없는
+  # 구성인데 app 이 0.0.0.0:8080 으로 열려 있어, 헤더를 읽으면 호출자가 자기 신원을 골라
+  # 게스트 생성 레이트리밋(GROMO-1510)을 우회할 수 있다. 그래서 빈 목록 = 헤더 무시, remoteAddr 만.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:}
   # 실제 출시 App Store 링크 (GROMO-1086). 기본값 자체가 유효한 링크라 env 미설정이어도 정상 동작한다 —
   # 플레이스홀더 id 를 기본값으로 두었던 탓에 미설치 유저가 "사용할 수 없는 앱" 화면을 만났다.
   store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}

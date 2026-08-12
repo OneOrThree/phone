@@ -22,6 +22,11 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
+let mockIsGuest = false;
+jest.mock('@/store/UserContext', () => ({
+  useUser: () => ({ isGuest: mockIsGuest }),
+}));
+
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupJoinAttempted: jest.fn(),
   logGroupInviteSheetViewed: jest.fn(),
@@ -84,6 +89,7 @@ function overview(over: Partial<GroupOverviewResponse> = {}): GroupOverviewRespo
 
 const onClose = jest.fn();
 const onJoined = jest.fn();
+const onLogin = jest.fn();
 
 // RTL v14의 render는 async다 — 반드시 await한다(안 하면 쿼리가 붙지 않은 thenable이 돌아온다).
 // 마운트 직후 프리뷰 조회(getGroupOverview) 프라미스까지 흘려보낸다 —
@@ -96,6 +102,7 @@ async function renderSheet(props?: { slug?: string | null; entry?: 'link' | 'def
       entry={props?.entry ?? 'link'}
       onClose={onClose}
       onJoined={onJoined}
+      onLogin={onLogin}
     />,
   );
   await act(async () => {});
@@ -112,6 +119,7 @@ async function press(label: string) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockIsGuest = false;
   mockGetMyGroups.mockResolvedValue([]); // 기본: 소속 그룹 없음
   // 참여 잠금은 모듈 스코프다(joinLock.ts) — 한 테스트가 잠금을 쥔 채 끝나면 뒤 테스트의
   // 참여 버튼이 처음부터 잠겨 있다. 테스트 사이를 확실히 끊는다.
@@ -427,6 +435,7 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
+          onLogin={onLogin}
         />,
       );
     });
@@ -459,6 +468,7 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
+          onLogin={onLogin}
         />,
       );
     });
@@ -501,6 +511,7 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
+          onLogin={onLogin}
         />,
       );
     });
@@ -548,6 +559,7 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
+          onLogin={onLogin}
         />,
       );
     });
@@ -671,6 +683,7 @@ describe('초대 시트 노출 계측', () => {
           entry="deferred"
           onClose={onClose}
           onJoined={onJoined}
+          onLogin={onLogin}
         />,
       );
     });

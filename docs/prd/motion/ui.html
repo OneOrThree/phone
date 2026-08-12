@@ -509,6 +509,101 @@
     will-change: transform; opacity: 0;
   }
 
+  /* ── 그룹 · 챌린지 (GROMO-1402) ── */
+  .sect { font-size: 10.5px; font-weight: 800; color: var(--ink-sub); margin: 3px 0 -3px; }
+  .chalcard {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 13px; padding: 10px 11px;
+    will-change: transform, opacity;
+  }
+  .chalcard .ch-ttl { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; }
+  .chalcard .ch-goal {
+    margin-left: auto; font-size: 10px; font-weight: 700;
+    background: var(--accent-soft); color: var(--accent-deep);
+    border: 1px solid var(--accent-line); border-radius: 20px; padding: 1px 7px;
+  }
+  .chalcard .prow { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10.5px; }
+  .chalcard .prow .nk { font-weight: 700; color: var(--ink-sub); }
+  .chalcard .prow .pv { margin-left: auto; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .chalcard .prow .pv.done { color: var(--green); }
+  /* 눌리는 자리는 카드가 아니라 이 둘이다 — 카드 루트는 비터치 View */
+  .chalcard .ch-x {
+    margin-left: 4px; width: 16px; height: 16px; border-radius: 8px;
+    display: grid; place-items: center;
+    font-size: 9px; color: var(--ink-muted); background: var(--surface-2);
+    will-change: transform;
+  }
+  .chalcard .ch-cta {
+    margin-top: 9px; text-align: center;
+    background: var(--accent); color: #fff;
+    border-radius: 10px; padding: 7px; font-size: 11px; font-weight: 800;
+    will-change: transform;
+  }
+
+  /* 멤버 3열 그리드 — 시차 단위는 타일이 아니라 **행**이다(정책 D24) */
+  .mgrid { display: flex; flex-direction: column; gap: 6px; }
+  .mrow { display: flex; gap: 6px; will-change: opacity; }
+  .mtile {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 11px; padding: 8px 4px;
+  }
+  .mtile .ava { position: relative; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-light); }
+  .mtile .ava .no {
+    position: absolute; left: -4px; top: -4px; min-width: 13px; height: 13px;
+    border-radius: 7px; background: var(--accent); color: #fff;
+    font-size: 8px; font-weight: 800; display: grid; place-items: center;
+    border: 1.5px solid var(--surface);
+  }
+  .mtile .nm { font-size: 9.5px; font-weight: 700; }
+  .mtile .tm { font-size: 9.5px; font-weight: 800; color: var(--accent-deep); }
+
+  /* 내기 시트 참여자 진행 바 — **정적이다**(등급 0). 참가자마다 한 행이라 최대 10개가
+     동시에 떠 D10 의 width 애니메이션 상한(1~3)을 넘고, 둥근 캡이라 scaleX 로도 못 간다
+     (정책 D25-2). 채우기 연출을 넣지 않는다 — 폭은 처음부터 최종값이다. */
+  .brow { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 10px; }
+  .brow .bn { width: 34px; font-weight: 700; color: var(--ink-sub); }
+  .brow .bt { flex: 1; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .brow .bf { height: 100%; width: 0%; border-radius: 3px; background: var(--accent); }
+  .brow .bv { width: 46px; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  /* 챌린지 결과 모달 — 리그 결과와 같은 다크 radial */
+  .cres {
+    position: absolute; inset: 0;
+    background: radial-gradient(115% 70% at 50% 30%, var(--n-top), var(--n-bottom));
+    display: flex; flex-direction: column; align-items: center; padding: 26px 16px 16px;
+  }
+  .cres .cap2 { font-size: 10px; font-weight: 700; color: var(--n-muted); }
+  .cres h3 { margin: 2px 0 8px; font-size: 15px; font-weight: 800; color: var(--n-cream); }
+  .cres .glow {
+    width: 76px; height: 76px; border-radius: 50%; display: grid; place-items: center;
+    background: radial-gradient(circle, rgba(183, 188, 240, 0.32), transparent 68%);
+  }
+  .cres .chr {
+    width: 46px; height: 46px; border-radius: 14px;
+    background: linear-gradient(160deg, #f7d97e, #d9962a);
+    will-change: transform;
+  }
+  .cres .meta { font-size: 10px; color: var(--n-muted); margin-top: 5px; }
+  .cres .grp { width: 100%; margin-top: 9px; will-change: transform, opacity; }
+  .cres .gh { font-size: 10px; font-weight: 800; margin-bottom: 4px; }
+  .cres .gh.ok { color: var(--n-green); }
+  .cres .gh.no { color: var(--n-muted); }
+  .cres .gh.wait { color: var(--n-gold); }
+  .cres .nrow {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+    font-size: 10px; color: var(--n-cream);
+    background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 4px 8px;
+  }
+  .cres .nrow .dl { margin-left: auto; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .cres .nrow .dl.plus { color: var(--n-green); }
+  .cres .nrow .dl.minus { color: #e8908f; }
+  .cres .cta2 {
+    margin-top: auto; width: 100%; text-align: center;
+    background: var(--n-cream); color: var(--n-bottom);
+    border-radius: 12px; padding: 9px; font-size: 11.5px; font-weight: 800;
+  }
+
   .callout {
     border: 1px solid var(--accent-line); background: var(--accent-soft);
     border-radius: 12px; padding: 14px 16px; font-size: 13.5px; margin: 26px 0 0;
@@ -792,6 +887,134 @@
         </div>
       </div>
     </div>
+
+    <!-- ══ 그룹방 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>그룹방 — 리스트가 둘이다</h2><span class="grade">등급 2 · 1</span>
+        <button data-play="groupRoom" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        스켈레톤이 걷힌 자리에 <b>챌린지 카드와 멤버 타일이 함께</b> 뜬다 — 개수가 서버
+        데이터에 달린 화면이라 P1이 걸린다. <b>시차는 챌린지 카드에만 건다.</b> 0에서 다시
+        시작하는 시차가 한 화면에 둘이면 "리스트가 두 번 그려진다"로 읽힌다. 그래서 그리드는
+        <b>래퍼 하나만</b> 페이드한다(정책 D24) — 행 단위로 나누면 지연 축이 그대로
+        <span class="mono">0/60/120ms</span>고, 행마다 지연 0을 줘도 <b>동시 애니메이션 수</b>가
+        멤버 수만큼 늘어난다. 래퍼 하나면 멤버가 몇이든 <b>애니메이션은 1개</b>다.
+        멤버 수치에 카운트업을 붙이지 않는 것도 같은 이유다 — 반복 요소라 P5가 깨진다(D25-1).
+        <br>이 프레임은 <b>정원을 꽉 채운 10명</b>이다. 그리드가 화면 아래로 잘리는 게 보이는데,
+        그게 시차를 아끼는 세 번째 이유다 — <b>대부분 첫 화면 밖이라</b> 보이지도 않는 연출에
+        진입 프레임을 쓴다.
+      </p>
+      <div class="phone" id="pGroupRoom">
+        <div class="screen">
+          <div class="topbar">
+            <div class="nick" style="font-size:15px">우리반 공부방</div>
+            <div class="rankbadge">10/10</div>
+          </div>
+          <div class="scroll" id="groomBody"></div>
+          <div class="tabbar">
+            <div class="pill" style="transform:translateX(172px)"></div>
+            <div class="tab">홈</div><div class="tab">리그</div>
+            <div class="fab"></div>
+            <div class="tab on">그룹</div><div class="tab">전체</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 챌린지 카드 · 내기 시트 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>챌린지 카드 → 내기 시트</h2><span class="grade">등급 1 · 0</span>
+        <button data-play="challenge" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        카드의 멤버 진행은 <b>진행 바가 아니라 텍스트 두 개</b>다(닉네임 + <span class="mono">32/60분</span>) —
+        그리고 <b>그대로 둔다</b>. 값이 바뀌면 즉시 교체다(등급 0).
+        <b>눌리는 것은 카드가 아니라 안쪽 버튼이다</b> — 카드 루트는 GROMO-1101 이후
+        비터치 <span class="mono">View</span>라, 카드 전체 탭이라는 동선은 앱에 없다.
+        <span class="mono">PressableScale</span>은 CTA·삭제 X 같은 <b>버튼에만</b> 붙는다.
+        시트 안 참여자 진행 바는 <b>채우지 않는다</b> — 참가자마다 한 행이라 정원대로
+        <b>최대 10개</b>가 동시에 뜨고, 이는 <span class="mono">width</span> 애니메이션 상한(1~3)을
+        넘는다. 둥근 캡이라 <span class="mono">scaleX</span>로도 못 간다(정책 D25-2).
+        <b>시트가 올라오는 스프링이 이미 이 표면의 진입 연출이다.</b>
+      </p>
+      <div class="phone" id="pChallenge">
+        <div class="screen">
+          <div class="topbar">
+            <div class="nick" style="font-size:15px">우리반 공부방</div>
+            <div class="rankbadge">10/10</div>
+          </div>
+          <div class="scroll">
+            <div class="sect">챌린지</div>
+            <!-- 카드 루트는 비터치다 — 여기에 눌림을 걸지 않는다 -->
+            <div class="chalcard" id="chalCard">
+              <div class="ch-ttl">아침 집중 <span class="ch-goal">60분</span>
+                <span class="ch-x" id="chalDelete">✕</span>
+              </div>
+              <div class="prow"><span class="nk">재영</span><span class="pv" id="chalMine">32/60분</span></div>
+              <div class="prow"><span class="nk">민서</span><span class="pv done">달성 ✓</span></div>
+              <div class="prow"><span class="nk">지훈</span><span class="pv">18/60분</span></div>
+              <!-- 눌리는 자리 = 명시적 버튼 -->
+              <div class="ch-cta" id="chalCta">내기 참가</div>
+            </div>
+          </div>
+          <div class="dim" id="betDim"></div>
+          <div class="sheet" id="betPanel">
+            <div class="grabber"></div>
+            <div style="font-size:12.5px;font-weight:800;margin-bottom:9px">지금 참여 중인 사람</div>
+            <!-- 진행 바는 정적이다(등급 0) — 폭이 처음부터 최종값이다 -->
+            <div class="brow"><span class="bn">재영</span><span class="bt"><span class="bf" style="width:53%"></span></span><span class="bv">32/60분</span></div>
+            <div class="brow"><span class="bn">민서</span><span class="bt"><span class="bf" style="width:100%"></span></span><span class="bv">달성 ✓</span></div>
+            <div class="brow"><span class="bn">지훈</span><span class="bt"><span class="bf" style="width:30%"></span></span><span class="bv">18/60분</span></div>
+            <div class="brow"><span class="bn">수빈</span><span class="bt"><span class="bf" style="width:72%"></span></span><span class="bv">43/60분</span></div>
+            <div class="brow"><span class="bn">하늘</span><span class="bt"><span class="bf" style="width:15%"></span></span><span class="bv">9/60분</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 챌린지 결과 모달 ══ -->
+    <div class="slot">
+      <div class="cap">
+        <h2>챌린지 결과 — 축하 템플릿으로</h2><span class="grade">등급 3 · 2</span>
+        <button data-play="result" style="margin-left:auto">재생</button>
+      </div>
+      <p class="desc">
+        지금은 <b>카드 전체가 레거시 <span class="mono">Animated</span>로 팝인</b>한다 —
+        <span class="mono">duration 420</span>도 <span class="mono">Easing.out(Easing.back(1.2))</span>도
+        토큰에 없고, <span class="mono">useMotion</span>을 타지 않아 <b>'동작 줄이기'를 무시한다.</b>
+        목표 달성 모달과 같은 배치로 바꾼다 — 카드는 모달의 페이드, 오버슛은 <b>캐릭터</b>의
+        <span class="mono">pop()</span>, 명단 3구획은 <span class="mono">enterUp</span> 시차(정책 D23).
+      </p>
+      <div class="phone night" id="pResult">
+        <div class="screen">
+          <div class="cres">
+            <div class="cap2">챌린지 결과</div>
+            <h3>2명이 해냈어요</h3>
+            <div class="glow"><div class="chr" id="cresChar"></div></div>
+            <div class="meta">우리반 공부방 · 8월 11일 결과</div>
+
+            <div class="grp" data-cgrp>
+              <div class="gh ok">달성</div>
+              <div class="nrow">민서 · 62/60분<span class="dl plus">+120</span></div>
+              <div class="nrow">재영 · 60/60분<span class="dl plus">+120</span></div>
+            </div>
+            <div class="grp" data-cgrp>
+              <div class="gh no">미달성</div>
+              <div class="nrow">지훈 · 41/60분<span class="dl minus">−120</span></div>
+            </div>
+            <div class="grp" data-cgrp>
+              <div class="gh wait">미판정</div>
+              <div class="nrow">하늘 · 기록 없음<span class="dl">환불</span></div>
+            </div>
+
+            <div class="cta2">확인</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="callout">
@@ -918,6 +1141,30 @@
           el.style.transform = `translateY(${12 * (1 - e)}px)`;
         });
       }, stagger(i));
+    }
+
+    /* fadeIn — 이동거리를 줄 수 없는 자리(그룹방 멤버 그리드 행 등). quick · standard
+       ⚠️ RN 쪽 대응은 `fadeIn(m.stagger(i))` 다. `fadeIn` 은 **인덱스가 아니라 지연 ms** 를
+          받으므로 `fadeIn(i)` 로 쓰면 지연이 0·1·2ms 가 되어 시차가 사라진다. 여기서 인덱스를
+          받는 건 이 헬퍼가 내부에서 stagger() 로 변환하기 때문이다. */
+    function fadeInEl(el, i) {
+      if (REDUCE) { el.style.opacity = '1'; return; }
+      el.style.opacity = '0';
+      setTimeout(() => play(M.dur.quick, (p) => (el.style.opacity = String(EASE.standard(p)))), stagger(i));
+    }
+
+    /* pop — 0 → (70%) 1.25 → 1. 축하 순간의 리빌 전용(스트릭 ✓·배지·결과 캐릭터).
+       ⚠️ CSS 키프레임의 타이밍 함수는 **구간마다** 적용된다. 두 구간을 각각 EASE.out 으로
+          이어야 실제 pop() 프리셋과 같은 궤적이 된다. */
+    function popIn(el, delayMs = 0) {
+      if (REDUCE) { el.style.transform = 'none'; return; }
+      el.style.transform = 'scale(0)';
+      setTimeout(() => play(M.dur.slow, (p) => {
+        const v = p <= 0.7
+          ? 1.25 * EASE.out(p / 0.7)
+          : 1.25 + (1 - 1.25) * EASE.out((p - 0.7) / 0.3);
+        el.style.transform = `scale(${v})`;
+      }), delay(delayMs));
     }
 
     function countUp(el) {
@@ -1448,10 +1695,174 @@
       }, delay(1600)));
     }
 
+    /* ══ 그룹방 ══
+       실제 화면 순서 그대로다(GroupRoomScreen 레이아웃 주석) — 헤더 → 공지 → 챌린지 → 멤버 3열.
+       두 리스트가 한 ScrollView 를 공유하는 화면이라, 시차 축을 하나로 줄이는 게 이 시안의 요지다. */
+    // 정원 상한(MEMBERS_MAX = 10)을 그대로 채운다 — 시차 결정의 근거가 **최대 개수**라
+    // 최악의 경우를 보여야 한다. 3열이므로 4행이고, staggerMaxSteps(6) 안에 들어간다.
+    const GROOM_MEMBERS = [
+      { n: '민서', t: '32시간' }, { n: '지훈', t: '30시간' }, { n: '수빈', t: '28시간' },
+      { n: '하늘', t: '26시간' }, { n: '재영', t: '24시간' }, { n: '도윤', t: '21시간' },
+      { n: '서아', t: '19시간' }, { n: '준호', t: '17시간' }, { n: '유진', t: '14시간' },
+      { n: '태윤', t: '11시간' },
+    ];
+    const GROOM_CHALLENGES = [
+      { ttl: '아침 집중', goal: '60분', rows: [['재영', '32/60분', ''], ['민서', '달성 ✓', 'done']] },
+      { ttl: '저녁 마무리', goal: '90분', rows: [['지훈', '54/90분', ''], ['수빈', '12/90분', '']] },
+    ];
+    let groomTimer = null;
+    let groomPulse = null;
+
+    function renderGroom(mode) {
+      const box = $('#groomBody');
+      if (mode === 'skel') {
+        box.innerHTML =
+          '<div class="skel" style="height:11px;width:34%"></div>' +
+          '<div class="skel" style="height:56px"></div>'.repeat(2) +
+          '<div class="skel" style="height:11px;width:24%;margin-top:3px"></div>' +
+          '<div class="skel" style="height:62px"></div>'.repeat(2);
+        return box;
+      }
+      const rows = [];
+      for (let i = 0; i < GROOM_MEMBERS.length; i += 3) rows.push(GROOM_MEMBERS.slice(i, i + 3));
+      box.innerHTML =
+        '<div class="sect">챌린지</div>' +
+        GROOM_CHALLENGES.map((c) => `
+          <div class="chalcard" data-center>
+            <div class="ch-ttl">${c.ttl} <span class="ch-goal">${c.goal}</span></div>
+            ${c.rows.map(([n, v, k]) =>
+              `<div class="prow"><span class="nk">${n}</span><span class="pv ${k}">${v}</span></div>`).join('')}
+          </div>`).join('') +
+        '<div class="sect">멤버</div>' +
+        '<div class="mgrid">' + rows.map((r, ri) => `
+          <div class="mrow" data-mrow>
+            ${r.map((m, ci) => `
+              <div class="mtile">
+                <div class="ava"><span class="no">${ri * 3 + ci + 1}</span></div>
+                <div class="nm">${m.n}</div><div class="tm">${m.t}</div>
+              </div>`).join('')}
+          </div>`).join('') + '</div>';
+      return box;
+    }
+    renderGroom('real');
+
+    function playGroupRoom() {
+      clearTimeout(groomTimer);
+      cancelAnimationFrame(groomPulse);
+      const box = renderGroom('skel');
+      const skels = $$('.skel', box);
+      // 스켈레톤 펄스 — 묶음 하나에만 건다(무한 루프 화면당 1개 상한). 도착하면 언마운트된다.
+      if (REDUCE) {
+        skels.forEach((s) => (s.style.opacity = '1'));
+      } else {
+        const t0 = performance.now();
+        const loop = (now) => {
+          if (!box.querySelector('.skel')) return;
+          if (REDUCE) { skels.forEach((s) => (s.style.opacity = '1')); return; }
+          const ph = ((now - t0) % (M.dur.celebrate * 2)) / M.dur.celebrate;
+          const o = 0.45 + 0.55 * (ph <= 1 ? ph : 2 - ph);
+          skels.forEach((s) => (s.style.opacity = String(o)));
+          groomPulse = requestAnimationFrame(loop);
+        };
+        groomPulse = requestAnimationFrame(loop);
+      }
+      // ⚠️ 이 1400ms 는 **모션 호흡이 아니라 네트워크 응답을 흉내 낸 데이터 도착 시간**이다.
+      //    delay() 로 감싸면 REDUCE 에서 0 이 되어, 방금 만든 정적 회색 스켈레톤이 사실상
+      //    즉시 언마운트된다 — '동작 줄이기' 시안에서 정작 그 상태를 관찰할 수 없고, 일반
+      //    모드보다 **데이터가 먼저 도착하는** 잘못된 비교가 된다. 타이머는 고정이고,
+      //    억제 대상은 펄스와 도착 뒤의 진입 연출뿐이다(2026-08-12 codex 리뷰).
+      groomTimer = setTimeout(() => {
+        const b2 = renderGroom('real');
+        // 시차는 챌린지 카드에만. 멤버 그리드는 **래퍼 하나만** 페이드한다(정책 D24) —
+        // 행 단위로 시차를 주면 지연 축이 둘이 되고, 행마다 지연 0을 줘도 동시 애니메이션
+        // 수가 멤버 수만큼 늘어난다. 래퍼 하나면 멤버가 몇이든 애니메이션은 1개다.
+        // ⚠️ 여기서 [data-mrow] 를 돌면 시안이 그 무제한 비용을 그대로 시연하고,
+        //    구현자는 「20명이어도 정확히 1개」 테스트 계약과 충돌하는 코드를 쓴다.
+        $$('[data-center]', b2).forEach((el, i) => enterUp(el, i));
+        const mgrid = $('.mgrid', b2);
+        if (mgrid) fadeInEl(mgrid, 0);
+      }, 1400);
+    }
+
+    /* ══ 챌린지 카드 → 내기 시트 ══
+       ⚠️ 눌리는 것은 **카드가 아니라 CTA 버튼**이다. 실제 ChallengeCard 의 루트는
+          GROMO-1101 이후 비터치 <View> 이고(파일 주석: "눌리는 자리는 전부 안쪽의 명시적
+          버튼이다"), 카드 전체 탭이라는 동선은 앱에 없다. 시안이 그걸 만들면 안 된다.
+       ⚠️ 시트 안 참여자 진행 바는 **채우지 않는다**(정책 D25-2). 참가자마다 한 행이라
+          최대 10개가 동시에 마운트돼 D10 의 width 상한(1~3)을 넘고, 둥근 캡이라 scaleX 로도
+          못 간다. 시트 등장 스프링이 이미 이 표면의 진입 연출이다. */
+    let chalTimer = [];
+    function playChallenge() {
+      chalTimer.forEach(clearTimeout);
+      chalTimer = [];
+      const cta = $('#chalCta');
+      const del = $('#chalDelete');
+      const dim = $('#betDim');
+      const panel = $('#betPanel');
+      // 초기화 — 반복 재생해도 같은 상태에서 시작한다
+      panel.style.transform = 'translateY(110%)';
+      dim.style.opacity = '0';
+      $('#chalMine').textContent = '32/60분';
+      cta.style.transform = 'none';
+      del.style.transform = 'none';
+
+      // 1) 눌림 — CTA 버튼에만. PressableScale(press 110ms 하강 → 확정된 복귀 스프링)
+      pressBtn(cta);
+
+      // 2) 시트 등장 — 패널은 spring.snappy, 딤은 quick 페이드. **따로 도는 게 핵심**
+      chalTimer.push(setTimeout(() => {
+        if (REDUCE) {
+          panel.style.transform = 'translateY(0%)';
+          dim.style.opacity = '1';
+        } else {
+          playTrace(SP.snappy, (v) => (panel.style.transform = `translateY(${v * 110}%)`));
+          play(M.dur.quick, (p) => (dim.style.opacity = String(EASE.standard(p))));
+        }
+      }, delay(420)));
+
+      // 3) 카드 뒤의 수치는 **즉시 교체**다(등급 0). 카운트업을 붙이지 않는 이유가 D25-1 이다.
+      chalTimer.push(setTimeout(() => ($('#chalMine').textContent = '41/60분'), delay(1400)));
+
+      // 4) 같은 카드의 **다른 버튼**(삭제 X)도 각자 눌린다 — 카드가 아니라 버튼이 단위임을 보인다
+      chalTimer.push(setTimeout(() => pressBtn(del), delay(2000)));
+    }
+
+    /* PressableScale — 눌림 110ms(scaleTo 0.96) → 확정된 복귀 스프링 d14/s300/m0.65 */
+    function pressBtn(el) {
+      if (REDUCE) { el.style.transform = 'none'; return; }
+      play(M.dur.press, (p) => (el.style.transform = `scale(${1 + (0.96 - 1) * EASE.out(p)})`),
+        () => playTrace(SP.press, (v) => (el.style.transform = `scale(${v})`)));
+    }
+
+    /* ══ 챌린지 결과 모달 ══
+       목표 달성 모달(GoalCelebrationModal)과 같은 배치다 — 카드는 모달의 페이드가 맡고,
+       오버슛은 **캐릭터**의 pop()만, 명단 3구획은 enterUp 시차. */
+    let resultTimer = [];
+    function playResult() {
+      resultTimer.forEach(clearTimeout);
+      resultTimer = [];
+      // ⚠️ 카드 자체의 페이드를 **반드시 시연한다.** D23 이 "카드 팝을 버리고 Modal 페이드가
+      //    진입을 맡는다"로 확정했는데, 시안이 캐릭터와 명단만 재생하면 정작 **그 결정을
+      //    비교·검수할 수 없다**(카드가 처음부터 완전히 노출돼 있으므로). REDUCE 에서는
+      //    즉시 최종 상태 — 이것이 등급 3 표면의 reduce 계약이다(2026-08-12 codex 리뷰).
+      const card = $('.cres', $('#pResult'));
+      if (card) {
+        if (REDUCE) {
+          card.style.opacity = '1';
+        } else {
+          card.style.opacity = '0';
+          play(M.dur.base, (p) => (card.style.opacity = String(EASE.standard(p))));
+        }
+      }
+      popIn($('#cresChar'));
+      $$('[data-cgrp]', $('#pResult')).forEach((el, i) => enterUp(el, i + 1));
+    }
+
     /* ══ 배선 ══ */
     const players = {
       home: playHome, stats: playStats, focus: playFocus,
       league: playLeague, sheet: toggleSheet, celebrate: playCelebrate,
+      groupRoom: playGroupRoom, challenge: playChallenge, result: playResult,
     };
     $$('[data-play]').forEach((b) => b.addEventListener('click', () => players[b.dataset.play]()));
 
@@ -1459,6 +1870,7 @@
       playHome(); playStats(); playFocus(); playLeague();
       if (!sheetOpen) toggleSheet();
       playCelebrate();
+      playGroupRoom(); playChallenge(); playResult();
     });
 
     $('#reduceBtn').addEventListener('click', (e) => {
@@ -1486,7 +1898,8 @@
       });
     }, { threshold: 0.35 });
     [['pHome', 'home'], ['pStats', 'stats'], ['pFocus', 'focus'], ['pLeague', 'league'],
-     ['pCel', 'celebrate']].forEach(([id, key]) => {
+     ['pCel', 'celebrate'], ['pGroupRoom', 'groupRoom'], ['pChallenge', 'challenge'],
+     ['pResult', 'result']].forEach(([id, key]) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.dataset.auto = key;

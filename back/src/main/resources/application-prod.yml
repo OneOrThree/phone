@@ -30,6 +30,9 @@ jwt:
   secret: ${JWT_SECRET}
   access-expiration: 3600
   refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
 
 apple:
   jwks-url: https://appleid.apple.com/auth/keys
@@ -99,6 +102,15 @@ link:
   base-url: ${LINK_BASE_URL:https://link.oneorthree.world}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT}
+  # X-Real-IP '만' 신뢰한다. 인프라 레포의 nginx.conf 는 set_real_ip_from 으로 Cloudflare 대역을
+  # 나열하고 real_ip_header CF-Connecting-IP 를 걸어, TCP 피어가 CF 대역일 때만 그 헤더를 믿어
+  # $remote_addr 을 복원한 뒤 proxy_set_header X-Real-IP $remote_addr 로 넘긴다. 그래서
+  #   - CF 경유: X-Real-IP = 진짜 클라이언트 IP
+  #   - 오리진 직접 접속: realip 이 무시 → X-Real-IP = 접속자의 진짜 IP
+  # 이고, 클라이언트가 X-Real-IP 를 보내도 nginx 가 덮어써서 위조가 안 된다.
+  # 반대로 CF-Connecting-IP·X-Forwarded-For 는 nginx 가 덮어쓰지 않고 통과시키므로(XFF 는 뒤에
+  # 이어붙일 뿐 첫 토큰이 호출자 값) 오리진에 직접 붙으면 레이트리밋 키를 마음대로 고를 수 있다.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:X-Real-IP}
   store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
 
 # GA4 Measurement Protocol 서버 이벤트 (초대 링크 퍼널, 스펙 §6-2) — prod 만 실전송.

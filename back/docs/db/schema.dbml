@@ -566,11 +566,28 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
   stat_end_at               timestamptz [note: 'nullable — 통계 귀속용 유효 종료 = min(ended_at, 완료 시점 now). ended_at 은 재업로드 중복 검사 때문에 클라 값 그대로 저장하므로, 미래 endedAt 위조가 조회 시점마다 더 세지 않도록 완료 순간 클램프를 고정 보관 (GROMO-1252). 레거시 row 는 null → 조회측이 ended_at 폴백']
   focus_seconds_by_date     jsonb       [note: 'nullable — 완료 시점에 확정한 날짜별 집중 초 (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). daily_focus_stats 에 가산한 값과 동일 (GROMO-1252). 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 자르지 않고 이 분포를 쓴다. 레거시 row 는 null → 조회측이 벽시계 클리핑 폴백']
 
-  status                    focus_session_status [not null, default: 'ACTIVE', note: '세션 생명주기 (deleted_at 대체). 라이브 = ACTIVE. 부분 인덱스 idx_focus_sessions_live (user_id, started_at) WHERE status = ACTIVE']
+  status                    focus_session_status [not null, default: 'ACTIVE', note: '세션 생명주기 (deleted_at 대체). 라이브 = ACTIVE(단, GROMO-610 레거시 경로로 ended_at 만 채워진 채 ACTIVE 로 남은 완료 행도 존재 — 라이브 판정은 status 가 아니라 ended_at IS NULL 로 한다). 마감 종류: COMPLETED(정상 완료) / CANCELED(유저 취소·POST 폴백 선점) / AUTO_CLOSED(서버 대신 마감 — orphan 12h 스윕 + 새 마커 시작 시 close-then-open, GROMO-1287). 집계 쿼리는 NOT IN (CANCELED, AUTO_CLOSED) 제외 목록 방식']
 
   total_distraction_seconds integer     [not null, default: 0, note: '집중 중 이탈 누적 시간(초)']
 
   created_at         timestamptz        [not null, default: `now()`]
+
+  // (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도 존재한 적이 없어
+  // GROMO-1287 에서 삭제했다 — 없는 것을 문서가 있다고 말하고 있었다. 아래는 실제로 만든 것이다.)
+  //
+  // 「유저당 라이브 마커(ended_at IS NULL) 1개」 불변식은 현재 **서비스 레이어**가 지킨다
+  // (FocusService.startFocusSession: users 행 배타 락 + close-then-open + startedAt 단조성).
+  // 이를 DB 로 강제하는 부분 유니크 인덱스 — (user_id) WHERE ended_at IS NULL — 는 **후속 티켓**이다:
+  // prod 롤백이 Flyway 를 유지한 채 이미지만 되돌리므로, close-then-open 이 안착하기 전에 인덱스를
+  // 넣으면 롤백된 구버전 서버가 마커 회전마다 유니크 위반 500 을 낸다.
+  //
+  // 다만 **비고유** 부분 인덱스는 롤백해도 INSERT 를 막지 않으므로 V47 이 함께 만든다 — 매 start 가
+  // 배타 락을 쥔 채 (user_id, ended_at IS NULL) 조회와 벌크 마감을 연달아 돌려, 인덱스가 없으면
+  // 요청마다 풀스캔 2회에 락 보유 시간까지 길어진다.
+
+  indexes {
+    (user_id, started_at) [name: 'idx_focus_sessions_live_marker', note: '라이브 마커 조회·마감 전용 **비고유** 부분 인덱스 (WHERE ended_at IS NULL, started_at DESC). migration V47. 유니크가 아닌 이유는 위 주석 — 롤백 호환']
+  }
 }
 
 Table focus_session_pomodoros [note: 'POMODORO 세션 상세 (focus_sessions 1:1, POMODORO 타입 세션만 행 존재). 타입별 필드 분리(CTI)로 focus_sessions NULL 오염 방지'] {

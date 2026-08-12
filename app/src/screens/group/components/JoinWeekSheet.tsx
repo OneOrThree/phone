@@ -9,6 +9,8 @@ import {
   groupErrorCode,
   joinWeekSessions,
 } from '@/services/groupApi';
+import { getAuthSessionGeneration } from '@/services/api';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
@@ -144,6 +146,8 @@ export default function JoinWeekSheet({
     submitLock.current = true;
     setSubmitting(true);
     setErrorMsg(null);
+    // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const result = await joinWeekSessions(groupId, challengeId, targetDates);
       // 참여 계측(#570 codex ⑧) — **성공 시에만**, **행동 1건**으로 센다(3일 예약을 3건으로
@@ -187,6 +191,11 @@ export default function JoinWeekSheet({
         case BET_SCREENTIME_PERMISSION_REQUIRED:
           failAndReload('참여할 수 없어요', '스크린타임 권한을 허용해야 참여할 수 있어요.');
           return;
+        // 유저 부재(GROMO-1247) — 사라진 건 챌린지가 아니라 **내 계정**이다. 새로고침해도
+        // 같은 실패가 오므로 failAndReload가 아니라 재로그인으로 보낸다.
+        case USER_NOT_FOUND:
+          promptSessionExpired(requestSessionGeneration);
+          return;
         case 'NOT_FOUND':
         case 'CHALLENGE_NOT_FOUND':
           failAndReload('사라진 챌린지예요', '방장이 챌린지를 없앴을 수 있어요.');
@@ -199,8 +208,11 @@ export default function JoinWeekSheet({
       }
     } finally {
       submitLock.current = false;
+      // ⚠️ 제출 표시는 **반드시 finally에서** 푼다 — switch의 `return` 분기들이 이 줄을 건너뛴다.
+      //    유저 부재 분기는 세대가 갈리면 아무것도 띄우지 않고 돌아오므로(sessionErrors ①),
+      //    여기서 안 풀면 시트가 dismissible={false} + 스피너로 영구 고정된다(JoinNextSheet 동일).
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   return (
