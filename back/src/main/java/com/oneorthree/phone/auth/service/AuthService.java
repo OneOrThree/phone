@@ -363,8 +363,18 @@ public class AuthService {
             return new TokenRefreshResponse(newAccessToken, null);
         }
 
+        // 해시 교체는 엔티티가 아니라 조건부 UPDATE 로 한다 — 위 해시 조회에 락이 없어서, 엔티티에
+        // 쓰면 full-row UPDATE 가 낡은 스냅샷으로 탈퇴가 세운 is_deleted·파기된 PII 를 되살린다
+        // (User 에 @Version·@DynamicUpdate 없음 — UserRepository.rotateRefreshTokenHash 주석).
         String rotatedRefreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
-        user.setRefreshTokenHash(TokenHasher.sha256Hex(rotatedRefreshToken));
+        int rotated = userRepository.rotateRefreshTokenHash(
+                user.getId(),
+                TokenHasher.sha256Hex(refreshToken),
+                TokenHasher.sha256Hex(rotatedRefreshToken));
+        if (rotated == 0) {
+            // 그 사이 탈퇴·로그아웃·다른 기기 로그인이 먼저 커밋됐다. 끊긴 세션은 되살리지 않는다.
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
         return new TokenRefreshResponse(newAccessToken, rotatedRefreshToken);
     }
 

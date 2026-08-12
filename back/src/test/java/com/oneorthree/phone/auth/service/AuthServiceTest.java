@@ -737,14 +737,38 @@ class AuthServiceTest {
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
         given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(true);
         given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("rotated-rt");
+        given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("old-rt"),
+                TokenHasher.sha256Hex("rotated-rt"))).willReturn(1);
 
         // when
         TokenRefreshResponse response = authService.refreshToken("old-rt");
 
-        // then: 서버가 기억하는 해시가 새 RT 것으로 바뀌어야 한다 — 이게 빠지면 클라와 엇갈려
-        // 다음 갱신에 로그아웃된다(@Transactional 누락 시 실제로 이렇게 샌다)
+        // then: 해시 교체는 엔티티 dirty checking 이 아니라 조건부 UPDATE 로 나가야 한다 —
+        // 엔티티에 쓰면 full-row UPDATE 가 탈퇴가 세운 is_deleted·파기된 PII 를 되살린다(코드리뷰 P1).
         assertThat(response.refreshToken()).isEqualTo("rotated-rt");
-        assertThat(user.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("rotated-rt"));
+        verify(userRepository).rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("old-rt"),
+                TokenHasher.sha256Hex("rotated-rt"));
+        assertThat(user.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("old-rt"));
+    }
+
+    @Test
+    @DisplayName("회전 직전 탈퇴·로그아웃이 끼면 조건부 UPDATE 가 0행 → 401, 끊긴 세션을 되살리지 않는다 (GROMO-1509)")
+    void refreshTokenRejectsWhenRotationLosesRace() {
+        // given: 해시 조회는 통과했지만(락 없는 조회) 교체 시점엔 이미 활성/해시 조건이 깨졌다
+        User user = User.builder().id(USER_ID).refreshTokenHash(TokenHasher.sha256Hex("old-rt")).build();
+        given(jwtProvider.extractType("old-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(jwtProvider.extractExpiration("old-rt")).willReturn(RT_EXPIRES_AT);
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("old-rt")))
+                .willReturn(Optional.of(user));
+        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
+        given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(true);
+        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("rotated-rt");
+        given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("old-rt"),
+                TokenHasher.sha256Hex("rotated-rt"))).willReturn(0);
+
+        // when & then: 새 AT 를 이미 만들었더라도 반환하지 않는다
+        assertThatThrownBy(() -> authService.refreshToken("old-rt"))
+                .isInstanceOf(InvalidTokenException.class);
     }
 
     @Test
@@ -760,6 +784,8 @@ class AuthServiceTest {
         given(jwtProvider.generateAccessToken(USER_ID, true)).willReturn("guest-at");
         given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, true)).willReturn(true);
         given(jwtProvider.generateRefreshToken(USER_ID, true)).willReturn("guest-rotated-rt");
+        given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("guest-rt"),
+                TokenHasher.sha256Hex("guest-rotated-rt"))).willReturn(1);
 
         // when
         TokenRefreshResponse response = authService.refreshToken("guest-rt");

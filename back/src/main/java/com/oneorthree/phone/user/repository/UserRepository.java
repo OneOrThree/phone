@@ -104,6 +104,27 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByRefreshTokenHash(String hash);
 
+    /**
+     * refresh 토큰 해시 조건부 교체 (GROMO-1509) — 회전 전용. 바뀐 행 수를 반환한다.
+     *
+     * <p>엔티티 필드를 고쳐 dirty checking 에 맡기면 안 된다. {@link User} 에는 {@code @Version} 도
+     * {@code @DynamicUpdate} 도 없어 <b>full-row UPDATE</b> 가 나가는데, 회전 경로는 해시를 락 없이
+     * ({@link #findByRefreshTokenHash}) 읽으므로 그 스냅샷이 이미 낡았을 수 있다. 조회와 flush 사이에
+     * 탈퇴(withdraw, 배타 락)가 커밋되면 낡은 스냅샷이 {@code is_deleted=true} 와 파기된 PII 를 통째로
+     * 되살리고, 그 계정에 유효한 refresh 토큰까지 쥐여준다.
+     *
+     * <p>그래서 해시 컬럼만, 그것도 "여전히 활성이고 해시가 그대로일 때만" 바꾸는 조건부 UPDATE 로
+     * 쓴다. 다른 컬럼을 건드리지 않으니 되살릴 것이 없고, 조건이 곧 compare-and-swap 이라 탈퇴·
+     * 로그아웃·다른 기기 로그인과의 경합을 한 번에 막는다. <b>0 이면 그 사이 세션이 끊긴 것이므로
+     * 회전을 포기하고 거절해야 한다</b>(끊긴 세션 부활 금지).
+     */
+    @Modifying
+    @Query("UPDATE User u SET u.refreshTokenHash = :newHash"
+            + " WHERE u.id = :id AND u.refreshTokenHash = :expectedHash AND u.isDeleted = false")
+    int rotateRefreshTokenHash(@Param("id") UUID id,
+                               @Param("expectedHash") String expectedHash,
+                               @Param("newHash") String newHash);
+
     // 닉네임 trgm fuzzy 검색 (NicknameSearchStrategy에서 호출).
     // 전제: pg_trgm 확장 + users.nickname GIN trgm 인덱스 (run-migration-v13.sh).
     // % = 트라이그램 유사도 매칭, <-> = 거리(가까운 순). 임계값 튜닝은 실데이터 기준(한글 gotcha 주의).
