@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { GroupCardBack } from './GroupCardBack';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
@@ -23,6 +24,30 @@ const baseProps = {
 };
 
 beforeEach(() => jest.clearAllMocks());
+
+test('뒷면은 상단 색선을 두지 않고 흰 표면과 낮은 하단 그림자로 구분한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  const back = screen.getByTestId('group.card.back.g1');
+  expect(back).toHaveStyle({
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#1E2340',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  });
+  const style = StyleSheet.flatten(back.props.style);
+  expect(style.borderTopWidth).toBeUndefined();
+  expect(style.borderTopColor).toBeUndefined();
+});
+
+test('카드 축소 후에도 CTA 터치 영역은 44pt 이상을 유지한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.focus.g1')).toHaveStyle({ height: 46 });
+  expect(screen.getByTestId('group.card.room.g1')).toHaveStyle({ height: 46 });
+});
 
 test('완전한 focus 응답에서만 확인된 0명을 표시한다', async () => {
   await render(
@@ -86,6 +111,29 @@ test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한
   expect(screen.getByTestId('group.card.focus.g1')).toBeOnTheScreen();
   expect(screen.getByTestId('group.card.room.g1')).toBeOnTheScreen();
   expect(screen.queryByText('현재 집중 0명')).toBeNull();
+});
+
+test('오류 재시도는 카드 축소 후에도 44pt 터치 영역과 충분한 대비를 유지한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'error', error: new Error('detail') },
+        announcements: { status: 'error', error: new Error('announcements') },
+        challenges: { status: 'error', error: new Error('challenges') },
+        focus: { status: 'error', error: new Error('focus') },
+      }}
+    />,
+  );
+
+  for (const dependency of ['detail', 'focus', 'announcements', 'challenges']) {
+    const retry = screen.getByTestId(`group.card.retry.${dependency}`);
+    expect(retry).toHaveStyle({ minHeight: 46 });
+    expect(retry.props.accessibilityRole).toBe('button');
+  }
+  expect(screen.getByText(/멤버 정보를 확인하지 못했어요/)).toHaveStyle({
+    color: '#B04C41',
+  });
 });
 
 test('멤버를 받아도 focus가 조회 중이면 오류 대신 로딩을 표시한다', async () => {

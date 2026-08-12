@@ -26,7 +26,11 @@ import {
   type GroupEntrySource,
 } from '@/navigation/groupEntrySource';
 import type { CardInteractionContext } from '@/services/cardInteraction';
-import GroupListScreen, { GROUP_CARD_HEIGHT } from './GroupListScreen';
+import GroupListScreen, {
+  estimateGroupDeckViewportHeight,
+  GROUP_CARD_SURFACE_SCALE,
+  resolveGroupCardHeight,
+} from './GroupListScreen';
 import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
 import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
@@ -56,8 +60,11 @@ function groupCountBucket(count: number): GroupCountBucket {
 const HEADER_TEXT_H = 30;
 
 export default function GroupScreen() {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [loadingDeckViewportHeight, setLoadingDeckViewportHeight] = useState(() =>
+    estimateGroupDeckViewportHeight(windowHeight, insets.top),
+  );
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const isScreenFocused = useIsFocused();
   const { userId } = useUser();
@@ -351,6 +358,7 @@ export default function GroupScreen() {
   // transitioning의 원래 목적(성공한 mutation을 후속 GET 실패가 삼키는 것 방지)은
   // 아래 **에러 가드**에 그대로 남아 있어 지켜진다.
   if (groups === null && loading) {
+    const loadingCardHeight = resolveGroupCardHeight(loadingDeckViewportHeight, insets.bottom);
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         {/* 중앙 스피너 대신 캐러셀 실루엣(GROMO-1381) — 헤더 + 300pt 카드 + 다음 카드 peek로,
@@ -358,16 +366,47 @@ export default function GroupScreen() {
             펄스(무한 루프)도 함께 언마운트된다.
             묶음 전체를 SkeletonGroup 하나로 감싸 펄스를 이 한 겹에만 건다 — 블록마다 루프를
             돌리면 "화면당 무한 루프 1개" 상한을 위반한다(codex 리뷰). */}
-        <SkeletonGroup testID="group.list.skeleton">
+        <SkeletonGroup style={s.skeletonGroup} testID="group.list.skeleton">
           <View style={s.skeletonHeader}>
             <Skeleton w={110} h={HEADER_TEXT_H} radius={8} />
           </View>
-          <View style={s.skeletonDeck} testID="group.deck.skeleton">
-            <View style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}>
-              <Skeleton w="100%" h={GROUP_CARD_HEIGHT} radius={22} />
+          <View
+            style={s.skeletonDeck}
+            testID="group.deck.skeleton"
+            onLayout={(event) => {
+              const next = event.nativeEvent.layout.height;
+              setLoadingDeckViewportHeight((current) => (current === next ? current : next));
+            }}
+          >
+            <View
+              style={[
+                s.skeletonCard,
+                s.cardSurfaceScale,
+                { width: groupDeckCardWidth(windowWidth) },
+              ]}
+              testID="group.deck.skeleton.cardSurface"
+            >
+              <Skeleton
+                w="100%"
+                h={loadingCardHeight}
+                radius={22}
+                testID="group.deck.skeleton.card"
+              />
             </View>
-            <View style={s.skeletonPeek}>
-              <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
+            <View
+              style={[
+                s.skeletonCard,
+                s.cardSurfaceScale,
+                { width: groupDeckCardWidth(windowWidth) },
+              ]}
+              testID="group.deck.skeleton.peekSurface"
+            >
+              <Skeleton
+                w="100%"
+                h={loadingCardHeight}
+                radius={22}
+                testID="group.deck.skeleton.peek"
+              />
             </View>
           </View>
         </SkeletonGroup>
@@ -416,6 +455,7 @@ export default function GroupScreen() {
           groupEntry={viewEpisodeRef.current.source}
           guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
           guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
+          initialDeckViewportHeight={loadingDeckViewportHeight}
         />
         {findSheet}
         {inviteSheet}
@@ -460,12 +500,15 @@ const s = StyleSheet.create({
   // (그룹의 스택 화면 GroupCreate·GroupNotice는 FriendAdd·알림과 같은 T.bg를 유지한다.)
   root: { flex: 1, backgroundColor: T.paperLight },
   // 로딩 자리표시자 — 여백은 GroupListScreen의 header·listContent와 같은 값이어야 자리가 맞는다.
+  skeletonGroup: { flex: 1 },
   skeletonHeader: {
     paddingHorizontal: T.space.xl,
     paddingTop: T.space.sm,
     paddingBottom: T.space.md,
+    minHeight: 68,
   },
   skeletonDeck: {
+    flex: 1,
     flexDirection: 'row',
     gap: 12,
     paddingLeft: 24,
@@ -473,7 +516,7 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   skeletonCard: {},
-  skeletonPeek: { width: 36 },
+  cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
   body: {
     flex: 1,
     alignItems: 'center',
