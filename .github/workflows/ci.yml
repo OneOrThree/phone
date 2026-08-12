@@ -5,6 +5,12 @@ on:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 prod-ci가 test를 직접 호출
     paths:
       - "back/**"
+      # CI 자신과 CI 가 호출하는 워크플로도 트리거에 넣는다. 안 넣으면 이 파일들만
+      # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/test-backend.yml"
+      - ".github/workflows/check-style-backend.yml"
+      - ".github/workflows/spot-bugs.yml"
   workflow_dispatch:
 
 concurrency:

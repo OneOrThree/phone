@@ -7,6 +7,11 @@ on:
       # 도메인 기반 패키지 구조라 컨트롤러는 phone/<domain>/api/ 에 흩어져 있음.
       # DTO·enum 변경도 OpenAPI 스키마에 반영되므로 백엔드 소스 전체를 감시한다.
       - 'back/src/main/java/**'
+      # openApi 블록(대기 시간·문서 URL·출력 경로)과 의존성이 여기 있다 (GROMO-1515).
+      # 안 넣으면 이 설정을 고치는 PR 에서 정작 이 워크플로가 안 돌아 **머지해 봐야** 안다.
+      - 'back/build.gradle'
+      # 이 워크플로 자신도 트리거에 넣는다 — 위와 같은 이유다.
+      - '.github/workflows/api-dog-generate.yml'
   workflow_dispatch:
 
 jobs:
@@ -21,7 +26,9 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
         ports:
-          - 5432:5432
+          # 호스트 포트 고정 금지 — 러너 3개가 VM 한 대를 공유해 5432 가 겹친다.
+          # 상세는 test-backend.yml 의 같은 위치 주석 참조 (GROMO-1515).
+          - 5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -69,6 +76,10 @@ jobs:
         working-directory: back
         env:
           SPRING_PROFILES_ACTIVE: ci
+          # 위에서 호스트 포트를 도커에 맡겼으니 실제 매핑 포트를 넘긴다.
+          # 이 env 는 플러그인이 fork 하는 bootRun JVM 까지 상속된다 — 바로 위
+          # SPRING_PROFILES_ACTIVE 가 같은 경로로 이미 동작하고 있는 게 근거다.
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:${{ job.services.postgres.ports['5432'] }}/tt_db
         run: ./gradlew generateOpenApiDocs
 
       - name: Set deploy destination

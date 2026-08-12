@@ -1,9 +1,9 @@
 package com.oneorthree.phone.invitelink.service;
 
+import com.oneorthree.phone.common.util.ClientIpResolver;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.domain.InviteLinkClick;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
-import com.oneorthree.phone.invitelink.support.ClientIpResolver;
 import com.oneorthree.phone.invitelink.support.InviteLinkGa4Events;
 import com.oneorthree.phone.invitelink.support.IpHasher;
 import com.oneorthree.phone.invitelink.support.UserAgentClassifier;

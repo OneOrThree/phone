@@ -73,6 +73,18 @@ public class FocusSession {
     // 과거 nullable=false 였으나 '시작만 저장' 경로를 위해 NOT NULL 제거 — friend isFocusing 판정(endedAt IS NULL) 전제.
     private Instant endedAt;
 
+    // GROMO-1287: 시작 요청이 실어 보낸 **클램프 이전** 클라 시각 — 마커 순서 판정 전용이다.
+    // startedAt 은 clampToServerNow 를 거쳐 저장되는데, 5분 넘게 백그라운드에 있다 여러 블록을
+    // 리플레이하면 과거 시각들이 **전부 서버 now 로 치환**돼 논리 순서가 지워진다. 그 상태에서
+    // 새 요청의 원시 시각을 저장된(=클램프된) 값과 비교하면 **축이 어긋나** 논리적으로 더 늦은
+    // 블록이 과거로 판정되고, 그 블록이 마커를 못 받아 라이브 표시가 비고 정산 가드까지 풀린다.
+    // 그래서 원시끼리 비교할 수 있도록 이 값을 따로 남긴다.
+    //
+    // ⚠️ 저장·집계·보상에는 절대 쓰지 않는다 — 클라가 보낸 값이라 위조 가능하고, GROMO-1214 의
+    // "클라 시각이 저장·집계에 들어가지 않는다" 계약은 그대로다. 순서 비교에만 쓴다.
+    // 레거시·구버전이 만든 행은 null 이라 판정측이 startedAt 으로 폴백한다(statEndAt 과 같은 관행).
+    private Instant clientStartedAt;
+
     // GROMO-1252(코드리뷰 2차 ②): 통계 귀속용 '유효 종료 시각' = min(endedAt, 완료 시점 서버 now).
     // endedAt 은 클라가 보낸 값 그대로 저장해야 재업로드 중복 검사(existsByUserAndStartedAtAndEndedAtAndStatus)가
     // 성립하는데, 미래 endedAt 위조 세션은 조회 시점 now 로 클리핑하는 by-category 가 시간이 갈수록 더 세게 된다

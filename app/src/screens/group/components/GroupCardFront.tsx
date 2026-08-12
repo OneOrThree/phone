@@ -11,6 +11,7 @@ import {
 import { T, withAlpha } from '@/constants/theme';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
 
 interface GroupCardFrontProps {
   group: GroupSummaryResponse;
@@ -21,7 +22,6 @@ interface GroupCardFrontProps {
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
-  onOpenReorderMenu?: () => void;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
@@ -40,7 +40,6 @@ export function GroupCardFront({
   onFlip,
   onAccessibilityFlip,
   reorderHandlers,
-  onOpenReorderMenu,
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
@@ -63,7 +62,6 @@ export function GroupCardFront({
             accessibilityRole="adjustable"
             focusable={active}
             disabled={!active}
-            onPress={onOpenReorderMenu}
             accessibilityLabel={`${group.name} 카드 순서`}
             accessibilityValue={{ text: `${position}/${reorderCount}` }}
             accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
@@ -147,10 +145,6 @@ export function GroupCardFront({
                   <Text style={s.count}>
                     {group.currentMembers}/{group.maxMembers}
                   </Text>
-                </View>
-                <View style={s.flipHint}>
-                  <MaterialCommunityIcons name="rotate-3d-variant" size={18} color={T.inkSub} />
-                  <Text style={s.flipText}>뒤집어 방 보기</Text>
                 </View>
               </View>
             </ScrollView>
@@ -261,7 +255,13 @@ const s = StyleSheet.create({
   },
   infoScroll: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm },
-  name: { ...T.text.heading, color: T.ink, flexShrink: 1, minWidth: 0 },
+  name: {
+    ...T.text.heading,
+    ...GROUP_CARD_USER_TEXT,
+    color: T.ink,
+    flexShrink: 1,
+    minWidth: 0,
+  },
   ownerChip: {
     minHeight: 30,
     paddingHorizontal: T.space.sm,
@@ -273,7 +273,7 @@ const s = StyleSheet.create({
     backgroundColor: T.accentBg,
   },
   ownerText: { ...T.text.caption, color: T.accentDeep },
-  desc: { ...T.text.body, color: T.inkSub },
+  desc: { ...T.text.body, ...GROUP_CARD_USER_TEXT, color: T.inkSub },
   footer: {
     marginTop: 'auto',
     flexDirection: 'row',
@@ -293,6 +293,4 @@ const s = StyleSheet.create({
     backgroundColor: T.accentBg,
   },
   count: { ...T.text.label, color: T.accentDeep, fontVariant: ['tabular-nums'] },
-  flipHint: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  flipText: { ...T.text.label, color: T.inkSub },
 });

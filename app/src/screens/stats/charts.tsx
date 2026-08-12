@@ -1,7 +1,7 @@
 // 통계 공용 차트 — 분량 축 선그래프(LineChart)와 첫 시작 시각 점 차트(FirstStartChart).
 // 세로축·격자·탭 말풍선 스캐폴딩(스타일)을 공유해 한 파일에 둔다.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Animated, {
   useAnimatedProps,
   useSharedValue,
@@ -24,7 +24,7 @@ import {
   type StartTimePoint,
 } from './format';
 import { CHART_BLOCK_H, CHART_H, FIRST_START_BODY_H, FOCUS_COLOR } from './constants';
-import { CardBodyEmpty, CardBodyLoading } from './CardBodySlot';
+import { CardBodyEmpty, CardBodyError, CardBodyLoading } from './CardBodySlot';
 import { cs } from './cardStyles';
 
 // 진입 애니메이션을 걸려면 Animated 컴포넌트여야 한다 — 격자·라벨은 제자리에 둔 채
@@ -40,8 +40,9 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 //    눌렀다 펴면 모든 요일이 동시에 자라 "왼쪽부터 지나온 시간"이라는 뜻이 사라지고,
 //    오버슛 구간에서는 선이 목표 높이를 넘었다 돌아와 값이 실제보다 크게 보이는 프레임이 생긴다.
 //
-// 구현은 `ProgressRing`과 같은 기법이다 — 선 길이만큼의 파선을 깔고 시작 오프셋만 당긴다.
+// 구현은 선 길이만큼의 파선을 깔고 시작 오프셋(`strokeDashoffset`)만 당기는 기법이다.
 // 매 프레임 points를 다시 만들지 않아도 선이 자란다.
+// (같은 기법을 쓰던 `ProgressRing`은 GROMO-1525에서 삭제됐다 — 정적 사례는 `CategoryDonut`.)
 //
 // ⚠️ **시퀀스 전체는 선 그리기(entrance)보다 점 팝(quick) 하나만큼 길다.**
 //    선이 끝나는 순간(진행률 `LINE_SPAN`)에 맞춰 마지막 점의 팝이 **시작**하고, 남은 구간에서
@@ -343,13 +344,10 @@ export function FirstStartChart({ period }: { period: StatsPeriod }) {
   //    보는 순서에서는 실패했는데도 "아직 기록이 없어요"가 다시 뜨고 재시도 버튼도 없다.
   //    이 티켓이 없애려던 바로 그 화면이다(codex 리뷰). CalendarCard도 실패를 우선한다.
   if (fetchFailed) {
+    // 높이는 CardBodyLoading과 같은 **고정** FIRST_START_BODY_H — 실패 표시가 더 짧으면
+    // 아래 카드가 위로 튄다(로딩↔실패↔본문 전환 내내 카드가 미동도 하지 않아야 한다).
     return (
-      <View style={s.errorBody} testID="stats.firstStart.error">
-        <Text style={s.errorText}>불러오지 못했어요</Text>
-        <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retry}>
-          <Text style={s.retryText}>다시 시도</Text>
-        </TouchableOpacity>
-      </View>
+      <CardBodyError height={FIRST_START_BODY_H} onRetry={retry} testID="stats.firstStart.error" />
     );
   }
   if (points === null) {
@@ -544,20 +542,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     fontVariant: ['tabular-nums'],
   },
-  // 조회 실패 안내(GROMO-1474) — 문구·버튼 모양은 같은 화면의 CalendarCard와 같은 값이다.
-  // 한 화면에서 실패 표현이 갈리면 같은 장애가 카드마다 다른 사고처럼 보인다.
-  // ⚠️ 높이는 CardBodyLoading과 같은 **고정** FIRST_START_BODY_H — 실패 표시가 더 짧으면
-  //    아래 카드가 위로 튄다(로딩↔실패↔본문 전환 내내 카드가 미동도 하지 않아야 한다).
-  errorBody: { height: FIRST_START_BODY_H, alignItems: 'center', justifyContent: 'center' },
-  errorText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
-  retryBtn: {
-    marginTop: T.space.sm,
-    backgroundColor: T.accent,
-    borderRadius: 999,
-    paddingHorizontal: T.space.lg,
-    paddingVertical: T.space.xs,
-  },
-  retryText: { ...T.text.caption, fontWeight: '700', color: T.white },
   chartAxisCol: { width: 36, height: CHART_H },
   chartAxisLabel: {
     ...T.text.caption,

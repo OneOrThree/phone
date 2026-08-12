@@ -27,6 +27,7 @@ import {
   getMyChallengeResults,
   groupErrorCode,
 } from '@/services/groupApi';
+import { USER_NOT_FOUND } from '@/services/sessionErrors';
 import {
   logGroupChallengeResultClosed,
   logGroupChallengeResultShown,
@@ -461,9 +462,11 @@ export default function GroupRoomScreen({
       if (code === 'MEMBER_ONLY') {
         // 서버가 활성 인증 뒤 멤버십 부재를 확인한 사후조건이라 직접 수렴할 수 있다.
         if (!convergeMembershipAbsence()) return false;
-      } else if (code === 'NOT_FOUND') {
+      } else if (code === 'NOT_FOUND' || code === USER_NOT_FOUND) {
         // NOT_FOUND는 활성 사용자 부재와 그룹 부재가 같은 code다. 인증을 재확인하고, 유효한
         // 세션이면 최신 detail/전체 목록 scope가 결론을 낼 때만 방 유지 또는 이탈로 수렴한다.
+        // USER_NOT_FOUND(GROMO-1247)도 같은 재확인으로 보낸다 — 세션 이상은 resolver가
+        // session_recovery로 확정한다. 빼 두면 서버 분리 직후 이 방이 일반 오류로 강하한다.
         const resolution = await resolveGroupRoomNotFound({ groupId, date, userId: userId ?? '' });
         if (seq !== requestSeqRef.current) return false;
         if (resolution.kind === 'detail') {

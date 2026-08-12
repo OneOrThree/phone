@@ -377,7 +377,12 @@ export default function HomeScreen() {
     const p = await readPendingCelebration();
     if (!p) return;
     // 예약 date는 결과 화면이 celebrationDayKey(KST — 달성 판정 버킷 축)로 쓴다 — 비교도 같은
-    // 키(GROMO-1236 P2 6라운드, 체인 전체 한 축). 아래 스크린타임 축하는 측정 축(로컬) 체인이라 별개.
+    // 키(GROMO-1236 P2 6라운드, 체인 전체 한 축).
+    // 아래 스크린타임 축하가 로컬인 것은 오타가 아니다 — 두 축하의 **달성 판정 축이 다르다**:
+    // 집중 목표는 서버가 KST 일 버킷으로 판정하고, 스크린타임 목표는 앱이 네이티브 버킷 분값
+    // (익스텐션 로컬 하루)으로 판정한다. 가드 키는 판정 축을 따라간다(GROMO-1254 재확인).
+    // ⚠️ 다만 "스크린타임 = 전부 로컬"은 아니다 — 그 축하의 **연속 달성일 카운트**는 서버 heatmap
+    // 셀을 세는 데이터 결합이라 서버 버킷 축이다(screentimeSync.scheduleYesterdayScreenTimeCelebration).
     if (p.date !== celebrationDayKey()) {
       clearPendingCelebration().catch(() => {});
       return;
@@ -386,6 +391,8 @@ export default function HomeScreen() {
   }, [navigation]);
 
   // 스크린타임 축하 예약 확인(GROMO-629) — 오늘 예약이면 모달, 지난 예약이면 정리.
+  // 축은 로컬(todayStr) — 발행 측(screentimeSync)이 로컬 today로 예약하고 닫기 기록
+  // (screentimeLastRewardedDate)도 그 date를 그대로 쓴다. 셋 중 하나만 옮기면 dedup이 깨진다.
   const checkScreenTimeCelebration = useCallback(async () => {
     const p = await readPendingScreenTimeCelebration();
     if (!p) return;

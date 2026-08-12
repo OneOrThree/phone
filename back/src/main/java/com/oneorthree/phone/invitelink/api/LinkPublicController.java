@@ -1,5 +1,6 @@
 package com.oneorthree.phone.invitelink.api;
 
+import com.oneorthree.phone.common.util.ClientIpResolver;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.dto.InviteMatchRequest;
 import com.oneorthree.phone.invitelink.dto.InviteMatchResponse;
@@ -7,7 +8,6 @@ import com.oneorthree.phone.invitelink.dto.LandingView;
 import com.oneorthree.phone.invitelink.service.InviteLinkClickService;
 import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.invitelink.service.InviteLinkService;
-import com.oneorthree.phone.invitelink.support.ClientIpResolver;
 import com.oneorthree.phone.invitelink.support.InviteLinkUrls;
 import com.oneorthree.phone.invitelink.support.IpHasher;
 import com.oneorthree.phone.invitelink.support.LandingRenderer;

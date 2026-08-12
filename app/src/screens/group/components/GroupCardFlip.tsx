@@ -16,6 +16,7 @@ interface Props {
   front: ReactNode;
   back: ReactNode;
   onTransitioningChange?: (transitioning: boolean) => void;
+  onTransitionComplete?: (face: 'front' | 'back', groupId: string) => void;
   skipTransition?: boolean;
 }
 
@@ -27,12 +28,14 @@ export function GroupCardFlip({
   front,
   back,
   onTransitioningChange,
+  onTransitionComplete,
   skipTransition = false,
 }: Props) {
   const motion = useMotion();
   const progress = useSharedValue(flipped ? 1 : 0);
   const previousFlippedRef = useRef(flipped);
   const transitionGenerationRef = useRef(0);
+  const completedGenerationRef = useRef(0);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   // prop이 바뀐 첫 commit부터 layout effect가 state를 올리기 전까지도 입력을 잠근다.
@@ -40,21 +43,29 @@ export function GroupCardFlip({
   const inputLocked = transitioning || (transitionRequested && !skipTransition);
 
   const finishTransition = useCallback(
-    (generation: number) => {
-      if (transitionGenerationRef.current !== generation) return;
+    (generation: number, face: 'front' | 'back') => {
+      if (
+        transitionGenerationRef.current !== generation ||
+        completedGenerationRef.current === generation
+      )
+        return;
+      completedGenerationRef.current = generation;
       if (fallbackTimerRef.current !== null) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       setTransitioning(false);
       onTransitioningChange?.(false);
+      onTransitionComplete?.(face, groupId);
     },
-    [onTransitioningChange],
+    [groupId, onTransitionComplete, onTransitioningChange],
   );
 
   useLayoutEffect(() => {
     if (!transitionRequested) return;
     previousFlippedRef.current = flipped;
     const generation = ++transitionGenerationRef.current;
+    const targetFace = flipped ? 'back' : 'front';
     if (skipTransition) {
+      completedGenerationRef.current = generation;
       if (fallbackTimerRef.current !== null) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       setTransitioning(false);
@@ -67,7 +78,7 @@ export function GroupCardFlip({
     const duration = motion.reduce ? 150 : 290;
     // Reanimated 완료 콜백이 정본이다. UI runtime이 취소/해제되는 비정상 경로에서도 입력이
     // 영구 잠기지 않도록 같은 duration의 JS fallback을 둔다(generation으로 stale 해제 차단).
-    fallbackTimerRef.current = setTimeout(() => finishTransition(generation), duration);
+    fallbackTimerRef.current = setTimeout(() => finishTransition(generation, targetFace), duration);
     progress.value = withTiming(
       flipped ? 1 : 0,
       {
@@ -77,7 +88,7 @@ export function GroupCardFlip({
         reduceMotion: M.never,
       },
       (finished) => {
-        if (finished) runOnJS(finishTransition)(generation);
+        if (finished) runOnJS(finishTransition)(generation, targetFace);
       },
     );
   }, [

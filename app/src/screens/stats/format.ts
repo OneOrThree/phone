@@ -160,6 +160,14 @@ export function kstTodayDate(): Date {
   return dateFromStr(todayStrKst());
 }
 
+// 주(월~일) 7칸 배열에서 '오늘' 칸의 인덱스(월=0..일=6).
+// 앵커는 KST(kstTodayDate) — 이 인덱스가 가리키는 배열은 서버 heatmap 셀(KST 버킷)을 요일별로
+// 접어 만든 값이라, 마커만 로컬 요일이면 비KST 기기에서 오늘 칸을 비켜 찍힌다
+// (heatmapBars의 current/future와 같은 판정, GROMO-1236 P2 → GROMO-1254에서 리그 요일 차트로 확장).
+export function kstTodayWeekdayIndex(): number {
+  return (kstTodayDate().getDay() + 6) % 7;
+}
+
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
 // DAY=오늘, WEEK=이번 주 월요일~오늘(서버 /stats/focus WEEK와 동일 구간 — 리뷰 반영), MONTH=이달 1일~오늘.
 // 축은 KST(GROMO-1236) — 서버 일별 버킷이 KST라 from/to 둘 다 KST 오늘에서 파생해야 한 축이 된다

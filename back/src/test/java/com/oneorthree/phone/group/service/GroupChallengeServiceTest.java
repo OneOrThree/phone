@@ -49,6 +49,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -302,16 +303,16 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 → UserException(NOT_FOUND) (GROMO-1237 활성 필터)")
+    @DisplayName("존재하지 않는(또는 탈퇴한) 유저 → UserException(USER_NOT_FOUND) (GROMO-1237 활성 필터·1247)")
     void getChallengesUserNotFound() {
         // given: 무락 활성 조회가 빈 결과 — 탈퇴자 토큰 차단
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.empty());
 
-        // when & then
+        // when & then: 그룹·챌린지 부재와 구분되는 요청자 전용 코드(GROMO-1247)
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
-                .isEqualTo(UserErrorCode.NOT_FOUND);
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     // ── getChallenges: 멤버별 진행률(memberProgress) ────────────────────────
@@ -1767,12 +1768,28 @@ class GroupChallengeServiceTest {
         verify(groupChallengeDurationRepository, never()).save(any(GroupChallengeDuration.class));
     }
 
-    /** 겹침 검사 스텁 — 기존 활성 창형(카테고리·시각) 하나를 FOR UPDATE 조회 결과로 돌려준다. */
+    /**
+     * 겹침 검사 스텁 — 기존 활성 창형(카테고리·시각) 하나를 FOR UPDATE 조회 결과로 돌려준다.
+     * 요일은 매일(EVERYDAY) — 요일 축을 안 보는 테스트는 여기서 시간대만 다투면 된다.
+     */
     private void givenActiveWindow(Group group, MissionCategory category, String start, String end) {
+        givenActiveWindow(group, category, RepeatSchedule.EVERYDAY, start, end);
+    }
+
+    /**
+     * 요일 마스크까지 지정하는 겹침 검사 스텁(GROMO-1270) — 겹침 판정이
+     * {@code 요일 교집합 ≠ ∅ ∧ 간격 < 15분} 이라 기존 창의 요일도 입력값이다.
+     *
+     * <p>부모 챌린지를 <b>실물 엔티티</b>로 넣는 이유: 프로덕션이 JOIN FETCH 로 실어 오는 값을
+     * 그대로 흉내 내야 서비스가 진짜 {@code challenge.getRepeatDays()} 를 읽는지 검증된다.
+     */
+    private void givenActiveWindow(Group group, MissionCategory category, int repeatDays,
+            String start, String end) {
         GroupChallenge challenge = GroupChallenge.builder()
                 .id(UUID.fromString("00000000-0000-0000-0000-0000000000e1"))
                 .group(group).type(MissionType.TIME_WINDOW).category(category)
                 .status(GroupChallengeStatus.ACTIVE)
+                .repeatDays(repeatDays)
                 .build();
         given(groupChallengeWindowRepository.findActiveByGroupForUpdate(group))
                 .willReturn(List.of(GroupChallengeWindow.builder()
@@ -1793,6 +1810,27 @@ class GroupChallengeServiceTest {
         given(request.getWindowEnd()).willReturn(end);
         given(request.getDurationMinutes()).willReturn(goal);
         return request;
+    }
+
+    /** 요일을 명시한 창형 생성 요청 스텁(GROMO-1270) — 신앱 경로(repeatDays 전송)를 탄다. */
+    private CreateChallengeRequest windowRequest(MissionCategory category, List<RepeatDay> repeatDays,
+            String start, String end, int goal) {
+        CreateChallengeRequest request = mock(CreateChallengeRequest.class);
+        given(request.getRepeatDays()).willReturn(repeatDays);
+        given(request.getMissionType()).willReturn(MissionType.TIME_WINDOW);
+        given(request.getMissionCategory()).willReturn(category);
+        given(request.getWindowStart()).willReturn(start);
+        given(request.getWindowEnd()).willReturn(end);
+        given(request.getDurationMinutes()).willReturn(goal);
+        return request;
+    }
+
+    /** 창형 생성이 통과했을 때 돌려줄 저장 결과 스텁. */
+    private void givenWindowChallengeSaved(Group group, MissionCategory category) {
+        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
+                .type(MissionType.TIME_WINDOW).category(category)
+                .status(GroupChallengeStatus.ACTIVE).build();
+        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
     }
 
     @Test
@@ -1820,9 +1858,11 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("다른 카테고리 창형과 맞닿음(끝==시작)은 겹침이 아니다 → 생성 허용")
-    void createChallengeAdjacentWindowIsAllowed() {
-        // given: SCREEN_TIME [09:00~12:00] 뒤에 딱 붙는 FOCUS [12:00~13:00]
+    @DisplayName("맞닿음(끝==시작)도 이제 겹침 — 간격 0분 < 15분이라 409 (§A5 · GROMO-1270)")
+    void createChallengeAdjacentWindowIsRejected() {
+        // given: SCREEN_TIME [09:00~12:00] 뒤에 딱 붙는 FOCUS [12:00~13:00].
+        // 종전(요일·간격 규칙 이전)에는 "맞닿음은 겹침이 아니다"로 허용됐지만, 스크린타임 측정
+        // 눈금이 15분이라 경계 눈금 하나가 두 창에 걸친다 — §A5 가 최소 15분 간격을 요구한다.
         User user = member();
         Group group = Group.builder().id(GROUP_ID).build();
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
@@ -1831,18 +1871,195 @@ class GroupChallengeServiceTest {
                 .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
         givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
 
-        GroupChallenge saved = GroupChallenge.builder().id(CHALLENGE_ID).group(group)
-                .type(MissionType.TIME_WINDOW).category(MissionCategory.FOCUS)
-                .status(GroupChallengeStatus.ACTIVE).build();
-        given(groupChallengeRepository.saveAndFlush(any(GroupChallenge.class))).willReturn(saved);
-
         CreateChallengeRequest request =
                 windowRequest(MissionCategory.FOCUS, "2026-01-01T12:00:00+09:00", "2026-01-01T13:00:00+09:00", 30);
 
-        // when
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+        verify(groupChallengeWindowRepository, never()).save(any(GroupChallengeWindow.class));
+    }
+
+    // ── 창 겹침 = 요일 교집합 ∧ 15분 간격 (§A5 · LLD §3.6 · GROMO-1270) ──────────
+
+    @Test
+    @DisplayName("요일이 안 겹치면 시간대가 똑같아도 허용 — 월수금 09~12 vs 화목 09~12 (§A5)")
+    void createChallengeAllowsIdenticalWindowOnDisjointWeekdays() {
+        // given: 월수금(21) FOCUS [09:00~12:00] 이 있는 그룹에 화목 SCREEN_TIME [09:00~12:00] 생성
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS,
+                RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
+                "09:00", "12:00");
+        givenWindowChallengeSaved(group, MissionCategory.SCREEN_TIME);
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME,
+                List.of(RepeatDay.TUE, RepeatDay.THU), "09:00:00", "12:00:00", 60);
+
+        // when: 같은 시간대라도 서로 다른 날의 일이라 하나의 행동으로 동시 달성될 수 없다
         CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
 
         // then
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+    }
+
+    @Test
+    @DisplayName("요일이 겹치면 간격 10분(< 15분)은 거부 — 월수금 12:00~14:00 vs 월수금 12:10~15:00")
+    void createChallengeRejectsSubGapOnIntersectingWeekdays() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS,
+                RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
+                "12:00", "14:00");
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME,
+                List.of(RepeatDay.MON, RepeatDay.WED, RepeatDay.FRI), "12:10:00", "15:00:00", 60);
+
+        // when & then: 시간대가 직접 겹치기도 하지만, 요일 교집합이 있어야 여기까지 온다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("간격 경계 14분 → 409 (strict < 15분)")
+    void createChallengeRejectsFourteenMinuteGap() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "12:14:00", "14:00:00", 30);
+
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+    }
+
+    @Test
+    @DisplayName("간격 경계 정확히 15분 → 허용 (strict < 라 15분은 통과)")
+    void createChallengeAllowsExactlyFifteenMinuteGap() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
+        givenWindowChallengeSaved(group, MissionCategory.FOCUS);
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "12:15:00", "14:00:00", 30);
+
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+    }
+
+    @Test
+    @DisplayName("기존 창 종료에 소수초가 있으면 간격 14분 59.5초 → 409 (초 단위 절삭 금지 · codex 리뷰)")
+    void createChallengeRejectsSubGapHiddenByFractionalSeconds() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        // 구앱 ISO Instant 경로·V35 이관 데이터는 소수초를 실을 수 있다. toSecondOfDay() 로 비교하면
+        // 12:00:00.5 가 12:00:00 으로 잘려 간격이 정확히 900초로 보이고 통과한다 — 실제로는 미달이다.
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00:00.500");
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "12:15:00", "14:00:00", 30);
+
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("간격 경계 16분 → 허용")
+    void createChallengeAllowsSixteenMinuteGap() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "09:00", "12:00");
+        givenWindowChallengeSaved(group, MissionCategory.FOCUS);
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "12:16:00", "14:00:00", 30);
+
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+    }
+
+    @Test
+    @DisplayName("요일이 하루라도 겹치면(월수금 vs 수목) 시간대 판정으로 넘어간다 → 409")
+    void createChallengePartialWeekdayIntersectionStillChecksTime() {
+        // given: 월수금 FOCUS [09:00~12:00] — 새 창은 수목이라 교집합은 {수} 하나뿐이다
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS,
+                RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
+                "09:00", "12:00");
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME,
+                List.of(RepeatDay.WED, RepeatDay.THU), "11:00:00", "13:00:00", 60);
+
+        // when & then: 겹치는 날이 수요일 하루뿐이어도 그날 하나의 행동이 두 목표를 채운다
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+    }
+
+    @Test
+    @DisplayName("요일 일부만 겹쳐도 시간대가 15분 넘게 떨어져 있으면 허용 — 두 축이 곱으로 걸린다")
+    void createChallengePartialWeekdayIntersectionAllowsDistantWindow() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS,
+                RepeatSchedule.maskOf(List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
+                "09:00", "12:00");
+        givenWindowChallengeSaved(group, MissionCategory.SCREEN_TIME);
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.SCREEN_TIME,
+                List.of(RepeatDay.WED, RepeatDay.THU), "14:00:00", "16:00:00", 60);
+
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
         assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
     }
 
@@ -1894,6 +2111,148 @@ class GroupChallengeServiceTest {
         assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
         verify(groupChallengeRepository, never()).existsByGroupAndCategoryAndTypeAndStatusAndDeletedAtIsNull(
                 any(), any(), any(), any());
+    }
+
+    // ── 자정 인접 · 판정식 대칭 (§A5 · GROMO-1498) ──────────
+
+    @Test
+    @DisplayName("자정 인접 차단 — 매일 23:50~23:59 뒤의 매일 00:00~00:10 은 월 종료↔화 시작 1분이라 409")
+    void createChallengeRejectsMidnightAdjacentWindows() {
+        // given: 매일 FOCUS [23:50~23:59] 이 있는 그룹에 매일 FOCUS [00:00~00:10] 생성 시도.
+        // 같은 날 기준으로는 23시간 40분이라 종전 선형 판정은 통과시켰다 — 끊기지 않은 한 번의
+        // 집중이 양쪽 목표를 채워 보상이 둘 나오는, §A5 가 막으려는 바로 그 구조다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS, "23:50", "23:59");
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "00:00:00", "00:10:00", 6);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("자정 인접은 순서를 뒤집어도 409 — 매일 00:00~00:10 뒤에 매일 23:50~23:59 (판정식 대칭)")
+    void createChallengeRejectsMidnightAdjacentWindowsReversed() {
+        // given: 기존 창이 자정 직후, 새 창이 자정 직전 — 하루 이동 방향이 위 케이스의 반대다.
+        // 새 창이 기존 창보다 앞에서 끝나는 조합은 종전 12케이스에 하나도 없었다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS, "00:00", "00:10");
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS, "23:50:00", "23:59:00", 6);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("일→월 wrap 도 자정 인접 — 일요일 23:50~23:59 뒤의 월요일 00:00~00:10 은 409")
+    void createChallengeRejectsSundayToMondayMidnightAdjacency() {
+        // given: 요일 마스크 회전이 주 경계를 넘는지 — 일(64) 을 하루 미루면 월(1) 이어야 한다.
+        // 매일(127) 마스크는 회전 불변이라 wrap 을 검증하지 못한다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS,
+                RepeatSchedule.bit(DayOfWeek.SUNDAY), "23:50", "23:59");
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS,
+                List.of(RepeatDay.MON), "00:00:00", "00:10:00", 6);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("자정 인접이어도 요일이 안 이어지면 허용 — 월 23:50~23:59 vs 수 00:00~00:10")
+    void createChallengeAllowsMidnightAdjacencyOnDisjointWeekdays() {
+        // given: 월요일 종료의 다음 날은 화요일이지 수요일이 아니다 — 요일 게이트가 이동마다 산다.
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.FOCUS,
+                RepeatSchedule.bit(DayOfWeek.MONDAY), "23:50", "23:59");
+        givenWindowChallengeSaved(group, MissionCategory.FOCUS);
+
+        CreateChallengeRequest request = windowRequest(MissionCategory.FOCUS,
+                List.of(RepeatDay.WED), "00:00:00", "00:10:00", 6);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
+    }
+
+    @Test
+    @DisplayName("새 창이 기존 창 앞에서 끝나도 간격 10분이면 409 — 판정식은 순서에 대칭이다")
+    void createChallengeRejectsSubGapWhenNewWindowPrecedesExisting() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "12:00", "14:00");
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "10:00:00", "11:50:00", 30);
+
+        // when & then
+        assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, request))
+                .isInstanceOf(GroupException.class)
+                .extracting("errorCode")
+                .isEqualTo(GroupErrorCode.CHALLENGE_WINDOW_OVERLAP);
+        verify(groupChallengeRepository, never()).saveAndFlush(any(GroupChallenge.class));
+    }
+
+    @Test
+    @DisplayName("새 창이 기존 창 앞에서 끝나고 간격이 정확히 15분이면 허용 — 반대 방향의 strict < 경계")
+    void createChallengeAllowsExactlyFifteenMinuteGapWhenNewWindowPrecedesExisting() {
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(user, group))
+                .willReturn(Optional.of(groupMemberOf(user, group, GroupMemberRole.OWNER)));
+        givenActiveWindow(group, MissionCategory.SCREEN_TIME, "12:00", "14:00");
+        givenWindowChallengeSaved(group, MissionCategory.FOCUS);
+
+        CreateChallengeRequest request =
+                windowRequest(MissionCategory.FOCUS, "10:00:00", "11:45:00", 30);
+
+        // when
+        CreateChallengeResponse response = groupChallengeService.createChallenge(GROUP_ID, USER_ID, request);
+
+        // then
+        assertThat(response.getId()).isEqualTo(CHALLENGE_ID);
     }
 
     // ── 생성 검증 재정의(GROMO-1422·1260) — 요일·4개 상한·목표분 규칙 ──────────

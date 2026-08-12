@@ -10,11 +10,9 @@ import {
 import {
   AccessibilityInfo,
   AppState,
-  BackHandler,
   FlatList,
   findNodeHandle,
   PanResponder,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -29,7 +27,7 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Animated from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
@@ -56,7 +54,7 @@ import {
   createCardInteractionContext,
   type CardInteractionContext,
 } from '@/services/cardInteraction';
-import { enterUp } from '@/constants/motion';
+import { M, enterUp } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
@@ -115,7 +113,57 @@ export function isProgrammaticMomentum(
 }
 
 export function shouldClaimReorderDrag(dx: number, dy: number): boolean {
-  return Math.max(Math.abs(dx), Math.abs(dy)) >= 6;
+  return Math.abs(dx) >= 6 && Math.abs(dx) > Math.abs(dy);
+}
+
+interface ReorderPreview {
+  groupId: string;
+  from: number;
+  target: number;
+  /** 화면에 고정된 drag overlay가 손가락을 따라갈 실제 이동량. */
+  fingerTranslateX: number;
+  /** source/target 사이 슬롯을 계산하는 논리 이동량(edge paging 보정 포함). */
+  translateX: number;
+}
+
+interface DeckBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface ProgrammaticScrollEpisode {
+  generation: number;
+  offsets: number[];
+}
+
+export function isPointInsideDeck(
+  moveX: number,
+  moveY: number,
+  bounds: DeckBounds | null,
+): boolean {
+  if (!bounds || !Number.isFinite(moveX) || !Number.isFinite(moveY)) return false;
+  return (
+    moveX >= bounds.x &&
+    moveX <= bounds.x + bounds.width &&
+    moveY >= bounds.y &&
+    moveY <= bounds.y + bounds.height
+  );
+}
+
+export function resolveReorderTranslation(
+  index: number,
+  preview: Pick<ReorderPreview, 'from' | 'target' | 'translateX'> | null,
+  snapInterval: number,
+): number {
+  if (!preview) return 0;
+  if (index === preview.from) return preview.translateX;
+  if (preview.from < preview.target && index > preview.from && index <= preview.target)
+    return -snapInterval;
+  if (preview.target < preview.from && index >= preview.target && index < preview.from)
+    return snapInterval;
+  return 0;
 }
 
 const GUIDE_CHARACTER = {
@@ -189,6 +237,43 @@ function GroupListCell({
   );
 }
 
+function ReorderMotionCard({
+  width,
+  translateX,
+  dragging,
+  reordering,
+  groupId,
+  children,
+}: {
+  width: number;
+  translateX: number;
+  dragging: boolean;
+  reordering: boolean;
+  groupId: string;
+  children: ReactNode;
+}) {
+  const motion = useMotion();
+  const x = useSharedValue(translateX);
+
+  useLayoutEffect(() => {
+    // 손가락을 따라가는 카드는 아래 정적 transform으로 지연 없이 붙인다. drop 뒤에는 실제
+    // FlatList 슬롯도 함께 바뀌므로 잔여 transform을 즉시 0으로 지워 이중 이동을 막는다.
+    if (!reordering) x.value = 0;
+    else if (!dragging) x.value = motion.spring(translateX, M.spring.snappy);
+  }, [dragging, motion, reordering, translateX, x]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+
+  return (
+    <Animated.View
+      style={[{ width }, dragging && s.draggingSource, !dragging && animatedStyle]}
+      testID={`group.card.reorderMotion.${groupId}`}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 export interface GroupListScreenProps {
   groups: GroupSummaryResponse[];
   groupsRevision?: number;
@@ -244,14 +329,12 @@ export default function GroupListScreen({
   const flipAnimatingRef = useRef(false);
   flipAnimatingRef.current = flipAnimating;
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
-  const [reorderMenuGroupId, setReorderMenuGroupId] = useState<string | null>(null);
+  const [reorderPreview, setReorderPreview] = useState<ReorderPreview | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const refreshRequestRef = useRef(0);
   const draggingGroupIdRef = useRef<string | null>(null);
   draggingGroupIdRef.current = draggingGroupId;
-  const reorderMenuGroupIdRef = useRef<string | null>(null);
-  reorderMenuGroupIdRef.current = reorderMenuGroupId;
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
   const [activeAnchorGroupId, setActiveAnchorGroupId] = useState<string | null>(null);
   const guideManaged = typeof userId === 'string';
@@ -292,12 +375,7 @@ export default function GroupListScreen({
   });
   const refreshGroups = useCallback(() => {
     // iOS는 RefreshControl.enabled를 무시하므로 handler에서도 순서 변경 episode를 잠근다.
-    if (
-      refreshingRef.current ||
-      flipAnimatingRef.current ||
-      reorderMenuGroupIdRef.current !== null ||
-      draggingGroupIdRef.current !== null
-    )
+    if (refreshingRef.current || flipAnimatingRef.current || draggingGroupIdRef.current !== null)
       return;
     const request = ++refreshRequestRef.current;
     refreshingRef.current = true;
@@ -333,9 +411,6 @@ export default function GroupListScreen({
   const frontFocusRef = useRef<View | null>(null);
   const mountedRef = useRef(true);
   const reorderGripRefs = useRef(new Map<string, View>());
-  const reorderPreviousRefs = useRef(new Map<string, View>());
-  const reorderNextRefs = useRef(new Map<string, View>());
-  const reorderDoneRefs = useRef(new Map<string, View>());
   const backFocusRef = useRef<View | null>(null);
   const roomFocusRef = useRef<View | null>(null);
   const settingsFocusRef = useRef<View | null>(null);
@@ -354,9 +429,25 @@ export default function GroupListScreen({
     groupId: string;
     trigger: GroupCardFlipTrigger;
   } | null>(null);
-  // grip 가장자리 자동 paging은 캐러셀 위치만 맞추는 programmatic 이동이다. 완료 offset과
-  // 함께 보관해 실제 사용자 momentum만 swipe 계측으로 인정한다.
-  const programmaticMomentumOffsetRef = useRef<number | null>(null);
+  // edge paging 한 episode가 여러 animated scroll을 만들 수 있다. 마지막 offset 하나만 보관하면
+  // release 뒤 늦게 도착한 앞선 momentum을 사용자 swipe로 오인하므로 generation별로 전부 둔다.
+  const programmaticScrollEpisodesRef = useRef<ProgrammaticScrollEpisode[]>([]);
+  const currentProgrammaticTargetRef = useRef<number | null>(null);
+  const dragGenerationRef = useRef(0);
+  const dragRef = useRef<
+    | (ReorderPreview & {
+        generation: number;
+        lastGestureDx: number;
+        sourceOrder: string[];
+      })
+    | null
+  >(null);
+  const edgeDirectionRef = useRef<-1 | 0 | 1>(0);
+  const edgeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
+  const deckBoundsRef = useRef<DeckBounds | null>(null);
+  const cancelDragRef = useRef<(updateState?: boolean) => void>(() => undefined);
+  const dragSettleFrameRef = useRef<number | null>(null);
   const groupFingerprint = orderedGroups.map((group) => group.groupId).join('|');
   const stableActiveIndex =
     activeStableGroupId === null
@@ -368,13 +459,6 @@ export default function GroupListScreen({
       : Math.min(activeIndex, Math.max(0, orderedGroups.length - 1));
   const activeGroupId = orderedGroups[renderedActiveIndex]?.groupId ?? null;
 
-  useEffect(() => {
-    const menuGroupId = reorderMenuGroupIdRef.current;
-    if (menuGroupId !== null && !orderedGroups.some((group) => group.groupId === menuGroupId)) {
-      reorderMenuGroupIdRef.current = null;
-      setReorderMenuGroupId(null);
-    }
-  }, [orderedGroups]);
   const guideEligible =
     typeof userId === 'string' &&
     orderedGroups.length > 0 &&
@@ -388,7 +472,7 @@ export default function GroupListScreen({
 
   const acceptCardAction = useCallback(
     (group: GroupSummaryResponse, action: 'focus' | 'room' | 'settings') => {
-      if (actionPendingRef.current || reorderMenuGroupId !== null) return null;
+      if (actionPendingRef.current || draggingGroupIdRef.current !== null) return null;
       actionPendingRef.current = true;
       const interaction = createCardInteractionContext();
       logGroupCardActionClicked({
@@ -399,7 +483,7 @@ export default function GroupListScreen({
       });
       return interaction;
     },
-    [reorderMenuGroupId],
+    [],
   );
 
   const runCardAction = useCallback(
@@ -444,6 +528,7 @@ export default function GroupListScreen({
     const subscription = AppState.addEventListener('change', (next) => {
       const active = next === 'active';
       setAppActive(active);
+      if (!active) cancelDragRef.current();
       if (!active && guideVisibleRef.current) {
         guideVisibleRef.current = false;
         setGuideVisible(false);
@@ -451,7 +536,7 @@ export default function GroupListScreen({
         logGroupDeckGuideInterrupted({ reason: 'background' });
       }
     });
-    return () => subscription.remove();
+    return () => subscription?.remove();
   }, []);
 
   const focusNode = useCallback((ref: { current: View | null }) => {
@@ -465,59 +550,38 @@ export default function GroupListScreen({
   useEffect(
     () => () => {
       mountedRef.current = false;
+      cancelDragRef.current(false);
+      programmaticScrollEpisodesRef.current = [];
+      if (dragSettleFrameRef.current !== null) {
+        cancelAnimationFrame(dragSettleFrameRef.current);
+        dragSettleFrameRef.current = null;
+      }
     },
     [],
   );
 
-  const handleFlipTransition = useCallback(
-    (transitioning: boolean) => {
-      setFlipAnimating(transitioning);
-      if (!transitioning) {
-        focusNode(flippedGroupIdRef.current === null ? frontFocusRef : backFocusRef);
-      }
+  const handleFlipTransition = useCallback((transitioning: boolean) => {
+    setFlipAnimating(transitioning);
+  }, []);
+
+  const handleFlipTransitionComplete = useCallback(
+    (face: 'front' | 'back', groupId: string) => {
+      if (
+        !mountedRef.current ||
+        !wasScreenFocusedRef.current ||
+        guideVisibleRef.current ||
+        guideBlockedRef.current ||
+        activeIdentityRef.current !== groupId
+      )
+        return;
+      const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
+      AccessibilityInfo.announceForAccessibility(
+        `${groupName ?? '그룹'} 카드 ${face === 'back' ? '뒷면' : '앞면'}입니다`,
+      );
+      focusNode(face === 'back' ? backFocusRef : frontFocusRef);
     },
     [focusNode],
   );
-
-  const closeReorderMenu = useCallback(() => {
-    const groupId = reorderMenuGroupIdRef.current;
-    if (groupId === null) return false;
-    reorderMenuGroupIdRef.current = null;
-    setReorderMenuGroupId(null);
-    requestAnimationFrame(() => {
-      if (!mountedRef.current) return;
-      const node = findNodeHandle(reorderGripRefs.current.get(groupId) ?? null);
-      if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
-    });
-    return true;
-  }, []);
-
-  // 메뉴가 열린 첫 commit과 한 칸 이동 뒤 재정렬 commit 모두에서 현재 가능한 첫 조작으로
-  // 포커스를 옮긴다. accessibilityViewIsModal만으로는 기존 grip 포커스가 자동 이동하지 않는다.
-  useEffect(() => {
-    if (reorderMenuGroupId === null) return;
-    requestAnimationFrame(() => {
-      if (!mountedRef.current) return;
-      const index = orderedGroupsRef.current.findIndex(
-        (group) => group.groupId === reorderMenuGroupId,
-      );
-      const target =
-        (index > 0 ? reorderPreviousRefs.current.get(reorderMenuGroupId) : null) ??
-        (index >= 0 && index < orderedGroupsRef.current.length - 1
-          ? reorderNextRefs.current.get(reorderMenuGroupId)
-          : null) ??
-        reorderDoneRefs.current.get(reorderMenuGroupId) ??
-        null;
-      const node = findNodeHandle(target);
-      if (node != null) AccessibilityInfo.setAccessibilityFocus(node);
-    });
-  }, [orderedGroups, reorderMenuGroupId]);
-
-  useEffect(() => {
-    if (reorderMenuGroupId === null) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', closeReorderMenu);
-    return () => subscription.remove();
-  }, [closeReorderMenu, reorderMenuGroupId]);
 
   const completeUserFlipToBack = useCallback(
     (groupId: string, trigger: GroupCardFlipTrigger) => {
@@ -534,13 +598,42 @@ export default function GroupListScreen({
     [ensureBack, orderedGroups.length],
   );
 
+  const registerProgrammaticOffset = useCallback((generation: number, offset: number) => {
+    const episodes = programmaticScrollEpisodesRef.current;
+    let episode = episodes.find((candidate) => candidate.generation === generation);
+    if (!episode) {
+      episode = { generation, offsets: [] };
+      episodes.push(episode);
+    }
+    if (!episode.offsets.some((candidate) => isProgrammaticMomentum(candidate, offset))) {
+      episode.offsets.push(offset);
+    }
+  }, []);
+
+  const consumeProgrammaticOffset = useCallback((offset: number): boolean => {
+    const episodes = programmaticScrollEpisodesRef.current;
+    for (let episodeIndex = 0; episodeIndex < episodes.length; episodeIndex++) {
+      const episode = episodes[episodeIndex];
+      const offsetIndex = episode.offsets.findIndex((candidate) =>
+        isProgrammaticMomentum(candidate, offset),
+      );
+      if (offsetIndex < 0) continue;
+      episode.offsets.splice(offsetIndex, 1);
+      if (episode.offsets.length === 0) episodes.splice(episodeIndex, 1);
+      return true;
+    }
+    return false;
+  }, []);
+
   const selectPage = useCallback(
     (page: number, trigger: GroupCarouselTrigger = 'indicator_press') => {
-      if (reorderMenuGroupIdRef.current !== null || flipAnimatingRef.current) return;
+      if (draggingGroupIdRef.current !== null || flipAnimatingRef.current) return;
       const next = Math.max(0, Math.min(page, pageCount - 1));
       const from = activeIndexRef.current;
       roomReturnRef.current = null;
-      listRef.current?.scrollToOffset({ offset: next * snapInterval, animated: true });
+      const targetOffset = next * snapInterval;
+      currentProgrammaticTargetRef.current = targetOffset;
+      listRef.current?.scrollToOffset({ offset: targetOffset, animated: true });
       const nextIdentity = orderedGroups[next]?.groupId ?? null;
       const identityChanged = activeIdentityRef.current !== nextIdentity;
       if (pendingFlipRef.current?.groupId !== nextIdentity) pendingFlipRef.current = null;
@@ -587,6 +680,9 @@ export default function GroupListScreen({
           to_index: next,
           group_count_bucket: groupCountBucket(orderedGroups.length),
         });
+        AccessibilityInfo.announceForAccessibility(
+          `${orderedGroups[next]?.name ?? '그룹 찾기'}, ${next + 1} / ${pageCount} 페이지`,
+        );
       }
       const pendingFlip = pendingFlipRef.current;
       if (pendingFlip?.groupId === nextIdentity && nextIdentity !== null) {
@@ -600,22 +696,56 @@ export default function GroupListScreen({
 
   const onMomentumScrollEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (dragSettleFrameRef.current !== null) {
+        cancelAnimationFrame(dragSettleFrameRef.current);
+        dragSettleFrameRef.current = null;
+      }
       const offsetX = event.nativeEvent.contentOffset.x;
-      const programmaticOffset = programmaticMomentumOffsetRef.current;
-      const isProgrammatic = isProgrammaticMomentum(programmaticOffset, offsetX);
-      programmaticMomentumOffsetRef.current = null;
-      settleOffset(offsetX, !isProgrammatic);
+      const currentTarget = currentProgrammaticTargetRef.current;
+      if (currentTarget !== null && isProgrammaticMomentum(currentTarget, offsetX)) {
+        currentProgrammaticTargetRef.current = null;
+        // 같은 offset이 옛 edge episode에도 있더라도 현재 navigation이 우선 소유한다.
+        consumeProgrammaticOffset(offsetX);
+        if (draggingGroupIdRef.current === null) settleOffset(offsetX, false);
+        return;
+      }
+      const isProgrammatic = consumeProgrammaticOffset(offsetX);
+      // edge paging은 overlay 아래 슬롯만 이동시키는 내부 스크롤이다. 여기서 일반 캐러셀
+      // settle을 실행하면 활성 identity가 옆 카드로 바뀐다.
+      if (draggingGroupIdRef.current !== null) return;
+      // drag edge paging의 늦은 momentum 완료는 release/rollback이 확정한 stable identity를
+      // 덮어쓰면 안 된다. 사용자 swipe만 일반 settle 경로로 보낸다.
+      if (!isProgrammatic) settleOffset(offsetX);
     },
-    [settleOffset],
+    [consumeProgrammaticOffset, settleOffset],
   );
 
   const onScrollEndDrag = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const target = event.nativeEvent.targetContentOffset?.x;
-      if (typeof target === 'number') settleOffset(target);
+      if (typeof target === 'number') {
+        settleOffset(target);
+        return;
+      }
+      const fallbackOffset = event.nativeEvent.contentOffset.x;
+      if (dragSettleFrameRef.current !== null) {
+        cancelAnimationFrame(dragSettleFrameRef.current);
+      }
+      // Android의 비관성 drag는 momentum 이벤트가 없으므로 다음 프레임에 현재 offset을
+      // 확정한다. 관성이 시작되면 onMomentumScrollBegin에서 이 예약을 취소한다.
+      dragSettleFrameRef.current = requestAnimationFrame(() => {
+        dragSettleFrameRef.current = null;
+        if (mountedRef.current) settleOffset(fallbackOffset);
+      });
     },
     [settleOffset],
   );
+
+  const onMomentumScrollBegin = useCallback(() => {
+    if (dragSettleFrameRef.current === null) return;
+    cancelAnimationFrame(dragSettleFrameRef.current);
+    dragSettleFrameRef.current = null;
+  }, []);
 
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useLayoutEffect(() => {
@@ -679,12 +809,22 @@ export default function GroupListScreen({
     }
   }, [focusNode, groupsRevision, hydrated, isScreenFocused, orderedGroups, snapInterval]);
 
-  // grip에서 시작한 포인터만 재정렬이 소유한다. 그동안 FlatList의 수평 pan과 본문 tap은
-  // 비활성화되며, release에서 실제 순서가 달라진 경우에만 한 번 commit한다.
-  const dragRef = useRef<{ groupId: string; from: number; target: number } | null>(null);
-  const edgeDirectionRef = useRef<-1 | 0 | 1>(0);
-  const edgeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>());
+  const measureDeckBounds = useCallback(() => {
+    deckAnchorRef.current?.measureInWindow((x, y, width, height) => {
+      if (width <= 0 || height <= 0) return;
+      deckBoundsRef.current = { x, y, width, height };
+    });
+  }, []);
+
+  const handleDeckLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { x, y, width, height } = event.nativeEvent.layout;
+      // measureInWindow 응답 전 한 프레임과 host measurement가 없는 테스트 환경의 보수적 fallback.
+      deckBoundsRef.current = { x: x + insets.left, y: y + insets.top, width, height };
+      measureDeckBounds();
+    },
+    [insets.left, insets.top, measureDeckBounds],
+  );
 
   const stopEdgePaging = useCallback(() => {
     edgeDirectionRef.current = 0;
@@ -704,24 +844,28 @@ export default function GroupListScreen({
         const next = advanceEdgeTarget(drag.target, direction, max);
         if (next === drag.target) return;
         drag.target = next;
+        // FlatList도 한 페이지 이동하므로 슬롯 판정용 논리 이동량에는 같은 거리를 누적한다.
+        // 손가락을 따르는 overlay는 fingerTranslateX만 써서 자동 paging의 보정을 받지 않는다.
+        drag.translateX += direction * snapInterval;
+        setReorderPreview({
+          groupId: drag.groupId,
+          from: drag.from,
+          target: drag.target,
+          fingerTranslateX: drag.fingerTranslateX,
+          translateX: drag.translateX,
+        });
         const offset = next * snapInterval;
-        programmaticMomentumOffsetRef.current = offset;
+        registerProgrammaticOffset(drag.generation, offset);
         listRef.current?.scrollToOffset({ offset, animated: true });
       };
       page();
       edgeTimerRef.current = setInterval(page, EDGE_PAGE_THROTTLE_MS);
     },
-    [snapInterval, stopEdgePaging],
+    [registerProgrammaticOffset, snapInterval, stopEdgePaging],
   );
 
-  useEffect(() => stopEdgePaging, [stopEdgePaging]);
-
   const commitMove = useCallback(
-    (
-      groupId: string,
-      targetIndex: number,
-      trigger: 'drag' | 'pointer_control' | 'accessibility_action',
-    ) => {
+    (groupId: string, targetIndex: number, trigger: 'drag' | 'accessibility_action') => {
       const ids = orderedGroupsRef.current.map((group) => group.groupId);
       const from = ids.indexOf(groupId);
       const target = Math.max(0, Math.min(targetIndex, ids.length - 1));
@@ -741,6 +885,7 @@ export default function GroupListScreen({
         activeIndexRef.current = target;
         setActiveStableGroupId(groupId);
         setActiveIndex(target);
+        currentProgrammaticTargetRef.current = null;
         listRef.current?.scrollToOffset({ offset: target * snapInterval, animated: false });
         const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
         AccessibilityInfo.announceForAccessibility(
@@ -757,34 +902,106 @@ export default function GroupListScreen({
     [commitOrder, snapInterval],
   );
 
+  const rollbackDrag = useCallback(
+    (drag: Pick<ReorderPreview, 'groupId' | 'from'>) => {
+      const currentIndex = orderedGroupsRef.current.findIndex(
+        (group) => group.groupId === drag.groupId,
+      );
+      if (currentIndex < 0) return;
+      // 서버 reconcile이 drag 도중 들어왔어도 옛 index가 아니라 stable groupId의 현재 슬롯으로 복귀한다.
+      activeIdentityRef.current = drag.groupId;
+      activeIndexRef.current = currentIndex;
+      setActiveStableGroupId(drag.groupId);
+      setActiveIndex(currentIndex);
+      currentProgrammaticTargetRef.current = null;
+      listRef.current?.scrollToOffset({
+        offset: currentIndex * snapInterval,
+        animated: false,
+      });
+    },
+    [snapInterval],
+  );
+
+  const cancelDrag = useCallback(
+    (updateState = true) => {
+      stopEdgePaging();
+      const drag = dragRef.current;
+      dragRef.current = null;
+      draggingGroupIdRef.current = null;
+      if (updateState) {
+        setDraggingGroupId(null);
+        setReorderPreview(null);
+        if (drag) rollbackDrag(drag);
+      }
+    },
+    [rollbackDrag, stopEdgePaging],
+  );
+  cancelDragRef.current = cancelDrag;
+
+  useEffect(() => {
+    if (!isScreenFocused) cancelDrag();
+  }, [cancelDrag, isScreenFocused]);
+
   const handlersFor = useCallback(
     (groupId: string) => {
-      const responderKey = `${groupId}:${snapInterval}:${orderedGroupIds.join(',')}:${reorderMenuGroupId ?? ''}`;
+      const responderKey = `${groupId}:${snapInterval}:${orderedGroupIds.join(',')}`;
       const cached = respondersRef.current.get(responderKey);
       if (cached) return cached.panHandlers;
       const responder = PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_event, gesture) =>
-          reorderMenuGroupIdRef.current === null && shouldClaimReorderDrag(gesture.dx, gesture.dy),
+          !refreshingRef.current &&
+          !flipAnimatingRef.current &&
+          shouldClaimReorderDrag(gesture.dx, gesture.dy),
         onMoveShouldSetPanResponderCapture: (_event, gesture) =>
-          reorderMenuGroupIdRef.current === null && shouldClaimReorderDrag(gesture.dx, gesture.dy),
+          !refreshingRef.current &&
+          !flipAnimatingRef.current &&
+          shouldClaimReorderDrag(gesture.dx, gesture.dy),
         onPanResponderGrant: () => {
-          if (reorderMenuGroupIdRef.current !== null) return;
+          if (
+            refreshingRef.current ||
+            flipAnimatingRef.current ||
+            draggingGroupIdRef.current !== null
+          )
+            return;
+          measureDeckBounds();
           roomReturnRef.current = null;
+          pendingFlipRef.current = null;
           const from = orderedGroupsRef.current.findIndex((group) => group.groupId === groupId);
           if (from < 0) return;
-          dragRef.current = { groupId, from, target: from };
+          const sourceOrder = orderedGroupsRef.current.map((group) => group.groupId);
+          dragRef.current = {
+            generation: ++dragGenerationRef.current,
+            groupId,
+            from,
+            target: from,
+            fingerTranslateX: 0,
+            translateX: 0,
+            lastGestureDx: 0,
+            sourceOrder,
+          };
+          draggingGroupIdRef.current = groupId;
           setDraggingGroupId(groupId);
+          setReorderPreview({
+            groupId,
+            from,
+            target: from,
+            fingerTranslateX: 0,
+            translateX: 0,
+          });
           setFlippedGroupId(null);
         },
         onPanResponderMove: (_event, gesture) => {
           const drag = dragRef.current;
           if (!drag) return;
-          if (!shouldClaimReorderDrag(gesture.dx, gesture.dy)) return;
+          const deltaX = gesture.dx - drag.lastGestureDx;
+          drag.lastGestureDx = gesture.dx;
+          drag.fingerTranslateX = gesture.dx;
+          drag.translateX += deltaX;
           const max = orderedGroupsRef.current.length - 1;
           const pointerTarget = Math.max(
             0,
-            Math.min(drag.from + Math.round(gesture.dx / snapInterval), max),
+            Math.min(drag.from + Math.round(drag.translateX / snapInterval), max),
           );
 
           const direction =
@@ -797,51 +1014,52 @@ export default function GroupListScreen({
             else drag.target = Math.max(drag.target, pointerTarget);
             startEdgePaging(direction);
           }
+          setReorderPreview({
+            groupId: drag.groupId,
+            from: drag.from,
+            target: drag.target,
+            fingerTranslateX: drag.fingerTranslateX,
+            translateX: drag.translateX,
+          });
         },
         onPanResponderRelease: (_event, gesture) => {
           stopEdgePaging();
           const drag = dragRef.current;
           dragRef.current = null;
+          draggingGroupIdRef.current = null;
           setDraggingGroupId(null);
+          setReorderPreview(null);
           if (!drag) return;
-          if (Math.abs(gesture.dx) < 6 && Math.abs(gesture.dy) < 6) {
-            reorderMenuGroupIdRef.current = drag.groupId;
-            setReorderMenuGroupId(drag.groupId);
+          // claim 뒤 원점으로 되돌리거나 세로/경계 밖에서 놓는 것은 모두 같은 rollback이다.
+          if (
+            !shouldClaimReorderDrag(gesture.dx, gesture.dy) ||
+            !isPointInsideDeck(gesture.moveX, gesture.moveY, deckBoundsRef.current)
+          ) {
+            rollbackDrag(drag);
+            return;
+          }
+          const currentOrder = orderedGroupsRef.current.map((group) => group.groupId);
+          if (
+            currentOrder.length !== drag.sourceOrder.length ||
+            currentOrder.some((currentGroupId, index) => currentGroupId !== drag.sourceOrder[index])
+          ) {
+            rollbackDrag(drag);
             return;
           }
           const committed = commitMove(drag.groupId, drag.target, 'drag');
-          if (!committed) {
-            programmaticMomentumOffsetRef.current = null;
-            activeIdentityRef.current = drag.groupId;
-            activeIndexRef.current = drag.from;
-            setActiveStableGroupId(drag.groupId);
-            setActiveIndex(drag.from);
-            listRef.current?.scrollToOffset({
-              offset: drag.from * snapInterval,
-              animated: false,
-            });
-          }
+          if (!committed) rollbackDrag(drag);
         },
-        onPanResponderTerminate: () => {
-          stopEdgePaging();
-          const drag = dragRef.current;
-          dragRef.current = null;
-          setDraggingGroupId(null);
-          if (!drag) return;
-          activeIdentityRef.current = drag.groupId;
-          activeIndexRef.current = drag.from;
-          setActiveStableGroupId(drag.groupId);
-          setActiveIndex(drag.from);
-          listRef.current?.scrollToOffset({ offset: drag.from * snapInterval, animated: false });
-        },
+        onPanResponderTerminate: () => cancelDrag(),
       });
       respondersRef.current.set(responderKey, responder);
       return responder.panHandlers;
     },
     [
       commitMove,
+      cancelDrag,
+      measureDeckBounds,
       orderedGroupIds,
-      reorderMenuGroupId,
+      rollbackDrag,
       snapInterval,
       startEdgePaging,
       stopEdgePaging,
@@ -851,22 +1069,24 @@ export default function GroupListScreen({
 
   useEffect(() => {
     respondersRef.current.clear();
-  }, [orderedGroupIds, reorderMenuGroupId, snapInterval, windowWidth]);
+  }, [orderedGroupIds, snapInterval, windowWidth]);
 
   const flipToBack = useCallback(
     (groupId: string, trigger: GroupCardFlipTrigger = 'card_tap') => {
-      if (draggingGroupId !== null || reorderMenuGroupId !== null) return;
+      if (draggingGroupId !== null) return;
       roomReturnRef.current = null;
       const index = orderedGroups.findIndex((group) => group.groupId === groupId);
       if (index < 0) return;
       if (activeIdentityRef.current !== groupId) {
         pendingFlipRef.current = { groupId, trigger };
-        listRef.current?.scrollToOffset({ offset: index * snapInterval, animated: true });
+        const targetOffset = index * snapInterval;
+        currentProgrammaticTargetRef.current = targetOffset;
+        listRef.current?.scrollToOffset({ offset: targetOffset, animated: true });
         return;
       }
       completeUserFlipToBack(groupId, trigger);
     },
-    [completeUserFlipToBack, draggingGroupId, orderedGroups, reorderMenuGroupId, snapInterval],
+    [completeUserFlipToBack, draggingGroupId, orderedGroups, snapInterval],
   );
 
   const flipToFront = useCallback(
@@ -1051,6 +1271,11 @@ export default function GroupListScreen({
     focusNode(backFocusRef);
   }, [focusNode]);
 
+  const dragOverlayGroup =
+    reorderPreview === null
+      ? null
+      : (orderedGroups.find((group) => group.groupId === reorderPreview.groupId) ?? null);
+
   return (
     <View style={s.root} testID="group.list">
       <View style={s.header}>
@@ -1059,9 +1284,9 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.backBtn}
             onPress={() => {
-              if (reorderMenuGroupIdRef.current === null) onBack();
+              if (draggingGroupIdRef.current === null) onBack();
             }}
-            disabled={reorderMenuGroupId !== null}
+            disabled={draggingGroupId !== null}
             activeOpacity={0.7}
             accessibilityLabel="뒤로"
             testID="group.list.back"
@@ -1074,9 +1299,9 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.searchBtn}
             onPress={() => {
-              if (reorderMenuGroupIdRef.current === null) onFind('header');
+              if (draggingGroupIdRef.current === null) onFind('header');
             }}
-            disabled={reorderMenuGroupId !== null}
+            disabled={draggingGroupId !== null}
             activeOpacity={0.75}
             accessibilityRole="button"
             accessibilityLabel="그룹 찾기"
@@ -1087,9 +1312,9 @@ export default function GroupListScreen({
           <TouchableOpacity
             style={s.createBtn}
             onPress={() => {
-              if (reorderMenuGroupIdRef.current === null) onCreate();
+              if (draggingGroupIdRef.current === null) onCreate();
             }}
-            disabled={reorderMenuGroupId !== null}
+            disabled={draggingGroupId !== null}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="그룹 만들기"
@@ -1109,18 +1334,14 @@ export default function GroupListScreen({
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         directionalLockEnabled
-        scrollEnabled={guideInputReady && !guideVisible && !flipAnimating}
+        scrollEnabled={
+          guideInputReady && !guideVisible && !flipAnimating && draggingGroupId === null
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={refreshGroups}
-            enabled={
-              guideInputReady &&
-              !guideVisible &&
-              !flipAnimating &&
-              reorderMenuGroupId === null &&
-              draggingGroupId === null
-            }
+            enabled={guideInputReady && !guideVisible && !flipAnimating && draggingGroupId === null}
             tintColor={T.accent}
             colors={[T.accent]}
           />
@@ -1130,7 +1351,11 @@ export default function GroupListScreen({
         <View
           ref={deckAnchorRef}
           collapsable={false}
-          onLayout={() => setDeckLayoutReady(true)}
+          style={s.deckAnchor}
+          onLayout={(event) => {
+            setDeckLayoutReady(true);
+            handleDeckLayout(event);
+          }}
           pointerEvents={guideInputReady && !guideVisible && !flipAnimating ? 'auto' : 'none'}
           testID="group.deck.guideAnchor"
         >
@@ -1148,12 +1373,10 @@ export default function GroupListScreen({
                 keyExtractor={(item) => item.groupId}
                 CellRendererComponent={GroupListCell}
                 horizontal
+                // 잡은 카드는 아래 overlay가 소유한다. source 셀을 끝까지 살리려고 windowSize를
+                // 전체 그룹 수로 키우지 않아 FlatList의 기본 가상화 범위를 그대로 보존한다.
                 scrollEnabled={
-                  guideInputReady &&
-                  !guideVisible &&
-                  !flipAnimating &&
-                  draggingGroupId === null &&
-                  reorderMenuGroupId === null
+                  guideInputReady && !guideVisible && !flipAnimating && draggingGroupId === null
                 }
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={[s.listContent, { paddingHorizontal: SIDE_PEEK }]}
@@ -1163,6 +1386,10 @@ export default function GroupListScreen({
                 decelerationRate="fast"
                 disableIntervalMomentum
                 onScrollBeginDrag={() => {
+                  // 실제 사용자 swipe가 시작되면 이전 edge episode의 유실된 completion은 더 이상
+                  // 도착할 수 없다. 남은 programmatic offset을 여기서만 폐기한다.
+                  programmaticScrollEpisodesRef.current = [];
+                  currentProgrammaticTargetRef.current = null;
                   roomReturnRef.current = null;
                   pendingFlipRef.current = null;
                   guideBackGroupIdRef.current = null;
@@ -1173,6 +1400,7 @@ export default function GroupListScreen({
                   });
                 }}
                 onMomentumScrollEnd={onMomentumScrollEnd}
+                onMomentumScrollBegin={onMomentumScrollBegin}
                 onScrollEndDrag={onScrollEndDrag}
                 ListFooterComponent={
                   <View
@@ -1187,7 +1415,7 @@ export default function GroupListScreen({
                       position={pageCount}
                       pageCount={pageCount}
                       onPress={() => {
-                        if (reorderMenuGroupIdRef.current === null) onFind('end_card');
+                        if (draggingGroupIdRef.current === null) onFind('end_card');
                       }}
                       focusable={renderedActiveIndex === orderedGroups.length}
                     />
@@ -1207,187 +1435,143 @@ export default function GroupListScreen({
                     }
                     testID={`group.list.card.${item.groupId}`}
                   >
-                    <GroupCardFlip
+                    <ReorderMotionCard
+                      width={cardWidth}
                       groupId={item.groupId}
-                      minHeight={GROUP_CARD_HEIGHT}
-                      flipped={flippedGroupId === item.groupId}
-                      skipTransition={skipFlipTransition}
-                      onTransitioningChange={
-                        item.groupId === activeGroupId ? handleFlipTransition : undefined
-                      }
-                      back={
-                        <GroupCardBack
-                          group={item}
-                          userId={userId}
-                          cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
-                          position={index + 1}
-                          pageCount={pageCount}
-                          snapshot={snapshots[item.groupId]}
-                          roomRef={
-                            activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
-                          }
-                          backFocusRef={
-                            activeIdentityRef.current === item.groupId ? backFocusRef : undefined
-                          }
-                          settingsRef={
-                            activeIdentityRef.current === item.groupId
-                              ? settingsFocusRef
-                              : undefined
-                          }
-                          onFlipFront={flipToFront}
-                          onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
-                          onStartFocus={() => {
-                            runCardAction(item, 'focus', (interaction) =>
-                              onStartFocus(item.groupId, interaction),
-                            );
-                          }}
-                          onOpenSettings={() => {
-                            runCardAction(item, 'settings', () => {
-                              roomReturnRef.current = {
-                                groupId: item.groupId,
-                                sourceIndex: index,
-                                departureRevision: groupsRevision,
-                              };
-                              returnFocusTargetRef.current = 'settings';
-                              onOpenSettings(item.groupId);
-                            });
-                          }}
-                          onOpenRoom={() => {
-                            runCardAction(item, 'room', (interaction) => {
-                              roomReturnRef.current = {
-                                groupId: item.groupId,
-                                sourceIndex: index,
-                                departureRevision: groupsRevision,
-                              };
-                              returnFocusTargetRef.current = 'room';
-                              onSelect(item.groupId, interaction);
-                            });
-                          }}
-                          onRetry={(dependency) => retry(item.groupId, dependency)}
-                        />
-                      }
-                      front={
-                        <GroupCardFront
-                          group={item}
-                          cardRef={item.groupId === activeGroupId ? guideFrontRef : undefined}
-                          emoji={emojiFor(item.groupId)}
-                          position={index + 1}
-                          pageCount={pageCount}
-                          reorderCount={orderedGroups.length}
-                          active={item.groupId === activeGroupId}
-                          bodyRef={
-                            activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
-                          }
-                          gripRef={(node) => {
-                            if (node) reorderGripRefs.current.set(item.groupId, node);
-                            else reorderGripRefs.current.delete(item.groupId);
-                          }}
-                          onFlip={() => flipToBack(item.groupId)}
-                          onAccessibilityFlip={() =>
-                            flipToBack(item.groupId, 'accessibility_action')
-                          }
-                          reorderHandlers={handlersFor(item.groupId)}
-                          onOpenReorderMenu={() => {
-                            if (reorderMenuGroupIdRef.current !== null) return;
-                            roomReturnRef.current = null;
-                            reorderMenuGroupIdRef.current = item.groupId;
-                            setReorderMenuGroupId(item.groupId);
-                          }}
-                          canMovePrevious={index > 0}
-                          canMoveNext={index < orderedGroups.length - 1}
-                          onMoveStep={(step) => {
-                            if (reorderMenuGroupIdRef.current !== null) return;
-                            roomReturnRef.current = null;
-                            const from = orderedGroupsRef.current.findIndex(
-                              (group) => group.groupId === item.groupId,
-                            );
-                            if (commitMove(item.groupId, from + step, 'accessibility_action'))
-                              setFlippedGroupId(null);
-                          }}
-                        />
-                      }
-                    />
-                    {reorderMenuGroupId === item.groupId && (
-                      <>
-                        <Pressable
-                          style={s.reorderDismiss}
-                          onPress={closeReorderMenu}
-                          accessibilityRole="button"
-                          accessibilityLabel="순서 변경 취소"
-                          testID={`group.card.reorderDismiss.${item.groupId}`}
-                        />
-                        <View
-                          style={s.reorderMenu}
-                          accessibilityViewIsModal
-                          onAccessibilityEscape={closeReorderMenu}
-                          testID={`group.card.reorderMenu.${item.groupId}`}
-                        >
-                          <View style={s.reorderHeader}>
-                            <Text style={s.reorderTitle}>순서 변경</Text>
-                            <TouchableOpacity
-                              ref={(node) => {
-                                if (node) reorderDoneRefs.current.set(item.groupId, node);
-                                else reorderDoneRefs.current.delete(item.groupId);
-                              }}
-                              onPress={closeReorderMenu}
-                              accessibilityRole="button"
-                              testID={`group.card.reorderDone.${item.groupId}`}
-                            >
-                              <Text style={s.reorderDoneText}>완료</Text>
-                            </TouchableOpacity>
-                          </View>
-                          <View
-                            style={s.reorderOptions}
-                            testID={`group.card.reorderOptions.${item.groupId}`}
-                          >
-                            <TouchableOpacity
-                              ref={(node) => {
-                                if (node) reorderPreviousRefs.current.set(item.groupId, node);
-                                else reorderPreviousRefs.current.delete(item.groupId);
-                              }}
-                              style={[s.reorderOption, index === 0 && s.reorderOptionDisabled]}
-                              disabled={index === 0}
-                              onPress={() => {
-                                const from = orderedGroupsRef.current.findIndex(
-                                  (group) => group.groupId === item.groupId,
-                                );
-                                commitMove(item.groupId, from - 1, 'pointer_control');
-                              }}
-                              accessibilityRole="button"
-                              accessibilityLabel="앞으로 이동"
-                              testID={`group.card.reorderPrevious.${item.groupId}`}
-                            >
-                              <Text style={s.reorderOptionText}>앞으로 이동</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              ref={(node) => {
-                                if (node) reorderNextRefs.current.set(item.groupId, node);
-                                else reorderNextRefs.current.delete(item.groupId);
-                              }}
-                              style={[
-                                s.reorderOption,
-                                index === orderedGroups.length - 1 && s.reorderOptionDisabled,
-                              ]}
-                              disabled={index === orderedGroups.length - 1}
-                              onPress={() => {
-                                const from = orderedGroupsRef.current.findIndex(
-                                  (group) => group.groupId === item.groupId,
-                                );
-                                commitMove(item.groupId, from + 1, 'pointer_control');
-                              }}
-                              accessibilityRole="button"
-                              accessibilityLabel="뒤로 이동"
-                              testID={`group.card.reorderNext.${item.groupId}`}
-                            >
-                              <Text style={s.reorderOptionText}>뒤로 이동</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      </>
-                    )}
+                      dragging={reorderPreview?.groupId === item.groupId}
+                      reordering={reorderPreview !== null}
+                      translateX={resolveReorderTranslation(index, reorderPreview, snapInterval)}
+                    >
+                      <GroupCardFlip
+                        groupId={item.groupId}
+                        minHeight={GROUP_CARD_HEIGHT}
+                        flipped={flippedGroupId === item.groupId}
+                        skipTransition={skipFlipTransition}
+                        onTransitioningChange={
+                          item.groupId === activeGroupId ? handleFlipTransition : undefined
+                        }
+                        onTransitionComplete={
+                          item.groupId === activeGroupId ? handleFlipTransitionComplete : undefined
+                        }
+                        back={
+                          <GroupCardBack
+                            group={item}
+                            userId={userId}
+                            cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
+                            position={index + 1}
+                            pageCount={pageCount}
+                            snapshot={snapshots[item.groupId]}
+                            roomRef={
+                              activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
+                            }
+                            backFocusRef={
+                              activeIdentityRef.current === item.groupId ? backFocusRef : undefined
+                            }
+                            settingsRef={
+                              activeIdentityRef.current === item.groupId
+                                ? settingsFocusRef
+                                : undefined
+                            }
+                            onFlipFront={flipToFront}
+                            onAccessibilityFlipFront={() => flipToFront('accessibility_action')}
+                            onStartFocus={() => {
+                              runCardAction(item, 'focus', (interaction) =>
+                                onStartFocus(item.groupId, interaction),
+                              );
+                            }}
+                            onOpenSettings={() => {
+                              runCardAction(item, 'settings', () => {
+                                roomReturnRef.current = {
+                                  groupId: item.groupId,
+                                  sourceIndex: index,
+                                  departureRevision: groupsRevision,
+                                };
+                                returnFocusTargetRef.current = 'settings';
+                                onOpenSettings(item.groupId);
+                              });
+                            }}
+                            onOpenRoom={() => {
+                              runCardAction(item, 'room', (interaction) => {
+                                roomReturnRef.current = {
+                                  groupId: item.groupId,
+                                  sourceIndex: index,
+                                  departureRevision: groupsRevision,
+                                };
+                                returnFocusTargetRef.current = 'room';
+                                onSelect(item.groupId, interaction);
+                              });
+                            }}
+                            onRetry={(dependency) => retry(item.groupId, dependency)}
+                          />
+                        }
+                        front={
+                          <GroupCardFront
+                            group={item}
+                            cardRef={item.groupId === activeGroupId ? guideFrontRef : undefined}
+                            emoji={emojiFor(item.groupId)}
+                            position={index + 1}
+                            pageCount={pageCount}
+                            reorderCount={orderedGroups.length}
+                            active={item.groupId === activeGroupId}
+                            bodyRef={
+                              activeIdentityRef.current === item.groupId ? frontFocusRef : undefined
+                            }
+                            gripRef={(node) => {
+                              if (node) reorderGripRefs.current.set(item.groupId, node);
+                              else reorderGripRefs.current.delete(item.groupId);
+                            }}
+                            onFlip={() => flipToBack(item.groupId)}
+                            onAccessibilityFlip={() =>
+                              flipToBack(item.groupId, 'accessibility_action')
+                            }
+                            reorderHandlers={
+                              item.groupId === activeGroupId ? handlersFor(item.groupId) : undefined
+                            }
+                            canMovePrevious={index > 0}
+                            canMoveNext={index < orderedGroups.length - 1}
+                            onMoveStep={(step) => {
+                              if (draggingGroupIdRef.current !== null) return;
+                              roomReturnRef.current = null;
+                              const from = orderedGroupsRef.current.findIndex(
+                                (group) => group.groupId === item.groupId,
+                              );
+                              if (commitMove(item.groupId, from + step, 'accessibility_action'))
+                                setFlippedGroupId(null);
+                            }}
+                          />
+                        }
+                      />
+                    </ReorderMotionCard>
                   </View>
                 )}
               />
+
+              {dragOverlayGroup && reorderPreview && (
+                <View
+                  pointerEvents="none"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={[
+                    s.dragOverlay,
+                    {
+                      left: SIDE_PEEK,
+                      width: cardWidth,
+                      transform: [{ translateX: reorderPreview.fingerTranslateX }],
+                    },
+                  ]}
+                  testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
+                >
+                  <GroupCardFront
+                    group={dragOverlayGroup}
+                    emoji={emojiFor(dragOverlayGroup.groupId)}
+                    position={reorderPreview.target + 1}
+                    pageCount={pageCount}
+                    reorderCount={orderedGroups.length}
+                    active={false}
+                    onFlip={() => undefined}
+                  />
+                </View>
+              )}
 
               {saveFailed && (
                 <Text style={s.saveError} accessibilityRole="alert">
@@ -1400,7 +1584,7 @@ export default function GroupListScreen({
                 pageCount={pageCount}
                 activeIndex={renderedActiveIndex}
                 pageLabels={[...orderedGroups.map((group) => group.name), '그룹 찾기']}
-                disabled={flipAnimating || draggingGroupId !== null || reorderMenuGroupId !== null}
+                disabled={flipAnimating || draggingGroupId !== null}
                 onSelectPage={selectPage}
                 onAccessibilitySelectPage={(page) => selectPage(page, 'accessibility_action')}
               />
@@ -1429,6 +1613,7 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   deckScroller: { flex: 1 },
   deckScrollerContent: { flexGrow: 1 },
+  deckAnchor: { position: 'relative' },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
@@ -1507,40 +1692,14 @@ const s = StyleSheet.create({
   },
   backPrimaryText: { ...T.text.label, color: T.white },
   backLink: { ...T.text.caption, color: T.accent, textAlign: 'center' },
-  reorderMenu: {
-    position: 'absolute',
-    top: 52,
-    right: T.space.md,
-    zIndex: 5,
-    minWidth: 132,
-    padding: T.space.xs,
-    borderRadius: 12,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-    maxHeight: 240,
-  },
-  reorderDismiss: {
+  draggingSource: { opacity: 0 },
+  dragOverlay: {
     position: 'absolute',
     top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    zIndex: 4,
+    zIndex: 10,
+    height: GROUP_CARD_HEIGHT,
+    elevation: 10,
   },
-  reorderHeader: {
-    minHeight: 44,
-    paddingHorizontal: T.space.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  reorderTitle: { ...T.text.caption, color: T.inkMuted },
-  reorderDoneText: { ...T.text.label, color: T.accent, padding: T.space.xs },
-  reorderOptions: { maxHeight: 196 },
-  reorderOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: T.space.sm },
-  reorderOptionDisabled: { opacity: 0.36 },
-  reorderOptionText: { ...T.text.label, color: T.ink },
   saveError: {
     ...T.text.caption,
     color: T.dangerInk,
