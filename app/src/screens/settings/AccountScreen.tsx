@@ -407,9 +407,21 @@ export default function AccountScreen() {
               />
             ))}
           </SettingsSection>
+          {/* 게스트 소실 고지 + 승격 유도 (GROMO-1509) — 종전 문구는 이점만 말하고 위험을 안 알렸다.
+              흔한 소실 경로는 미접속이 아니라 앱 삭제·기기 변경이라 그쪽을 앞에 둔다.
+              **일수를 단정하지 않는다**(코드리뷰 P1): 만료 기간은 서버 refresh 수명이 정하는데
+              앱은 스토어 심사를 거쳐 나가므로, 숫자를 박으면 서버 배포가 늦거나 값이 바뀔 때
+              앱이 거짓을 말하게 된다. 유저가 그 숫자로 할 수 있는 일도 없다 — 행동은 '소셜 연결'
+              하나뿐이라 정확한 일수는 고지 가치가 없다. */}
           <View style={s.note}>
             <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-            <Text style={s.noteText}>로그인하면 목표·집중 기록이 계정에 안전하게 저장돼요.</Text>
+            <Text style={s.noteText}>
+              지금은 로그인 없이 쓰는 중이에요. 기록은 서버에 저장되지만, 이 기기의 인증 정보로만
+              다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을
+              되찾을 수 없어요.
+              {'\n\n'}
+              소셜 로그인을 연결하면 지금까지 기록 그대로 옮겨가요.
+            </Text>
           </View>
           <SettingsSection>
             <SettingsRow
