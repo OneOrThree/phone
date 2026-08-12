@@ -1154,25 +1154,17 @@ public class GroupBetService {
      * 않아, 탈퇴의 참가자 스냅샷 이후에 커밋된 참가가 정리에서 빠진다.
      */
     User requireActiveUser(UUID userId) {
-        User user = userRepository.findActiveByIdForShare(userId)
+        return userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
     }
 
     /**
-     * 활성·게스트 검증의 <b>락 없는</b> 판 (GROMO-1230) — 순수 읽기(readOnly) 조회 경로 전용.
+     * 활성 검증의 <b>락 없는</b> 판 (GROMO-1230) — 순수 읽기(readOnly) 조회 경로 전용.
      * Postgres 가 read-only 트랜잭션에서 FOR SHARE 를 거절하고, 순수 조회는 잠글 이유도 없다.
      */
     private User requireActiveUserNoLock(UUID userId) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+        return userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
     }
 
     /** 조회 경로용 멤버십 검증 — 잠금 없음. 돈이 움직이는 경로는 {@link #requireGroupMembershipForShare}. */

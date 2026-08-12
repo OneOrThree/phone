@@ -134,7 +134,7 @@ class AuthControllerTest {
     @DisplayName("토큰 갱신 성공 → 새 AT 반환")
     void refreshTokenSuccessReturns200() throws Exception {
         given(authService.refreshToken("valid-rt"))
-                .willReturn(new TokenRefreshResponse("new-at"));
+                .willReturn(new TokenRefreshResponse("new-at", null));
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)

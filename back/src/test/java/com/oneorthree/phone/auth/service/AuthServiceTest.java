@@ -31,6 +31,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -78,6 +79,8 @@ class AuthServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GUEST_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    /** RT 만료 시각 — 회전 판정 스텁의 매칭 키. 값 자체엔 의미가 없고 같은 객체로 오가기만 하면 된다. */
+    private static final Date RT_EXPIRES_AT = Date.from(Instant.parse("2026-09-01T00:00:00Z"));
 
     @BeforeEach
     void setUp() {
@@ -700,21 +703,70 @@ class AuthServiceTest {
     // ── refreshToken ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("유효한 RT로 토큰 갱신 → 새 AT 반환")
+    @DisplayName("유효한 RT로 토큰 갱신 → 새 AT 반환, 수명 넉넉하면 RT 는 회전하지 않는다 (GROMO-1509)")
     void refreshTokenSuccess() {
         // given
-        User user = User.builder().id(USER_ID).build();
+        User user = User.builder().id(USER_ID).refreshTokenHash(TokenHasher.sha256Hex("valid-rt")).build();
         given(jwtProvider.extractType("valid-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(jwtProvider.extractExpiration("valid-rt")).willReturn(RT_EXPIRES_AT);
         // 조회 키는 원본 RT 가 아니라 그 해시여야 한다 — 서비스가 해싱을 빠뜨리면 stub 이 매칭되지 않아 실패한다 (GROMO-713)
         given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("valid-rt")))
                 .willReturn(Optional.of(user));
         given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
+        given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(false);
 
         // when
         TokenRefreshResponse response = authService.refreshToken("valid-rt");
 
-        // then
+        // then: 회전이 없으면 RT 는 null 로 내려가고 저장된 해시도 그대로다(클라가 저장소를 안 건드림)
         assertThat(response.accessToken()).isEqualTo("new-access-token");
+        assertThat(response.refreshToken()).isNull();
+        assertThat(user.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("valid-rt"));
+        verify(jwtProvider, never()).generateRefreshToken(any(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("남은 수명이 절반 미만이면 RT 회전 — 새 RT 반환 + 저장 해시 갱신 (GROMO-1509)")
+    void refreshTokenRotatesWhenDue() {
+        // given
+        User user = User.builder().id(USER_ID).refreshTokenHash(TokenHasher.sha256Hex("old-rt")).build();
+        given(jwtProvider.extractType("old-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(jwtProvider.extractExpiration("old-rt")).willReturn(RT_EXPIRES_AT);
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("old-rt")))
+                .willReturn(Optional.of(user));
+        given(jwtProvider.generateAccessToken(USER_ID, false)).willReturn("new-access-token");
+        given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(true);
+        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("rotated-rt");
+
+        // when
+        TokenRefreshResponse response = authService.refreshToken("old-rt");
+
+        // then: 서버가 기억하는 해시가 새 RT 것으로 바뀌어야 한다 — 이게 빠지면 클라와 엇갈려
+        // 다음 갱신에 로그아웃된다(@Transactional 누락 시 실제로 이렇게 샌다)
+        assertThat(response.refreshToken()).isEqualTo("rotated-rt");
+        assertThat(user.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("rotated-rt"));
+    }
+
+    @Test
+    @DisplayName("게스트 회전은 게스트 수명으로 발급된다 — 판정·발급 모두 isGuest=true (GROMO-1509)")
+    void refreshTokenRotatesGuestWithGuestLifetime() {
+        // given
+        User guest = User.builder().id(USER_ID).isGuest(true)
+                .refreshTokenHash(TokenHasher.sha256Hex("guest-rt")).build();
+        given(jwtProvider.extractType("guest-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(jwtProvider.extractExpiration("guest-rt")).willReturn(RT_EXPIRES_AT);
+        given(userRepository.findByRefreshTokenHash(TokenHasher.sha256Hex("guest-rt")))
+                .willReturn(Optional.of(guest));
+        given(jwtProvider.generateAccessToken(USER_ID, true)).willReturn("guest-at");
+        given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, true)).willReturn(true);
+        given(jwtProvider.generateRefreshToken(USER_ID, true)).willReturn("guest-rotated-rt");
+
+        // when
+        TokenRefreshResponse response = authService.refreshToken("guest-rt");
+
+        // then
+        assertThat(response.refreshToken()).isEqualTo("guest-rotated-rt");
+        verify(jwtProvider).generateRefreshToken(USER_ID, true);
     }
 
     @Test
