@@ -266,6 +266,10 @@ describe('카드 렌더', () => {
       shadowOpacity: 0.16,
       elevation: 5,
     });
+    expect(screen.getByTestId(`group.card.gripDrag.${GROUP_ID}`)).toHaveStyle({
+      width: 46,
+      height: 46,
+    });
     expect(screen.getByTestId(`group.card.frontInfo.${GROUP_ID}`).props).toMatchObject({
       nestedScrollEnabled: true,
     });

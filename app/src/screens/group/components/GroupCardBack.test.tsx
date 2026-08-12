@@ -42,6 +42,13 @@ test('뒷면은 상단 색선을 두지 않고 흰 표면과 낮은 하단 그�
   expect(style.borderTopColor).toBeUndefined();
 });
 
+test('카드 축소 후에도 CTA 터치 영역은 44pt 이상을 유지한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.focus.g1')).toHaveStyle({ height: 46 });
+  expect(screen.getByTestId('group.card.room.g1')).toHaveStyle({ height: 46 });
+});
+
 test('완전한 focus 응답에서만 확인된 0명을 표시한다', async () => {
   await render(
     <GroupCardBack

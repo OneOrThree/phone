@@ -335,7 +335,7 @@ const s = StyleSheet.create({
   error: { ...T.text.caption, color: T.dangerInk },
   actions: { marginTop: 'auto', gap: T.space.xs },
   primary: {
-    height: 42,
+    height: 46,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -343,7 +343,7 @@ const s = StyleSheet.create({
   },
   primaryText: { ...T.text.label, color: T.white },
   secondary: {
-    height: 42,
+    height: 46,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
