@@ -133,7 +133,7 @@ class ClaimTest extends InviteLinkTestSupport {
         hitLanding(link.getSlug(), CLICK_IP);
         mockMvc.perform(post("/l/match")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("CF-Connecting-IP", CLICK_IP)
+                        .header("X-Real-IP", CLICK_IP)
                         .content("{\"os\":\"ios\",\"deviceId\":\"d1\",\"appInstanceId\":\"a1\"}"))
                 .andExpect(jsonPath("$.matched").value(true));
     }

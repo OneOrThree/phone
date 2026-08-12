@@ -8,11 +8,14 @@ import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.auth.service.GuestLoginRateLimiter;
+import com.oneorthree.phone.common.util.ClientIpResolver;
 import com.oneorthree.phone.user.domain.Provider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final ClientIpResolver clientIpResolver;
+    private final GuestLoginRateLimiter guestLoginRateLimiter;
 
     @Operation(summary = "구글 로그인", description = "Google id_token 검증 후 AT/RT 발급. 최초 로그인 시 isNewUser=true.")
     @ApiResponses({
@@ -122,10 +127,14 @@ public class AuthController {
 
     @Operation(summary = "게스트 로그인", description = "소셜 계정 없이 임시 사용자 생성. 일부 기능(그룹 생성·챌린지 참여 등) 제한 적용.")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "게스트 로그인 성공")
+        @ApiResponse(responseCode = "200", description = "게스트 로그인 성공"),
+        @ApiResponse(responseCode = "429",
+                description = "IP 당 게스트 생성 한도 초과(GUEST_CREATION_RATE_LIMITED) — 잠시 후 재시도")
     })
     @PostMapping("/auth/guest")
-    public ResponseEntity<GuestLoginResponse> guestLogin() {
+    public ResponseEntity<GuestLoginResponse> guestLogin(HttpServletRequest request) {
+        // 인증이 없는 유일한 계정 생성 경로라 IP 단위 생성 제한을 먼저 태운다 (GROMO-1510)
+        guestLoginRateLimiter.check(clientIpResolver.resolve(request));
         return ResponseEntity.ok(authService.guestLogin());
     }
 

@@ -87,3 +87,12 @@ link:
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT:loadtest-salt}
   store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
+
+# 게스트 생성 레이트리밋(GROMO-1510) — 부하 시나리오(k6 recipes/auth_guestLogin.json)는 소수의
+# 러너 IP 에서 대량 호출하므로 운영 기본값(1시간당 IP 10회·전역 300회)이면 429 만 재는 꼴이 된다.
+# 부하 측정이 목적인 프로파일이라 사실상 해제한다 — 리밋 자체를 재려면 값을 낮춰 잡으면 된다.
+auth:
+  guest:
+    rate-limit:
+      max-per-window: ${AUTH_GUEST_RATE_LIMIT_MAX:1000000}
+      max-per-window-global: ${AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL:1000000}

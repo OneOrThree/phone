@@ -95,6 +95,10 @@ link:
   base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
   match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
   ip-salt: ${LINK_IP_SALT:dev-salt}
+  # dev 는 앞단 프록시가 없다(docker-compose.dev.yml 은 app·db 뿐) — 전달 헤더가 정당할 수 없는
+  # 구성인데 app 이 0.0.0.0:8080 으로 열려 있어, 헤더를 읽으면 호출자가 자기 신원을 골라
+  # 게스트 생성 레이트리밋(GROMO-1510)을 우회할 수 있다. 그래서 빈 목록 = 헤더 무시, remoteAddr 만.
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:}
   # 실제 출시 App Store 링크 (GROMO-1086). 기본값 자체가 유효한 링크라 env 미설정이어도 정상 동작한다 —
   # 플레이스홀더 id 를 기본값으로 두었던 탓에 미설치 유저가 "사용할 수 없는 앱" 화면을 만났다.
   store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
