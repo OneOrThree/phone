@@ -41,6 +41,10 @@ export function GroupCardFlip({
   // prop이 바뀐 첫 commit부터 layout effect가 state를 올리기 전까지도 입력을 잠근다.
   const transitionRequested = previousFlippedRef.current !== flipped;
   const inputLocked = transitioning || (transitionRequested && !skipTransition);
+  // Y축 perspective는 가까워지는 모서리를 원래 face rect보다 크게 투영한다. 3D 전환 중에만
+  // 카드의 기존 라운드 rect로 잘라 헤더를 침범하지 않게 한다. 정지 상태와 Reduce Motion의
+  // cross-fade에는 clipping을 걸지 않아 앞면 shadow와 두 면의 기존 surface를 그대로 보존한다.
+  const clipProjectedFace = inputLocked && !motion.reduce;
 
   const finishTransition = useCallback(
     (generation: number, face: 'front' | 'back') => {
@@ -128,7 +132,10 @@ export function GroupCardFlip({
   );
 
   return (
-    <View style={{ minHeight }} testID={`group.card.flipShell.${groupId}`}>
+    <View
+      style={[s.shell, { minHeight }, clipProjectedFace && s.projectedFaceClip]}
+      testID={`group.card.flipShell.${groupId}`}
+    >
       <Animated.View
         style={[s.face, frontStyle]}
         pointerEvents={!inputLocked && !flipped ? 'auto' : 'none'}
@@ -152,6 +159,11 @@ export function GroupCardFlip({
 }
 
 const s = StyleSheet.create({
+  shell: { position: 'relative' },
+  projectedFaceClip: {
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
   face: {
     position: 'absolute',
     top: 0,
