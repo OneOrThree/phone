@@ -91,7 +91,8 @@ jest.mock('@/navigation/navigationRef', () => ({
 // A-9 이후 목록이 항상 기본 화면이라 onBack은 더 이상 내려가지 않는다(내장 그룹방·임시 목록 제거).
 jest.mock('./GroupListScreen', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
-  return function MockList({
+  const { tabBarSafeBottom } = require('@/components/tabBarLayout');
+  function MockList({
     groups,
     onSelect,
     onCreate,
@@ -134,6 +135,15 @@ jest.mock('./GroupListScreen', () => {
         </RNTouchable>
       </RNView>
     );
+  }
+  return {
+    __esModule: true,
+    default: MockList,
+    GROUP_CARD_SURFACE_SCALE: 0.97,
+    resolveGroupCardHeight: (viewportHeight: number, bottomInset: number) => {
+      if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return 520;
+      return Math.max(520, Math.floor((viewportHeight - tabBarSafeBottom(bottomInset)) * 0.9));
+    },
   };
 });
 
@@ -275,6 +285,40 @@ beforeEach(() => {
 afterEach(() => {
   jest.restoreAllMocks();
   clearPendingGroupEntry();
+});
+
+describe('최초 로딩 자리표시자', () => {
+  test('실제 덱 viewport와 같은 동적 높이·표면 축소를 적용한다', async () => {
+    mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
+    await renderScreen();
+
+    await act(async () => {
+      fireEvent(
+        screen.getByTestId('group.deck.skeleton', { includeHiddenElements: true }),
+        'layout',
+        {
+          nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 744 } },
+        },
+      );
+    });
+
+    expect(
+      screen.getByTestId('group.deck.skeleton.card', { includeHiddenElements: true }),
+    ).toHaveStyle({ height: 570 });
+    expect(
+      screen.getByTestId('group.deck.skeleton.peek', { includeHiddenElements: true }),
+    ).toHaveStyle({ height: 570 });
+    expect(
+      screen.getByTestId('group.deck.skeleton.cardSurface', { includeHiddenElements: true }),
+    ).toHaveStyle({
+      transform: [{ scale: 0.97 }],
+    });
+    expect(
+      screen.getByTestId('group.deck.skeleton.peekSurface', { includeHiddenElements: true }),
+    ).toHaveStyle({
+      transform: [{ scale: 0.97 }],
+    });
+  });
 });
 
 describe('group_viewed view episode', () => {
