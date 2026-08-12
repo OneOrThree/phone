@@ -2,6 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { getUserIdFromToken } from '@/services/api';
+import { migrateLegacySessionStorage, readAccessToken } from '@/services/sessionStorage';
 
 // ⚠️ storageVersion 값은 영원히 '2'로 유지한다 — 이미 배포된 구 번들의 마이그레이션이
 // "'2'가 아니면 구 키(ownedItems·equipment)를 삭제"하므로, 값을 올리면 OTA 롤백 시
@@ -40,10 +41,7 @@ function isEmptyEquipment(saved: SavedEquipmentShape | undefined): boolean {
 //    보유 아이템은 합집합, 장착 상태는 실데이터가 있는 버킷 우선(빈 기본값만 대체).
 async function migrateV3(): Promise<void> {
   const onboarded = await AsyncStorage.getItem(STORAGE_KEYS.onboardingComplete);
-  const rawUser = onboarded ? await AsyncStorage.getItem(STORAGE_KEYS.user) : null;
-  const accessToken = rawUser
-    ? ((JSON.parse(rawUser) as { accessToken?: string }).accessToken ?? '')
-    : '';
+  const accessToken = onboarded ? ((await readAccessToken()) ?? '') : '';
   const userId = accessToken ? getUserIdFromToken(accessToken) : null;
 
   const rawOwned = await AsyncStorage.getItem(STORAGE_KEYS.ownedItems);
@@ -100,6 +98,9 @@ async function reconcileLegacyOwnedItems(): Promise<void> {
 
 export async function runStorageMigrations(): Promise<void> {
   try {
+    // 인증 비밀을 Keychain/Keystore 기반 SecureStore로 먼저 옮기고 평문 사본을 제거한다.
+    // 뒤의 v3 마이그레이션은 이 토큰의 sub를 계정 귀속 근거로 사용한다.
+    await migrateLegacySessionStorage();
     // v2 — 배포된 구 번들과 동일한 판정·기록을 유지해야 한다(위 storageVersion 주석 참고).
     const stored = await AsyncStorage.getItem(STORAGE_KEYS.storageVersion);
     if (stored !== V2_STORAGE_VERSION) {

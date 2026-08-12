@@ -1,8 +1,7 @@
 // focus 도메인 API 래퍼 (FocusController, base /api/v1).
 // 모든 호출은 axios 인스턴스 api(JWT 자동 주입, 401 refresh) 경유. axios는 non-2xx 시 throw.
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getUserIdFromToken } from '@/services/api';
-import { STORAGE_KEYS } from '@/types/storage';
+import { readAccessToken } from '@/services/sessionStorage';
 import type {
   FocusTagResponse,
   FocusTagSetupRequest,
@@ -63,7 +62,7 @@ let saveChain: Promise<unknown> = Promise.resolve();
 // 지금 저장된 액세스 토큰과 그 주인(JWT sub). 저장이 체인에서 대기하는 동안 계정이 바뀌었는지
 // 판별하고, **검증한 그 토큰 그대로** 요청에 실어 보내는 데 쓴다.
 async function currentAccessToken(): Promise<{ token: string | null; accountId: string | null }> {
-  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  const token = await readAccessToken();
   return { token, accountId: token ? getUserIdFromToken(token) : null };
 }
 

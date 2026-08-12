@@ -691,37 +691,6 @@
         }
       }
     },
-    "/api/v1/inventory/grant": {
-      "post": {
-        "tags": [
-          "inventory"
-        ],
-        "summary": "아이템 지급",
-        "description": "유저에게 아이템 지급",
-        "operationId": "grantItem",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GrantItemRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "지급 성공"
-          },
-          "400": {
-            "description": "유효하지 않은 요청"
-          },
-          "404": {
-            "description": "유저 또는 아이템 없음"
-          }
-        }
-      }
-    },
     "/api/v1/groups": {
       "get": {
         "tags": [
@@ -4182,19 +4151,6 @@
         "properties": {
           "result": {
             "type": "string"
-          }
-        }
-      },
-      "GrantItemRequest": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "itemId": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },

@@ -5,7 +5,6 @@ import type {
   CharacterEquipmentResponse,
   UserItemResponse,
   EquipRequest,
-  GrantItemRequest,
   SlotType,
 } from '@/types/dto/item';
 
@@ -30,9 +29,4 @@ export async function unequipItem(userId: string, slotType: SlotType): Promise<v
 export async function getInventory(userId: string): Promise<UserItemResponse[]> {
   const { data } = await api.get<UserItemResponse[]>(`/api/v1/inventory/${userId}`);
   return data;
-}
-
-// POST /api/v1/inventory/grant — 유저에게 아이템 지급.
-export async function grantItem(request: GrantItemRequest): Promise<void> {
-  await api.post('/api/v1/inventory/grant', request);
 }

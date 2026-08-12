@@ -1,9 +1,8 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { STORAGE_KEYS } from '@/types/storage';
 import { enableApiMocks } from '@/mocks';
 import { resolveApiUrl } from '@/services/apiBaseUrl';
+import { readAccessToken, readRefreshToken, saveSessionTokens } from '@/services/sessionStorage';
 
 // 웹 개발 서버는 로컬 백엔드를, 웹 배포 빌드는 팀 dev 백엔드를 사용한다.
 // 두 경로 모두 EXPO_PUBLIC_API_URL에 production이 주입돼도 운영 데이터에 접근하지 않는다.
@@ -153,21 +152,18 @@ async function doRefreshAccessToken(
       throw new StaleAuthRefreshError('stale auth refresh');
     }
     const sessionGeneration = getAuthSessionGeneration();
-    const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+    const refreshToken = await readRefreshToken();
     if (!refreshToken) throw new Error('no refresh token');
 
     const { data } = await axios.post<RefreshResponse>(`${API_URL}/api/v1/auth/refresh`, {
       refreshToken,
     });
 
-    const currentRefreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+    const currentRefreshToken = await readRefreshToken();
     if (getAuthSessionGeneration() !== sessionGeneration || currentRefreshToken !== refreshToken) {
       throw new StaleAuthRefreshError('stale auth refresh');
     }
-    await AsyncStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken);
-    if (data.refreshToken) {
-      await AsyncStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken);
-    }
+    await saveSessionTokens(data.accessToken, data.refreshToken);
     return data.accessToken;
   } finally {
     release?.();
@@ -199,7 +195,7 @@ const TOKEN_EXP_MARGIN_MS = 30_000;
 export async function getFreshAccessToken(
   lease?: AuthSessionTransitionLease,
 ): Promise<string | null> {
-  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  const token = await readAccessToken();
   if (!token) return null;
   const expMs = getTokenExpMs(token);
   if (expMs !== null && expMs - Date.now() > TOKEN_EXP_MARGIN_MS) {
@@ -234,7 +230,7 @@ api.interceptors.request.use(async (config) => {
   if (config.headers.Authorization) {
     return config;
   }
-  const token = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+  const token = await readAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

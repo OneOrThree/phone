@@ -35,6 +35,7 @@ import { markOtaSplashShown } from '@/utils/otaGate';
 import { preloadTapSound } from '@/utils/sound';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { STORAGE_KEYS } from '@/types/storage';
+import { clearSessionTokens, readAccessToken, readRefreshToken } from '@/services/sessionStorage';
 import type { LoginResult, UserProfile } from '@/types/api';
 
 import BrandSplash from '@/components/BrandSplash';
@@ -89,6 +90,29 @@ async function backfillFocusCategory(profile: { occupation?: unknown }): Promise
 const styles = StyleSheet.create({
   webRoot: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
 });
+
+const ACCOUNT_LOCAL_CACHE_KEYS = [
+  STORAGE_KEYS.focusCategory,
+  STORAGE_KEYS.goalPending,
+  STORAGE_KEYS.focusPendingUploads,
+  STORAGE_KEYS.notificationSettings,
+  STORAGE_KEYS.statVisibility,
+  STORAGE_KEYS.focusFirstDone,
+  STORAGE_KEYS.subjects,
+  STORAGE_KEYS.focus,
+  STORAGE_KEYS.focusGoalCelebratedDate,
+  STORAGE_KEYS.focusGoalCelebratePending,
+  STORAGE_KEYS.screentimeLastRewardedDate,
+  STORAGE_KEYS.screentimeCelebratePending,
+] as const;
+
+async function clearLocalAccountCaches(extraKeys: string[] = []): Promise<void> {
+  await AsyncStorage.multiRemove([...extraKeys, ...ACCOUNT_LOCAL_CACHE_KEYS]);
+  // 알림 보관함은 쓰기 큐를 통해 지워 직전 수신 푸시가 옛 목록을 되살리는 레이스를 막는다.
+  await clearInbox();
+  // 위젯은 AsyncStorage가 아닌 네이티브 SharedPreferences를 읽으므로 별도로 초기화한다.
+  StudyWidgetModule.updateTopSubjects([]).catch(() => {});
+}
 
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
@@ -171,7 +195,15 @@ function App() {
         return;
       }
       const data = JSON.parse(raw) as UserProfile;
-      const userId = getUserIdFromToken(data.accessToken ?? '');
+      const accessToken = await readAccessToken();
+      // THIS_DEVICE_ONLY 보안 저장소는 기기 이전·복원 시 프로필 캐시와 함께 복원되지 않는다.
+      // 인증 비밀이 없으면 캐시만으로 홈에 진입시키지 말고 로그인 게이트로 돌린다.
+      if (!accessToken) {
+        await clearLocalAccountCaches([STORAGE_KEYS.user]);
+        setLoading(false);
+        return;
+      }
+      const userId = getUserIdFromToken(accessToken ?? '');
       // 서버 날짜 버킷 존(GROMO-1252) — 캐시된 프로필로 먼저 세운다. 프로필 조회가 실패(오프라인)해도
       // 지난 실행에서 받은 존이 유지되고, 한 번도 못 받았으면 모듈 폴백(Asia/Seoul)이 남는다.
       setServerZone(data.timeZone);
@@ -181,7 +213,7 @@ function App() {
         const merged = { ...data, ...profile };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
-        setUser({ ...merged, userId });
+        setUser({ ...merged, accessToken: accessToken ?? undefined, userId });
         // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
         // 앱 진입을 막지 않도록 fire-and-forget(실패 시 다음 실행에 재시도).
         if (!profile.countryCode) {
@@ -189,7 +221,7 @@ function App() {
           if (countryCode) updateProfile({ countryCode }).catch(() => {});
         }
       } catch {
-        setUser({ ...data, userId });
+        setUser({ ...data, accessToken: accessToken ?? undefined, userId });
       }
       setLoading(false);
     })();
@@ -238,14 +270,14 @@ function App() {
       // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
       // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
       try {
-        const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+        const accessToken = await readAccessToken();
         if (accessToken) await deleteDeviceToken(accessToken);
       } catch {}
       // 디바이스 토큰 해제 대기 중 새 인증이 시작됐다면 새 refresh token을 읽어 서버에서
       // 무효화하면 안 된다. 두 번째 서버 요청 전에 이전 로그아웃의 소유권을 재검증한다.
       if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
       try {
-        const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+        const refreshToken = await readRefreshToken();
         // 저장소 읽기도 비동기다. 그 사이 새 인증이 토큰을 교체했다면 방금 읽은 refresh token은
         // 새 세션 소유일 수 있으므로 서버 logout에 넘기기 직전에 다시 확인한다.
         if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
@@ -264,6 +296,7 @@ function App() {
       // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
       // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
       resetServerZone();
+      await clearSessionTokens().catch(() => {});
       // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.accessToken,
@@ -317,7 +350,8 @@ function App() {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.user);
     if (!raw) return;
     const data = JSON.parse(raw) as UserProfile;
-    const userId = getUserIdFromToken(data.accessToken ?? '');
+    const accessToken = await readAccessToken();
+    const userId = getUserIdFromToken(accessToken ?? '');
     // 로그아웃 없이 계정이 바뀌는 유일한 경로 — 다른 계정(userId 변경)으로 갈아탄 경우엔
     // 로그아웃과 동일하게 이전 계정 디바이스 캐시를 정리해 누출을 막는다(GROMO-677 리뷰).
     // 세션·온보딩 키는 새 계정 것이 이미 저장돼 있으므로 유지. 같은 userId(계정 연결)면 그대로 둔다.
@@ -343,25 +377,7 @@ function App() {
           .catch(() => transferCharacter(prevUserId, userId))
           .catch(() => {});
       }
-      await AsyncStorage.multiRemove([
-        STORAGE_KEYS.focusCategory,
-        STORAGE_KEYS.goalPending,
-        STORAGE_KEYS.focusPendingUploads,
-        STORAGE_KEYS.notificationSettings,
-        STORAGE_KEYS.statVisibility,
-        STORAGE_KEYS.focusFirstDone,
-        STORAGE_KEYS.subjects,
-        STORAGE_KEYS.focus,
-        // equipment·ownedItems는 계정별 맵이라 지우지 않는다(GROMO-936, 위 handleLogout 주석 참고)
-        STORAGE_KEYS.focusGoalCelebratedDate,
-        STORAGE_KEYS.focusGoalCelebratePending,
-        STORAGE_KEYS.screentimeLastRewardedDate,
-        STORAGE_KEYS.screentimeCelebratePending,
-      ]);
-      await clearInbox(); // 보관함은 쓰기 큐로 정리(위 handleLogout과 동일 이유)
-      // 홈 위젯도 이전 계정 데이터 정리(위 handleLogout과 동일) — 새 계정 값은
-      // SubjectProvider 리마운트 복원이 다시 채운다
-      StudyWidgetModule.updateTopSubjects([]).catch(() => {});
+      await clearLocalAccountCaches();
     }
     await AsyncStorage.setItem(STORAGE_KEYS.onboardingComplete, 'true');
     setOnboarded(true);
@@ -370,9 +386,9 @@ function App() {
       setServerZone(profile.timeZone); // 서버 날짜 버킷 존(GROMO-1252)
       const merged = { ...data, ...profile };
       await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
-      setUser({ ...merged, userId });
+      setUser({ ...merged, accessToken: accessToken ?? undefined, userId });
     } catch {
-      setUser({ ...data, userId });
+      setUser({ ...data, accessToken: accessToken ?? undefined, userId });
     }
   }
 

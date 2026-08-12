@@ -1,9 +1,8 @@
 // 세션 저장 직렬화 — 동시에 보내면 서버가 같은 UserWallet 을 낙관락으로 갱신하다 충돌해
 // 한쪽이 409 로 실패하고 세션·통계·지급이 통째로 롤백된다(코덱스 리뷰 P1). 한 번에 하나씩 보낸다.
 import { saveFocusSession } from './focusApi';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '@/types/storage';
 import { api } from '@/services/api';
+import { readAccessToken } from '@/services/sessionStorage';
 
 jest.mock('@/services/api', () => ({
   api: { post: jest.fn() },
@@ -11,8 +10,12 @@ jest.mock('@/services/api', () => ({
   // 토큰 문자열을 그대로 계정 id로 본다 — 테스트가 계정 전환을 토큰 교체로 흉내낼 수 있게.
   getUserIdFromToken: (token: string) => token,
 }));
+jest.mock('@/services/sessionStorage', () => ({
+  readAccessToken: jest.fn(),
+}));
 
 const mockPost = api.post as jest.MockedFunction<typeof api.post>;
+const mockReadAccessToken = readAccessToken as jest.MockedFunction<typeof readAccessToken>;
 
 // 목이 토큰 문자열을 그대로 계정 id로 돌려주므로, 저장 소유 계정 = 저장된 토큰이어야 전송된다.
 const OWNER = 'u1';
@@ -28,7 +31,7 @@ const body = (startedAt: string) => ({
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, OWNER);
+  mockReadAccessToken.mockResolvedValue(OWNER);
 });
 
 test('앞선 저장이 끝나기 전에는 다음 저장을 보내지 않는다', async () => {
@@ -88,8 +91,8 @@ test('대기 중 계정이 바뀌면 전송하지 않고 취소한다', async ()
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(mockPost).toHaveBeenCalledTimes(1);
 
-  // 그 사이 계정 전환 — 토큰이 새 계정 것으로 바뀐다.
-  await AsyncStorage.setItem(STORAGE_KEYS.accessToken, 'u2');
+  // 그 사이 계정 전환 — 보안 저장소 토큰이 새 계정 것으로 바뀐다.
+  mockReadAccessToken.mockResolvedValue('u2');
 
   finishFirst({ data: { awardedCoins: 7 } });
   await expect(first).resolves.toEqual({ awardedCoins: 7 });

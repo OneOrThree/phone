@@ -184,7 +184,7 @@ docker compose -f ../docker-compose.local.yml down -v && docker compose -f ../do
 
 ### 앱
 
-- React Native 0.81 / Expo SDK 54 / React 19
+- React Native 0.86 / Expo SDK 57 / React 19
 - React Navigation (Bottom Tabs)
 - `@react-native-kakao/user` (카카오 로그인)
 - iOS 스크린타임 익스텐션 (Swift)

@@ -25,6 +25,12 @@ import { claimStoredInviteAttribution } from '@/services/deferredInvite';
 import { setServerZone } from '@/utils/serverZone';
 import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
+import {
+  type SessionTokens,
+  readSessionTokens,
+  replaceSessionTokens,
+  saveSessionTokens,
+} from '@/services/sessionStorage';
 
 export { statusCodes };
 export type { AuthMethod };
@@ -93,18 +99,16 @@ function toAuthError(e: unknown, fallback: string): Error {
 
 // 토큰 저장 + (기존 유저면) 프로필 병합 — 모든 소셜 로그인 공통 후처리.
 async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<LoginResult> {
-  const sessionKeys = [
-    STORAGE_KEYS.accessToken,
-    STORAGE_KEYS.refreshToken,
-    STORAGE_KEYS.user,
-  ] as const;
-  let previousSession: readonly (readonly [string, string | null])[] = [];
+  let previousTokens: SessionTokens | null = null;
+  let previousProfile: string | null = null;
   let sessionWriteStarted = false;
   let accountSwitchTransition: AccountSwitchTransition | null = null;
   try {
-    previousSession = await AsyncStorage.multiGet([...sessionKeys]);
-    const prevToken =
-      previousSession.find(([key]) => key === STORAGE_KEYS.accessToken)?.[1] ?? null;
+    [previousTokens, previousProfile] = await Promise.all([
+      readSessionTokens(),
+      AsyncStorage.getItem(STORAGE_KEYS.user),
+    ]);
+    const prevToken = previousTokens.accessToken;
     const prevUserId = prevToken ? getUserIdFromToken(prevToken) : null;
     const nextUserId = getUserIdFromToken(data.accessToken);
     const switchingAccount = Boolean(
@@ -117,12 +121,9 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
       accountSwitchTransition = await accountSwitchHandlers.beforeTokenWrite();
     }
 
-    // 토큰 둘 중 하나만 남는 부분 저장도 실패로 간주하고 아래 snapshot으로 복구한다.
+    // SecureStore의 단일 레코드로 토큰 쌍을 교체하고, 이후 프로필 저장 실패까지 이전 세션으로 복구한다.
     sessionWriteStarted = true;
-    await AsyncStorage.multiSet([
-      [STORAGE_KEYS.accessToken, data.accessToken],
-      [STORAGE_KEYS.refreshToken, data.refreshToken],
-    ]);
+    await saveSessionTokens(data.accessToken, data.refreshToken);
 
     // 게스트/소셜 구분 플래그 — 로그인 시점의 진실. 서버가 isGuest를 응답에 주면(GROMO-606)
     // 프로필 병합에서 그 값이 우선한다(...profile 이 뒤에 spread).
@@ -140,7 +141,11 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     } else {
       result = { isGuest, ...data };
     }
-    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(result));
+    // 앱 재시작용 프로필 캐시에는 토큰을 복제하지 않는다. 인증 비밀은 SecureStore 한 곳만 정본이다.
+    const storedProfile: Record<string, unknown> = { ...result };
+    delete storedProfile.accessToken;
+    delete storedProfile.refreshToken;
+    await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(storedProfile));
 
     // 새 로컬 세션이 완성된 뒤에만 이전 계정 대기 작업을 폐기한다. 이보다 앞선 저장이 실패하면
     // catch에서 이전 snapshot을 복구한 뒤 rollback으로 gate를 열어 작업을 이어 간다.
@@ -159,13 +164,13 @@ async function postAuthSave(data: AuthResponse, isGuest: boolean): Promise<Login
     markAuthSessionReplacement();
     return result;
   } catch (error) {
-    if (sessionWriteStarted) {
-      // multiSet 자체가 부분 실패했을 수도 있으므로 세 키를 모두 제거한 뒤 이전 snapshot만 복원한다.
-      await AsyncStorage.multiRemove([...sessionKeys]).catch(() => {});
-      const restorable = previousSession.filter(
-        (entry): entry is readonly [string, string] => entry[1] !== null,
-      );
-      if (restorable.length > 0) await AsyncStorage.multiSet([...restorable]).catch(() => {});
+    if (sessionWriteStarted && previousTokens) {
+      await replaceSessionTokens(previousTokens).catch(() => {});
+      if (previousProfile === null) {
+        await AsyncStorage.removeItem(STORAGE_KEYS.user).catch(() => {});
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEYS.user, previousProfile).catch(() => {});
+      }
     }
     accountSwitchTransition?.rollback();
     throw error;

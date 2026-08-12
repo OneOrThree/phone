@@ -16,7 +16,9 @@ import java.util.UUID;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -61,5 +63,21 @@ class InventoryControllerTest {
                 .andDo(print());
 
         verify(inventoryService).getInventory(LOGIN_USER_ID);
+    }
+
+    @Test
+    @DisplayName("테스트용 아이템 지급 공개 경로 → 404, 서비스 호출 없음")
+    void grantItemRouteIsNotPublic() throws Exception {
+        mockMvc.perform(post("/api/v1/inventory/grant")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "userId": "00000000-0000-0000-0000-0000000000ca",
+                                  "itemId": "00000000-0000-0000-0000-000000000011"
+                                }
+                                """))
+                .andExpect(status().isNotFound());
+
+        verifyNoInteractions(inventoryService);
     }
 }

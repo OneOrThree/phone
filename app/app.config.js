@@ -15,6 +15,8 @@ export default {
     // 앱 아이콘 소스(정사각 1024). prebuild 시 이 파일로 네이티브 AppIcon 세트를 생성한다.
     icon: './src/assets/icon.png',
     plugins: [
+      // 인증 토큰을 iOS Keychain / Android Keystore 기반 저장소에 보관하고 백업에서 제외한다.
+      'expo-secure-store',
       // hot-updater OTA(GROMO-875) — prebuild 시 네이티브(AppDelegate·Info.plist·MainApplication·Manifest) 자동 반영.
       // 현재 ios/·android/는 직접 관리하므로 같은 변경을 수동으로도 넣어뒀다.
       ['@hot-updater/react-native', { channel: 'production' }],
@@ -118,6 +120,8 @@ export default {
     },
     android: {
       package: 'com.oneorthree.gromo',
+      // 계정·사용 기록이 기기 백업으로 복원되지 않게 한다. 네이티브 Manifest와 동기 유지.
+      allowBackup: false,
       // 어댑티브 아이콘(prebuild 시 네이티브 반영) — 전경은 세이프존(중앙 66%)에 아트를 두고
       // 여백은 투명, 배경색은 icon.png 테두리 평균색(보라). 수동 관리 중인 android/ res에도 동일 반영돼 있음.
       adaptiveIcon: {

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '@/types/storage';
+import * as SecureStore from 'expo-secure-store';
+import { readRefreshToken, saveSessionTokens } from './sessionStorage';
 import {
   acquireAuthSessionTransition,
   api,
@@ -10,12 +11,38 @@ import {
   setLogoutHandler,
 } from './api';
 
+jest.mock('expo-secure-store', () => ({
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY',
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
+
+const secureValues = new Map<string, string>();
+const getItemAsync = SecureStore.getItemAsync as jest.MockedFunction<
+  typeof SecureStore.getItemAsync
+>;
+const setItemAsync = SecureStore.setItemAsync as jest.MockedFunction<
+  typeof SecureStore.setItemAsync
+>;
+const deleteItemAsync = SecureStore.deleteItemAsync as jest.MockedFunction<
+  typeof SecureStore.deleteItemAsync
+>;
+
 const expiredAccessToken = `header.${btoa(JSON.stringify({ exp: 1 }))}.signature`;
 
 beforeEach(async () => {
   jest.restoreAllMocks();
   setLogoutHandler(null);
   await AsyncStorage.clear();
+  secureValues.clear();
+  getItemAsync.mockImplementation(async (key) => secureValues.get(key) ?? null);
+  setItemAsync.mockImplementation(async (key, value) => {
+    secureValues.set(key, value);
+  });
+  deleteItemAsync.mockImplementation(async (key) => {
+    secureValues.delete(key);
+  });
 });
 
 test('인증 저장과 로그아웃 정리 구간은 동시에 진입하지 않는다', async () => {
@@ -63,10 +90,7 @@ test('인증 작업은 provider 시작부터 세션 저장 완료까지 mutex를
 });
 
 test('인증 전환 안의 만료 토큰 갱신은 보유한 mutex를 재사용한다', async () => {
-  await AsyncStorage.multiSet([
-    [STORAGE_KEYS.accessToken, expiredAccessToken],
-    [STORAGE_KEYS.refreshToken, 'guest-refresh'],
-  ]);
+  await saveSessionTokens(expiredAccessToken, 'guest-refresh');
   jest.spyOn(axios, 'post').mockResolvedValue({
     data: { accessToken: 'fresh-access', refreshToken: 'rotated-refresh' },
   });
@@ -74,14 +98,11 @@ test('인증 전환 안의 만료 토큰 갱신은 보유한 mutex를 재사용�
   const token = await runAuthSessionTransition((lease) => getFreshAccessToken(lease));
 
   expect(token).toBe('fresh-access');
-  expect(await AsyncStorage.getItem(STORAGE_KEYS.refreshToken)).toBe('rotated-refresh');
+  expect(await readRefreshToken()).toBe('rotated-refresh');
 });
 
 test('인증 전환 중 발생한 관련 없는 api 401은 lease 없이 폐기한다', async () => {
-  await AsyncStorage.multiSet([
-    [STORAGE_KEYS.accessToken, expiredAccessToken],
-    [STORAGE_KEYS.refreshToken, 'guest-refresh'],
-  ]);
+  await saveSessionTokens(expiredAccessToken, 'guest-refresh');
   const refresh = jest.spyOn(axios, 'post');
 
   await expect(
@@ -96,10 +117,7 @@ test('인증 전환 중 발생한 관련 없는 api 401은 lease 없이 폐기�
 });
 
 test('세션 교체 전에 시작한 401 요청은 새 계정 토큰으로 재시도하지 않는다', async () => {
-  await AsyncStorage.multiSet([
-    [STORAGE_KEYS.accessToken, expiredAccessToken],
-    [STORAGE_KEYS.refreshToken, 'old-refresh'],
-  ]);
+  await saveSessionTokens(expiredAccessToken, 'old-refresh');
   const refresh = jest.spyOn(axios, 'post');
   const logout = jest.fn();
   setLogoutHandler(logout);
@@ -120,10 +138,7 @@ test('세션 교체 전에 시작한 401 요청은 새 계정 토큰으로 재�
 });
 
 test('이전 세션 refresh 폐기는 현재 세션 로그아웃으로 변환하지 않는다', async () => {
-  await AsyncStorage.multiSet([
-    [STORAGE_KEYS.accessToken, expiredAccessToken],
-    [STORAGE_KEYS.refreshToken, 'old-refresh'],
-  ]);
+  await saveSessionTokens(expiredAccessToken, 'old-refresh');
   const logout = jest.fn();
   setLogoutHandler(logout);
   jest.spyOn(axios, 'post').mockImplementation(async () => {

@@ -2,14 +2,13 @@ import type { ComponentProps } from 'react';
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import CharacterCreator from '@/screens/character/CharacterCreator';
 import { isSubjectMaskModuleAvailable } from '@/services/subjectMask';
 import { getUserIdFromToken } from '@/services/api';
-import { STORAGE_KEYS } from '@/types/storage';
+import { readAccessToken } from '@/services/sessionStorage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
 
@@ -49,7 +48,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
   // 생성기에 넘겨 한 기기 두 계정이 서로의 캐릭터 파일을 덮어쓰지 않게 한다.
   const [userId, setUserId] = useState<string | null>(null);
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEYS.accessToken).then((token) => {
+    readAccessToken().then((token) => {
       setUserId(token ? getUserIdFromToken(token) : null);
     });
   }, []);

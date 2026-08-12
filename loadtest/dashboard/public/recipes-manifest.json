@@ -1,6 +1,6 @@
 {
-  "total": 93,
-  "runnable": 86,
+  "total": 92,
+  "runnable": 85,
   "gapped": 7,
   "recipes": [
     {
@@ -195,15 +195,6 @@
       "runnable": true,
       "gaps": [],
       "file": "notification-batch_runInactiveReturnNotifications.json"
-    },
-    {
-      "endpoint": "inventory_grantItem",
-      "method": "POST",
-      "path": "/api/v1/inventory/grant",
-      "tag": "inventory",
-      "runnable": true,
-      "gaps": [],
-      "file": "inventory_grantItem.json"
     },
     {
       "endpoint": "Group_getMyGroups",

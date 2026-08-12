@@ -242,8 +242,13 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 ### AsyncStorage
 
 - Keys are centralized in `@/types/storage.ts` (`STORAGE_KEYS`) — import them, don't re-type strings.
-- Naming is unified under `gromo:…` (e.g. `gromo:accessToken`, `gromo:user`, `gromo:equipment`,
-  `gromo:ownedItems`, `gromo:focus`, `gromo:screentime:*`, `gromo:selection:*`).
+- Naming is unified under `gromo:…` (e.g. `gromo:user`, `gromo:equipment`, `gromo:ownedItems`,
+  `gromo:focus`, `gromo:screentime:*`, `gromo:selection:*`).
+- Access/refresh token의 정본은 `src/services/sessionStorage.ts`를 통한 Expo SecureStore다.
+  `STORAGE_KEYS.accessToken`·`refreshToken`은 배포된 구 버전의 평문 토큰을 1회 이전하기 위한
+  레거시 키일 뿐이며, 신규 코드에서 읽거나 쓰지 않는다.
+- Web 개발 빌드는 네이티브 SecureStore가 없어 브라우저 `sessionStorage`를 사용한다. 탭 세션
+  범위에서만 유지하며 `localStorage`·AsyncStorage로 영구 복제하지 않는다.
 
 ### Context / global state
 

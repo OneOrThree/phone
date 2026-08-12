@@ -47,9 +47,3 @@ export interface EquipRequest {
   userId: string; // UUID
   itemId: string; // UUID
 }
-
-// POST /inventory/grant 요청 바디.
-export interface GrantItemRequest {
-  userId: string; // UUID
-  itemId: string; // UUID
-}

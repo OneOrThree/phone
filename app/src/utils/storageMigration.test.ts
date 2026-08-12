@@ -4,6 +4,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
 import { runStorageMigrations } from './storageMigration';
+import { clearSessionTokens } from '@/services/sessionStorage';
+
+jest.mock('expo-secure-store', () => {
+  const values = new Map<string, string>();
+  return {
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY',
+    getItemAsync: jest.fn(async (key: string) => values.get(key) ?? null),
+    setItemAsync: jest.fn(async (key: string, value: string) => {
+      values.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key: string) => {
+      values.delete(key);
+    }),
+  };
+});
 
 // api.ts는 axios 인스턴스·mock 어댑터까지 모듈 로드에 끌고 오므로 토큰 디코드만 가짜로 대체.
 // 'jwt-<userId>' 형태만 유효한 토큰으로 인정한다.
@@ -32,6 +47,7 @@ async function getJson<T>(key: string): Promise<T | null> {
 
 beforeEach(async () => {
   await AsyncStorage.clear(); // mock 저장소는 워커 안에서 유지되므로 테스트마다 비운다
+  await clearSessionTokens();
   jest.clearAllMocks();
 });
 

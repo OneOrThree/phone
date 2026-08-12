@@ -11,10 +11,12 @@ on:
     branches: [release] # base가 release인 PR만 (= main→release 릴리즈 PR). 검증만
     paths:
       - "back/**"
+      - "docker-compose.prod.yml"
   push:
     branches: [release] # release 머지 → 빌드 + ECR push
     paths:
       - "back/**"
+      - "docker-compose.prod.yml"
   workflow_dispatch:
 
 concurrency:
