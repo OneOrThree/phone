@@ -462,7 +462,7 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 | `screens/group/GroupRoomScreen.test.tsx` | 챌린지 카드 M개에 **서로 다른** `animationDelay` · **멤버 그리드는 애니메이션이 정확히 1개**(래퍼) — **멤버 수를 20으로 늘려도 1개**([D24](policy.md#d24)). ⚠️ 「행마다 delay `0`」을 단언하면 개수가 멤버 수에 비례하는 구현이 통과한다 · reduce → 둘 다 `animationName` 부재 |
 | `screens/group/components/MemberTile.test.tsx` (신규) | 눌림이 `PressableScale` 경유 · `onPress` 없으면 비활성 유지 |
 | `screens/group/components/ChallengeCard.test.tsx` | **카드 루트에 `onPress`가 없다**(비터치 `View` 유지 — 회귀 방지) · 내부 버튼 **10개**가 `PressableScale` 경유 · **`group.bet.leaveCountdown`은 여전히 눌리지 않는다**(표시용 `<Text>` — 버튼화 방지) |
-| `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 |
+| `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 · **첫 결과에는 본문 전환이 없다**(Modal 페이드와 겹치지 않는다) · **`myAchieved=false`·미판정·VOIDED·REFUNDED·FORFEITED 에는 `pop` 부재**(페이드만) |
 | `screens/group/GroupChallengeHistoryScreen.test.tsx` | 첫 로딩에 `ActivityIndicator` **미사용** + 스켈레톤 `testID` 존재 · `SkeletonCard` **미사용**(높이 상수가 없다 — D25-3) · **꼬리 스피너는 그대로 존재**(회귀 방지) |
 | `screens/group/components/BetSheet.test.tsx` | 참여자 행에 `ProgressBar`·전환 스타일이 **없다**(D25-2 회귀 방지) · 폭이 `dayBarPercent` 그대로 |
 | `screens/group/components/LastBetResultSheet.test.tsx` | `isMe && 승리`에만 `pop` · 진 행·미판정 행엔 **부재** · **내 행이 6번째여도 초기 스크롤이 그 행을 보이게 한다** · **짧은 명단(스크롤 없음)의 보이는 승리 행에는 `pop`이 있다** · 초기 위치 조정 후에도 **여전히 가려진** 행에만 `pop` 부재 |
