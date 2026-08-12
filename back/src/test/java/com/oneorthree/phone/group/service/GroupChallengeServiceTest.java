@@ -75,7 +75,7 @@ import static org.mockito.Mockito.verify;
  * GroupChallengeService 단위 테스트.
  *
  * <p>대상: 챌린지 목록 조회, 생성(DURATION/TIME_WINDOW), 삭제.
- * 핵심 검증 포인트는 게스트 차단, OWNER 권한, 미션 파라미터 검증, 중복 차단,
+ * 핵심 검증 포인트는 OWNER 권한, 미션 파라미터 검증, 중복 차단,
  * SCREEN_TIME 비참여자 목록, CTI 상세(duration/window)의 저장·배치 로드,
  * windowStart/End 의 Instant→KST 벽시계 "HH:mm:ss" 변환(GROMO-1100).
  *
@@ -273,16 +273,17 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
-    void getChallengesGuestForbidden() {
-        // given
+    @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void getChallengesAllowsGuest() {
+        // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(guest()));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.getChallenges(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test
@@ -1526,16 +1527,17 @@ class GroupChallengeServiceTest {
     }
 
     @Test
-    @DisplayName("게스트 유저 → GroupException(GUEST_FORBIDDEN)")
-    void createChallengeGuestForbidden() {
-        // given
+    @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void createChallengeAllowsGuest() {
+        // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
+        given(groupRepository.findByIdForUpdate(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupChallengeService.createChallenge(GROUP_ID, USER_ID, null))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test

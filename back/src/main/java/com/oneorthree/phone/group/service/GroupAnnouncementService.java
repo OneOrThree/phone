@@ -61,10 +61,6 @@ public class GroupAnnouncementService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
@@ -121,25 +117,21 @@ public class GroupAnnouncementService {
     }
 
     /**
-     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1237) — 공지 생성·수정·삭제처럼
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1237) — 공지 생성·수정·삭제처럼
      * users 행은 <b>읽기만 하고</b> 그룹 자원을 변경하는 트랜잭션의 요청자 로드. 락 없는 findById 는
      * 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아 탈퇴의 정리 스캔 이후·커밋
      * 이전에 낀 변경이 유령(탈퇴자 명의 공지)으로 남는다. 수정·삭제는 작성이 아닌 권한 행사지만,
      * is_deleted 필터로 탈퇴자 토큰의 그룹 상태 변경을 차단하고 finder 를 통일하는 목적으로 같은
      * 경로를 태운다. 탈퇴가 먼저 커밋되면 READ COMMITTED 재평가로 빈 결과 → USER_NOT_FOUND(404)
      * — 그룹·공지 부재와 구분되는 <b>요청자 세션</b> 전용 코드다(GROMO-1247).
-     * 게스트는 기존 가드 그대로 GUEST_FORBIDDEN(403).
+     * 게스트도 소셜 로그인 유저와 동일하게 통과한다(GROMO-1509).
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
      * {@code @Transactional(readOnly = true)} 라 Postgres 가 read-only 트랜잭션의 FOR SHARE 를
      * 거절한다. 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        User user = userRepository.findActiveByIdForShare(userId)
+        return userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
     }
 }

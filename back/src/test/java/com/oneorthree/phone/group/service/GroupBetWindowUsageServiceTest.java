@@ -360,17 +360,19 @@ class GroupBetWindowUsageServiceTest {
     }
 
     @Test
-    @DisplayName("게스트 보고 → GUEST_FORBIDDEN")
-    void reportGuestForbidden() {
-        // given
+    @DisplayName("게스트 보고도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
+    void reportAllowsGuest() {
+        // 게스트가 내기엔 참가되는데 진행분 보고만 403 이면 자동 실패로 판돈만 잃는다 —
+        // 그룹 도메인 게스트 차단 전면 해제(GROMO-1509)에 이 경로도 포함된 이유다.
         given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(guest()));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
                 new WindowUsageReportRequest(TODAY, 60, null)))
                 .isInstanceOf(GroupException.class)
                 .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GUEST_FORBIDDEN);
+                .isEqualTo(GroupErrorCode.NOT_FOUND);
     }
 
     @Test

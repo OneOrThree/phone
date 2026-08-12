@@ -386,16 +386,12 @@ public class GroupBetWindowUsageService {
     }
 
     /**
-     * 활성 검증 + 공유 락 + 게스트 차단 — {@code GroupChallengeService.requireActiveUser} 와 같은
+     * 활성 검증 + 공유 락 — {@code GroupChallengeService.requireActiveUser} 와 같은
      * 규율(GROMO-801·GROMO-1237): 락 없는 findById 는 계정 탈퇴(유저 행 배타 락)와 직렬화되지 않아
      * (challenge, user, date) upsert 유령 행이 남을 수 있다.
      */
     private User requireActiveUser(UUID userId) {
-        User user = userRepository.findActiveByIdForShare(userId)
+        return userRepository.findActiveByIdForShare(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
     }
 }
