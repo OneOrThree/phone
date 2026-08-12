@@ -136,7 +136,7 @@ flowchart TB
 | 주간 스트릭 완성 | 🟩 모달 + 컨페티 | 🟦 동일 | PR2 |
 | 일일 스트릭 ✓ · 코인 획득 | 🟩 `checkPop` | 🟩 유지(토큰 이관) | PR1 |
 | 리그 승급 | 🟥 단계 시퀀스는 있으나 **컨페티 없음** · 반짝임이 정적 | 🟦 컨페티 + `hapticSuccess` | PR8 |
-| 챌린지 결과 | 🟥 **레거시 `Animated` 팝인** — `duration 420`(사다리 밖) · `Easing.out(Easing.back(1.2))`(`M.curve` 밖) · `useMotion`을 안 타 **'동작 줄이기'를 무시한다** (`ChallengeResultModal.tsx:259-268,285-294`) | 🟦 템플릿(`GoalCelebrationModal`) 배치로 흡수 — 카드=Modal `fade` · 캐릭터 `pop()` · 명단 `enterUp(i)` ([정책 D23](policy.md#d23)) | 1524 |
+| 챌린지 결과 | 🟥 **레거시 `Animated` 팝인** — `duration 420`(사다리 밖) · `Easing.out(Easing.back(1.2))`(`M.curve` 밖) · `useMotion`을 안 타 **'동작 줄이기'를 무시한다** (`ChallengeResultModal.tsx:259-268,285-294`) | 🟦 템플릿(`GoalCelebrationModal`) 배치로 흡수 — 카드=Modal `fade` · 캐릭터는 **달성일 때만** `pop()`(그 외 `fadeIn(0)`) · 명단 `enterUp(i)` ([정책 D23](policy.md#d23)) | 1524 |
 | 베팅 승리 | 🟥 색상 텍스트뿐 — 시트 자체는 `SheetShell`로 이미 등장하고(`LastBetResultSheet.tsx:196`), 승패는 `deltaPlus`/`deltaMinus` 색상만이다 (`:277-286`). 모션 프리미티브 **0개** | 🟦 **내가 이긴 행에만** `pop` — `isMe && !pending && achieved === true && delta > 0` (`:246-249`). `isMe`만 보면 **진 사람에게 축하가 재생된다**. 시트 전체를 축하로 올리지도 않는다(정산 통지가 본체다) | 1524 |
 | 세션 완료 | 🟥 헤더 문구만 | 🟦 합계 카운트업 | PR6 |
 

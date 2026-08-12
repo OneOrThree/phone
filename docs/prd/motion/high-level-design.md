@@ -124,7 +124,7 @@ flowchart LR
 | 기존 자산 | 어떻게 쓰이나 |
 | --- | --- |
 | `PressableScale` | 새 프리미티브가 아니다. **톤만 올려** 앱 전역에 이미 깔린 효과를 바꾼다 |
-| `ConfettiBurst` | `obstacle` prop 하나만 받으므로 **재작성 없이** 리그 승급에 붙인다. ⚠️ **챌린지 결과에는 붙이지 않는다** — 그 모달은 참가자 전원에게 같은 화면을 띄우고 달성·미달성·미판정이 한 명단에 섞여 있어, 화면 전체 컨페티는 **진 사람에게도 터진다**. 축하는 [D23](policy.md#d23)이 정한 대로 **내 행 단위**(캐릭터 `pop()` + 명단 `enterUp(i)`)로만 준다. 컨페티를 쓰려면 「내가 이겼을 때만」 게이팅이 선행돼야 하고 그건 별도 결정이다 |
+| `ConfettiBurst` | `obstacle` prop 하나만 받으므로 **재작성 없이** 리그 승급에 붙인다. ⚠️ **챌린지 결과에는 붙이지 않는다** — 그 모달은 참가자 전원에게 같은 화면을 띄우고 달성·미달성·미판정이 한 명단에 섞여 있어, 화면 전체 컨페티는 **진 사람에게도 터진다**. 축하는 [D23](policy.md#d23)이 정한 대로 **내 행 단위**로만 준다 — 캐릭터 `pop()` 은 **`myAchieved === true` 에만**(미달성·미판정·`VOIDED`·`REFUNDED`·`FORFEITED` 는 `fadeIn(0)`), 명단은 `enterUp(i)`. ⚠️ 캐릭터에 상태 조건 없이 걸면 **컨페티를 뺀 이유를 같은 모달 안에서 되돌리는 것**이다 — 진 사람의 캐릭터가 1.25배로 튄다(2026-08-12 codex 리뷰). 컨페티를 쓰려면 「내가 이겼을 때만」 게이팅이 선행돼야 하고 그건 별도 결정이다 |
 | `GoalCelebrationModal` | 축하 표면의 **참조 구현**. `charReady && uiIdle` + `InteractionManager` 게이팅 패턴을 다른 축하 표면이 그대로 따른다 |
 | `FocusResultScreen`의 `growUp`/`checkPop` | `M.preset.growUp`/`pop`으로 **승격**. ⚠️ `growUp`은 **막대에만** 확산한다(정책 D16) — 주간 타임테이블 세션 블록. 통계의 꺾은선은 좌→우 draw-on, 도넛은 링 `fadeIn`, 캘린더는 행 `fadeIn`이라 표면마다 다르다 |
 | `liquidGlass`의 `glassSlide` | `M.curve.glide` + `M.dur.base`로 흡수. `SLIDE_MS` export 이름은 유지해 호출부 무변경 |
