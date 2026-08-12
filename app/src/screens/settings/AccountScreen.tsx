@@ -407,9 +407,17 @@ export default function AccountScreen() {
               />
             ))}
           </SettingsSection>
+          {/* 게스트 소실 고지 + 승격 유도 (GROMO-1509) — 종전 문구는 이점만 말하고 위험을 안 알렸다.
+              흔한 소실 경로는 90일 미접속이 아니라 앱 삭제·기기 변경이라 그쪽을 앞에 둔다.
+              90일은 서버 guest-refresh-expiration(7776000)과 같은 값이니 함께 고쳐야 한다. */}
           <View style={s.note}>
             <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
-            <Text style={s.noteText}>로그인하면 목표·집중 기록이 계정에 안전하게 저장돼요.</Text>
+            <Text style={s.noteText}>
+              지금은 로그인 없이 쓰는 중이에요. 기록이 이 기기에만 있어서, 앱을 지우거나 기기를
+              바꾸면 되돌릴 수 없어요. 90일 넘게 앱을 열지 않아도 사라져요.
+              {'\n\n'}
+              소셜 로그인을 연결하면 지금까지 기록 그대로 옮겨가요.
+            </Text>
           </View>
           <SettingsSection>
             <SettingsRow
