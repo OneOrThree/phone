@@ -995,8 +995,19 @@ public final class RepeatSchedule {
     public static LocalDate previous(int mask, LocalDate d) { /* 대칭 */ }
     /** d를 포함한 그 주(월~일)의 남은 활성일 — "이번 주 전부" 예약용. */
     public static List<LocalDate> remainingThisWeek(int mask, LocalDate d) { /* … */ }
+    /** 요일 교집합 ≠ ∅ — 창 겹침(§A5)의 1관문. */
+    public static boolean overlaps(int maskA, int maskB) { return (maskA & maskB) != 0; }
+    /** 스케줄을 days일 뒤로 미룬 7비트 순환 시프트 — 자정 인접 판정(§3.6 · GROMO-1498)이 쓴다. */
+    public static int rotate(int mask, int days) {
+        int s = Math.floorMod(days, 7);
+        return ((mask << s) | (mask >>> (7 - s))) & EVERYDAY;      // EVERYDAY(127)는 회전 불변
+    }
 }
 ```
+
+**회전도 이 클래스가 소유한다.** `repeat_days` 비트 연산의 단일 소유자라는 계약 때문이다 —
+겹침 판정이 자기 자리에서 시프트를 새로 짜면 `1~127` 불변식(DB CHECK)을 검사하는 자리가 갈라진다.
+순환 시프트는 비트 수를 보존하므로 유효 마스크의 회전 결과도 항상 `1~127` 이다.
 
 **결과 모달이 "어제"를 못 쓴다.** 월수금 챌린지를 수요일에 열면 직전 회차는 월요일이다.
 `previous()`로 역산해야 한다.
@@ -1036,10 +1047,11 @@ flowchart LR
 **대가**: 심야 챌린지는 `22:00~23:59`처럼 자정 앞에서 끊거나, 자정 이후 구간을 **다음 날 요일의
 별도 챌린지**로 만들어야 한다. 활성 4개 상한 안에서 감당 가능한 제약이다.
 
-### 3.6 창 겹침 판정 — 요일 ∧ 시간대 ∧ 15분 간격
+### 3.6 창 겹침 판정 — 요일 ∧ 시간대 ∧ 15분 간격 (하루 경계 포함)
 
 ```java
 static final long GAP_NANOS = 15L * 60 * 1_000_000_000;
+static final long DAY_NANOS = 24L * 60 * 60 * 1_000_000_000;
 
 // 창은 자정을 걸치지 않으므로 [시작, 끝) 구간이 **항상 하나**다
 static long[] daySegment(LocalTime start, LocalTime end) {
@@ -1048,12 +1060,29 @@ static long[] daySegment(LocalTime start, LocalTime end) {
 
 static boolean conflicts(int maskA, LocalTime sA, LocalTime eA,
                          int maskB, LocalTime sB, LocalTime eB) {
-    if ((maskA & maskB) == 0) return false;              // 요일이 안 겹치면 무조건 OK
     long[] a = daySegment(sA, eA), b = daySegment(sB, eB);
-    // 15분 간격까지 요구 — 양쪽으로 GAP만큼 부풀려 겹침 검사
-    return a[0] - GAP_NANOS < b[1] && b[0] - GAP_NANOS < a[1];
+    // A를 하루 앞/뒤로 펼쳐 세 번 본다 — m=0 은 같은 날, m=±1 은 자정을 넘는 인접(GROMO-1498)
+    for (int m = -1; m <= 1; m++) {
+        // 요일 교집합이 **이동마다** 선행 게이트다. A의 시각을 m일 옮겼으면 B의 요일도 m만큼 돈다
+        if (!RepeatSchedule.overlaps(maskA, RepeatSchedule.rotate(maskB, m))) continue;
+        long shift = m * DAY_NANOS;
+        // 15분 간격까지 요구 — 양쪽으로 GAP만큼 부풀려 겹침 검사
+        if (a[0] + shift - GAP_NANOS < b[1] && b[0] - GAP_NANOS < a[1] + shift) return true;
+    }
+    return false;
 }
 ```
+
+**회전 방향의 유도.** 절대 시각으로 쓰면, A의 `dA`일 인스턴스와 B의 `dB`일 인스턴스가 부딪히는
+조건은 `sA + dA·DAY − GAP < eB + dB·DAY ∧ sB + dB·DAY − GAP < eA + dA·DAY` 다. 양변에서
+`dA·DAY` 를 빼면 남는 자유도는 `k = dB − dA` 하나뿐이고, 이는 곧 **A를 `m = −k` 일 옮긴 비교**다
+(위 코드의 `m`). 요일 조건은 "`dA` 가 A의 활성일이고 `dA + k = dA − m` 이 B의 활성일"이며,
+`rotate` 가 요일 `i` 를 `i+m` 으로 보내므로 B의 `dA − m` 비트가 `dA` 로 와서
+**`maskA ∩ rotate(maskB, m) ≠ ∅`** 와 같아진다. 즉 **A의 시각 이동과 B의 요일 회전은 같은 부호**다.
+검산: A 월 `23:50~23:59`, B 화 `00:00~00:10` → `k=+1`, `m=−1` → A를 하루 당기면
+`[−00:10, −00:01)` 이 B 앞 1분에 붙고 `rotate(화, −1) = 월` 이라 A의 월요일과 만난다 → 409.
+`rotate` 는 7비트 순환이라 일→월 wrap(`rotate(월, −1) = 일`)도 같은 식으로 잡힌다.
+창이 하루를 못 넘고 간격도 15분이라 `m ∈ {−1, 0, +1}` 이면 충분하다.
 
 > **📌 2026-08-11 정정 — 비교 단위는 초가 아니라 나노초다.**
 > 이 스케치의 초판은 `GAP_SECONDS` + `toSecondOfDay()` 를 썼는데, **그대로 구현하면 계약이 깨진다.**
@@ -1068,10 +1097,11 @@ static boolean conflicts(int maskA, LocalTime sA, LocalTime eA,
 > 구현(`GroupChallengeService.windowsConflict`)은 `toNanoOfDay()` 로 비교한다 — 이 문서가
 > 구현을 따라온 것이다.
 
-**자정 걸침 금지가 이 함수를 절반으로 줄인다.** 걸치는 창을 허용하면 한 창이 `[s, 86400)` +
+**자정 걸침 금지는 여전히 이 함수를 절반으로 줄인다.** 걸치는 창을 허용하면 한 창이 `[s, 86400)` +
 `[0, e)` **두 구간**으로 쪼개져 2×2 중첩 루프가 필요했고, 거기에 "`D+1 00:00~01:00` 부분은
 회차일 D의 몫이라 요일 마스크는 D 기준으로만 비교해야 한다"는 주의사항이 따라붙었다.
-지금은 **구간 하나 대 구간 하나**의 단순 비교이고, 요일 마스크가 어느 날 것인지 되물을 일도 없다.
+지금은 **창 하나가 여전히 구간 하나**이고(§A6-1), 늘어난 것은 창의 분해가 아니라 **비교 횟수**(3회)다
+— 요일 마스크가 어느 날 것인지도 `m` 하나로 결정돼 되물을 일이 없다.
 
 ---
 
