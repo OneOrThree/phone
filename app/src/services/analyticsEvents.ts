@@ -776,9 +776,7 @@ export function logCharacterSourceSelected(p: {
   track('character_source_selected', p);
 }
 
-export function logCharacterCreated(p: {
-  selection_source: CharacterSelectionSource;
-}): void {
+export function logCharacterCreated(p: { selection_source: CharacterSelectionSource }): void {
   track('character_created', p);
 }
 
