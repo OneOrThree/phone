@@ -4,7 +4,9 @@ import axios from 'axios';
 import { T } from '@/constants/theme';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import { useUser } from '@/store/UserContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupInviteSheetViewed, logGroupJoinAttempted } from '@/services/analyticsEvents';
 import { getAppInstanceId } from '@/services/analytics';
 import type { GroupOverviewResponse } from '@/types/dto/group';
@@ -77,6 +79,8 @@ const BLOCK_TEXT: Record<BlockReason, string> = {
 };
 
 // 404 판정 — 에러 바디의 code가 원칙이지만(§3-2), 바디 없는 404도 '사라진 그룹'으로 본다.
+// ⚠️ 유저 부재(USER_NOT_FOUND)도 404다 — 이 함수는 그것까지 true로 삼키므로 **호출부가 먼저
+//    걸러야 한다**(GROMO-1247). 여기서 걸러내지 않는 이유는 바디 없는 404 폴백을 유지하기 위해서다.
 function isGone(e: unknown): boolean {
   if (groupErrorCode(e) === 'NOT_FOUND') return true;
   return axios.isAxiosError(e) && e.response?.status === 404;
@@ -188,6 +192,8 @@ export default function GroupInviteSheet({
     // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
     // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
     setGuestBlocked(false);
+    // 프리뷰 조회를 띄우기 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts).
+    const requestSessionGeneration = getAuthSessionGeneration();
     (async () => {
       try {
         const ov = await getGroupOverview(groupId);
@@ -213,7 +219,13 @@ export default function GroupInviteSheet({
         else if (ov.memberCount >= ov.maxMembers) setBlock('full');
       } catch (e) {
         if (!alive) return;
-        if (isGone(e)) setGone(true);
+        // ⚠️ 유저 부재를 먼저 본다 — 이 코드도 404라 isGone이 그대로 삼켜 "사라진 그룹"으로
+        //    둔갑시킨다(GROMO-1247). 프리뷰는 실패 상태로 남겨 로그아웃 언마운트 전까지
+        //    참여 성공처럼 보이지 않게 한다.
+        if (groupErrorCode(e) === USER_NOT_FOUND) {
+          promptSessionExpired(requestSessionGeneration);
+          setFailed(true);
+        } else if (isGone(e)) setGone(true);
         else setFailed(true);
       } finally {
         if (alive) setLoading(false);
@@ -237,6 +249,12 @@ export default function GroupInviteSheet({
     // 그때 이 결과(정원·404·오류 문구)를 그대로 반영하면 **다른 그룹의 프리뷰**가 오염된다.
     const target = groupId;
     const isStale = () => groupIdRef.current !== target;
+    // 시트 세대(isStale)와 별개인 **인증 세대** — 유저 부재 분기의 로그아웃 판정용.
+    // ⚠️ 실제 요청 **직전**에 다시 잡는다(아래). getAppInstanceId()가 비동기 네이티브 호출이라
+    //    그 사이 인증이 전환되면 joinGroup은 **새 세션으로** 나가는데 판정에는 옛 세대가 실려,
+    //    promptSessionExpired가 낡은 응답으로 보고 안내와 로그아웃을 둘 다 생략한다 —
+    //    유효한 USER_NOT_FOUND에서 재로그인 경로가 사라진다(codex 리뷰).
+    let requestSessionGeneration = getAuthSessionGeneration();
     setJoinError(null);
     try {
       // 계측은 **요청 직전**에 쏜다 — 이름 그대로 '시도'이고, 서버가 소유한 group_joined의
@@ -251,6 +269,8 @@ export default function GroupInviteSheet({
       // 서버 이벤트가 앱 SDK 이벤트와 같은 유저 타임라인에 붙는다(§2-3 ②).
       // 조회 실패는 null 이고, 그때는 필드를 빼고 보낸다(어트리뷰션만 약해질 뿐 참여는 진행).
       const appInstanceId = await getAppInstanceId();
+      // 요청 직전 재캡처 — 위 ⚠️ 참고. 이 값이 아래 catch의 USER_NOT_FOUND 판정에 쓰인다.
+      requestSessionGeneration = getAuthSessionGeneration();
       await joinGroup(target, {
         joinMethod,
         inviteSlug: slug ?? undefined,
@@ -266,6 +286,12 @@ export default function GroupInviteSheet({
       // (계측은 요청 직전에 이미 나갔다 — 여기서 다시 쏘면 한 번의 시도가 두 번으로 세어진다.)
       if (code === 'ALREADY_MEMBER') {
         joinedRef.current(target);
+        return;
+      }
+      // 유저 부재(내 계정이 없어졌다, GROMO-1247) — 그룹이 아니라 세션의 사실이라 위와 같은
+      // 이유로 시트 세대와 무관하게 처리한다. '사라진 그룹'으로 위장하지 않는다.
+      if (code === USER_NOT_FOUND) {
+        promptSessionExpired(requestSessionGeneration);
         return;
       }
       // 나머지는 target 프리뷰에만 의미가 있는 실패다 — 시트가 다른 그룹으로 갈렸으면 버린다.

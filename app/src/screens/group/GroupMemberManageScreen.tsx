@@ -7,7 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupDetail, groupErrorCode, kickMember } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupMemberKicked } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -79,12 +81,15 @@ export default function GroupMemberManageScreen() {
   const load = useCallback(async () => {
     const seq = ++requestSeqRef.current;
     setError(false);
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const detail = await getGroupDetail(groupId);
       if (seq !== requestSeqRef.current) return;
       setMembers(detail.members);
-    } catch {
+    } catch (e) {
       if (seq !== requestSeqRef.current) return;
+      // 진입 조회의 유저 부재(GROMO-1247) — 강퇴 실패 분기와 **다른 자리**다. 재시도로 안 풀린다.
+      if (groupErrorCode(e) === USER_NOT_FOUND) promptSessionExpired(requestSessionGeneration);
       setError(true);
     }
   }, [groupId]);
@@ -117,12 +122,21 @@ export default function GroupMemberManageScreen() {
       if (kickingRef.current.has(target.userId)) return; // 재탭 방어
       kickingRef.current.add(target.userId);
       setKickingIds((prev) => [...prev, target.userId]);
+      // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+      const requestSessionGeneration = getAuthSessionGeneration();
       try {
         await kickMember(groupId, target.userId);
         logGroupMemberKicked({ group_id: groupId });
         removeMember(target.userId);
       } catch (e) {
         const code = groupErrorCode(e);
+        // 유저 부재(GROMO-1247) — 없어진 건 대상 멤버가 아니라 **내 계정**이다. 목록에서 지우면
+        // 강퇴가 성공한 것처럼 보이므로, 행은 그대로 두고(잠금만 풀고) 재로그인으로 보낸다.
+        if (code === USER_NOT_FOUND) {
+          unlockMember(target.userId);
+          promptSessionExpired(requestSessionGeneration);
+          return;
+        }
         // 이미 나간 멤버(NOT_FOUND·MEMBER_ONLY)는 결과가 강퇴와 같으므로 목록에서 제거로 취급한다.
         if (code === 'NOT_FOUND' || code === 'MEMBER_ONLY') {
           removeMember(target.userId);

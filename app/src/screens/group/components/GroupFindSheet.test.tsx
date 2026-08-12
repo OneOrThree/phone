@@ -26,6 +26,16 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupSearchPerformed: jest.fn(),
 }));
 
+// sessionErrors는 실제 구현을 쓰고 그 아래 api만 막는다 — 세대 대조·로그아웃 호출까지 검증 대상이다
+// (GroupCreateScreen.test.tsx:75-80 선례). 세대를 고정값으로 두면 promptSessionExpired의 ① 검사를
+// 통과해 안내가 실제로 뜬다.
+jest.mock('@/services/api', () => ({
+  api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  getAuthSessionGeneration: jest.fn(() => 0),
+  triggerLogout: jest.fn(),
+}));
+const { triggerLogout } = jest.requireMock('@/services/api');
+
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
@@ -296,6 +306,37 @@ describe('검색', () => {
     });
     expect(await screen.findByText('아침 6시 집중방')).toBeOnTheScreen();
     expect(screen.queryByText('검색하지 못했어요')).toBeNull();
+  });
+
+  // searchGroups도 requireActiveUser를 타는 **인증** API다 — 유저 부재를 일반 검색 실패로 뭉개면
+  // 사용자는 재로그인 안내 없이 빈 목록과 '다시 시도'만 무한히 반복한다(재시도로는 안 풀린다).
+  // 실패 표현이 아니라 **세션 정리**가 처방이라는 것을 잠근다(codex 리뷰).
+  test('검색이 USER_NOT_FOUND면 검색 실패가 아니라 세션 만료 안내로 보낸다', async () => {
+    mockSearchGroups.mockRejectedValue(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await renderSheet();
+
+    await act(async () => {
+      fireEvent.changeText(screen.getByPlaceholderText('그룹 이름으로 검색'), '집중');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      '로그인이 필요해요',
+      expect.any(String),
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false }),
+    );
+    // ⚠️ 실패 상태를 세우지 않는다 — '검색하지 못했어요 + 다시 시도'는 **재시도로 절대 안 풀리는**
+    //    실패에 재시도 버튼을 붙이는 것이라, 사용자를 안내가 아니라 헛수고로 보낸다.
+    expect(screen.queryByText('검색하지 못했어요')).toBeNull();
+    // 반면 빈 상태 문구는 남는다 — 검색어를 바꾸는 순간 이펙트가 목록을 비웠기 때문이다.
+    // 그대로 두는 이유: 이 문구는 cancelable:false 안내에 덮여 있고 확인이 곧 로그아웃이라
+    // 사용자가 이걸 읽고 행동할 구간이 없다. 없애려면 스피너를 계속 돌리는 수밖에 없는데,
+    // 세대가 어긋나 안내가 생략된 경우(sessionErrors ①) 그 스피너가 영구히 남는다 —
+    // 덮인 한 줄을 지우려고 **복구 불가능한 상태**를 새로 만드는 교환이라 하지 않는다.
+    expect(screen.queryByText('그런 이름의 공개 그룹이 없어요')).toBeOnTheScreen();
   });
 
   // 이전엔 새 검색어를 쳐도 results를 그대로 뒀다 — 입력창은 B인데 목록엔 A의 행이 활성 상태로
@@ -667,5 +708,35 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
       expect.any(String),
       expect.any(Array),
     );
+  });
+
+  // 유저 부재는 '그 행의 실패'가 아니라 계정이 없어진 것이다 — 인라인 문구로 두면 다른 그룹을
+  // 눌러도 똑같이 막히는데 사용자는 그룹 탓으로 읽는다(GROMO-1247).
+  test('참여가 USER_NOT_FOUND면 인라인 문구 대신 세션 만료 안내로 보낸다', async () => {
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await renderSheet();
+
+    const name = await searchFor('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(name);
+    });
+    await confirmJoinAlert();
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenLastCalledWith(
+        '로그인이 필요해요',
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({ cancelable: false }),
+      ),
+    );
+    expect(screen.queryByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.')).toBeNull();
+    // 확인을 눌러야 세션이 정리된다 — 안내를 읽기 전에 화면이 사라지지 않는다.
+    expect(triggerLogout).not.toHaveBeenCalled();
+    const args = (Alert.alert as jest.Mock).mock.calls.at(-1);
+    await act(async () => {
+      args[2][0].onPress();
+    });
+    expect(triggerLogout).toHaveBeenCalledWith(0);
   });
 });
