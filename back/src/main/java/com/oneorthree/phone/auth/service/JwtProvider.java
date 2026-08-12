@@ -23,11 +23,13 @@ public class JwtProvider {
     private final SecretKey secretKey;
     private final long accessExpiration;
     private final long refreshExpiration;
+    private final long guestRefreshExpiration;
 
     public JwtProvider(
             @Value("${jwt.secret}") String secret,
             @Value("${jwt.access-expiration}") long accessExpiration,
-            @Value("${jwt.refresh-expiration}") long refreshExpiration
+            @Value("${jwt.refresh-expiration}") long refreshExpiration,
+            @Value("${jwt.guest-refresh-expiration}") long guestRefreshExpiration
     ) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("jwt.secret 미설정");
@@ -36,6 +38,7 @@ public class JwtProvider {
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.accessExpiration = accessExpiration;
         this.refreshExpiration = refreshExpiration;
+        this.guestRefreshExpiration = guestRefreshExpiration;
     }
 
     // isGuest 는 **발급 시점**의 유저 상태다 (GROMO-1229) — 게스트 로그인 경로만 true 를 싣고,
@@ -44,8 +47,45 @@ public class JwtProvider {
         return buildToken(userId, accessExpiration, TYPE_ACCESS, isGuest);
     }
 
+    /**
+     * refresh 토큰 발급 — 게스트만 수명을 길게 잡는다 (GROMO-1509).
+     *
+     * <p>소셜 계정은 만료돼도 재로그인으로 <b>같은 계정</b>에 돌아오지만, 게스트는 돌아갈 곳이 없다
+     * ({@code guestLogin} 은 언제나 새 User 를 만든다). 게스트에게 만료는 곧 계정 소실이라
+     * 미접속 허용 기간을 따로 둔다.
+     */
     public String generateRefreshToken(UUID userId, boolean isGuest) {
-        return buildToken(userId, refreshExpiration, TYPE_REFRESH, isGuest);
+        return buildToken(userId, refreshTtlSeconds(isGuest), TYPE_REFRESH, isGuest);
+    }
+
+    /** 토큰 만료 시각. 서명·만료가 무효면 JwtException 이 전파된다(extractType 과 같은 규율). */
+    public Date extractExpiration(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getExpiration();
+    }
+
+    /**
+     * refresh 토큰을 지금 갈아끼워야 하는지 — 남은 수명이 발급 수명의 <b>절반 미만</b>이면 true.
+     *
+     * <p>매 갱신마다 회전시키지 않는다. 회전 1회는 "서버는 새 해시를 커밋했는데 응답이 유실돼
+     * 클라이언트가 무효해진 옛 토큰을 든 채 남는" 창을 연다 — 그 창에 걸리면 강제 로그아웃이고,
+     * 게스트에겐 그게 계정 소실이다. access 가 1시간이라 매 갱신마다 회전하면 한 달에 700번 넘게
+     * 그 창이 열리는데, 절반 기준이면 수명당 1~2회로 줄어든다.
+     *
+     * <p>기준 수명은 <b>현재</b> 유저 상태로 정한다 — 게스트가 승격하면 다음 회전 때 소셜 수명의
+     * 토큰으로 자연히 갈아탄다.
+     */
+    public boolean isRefreshRotationDue(Date expiration, boolean isGuest) {
+        long remainingSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
+        return remainingSeconds < refreshTtlSeconds(isGuest) / 2;
+    }
+
+    private long refreshTtlSeconds(boolean isGuest) {
+        return isGuest ? guestRefreshExpiration : refreshExpiration;
     }
 
     /**
