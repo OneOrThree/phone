@@ -416,8 +416,9 @@ export default function AccountScreen() {
           <View style={s.note}>
             <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
             <Text style={s.noteText}>
-              지금은 로그인 없이 쓰는 중이에요. 기록이 이 기기에만 있어서, 앱을 지우거나 기기를
-              바꾸면 되돌릴 수 없어요. 오랫동안 앱을 열지 않아도 사라져요.
+              지금은 로그인 없이 쓰는 중이에요. 기록은 서버에 저장되지만, 이 기기의 인증 정보로만
+              다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을
+              되찾을 수 없어요.
               {'\n\n'}
               소셜 로그인을 연결하면 지금까지 기록 그대로 옮겨가요.
             </Text>

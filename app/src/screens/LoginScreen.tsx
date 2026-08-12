@@ -209,8 +209,8 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
               아직 스크롤 밖일 수 있고, 접근성 탐색 순서도 버튼을 먼저 만나 고지를 듣기 전에
               눌러버린다. 선택 전 고지라는 목적이 배치로 지켜져야 한다(코드리뷰 P2). */}
           <Text style={s.guestNotice} testID="login.guestNotice">
-            로그인 없이 시작하면 기록이 이 기기에만 남아요. 앱을 지우거나 기기를 바꾸면 되돌릴 수
-            없어요.
+            로그인 없이 시작하면 기록은 서버에 저장되지만, 이 기기의 인증 정보로만 다시 접근할 수
+            있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.
           </Text>
 
           <TouchableOpacity
