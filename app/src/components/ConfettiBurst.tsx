@@ -119,7 +119,7 @@ export function ConfettiBurst({ obstacle }: Props) {
 const ConfettiBurstInner = memo(function ConfettiBurstInner({ obstacle }: Props) {
   const { width: W, height: H } = useWindowDimensions();
   // 기울임 감지 — 컨페티가 떠 있는 동안만 구독(언마운트 시 자동 해제)
-  const gravity = useAnimatedSensor(SensorType.GRAVITY);
+  const { sensor: gravitySensor } = useAnimatedSensor(SensorType.GRAVITY);
   // 미끄러짐 물리 — 매 프레임 중력 x를 적분(가속→속도→변위)해 공통 오프셋을 만든다.
   // 비례식(기울기×상수)은 가운데 조각이 가장자리에 못 미쳐 멈추는 문제가 있어 적분으로 교체.
   // |g|<0.8(≈5°)은 정지 마찰로 취급해 속도를 감쇠 — 살짝 기울임엔 흐르지 않는다.
@@ -132,7 +132,7 @@ const ConfettiBurstInner = memo(function ConfettiBurstInner({ obstacle }: Props)
       'worklet';
 
       const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
-      const g = gravity.sensor.value.x;
+      const g = gravitySensor.value.x;
       if (Math.abs(g) < 0.8) {
         slideVel.value *= 0.8;
       } else {
@@ -140,7 +140,7 @@ const ConfettiBurstInner = memo(function ConfettiBurstInner({ obstacle }: Props)
       }
       slide.value += slideVel.value * dt;
     },
-    [gravity, slide, slideVel],
+    [gravitySensor, slide, slideVel],
   );
   useFrameCallback(onFrame);
 

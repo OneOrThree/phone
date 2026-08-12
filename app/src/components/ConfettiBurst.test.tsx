@@ -3,7 +3,7 @@ import { useMotion } from '@/hooks/useMotion';
 import { ConfettiBurst } from './ConfettiBurst';
 
 const mockFrameCallbacks: unknown[] = [];
-const mockGravity = { sensor: { value: { x: 0 } } };
+const mockGravitySensor = { value: { x: 0 } };
 
 jest.mock('@/hooks/useMotion', () => ({
   useMotion: jest.fn(),
@@ -27,7 +27,7 @@ jest.mock('react-native-reanimated', () => {
     SensorType: { GRAVITY: 'gravity' },
     cubicBezier: jest.fn(),
     useAnimatedReaction: jest.fn(),
-    useAnimatedSensor: jest.fn(() => mockGravity),
+    useAnimatedSensor: jest.fn(() => ({ sensor: mockGravitySensor })),
     useAnimatedStyle: jest.fn(() => ({})),
     useFrameCallback: jest.fn((callback) => {
       mockFrameCallbacks.push(callback);
