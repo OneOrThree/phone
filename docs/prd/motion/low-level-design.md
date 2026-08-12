@@ -378,7 +378,9 @@ at[i]  = (Σ seg[0..i−1]) / Σ seg  // 점 i가 뜨는 진행률 (at[0]=0, at[
 
 **계약 두 줄**:
 1. **시트가 열릴 때 내 행이 첫 화면에 오도록 초기 스크롤을 맞춘다.** 이건 모션 이전에 **정보 우선순위** 문제다 — 내 결과를 보려고 여는 시트인데 내 행이 화면 밖이라는 것 자체가 결함이다. `results`에서 `isMe` 인덱스를 찾아 `scrollTo`(애니메이션 없이 — 진입과 겹치면 안 된다).
-2. **그래도 가려지면 `pop`을 걸지 않는다.** 등급 3 축하는 보이지 않으면 존재하지 않는 것이고, 안 보이는 연출에 프레임을 쓰는 건 [PRD §6.2](prd.md)의 P1이 걸리는 자리다. 등급 0으로 떨어뜨리는 편이 낫다.
+2. **①을 하고도 가려져 있으면 `pop`을 걸지 않는다.** 등급 3 축하는 보이지 않으면 존재하지 않는 것이고, 안 보이는 연출에 프레임을 쓰는 건 [PRD §6.2](prd.md)의 P1이 걸리는 자리다. 등급 0으로 떨어뜨리는 편이 낫다.
+
+> ⚠️ **판정 기준은 「스크롤이 가능한가」가 아니라 「①을 한 뒤 실제로 보이는가」다(2026-08-12 codex 리뷰).** 참가자가 적어 명단 높이가 `maxHeight: 190` 아래면 **스크롤은 불가능하지만 내 행은 처음부터 완전히 보인다** — 스크롤 가능 여부를 조건으로 쓰면 **가장 흔한 짧은 명단에서 승리 연출이 통째로 사라진다.** 예외를 막으려다 정상 경로를 죽이는 형태다.
 
 > 두 줄이 다 필요하다 — 1만 하면 스크롤이 실패하는 경우(레이아웃 전 호출·행이 아예 없음)를 못 막고, 2만 하면 **내가 이겼는데 축하가 영영 안 뜨는** 흔한 경우가 남는다.
 
@@ -422,6 +424,10 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 > ⚠️ **인덱스만으로는 부족하다 — 재마운트 재생을 따로 막아야 한다.** `FlatList` 는 가상화 창을 벗어난 셀을 **언마운트**하므로, 스크롤을 되돌리면 같은 행이 다시 마운트된다. `CellRendererComponent` 가 매 마운트마다 프리셋을 붙이면 **이미 읽은 행이 투명에서 다시 올라온다** — 페이지 내 인덱스는 뒷 페이지의 과도한 지연만 고칠 뿐 이 재생은 못 막는다.
 >
 > **계약**: 진입 연출은 **그 행이 처음 노출될 때 한 번만** 재생한다. 구현은 행 키(`sessionId`)별 노출 여부를 화면 수명 동안 보존하는 `Set`(또는 `useRef<Set>`)을 두고, 이미 본 키면 프리셋 없이 렌더한다. 가로 덱(`GroupListScreen`)은 카드 수가 적어 가상화가 사실상 일어나지 않아 이 문제가 드러나지 않았다 — **목록 길이가 다르면 같은 기법도 계약이 달라진다.**
+>
+> ⚠️ **「노출」은 마운트가 아니라 실제 화면 진입이다(2026-08-12 codex 리뷰).** `FlatList`는 `windowSize` 범위의 **화면 밖 셀을 미리 마운트**하므로, `Set`을 `CellRendererComponent` 마운트 시점에 갱신하면 두 가지가 한꺼번에 어긋난다: 아직 보이지 않은 `sessionId`가 **이미 본 것으로 기록**되고, `enterUp`도 **화면 밖에서 끝난다.** 그러면 사용자가 스크롤해 그 행에 도달했을 때 연출은 이미 소진돼 있다 — 재마운트 재생을 막으려던 `Set`이 **정반대로 「한 번도 안 보여준 채 소비」**하는 장치가 된다.
+>
+> **가시성 신호는 `onViewableItemsChanged`** 를 쓴다(`viewabilityConfig`의 `itemVisiblePercentThreshold`). 그 콜백에서 처음 등장한 키만 `Set`에 넣고 그때 프리셋을 활성화한다. 이 화면의 `pop`·`enterUp` 이 모두 같은 원칙 위에 있다 — **보이지 않는 연출은 재생하지 않는다**(아래 지난 내기 결과 항목도 같은 축이다).
 
 > ⚠️ **`GroupCardDeck.tsx`는 배선돼 있지 않다.** `GroupCardDeck.test.tsx` 말고는 import 하는 곳이 없다 — 화면이 쓰는 것은 `GroupListScreen`의 `FlatList` + `PageIndicator` + `GroupCardFlip`(`:1210`)/`GroupCardFront`(`:1270`)/`GroupCardBack`(`:1219`)이다. 여기에 모션을 얹으면 **아무 화면에서도 보이지 않는다.**
 
@@ -451,7 +457,7 @@ const celebrate = isMe && !pending && r.achieved === true && delta > 0;  // ← 
 | `screens/group/components/ChallengeResultModal.test.tsx` | **레거시 `Animated` 미사용** · reduce → 캐릭터 `pop` 부재 + **모달·문구·수치·명단은 그대로** ([IA §5](information-architecture.md)) · 결과 키가 바뀌면 진입이 다시 걸린다 |
 | `screens/group/GroupChallengeHistoryScreen.test.tsx` | 첫 로딩에 `ActivityIndicator` **미사용** + 스켈레톤 `testID` 존재 · `SkeletonCard` **미사용**(높이 상수가 없다 — D25-3) · **꼬리 스피너는 그대로 존재**(회귀 방지) |
 | `screens/group/components/BetSheet.test.tsx` | 참여자 행에 `ProgressBar`·전환 스타일이 **없다**(D25-2 회귀 방지) · 폭이 `dayBarPercent` 그대로 |
-| `screens/group/components/LastBetResultSheet.test.tsx` | `isMe && 승리`에만 `pop` · 진 행·미판정 행엔 **부재** · **내 행이 6번째여도 초기 스크롤이 그 행을 보이게 한다** · 스크롤이 불가능하면 `pop`이 **걸리지 않는다**(안 보이는 축하 방지) |
+| `screens/group/components/LastBetResultSheet.test.tsx` | `isMe && 승리`에만 `pop` · 진 행·미판정 행엔 **부재** · **내 행이 6번째여도 초기 스크롤이 그 행을 보이게 한다** · **짧은 명단(스크롤 없음)의 보이는 승리 행에는 `pop`이 있다** · 초기 위치 조정 후에도 **여전히 가려진** 행에만 `pop` 부재 |
 | `screens/group/components/ChallengeResultModal.test.tsx` (게이팅) | 캐릭터 `onLoad` **전에는** `Enter`가 비활성 · `onLoad` + `InteractionManager` 유휴 뒤에 활성 (`GoalCelebrationModal` 참조 구현과 같은 계약) |
 
 > ⚠️ **꼬리 스피너를 지웠는지가 아니라 남았는지를 단언한다.** 챌린지 내역의 `ListFooterComponent`
