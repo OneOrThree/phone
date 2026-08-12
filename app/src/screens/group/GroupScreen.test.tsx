@@ -10,7 +10,7 @@
 //     실패했을 때 예전 코드는 error=true만 세우고 에러 UI는 groups===null일 때만 그렸다 → 기존 []가
 //     남아 다시 '그룹 만들기' 빈 화면이 떴고, 사용자는 방금 만든 그룹을 또 만들었다(백엔드는 다중
 //     가입을 막지 않는다). 목록-우선 구조에서도 이 분리는 그대로 지켜져야 한다.
-//  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도/게스트 배선과,
+//  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import GroupScreen from './GroupScreen';
@@ -65,9 +65,8 @@ jest.mock('@react-navigation/native', () => ({
   },
 }));
 
-let mockIsGuest = false;
 jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ isGuest: mockIsGuest }),
+  useUser: () => ({ userId: 'user-1' }),
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({
@@ -177,12 +176,10 @@ jest.mock('./components/GroupInviteSheet', () => {
     groupId,
     onClose,
     onJoined,
-    onLogin,
   }: {
     groupId: string;
     onClose: () => void;
     onJoined: (joinedGroupId: string) => void;
-    onLogin: () => void;
   }) {
     return (
       <RNView>
@@ -191,9 +188,6 @@ jest.mock('./components/GroupInviteSheet', () => {
         </RNTouchable>
         <RNTouchable onPress={() => onJoined(mockJoinedIdOverride ?? groupId)}>
           <RNText>초대-참여완료</RNText>
-        </RNTouchable>
-        <RNTouchable onPress={onLogin}>
-          <RNText>초대-로그인</RNText>
         </RNTouchable>
       </RNView>
     );
@@ -266,7 +260,6 @@ async function press(label: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   clearPendingGroupEntry();
-  mockIsGuest = false;
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
   mockNavigationFocused = false;
@@ -332,16 +325,6 @@ describe('group_viewed view episode', () => {
       group_entry: 'return',
       group_count_bucket: '1',
     });
-  });
-
-  test('게스트 화면에서는 invite source를 소비하지 않고 로그인 재마운트용으로 보존한다', async () => {
-    queueDirectGroupEntry('invite');
-    mockIsGuest = true;
-    await renderScreen();
-
-    expect(mockGetMyGroups).not.toHaveBeenCalled();
-    expect(mockLogGroupViewed).not.toHaveBeenCalled();
-    expect(peekGroupEntry('tab')).toBe('invite');
   });
 
   test('인증 direct 진입이 목록 성공 전에 중단되면 source를 다음 탭 episode로 넘기지 않는다', async () => {
@@ -680,9 +663,9 @@ describe('초대 링크 목적지(onInviteJoined)', () => {
   });
 });
 
-describe('게스트 초대 로그인(§6-6)', () => {
-  test('게스트가 초대 시트를 닫으면 보류한 invite 진입 출처도 폐기한다', async () => {
-    mockIsGuest = true;
+describe('초대 시트 닫기(§6-6)', () => {
+  test('초대 시트를 닫으면 보류한 invite 진입 출처도 함께 폐기한다', async () => {
+    mockGetMyGroups.mockResolvedValue([]);
     mockPendingInvite = GROUP_ID;
     queueDirectGroupEntry('invite');
     await renderScreen();
@@ -691,39 +674,5 @@ describe('게스트 초대 로그인(§6-6)', () => {
 
     expect(mockClear).toHaveBeenCalled();
     expect(peekGroupEntry('tab')).toBe('tab');
-  });
-
-  test('시트만 내리고 초대 버퍼는 남긴 채 계정 화면으로 보낸다', async () => {
-    mockIsGuest = true;
-    mockPendingInvite = GROUP_ID;
-    await renderScreen();
-
-    await press('초대-로그인');
-
-    expect(mockNavigate).toHaveBeenCalledWith('SettingsAccount');
-    // 시트는 내려간다 — RN 네이티브 Modal이라 남으면 로그인 화면을 덮는다.
-    expect(screen.queryByText('초대-로그인')).toBeNull();
-    // 버퍼는 살아 있어야 로그인 후 리마운트에서 같은 그룹 프리뷰로 복귀한다.
-    expect(mockClear).not.toHaveBeenCalled();
-  });
-
-  // App.tsx의 applyStoredSession은 로그인 전후 userId가 같은 경우(계정 연결)를 따로 분기한다 —
-  // 그때는 <UserProvider key={userId}>가 그대로라 리마운트가 없고, 마운트 1회 peek에만 기대면
-  // 버퍼에 초대가 남아 있는데도 시트가 다시 뜨지 않는다.
-  test('리마운트 없이 게스트→로그인으로 바뀌어도 같은 초대로 복귀한다', async () => {
-    mockIsGuest = true;
-    mockPendingInvite = GROUP_ID;
-    const { rerender } = await renderScreen();
-
-    await press('초대-로그인');
-    expect(screen.queryByText('초대-참여완료')).toBeNull();
-
-    mockIsGuest = false;
-    mockGetMyGroups.mockResolvedValue([]);
-    await act(async () => {
-      rerender(<GroupScreen />);
-    });
-
-    expect(await screen.findByText('초대-참여완료')).toBeOnTheScreen();
   });
 });

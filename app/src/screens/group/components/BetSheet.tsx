@@ -9,9 +9,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import {
@@ -175,7 +175,6 @@ export default function BetSheet({
   onClose,
   onDone,
 }: BetSheetProps) {
-  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { coins, coinsLoaded, coinsVersion, latestCoinsVersion, refresh } = useCoins();
   const { show } = useToast();
   // SCREEN_TIME의 차단 판정(이미 목표 초과)은 부모가 내려주지 않아 — myAchieved prop은 FOCUS
@@ -205,7 +204,8 @@ export default function BetSheet({
     stake: number;
     coinsVersion: number;
   } | null>(null);
-  // 게스트 차단 — 시트를 로그인 안내로 갈아 끼운다(GroupInviteSheet의 게스트 경로와 같은 형태).
+  // 구서버가 아직 GUEST_FORBIDDEN을 반환하는 배포 공백에서도 재시도 안내 대신 로그인 경로를
+  // 보여준다. 현재 서버에서는 도달하지 않지만, 앱을 먼저 배포해도 오도하지 않기 위한 방어선이다.
   const [guestBlocked, setGuestBlocked] = useState(false);
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
@@ -495,7 +495,7 @@ export default function BetSheet({
       case 'MEMBER_ONLY':
         failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
         return;
-      // 게스트는 재화가 없다 — '잠시 후 다시 시도'는 거짓이라 로그인 안내로 갈아 끼운다(F5).
+      // 서버 게스트 허용 전 버전과의 배포 순서가 어긋나도 알 수 없는 오류로 숨기지 않는다.
       case 'GUEST_FORBIDDEN':
         setGuestBlocked(true);
         break;
@@ -537,30 +537,8 @@ export default function BetSheet({
     setSubmitting(false);
   }
 
-  // ── 게스트 — 내기는 재화를 쓰는 기능이라 로그인 전에는 열리지 않는다(§5-3의 게스트 안내 규격) ──
-  // 문구·버튼 규격은 GroupInviteSheet의 게스트 화면 그대로다.
   if (guestBlocked) {
-    return (
-      <SheetShell onClose={onClose} asModal>
-        <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
-        <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
-        {/* ⚠️ 이 CTA는 일부러 useSheetClose()로 옮기지 않는다(GROMO-1381) — 닫은 **직후 화면을
-            전환**하므로 220ms 퇴장을 붙이면 계정 화면 위에 시트(네이티브 Modal)가 남는다.
-            닫기와 전환이 붙어 있는 CTA는 즉시 언마운트가 맞다. */}
-        <TouchableOpacity
-          style={s.submitBtn}
-          activeOpacity={0.85}
-          onPress={() => {
-            onClose();
-            navigation.navigate('SettingsAccount');
-          }}
-          testID="group.bet.login"
-        >
-          <Text style={s.submitText}>로그인하러 가기</Text>
-        </TouchableOpacity>
-        <DismissCta />
-      </SheetShell>
-    );
+    return <GuestBlockedView onClose={onClose} />;
   }
 
   return (
@@ -819,15 +797,34 @@ export default function BetSheet({
   );
 }
 
-// 게스트 화면의 '다음에 할게요' — 순수 닫기라 퇴장 애니메이션을 태운다(GROMO-1381).
-// useSheetClose()는 SheetShell **자식 트리**에서만 잡히므로 작은 컴포넌트로 뺐다.
-// 렌더 결과는 종전과 같다(같은 TouchableOpacity·같은 문구).
 function DismissCta() {
   const close = useSheetClose();
   return (
     <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={close}>
       <Text style={s.ghostText}>다음에 할게요</Text>
     </TouchableOpacity>
+  );
+}
+
+function GuestBlockedView({ onClose }: { onClose: () => void }) {
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  return (
+    <SheetShell onClose={onClose} asModal>
+      <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
+      <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
+      <TouchableOpacity
+        style={s.submitBtn}
+        activeOpacity={0.85}
+        onPress={() => {
+          onClose();
+          navigation.navigate('SettingsAccount');
+        }}
+        testID="group.bet.login"
+      >
+        <Text style={s.submitText}>로그인하러 가기</Text>
+      </TouchableOpacity>
+      <DismissCta />
+    </SheetShell>
   );
 }
 
@@ -992,6 +989,8 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
+  ghostBtn: { alignItems: 'center', marginTop: T.space.md, paddingVertical: T.space.sm },
+  ghostText: { ...T.text.label, color: T.inkMuted },
   // 전송 중 안내 — CTA 바로 아래 가운데 한 줄.
   submittingCaption: {
     ...T.text.caption,
@@ -1000,15 +999,4 @@ const s = StyleSheet.create({
     textAlign: 'center',
     marginTop: T.space.sm,
   },
-
-  // 게스트 안내의 보조 버튼 — GroupInviteSheet의 ghost 규격 그대로.
-  ghostBtn: {
-    minHeight: 44,
-    paddingVertical: T.space.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: T.space.xs,
-    marginBottom: T.space.xs,
-  },
-  ghostText: { ...T.text.label, color: T.inkSub },
 });

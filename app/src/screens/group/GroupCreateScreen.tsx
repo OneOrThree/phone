@@ -136,12 +136,6 @@ export default function GroupCreateScreen() {
   // requestSessionGeneration = 요청 직전의 인증 세대(유저 부재 분기의 로그아웃 판정용).
   function handleError(e: unknown, requestSessionGeneration: number) {
     switch (groupErrorCode(e)) {
-      case 'GUEST_FORBIDDEN':
-        Alert.alert('로그인이 필요해요', '게스트는 그룹을 만들 수 없어요.', [
-          { text: '나중에', style: 'cancel' },
-          { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
-        ]);
-        return;
       // 참여 상한은 참가뿐 아니라 **생성 경로에도** 걸린다(서버 ensureJoinedGroupLimit).
       // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'가 되는데, 시간이 지나도 절대 풀리지 않는
       // 조건이라 사용자가 재시도만 반복한다 — 상한이라는 사실과 숫자를 그대로 알려준다.

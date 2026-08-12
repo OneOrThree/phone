@@ -30,7 +30,7 @@
 ### 현재 전제
 
 - 행동 기준선, 그룹 수 분포, flip 발견률, CTA 전환율, 재방문율, D30 잔존율이 없다.
-- 운영상 출시 전제는 리그 조회 적격 사용자(`is_deleted=false AND is_guest=false`)가 100명 미만이라는 것이다. 값이 unknown이거나 100명 이상이면 카드 덱 출시는 차단하고 대체 계약을 먼저 배포한다.
+- 운영상 출시 전제는 리그 조회 적격 사용자(`is_deleted=false`이고 닉네임이 공백이 아님)가 100명 미만이라는 것이다. 게스트도 닉네임이 있으면 집중 인원 집계에 포함한다. 값이 unknown이거나 100명 이상이면 카드 덱 출시는 차단하고 대체 계약을 먼저 배포한다.
 - 런타임 앱에는 적격 사용자 수가 내려오지 않는다. 따라서 성공한 전역 리그 원본 응답 길이가 100 미만일 때만 top100 완전성을 적용한다. `length === 100`·loading·error는 미산출이며 0명으로 표시하지 않는다.
 - 운영 수가 90명에 도달하면 대체 계약을 준비한다.
 
@@ -104,7 +104,7 @@
 | 소속 그룹 0개        | 현행 빈 상태           | 만들기·찾기    | 카드 덱 없음                         | 해당 없음                                | GroupScreen이 상태 소유    |
 | MEMBER               | 소속 카드·요약·전체 방 | 현행 가입 흐름 | flip·page·집중·재정렬·내 카드 아이콘 | 그룹 나가기                              | 그룹 프로필·멤버 관리 불가 |
 | OWNER                | MEMBER와 동일          | 현행 생성·가입 | MEMBER와 동일                        | 프로필·방장 넘기기·멤버 관리·공지·나가기 | 그룹 삭제는 없음           |
-| 게스트·userId 미확정 | 현행 게스트·전이 화면  | 현행 정책      | 로컬 순서·아이콘 읽기·쓰기 금지      | 없음                                     | 계정 bucket 생성 금지      |
+| 게스트·userId 확정 | MEMBER와 동일한 그룹 목록·카드 덱 | 현행 가입 흐름 | `userId×groupId` 로컬 순서·아이콘 읽기·쓰기 | 그룹 나가기 | 게스트 UUID bucket 사용 |
 
 ### 3.2 유저 스토리
 
@@ -150,7 +150,7 @@
 GroupScreen
   ├─ loading
   ├─ error
-  ├─ guest 또는 userId 미확정
+  ├─ userId 미확정
   ├─ groups=0 → 현행 empty
   └─ groups>=1 → GroupListScreen 카드 덱
                    ├─ front
@@ -200,7 +200,7 @@ GroupScreen
 | 그룹 목록 loading                    | 현행 전체 화면 loading                   | 로컬 reconcile 금지                          | 목록 요청 완료 대기       | 기존 화면 오류          |
 | 그룹 목록 error·부분 응답            | 현행 오류 화면                           | stale ID 삭제 금지                           | 전체 목록 재시도          | 기존 화면 오류          |
 | 그룹 0개                             | 현행 empty·만들기·찾기                   | 카드 저장값은 서버 멤버십으로 사용하지 않음  | 가입·생성 후 목록 재조회  | 기존 이벤트             |
-| 게스트·userId 미확정                 | 현행 게스트·전이 상태                    | local bucket 읽기·쓰기 금지                  | 인증 확정 후 진입         | 기존 인증 계측          |
+| 게스트·userId 확정                   | MEMBER와 동일한 목록·카드 덱              | 게스트 UUID 기준 local bucket 읽기·쓰기     | 목록 조회·세션 갱신       | 기존 인증 계측          |
 | detail·공지·챌린지 일부 실패         | 실패한 섹션만 inline error               | 성공한 섹션과 CTA 유지                       | 섹션별 다시 시도          | dependency·result       |
 | 리그 loading·최초 error              | 집중 인원 skeleton 또는 오류             | stale·시간 필드로 추정 금지                  | 공유 query 재시도         | focus_status_state      |
 | 리그 갱신 error·이전 complete 있음   | 마지막 확인값 + stale 표시               | 새 값·0명으로 추정 금지                      | 다음 60초 tick·명시 retry | focus_status_state      |
@@ -273,7 +273,7 @@ GroupScreen
 | Guardrail    | 잘못된 0명 표시         | loading·error·coverage unknown을 0명으로 표시한 건           | 미측정      | 테스트·staging 0건                                       | 통합·E2E       | F02-P1        |
 | Data quality | 이벤트 누락·중복        | 시나리오별 예상 이벤트 수와 실제 수의 차이                   | 미측정      | staging 0건                                              | DebugView·QA   | F02-P1        |
 | System SLO   | 뒷면 API 증폭           | 카드별 detail 3개와 화면 공유 리그 호출 수                   | 미측정      | 정기 리그 tick은 60초 1회, 동시 trigger는 in-flight 공유 | 네트워크 계측  | F02-P1        |
-| 운영         | eligible 사용자 수      | is_deleted=false AND is_guest=false 사용자 수                | 100명 미만  | 90명 경고, 100명 전 대체 계약 배포                       | 서버 집계      | 상시          |
+| 운영         | eligible 사용자 수      | is_deleted=false AND nickname에 공백이 아닌 문자가 있는 사용자 수 | 100명 미만  | 90명 경고, 100명 전 대체 계약 배포                       | 서버 집계      | 상시          |
 
 ### 6.4 측정 단계와 필요한 이벤트
 
@@ -334,7 +334,7 @@ meaningful_group_experience의 정확한 이벤트 계약은 카드 UI가 아니
 | 관측성        | 90명 경고, 100행 coverage unknown, 로컬 저장 실패, 이벤트 누락·중복을 구분한다                  | telemetry·DebugView·대시보드                | 미구현    |
 | 보안·개인정보 | 그룹명·소개·emoji glyph·로컬 순서를 analytics에 보내지 않는다                                   | payload schema 테스트                       | 미구현    |
 | 접근성        | 숨은 면·비활성 control 제외, 원문 이름 낭독, move action, Reduce Motion cross-fade를 제공한다   | VoiceOver·키보드·Reduce Motion matrix       | 미검증    |
-| 호환성        | 서버 API·DTO·DB·OpenAPI 변경 0건, 기존 GroupRoom·설정·빈·게스트 상태를 유지한다                 | 앱·서버 배포 순서 회귀                      | 설계됨    |
+| 호환성        | 서버 API·DTO·DB·OpenAPI 변경 0건, 게스트 UUID도 그룹 목록·카드 덱·설정을 사용할 수 있다          | 앱·서버 배포 순서 회귀                      | 설계됨    |
 | 반응형        | 320·390·430·768pt와 그룹 1·5·6·7·10·11개 이상에서 active groupId와 탐색 맥락을 유지한다         | 화면 폭×그룹 수 교차 테스트                 | 미검증    |
 
 indicator 계산 계약은 다음과 같다.
@@ -421,7 +421,7 @@ requiredDotWidth가 availableWidth 이하이면 dots, 초과하면 n/total
 
 | #   | 테스트                                                                                                   | 기대 결과                                                                                                                                                                | 계층            | 현황      |
 | --- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | --------- |
-| 1   | loading·error·guest·0개·1개 이상 분기                                                                    | 카드 덱은 성공한 1개 이상 분기에서만 렌더                                                                                                                                | 통합·E2E        | 미착수    |
+| 1   | loading·error·0개·1개 이상 분기                                                                           | 카드 덱은 성공한 1개 이상 분기에서만 렌더                                                                                                                                | 통합·E2E        | 미착수    |
 | 2   | 앞면 시각·내용                                                                                           | #5E6AD2, 필수 정보, OWNER badge, flip affordance가 계약과 일치                                                                                                           | 스냅샷·E2E      | 미착수    |
 | 3   | create에서 아이콘 선택·성공·실패                                                                         | request body에는 emoji가 없고 성공 groupId에만 로컬 저장                                                                                                                 | 통합            | 미착수    |
 | 4   | 아이콘 미설정·무효·쓰기 실패·계정 전환                                                                   | 🎯 fallback, 현재 UI 유지, 다른 userId bucket 불변                                                                                                                       | 단위·통합       | 미착수    |

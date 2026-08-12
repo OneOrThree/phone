@@ -182,8 +182,10 @@ export default function JoinNextSheet({
         case 'MEMBER_ONLY':
           failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
           return;
+        // 현재 서버에서는 게스트도 진행하지만, 구서버가 남아 있는 배포 공백에서는 로그인 안내를
+        // 보여줘 알 수 없는 오류로 오인하지 않게 한다.
         case 'GUEST_FORBIDDEN':
-          failAndReload('로그인이 필요해요', '게스트는 코인을 쓸 수 없어요.');
+          failAndReload('로그인하면 참여할 수 있어요', '게스트는 코인을 쓸 수 없어요.');
           return;
         default:
           setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해주세요.');

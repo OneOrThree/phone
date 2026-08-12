@@ -3,7 +3,6 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import axios from 'axios';
 import { T } from '@/constants/theme';
 import { SheetShell, useSheetClose } from '@/components/SheetShell';
-import { useUser } from '@/store/UserContext';
 import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupOverview, groupErrorCode, joinGroup } from '@/services/groupApi';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
@@ -22,14 +21,12 @@ import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 //     → 그룹 탭으로 이동 + 모듈 버퍼에 저장 & 리스너 통지(navigationRef.notifyGroupInvite)
 //     → GroupScreen이 리스너/peekPendingInvite로 받아 이 시트를 groupId와 함께 렌더
 //   ⚠️ 버퍼 수명은 GroupScreen이 관리한다(onClose/onJoined에서 clearPendingInvite 호출).
-//      **이 파일 안에서 navigationRef의 버퍼를 직접 만지지 않는다** — 게스트 로그인 후 복귀가 깨진다.
-//      로그인 유도는 onLogin(시트만 내림, 버퍼 유지)이라 onClose(버퍼 삭제)와 역할이 다르다.
+//      **이 파일 안에서 navigationRef의 버퍼를 직접 만지지 않는다** — 로그인 후 복귀가 깨진다.
 //
 // 상태 분기(§6-6) — 프리뷰 판정은 getGroupOverview(groupId) 한 번으로 끝낸다.
 //   (상세 getGroupDetail은 그룹원만이라 참여 전에 부르면 403 — §3-1-4)
 //  | 조건                          | 화면                                                     |
 //  |------------------------------|----------------------------------------------------------|
-//  | 게스트(useUser().isGuest)     | "로그인하고 참여하기" — 로그인 후 이 시트가 다시 뜬다      |
 //  | isMember === true             | 시트 없이 바로 그룹방으로 (onJoined 호출)                  |
 //  | memberCount >= maxMembers     | "정원이 가득 찼어요" — 참여 버튼 비활성                    |
 //  | 404(NOT_FOUND)                | "사라진 그룹이에요"                                       |
@@ -57,10 +54,6 @@ export interface GroupInviteSheetProps {
   //    떠 있는 동안 두 번째 초대 링크가 도착하면 prop groupId가 갈린다. 부모가 현재 groupId를 목적지로
   //    삼으면 가입한 그룹이 아니라 나중에 온 그룹으로 보내려다 아무 방도 못 여는 결과가 된다.
   onJoined: (joinedGroupId: string) => void;
-  // 게스트 로그인 유도 — 부모가 **시트만 내리고 초대 버퍼는 남긴 채** 계정 화면으로 보낸다.
-  // ⚠️ onClose와 혼용 금지: onClose는 버퍼까지 비워 로그인 후 복귀(§6-6)가 깨진다.
-  //    이 시트는 asModal(RN 네이티브 Modal)이라 내리지 않으면 계정 화면 위에 남아 로그인 버튼을 가린다.
-  onLogin: () => void;
 }
 
 // 참여를 막는 사유 — 버튼 비활성 + 안내 문구가 함께 결정된다.
@@ -132,12 +125,9 @@ export default function GroupInviteSheet({
   entry,
   onClose,
   onJoined,
-  onLogin,
 }: GroupInviteSheetProps) {
-  const { isGuest } = useUser();
-
   const [overview, setOverview] = useState<GroupOverviewResponse | null>(null);
-  const [loading, setLoading] = useState(!isGuest);
+  const [loading, setLoading] = useState(true);
   const [gone, setGone] = useState(false); // 404 — 사라진 그룹
   const [failed, setFailed] = useState(false); // 그 외 조회 실패 — 다시 시도
   const [block, setBlock] = useState<BlockReason | null>(null);
@@ -145,8 +135,6 @@ export default function GroupInviteSheet({
   // 찾기 시트가 보낸 요청이든, 참여가 하나라도 떠 있으면 여기서 또 보낼 수 없다(joinLock.ts).
   const joining = useJoinLocked();
   const [joinError, setJoinError] = useState<string | null>(null);
-  // 서버가 GUEST_FORBIDDEN을 준 경우(로그인 시점 태깅이 어긋난 구 세션) 게스트 화면으로 떨어뜨린다.
-  const [guestBlocked, setGuestBlocked] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   // 지금 이 시트가 보고 있는 groupId. 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
@@ -163,21 +151,17 @@ export default function GroupInviteSheet({
   }, [onJoined]);
 
   // 6b group_invite_sheet_viewed(초대 링크 스펙 §4-3) — 시트가 실제로 화면에 올라간 시점.
-  // 조회 완료가 아니라 **마운트**를 기준으로 삼는다: 게스트 로그인 유도·404·정원 초과도 전부
-  // 사용자에게 보인 초대장이고, 조회 성공만 세면 실패 구간이 퍼널에서 통째로 사라진다.
+  // 조회 완료가 아니라 **마운트**를 기준으로 삼는다: 404·정원 초과도 전부 사용자에게 보인
+  // 초대장이고, 조회 성공만 세면 실패 구간이 퍼널에서 통째로 사라진다.
   // groupId가 갈리면(두 번째 초대 링크 도착) 새 초대장이므로 다시 발행한다 — 시트는 key 없이
   // 재사용돼(GroupScreen) 마운트가 한 번뿐이라, 의존성으로 세대를 잡지 않으면 두 번째가 유실된다.
   useEffect(() => {
     logGroupInviteSheetViewed({ group_id: groupId, slug: slug ?? undefined, entry });
   }, [groupId, slug, entry]);
 
-  // 프리뷰 조회 — 게스트는 호출 전에 차단한다(서버도 403이지만 왕복을 아낀다, §5-3).
+  // 프리뷰 조회.
   useEffect(() => {
     groupIdRef.current = groupId;
-    if (isGuest) {
-      setLoading(false);
-      return;
-    }
     let alive = true;
     closedRef.current = false; // 새 초대 — 앞 그룹에서 닫힌 흔적을 지운다
     setLoading(true);
@@ -188,10 +172,6 @@ export default function GroupInviteSheet({
     // 진행 중이던 이전 그룹의 참여 요청은 **끝날 때까지 잠근 채로 둔다**(joinLock.ts). 여기서 풀면
     // 초대 A가 멤버십을 바꾸는 동안 B의 참여 버튼이 살아나 두 요청이 모두 성공한다 — 잠금이 이제
     // 모듈 스코프라 groupId가 갈려도 그대로 유지되고, join()의 finally가 반드시 풀어 준다.
-    // guestBlocked도 함께 되돌린다 — 시트는 key 없이 재사용돼(GroupScreen) 두 번째 초대 링크가
-    // 도착하면 groupId만 바뀐다. 앞 그룹에서 GUEST_FORBIDDEN으로 세운 값이 남으면 정상 프리뷰를
-    // 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
-    setGuestBlocked(false);
     // 프리뷰 조회를 띄우기 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts).
     const requestSessionGeneration = getAuthSessionGeneration();
     (async () => {
@@ -234,7 +214,7 @@ export default function GroupInviteSheet({
     return () => {
       alive = false;
     };
-  }, [groupId, isGuest, reloadKey]);
+  }, [groupId, reloadKey]);
 
   const join = useCallback(async () => {
     if (block) return;
@@ -307,9 +287,6 @@ export default function GroupInviteSheet({
         case 'NOT_FOUND':
           setGone(true);
           break;
-        case 'GUEST_FORBIDDEN':
-          setGuestBlocked(true);
-          break;
         // overview가 hasPassword를 안 실어 준 경우의 뒷문 — 공통 문구 대신 이유를 말한다.
         case 'WRONG_PASSWORD':
           setBlock('password');
@@ -327,31 +304,6 @@ export default function GroupInviteSheet({
     // slug·entry는 groupId와 한 몸으로 갈리는 값이라 실질적으로 groupId에 종속이지만,
     // 어트리뷰션이 앞 초대장의 값으로 굳는 사고를 막으려 의존성에 그대로 둔다.
   }, [block, groupId, slug, entry]);
-
-  // ── 게스트 — 조회 없이 로그인 유도(§5-3) ──
-  // 이동·시트 내리기는 부모(onLogin)가 한다. 시트는 내려도 초대 버퍼는 살아 있어,
-  // 로그인으로 앱 트리가 리마운트되면 GroupScreen이 같은 그룹으로 이 시트를 다시 띄운다(§6-6).
-  if (isGuest || guestBlocked) {
-    return (
-      <SheetShell
-        onClose={onClose}
-        // ⚠️ 퇴장이 시작되면 진행 중인 조회 결과를 **반영하지 않는다.** 종전에는 딤 탭이 곧
-        //    언마운트라 cleanup이 alive를 내렸지만, 이제 onClose가 220ms 뒤라 그동안 살아 있다.
-        //    그 사이 응답이 오고 '이미 멤버'면 사용자가 닫았는데 그룹방으로 전환된다(codex 리뷰).
-        onClosing={() => {
-          closedRef.current = true;
-        }}
-        asModal
-      >
-        <Text style={s.title}>로그인하면 그룹에 참여할 수 있어요</Text>
-        <Text style={s.desc}>로그인한 뒤 이 초대장이 다시 열려요.</Text>
-        <TouchableOpacity style={s.primaryBtn} activeOpacity={0.85} onPress={onLogin}>
-          <Text style={s.primaryText}>로그인하고 참여하기</Text>
-        </TouchableOpacity>
-        <GhostCloseCta label="다음에 할게요" />
-      </SheetShell>
-    );
-  }
 
   // ── 404 — 사라진 그룹 ──
   if (gone) {

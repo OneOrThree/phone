@@ -798,7 +798,7 @@ N43의 **보고 대상 탐색축**이다. 그룹 목록을 타지 않으므로 *
 | `INVALID_PAGE_REQUEST` | 400 | `size` 범위 밖 | 이력 조회 |
 | ✚ `INVALID_MEASURED_AT` | 400 | `measuredAt`이 서버 시각 +2분 초과 (기기 시계 앞섬) | 창 사용분 보고 |
 | ✚ `INVALID_SESSION_DATES` | 400 | `join-week`의 지정 날짜가 활성일이 아니거나 참여 불가 | 주간 부분 예약 |
-| `GUEST_FORBIDDEN` | 403 | 게스트 | 전 경로 |
+| `GUEST_FORBIDDEN` | 403 | 구버전 서버의 게스트 차단 응답 | 앱은 로그인 안내로 복구하며, 현재 서버의 정상 경로에서는 사용하지 않음(GROMO-1509) |
 | `CONCURRENT_UPDATE` | 409 | 낙관락 충돌 → 재시도 안내 | 전 경로 |
 
 > **✚ 표시가 없는 코드는 전부 `GroupErrorCode`에 이미 있는 값이다 — 새로 만들지 않고 그대로 쓴다.**

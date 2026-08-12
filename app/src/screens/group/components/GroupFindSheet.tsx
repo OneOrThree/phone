@@ -41,7 +41,7 @@ import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 // 에러 표현 규칙(그룹 시트 3종 공통 — GroupInviteSheet·NoticeComposeSheet와 같은 기준):
 //   · 시트 안에서 일어난 액션 실패는 **인라인 문구**로 띄운다. 시트가 이미 맥락을 쥐고 있어
 //     Alert를 겹치면 레이어가 두 겹이 되고, 확인을 눌러야 원래 화면으로 돌아온다.
-//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)과 **계정 전환 유도**(로그인)에만 쓴다.
+//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)에만 쓴다.
 
 // 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지(FriendAddScreen과 동일 기준)
 const SEARCH_DEBOUNCE_MS = 350;
@@ -245,7 +245,7 @@ export default function GroupFindSheet({
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
       const code = groupErrorCode(e);
-      // 아래 둘은 화면 상태가 아니라 **실제 소속·계정 상태**의 결과라 검색 세대와 무관하게 처리한다.
+      // 아래는 화면 상태가 아니라 **실제 소속 상태**의 결과라 검색 세대와 무관하게 처리한다.
       if (code === 'ALREADY_MEMBER') {
         // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다.
         // (시도 계측은 요청 직전에 이미 나갔다 — 여기서 되돌릴 수단은 없고, 되돌릴 이유도 없다.

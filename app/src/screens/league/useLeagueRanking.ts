@@ -95,7 +95,7 @@ export function useLeagueRanking() {
   const { nickname: myNickname, userId } = useUser();
 
   // 리스트(직군 top-100)·리그 라벨·내 권위 주간분을 원자적으로 함께 보관한다.
-  // 전체가 null이면 미조회/게스트/실패 → 화면은 빈 상태.
+  // 전체가 null이면 미조회/실패 → 화면은 빈 상태.
   // forCategory: 이 데이터를 조회한 시점의 내 카테고리 — 실패 시 유지/폐기 판단 기준(아래 catch).
   const [state, setState] = useState<{
     members: RankedMember[];
@@ -114,7 +114,7 @@ export function useLeagueRanking() {
   const refetch = useCallback(async () => {
     if (!userId) {
       setState(null);
-      setError(false); // 게스트는 빈 상태가 정상 — 실패 안내를 띄우지 않는다
+      setError(false); // 세션 없음(JWT 디코드 실패)은 조회 실패가 아니다 — 안내를 띄우지 않는다
       return;
     }
     // 카테고리 저장값을 아직 읽는 중(undefined) — 확정(null/string) 후 한 번만 조회한다.

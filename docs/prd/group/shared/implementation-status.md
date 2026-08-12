@@ -32,7 +32,8 @@
    SELECT COUNT(*) AS eligible_user_count
    FROM users
    WHERE is_deleted = false
-     AND is_guest = false;
+     AND nickname IS NOT NULL
+     AND nickname ~ '[^[:space:]]';
    ```
 
 2. 실행 환경·KST 시각·결과 수·실행자를 release checklist에 첨부한다. 쿼리 실패나 증거 없음은 `unknown`이다.

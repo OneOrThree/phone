@@ -691,7 +691,6 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     });
     expect(isJoinLocked()).toBe(false);
   });
-
   test('GUEST_FORBIDDEN만 예외 — 시트를 닫고 로그인 유도 Alert를 띄운다', async () => {
     mockJoinGroup.mockRejectedValue(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
     await renderSheet();
