@@ -147,7 +147,7 @@ flowchart TD
 
 ### 3.2 기존 그룹 상세 + 현재 집중 상태 응답의 client join
 
-카드 전용 request/response와 그룹 상세 필드 확장을 만들지 않는다. 현행 그룹 상세의 `members[].userId`를 멤버십 정본으로, category를 생략한 현행 `GET /api/v1/league/me/ranking?date=YYYY-MM-DD`의 원본 `LeagueMemberResponse[]`를 현재 집중 상태 정본으로 사용한다. 운영 eligible 사용자(`is_deleted=false AND is_guest=false`) 100명 미만은 출시 전제이며, 런타임 앱은 이 수를 받지 않는다.
+카드 전용 request/response와 그룹 상세 필드 확장을 만들지 않는다. 현행 그룹 상세의 `members[].userId`를 멤버십 정본으로, category를 생략한 현행 `GET /api/v1/league/me/ranking?date=YYYY-MM-DD`의 원본 `LeagueMemberResponse[]`를 현재 집중 상태 정본으로 사용한다. 운영 eligible 사용자(`is_deleted=false`이고 닉네임이 공백이 아님) 100명 미만은 출시 전제이며, 닉네임이 있는 게스트도 포함한다. 런타임 앱은 이 수를 받지 않는다.
 
 - 현행 `getMyRanking(category?)`에 날짜 인자가 없다. 계획된 wrapper 확장 `getMyRanking(category?, date = todayStrKst())`이 기존 endpoint에 category를 보내지 않는 호출을 가능하게 하며, 서버 계약 변경은 아니다. 그룹 detail·하위 기능·리그 호출 인자와 `userId + KST date` cache key는 한 refresh cycle 시작 시 한 번 얻은 동일한 `todayStrKst()` 결과를 사용하며 기기 로컬 날짜를 섞지 않는다.
 - 포커스 세션 UI용 adapter는 본인 제외·핀 우선 정렬 뒤 12명만 남기므로 재사용하지 않는다. 그룹 화면은 원본 배열을 보존하는 전용 adapter를 한 번만 소유한다.
@@ -214,7 +214,7 @@ flowchart TD
 
 ### 6.1 trigger·저장·queue
 
-`GroupScreen`은 인증 사용자에게서 **성공한 전체** `GET /groups` 목록이 1개 이상이고 `GroupListScreen`의 카드 폭·활성 첫 카드·필수 anchor layout이 안정됐을 때 eligibility를 계산한다. guest, userId 미확정, loading/error/부분 목록, groups=0에서는 queue에 넣지 않는다. 다른 modal/sheet/guide가 열려 있으면 eligibility를 버리지 않고 queue가 blocking overlay 대기로 판정하며, slot을 받기 전 화면이 끝나면 다음 focus에서 다시 판정한다.
+`GroupScreen`은 게스트를 포함한 세션에서 **성공한 전체** `GET /groups` 목록이 1개 이상이고 `GroupListScreen`의 카드 폭·활성 첫 카드·필수 anchor layout이 안정됐을 때 eligibility를 계산한다. userId 미확정, loading/error/부분 목록, groups=0에서는 queue에 넣지 않는다. 다른 modal/sheet/guide가 열려 있으면 eligibility를 버리지 않고 queue가 blocking overlay 대기로 판정하며, slot을 받기 전 화면이 끝나면 다음 focus에서 다시 판정한다.
 
 - 완료 key는 AsyncStorage `gromo:guide:groupDeck:v1`, 값 `1`이며 **기기 단위 v1 1회**다. userId bucket으로 나누지 않는다. key 없음은 미완료, `1`은 완료다.
 - key read 성공 뒤 미완료면 queue에 넣고, 완료면 카드 덱을 바로 사용하게 한다. read 실패는 덱을 막지 않으며 `keyState=unknown`과 session memory로 이번 세션에 최대 1회만 시도한다. 다음 진입에서는 다시 read한다. queue 등록 결과가 즉시 slot 획득이면 `shown`, blocking overlay 대기면 `pending`, read 실패의 fallback queue 등록이면 `unknown`이다. 해당 노출 이벤트를 typed helper에 넘긴 뒤에만 카드 사용자 입력을 수락하며, 이후 slot 획득으로 값을 보정하지 않는다.

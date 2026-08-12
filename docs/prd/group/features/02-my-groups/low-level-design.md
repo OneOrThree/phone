@@ -17,7 +17,7 @@ PRD가 제품 결정을, IA가 화면과 정보 구조를, HLD가 시스템 책�
 ```mermaid
 flowchart TB
     Enter["그룹 화면 진입"] --> Full{"서버의 전체 그룹 목록을<br/>성공적으로 받았는가?"}
-    Full -->|아니오 · 부분 응답| Existing["현행 게스트 · 불러오는 중 · 오류 화면"]
+    Full -->|아니오 · 부분 응답| Existing["불러오는 중 · 오류 화면"]
     Existing --> Safe["멤버십 추정 금지<br/>개인 설정 정리·삭제 금지"]
 
     Full -->|예| Count{"소속 그룹 수"}

@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClose } from '@/components/SheetShell';
+import { navigationRef } from '@/navigation/navigationRef';
 import {
   BET_ALREADY_FAILED,
   BET_INSUFFICIENT_BALANCE,
@@ -201,6 +202,9 @@ export default function BetSheet({
     stake: number;
     coinsVersion: number;
   } | null>(null);
+  // 구서버가 아직 GUEST_FORBIDDEN을 반환하는 배포 공백에서도 재시도 안내 대신 로그인 경로를
+  // 보여준다. 현재 서버에서는 도달하지 않지만, 앱을 먼저 배포해도 오도하지 않기 위한 방어선이다.
+  const [guestBlocked, setGuestBlocked] = useState(false);
   const bet = challenge.bet ?? null;
   const label = missionLabel(challenge) ?? categoryLabel(challenge);
   const isCreate = mode === 'create';
@@ -489,6 +493,10 @@ export default function BetSheet({
       case 'MEMBER_ONLY':
         failAndReload('그룹원만 이용할 수 있어요', '그룹에서 나갔거나 더 이상 멤버가 아니에요.');
         return;
+      // 서버 게스트 허용 전 버전과의 배포 순서가 어긋나도 알 수 없는 오류로 숨기지 않는다.
+      case 'GUEST_FORBIDDEN':
+        setGuestBlocked(true);
+        break;
       // 서버가 센 잔액이 앱과 다르다 — 다시 받아 부족분을 적고, 판정 자체는 서버 것을 그대로 쓴다.
       // 판정 시점의 잔액 버전을 함께 남긴다 — 이 판정을 푸는 건 그보다 **나중에 도착한** 잔액뿐이다.
       // 버전은 클로저(coinsVersion)가 아니라 CoinContext의 latestCoinsVersion()에서 읽는다.
@@ -525,6 +533,27 @@ export default function BetSheet({
         );
     }
     setSubmitting(false);
+  }
+
+  if (guestBlocked) {
+    return (
+      <SheetShell onClose={onClose} asModal>
+        <Text style={s.title}>로그인하면 내기에 참여할 수 있어요</Text>
+        <Text style={s.sub}>게스트는 코인을 쓸 수 없어요.</Text>
+        <TouchableOpacity
+          style={s.submitBtn}
+          activeOpacity={0.85}
+          onPress={() => {
+            onClose();
+            navigationRef.navigate('SettingsAccount');
+          }}
+          testID="group.bet.login"
+        >
+          <Text style={s.submitText}>로그인하러 가기</Text>
+        </TouchableOpacity>
+        <DismissCta />
+      </SheetShell>
+    );
   }
 
   return (
@@ -783,6 +812,15 @@ export default function BetSheet({
   );
 }
 
+function DismissCta() {
+  const close = useSheetClose();
+  return (
+    <TouchableOpacity style={s.ghostBtn} activeOpacity={0.7} onPress={close}>
+      <Text style={s.ghostText}>다음에 할게요</Text>
+    </TouchableOpacity>
+  );
+}
+
 const s = StyleSheet.create({
   // 제목·부제·라벨·칩·노트·CTA 규격은 ChallengeComposeSheet와 같다 — 같은 섹션의 형제 시트다.
   title: { ...T.text.body, fontWeight: '800', color: T.ink },
@@ -944,6 +982,8 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
+  ghostBtn: { alignItems: 'center', marginTop: T.space.md, paddingVertical: T.space.sm },
+  ghostText: { ...T.text.label, color: T.inkMuted },
   // 전송 중 안내 — CTA 바로 아래 가운데 한 줄.
   submittingCaption: {
     ...T.text.caption,
