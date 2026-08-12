@@ -23,6 +23,7 @@ jest.mock('@react-navigation/native', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupJoinAttempted: jest.fn(),
+  logGroupJoined: jest.fn(),
   logGroupSearchPerformed: jest.fn(),
 }));
 

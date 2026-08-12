@@ -24,6 +24,7 @@ jest.mock('react-native-safe-area-context', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupJoinAttempted: jest.fn(),
+  logGroupJoined: jest.fn(),
   logGroupInviteSheetViewed: jest.fn(),
 }));
 

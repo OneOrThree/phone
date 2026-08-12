@@ -19,6 +19,7 @@ jest.mock('react-native-safe-area-context', () => ({
 
 // groupApi가 계측 모듈을 물고 온다(firebase 네이티브) — 다른 스위트와 같은 이유로 목이다.
 jest.mock('@/services/analyticsEvents', () => ({
+  logCurrencySpent: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
   logGroupBetJoined: jest.fn(),
 }));

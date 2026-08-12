@@ -54,6 +54,8 @@ jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) 
 
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupCardIconSaveResult: jest.fn(),
+  logGroupCreateSubmitted: jest.fn(),
+  logGroupCreated: jest.fn(),
   logGroupCreateStarted: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));

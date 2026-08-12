@@ -39,6 +39,8 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 jest.mock('@/services/analyticsEvents', () => ({
+  logCurrencyInsufficient: jest.fn(),
+  logCurrencySpent: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),

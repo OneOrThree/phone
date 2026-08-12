@@ -25,3 +25,17 @@ jest.mock('expo-audio', () => ({
   })),
   setAudioModeAsync: jest.fn(() => Promise.resolve()),
 }));
+
+// Firebase Analytics — analyticsEvents를 직접 import하는 화면 테스트에서도 네이티브 모듈 초기화를
+// 피한다. 실제 이벤트 발행 여부는 analytics/analyticsEvents 단위 테스트에서 별도로 검증한다.
+jest.mock('@react-native-firebase/analytics', () => {
+  const analytics = jest.fn(() => ({
+    logEvent: jest.fn(() => Promise.resolve()),
+    setUserId: jest.fn(() => Promise.resolve()),
+    setUserProperty: jest.fn(() => Promise.resolve()),
+    setDefaultEventParameters: jest.fn(() => Promise.resolve()),
+    setAnalyticsCollectionEnabled: jest.fn(() => Promise.resolve()),
+    getAppInstanceId: jest.fn(() => Promise.resolve(null)),
+  }));
+  return { __esModule: true, default: analytics };
+});
