@@ -54,6 +54,7 @@ const GROUP_OVERVIEW_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/overview$/;
 const GROUP_ANNOUNCEMENTS_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/announcements$/;
 const GROUP_CHALLENGES_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenges$/;
 const GROUP_CHALLENGE_HISTORY_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenge-history$/;
+const GROUP_INVITE_LINK_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/invite-link$/;
 const MOCK_EQUIPMENT_PATH = new RegExp(`^/api/v1/equipment/${MOCK_GUEST_USER_ID}$`);
 
 function groupPathId(pattern: RegExp, url: string | undefined): string {
@@ -138,6 +139,18 @@ export const handlers: MockHandler[] = [
     method: 'get',
     matches: (url) => GROUP_DETAIL_PATH.test(url),
     respond: (config) => mockGroupDetail(groupPathId(GROUP_DETAIL_PATH, config.url), config),
+  },
+  {
+    method: 'post',
+    matches: (url) => GROUP_INVITE_LINK_PATH.test(url),
+    respond: (config) => {
+      const groupId = groupPathId(GROUP_INVITE_LINK_PATH, config.url);
+      const slug = 'ab23cd45';
+      return {
+        slug,
+        url: `https://link.oneorthree.world/l/${slug}?g=${groupId}`,
+      };
+    },
   },
   { method: 'get', matches: (url) => url === '/api/v1/pins', respond: () => mockPinnedFriends() },
   { method: 'get', matches: (url) => url === '/api/v1/friends', respond: () => mockFriends() },

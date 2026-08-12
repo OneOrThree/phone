@@ -15,6 +15,12 @@ function response(url: string, params?: Record<string, string>): unknown {
   return handler?.respond(config(url, params));
 }
 
+function postResponse(url: string): unknown {
+  const handler = findHandler('post', url);
+  expect(handler).toBeDefined();
+  return handler?.respond({ ...config(url), method: 'post' });
+}
+
 test('그룹 목록은 가로 덱 검증용 6개 그룹을 반환한다', () => {
   const groups = response('/api/v1/groups') as Array<{ groupId: string; currentMembers: number }>;
 
@@ -116,6 +122,13 @@ test('게스트 앱 부트스트랩의 재화와 장비 요청도 mock 안에서
 
   expect(currency).toBe(500);
   expect(equipment).toEqual([]);
+});
+
+test('그룹 카드 초대 버튼에 서버 형식의 공유 링크를 반환한다', () => {
+  expect(postResponse(`/api/v1/groups/${GROUP_ID}/invite-link`)).toEqual({
+    slug: 'ab23cd45',
+    url: `https://link.oneorthree.world/l/ab23cd45?g=${GROUP_ID}`,
+  });
 });
 
 test('그룹 검색은 공개방만 이름으로 필터링한다', () => {

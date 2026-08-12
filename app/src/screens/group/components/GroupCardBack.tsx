@@ -306,8 +306,12 @@ export function GroupCardBack({
                             : myProgress.progressMinutes === null
                               ? '집계 전'
                               : `${myProgress.progressMinutes}${challenge.durationMinutes ? `/${challenge.durationMinutes}` : ''}분${myProgress.achieved === true ? ' · 달성' : ''}`;
+                      const repeatsEveryDay = repeatDays === null || new Set(repeatDays).size === 7;
                       const label =
-                        missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge);
+                        missionLabel(challenge, {
+                          direction: true,
+                          everyday: repeatsEveryDay,
+                        }) ?? categoryLabel(challenge);
                       return (
                         <View
                           key={challenge.id}

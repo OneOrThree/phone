@@ -499,9 +499,23 @@ test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 co
               windowEnd: '12:00:00',
               createdAt: '2026-08-09T00:00:00Z',
               canParticipate: true,
+              repeatDays: ['MON'],
               memberProgress: [
                 { userId: 'me', nickname: '나', progressMinutes: 30, achieved: true },
               ],
+            },
+            {
+              id: 'everyday',
+              status: 'ACTIVE',
+              missionType: 'TIME_WINDOW',
+              missionCategory: 'FOCUS',
+              durationMinutes: 20,
+              windowStart: '18:00:00',
+              windowEnd: '20:00:00',
+              createdAt: '2026-08-08T00:00:00Z',
+              canParticipate: true,
+              repeatDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+              memberProgress: null,
             },
           ],
         },
@@ -514,10 +528,13 @@ test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 co
   expect(rows.map((row) => row.props.testID)).toEqual([
     'group.card.activity.first',
     'group.card.activity.second',
+    'group.card.activity.everyday',
   ]);
   expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
   expect(screen.getByText('25/60분')).toBeOnTheScreen();
-  expect(screen.getByText('매일 09:00~12:00 30분 이하 스크린타임')).toBeOnTheScreen();
+  expect(screen.getByText('09:00~12:00 30분 이하 스크린타임')).toBeOnTheScreen();
+  expect(screen.queryByText(/매일 09:00~12:00/)).toBeNull();
+  expect(screen.getByText('매일 18:00~20:00 20분 집중')).toBeOnTheScreen();
   expect(screen.getByText('30/30분 · 달성')).toBeOnTheScreen();
 });
 
