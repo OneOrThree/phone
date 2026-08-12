@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { GroupCardBack } from './GroupCardBack';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
@@ -23,6 +24,23 @@ const baseProps = {
 };
 
 beforeEach(() => jest.clearAllMocks());
+
+test('뒷면은 상단 색선을 두지 않고 흰 표면과 낮은 하단 그림자로 구분한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  const back = screen.getByTestId('group.card.back.g1');
+  expect(back).toHaveStyle({
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#1E2340',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  });
+  const style = StyleSheet.flatten(back.props.style);
+  expect(style.borderTopWidth).toBeUndefined();
+  expect(style.borderTopColor).toBeUndefined();
+});
 
 test('완전한 focus 응답에서만 확인된 0명을 표시한다', async () => {
   await render(

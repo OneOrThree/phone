@@ -293,7 +293,12 @@ const s = StyleSheet.create({
     minHeight: 520,
     borderRadius: 28,
     padding: T.space.lg,
-    backgroundColor: T.white,
+    backgroundColor: T.paper,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
     gap: T.space.sm,
   },
   header: {

@@ -99,6 +99,9 @@ import {
 
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
+// 페이지 슬롯·snap 간격은 유지하고 실제 카드 표면만 살짝 줄인다. 레이아웃 치수를 줄이면
+// 인디케이터·peek·재정렬 좌표가 함께 흔들리므로 시각 transform으로만 3% 축소한다.
+export const GROUP_CARD_SURFACE_SCALE = 0.97;
 const DRAG_EDGE = 60;
 export const EDGE_PAGE_THROTTLE_MS = 850;
 export const REORDER_HOLD_MS = 300;
@@ -191,6 +194,17 @@ function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
  */
 export const GROUP_CARD_HEIGHT = 520;
 
+/**
+ * 카드가 탭바 위의 가용 세로를 대부분 채우되, 작은 화면에서는 기존 최소 높이를 지킨다.
+ * 남은 10%는 카드 아래 indicator(44pt hit target 포함)가 차지하므로 큰 화면의 빈 띠만 줄고,
+ * 작은 화면에서는 ScrollView로 카드 하단과 indicator까지 계속 접근할 수 있다.
+ */
+export function resolveGroupCardHeight(viewportHeight: number, bottomInset: number): number {
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return GROUP_CARD_HEIGHT;
+  const availableAboveTabBar = Math.max(0, viewportHeight - tabBarSafeBottom(bottomInset));
+  return Math.max(GROUP_CARD_HEIGHT, Math.floor(availableAboveTabBar * 0.9));
+}
+
 // FlatList 셀 래퍼 props — RN이 CellRendererComponent에 넘기는 것들.
 // (@react-native/virtualized-lists의 CellRendererProps는 앱에서 직접 해석되지 않는 중첩 패키지라
 //  같은 모양을 로컬 타입으로 둔다.)
@@ -246,6 +260,7 @@ function ReorderMotionCard({
   dragging,
   reordering,
   groupId,
+  surfaceScale,
   children,
 }: {
   width: number;
@@ -253,6 +268,7 @@ function ReorderMotionCard({
   dragging: boolean;
   reordering: boolean;
   groupId: string;
+  surfaceScale: number;
   children: ReactNode;
 }) {
   const motion = useMotion();
@@ -272,7 +288,12 @@ function ReorderMotionCard({
       style={[{ width }, dragging && s.draggingSource, !dragging && animatedStyle]}
       testID={`group.card.reorderMotion.${groupId}`}
     >
-      {children}
+      <View
+        style={surfaceScale !== 1 && { transform: [{ scale: surfaceScale }] }}
+        testID={`group.card.reorderSurface.${groupId}`}
+      >
+        {children}
+      </View>
     </Animated.View>
   );
 }
@@ -322,6 +343,7 @@ export default function GroupListScreen({
 }: GroupListScreenProps) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [deckViewportHeight, setDeckViewportHeight] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeStableGroupId, setActiveStableGroupId] = useState<string | null>(null);
   const [flippedGroupId, setFlippedGroupId] = useState<string | null>(null);
@@ -354,6 +376,7 @@ export default function GroupListScreen({
     AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
   );
   const cardWidth = Math.max(240, windowWidth - SIDE_PEEK * 2);
+  const cardHeight = resolveGroupCardHeight(deckViewportHeight, insets.bottom);
   const snapInterval = cardWidth + CARD_GAP;
   const reorderStep = snapInterval;
   const { orderedGroupIds, hydrated, saveFailed, commitOrder } = useGroupCardOrder({
@@ -1456,6 +1479,10 @@ export default function GroupListScreen({
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         directionalLockEnabled
+        onLayout={(event) => {
+          const next = event.nativeEvent.layout.height;
+          setDeckViewportHeight((current) => (current === next ? current : next));
+        }}
         scrollEnabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
         refreshControl={
           <RefreshControl
@@ -1481,8 +1508,12 @@ export default function GroupListScreen({
         >
           {!hydrated || !emojiHydrated ? (
             <SkeletonGroup style={s.deckSkeleton} testID="group.deck.hydrating">
-              <Skeleton w={cardWidth} h={GROUP_CARD_HEIGHT} radius={22} />
-              <Skeleton w={36} h={GROUP_CARD_HEIGHT} radius={22} />
+              <View style={s.cardSurfaceScale}>
+                <Skeleton w={cardWidth} h={cardHeight} radius={22} />
+              </View>
+              <View style={s.cardSurfaceScale}>
+                <Skeleton w={36} h={cardHeight} radius={22} />
+              </View>
             </SkeletonGroup>
           ) : (
             <>
@@ -1522,7 +1553,7 @@ export default function GroupListScreen({
                 onScrollEndDrag={onScrollEndDrag}
                 ListFooterComponent={
                   <View
-                    style={{ marginLeft: CARD_GAP }}
+                    style={[{ marginLeft: CARD_GAP }, s.cardSurfaceScale]}
                     accessibilityElementsHidden={renderedActiveIndex !== orderedGroups.length}
                     importantForAccessibility={
                       renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
@@ -1530,6 +1561,7 @@ export default function GroupListScreen({
                   >
                     <FindMoreCard
                       width={cardWidth}
+                      minHeight={cardHeight}
                       position={pageCount}
                       pageCount={pageCount}
                       onPress={() => {
@@ -1563,10 +1595,11 @@ export default function GroupListScreen({
                       dragging={reorderPreview?.groupId === item.groupId}
                       reordering={reorderPreview !== null}
                       translateX={resolveReorderTranslation(index, reorderPreview, snapInterval)}
+                      surfaceScale={GROUP_CARD_SURFACE_SCALE}
                     >
                       <GroupCardFlip
                         groupId={item.groupId}
-                        minHeight={GROUP_CARD_HEIGHT}
+                        minHeight={cardHeight}
                         flipped={flippedGroupId === item.groupId}
                         skipTransition={skipFlipTransition}
                         onTransitioningChange={
@@ -1690,22 +1723,25 @@ export default function GroupListScreen({
                     {
                       left: SIDE_PEEK,
                       width: cardWidth,
+                      height: cardHeight,
                       transform: [{ translateX: reorderPreview.fingerTranslateX }],
                     },
                   ]}
                   testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
                 >
-                  <GroupCardFront
-                    group={dragOverlayGroup}
-                    emoji={emojiFor(dragOverlayGroup.groupId)}
-                    position={reorderPreview.target + 1}
-                    pageCount={pageCount}
-                    reorderCount={orderedGroups.length}
-                    reorderHoldMs={REORDER_HOLD_MS}
-                    reorderState="active"
-                    active={false}
-                    onFlip={() => undefined}
-                  />
+                  <View style={[s.cardSurfaceScale, s.dragOverlaySurface]}>
+                    <GroupCardFront
+                      group={dragOverlayGroup}
+                      emoji={emojiFor(dragOverlayGroup.groupId)}
+                      position={reorderPreview.target + 1}
+                      pageCount={pageCount}
+                      reorderCount={orderedGroups.length}
+                      reorderHoldMs={REORDER_HOLD_MS}
+                      reorderState="active"
+                      active={false}
+                      onFlip={() => undefined}
+                    />
+                  </View>
                 </View>
               )}
               {saveFailed && (
@@ -1749,6 +1785,8 @@ const s = StyleSheet.create({
   deckScroller: { flex: 1 },
   deckScrollerContent: { flexGrow: 1 },
   deckAnchor: { position: 'relative' },
+  cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
+  dragOverlaySurface: { flex: 1 },
 
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
@@ -1832,7 +1870,6 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 0,
     zIndex: 10,
-    height: GROUP_CARD_HEIGHT,
     elevation: 10,
   },
   saveError: {

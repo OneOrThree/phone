@@ -21,6 +21,7 @@ import GroupListScreen, {
   isPointInsideDeck,
   isProgrammaticMomentum,
   REORDER_HOLD_MS,
+  resolveGroupCardHeight,
   resolveReorderTranslation,
   shouldClaimReorderDrag,
 } from './GroupListScreen';
@@ -641,6 +642,38 @@ describe('콜백', () => {
         expect.objectContaining({ paddingBottom: tabBarSafeBottom(34) }), // 목 인셋 하단 34
       ]),
     );
+  });
+
+  test('큰 화면에서는 탭바 위 가용 높이의 90%로 카드를 늘려 하단 빈 공간을 줄인다', async () => {
+    await renderList([group()]);
+
+    // iPhone 17 Pro(402×874pt)에서 top safe area(62pt)와 이 화면 header(68pt)를 뺀
+    // 실제 덱 viewport 기준값. 카드 570 + list/indicator 68 + tab safe 110 = 748pt라
+    // 큰 빈 띠 대신 4pt의 안전한 세로 스크롤만 남긴다.
+    const viewportHeight = 744;
+    const expectedHeight = resolveGroupCardHeight(viewportHeight, 34);
+    expect(expectedHeight).toBe(570);
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.list.scroller'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 390, height: viewportHeight } },
+      });
+    });
+
+    expect(screen.getByTestId(`group.card.flipShell.${GROUP_ID}`)).toHaveStyle({
+      minHeight: expectedHeight,
+    });
+    expect(screen.getByTestId(`group.card.reorderSurface.${GROUP_ID}`)).toHaveStyle({
+      transform: [{ scale: 0.97 }],
+    });
+    expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
+      minHeight: expectedHeight,
+    });
+  });
+
+  test('작거나 아직 측정되지 않은 화면에서는 카드 최소 높이 520을 유지한다', () => {
+    expect(resolveGroupCardHeight(0, 34)).toBe(520);
+    expect(resolveGroupCardHeight(650, 34)).toBe(520);
   });
 
   test('가로 스와이프 settle은 외부 인디케이터의 현재 index를 갱신하고 페이지를 안내한다', async () => {
