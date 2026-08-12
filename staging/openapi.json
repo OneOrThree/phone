@@ -2921,6 +2921,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "IP 당 게스트 생성 한도 초과(GUEST_CREATION_RATE_LIMITED) — 잠시 후 재시도",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestLoginResponse"
+                }
+              }
+            }
           }
         }
       }
