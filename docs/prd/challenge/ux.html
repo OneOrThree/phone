@@ -1349,9 +1349,10 @@ html{scroll-behavior:smooth}
     팟 분배는 회차가 끝나고(창형은 +30분) 이뤄진다. 두 사건을 다른 화면으로 나눈다.
   </p>
 
-  <h3 class="sub" style="margin-top:1.6rem">결과 모달 — 그룹방에 들어오면 뜬다</h3>
+  <h3 class="sub" style="margin-top:1.6rem">결과 모달 — 미확인 결과가 있으면 도달한 화면 위에 뜬다</h3>
   <p>
-    <b>내가 돈을 걸었던 회차</b>의 결과다. 큐가 여러 건이면 좌상단에 <code>1/2</code>로 남은 수를
+    <b>내가 돈을 걸었던 회차</b>의 결과다. 트리거는 화면이 아니라 <b>사건</b>이라 카드 덱·그룹방·결과
+    푸시 착지가 모두 같은 진입점이다. 큐가 여러 건이면 좌상단에 <code>1/2</code>로 남은 수를
     보여주고, 닫으면 다음이 뜬다. 손익을 가장 크게 — 유저가 알고 싶은 건 그 숫자 하나다.
   </p>
 
@@ -1475,19 +1476,19 @@ html{scroll-behavior:smooth}
     <div style="flex:1 1 17rem; min-width:16rem">
       <h3 class="sub" style="margin-top:0">결과 모달 — 언제, 무엇을, 몇 개</h3>
       <p style="margin-top:.5rem">
-        <b>그룹방에 들어왔을 때, 내가 돈을 걸었던 회차 중 아직 결과를 안 본 것을 최신순으로
-        하나씩</b> 보여준다.
+        <b>내가 돈을 걸었던 회차 중 아직 확인하지 않은 결과가 있으면, 도달한 화면 위에 최신순으로
+        하나씩</b> 보여준다. 트리거는 화면이 아니라 <b>사건</b>이다 (N56).
       </p>
       <div class="tablewrap">
         <table>
           <thead><tr><th>축</th><th>규칙</th></tr></thead>
           <tbody>
-            <tr><td>트리거</td><td class="copy">그룹방 <code>load()</code> 1회. 포그라운드 복귀로 재조회돼도 가드가 막는다</td></tr>
+            <tr><td>트리거</td><td class="copy"><b>미확인 결과 1건 이상</b> — 카드 덱·그룹방·결과 푸시 착지 어디로 도달했든 그 화면 위에 연다. 화면 좌표에 매지 않는다 (N56)</td></tr>
             <tr><td>대상</td><td class="copy"><code>GET /me/challenge-results</code> 응답 전부 (참가자 스코프 — N53)</td></tr>
-            <tr><td>데이터</td><td class="copy"><b>오늘 조회 1건</b>. 날짜를 따로 부르지 않는다</td></tr>
+            <tr><td>데이터</td><td class="copy"><b>조회 1건</b> — <code>GET /me/challenge-results</code>. 날짜를 따로 부르지 않는다</td></tr>
             <tr><td>순서</td><td class="copy"><code>sessionDate</code> 내림차순 — 최근 것부터</td></tr>
             <tr><td>개수</td><td class="copy">순차 큐. 하나 닫으면 다음</td></tr>
-            <tr><td>1회 가드</td><td class="copy"><code>gromo:sessionResult:{userId}:{sessionId}</code> — 한 기기 두 계정이 같은 회차에 참가할 수 있어 <b>userId로 네임스페이스</b></td></tr>
+            <tr><td>1회 가드</td><td class="copy"><b>서버 <code>acknowledged</code>가 정본</b> — 모달이 뜬 순간 ack. 로컬 <code>gromo:sessionResult:{userId}:{sessionId}</code>는 <b>ack 실패 창</b>의 보완재로 잔류한다 (N58). 키를 userId로 네임스페이스하는 이유는 한 기기 두 계정이 같은 회차에 참가할 수 있어서다</td></tr>
           </tbody>
         </table>
       </div>
@@ -1518,7 +1519,7 @@ html{scroll-behavior:smooth}
             <tr><td>내가 참가하지 않은 회차</td><td>남의 결과로 화면을 막지 않는다. 그룹 달성 현황은 카드에서 상시 보인다</td></tr>
             <tr><td>내기가 꺼진 챌린지</td><td>참가 회차가 없으니 응답에 안 나온다</td></tr>
             <tr><td>정산 전 회차</td><td>정산된 것만 실린다 — 스크린타임 하루형의 12시간 공백이 자동으로 걸러진다</td></tr>
-            <tr><td>이미 본 회차</td><td>세션 id 가드</td></tr>
+            <tr><td>이미 확인한 회차</td><td>서버 <code>acknowledged</code>(정본) 또는 로컬 세션 id 마커(보완재) — N58</td></tr>
             <tr><td>삭제된 챌린지의 회차</td><td>응답에 없다. 삭제 시점의 환불은 <b>푸시로</b> 알린다</td></tr>
           </tbody>
         </table>

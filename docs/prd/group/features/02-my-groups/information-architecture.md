@@ -26,10 +26,17 @@ flowchart LR
     Return -->|아니오| Safe["남은 카드 앞면 또는 빈 상태"]
 
     Front -.->|"직행하지 않음"| Room
-    Back -.->|"전체 방 기능을 복제하지 않음"| Room
+    Back -.->|"전체 방 기능을 복제하지 않음<br/>(예외: 결과)"| Room
+    List --> Result["읽기 전용 결과 모달<br/>미확인 정산 결과"]
+    Back --> Result
+    Result -.->|"이어지는 행동은 방으로"| Room
 ```
 
 - 앞면은 식별, 뒷면은 행동 선택에 필요한 요약, 전체 방은 상세·관리다.
+- **결과는 복제 금지의 예외다.** 아직 확인하지 않은 내 정산 결과가 있으면 덱 위에 **읽기 전용
+  결과 모달**이 열린다. 카드가 여는 것은 이 모달 하나뿐이고, 생성·수정·참여와 정책·권한은
+  여전히 복제하지 않는다. 판정·문구·큐 순서·확인 처리는 [챌린지 정본](../../../challenge/policy.md)
+  (§D3 · N56~N58)이 소유한다.
 - 소속 1개 이상에서만 덱을 보이며 loading·error·0개 상태를 덱으로 가장하지 않는다. 게스트도
   그룹 목록에 소속이 있으면 같은 덱을 본다.
 - 역할 차이는 관리 항목에서만 생긴다. 요약 읽기·집중·전체 방 보기는 OWNER와 MEMBER에게 공통이다.
@@ -46,6 +53,7 @@ flowchart LR
               │             [그룹 찾기] → GroupFindSheet → (검색은 선택) → 가입 성공 뒤 덱
               │             초대 링크 수신 → Invite preview sheet → 가입 성공 뒤 덱
               └── 그룹 1개 이상: GroupListScreen  ← ★ peek carousel
+                     ├── 미확인 정산 결과 있음 → 읽기 전용 결과 모달(덱 위 오버레이, 순차 큐)
                      ├── 카드 앞면 탭 → 같은 자리 Room Summary back으로 flip
                      ├── back [이 그룹으로 집중] → FocusCategory → 세션 시작
                      ├── back [방 전체 보기] → push GroupRoom → Back 시 같은 back 복귀
@@ -193,6 +201,7 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 - 첫 back에서 요약에 필요한 기존 읽기 정보를 불러온다. 이후 화면이 활성화된 동안 현재 집중 상태만 60초마다 자동 갱신해 다른 기기의 시작·종료를 반영한다. 요청 조합·cache·중복·중단 수명은 [HLD §3](./high-level-design.md#3-시스템api-경계와-데이터-흐름)이 소유한다.
 - 각 정보 영역은 독립 상태다. 로딩 중에는 같은 위계의 skeleton, 실패 시 해당 영역의 인라인 오류와 `다시 시도`를 보여 주며 전체 뒷면과 가능한 CTA를 오류로 만들지 않는다.
 - 하위 기능 요약은 기존 응답을 read-only로 투영하며 카드 IA가 상태·정렬·진행률을 다시 정의하지 않는다.
+- **결과는 요약 행이 아니라 모달로 나온다.** 미확인 정산 결과는 위 5개 요소 어디에도 상시 표시하지 않고, 덱 위 **읽기 전용 결과 모달**로만 열린다. 큐·순서·문구·확인 처리는 [챌린지 정본](../../../challenge/policy.md) §D3(N56~N58)이 소유하며 카드 IA는 표시 자리만 정한다.
 - 최신 공지는 현행 announcements 최신순 응답의 첫 항목만 사용한다. 카드 전용 limit·정렬 API는 만들지 않는다.
 - 집중 현황은 완전성이 확인된 기존 원본과 그룹 멤버를 조합한다. 원본 축약 금지·90/100 출시 gate·불명 상태 계산은 [HLD §3.2](./high-level-design.md#32-기존-그룹-상세--현재-집중-상태-응답의-client-join)와 [LLD §5](./low-level-design.md#5-현재-집중-인원은-완전한-정보에서만-계산한다)가 소유한다.
 - `방 전체 보기`만 `GroupRoom` 라우트를 연다. 뒤로 오면 같은 그룹의 뒷면과 carousel 위치로 복귀한다.
@@ -254,6 +263,7 @@ requiredDotWidth >  availableWidth  → "현재 / 전체" compact
 - completion key read와 queue 등록 결과가 확정되기 전에는 카드 사용자 입력을 수락하지 않는다. 완료 key는 `guide_state=completed`, 미완료 key가 즉시 slot을 받으면 `shown`, blocking overlay를 기다리면 `pending`, read 실패 뒤 fallback queue를 등록하면 `unknown`으로 덱 노출을 먼저 기록한다. 이후 slot을 받아도 같은 view episode의 노출을 보정하지 않는다.
 - 중간 background, route 이탈, unmount, 계정·멤버십·활성 그룹 변경, blocking overlay 등장은 완료가 아니므로 key를 쓰지 않고, 안정된 다음 진입에 1단계부터 다시 시도한다. guide key read 실패도 카드 덱을 막지 않으며 세션 메모리로 최대 1회만 보여 준다.
 - 마지막 `시작`으로 overlay가 닫히는 즉시 `tab_guide_completed(guide=groupDeck:v1)`를 현재 session에 1회 발행한다. key write 실패도 이 완료 이벤트를 취소하지 않으며 `guide_complete_write_failed` telemetry로만 구분한다. 다음 앱 실행에서는 다시 노출될 수 있다. 동일 화면의 anchor 측정 실패나 layout 폭 변경 중에는 잘못된 spotlight를 그리지 않고 전체 dim과 문구만 유지한 뒤 다음 단계에서 재측정한다. route·목록 변경으로 대상 자체가 사라지면 fallback하지 않고 안내를 중단한다.
+- **읽기 전용 결과 모달도 이 규칙이 말하는 blocking overlay다.** 미확인 결과가 열려 있으면 첫 안내는 시작하지 않고 대기하며, 안내 도중 결과 모달이 뜨면 위 항목대로 완료가 아니다(key를 쓰지 않고 다음 진입에 1단계부터 다시 시도). 둘을 겹쳐 띄우지 않는다.
 - Reduce Motion에서는 spotlight 이동·카드 3D flip을 쓰지 않고 짧은 cross-fade로 face를 바꾼다. VoiceOver에서는 `단계 n/4`, 현재 문구, `다음` 또는 마지막 단계의 `시작` action을 읽으며 spotlight만으로 뜻을 전달하지 않는다.
 
 ---

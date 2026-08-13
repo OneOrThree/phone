@@ -166,7 +166,8 @@ flowchart TD
 
 - 기존 API가 돌려준 항목의 신원·순서·상태를 바꾸지 않는다.
 - 카드 전용 제목·진행률·상태를 합성하거나 생성·수정 행동을 추가하지 않는다.
-- 카드에서는 일부 정보와 전체 방 진입만 제공한다. 상세 의미·권한·결과는 [챌린지 문서 세트](../../../challenge/README.md)가 정본이다.
+- 카드에서는 일부 정보와 전체 방 진입, 그리고 **미확인 결과의 읽기 전용 모달**을 제공한다. 상세 의미·권한과 결과의 판정·문구·큐 규칙은 [챌린지 문서 세트](../../../challenge/README.md)가 정본이다.
+- **결과 모달은 복제가 아니다.** 카드는 결과를 재계산·재해석하지 않고 참가자 스코프 응답을 그대로 읽어 띄운다. 트리거는 화면이 아니라 "미확인 결과가 있다"는 사건이며(챌린지 policy §D3·N56), 확인 처리(ack)의 정본은 서버다(N58). 카드가 자체 결과 상태를 보관하지 않는다.
 - 하위 기능 조회 실패는 해당 compact 영역에만 남고 다른 요약과 CTA를 막지 않는다.
 
 ### 3.4 로딩·캐시·무효화
@@ -306,7 +307,7 @@ flowchart LR
 | 집중      | 기존 `FocusCategory → FocusSession` 흐름                                       | stable `groupId`와 `entrySource=group_card`를 세션 시작까지 전달 |
 | 그룹 방   | 방이 자신의 상세·공지를 다시 조회                                              | 카드 cache/view model을 route 정본으로 넘기지 않음               |
 | 운영      | OWNER/MEMBER 정책과 서버 검증은 [04 HLD](../04-operation/high-level-design.md) | 역할 공통 로컬 아이콘 편집 진입만 추가                           |
-| 챌린지    | 제품·상태·권한은 [챌린지 정본](../../../challenge/README.md)                   | 기존 읽기 응답의 compact 표시와 전체 방 진입만 제공              |
+| 챌린지    | 제품·상태·권한·결과 규칙은 [챌린지 정본](../../../challenge/README.md)         | 기존 읽기 응답의 compact 표시, 전체 방 진입, **미확인 결과의 읽기 전용 모달 표시 자리** 제공 |
 | 분석      | 이름·속성·귀속은 [공통 분석 계약](../../shared/analytics.md)                   | 카드·안내 surface의 once guard와 결과 context 전달               |
 | 서버      | 기존 그룹·리그 read API, DTO·DB·OpenAPI 유지                                   | 서버 변경 없음                                                   |
 
@@ -324,14 +325,14 @@ flowchart LR
 | 계정 간 로컬 누출  | 순서·아이콘의 다른 계정 덮어쓰기                                         | userId bucket, key별 직렬 저장, 성공한 전체 목록에서만 reconcile                         |
 | 안내 중첩·오계측   | sheet와 겹치거나 자동 back을 사용자 flip으로 기록                        | overlay queue, 중단 상태, programmatic source와 once guard                               |
 | 접근성·반응형      | 숨은 face 노출, 작은 grip, drag만 가능한 reorder, 긴 이름·indicator 충돌 | active face만 노출, popover·custom action의 같은 reducer, 측정 폭 기반 표시, 원문 label  |
-| 도메인 드리프트    | 카드가 방·운영·챌린지 정책을 복제                                        | compact read adapter와 기존 route만 제공하고 각 정본에 링크                              |
+| 도메인 드리프트    | 카드가 방·운영·챌린지 정책을 복제                                        | compact read adapter·**읽기 전용 결과 모달**과 기존 route만 제공하고 각 정본에 링크. 결과 모달도 판정·문구를 카드에서 재정의하지 않는다 |
 
 ## 9. 범위 경계
 
 - 개인 아이콘·순서는 현재 계정·기기의 표현이며 서버·다기기 동기화를 제공하지 않는다.
 - 카드 요약은 기존 읽기 응답만 사용하고 그룹·리그 DTO, DB, migration, OpenAPI를 바꾸지 않는다.
 - 전체 그룹 방은 자신의 정보를 다시 조회한다. 카드 cache를 route 정본으로 승격하지 않는다.
-- 챌린지는 진입점과 compact 표시만 포함하며 상세 상태·권한·결과는 별도 문서로 보낸다.
+- 챌린지는 진입점과 compact 표시, 그리고 **미확인 결과의 읽기 전용 모달**까지 포함한다. 상세 상태·권한과 결과의 판정·문구·큐 규칙은 별도 문서로 보낸다. 카드는 결과를 합성하지 않고 표시 자리만 제공한다.
 - 안내는 첫 카드 덱 사용법만 다루고 가입 onboarding·replay·새 push를 만들지 않는다.
 - 리텐션·재방문 개선은 이 HLD의 완료 기준이 아니다. [그룹 PRD](../../prd.md)의 기준선·실험 단계에서 검증한다.
 
