@@ -233,7 +233,10 @@ export function mockGroupAnnouncements(groupId: string): GroupAnnouncementRespon
     {
       id: `${group.groupId}-notice-1`,
       title: '이번 주 집중 안내',
-      content: `${group.name}의 이번 주 목표를 확인하고 오늘 집중 기록을 남겨 주세요.`,
+      content:
+        group.groupId === GROUPS[0].groupId
+          ? '이번 주 인증은 일요일 자정까지예요.'
+          : `${group.name}의 이번 주 목표를 확인하고 오늘 집중 기록을 남겨 주세요.`,
       createdAt: '2026-08-11T00:00:00.000Z',
     },
   ];
@@ -244,7 +247,7 @@ export function mockGroupChallenges(
   config: InternalAxiosRequestConfig,
 ): GroupChallengeResponse[] {
   const me = userIdFromAuthHeader(config);
-  return [
+  const challenges: GroupChallengeResponse[] = [
     {
       id: `${groupId}-focus-60`,
       missionType: 'DURATION',
@@ -256,7 +259,7 @@ export function mockGroupChallenges(
       createdAt: '2026-08-10T00:00:00.000Z',
       canParticipate: true,
       memberProgress: [
-        { userId: me, nickname: '나', progressMinutes: 45, achieved: false },
+        { userId: me, nickname: '나', progressMinutes: 42, achieved: false },
         {
           userId: '00000000-0000-0000-0000-000000000101',
           nickname: '아침루틴',
@@ -267,6 +270,73 @@ export function mockGroupChallenges(
       repeatDays: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
       activeToday: true,
       nextSessionAt: '2026-08-12T21:00:00.000Z',
+      nextSessionJoined: false,
+      dormant: false,
+      betConfig: { enabled: false, stake: 0 },
+      bet: null,
+      lastSettledBet: null,
+      lastSettledSession: null,
+    },
+    {
+      id: `${groupId}-morning-window`,
+      missionType: 'TIME_WINDOW',
+      missionCategory: 'FOCUS',
+      durationMinutes: 30,
+      windowStart: '06:00:00',
+      windowEnd: '08:00:00',
+      status: 'ACTIVE',
+      createdAt: '2026-08-10T00:00:00.000Z',
+      canParticipate: true,
+      memberProgress: [{ userId: me, nickname: '나', progressMinutes: 18, achieved: false }],
+      repeatDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+      activeToday: true,
+      nextSessionAt: '2026-08-12T21:00:00.000Z',
+      nextSessionJoined: false,
+      dormant: false,
+      betConfig: { enabled: false, stake: 0 },
+      bet: null,
+      lastSettledBet: null,
+      lastSettledSession: null,
+    },
+  ];
+  if (groupId !== GROUPS[1].groupId) return challenges;
+  return [
+    ...challenges,
+    {
+      id: `${groupId}-resume-90`,
+      missionType: 'DURATION',
+      missionCategory: 'FOCUS',
+      durationMinutes: 90,
+      windowStart: null,
+      windowEnd: null,
+      status: 'ACTIVE',
+      createdAt: '2026-08-09T00:00:00.000Z',
+      canParticipate: true,
+      memberProgress: [{ userId: me, nickname: '나', progressMinutes: 35, achieved: false }],
+      repeatDays: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      activeToday: true,
+      nextSessionAt: undefined,
+      nextSessionJoined: false,
+      dormant: false,
+      betConfig: { enabled: false, stake: 0 },
+      bet: null,
+      lastSettledBet: null,
+      lastSettledSession: null,
+    },
+    {
+      id: `${groupId}-interview-45`,
+      missionType: 'DURATION',
+      missionCategory: 'FOCUS',
+      durationMinutes: 45,
+      windowStart: null,
+      windowEnd: null,
+      status: 'ACTIVE',
+      createdAt: '2026-08-08T00:00:00.000Z',
+      canParticipate: true,
+      memberProgress: [{ userId: me, nickname: '나', progressMinutes: 12, achieved: false }],
+      repeatDays: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      activeToday: true,
+      nextSessionAt: undefined,
       nextSessionJoined: false,
       dormant: false,
       betConfig: { enabled: false, stake: 0 },

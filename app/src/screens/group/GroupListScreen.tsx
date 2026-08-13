@@ -99,9 +99,6 @@ import {
 
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
-// 페이지 슬롯·snap 간격은 유지하고 실제 카드 표면만 살짝 줄인다. 레이아웃 치수를 줄이면
-// 인디케이터·peek·재정렬 좌표가 함께 흔들리므로 시각 transform으로만 3% 축소한다.
-export const GROUP_CARD_SURFACE_SCALE = 0.97;
 const DRAG_EDGE = 60;
 export const EDGE_PAGE_THROTTLE_MS = 850;
 export const REORDER_HOLD_MS = 300;
@@ -274,7 +271,6 @@ function ReorderMotionCard({
   dragging,
   reordering,
   groupId,
-  surfaceScale,
   children,
 }: {
   width: number;
@@ -282,7 +278,6 @@ function ReorderMotionCard({
   dragging: boolean;
   reordering: boolean;
   groupId: string;
-  surfaceScale: number;
   children: ReactNode;
 }) {
   const motion = useMotion();
@@ -302,12 +297,7 @@ function ReorderMotionCard({
       style={[{ width }, dragging && s.draggingSource, !dragging && animatedStyle]}
       testID={`group.card.reorderMotion.${groupId}`}
     >
-      <View
-        style={surfaceScale !== 1 && { transform: [{ scale: surfaceScale }] }}
-        testID={`group.card.reorderSurface.${groupId}`}
-      >
-        {children}
-      </View>
+      <View testID={`group.card.reorderSurface.${groupId}`}>{children}</View>
     </Animated.View>
   );
 }
@@ -322,6 +312,7 @@ export interface GroupListScreenProps {
   onFind: (entryPoint: 'list' | 'header' | 'end_card') => void;
   onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
   onOpenSettings?: (groupId: string) => void;
+  onInvite?: (groupId: string, groupName: string) => void;
   onRefresh: () => Promise<void>;
   onBack?: () => void;
   // guide eligibility는 성공 목록만으로 부족하다. 인증·route·overlay queue 상태를 부모가 제공한다.
@@ -348,6 +339,7 @@ export default function GroupListScreen({
   onRefresh,
   onStartFocus = () => undefined,
   onOpenSettings = () => undefined,
+  onInvite = () => undefined,
   onBack,
   guideBlocked = false,
   guideScreenFocused = true,
@@ -369,6 +361,7 @@ export default function GroupListScreen({
   const flippedGroupIdRef = useRef<string | null>(null);
   flippedGroupIdRef.current = flippedGroupId;
   const [flipAnimating, setFlipAnimating] = useState(false);
+  const [summaryScrollActive, setSummaryScrollActive] = useState(false);
   const [skipFlipTransition, setSkipFlipTransition] = useState(false);
   const flipAnimatingRef = useRef(false);
   flipAnimatingRef.current = flipAnimating;
@@ -1108,7 +1101,8 @@ export default function GroupListScreen({
         onMoveShouldSetPanResponderCapture: () => false,
         // 0.3초가 지난 뒤 손가락이 움직여도 부모 FlatList가 responder를 가져가면 같은 touch의
         // drag episode가 끊긴다. 핸들에서 시작한 episode는 release까지 핸들이 소유한다.
-        onPanResponderTerminationRequest: () => false,
+        onPanResponderTerminationRequest: () =>
+          holdRef.current?.groupId !== groupId && dragRef.current?.groupId !== groupId,
         onPanResponderGrant: () => {
           if (
             refreshingRef.current ||
@@ -1502,12 +1496,20 @@ export default function GroupListScreen({
           const next = event.nativeEvent.layout.height;
           setDeckViewportHeight((current) => (current === next ? current : next));
         }}
-        scrollEnabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
+        scrollEnabled={
+          guideInputReady && !guideVisible && !flipAnimating && !reorderBusy && !summaryScrollActive
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={refreshGroups}
-            enabled={guideInputReady && !guideVisible && !flipAnimating && !reorderBusy}
+            enabled={
+              guideInputReady &&
+              !guideVisible &&
+              !flipAnimating &&
+              !reorderBusy &&
+              !summaryScrollActive
+            }
             tintColor={T.accent}
             colors={[T.accent]}
           />
@@ -1527,10 +1529,10 @@ export default function GroupListScreen({
         >
           {!hydrated || !emojiHydrated ? (
             <SkeletonGroup style={s.deckSkeleton} testID="group.deck.hydrating">
-              <View style={s.cardSurfaceScale} testID="group.deck.hydrating.cardSurface">
+              <View testID="group.deck.hydrating.cardSurface">
                 <Skeleton w={cardWidth} h={cardHeight} radius={22} />
               </View>
-              <View style={s.cardSurfaceScale} testID="group.deck.hydrating.peekSurface">
+              <View testID="group.deck.hydrating.peekSurface">
                 <Skeleton w={cardWidth} h={cardHeight} radius={22} />
               </View>
             </SkeletonGroup>
@@ -1584,7 +1586,7 @@ export default function GroupListScreen({
                       renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
                     }
                   >
-                    <View style={s.cardSurfaceScale}>
+                    <View>
                       <FindMoreCard
                         width={cardWidth}
                         minHeight={cardHeight}
@@ -1622,7 +1624,6 @@ export default function GroupListScreen({
                       dragging={reorderPreview?.groupId === item.groupId}
                       reordering={reorderPreview !== null}
                       translateX={resolveReorderTranslation(index, reorderPreview, snapInterval)}
-                      surfaceScale={GROUP_CARD_SURFACE_SCALE}
                     >
                       <GroupCardFlip
                         groupId={item.groupId}
@@ -1672,6 +1673,8 @@ export default function GroupListScreen({
                                 onOpenSettings(item.groupId);
                               });
                             }}
+                            onInvite={() => onInvite(item.groupId, item.name)}
+                            onSummaryScrollActivityChange={setSummaryScrollActive}
                             onOpenRoom={() => {
                               runCardAction(item, 'room', (interaction) => {
                                 roomReturnRef.current = {
@@ -1756,7 +1759,7 @@ export default function GroupListScreen({
                   ]}
                   testID={`group.card.dragOverlay.${dragOverlayGroup.groupId}`}
                 >
-                  <View style={[s.cardSurfaceScale, { height: cardHeight }]}>
+                  <View style={{ height: cardHeight }}>
                     <GroupCardFront
                       group={dragOverlayGroup}
                       emoji={emojiFor(dragOverlayGroup.groupId)}
@@ -1812,8 +1815,6 @@ const s = StyleSheet.create({
   deckScroller: { flex: 1 },
   deckScrollerContent: { flexGrow: 1 },
   deckAnchor: { position: 'relative' },
-  cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
-
   // 헤더는 좌우 20(T.space.xl) — 홈·리그·전체 탭의 화면 제목과 시작선을 맞춘다(공지 화면과 같은 값).
   // 백버튼이 없을 땐 gap이 붙어도 자식이 하나라 시작선이 그대로다.
   header: {
