@@ -35,7 +35,7 @@ import { useFocus } from '@/store/FocusContext';
 import { useUser } from '@/store/UserContext';
 import { subscribeSessionSaveVerdict, getSessionSaveVerdict } from './sessionSaveVerdict';
 import {
-  logCurrencyEarned,
+  logCurrencyRewardShown,
   logFocusResultCompareAxisChanged,
   logFocusResultComparePeriodChanged,
 } from '@/services/analyticsEvents';
@@ -264,7 +264,11 @@ export default function FocusResultScreen() {
   const rewardCoins = verdict?.awardedCoins ?? 0;
   useEffect(() => {
     if (rewardCoins <= 0) return;
-    logCurrencyEarned({ type: 'SESSION_COMPLETE', amount: rewardCoins, is_batch: false });
+    logCurrencyRewardShown({
+      surface: 'focus_result',
+      amount: rewardCoins,
+      reward_type: 'session_complete',
+    });
   }, [rewardCoins]);
   // 방금 끝낸 세션은 업로드 직후라 서버 집계(week·heatmap)에 아직 없을 수 있다(리뷰 반영).
   // 오늘 값은 max(서버 집계, 방금 세션 분, 저장 응답의 그날 누적)로 바닥을 깔고, 주간 합계에도

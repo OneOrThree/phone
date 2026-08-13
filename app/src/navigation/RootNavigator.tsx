@@ -50,6 +50,7 @@ import { logAppMainViewed, logScreenViewed } from '@/services/analyticsEvents';
 import { startDatadogNavigationTracking } from '@/services/datadog';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
+import { useUser } from '@/store/UserContext';
 
 // 메인 네비게이터 — 시안 "메인 4탭 + 중앙 FAB" 구조.
 // 그룹 탭은 A안 실기능(docs/app/group-plan.md) — Fakedoor(GROMO-597)를 걷어냈다. 데이터 층은 @/store 공유.
@@ -76,16 +77,21 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
+  const { isGuest } = useUser();
   // 외부 링크 수신은 이 컴포넌트가 하지 않는다 — 인증된 user가 있을 때만 렌더되는 트리라
   // 로그인 전에 도착한 초대 링크를 놓친다. 구독은 App.tsx 루트의 <DeepLinkGate/>가 맡고,
   // 여기서는 컨테이너 준비 후 버퍼를 흘려보내는 일(onReady)만 한다(§6-6).
   return (
     <NavigationContainer
       ref={navigationRef}
-      onReady={() => {
+      onReady={async () => {
         // GA4 초기화 — 디바이스 ID 확보 + 공통 파라미터 부착(1회). 모듈 미링크 시 no-op.
-        initAnalytics();
-        logAppMainViewed({ app_entry: 'cold_start', auth_state: 'unknown', initial_tab: 'home' });
+        await initAnalytics();
+        logAppMainViewed({
+          app_entry: 'cold_start',
+          auth_state: isGuest ? 'guest' : 'member',
+          initial_tab: 'home',
+        });
         const initialRoute = navigationRef.getCurrentRoute();
         if (initialRoute) {
           logScreenViewed({ screen_name: initialRoute.name, entry_source: 'navigation' });

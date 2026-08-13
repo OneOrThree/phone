@@ -13,7 +13,7 @@ import { api } from '@/services/api';
 import { useUser } from './UserContext';
 import { setCoinRefreshListener } from './coinRefreshSignal';
 import { STORAGE_KEYS } from '@/types/storage';
-import { logCurrencySpent } from '@/services/analyticsEvents';
+import { setIdentityProps } from '@/services/analyticsEvents';
 
 interface CoinContextValue {
   coins: number;
@@ -54,6 +54,13 @@ type OwnedItemsByUser = Record<string, string[]>;
 
 // userId(JWT sub)를 디코드하지 못한 비정상 세션의 폴백 버킷 — 정상 경로에선 쓰이지 않는다.
 const FALLBACK_BUCKET = 'unknown';
+
+function currencyBalanceBucket(value: number): '0' | '1-99' | '100-499' | '500+' {
+  if (value <= 0) return '0';
+  if (value < 100) return '1-99';
+  if (value < 500) return '100-499';
+  return '500+';
+}
 
 // 보유 아이템 키에 닿는 모든 쓰기를 직렬화하는 큐 — Provider 저장과 전환 인계가 서로의
 // 쓰기를 낡은 스냅샷으로 덮어쓰지 않게, 읽기-수정-쓰기를 한 단위로 순차 실행한다(코덱스 리뷰).
@@ -115,6 +122,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
+      setIdentityProps({ currency_balance_bucket: currencyBalanceBucket(res.data) });
       return true;
     } catch {
       if (seq !== refreshSeqRef.current) return false;
@@ -168,8 +176,9 @@ export function CoinProvider({ children }: { children: ReactNode }) {
       // 서버 CurrencyRequest 정식 필드는 type이다(671에서 reason → type 리네임, 구 페이로드는
       // @JsonAlias("reason") 흡수로만 동작) — 정식 필드로 정리해 alias 의존을 끊는다.
       await api.post('/api/v1/currency/spend', { amount: price, type: 'PURCHASE' });
-      logCurrencySpent({ type: 'PURCHASE', amount: price });
-      setCoins((prev) => prev - price);
+      const nextCoins = coins - price;
+      setCoins(nextCoins);
+      setIdentityProps({ currency_balance_bucket: currencyBalanceBucket(nextCoins) });
       setOwnedItemIds((prev) => [...prev, itemId]);
       return true;
     } catch {

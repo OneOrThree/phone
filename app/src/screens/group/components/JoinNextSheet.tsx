@@ -11,7 +11,7 @@ import {
 } from '@/services/groupApi';
 import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
-import { logCurrencySpent, logGroupBetJoined } from '@/services/analyticsEvents';
+import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
@@ -133,7 +133,6 @@ export default function JoinNextSheet({
         mission_type: missionType,
         mission_category: missionCategory,
       });
-      logCurrencySpent({ type: 'BET_STAKE', amount: joined.stake ?? stake });
       // 예약분도 즉시 전액 에스크로다(N15) — 빠진 잔액을 곧바로 맞춘다.
       refresh();
       // 드리프트 잔여 경로(요청이 나가 있는 사이 자정 경과 등) — 참가는 이미 성립했으므로 되돌리지

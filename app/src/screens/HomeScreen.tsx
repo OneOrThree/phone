@@ -69,7 +69,6 @@ import {
   logTodaySummaryViewed,
   logHomeButtonTapped,
   logHomeRefreshed,
-  logCurrencyEarned,
   logCurrencyRewardShown,
 } from '@/services/analyticsEvents';
 
@@ -355,11 +354,6 @@ export default function HomeScreen() {
       amount: focusGoalReward(goalCelebration.goalMinutes),
       reward_type: 'focus_goal',
     });
-    logCurrencyEarned({
-      type: 'FOCUS_GOAL',
-      amount: focusGoalReward(goalCelebration.goalMinutes),
-      is_batch: false,
-    });
   }, [goalCelebration?.goalMinutes]);
   useEffect(() => {
     if (screenTimeCelebration?.goalMinutes == null || goalCelebration != null) return;
@@ -367,11 +361,6 @@ export default function HomeScreen() {
       surface: 'screentime_modal',
       amount: screenTimeGoalReward(screenTimeCelebration.goalMinutes),
       reward_type: 'screentime_goal',
-    });
-    logCurrencyEarned({
-      type: 'SCREEN_TIME_GOAL',
-      amount: screenTimeGoalReward(screenTimeCelebration.goalMinutes),
-      is_batch: false,
     });
   }, [goalCelebration, screenTimeCelebration?.goalMinutes]);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).

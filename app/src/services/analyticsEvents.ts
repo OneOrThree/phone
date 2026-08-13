@@ -416,12 +416,10 @@ export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
 export type GroupCarouselTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
 export type GroupCardReorderTrigger = 'drag' | 'pointer_control' | 'accessibility_action';
 
-export function logGroupCreateStarted(): void {
-  track('group_create_started');
-}
-export type GroupJoinResultMethod = 'search' | 'invite' | 'deferred_invite';
-export function logGroupJoined(p: { join_method: GroupJoinResultMethod }): void {
-  track('group_joined', p);
+export function logGroupCreateStarted(p: {
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
+}): void {
+  track('group_create_started', p);
 }
 export function logGroupLeft(p: { leave_reason: 'self' | 'kicked' }): void {
   track('group_left', p);
@@ -816,32 +814,6 @@ export function logCurrencyChipTapped(p: { location: CurrencyChipLocation }): vo
   track('currency_chip_tapped', p);
 }
 
-export type CurrencyEarnReason =
-  | 'SESSION_COMPLETE'
-  | 'STREAK_BONUS'
-  | 'FOCUS_GOAL'
-  | 'SCREEN_TIME_GOAL'
-  | 'LEAGUE_TIER_BONUS'
-  | 'BET_PAYOUT'
-  | 'BET_REFUND';
-
-export function logCurrencyEarned(p: {
-  type: CurrencyEarnReason;
-  amount: number;
-  is_batch: boolean;
-  balance_after?: number;
-}): void {
-  track('currency_earned', p);
-}
-
-export function logCurrencySpent(p: {
-  type: 'PURCHASE' | 'BET_STAKE';
-  amount: number;
-  balance_after?: number;
-}): void {
-  track('currency_spent', p);
-}
-
 // 설정·프로필 성공 이벤트. 저장 성공 시점에만 호출한다.
 export function logProfileUpdated(): void {
   track('profile_updated');
@@ -878,7 +850,7 @@ export function logLeagueResultViewed(p: { result: 'promoted' | 'maintain' | 'de
 // ── User Properties (PII 금지) ──
 // 알려진 값만 설정한다(undefined는 건너뜀). 자세한 목록은 설계서 §2.3.
 export function setIdentityProps(p: {
-  is_guest: boolean;
+  is_guest?: boolean;
   signup_method?: AuthMethod;
   current_tier?: string;
   occupation?: string;
@@ -887,7 +859,7 @@ export function setIdentityProps(p: {
   onboarding_completed?: boolean;
   currency_balance_bucket?: '0' | '1-99' | '100-499' | '500+';
 }): void {
-  setUserProperty('is_guest', p.is_guest);
+  if (p.is_guest !== undefined) setUserProperty('is_guest', p.is_guest);
   if (p.signup_method !== undefined) setUserProperty('signup_method', p.signup_method);
   if (p.current_tier !== undefined) setUserProperty('current_tier', p.current_tier);
   if (p.occupation !== undefined) setUserProperty('occupation', p.occupation);

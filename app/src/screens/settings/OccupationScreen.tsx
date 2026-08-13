@@ -121,6 +121,7 @@ export default function OccupationScreen() {
       }
     }
     await applyCategoryChange(category);
+    logOccupationUpdated();
     setSaving(false);
     navigation.goBack();
   }

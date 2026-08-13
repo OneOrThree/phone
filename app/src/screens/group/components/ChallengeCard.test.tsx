@@ -50,7 +50,6 @@ jest.mock('@/services/groupApi', () => ({
   joinWeekSessions: jest.fn(),
 }));
 jest.mock('@/services/analyticsEvents', () => ({
-  logCurrencySpent: jest.fn(),
   logGroupBetCanceled: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
   // 예약 성공도 참여 계측을 발행한다(#570 codex ⑧) — 카드가 여는 시트가 부른다.

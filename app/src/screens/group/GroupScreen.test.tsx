@@ -414,7 +414,7 @@ describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
     expect(screen.getByText('함께 집중할 그룹을 만들어보세요')).toBeOnTheScreen();
 
     await press('그룹 만들기');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate');
+    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate', { entry_point: 'empty' });
 
     // 생성하고 돌아왔는데 목록 조회가 실패한다.
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
@@ -544,7 +544,7 @@ describe('목록의 만들기·찾기 진입점', () => {
     await renderScreen();
 
     await press('목록-만들기');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate');
+    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate', { entry_point: 'list' });
 
     // 만들고 돌아오면 포커스 재조회가 새 그룹을 목록에 얹는다.
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);

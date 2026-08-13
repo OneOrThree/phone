@@ -108,7 +108,6 @@ export default function AllowedAppsScreen() {
       if (!result) return; // 취소
       setCounts(result);
       setLoaded(true);
-      logAllowedAppsUpdated({ app_count: result.applications });
       // 변경 없이 '완료'하면 알럿 생략 (GROMO-637).
       // presentAllowedAppManager는 스와이프 취소가 불가해 완료 시 항상 현재 개수를 반환하므로,
       // 편집 전 스냅샷과 앱/카테고리/웹도메인 개수가 모두 같으면 실제 변경이 없는 것으로 본다.
@@ -120,6 +119,7 @@ export default function AllowedAppsScreen() {
       ) {
         return;
       }
+      logAllowedAppsUpdated({ app_count: result.applications });
       // 성공 통보(선택지 없음) → 토스트. 실패·확인 알럿은 Alert 그대로 둔다(정책 D8).
       // ⚠️ 단, **구 바이너리에서는 Alert를 유지한다.** 그쪽 네이티브는 모달 dismiss 완료를
       //    기다리지 않고 promise를 풀어서, 토스트가 아직 떠 있는 모달 아래에서 등장 연출과

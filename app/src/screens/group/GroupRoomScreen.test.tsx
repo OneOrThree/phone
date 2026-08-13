@@ -73,7 +73,6 @@ jest.mock('@/store/UserContext', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logCurrencyInsufficient: jest.fn(),
-  logCurrencySpent: jest.fn(),
   logGroupInviteShared: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),

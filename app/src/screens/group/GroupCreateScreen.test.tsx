@@ -48,6 +48,7 @@ jest.mock('@react-navigation/native', () => ({
     navigate: mockNav.navigate,
     addListener: mockAddListener,
   }),
+  useRoute: () => ({ params: { entry_point: 'list' } }),
 }));
 
 jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) }));

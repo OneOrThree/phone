@@ -11,7 +11,7 @@ import {
 } from '@/services/groupApi';
 import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
-import { logCurrencySpent, logGroupBetJoined } from '@/services/analyticsEvents';
+import { logGroupBetJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
 import { fmtMonthDayDow } from '../challengeSchedule';
@@ -161,7 +161,6 @@ export default function JoinWeekSheet({
       const actual =
         joinedDates === undefined ? targets : targets.filter((e) => joinedDates.includes(e.date));
       if (actual.length > 0) {
-        const totalSpent = actual.reduce((sum, entry) => sum + entry.stake, 0);
         logGroupBetJoined({
           // stake는 하루치 축을 유지한다(총액이 아니다) — 날짜별로 갈리면 최대 하루치.
           stake: Math.max(...actual.map((e) => e.stake)),
@@ -169,7 +168,6 @@ export default function JoinWeekSheet({
           mission_type: missionType,
           mission_category: missionCategory,
         });
-        logCurrencySpent({ type: 'BET_STAKE', amount: totalSpent });
       }
       // 예약분 전액이 그 자리에서 묶였다(N15) — 잔액을 곧바로 맞춘다.
       refresh();

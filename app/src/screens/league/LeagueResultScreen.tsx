@@ -21,7 +21,7 @@ import { useMotion } from '@/hooks/useMotion';
 import { hapticSuccess } from '@/utils/haptics';
 import { ackLastResult } from '@/services/leagueApi';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { logCurrencyEarned, logLeagueResultViewed } from '@/services/analyticsEvents';
+import { logCurrencyRewardShown, logLeagueResultViewed } from '@/services/analyticsEvents';
 
 // 강등 시 '깨진 뱃지' 중간 연출 이미지 — 강등 전(from) 티어별(tierNdown.png)
 const DOWN_IMAGES: Record<number, ImageSourcePropType> = {
@@ -74,7 +74,11 @@ export default function LeagueResultScreen() {
   const showBonus = type === 'promote' && bonusCoins > 0;
   useEffect(() => {
     if (!showBonus) return;
-    logCurrencyEarned({ type: 'LEAGUE_TIER_BONUS', amount: bonusCoins, is_batch: true });
+    logCurrencyRewardShown({
+      surface: 'league_result',
+      amount: bonusCoins,
+      reward_type: 'league_tier_bonus',
+    });
   }, [bonusCoins, showBonus]);
 
   // 닫힐 때(CTA·제스처 모두 unmount 경유) 확인 처리 — 실패하면 리그 탭 재포커스 때

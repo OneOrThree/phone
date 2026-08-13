@@ -28,7 +28,6 @@ import {
 } from '@/services/groupApi';
 import {
   logCurrencyInsufficient,
-  logCurrencySpent,
   logGroupBetCreated,
   logGroupBetJoined,
 } from '@/services/analyticsEvents';
@@ -344,7 +343,6 @@ export default function BetSheet({
       mission_type: challenge.missionType,
       mission_category: challenge.missionCategory,
     });
-    logCurrencySpent({ type: 'BET_STAKE', amount: amount });
   }
 
   async function submit() {
@@ -372,7 +370,6 @@ export default function BetSheet({
           mission_type: challenge.missionType,
           mission_category: challenge.missionCategory,
         });
-        logCurrencySpent({ type: 'BET_STAKE', amount: amount });
       }
       // 판돈이 빠진 잔액을 곧바로 맞춘다(응답을 기다리지 않는다 — 시트는 이미 닫힌다).
       refresh();
