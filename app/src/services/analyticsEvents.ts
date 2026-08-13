@@ -918,7 +918,7 @@ export function setIdentityProps(p: {
   country_code?: string;
   screen_time_permission?: boolean;
   onboarding_completed?: boolean;
-  currency_balance_bucket?: '0' | '1-99' | '100-499' | '500+';
+  currency_balance_bucket?: '0' | '1-99' | '100-499' | '500+' | null;
 }): void {
   if (p.is_guest !== undefined) setUserProperty('is_guest', p.is_guest);
   if (p.signup_method !== undefined) setUserProperty('signup_method', p.signup_method);

@@ -111,12 +111,16 @@ export default function CharacterSelectScreen() {
   const equippedRef = useRef(false);
   const equip = useCallback(() => {
     if (equippedRef.current) return;
+    if (selected === equipped) {
+      navigation.popToTop();
+      return;
+    }
     equippedRef.current = true;
     setChoice(selected);
     logCharacterEquipped({ character_type: selected });
     show({ message: '캐릭터를 변경했어요', tone: 'success' });
     navigation.popToTop();
-  }, [selected, setChoice, navigation, show]);
+  }, [selected, equipped, setChoice, navigation, show]);
 
   const defaultSelected = selected === 'default';
   const customSelected = selected === 'custom';

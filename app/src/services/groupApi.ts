@@ -42,7 +42,7 @@ import type {
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
 
-// 같은 정산 결과를 화면 재조회마다 반복 발행하지 않는다. sessionId는 서버가 부여한 회차 키다.
+// 같은 정산 결과를 화면 재조회마다 반복 발행하지 않는다. 계정 전환을 구분하려 userId를 함께 키로 쓴다.
 const reportedChallengeSettlementIds = new Set<string>();
 const settlementReportInFlightIds = new Set<string>();
 
@@ -358,10 +358,11 @@ export async function getMyChallengeResults(page?: {
   const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
   const userId = getUserIdFromToken(accessToken ?? '') ?? 'unknown';
   for (const result of results) {
-    if (reportedChallengeSettlementIds.has(result.sessionId)) continue;
-    if (settlementReportInFlightIds.has(result.sessionId)) continue;
+    const reportKey = `${userId}:${result.sessionId}`;
+    if (reportedChallengeSettlementIds.has(reportKey)) continue;
+    if (settlementReportInFlightIds.has(reportKey)) continue;
     if (result.status !== 'OPEN' && result.status !== 'UNUSED') {
-      settlementReportInFlightIds.add(result.sessionId);
+      settlementReportInFlightIds.add(reportKey);
       try {
         const marker = `${STORAGE_KEYS.groupChallengeSettlementReported}:${userId}:${result.sessionId}`;
         const alreadyReported = await AsyncStorage.getItem(marker).catch(() => null);
@@ -369,9 +370,9 @@ export async function getMyChallengeResults(page?: {
           logGroupChallengeSettled?.({ status: result.status });
           await AsyncStorage.setItem(marker, result.status).catch(() => {});
         }
-        reportedChallengeSettlementIds.add(result.sessionId);
+        reportedChallengeSettlementIds.add(reportKey);
       } finally {
-        settlementReportInFlightIds.delete(result.sessionId);
+        settlementReportInFlightIds.delete(reportKey);
       }
     }
   }

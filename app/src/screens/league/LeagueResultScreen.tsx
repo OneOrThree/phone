@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -72,8 +72,10 @@ export default function LeagueResultScreen() {
   // 공식으로 금액을 지어내 유령 배지를 띄운다.
   const bonusCoins = promotionBonusCoins ?? 0;
   const showBonus = type === 'promote' && bonusCoins > 0;
-  useEffect(() => {
-    if (!showBonus) return;
+  const rewardShownRef = useRef(false);
+  const reportBonusShown = useCallback((): void => {
+    if (!showBonus || rewardShownRef.current) return;
+    rewardShownRef.current = true;
     logCurrencyRewardShown({
       surface: 'league_result',
       amount: bonusCoins,
@@ -202,6 +204,7 @@ export default function LeagueResultScreen() {
           // 남은 단계(티어명 팝 → 타이틀 팝 → 하단 안내)를 **최종 상태로 즉시 대입**한다.
           // 시퀀스는 여기서 끝나므로 뒤에 남는 단계가 없다 — 화면이 중간에 멈추지 않는다.
           [nameAnim, titleAnim, line3].forEach((v) => v.setValue(1));
+          reportBonusShown();
           return;
         }
         // 티어명 팝인
@@ -212,16 +215,24 @@ export default function LeagueResultScreen() {
           useNativeDriver: true,
         }).start();
         // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내
-        Animated.sequence([
-          Animated.delay(200),
+        Animated.delay(200).start(({ finished: titleDelayFinished }) => {
+          if (!titleDelayFinished || cancelled) return;
           Animated.timing(titleAnim, {
             toValue: 1,
             duration: 420,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }),
-          Animated.spring(line3, { toValue: 1, friction: 5, tension: 150, useNativeDriver: true }),
-        ]).start();
+          }).start(({ finished: titleFinished }) => {
+            if (!titleFinished || cancelled) return;
+            reportBonusShown();
+            Animated.spring(line3, {
+              toValue: 1,
+              friction: 5,
+              tension: 150,
+              useNativeDriver: true,
+            }).start();
+          });
+        });
       });
     });
     return () => {
@@ -232,7 +243,7 @@ export default function LeagueResultScreen() {
     //    확정되는 경우 포함) 이 effect가 다시 돌아 **이미 끝난 화면의 시퀀스를 처음부터 재생**하고,
     //    승급이면 hapticSuccess·컨페티까지 다시 발생한다 — 보상 피드백이 중복된다(codex 리뷰).
     //    대기 값은 delayRef로 타이머를 걸 때의 최신 값을 읽고, 축하는 celebratedRef로 1회만 낸다.
-  }, [ready, type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3]);
+  }, [ready, type, hasTransition, demote, badgeAnim, titleAnim, nameAnim, line3, reportBonusShown]);
 
   // '동작 줄이기'가 **재생 도중** 켜진 경우 — 위 시퀀스 effect는 다시 돌지 않고(의존성에서 뺐다),
   // delayRef는 **앞으로 새로 만들 단계**의 대기만 줄인다. 이미 시작된 delay·timing·spring은

@@ -535,19 +535,19 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
 
   // 지난 중간 동기화 행 확정 — 며칠 만의 실행이면 last.date가 어제보다 과거일 수 있다. 그 날의
   // 네이티브 판정·보존 눈금은 이미 다음 날들로 덮여 없으므로, 업로드해 둔 분값 그대로 달성
-  // 여부만 근사 확정한다(리뷰 반영 — 영영 미달성으로 남는 것 방지). 달성으로 뒤집히는 경우만
-  // 전송 — 아니면 이미 저장된 false가 곧 결과다. 처리 후 상태를 지워 반복을 막는다.
+  // 여부를 근사 확정한다. 성공·실패 모두 평가 이벤트를 남긴 뒤 상태를 지워 반복을 막는다.
   if (last && last.date !== today && last.date !== yesterday) {
-    if (goalSeconds > 0 && last.minutes > 0 && last.minutes <= goalSeconds / 60) {
+    if (goalSeconds > 0 && last.minutes > 0) {
+      const achieved = last.minutes <= goalSeconds / 60;
       // 실패 시 상태를 보존한 채 중단(throw) — 다음 포그라운드에서 재시도.
       await saveScreenTime({
         actualScreenTimeMinutes: last.minutes,
-        screenTimeGoalAchieved: true,
+        screenTimeGoalAchieved: achieved,
         reportedAt: localNoonInstant(last.date),
         isFinal: true, // 밀린 과거분 확정 — 최종 보고
       });
       logScreentimeGoalEvaluated({
-        goal_met: true,
+        goal_met: achieved,
         actual_seconds: last.minutes * 60,
         target_seconds: goalSeconds,
         window_date: last.date,

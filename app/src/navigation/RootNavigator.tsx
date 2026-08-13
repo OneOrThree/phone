@@ -97,6 +97,17 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
   const analyticsReadyRef = useRef(false);
   const wasBackgroundedRef = useRef(false);
 
+  function currentTab(): 'home' | 'league' | 'group' | 'menu' {
+    const root = navigationRef.getRootState();
+    const main = root?.routes[root.index];
+    const tabs = main?.state as { index?: number; routes?: Array<{ name: string }> } | undefined;
+    const name = tabs?.routes?.[tabs.index ?? 0]?.name;
+    if (name === '리그') return 'league';
+    if (name === '그룹') return 'group';
+    if (name === '전체') return 'menu';
+    return 'home';
+  }
+
   function enterScreen(route: { name: string; key: string }): void {
     screenVisitRef.current = {
       screen_name: route.name,
@@ -120,21 +131,29 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
       if (state === 'background' || state === 'inactive') {
         if (analyticsReadyRef.current) exitScreen();
         screenVisitRef.current = null;
-        wasBackgroundedRef.current = true;
+        // inactive은 권한 시트·알림 센터·전화 중단일 수 있어 foreground 재진입으로 세지 않는다.
+        wasBackgroundedRef.current = state === 'background';
         return;
       }
-      if (state !== 'active' || !wasBackgroundedRef.current) return;
-      wasBackgroundedRef.current = false;
-      if (!analyticsReadyRef.current) return;
+      if (state !== 'active' || !analyticsReadyRef.current) return;
       const route = navigationRef.getCurrentRoute();
-      if (route) enterScreen(route);
-      logAppMainViewed({
-        app_entry: 'foreground',
-        auth_state: isGuest ? 'guest' : 'member',
-        initial_tab: 'home',
-      });
+      if (wasBackgroundedRef.current) {
+        wasBackgroundedRef.current = false;
+        if (route) enterScreen(route);
+        logAppMainViewed({
+          app_entry: 'foreground',
+          auth_state: isGuest ? 'guest' : 'member',
+          initial_tab: currentTab(),
+        });
+      } else if (route) {
+        // inactive 동안만 멈춘 방문은 새 방문으로 세지 않고 타이머만 재개한다.
+        screenVisitRef.current = { screen_name: route.name, route_key: route.key, entered_at: Date.now() };
+      }
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      if (analyticsReadyRef.current) exitScreen();
+    };
   }, [isGuest]);
   // 외부 링크 수신은 이 컴포넌트가 하지 않는다 — 인증된 user가 있을 때만 렌더되는 트리라
   // 로그인 전에 도착한 초대 링크를 놓친다. 구독은 App.tsx 루트의 <DeepLinkGate/>가 맡고,
@@ -143,23 +162,23 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
     <NavigationContainer
       ref={navigationRef}
       onReady={async () => {
-        // 준비 직후 버퍼를 먼저 비운다. 분석 초기화의 AsyncStorage 대기 중 새 딥링크가
-        // 도착하면 오래된 pending 링크가 나중에 최신 목적지를 덮어쓸 수 있다.
-        flushPendingDeepLink();
         // GA4 초기화 — 디바이스 ID 확보 + 공통 파라미터 부착(1회). 모듈 미링크 시 no-op.
         await initAnalytics();
         analyticsReadyRef.current = true;
         logAppMainViewed({
           app_entry: initialAppEntry,
           auth_state: isGuest ? 'guest' : 'member',
-          initial_tab: 'home',
+          initial_tab: currentTab(),
         });
         const initialRoute = navigationRef.getCurrentRoute();
         if (initialRoute) enterScreen(initialRoute);
+        // 분석 초기화가 끝난 뒤에 버퍼를 흘려보내 첫 화면 이벤트에도 공통 식별자가 붙는다.
+        flushPendingDeepLink();
         // Datadog RUM 화면 추적(GROMO-928) — 화면 전환을 RUM 뷰로 기록. 키 미설정 시 no-op.
         startDatadogNavigationTracking();
       }}
       onStateChange={() => {
+        if (!analyticsReadyRef.current) return;
         const route = navigationRef.getCurrentRoute();
         if (!route) return;
         if (screenVisitRef.current?.route_key !== route.key) {

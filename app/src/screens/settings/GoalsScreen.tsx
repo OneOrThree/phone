@@ -123,6 +123,7 @@ export default function GoalsScreen() {
     dailyScreenTimeGoalMinutes?: number;
     effectiveDate?: string;
   } | null>(null);
+  const valuesAtOpenRef = useRef<{ focus: number; usage: number } | null>(null);
 
   // 발효 전 예약(goalPending)이 있으면 그 값으로 피커 초기화.
   useEffect(() => {
@@ -138,14 +139,23 @@ export default function GoalsScreen() {
             if (typeof p.dailyScreenTimeGoalMinutes === 'number') {
               setUsageMinutes(snapClamp(p.dailyScreenTimeGoalMinutes, USAGE_GOAL_MINUTES));
             }
+            valuesAtOpenRef.current = {
+              focus: snapClamp(p.dailyFocusTimeGoalMinutes ?? activeFocusMin, FOCUS_GOAL_MINUTES),
+              usage: snapClamp(p.dailyScreenTimeGoalMinutes ?? activeUsageMin, USAGE_GOAL_MINUTES),
+            };
           } catch {
             // 깨진 예약값은 무시
           }
+        } else {
+          valuesAtOpenRef.current = {
+            focus: snapClamp(activeFocusMin, FOCUS_GOAL_MINUTES),
+            usage: snapClamp(activeUsageMin, USAGE_GOAL_MINUTES),
+          };
         }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, []);
+  }, [activeFocusMin, activeUsageMin]);
 
   // 내일(발효일). 축은 로컬 — 사용자가 체감하는 '내일'이고, 발효 판정(PendingGoalApplier)도
   // 같은 로컬 축으로 대조한다(docs/date-axis.md 분류 ② 측정/저장).
@@ -191,8 +201,15 @@ export default function GoalsScreen() {
         // 현재 목표와 동일하게 되돌림 → 기존 예약 취소.
         await AsyncStorage.removeItem(STORAGE_KEYS.goalPending);
       }
-      if (focusChanged || usageChanged) {
-        logGoalUpdated({ changed_focus: focusChanged, changed_usage: usageChanged });
+      const valuesAtOpen = valuesAtOpenRef.current;
+      const actuallyChanged = valuesAtOpen
+        ? {
+            focus: focusMinutes !== valuesAtOpen.focus,
+            usage: usageMinutes !== valuesAtOpen.usage,
+          }
+        : { focus: focusChanged, usage: usageChanged };
+      if (actuallyChanged.focus || actuallyChanged.usage) {
+        logGoalUpdated({ changed_focus: actuallyChanged.focus, changed_usage: actuallyChanged.usage });
       }
     } catch {
       // 예약 저장/삭제 실패는 치명적이지 않음
