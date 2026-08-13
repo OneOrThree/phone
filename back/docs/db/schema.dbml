@@ -250,11 +250,14 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
 
   tier_level                     integer     [not null, default: 1, note: '리그 티어 레벨 1~5 단일 원천(SoT) — CHECK BETWEEN 1 AND 5. 구 current_tier(V2 드롭) 대체. GROMO-814, V12']
 
+  is_bot                         boolean [not null, default: false, note: '리그 콜드스타트용 스크립트 유저 여부. 리그 랭킹·친구 검색에는 실유저와 동일하게 노출되고, 실유저 통계 분리·봇 회수 시 대상 특정에만 쓴다. 성향은 bot_profiles. GROMO-1565, V48']
+
   indexes {
     // GROMO-460: 친구 닉네임 fuzzy 검색용 GIN 트라이그램 인덱스 (run-migration-v13.sh)
     //   전제 확장: CREATE EXTENSION pg_trgm  /  쿼리: nickname % :q ORDER BY nickname <-> :q
     nickname [type: gin, note: 'pg_trgm GIN (gin_trgm_ops) — 닉네임 trgm 검색 GROMO-460']
     occupation [name: 'idx_users_occupation', note: 'CATEGORY 평균 집중 집계가 occupation=? 로 모수 좁힐 때 사용 GROMO-753, V11']
+    is_bot [name: 'idx_users_is_bot', note: '부분 인덱스 WHERE is_bot = true — BotSimulator 가 매 tick 봇 목록을 뽑는다. GROMO-1565, V48']
   }
 }
 
@@ -304,6 +307,16 @@ Table user_wallets [note: '유저 재화 잔액 (users 1:1). GROMO-561 로 user_
   balance    integer [not null, default: 0, note: '재화 잔액']
   updated_at timestamptz
   deleted_at timestamptz [note: '탈퇴 시각 (소프트 딜리트) — 재화 이력 보존, 하드 삭제 금지']
+}
+
+Table bot_profiles [note: '리그 콜드스타트용 봇 유저의 집중 성향 (users 1:1, is_bot=true 인 행만 존재). GROMO-1565, V48'] {
+  user_id        uuid    [pk, note: 'FK → users.id (1:1)']
+  chronotype     varchar(20) [not null, note: '활동 시간대 — DAWN(04~) / MORNING(08~) / AFTERNOON(13~) / NIGHT(20~, 자정 넘겨 최대 다음날 06시). CHECK 4값']
+  style          varchar(20) [not null, note: '집중 스타일 — POMODORO(25~50분) / MIXED(45~75분) / DEEP(70~110분). CHECK 3값. 어떤 스타일도 블록이 110분을 넘지 않는다']
+  weekly_minutes integer [not null, note: '주간 목표 집중 분 — 티어 유지 구간(14/28/42/56시간) 안쪽에 둔다. CHECK 60~4200']
+  active_days    integer [not null, note: '주 며칠 집중하는가 (4~6). CHECK 1~7']
+  rest_day_mask  integer [not null, note: '쉬는 요일 비트마스크 — 비트 0=월 … 비트 6=일. CHECK 0~127']
+  created_at     timestamptz [not null, default: `now()`]
 }
 
 Table social_accounts [note: '소셜 로그인 연동 정보 (provider + provider_id 조합으로 유저 식별)'] {
@@ -952,6 +965,7 @@ Table shedlock [note: 'ShedLock 분산 락 (GROMO-1283 · policy §E4, V45) — 
 Ref: social_accounts.user_id > users.id
 Ref: user_screen_time_settings.user_id - users.id
 Ref: user_wallets.user_id - users.id
+Ref: bot_profiles.user_id - users.id
 Ref: friendships.from_user_id > users.id
 Ref: friendships.to_user_id > users.id
 Ref: user_notification_settings.user_id - users.id
