@@ -66,6 +66,9 @@ const PROVIDERS = ALL_PROVIDERS.filter(
   (p) => Platform.OS !== 'web' && (p.method !== 'apple' || Platform.OS === 'ios'),
 );
 
+const GUEST_LOGIN_NOTICE =
+  '기록은 서버에 저장되지만 이 기기의 인증 정보로만 다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.';
+
 export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
@@ -153,14 +156,18 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
 
   function confirmGuestLogin() {
     if (busy !== null || guestBusy) return;
-    Alert.alert(
-      '게스트 로그인 안내',
-      '기록은 서버에 저장되지만 이 기기의 인증 정보로만 다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.',
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '확인', onPress: runGuest },
-      ],
-    );
+
+    // react-native-web의 Alert는 브라우저 alert()로 축약돼 버튼 콜백을 실행하지 않는다.
+    // 웹에서는 게스트가 유일한 로그인 수단이므로 confirm 결과를 직접 받아 진행한다.
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(GUEST_LOGIN_NOTICE)) runGuest();
+      return;
+    }
+
+    Alert.alert('게스트 로그인 안내', GUEST_LOGIN_NOTICE, [
+      { text: '취소', style: 'cancel' },
+      { text: '확인', onPress: runGuest },
+    ]);
   }
 
   return (
