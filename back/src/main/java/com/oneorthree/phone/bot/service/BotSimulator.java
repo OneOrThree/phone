@@ -13,6 +13,7 @@ import com.oneorthree.phone.focus.repository.UserFocusTagRepository;
 import com.oneorthree.phone.focus.service.FocusService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -90,6 +91,11 @@ public class BotSimulator {
             Optional<ScheduledBlock> current =
                     currentBlock(profile, today, minuteOfDay, tagsByBot.getOrDefault(botId, List.of()));
             FocusSession live = liveByBot.get(botId);
+            // user-activity 이벤트(FOCUS_SESSION_COMPLETED·STREAK_UPDATED)는 MDC 의 user_id 를 읽는다.
+            // 스케줄러 스레드에는 인증 필터가 채워 주는 MDC 가 없어, 세팅하지 않으면 봇이 만든 이벤트가
+            // 전부 user_id=null 로 발행돼 분석에서 실유저 지표와 섞인다(코드리뷰 반영).
+            // 봇 id 는 결정론적이고 users.is_bot 으로 조인되므로, id 만 실리면 사후 분리가 가능하다.
+            MDC.put("user_id", botId.toString());
             try {
                 if (current.isEmpty()) {
                     if (live != null) {
@@ -113,6 +119,8 @@ public class BotSimulator {
                 // 한 봇의 실패로 나머지를 멈추지 않는다. 다음 tick 이 같은 상태를 다시 맞춘다.
                 failed++;
                 log.warn("봇 집중 세션 전이 실패 — botId={}", botId, e);
+            } finally {
+                MDC.remove("user_id");
             }
         }
         return new BotTickResult(started, ended, replaced, failed);
