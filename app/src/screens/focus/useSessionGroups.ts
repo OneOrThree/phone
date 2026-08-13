@@ -15,8 +15,6 @@ import type { LiveGridMember } from './components/LiveFocusGrid';
 //   로컬 타이머로 라이브 렌더한다(me). 신선도는 60초 폴링 + 포그라운드 복귀(분 단위 스냅샷).
 
 const DEFAULT_POLL_MS = 60_000;
-// 한 그룹 그리드에 표기할 멤버 상한(그룹 정원 10 기준 넉넉히) — 과도한 렌더 방지.
-const MAX_PER_GROUP = 12;
 
 export interface SessionGroup {
   groupId: string;
@@ -68,7 +66,6 @@ export function useSessionGroups({
             myMinutes = Math.max(myMinutes ?? 0, m.focusTimeMinutes ?? 0);
             continue;
           }
-          if (members.length >= MAX_PER_GROUP) break;
           members.push({
             userId: m.userId,
             nickname: m.nickname,
