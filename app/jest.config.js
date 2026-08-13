@@ -11,4 +11,19 @@ module.exports = {
   roots: ['<rootDir>/src'],
   // 전역 목(AsyncStorage 등) — 컴포넌트·컨텍스트·모킹 유닛 테스트 공용(GROMO-946·948)
   setupFiles: ['<rootDir>/jest.setup.js'],
+  // 커버리지 측정 대상 — `npm run test:coverage`. jest 내장 기능이라 추가 의존성은 없다.
+  // ⚠️ 이 배열이 있어야 **테스트가 없는 파일도 0%로 분모에 잡힌다.** 없으면 테스트가 건드린
+  //    파일만 세서 수치가 실제보다 후하게 나온다.
+  // 분모에서 빼는 것들 — 라이브 코드가 아니라 수치만 흐린다:
+  //   legacy/ = v1 동결본(라이브에서 import 금지), mocks/ = dev 목킹, types/ = 타입 선언만.
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/legacy/**',
+    '!src/mocks/**',
+    '!src/types/**',
+    '!src/**/*.test.{ts,tsx}',
+  ],
+  // 임계값(coverageThreshold)은 일부러 안 건다 — 지금 걸면 CI가 바로 빨개진다.
+  // 기준선(2026-08-13): statements 59.6% · branches 57.3% · functions 52.8% · lines 61.0%
+  // 올릴 때 여기에 coverageThreshold: { global: { … } } 를 추가하면 게이트가 된다.
 };

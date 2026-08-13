@@ -23,6 +23,7 @@
     "format:fix": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "jest",
+    "test:coverage": "jest --coverage",
     "test:group-card-gate": "jest --runInBand src/screens/group src/navigation/groupEntrySource.test.ts src/navigation/navigationRef.test.ts src/screens/focus/FocusCategoryScreen.test.tsx src/components/TabGuideOverlay.test.tsx src/components/TabBar.test.tsx src/services/groupApi.test.ts src/services/cardInteraction.test.ts src/services/analyticsEvents.cardAttribution.test.ts"
   },
   "dependencies": {
