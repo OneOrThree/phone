@@ -50,14 +50,16 @@ export default function ConfirmCardModal({
           testID={testID ? `${testID}.backdrop` : undefined}
         />
         <View style={s.card} testID={testID}>
-          <Text style={s.cardTitle}>{title}</Text>
-          {/* 본문만 스크롤시킨다 — 버튼은 이 바깥이라 항상 화면 안에 남는다.
-              스크롤해야 닿는 버튼은 「없는 버튼」과 같다(작은 기기 + 최대 글자 배율). */}
+          {/* 제목과 본문을 **함께** 스크롤시킨다 — 버튼만 이 바깥이라 항상 화면 안에 남는다.
+              제목을 밖에 두면, 작은 기기(SE 320pt) + 최대 글자 배율에서 제목이 여러 줄로 감겨
+              그것만으로 카드의 maxHeight를 먹고 버튼을 밀어낸다. 스크롤해야 닿는 버튼은
+              「없는 버튼」과 같고, 실패 모달에서는 그게 유일한 복구 경로다. */}
           <ScrollView
             style={s.bodyScroll}
             contentContainerStyle={s.bodyScrollInner}
             showsVerticalScrollIndicator={false}
           >
+            <Text style={s.cardTitle}>{title}</Text>
             <Text style={s.cardBody} selectable={bodySelectable}>
               {body}
             </Text>

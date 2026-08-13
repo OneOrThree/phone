@@ -59,6 +59,15 @@ describe('INQUIRY_CONTACTS 불변식', () => {
     expect(new Set(urls).size).toBe(urls.length);
   });
 
+  // 형식 검사(/^\/o\/[A-Za-z0-9]+$/)는 `…/o/TODOfocus` 같은 **자리표시자도 정상으로 통과시킨다**.
+  // 실제 방 URL로 교체하다 한 명만 깜빡 잊는 것이 가장 흔한 사고인데, 형식만 보면 못 잡는다.
+  // 이 테스트를 만든 이유가 「고치는 사람이 PRD를 다시 안 읽는다」는 것이었으므로 여기서 막는다.
+  test('오픈채팅 URL에 자리표시자(TODO)가 남아 있지 않다', () => {
+    for (const contact of INQUIRY_CONTACTS) {
+      expect(contact.openChatUrl.toUpperCase()).not.toContain('TODO');
+    }
+  });
+
   // 상수 모듈이 theme을 import하지 않으므로(순수 모듈) 인덱스가 팔레트를 벗어나도 컴파일은 통과하고,
   // 화면에서 아바타 배경만 undefined가 된다 — 타입이 못 잡는 자리를 여기서 잡는다.
   test('avatarPaletteIndex가 T.avatarPalette 범위 안이다', () => {

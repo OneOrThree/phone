@@ -52,12 +52,18 @@ export default function InquiryScreen() {
   // 사용자를 앱 밖으로 내보내는 화면이라 「떠났다 돌아온다」가 정상 경로다. 그 사이 GA4 세션이
   // 새로 시작되면 화면은 계속 마운트돼 있어 useEffect가 다시 안 돌고, 새 세션에는
   // inquiry_contact_opened만 남아 전환율이 100%를 넘는다(분자 ⊄ 분모).
-  const lastViewedAt = useRef(0);
+  //
+  // ⚠️ 재는 것은 「마지막으로 노출을 쏜 시각」이 아니라 **「마지막 활동 시각」**이다.
+  //    GA4 세션은 **어떤 이벤트로든** 연장되므로, 발화를 건너뛴 호출도 시각을 갱신해야 한다.
+  //    안 그러면: 0분 노출 → 20분 카테고리 선택(건너뜀, 시각 그대로 0분) → 31분 담당자 확정에서
+  //    「30분 지났다」고 판단해 노출을 다시 쏜다. 그런데 GA4에서는 20분 이벤트가 세션을 연장해
+  //    **여전히 같은 세션**이라, 한 세션에 분모가 2번 잡혀 전환율이 실제보다 낮게 나온다.
+  const lastEventAt = useRef(0);
   const markViewed = useCallback(() => {
     const now = Date.now();
-    if (now - lastViewedAt.current < VIEWED_REFIRE_MS) return;
-    lastViewedAt.current = now;
-    logInquiryScreenViewed();
+    const sessionLikelyExpired = now - lastEventAt.current >= VIEWED_REFIRE_MS;
+    lastEventAt.current = now; // 발화 여부와 무관하게 항상 갱신한다
+    if (sessionLikelyExpired) logInquiryScreenViewed();
   }, []);
 
   useEffect(() => {

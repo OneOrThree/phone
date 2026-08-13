@@ -9,6 +9,7 @@
 //  4) 카테고리 정렬은 목록에서 빼지 않는다 — 항상 3장(policy.md D2).
 //  5) CTA 3개가 화면 읽기에서 구분된다.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 import InquiryScreen from './InquiryScreen';
 import { openInquiryChat } from '@/screens/settings/inquiryLink';
 import {
@@ -40,6 +41,24 @@ jest.mock('@/services/analyticsEvents', () => ({
 jest.mock('@/screens/settings/inquiryLink', () => ({
   openInquiryChat: jest.fn(),
 }));
+
+// AppState는 파일 전역에서 한 번만 목한다 — 개별 테스트에서 spyOn/mockRestore를 하면
+// 복원이 새어 뒤따르는 테스트의 언마운트(sub.remove())가 통째로 깨진다.
+const appStateHandlers: ((state: string) => void)[] = [];
+jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+  _event: string,
+  handler: (state: string) => void,
+) => {
+  appStateHandlers.push(handler);
+  return { remove: jest.fn() };
+}) as never);
+
+/** AppState 'active' 복귀를 흉내 낸다. */
+async function returnToForeground() {
+  await act(async () => {
+    appStateHandlers.forEach((h) => h('active'));
+  });
+}
 
 const mockOpenInquiryChat = openInquiryChat as jest.MockedFunction<typeof openInquiryChat>;
 const mockLogScreenViewed = logInquiryScreenViewed as jest.MockedFunction<
@@ -75,6 +94,7 @@ function cardOrder(): string[] {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  appStateHandlers.length = 0;
   mockOpenInquiryChat.mockResolvedValue(true);
 });
 
@@ -136,6 +156,35 @@ describe('InquiryScreen — 진행 중 요청', () => {
     expect(screen.queryByText('카카오톡을 열 수 없어요')).toBeNull();
   });
 
+  // 위 테스트는 **1차 요청**이 늦게 오는 경우만 본다. 재시도는 failed 상태에서 출발해
+  // 경로가 달라, 같은 reqIdRef를 타더라도 이 조합만 깨뜨리는 리팩터링을 CI가 못 잡는다.
+  test('재시도 진행 중에 닫으면, 늦게 온 재시도 결과도 폐기된다', async () => {
+    let settleRetry: ((ok: boolean) => void) | undefined;
+    mockOpenInquiryChat
+      .mockResolvedValueOnce(false) // 1차 → 실패 화면
+      .mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          settleRetry = resolve;
+        }),
+      );
+    await render(<InquiryScreen />);
+
+    await openConfirm(FOCUS.id);
+    await press('inquiry.confirm.primary');
+    expect(screen.getByText('카카오톡을 열 수 없어요')).toBeOnTheScreen();
+
+    await press('inquiry.confirm.primary'); // 「다시 시도」 — 응답이 오지 않는다
+    await press('inquiry.confirm.backdrop'); // 재시도 대기 중 닫기
+
+    await act(async () => {
+      settleRetry?.(false); // 폐기됐어야 할 재시도가 이제야 실패로 도착
+    });
+
+    // 모달이 닫힌 채로 남아야 한다 — 실패 화면이 되살아나면 안 된다.
+    expect(screen.queryByText('카카오톡을 열 수 없어요')).toBeNull();
+    expect(screen.queryByText('카카오톡으로 이동할까요?')).toBeNull();
+  });
+
   test('요청 중에는 주 버튼이 비활성이다 — 연타해도 요청·이벤트가 늘지 않는다', async () => {
     mockOpenInquiryChat.mockReturnValueOnce(new Promise<boolean>(() => {}));
     await render(<InquiryScreen />);
@@ -150,6 +199,62 @@ describe('InquiryScreen — 진행 중 요청', () => {
     await press('inquiry.confirm.primary');
     expect(mockOpenInquiryChat).toHaveBeenCalledTimes(1);
     expect(mockLogContactOpened).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 이 배선(30분 가드 + AppState 복귀)이 이 화면 계측 설계의 핵심인데, 여기가 안 잠기면
+// 다음 리팩터링에서 리스너를 실수로 지워도 CI가 못 잡는다.
+describe('InquiryScreen — 세션 경계 재발화', () => {
+  test('활동 없이 30분이 지난 뒤 복귀하면 노출을 다시 쏜다', async () => {
+    jest.useFakeTimers();
+    try {
+      await render(<InquiryScreen />);
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+
+      // 29분 뒤 복귀 — 아직 같은 세션이라 다시 쏘지 않는다.
+      await act(async () => {
+        jest.advanceTimersByTime(29 * 60 * 1000);
+      });
+      await returnToForeground();
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+
+      // ⚠️ 위 복귀가 **활동으로 집계돼 기준 시각이 갱신**됐다. 그래서 여기서 다시 31분을
+      //    흘려야 세션이 끊긴 것으로 본다 — 최초 마운트로부터 31분이 아니다.
+      //    (GA4가 어떤 이벤트로든 세션을 연장하는 것과 같은 규칙이다.)
+      await act(async () => {
+        jest.advanceTimersByTime(31 * 60 * 1000);
+      });
+      await returnToForeground();
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('이벤트를 쏘지 않은 호출도 기준 시각을 갱신한다 — 같은 세션에서 분모가 두 번 잡히지 않는다', async () => {
+    jest.useFakeTimers();
+    try {
+      await render(<InquiryScreen />);
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+
+      // 20분 뒤 카테고리 선택 — 노출은 안 쏘지만 활동이므로 기준 시각이 갱신된다.
+      await act(async () => {
+        jest.advanceTimersByTime(20 * 60 * 1000);
+      });
+      await press(`inquiry.chip.${FOCUS.categoryId}`);
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+
+      // 다시 11분 뒤(마운트로부터 31분) 담당자 확정 — GA4에선 11분 전 이벤트가 세션을
+      // 연장했으므로 **같은 세션**이다. 노출을 또 쏘면 분모가 2번 잡혀 전환율이 낮아진다.
+      await act(async () => {
+        jest.advanceTimersByTime(11 * 60 * 1000);
+      });
+      await openConfirm(FOCUS.id);
+      await press('inquiry.confirm.primary');
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
