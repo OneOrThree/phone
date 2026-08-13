@@ -295,7 +295,7 @@ export default function GroupScreen() {
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
   // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 빈 상태로 떨어진다).
   const openCreate = useCallback(
-    (entryPoint: 'empty' | 'list') => {
+    (entryPoint: 'empty' | 'list' | 'header') => {
       setTransitioning(true);
       navigation.navigate('GroupCreate', { entry_point: entryPoint });
     },
@@ -407,7 +407,7 @@ export default function GroupScreen() {
           isScreenFocused={isScreenFocused}
           userId={userId}
           onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
-          onCreate={() => openCreate('list')}
+          onCreate={(entryPoint) => openCreate(entryPoint)}
           onFind={(entryPoint) => openFind(entryPoint)}
           onStartFocus={onStartGroupFocus}
           onOpenSettings={onOpenGroupSettings}

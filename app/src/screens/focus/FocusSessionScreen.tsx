@@ -960,11 +960,14 @@ export default function FocusSessionScreen() {
       cancelLeaveNotifications().catch(() => {});
       const distractionTimedOut =
         leftPhaseRef.current === 'focus' && !shieldedRef.current && away > LEAVE_END_S;
-      if (leftPhaseRef.current === 'focus' && !distractionTimedOut) {
+      // AppState만으로는 실드가 실제로 외부 앱을 차단했는지 알 수 없다. 실드 세션은
+      // 홈 이동·기기 잠금·허용 앱 사용도 같은 콜백으로 들어오므로 차단 성공으로 기록하지 않고,
+      // 차단 결과를 관측할 수 있는 일반 세션만 이탈 이벤트를 발행한다.
+      if (leftPhaseRef.current === 'focus' && !shieldedRef.current && !distractionTimedOut) {
         logFocusDistractionDetected({
           reason: 'app_backgrounded',
           app_category: 'other',
-          blocked: shieldedRef.current,
+          blocked: false,
           returned_to_focus: true,
         });
       }

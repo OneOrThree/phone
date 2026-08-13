@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -47,7 +48,12 @@ import CharacterCreateRoute from '@/screens/character/CharacterCreateRoute';
 import CharacterSelectScreen from '@/screens/character/CharacterSelectScreen';
 import { TabBar } from '@/components/TabBar';
 import { initAnalytics } from '@/services/analytics';
-import { logAppMainViewed, logScreenExited, logScreenViewed } from '@/services/analyticsEvents';
+import {
+  logAppMainViewed,
+  logScreenExited,
+  logScreenViewed,
+  type AppEntry,
+} from '@/services/analyticsEvents';
 import { startDatadogNavigationTracking } from '@/services/datadog';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
@@ -77,13 +83,27 @@ function MainTabs() {
   );
 }
 
-export function RootNavigator() {
-  const { isGuest } = useUser();
-  const screenVisitRef = useRef<{ screen_name: string; entered_at: number } | null>(null);
+interface RootNavigatorProps {
+  initialAppEntry?: Extract<AppEntry, 'cold_start' | 'auth_complete'>;
+}
 
-  function enterScreen(screenName: string): void {
-    screenVisitRef.current = { screen_name: screenName, entered_at: Date.now() };
-    logScreenViewed({ screen_name: screenName, entry_source: 'navigation' });
+export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorProps) {
+  const { isGuest } = useUser();
+  const screenVisitRef = useRef<{
+    screen_name: string;
+    route_key: string;
+    entered_at: number;
+  } | null>(null);
+  const analyticsReadyRef = useRef(false);
+  const wasBackgroundedRef = useRef(false);
+
+  function enterScreen(route: { name: string; key: string }): void {
+    screenVisitRef.current = {
+      screen_name: route.name,
+      route_key: route.key,
+      entered_at: Date.now(),
+    };
+    logScreenViewed({ screen_name: route.name, entry_source: 'navigation' });
   }
 
   function exitScreen(): void {
@@ -94,6 +114,28 @@ export function RootNavigator() {
       dwell_seconds: Math.max(0, Math.round((Date.now() - visit.entered_at) / 1000)),
     });
   }
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        if (analyticsReadyRef.current) exitScreen();
+        screenVisitRef.current = null;
+        wasBackgroundedRef.current = true;
+        return;
+      }
+      if (state !== 'active' || !wasBackgroundedRef.current) return;
+      wasBackgroundedRef.current = false;
+      if (!analyticsReadyRef.current) return;
+      const route = navigationRef.getCurrentRoute();
+      if (route) enterScreen(route);
+      logAppMainViewed({
+        app_entry: 'foreground',
+        auth_state: isGuest ? 'guest' : 'member',
+        initial_tab: 'home',
+      });
+    });
+    return () => sub.remove();
+  }, [isGuest]);
   // 외부 링크 수신은 이 컴포넌트가 하지 않는다 — 인증된 user가 있을 때만 렌더되는 트리라
   // 로그인 전에 도착한 초대 링크를 놓친다. 구독은 App.tsx 루트의 <DeepLinkGate/>가 맡고,
   // 여기서는 컨테이너 준비 후 버퍼를 흘려보내는 일(onReady)만 한다(§6-6).
@@ -101,28 +143,28 @@ export function RootNavigator() {
     <NavigationContainer
       ref={navigationRef}
       onReady={async () => {
+        // 준비 직후 버퍼를 먼저 비운다. 분석 초기화의 AsyncStorage 대기 중 새 딥링크가
+        // 도착하면 오래된 pending 링크가 나중에 최신 목적지를 덮어쓸 수 있다.
+        flushPendingDeepLink();
         // GA4 초기화 — 디바이스 ID 확보 + 공통 파라미터 부착(1회). 모듈 미링크 시 no-op.
         await initAnalytics();
+        analyticsReadyRef.current = true;
         logAppMainViewed({
-          app_entry: 'cold_start',
+          app_entry: initialAppEntry,
           auth_state: isGuest ? 'guest' : 'member',
           initial_tab: 'home',
         });
         const initialRoute = navigationRef.getCurrentRoute();
-        if (initialRoute) enterScreen(initialRoute.name);
+        if (initialRoute) enterScreen(initialRoute);
         // Datadog RUM 화면 추적(GROMO-928) — 화면 전환을 RUM 뷰로 기록. 키 미설정 시 no-op.
         startDatadogNavigationTracking();
-        // 앱 종료 상태에서 알림으로 실행된 경우 — 버퍼된 딥링크를 컨테이너 준비 후 처리.
-        flushPendingDeepLink();
       }}
       onStateChange={() => {
         const route = navigationRef.getCurrentRoute();
         if (!route) return;
-        if (screenVisitRef.current?.screen_name !== route.name) {
+        if (screenVisitRef.current?.route_key !== route.key) {
           exitScreen();
-          enterScreen(route.name);
-        } else {
-          logScreenViewed({ screen_name: route.name, entry_source: 'navigation' });
+          enterScreen(route);
         }
       }}
     >

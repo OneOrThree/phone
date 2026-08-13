@@ -65,15 +65,26 @@ export default function OccupationScreen() {
 
   // 시험 변경 실제 반영 — 시트 [완료하기](또는 시트 생략 시 저장 직후)에서만 호출된다.
   // 화면 상태(selected)가 아닌 스냅샷된 category를 받는다(리뷰 반영).
-  async function applyCategoryChange(category: string) {
+  async function applyCategoryChange(category: string): Promise<boolean> {
+    let saved = false;
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.focusCategory, category);
+      saved = true;
     } catch {
       // 로컬 저장 실패는 치명적이지 않음
     }
-    // 매핑되는 카테고리면 서버 occupation 동기화(실패해도 로컬 저장은 유효 — 다음 변경 때 재시도)
+    // 매핑되는 카테고리면 서버 occupation 동기화. 로컬·서버 중 하나라도 정본 저장에 성공한
+    // 경우에만 호출부가 occupation_updated를 발행한다.
     const occupation = occupationForCategory(category);
-    if (occupation) updateOccupation({ occupation }).catch(() => {});
+    if (occupation) {
+      try {
+        await updateOccupation({ occupation });
+        saved = true;
+      } catch {
+        // 로컬 저장이 성공했으면 화면 변경은 유지하고 다음 저장 때 서버를 재시도한다.
+      }
+    }
+    return saved;
   }
 
   async function handleSave() {
@@ -120,8 +131,8 @@ export default function OccupationScreen() {
         // 추천 조회 실패는 조용히 무시 — 시트 없이 바로 반영
       }
     }
-    await applyCategoryChange(category);
-    logOccupationUpdated();
+    const saved = await applyCategoryChange(category);
+    if (saved) logOccupationUpdated();
     setSaving(false);
     navigation.goBack();
   }
@@ -147,8 +158,8 @@ export default function OccupationScreen() {
   // 쓰기 완료 전에 포커스되어 이전 시험을 읽는 것을 방지(리뷰 반영)
   async function handleComplete(category: string, adds: string[], removes: Subject[]) {
     applySubjectDiff(adds, removes);
-    await applyCategoryChange(category);
-    logOccupationUpdated();
+    const saved = await applyCategoryChange(category);
+    if (saved) logOccupationUpdated();
     navigation.goBack();
   }
 

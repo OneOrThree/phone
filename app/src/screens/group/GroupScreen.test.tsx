@@ -103,7 +103,7 @@ jest.mock('./GroupListScreen', () => {
       groupId: string,
       interaction: { interactionId: string; interactionAcceptedAt: number },
     ) => void;
-    onCreate: () => void;
+    onCreate: (entryPoint: 'header') => void;
     onFind: (entryPoint: 'header') => void;
     onRefresh: () => Promise<void>;
   }) {
@@ -123,7 +123,7 @@ jest.mock('./GroupListScreen', () => {
             <RNText>{`목록-${g.name}`}</RNText>
           </RNTouchable>
         ))}
-        <RNTouchable onPress={onCreate}>
+        <RNTouchable onPress={() => onCreate('header')}>
           <RNText>목록-만들기</RNText>
         </RNTouchable>
         <RNTouchable onPress={() => onFind('header')}>
@@ -544,7 +544,7 @@ describe('목록의 만들기·찾기 진입점', () => {
     await renderScreen();
 
     await press('목록-만들기');
-    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate', { entry_point: 'list' });
+    expect(mockNavigate).toHaveBeenCalledWith('GroupCreate', { entry_point: 'header' });
 
     // 만들고 돌아오면 포커스 재조회가 새 그룹을 목록에 얹는다.
     mockGetMyGroups.mockResolvedValueOnce([summary(), otherSummary(), thirdSummary()]);

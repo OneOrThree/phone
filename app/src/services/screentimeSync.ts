@@ -450,7 +450,10 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
           reportedAt: localNoonInstant(yesterday),
           isFinal: true, // 어제분 마감 — 최종 보고(서버가 achieved 신뢰·395 발사)
         });
-        if (yesterdayGoalSeconds > 0) {
+        // 네이티브 최종 읽기가 실패한 경우에는 보존된 이전 값으로 서버 upsert만 시도하고,
+        // GA4 평가는 다음 성공적인 읽기에서 한 번만 발행한다. closed-date 마커와 같은
+        // 성공 경계를 사용해야 재시도마다 일일 평가가 중복되지 않는다.
+        if (yesterdayGoalSeconds > 0 && readsOk) {
           logScreentimeGoalEvaluated({
             goal_met: achieved,
             actual_seconds: finalMinutes * 60,

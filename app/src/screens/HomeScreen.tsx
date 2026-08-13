@@ -348,21 +348,21 @@ export default function HomeScreen() {
     goalMinutes?: number;
   } | null>(null);
   useEffect(() => {
-    if (goalCelebration?.goalMinutes == null) return;
+    if (!isFocused || goalCelebration?.goalMinutes == null) return;
     logCurrencyRewardShown({
       surface: 'goal_modal',
       amount: focusGoalReward(goalCelebration.goalMinutes),
       reward_type: 'focus_goal',
     });
-  }, [goalCelebration?.goalMinutes]);
+  }, [goalCelebration?.goalMinutes, isFocused]);
   useEffect(() => {
-    if (screenTimeCelebration?.goalMinutes == null || goalCelebration != null) return;
+    if (!isFocused || screenTimeCelebration?.goalMinutes == null || goalCelebration != null) return;
     logCurrencyRewardShown({
       surface: 'screentime_modal',
       amount: screenTimeGoalReward(screenTimeCelebration.goalMinutes),
       reward_type: 'screentime_goal',
     });
-  }, [goalCelebration, screenTimeCelebration?.goalMinutes]);
+  }, [goalCelebration, screenTimeCelebration?.goalMinutes, isFocused]);
   // 오늘 집중 누적(로컬)을 effect 재실행 없이 최신값으로 읽기 위한 ref(폴백/계측용).
   const todayFocusSecondsRef = useRef(todayFocusSeconds);
   todayFocusSecondsRef.current = todayFocusSeconds;

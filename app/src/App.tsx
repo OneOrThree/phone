@@ -150,6 +150,9 @@ function App() {
   >(null);
   // 온보딩 누끼 체험에서 만든 캐릭터 경로 — CharacterProvider가 하이드레이션 시 시드한다(장착은 안 함).
   const [onboardingCutoutUri, setOnboardingCutoutUri] = useState<string | null>(null);
+  // 메인 트리가 처음 열리는 원인을 구분한다. 저장 세션 복원은 콜드스타트, 로그인·온보딩
+  // 완료로 뒤늦게 열리는 경우는 auth_complete로 기록한다.
+  const mainEntryRef = useRef<'cold_start' | 'auth_complete'>('cold_start');
   // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
@@ -181,6 +184,7 @@ function App() {
         const merged = { ...data, ...profile };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+        mainEntryRef.current = 'cold_start';
         setUser({ ...merged, userId });
         // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
         // 앱 진입을 막지 않도록 fire-and-forget(실패 시 다음 실행에 재시도).
@@ -189,6 +193,7 @@ function App() {
           if (countryCode) updateProfile({ countryCode }).catch(() => {});
         }
       } catch {
+        mainEntryRef.current = 'cold_start';
         setUser({ ...data, userId });
       }
       setLoading(false);
@@ -370,8 +375,10 @@ function App() {
       setServerZone(profile.timeZone); // 서버 날짜 버킷 존(GROMO-1252)
       const merged = { ...data, ...profile };
       await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...merged, userId });
     } catch {
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...data, userId });
     }
   }
@@ -435,8 +442,10 @@ function App() {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
       // 로그아웃/새 기기에선 온보딩 중간 로그인이 기존 계정의 주 진입로라 여기서도 백필(GROMO-758 리뷰).
       await backfillFocusCategory(login); // postAuthSave가 /users/me를 병합해 occupation이 실려 옴
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...login, userId });
     } else {
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...login, userId, nickname: data.nickname.trim() });
     }
     return 'ok';
@@ -476,6 +485,7 @@ function App() {
           const userId = getUserIdFromToken(u.accessToken);
           // 기존 계정 로그인이면 postAuthSave가 /users/me를 병합해 occupation이 실려 온다
           await backfillFocusCategory(u); // 준비 시험 복원(GROMO-758)
+          mainEntryRef.current = 'auth_complete';
           setUser({ ...u, userId });
         }}
       />
@@ -518,7 +528,7 @@ function App() {
                   <PendingGoalApplier />
                   {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
                   <ScreenTimeSyncer />
-                  <RootNavigator />
+                  <RootNavigator initialAppEntry={mainEntryRef.current} />
                 </SubjectProvider>
               </FocusProvider>
             </CharacterProvider>

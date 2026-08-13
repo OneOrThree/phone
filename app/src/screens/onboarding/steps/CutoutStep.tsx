@@ -151,6 +151,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
                 <View style={s.modalBody}>
                   <CharacterCreator
                     userId={userId}
+                    entrySource="onboarding"
                     onSaved={handleSaved}
                     onUnavailable={() => setModerationUnavailable(true)}
                   />

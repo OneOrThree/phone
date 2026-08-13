@@ -827,11 +827,15 @@ export function logCharacterCreateStarted(p: { entry_source: string }): void {
 
 export function logCharacterSourceSelected(p: {
   selection_source: CharacterSelectionSource;
+  entry_source?: string;
 }): void {
   track('character_source_selected', p);
 }
 
-export function logCharacterCreated(p: { selection_source: CharacterSelectionSource }): void {
+export function logCharacterCreated(p: {
+  selection_source: CharacterSelectionSource;
+  entry_source?: string;
+}): void {
   track('character_created', p);
 }
 
@@ -862,7 +866,7 @@ export function logCurrencyInsufficient(p: {
 
 export function logCurrencyHistoryViewed(p: {
   entry: CurrencyHistoryEntry;
-  tx_count: number;
+  tx_count?: number;
 }): void {
   track('currency_history_viewed', p);
 }

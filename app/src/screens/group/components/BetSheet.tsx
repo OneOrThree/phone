@@ -320,10 +320,15 @@ export default function BetSheet({
     (!isCreate && bet === null);
 
   useEffect(() => {
-    if (!insufficient || !stakeValid || insufficientLoggedRef.current === amount) return;
+    if ((!insufficient && !serverInsufficient) || !stakeValid) return;
+    if (insufficientLoggedRef.current === amount) return;
     insufficientLoggedRef.current = amount;
-    logCurrencyInsufficient({ context: 'bet', required: amount, shortfall: shortage });
-  }, [amount, insufficient, shortage, stakeValid]);
+    logCurrencyInsufficient({
+      context: 'bet',
+      required: amount,
+      shortfall: Math.max(0, amount - coins),
+    });
+  }, [amount, coins, insufficient, serverInsufficient, stakeValid]);
 
   // 시트를 열 때 서버 잔액을 다시 받는다(§0-3).
   useEffect(() => {
@@ -341,6 +346,11 @@ export default function BetSheet({
     await createBet(groupId, challenge.id, { stake: amount, date });
     logGroupBetCreated({
       stake: amount,
+      mission_type: challenge.missionType,
+      mission_category: challenge.missionCategory,
+    });
+    logGroupChallengeJoined({
+      session_count: 1,
       mission_type: challenge.missionType,
       mission_category: challenge.missionCategory,
     });
@@ -399,11 +409,11 @@ export default function BetSheet({
           // 그대로 돌려주고(기존 '시간이 지났어요' 문구가 여전히 사실이다 — 내일이 되면 다시
           // 열 수 있다), 남이 먼저 연 내일 내기는 BET_ALREADY_EXISTS로 각자 분기를 탄다.
           // 이 실패는 **내일 날짜**로 보낸 요청의 것이다 — 문구가 '오늘'이라고 말하면 거짓이 된다.
-          handleSubmitError(retryError, true);
+          await handleSubmitError(retryError, true);
           return;
         }
       }
-      handleSubmitError(e, betForTomorrow);
+      await handleSubmitError(e, betForTomorrow);
     }
   }
 
@@ -411,7 +421,7 @@ export default function BetSheet({
   // (시트가 사라진다), 시트에 남는 경로만 마지막의 setSubmitting(false)에 닿는다.
   // sentTomorrow = 이 실패를 만든 요청이 실제로 보낸 날짜가 내일인가 — 날짜가 걸린 문구
   // (BET_ALREADY_EXISTS)를 사실대로 분기하는 근거다(PR #473 리뷰).
-  function handleSubmitError(e: unknown, sentTomorrow: boolean) {
+  async function handleSubmitError(e: unknown, sentTomorrow: boolean) {
     switch (groupErrorCode(e)) {
       // 이미 참가한 상태 = 원하던 결과다. 새 참가가 아니므로 계측은 발행하지 않는다
       // (GroupFindSheet의 ALREADY_MEMBER와 같은 규칙).
@@ -528,7 +538,9 @@ export default function BetSheet({
       // 회차 경로의 잔액 부족(BET_INSUFFICIENT_BALANCE — 409)도 같은 사실·같은 처방이다.
       case 'INSUFFICIENT_CURRENCY':
       case BET_INSUFFICIENT_BALANCE:
-        refresh();
+        // 서버 판정 이후 잔액을 먼저 재조회한다. 성공하면 아래 이벤트가 최신 잔액을
+        // 기준으로 shortfall을 계산하고, 실패해도 서버가 부족하다고 확정한 사실은 보존한다.
+        await refresh();
         setInsufficientVerdict({ stake: amount, coinsVersion: latestCoinsVersion() });
         break;
       // 게이트 확대(전 조합 허용)가 아직 배포되지 않은 서버는 FOCUS×DURATION 밖의 내기를

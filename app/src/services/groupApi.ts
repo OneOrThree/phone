@@ -4,13 +4,15 @@
 // 챌린지 3종은 2차에서 되살렸다(docs/app/group-plan-2.md §1, 계약 정본은 docs/back/group-plan-2.md §1).
 // 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
-import { api } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api, getUserIdFromToken } from '@/services/api';
 import {
   logGroupChallengeDeleted,
   logGroupChallengeSettled,
   type GroupJoinMethod,
 } from '@/services/analyticsEvents';
 import { todayStrKst } from '@/utils/localDate';
+import { STORAGE_KEYS } from '@/types/storage';
 import type {
   ChallengeDeletionPreviewResponse,
   CreateAnnouncementRequest,
@@ -42,6 +44,7 @@ import type {
 
 // 같은 정산 결과를 화면 재조회마다 반복 발행하지 않는다. sessionId는 서버가 부여한 회차 키다.
 const reportedChallengeSettlementIds = new Set<string>();
+const settlementReportInFlightIds = new Set<string>();
 
 // ── 신설 서버 에러코드(계약 §2 — 앱이 code 문자열로 분기) ────────────────────────
 // 화면 switch가 흩어 쓰는 리터럴의 오타를 막으려고 상수로 못 박는다(신설분만 —
@@ -352,11 +355,24 @@ export async function getMyChallengeResults(page?: {
     { params: { since: page?.since, limit: page?.limit } },
   );
   const results = Array.isArray(data?.results) ? data.results : [];
+  const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
+  const userId = getUserIdFromToken(accessToken ?? '') ?? 'unknown';
   for (const result of results) {
     if (reportedChallengeSettlementIds.has(result.sessionId)) continue;
+    if (settlementReportInFlightIds.has(result.sessionId)) continue;
     if (result.status !== 'OPEN' && result.status !== 'UNUSED') {
-      reportedChallengeSettlementIds.add(result.sessionId);
-      logGroupChallengeSettled?.({ status: result.status });
+      settlementReportInFlightIds.add(result.sessionId);
+      try {
+        const marker = `${STORAGE_KEYS.groupChallengeSettlementReported}:${userId}:${result.sessionId}`;
+        const alreadyReported = await AsyncStorage.getItem(marker).catch(() => null);
+        if (!alreadyReported) {
+          logGroupChallengeSettled?.({ status: result.status });
+          await AsyncStorage.setItem(marker, result.status).catch(() => {});
+        }
+        reportedChallengeSettlementIds.add(result.sessionId);
+      } finally {
+        settlementReportInFlightIds.delete(result.sessionId);
+      }
     }
   }
   return results;

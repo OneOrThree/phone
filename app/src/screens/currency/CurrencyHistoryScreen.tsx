@@ -85,10 +85,6 @@ export default function CurrencyHistoryScreen() {
       if (seq !== requestSeqRef.current) return;
       setTransactions(list);
       setStatus('ready');
-      logCurrencyHistoryViewed({
-        entry,
-        tx_count: list.length,
-      });
     } catch (e) {
       if (seq !== requestSeqRef.current) return;
       if (__DEV__) {
@@ -99,18 +95,21 @@ export default function CurrencyHistoryScreen() {
       setErrorMsg(listErrorMessage(e));
       setStatus('error');
     }
-  }, [entry]);
+  }, []);
 
   // 잔액과 같은 주기로 다시 불러온다(GROMO-1193) — 마운트 1회만 로드하면 화면을 다시 열었을 때
   // '갱신된 잔액 + 낡은 내역'이 나란히 뜬다(잔액은 위 useRefreshCoinsOnFocus가 매번 갱신).
   useFocusEffect(
     useCallback(() => {
+      // 화면 진입은 거래 API 성공 여부와 독립된 퍼널 단계다. 조회 성공 여부는 status로
+      // 화면에 남기고, 성공한 내역 건수는 화면 진입 이벤트의 필수 조건으로 삼지 않는다.
+      logCurrencyHistoryViewed({ entry });
       load();
       return () => {
         // 요청 카운터라 cleanup 시점 값을 그대로 올리는 게 맞다(GroupBetHistoryScreen의 같은 자리).
         requestSeqRef.current++;
       };
-    }, [load]),
+    }, [entry, load]),
   );
 
   return (

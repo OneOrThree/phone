@@ -28,6 +28,7 @@ import {
   type CharacterQuota,
 } from '@/services/characterApi';
 import {
+  logCharacterCreateStarted,
   logCharacterCreated,
   logCharacterSourceSelected,
   type CharacterSelectionSource,
@@ -66,9 +67,11 @@ interface Props {
   // 서버 모더레이션이 '검사 불가(unavailable)'로 막았을 때 알린다(선택). 온보딩처럼 저장을
   // 강제하는 화면이, 검사 불가일 때만 다른 진행 경로(스킵 등)를 열어 갇힘을 피하게 하기 위함.
   onUnavailable?: () => void;
+  // 설정·온보딩 생성 퍼널을 같은 단계 집합으로 분리하기 위한 진입점.
+  entrySource: 'character_select' | 'onboarding';
 }
 
-export default function CharacterCreator({ onSaved, userId, onUnavailable }: Props) {
+export default function CharacterCreator({ onSaved, userId, onUnavailable, entrySource }: Props) {
   const { width } = useWindowDimensions();
 
   const [phase, setPhase] = useState<Phase>('idle');
@@ -79,6 +82,10 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
   // 아직 디코딩 중일 수 있어, 그 전에 저장하면 captureRef가 사진 물체가 빠진 채로 굽는다.
   // 새 결과·회전으로 uri가 바뀌면 false로 리셋하고 ObjectCharacter onLoad에서 다시 true로.
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    logCharacterCreateStarted({ entry_source: entrySource });
+  }, [entrySource]);
 
   // 생성 쿼터 — 마운트 시 1회 조회. quotaLoading은 조회 완료 전까지 true(깜빡임 최소화용).
   // quota===null은 '조회 실패'로, fail-open(생성 허용)으로 다룬다(쿼터는 제한이지 안전이 아님).
@@ -170,9 +177,9 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
 
     if (!picked || picked.canceled || !picked.assets?.length) return;
     selectionSourceRef.current = 'library';
-    logCharacterSourceSelected({ selection_source: 'library' });
+    logCharacterSourceSelected({ selection_source: 'library', entry_source: entrySource });
     await runCutout(picked.assets[0]);
-  }, [runCutout]);
+  }, [entrySource, runCutout]);
 
   // 카메라로 찍기 — 권한을 먼저 요청하고, 거부되면 해요체로 안내한다.
   const takePhoto = useCallback(async () => {
@@ -189,9 +196,9 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
 
     if (!shot || shot.canceled || !shot.assets?.length) return;
     selectionSourceRef.current = 'camera';
-    logCharacterSourceSelected({ selection_source: 'camera' });
+    logCharacterSourceSelected({ selection_source: 'camera', entry_source: entrySource });
     await runCutout(shot.assets[0]);
-  }, [runCutout]);
+  }, [entrySource, runCutout]);
 
   // 시계방향 90도 회전 — 현재 물체 PNG를 90도 돌려 다시 굽는다(탭할 때마다 90도씩 누적).
   // 90도 회전은 가로·세로가 뒤바뀌므로 결과 크기를 그대로 받아 aspect를 갱신한다.
@@ -261,13 +268,16 @@ export default function CharacterCreator({ onSaved, userId, onUnavailable }: Pro
       // 저장 성공 → 생성 1건을 서버 쿼터에 기록(best-effort). 네트워크 지연·타임아웃이 완료를
       // 막지 않도록 await 하지 않고 발사만 한다(함수 내부에서 실패를 이미 삼킨다).
       recordCharacterGeneration().catch(() => {});
-      logCharacterCreated({ selection_source: selectionSourceRef.current ?? 'library' });
+      logCharacterCreated({
+        selection_source: selectionSourceRef.current ?? 'library',
+        entry_source: entrySource,
+      });
       onSaved(uri);
     } catch {
       setError('캐릭터를 저장하지 못했어요. 다시 시도해 주세요.');
       setPhase('ready');
     }
-  }, [result, onSaved, userId, onUnavailable]);
+  }, [result, onSaved, userId, onUnavailable, entrySource]);
 
   const aspect = result && result.height > 0 ? result.width / result.height : 1;
   // 처리 중(working)엔 result에 이전 값이 남아 액션이 보이지만 미리보기는 스피너라, 이때 저장하면
