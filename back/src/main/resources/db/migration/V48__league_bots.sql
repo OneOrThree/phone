@@ -1673,14 +1673,11 @@ FROM (
            d.day::date AS day,
            g.n,
            plan.block_minutes,
-           -- 성향의 시작 시각에서 출발해 블록마다 35분 휴식을 끼워 늘어놓는다.
+           -- 성향의 시작 시각에서 출발하되, 그날 소요가 자정을 넘지 않도록 필요하면 앞당긴다.
+           -- 자정을 넘기면 집계는 시작일에 전량 귀속하는데 /stats/by-category 는 날짜 경계로
+           -- 클리핑해 읽어, 같은 날의 총합과 과목별 합이 어긋난다 (코드리뷰 반영).
            ((d.day::date)::timestamp
-                + make_interval(hours => CASE p.chronotype
-                                             WHEN 'DAWN' THEN 3
-                                             WHEN 'MORNING' THEN 8
-                                             WHEN 'AFTERNOON' THEN 13
-                                             ELSE 21
-                                         END)
+                + make_interval(mins => plan.start_minute)
                 + make_interval(mins => (g.n - 1) * (plan.block_minutes + 35))
            ) AT TIME ZONE 'Asia/Seoul' AS started_at,
            -- 봇이 채택한 과목을 블록마다 돌아가며 쓴다.
@@ -1697,14 +1694,27 @@ FROM (
             (now() AT TIME ZONE 'Asia/Seoul')::date::timestamp,
             interval '1 day') AS d(day)
     CROSS JOIN LATERAL (
-        SELECT daily.minutes,
-               GREATEST(1, ceil(daily.minutes / 80.0)::int) AS blocks,
-               GREATEST(15, (daily.minutes / GREATEST(1, ceil(daily.minutes / 80.0)::int))::int)
-                   AS block_minutes
-        FROM (SELECT (p.weekly_minutes / p.active_days
-                          * (80 + ('x' || substr(md5(u.nickname || d.day::date::text), 1, 2))::bit(8)::int
-                                  * 40 / 255)
-                          / 100) AS minutes) daily
+        SELECT sized.blocks,
+               sized.block_minutes,
+               -- 성향 시작 시각과 "자정 23시까지 다 끝나는 시작 시각" 중 이른 쪽
+               GREATEST(0, LEAST(sized.preferred_start,
+                                 23 * 60 - (sized.blocks * sized.block_minutes
+                                            + (sized.blocks - 1) * 35))) AS start_minute
+        FROM (
+            SELECT GREATEST(1, ceil(daily.minutes / 80.0)::int) AS blocks,
+                   GREATEST(15, (daily.minutes / GREATEST(1, ceil(daily.minutes / 80.0)::int))::int)
+                       AS block_minutes,
+                   (CASE p.chronotype
+                        WHEN 'DAWN' THEN 3
+                        WHEN 'MORNING' THEN 8
+                        WHEN 'AFTERNOON' THEN 13
+                        ELSE 21
+                    END) * 60 AS preferred_start
+            FROM (SELECT (p.weekly_minutes / p.active_days
+                              * (80 + ('x' || substr(md5(u.nickname || d.day::date::text), 1, 2))::bit(8)::int
+                                      * 40 / 255)
+                              / 100) AS minutes) daily
+        ) sized
     ) plan
     CROSS JOIN LATERAL generate_series(1, plan.blocks) AS g(n)
     -- rest_day_mask 비트 0 = 월요일, ISODOW 는 1 = 월요일
@@ -1730,4 +1740,31 @@ FROM (
     GROUP BY 1, 2
 ) s
 ON CONFLICT (user_id, date) DO NOTHING;
+
+-- ── 10) 시드된 집중일에서 스트릭 파생 ──────────────────────────────────────
+-- 히트맵에는 연속 집중일이 보이는데 /stats/streak 만 0 이면 앞뒤가 안 맞는다. 게다가
+-- UserStreakService 는 row 가 없으면 오늘만 반영해 1 부터 시작하고 과거를 소급하지 않아,
+-- 시드한 연속일이 영영 복구되지 않는다 (코드리뷰 반영).
+--
+-- 스트릭 자격일은 그날 누적 집중 10분(600초) 이상이다(UserStreakService.STREAK_MIN_SECONDS).
+-- 연속 구간은 gaps-and-islands — 날짜에서 행 번호를 빼면 같은 구간이 같은 값이 된다.
+INSERT INTO user_streaks (user_id, streak_count, longest_streak_count, last_session_date, updated_at)
+SELECT island.user_id, island.days, island.days, island.last_day, now()
+FROM (
+    SELECT marked.user_id,
+           count(*)::int AS days,
+           max(marked.date) AS last_day
+    FROM (
+        SELECT d.user_id,
+               d.date,
+               d.date - (row_number() OVER (PARTITION BY d.user_id ORDER BY d.date))::int AS island_key
+        FROM daily_focus_stats d
+        JOIN users u ON u.id = d.user_id
+        WHERE u.is_bot AND d.total_focus_seconds >= 600
+    ) marked
+    GROUP BY marked.user_id, marked.island_key
+) island
+-- 오늘(또는 어제)까지 이어진 구간만 '현재' 스트릭이다. 중간에 끊긴 옛 구간은 버린다.
+WHERE island.last_day >= (now() AT TIME ZONE 'Asia/Seoul')::date - 1
+ON CONFLICT (user_id) DO NOTHING;
 

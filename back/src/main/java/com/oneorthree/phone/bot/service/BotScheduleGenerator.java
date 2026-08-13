@@ -88,6 +88,26 @@ public class BotScheduleGenerator {
     private static final int DINNER_TO = 19 * 60;
 
     /**
+     * 봇별 식사 시각 오프셋의 폭(분) — 결과는 -45 ~ +45.
+     *
+     * <p>고정 시간대로 두면 <b>모든 봇이 동시에</b> 밥을 먹으러 간다. 실제로 그 시간대에 라이브 봇이
+     * 0명이 되는 구간이 생겼다(코드리뷰 반영). 사람마다 저녁 시각이 다른 게 자연스럽기도 하다.
+     * 날짜가 아니라 봇 id 로만 정해 한 사람의 식사 시각은 날마다 일정하게 유지한다.
+     */
+    private static final int MEAL_SHIFT_SPAN = 90;
+
+    /** 식사 오프셋 전용 시드 기준일 — 날짜에 흔들리지 않도록 고정값을 쓴다. */
+    private static final LocalDate MEAL_EPOCH = LocalDate.of(2000, 1, 1);
+    private static final long MEAL_SALT = 0x9E3779B97F4A7C11L;
+
+    /** 시작 위상 전용 시드 — 봇마다 고정이라 날짜와 무관하다. */
+    private static final LocalDate PHASE_EPOCH = LocalDate.of(2000, 1, 2);
+    private static final long PHASE_SALT = 0x27BB2EE687B0B0FDL;
+
+    /** 고정 위상을 날마다 흔드는 폭(위상 기준 비율) — ±15%. */
+    private static final double DAILY_PHASE_WOBBLE = 0.3;
+
+    /**
      * 봇의 {@code date} 하루치 블록을 시각 오름차순으로 만든다. 쉬는 날이거나 채택 과목이 없으면 빈 목록.
      *
      * @param profile    봇 성향
@@ -105,8 +125,10 @@ public class BotScheduleGenerator {
         BotChronotype chronotype = profile.getChronotype();
         BotStyle style = profile.getStyle();
         int windowEnd = chronotype.windowEndMinute(dailyMinutes);
-        int cursor = chronotype.startMinute() + (int) (random.nextDouble() * jitterCap(chronotype, dailyMinutes));
+        int cursor = chronotype.startMinute() + startOffset(profile.getUserId(), random,
+                jitterCap(chronotype, dailyMinutes));
 
+        int mealShift = mealShiftOf(profile.getUserId());
         List<BotFocusBlock> blocks = new ArrayList<>();
         int subjectIndex = (int) (random.nextDouble() * focusTagIds.size());
         int spent = 0;
@@ -134,7 +156,7 @@ public class BotScheduleGenerator {
 
             int rest = style.restMinutes(random.nextDouble());
             int blockEnd = cursor + length;
-            if (isMealTime(blockEnd)) {
+            if (isMealTime(blockEnd, mealShift)) {
                 rest += 40 + (int) (random.nextDouble() * 40);
                 sinceLongBreakMinutes = 0;
             } else if (sinceLongBreakMinutes >= LONG_BREAK_AFTER_MINUTES + (int) (random.nextDouble() * 40)) {
@@ -153,6 +175,20 @@ public class BotScheduleGenerator {
             }
         }
         return blocks;
+    }
+
+    /**
+     * 그날 시작을 얼마나 늦출지(분).
+     *
+     * <p>흔들림을 날마다 순수 난수로 뽑으면 어떤 날은 같은 성향의 봇이 <b>전부 늦게</b> 시작해 그
+     * 시간대에 라이브 봇이 0명이 되는 구간이 생긴다(코드리뷰 반영). 그래서 봇마다 <b>고정 위상</b>을
+     * 주어 시작 시각을 고르게 나눠 갖게 하고, 날짜별로는 그 위상을 소폭만 흔든다. 사람도 자기 리듬이
+     * 있고 날마다 조금씩 어긋나는 쪽이라 더 자연스럽다.
+     */
+    private static int startOffset(UUID userId, Random dayRandom, int jitterCap) {
+        double phase = seededFor(userId, PHASE_EPOCH, PHASE_SALT).nextDouble();
+        double shifted = phase + (dayRandom.nextDouble() - 0.5) * DAILY_PHASE_WOBBLE;
+        return (int) (Math.min(1, Math.max(0, shifted)) * jitterCap);
     }
 
     /**
@@ -177,9 +213,15 @@ public class BotScheduleGenerator {
         return 1 + (int) (random.nextDouble() * (subjectCount - 1));
     }
 
-    private static boolean isMealTime(int minuteOfDay) {
-        return (minuteOfDay >= LUNCH_FROM && minuteOfDay <= LUNCH_TO)
-                || (minuteOfDay >= DINNER_FROM && minuteOfDay <= DINNER_TO);
+    private static boolean isMealTime(int minuteOfDay, int mealShift) {
+        return (minuteOfDay >= LUNCH_FROM + mealShift && minuteOfDay <= LUNCH_TO + mealShift)
+                || (minuteOfDay >= DINNER_FROM + mealShift && minuteOfDay <= DINNER_TO + mealShift);
+    }
+
+    /** 이 봇의 식사 시각이 표준에서 얼마나 어긋나는지(분). 날짜와 무관하게 고정이다. */
+    private static int mealShiftOf(UUID userId) {
+        return (int) (seededFor(userId, MEAL_EPOCH, MEAL_SALT).nextDouble() * MEAL_SHIFT_SPAN)
+                - MEAL_SHIFT_SPAN / 2;
     }
 
     /**

@@ -160,8 +160,11 @@ class BotSeedScheduleTest {
         }
     }
 
-    /** 커버리지 검사는 분 단위 배열을 쓰므로 기간을 따로 잡는다(1년치는 메모리·시간이 과하다). */
-    private static final int COVERAGE_WEEKS = 8;
+    /**
+     * 커버리지도 같은 1년을 본다. 8주만 검사했더니 29주차(2027-03-06 18:05)에 공백이 남아 있었다
+     * (코드리뷰 반영). 분 단위 배열이 1년치면 2MB 남짓이라 감당할 만하다.
+     */
+    private static final int COVERAGE_WEEKS = WEEKS;
 
     @Test
     @DisplayName("24시간 어느 순간에도 집중 중인 봇이 최소 한 명은 있다")
