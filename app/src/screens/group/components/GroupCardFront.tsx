@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { ComponentRef, Ref, RefObject } from 'react';
+import { useEffect, type Ref, type RefObject } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,7 +8,11 @@ import {
   View,
   type GestureResponderHandlers,
 } from 'react-native';
+import Animated, { useAnimatedProps, useSharedValue } from 'react-native-reanimated';
+import Svg, { Circle } from 'react-native-svg';
+import { M } from '@/constants/motion';
 import { T, withAlpha } from '@/constants/theme';
+import { useMotion } from '@/hooks/useMotion';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { groupCardEmojiLabel } from '../groupCardEmojiStore';
 import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
@@ -22,12 +26,14 @@ interface GroupCardFrontProps {
   onFlip: () => void;
   onAccessibilityFlip?: () => void;
   reorderHandlers?: GestureResponderHandlers;
+  reorderState?: 'idle' | 'holding' | 'active';
+  reorderHoldMs?: number;
   onMoveStep?: (step: -1 | 1) => void;
   canMovePrevious?: boolean;
   canMoveNext?: boolean;
   cardRef?: RefObject<View | null>;
   bodyRef?: RefObject<View | null>;
-  gripRef?: Ref<ComponentRef<typeof Pressable>>;
+  gripRef?: Ref<View>;
   active?: boolean;
 }
 
@@ -40,6 +46,8 @@ export function GroupCardFront({
   onFlip,
   onAccessibilityFlip,
   reorderHandlers,
+  reorderState = 'idle',
+  reorderHoldMs = 300,
   onMoveStep,
   canMovePrevious = false,
   canMoveNext = false,
@@ -54,17 +62,19 @@ export function GroupCardFront({
   return (
     <View ref={cardRef} style={s.shadowShell} testID={`group.card.front.${group.groupId}`}>
       <View style={s.root}>
-        <View style={s.grip} testID={`group.card.gripDrag.${group.groupId}`} {...reorderHandlers}>
-          <Pressable
+        <View style={s.grip} testID={`group.card.gripDrag.${group.groupId}`}>
+          <View
             ref={gripRef}
             style={s.gripButton}
             testID={`group.card.grip.${group.groupId}`}
+            {...reorderHandlers}
+            accessible
             accessibilityRole="adjustable"
             focusable={active}
-            disabled={!active}
+            accessibilityState={{ disabled: !active }}
             accessibilityLabel={`${group.name} 카드 순서`}
             accessibilityValue={{ text: `${position}/${reorderCount}` }}
-            accessibilityHint="드래그하거나 접근성 동작으로 순서를 바꿉니다"
+            accessibilityHint="0.3초 누른 상태에서 좌우로 드래그하거나 접근성 동작으로 순서를 바꿉니다"
             accessibilityActions={[
               ...(canMovePrevious ? [{ name: 'decrement' as const, label: '앞으로 이동' }] : []),
               ...(canMoveNext ? [{ name: 'increment' as const, label: '뒤로 이동' }] : []),
@@ -74,8 +84,12 @@ export function GroupCardFront({
               if (event.nativeEvent.actionName === 'increment' && canMoveNext) onMoveStep?.(1);
             }}
           >
-            <MaterialCommunityIcons name="drag-vertical-variant" size={28} color={T.inkSub} />
-          </Pressable>
+            <ReorderGripVisual
+              state={reorderState}
+              groupId={group.groupId}
+              holdMs={reorderHoldMs}
+            />
+          </View>
         </View>
         <Pressable
           ref={bodyRef}
@@ -155,6 +169,81 @@ export function GroupCardFront({
   );
 }
 
+const GRIP_TOUCH_SIZE = 52;
+const GRIP_RING_SIZE = 50;
+const GRIP_RING_STROKE = 3;
+const GRIP_RING_RADIUS = (GRIP_RING_SIZE - GRIP_RING_STROKE) / 2;
+const GRIP_RING_CIRCUMFERENCE = 2 * Math.PI * GRIP_RING_RADIUS;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+function ReorderGripVisual({
+  state,
+  groupId,
+  holdMs,
+}: {
+  state: 'idle' | 'holding' | 'active';
+  groupId: string;
+  holdMs: number;
+}) {
+  const motion = useMotion();
+  const progress = useSharedValue(state === 'active' ? 1 : 0);
+
+  useEffect(() => {
+    if (state === 'holding') {
+      // 진행 링은 장식이 아니라 hold의 남은 시간을 알려 준다. 동작 줄이기에서는 움직임을
+      // 생략하고, 실제 대기가 끝나 active가 됐을 때만 꽉 찬 링으로 바꾼다.
+      progress.value = motion.reduce
+        ? 0
+        : motion.timing(1, { duration: holdMs, easing: M.curve.linear.fn });
+      return;
+    }
+    // idle에서는 링 자체가 숨겨지므로 되감기 애니메이션을 만들 필요가 없다. 여기서
+    // CubicBezierEasing 객체를 넘기면 일부 네이티브 Worklets 런타임이 값을 복사하지 못해
+    // 렌더 오류를 내므로 즉시 초기화한다.
+    progress.value = state === 'active' ? 1 : 0;
+  }, [holdMs, motion, progress, state]);
+
+  const ringProps = useAnimatedProps(() => ({
+    strokeDashoffset: GRIP_RING_CIRCUMFERENCE * (1 - progress.value),
+  }));
+
+  return (
+    <View
+      style={[s.gripVisual, state === 'active' && s.gripVisualActive]}
+      testID={`group.card.gripVisual.${groupId}`}
+    >
+      <Svg
+        width={GRIP_RING_SIZE}
+        height={GRIP_RING_SIZE}
+        style={[s.gripRing, state === 'idle' && s.gripRingIdle]}
+        testID={`group.card.gripProgress.${groupId}`}
+      >
+        <Circle
+          cx={GRIP_RING_SIZE / 2}
+          cy={GRIP_RING_SIZE / 2}
+          r={GRIP_RING_RADIUS}
+          stroke={withAlpha(T.white, 0.24)}
+          strokeWidth={GRIP_RING_STROKE}
+          fill="none"
+        />
+        <AnimatedCircle
+          cx={GRIP_RING_SIZE / 2}
+          cy={GRIP_RING_SIZE / 2}
+          r={GRIP_RING_RADIUS}
+          stroke={T.white}
+          strokeWidth={GRIP_RING_STROKE}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={`${GRIP_RING_CIRCUMFERENCE} ${GRIP_RING_CIRCUMFERENCE}`}
+          animatedProps={ringProps}
+          transform={`rotate(-90 ${GRIP_RING_SIZE / 2} ${GRIP_RING_SIZE / 2})`}
+        />
+      </Svg>
+      <MaterialCommunityIcons name="drag-vertical" size={28} color={T.white} />
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   shadowShell: {
     flex: 1,
@@ -182,14 +271,22 @@ const s = StyleSheet.create({
     top: T.space.lg,
     right: T.space.lg,
     zIndex: 2,
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: GRIP_TOUCH_SIZE,
+    height: GRIP_TOUCH_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: withAlpha(T.white, 0.92),
   },
   gripButton: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  gripVisual: {
+    width: GRIP_TOUCH_SIZE,
+    height: GRIP_TOUCH_SIZE,
+    borderRadius: GRIP_TOUCH_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gripVisualActive: { backgroundColor: withAlpha(T.white, 0.18) },
+  gripRing: { position: 'absolute' },
+  gripRingIdle: { opacity: 0 },
   art: {
     flex: 1,
     minHeight: 310,

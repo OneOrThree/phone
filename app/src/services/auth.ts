@@ -25,6 +25,7 @@ import { claimStoredInviteAttribution } from '@/services/deferredInvite';
 import { setServerZone } from '@/utils/serverZone';
 import type { LoginResult } from '@/types/api';
 import { STORAGE_KEYS } from '@/types/storage';
+import { mockGuestLogin } from '@/mocks/fixtures/session';
 
 export { statusCodes };
 export type { AuthMethod };
@@ -344,6 +345,9 @@ export function facebookLogin(): Promise<LoginResult> {
 // (그룹 생성/가입 등 일부는 서버가 403으로 제한.) 매 호출이 새 게스트를 만드므로
 // postAuthSave가 토큰을 저장 → 앱 재실행 시 저장된 토큰을 재사용해 같은 게스트를 유지한다.
 async function guestLoginAttempt(): Promise<LoginResult> {
+  if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
+    return postAuthSave(mockGuestLogin(), true);
+  }
   let data: AuthResponse;
   try {
     const res = await axios.post<AuthResponse>(`${API_URL}/api/v1/auth/guest`);

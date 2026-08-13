@@ -83,6 +83,8 @@ enum Palette {
   static let successBorder = rgb(0xD6E9DA)
   /// #C25F52 — 경고 텍스트
   static let dangerInk = rgb(0xC25F52)
+  /// #B04C41 — 작은 오류 동작 텍스트 — paperAlt에서도 WCAG AA 대비 확보
+  static let dangerInkStrong = rgb(0xB04C41)
   /// #FBEFEC — 경고 카드 배경
   static let dangerBg = rgb(0xFBEFEC)
   /// #F3D9D4

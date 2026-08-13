@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gromo 1:1 문의 — 화면 시안</title>
+
+<style>
+  /* ═══════════════════════════════════════════════════════════════════════
+     이 시안은 화면을 393×852 **논리 픽셀 1:1** 로 그린 뒤 transform: scale() 로만
+     줄여 보여준다. 그래서 프레임 안의 CSS px 값은 전부 RN 의 pt 값과 같다 —
+     아래 수치는 "비슷하게 맞춘 것"이 아니라 app/src 의 StyleSheet 값 그대로다.
+
+     색은 app/src/constants/theme.ts (T) 를 미러링한다.
+     앱은 app.config.js 에서 userInterfaceStyle:'light' 로 못 박혀 있어 다크모드가
+     없다 — 이 시안도 라이트만 그린다.
+     ═══════════════════════════════════════════════════════════════════════ */
+  :root {
+    --k: .72;                 /* 프레임 표시 배율 (내용 값에는 영향 없음) */
+
+    --bg: #f4f5f8;            /* T.bg — 문서 배경. 앱 화면 배경은 T.paperLight(흰색)다 */
+    --surface: #ffffff;       /* T.white / T.paper / T.paperLight */
+    --surface-2: #f5f6f9;     /* T.paperAlt — 카드 테두리로도 쓰인다 */
+    --chip: #f1f2f8;          /* T.chipBg */
+    --chip-line: #e3e5ee;     /* T.chipBorder */
+    --ink: #1c1e22;           /* T.ink */
+    --ink-sub: #667085;       /* T.inkSub */
+    --ink-muted: #9aa0a8;     /* T.inkMuted */
+    --ink-faint: #aeb4bf;     /* T.inkFaint */
+    --line: #eaebee;          /* T.border */
+    --divider: #f1f2f5;       /* T.divider */
+    --accent: #5e6ad2;        /* T.accent */
+    --accent-deep: #4a53b8;   /* T.accentDeep */
+    --accent-soft: #eef0fb;   /* T.accentBg / T.sandLight / T.noteBg */
+    --note-line: #dde0f3;     /* T.noteBorder / T.sand */
+    --green-bg: #ecf5ee;      /* T.greenBg */
+    --success-ink: #4a7a54;   /* T.successInk */
+    --danger-ink: #c25f52;    /* T.dangerInk */
+    --danger-bg: #fbefec;     /* T.dangerBg */
+    --danger-line: #f3d9d4;   /* T.dangerBorder */
+    --green-deep: #4e9b5c;    /* T.greenDeep */
+    --flame: #e8452c;         /* T.flame */
+    --kakao: #fee500;         /* T.kakao */
+    --kakao-ink: #3c1e1e;     /* T.kakaoInk */
+    --av-1: #5e6ad2;          /* T.avatarPalette[0] */
+    --av-2: #9a6fb0;          /* T.avatarPalette[1] */
+    --av-3: #5b8a6a;          /* T.avatarPalette[2] */
+    --shadow: rgba(30, 35, 64, .16);   /* T.shadow #1E2340 @ .16 — 검정 아님 */
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard',
+      'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 20px 120px; }
+
+  header.doc { padding: 44px 0 18px; }
+  header.doc h1 {
+    font-size: 30px; font-weight: 800; letter-spacing: -.6px; margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  header.doc p { margin: 0 0 8px; color: var(--ink-sub); max-width: 74ch; }
+  header.doc p b { color: var(--ink); font-weight: 700; }
+  .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-muted); margin-bottom: 6px;
+  }
+
+  .decisions {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px; margin: 20px 0 4px;
+  }
+  .decisions div {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 11px 13px;
+  }
+  .decisions .k { font-size: 11px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; }
+  .decisions .v { font-size: 14px; font-weight: 700; margin-top: 2px; }
+
+  .callout {
+    margin: 22px 0 0; padding: 14px 16px;
+    background: var(--accent-soft); border: 1px solid var(--note-line); border-radius: 14px;
+  }
+  .callout.ok { background: var(--green-bg); border-color: #d6e9da; }
+  .callout.ok h3 { color: var(--success-ink); }
+  .callout.warn { background: var(--danger-bg); border-color: var(--danger-line); }
+  .callout.warn h3 { color: var(--danger-ink); }
+  .callout h3 { margin: 0 0 6px; font-size: 14px; font-weight: 800; color: var(--accent-deep); }
+  .callout p { margin: 0; font-size: 13.5px; color: var(--ink-sub); max-width: 80ch; }
+  .callout p + p { margin-top: 6px; }
+  .callout code {
+    font-size: 12.5px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px;
+  }
+
+  .toolbar {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 12px 0; margin: 26px 0 24px;
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .toolbar .lbl { font-size: 12px; font-weight: 700; color: var(--ink-muted); margin-right: 2px; }
+  .toolbar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
+
+  button {
+    font: inherit; color: inherit; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface);
+    border-radius: 9px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+    transition: border-color 120ms ease-out, background 120ms ease-out;
+  }
+  button:hover { border-color: var(--note-line); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed='true'] {
+    background: var(--accent-soft); border-color: var(--note-line); color: var(--accent-deep);
+  }
+
+  h2.sec { font-size: 19px; font-weight: 800; letter-spacing: -.3px; margin: 48px 0 6px; }
+  p.secnote { margin: 0 0 22px; color: var(--ink-sub); font-size: 14px; max-width: 80ch; }
+  p.secnote b { color: var(--ink); font-weight: 700; }
+
+  .gallery { display: flex; flex-wrap: wrap; gap: 34px 26px; align-items: flex-start; }
+  .slot { display: flex; flex-direction: column; gap: 12px; width: calc(393px * var(--k)); }
+  .slot .cap { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .slot .cap h3 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.2px; }
+  .slot .cap .tag {
+    font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 20px;
+    background: var(--accent-soft); color: var(--accent-deep); border: 1px solid var(--note-line);
+  }
+  .slot .cap .tag.no { background: var(--danger-bg); color: var(--danger-ink); border-color: var(--danger-line); }
+  .slot .desc { font-size: 13px; color: var(--ink-sub); margin: 0; }
+  .slot .desc b { color: var(--ink); font-weight: 700; }
+  /* ⚠️ li 를 flex 로 만들면 안 된다 — 안의 <b> 와 텍스트 노드가 각각 flex 아이템이 되어
+     한 문장이 여러 칸으로 쪼개진다. 부호는 절대 위치 가상요소로 붙이고 흐름은 인라인으로 둔다. */
+  .slot ul.pc { margin: 2px 0 0; padding-left: 0; list-style: none; font-size: 12.5px; }
+  .slot ul.pc li { position: relative; padding-left: 14px; color: var(--ink-sub); }
+  .slot ul.pc li::before {
+    content: '+'; position: absolute; left: 0; top: 0;
+    color: var(--success-ink); font-weight: 800;
+  }
+  .slot ul.pc li.con::before { content: '−'; color: var(--danger-ink); }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     여기서부터가 기기 안이다. 이 아래 모든 px = RN pt (1:1).
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* 기기 — 겉 상자는 축소된 크기를 차지하고, 안쪽 .ph 만 1:1 로 그린 뒤 scale 한다 */
+  .dev {
+    position: relative; flex: none;
+    width: calc(393px * var(--k)); height: calc(852px * var(--k));
+  }
+  .ph {
+    position: absolute; top: 0; left: 0;
+    width: 393px; height: 852px;
+    transform: scale(var(--k)); transform-origin: 0 0;
+    background: #fff;              /* T.paperLight — 앱 화면 배경은 흰색이다 */
+    border-radius: 46px; overflow: hidden;
+    box-shadow: 0 18px 44px -22px rgba(30, 35, 64, .3), 0 0 0 1px var(--line);
+    font-size: 15px; line-height: 1.28; letter-spacing: 0;
+  }
+  .scr { position: absolute; inset: 0; display: flex; flex-direction: column; }
+
+  /* iOS 상태바 — SafeAreaView edges={['top']} 가 잡아 두는 59pt */
+  .sb {
+    flex: none; height: 59px; display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 34px 0; font-size: 15px; font-weight: 700;
+  }
+  .sb .ind { display: flex; align-items: center; gap: 5px; }
+  .sb .ind svg { width: 17px; height: 12px; }
+  .hi {
+    position: absolute; left: 50%; bottom: 8px; margin-left: -67px;
+    width: 134px; height: 5px; border-radius: 3px; background: var(--ink); opacity: .28;
+  }
+
+  /* SettingsScaffold 상단 바 — padding 4/12/12, gap 8, back 아이콘 24(+padding 4), 제목 heading 21/700 */
+  .nb { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 12px 12px; }
+  .nb .bk { flex: none; width: 32px; height: 32px; display: grid; place-items: center; }
+  .nb .bk svg { width: 24px; height: 24px; color: var(--ink); }
+  .nb .ttl { font-size: 21px; font-weight: 700; }
+
+  /* SettingsScaffold 본문 — padH 20 / padTop 8 / padBottom 32 */
+  .bd { flex: 1; overflow-y: auto; scrollbar-width: none; padding: 8px 20px 32px; }
+  .bd::-webkit-scrollbar { display: none; }
+  /* MenuScreen 본문 — padH 20 / padTop 4 / padBottom insets.bottom(34) + 90 */
+  .bd.menu { padding: 4px 20px 124px; }
+
+  /* MenuScreen 프로필 헤더 */
+  .prof {
+    display: flex; align-items: center; gap: 12px;
+    background: #fff; border: 1px solid var(--surface-2); border-radius: 16px;
+    padding: 12px 16px;
+  }
+  .prof .pav {
+    flex: none; width: 52px; height: 52px; border-radius: 16px;
+    background: var(--accent-soft); display: grid; place-items: center;
+  }
+  .prof .pav svg { width: 44px; height: 44px; color: var(--accent); }
+  .prof .col { flex: 1; min-width: 0; }
+  .prof .nmrow { display: flex; align-items: center; gap: 8px; }
+  .prof .nm { font-size: 19px; font-weight: 700; }
+  .prof .streak {
+    display: flex; align-items: center; gap: 3px;
+    background: var(--accent-soft); border-radius: 999px; padding: 2px 8px;
+    font-size: 10px; font-weight: 700; color: var(--accent-deep);
+  }
+  .prof .streak svg { width: 10px; height: 10px; color: var(--flame); }
+  .prof .psub { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin-top: 3px; }
+  .prof .cv { flex: none; width: 18px; height: 18px; color: var(--ink-muted); }
+
+  /* SettingsSection / SettingsRow — SettingsList.tsx */
+  .sec2 { margin-top: 16px; }
+  .sec2 > .st {
+    font-size: 13px; font-weight: 600; color: var(--ink-muted);
+    letter-spacing: .3px; margin: 0 0 8px 8px;
+  }
+  .card {
+    background: #fff; border: 1px solid var(--surface-2); border-radius: 16px; padding: 0 16px;
+  }
+  .row { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 0; min-height: 44px; }
+  /* 구분선 — 행 하단 1px, 아이콘 있는 행은 left 48 인셋 */
+  .row + .row::before {
+    content: ''; position: absolute; top: 0; left: 48px; right: 0; height: 1px; background: var(--divider);
+  }
+  .row .ic { flex: none; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; }
+  .row .ic svg { width: 18px; height: 18px; }
+  .row .tx { flex: 1; min-width: 0; }
+  .row .lb { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .row .sub { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin-top: 2px; }
+  .row .vl { font-size: 13px; font-weight: 600; color: var(--ink-sub); }
+  .row .cv { flex: none; width: 17px; height: 17px; color: var(--ink-faint); }
+  /* 아이콘 색 규칙(MenuScreen 주석) — 목표·집중=인디고, 알림·공개=초록, 계정·정보=중립 */
+  .ic.indigo { background: var(--accent-soft); color: var(--accent-deep); }
+  .ic.green  { background: var(--green-bg);   color: var(--green-deep); }
+  .ic.neutral{ background: var(--accent-soft); color: var(--ink-sub); }
+  /* 신규 행 강조 — 시안 전용 표식(앱에는 없다) */
+  .row.mark::after {
+    content: ''; position: absolute; inset: -2px -8px; border: 2px solid var(--accent);
+    border-radius: 10px; pointer-events: none;
+  }
+  .newtag {
+    font-size: 11px; font-weight: 800; letter-spacing: .04em; vertical-align: 2px;
+    background: var(--accent); color: #fff; border-radius: 20px; padding: 1px 7px; margin-left: 6px;
+  }
+
+  /* 플로팅 탭바 — TabBar.tsx + tabBarLayout.ts (BAR_H 56 · FAB_R 28 · FAB_LIFT −8) */
+  .tabbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px 34px; }
+  .tb { position: relative; height: 56px; }
+  .tb .barsvg { position: absolute; inset: 0; width: 369px; height: 56px; filter: drop-shadow(0 10px 18px rgba(30, 35, 64, .22)); }
+  .tb .pill {
+    position: absolute; top: 9px; width: 60px; height: 38px; border-radius: 19px;
+    background: rgba(255, 255, 255, .65); border: 1px solid rgba(255, 255, 255, .9);
+  }
+  .tb .tabs { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; }
+  .tb .t { flex: 1; min-width: 44px; height: 56px; display: grid; place-items: center; }
+  .tb .t svg { width: 26px; height: 26px; color: var(--ink-muted); }
+  .tb .t.on svg { color: var(--accent); }
+  .tb .slot { flex: none; width: 72px; }
+  .tb .fab {
+    position: absolute; left: 50%; margin-left: -28px; top: -20px;
+    width: 56px; height: 56px; border-radius: 28px; background: var(--accent);
+    display: grid; place-items: center; box-shadow: 0 8px 14px rgba(94, 106, 210, .6);
+  }
+  .tb .fab svg { width: 26px; height: 26px; color: #fff; margin-left: 3px; }
+
+  /* ── 문의 화면 본문 ─────────────────────────────────────────── */
+  /* 안내 문단 — OccupationScreen 의 desc 규격 (body 17/500 lh25) */
+  .desc { font-size: 17px; font-weight: 500; line-height: 25px; color: var(--ink-sub); margin: 8px 0 12px; }
+  /* 그룹 라벨 — OccupationScreen groupLabel */
+  .glabel { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin: 0 0 8px 2px; }
+  .glabel.gap { margin-top: 20px; }
+
+  /* 카테고리 칩 — 상자는 OccupationScreen(r13·1.5px·padding 12/16),
+     선택 상태는 ChallengeComposeSheet(accentBg + accent 테두리 + accentDeep 700).
+     앱에는 알약(999) 칩이 없다 — 시안에서 만들지 않는다. */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 12px 16px; border-radius: 13px;
+    background: #fff; border: 1.5px solid var(--line);
+    font-size: 15px; font-weight: 600; color: var(--ink-sub);
+  }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-deep); font-weight: 700; }
+
+  /* 담당자 카드 */
+  .pcard {
+    background: #fff; border: 1px solid var(--surface-2); border-radius: 16px;
+    padding: 16px; margin-top: 12px;
+    box-shadow: 0 10px 16px -12px var(--shadow);
+  }
+  .pcard.reco { border-color: var(--accent); }
+  .pcard .hd { display: flex; align-items: center; gap: 12px; }
+  .pcard .av {
+    flex: none; width: 44px; height: 44px; border-radius: 22px;
+    display: grid; place-items: center; color: #fff; font-size: 19px; font-weight: 700;
+  }
+  .pcard .col { flex: 1; min-width: 0; }
+  .pcard .nm { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .pcard .scope { font-size: 13px; font-weight: 600; color: var(--accent-deep); margin-top: 2px; }
+  .pcard .badge {
+    flex: none; background: var(--accent-soft); border: 1px solid var(--note-line);
+    border-radius: 999px; padding: 2px 8px; font-size: 13px; font-weight: 600; color: var(--accent-deep);
+  }
+  .pcard .intro { font-size: 17px; font-weight: 500; line-height: 25px; color: var(--ink-sub); margin-top: 8px; }
+  .pcard .meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+  .pcard .meta svg { flex: none; width: 14px; height: 14px; }
+
+  /* 카카오톡 CTA — **색만** LoginScreen에서 가져온다(T.kakao / T.kakaoInk).
+     형상은 LoginScreen btn(minHeight 52·r14)이 아니라 이 화면 전용 44·r12다 —
+     카드 안에 들어가는 버튼이라 로그인 화면의 전면 버튼보다 작아야 한다 (LLD §3) */
+  .kbtn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; margin-top: 12px; padding: 12px 16px; border-radius: 12px;
+    background: var(--kakao); color: var(--kakao-ink); font-size: 15px; font-weight: 700;
+  }
+  .kbtn svg { flex: none; width: 16px; height: 16px; }
+
+  /* 안내 박스 — OccupationScreen note (noteBg / noteBorder / r14 / padding 12·16) */
+  .note {
+    display: flex; align-items: flex-start; gap: 8px; margin-top: 24px;
+    background: var(--accent-soft); border: 1px solid var(--note-line);
+    border-radius: 14px; padding: 12px 16px;
+  }
+  .note svg { flex: none; width: 16px; height: 16px; color: var(--accent-deep); margin-top: 1px; }
+  .note p { margin: 0; font-size: 13px; font-weight: 500; line-height: 19px; color: var(--ink-sub); }
+
+  /* ConfirmCardModal — scrim withAlpha(T.night.bottom,.5), 카드 maxW 360 r20 */
+  .dim { position: absolute; inset: 0; background: rgba(26, 29, 46, .5); }
+  .mcard {
+    position: absolute; left: 28px; right: 28px; top: 50%; transform: translateY(-50%);
+    background: #fff; border: 1px solid var(--surface-2); border-radius: 20px;
+    padding: 24px 24px 12px;
+  }
+  .mcard .mt { font-size: 21px; font-weight: 700; color: var(--ink); }
+  .mcard .mb { font-size: 17px; font-weight: 500; line-height: 25px; color: var(--ink-sub); margin-top: 12px; }
+  /* 실패 URL — ConfirmCardModal은 body를 단일 <Text>로 렌더하므로 별도 스타일을 줄 수 없다.
+     URL은 body 문자열 안에 `\n\n{url}`로 들어가며 cardBody(.mb)와 완전히 같은 서식을 받는다.
+     (LLD §5.3 — 색을 바꾸려면 ConfirmCardModal API 변경이 필요하고, 계획엔 bodySelectable만 있다) */
+  .mcard .murl {
+    font-size: 17px; font-weight: 500; line-height: 25px; color: var(--ink-sub);
+    margin-top: 25px; word-break: break-all;
+  }
+  .mcard .mp {
+    margin-top: 20px; background: var(--accent); border-radius: 14px; padding: 16px 0;
+    text-align: center; font-size: 19px; font-weight: 700; color: #fff;
+  }
+  .mcard .ms { padding: 16px 0; text-align: center; font-size: 15px; font-weight: 600; color: var(--ink-sub); }
+
+  /* SheetShell — C안 비교용 (r24 상단 · dim .42 · grabber 40×5) */
+  .sdim { position: absolute; inset: 0; background: rgba(26, 29, 46, .42); }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: #fff; border-radius: 24px 24px 0 0; padding: 8px 20px 34px;
+    box-shadow: 0 -14px 40px rgba(30, 35, 64, .22);
+  }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 2px auto 12px; }
+
+  /* C안 아바타 3열 */
+  .avrow { display: flex; gap: 8px; }
+  .avcell {
+    flex: 1; background: #fff; border: 1px solid var(--surface-2); border-radius: 16px;
+    padding: 16px 8px; text-align: center;
+  }
+  .avcell.on { border-color: var(--accent); }
+  .avcell .av {
+    width: 44px; height: 44px; border-radius: 22px; margin: 0 auto 8px;
+    display: grid; place-items: center; color: #fff; font-size: 19px; font-weight: 700;
+  }
+  .avcell .nm { font-size: 15px; font-weight: 600; }
+  .avcell .role { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin-top: 2px; }
+
+  /* B안 스텝 라벨 */
+  .step { display: flex; align-items: center; gap: 8px; margin: 20px 0 8px; }
+  .step .n {
+    flex: none; width: 20px; height: 20px; border-radius: 10px; background: var(--accent);
+    color: #fff; font-size: 13px; font-weight: 700; display: grid; place-items: center;
+  }
+  .step .t { font-size: 15px; font-weight: 600; }
+  .morebtn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 12px; padding: 12px 0; border-radius: 12px;
+    border: 1px solid var(--line); background: #fff;
+    font-size: 15px; font-weight: 600; color: var(--ink-sub);
+  }
+  .morebtn svg { width: 14px; height: 14px; }
+
+  /* ── 문서 표 ────────────────────────────────────────────────── */
+  .tblwrap { overflow-x: auto; }
+  table.q { border-collapse: collapse; width: 100%; margin-top: 14px; font-size: 13.5px; }
+  table.q th, table.q td {
+    text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top;
+  }
+  table.q th { font-size: 11px; color: var(--ink-muted); letter-spacing: .04em; font-weight: 700; }
+  table.q td:first-child { font-weight: 700; white-space: nowrap; }
+  table.q code {
+    font-size: 12px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px; white-space: nowrap;
+  }
+  table.q td.src { color: var(--ink-muted); font-size: 12px; white-space: nowrap; }
+
+  footer.doc {
+    margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--line);
+    font-size: 12.5px; color: var(--ink-muted);
+  }
+</style>
+</head>
+<body>
+
+<svg style="display:none" aria-hidden="true">
+  <!-- Ionicons 대응 글리프. 이름·크기·색은 코드와 같고, 패스 모양만 근사다. -->
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19 8 12l7-7"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.6 9.6 0 0 1-2.8-.4L3 21l1.6-4.4A8.3 8.3 0 0 1 3 11.5 8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><circle cx="8.4" cy="11.5" r=".95" fill="currentColor" stroke="none"/><circle cx="12" cy="11.5" r=".95" fill="currentColor" stroke="none"/><circle cx="15.6" cy="11.5" r=".95" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-kakao" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3C6.9 3 2.8 6.3 2.8 10.3c0 2.6 1.7 4.9 4.3 6.2l-1.1 4c-.1.3.3.6.6.4l4.7-3.1c.2 0 .5.1.7.1 5.1 0 9.2-3.3 9.2-7.6S17.1 3 12 3Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.4M12 7.5v.1"/></symbol>
+  <symbol id="i-time" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6.8v5.4l3.4 2"/></symbol>
+  <symbol id="i-hourglass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h11M6.5 21h11M8 3v3.6c0 .7.3 1.4.9 1.9L12 11l3.1-2.5c.6-.5.9-1.2.9-1.9V3M8 21v-3.6c0-.7.3-1.4.9-1.9L12 13l3.1 2.5c.6.5.9 1.2.9 1.9V21"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 21V4.5M5.5 5h11.8l-2 4 2 4H5.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="3"/><path d="M8 10.5V7.8A4 4 0 0 1 15.8 6.6"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="3.2"/><path d="M12 18.2v.1"/></symbol>
+  <symbol id="i-school" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m2.8 8.6 9.2-4.2 9.2 4.2-9.2 4.2z"/><path d="M6.6 10.6v4.6c0 1.6 2.4 2.9 5.4 2.9s5.4-1.3 5.4-2.9v-4.6"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 16.4V11a5.8 5.8 0 1 0-11.6 0v5.4L4.6 18.4h14.8z"/><path d="M10.2 21a2.2 2.2 0 0 0 3.6 0"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+  <symbol id="i-personcircle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"/><circle cx="12" cy="10" r="3"/><path d="M5.9 19a7 7 0 0 1 12.2 0"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2.8H7.4a2.6 2.6 0 0 0-2.6 2.6v13.2a2.6 2.6 0 0 0 2.6 2.6h9.2a2.6 2.6 0 0 0 2.6-2.6V8Z"/><path d="M14 2.8V8h5.2M8.4 13h7.2M8.4 16.6h5"/></symbol>
+  <symbol id="i-reader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.8"/><path d="M7 9h10M7 12.4h10M7 15.8h6"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6s1 3.2-1.4 5.6C8 10.8 6 12.4 6 15.2A6 6 0 0 0 18 15.4c0-3-2-4.6-2.6-7-1.8 1-2 2.8-2 2.8s-1.6-4.4-1.4-8.6Z"/></symbol>
+  <symbol id="i-charhead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="9.2" cy="10.6" r=".9" fill="currentColor"/><circle cx="14.8" cy="10.6" r=".9" fill="currentColor"/><path d="M9.4 14.8a3.6 3.6 0 0 0 5.2 0"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.1 2.8 10.5V21h6.4v-6h5.6v6h6.4V10.5Z"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 5.5H4.2v1.6A3.4 3.4 0 0 0 7.6 10.5M17 5.5h2.8v1.6a3.4 3.4 0 0 1-3.4 3.4M12 14v3.4M8.6 20.4h6.8"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8.4" r="3.4"/><path d="M2.8 19.4a6.4 6.4 0 0 1 12.4 0"/><path d="M16.4 5.4a3.4 3.4 0 0 1 0 6.6M17.6 14.6a5.6 5.6 0 0 1 3.6 4.8"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.6 19.4 12 7 19.4Z"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="currentColor"><path d="M12 18.6a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4ZM8.2 13.4a5.6 5.6 0 0 1 7.6 0l1.5-1.6a7.8 7.8 0 0 0-10.6 0ZM4.6 9.9a10.8 10.8 0 0 1 14.8 0l1.5-1.6a13 13 0 0 0-17.8 0Z"/></symbol>
+  <symbol id="i-batt" viewBox="0 0 26 12" fill="none"><rect x=".7" y=".7" width="20.6" height="10.6" rx="3.2" stroke="currentColor" stroke-opacity=".4" stroke-width="1"/><rect x="2.4" y="2.4" width="17.2" height="7.2" rx="2" fill="currentColor"/><path d="M23 4.3v3.4a2 2 0 0 0 0-3.4Z" fill="currentColor" fill-opacity=".4"/></symbol>
+  <symbol id="i-cell" viewBox="0 0 20 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="4.7" y="5.6" width="3" height="6.4" rx="1"/><rect x="9.4" y="3.2" width="3" height="8.8" rx="1"/><rect x="14.1" y=".8" width="3" height="11.2" rx="1"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">docs/prd/inquiry · 화면 시안</div>
+  <h1>1:1 문의 — 카카오톡 오픈채팅 연결 화면</h1>
+  <p>앱 안에 메신저를 만들지 않는다. 답변은 <b>카카오톡 1:1 오픈채팅방</b>에서 하고, 앱은
+     <b>누구에게 / 어떤 주제로</b> 물어볼지 고르는 안내 화면만 담당한다.
+     담당자는 개발자 3명이고 <b>사용자가 직접 지목</b>한다.</p>
+
+  <div class="callout ok">
+    <h3>✓ 확정 — 레이아웃 A안 · 상태 강도 S1 (2026-08-13)</h3>
+    <p>담당자 카드 3장을 세로로 세우고, 문의 상태는 앱에 표시하지 않는다. 결정 정본은
+       <code>policy.md</code> D1~D14이며 이 문서와 어긋나면 그쪽이 맞다.</p>
+  </div>
+
+  <div class="callout">
+    <h3>이 시안이 「코드와 같다」는 말의 뜻</h3>
+    <p>기기 프레임은 <b>393 × 852 논리 픽셀 1:1</b>로 그린 뒤 <code>transform: scale()</code>로만 줄여 보여준다.
+       그래서 프레임 안의 CSS px 값은 곧 React Native 의 pt 값이다 — 여백 20, 카드 radius 16,
+       아이콘 36×36 같은 수치가 <b>비슷하게 맞춘 값이 아니라 <code>app/src</code>의 StyleSheet 값 그대로</b>다.
+       아래 <a href="#xref">§ 코드 대조표</a>가 항목별 출처를 건다.</p>
+    <p><b>다른 점 딱 하나</b> — 아이콘 글리프는 Ionicons 실물이 아니라 같은 이름·같은 크기의 근사 패스다.
+       이름(<code>chevron-forward</code> 등)·치수(18/17/26)·색은 코드와 같지만 곡선 모양은 다를 수 있다.</p>
+  </div>
+
+  <div class="decisions">
+    <div><div class="k">답변 창구</div><div class="v">카카오톡 1:1 오픈채팅</div></div>
+    <div><div class="k">담당자 배정</div><div class="v">사용자가 직접 지목</div></div>
+    <div><div class="k">문의 상태</div><div class="v">표시하지 않음 (S1)</div></div>
+    <div><div class="k">백엔드</div><div class="v">변경 없음</div></div>
+    <div><div class="k">신규 화면</div><div class="v">1개</div></div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <span class="lbl">표시 배율</span>
+  <button type="button" data-k=".56">작게</button>
+  <button type="button" data-k=".72" aria-pressed="true">기본</button>
+  <button type="button" data-k="1">실제 크기 (1:1)</button>
+  <span class="sep"></span>
+  <span class="lbl">iPhone 15 Pro · 393 × 852 pt · 상단 여백 59 / 하단 34</span>
+</div>
+
+<!-- ══ 확정 화면 ════════════════════════════════════════════════════════ -->
+<h2 class="sec">확정 화면 — 이대로 만든다</h2>
+<p class="secnote">진입점부터 앱을 떠나는 순간까지 4장. <b>앱의 역할은 ④에서 끝난다</b> —
+   그 뒤 대화는 카카오톡이 가져간다.</p>
+
+<div class="gallery">
+
+  <!-- ① 진입점 -->
+  <div class="slot">
+    <div class="cap"><h3>① 진입점 — 「전체」 탭</h3><span class="tag">기존 화면 + 1행</span></div>
+    <div class="dev">
+      <div class="ph"><div class="scr">
+        <div class="sb"><span>9:41</span><span class="ind"><svg><use href="#i-cell"/></svg><svg><use href="#i-wifi"/></svg><svg style="width:26px"><use href="#i-batt"/></svg></span></div>
+        <div class="bd menu" id="menuScroll">
+
+          <div class="prof">
+            <div class="pav"><svg><use href="#i-charhead"/></svg></div>
+            <div class="col">
+              <div class="nmrow">
+                <span class="nm">재영</span>
+                <span class="streak"><svg><use href="#i-flame"/></svg>연속 공부 5일</span>
+              </div>
+              <div class="psub">토익 준비 중</div>
+            </div>
+            <svg class="cv"><use href="#i-fwd"/></svg>
+          </div>
+
+          <div class="sec2">
+            <div class="card">
+              <div class="row">
+                <div class="ic indigo"><svg><use href="#i-hourglass"/></svg></div>
+                <div class="tx"><div class="lb">시간조각</div></div>
+                <span class="vl">1,240개</span><svg class="cv"><use href="#i-fwd"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="sec2">
+            <div class="st">목표 · 집중</div>
+            <div class="card">
+              <div class="row"><div class="ic indigo"><svg><use href="#i-flag"/></svg></div>
+                <div class="tx"><div class="lb">개인 목표 수정</div><div class="sub">집중 4시간 · 사용 3시간</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic indigo"><svg><use href="#i-lock"/></svg></div>
+                <div class="tx"><div class="lb">집중 중 허용 앱 관리</div><div class="sub">앱 3개 허용 중</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic indigo"><svg><use href="#i-phone"/></svg></div>
+                <div class="tx"><div class="lb">스크린타임 관리</div><div class="sub">권한 · 측정 대상 앱</div></div>
+                <span class="vl" style="color:#4a7a54">허용됨</span><svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic indigo"><svg><use href="#i-school"/></svg></div>
+                <div class="tx"><div class="lb">준비 시험</div></div>
+                <span class="vl">토익</span><svg class="cv"><use href="#i-fwd"/></svg></div>
+            </div>
+          </div>
+
+          <div class="sec2">
+            <div class="st">알림 · 공개</div>
+            <div class="card">
+              <div class="row"><div class="ic green"><svg><use href="#i-bell"/></svg></div>
+                <div class="tx"><div class="lb">알림 설정</div><div class="sub">집중 리마인더 · 리그 · 심야 · 소리</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic green"><svg><use href="#i-eye"/></svg></div>
+                <div class="tx"><div class="lb">통계 공개 범위</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+            </div>
+          </div>
+
+          <div class="sec2">
+            <div class="st">계정 · 정보</div>
+            <div class="card">
+              <div class="row"><div class="ic neutral"><svg><use href="#i-personcircle"/></svg></div>
+                <div class="tx"><div class="lb">계정 설정</div><div class="sub">소셜 연동 · 로그아웃 · 회원 탈퇴</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row mark"><div class="ic neutral"><svg><use href="#i-chat"/></svg></div>
+                <div class="tx"><div class="lb">1:1 문의<span class="newtag">신규</span></div><div class="sub">담당 개발자에게 카카오톡으로</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic neutral"><svg><use href="#i-doc"/></svg></div>
+                <div class="tx"><div class="lb">개인정보 처리방침</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic neutral"><svg><use href="#i-reader"/></svg></div>
+                <div class="tx"><div class="lb">서비스 이용약관</div></div>
+                <svg class="cv"><use href="#i-fwd"/></svg></div>
+              <div class="row"><div class="ic neutral"><svg><use href="#i-info"/></svg></div>
+                <div class="tx"><div class="lb">버전 정보</div></div>
+                <span class="vl">v1.0.1</span><svg class="cv"><use href="#i-fwd"/></svg></div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="tabbar">
+          <div class="tb">
+            <svg class="barsvg" viewBox="0 0 369 56"><path d="M 28 0 H 152.48 A 33 33 0 1 0 216.52 0 H 341 A 28 28 0 0 1 369 28 V 28 A 28 28 0 0 1 341 56 H 28 A 28 28 0 0 1 0 28 V 28 A 28 28 0 0 1 28 0 Z" fill="rgba(255,255,255,.55)" stroke="rgba(234,235,238,.75)" stroke-width="1"/></svg>
+            <div class="pill" style="left:295.875px"></div>
+            <div class="tabs">
+              <div class="t"><svg><use href="#i-home"/></svg></div>
+              <div class="t"><svg><use href="#i-trophy"/></svg></div>
+              <div class="slot"></div>
+              <div class="t"><svg><use href="#i-people"/></svg></div>
+              <div class="t on"><svg><use href="#i-menu"/></svg></div>
+            </div>
+            <div class="fab"><svg><use href="#i-play"/></svg></div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div></div>
+    </div>
+    <p class="desc"><b>「계정 · 정보」의 두 번째 행</b>. 계정 설정 바로 아래, 약관보다 위다 —
+       문의는 사람이 찾는 행이고 약관은 어쩌다 여는 행이다 (policy.md D12).</p>
+  </div>
+
+  <!-- ② 문의 화면 -->
+  <div class="slot">
+    <div class="cap"><h3>② 1:1 문의</h3><span class="tag">신규 화면 (유일)</span></div>
+    <div class="dev">
+      <div class="ph"><div class="scr">
+        <div class="sb"><span>9:41</span><span class="ind"><svg><use href="#i-cell"/></svg><svg><use href="#i-wifi"/></svg><svg style="width:26px"><use href="#i-batt"/></svg></span></div>
+        <div class="nb"><span class="bk"><svg><use href="#i-back"/></svg></span><span class="ttl">1:1 문의</span></div>
+        <div class="bd">
+          <p class="desc" style="margin:8px 0 12px">궁금한 점이나 오류가 있으면 담당 개발자에게
+            카카오톡으로 직접 물어보실 수 있어요.</p>
+
+          <div class="glabel">어떤 내용인가요?</div>
+          <div class="chips">
+            <span class="chip on">집중 · 스크린타임</span>
+            <span class="chip">그룹 · 챌린지</span>
+            <span class="chip">계정 · 기타</span>
+          </div>
+
+          <div class="glabel gap">담당 개발자</div>
+
+          <div class="pcard reco" style="margin-top:0">
+            <div class="hd">
+              <div class="av" style="background:var(--av-1)">A</div>
+              <div class="col"><div class="nm">개발자 A</div><div class="scope">집중 · 스크린타임 · 통계</div></div>
+              <span class="badge">추천</span>
+            </div>
+            <div class="intro">타이머가 안 멈추거나 사용 시간이 이상할 때</div>
+            <div class="meta"><svg><use href="#i-time"/></svg>평일 10:00 – 19:00</div>
+            <div class="kbtn"><svg><use href="#i-kakao"/></svg>카카오톡으로 문의하기</div>
+          </div>
+
+          <div class="pcard">
+            <div class="hd">
+              <div class="av" style="background:var(--av-2)">B</div>
+              <div class="col"><div class="nm">개발자 B</div><div class="scope">그룹 · 챌린지 · 리그</div></div>
+            </div>
+            <div class="intro">그룹 초대가 안 되거나 챌린지 정산이 이상할 때</div>
+            <div class="meta"><svg><use href="#i-time"/></svg>평일 13:00 – 22:00</div>
+            <div class="kbtn"><svg><use href="#i-kakao"/></svg>카카오톡으로 문의하기</div>
+          </div>
+
+          <div class="pcard">
+            <div class="hd">
+              <div class="av" style="background:var(--av-3)">C</div>
+              <div class="col"><div class="nm">개발자 C</div><div class="scope">계정 · 시간조각 · 그 밖</div></div>
+            </div>
+            <div class="intro">로그인 · 탈퇴 · 상점처럼 위에 없는 모든 것</div>
+            <div class="meta"><svg><use href="#i-time"/></svg>평일 10:00 – 19:00</div>
+            <div class="kbtn"><svg><use href="#i-kakao"/></svg>카카오톡으로 문의하기</div>
+          </div>
+
+          <div class="note">
+            <svg><use href="#i-info"/></svg>
+            <p>카카오톡 앱으로 이동해요. 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.</p>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div></div>
+    </div>
+    <p class="desc">칩을 고르면 해당 담당자가 <b>1번 자리로 올라오고 「추천」 배지가 붙을 뿐</b>,
+       나머지 2장은 그대로 남는다 — 「직접 지목」(D2)이 유지되려면 항상 3장이 다 보여야 한다.</p>
+  </div>
+
+  <!-- ③ 이동 확인 -->
+  <div class="slot">
+    <div class="cap"><h3>③ 이동 확인</h3><span class="tag">기존 컴포넌트</span></div>
+    <div class="dev">
+      <div class="ph"><div class="scr">
+        <div class="sb"><span>9:41</span><span class="ind"><svg><use href="#i-cell"/></svg><svg><use href="#i-wifi"/></svg><svg style="width:26px"><use href="#i-batt"/></svg></span></div>
+        <div class="nb"><span class="bk"><svg><use href="#i-back"/></svg></span><span class="ttl">1:1 문의</span></div>
+        <div class="bd">
+          <p class="desc" style="margin:8px 0 12px">궁금한 점이나 오류가 있으면 담당 개발자에게
+            카카오톡으로 직접 물어보실 수 있어요.</p>
+          <div class="glabel">어떤 내용인가요?</div>
+          <div class="chips">
+            <span class="chip on">집중 · 스크린타임</span>
+            <span class="chip">그룹 · 챌린지</span>
+            <span class="chip">계정 · 기타</span>
+          </div>
+          <div class="glabel gap">담당 개발자</div>
+          <div class="pcard reco" style="margin-top:0">
+            <div class="hd">
+              <div class="av" style="background:var(--av-1)">A</div>
+              <div class="col"><div class="nm">개발자 A</div><div class="scope">집중 · 스크린타임 · 통계</div></div>
+              <span class="badge">추천</span>
+            </div>
+            <div class="intro">타이머가 안 멈추거나 사용 시간이 이상할 때</div>
+            <div class="meta"><svg><use href="#i-time"/></svg>평일 10:00 – 19:00</div>
+            <div class="kbtn"><svg><use href="#i-kakao"/></svg>카카오톡으로 문의하기</div>
+          </div>
+        </div>
+        <div class="dim"></div>
+        <div class="mcard">
+          <div class="mt">카카오톡으로 이동할까요?</div>
+          <div class="mb">개발자 A 님의 1:1 오픈채팅방이 열려요. 대화 내용은 카카오톡에 저장되고
+            gromo 서버에는 남지 않아요.</div>
+          <div class="mp">이동하기</div>
+          <div class="ms">취소</div>
+        </div>
+        <div class="hi"></div>
+      </div></div>
+    </div>
+    <p class="desc"><code>ConfirmCardModal</code> 그대로다 — 이 기능 전용 모달을 만들지 않는다.
+       제목·본문은 <b>왼쪽 정렬</b>(컴포넌트에 <code>textAlign</code>이 없다).</p>
+  </div>
+
+  <!-- ④ 링크 실패 -->
+  <div class="slot">
+    <div class="cap"><h3>④ 링크 열기 실패</h3><span class="tag">같은 모달의 다른 상태</span></div>
+    <div class="dev">
+      <div class="ph"><div class="scr">
+        <div class="sb"><span>9:41</span><span class="ind"><svg><use href="#i-cell"/></svg><svg><use href="#i-wifi"/></svg><svg style="width:26px"><use href="#i-batt"/></svg></span></div>
+        <div class="nb"><span class="bk"><svg><use href="#i-back"/></svg></span><span class="ttl">1:1 문의</span></div>
+        <div class="bd">
+          <p class="desc" style="margin:8px 0 12px">궁금한 점이나 오류가 있으면 담당 개발자에게
+            카카오톡으로 직접 물어보실 수 있어요.</p>
+          <div class="glabel">어떤 내용인가요?</div>
+          <div class="chips">
+            <span class="chip on">집중 · 스크린타임</span>
+            <span class="chip">그룹 · 챌린지</span>
+            <span class="chip">계정 · 기타</span>
+          </div>
+        </div>
+        <div class="dim"></div>
+        <div class="mcard">
+          <div class="mt">카카오톡을 열 수 없어요</div>
+          <!-- 문구 정본은 low-level-design.md §5.3 — 임의로 바꾸지 말 것 -->
+          <div class="mb">아래 주소를 길게 눌러 복사한 뒤 브라우저에서 열어 주세요.</div>
+          <div class="murl">https://open.kakao.com/o/sAbCdEfG</div>
+          <div class="mp">다시 시도</div>
+          <div class="ms">닫기</div>
+        </div>
+        <div class="hi"></div>
+      </div></div>
+    </div>
+    <p class="desc"><b>모달을 닫지 않는다.</b> 닫고 Toast를 띄우면 주소가 3초 뒤 사라져 사용자가 다시 빈손이 된다.
+       클립보드 API는 쓰지 않는다 — <code>expo-clipboard</code>를 넣는 순간 네이티브 의존성이 생겨
+       담당자 교체를 OTA로 하려던 D5가 무너진다.</p>
+  </div>
+
+</div>
+
+<!-- ══ 코드 대조표 ══════════════════════════════════════════════════════ -->
+<h2 class="sec" id="xref">코드 대조표 — 시안의 모든 수치가 어디서 왔나</h2>
+<p class="secnote">시안이 거짓말을 하지 않는지 확인하는 표다. 왼쪽 값이 오른쪽 파일과 다르면
+   <b>시안이 틀린 것</b>이니 이 표부터 고친다.</p>
+
+<div class="tblwrap">
+<table class="q">
+  <thead><tr><th>요소</th><th>시안이 그린 값</th><th>출처</th></tr></thead>
+  <tbody>
+    <tr><td>화면 배경</td><td><code>#FFFFFF</code> (회색 아님)</td><td class="src">MenuScreen · SettingsScaffold <code>root: T.paperLight</code></td></tr>
+    <tr><td>본문 여백</td><td>좌우 20 · 위 8 · 아래 32</td><td class="src">SettingsScaffold <code>s.body</code></td></tr>
+    <tr><td>상단 바</td><td>padding 4/12/12 · gap 8 · 아이콘 24 · 제목 21/700</td><td class="src">SettingsScaffold <code>s.bar</code>·<code>s.title</code></td></tr>
+    <tr><td>섹션 제목</td><td>13/600 · <code>#9AA0A8</code> · 자간 .3 · ml 8 · mb 8</td><td class="src">SettingsList <code>s.sectionTitle</code></td></tr>
+    <tr><td>설정 카드</td><td>radius 16 · 1px <code>#F5F6F9</code> · 좌우 padding 16</td><td class="src">SettingsList <code>s.card</code></td></tr>
+    <tr><td>설정 행</td><td>gap 12 · 상하 padding 12 · 최소 높이 44</td><td class="src">SettingsList <code>s.row</code></td></tr>
+    <tr><td>행 아이콘</td><td>36×36 · radius 11 · 글리프 18</td><td class="src">SettingsList <code>s.rowIcon</code></td></tr>
+    <tr><td>구분선</td><td>1px <code>#F1F2F5</code> · 왼쪽 48 인셋</td><td class="src">SettingsList <code>s.divider</code>·<code>s.dividerInset</code></td></tr>
+    <tr><td>행 셰브론</td><td>17 · <code>#AEB4BF</code></td><td class="src">SettingsList <code>SettingsRow</code></td></tr>
+    <tr><td>계정·정보 아이콘 색</td><td>글리프 <code>#667085</code> / 배경 <code>#EEF0FB</code></td><td class="src">MenuScreen <code>iconColor=T.inkSub · iconBg=T.sandLight</code></td></tr>
+    <tr><td>프로필 헤더</td><td>아바타 52 r16 · 이름 19/700 · 보조 13/600</td><td class="src">MenuScreen <code>s.profile</code>·<code>s.avatar</code></td></tr>
+    <tr><td>안내 문단</td><td>17/500 · 줄간 25 · <code>#667085</code></td><td class="src">OccupationScreen <code>s.desc</code> (= <code>T.text.body</code>)</td></tr>
+    <tr><td>그룹 라벨</td><td>13/600 · <code>#9AA0A8</code> · ml 2 · mb 8</td><td class="src">OccupationScreen <code>s.groupLabel</code></td></tr>
+    <tr><td>카테고리 칩 (상자)</td><td>radius 13 · 테두리 1.5 <code>#EAEBEE</code> · padding 12/16 · 15/600</td><td class="src">OccupationScreen <code>s.chip</code></td></tr>
+    <tr><td>카테고리 칩 (선택)</td><td>배경 <code>#EEF0FB</code> · 테두리 <code>#5E6AD2</code> · 글자 <code>#4A53B8</code> 700</td><td class="src">ChallengeComposeSheet <code>s.chipOn</code>·<code>s.chipTextOn</code></td></tr>
+    <tr><td>담당자 아바타</td><td>44 원 · <code>T.avatarPalette[0..2]</code></td><td class="src">MemberTile <code>AVATAR = 44</code> · theme <code>avatarPalette</code></td></tr>
+    <tr><td>안내 박스</td><td>radius 14 · <code>#EEF0FB</code> / 1px <code>#DDE0F3</code> · 13/500 줄간 19</td><td class="src">OccupationScreen <code>s.note</code>·<code>s.noteText</code></td></tr>
+    <tr><td>확인 모달</td><td>스크림 <code>rgba(26,29,46,.5)</code> · 카드 r20 · 좌우 28 · padding 24/24/12</td><td class="src">ConfirmCardModal <code>s.overlay</code>·<code>s.card</code></td></tr>
+    <tr><td>모달 주 버튼</td><td>mt 20 · <code>#5E6AD2</code> · r14 · 상하 16 · 19/700 흰 글자</td><td class="src">ConfirmCardModal <code>s.primaryBtn</code></td></tr>
+    <tr><td>카카오 버튼 (색)</td><td>배경 <code>#FEE500</code> · 글자 <code>#3C1E1E</code></td><td class="src">theme <code>T.kakao</code>·<code>T.kakaoInk</code> (LoginScreen 사용)</td></tr>
+    <tr><td>카카오 버튼 (형상)</td><td>minHeight 44 · r12 · padding 12/16 · 15/700 — <b>LoginScreen(52·r14) 아님</b>, 카드 안 버튼이라 더 작다</td><td class="src">이 화면 전용 — LLD §3</td></tr>
+    <tr><td>모달 실패 URL</td><td>본문과 <b>같은</b> 17/500 줄간 25 <code>#667085</code> — 별도 색·크기 없음</td><td class="src">ConfirmCardModal <code>s.cardBody</code> (body가 단일 <code>Text</code>라 분리 불가)</td></tr>
+    <tr><td>탭바</td><td>바 높이 56 · 모서리 28 · 파임 반지름 33 · 채움 흰색 55%</td><td class="src">tabBarLayout <code>BAR_H</code> · TabBar <code>barPath</code> · liquidGlass <code>glassBarFill</code></td></tr>
+    <tr><td>탭바 FAB</td><td>56 원 · 중심이 바 상단선 아래 8 · 아이콘 26</td><td class="src">tabBarLayout <code>FAB_R 28 · FAB_LIFT −8</code></td></tr>
+    <tr><td>선택 탭 알약</td><td>60×38 · r19 · 흰색 65% + 테두리 흰색 90%</td><td class="src">TabBar <code>HIGHLIGHT_W/H</code> · liquidGlass <code>glassBarHighlight</code></td></tr>
+    <tr><td>그림자</td><td><code>#1E2340</code> 계열 (검정 아님)</td><td class="src">theme <code>T.shadow</code></td></tr>
+    <tr><td>하단 시트 (C안)</td><td>상단 r24 · 딤 42% · 손잡이 40×5</td><td class="src">SheetShell <code>s.panel</code>·<code>s.dim</code>·<code>s.grabber</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <h3>이번에 코드를 읽고 바로잡은 것 3가지</h3>
+  <p><b>① 화면 배경은 회색이 아니라 흰색이다.</b> <code>T.paperLight</code>가 <code>#FFFFFF</code>라
+     설정 화면은 흰 바탕 위에 흰 카드가 1px <code>#F5F6F9</code> 테두리로만 구분된다.
+     이전 시안은 <code>#F4F5F8</code> 바탕을 깔아 카드가 실제보다 또렷해 보였다.</p>
+  <p><b>② 앱에 알약(radius 999) 선택 칩이 없다.</b> 실제 칩은 <code>OccupationScreen</code>의 r13·1.5px
+     또는 <code>ChallengeComposeSheet</code>의 r12·1px 둘뿐이다. low-level-design.md 의
+     「칩 radius 999」 지정은 코드에 없는 모양이라 위 표대로 정정한다.</p>
+  <p><b>③ 확인 모달은 가운데 정렬이 아니다.</b> <code>ConfirmCardModal</code>에 <code>textAlign</code>이
+     없어 제목·본문이 왼쪽 정렬된다. 버튼 라벨만 가운데다.</p>
+</div>
+
+<!-- ══ 버린 안 ══════════════════════════════════════════════════════════ -->
+<h2 class="sec">버린 안의 근거</h2>
+<p class="secnote">A안을 고른 이유는 「B·C가 나쁘다」가 아니라 <b>담당자 3명이 화면의 주인공이어야
+   하기 때문</b>이다. 카테고리를 앞세우면(B·C) 사용자가 「내 문제가 어느 칸인지」부터 풀어야 한다.</p>
+
+<div class="gallery">
+
+  <!-- B안 -->
+  <div class="slot">
+    <div class="cap"><h3>B안 — 카테고리 먼저</h3><span class="tag no">탈락</span></div>
+    <div class="dev">
+      <div class="ph"><div class="scr">
+        <div class="sb"><span>9:41</span><span class="ind"><svg><use href="#i-cell"/></svg><svg><use href="#i-wifi"/></svg><svg style="width:26px"><use href="#i-batt"/></svg></span></div>
+        <div class="nb"><span class="bk"><svg><use href="#i-back"/></svg></span><span class="ttl">1:1 문의</span></div>
+        <div class="bd">
+          <div class="step"><span class="n">1</span><span class="t">어떤 내용인가요?</span></div>
+          <div class="chips">
+            <span class="chip on">집중 · 스크린타임</span>
+            <span class="chip">그룹 · 챌린지</span>
+            <span class="chip">계정 · 기타</span>
+          </div>
+          <div class="step"><span class="n">2</span><span class="t">담당자에게 물어보기</span></div>
+          <div class="pcard reco" style="margin-top:0">
+            <div class="hd">
+              <div class="av" style="background:var(--av-1)">A</div>
+              <div class="col"><div class="nm">개발자 A</div><div class="scope">집중 · 스크린타임 · 통계</div></div>
+              <span class="badge">추천</span>
+            </div>
+            <div class="intro">타이머가 안 멈추거나 사용 시간이 이상할 때</div>
+            <div class="meta"><svg><use href="#i-time"/></svg>평일 10:00 – 19:00</div>
+            <div class="kbtn"><svg><use href="#i-kakao"/></svg>카카오톡으로 문의하기</div>
+          </div>
+          <div class="morebtn">다른 담당자 보기 <svg><use href="#i-down"/></svg></div>
+          <div class="note">
+            <svg><use href="#i-info"/></svg>
+            <p>카카오톡 앱으로 이동해요. 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.</p>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div></div>
+    </div>
+    <ul class="pc">
+      <li>화면이 짧고 고를 것이 한 번에 하나뿐이다</li>
+      <li class="con">나머지 2명이 접혀 있어 <b>「직접 지목」(D2)이 사실상 자동 배정처럼 보인다</b></li>
+      <li class="con">카테고리를 안 고르면 담당자가 하나도 안 보여 빈 화면이 생긴다</li>
+    </ul>
+  </div>
+
+  <!-- C안 -->
+  <div class="slot">
+    <div class="cap"><h3>C안 — 아바타 3열 + 시트</h3><span class="tag no">탈락</span></div>
+    <div class="dev">
+      <div class="ph"><div class="scr">
+        <div class="sb"><span>9:41</span><span class="ind"><svg><use href="#i-cell"/></svg><svg><use href="#i-wifi"/></svg><svg style="width:26px"><use href="#i-batt"/></svg></span></div>
+        <div class="nb"><span class="bk"><svg><use href="#i-back"/></svg></span><span class="ttl">1:1 문의</span></div>
+        <div class="bd">
+          <p class="desc" style="margin:8px 0 12px">담당 개발자에게 카카오톡으로 직접 물어보실 수 있어요.</p>
+          <div class="glabel">어떤 내용인가요?</div>
+          <div class="chips">
+            <span class="chip on">집중 · 스크린타임</span>
+            <span class="chip">그룹 · 챌린지</span>
+            <span class="chip">계정 · 기타</span>
+          </div>
+          <div class="glabel gap">담당 개발자</div>
+          <div class="avrow">
+            <div class="avcell on"><div class="av" style="background:var(--av-1)">A</div><div class="nm">개발자 A</div><div class="role">집중</div></div>
+            <div class="avcell"><div class="av" style="background:var(--av-2)">B</div><div class="nm">개발자 B</div><div class="role">그룹</div></div>
+            <div class="avcell"><div class="av" style="background:var(--av-3)">C</div><div class="nm">개발자 C</div><div class="role">기타</div></div>
+          </div>
+        </div>
+        <div class="sdim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="pcard" style="margin-top:0;border:0;box-shadow:none;padding:0 0 8px">
+            <div class="hd">
+              <div class="av" style="background:var(--av-1)">A</div>
+              <div class="col"><div class="nm">개발자 A</div><div class="scope">집중 · 스크린타임 · 통계</div></div>
+            </div>
+            <div class="intro">타이머가 안 멈추거나 사용 시간이 이상할 때</div>
+            <div class="meta"><svg><use href="#i-time"/></svg>평일 10:00 – 19:00</div>
+            <div class="kbtn"><svg><use href="#i-kakao"/></svg>카카오톡으로 문의하기</div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div></div>
+    </div>
+    <ul class="pc">
+      <li>첫 화면이 가장 가볍다</li>
+      <li class="con"><b>탭을 한 번 더 해야 소개가 보인다</b> — 「내 문제가 이 사람 맞나」 판단이 한 겹 뒤로 밀린다</li>
+      <li class="con">한 줄 소개를 3명 나란히 비교할 수 없다</li>
+      <li class="con">시트가 늘어 화면이 사실상 2개가 된다</li>
+    </ul>
+  </div>
+
+</div>
+
+<h2 class="sec">문의 상태를 왜 안 그렸나</h2>
+<p class="secnote">처음 고르셨던 MVP에는 「접수 · 확인중 · 답변완료」가 있었는데, 대화가 카카오톡에서
+   일어나는 순간 <b>앱도 서버도 그 상태를 알 방법이 없다</b>. 아래가 세 가지 강도와 각각의 대가다.</p>
+
+<div class="tblwrap">
+<table class="q">
+  <thead><tr><th>강도</th><th>무엇을 보여주나</th><th>대가</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr><td>S1</td><td>아무것도 안 보여준다 — 카톡방 자체가 상태다</td><td>없음. 백엔드 0 · 화면 1개</td><td><b>채택</b></td></tr>
+    <tr><td>S2</td><td>「언제 · 누구에게 · 어떤 주제로」를 기기에 기록해 목록으로</td><td>기기를 바꾸면 사라진다. 사용자가 직접 「해결됨」을 눌러야 해 <b>거의 안 눌러 목록이 영영 쌓인다</b></td><td>탈락</td></tr>
+    <tr><td>S3</td><td>진짜 상태 — 담당자가 바꾼 값을 앱이 읽는다</td><td>담당자가 상태를 바꿀 <b>어드민 화면이 통째로 딸려온다</b>. 백엔드에 권한 개념 자체가 없어(<code>@PreAuthorize</code> 0건) 인증·권한부터 새로 만들어야 한다</td><td>탈락</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout">
+  <h3>표시하지 않는 편이 정직하다</h3>
+  <p>S2·S3 없이 「접수됨」만 띄우는 선택지도 있었지만, 그건 <b>서버가 모르는 사실을 앱이 단정하는 것</b>이다.
+     담당자가 아직 안 읽었어도 「접수됨」이 뜬다. 카톡방을 열면 읽음 표시·마지막 메시지가 다 보이므로
+     상태는 이미 그쪽에 있다 — 앱이 흐린 사본을 하나 더 만들 이유가 없다 (policy.md D4).</p>
+</div>
+
+<!-- ══ 착수 전 ══════════════════════════════════════════════════════════ -->
+<h2 class="sec">착수 전에 채워야 하는 것</h2>
+<p class="secnote">시안의 <b>「개발자 A · B · C」와 소개 · 응답 시간은 전부 자리표시자</b>다.
+   아래 항목이 정해지기 전에는 구현을 시작해도 화면을 완성할 수 없고,
+   <b>개인정보 승인은 출시 자체를 막는 게이트</b>다 (<code>policy.md</code> 미결).</p>
+
+<div class="tblwrap">
+<table class="q">
+  <thead><tr><th>항목</th><th>필요한 것</th><th>막히면</th></tr></thead>
+  <tbody>
+    <tr><td>담당자 정보</td><td>3명의 <b>닉네임(활동명)</b> · 성격 설명 · 한 줄 소개 · 응답 가능 시간</td><td>policy.md D10 — 실명을 쓰지 않아 노출 동의 절차가 없다</td></tr>
+    <tr><td>오픈채팅방</td><td>카카오톡 1:1 오픈채팅방 3개 개설 + 영구 링크(<code>https://open.kakao.com/o/…</code>)</td><td>policy.md D3 — 링크 없이는 버튼이 아무 데도 안 간다</td></tr>
+    <tr><td><b>개인정보 승인</b></td><td>수집·이용 주체(gromo인가 담당자 개인인가) · 예상 입력 항목과 금지 안내 · 카카오에서의 보존·삭제 경로 · 처리방침 반영 여부에 대한 <b>법무·개인정보 책임자 승인</b></td><td><b>출시 차단.</b> policy.md 미결 — 승인 없이는 화면을 내보내지 않는다. <b>사후에 문구만 고치는 것으로 대체되지 않는다</b></td></tr>
+    <tr><td>링크 점검 규칙</td><td>릴리즈마다 오픈채팅 링크 3개를 사람이 직접 여는 QA 항목</td><td>서버가 없어 죽은 링크를 <b>앱이 감지할 방법이 없다</b> — 이 설계의 가장 큰 약점</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer class="doc">
+  <b>정본은 <code>policy.md</code> (D1~D14)</b>다. 이 시안과 어긋나면 policy.md 가 맞다.<br>
+  요구사항은 <code>prd.md</code>, 화면·정보 구조는 <code>information-architecture.md</code>,
+  구현 명세는 <code>low-level-design.md</code>.<br>
+  기기 프레임은 393 × 852 논리 픽셀 1:1 — 프레임 안의 px 값은 그대로 RN pt 값이다.
+</footer>
+
+</div>
+
+<script>
+  // 표시 배율만 바꾼다 — 프레임 안의 값에는 영향이 없다(scale 만 달라진다).
+  document.querySelectorAll('.toolbar button[data-k]').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.toolbar button[data-k]').forEach((o) =>
+        o.setAttribute('aria-pressed', String(o === b)),
+      );
+      document.documentElement.style.setProperty('--k', b.dataset.k);
+    });
+  });
+
+  // 진입점 프레임은 「계정 · 정보」가 보여야 의미가 있다 — 실제 스크롤뷰처럼 아래로 내려 둔다.
+  const menu = document.getElementById('menuScroll');
+  if (menu) menu.scrollTop = menu.scrollHeight;
+</script>
+
+</body>
+</html>

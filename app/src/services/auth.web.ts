@@ -8,6 +8,7 @@ import { logLogin, logSignUp, setIdentityProps, type AuthMethod } from '@/servic
 import { setServerZone } from '@/utils/serverZone';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LoginResult } from '@/types/api';
+import { mockGuestLogin } from '@/mocks/fixtures/session';
 
 export type { AuthMethod };
 
@@ -35,16 +36,20 @@ export const facebookLogin = unsupportedSocialLogin;
 
 export async function guestLogin(): Promise<LoginResult> {
   let data: LoginResult & { refreshToken: string };
-  try {
-    const response = await axios.post<LoginResult & { refreshToken: string }>(
-      `${API_URL}/api/v1/auth/guest`,
-    );
-    data = response.data;
-  } catch (e) {
-    const body = axios.isAxiosError(e)
-      ? (e.response?.data as { message?: string } | undefined)
-      : null;
-    throw new Error(body?.message ?? '게스트 시작 실패');
+  if (__DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
+    data = mockGuestLogin();
+  } else {
+    try {
+      const response = await axios.post<LoginResult & { refreshToken: string }>(
+        `${API_URL}/api/v1/auth/guest`,
+      );
+      data = response.data;
+    } catch (e) {
+      const body = axios.isAxiosError(e)
+        ? (e.response?.data as { message?: string } | undefined)
+        : null;
+      throw new Error(body?.message ?? '게스트 시작 실패');
+    }
   }
 
   const previousToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
@@ -56,7 +61,12 @@ export async function guestLogin(): Promise<LoginResult> {
   // GUEST_FORBIDDEN 을 받는다(코드리뷰). 배포 웹은 서버가 준 값을 그대로 쓴다.
   const result: LoginResult = {
     ...data,
-    isGuest: __DEV__ ? false : (data.isGuest ?? true),
+    isGuest:
+      __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true'
+        ? true
+        : __DEV__
+          ? false
+          : (data.isGuest ?? true),
     isNewUser: true,
   };
   await AsyncStorage.setItem(STORAGE_KEYS.accessToken, result.accessToken);

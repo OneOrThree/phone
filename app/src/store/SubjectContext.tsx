@@ -39,6 +39,17 @@ const SEED: Subject[] = [
   { id: 's3', name: '사회보험법', accumulatedSeconds: 0, color: PALETTE[2] },
 ];
 
+// mock 모드는 빈 로컬 저장값이 남아 있어도 선택 화면을 즉시 검증할 수 있어야 한다.
+// 실제 사용자 저장소·일반 dev/prod에는 적용하지 않고, Metro를 명시적으로 mock 플래그로 켠 경우만 쓴다.
+const MOCK_MODE = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === 'true';
+const MOCK_SEED: Subject[] = [
+  { id: 'mock-labor', name: '노동법', accumulatedSeconds: 7_560, color: PALETTE[0] },
+  { id: 'mock-admin', name: '행정쟁송법', accumulatedSeconds: 4_320, color: PALETTE[1] },
+  { id: 'mock-social', name: '사회보험법', accumulatedSeconds: 2_700, color: PALETTE[2] },
+  { id: 'mock-civil', name: '민법', accumulatedSeconds: 1_800, color: PALETTE[3] },
+  { id: 'mock-english', name: '영어', accumulatedSeconds: 900, color: PALETTE[4] },
+];
+
 // 로컬 과목 id — Date.now()만 쓰면 '추천 과목 전부 추가'(forEach 연속 호출)처럼 같은 밀리초에
 // 생성될 때 id가 전부 겹쳐 목록 렌더·이름변경·삭제가 꼬인다(762 작업 중 발견). 난수 꼬리로 유니크 보장.
 function newSubjectId(): string {
@@ -102,6 +113,13 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
   useEffect(() => subscribeDayChange(rolloverIfNeeded), [rolloverIfNeeded]);
 
   useEffect(() => {
+    if (MOCK_MODE) {
+      setSubjects(MOCK_SEED.map((subject) => ({ ...subject })));
+      dayRef.current = todayStr();
+      loaded.current = true;
+      setReady(true);
+      return;
+    }
     AsyncStorage.getItem(STORAGE_KEYS.subjects).then(async (raw) => {
       if (raw) {
         // 구버전(배열)·신버전({date, subjects}) 모두 지원

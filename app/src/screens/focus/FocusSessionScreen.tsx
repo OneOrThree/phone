@@ -188,12 +188,11 @@ export default function FocusSessionScreen() {
   // 타이머 기준으로 그리드가 따로 렌더한다(GROMO-932, 아래 myGridMe) — 중복·시차 방지
   const myCategory = useFocusCategory();
   const myOccupation = occupationForCategory(myCategory);
-  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId, pinnedIds });
+  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
   const { members: examMembers } = useSessionLeagueMembers({
     occupation: myOccupation ?? undefined,
     enabled: myOccupation != null,
     excludeUserId: userId,
-    pinnedIds,
   });
   // 그룹 뷰(F2) — 내가 참여한 '그룹별로' 한 페이지씩. 각 그룹의 내 행은 제외하고 내 셀은 그리드가
   // 로컬 타이머로 따로 렌더한다(me). 라이브 집중중 신호는 group detail에 없어 오늘 집중분만 정적 표기한다.
@@ -1455,6 +1454,9 @@ export default function FocusSessionScreen() {
               members={sessionFriends}
               me={myGridMe}
               pinnedIds={pinnedIds}
+              // 페이지 인덱스는 viewForPage()의 순서와 같다 — [캐릭터0][친구1][그룹×N][내리그][전체리그].
+              // 안 보이는 그리드의 1초 시계를 세우기 위한 것(서버 폴링은 계속 돈다).
+              visible={page === 1}
               title="내 친구"
               emptyTitle="아직 친구가 없어요"
               emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
@@ -1468,7 +1470,7 @@ export default function FocusSessionScreen() {
           </View>
           {/* 그룹 뷰(F2) — 참여한 '그룹마다' 한 페이지씩("그룹: {그룹명}"). pinnedIds는 친구 전용이라 안 넘긴다.
               라이브 집중중 신호가 없어(그룹 detail 폴링) 오늘 집중분만 정적 표기된다. */}
-          {sessionGroups.map((g) => (
+          {sessionGroups.map((g, i) => (
             <View
               key={g.groupId}
               testID={`focus.group.page.${g.groupId}`}
@@ -1478,6 +1480,7 @@ export default function FocusSessionScreen() {
                 members={g.members}
                 me={myGridMe}
                 showMeWhenEmpty
+                visible={page === 2 + i}
                 title={`그룹: ${g.groupName}`}
                 emptyTitle="아직 그룹 멤버가 없어요"
                 emptySub={'그룹에 멤버가 모이면\n집중할 때 여기서 같이 보여요.'}
@@ -1489,6 +1492,7 @@ export default function FocusSessionScreen() {
               members={examMembers}
               me={myGridMe}
               pinnedIds={pinnedIds}
+              visible={page === 2 + sessionGroups.length}
               title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
                 myOccupation == null
@@ -1507,6 +1511,7 @@ export default function FocusSessionScreen() {
               members={leagueMembers}
               me={myGridMe}
               pinnedIds={pinnedIds}
+              visible={page === 3 + sessionGroups.length}
               title="전체 리그"
               emptyTitle="아직 리그 멤버가 없어요"
               emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}

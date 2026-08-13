@@ -99,10 +99,15 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
 
     /**
      * 전체 유저(탈퇴 유저 {@code user IS NULL} 제외) 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
+     *
+     * <p>봇({@code is_bot})은 제외한다 (GROMO-1565). 봇은 리그 랭킹에는 실유저와 함께 보여야 하지만,
+     * 유저가 자기 기록과 견주는 <b>모집단 평균</b>에 섞이면 합계와 표본 수를 동시에 밀어 올려
+     * "나는 평균보다 한참 아래"라는 잘못된 인상을 준다. 랭킹 노출과 평균 모집단은 분리한다.
      */
     @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
-            + "FROM DailyFocusStat d WHERE d.user.id IS NOT NULL AND d.date BETWEEN :from AND :to")
+            + "FROM DailyFocusStat d "
+            + "WHERE d.user.id IS NOT NULL AND d.user.isBot = false AND d.date BETWEEN :from AND :to")
     FocusAverageAggregate sumAndActiveCountAllInPeriod(
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
@@ -110,10 +115,15 @@ public interface DailyFocusStatRepository extends JpaRepository<DailyFocusStat, 
     /**
      * 특정 occupation 유저 중 기간 내 활동 유저의 집중 초 총합·활동 유저 수를 집계한다.
      * (user IS NULL 인 탈퇴 row 는 occupation 조인 시 자연 제외)
+     *
+     * <p>봇 제외 이유는 {@link #sumAndActiveCountAllInPeriod} 와 같다 (GROMO-1565). 직군 평균은
+     * 직군당 봇이 10명씩이라 실유저가 적은 직군일수록 왜곡이 더 크다.
      */
     @Query("SELECT new com.oneorthree.phone.stats.dto.FocusAverageAggregate("
             + "COALESCE(SUM(d.totalFocusSeconds), 0), COUNT(DISTINCT d.user.id)) "
-            + "FROM DailyFocusStat d WHERE d.user.occupation = :occupation AND d.date BETWEEN :from AND :to")
+            + "FROM DailyFocusStat d "
+            + "WHERE d.user.occupation = :occupation AND d.user.isBot = false "
+            + "AND d.date BETWEEN :from AND :to")
     FocusAverageAggregate sumAndActiveCountByOccupationInPeriod(
             @Param("occupation") Occupation occupation,
             @Param("from") LocalDate from,
