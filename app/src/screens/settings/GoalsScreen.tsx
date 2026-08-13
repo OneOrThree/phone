@@ -124,9 +124,12 @@ export default function GoalsScreen() {
     effectiveDate?: string;
   } | null>(null);
   const valuesAtOpenRef = useRef<{ focus: number; usage: number } | null>(null);
+  const initializedRef = useRef(false);
 
   // 발효 전 예약(goalPending)이 있으면 그 값으로 피커 초기화.
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     AsyncStorage.getItem(STORAGE_KEYS.goalPending)
       .then((raw) => {
         if (raw) {

@@ -113,9 +113,11 @@ export default function AllowedAppsScreen() {
       // 편집 전 스냅샷과 앱/카테고리/웹도메인 개수가 모두 같으면 실제 변경이 없는 것으로 본다.
       if (
         before != null &&
-        before.applications === result.applications &&
-        before.categories === result.categories &&
-        before.webDomains === result.webDomains
+        (before.selectionSignature && result.selectionSignature
+          ? before.selectionSignature === result.selectionSignature
+          : before.applications === result.applications &&
+            before.categories === result.categories &&
+            before.webDomains === result.webDomains)
       ) {
         return;
       }

@@ -93,9 +93,12 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
     screen_name: string;
     route_key: string;
     entered_at: number;
+    accumulated_seconds: number;
   } | null>(null);
   const analyticsReadyRef = useRef(false);
   const wasBackgroundedRef = useRef(false);
+  const initialAnalyticsPendingRef = useRef(false);
+  const completeInitialAnalyticsRef = useRef<() => boolean>(() => false);
 
   function currentTab(): 'home' | 'league' | 'group' | 'menu' {
     const root = navigationRef.getRootState();
@@ -113,6 +116,7 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
       screen_name: route.name,
       route_key: route.key,
       entered_at: Date.now(),
+      accumulated_seconds: 0,
     };
     logScreenViewed({ screen_name: route.name, entry_source: 'navigation' });
   }
@@ -122,20 +126,59 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
     if (!visit) return;
     logScreenExited({
       screen_name: visit.screen_name,
-      dwell_seconds: Math.max(0, Math.round((Date.now() - visit.entered_at) / 1000)),
+      dwell_seconds: Math.max(
+        0,
+        Math.round(visit.accumulated_seconds + (Date.now() - visit.entered_at) / 1000),
+      ),
     });
+    screenVisitRef.current = null;
   }
+
+  completeInitialAnalyticsRef.current = (): boolean => {
+    if (
+      !analyticsReadyRef.current ||
+      !initialAnalyticsPendingRef.current ||
+      AppState.currentState !== 'active'
+    ) {
+      return false;
+    }
+    initialAnalyticsPendingRef.current = false;
+    logAppMainViewed({
+      app_entry: initialAppEntry,
+      auth_state: isGuest ? 'guest' : 'member',
+      initial_tab: currentTab(),
+    });
+    const initialRoute = navigationRef.getCurrentRoute();
+    if (initialRoute) enterScreen(initialRoute);
+    flushPendingDeepLink();
+    return true;
+  };
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
+      if (state === 'background') {
         if (analyticsReadyRef.current) exitScreen();
         screenVisitRef.current = null;
+        wasBackgroundedRef.current = true;
+        return;
+      }
+      if (state === 'inactive') {
+        const visit = screenVisitRef.current;
+        if (visit) {
+          visit.accumulated_seconds += Math.max(0, (Date.now() - visit.entered_at) / 1000);
+          visit.entered_at = Date.now();
+        }
         // inactive은 권한 시트·알림 센터·전화 중단일 수 있어 foreground 재진입으로 세지 않는다.
-        wasBackgroundedRef.current = state === 'background';
+        // 방문 객체는 유지해 active 복귀 시 같은 screen_viewed에 체류시간을 이어 붙인다.
+        wasBackgroundedRef.current = false;
         return;
       }
       if (state !== 'active' || !analyticsReadyRef.current) return;
+      if (initialAnalyticsPendingRef.current) {
+        completeInitialAnalyticsRef.current();
+        wasBackgroundedRef.current = false;
+        return;
+      }
       const route = navigationRef.getCurrentRoute();
       if (wasBackgroundedRef.current) {
         wasBackgroundedRef.current = false;
@@ -145,12 +188,14 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
           auth_state: isGuest ? 'guest' : 'member',
           initial_tab: currentTab(),
         });
-      } else if (route) {
-        // inactive 동안만 멈춘 방문은 새 방문으로 세지 않고 타이머만 재개한다.
+      } else if (route && !screenVisitRef.current) {
+        // 방문 정보가 없는 예외 복귀만 새 방문으로 시작한다. inactive 복귀는 기존 객체를
+        // 유지하므로 여기서 덮어쓰면 누적 체류시간이 사라진다.
         screenVisitRef.current = {
           screen_name: route.name,
           route_key: route.key,
           entered_at: Date.now(),
+          accumulated_seconds: 0,
         };
       }
     });
@@ -169,15 +214,8 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
         // GA4 초기화 — 디바이스 ID 확보 + 공통 파라미터 부착(1회). 모듈 미링크 시 no-op.
         await initAnalytics();
         analyticsReadyRef.current = true;
-        logAppMainViewed({
-          app_entry: initialAppEntry,
-          auth_state: isGuest ? 'guest' : 'member',
-          initial_tab: currentTab(),
-        });
-        const initialRoute = navigationRef.getCurrentRoute();
-        if (initialRoute) enterScreen(initialRoute);
-        // 분석 초기화가 끝난 뒤에 버퍼를 흘려보내 첫 화면 이벤트에도 공통 식별자가 붙는다.
-        flushPendingDeepLink();
+        initialAnalyticsPendingRef.current = true;
+        completeInitialAnalyticsRef.current();
         // Datadog RUM 화면 추적(GROMO-928) — 화면 전환을 RUM 뷰로 기록. 키 미설정 시 no-op.
         startDatadogNavigationTracking();
       }}

@@ -5,7 +5,12 @@
 // 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, getUserIdFromToken } from '@/services/api';
+import {
+  api,
+  getFreshAccessToken,
+  getUserIdFromToken,
+  getAuthSessionGeneration,
+} from '@/services/api';
 import {
   logGroupChallengeDeleted,
   logGroupChallengeSettled,
@@ -352,7 +357,8 @@ export async function getMyChallengeResults(page?: {
   // 결과를 읽는 계정과 정산 이벤트를 발행할 계정을 고정한다. 요청 중 계정이 바뀌면
   // axios 인터셉터가 새 토큰을 붙이거나, 응답 후 저장소에서 새 userId를 읽어 옛 결과를
   // 새 계정에 귀속시킬 수 있다(코드리뷰 반영).
-  const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
+  const requestGeneration = getAuthSessionGeneration();
+  const accessToken = await getFreshAccessToken().catch(() => null);
   const userId = getUserIdFromToken(accessToken ?? '');
   if (!accessToken || !userId) return [];
   const { data } = await api.get<MyChallengeResultsResponse>(
@@ -366,7 +372,12 @@ export async function getMyChallengeResults(page?: {
   );
   const results = Array.isArray(data?.results) ? data.results : [];
   const currentToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
-  if (getUserIdFromToken(currentToken ?? '') !== userId) return results;
+  if (
+    getAuthSessionGeneration() !== requestGeneration ||
+    getUserIdFromToken(currentToken ?? '') !== userId
+  ) {
+    return results;
+  }
   for (const result of results) {
     const reportKey = `${userId}:${result.sessionId}`;
     if (reportedChallengeSettlementIds.has(reportKey)) continue;

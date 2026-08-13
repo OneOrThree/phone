@@ -28,7 +28,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -108,26 +107,10 @@ class BotSimulatorIntegrationTest extends IntegrationTestBase {
      */
     private void createBot(BotChronotype chronotype) {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        List<UUID> dummyTags = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
-        for (int attempt = 0; attempt < 1_000; attempt++) {
-            User candidate = userRepository.save(User.builder()
-                    .nickname("봇테스트-" + suffix + "-" + attempt)
-                    .isBot(true)
-                    .build());
-            LocalDate today = LocalDate.now(ZonePolicy.KST);
-            int nowMinute = LocalDateTime.now(ZonePolicy.KST).getHour() * 60
-                    + LocalDateTime.now(ZonePolicy.KST).getMinute();
-            if (hasCurrentBlockWithPrevious(candidate.getId(), chronotype, today, nowMinute, dummyTags)
-                    && (chronotype != BotChronotype.NIGHT
-                    || hasNightCrossingBlock(candidate.getId(), today, dummyTags))) {
-                bot = candidate;
-                break;
-            }
-            userRepository.delete(candidate);
-        }
-        if (bot == null) {
-            throw new IllegalStateException("현재 시각에 쓸 봇 스케줄 시드를 찾지 못했다");
-        }
+        bot = userRepository.save(User.builder()
+                .nickname("봇테스트-" + suffix)
+                .isBot(true)
+                .build());
         userWalletRepository.save(UserWallet.builder().userId(bot.getId()).balance(0).build());
         saveProfile(chronotype, BotStyle.POMODORO, 1400);
 
@@ -137,51 +120,6 @@ class BotSimulatorIntegrationTest extends IntegrationTestBase {
             tags.add(userFocusTagRepository.save(
                 UserFocusTag.builder().user(bot).defaultTag(defaultTag).build()));
         }
-    }
-
-    private boolean hasCurrentBlockWithPrevious(UUID userId, BotChronotype chronotype, LocalDate today,
-                                                 int nowMinute, List<UUID> tagIds) {
-        for (BotStyle style : BotStyle.values()) {
-            for (int weeklyMinutes : new int[]{2800, 2100, 1400, 700}) {
-                BotProfile profile = BotProfile.builder()
-                        .userId(userId)
-                        .chronotype(chronotype)
-                        .style(style)
-                        .weeklyMinutes(weeklyMinutes)
-                        .activeDays(7)
-                        .restDayMask(0)
-                        .build();
-                for (int i = 0; i < 2; i++) {
-                    LocalDate scheduleDate = today.minusDays(i);
-                    int scheduleMinute = nowMinute + (i == 0 ? 0 : 24 * 60);
-                    List<BotFocusBlock> blocks = scheduleGenerator.blocksOf(profile, scheduleDate, tagIds);
-                    for (int blockIndex = 1; blockIndex < blocks.size(); blockIndex++) {
-                        if (blocks.get(blockIndex).contains(scheduleMinute)) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean hasNightCrossingBlock(UUID userId, LocalDate today, List<UUID> tagIds) {
-        BotProfile profile = BotProfile.builder()
-                .userId(userId)
-                .chronotype(BotChronotype.NIGHT)
-                .style(BotStyle.POMODORO)
-                .weeklyMinutes(1400)
-                .activeDays(7)
-                .restDayMask(0)
-                .build();
-        for (int back = 1; back <= 14; back++) {
-            if (scheduleGenerator.blocksOf(profile, today.minusDays(back), tagIds).stream()
-                    .anyMatch(block -> block.endMinute() > 24 * 60)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** 쉬는 날 없이(마스크 0) 저장한다 — 어느 날짜를 잡아도 블록이 나오게 한다. */

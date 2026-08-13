@@ -100,6 +100,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   const [coinsVersion, setCoinsVersion] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const loaded = useRef(false);
+  const coinsRef = useRef(0);
   // 조회 시퀀스 — refresh는 여러 곳에서 겹쳐 불린다(시트 오픈 + 성공 직후 + 인라인 재시도).
   // 순서를 지키지 않으면 **차감 전 잔액**을 실은 늦은 응답이 차감 후 잔액을 덮어써, 화면이
   // 재산을 과대 표시하고 부족 검사를 잘못 통과시킨다(코덱스 리뷰). 최신 호출의 결과만 반영한다.
@@ -118,6 +119,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
       // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
       // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
       if (seq !== refreshSeqRef.current) return false;
+      coinsRef.current = res.data;
       setCoins(res.data);
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
@@ -171,12 +173,13 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }
 
   async function buyItem(itemId: string, price: number) {
-    if (coins < price) return false;
+    if (coinsRef.current < price) return false;
     try {
       // 서버 CurrencyRequest 정식 필드는 type이다(671에서 reason → type 리네임, 구 페이로드는
       // @JsonAlias("reason") 흡수로만 동작) — 정식 필드로 정리해 alias 의존을 끊는다.
       await api.post('/api/v1/currency/spend', { amount: price, type: 'PURCHASE' });
-      const nextCoins = coins - price;
+      const nextCoins = coinsRef.current - price;
+      coinsRef.current = nextCoins;
       setCoins(nextCoins);
       setIdentityProps({ currency_balance_bucket: currencyBalanceBucket(nextCoins) });
       setOwnedItemIds((prev) => [...prev, itemId]);

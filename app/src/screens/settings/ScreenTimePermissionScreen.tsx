@@ -164,6 +164,7 @@ export default function ScreenTimePermissionScreen() {
   async function reopenAndroidUsageAccess() {
     if (requesting) return;
     setRequesting(true);
+    const statusBeforeRequest = status;
     try {
       const granted = await ScreenTimeModule.requestAuthorization();
       try {
@@ -173,10 +174,12 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
-      logScreenTimeSettingsChanged({
-        setting: 'permission',
-        setting_value: granted ? 'granted' : 'denied',
-      });
+      if (statusBeforeRequest !== null && statusBeforeRequest !== st) {
+        logScreenTimeSettingsChanged({
+          setting: 'permission',
+          setting_value: st === 'approved' ? 'granted' : 'denied',
+        });
+      }
     } catch (e) {
       Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
     } finally {
