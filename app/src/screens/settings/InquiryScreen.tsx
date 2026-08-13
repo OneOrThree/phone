@@ -59,11 +59,13 @@ export default function InquiryScreen() {
   //    「30분 지났다」고 판단해 노출을 다시 쏜다. 그런데 GA4에서는 20분 이벤트가 세션을 연장해
   //    **여전히 같은 세션**이라, 한 세션에 분모가 2번 잡혀 전환율이 실제보다 낮게 나온다.
   const lastEventAt = useRef(0);
-  const markViewed = useCallback(() => {
+  /** 노출을 새로 쐈으면(=세션이 바뀐 것으로 본다) true. 호출부가 분자 발행 여부를 정하는 데 쓴다. */
+  const markViewed = useCallback((): boolean => {
     const now = Date.now();
     const sessionLikelyExpired = now - lastEventAt.current >= VIEWED_REFIRE_MS;
     lastEventAt.current = now; // 발화 여부와 무관하게 항상 갱신한다
     if (sessionLikelyExpired) logInquiryScreenViewed();
+    return sessionLikelyExpired;
   }, []);
 
   useEffect(() => {
@@ -119,8 +121,12 @@ export default function InquiryScreen() {
     // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)에서는 쏘지 않는다. 재시도는 새로운 「선택」이
     //    아니다 — 그대로 세면 링크·기기가 나쁜 쪽 유형이 과대표집되어 추천 일치율(prd.md §5)이
     //    왜곡된다. failed 상태의 호출은 정의상 재시도뿐이므로 이 한 줄로 「모달 1회 = 선택 1건」이 된다.
-    markViewed();
-    if (!failed) {
+    // ⚠️ 재시도 억제는 **같은 세션 안에서만** 한다. 세션이 바뀌었으면(= 노출을 새로 쐈으면)
+    //    그 재시도는 새 세션의 첫 이동이므로 분자로 세야 한다 — 안 그러면 실패 모달을 30분 넘게
+    //    열어 뒀다가 「다시 시도」로 실제 이동한 사용자가 새 세션에 **분모만 남기고** 분자는 없어
+    //    전환율이 낮아진다.
+    const startedNewSession = markViewed();
+    if (!failed || startedNewSession) {
       logInquiryContactOpened({
         category,
         contactId: requested.id,

@@ -231,6 +231,36 @@ describe('InquiryScreen — 세션 경계 재발화', () => {
     }
   });
 
+  // 실패 모달을 오래 열어 뒀다 재시도하는 경로. 세션이 바뀌었으면 그 재시도는 새 세션의
+  // **첫 이동**이므로 분자로 세야 한다 — 억제하면 새 세션에 분모만 남아 전환율이 낮아진다.
+  test('세션이 바뀐 뒤의 첫 재시도는 이동 이벤트로 기록한다', async () => {
+    jest.useFakeTimers();
+    try {
+      mockOpenInquiryChat.mockResolvedValue(false);
+      await render(<InquiryScreen />);
+      await openConfirm(FOCUS.id);
+      await press('inquiry.confirm.primary'); // 1차 실패
+      expect(mockLogContactOpened).toHaveBeenCalledTimes(1);
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+
+      // 같은 세션 안의 재시도는 여전히 억제된다(모달 1회 = 선택 1건).
+      await press('inquiry.confirm.primary');
+      expect(mockLogContactOpened).toHaveBeenCalledTimes(1);
+
+      // 모달을 연 채 31분 경과 — 세션이 끊긴 것으로 본다.
+      await act(async () => {
+        jest.advanceTimersByTime(31 * 60 * 1000);
+      });
+      await press('inquiry.confirm.primary');
+
+      // 새 세션에 분모(노출)와 분자(이동)가 **둘 다** 잡혀야 한다.
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(2);
+      expect(mockLogContactOpened).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('이벤트를 쏘지 않은 호출도 기준 시각을 갱신한다 — 같은 세션에서 분모가 두 번 잡히지 않는다', async () => {
     jest.useFakeTimers();
     try {

@@ -122,5 +122,7 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.lg,
     marginTop: T.space.md,
   },
-  ctaText: { ...T.text.label, color: T.kakaoInk },
+  // ⚠️ flexShrink:1 — RN 기본값(0)이면 320pt 기기 + 최대 글자 배율에서 라벨의 고유 너비가
+  //    버튼 너비를 넘어 카드 밖으로 넘치거나 잘린다. 줄여야 남은 너비에서 줄바꿈된다(IA §6 · QA Q7).
+  ctaText: { ...T.text.label, color: T.kakaoInk, flexShrink: 1 },
 });

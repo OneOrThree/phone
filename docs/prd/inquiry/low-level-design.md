@@ -148,7 +148,7 @@ interface InquiryContactCardProps {
 | 이름 | `T.text.label`, `color T.ink` |
 | 키워드 3개 | `T.text.caption`, `color T.accentDeep` (가운뎃점으로 이어 한 줄) |
 | 「추천」 배지 | `bg T.accentBg`, `border 1 T.noteBorder`, `radius 999`, `color T.accentDeep`, `T.text.caption` |
-| CTA | `bg T.kakao`, `color T.kakaoInk`, `radius 12`, `padding T.space.md/T.space.lg`, `minHeight 44`, `T.text.label`, Ionicons `chatbubble` 16 |
+| CTA | 라벨에 **`flexShrink: 1`**(큰 글자에서 줄바꿈 — 없으면 카드 밖으로 넘친다), `bg T.kakao`, `color T.kakaoInk`, `radius 12`, `padding T.space.md/T.space.lg`, `minHeight 44`, `T.text.label`, Ionicons `chatbubble` 16 |
 
 CTA는 `PressableScale`로 감싼다 (`scaleTo` 기본 0.96, `haptic: 'light'`). 최소 터치 타겟 44pt를 지킨다.
 
@@ -286,9 +286,10 @@ const handleConfirm = useCallback(async () => {
   const myId = ++reqIdRef.current;  // 이 요청의 세대 — 같은 담당자를 다시 열어도 새 번호를 받는다
   // ⚠️ 분석 이벤트는 openURL **앞에서** 쏜다 — 뒤에서 쏘면 앱이 백그라운드로
   //    넘어가는 타이밍과 겹쳐 유실된다(high-level-design.md §3.1).
-  // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)에서는 쏘지 않는다 — 모달 1회당
-  //    최초 시도만 「선택」 1건이다. 아래 참조.
-  if (!failed) {
+  // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)는 쏘지 않는다 — 모달 1회당 최초 시도만
+  //    「선택」 1건이다. 단 **세션이 바뀐 뒤의 첫 재시도는 예외**다(아래 참조).
+  const startedNewSession = markViewed();
+  if (!failed || startedNewSession) {
     logInquiryContactOpened({
       category,
       contactId: requested.id,
@@ -330,6 +331,11 @@ const handleConfirm = useCallback(async () => {
 잦은 담당자의 추천/비추천 값이 실제보다 여러 배로 잡히고, 그 값으로 D6 매핑을 판단하게 된다.
 `failed` 상태에서의 호출은 정의상 재시도뿐이므로 그것만 건너뛰면 **모달 1회 = 선택 1건**이 성립한다.
 `closeModal()`이 `failed`를 리셋하니 다음에 카드를 다시 누르면 정상적으로 1건이 기록된다.
+
+**억제는 같은 세션 안에서만 한다.** 실패 모달을 30분 넘게 열어 뒀거나 앱을 백그라운드에 두고
+돌아와 「다시 시도」로 **실제 이동에 성공**하면, 새 세션에는 `markViewed()`가 쏜 노출(분모)만 남고
+이동(분자)이 없어 전환율이 낮아진다. `markViewed()`가 「노출을 새로 쐈는가」를 돌려주고, 그때는
+재시도라도 분자로 센다 — 새 세션에서는 그게 **그 세션의 첫 이동**이기 때문이다.
 
 ## 6. 기존 파일 수정
 
