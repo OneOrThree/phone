@@ -199,10 +199,36 @@ describe('카드 렌더', () => {
     expect(
       screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
     ).toHaveLength(1);
+    expect(screen.getByTestId('group.deck.findMoreStage')).toHaveStyle({ marginLeft: 0 });
     expect(screen.getByTestId('group.deck.guideAnchor').props.pointerEvents).toBe('auto');
 
     await press('group.deck.findMore');
     expect(onFind).toHaveBeenCalledWith('end_card');
+  });
+
+  test('0건에서 첫 그룹 가입 후 새 그룹 카드를 첫 페이지로 복원한다', async () => {
+    const props = {
+      groups: [] as GroupSummaryResponse[],
+      groupsRevision: 1,
+      userId: 'user-1',
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} />);
+    await waitFor(() => expect(screen.getByTestId('group.list.items').props.data).toEqual([]));
+
+    await view.rerender(<GroupListScreen {...props} groups={[group()]} groupsRevision={2} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('group.list.items').props.data).toEqual([group()]),
+    );
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 2');
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`)).toHaveProp(
+      'importantForAccessibility',
+      'auto',
+    );
   });
 
   test('안내 중 blocking overlay가 생긴 render에서는 가이드 Modal을 즉시 내린다', async () => {
