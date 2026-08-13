@@ -88,7 +88,8 @@ import type { GroupCardSummarySnapshot } from './groupCardSummary';
 //   groups    : GroupSummaryResponse[]  내가 참여 중인 그룹(서버 순서 그대로, 앱 재정렬 금지)
 //   onSelect  : (groupId: string) => void  카드 탭. **자체적으로 navigate 하지 않는다** —
 //               1개일 땐 목록을 닫고, 2개 이상일 땐 GroupRoom push 하는 분기는 GroupScreen이 쥔다
-//   onCreate  : () => void   '그룹 만들기' — GroupScreen이 전이 상태를 세우고 GroupCreate로 push
+//   onCreate  : (entryPoint: 'header') => void   헤더 '그룹 만들기' — GroupScreen이 실제 진입점을
+//               보존해 GroupCreate로 push
 //   onFind    : () => void   '그룹 찾기' — GroupScreen이 GroupFindSheet를 연다
 //   onRefresh : () => Promise<void>  당겨서 새로고침. 조회 실패 배너는 GroupScreen이 이미 그린다
 //   onBack?   : () => void   **있을 때만** 헤더 좌측에 원형 백버튼을 그린다.
@@ -315,7 +316,7 @@ export interface GroupListScreenProps {
   isScreenFocused?: boolean;
   userId?: string | null;
   onSelect: (groupId: string, interaction: CardInteractionContext) => void;
-  onCreate: () => void;
+  onCreate: (entryPoint: 'header') => void;
   onFind: (entryPoint: 'list' | 'header' | 'end_card') => void;
   onStartFocus?: (groupId: string, interaction: CardInteractionContext) => void;
   onOpenSettings?: (groupId: string) => void;
@@ -1500,7 +1501,7 @@ export default function GroupListScreen({
             style={s.createBtn}
             onPress={() => {
               if (holdingGroupIdRef.current === null && draggingGroupIdRef.current === null)
-                onCreate();
+                onCreate('header');
             }}
             disabled={reorderBusy}
             activeOpacity={0.8}

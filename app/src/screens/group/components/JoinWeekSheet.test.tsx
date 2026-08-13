@@ -21,6 +21,7 @@ jest.mock('react-native-safe-area-context', () => ({
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupChallengeDeleted: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupChallengeJoined: jest.fn(),
 }));
 
 // groupErrorCode는 실제 구현을 남긴다(code 분기까지 검증).

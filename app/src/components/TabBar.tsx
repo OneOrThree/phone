@@ -20,6 +20,7 @@ import {
 } from '@/components/liquidGlass';
 import { BAR_H, FAB_LIFT, FAB_R } from '@/components/tabBarLayout';
 import { PressableScale } from '@/components/PressableScale';
+import { logFocusFabTapped, logMainTabSelected, type MainTab } from '@/services/analyticsEvents';
 import type { V2RootStackParamList } from '@/navigation/types';
 
 // 커스텀 탭바 — Claude Design "01 홈" 시안: 글래스 바 + 4탭 + 중앙 FAB(집중 시작).
@@ -124,7 +125,18 @@ function Tab({
           target: route.key,
           canPreventDefault: true,
         });
-        if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+        if (!focused && !event.defaultPrevented) {
+          const tabMap: Record<string, MainTab> = {
+            홈: 'home',
+            리그: 'league',
+            그룹: 'group',
+            전체: 'menu',
+          };
+          const tab = tabMap[route.name];
+          const fromTab = tabMap[state.routes[state.index]?.name];
+          if (tab && fromTab) logMainTabSelected({ tab, from_tab: fromTab });
+          navigation.navigate(route.name);
+        }
       }}
     >
       <Ionicons
@@ -184,13 +196,14 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         scaleTo={0.94}
         haptic="light"
         accessibilityLabel="집중 시작"
-        onPress={() =>
+        onPress={() => {
+          logFocusFabTapped({ entry_source: 'home_tab_bar' });
           rootNav.navigate('FocusCategory', {
             entrySource: 'home_fab',
             interactionId: undefined,
             interactionAcceptedAt: undefined,
-          })
-        }
+          });
+        }}
       >
         <View style={s.fabInner}>
           {/* ▶ 재생(시작) 아이콘 — 삼각형이 왼쪽으로 치우쳐 보여서 살짝 오른쪽 보정 */}

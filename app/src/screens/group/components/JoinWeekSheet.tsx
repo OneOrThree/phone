@@ -11,7 +11,7 @@ import {
 } from '@/services/groupApi';
 import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
-import { logGroupBetJoined } from '@/services/analyticsEvents';
+import { logGroupBetJoined, logGroupChallengeJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
 import { fmtMonthDayDow } from '../challengeSchedule';
@@ -164,6 +164,11 @@ export default function JoinWeekSheet({
         logGroupBetJoined({
           // stake는 하루치 축을 유지한다(총액이 아니다) — 날짜별로 갈리면 최대 하루치.
           stake: Math.max(...actual.map((e) => e.stake)),
+          session_count: actual.length,
+          mission_type: missionType,
+          mission_category: missionCategory,
+        });
+        logGroupChallengeJoined({
           session_count: actual.length,
           mission_type: missionType,
           mission_category: missionCategory,

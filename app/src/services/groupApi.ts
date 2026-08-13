@@ -4,9 +4,20 @@
 // 챌린지 3종은 2차에서 되살렸다(docs/app/group-plan-2.md §1, 계약 정본은 docs/back/group-plan-2.md §1).
 // 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
-import { api } from '@/services/api';
-import { logGroupChallengeDeleted, type GroupJoinMethod } from '@/services/analyticsEvents';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  api,
+  getFreshAccessToken,
+  getUserIdFromToken,
+  getAuthSessionGeneration,
+} from '@/services/api';
+import {
+  logGroupChallengeDeleted,
+  logGroupChallengeSettled,
+  type GroupJoinMethod,
+} from '@/services/analyticsEvents';
 import { todayStrKst } from '@/utils/localDate';
+import { STORAGE_KEYS } from '@/types/storage';
 import type {
   ChallengeDeletionPreviewResponse,
   CreateAnnouncementRequest,
@@ -35,6 +46,10 @@ import type {
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
+
+// 같은 정산 결과를 화면 재조회마다 반복 발행하지 않는다. 계정 전환을 구분하려 userId를 함께 키로 쓴다.
+const reportedChallengeSettlementIds = new Set<string>();
+const settlementReportInFlightIds = new Set<string>();
 
 // ── 신설 서버 에러코드(계약 §2 — 앱이 code 문자열로 분기) ────────────────────────
 // 화면 switch가 흩어 쓰는 리터럴의 오타를 막으려고 상수로 못 박는다(신설분만 —
@@ -339,12 +354,50 @@ export async function getMyChallengeResults(page?: {
   since?: string;
   limit?: number;
 }): Promise<MyChallengeResultEntry[]> {
+  // 결과를 읽는 계정과 정산 이벤트를 발행할 계정을 고정한다. 요청 중 계정이 바뀌면
+  // axios 인터셉터가 새 토큰을 붙이거나, 응답 후 저장소에서 새 userId를 읽어 옛 결과를
+  // 새 계정에 귀속시킬 수 있다(코드리뷰 반영).
+  const requestGeneration = getAuthSessionGeneration();
+  const accessToken = await getFreshAccessToken().catch(() => null);
+  const userId = getUserIdFromToken(accessToken ?? '');
+  if (!accessToken || !userId) return [];
   const { data } = await api.get<MyChallengeResultsResponse>(
     '/api/v1/me/challenge-results',
     // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
-    { params: { since: page?.since, limit: page?.limit } },
+    {
+      params: { since: page?.since, limit: page?.limit },
+      headers: { Authorization: `Bearer ${accessToken}` },
+      _noAuthRetry: true,
+    } as Parameters<typeof api.get>[1],
   );
-  return Array.isArray(data?.results) ? data.results : [];
+  const results = Array.isArray(data?.results) ? data.results : [];
+  const currentToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
+  if (
+    getAuthSessionGeneration() !== requestGeneration ||
+    getUserIdFromToken(currentToken ?? '') !== userId
+  ) {
+    return results;
+  }
+  for (const result of results) {
+    const reportKey = `${userId}:${result.sessionId}`;
+    if (reportedChallengeSettlementIds.has(reportKey)) continue;
+    if (settlementReportInFlightIds.has(reportKey)) continue;
+    if (result.status !== 'OPEN' && result.status !== 'UNUSED') {
+      settlementReportInFlightIds.add(reportKey);
+      try {
+        const marker = `${STORAGE_KEYS.groupChallengeSettlementReported}:${userId}:${result.sessionId}`;
+        const alreadyReported = await AsyncStorage.getItem(marker).catch(() => null);
+        if (!alreadyReported) {
+          logGroupChallengeSettled?.({ status: result.status });
+          await AsyncStorage.setItem(marker, result.status).catch(() => {});
+        }
+        reportedChallengeSettlementIds.add(reportKey);
+      } finally {
+        settlementReportInFlightIds.delete(reportKey);
+      }
+    }
+  }
+  return results;
 }
 
 // GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).

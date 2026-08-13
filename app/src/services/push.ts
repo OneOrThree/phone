@@ -11,6 +11,7 @@ import {
   logNotificationOpened,
   logNotificationPermissionResult,
   logPushOpened,
+  logPokeReceived,
   type NotificationType,
   type PushOpenedType,
 } from '@/services/analyticsEvents';
@@ -200,6 +201,7 @@ export function setupPushListeners(): () => void {
         return;
       }
       saveToInbox(msg);
+      if (notificationTypeFromData(msg?.data) === 'poke') logPokeReceived();
       try {
         await Notifications.scheduleNotificationAsync({
           content: {
