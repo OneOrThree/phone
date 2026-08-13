@@ -90,6 +90,7 @@ jest.mock('@/navigation/navigationRef', () => ({
 // 목록 본체(카드·CTA 규격)는 GroupListScreen.test.tsx가 맡는다 —
 // 여기서는 GroupScreen이 넘기는 5개 prop이 각각 어떤 전이로 이어지는지만 잠근다.
 // A-9 이후 목록이 항상 기본 화면이라 onBack은 더 이상 내려가지 않는다(내장 그룹방·임시 목록 제거).
+const mockGroupListRender = jest.fn();
 jest.mock('./GroupListScreen', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable, View: RNView } = require('react-native');
   const actual = jest.requireActual('./GroupListScreen');
@@ -109,6 +110,7 @@ jest.mock('./GroupListScreen', () => {
     onFind: (entryPoint: 'header') => void;
     onRefresh: () => Promise<void>;
   }) {
+    mockGroupListRender(groups);
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
@@ -286,6 +288,28 @@ afterEach(() => {
 });
 
 describe('최초 로딩 자리표시자', () => {
+  test('첫 조회 결과가 확정되기 전에는 0건 목록을 마운트하지 않는다', async () => {
+    let resolveGroups!: (groups: GroupSummaryResponse[]) => void;
+    mockGetMyGroups.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveGroups = resolve;
+        }),
+    );
+
+    await renderScreen();
+
+    expect(
+      screen.getByTestId('group.list.skeleton', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    expect(mockGroupListRender).not.toHaveBeenCalled();
+
+    await act(async () => resolveGroups([]));
+
+    expect(await screen.findByText('목록 0건')).toBeOnTheScreen();
+    expect(mockGroupListRender).toHaveBeenCalledWith([]);
+  });
+
   test('실제 덱 viewport와 같은 동적 높이를 원본 배율 표면에 적용한다', async () => {
     mockGetMyGroups.mockImplementationOnce(() => new Promise(() => undefined));
     await renderScreen();
