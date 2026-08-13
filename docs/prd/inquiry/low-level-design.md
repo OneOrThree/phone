@@ -146,6 +146,18 @@ interface InquiryContactCardProps {
 
 CTA는 `PressableScale`로 감싼다 (`scaleTo` 기본 0.96, `haptic: 'light'`). 최소 터치 타겟 44pt를 지킨다.
 
+**CTA에 담당자를 포함한 `accessibilityLabel`을 붙인다.**
+
+```tsx
+accessibilityRole="button"
+accessibilityLabel={`${contact.name}에게 카카오톡으로 문의하기`}
+```
+
+버튼 라벨 텍스트는 카드 3장이 전부 `카카오톡으로 문의하기`로 같고, 담당자 닉네임은 버튼의 **형제
+요소**라 버튼의 접근성 이름에 들어가지 않는다. 화면 읽기 사용자가 버튼 단위로 넘기면 **똑같은 버튼
+3개**로 읽혀 어느 방이 열리는지 알 수 없다 — 「사용자가 직접 지목한다」(D2)가 그 사용자에게만
+성립하지 않게 된다. §8.3에서 세 라벨이 서로 다른지 테스트한다.
+
 **색을 하드코딩하지 않는다** — `app/.claude/CLAUDE.md`의 Styling 규칙. `T.kakao`/`T.kakaoInk`가 이미 있으므로 카카오 브랜드색도 토큰으로 나온다.
 
 ## 4. `screens/settings/components/InquiryCategoryChips.tsx` (신규)
@@ -258,11 +270,15 @@ const handleConfirm = useCallback(async () => {
   const requested = target;         // 이 요청이 어느 담당자 것인지 고정
   // ⚠️ 분석 이벤트는 openURL **앞에서** 쏜다 — 뒤에서 쏘면 앱이 백그라운드로
   //    넘어가는 타이밍과 겹쳐 유실된다(high-level-design.md §3.1).
-  logInquiryContactOpened({
-    category,
-    contactId: requested.id,
-    isRecommended: requested.categoryId === category,
-  });
+  // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)에서는 쏘지 않는다 — 모달 1회당
+  //    최초 시도만 「선택」 1건이다. 아래 참조.
+  if (!failed) {
+    logInquiryContactOpened({
+      category,
+      contactId: requested.id,
+      isRecommended: requested.categoryId === category,
+    });
+  }
   const ok = await openInquiryChat(requested.openChatUrl);
   // ⚠️ await 사이에 사용자가 모달을 닫았거나(백드롭 탭·Android 뒤로 가기) 다른
   //    담당자로 바꿨을 수 있다. 그때 도착한 결과는 **폐기한다** — 안 그러면
@@ -274,7 +290,7 @@ const handleConfirm = useCallback(async () => {
     setFailed(true);
     setPending(false);   // 「다시 시도」를 누를 수 있어야 한다
   }
-}, [target, pending, category, closeModal]);
+}, [target, pending, failed, category, closeModal]);
 ```
 
 `targetRef`는 현재 `target`을 그대로 따라가는 `useRef`다 — 상태를 클로저로 읽으면 `await` **이전**
@@ -283,11 +299,18 @@ const handleConfirm = useCallback(async () => {
 
 성공 시 모달을 닫아 두는 이유: 카카오톡에서 돌아왔을 때 모달이 떠 있으면 「아직 안 갔나?」로 읽힌다.
 
+**재시도는 새로운 「선택」이 아니다.** 「다시 시도」는 같은 `handleConfirm`을 다시 타므로 그대로 두면
+이벤트가 두 번, 세 번 발화한다. `prd.md` §5의 추천 일치율이 **이벤트 단위**로 세므로(세션 distinct로는
+왜곡되기 때문), 재시도가 그대로 집계되면 **링크나 기기가 나쁜 쪽의 유형이 과대표집된다** — 실패가
+잦은 담당자의 추천/비추천 값이 실제보다 여러 배로 잡히고, 그 값으로 D6 매핑을 판단하게 된다.
+`failed` 상태에서의 호출은 정의상 재시도뿐이므로 그것만 건너뛰면 **모달 1회 = 선택 1건**이 성립한다.
+`closeModal()`이 `failed`를 리셋하니 다음에 카드를 다시 누르면 정상적으로 1건이 기록된다.
+
 ## 6. 기존 파일 수정
 
 ### 6.1 `components/ConfirmCardModal.tsx`
 
-옵셔널 prop 1개만 추가한다. 기본값이 `undefined`(=미선택)라 기존 호출부 4곳은 손대지 않아도 그대로 동작한다.
+**(1) 옵셔널 prop 1개 추가.** 기본값이 `undefined`(=미선택)라 기존 호출부 4곳은 손대지 않아도 그대로 동작한다.
 
 ```ts
   /** 본문을 길게 눌러 복사할 수 있게 한다(링크 폴백 등) */
@@ -296,6 +319,24 @@ const handleConfirm = useCallback(async () => {
 ```tsx
   <Text style={s.cardBody} selectable={bodySelectable}>{body}</Text>
 ```
+
+**(2) 카드 높이를 화면 안으로 제한하고 본문만 스크롤시킨다.** 현재 `card`에는 `maxHeight`가 없고
+`overlay`가 `justifyContent: 'center'`라, **내용이 길어지면 카드가 위아래로 화면 밖까지 자란다.**
+이 화면의 실패 모달은 안내문 + 긴 URL을 함께 담는 데다 접근성 글자 배율까지 곱해지므로, 작은
+기기에서 **URL과 「다시 시도」·「닫기」 버튼이 화면 밖으로 밀려난다.** 실패 모달은 D7이 정한 **유일한
+수동 복구 경로**라, 여기서 버튼에 손이 닿지 않으면 사용자는 아무것도 할 수 없다.
+
+```tsx
+  card: { …, maxHeight: '80%' },     // 스크림이 보여야 모달로 읽힌다
+  // 본문만 ScrollView 로 감싼다 — 버튼은 밖에 둬서 항상 눌린다
+  <ScrollView style={s.bodyScroll} contentContainerStyle={s.bodyScrollInner}>
+    <Text style={s.cardBody} selectable={bodySelectable}>{body}</Text>
+  </ScrollView>
+```
+
+**버튼을 `ScrollView` 안에 넣지 말 것.** 스크롤해야 닿는 버튼은 「없는 버튼」과 같다 — 사용자는
+잘린 화면에서 아래에 뭐가 더 있는지 모른다. 짧은 본문에서는 `ScrollView`가 내용 높이만큼만
+차지하므로 기존 호출부 4곳의 겉모습은 변하지 않는다.
 
 ### 6.2 `navigation/types.ts`
 
@@ -438,6 +479,8 @@ it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규
 it('실패 후 닫고 다른 담당자를 누르면 확인 모달이 뜬다', … );  // failed 누수 — 가장 중요
 it('요청 중에는 주 버튼이 비활성이다', … );                     // 연타 → 이벤트 중복
 it('요청 중 모달을 닫으면 늦게 온 실패 결과가 무시된다', … );   // 폐기된 요청
+it('「다시 시도」는 contact_opened 를 다시 쏘지 않는다', … );    // 모달 1회 = 선택 1건
+it('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // 담당자 구분
 ```
 
 ### 8.4 수동 QA (자동화 불가)
@@ -452,6 +495,8 @@ it('요청 중 모달을 닫으면 늦게 온 실패 결과가 무시된다', �
 | Q6 | 카카오톡 미설치 기기에서 브라우저로 열린다 |
 | Q7 | 기기 글자 크기를 최대로 해도 닉네임·성격 설명·CTA가 잘리지 않는다 |
 | Q8 | 작은 기기(iPhone SE)에서 카드 3장이 스크롤로 전부 도달 가능하다 |
+| Q9 | **iPhone SE + 글자 크기 최대 + 실패 모달**에서 URL이 스크롤로 전부 읽히고 「다시 시도」·「닫기」가 화면 안에 있다 (§6.1-(2)). **실패 모달은 유일한 수동 복구 경로**라 여기서 버튼에 손이 안 닿으면 사용자는 아무것도 못 한다 |
+| Q10 | 화면 읽기(VoiceOver/TalkBack)로 버튼을 넘길 때 CTA 3개가 **담당자 닉네임으로 구분되어** 읽힌다 |
 
 Maestro E2E는 붙이지 않는다 — 흐름의 종착점이 앱 밖이라 검증할 수 있는 구간이 「모달이 뜬다」까지뿐이다.
 
