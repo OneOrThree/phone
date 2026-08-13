@@ -96,6 +96,11 @@ export interface GroupDetailMemberResponse {
   role: GroupMemberRole;
   focusTimeMinutes: number | null;
   totalFocusMinutes: number;
+  // GROMO-1567 라이브 필드 — 리그(/league/me/ranking)와 같은 규격·의미. 서버 배포 전 구버전 응답
+  // 호환을 위해 optional 유지(없으면 소비처가 false/null 폴백).
+  isFocusing?: boolean; // 현재 집중 세션 진행 중 여부
+  focusStartedAt?: string | null; // 진행 중 세션 시작 시각(ISO) — 초 단위 경과 렌더링 기준. 미집중이면 null
+  focusTagName?: string | null; // 진행 중 세션 태그명. 미집중·무태그면 null
 }
 
 // GET /groups/{id}?date — 그룹 상세(그룹원만). code·codeExpiresAt은 읽지 않는다(§3-1-5).

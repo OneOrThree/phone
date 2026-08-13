@@ -9,10 +9,9 @@ import type { LiveGridMember } from './components/LiveFocusGrid';
 // 리그 훅(useSessionLeagueMembers)은 GET /league/me/ranking 이라 그룹으로 필터할 수 없어 재사용 불가:
 //   getMyGroups() → 각 그룹 getGroupDetail(groupId, today)의 members[]로 그룹별로 모은다.
 //
-// ⚠️ 라이브성 한계(F2.8-②): group detail 멤버(GroupDetailMemberResponse)에는
-//   isFocusing/focusStartedAt/focusTagName 이 없다 — '지금 집중중'(초록 틱업) 신호가 서버에 없어
-//   오늘 집중분(focusTimeMinutes)만 정적으로 표기한다(전원 isFocusing=false). 내 셀만 그리드가
-//   로컬 타이머로 라이브 렌더한다(me). 신선도는 60초 폴링 + 포그라운드 복귀(분 단위 스냅샷).
+// 라이브 신호: group detail 멤버에 isFocusing/focusStartedAt/focusTagName 이 실린다(GROMO-1567) —
+//   리그(/league/me/ranking)와 같은 규격이라 한 그리드에서 섞어 써도 의미가 어긋나지 않는다.
+//   내 셀만 그리드가 로컬 타이머로 라이브 렌더한다(me). 신선도는 60초 폴링 + 포그라운드 복귀(분 단위 스냅샷).
 
 const DEFAULT_POLL_MS = 60_000;
 
@@ -70,10 +69,10 @@ export function useSessionGroups({
             userId: m.userId,
             nickname: m.nickname,
             focusTimeMinutes: m.focusTimeMinutes ?? 0,
-            // group detail 은 라이브 신호가 없다 — 정적 오늘 집중분만(상단 주석 한계).
-            isFocusing: false,
-            focusStartedAt: null,
-            focusTagName: null,
+            // 라이브 3필드는 리그와 같은 규격(GROMO-1567). 구버전 서버 응답엔 없어 폴백을 남긴다.
+            isFocusing: m.isFocusing ?? false,
+            focusStartedAt: m.focusStartedAt ?? null,
+            focusTagName: m.focusTagName ?? null,
           });
         }
         next.push({ groupId: g.groupId, groupName: g.name, members });
