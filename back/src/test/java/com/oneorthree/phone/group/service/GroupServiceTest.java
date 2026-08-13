@@ -28,6 +28,8 @@ import com.oneorthree.phone.group.domain.GroupChallenge;
 import com.oneorthree.phone.group.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeWindow;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetRepository;
@@ -134,6 +136,9 @@ class GroupServiceTest {
 
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
+
+    @Mock
+    private FocusLiveInfoLookup focusLiveInfoLookup;
 
     @Mock
     private UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
@@ -717,6 +722,40 @@ class GroupServiceTest {
                 .containsExactly("최상", "중간", "나");
         assertThat(response.getMembers().get(0).getTotalFocusMinutes()).isEqualTo(100);
         assertThat(response.getMembers().get(2).getTotalFocusMinutes()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("멤버 응답에 라이브 집중 정보(오늘 집중분·진행중·시작시각·태그)가 매핑된다 (GROMO-1567)")
+    void getGroupDetailMapsLiveFocusInfo() {
+        UUID uIdle = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
+        User me = userWithNickname(USER_ID, "집중중");
+        User idle = userWithNickname(uIdle, "쉬는중");
+        Group group = Group.builder().id(GROUP_ID).name("그룹").maxMembers(10)
+                .status(GroupStatus.WAITING).build();
+        GroupMember gmMe = GroupMember.builder().user(me).group(group).role(GroupMemberRole.OWNER).build();
+        GroupMember gmIdle = GroupMember.builder().user(idle).group(group).role(GroupMemberRole.MEMBER).build();
+        Instant startedAt = Instant.parse("2026-07-03T01:00:00Z");
+
+        given(userRepository.findByIdAndIsDeletedFalse(USER_ID)).willReturn(Optional.of(me));
+        given(groupRepository.findById(GROUP_ID)).willReturn(Optional.of(group));
+        given(groupMemberRepository.findByUserAndGroup(me, group)).willReturn(Optional.of(gmMe));
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(gmMe, gmIdle));
+        // 라이브 정보가 없는 멤버(쉬는중)는 맵에서 빠진다 — 기본값 0/false/null 로 내려야 한다
+        given(focusLiveInfoLookup.liveInfoByUserId(anyList(), eq(LocalDate.of(2026, 7, 3))))
+                .willReturn(Map.of(USER_ID, new FocusLiveInfo(25, true, startedAt, "수학")));
+
+        GroupDetailResponse response =
+                groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
+
+        assertThat(response.getMembers())
+                .extracting(GroupDetailMemberResponse::getNickname,
+                        GroupDetailMemberResponse::getFocusTimeMinutes,
+                        GroupDetailMemberResponse::isFocusing,
+                        GroupDetailMemberResponse::getFocusStartedAt,
+                        GroupDetailMemberResponse::getFocusTagName)
+                .containsExactlyInAnyOrder(
+                        tuple("집중중", 25, true, startedAt, "수학"),
+                        tuple("쉬는중", 0, false, null, null));
     }
 
     /** A-8 누적 집중 배치 조회 결과 행(UserFocusTotal 프로젝션) 목 생성 헬퍼. */
