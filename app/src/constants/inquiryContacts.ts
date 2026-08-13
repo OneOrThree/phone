@@ -25,11 +25,12 @@ export interface InquiryContact {
   initial: string;
   /** T.avatarPalette 인덱스 — theme.ts를 import하지 않기 위해 숫자로 둔다 */
   avatarPaletteIndex: number;
-  /** 성격 설명 — 어떤 쪽 문의에 어울리는지. 담당 영역(소유권)이 아니다(policy.md D6) */
-  scopeLabel: string;
-  /** 한 줄 소개 (사용자 말) — 어떤 증상일 때 이 사람인지 */
-  intro: string;
-  availability: string;
+  /**
+   * 담당자를 나타내는 키워드 3개(가운뎃점으로 잇는다). 성격·분위기지 담당 영역이 아니다 —
+   * 사용자는 이걸 무시하고 아무나 고를 수 있다(policy.md D2 · D6).
+   * ⚠️ 사람에 대한 서술이므로 **본인이 고른 표현만** 넣는다.
+   */
+  keywords: string;
   /** 이 담당자가 추천되는 카테고리 — 카테고리당 정확히 1명 */
   categoryId: InquiryCategoryId;
   /** https 오픈채팅 URL. 커스텀 스킴 금지(policy.md D7) */
@@ -46,18 +47,17 @@ export const INQUIRY_CATEGORIES: readonly InquiryCategory[] = [
 // openChatUrl 3개는 서로 달라야 한다 — 같은 방을 두 명이 가리키면 D2(직접 지목)와
 // D3(담당자별 방 3개)가 동시에 깨지는데, 링크가 열리는지만 보는 QA로는 안 잡힌다.
 //
-// ⚠️ intro · availability 는 아직 자리표시자다(policy.md 미결 · low-level-design.md §9) —
-//    담당자 본인에게 받아 채운다. availability 는 지킬 수 없는 시간을 적지 않는다(D9).
-//    링크가 죽으면 앱은 감지하지 못한다 — 교체·점검 절차는 high-level-design.md §5.1.
+// keywords 는 담당자 본인이 고른 표현이다 — 남이 대신 정해 넣지 않는다.
+// 응답 가능 시간은 카드에 적지 않는다(D9 개정 2026-08-14) — 셋 다 같은 값이라 정보량이 0이었고,
+// 기대치 관리는 화면 하단 안내 박스가 진다.
+// 링크가 죽으면 앱은 감지하지 못한다 — 교체·점검 절차는 high-level-design.md §5.1.
 export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
   {
     id: 'dev-focus',
     name: 'JAJO',
     initial: 'J',
     avatarPaletteIndex: 0,
-    scopeLabel: '집중 · 스크린타임 · 통계',
-    intro: '타이머가 안 멈추거나 사용 시간이 이상하면 알려 주세요.',
-    availability: '평일 10:00–19:00',
+    keywords: '빠름 · 조금 빠름 · 많이 빠름',
     categoryId: 'focus',
     openChatUrl: 'https://open.kakao.com/o/gu7GFKIi',
   },
@@ -66,9 +66,7 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: '오스카',
     initial: '오',
     avatarPaletteIndex: 1,
-    scopeLabel: '그룹 · 챌린지 · 친구',
-    intro: '그룹 초대가 안 되거나 챌린지 참여가 이상할 때 찾아 주세요.',
-    availability: '평일 10:00–19:00',
+    keywords: '초미녀 · 친절 · 상시 대기',
     categoryId: 'group',
     openChatUrl: 'https://open.kakao.com/o/sll2EKIi',
   },
@@ -77,9 +75,7 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: 'Aiden',
     initial: 'A',
     avatarPaletteIndex: 2,
-    scopeLabel: '계정 · 결제 · 그 밖의 모든 것',
-    intro: '어디에 물어야 할지 모르겠으면 저에게 주세요.',
-    availability: '평일 10:00–19:00',
+    keywords: '친절 · 미소 · 환영',
     categoryId: 'etc',
     openChatUrl: 'https://open.kakao.com/o/sYCkEKIi',
   },

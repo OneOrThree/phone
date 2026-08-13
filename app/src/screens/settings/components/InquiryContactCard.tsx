@@ -7,9 +7,9 @@ import { T } from '@/constants/theme';
 // 1:1 문의 담당자 카드(docs/prd/inquiry/low-level-design.md §3 · information-architecture.md §2.3).
 // 표시 전용이다 — props in, onPress out. 상태를 갖지 않는다.
 //
-// 카드 안의 정보 순서는 「누구인가 → 어떤 쪽 사람인가 → 내 문제가 여기 맞나 → 언제 답이 오나 → 행동」이다.
-// 성격 설명(scopeLabel)·한 줄 소개(intro)는 **소유권 주장이 아니다** — 「이런 문의면 이 사람이
-// 어울린다」일 뿐이고 사용자는 무시하고 아무나 고를 수 있다(policy.md D2 · D6).
+// 카드 안의 정보 순서는 「누구인가 → 어떤 사람인가 → 행동」 셋뿐이다.
+// keywords 는 **소유권 주장이 아니다** — 분위기를 알려줄 뿐이고 사용자는 무시하고 아무나
+// 고를 수 있다(policy.md D2 · D6). 한 줄 소개와 응답 시간은 카드에서 뺐다(D9 개정 2026-08-14).
 
 interface InquiryContactCardProps {
   contact: InquiryContact;
@@ -48,17 +48,8 @@ export default function InquiryContactCard({
               </View>
             ) : null}
           </View>
-          <Text style={s.scope}>{contact.scopeLabel}</Text>
+          <Text style={s.keywords}>{contact.keywords}</Text>
         </View>
-      </View>
-
-      {/* numberOfLines를 두지 않는다 — 글자 배율을 키워도 잘리면 안 되는 항목이라(IA §6)
-          카드가 세로로 늘어나게 둔다. */}
-      <Text style={s.intro}>{contact.intro}</Text>
-
-      <View style={s.availability}>
-        <Ionicons name="time-outline" size={14} color={T.inkMuted} />
-        <Text style={s.availabilityText}>{contact.availability}</Text>
       </View>
 
       {/* 버튼 라벨이 카드 3장 다 같고 닉네임은 형제 요소라, accessibilityLabel이 없으면
@@ -115,17 +106,7 @@ const s = StyleSheet.create({
     paddingHorizontal: T.space.sm,
   },
   badgeText: { ...T.text.caption, color: T.accentDeep },
-  scope: { ...T.text.caption, color: T.accentDeep, marginTop: 2 },
-
-  intro: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm },
-
-  availability: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: T.space.xs,
-    marginTop: T.space.sm,
-  },
-  availabilityText: { ...T.text.caption, fontWeight: '500', color: T.inkMuted, flex: 1 },
+  keywords: { ...T.text.caption, color: T.accentDeep, marginTop: 2 },
 
   cta: {
     flexDirection: 'row',

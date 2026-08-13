@@ -47,11 +47,9 @@ export interface InquiryContact {
   initial: string;
   /** T.avatarPalette 인덱스 — theme.ts를 import하지 않기 위해 숫자로 둔다 */
   avatarPaletteIndex: number;
-  /** 성격 설명 — 어떤 쪽 문의에 어울리는지. 담당 영역(소유권)이 아니다(policy.md D6) */
-  scopeLabel: string;
-  /** 한 줄 소개 (사용자 말) — 어떤 증상일 때 이 사람인지 */
-  intro: string;
-  availability: string;
+  /** 키워드 3개 — 그 사람의 분위기. 담당 영역(소유권)이 아니다(policy.md D6).
+      사람에 대한 서술이므로 **본인이 고른 표현만** 넣는다(D10과 같은 이유) */
+  keywords: string;
   /** 이 담당자가 추천되는 카테고리 — 카테고리당 정확히 1명 */
   categoryId: InquiryCategoryId;
   /** https 오픈채팅 URL. 커스텀 스킴 금지(policy.md D7) */
@@ -72,9 +70,6 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: 'TODO',
     initial: 'T',
     avatarPaletteIndex: 0,
-    scopeLabel: '집중 · 스크린타임 · 통계',
-    intro: '타이머가 안 멈추거나 사용 시간이 이상하면 저에게 알려 주세요.',
-    availability: '평일 10:00–19:00',
     categoryId: 'focus',
     openChatUrl: 'https://open.kakao.com/o/TODO',
   },
@@ -151,10 +146,8 @@ interface InquiryContactCardProps {
 | 그림자 | `shadowColor T.shadow`, `opacity .16`, `radius 16`, `offset {0,10}`, `elevation 3` |
 | 아바타 | 44×44 원, `bg T.avatarPalette[avatarPaletteIndex]`, 흰 이니셜 `T.text.subtitle` (**새 조합** — 아래) |
 | 이름 | `T.text.label`, `color T.ink` |
-| 성격 설명 | `T.text.caption`, `color T.accentDeep` |
+| 키워드 3개 | `T.text.caption`, `color T.accentDeep` (가운뎃점으로 이어 한 줄) |
 | 「추천」 배지 | `bg T.accentBg`, `border 1 T.noteBorder`, `radius 999`, `color T.accentDeep`, `T.text.caption` |
-| 한 줄 소개 | `T.text.body`, `color T.inkSub`, `marginTop T.space.sm` |
-| 응답 시간 | Ionicons `time-outline` 14 + `T.text.caption`, `color T.inkMuted`, `marginTop T.space.sm` |
 | CTA | `bg T.kakao`, `color T.kakaoInk`, `radius 12`, `padding T.space.md/T.space.lg`, `minHeight 44`, `T.text.label`, Ionicons `chatbubble` 16 |
 
 CTA는 `PressableScale`로 감싼다 (`scaleTo` 기본 0.96, `haptic: 'light'`). 최소 터치 타겟 44pt를 지킨다.
@@ -239,6 +232,7 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 ├── 안내 문단   무엇을 도와드릴까요? / 담당 개발자에게 카카오톡으로 직접 물어보실 수 있어요.
 ├── 「어떤 내용인가요?」 + InquiryCategoryChips
 ├── 「담당 개발자」 + ordered.map(c => <InquiryContactCard recommended={c.categoryId === category} …/>)
+│                (카드는 아바타+닉네임+키워드+CTA 세 줄 — 소개·응답시간 없음, D9 개정)
 └── 안내 박스   bg T.noteBg / border T.noteBorder / Ionicons information-circle
                 「카카오톡 앱으로 이동해요. 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.」
 + ConfirmCardModal
@@ -560,7 +554,7 @@ test('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // �
 | Q4 | 확인 모달에 「gromo 서버에는 남지 않아요」가 있다 |
 | Q5 | **오픈채팅 링크 3개가 실제로 살아 있는 방으로 연결된다** — 앱이 감지 못 하는 실패라 릴리즈마다 수동 확인 (`high-level-design.md` §5) |
 | Q6 | 카카오톡 미설치 기기에서 브라우저로 열린다 |
-| Q7 | 기기 글자 크기를 최대로 해도 닉네임·성격 설명·CTA가 잘리지 않는다 |
+| Q7 | 기기 글자 크기를 최대로 해도 닉네임·키워드·CTA가 잘리지 않는다 |
 | Q8 | 작은 기기(iPhone SE)에서 카드 3장이 스크롤로 전부 도달 가능하다 |
 | Q9 | **iPhone SE + 글자 크기 최대 + 실패 모달**에서 URL이 스크롤로 전부 읽히고 「다시 시도」·「닫기」가 화면 안에 있다 (§6.1-(2)). **실패 모달은 유일한 수동 복구 경로**라 여기서 버튼에 손이 안 닿으면 사용자는 아무것도 못 한다 |
 | Q10 | 화면 읽기(VoiceOver/TalkBack)로 버튼을 넘길 때 CTA 3개가 **담당자 닉네임으로 구분되어** 읽힌다 |
@@ -569,8 +563,9 @@ Maestro E2E는 붙이지 않는다 — 흐름의 종착점이 앱 밖이라 검�
 
 ## 9. 착수 전 체크리스트
 
-- [ ] 담당자 3명 **닉네임(활동명)** · 성격 설명 · 소개 문구 · 응답 시간 확정 (`policy.md` D10 — 실명이 아니라 노출 동의 절차 없음)
-- [ ] 카카오톡 1:1 오픈채팅방 3개 개설 + 영구 URL 확보 (`policy.md` D3)
+- [x] 담당자 3명 **닉네임(활동명)** 확정 — JAJO · 오스카 · Aiden (`policy.md` D10 — 실명이 아니다)
+- [ ] **키워드 3개씩** 확정 — **담당자 본인이 고른 표현이어야 한다.** 남이 대신 정하면 D10에서 실명을 뺀 이유(공개 화면 · 되돌릴 수 없음 · 본인 동의)가 그대로 재현된다
+- [x] 카카오톡 1:1 오픈채팅방 3개 개설 + 영구 URL 확보 (`policy.md` D3) — **다만 살아 있는 방인지는 사람이 직접 열어봐야 안다(Q5)**
 - [ ] **오픈채팅 링크 운영 런북 합의** — 방별 책임자 · 주 1회 점검 · OTA 배포 전 확인 · 당일 복구 SLA (`high-level-design.md` §5.1)
 - [ ] **개인정보 처리 범위 확정 + 법무·개인정보 책임자 승인** (`policy.md` 미결) — 수집 주체 · 예상 입력 항목 · 카카오에서의 보존·삭제 경로 · 처리방침 반영 여부. **승인 없이 출시하지 않는다**
 - [ ] GA4 DebugView에서 이벤트 3개 수신 확인 — `is_recommended`가 문자열 `'true'`/`'false'`로 도착하는지 포함
