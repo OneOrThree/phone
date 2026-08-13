@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { getMyTier, getMySchedule } from '@/services/leagueApi';
 import type { LeagueTierResponse } from '@/types/api';
@@ -13,19 +13,14 @@ const UNASSIGNED_TIER: LeagueTierResponse = {
   badgeId: null,
 };
 
-// 초 → "마감 N일 HH:MM" (주간 정산 마감 카운트다운 라벨).
-function fmtDeadline(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  const d = Math.floor(s / 86400);
-  const hh = String(Math.floor((s % 86400) / 3600)).padStart(2, '0');
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  return d > 0 ? `마감 ${d}일 ${hh}:${mm}` : `마감 ${hh}:${mm}`;
-}
-
 // 리그 메타(내 티어 + 마감 스케줄) 실 API 조회 — GROMO-538.
 //   티어 : GET /api/v1/league/me/tier
-//   마감 : GET /api/v1/league/me/schedule (remainingSeconds → 1초 로컬 카운트다운)
+//   마감 : GET /api/v1/league/me/schedule (remainingSeconds)
 // 실패/게스트/미배정 시 중립 티어·null 마감 유지(mock 폴백 없음).
+//
+// ⚠️ 마감 1초 카운트다운은 여기 두지 않는다 — 이 훅은 리그 화면 본체와 홈 탭이 함께 쓰는데,
+//    틱 state를 여기 두면 두 화면 전체가 매초 리렌더된다(GROMO-1572). 틱은 라벨을 그리는
+//    components/LeagueDeadline.tsx 안에 갇혀 있고, 이 훅은 서버가 준 remainingSeconds만 넘긴다.
 export function useLeagueMeta() {
   const [tier, setTier] = useState<LeagueTierResponse>(UNASSIGNED_TIER);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
@@ -54,17 +49,5 @@ export function useLeagueMeta() {
     }, [refetch]),
   );
 
-  // 마감 1초 카운트다운 — 서버 remainingSeconds 확보 후 로컬 감소.
-  const hasDeadline = remainingSeconds != null;
-  useEffect(() => {
-    if (!hasDeadline) return;
-    const id = setInterval(() => {
-      setRemainingSeconds((s) => (s == null ? s : Math.max(0, s - 1)));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [hasDeadline]);
-
-  const deadlineLabel = remainingSeconds != null ? fmtDeadline(remainingSeconds) : null;
-
-  return { tier, remainingSeconds, deadlineLabel, refetch };
+  return { tier, remainingSeconds, refetch };
 }
