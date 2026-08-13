@@ -96,7 +96,10 @@ const s = StyleSheet.create({
   avatarText: { ...T.text.subtitle, color: T.white },
   headText: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: T.space.sm },
-  name: { ...T.text.label, color: T.ink },
+  // ⚠️ nameRow 가 flexDirection:'row' 라 이 Text 는 부모 폭에 맞춰 늘어나지 않는다.
+  //    flexWrap 은 「추천」 배지를 다음 줄로 넘길 뿐 이름 자신의 폭은 줄이지 못하므로,
+  //    닉네임이 길어지면(상수라 OTA 로 바뀐다 — D5) 카드 밖으로 넘친다.
+  name: { ...T.text.label, color: T.ink, flexShrink: 1 },
   badge: {
     backgroundColor: T.accentBg,
     borderWidth: 1,

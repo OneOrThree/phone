@@ -276,6 +276,33 @@ describe('InquiryScreen — 세션 경계 재발화', () => {
     }
   });
 
+  // ⚠️ AppState 복귀가 「새 세션」 신호를 먼저 소비하는 경합. 위 테스트는 시간만 흘리므로
+  //    이 조합(복귀 → 곧바로 재시도)을 못 잡는다.
+  test('앱 복귀로 세션이 갱신된 직후의 재시도도 이동 이벤트로 기록한다', async () => {
+    jest.useFakeTimers();
+    try {
+      mockOpenInquiryChat.mockResolvedValue(false);
+      await render(<InquiryScreen />);
+      await openConfirm(FOCUS.id);
+      await press('inquiry.confirm.primary'); // 1차 실패
+      expect(mockLogContactOpened).toHaveBeenCalledTimes(1);
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(1);
+
+      // 실패 모달을 띄운 채 앱을 떠났다 31분 뒤 복귀 — 리스너가 노출을 먼저 쏜다.
+      await act(async () => {
+        jest.advanceTimersByTime(31 * 60 * 1000);
+      });
+      await returnToForeground();
+      expect(mockLogScreenViewed).toHaveBeenCalledTimes(2);
+
+      // 그 직후의 「다시 시도」 — 새 세션의 첫 이동이므로 분자로 잡혀야 한다.
+      await press('inquiry.confirm.primary');
+      expect(mockLogContactOpened).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('이벤트를 쏘지 않은 호출도 기준 시각을 갱신한다 — 같은 세션에서 분모가 두 번 잡히지 않는다', async () => {
     jest.useFakeTimers();
     try {

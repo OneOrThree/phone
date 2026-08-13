@@ -59,13 +59,26 @@ export default function InquiryScreen() {
   //    「30분 지났다」고 판단해 노출을 다시 쏜다. 그런데 GA4에서는 20분 이벤트가 세션을 연장해
   //    **여전히 같은 세션**이라, 한 세션에 분모가 2번 잡혀 전환율이 실제보다 낮게 나온다.
   const lastEventAt = useRef(0);
-  /** 노출을 새로 쐈으면(=세션이 바뀐 것으로 본다) true. 호출부가 분자 발행 여부를 정하는 데 쓴다. */
-  const markViewed = useCallback((): boolean => {
+  /**
+   * 세션 일련번호 — 노출을 새로 쏠 때마다 1 오른다.
+   *
+   * ⚠️ 「이 호출이 세션을 새로 열었는가」(markViewed의 반환값)로 분자 발행을 정하면 안 된다.
+   *    실패 모달을 띄운 채 앱을 떠났다 30분 뒤 돌아오면 **AppState 리스너가 먼저** markViewed()를
+   *    호출해 신호를 소비해 버리고, 그 직후 사용자가 누른 「다시 시도」는 false 를 받아 **실제
+   *    전환이 조용히 억제된다.** 물어야 할 것은 「이 세션에 분자를 이미 줬는가」다.
+   */
+  const sessionSeq = useRef(0);
+  /** 지금 모달에 대해 분자를 발행한 세션 번호. -1 = 아직 없음. closeModal 에서 리셋된다. */
+  const openedAtSeq = useRef(-1);
+
+  const markViewed = useCallback(() => {
     const now = Date.now();
     const sessionLikelyExpired = now - lastEventAt.current >= VIEWED_REFIRE_MS;
     lastEventAt.current = now; // 발화 여부와 무관하게 항상 갱신한다
-    if (sessionLikelyExpired) logInquiryScreenViewed();
-    return sessionLikelyExpired;
+    if (sessionLikelyExpired) {
+      sessionSeq.current += 1;
+      logInquiryScreenViewed();
+    }
   }, []);
 
   useEffect(() => {
@@ -90,6 +103,7 @@ export default function InquiryScreen() {
   //    담당자 B 카드를 누르면 **B는 시도조차 안 했는데** 곧바로 「카카오톡을 열 수 없어요」가 뜬다.
   const closeModal = useCallback(() => {
     reqIdRef.current += 1; // 진행 중인 요청 무효화
+    openedAtSeq.current = -1; // 다음 모달은 다시 분자를 받는다
     setTarget(null);
     setFailed(false);
     setPending(false);
@@ -121,17 +135,20 @@ export default function InquiryScreen() {
     // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)에서는 쏘지 않는다. 재시도는 새로운 「선택」이
     //    아니다 — 그대로 세면 링크·기기가 나쁜 쪽 유형이 과대표집되어 추천 일치율(prd.md §5)이
     //    왜곡된다. failed 상태의 호출은 정의상 재시도뿐이므로 이 한 줄로 「모달 1회 = 선택 1건」이 된다.
-    // ⚠️ 재시도 억제는 **같은 세션 안에서만** 한다. 세션이 바뀌었으면(= 노출을 새로 쐈으면)
-    //    그 재시도는 새 세션의 첫 이동이므로 분자로 세야 한다 — 안 그러면 실패 모달을 30분 넘게
-    //    열어 뒀다가 「다시 시도」로 실제 이동한 사용자가 새 세션에 **분모만 남기고** 분자는 없어
-    //    전환율이 낮아진다.
-    const startedNewSession = markViewed();
-    if (!failed || startedNewSession) {
+    // ⚠️ 재시도 억제는 **같은 세션 안에서만** 한다. 세션이 바뀌면 그 재시도는 새 세션의 첫
+    //    이동이므로 분자로 세야 한다 — 안 그러면 실패 모달을 오래 열어 뒀다 「다시 시도」로 실제
+    //    이동한 사용자가 새 세션에 **분모만 남기고** 분자는 없어 전환율이 낮아진다.
+    //
+    //    판단 기준은 「이 호출이 세션을 열었는가」가 아니라 **「이 세션에 분자를 이미 줬는가」**다.
+    //    전자로 하면 AppState 복귀가 신호를 먼저 삼켜, 그 직후의 재시도가 억제된다.
+    markViewed();
+    if (!failed || openedAtSeq.current !== sessionSeq.current) {
       logInquiryContactOpened({
         category,
         contactId: requested.id,
         isRecommended: requested.categoryId === category,
       });
+      openedAtSeq.current = sessionSeq.current;
     }
     const ok = await openInquiryChat(requested.openChatUrl);
     // await 사이에 모달을 닫았거나 다시 열었으면 이 결과는 폐기한다.
