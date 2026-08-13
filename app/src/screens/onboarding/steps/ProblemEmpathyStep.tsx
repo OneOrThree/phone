@@ -1,93 +1,130 @@
 import { View, Text, StyleSheet } from 'react-native';
-import Svg, { Rect, Path } from 'react-native-svg';
-import Animated, { SlideInUp } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// iOS 알림 드롭 연출 — 화면 위 바깥에서 미끄러져 내려와 목표 지점을 살짝 지나쳤다
-// 되돌아오며 안착(스프링 오버슛 = 바운스). 두 카드는 알림이 연달아 오듯 시차를 둔다.
-const notificationDrop = (order: number) =>
-  SlideInUp.springify()
-    .damping(14)
-    .stiffness(120)
-    .mass(0.9)
-    .delay(150 + order * 250);
-
-// W3 · 문제 공감 — "이런 하루, 익숙하지 않으세요?" 공감 카드 2개(알림 드롭 등장).
+// 로그인 전 첫 화면 — 문제를 길게 설명하기보다 실제 집중 화면의 핵심 경험을 먼저 보여준다.
+// 앱 전체가 밝은 표면이라, 다크 집중 세션 카드를 한 번만 강하게 써서 "집중 모드로 들어간다"는
+// 전환을 기억하게 한다. 타이머·방해 앱 차단·자동 기록은 현재 제공하는 기능만 명시한다.
 export default function ProblemEmpathyStep({ onNext }: StepProps) {
   return (
     <StepScaffold
       testID="onboarding.step.problem"
       center
-      title={'이런 순간, \n익숙하지 않으세요?'}
-      ctaLabel="공감돼요"
+      title={'오늘 할 일만 고르면\n집중이 바로 시작돼요'}
+      ctaLabel="다음"
       onCta={onNext}
     >
-      <View style={s.cards}>
-        <Animated.View style={s.card} entering={notificationDrop(0)}>
-          <View style={s.iconBox}>
-            <Svg width={22} height={22} viewBox="0 0 24 24">
-              <Rect
-                x={6}
-                y={2}
-                width={12}
-                height={20}
-                rx={3}
-                fill="none"
-                stroke={T.accentAlt}
-                strokeWidth={1.8}
-              />
-              <Path
-                d="M9 2h6M10 19h4"
-                stroke={T.accentAlt}
-                strokeWidth={1.8}
-                strokeLinecap="round"
-              />
-            </Svg>
+      <View style={s.sessionCard}>
+        <View style={s.sessionTop}>
+          <View style={s.livePill}>
+            <View style={s.liveDot} />
+            <Text style={s.liveText}>집중 중</Text>
           </View>
-          <Text style={s.cardText}>{'잠시 알림 확인하려고\n핸드폰 들었다가 훌쩍 지나간 시간'}</Text>
-        </Animated.View>
+          <View style={s.subjectPill}>
+            <Text style={s.subjectText}>오늘의 할 일</Text>
+          </View>
+        </View>
 
-        <Animated.View style={s.card} entering={notificationDrop(1)}>
-          <View style={s.iconBox}>
-            <Svg width={22} height={22} viewBox="0 0 24 24">
-              <Path
-                d="M5 20V10M12 20V4M19 20v-7"
-                stroke={T.accentAlt}
-                strokeWidth={1.9}
-                fill="none"
-                strokeLinecap="round"
-              />
-            </Svg>
+        <View style={s.characterStage}>
+          <View style={s.glowLarge} />
+          <View style={s.glowSmall} />
+          <CharacterImage size={116} variant="study" />
+        </View>
+
+        <Text style={s.timer}>25:00</Text>
+        <View style={s.featureRow}>
+          <View style={s.feature}>
+            <Ionicons name="timer-outline" size={15} color={T.night.cream} />
+            <Text style={s.featureText}>타이머</Text>
           </View>
-          <Text style={s.cardText}>{'내가 남들만큼 하는지\n비교할 방법이 없는 답답한 순간'}</Text>
-        </Animated.View>
+          <View style={s.feature}>
+            <Ionicons name="shield-checkmark-outline" size={15} color={T.night.cream} />
+            <Text style={s.featureText}>방해 앱 차단</Text>
+          </View>
+          <View style={s.feature}>
+            <Ionicons name="stats-chart-outline" size={15} color={T.night.cream} />
+            <Text style={s.featureText}>자동 기록</Text>
+          </View>
+        </View>
       </View>
+      <Text style={s.caption}>복잡한 준비 없이, 시작한 순간부터 기록해요.</Text>
     </StepScaffold>
   );
 }
 
 const s = StyleSheet.create({
-  cards: { alignSelf: 'stretch', gap: T.space.md },
-  card: {
+  sessionCard: {
+    alignSelf: 'stretch',
+    backgroundColor: T.night.bottom,
+    borderRadius: 24,
+    padding: T.space.lg,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  sessionTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  livePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: T.space.md,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.paperAlt,
-    borderRadius: 16,
-    paddingVertical: T.space.lg,
-    paddingHorizontal: T.space.lg,
+    gap: 6,
+    backgroundColor: T.night.face,
+    borderRadius: 99,
+    paddingHorizontal: T.space.md,
+    paddingVertical: 7,
   },
-  iconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: T.dangerBg,
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.night.green },
+  liveText: { ...T.text.caption, color: T.night.cream },
+  subjectPill: {
+    backgroundColor: T.night.face,
+    borderRadius: 99,
+    paddingHorizontal: T.space.md,
+    paddingVertical: 7,
+  },
+  subjectText: { ...T.text.caption, color: T.night.muted },
+  characterStage: { height: 132, alignItems: 'center', justifyContent: 'center' },
+  glowLarge: {
+    position: 'absolute',
+    width: 146,
+    height: 146,
+    borderRadius: 73,
+    backgroundColor: T.night.face,
+    opacity: 0.82,
+  },
+  glowSmall: {
+    position: 'absolute',
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    borderWidth: 1,
+    borderColor: T.accentLight,
+    opacity: 0.45,
+  },
+  timer: { ...T.text.display, color: T.white, textAlign: 'center', letterSpacing: 1 },
+  featureRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: T.space.sm,
+    marginTop: T.space.lg,
   },
-  cardText: { ...T.text.label, color: T.ink, flex: 1, lineHeight: 20 },
+  feature: {
+    flex: 1,
+    minWidth: 78,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: T.night.face,
+    borderRadius: 12,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: T.space.sm,
+  },
+  featureText: { ...T.text.caption, color: T.night.cream, textAlign: 'center', flexShrink: 1 },
+  caption: { ...T.text.body, color: T.inkSub, textAlign: 'center', marginTop: T.space.xl },
 });

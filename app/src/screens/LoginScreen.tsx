@@ -131,7 +131,9 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
     }
   }
 
-  // 로그인 없이 시작 = 게스트 세션 생성(백엔드 /auth/guest). 소셜과 동일하게 onLogin으로 흘려보낸다.
+  // 게스트 로그인 = 게스트 세션 생성(백엔드 /auth/guest). 소셜과 동일하게 onLogin으로 흘려보낸다.
+  // 실제 계정 생성은 안내창 확인 뒤에만 실행한다 — 안내창을 닫은 사용자의 빈 게스트 계정이
+  // 서버에 남거나 온보딩 선택 이벤트가 오염되지 않게 선택 계측도 runGuest 안에 둔다.
   async function runGuest() {
     if (busy !== null || guestBusy) return;
     if (isOnboarding) logOnboardingSignupSelected({ method: 'guest' });
@@ -147,6 +149,18 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
     } finally {
       setGuestBusy(false);
     }
+  }
+
+  function confirmGuestLogin() {
+    if (busy !== null || guestBusy) return;
+    Alert.alert(
+      '게스트 로그인 안내',
+      '기록은 서버에 저장되지만 이 기기의 인증 정보로만 다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.',
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '확인', onPress: runGuest },
+      ],
+    );
   }
 
   return (
@@ -203,19 +217,9 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
             );
           })}
 
-          {/* 게스트 소실 고지 (GROMO-1509) — 게스트 계정은 서버에 남지만 되찾을 열쇠가 이 기기의
-              토큰뿐이라, 앱 삭제·기기 변경이면 복구 경로가 없다.
-              버튼 **위**에 둔다: 아래에 두면 작은 화면·큰 글자 배율에서 버튼은 보이는데 고지는
-              아직 스크롤 밖일 수 있고, 접근성 탐색 순서도 버튼을 먼저 만나 고지를 듣기 전에
-              눌러버린다. 선택 전 고지라는 목적이 배치로 지켜져야 한다(코드리뷰 P2). */}
-          <Text style={s.guestNotice} testID="login.guestNotice">
-            로그인 없이 시작하면 기록은 서버에 저장되지만, 이 기기의 인증 정보로만 다시 접근할 수
-            있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.
-          </Text>
-
           <TouchableOpacity
             testID="login.guest"
-            onPress={runGuest}
+            onPress={confirmGuestLogin}
             disabled={busy !== null || guestBusy}
             activeOpacity={0.85}
             style={[s.btn, s.guestBtn]}
@@ -223,7 +227,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
             {guestBusy ? (
               <ActivityIndicator color={T.ink} />
             ) : (
-              <Text style={[s.btnText, s.guestBtnText]}>로그인 없이 시작하기</Text>
+              <Text style={[s.btnText, s.guestBtnText]}>게스트 로그인</Text>
             )}
           </TouchableOpacity>
 
@@ -283,13 +287,6 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   lastBadgeText: { ...T.text.caption, fontWeight: '800', color: T.white },
-  guestNotice: {
-    ...T.text.caption,
-    lineHeight: 17,
-    color: T.inkSub,
-    textAlign: 'center',
-    marginBottom: T.space.sm,
-  },
   terms: { ...T.text.caption, lineHeight: 17, color: T.inkMuted, textAlign: 'center' },
   termsLink: { color: T.link, textDecorationLine: 'underline' },
 });

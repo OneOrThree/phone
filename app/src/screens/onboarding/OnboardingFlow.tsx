@@ -15,9 +15,6 @@ import SubjectEditStep from '@/screens/onboarding/steps/SubjectEditStep';
 import SubjectCompareStep from '@/screens/onboarding/steps/SubjectCompareStep';
 import ScreenTimePermissionStep from '@/screens/onboarding/steps/ScreenTimePermissionStep';
 import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedStep';
-import YesterdayScreenTimeStep, {
-  resetAnalyzeIntro,
-} from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import CharacterIntroStep from '@/screens/onboarding/steps/CharacterIntroStep';
 import CutoutStep from '@/screens/onboarding/steps/CutoutStep';
@@ -35,14 +32,14 @@ import {
 import type { OnboardingStepName } from '@/services/analyticsEvents';
 
 // v2 신규 유저 온보딩 플로우 컨트롤러.
-// 순서: 스플래시 → 문제공감 → 함께효과 → 과목비교 → [로그인] → 집중카테고리 →
-//   (과목편집) → 스크린타임 권한 →(거부:제한/허용:전날)→ 목표설정 → 닉네임(가입 확정).
+// 순서: 스플래시 → 집중시작 → 함께집중 → 성장기록 → [로그인] → 집중카테고리 →
+//   (과목편집) → 스크린타임 권한 → (거부 시 제한 안내) → 목표설정 → 닉네임(가입 확정).
 // 로그인은 플로우 '중간'에 위치 — 성공 시:
 //   - 기존 계정(isNewUser === false): 남은 스텝을 건너뛰고 즉시 가입 확정(홈 진입).
 //   - 신규: LoginResult를 보관하고 프로필 수집 스텝을 계속 진행, 마지막 닉네임 뒤 가입 확정.
 // 동적 분기:
 //   - 과목 편집: 선택 카테고리에 추천 과목이 있을 때만 삽입.
-//   - 스크린타임: 권한 거부면 제한 화면(Denied), 허용이면 전날 스크린타임(Yesterday).
+//   - 스크린타임: 권한 거부면 제한 화면(Denied)을 삽입하고, 허용이면 목표 설정으로 직행.
 // 가입 확정(onComplete)은 신규 유저의 닉네임 검증(409 중복)·일시 오류면 닉네임 화면으로
 // 되돌려 재입력/재시도한다(GROMO-618). 세션(토큰/유저)은 auth.ts가 로그인 즉시 저장하나,
 // 온보딩을 유지하기 위해 홈 전환(setUser)은 가입 확정 시점까지 미룬다.
@@ -83,8 +80,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   //
   // ⚠️ 이름이 '크로스페이드'가 아니다 — React가 이전 노드를 즉시 언마운트하므로 퇴장 페이드는
   //    없다(codex 리뷰). 진짜 크로스페이드(두 스텝을 겹쳐 유지)는 **의도적으로 채택하지 않았다**:
-  //    스텝들이 마운트 시 부수효과를 낸다(FocusCategoryStep의 추천 과목 조회, ScreenTimePermissionStep의
-  //    권한 요청, YesterdayScreenTimeStep의 분석 연출 가드 타이머, NicknameStep의 입력 포커스).
+  //    스텝들이 마운트 시 부수효과를 낸다(FocusCategoryStep의 추천 과목 조회,
+  //    ScreenTimePermissionStep의 권한 요청, NicknameStep의 입력 포커스).
   //    220ms 동안 두 스텝이 동시에 살아 있으면 이것들이 겹쳐 발화하고 포커스 순서도 흔들린다 —
   //    온보딩은 첫인상 화면이자 Maestro 커버리지가 가장 많은 곳이라 그 위험을 지지 않는다.
   //
@@ -97,10 +94,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // StepScaffold 안쪽이라 트리 계약은 그대로다. 실제 진입 스타일은 StepFade가 정한다.
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
-  // 분석 연출 1회 플래그도 함께 리셋 — 재진입한 온보딩에서 연출이 다시 보이도록.
   useEffect(() => {
     logOnboardingStarted();
-    resetAnalyzeIntro();
   }, []);
 
   // OTA 준비 화면이 스플래시를 대신한 경우에도 시작 진동(GROMO-786)은 유지한다 —
@@ -144,12 +139,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
           ]
         : []),
       step('screentime_permission', ScreenTimePermissionStep),
-      denied
-        ? step('screentime_denied', ScreenTimeDeniedStep)
-        : step('yesterday_screentime', YesterdayScreenTimeStep),
+      ...(denied ? [step('screentime_denied', ScreenTimeDeniedStep)] : []),
       step('goal_setting', GoalSettingStep),
       // 캐릭터 소개 → 누끼 체험 → 닉네임. 소개에서 기본 그로몬을 처음 만나고, 체험에서
-      // 내 물건으로 캐릭터를 한 번 만들어 본 뒤(스킵 불가), 마지막에 이름을 짓는다.
+      // 내 물건으로 캐릭터를 만들거나 건너뛴 뒤 마지막에 이름을 짓는다.
       step('character_intro', CharacterIntroStep),
       step('cutout_experience', CutoutStep),
       { kind: 'nickname' },
@@ -158,7 +151,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // 스텝 도달 계측(GA4 퍼널) — 스플래시가 끝난 뒤, 이 플로우에서 처음 도달한 스텝만 발행한다.
   // dedup은 인덱스가 아니라 "스텝 이름" 기준 — 뒤로가기 재방문은 미발행하되, 같은 인덱스가
-  // 다른 스텝으로 교체되는 동적 분기(예: 거부 화면에서 권한 허용 → 전날 스크린타임으로 교체)는
+  // 다른 스텝으로 교체되는 동적 분기(예: 거부 화면에서 권한 허용 → 목표 설정으로 교체)는
   // 새 스텝 도달로 정상 발행한다(코덱스 리뷰).
   const viewedStepsRef = useRef(new Set<OnboardingStepName>());
   useEffect(() => {
@@ -244,14 +237,12 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const canBack = index > backFloor;
 
   // 전환 페이드의 재시작 키(GROMO-1381) — 인덱스만으로는 부족하다. 스크린타임 거부 화면에서
-  // 재승인하면 screenTimeGranted가 false→true가 되면서 **인덱스는 그대로인 채 노드만**
-  // screentime_denied → yesterday_screentime으로 교체돼 페이드가 재생되지 않는다(codex 리뷰).
-  // 노드 정체성을 키에 섞어 그 교체도 새 화면으로 취급한다. 인덱스를 남겨 두는 이유는 종전
-  // 리마운트 집합을 그대로 포함시키기 위한 것 — 이 키로 늘어나는 리마운트는 위 교체 1건뿐이고,
-  // 그 경우엔 Component 자체가 달라 어차피 스텝 내부 상태가 보존되지 않는다.
+  // 재승인하면 screenTimeGranted가 false→true가 되면서 제한 안내 노드가 빠지고, 같은 인덱스가
+  // 목표 설정 노드로 교체된다. 노드 정체성을 키에 섞어 이 교체도 새 화면으로 취급한다.
   const stepKey = `${index}:${node.kind === 'step' ? node.name : node.kind}`;
 
-  // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전 3칸, 후 5칸 고정.
+  // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전은 3칸 고정,
+  // 로그인 후는 현재 시퀀스에서 보조 스텝을 제외해 계산한다.
   // 과목 확인(subStep)은 칸 수에서 제외해 동적으로 끼어들어도 칸 수가 흔들리지 않는다
   // (집중카테고리와 같은 칸을 공유).
   const isSubStep = (n: FlowNode) => n.kind === 'step' && !!n.subStep;

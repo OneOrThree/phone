@@ -3,8 +3,14 @@ import StepScaffold from '@/screens/onboarding/components/StepScaffold';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// W1 · 함께 효과(오프닝) — "같이 앉으면 더 오래 가요". 정적 설득 화면(오프닝).
-// 일러스트는 3마리가 함께 공부하는 군집 에셋(characters_study.png).
+const COMPANION_VIEWS = [
+  { label: '친구', dot: T.green },
+  { label: '그룹', dot: T.accentLight },
+  { label: '같은 리그', dot: T.medal.gold },
+];
+
+// 두 번째 가치 제안 — 집중 세션 안에서 친구·그룹·같은 시험 리그를 넘겨 보는 실제 동료 경험.
+// 과거의 1.9배 수치 주장을 걷고, 지금 앱에서 사용자가 직접 만나는 기능을 구체적으로 보여준다.
 export default function TogetherEffectStep({ onNext }: StepProps) {
   return (
     <StepScaffold
@@ -17,17 +23,26 @@ export default function TogetherEffectStep({ onNext }: StepProps) {
             style={s.groupImage}
             resizeMode="contain"
           />
-          <View style={s.badge}>
-            <Text style={s.badgeText}>함께 = 1.9배 오래</Text>
+          <View style={s.onlineBadge}>
+            <View style={s.onlineDot} />
+            <Text style={s.onlineText}>지금도 함께 집중 중</Text>
           </View>
         </View>
       }
-      title={'같이 앉으면\n더 오래 가요'}
+      title={'혼자 시작해도\n혼자 하지 않게'}
       ctaLabel="다음"
       onCta={onNext}
     >
+      <View style={s.viewRow}>
+        {COMPANION_VIEWS.map((item) => (
+          <View key={item.label} style={s.viewChip}>
+            <View style={[s.viewDot, { backgroundColor: item.dot }]} />
+            <Text style={s.viewText}>{item.label}</Text>
+          </View>
+        ))}
+      </View>
       <Text style={s.sub}>
-        혼자일 때보다 평균 <Text style={s.emph}>1.9배</Text> 더 오래 집중해요.
+        집중 화면을 넘기면 친구, 그룹, 같은 시험 준비생이{`\n`}함께 공부하는 모습이 보여요.
       </Text>
     </StepScaffold>
   );
@@ -35,16 +50,38 @@ export default function TogetherEffectStep({ onNext }: StepProps) {
 
 const s = StyleSheet.create({
   illust: { alignItems: 'center' },
-  groupImage: { width: 280, height: 184 },
-  badge: {
+  groupImage: { width: 286, height: 184 },
+  onlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
     marginTop: T.space.sm,
-    backgroundColor: T.green,
+    backgroundColor: T.greenBg,
     borderRadius: 99,
     paddingVertical: T.space.sm,
     paddingHorizontal: T.space.lg,
     transform: [{ rotate: '-2deg' }],
   },
-  badgeText: { ...T.text.caption, fontWeight: '800', color: T.white },
-  sub: { ...T.text.body, color: T.link, textAlign: 'center' },
-  emph: { fontWeight: '800', color: T.accentAlt },
+  onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: T.green },
+  onlineText: { ...T.text.caption, fontWeight: '800', color: T.successInk },
+  viewRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: T.space.sm,
+  },
+  viewChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: T.paperAlt,
+    borderWidth: 1,
+    borderColor: T.border,
+    borderRadius: 99,
+    paddingVertical: T.space.sm,
+    paddingHorizontal: T.space.md,
+  },
+  viewDot: { width: 7, height: 7, borderRadius: 4 },
+  viewText: { ...T.text.caption, color: T.inkSub },
+  sub: { ...T.text.body, color: T.inkSub, textAlign: 'center', marginTop: T.space.xl },
 });
