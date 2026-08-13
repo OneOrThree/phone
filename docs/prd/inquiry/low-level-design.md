@@ -86,8 +86,15 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
 - `INQUIRY_CONTACTS.length === INQUIRY_CATEGORIES.length`
 - 모든 `categoryId`가 `INQUIRY_CATEGORIES`에 존재하고 **중복이 없다** (카테고리당 정확히 1명)
 - 모든 `id`가 유일하다
-- 모든 `openChatUrl`이 `https://`로 시작한다
+- 모든 `openChatUrl`이 **`new URL()`로 파싱해서** `protocol === 'https:'` · `host === 'open.kakao.com'` ·
+  `pathname`이 `/o/<영숫자>` 형식이다
 - `avatarPaletteIndex`가 `T.avatarPalette` 범위 안이다
+
+**URL 검증은 접두사 비교로 하지 않는다.** `startsWith('https://')`만 보면 `https://example.com`도
+통과하고, 그 값이 `Linking.openURL`로 그대로 열린다. 이 상수는 담당자·링크 교체 때 **OTA로 자주
+손대는 파일**이라(D5) 오타 한 번이 사용자를 카카오가 아닌 임의의 사이트로 보낼 수 있다. D7이 정한
+계약은 「https 이기만 하면 된다」가 아니라 **`https://open.kakao.com/o/…`** 이므로, 호스트와 경로
+형식까지 잠근다.
 
 ## 2. `screens/settings/inquiryLink.ts` (신규)
 
@@ -173,7 +180,10 @@ accent 채움 + 흰 글자라 화면에서 가장 강한 요소가 되는데, �
 const [category, setCategory] = useState<InquiryCategoryId | null>(null);
 const [target, setTarget] = useState<InquiryContact | null>(null);   // 모달 대상
 const [failed, setFailed] = useState(false);                          // 모달 실패 전환
+const [pending, setPending] = useState(false);                        // openURL 대기 중
 ```
+
+`target`과 `failed`는 **한 몸이다.** 아래 `closeModal()` 말고 다른 경로로 모달을 닫으면 안 된다(§5.4).
 
 ### 5.1 정렬 규칙
 
@@ -222,23 +232,54 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 `ConfirmCardModal`의 제목·본문에는 `textAlign`이 없어 **왼쪽 정렬**이다(버튼 라벨만 가운데).
 문구를 가운데 정렬로 가정하고 줄바꿈을 넣지 말 것.
 
-### 5.4 이동 핸들러
+### 5.4 이동 핸들러 · 닫기 계약
+
+**모달을 닫는 경로는 하나뿐이다.** 취소 버튼 · 백드롭 탭 · Android 뒤로 가기(`onRequestClose`) ·
+실패 상태의 「닫기」 — 넷 다 같은 `closeModal()`을 부르고, `closeModal()`은 **세 상태를 함께**
+되돌린다.
+
+```ts
+const closeModal = useCallback(() => {
+  setTarget(null);
+  setFailed(false);   // ← 이걸 빼면 아래 버그가 난다
+  setPending(false);
+}, []);
+```
+
+`failed`를 같이 리셋하지 않으면: 담당자 A에서 링크가 실패해 `failed=true`가 된 뒤 「닫기」로
+모달을 내리고, 사용자가 담당자 B 카드를 누르면 — **B의 링크는 시도조차 안 했는데** 확인 모달이
+아니라 「카카오톡을 열 수 없어요」가 곧바로 뜬다. `target`만 갈아끼우는 구현이 자연스러워 보여서
+실제로 나오기 쉬운 실수다. §8.3으로 잠근다.
 
 ```ts
 const handleConfirm = useCallback(async () => {
-  if (!target) return;
+  if (!target || pending) return;   // 연타 차단 — 이벤트·openURL 중복 발화 방지
+  setPending(true);
+  const requested = target;         // 이 요청이 어느 담당자 것인지 고정
   // ⚠️ 분석 이벤트는 openURL **앞에서** 쏜다 — 뒤에서 쏘면 앱이 백그라운드로
   //    넘어가는 타이밍과 겹쳐 유실된다(high-level-design.md §3.1).
   logInquiryContactOpened({
     category,
-    contactId: target.id,
-    isRecommended: target.categoryId === category,
+    contactId: requested.id,
+    isRecommended: requested.categoryId === category,
   });
-  const ok = await openInquiryChat(target.openChatUrl);
-  if (!ok) setFailed(true);
-  else closeModal();          // 성공 시에만 닫는다
-}, [target, category]);
+  const ok = await openInquiryChat(requested.openChatUrl);
+  // ⚠️ await 사이에 사용자가 모달을 닫았거나(백드롭 탭·Android 뒤로 가기) 다른
+  //    담당자로 바꿨을 수 있다. 그때 도착한 결과는 **폐기한다** — 안 그러면
+  //    이미 닫힌 모달의 failed 가 다시 켜져, 다음에 누른 담당자의 모달이
+  //    곧바로 실패 화면으로 열린다.
+  if (targetRef.current !== requested) return;
+  if (ok) closeModal();
+  else {
+    setFailed(true);
+    setPending(false);   // 「다시 시도」를 누를 수 있어야 한다
+  }
+}, [target, pending, category, closeModal]);
 ```
+
+`targetRef`는 현재 `target`을 그대로 따라가는 `useRef`다 — 상태를 클로저로 읽으면 `await` **이전**
+값이 잡혀 이 검사가 무의미해진다. 요청 중에는 `ConfirmCardModal`의 기존 `primaryDisabled` prop에
+`pending`을 넘겨 버튼 연타도 함께 막는다(이미 있는 prop이라 §6.1의 추가 대상이 아니다).
 
 성공 시 모달을 닫아 두는 이유: 카카오톡에서 돌아왔을 때 모달이 떠 있으면 「아직 안 갔나?」로 읽힌다.
 
@@ -322,7 +363,32 @@ export function logInquiryContactOpened(p: {
 }
 ```
 
-`logInquiryScreenViewed`는 `InquiryScreen`의 마운트 `useEffect`에서 1회 호출한다. 칩 해제(`null`)는 이벤트를 쏘지 않는다 — 선택만 센다.
+`logInquiryScreenViewed`는 `InquiryScreen`의 마운트 `useEffect`에서 호출한다. 칩 해제(`null`)는 이벤트를 쏘지 않는다 — 선택만 센다.
+
+**마운트 1회로는 부족하다 — `AppState` 복귀에서도 쏜다.** 이 화면은 사용자를 카카오톡으로
+내보내는 화면이라, **앱을 떠났다 돌아오는 것이 정상 경로**다. 그 사이 GA4 세션(기본 타임아웃
+30분)이 새로 시작되면 화면은 계속 마운트돼 있어 `useEffect`가 다시 안 돈다. 그러면 새 세션에는
+`inquiry_contact_opened`만 있고 `inquiry_screen_viewed`가 없어, **`prd.md` §5의 「분자가 분모의
+부분집합」 전제가 깨지고 전환율이 100%를 넘는다.**
+
+```ts
+// 마지막 발화 시각을 ref 로 들고, 활성 복귀 시 30분(GA4 기본 세션 타임아웃)이
+// 지났으면 다시 쏜다. 카카오톡에 잠깐 다녀온 것은 같은 세션이라 중복 발화하지 않는다.
+const lastViewedAt = useRef(0);
+const markViewed = () => {
+  const now = Date.now();
+  if (now - lastViewedAt.current < 30 * 60 * 1000) return;
+  lastViewedAt.current = now;
+  logInquiryScreenViewed();
+};
+useEffect(() => {
+  markViewed();
+  const sub = AppState.addEventListener('change', s => s === 'active' && markViewed());
+  return () => sub.remove();
+}, []);
+```
+
+30분은 GA4 기본값이라 콘솔에서 세션 타임아웃을 바꾸면 이 상수도 같이 바꿔야 한다.
 
 ## 7. GA4 이벤트 계약
 
@@ -349,7 +415,7 @@ export function logInquiryContactOpened(p: {
 
 ```ts
 it('카테고리마다 담당자가 정확히 1명이다', () => { … });
-it('오픈채팅 URL이 전부 https 다', () => { … });   // 커스텀 스킴 금지(D7)
+it('오픈채팅 URL 이 https://open.kakao.com/o/… 다', () => { … });  // 호스트·경로까지(D7)
 it('담당자 id 가 유일하다', () => { … });
 it('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
 ```
@@ -364,7 +430,17 @@ it('openURL 이 throw 하면 false — 예외가 밖으로 새지 않는다', �
 it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규약을 잠근다
 ```
 
-### 8.3 수동 QA (자동화 불가)
+### 8.3 `screens/settings/InquiryScreen.test.tsx` (신규)
+
+§5.4의 닫기 계약은 문서로만 두면 반드시 깨진다. 컴포넌트 테스트로 잠근다.
+
+```ts
+it('실패 후 닫고 다른 담당자를 누르면 확인 모달이 뜬다', … );  // failed 누수 — 가장 중요
+it('요청 중에는 주 버튼이 비활성이다', … );                     // 연타 → 이벤트 중복
+it('요청 중 모달을 닫으면 늦게 온 실패 결과가 무시된다', … );   // 폐기된 요청
+```
+
+### 8.4 수동 QA (자동화 불가)
 
 | # | 확인 |
 |---|---|
@@ -386,6 +462,11 @@ Maestro E2E는 붙이지 않는다 — 흐름의 종착점이 앱 밖이라 검�
 - [ ] **오픈채팅 링크 운영 런북 합의** — 방별 책임자 · 주 1회 점검 · OTA 배포 전 확인 · 당일 복구 SLA (`high-level-design.md` §5.1)
 - [ ] **개인정보 처리 범위 확정 + 법무·개인정보 책임자 승인** (`policy.md` 미결) — 수집 주체 · 예상 입력 항목 · 카카오에서의 보존·삭제 경로 · 처리방침 반영 여부. **승인 없이 출시하지 않는다**
 - [ ] GA4 DebugView에서 이벤트 3개 수신 확인 — `is_recommended`가 문자열 `'true'`/`'false'`로 도착하는지 포함
+- [ ] **GA4 콘솔에 이벤트 범위 커스텀 측정기준 등록** — `category` · `contact_id` · `is_recommended`.
+      등록해야 탐색에서 분할·필터가 되고, **등록 이전 수집분은 소급 조회되지 않는다.** 이 기능은
+      서버 기록이 0이라 GA4가 유일한 창이므로(D11), 등록을 놓치면 첫 릴리즈 기준선을 영구히 잃는다.
+      같은 선행 조건이 `docs/prd/onboarding/prd.md`의 `step_viewed`에도 적혀 있다(그쪽은 미등록 상태) —
+      **등록 후 탐색 보고서에서 실제로 분할되는 것까지 확인**하고 체크한다
 - [ ] Jira 티켓 발행 (`docs/jira-conventions.md` — `도메인` 값 1개 필수)
 
 ## 10. 관련 문서

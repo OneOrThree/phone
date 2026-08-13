@@ -179,9 +179,15 @@ InquiryContact (상수 3개)
 |---|---|---|
 | 담당자 · 카테고리 목록 | **앱 상수** (`inquiryContacts.ts`) | 빌드/OTA 시점 고정 |
 | 선택된 카테고리 | `InquiryScreen`의 `useState` | 화면 언마운트 시 소멸 |
-| 확인 모달 대상 담당자 | `InquiryScreen`의 `useState` | 모달 닫히면 소멸 |
-| 모달의 실패 여부 | `InquiryScreen`의 `useState` | 모달 닫히면 소멸 |
+| 확인 모달 대상 담당자 | `InquiryScreen`의 `useState` | 모달 닫히면 소멸 — **아래 셋은 한 몸** |
+| 모달의 실패 여부 | `InquiryScreen`의 `useState` | 〃 |
+| 링크 요청 진행 중 | `InquiryScreen`의 `useState` | 〃 |
 | 문의 내용 · 진행 상태 | **카카오톡** | gromo 밖 |
+
+**모달 상태 셋은 반드시 같은 닫기 경로에서 함께 리셋된다.** 대상 담당자만 비우고 실패 여부를
+남기면, 다음에 누른 담당자의 모달이 **링크를 시도하기도 전에** 실패 화면으로 열린다. 이 계약은
+`low-level-design.md` §5.4의 `closeModal()` 한 곳에만 산다 — 여기서 상태를 행 단위로 나눠 적었다고
+해서 각각 따로 관리해도 된다는 뜻이 아니다.
 
 **Context에 아무것도 올리지 않는다.** 이 화면 밖에서 읽는 상태가 없다.
 
