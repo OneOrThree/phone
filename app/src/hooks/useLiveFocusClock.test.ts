@@ -52,14 +52,31 @@ describe('useLiveFocusClock', () => {
     expect(spy.clear).toHaveBeenCalledTimes(1);
   });
 
-  it('나중에 구독해도 즉시 현재 시각을 잡는다 — 멈춰 있던 화면이 밀리지 않는다', async () => {
+  // 늦게 붙는 구독자가 제 시각(Date.now())을 따로 읽으면 다음 틱까지 최대 1초 동안 같은 목록의
+  // 행끼리 라이브 시간이 어긋난다(코덱스 리뷰). ⚠️ 틱 경계에서 검사하면 Date.now() 와 공유값이
+  // 우연히 같아 통과해버리므로, **틱 사이(500ms)** 에서 붙여야 회귀를 잡는다.
+  it('돌고 있는 시계에 늦게 붙어도 기존 구독자와 같은 값을 본다', async () => {
     const running = await renderHook(() => useLiveFocusClock(true));
-    await act(async () => jest.advanceTimersByTime(5000));
+    await act(async () => jest.advanceTimersByTime(1000)); // 틱 1회
+    await act(async () => jest.advanceTimersByTime(500)); // 틱과 틱 사이로 이동
 
     const late = await renderHook(() => useLiveFocusClock(true));
     expect(late.result.current).toBe(running.result.current);
 
     await running.unmount();
     await late.unmount();
+  });
+
+  it('시계가 멈춰 있었으면 다시 붙을 때 현재 시각으로 올라간다 — 값이 밀리지 않는다', async () => {
+    const first = await renderHook(() => useLiveFocusClock(true));
+    const stale = first.result.current;
+    await first.unmount(); // 구독자 0 → 시계 정지
+
+    await act(async () => jest.advanceTimersByTime(5000)); // 멈춰 있는 동안 시간이 흐름
+
+    const revived = await renderHook(() => useLiveFocusClock(true));
+    expect(revived.result.current).toBe(stale + 5000);
+
+    await revived.unmount();
   });
 });

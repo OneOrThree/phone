@@ -107,7 +107,7 @@ export default function LeagueScreen() {
   const pendingScrollToMe = useRef(true);
 
   // 내 티어·마감 스케줄 실데이터 (GROMO-538) — 티어 조회는 여기 한 곳에서만.
-  const { tier, remainingSeconds, refetch: refetchMeta } = useLeagueMeta();
+  const { tier, deadlineAt, refetch: refetchMeta } = useLeagueMeta();
   // 미확인 주간 마감 결과가 있으면 결과 연출로 진입 (GROMO-831) — 포커스마다 last-result 조회
   useLeagueLastResult();
   // 리그 랭킹 실데이터 — 홈 상단바와 공유. 멤버 티어는 서버 응답 실값(GROMO-748).
@@ -366,7 +366,7 @@ export default function LeagueScreen() {
           {/* 마감·제목은 한 줄에 나란히 놓이는데 둘 다 고정 배치라, 접근성 배율에서 그대로
               커지면 서로를 파고든다(코덱스 리뷰) — 상한을 걸고 마감 쪽은 줄어들게 둔다.
               (상한 적용은 LeagueDeadline 안. 1초 틱을 이 화면 밖으로 뺀 이유는 그 파일 주석 참고) */}
-          <LeagueDeadline seconds={remainingSeconds} style={s.deadline} />
+          <LeagueDeadline deadlineAt={deadlineAt} style={s.deadline} />
           <TouchableOpacity
             style={s.headerToggle}
             activeOpacity={0.7}
