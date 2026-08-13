@@ -85,10 +85,23 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
 **불변식** (테스트로 잠근다 — §8):
 - `INQUIRY_CONTACTS.length === INQUIRY_CATEGORIES.length`
 - 모든 `categoryId`가 `INQUIRY_CATEGORIES`에 존재하고 **중복이 없다** (카테고리당 정확히 1명)
-- 모든 `id`가 유일하다
+- 모든 `id`가 유일하고, **값 집합이 `categoryId`에서 파생된 `dev-{categoryId}` 형태로 고정**된다
+  (`dev-focus` · `dev-group` · `dev-etc`)
 - 모든 `openChatUrl`이 **`new URL()`로 파싱해서** `protocol === 'https:'` · `host === 'open.kakao.com'` ·
   `pathname`이 `/o/<영숫자>` 형식이다
+- 모든 `openChatUrl`이 **서로 다르다** (담당자끼리 같은 방을 가리키지 않는다)
 - `avatarPaletteIndex`가 `T.avatarPalette` 범위 안이다
+
+**URL 중복 금지가 필요한 이유.** 호스트·경로 형식만 보면 담당자 둘에게 **같은 정상 URL**을 넣어도
+전부 통과한다. 그러면 서로 다른 담당자를 고른 사용자가 같은 방으로 들어가 D2(직접 지목)와 D3(담당자별
+방 3개)가 동시에 깨지는데, Q5(링크가 살아 있는지 확인)는 **셋 다 열리므로 이걸 못 잡는다.** 복사해서
+붙여넣다 생기는 실수라 OTA 교체 때 가장 나오기 쉽다.
+
+**`contact_id`는 사람이 아니라 카테고리에 묶는다.** `id`를 닉네임 기반 슬러그로 두면 담당자를 교체할
+때 값이 같이 바뀌고, §7의 GA4 계약(`dev-focus | dev-group | dev-etc`)과 기존 대시보드 필터가 **새
+이벤트를 놓친다.** 담당자별 시계열도 교체 시점에서 끊긴다. `dev-{categoryId}`로 고정하면 사람이 바뀌어도
+계측이 이어지고, D10(닉네임 표시)이 바뀌어도 영향이 없다 — 애초에 `contact_id`에 PII를 안 넣기로 한
+이유와 같은 방향이다.
 
 **URL 검증은 접두사 비교로 하지 않는다.** `startsWith('https://')`만 보면 `https://example.com`도
 통과하고, 그 값이 `Linking.openURL`로 그대로 열린다. 이 상수는 담당자·링크 교체 때 **OTA로 자주
@@ -431,6 +444,21 @@ useEffect(() => {
 
 30분은 GA4 기본값이라 콘솔에서 세션 타임아웃을 바꾸면 이 상수도 같이 바꿔야 한다.
 
+**`AppState`만으로는 아직 새는 구멍이 있다 — 다른 이벤트를 쏘기 직전에도 `markViewed()`를 부른다.**
+자동 잠금을 꺼 둔 기기에서 이 화면을 **포그라운드에 그대로 둔 채** 30분이 지나면 GA4 세션은 만료되는데
+`AppState` 변화가 없어 위 리스너가 안 돈다. 그 뒤에 「이동하기」를 누르면 새 세션에 `contact_opened`만
+남아, 백그라운드 경로에서 막은 것과 **똑같은 「분자 ⊄ 분모」가 그대로 재현된다.**
+
+```ts
+// 이 화면의 다른 이벤트는 전부 markViewed() 를 먼저 통과시킨다.
+// markViewed() 자체가 30분 가드를 들고 있으므로 같은 세션에서는 아무 일도 하지 않는다.
+const handleSelectCategory = (id) => { markViewed(); logInquiryCategorySelected(id); … };
+const handleConfirm = async () => { …; markViewed(); if (!failed) logInquiryContactOpened({…}); … };
+```
+
+**규칙으로 적어 두면 지표가 안 깨진다: 「이 화면에서 이벤트를 쏘기 전에는 항상 `markViewed()`를
+먼저 부른다.」** 세션이 어디서 끊겼는지 일일이 따지는 대신 분모를 먼저 보장하는 쪽이 확실하다.
+
 ## 7. GA4 이벤트 계약
 
 | 이벤트 | 파라미터 | 값 |
@@ -452,11 +480,13 @@ useEffect(() => {
 
 ### 8.1 `constants/inquiryContacts.test.ts` (신규)
 
-§1의 불변식 5개를 그대로 검증한다. 이 테스트의 목적은 **담당자를 교체하다 계약을 깨는 것을 막는 것**이다 — 상수 파일은 OTA로 자주 손대는 파일이고, 손대는 사람이 IA 문서를 다시 읽지 않는다.
+§1의 불변식을 그대로 검증한다. 이 테스트의 목적은 **담당자를 교체하다 계약을 깨는 것을 막는 것**이다 — 상수 파일은 OTA로 자주 손대는 파일이고, 손대는 사람이 IA 문서를 다시 읽지 않는다.
 
 ```ts
 it('카테고리마다 담당자가 정확히 1명이다', () => { … });
 it('오픈채팅 URL 이 https://open.kakao.com/o/… 다', () => { … });  // 호스트·경로까지(D7)
+it('오픈채팅 URL 이 서로 겹치지 않는다', () => { … });             // 복붙 사고 — D2·D3
+it('담당자 id 가 dev-{categoryId} 형태로 고정돼 있다', () => { … }); // GA4 계약 §7
 it('담당자 id 가 유일하다', () => { … });
 it('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
 ```
