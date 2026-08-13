@@ -41,13 +41,13 @@ export interface InquiryCategory {
 }
 
 export interface InquiryContact {
-  /** 분석 이벤트용 안정 슬러그 — 실명이 아니다(PII 금지, policy.md D11) */
+  /** 분석 이벤트용 안정 슬러그 — 닉네임조차 아니다(PII 금지, policy.md D11) */
   id: string;
   name: string;
   initial: string;
   /** T.avatarPalette 인덱스 — theme.ts를 import하지 않기 위해 숫자로 둔다 */
   avatarPaletteIndex: number;
-  /** 담당 영역 (우리 말) */
+  /** 성격 설명 — 어떤 쪽 문의에 어울리는지. 담당 영역(소유권)이 아니다(policy.md D6) */
   scopeLabel: string;
   /** 한 줄 소개 (사용자 말) — 어떤 증상일 때 이 사람인지 */
   intro: string;
@@ -65,7 +65,7 @@ export const INQUIRY_CATEGORIES: readonly InquiryCategory[] = [
 ] as const;
 
 export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
-  // ⚠️ 착수 전 담당자 3명에게 실명·소개·응답시간 노출 동의를 받는다(policy.md D10).
+  // ⚠️ name 은 실명이 아니라 닉네임(활동명)이다(policy.md D10). 착수 전 3명에게 닉네임·소개·응답시간을 받는다.
   //    아래 값은 자리표시자다 — 오픈채팅방 3개를 만든 뒤 실제 URL로 교체할 것.
   {
     id: 'dev-focus',
@@ -131,7 +131,7 @@ interface InquiryContactCardProps {
 | 그림자 | `shadowColor T.shadow`, `opacity .16`, `radius 16`, `offset {0,10}`, `elevation 3` |
 | 아바타 | 44×44 원, `bg T.avatarPalette[avatarPaletteIndex]`, 흰 이니셜 `T.text.subtitle` |
 | 이름 | `T.text.label`, `color T.ink` |
-| 담당 영역 | `T.text.caption`, `color T.accentDeep` |
+| 성격 설명 | `T.text.caption`, `color T.accentDeep` |
 | 「추천」 배지 | `bg T.accentBg`, `border 1 T.noteBorder`, `radius 999`, `color T.accentDeep`, `T.text.caption` |
 | 한 줄 소개 | `T.text.body`, `color T.inkSub`, `marginTop T.space.sm` |
 | 응답 시간 | Ionicons `time-outline` 14 + `T.text.caption`, `color T.inkMuted`, `marginTop T.space.sm` |
@@ -300,7 +300,7 @@ export { default as InquiryScreen } from './InquiryScreen';
 ```ts
 // ── 1:1 문의 [C] ── (docs/prd/inquiry/policy.md D11)
 // 서버에 아무것도 남지 않는 기능이라 이 세 이벤트가 유일한 계측 수단이다.
-// contact_id 는 실명이 아니라 슬러그다 — 이 파일 상단의 PII 금지 규칙.
+// contact_id 는 닉네임조차 아닌 고정 슬러그다 — 이 파일 상단의 PII 금지 규칙.
 export function logInquiryScreenViewed(): void {
   track('inquiry_screen_viewed', { entry_point: 'menu' });
 }
@@ -374,14 +374,14 @@ it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규
 | Q4 | 확인 모달에 「gromo 서버에는 남지 않아요」가 있다 |
 | Q5 | **오픈채팅 링크 3개가 실제로 살아 있는 방으로 연결된다** — 앱이 감지 못 하는 실패라 릴리즈마다 수동 확인 (`high-level-design.md` §5) |
 | Q6 | 카카오톡 미설치 기기에서 브라우저로 열린다 |
-| Q7 | 기기 글자 크기를 최대로 해도 이름·담당 영역·CTA가 잘리지 않는다 |
+| Q7 | 기기 글자 크기를 최대로 해도 닉네임·성격 설명·CTA가 잘리지 않는다 |
 | Q8 | 작은 기기(iPhone SE)에서 카드 3장이 스크롤로 전부 도달 가능하다 |
 
 Maestro E2E는 붙이지 않는다 — 흐름의 종착점이 앱 밖이라 검증할 수 있는 구간이 「모달이 뜬다」까지뿐이다.
 
 ## 9. 착수 전 체크리스트
 
-- [ ] 담당자 3명 실명 · 담당 영역 · 소개 문구 · 응답 시간 확정 (`policy.md` D10 동의 포함)
+- [ ] 담당자 3명 **닉네임(활동명)** · 성격 설명 · 소개 문구 · 응답 시간 확정 (`policy.md` D10 — 실명이 아니라 노출 동의 절차 없음)
 - [ ] 카카오톡 1:1 오픈채팅방 3개 개설 + 영구 URL 확보 (`policy.md` D3)
 - [ ] **오픈채팅 링크 운영 런북 합의** — 방별 책임자 · 주 1회 점검 · OTA 배포 전 확인 · 당일 복구 SLA (`high-level-design.md` §5.1)
 - [ ] **개인정보 처리 범위 확정 + 법무·개인정보 책임자 승인** (`policy.md` 미결) — 수집 주체 · 예상 입력 항목 · 카카오에서의 보존·삭제 경로 · 처리방침 반영 여부. **승인 없이 출시하지 않는다**
