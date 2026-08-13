@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { T } from '@/constants/theme';
+import { CARD_BORDER_W, CARD_PAD, CARD_RADIUS } from './constants';
 
 export function SectionCard({
   title,
@@ -26,14 +27,16 @@ export function SectionCard({
   );
 }
 
+// ⚠️ 프레임 치수는 constants.ts에서 가져온다 — 로딩 스켈레톤(StatsSkeleton)이 같은 값으로
+//    카드 높이를 계산하므로, 여기서 직접 숫자를 쓰면 둘이 소리 없이 어긋난다(GROMO-1381).
 const s = StyleSheet.create({
   card: {
     backgroundColor: T.white,
-    borderWidth: 1,
+    borderWidth: CARD_BORDER_W,
     borderColor: T.border,
-    borderRadius: 18,
-    paddingHorizontal: T.space.lg,
-    paddingVertical: T.space.lg,
+    borderRadius: CARD_RADIUS,
+    paddingHorizontal: CARD_PAD,
+    paddingVertical: CARD_PAD,
   },
   cardHead: {
     flexDirection: 'row',

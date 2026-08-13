@@ -157,6 +157,7 @@ class GroupBetV29MigrationTest {
                 UUID.randomUUID(), betId, USER_ID);
     }
 
+    /** 검증 대상은 V29 시점의 역사다 — LATEST 로 올리면 V39(2계층 재편)가 구 스키마를 걷어가 버린다. */
     private void migrate(MigrationVersion target) {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())

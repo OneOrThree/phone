@@ -22,6 +22,17 @@ export interface AppSelectionCounts {
   applications: number;
   categories: number;
   webDomains: number;
+  // 선택 토큰 자체를 노출하지 않고 변경 여부 비교에만 쓰는 네이티브 SHA-256 서명.
+  selectionSignature?: string;
+  /**
+   * 네이티브가 **모달 dismiss가 끝난 뒤에** 이 promise를 풀었는가.
+   *
+   * ⚠️ hot-updater로 새 JS만 받은 **구 바이너리는 이 키가 없다(undefined).** 그쪽은 아직
+   *    모달이 떠 있는 채로 resolve하므로, 등장 연출이 있는 UI(토스트)를 쓰면 사용자는 모달이
+   *    사라진 뒤 토스트가 갑자기 나타나는 걸 보고 노출 시간도 짧아진다(codex 리뷰).
+   *    새 메서드를 추가해 능력을 판별하는 대신 **응답으로 알린다** — 왕복이 없다.
+   */
+  dismissed?: boolean;
 }
 
 // Monitor 익스텐션 threshold 발화 타임라인 항목(N1) — App Group "usageBucketEvents:{yyyy-MM-dd}".

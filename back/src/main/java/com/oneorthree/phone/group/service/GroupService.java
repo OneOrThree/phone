@@ -5,7 +5,8 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupAnnouncementGrant;
@@ -77,6 +78,7 @@ public class GroupService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupInviteLinkRepository groupInviteLinkRepository;
     private final Ga4MeasurementClient ga4MeasurementClient;
@@ -160,7 +162,7 @@ public class GroupService {
     public List<GroupSummaryResponse> getMyGroups(UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
@@ -407,12 +409,22 @@ public class GroupService {
     }
 
     public GroupOverviewResponse getGroupOverview(UUID groupId, UUID userId) {
+        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
+        //
+        // 요청자 검증이 그룹 조회보다 <b>먼저</b>여야 한다 (GROMO-1247) — 순서가 곧 계약이다.
+        // 그룹 조회가 앞서면 "탈퇴 유저 + 없는 groupId" 조합에서 그룹 부재가 먼저 던져져
+        // USER_NOT_FOUND 에 도달하지 못하고, 클라는 재로그인이 답인 상황을 "사라진 그룹"으로
+        // 잘못 안내한다 — 이 티켓이 없애려던 오귀속이 바로 그 조합에서 되살아난다.
+        // 형제 경로(getMyGroups·getGroupDetail·getGroupSettings·joinGroup…)는 전부 users 를
+        // 먼저 읽으므로 이 순서가 표준이고, 여기만 뒤집혀 있었다.
+        //
+        // 잠금 순서 무영향: 이 경로는 두 조회 모두 무락(findByIdAndIsDeletedFalse·findById)이라
+        // 교착 위험이 없고, 오히려 쓰기 경로의 users → group 순서와 일치하게 정렬된다.
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
-
-        // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
         boolean isMember = groupMemberRepository.findByUserAndGroup(user, group).isPresent();
 
@@ -470,11 +482,7 @@ public class GroupService {
     public GroupDetailResponse getGroupDetail(UUID groupId, UUID userId, LocalDate date) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
@@ -485,16 +493,13 @@ public class GroupService {
         // 탈퇴자 제외(GROMO-1220) — 빈 닉네임 타일 방지 + 프로필 조회 404(ProfileService)와 정합.
         List<GroupMember> groupMembers = activeMembersOf(group);
 
-        List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
-        // GROMO-643: 클라 로컬 날짜(date)로 오늘 집계 조회 (UTC 산정 제거)
-        List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, date);
-        Map<UUID, Integer> focusMap = focusStats.stream()
-                .collect((Collectors.toMap(
-                        s -> s.getUser().getId(),
-                        s -> s.getTotalFocusSeconds() / 60   // GROMO-642: 초→분
-                )));
+        List<UUID> memberUserIds = groupMembers.stream().map(m -> m.getUser().getId()).toList();
+        // GROMO-1567: 당일 집중분 + 라이브(진행 중 세션) 정보를 FocusLiveInfoLookup 으로 1회 배치 도출한다.
+        // 리그(/league/me/ranking)·친구 목록과 같은 공용 도출이라 같은 그리드에서 섞어 써도 의미가 어긋나지 않고,
+        // 멤버 수와 무관하게 쿼리 2회(집계·라이브 세션)라 N+1 이 나지 않는다.
+        // GROMO-643·1259: 서버 판정 축(KST 고정) 날짜(date) 기준 (DailyFocusStat 저장 버킷과 동일 축)
+        Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(memberUserIds, date);
         // A-8: 멤버별 전체 누적 집중시간(분) — 리더보드 정렬용 배치 집계
-        List<UUID> memberUserIds = users.stream().map(User::getId).toList();
         Map<UUID, Integer> totalFocusMap = memberUserIds.isEmpty() ? Map.of()
                 : dailyFocusStatRepository.sumTotalFocusSecondsByUserIdIn(memberUserIds).stream()
                         .collect(Collectors.toMap(
@@ -502,13 +507,20 @@ public class GroupService {
                                 t -> (int) (t.getTotalSeconds() / 60)));
 
         List<GroupDetailMemberResponse> list = groupMembers.stream()
-                .map(m -> GroupDetailMemberResponse.builder()
-                        .userId(m.getUser().getId())
-                        .nickname(m.getUser().getNickname())
-                        .role(m.getRole())
-                        .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
-                        .totalFocusMinutes(totalFocusMap.getOrDefault(m.getUser().getId(), 0))
-                        .build())
+                .map(m -> {
+                    // 집계·라이브 둘 다 없는 멤버는 맵에 없다 — 0/false/null 기본값으로 내린다(프론트 폴백과 동일).
+                    FocusLiveInfo info = liveInfo.get(m.getUser().getId());
+                    return GroupDetailMemberResponse.builder()
+                            .userId(m.getUser().getId())
+                            .nickname(m.getUser().getNickname())
+                            .role(m.getRole())
+                            .focusTimeMinutes(info != null ? info.focusTimeMinutes() : 0)
+                            .totalFocusMinutes(totalFocusMap.getOrDefault(m.getUser().getId(), 0))
+                            .isFocusing(info != null && info.isFocusing())
+                            .focusStartedAt(info != null ? info.focusStartedAt() : null)
+                            .focusTagName(info != null ? info.focusTagName() : null)
+                            .build();
+                })
                 // A-8: 누적 집중시간 내림차순, 동점은 닉네임 오름차순 (서버 정렬 — 클라 재정렬 없음)
                 .sorted(Comparator
                         .comparingInt(GroupDetailMemberResponse::getTotalFocusMinutes).reversed()
@@ -595,11 +607,7 @@ public class GroupService {
     public GroupSettingsResponse getGroupSettings(UUID groupId, UUID userId) {
         // 순수 읽기(readOnly) — 무락 활성 검증 (GROMO-1237). readOnly 트랜잭션에선 FOR SHARE 불가.
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
@@ -669,12 +677,13 @@ public class GroupService {
     }
 
     /**
-     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1226) — 그룹 생성·참여처럼
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1226) — 그룹 생성·참여처럼
      * users 행을 <b>읽기만 하고</b> 그 값을 변경(멤버십 저장)의 근거로 쓰는 트랜잭션의 요청자 로드.
      * 락 없는 findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아
      * 탈퇴의 정리 스캔 이후·커밋 이전에 낀 변경이 유령(탈퇴자 소유 그룹·멤버십)으로 남는다.
      * 공유 락끼리는 충돌하지 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면
-     * is_deleted=true 를 보고 NOT_FOUND(404) 로 거절된다. 게스트는 GUEST_FORBIDDEN(403).
+     * is_deleted=true 를 보고 USER_NOT_FOUND(404) 로 거절된다 — 그룹 부재(GroupErrorCode.NOT_FOUND)와
+     * 구분되는 <b>요청자 세션</b> 전용 코드다(GROMO-1247). 게스트도 소셜 로그인 유저와 동일하게 통과한다(GROMO-1509).
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
      * {@code @Transactional(readOnly = true)} 라 Postgres 가 FOR SHARE 를 거절한다
@@ -682,12 +691,8 @@ public class GroupService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        User user = userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
+        return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
     }
 
     /**

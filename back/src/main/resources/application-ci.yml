@@ -13,6 +13,10 @@ spring:
   flyway:
     enabled: false
 
+app:
+  scheduling:
+    enabled: false
+
 decorator:
   datasource:
     p6spy:
@@ -43,6 +47,9 @@ jwt:
   secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
   access-expiration: 3600
   refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
 
 # 초대 링크 — 테스트가 URL 형식을 문자열로 단정하므로 고정값이어야 한다.
 link:

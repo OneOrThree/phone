@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   focusFirstDone: 'gromo:focus:firstDone', // 첫 집중 완료 여부 — 결과 화면(603) 변형 분기
   focusPendingUploads: 'gromo:focus:pendingUploads', // 업로드 실패한 집중 세션 재시도 대기열
   focusPendingCancels: 'gromo:focus:pendingCancels', // 취소 실패한 라이브 마커 id 재시도 대기열(GROMO-1214)
+  focusBackgroundCommit: 'gromo:focus:backgroundCommit', // 백그라운드 flush가 실제로 저장을 커밋했다는 마커('1') — 포그라운드 복귀 시 잔액 재조회 예약
   focusGoalCelebratedDate: 'gromo:focus:goalCelebratedDate', // 목표 달성 축하 모달을 띄운 날짜(YYYY-MM-DD) — 하루 1회(GROMO-630)
   focusGoalCelebratePending: 'gromo:focus:goalCelebratePending', // 결과 화면이 예약한 축하 {date,days} — 홈 진입 시 노출(GROMO-630)
   focusWeekStreakCelebratedWeek: 'gromo:focus:weekCelebratedWeek', // 주간 스트릭 완성 축하를 띄운 주(월요일 YYYY-MM-DD) — 주 1회(GROMO-667)
@@ -32,6 +33,9 @@ export const STORAGE_KEYS = {
   guideFocusSession: 'gromo:guide:focusSession', // 집중 세션 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
   guideStats: 'gromo:guide:stats', // 통계 첫 진입 스포트라이트 투어 노출 완료('1', GROMO-652)
   guideTier: 'gromo:guide:tier', // 티어 단계 첫 진입 사용법 안내 노출 완료('1', GROMO-652)
+  groupCardOrder: 'gromo:groups:cardOrder:v1', // 계정별 그룹 카드 순서 { [userId]: groupId[] } — 기기 로컬 표시 설정
+  groupCardEmoji: 'gromo:groups:cardEmoji:v1', // 계정×그룹 카드 아이콘 { [userId]: { [groupId]: emoji } } — 기기 로컬 설정
+  guideGroupDeck: 'gromo:guide:groupDeck:v1', // 그룹 카드 덱 첫 안내 완료('1') — 계정 구분 없는 기기 전역 v1
   subjects: 'gromo:subjects',
   goalPending: 'gromo:goal:pending',
   notificationInbox: 'gromo:notifications', // 알림 보관함 — 수신한 푸시 로컬 저장(GROMO-661)
@@ -59,7 +63,9 @@ export const STORAGE_KEYS = {
   storeReviewRequested: 'gromo:storeReview:requested', // 별점 요청창 노출 완료 마커('1') — 1회만 노출(GROMO-980)
   deferredInviteChecked: 'gromo:deferredInvite:checked', // 설치 후 deferred 매치 조회 완료 마커('1') — 서버 응답을 받았을 때만 기록(초대 링크 스펙 §7-5)
   inviteAttribution: 'gromo:deferredInvite:attribution', // 복원한 초대 {slug, groupId, claimed} — 로그인 직후 claim 호출에 쓴다
-  challengeResultSeen: 'gromo:challengeResult', // 챌린지 결과 모달 1회 노출 마커 프리픽스 — 실제 키는 `:{challengeId}:{date}`를 붙인다(challengeResult.ts가 조립·정리)
+  challengeResultSeen: 'gromo:challengeResult', // (구) 챌린지 결과 모달 마커 프리픽스 `:{challengeId}:{date}` — v2에서 sessionResultSeen으로 대체, 잔존 키는 challengeResult.ts가 기록 시점에 정리
+  sessionResultSeen: 'gromo:sessionResult', // 회차 결과 모달 1회 노출 마커 프리픽스 — 실제 키는 `:{userId}:{sessionId}`, 값은 sessionDate(60일 프룬 기준 — IA §8)
+  groupChallengeSettlementReported: 'gromo:groupChallengeSettlement', // 정산 이벤트 발행 마커 프리픽스 — 실제 키는 `:{userId}:{sessionId}`
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

@@ -243,6 +243,11 @@ public class UserService {
         // 줄인다" 규율과도 어긋나지 않는다.
         groupBetService.releaseFromAllOpenBets(user);
 
+        // 판정 근거 박제 (GROMO-1423) — 위 해제가 환불하지 못하고 정산 대상으로 남긴 OPEN 참가 행에,
+        // 아래 nullify 로 통계가 사라지기 전 시점의 달성·진행분을 박제한다. 순서 제약: 반드시
+        // releaseFromAllOpenBets 뒤(남는 행만 박제) · focus/daily nullify 앞(근거가 살아 있을 때).
+        groupBetService.freezeEvidenceForAccountErasure(user);
+
         // 활성 멤버십 이탈 (GROMO-801) — 안 하면 탈퇴자가 is_left=false 유령 멤버로 남아 멤버
         // 목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다. solo 방장 멤버십은 위
         // A-2 블록이 이미 leave 했으므로 이 활성 조회에 다시 잡히지 않는다.
@@ -333,7 +338,10 @@ public class UserService {
 
     @Transactional
     public void updateScreenTimePermission(UUID userId, UpdateScreenTimePermissionRequest request) {
-        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findById(userId)
+        // 배타 잠금 (GROMO-1409·N50) — 내기 참여의 권한 가드가 같은 행을 공유 잠금으로 읽는다.
+        // 잠금이 없으면 "참여가 true 를 읽음 → 여기서 false 커밋 → 참여가 차감 커밋" 인터리빙에서
+        // 보고 수단이 없는 유저가 유료 회차에 남는다(미보고 = 미달성이라 확정 패배).
+        UserScreenTimeSettings settings = userScreenTimeSettingsRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         settings.setScreenTimePermissionGranted(request.getGranted());
     }

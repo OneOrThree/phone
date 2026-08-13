@@ -17,13 +17,14 @@
 // — 내 결과(달성/미달성/미판정·명단 밖)에 따라 고른다.
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
-import { SheetShell } from '@/components/SheetShell';
+import { SheetShell, useSheetClose } from '@/components/SheetShell';
 import type {
   LastSettledBet,
   LastSettledBetResult,
   MissionCategory,
   MissionType,
 } from '@/types/dto/group';
+import { voidBanner } from '../lastSettledView';
 import {
   UNMEASURED,
   WINDOW_FOCUS_TOLERANCE_NOTICE,
@@ -65,8 +66,30 @@ const CHARACTER = {
 
 // 승자 0명의 결말 배너 — 구 룰(V19 이전)은 전원 환불(REFUNDED), 현 룰은 전액 몰수(FORFEITED).
 // 모르는 상태는 배너 없이 인별 행만 그린다(Alert 시절의 else 강하 유지).
-export function statusBanner(status: LastSettledBet['status']): string | null {
-  if (status === 'REFUNDED') return '달성한 사람이 없어 전원 환불됐어요';
+//
+// v2 무효화(VOIDED)는 표시 모델에서 REFUNDED로 접히는데(회차→내기 정규화), **환불 사유가
+// 갈린다**: 인원 미달 무산·삭제 무효화는 애초에 **판정을 한 적이 없다** — 그 회차에
+// "달성한 사람이 없어"라고 적으면 하지도 않은 판정의 결과를 말하는 거짓이 된다(#570 codex ④).
+// 그래서 사유(voidReason)가 있으면 사유별 문장을 쓰고, 없으면(구서버·모르는 값) 종전 문장 그대로다.
+//
+// ⚠️ 문구·값 축의 **소스는 lastSettledView 한 곳**이다(#570 리뷰). 카드 한 줄과 이 배너가
+//    각자 switch를 들고 있으면 새 사유가 생길 때 한쪽만 갱신하고 잊는다 — 카드·시트가 갈리는
+//    바로 그 재발 구조다. 여기서는 조립하지 않고 공용 매핑을 그대로 위임한다(값 축 이문
+//    `SHORT_PARTICIPANTS`↔`INSUFFICIENT_PARTICIPANTS` 접기·모르는 값 폴백도 그쪽이 결정).
+export function voidReasonBanner(voidReason: string): string | null {
+  return voidBanner(voidReason);
+}
+
+export function statusBanner(
+  status: LastSettledBet['status'],
+  // v2 무효화 사유(선택) — 미전달·모르는 값이면 종전 문장으로 폴백한다(기존 호출부 동작 불변).
+  voidReason?: string | null,
+): string | null {
+  if (status === 'REFUNDED') {
+    return (
+      (voidReason ? voidReasonBanner(voidReason) : null) ?? '달성한 사람이 없어 전원 환불됐어요'
+    );
+  }
   if (status === 'FORFEITED') return '아무도 달성하지 못해 참가비가 소멸됐어요';
   return null;
 }
@@ -135,6 +158,9 @@ export interface LastBetResultSheetProps {
   // 콜백으로 올린다(onClose와 같은 결). 미전달이면 진입점 자체를 그리지 않는다 — 눌러도 아무
   // 일이 없는 버튼을 세우지 않는다(ChallengeCard.onOpenBet과 같은 원칙).
   onOpenHistory?: () => void;
+  // v2 무효화 사유(GROMO-1274 배치, #570 codex ④ — **추가 전용**). 미전달이면 종전 배너 그대로다.
+  // 무산·삭제 무효화는 판정 없는 환불이라 "달성한 사람이 없어"가 거짓이 된다(위 statusBanner 주석).
+  voidReason?: string | null;
   onClose: () => void;
 }
 
@@ -144,9 +170,10 @@ export default function LastBetResultSheet({
   missionType,
   missionCategory,
   onOpenHistory,
+  voidReason,
   onClose,
 }: LastBetResultSheetProps) {
-  const banner = statusBanner(lastBet.status);
+  const banner = statusBanner(lastBet.status, voidReason);
   // 분모(목표 분)는 정산 시점 스냅샷 — undefined(구서버)와 null(과거분·구 창)은 표기상 같은
   // '분모 생략'이라 여기서 null로 합친다. 근거 행 자체의 렌더 여부는 progressMinutes가 가른다.
   const goalMinutes = lastBet.goalMinutes ?? null;
@@ -278,16 +305,26 @@ export default function LastBetResultSheet({
       )}
 
       {/* 닫기 CTA — 그룹 시트 공통 규격(52/r16). 딤 탭으로도 닫힌다(SheetShell). */}
-      <TouchableOpacity
-        style={s.closeBtn}
-        activeOpacity={0.85}
-        onPress={onClose}
-        accessibilityRole="button"
-        testID="group.bet.result.close"
-      >
-        <Text style={s.closeText}>확인</Text>
-      </TouchableOpacity>
+      <CloseCta />
     </SheetShell>
+  );
+}
+
+// 확인(닫기) CTA — onClose를 직접 부르면 부모가 즉시 언마운트해 퇴장 애니메이션이 보이지 않는다.
+// useSheetClose()는 SheetShell **자식 트리**에서만 잡히므로 작은 컴포넌트로 뺐다(GROMO-1381).
+// 렌더 결과(TouchableOpacity·testID·문구)는 종전과 한 글자도 다르지 않다 — E2E 셀렉터 보존.
+function CloseCta() {
+  const close = useSheetClose();
+  return (
+    <TouchableOpacity
+      style={s.closeBtn}
+      activeOpacity={0.85}
+      onPress={close}
+      accessibilityRole="button"
+      testID="group.bet.result.close"
+    >
+      <Text style={s.closeText}>확인</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -382,7 +419,8 @@ const s = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   closeBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

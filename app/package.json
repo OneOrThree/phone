@@ -1,6 +1,6 @@
 {
   "name": "gromo",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "main": "index.ts",
   "overrides": {
     "hono": "^4.12.27",
@@ -12,6 +12,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "build:web": "expo export --platform web",
     "prebuild": "expo prebuild",
     "gen:palette": "node scripts/generate-palette.js",
     "gen:palette:check": "node scripts/generate-palette.js --check",
@@ -21,7 +22,9 @@
     "format:check": "prettier --check .",
     "format:fix": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:group-card-gate": "jest --runInBand src/screens/group src/navigation/groupEntrySource.test.ts src/navigation/navigationRef.test.ts src/screens/focus/FocusCategoryScreen.test.tsx src/components/TabGuideOverlay.test.tsx src/components/TabBar.test.tsx src/services/groupApi.test.ts src/services/cardInteraction.test.ts src/services/analyticsEvents.cardAttribution.test.ts"
   },
   "dependencies": {
     "@callstack/liquid-glass": "^0.8.0",
@@ -62,7 +65,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.0",
     "react-native-fbsdk-next": "^13.4.3",
-    "react-native-reanimated": "4.5.0",
+    "react-native-reanimated": "4.5.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",

@@ -62,7 +62,7 @@ public class PinController {
 
     @Operation(summary = "핀한 유저 조회",
             description = "내가 핀한 유저 목록(친구 아님 포함). 캐릭터 표시정보 + 오늘 집중분 + 현재 집중 여부 포함."
-                    + " date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD).")
+                    + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 기기 로컬 날짜가 아니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류")

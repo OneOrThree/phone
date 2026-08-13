@@ -34,7 +34,7 @@ export const INITIAL_ONBOARDING_DATA: V2OnboardingData = {
 };
 
 // 온보딩 완료 결과 — 중간 로그인 세션과 수집 데이터를 호출부(App)로 전달.
-// 게스트('로그인 없이 시작하기')도 백엔드 POST /auth/guest로 실제 JWT 세션을 발급받아
+// 게스트 로그인도 백엔드 POST /auth/guest로 실제 JWT 세션을 발급받아
 // 오므로(auth.ts guestLogin) login은 항상 유효한 LoginResult — 소셜/게스트 구분 없음.
 // 기존 계정 여부는 login.isNewUser === false로 판별(프로필 덮어쓰기 금지).
 export interface OnboardingResult {

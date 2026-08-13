@@ -206,12 +206,18 @@ class GroupChallengeV20MigrationTest {
                 UUID.randomUUID(), GROUP_ID, challengeId, USER_ID, stake, Date.valueOf(betDate), status);
     }
 
-    // is_achieved 는 V37 에서 드롭됐다(GROMO-1265) — LATEST 까지 올린 스키마라 컬럼을 지정하지 않는다.
+    // is_achieved 를 반드시 넣어야 한다 — V1 부터 NOT NULL 이고 기본값이 없으며, 드롭은 V37
+    // (GROMO-1265)이다. 이 클래스의 모든 migrate 타깃은 ERA_END(=V33) 이하라 컬럼이 살아 있다.
+    //
+    // ⚠️ 이 자리는 형제 PR 두 개가 서로를 못 보고 반대 방향으로 고쳐 main 을 깨뜨린 지점이다:
+    // GROMO-1265(#564)는 "LATEST 까지 올리니 컬럼이 없다"며 지웠고, GROMO-1406(#567)은 같은 시기에
+    // 타깃을 ERA_END(V33)로 내렸다. 각자의 base 에서는 둘 다 그린이었지만 합쳐지면 실패한다.
+    // 타깃을 V37 이상으로 올릴 때에만 컬럼을 다시 빼야 한다.
     private void insertMember(JdbcTemplate jdbcTemplate, UUID challengeId, LocalDate usageDate) {
         jdbcTemplate.update(
                 "INSERT INTO group_challenge_members"
-                        + " (id, created_at, progress_minutes, group_challenge_id, user_id, usage_date)"
-                        + " VALUES (?, now(), 0, ?, ?, ?)",
+                        + " (id, created_at, is_achieved, progress_minutes, group_challenge_id, user_id, usage_date)"
+                        + " VALUES (?, now(), false, 0, ?, ?, ?)",
                 UUID.randomUUID(), challengeId, USER_ID, Date.valueOf(usageDate));
     }
 
@@ -223,6 +229,7 @@ class GroupChallengeV20MigrationTest {
                 challengeId, durationMinutes);
     }
 
+    /** 검증 대상은 V20 시점의 역사다 — LATEST 로 올리면 V39(2계층 재편)가 구 스키마를 걷어가 버린다. */
     private void migrate(MigrationVersion target) {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())

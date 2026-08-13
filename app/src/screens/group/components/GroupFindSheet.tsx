@@ -16,7 +16,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 import { SheetShell } from '@/components/SheetShell';
+import { getAuthSessionGeneration } from '@/services/api';
 import { groupErrorCode, joinGroup, searchGroups } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupJoinAttempted, logGroupSearchPerformed } from '@/services/analyticsEvents';
 import type { GroupSearchResponse, GroupSummaryResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -39,7 +41,7 @@ import { acquireJoinLock, releaseJoinLock, useJoinLocked } from '../joinLock';
 // 에러 표현 규칙(그룹 시트 3종 공통 — GroupInviteSheet·NoticeComposeSheet와 같은 기준):
 //   · 시트 안에서 일어난 액션 실패는 **인라인 문구**로 띄운다. 시트가 이미 맥락을 쥐고 있어
 //     Alert를 겹치면 레이어가 두 겹이 되고, 확인을 눌러야 원래 화면으로 돌아온다.
-//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)과 **계정 전환 유도**(로그인)에만 쓴다.
+//   · Alert는 **되돌릴 수 없는 액션의 확인**(참여 확인)에만 쓴다.
 
 // 검색 입력 디바운스(ms) — 타이핑 중 과호출 방지(FriendAddScreen과 동일 기준)
 const SEARCH_DEBOUNCE_MS = 350;
@@ -89,27 +91,29 @@ export default function GroupFindSheet({
   const joinLocked = useJoinLocked();
   // 참여 실패 문구 — 시트 안에서 인라인으로 띄운다(Alert 아님, 파일 상단 규칙).
   const [joinError, setJoinError] = useState<string | null>(null);
-  // 키보드가 바텀시트를 덮는 문제 보정 — 패널은 하단 고정이라 자체적으로 올라가지 않는다.
-  // 자식 끝에 키보드 높이만큼 여백을 깔면 패널 내용이 키보드 위로 올라온다.
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const q = query.trim();
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   // 검색 시퀀스 — **주 검색과 조용한 갱신이 같은 카운터를 쓴다**.
   // 갱신에 토큰이 없으면(검색어 A 참여 실패 → refresh(A) 중 사용자가 B 입력) 늦게 온 A 응답이
   // B 결과를 덮어 입력창과 목록이 어긋난다. 검색어가 바뀌는 즉시 시퀀스를 올려 전부 무효화한다.
   const searchSeqRef = useRef(0);
+  // 진행 중인 디바운스 타이머 — 퇴장 시작 시 세대와 함께 걷는다(아래 onClosing).
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // iOS는 SheetShell이 panel bottom을 올리는 단일 owner다. Android의 RN Modal은 별도
+  // window라 검색 결과 하단만 keyboardDidShow 높이만큼 보정한다.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (event) => {
+      setAndroidKeyboardHeight(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // 언마운트(시트 닫힘·링크 수신) 시에도 시퀀스를 올려 진행 중 요청의 setState를 막는다.
   useEffect(
@@ -122,6 +126,11 @@ export default function GroupFindSheet({
   // 실제 검색 호출. measure=true는 사용자가 친 검색(계측·로딩 표시 대상),
   // false는 참여 실패 후의 조용한 갱신이다.
   const runSearch = useCallback(async (target: string, seq: number, measure: boolean) => {
+    // 검색 세대와 별개로 **인증 세대**를 캡처한다 — 유저 부재 분기의 로그아웃은 이 요청이 속한
+    // 세션에만 적용돼야 한다(참여 분기와 같은 이유, sessionErrors.ts 주석).
+    // ⚠️ 호출부가 아니라 여기서 잡는다 — 디바운스가 만료된 **실제 요청 시점**의 세션이어야 한다.
+    //    이펙트에서 잡으면 300ms 전 세대라, 그 사이 세션이 바뀌면 로그아웃이 조용히 무시된다.
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const rows = (await searchGroups(target)).filter(isJoinable);
       if (seq !== searchSeqRef.current) return;
@@ -131,7 +140,17 @@ export default function GroupFindSheet({
       // 빈 쿼리(공개방 기본 목록)는 사용자가 친 검색이 아니라 계측하지 않는다 — target이 있을 때만 쏜다.
       if (measure && target)
         logGroupSearchPerformed({ query_length: target.length, result_count: rows.length });
-    } catch {
+    } catch (e) {
+      // 유저 부재(GROMO-1247)는 '이 검색어의 실패'가 아니라 **계정 자체가 없어진 것**이다 —
+      // searchGroups도 requireActiveUser를 타는 인증 API라 같은 코드가 온다. 재시도로는 절대
+      // 안 풀리므로 일반 실패로 두면 사용자는 빈 목록과 '다시 시도'만 무한히 반복한다.
+      // 참여 분기와 같은 이유로 **검색 세대와 무관하게** 처리하고(화면 상태가 아니라 계정 상태다),
+      // 목록도 문구도 건드리지 않은 채 세션 정리로 보낸다.
+      // ⚠️ measure로 가르지 않는다 — 조용한 갱신이라도 계정 부재는 조용히 넘길 사안이 아니다.
+      if (groupErrorCode(e) === USER_NOT_FOUND) {
+        promptSessionExpired(requestSessionGeneration);
+        return;
+      }
       if (seq !== searchSeqRef.current) return;
       // 주 검색 실패는 목록을 비우고 실패 상태를 세운다. 조용한 갱신 실패는 기존 목록을
       // 그대로 두고 조용히 넘어간다(사용자가 시작한 조회가 아니라 알릴 것이 없다).
@@ -159,8 +178,14 @@ export default function GroupFindSheet({
     // 디바운스 타이머가 뜨기 전에 올린다 — 아직 응답이 안 온 이전 요청(주 검색·조용한 갱신)이 여기서 죽는다.
     const seq = ++searchSeqRef.current;
     setSearching(true);
-    const timer = setTimeout(() => runSearch(q, seq, true), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    // ⚠️ 타이머를 ref에도 둔다 — 퇴장이 시작되면(onClosing) 여기서 걷어야 한다. 종전에는 닫기가
+    //    곧 언마운트라 아래 cleanup이 막았지만, 이제 220ms 동안 살아 있어 그 사이 디바운스가
+    //    만료되면 **닫힌 검색이 실제로 서버를 호출한다**(응답만 버려질 뿐이다 — codex 리뷰).
+    debounceRef.current = setTimeout(() => runSearch(q, seq, true), SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    };
   }, [q, runSearch]);
 
   // 참여 실패 후 목록만 조용히 갱신한다(사용자가 친 검색이 아니므로 계측은 쏘지 않는다).
@@ -196,13 +221,16 @@ export default function GroupFindSheet({
     // 확인 Alert를 거쳐 들어오므로 사용자는 무언가 눌렀다고 믿는다 — 조용히 삼키지 않고 알린다.
     const token = acquireJoinLock();
     if (!token) {
-      setJoinError('참여를 처리하는 중이에요. 잠시 후 다시 시도해주세요.');
+      setJoinError('참여를 처리하는 중이에요. 잠시 후 다시 시도해 주세요.');
       return;
     }
     // 참여 요청도 **검색 세대를 캡처한다**. 응답을 기다리는 동안 사용자가 검색어를 바꿀 수 있는데,
     // 그때 늦게 도착한 A의 실패를 그대로 반영하면 A용 오류 문구가 B 화면에 뜨고, refreshResults가
     // B의 세대 번호로 A를 다시 조회해 유효한 요청처럼 B 결과를 덮는다.
     const seq = searchSeqRef.current;
+    // 검색 세대와 별개로 **인증 세대**도 캡처한다 — 유저 부재 분기의 로그아웃은 이 요청이 속한
+    // 세션에만 적용돼야 한다(sessionErrors.ts 주석). 검색 세대는 '어느 검색어의 행인가'만 말한다.
+    const requestSessionGeneration = getAuthSessionGeneration();
     setJoiningId(group.groupId);
     setJoinError(null);
     try {
@@ -217,7 +245,7 @@ export default function GroupFindSheet({
     } catch (e) {
       // status가 아니라 서버 code로 분기한다 — ROOM_FULL·ALREADY_MEMBER가 둘 다 409(§3-2)
       const code = groupErrorCode(e);
-      // 아래 둘은 화면 상태가 아니라 **실제 소속·계정 상태**의 결과라 검색 세대와 무관하게 처리한다.
+      // 아래는 화면 상태가 아니라 **실제 소속 상태**의 결과라 검색 세대와 무관하게 처리한다.
       if (code === 'ALREADY_MEMBER') {
         // 성공 취급 — 이미 멤버이므로 그룹방으로 보낸다.
         // (시도 계측은 요청 직전에 이미 나갔다 — 여기서 되돌릴 수단은 없고, 되돌릴 이유도 없다.
@@ -228,6 +256,13 @@ export default function GroupFindSheet({
       // 로그인 유도만 Alert로 남긴다 — 시트를 닫고 다른 화면으로 보내는 흐름이라 인라인이 사라진다.
       if (code === 'GUEST_FORBIDDEN') {
         goLogin();
+        return;
+      }
+      // 유저 부재(내 계정이 없어졌다, GROMO-1247) — 그룹 쪽 사정이 아니므로 목록도 문구도
+      // 건드리지 않고 세션 정리로 보낸다. 위 둘과 같은 이유로 **검색** 세대와는 무관하게 처리하되,
+      // 로그아웃 판정은 **인증** 세대가 맡는다(늦게 온 응답이 새 세션을 끊지 않게).
+      if (code === USER_NOT_FOUND) {
+        promptSessionExpired(requestSessionGeneration);
         return;
       }
       // 나머지는 '그 검색어의 그 행'에서만 의미가 있는 실패다 — 세대가 바뀌었으면 조용히 버린다.
@@ -247,7 +282,7 @@ export default function GroupFindSheet({
           setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
           break;
         default:
-          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
+          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       releaseJoinLock(token);
@@ -290,7 +325,20 @@ export default function GroupFindSheet({
   }
 
   return (
-    <SheetShell onClose={onClose} asModal>
+    <SheetShell
+      onClose={onClose}
+      // ⚠️ 퇴장이 시작되면 **검색 세대를 즉시 올린다.** onClose는 220ms 뒤라 그동안 컴포넌트가
+      //    살아 있어, 그 사이 도착한 응답이 결과를 반영하고 계측(logGroupSearchPerformed)까지
+      //    쏜다 — 사용자가 이미 닫은 검색의 결과 수가 노출 지표로 집계된다(codex 리뷰).
+      //    종전에는 딤 탭이 곧 언마운트라 아래 cleanup이 그 자리에서 막았다.
+      onClosing={() => {
+        searchSeqRef.current++;
+        // 아직 안 뜬 디바운스도 걷는다 — 세대만 올리면 요청은 나가고 응답만 버려진다.
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }}
+      asModal
+    >
       <Text style={s.title}>그룹 찾기</Text>
       <Text style={s.sub}>이름으로 공개 그룹을 찾아 바로 참여할 수 있어요.</Text>
 
@@ -371,9 +419,9 @@ export default function GroupFindSheet({
 
         {emptyNotice !== null && <View style={s.emptyBox}>{emptyNotice}</View>}
       </ScrollView>
-
-      {/* 키보드 높이만큼 밀어 올린다(패널 자체 paddingBottom과 겹치지 않게 insets 분은 제외하지 않는다) */}
-      {keyboardHeight > 0 && <View style={{ height: keyboardHeight }} />}
+      {androidKeyboardHeight > 0 && (
+        <View style={{ height: androidKeyboardHeight }} testID="group.find.androidKeyboardSpacer" />
+      )}
     </SheetShell>
   );
 }
@@ -397,7 +445,8 @@ const s = StyleSheet.create({
     borderColor: T.accent,
     borderRadius: 13,
     paddingHorizontal: T.space.md,
-    height: 46,
+    minHeight: 46,
+    paddingVertical: T.space.md,
   },
   searchInput: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
   clearBtn: {

@@ -8,14 +8,16 @@
 // 바디와 별개로, 이 화면의 위험 구간은 "요청은 떠 있는데 화면은 계속 열려 있는" 몇 초다.
 //   1) 그 사이 이름을 고치면 초대 문구가 실제 그룹 이름과 갈린다 → 요청에 실어 보낸 이름을 굳힌다
 //   2) 그 사이 이탈하면 취소한 줄 아는 그룹에 OWNER로 갇힌다(§14 — 삭제·위임 UI가 없다)
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, Share } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupCreateScreen from './GroupCreateScreen';
 import { buildInviteShareMessage } from './inviteShare';
 import { createGroup } from '@/services/groupApi';
 import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { CreateGroupResponse } from '@/types/dto/group';
+import { __resetGroupCardEmojiQueueForTest, readGroupCardEmoji } from './groupCardEmojiStore';
 
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),
@@ -46,13 +48,21 @@ jest.mock('@react-navigation/native', () => ({
     navigate: mockNav.navigate,
     addListener: mockAddListener,
   }),
+  useRoute: () => ({ params: { entry_point: 'list' } }),
 }));
 
+jest.mock('@/store/UserContext', () => ({ useUser: () => ({ userId: 'user-1' }) }));
+
 jest.mock('@/services/analyticsEvents', () => ({
+  logGroupCardIconSaveResult: jest.fn(),
+  logGroupCreateSubmitted: jest.fn(),
+  logGroupCreated: jest.fn(),
   logGroupCreateStarted: jest.fn(),
   logGroupInviteShared: jest.fn(),
 }));
-const { logGroupInviteShared } = jest.requireMock('@/services/analyticsEvents');
+const { logGroupCardIconSaveResult, logGroupInviteShared } = jest.requireMock(
+  '@/services/analyticsEvents',
+);
 
 // groupErrorCode는 실제 구현을 남긴다(§3-2 code 분기까지 검증).
 jest.mock('@/services/groupApi', () => ({
@@ -61,10 +71,13 @@ jest.mock('@/services/groupApi', () => ({
 }));
 
 // NOT_FOUND(유저 부재) 분기가 부르는 재로그인 탈출구 — 실제 모듈은 App이 등록한 핸들러로
-// 온보딩 트리를 리셋하므로, 여기선 호출 여부만 본다. groupApi(requireActual)가 같은 모듈의
-// api 인스턴스를 import하므로 형태만 유지해 끼워 준다(createGroup은 어차피 위에서 목).
+// 온보딩 트리를 리셋하므로, 여기선 호출 여부와 **넘긴 세대**만 본다. groupApi(requireActual)가
+// 같은 모듈의 api 인스턴스를 import하므로 형태만 유지해 끼워 준다(createGroup은 어차피 위에서 목).
+// getAuthSessionGeneration은 요청 직전에 캡처되는 인증 세대다(GROMO-1247 — 로그아웃이 그 사이
+// 성립한 새 세션까지 끊지 않게 하는 표식).
 jest.mock('@/services/api', () => ({
   api: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+  getAuthSessionGeneration: jest.fn(() => 0),
   triggerLogout: jest.fn(),
 }));
 const { triggerLogout } = jest.requireMock('@/services/api');
@@ -120,13 +133,98 @@ async function typeDescription(text: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await AsyncStorage.clear();
+  __resetGroupCardEmojiQueueForTest();
   jest.clearAllMocks();
   mockNav.beforeRemove = null;
   jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockCreateGroup.mockResolvedValue({ groupId: GROUP_ID, code: 'ignored' });
   mockIssueInviteLink.mockResolvedValue({ slug: SLUG, url: INVITE_URL });
+});
+
+describe('내 카드 아이콘 로컬 draft', () => {
+  test('선택값은 create body에 넣지 않고 성공 응답 groupId에만 저장한다', async () => {
+    await renderScreen();
+    await typeName('아침 6시 집중방');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.create.cardEmoji.📚'));
+    });
+
+    await press('만들기');
+
+    expect(mockCreateGroup.mock.calls[0][0]).not.toHaveProperty('emoji');
+    await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
+    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+      surface: 'create',
+      result: 'success',
+    });
+  });
+
+  test('생성 실패에는 로컬 아이콘을 저장하지 않는다', async () => {
+    mockCreateGroup.mockRejectedValueOnce(new Error('network'));
+    await renderScreen();
+    await typeName('실패할 그룹');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.create.cardEmoji.🔥'));
+    });
+
+    await press('만들기');
+
+    expect(await AsyncStorage.getItem('gromo:groups:cardEmoji:v1')).toBeNull();
+  });
+
+  test('고르지 않으면 성공 groupId에 기본 🎯를 저장한다', async () => {
+    await renderScreen();
+    await typeName('기본 아이콘 그룹');
+    await press('만들기');
+
+    await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('🎯'));
+  });
+
+  test('제출 중에는 picker를 잠가 화면 선택과 저장값이 갈리지 않는다', async () => {
+    let finishCreate: (value: CreateGroupResponse) => void = () => undefined;
+    mockCreateGroup.mockImplementationOnce(
+      () => new Promise<CreateGroupResponse>((resolve) => (finishCreate = resolve)),
+    );
+    await renderScreen();
+    await typeName('느린 생성');
+    await act(async () => fireEvent.press(screen.getByTestId('group.create.cardEmoji.📚')));
+    await press('만들기');
+
+    expect(screen.getByTestId('group.create.cardEmoji.🔥')).toBeDisabled();
+    await act(async () => fireEvent.press(screen.getByTestId('group.create.cardEmoji.🔥')));
+    expect(screen.getByTestId('group.create.cardEmoji.📚').props.accessibilityState.selected).toBe(
+      true,
+    );
+    await act(async () => finishCreate({ groupId: GROUP_ID, code: 'ignored' }));
+    await waitFor(async () => expect(await readGroupCardEmoji('user-1', GROUP_ID)).toBe('📚'));
+  });
+
+  test('생성 후 로컬 저장 실패는 inline으로 알리고 중복 생성 없이 복귀 경로를 제공한다', async () => {
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+    await renderScreen();
+    await typeName('저장은 실패');
+    await act(async () => fireEvent.press(screen.getByTestId('group.create.cardEmoji.🔥')));
+
+    await press('만들기');
+
+    expect(await screen.findByText(/내 카드 아이콘을 저장하지 못했어요/)).toBeOnTheScreen();
+    expect(screen.getByTestId('group.create.submit')).toBeDisabled();
+    expect(screen.getByTestId('group.create.cardEmoji.continue')).toBeOnTheScreen();
+    expect(mockNav.goBack).not.toHaveBeenCalled();
+    expect(logGroupCardIconSaveResult).toHaveBeenCalledWith({
+      surface: 'create',
+      result: 'failed',
+    });
+  });
+
+  test('picker는 glyph 대신 고정된 의미 이름을 접근성 label로 제공한다', async () => {
+    await renderScreen();
+    expect(screen.getByLabelText('카드 아이콘 책')).toBeOnTheScreen();
+    expect(screen.getByLabelText('카드 아이콘 목표')).toBeOnTheScreen();
+  });
 });
 
 describe('전송 계약 — 챌린지 없이 만든다(3차 §D18)', () => {
@@ -351,30 +449,40 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
   // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정(GROMO-1241).
   // 유효 JWT라 401 인터셉터를 안 타므로 공통 문구로 뭉개면 재시도 막다른 골목이 된다 —
   // 취소 없는 단일 확인으로 재로그인(triggerLogout)까지 이어져야 한다.
-  test('NOT_FOUND — 재로그인 안내 Alert, 확인 시 triggerLogout(공통 실패 문구가 아니다)', async () => {
-    mockCreateGroup.mockRejectedValue(axiosErrorWith(404, 'NOT_FOUND'));
-    await renderScreen();
-    await typeName('아침 6시 집중방');
+  // ⚠️ 신구 코드를 **병기**한다 — 서버가 유저 부재를 USER_NOT_FOUND로 나누기 전에 앱이 먼저
+  //    배포되므로, 브리지 기간엔 NOT_FOUND로 오고 분리 후엔 USER_NOT_FOUND로 온다.
+  //    한쪽만 처리하면 그 기간 동안 이 재로그인 유도가 조용히 죽는다(GROMO-1247).
+  test.each([['NOT_FOUND'], ['USER_NOT_FOUND']])(
+    '%s — 재로그인 안내 Alert, 확인 시 triggerLogout(공통 실패 문구가 아니다)',
+    async (code) => {
+      mockCreateGroup.mockRejectedValue(axiosErrorWith(404, code));
+      await renderScreen();
+      await typeName('아침 6시 집중방');
 
-    await press('만들기');
+      await press('만들기');
 
-    expect(Alert.alert).toHaveBeenCalledWith(
-      '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
-      [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
-      // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
-      { cancelable: false },
-    );
-    expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
+      expect(Alert.alert).toHaveBeenCalledWith(
+        '로그인이 필요해요',
+        '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
+        [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
+        // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
+        { cancelable: false },
+      );
+      expect(Alert.alert).not.toHaveBeenCalledWith('그룹을 만들지 못했어요', expect.any(String));
 
-    // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
-    expect(triggerLogout).not.toHaveBeenCalled();
-    const [, , buttons] = (Alert.alert as jest.Mock).mock.calls[0];
-    await act(async () => {
-      buttons[0].onPress();
-    });
-    expect(triggerLogout).toHaveBeenCalledTimes(1);
-  });
+      // 로그아웃은 Alert 확인 버튼에서만 — 알럿이 뜬 것만으론 아직 불리지 않는다.
+      expect(triggerLogout).not.toHaveBeenCalled();
+      const [, , buttons] = (Alert.alert as jest.Mock).mock.calls[0];
+      await act(async () => {
+        buttons[0].onPress();
+      });
+      // 요청 시작 시점의 인증 세대를 넘긴다 — 안내를 읽는 사이 새 세션이 성립하면 App.tsx가
+      // 이 값을 대조해 무시한다(GROMO-1247 P1). 인자 없이 부르면 새 세션까지 끊긴다.
+      expect(triggerLogout).toHaveBeenCalledTimes(1);
+      expect(triggerLogout).toHaveBeenCalledWith(0);
+      expect(triggerLogout).not.toHaveBeenCalledWith(undefined);
+    },
+  );
 
   test('모르는 code는 공통 문구로 떨어진다', async () => {
     mockCreateGroup.mockRejectedValue(axiosErrorWith(500, 'SOMETHING_NEW'));
@@ -385,7 +493,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
 
     expect(Alert.alert).toHaveBeenCalledWith(
       '그룹을 만들지 못했어요',
-      '잠시 후 다시 시도해주세요.',
+      '잠시 후 다시 시도해 주세요.',
     );
   });
 
@@ -396,7 +504,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
 
     await press('만들기');
 
-    expect(screen.getByText('그룹 이름을 다시 확인해주세요')).toBeOnTheScreen();
+    expect(screen.getByText('그룹 이름을 다시 확인해 주세요')).toBeOnTheScreen();
     expect(Alert.alert).not.toHaveBeenCalled();
   });
 });

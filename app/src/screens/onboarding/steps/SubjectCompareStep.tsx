@@ -1,151 +1,119 @@
-import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
+import { CharacterImage } from '@/components/character/CharacterImage';
 import { T } from '@/constants/theme';
-import { iGa } from '@/screens/onboarding/format';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// 과목별 비교 — "비교가 아니라, 어디를 더 채우면 될지"(설득). 목업 막대 비교.
-// 실제 과목명 대신 일반 라벨(A~D과목)만 써서 '앱이 과목 단위로 비교해준다'는 느낌만 준다
-// (이 화면은 카테고리 선택 전이라 실제 과목이 아직 없음). TODO: 통계 연동 후 실데이터.
-const BARS = [
-  { me: 77, avg: 65 },
-  { me: 63, avg: 59 },
-  { me: 34, avg: 67 }, // 평균보다 부족한 과목
-  { me: 58, avg: 54 },
+const MILESTONES = [
+  { icon: 'flame' as const, label: '연속 공부', value: '7일', color: T.flame, bg: T.dangerBg },
+  {
+    icon: 'trophy' as const,
+    label: '리그 순위',
+    value: '+3',
+    color: T.medal.gold,
+    bg: T.paperAlt,
+  },
+  { icon: 'diamond' as const, label: '시간조각', value: '+42', color: T.accent, bg: T.accentBg },
 ];
-const SUBJECTS = ['A과목', 'B과목', 'C과목', 'D과목'];
 
-// 막대가 바닥에서 목표 높이까지 자라며 등장 — 컨테이너가 바닥 정렬이라 height 증가 = 위로 상승.
-// 오버슛 없이 감속하며 목표 높이에 그대로 멈춘다(ease-out). delay로 좌→우 시차.
-function GrowingBar({ height, color, delay }: { height: number; color: string; delay: number }) {
-  const h = useSharedValue(0);
-  useEffect(() => {
-    h.value = withDelay(
-      delay,
-      withTiming(height, { duration: 550, easing: Easing.out(Easing.cubic) }),
-    );
-  }, [h, height, delay]);
-  const grow = useAnimatedStyle(() => ({ height: h.value }));
-  return <Animated.View style={[s.bar, { backgroundColor: color }, grow]} />;
-}
-
+// 세 번째 가치 제안 — 집중이 끝난 뒤 실제로 남는 연속 공부·리그·시간조각을 한 장에 묶는다.
+// 허구의 과목 비교 목업 대신 현재 제품의 피드백 루프를 보여줘 로그인 직전 기대를 완성한다.
 export default function SubjectCompareStep({ onNext }: StepProps) {
-  const subjects = SUBJECTS;
-  const bars = BARS;
-  const deficitIdx = bars.findIndex((b) => b.me < b.avg);
-  const deficitSubject = deficitIdx >= 0 ? subjects[deficitIdx] : null;
-
   return (
     <StepScaffold
       testID="onboarding.step.subjectCompare"
       center
-      title={'비교가 아니라,\n어디를 더 채우면 될지'}
-      ctaLabel="다음"
+      scrollable
+      title={'오늘의 집중이\n내일의 기록이 돼요'}
+      ctaLabel="그로모 시작하기"
       onCta={onNext}
     >
-      <View style={s.legend}>
-        <View style={s.legendItem}>
-          <View style={[s.legendSq, { backgroundColor: T.accent }]} />
-          <Text style={s.legendText}>나</Text>
+      <View style={s.resultCard}>
+        <View style={s.resultTop}>
+          <View style={s.characterBox}>
+            <CharacterImage size={72} variant="happy" />
+          </View>
+          <View style={s.resultCopy}>
+            <Text style={s.eyebrow}>오늘의 집중</Text>
+            <Text style={s.focusValue}>42분 완료</Text>
+            <Text style={s.focusSub}>시작한 시간이 그대로 쌓였어요</Text>
+          </View>
         </View>
-        <View style={s.legendItem}>
-          <View style={[s.legendSq, { backgroundColor: T.borderDark }]} />
-          <Text style={s.legendText}>준비생 평균</Text>
-        </View>
-      </View>
 
-      <View style={s.chart}>
-        {bars.map((b, i) => {
-          const deficit = i === deficitIdx;
-          return (
-            <View key={subjects[i]} style={s.col}>
-              <View style={s.bars}>
-                <GrowingBar
-                  height={b.me}
-                  color={deficit ? T.accentLight : T.accent}
-                  delay={150 + i * 120}
-                />
-                <GrowingBar height={b.avg} color={T.borderDark} delay={210 + i * 120} />
+        <View style={s.milestones}>
+          {MILESTONES.map((item, index) => (
+            <View
+              key={item.label}
+              style={[s.milestone, index < MILESTONES.length - 1 ? s.milestoneDivider : null]}
+            >
+              <View style={[s.iconBox, { backgroundColor: item.bg }]}>
+                <Ionicons name={item.icon} size={17} color={item.color} />
               </View>
-              <Text style={[s.colLabel, deficit ? s.colLabelDeficit : null]} numberOfLines={1}>
-                {subjects[i]}
-              </Text>
+              <View style={s.milestoneCopy}>
+                <Text style={s.milestoneLabel}>{item.label}</Text>
+                <Text style={s.milestoneValue}>{item.value}</Text>
+              </View>
             </View>
-          );
-        })}
+          ))}
+        </View>
       </View>
 
-      {deficitSubject ? (
-        <View style={s.note}>
-          <View style={s.noteDot} />
-          <Text style={s.noteText}>
-            <Text style={s.noteStrong}>{deficitSubject}</Text>
-            {iGa(deficitSubject)} 평균보다 부족해요
-          </Text>
-        </View>
-      ) : null}
-
-      <Text style={s.caption}>같은 시험 준비생 사이에서{'\n'}내 위치를 과목 단위로 보여드려요</Text>
+      <Text style={s.caption}>집중 기록은 홈과 통계, 리그에 차곡차곡 반영돼요.</Text>
     </StepScaffold>
   );
 }
 
 const s = StyleSheet.create({
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: T.space.lg,
-    marginBottom: T.space.md,
-  },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
-  legendSq: { width: 9, height: 9, borderRadius: 2 },
-  legendText: { fontSize: 10, fontWeight: '600', color: T.link },
-  chart: {
+  resultCard: {
     alignSelf: 'stretch',
-    flexDirection: 'row',
-    gap: T.space.xs,
     backgroundColor: T.white,
     borderWidth: 1,
-    borderColor: T.paperAlt,
-    borderRadius: 18,
-    paddingVertical: T.space.lg,
-    paddingHorizontal: T.space.md,
+    borderColor: T.border,
+    borderRadius: 22,
+    padding: T.space.lg,
+    shadowColor: T.shadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
   },
-  col: { flex: 1, alignItems: 'center', gap: T.space.sm },
-  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: T.space.xs, height: 100 },
-  bar: { width: 16, borderTopLeftRadius: 4, borderTopRightRadius: 4 },
-  colLabel: { fontSize: 10, fontWeight: '600', color: T.link, textAlign: 'center' },
-  colLabelDeficit: { color: T.accentDeep },
-  note: {
-    alignSelf: 'stretch',
+  resultTop: { flexDirection: 'row', alignItems: 'center', gap: T.space.lg },
+  characterBox: {
+    width: 86,
+    height: 86,
+    borderRadius: 24,
+    backgroundColor: T.accentBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultCopy: { flex: 1 },
+  eyebrow: { ...T.text.caption, color: T.accent, marginBottom: 2 },
+  focusValue: { ...T.text.heading, color: T.ink },
+  focusSub: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.xs },
+  milestones: {
+    marginTop: T.space.lg,
+    borderTopWidth: 1,
+    borderTopColor: T.divider,
+    paddingTop: T.space.sm,
+  },
+  milestone: { flexDirection: 'row', alignItems: 'center', paddingVertical: T.space.sm },
+  milestoneDivider: { borderBottomWidth: 1, borderBottomColor: T.divider },
+  iconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  milestoneCopy: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: T.space.sm,
-    backgroundColor: T.noteBg,
-    borderWidth: 1,
-    borderColor: T.noteBorder,
-    borderRadius: 13,
-    paddingVertical: T.space.md,
-    paddingHorizontal: T.space.md,
-    marginTop: T.space.md,
+    justifyContent: 'space-between',
+    marginLeft: T.space.md,
   },
-  noteDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: T.accentLight },
-  noteText: { fontSize: 12, fontWeight: '600', color: T.accentDeep, lineHeight: 17, flex: 1 },
-  noteStrong: { fontWeight: '800' },
-  caption: {
-    ...T.text.body,
-    fontWeight: '500',
-    color: T.link,
-    textAlign: 'center',
-    marginTop: T.space.lg,
-    lineHeight: 20,
-  },
+  milestoneLabel: { ...T.text.label, color: T.inkSub },
+  milestoneValue: { ...T.text.subtitle, color: T.ink },
+  caption: { ...T.text.body, color: T.link, textAlign: 'center', marginTop: T.space.xl },
 });

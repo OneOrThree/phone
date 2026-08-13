@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/store/UserContext';
 import { updateFocusTimeGoal, updateScreenTimeGoal } from '@/services/userApi';
 import { STORAGE_KEYS } from '@/types/storage';
+import { todayStr } from '@/utils/localDate';
 
 // 예약된 목표('내일부터 적용')를 발효일이 지나면 적용한다.
 // GoalsScreen은 저장 시 컨텍스트·서버를 건드리지 않고 goalPending에만 예약을 남긴다
@@ -19,15 +20,7 @@ interface PendingGoal {
   userId?: string | null; // 예약한 계정
   dailyFocusTimeGoalMinutes?: number;
   dailyScreenTimeGoalMinutes?: number;
-  effectiveDate?: string; // 'YYYY-MM-DD'(로컬)
-}
-
-// Date → 'YYYY-MM-DD'(로컬 기준)
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
+  effectiveDate?: string; // 'YYYY-MM-DD'(로컬 — 목표 '내일부터'는 사용자가 체감하는 하루가 기준)
 }
 
 export function PendingGoalApplier() {
@@ -52,7 +45,8 @@ export function PendingGoalApplier() {
       if (pending.userId && pending.userId !== userId) return;
 
       // 발효 전이면 그대로 둔다(ISO 날짜는 문자열 비교로 대소 판정이 정확).
-      if (!pending.effectiveDate || pending.effectiveDate > toISODate(new Date())) return;
+      // 축은 로컬 — GoalsScreen이 로컬 '내일'로 예약하므로 대조도 같은 축이어야 한다(docs/date-axis.md).
+      if (!pending.effectiveDate || pending.effectiveDate > todayStr()) return;
 
       // 발효 — 서버 반영이 성공한 목표만 컨텍스트에 반영. 서버가 모두 성공한 경우에만 예약을 지운다.
       // 부분 성공 처리(리뷰 반영):

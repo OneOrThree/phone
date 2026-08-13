@@ -42,7 +42,7 @@ class LandingTest extends InviteLinkTestSupport {
     void servesHtmlAndRecordsClick() throws Exception {
         String body = mockMvc.perform(get("/l/{slug}", link.getSlug())
                         .header("User-Agent", IPHONE_UA)
-                        .header("CF-Connecting-IP", CLICK_IP))
+                        .header("X-Real-IP", CLICK_IP))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("text/html"))
                 .andReturn().getResponse().getContentAsString();
@@ -66,7 +66,7 @@ class LandingTest extends InviteLinkTestSupport {
     void doesNotRecordBotClicks() throws Exception {
         mockMvc.perform(get("/l/{slug}", link.getSlug())
                         .header("User-Agent", KAKAO_SCRAPER_UA)
-                        .header("CF-Connecting-IP", CLICK_IP))
+                        .header("X-Real-IP", CLICK_IP))
                 .andExpect(status().isOk());
 
         assertThat(clickRepository.findByLinkId(link.getId())).isEmpty();

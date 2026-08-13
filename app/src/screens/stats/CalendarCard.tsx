@@ -14,13 +14,17 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { fadeIn } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
+import { Enter } from '@/components/Enter';
 import { T, withAlpha } from '@/constants/theme';
 import type { HeatmapCellResponse, TodayStatsResponse } from '@/types/dto/stats';
 import { getFocusPeriodStats, getHeatmap } from '@/services/statsApi';
 import { localDateStr, todayStrKst } from '@/utils/localDate';
 import { fmtHm } from '@/utils/timeFormat';
-import { calendarPage, grassLevel, kstTodayDate } from './format';
-import { CAL_RAMP, WEEK_DAYS } from './constants';
+import { calendarPage, calendarRows, grassLevel, kstTodayDate } from './format';
+import { CAL_CELL_ASPECT, CAL_GRID_GAP, CAL_RAMP, WEEK_DAYS } from './constants';
+import { CardBodyError } from './CardBodySlot';
 
 interface Props {
   period: 'WEEK' | 'MONTH';
@@ -43,6 +47,7 @@ export function CalendarCard({
   periodTotal,
   retryCurrent,
 }: Props) {
+  const mo = useMotion();
   const [offset, setOffset] = useState(0); // 0=이번 기간, -1=지난 기간 …
   const [picked, setPicked] = useState<string | null>(null); // 탭한 날짜 — 하단 정보줄
   // 과거 기간 heatmap 캐시(기간 첫 날짜 키). 실패는 캐시하지 않는다 — 빈 데이터로 캐시하면
@@ -164,14 +169,8 @@ export function CalendarCard({
     (c.screenTimeGoalAchieved ||
       (phoneGoalSet && date >= membershipFloor && c.actualScreenTimeMinutes === 0));
 
-  // 7칸 행으로 슬롯 분할 — 월은 1일 요일 정렬용 앞 빈 칸 + 마지막 행 채움 빈 칸
-  const slots: (string | null)[] = [
-    ...Array.from({ length: page.leadingBlanks }, () => null),
-    ...page.days,
-  ];
-  while (slots.length % 7 !== 0) slots.push(null);
-  const rows: (string | null)[][] = [];
-  for (let i = 0; i < slots.length; i += 7) rows.push(slots.slice(i, i + 7));
+  // 7칸 행으로 슬롯 분할 — 로딩 스켈레톤의 카드 높이도 같은 함수로 행 수를 구한다(format.ts).
+  const rows = calendarRows(period, offset);
 
   const renderCell = (date: string | null, idx: number) => {
     if (date == null) return <View key={`blank-${idx}`} style={s.cell} />;
@@ -294,25 +293,29 @@ export function CalendarCard({
       {/* ── 캘린더 그리드 — 셀 사이 1px 흰 선(gap) ── */}
       <View>
         <View style={s.grid}>
+          {/* 행 단위 시차 진입 — 캘린더는 값 축이 없는 격자라 growUp(바닥부터 자라는 막대)이
+              표현할 '자라는 값'이 없다. 위→아래로 한 행씩 드러나는 fadeIn 시차를 쓴다. */}
+          {/* ⚠️ 행마다 Enter를 쓴다 — 5행 월에서 6행 월로 넘어가면 여섯 번째 행이 **나중에**
+              마운트되는데, 카드의 useMotion 결정에 묶이면 그 사이 '동작 줄이기'를 켠 사용자에게도
+              그 행만 페이드된다(codex 리뷰). Enter는 요소와 함께 마운트되며 자기 결정을 갖는다.
+              뷰를 새로 끼운 게 아니라 원래 있던 Animated.View를 대신한다(D-04 유지). */}
           {rows.map((row, ri) => (
-            <View key={ri} style={s.row}>
+            <Enter key={ri} preset={fadeIn(mo.stagger(ri))} style={s.row}>
               {row.map((date, ci) => renderCell(date, ri * 7 + ci))}
-            </View>
+            </Enter>
           ))}
         </View>
         {loading ? (
-          <View style={s.loadingOverlay}>
+          // testID 는 테스트 전용 손잡이다(GROMO-1499 / codex 리뷰) — 이 오버레이엔 텍스트가
+          // 없어서 「에러 대신 로딩」 계약을 단언할 방법이 이것뿐이다. 없으면 loading 계산을
+          // 통째로 지워도 테스트가 통과한다.
+          <View testID="stats.calendar.loading" style={s.loadingOverlay}>
             <ActivityIndicator color={T.accent} />
           </View>
         ) : null}
-        {failed ? (
-          <View style={[s.loadingOverlay, s.errorOverlay]}>
-            <Text style={s.errorText}>불러오지 못했어요</Text>
-            <TouchableOpacity style={s.retryBtn} activeOpacity={0.8} onPress={retryPage}>
-              <Text style={s.retryText}>다시 시도</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
+        {/* 실패 안내는 셀 그리드 **위에 겹치는** 오버레이 — 그리드가 이미 높이를 잡고 있어
+            자리 예약(height)이 필요 없다(첫 시작 카드는 본문 자리를 대신해 고정 높이를 쓴다). */}
+        {failed ? <CardBodyError overlay onRetry={retryPage} /> : null}
       </View>
 
       {pickedInfo != null && (
@@ -365,15 +368,17 @@ const s = StyleSheet.create({
     marginTop: T.space.xs,
     marginBottom: T.space.md,
   },
-  dowRow: { flexDirection: 'row', gap: 1, marginBottom: T.space.xs },
+  dowRow: { flexDirection: 'row', gap: CAL_GRID_GAP, marginBottom: T.space.xs },
   dowText: { flex: 1, textAlign: 'center', ...T.text.caption, fontSize: 10, color: T.inkFaint },
   dowSun: { color: T.accentAlt },
-  grid: { gap: 1 },
-  row: { flexDirection: 'row', gap: 1 },
-  // 투명 테두리를 항상 깔아 오늘/선택 링이 켜져도 내용이 밀리지 않게 한다
+  grid: { gap: CAL_GRID_GAP },
+  row: { flexDirection: 'row', gap: CAL_GRID_GAP },
+  // 투명 테두리를 항상 깔아 오늘/선택 링이 켜져도 내용이 밀리지 않게 한다.
+  // 셀 높이는 폭에서 파생된다(flex:1 + aspectRatio) — 로딩 스켈레톤도 같은 비율·간격 상수로
+  // 계산하므로(constants.calendarCellH) 여기 값을 바꾸면 스켈레톤도 자동으로 따라온다.
   cell: {
     flex: 1,
-    aspectRatio: 40 / 46,
+    aspectRatio: CAL_CELL_ASPECT,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: 'transparent',
@@ -398,17 +403,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 조회 실패 안내 — 중립 셀 위에 읽히도록 반투명 배경 + 재시도 버튼(친구 목록 에러 패턴 축소판)
-  errorOverlay: { backgroundColor: withAlpha(T.white, 0.75) },
-  errorText: { ...T.text.caption, fontSize: 12, color: T.inkSub },
-  retryBtn: {
-    marginTop: T.space.sm,
-    backgroundColor: T.accent,
-    borderRadius: 999,
-    paddingHorizontal: T.space.lg,
-    paddingVertical: T.space.xs,
-  },
-  retryText: { ...T.text.caption, fontWeight: '700', color: T.white },
   pickbar: {
     marginTop: T.space.sm,
     paddingVertical: T.space.sm,

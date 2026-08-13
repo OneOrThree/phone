@@ -44,6 +44,11 @@ public class GroupMemberService {
         // 위임이 flush 되면 GroupMember 에 @Version 이 없어 full-row UPDATE 가 is_left=false 를
         // 되살리며 role=OWNER 를 세워, 탈퇴한 유저가 오너인(그리고 전 오너는 이미 강등된) 그룹이
         // 남는다. 탈퇴가 먼저 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
+        //
+        // GROMO-1247: 여기는 <b>대상</b> 유저라 USER_NOT_FOUND(요청자 세션 사망 → 재로그인)로 바꾸지
+        // 않는다. 방장이 없는 유저를 지목한 것이지 내 세션이 죽은 게 아니다 — 바꾸면 앱이 멀쩡한
+        // 방장을 로그아웃시킨다. 바로 아래 멤버십 조회의 GroupErrorCode.NOT_FOUND 와 같은 버킷
+        // ("지목한 대상이 없다")이고, 둘 다 code 문자열 "NOT_FOUND" 로 나가 앱 분기가 일치한다.
         User targetUser = userRepository.findActiveByIdForShare(targetUserId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
 
@@ -85,6 +90,7 @@ public class GroupMemberService {
         // GroupMember 에 @Version 이 없어 kick() 의 full-row UPDATE 가, 대상의 계정 탈퇴가 같은
         // 행에 이미 flush 한 변경(leave)을 stale 스냅샷으로 덮어쓴다(lost update). 탈퇴가 먼저
         // 커밋되면 여기서 삭제를 관측하고 기존 계약대로 NOT_FOUND 로 거절된다.
+        // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = userRepository.findActiveByIdForShare(targetUserId)
                 .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
         GroupMember target = groupMemberRepository.findByUserAndGroup(targetUser, group)
@@ -126,12 +132,13 @@ public class GroupMemberService {
     }
 
     /**
-     * 활성 검증 + 공유 락 + 게스트 차단 (GROMO-801 락 규율, GROMO-1227) — 위임·강퇴·그룹 탈퇴처럼
+     * 활성 검증 + 공유 락 (GROMO-801 락 규율, GROMO-1227) — 위임·강퇴·그룹 탈퇴처럼
      * users 행을 <b>읽기만 하고</b> 그 값을 멤버십 변경의 근거로 쓰는 트랜잭션의 요청자 로드.
      * 락 없는 findById 는 계정 탈퇴(UserService.withdraw, 유저 행 배타 락)와 직렬화되지 않아
      * 탈퇴의 정리 스캔 이후·커밋 이전에 낀 변경이 유령 상태로 남는다. 공유 락끼리는 충돌하지
      * 않아 동시 요청은 그대로 병렬이고, 탈퇴가 먼저 커밋되면 is_deleted=true 를 보고
-     * NOT_FOUND(404) 로 거절된다. 게스트는 GUEST_FORBIDDEN(403).
+     * USER_NOT_FOUND(404) 로 거절된다 — 그룹·대상 멤버 부재(NOT_FOUND)와 구분되는 <b>요청자 세션</b>
+     * 전용 코드다(GROMO-1247). 게스트도 소셜 로그인 유저와 동일하게 통과한다(GROMO-1509).
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
      * {@code @Transactional(readOnly = true)} 라 Postgres 가 FOR SHARE 를 거절한다
@@ -139,11 +146,7 @@ public class GroupMemberService {
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {
-        User user = userRepository.findActiveByIdForShare(userId)
-                .orElseThrow(() -> new UserException(UserErrorCode.NOT_FOUND));
-        if (user.isGuest()) {
-            throw new GroupException(GroupErrorCode.GUEST_FORBIDDEN);
-        }
-        return user;
+        return userRepository.findActiveByIdForShare(userId)
+                .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
     }
 }

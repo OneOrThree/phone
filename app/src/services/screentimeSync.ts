@@ -7,13 +7,15 @@ import ScreenTimeModule, {
 import type { UsageBucketEvent } from '@/services/ScreenTimeModule';
 import { saveScreenTime } from '@/services/screentimeApi';
 import { getHeatmap } from '@/services/statsApi';
-import { getMyGroups, getChallenges } from '@/services/groupApi';
+import { getMyOpenBetSessionsWithToken } from '@/services/groupApi';
+import { getFreshAccessToken, getUserIdFromToken } from '@/services/api';
 import { putWindowUsage } from '@/services/windowUsageApi';
 import {
   readPendingScreenTimeCelebration,
   schedulePendingScreenTimeCelebration,
 } from '@/services/screentimeCelebration';
 import {
+  logScreentimeGoalEvaluated,
   logScreentimeWindowReported,
   logScreentimeWindowUnsupported,
 } from '@/services/analyticsEvents';
@@ -23,7 +25,6 @@ import {
   todayStr,
   yesterdayStr,
   localDateStr,
-  todayStrKst,
   yesterdayStrKst,
   kstDateStr,
 } from '@/utils/localDate';
@@ -31,7 +32,7 @@ import { timeStrToSeconds } from '@/utils/challengeTime';
 
 // 스크린타임 사용량 서버 동기화(GROMO-633) — 네이티브 15분 버킷 측정값을 POST /screen-time으로
 // 올려 daily_screen_time_stats(통계 화면 폰 사용량 지표의 소스)를 채운다.
-// 서버는 (user, reportedAt의 유저 타임존 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
+// 서버는 (user, reportedAt의 KST 날짜) 기준 upsert 멱등 — 하루 여러 번 보내면 최신값으로 덮인다.
 //
 // 달성 여부 프로토콜:
 //  - 당일 중간 동기화는 goalAchieved=false 고정. 스크린타임 달성(목표 '이내')은 하루가 끝나야
@@ -41,10 +42,30 @@ import { timeStrToSeconds } from '@/utils/challengeTime';
 //    Monitor는 앱과 무관하게 돌므로 어제 앱을 안 열었어도 마감되며, 처리한 날짜를 계정 스코프로
 //    마킹해 같은 날짜 중복 전송을 막는다. 서버가 null 분값을 0으로 덮어쓰므로 분값은 반드시 함께 보낸다.
 //
-// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 서버는 reportedAt을 유저 타임존
-// (country_code 파생, 미설정 시 UTC 폴백)의 날짜로 환산하는데 현재 앱은 countryCode를 보내지
-// 않아 UTC 폴백 유저가 존재한다. 정오 instant는 기기 오프셋 UTC-11~+12 범위에서 UTC로 환산해도
-// 같은 날짜라, 자정 경계(예: KST 아침 = UTC 전날 밤)의 날짜 오귀속을 막는다.
+// reportedAt은 대상 날짜의 '로컬 정오' instant로 보낸다 — 이 모듈의 측정 축은 로컬(익스텐션이
+// 로컬 하루로 버킷을 자른다)인데 서버 저장 축은 KST 고정이라(back ZonePolicy.KST, GROMO-1259 —
+// 종전 주석의 'country_code 파생 존·UTC 폴백'은 그때 폐지됐다), 두 축을 잇는 값이 필요하다.
+// 정오를 쓰는 이유: 자정을 쓰면 아주 작은 오프셋 차이로도 날짜가 넘어가는데, 정오는 그 여유를
+// 최대로 벌어 준다. 다만 **모든 존을 덮지는 못한다** — 오프셋 X의 로컬 정오는 KST로 (21 − X)시라,
+// 같은 날짜로 남는 조건은 0 ≤ 21 − X < 24, 즉 **X > UTC−3** 이다.
+//   · UTC+9(KR)  정오 → KST 같은 날 12:00 ✅
+//   · UTC+14     정오 → KST 같은 날 07:00 ✅  (동쪽 끝까지 안전 — 상한은 걸리지 않는다)
+//   · UTC−2      정오 → KST 같은 날 23:00 ✅  (경계 직전)
+//   · UTC−3      정오 → KST **다음 날** 00:00 ❌ (정확히 자정 경계)
+//   · UTC−8(LA)  정오 → KST **다음 날** 05:00 ❌
+// 즉 UTC−3 이하(미주 대부분)는 로컬 측정일 D의 보고가 KST D+1 버킷에 앉는다. 세 군데 쓰기 경로가
+// 전부 같은 localNoonInstant를 쓰므로 **오프셋이 고정인 동안은** 시프트가 균일해 시리즈 전체가
+// 하루씩 밀릴 뿐이다(수용된 한계 L5의 그림자 — docs/date-axis.md §6 G2).
+// ⚠️ **다만 오프셋이 바뀌는 날에는 균일하지 않다 — 버킷 키가 단사(injective)가 아니게 된다.**
+// DST 전환이나 여행으로 이웃한 두 날의 오프셋이 UTC−3 경계를 사이에 두면 **두 로컬 날짜가 같은
+// KST 버킷으로 접힌다**. 예: America/St_Johns 2026-03-07 정오(UTC−3:30) → KST 03-08 00:30,
+// 2026-03-08 정오(UTC−2:30) → KST 03-08 23:30 — **둘 다 03-08**이다. 서버는 (user, 날짜) upsert라
+// 나중 보고가 앞 보고를 **덮어써 그 하루가 사라진다**. kstBucketDateOf 는 같은 접힘을 재현할 뿐
+// 이미 덮인 셀을 되살리지 못한다 — 스트릭이 그 지점에서 끊기는 것은 조회 축이 아니라 **저장이
+// 유실된** 결과다. 고치려면 reportedAt 자체가 로컬 날짜를 잃지 않아야 하고(예: 날짜를 별도 필드로
+// 보내기), 그건 이 티켓 범위 밖이다(G2).
+// ⚠️ 종전 주석의 'UTC-11~+12'는 검산 없이 쓴 오류였다(GROMO-1254 codex 게이트 P3): 서쪽을
+// 통째로 안전하다고 했고 실제로 안전한 +13/+14를 예외로 들어 **양끝이 다 반대**였다.
 
 // 마지막 성공 동기화 상태 — 어제분 마감(분값 보존)과 무변화 스킵 판단에 쓴다.
 // 디바이스 전역 키라 계정을 함께 기록해 다른 계정의 기록에 오염되지 않게 한다.
@@ -143,6 +164,20 @@ function localNoonInstant(dateStr: string): string {
   return new Date(y, m - 1, d, 12, 0, 0).toISOString();
 }
 
+// 로컬 측정일('YYYY-MM-DD') → 그 날의 보고가 서버에서 앉는 **날짜 버킷**(GROMO-1254).
+// 이 모듈의 측정·마감 축은 로컬(익스텐션 gregorianDayString)이지만, 서버는 우리가 보낸
+// reportedAt(= localNoonInstant) instant를 **KST 고정**으로 잘라 버킷을 정한다
+// (back ZonePolicy.KST — GROMO-1259가 country_code 파생 존을 폐지하고 저장·조회 축을 KST로 통일).
+// 그래서 "서버 heatmap에서 이 측정일을 찾으려면 무슨 키인가"는 두 축의 합성이다.
+//
+// ⚠️ 존을 utils/serverZone(getServerZone)에서 읽지 않는다 — 그건 프로필 응답 캐시라
+// 1259 이전에 저장된 값(예: Europe/London)이 남아 있고 콜드 스타트의 프로필 갱신이 실패하면
+// 계속 그 과거 값을 돌려준다. 그 상태로 커서를 잡으면 스트릭이 엉뚱한 셀에서 시작해 1일로
+// 끊긴다 — 이 함수가 고치려던 결함이 다른 원인으로 재현된다(codex pre-PR 게이트 P2).
+function kstBucketDateOf(localDayKey: string): string {
+  return kstDateStr(new Date(localNoonInstant(localDayKey)));
+}
+
 async function readSyncState(userId: string): Promise<ScreenTimeSyncState | null> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.screentimeSyncState);
@@ -185,18 +220,32 @@ async function writeClosedDate(userId: string, date: string): Promise<void> {
 // 어제 스크린타임 목표 달성 축하 예약(GROMO-629). '연속 목표달성'은 heatmap의
 // screenTimeGoalAchieved를 어제(달성일)부터 뒤로 세어 계산한다 — 포커스 목표 스트릭과 동일 방식
 // (별도 API 불필요, 실패한 날은 heatmap 갭이라 자연히 리셋). 조회 실패 시 연속 1일로 폴백.
+//
+// ⚠️ 이 함수 안에는 **축이 두 개** 산다(GROMO-1254 — 하나로 합치면 반대쪽이 깨진다):
+//  ① 하루 1회 가드·예약 신선도(today) = **로컬**. 달성 판정 자체가 로컬 축이기 때문이다 —
+//     달성은 네이티브 버킷 분값(익스텐션 로컬 하루)을 로컬 목표와 비교해 앱이 내리고, 마감을
+//     트리거하는 것도 로컬 자정 넘김(closedDate !== yesterdayStr())이다. 집중 목표 축하가
+//     KST로 간 이유(goalCelebration — 달성 판정이 **서버** KST 버킷)가 여기엔 성립하지 않는다.
+//     소비 측(HomeScreen p.date · screentimeLastRewardedDate)도 같은 로컬 축이라 체인이 온전하다.
+//  ② 연속 달성일 카운트 = **서버 버킷 축(= KST 고정, back ZonePolicy.KST)**. 이건 서버 heatmap
+//     셀을 뒤로 세는 데이터 결합 계산이라 커서·조회 창이 셀과 같은 축이어야 한다. 종전엔 로컬
+//     측정일에서 그대로 후진해, 비KST 기기는 존재하는 셀을 못 찾아 스트릭이 매번 1일로 리셋됐다.
 async function scheduleYesterdayScreenTimeCelebration(
   achievedDate: string,
   goalMinutes?: number,
 ): Promise<void> {
-  const today = todayStr();
+  const today = todayStr(); // ① 로컬 — 위 주석 참고
   // 하루 1회 가드 — 오늘 이미 노출했거나 이미 오늘 예약이 있으면 재계산·재예약하지 않는다.
   if ((await AsyncStorage.getItem(STORAGE_KEYS.screentimeLastRewardedDate)) === today) return;
   if ((await readPendingScreenTimeCelebration())?.date === today) return;
 
   // achievedDate(어제)는 달성 확정 → 1일. 그 전날부터 60일 창을 넓혀가며 연속 달성일을 센다.
+  // ② 커서의 출발점은 로컬 측정일이 아니라 **그 보고가 서버에서 앉는 셀**이다 — 우리가 방금
+  // saveScreenTime으로 올린 instant(localNoonInstant(achievedDate))를 KST로 자른 값.
+  // 이후 산술은 이 문자열에 대한 순수 달력 산술이라, 아래 localDateStr는 존 변환이 아니라
+  // parts 생성자로 만든 달력 Date의 포매팅이다(stats/format.heatmapRange와 같은 관례).
   let days = 1;
-  const [ay, am, ad] = achievedDate.split('-').map(Number);
+  const [ay, am, ad] = kstBucketDateOf(achievedDate).split('-').map(Number);
   const cursor = new Date(ay, am - 1, ad);
   cursor.setDate(cursor.getDate() - 1);
   const CHUNK_DAYS = 60;
@@ -401,6 +450,18 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
           reportedAt: localNoonInstant(yesterday),
           isFinal: true, // 어제분 마감 — 최종 보고(서버가 achieved 신뢰·395 발사)
         });
+        // 네이티브 최종 읽기가 실패한 경우에는 보존된 이전 값으로 서버 upsert만 시도하고,
+        // GA4 평가는 다음 성공적인 읽기에서 한 번만 발행한다. closed-date 마커와 같은
+        // 성공 경계를 사용해야 재시도마다 일일 평가가 중복되지 않는다.
+        if (yesterdayGoalSeconds > 0 && readsOk) {
+          logScreentimeGoalEvaluated({
+            goal_met: achieved,
+            actual_seconds: finalMinutes * 60,
+            target_seconds: yesterdayGoalSeconds,
+            window_date: yesterday,
+            is_final: true,
+          });
+        }
         // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
         await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
         // 달성이면 어제 달성 축하 예약(GROMO-629) — 오늘 첫 홈 진입에 1회. 판정이 곧 버킷 기준이라
@@ -474,16 +535,26 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
 
   // 지난 중간 동기화 행 확정 — 며칠 만의 실행이면 last.date가 어제보다 과거일 수 있다. 그 날의
   // 네이티브 판정·보존 눈금은 이미 다음 날들로 덮여 없으므로, 업로드해 둔 분값 그대로 달성
-  // 여부만 근사 확정한다(리뷰 반영 — 영영 미달성으로 남는 것 방지). 달성으로 뒤집히는 경우만
-  // 전송 — 아니면 이미 저장된 false가 곧 결과다. 처리 후 상태를 지워 반복을 막는다.
+  // 여부를 근사 확정한다. 성공·실패 모두 평가 이벤트를 남긴 뒤 상태를 지워 반복을 막는다.
   if (last && last.date !== today && last.date !== yesterday) {
-    if (goalSeconds > 0 && last.minutes > 0 && last.minutes <= goalSeconds / 60) {
+    // 해당 날짜에 저장해 둔 목표를 우선 사용한다. 현재 목표로 판정하면 나중에 목표를
+    // 변경한 사용자의 과거 달성 여부가 뒤집힌다(코드리뷰 반영).
+    const backlogGoalSeconds = last.goalSeconds ?? goalSeconds;
+    if (backlogGoalSeconds > 0 && last.minutes > 0) {
+      const achieved = last.minutes <= backlogGoalSeconds / 60;
       // 실패 시 상태를 보존한 채 중단(throw) — 다음 포그라운드에서 재시도.
       await saveScreenTime({
         actualScreenTimeMinutes: last.minutes,
-        screenTimeGoalAchieved: true,
+        screenTimeGoalAchieved: achieved,
         reportedAt: localNoonInstant(last.date),
         isFinal: true, // 밀린 과거분 확정 — 최종 보고
+      });
+      logScreentimeGoalEvaluated({
+        goal_met: achieved,
+        actual_seconds: last.minutes * 60,
+        target_seconds: backlogGoalSeconds,
+        window_date: last.date,
+        is_final: true,
       });
     }
     await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState);
@@ -587,11 +658,6 @@ function epochSecAt(dateStr: string, secondsOfDay: number): number {
   return Date.parse(`${dateStr}T00:00:00+09:00`) / 1000 + secondsOfDay;
 }
 
-// 'YYYY-MM-DD' → KST 기준 다음 날. epochSecAt과 같은 축이어야 자정 걸침 창의 경계가 이어진다.
-function nextDateStr(dateStr: string): string {
-  return kstDateStr(new Date(Date.parse(`${dateStr}T00:00:00+09:00`) + 86_400_000));
-}
-
 // 창 보고 상태 — 최종 보고 1회 보장(finals)과 중간 보고 무변화 스킵(last)에 쓴다.
 // 디바이스 전역 키라 계정을 함께 기록한다(syncState와 같은 이유).
 interface WindowReportState {
@@ -630,10 +696,14 @@ async function writeWindowReportState(
 // 구 바이너리 미지원 계측(세션당 1회) 가드 — JS 런타임 생존 동안 1회만 발행한다.
 let windowUnsupportedLogged = false;
 
-// 창 사용분 동기화 본체 — syncScreenTimeUsage 끝에서 호출된다(포그라운드/일일 sync 훅 공유).
-// 내가 참여한 그룹들의 SCREEN_TIME×TIME_WINDOW 활성 챌린지를 경량 조회해, 어제·오늘 창의
-// 사용분을 타임라인 버킷 차로 계산해 PUT window-usage로 올린다. 창 진행 중 중간 보고 허용,
-// 창 종료 후 최종 1회(마지막 값 승리·upsert 멱등이라 실패는 다음 sync 재시도). 실패는 무시.
+// 창 사용분 동기화 본체 — syncScreenTimeUsage 끝에서 호출된다(포그라운드/일일 sync 훅 +
+// 사일런트 푸시 flush — push.ts). **보고 대상 탐색축은 내 OPEN 회차 목록**(GET /me/bet-sessions
+// ?status=OPEN)이다(GROMO-1420 · N43) — 그룹 목록 순회는 탈퇴자(목록에서 즉시 사라짐)와 종료된
+// 챌린지의 진행 중 회차를 놓쳐, 시작된 회차의 참가자가 마지막 보고를 영영 못 보낸다(미보고 =
+// 미달성 = 돈이 걸린 패배 확정). 각 회차의 창 사용분을 타임라인 버킷 차로 계산해 PUT
+// window-usage로 올린다. 창 진행 중 중간 보고 허용, 창 종료 후 최종 1회 — 회차가 OPEN인 동안
+// (정산 전 그레이스 포함)은 계속 보고할 수 있다(N12·N43). 실패는 무시(upsert 멱등, 다음 sync
+// 재시도 — 역전은 서버가 measuredAt으로 무시한다, N34).
 export async function syncWindowUsage(userId: string): Promise<void> {
   // 창 측정 타임라인은 iOS 네이티브(N1)에만 있다 — 안드로이드는 대상 아님(계측도 하지 않는다:
   // unsupported는 'iOS 구 바이너리 업데이트 유도 규모' 지표라 안드로이드가 섞이면 오염된다).
@@ -647,23 +717,45 @@ export async function syncWindowUsage(userId: string): Promise<void> {
     }
     return;
   }
+  // 권한 검사(codex 리뷰 ⑥) — 포그라운드 진입점(syncScreenTimeUsage)만 권한을 보면 **사일런트
+  // 푸시 직행 경로**(pushBackground.runSilentFlush → 이 함수)가 권한 철회 후 잔존 타임라인으로
+  // 과소 보고할 수 있다 — 스크린타임은 낮을수록 유리라 곧 허위 달성이다. 모든 호출 경로 공통
+  // 방어로 여기서 직접 확인하고, 조회 실패도 스킵한다(오보고 금지 — 다음 sync가 재시도).
+  try {
+    if ((await ScreenTimeModule.getAuthorizationStatus()) !== 'approved') return;
+  } catch {
+    return;
+  }
   // 버킷 모니터가 이 계정 소유로 등록돼 있을 때만 — 미등록(측정 대상 미선택)이면 타임라인이
   // 항상 비어 '0분 사용'과 '미측정'이 구분되지 않는다(일일 동기화의 0분 스킵과 같은 취지).
   // 미보고면 서버가 판정불가로 두는 게 맞고, 0분 오보고는 스크린타임 창 내기의 오달성이 된다.
   const owner = await AsyncStorage.getItem(STORAGE_KEYS.screentimeBucketMonitorRegistered);
   if (owner !== userId) return;
 
-  // 참여 그룹의 챌린지 경량 조회(빈도 낮음) — 실패는 무시하고 다음 sync에서 다시 본다.
-  const groups = await getMyGroups().catch(() => null);
-  if (!groups || groups.length === 0) return;
+  // ── 계정 박제(codex 리뷰 P1) ─────────────────────────────────────────────────────
+  // 여기까지의 게이트는 전부 **userId(호출 시점의 계정)** 기준인데, 정작 아래 HTTP 요청들은
+  // 인터셉터가 **전송 시점에 저장소에 있는 토큰**을 붙인다. 사일런트 푸시 flush는 백그라운드에서
+  // 수 초~수십 초 돌고, 그 사이 사용자가 앱을 열어 로그아웃하거나 다른 계정으로 갈아탈 수 있다 —
+  // 그러면 **A의 스크린타임 타임라인이 B의 OPEN 회차에 보고돼 B의 판정을 오염시킨다**(돈 경로).
+  //
+  // 그래서 시작 시점에 토큰을 확보해 신원을 대조하고(불일치면 아무것도 보내지 않는다 — 잘못된
+  // 계정에 쓰느니 안 쓰는 쪽이 항상 옳다), **검증한 그 토큰을 이 sync의 모든 요청에 직접 싣는다.**
+  // 대조만으로는 TOCTOU 창이 남지만(대조~전송 사이 교체), 토큰을 박제하면 그 창에서도 요청은
+  // 여전히 A로 나간다 — 루프가 길어도 계정이 섞이지 않는 이유가 이것이다.
+  // 토큰 조회 실패(갱신 실패 포함)도 스킵 — 다음 sync가 재시도한다(보고는 멱등).
+  const accessToken = await getFreshAccessToken().catch(() => null);
+  if (!accessToken || getUserIdFromToken(accessToken) !== userId) return;
+
+  // 내 OPEN 회차 조회(참가자 스코프 — 그룹 무관, N43) — 실패는 무시하고 다음 sync에서 다시 본다.
+  const sessions = await getMyOpenBetSessionsWithToken(accessToken).catch(() => null);
+  if (!sessions || sessions.length === 0) return;
 
   const now = new Date();
   const nowSec = Math.floor(now.getTime() / 1000);
   const measuredAt = now.toISOString();
-  // 창 보고의 date 키는 서버 판정 축과 같은 KST다(GROMO-1219) — putWindowUsage의 date·finals
-  // 마커·prune 기준까지 전부 이 축을 탄다. 일일 스크린타임 업로드(syncScreenTimeUsage)의
-  // 로컬 축과는 별개다(그쪽은 reportedAt 정오 instant가 날짜 오귀속을 막는다 — 파일 상단 주석).
-  const todayKst = todayStrKst();
+  // 창 보고의 날짜 키(sessionDate)는 서버 판정 축과 같은 KST다(GROMO-1219) — putWindowUsage의
+  // usageDate·finals 마커·prune 기준까지 전부 이 축을 탄다. 일일 스크린타임 업로드의 로컬 축과는
+  // 별개다(그쪽은 reportedAt 정오 instant가 날짜 오귀속을 막는다 — 파일 상단 주석).
   const yesterdayKst = yesterdayStrKst();
   // 네이티브 보존 하한 = 로컬 어제(cleanupOldBucketEvents가 로컬 어제 미만 키를 삭제) — 로컬
   // 축이므로 localDateStr로 직접 계산한다(세그먼트 dayKey와 같은 단일 주입점 유지, yesterdayStr
@@ -693,78 +785,89 @@ export async function syncWindowUsage(userId: string): Promise<void> {
     return events;
   };
 
-  for (const group of groups) {
-    const challenges = await getChallenges(group.groupId).catch(() => null);
-    if (!challenges) continue;
-    for (const c of challenges) {
-      if (c.status !== 'ACTIVE') continue;
-      if (c.missionCategory !== 'SCREEN_TIME' || c.missionType !== 'TIME_WINDOW') continue;
-      const startSec = timeStrToSeconds(c.windowStart);
-      const endSec = timeStrToSeconds(c.windowEnd);
-      if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) continue;
-      const crossing = endSec <= startSec; // 자정 걸침 창 — D 시작 ~ D+1 종료(계약 설계 보정)
-
-      // 어제 창(놓친 최종 보고 — 타임라인 2일 보존 안이라 복구 가능) → 오늘 창 순서로 처리.
-      // 그제 이전 창은 타임라인이 지워져 복구 불가 — 미보고=미달성 수용(계약 명시 한계).
-      for (const kstDate of [yesterdayKst, todayKst]) {
-        // ── KST 축: 창 경계 epoch·보고 date·finals 마커 전부 서버 판정 축(GROMO-1219 유지).
-        const windowStartSec = epochSecAt(kstDate, startSec);
-        const windowEndSec = crossing
-          ? epochSecAt(nextDateStr(kstDate), endSec)
-          : epochSecAt(kstDate, endSec);
-        if (nowSec < windowStartSec) continue; // 창 시작 전 — 보고할 것 없음
-        const isFinal = nowSec >= windowEndSec;
-        const finalKey = `${c.id}:${kstDate}`;
-        if (isFinal && state.finals.includes(finalKey)) continue; // 최종 보고 완료 — 1회만
-
-        // ── 로컬 축(조회 전용): KST 창 [S, E']를 로컬-일 세그먼트로 쪼개 각 로컬 dayKey의
-        // 타임라인에서 구간분을 합산한다(GROMO-1242 — 파일 상단 주석의 축 분리).
-        const measureEndSec = Math.min(nowSec, windowEndSec);
-        const segments = localDaySegments(windowStartSec, measureEndSec);
-
-        // 보존 게이트 — 필요한 로컬 dayKey가 하나라도 보존 하한(로컬 어제) 미만이면 그
-        // (챌린지, 날짜) 전체를 건너뛴다. 지워진 키는 빈 배열로 돌아와 0분으로 잡히므로,
-        // 부분합을 보고하면 과소 보고(=SCREEN_TIME 창 내기 허위 달성)가 재생산된다.
-        // 전체 미보고는 '미보고=미달성 수용' 정책(위 주석·계약 명시 한계)과 정합이다.
-        if (segments.some((seg) => seg.dayKey < retentionFloorDayKey)) continue;
-
-        // 어느 세그먼트든 조회 실패(null)면 그 (챌린지, 날짜)를 통째로 건너뛴다 — 부분합 보고
-        // 금지(보존 게이트와 같은 이유). 다음 sync가 재시도한다.
-        const segmentsWithEvents: { events: UsageBucketEvent[]; fromSec: number; toSec: number }[] =
-          [];
-        let readFailed = false;
-        for (const seg of segments) {
-          const events = await getEvents(seg.dayKey);
-          if (events == null) {
-            readFailed = true;
-            break;
-          }
-          segmentsWithEvents.push({ events, fromSec: seg.fromSec, toSec: seg.toSec });
-        }
-        if (readFailed) continue;
-
-        const used = computeWindowUsedMinutes({ segments: segmentsWithEvents });
-        const usedMinutes = Math.min(1440, Math.max(0, used)); // 서버 검증 범위(0~1440) 클램프
-        // 중간 보고는 값이 그대로면 스킵(15분 눈금이라 대부분 그대로다). 최종 보고는 값이 같아도
-        // 1회 보낸다 — 서버의 '최종까지 보고된 창'과 '중간에 멈춘 창'이 같게 수렴하도록.
-        if (
-          !isFinal &&
-          state.last[c.id]?.date === kstDate &&
-          state.last[c.id]?.minutes === usedMinutes
-        ) {
-          continue;
-        }
-        try {
-          await putWindowUsage(group.groupId, c.id, { date: kstDate, usedMinutes, measuredAt });
-        } catch {
-          continue; // 실패 무시 — upsert 멱등, 다음 sync가 최신값으로 재시도
-        }
-        logScreentimeWindowReported({ minutes: usedMinutes, is_final: isFinal });
-        if (isFinal) state.finals.push(finalKey);
-        else state.last[c.id] = { date: kstDate, minutes: usedMinutes };
-        stateDirty = true;
-      }
+  // 회차 하나 = 보고 대상 하나 — 날짜를 역산하지 않는다(sessionDate가 곧 보고 date다).
+  // 그제 이전 회차가 아직 OPEN이어도(정산 지연) 타임라인이 지워졌으면 보존 게이트가 걸러
+  // 미보고=미달성 수용(계약 명시 한계)으로 남는다.
+  for (const session of sessions) {
+    if (session.missionCategory !== 'SCREEN_TIME' || session.missionType !== 'TIME_WINDOW') {
+      continue;
     }
+    const startSec = timeStrToSeconds(session.windowStart);
+    const endSec = timeStrToSeconds(session.windowEnd);
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) continue;
+    // 자정 걸침 창은 v2에서 금지다(N25 — 생성 검증 '시작 < 종료', 같은 날 최대 23:59).
+    // 그 분기를 만들지 않는 것이 계약이고, 어긋난 값은 방어적으로 스킵한다(오보고 금지).
+    if (endSec <= startSec) continue;
+
+    // ── KST 축: 창 경계 epoch·보고 usageDate·finals 마커 전부 서버 판정 축(GROMO-1219 유지).
+    const kstDate = session.sessionDate;
+    const windowStartSec = epochSecAt(kstDate, startSec);
+    const windowEndSec = epochSecAt(kstDate, endSec);
+    // 보고 창은 starts_at부터다(N43·LLD §2.1) — join-next·join-week가 만든 미래 예약 회차도
+    // OPEN이라, 시작 전에 보내면 아직 열리지도 않은 창에 0분이 선기록된다(서버도 무시하지만
+    // 클라가 애초에 보내지 않는다).
+    if (nowSec < windowStartSec) continue;
+    // 종료 판정은 closes_at이 아니라 창 종료 epoch — 회차가 OPEN인 동안(정산 전 그레이스 포함)
+    // 최종 보고를 받는 것이 서버 계약이라, 목록에 있는 한 마감 걱정 없이 보낸다(N43).
+    const isFinal = nowSec >= windowEndSec;
+    const finalKey = `${session.challengeId}:${kstDate}`;
+    if (isFinal && state.finals.includes(finalKey)) continue; // 최종 보고 완료 — 1회만
+
+    // ── 로컬 축(조회 전용): KST 창 [S, E']를 로컬-일 세그먼트로 쪼개 각 로컬 dayKey의
+    // 타임라인에서 구간분을 합산한다(GROMO-1242 — 파일 상단 주석의 축 분리).
+    const measureEndSec = Math.min(nowSec, windowEndSec);
+    const segments = localDaySegments(windowStartSec, measureEndSec);
+
+    // 보존 게이트 — 필요한 로컬 dayKey가 하나라도 보존 하한(로컬 어제) 미만이면 그 회차를
+    // 통째로 건너뛴다. 지워진 키는 빈 배열로 돌아와 0분으로 잡히므로, 부분합을 보고하면
+    // 과소 보고(=SCREEN_TIME 창 내기 허위 달성)가 재생산된다.
+    // 전체 미보고는 '미보고=미달성 수용' 정책(위 주석·계약 명시 한계)과 정합이다.
+    if (segments.some((seg) => seg.dayKey < retentionFloorDayKey)) continue;
+
+    // 어느 세그먼트든 조회 실패(null)면 그 회차를 통째로 건너뛴다 — 부분합 보고 금지(보존
+    // 게이트와 같은 이유). 다음 sync가 재시도한다.
+    const segmentsWithEvents: { events: UsageBucketEvent[]; fromSec: number; toSec: number }[] = [];
+    let readFailed = false;
+    for (const seg of segments) {
+      const events = await getEvents(seg.dayKey);
+      if (events == null) {
+        readFailed = true;
+        break;
+      }
+      segmentsWithEvents.push({ events, fromSec: seg.fromSec, toSec: seg.toSec });
+    }
+    if (readFailed) continue;
+
+    const used = computeWindowUsedMinutes({ segments: segmentsWithEvents });
+    const usedMinutes = Math.min(1440, Math.max(0, used)); // 서버 검증 범위(0~1440) 클램프
+    // 중간 보고는 값이 그대로면 스킵(15분 눈금이라 대부분 그대로다). 최종 보고는 값이 같아도
+    // 1회 보낸다 — 서버의 '최종까지 보고된 창'과 '중간에 멈춘 창'이 같게 수렴하도록.
+    if (
+      !isFinal &&
+      state.last[session.challengeId]?.date === kstDate &&
+      state.last[session.challengeId]?.minutes === usedMinutes
+    ) {
+      continue;
+    }
+    try {
+      // measuredAt 동봉(N34) — 서버가 역전 보고(사일런트 푸시 sync와 포그라운드 sync의 경합,
+      // 타임아웃 지연 도착)를 measured_at 비교로 조용히 무시한다. 돈 경로라 '마지막 도착이
+      // 이긴다'로 둘 수 없다.
+      // 박제한 토큰을 실어 보낸다(위 '계정 박제' 주석) — 루프가 길어져 도중에 계정이 바뀌어도
+      // 이 보고는 측정 주체인 그 계정으로만 나간다.
+      await putWindowUsage(
+        session.groupId,
+        session.challengeId,
+        { usageDate: kstDate, progressMinutes: usedMinutes, measuredAt },
+        accessToken,
+      );
+    } catch {
+      continue; // 실패 무시 — upsert 멱등, 다음 sync가 최신값으로 재시도
+    }
+    logScreentimeWindowReported({ minutes: usedMinutes, is_final: isFinal });
+    if (isFinal) state.finals.push(finalKey);
+    else state.last[session.challengeId] = { date: kstDate, minutes: usedMinutes };
+    stateDirty = true;
   }
   if (stateDirty) await writeWindowReportState(state, yesterdayKst);
 }

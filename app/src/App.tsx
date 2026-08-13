@@ -1,11 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { Text, TextInput, AppState } from 'react-native';
+import { AppState, Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { Settings as FacebookSettings } from 'react-native-fbsdk-next';
-import { HotUpdater } from '@hot-updater/react-native';
-import { setLogoutHandler, setReloginHandler, getUserIdFromToken } from '@/services/api';
+// react-native-fbsdk-next · @hot-updater/react-native 는 정적 import 하지 않는다 — 둘 다
+// 네이티브 전용이라 웹 번들에 실리면 루트 렌더 전에 멈춘다. 각각 아래 Platform 가드 안에서
+// require 로 늦춰 로드한다(Facebook SDK 초기화 / OTA 게이트).
+import {
+  getAuthSessionGeneration,
+  getUserIdFromToken,
+  runAuthSessionTransition,
+  setLogoutHandler,
+  setReloginHandler,
+} from '@/services/api';
 import { setAccountSwitchHandler, logout } from '@/services/auth';
 import { syncAdTracking, logCompleteRegistration } from '@/services/tracking';
 import { todayStr } from '@/utils/localDate';
@@ -37,11 +44,14 @@ import { EquipmentProvider, transferEquipment } from '@/store/EquipmentContext';
 import { CharacterProvider, transferCharacter } from '@/store/CharacterContext';
 import { FocusProvider } from '@/store/FocusContext';
 import { SubjectProvider } from '@/store/SubjectContext';
+import { ToastProvider } from '@/store/ToastContext';
 import { RootNavigator } from '@/navigation/RootNavigator';
+import { clearPendingGroupEntry } from '@/navigation/groupEntrySource';
+import { clearPendingInvite } from '@/navigation/navigationRef';
 import { RageTapDetector } from '@/components/RageTapDetector';
 import { DeepLinkGate } from '@/components/DeepLinkGate';
 import { OrphanFocusSettler } from '@/screens/focus/OrphanFocusSettler';
-import { abortTagEdits } from '@/screens/focus/tagSync';
+import { beginTagEditTransition } from '@/screens/focus/tagSync';
 import { abortFocusRestore } from '@/screens/focus/focusRestore';
 import { PendingFocusUploader } from '@/screens/focus/PendingFocusUploader';
 import { PushGate } from '@/components/PushGate';
@@ -54,8 +64,12 @@ import OnboardingFlow, {
   type V2OnboardingData,
 } from '@/screens/onboarding';
 
-// Facebook SDK 초기화 — 앱 시작 시 1회.
-FacebookSettings.initializeSDK();
+// Facebook SDK 초기화 — 네이티브 앱 시작 시 1회. 웹에서는 소셜 로그인을 제공하지 않는다.
+if (Platform.OS !== 'web') {
+  const { Settings: FacebookSettings } =
+    require('react-native-fbsdk-next') as typeof import('react-native-fbsdk-next');
+  FacebookSettings.initializeSDK();
+}
 
 // 준비 시험 백필(GROMO-758) — 서버 occupation(757)을 로컬 focusCategory로 복원한다.
 // 준비 시험 표시(useFocusCategory)가 로컬 전용이라 재로그인·새 기기에선 '미설정'이 되는 문제 대응.
@@ -70,17 +84,11 @@ async function backfillFocusCategory(profile: { occupation?: unknown }): Promise
   } catch {}
 }
 
-// 앱 전체 글씨를 디자인 크기로 고정(기기 '텍스트 크기' 설정 무시) → 화면 간 크기 일관.
-// 홈은 네이티브 리포트 뷰와 맞추려 이미 고정이었는데, 나머지 화면도 같은 기준으로 통일한다.
-type FontScalable = { defaultProps?: { allowFontScaling?: boolean } };
-(Text as unknown as FontScalable).defaultProps = {
-  ...(Text as unknown as FontScalable).defaultProps,
-  allowFontScaling: false,
-};
-(TextInput as unknown as FontScalable).defaultProps = {
-  ...(TextInput as unknown as FontScalable).defaultProps,
-  allowFontScaling: false,
-};
+// 전역 글자 크기 고정은 GROMO-1485 에서 제거됐다(기기 '텍스트 크기' 설정 존중).
+// 웹 루트 폭 제한만 남긴다 — 브라우저 전체 폭으로 늘어나면 모바일 레이아웃이 무너진다.
+const styles = StyleSheet.create({
+  webRoot: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
+});
 
 // v2 새 앱의 뿌리 — 데이터/로직 층(@/store, @/services, @/utils)은 기존 것을 그대로 공유한다.
 // 게이트: 로딩 → (미온보딩 신규유저)온보딩 → 홈 / (온보딩 완료·로그아웃)로그인 → 홈.
@@ -142,6 +150,9 @@ function App() {
   >(null);
   // 온보딩 누끼 체험에서 만든 캐릭터 경로 — CharacterProvider가 하이드레이션 시 시드한다(장착은 안 함).
   const [onboardingCutoutUri, setOnboardingCutoutUri] = useState<string | null>(null);
+  // 메인 트리가 처음 열리는 원인을 구분한다. 저장 세션 복원은 콜드스타트, 로그인·온보딩
+  // 완료로 뒤늦게 열리는 경우는 auth_complete로 기록한다.
+  const mainEntryRef = useRef<'cold_start' | 'auth_complete'>('cold_start');
   // applyStoredSession이 [] effect에서 1회 등록돼 user 클로저가 낡는다 — 현재 userId는 ref로 참조.
   const currentUserIdRef = useRef<string | null>(null);
   currentUserIdRef.current = user?.userId ?? null;
@@ -173,6 +184,7 @@ function App() {
         const merged = { ...data, ...profile };
         await AsyncStorage.setItem(STORAGE_KEYS.user, JSON.stringify(merged));
         await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+        mainEntryRef.current = 'cold_start';
         setUser({ ...merged, userId });
         // GROMO-663: 기존 유저 백필 — 프로필에 countryCode 없으면 기기 로케일로 1회 PATCH.
         // 앱 진입을 막지 않도록 fire-and-forget(실패 시 다음 실행에 재시도).
@@ -181,6 +193,7 @@ function App() {
           if (countryCode) updateProfile({ countryCode }).catch(() => {});
         }
       } catch {
+        mainEntryRef.current = 'cold_start';
         setUser({ ...data, userId });
       }
       setLoading(false);
@@ -214,63 +227,92 @@ function App() {
     return () => sub.remove();
   }, []);
 
-  async function handleLogout() {
-    // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
-    // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
-    // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
-    // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
-    try {
-      const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
-      if (accessToken) await deleteDeviceToken(accessToken);
-    } catch {}
-    try {
-      const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
-      if (refreshToken) await logout(refreshToken);
-    } catch {}
-    // 대기 중인 태그 편집 동기화 폐기 — 이전 계정의 편집이 다음 계정 토큰으로 실행되지 않게(리뷰 반영)
-    abortTagEdits();
-    // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
-    // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
-    abortFocusRestore();
-    // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
-    // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
-    resetServerZone();
-    // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
-    await AsyncStorage.multiRemove([
-      STORAGE_KEYS.accessToken,
-      STORAGE_KEYS.refreshToken,
-      STORAGE_KEYS.user,
-      STORAGE_KEYS.onboardingComplete,
-      STORAGE_KEYS.focusCategory,
-      // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
-      STORAGE_KEYS.goalPending,
-      STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
-      STORAGE_KEYS.notificationSettings,
-      STORAGE_KEYS.statVisibility,
-      STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
-      STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
-      STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
-      // equipment·ownedItems는 여기서 지우지 않는다 — 지우는 방식은 아직 마운트된 이전
-      // Provider가 지운 키에 도로 써넣는 레이스가 있고, 보유 아이템은 아이템 API 부재로
-      // 로컬이 유일한 구매 기록이다. 각 Context가 계정별 맵으로 분리 보관해 누출을
-      // 막는다(GROMO-936 코덱스 리뷰).
-      // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
-      STORAGE_KEYS.focusGoalCelebratedDate,
-      STORAGE_KEYS.focusGoalCelebratePending,
-      STORAGE_KEYS.screentimeLastRewardedDate,
-      STORAGE_KEYS.screentimeCelebratePending,
-    ]);
-    // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
-    // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
-    await clearInbox();
-    // 안드로이드 홈 위젯 스냅샷 초기화 — 위젯이 읽는 네이티브 SharedPreferences는 위
-    // multiRemove로 안 지워져 이전 계정 과목·공부시간이 런처에 남는다(GROMO-1006 코드리뷰 반영).
-    StudyWidgetModule.updateTopSubjects([]).catch(() => {});
-    setOnboardingFocusGoalSeconds(null);
-    setOnboardingScreenTimeGoalSeconds(null);
-    setOnboardingCutoutUri(null);
-    setOnboarded(false);
-    setUser(null);
+  async function handleLogout(expectedSessionGeneration?: number) {
+    // 비동기 요청에서 시작한 로그아웃은 그 요청의 시작 세대를 전달한다. 대기 중 같은 UUID의
+    // 게스트→소셜 승격이 완료돼도 userId만으로는 구분할 수 없으므로 세대로 소유권을 판별한다.
+    const logoutSessionGeneration = expectedSessionGeneration ?? getAuthSessionGeneration();
+    await runAuthSessionTransition(async () => {
+      // 기다리는 동안 새 로그인 저장이 먼저 끝났다면 이 로그아웃은 이전 세션 작업이다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 외부 그룹 진입 source는 유효한 명시적 로그아웃 시작·완료 경계에서 폐기한다. 세대 검증보다
+      // 먼저 지우면 오래된 요청이 새 세션에서 적재한 invite/group entry까지 없앨 수 있다.
+      clearPendingGroupEntry();
+      clearPendingInvite();
+      // 서버 디바이스 토큰 등록 해제 — 이전 계정 푸시가 이 기기로 계속 발송되지 않게(PR 224 리뷰).
+      // 아래 multiRemove로 토큰이 지워지기 전, 인증이 살아있을 때 호출해야 한다.
+      // 토큰을 명시해 bare 요청으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401 인터셉터가
+      // 이 함수(로그아웃)를 재발동시킬 수 있다(PR 226 리뷰).
+      try {
+        const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken);
+        if (accessToken) await deleteDeviceToken(accessToken);
+      } catch {}
+      // 디바이스 토큰 해제 대기 중 새 인증이 시작됐다면 새 refresh token을 읽어 서버에서
+      // 무효화하면 안 된다. 두 번째 서버 요청 전에 이전 로그아웃의 소유권을 재검증한다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      try {
+        const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.refreshToken);
+        // 저장소 읽기도 비동기다. 그 사이 새 인증이 토큰을 교체했다면 방금 읽은 refresh token은
+        // 새 세션 소유일 수 있으므로 서버 logout에 넘기기 직전에 다시 확인한다.
+        if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+        if (refreshToken) await logout(refreshToken);
+      } catch {}
+      // 위 네트워크 대기 중 새 로그인/게스트 승격이 시작됐다면 이 로그아웃은 이전 세션의
+      // 작업이다. 새 세션의 토큰·캐시·React 상태를 지우지 않고 여기서 끝낸다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 실행 중인 이전 계정 태그 요청까지 끝낸 뒤 대기분을 폐기한다. 토큰 삭제 뒤에 기존 요청의
+      // 후속 API가 새/빈 세션으로 나가는 경합을 막는다.
+      const tagEditTransition = await beginTagEditTransition();
+      tagEditTransition.commit();
+      // 공유 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — 재로그인 프로바이더가 이전 계정
+      // 스냅샷을 재사용하지 않게. 아래 multiRemove보다 먼저여야 함(코덱스 리뷰).
+      abortFocusRestore();
+      // 서버 날짜 버킷 존도 폴백으로 되돌린다(GROMO-1252 5차 ②) — 다음 계정의 프로필 조회가 실패하면
+      // setServerZone이 직전 값을 유지해 이전 계정 존으로 업로드 키가 나간다.
+      resetServerZone();
+      // 온보딩 완료 플래그까지 지워 로그아웃 시 온보딩 첫 페이지로 돌아가게 한다.
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.accessToken,
+        STORAGE_KEYS.refreshToken,
+        STORAGE_KEYS.user,
+        STORAGE_KEYS.onboardingComplete,
+        STORAGE_KEYS.focusCategory,
+        // 계정 전환 시 이전 유저 값이 새 유저에 새지 않도록 디바이스 전역 캐시도 정리(리뷰 반영)
+        STORAGE_KEYS.goalPending,
+        STORAGE_KEYS.focusPendingUploads, // 이전 계정 세션이 새 계정으로 업로드되지 않게
+        STORAGE_KEYS.notificationSettings,
+        STORAGE_KEYS.statVisibility,
+        STORAGE_KEYS.focusFirstDone, // 다음 계정이 '첫 집중 완료' 변형을 정상적으로 보게
+        STORAGE_KEYS.subjects, // 이전 계정 과목 목록·과목별 오늘 누적이 새 계정에 노출되지 않게(GROMO-677)
+        STORAGE_KEYS.focus, // 이전 계정 '오늘 집중' 총합이 새 계정 홈에 남지 않게(GROMO-677)
+        // equipment·ownedItems는 여기서 지우지 않는다 — 지우는 방식은 아직 마운트된 이전
+        // Provider가 지운 키에 도로 써넣는 레이스가 있고, 보유 아이템은 아이템 API 부재로
+        // 로컬이 유일한 구매 기록이다. 각 Context가 계정별 맵으로 분리 보관해 누출을
+        // 막는다(GROMO-936 코덱스 리뷰).
+        // 이전 계정의 축하 기록이 새 계정 축하를 막거나, 예약된 모달이 새 계정에 뜨지 않게(PR 225 리뷰)
+        STORAGE_KEYS.focusGoalCelebratedDate,
+        STORAGE_KEYS.focusGoalCelebratePending,
+        STORAGE_KEYS.screentimeLastRewardedDate,
+        STORAGE_KEYS.screentimeCelebratePending,
+      ]);
+      // multiRemove가 네이티브 큐에서 실행되는 동안 새 인증 시도가 시작될 수 있다. 인증 저장은
+      // 이 삭제 뒤에 큐잉되므로 토큰은 보존되지만, 아래 인메모리 초기화까지 실행하면 방금 로그인한
+      // 사용자를 다시 로그인 화면으로 보내므로 세대를 한 번 더 확인한다.
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 알림 보관함 정리 — multiRemove가 아니라 보관함 쓰기 큐를 태워, 직전에 수신된 푸시의
+      // 저장이 옛 목록을 도로 써넣는 레이스를 막는다(PR 224 리뷰).
+      await clearInbox();
+      if (getAuthSessionGeneration() !== logoutSessionGeneration) return;
+      // 안드로이드 홈 위젯 스냅샷 초기화 — 위젯이 읽는 네이티브 SharedPreferences는 위
+      // multiRemove로 안 지워져 이전 계정 과목·공부시간이 런처에 남는다(GROMO-1006 코드리뷰 반영).
+      StudyWidgetModule.updateTopSubjects([]).catch(() => {});
+      setOnboardingFocusGoalSeconds(null);
+      setOnboardingScreenTimeGoalSeconds(null);
+      setOnboardingCutoutUri(null);
+      setOnboarded(false);
+      setUser(null);
+      clearPendingGroupEntry();
+      clearPendingInvite();
+    });
   }
 
   // 게스트가 설정 화면에서 소셜 로그인하면 auth.ts가 토큰/유저를 이미 저장한다.
@@ -333,8 +375,10 @@ function App() {
       setServerZone(profile.timeZone); // 서버 날짜 버킷 존(GROMO-1252)
       const merged = { ...data, ...profile };
       await backfillFocusCategory(merged); // 준비 시험 복원(GROMO-758)
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...merged, userId });
     } catch {
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...data, userId });
     }
   }
@@ -398,8 +442,10 @@ function App() {
       // 기존 계정 — 로그인 프로필(닉네임 등)을 그대로 사용, 온보딩 값으로 덮어쓰지 않음.
       // 로그아웃/새 기기에선 온보딩 중간 로그인이 기존 계정의 주 진입로라 여기서도 백필(GROMO-758 리뷰).
       await backfillFocusCategory(login); // postAuthSave가 /users/me를 병합해 occupation이 실려 옴
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...login, userId });
     } else {
+      mainEntryRef.current = 'auth_complete';
       setUser({ ...login, userId, nickname: data.nickname.trim() });
     }
     return 'ok';
@@ -413,15 +459,15 @@ function App() {
     // 태그 편집 큐 폐기 + 서버 디바이스 토큰 등록 해제(이전 계정 푸시가 이 기기로 오지 않게, PR 224 리뷰).
     // 해제 요청은 넘겨받은 이전 계정 토큰으로 보낸다 — 공유 api 경유 시 만료 토큰이면 401
     // 인터셉터가 전역 로그아웃을 발동시켜 방금 로그인한 계정이 풀릴 수 있다(PR 226 리뷰).
-    setAccountSwitchHandler(async (prevAccessToken) => {
-      abortTagEdits();
-      // 이전 계정 복원 스냅샷 폐기(캐시+진행 중 조회 무효화) — applyStoredSession의 스토리지
-      // 클리어·새 계정 프로바이더 리마운트보다 먼저 실행되는 지점(코덱스 리뷰).
-      abortFocusRestore();
-      // 이전 계정 서버 존 폐기(GROMO-1252 5차 ②) — 새 계정 프로필 조회가 실패해도 폴백(Asia/Seoul)에서
-      // 시작하도록. 성공하면 곧바로 postAuthSave의 setServerZone이 새 계정 존으로 덮어쓴다.
-      resetServerZone();
-      await deleteDeviceToken(prevAccessToken).catch(() => {});
+    setAccountSwitchHandler({
+      beforeTokenWrite: beginTagEditTransition,
+      afterCommit: async (prevAccessToken) => {
+        // 새 세션의 로컬 snapshot이 모두 저장된 뒤에만 되돌릴 수 없는 서버 정리를 한다.
+        // 진행 중 복원도 여기서 무효화해야 저장 rollback 때 이전 계정 작업을 잃지 않는다.
+        abortFocusRestore();
+        resetServerZone();
+        await deleteDeviceToken(prevAccessToken).catch(() => {});
+      },
     });
   }, []);
 
@@ -439,6 +485,7 @@ function App() {
           const userId = getUserIdFromToken(u.accessToken);
           // 기존 계정 로그인이면 postAuthSave가 /users/me를 병합해 occupation이 실려 온다
           await backfillFocusCategory(u); // 준비 시험 복원(GROMO-758)
+          mainEntryRef.current = 'auth_complete';
           setUser({ ...u, userId });
         }}
       />
@@ -452,7 +499,10 @@ function App() {
         key={user?.userId ?? 'guest'}
         initialNickname={user?.nickname}
         initialUserId={user?.userId}
-        initialIsGuest={user?.isGuest}
+        // 웹 로컬 디버그(dev)는 게스트 토큰으로 인증하지만 전체 UI 확인을 위해 기능 게이트를 연다.
+        // 배포 웹은 승격 트리거가 없는 팀 dev 서버라 서버 값을 그대로 따른다 — 안 그러면 그룹·친구를
+        // 열어 준 뒤 GUEST_FORBIDDEN 을 받는다(코드리뷰). auth.web.ts 의 isGuest 규칙과 같은 기준.
+        initialIsGuest={Platform.OS === 'web' && __DEV__ ? false : user?.isGuest}
         initialGoalSeconds={
           onboardingFocusGoalSeconds ??
           (user?.dailyFocusTimeGoalMinutes ? user.dailyFocusTimeGoalMinutes * 60 : null)
@@ -478,7 +528,7 @@ function App() {
                   <PendingGoalApplier />
                   {/* 스크린타임 사용량 서버 동기화(어제 마감 + 오늘 중간값, 앱 시작·포그라운드 복귀) */}
                   <ScreenTimeSyncer />
-                  <RootNavigator />
+                  <RootNavigator initialAppEntry={mainEntryRef.current} />
                 </SubjectProvider>
               </FocusProvider>
             </CharacterProvider>
@@ -493,10 +543,21 @@ function App() {
   // RageTapDetector — 전역 연타(좌절 신호) 계측. UI 없이 터치 버블링만 관찰(GROMO-782).
   // DeepLinkGate — 딥링크(그룹 초대) 수신. **인증 분기 밖**에 둔다: 로그인·온보딩 화면에서
   // 누른 초대 링크도 버퍼에 담겨야 로그인 후 같은 그룹 프리뷰로 이어진다(§6-6).
+  // ToastProvider — **인증 분기 밖**, SafeAreaProvider 바로 안에 둔다(GROMO-1381 / 정책 D8).
+  //  · content 안(로그인 후 트리)에 넣으면 로그인·온보딩 화면에서 토스트를 못 쓴다.
+  //  · NavigationContainer는 여기가 아니라 RootNavigator 안이다. 그 밖에 있어야 화면 전환
+  //    (GroupOwnerTransferScreen의 goBack 직후 통보 등)을 넘어 배너가 살아남는다.
+  //  · children 뒤에 배너를 그리므로 탭바·FAB·비모달 시트 위에 온다.
+  //    (RN Modal은 별도 윈도라 예외 — Toast.tsx 헤더 주석 참고)
   return (
-    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <DeepLinkGate />
-      <RageTapDetector>{content}</RageTapDetector>
+    <SafeAreaProvider
+      initialMetrics={initialWindowMetrics}
+      style={Platform.OS === 'web' ? styles.webRoot : undefined}
+    >
+      <ToastProvider>
+        <DeepLinkGate />
+        <RageTapDetector>{content}</RageTapDetector>
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }
@@ -516,13 +577,19 @@ function OtaUpdateGateScreen({ progress }: { progress: number }) {
 // hot-updater OTA 게이트(GROMO-875) — 릴리즈 빌드 시작 시 새 JS 번들을 확인하고,
 // 있으면 내려받는 동안 준비 화면으로 진입을 막았다가 적용한다. 없으면 즉시 통과.
 // baseURL은 공개 엔드포인트(비밀값 아님). 채널은 네이티브 설정(HOT_UPDATER_CHANNEL=production)을 따른다.
-const OtaWrappedApp = HotUpdater.wrap({
-  baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
-  updateStrategy: 'appVersion',
-  fallbackComponent: OtaUpdateGateScreen,
-  // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
-})<Record<string, unknown>>(App);
-
 // E2E(Maestro) 빌드는 OTA 게이트를 우회한다(GROMO-947) — 대본 실행 중 스테일 OTA 번들이
 // 내려와 testID 없는 구 JS로 교체되는 오염 방지. EXPO_PUBLIC_E2E는 scripts/e2e.sh가 빌드 시 주입.
-export default process.env.EXPO_PUBLIC_E2E === '1' ? App : OtaWrappedApp;
+// 웹 배포는 호스팅에서 JS 번들을 교체하므로 네이티브 OTA 게이트를 로드하지 않는다.
+let ExportedApp = App;
+if (process.env.EXPO_PUBLIC_E2E !== '1' && Platform.OS !== 'web') {
+  const { HotUpdater } =
+    require('@hot-updater/react-native') as typeof import('@hot-updater/react-native');
+  ExportedApp = HotUpdater.wrap({
+    baseURL: 'https://ohwgkgbhzvnbtxfewosa.supabase.co/functions/v1/update-server',
+    updateStrategy: 'appVersion',
+    fallbackComponent: OtaUpdateGateScreen,
+    // 제네릭 명시 — index.ts의 Sentry.wrap이 요구하는 props 타입(Record<string, unknown>)에 맞춘다.
+  })<Record<string, unknown>>(App) as typeof App;
+}
+
+export default ExportedApp;

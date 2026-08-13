@@ -1,0 +1,638 @@
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { GroupCardBack, resolveVisibleAvatarCount } from './GroupCardBack';
+import type { GroupSummaryResponse } from '@/types/dto/group';
+import { GROUP_CARD_USER_TEXT } from './groupCardLayout';
+
+const group: GroupSummaryResponse = {
+  groupId: 'g1',
+  name: '아침 집중방',
+  code: null,
+  currentMembers: 2,
+  maxMembers: 5,
+  role: 'MEMBER',
+  status: 'ACTIVE',
+};
+
+const baseProps = {
+  group,
+  onFlipFront: jest.fn(),
+  onStartFocus: jest.fn(),
+  onOpenRoom: jest.fn(),
+  onOpenSettings: jest.fn(),
+  onInvite: jest.fn(),
+  onRetry: jest.fn(),
+};
+
+beforeEach(() => jest.clearAllMocks());
+
+function readyDetail(memberCount = 3, maxMembers = 7) {
+  return {
+    id: 'g1',
+    name: group.name,
+    description: null,
+    missionCategory: null,
+    missionType: null,
+    durationMinutes: null,
+    windowStart: null,
+    windowEnd: null,
+    maxMembers,
+    status: 'ACTIVE' as const,
+    members: Array.from({ length: memberCount }, (_, index) => ({
+      userId: `u${index + 1}`,
+      nickname: `${index + 1}번째`,
+      role: 'MEMBER' as const,
+      focusTimeMinutes: 0,
+      totalFocusMinutes: 0,
+    })),
+    code: null,
+    codeExpiresAt: null,
+    noticeGrantedUserIds: [],
+  };
+}
+
+test('상세 조회가 준비되면 헤더와 접근성 이름도 최신 인원수를 사용한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'ready', data: readyDetail() },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('공개방 · 3/7명')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.backTitle.g1').props.accessibilityLabel).toContain(
+    '공개방, 3/7명',
+  );
+});
+
+test('멤버 요약과 초대 버튼은 각각 탐색 가능한 형제 접근성 노드다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'ready', data: readyDetail(5, 10) },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  const summary = screen.getByTestId('group.card.memberSummary');
+  expect(summary.props.accessible).toBe(true);
+  expect(within(summary).queryByTestId('group.card.invite.g1')).toBeNull();
+  expect(screen.getByTestId('group.card.invite.g1').props.accessibilityRole).toBe('button');
+});
+
+test('좁은 멤버 영역은 보이는 아바타 수를 줄이고 초대 영역을 침범하지 않는다', async () => {
+  expect(resolveVisibleAvatarCount(120)).toBe(3);
+  expect(resolveVisibleAvatarCount(123)).toBe(4);
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'ready', data: readyDetail(6, 10) },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  const frame = screen.getByTestId('group.card.memberAvatarFrame');
+  expect(frame).toHaveStyle({ overflow: 'hidden' });
+  await act(async () => {
+    fireEvent(frame, 'layout', { nativeEvent: { layout: { width: 120 } } });
+  });
+
+  await waitFor(() =>
+    expect(screen.getAllByTestId(/^group\.card\.memberAvatar\./)).toHaveLength(3),
+  );
+  expect(screen.getByTestId('group.card.memberSummary').props.accessibilityLabel).toContain(
+    '외 3명',
+  );
+});
+
+test('뒷면은 상단 색선을 두지 않고 흰 표면과 낮은 하단 그림자로 구분한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  const back = screen.getByTestId('group.card.back.g1');
+  expect(back).toHaveStyle({
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#1E2340',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  });
+  const style = StyleSheet.flatten(back.props.style);
+  expect(style.borderTopWidth).toBeUndefined();
+  expect(style.borderTopColor).toBeUndefined();
+});
+
+test('CTA 터치 영역은 44pt 이상을 유지한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.focus.g1')).toHaveStyle({ minHeight: 50 });
+  expect(screen.getByTestId('group.card.room.g1')).toHaveStyle({ minHeight: 50 });
+});
+
+test('완전한 focus 응답에서만 확인된 0명을 표시한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: {
+          status: 'ready',
+          data: {
+            id: 'g1',
+            name: group.name,
+            description: null,
+            missionCategory: null,
+            missionType: null,
+            durationMinutes: null,
+            windowStart: null,
+            windowEnd: null,
+            maxMembers: 5,
+            status: 'ACTIVE',
+            members: [
+              {
+                userId: 'u1',
+                nickname: '나',
+                role: 'MEMBER',
+                focusTimeMinutes: 0,
+                totalFocusMinutes: 0,
+              },
+            ],
+            code: null,
+            codeExpiresAt: null,
+            noticeGrantedUserIds: [],
+          },
+        },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('0명 집중 중')).toHaveStyle({ fontSize: 15, color: '#4E9B5C' });
+  expect(screen.getByText('챌린지')).toHaveStyle({ fontSize: 15, color: '#4A53B8' });
+  expect(screen.getByText('공지')).toHaveStyle({ fontSize: 15, color: '#4A53B8' });
+  expect(screen.getByText('아직 공지가 없어요')).toBeOnTheScreen();
+  expect(screen.getByText('진행 중인 챌린지가 없어요')).toBeOnTheScreen();
+});
+
+test('ready 본문은 고정 CTA 위에 멤버 행까지 들어오는 compact 높이를 유지한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.summaryScroll')).toHaveStyle({ flex: 1 });
+  expect(screen.getByTestId('group.card.memberSummary')).toHaveStyle({ minHeight: 48 });
+});
+
+test('영역 실패는 다른 CTA를 숨기지 않고 그 영역만 재시도한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'error', error: new Error('detail') },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'loading' },
+        focus: { status: 'coverage-unknown' },
+      }}
+    />,
+  );
+
+  fireEvent.press(screen.getByText(/멤버를 불러오지 못했어요/));
+  expect(baseProps.onRetry).toHaveBeenCalledWith('detail');
+  expect(screen.getByTestId('group.card.focus.g1')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.room.g1')).toBeOnTheScreen();
+  expect(screen.queryByText('0명 집중 중')).toBeNull();
+});
+
+test('오류 재시도는 44pt 터치 영역과 충분한 대비를 유지한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'error', error: new Error('detail') },
+        announcements: { status: 'error', error: new Error('announcements') },
+        challenges: { status: 'error', error: new Error('challenges') },
+        focus: { status: 'error', error: new Error('focus') },
+      }}
+    />,
+  );
+
+  for (const dependency of ['detail', 'announcements', 'challenges']) {
+    const retries = screen.getAllByTestId(`group.card.retry.${dependency}`);
+    for (const retry of retries) {
+      expect(retry).toHaveStyle({ minHeight: 46 });
+      expect(retry.props.accessibilityRole).toBe('button');
+    }
+  }
+  expect(screen.getByText(/집중 현황을 불러오지 못했어요/)).toHaveStyle({
+    color: '#B04C41',
+  });
+});
+
+test('멤버를 받아도 focus가 조회 중이면 오류 대신 로딩을 표시한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: {
+          status: 'ready',
+          data: {
+            id: 'g1',
+            name: group.name,
+            description: null,
+            missionCategory: null,
+            missionType: null,
+            durationMinutes: null,
+            windowStart: null,
+            windowEnd: null,
+            maxMembers: 5,
+            status: 'ACTIVE',
+            members: [],
+            code: null,
+            codeExpiresAt: null,
+            noticeGrantedUserIds: [],
+          },
+        },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('집중 인원 불러오는 중…')).toBeOnTheScreen();
+  expect(screen.queryByText('현재 집중 인원 확인 불가')).toBeNull();
+});
+
+test('설정은 시각 텍스트 없이 원형 아이콘과 접근성 이름을 유지한다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  const button = screen.getByLabelText('아침 집중방 그룹 옵션');
+  expect(button).toBeOnTheScreen();
+  expect(button).toHaveStyle({
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  });
+  expect(screen.getByTestId('group.card.settingsIcon.g1')).toBeOnTheScreen();
+  expect(screen.queryByText(/설정/)).toBeNull();
+});
+
+test('혼합 영문·한글 그룹명에 그룹 카드 공통 글꼴을 적용한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      group={{ ...group, name: 'Morning 아침 집중방' }}
+      snapshot={undefined}
+    />,
+  );
+
+  expect(screen.getByText('Morning 아침 집중방')).toHaveStyle(GROUP_CARD_USER_TEXT);
+});
+
+test('카드 컨테이너는 접근성 노드를 만들지 않고 제목 전환 동작만 포커스된다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  expect(screen.getByTestId('group.card.back.g1').props.accessible).not.toBe(true);
+  expect(screen.getByTestId('group.card.backTitle.g1').props.focusable).not.toBe(false);
+});
+
+test('스크롤 본문과 분리된 제목의 접근성 활성화로 앞면을 연다', async () => {
+  const onAccessibilityFlipFront = jest.fn();
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      onAccessibilityFlipFront={onAccessibilityFlipFront}
+      snapshot={undefined}
+    />,
+  );
+
+  expect(screen.queryByText('앞면으로')).toBeNull();
+
+  const titleAction = screen.getByTestId('group.card.backTitle.g1');
+  expect(titleAction.props.accessibilityState).toEqual({ expanded: true });
+  expect(titleAction.props.accessibilityHint).toBe('두 번 탭하면 카드 앞면을 봅니다');
+  expect(screen.getByText('아침 집중방').props.accessible).toBe(false);
+  await act(async () => fireEvent(titleAction, 'accessibilityTap'));
+  expect(onAccessibilityFlipFront).toHaveBeenCalledTimes(1);
+});
+
+test('별도 접근성 콜백이 없어도 접근성 이벤트 객체를 앞면 전환 인자로 전달하지 않는다', async () => {
+  await render(<GroupCardBack {...baseProps} snapshot={undefined} />);
+
+  await act(async () => {
+    fireEvent(screen.getByTestId('group.card.backTurn.g1'), 'accessibilityTap', {
+      nativeEvent: { target: 1 },
+    });
+  });
+
+  expect(baseProps.onFlipFront).toHaveBeenCalledWith();
+});
+
+test('뒷면의 실제 조작 요소는 빈 영역 뒤집기로 버블링하지 않는다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'error', error: new Error('detail') },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('아침 집중방 그룹 옵션'));
+    fireEvent.press(screen.getByText(/멤버를 불러오지 못했어요/));
+    fireEvent.press(screen.getByTestId('group.card.invite.g1'));
+    fireEvent.press(screen.getByTestId('group.card.focus.g1'));
+    fireEvent.press(screen.getByTestId('group.card.room.g1'));
+  });
+
+  expect(baseProps.onOpenSettings).toHaveBeenCalledTimes(1);
+  expect(baseProps.onRetry).toHaveBeenCalledWith('detail');
+  expect(baseProps.onInvite).toHaveBeenCalledTimes(1);
+  expect(baseProps.onStartFocus).toHaveBeenCalledTimes(1);
+  expect(baseProps.onOpenRoom).toHaveBeenCalledTimes(1);
+  expect(baseProps.onFlipFront).not.toHaveBeenCalled();
+});
+
+test('현재 사용자가 상위 5명 밖이어도 선두에 두고 나머지 서버 순서를 보존한다', async () => {
+  const members = ['첫째', '둘째', '셋째', '넷째', '다섯째', '나'].map((nickname, index) => ({
+    userId: `u${index + 1}`,
+    nickname,
+    role: 'MEMBER' as const,
+    focusTimeMinutes: 60 - index,
+    totalFocusMinutes: 60 - index,
+  }));
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      userId="u6"
+      snapshot={{
+        detail: {
+          status: 'ready',
+          data: {
+            id: 'g1',
+            name: group.name,
+            description: null,
+            missionCategory: null,
+            missionType: null,
+            durationMinutes: null,
+            windowStart: null,
+            windowEnd: null,
+            maxMembers: 10,
+            status: 'ACTIVE',
+            members,
+            code: null,
+            codeExpiresAt: null,
+            noticeGrantedUserIds: [],
+          },
+        },
+        announcements: { status: 'ready', data: [] },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'ready', data: [] },
+      }}
+    />,
+  );
+
+  expect(screen.getByTestId('group.card.memberSummary').props.accessibilityLabel).toBe(
+    '멤버 6/10명. 나, 첫째, 둘째, 셋째, 넷째 외 1명',
+  );
+  expect(screen.getByTestId('group.card.memberAvatar.u6')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.memberAvatar.u1')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.memberAvatar.u4')).toBeOnTheScreen();
+  expect(screen.queryByTestId('group.card.memberAvatar.u5')).toBeNull();
+  expect(screen.queryByText('+1')).toBeNull();
+});
+
+test('최신 공지의 제목과 본문을 원문 순서로 표시하고 본문은 두 줄로 제한한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: {
+          status: 'ready',
+          data: [
+            {
+              id: 'notice-1',
+              title: '오늘 일정',
+              content: '오늘은 오전 9시에 함께 시작합니다.',
+              createdAt: '2026-08-11T00:00:00Z',
+            },
+          ],
+        },
+        challenges: { status: 'ready', data: [] },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.queryByText('오늘 일정')).toBeNull();
+  expect(screen.getByText('오늘은 오전 9시에 함께 시작합니다.')).toBeOnTheScreen();
+  const announcement = screen.getByTestId('group.card.announcement.content');
+  expect(announcement.props.accessibilityLabel).toBe(
+    '오늘 일정. 오늘은 오전 9시에 함께 시작합니다.',
+  );
+  expect(announcement.props.numberOfLines).toBe(2);
+  expect(announcement).toHaveStyle(GROUP_CARD_USER_TEXT);
+});
+
+test('ACTIVE 활동의 서버 순서·식별자·미션·내 진행 정보를 compact row로 유지한다', async () => {
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      userId="me"
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: { status: 'loading' },
+        challenges: {
+          status: 'ready',
+          data: [
+            {
+              id: 'first',
+              status: 'ACTIVE',
+              missionType: 'DURATION',
+              missionCategory: 'FOCUS',
+              durationMinutes: 60,
+              windowStart: null,
+              windowEnd: null,
+              createdAt: '2026-08-11T00:00:00Z',
+              canParticipate: true,
+              memberProgress: [
+                { userId: 'me', nickname: '나', progressMinutes: 25, achieved: false },
+              ],
+            },
+            {
+              id: 'inactive',
+              status: 'INACTIVE',
+              missionType: 'DURATION',
+              missionCategory: 'FOCUS',
+              durationMinutes: 10,
+              windowStart: null,
+              windowEnd: null,
+              createdAt: '2026-08-10T00:00:00Z',
+              canParticipate: false,
+              memberProgress: null,
+            },
+            {
+              id: 'second',
+              status: 'ACTIVE',
+              missionType: 'TIME_WINDOW',
+              missionCategory: 'SCREEN_TIME',
+              durationMinutes: 30,
+              windowStart: '09:00:00',
+              windowEnd: '12:00:00',
+              createdAt: '2026-08-09T00:00:00Z',
+              canParticipate: true,
+              repeatDays: ['MON'],
+              memberProgress: [
+                { userId: 'me', nickname: '나', progressMinutes: 30, achieved: true },
+              ],
+            },
+            {
+              id: 'everyday',
+              status: 'ACTIVE',
+              missionType: 'TIME_WINDOW',
+              missionCategory: 'FOCUS',
+              durationMinutes: 20,
+              windowStart: '18:00:00',
+              windowEnd: '20:00:00',
+              createdAt: '2026-08-08T00:00:00Z',
+              canParticipate: true,
+              repeatDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+              memberProgress: null,
+            },
+          ],
+        },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  const rows = screen.getAllByTestId(/^group\.card\.activity\./);
+  expect(rows.map((row) => row.props.testID)).toEqual([
+    'group.card.activity.first',
+    'group.card.activity.second',
+    'group.card.activity.everyday',
+  ]);
+  expect(screen.getByText('하루 60분 집중')).toBeOnTheScreen();
+  expect(screen.getByText('25/60분')).toBeOnTheScreen();
+  expect(screen.getByText('09:00~12:00 30분 이하 스크린타임')).toBeOnTheScreen();
+  expect(screen.queryByText(/매일 09:00~12:00/)).toBeNull();
+  expect(screen.getByText('매일 18:00~20:00 20분 집중')).toBeOnTheScreen();
+  expect(screen.getByText('30/30분 · 달성')).toBeOnTheScreen();
+});
+
+test('memberProgress null은 쉬는 날과 진행률 미제공 상태를 구분해 표시한다', async () => {
+  const challenge = {
+    status: 'ACTIVE' as const,
+    missionType: 'TIME_WINDOW' as const,
+    missionCategory: 'FOCUS' as const,
+    durationMinutes: 30,
+    windowStart: '09:00:00',
+    windowEnd: '12:00:00',
+    createdAt: '2026-08-11T00:00:00Z',
+    canParticipate: true,
+    memberProgress: null,
+  };
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: { status: 'loading' },
+        challenges: {
+          status: 'ready',
+          data: [
+            { ...challenge, id: 'resting', repeatDays: ['MON'], activeToday: false },
+            { ...challenge, id: 'legacy' },
+          ],
+        },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getByText('쉬는 날')).toBeOnTheScreen();
+  expect(screen.getByText('진행률 없음')).toBeOnTheScreen();
+});
+
+test('활동 4개와 확대 가능한 본문은 bounded summary scroll 안에 두고 CTA는 고정한다', async () => {
+  const activities = Array.from({ length: 4 }, (_, index) => ({
+    id: `activity-${index}`,
+    status: 'ACTIVE' as const,
+    missionType: 'DURATION' as const,
+    missionCategory: 'FOCUS' as const,
+    durationMinutes: 30 + index,
+    windowStart: null,
+    windowEnd: null,
+    createdAt: '2026-08-11T00:00:00Z',
+    canParticipate: true,
+    memberProgress: [{ userId: 'me', nickname: '나', progressMinutes: index, achieved: false }],
+  }));
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      userId="me"
+      snapshot={{
+        detail: { status: 'loading' },
+        announcements: {
+          status: 'ready',
+          data: [
+            {
+              id: 'notice',
+              title: '긴 공지',
+              content: '두 줄까지 표시되는 긴 공지 본문입니다.',
+              createdAt: '2026-08-11T00:00:00Z',
+            },
+          ],
+        },
+        challenges: { status: 'ready', data: activities },
+        focus: { status: 'loading' },
+      }}
+    />,
+  );
+
+  expect(screen.getAllByTestId(/^group\.card\.activity\./)).toHaveLength(4);
+  const scroll = screen.getByTestId('group.card.summaryScroll');
+  expect(scroll.props.nestedScrollEnabled).toBe(true);
+  expect(scroll.props.showsVerticalScrollIndicator).toBe(true);
+  expect(scroll).toHaveStyle({ flex: 1 });
+  expect(screen.getByTestId('group.card.focus.g1')).toBeOnTheScreen();
+  expect(screen.getByTestId('group.card.room.g1')).toBeOnTheScreen();
+});
+
+test('본문 터치 동안 상위 덱 스크롤 잠금 상태를 전달한다', async () => {
+  const onSummaryScrollActivityChange = jest.fn();
+  await render(
+    <GroupCardBack
+      {...baseProps}
+      snapshot={undefined}
+      onSummaryScrollActivityChange={onSummaryScrollActivityChange}
+    />,
+  );
+
+  const scroll = screen.getByTestId('group.card.summaryScroll');
+  fireEvent(scroll, 'touchStart');
+  fireEvent(scroll, 'touchEnd');
+  fireEvent(scroll, 'touchCancel');
+
+  expect(onSummaryScrollActivityChange).toHaveBeenNthCalledWith(1, true);
+  expect(onSummaryScrollActivityChange).toHaveBeenNthCalledWith(2, false);
+  expect(onSummaryScrollActivityChange).toHaveBeenNthCalledWith(3, false);
+});

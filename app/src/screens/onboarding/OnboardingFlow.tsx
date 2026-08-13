@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentType } from 'react';
-import { View, PanResponder, StyleSheet } from 'react-native';
+import type { ComponentType, ReactNode } from 'react';
+import { PanResponder, StyleSheet } from 'react-native';
+import type { GestureResponderHandlers } from 'react-native';
+import Animated from 'react-native-reanimated';
 import type { LoginResult } from '@/types/api';
 import LoginScreen from '@/screens/LoginScreen';
 import OnboardingSplash from './OnboardingSplash';
@@ -13,14 +15,13 @@ import SubjectEditStep from '@/screens/onboarding/steps/SubjectEditStep';
 import SubjectCompareStep from '@/screens/onboarding/steps/SubjectCompareStep';
 import ScreenTimePermissionStep from '@/screens/onboarding/steps/ScreenTimePermissionStep';
 import ScreenTimeDeniedStep from '@/screens/onboarding/steps/ScreenTimeDeniedStep';
-import YesterdayScreenTimeStep, {
-  resetAnalyzeIntro,
-} from '@/screens/onboarding/steps/YesterdayScreenTimeStep';
 import GoalSettingStep from '@/screens/onboarding/steps/GoalSettingStep';
 import CharacterIntroStep from '@/screens/onboarding/steps/CharacterIntroStep';
 import CutoutStep from '@/screens/onboarding/steps/CutoutStep';
 import NicknameStep from '@/screens/onboarding/steps/NicknameStep';
 import { hapticLight, hapticMedium } from '@/utils/haptics';
+import { fadeIn } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { INITIAL_ONBOARDING_DATA, type StepProps, type V2OnboardingData } from './types';
 import type { OnboardingCompleteStatus, OnboardingResult } from './types';
 import {
@@ -31,14 +32,14 @@ import {
 import type { OnboardingStepName } from '@/services/analyticsEvents';
 
 // v2 신규 유저 온보딩 플로우 컨트롤러.
-// 순서: 스플래시 → 문제공감 → 함께효과 → 과목비교 → [로그인] → 집중카테고리 →
-//   (과목편집) → 스크린타임 권한 →(거부:제한/허용:전날)→ 목표설정 → 닉네임(가입 확정).
+// 순서: 스플래시 → 집중시작 → 함께집중 → 성장기록 → [로그인] → 집중카테고리 →
+//   (과목편집) → 스크린타임 권한 → (거부 시 제한 안내) → 목표설정 → 닉네임(가입 확정).
 // 로그인은 플로우 '중간'에 위치 — 성공 시:
 //   - 기존 계정(isNewUser === false): 남은 스텝을 건너뛰고 즉시 가입 확정(홈 진입).
 //   - 신규: LoginResult를 보관하고 프로필 수집 스텝을 계속 진행, 마지막 닉네임 뒤 가입 확정.
 // 동적 분기:
 //   - 과목 편집: 선택 카테고리에 추천 과목이 있을 때만 삽입.
-//   - 스크린타임: 권한 거부면 제한 화면(Denied), 허용이면 전날 스크린타임(Yesterday).
+//   - 스크린타임: 권한 거부면 제한 화면(Denied)을 삽입하고, 허용이면 목표 설정으로 직행.
 // 가입 확정(onComplete)은 신규 유저의 닉네임 검증(409 중복)·일시 오류면 닉네임 화면으로
 // 되돌려 재입력/재시도한다(GROMO-618). 세션(토큰/유저)은 auth.ts가 로그인 즉시 저장하나,
 // 온보딩을 유지하기 위해 홈 전환(setUser)은 가입 확정 시점까지 미룬다.
@@ -73,12 +74,28 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   // 가입 확정(신규 유저) 실패 상태 — 닉네임 화면에 에러를 띄운다. 입력을 고치면 지운다.
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // 화면 전환 **페이드 인**(GROMO-1381). 래퍼에 stepKey를 걸어 화면이 바뀔 때마다 새로
+  // 마운트시키고 fadeIn을 다시 태운다(CSS 애니메이션은 참조 동등성으로 재시작을 판단하므로
+  // 같은 프리셋 객체만으로는 다시 돌지 않는다).
+  //
+  // ⚠️ 이름이 '크로스페이드'가 아니다 — React가 이전 노드를 즉시 언마운트하므로 퇴장 페이드는
+  //    없다(codex 리뷰). 진짜 크로스페이드(두 스텝을 겹쳐 유지)는 **의도적으로 채택하지 않았다**:
+  //    스텝들이 마운트 시 부수효과를 낸다(FocusCategoryStep의 추천 과목 조회,
+  //    ScreenTimePermissionStep의 권한 요청, NicknameStep의 입력 포커스).
+  //    220ms 동안 두 스텝이 동시에 살아 있으면 이것들이 겹쳐 발화하고 포커스 순서도 흔들린다 —
+  //    온보딩은 첫인상 화면이자 Maestro 커버리지가 가장 많은 곳이라 그 위험을 지지 않는다.
+  //
+  //    단방향 페이드가 '배경 번쩍임'으로 보이지 않는 근거: 앱은 라이트 모드 고정이고
+  //    (app.config.js userInterfaceStyle:'light' · Info.plist UIUserInterfaceStyle:Light)
+  //    루트 뷰와 StepScaffold·LoginScreen의 배경이 모두 T.paper(#FFFFFF)다. 즉 뒤에 드러나는
+  //    것은 '다른 색'이 아니라 같은 흰 종이이고, 보이는 변화는 내용의 불투명도뿐이다.
+  //
+  // 뷰를 새로 끼우지 않고 기존 래퍼를 승격만 했다 — Maestro 셀렉터(스텝 testID)는 전부
+  // StepScaffold 안쪽이라 트리 계약은 그대로다. 실제 진입 스타일은 StepFade가 정한다.
 
   // 플로우 진입 계측 — 스플래시 포함 마운트 시 1회(플로우는 이미 시작됨).
-  // 분석 연출 1회 플래그도 함께 리셋 — 재진입한 온보딩에서 연출이 다시 보이도록.
   useEffect(() => {
     logOnboardingStarted();
-    resetAnalyzeIntro();
   }, []);
 
   // OTA 준비 화면이 스플래시를 대신한 경우에도 시작 진동(GROMO-786)은 유지한다 —
@@ -122,12 +139,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
           ]
         : []),
       step('screentime_permission', ScreenTimePermissionStep),
-      denied
-        ? step('screentime_denied', ScreenTimeDeniedStep)
-        : step('yesterday_screentime', YesterdayScreenTimeStep),
+      ...(denied ? [step('screentime_denied', ScreenTimeDeniedStep)] : []),
       step('goal_setting', GoalSettingStep),
       // 캐릭터 소개 → 누끼 체험 → 닉네임. 소개에서 기본 그로몬을 처음 만나고, 체험에서
-      // 내 물건으로 캐릭터를 한 번 만들어 본 뒤(스킵 불가), 마지막에 이름을 짓는다.
+      // 내 물건으로 캐릭터를 만들거나 건너뛴 뒤 마지막에 이름을 짓는다.
       step('character_intro', CharacterIntroStep),
       step('cutout_experience', CutoutStep),
       { kind: 'nickname' },
@@ -136,7 +151,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   // 스텝 도달 계측(GA4 퍼널) — 스플래시가 끝난 뒤, 이 플로우에서 처음 도달한 스텝만 발행한다.
   // dedup은 인덱스가 아니라 "스텝 이름" 기준 — 뒤로가기 재방문은 미발행하되, 같은 인덱스가
-  // 다른 스텝으로 교체되는 동적 분기(예: 거부 화면에서 권한 허용 → 전날 스크린타임으로 교체)는
+  // 다른 스텝으로 교체되는 동적 분기(예: 거부 화면에서 권한 허용 → 목표 설정으로 교체)는
   // 새 스텝 도달로 정상 발행한다(코덱스 리뷰).
   const viewedStepsRef = useRef(new Set<OnboardingStepName>());
   useEffect(() => {
@@ -221,7 +236,13 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const node = sequence[index];
   const canBack = index > backFloor;
 
-  // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전 3칸, 후 5칸 고정.
+  // 전환 페이드의 재시작 키(GROMO-1381) — 인덱스만으로는 부족하다. 스크린타임 거부 화면에서
+  // 재승인하면 screenTimeGranted가 false→true가 되면서 제한 안내 노드가 빠지고, 같은 인덱스가
+  // 목표 설정 노드로 교체된다. 노드 정체성을 키에 섞어 이 교체도 새 화면으로 취급한다.
+  const stepKey = `${index}:${node.kind === 'step' ? node.name : node.kind}`;
+
+  // 진행바는 로그인 전/후 구간을 각각 처음부터 다시 채운다 — 로그인 전은 3칸 고정,
+  // 로그인 후는 현재 시퀀스에서 보조 스텝을 제외해 계산한다.
   // 과목 확인(subStep)은 칸 수에서 제외해 동적으로 끼어들어도 칸 수가 흔들리지 않는다
   // (집중카테고리와 같은 칸을 공유).
   const isSubStep = (n: FlowNode) => n.kind === 'step' && !!n.subStep;
@@ -235,15 +256,23 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         };
 
   // 중간 로그인 화면 — 자체 전체화면 레이아웃(진행바 없음).
+  // 스텝과 **같은 페이드**로 들어온다(codex 리뷰) — 같은 흐름 안에서 어떤 전환은 페이드고
+  // 어떤 전환만 툭 바뀌면 그 불일치가 하드컷 하나보다 더 어색하다.
+  // ⚠️ 뒤로가기 제스처(swipeBack)는 붙이지 않는다 — 로그인에서 이전 설득 화면으로 되돌아가지
+  //    않는 기존 동작을 그대로 둔다(여기에 붙이면 backFloor가 0이라 스와이프가 열려 버린다).
   if (node.kind === 'login') {
-    return <LoginScreen onLogin={onMidFlowLogin} isOnboarding />;
+    return (
+      <StepFade key={stepKey}>
+        <LoginScreen onLogin={onMidFlowLogin} isOnboarding />
+      </StepFade>
+    );
   }
 
   // 마지막 닉네임 — 입력 후 곧바로 가입 확정. 실패 시 이 화면에 serverError/submitting을 유지한다.
   if (node.kind === 'nickname') {
     return (
       <OnboardingProgressContext.Provider value={progress}>
-        <View style={styles.flex} {...swipeBack.panHandlers}>
+        <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
           <NicknameStep
             data={data}
             update={(patch) => {
@@ -257,7 +286,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             serverError={serverError}
             submitting={submitting}
           />
-        </View>
+        </StepFade>
       </OnboardingProgressContext.Provider>
     );
   }
@@ -265,13 +294,56 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const Step = node.Component;
   return (
     <OnboardingProgressContext.Provider value={progress}>
-      <View style={styles.flex} {...swipeBack.panHandlers}>
+      <StepFade key={stepKey} panHandlers={swipeBack.panHandlers}>
         <Step data={data} update={update} onNext={next} onBack={canBack ? back : undefined} />
-      </View>
+      </StepFade>
     </OnboardingProgressContext.Provider>
+  );
+}
+
+// 스텝 진입 페이드. **진입 스타일을 '동작 줄이기'가 확정된 첫 렌더에 정하고 얼린다.**
+//
+// ⚠️ `useReduceMotion`은 시스템 질의가 끝나기 전까지 보수적으로 `true`를 돌려준다. 그래서
+//    질의가 확정되며 `true → false`로 바뀌는 순간, 이미 화면에 떠 있던 스텝에 `fadeIn`이
+//    **새로 붙는다** — 보이던 화면이 opacity 0으로 깜빡였다가 다시 나타난다(codex 리뷰).
+//
+// ⚠️ 그렇다고 미확정 값으로 얼려 버리면 반대 사고가 난다 — 설정을 켜지 않은 사용자도 콜드
+//    스타트 첫 스텝의 연출을 영구히 잃는다. 그래서 확정 전에는 **판정을 미루고 시작 상태
+//    (opacity 0)로 대기**한다. fadeIn의 시작 프레임과 같은 상태라 어느 쪽으로 확정되든
+//    이어지는 그림에 끊김이 없다. 질의는 실패해도 false로 확정되므로(useReduceMotion.ts)
+//    영원히 가려진 채 남지 않는다.
+//
+// 래퍼를 컴포넌트로 뺀 이유: 마운트 경계가 곧 얼리는 경계다. 부모(OnboardingFlow)는 스텝이
+// 바뀌어도 remount되지 않으므로 부모에서 훅으로 얼리면 첫 스텝 값이 끝까지 남는다. 반면
+// 래퍼는 `key={stepKey}`로 remount되므로 다음 스텝 페이드는 정상 재생된다.
+function StepFade({
+  children,
+  panHandlers,
+}: {
+  children: ReactNode;
+  panHandlers?: GestureResponderHandlers;
+}) {
+  const m = useMotion();
+  const decided = useRef(false);
+  const frozen = useRef<ReturnType<typeof fadeIn> | undefined>(undefined);
+  if (!decided.current && m.ready) {
+    decided.current = true;
+    // 여기선 m.css로 충분하다 — 위 조건이 이미 m.ready를 기다리므로 m.enter의 '확정 전
+    // 시작 프레임' 경로를 탈 일이 없고, 대기 상태는 styles.pendingEnter가 담당한다.
+    frozen.current = m.css(fadeIn());
+  }
+  return (
+    <Animated.View
+      style={[styles.flex, decided.current ? frozen.current : styles.pendingEnter]}
+      {...panHandlers}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  // '동작 줄이기' 확정 대기 — fadeIn의 시작 프레임과 같은 상태다
+  pendingEnter: { opacity: 0 },
 });

@@ -13,6 +13,7 @@ import { Alert } from 'react-native';
 import { AxiosError, AxiosHeaders } from 'axios';
 import GroupMemberManageScreen from './GroupMemberManageScreen';
 import { getGroupDetail, kickMember } from '@/services/groupApi';
+import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import { logGroupMemberKicked } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse, GroupDetailResponse } from '@/types/dto/group';
 
@@ -41,9 +42,20 @@ jest.mock('@/services/groupApi', () => ({
   kickMember: jest.fn(),
 }));
 
+// 유저 부재 분기가 부르는 세션 경계(GROMO-1247) — 어떤 세대로 불렸는지만 본다.
+jest.mock('@/services/api', () => ({
+  ...jest.requireActual('@/services/api'),
+  getAuthSessionGeneration: jest.fn(() => 0),
+  triggerLogout: jest.fn(),
+}));
+
 const mockGetGroupDetail = getGroupDetail as jest.MockedFunction<typeof getGroupDetail>;
 const mockKickMember = kickMember as jest.MockedFunction<typeof kickMember>;
 const mockLogKicked = logGroupMemberKicked as jest.MockedFunction<typeof logGroupMemberKicked>;
+const mockTriggerLogout = triggerLogout as jest.MockedFunction<typeof triggerLogout>;
+const mockGetAuthSessionGeneration = getAuthSessionGeneration as jest.MockedFunction<
+  typeof getAuthSessionGeneration
+>;
 
 // 서버 GlobalExceptionHandler의 { code, message } 바디를 실은 axios 에러.
 function axiosErrorWith(status: number, code: string): AxiosError {
@@ -110,8 +122,53 @@ async function confirmKick(alertSpy: jest.SpyInstance) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetAuthSessionGeneration.mockReturnValue(0);
   mockGetGroupDetail.mockResolvedValue(detail());
   mockKickMember.mockResolvedValue(undefined);
+});
+
+// GROMO-1247 — 유저 부재는 대상 멤버가 아니라 **내 계정**이 없다는 뜻이다.
+describe('유저 부재(USER_NOT_FOUND)', () => {
+  test('강퇴 실패가 유저 부재면 목록에서 지우지 않고 재로그인을 유도한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetAuthSessionGeneration.mockReturnValue(2);
+    mockKickMember.mockRejectedValueOnce(axiosErrorWith(404, 'USER_NOT_FOUND'));
+    await renderScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.member.kick.alice'));
+    });
+    await confirmKick(alertSpy);
+
+    // 강퇴가 성공한 것처럼 행이 사라지면 안 된다.
+    expect(screen.getByTestId('group.member.kick.alice')).toBeOnTheScreen();
+    expect(alertSpy).toHaveBeenLastCalledWith(
+      '로그인이 필요해요',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
+      [expect.objectContaining({ text: '확인' })],
+      { cancelable: false },
+    );
+    alertSpy.mockRestore();
+  });
+
+  // 진입 조회(첫 상세)의 404 — 액션 실패와 다른 자리다. 재시도로 안 풀린다.
+  test('진입 조회가 USER_NOT_FOUND면 재로그인을 유도한다(요청 시작 세대를 넘긴다)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetAuthSessionGeneration.mockReturnValue(5);
+    mockGetGroupDetail.mockRejectedValue(axiosErrorWith(404, 'USER_NOT_FOUND'));
+
+    await renderScreen();
+
+    expect(screen.getByText('멤버를 불러오지 못했어요')).toBeOnTheScreen();
+    const [, , buttons] = alertSpy.mock.calls[0] as unknown as [
+      string,
+      string,
+      { text: string; onPress?: () => void }[],
+    ];
+    buttons[0].onPress?.();
+    expect(mockTriggerLogout).toHaveBeenCalledWith(5);
+    alertSpy.mockRestore();
+  });
 });
 
 describe('멤버 관리(강퇴)', () => {

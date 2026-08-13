@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.phone.group.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.domain.MissionCategory;
@@ -60,7 +61,12 @@ public class GroupChallengeResponse {
 
     /**
      * 조회 {@code date} 의 진행 중 내기. 내기가 없거나 date 를 주지 않았으면 null 이다.
-     * 내기는 FOCUS + DURATION 챌린지에만 걸리므로 다른 챌린지에서는 항상 null 이다.
+     *
+     * <p><b>챌린지 종류로 제한되지 않는다.</b> 종전 서술("내기는 FOCUS + DURATION 챌린지에만
+     * 걸리므로 다른 챌린지에서는 항상 null")은 거짓이다 — FOCUS 전용 게이트가 사라졌고
+     * ({@code GroupBetService} — 「게이트 = DURATION || (TIME_WINDOW && 창 목표분 있음).
+     * 카테고리 제한은 없다」) 판정도 카테고리×방식 조합을 전부 다룬다. SCREEN_TIME·TIME_WINDOW
+     * 응답에서도 이 필드가 채워질 수 있다. 이 서술을 믿고 분기하면 유효한 내기를 무시하게 된다.
      */
     private GroupBetResponse bet;
 
@@ -69,6 +75,73 @@ public class GroupChallengeResponse {
      * 조회 {@code date} 와 무관하므로 date 없이도 채워진다.
      */
     private GroupBetResultResponse lastSettledBet;
+
+    /**
+     * 내기 <b>설정</b>(GROMO-1418) — 회차 유무와 무관하게 "내기가 걸려 있고 참가비는 얼마인가".
+     * 신앱은 이 필드로 내기 진입점을 세우고, 오늘 판의 상태는 {@code bet.session} 에서 읽는다 —
+     * 회차가 없는 날 {@code bet} 은 구앱 계약대로 null 이라 그것만 보면 "내기 꺼짐"으로 오독된다.
+     *
+     * <p><b>진입점이 없으면 키 자체를 뺀다</b>({@code NON_NULL}). 앱 타입은
+     * {@code betConfig?: { enabled, stake }} 로 <b>null 을 허용하지 않고</b>, 카드가
+     * {@code betConfig !== undefined} 만 확인한 뒤 {@code betConfig.enabled} 를 읽는다 —
+     * {@code null} 을 실어 보내면 내기 없는 챌린지가 하나라도 낀 그룹 화면이 렌더 중
+     * {@code TypeError} 로 통째로 죽는다. 여기서 {@code undefined} 와 {@code null} 은 <b>같은 뜻</b>
+     * (진입점 없음)이라 3상이 접히지 않는다 — LLD §2.1 직렬화 계약이 {@code NON_NULL} 을 금지한
+     * 필드는 값 자체가 3상인 {@code bet}·{@code bet.session}·{@code goalMinutes}·
+     * {@code participants[].progressMinutes}·{@code results[].progressMinutes} 다(이 필드는 그
+     * 목록에 없고, 정본 응답 스키마에도 없는 구현 추가분이다).
+     * 앱의 v2 판별({@code repeatDays !== null || betConfig !== undefined})도 항상 실리는
+     * {@code repeatDays} 로 성립한다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private GroupBetConfigResponse betConfig;
+
+    /**
+     * <b>오늘을 제외한</b> 다음 활성일의 회차 시작(신앱 카드의 "다음 회차" 축 — GROMO-1418,
+     * LLD §2.1). 하루형은 다음 활성일 00:00 KST, 창형은 다음 활성일의 창 시작이다.
+     * {@code activeToday} 와 배타가 아니라 보완이다 — 오늘 회차의 축은 {@code bet.session} 이
+     * 담당한다. 끝난 챌린지(INACTIVE)는 null 이고, ACTIVE 는 <b>거의 항상</b> 채워진다 —
+     * 예외는 <b>창형인데 창 상세가 없는</b> 경우 하나뿐이다. 시작 시각을 모르면 다음 회차를
+     * 계산할 수 없어 {@code GroupBetService#loadNextSessions} 가 그 챌린지를 건너뛴다
+     * (하루형으로 간주해 자정을 주면 서지도 않을 회차를 예고하게 된다).
+     *
+     * <p><b>이론적 사고가 아니라 레거시 데이터에 실재할 수 있다.</b> V5 가 인라인 파라미터를 CTI
+     * 상세 테이블로 이관할 때 백필을 <b>두 번</b> 했다 — ⑴ 챌린지 자체의 {@code window_start}·
+     * {@code window_end} 가 NOT NULL 인 행, ⑵ 그게 null 이어도 <b>그룹의 미션 설정</b>이
+     * {@code type}·{@code category} 까지 일치하고 시각이 있는 경우(그룹 값 폴백). 따라서 상세가
+     * 없는 행은 <b>둘 다 없었던 경우</b>다 — 챌린지 값이 null 이고, 그룹 폴백도 (종류·카테고리가
+     * 다르거나 시각이 null 이라) 적용되지 않은 행. 신규 생성 경로는 CTI 를 지키므로 새로 생기지는
+     * 않는다. <b>앱이 「null == INACTIVE」로 단정하면 그 경우에 어긋난다.</b>
+     *
+     * <p>요일 반복(B1, GROMO-1260)은 배선이 끝났다 — {@code GroupBetService#repeatDaysOf} 가
+     * 챌린지의 {@code repeatDays} 마스크를 넘기고 {@code RepeatSchedule#next} 가 그중 다음
+     * 활성일을 고른다. 쉬는 요일은 건너뛰므로 이 값은 "무조건 내일"이 아니다.
+     */
+    private Instant nextSessionAt;
+
+    /**
+     * 다음 활성일 회차를 내가 이미 예약(참가)했는가 — 비활성 요일 「다음 회차 참여」 버튼의 상태
+     * 분기(N45 · GROMO-1418). {@code nextSessionAt} 날짜의 OPEN 회차에 내 참가 행이 있으면 true.
+     * 회차가 아직 없으면(lazy 개설 전) false 다. INACTIVE 챌린지는 null.
+     *
+     * <p><b>{@code nextSessionAt} 과 같은 분기를 탄다</b> — 조립부가
+     * {@code nextSessions.containsKey(...) ? … : null} 이므로, 창형인데 창 상세가 없어
+     * {@code loadNextSessions} 가 건너뛴 챌린지에서는 <b>false 가 아니라 null</b> 이다
+     * ({@code nextSessionStake} 도 동일). 그 경우를 「미예약」으로 읽으면 틀린다 —
+     * 자세한 경위는 {@link #nextSessionAt} javadoc 참조.
+     */
+    private Boolean nextSessionJoined;
+
+    /**
+     * 다음 활성일 회차에 <b>박제된</b> 참가비(GROMO-1418) — 예약 시트(join-next)가 표시할 금액의
+     * 정본이다. null = 그 회차가 아직 없다(개설 시 {@code betConfig.stake} 가 박제되므로 앱은 그
+     * 값으로 안내한다).
+     *
+     * <p>{@code betConfig.stake}(설정값)와 <b>다를 수 있다</b>: 브리지 기간에 구앱이 날짜마다 다른
+     * 금액으로 개설하면 설정만 갱신되고 이미 열린 미래 회차의 박제값은 그대로다. 설정값으로
+     * 안내하면 join-next 가 실제로 차감하는 금액과 갈린다(설정이 낮아지면 안내보다 더 차감).
+     */
+    private Integer nextSessionStake;
 
     /**
      * 휴면 챌린지 배지(GROMO-1201) — 내기 이력은 있는데(status 무관, 취소 포함) 지금 걸린 OPEN 내기가

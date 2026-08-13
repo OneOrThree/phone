@@ -11,7 +11,9 @@ import {
   SettingsToggleRow,
 } from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
+import { useToast } from '@/store/ToastContext';
 import { T } from '@/constants/theme';
+import { logAllowedAppsUpdated } from '@/services/analyticsEvents';
 
 // SET·집중 중 허용 앱 관리 화면.
 // 집중 세션 실드에서 예외로 열어줄 앱들을 고른다.
@@ -22,6 +24,7 @@ import { T } from '@/constants/theme';
 
 export default function AllowedAppsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const { show } = useToast();
 
   // 저장된 허용앱 선택 개수. null = 아직 로드 전.
   const [counts, setCounts] = useState<AppSelectionCounts | null>(null);
@@ -110,13 +113,27 @@ export default function AllowedAppsScreen() {
       // 편집 전 스냅샷과 앱/카테고리/웹도메인 개수가 모두 같으면 실제 변경이 없는 것으로 본다.
       if (
         before != null &&
-        before.applications === result.applications &&
-        before.categories === result.categories &&
-        before.webDomains === result.webDomains
+        (before.selectionSignature && result.selectionSignature
+          ? before.selectionSignature === result.selectionSignature
+          : before.applications === result.applications &&
+            before.categories === result.categories &&
+            before.webDomains === result.webDomains)
       ) {
         return;
       }
-      Alert.alert('허용앱 변경됨', `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요.`);
+      logAllowedAppsUpdated({ app_count: result.applications });
+      // 성공 통보(선택지 없음) → 토스트. 실패·확인 알럿은 Alert 그대로 둔다(정책 D8).
+      // ⚠️ 단, **구 바이너리에서는 Alert를 유지한다.** 그쪽 네이티브는 모달 dismiss 완료를
+      //    기다리지 않고 promise를 풀어서, 토스트가 아직 떠 있는 모달 아래에서 등장 연출과
+      //    2200ms 타이머를 시작한다 — 모달이 사라진 뒤 갑자기 나타나고 노출도 짧아진다.
+      //    이 JS는 hot-updater로 구 바이너리에도 내려가므로 네이티브 수정만으로는 못 막는다
+      //    (codex 리뷰). `dismissed`는 새 바이너리만 응답에 담는 표식이다.
+      const message = `집중 중에도 앱 ${result.applications}개를 쓸 수 있어요`;
+      if (result.dismissed) {
+        show({ message });
+      } else {
+        Alert.alert('설정 완료', message);
+      }
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }
@@ -206,7 +223,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.sm,
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: T.accent,
@@ -217,7 +235,8 @@ const s = StyleSheet.create({
 
   // 하단 완료 CTA(필드)
   doneBtn: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

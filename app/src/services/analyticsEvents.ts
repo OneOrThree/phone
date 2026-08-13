@@ -2,11 +2,12 @@
 // 이벤트당 얇은 함수 1개 — 호출부 타입 안전 + 이벤트명/파라미터 계약을 한 곳에 모은다.
 // 화면/스토어에서는 이 헬퍼만 import해서 쓰고, track()을 직접 부르지 않는다.
 //
-// ⚠️ 서버(MP) 소스 이벤트([S])는 의도적으로 제외한다 — 클라에서 중복 발행하면 GA4에서 이중 집계된다.
-//    (예: group_joined, poke_received 등은 백엔드 Measurement Protocol이 소유)
-//    단 focus_session_completed는 서버 미발행으로 클라 소유로 이관(GROMO-1004) — 서버 MP 배선 시 제외할 것.
+// 기존 서버 GA4/Measurement Protocol 이벤트는 서버 발행을 유지한다.
+// 클라이언트는 화면 노출·사용자 액션·서버 응답 확인을 보완 관측한다.
 // ⚠️ PII 금지: 닉네임/생년월일/원본 식별정보를 이벤트·유저속성으로 보내지 않는다. 파생 비식별값만.
 import { track, setUserProperty } from '@/services/analytics';
+import type { FocusEntrySource } from '@/services/cardInteraction';
+import type { InquiryCategoryId } from '@/constants/inquiryContacts';
 
 // 로그인/가입 수단
 export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
@@ -72,7 +73,7 @@ export function logOnboardingPermissionResulted(p: { granted: boolean }): void {
   track('onboarding_permission_resulted', { step_index: 10, ...p });
 }
 
-// W11 전날 스크린타임 요약 노출 (has_data: 실제 사용량 확보 여부)
+// W11 스크린타임 설정 결과 도달 (has_data: 권한 승인으로 측정 가능한지 여부)
 export function logOnboardingScreentimeViewed(p: { has_data: boolean }): void {
   track('onboarding_screentime_viewed', { step_index: 11, ...p });
 }
@@ -107,8 +108,6 @@ export function logOnboardingCompleted(): void {
 
 // ── 집중(Focus) [C] ──
 // 시작·일시정지·재개·완료·포기·메뉴·친구뷰를 클라가 발행한다.
-// 완료(focus_session_completed)는 원래 서버 검증 이벤트([S])였으나 서버가 MP를 발행하지 않아
-// 클라 소유로 이관(GROMO-1004) — 서버 MP 배선에서 이 이벤트를 빼야 이중 집계가 없다.
 export type FocusMode = 'countup' | 'countdown' | 'pomodoro';
 
 // 세션 시작. has_tag: 과목 부착 여부, mode: 타이머 모드, goal_minutes: 목표(카운트다운/뽀모도로).
@@ -116,6 +115,9 @@ export function logFocusSessionStarted(p: {
   has_tag: boolean;
   mode: FocusMode;
   goal_minutes?: number;
+  entry_source: FocusEntrySource;
+  subject_key?: string;
+  interaction_id?: string;
 }): void {
   track('focus_session_started', p);
 }
@@ -145,6 +147,35 @@ export function logFocusSessionCompleted(p: {
 // ('system_back' — 안드로이드 시스템 back 등). 정지 버튼 종료는 completed로 계측(GROMO-1004).
 export function logFocusSessionAbandoned(p: { elapsed_seconds: number; reason: string }): void {
   track('focus_session_abandoned', p);
+}
+
+export type DistractionAppCategory =
+  | 'social'
+  | 'messenger'
+  | 'short_video'
+  | 'video'
+  | 'game'
+  | 'browser'
+  | 'other';
+
+// 집중 중 앱을 벗어났다가 돌아온 사실 — 앱 이름·번들 ID는 보내지 않는다.
+export function logFocusDistractionDetected(p: {
+  reason: 'app_backgrounded' | 'leave_timeout';
+  app_category: DistractionAppCategory;
+  blocked: boolean;
+  returned_to_focus: boolean;
+}): void {
+  track('focus_distraction_detected', p);
+}
+
+// 과목 ID는 로컬 생성값·서버 식별자일 수 있으므로 원문 대신 안정적인 비식별 키로 보낸다.
+export function subjectKeyOf(subjectId?: string): string | undefined {
+  if (!subjectId) return undefined;
+  let hash = 7;
+  for (let i = 0; i < subjectId.length; i += 1) {
+    hash = (hash * 31 + subjectId.charCodeAt(i)) % 2147483647;
+  }
+  return `s_${hash.toString(16)}`;
 }
 
 // 라이브 마커 시작 실패(GROMO-1214) — POST /focus-session/start가 실패해 마커 없이 흘러간 세션.
@@ -236,8 +267,7 @@ export function logHomeRefreshed(): void {
 }
 
 // ── 리그(League) 인터랙션 [C] (GROMO-538) ──
-// 리그 화면 진입·탭 전환·리그 필터·프로필 진입. 승격/강등 확정 등 서버 검증 이벤트([S])는
-// 백엔드 MP가 소유 — 클라에서 발행하지 않는다.
+// 리그 화면 진입·탭 전환·리그 필터·프로필 진입·결과 화면 노출을 클라가 발행한다.
 export type LeagueTab = 'league' | 'friend';
 
 // 리그 화면 진입(포커스마다 1회).
@@ -300,7 +330,7 @@ export function logFriendSearchPerformed(p: { query_length: number; result_count
 }
 
 // ── 통계(Stats) [C] (GROMO-558) ──
-// 통계 화면 진입·기간 탭 전환·과목 필터 선택. 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
+// 통계 화면 진입·기간 탭 전환·과목 필터 선택을 클라가 발행한다.
 export type StatsPeriodKey = 'day' | 'week' | 'month';
 
 // 통계 화면 진입(포커스마다 1회).
@@ -406,13 +436,36 @@ export function logNudgeTapped(p: { type: NudgeType }): void {
 }
 
 // ── 그룹(Group) [C] ── (event-logging-design.md §5.D)
-// created/joined/left 등 서버 검증 이벤트([S])는 백엔드 MP 소유 — 클라 미발행.
+// 생성·가입·이탈 등 사용자가 확인 가능한 결과는 클라에서 발행한다.
 // 'deferred_invite' = 미설치 상태에서 링크를 누르고 설치 후 복원된 초대(초대 링크 스펙 §4-3).
 // C-1: 참가 코드는 폐기됐다(§0) — 'code'는 발행되지 않던 데드 값이라 제거. 검색·초대·복원 초대만 남긴다.
 export type GroupJoinMethod = 'search' | 'invite' | 'deferred_invite';
+export type GroupCardAction = 'focus' | 'room' | 'settings';
+export type GroupCardRole = 'owner' | 'member';
+export type GroupCardBackSource = 'user' | 'guide';
+export type GroupCardFlipTrigger = 'card_tap' | 'accessibility_action';
+export type GroupCarouselTrigger = 'swipe' | 'indicator_press' | 'accessibility_action';
+export type GroupCardReorderTrigger = 'drag' | 'pointer_control' | 'accessibility_action';
 
-export function logGroupCreateStarted(): void {
-  track('group_create_started');
+export function logGroupCreateStarted(p: {
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
+}): void {
+  track('group_create_started', p);
+}
+export function logGroupLeft(p: { leave_reason: 'self' | 'kicked' }): void {
+  track('group_left', p);
+}
+export function logGroupCreateSubmitted(p: {
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
+  is_private: boolean;
+}): void {
+  track('group_create_submitted', p);
+}
+export function logGroupCreated(p: {
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
+  is_private: boolean;
+}): void {
+  track('group_created', p);
 }
 export function logGroupSearchPerformed(p: { query_length: number; result_count: number }): void {
   track('group_search_performed', p);
@@ -421,12 +474,97 @@ export function logGroupSearchPerformed(p: { query_length: number; result_count:
 export function logGroupJoinAttempted(p: { join_method: GroupJoinMethod; slug?: string }): void {
   track('group_join_attempted', p);
 }
-export function logGroupViewed(): void {
-  track('group_viewed');
+export type GroupEntry = 'tab' | 'invite' | 'push' | 'return' | 'unknown';
+export type GroupCountBucket = '0' | '1' | '2_5' | '6_10' | '11_plus';
+
+export function logGroupViewed(p: {
+  group_entry: GroupEntry;
+  group_count_bucket: GroupCountBucket;
+}): void {
+  track('group_viewed', p);
+}
+
+export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
+
+// 실제 그룹 덱 또는 그룹 0개 사용자의 로컬 안내용 카드가 안정된 anchor를 확보하고, 완료 key
+// read와 overlay queue 판정까지 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹
+// 식별 정보는 싣지 않으며, 안내용 카드 노출은 실제 소속 수에 맞춰 0 bucket으로 구분한다.
+export function logGroupCardDeckViewed(p: {
+  group_entry: GroupEntry;
+  group_count_bucket: GroupCountBucket;
+  guide_state: GroupDeckGuideState;
+}): void {
+  track('group_card_deck_viewed', p);
+}
+
+export function logGroupCardFlipped(p: {
+  to_face: 'front' | 'back';
+  trigger: GroupCardFlipTrigger;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+}): void {
+  track('group_card_flipped', p);
+}
+
+export function logGroupCarouselPaged(p: {
+  trigger: GroupCarouselTrigger;
+  from_index: number;
+  to_index: number;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+}): void {
+  track('group_carousel_paged', p);
+}
+
+export function logGroupCardReordered(p: {
+  trigger: GroupCardReorderTrigger;
+  from_index: number;
+  to_index: number;
+  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+}): void {
+  track('group_card_reordered', p);
+}
+
+// guide 저장소/수명 오류는 사용자 행동 이벤트와 분리한다.
+export function logGroupDeckGuideReadFailed(): void {
+  track('group_deck_guide_read_failed');
+}
+export function logGroupDeckGuideInterrupted(p: {
+  reason: 'background' | 'route' | 'groups_changed' | 'blocking_overlay' | 'unmount';
+}): void {
+  track('group_deck_guide_interrupted', p);
+}
+export function logGroupDeckGuideWriteFailed(): void {
+  track('guide_complete_write_failed', { guide: 'groupDeck:v1' });
+}
+
+export function logGroupCardIconSaveResult(p: {
+  surface: 'create' | 'settings';
+  result: 'success' | 'failed';
+}): void {
+  track('group_card_icon_save_result', p);
+}
+export function logGroupCardIconEditorViewed(p: { surface: 'settings' }): void {
+  track('group_card_icon_editor_viewed', p);
+}
+export function logGroupFindOpened(p: {
+  entry_point: 'empty' | 'list' | 'header' | 'end_card';
+}): void {
+  track('group_find_opened', p);
 }
 // 그룹방(방) 방문 — group_viewed(그룹 탭 진입)와 구분해 실제 그룹방 진입/로드 성공을 센다.
 // group_id로 어느 방인지 구분(불투명 식별자라 PII 아님).
-export function logGroupRoomViewed(p: { group_id: string }): void {
+export function logGroupCardActionClicked(p: {
+  action: GroupCardAction;
+  role: GroupCardRole;
+  back_source: GroupCardBackSource;
+  interaction_id: string;
+}): void {
+  track('group_card_action_clicked', p);
+}
+export function logGroupRoomViewed(p: {
+  group_id: string;
+  entry_source: FocusEntrySource;
+  interaction_id?: string;
+}): void {
   track('group_room_viewed', p);
 }
 export function logGroupTabViewed(p: { tab: string }): void {
@@ -434,7 +572,7 @@ export function logGroupTabViewed(p: { tab: string }): void {
 }
 
 // ── 그룹 운영(3차) ── 설정 저장·방장 위임·강퇴·공지권한 (API 성공 시에만 발행).
-// group_id는 불투명 식별자라 PII 아님. 아직 서버 MP 이벤트가 없어 클라가 소유한다.
+// group_id는 불투명 식별자라 PII 아님. 그룹 운영 결과도 클라가 성공을 확인한 뒤 발행한다.
 // A-1: 설정 저장 성공. fields는 실제로 바뀐 필드('name'|'description'|'maxMembers'|'isPrivate').
 export function logGroupSettingsUpdated(p: { group_id: string; fields: string[] }): void {
   track('group_settings_updated', p);
@@ -469,9 +607,7 @@ export function logGroupInviteShared(p: {
 }
 
 // ── 그룹 초대 링크 퍼널 [C] ── (초대 링크 스펙 §4-3 표 6a·6b)
-// 이 표는 이벤트별 발행 주체가 한 곳뿐인 것이 계약이다 — invite_link_created(1)·
-// invite_link_clicked(3)·invite_match_resolved(5)·group_joined(8)은 **서버 MP 소유**라
-// 여기에 함수를 만들지 않는다(만드는 순간 이중 집계가 된다).
+// 기존 서버 발행은 유지하고, 초대 링크 처리·가입 결과는 클라이언트 확인 시점의 관측도 보완한다.
 
 // 6a. 설치 유저가 링크로 앱에 직행 — Universal Link 또는 랜딩의 스킴 점프.
 // slug는 구형 링크(§4-1)로 들어오면 없다.
@@ -493,7 +629,7 @@ export function logGroupInviteSheetViewed(p: {
 }
 
 // ── 그룹 챌린지 내기(3차·확장) [C] ── (docs/app/challenge-impl-2026-08/contract.md §계측)
-// 내기 개설·참가는 서버 MP 이벤트가 아직 없어 클라가 소유한다([S]로 이관되면 여기서 지운다).
+// 내기 개설·참가는 클라이언트가 API 성공을 확인한 뒤 발행한다.
 // **API 성공 시에만** 발행한다 — 잔액 부족·중복으로 튕긴 시도까지 세면 실제 성립한 내기 수가 부푼다.
 // stake는 판돈 금액(서버 허용값 {10,30,50,100}) — 금액대별 참여율을 보는 유일한 축이다.
 // mission_type/mission_category는 확장 배치의 스크린타임·창 내기 채택률 측정 축(계측 표 A2 행) —
@@ -505,8 +641,26 @@ export type ChallengeMissionParams = {
 export function logGroupBetCreated(p: { stake: number } & ChallengeMissionParams): void {
   track('group_bet_created', p);
 }
-export function logGroupBetJoined(p: { stake: number } & ChallengeMissionParams): void {
+// 참여 성공 — 단건 참가와 **예약**(join-next 1건 / join-week N건)이 같은 이벤트를 쓴다.
+// 왜 예약도 1건으로 세나(챌린지 v2, GROMO-1419·1276): 이벤트 1건 = **유저가 참여를 결심한
+// 한 번의 행동**이다. 3일 예약을 3건으로 부풀리면 '참여 결심 수'와 '참여 건수'가 뒤섞여
+// 전환 퍼널(카드 노출 → 시트 → 참여)의 분모·분자가 갈리고, 주간 단축을 쓸수록 지표가 커져
+// 단축 도입 효과를 스스로 부풀린다. 대신 규모는 파라미터로 남긴다:
+//   session_count : 이 행동으로 걸린 날 수(단건 1 · 주간 N) — 예약 깊이 분포용
+//   stake         : **하루치** 참가비(총액이 아니다 — 금액대별 참여율 축을 단건과 같게 유지).
+//                   날짜별 금액이 갈리는 주간 예약은 가장 큰 하루치를 싣는다(축을 흐리지 않게).
+// 파라미터는 선택이라 기존 호출부(BetSheet 단건)는 그대로 둔다 — 없으면 종전과 같은 이벤트다.
+export function logGroupBetJoined(
+  p: { stake: number; session_count?: number } & ChallengeMissionParams,
+): void {
   track('group_bet_joined', p);
+}
+
+// 챌린지 참여 확정 — 내기 참여(group_bet_joined)와 별도로 챌린지 참여 퍼널을 집계한다.
+export function logGroupChallengeJoined(
+  p: { session_count?: number } & ChallengeMissionParams,
+): void {
+  track('group_challenge_joined', p);
 }
 // 내기 취소(개설자 단독·OPEN) 성공 — participants_count는 취소 시점 참가자 수(계약상 항상 1이어야
 // 하지만, 서버 가드가 바뀌어도 지표가 사실을 말하게 실측값을 싣는다).
@@ -515,7 +669,7 @@ export function logGroupBetCanceled(p: { stake: number; participants_count: numb
 }
 
 // ── 그룹 챌린지 생성·삭제 [C] ── (contract.md §계측 — 퍼널 '챌린지 생성 → 내기 개설 → …' 선두)
-// 서버 MP의 그룹 이벤트는 group_joined뿐이라(백 GroupService ga4) 클라 소유가 맞다 —
+// 그룹 챌린지 결과는 클라이언트가 화면·API 결과를 확인한 뒤 발행한다 —
 // challenge_create_started(진입)와 달리 이 둘은 **API 성공 시에만** 발행한다.
 // has_window: TIME_WINDOW 여부의 명시 축(형식상 mission_type과 중복이지만 계측 표의 계약이다).
 export function logGroupChallengeCreated(
@@ -527,14 +681,22 @@ export function logGroupChallengeCreated(
 export function logGroupChallengeDeleted(p: ChallengeMissionParams): void {
   track('group_challenge_deleted', p);
 }
+// 내기 켬 — PRD §5 성공 지표 "내기 켜짐 비율"의 측정 소스. v2에서 내기는 생성 시에만 켜지므로
+// (N26 — 이후 불변) 생성 성공 경로가 유일한 발행 지점이다. 여기 없으면 지표가 영원히 0이다.
+export function logGroupBetEnabled(p: { stake: number } & ChallengeMissionParams): void {
+  track('group_bet_enabled', p);
+}
 
-// ── 그룹 챌린지 결과(확장 배치 A3) [C] ── (challenge-impl-2026-08/contract.md §2 계측 표)
+// ── 그룹 챌린지 결과(확장 배치 A3 → v2 GROMO-1279) [C] ──
 // 퍼널 "챌린지 생성 → 내기 → **결과 확인** → 재참여"의 결과 확인 칸. API 이벤트가 아니라
 // 모달 노출/닫기라 클라 소유가 자연스럽다.
-// achieved는 **내 결과**다 — null(집계 중)이면 파라미터를 싣지 않는다(sanitize가 undefined 생략).
+// v2: 소스가 /me/challenge-results(N53)로 바뀌며 미션 메타가 응답에 없다 — mission_* 는
+// 옵셔널로 남기고(구 데이터 연속성), 대신 정산 결말(status)을 싣는다(무산·환불 노출 집계).
+// achieved는 **내 결과**다 — null(미판정)이면 파라미터를 싣지 않는다(sanitize가 undefined 생략).
 export function logGroupChallengeResultShown(p: {
-  mission_type: string;
-  mission_category: string;
+  mission_type?: string;
+  mission_category?: string;
+  status?: string;
   achieved?: boolean;
   achiever_count: number;
   member_count: number;
@@ -545,6 +707,11 @@ export function logGroupChallengeResultShown(p: {
 // 결과 모달 닫기 — dwell_ms는 노출부터 닫기까지 체류(ms). 결과를 읽는지 바로 넘기는지 본다.
 export function logGroupChallengeResultClosed(p: { dwell_ms: number }): void {
   track('group_challenge_result_closed', p);
+}
+
+export type GroupChallengeSettlementStatus = 'SETTLED' | 'FORFEITED' | 'VOIDED' | 'REFUNDED';
+export function logGroupChallengeSettled(p: { status: GroupChallengeSettlementStatus }): void {
+  track('group_challenge_settled', p);
 }
 
 // 정산 결과/창 종료 푸시 탭 → 앱 진입(계약 §2 계측 표 push_opened).
@@ -563,6 +730,17 @@ export function logScreentimeWindowReported(p: { minutes: number; is_final: bool
   track('screentime_window_reported', p);
 }
 
+// 하루 사용량 최종 집계 후 목표 달성 여부를 평가한다. 중간 사용량 보고와 분리한다.
+export function logScreentimeGoalEvaluated(p: {
+  goal_met: boolean;
+  actual_seconds: number;
+  target_seconds: number;
+  window_date: string;
+  is_final: boolean;
+}): void {
+  track('screentime_goal_evaluated', p);
+}
+
 // 구 바이너리 가드(getUsageBucketEvents 미지원)에 걸려 창 사용분 업로드를 전체 스킵할 때 —
 // 세션당 1회만(발행 가드는 호출부 screentimeSync가 잡는다). 업데이트 유도 필요 규모 측정용.
 export function logScreentimeWindowUnsupported(): void {
@@ -573,13 +751,13 @@ export function logScreentimeWindowUnsupported(): void {
 // 호출부가 0이 된 지 오래라 제거했다(GROMO-597 Fakedoor 종료). 과거 구간 지표는 대시보드에 이미 적재돼 있다.
 
 // ── 챌린지(Challenge) [C] ── (event-logging-design.md §5.E)
-// created/joined/completed/deleted 등 확정 이벤트는 서버([S]) 소유 — 진입만 클라.
+// 생성·참여·완료·삭제 등 클라이언트가 API 결과를 확인하는 지점에서 발행한다.
 export function logChallengeCreateStarted(): void {
   track('challenge_create_started');
 }
 
 // ── 소셜(Poke) [C] ── (event-logging-design.md §5.F)
-// 수신(poke_received)은 서버 발송이라 [S] — 발신만 클라.
+// 수신(poke_received)은 클라이언트가 푸시를 수신·보관함에 저장할 때도 발행한다.
 export function logPokeSent(): void {
   track('poke_sent');
 }
@@ -597,18 +775,180 @@ export function logRageTapDetected(p: { screen_name: string }): void {
   track('rage_tap_detected', p);
 }
 
+// ── 공통 앱 쉘 [C] ──
+// 기존 대표 화면 이벤트(home_viewed 등)와 별개로, 모든 native stack 화면의 긴 꼬리를 기록한다.
+// screen_name/action/target은 호출부에서 enum처럼 관리하고 자유 입력·PII를 넣지 않는다.
+export type AppEntry = 'cold_start' | 'foreground' | 'auth_complete' | 'unknown';
+export type AuthState = 'guest' | 'member' | 'unknown';
+export type MainTab = 'home' | 'league' | 'group' | 'menu';
+
+export function logAppMainViewed(p: {
+  app_entry: AppEntry;
+  auth_state: AuthState;
+  initial_tab: MainTab;
+}): void {
+  track('app_main_viewed', p);
+}
+
+export function logMainTabSelected(p: { tab: MainTab; from_tab: MainTab }): void {
+  track('main_tab_selected', p);
+}
+
+export function logScreenViewed(p: { screen_name: string; entry_source: string }): void {
+  track('screen_viewed', p);
+}
+
+export function logScreenExited(p: { screen_name: string; dwell_seconds: number }): void {
+  track('screen_exited', p);
+}
+
+export function logUiActionTapped(p: {
+  screen_name: string;
+  action: string;
+  target: string;
+  destination?: string;
+}): void {
+  track('ui_action_tapped', p);
+}
+
+export function logFocusFabTapped(p: { entry_source: 'home_tab_bar' }): void {
+  track('focus_fab_tapped', p);
+}
+
+// ── 캐릭터 [C] ──
+export type CharacterSelectionSource = 'camera' | 'library';
+export type CharacterType = 'default' | 'custom';
+
+export function logCharacterSelectViewed(p: { entry_source: string }): void {
+  track('character_select_viewed', p);
+}
+
+export function logCharacterCreateStarted(p: { entry_source: string }): void {
+  track('character_create_started', p);
+}
+
+export function logCharacterSourceSelected(p: {
+  selection_source: CharacterSelectionSource;
+  entry_source?: string;
+}): void {
+  track('character_source_selected', p);
+}
+
+export function logCharacterCreated(p: {
+  selection_source: CharacterSelectionSource;
+  entry_source?: string;
+}): void {
+  track('character_created', p);
+}
+
+export function logCharacterEquipped(p: { character_type: CharacterType }): void {
+  track('character_equipped', p);
+}
+
+// ── 화폐 클라이언트 이벤트 [C] ──
+export type CurrencySurface = 'focus_result' | 'goal_modal' | 'screentime_modal' | 'league_result';
+export type CurrencyHistoryEntry = 'home_chip' | 'menu_chip';
+export type CurrencyChipLocation = 'home' | 'menu';
+
+export function logCurrencyRewardShown(p: {
+  surface: CurrencySurface;
+  amount: number;
+  reward_type: string;
+}): void {
+  track('currency_reward_shown', p);
+}
+
+export function logCurrencyInsufficient(p: {
+  context: 'bet' | 'shop';
+  required: number;
+  shortfall: number;
+}): void {
+  track('currency_insufficient', p);
+}
+
+export function logCurrencyHistoryViewed(p: {
+  entry: CurrencyHistoryEntry;
+  tx_count?: number;
+}): void {
+  track('currency_history_viewed', p);
+}
+
+export function logCurrencyChipTapped(p: { location: CurrencyChipLocation }): void {
+  track('currency_chip_tapped', p);
+}
+
+// 설정·프로필 성공 이벤트. 저장 성공 시점에만 호출한다.
+export function logProfileUpdated(): void {
+  track('profile_updated');
+}
+
+export function logGoalUpdated(p: { changed_focus: boolean; changed_usage: boolean }): void {
+  track('goal_updated', p);
+}
+
+export function logOccupationUpdated(): void {
+  track('occupation_updated');
+}
+
+export function logAllowedAppsUpdated(p: { app_count: number }): void {
+  track('allowed_apps_updated', p);
+}
+
+export function logScreenTimeSettingsChanged(p: { setting: string; setting_value: string }): void {
+  track('screen_time_settings_changed', p);
+}
+
+export function logSocialAccountUnlinked(p: { method: string }): void {
+  track('social_account_unlinked', p);
+}
+
+export function logPokeReceived(): void {
+  track('poke_received');
+}
+
+export function logLeagueResultViewed(p: { result: 'promoted' | 'maintain' | 'demoted' }): void {
+  track('league_result_viewed', p);
+}
+
+// ── 1:1 문의 [C] ── (docs/prd/inquiry/policy.md D11)
+// 서버에 아무것도 남지 않는 기능이라(D4·D13) 이 세 이벤트가 유일한 계측 수단이다 — 빼면 영영 측정 불가.
+// contact_id 는 닉네임조차 아닌 고정 슬러그(dev-{categoryId})다 — 이 파일 상단의 PII 금지 규칙.
+export function logInquiryScreenViewed(): void {
+  track('inquiry_screen_viewed', { entry_point: 'menu' });
+}
+
+export function logInquiryCategorySelected(category: InquiryCategoryId): void {
+  track('inquiry_category_selected', { category });
+}
+
+export function logInquiryContactOpened(p: {
+  category: InquiryCategoryId | null;
+  contactId: string;
+  isRecommended: boolean;
+}): void {
+  track('inquiry_contact_opened', {
+    // ⚠️ null 을 그대로 넘기면 sanitizeParams 가 키째 드롭한다 — 미선택을 세려면 미리 문자열화한다.
+    category: p.category ?? 'none',
+    contact_id: p.contactId,
+    // ⚠️ boolean 은 전선 위에서 문자열 'true'/'false' 로 간다(sanitizeParams).
+    //    GA4 탐색에서 boolean 으로 필터하면 0건이 나온다 — prd.md §5 참고.
+    is_recommended: p.isRecommended,
+  });
+}
+
 // ── User Properties (PII 금지) ──
 // 알려진 값만 설정한다(undefined는 건너뜀). 자세한 목록은 설계서 §2.3.
 export function setIdentityProps(p: {
-  is_guest: boolean;
+  is_guest?: boolean;
   signup_method?: AuthMethod;
   current_tier?: string;
   occupation?: string;
   country_code?: string;
   screen_time_permission?: boolean;
   onboarding_completed?: boolean;
+  currency_balance_bucket?: '0' | '1-99' | '100-499' | '500+' | null;
 }): void {
-  setUserProperty('is_guest', p.is_guest);
+  if (p.is_guest !== undefined) setUserProperty('is_guest', p.is_guest);
   if (p.signup_method !== undefined) setUserProperty('signup_method', p.signup_method);
   if (p.current_tier !== undefined) setUserProperty('current_tier', p.current_tier);
   if (p.occupation !== undefined) setUserProperty('occupation', p.occupation);
@@ -617,4 +957,6 @@ export function setIdentityProps(p: {
     setUserProperty('screen_time_permission', p.screen_time_permission);
   if (p.onboarding_completed !== undefined)
     setUserProperty('onboarding_completed', p.onboarding_completed);
+  if (p.currency_balance_bucket !== undefined)
+    setUserProperty('currency_balance_bucket', p.currency_balance_bucket);
 }

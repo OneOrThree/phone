@@ -25,6 +25,7 @@ interface UserContextValue {
   goalSecondsRef: RefObject<number>;
   screenTimeGoalSeconds: number; // 하루 목표 사용시간(핸드폰)
   setScreenTimeGoalSeconds: (v: number) => void;
+  sessionIdentityRef: RefObject<{ userId: string | null; active: boolean }>;
 }
 
 interface UserProviderProps {
@@ -58,6 +59,15 @@ export function UserProvider({
     initialScreenTimeGoalSeconds ?? 4 * 3600,
   );
   const goalSecondsRef = useRef(3 * 3600);
+  // 화면 자체가 닫힌 경우와 계정 Provider가 교체된 경우를 비동기 작업이 구분하는 토큰이다.
+  const sessionIdentityRef = useRef({ userId, active: true });
+
+  useEffect(
+    () => () => {
+      sessionIdentityRef.current.active = false;
+    },
+    [],
+  );
 
   const setGoalSeconds = useCallback((v: number) => {
     goalSecondsRef.current = v;
@@ -74,7 +84,9 @@ export function UserProvider({
   // userId는 로그인/게스트 진입 시 1회 정해지고, 로그아웃 시 트리가 리마운트된다.
   useEffect(() => {
     setUserId(userId); // 게스트 포함 항상 JWT sub의 UUID(디코드 실패 시에만 null) — 게스트 구분은 is_guest
-    setIdentityProps({ is_guest: isGuest });
+    // 계정 경계에서 이전 계정의 잔액 버킷을 해제해, 새 계정의 조회 실패 시에도
+    // 이전 계정의 user property가 이어지지 않게 한다.
+    setIdentityProps({ is_guest: isGuest, currency_balance_bucket: null });
   }, [userId, isGuest]);
 
   return (
@@ -91,6 +103,7 @@ export function UserProvider({
         goalSecondsRef,
         screenTimeGoalSeconds,
         setScreenTimeGoalSeconds,
+        sessionIdentityRef,
       }}
     >
       {children}

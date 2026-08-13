@@ -13,7 +13,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import { T } from '@/constants/theme';
 import type { StepProps } from '@/screens/onboarding/types';
 
-// 누끼 체험 스텝 — 캐릭터 소개(CharacterIntroStep) 다음, 닉네임 앞. 스킵 불가.
+// 누끼 체험 스텝 — 캐릭터 소개(CharacterIntroStep) 다음, 닉네임 앞. 원하면 건너뛸 수 있다.
 // "이렇게 내 물건으로 캐릭터를 만들 수 있어요"를 한 번 직접 해보게 하는 체험/맛보기다.
 // 여기서 누끼를 만들어도 기본 장착은 그로몬 유지 — 만든 결과는 온보딩 데이터(cutoutCharacterUri)에
 // 담아 두고, 완료 시 App이 CharacterContext에 시드한다(장착은 나중에 홈 캐릭터 선택에서).
@@ -80,15 +80,18 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       testID="onboarding.step.cutout_experience"
       title={'내가 찍은 사진으로 내 캐릭터를 만들 수 있어요!'}
       subtitle="사진 한 장이면 나만의 캐릭터가 완성돼요."
-      // 작은 화면(SE 등)에서 가이드+만들기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용(스킵 불가 스텝).
+      // 작은 화면(SE 등)에서 가이드+만들기·건너뛰기 버튼이 뷰포트를 넘겨 잘리지 않게 스크롤 허용.
       scrollable
       ctaLabel="다음"
       // 만들어(cutoutCharacterUri 생성) 체험을 완료해야 다음으로. 단, 만들기 불가 기기(canSkip),
       // 서버 모더레이션 '검사 불가'(moderationUnavailable, 백엔드 미배포·장애 등), 그리고 생성기를
       // 열었다가 X로 닫아 포기한 경우(creatorDismissed, 누끼 실패 대비)는 영구 차단을 막기 위해 그냥
-      // 통과시킨다(그 사진은 저장하지 않아 기본 그로몬 유지). 능동 스킵 버튼은 두지 않는다.
+      // 통과시킨다(그 사진은 저장하지 않아 기본 그로몬 유지). 일반 사용자는 아래 건너뛰기로도 진행한다.
       ctaDisabled={!created && !canSkip && !moderationUnavailable && !creatorDismissed}
       onCta={onNext}
+      // 선택 액션은 본문이 아니라 공통 footer의 '다음' 바로 아래에 둔다.
+      secondaryLabel={canCreate && !created ? '건너뛰기' : undefined}
+      onSecondary={onNext}
     >
       <View style={s.guides}>
         {GUIDES.map((g) => (
@@ -126,7 +129,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
             // 생성기를 열었다가 닫은 경우 — 지금 안 만들어도 넘어갈 수 있게 안내한다.
             <Text style={s.hint}>지금 안 만들어도 괜찮아요. 나중에 홈에서 만들 수 있어요.</Text>
           ) : (
-            <Text style={s.hint}>먼저 캐릭터를 만들어 주세요.</Text>
+            <Text style={s.hint}>지금 만들거나 건너뛸 수 있어요.</Text>
           )}
 
           {/* 생성기 — NavigationContainer가 필요 없는 RN Modal로 띄운다. 닫기는 상단 X 버튼. */}
@@ -151,6 +154,7 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
                 <View style={s.modalBody}>
                   <CharacterCreator
                     userId={userId}
+                    entrySource="onboarding"
                     onSaved={handleSaved}
                     onUnavailable={() => setModerationUnavailable(true)}
                   />
@@ -188,7 +192,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: T.space.sm,
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.paper,
     borderWidth: 1.5,

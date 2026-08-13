@@ -14,17 +14,32 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T, withAlpha } from '@/constants/theme';
 import type { V2RootStackParamList } from '@/navigation/types';
-import { triggerLogout } from '@/services/api';
+import { getAuthSessionGeneration } from '@/services/api';
 import { createGroup, groupErrorCode } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { issueInviteLink } from '@/services/inviteLinkApi';
-import { logGroupCreateStarted, logGroupInviteShared } from '@/services/analyticsEvents';
+import {
+  logGroupCardIconSaveResult,
+  logGroupCreateSubmitted,
+  logGroupCreated,
+  logGroupCreateStarted,
+  logGroupInviteShared,
+} from '@/services/analyticsEvents';
+import { useUser } from '@/store/UserContext';
 import { buildInviteShareMessage } from './inviteShare';
+import { GroupCardEmojiPicker } from './components/GroupCardEmojiPicker';
+import {
+  DEFAULT_GROUP_CARD_EMOJI,
+  preservePendingGroupCardEmoji,
+  writeGroupCardEmoji,
+  type GroupCardEmoji,
+} from './groupCardEmojiStore';
 
 // 그룹 생성 화면 (root stack 'GroupCreate') — 명세 docs/app/group-plan.md §6-2
 // + 3차 §D18(챌린지를 그룹 생성과 분리, 소개 추가).
@@ -61,13 +76,20 @@ const VISIBILITY_CAPTION = {
 
 export default function GroupCreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+  const route = useRoute<RouteProp<V2RootStackParamList, 'GroupCreate'>>();
+  const { userId } = useUser();
+  const entryPoint = route.params?.entry_point ?? 'list';
 
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [maxMembers, setMaxMembers] = useState(MEMBERS_DEFAULT);
   const [isPrivate, setIsPrivate] = useState(false);
+  // 생성 전에는 groupId가 없으므로 로컬 draft로만 보관한다.
+  const [cardEmoji, setCardEmoji] = useState<GroupCardEmoji>(DEFAULT_GROUP_CARD_EMOJI);
   const [submitting, setSubmitting] = useState(false);
+  const [emojiSaveFailed, setEmojiSaveFailed] = useState(false);
+  const [createdPublicGroupId, setCreatedPublicGroupId] = useState<string | null>(null);
 
   // 생성 성공한 비공개 그룹 — 값이 있으면 초대 링크 다이얼로그가 뜬다(§6-2 3번).
   // 이름을 id와 **함께** 들고 있는 이유: 요청이 떠 있는 동안에도 이름 입력은 열려 있어서,
@@ -100,11 +122,11 @@ export default function GroupCreateScreen() {
 
   // 진입 계측 — 폼을 실제로 연 횟수(생성 완료율의 분모).
   useEffect(() => {
-    logGroupCreateStarted();
+    logGroupCreateStarted({ entry_point: entryPoint });
     return () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     };
-  }, []);
+  }, [entryPoint]);
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
@@ -115,14 +137,9 @@ export default function GroupCreateScreen() {
   }
 
   // 서버 에러 분기 — HTTP status가 아니라 code로 본다(§3-2). 400 검증 에러만 필드 하이라이트.
-  function handleError(e: unknown) {
+  // requestSessionGeneration = 요청 직전의 인증 세대(유저 부재 분기의 로그아웃 판정용).
+  function handleError(e: unknown, requestSessionGeneration: number) {
     switch (groupErrorCode(e)) {
-      case 'GUEST_FORBIDDEN':
-        Alert.alert('로그인이 필요해요', '게스트는 그룹을 만들 수 없어요.', [
-          { text: '나중에', style: 'cancel' },
-          { text: '로그인하기', onPress: () => navigation.navigate('SettingsAccount') },
-        ]);
-        return;
       // 참여 상한은 참가뿐 아니라 **생성 경로에도** 걸린다(서버 ensureJoinedGroupLimit).
       // 공통 문구로 떨어뜨리면 '잠시 후 다시 시도'가 되는데, 시간이 지나도 절대 풀리지 않는
       // 조건이라 사용자가 재시도만 반복한다 — 상한이라는 사실과 숫자를 그대로 알려준다.
@@ -132,47 +149,37 @@ export default function GroupCreateScreen() {
           `참여할 수 있는 그룹 수를 초과했어요(최대 ${GROUP_LIMIT}개)`,
         );
         return;
-      // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정. 유효 JWT라
-      // 401 인터셉터도 안 타고, 재시도로 절대 안 풀린다. 유일한 탈출구가 재로그인이라
-      // 취소 없는 단일 확인으로 로그아웃 유도(AccountScreen 탈퇴 성공 경로의 triggerLogout 선례).
+      // 유저 행 부재(탈퇴 후 토큰 잔존 등) — #516이 403→404 NOT_FOUND로 정정한 판정.
+      // 문구·형태·로그아웃 유도는 services/sessionErrors.ts가 정본으로 들고 있다(GROMO-1241).
+      // ⚠️ 신구 코드를 **병기**한다 — 서버가 유저 부재를 USER_NOT_FOUND로 나누기 전에 앱이 먼저
+      //    배포되므로, NOT_FOUND를 떼면 서버 배포 전까지 이 재로그인 유도가 조용히 죽는다.
       case 'NOT_FOUND':
-        Alert.alert(
-          '로그인이 필요해요',
-          '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
-          [
-            {
-              text: '확인',
-              // 로그아웃 언마운트는 App.tsx의 user state 스왑(최상위 조건부 렌더)이라 이 화면의
-              // beforeRemove 가드와 무관하고, submittingRef는 submit()의 finally가 이미 풀었다
-              // (#530 claude 리뷰). 버튼 핸들러에서 부르는 건 사용자가 안내를 읽고 확인한 뒤
-              // 세션을 정리하는 UX 순서일 뿐이다.
-              onPress: () => triggerLogout(),
-            },
-            // 단일 탈출구 강제 — iOS는 바깥 탭 닫기가 없지만, 취소 불가 의도를 명시해 두면
-            // 안드로이드 지원 시 백 버튼 무콜백 닫힘(로그아웃 미실행 잔류)을 막는다(#530 codex).
-          ],
-          { cancelable: false },
-        );
+      case USER_NOT_FOUND:
+        promptSessionExpired(requestSessionGeneration);
         return;
       default: {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
         if (status === 400) {
           // 앱이 막지 못한 검증 실패 — 자유 입력은 이름뿐이라 이름을 짚어준다.
-          setNameError('그룹 이름을 다시 확인해주세요');
+          setNameError('그룹 이름을 다시 확인해 주세요');
           return;
         }
-        Alert.alert('그룹을 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+        Alert.alert('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
 
   async function submit() {
     // 버튼이 disabled={!canSubmit}라 여기 걸리는 경로는 없다 — 연타 방어로만 남긴다.
-    // (예전엔 '그룹 이름을 입력해주세요'를 세웠지만 도달 불가라 화면에 뜬 적이 없다.)
+    // (예전엔 '그룹 이름을 입력해 주세요'를 세웠지만 도달 불가라 화면에 뜬 적이 없다.)
     if (!canSubmit) return;
     submittingRef.current = true;
     setSubmitting(true);
     setNameError(null);
+    logGroupCreateSubmitted({ entry_point: entryPoint, is_private: isPrivate });
+    // 요청을 띄우기 직전의 인증 세대 — 응답이 오는 사이(그리고 안내를 확인하는 사이) 세션이
+    // 교체되면 이 응답의 로그아웃은 새 세션에 적용되면 안 된다(sessionErrors.ts 주석).
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const { groupId } = await createGroup({
         name: trimmedName,
@@ -181,16 +188,34 @@ export default function GroupCreateScreen() {
         maxMembers,
         isPrivate,
       });
+      logGroupCreated({ entry_point: entryPoint, is_private: isPrivate });
+      // 서버가 실제 groupId를 준 뒤에만 계정×그룹 로컬 설정을 만든다. 저장 실패는 이미 성공한
+      // 그룹 생성을 취소하거나 create API body를 바꾸지 않는다.
+      let localSaveFailed = false;
+      if (userId) {
+        try {
+          await writeGroupCardEmoji(userId, groupId, cardEmoji);
+          logGroupCardIconSaveResult({ surface: 'create', result: 'success' });
+        } catch {
+          preservePendingGroupCardEmoji(userId, groupId, cardEmoji);
+          logGroupCardIconSaveResult({ surface: 'create', result: 'failed' });
+          setEmojiSaveFailed(true);
+          localSaveFailed = true;
+        }
+      }
       // 생성이 끝났으므로 이탈 차단을 먼저 푼다 — 아래 goBack()도 beforeRemove를 지나간다.
       submittingRef.current = false;
       // 비공개는 링크가 유일한 입구라 공유 다이얼로그를 반드시 거친다. 공개는 바로 돌아간다.
       if (isPrivate) {
         setCreated({ id: groupId, name: trimmedName });
+      } else if (localSaveFailed) {
+        // 생성은 이미 성공했다. 폼에 inline 오류와 단일 복귀 경로를 남겨 중복 생성을 막는다.
+        setCreatedPublicGroupId(groupId);
       } else {
         navigation.goBack();
       }
     } catch (e) {
-      handleError(e);
+      handleError(e, requestSessionGeneration);
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -206,7 +231,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return null;
     }
   }
@@ -249,7 +274,7 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해주세요.');
+      Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
     }
   }
 
@@ -372,11 +397,35 @@ export default function GroupCreateScreen() {
           </Text>
         </View>
 
+        <Text style={s.label}>내 카드 아이콘</Text>
+        <GroupCardEmojiPicker
+          value={cardEmoji}
+          onChange={setCardEmoji}
+          testIDPrefix="group.create.cardEmoji"
+          disabled={submitting || createdPublicGroupId !== null}
+        />
+        {emojiSaveFailed && (
+          <Text style={s.errorText} accessibilityLiveRegion="polite">
+            내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+          </Text>
+        )}
+
+        {createdPublicGroupId && (
+          <TouchableOpacity
+            style={s.outlineDoneButton}
+            activeOpacity={0.85}
+            onPress={() => navigation.goBack()}
+            testID="group.create.cardEmoji.continue"
+          >
+            <Text style={s.outlineDoneText}>그룹으로 돌아가기</Text>
+          </TouchableOpacity>
+        )}
+
         {/* ── CTA ── */}
         <TouchableOpacity
-          style={[s.submitBtn, canSubmit ? null : s.submitBtnOff]}
+          style={[s.submitBtn, canSubmit && createdPublicGroupId === null ? null : s.submitBtnOff]}
           activeOpacity={0.85}
-          disabled={!canSubmit}
+          disabled={!canSubmit || createdPublicGroupId !== null}
           onPress={submit}
           testID="group.create.submit"
         >
@@ -398,7 +447,12 @@ export default function GroupCreateScreen() {
         <View style={s.overlay}>
           <View style={s.card}>
             <Text style={s.cardTitle}>비공개 그룹을 만들었어요 🎉</Text>
-            <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해주세요.</Text>
+            <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해 주세요.</Text>
+            {emojiSaveFailed && (
+              <Text style={s.errorText} accessibilityLiveRegion="polite">
+                내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.
+              </Text>
+            )}
             <View style={s.cardActions}>
               <TouchableOpacity style={s.cardOutlineBtn} activeOpacity={0.85} onPress={copyLink}>
                 <Text style={s.cardOutlineText}>{copied ? '복사했어요' : '링크 복사'}</Text>
@@ -466,7 +520,8 @@ const s = StyleSheet.create({
     borderRadius: 13,
     paddingHorizontal: T.space.md,
     // 46 = 찾기 시트 검색 인풋·FriendAddScreen과 같은 값(앱 내 유일하게 50이던 것을 맞춤)
-    height: 46,
+    minHeight: 46,
+    paddingVertical: T.space.md,
   },
   inputBoxError: { borderColor: T.dangerInk, backgroundColor: T.dangerBg },
   input: { ...T.text.label, flex: 1, color: T.ink, padding: 0 },
@@ -561,7 +616,8 @@ const s = StyleSheet.create({
 
   // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격). marginTop 28은 8pt 그리드 밖이라 토큰으로 내렸다.
   submitBtn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -570,6 +626,17 @@ const s = StyleSheet.create({
   },
   submitBtnOff: { opacity: 0.5 },
   submitText: { ...T.text.subtitle, color: T.white },
+  outlineDoneButton: {
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: T.border,
+    backgroundColor: T.white,
+    marginTop: T.space.lg,
+  },
+  outlineDoneText: { ...T.text.subtitle, color: T.ink },
 
   // 초대 링크 다이얼로그 — 탈퇴 확인 모달과 같은 스크림·카드 규격
   overlay: {
@@ -595,7 +662,8 @@ const s = StyleSheet.create({
   cardActions: { flexDirection: 'row', gap: T.space.sm, marginTop: T.space.xl },
   cardOutlineBtn: {
     flex: 1,
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -606,7 +674,8 @@ const s = StyleSheet.create({
   cardOutlineText: { ...T.text.label, fontWeight: '700', color: T.ink },
   cardFillBtn: {
     flex: 1,
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',

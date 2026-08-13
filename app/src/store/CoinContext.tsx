@@ -11,7 +11,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { useUser } from './UserContext';
+import { setCoinRefreshListener } from './coinRefreshSignal';
 import { STORAGE_KEYS } from '@/types/storage';
+import { setIdentityProps } from '@/services/analyticsEvents';
 
 interface CoinContextValue {
   coins: number;
@@ -53,6 +55,13 @@ type OwnedItemsByUser = Record<string, string[]>;
 // userId(JWT sub)를 디코드하지 못한 비정상 세션의 폴백 버킷 — 정상 경로에선 쓰이지 않는다.
 const FALLBACK_BUCKET = 'unknown';
 
+function currencyBalanceBucket(value: number): '0' | '1-99' | '100-499' | '500+' {
+  if (value <= 0) return '0';
+  if (value < 100) return '1-99';
+  if (value < 500) return '100-499';
+  return '500+';
+}
+
 // 보유 아이템 키에 닿는 모든 쓰기를 직렬화하는 큐 — Provider 저장과 전환 인계가 서로의
 // 쓰기를 낡은 스냅샷으로 덮어쓰지 않게, 읽기-수정-쓰기를 한 단위로 순차 실행한다(코덱스 리뷰).
 let ownedItemsWrites: Promise<void> = Promise.resolve();
@@ -91,6 +100,7 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   const [coinsVersion, setCoinsVersion] = useState(0);
   const [ownedItemIds, setOwnedItemIds] = useState<string[]>([]);
   const loaded = useRef(false);
+  const coinsRef = useRef(0);
   // 조회 시퀀스 — refresh는 여러 곳에서 겹쳐 불린다(시트 오픈 + 성공 직후 + 인라인 재시도).
   // 순서를 지키지 않으면 **차감 전 잔액**을 실은 늦은 응답이 차감 후 잔액을 덮어써, 화면이
   // 재산을 과대 표시하고 부족 검사를 잘못 통과시킨다(코덱스 리뷰). 최신 호출의 결과만 반영한다.
@@ -109,10 +119,12 @@ export function CoinProvider({ children }: { children: ReactNode }) {
       // 뒤이어 시작된 조회가 있으면 이 응답은 이미 낡았다 — 실패 처리도 마찬가지로 건너뛴다.
       // 반영되지 않았으므로 성공이라 말하지 않는다(위 인터페이스 주석 — 무효 ≠ 성공).
       if (seq !== refreshSeqRef.current) return false;
+      coinsRef.current = res.data;
       setCoins(res.data);
       setCoinsLoaded(true);
       coinsVersionRef.current += 1;
       setCoinsVersion(coinsVersionRef.current);
+      setIdentityProps({ currency_balance_bucket: currencyBalanceBucket(res.data) });
       return true;
     } catch {
       if (seq !== refreshSeqRef.current) return false;
@@ -123,6 +135,16 @@ export function CoinProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // 트리 밖(푸시 딥링크 등)에서 올라온 재조회 요청을 받는다(codex 리뷰 P2) — 환불 푸시처럼
+  // **잔액만 바뀌고 화면에 걸리는 사건이 없는** 경우, 이 배선이 없으면 앱이 살아 있는 내내
+  // 환불 전 잔액이 그대로 남는다(결과 모달·정산 서명 어느 경로에도 걸리지 않는다).
+  // refresh의 반환값(반영됐는가)을 그대로 넘긴다 — 신호 쪽이 '성공까지 보류 유지'를 판단하는
+  // 근거다. 실패·시퀀스 가드에 밀린 미반영을 성공으로 치면 요청이 조용히 증발한다.
+  useEffect(() => {
+    setCoinRefreshListener(refresh);
+    return () => setCoinRefreshListener(null);
   }, [refresh]);
 
   // 보유 아이템은 AsyncStorage 유지 (아이템 API 미구현)
@@ -151,12 +173,15 @@ export function CoinProvider({ children }: { children: ReactNode }) {
   }
 
   async function buyItem(itemId: string, price: number) {
-    if (coins < price) return false;
+    if (coinsRef.current < price) return false;
     try {
       // 서버 CurrencyRequest 정식 필드는 type이다(671에서 reason → type 리네임, 구 페이로드는
       // @JsonAlias("reason") 흡수로만 동작) — 정식 필드로 정리해 alias 의존을 끊는다.
       await api.post('/api/v1/currency/spend', { amount: price, type: 'PURCHASE' });
-      setCoins((prev) => prev - price);
+      const nextCoins = coinsRef.current - price;
+      coinsRef.current = nextCoins;
+      setCoins(nextCoins);
+      setIdentityProps({ currency_balance_bucket: currencyBalanceBucket(nextCoins) });
       setOwnedItemIds((prev) => [...prev, itemId]);
       return true;
     } catch {

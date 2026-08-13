@@ -91,18 +91,29 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
 ## Observability
 
 - Spring Actuator + Micrometer expose health/metrics (`/actuator/prometheus`,
-  GROMO-546) — the Prometheus endpoint is exposed on the `dev`/`loadtest` profiles
-  only; `prod` does not expose it.
+  GROMO-546) on the `dev`, `loadtest`, and `prod` profiles (GROMO-1489 added
+  `prod` so custom metrics are not dev-only). Each of them puts the endpoint on
+  **management port 9091**, which is never published to the host — only
+  same-network collectors reach it. `/actuator/*` sits outside `JwtFilter`
+  (`/api/*` only) and Boot runs the management port in a separate servlet
+  context, so **port isolation is the only thing keeping it private**: never add
+  `9091` to a compose `ports:` list.
 - `docker-compose.observability.yml` (repo root) overlays Prometheus + Grafana +
   Loki/Promtail on the dev stack; configs live in the repo-root `observability/`
   (see its README).
-- `docker-compose.datadog.yml` + the manual `dev-datadog.yml` workflow toggle the
-  Datadog agent (APM) on dev.
+- Datadog runs on both environments: `docker-compose.datadog.yml` + the manual
+  `dev-datadog.yml` workflow toggle it on dev, and `docker-compose.prod.yml`
+  carries the same wiring permanently. The OpenMetrics scrape config is baked
+  into `back/Dockerfile` as a `com.datadoghq.ad.checks` label (prod hosts have no
+  repo checkout to mount a config file from) — edit the metric list there.
 
 ## Deploy
 
 - **Dev**: `cd.yml` builds a Docker image on `main` push and deploys to AWS
-  (secrets from Secrets Manager `oneorthree/phone`); health check at `/health`.
+  (OIDC role `gromo-dev-github-actions`, region `ap-northeast-2`, runtime secrets from
+  Secrets Manager `gromo/dev/env`); health check at `/health`. Dev images use GAR, not
+  ECR; host-bootstrap secrets (`gromo/dev/app-server`, `gromo/dev/ci-runner`) remain
+  instance-role-only and are not loaded by the deployment workflow.
 - **Prod**: `prod-ci.yml` (on `release`) builds + pushes the image →
   `prod-cd.yml` deploys it (auto via `workflow_run`, or manual dispatch by SHA);
   `prod-rollback.yml` rolls back manually.

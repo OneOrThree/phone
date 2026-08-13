@@ -10,6 +10,7 @@
 //   await ScreenTimeModule.requestAuthorization();
 
 import Foundation
+import CryptoKit
 import ActivityKit     // 집중 세션 Live Activity(다이나믹 아일랜드)
 import FamilyControls  // 스크린 타임 권한 요청에 필요한 Apple 프레임워크
 import DeviceActivity  // DeviceActivityCenter, DeviceActivitySchedule, DeviceActivityEvent
@@ -20,6 +21,12 @@ import WidgetKit       // 캐릭터 스냅샷 변경 시 홈 위젯 타임라인
 // @objc: Objective-C 런타임에 노출 (React Native 브릿지가 ObjC 기반이라 필요)
 @objc(ScreenTimeModule)
 class ScreenTimeModule: NSObject {
+
+    // FamilyActivitySelection 토큰은 외부로 내보내지 않고 변경 여부 비교용 서명만 반환한다.
+    private func selectionSignature(_ selection: FamilyActivitySelection) -> String {
+        guard let data = try? JSONEncoder().encode(selection) else { return "" }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 
     // React Native 브릿지에 이 모듈을 등록할 때 사용하는 이름
     // JS에서 NativeModules.ScreenTimeModule로 접근 가능
@@ -390,12 +397,18 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:goal:selectionPending")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다 — 허용 앱 관리자와 같은 계약이다.
+                    //    즉시 풀면 JS가 아직 떠 있는 피커 아래에서 토스트 등장과 2200ms 타이머를
+                    //    시작해 실제 노출 시간이 줄어든다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count,
+                            // 구 바이너리는 이 키가 없다 — JS가 그때는 Alert로 폴백한다.
+                            "dismissed": true
+                        ])
+                    }
                 },
                 onCancel: {
                     top.dismiss(animated: true)
@@ -524,12 +537,23 @@ class ScreenTimeModule: NSObject {
                     if let data = try? JSONEncoder().encode(selection) {
                         defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                     }
-                    top.dismiss(animated: true)
-                    resolve([
-                        "applications": selection.applicationTokens.count,
-                        "categories": selection.categoryTokens.count,
-                        "webDomains": selection.webDomainTokens.count
-                    ])
+                    // ⚠️ dismiss **완료 뒤에** resolve한다. 즉시 풀면 JS가 아직 떠 있는 네이티브 모달
+                    //    아래에서 토스트 등장과 2200ms 노출 타이머를 시작해, 사용자는 모달이 사라진 뒤
+                    //    토스트가 갑자기 나타나는 데다 실제 노출 시간도 짧아진다(codex 리뷰).
+                    top.dismiss(animated: true) {
+                        resolve([
+                            "applications": selection.applicationTokens.count,
+                            "categories": selection.categoryTokens.count,
+                            "webDomains": selection.webDomainTokens.count,
+                            "selectionSignature": selectionSignature(selection),
+                            // ⚠️ JS가 **이 바이너리가 dismiss 완료 뒤에 resolve하는지** 판별하는
+                            //    표식. hot-updater로 새 JS만 받은 구 바이너리는 이 키가 없어
+                            //    undefined이고, 그쪽은 아직 모달이 떠 있는 채로 resolve하므로
+                            //    등장 연출이 있는 UI(토스트)를 쓰면 안 된다(codex 리뷰).
+                            //    새 메서드를 추가하는 대신 응답으로 알리면 능력 판별 왕복이 없다.
+                            "dismissed": true
+                        ])
+                    }
                 }
             )
 
@@ -560,7 +584,8 @@ class ScreenTimeModule: NSObject {
         resolve([
             "applications": selection.applicationTokens.count,
             "categories": selection.categoryTokens.count,
-            "webDomains": selection.webDomainTokens.count
+            "webDomains": selection.webDomainTokens.count,
+            "selectionSignature": selectionSignature(selection)
         ])
     }
 

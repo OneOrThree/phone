@@ -6,6 +6,14 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
+import { requestCoinRefresh } from '@/store/coinRefreshSignal';
+import {
+  clearPendingDirectGroupEntry,
+  clearPendingGroupEntry,
+  discardInitialGroupRoomReturn,
+  markInitialGroupRoomReturn,
+  queueDirectGroupEntry,
+} from '@/navigation/groupEntrySource';
 
 export const navigationRef = createNavigationContainerRef<V2RootStackParamList>();
 
@@ -16,6 +24,16 @@ let pendingLink: string | null = null;
 // navigateToDeepLink 진입마다 올려서, 진행 중인 조회는 자기 세대가 최신일 때만 이동을 완료한다
 // (화면들이 쓰는 requestSeqRef와 같은 방식).
 let groupLinkSeq = 0;
+// 이 모듈이 아직 GroupScreen에 소비되지 않았을 수 있는 direct source를 예약한 세대.
+// 후속 딥링크나 지연 push 취소가 해당 source를 폐기할 때 최신 예약을 지우지 않도록 세대와 묶는다.
+let pendingGroupEntrySeq: number | null = null;
+
+function discardQueuedGroupEntry(seq?: number): void {
+  if (pendingGroupEntrySeq === null) return;
+  if (seq !== undefined && pendingGroupEntrySeq !== seq) return;
+  clearPendingGroupEntry();
+  pendingGroupEntrySeq = null;
+}
 
 // ── 그룹 초대 링크 수신 계약 (docs/app/group-plan.md §6-6) ───────────────────────────
 // 초대 프리뷰(GroupInviteSheet)는 **라우트가 아니라 GroupScreen 안의 오버레이**라 navigate()로 띄울 수
@@ -77,17 +95,29 @@ export function navigateToDeepLink(link: string): void {
     pendingLink = link; // 컨테이너 준비 전 → 버퍼링
     return;
   }
+  // 컨테이너 준비 전 버퍼에 남아 있던 링크가 있더라도, 준비 후 도착한 새 링크가
+  // 최신 목적지다. onReady가 초기화를 기다리는 동안 오래된 링크를 다시 소비하지 않게 한다.
+  pendingLink = null;
   // 새 딥링크는 **종류·파라미터 유효성과 무관하게** 진행 중인 그룹 목록 조회를 무효화한다
   // (코덱스 리뷰). 그룹 링크를 탭해 조회가 도는 동안 보관함에서 home·friends나 g가 깨진 링크를
   // 다시 탭하면, 세대를 여기서 올리지 않을 경우 먼저 시작한 조회가 뒤늦게 끝나며 최신 목적지
   // 위에 그룹방을 다시 열어 버린다.
   const seq = ++groupLinkSeq;
+  // 새 링크가 도착했다는 사실 자체가 이전 지연 push/invite 전환을 중단한다. 이전 source를
+  // 그대로 두면 나중에 사용자가 직접 그룹 탭을 열었을 때 오래된 유입으로 소비된다.
+  discardQueuedGroupEntry();
 
   // 초대 링크 판정은 **파서를 먼저** 태운다 — 파싱 규격의 단일 소스는 @/utils/inviteLink이고,
   // 파서가 받아주는 슬래시 변형(gromo:///join?g=…)을 여기서 경로 문자열로 다시 자르면
   // 첫 세그먼트가 빈 문자열이 되어 'join'에 닿지 못한다.
   const invite = parseInviteLink(link);
   if (invite) {
+    // 이미 그룹 화면이 focus된 warm invite는 현재 episode와 다음 source를 바꾸지 않는다.
+    // 다른 화면에서 실제 새 focus를 만드는 direct entry만 GroupScreen이 1회 소비한다.
+    if (navigationRef.getCurrentRoute?.()?.name !== '그룹') {
+      queueDirectGroupEntry('invite');
+      pendingGroupEntrySeq = seq;
+    }
     navigationRef.navigate('Main', { screen: '그룹' } as never);
     // 6a invite_link_opened(스펙 §4-3) — '링크로 앱이 열렸다'는 사실 자체가 퍼널 단계다.
     // via는 링크 형식으로 가른다: https 프리픽스면 Universal Link, 아니면 랜딩의 스킴 점프.
@@ -105,19 +135,50 @@ export function navigateToDeepLink(link: string): void {
   const path = link.replace(/^gromo:\/\/+/i, '').split(/[/?#]/)[0];
   switch (path) {
     case 'league':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '리그' } as never);
       break;
     case 'focus':
-      navigationRef.navigate('FocusCategory');
+      navigationRef.navigate('FocusCategory', {
+        initialGroupId: undefined,
+        entrySource: 'unknown',
+        interactionId: undefined,
+        interactionAcceptedAt: undefined,
+      });
       break;
     case 'home':
+      discardInitialGroupRoomReturn();
       navigationRef.navigate('Main', { screen: '홈' } as never);
       break;
     case 'group':
-      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}]) — 먼저 그룹 탭으로
-      // 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
+      // 그룹 푸시 딥링크(gromo://group?g={groupId}[&challenge={challengeId}][&result=1][&refund=1]) —
+      // 먼저 그룹 탭으로 이동해 두고(조회 실패 폴백), 내 그룹이 맞으면 그룹방을 스택에 push 한다.
       // challenge가 실려 있으면 그룹방이 그 챌린지의 결과 모달을 자동으로 연다(GROMO-1088).
-      navigateToGroup(seq, readGroupParam(link), readChallengeParam(link));
+      // result=1(결과성 푸시 — push.ts가 합성)은 멤버십 게이트를 우회한다(아래 pushGroupRoom).
+      // refund=1(환불 푸시)은 잔액 재조회를 요청한다 — 삭제 환불은 결과 모달에서 빠지고 챌린지
+      // 목록에도 안 남아, 이 표식이 없으면 화면 어느 경로도 잔액을 다시 받지 않는다(codex 리뷰 P2).
+      // 그룹방 push 성사 여부와 무관하게 태운다 — 잔액은 그룹 소속과 상관없는 내 재산이다.
+      const groupId = readGroupParam(link);
+      const resultPush = readResultFlag(link);
+      const currentRoute = navigationRef.getCurrentRoute?.()?.name;
+      // 결과성 push는 아래에서 목록을 건너뛰므로 다음 GroupScreen episode의 direct source가
+      // 아니다. 방을 닫은 뒤의 복귀를 push로 오염시키지 않도록 일반 push에만 예약한다.
+      if (!(resultPush && groupId !== null) && currentRoute !== '그룹') {
+        queueDirectGroupEntry('push');
+        pendingGroupEntrySeq = seq;
+      }
+      // 결과성 push는 목록 focus 전에 GroupRoom으로 곧바로 우회할 수 있다. 그룹 흐름 밖에서
+      // 시작한 우회라면 방을 닫은 뒤 처음 보이는 목록은 탭 진입이 아니라 자식 화면 복귀다.
+      if (
+        resultPush &&
+        groupId !== null &&
+        currentRoute !== '그룹' &&
+        currentRoute !== 'GroupRoom'
+      ) {
+        markInitialGroupRoomReturn();
+      }
+      if (readRefundFlag(link)) requestCoinRefresh();
+      navigateToGroup(seq, groupId, readChallengeParam(link), resultPush);
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
@@ -151,17 +212,40 @@ function readChallengeParam(link: string): string | null {
   return readUuidParam(link, 'challenge');
 }
 
+// 결과성 푸시 표식(result=1 — push.ts RESULT_PUSH_TYPES가 합성) — 정산 결과·환불 통지는 참가자
+// 스코프 사건이라(N53·C8) 탈퇴자에게도 도달해야 한다. 이 표식이 있으면 아래 pushGroupRoom이
+// 멤버십 게이트를 우회한다.
+function readResultFlag(link: string): boolean {
+  return /[?&]result=1(?=[&#]|$)/i.test(link);
+}
+
+// 환불 푸시 표식(refund=1 — push.ts REFUND_PUSH_TYPES가 합성) — 이 링크로 열린 진입에서
+// 잔액을 다시 받는다. 삭제 환불은 결과 모달 대상에서 제외되고(challengeResult.ts의
+// voidReason 필터) 그룹의 챌린지 목록에서도 사라져, GroupRoomScreen의 refreshCoins 경로가
+// 하나도 발화하지 않는다 — 환불 전 잔액이 앱이 살아 있는 내내 남는다(codex 리뷰 P2).
+function readRefundFlag(link: string): boolean {
+  return /[?&]refund=1(?=[&#]|$)/i.test(link);
+}
+
 // 그룹 푸시의 그룹 화면 진입 — GroupScreen의 목록 카드 탭(onSelectGroup)과 **같은 분기**를 쓴다:
 // A-9(3차) 이후 소속이 1개든 여러 개든 그룹 탭의 기본 화면은 목록이고, 그룹방은 라우트 push로만
 // 열린다(내장 렌더 폐지 — GroupScreen.tsx §A-9 주석). 그래서 소속 수를 보지 않고 push 한다.
 // 내 그룹인지는 확인한다 — 목록을 직접 받아, 조회가 실패하거나 내 그룹이 아니면(푸시 수신 후
 // 탈퇴 등) 이미 이동해 둔 그룹 탭이 폴백이다.
 // 그룹방 진입 자체가 재조회를 트리거해(useFocusEffect) 챌린지 결과 모달로 이어진다(A3).
-function navigateToGroup(seq: number, groupId: string | null, challengeId: string | null): void {
+function navigateToGroup(
+  seq: number,
+  groupId: string | null,
+  challengeId: string | null,
+  resultPush: boolean,
+): void {
   navigationRef.navigate('Main', { screen: '그룹' } as never);
-  if (!groupId) return;
+  if (!groupId) {
+    discardQueuedGroupEntry(seq);
+    return;
+  }
   // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
-  pushGroupRoom(seq, groupId, challengeId).catch(() => {});
+  pushGroupRoom(seq, groupId, challengeId, resultPush).catch(() => {});
 }
 
 // 지연 이동을 계속해도 되는가 — 딥링크는 그룹 탭으로 먼저 옮겨 두고 목록 조회를 기다리는데,
@@ -178,16 +262,48 @@ async function pushGroupRoom(
   seq: number,
   groupId: string,
   challengeId: string | null,
+  resultPush: boolean,
 ): Promise<void> {
-  const groups = await getMyGroups();
-  if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
-  if (!navigationRef.isReady()) return;
-  if (!isStillInGroupFlow()) return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
-  if (!groups.some((g) => g.groupId === groupId)) return;
+  // 결과성 푸시(result=1)는 멤버십 게이트를 **우회**한다(PR #566 리뷰 P1 — N53·C8). 탈퇴자는
+  // getMyGroups에 그 그룹이 없어 여기서 잘리는데, 그러면 참가자 스코프 결과(/me/challenge-results)
+  // 를 부르는 화면(GroupRoomScreen)에 도달조차 못 한다 — 다른 소속 그룹이 없으면 결과를 볼 통로가
+  // 0이 된다. 그룹방이 MEMBER_ONLY를 받으면 결과 모달을 소비시킨 뒤 스스로 물러난다(onLeft 유예).
+  // 비결과성 딥링크(모집·생성·초대 등)의 게이트는 그대로다 — 탈퇴한 그룹방을 아무 경로로나 열게
+  // 하지 않는다. 우회 경로는 조회 대기가 없어(동기 진행) 대기 중 화면 이탈 가드도 불필요하다.
+  if (!resultPush) {
+    const groups = await getMyGroups();
+    if (seq !== groupLinkSeq) return; // 더 늦게 탭한 링크가 이미 이동을 맡았다
+    if (!navigationRef.isReady()) {
+      discardQueuedGroupEntry(seq);
+      return;
+    }
+    if (!isStillInGroupFlow()) {
+      discardQueuedGroupEntry(seq);
+      return; // 사용자가 조회를 기다리는 사이 스스로 다른 화면으로 갔다
+    }
+    if (!groups.some((g) => g.groupId === groupId)) {
+      discardQueuedGroupEntry(seq);
+      return;
+    }
+  }
+  if (!navigationRef.isReady()) {
+    discardQueuedGroupEntry(seq);
+    return;
+  }
   // challengeId는 **없어도 키를 싣는다** — 이미 스택에 있는 GroupRoom으로 다시 navigate 하면
   // 파라미터가 병합될 수 있어, 키를 빼면 직전 딥링크의 challengeId가 남아 엉뚱한 결과 모달이
   // 다시 뜬다(새 챌린지 등록 푸시처럼 challenge 없는 링크가 뒤따르는 경우).
-  navigationRef.navigate('GroupRoom', { groupId, challengeId: challengeId ?? undefined });
+  // GroupRoom 우회가 확정되면 GroupScreen이 아직 소비하지 못한 push source를 폐기한다.
+  // 화면 fetch가 먼저 성공했다면 이미 소비된 뒤라 no-op이고, 우회가 먼저면 다음 episode 오염을 막는다.
+  clearPendingDirectGroupEntry();
+  if (pendingGroupEntrySeq === seq) pendingGroupEntrySeq = null;
+  navigationRef.navigate('GroupRoom', {
+    groupId,
+    challengeId: challengeId ?? undefined,
+    entrySource: 'unknown',
+    interactionId: undefined,
+    interactionAcceptedAt: undefined,
+  });
 }
 
 // NavigationContainer onReady에서 호출 — 준비 전에 도착한 링크를 1회 흘려보낸다.

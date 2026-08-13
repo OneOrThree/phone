@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.dto.GroupBetHistoryItemResponse;
 import com.oneorthree.phone.group.dto.GroupBetHistorySliceResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultParticipantResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
+import com.oneorthree.phone.group.service.GroupBetJoinService;
 import com.oneorthree.phone.group.service.GroupBetService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +57,11 @@ class GroupBetControllerTest {
 
     @MockitoBean
     private GroupBetService groupBetService;
+
+    // 신 참여 3종(GROMO-1408) 의존성 — 이 슬라이스의 기존 테스트는 호출하지 않지만 컨트롤러
+    // 생성자가 요구한다.
+    @MockitoBean
+    private GroupBetJoinService groupBetJoinService;
 
     @Test
     @DisplayName("히스토리 응답 — 근거 없는(V29 이전) 정산 건도 goalMinutes·progressMinutes 키가 null 로 실린다")

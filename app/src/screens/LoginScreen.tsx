@@ -5,8 +5,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  ScrollView,
   Alert,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -60,7 +62,12 @@ const ALL_PROVIDERS: {
 ];
 
 // 애플 로그인은 expo-apple-authentication이 iOS 전용 — 안드로이드에선 버튼 미노출(GROMO-998).
-const PROVIDERS = ALL_PROVIDERS.filter((p) => p.method !== 'apple' || Platform.OS === 'ios');
+const PROVIDERS = ALL_PROVIDERS.filter(
+  (p) => Platform.OS !== 'web' && (p.method !== 'apple' || Platform.OS === 'ios'),
+);
+
+const GUEST_LOGIN_NOTICE =
+  '기록은 서버에 저장되지만 이 기기의 인증 정보로만 다시 접근할 수 있어요. 앱을 지우거나 기기를 바꾸거나 인증 정보가 만료되면 기록을 되찾을 수 없어요.';
 
 export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps) {
   const [busy, setBusy] = useState<Method | null>(null);
@@ -68,6 +75,17 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
   // 마지막으로 로그인한 소셜 — 재방문 시 해당 버튼에 '최근 사용' 배지(GROMO-602).
   // 저장값이 화면에 없는 provider(메타/라인)면 매칭되는 버튼이 없어 배지 미표시.
   const [lastProvider, setLastProvider] = useState<AuthMethod | null>(null);
+  // '최근 사용' 배지는 버튼 위에 겹쳐 놓는 장식이라, 기본 배율에서도 가운데 라벨과 3pt 남짓
+  // 사이를 두고 지나간다. 기기 글자 크기를 키우면 라벨과 배지가 서로를 파고들어 둘 다 못 읽게
+  // 되므로, 배율이 올라가면 배지를 접는다 — 장식을 접어 기능(라벨)을 살리는 쪽(GROMO-1485).
+  //
+  // ⚠️ 여기서 걸리는 건 **가로 폭**이지 버튼 높이가 아니다(높이는 minHeight가 알아서 자란다).
+  // 라벨은 버튼 전체 폭 기준 가운데 정렬이라 커질수록 양쪽으로 퍼지는데, 배지는 오른쪽에
+  // 고정돼 있다. xxLarge(1.235)만 돼도 '카카오로 계속하기'가 배지 자리를 침범한다 —
+  // 그래서 표준 Dynamic Type 단계에서도 배지가 사라진다. 이건 손해를 알고 고른 쪽이다.
+  // (배지를 끝까지 살리려면 아이콘 점으로 줄이거나 버튼 위 한 줄로 빼는 디자인 변경이 필요.)
+  const { fontScale } = useWindowDimensions();
+  const showLastBadge = fontScale <= 1.15;
 
   useEffect(() => {
     // 빠른 언마운트(자동 로그인·딥링크 레이스) 시 해제된 컴포넌트 setState 방지 — 다른 화면 패턴과 일관.
@@ -116,7 +134,9 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
     }
   }
 
-  // 로그인 없이 시작 = 게스트 세션 생성(백엔드 /auth/guest). 소셜과 동일하게 onLogin으로 흘려보낸다.
+  // 게스트 로그인 = 게스트 세션 생성(백엔드 /auth/guest). 소셜과 동일하게 onLogin으로 흘려보낸다.
+  // 실제 계정 생성은 안내창 확인 뒤에만 실행한다 — 안내창을 닫은 사용자의 빈 게스트 계정이
+  // 서버에 남거나 온보딩 선택 이벤트가 오염되지 않게 선택 계측도 runGuest 안에 둔다.
   async function runGuest() {
     if (busy !== null || guestBusy) return;
     if (isOnboarding) logOnboardingSignupSelected({ method: 'guest' });
@@ -134,74 +154,104 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
     }
   }
 
+  function confirmGuestLogin() {
+    if (busy !== null || guestBusy) return;
+
+    // react-native-web의 Alert는 브라우저 alert()로 축약돼 버튼 콜백을 실행하지 않는다.
+    // 웹에서는 게스트가 유일한 로그인 수단이므로 confirm 결과를 직접 받아 진행한다.
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(GUEST_LOGIN_NOTICE)) runGuest();
+      return;
+    }
+
+    Alert.alert('게스트 로그인 안내', GUEST_LOGIN_NOTICE, [
+      { text: '취소', style: 'cancel' },
+      { text: '확인', onPress: runGuest },
+    ]);
+  }
+
   return (
     <SafeAreaView style={s.root}>
-      {/* 중앙: 마스코트 + 타이틀 */}
-      <View style={s.center}>
-        <View style={s.mascot}>
-          <CharacterImage size={104} />
+      {/* 스크롤 래퍼 — 기기 글자 크기를 키우면 버튼 라벨이 두 줄로 접히며 하단 블록이 화면
+          아래로 밀리는데, 이 화면엔 로그인·게스트 시작 말고 다른 진입로가 없다. 잠긴 화면이면
+          그대로 못 누른다(코드리뷰 P0). contentContainer가 flexGrow:1이라 기본 배율에서는
+          가운데 블록이 남는 높이를 다 먹어 종전 배치 그대로다 — 넘칠 때만 스크롤이 생긴다. */}
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 중앙: 마스코트 + 타이틀 */}
+        <View style={s.center}>
+          <View style={s.mascot}>
+            <CharacterImage size={104} />
+          </View>
+          <Text style={s.title}>Gromo</Text>
+          <Text style={s.subtitle}>
+            목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.
+          </Text>
         </View>
-        <Text style={s.title}>Gromo</Text>
-        <Text style={s.subtitle}>목표를 안전하게 저장하고{'\n'}어디서든 이어서 쓸 수 있어요.</Text>
-      </View>
 
-      {/* 하단: 소셜 로그인 + 게스트 + 약관 */}
-      <View style={s.bottom}>
-        {PROVIDERS.map((p) => {
-          const loading = busy === p.method;
-          return (
-            <TouchableOpacity
-              key={p.method}
-              activeOpacity={0.85}
-              disabled={busy !== null || guestBusy}
-              onPress={() => run(p.method, p.fn)}
-              style={[
-                s.btn,
-                { backgroundColor: p.bg },
-                p.border ? [s.btnBorder, { borderColor: p.border }] : null,
-              ]}
-            >
-              {loading ? (
-                <ActivityIndicator color={p.fg} />
-              ) : (
-                <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
-              )}
-              {p.method === lastProvider ? (
-                <View style={s.lastBadgeWrap} pointerEvents="none">
-                  <View style={s.lastBadge}>
-                    <Text style={s.lastBadgeText}>최근 사용</Text>
+        {/* 하단: 소셜 로그인 + 게스트 + 약관 */}
+        <View style={s.bottom}>
+          {PROVIDERS.map((p) => {
+            const loading = busy === p.method;
+            return (
+              <TouchableOpacity
+                key={p.method}
+                activeOpacity={0.85}
+                disabled={busy !== null || guestBusy}
+                onPress={() => run(p.method, p.fn)}
+                style={[
+                  s.btn,
+                  { backgroundColor: p.bg },
+                  p.border ? [s.btnBorder, { borderColor: p.border }] : null,
+                ]}
+              >
+                {loading ? (
+                  <ActivityIndicator color={p.fg} />
+                ) : (
+                  <Text style={[s.btnText, { color: p.fg }]}>{p.label}</Text>
+                )}
+                {p.method === lastProvider && showLastBadge ? (
+                  <View style={s.lastBadgeWrap} pointerEvents="none">
+                    <View style={s.lastBadge}>
+                      <Text style={s.lastBadgeText}>최근 사용</Text>
+                    </View>
                   </View>
-                </View>
-              ) : null}
-            </TouchableOpacity>
-          );
-        })}
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
 
-        <TouchableOpacity
-          testID="login.guest"
-          onPress={runGuest}
-          disabled={busy !== null || guestBusy}
-          activeOpacity={0.85}
-          style={[s.btn, s.guestBtn]}
-        >
-          {guestBusy ? (
-            <ActivityIndicator color={T.ink} />
-          ) : (
-            <Text style={[s.btnText, s.guestBtnText]}>로그인 없이 시작하기</Text>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            testID="login.guest"
+            onPress={confirmGuestLogin}
+            disabled={busy !== null || guestBusy}
+            activeOpacity={0.85}
+            style={[s.btn, s.guestBtn]}
+          >
+            {guestBusy ? (
+              <ActivityIndicator color={T.ink} />
+            ) : (
+              <Text style={[s.btnText, s.guestBtnText]}>게스트 로그인</Text>
+            )}
+          </TouchableOpacity>
 
-        <Text style={s.terms}>
-          계속하면 <Text style={s.termsLink}>이용약관</Text> 및{' '}
-          <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의하게 됩니다.
-        </Text>
-      </View>
+          <Text style={s.terms}>
+            계속하면 <Text style={s.termsLink}>이용약관</Text> 및{' '}
+            <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의해요.
+          </Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.paper },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   mascot: {
     width: 104,
@@ -219,8 +269,12 @@ const s = StyleSheet.create({
     marginTop: T.space.md,
   },
   bottom: { paddingHorizontal: T.space.xxl, paddingBottom: T.space.xxl },
+  // 높이는 minHeight — 기기 글자 크기를 키우면 라벨이 두 줄로 접히는데, 고정 height면
+  // 그대로 잘린다(GROMO-1485). 기본 배율에선 라벨 한 줄(≈23) + 패딩 24 < 52라 52 그대로다.
   btn: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: T.space.md,
+    paddingHorizontal: T.space.lg,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',

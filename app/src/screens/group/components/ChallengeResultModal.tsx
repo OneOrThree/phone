@@ -1,10 +1,11 @@
-// 챌린지 결과 모달 — 계약 contract.md §2 "앱 UI 계약 (A3)" · 확정 정책 "결과 노출" 3행.
+// 챌린지 결과 모달 — 정본 docs/prd/challenge/information-architecture.md §4.3 (N53 · GROMO-1279).
 //
 // 리그 승급화면(LeagueResultScreen)의 다크 radial 연출을 참조하되, 루트 스택 화면이 아니라
 // **그룹 화면 위 RN Modal**이다 — 네비게이션 파일을 건드리지 않기 위한 계약(A3 스펙 2).
-// 내용은 승패만 말한다: 달성/미달성/집계 중 명단. **금액은 어디에도 쓰지 않는다** —
-// 정산(코인 이동)은 서버 배치 몫이고, 모달 시점엔 아직 지급 전이라 숫자를 보여줄 수 없다.
-// 내기가 걸려 있던 결과에만 "정산 후 알림" 안내 한 줄을 세운다.
+// 소스가 정산 완료 회차(/me/challenge-results)로 바뀌면서 이 모달은 **정산 결과 통지**다 —
+// 인별 달성·손익까지 말한다(구 버전의 "금액 없음" 규칙은 정산 전 판정 모달 시절의 것).
+// 무산(VOIDED)·환불(REFUNDED)·몰수(FORFEITED)도 결과다 — 돈이 움직였거나 움직이지 않기로
+// 확정된 사건을 침묵하면 "내 코인 어디 갔지"가 된다(IA §4.3).
 //
 // 데이터 선택·1회 가드는 부모(GroupRoomScreen + challengeResult.ts)가 끝낸다 — 여기는 표현 전용.
 import { useEffect, useRef } from 'react';
@@ -26,17 +27,17 @@ import { T, withAlpha } from '@/constants/theme';
 import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
 import {
   UNMEASURED,
-  WINDOW_FOCUS_TOLERANCE_NOTICE,
   progressFraction,
   progressFractionA11y,
   unmeasuredA11y,
 } from './progressFormat';
 
 // 내 결과별 헤드라인 — 리그 결과 화면의 caption/title 위계를 따른다.
-// 내 결과가 아직 없으면(집계 중·명단에 없음) 중립 문구로 떨어뜨린다.
 // 그림은 시스템 이모지 대신 앱 공용 캐릭터 에셋 — OS·폰트 버전에 따라 모양이 흔들리지 않고
 // 다른 결과 화면(리그 승급·집중 결과)과 화풍이 맞는다 (GROMO-1087).
 // image는 스크린리더가 못 읽으므로 상태를 말로 옮긴 label을 함께 둔다.
+// pending은 '집계 중'이 아니라 **미판정**이다 — 정산이 끝난 회차의 null은 백필되지 않는
+// 영구 상태라(부분 정산 실패 등) '기다리면 나온다'로 읽히면 안 된다(LastBetResultSheet와 같은 결).
 const HEADLINE = {
   achieved: {
     image: require('@/assets/character_happy.png'),
@@ -52,9 +53,22 @@ const HEADLINE = {
   },
   pending: {
     image: require('@/assets/character_study.png'),
-    imageLabel: '결과를 집계하는 동안 공부하는 캐릭터',
+    imageLabel: '판정이 확정되지 않은 캐릭터',
     caption: 'CHALLENGE RESULT',
-    title: '결과 집계 중이에요',
+    title: '결과를 판정하지 못했어요',
+  },
+  // 무산·환불 — 승패가 아니라 돈이 제자리로 돌아간 결말. 승패 캐릭터를 세우면 거짓말이 된다.
+  voided: {
+    image: require('@/assets/character_study.png'),
+    imageLabel: '내기가 무산돼 담담한 캐릭터',
+    caption: 'CHALLENGE RESULT',
+    title: '내기가 무산됐어요',
+  },
+  refunded: {
+    image: require('@/assets/character_study.png'),
+    imageLabel: '참가비를 돌려받은 캐릭터',
+    caption: 'CHALLENGE RESULT',
+    title: '참가비를 돌려드렸어요',
   },
 } as const;
 
@@ -69,6 +83,40 @@ function monthDay(date: string): string {
 function minutesText(progressMinutes: number | null, goalMinutes: number | null): string {
   if (progressMinutes === null) return UNMEASURED;
   return progressFraction(progressMinutes, goalMinutes);
+}
+
+// 손익 표기 — payout은 '받은 금액'이라 그대로 쓰면 판돈 낸 사실이 지워진다 → 손익(payout−stake).
+// null(미판정·부분 정산 실패)은 숫자를 지어내지 않고 '—'(LastBetResultSheet.deltaText와 같은 규칙).
+export function resultDeltaText(payout: number | null, stake: number): string {
+  if (payout === null) return '—';
+  const delta = payout - stake;
+  return `${delta > 0 ? '+' : ''}${delta}`;
+}
+
+// 정산 결말의 안내 한 줄 — 문구는 IA §4.3 표의 것이다(무산·환불도 결과다).
+// SETTLED는 내 손익을 말한다(미판정이면 숫자를 지어내지 않고 생략 — null 반환).
+export function settlementNotice(result: ChallengeResultCandidate): string | null {
+  switch (result.status) {
+    case 'FORFEITED':
+      return `아무도 달성하지 못해 적립금 ${result.pot}코인이 사라졌어요`;
+    case 'VOIDED':
+      // 사유를 모르는 VOIDED(신설 사유 등)는 인원 부족이라고 지어내지 않는다 — 환불 사실만 말한다.
+      // 인원 미달 값은 **문서와 서버가 갈려 있다** — LLD §2.1·IA §4.3 예시는 `SHORT_PARTICIPANTS`,
+      // 서버 enum·V41 CHECK 는 `INSUFFICIENT_PARTICIPANTS`(policy N33 은 영문 이름을 정하지 않았다).
+      // 한쪽만 보면 IA §4.3 이 규정한 카피가 **한 번도 뜨지 않고** 일반 폴백으로 강하한다 —
+      // 둘 다 같은 문장으로 접는다(A3 `lastSettledView.VOID_REASON_ALIASES` 와 같은 처리).
+      return result.voidReason === 'SHORT_PARTICIPANTS' ||
+        result.voidReason === 'INSUFFICIENT_PARTICIPANTS'
+        ? '참가자가 부족해 무산됐어요 · 참가비는 돌려드렸어요'
+        : '내기가 무산돼 참가비를 돌려드렸어요';
+    case 'REFUNDED':
+      return '정산이 지연돼 참가비를 돌려드렸어요';
+    default: {
+      if (result.myPayout === null) return null;
+      const delta = result.myPayout - result.stake;
+      return `내 정산 ${delta > 0 ? '+' : ''}${delta}코인`;
+    }
+  }
 }
 
 // iOS 유휴 넘침 단서(코덱스 리뷰 P2) — iOS 세로 인디케이터는 **스크롤 중에만** 보이고
@@ -116,30 +164,33 @@ export function createListOverflowFlasher(flash: () => void): {
   };
 }
 
-// 스크린리더는 행을 한 덩어리로 읽는다 — 이름과 근거가 따로 읽히면 누구 기록인지 잃는다.
-function minutesA11yLabel(
-  nickname: string,
-  progressMinutes: number | null,
-  goalMinutes: number | null,
-): string {
-  if (progressMinutes === null) return unmeasuredA11y(nickname);
-  return progressFractionA11y(nickname, progressMinutes, goalMinutes);
+// 스크린리더는 행을 한 덩어리로 읽는다 — 이름·근거·손익이 따로 읽히면 누구 기록인지 잃는다.
+function rowA11yLabel(m: ChallengeResultMember, goalMinutes: number | null, stake: number): string {
+  const head =
+    m.progressMinutes === null
+      ? unmeasuredA11y(m.nickname)
+      : progressFractionA11y(m.nickname, m.progressMinutes, goalMinutes);
+  if (m.payout === null) return head;
+  const delta = m.payout - stake;
+  return `${head}, ${delta >= 0 ? '' : '마이너스 '}${Math.abs(delta)}코인`;
 }
 
-// 명단 한 묶음(달성/미달성/집계 중) — 비어 있으면 묶음째 그리지 않는다.
-// 사람당 한 행이다(GROMO-1191) — 근거 분을 붙이면서 한 줄 이어붙이기(join)를 걷어냈다.
+// 명단 한 묶음(달성/미달성/미판정) — 비어 있으면 묶음째 그리지 않는다.
+// 사람당 한 행이다(GROMO-1191) — 근거 분·손익을 붙이면서 한 줄 이어붙이기(join)를 걷어냈다.
 function NameSection({
   title,
   icon,
   color,
   members,
   goalMinutes,
+  stake,
 }: {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
   members: ChallengeResultMember[];
   goalMinutes: number | null;
+  stake: number;
 }) {
   if (members.length === 0) return null;
   return (
@@ -156,12 +207,13 @@ function NameSection({
             key={m.userId}
             style={s.memberRow}
             accessible
-            accessibilityLabel={minutesA11yLabel(m.nickname, m.progressMinutes, goalMinutes)}
+            accessibilityLabel={rowA11yLabel(m, goalMinutes, stake)}
           >
             <Text style={s.memberName} numberOfLines={1}>
               {m.nickname}
             </Text>
             <Text style={s.memberMinutes}>{minutesText(m.progressMinutes, goalMinutes)}</Text>
+            <Text style={s.memberDelta}>{resultDeltaText(m.payout, stake)}</Text>
           </View>
         ))}
       </View>
@@ -175,12 +227,20 @@ export interface ChallengeResultModalProps {
 }
 
 export default function ChallengeResultModal({ result, onClose }: ChallengeResultModalProps) {
+  // 무산·환불은 승패 축이 아니다 — myAchieved로 갈리는 헤드라인은 SETTLED·FORFEITED만 쓴다.
   const headline =
-    result.myAchieved === true
-      ? HEADLINE.achieved
-      : result.myAchieved === false
-        ? HEADLINE.failed
-        : HEADLINE.pending;
+    result.status === 'VOIDED'
+      ? HEADLINE.voided
+      : result.status === 'REFUNDED'
+        ? HEADLINE.refunded
+        : result.myAchieved === true
+          ? HEADLINE.achieved
+          : result.myAchieved === false
+            ? HEADLINE.failed
+            : HEADLINE.pending;
+  // 무산·환불은 명단을 그리지 않는다 — 판정이 아니라 환불이 사건의 본체다(IA §4.3 문구 표).
+  const showRoster = result.status !== 'VOIDED' && result.status !== 'REFUNDED';
+  const notice = settlementNotice(result);
 
   // 명단 넘침의 유휴 단서 — ref 인스턴스의 flashScrollIndicators를 조건 로직(팩토리)에 넘긴다.
   const listRef = useRef<ScrollView>(null);
@@ -192,10 +252,10 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
   // 새 결과의 넘침 단서가 다시 나간다. 첫 마운트에는 높이 미확정이라 no-op이다.
   useEffect(() => {
     overflowFlasher.reset();
-  }, [result.challengeId, result.date, overflowFlasher]);
+  }, [result.sessionId, overflowFlasher]);
 
   // 등장 연출 — 카드 팝인 하나만 쓴다(리그 화면의 다단계 연출은 풀스크린 화면 몫).
-  // 결과가 넘어가며(큐) 같은 모달이 내용만 갈릴 때도 다시 팝 되도록 결과 키에 묶는다.
+  // 결과가 넘어가며(큐) 같은 모달이 내용만 갈릴 때도 다시 팝 되도록 결과 키(세션)에 묶는다.
   const pop = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     pop.setValue(0);
@@ -205,7 +265,7 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
       easing: Easing.out(Easing.back(1.2)),
       useNativeDriver: true,
     }).start();
-  }, [result.challengeId, result.date, pop]);
+  }, [result.sessionId, pop]);
 
   return (
     <Modal transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
@@ -250,59 +310,58 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
               />
             </View>
 
-            {/* 어떤 챌린지의 어느 날 결과인가 */}
-            <Text style={s.label}>{result.label}</Text>
+            {/* 어느 그룹의 어느 날 결과인가 — 큐가 그룹 무관이라(탈퇴자 포함) 그룹 이름을 직접
+                말한다. 문구에 '회차'를 쓰지 않는다(IA §6.3 — 날짜가 이미 그 하루를 표현한다). */}
+            <Text style={s.label}>{result.groupName}</Text>
             <Text style={s.date}>{monthDay(result.date)} 결과</Text>
 
-            {/* 창형 집중만 5분 관용치가 있다(GROMO-1217) — 근거 분(55/60분)이 달성 명단에서
-                모순으로 읽히지 않게, 명단(숫자)보다 먼저 판정 규칙을 알린다. 명단 안(스크롤)에
-                넣으면 규칙이 스크롤에 밀려 사라져 스크롤 밖 고정 자리에 세운다. */}
-            {result.missionType === 'TIME_WINDOW' && result.missionCategory === 'FOCUS' && (
-              <Text style={s.toleranceNotice} testID="group.challengeResult.toleranceNotice">
-                {WINDOW_FOCUS_TOLERANCE_NOTICE}
-              </Text>
+            {/* 명단 — 3상(달성·미달성·미판정)을 뭉개지 않고, 손익까지 함께 적는다(정산 통지).
+                넘침을 숨기지 않도록 인디케이터를 켜고(iOS는 다크 배경이라 white, Android는 잠깐
+                떴다 사라지지 않게 persistent), iOS는 유휴 상태에선 인디케이터가 안 보여 넘침
+                확정 시 한 번 깜빡인다(위 팩토리). */}
+            {showRoster && (
+              <ScrollView
+                ref={listRef}
+                style={s.lists}
+                showsVerticalScrollIndicator
+                indicatorStyle="white"
+                persistentScrollbar
+                onLayout={(e) => overflowFlasher.onLayout(e.nativeEvent.layout.height)}
+                onContentSizeChange={(_w, h) => overflowFlasher.onContentSizeChange(h)}
+                testID="group.challengeResult.lists"
+              >
+                <NameSection
+                  title="달성"
+                  icon="checkmark-circle"
+                  color={T.night.green}
+                  members={result.achievers}
+                  goalMinutes={result.goalMinutes}
+                  stake={result.stake}
+                />
+                <NameSection
+                  title="미달성"
+                  icon="close-circle"
+                  color={T.night.muted}
+                  members={result.failed}
+                  goalMinutes={result.goalMinutes}
+                  stake={result.stake}
+                />
+                <NameSection
+                  title="미판정"
+                  icon="help-circle-outline"
+                  color={T.night.gold}
+                  members={result.pending}
+                  goalMinutes={result.goalMinutes}
+                  stake={result.stake}
+                />
+              </ScrollView>
             )}
 
-            {/* 명단 — 3상(달성·미달성·집계 중)을 뭉개지 않는다.
-                1191부터 행이 인원수만큼 늘어난다 — 넘침을 숨기지 않도록 인디케이터를 켜고
-                (iOS는 다크 배경이라 white, Android는 잠깐 떴다 사라지지 않게 persistent),
-                iOS는 유휴 상태에선 인디케이터가 안 보여 넘침 확정 시 한 번 깜빡인다(위 팩토리). */}
-            <ScrollView
-              ref={listRef}
-              style={s.lists}
-              showsVerticalScrollIndicator
-              indicatorStyle="white"
-              persistentScrollbar
-              onLayout={(e) => overflowFlasher.onLayout(e.nativeEvent.layout.height)}
-              onContentSizeChange={(_w, h) => overflowFlasher.onContentSizeChange(h)}
-              testID="group.challengeResult.lists"
-            >
-              <NameSection
-                title="달성"
-                icon="checkmark-circle"
-                color={T.night.green}
-                members={result.achievers}
-                goalMinutes={result.goalMinutes}
-              />
-              <NameSection
-                title="미달성"
-                icon="close-circle"
-                color={T.night.muted}
-                members={result.failed}
-                goalMinutes={result.goalMinutes}
-              />
-              <NameSection
-                title="집계 중"
-                icon="hourglass-outline"
-                color={T.night.gold}
-                members={result.pending}
-                goalMinutes={result.goalMinutes}
-              />
-            </ScrollView>
-
-            {/* 내기가 걸려 있던 결과에만 — 금액 없이, 지급 시점 안내만 */}
-            {result.hadBet && (
-              <Text style={s.betHint}>내기 코인은 정산 후 알림으로 알려드려요</Text>
+            {/* 정산 결말 한 줄 — 몰수·무산·환불 문구 또는 내 손익(IA §4.3). */}
+            {notice !== null && (
+              <Text style={s.betHint} testID="group.challengeResult.notice">
+                {notice}
+              </Text>
             )}
           </Animated.View>
 
@@ -353,35 +412,35 @@ const s = StyleSheet.create({
   label: { ...T.text.subtitle, color: T.night.cream, textAlign: 'center' },
   date: { ...T.text.caption, color: T.night.muted, marginTop: 2, marginBottom: T.space.lg },
 
-  // 판정 규칙 고지 — 날짜와 같은 보조 캡션 결. 명단 직전의 고정 한 줄이다.
-  toleranceNotice: {
-    ...T.text.caption,
-    color: T.night.muted,
-    textAlign: 'center',
-    marginBottom: T.space.lg,
-  },
-
   lists: { alignSelf: 'stretch', flexGrow: 0, maxHeight: 220 },
   section: { alignItems: 'center', marginBottom: T.space.md },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
   sectionTitle: { ...T.text.caption, fontWeight: '700' },
 
-  // 이름 | 근거 분 — 카드 진행 리스트(progressRow)와 같은 배치다: 이름 왼쪽, 분 오른쪽.
-  // 행마다 가운데 정렬하면 이름 길이만큼 분이 좌우로 흔들려 세로로 훑을 수 없다(PR #493 리뷰).
+  // 이름 | 근거 분 | 손익 — 카드 진행 리스트(progressRow)와 같은 배치 결: 이름 왼쪽, 숫자 오른쪽.
+  // 행마다 가운데 정렬하면 이름 길이만큼 숫자가 좌우로 흔들려 세로로 훑을 수 없다(PR #493 리뷰).
   // 폭은 화면 전체가 아니라 읽기 좋은 상한까지만 벌리고, 그 덩어리를 가운데 둔다.
-  memberRows: { alignSelf: 'center', width: '100%', maxWidth: 260 },
+  memberRows: { alignSelf: 'center', width: '100%', maxWidth: 280 },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    justifyContent: 'space-between',
     gap: T.space.sm,
     marginTop: 4,
   },
-  memberName: { ...T.text.body, color: T.night.cream, flexShrink: 1 },
+  memberName: { ...T.text.body, color: T.night.cream, flexShrink: 1, flexGrow: 1 },
   memberMinutes: {
     ...T.text.caption,
     color: T.night.muted,
     fontVariant: ['tabular-nums'],
+  },
+  // 손익 — LastBetResultSheet.delta와 같은 규칙(±는 텍스트에 있다). 다크 배경이라 색은 크림 톤.
+  memberDelta: {
+    ...T.text.caption,
+    fontWeight: '700',
+    color: T.night.cream,
+    fontVariant: ['tabular-nums'],
+    minWidth: 40,
+    textAlign: 'right',
   },
 
   betHint: {
@@ -393,7 +452,8 @@ const s = StyleSheet.create({
   },
 
   cta: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

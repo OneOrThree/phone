@@ -8,9 +8,11 @@ import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { DurationDrumPicker } from '@/components/DurationDrumPicker';
 import { useUser } from '@/store/UserContext';
 import { STORAGE_KEYS } from '@/types/storage';
+import { localDateStr } from '@/utils/localDate';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { FOCUS_GOAL_MINUTES, GOAL_STEP_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
+import { logGoalUpdated } from '@/services/analyticsEvents';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -33,14 +35,6 @@ function fmt(totalMinutes: number): string {
   if (h && m) return `${h}시간 ${m}분`;
   if (h) return `${h}시간`;
   return `${m}분`;
-}
-
-// Date → 'YYYY-MM-DD'(로컬 기준) — goalPending 발효일 저장용.
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mo}-${da}`;
 }
 
 // ── 목표 하나(집중 또는 사용)를 편집하는 카드 ─────────────────────────────
@@ -129,9 +123,13 @@ export default function GoalsScreen() {
     dailyScreenTimeGoalMinutes?: number;
     effectiveDate?: string;
   } | null>(null);
+  const valuesAtOpenRef = useRef<{ focus: number; usage: number } | null>(null);
+  const initializedRef = useRef(false);
 
   // 발효 전 예약(goalPending)이 있으면 그 값으로 피커 초기화.
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     AsyncStorage.getItem(STORAGE_KEYS.goalPending)
       .then((raw) => {
         if (raw) {
@@ -144,16 +142,26 @@ export default function GoalsScreen() {
             if (typeof p.dailyScreenTimeGoalMinutes === 'number') {
               setUsageMinutes(snapClamp(p.dailyScreenTimeGoalMinutes, USAGE_GOAL_MINUTES));
             }
+            valuesAtOpenRef.current = {
+              focus: snapClamp(p.dailyFocusTimeGoalMinutes ?? activeFocusMin, FOCUS_GOAL_MINUTES),
+              usage: snapClamp(p.dailyScreenTimeGoalMinutes ?? activeUsageMin, USAGE_GOAL_MINUTES),
+            };
           } catch {
             // 깨진 예약값은 무시
           }
+        } else {
+          valuesAtOpenRef.current = {
+            focus: snapClamp(activeFocusMin, FOCUS_GOAL_MINUTES),
+            usage: snapClamp(activeUsageMin, USAGE_GOAL_MINUTES),
+          };
         }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, []);
+  }, [activeFocusMin, activeUsageMin]);
 
-  // 내일(발효일).
+  // 내일(발효일). 축은 로컬 — 사용자가 체감하는 '내일'이고, 발효 판정(PendingGoalApplier)도
+  // 같은 로컬 축으로 대조한다(docs/date-axis.md 분류 ② 측정/저장).
   const tomorrow = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -189,12 +197,25 @@ export default function GoalsScreen() {
             userId,
             ...next,
             effectiveDate:
-              sameAsPending && prev.effectiveDate ? prev.effectiveDate : toISODate(tomorrow),
+              sameAsPending && prev.effectiveDate ? prev.effectiveDate : localDateStr(tomorrow),
           }),
         );
       } else {
         // 현재 목표와 동일하게 되돌림 → 기존 예약 취소.
         await AsyncStorage.removeItem(STORAGE_KEYS.goalPending);
+      }
+      const valuesAtOpen = valuesAtOpenRef.current;
+      const actuallyChanged = valuesAtOpen
+        ? {
+            focus: focusMinutes !== valuesAtOpen.focus,
+            usage: usageMinutes !== valuesAtOpen.usage,
+          }
+        : { focus: focusChanged, usage: usageChanged };
+      if (actuallyChanged.focus || actuallyChanged.usage) {
+        logGoalUpdated({
+          changed_focus: actuallyChanged.focus,
+          changed_usage: actuallyChanged.usage,
+        });
       }
     } catch {
       // 예약 저장/삭제 실패는 치명적이지 않음
@@ -306,7 +327,8 @@ const s = StyleSheet.create({
 
   // 저장 버튼(footer)
   saveBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

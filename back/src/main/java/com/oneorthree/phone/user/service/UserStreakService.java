@@ -23,7 +23,7 @@ import java.util.TreeSet;
 /**
  * 세션 완료 시 집중 스트릭(연속 일수) 갱신.
  *
- * <p>날짜 기준은 유저 country_code 존 로컬 날짜 — DailyFocusStat 집계 관례와 동일(GROMO-803).
+ * <p>날짜 기준은 KST 고정 날짜 — DailyFocusStat 집계 관례와 동일(GROMO-803, 1259 로 KST 고정).
  * 조회 경로(StatsService.getStreak)는 건드리지 않고 쓰기 로직만 이 서비스가 소유한다.
  */
 @Service

@@ -8,13 +8,13 @@ name: 01-onboarding-guest
 - launchApp:
     clearState: true # AsyncStorage 초기화 → 온보딩부터 시작
 
-# 스플래시 → W1 문제공감
+# 스플래시 → 로그인 전 핵심 가치 제안 1
 - extendedWaitUntil:
     visible:
       id: 'onboarding.step.problem'
     timeout: 20000
 
-# W1 → W2 → W3 (설득 화면 3장, 공통 CTA)
+# 집중 시작 → 함께 집중 → 성장 기록 (핵심 가치 화면 3장, 공통 CTA)
 - tapOn:
     id: 'onboarding.cta'
 - assertVisible:
@@ -33,6 +33,8 @@ name: 01-onboarding-guest
     timeout: 10000
 - tapOn:
     id: 'login.guest'
+- tapOn:
+    text: '확인'
 
 # W4 준비 시험(직군) 선택 — 첫 항목 선택 후 진행 (GET /occupations 응답 대기)
 - extendedWaitUntil:

@@ -1,5 +1,6 @@
 import type { InternalAxiosRequestConfig } from 'axios';
 import { mockFriends, mockPin, mockPinnedFriends, mockUnpin } from './fixtures/friends';
+import { mockDefaultFocusTags, mockFocusTags } from './fixtures/focus';
 import {
   mockAckLastResult,
   mockArenaRanking,
@@ -13,6 +14,16 @@ import {
   mockUserProfile,
   mockUserStats,
 } from './fixtures/stats';
+import {
+  mockGroupAnnouncements,
+  mockGroupChallenges,
+  mockGroupChallengeHistory,
+  mockGroupDetail,
+  mockGroupOverview,
+  mockGroupSearch,
+  mockMyGroups,
+} from './fixtures/groups';
+import { MOCK_GUEST_USER_ID, mockCurrentUserProfile, mockOccupations } from './fixtures/session';
 
 // 목킹할 요청의 경로 → 응답 매핑 테이블. 새 목이 필요하면 fixtures 에 데이터를 만들고 여기에 한 줄 추가.
 // url 은 baseURL 제외 상대 경로이며 query 는 config.params 로 분리돼 붙지 않는다.
@@ -38,8 +49,109 @@ const MOCK_USER_PROFILE =
   /^\/api\/v1\/users\/(00000000-0000-0000-0000-0000000000[0-9a-f]{2})\/profile$/;
 const MOCK_USER_STATS =
   /^\/api\/v1\/users\/(00000000-0000-0000-0000-0000000000[0-9a-f]{2})\/stats$/;
+const GROUP_DETAIL_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)$/;
+const GROUP_OVERVIEW_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/overview$/;
+const GROUP_ANNOUNCEMENTS_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/announcements$/;
+const GROUP_CHALLENGES_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenges$/;
+const GROUP_CHALLENGE_HISTORY_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenge-history$/;
+const GROUP_INVITE_LINK_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/invite-link$/;
+const MOCK_EQUIPMENT_PATH = new RegExp(`^/api/v1/equipment/${MOCK_GUEST_USER_ID}$`);
+
+function groupPathId(pattern: RegExp, url: string | undefined): string {
+  return pattern.exec(url ?? '')?.[1] ?? '';
+}
 
 export const handlers: MockHandler[] = [
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/users/me',
+    respond: () => mockCurrentUserProfile(),
+  },
+  {
+    method: 'post',
+    matches: (url) => url === '/api/v1/users/me',
+    status: 204,
+    respond: () => undefined,
+  },
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/users/nickname/check',
+    respond: () => ({ available: true }),
+  },
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/occupations',
+    respond: () => mockOccupations(),
+  },
+  {
+    method: 'patch',
+    matches: (url) => url === '/api/v1/users/me/screen-time-permission',
+    status: 204,
+    respond: () => undefined,
+  },
+  { method: 'get', matches: (url) => url === '/api/v1/currency', respond: () => 500 },
+  {
+    method: 'get',
+    matches: (url) => MOCK_EQUIPMENT_PATH.test(url),
+    respond: () => [],
+  },
+  {
+    method: 'patch',
+    matches: (url) => url === '/api/v1/users/me/occupation',
+    status: 204,
+    respond: () => undefined,
+  },
+  { method: 'get', matches: (url) => url === '/api/v1/tag', respond: () => mockFocusTags() },
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/tag/defaults',
+    respond: (config) => mockDefaultFocusTags(config),
+  },
+  { method: 'get', matches: (url) => url === '/api/v1/groups', respond: () => mockMyGroups() },
+  {
+    method: 'get',
+    matches: (url) => url === '/api/v1/groups/search',
+    respond: (config) => mockGroupSearch(config.params?.query),
+  },
+  {
+    method: 'get',
+    matches: (url) => GROUP_OVERVIEW_PATH.test(url),
+    respond: (config) => mockGroupOverview(groupPathId(GROUP_OVERVIEW_PATH, config.url)),
+  },
+  {
+    method: 'get',
+    matches: (url) => GROUP_ANNOUNCEMENTS_PATH.test(url),
+    respond: (config) => mockGroupAnnouncements(groupPathId(GROUP_ANNOUNCEMENTS_PATH, config.url)),
+  },
+  {
+    method: 'get',
+    matches: (url) => GROUP_CHALLENGES_PATH.test(url),
+    respond: (config) =>
+      mockGroupChallenges(groupPathId(GROUP_CHALLENGES_PATH, config.url), config),
+  },
+  {
+    method: 'get',
+    matches: (url) => GROUP_CHALLENGE_HISTORY_PATH.test(url),
+    respond: (config) =>
+      mockGroupChallengeHistory(groupPathId(GROUP_CHALLENGE_HISTORY_PATH, config.url)),
+  },
+  {
+    method: 'get',
+    matches: (url) => GROUP_DETAIL_PATH.test(url),
+    respond: (config) => mockGroupDetail(groupPathId(GROUP_DETAIL_PATH, config.url), config),
+  },
+  {
+    method: 'post',
+    matches: (url) => GROUP_INVITE_LINK_PATH.test(url),
+    respond: (config) => {
+      const groupId = groupPathId(GROUP_INVITE_LINK_PATH, config.url);
+      const slug = 'ab23cd45';
+      return {
+        slug,
+        url: `https://link.oneorthree.world/l/${slug}?g=${groupId}`,
+      };
+    },
+  },
   { method: 'get', matches: (url) => url === '/api/v1/pins', respond: () => mockPinnedFriends() },
   { method: 'get', matches: (url) => url === '/api/v1/friends', respond: () => mockFriends() },
   // 리그 랭킹 — GROMO-824 스펙(구현 예정) 선반영. 824 는 /league/me/ranking 만 확장:

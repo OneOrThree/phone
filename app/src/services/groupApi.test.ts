@@ -15,9 +15,11 @@ import {
   getAnnouncements,
   getBetHistory,
   getChallenges,
+  getGroupChallengeHistory,
   getGroupDetail,
   getGroupOverview,
   getMyGroups,
+  getMyOpenBetSessionsWithToken,
   groupErrorCode,
   joinBet,
   joinGroup,
@@ -89,6 +91,19 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
   test('GET /api/v1/groups — 내 그룹 목록', async () => {
     await getMyGroups();
     expect(mockApi.get).toHaveBeenCalledWith('/api/v1/groups');
+  });
+
+  test('NOT_FOUND 보조 재확인은 목록·상세 모두 401 auth retry를 끈다', async () => {
+    await getMyGroups({ noAuthRetry: true });
+    expect(mockApi.get).toHaveBeenCalledWith('/api/v1/groups', { _noAuthRetry: true });
+
+    jest.clearAllMocks();
+    mockApi.get.mockResolvedValue({ data: {} });
+    await getGroupDetail(GROUP_ID, '2026-08-02', { noAuthRetry: true });
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}`, {
+      params: { date: '2026-08-02' },
+      _noAuthRetry: true,
+    });
   });
 
   test('GET /api/v1/groups/search — query 파라미터', async () => {
@@ -163,6 +178,8 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       missionCategory: 'FOCUS' as const,
       missionType: 'DURATION' as const,
       durationMinutes: 60,
+      // 요일 반복(GROMO-1273) — v2 계약의 필수 필드다(LLD §2).
+      repeatDays: ['MON' as const],
     };
     await createChallenge(GROUP_ID, body);
     await deleteChallenge(GROUP_ID, CHALLENGE_ID);
@@ -224,6 +241,28 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
     );
   });
 
+  // 그룹 챌린지 내역(GROMO-1277 · N6-1) — **경로가 챌린지에 종속되지 않는 것**이 계약의 핵심이다.
+  // 챌린지가 삭제돼도 조회돼야 하므로 챌린지별 보기조차 경로가 아니라 challengeId 쿼리다(IA §5).
+  test('GET /{groupId}/challenge-history — 챌린지별 보기도 같은 경로의 쿼리 필터다', async () => {
+    mockApi.get.mockResolvedValue({
+      data: { content: [], size: 20, hasNext: false, nextCursor: null },
+    });
+
+    await getGroupChallengeHistory(GROUP_ID, { size: 20 });
+    expect(mockApi.get).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenge-history`, {
+      params: { cursor: undefined, size: 20, challengeId: undefined },
+    });
+
+    await getGroupChallengeHistory(GROUP_ID, {
+      cursor: BET_ID,
+      size: 20,
+      challengeId: CHALLENGE_ID,
+    });
+    expect(mockApi.get).toHaveBeenLastCalledWith(`/api/v1/groups/${GROUP_ID}/challenge-history`, {
+      params: { cursor: BET_ID, size: 20, challengeId: CHALLENGE_ID },
+    });
+  });
+
   // TIME_WINDOW 생성(확장 배치) — 창 시각·목표분이 additive로 실린다.
   // 창 시각은 "HH:mm:ss" KST 벽시계다(GROMO-1225 — 종전 ISO Instant 합성 폐기).
   test('POST /{groupId}/challenges — 창 생성 바디(windowStart/End)를 그대로 보낸다', async () => {
@@ -231,11 +270,25 @@ describe('엔드포인트 계약(§3-1·§8)', () => {
       missionCategory: 'FOCUS' as const,
       missionType: 'TIME_WINDOW' as const,
       durationMinutes: 60,
+      repeatDays: ['MON' as const],
       windowStart: '09:00:00',
       windowEnd: '12:00:00',
     };
     await createChallenge(GROUP_ID, body);
     expect(mockApi.post).toHaveBeenCalledWith(`/api/v1/groups/${GROUP_ID}/challenges`, body);
+  });
+
+  // 계정 박제 변형(codex 리뷰 P1) — 사일런트 flush가 검증한 토큰을 직접 싣고 401 재발급
+  // 재시도를 끈다. 인터셉터가 전송 시점의 저장 토큰을 붙이면, 검증~전송 사이에 계정이 바뀐
+  // 경우 **남의 OPEN 회차**를 읽어 와 그 위에 보고하게 된다(돈 경로).
+  test('GET /me/bet-sessions(계정 박제) — 넘긴 토큰을 싣고 재발급 재시도를 끈다', async () => {
+    mockApi.get.mockResolvedValue({ data: { sessions: [] } });
+    await getMyOpenBetSessionsWithToken('token-u1');
+    expect(mockApi.get).toHaveBeenCalledWith('/api/v1/me/bet-sessions', {
+      params: { status: 'OPEN' },
+      headers: { Authorization: 'Bearer token-u1' },
+      _noAuthRetry: true,
+    });
   });
 });
 

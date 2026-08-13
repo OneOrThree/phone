@@ -20,6 +20,7 @@ import com.oneorthree.phone.focus.dto.FocusSessionSliceResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionStartResponse;
 import com.oneorthree.phone.focus.dto.FocusTagResponse;
+import com.oneorthree.phone.group.service.GroupBetEarlyWinConfirmer;
 import com.oneorthree.phone.focus.dto.FocusTagSetupRequest;
 import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
 import com.oneorthree.phone.focus.dto.OccupationDefaultTagsResponse;
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -70,6 +72,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -117,6 +120,11 @@ class FocusServiceTest {
 
     @Mock
     private CurrencyLedgerService currencyLedgerService;
+
+    // 그룹 내기 조기 확정 배선(GROMO-1268) — 세션 저장·종료 경로가 커밋 편승 호출만 하는지는
+    // 통합 테스트(GroupBetEarlyWinIntegrationTest)가 본다. 여기서는 부수 호출로만 존재한다.
+    @Mock
+    private GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID OTHER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -2409,7 +2417,7 @@ class FocusServiceTest {
         Instant startedAt = withinClampWindow(30);
         User user = User.builder().id(USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, user, "공부");
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         UUID sessionId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
         given(focusSessionRepository.save(any(FocusSession.class)))
@@ -2441,7 +2449,7 @@ class FocusServiceTest {
     void startFocusSessionDefaultsStartedAt() {
         // given
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, null);
 
@@ -2460,7 +2468,7 @@ class FocusServiceTest {
     @DisplayName("존재하지 않는 유저 → UserException(NOT_FOUND)")
     void startFocusSessionUserNotFound() {
         // given
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.empty());
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START);
 
         // when & then
@@ -2478,7 +2486,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         User other = User.builder().id(OTHER_USER_ID).build();
         UserFocusTag tag = userFocusTag(TAG_ID, other, "공부");
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(userFocusTagRepository.findByIdAndDeletedAtIsNull(TAG_ID)).willReturn(Optional.of(tag));
         FocusSessionStartRequest body = new FocusSessionStartRequest(TAG_ID, START);
 
@@ -2497,7 +2505,7 @@ class FocusServiceTest {
     void startFocusSessionPersistsFocusType() {
         // given: 요청에 focusType=POMODORO
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, FocusType.POMODORO);
 
@@ -2515,7 +2523,7 @@ class FocusServiceTest {
     void startFocusSessionDefaultsFocusTypeToInfinite() {
         // given: 요청 focusType=null
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
         FocusSessionStartRequest body = new FocusSessionStartRequest(null, START, null);
 
@@ -2526,6 +2534,313 @@ class FocusServiceTest {
         ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
         verify(focusSessionRepository).save(captor.capture());
         assertThat(captor.getValue().getFocusType()).isEqualTo(FocusType.INFINITE);
+    }
+
+    // ── startFocusSession — 유저당 라이브 마커 1개 불변식(GROMO-1287) ────────
+
+    @Test
+    @DisplayName("열린 마커가 있는 채로 start → 기존 마커를 먼저 마감한 뒤 새 마커 1개만 INSERT (close-then-open)")
+    void startFocusSessionClosesOpenMarkerBeforeInsert() {
+        // given: 이 유저에게 더 이른 startedAt 의 열린 마커가 1개 남아 있다(마감 쿼리가 1행 영향)
+        User user = User.builder().id(USER_ID).build();
+        FocusSession openMarker = FocusSession.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000b1"))
+                .user(user).startedAt(withinClampWindow(120)).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(openMarker));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(1);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when: 새 블록 경계는 언제나 직전 마커 시작보다 뒤다(정상 회전)
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, withinClampWindow(10)));
+
+        // then: 마감(UPDATE)이 INSERT 보다 먼저다. 순서가 뒤집히면 "유저당 열린 마커 1개"가 깨지고,
+        // 후속 티켓의 부분 유니크 인덱스가 붙은 뒤에는 INSERT 가 거절돼 정상 흐름이 500 이 된다.
+        InOrder order = inOrder(focusSessionRepository);
+        order.verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        order.verify(focusSessionRepository).save(any(FocusSession.class));
+        // 새 마커는 진행 중(endedAt null)으로 저장되고, 마커는 정확히 1건만 만들어진다
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getEndedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("동시 start 직렬화 — 유저 로드는 공유 락이 아니라 배타 락(findActiveByIdForUpdate)")
+    void startFocusSessionLocksUserRowExclusively() {
+        // given: 마커가 하나도 없는 유저(마감 대상 0행) — 이때 잠글 focus_sessions 행이 없어
+        // users 행이 유일한 직렬화 지점이다.
+        User user = User.builder().id(USER_ID).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(0);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
+
+        // then: 공유 락 경로를 타면 두 동시 요청이 서로를 못 보고 둘 다 INSERT 한다
+        verify(userRepository).findActiveByIdForUpdate(USER_ID);
+        verify(userRepository, never()).findActiveByIdForShare(USER_ID);
+    }
+
+    @Test
+    @DisplayName("마감 시각은 서버 now — 클램프로 과거가 될 수 있는 새 마커 startedAt 을 쓰지 않는다")
+    void startFocusSessionClosesMarkersAtServerNow() {
+        // given: 클라가 5분 전(클램프 창 안) startedAt 을 보낸다 → 새 마커 startedAt 은 과거다.
+        // 열린 마커는 그보다도 이른 10분 전 시작이라 단조성은 통과한다(회전 경로).
+        User user = User.builder().id(USER_ID).build();
+        Instant clientStartedAt = withinClampWindow(280);
+        FocusSession openMarker = FocusSession.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000b2"))
+                .user(user).startedAt(withinClampWindow(600)).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(openMarker));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(1);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        Instant before = Instant.now();
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, clientStartedAt));
+
+        // then: 마감 시각이 새 마커 startedAt 이었다면 구 마커가 그보다 늦게 시작한 경우
+        // endedAt < startedAt 역전이 생긴다. now 는 어떤 마커의 startedAt(생성 시 미래 0분 클램프)보다도 뒤다.
+        ArgumentCaptor<Instant> closedAt = ArgumentCaptor.forClass(Instant.class);
+        verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), closedAt.capture());
+        assertThat(closedAt.getValue()).isAfterOrEqualTo(before);
+        assertThat(closedAt.getValue()).isAfter(clientStartedAt);
+    }
+
+    // ── startFocusSession — startedAt 단조성(순서 역전 방어, GROMO-1287 codex P1) ──
+
+    @Test
+    @DisplayName("늦게 도착한 과거 start 는 최신 마커를 닫지 못하고, 최신 마커가 유일한 라이브로 남는다")
+    void lateArrivingBackdatedStartDoesNotSupersedeNewerMarker() {
+        // given: 앱 리플레이가 연달아 쏜 두 start — 경계(과거)와 상한 처리(더 나중). 네트워크에서
+        // 순서가 뒤집혀 '더 나중' 것이 먼저 도착한 상황을 실제 호출 순서로 재현한다.
+        Instant boundaryAt = withinClampWindow(200);   // 이른 startedAt (휴식→집중 경계)
+        Instant capAt = withinClampWindow(20);         // 늦은 startedAt (크레딧 상한 처리)
+        User user = User.builder().id(USER_ID).build();
+        UUID newerMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder()
+                        .id(newerMarkerId)
+                        .user(user)
+                        .startedAt(((FocusSession) inv.getArgument(0)).getStartedAt())
+                        .build());
+        // DB 상태를 그대로 반영한다 — 1번째 호출 시점엔 열린 마커 없음, 2번째 호출 시점엔 1번이 만든 마커.
+        FocusSession newerMarker = FocusSession.builder().id(newerMarkerId).user(user).startedAt(capAt).build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(newerMarker));
+
+        // when: ① 늦은 startedAt 이 먼저 도착 → 마커 생성 ② 이른 startedAt 이 뒤늦게 도착
+        FocusSessionStartResponse first =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, capAt));
+        FocusSessionStartResponse second =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, boundaryAt));
+
+        // then: ② 는 마커를 닫지도(autoClose) 새로 만들지도(save) 않는다 — 최신 마커가 유일한 라이브.
+        // (1라운드 P1: ② 가 최신 마커를 AUTO_CLOSED 로 닫고 과거 시각 마커를 라이브로 만들었다)
+        assertThat(first.sessionId()).isEqualTo(newerMarkerId);
+        verify(focusSessionRepository, times(1)).save(any(FocusSession.class));
+        verify(focusSessionRepository, times(1)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        // 그리고 ② 는 sessionId=null 을 받는다 — **기존 마커 id 를 재사용하면 안 된다**.
+        // ①·② 는 서로 다른 블록이라, 같은 id 를 주면 뒤늦은 PATCH 가 SESSION_ALREADY_ENDED(앱이 POST
+        // 폴백을 하지 않는 코드)를 받아 그 블록의 시간·코인이 영구 유실된다. null 이면 앱이
+        // uploadFocusBlock 의 '마커 없음' 경로로 곧바로 POST 해 적립을 지킨다.
+        assertThat(second.sessionId()).isNull();
+    }
+
+    @Test
+    @DisplayName("역순 도착한 두 start 는 서로 다른 응답을 받는다 — 같은 마커 id 를 공유하지 않는다(적립 유실 차단)")
+    void reorderedStartsNeverShareTheSameMarkerId() {
+        // given: 서로 다른 두 집중 블록의 start (각 블록은 자기 응답의 sessionId 로 PATCH 한다)
+        Instant earlierBlock = withinClampWindow(240);
+        Instant laterBlock = withinClampWindow(30);
+        User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000e1");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder()
+                        .id(markerId).user(user)
+                        .startedAt(((FocusSession) inv.getArgument(0)).getStartedAt())
+                        .build());
+        FocusSession created = FocusSession.builder().id(markerId).user(user).startedAt(laterBlock).build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(created));
+
+        // when: 나중 블록이 먼저 도착, 이른 블록이 뒤늦게 도착
+        FocusSessionStartResponse withMarker =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, laterBlock));
+        FocusSessionStartResponse withoutMarker =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, earlierBlock));
+
+        // then: 두 블록이 같은 마커를 PATCH 하는 일이 없다 — 하나는 마커 id, 하나는 null
+        assertThat(withMarker.sessionId()).isEqualTo(markerId);
+        assertThat(withoutMarker.sessionId()).isNull();
+        assertThat(withoutMarker.sessionId()).isNotEqualTo(withMarker.sessionId());
+        // null 응답에도 startedAt 은 채워 보낸다(구앱이 필드 존재를 전제해도 안전) — 가리키는 세션은 없다
+        assertThat(withoutMarker.startedAt()).isEqualTo(earlierBlock);
+    }
+
+    @Test
+    @DisplayName("동률(같은 startedAt) 재요청 → 마커를 새로 만들지도 닫지도 않고 sessionId=null")
+    void duplicateStartWithSameStartedAtCreatesNoMarker() {
+        // given: 같은 경계 시각으로 두 번 계산·재전송된 start
+        Instant boundaryAt = withinClampWindow(60);
+        User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000c2");
+        FocusSession marker = FocusSession.builder().id(markerId).user(user).startedAt(boundaryAt).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(marker));
+
+        // when
+        FocusSessionStartResponse response =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, boundaryAt));
+
+        // then: 회전하면 같은 시각의 새 행이 생기고, 먼저 응답을 받아 id 를 기록한 앱이 닫힌 마커를 든다.
+        // 그렇다고 기존 id 를 재사용하면 두 블록이 같은 마커를 PATCH 해 한쪽 적립이 유실된다 → null.
+        assertThat(response.sessionId()).isNull();
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(focusSessionRepository, never()).autoCloseOpenMarkersOf(any(), any());
+    }
+
+    @Test
+    @DisplayName("5분+ 백그라운드 리플레이 버스트 — 도착이 뒤집혀도 마커 1개로 수렴하고 모두 같은 id 를 받는다")
+    void backgroundReplayBurstConvergesOnSingleMarker() {
+        // given: 90분 백그라운드 후 복귀 — 리플레이가 과거 경계 두 개로 start 를 연달아 쏜다(둘 다 fire-and-forget).
+        // 두 startedAt 모두 클램프 창(과거 5분) 밖이라 **저장값**은 각 요청의 서버 now 로 치환된다.
+        Instant earlierBoundary = Instant.now().minus(Duration.ofMinutes(90));
+        Instant laterBoundary = Instant.now().minus(Duration.ofMinutes(60));
+        User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> FocusSession.builder()
+                        .id(markerId)
+                        .user(user)
+                        .startedAt(((FocusSession) inv.getArgument(0)).getStartedAt())
+                        .build());
+        // DB 상태 그대로: 1번째 호출 시점엔 열린 마커 없음, 2번째 시점엔 1번이 만든 마커(startedAt = 서버 now).
+        FocusSession created = FocusSession.builder()
+                .id(markerId).user(user).startedAt(Instant.now()).build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(created));
+
+        // when: 논리적으로 '나중' 경계가 먼저 도착하고, '이른' 경계가 뒤늦게 도착한다(도착 역전)
+        FocusSessionStartResponse first =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, laterBoundary));
+        FocusSessionStartResponse second =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, earlierBoundary));
+
+        // then: 순서 판정을 **클램프 이전** 시각으로 하므로 ② 는 최신 마커를 닫지 못한다.
+        // (클램프 값으로 판정하면 둘 다 now 로 치환돼 나중에 도착한 ② 의 now 가 더 커서 단조성을 통과했고,
+        //  최신 마커를 AUTO_CLOSED 한 뒤 자기 마커를 남겼다 — 이 티켓의 2차 P1 회귀.)
+        verify(focusSessionRepository, times(1)).save(any(FocusSession.class));
+        verify(focusSessionRepository, times(1)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        // 마커는 첫 요청 것 하나뿐이고, 뒤늦게 도착한 블록은 sessionId=null 을 받아 POST 로 적립한다.
+        // (같은 id 를 공유시키면 두 블록이 같은 마커를 PATCH 해 한쪽이 SESSION_ALREADY_ENDED → 적립 유실)
+        assertThat(first.sessionId()).isEqualTo(markerId);
+        assertThat(second.sessionId()).isNull();
+    }
+
+    @Test
+    @DisplayName("리플레이 버스트에서 뒤늦게 도착한 **더 늦은** 블록은 마커를 받는다 — 클램프된 저장값과 원시 시각을 섞어 비교하지 않는다")
+    void laterBlockArrivingAfterClampedEarlierBlockStillGetsMarker() {
+        // given: 90분 백그라운드 후 복귀 — 과거 경계 두 개가 리플레이된다(둘 다 클램프 창 밖).
+        // 이번엔 **논리적으로 이른** 블록이 먼저 도착해 마커를 만든다. 그 마커의 저장 startedAt 은
+        // 클램프되어 서버 now 가 되고, clientStartedAt 에는 원시 시각(90분 전)이 남는다.
+        Instant earlierBoundary = Instant.now().minus(Duration.ofMinutes(90));
+        Instant laterBoundary = Instant.now().minus(Duration.ofMinutes(60));
+        User user = User.builder().id(USER_ID).build();
+        UUID firstMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000d5");
+        UUID secondMarkerId = UUID.fromString("00000000-0000-0000-0000-0000000000d6");
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.save(any(FocusSession.class)))
+                .willAnswer(inv -> {
+                    FocusSession arg = inv.getArgument(0);
+                    return FocusSession.builder()
+                            .id(arg.getClientStartedAt() == earlierBoundary ? firstMarkerId : secondMarkerId)
+                            .user(user)
+                            .startedAt(arg.getStartedAt())
+                            .clientStartedAt(arg.getClientStartedAt())
+                            .build();
+                });
+        // DB 상태 그대로: 1번째엔 열린 마커 없음, 2번째엔 1번이 만든 마커.
+        // ⚠️ 그 마커의 startedAt 은 **클램프된 now**, clientStartedAt 은 **원시 90분 전**이다.
+        FocusSession created = FocusSession.builder()
+                .id(firstMarkerId).user(user)
+                .startedAt(Instant.now())
+                .clientStartedAt(earlierBoundary)
+                .build();
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.empty(), Optional.of(created));
+
+        // when: 이른 경계가 먼저, 더 늦은 경계가 뒤에 도착한다
+        FocusSessionStartResponse first =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, earlierBoundary));
+        FocusSessionStartResponse second =
+                focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, laterBoundary));
+
+        // then: ② 는 원시끼리 비교되어(60분 전 > 90분 전) 정상 회전한다 — 자기 마커를 받는다.
+        // 종전처럼 원시 orderKey 를 마커의 **클램프된 startedAt**(= now)과 비교하면 60분 전이 과거로
+        // 판정돼 ② 가 sessionId=null 을 받고, ① 의 업로드가 마커를 닫는 순간 라이브 마커가 사라진다.
+        // 그 블록이 5분 유예보다 길면 정산 가드도 풀려 현재 집중분이 빠진 채 내기가 확정된다(3차 P1).
+        verify(focusSessionRepository, times(2)).save(any(FocusSession.class));
+        verify(focusSessionRepository, times(2)).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        assertThat(first.sessionId()).isEqualTo(firstMarkerId);
+        assertThat(second.sessionId()).isEqualTo(secondMarkerId);
+    }
+
+    @Test
+    @DisplayName("클램프된(창 밖 과거) start 는 열린 마커를 닫지 못한다 — 클램프가 순서 판정을 무력화하지 않는다")
+    void clampedBackdatedStartDoesNotSupersedeOpenMarker() {
+        // given: 1분 전에 열린 마커 + 12시간 전 startedAt(창 밖 → 저장값은 now 로 클램프될 요청)
+        Instant markerStartedAt = withinClampWindow(60);
+        User user = User.builder().id(USER_ID).build();
+        UUID markerId = UUID.fromString("00000000-0000-0000-0000-0000000000d2");
+        FocusSession marker = FocusSession.builder()
+                .id(markerId).user(user).startedAt(markerStartedAt).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(marker));
+
+        // when
+        FocusSessionStartResponse response = focusService.startFocusSession(USER_ID,
+                new FocusSessionStartRequest(null, Instant.now().minus(Duration.ofHours(12))));
+
+        // then: 저장값(now)이 아니라 원래 요청 시각(12시간 전)으로 판정 → 회전 없음, 마커 미생성(null)
+        assertThat(response.sessionId()).isNull();
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+        verify(focusSessionRepository, never()).autoCloseOpenMarkersOf(any(), any());
+    }
+
+    @Test
+    @DisplayName("버스트 뒤의 새 경계(마커보다 뒤)는 다시 회전한다 — 마커가 영구 고착되지 않는다")
+    void freshBoundaryAfterReplayBurstRotatesAgain() {
+        // given: 리플레이 버스트가 남긴 마커(10분 전) + 복귀 후 실제로 지난 새 블록 경계(5초 전, 창 안)
+        Instant markerStartedAt = withinClampWindow(600);
+        User user = User.builder().id(USER_ID).build();
+        FocusSession marker = FocusSession.builder()
+                .id(UUID.fromString("00000000-0000-0000-0000-0000000000d3"))
+                .user(user).startedAt(markerStartedAt).build();
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
+                .willReturn(Optional.of(marker));
+        given(focusSessionRepository.autoCloseOpenMarkersOf(eq(user), any(Instant.class))).willReturn(1);
+        given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
+
+        // when
+        focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, withinClampWindow(5)));
+
+        // then: 보수적 규칙이 마커를 영구히 붙잡지 않는다 — 진짜로 더 늦은 경계는 정상 회전
+        verify(focusSessionRepository).autoCloseOpenMarkersOf(eq(user), any(Instant.class));
+        ArgumentCaptor<FocusSession> captor = ArgumentCaptor.forClass(FocusSession.class);
+        verify(focusSessionRepository).save(captor.capture());
+        assertThat(captor.getValue().getStartedAt()).isAfter(markerStartedAt);
     }
 
     // ── endFocusSession — 라이브 세션 종료(GROMO-610) ────────────────────────
@@ -2946,7 +3261,7 @@ class FocusServiceTest {
         // given: 창(과거 5분) 밖의 startedAt
         Instant backdated = Instant.now().minus(Duration.ofHours(12));
         User user = User.builder().id(USER_ID).build();
-        given(userRepository.findActiveByIdForShare(USER_ID)).willReturn(Optional.of(user));
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
         given(focusSessionRepository.save(any(FocusSession.class))).willAnswer(inv -> inv.getArgument(0));
 
         // when

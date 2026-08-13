@@ -160,6 +160,14 @@ export function kstTodayDate(): Date {
   return dateFromStr(todayStrKst());
 }
 
+// 주(월~일) 7칸 배열에서 '오늘' 칸의 인덱스(월=0..일=6).
+// 앵커는 KST(kstTodayDate) — 이 인덱스가 가리키는 배열은 서버 heatmap 셀(KST 버킷)을 요일별로
+// 접어 만든 값이라, 마커만 로컬 요일이면 비KST 기기에서 오늘 칸을 비켜 찍힌다
+// (heatmapBars의 current/future와 같은 판정, GROMO-1236 P2 → GROMO-1254에서 리그 요일 차트로 확장).
+export function kstTodayWeekdayIndex(): number {
+  return (kstTodayDate().getDay() + 6) % 7;
+}
+
 // 기간별 히트맵 조회 범위 [from, to] ('YYYY-MM-DD').
 // DAY=오늘, WEEK=이번 주 월요일~오늘(서버 /stats/focus WEEK와 동일 구간 — 리뷰 반영), MONTH=이달 1일~오늘.
 // 축은 KST(GROMO-1236) — 서버 일별 버킷이 KST라 from/to 둘 다 KST 오늘에서 파생해야 한 축이 된다
@@ -242,6 +250,31 @@ export function calendarPage(period: 'WEEK' | 'MONTH', offset: number): Calendar
     sublabel: `1일 – ${lastDay}일`,
     leadingBlanks: (first.getDay() + 6) % 7, // 월=0..일=6
   };
+}
+
+/**
+ * 캘린더 그리드를 7칸 행으로 나눈 결과 — 월은 1일 요일 정렬용 앞 빈 칸 + 마지막 행 채움 빈 칸.
+ *
+ * ⚠️ **행 수를 아는 곳이 두 군데다** — 실제 그리드(CalendarCard)와 로딩 스켈레톤의 카드 높이
+ *    (constants.skeletonCards). 같은 식을 두 번 구현하면 어긋난다. 월은 달마다 5행이거나
+ *    6행이라(예: 2026-08 = 앞 빈칸 5 + 31일 = 36칸 = 6행) 어긋나면 도착 순간 카드가 한 행
+ *    (≈52px) 갑자기 커진다. 그래서 분할을 여기 한 번만 두고 양쪽이 이걸 쓴다.
+ */
+export function calendarRows(period: 'WEEK' | 'MONTH', offset: number): (string | null)[][] {
+  const page = calendarPage(period, offset);
+  const slots: (string | null)[] = [
+    ...Array.from({ length: page.leadingBlanks }, () => null),
+    ...page.days,
+  ];
+  while (slots.length % 7 !== 0) slots.push(null);
+  const rows: (string | null)[][] = [];
+  for (let i = 0; i < slots.length; i += 7) rows.push(slots.slice(i, i + 7));
+  return rows;
+}
+
+/** 캘린더 그리드 행 수 — 스켈레톤 카드 높이 계산용. 분할은 calendarRows 한 곳에만 있다. */
+export function calendarRowCount(period: 'WEEK' | 'MONTH', offset: number): number {
+  return calendarRows(period, offset).length;
 }
 
 // 막대/점 1개(집중/폰 사용 공용).

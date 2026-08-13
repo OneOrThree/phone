@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { T } from '@/constants/theme';
@@ -17,6 +17,8 @@ import { CurrencyIcon } from '@/components/CurrencyIcon';
 import { getCurrencyTransactions } from '@/services/currencyApi';
 import type { CurrencyTransaction, CurrencyTransactionType } from '@/types/dto/currency';
 import { useCoins, useRefreshCoinsOnFocus } from '@/store/CoinContext';
+import { logCurrencyHistoryViewed } from '@/services/analyticsEvents';
+import type { V2RootStackParamList } from '@/navigation/types';
 
 // 시간조각(인게임 재화) 거래 내역 화면 — MenuScreen 잔액 행에서 진입.
 // GET /api/v1/currency/transactions(최신순)을 그대로 나열한다: 부호 있는 금액 + 사유 한글 라벨 + 날짜.
@@ -62,6 +64,8 @@ function listErrorMessage(e: unknown): string {
 
 export default function CurrencyHistoryScreen() {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<V2RootStackParamList, 'CurrencyHistory'>>();
+  const entry = route.params?.entry ?? 'menu_chip';
   const { coins } = useCoins();
   // 잔액을 보여 주는 화면이라 포커스 시 서버 잔액을 다시 불러온다(내기 차감·정산 반영).
   useRefreshCoinsOnFocus();
@@ -97,12 +101,15 @@ export default function CurrencyHistoryScreen() {
   // '갱신된 잔액 + 낡은 내역'이 나란히 뜬다(잔액은 위 useRefreshCoinsOnFocus가 매번 갱신).
   useFocusEffect(
     useCallback(() => {
+      // 화면 진입은 거래 API 성공 여부와 독립된 퍼널 단계다. 조회 성공 여부는 status로
+      // 화면에 남기고, 성공한 내역 건수는 화면 진입 이벤트의 필수 조건으로 삼지 않는다.
+      logCurrencyHistoryViewed({ entry });
       load();
       return () => {
         // 요청 카운터라 cleanup 시점 값을 그대로 올리는 게 맞다(GroupBetHistoryScreen의 같은 자리).
         requestSeqRef.current++;
       };
-    }, [load]),
+    }, [entry, load]),
   );
 
   return (
@@ -223,7 +230,8 @@ const s = StyleSheet.create({
   // 재시도 버튼 — GroupSettingsScreen의 같은 블록 복사. marginTop만 xl→sm으로 줄였다:
   // 이 center는 gap(md)이 이미 있어 원본 그대로 두면 문구와 버튼 사이가 혼자 벌어진다(합 20 유지).
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

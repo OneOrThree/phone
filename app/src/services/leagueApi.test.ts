@@ -27,7 +27,7 @@ describe('date = KST 오늘 (GROMO-1236)', () => {
     const kst = todayStrKst();
     expect(kst).not.toBe('2000-01-02');
     expect(mockGet).toHaveBeenCalledWith('/api/v1/league/me/ranking', {
-      params: { category: undefined, date: kst },
+      params: { date: kst },
     });
   });
 
@@ -35,6 +35,13 @@ describe('date = KST 오늘 (GROMO-1236)', () => {
     await getMyRanking('LABOR_ATTORNEY');
     expect(mockGet).toHaveBeenCalledWith('/api/v1/league/me/ranking', {
       params: { category: 'LABOR_ATTORNEY', date: todayStrKst() },
+    });
+  });
+
+  test('공유 그룹 adapter가 고정한 KST date를 그대로 쓰고 category는 생략한다', async () => {
+    await getMyRanking(undefined, '2026-08-10');
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/league/me/ranking', {
+      params: { date: '2026-08-10' },
     });
   });
 });

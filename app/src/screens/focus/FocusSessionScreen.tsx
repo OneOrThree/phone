@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   View,
   Text,
@@ -12,8 +13,10 @@ import {
   Vibration,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  type TextStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { captureRef } from 'react-native-view-shot';
@@ -22,8 +25,11 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { AnimatedCharacter } from '@/components/character/AnimatedCharacter';
 import { CharacterImage } from '@/components/character/CharacterImage';
 import { PressableScale } from '@/components/PressableScale';
+import { M, fadeIn, pop, transition } from '@/constants/motion';
+import { useMotion } from '@/hooks/useMotion';
 import { T, withAlpha } from '@/constants/theme';
 import { startFocusSession } from '@/services/focusApi';
 import type { FocusType } from '@/types/dto/focus';
@@ -41,15 +47,18 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import type { FocusTimerMode, LiveFocusSession } from './types';
 import { hms } from './format';
+import { focusReadoutLayout, PLAIN_TIMER_MIN_FONT_SCALE } from './readoutLayout';
 import { scheduleLeaveNotifications, cancelLeaveNotifications } from './leaveNotifications';
-import { todayStr } from '@/utils/localDate';
+import { kstLocalSameDay, todayStr, todayStrKst } from '@/utils/localDate';
 import {
   newBlockToday,
   creditTick,
   creditTicks,
   blockTodaySeconds,
+  blockKstTodaySeconds,
   type BlockToday,
 } from './blockToday';
+import { myLiveTotalSeconds } from '@/utils/liveFocus';
 import { newBlockPause, pauseStart, pauseEnd, blockPauseSeconds, pauseCutAt } from './blockPause';
 import { useFocusFriends } from '@/screens/league/useFocusFriends';
 import { useFocusCategory } from '@/hooks/useFocusCategory';
@@ -66,12 +75,20 @@ import {
   logFocusSessionResumed,
   logFocusSessionCompleted,
   logFocusSessionAbandoned,
+  logFocusDistractionDetected,
   logFocusMenuOpened,
   logFocusViewChanged,
   logFocusOrientationChanged,
   logFocusMarkerStartFailed,
+  subjectKeyOf,
   type FocusViewName,
 } from '@/services/analyticsEvents';
+import {
+  consumeCardInteraction,
+  FOCUS_ATTRIBUTION_TTL_MS,
+  invalidateCardInteraction,
+  normalizeFocusEntrySource,
+} from '@/services/cardInteraction';
 
 // 06/07/08 집중 세션(세로) + 09 친구 그리드(좌우 페이저) + 10/11 메뉴 드로어.
 // 타이머는 실제로 tick하고, 정지 시 집중시간·코인·세션 POST를 반영한다(구 FocusMode 로직 이식).
@@ -111,6 +128,13 @@ function viewForPage(index: number, groupCount: number): FocusViewName {
 // 초기 세로 설정을 덮으므로, 플랫폼으로 명시적으로 게이트하지 않으면 미검증 가로 UI가 노출된다.
 const LANDSCAPE_ENABLED = Platform.OS === 'ios';
 
+// ── 렌더 계층 전용 상수(GROMO-1381) — 아래 세션 로직과 무관하다 ──────────────────────
+// 페이저 도트 — 활성 알약(너비 7→18)과 색이 값 변화를 부드럽게 따라가게 한다.
+const DOT_TRANSITION = transition({
+  property: ['width', 'backgroundColor'],
+  duration: M.dur.quick,
+});
+
 interface SessionState {
   elapsed: number; // 실제 집중 초(적립 기준) — 뽀모도로는 집중 블록만 누적
   display: number; // 큰 숫자: countup=경과 / countdown=남음 / pomodoro=현 페이즈 남음
@@ -123,12 +147,20 @@ export default function FocusSessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { params } = useRoute<RouteProp<V2RootStackParamList, 'FocusSession'>>();
   const { subjectId, subjectName, mode } = params;
+  const entrySource = normalizeFocusEntrySource(params.entrySource);
+  const interactionId = entrySource === 'group_card' ? params.interactionId : undefined;
+  const interactionAcceptedAt =
+    entrySource === 'group_card' ? params.interactionAcceptedAt : undefined;
   const goal = params.goalSeconds ?? 25 * 60;
   const pomo = params.pomodoro ?? { focusMin: 25, breakMin: 5, sets: 4 };
 
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
+  // 세로 레이아웃 예산 계산용 — 노치·홈 인디케이터를 뺀 실제 가용 높이를 알아야 한다(아래 uiScale).
+  const insets = useSafeAreaInsets();
   // 가로 판별 — 방향 전환에 따라 렌더만 분기한다(세션 로직은 방향과 무관, GROMO-973).
   const isLandscape = width > height;
+  // 모션 게이트('동작 줄이기') — 이 화면에서는 렌더 계층에서만 쓴다(GROMO-1381).
+  const m = useMotion();
   const { userId, nickname } = useUser();
   const { addFocusSeconds, todayFocusSeconds } = useFocus();
   const { refresh: refreshCoins } = useCoins();
@@ -156,16 +188,15 @@ export default function FocusSessionScreen() {
   // 타이머 기준으로 그리드가 따로 렌더한다(GROMO-932, 아래 myGridMe) — 중복·시차 방지
   const myCategory = useFocusCategory();
   const myOccupation = occupationForCategory(myCategory);
-  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId, pinnedIds });
+  const { members: leagueMembers } = useSessionLeagueMembers({ excludeUserId: userId });
   const { members: examMembers } = useSessionLeagueMembers({
     occupation: myOccupation ?? undefined,
     enabled: myOccupation != null,
     excludeUserId: userId,
-    pinnedIds,
   });
   // 그룹 뷰(F2) — 내가 참여한 '그룹별로' 한 페이지씩. 각 그룹의 내 행은 제외하고 내 셀은 그리드가
   // 로컬 타이머로 따로 렌더한다(me). 라이브 집중중 신호는 group detail에 없어 오늘 집중분만 정적 표기한다.
-  const { groups: sessionGroups } = useSessionGroups({ excludeUserId: userId });
+  const { groups: sessionGroups, myFocus } = useSessionGroups({ excludeUserId: userId });
   // 그룹 페이지 개수 — 페이저 점·뷰 계측이 동적 페이지 수를 알아야 해서 ref로 최신값을 들고 있는다.
   const groupCountRef = useRef(0);
   groupCountRef.current = sessionGroups.length;
@@ -306,6 +337,15 @@ export default function FocusSessionScreen() {
   //   + 미정산 경과의 오늘 몫(blockTodayRef — 자정을 걸친 세션에서 어제 몫은 빼고 센다)
   const gridPreSessionRef = useRef({ day: todayStr(), base: todayFocusSeconds });
   const gridSettledTodayRef = useRef({ day: todayStr(), seconds: 0 });
+  // 내 그리드 셀의 **정산 기준점**(GROMO-1246 코덱스 리뷰 ③·④·⑧) — 마지막 정산 직후 확정한
+  // KST 오늘 총합. 새 블록의 델타는 이 위에 쌓이고, 서버가 그 정산분을 반영하면 serverBase가
+  // 같은 총합으로 수렴해 이중 계상이 없다. 기준일을 함께 들고 KST 자정을 넘기면 0으로 리셋한다.
+  const gridSettledFloorRef = useRef({ day: todayStrKst(), seconds: 0 });
+  // 정산 시점에 읽을 최신 서버 스냅샷 — settleFocusBlock 이 렌더 값을 클로저로 못 잡아 ref 로 둔다.
+  // **기준일을 함께** 들고 있어야 한다(코덱스 리뷰 ⑩): 자정 전에 스냅샷을 받고 백그라운드에 있다가
+  // 자정을 넘겨 복귀하면 AppState 리플레이가 새 렌더보다 먼저 정산을 돌린다 — 그때 날짜 확인 없이
+  // 쓰면 전날 누적 위에 새 날 블록을 얹은 값이 오늘 기준점으로 굳어 하루 종일 과대 표시된다.
+  const gridServerSnapshotRef = useRef<{ day: string; seconds: number } | null>(null);
   // 서버 라이브 마커 세션(GROMO-873) — 시작 시 진행 중(endedAt NULL) 레코드를 만들어 친구/리그에
   // '집중 중'으로 뜨게 한다. 표시용 마커일 뿐 시간 저장·통계는 기존 완주 저장(POST, settleFocusBlock)이
   // 담당하고, 마커는 블록 정산·세션 종료 시 취소(통계 미귀속)로 닫는다 — 이중 집계 없음. liveIdRef는
@@ -320,11 +360,21 @@ export default function FocusSessionScreen() {
   // 에서도 재시도하고, 그래도 남으면 서버 고아 스윕(12h)이 최후 보루.
   // 휴식 만료 복귀가 다음 블록을 일시정지 대기로 만든 경우 — 마커 오픈을 재개 시점까지 유예(코덱스 리뷰)
   const markerDeferredRef = useRef(false);
+  const sessionStartedLoggedRef = useRef(false);
 
   // 집중 세션 시작 계측(GROMO-537) — 실제 세션 화면 진입 시 1회.
   // has_tag: 과목 부착 여부(현재 v2는 과목 선택이 필수라 항상 true지만, 계약상 명시). mode: 타이머 모드.
   // 완료(focus_session_completed)는 finish가 발행한다(GROMO-1004 — 서버[S]에서 클라 소유로 이관).
   useEffect(() => {
+    if (sessionStartedLoggedRef.current) return;
+    sessionStartedLoggedRef.current = true;
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      invalidateCardInteraction(interactionId);
+    }
+    const attributedInteractionId = consumeCardInteraction(
+      { entrySource, interactionId, interactionAcceptedAt },
+      FOCUS_ATTRIBUTION_TTL_MS,
+    );
     // 목표 시간(초→분): 카운트다운=목표, 뽀모도로=집중블록×세트 총 집중분. 카운트업은 목표 없음.
     const goalSecondsForLog =
       mode === 'countdown'
@@ -336,8 +386,20 @@ export default function FocusSessionScreen() {
       has_tag: Boolean(subjectId),
       mode,
       goal_minutes: goalSecondsForLog != null ? Math.round(goalSecondsForLog / 60) : undefined,
+      entry_source: entrySource,
+      subject_key: subjectKeyOf(subjectId),
+      interaction_id: attributedInteractionId,
     });
-  }, [subjectId, mode, goal, pomo.focusMin, pomo.sets]);
+  }, [
+    subjectId,
+    mode,
+    goal,
+    pomo.focusMin,
+    pomo.sets,
+    entrySource,
+    interactionId,
+    interactionAcceptedAt,
+  ]);
 
   // 서버에 라이브 마커 시작을 등록 — 등록돼야 친구/리그 화면에 '집중 중'(과목명 포함)으로 보인다.
   // 태그를 해석해 실어 보내되, 실패(오프라인 등)해도 세션·시간 저장은 영향 없다(마커는 표시용).
@@ -623,6 +685,23 @@ export default function FocusSessionScreen() {
         }
         gridSettledTodayRef.current.seconds += todaySeconds;
       }
+      // 그리드 표시 기준점 확정(코덱스 리뷰 ⑧) — '그 시점 서버가 아는 값'과 '직전 기준점' 중 큰
+      // 쪽에 이번 블록의 KST 몫을 얹는다. 정산 시점에 serverBase 를 읽으므로 첫 스냅샷이 정산
+      // 뒤에 도착해도 같은 블록을 두 번 세지 않고(④), 다음 블록의 델타는 이 총합 위에 쌓인다(⑧).
+      const kstToday = todayStrKst();
+      const kstSeconds = blockToday.kst?.[kstToday] ?? 0;
+      if (kstSeconds > 0) {
+        const prevFloor =
+          gridSettledFloorRef.current.day === kstToday ? gridSettledFloorRef.current.seconds : 0;
+        // 스냅샷·직전 기준점 모두 **오늘(KST) 것일 때만** 쓴다 — 자정을 넘긴 리플레이가 렌더보다
+        // 먼저 여기 닿으면 둘 다 전날 값이라, 날짜를 안 보면 전날 총합이 오늘로 넘어온다(⑩).
+        const snap = gridServerSnapshotRef.current;
+        const snapshotSeconds = snap?.day === kstToday ? snap.seconds : 0;
+        gridSettledFloorRef.current = {
+          day: kstToday,
+          seconds: Math.max(snapshotSeconds, prevFloor) + kstSeconds,
+        };
+      }
       // 마커 회전(코덱스 리뷰) — 정산된 블록은 서버 누적(base)에 들어가는데 마커를 그대로 두면
       // 친구 화면 라이브 합산(base + (now − focusStartedAt))에 같은 구간이 두 번 잡힌다.
       // 블록을 정산하는 즉시 마커 참조를 떼고, 다음 집중 블록 시작(break→focus)에서 새로 연다.
@@ -878,6 +957,19 @@ export default function FocusSessionScreen() {
       const away = Math.max(0, Math.round((Date.now() - leftAtMs) / 1000));
       leftAtRef.current = null;
       cancelLeaveNotifications().catch(() => {});
+      const distractionTimedOut =
+        leftPhaseRef.current === 'focus' && !shieldedRef.current && away > LEAVE_END_S;
+      // AppState만으로는 실드가 실제로 외부 앱을 차단했는지 알 수 없다. 실드 세션은
+      // 홈 이동·기기 잠금·허용 앱 사용도 같은 콜백으로 들어오므로 차단 성공으로 기록하지 않고,
+      // 차단 결과를 관측할 수 있는 일반 세션만 이탈 이벤트를 발행한다.
+      if (leftPhaseRef.current === 'focus' && !shieldedRef.current && !distractionTimedOut) {
+        logFocusDistractionDetected({
+          reason: 'app_backgrounded',
+          app_category: 'other',
+          blocked: false,
+          returned_to_focus: true,
+        });
+      }
       // 복귀 = 연결이 돌아왔을 가능성이 큰 시점 — 회전 중 실패한 마커 취소 재시도(코덱스 리뷰)
       flushPendingMarkerCancels(userIdRef.current).catch(() => {});
       if (__DEV__)
@@ -976,6 +1068,12 @@ export default function FocusSessionScreen() {
           // 폴백(실드 없음) — 15초 초과 시 자동 종료(나가기 직전까지만 저장)
           // 정상 완료가 아닌 중도 이탈 종료이므로 abandoned 계측(reason: leave_timeout).
           abandonedRef.current = true;
+          logFocusDistractionDetected({
+            reason: 'leave_timeout',
+            app_category: 'other',
+            blocked: false,
+            returned_to_focus: false,
+          });
           logFocusSessionAbandoned({
             elapsed_seconds: Math.floor(sessionRef.current.elapsed),
             reason: 'leave_timeout',
@@ -1161,22 +1259,22 @@ export default function FocusSessionScreen() {
   const controlsRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '집중 세션이 시작됐어!\n여기서 흐른 시간이 그대로 과목의 공부 기록이 돼.',
+      text: '집중 세션이 시작됐어요!\n여기서 흐른 시간이 그대로 과목의 집중 기록이 돼요.',
       character: require('@/assets/character_study.png'),
     },
     {
-      text: '화면을 옆으로 넘겨봐 —\n친구·그룹·같은 시험 준비생·전체 리그가 공부하는 모습을 볼 수 있어.',
+      text: '화면을 옆으로 넘겨 봐요.\n친구·그룹·같은 시험 준비생·전체 리그가 집중하는 모습을 볼 수 있어요.',
       character: require('@/assets/character_happy.png'),
       anchor: dotsRef,
     },
     {
-      text: '메뉴에서는 과목을 바꾸거나 오늘의 과목별 기록을 볼 수 있어.',
+      text: '메뉴에서는 과목을 바꾸거나 오늘의 과목별 기록을 볼 수 있어요.',
       character: require('@/assets/character_hi.png'),
       anchor: hamburgerRef,
       round: true,
     },
     {
-      text: '잠깐 쉴 땐 일시정지, 끝낼 땐 정지!\n정지하면 기록이 저장되고 결과 화면으로 넘어가.',
+      text: '잠깐 쉴 때는 일시정지, 끝낼 때는 정지를 눌러요.\n정지하면 기록이 저장되고 결과 화면으로 넘어가요.',
       character: require('@/assets/character_study.png'),
       anchor: controlsRef,
       radius: 36,
@@ -1186,20 +1284,66 @@ export default function FocusSessionScreen() {
   // 내 그리드 셀(GROMO-932) — 오늘 총 집중 = 세션 전 오늘 몫 + 세션의 오늘 정산 몫 + 미정산 경과.
   // 집계 방식·자정 경계 규칙은 gridPreSessionRef 선언부 주석 참고. 타이머 틱마다 리렌더돼 오른다.
   const gridDay = todayStr();
+  const gridKstDay = todayStrKst();
+  // 서버 스냅샷은 기준일이 오늘(KST)일 때만 유효 — 자정을 넘긴 채 폴링이 계속 실패하면 전날
+  // 값이 남아 있다(코덱스 리뷰 ②). 그 회차는 폴백(로컬 집계)으로 내려간다.
+  const gridServerToday = myFocus?.day === gridKstDay ? myFocus.minutes : null;
+  // 정산 시점에 읽을 수 있게 최신 스냅샷을 ref 로 옮겨 둔다.
+  gridServerSnapshotRef.current =
+    gridServerToday != null ? { day: gridKstDay, seconds: gridServerToday * 60 } : null;
+  // 기준점은 KST 날짜가 바뀌면 0으로 — 자정 이후 새 날의 값이 전날 총합에 묶이면 안 된다.
+  if (gridSettledFloorRef.current.day !== gridKstDay) {
+    gridSettledFloorRef.current = { day: gridKstDay, seconds: 0 };
+  }
   // 아직 정산되지 않은 집중초 중 '오늘' 몫(GROMO-1252 코드리뷰) — 그리드 셀·메뉴 드로어 공용.
   // session.elapsed 전체를 쓰면 ① 자정을 걸친 세션의 어제 몫까지 오늘로 표시되고(23:00~00:05
   // 세션이 65분으로 보이다가 정산 후 5분으로 줄어드는 역전) ② 뽀모도로처럼 이미 정산된 블록이
   // 저장분과 이중으로 잡힌다. 타이머 tick마다 리렌더되므로 ref를 그대로 읽어도 값이 따라 오른다.
   const liveTodaySeconds = blockTodaySeconds(blockTodayRef.current);
+  // 표시 기준은 멤버 셀과 같은 서버 KST 버킷(GROMO-1246) — 로컬 집계는 서버 스냅샷을 못
+  // 받았을 때(그룹 미가입·조회 실패·자정 넘겨 무효화)의 폴백으로만 쓴다. 측정·저장 경로는
+  // 그대로다(1236의 "측정 축은 로컬 유지" 결정 유지 — 바뀌는 건 표시 결합부뿐).
+  // 계산 결과를 바닥에 되먹여 다음 렌더의 하한으로 삼는다(정산 직후 되밀림 방지).
+  const gridTotalSeconds = myLiveTotalSeconds({
+    serverBase: gridServerToday != null ? gridServerToday * 60 : null,
+    delta: blockKstTodaySeconds(blockTodayRef.current),
+    localFallback:
+      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
+      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
+      liveTodaySeconds,
+    settledFloor: gridSettledFloorRef.current.seconds,
+    // 서버 버킷이 KST 고정(GROMO-1259)이라 동축 판정은 기기 오프셋이 KST인지로 족하다.
+    sameAxis: kstLocalSameDay(),
+  });
   const myGridMe = {
     nickname: nickname || '나',
     // 일시정지·뽀모도로 휴식·완료 게이트에선 비집중 표시 — 그리드의 초록은 isFocusing 의미(코덱스 리뷰)
     isFocusing: !paused && session.phase === 'focus' && !session.done,
-    totalSeconds:
-      (gridPreSessionRef.current.day === gridDay ? gridPreSessionRef.current.base : 0) +
-      (gridSettledTodayRef.current.day === gridDay ? gridSettledTodayRef.current.seconds : 0) +
-      liveTodaySeconds,
+    totalSeconds: gridTotalSeconds,
     tagName: subjectName,
+  };
+
+  // ── 렌더 계층(GROMO-1381) — 아래 블록은 세션 로직에 전혀 관여하지 않는다 ──────────────
+  // 캐릭터 크기와 타이머 지정 크기는 전부 readoutLayout.ts의 순수 함수가 정한다(단위 테스트로
+  // 잠겨 있다). 여기서는 입력(가용 높이·폭·글자 배율·모드)만 넘긴다.
+  // ⚠️ fontScale을 반드시 넘긴다 — Text의 allowFontScaling 기본값 때문에 시스템 글자 크기를
+  //    키운 사용자에게는 타이머가 다시 확대되어, 그만큼 캐릭터 몫이 줄어야 한다(codex 리뷰).
+  const layout = focusReadoutLayout(
+    Math.max(0, height - insets.top - insets.bottom),
+    width,
+    fontScale,
+    // ⚠️ 뽀모도로는 세트배지·세트도트를 함께 그린다 — 예산에 넣지 않으면 캐릭터를 크게 유지한 채
+    //    리드아웃이 페이저를 밀어내 도트·캐릭터가 겹친다.
+    mode === 'pomodoro',
+    // ⚠️ 카운트다운은 '목표 HH:MM:SS' 줄을 함께 그린다(codex 리뷰).
+    mode === 'countdown',
+  );
+  const charSize = layout.charSize;
+  // 자간·행높이는 지정 fontSize에 비례시켜 폰트 메트릭을 유지한다(시스템 배율은 RN이 곱한다).
+  const timerTextStyle = {
+    fontSize: layout.timerFontSize,
+    lineHeight: Math.round(layout.timerFontSize * 1.08),
+    letterSpacing: (T.text.timer.letterSpacing * layout.timerFontSize) / T.text.timer.fontSize,
   };
 
   // 가로 — 플립 시계만 크게 보는 컴팩트 뷰(GROMO-973). 세션 상태·타이머는 위 훅들이 그대로 굴린다.
@@ -1274,10 +1418,35 @@ export default function FocusSessionScreen() {
         >
           <View style={[s.page, { width }]}>
             <View style={s.characterWrap}>
-              {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터) */}
-              <View ref={charShotRef} collapsable={false}>
-                <CharacterImage size={230} variant="study" sourceUri={activeSource ?? undefined} />
-              </View>
+              {/* 호흡 래퍼 — children 슬롯에 캡처 뷰를 넣어 래퍼가 charShotRef의 **부모**가 되게
+                  한다(정책 D-22). ref 안쪽에 transform이 걸리면 아래 captureRef가 세로로 눌린
+                  호흡 중간 프레임을 그대로 PNG로 구워 Live Activity·차폐 화면에 박아 버린다.
+                  일시정지면 calm(주기 2600ms·얕은 진폭)으로 가라앉는다. reduce 처리는 컴포넌트 몫. */}
+              {/* ⚠️ active={page === 0} — 가로 페이저는 다른 페이지로 넘어가도 캐릭터 페이지가
+                  마운트된 채 남는다. 안 넘기면 보이지도 않는 캐릭터의 무한 호흡이 몇 시간짜리
+                  세션 내내 UI 스레드를 먹는다(codex 리뷰). 홈의 useIsFocused와 같은 부류다. */}
+              <AnimatedCharacter
+                size={charSize}
+                mood={paused ? 'calm' : 'idle'}
+                // ⚠️ `!doneGate`도 함께 본다. 완료 게이트는 화면을 통째로 덮는데, 캐릭터
+                //    페이지에서 세션을 끝내면 `page === 0`이 그대로 참이라 **가려진 캐릭터의
+                //    무한 호흡이 사용자가 확인을 누를 때까지 계속 돈다**(codex 리뷰).
+                //    게이트는 사용자가 닫을 때까지 열려 있을 수 있어 그 사이 UI 스레드와
+                //    배터리를 계속 먹는다. 위 페이저 사유와 같은 부류다.
+                active={page === 0 && !doneGate}
+              >
+                {/* 스냅샷 캡처 범위 — Live Activity·가림막에 들어갈 캐릭터(공부 집중 = study 캐릭터).
+                    ⚠️ charSize가 작은 화면에서 줄면 캡처 PNG 해상도도 함께 줄어든다. 기기 배율
+                    (@2x/@3x) 때문에 해상도는 원래도 460~690px로 흔들렸고, 축소 하한(≈370px)도
+                    위젯 실제 표시 크기보다 크다 — 별도 캡처 크기를 두지 않는다(보고 참고). */}
+                <View ref={charShotRef} collapsable={false}>
+                  <CharacterImage
+                    size={charSize}
+                    variant="study"
+                    sourceUri={activeSource ?? undefined}
+                  />
+                </View>
+              </AnimatedCharacter>
             </View>
           </View>
           <View style={[s.page, { width }]}>
@@ -1285,6 +1454,9 @@ export default function FocusSessionScreen() {
               members={sessionFriends}
               me={myGridMe}
               pinnedIds={pinnedIds}
+              // 페이지 인덱스는 viewForPage()의 순서와 같다 — [캐릭터0][친구1][그룹×N][내리그][전체리그].
+              // 안 보이는 그리드의 1초 시계를 세우기 위한 것(서버 폴링은 계속 돈다).
+              visible={page === 1}
               title="내 친구"
               emptyTitle="아직 친구가 없어요"
               emptySub={'리그 탭에서 친구를 추가하면\n집중할 때 여기서 같이 보여요.'}
@@ -1298,7 +1470,7 @@ export default function FocusSessionScreen() {
           </View>
           {/* 그룹 뷰(F2) — 참여한 '그룹마다' 한 페이지씩("그룹: {그룹명}"). pinnedIds는 친구 전용이라 안 넘긴다.
               라이브 집중중 신호가 없어(그룹 detail 폴링) 오늘 집중분만 정적 표기된다. */}
-          {sessionGroups.map((g) => (
+          {sessionGroups.map((g, i) => (
             <View
               key={g.groupId}
               testID={`focus.group.page.${g.groupId}`}
@@ -1308,6 +1480,7 @@ export default function FocusSessionScreen() {
                 members={g.members}
                 me={myGridMe}
                 showMeWhenEmpty
+                visible={page === 2 + i}
                 title={`그룹: ${g.groupName}`}
                 emptyTitle="아직 그룹 멤버가 없어요"
                 emptySub={'그룹에 멤버가 모이면\n집중할 때 여기서 같이 보여요.'}
@@ -1319,6 +1492,7 @@ export default function FocusSessionScreen() {
               members={examMembers}
               me={myGridMe}
               pinnedIds={pinnedIds}
+              visible={page === 2 + sessionGroups.length}
               title={myCategory ? `${myCategory} 리그` : '같은 시험'}
               emptyTitle={
                 myOccupation == null
@@ -1337,6 +1511,7 @@ export default function FocusSessionScreen() {
               members={leagueMembers}
               me={myGridMe}
               pinnedIds={pinnedIds}
+              visible={page === 3 + sessionGroups.length}
               title="전체 리그"
               emptyTitle="아직 리그 멤버가 없어요"
               emptySub={'리그에 배정되면 여기서\n같이 공부하는 모습이 보여요.'}
@@ -1348,12 +1523,19 @@ export default function FocusSessionScreen() {
         <View style={s.dots} ref={dotsRef} collapsable={false}>
           {/* 페이저 페이지 수와 항상 일치 — 캐릭터·친구(2) + 그룹×N + 내리그·전체리그(2) */}
           {Array.from({ length: 4 + sessionGroups.length }).map((_, i) => (
-            <View key={i} style={[s.dot, page === i && s.dotActive]} />
+            <Animated.View
+              key={i}
+              style={[s.dot, page === i && s.dotActive, m.css(DOT_TRANSITION)]}
+            />
           ))}
         </View>
 
-        {/* 타이머 리드아웃(모드별) */}
-        <View style={s.readout}>{renderReadout(mode, session, goal, pomo.sets, subjectName)}</View>
+        {/* 타이머 리드아웃(모드별).
+            key=phase — 뽀모도로 집중↔휴식 경계에서 리드아웃이 통째로 새로 마운트되며 크로스페이드로
+            갈아탄다(카운트다운·카운트업은 phase가 'focus' 고정이라 진입 1회만 페이드된다). */}
+        <PhaseReadout key={session.phase}>
+          {renderReadout(mode, session, goal, pomo, subjectName, timerTextStyle)}
+        </PhaseReadout>
 
         {/* 컨트롤 — 일시정지 / 정지 */}
         <View style={s.controls} ref={controlsRef} collapsable={false}>
@@ -1364,7 +1546,9 @@ export default function FocusSessionScreen() {
             haptic="light"
             onPress={togglePause}
           >
-            <Ionicons name={paused ? 'play' : 'pause'} size={22} color={T.paperLight} />
+            {/* 아이콘이 바뀌는 순간 팝으로 갈아탄다 — key로 새로 마운트시켜야 프리셋이 다시 돈다.
+                버튼의 testID(focus.pause)는 위 PressableScale에 그대로 남아 E2E 셀렉터에 영향 없음. */}
+            <PopIcon key={paused ? 'play' : 'pause'} name={paused ? 'play' : 'pause'} />
           </PressableScale>
           <PressableScale
             testID="focus.stop"
@@ -1415,26 +1599,49 @@ export default function FocusSessionScreen() {
 // 모드별 하단 리드아웃(라벨 + 큰 타이머 + 보조표시).
 // 타이머 바로 위엔 모드 안내 문구 대신 집중 중인 과목명을 보여준다(GROMO-848).
 // 뽀모도로 휴식 페이즈만 예외로 '휴식' — 과목명이 뜨면 집중 중으로 오해할 수 있어서.
+//
+// ⚠️ GROMO-1525 — 세 모드가 **모두 같은 숫자 배치**를 쓴다. 1381이 카운트다운·뽀모도로에만
+//    씌웠던 원형 진행 링(`ProgressRing`)은 오너 결정으로 뺐다(재추가 예정). 진행률은 숫자로
+//    그대로 읽히므로 정보 손실은 없다. 진입 연출은 호출부의 fadeIn(PhaseReadout)이 담당한다.
 function renderReadout(
   mode: FocusTimerMode,
   session: SessionState,
   goal: number,
-  sets: number,
+  pomo: { sets: number },
   subjectName: string,
+  timerStyle: TextStyle,
 ) {
+  // 큰 숫자 — 세 모드 공용.
+  // ⚠️ adjustsFontSizeToFit은 최후 방어선이다. 지정 크기는 이미 readoutLayout이 화면 폭에 맞춰
+  //    낮춰 두었고, 이건 폰트 메트릭 추정이 빗나갔을 때 **말줄임 대신 축소**되게 한다.
+  const bigTime = (
+    <Text
+      style={[s.bigTime, timerStyle]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={PLAIN_TIMER_MIN_FONT_SCALE}
+    >
+      {hms(session.display)}
+    </Text>
+  );
+
   if (mode === 'countup') {
     return (
       <>
-        <Text style={s.roSubject}>{subjectName}</Text>
-        <Text style={s.bigTime}>{hms(session.display)}</Text>
+        <Text style={s.roSubject} numberOfLines={1}>
+          {subjectName}
+        </Text>
+        {bigTime}
       </>
     );
   }
   if (mode === 'countdown') {
     return (
       <>
-        <Text style={s.roSubject}>{subjectName}</Text>
-        <Text style={s.bigTime}>{hms(session.display)}</Text>
+        <Text style={s.roSubject} numberOfLines={1}>
+          {subjectName}
+        </Text>
+        {bigTime}
         <Text style={s.roGoal}>목표 {hms(goal)}</Text>
       </>
     );
@@ -1446,18 +1653,40 @@ function renderReadout(
         <View style={s.setBadge}>
           <View style={s.setBadgeDot} />
           <Text style={s.setBadgeText}>
-            세트 {session.setIndex} / {sets}
+            세트 {session.setIndex} / {pomo.sets}
           </Text>
         </View>
       </View>
-      <Text style={s.roSubject}>{session.phase === 'focus' ? subjectName : '휴식'}</Text>
-      <Text style={s.bigTime}>{hms(session.display)}</Text>
+      <Text style={s.roSubject} numberOfLines={1}>
+        {session.phase === 'focus' ? subjectName : '휴식'}
+      </Text>
+      {bigTime}
       <View style={s.setDots}>
-        {Array.from({ length: sets }).map((_, i) => (
+        {Array.from({ length: pomo.sets }).map((_, i) => (
           <View key={i} style={[s.setDot, i < session.setIndex && s.setDotOn]} />
         ))}
       </View>
     </>
+  );
+}
+
+// ⚠️ 키로 remount되는 진입 요소는 **자기 컴포넌트여야 한다.** `m.enter`의 결정은 useMotion을
+//    호출한 컴포넌트 인스턴스 단위로 얼리는데(기반 설계), 부모인 FocusSessionScreen은 페이즈가
+//    바뀌어도 remount되지 않는다. 부모의 결정에 묶이면 '동작 줄이기'를 끈 뒤 새로 마운트되는
+//    리드아웃·아이콘이 진입 연출을 영영 못 받는다(codex 리뷰).
+//    ⚠️ 뷰를 새로 끼운 게 아니다 — 이 컴포넌트가 곧 그 Animated.View다(D-04 유지).
+function PhaseReadout({ children }: { children: ReactNode }) {
+  const m = useMotion();
+  return <Animated.View style={[s.readout, m.enter(fadeIn())]}>{children}</Animated.View>;
+}
+
+// 같은 이유로 분리 — 아이콘이 바뀔 때마다 key로 remount되며 그 시점 설정으로 다시 정한다.
+function PopIcon({ name }: { name: 'play' | 'pause' }) {
+  const m = useMotion();
+  return (
+    <Animated.View style={m.enter(pop())}>
+      <Ionicons name={name} size={22} color={T.paperLight} />
+    </Animated.View>
   );
 }
 
@@ -1502,6 +1731,9 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   // 리드아웃의 과목명(전 모드 공통) — 구 상단바 과목명의 크림색 유지
+  // ⚠️ 호출부에서 numberOfLines={1}로 **한 줄로 고정**한다. 과목명은 사용자가 자유 입력하는
+  //    값이라 길면 줄바꿈되는데, readoutLayout의 PLAIN_BASE 예산이 과목명을 30pt(한 줄)로
+  //    계산하므로 늘어난 줄만큼 캐릭터와 리드아웃이 다시 겹친다(codex 리뷰).
   roSubject: { ...T.text.subtitle, color: T.night.cream, marginBottom: T.space.sm },
   bigTime: {
     ...T.text.timer,

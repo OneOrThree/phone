@@ -22,11 +22,6 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, left: 0, right: 0, bottom: 34 }),
 }));
 
-let mockIsGuest = false;
-jest.mock('@/store/UserContext', () => ({
-  useUser: () => ({ isGuest: mockIsGuest }),
-}));
-
 jest.mock('@/services/analyticsEvents', () => ({
   logGroupJoinAttempted: jest.fn(),
   logGroupInviteSheetViewed: jest.fn(),
@@ -89,7 +84,6 @@ function overview(over: Partial<GroupOverviewResponse> = {}): GroupOverviewRespo
 
 const onClose = jest.fn();
 const onJoined = jest.fn();
-const onLogin = jest.fn();
 
 // RTL v14의 render는 async다 — 반드시 await한다(안 하면 쿼리가 붙지 않은 thenable이 돌아온다).
 // 마운트 직후 프리뷰 조회(getGroupOverview) 프라미스까지 흘려보낸다 —
@@ -102,7 +96,6 @@ async function renderSheet(props?: { slug?: string | null; entry?: 'link' | 'def
       entry={props?.entry ?? 'link'}
       onClose={onClose}
       onJoined={onJoined}
-      onLogin={onLogin}
     />,
   );
   await act(async () => {});
@@ -119,7 +112,6 @@ async function press(label: string) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockIsGuest = false;
   mockGetMyGroups.mockResolvedValue([]); // 기본: 소속 그룹 없음
   // 참여 잠금은 모듈 스코프다(joinLock.ts) — 한 테스트가 잠금을 쥔 채 끝나면 뒤 테스트의
   // 참여 버튼이 처음부터 잠겨 있다. 테스트 사이를 확실히 끊는다.
@@ -127,21 +119,6 @@ beforeEach(() => {
 });
 
 describe('프리뷰 조회 분기', () => {
-  test('게스트는 조회 없이 로그인 유도만 띄운다(§5-3 — 왕복을 아낀다)', async () => {
-    mockIsGuest = true;
-    await renderSheet();
-
-    expect(screen.getByText('로그인하면 그룹에 참여할 수 있어요')).toBeOnTheScreen();
-    expect(mockGetGroupOverview).not.toHaveBeenCalled();
-
-    // 이동·시트 내리기는 부모(onLogin)의 몫이다. 이 시트는 RN 네이티브 Modal이라
-    // 그대로 두면 계정 화면 위에 남아 소셜 로그인 버튼을 가린다(로그인 자체가 불가능해진다).
-    // 대신 onClose는 부르지 않는다 — onClose는 초대 버퍼까지 비워 로그인 후 복귀(§6-6)를 깬다.
-    await press('로그인하고 참여하기');
-    expect(onLogin).toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
-  });
-
   test('이미 멤버면 프리뷰 없이 곧장 그룹방으로 넘긴다', async () => {
     mockGetGroupOverview.mockResolvedValue(overview({ isMember: true }));
     await renderSheet();
@@ -177,7 +154,7 @@ describe('프리뷰 조회 분기', () => {
     mockJoinGroup.mockResolvedValue(undefined);
     await renderSheet();
 
-    expect(screen.queryByText('이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.')).toBeNull();
+    expect(screen.queryByText('이미 참여 중인 그룹이 있어요. 나가고 참여해 주세요.')).toBeNull();
     await press('참여하기');
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
@@ -206,7 +183,7 @@ describe('프리뷰 조회 분기', () => {
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(
-      screen.queryByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'),
+      screen.queryByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.'),
     ).toBeNull();
   });
 
@@ -432,23 +409,14 @@ describe('참여 분기', () => {
     expect(await screen.findByText('사라진 그룹이에요')).toBeOnTheScreen();
   });
 
-  test('GUEST_FORBIDDEN(403)은 로그인 화면으로 떨어뜨린다(구 세션 태깅 어긋남)', async () => {
-    mockJoinGroup.mockRejectedValue(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
-    await renderSheet();
-
-    await press('참여하기');
-
-    expect(await screen.findByText('로그인하면 그룹에 참여할 수 있어요')).toBeOnTheScreen();
-  });
-
   // 시트는 key 없이 재사용된다(GroupScreen) — groupId만 바뀌므로 이전 그룹의 차단 상태가
-  // 남으면 정상 프리뷰를 보여줘야 할 그룹에 게스트 차단 화면이 뜬다.
-  test('연속 초대 링크 — groupId가 바뀌면 GUEST_FORBIDDEN 차단이 따라오지 않는다', async () => {
-    mockJoinGroup.mockRejectedValue(axiosErrorWith(403, 'GUEST_FORBIDDEN'));
+  // 남으면 정상 프리뷰를 보여줘야 할 그룹에 앞 그룹의 차단 문구가 뜬다.
+  test('연속 초대 링크 — groupId가 바뀌면 앞 그룹의 차단이 따라오지 않는다', async () => {
+    mockJoinGroup.mockRejectedValue(axiosErrorWith(409, 'ROOM_FULL'));
     const { rerender } = await renderSheet();
 
     await press('참여하기');
-    expect(await screen.findByText('로그인하면 그룹에 참여할 수 있어요')).toBeOnTheScreen();
+    expect(await screen.findByText('정원이 가득 찼어요')).toBeOnTheScreen();
 
     mockGetGroupOverview.mockResolvedValue(overview({ id: OTHER_GROUP_ID, name: '저녁 스터디방' }));
     await act(async () => {
@@ -459,13 +427,12 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
-          onLogin={onLogin}
         />,
       );
     });
 
     expect(await screen.findByText('저녁 스터디방')).toBeOnTheScreen();
-    expect(screen.queryByText('로그인하면 그룹에 참여할 수 있어요')).toBeNull();
+    expect(screen.queryByText('정원이 가득 찼어요')).toBeNull();
   });
 
   // 프리뷰 조회에는 alive 가드가 있지만 참여 요청에는 없었다 — 초대 A의 참여가 진행 중일 때
@@ -492,7 +459,6 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
-          onLogin={onLogin}
         />,
       );
     });
@@ -535,7 +501,6 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
-          onLogin={onLogin}
         />,
       );
     });
@@ -583,7 +548,6 @@ describe('참여 분기', () => {
           entry="link"
           onClose={onClose}
           onJoined={onJoined}
-          onLogin={onLogin}
         />,
       );
     });
@@ -659,13 +623,13 @@ describe('참여 분기', () => {
     await press('참여하기');
 
     expect(
-      await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.'),
+      await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해 주세요.'),
     ).toBeOnTheScreen();
   });
 });
 
 // ── 6b group_invite_sheet_viewed (초대 링크 스펙 §4-3) ──────────────────────────
-// 퍼널의 '초대장을 실제로 봤다' 칸이다. 조회 성공만 세면 게스트·404·정원초과 구간이 통째로
+// 퍼널의 '초대장을 실제로 봤다' 칸이다. 조회 성공만 세면 404·정원초과 구간이 통째로
 // 사라져 클릭→가입 전환율이 부풀어 보인다 — 마운트 기준이라는 것을 여기서 잠근다.
 describe('초대 시트 노출 계측', () => {
   test('마운트 시 group_id·slug·entry와 함께 1회 발행한다', async () => {
@@ -680,11 +644,12 @@ describe('초대 시트 노출 계측', () => {
     });
   });
 
-  test('게스트는 조회를 건너뛰지만 노출은 계측된다', async () => {
-    mockIsGuest = true;
+  // 조회 실패(404)도 사용자에게 보인 초대장이다 — 마운트 기준이라 함께 세어진다.
+  test('조회가 404로 끝나도 노출은 계측된다', async () => {
+    mockGetGroupOverview.mockRejectedValue(axiosErrorWith(404, 'NOT_FOUND'));
     await renderSheet();
 
-    expect(mockGetGroupOverview).not.toHaveBeenCalled();
+    expect(await screen.findByText('사라진 그룹이에요')).toBeOnTheScreen();
     expect(logGroupInviteSheetViewed).toHaveBeenCalledWith({
       group_id: GROUP_ID,
       slug: SLUG,
@@ -706,7 +671,6 @@ describe('초대 시트 노출 계측', () => {
           entry="deferred"
           onClose={onClose}
           onJoined={onJoined}
-          onLogin={onLogin}
         />,
       );
     });

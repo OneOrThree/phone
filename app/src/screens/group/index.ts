@@ -6,10 +6,12 @@ export { default as GroupScreen } from './GroupScreen';
 export { default as GroupCreateScreen } from './GroupCreateScreen';
 export { default as GroupRoomRouteScreen } from './GroupRoomRouteScreen';
 export { default as NoticeScreen } from './NoticeScreen';
-// 내기 히스토리(GROMO-1221) — 지난 내기 결과 시트 '지난 기록 더보기'에서 push 되는 라우트.
-export { default as GroupBetHistoryScreen } from './GroupBetHistoryScreen';
+// 그룹 챌린지 내역(GROMO-1277 · N6-1) — 그룹방 「챌린지 내역」 링크와 지난 결과 시트
+// '지난 기록 더보기'가 같은 라우트로 들어온다(후자는 challengeId 필터).
+export { default as GroupChallengeHistoryScreen } from './GroupChallengeHistoryScreen';
 // 그룹 운영(3차) — 방장 전용 라우트 화면들. 그룹방 ⋯ '그룹 설정'(GroupSettings)이 허브다.
 export { default as GroupSettingsScreen } from './GroupSettingsScreen';
+export { default as GroupCardEmojiEditScreen } from './GroupCardEmojiEditScreen';
 export { default as GroupProfileEditScreen } from './GroupProfileEditScreen';
 export { default as GroupMemberManageScreen } from './GroupMemberManageScreen';
 export { default as GroupOwnerTransferScreen } from './GroupOwnerTransferScreen';

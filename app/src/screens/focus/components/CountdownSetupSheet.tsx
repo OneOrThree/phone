@@ -75,7 +75,8 @@ const s = StyleSheet.create({
   pickerRow: { flexDirection: 'row', marginTop: T.space.sm, marginBottom: T.space.lg },
   pickerCol: { flex: 1 },
   startBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     alignItems: 'center',

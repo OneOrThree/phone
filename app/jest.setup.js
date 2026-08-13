@@ -7,6 +7,14 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+// @callstack/liquid-glass(리퀴드 글래스) — ESM만 배포하는 데다 import 시점에 TurboModule을
+// getEnforcing으로 잡아서, jest에서는 변환을 뚫어줘도 로드가 불가능하다. 이 패키지를 전이로
+// 끌어오는 스위트가 통째로 죽지 않도록 폴백 경로(미지원)로 고정한 스텁으로 대체한다.
+jest.mock('@callstack/liquid-glass', () => ({
+  isLiquidGlassSupported: false,
+  LiquidGlassView: require('react-native').View,
+}));
+
 // expo-audio(탭 효과음) — 네이티브 오디오 세션이 없는 jest 환경에서 createAudioPlayer가 터진다.
 // 재생 호출 여부만 검증하면 되므로 플레이어를 빈 스텁으로 대체한다.
 jest.mock('expo-audio', () => ({
@@ -17,3 +25,17 @@ jest.mock('expo-audio', () => ({
   })),
   setAudioModeAsync: jest.fn(() => Promise.resolve()),
 }));
+
+// Firebase Analytics — analyticsEvents를 직접 import하는 화면 테스트에서도 네이티브 모듈 초기화를
+// 피한다. 실제 이벤트 발행 여부는 analytics/analyticsEvents 단위 테스트에서 별도로 검증한다.
+jest.mock('@react-native-firebase/analytics', () => {
+  const analytics = jest.fn(() => ({
+    logEvent: jest.fn(() => Promise.resolve()),
+    setUserId: jest.fn(() => Promise.resolve()),
+    setUserProperty: jest.fn(() => Promise.resolve()),
+    setDefaultEventParameters: jest.fn(() => Promise.resolve()),
+    setAnalyticsCollectionEnabled: jest.fn(() => Promise.resolve()),
+    getAppInstanceId: jest.fn(() => Promise.resolve(null)),
+  }));
+  return { __esModule: true, default: analytics };
+});

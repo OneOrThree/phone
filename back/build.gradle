@@ -71,6 +71,11 @@ dependencies {
 	// UUID v7 생성 (시간 정렬, B-tree 인덱스 지역성 최적화)
 	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
 
+	// ShedLock (GROMO-1283) — 챌린지·정산·알림 크론의 멀티 인스턴스 중복 실행 차단.
+	// 저장소는 기존 PostgreSQL(shedlock 테이블, V45) — jdbc-template provider 표준 구성.
+	implementation 'net.javacrumbs.shedlock:shedlock-spring:5.16.0'
+	implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.16.0'
+
 	// BIZEVENT 구조화 JSON 로그 인코더 (GROMO-384)
 	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
 
@@ -98,7 +103,15 @@ openApi {
 	apiDocsUrl.set("http://localhost:8080/v0/api-docs")      // 앱 구동 후 호출할 URL
 	outputDir.set(file("$buildDir/docs/api/"))               // 생성된 spec 저장 위치
 	outputFileName.set("openapi.json")
-	waitTimeInSeconds.set(30)                              // 앱 구동 대기 시간
+	// 앱 구동 대기 시간. 30초로는 CI 러너에서 부족해 2026-08-10 이후 모든 브랜치가 실패했다
+	// (GROMO-1515). 실패 런 로그 기준 21초에 겨우 DataSource 를 열고 Hibernate SessionFactory
+	// 구축 중에 창이 닫혔다 — 앱이 죽은 게 아니라 아직 부팅 중이었다.
+	// 러너 스펙업(4 vCPU/8 GB) 후 재측정해도 30초로는 부족하다 — 한 VM 에 러너 프로세스가
+	// 3개라 경합이 평시 상태다. 단독 실행 16.065초 vs 러너 3개 경합 40.008초(실측).
+	// 개발 머신은 3.5초. 경합 폭을 감당하도록 여유를 크게 잡는다.
+	// ⚠️ 대가: 앱이 진짜로 못 뜨면 실패 판정이 그만큼 늦어진다. 다만 그 경우에도 job 로그에
+	//    앱 스택트레이스가 남아 원인은 바로 보인다(GROMO-1260 스키마 불일치를 그렇게 찾았다).
+	waitTimeInSeconds.set(180)
 	customBootRun {
 		jvmArgs = ["-Dspringdoc.api-docs.path=/v0/api-docs"]  // ← fork된 JVM에 직접 주입
 	}

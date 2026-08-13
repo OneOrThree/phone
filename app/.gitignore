@@ -35,3 +35,9 @@ supabase/.temp/
 
 # Android 환경별 빌드 자격 파일 (keystore·google-services·비번 — 커밋 금지, 별도 공유)
 android/credentials/
+
+# 로컬 모듈 안드로이드 빌드 캐시 (Gradle 산출물)
+modules/*/android/.gradle/
+
+# jest 커버리지 리포트 (npm run test:coverage 산출물)
+coverage/

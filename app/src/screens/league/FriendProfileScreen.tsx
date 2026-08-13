@@ -193,7 +193,7 @@ export default function FriendProfileScreen() {
       logFriendPinToggled({ pinned: next }); // 서버 반영 성공 시에만 — 롤백되는 낙관 상태는 미집계
     } catch {
       setIsPinned(!next);
-      Alert.alert('핀 변경 실패', '잠시 후 다시 시도해주세요.');
+      Alert.alert('핀 변경 실패', '잠시 후 다시 시도해 주세요.');
     } finally {
       pinBusy.current = false;
     }
@@ -209,7 +209,7 @@ export default function FriendProfileScreen() {
       if (axios.isAxiosError(e) && e.response?.status === 409) {
         setRequested(true);
       } else {
-        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
@@ -230,7 +230,7 @@ export default function FriendProfileScreen() {
             if (axios.isAxiosError(e) && e.response?.status === 404) {
               setIsFriend(false);
             } else {
-              Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해주세요.');
+              Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해 주세요.');
             }
           }
         },
@@ -420,9 +420,7 @@ export default function FriendProfileScreen() {
             </Text>
             <View style={s.friendPill}>
               <Ionicons name="person-outline" size={11} color={T.inkSub} />
-              <Text style={s.friendPillText} allowFontScaling={false}>
-                친구 {friendCount}
-              </Text>
+              <Text style={s.friendPillText}>친구 {friendCount}</Text>
             </View>
           </View>
         </View>
@@ -439,24 +437,18 @@ export default function FriendProfileScreen() {
                 {/* 현재 티어 — 뱃지 + 티어명 + 랭킹 등수 (항상 공개; 상단 티어 줄에서 이관) */}
                 <TierBadge level={tier.level} size={56} />
                 <Text style={s.ringLabel}>{tier.name}</Text>
-                {rank != null && (
-                  <Text style={s.ringRank} allowFontScaling={false}>
-                    랭킹 {rank}위
-                  </Text>
-                )}
+                {rank != null && <Text style={s.ringRank}>랭킹 {rank}위</Text>}
               </View>
               <View style={s.summaryCol}>
                 <View style={s.summaryCard}>
                   <Text style={s.summaryLabel}>오늘 집중</Text>
-                  <Text style={s.summaryValue} allowFontScaling={false}>
+                  <Text style={s.summaryValue}>
                     {summaryVisible ? fmtMinutes(todayFocusMinutes) : '비공개'}
                   </Text>
                 </View>
                 <View style={s.summaryCard}>
                   <Text style={s.summaryLabel}>연속</Text>
-                  <Text style={s.summaryValue} allowFontScaling={false}>
-                    {streakDays}일
-                  </Text>
+                  <Text style={s.summaryValue}>{streakDays}일</Text>
                 </View>
               </View>
             </View>
@@ -528,7 +520,7 @@ export default function FriendProfileScreen() {
               <View style={[s.chartGap, s.noOverlapNote]}>
                 <Ionicons name="people-outline" size={15} color={T.accent} />
                 <Text style={s.noOverlapText}>
-                  통계를 지금 불러오지 못했어요. 잠시 후 다시 들어와주세요.
+                  통계를 지금 불러오지 못했어요. 잠시 후 다시 들어와 주세요.
                 </Text>
               </View>
             ) : (
@@ -610,7 +602,15 @@ const s = StyleSheet.create({
 
   // 아바타·이름·티어
   heroCol: { alignItems: 'center' },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.sm, marginTop: T.space.sm },
+  // 글자를 키우면 닉네임(maxWidth 200)은 안 줄고 알약만 커져 행을 넘긴다 — 접히게 둔다(코드리뷰).
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: T.space.sm,
+    marginTop: T.space.sm,
+  },
   name: { ...T.text.stat, color: T.ink, maxWidth: 200 },
   friendPill: {
     flexDirection: 'row',
@@ -622,6 +622,7 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   friendPillText: { ...T.text.caption, fontSize: 11, fontWeight: '700', color: T.inkSub },
+  // 닉네임은 maxWidth 200으로 안 줄고 알약만 커져 행을 넘긴다 — 자리가 없으면 접히게 둔다(코드리뷰).
 
   loader: { paddingVertical: 48, alignItems: 'center' },
 
@@ -746,7 +747,8 @@ const s = StyleSheet.create({
   // 하단 CTA
   ctaWrap: { paddingHorizontal: T.space.xl, paddingTop: T.space.md },
   requestBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.accent,
     flexDirection: 'row',
@@ -761,7 +763,8 @@ const s = StyleSheet.create({
   },
   requestText: { ...T.text.body, fontWeight: '700', color: T.white },
   requestedBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.track,
     alignItems: 'center',
@@ -769,7 +772,8 @@ const s = StyleSheet.create({
   },
   requestedText: { ...T.text.body, fontWeight: '700', color: T.inkSub },
   unfriendBtn: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: T.space.md,
     borderRadius: 16,
     backgroundColor: T.white,
     borderWidth: 1,

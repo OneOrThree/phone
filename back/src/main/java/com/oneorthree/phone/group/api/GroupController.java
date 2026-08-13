@@ -2,16 +2,12 @@ package com.oneorthree.phone.group.api;
 
 import com.oneorthree.phone.common.auth.LoginUser;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
-import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
-import com.oneorthree.phone.group.dto.CreateChallengeRequest;
-import com.oneorthree.phone.group.dto.CreateChallengeResponse;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
 import com.oneorthree.phone.group.dto.GroupAnnouncementResponse;
-import com.oneorthree.phone.group.dto.GroupChallengeResponse;
 import com.oneorthree.phone.group.dto.GroupDetailResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSearchResponse;
@@ -21,7 +17,6 @@ import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
-import com.oneorthree.phone.group.dto.WindowUsageReportRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -46,6 +41,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * 그룹 자체(생성·참가·설정·공지·멤버) API. 챌린지 축은 {@link GroupChallengeController},
+ * 내기 축은 {@link GroupBetController} 로 분리됐다(GROMO-1284, policy §9.2 B12) — URL 은 불변.
+ */
 @Tag(name = "Group", description = "Group 세션 관련 API (생성, 조회 등)")
 @RestController
 @RequestMapping("/api/v1")
@@ -53,14 +52,15 @@ import java.util.UUID;
 public class GroupController {
     private final GroupService groupService;
     private final GroupAnnouncementService groupAnnouncementService;
-    private final GroupChallengeService groupChallengeService;
     private final GroupMemberService groupMemberService;
 
     @Operation(summary = "그룹 생성", description = "그룹 생성 및 참가 코드(3시간 유효) 발급. 생성자는 OWNER로 자동 등록.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "그룹 생성 성공"),
             @ApiResponse(responseCode = "400", description = "미션 파라미터 누락"),
-            @ApiResponse(responseCode = "403", description = "게스트 계정 생성 불가")
+            @ApiResponse(responseCode = "403", description = "게스트 계정 생성 불가"),
+            // 그룹 부재가 성립하지 않는 경로라 404 는 USER_NOT_FOUND 하나뿐이다(GROMO-1247).
+            @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PostMapping("/groups")
     public ResponseEntity<CreateGroupResponse> createGroup(
@@ -71,7 +71,9 @@ public class GroupController {
 
     @Operation(summary = "내 그룹 목록 조회", description = "로그인 유저가 참여 중인 그룹 목록 반환.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공")
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            // 그룹 부재가 성립하지 않는 경로라 404 는 USER_NOT_FOUND 하나뿐이다(GROMO-1247).
+            @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups")
     public ResponseEntity<List<GroupSummaryResponse>> getMyGroups(@LoginUser UUID userId) {
@@ -83,7 +85,7 @@ public class GroupController {
             @ApiResponse(responseCode = "204", description = "참가 성공"),
             @ApiResponse(responseCode = "401", description = "비밀번호 불일치"),
             @ApiResponse(responseCode = "403", description = "게스트 접근 불가"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음"),
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)"),
             @ApiResponse(responseCode = "409", description = "정원 초과 / 이미 참여")
     })
     @PostMapping("/groups/{groupId}/join")
@@ -98,7 +100,7 @@ public class GroupController {
     @Operation(summary = "그룹 개요 조회", description = "참여 여부 무관하게 그룹 공개 정보 반환. isMember 플래그 포함.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/overview")
     public ResponseEntity<GroupOverviewResponse> getGroupOverview(
@@ -128,7 +130,7 @@ public class GroupController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "갱신 성공"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹장 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PostMapping("/groups/{groupId}/code")
     public ResponseEntity<RenewGroupCodeResponse> renewGroupCode(
@@ -139,12 +141,13 @@ public class GroupController {
     }
 
     @Operation(summary = "그룹 상세 조회", description = "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환."
-            + " date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD) — 멤버별 오늘 집중분 집계 기준.")
+            + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 멤버별 오늘 집중분 집계 기준,"
+            + " 기기 로컬 날짜가 아니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "400", description = "date 누락·형식 오류"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}")
     public ResponseEntity<GroupDetailResponse> getGroupDetail(
@@ -160,7 +163,7 @@ public class GroupController {
             @ApiResponse(responseCode = "204", description = "작성 성공"),
             @ApiResponse(responseCode = "400", description = "필수 필드 누락"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PostMapping("/groups/{groupId}/announcements")
     public ResponseEntity<Void> createGroupAnnouncement(
@@ -176,7 +179,7 @@ public class GroupController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/announcements")
     public ResponseEntity<List<GroupAnnouncementResponse>> getGroupAnnouncements(
@@ -186,17 +189,19 @@ public class GroupController {
         return ResponseEntity.ok(groupAnnouncementService.getAnnouncements(groupId, userId));
     }
 
-    @Operation(summary = "그룹 설정 수정", description = "OWNER만 가능. name/maxMembers/password 부분 수정.")
+    @Operation(summary = "그룹 설정 수정",
+            description = "OWNER만 가능. name/description/maxMembers/password 부분 수정.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "수정 성공"),
-            @ApiResponse(responseCode = "400", description = "maxMembers < 현재 멤버 수"),
+            @ApiResponse(responseCode = "400",
+                    description = "이름·소개·정원 입력 제약 위반 / maxMembers < 현재 멤버 수"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PatchMapping("/groups/{groupId}")
     public ResponseEntity<Void> updateGroup(
             @PathVariable UUID groupId,
-            @RequestBody UpdateGroupRequest request,
+            @Valid @RequestBody UpdateGroupRequest request,
             @LoginUser UUID userId
     ) {
         groupService.updateGroup(groupId, userId, request);
@@ -207,7 +212,9 @@ public class GroupController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "위임 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 대상 멤버 없음")
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함)"
+                            + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PatchMapping("/groups/{groupId}/members/{targetUserId}/owner")
     public ResponseEntity<Void> transferOwner(
@@ -224,7 +231,9 @@ public class GroupController {
             @ApiResponse(responseCode = "204", description = "강퇴 성공"),
             @ApiResponse(responseCode = "400", description = "본인 강퇴 시도"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 대상 멤버 없음")
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 대상 멤버 없음 — 대상이 탈퇴한 경우 포함)"
+                            + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @DeleteMapping("/groups/{groupId}/members/{targetUserId}")
     public ResponseEntity<Void> kickMember(
@@ -236,115 +245,11 @@ public class GroupController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "그룹 챌린지 목록 조회", description = "그룹원만 조회 가능. 최신순 반환. 삭제된 챌린지는 제외."
-            + " date(선택, 클라 로컬 타임존 기준 오늘)를 주면 멤버별 당일 진행률(memberProgress)을 함께 반환한다"
-            + " — date 미전달, 목표(durationMinutes) 없는 창 챌린지, INACTIVE 면 memberProgress 는 null."
-            + " TIME_WINDOW 는 date(KST) 의 창 기준 — FOCUS 는 세션 클리핑 실측(달성 판정만 5분 관용치),"
-            + " SCREEN_TIME 은 클라 보고값(미보고 = null).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공"),
-            @ApiResponse(responseCode = "400", description = "date 형식 오류"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
-    })
-    @GetMapping("/groups/{groupId}/challenges")
-    public ResponseEntity<List<GroupChallengeResponse>> getGroupChallenges(
-            @PathVariable UUID groupId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @LoginUser UUID userId
-    ) {
-        return ResponseEntity.ok(groupChallengeService.getChallenges(groupId, userId, date));
-    }
-
-    @Operation(summary = "그룹 챌린지 생성", description = "OWNER만 생성 가능. 성공 시 201 반환."
-            + " repeatDays(도는 요일, [\"MON\"..\"SUN\"])는 신앱 필수(빈 배열 400) — 미전송 구앱은 매일(127)로 처리."
-            + " TIME_WINDOW 는 durationMinutes(창 내 목표 분, 0 < x ≤ 창 길이) 필수 — 자정 걸침 금지(시작 < 종료),"
-            + " FOCUS 목표는 관용치 5분 초과, SCREEN_TIME 목표는 15분 배수."
-            + " DURATION 목표 상한은 카테고리별(FOCUS 1080분·SCREEN_TIME 720분, N51)."
-            + " windowStart/windowEnd 는 KST 벽시계 시각 문자열 \"HH:mm:ss\" 권장(GROMO-1225) —"
-            + " 구버전 앱의 ISO Instant(예: 2026-08-05T09:00:00+09:00)도 수용하며 KST 시각으로 동일 해석.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "챌린지 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "파라미터 누락 / TIME_WINDOW durationMinutes 누락·범위 위반"
-                    + " / 자정 걸침·형식 오류(INVALID_MISSION_PARAMS) / 요일 빈 배열(CHALLENGE_REPEAT_DAYS_REQUIRED)"
-                    + " / 스크린타임 창 목표 15분 배수 아님(CHALLENGE_GOAL_NOT_ALIGNED)"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음"),
-            @ApiResponse(responseCode = "409", description = "활성 4개 상한(CHALLENGE_LIMIT_EXCEEDED)"
-                    + " / 하루형 카테고리 활성 중복(CHALLENGE_DUPLICATE)"
-                    + " / 활성 창형과 시간대 겹침(CHALLENGE_WINDOW_OVERLAP)")
-    })
-    @PostMapping("/groups/{groupId}/challenges")
-    public ResponseEntity<CreateChallengeResponse> createGroupChallenge(
-            @PathVariable UUID groupId,
-            @Valid @RequestBody CreateChallengeRequest request,
-            @LoginUser UUID userId
-    ) {
-        CreateChallengeResponse response = groupChallengeService.createChallenge(groupId, userId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    @Operation(summary = "스크린타임 창 사용분 보고", description = "SCREEN_TIME×TIME_WINDOW 챌린지의 날짜별"
-            + " 창 내 사용분 업로드. 그룹원만. (챌린지, 유저, 날짜)당 1행 upsert — 중간 보고 허용, 마지막 값 승리."
-            + " 값은 클라 신뢰(±15분 눈금 오차).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "보고 성공"),
-            @ApiResponse(responseCode = "400", description = "필수 필드 누락 / SCREEN_TIME×TIME_WINDOW 챌린지 아님"
-                    + " / usedMinutes 범위(0~1440) 위반"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
-    })
-    @PutMapping("/groups/{groupId}/challenges/{challengeId}/window-usage")
-    public ResponseEntity<Void> reportChallengeWindowUsage(
-            @PathVariable UUID groupId,
-            @PathVariable UUID challengeId,
-            @Valid @RequestBody WindowUsageReportRequest request,
-            @LoginUser UUID userId
-    ) {
-        groupChallengeService.reportWindowUsage(groupId, challengeId, userId, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "그룹 챌린지 종료", description = "OWNER만 가능. 성공 시 204 — ENDED 전이(ended_at 기록),"
-            + " 더 이상 새 회차를 세우지 않는다. 이미 ENDED 면 멱등 204. 진행 중(OPEN 회차 존재)이면 409 —"
-            + " 접으려면 삭제(무효화 + 전원 환불)를 쓴다(policy §A8).")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "종료 성공(멱등 포함)"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음(삭제 포함)"),
-            @ApiResponse(responseCode = "409", description = "OPEN 회차 존재(CHALLENGE_END_BLOCKED)")
-    })
-    @PostMapping("/groups/{groupId}/challenges/{challengeId}/end")
-    public ResponseEntity<Void> endGroupChallenge(
-            @PathVariable UUID groupId,
-            @PathVariable UUID challengeId,
-            @LoginUser UUID userId
-    ) {
-        groupChallengeService.endChallenge(groupId, challengeId, userId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "그룹 챌린지 삭제", description = "OWNER만 삭제 가능. 성공 시 204 반환.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "삭제 성공"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님 / OWNER 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 챌린지 없음")
-    })
-    @DeleteMapping("/groups/{groupId}/challenges/{challengeId}")
-    public ResponseEntity<Void> deleteGroupChallenge(
-            @PathVariable UUID groupId,
-            @PathVariable UUID challengeId,
-            @LoginUser UUID userId
-    ) {
-        groupChallengeService.deleteChallenge(groupId, challengeId, userId);
-        return ResponseEntity.noContent().build();
-    }
-
     @Operation(summary = "그룹 채팅·권한 설정 조회", description = "OWNER만 조회 가능.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @GetMapping("/groups/{groupId}/settings")
     public ResponseEntity<GroupSettingsResponse> getGroupSettings(
@@ -358,7 +263,7 @@ public class GroupController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "수정 성공"),
             @ApiResponse(responseCode = "403", description = "OWNER 아님 / 게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PatchMapping("/groups/{groupId}/settings")
     public ResponseEntity<Void> updateGroupSettings(
@@ -374,7 +279,8 @@ public class GroupController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "수정 성공"),
             @ApiResponse(responseCode = "403", description = "권한 없음 / 게스트"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @PutMapping("/groups/{groupId}/announcements/{announcementId}")
     public ResponseEntity<Void> updateGroupAnnouncement(
@@ -391,7 +297,8 @@ public class GroupController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "삭제 성공"),
             @ApiResponse(responseCode = "403", description = "권한 없음 / 게스트"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음 / 공지 없음")
+            @ApiResponse(responseCode = "404",
+                    description = "NOT_FOUND(그룹 없음 / 공지 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @DeleteMapping("/groups/{groupId}/announcements/{announcementId}")
     public ResponseEntity<Void> deleteGroupAnnouncement(
@@ -408,7 +315,7 @@ public class GroupController {
             @ApiResponse(responseCode = "204", description = "탈퇴 성공"),
             @ApiResponse(responseCode = "400", description = "방장 위임 필요"),
             @ApiResponse(responseCode = "403", description = "게스트 / 그룹원 아님"),
-            @ApiResponse(responseCode = "404", description = "그룹 없음")
+            @ApiResponse(responseCode = "404", description = "NOT_FOUND(그룹 없음) / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
     })
     @DeleteMapping("/groups/{groupId}/members/me")
     public ResponseEntity<Void> withdrawGroup(

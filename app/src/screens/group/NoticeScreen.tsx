@@ -18,6 +18,7 @@ import { deleteAnnouncement, getAnnouncements, groupErrorCode } from '@/services
 import type { GroupAnnouncementResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { logGroupTabViewed } from '@/services/analyticsEvents';
+import { useToast } from '@/store/ToastContext';
 import NoticeComposeSheet from './components/NoticeComposeSheet';
 
 // 공지 화면 (root stack 'GroupNotice') — 명세 docs/app/group-plan.md §6-5.
@@ -65,7 +66,7 @@ function deleteErrorMessage(e: unknown): string {
     case 'MEMBER_ONLY':
       return '그룹원만 이용할 수 있어요.';
     default:
-      return '공지 삭제에 실패했어요. 잠시 후 다시 시도해주세요.';
+      return '공지 삭제에 실패했어요. 잠시 후 다시 시도해 주세요.';
   }
 }
 
@@ -73,6 +74,7 @@ export default function NoticeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   const { groupId, canWrite } = useRoute<NoticeRoute>().params;
+  const { show } = useToast();
 
   const [notices, setNotices] = useState<GroupAnnouncementResponse[] | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -159,8 +161,12 @@ export default function NoticeScreen() {
     setComposeOpen(false);
     setEditing(null);
     fetchNotices();
-    Alert.alert('공지 수정 실패', '이미 삭제된 공지예요.');
-  }, [fetchNotices]);
+    // 재시도해도 같은 결과인 종결 통보 — 조치가 없으므로 tone:'error' 토스트로 알린다
+    // (정책 D19 — docs/prd/motion-v2/policy.md, 상위 정본 병합 전까지 여기가 정본).
+    // 시트(NoticeComposeSheet)는 SheetShell 기본형(asModal=false)이라 배너를 가리지 않지만,
+    // 순서는 그대로 **닫은 뒤** 알리는 쪽을 지킨다.
+    show({ message: '이미 삭제된 공지라 수정할 수 없어요', tone: 'error' });
+  }, [fetchNotices, show]);
 
   function confirmDelete(notice: GroupAnnouncementResponse) {
     // 확인 Alert 형식은 앱 관행대로 (동작명, 질문) — 대상에 인용부호를 쓰지 않는다.
@@ -240,7 +246,7 @@ export default function NoticeScreen() {
     return (
       <View style={s.center}>
         <Text style={s.emptyTitle}>{msg}</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchNotices()}>
           <Text style={s.retryText}>다시 시도</Text>
         </TouchableOpacity>
@@ -311,7 +317,7 @@ export default function NoticeScreen() {
           ) : (
             <View style={s.center}>
               <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>
-              {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨보세요</Text>}
+              {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨 보세요</Text>}
             </View>
           )
         }
@@ -386,7 +392,8 @@ const s = StyleSheet.create({
   },
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·그룹방과 같은 값(§G-4)
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

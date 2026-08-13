@@ -19,6 +19,7 @@ import { updateProfile } from '@/services/userApi';
 import { useNicknameCheck } from '@/hooks/useNicknameCheck';
 import { getDeviceCountryCode } from '@/utils/deviceLocale';
 import { T } from '@/constants/theme';
+import { logProfileUpdated } from '@/services/analyticsEvents';
 
 // 프로필 편집 — 닉네임 입력 + 캐릭터 스킨 그리드(이번엔 미구현 → 딤 오버레이 '준비 중').
 // 닉네임은 로컬 형식검사(2~10자 & 현재값과 다름) 통과 시 실시간 중복확인(GROMO-1215,
@@ -57,6 +58,7 @@ export default function ProfileEditScreen() {
       // 닉네임과 함께 기기 로케일 국가코드도 갱신 전송(GROMO-663). 확정 불가면 생략.
       await updateProfile({ nickname: trimmed, countryCode: getDeviceCountryCode() });
       setNickname(trimmed);
+      logProfileUpdated();
       navigation.goBack();
     } catch (e) {
       // 성공 경로에서만 언마운트되므로 여기서만 저장 상태 해제.
@@ -263,7 +265,8 @@ const s = StyleSheet.create({
 
   // 저장 CTA
   cta: {
-    height: 56,
+    minHeight: 56,
+    paddingVertical: T.space.md,
     borderRadius: 18,
     backgroundColor: T.accent,
     alignItems: 'center',

@@ -34,6 +34,15 @@ ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1
 
 COPY --from=builder /app/build/libs/*.jar app.jar
 
+# Datadog Autodiscovery — Micrometer /actuator/prometheus 를 OpenMetrics 로 스크레이프 (GROMO-1489).
+# 이미지 라벨에 두는 이유: Agent 설정 파일(conf.d/openmetrics.d)로 두면 호스트에 그 파일이 있어야 하는데,
+# prod 는 docker-compose.prod.yml 만 S3 로 배포하고 레포를 체크아웃하지 않아 마운트할 파일이 없다.
+# 이미지에 구우면 dev·prod 가 같은 이미지로 같은 배선을 갖는다 — 정본이 여기 하나다.
+# %%host%% 는 Agent 가 컨테이너 IP 로 치환한다. 9091 은 호스트 미공개 관리 포트(application-{dev,prod}.yml).
+# 비용: 커스텀 메트릭은 timeseries 당 과금 → .* 대신 대시보드가 쓰는 것만 큐레이트.
+# ⚠️ OpenMetrics(agent:7)는 카운터의 _total 접미사를 떼고 매칭 → logback_events 처럼 접미사 없이 적는다.
+LABEL com.datadoghq.ad.checks='{"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo","metrics":["http_server_requests_seconds.*","hikaricp_connections.*","jvm_memory_used_bytes","jvm_memory_max_bytes","jvm_gc_pause_seconds.*","jvm_threads_live_threads","process_cpu_usage","system_cpu_usage","logback_events"]}]}}'
+
 EXPOSE 8080
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
@@ -10,8 +10,11 @@ import Animated, {
   useSharedValue,
   withTiming,
   type CSSAnimationProperties,
+  type FrameInfo,
   type SharedValue,
 } from 'react-native-reanimated';
+import { useMotion } from '@/hooks/useMotion';
+import { M } from '@/constants/motion';
 import { T } from '@/constants/theme';
 
 // 종이폭죽 오버레이(GROMO-667) — 모달 등장 직후 위에서 흩뿌려진다. obstacle(모달 카드)을
@@ -76,7 +79,14 @@ function TiltPiece({
         const x = spec.finalX + shift;
         if (x < cardLeft - 4 || x > cardRight + 4) {
           fallen.value = 1;
-          fallY.value = withTiming(screenH, { duration: 900, easing: Easing.in(Easing.quad) });
+          // reduceMotion: M.never — 이 컴포넌트는 reduce가 꺼져 있을 때만 마운트되지만,
+          // reanimated 기본값(정적 System 플래그)은 '켠 채 시작했다 끈' 사용자에게 여전히
+          // 걸린다. 그러면 조각이 떨어지지 않고 그 자리에 멈춘다.
+          fallY.value = withTiming(screenH, {
+            duration: 900,
+            easing: Easing.in(Easing.quad),
+            reduceMotion: M.never,
+          });
         }
       }
     },
@@ -91,25 +101,48 @@ function TiltPiece({
   );
 }
 
+// 시스템 '동작 줄이기'(정책 D7) — 44조각 × 3레이어가 도는 건 명백한 위반이라 파티클을 그리지
+// 않는다. ⚠️ 사라지는 건 파티클뿐이다: 축하 모달·햅틱·문구·수치는 호출부에 그대로 남는다.
+// 사용자가 끈 것은 움직임이지 보상이 아니다.
+//
+// ⚠️ 게이트가 **바깥 컴포넌트**에 있는 이유: 훅은 조건부로 호출할 수 없으므로 같은 컴포넌트
+//    안에서 `if (reduce) return null` 을 하면 useAnimatedSensor의 네이티브 중력 구독이 이미
+//    걸린 뒤다. 파티클이 하나도 안 보이는 동안에도 사용자가 모달을 닫을 때까지 센서가 계속
+//    돈다(codex 리뷰). 안쪽 컴포넌트를 아예 마운트하지 않아야 구독 자체가 생기지 않는다.
+//    재생 도중 설정이 켜져도 안쪽이 언마운트되며 구독이 함께 해제된다.
 export function ConfettiBurst({ obstacle }: Props) {
+  const { reduce } = useMotion();
+  if (reduce) return null;
+  return <ConfettiBurstInner obstacle={obstacle} />;
+}
+
+const ConfettiBurstInner = memo(function ConfettiBurstInner({ obstacle }: Props) {
   const { width: W, height: H } = useWindowDimensions();
   // 기울임 감지 — 컨페티가 떠 있는 동안만 구독(언마운트 시 자동 해제)
-  const gravity = useAnimatedSensor(SensorType.GRAVITY);
+  const { sensor: gravitySensor } = useAnimatedSensor(SensorType.GRAVITY);
   // 미끄러짐 물리 — 매 프레임 중력 x를 적분(가속→속도→변위)해 공통 오프셋을 만든다.
   // 비례식(기울기×상수)은 가운데 조각이 가장자리에 못 미쳐 멈추는 문제가 있어 적분으로 교체.
   // |g|<0.8(≈5°)은 정지 마찰로 취급해 속도를 감쇠 — 살짝 기울임엔 흐르지 않는다.
   const slide = useSharedValue(0);
   const slideVel = useSharedValue(0);
-  useFrameCallback((frame) => {
-    const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
-    const g = gravity.sensor.value.x;
-    if (Math.abs(g) < 0.8) {
-      slideVel.value *= 0.8;
-    } else {
-      slideVel.value = (slideVel.value + g * 260 * dt) * 0.995;
-    }
-    slide.value += slideVel.value * dt;
-  });
+  // 이 컴포넌트는 '동작 줄이기'가 꺼져 있을 때만 마운트되므로 프레임 콜백을 조건부로 끌 필요가
+  // 없다 — 켜지는 순간 통째로 언마운트된다.
+  const onFrame = useCallback(
+    (frame: FrameInfo) => {
+      'worklet';
+
+      const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 0.05);
+      const g = gravitySensor.value.x;
+      if (Math.abs(g) < 0.8) {
+        slideVel.value *= 0.8;
+      } else {
+        slideVel.value = (slideVel.value + g * 260 * dt) * 0.995;
+      }
+      slide.value += slideVel.value * dt;
+    },
+    [gravitySensor, slide, slideVel],
+  );
+  useFrameCallback(onFrame);
 
   // 조각 파라미터·궤적은 1회 생성(useMemo) — 최종 낙하 x가 카드 폭 안이면 '쌓임',
   // 카드 가장자리 14% 구간이면 '미끄러짐', 밖이면 '통과 낙하'로 분기한다.
@@ -245,7 +278,7 @@ export function ConfettiBurst({ obstacle }: Props) {
       )}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   piece: { position: 'absolute', top: -16 },

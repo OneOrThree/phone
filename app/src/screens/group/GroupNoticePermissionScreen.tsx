@@ -98,7 +98,7 @@ export default function GroupNoticePermissionScreen() {
         setGrants((prev) =>
           prev ? prev.map((g) => (g.userId === userId ? { ...g, granted: !next } : g)) : prev,
         );
-        Alert.alert('저장 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('저장 실패', '잠시 후 다시 시도해 주세요.');
       } finally {
         setSavingIds((prev) => {
           const set = new Set(prev);
@@ -145,7 +145,7 @@ export default function GroupNoticePermissionScreen() {
         {header}
         <View style={s.center}>
           <Text style={s.emptyTitle}>권한을 불러오지 못했어요</Text>
-          <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+          <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
@@ -162,7 +162,7 @@ export default function GroupNoticePermissionScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={s.guide}>
-          허용한 멤버는 공지를 작성·수정·삭제할 수 있어요. 방장은 항상 허용됩니다.
+          허용한 멤버는 공지를 작성·수정·삭제할 수 있어요. 방장은 항상 허용돼요.
         </Text>
 
         <View style={s.list}>
@@ -229,7 +229,8 @@ const s = StyleSheet.create({
   emptyDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, textAlign: 'center' },
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·그룹방·공지와 같은 값(§G-4).
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',

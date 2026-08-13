@@ -10,27 +10,22 @@ import type { LiveGridMember } from './components/LiveFocusGrid';
 // enabled=false(812에서 준비 시험 미설정)면 조회하지 않고 빈 목록을 유지한다.
 
 const DEFAULT_POLL_MS = 60_000;
-// 그리드가 세로 스크롤을 지원해도(GROMO-848) top-100 전체 렌더는 과해서 상위 일부만
-const MAX_MEMBERS = 12;
 
 export function useSessionLeagueMembers({
   occupation,
   excludeUserId,
-  pinnedIds,
   enabled = true,
   pollMs = DEFAULT_POLL_MS,
 }: {
   occupation?: string;
   /** 내 행 제외용 — 내 셀은 그리드가 로컬 타이머 기준으로 따로 렌더한다(GROMO-932) */
   excludeUserId?: string | null;
-  /** 핀한 유저 ID 집합 — 상한 컷에 잘리지 않게 우선 포함(코덱스 리뷰) */
-  pinnedIds?: ReadonlySet<string>;
   enabled?: boolean;
   pollMs?: number;
 }) {
   const [members, setMembers] = useState<LiveGridMember[]>([]);
-  // 요청 세대 — 진입 직후 핀 로드로 refetch가 갈아타면(핀 미반영 요청 → 핀 반영 요청) 늦게
-  // 도착한 구세대 응답이 최신 결과를 덮어쓰지 않게 폐기한다(코덱스 리뷰)
+  // 요청 세대 — 폴링·포그라운드 복귀·occupation 변경으로 요청이 겹칠 때 늦게 도착한
+  // 구세대 응답이 최신 결과를 덮어쓰지 않게 폐기한다(코덱스 리뷰)
   const requestSeqRef = useRef(0);
 
   const refetch = useCallback(async () => {
@@ -38,26 +33,26 @@ export function useSessionLeagueMembers({
     try {
       const res = await getMyRanking(occupation);
       if (seq !== requestSeqRef.current) return;
-      // 핀 멤버는 상한 컷 전에 선별(코덱스 리뷰) — 상한 밖 순위(13위~)의 핀이 슬라이스에
-      // 잘려 그리드의 핀 우선 정렬이 무효가 되는 것 방지. [핀 전원, 나머지 상위권] 순으로
-      // 합친 뒤 상한을 적용한다(최종 표시 순서는 그리드가 다시 정렬).
-      const roster = res.filter((m) => m.userId !== excludeUserId);
-      const pinned = roster.filter((m) => pinnedIds?.has(m.userId));
-      const rest = roster.filter((m) => !pinnedIds?.has(m.userId));
+      // 서버가 준 top-100을 자르지 않고 전부 넘긴다 — 종전엔 상위 12명만 남겼는데, 서버 순서가
+      // '주간 랭킹'이라 지금 집중 중인 사람이 13위~에 몰려 통째로 잘려 나갔다(배너 인원도 같이
+      // 과소집계). 렌더 비용은 그리드가 가상화(FlatList)·셀 memo·페이지 밖 시계 정지로 감당한다.
+      // 표시 순서(핀 → 집중중 → 시간순)는 그리드가 잡으므로 여기선 선별만 한다.
       setMembers(
-        [...pinned, ...rest].slice(0, MAX_MEMBERS).map((m) => ({
-          userId: m.userId,
-          nickname: m.nickname,
-          focusTimeMinutes: m.focusTimeMinutes ?? 0,
-          isFocusing: m.isFocusing ?? false,
-          focusStartedAt: m.focusStartedAt ?? null,
-          focusTagName: m.focusTagName ?? null,
-        })),
+        res
+          .filter((m) => m.userId !== excludeUserId)
+          .map((m) => ({
+            userId: m.userId,
+            nickname: m.nickname,
+            focusTimeMinutes: m.focusTimeMinutes ?? 0,
+            isFocusing: m.isFocusing ?? false,
+            focusStartedAt: m.focusStartedAt ?? null,
+            focusTagName: m.focusTagName ?? null,
+          })),
       );
     } catch {
       // 네트워크 실패 시 기존 상태 유지 — 다음 폴링에서 재시도
     }
-  }, [occupation, excludeUserId, pinnedIds]);
+  }, [occupation, excludeUserId]);
 
   // 세션이 길게 떠 있는 화면이라 인터벌 폴링 + 포그라운드 복귀 시 재조회 (useFocusFriends와 동일 패턴)
   // — ended_at이 채워진 멤버는 재조회에서 isFocusing=false로 내려와 오프로 전환된다.

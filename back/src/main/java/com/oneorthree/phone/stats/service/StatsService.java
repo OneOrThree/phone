@@ -125,7 +125,7 @@ public class StatsService {
      * lastSessionDate 가 어제 이전이면 공백으로 끊긴 것으로 보아 0 을 반환한다(판정은 {@link UserStreak}).
      * longestStreak·lastSessionDate 는 저장된 원본을 그대로 유지한다.
      *
-     * @param today 클라 로컬 기준 오늘(GROMO-643)
+     * @param today 서버 판정 축(KST 고정) 기준 오늘(GROMO-643·1259)
      */
     public StreakResponse getStreak(UUID userId, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
@@ -168,10 +168,10 @@ public class StatsService {
     }
 
     /**
-     * 기간별 집중 시간 통계 조회. "오늘"은 클라가 전달한 로컬 날짜(GROMO-643).
+     * 기간별 집중 시간 통계 조회. "오늘"은 클라가 전달한 서버 판정 축(KST 고정) 날짜(GROMO-643·1259).
      * 직전 동일 길이 구간과의 delta를 함께 반환한다.
      *
-     * @param today 클라 로컬 기준 날짜
+     * @param today 서버 판정 축(KST 고정) 기준 날짜
      */
     public FocusPeriodStatsResponse getFocusStatsByPeriod(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.getReferenceById(userId);
@@ -206,7 +206,7 @@ public class StatsService {
      * @param callerId 호출자(로그인 유저) UUID
      * @param scope    집계 모수(FRIENDS/TOTAL/CATEGORY)
      * @param period   집계 기간(DAY/WEEK/MONTH)
-     * @param date     클라 로컬 기준 날짜
+     * @param date     서버 판정 축(KST 고정) 기준 날짜
      */
     public FocusAverageResponse getFocusAverage(
             UUID callerId, FocusAverageScope scope, StatsPeriod period, LocalDate date) {
@@ -255,10 +255,10 @@ public class StatsService {
     }
 
     /**
-     * 기간별 스크린타임 통계 조회. "오늘"은 클라가 전달한 로컬 날짜(GROMO-643).
+     * 기간별 스크린타임 통계 조회. "오늘"은 클라가 전달한 서버 판정 축(KST 고정) 날짜(GROMO-643·1259).
      * 직전 동일 길이 구간과의 delta·목표 달성 정보를 함께 반환한다.
      *
-     * @param today 클라 로컬 기준 날짜
+     * @param today 서버 판정 축(KST 고정) 기준 날짜
      */
     public ScreenTimePeriodStatsResponse getScreenTimePeriodStats(UUID userId, StatsPeriod period, LocalDate today) {
         User user = userRepository.findById(userId)

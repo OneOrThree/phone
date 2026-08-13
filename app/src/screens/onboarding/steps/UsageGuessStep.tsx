@@ -17,7 +17,7 @@ export default function UsageGuessStep({ data, update, onNext }: StepProps) {
     <StepScaffold
       center
       title={'어제 핸드폰,\n몇 시간이나 썼을까요?'}
-      subtitle={'먼저 직접 추측해보세요.\n잠시 뒤 실제 기록과 비교해볼게요.'}
+      subtitle={'먼저 직접 추측해 보세요.\n잠시 뒤 실제 기록과 비교해 볼게요.'}
       ctaLabel="이만큼 쓴 것 같아요"
       onCta={() => {
         update({ guessedYesterdayMinutes: hours * 60 });

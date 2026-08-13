@@ -81,6 +81,8 @@ const FlipDigit = memo(function FlipDigit({ char, size }: DigitProps) {
     ],
   }));
 
+  // 글자 배율 예외 — 카드는 size×width 고정에 반쪽 박스가 overflow:'hidden'이라, 시스템
+  // 글자 크기를 키우면 숫자가 그대로 잘린다(GROMO-1485). 크기는 size prop이 정한다.
   const glyphTop = [g.glyph, { height: size, lineHeight: size, fontSize, top: 0 }];
   const glyphBottom = [g.glyph, { height: size, lineHeight: size, fontSize, bottom: 0 }];
   const topBox = [
@@ -98,19 +100,27 @@ const FlipDigit = memo(function FlipDigit({ char, size }: DigitProps) {
     <View style={[g.digit, { width, height: size }]}>
       {/* 정적 윗면(새 값) — 윗잎이 접히면 드러난다 */}
       <View style={topBox}>
-        <Text style={glyphTop}>{pair.next}</Text>
+        <Text style={glyphTop} allowFontScaling={false}>
+          {pair.next}
+        </Text>
       </View>
       {/* 정적 아랫면(옛 값) — 아랫잎이 덮을 때까지 남는다 */}
       <View style={bottomBox}>
-        <Text style={glyphBottom}>{pair.prev}</Text>
+        <Text style={glyphBottom} allowFontScaling={false}>
+          {pair.prev}
+        </Text>
       </View>
       {/* 접히는 윗잎(옛 값) */}
       <Animated.View style={[topBox, g.leafTop, topLeafStyle]}>
-        <Text style={glyphTop}>{pair.prev}</Text>
+        <Text style={glyphTop} allowFontScaling={false}>
+          {pair.prev}
+        </Text>
       </Animated.View>
       {/* 펼쳐지는 아랫잎(새 값) */}
       <Animated.View style={[bottomBox, g.leafBottom, bottomLeafStyle]}>
-        <Text style={glyphBottom}>{pair.next}</Text>
+        <Text style={glyphBottom} allowFontScaling={false}>
+          {pair.next}
+        </Text>
       </Animated.View>
     </View>
   );
@@ -143,7 +153,11 @@ export function FlipClock({ seconds, format = 'hhmmss', size = 92 }: FlipClockPr
     <View style={[g.row, { gap }]}>
       {groups.map((group, gi) => (
         <Fragment key={gi}>
-          {gi > 0 && <Text style={[g.colon, { fontSize: colonSize }]}>:</Text>}
+          {gi > 0 && (
+            <Text style={[g.colon, { fontSize: colonSize }]} allowFontScaling={false}>
+              :
+            </Text>
+          )}
           {group.map((idx) => (
             <FlipDigit key={idx} char={str[idx]} size={size} />
           ))}

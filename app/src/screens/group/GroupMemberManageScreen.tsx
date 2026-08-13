@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
+import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { useUser } from '@/store/UserContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getGroupDetail, groupErrorCode, kickMember } from '@/services/groupApi';
+import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
 import { logGroupMemberKicked } from '@/services/analyticsEvents';
 import type { GroupDetailMemberResponse } from '@/types/dto/group';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -32,6 +27,12 @@ import type { V2RootStackParamList } from '@/navigation/types';
 //   붙는 자체 행(KickRow)을 둔다.
 
 type GroupMemberManageRoute = RouteProp<V2RootStackParamList, 'GroupMemberManage'>;
+
+// 로딩 자리표시자(GROMO-1381) — 아래 s.row 규격에서 계산한 실제 행 높이.
+// paddingVertical 12×2 + borderWidth 1×2 + 행 안에서 가장 높은 요소(강퇴 버튼 34) = 60.
+const ROW_H = 60;
+// 첫 화면에 들어오는 만큼만 그린다(화면당 동시 스켈레톤 상한 12).
+const SKELETON_ROWS = 4;
 
 // 강퇴 대상 한 행 — 닉네임 + 우측 '내보내기'(destructive). 진행 중이면 잠근다.
 interface KickRowProps {
@@ -80,12 +81,15 @@ export default function GroupMemberManageScreen() {
   const load = useCallback(async () => {
     const seq = ++requestSeqRef.current;
     setError(false);
+    const requestSessionGeneration = getAuthSessionGeneration();
     try {
       const detail = await getGroupDetail(groupId);
       if (seq !== requestSeqRef.current) return;
       setMembers(detail.members);
-    } catch {
+    } catch (e) {
       if (seq !== requestSeqRef.current) return;
+      // 진입 조회의 유저 부재(GROMO-1247) — 강퇴 실패 분기와 **다른 자리**다. 재시도로 안 풀린다.
+      if (groupErrorCode(e) === USER_NOT_FOUND) promptSessionExpired(requestSessionGeneration);
       setError(true);
     }
   }, [groupId]);
@@ -118,12 +122,21 @@ export default function GroupMemberManageScreen() {
       if (kickingRef.current.has(target.userId)) return; // 재탭 방어
       kickingRef.current.add(target.userId);
       setKickingIds((prev) => [...prev, target.userId]);
+      // 요청 직전의 인증 세대 — 유저 부재 분기의 로그아웃 판정용(sessionErrors.ts 주석).
+      const requestSessionGeneration = getAuthSessionGeneration();
       try {
         await kickMember(groupId, target.userId);
         logGroupMemberKicked({ group_id: groupId });
         removeMember(target.userId);
       } catch (e) {
         const code = groupErrorCode(e);
+        // 유저 부재(GROMO-1247) — 없어진 건 대상 멤버가 아니라 **내 계정**이다. 목록에서 지우면
+        // 강퇴가 성공한 것처럼 보이므로, 행은 그대로 두고(잠금만 풀고) 재로그인으로 보낸다.
+        if (code === USER_NOT_FOUND) {
+          unlockMember(target.userId);
+          promptSessionExpired(requestSessionGeneration);
+          return;
+        }
         // 이미 나간 멤버(NOT_FOUND·MEMBER_ONLY)는 결과가 강퇴와 같으므로 목록에서 제거로 취급한다.
         if (code === 'NOT_FOUND' || code === 'MEMBER_ONLY') {
           removeMember(target.userId);
@@ -136,7 +149,7 @@ export default function GroupMemberManageScreen() {
           Alert.alert('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
           return;
         }
-        Alert.alert('내보내기 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('내보내기 실패', '잠시 후 다시 시도해 주세요.');
       }
     },
     [groupId, removeMember, unlockMember],
@@ -173,14 +186,20 @@ export default function GroupMemberManageScreen() {
     </View>
   );
 
-  // ── 최초 로딩 — 중앙 스피너 ──
+  // ── 최초 로딩 — 멤버 행 자리표시자(GROMO-1381, 옛 중앙 스피너 대체) ──
+  // 행 높이가 규격으로 고정된 목록이라 실제 도착 화면과 같은 실루엣을 그릴 수 있다.
+  // 펄스는 SkeletonGroup 한 겹에만 건다(무한 루프 1개) — 기존 컨테이너 View를 그대로 교체한 것이라
+  // 노드 수·여백은 변하지 않는다. 백버튼이 있는 header는 묶음 밖이라 접근성 트리에 그대로 남는다.
+  // 데이터가 오면 이 분기가 사라지며 펄스(무한 루프)도 함께 언마운트된다.
   if (members === null && !error) {
     return (
       <SafeAreaView style={s.root} edges={['top']} testID="group.member.manage.screen">
         {header}
-        <View style={s.center}>
-          <ActivityIndicator color={T.accent} />
-        </View>
+        <SkeletonGroup style={s.listContent} testID="group.member.manage.skeleton">
+          {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+            <Skeleton key={i} w="100%" h={ROW_H} radius={14} />
+          ))}
+        </SkeletonGroup>
       </SafeAreaView>
     );
   }
@@ -192,7 +211,7 @@ export default function GroupMemberManageScreen() {
         {header}
         <View style={s.center}>
           <Text style={s.emptyTitle}>멤버를 불러오지 못했어요</Text>
-          <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+          <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
@@ -265,7 +284,8 @@ const s = StyleSheet.create({
   emptyDesc: { ...T.text.body, color: T.inkSub, marginTop: T.space.sm, textAlign: 'center' },
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹 탭·공지 화면과 같은 값.
   retryBtn: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: T.space.md,
     paddingHorizontal: T.space.xxl,
     borderRadius: 16,
     alignItems: 'center',
@@ -294,7 +314,8 @@ const s = StyleSheet.create({
   rowName: { ...T.text.subtitle, color: T.ink, flexShrink: 1 },
   // 강퇴 버튼은 파괴적 톤(accentAlt) — 되돌릴 수 없는 액션임을 색으로도 알린다.
   kickBtn: {
-    height: 34,
+    minHeight: 34,
+    paddingVertical: T.space.xs,
     paddingHorizontal: T.space.md,
     borderRadius: 10,
     alignItems: 'center',

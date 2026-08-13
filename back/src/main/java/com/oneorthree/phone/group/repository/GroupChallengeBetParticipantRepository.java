@@ -1,24 +1,121 @@
 package com.oneorthree.phone.group.repository;
 
+import com.oneorthree.phone.group.domain.GroupBetStatus;
 import com.oneorthree.phone.group.domain.GroupChallengeBetParticipant;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface GroupChallengeBetParticipantRepository
         extends JpaRepository<GroupChallengeBetParticipant, UUID> {
 
-    boolean existsByBetIdAndUserId(UUID betId, UUID userId);
+    boolean existsBySessionIdAndUserId(UUID sessionId, UUID userId);
 
-    long countByBetId(UUID betId);
+    /**
+     * 참가 시각(GROMO-1407 후속 — 지연 선기록 차단의 비교축). 참가 행 {@code created_at} 은
+     * 참가비 차감과 같은 트랜잭션에서 박제되므로 "언제부터 돈이 걸렸나"의 단일 진실이다.
+     *
+     * <p>존재 판정({@code existsBySessionIdAndUserId})을 겸한다 — 값이 있으면 참가자다. 두 번 묻지
+     * 않으려고 스칼라 하나만 뽑는다(보고는 저지연 경로라 엔티티·연관 fetch 를 피한다).
+     */
+    @Query("SELECT p.createdAt FROM GroupChallengeBetParticipant p "
+            + "WHERE p.session.id = :sessionId AND p.user.id = :userId")
+    Optional<Instant> findJoinedAtBySessionIdAndUserId(@Param("sessionId") UUID sessionId,
+                                                       @Param("userId") UUID userId);
+
+    long countBySessionId(UUID sessionId);
+
+    /**
+     * 조기 확정 대상(GROMO-1268, N11) — 유저가 참가 중인 그 날짜의 <b>FOCUS</b> OPEN 회차에서 아직
+     * 미확정({@code achieved IS NULL})인 참가 행의 <b>식별자만</b>. 미션 스냅샷의 카테고리로
+     * 거르므로(SCREEN_TIME 은 조기 확정 자체가 성립하지 않는다 — FR-23) 챌린지 조인이 없다.
+     * 회차 id 오름차순 — 호출측이 이 순서로 <b>전부 잠근 뒤</b> 판정한다(탈퇴 연동 등 오름차순
+     * 경로와의 교차 데드락 방지, §5.4).
+     *
+     * <p><b>엔티티가 아니라 id 를 돌려주는 것이 계약이다.</b> 엔티티로 받으면 대상 참가 행이
+     * 영속성 컨텍스트(1차 캐시)에 올라가고, 회차 락을 기다리는 동안 취소·탈퇴가 그 행을 지워도
+     * 이후 {@code findById} 가 DB 를 보지 않고 <b>캐시된 유령 엔티티</b>를 돌려준다. 그 유령을
+     * 수정하면 flush 가 0건 UPDATE 로 터져 집중 세션 저장·통계·보상 트랜잭션 전체가 롤백된다
+     * (남의 취소 때문에 내 집중 기록이 사라진다). id 만 받으면 잠금 후 첫 로드가 실제 DB 읽기라
+     * 삭제가 그대로 보인다.
+     */
+    @Query("SELECT p.id AS participantId, p.session.id AS sessionId "
+            + "FROM GroupChallengeBetParticipant p JOIN p.session s "
+            + "WHERE p.user.id = :userId AND p.achieved IS NULL "
+            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "AND s.sessionDate IN :dates "
+            + "AND s.missionCategory = com.oneorthree.phone.group.domain.MissionCategory.FOCUS "
+            + "ORDER BY s.id")
+    List<UnconfirmedFocusTarget> findUnconfirmedOpenFocusTargetsByUserAndDates(
+            @Param("userId") UUID userId,
+            @Param("dates") Collection<LocalDate> dates);
+
+    /** {@link #findUnconfirmedOpenFocusTargetsByUserAndDates} 프로젝션 — 참가 행 · 그 회차. */
+    interface UnconfirmedFocusTarget {
+        UUID getParticipantId();
+
+        UUID getSessionId();
+    }
+
+    /**
+     * 조기 정산 전원 확정 검사(GROMO-1268) — 미확정({@code achieved IS NULL}) 참가자 수.
+     * {@code AFTER_COMMIT} 리스너가 커밋된 상태 기준으로 세고, 최종 판정은 {@code settle(EARLY)}
+     * 가 회차 락 안에서 다시 한다(리스너의 무락 검사는 낡았을 수 있다 — LLD §5.2).
+     */
+    @Query("SELECT COUNT(p) FROM GroupChallengeBetParticipant p "
+            + "WHERE p.session.id = :sessionId AND p.achieved IS NULL")
+    long countBySessionIdAndAchievedIsNull(@Param("sessionId") UUID sessionId);
+
+    /**
+     * 잠금 후 재조회용 단건 — 회차 행 잠금을 잡은 <b>뒤</b> 내 참가 행이 아직 있는지 다시 본다
+     * (1258 P0 이중 환불 재발 방지: 잠금 대기 중 취소·탈퇴가 이미 처리했으면 없어야 정상).
+     */
+    @EntityGraph(attributePaths = "user")
+    Optional<GroupChallengeBetParticipant> findBySessionIdAndUserId(UUID sessionId, UUID userId);
 
     /**
      * 조회 조립·정산 공용 배치 로드. 응답에 닉네임이 필요하고 정산도 userId 를 봐야 하므로
      * user 를 함께 fetch 해 참가자 수만큼의 추가 SELECT 를 막는다.
      */
     @EntityGraph(attributePaths = "user")
-    List<GroupChallengeBetParticipant> findByBetIdIn(Collection<UUID> betIds);
+    List<GroupChallengeBetParticipant> findBySessionIdIn(Collection<UUID> sessionIds);
+
+    /**
+     * 내 OPEN 회차(GROMO-1415, N43 보고 대상 탐색축) — <b>참가자 스코프, 그룹 무관</b>. 그룹
+     * 멤버십을 경유하지 않는 이유: 탈퇴·강퇴 후에도 시작된 회차의 참가는 정산 대상으로 남는데
+     * (C8·N19), 그룹 목록 축으로는 그 회차를 영영 못 찾는다. 회차 스냅샷(창 시각·목표)을 응답에
+     * 실어야 하므로 session 을 함께 fetch 한다.
+     */
+    @Query("SELECT p FROM GroupChallengeBetParticipant p JOIN FETCH p.session s "
+            + "WHERE p.user.id = :userId "
+            + "AND s.status = com.oneorthree.phone.group.domain.GroupBetStatus.OPEN "
+            + "ORDER BY s.sessionDate, s.id")
+    List<GroupChallengeBetParticipant> findOpenSessionParticipationsByUserId(@Param("userId") UUID userId);
+
+    /**
+     * 내 정산 완료 회차(GROMO-1415, N53 결과 모달 큐의 단일 소스) — 참가자 스코프. 멤버십·챌린지
+     * ACTIVE 를 보지 않아 탈퇴자·종료 챌린지 회차도 실린다. 단 <b>삭제된 챌린지의 회차는 제외</b>
+     * (FR-44-4·N48 — 삭제 환불은 BET_VOID_REFUND 푸시가 알리므로 모달까지 띄우면 이중 통지),
+     * UNUSED 는 statuses 에서 이미 빠져 있다(N52). since 는 settled_at 하한(최근 30일 바닥은
+     * 호출측이 보정). 응답 조립에 그룹 이름·챌린지 상태가 필요해 함께 fetch 한다.
+     */
+    @Query("SELECT p FROM GroupChallengeBetParticipant p "
+            + "JOIN FETCH p.session s JOIN FETCH s.group JOIN FETCH s.challenge c "
+            + "WHERE p.user.id = :userId AND s.status IN :statuses "
+            + "AND c.deletedAt IS NULL AND s.settledAt >= :since "
+            + "ORDER BY s.sessionDate DESC, s.id DESC")
+    List<GroupChallengeBetParticipant> findSettledParticipationsByUserId(
+            @Param("userId") UUID userId,
+            @Param("statuses") Collection<GroupBetStatus> statuses,
+            @Param("since") Instant since,
+            Pageable pageable);
 }

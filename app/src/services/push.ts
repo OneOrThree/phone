@@ -6,10 +6,12 @@ import * as Notifications from 'expo-notifications';
 import { api } from '@/services/api';
 import { addToInbox } from '@/services/notificationInbox';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
+import { isSilentFlush, runSilentFlush } from '@/services/pushBackground';
 import {
   logNotificationOpened,
   logNotificationPermissionResult,
   logPushOpened,
+  logPokeReceived,
   type NotificationType,
   type PushOpenedType,
 } from '@/services/analyticsEvents';
@@ -36,17 +38,70 @@ async function putDeviceToken(deviceToken: string): Promise<void> {
   }
 }
 
-// 서버 payload의 data.link(예: 'gromo://league')에서 딥링크 문자열을 뽑는다.
-// 창 종료 푸시(B4, type='CHALLENGE_WINDOW_END')가 link 없이 data.groupId만 실어 보내는 경우도
-// 받는다 — 그룹 딥링크(gromo://group?g=…)로 합성해 같은 라우팅(navigateToDeepLink)을 태운다(A3).
+// 서버가 link 없이 data.groupId만 실어 보내는 그룹 푸시 타입(IA §4.2 payload 표 + 레거시).
+// 서버는 link를 싣지 않는 것이 계약이라 **앱이 groupId → 그룹방 딥링크를 합성**해야 탭이
+// 어딘가로 간다(LLD §6.2 — 배선이 없으면 탭해도 아무 데도 안 간다).
+const GROUP_ROOM_TYPES = new Set([
+  'CHALLENGE_CREATED',
+  'CHALLENGE_SESSION_OPEN',
+  'CHALLENGE_SESSION_END',
+  'BET_WON',
+  'BET_RESULT',
+  'BET_VOID_REFUND',
+  'CHALLENGE_WINDOW_END', // 레거시(구 서버) — 종전 동작 유지
+]);
+
+// 결과성 푸시 — **탈퇴자에게도 도달해야 하는** 타입(PR #566 리뷰 P1 추가건). 정산 결과·환불은
+// 참가자 스코프 사건이라(N53·C8) 그룹 멤버십을 잃어도 통지가 성립해야 하는데, 그룹방 딥링크의
+// 멤버십 게이트(navigationRef.pushGroupRoom — getMyGroups 대조)가 탈퇴자를 그룹 탭에서 잘라
+// GroupRoomScreen의 MEMBER_ONLY 처리(결과 모달 소비 후 onLeft)에 도달조차 못 하게 한다.
+// 합성 링크에 result=1 표식을 실어 그 게이트만 우회시킨다 — 모집·생성 등 비결과성 딥링크와
+// 초대 링크의 기존 게이트는 그대로다(탈퇴한 그룹방을 아무 경로로나 열게 하지 않는다).
+const RESULT_PUSH_TYPES = new Set([
+  'CHALLENGE_SESSION_END',
+  'BET_WON',
+  'BET_RESULT',
+  'BET_VOID_REFUND',
+]);
+
+// 잔액 재조회가 **이 푸시로 열린 경로에서만** 성립하는 타입(codex 리뷰 P2). 삭제 환불은
+// 앱이 살아 있어도 잔액을 갱신할 통로가 하나도 없다: 삭제된 챌린지는 결과 모달 대상에서
+// 빠지고(challengeResult.pickChallengeResults의 voidReason !== 'CHALLENGE_DELETED' 필터,
+// 서버도 /me/challenge-results에서 제외 — FR-44-4) 그룹의 챌린지 목록에도 남지 않아
+// GroupRoomScreen의 결과 모달 경로·settledBetSignature 경로가 둘 다 발화하지 않는다.
+// 그래서 합성 링크에 refund=1 표식을 실어 navigationRef가 잔액 재조회를 태우게 한다
+// (서버 payload 계약은 그대로 — 앱 내부 URL 스킴에만 붙는 표식이다).
+// 다른 결과성 타입은 결과 모달(refreshCoins)·서명 변화가 이미 잡으므로 붙이지 않는다.
+const REFUND_PUSH_TYPES = new Set(['BET_VOID_REFUND']);
+
+// 서버 payload의 data.link(예: 'gromo://league')에서 딥링크 문자열을 뽑는다. link가 없으면
+// 타입별로 합성한다(GROMO-1421, IA §4.2 표와 대조):
+//  · CHALLENGE_SESSION_END + challengeId → 그룹방 + 그 챌린지의 결과 모달 자동 오픈(challenge 파라미터)
+//  · 나머지 그룹 타입(모집·결과·승리·창 종료) → 그룹방까지만. 묶음 발송은 challengeId 대신 요약
+//    배열이라 특정 챌린지로 보내지 않는다(어느 것을 고를지 서버가 정할 근거가 없다 — IA §4.2)
+//  · BET_VOID_REFUND → 그룹방까지만 — **결과 모달을 띄우지 않는다**(N48). 삭제 환불은 이 푸시가
+//    알리는 사건이라 모달까지 열면 같은 사건 이중 통지가 된다(서버도 /me/challenge-results에서
+//    해당 회차를 제외한다 — FR-44-4). 대신 refund=1을 실어 **잔액만** 다시 받게 한다
+//  · 모르는 타입인데 groupId가 있으면 그룹 탭 폴백(gromo://group — g 없음): 신 타입이 먼저
+//    배포돼도 탭이 무반응·크래시로 끝나지 않게 한다
 function linkFromData(data?: Record<string, unknown>): string | null {
   const link = data?.link;
   if (typeof link === 'string') return link;
   const groupId = data?.groupId;
-  if (rawTypeFromData(data) === 'CHALLENGE_WINDOW_END' && typeof groupId === 'string') {
-    return `gromo://group?g=${groupId}`;
-  }
-  return null;
+  if (typeof groupId !== 'string') return null;
+  const raw = rawTypeFromData(data);
+  if (raw === null) return null; // 타입 없는 data는 손대지 않는다(종전 동작 — 오라우팅 방지)
+  if (!GROUP_ROOM_TYPES.has(raw)) return 'gromo://group'; // 미지원 타입 — 그룹 탭 폴백
+  const challengeId = data?.challengeId;
+  const challengePart =
+    raw === 'CHALLENGE_SESSION_END' && typeof challengeId === 'string'
+      ? `&challenge=${challengeId}`
+      : '';
+  // 결과성 타입은 멤버십 게이트 우회 표식을 싣는다(위 RESULT_PUSH_TYPES 주석).
+  const resultPart = RESULT_PUSH_TYPES.has(raw) ? '&result=1' : '';
+  // 환불 타입은 잔액 재조회 표식을 함께 싣는다(위 REFUND_PUSH_TYPES 주석).
+  const refundPart = REFUND_PUSH_TYPES.has(raw) ? '&refund=1' : '';
+  return `gromo://group?g=${groupId}${challengePart}${resultPart}${refundPart}`;
 }
 
 // 정산 결과/창 종료 푸시 타입(계약 §2 push_opened) — 그 외는 null(이벤트 생략).
@@ -130,13 +185,23 @@ export async function registerPushToken(): Promise<string | null> {
 export function setupPushListeners(): () => void {
   const unsubscribers: Array<() => void> = [];
 
+  // 백그라운드 data-only 수신 → flush 배선은 **index.ts 최상위**가 pushBackground.
+  // registerBackgroundFlushHandler로 담당한다(codex 리뷰 ① — 종료 상태 headless 기동은 이펙트
+  // 도달 전이라 여기서 등록하면 늦는다). 이 함수는 포그라운드 수신 경로만 배선한다.
+
   // 토큰 갱신 → 재등록
   unsubscribers.push(messaging().onTokenRefresh((token) => putDeviceToken(token)));
 
   // 포그라운드 수신 → 보관함 저장 + 로컬 알림으로 표시(위 핸들러가 배너 노출)
   unsubscribers.push(
     messaging().onMessage(async (msg) => {
+      // 사일런트 flush는 표시 대상이 아니다(IA §4.2) — 빈 배너를 만들지 않고 flush만 한다.
+      if (isSilentFlush(msg?.data)) {
+        await runSilentFlush();
+        return;
+      }
       saveToInbox(msg);
+      if (notificationTypeFromData(msg?.data) === 'poke') logPokeReceived();
       try {
         await Notifications.scheduleNotificationAsync({
           content: {

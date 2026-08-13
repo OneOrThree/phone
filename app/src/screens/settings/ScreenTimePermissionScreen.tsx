@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,9 +19,11 @@ import ScreenTimeModule, {
   nativeSupportsPendingApplyDate,
 } from '@/services/ScreenTimeModule';
 import { updateScreenTimePermission } from '@/services/userApi';
+import { logScreenTimeSettingsChanged } from '@/services/analyticsEvents';
 import { registerUsageBucketMonitoring } from '@/services/screentimeSync';
-import { tomorrowStr } from '@/utils/localDate';
+import { todayStr, tomorrowStr, yesterdayStr } from '@/utils/localDate';
 import { useUser } from '@/store/UserContext';
+import { useToast } from '@/store/ToastContext';
 import SettingsScaffold from '@/screens/settings/components/SettingsScaffold';
 import { SettingsSection, SettingsRow } from '@/screens/settings/components/SettingsList';
 import type { V2RootStackParamList } from '@/navigation/types';
@@ -33,22 +35,13 @@ import { T } from '@/constants/theme';
 // 상태 카드가 권한 상태별 단일 진입점(GROMO-978): 요청 필요→권한 요청(허용 시 바로 앱 피커),
 // 허용됨→앱 피커, 거부됨→iOS는 설정 이동, 안드로이드는 Usage Access 재요청(GROMO-994).
 
-// 로컬(기기 시간대) 기준 'YYYY-MM-DD'.
-function ymd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 // 저장된 마지막 동기화 날짜 → 상대 라벨(오늘/어제/날짜).
+// 축은 로컬 — 대조 대상(screentimeLastSyncedDate)을 screentimeSync가 로컬 todayStr로 쓴다
+// (스크린타임 측정·마감 축, docs/date-axis.md 분류 ②).
 function syncLabel(raw: string): string {
   const date = raw.slice(0, 10); // 타임스탬프로 저장돼도 날짜부만 사용
-  const now = new Date();
-  if (date === ymd(now)) return '오늘';
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date === ymd(yesterday)) return '어제';
+  if (date === todayStr()) return '오늘';
+  if (date === yesterdayStr()) return '어제';
   return date;
 }
 
@@ -68,10 +61,12 @@ export default function ScreenTimePermissionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
   // 측정 대상 변경 시 버킷 모니터 재등록에 모니터 소유 기록용 계정이 필요하다(GROMO-633).
   const { userId } = useUser();
+  const { show } = useToast();
 
   const [status, setStatus] = useState<AuthorizationStatus | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const statusBeforeSettingsRef = useRef<AuthorizationStatus | null>(null);
   // A안(GROMO-942) — 측정 대상 변경이 '내일 적용'으로 예약돼 있으면 측정 대상 행에 배지로 표시.
   // 예약 적용일이 아직 미래(내일)일 때만 노출 — 자정에 승격되면 ScreenTimeSyncer가 마커를 지운다.
   const [pendingApply, setPendingApply] = useState(false);
@@ -81,13 +76,24 @@ export default function ScreenTimePermissionScreen() {
     useCallback(() => {
       let cancelled = false;
       ScreenTimeModule.getAuthorizationStatus()
-        .then((st) => !cancelled && setStatus(st))
+        .then((st) => {
+          if (cancelled) return;
+          setStatus(st);
+          if (statusBeforeSettingsRef.current !== null && statusBeforeSettingsRef.current !== st) {
+            logScreenTimeSettingsChanged({
+              setting: 'permission',
+              setting_value: st === 'approved' ? 'granted' : 'denied',
+            });
+          }
+          statusBeforeSettingsRef.current = null;
+        })
         .catch(() => !cancelled && setStatus(null));
       AsyncStorage.getItem(STORAGE_KEYS.screentimeLastSyncedDate)
         .then((raw) => !cancelled && setLastSynced(raw ? syncLabel(raw) : null))
         .catch(() => !cancelled && setLastSynced(null));
       AsyncStorage.getItem(STORAGE_KEYS.selectionApplyDate)
-        .then((d) => !cancelled && setPendingApply(!!d && d > ymd(new Date())))
+        // selectionApplyDate는 아래 tomorrowStr()로 예약한 로컬 날짜 — 대조도 같은 로컬 축이다.
+        .then((d) => !cancelled && setPendingApply(!!d && d > todayStr()))
         .catch(() => !cancelled && setPendingApply(false));
       return () => {
         cancelled = true;
@@ -102,7 +108,21 @@ export default function ScreenTimePermissionScreen() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       ScreenTimeModule.getAuthorizationStatus()
-        .then((st) => setStatus(st))
+        .then((st) => {
+          setStatus((previous) => {
+            if (
+              statusBeforeSettingsRef.current !== null &&
+              statusBeforeSettingsRef.current !== st
+            ) {
+              logScreenTimeSettingsChanged({
+                setting: 'permission',
+                setting_value: st === 'approved' ? 'granted' : 'denied',
+              });
+            }
+            statusBeforeSettingsRef.current = null;
+            return st ?? previous;
+          });
+        })
         .catch(() => {});
     });
     return () => sub.remove();
@@ -122,6 +142,10 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
+      logScreenTimeSettingsChanged({
+        setting: 'permission',
+        setting_value: granted ? 'granted' : 'denied',
+      });
       if (granted) {
         await editScreenTimeTargets();
       } else {
@@ -140,6 +164,7 @@ export default function ScreenTimePermissionScreen() {
   async function reopenAndroidUsageAccess() {
     if (requesting) return;
     setRequesting(true);
+    const statusBeforeRequest = status;
     try {
       const granted = await ScreenTimeModule.requestAuthorization();
       try {
@@ -149,6 +174,12 @@ export default function ScreenTimePermissionScreen() {
       }
       const st = await ScreenTimeModule.getAuthorizationStatus();
       setStatus(st);
+      if (statusBeforeRequest !== null && statusBeforeRequest !== st) {
+        logScreenTimeSettingsChanged({
+          setting: 'permission',
+          setting_value: st === 'approved' ? 'granted' : 'denied',
+        });
+      }
     } catch (e) {
       Alert.alert('권한 처리 실패', e instanceof Error ? e.message : String(e));
     } finally {
@@ -191,10 +222,27 @@ export default function ScreenTimePermissionScreen() {
         await AsyncStorage.setItem(STORAGE_KEYS.selectionApplyDate, applyDate);
         await ScreenTimeModule.setPendingSelectionApplyDate(applyDate);
         setPendingApply(true); // 측정 대상 행 배지 즉시 반영
-        Alert.alert(
-          '측정 대상 변경 예약됨',
-          `내일부터 앱·카테고리 ${total}개로 측정해요. 오늘은 기존 대상으로 계속 측정돼요.`,
-        );
+        // 선택지 없는 결과 통보 → 토스트(정책 D8/D19 — docs/prd/motion-v2/policy.md, 상위 정본
+        // 병합 전까지 여기가 정본). 토스트엔 제목 줄이 없으므로 "즉시 반영이 아니라 **예약**"
+        // 이라는 이 통보의 요점을 본문 첫 마디로 끌어온다 — 빠뜨리면 "지금 바뀌었다"로 읽힌다
+        // (옛 Alert 제목이 '측정 대상 변경 예약됨'으로 하던 몫이다).
+        // ⚠️ 아래 '설정 완료'와 **같은 계약**으로 구 바이너리에서는 Alert를 유지한다 —
+        //    nativeSupportsPendingApplyDate()(GROMO-942 빌드)가 true여도 `dismissed`(GROMO-1381
+        //    빌드)까지 있다는 보장은 없다. 그쪽 presentAppPicker는 모달 dismiss 완료를 기다리지
+        //    않고 promise를 풀어서, 토스트가 아직 떠 있는 피커 아래에서 등장 연출과 2200ms
+        //    타이머를 시작한다. 그쪽은 제목이 '예약'을 이미 말하고 2줄 제약도 없으므로 본문은
+        //    오늘/내일 대비를 그대로 둔다.
+        if (counts.dismissed) {
+          show({
+            message: `변경을 예약했어요 — 내일부터 앱·카테고리 ${total}개로 측정해요`,
+            tone: 'success',
+          });
+        } else {
+          Alert.alert(
+            '측정 대상 변경 예약됨',
+            `오늘은 기존 대상, 내일부터 앱·카테고리 ${total}개로 측정해요`,
+          );
+        }
         return;
       }
 
@@ -223,7 +271,18 @@ export default function ScreenTimePermissionScreen() {
         );
         return;
       }
-      Alert.alert('측정 대상 변경됨', `앱·카테고리 ${total}개를 측정합니다.`);
+      // 성공 통보(선택지 없음) → 토스트. 바로 위 '측정 대상을 비웠어요'는 성공이지만
+      // "측정이 중단된다"는 경고성 장문이라 2200ms 배너에 담기지 않아 Alert로 남긴다(정책 D8).
+      // ⚠️ 구 바이너리에서는 Alert를 유지한다 — 그쪽 presentAppPicker는 모달 dismiss 완료를
+      //    기다리지 않고 promise를 풀어서, 토스트가 아직 떠 있는 피커 아래에서 등장 연출과
+      //    2200ms 타이머를 시작한다. 이 JS는 hot-updater로 구 바이너리에도 내려가므로
+      //    네이티브 수정만으로는 못 막는다(codex 리뷰). 허용 앱 관리자와 같은 계약이다.
+      const pickedMessage = `앱·카테고리 ${total}개를 측정해요`;
+      if (counts.dismissed) {
+        show({ message: pickedMessage });
+      } else {
+        Alert.alert('설정 완료', pickedMessage);
+      }
     } catch (e) {
       Alert.alert('설정 실패', e instanceof Error ? e.message : String(e));
     }
@@ -243,6 +302,7 @@ export default function ScreenTimePermissionScreen() {
     } else if (Platform.OS === 'android' && androidNativeModuleAvailable()) {
       reopenAndroidUsageAccess();
     } else {
+      statusBeforeSettingsRef.current = status;
       Linking.openSettings();
     }
   }

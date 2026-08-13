@@ -24,6 +24,7 @@ import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { T } from '@/constants/theme';
 import { CURRENCY } from '@/constants/currency';
+import { logCurrencyChipTapped } from '@/services/analyticsEvents';
 
 // v2 '전체' 탭 = 설정 허브(SET·앱 설정). 프로필 헤더 + 시안 행 그룹 + 광고 배너.
 // 실제 동작(목표 편집·허용앱·스크린타임·로그아웃 등)은 각 하위 화면(settings/*)이 담당하고,
@@ -46,13 +47,13 @@ const TERMS_URL = 'https://team-page.vercel.app/#/terms';
 
 // 외부 브라우저 이동 전 확인 안내 — 확인을 눌러야 링크를 연다 (GROMO-813)
 function confirmOpenExternal(title: string, url: string) {
-  Alert.alert(title, '외부 브라우저로 팀 사이트가 열립니다.\n이동하시겠습니까?', [
+  Alert.alert(title, '외부 브라우저로 팀 사이트가 열려요.\n이동할까요?', [
     { text: '취소', style: 'cancel' },
     {
       text: '확인',
       onPress: () => {
         Linking.openURL(url).catch(() =>
-          Alert.alert('알림', '링크를 열 수 없어요. 잠시 후 다시 시도해주세요.'),
+          Alert.alert('알림', '링크를 열 수 없어요. 잠시 후 다시 시도해 주세요.'),
         );
       },
     },
@@ -70,16 +71,19 @@ type ChallengeResultPreviewKind = 'challengeAchieved' | 'challengeFailed' | 'cha
 function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResultCandidate {
   // 날짜는 실제 노출과 같은 '어제' — 모달의 'M/D 결과' 표기가 실전과 같은 모양으로 보인다.
   // dev fixture라 로컬 유지 — 서버로 나가지 않는 미리보기 값(GROMO-1236 분류 C).
+  // v2(GROMO-1279): 소스가 정산 완료 회차(/me/challenge-results)라 손익까지 함께 보인다.
   const base = {
+    sessionId: `preview-${kind}`,
     challengeId: `preview-${kind}`,
+    groupId: 'preview-group',
+    groupName: '아침 6시 집중방',
     date: yesterdayStr(),
-    missionType: 'DURATION' as const,
-    missionCategory: 'FOCUS' as const,
-    label: '하루 60분 집중',
+    status: 'SETTLED' as const,
+    voidReason: null,
+    stake: 30,
+    pot: 120,
     goalMinutes: 60,
     memberCount: 4,
-    // 내기가 걸렸던 결과로 둔다 — 정산 안내 한 줄까지 함께 확인해야 하기 때문.
-    hadBet: true,
   };
   if (kind === 'challengeAchieved') {
     return {
@@ -87,45 +91,46 @@ function challengeResultPreview(kind: ChallengeResultPreviewKind): ChallengeResu
       // 목표를 넘긴 정도를 사람마다 다르게 둔다 — 근거 분(GROMO-1191)이 붙는 자리라
       // 전부 같은 값이면 표기가 제대로 보이는지 알 수 없다.
       achievers: [
-        { userId: 'u-me', nickname: '나', progressMinutes: 72 },
-        { userId: 'u-subin', nickname: '수빈', progressMinutes: 60 },
-        { userId: 'u-minji', nickname: '민지', progressMinutes: 145 },
+        { userId: 'u-me', nickname: '나', progressMinutes: 72, payout: 40 },
+        { userId: 'u-subin', nickname: '수빈', progressMinutes: 60, payout: 40 },
+        { userId: 'u-minji', nickname: '민지', progressMinutes: 145, payout: 40 },
       ],
-      failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 23 }],
+      failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 23, payout: 0 }],
       pending: [],
       myAchieved: true,
+      myPayout: 40,
     };
   }
   if (kind === 'challengeFailed') {
     return {
       ...base,
       achievers: [
-        { userId: 'u-subin', nickname: '수빈', progressMinutes: 61 },
-        { userId: 'u-minji', nickname: '민지', progressMinutes: 88 },
+        { userId: 'u-subin', nickname: '수빈', progressMinutes: 61, payout: 60 },
+        { userId: 'u-minji', nickname: '민지', progressMinutes: 88, payout: 60 },
       ],
       // 0분(아예 안 함)과 아깝게 놓친 경우를 같이 둔다 — 둘 다 미달성이지만 읽히는 맛이 다르다.
       failed: [
-        { userId: 'u-me', nickname: '나', progressMinutes: 59 },
-        { userId: 'u-jihun', nickname: '지훈', progressMinutes: 0 },
+        { userId: 'u-me', nickname: '나', progressMinutes: 59, payout: 0 },
+        { userId: 'u-jihun', nickname: '지훈', progressMinutes: 0, payout: 0 },
       ],
       pending: [],
       myAchieved: false,
+      myPayout: 0,
     };
   }
-  // 집계 중 — 스크린타임은 클라 보고가 도착해야 확정돼 3상이 실제로 섞인다(계약 §2).
+  // 미판정 — 스크린타임은 클라 보고가 있어야 판정돼 3상이 실제로 섞인다.
   // 미보고는 progressMinutes가 null이라 '—'로 비고, 0분(진짜 안 씀)과 칸이 갈린다.
   return {
     ...base,
-    missionCategory: 'SCREEN_TIME',
-    label: '하루 120분 스크린타임',
     goalMinutes: 120,
-    achievers: [{ userId: 'u-subin', nickname: '수빈', progressMinutes: 34 }],
-    failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 210 }],
+    achievers: [{ userId: 'u-subin', nickname: '수빈', progressMinutes: 34, payout: 60 }],
+    failed: [{ userId: 'u-jihun', nickname: '지훈', progressMinutes: 210, payout: 0 }],
     pending: [
-      { userId: 'u-me', nickname: '나', progressMinutes: null },
-      { userId: 'u-minji', nickname: '민지', progressMinutes: null },
+      { userId: 'u-me', nickname: '나', progressMinutes: null, payout: null },
+      { userId: 'u-minji', nickname: '민지', progressMinutes: null, payout: null },
     ],
     myAchieved: null,
+    myPayout: null,
   };
 }
 
@@ -277,16 +282,16 @@ export default function MenuScreen() {
   const goalSectionRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어.',
+      text: '전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어요.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '프로필을 탭하면 닉네임을 편집할 수 있어.',
+      text: '프로필을 탭하면 닉네임을 편집할 수 있어요.',
       character: require('@/assets/character_happy.png'),
       anchor: profileRef,
     },
     {
-      text: '준비 시험과 목표 시간은 여기서 바꿔.\n준비 시험을 바꾸면 추천 과목도 새로 받을 수 있어!',
+      text: '준비 시험과 목표 시간은 여기서 바꿀 수 있어요.\n준비 시험을 바꾸면 추천 과목도 새로 받을 수 있어요!',
       character: require('@/assets/character_study.png'),
       anchor: goalSectionRef,
     },
@@ -338,7 +343,10 @@ export default function MenuScreen() {
             iconBg={T.accentBg}
             label={CURRENCY.label}
             value={`${coins.toLocaleString()}개`}
-            onPress={() => navigation.navigate('CurrencyHistory')}
+            onPress={() => {
+              logCurrencyChipTapped({ location: 'menu' });
+              navigation.navigate('CurrencyHistory', { entry: 'menu_chip' });
+            }}
           />
         </SettingsSection>
 
@@ -484,7 +492,7 @@ export default function MenuScreen() {
               icon="hourglass-outline"
               iconColor={T.accentAlt}
               iconBg={T.accentAltBg}
-              label="챌린지 결과 모달 — 집계 중"
+              label="챌린지 결과 모달 — 미판정"
               sub="스크린타임 미보고 3상(달성·미달성·집계 중) 혼재"
               onPress={() => setModalPreview('challengePending')}
             />

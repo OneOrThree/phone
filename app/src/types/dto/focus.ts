@@ -114,7 +114,12 @@ export interface FocusSessionStartRequest {
 
 // POST /focus-session/start — 시작 응답. sessionId로 이후 취소를 참조한다.
 export interface FocusSessionStartResponse {
-  sessionId: string; // UUID
+  // null = 서버가 이 요청으로 마커를 만들지 않았다 (GROMO-1287). 이미 열린 마커가 이 요청보다
+  // 논리적으로 나중에 시작한 경우다 — 백그라운드 복귀 리플레이의 과거 블록, 요청 도착 역전, 재전송.
+  // 그 블록은 마커 없이 POST /focus-session으로 올린다(uploadFocusBlock의 sessionId: null 경로).
+  // **다른 마커의 id를 대신 쓰면 안 된다**: 서로 다른 블록이 같은 마커를 PATCH하면 첫 요청만 적립되고
+  // 나머지는 SESSION_ALREADY_ENDED(폴백 금지 코드)를 받아 그 블록의 시간·코인이 영구 유실된다.
+  sessionId: string | null; // UUID
   startedAt: string; // 서버가 확정한 시작 시각
 }
 

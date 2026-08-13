@@ -49,7 +49,8 @@ public class LeagueController {
             description = "category 미지정: DailyFocusStat 기반 전역 주간 상위 100명 랭킹. "
                     + "category 지정: 같은 occupation 활성 사용자의 전역 주간 상위 100명 랭킹. "
                     + "각 멤버의 집중 라이브 정보(isFocusing·focusTimeMinutes·focusStartedAt·focusTagName) 포함. "
-                    + "date 는 클라 로컬 타임존 기준 오늘(YYYY-MM-DD, required). "
+                    + "date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD, required) "
+                    + "— 기기 로컬 날짜가 아니다. "
                     + "잘못된 category 값·date 누락은 400 INVALID_PARAMETER.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "조회 성공"),
