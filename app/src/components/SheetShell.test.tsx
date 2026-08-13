@@ -566,8 +566,11 @@ describe('닫는 동안의 딤', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('sheetShell.dim'));
     });
-    // 퇴장 페이드로 조금 옅어지는 건 정상이다. 잡을 것은 **감쇠 계수만큼의 급락**(최대 60%)이다.
-    expect(dimOpacity()).toBeGreaterThan(before * 0.9);
+    // 퇴장 페이드로 조금 옅어지는 건 정상이다. 잡을 것은 **감쇠 계수만큼의 급락**(최대 60% = 0.4배)이다.
+    // 문턱이 0.9 였을 때 CI 에서 0.84 배로 붉었다 — act() 안에서 흐른 실제 시간만큼 페이드가 더 진행되는데
+    // 러너가 158개 스위트를 병렬로 돌려 그 시간이 들쭉날쭉하다(2026-08-13, 여러 브랜치 동시 실패).
+    // 0.75 는 지터를 넘기면서도 잡으려는 0.4 배와는 멀찍이 떨어져 있다.
+    expect(dimOpacity()).toBeGreaterThan(before * 0.75);
   });
 });
 
