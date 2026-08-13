@@ -209,7 +209,10 @@ export default function GoalsScreen() {
           }
         : { focus: focusChanged, usage: usageChanged };
       if (actuallyChanged.focus || actuallyChanged.usage) {
-        logGoalUpdated({ changed_focus: actuallyChanged.focus, changed_usage: actuallyChanged.usage });
+        logGoalUpdated({
+          changed_focus: actuallyChanged.focus,
+          changed_usage: actuallyChanged.usage,
+        });
       }
     } catch {
       // 예약 저장/삭제 실패는 치명적이지 않음

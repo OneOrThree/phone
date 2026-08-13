@@ -110,7 +110,10 @@ export default function ScreenTimePermissionScreen() {
       ScreenTimeModule.getAuthorizationStatus()
         .then((st) => {
           setStatus((previous) => {
-            if (statusBeforeSettingsRef.current !== null && statusBeforeSettingsRef.current !== st) {
+            if (
+              statusBeforeSettingsRef.current !== null &&
+              statusBeforeSettingsRef.current !== st
+            ) {
               logScreenTimeSettingsChanged({
                 setting: 'permission',
                 setting_value: st === 'approved' ? 'granted' : 'denied',

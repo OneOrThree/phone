@@ -147,7 +147,11 @@ export function RootNavigator({ initialAppEntry = 'cold_start' }: RootNavigatorP
         });
       } else if (route) {
         // inactive 동안만 멈춘 방문은 새 방문으로 세지 않고 타이머만 재개한다.
-        screenVisitRef.current = { screen_name: route.name, route_key: route.key, entered_at: Date.now() };
+        screenVisitRef.current = {
+          screen_name: route.name,
+          route_key: route.key,
+          entered_at: Date.now(),
+        };
       }
     });
     return () => {

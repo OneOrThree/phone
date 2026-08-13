@@ -349,14 +349,24 @@ export async function getMyChallengeResults(page?: {
   since?: string;
   limit?: number;
 }): Promise<MyChallengeResultEntry[]> {
+  // 결과를 읽는 계정과 정산 이벤트를 발행할 계정을 고정한다. 요청 중 계정이 바뀌면
+  // axios 인터셉터가 새 토큰을 붙이거나, 응답 후 저장소에서 새 userId를 읽어 옛 결과를
+  // 새 계정에 귀속시킬 수 있다(코드리뷰 반영).
+  const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
+  const userId = getUserIdFromToken(accessToken ?? '');
+  if (!accessToken || !userId) return [];
   const { data } = await api.get<MyChallengeResultsResponse>(
     '/api/v1/me/challenge-results',
     // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
-    { params: { since: page?.since, limit: page?.limit } },
+    {
+      params: { since: page?.since, limit: page?.limit },
+      headers: { Authorization: `Bearer ${accessToken}` },
+      _noAuthRetry: true,
+    } as Parameters<typeof api.get>[1],
   );
   const results = Array.isArray(data?.results) ? data.results : [];
-  const accessToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
-  const userId = getUserIdFromToken(accessToken ?? '') ?? 'unknown';
+  const currentToken = await AsyncStorage.getItem(STORAGE_KEYS.accessToken).catch(() => null);
+  if (getUserIdFromToken(currentToken ?? '') !== userId) return results;
   for (const result of results) {
     const reportKey = `${userId}:${result.sessionId}`;
     if (reportedChallengeSettlementIds.has(reportKey)) continue;
