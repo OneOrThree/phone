@@ -7900,6 +7900,16 @@
           "totalFocusMinutes": {
             "type": "integer",
             "format": "int32"
+          },
+          "focusStartedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "focusTagName": {
+            "type": "string"
+          },
+          "isFocusing": {
+            "type": "boolean"
           }
         }
       },
