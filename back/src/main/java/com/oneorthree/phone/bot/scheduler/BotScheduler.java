@@ -38,8 +38,8 @@ public class BotScheduler {
         BotSimulator.BotTickResult result = botSimulator.tick(Instant.now());
         // 전이가 없는 tick 이 대부분이라 조용한 회차는 로그를 남기지 않는다.
         if (!result.isQuiet()) {
-            log.info("봇 집중 세션 tick — 시작 {}건, 종료 {}건, 실패 {}건",
-                    result.started(), result.ended(), result.failed());
+            log.info("봇 집중 세션 tick — 시작 {}건, 종료 {}건, 교체 {}건, 실패 {}건",
+                    result.started(), result.ended(), result.replaced(), result.failed());
         }
     }
 }

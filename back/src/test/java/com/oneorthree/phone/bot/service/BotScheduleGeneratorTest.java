@@ -29,8 +29,20 @@ class BotScheduleGeneratorTest {
     private static final LocalDate MONDAY = LocalDate.of(2026, 8, 10);
     private static final int WEEKS = 4;
 
-    /** 티어별 (주간 목표 분, 활동일) — 실제 시드가 쓰는 구간의 대표값. */
-    private static final int[][] TIER_TARGETS = {{540, 4}, {1260, 5}, {2100, 6}, {2880, 6}};
+    /**
+     * 티어별 (주간 목표 분, 활동일) — 실제 시드({@code V48__league_bots.sql})가 쓰는 <b>범위의 양 끝</b>.
+     * 대표값 하나만 보면 범위 끝의 봇이 강등선을 깨는 걸 놓친다.
+     *
+     * <p>T4 가 주 6일이 아니라 7일인 이유: 하루 8시간 집중은 휴식까지 16시간이 필요해 시작 흔들림과
+     * 겹치면 활동 창을 넘어 잘린다. 같은 총량을 7일로 나누면 하루 6~7시간이라 창에 들어오고,
+     * 전업 수험생이 주 7일 공부하는 쪽이 오히려 자연스럽다(코드리뷰 반영).
+     */
+    private static final int[][] TIER_TARGETS = {
+            {300, 4}, {780, 4},      // T1  5~13시간
+            {960, 5}, {1560, 5},     // T2 16~26시간
+            {1800, 6}, {2400, 6},    // T3 30~40시간
+            {2700, 7}, {3000, 7},    // T4 45~50시간
+    };
 
     private final BotScheduleGenerator generator = new BotScheduleGenerator();
 
@@ -164,19 +176,45 @@ class BotScheduleGeneratorTest {
     }
 
     @Test
-    @DisplayName("주간 집중 총량이 목표에서 크게 벗어나지 않는다")
-    void weeklyTotalStaysNearTarget() {
+    @DisplayName("어느 주를 잡아도 실제 집중 총량이 그 티어의 유지 구간 안에 든다")
+    void weeklyTotalStaysInsideTierKeepRange() {
+        // 주간 정산은 순위가 아니라 절대 시간으로 승강을 정한다(V13). 목표치가 구간 안이어도 실제
+        // 생성량이 강등선 아래로 떨어지면 티어가 한 방향으로 무너진다 — 특히 고티어 봇이 반복 미달하면
+        // 상위 티어가 몇 주 만에 비어버린다. 그래서 목표 근사치가 아니라 구간 자체를 검증한다.
         for (BotProfile profile : allProfiles()) {
             // 야간형은 창(20시~다음날 06시)이 좁아 고티어 목표를 채울 수 없다. 실제 시드가 야간형에
             // 고티어를 주지 않는 이유이며, 여기서는 검증 대상에서 뺀다.
-            if (profile.getChronotype() == BotChronotype.NIGHT && profile.getWeeklyMinutes() > 1260) {
+            if (profile.getChronotype() == BotChronotype.NIGHT && profile.getWeeklyMinutes() > 1560) {
                 continue;
             }
-            int total = everyDay(profile).stream().mapToInt(BotFocusBlock::lengthMinutes).sum() / WEEKS;
-            assertThat(total)
-                    .as("%s/%s 주 %d분 목표", profile.getChronotype(), profile.getStyle(), profile.getWeeklyMinutes())
-                    .isBetween((int) (profile.getWeeklyMinutes() * 0.55), (int) (profile.getWeeklyMinutes() * 1.15));
+            int[] range = keepRangeOf(profile.getWeeklyMinutes());
+            for (int week = 0; week < WEEKS; week++) {
+                int total = 0;
+                for (int day = 0; day < 7; day++) {
+                    total += blocksOf(profile, MONDAY.plusDays(week * 7L + day)).stream()
+                            .mapToInt(BotFocusBlock::lengthMinutes).sum();
+                }
+                assertThat(total)
+                        .as("%s/%s 목표 %d분 — %d주차 실제", profile.getChronotype(), profile.getStyle(),
+                                profile.getWeeklyMinutes(), week + 1)
+                        .isGreaterThanOrEqualTo(range[0])
+                        .isLessThan(range[1]);
+            }
         }
+    }
+
+    /**
+     * 목표치가 속한 티어의 유지 구간(분) — {@code V13__league_tier_thresholds.sql} 의 강등·승급 임계값.
+     * 강등선 이상 승급선 미만이면 그 주 정산에서 티어가 유지된다.
+     */
+    private static int[] keepRangeOf(int weeklyMinutes) {
+        int[][] ranges = {{0, 14 * 60}, {14 * 60, 28 * 60}, {28 * 60, 42 * 60}, {42 * 60, 56 * 60}};
+        for (int[] range : ranges) {
+            if (weeklyMinutes >= range[0] && weeklyMinutes < range[1]) {
+                return range;
+            }
+        }
+        throw new IllegalArgumentException("티어 구간 밖 목표: " + weeklyMinutes);
     }
 
     private LocalDate firstRestDay(BotProfile profile) {

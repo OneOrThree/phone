@@ -26,6 +26,9 @@ public enum BotChronotype {
      */
     NIGHT(20, 27, 30);
 
+    /** 집중 1분당 필요한 창(분) — 휴식까지 감안한 경험값. 흔들림 여유 산정도 이 값을 쓴다. */
+    public static final double WINDOW_PER_FOCUS_MINUTE = 2.6;
+
     private final int startHour;
     private final int baseEndHour;
     private final int hardEndHour;
@@ -47,8 +50,9 @@ public enum BotChronotype {
      * @param dailyMinutes 그날 채워야 할 순수 집중 분
      */
     public int windowEndMinute(double dailyMinutes) {
-        // 휴식까지 감안해 목표의 2.2 배를 창으로 잡는다 — 이보다 좁으면 목표를 채우지 못하고 잘린다.
-        double needed = startHour * 60 + dailyMinutes * 2.2;
+        // 휴식까지 감안해 목표의 2.6 배를 창으로 잡는다. 2.2 로는 긴 휴식(50~120분)이 몇 번 끼는 날
+        // 마지막 블록이 창 밖으로 밀려 잘리고, 그 손실이 쌓여 주간 총량이 강등선 아래로 떨어졌다.
+        double needed = startHour * 60 + dailyMinutes * WINDOW_PER_FOCUS_MINUTE;
         return (int) Math.min(hardEndHour * 60.0, Math.max(baseEndHour * 60.0, needed));
     }
 

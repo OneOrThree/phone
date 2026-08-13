@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -66,7 +67,7 @@ public class BotSimulator {
     public BotTickResult tick(Instant now) {
         List<BotProfile> profiles = botProfileRepository.findAll();
         if (profiles.isEmpty()) {
-            return new BotTickResult(0, 0, 0);
+            return new BotTickResult(0, 0, 0, 0);
         }
         List<UUID> botIds = profiles.stream().map(BotProfile::getUserId).toList();
         Map<UUID, List<UUID>> tagsByBot = focusTagIdsByBot(botIds);
@@ -82,20 +83,31 @@ public class BotSimulator {
 
         int started = 0;
         int ended = 0;
+        int replaced = 0;
         int failed = 0;
         for (BotProfile profile : profiles) {
             UUID botId = profile.getUserId();
-            Optional<BotFocusBlock> current =
+            Optional<ScheduledBlock> current =
                     currentBlock(profile, today, minuteOfDay, tagsByBot.getOrDefault(botId, List.of()));
             FocusSession live = liveByBot.get(botId);
             try {
-                if (current.isPresent() && live == null) {
+                if (current.isEmpty()) {
+                    if (live != null) {
+                        endLive(botId, live);
+                        ended++;
+                    }
+                } else if (live == null) {
                     if (start(botId, current.get())) {
                         started++;
                     }
-                } else if (current.isEmpty() && live != null) {
-                    focusService.endFocusSession(botId, new FocusSessionEndRequest(live.getId(), null, 0, null));
-                    ended++;
+                } else if (!current.get().startedWithin(live.getStartedAt())) {
+                    // 배포나 DB 장애로 휴식 구간의 tick 을 놓치고 다음 블록 안에서 복구된 경우다.
+                    // 그냥 두면 이전 블록 세션이 계속 열린 채 남아, 종료 시 휴식·장애 시간까지 집중으로
+                    // 적립되고 태그도 이전 과목으로 남는다(코드리뷰 반영).
+                    endLive(botId, live);
+                    if (start(botId, current.get())) {
+                        replaced++;
+                    }
                 }
             } catch (RuntimeException e) {
                 // 한 봇의 실패로 나머지를 멈추지 않는다. 다음 tick 이 같은 상태를 다시 맞춘다.
@@ -103,12 +115,27 @@ public class BotSimulator {
                 log.warn("봇 집중 세션 전이 실패 — botId={}", botId, e);
             }
         }
-        return new BotTickResult(started, ended, failed);
+        return new BotTickResult(started, ended, replaced, failed);
     }
 
-    private boolean start(UUID botId, BotFocusBlock block) {
-        FocusSessionStartResponse response =
-                focusService.startFocusSession(botId, new FocusSessionStartRequest(block.focusTagId(), null));
+    /**
+     * 라이브 세션을 닫는다.
+     *
+     * <p>종료 시각을 블록의 예정 경계로 지정하지 못하는 이유: {@code FocusService} 가 클라 시각을
+     * {@code [now-5분, now]} 로 클램프하므로 그보다 과거를 보내도 서버 수신 시각으로 치환된다.
+     * 정상 운영에서는 tick 주기(5분)만큼만 늦어져 오차가 거의 없고, 장애로 여러 tick 을 놓친
+     * 경우에만 놓친 시간이 집중분에 얹힌다 — 그 구간을 통째로 버리는 것(취소)보다는 낫다고 봤다.
+     */
+    private void endLive(UUID botId, FocusSession live) {
+        focusService.endFocusSession(botId, new FocusSessionEndRequest(live.getId(), null, 0, null));
+    }
+
+    private boolean start(UUID botId, ScheduledBlock scheduled) {
+        // 시작 시각으로 블록 경계를 넘긴다 — tick 이 5분 주기라 그냥 두면 매 세션이 최대 5분씩 짧아진다.
+        // FocusService 의 클램프 창이 [now-5분, now] 라 tick 주기와 같아 정상 흐름에서는 그대로 반영되고,
+        // 창을 벗어나면 서버 수신 시각으로 치환된다 — 그 경우에도 여전히 블록 안이라 판정이 어긋나지 않는다.
+        FocusSessionStartResponse response = focusService.startFocusSession(
+                botId, new FocusSessionStartRequest(scheduled.block().focusTagId(), scheduled.startInstant()));
         // sessionId 가 null 이면 마커가 만들어지지 않은 것이다(FocusService 의 순서 역전 방어).
         // 봇은 tick 당 한 번만 시작하므로 정상 흐름에선 나오지 않지만, 나오면 다음 tick 이 다시 시도한다.
         if (response.sessionId() == null) {
@@ -124,18 +151,39 @@ public class BotSimulator {
      * <p>오늘 날짜뿐 아니라 <b>어제 날짜의 블록도 본다</b> — 야간형 봇은 자정을 넘겨 최대 다음날 06시까지
      * 집중하므로, 새벽 tick 이 오늘 블록만 계산하면 이 봇들이 갑자기 사라진다.
      */
-    private Optional<BotFocusBlock> currentBlock(BotProfile profile, LocalDate today, int minuteOfDay,
-                                                 List<UUID> focusTagIds) {
-        Optional<BotFocusBlock> fromToday = scheduleGenerator.blocksOf(profile, today, focusTagIds).stream()
+    private Optional<ScheduledBlock> currentBlock(BotProfile profile, LocalDate today, int minuteOfDay,
+                                                  List<UUID> focusTagIds) {
+        Optional<ScheduledBlock> fromToday = scheduleGenerator.blocksOf(profile, today, focusTagIds).stream()
                 .filter(block -> block.contains(minuteOfDay))
-                .findFirst();
+                .findFirst()
+                .map(block -> new ScheduledBlock(block, today));
         if (fromToday.isPresent()) {
             return fromToday;
         }
         // 어제 기준 분으로 환산해 비교한다 — 어제 25:30 블록은 오늘 01:30 이다.
-        return scheduleGenerator.blocksOf(profile, today.minusDays(1), focusTagIds).stream()
+        LocalDate yesterday = today.minusDays(1);
+        return scheduleGenerator.blocksOf(profile, yesterday, focusTagIds).stream()
                 .filter(block -> block.contains(minuteOfDay + MINUTES_PER_DAY))
-                .findFirst();
+                .findFirst()
+                .map(block -> new ScheduledBlock(block, yesterday));
+    }
+
+    /**
+     * 블록과 그 블록이 속한 스케줄 기준일. 블록 시각이 기준일 00시로부터의 분이라, 실제 세션이
+     * 이 블록에서 시작됐는지 절대 시각으로 따지려면 기준일이 함께 있어야 한다.
+     */
+    private record ScheduledBlock(BotFocusBlock block, LocalDate scheduleDate) {
+
+        Instant startInstant() {
+            return scheduleDate.atStartOfDay(ZonePolicy.KST).plusMinutes(block.startMinute()).toInstant();
+        }
+
+        boolean startedWithin(Instant sessionStartedAt) {
+            long minutes = ChronoUnit.MINUTES.between(
+                    scheduleDate.atStartOfDay(), LocalDateTime.ofInstant(sessionStartedAt, ZonePolicy.KST));
+            return minutes >= Integer.MIN_VALUE && minutes <= Integer.MAX_VALUE
+                    && block.contains((int) minutes);
+        }
     }
 
     private Map<UUID, List<UUID>> focusTagIdsByBot(List<UUID> botIds) {
@@ -148,14 +196,15 @@ public class BotSimulator {
     /**
      * 한 tick 의 결과.
      *
-     * @param started 새로 연 세션 수
-     * @param ended   닫은 세션 수
-     * @param failed  전이에 실패한 봇 수
+     * @param started  새로 연 세션 수
+     * @param ended    닫은 세션 수
+     * @param replaced 이전 블록 세션을 닫고 현재 블록으로 새로 연 수 — 0 이 아니면 tick 을 놓쳤다는 신호다
+     * @param failed   전이에 실패한 봇 수
      */
-    public record BotTickResult(int started, int ended, int failed) {
+    public record BotTickResult(int started, int ended, int replaced, int failed) {
 
         public boolean isQuiet() {
-            return started == 0 && ended == 0 && failed == 0;
+            return started == 0 && ended == 0 && replaced == 0 && failed == 0;
         }
     }
 }
