@@ -71,12 +71,25 @@
 | 생성 | `group_challenge_deleted` | result·C | `DELETE .../challenges/{id}` 2xx 직후 (`groupApi.ts:265`) | `mission_type`, `mission_category` — 메타는 API 층 캐시에서 꺼내며, **캐시 미적중이면 이벤트 자체가 안 나간다** |
 | 내기 | `group_bet_created` | result·C | `createBet` 2xx 직후 (`BetSheet.tsx:330`) | `stake`, `mission_type`, `mission_category` |
 | 내기 | `group_bet_joined` | result·C | 단건 참가(`BetSheet.tsx:357`) · 다음 회차 예약(`JoinNextSheet.tsx:130`) · 주간 예약(`JoinWeekSheet.tsx:164`) 각 2xx 직후 | `stake`(**하루치**), `session_count?`, `mission_type`, `mission_category` |
-| 내기 | `group_bet_canceled` | result·C | 내기가 **통째로 닫힐 때만** — 개설자 취소(`ChallengeCard.tsx:923`) · 마지막 참가자 철회로 서버가 CANCELED 처리(`ChallengeCard.tsx:860`, `participantsCount === 1`) | `stake`, `participants_count` |
+| 내기 | `group_bet_canceled` | result·C | 내기가 **통째로 닫힐 때만** — 개설자 취소(`ChallengeCard.tsx:923`) · 마지막 참가자 철회(`ChallengeCard.tsx:860`, `participantsCount === 1`). **서버는 이때 회차 행 자체를 삭제한다** — 아래 각주 | `stake`, `participants_count` |
 | 결과 | **`group_challenge_result_shown`** | exposure·C | **결과 모달이 실제로 뜬 순간** 결과당 1회 (`GroupRoomScreen.tsx:672`) | `status`, `achieved?`, `achiever_count`, `member_count` (+ `mission_type?`·`mission_category?` — §2.1) |
 | 결과 | **`group_challenge_result_closed`** | action·C | 결과 모달을 닫은 순간 (`GroupRoomScreen.tsx:687`) | `dwell_ms` |
 | 결과 | `push_opened` | action·C | 백그라운드 배너 탭(`push.ts:226`)·종료 상태 콜드스타트(`push.ts:252`) | `type` ∈ `BET_RESULT \| CHALLENGE_WINDOW_END` |
 | 보고 | `screentime_window_reported` | result·C | 창 사용분 업로드 **API 성공 시에만** (`screentimeSync.ts:844`) | `minutes`, `is_final` |
-| 보고 | `screentime_window_unsupported` | result·C | 구 바이너리 가드로 업로드를 전체 스킵할 때 세션당 1회 (`screentimeSync.ts:693`) | 없음 |
+| 보고 | `screentime_window_unsupported` | result·C | 구 바이너리 가드로 업로드를 전체 스킵할 때 **JS 런타임당 1회** (`screentimeSync.ts:691-692`) — 아래 각주 | 없음 |
+
+> **각주 1 — `group_bet_canceled`에는 `CANCELED` 상태가 없다.**
+> `ChallengeCard.tsx:855-858` 주석이 "서버가 내기를 CANCELED로 닫는다"고 적었지만
+> **`GroupBetStatus`에 `CANCELED`는 존재하지 않는다**(`OPEN`·`SETTLED`·`REFUNDED`·`FORFEITED`·
+> `VOIDED`·`UNUSED` 6종). 실제로 `GroupBetService.leaveBet`은 마지막 참가자가 빠지면
+> `groupChallengeBetSessionRepository.delete(session)`으로 **회차 행을 지운다.**
+> 이벤트 이름은 유지하되(구 데이터 연속성) 의미는 "**회차가 사라졌다**"로 읽는다.
+> 코드 주석 정정은 후속이다 — §6 G7.
+>
+> **각주 2 — `screentime_window_unsupported`는 세션당 1회가 아니다.**
+> 가드 `windowUnsupportedLogged`(`screentimeSync.ts:674`)가 **모듈 전역 boolean**이고
+> 리셋 지점이 없다. 앱 프로세스가 여러 GA4 세션에 걸쳐 살아 있으면 그 사이 전부 1건으로 접힌다.
+> **미지원 세션 수의 하한**으로만 읽는다 — 세션 수로 나누면 체계적으로 과소 집계된다.
 
 > `challenge_create_started`(`analyticsEvents.ts:691`)는 **호출부가 0건**이다(앱 전체 grep).
 > 챌린지 만들기 시트 진입은 지금 아무 이벤트도 남기지 않으므로,
@@ -247,9 +260,11 @@ export function logGroupChallengeResultInterrupted(p: {
 - 게이트 키는 **`roomViewedRef`와 같은 형태**를 쓴다(`GroupRoomScreen.tsx:493-500` —
   `{ groupId, interactionId }`). 분모가 그 키로 1회 발행되므로 분자도 같은 키를 써야 짝이 맞는다.
   사유별로 별도 슬롯을 두어 **episode × 사유당 최대 1건**으로 막는다.
-- `blocking_overlay`는 특히 주의한다. **렌더마다 재평가되는 조건**이라 가드가 없으면
-  시트를 여닫은 횟수를 재게 된다. 큐 헤드 `sessionId`가 바뀌면 다시 셀 수 있게 하되,
-  같은 헤드에서 시트가 여러 번 여닫히는 것은 1건이다.
+- `blocking_overlay`도 **episode 단위다 — 큐 헤드 단위가 아니다.** 렌더마다 재평가되는
+  조건이라 가드가 없으면 시트를 여닫은 횟수를 재게 되는데, 그렇다고 큐 헤드 `sessionId`마다
+  다시 세면 **큐가 긴 사용자일수록 건수가 커져** 다른 두 사유와 같은 축에서 비교할 수 없다.
+  한 episode에서 여러 결과가 연속으로 가려져도 **1건**이다. 몇 건이 가려졌는지는
+  `candidate_count`(= 그 시점 `resultQueue.length`)가 말한다.
 
 **분모 — 이 절이 이 설계에서 가장 틀리기 쉬운 곳이다**
 
@@ -283,8 +298,12 @@ export function logGroupChallengeResultInterrupted(p: {
 - `session_id`·`challenge_id`·`group_id` 같은 raw 식별자 — 그룹 공통 계약이 신규 이벤트 payload에
   raw ID를 넣지 않기로 했다. 사유별 분포를 보는 데 필요하지 않다.
 - `_skipped`·`_blocked` 접미사 — 이 코드베이스에 없는 어휘라 만들지 않는다.
-- 별도의 `..._deferred` 이벤트 — ③을 다른 이벤트로 떼면 "노출되지 못한 전체"를 세려 할 때마다
-  두 이벤트를 합쳐야 한다. `reason` 하나로 가르는 편이 오독을 덜 부른다.
+- 별도의 `..._deferred` 이벤트 — 발화 지점·가드·집계 단위가 나머지 둘과 같아 한 이벤트로 두는
+  편이 구현과 대시보드 양쪽에서 단순하다.
+  **단, "노출되지 못한 전체"라는 집계는 만들지 않는다.** `blocking_overlay`는 나중에 정상
+  노출되는 **지연**이라 유실 두 사유와 더하면 실제보다 나쁘게 보인다(§5.3 표). 한 이벤트로
+  둔 대가로 **대시보드가 `reason`을 반드시 쪼개야 한다** — `reason` 없는 총계는 이 이벤트의
+  유효한 사용법이 아니다.
 
 ---
 
@@ -292,7 +311,8 @@ export function logGroupChallengeResultInterrupted(p: {
 
 | # | 지표 | 왜 못 재나 | 어디에 걸려 있나 |
 | --- | --- | --- | --- |
-| G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx:855-860` 주석이 명시) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
+| G1 | **참여 취소율** (`취소 / 참여`) | 마지막 참가자가 아닌 **일반 철회는 대응 이벤트가 없다.** `group_bet_canceled`는 내기가 **통째로 닫힐 때만** 나간다(`ChallengeCard.tsx:855-860`) | `policy.md` §12·`prd.md` §5가 "전용 GA4 이벤트 신설"로 남겨 둔 갭 |
+| G7 | — (측정 갭이 아니라 **코드 주석 오류**) | `ChallengeCard.tsx:855-858`이 "서버가 내기를 CANCELED로 닫는다"고 쓰는데 `GroupBetStatus`에 `CANCELED`가 없고 `leaveBet`은 회차 행을 **삭제**한다(§2 각주 1) | 주석 정정 후속. `analyticsEvents.ts` 죽은 정본 주소 정정(§7-9)과 같은 PR로 묶으면 된다 |
 | G2 | `prd.md` §5가 측정 소스로 적은 **`group_bet_left`가 코드에 없다** | 앱 전체 grep 0건. 문서만 있고 helper도 호출부도 없다 | 이름을 `group_bet_left`로 확정할지 포함해 G1과 함께 결정해야 한다. **이 문서가 임의로 정하지 않는다** |
 | G3 | 미션 조합별 **결과 노출** 분포 | `group_challenge_result_shown`의 `mission_*`에 값이 안 실린다(§2.1) | GROMO-1583(앱 DTO 확장) |
 | G4 | **생성 시트 진입 → 생성 성공** 전환 | `challenge_create_started` 호출부 0건 | 미배선 |
