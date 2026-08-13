@@ -221,7 +221,7 @@ export default function GroupFindSheet({
     // 확인 Alert를 거쳐 들어오므로 사용자는 무언가 눌렀다고 믿는다 — 조용히 삼키지 않고 알린다.
     const token = acquireJoinLock();
     if (!token) {
-      setJoinError('참여를 처리하는 중이에요. 잠시 후 다시 시도해주세요.');
+      setJoinError('참여를 처리하는 중이에요. 잠시 후 다시 시도해 주세요.');
       return;
     }
     // 참여 요청도 **검색 세대를 캡처한다**. 응답을 기다리는 동안 사용자가 검색어를 바꿀 수 있는데,
@@ -282,7 +282,7 @@ export default function GroupFindSheet({
           setResults((prev) => prev.filter((r) => r.groupId !== group.groupId));
           break;
         default:
-          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
+          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       releaseJoinLock(token);

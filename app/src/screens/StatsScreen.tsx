@@ -168,28 +168,28 @@ export default function StatsScreen() {
   }
   const guideSteps: GuideStep[] = [
     {
-      text: '여기는 통계야!\n내 공부 기록을 그래프로 한눈에 볼 수 있어.',
+      text: '여기는 통계예요!\n내 집중 기록을 그래프로 한눈에 볼 수 있어요.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '일·주·월 탭으로 기간을 바꿔서 봐.\n일은 오늘 하루를 자세히, 월은 한 달 흐름을 보여줘!',
+      text: '일·주·월 탭으로 기간을 바꿔서 볼 수 있어요.\n일은 오늘 하루를 자세히, 월은 한 달 흐름을 보여 줘요!',
       character: require('@/assets/character_study.png'),
       anchor: filtersRef,
     },
     {
-      text: '기간 동안의 총 집중시간과 다른 사람들과의 비교를 보여줘.',
+      text: '기간 동안의 총 집중 시간과 다른 사람들과의 비교를 보여 줘요.',
       character: require('@/assets/character_study.png'),
       anchor: totalCardRef,
       prepare: () => scrollCardIntoView(totalCardRef),
     },
     {
-      text: '집중·사용시간 목표를 지켰는지 확인하는 곳이야.',
+      text: '집중·사용 시간 목표를 지켰는지 확인하는 곳이에요.',
       character: require('@/assets/character_happy.png'),
       anchor: goalCardRef,
       prepare: () => scrollCardIntoView(goalCardRef),
     },
     {
-      text: '과목별로 얼마나 집중했는지도 여기서 확인할 수 있어.\n아래로 내리면 더 많은 그래프가 기다리고 있어!',
+      text: '과목별로 얼마나 집중했는지도 여기서 확인할 수 있어요.\n아래로 내리면 더 많은 그래프가 기다리고 있어요!',
       character: require('@/assets/character_happy.png'),
       anchor: categoryCardRef,
       prepare: () => scrollCardIntoView(categoryCardRef),

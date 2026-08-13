@@ -215,7 +215,7 @@ test('제출 직전 KST 기준일이 바뀌었으면 요청을 보내지 않고 
   expect(mockJoinNext).not.toHaveBeenCalled();
   expect(alertSpy).toHaveBeenCalledWith(
     '날짜가 바뀌었어요',
-    '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어주세요.',
+    '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어 주세요.',
   );
   expect(onDone).toHaveBeenCalled();
 });
@@ -266,7 +266,7 @@ test('유저 부재(USER_NOT_FOUND) — 사라진 챌린지로 위장하지 않�
 
   expect(alertSpy).toHaveBeenCalledWith(
     '로그인이 필요해요',
-    '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+    '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
     [expect.objectContaining({ text: '확인' })],
     { cancelable: false },
   );

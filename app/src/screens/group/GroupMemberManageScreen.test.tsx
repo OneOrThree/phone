@@ -144,7 +144,7 @@ describe('유저 부재(USER_NOT_FOUND)', () => {
     expect(screen.getByTestId('group.member.kick.alice')).toBeOnTheScreen();
     expect(alertSpy).toHaveBeenLastCalledWith(
       '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );

@@ -46,7 +46,7 @@ function saveErrorMessage(e: unknown, isEdit: boolean): string {
     case 'MEMBER_ONLY':
       return '그룹원만 이용할 수 있어요.';
     default:
-      return `공지 ${isEdit ? '수정' : '등록'}에 실패했어요. 잠시 후 다시 시도해주세요.`;
+      return `공지 ${isEdit ? '수정' : '등록'}에 실패했어요. 잠시 후 다시 시도해 주세요.`;
   }
 }
 
@@ -143,7 +143,7 @@ export default function NoticeComposeSheet({
           style={[s.input, s.contentInput]}
           value={content}
           onChangeText={setContent}
-          placeholder="공지 내용을 적어주세요"
+          placeholder="공지 내용을 적어 주세요"
           placeholderTextColor={T.inkMuted}
           multiline
           textAlignVertical="top"

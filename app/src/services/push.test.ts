@@ -97,7 +97,7 @@ function message(data: Record<string, unknown>) {
   return {
     messageId: 'm1',
     sentTime: 1785000000000,
-    notification: { title: '챌린지가 끝났어요', body: '결과를 확인해보세요' },
+    notification: { title: '챌린지가 끝났어요', body: '결과를 확인해 보세요' },
     data,
   };
 }

@@ -48,17 +48,17 @@ export default function TierGuideScreen() {
   const noticeRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '지금 내 티어야!\n이번 주 집중 시간과 다음 단계까지 남은 시간을 보여줘.',
+      text: '지금 내 티어예요!\n이번 주 집중 시간과 다음 단계까지 남은 시간을 보여 줘요.',
       character: require('@/assets/character_hi.png'),
       anchor: heroRef,
     },
     {
-      text: '티어는 주간 집중 시간에 따라 5단계로 나뉘어.\n오래 집중할수록 높은 단계로 올라가!',
+      text: '티어는 주간 집중 시간에 따라 5단계로 나뉘어요.\n오래 집중할수록 높은 단계로 올라가요!',
       character: require('@/assets/character_study.png'),
       anchor: listRef,
     },
     {
-      text: '매주 월요일 9시에 정산돼 — 기준을 채우면 승급, 미달이면 강등이야.\n꾸준함이 제일 중요해!',
+      text: '매주 월요일 9시에 정산돼요. 기준을 채우면 승급하고, 미달이면 강등돼요.\n꾸준함이 제일 중요해요!',
       character: require('@/assets/character_happy.png'),
       anchor: noticeRef,
     },

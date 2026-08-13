@@ -236,7 +236,7 @@ async function googleLoginAttempt(lease: AuthSessionTransitionLease): Promise<Lo
   }
   const idToken = response.data.idToken;
   if (!idToken) {
-    throw new Error('Google idToken을 가져오지 못했습니다.');
+    throw new Error('Google idToken을 가져오지 못했어요.');
   }
   const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;
@@ -319,7 +319,7 @@ async function facebookLoginAttempt(lease: AuthSessionTransitionLease): Promise<
     token = accessToken?.accessToken;
   }
   if (!token) {
-    throw new Error('Facebook 토큰을 가져오지 못했습니다.');
+    throw new Error('Facebook 토큰을 가져오지 못했어요.');
   }
   const headers = await guestUpgradeHeaders(lease);
   let data: AuthResponse;

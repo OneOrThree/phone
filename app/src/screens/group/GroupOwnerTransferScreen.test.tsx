@@ -231,7 +231,7 @@ describe('위임 확정 + source별 후속', () => {
     await mountAndSelect('u2');
 
     expect(
-      screen.getByText('수빈님에게 방장을 넘길까요?\n넘긴 뒤 그룹에서 나갑니다.'),
+      screen.getByText('수빈님에게 방장을 넘길까요?\n넘긴 뒤 그룹에서 나가요.'),
     ).toBeOnTheScreen();
     // 취소하면 위임은 나가지 않는다.
     await act(async () => {
@@ -305,7 +305,7 @@ describe('위임 실패 통보', () => {
     expect(mockToastShow).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
       '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );
@@ -327,7 +327,7 @@ describe('위임 실패 통보', () => {
     expect(screen.getByText('멤버를 불러오지 못했어요')).toBeOnTheScreen();
     expect(alertSpy).toHaveBeenCalledWith(
       '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );
@@ -353,7 +353,7 @@ describe('위임 실패 통보', () => {
 
     expect(alertSpy).toHaveBeenLastCalledWith(
       '방장을 넘기지 못했어요',
-      '잠시 후 다시 시도해주세요.',
+      '잠시 후 다시 시도해 주세요.',
     );
     expect(mockToastShow).not.toHaveBeenCalled();
   });

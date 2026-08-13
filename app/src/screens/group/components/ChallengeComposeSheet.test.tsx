@@ -795,7 +795,7 @@ describe('실패', () => {
       await press('만들기');
 
       expect(
-        screen.getByText('이미 같은 종류의 챌린지가 있어요. 기존 챌린지를 삭제하고 만들어주세요.'),
+        screen.getByText('이미 같은 종류의 챌린지가 있어요. 기존 챌린지를 삭제하고 만들어 주세요.'),
       ).toBeOnTheScreen();
       expect(onCreated).not.toHaveBeenCalled();
 

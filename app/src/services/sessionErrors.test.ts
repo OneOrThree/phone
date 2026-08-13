@@ -45,7 +45,7 @@ test('안내 문구·형태는 GROMO-1241 정본 그대로다(취소 없는 단�
 
   expect(alertSpy).toHaveBeenCalledWith(
     '로그인이 필요해요',
-    '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+    '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
     [expect.objectContaining({ text: '확인' })],
     { cancelable: false },
   );

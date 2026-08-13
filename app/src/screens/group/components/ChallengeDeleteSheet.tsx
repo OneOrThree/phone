@@ -59,8 +59,8 @@ export default function ChallengeDeleteSheet({
       {/* 무엇이 사라지고 돈이 어디로 가는지 — 시안(ux §07) 문장 그대로. */}
       <View style={s.warnBox}>
         <Text style={s.warnText}>
-          {dayLabels.join('·')}가 무효가 되고 적립금 {preview.totalRefund}코인이 전원에게
-          돌아갑니다. 이 날들은 판정하지 않아요 — 이미 결과가 나온 날은 그대로예요.
+          {dayLabels.join('·')}가 무효가 되고 적립금 {preview.totalRefund}코인이 전원에게 돌아가요.
+          이 날들은 판정하지 않아요 — 이미 결과가 나온 날은 그대로예요.
         </Text>
       </View>
       <View style={s.note}>

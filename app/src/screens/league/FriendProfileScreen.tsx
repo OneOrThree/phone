@@ -193,7 +193,7 @@ export default function FriendProfileScreen() {
       logFriendPinToggled({ pinned: next }); // 서버 반영 성공 시에만 — 롤백되는 낙관 상태는 미집계
     } catch {
       setIsPinned(!next);
-      Alert.alert('핀 변경 실패', '잠시 후 다시 시도해주세요.');
+      Alert.alert('핀 변경 실패', '잠시 후 다시 시도해 주세요.');
     } finally {
       pinBusy.current = false;
     }
@@ -209,7 +209,7 @@ export default function FriendProfileScreen() {
       if (axios.isAxiosError(e) && e.response?.status === 409) {
         setRequested(true);
       } else {
-        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
@@ -230,7 +230,7 @@ export default function FriendProfileScreen() {
             if (axios.isAxiosError(e) && e.response?.status === 404) {
               setIsFriend(false);
             } else {
-              Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해주세요.');
+              Alert.alert('친구 끊기 실패', '잠시 후 다시 시도해 주세요.');
             }
           }
         },
@@ -520,7 +520,7 @@ export default function FriendProfileScreen() {
               <View style={[s.chartGap, s.noOverlapNote]}>
                 <Ionicons name="people-outline" size={15} color={T.accent} />
                 <Text style={s.noOverlapText}>
-                  통계를 지금 불러오지 못했어요. 잠시 후 다시 들어와주세요.
+                  통계를 지금 불러오지 못했어요. 잠시 후 다시 들어와 주세요.
                 </Text>
               </View>
             ) : (

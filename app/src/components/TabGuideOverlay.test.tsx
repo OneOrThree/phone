@@ -1,10 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions, View } from 'react-native';
-import { TabGuideOverlay, type GuideStep } from './TabGuideOverlay';
+import { resolveGuidePanelTop, TabGuideOverlay, type GuideStep } from './TabGuideOverlay';
 import { logTabGuideCompleted } from '@/services/analyticsEvents';
 
 jest.mock('@/services/analyticsEvents', () => ({ logTabGuideCompleted: jest.fn() }));
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 59, right: 0, bottom: 34, left: 0 }),
+}));
 
 const character = require('@/assets/character_hi.png');
 
@@ -99,6 +103,47 @@ test('접근성 제목을 단계 안내 앞에 포함한다', async () => {
   expect(
     screen.getByLabelText('그룹 카드 안내, 단계 1/1. 카드를 확인해요. 시작'),
   ).toBeOnTheScreen();
+});
+
+test('scale 1은 스포트라이트를 대상 사각형과 같은 크기로 그린다', async () => {
+  const anchor = {
+    current: {
+      measureInWindow: (callback: (x: number, y: number, w: number, h: number) => void) =>
+        callback(24, 80, 342, 520),
+    } as unknown as View,
+  };
+  await render(
+    <TabGuideOverlay
+      storageKey="gromo:guide:exact-card"
+      steps={[{ text: '카드 안내', character, anchor, scale: 1, radius: 28 }]}
+      visible
+    />,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId('guide.overlay.cutout')).toHaveStyle({
+      top: 80 - Math.max(Dimensions.get('window').width, Dimensions.get('window').height),
+      left: 24 - Math.max(Dimensions.get('window').width, Dimensions.get('window').height),
+      width: 342 + Math.max(Dimensions.get('window').width, Dimensions.get('window').height) * 2,
+      height: 520 + Math.max(Dimensions.get('window').width, Dimensions.get('window').height) * 2,
+    });
+  });
+});
+
+test('큰 카드 아래 공간이 부족하면 패널을 올려 캐릭터까지 하단 안전영역 안에 둔다', () => {
+  const winH = 896;
+  const bottomInset = 34;
+  const panelHeight = 208;
+  const top = resolveGuidePanelTop({
+    winH,
+    hole: { x: 28, y: 162, w: 358, h: 518 },
+    panelHeight,
+    topInset: 59,
+    bottomInset,
+  });
+
+  expect(top + panelHeight).toBeLessThanOrEqual(winH - bottomInset - 12);
+  expect(top).toBeLessThan(162 + 518 + 18);
 });
 
 test('화면 크기가 바뀌면 이전 spotlight를 숨기고 새 anchor를 다시 측정한다', async () => {

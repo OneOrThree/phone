@@ -309,25 +309,25 @@ export default function LeagueScreen() {
   const myStripH = useRef(MY_STRIP_SPACE);
   const guideSteps: GuideStep[] = [
     {
-      text: '리그에 온 걸 환영해!\n같은 시험을 준비하는 사람들과 일주일 동안 공부 시간으로 경쟁하는 곳이야.',
+      text: '리그에 온 걸 환영해요!\n같은 시험을 준비하는 사람들과 일주일 동안 집중 시간으로 경쟁하는 곳이에요.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여.\n제목을 누르면 전체 리그도 볼 수 있어.',
+      text: '지금 참여 중인 리그와 마감까지 남은 시간이 여기 보여요.\n제목을 누르면 전체 리그도 볼 수 있어요.',
       character: require('@/assets/character_study.png'),
       anchor: headerRef,
     },
     {
-      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어.',
+      text: '한 주가 끝나면 순위에 따라 티어가 올라가거나 내려가요!\n랭킹 아래 ‘내 티어’를 누르면 티어 단계를 자세히 볼 수 있어요.',
       character: require('@/assets/character_happy.png'),
     },
     {
-      text: '친구 탭에서는 친구를 추가하고 서로의 공부시간을 볼 수 있어.\n같이 공부할 친구를 초대해봐!',
+      text: '친구 탭에서는 친구를 추가하고 서로의 집중 시간을 볼 수 있어요.\n같이 공부할 친구를 초대해 봐요!',
       character: require('@/assets/character_happy.png'),
       anchor: segmentRef,
     },
     {
-      text: '순위는 이번 주 집중 시간으로 정해져.\n지금 바로 집중을 시작해서 순위를 올려보자!',
+      text: '순위는 이번 주 집중 시간으로 정해져요.\n지금 바로 집중을 시작해서 순위를 올려 봐요!',
       character: require('@/assets/character_study.png'),
     },
   ];
@@ -777,7 +777,7 @@ export default function LeagueScreen() {
               </View>
               {/* 빈 상태는 성공 응답(빈 배열)일 때만 — 첫 로드 전엔 미표시 */}
               {friendsLoaded && friends.length === 0 && (
-                <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해보세요!</Text>
+                <Text style={s.emptyLeague}>아직 친구가 없어요. 검색해서 추가해 보세요!</Text>
               )}
             </>
           )}
