@@ -1653,8 +1653,8 @@ ON CONFLICT (user_id) DO NOTHING;
 -- 완료 세션을 직접 읽어 비어, 같은 기간의 총합과 과목별 합이 어긋난다 (코드리뷰 반영).
 -- 그래서 **세션을 먼저 넣고 집계를 거기서 파생**시켜 두 경로가 같은 원천을 보게 한다.
 --
--- 오늘 몫은 시뮬레이터가 오늘 쌓는 분과 겹쳐 최대 8/7 이 되는데, 티어별 목표 상한을 그 배수로도
--- 승급선을 넘지 않게 잡아 뒀다. 월요일에 배포되면 오늘(월) 하루만 들어간다.
+-- 오늘 몫은 배포 시각까지 이미 끝난 세션만 넣으므로 시뮬레이터가 그 뒤로 쌓는 분과 겹치지 않는다.
+-- 월요일에 배포되면 오늘(월) 그때까지의 분량만 들어간다.
 INSERT INTO focus_sessions (id, user_id, focus_tag_id, status, focus_type,
                             started_at, ended_at, stat_end_at, total_distraction_seconds, created_at)
 SELECT md5('gromo-bot-sess-' || s.nickname || '-' || s.day || '-' || s.n)::uuid,
@@ -1720,7 +1720,12 @@ FROM (
     -- rest_day_mask 비트 0 = 월요일, ISODOW 는 1 = 월요일
     WHERE (p.rest_day_mask & (1 << (EXTRACT(ISODOW FROM d.day)::int - 1))) = 0
 ) s
+-- **이미 끝난 세션만** 넣는다. 오늘 날짜 전체를 넣으면 오전에 배포했을 때 오후·야간 봇의
+-- 아직 시작하지도 않은 세션이 COMPLETED 로 들어가, 집계는 하루치를 다 세는데 과목별 통계는
+-- now 상한으로 잘라 읽어 어긋나고 리그 순위에도 미래 집중량이 선반영된다 (코드리뷰 반영).
+-- 덕분에 오늘 몫은 '시드(지금까지) + 시뮬레이터(지금부터)' 로 정확히 하루치가 된다.
 WHERE s.focus_tag_id IS NOT NULL
+  AND s.started_at + make_interval(mins => s.block_minutes) <= now()
 ON CONFLICT (id) DO NOTHING;
 
 -- 집계는 방금 넣은 세션에서 그대로 파생시킨다 — 두 통계 경로가 어긋날 여지를 없앤다.
