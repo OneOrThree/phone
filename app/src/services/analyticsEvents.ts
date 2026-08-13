@@ -442,11 +442,12 @@ export function logGroupViewed(p: {
 
 export type GroupDeckGuideState = 'shown' | 'pending' | 'completed' | 'unknown';
 
-// 그룹 덱이 성공한 전체 목록과 안정된 anchor를 확보하고, 완료 key read와 overlay queue 판정까지
-// 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹 식별 정보는 싣지 않는다.
+// 실제 그룹 덱 또는 그룹 0개 사용자의 로컬 안내용 카드가 안정된 anchor를 확보하고, 완료 key
+// read와 overlay queue 판정까지 끝낸 뒤 view episode당 한 번만 발행한다. 원시 그룹 수나 그룹
+// 식별 정보는 싣지 않으며, 안내용 카드 노출은 실제 소속 수에 맞춰 0 bucket으로 구분한다.
 export function logGroupCardDeckViewed(p: {
   group_entry: GroupEntry;
-  group_count_bucket: Exclude<GroupCountBucket, '0'>;
+  group_count_bucket: GroupCountBucket;
   guide_state: GroupDeckGuideState;
 }): void {
   track('group_card_deck_viewed', p);

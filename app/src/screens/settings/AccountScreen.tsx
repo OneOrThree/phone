@@ -283,7 +283,7 @@ export default function AccountScreen() {
     case 'hostBlocked': {
       const { count, target } = shownModal;
       card = {
-        title: '먼저 방장을 넘겨주세요',
+        title: '먼저 방장을 넘겨 주세요',
         body: `방장으로 있는 그룹이 ${count}개 있어요.\n"${target.name}"의 방장을 넘기고 다시 탈퇴해 주세요.`,
         primaryLabel: '방장 넘기러 가기',
         onPrimary: () => {

@@ -154,7 +154,7 @@ describe('프리뷰 조회 분기', () => {
     mockJoinGroup.mockResolvedValue(undefined);
     await renderSheet();
 
-    expect(screen.queryByText('이미 참여 중인 그룹이 있어요. 나가고 참여해주세요.')).toBeNull();
+    expect(screen.queryByText('이미 참여 중인 그룹이 있어요. 나가고 참여해 주세요.')).toBeNull();
     await press('참여하기');
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
@@ -183,7 +183,7 @@ describe('프리뷰 조회 분기', () => {
 
     await waitFor(() => expect(onJoined).toHaveBeenCalled());
     expect(
-      screen.queryByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해주세요.'),
+      screen.queryByText('소속 그룹을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.'),
     ).toBeNull();
   });
 
@@ -623,7 +623,7 @@ describe('참여 분기', () => {
     await press('참여하기');
 
     expect(
-      await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.'),
+      await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해 주세요.'),
     ).toBeOnTheScreen();
   });
 });

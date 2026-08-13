@@ -629,7 +629,7 @@ describe('에러 분기', () => {
 
     expect(alertSpy).toHaveBeenCalledWith(
       '오늘 내기만 열 수 있어요',
-      '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.',
+      '날짜가 바뀌었어요. 새로고침 후 다시 시도해 주세요.',
     );
     expect(onDone).toHaveBeenCalled();
   });
@@ -647,7 +647,7 @@ describe('에러 분기', () => {
       '종료된 챌린지에는 내기를 열 수 없어요.',
     );
     expect(onDone).toHaveBeenCalled();
-    expect(screen.queryByText('내기를 열지 못했어요. 잠시 후 다시 시도해주세요.')).toBeNull();
+    expect(screen.queryByText('내기를 열지 못했어요. 잠시 후 다시 시도해 주세요.')).toBeNull();
   });
 
   // 참가 분기는 **선제 방어**다 — 현재 서버는 이 코드를 개설(createBet)에서만 던지고 joinBet은
@@ -721,7 +721,7 @@ describe('에러 분기', () => {
     await renderSheet('join', { bet: bet() });
     await submit();
 
-    expect(screen.getByText('참가하지 못했어요. 잠시 후 다시 시도해주세요.')).toBeOnTheScreen();
+    expect(screen.getByText('참가하지 못했어요. 잠시 후 다시 시도해 주세요.')).toBeOnTheScreen();
     expect(onDone).not.toHaveBeenCalled();
   });
 });
@@ -1172,7 +1172,7 @@ describe('마감 후 내일 내기', () => {
     expect(mockCreateBet).toHaveBeenCalledTimes(1);
     expect(alertSpy).toHaveBeenCalledWith(
       '오늘 내기만 열 수 있어요',
-      '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.',
+      '날짜가 바뀌었어요. 새로고침 후 다시 시도해 주세요.',
     );
   });
 });

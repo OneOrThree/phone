@@ -615,7 +615,7 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
     await confirmJoinAlert();
 
     expect(
-      await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.'),
+      await screen.findByText('참여하지 못했어요. 잠시 후 다시 시도해 주세요.'),
     ).toBeOnTheScreen();
   });
 
@@ -729,7 +729,7 @@ describe('참여 실패는 Alert가 아니라 인라인으로 띄운다', () => 
         expect.objectContaining({ cancelable: false }),
       ),
     );
-    expect(screen.queryByText('참여하지 못했어요. 잠시 후 다시 시도해주세요.')).toBeNull();
+    expect(screen.queryByText('참여하지 못했어요. 잠시 후 다시 시도해 주세요.')).toBeNull();
     // 확인을 눌러야 세션이 정리된다 — 안내를 읽기 전에 화면이 사라지지 않는다.
     expect(triggerLogout).not.toHaveBeenCalled();
     const args = (Alert.alert as jest.Mock).mock.calls.at(-1);

@@ -125,7 +125,7 @@ async function openCompose() {
 async function fillCompose(title: string, content: string) {
   await act(async () => {
     fireEvent.changeText(screen.getByPlaceholderText('공지 제목'), title);
-    fireEvent.changeText(screen.getByPlaceholderText('공지 내용을 적어주세요'), content);
+    fireEvent.changeText(screen.getByPlaceholderText('공지 내용을 적어 주세요'), content);
   });
 }
 
@@ -168,7 +168,7 @@ describe('수정 대상이 사라진 경우', () => {
     await press('수정하기');
 
     expect(
-      await screen.findByText('공지 수정에 실패했어요. 잠시 후 다시 시도해주세요.'),
+      await screen.findByText('공지 수정에 실패했어요. 잠시 후 다시 시도해 주세요.'),
     ).toBeOnTheScreen();
     expect(screen.getByText('공지 수정')).toBeOnTheScreen(); // 시트 유지
     expect(mockGetAnnouncements).toHaveBeenCalledTimes(1);
@@ -215,7 +215,7 @@ describe('빈 목록 + 재조회 실패', () => {
     await fillCompose('공지 제목', '공지 본문');
     await press('등록하기');
 
-    // 서버에는 이미 공지가 있다 — '없어요 / 첫 공지를 남겨보세요'를 그대로 두면 같은 공지를 또 쓴다.
+    // 서버에는 이미 공지가 있다 — '없어요 / 첫 공지를 남겨 보세요'를 그대로 두면 같은 공지를 또 쓴다.
     await waitFor(() => expect(screen.queryByText('등록된 공지가 없어요')).toBeNull());
     expect(screen.getByText('공지를 불러오지 못했어요.')).toBeOnTheScreen();
     expect(screen.getByText('다시 시도')).toBeOnTheScreen();
@@ -243,10 +243,10 @@ describe('등록 직후 재조회 중', () => {
     await fillCompose('공지 제목', '공지 본문');
     await press('등록하기');
 
-    // 재조회가 도는 동안 — '없어요 / 첫 공지를 남겨보세요'가 다시 뜨면 안 된다.
+    // 재조회가 도는 동안 — '없어요 / 첫 공지를 남겨 보세요'가 다시 뜨면 안 된다.
     await waitFor(() => expect(mockGetAnnouncements).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('등록된 공지가 없어요')).toBeNull();
-    expect(screen.queryByText('+ 버튼으로 첫 공지를 남겨보세요')).toBeNull();
+    expect(screen.queryByText('+ 버튼으로 첫 공지를 남겨 보세요')).toBeNull();
 
     await act(async () => {
       resolveRefetch([notice()]);

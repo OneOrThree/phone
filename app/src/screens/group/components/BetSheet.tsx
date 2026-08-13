@@ -448,7 +448,7 @@ export default function BetSheet({
           isCreate
             ? isWindowChallenge
               ? '오늘 시간대가 끝나 내기를 열 수 없어요. 내일 다시 열 수 있어요.'
-              : '날짜가 바뀌었어요. 새로고침 후 다시 시도해주세요.'
+              : '날짜가 바뀌었어요. 새로고침 후 다시 시도해 주세요.'
             : '이미 마감돼 참가할 수 없어요.',
         );
         return;
@@ -530,8 +530,8 @@ export default function BetSheet({
       default:
         setErrorMsg(
           isCreate
-            ? '내기를 열지 못했어요. 잠시 후 다시 시도해주세요.'
-            : '참가하지 못했어요. 잠시 후 다시 시도해주세요.',
+            ? '내기를 열지 못했어요. 잠시 후 다시 시도해 주세요.'
+            : '참가하지 못했어요. 잠시 후 다시 시도해 주세요.',
         );
     }
     setSubmitting(false);

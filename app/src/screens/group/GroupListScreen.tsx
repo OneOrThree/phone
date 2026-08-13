@@ -57,6 +57,7 @@ import {
 import { M, enterUp } from '@/constants/motion';
 import { useMotion } from '@/hooks/useMotion';
 import { hapticMedium } from '@/utils/haptics';
+import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
 import { FindMoreCard } from './components/FindMoreCard';
 import { PageIndicator } from './components/PageIndicator';
@@ -76,6 +77,7 @@ import {
   resolveGroupDeckGuideDecision,
   type GroupDeckGuideReadState,
 } from './groupDeckGuide';
+import type { GroupCardSummarySnapshot } from './groupCardSummary';
 
 // 그룹 목록 — 명세 docs/app/group-plan-2.md §3-1.
 //
@@ -177,10 +179,14 @@ const GUIDE_CHARACTER = {
 } as const;
 
 function groupCountBucket(count: number): Exclude<GroupCountBucket, '0'> {
-  if (count === 1) return '1';
+  if (count <= 1) return '1';
   if (count <= 5) return '2_5';
   if (count <= 10) return '6_10';
   return '11_plus';
+}
+
+function guideGroupCountBucket(count: number): GroupCountBucket {
+  return count === 0 ? '0' : groupCountBucket(count);
 }
 
 /**
@@ -325,6 +331,12 @@ export interface GroupListScreenProps {
   guideDataFailed?: boolean;
   // 사용자 첫 back과 guide 3→4가 공유하는 lazy ensure 경로다.
   onEnsureBack?: (groupId: string) => void;
+  /** 그룹 0개 안내용 카드처럼 실제 목록 수와 렌더 카드 수가 다를 때만 지정한다. */
+  actualGroupCount?: number;
+  /** 서버 요청 없이 안내 카드 뒷면을 설명하기 위한 정적 snapshot. */
+  guideSnapshot?: GroupCardSummarySnapshot<LeagueMemberResponse[]>;
+  /** 외부가 안내용 카드 수명을 소유할 때 완료 직후 원래 화면으로 복귀한다. */
+  onGuideFinish?: () => void;
   /** 최초 목록 로딩에서 이미 측정한 덱 높이를 넘겨 loading→ready 규격을 한 프레임도 끊지 않는다. */
   initialDeckViewportHeight?: number;
 }
@@ -349,6 +361,9 @@ export default function GroupListScreen({
   guideDataReady = true,
   guideDataFailed = false,
   onEnsureBack,
+  actualGroupCount,
+  guideSnapshot,
+  onGuideFinish,
   initialDeckViewportHeight,
 }: GroupListScreenProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -529,6 +544,7 @@ export default function GroupListScreen({
     if (dragged) next.splice(reorderPreview.target, 0, dragged);
     return next;
   }, [orderedGroups, reorderPreview]);
+  const reportedGroupCount = actualGroupCount ?? orderedGroups.length;
 
   const guideEligible =
     typeof userId === 'string' &&
@@ -652,7 +668,7 @@ export default function GroupListScreen({
         return;
       const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
       AccessibilityInfo.announceForAccessibility(
-        `${groupName ?? '그룹'} 카드 ${face === 'back' ? '뒷면' : '앞면'}입니다`,
+        `${groupName ?? '그룹'} 카드 ${face === 'back' ? '뒷면' : '앞면'}이에요`,
       );
       focusNode(face === 'back' ? backFocusRef : frontFocusRef);
     },
@@ -1037,7 +1053,7 @@ export default function GroupListScreen({
         currentProgrammaticTargetRef.current = null;
         const groupName = orderedGroupsRef.current.find((group) => group.groupId === groupId)?.name;
         AccessibilityInfo.announceForAccessibility(
-          `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했습니다`,
+          `${groupName ?? '그룹'} 카드를 ${target + 1}번째로 이동했어요`,
         );
         requestAnimationFrame(() => {
           if (!mountedRef.current) return;
@@ -1309,7 +1325,7 @@ export default function GroupListScreen({
         const decision = resolveGroupDeckGuideDecision(readState, guideBlockedRef.current);
         logGroupCardDeckViewed({
           group_entry: groupEntry,
-          group_count_bucket: groupCountBucket(orderedGroups.length),
+          group_count_bucket: guideGroupCountBucket(reportedGroupCount),
           guide_state: decision.exposure,
         });
         setGuideQueued(decision.queue);
@@ -1323,7 +1339,7 @@ export default function GroupListScreen({
         const decision = resolveGroupDeckGuideDecision('unknown', guideBlockedRef.current);
         logGroupCardDeckViewed({
           group_entry: groupEntry,
-          group_count_bucket: groupCountBucket(orderedGroups.length),
+          group_count_bucket: guideGroupCountBucket(reportedGroupCount),
           guide_state: decision.exposure,
         });
         setGuideQueued(decision.queue);
@@ -1335,7 +1351,7 @@ export default function GroupListScreen({
         guideDecisionEpisodeRef.current = null;
       }
     };
-  }, [groupEntry, guideEligible, guideEpisode, orderedGroups.length]);
+  }, [groupEntry, guideEligible, guideEpisode, reportedGroupCount]);
 
   const startGuide = useCallback(() => {
     if (guideReadStateRef.current === 'unknown' && !claimGroupDeckGuideUnknownFallback()) {
@@ -1392,7 +1408,7 @@ export default function GroupListScreen({
 
   const guideSteps: GuideStep[] = useMemo(
     () =>
-      groupDeckGuideSteps(orderedGroups.length).map((step) => ({
+      groupDeckGuideSteps(reportedGroupCount).map((step) => ({
         text: step.text,
         character: GUIDE_CHARACTER[step.character],
         anchor:
@@ -1403,6 +1419,9 @@ export default function GroupListScreen({
                 ? guideBackRef
                 : guideFrontRef
               : undefined,
+        // 그룹 카드는 외곽선 자체가 학습 대상이라 공통 10% 여백 없이 28px 카드 모양에 맞춘다.
+        scale: step.anchor === 'active-card' ? 1 : undefined,
+        radius: step.anchor === 'active-card' ? 28 : undefined,
         prepare: step.requiresBack
           ? async () => {
               const groupId = activeIdentityRef.current ?? orderedGroups[0]?.groupId;
@@ -1418,7 +1437,7 @@ export default function GroupListScreen({
             }
           : undefined,
       })),
-    [ensureBack, onEnsureBack, orderedGroups],
+    [ensureBack, onEnsureBack, orderedGroups, reportedGroupCount],
   );
 
   const finishGuide = useCallback(() => {
@@ -1431,10 +1450,11 @@ export default function GroupListScreen({
     guideVisibleRef.current = false;
     setGuideVisible(false);
     setGuideQueued(false);
+    onGuideFinish?.();
     // 마지막 단계가 뒷면을 열어 둔 채 끝나므로 오버레이가 포커스를 잃게 하지 않는다.
     // 다음 실제 조작 대상인 뒷면 제목/첫 CTA로 즉시 이어 준다.
     focusNode(backFocusRef);
-  }, [focusNode]);
+  }, [focusNode, onGuideFinish]);
 
   const dragOverlayGroup =
     reorderPreview === null
@@ -1656,7 +1676,7 @@ export default function GroupListScreen({
                             cardRef={item.groupId === activeGroupId ? guideBackRef : undefined}
                             position={index + 1}
                             pageCount={pageCount}
-                            snapshot={snapshots[item.groupId]}
+                            snapshot={guideSnapshot ?? snapshots[item.groupId]}
                             roomRef={
                               activeIdentityRef.current === item.groupId ? roomFocusRef : undefined
                             }

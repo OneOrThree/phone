@@ -278,7 +278,7 @@ api.interceptors.response.use(
         // 이전 세션 refresh 응답을 의도적으로 폐기한 경우 현재 세션까지 로그아웃시키지 않는다.
         if (refreshError instanceof StaleAuthRefreshError) throw refreshError;
         onLogout?.();
-        throw new Error('세션이 만료됐습니다. 다시 로그인해주세요.');
+        throw new Error('세션이 만료됐어요. 다시 로그인해 주세요.');
       }
     }
 

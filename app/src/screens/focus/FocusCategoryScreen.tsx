@@ -283,7 +283,7 @@ export default function FocusCategoryScreen() {
       doDelete(sub);
       return;
     }
-    Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라집니다!', [
+    Alert.alert('과목 삭제', '해당 과목에 기록된 집중 시간이 사라져요!', [
       { text: '취소', style: 'cancel' },
       { text: '삭제', style: 'destructive', onPress: () => doDelete(sub) },
     ]);
@@ -515,11 +515,11 @@ export default function FocusCategoryScreen() {
         storageKey={STORAGE_KEYS.guideFocus}
         steps={[
           {
-            text: '집중할 과목을 골라줘!\n과목을 탭하면 무제한·타이머·뽀모도로 중 집중 방식을 고를 수 있어.',
+            text: '집중할 과목을 골라 주세요!\n과목을 탭하면 무제한·타이머·뽀모도로 중 집중 방식을 고를 수 있어요.',
             character: require('@/assets/character_hi.png'),
           },
           {
-            text: '집중을 마치면 공부 시간이 과목별로 기록되고 리그 순위에도 반영돼.\n그럼 시작해보자!',
+            text: '집중을 마치면 시간이 과목별로 기록되고 리그 순위에도 반영돼요.\n그럼 시작해 봐요!',
             character: require('@/assets/character_study.png'),
           },
         ]}

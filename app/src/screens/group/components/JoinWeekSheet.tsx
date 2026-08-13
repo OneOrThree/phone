@@ -209,7 +209,7 @@ export default function JoinWeekSheet({
           failAndReload('로그인하면 참여할 수 있어요', '게스트는 코인을 쓸 수 없어요.');
           return;
         default:
-          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
+          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       submitLock.current = false;

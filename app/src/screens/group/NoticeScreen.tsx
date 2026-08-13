@@ -66,7 +66,7 @@ function deleteErrorMessage(e: unknown): string {
     case 'MEMBER_ONLY':
       return '그룹원만 이용할 수 있어요.';
     default:
-      return '공지 삭제에 실패했어요. 잠시 후 다시 시도해주세요.';
+      return '공지 삭제에 실패했어요. 잠시 후 다시 시도해 주세요.';
   }
 }
 
@@ -246,7 +246,7 @@ export default function NoticeScreen() {
     return (
       <View style={s.center}>
         <Text style={s.emptyTitle}>{msg}</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchNotices()}>
           <Text style={s.retryText}>다시 시도</Text>
         </TouchableOpacity>
@@ -317,7 +317,7 @@ export default function NoticeScreen() {
           ) : (
             <View style={s.center}>
               <Text style={s.emptyTitle}>등록된 공지가 없어요</Text>
-              {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨보세요</Text>}
+              {canWrite && <Text style={s.emptyDesc}>+ 버튼으로 첫 공지를 남겨 보세요</Text>}
             </View>
           )
         }

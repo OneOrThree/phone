@@ -73,7 +73,7 @@ export function usePinned() {
         else await pinFriend(userId);
       } catch {
         apply(wasPinned);
-        Alert.alert('핀 변경 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('핀 변경 실패', '잠시 후 다시 시도해 주세요.');
       } finally {
         inFlight.current.delete(userId);
         if (inFlight.current.size === 0 && refetchQueued.current) {

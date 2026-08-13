@@ -13,6 +13,7 @@
 //  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/에러+재시도 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StyleSheet } from 'react-native';
 import GroupScreen from './GroupScreen';
 import { getMyGroups } from '@/services/groupApi';
@@ -25,6 +26,8 @@ import {
 } from '@/navigation/groupEntrySource';
 import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { STORAGE_KEYS } from '@/types/storage';
+import { resetGroupDeckGuideSessionForTests } from './groupDeckGuide';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View: RNView } = require('react-native');
@@ -100,6 +103,8 @@ jest.mock('./GroupListScreen', () => {
     onCreate,
     onFind,
     onRefresh,
+    actualGroupCount,
+    onGuideFinish,
   }: {
     groups: { groupId: string; name: string }[];
     onSelect: (
@@ -109,11 +114,14 @@ jest.mock('./GroupListScreen', () => {
     onCreate: () => void;
     onFind: (entryPoint: 'header') => void;
     onRefresh: () => Promise<void>;
+    actualGroupCount?: number;
+    onGuideFinish?: () => void;
   }) {
     mockGroupListRender(groups);
     return (
       <RNView>
         <RNText>{`목록 ${groups.length}건`}</RNText>
+        {actualGroupCount === 0 && <RNText>안내용 그룹 카드</RNText>}
         {groups.map((g) => (
           <RNTouchable
             key={g.groupId}
@@ -136,6 +144,11 @@ jest.mock('./GroupListScreen', () => {
         <RNTouchable onPress={() => onRefresh()}>
           <RNText>목록-새로고침</RNText>
         </RNTouchable>
+        {onGuideFinish && (
+          <RNTouchable onPress={onGuideFinish}>
+            <RNText>그룹 안내 완료</RNText>
+          </RNTouchable>
+        )}
       </RNView>
     );
   }
@@ -267,8 +280,12 @@ async function press(label: string) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  resetGroupDeckGuideSessionForTests();
+  await AsyncStorage.clear();
+  // 기존 분기 테스트는 이미 안내를 본 사용자를 전제로 한다. 미완료 흐름은 아래 전용 테스트가 맡는다.
+  await AsyncStorage.setItem(STORAGE_KEYS.guideGroupDeck, '1');
   clearPendingGroupEntry();
   mockPendingInvite = null;
   mockJoinedIdOverride = null;
@@ -543,12 +560,26 @@ describe('일반 재조회 실패', () => {
 
 // 목록 분기(A-9). 목록 본체가 아니라 **어느 분기가 렌더되고 탭이 어디로 가는지**만 잠근다.
 describe('목록 분기(0/1/N)', () => {
+  test('0건·미완료 안내는 임시 카드만 보여 주고 완료 즉시 원래 0건 목록으로 돌아간다', async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    mockGetMyGroups.mockResolvedValueOnce([]);
+    await renderScreen();
+
+    expect(await screen.findByText('안내용 그룹 카드')).toBeOnTheScreen();
+    expect(screen.getByText('목록 1건')).toBeOnTheScreen();
+    expect(screen.queryByText('목록 0건')).toBeNull();
+
+    await press('그룹 안내 완료');
+
+    expect(screen.queryByText('안내용 그룹 카드')).toBeNull();
+    expect(screen.getByText('목록 0건')).toBeOnTheScreen();
+  });
+
   test('0건 — 그룹 찾기 카드를 담는 목록이 기본 화면이다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([]);
     await renderScreen();
 
     expect(screen.getByText('목록 0건')).toBeOnTheScreen();
-    expect(screen.queryByText('함께 집중할 그룹을 만들어보세요')).toBeNull();
   });
 
   test('1건 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {

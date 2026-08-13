@@ -348,7 +348,7 @@ describe('그룹 나가기', () => {
     expect(mockPopToTop).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
       '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );
@@ -421,7 +421,7 @@ describe('그룹 나가기', () => {
 
     expect(screen.getByTestId('group.settings.leaveFailed')).toBeOnTheScreen();
     expect(screen.getByText('그룹 나가기 실패')).toBeOnTheScreen();
-    expect(screen.getByText('잠시 후 다시 시도해주세요.')).toBeOnTheScreen();
+    expect(screen.getByText('잠시 후 다시 시도해 주세요.')).toBeOnTheScreen();
     expect(alertSpy).not.toHaveBeenCalled();
     expect(mockPopToTop).not.toHaveBeenCalled();
 
@@ -466,7 +466,7 @@ describe('그룹 나가기', () => {
 
     expect(alertSpy).toHaveBeenCalledWith(
       '로그인이 필요해요',
-      '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+      '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
       [expect.objectContaining({ text: '확인' })],
       { cancelable: false },
     );

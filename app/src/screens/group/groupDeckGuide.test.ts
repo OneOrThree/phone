@@ -10,8 +10,12 @@ import {
 beforeEach(resetGroupDeckGuideSessionForTests);
 
 test('그룹 수에 맞는 4단계 문구와 마지막 programmatic back을 정의한다', () => {
+  expect(groupDeckGuideSteps(0)).toHaveLength(4);
+  expect(groupDeckGuideSteps(0)[0].text).toContain('안내용 카드를 잠깐');
+  expect(groupDeckGuideSteps(0)[1]).toMatchObject({ anchor: 'active-card' });
   expect(groupDeckGuideSteps(1)).toHaveLength(4);
   expect(groupDeckGuideSteps(1)[1].text).toContain('그룹이 늘면');
+  expect(groupDeckGuideSteps(1)[1]).toMatchObject({ anchor: 'active-card' });
   expect(groupDeckGuideSteps(2)[1].text).toContain('옆으로 넘기면');
   expect(groupDeckGuideSteps(2)[3]).toMatchObject({
     anchor: 'active-card',

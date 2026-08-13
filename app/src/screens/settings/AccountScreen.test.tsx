@@ -152,7 +152,7 @@ describe('회원 탈퇴 — 방장 블록(HOST_WITHDRAW)', () => {
     await pressWithdrawAndConfirm();
 
     expect(await screen.findByTestId('account.withdraw.hostBlocked')).toBeOnTheScreen();
-    expect(screen.getByText('먼저 방장을 넘겨주세요')).toBeOnTheScreen();
+    expect(screen.getByText('먼저 방장을 넘겨 주세요')).toBeOnTheScreen();
     expect(
       screen.getByText(
         '방장으로 있는 그룹이 1개 있어요.\n"아침 6시 집중방"의 방장을 넘기고 다시 탈퇴해 주세요.',
@@ -218,7 +218,7 @@ describe('회원 탈퇴 — 그 외 경로', () => {
       '오류',
       '회원 탈퇴에 실패했어요. 잠시 후 다시 시도해 주세요.',
     );
-    expect(screen.queryByText('먼저 방장을 넘겨주세요')).toBeNull();
+    expect(screen.queryByText('먼저 방장을 넘겨 주세요')).toBeNull();
     expect(screen.queryByTestId('account.withdraw.hostBlocked')).toBeNull();
     expect(mockGetMyGroups).not.toHaveBeenCalled();
     alertSpy.mockRestore();

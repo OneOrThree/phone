@@ -164,7 +164,7 @@ export default function GroupProfileEditScreen() {
       if (groupErrorCode(e) === 'MAX_MEMBERS_TOO_SMALL') {
         Alert.alert('정원을 줄일 수 없어요', '현재 멤버 수보다 적게 정할 수 없어요.');
       } else {
-        Alert.alert('저장하지 못했어요', '잠시 후 다시 시도해주세요.');
+        Alert.alert('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       setSaving(false);
@@ -199,7 +199,7 @@ export default function GroupProfileEditScreen() {
     body = (
       <View style={s.center}>
         <Text style={s.emptyTitle}>그룹을 불러오지 못했어요</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
           <Text style={s.retryText}>다시 시도</Text>
         </TouchableOpacity>
@@ -247,7 +247,7 @@ export default function GroupProfileEditScreen() {
             style={s.descInput}
             value={description}
             onChangeText={setDescription}
-            placeholder="그룹을 소개해주세요 (선택)"
+            placeholder="그룹을 소개해 주세요 (선택)"
             placeholderTextColor={T.inkMuted}
             maxLength={DESCRIPTION_MAX}
             multiline

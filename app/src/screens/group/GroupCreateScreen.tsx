@@ -157,17 +157,17 @@ export default function GroupCreateScreen() {
         const status = axios.isAxiosError(e) ? e.response?.status : undefined;
         if (status === 400) {
           // 앱이 막지 못한 검증 실패 — 자유 입력은 이름뿐이라 이름을 짚어준다.
-          setNameError('그룹 이름을 다시 확인해주세요');
+          setNameError('그룹 이름을 다시 확인해 주세요');
           return;
         }
-        Alert.alert('그룹을 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+        Alert.alert('그룹을 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
 
   async function submit() {
     // 버튼이 disabled={!canSubmit}라 여기 걸리는 경로는 없다 — 연타 방어로만 남긴다.
-    // (예전엔 '그룹 이름을 입력해주세요'를 세웠지만 도달 불가라 화면에 뜬 적이 없다.)
+    // (예전엔 '그룹 이름을 입력해 주세요'를 세웠지만 도달 불가라 화면에 뜬 적이 없다.)
     if (!canSubmit) return;
     submittingRef.current = true;
     setSubmitting(true);
@@ -225,7 +225,7 @@ export default function GroupCreateScreen() {
       inviteRef.current = issued;
       return issued;
     } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return null;
     }
   }
@@ -268,7 +268,7 @@ export default function GroupCreateScreen() {
         });
       }
     } catch {
-      Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해주세요.');
+      Alert.alert('공유하지 못했어요', '링크 복사로 대신 공유해 주세요.');
     }
   }
 
@@ -441,7 +441,7 @@ export default function GroupCreateScreen() {
         <View style={s.overlay}>
           <View style={s.card}>
             <Text style={s.cardTitle}>비공개 그룹을 만들었어요 🎉</Text>
-            <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해주세요.</Text>
+            <Text style={s.cardBody}>검색에 뜨지 않아요.{'\n'}초대 링크를 공유해 주세요.</Text>
             {emojiSaveFailed && (
               <Text style={s.errorText} accessibilityLiveRegion="polite">
                 내 카드 아이콘을 저장하지 못했어요. 앱을 다시 열면 이전 아이콘으로 돌아갈 수 있어요.

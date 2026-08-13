@@ -149,7 +149,7 @@ export default function GroupMemberManageScreen() {
           Alert.alert('내보낼 수 없어요', '자기 자신은 내보낼 수 없어요.');
           return;
         }
-        Alert.alert('내보내기 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('내보내기 실패', '잠시 후 다시 시도해 주세요.');
       }
     },
     [groupId, removeMember, unlockMember],
@@ -211,7 +211,7 @@ export default function GroupMemberManageScreen() {
         {header}
         <View style={s.center}>
           <Text style={s.emptyTitle}>멤버를 불러오지 못했어요</Text>
-          <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+          <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>

@@ -236,7 +236,7 @@ export default function GroupChallengeHistoryScreen() {
     return (
       <View style={s.center}>
         <Text style={s.emptyTitle}>{msg}</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchFirstPage()}>
           <Text style={s.retryText}>다시 시도</Text>
         </TouchableOpacity>
