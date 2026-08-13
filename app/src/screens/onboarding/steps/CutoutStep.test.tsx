@@ -27,11 +27,11 @@ test('캐릭터를 만들지 않아도 건너뛰기로 다음 단계에 진입�
   await render(<CutoutStep data={INITIAL_ONBOARDING_DATA} update={jest.fn()} onNext={onNext} />);
   await act(async () => {});
 
-  expect(screen.getByTestId('onboarding.cutout.skip')).toBeOnTheScreen();
+  expect(screen.getByTestId('onboarding.secondary')).toBeOnTheScreen();
   expect(screen.getByText('건너뛰기')).toBeOnTheScreen();
 
   await act(async () => {
-    fireEvent.press(screen.getByTestId('onboarding.cutout.skip'));
+    fireEvent.press(screen.getByTestId('onboarding.secondary'));
   });
 
   expect(onNext).toHaveBeenCalledTimes(1);

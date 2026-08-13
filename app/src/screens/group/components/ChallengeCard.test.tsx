@@ -1045,7 +1045,7 @@ describe('지난 기록 더보기 → 히스토리 push', () => {
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith('기록을 열 수 없어요', '잠시 후 다시 시도해주세요.');
+    expect(alertSpy).toHaveBeenCalledWith('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
   });
 });
 
@@ -2927,7 +2927,7 @@ describe('이번 주 남은 날 전부 (GROMO-1276)', () => {
 
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 정보를 확인하지 못했어요',
-      '잠시 후 다시 시도해주세요.',
+      '잠시 후 다시 시도해 주세요.',
     );
     expect(screen.queryByTestId('group.bet.week.submit')).toBeNull();
   });
@@ -3006,7 +3006,7 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(screen.getByText('지금 진행 중인 챌린지예요')).toBeOnTheScreen();
     expect(screen.getByText('8/1(토)')).toBeOnTheScreen();
     expect(screen.getByText('3명 · 90코인')).toBeOnTheScreen();
-    expect(screen.getByText(/적립금 150코인이 전원에게 돌아갑니다/)).toBeOnTheScreen();
+    expect(screen.getByText(/적립금 150코인이 전원에게 돌아가요/)).toBeOnTheScreen();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('group.challenge.delete.confirm'));
@@ -3129,7 +3129,7 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(onDelete).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
       '걸린 돈이 바뀌었어요',
-      '바뀐 내용을 확인하고 다시 눌러주세요.',
+      '바뀐 내용을 확인하고 다시 눌러 주세요.',
     );
     // 시트는 새 수치로 갈아 끼워진 채 남는다 — 다시 누르면 그때 삭제된다.
     expect(screen.getByText('4명 · 120코인')).toBeOnTheScreen();
@@ -3227,7 +3227,7 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(onDelete).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
-      '잠시 후 다시 시도해주세요.',
+      '잠시 후 다시 시도해 주세요.',
     );
   });
 
@@ -3260,7 +3260,7 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
 
     expect(alertSpy).toHaveBeenCalledWith(
       '삭제 영향을 확인하지 못했어요',
-      '잠시 후 다시 시도해주세요.',
+      '잠시 후 다시 시도해 주세요.',
     );
     expect(onDelete).not.toHaveBeenCalled();
   });

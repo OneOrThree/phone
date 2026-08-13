@@ -5,7 +5,8 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.invitelink.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
-import com.oneorthree.phone.stats.domain.DailyFocusStat;
+import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.stats.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.group.domain.Group;
 import com.oneorthree.phone.group.domain.GroupAnnouncementGrant;
@@ -77,6 +78,7 @@ public class GroupService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final DailyFocusStatRepository dailyFocusStatRepository;
+    private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final UserActivityEventLogger userActivityEventLogger;
     private final GroupInviteLinkRepository groupInviteLinkRepository;
     private final Ga4MeasurementClient ga4MeasurementClient;
@@ -491,16 +493,13 @@ public class GroupService {
         // 탈퇴자 제외(GROMO-1220) — 빈 닉네임 타일 방지 + 프로필 조회 404(ProfileService)와 정합.
         List<GroupMember> groupMembers = activeMembersOf(group);
 
-        List<User> users = groupMembers.stream().map(GroupMember::getUser).toList();
-        // GROMO-643·1259: 서버 판정 축(KST 고정) 날짜(date)로 오늘 집계 조회 (DailyFocusStat 저장 버킷과 동일 축)
-        List<DailyFocusStat> focusStats = dailyFocusStatRepository.findByUserInAndDate(users, date);
-        Map<UUID, Integer> focusMap = focusStats.stream()
-                .collect((Collectors.toMap(
-                        s -> s.getUser().getId(),
-                        s -> s.getTotalFocusSeconds() / 60   // GROMO-642: 초→분
-                )));
+        List<UUID> memberUserIds = groupMembers.stream().map(m -> m.getUser().getId()).toList();
+        // GROMO-1567: 당일 집중분 + 라이브(진행 중 세션) 정보를 FocusLiveInfoLookup 으로 1회 배치 도출한다.
+        // 리그(/league/me/ranking)·친구 목록과 같은 공용 도출이라 같은 그리드에서 섞어 써도 의미가 어긋나지 않고,
+        // 멤버 수와 무관하게 쿼리 2회(집계·라이브 세션)라 N+1 이 나지 않는다.
+        // GROMO-643·1259: 서버 판정 축(KST 고정) 날짜(date) 기준 (DailyFocusStat 저장 버킷과 동일 축)
+        Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(memberUserIds, date);
         // A-8: 멤버별 전체 누적 집중시간(분) — 리더보드 정렬용 배치 집계
-        List<UUID> memberUserIds = users.stream().map(User::getId).toList();
         Map<UUID, Integer> totalFocusMap = memberUserIds.isEmpty() ? Map.of()
                 : dailyFocusStatRepository.sumTotalFocusSecondsByUserIdIn(memberUserIds).stream()
                         .collect(Collectors.toMap(
@@ -508,13 +507,20 @@ public class GroupService {
                                 t -> (int) (t.getTotalSeconds() / 60)));
 
         List<GroupDetailMemberResponse> list = groupMembers.stream()
-                .map(m -> GroupDetailMemberResponse.builder()
-                        .userId(m.getUser().getId())
-                        .nickname(m.getUser().getNickname())
-                        .role(m.getRole())
-                        .focusTimeMinutes(focusMap.getOrDefault(m.getUser().getId(), 0))
-                        .totalFocusMinutes(totalFocusMap.getOrDefault(m.getUser().getId(), 0))
-                        .build())
+                .map(m -> {
+                    // 집계·라이브 둘 다 없는 멤버는 맵에 없다 — 0/false/null 기본값으로 내린다(프론트 폴백과 동일).
+                    FocusLiveInfo info = liveInfo.get(m.getUser().getId());
+                    return GroupDetailMemberResponse.builder()
+                            .userId(m.getUser().getId())
+                            .nickname(m.getUser().getNickname())
+                            .role(m.getRole())
+                            .focusTimeMinutes(info != null ? info.focusTimeMinutes() : 0)
+                            .totalFocusMinutes(totalFocusMap.getOrDefault(m.getUser().getId(), 0))
+                            .isFocusing(info != null && info.isFocusing())
+                            .focusStartedAt(info != null ? info.focusStartedAt() : null)
+                            .focusTagName(info != null ? info.focusTagName() : null)
+                            .build();
+                })
                 // A-8: 누적 집중시간 내림차순, 동점은 닉네임 오름차순 (서버 정렬 — 클라 재정렬 없음)
                 .sorted(Comparator
                         .comparingInt(GroupDetailMemberResponse::getTotalFocusMinutes).reversed()

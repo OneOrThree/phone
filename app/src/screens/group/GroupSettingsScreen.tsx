@@ -215,7 +215,7 @@ export default function GroupSettingsScreen() {
     case 'leaveFailed':
       leaveCard = {
         title: '그룹 나가기 실패',
-        body: '잠시 후 다시 시도해주세요.',
+        body: '잠시 후 다시 시도해 주세요.',
         primaryLabel: '확인',
         onPrimary: closeLeaveModal,
         testID: 'group.settings.leaveFailed',
@@ -315,7 +315,7 @@ export default function GroupSettingsScreen() {
     body = (
       <View style={s.center}>
         <Text style={s.emptyTitle}>그룹을 불러오지 못했어요</Text>
-        <Text style={s.emptyDesc}>잠시 후 다시 시도해주세요.</Text>
+        <Text style={s.emptyDesc}>잠시 후 다시 시도해 주세요.</Text>
         <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => load()}>
           <Text style={s.retryText}>다시 시도</Text>
         </TouchableOpacity>

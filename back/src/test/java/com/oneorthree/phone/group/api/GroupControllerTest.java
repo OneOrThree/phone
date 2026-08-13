@@ -6,6 +6,7 @@ import com.oneorthree.phone.group.domain.GroupMemberRole;
 import com.oneorthree.phone.group.domain.GroupStatus;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
+import com.oneorthree.phone.group.dto.GroupDetailMemberResponse;
 import com.oneorthree.phone.group.dto.GroupDetailResponse;
 import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
@@ -22,6 +23,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -329,5 +331,43 @@ class GroupControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isPrivate").value(true))
                 .andExpect(jsonPath("$.private").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("그룹 상세 멤버에 라이브 집중 3필드가 실린다 — isFocusing 키가 focusing 으로 새지 않는다 (GROMO-1567)")
+    void getGroupDetailExposesMemberLiveFocusFields() throws Exception {
+        Instant startedAt = Instant.parse("2026-08-01T01:23:45Z");
+        given(groupService.getGroupDetail(any(), any(), any())).willReturn(GroupDetailResponse.builder()
+                .id(GROUP_ID)
+                .name("그룹")
+                .maxMembers(10)
+                .status(GroupStatus.WAITING)
+                .members(List.of(
+                        GroupDetailMemberResponse.builder()
+                                .userId(LOGIN_USER_ID)
+                                .nickname("집중중")
+                                .isFocusing(true)
+                                .focusStartedAt(startedAt)
+                                .focusTagName("수학")
+                                .build(),
+                        GroupDetailMemberResponse.builder()
+                                .userId(UUID.randomUUID())
+                                .nickname("쉬는중")
+                                .build()))
+                .build());
+
+        mockMvc.perform(get("/api/v1/groups/{groupId}", GROUP_ID)
+                        .param("date", "2026-08-01")
+                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
+                .andExpect(status().isOk())
+                // 리그(/league/me/ranking)와 같은 키로 나가야 프론트가 한 그리드에서 섞어 쓸 수 있다
+                .andExpect(jsonPath("$.members[0].isFocusing").value(true))
+                .andExpect(jsonPath("$.members[0].focusing").doesNotExist())
+                .andExpect(jsonPath("$.members[0].focusStartedAt").value("2026-08-01T01:23:45Z"))
+                .andExpect(jsonPath("$.members[0].focusTagName").value("수학"))
+                // 미집중 멤버는 false/null — 프론트 폴백과 충돌하지 않는다
+                .andExpect(jsonPath("$.members[1].isFocusing").value(false))
+                .andExpect(jsonPath("$.members[1].focusStartedAt").doesNotExist())
+                .andExpect(jsonPath("$.members[1].focusTagName").doesNotExist());
     }
 }

@@ -292,7 +292,7 @@ export default function GroupInviteSheet({
           setBlock('password');
           break;
         default:
-          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
+          setJoinError('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       // 세대가 갈렸어도 반드시 푼다 — 프리뷰 이펙트는 잠금을 풀지 않으므로(위 주석) 이 잠금을 쥔
@@ -339,7 +339,7 @@ export default function GroupInviteSheet({
         asModal
       >
         <Text style={s.title}>초대장을 열지 못했어요</Text>
-        <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
+        <Text style={s.desc}>잠시 후 다시 시도해 주세요.</Text>
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.85}

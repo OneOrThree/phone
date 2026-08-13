@@ -197,34 +197,46 @@ class BotSimulatorIntegrationTest extends IntegrationTestBase {
     }
 
     /**
-     * 지금 이 순간이 블록 안에 오도록 프로필을 골라 저장하고, 그날 블록 목록과 그중 몇 번째가
-     * "지금"인지를 돌려준다. 성향·스타일·목표를 훑어 첫 조합을 채택한다.
+     * tick 시각으로 쓸 수 있는 블록을 골라 프로필을 저장하고, 그날 블록 목록과 그중 몇 번째인지를
+     * 돌려준다. 성향·스타일·목표를 훑어 첫 조합을 채택한다.
+     *
+     * <p><b>"지금을 포함하는 블록"이 아니라 "최근 과거 블록"을 찾는다.</b> 시각 축 제약(클래스 주석)의
+     * 실제 요구는 두 가지뿐이다 — tick 시각이 미래가 아닐 것, 라이브 세션 시작이 12시간 하한 안에 있을 것.
+     * 종전처럼 현재 분을 포함하는 블록만 찾으면 <b>00~03시(KST)엔 후보가 아예 없다</b>(가장 이른 성향인
+     * DAWN 이 03시 시작이라 그 시각 오늘 스케줄은 전부 미래다). 그 밖의 시각도 블록 사이 휴식에 걸리면
+     * 못 찾는데, 블록 위상이 봇 userId 로 시드되는 탓에 통과 여부가 uuid 운이었다
+     * (2026-08-13 CI 실패 — 02시대엔 4건 전부, 03시대엔 2건이 깨졌다).
      *
      * @param needsPreviousBlock 앞 블록이 있는 조합만 채택할지 (세션 교체 검증용)
      */
     private FocusingNow makeBotFocusingNow(boolean needsPreviousBlock) {
+        Instant now = Instant.now();
+        // 12시간 하한에 1시간 여유를 둔다 — 테스트가 도는 사이 하한이 블록을 지나쳐 버리지 않게.
+        Instant earliest = now.minus(Duration.ofHours(11));
         LocalDate today = LocalDate.now(ZonePolicy.KST);
-        LocalDateTime nowKst = LocalDateTime.now(ZonePolicy.KST);
-        int nowMinute = nowKst.getHour() * 60 + nowKst.getMinute();
 
-        for (BotChronotype chronotype : BotChronotype.values()) {
-            for (BotStyle style : BotStyle.values()) {
-                for (int weeklyMinutes : new int[]{2800, 2100, 1400, 700}) {
-                    BotProfile candidate = saveProfile(chronotype, style, weeklyMinutes);
-                    for (int dayOffset = 0; dayOffset < 2; dayOffset++) {
-                        LocalDate scheduleDate = today.minusDays(dayOffset);
-                        int scheduleMinute = nowMinute + (dayOffset == 0 ? 0 : 24 * 60);
-                        List<BotFocusBlock> blocks = scheduleGenerator.blocksOf(candidate, scheduleDate, tagIds());
-                        for (int i = 0; i < blocks.size(); i++) {
-                            if (blocks.get(i).contains(scheduleMinute) && (!needsPreviousBlock || i > 0)) {
-                                return new FocusingNow(scheduleDate, blocks, i);
+        // 오늘 스케줄이 아직 시작 전인 새벽에는 어제 스케줄에서 고른다(BotSimulator 도 어제 블록을 본다).
+        for (LocalDate day : List.of(today, today.minusDays(1))) {
+            for (BotChronotype chronotype : BotChronotype.values()) {
+                for (BotStyle style : BotStyle.values()) {
+                    for (int weeklyMinutes : new int[]{2800, 2100, 1400, 700}) {
+                        BotProfile candidate = saveProfile(chronotype, style, weeklyMinutes);
+                        List<BotFocusBlock> blocks = scheduleGenerator.blocksOf(candidate, day, tagIds());
+                        for (int i = needsPreviousBlock ? 1 : 0; i < blocks.size(); i++) {
+                            // 라이브 세션을 직접 열 시각 — 교체 검증이면 앞 블록 시작이 하한 안에 들어야 한다.
+                            int liveStartMinute = blocks.get(needsPreviousBlock ? i - 1 : i).startMinute();
+                            // 블록이 통째로 과거여야 tick·종료 시각이 미래로 새지 않는다(종료는 실제 now 를 쓴다).
+                            boolean settled = kstInstant(day, blocks.get(i).endMinute() + 1).isBefore(now);
+                            if (settled && !kstInstant(day, liveStartMinute).isBefore(earliest)) {
+                                return new FocusingNow(day, blocks, i);
                             }
                         }
                     }
                 }
             }
         }
-        throw new IllegalStateException("지금(" + nowKst.toLocalTime() + ") 을 포함하는 블록 조합을 찾지 못했다");
+        throw new IllegalStateException(
+                "최근 12시간 안에서 끝난 블록 조합을 찾지 못했다 (now=" + now + ")");
     }
 
     private record FocusingNow(LocalDate day, List<BotFocusBlock> blocks, int index) {

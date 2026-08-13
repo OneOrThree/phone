@@ -1259,22 +1259,22 @@ export default function FocusSessionScreen() {
   const controlsRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '집중 세션이 시작됐어!\n여기서 흐른 시간이 그대로 과목의 공부 기록이 돼.',
+      text: '집중 세션이 시작됐어요!\n여기서 흐른 시간이 그대로 과목의 집중 기록이 돼요.',
       character: require('@/assets/character_study.png'),
     },
     {
-      text: '화면을 옆으로 넘겨봐 —\n친구·그룹·같은 시험 준비생·전체 리그가 공부하는 모습을 볼 수 있어.',
+      text: '화면을 옆으로 넘겨 봐요.\n친구·그룹·같은 시험 준비생·전체 리그가 집중하는 모습을 볼 수 있어요.',
       character: require('@/assets/character_happy.png'),
       anchor: dotsRef,
     },
     {
-      text: '메뉴에서는 과목을 바꾸거나 오늘의 과목별 기록을 볼 수 있어.',
+      text: '메뉴에서는 과목을 바꾸거나 오늘의 과목별 기록을 볼 수 있어요.',
       character: require('@/assets/character_hi.png'),
       anchor: hamburgerRef,
       round: true,
     },
     {
-      text: '잠깐 쉴 땐 일시정지, 끝낼 땐 정지!\n정지하면 기록이 저장되고 결과 화면으로 넘어가.',
+      text: '잠깐 쉴 때는 일시정지, 끝낼 때는 정지를 눌러요.\n정지하면 기록이 저장되고 결과 화면으로 넘어가요.',
       character: require('@/assets/character_study.png'),
       anchor: controlsRef,
       radius: 36,

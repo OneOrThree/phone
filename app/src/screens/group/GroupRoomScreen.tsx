@@ -127,7 +127,7 @@ function staleBetSheetAlert(
     // 구버전에 붙으면 undefined가 null로 뭉개져 시트가 그대로 남고, 없는 엔드포인트로
     // 개설 요청만 나간다 — 카드는 이미 진입점을 숨긴 상태다(코덱스 리뷰).
     if (challenge.bet === undefined) {
-      return ['내기를 열 수 없어요', '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해주세요.'];
+      return ['내기를 열 수 없어요', '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해 주세요.'];
     }
     // 끝난 챌린지에는 새로 돈을 걸 수 없다 — 카드가 진입점을 막는 기준과 같다.
     // 서버 개설 경로는 상태를 보지 않아 그대로 열리므로, 여기서 막지 않으면 앱이 종료로
@@ -142,13 +142,13 @@ function staleBetSheetAlert(
     const liveTomorrow = (live.date ?? todayStrKst()) > todayStrKst();
     return [
       liveTomorrow ? '이미 내일 내기가 열려 있어요' : '이미 오늘 내기가 열려 있어요',
-      '최신 상태예요. 참가하려면 다시 열어주세요.',
+      '최신 상태예요. 참가하려면 다시 열어 주세요.',
     ];
   }
   // 참가 모드에서는 구버전 응답(undefined)도 이 검사에 함께 걸린다 — live가 null로 뭉개지면서
   // '내기가 바뀌었어요'로 닫히기 때문에 따로 분기를 두지 않는다.
   if (live === null || live.betId !== sheet.betId) {
-    return ['내기가 바뀌었어요', '최신 내기로 다시 열어주세요.'];
+    return ['내기가 바뀌었어요', '최신 내기로 다시 열어 주세요.'];
   }
   // 참가 진입점도 카드에서 betOpenable을 함께 요구한다(bet.status === 'OPEN' && betOpenable) —
   // 내기만 OPEN인 채 챌린지가 INACTIVE로 바뀌면 카드의 참가 행은 사라지는데 열린 시트만 판돈
@@ -715,7 +715,7 @@ export default function GroupRoomScreen({
       invite = await issueInviteLink(groupId);
     } catch {
       // 폴백 링크는 두지 않는다 — slug 없는 링크는 서버가 모르는 주소라 404로 끝난다.
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     try {
@@ -776,7 +776,7 @@ export default function GroupRoomScreen({
           return;
         }
         if (code !== 'NOT_FOUND') {
-          alertIfCurrent(groupId, '챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해주세요.');
+          alertIfCurrent(groupId, '챌린지를 삭제하지 못했어요', '잠시 후 다시 시도해 주세요.');
           return;
         }
       }
@@ -897,7 +897,7 @@ export default function GroupRoomScreen({
         {!!backButton && <View style={s.backRow}>{backButton}</View>}
         <View style={s.center}>
           <Text style={s.errorTitle}>그룹을 불러오지 못했어요</Text>
-          <Text style={s.errorDesc}>잠시 후 다시 시도해주세요.</Text>
+          <Text style={s.errorDesc}>잠시 후 다시 시도해 주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={reload}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>

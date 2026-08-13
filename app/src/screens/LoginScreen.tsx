@@ -240,7 +240,7 @@ export default function LoginScreen({ onLogin, isOnboarding }: LoginScreenProps)
 
           <Text style={s.terms}>
             계속하면 <Text style={s.termsLink}>이용약관</Text> 및{' '}
-            <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의하게 됩니다.
+            <Text style={s.termsLink}>개인정보 처리방침</Text>에 동의해요.
           </Text>
         </View>
       </ScrollView>

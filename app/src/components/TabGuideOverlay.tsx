@@ -10,6 +10,7 @@ import {
   type ImageSourcePropType,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, withAlpha } from '@/constants/theme';
 import { logTabGuideCompleted } from '@/services/analyticsEvents';
 
@@ -26,6 +27,7 @@ export interface GuideStep {
   rect?: Rect; // 정적 스포트라이트 좌표(윈도 기준) — 다른 트리의 요소(탭바 FAB 등)용
   round?: boolean; // 완전 원형 스포트라이트 (FAB 등 원형 버튼)
   radius?: number; // 대상 요소의 모서리 라운드 — 구멍이 요소 모양을 따라가게 (기본 CARD_RADIUS)
+  scale?: number; // 대상 대비 구멍 배율 — 카드 외곽과 정확히 맞출 때 1, 기본 1.1
   // 측정 전에 실행 — 앵커가 화면 밖이면 여기서 스크롤로 끌어온 뒤 resolve(GROMO-652 통계 투어).
   // prepare가 있는 스텝은 준비 동안 전체 딤으로 전환된다.
   prepare?: () => Promise<void> | void;
@@ -34,14 +36,44 @@ export interface GuideStep {
 const HOLE_SCALE = 1.1; // 스포트라이트는 요소의 1.1배 크기(중심 기준)
 const CARD_RADIUS = 20; // radius 미지정 시 기본 모서리(카드류)
 const CHAR_SIZE = 96;
+const PANEL_GAP = 18;
+const PANEL_SAFE_MARGIN = 12;
+// 첫 layout 전에도 하단 밖으로 그려지는 한 프레임이 없도록 말풍선 2~3줄 + 캐릭터 높이를 예약한다.
+const INITIAL_PANEL_HEIGHT = 220;
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Hole = Rect | null;
 
-// 중심을 유지한 채 HOLE_SCALE배로 키운 사각형
-function scaleRect(r: Rect): Rect {
-  const dw = (r.w * (HOLE_SCALE - 1)) / 2;
-  const dh = (r.h * (HOLE_SCALE - 1)) / 2;
+export function resolveGuidePanelTop({
+  winH,
+  hole,
+  panelHeight,
+  topInset,
+  bottomInset,
+}: {
+  winH: number;
+  hole: Hole;
+  panelHeight: number;
+  topInset: number;
+  bottomInset: number;
+}): number {
+  const safeTop = topInset + PANEL_SAFE_MARGIN;
+  const safeBottom = winH - bottomInset - PANEL_SAFE_MARGIN;
+  const holeCenterY = hole ? hole.y + hole.h / 2 : winH / 2;
+  const placeBelow = hole !== null && holeCenterY < winH / 2;
+  const desiredTop = placeBelow
+    ? hole.y + hole.h + PANEL_GAP
+    : (hole?.y ?? winH * 0.62) - PANEL_GAP - panelHeight;
+  // 카드가 화면 대부분을 차지하면 위·아래 어느 쪽에도 패널 전체가 들어가지 않는다. 이 경우
+  // 스포트라이트와 조금 겹치더라도 패널을 안전영역 안으로 밀어 캐릭터가 잘리지 않게 한다.
+  const maxTop = Math.max(safeTop, safeBottom - panelHeight);
+  return Math.min(Math.max(desiredTop, safeTop), maxTop);
+}
+
+// 중심을 유지한 채 지정 배율로 키운 사각형
+function scaleRect(r: Rect, scale: number): Rect {
+  const dw = (r.w * (scale - 1)) / 2;
+  const dh = (r.h * (scale - 1)) / 2;
   return { x: r.x - dw, y: r.y - dh, w: r.w + dw * 2, h: r.h + dh * 2 };
 }
 
@@ -66,9 +98,11 @@ export function TabGuideOverlay({
   accessibilityTitle?: string;
 }) {
   const { width: winW, height: winH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const viewportKey = `${winW}x${winH}`;
   const [internalVisible, setInternalVisible] = useState(false);
   const [idx, setIdx] = useState(0);
+  const [panelHeight, setPanelHeight] = useState(INITIAL_PANEL_HEIGHT);
   const [measuredHole, setMeasuredHole] = useState<{
     viewportKey: string;
     value: Hole;
@@ -113,10 +147,11 @@ export function TabGuideOverlay({
     }
     const req = ++holeReq.current;
     const st = stepsRef.current[effectiveIdx];
+    const scale = st?.scale && st.scale > 0 ? st.scale : HOLE_SCALE;
     const measure = () => {
       if (req !== holeReq.current) return;
       if (st?.rect) {
-        setMeasuredHole({ viewportKey, value: scaleRect(st.rect) });
+        setMeasuredHole({ viewportKey, value: scaleRect(st.rect, scale) });
         return;
       }
       const node = st?.anchor?.current;
@@ -128,7 +163,7 @@ export function TabGuideOverlay({
         if (req !== holeReq.current) return;
         setMeasuredHole({
           viewportKey,
-          value: w > 0 && h > 0 ? scaleRect({ x, y, w, h }) : null,
+          value: w > 0 && h > 0 ? scaleRect({ x, y, w, h }, scale) : null,
         });
       });
     };
@@ -204,14 +239,16 @@ export function TabGuideOverlay({
   // 컷아웃 보더 두께 — 구멍에서 화면 가장자리까지 어느 방향이든 덮도록 최대변 사용
   const cutBw = Math.max(winW, winH);
   // 구멍 모서리 — 원형이면 반지름, 아니면 요소 라운드(1.1배 확대에 맞춰 살짝 키움)
-  const holeRadius = step.round ? (hole?.h ?? 0) / 2 : (step.radius ?? CARD_RADIUS) * HOLE_SCALE;
+  const holeScale = step.scale && step.scale > 0 ? step.scale : HOLE_SCALE;
+  const holeRadius = step.round ? (hole?.h ?? 0) / 2 : (step.radius ?? CARD_RADIUS) * holeScale;
 
-  // 말풍선+캐릭터를 스포트라이트와 겹치지 않는 쪽(위/아래 중 넓은 쪽)에 배치
-  const holeCenterY = hole ? hole.y + hole.h / 2 : winH / 2;
-  const placeBelow = hole !== null && holeCenterY < winH / 2;
-  const panelStyle = placeBelow
-    ? { top: (hole ? hole.y + hole.h : 0) + 18 }
-    : { bottom: winH - (hole ? hole.y : winH * 0.62) + 18 };
+  const panelTop = resolveGuidePanelTop({
+    winH,
+    hole,
+    panelHeight,
+    topInset: insets.top,
+    bottomInset: insets.bottom,
+  });
 
   return (
     <Modal
@@ -271,7 +308,15 @@ export function TabGuideOverlay({
         )}
 
         {/* 캐릭터 + 말풍선 */}
-        <View style={[s.panel, panelStyle, { maxWidth: winW - 40 }]} pointerEvents="none">
+        <View
+          testID={`${testID}.panel`}
+          style={[s.panel, { top: panelTop, maxWidth: winW - 40 }]}
+          pointerEvents="none"
+          onLayout={(event) => {
+            const nextHeight = event.nativeEvent.layout.height;
+            if (nextHeight > 0 && nextHeight !== panelHeight) setPanelHeight(nextHeight);
+          }}
+        >
           <View style={s.bubble}>
             <Text style={s.bubbleText}>{step.text}</Text>
             <View style={s.bubbleMeta}>

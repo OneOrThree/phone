@@ -89,6 +89,9 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
       // 통과시킨다(그 사진은 저장하지 않아 기본 그로몬 유지). 일반 사용자는 아래 건너뛰기로도 진행한다.
       ctaDisabled={!created && !canSkip && !moderationUnavailable && !creatorDismissed}
       onCta={onNext}
+      // 선택 액션은 본문이 아니라 공통 footer의 '다음' 바로 아래에 둔다.
+      secondaryLabel={canCreate && !created ? '건너뛰기' : undefined}
+      onSecondary={onNext}
     >
       <View style={s.guides}>
         {GUIDES.map((g) => (
@@ -110,18 +113,6 @@ export default function CutoutStep({ data, update, onNext }: StepProps) {
             <Ionicons name="camera-outline" size={20} color={T.accent} />
             <Text style={s.makeText}>{created ? '다시 만들어보기' : '내 물건으로 만들어보기'}</Text>
           </TouchableOpacity>
-
-          {!created ? (
-            <TouchableOpacity
-              testID="onboarding.cutout.skip"
-              style={s.skipBtn}
-              activeOpacity={0.7}
-              onPress={onNext}
-              hitSlop={{ top: 8, bottom: 8, left: 20, right: 20 }}
-            >
-              <Text style={s.skipText}>건너뛰기</Text>
-            </TouchableOpacity>
-          ) : null}
 
           {created ? (
             <View style={s.doneRow}>
@@ -210,8 +201,6 @@ const s = StyleSheet.create({
     marginTop: T.space.xxl,
   },
   makeText: { ...T.text.subtitle, color: T.accent },
-  skipBtn: { alignSelf: 'center', paddingHorizontal: T.space.lg, paddingVertical: T.space.md },
-  skipText: { ...T.text.label, color: T.inkMuted, textDecorationLine: 'underline' },
   hint: { ...T.text.caption, color: T.inkMuted, marginTop: T.space.lg, textAlign: 'center' },
   doneRow: {
     flexDirection: 'row',

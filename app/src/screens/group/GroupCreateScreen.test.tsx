@@ -463,7 +463,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
 
       expect(Alert.alert).toHaveBeenCalledWith(
         '로그인이 필요해요',
-        '로그인 정보가 만료됐어요. 다시 로그인해주세요.',
+        '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
         [expect.objectContaining({ text: '확인', onPress: expect.any(Function) })],
         // 취소 불가 — 무콜백 닫힘(로그아웃 미실행 잔류) 방지 의도를 계약으로 고정(#530 codex).
         { cancelable: false },
@@ -493,7 +493,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
 
     expect(Alert.alert).toHaveBeenCalledWith(
       '그룹을 만들지 못했어요',
-      '잠시 후 다시 시도해주세요.',
+      '잠시 후 다시 시도해 주세요.',
     );
   });
 
@@ -504,7 +504,7 @@ describe('에러 분기(§3-2 — status가 아니라 code로 본다)', () => {
 
     await press('만들기');
 
-    expect(screen.getByText('그룹 이름을 다시 확인해주세요')).toBeOnTheScreen();
+    expect(screen.getByText('그룹 이름을 다시 확인해 주세요')).toBeOnTheScreen();
     expect(Alert.alert).not.toHaveBeenCalled();
   });
 });

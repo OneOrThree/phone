@@ -123,7 +123,7 @@ export function PageIndicator({
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel={`현재 ${safeActiveIndex + 1}, 전체 ${pageCount} 페이지`}
-          accessibilityHint="위아래로 쓸어 페이지를 이동합니다"
+          accessibilityHint="위아래로 쓸어 페이지를 이동해요"
           accessibilityValue={{
             min: 1,
             max: pageCount,

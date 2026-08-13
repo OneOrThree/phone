@@ -113,7 +113,7 @@ export default function JoinNextSheet({
     if (todayStrKst() !== openedTodayKst) {
       failAndReload(
         '날짜가 바뀌었어요',
-        '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어주세요.',
+        '자정이 지나 예약할 날짜가 달라졌을 수 있어요. 최신 상태로 다시 열어 주세요.',
       );
       return;
     }
@@ -193,7 +193,7 @@ export default function JoinNextSheet({
           failAndReload('로그인하면 참여할 수 있어요', '게스트는 코인을 쓸 수 없어요.');
           return;
         default:
-          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해주세요.');
+          setErrorMsg('참여하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
       submitLock.current = false;

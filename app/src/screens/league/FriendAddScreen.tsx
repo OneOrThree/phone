@@ -99,7 +99,7 @@ export default function FriendAddScreen() {
       if (axios.isAxiosError(e) && e.response?.status === 409) {
         setSentIds((prev) => new Set(prev).add(userId));
       } else {
-        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해주세요.');
+        Alert.alert('친구 신청 실패', '잠시 후 다시 시도해 주세요.');
       }
     }
   }
@@ -115,7 +115,7 @@ export default function FriendAddScreen() {
       }
       setRequests((prev) => prev.filter((r) => r.requestId !== requestId));
     } catch {
-      Alert.alert(accept ? '수락 실패' : '거절 실패', '잠시 후 다시 시도해주세요.');
+      Alert.alert(accept ? '수락 실패' : '거절 실패', '잠시 후 다시 시도해 주세요.');
     }
   }
 

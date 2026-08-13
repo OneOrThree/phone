@@ -47,13 +47,13 @@ const TERMS_URL = 'https://team-page.vercel.app/#/terms';
 
 // 외부 브라우저 이동 전 확인 안내 — 확인을 눌러야 링크를 연다 (GROMO-813)
 function confirmOpenExternal(title: string, url: string) {
-  Alert.alert(title, '외부 브라우저로 팀 사이트가 열립니다.\n이동하시겠습니까?', [
+  Alert.alert(title, '외부 브라우저로 팀 사이트가 열려요.\n이동할까요?', [
     { text: '취소', style: 'cancel' },
     {
       text: '확인',
       onPress: () => {
         Linking.openURL(url).catch(() =>
-          Alert.alert('알림', '링크를 열 수 없어요. 잠시 후 다시 시도해주세요.'),
+          Alert.alert('알림', '링크를 열 수 없어요. 잠시 후 다시 시도해 주세요.'),
         );
       },
     },
@@ -282,16 +282,16 @@ export default function MenuScreen() {
   const goalSectionRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어.',
+      text: '전체 탭에서는 프로필과 앱의 모든 설정을 관리할 수 있어요.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '프로필을 탭하면 닉네임을 편집할 수 있어.',
+      text: '프로필을 탭하면 닉네임을 편집할 수 있어요.',
       character: require('@/assets/character_happy.png'),
       anchor: profileRef,
     },
     {
-      text: '준비 시험과 목표 시간은 여기서 바꿔.\n준비 시험을 바꾸면 추천 과목도 새로 받을 수 있어!',
+      text: '준비 시험과 목표 시간은 여기서 바꿀 수 있어요.\n준비 시험을 바꾸면 추천 과목도 새로 받을 수 있어요!',
       character: require('@/assets/character_study.png'),
       anchor: goalSectionRef,
     },

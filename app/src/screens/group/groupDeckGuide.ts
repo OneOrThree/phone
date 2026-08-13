@@ -24,27 +24,52 @@ let unknownFallbackReserved = false;
 let completedThisSession = false;
 
 export function groupDeckGuideSteps(groupCount: number): GroupDeckGuideStepConfig[] {
+  if (groupCount === 0) {
+    return [
+      {
+        text: '아직 참여한 그룹이 없어서 안내용 카드를 잠깐 보여 드릴게요.',
+        character: 'hi',
+        anchor: 'none',
+      },
+      {
+        text: '그룹에 참여하면 내 그룹이 이런 카드로 보여요. 그룹이 늘면 옆으로 넘겨 볼 수 있어요.',
+        character: 'study',
+        anchor: 'active-card',
+      },
+      {
+        text: '실제 카드를 탭하면 이 자리에서 오늘의 그룹 상태가 열려요.',
+        character: 'study',
+        anchor: 'active-card',
+      },
+      {
+        text: '뒷면에서 집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 그룹 전체를 열어 볼 수 있어요.',
+        character: 'happy',
+        anchor: 'active-card',
+        requiresBack: true,
+      },
+    ];
+  }
   return [
     {
-      text: '내 그룹이 카드로 모였어. 같이 둘러보자!',
+      text: '내 그룹이 카드로 모였어요. 같이 둘러봐요!',
       character: 'hi',
       anchor: 'none',
     },
     {
       text:
         groupCount >= 2
-          ? '옆으로 넘기면 다른 그룹을 볼 수 있어.'
-          : '이 카드가 내 그룹이야. 그룹이 늘면 옆으로 넘길 수 있어.',
-      character: 'study',
-      anchor: 'deck',
-    },
-    {
-      text: '카드를 탭하면 이 자리에서 오늘의 방 상태가 열려.',
+          ? '옆으로 넘기면 다른 그룹을 볼 수 있어요.'
+          : '이 카드가 내 그룹이에요. 그룹이 늘면 옆으로 넘길 수 있어요.',
       character: 'study',
       anchor: 'active-card',
     },
     {
-      text: '집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 방 전체를 열어봐.',
+      text: '카드를 탭하면 이 자리에서 오늘의 그룹 상태가 열려요.',
+      character: 'study',
+      anchor: 'active-card',
+    },
+    {
+      text: '집중 중인 멤버·챌린지·공지를 보고 바로 집중하거나 그룹 전체를 열어 볼 수 있어요.',
       character: 'happy',
       anchor: 'active-card',
       requiresBack: true,

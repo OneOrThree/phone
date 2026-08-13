@@ -610,16 +610,16 @@ export default function HomeScreen() {
   const todayCardRef = useRef<View | null>(null);
   const guideSteps: GuideStep[] = [
     {
-      text: '안녕! 나는 그로모야.\n홈에서는 나와 함께 오늘의 공부 현황을 볼 수 있어.',
+      text: '안녕하세요! 저는 그로모예요.\n홈에서는 저와 함께 오늘의 공부 현황을 볼 수 있어요.',
       character: require('@/assets/character_hi.png'),
     },
     {
-      text: '오늘의 공부 집중과 핸드폰 사용 시간을 여기서 한눈에 볼 수 있어.\n‘자세히’를 누르면 통계로 이동해.',
+      text: '오늘의 집중 시간과 핸드폰 사용 시간을 여기서 한눈에 볼 수 있어요.\n‘자세히’를 누르면 통계로 이동해요.',
       character: require('@/assets/character_study.png'),
       anchor: todayCardRef,
     },
     {
-      text: '준비됐으면 이 버튼을 눌러서 바로 집중을 시작해보자!',
+      text: '준비됐다면 이 버튼을 눌러 바로 집중을 시작해 봐요!',
       character: require('@/assets/character_study.png'),
       rect: fabWindowRect(winW, winH, insets.bottom),
       round: true,

@@ -166,7 +166,7 @@ export default function GroupOwnerTransferScreen() {
             // 위임은 이미 끝났다 — 나가기만 실패했음을 따로 알린다(재시도는 그룹방에서).
             Alert.alert(
               '그룹 나가기 실패',
-              '방장은 넘겼지만 나가기에 실패했어요. 그룹에서 직접 나가주세요.',
+              '방장은 넘겼지만 나가기에 실패했어요. 그룹에서 직접 나가 주세요.',
             );
             navigation.goBack();
           }
@@ -209,7 +209,7 @@ export default function GroupOwnerTransferScreen() {
             break;
           default:
             // 재시도가 유효한 실패라 Alert 유지(D8). 위 USER_NOT_FOUND 와 같은 이유로 카드는 연 채다.
-            Alert.alert('방장을 넘기지 못했어요', '잠시 후 다시 시도해주세요.');
+            Alert.alert('방장을 넘기지 못했어요', '잠시 후 다시 시도해 주세요.');
         }
       } finally {
         setSubmitting(false);
@@ -227,7 +227,7 @@ export default function GroupOwnerTransferScreen() {
   }, [submitting, selectedMember]);
 
   // withdraw 경로는 위임 뒤 곧바로 나가므로 그 사실을 확인 문구에 함께 알린다.
-  const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나갑니다.' : '';
+  const withdrawNote = source === 'withdraw' ? '\n넘긴 뒤 그룹에서 나가요.' : '';
   // 닫힘 페이드아웃 동안 이름이 사라지지 않게 마지막 대상을 ref로 유지한다(AccountScreen 선례).
   const lastTargetRef = useRef<GroupDetailMemberResponse | null>(null);
   if (selectedMember !== null) lastTargetRef.current = selectedMember;
@@ -279,7 +279,7 @@ export default function GroupOwnerTransferScreen() {
         {header}
         <View style={s.center}>
           <Text style={s.errorTitle}>멤버를 불러오지 못했어요</Text>
-          <Text style={s.errorDesc}>잠시 후 다시 시도해주세요.</Text>
+          <Text style={s.errorDesc}>잠시 후 다시 시도해 주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={load}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
@@ -307,7 +307,7 @@ export default function GroupOwnerTransferScreen() {
             contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={s.guide}>새 방장이 될 멤버를 선택해주세요.</Text>
+            <Text style={s.guide}>새 방장이 될 멤버를 선택해 주세요.</Text>
             <View style={s.list}>
               {candidates.map((m) => (
                 <TransferRow

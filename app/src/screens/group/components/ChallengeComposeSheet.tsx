@@ -215,7 +215,7 @@ function createErrorMessage(e: unknown): string {
     case 'ACTIVE_CHALLENGE_EXISTS':
     case 'CHALLENGE_ALREADY_EXISTS':
     case CHALLENGE_DUPLICATE:
-      return '이미 같은 종류의 챌린지가 있어요. 기존 챌린지를 삭제하고 만들어주세요.';
+      return '이미 같은 종류의 챌린지가 있어요. 기존 챌린지를 삭제하고 만들어 주세요.';
     // 창 겹침 판정은 요일 ∧ 시간대다(§A5: 요일 교집합이 있고 간격이 15분 미만일 때만 409).
     // 요일을 바꿔도 시간을 바꿔도 풀리는 실패라 두 해법을 모두 문장에 싣는다(GROMO-1273).
     case CHALLENGE_WINDOW_OVERLAP:
@@ -233,7 +233,7 @@ function createErrorMessage(e: unknown): string {
     case 'BET_INVALID_STAKE':
       return `${STAKE_RANGE_CAPTION}.`;
     default:
-      return '챌린지를 만들지 못했어요. 잠시 후 다시 시도해주세요.';
+      return '챌린지를 만들지 못했어요. 잠시 후 다시 시도해 주세요.';
   }
 }
 

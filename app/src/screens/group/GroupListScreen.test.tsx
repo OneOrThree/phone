@@ -31,6 +31,7 @@ import type { GroupSummaryResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
   logGroupCardActionClicked,
+  logGroupCardDeckViewed,
   logGroupCardReordered,
   logGroupCarouselPaged,
 } from '@/services/analyticsEvents';
@@ -260,6 +261,46 @@ describe('카드 렌더', () => {
     expect(screen.queryByTestId('group.list.guide')).toBeNull();
   });
 
+  test('그룹 0개 안내용 카드는 0 bucket 문구를 쓰고 완료를 외부 빈 화면에 알린다', async () => {
+    resetGroupDeckGuideSessionForTests();
+    await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
+    const onGuideFinish = jest.fn();
+    await render(
+      <GroupListScreen
+        groups={[group({ groupId: 'guide-preview-group', name: '첫 집중 모임' })]}
+        userId="user-1"
+        onSelect={onSelect}
+        onCreate={onCreate}
+        onFind={onFind}
+        onRefresh={onRefresh}
+        guideEpisode={1}
+        guideDataReady
+        actualGroupCount={0}
+        onEnsureBack={() => undefined}
+        onGuideFinish={onGuideFinish}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('group.deck.guideAnchor'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 520 } },
+      });
+      fireEvent(screen.getByTestId('group.list.card.guide-preview-group'), 'layout', {
+        nativeEvent: { layout: { x: 24, y: 80, width: 352, height: 520 } },
+      });
+    });
+
+    expect(
+      await screen.findByLabelText(/아직 참여한 그룹이 없어서 안내용 카드를 잠깐 보여 드릴게요/),
+    ).toBeOnTheScreen();
+    expect(logGroupCardDeckViewed).toHaveBeenCalledWith(
+      expect.objectContaining({ group_count_bucket: '0', guide_state: 'shown' }),
+    );
+
+    for (let step = 0; step < 4; step += 1) await press('group.list.guide');
+    expect(onGuideFinish).toHaveBeenCalledTimes(1);
+  });
+
   test('로컬 순서를 읽기 전에는 서버 첫 카드를 노출하지 않고 hydrate된 0번부터 시작한다', async () => {
     await AsyncStorage.setItem(
       STORAGE_KEYS.groupCardOrder,
@@ -402,7 +443,7 @@ describe('콜백', () => {
     expect(announce).not.toHaveBeenCalled();
     await finishCardFlip();
     expect(announce).toHaveBeenCalledTimes(1);
-    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 뒷면입니다');
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 뒷면이에요');
 
     await act(async () => {
       const backTitle = screen.getByTestId(`group.card.backTitle.${GROUP_ID}`);
@@ -411,7 +452,7 @@ describe('콜백', () => {
     });
     await finishCardFlip();
     expect(announce).toHaveBeenCalledTimes(2);
-    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 앞면입니다');
+    expect(announce).toHaveBeenLastCalledWith('아침 6시 집중방 카드 앞면이에요');
   });
 
   test('화면을 이탈한 뒤 완료된 flip은 면 안내나 접근성 포커스를 만들지 않는다', async () => {
@@ -1349,7 +1390,7 @@ describe('제스처 중재와 재정렬', () => {
       text: '2/2',
     });
     expect(screen.getByTestId(`group.card.grip.${GROUP_ID}`).props.focusable).toBe(true);
-    expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했습니다');
+    expect(announce).toHaveBeenCalledWith('아침 6시 집중방 카드를 2번째로 이동했어요');
   });
 
   test('grip drag는 6pt 이상인 수평 이동만 소유해 세로 스크롤을 보존한다', () => {

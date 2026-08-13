@@ -11,13 +11,16 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
+import type { LeagueMemberResponse } from '@/types/api';
 import type { GroupSummaryResponse } from '@/types/dto/group';
+import { STORAGE_KEYS } from '@/types/storage';
 import type { V2RootStackParamList } from '@/navigation/types';
 import {
   clearPendingInvite,
@@ -44,6 +47,8 @@ import GroupListScreen, {
   resolveGroupCardHeight,
 } from './GroupListScreen';
 import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
+import type { GroupCardSummarySnapshot } from './groupCardSummary';
+import { isGroupDeckGuideCompletedInSession } from './groupDeckGuide';
 import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
@@ -71,6 +76,95 @@ function groupCountBucket(count: number): GroupCountBucket {
 // 데이터가 도착할 때 카드가 위아래로 밀리지 않는다.
 const HEADER_TEXT_H = 30;
 
+// 그룹이 아직 없는 신규 사용자가 카드 사용법을 배울 때만 쓰는 로컬 샘플이다.
+// 서버 목록·그룹 순서·이모지 저장소에는 쓰지 않고, 안내가 끝나면 GroupScreen의 기존 빈 화면으로
+// 즉시 돌아간다. UUID 모양도 일부러 쓰지 않아 실데이터/API 대상으로 오인하지 않게 한다.
+const EMPTY_GUIDE_GROUP: GroupSummaryResponse = {
+  groupId: 'guide-preview-group',
+  name: '첫 집중 모임',
+  description: '함께 집중하고 서로 응원해요',
+  code: null,
+  currentMembers: 3,
+  maxMembers: 6,
+  role: 'MEMBER',
+  status: 'WAITING',
+  isPrivate: false,
+};
+
+function emptyGuideSnapshot(userId: string): GroupCardSummarySnapshot<LeagueMemberResponse[]> {
+  const members = [
+    {
+      userId,
+      nickname: '나',
+      role: 'MEMBER' as const,
+      focusTimeMinutes: 24,
+      totalFocusMinutes: 24,
+    },
+    {
+      userId: 'guide-preview-member-1',
+      nickname: '그로미',
+      role: 'OWNER' as const,
+      focusTimeMinutes: 40,
+      totalFocusMinutes: 40,
+    },
+    {
+      userId: 'guide-preview-member-2',
+      nickname: '집중이',
+      role: 'MEMBER' as const,
+      focusTimeMinutes: 15,
+      totalFocusMinutes: 15,
+    },
+  ];
+  return {
+    detail: {
+      status: 'ready',
+      data: {
+        id: EMPTY_GUIDE_GROUP.groupId,
+        name: EMPTY_GUIDE_GROUP.name,
+        description: EMPTY_GUIDE_GROUP.description ?? null,
+        missionCategory: null,
+        missionType: null,
+        durationMinutes: null,
+        windowStart: null,
+        windowEnd: null,
+        maxMembers: EMPTY_GUIDE_GROUP.maxMembers,
+        status: EMPTY_GUIDE_GROUP.status,
+        members,
+        code: null,
+        codeExpiresAt: null,
+        noticeGrantedUserIds: [],
+        isPrivate: false,
+      },
+    },
+    announcements: {
+      status: 'ready',
+      data: [
+        {
+          id: 'guide-preview-notice',
+          title: '오늘도 같이 집중해요',
+          content: '저녁 8시에 한 번 더 모여요.',
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    },
+    challenges: { status: 'ready', data: [] },
+    focus: {
+      status: 'ready',
+      data: members.map((member, index) => ({
+        rank: index + 1,
+        userId: member.userId,
+        nickname: member.nickname,
+        tierLevel: 1,
+        totalFocusSeconds: member.totalFocusMinutes * 60,
+        isFocusing: index < 2,
+        focusTimeMinutes: member.focusTimeMinutes ?? 0,
+        focusStartedAt: index < 2 ? '2026-01-01T00:00:00Z' : null,
+        focusTagName: index < 2 ? '공부' : null,
+      })),
+    },
+  };
+}
+
 export default function GroupScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -89,6 +183,7 @@ export default function GroupScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  const [emptyGuidePreview, setEmptyGuidePreview] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
   // 전이 중에는 기존 0건 목록을 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
   // (그러지 않으면 생성 성공 → GET 실패 시 다시 그룹 찾기 카드가 떠 같은 동작을 반복할 수 있다.)
@@ -310,7 +405,7 @@ export default function GroupScreen() {
     try {
       issuedInvite = await issueInviteLink(groupId);
     } catch {
-      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     try {
@@ -350,6 +445,38 @@ export default function GroupScreen() {
   );
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
+  const previewSnapshot = useMemo(
+    () => (userId ? emptyGuideSnapshot(userId) : undefined),
+    [userId],
+  );
+
+  // 카드가 하나도 없는 첫 사용자도 설명을 볼 수 있게 완료 key를 먼저 확인한다. 샘플 카드는 이
+  // 상태가 true인 동안만 렌더되며, 실제 그룹이 생기거나 안내를 마치는 즉시 폐기된다.
+  useEffect(() => {
+    if (
+      !userId ||
+      groups === null ||
+      groups.length > 0 ||
+      successfulListEpisode !== viewEpisodeRef.current.id ||
+      isGroupDeckGuideCompletedInSession()
+    ) {
+      setEmptyGuidePreview(false);
+      return;
+    }
+    let canceled = false;
+    AsyncStorage.getItem(STORAGE_KEYS.guideGroupDeck)
+      .then((value) => {
+        if (!canceled) setEmptyGuidePreview(value !== '1');
+      })
+      .catch(() => {
+        // GroupListScreen의 세션 1회 fallback 정책이 실제 노출 여부를 최종 결정한다.
+        if (!canceled) setEmptyGuidePreview(true);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [groups, successfulListEpisode, userId]);
+
   const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
     logGroupFindOpened({ entry_point: entryPoint });
     setFindOpen(true);
@@ -455,11 +582,44 @@ export default function GroupScreen() {
       <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
         <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
           <Text style={s.title}>그룹을 불러오지 못했어요</Text>
-          <Text style={s.desc}>잠시 후 다시 시도해주세요.</Text>
+          <Text style={s.desc}>잠시 후 다시 시도해 주세요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={() => fetchGroups()}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
+        {inviteSheet}
+      </SafeAreaView>
+    );
+  }
+
+  // 그룹 0개 첫 진입 — 실제 카드와 같은 컴포넌트에 로컬 snapshot만 주입해 잠시 설명한다.
+  // 마지막 '시작'에서 임시 카드를 버리고 최신 main의 원래 0건 목록(그룹 찾기 카드)으로 복귀한다.
+  if (emptyGuidePreview && previewSnapshot) {
+    return (
+      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
+        {staleNotice}
+        <GroupListScreen
+          groups={[EMPTY_GUIDE_GROUP]}
+          groupsRevision={groupsRevision}
+          isScreenFocused={isScreenFocused}
+          userId={userId}
+          onSelect={() => undefined}
+          onCreate={openCreate}
+          onFind={(entryPoint) => openFind(entryPoint)}
+          onRefresh={fetchGroups}
+          guideBlocked={findOpen || invite !== null}
+          guideScreenFocused={isScreenFocused}
+          guideEpisode={viewEpisodeRef.current.id}
+          groupEntry={viewEpisodeRef.current.source}
+          guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
+          guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
+          actualGroupCount={0}
+          guideSnapshot={previewSnapshot}
+          onEnsureBack={() => undefined}
+          onGuideFinish={() => setEmptyGuidePreview(false)}
+          initialDeckViewportHeight={loadingDeckViewportHeight}
+        />
+        {findSheet}
         {inviteSheet}
       </SafeAreaView>
     );

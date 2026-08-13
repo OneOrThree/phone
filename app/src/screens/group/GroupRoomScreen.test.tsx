@@ -900,7 +900,7 @@ describe('내기 배선', () => {
     await foreground();
 
     await waitFor(() => expect(screen.queryByText('참가하기')).toBeNull());
-    expect(alertSpy).toHaveBeenLastCalledWith('내기가 바뀌었어요', '최신 내기로 다시 열어주세요.');
+    expect(alertSpy).toHaveBeenLastCalledWith('내기가 바뀌었어요', '최신 내기로 다시 열어 주세요.');
     expect(mockJoinBet).not.toHaveBeenCalled();
   });
 
@@ -1000,7 +1000,7 @@ describe('내기 배선', () => {
     await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 오늘 내기가 열려 있어요',
-      '최신 상태예요. 참가하려면 다시 열어주세요.',
+      '최신 상태예요. 참가하려면 다시 열어 주세요.',
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1037,7 +1037,7 @@ describe('내기 배선', () => {
     await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
     expect(alertSpy).toHaveBeenLastCalledWith(
       '이미 내일 내기가 열려 있어요',
-      '최신 상태예요. 참가하려면 다시 열어주세요.',
+      '최신 상태예요. 참가하려면 다시 열어 주세요.',
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });
@@ -1119,7 +1119,7 @@ describe('내기 배선', () => {
     await waitFor(() => expect(screen.queryByText('내기 열기')).toBeNull());
     expect(alertSpy).toHaveBeenLastCalledWith(
       '내기를 열 수 없어요',
-      '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해주세요.',
+      '지금은 내기를 이용할 수 없어요. 잠시 후 다시 시도해 주세요.',
     );
     expect(mockCreateBet).not.toHaveBeenCalled();
   });

@@ -275,7 +275,7 @@ export default function ChallengeCard({
     const groupId = challengeGroupId(challenge.id);
     if (groupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·취소와 같은 공통 문구 결.
-      Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     // 그룹 축 내역 화면(GROMO-1277)으로 간다 — 이 진입점은 **이 챌린지만** 보는 필터다
@@ -667,7 +667,7 @@ export default function ChallengeCard({
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
-      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     setBetV2Sheet('next');
@@ -679,7 +679,7 @@ export default function ChallengeCard({
   // 뺀 집합으로만 시트를 연다 — 화면이 보여주는 돈과 실제 나갈 돈이 어긋나면 안 된다(N15).
   async function openWeekSheet() {
     if (cachedGroupId === null) {
-      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     if (weekOpenLock.current) return; // 조회가 도는 동안의 연타 방지(leaveLock 관행)
@@ -706,7 +706,7 @@ export default function ChallengeCard({
       setWeekSheetDates(targets);
     } catch {
       // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
-      Alert.alert('참여 정보를 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('참여 정보를 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
     } finally {
       weekOpenLock.current = false;
     }
@@ -762,7 +762,7 @@ export default function ChallengeCard({
           onBetChanged?.();
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -814,7 +814,7 @@ export default function ChallengeCard({
           onBetChanged?.();
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -886,7 +886,7 @@ export default function ChallengeCard({
           show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -939,7 +939,7 @@ export default function ChallengeCard({
           show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해주세요.');
+          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -1008,7 +1008,7 @@ export default function ChallengeCard({
       }
       await runDelete(false);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
     } finally {
       deleteLock.current = false;
     }
@@ -1039,7 +1039,7 @@ export default function ChallengeCard({
         { text: '삭제', style: 'destructive', onPress: () => setDeletePreview(preview) },
       ]);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
     } finally {
       deleteLock.current = false;
     }
@@ -1085,13 +1085,13 @@ export default function ChallengeCard({
       }
       if (!samePreview(shown, fresh)) {
         setDeletePreview(fresh);
-        Alert.alert('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러주세요.');
+        Alert.alert('걸린 돈이 바뀌었어요', '바뀐 내용을 확인하고 다시 눌러 주세요.');
         return;
       }
       setDeletePreview(null);
       await runDelete(true);
     } catch {
-      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해주세요.');
+      Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
     } finally {
       deleteLock.current = false;
     }

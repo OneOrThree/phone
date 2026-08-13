@@ -123,7 +123,7 @@ export default function ScreenTimeDeniedStep({ update, onNext }: StepProps) {
     } catch {
       // 재요청 자체가 불가한 상태(기기 제한 등) — 설정 앱 이동으로 폴백.
       setGuideVisible(false);
-      Alert.alert('앱에서 바로 요청할 수 없어요', '설정에서 스크린 타임 권한을 켜주세요.', [
+      Alert.alert('앱에서 바로 요청할 수 없어요', '설정에서 스크린 타임 권한을 켜 주세요.', [
         { text: '취소', style: 'cancel' },
         { text: '설정 열기', onPress: openSettings },
       ]);
