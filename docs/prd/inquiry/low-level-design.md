@@ -47,11 +47,9 @@ export interface InquiryContact {
   initial: string;
   /** T.avatarPalette 인덱스 — theme.ts를 import하지 않기 위해 숫자로 둔다 */
   avatarPaletteIndex: number;
-  /** 성격 설명 — 어떤 쪽 문의에 어울리는지. 담당 영역(소유권)이 아니다(policy.md D6) */
-  scopeLabel: string;
-  /** 한 줄 소개 (사용자 말) — 어떤 증상일 때 이 사람인지 */
-  intro: string;
-  availability: string;
+  /** 키워드 3개 — 그 사람의 분위기. 담당 영역(소유권)이 아니다(policy.md D6).
+      사람에 대한 서술이므로 **본인이 고른 표현만** 넣는다(D10과 같은 이유) */
+  keywords: string;
   /** 이 담당자가 추천되는 카테고리 — 카테고리당 정확히 1명 */
   categoryId: InquiryCategoryId;
   /** https 오픈채팅 URL. 커스텀 스킴 금지(policy.md D7) */
@@ -72,9 +70,6 @@ export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
     name: 'TODO',
     initial: 'T',
     avatarPaletteIndex: 0,
-    scopeLabel: '집중 · 스크린타임 · 통계',
-    intro: '타이머가 안 멈추거나 사용 시간이 이상하면 저에게 알려 주세요.',
-    availability: '평일 10:00–19:00',
     categoryId: 'focus',
     openChatUrl: 'https://open.kakao.com/o/TODO',
   },
@@ -149,13 +144,11 @@ interface InquiryContactCardProps {
 |---|---|
 | 카드 | `bg T.white`, `border 1 T.paperAlt`, `radius 16`, `padding T.space.lg` |
 | 그림자 | `shadowColor T.shadow`, `opacity .16`, `radius 16`, `offset {0,10}`, `elevation 3` |
-| 아바타 | 44×44 원, `bg T.avatarPalette[avatarPaletteIndex]`, 흰 이니셜 `T.text.subtitle` |
+| 아바타 | 44×44 원, `bg T.avatarPalette[avatarPaletteIndex]`, 흰 이니셜 `T.text.subtitle` (**새 조합** — 아래) |
 | 이름 | `T.text.label`, `color T.ink` |
-| 성격 설명 | `T.text.caption`, `color T.accentDeep` |
+| 키워드 3개 | `T.text.caption`, `color T.accentDeep` (가운뎃점으로 이어 한 줄) |
 | 「추천」 배지 | `bg T.accentBg`, `border 1 T.noteBorder`, `radius 999`, `color T.accentDeep`, `T.text.caption` |
-| 한 줄 소개 | `T.text.body`, `color T.inkSub`, `marginTop T.space.sm` |
-| 응답 시간 | Ionicons `time-outline` 14 + `T.text.caption`, `color T.inkMuted`, `marginTop T.space.sm` |
-| CTA | `bg T.kakao`, `color T.kakaoInk`, `radius 12`, `padding T.space.md/T.space.lg`, `minHeight 44`, `T.text.label`, Ionicons `chatbubble` 16 |
+| CTA | 라벨에 **`flexShrink: 1`**(큰 글자에서 줄바꿈 — 없으면 카드 밖으로 넘친다), `bg T.kakao`, `color T.kakaoInk`, `radius 12`, `padding T.space.md/T.space.lg`, `minHeight 44`, `T.text.label`, Ionicons `chatbubble` 16 |
 
 CTA는 `PressableScale`로 감싼다 (`scaleTo` 기본 0.96, `haptic: 'light'`). 최소 터치 타겟 44pt를 지킨다.
 
@@ -170,6 +163,12 @@ accessibilityLabel={`${contact.name}에게 카카오톡으로 문의하기`}
 요소**라 버튼의 접근성 이름에 들어가지 않는다. 화면 읽기 사용자가 버튼 단위로 넘기면 **똑같은 버튼
 3개**로 읽혀 어느 방이 열리는지 알 수 없다 — 「사용자가 직접 지목한다」(D2)가 그 사용자에게만
 성립하지 않게 된다. §8.3에서 세 라벨이 서로 다른지 테스트한다.
+
+**아바타는 기존 컴포넌트를 베끼는 게 아니라 두 선례의 새 조합이다.** 크기 44는 `MemberTile`
+(`const AVATAR = 44`)에서 오지만 그건 `T.sand` 배경 + `CharacterImage`(마스코트)라 이니셜도
+팔레트도 안 쓴다. 이니셜 + `T.avatarPalette` 조합은 `GroupCardBack`의 `MemberAvatars`인데 거기는
+**36×36**이다. 즉 「44 + 팔레트 + 이니셜」을 한꺼번에 만족하는 기존 컴포넌트는 **없다** — 새로
+만드는 것이니 재사용을 찾다 시간을 쓰지 말 것.
 
 **색을 하드코딩하지 않는다** — `app/.claude/CLAUDE.md`의 Styling 규칙. `T.kakao`/`T.kakaoInk`가 이미 있으므로 카카오 브랜드색도 토큰으로 나온다.
 
@@ -199,13 +198,14 @@ accent 채움 + 흰 글자라 화면에서 가장 강한 요소가 되는데, �
 
 ## 5. `screens/settings/InquiryScreen.tsx` (신규)
 
-상태 3개뿐이다.
+상태 4개 + 요청 세대 ref 1개뿐이다. 서버가 없으므로 로딩·에러·캐시 상태가 아예 없다.
 
 ```ts
 const [category, setCategory] = useState<InquiryCategoryId | null>(null);
 const [target, setTarget] = useState<InquiryContact | null>(null);   // 모달 대상
 const [failed, setFailed] = useState(false);                          // 모달 실패 전환
 const [pending, setPending] = useState(false);                        // openURL 대기 중
+const reqIdRef = useRef(0);                                           // 요청 세대 — §5.4
 ```
 
 `target`과 `failed`는 **한 몸이다.** 아래 `closeModal()` 말고 다른 경로로 모달을 닫으면 안 된다(§5.4).
@@ -232,8 +232,11 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 ├── 안내 문단   무엇을 도와드릴까요? / 담당 개발자에게 카카오톡으로 직접 물어보실 수 있어요.
 ├── 「어떤 내용인가요?」 + InquiryCategoryChips
 ├── 「담당 개발자」 + ordered.map(c => <InquiryContactCard recommended={c.categoryId === category} …/>)
+│                (카드는 아바타+닉네임+키워드+CTA 세 줄 — 소개·응답시간 없음, D9 개정)
 └── 안내 박스   bg T.noteBg / border T.noteBorder / Ionicons information-circle
-                「카카오톡 앱으로 이동해요. 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.」
+                「카카오톡으로 이동해요 — 앱이 없으면 브라우저에서 열려요. / 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.」
+                (미설치 폴백은 D7이 정한 **정상 동작**이다. 「앱으로 간다」고만 적으면 브라우저가 열렸을 때
+                 사용자가 실패로 오해한다 — `prd.md` S-3)
 + ConfirmCardModal
 ```
 
@@ -254,6 +257,12 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 
 실패 상태에서만 `bodySelectable`을 켠다.
 
+**요청 중에는 「취소」를 노출하지 않는다.** 이미 디스패치된 `Linking.openURL`은 되돌릴 수 없어서,
+눌러도 카카오톡이 그대로 뜬다 — **취소가 아닌 것을 취소라고 부르지 않는다.**
+(`GroupSettingsScreen`·`GroupOwnerTransferScreen`이 쓰는 같은 패턴: `secondaryLabel={pending ? undefined : …}`)
+백드롭·Android 뒤로 가기는 **막지 않는다** — `openURL`이 영영 안 끝나는 경우 사용자가 모달에
+갇히기 때문이다. 그 경우 모달은 닫히지만 그건 「요청 취소」가 아니라 「화면에서 치움」이다.
+
 `ConfirmCardModal`의 제목·본문에는 `textAlign`이 없어 **왼쪽 정렬**이다(버튼 라벨만 가운데).
 문구를 가운데 정렬로 가정하고 줄바꿈을 넣지 말 것.
 
@@ -265,8 +274,9 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 
 ```ts
 const closeModal = useCallback(() => {
+  reqIdRef.current += 1;   // 진행 중이던 요청을 세대 교체로 폐기한다
   setTarget(null);
-  setFailed(false);   // ← 이걸 빼면 아래 버그가 난다
+  setFailed(false);        // ← 이걸 빼면 아래 버그가 난다
   setPending(false);
 }, []);
 ```
@@ -281,11 +291,13 @@ const handleConfirm = useCallback(async () => {
   if (!target || pending) return;   // 연타 차단 — 이벤트·openURL 중복 발화 방지
   setPending(true);
   const requested = target;         // 이 요청이 어느 담당자 것인지 고정
+  const myId = ++reqIdRef.current;  // 이 요청의 세대 — 같은 담당자를 다시 열어도 새 번호를 받는다
   // ⚠️ 분석 이벤트는 openURL **앞에서** 쏜다 — 뒤에서 쏘면 앱이 백그라운드로
   //    넘어가는 타이밍과 겹쳐 유실된다(high-level-design.md §3.1).
-  // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)에서는 쏘지 않는다 — 모달 1회당
-  //    최초 시도만 「선택」 1건이다. 아래 참조.
-  if (!failed) {
+  // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)는 쏘지 않는다 — 모달 1회당 최초 시도만
+  //    「선택」 1건이다. 단 **세션이 바뀐 뒤의 첫 재시도는 예외**다(아래 참조).
+  const startedNewSession = markViewed();
+  if (!failed || startedNewSession) {
     logInquiryContactOpened({
       category,
       contactId: requested.id,
@@ -293,11 +305,11 @@ const handleConfirm = useCallback(async () => {
     });
   }
   const ok = await openInquiryChat(requested.openChatUrl);
-  // ⚠️ await 사이에 사용자가 모달을 닫았거나(백드롭 탭·Android 뒤로 가기) 다른
-  //    담당자로 바꿨을 수 있다. 그때 도착한 결과는 **폐기한다** — 안 그러면
-  //    이미 닫힌 모달의 failed 가 다시 켜져, 다음에 누른 담당자의 모달이
-  //    곧바로 실패 화면으로 열린다.
-  if (targetRef.current !== requested) return;
+  // ⚠️ await 사이에 사용자가 모달을 닫았거나(백드롭 탭·Android 뒤로 가기), 혹은
+  //    닫았다 **같은 담당자** 카드를 다시 열었을 수 있다. 그때 도착한 결과는
+  //    **폐기한다** — 안 그러면 이미 닫힌 모달의 failed 가 다시 켜져, 다음에
+  //    누른 담당자의 모달이 곧바로 실패 화면으로 열린다.
+  if (reqIdRef.current !== myId) return;
   if (ok) closeModal();
   else {
     setFailed(true);
@@ -306,9 +318,18 @@ const handleConfirm = useCallback(async () => {
 }, [target, pending, failed, category, closeModal]);
 ```
 
-`targetRef`는 현재 `target`을 그대로 따라가는 `useRef`다 — 상태를 클로저로 읽으면 `await` **이전**
-값이 잡혀 이 검사가 무의미해진다. 요청 중에는 `ConfirmCardModal`의 기존 `primaryDisabled` prop에
-`pending`을 넘겨 버튼 연타도 함께 막는다(이미 있는 prop이라 §6.1의 추가 대상이 아니다).
+`reqIdRef`는 요청마다 1씩 올라가는 **세대 카운터**(`useRef(0)`)다.
+
+**객체 동일성 비교(`targetRef.current !== requested`)로 하면 안 된다 — 그건 버그다.**
+`INQUIRY_CONTACTS`는 모듈 최상단 `as const` 배열이라 원소가 앱 수명 내내 **같은 객체**다.
+그래서 「요청 중 모달을 닫고 → **같은 담당자** 카드를 다시 연다」 순서에서는 `requested`가 가리키던
+객체가 그대로여서 동일성 검사가 **그냥 통과하고**, 늦게 도착한 이전 요청의 결과가 새로 연 모달을
+닫거나 실패 상태로 만든다. 담당자를 **바꾸면** 걸러지는데 **같은 담당자면** 안 걸러지는 비대칭이라
+테스트도 담당자를 바꿔 짜면 통과해 버린다. 세대 번호는 요청마다 **항상 새 정수**를 받으므로 이
+비대칭이 없다 — `closeModal()`도 세대를 올려, 어떤 경로로 닫히든 이후 도착하는 결과는 전부 폐기된다.
+
+요청 중에는 `ConfirmCardModal`의 기존 `primaryDisabled` prop에 `pending`을 넘겨 버튼 연타도 함께
+막는다(이미 있는 prop이라 §6.1의 추가 대상이 아니다).
 
 성공 시 모달을 닫아 두는 이유: 카카오톡에서 돌아왔을 때 모달이 떠 있으면 「아직 안 갔나?」로 읽힌다.
 
@@ -319,11 +340,26 @@ const handleConfirm = useCallback(async () => {
 `failed` 상태에서의 호출은 정의상 재시도뿐이므로 그것만 건너뛰면 **모달 1회 = 선택 1건**이 성립한다.
 `closeModal()`이 `failed`를 리셋하니 다음에 카드를 다시 누르면 정상적으로 1건이 기록된다.
 
+**억제는 같은 세션 안에서만 한다.** 그리고 판단 기준은 **「이 호출이 세션을 열었는가」가 아니라
+「이 세션에 분자를 이미 줬는가」**다 — 세션 일련번호(`sessionSeq`)와 「분자를 발행한 세션 번호」
+(`openedAtSeq`)를 따로 들고 비교한다.
+
+⚠️ **전자로 하면 `AppState` 복귀가 신호를 먼저 삼킨다.** 실패 모달을 띄운 채 앱을 떠났다 30분 뒤
+돌아오면 리스너가 `markViewed()`를 먼저 호출해 노출을 쏘고 시각을 갱신하고, 그 직후 사용자가 누른
+「다시 시도」는 「내가 세션을 연 게 아니다」로 판단해 **실제 전환을 조용히 억제한다.** 아래 문단이
+막으려던 손실이 다른 경로로 그대로 재발한다.
+ 실패 모달을 30분 넘게 열어 뒀거나 앱을 백그라운드에 두고
+돌아와 「다시 시도」로 **실제 이동에 성공**하면, 새 세션에는 `markViewed()`가 쏜 노출(분모)만 남고
+이동(분자)이 없어 전환율이 낮아진다. `markViewed()`가 「노출을 새로 쐈는가」를 돌려주고, 그때는
+재시도라도 분자로 센다 — 새 세션에서는 그게 **그 세션의 첫 이동**이기 때문이다.
+
 ## 6. 기존 파일 수정
 
 ### 6.1 `components/ConfirmCardModal.tsx`
 
-**(1) 옵셔널 prop 1개 추가.** 기본값이 `undefined`(=미선택)라 기존 호출부 4곳은 손대지 않아도 그대로 동작한다.
+**(1) 옵셔널 prop 1개 추가.** 기본값이 `undefined`(=미선택)라 **기존 호출부 3곳**
+(`AccountScreen.tsx` · `GroupSettingsScreen.tsx` · `GroupOwnerTransferScreen.tsx`)은 손대지 않아도
+그대로 동작한다. `Toast.tsx`에도 이름이 나오지만 그건 렌더가 아니라 주석이다.
 
 ```ts
   /** 본문을 길게 눌러 복사할 수 있게 한다(링크 폴백 등) */
@@ -340,16 +376,22 @@ const handleConfirm = useCallback(async () => {
 수동 복구 경로**라, 여기서 버튼에 손이 닿지 않으면 사용자는 아무것도 할 수 없다.
 
 ```tsx
-  card: { …, maxHeight: '80%' },     // 스크림이 보여야 모달로 읽힌다
+  card: { …, maxHeight: '80%' },              // 스크림이 보여야 모달로 읽힌다
+  bodyScroll: { flexGrow: 0, flexShrink: 1 }, // ⚠️ flexShrink 가 핵심 — 아래 참조
   // 본문만 ScrollView 로 감싼다 — 버튼은 밖에 둬서 항상 눌린다
   <ScrollView style={s.bodyScroll} contentContainerStyle={s.bodyScrollInner}>
     <Text style={s.cardBody} selectable={bodySelectable}>{body}</Text>
   </ScrollView>
 ```
 
+**`flexShrink: 1`을 빠뜨리면 이 변경은 아무 일도 하지 않는다.** RN의 기본값은 `flexShrink: 0`이라,
+카드가 `maxHeight`에 걸려도 `ScrollView`는 내용 높이를 그대로 고집하고 **버튼을 카드 밖으로 밀어낸다** —
+정작 이 스크롤을 넣은 이유(작은 기기 + 큰 글자 배율)에서만 안 듣는 셈이다. `maxHeight`만 걸고
+끝내지 말 것.
+
 **버튼을 `ScrollView` 안에 넣지 말 것.** 스크롤해야 닿는 버튼은 「없는 버튼」과 같다 — 사용자는
 잘린 화면에서 아래에 뭐가 더 있는지 모른다. 짧은 본문에서는 `ScrollView`가 내용 높이만큼만
-차지하므로 기존 호출부 4곳의 겉모습은 변하지 않는다.
+차지하므로 위 3곳의 겉모습은 변하지 않는다 — 세 화면의 기존 테스트로 무회귀를 증명한다.
 
 ### 6.2 `navigation/types.ts`
 
@@ -426,14 +468,14 @@ export function logInquiryContactOpened(p: {
 부분집합」 전제가 깨지고 전환율이 100%를 넘는다.**
 
 ```ts
-// 마지막 발화 시각을 ref 로 들고, 활성 복귀 시 30분(GA4 기본 세션 타임아웃)이
-// 지났으면 다시 쏜다. 카카오톡에 잠깐 다녀온 것은 같은 세션이라 중복 발화하지 않는다.
-const lastViewedAt = useRef(0);
+// ⚠️ 재는 것은 「마지막으로 노출을 쏜 시각」이 아니라 **「마지막 활동 시각」**이다 —
+//    GA4 세션은 **어떤 이벤트로든** 연장되므로, 발화를 건너뛴 호출도 시각을 갱신해야 한다.
+const lastEventAt = useRef(0);
 const markViewed = () => {
   const now = Date.now();
-  if (now - lastViewedAt.current < 30 * 60 * 1000) return;
-  lastViewedAt.current = now;
-  logInquiryScreenViewed();
+  const sessionLikelyExpired = now - lastEventAt.current >= 30 * 60 * 1000;
+  lastEventAt.current = now;   // 발화 여부와 무관하게 항상 갱신
+  if (sessionLikelyExpired) logInquiryScreenViewed();
 };
 useEffect(() => {
   markViewed();
@@ -443,6 +485,18 @@ useEffect(() => {
 ```
 
 30분은 GA4 기본값이라 콘솔에서 세션 타임아웃을 바꾸면 이 상수도 같이 바꿔야 한다.
+
+**발화를 건너뛴 호출도 시각을 갱신해야 하는 이유.** 갱신하지 않으면: 0분 노출 → 20분 카테고리
+선택(건너뜀, 기준 시각은 0분 그대로) → 31분 담당자 확정에서 「30분 지났다」고 판단해 **노출을 다시
+쏜다.** 그런데 GA4에서는 20분 이벤트가 세션을 연장해 **여전히 같은 세션**이라, 한 세션에 분모가
+2번 잡혀 **전환율이 실제보다 낮게** 나온다. §8.3이 이 시나리오를 그대로 테스트한다.
+
+**이 가드가 못 잡는 것 두 가지** — 둘 다 분모 **과다** 계상(전환율이 낮아지는 방향)이라 「분자 ⊄ 분모」
+같은 구조 파괴는 아니지만, 수치를 볼 때 감안한다.
+- GA4가 30분 무입력 **외의 조건**(콘솔 설정 변경 등)으로 세션을 끊으면 이 로컬 재구현은 모른다.
+  착수 전 체크리스트에서 콘솔의 세션 설정을 한 번 확인한다.
+- 이 ref는 **이 화면 전용**이라, 다른 화면에서 이벤트가 나가 GA4 세션이 실제로는 이어지고 있어도
+  그 사실을 알지 못한다.
 
 **`AppState`만으로는 아직 새는 구멍이 있다 — 다른 이벤트를 쏘기 직전에도 `markViewed()`를 부른다.**
 자동 잠금을 꺼 둔 기기에서 이 화면을 **포그라운드에 그대로 둔 채** 30분이 지나면 GA4 세션은 만료되는데
@@ -471,6 +525,14 @@ const handleConfirm = async () => { …; markViewed(); if (!failed) logInquiryCo
 
 **서버(MP)에서 발행하지 않는다** — 백엔드가 이 기능을 모르므로 이중 집계 위험이 없다.
 
+**generic `screen_viewed`와 공존한다 — 중복 계측이 아니다.** PR #650(`GROMO-1194`)이 머지되면
+`RootNavigator`가 **모든 화면 전환마다** `screen_viewed`(`screen_name`)를 쏘므로, 이 화면은
+`screen_viewed`와 `inquiry_screen_viewed`를 둘 다 발행하게 된다. **오너 결정(2026-08-14): 둘 다 둔다.**
+이름과 파라미터가 달라 GA4에서 서로 덮어쓰지 않고, `inquiry_screen_viewed`는 generic이 갖지 못한
+두 가지를 갖는다 — `entry_point`(D11)와 **§6의 세션 경계 재발화**(generic은 화면 전환에만 붙으므로
+같은 화면에 머문 채 세션이 바뀌면 안 쏜다). 대시보드에서 둘을 보고 「실수로 두 번 쏜다」고 판단해
+한쪽을 지우지 말 것 — `prd.md` §5의 전환율은 `inquiry_screen_viewed`를 분모로 쓴다.
+
 ⚠️ `services/analytics.ts`의 `sanitizeParams`가 boolean을 `'true' | 'false'` 문자열로 변환한다
 (GA4 파라미터 값 통일 규약). 호출부는 `boolean`을 그대로 넘기면 되지만, **대시보드·탐색에서
 `is_recommended = true`를 boolean으로 필터하면 0건이 나온다.** `prd.md` §5의 추천 일치율이
@@ -478,17 +540,21 @@ const handleConfirm = async () => { …; markViewed(); if (!failed) logInquiryCo
 
 ## 8. 테스트
 
+> **이 repo는 `it(...)`이 아니라 `test(...)`를 쓰고, RTL v14라 `render`를 `await` 한다.**
+> 선례: `app/src/screens/settings/AccountScreen.test.tsx`.
+
 ### 8.1 `constants/inquiryContacts.test.ts` (신규)
 
 §1의 불변식을 그대로 검증한다. 이 테스트의 목적은 **담당자를 교체하다 계약을 깨는 것을 막는 것**이다 — 상수 파일은 OTA로 자주 손대는 파일이고, 손대는 사람이 IA 문서를 다시 읽지 않는다.
 
 ```ts
-it('카테고리마다 담당자가 정확히 1명이다', () => { … });
-it('오픈채팅 URL 이 https://open.kakao.com/o/… 다', () => { … });  // 호스트·경로까지(D7)
-it('오픈채팅 URL 이 서로 겹치지 않는다', () => { … });             // 복붙 사고 — D2·D3
-it('담당자 id 가 dev-{categoryId} 형태로 고정돼 있다', () => { … }); // GA4 계약 §7
-it('담당자 id 가 유일하다', () => { … });
-it('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
+test('카테고리마다 담당자가 정확히 1명이다', () => { … });
+test('오픈채팅 URL 이 https://open.kakao.com/o/… 다', () => { … });  // 호스트·경로까지(D7)
+test('오픈채팅 URL 이 서로 겹치지 않는다', () => { … });             // 복붙 사고 — D2·D3
+test('담당자 id 가 dev-{categoryId} 형태로 고정돼 있다', () => { … }); // GA4 계약 §7
+test('담당자 id 가 유일하다', () => { … });
+test('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
+test('오픈채팅 URL 에 자리표시자(TODO) 가 남아 있지 않다', () => { … });  // 형식 검사가 TODO 를 통과시킨다
 ```
 
 ### 8.2 `screens/settings/inquiryLink.test.ts` (신규)
@@ -496,9 +562,9 @@ it('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
 `Linking`을 모킹한다.
 
 ```ts
-it('openURL 성공 시 true', … );
-it('openURL 이 throw 하면 false — 예외가 밖으로 새지 않는다', … );
-it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규약을 잠근다
+test('openURL 성공 시 true', … );
+test('openURL 이 throw 하면 false — 예외가 밖으로 새지 않는다', … );
+test('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규약을 잠근다
 ```
 
 ### 8.3 `screens/settings/InquiryScreen.test.tsx` (신규)
@@ -506,11 +572,14 @@ it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규
 §5.4의 닫기 계약은 문서로만 두면 반드시 깨진다. 컴포넌트 테스트로 잠근다.
 
 ```ts
-it('실패 후 닫고 다른 담당자를 누르면 확인 모달이 뜬다', … );  // failed 누수 — 가장 중요
-it('요청 중에는 주 버튼이 비활성이다', … );                     // 연타 → 이벤트 중복
-it('요청 중 모달을 닫으면 늦게 온 실패 결과가 무시된다', … );   // 폐기된 요청
-it('「다시 시도」는 contact_opened 를 다시 쏘지 않는다', … );    // 모달 1회 = 선택 1건
-it('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // 담당자 구분
+test('실패 후 닫고 다른 담당자를 누르면 확인 모달이 뜬다', … );  // failed 누수 — 가장 중요
+test('요청 중에는 주 버튼이 비활성이다', … );                     // 연타 → 이벤트 중복
+test('요청 중 모달을 닫고 **같은 담당자**를 다시 열면 이전 결과가 새 모달을 안 건드린다', … );  // 세대 토큰
+test('재시도 진행 중에 닫으면, 늦게 온 재시도 결과도 폐기된다', … );  // 재시도는 failed 에서 출발해 경로가 다르다
+test('활동 없이 30분이 지난 뒤 복귀하면 노출을 다시 쏜다', … );        // AppState 배선
+test('이벤트를 쏘지 않은 호출도 기준 시각을 갱신한다', … );             // 같은 세션 분모 중복 방지
+test('「다시 시도」는 contact_opened 를 다시 쏘지 않는다', … );    // 모달 1회 = 선택 1건
+test('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // 담당자 구분
 ```
 
 ### 8.4 수동 QA (자동화 불가)
@@ -523,17 +592,23 @@ it('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // 담
 | Q4 | 확인 모달에 「gromo 서버에는 남지 않아요」가 있다 |
 | Q5 | **오픈채팅 링크 3개가 실제로 살아 있는 방으로 연결된다** — 앱이 감지 못 하는 실패라 릴리즈마다 수동 확인 (`high-level-design.md` §5) |
 | Q6 | 카카오톡 미설치 기기에서 브라우저로 열린다 |
-| Q7 | 기기 글자 크기를 최대로 해도 닉네임·성격 설명·CTA가 잘리지 않는다 |
+| Q7 | 기기 글자 크기를 최대로 해도 닉네임·키워드·CTA가 잘리지 않는다 |
 | Q8 | 작은 기기(iPhone SE)에서 카드 3장이 스크롤로 전부 도달 가능하다 |
-| Q9 | **iPhone SE + 글자 크기 최대 + 실패 모달**에서 URL이 스크롤로 전부 읽히고 「다시 시도」·「닫기」가 화면 안에 있다 (§6.1-(2)). **실패 모달은 유일한 수동 복구 경로**라 여기서 버튼에 손이 안 닿으면 사용자는 아무것도 못 한다 |
+| Q9 | **iPhone SE + 글자 크기 최대 + 실패 모달** (제목까지 스크롤 안에 들어간다)에서 URL이 스크롤로 전부 읽히고 「다시 시도」·「닫기」가 화면 안에 있다 (§6.1-(2)). **실패 모달은 유일한 수동 복구 경로**라 여기서 버튼에 손이 안 닿으면 사용자는 아무것도 못 한다 |
 | Q10 | 화면 읽기(VoiceOver/TalkBack)로 버튼을 넘길 때 CTA 3개가 **담당자 닉네임으로 구분되어** 읽힌다 |
+| Q11 | **`ConfirmCardModal` 기존 호출부 3곳의 겉모습이 안 바뀐다** — `AccountScreen` 탈퇴 확인 · `GroupSettingsScreen` 나가기 · `GroupOwnerTransferScreen` 넘기기. 레이아웃은 테스트가 못 잡는 축이라 **스크린샷 비교**로 확인한다 |
 
 Maestro E2E는 붙이지 않는다 — 흐름의 종착점이 앱 밖이라 검증할 수 있는 구간이 「모달이 뜬다」까지뿐이다.
 
 ## 9. 착수 전 체크리스트
 
-- [ ] 담당자 3명 **닉네임(활동명)** · 성격 설명 · 소개 문구 · 응답 시간 확정 (`policy.md` D10 — 실명이 아니라 노출 동의 절차 없음)
-- [ ] 카카오톡 1:1 오픈채팅방 3개 개설 + 영구 URL 확보 (`policy.md` D3)
+- [x] 담당자 3명 **닉네임(활동명)** 확정 — JAJO · 오스카 · Aiden (`policy.md` D10 — 실명이 아니다)
+- [ ] **키워드 3개씩 본인 확인** — **담당자 본인이 고른 표현이어야 한다.**
+      ⚠️ **이것은 배선 PR의 차단 조건이다.** 지금 상수에 든 값(특히 외모를 평가하는 낱말)은
+      본인 확인 전이고, 진입 경로가 등록되는 순간 공개된다. 화면 본체 PR은 라우트가 없어
+      노출이 0이지만, **`SettingsInquiry` 라우트와 `MenuScreen` 행을 추가하는 PR은
+      이 확인 없이 머지하지 않는다.** 남이 대신 정하면 D10에서 실명을 뺀 이유(공개 화면 · 되돌릴 수 없음 · 본인 동의)가 그대로 재현된다
+- [x] 카카오톡 1:1 오픈채팅방 3개 개설 + 영구 URL 확보 (`policy.md` D3) — **다만 살아 있는 방인지는 사람이 직접 열어봐야 안다(Q5)**
 - [ ] **오픈채팅 링크 운영 런북 합의** — 방별 책임자 · 주 1회 점검 · OTA 배포 전 확인 · 당일 복구 SLA (`high-level-design.md` §5.1)
 - [ ] **개인정보 처리 범위 확정 + 법무·개인정보 책임자 승인** (`policy.md` 미결) — 수집 주체 · 예상 입력 항목 · 카카오에서의 보존·삭제 경로 · 처리방침 반영 여부. **승인 없이 출시하지 않는다**
 - [ ] GA4 DebugView에서 이벤트 3개 수신 확인 — `is_recommended`가 문자열 `'true'`/`'false'`로 도착하는지 포함
