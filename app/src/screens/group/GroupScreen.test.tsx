@@ -1,6 +1,6 @@
 // GroupScreen 전이 테스트 — 명세 docs/app/group-plan.md §6-1·§6-6 + 3차 A-9(항상 목록 먼저).
 //
-// A-9 이후 GroupScreen은 소속 수와 무관하게 **항상 GroupListScreen을 먼저 렌더**하고,
+// GROMO-1571 이후 GroupScreen은 0건을 포함해 소속 수와 무관하게 **항상 GroupListScreen을 먼저 렌더**하고,
 // 목록 카드 탭·초대 참여·찾기 시트의 '참여 중' 행 탭은 전부
 // navigation.navigate('GroupRoom', { groupId })로 push 한다.
 // (이전의 '1건이면 그룹방 내장 렌더', showList·onBack·tempListOpen·BackHandler는 전부 제거됐다.)
@@ -10,7 +10,7 @@
 //     실패했을 때 예전 코드는 error=true만 세우고 에러 UI는 groups===null일 때만 그렸다 → 기존 []가
 //     남아 다시 '그룹 만들기' 빈 화면이 떴고, 사용자는 방금 만든 그룹을 또 만들었다(백엔드는 다중
 //     가입을 막지 않는다). 목록-우선 구조에서도 이 분리는 그대로 지켜져야 한다.
-//  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/빈 상태/에러+재시도 배선과,
+//  2) **어느 분기가 렌더되고 탭이 어디로 가는지** — 목록/에러+재시도 배선과,
 //     각 진입(목록 카드·초대·찾기 시트)에서 GroupRoom으로의 push.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
@@ -449,14 +449,14 @@ describe('group_viewed view episode', () => {
 });
 
 describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
-  // 3경로(생성·검색 참여·초대 참여) 모두 같은 요구를 갖는다: **빈 상태로 위장하지 않는다**.
+  // 3경로(생성·검색 참여·초대 참여) 모두 같은 요구를 갖는다: **0건 목록으로 위장하지 않는다**.
   // 위장하면 사용자가 방금 만든/참여한 그룹을 없는 것으로 보고 같은 동작을 또 한다.
-  test('생성 — 빈 화면이 아니라 에러+재시도를 세운다', async () => {
+  test('생성 — 0건 목록이 아니라 에러+재시도를 세운다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([]);
     await renderScreen();
-    expect(screen.getByText('함께 집중할 그룹을 만들어보세요')).toBeOnTheScreen();
+    expect(screen.getByText('목록 0건')).toBeOnTheScreen();
 
-    await press('그룹 만들기');
+    await press('목록-만들기');
     expect(mockNavigate).toHaveBeenCalledWith('GroupCreate');
 
     // 생성하고 돌아왔는데 목록 조회가 실패한다.
@@ -464,7 +464,7 @@ describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
     await refocus();
 
     expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
-    expect(screen.queryByText('함께 집중할 그룹을 만들어보세요')).toBeNull();
+    expect(screen.queryByText('목록 0건')).toBeNull();
 
     // 다시 시도로 회복하면 목록(항상 기본 화면)이 뜬다.
     mockGetMyGroups.mockResolvedValueOnce([summary()]);
@@ -472,17 +472,17 @@ describe('mutation 성공 뒤 재조회만 실패한 경우', () => {
     expect(await screen.findByText('목록 1건')).toBeOnTheScreen();
   });
 
-  test('검색 참여 — 빈 화면이 아니라 에러+재시도를 세운다', async () => {
+  test('검색 참여 — 0건 목록이 아니라 에러+재시도를 세운다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([]);
     await renderScreen();
 
-    await press('그룹 찾기');
-    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'empty' });
+    await press('목록-찾기');
+    expect(mockLogGroupFindOpened).toHaveBeenCalledWith({ entry_point: 'header' });
     mockGetMyGroups.mockRejectedValueOnce(new Error('network'));
     await press('찾기-참여완료');
 
     expect(screen.getByText('그룹을 불러오지 못했어요')).toBeOnTheScreen();
-    expect(screen.queryByText('함께 집중할 그룹을 만들어보세요')).toBeNull();
+    expect(screen.queryByText('목록 0건')).toBeNull();
   });
 
   test('초대 참여 — 빈 화면이 아니라 에러+재시도를 세운다', async () => {
@@ -519,12 +519,12 @@ describe('일반 재조회 실패', () => {
 
 // 목록 분기(A-9). 목록 본체가 아니라 **어느 분기가 렌더되고 탭이 어디로 가는지**만 잠근다.
 describe('목록 분기(0/1/N)', () => {
-  test('0건 — 빈 상태(목록이 아니다)', async () => {
+  test('0건 — 그룹 찾기 카드를 담는 목록이 기본 화면이다', async () => {
     mockGetMyGroups.mockResolvedValueOnce([]);
     await renderScreen();
 
-    expect(screen.getByText('함께 집중할 그룹을 만들어보세요')).toBeOnTheScreen();
-    expect(screen.queryByText('목록 0건')).toBeNull();
+    expect(screen.getByText('목록 0건')).toBeOnTheScreen();
+    expect(screen.queryByText('함께 집중할 그룹을 만들어보세요')).toBeNull();
   });
 
   test('1건 — 목록이 기본 화면이고 탭하면 GroupRoom으로 push 한다', async () => {

@@ -14,7 +14,6 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
-import { CharacterImage } from '@/components/character/CharacterImage';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -54,8 +53,7 @@ import { buildInviteShareMessage } from './inviteShare';
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
 //
 //   진입 → getMyGroups() → 실패 [에러+재시도]
-//                        / 0건      [빈 상태]
-//                        / 1건 이상 <GroupListScreen/> (항상 목록이 기본 화면)
+//                        / 성공 <GroupListScreen/> (0건도 그룹 찾기 카드가 있는 목록 화면)
 //
 // 3차 전까진 소속이 1건이면 그룹방을 이 화면에 내장 렌더했지만, A-9에서 **소속이 1개든
 // 여러 개든 항상 목록을 먼저 보여주는** 것으로 통일했다 — 목록 카드를 탭하면 소속 수와
@@ -90,8 +88,8 @@ export default function GroupScreen() {
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
-  // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
-  // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
+  // 전이 중에는 기존 0건 목록을 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
+  // (그러지 않으면 생성 성공 → GET 실패 시 다시 그룹 찾기 카드가 떠 같은 동작을 반복할 수 있다.)
   const [transitioning, setTransitioning] = useState(false);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
@@ -340,19 +338,19 @@ export default function GroupScreen() {
   );
 
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
-  // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 빈 상태로 떨어진다).
+  // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 0건 목록으로 돌아간다).
   const openCreate = useCallback(() => {
     setTransitioning(true);
     navigation.navigate('GroupCreate');
   }, [navigation]);
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
-  const openFind = useCallback((entryPoint: 'empty' | 'list' | 'header' | 'end_card') => {
+  const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
     logGroupFindOpened({ entry_point: entryPoint });
     setFindOpen(true);
   }, []);
 
-  // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
+  // 찾기 시트는 헤더·덱 마지막 카드 진입점에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
   const findSheet = findOpen ? (
     <GroupFindSheet
@@ -462,65 +460,32 @@ export default function GroupScreen() {
     );
   }
 
-  // ── 목록(1건 이상) — A-9: 소속 수와 무관하게 항상 목록이 기본 화면이다. ──
-  // 0건 판정은 아래 빈 상태가 맡으므로 여기 오면 최소 1건이다. 카드 탭 → onSelectGroup에서
-  // GroupRoom 라우트로 push 한다. 목록이 탭의 첫 화면이라 헤더 백버튼(onBack)은 두지 않는다.
-  if (myGroups.length > 0) {
-    return (
-      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        {staleNotice}
-        <GroupListScreen
-          groups={myGroups}
-          groupsRevision={groupsRevision}
-          isScreenFocused={isScreenFocused}
-          userId={userId}
-          onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
-          onCreate={openCreate}
-          onFind={(entryPoint) => openFind(entryPoint)}
-          onStartFocus={onStartGroupFocus}
-          onOpenSettings={onOpenGroupSettings}
-          onInvite={onInviteToGroup}
-          onRefresh={fetchGroups}
-          guideBlocked={findOpen || invite !== null}
-          guideScreenFocused={isScreenFocused}
-          guideEpisode={viewEpisodeRef.current.id}
-          groupEntry={viewEpisodeRef.current.source}
-          guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
-          guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
-          initialDeckViewportHeight={loadingDeckViewportHeight}
-        />
-        {findSheet}
-        {inviteSheet}
-      </SafeAreaView>
-    );
-  }
-
-  // ── 빈 상태 ──
+  // ── 목록(0건 이상) — 소속 수와 무관하게 항상 목록이 기본 화면이다. ──
+  // 0건이면 GroupListScreen이 그룹 카드 대신 그룹 찾기 카드 한 장을 그린다. 그룹 카드 탭은
+  // onSelectGroup에서 GroupRoom 라우트로 push 한다. 탭 첫 화면이므로 헤더 백버튼은 두지 않는다.
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       {staleNotice}
-      <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
-        <CharacterImage size={140} />
-        <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>
-        <Text style={s.desc}>그룹을 찾거나 직접 만들 수 있어요</Text>
-        <TouchableOpacity
-          style={s.primaryBtn}
-          activeOpacity={0.85}
-          onPress={openCreate}
-          testID="group.create.entry"
-        >
-          <Text style={s.primaryText}>그룹 만들기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={s.outlineBtn}
-          activeOpacity={0.85}
-          onPress={() => openFind('empty')}
-          testID="group.find.entry"
-        >
-          <Text style={s.outlineText}>그룹 찾기</Text>
-        </TouchableOpacity>
-      </View>
-
+      <GroupListScreen
+        groups={myGroups}
+        groupsRevision={groupsRevision}
+        isScreenFocused={isScreenFocused}
+        userId={userId}
+        onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
+        onCreate={openCreate}
+        onFind={(entryPoint) => openFind(entryPoint)}
+        onStartFocus={onStartGroupFocus}
+        onOpenSettings={onOpenGroupSettings}
+        onInvite={onInviteToGroup}
+        onRefresh={fetchGroups}
+        guideBlocked={findOpen || invite !== null}
+        guideScreenFocused={isScreenFocused}
+        guideEpisode={viewEpisodeRef.current.id}
+        groupEntry={viewEpisodeRef.current.source}
+        guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
+        guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
+        initialDeckViewportHeight={loadingDeckViewportHeight}
+      />
       {findSheet}
       {inviteSheet}
     </SafeAreaView>
@@ -562,31 +527,6 @@ const s = StyleSheet.create({
     marginBottom: T.space.xxl,
     textAlign: 'center',
   },
-  // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격 — 시트 CTA와도 반경이 맞는다)
-  primaryBtn: {
-    alignSelf: 'stretch',
-    minHeight: 52,
-    paddingVertical: T.space.md,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: T.accent,
-  },
-  primaryText: { ...T.text.subtitle, color: T.white },
-  outlineBtn: {
-    alignSelf: 'stretch',
-    minHeight: 52,
-    paddingVertical: T.space.md,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: T.space.md,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  outlineText: { ...T.text.subtitle, color: T.ink },
-
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹방·공지 화면과 같은 값을 쓴다(§G-4).
   // 화면 CTA(52/stretch)와 구분해 "조회 실패 복구"라는 역할을 규격으로 드러낸다.
   retryBtn: {

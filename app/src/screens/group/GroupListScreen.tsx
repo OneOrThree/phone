@@ -95,7 +95,8 @@ import {
 //               그룹 탭의 첫 화면이라 미전달(백버튼 없음)이 정상이다.
 //
 // 렌더는 SafeAreaView 없이 컨텐츠만 — 탭 셸(SafeAreaView·배경)은 GroupScreen이 감싼다.
-// 빈 배열은 다루지 않는다: 0건은 GroupScreen이 빈 상태로 가로채므로 여기 오지 않는다.
+// 빈 배열이면 헤더와 그룹 찾기 카드 한 장을 그대로 렌더한다. 0건도 목록 화면을 유지해야
+// 그룹 수에 따라 탭의 시작 화면이 바뀌지 않는다.
 
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
@@ -378,7 +379,9 @@ export default function GroupListScreen({
   const reorderBusy = holdingGroupId !== null || draggingGroupId !== null;
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
   const [activeAnchorGroupId, setActiveAnchorGroupId] = useState<string | null>(null);
-  const guideManaged = typeof userId === 'string';
+  // 카드가 없으면 안내할 대상도 없다. userId만으로 guide를 잠그면 0건의 유일한 찾기 카드가
+  // guide 판정을 영원히 기다리며 입력 불가가 된다.
+  const guideManaged = typeof userId === 'string' && groups.length > 0;
   const [guideInputReady, setGuideInputReady] = useState(!guideManaged);
   const [guideQueued, setGuideQueued] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
@@ -582,8 +585,8 @@ export default function GroupListScreen({
     wasScreenFocusedRef.current = isScreenFocused;
   }, [isScreenFocused]);
 
-  // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
-  // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
+  // 새로고침 중 다른 화면으로 이동하거나 계정 전환으로 이 화면이 사라질 수 있다 —
+  // 언마운트 뒤 setState를 막는다.
   useEffect(() => {
     guideVisibleRef.current = guideVisible;
   }, [guideVisible]);
