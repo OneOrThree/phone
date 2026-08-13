@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import GoalSettingStep from './GoalSettingStep';
 import { WEB_SCROLL_SETTLE_MS } from '@/components/DrumPickerCore';
+import { logOnboardingScreentimeViewed } from '@/services/analyticsEvents';
 import { INITIAL_ONBOARDING_DATA, type V2OnboardingData } from '@/screens/onboarding/types';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -16,6 +17,7 @@ jest.mock('@/components/DrumPicker', () => ({
 
 jest.mock('@/services/analyticsEvents', () => ({
   logOnboardingGoalSubmitted: jest.fn(),
+  logOnboardingScreentimeViewed: jest.fn(),
 }));
 
 const onNext = jest.fn();
@@ -70,4 +72,17 @@ test('웹에서 두 목표 시간을 고르면 다음 버튼이 활성화되어 
     fireEvent.press(screen.getByTestId('onboarding.cta'));
   });
   expect(onNext).toHaveBeenCalledTimes(1);
+});
+
+test('스크린타임 권한 승인 후 목표 설정에 진입하면 승인 퍼널 이벤트를 발행한다', async () => {
+  await render(
+    <GoalSettingStep
+      data={{ ...INITIAL_ONBOARDING_DATA, screenTimeGranted: true }}
+      update={jest.fn()}
+      onNext={jest.fn()}
+    />,
+  );
+
+  expect(logOnboardingScreentimeViewed).toHaveBeenCalledTimes(1);
+  expect(logOnboardingScreentimeViewed).toHaveBeenCalledWith({ has_data: true });
 });

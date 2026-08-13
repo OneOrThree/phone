@@ -252,7 +252,7 @@ flowchart TD
     FC["FocusCategoryStep.proceed"] --> A5["onboarding_focus_category_submitted"]
     PM["권한 요청 직전/직후"] --> A6["onboarding_permission_requested"]
     PM --> A7["onboarding_permission_resulted{granted}"]
-    ST["yesterday/denied 진입"] --> A8["onboarding_screentime_viewed{has_data}"]
+    ST["승인 후 목표 설정/거부 안내 진입"] --> A8["onboarding_screentime_viewed{has_data}"]
     GS["GoalSettingStep.onCta"] --> A9["onboarding_goal_submitted × 2<br/>goal_type: focus | usage"]
     NK["NicknameStep.onCta"] --> A10["onboarding_nickname_submitted (닉네임 값 미전송)"]
     FIN["finalize → 'ok' & isNewUser !== false"] --> A11["onboarding_completed + tutorial_complete"]

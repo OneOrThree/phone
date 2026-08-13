@@ -133,7 +133,7 @@ flowchart TD
 | 가입 수단 선택/실패 | `onboarding_signup_selected` / `_failed{reason}` | 온보딩 로그인에서만 발행 — 재로그인 화면은 미발행 |
 | 직군 선택 | `onboarding_focus_category_submitted` | |
 | 권한 요청·결과 | `onboarding_permission_requested` / `_resulted{granted}` | 권한 **획득률**의 정본 |
-| 스크린타임 요약 노출 | `onboarding_screentime_viewed{has_data}` | 거부 분기는 `has_data:false` |
+| 스크린타임 설정 결과 도달 | `onboarding_screentime_viewed{has_data}` | 승인 후 목표 설정은 `true`, 거부 안내는 `false` |
 | 목표 제출 | `onboarding_goal_submitted{goal_type,goal_minutes}` | 한 화면에서 focus·usage 2회 |
 | 닉네임 제출 | `onboarding_nickname_submitted` | |
 | **완주** | `onboarding_completed` (+ `tutorial_complete`) | **신규 유저만** — 기존 계정 재로그인은 미발행 |
