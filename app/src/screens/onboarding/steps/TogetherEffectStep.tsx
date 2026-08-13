@@ -16,6 +16,7 @@ export default function TogetherEffectStep({ onNext }: StepProps) {
     <StepScaffold
       testID="onboarding.step.together"
       center
+      scrollable
       header={
         <View style={s.illust}>
           <Image

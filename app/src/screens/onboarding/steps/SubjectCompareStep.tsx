@@ -14,7 +14,7 @@ const MILESTONES = [
     color: T.medal.gold,
     bg: T.paperAlt,
   },
-  { icon: 'diamond' as const, label: '시간조각', value: '+20', color: T.accent, bg: T.accentBg },
+  { icon: 'diamond' as const, label: '시간조각', value: '+42', color: T.accent, bg: T.accentBg },
 ];
 
 // 세 번째 가치 제안 — 집중이 끝난 뒤 실제로 남는 연속 공부·리그·시간조각을 한 장에 묶는다.
