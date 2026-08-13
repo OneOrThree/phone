@@ -40,9 +40,14 @@ class BotSeedScheduleTest {
 
     private static final String MIGRATION = "/db/migration/V48__league_bots.sql";
 
-    /** 검사 기간. 주간 판정이라 주 경계(월요일)에서 시작한다. */
+    /**
+     * 검사 기간. 주간 판정이라 주 경계(월요일)에서 시작한다.
+     *
+     * <p>1년을 보는 이유: 8주만 검사했더니 26주 뒤에 강등선을 밑도는 주가 남아 있었다(코드리뷰 반영).
+     * 생성량은 주마다 흔들리므로 짧게 보면 꼬리를 놓친다.
+     */
     private static final LocalDate FIRST_MONDAY = LocalDate.of(2026, 8, 10);
-    private static final int WEEKS = 8;
+    private static final int WEEKS = 52;
 
     /** 과목 수는 난수 소비 횟수에 영향을 주지 않으므로(항상 2회) 더미로 충분하다. */
     private static final List<UUID> DUMMY_TAGS = List.of(
@@ -155,12 +160,15 @@ class BotSeedScheduleTest {
         }
     }
 
+    /** 커버리지 검사는 분 단위 배열을 쓰므로 기간을 따로 잡는다(1년치는 메모리·시간이 과하다). */
+    private static final int COVERAGE_WEEKS = 8;
+
     @Test
     @DisplayName("24시간 어느 순간에도 집중 중인 봇이 최소 한 명은 있다")
     void someoneIsAlwaysFocusing() {
         // 콜드스타트의 핵심 전제다. 봇마다 독립적으로 스케줄을 뽑으므로 전체를 겹쳐 보지 않으면
         // 새벽처럼 활동이 옅은 시간대에 아무도 없는 구간이 생긴다(코드리뷰 반영).
-        int days = WEEKS * 7;
+        int days = COVERAGE_WEEKS * 7;
         int[] focusingAt = new int[(days + 2) * 24 * 60];
 
         for (SeededBot bot : bots) {

@@ -48,9 +48,4 @@ public enum BotStyle {
     public int restMinutes(double roll) {
         return minRestMinutes + (int) (roll * (maxRestMinutes - minRestMinutes));
     }
-
-    /** 남은 목표가 이 값보다 적으면 블록 하나를 더 열지 않고 그날을 끝낸다. */
-    public int minimumWorthwhileMinutes() {
-        return (int) (minBlockMinutes * 0.6);
-    }
 }

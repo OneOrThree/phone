@@ -1649,30 +1649,85 @@ ON CONFLICT (user_id) DO NOTHING;
 -- 남은 날만 기록하게 되어 상위 티어가 강등선을 못 채우고 통째로 내려앉는다 — 다음 주엔 다시
 -- 올라오므로 티어 분포가 한 주 무너지고 승급 보상까지 헛돈다 (코드리뷰 반영).
 --
--- 그래서 이번 주 월요일부터 오늘까지를 미리 채운다. 오늘 몫은 시뮬레이터가 오늘 쌓는 분과
--- 겹쳐 최대 8/7 이 되는데, 티어별 목표 상한을 그 배수로도 승급선을 넘지 않게 잡아 뒀다.
--- 월요일에 배포되면 오늘(월) 한 줄만 들어간다.
+-- 집계(daily_focus_stats)만 넣으면 /stats/focus 는 채워지는데 /stats/by-category 는
+-- 완료 세션을 직접 읽어 비어, 같은 기간의 총합과 과목별 합이 어긋난다 (코드리뷰 반영).
+-- 그래서 **세션을 먼저 넣고 집계를 거기서 파생**시켜 두 경로가 같은 원천을 보게 한다.
+--
+-- 오늘 몫은 시뮬레이터가 오늘 쌓는 분과 겹쳐 최대 8/7 이 되는데, 티어별 목표 상한을 그 배수로도
+-- 승급선을 넘지 않게 잡아 뒀다. 월요일에 배포되면 오늘(월) 하루만 들어간다.
+INSERT INTO focus_sessions (id, user_id, focus_tag_id, status, focus_type,
+                            started_at, ended_at, stat_end_at, total_distraction_seconds, created_at)
+SELECT md5('gromo-bot-sess-' || s.nickname || '-' || s.day || '-' || s.n)::uuid,
+       s.user_id,
+       s.focus_tag_id,
+       'COMPLETED',
+       'INFINITE',
+       s.started_at,
+       s.started_at + make_interval(mins => s.block_minutes),
+       s.started_at + make_interval(mins => s.block_minutes),
+       0,
+       now()
+FROM (
+    SELECT p.user_id,
+           u.nickname,
+           d.day::date AS day,
+           g.n,
+           plan.block_minutes,
+           -- 성향의 시작 시각에서 출발해 블록마다 35분 휴식을 끼워 늘어놓는다.
+           ((d.day::date)::timestamp
+                + make_interval(hours => CASE p.chronotype
+                                             WHEN 'DAWN' THEN 3
+                                             WHEN 'MORNING' THEN 8
+                                             WHEN 'AFTERNOON' THEN 13
+                                             ELSE 21
+                                         END)
+                + make_interval(mins => (g.n - 1) * (plan.block_minutes + 35))
+           ) AT TIME ZONE 'Asia/Seoul' AS started_at,
+           -- 봇이 채택한 과목을 블록마다 돌아가며 쓴다.
+           (SELECT t.id FROM user_focus_tags t
+             WHERE t.user_id = p.user_id AND t.deleted_at IS NULL
+             ORDER BY t.id
+             OFFSET (g.n - 1) % GREATEST(1, (SELECT count(*) FROM user_focus_tags t2
+                                              WHERE t2.user_id = p.user_id AND t2.deleted_at IS NULL))
+             LIMIT 1) AS focus_tag_id
+    FROM bot_profiles p
+    JOIN users u ON u.id = p.user_id
+    CROSS JOIN generate_series(
+            date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul'))::timestamp,
+            (now() AT TIME ZONE 'Asia/Seoul')::date::timestamp,
+            interval '1 day') AS d(day)
+    CROSS JOIN LATERAL (
+        SELECT daily.minutes,
+               GREATEST(1, ceil(daily.minutes / 80.0)::int) AS blocks,
+               GREATEST(15, (daily.minutes / GREATEST(1, ceil(daily.minutes / 80.0)::int))::int)
+                   AS block_minutes
+        FROM (SELECT (p.weekly_minutes / p.active_days
+                          * (80 + ('x' || substr(md5(u.nickname || d.day::date::text), 1, 2))::bit(8)::int
+                                  * 40 / 255)
+                          / 100) AS minutes) daily
+    ) plan
+    CROSS JOIN LATERAL generate_series(1, plan.blocks) AS g(n)
+    -- rest_day_mask 비트 0 = 월요일, ISODOW 는 1 = 월요일
+    WHERE (p.rest_day_mask & (1 << (EXTRACT(ISODOW FROM d.day)::int - 1))) = 0
+) s
+WHERE s.focus_tag_id IS NOT NULL
+ON CONFLICT (id) DO NOTHING;
+
+-- 집계는 방금 넣은 세션에서 그대로 파생시킨다 — 두 통계 경로가 어긋날 여지를 없앤다.
+-- 귀속 날짜는 시작 시각의 KST 날짜다(야간 블록이 자정을 넘겨도 시작일로 모은다).
 INSERT INTO daily_focus_stats (id, user_id, date, total_focus_seconds, total_distraction_seconds,
                                session_count, is_focus_time_goal_achieved, updated_at)
-SELECT md5('gromo-bot-dfs-' || u.nickname || '-' || d.day::date)::uuid,
-       u.id,
-       d.day::date,
-       -- 일평균에 80~120% 변동. 닉네임+날짜 해시라 재실행해도 같은 값이 나온다.
-       (p.weekly_minutes * 60 / p.active_days
-            * (80 + ('x' || substr(md5(u.nickname || d.day::date::text), 1, 2))::bit(8)::int * 40 / 255)
-            / 100),
-       0,
-       GREATEST(1, p.weekly_minutes / p.active_days / 45),
-       false,
-       now()
-FROM users u
-JOIN bot_profiles p ON p.user_id = u.id
-CROSS JOIN generate_series(
-        date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul'))::timestamp,
-        (now() AT TIME ZONE 'Asia/Seoul')::date::timestamp,
-        interval '1 day') AS d(day)
-WHERE u.is_bot
-  -- rest_day_mask 비트 0 = 월요일, ISODOW 는 1 = 월요일
-  AND (p.rest_day_mask & (1 << (EXTRACT(ISODOW FROM d.day)::int - 1))) = 0
+SELECT md5('gromo-bot-dfs-' || s.user_id::text || '-' || s.day)::uuid,
+       s.user_id, s.day, s.total_seconds, 0, s.sessions, false, now()
+FROM (
+    SELECT fs.user_id,
+           ((fs.started_at AT TIME ZONE 'Asia/Seoul')::date) AS day,
+           sum(EXTRACT(EPOCH FROM (fs.ended_at - fs.started_at)))::int AS total_seconds,
+           count(*)::int AS sessions
+    FROM focus_sessions fs
+    JOIN users u ON u.id = fs.user_id
+    WHERE u.is_bot AND fs.status = 'COMPLETED'
+    GROUP BY 1, 2
+) s
 ON CONFLICT (user_id, date) DO NOTHING;
 

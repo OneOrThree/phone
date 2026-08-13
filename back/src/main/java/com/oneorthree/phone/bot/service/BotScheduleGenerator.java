@@ -63,6 +63,15 @@ public class BotScheduleGenerator {
     private static final int LONG_BREAK_MIN_MINUTES = 40;
     private static final int LONG_BREAK_RANGE_MINUTES = 60;
 
+    /**
+     * 마지막에 남은 몫을 담는 꼬리 블록의 최소 길이(분).
+     *
+     * <p>스타일별 최소 블록(몰입형은 70분)을 못 채운다고 남은 몫을 통째로 버리면, 그 손실이 쌓여
+     * 주간 총량이 강등선 아래로 내려간다. "마지막으로 20분만 더 하고 마무리"는 사람도 하는 일이라
+     * 짧은 꼬리 블록을 허용한다(코드리뷰 반영).
+     */
+    private static final int MIN_TAIL_BLOCK_MINUTES = 15;
+
     /** 같은 과목을 이만큼 연속하면 다음 블록은 강제로 다른 과목이 된다. */
     private static final int MAX_SAME_SUBJECT_RUN = 2;
 
@@ -106,13 +115,17 @@ public class BotScheduleGenerator {
 
         while (spent < dailyMinutes && blocks.size() < MAX_BLOCKS) {
             int remaining = (int) dailyMinutes - spent;
-            if (remaining < style.minimumWorthwhileMinutes()) {
+            if (remaining < MIN_TAIL_BLOCK_MINUTES) {
                 break;
             }
             // 마지막 블록이 목표를 10분까지 넘는 건 둔다 — 분 단위로 딱 떨어지는 쪽이 오히려 부자연스럽다.
             int length = Math.min(style.blockMinutes(random.nextDouble()), remaining + 10);
             if (cursor + length > windowEnd) {
-                break;
+                // 창 끝에 걸렸다고 블록을 통째로 버리지 않고, 남은 창만큼만 앉는다.
+                length = windowEnd - cursor;
+                if (length < MIN_TAIL_BLOCK_MINUTES) {
+                    break;
+                }
             }
 
             blocks.add(new BotFocusBlock(cursor, cursor + length, focusTagIds.get(subjectIndex % focusTagIds.size())));
