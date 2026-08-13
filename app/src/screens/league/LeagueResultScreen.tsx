@@ -207,31 +207,31 @@ export default function LeagueResultScreen() {
           reportBonusShown();
           return;
         }
-        // 티어명 팝인
-        Animated.spring(nameAnim, {
-          toValue: 1,
-          friction: 5,
-          tension: 120,
-          useNativeDriver: true,
-        }).start();
-        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내
-        Animated.delay(200).start(({ finished: titleDelayFinished }) => {
-          if (!titleDelayFinished || cancelled) return;
+        // 티어명 팝 0.2초 뒤 타이틀 팝 → 하단 안내. 하나의 sequence로 묶어 단계 순서를
+        // 명시하고, 마지막 단계가 실제로 완료된 뒤 보상 노출을 기록한다.
+        Animated.sequence([
+          Animated.spring(nameAnim, {
+            toValue: 1,
+            friction: 5,
+            tension: 120,
+            useNativeDriver: true,
+          }),
+          Animated.delay(200),
           Animated.timing(titleAnim, {
             toValue: 1,
             duration: 420,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start(({ finished: titleFinished }) => {
-            if (!titleFinished || cancelled) return;
-            reportBonusShown();
-            Animated.spring(line3, {
-              toValue: 1,
-              friction: 5,
-              tension: 150,
-              useNativeDriver: true,
-            }).start();
-          });
+          }),
+          Animated.spring(line3, {
+            toValue: 1,
+            friction: 5,
+            tension: 150,
+            useNativeDriver: true,
+          }),
+        ]).start(({ finished: sequenceFinished }) => {
+          if (!sequenceFinished || cancelled) return;
+          reportBonusShown();
         });
       });
     });
