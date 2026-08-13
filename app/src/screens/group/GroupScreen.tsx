@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import {
+  Alert,
+  Platform,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { T } from '@/constants/theme';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
-import { CharacterImage } from '@/components/character/CharacterImage';
 import { tabBarSafeBottom } from '@/components/tabBarLayout';
 import { useUser } from '@/store/UserContext';
 import { getMyGroups } from '@/services/groupApi';
@@ -17,7 +25,12 @@ import {
   setGroupInviteListener,
   type PendingInvite,
 } from '@/navigation/navigationRef';
-import { logGroupFindOpened, logGroupViewed } from '@/services/analyticsEvents';
+import {
+  logGroupFindOpened,
+  logGroupInviteShared,
+  logGroupViewed,
+} from '@/services/analyticsEvents';
+import { issueInviteLink } from '@/services/inviteLinkApi';
 import type { GroupCountBucket } from '@/services/analyticsEvents';
 import {
   clearPendingGroupEntry,
@@ -28,20 +41,19 @@ import {
 import type { CardInteractionContext } from '@/services/cardInteraction';
 import GroupListScreen, {
   estimateGroupDeckViewportHeight,
-  GROUP_CARD_SURFACE_SCALE,
   resolveGroupCardHeight,
 } from './GroupListScreen';
 import { GROUP_CARD_FLIP_SAFE_INSET } from './components/GroupCardFlip';
 import { groupDeckCardWidth } from './groupDeckLayout';
 import GroupFindSheet from './components/GroupFindSheet';
 import GroupInviteSheet from './components/GroupInviteSheet';
+import { buildInviteShareMessage } from './inviteShare';
 
 // 그룹 탭 진입점 — 명세 docs/app/group-plan.md §6-1 + 2차 docs/app/group-plan-2.md §0·§3-1
 // + 3차 A-9(D22) "1개부터 목록 먼저". Fakedoor(GROMO-597)를 대체한다.
 //
 //   진입 → getMyGroups() → 실패 [에러+재시도]
-//                        / 0건      [빈 상태]
-//                        / 1건 이상 <GroupListScreen/> (항상 목록이 기본 화면)
+//                        / 성공 <GroupListScreen/> (0건도 그룹 찾기 카드가 있는 목록 화면)
 //
 // 3차 전까진 소속이 1건이면 그룹방을 이 화면에 내장 렌더했지만, A-9에서 **소속이 1개든
 // 여러 개든 항상 목록을 먼저 보여주는** 것으로 통일했다 — 목록 카드를 탭하면 소속 수와
@@ -72,12 +84,14 @@ export default function GroupScreen() {
   const [groups, setGroups] = useState<GroupSummaryResponse[] | null>(null);
   const [groupsRevision, setGroupsRevision] = useState(0);
   const [successfulListEpisode, setSuccessfulListEpisode] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  // useFocusEffect의 조회는 첫 렌더 뒤 시작된다. 초기값이 false면 서버 응답 전 한 프레임 동안
+  // groups=null을 0건 목록으로 오인해 자식의 카드 순서·이모지 저장값을 정리할 수 있다.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // mutation(생성·참여) 직후의 전이 중인가 — 성공한 mutation을 후속 GET 실패가 삼키지 않게 한다.
-  // 전이 중에는 기존 빈 상태를 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
-  // (그러지 않으면 생성 성공 → GET 실패 시 다시 '그룹 만들기' 빈 화면이 떠 같은 그룹을 또 만든다.)
+  // 전이 중에는 기존 0건 목록을 그대로 렌더하지 않고 로딩/에러+재시도를 세운다.
+  // (그러지 않으면 생성 성공 → GET 실패 시 다시 그룹 찾기 카드가 떠 같은 동작을 반복할 수 있다.)
   const [transitioning, setTransitioning] = useState(false);
 
   // ── 초대 링크 수신(§6-6) ──────────────────────────────────────────────
@@ -291,6 +305,31 @@ export default function GroupScreen() {
     [navigation],
   );
 
+  const onInviteToGroup = useCallback(async (groupId: string, groupName: string) => {
+    let issuedInvite: { slug: string; url: string };
+    try {
+      issuedInvite = await issueInviteLink(groupId);
+    } catch {
+      Alert.alert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해주세요.');
+      return;
+    }
+    try {
+      const result = await Share.share({
+        message: buildInviteShareMessage(groupName, issuedInvite.url),
+      });
+      if (result.action === Share.sharedAction) {
+        logGroupInviteShared({
+          share_method: 'share_sheet',
+          confirmed: Platform.OS === 'ios',
+          slug: issuedInvite.slug,
+          group_id: groupId,
+        });
+      }
+    } catch {
+      // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
+    }
+  }, []);
+
   // 찾기 시트의 '참여 중' 행 탭 — 참여가 아니라 이동이라 목록 카드 탭과 같은 분기(그룹방 push)를 탄다.
   const onOpenGroup = useCallback(
     (groupId: string) => {
@@ -301,19 +340,19 @@ export default function GroupScreen() {
   );
 
   // 그룹 만들기 진입 — 돌아왔을 때의 포커스 재조회를 전이로 취급한다.
-  // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 빈 상태로 떨어진다).
+  // 만들지 않고 돌아온 경우에도 손해는 없다(조회에 성공하면 그대로 0건 목록으로 돌아간다).
   const openCreate = useCallback(() => {
     setTransitioning(true);
     navigation.navigate('GroupCreate');
   }, [navigation]);
 
   const myGroups = useMemo(() => groups ?? [], [groups]);
-  const openFind = useCallback((entryPoint: 'empty' | 'list' | 'header' | 'end_card') => {
+  const openFind = useCallback((entryPoint: 'list' | 'header' | 'end_card') => {
     logGroupFindOpened({ entry_point: entryPoint });
     setFindOpen(true);
   }, []);
 
-  // 찾기 시트는 빈 상태·목록 두 분기에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
+  // 찾기 시트는 헤더·덱 마지막 카드 진입점에서 함께 쓴다 — 어느 쪽에서 열어도 같은 시트다.
   // 소속 판정 기준(groups)은 여기서 내려준다 — 시트가 따로 조회하면 부모와 스냅샷이 갈린다.
   const findSheet = findOpen ? (
     <GroupFindSheet
@@ -379,11 +418,7 @@ export default function GroupScreen() {
             }}
           >
             <View
-              style={[
-                s.skeletonCard,
-                s.cardSurfaceScale,
-                { width: groupDeckCardWidth(windowWidth) },
-              ]}
+              style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}
               testID="group.deck.skeleton.cardSurface"
             >
               <Skeleton
@@ -394,11 +429,7 @@ export default function GroupScreen() {
               />
             </View>
             <View
-              style={[
-                s.skeletonCard,
-                s.cardSurfaceScale,
-                { width: groupDeckCardWidth(windowWidth) },
-              ]}
+              style={[s.skeletonCard, { width: groupDeckCardWidth(windowWidth) }]}
               testID="group.deck.skeleton.peekSurface"
             >
               <Skeleton
@@ -431,64 +462,32 @@ export default function GroupScreen() {
     );
   }
 
-  // ── 목록(1건 이상) — A-9: 소속 수와 무관하게 항상 목록이 기본 화면이다. ──
-  // 0건 판정은 아래 빈 상태가 맡으므로 여기 오면 최소 1건이다. 카드 탭 → onSelectGroup에서
-  // GroupRoom 라우트로 push 한다. 목록이 탭의 첫 화면이라 헤더 백버튼(onBack)은 두지 않는다.
-  if (myGroups.length > 0) {
-    return (
-      <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
-        {staleNotice}
-        <GroupListScreen
-          groups={myGroups}
-          groupsRevision={groupsRevision}
-          isScreenFocused={isScreenFocused}
-          userId={userId}
-          onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
-          onCreate={openCreate}
-          onFind={(entryPoint) => openFind(entryPoint)}
-          onStartFocus={onStartGroupFocus}
-          onOpenSettings={onOpenGroupSettings}
-          onRefresh={fetchGroups}
-          guideBlocked={findOpen || invite !== null}
-          guideScreenFocused={isScreenFocused}
-          guideEpisode={viewEpisodeRef.current.id}
-          groupEntry={viewEpisodeRef.current.source}
-          guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
-          guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
-          initialDeckViewportHeight={loadingDeckViewportHeight}
-        />
-        {findSheet}
-        {inviteSheet}
-      </SafeAreaView>
-    );
-  }
-
-  // ── 빈 상태 ──
+  // ── 목록(0건 이상) — 소속 수와 무관하게 항상 목록이 기본 화면이다. ──
+  // 0건이면 GroupListScreen이 그룹 카드 대신 그룹 찾기 카드 한 장을 그린다. 그룹 카드 탭은
+  // onSelectGroup에서 GroupRoom 라우트로 push 한다. 탭 첫 화면이므로 헤더 백버튼은 두지 않는다.
   return (
     <SafeAreaView style={s.root} edges={['top']} testID="group.screen">
       {staleNotice}
-      <View style={[s.body, { paddingBottom: tabBarSafeBottom(insets.bottom) }]}>
-        <CharacterImage size={140} />
-        <Text style={s.title}>함께 집중할 그룹을 만들어보세요</Text>
-        <Text style={s.desc}>그룹을 찾거나 직접 만들 수 있어요</Text>
-        <TouchableOpacity
-          style={s.primaryBtn}
-          activeOpacity={0.85}
-          onPress={openCreate}
-          testID="group.create.entry"
-        >
-          <Text style={s.primaryText}>그룹 만들기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={s.outlineBtn}
-          activeOpacity={0.85}
-          onPress={() => openFind('empty')}
-          testID="group.find.entry"
-        >
-          <Text style={s.outlineText}>그룹 찾기</Text>
-        </TouchableOpacity>
-      </View>
-
+      <GroupListScreen
+        groups={myGroups}
+        groupsRevision={groupsRevision}
+        isScreenFocused={isScreenFocused}
+        userId={userId}
+        onSelect={(groupId, interaction) => onSelectGroup(groupId, 'group_card', interaction)}
+        onCreate={openCreate}
+        onFind={(entryPoint) => openFind(entryPoint)}
+        onStartFocus={onStartGroupFocus}
+        onOpenSettings={onOpenGroupSettings}
+        onInvite={onInviteToGroup}
+        onRefresh={fetchGroups}
+        guideBlocked={findOpen || invite !== null}
+        guideScreenFocused={isScreenFocused}
+        guideEpisode={viewEpisodeRef.current.id}
+        groupEntry={viewEpisodeRef.current.source}
+        guideDataReady={successfulListEpisode === viewEpisodeRef.current.id}
+        guideDataFailed={error && successfulListEpisode !== viewEpisodeRef.current.id}
+        initialDeckViewportHeight={loadingDeckViewportHeight}
+      />
       {findSheet}
       {inviteSheet}
     </SafeAreaView>
@@ -516,7 +515,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   skeletonCard: {},
-  cardSurfaceScale: { transform: [{ scale: GROUP_CARD_SURFACE_SCALE }] },
   body: {
     flex: 1,
     alignItems: 'center',
@@ -531,31 +529,6 @@ const s = StyleSheet.create({
     marginBottom: T.space.xxl,
     textAlign: 'center',
   },
-  // 화면 CTA = 52 / r16 (그룹 3화면 공통 규격 — 시트 CTA와도 반경이 맞는다)
-  primaryBtn: {
-    alignSelf: 'stretch',
-    minHeight: 52,
-    paddingVertical: T.space.md,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: T.accent,
-  },
-  primaryText: { ...T.text.subtitle, color: T.white },
-  outlineBtn: {
-    alignSelf: 'stretch',
-    minHeight: 52,
-    paddingVertical: T.space.md,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: T.space.md,
-    backgroundColor: T.white,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  outlineText: { ...T.text.subtitle, color: T.ink },
-
   // 인라인 재시도 = 48 / r16 / px xxl — 그룹방·공지 화면과 같은 값을 쓴다(§G-4).
   // 화면 CTA(52/stretch)와 구분해 "조회 실패 복구"라는 역할을 규격으로 드러낸다.
   retryBtn: {

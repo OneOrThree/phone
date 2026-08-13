@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import StepScaffold from '@/screens/onboarding/components/StepScaffold';
@@ -6,7 +6,10 @@ import { DurationDrumPicker } from '@/components/DurationDrumPicker';
 import { T } from '@/constants/theme';
 import { FOCUS_GOAL_MINUTES, USAGE_GOAL_MINUTES } from '@/constants/goals';
 import { formatDuration } from '@/screens/onboarding/format';
-import { logOnboardingGoalSubmitted } from '@/services/analyticsEvents';
+import {
+  logOnboardingGoalSubmitted,
+  logOnboardingScreentimeViewed,
+} from '@/services/analyticsEvents';
 import type { StepProps } from '@/screens/onboarding/types';
 
 // W12 · 목표 설정 — 하루 집중 목표(dailyFocusMinutes) + 하루 스크린타임 목표(usageGoalMinutes)를 한 화면에서.
@@ -43,6 +46,15 @@ export default function GoalSettingStep({ data, update, onNext }: StepProps) {
   // 피커는 기본 접힘 — 헤더 행을 탭하면 펼친다(추천 과목 섹션과 같은 방식, 애니메이션 없음).
   const [focusOpen, setFocusOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
+
+  // 권한 승인 사용자는 과거 전날 사용시간 화면에서 발행하던 스크린타임 퍼널 이벤트를
+  // 목표 설정 진입 시 이어서 발행한다. 거부 사용자는 직전 ScreenTimeDeniedStep이
+  // has_data:false를 발행하므로 여기서는 승인 경로만 처리한다.
+  useEffect(() => {
+    if (data.screenTimeGranted === true) {
+      logOnboardingScreentimeViewed({ has_data: true });
+    }
+  }, [data.screenTimeGranted]);
 
   return (
     <StepScaffold

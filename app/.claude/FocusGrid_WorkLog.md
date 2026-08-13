@@ -42,7 +42,7 @@
    - 매초 실제로 다시 그려지는 건 화면에 보이는 집중중 셀뿐.
 5. **안 보이는 페이지는 1초 시계를 세운다(`visible` prop).**
    - 캐릭터의 `AnimatedCharacter active={page === 0}`(코덱스 리뷰)과 같은 부류.
-   - **시간은 안 밀린다** — 표시값이 누적 카운터가 아니라 `base + (now − focusStartedAt)` 계산식이고, `useLiveFocusClock`이 `active` 진입 시 `setNow(Date.now())`를 즉시 1회 호출한다(`hooks/useLiveFocusClock.ts:9`). 다시 보이는 첫 프레임부터 정확한 값.
+   - **시간은 안 밀린다** — 표시값이 누적 카운터가 아니라 `base + (now − focusStartedAt)` 계산식이고, `useLiveFocusClock`이 `active` 진입 시 현재 시각을 즉시 1회 반영한다(`hooks/useLiveFocusClock.ts:36`). 다시 보이는 첫 프레임부터 정확한 값. (아래 GROMO-1572에서 이 훅이 공용 타이머 방식으로 바뀌었지만 이 성질은 그대로다.)
    - **서버 폴링은 게이팅하지 않는다.** 같이 끄면 페이지 진입 시 낡은 스냅샷이 잠깐 보인다.
 
 ---
@@ -125,6 +125,79 @@ jest        1876 passed / 152 suites (신규 5개 포함)
 - `pod install`/`xcodebuild` 없이 진행 — 변경이 JS 전용이라 **기존 시뮬에 설치된 Debug 빌드**에 Metro만 물렸다.
 - **8082·8083 모두 사용 중**(8082 = 본 체크아웃 Metro, 죽이면 안 됨) → **8085** 사용. `simctl spawn <sim> defaults write com.oneorthree.gromo RCT_jsLocation "localhost:8085"`, 끝나고 `defaults delete`로 원복.
 - 워크트리 파일 워처가 안 붙어 HMR 미동작 → 코드 수정마다 Metro 재시작 + `simctl terminate`/`launch` 필요(기존 메모와 동일).
+
+---
+
+## 후속 — 리그 랭킹 목록에 같은 처방 (GROMO-1572, 2026-08-13)
+
+- **브랜치**: `afix/GROMO-1572-league-ranking-render-perf` (off `main`)
+- **티켓**: [GROMO-1572](https://romance.atlassian.net/browse/GROMO-1572) (버그)
+- **진행 상황**: 코드 완료 · 자동 검증 통과 · **실기기/시뮬 체감 미검증**
+
+### 발단 — 같은 원인, 안 고쳐진 화면
+
+봇 190명(GROMO-1565) 투입 후 "리그 켜면 앱 전체가 굼뜬다"는 제보.
+위 작업(1566)이 집중 세션 그리드에 가상화·memo·공용 시계를 넣는 동안, **리그 탭의 랭킹 목록은 같은 처방을 하나도 받지 않았다.** 랭킹 행이 3개 → 100개가 되면서 그 격차가 드러났다.
+
+봇 이전엔 `visibleRanking`이 3명 수준이라 `listRows = visibleRanking.slice(3)`가 **0개**였다 — 4위 이하를 그리는 코드 경로가 실사용된 적이 없었다. GROMO-1570(랭킹 4위 이하 행 흰 화면)이 같은 시점에 터진 것도 같은 이유다.
+
+### 원인 (심한 순)
+
+1. **마감 카운트다운 1초 틱이 `useLeagueMeta` = 화면 루트 state** → 초당 1회 리그 화면 전체 리렌더. 아래 2·3의 비용에 매초 곱해진다. `HomeScreen`도 티어만 읽으려고 같은 훅을 써서 **홈 탭까지 매초 리렌더**되고 있었다.
+2. `rank={visibleRanking.indexOf(row) + 1}` → 행마다 배열 전체 탐색 = **O(N²)**. N=100이면 초당 ~9,700회 비교.
+3. `LiveFocusTime`이 행마다 `setInterval` 1개 → 집중 중인 행 수만큼 타이머. 이 그리드(1566)가 쓰는 "공용 시계 1개" 패턴이 랭킹 행엔 없었다.
+
+### 코드 변경
+
+#### `screens/league/components/LeagueDeadline.tsx` (신규)
+
+- 마감 카운트다운 state와 `fmtDeadline`을 `useLeagueMeta`에서 여기로 이관. **틱을 라벨 하나에 가둔다.**
+- 렌더 결과는 종전과 동일한 `<Text style={s.deadline} numberOfLines={1} maxFontSizeMultiplier={FIXED_BOX_FONT_SCALE_MAX}>` — 래퍼 뷰를 더하지 않아 헤더 레이아웃 회귀 없음.
+- `seconds` prop이 바뀌면(포커스 재조회) 기준을 다시 맞추고 인터벌을 재시작한다. 종전은 `hasDeadline` 토글에만 재시작했는데, 보이는 동작은 같고 재조회 값 반영이 더 정확하다.
+
+#### `screens/league/useLeagueMeta.ts`
+
+- `setInterval` · `deadlineLabel` · `fmtDeadline` 제거 → `{ tier, remainingSeconds, refetch }`만 반환.
+- 이 훅은 리그 화면·홈 탭·티어 가이드가 공유하므로, **틱을 여기서 빼는 것이 세 화면을 한 번에 고치는 지점**이다.
+
+#### `screens/league/LeagueScreen.tsx`
+
+- 헤더 마감 라벨 → `<LeagueDeadline seconds={remainingSeconds} style={s.deadline} />`.
+- `rank={pinnedOnly ? visibleRanking.indexOf(row) + 1 : i + 4}` — 기본 목록은 `slice(3)` 결과라 인덱스가 곧 자리 번호(i=0 → 4위). `indexOf`는 행 수가 핀 개수로 묶이는 핀 모드에만 남겼다.
+
+#### `hooks/useLiveFocusClock.ts`
+
+- 훅마다 만들던 `setInterval`을 **모듈 레벨 타이머 1개 + 구독자 Set**으로 교체.
+- 첫 구독자가 타이머를 켜고 마지막 구독자가 빠질 때 끈다 → `active=false`면 안 돈다는 성질 유지.
+- 구독 시점에 즉시 현재 시각을 반영 → 페이지 재진입 시 값이 밀리지 않는 성질(위 핵심 결정 5번)도 유지.
+- **이 그리드에도 함께 적용된다** — 같은 훅이라 페이지별 시계 1개 × 페이지 수가 앱 전체 1개로 줄었다.
+
+#### `hooks/useLiveFocusClock.test.ts` (신규)
+
+- `active=false`면 인터벌도 값 갱신도 없음
+- 구독자 3개여도 `setInterval` 1회 / 마지막 구독자가 빠질 때만 `clearInterval`
+- 늦게 구독해도 기존 구독자와 같은 시각을 잡음
+
+> ⚠️ 이 RNTL 버전은 `renderHook`도 **비동기**다(`Promise<RenderHookResult>`). `await` 없이 쓰면 `result`가 `undefined`다. 위 1566 메모의 `render` 비동기와 같은 부류.
+
+### 검증
+
+```
+typecheck   통과
+lint        0 errors (경고 2개는 미수정 파일의 기존 no-void)
+format      통과
+jest        1891 passed / 154 suites (신규 3개 포함)
+```
+
+- **시뮬/실기기 체감은 미측정.** 코드 레벨 검증만 끝난 상태.
+- 워크트리 `node_modules`는 이번엔 본 체크아웃(`~/phone/app/node_modules`) **심링크로 우회**했다 — JS 전용 검사(typecheck·lint·jest)만 돌려서 통했다. 1566 메모대로 reanimated 패치 버전이 갈릴 수 있으므로 **네이티브 빌드 전에는 반드시 심링크를 지우고 `npm install`** 할 것.
+
+### 범위 밖으로 남긴 것
+
+- `RankRow`/`RankRowShell` `memo` + 인라인 핸들러 안정화
+- 랭킹 목록 `ScrollView` + `map` → `FlatList` (이 그리드가 이미 한 전환) — 재정렬 애니메이션(`rankSwap`)·내 행 자동 스크롤(`onLayout` → `scrollTo`)을 다시 검증해야 해서 분리했다
+- 서버: `LeagueRankingQueryRepository.findRankOf`가 요청당 users 전체 집계를 2회 돌고 `league_rank_snapshot`을 읽지 않는 구조. 모수가 수백 행이라 **현재 체감의 원인은 아니다.**
+- 서버: `focus_sessions.ended_at` 인덱스 부재. 봇이 하루 ~700행씩 영구 증식하므로 시간이 갈수록 나빠진다.
 
 ---
 

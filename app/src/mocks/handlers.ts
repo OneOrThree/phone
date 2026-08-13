@@ -23,7 +23,7 @@ import {
   mockGroupSearch,
   mockMyGroups,
 } from './fixtures/groups';
-import { mockCurrentUserProfile, mockOccupations } from './fixtures/session';
+import { MOCK_GUEST_USER_ID, mockCurrentUserProfile, mockOccupations } from './fixtures/session';
 
 // 목킹할 요청의 경로 → 응답 매핑 테이블. 새 목이 필요하면 fixtures 에 데이터를 만들고 여기에 한 줄 추가.
 // url 은 baseURL 제외 상대 경로이며 query 는 config.params 로 분리돼 붙지 않는다.
@@ -54,6 +54,8 @@ const GROUP_OVERVIEW_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/overview$/;
 const GROUP_ANNOUNCEMENTS_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/announcements$/;
 const GROUP_CHALLENGES_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenges$/;
 const GROUP_CHALLENGE_HISTORY_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/challenge-history$/;
+const GROUP_INVITE_LINK_PATH = /^\/api\/v1\/groups\/([0-9a-fA-F-]+)\/invite-link$/;
+const MOCK_EQUIPMENT_PATH = new RegExp(`^/api/v1/equipment/${MOCK_GUEST_USER_ID}$`);
 
 function groupPathId(pattern: RegExp, url: string | undefined): string {
   return pattern.exec(url ?? '')?.[1] ?? '';
@@ -86,6 +88,12 @@ export const handlers: MockHandler[] = [
     matches: (url) => url === '/api/v1/users/me/screen-time-permission',
     status: 204,
     respond: () => undefined,
+  },
+  { method: 'get', matches: (url) => url === '/api/v1/currency', respond: () => 500 },
+  {
+    method: 'get',
+    matches: (url) => MOCK_EQUIPMENT_PATH.test(url),
+    respond: () => [],
   },
   {
     method: 'patch',
@@ -131,6 +139,18 @@ export const handlers: MockHandler[] = [
     method: 'get',
     matches: (url) => GROUP_DETAIL_PATH.test(url),
     respond: (config) => mockGroupDetail(groupPathId(GROUP_DETAIL_PATH, config.url), config),
+  },
+  {
+    method: 'post',
+    matches: (url) => GROUP_INVITE_LINK_PATH.test(url),
+    respond: (config) => {
+      const groupId = groupPathId(GROUP_INVITE_LINK_PATH, config.url);
+      const slug = 'ab23cd45';
+      return {
+        slug,
+        url: `https://link.oneorthree.world/l/${slug}?g=${groupId}`,
+      };
+    },
   },
   { method: 'get', matches: (url) => url === '/api/v1/pins', respond: () => mockPinnedFriends() },
   { method: 'get', matches: (url) => url === '/api/v1/friends', respond: () => mockFriends() },

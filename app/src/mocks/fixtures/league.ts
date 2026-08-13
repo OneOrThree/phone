@@ -86,6 +86,28 @@ export function mockArenaRanking(config: InternalAxiosRequestConfig): LeagueMemb
       focusStartedAt: null,
       focusTagName: null,
     },
+    {
+      rank: 6,
+      userId: '00000000-0000-0000-0000-000000000106',
+      nickname: '민트초코',
+      tierLevel: 2,
+      totalFocusSeconds: 14400,
+      isFocusing: true,
+      focusTimeMinutes: 75,
+      focusStartedAt: minutesBeforeLoad(17),
+      focusTagName: '영어',
+    },
+    {
+      rank: 7,
+      userId: '00000000-0000-0000-0000-000000000107',
+      nickname: '한걸음씩',
+      tierLevel: 3,
+      totalFocusSeconds: 12600,
+      isFocusing: true,
+      focusTimeMinutes: 55,
+      focusStartedAt: minutesBeforeLoad(31),
+      focusTagName: null,
+    },
   ];
 }
 

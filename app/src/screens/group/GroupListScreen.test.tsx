@@ -189,6 +189,48 @@ beforeEach(async () => {
 afterEach(() => jest.useRealTimers());
 
 describe('카드 렌더', () => {
+  test('0건도 내 그룹 화면과 찾기 카드 한 장을 렌더하고 입력을 허용한다', async () => {
+    await renderList([], undefined, 'user-1');
+
+    await waitFor(() => expect(screen.getByTestId('group.list.items')).toBeOnTheScreen());
+
+    expect(screen.getByText('내 그룹')).toBeOnTheScreen();
+    expect(screen.getByTestId('group.list.items').props.data).toEqual([]);
+    expect(
+      screen.getAllByTestId('group.deck.findMore', { includeHiddenElements: true }),
+    ).toHaveLength(1);
+    expect(screen.getByTestId('group.deck.findMoreStage')).toHaveStyle({ marginLeft: 0 });
+    expect(screen.getByTestId('group.deck.guideAnchor').props.pointerEvents).toBe('auto');
+
+    await press('group.deck.findMore');
+    expect(onFind).toHaveBeenCalledWith('end_card');
+  });
+
+  test('0건에서 첫 그룹 가입 후 새 그룹 카드를 첫 페이지로 복원한다', async () => {
+    const props = {
+      groups: [] as GroupSummaryResponse[],
+      groupsRevision: 1,
+      userId: 'user-1',
+      onSelect,
+      onCreate,
+      onFind,
+      onRefresh,
+    };
+    const view = await render(<GroupListScreen {...props} />);
+    await waitFor(() => expect(screen.getByTestId('group.list.items').props.data).toEqual([]));
+
+    await view.rerender(<GroupListScreen {...props} groups={[group()]} groupsRevision={2} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('group.list.items').props.data).toEqual([group()]),
+    );
+    expect(screen.getByTestId('group.deck.indicator.counter')).toHaveTextContent('1 / 2');
+    expect(screen.getByTestId(`group.list.card.${GROUP_ID}`)).toHaveProp(
+      'importantForAccessibility',
+      'auto',
+    );
+  });
+
   test('안내 중 blocking overlay가 생긴 render에서는 가이드 Modal을 즉시 내린다', async () => {
     resetGroupDeckGuideSessionForTests();
     await AsyncStorage.removeItem(STORAGE_KEYS.guideGroupDeck);
@@ -264,7 +306,7 @@ describe('카드 렌더', () => {
     expect(
       screen.getAllByText('저녁 스터디', { includeHiddenElements: true }).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText('4/5', { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getAllByText('4/5', { includeHiddenElements: true }).length).toBeGreaterThan(0);
     expect(screen.getByTestId(`group.card.front.${GROUP_ID}`)).toHaveStyle({
       shadowOpacity: 0.16,
       elevation: 5,
@@ -694,9 +736,10 @@ describe('콜백', () => {
     expect(screen.getByTestId(`group.card.flipSurface.${GROUP_ID}`)).toHaveStyle({
       height: expectedHeight,
     });
-    expect(screen.getByTestId(`group.card.reorderSurface.${GROUP_ID}`)).toHaveStyle({
-      transform: [{ scale: 0.97 }],
-    });
+    expect(
+      StyleSheet.flatten(screen.getByTestId(`group.card.reorderSurface.${GROUP_ID}`).props.style)
+        ?.transform,
+    ).toBeUndefined();
     expect(screen.getByTestId('group.deck.findMore', { includeHiddenElements: true })).toHaveStyle({
       minHeight: expectedHeight,
     });
@@ -764,10 +807,10 @@ describe('제스처 중재와 재정렬', () => {
     const responderEvent = panResponderEvent();
 
     expect(grip.props.onStartShouldSetResponder?.(responderEvent)).toBe(true);
-    expect(grip.props.onResponderTerminationRequest?.(responderEvent)).toBe(false);
     await act(async () => {
       grip.props.onResponderGrant?.(responderEvent);
     });
+    expect(grip.props.onResponderTerminationRequest?.(responderEvent)).toBe(false);
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(false);
     expect(screen.getByTestId(`group.card.gripProgress.${GROUP_ID}`)).not.toHaveStyle({
       opacity: 0,
@@ -855,6 +898,29 @@ describe('제스처 중재와 재정렬', () => {
     expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
     expect(hapticMedium).not.toHaveBeenCalled();
     jest.useRealTimers();
+    panSpy.mockRestore();
+  });
+
+  test('활성화 전 slop을 넘기면 부모 덱이 같은 터치의 스와이프를 이어받는다', async () => {
+    const panSpy = mockDirectPanResponder();
+    jest.useFakeTimers();
+    await renderList([group(), group({ groupId: GROUP_ID_2, name: '저녁 스터디' })]);
+    const grip = screen.getByTestId(`group.card.grip.${GROUP_ID}`);
+    const responderEvent = panResponderEvent();
+
+    await act(async () => {
+      grip.props.onResponderGrant?.(responderEvent);
+    });
+    expect(grip.props.onResponderTerminationRequest?.(responderEvent)).toBe(false);
+
+    await act(async () => {
+      grip.props.onResponderMove?.(responderEvent, { dx: 13, dy: 0, ...INSIDE_DECK });
+    });
+
+    expect(grip.props.onResponderTerminationRequest?.(responderEvent)).toBe(true);
+    expect(screen.getByTestId('group.list.items').props.scrollEnabled).toBe(true);
+    expect(screen.queryByTestId(`group.card.dragOverlay.${GROUP_ID}`)).toBeNull();
+    expect(hapticMedium).not.toHaveBeenCalled();
     panSpy.mockRestore();
   });
 

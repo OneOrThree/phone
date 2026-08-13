@@ -47,6 +47,15 @@ public class User {
     @Builder.Default
     private boolean isGuest = false;
 
+    // 리그 콜드스타트용 스크립트 유저 여부 (GROMO-1565, migration V48).
+    // 리그 랭킹·친구 검색에는 실유저와 똑같이 노출되고, 이 플래그는 실유저 통계를 분리하거나
+    // 나중에 봇을 회수할 때 대상을 특정하는 근거로만 쓴다. 성향은 bot_profiles 가 들고 있다.
+    // columnDefinition 으로 DB default 를 주는 이유는 stat_visibility(v22) 선례와 같다 —
+    // ddl-auto=update 환경에서 마이그레이션 선적용 없이 배포돼도 기존 row ALTER 가 실패하지 않는다.
+    @Column(name = "is_bot", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean isBot = false;
+
     private String nickname;
 
     @Column(name = "country_code")
