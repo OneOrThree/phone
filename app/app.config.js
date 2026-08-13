@@ -61,7 +61,7 @@ export default {
     ],
     slug: 'gromo-kr',
     scheme: 'gromo',
-    version: '1.0.1',
+    version: '1.1.0',
     // 앱 전역은 세로. 안드로이드 prebuild가 매니페스트를 세로로 잠그도록 top-level은 'portrait'로
     // 둔다('default'는 안드로이드를 screenOrientation="unspecified"로 풀어버림, 코덱스 리뷰).
     // iOS만 집중 화면(GROMO-973)에서 가로가 필요한데, 아래 ios.infoPlist.UISupportedInterfaceOrientations를
@@ -127,7 +127,7 @@ export default {
       // Play 는 같은 versionCode 재업로드를 거부한다 — 네이티브 버전(expo-audio 포함)을 새로
       // 올리려면 versionName 과 함께 반드시 올릴 것. iOS 는 fastlane 이 빌드번호를 자동 증가시키지만
       // Android 는 자동화가 없어 이 값이 유일한 출처다(android/app/build.gradle 과 동기 유지).
-      versionCode: 2,
+      versionCode: 3,
     },
     web: {
       bundler: 'metro',
