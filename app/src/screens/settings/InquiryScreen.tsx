@@ -166,7 +166,8 @@ export default function InquiryScreen() {
       <View style={s.note}>
         <Ionicons name="information-circle-outline" size={16} color={T.accentDeep} />
         <Text style={s.noteText}>
-          카카오톡 앱으로 이동해요. 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.
+          카카오톡으로 이동해요 — 앱이 없으면 브라우저에서 열려요.{'\n'}24시간 응대는 어려워 답장이
+          하루 이틀 걸릴 수 있어요.
         </Text>
       </View>
 
@@ -187,7 +188,11 @@ export default function InquiryScreen() {
         primaryDisabled={pending}
         // 실패 상태에서만 켠다 — 본문의 URL이 유일한 수동 복구 경로다(policy.md D7).
         bodySelectable={failed}
-        secondaryLabel={failed ? '닫기' : '취소'}
+        // ⚠️ 요청 중에는 「취소」를 노출하지 않는다 — 이미 디스패치된 openURL 은 되돌릴 수
+        //    없어서, 눌러도 카카오톡이 그대로 뜬다. 취소가 아닌 것을 취소라고 부르지 않는다.
+        //    (GroupSettingsScreen·GroupOwnerTransferScreen 이 쓰는 같은 패턴)
+        //    백드롭·뒤로 가기는 막지 않는다 — openURL 이 영영 안 끝나면 갇히기 때문이다.
+        secondaryLabel={pending ? undefined : failed ? '닫기' : '취소'}
         onSecondary={closeModal}
         onRequestClose={closeModal}
         testID="inquiry.confirm"

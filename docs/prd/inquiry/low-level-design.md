@@ -234,7 +234,9 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 ├── 「담당 개발자」 + ordered.map(c => <InquiryContactCard recommended={c.categoryId === category} …/>)
 │                (카드는 아바타+닉네임+키워드+CTA 세 줄 — 소개·응답시간 없음, D9 개정)
 └── 안내 박스   bg T.noteBg / border T.noteBorder / Ionicons information-circle
-                「카카오톡 앱으로 이동해요. 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.」
+                「카카오톡으로 이동해요 — 앱이 없으면 브라우저에서 열려요. / 24시간 응대는 어려워 답장이 하루 이틀 걸릴 수 있어요.」
+                (미설치 폴백은 D7이 정한 **정상 동작**이다. 「앱으로 간다」고만 적으면 브라우저가 열렸을 때
+                 사용자가 실패로 오해한다 — `prd.md` S-3)
 + ConfirmCardModal
 ```
 
@@ -254,6 +256,12 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 | 실패 | `카카오톡을 열 수 없어요` | `아래 주소를 길게 눌러 복사한 뒤 브라우저에서 열어 주세요.\n\n{openChatUrl}` | `다시 시도` | `닫기` |
 
 실패 상태에서만 `bodySelectable`을 켠다.
+
+**요청 중에는 「취소」를 노출하지 않는다.** 이미 디스패치된 `Linking.openURL`은 되돌릴 수 없어서,
+눌러도 카카오톡이 그대로 뜬다 — **취소가 아닌 것을 취소라고 부르지 않는다.**
+(`GroupSettingsScreen`·`GroupOwnerTransferScreen`이 쓰는 같은 패턴: `secondaryLabel={pending ? undefined : …}`)
+백드롭·Android 뒤로 가기는 **막지 않는다** — `openURL`이 영영 안 끝나는 경우 사용자가 모달에
+갇히기 때문이다. 그 경우 모달은 닫히지만 그건 「요청 취소」가 아니라 「화면에서 치움」이다.
 
 `ConfirmCardModal`의 제목·본문에는 `textAlign`이 없어 **왼쪽 정렬**이다(버튼 라벨만 가운데).
 문구를 가운데 정렬로 가정하고 줄바꿈을 넣지 말 것.

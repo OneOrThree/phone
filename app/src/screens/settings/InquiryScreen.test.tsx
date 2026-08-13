@@ -185,6 +185,21 @@ describe('InquiryScreen — 진행 중 요청', () => {
     expect(screen.queryByText('카카오톡으로 이동할까요?')).toBeNull();
   });
 
+  // 이미 디스패치된 openURL 은 되돌릴 수 없다 — 「취소」를 눌러도 카카오톡이 그대로 뜬다.
+  // 취소가 아닌 것을 취소라고 부르지 않는다(백드롭은 탈출구로 남긴다).
+  test('요청 중에는 「취소」 버튼을 노출하지 않는다', async () => {
+    mockOpenInquiryChat.mockReturnValueOnce(new Promise<boolean>(() => {}));
+    await render(<InquiryScreen />);
+
+    await openConfirm(FOCUS.id);
+    expect(screen.getByTestId('inquiry.confirm.secondary')).toBeOnTheScreen();
+
+    await press('inquiry.confirm.primary'); // 응답이 오지 않는 요청
+    expect(screen.queryByTestId('inquiry.confirm.secondary')).toBeNull();
+    // 백드롭은 남는다 — openURL 이 영영 안 끝나면 갇히기 때문이다.
+    expect(screen.getByTestId('inquiry.confirm.backdrop')).toBeOnTheScreen();
+  });
+
   test('요청 중에는 주 버튼이 비활성이다 — 연타해도 요청·이벤트가 늘지 않는다', async () => {
     mockOpenInquiryChat.mockReturnValueOnce(new Promise<boolean>(() => {}));
     await render(<InquiryScreen />);

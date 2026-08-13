@@ -44,6 +44,11 @@ const s = StyleSheet.create({
     backgroundColor: T.white,
     borderWidth: 1.5,
     borderColor: T.border,
+    // ⚠️ flexWrap 은 **칩 사이**를 줄바꿈할 뿐 칩 **안**을 줄이지 못한다. 320pt + 최대 글자
+    //    배율에서 「집중 · 스크린타임」의 고유 너비가 본문 폭을 넘으면 칩 오른쪽이 화면 밖으로
+    //    잘려 읽지도 누르지도 못한다. 폭을 제한하고 라벨이 그 안에서 줄바꿈되게 한다.
+    maxWidth: '100%',
+    flexShrink: 1,
   },
   // ⚠️ 선택 상태만 출처가 다르다(ChallengeComposeSheet의 s.chipOn·s.chipTextOn) — 의도한 것이다.
   //    OccupationScreen의 선택 상태는 accent 채움 + 흰 글자라 화면에서 가장 강한 요소가 되는데,
