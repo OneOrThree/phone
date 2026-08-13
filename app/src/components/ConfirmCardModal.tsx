@@ -1,4 +1,4 @@
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T, withAlpha } from '@/constants/theme';
 
 // 공용 확인 카드 모달 — 네이티브 Alert를 대체하는 앱 컨셉 다이얼로그(GROMO-1210).
@@ -14,6 +14,8 @@ interface ConfirmCardModalProps {
   onPrimary: () => void;
   /** 주 버튼 비활성(요청 진행 중 등) */
   primaryDisabled?: boolean;
+  /** 본문을 길게 눌러 복사할 수 있게 한다(링크 폴백 등 — 본문에 URL이 들어가는 경우) */
+  bodySelectable?: boolean;
   /** 파괴적 동작 — 주 버튼을 위험색(accentAlt)으로 */
   destructive?: boolean;
   secondaryLabel?: string;
@@ -31,6 +33,7 @@ export default function ConfirmCardModal({
   primaryLabel,
   onPrimary,
   primaryDisabled,
+  bodySelectable,
   destructive,
   secondaryLabel,
   onSecondary,
@@ -48,7 +51,17 @@ export default function ConfirmCardModal({
         />
         <View style={s.card} testID={testID}>
           <Text style={s.cardTitle}>{title}</Text>
-          <Text style={s.cardBody}>{body}</Text>
+          {/* 본문만 스크롤시킨다 — 버튼은 이 바깥이라 항상 화면 안에 남는다.
+              스크롤해야 닿는 버튼은 「없는 버튼」과 같다(작은 기기 + 최대 글자 배율). */}
+          <ScrollView
+            style={s.bodyScroll}
+            contentContainerStyle={s.bodyScrollInner}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={s.cardBody} selectable={bodySelectable}>
+              {body}
+            </Text>
+          </ScrollView>
           <TouchableOpacity
             style={[
               destructive ? s.dangerBtn : s.primaryBtn,
@@ -84,6 +97,9 @@ const s = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 360,
+    // 본문이 길거나(폴백 URL 등) 글자 배율이 크면 카드가 화면 밖까지 자란다 —
+    // 그러면 버튼이 밀려나 유일한 복구 경로에 손이 닿지 않는다. 스크림이 보이도록 80%로 제한.
+    maxHeight: '80%',
     backgroundColor: T.paperLight,
     borderWidth: 1,
     borderColor: T.paperAlt,
@@ -93,6 +109,12 @@ const s = StyleSheet.create({
     paddingBottom: T.space.md,
   },
   cardTitle: { ...T.text.heading, color: T.ink },
+  // flexGrow:0 — 본문이 짧으면 내용 높이만 차지해 기존 호출부의 겉모습이 그대로 유지된다.
+  // ⚠️ flexShrink:1 이 **반드시** 필요하다. RN 기본값은 flexShrink:0 이라, 이게 없으면
+  //    카드가 maxHeight 에 걸려도 이 ScrollView 는 줄지 않고 그대로 넘쳐 버튼을 화면 밖으로
+  //    밀어낸다 — 정작 이 스크롤을 넣은 이유(작은 기기 + 큰 글자 배율)에서만 안 듣는다.
+  bodyScroll: { flexGrow: 0, flexShrink: 1 },
+  bodyScrollInner: { paddingBottom: 0 },
   cardBody: { ...T.text.body, color: T.inkSub, marginTop: T.space.md },
   primaryBtn: {
     marginTop: T.space.xl,

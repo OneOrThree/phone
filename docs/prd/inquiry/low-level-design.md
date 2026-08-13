@@ -149,7 +149,7 @@ interface InquiryContactCardProps {
 |---|---|
 | 카드 | `bg T.white`, `border 1 T.paperAlt`, `radius 16`, `padding T.space.lg` |
 | 그림자 | `shadowColor T.shadow`, `opacity .16`, `radius 16`, `offset {0,10}`, `elevation 3` |
-| 아바타 | 44×44 원, `bg T.avatarPalette[avatarPaletteIndex]`, 흰 이니셜 `T.text.subtitle` |
+| 아바타 | 44×44 원, `bg T.avatarPalette[avatarPaletteIndex]`, 흰 이니셜 `T.text.subtitle` (**새 조합** — 아래) |
 | 이름 | `T.text.label`, `color T.ink` |
 | 성격 설명 | `T.text.caption`, `color T.accentDeep` |
 | 「추천」 배지 | `bg T.accentBg`, `border 1 T.noteBorder`, `radius 999`, `color T.accentDeep`, `T.text.caption` |
@@ -170,6 +170,12 @@ accessibilityLabel={`${contact.name}에게 카카오톡으로 문의하기`}
 요소**라 버튼의 접근성 이름에 들어가지 않는다. 화면 읽기 사용자가 버튼 단위로 넘기면 **똑같은 버튼
 3개**로 읽혀 어느 방이 열리는지 알 수 없다 — 「사용자가 직접 지목한다」(D2)가 그 사용자에게만
 성립하지 않게 된다. §8.3에서 세 라벨이 서로 다른지 테스트한다.
+
+**아바타는 기존 컴포넌트를 베끼는 게 아니라 두 선례의 새 조합이다.** 크기 44는 `MemberTile`
+(`const AVATAR = 44`)에서 오지만 그건 `T.sand` 배경 + `CharacterImage`(마스코트)라 이니셜도
+팔레트도 안 쓴다. 이니셜 + `T.avatarPalette` 조합은 `GroupCardBack`의 `MemberAvatars`인데 거기는
+**36×36**이다. 즉 「44 + 팔레트 + 이니셜」을 한꺼번에 만족하는 기존 컴포넌트는 **없다** — 새로
+만드는 것이니 재사용을 찾다 시간을 쓰지 말 것.
 
 **색을 하드코딩하지 않는다** — `app/.claude/CLAUDE.md`의 Styling 규칙. `T.kakao`/`T.kakaoInk`가 이미 있으므로 카카오 브랜드색도 토큰으로 나온다.
 
@@ -199,13 +205,14 @@ accent 채움 + 흰 글자라 화면에서 가장 강한 요소가 되는데, �
 
 ## 5. `screens/settings/InquiryScreen.tsx` (신규)
 
-상태 3개뿐이다.
+상태 4개 + 요청 세대 ref 1개뿐이다. 서버가 없으므로 로딩·에러·캐시 상태가 아예 없다.
 
 ```ts
 const [category, setCategory] = useState<InquiryCategoryId | null>(null);
 const [target, setTarget] = useState<InquiryContact | null>(null);   // 모달 대상
 const [failed, setFailed] = useState(false);                          // 모달 실패 전환
 const [pending, setPending] = useState(false);                        // openURL 대기 중
+const reqIdRef = useRef(0);                                           // 요청 세대 — §5.4
 ```
 
 `target`과 `failed`는 **한 몸이다.** 아래 `closeModal()` 말고 다른 경로로 모달을 닫으면 안 된다(§5.4).
@@ -265,8 +272,9 @@ SettingsScaffold title="1:1 문의" onBack={navigation.goBack}
 
 ```ts
 const closeModal = useCallback(() => {
+  reqIdRef.current += 1;   // 진행 중이던 요청을 세대 교체로 폐기한다
   setTarget(null);
-  setFailed(false);   // ← 이걸 빼면 아래 버그가 난다
+  setFailed(false);        // ← 이걸 빼면 아래 버그가 난다
   setPending(false);
 }, []);
 ```
@@ -281,6 +289,7 @@ const handleConfirm = useCallback(async () => {
   if (!target || pending) return;   // 연타 차단 — 이벤트·openURL 중복 발화 방지
   setPending(true);
   const requested = target;         // 이 요청이 어느 담당자 것인지 고정
+  const myId = ++reqIdRef.current;  // 이 요청의 세대 — 같은 담당자를 다시 열어도 새 번호를 받는다
   // ⚠️ 분석 이벤트는 openURL **앞에서** 쏜다 — 뒤에서 쏘면 앱이 백그라운드로
   //    넘어가는 타이밍과 겹쳐 유실된다(high-level-design.md §3.1).
   // ⚠️ 「다시 시도」(= failed 상태에서의 재호출)에서는 쏘지 않는다 — 모달 1회당
@@ -293,11 +302,11 @@ const handleConfirm = useCallback(async () => {
     });
   }
   const ok = await openInquiryChat(requested.openChatUrl);
-  // ⚠️ await 사이에 사용자가 모달을 닫았거나(백드롭 탭·Android 뒤로 가기) 다른
-  //    담당자로 바꿨을 수 있다. 그때 도착한 결과는 **폐기한다** — 안 그러면
-  //    이미 닫힌 모달의 failed 가 다시 켜져, 다음에 누른 담당자의 모달이
-  //    곧바로 실패 화면으로 열린다.
-  if (targetRef.current !== requested) return;
+  // ⚠️ await 사이에 사용자가 모달을 닫았거나(백드롭 탭·Android 뒤로 가기), 혹은
+  //    닫았다 **같은 담당자** 카드를 다시 열었을 수 있다. 그때 도착한 결과는
+  //    **폐기한다** — 안 그러면 이미 닫힌 모달의 failed 가 다시 켜져, 다음에
+  //    누른 담당자의 모달이 곧바로 실패 화면으로 열린다.
+  if (reqIdRef.current !== myId) return;
   if (ok) closeModal();
   else {
     setFailed(true);
@@ -306,9 +315,18 @@ const handleConfirm = useCallback(async () => {
 }, [target, pending, failed, category, closeModal]);
 ```
 
-`targetRef`는 현재 `target`을 그대로 따라가는 `useRef`다 — 상태를 클로저로 읽으면 `await` **이전**
-값이 잡혀 이 검사가 무의미해진다. 요청 중에는 `ConfirmCardModal`의 기존 `primaryDisabled` prop에
-`pending`을 넘겨 버튼 연타도 함께 막는다(이미 있는 prop이라 §6.1의 추가 대상이 아니다).
+`reqIdRef`는 요청마다 1씩 올라가는 **세대 카운터**(`useRef(0)`)다.
+
+**객체 동일성 비교(`targetRef.current !== requested`)로 하면 안 된다 — 그건 버그다.**
+`INQUIRY_CONTACTS`는 모듈 최상단 `as const` 배열이라 원소가 앱 수명 내내 **같은 객체**다.
+그래서 「요청 중 모달을 닫고 → **같은 담당자** 카드를 다시 연다」 순서에서는 `requested`가 가리키던
+객체가 그대로여서 동일성 검사가 **그냥 통과하고**, 늦게 도착한 이전 요청의 결과가 새로 연 모달을
+닫거나 실패 상태로 만든다. 담당자를 **바꾸면** 걸러지는데 **같은 담당자면** 안 걸러지는 비대칭이라
+테스트도 담당자를 바꿔 짜면 통과해 버린다. 세대 번호는 요청마다 **항상 새 정수**를 받으므로 이
+비대칭이 없다 — `closeModal()`도 세대를 올려, 어떤 경로로 닫히든 이후 도착하는 결과는 전부 폐기된다.
+
+요청 중에는 `ConfirmCardModal`의 기존 `primaryDisabled` prop에 `pending`을 넘겨 버튼 연타도 함께
+막는다(이미 있는 prop이라 §6.1의 추가 대상이 아니다).
 
 성공 시 모달을 닫아 두는 이유: 카카오톡에서 돌아왔을 때 모달이 떠 있으면 「아직 안 갔나?」로 읽힌다.
 
@@ -323,7 +341,9 @@ const handleConfirm = useCallback(async () => {
 
 ### 6.1 `components/ConfirmCardModal.tsx`
 
-**(1) 옵셔널 prop 1개 추가.** 기본값이 `undefined`(=미선택)라 기존 호출부 4곳은 손대지 않아도 그대로 동작한다.
+**(1) 옵셔널 prop 1개 추가.** 기본값이 `undefined`(=미선택)라 **기존 호출부 3곳**
+(`AccountScreen.tsx` · `GroupSettingsScreen.tsx` · `GroupOwnerTransferScreen.tsx`)은 손대지 않아도
+그대로 동작한다. `Toast.tsx`에도 이름이 나오지만 그건 렌더가 아니라 주석이다.
 
 ```ts
   /** 본문을 길게 눌러 복사할 수 있게 한다(링크 폴백 등) */
@@ -340,16 +360,22 @@ const handleConfirm = useCallback(async () => {
 수동 복구 경로**라, 여기서 버튼에 손이 닿지 않으면 사용자는 아무것도 할 수 없다.
 
 ```tsx
-  card: { …, maxHeight: '80%' },     // 스크림이 보여야 모달로 읽힌다
+  card: { …, maxHeight: '80%' },              // 스크림이 보여야 모달로 읽힌다
+  bodyScroll: { flexGrow: 0, flexShrink: 1 }, // ⚠️ flexShrink 가 핵심 — 아래 참조
   // 본문만 ScrollView 로 감싼다 — 버튼은 밖에 둬서 항상 눌린다
   <ScrollView style={s.bodyScroll} contentContainerStyle={s.bodyScrollInner}>
     <Text style={s.cardBody} selectable={bodySelectable}>{body}</Text>
   </ScrollView>
 ```
 
+**`flexShrink: 1`을 빠뜨리면 이 변경은 아무 일도 하지 않는다.** RN의 기본값은 `flexShrink: 0`이라,
+카드가 `maxHeight`에 걸려도 `ScrollView`는 내용 높이를 그대로 고집하고 **버튼을 카드 밖으로 밀어낸다** —
+정작 이 스크롤을 넣은 이유(작은 기기 + 큰 글자 배율)에서만 안 듣는 셈이다. `maxHeight`만 걸고
+끝내지 말 것.
+
 **버튼을 `ScrollView` 안에 넣지 말 것.** 스크롤해야 닿는 버튼은 「없는 버튼」과 같다 — 사용자는
 잘린 화면에서 아래에 뭐가 더 있는지 모른다. 짧은 본문에서는 `ScrollView`가 내용 높이만큼만
-차지하므로 기존 호출부 4곳의 겉모습은 변하지 않는다.
+차지하므로 위 3곳의 겉모습은 변하지 않는다 — 세 화면의 기존 테스트로 무회귀를 증명한다.
 
 ### 6.2 `navigation/types.ts`
 
@@ -471,6 +497,14 @@ const handleConfirm = async () => { …; markViewed(); if (!failed) logInquiryCo
 
 **서버(MP)에서 발행하지 않는다** — 백엔드가 이 기능을 모르므로 이중 집계 위험이 없다.
 
+**generic `screen_viewed`와 공존한다 — 중복 계측이 아니다.** PR #650(`GROMO-1194`)이 머지되면
+`RootNavigator`가 **모든 화면 전환마다** `screen_viewed`(`screen_name`)를 쏘므로, 이 화면은
+`screen_viewed`와 `inquiry_screen_viewed`를 둘 다 발행하게 된다. **오너 결정(2026-08-14): 둘 다 둔다.**
+이름과 파라미터가 달라 GA4에서 서로 덮어쓰지 않고, `inquiry_screen_viewed`는 generic이 갖지 못한
+두 가지를 갖는다 — `entry_point`(D11)와 **§6의 세션 경계 재발화**(generic은 화면 전환에만 붙으므로
+같은 화면에 머문 채 세션이 바뀌면 안 쏜다). 대시보드에서 둘을 보고 「실수로 두 번 쏜다」고 판단해
+한쪽을 지우지 말 것 — `prd.md` §5의 전환율은 `inquiry_screen_viewed`를 분모로 쓴다.
+
 ⚠️ `services/analytics.ts`의 `sanitizeParams`가 boolean을 `'true' | 'false'` 문자열로 변환한다
 (GA4 파라미터 값 통일 규약). 호출부는 `boolean`을 그대로 넘기면 되지만, **대시보드·탐색에서
 `is_recommended = true`를 boolean으로 필터하면 0건이 나온다.** `prd.md` §5의 추천 일치율이
@@ -478,17 +512,20 @@ const handleConfirm = async () => { …; markViewed(); if (!failed) logInquiryCo
 
 ## 8. 테스트
 
+> **이 repo는 `it(...)`이 아니라 `test(...)`를 쓰고, RTL v14라 `render`를 `await` 한다.**
+> 선례: `app/src/screens/settings/AccountScreen.test.tsx`.
+
 ### 8.1 `constants/inquiryContacts.test.ts` (신규)
 
 §1의 불변식을 그대로 검증한다. 이 테스트의 목적은 **담당자를 교체하다 계약을 깨는 것을 막는 것**이다 — 상수 파일은 OTA로 자주 손대는 파일이고, 손대는 사람이 IA 문서를 다시 읽지 않는다.
 
 ```ts
-it('카테고리마다 담당자가 정확히 1명이다', () => { … });
-it('오픈채팅 URL 이 https://open.kakao.com/o/… 다', () => { … });  // 호스트·경로까지(D7)
-it('오픈채팅 URL 이 서로 겹치지 않는다', () => { … });             // 복붙 사고 — D2·D3
-it('담당자 id 가 dev-{categoryId} 형태로 고정돼 있다', () => { … }); // GA4 계약 §7
-it('담당자 id 가 유일하다', () => { … });
-it('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
+test('카테고리마다 담당자가 정확히 1명이다', () => { … });
+test('오픈채팅 URL 이 https://open.kakao.com/o/… 다', () => { … });  // 호스트·경로까지(D7)
+test('오픈채팅 URL 이 서로 겹치지 않는다', () => { … });             // 복붙 사고 — D2·D3
+test('담당자 id 가 dev-{categoryId} 형태로 고정돼 있다', () => { … }); // GA4 계약 §7
+test('담당자 id 가 유일하다', () => { … });
+test('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
 ```
 
 ### 8.2 `screens/settings/inquiryLink.test.ts` (신규)
@@ -496,9 +533,9 @@ it('avatarPaletteIndex 가 T.avatarPalette 범위 안이다', () => { … });
 `Linking`을 모킹한다.
 
 ```ts
-it('openURL 성공 시 true', … );
-it('openURL 이 throw 하면 false — 예외가 밖으로 새지 않는다', … );
-it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규약을 잠근다
+test('openURL 성공 시 true', … );
+test('openURL 이 throw 하면 false — 예외가 밖으로 새지 않는다', … );
+test('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규약을 잠근다
 ```
 
 ### 8.3 `screens/settings/InquiryScreen.test.tsx` (신규)
@@ -506,11 +543,11 @@ it('canOpenURL 을 호출하지 않는다', … );   // 사전 검사 금지 규
 §5.4의 닫기 계약은 문서로만 두면 반드시 깨진다. 컴포넌트 테스트로 잠근다.
 
 ```ts
-it('실패 후 닫고 다른 담당자를 누르면 확인 모달이 뜬다', … );  // failed 누수 — 가장 중요
-it('요청 중에는 주 버튼이 비활성이다', … );                     // 연타 → 이벤트 중복
-it('요청 중 모달을 닫으면 늦게 온 실패 결과가 무시된다', … );   // 폐기된 요청
-it('「다시 시도」는 contact_opened 를 다시 쏘지 않는다', … );    // 모달 1회 = 선택 1건
-it('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // 담당자 구분
+test('실패 후 닫고 다른 담당자를 누르면 확인 모달이 뜬다', … );  // failed 누수 — 가장 중요
+test('요청 중에는 주 버튼이 비활성이다', … );                     // 연타 → 이벤트 중복
+test('요청 중 모달을 닫고 **같은 담당자**를 다시 열면 이전 결과가 새 모달을 안 건드린다', … );  // 세대 토큰
+test('「다시 시도」는 contact_opened 를 다시 쏘지 않는다', … );    // 모달 1회 = 선택 1건
+test('CTA 3개의 accessibilityLabel 이 서로 다르다', … );          // 담당자 구분
 ```
 
 ### 8.4 수동 QA (자동화 불가)

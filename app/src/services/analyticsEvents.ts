@@ -8,6 +8,7 @@
 // ⚠️ PII 금지: 닉네임/생년월일/원본 식별정보를 이벤트·유저속성으로 보내지 않는다. 파생 비식별값만.
 import { track, setUserProperty } from '@/services/analytics';
 import type { FocusEntrySource } from '@/services/cardInteraction';
+import type { InquiryCategoryId } from '@/constants/inquiryContacts';
 
 // 로그인/가입 수단
 export type AuthMethod = 'kakao' | 'apple' | 'google' | 'line' | 'facebook' | 'guest';
@@ -707,6 +708,32 @@ export function logRepeatedFailure(p: { action: string; attempt_count: number })
 // 빡침 연타 감지 — RageTapDetector(앱 루트)가 발행. 같은 지점(40pt) 1초 간격 연타 4회째, 5초 쿨다운.
 export function logRageTapDetected(p: { screen_name: string }): void {
   track('rage_tap_detected', p);
+}
+
+// ── 1:1 문의 [C] ── (docs/prd/inquiry/policy.md D11)
+// 서버에 아무것도 남지 않는 기능이라(D4·D13) 이 세 이벤트가 유일한 계측 수단이다 — 빼면 영영 측정 불가.
+// contact_id 는 닉네임조차 아닌 고정 슬러그(dev-{categoryId})다 — 이 파일 상단의 PII 금지 규칙.
+export function logInquiryScreenViewed(): void {
+  track('inquiry_screen_viewed', { entry_point: 'menu' });
+}
+
+export function logInquiryCategorySelected(category: InquiryCategoryId): void {
+  track('inquiry_category_selected', { category });
+}
+
+export function logInquiryContactOpened(p: {
+  category: InquiryCategoryId | null;
+  contactId: string;
+  isRecommended: boolean;
+}): void {
+  track('inquiry_contact_opened', {
+    // ⚠️ null 을 그대로 넘기면 sanitizeParams 가 키째 드롭한다 — 미선택을 세려면 미리 문자열화한다.
+    category: p.category ?? 'none',
+    contact_id: p.contactId,
+    // ⚠️ boolean 은 전선 위에서 문자열 'true'/'false' 로 간다(sanitizeParams).
+    //    GA4 탐색에서 boolean 으로 필터하면 0건이 나온다 — prd.md §5 참고.
+    is_recommended: p.isRecommended,
+  });
 }
 
 // ── User Properties (PII 금지) ──
