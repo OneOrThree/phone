@@ -174,8 +174,9 @@ export function navigateToDeepLink(link: string): void {
       ) {
         markInitialGroupRoomReturn();
       }
-      if (readRefundFlag(link)) requestCoinRefresh();
-      navigateToGroup(seq, groupId, readChallengeParam(link), resultPush);
+      const refundPush = readRefundFlag(link);
+      if (refundPush) requestCoinRefresh();
+      navigateToGroup(seq, groupId, readChallengeParam(link), resultPush, refundPush);
       break;
     case 'friends':
       // 친구 요청/수락 푸시(gromo://friends) — 친구 추가 화면으로 보낸다(티켓 1090이 발행).
@@ -235,6 +236,7 @@ function navigateToGroup(
   groupId: string | null,
   challengeId: string | null,
   resultPush: boolean,
+  refundPush: boolean,
 ): void {
   navigationRef.navigate('Main', { screen: '그룹' } as never);
   if (!groupId) {
@@ -242,7 +244,7 @@ function navigateToGroup(
     return;
   }
   // 목록 조회 실패는 삼킨다 — 그룹 탭까지는 이미 갔다.
-  pushGroupRoom(seq, groupId, challengeId, resultPush).catch(() => {});
+  pushGroupRoom(seq, groupId, challengeId, resultPush, refundPush).catch(() => {});
 }
 
 // 지연 이동을 계속해도 되는가 — 딥링크는 그룹 탭으로 먼저 옮겨 두고 목록 조회를 기다리는데,
@@ -260,6 +262,7 @@ async function pushGroupRoom(
   groupId: string,
   challengeId: string | null,
   resultPush: boolean,
+  refundPush: boolean,
 ): Promise<void> {
   // 결과성 푸시(result=1)는 멤버십 게이트를 **우회**한다(PR #566 리뷰 P1 — N53·C8). 탈퇴자는
   // getMyGroups에 그 그룹이 없어 여기서 잘리는데, 그러면 참가자 스코프 결과(/me/challenge-results)
@@ -297,6 +300,11 @@ async function pushGroupRoom(
   navigationRef.navigate('GroupRoom', {
     groupId,
     challengeId: challengeId ?? undefined,
+    // 환불 푸시로 들어왔다는 사실을 방에 넘긴다(GROMO-1579) — 삭제 환불 회차는 결과 큐에서
+    // 빠지므로(N48 필터) 탈퇴자는 "보여줄 결과 0건"으로 판정돼 즉시 목록으로 되돌려졌다.
+    // 이 표식이 있으면 방이 튕기지 않고 환불 안내를 세운다. challengeId와 **같은 이유로**
+    // 없을 때도 키를 싣는다(파라미터 얕은 병합 — 다음 진입에 표식이 새어 들어가지 않게).
+    refundNotice: refundPush ? true : undefined,
     entrySource: 'unknown',
     interactionId: undefined,
     interactionAcceptedAt: undefined,

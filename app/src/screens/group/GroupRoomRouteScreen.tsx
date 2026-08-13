@@ -17,6 +17,9 @@ import GroupRoomScreen from './GroupRoomScreen';
 //                     (직렬화되는 라우트 파라미터를 얇게 유지 — groupId 하나면 복원이 끝난다).
 // · challengeId     : 챌린지 종료 푸시가 지목한 결과 모달 대상(GROMO-1088). 딥링크로 들어온
 //                     경우에만 실린다 — 목록 탭 진입에는 없다.
+// · refundNotice    : 환불 푸시(refund=1)로 들어왔는가(GROMO-1579). 방이 멤버십 부재를 확인해도
+//                     목록으로 되돌리지 않고 환불 안내를 세우는 근거다 — 삭제·무산 환불 회차는
+//                     결과 큐에서 빠져(N48) 「보여줄 결과 0건」으로 판정되기 때문이다.
 // · onLeft = goBack : 나가기에 성공하면 목록으로 되돌아간다. 목록은 GroupScreen이 포커스
 //                     재조회로 갱신하므로 여기서 따로 알릴 필요가 없다.
 // · onBack = goBack : 루트 스택이 headerShown:false이고 이 화면엔 탭바도 없다 —
@@ -42,6 +45,7 @@ export default function GroupRoomRouteScreen() {
         interactionId={params.interactionId}
         interactionAcceptedAt={params.interactionAcceptedAt}
         focusChallengeId={params.challengeId}
+        refundNotice={params.refundNotice}
         onLeft={goBack}
         onBack={goBack}
       />

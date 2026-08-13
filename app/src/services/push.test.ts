@@ -13,6 +13,8 @@
 import { handleInitialNotification, setupPushListeners } from './push';
 import { registerBackgroundFlushHandler } from './pushBackground';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
+// 정산 결과 재조회 신호(GROMO-1580 ④) — **실물 모듈**을 구독한다(스텁 오버라이드 금지).
+import { subscribeBetResultPush } from '@/services/betResultSignal';
 import {
   flushPendingFocusUploads,
   markBackgroundFocusCommit,
@@ -174,20 +176,37 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
     expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
   });
 
-  test('CHALLENGE_SESSION_END + challengeId → 그룹방 + 결과 모달(challenge) + result 표식', () => {
+  // 종료 푸시는 **두 타입뿐**이다(계약 §2 · 결정 N02): CHALLENGE_WINDOW_END(창형) ·
+  // CHALLENGE_ENDED(일 목표형). 서버는 둘 다 link를 채워 보내지만, 빠져도 지목(challengeId)을
+  // 잃지 않아야 한다 — 예전엔 이 합성이 서버에 없는 'CHALLENGE_SESSION_END'에만 걸려 있어
+  // 일 목표형은 groupId까지 통째로 잃고 그룹 탭 폴백으로 떨어졌다.
+  test.each(['CHALLENGE_WINDOW_END', 'CHALLENGE_ENDED'])(
+    '%s + challengeId → 그룹방 + 그 챌린지 지목(challenge)',
+    (type) => {
+      setupPushListeners();
+      openedHandler?.(message({ type, groupId: GROUP_ID, challengeId: CHALLENGE_ID }));
+
+      expect(mockNavigateToDeepLink).toHaveBeenCalledWith(END_LINK);
+    },
+  );
+
+  test.each(['CHALLENGE_WINDOW_END', 'CHALLENGE_ENDED'])(
+    '%s인데 challengeId가 없으면(묶음) 그룹방까지만',
+    (type) => {
+      setupPushListeners();
+      openedHandler?.(message({ type, groupId: GROUP_ID }));
+
+      expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}`);
+    },
+  );
+
+  // 종료 푸시에는 멤버십 게이트 우회(result=1)를 싣지 않는다 — 정산 **전**에 오는 그룹 스코프
+  // 공지라, 참가자 스코프 사건(정산 결과·환불)이 근거인 그 우회의 대상이 아니다.
+  test.each(['CHALLENGE_WINDOW_END', 'CHALLENGE_ENDED'])('%s에는 result 표식이 없다', (type) => {
     setupPushListeners();
-    openedHandler?.(
-      message({ type: 'CHALLENGE_SESSION_END', groupId: GROUP_ID, challengeId: CHALLENGE_ID }),
-    );
+    openedHandler?.(message({ type, groupId: GROUP_ID, challengeId: CHALLENGE_ID }));
 
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${END_LINK}&result=1`);
-  });
-
-  test('CHALLENGE_SESSION_END인데 challengeId가 없으면(묶음) 그룹방까지만(result 표식은 유지)', () => {
-    setupPushListeners();
-    openedHandler?.(message({ type: 'CHALLENGE_SESSION_END', groupId: GROUP_ID }));
-
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}&result=1`);
+    expect(mockNavigateToDeepLink.mock.calls[0][0]).not.toContain('result=1');
   });
 
   // 삭제 환불은 이 푸시가 알리는 사건이다 — 결과 모달까지 열면 같은 사건 이중 통지(N48).
@@ -212,7 +231,7 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
 
   // 환불 표식은 환불 타입에만 붙는다 — 다른 결과성 푸시는 결과 모달·정산 서명 경로가 이미
   // 잔액을 다시 받으므로(GroupRoomScreen), 여기에 표식을 늘리면 같은 일을 두 번 시킨다.
-  test.each(['BET_RESULT', 'BET_WON', 'CHALLENGE_SESSION_END', 'CHALLENGE_CREATED'])(
+  test.each(['BET_RESULT', 'BET_WON', 'CHALLENGE_WINDOW_END', 'CHALLENGE_CREATED'])(
     '%s에는 환불 표식(refund)을 싣지 않는다',
     (type) => {
       setupPushListeners();
@@ -238,12 +257,95 @@ describe('link 없는 그룹 푸시의 딥링크 합성(IA §4.2 payload 표)', 
   });
 });
 
-describe('레거시 폴백(구 바이너리 호환 — 제거하지 않는다)', () => {
-  test('link 없이 type=CHALLENGE_WINDOW_END + groupId면 그룹 딥링크를 합성한다', () => {
-    setupPushListeners();
-    openedHandler?.(message({ type: 'CHALLENGE_WINDOW_END', groupId: GROUP_ID }));
+// ── 서버가 link를 실어 보낸 결과성 푸시(GROMO-1580 ③) ──
+// 예전엔 data.link가 있으면 그 자리에서 반환해 표식을 **하나도** 싣지 못했다. 혼합 묶음 결과
+// 푸시는 서버가 data.type=BET_RESULT와 link를 함께 싣기 때문에(BetEventNotificationService),
+// 그 경로에서만 result=1이 빠져 navigationRef의 멤버십 게이트가 탈퇴자를 잘라 냈다 —
+// N53·C8이 보장하려던 도달이 링크 유무에 따라 갈리던 셈이다.
+// 고치는 방식은 정해져 있다(결정 N06): **경로는 그대로 두고 표식만 덧붙인다.**
+describe('link가 실린 결과성 푸시의 표식(GROMO-1580 ③)', () => {
+  const SERVER_LINK = `gromo://group?g=${GROUP_ID}`;
 
-    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`gromo://group?g=${GROUP_ID}`);
+  test('BET_RESULT 혼합 묶음 — 서버 경로를 그대로 두고 result=1만 덧붙인다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'BET_RESULT', groupId: GROUP_ID, link: SERVER_LINK }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${SERVER_LINK}&result=1`);
+  });
+
+  test('BET_VOID_REFUND에 link가 실려 와도 잔액 표식까지 함께 붙는다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'BET_VOID_REFUND', groupId: GROUP_ID, link: SERVER_LINK }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${SERVER_LINK}&result=1&refund=1`);
+  });
+
+  test('쿼리가 없는 링크에는 ?로 잇는다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'BET_RESULT', link: 'gromo://group' }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith('gromo://group?result=1');
+  });
+
+  test('이미 표식이 있는 링크에 같은 표식을 두 번 붙이지 않는다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'BET_RESULT', link: `${SERVER_LINK}&result=1` }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${SERVER_LINK}&result=1`);
+  });
+
+  // 표식은 결과성 타입에만 붙는다 — 경로 자체는 어떤 타입에서도 다시 만들지 않는다(N06).
+  test('비결과성 타입의 link는 한 글자도 건드리지 않는다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'CHALLENGE_CREATED', link: SERVER_LINK }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(SERVER_LINK);
+  });
+
+  test('그룹 밖 딥링크(리그 등)도 경로가 유지된다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'rank_change', link: 'gromo://league' }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith('gromo://league');
+  });
+});
+
+// ── 포그라운드 정산 결과 수신 → 화면 재조회 신호(GROMO-1580 ④) ──
+// 종료 푸시는 정산 **전**에 온다 — 그것을 탭해 들어와 그 방에 머무르는 구간에는 재조회 계기가
+// 하나도 없어(useFocusEffect·AppState 복귀·지목 변경 셋 다 발화하지 않는다) 정산이 끝나도
+// 사용자가 아무것도 못 보고 대기했다. 신호 모듈은 목이 아니라 **실물**을 구독한다.
+describe('포그라운드 정산 결과 수신 신호', () => {
+  test('BET_RESULT를 포그라운드에서 받으면 재조회 신호를 쏜다', async () => {
+    const seen = jest.fn();
+    const off = subscribeBetResultPush(seen);
+    setupPushListeners();
+
+    await messageHandler?.(message({ type: 'BET_RESULT', groupId: GROUP_ID }));
+
+    expect(seen).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  test('다른 타입에는 쏘지 않는다 — 불필요한 4콜 재조회를 만들지 않는다', async () => {
+    const seen = jest.fn();
+    const off = subscribeBetResultPush(seen);
+    setupPushListeners();
+
+    await messageHandler?.(message({ type: 'CHALLENGE_WINDOW_END', groupId: GROUP_ID }));
+    await messageHandler?.(message({ type: 'CHALLENGE_CREATED', groupId: GROUP_ID }));
+
+    expect(seen).not.toHaveBeenCalled();
+    off();
+  });
+
+  test('구독을 해제하면 더 이상 받지 않는다', async () => {
+    const seen = jest.fn();
+    subscribeBetResultPush(seen)();
+    setupPushListeners();
+
+    await messageHandler?.(message({ type: 'BET_RESULT', groupId: GROUP_ID }));
+
+    expect(seen).not.toHaveBeenCalled();
   });
 });
 

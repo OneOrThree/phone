@@ -216,6 +216,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -238,6 +239,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -251,6 +253,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -267,6 +270,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -279,6 +283,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -292,6 +297,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -313,6 +319,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: OTHER_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
 
@@ -323,6 +330,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: OTHER_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
     expect(navigate).not.toHaveBeenCalledWith('GroupRoom', {
@@ -386,6 +394,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: CHALLENGE_ID,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -401,6 +410,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
     expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
       groupId: GROUP_ID,
       challengeId: undefined,
+      refundNotice: undefined,
       ...UNKNOWN_ATTRIBUTION,
     });
   });
@@ -431,6 +441,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
+        refundNotice: undefined,
         ...UNKNOWN_ATTRIBUTION,
       });
     });
@@ -445,6 +456,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
+        refundNotice: undefined,
         ...UNKNOWN_ATTRIBUTION,
       });
       // 게이트 우회는 조회 생략이다 — 소속 여부와 무관하게 화면(MEMBER_ONLY 처리)이 받는다.
@@ -479,6 +491,7 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: CHALLENGE_ID,
+        refundNotice: undefined,
         ...UNKNOWN_ATTRIBUTION,
       });
       expect(mockGetMyGroups).not.toHaveBeenCalled();
@@ -504,10 +517,30 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       await flushAsync();
 
       expect(mockRequestCoinRefresh).toHaveBeenCalledTimes(1);
-      // 이동 자체는 결과성 푸시와 동일하다 — 잔액 갱신이 라우팅을 바꾸지 않는다.
+      // 목적지는 결과성 푸시와 동일하다 — 잔액 갱신이 라우팅을 바꾸지 않는다.
+      // 다만 **환불 착지라는 사실은 방까지 전달한다**(GROMO-1579): 삭제·무산 환불 회차는
+      // 결과 큐에서 빠지므로(N48), 이 표식이 없으면 탈퇴자에게 "보여줄 결과 0건"이 되어
+      // 방이 즉시 onLeft로 목록에 되돌려 놓는다 — 알림을 눌렀는데 목록으로 튕기는 그 결함이다.
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
+        refundNotice: true,
+        ...UNKNOWN_ATTRIBUTION,
+      });
+    });
+
+    // 표식은 **환불 푸시에만** 실린다 — 라우트 파라미터는 얕게 병합되므로(types.ts GroupRoom
+    // 주석) 일반 진입에서 키를 생략하면 직전 환불 진입의 표식이 그대로 남아 무관한 방이
+    // 환불 안내로 열린다. 그래서 없을 때도 키를 명시로 싣는다.
+    test('일반 결과성 푸시에는 환불 표식을 싣지 않는다', async () => {
+      mockGetMyGroups.mockResolvedValue([summary(GROUP_ID)]);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
+        groupId: GROUP_ID,
+        challengeId: undefined,
+        refundNotice: undefined,
         ...UNKNOWN_ATTRIBUTION,
       });
     });

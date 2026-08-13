@@ -231,6 +231,13 @@ export interface ChallengeCardProps {
   // ⚠️ 미전달이면 낙관 반영만으로 버틴다 — 다음 자연 재조회가 도착하면 그 응답이 낙관을 덮는다
   //    (아래 seenChallengeRef). 늦게 도착해도 표시가 어긋나지 않는다.
   onBetChanged?: () => void;
+  // 이 카드가 소유한 시트(지난 결과·다음 활성일·주간·삭제)의 열림 상태 보고(GROMO-1578).
+  // 넷 다 SheetShell asModal(RN 네이티브 Modal)이라 부모의 결과 모달과 겹치면 딤이 포개지고
+  // 표시 순서가 플랫폼 재량이 된다 — 부모(GroupRoomScreen)가 이 값을 배타 조건에 넣어 결과
+  // 모달을 미룬다. 열림이 갈릴 때마다 부르고, 언마운트 시 false로 정리한다.
+  // ⚠️ **콜백 신원을 고정해서 넘겨라**(useCallback) — 매 렌더 새 함수를 주면 아래 정리 이펙트가
+  //    렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
+  onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
 }
 
 export default function ChallengeCard({
@@ -241,6 +248,7 @@ export default function ChallengeCard({
   onOpenBet,
   betLocked,
   onBetChanged,
+  onSheetVisibilityChange,
 }: ChallengeCardProps) {
   // 내기 참가 철회의 API·잔액 갱신을 카드가 직접 쥔다 — 시트(BetSheet)는 참가자
   // 상태에선 부모(GroupRoomScreen)의 stale 검사가 즉시 닫아 버려 진입 자체가 불가능하고,
@@ -1105,6 +1113,31 @@ export default function ChallengeCard({
     if (hadRefund) refreshCoins();
   }
 
+  // ── 이 카드가 소유한 시트 4종의 열림(GROMO-1578) ──
+  // **아래 JSX의 마운트 조건을 그대로 이름만 붙인 것**이다 — 조건을 따로 적으면 한쪽만 고쳤을 때
+  // 부모가 없는 시트를 있다고 믿거나(결과 모달이 영영 안 뜸) 있는 시트를 없다고 믿는다(딤 2겹).
+  // 각 시트는 이 상수를 그대로 쓰므로 두 판정이 갈릴 수 없다.
+  const lastResultSheetOpen = lastBetView?.kind === 'last' && lastBet !== null;
+  const joinNextSheetOpen =
+    betV2Sheet === 'next' && nextStake > 0 && nextDate !== null && cachedGroupId !== null;
+  const joinWeekSheetOpen =
+    weekSheetDates !== null && weekSheetDates.length > 0 && cachedGroupId !== null;
+  const deleteSheetOpen = deletePreview !== null;
+  const anySheetOpen =
+    lastResultSheetOpen || joinNextSheetOpen || joinWeekSheetOpen || deleteSheetOpen;
+
+  // 열림이 갈릴 때마다 부모에 올린다 — 부모는 이 값이 참인 동안 결과 모달을 미룬다.
+  useEffect(() => {
+    onSheetVisibilityChange?.(challenge.id, anySheetOpen);
+  }, [onSheetVisibilityChange, challenge.id, anySheetOpen]);
+
+  // 언마운트 정리 — 시트가 뜬 채로 카드가 사라지면(재조회로 챌린지가 목록에서 빠짐) 부모의
+  // 열림 집합에 이 카드가 영원히 남아 결과 모달이 다시는 뜨지 않는다. 의존성은 신원뿐이라
+  // (콜백은 부모가 useCallback으로 고정) 실제로 언마운트에서만 돈다.
+  useEffect(() => {
+    return () => onSheetVisibilityChange?.(challenge.id, false);
+  }, [onSheetVisibilityChange, challenge.id]);
+
   return (
     // 카드 자체는 더 이상 아무 제스처도 받지 않는다(GROMO-1101 — 롱프레스 삭제 제거).
     // 눌리는 자리는 전부 안쪽의 명시적 버튼이다.
@@ -1488,7 +1521,7 @@ export default function ChallengeCard({
         </TouchableOpacity>
       )}
 
-      {lastBetView?.kind === 'last' && lastBet !== null && (
+      {lastResultSheetOpen && lastBet !== null && (
         <LastBetResultSheet
           lastBet={lastBet}
           myUserId={myUserId}
@@ -1508,7 +1541,7 @@ export default function ChallengeCard({
           워크스트림 전유라 배선을 늘리지 않는다). */}
       {/* ⚠️ 마운트 조건에 `bet !== null`을 두면 **회차 없는 날 버튼이 무반응**이 된다(#570 codex ①)
           — 그 날이 바로 이 시트가 필요한 날이다. 금액 축은 **박제값 우선**(nextStake)이다. */}
-      {betV2Sheet === 'next' && nextStake > 0 && nextDate !== null && cachedGroupId !== null && (
+      {joinNextSheetOpen && nextDate !== null && cachedGroupId !== null && (
         <JoinNextSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
@@ -1529,7 +1562,7 @@ export default function ChallengeCard({
 
       {/* 이번 주 남은 날 일괄 예약(GROMO-1276) — 대상 날짜는 열 때 예약 현황까지 반영해 확정한
           weekSheetDates다(위 openWeekSheet — #570 codex ②). */}
-      {weekSheetDates !== null && weekSheetDates.length > 0 && cachedGroupId !== null && (
+      {joinWeekSheetOpen && weekSheetDates !== null && cachedGroupId !== null && (
         <JoinWeekSheet
           groupId={cachedGroupId}
           challengeId={challenge.id}
@@ -1547,7 +1580,7 @@ export default function ChallengeCard({
       )}
 
       {/* 진행 중 삭제 2단계 경고(GROMO-1425) — deletion-preview 수치가 도착한 뒤에만 열린다. */}
-      {deletePreview !== null && (
+      {deleteSheetOpen && deletePreview !== null && (
         <ChallengeDeleteSheet
           label={label ?? categoryLabel(challenge)}
           preview={deletePreview}

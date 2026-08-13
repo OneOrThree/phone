@@ -70,6 +70,12 @@ export type V2RootStackParamList = {
     //    다른 그룹에 참여하는 경로 — @claude 리뷰). 키를 필수로 두면 모든 호출부가 값을
     //    명시하게 되어 컴파일 시점에 이 불변식이 강제된다.
     challengeId: string | undefined;
+    // 환불 푸시(refund=1)로 열린 진입인가(GROMO-1579) — 삭제·무산 환불 회차는 결과 큐에서
+    // 제외되므로(N48), 탈퇴자가 이 푸시를 탭하면 방이 "보여줄 결과 0건"으로 판정해 즉시
+    // 목록으로 되돌려 보냈다(착지 실패). 이 표식이 있으면 그 자리에서 환불 안내를 세운다.
+    // ⚠️ 위 challengeId와 **같은 이유로** optional(`?`)이 아니다 — 키를 생략하면 얕은 병합이
+    //    직전 진입의 표식을 물려줘 무관한 방이 환불 안내로 열린다.
+    refundNotice: boolean | undefined;
   } & CardInteractionRouteContext;
   GroupNotice: {
     groupId: string;

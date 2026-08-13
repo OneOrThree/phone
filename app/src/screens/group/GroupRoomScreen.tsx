@@ -28,6 +28,7 @@ import {
   groupErrorCode,
 } from '@/services/groupApi';
 import { USER_NOT_FOUND } from '@/services/sessionErrors';
+import { subscribeBetResultPush } from '@/services/betResultSignal';
 import {
   logGroupChallengeResultClosed,
   logGroupChallengeResultShown,
@@ -187,11 +188,11 @@ export interface GroupRoomScreenProps {
   focusChallengeId?: string;
   // 탭 진입점이 가진 요약(getMyGroups[0]) — 상세 응답 도착 전 헤더를 먼저 그리는 용도(선택).
   summary?: GroupSummaryResponse;
+  // 환불 푸시(refund=1)로 열린 진입인가(GROMO-1579) — 멤버십 부재가 확정돼도 목록으로
+  // 되돌리지 않고 환불 안내를 세운다. 자세한 근거는 아래 convergeMembershipAbsence 주석.
+  refundNotice?: boolean;
   // 그룹 나가기 성공 시 호출 — 부모(GroupScreen)가 재조회해 빈 상태로 되돌린다.
   onLeft: () => void;
-  // 초대 시트가 이 화면 위에 떠 있는가 — 떠 있으면 이 화면이 소유한 챌린지 만들기 시트를
-  // 내린다(아래 이펙트 주석 참고).
-  inviteOpen?: boolean;
   // 라우트로 push된 경우에만 전달 — 헤더 좌측에 원형 백버튼을 세운다.
   // 루트 스택이 headerShown:false라 네이티브 헤더가 없고, 탭바도 없어
   // 미전달이면 목록으로 돌아갈 명시 경로가 0개가 된다(앱 관행: 스택 화면은 백버튼 자가 렌더).
@@ -205,8 +206,8 @@ export default function GroupRoomScreen({
   interactionAcceptedAt: rawInteractionAcceptedAt,
   focusChallengeId,
   summary,
+  refundNotice,
   onLeft,
-  inviteOpen,
   onBack,
 }: GroupRoomScreenProps) {
   const insets = useSafeAreaInsets();
@@ -248,6 +249,17 @@ export default function GroupRoomScreen({
   // 챌린지 결과 모달 큐 — load()가 /me/challenge-results(참가자 스코프, N53)에서 미노출분을
   // 골라 채운다. 맨 앞 한 장만 띄우고, 닫으면 다음 장으로(가드 키가 세션 단위라 큐도 그 단위).
   const [resultQueue, setResultQueue] = useState<ChallengeResultCandidate[]>([]);
+  // 챌린지 카드가 스스로 연 시트(지난 결과·다음 활성일·주간·삭제)가 떠 있는 카드들(GROMO-1578).
+  // 카드는 이 시트들을 자기 state로 여닫으므로 부모가 알 방법이 콜백밖에 없다 — 넷 다
+  // SheetShell asModal(RN 네이티브 Modal)이라 결과 모달과 겹치면 딤이 포개지고 표시 순서가
+  // 플랫폼 재량이 된다(아래 resultVisible 주석과 같은 이유).
+  // ⚠️ 공용 오버레이 큐를 만들지 않는다(결정 N04) — IA §"겹치면 하나만 표시"는 문장으로만 있고
+  //    앱에 구현체가 없다. 여기서는 기존 애드혹 배타를 카드 시트까지 넓히는 선에서 끝낸다.
+  // boolean 하나가 아니라 챌린지 id 집합인 이유: 카드가 여럿이라 한 카드가 닫을 때 다른 카드의
+  // 시트까지 닫힌 것으로 뭉개면 안 된다.
+  const [sheetOpenCardIds, setSheetOpenCardIds] = useState<string[]>([]);
+  // 환불 푸시 착지에서 멤버십 부재가 확정된 상태(GROMO-1579) — 목록으로 튕기는 대신 안내를 세운다.
+  const [refundBlocked, setRefundBlocked] = useState(false);
 
   // 요청 시퀀스 — 당겨서 새로고침 중 '다시 시도'를 누르거나 연타하면 reload()·onRefresh()가
   // 같은 load()를 각자 부른다. 늦게 도착한 이전 응답이 최신 응답을 덮지 않게 최신 것만 반영한다
@@ -307,6 +319,10 @@ export default function GroupRoomScreen({
     resultShownKeyRef.current = null;
     pendingLeaveRef.current = false; // 이전 그룹의 이탈 유예도 함께 접는다(새 그룹 판단은 새로)
     setResultQueue([]);
+    // 이전 그룹 카드들의 시트 열림도 함께 접는다 — 그 카드들은 곧 언마운트되며 false를
+    // 보고하지만, 그 사이 새 그룹의 결과 모달이 이전 방의 열림 때문에 막히면 안 된다.
+    setSheetOpenCardIds([]);
+    setRefundBlocked(false); // 환불 안내는 그 진입의 판단이다 — 새 그룹으로 옮기지 않는다
     setDetail(null);
     setNotices(null);
     setChallenges(null);
@@ -441,6 +457,18 @@ export default function GroupRoomScreen({
     // 멤버십 부재가 확정돼도 참가자 스코프 결과가 남아 있으면 먼저 소비한다(N53·C8).
     // 결과 유무를 모르는 회차에는 성공 이탈로 단정하지 않고 다음 명시 재시도에 남긴다.
     const convergeMembershipAbsence = (): boolean => {
+      // 환불 푸시로 들어온 착지는 **어떤 경우에도 튕기지 않는다**(GROMO-1579 · GROMO-1421).
+      // 삭제·무산 환불 회차는 결과 큐에서 빠지므로(challengeResult의 voidReason 필터 — N48이
+      // 정한 이중 통지 금지의 구현체) 탈퇴자에겐 "보여줄 결과 0건"이 되어 아래 onLeft가 즉시
+      // 발화했다 — 사용자는 알림을 눌렀는데 그룹 목록으로 되돌아갔다. 착지점은 "해당 그룹
+      // 화면(결과 모달은 띄우지 않는다)"이 계약이므로, 여기서 환불 안내로 수렴한다.
+      // 큐에 다른 결과가 남아 있으면 그 모달은 이 안내 위에 그대로 뜬다(아래 refundNoticeView).
+      if (refundNotice) {
+        pendingLeaveRef.current = false; // 이탈 자체를 예약하지 않는다 — 모달을 닫아도 안 나간다
+        setRefundBlocked(true);
+        setError(true);
+        return true;
+      }
       if (queuedResults > 0 || resultShownKeyRef.current !== null) {
         pendingLeaveRef.current = true;
         setError(true);
@@ -546,7 +574,16 @@ export default function GroupRoomScreen({
       setChallengeError(true); // 기존 챌린지는 그대로 둔다
     }
     return true;
-  }, [groupId, onLeft, userId, refreshCoins, entrySource, interactionId, interactionAcceptedAt]);
+  }, [
+    groupId,
+    onLeft,
+    userId,
+    refreshCoins,
+    entrySource,
+    interactionId,
+    interactionAcceptedAt,
+    refundNotice,
+  ]);
 
   // 최초 진입·재시도 — 스피너를 세우고 조회한다(당겨서 새로고침은 RefreshControl이 표시).
   const reload = useCallback(() => {
@@ -601,16 +638,21 @@ export default function GroupRoomScreen({
     return () => sub.remove();
   }, [reload, interactionId]);
 
-  // 초대 링크가 도착하면 이 화면이 소유한 시트를 전부 내린다 — 초대 시트와 이 시트들은 모두
-  // SheetShell asModal(RN 네이티브 Modal)이라 동시에 뜨면 딤이 2겹으로 포개지고, 플랫폼별 모달
-  // 표시 순서에 따라 초대 프리뷰가 가려질 수도 있다. GroupScreen이 링크 수신 시 찾기 시트를
-  // 내리는 것과 같은 배타 처리이고, 링크로 들어온 초대가 우선이라 이쪽을 접는다.
-  // 챌린지 만들기 시트도 같이 내린다 — 폼은 세그먼트·칩 2필드(기본값 있음)라 다시 여는 비용이
-  // 거의 없고, 자유 입력이 없어 되돌릴 수 없는 손실이 생기지 않는다.
+  // 정산 결과 푸시를 포그라운드에서 받으면 즉시 재조회한다(GROMO-1580 ④).
+  // 종료 푸시는 정산 **전**에 오므로 그것을 탭해 들어온 순간에는 방금 끝난 회차가 큐에 없고,
+  // 지목은 focusPendingRef에 유예 보관된다(PR #566 리뷰 ③ — 이 설계는 유지). 그런데 그 뒤
+  // **그 방에 머무르는 포그라운드 구간**에는 재조회 계기가 하나도 없다(useFocusEffect·AppState
+  // active 복귀·focusChallengeId 변경 셋 다 발화하지 않는다) — 정산이 끝나도 사용자는 아무것도
+  // 못 보고 기다린다. 폴링 대신 서버가 그 사건에 보내는 BET_RESULT를 계기로 삼는다(상한·중단
+  // 조건을 새로 규정하지 않아도 되는 유일한 축 — betResultSignal 파일 주석).
+  // load()를 직접 부른다(reload 아님) — 스켈레톤을 다시 세우지 않는 조용한 갱신이다.
+  // 화면이 안 보이면 하지 않는다: 다음 포커스가 어차피 같은 조회를 한다.
   useEffect(() => {
-    if (!inviteOpen) return;
-    setComposeOpen(false);
-  }, [inviteOpen]);
+    return subscribeBetResultPush(() => {
+      if (!focusedRef.current) return;
+      load();
+    });
+  }, [load]);
 
   // 당겨서 새로고침 — 스피너는 **무조건** 내린다. '최신 응답일 때만' 내리면
   // 진행 중 다른 조회(포그라운드 복귀·삭제 후 재조회 등)가 끼어들어 seq가 밀리는 순간
@@ -648,11 +690,20 @@ export default function GroupRoomScreen({
   }, [betSheet, challenges, betChallenge]);
 
   // ── 챌린지 결과 모달(A3) ──
-  // 다른 시트(⋯ 메뉴·만들기·내기·초대)가 떠 있으면 미룬다 — 전부 RN 네이티브 Modal이라 겹치면
-  // 딤이 포개지고 표시 순서도 플랫폼 재량이다(초대 시트 배타 이펙트와 같은 이유). 큐는 상태로
-  // 남아 있어 시트가 닫히면 그때 뜬다.
+  // 다른 시트가 떠 있으면 미룬다 — 전부 SheetShell asModal(RN 네이티브 Modal)이라 겹치면 딤이
+  // 포개지고 표시 순서도 플랫폼 재량이다. 큐는 상태로 남아 있어 시트가 닫히면 그때 뜬다.
+  // 배타 대상은 지금 이 화면 위에 **모달로** 뜰 수 있는 것 전부다:
+  //  · 이 화면이 쥔 것 — 챌린지 만들기(composeOpen) · 내기 개설/참가(betSheet)
+  //  · 챌린지 카드가 스스로 쥔 것 — 지난 결과·다음 활성일·주간·삭제 시트(sheetOpenCardIds,
+  //    GROMO-1578). 카드 state라 콜백(onSheetVisibilityChange) 없이는 부모가 알 수 없었고,
+  //    그래서 이 넷은 결과 모달과 그대로 겹쳤다.
+  // ⚠️ '⋯'는 더 이상 모달이 아니다 — GroupSettings 라우트 push라(헤더 onPress) 이 화면이
+  //    가려질 뿐 겹치지 않는다. 초대 시트도 대상이 아니다: 그룹방이 별도 라우트가 된 뒤로는
+  //    목록(GroupScreen)이 소유한 그 시트와 이 화면이 동시에 뜰 수 없다(결정 N03 — 죽어 있던
+  //    inviteOpen prop을 되살리지 않고 제거했다).
   const currentResult = resultQueue.length > 0 ? resultQueue[0] : null;
-  const resultVisible = currentResult !== null && !inviteOpen && betSheet === null && !composeOpen;
+  const resultVisible =
+    currentResult !== null && betSheet === null && !composeOpen && sheetOpenCardIds.length === 0;
 
   // 노출 이벤트 + 1회 가드 기록 — **모달이 실제로 뜬 순간** 결과당 1회.
   // 가드를 닫을 때 기록하면 모달이 떠 있는 사이의 재조회가 같은 결과를 큐에 또 넣는다.
@@ -693,6 +744,16 @@ export default function GroupRoomScreen({
       onLeft();
     }
   }, [resultQueue.length, onLeft]);
+
+  // 카드가 올리는 시트 열림 보고(GROMO-1578) — 신원을 고정한다. 매 렌더 새 함수를 주면 카드의
+  // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
+  const onCardSheetVisibilityChange = useCallback((challengeId: string, open: boolean) => {
+    setSheetOpenCardIds((prev) => {
+      const had = prev.includes(challengeId);
+      if (had === open) return prev; // 같은 값 재보고는 리렌더를 만들지 않는다
+      return open ? [...prev, challengeId] : prev.filter((id) => id !== challengeId);
+    });
+  }, []);
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
   const me = userId ? detail?.members.find((m) => m.userId === userId) : undefined;
@@ -891,6 +952,39 @@ export default function GroupRoomScreen({
   // 탈퇴 유예(pendingLeaveRef) 중에는 이 화면이 결과 모달의 배경이다 — 전면 다크 모달 뒤라
   // 보이지 않고, 마지막 결과를 닫으면 onResultClose가 onLeft로 잇는다(PR #566 리뷰 ②).
   // 그래서 이 분기에도 resultModal을 반드시 그린다.
+  // ── 환불 푸시 착지의 멤버십 부재(GROMO-1579) ──
+  // 목록으로 튕기지 않고 **여기서 사건을 마무리한다.** 이 화면이 서는 조건은 딱 하나 —
+  // 환불 푸시(refund=1)로 들어왔고 서버가 멤버십 부재를 확정했을 때다(convergeMembershipAbsence).
+  // 왜 결과 모달이 아니라 안내인가: 삭제·무산 환불은 **이 푸시가 이미 알린 사건**이라 모달까지
+  // 열면 같은 사건 이중 통지가 된다(N48 · 결정 N05). 그래서 여기서 말하는 것은 '무슨 일이
+  // 있었는지'와 '돈은 어떻게 됐는지'뿐이다.
+  // 왜 '그룹을 불러오지 못했어요'가 아닌가: 그룹은 멀쩡하고 조회도 성공했다 — 내가 멤버가
+  // 아닐 뿐이다. 재시도를 권하면 영원히 같은 실패를 반복하게 된다.
+  // 문구는 사유를 특정하지 않는다 — 링크의 refund=1은 삭제 환불과 무산 환불을 구분하지 않고,
+  // voidReason은 앱까지 오지 않는다(합성 링크가 싣지 않는다). 모르는 것을 지어내지 않는다.
+  // 잔액은 이미 다시 받았다 — 딥링크 처리(navigationRef)가 refund=1에서 requestCoinRefresh를
+  // 태운다. 나가기는 사용자가 누를 때만 한다(자동 이탈이 이 티켓의 결함이었다).
+  if (refundBlocked) {
+    return (
+      <View style={s.fill} testID="group.room.refundNotice">
+        {!!backButton && <View style={s.backRow}>{backButton}</View>}
+        <View style={s.center}>
+          <Text style={s.errorTitle}>참가비가 환불됐어요</Text>
+          <Text style={s.errorDesc}>
+            진행되지 않은 회차의 참가비를 돌려드렸어요.{'\n'}잔액에 이미 반영했어요.
+          </Text>
+          <Text style={s.errorDesc}>지금은 이 그룹에 속해 있지 않아 방을 열 수 없어요.</Text>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onLeft}>
+            <Text style={s.retryText}>확인</Text>
+          </TouchableOpacity>
+        </View>
+        {/* 환불과 무관한 다른 정산 결과가 큐에 남아 있으면 이 안내 위에 그대로 뜬다(N53·C8) —
+            이 화면은 그 모달의 배경이다(아래 에러 분기가 resultModal을 그리는 것과 같은 이유). */}
+        {resultModal}
+      </View>
+    );
+  }
+
   if (error && !detail) {
     return (
       <View style={s.fill}>
@@ -1084,6 +1178,9 @@ export default function GroupRoomScreen({
                     // 오류 응답 분기로는 못 잡는 '잘못된 사전 표시'라 진입 자체를 막고,
                     // 다음 성공 조회(setChallengeError(false))가 다시 연다.
                     betLocked={betBusy || challengeError}
+                    // 카드가 자기 시트를 열고 닫을 때마다 알려 준다 — 결과 모달 배타 조건
+                    // (위 resultVisible)이 이 보고 없이는 카드 시트를 보지 못한다(GROMO-1578).
+                    onSheetVisibilityChange={onCardSheetVisibilityChange}
                     // 철회·취소 직후 목록을 다시 받는다 — 마지막 참가자가 빠져도 서버는 챌린지를
                     // 지우지 않고 휴면으로 남기므로(GROMO-1201) 재조회가 없으면 닫힌 내기·휴면
                     // 표시가 반영되지 않은 낡은 카드가 화면에 남는다.
@@ -1194,9 +1291,7 @@ export default function GroupRoomScreen({
       />
 
       {/* ── 챌린지 만들기 시트(방장만) ── */}
-      {/* '⋯' 메뉴와 같은 이유로 inviteOpen까지 본다 — 위 이펙트는 렌더 뒤에 돌아 한 프레임 동안
-          두 Modal이 겹친다. */}
-      {composeOpen && !inviteOpen && (
+      {composeOpen && (
         <ChallengeComposeSheet
           groupId={groupId}
           existingCombos={existingCombos}

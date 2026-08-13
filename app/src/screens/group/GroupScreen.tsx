@@ -352,6 +352,8 @@ export default function GroupScreen() {
     navigation.navigate('GroupRoom', {
       groupId: target,
       challengeId: undefined,
+      // 환불 안내 표식도 같은 이유로 명시로 비운다(GROMO-1579 — types.ts GroupRoom 주석).
+      refundNotice: undefined,
       entrySource: 'invite',
       interactionId: undefined,
       interactionAcceptedAt: undefined,
@@ -376,6 +378,7 @@ export default function GroupScreen() {
       navigation.navigate('GroupRoom', {
         groupId,
         challengeId: undefined,
+        refundNotice: undefined,
         entrySource,
         interactionId: interaction?.interactionId,
         interactionAcceptedAt: interaction?.interactionAcceptedAt,
