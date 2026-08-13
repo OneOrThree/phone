@@ -42,42 +42,45 @@ export const INQUIRY_CATEGORIES: readonly InquiryCategory[] = [
   { id: 'etc', label: '계정 · 기타' },
 ] as const;
 
-// ⚠️ 착수 전 채워야 하는 자리표시자다(policy.md 미결 · low-level-design.md §9).
-//    name 은 실명이 아니라 닉네임(활동명)이고, openChatUrl 은 실제 방을 만든 뒤 교체한다.
-//    URL 3개는 서로 달라야 한다 — 같은 방을 두 명이 가리키면 D2(직접 지목)와
-//    D3(담당자별 방 3개)가 동시에 깨지는데, 링크가 열리는지만 보는 QA로는 안 잡힌다.
+// name 은 실명이 아니라 **닉네임(활동명)**이다(policy.md D10) — 실명을 넣지 말 것.
+// openChatUrl 3개는 서로 달라야 한다 — 같은 방을 두 명이 가리키면 D2(직접 지목)와
+// D3(담당자별 방 3개)가 동시에 깨지는데, 링크가 열리는지만 보는 QA로는 안 잡힌다.
+//
+// ⚠️ intro · availability 는 아직 자리표시자다(policy.md 미결 · low-level-design.md §9) —
+//    담당자 본인에게 받아 채운다. availability 는 지킬 수 없는 시간을 적지 않는다(D9).
+//    링크가 죽으면 앱은 감지하지 못한다 — 교체·점검 절차는 high-level-design.md §5.1.
 export const INQUIRY_CONTACTS: readonly InquiryContact[] = [
   {
     id: 'dev-focus',
-    name: '개발자 A',
-    initial: 'A',
+    name: 'JAJO',
+    initial: 'J',
     avatarPaletteIndex: 0,
     scopeLabel: '집중 · 스크린타임 · 통계',
     intro: '타이머가 안 멈추거나 사용 시간이 이상하면 알려 주세요.',
     availability: '평일 10:00–19:00',
     categoryId: 'focus',
-    openChatUrl: 'https://open.kakao.com/o/TODOfocus',
+    openChatUrl: 'https://open.kakao.com/o/gu7GFKIi',
   },
   {
     id: 'dev-group',
-    name: '개발자 B',
-    initial: 'B',
+    name: '오스카',
+    initial: '오',
     avatarPaletteIndex: 1,
     scopeLabel: '그룹 · 챌린지 · 친구',
     intro: '그룹 초대가 안 되거나 챌린지 참여가 이상할 때 찾아 주세요.',
     availability: '평일 10:00–19:00',
     categoryId: 'group',
-    openChatUrl: 'https://open.kakao.com/o/TODOgroup',
+    openChatUrl: 'https://open.kakao.com/o/sll2EKIi',
   },
   {
     id: 'dev-etc',
-    name: '개발자 C',
-    initial: 'C',
+    name: 'Aiden',
+    initial: 'A',
     avatarPaletteIndex: 2,
     scopeLabel: '계정 · 결제 · 그 밖의 모든 것',
     intro: '어디에 물어야 할지 모르겠으면 저에게 주세요.',
     availability: '평일 10:00–19:00',
     categoryId: 'etc',
-    openChatUrl: 'https://open.kakao.com/o/TODOetc',
+    openChatUrl: 'https://open.kakao.com/o/sYCkEKIi',
   },
 ] as const;
