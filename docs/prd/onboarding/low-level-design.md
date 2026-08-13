@@ -28,33 +28,32 @@
 | `InfoNote.tsx` | 점+텍스트 안내 박스, `NoteStrong` 강조 |
 | `ScreenTimeGuideOverlay.tsx` | 시스템 권한창 복제 오버레이(GROMO-934) + `useGuideDismissal` 훅 |
 
-### 1.3 스텝 층 (`steps/`) — 활성 13
+### 1.3 스텝 층 (`steps/`) — 활성 12
 
 | 파일 | 스텝 이름 | 수집/부수효과 |
 |---|---|---|
 | `ProblemEmpathyStep.tsx` | `problem_empathy` | — |
 | `TogetherEffectStep.tsx` | `together_effect` | — |
-| `SubjectCompareStep.tsx` | `subject_compare` | — (막대는 하드코딩 `BARS`/`SUBJECTS` `:18-24`) |
+| `SubjectCompareStep.tsx` | `subject_compare` | — (집중 결과·보상 예시) |
 | `FocusCategoryStep.tsx` | `focus_category` | `focusCategory`·`subjects` |
 | `SubjectEditStep.tsx` | `subject_edit` | — (읽기 전용) |
 | `ScreenTimePermissionStep.tsx` | `screentime_permission` | `screenTimeGranted`·`screenTimeSelectionConfigured` |
 | `ScreenTimeDeniedStep.tsx` | `screentime_denied` | `screenTimeGranted`(재허용) |
-| `YesterdayScreenTimeStep.tsx` | `yesterday_screentime` | — (+`resetAnalyzeIntro` export) |
 | `GoalSettingStep.tsx` | `goal_setting` | `dailyFocusMinutes`·`usageGoalMinutes` |
 | `CharacterIntroStep.tsx` | `character_intro` | — |
 | `CutoutStep.tsx` | `cutout_experience` | `cutoutCharacterUri` |
 | `NicknameStep.tsx` (+ `.test.tsx`) | `nickname` | `nickname` · 중복확인 계약 테스트(GROMO-1215) |
 | `@/screens/LoginScreen.tsx` | `login` | `LoginResult` |
 
-### 1.4 스텝 층 — **보류 5 (어디서도 import되지 않음)**
+### 1.4 스텝 층 — **보류 6 (온보딩 시퀀스에서 import되지 않음)**
 
-`UsageGuessStep.tsx`(W9) · `LiveRankingStep.tsx`(W6) · `PhoneManageStep.tsx`(W8) · `NotificationPermissionStep.tsx`(W13) · `GromoStartStep.tsx`(W14)
+`UsageGuessStep.tsx`(W9) · `YesterdayScreenTimeStep.tsx`(W11) · `LiveRankingStep.tsx`(W6) · `PhoneManageStep.tsx`(W8) · `NotificationPermissionStep.tsx`(W13) · `GromoStartStep.tsx`(W14)
 
 ### 1.5 외부 연계
 
 | 대상 | 쓰이는 곳 |
 |---|---|
-| `@/services/ScreenTimeModule` | 권한·picker·색상스킴·어제 사용분 |
+| `@/services/ScreenTimeModule` | 권한·picker·색상스킴 |
 | `@/services/screentimeSync` `registerUsageBucketMonitoring` | picker 확정 직후 |
 | `@/services/analyticsEvents` | 전 스텝 계측 |
 | `@/services/userApi` `getOccupations`·`checkNickname` / `@/services/focusApi` `getDefaultTags` | 직군·추천과목·닉네임 |
@@ -137,11 +136,11 @@ const progress =
     ? { current: index, total: loginIndex }                       // 로그인 전: 3칸
     : {
         current: postLogin.slice(0, index - loginIndex).filter((n) => !isSubStep(n)).length - 1,
-        total: postLogin.filter((n) => !isSubStep(n)).length,     // 로그인 후: 7칸
+        total: postLogin.filter((n) => !isSubStep(n)).length,     // 로그인 후: 승인 6칸, 거부 7칸
       };
 ```
 
-- 로그인 후 `total` = `focus_category`·`screentime_*`·`goal_setting`·`character_intro`·`cutout_experience`·`nickname` = **7칸**(`subject_edit` 제외).
+- 로그인 후 `total` = 승인 경로 **6칸**, `screentime_denied`가 삽입되는 거부 경로 **7칸**이다(`subject_edit` 제외).
 - `index === loginIndex`에서 `current`는 `-1`이 되지만, 로그인 노드는 `StepScaffold`를 쓰지 않는 전체화면이라 진행바가 그려지지 않는다.
 
 **스와이프 뒤로 임계값** (`:166-177`)
@@ -217,9 +216,11 @@ const BASE_HINT = `${NICK_MIN}~${NICK_MAX}자로 정할 수 있어요`;
 const canCreate = isSubjectMaskModuleAvailable();
 const canSkip = !canCreate || process.env.EXPO_PUBLIC_E2E === '1';
 ctaDisabled = !created && !canSkip && !moderationUnavailable && !creatorDismissed;
+// canCreate && !created일 때도 별도 '건너뛰기' 버튼이 onNext를 직접 호출한다.
 ```
 
 - `created = !!data.cutoutCharacterUri`. 저장 경로에 `?t=${Date.now()}` 캐시버스트를 붙인다(고정 파일명이라 `<Image>`가 URI를 캐시 키로 잡음).
+- 사진 선택을 원하지 않는 일반 사용자도 `건너뛰기` 버튼으로 즉시 다음 단계에 진입한다.
 - `userId`는 저장된 `accessToken`의 JWT `sub`에서 디코드 — 한 기기 두 계정이 서로의 캐릭터 파일을 덮어쓰지 않게.
 
 ### 4.4 스크린타임 권한
@@ -234,10 +235,10 @@ ctaDisabled = !created && !canSkip && !moderationUnavailable && !creatorDismisse
 | 오버레이 해제 | `hideAndWait()` — `Modal onDismiss` 대기, 800ms 폴백 |
 | 설정 폴백 복귀 | `AppState 'active'` + `returningFromSettings` 플래그일 때만 재확인 |
 
-### 4.5 분석 연출 (`YesterdayScreenTimeStep.tsx` + `ScreenTimeAnalyzingOverlay`)
+### 4.5 보류된 분석 연출 (`YesterdayScreenTimeStep.tsx` + `ScreenTimeAnalyzingOverlay`)
 
-`ANALYZE_MS = FILL_MS(2000) + HOLD_MS(900) + FINISH_MS(300) = 3200ms`.
-모듈 전역 `analyzedThisSession`으로 **플로우당 1회**만 재생하고, `OnboardingFlow` 마운트에서 `resetAnalyzeIntro()`로 되돌린다. 연출 중엔 `ctaHidden`으로 CTA 자리만 남기고 감춘다.
+현재 온보딩 시퀀스에서는 마운트되지 않는다. 파일을 다시 사용할 경우 `ANALYZE_MS = FILL_MS(2000) + HOLD_MS(900) + FINISH_MS(300) = 3200ms`이며,
+모듈 전역 `analyzedThisSession`으로 1회만 재생한다. 플로우 재진입마다 재생하려면 `OnboardingFlow` 마운트에서 `resetAnalyzeIntro()`를 다시 연결해야 한다. 연출 중엔 `ctaHidden`으로 CTA 자리만 남기고 감춘다.
 
 ---
 
@@ -264,9 +265,9 @@ flowchart TD
 | `onboarding_step_viewed` | 런타임 `index` | 가변 |
 | `onboarding_focus_category_submitted` | 4 | 4 ✅ |
 | `onboarding_permission_requested/resulted` | 10 | 5 ❌ |
-| `onboarding_screentime_viewed` | 11 | 6 ❌ |
-| `onboarding_nickname_submitted` | 12 | 10 ❌ |
-| `onboarding_goal_submitted` | 13 | 7 ❌ |
+| `onboarding_screentime_viewed` | 11 | 거부 안내 6 / 승인 후 목표 6 ❌ |
+| `onboarding_nickname_submitted` | 12 | 9 또는 10 ❌ |
+| `onboarding_goal_submitted` | 13 | 6 또는 7 ❌ |
 | `onboarding_signup_selected/failed` | 15 | 3 ❌ |
 | `onboarding_completed` | 99 | 종료 |
 
@@ -287,15 +288,15 @@ if (viewedStepsRef.current.has(step)) return;
 
 | # | 항목 | 근거 | 영향 |
 |---|---|---|---|
-| 1 | **고아 스텝 5개** — `UsageGuessStep`·`LiveRankingStep`·`PhoneManageStep`·`NotificationPermissionStep`·`GromoStartStep`이 어디서도 import되지 않음 | `steps/` 전체 grep 결과 참조 0 | 죽은 코드. 특히 `yesterday_screentime`의 "추측과 얼마나 달랐나요?" 문구가 **존재하지 않는 앞 스텝**을 가리킨다 |
+| 1 | **보류 스텝 6개** — `UsageGuessStep`·`YesterdayScreenTimeStep`·`LiveRankingStep`·`PhoneManageStep`·`NotificationPermissionStep`·`GromoStartStep`이 시퀀스에서 import되지 않음 | `OnboardingFlow.tsx` import·sequence | 죽은 코드가 현재 플로우를 설명하는 것으로 오해될 수 있다 |
 | 2 | **죽은 필드 3종** — `guessedYesterdayMinutes`·`notificationGranted`(채우는 스텝 없음), `screenTimeSelectionConfigured`(쓰기만 하고 읽는 곳 없음) | `types.ts:12,14,21` | 타입이 실제보다 넓어 보임 |
 | 3 | **사문화된 저장 키 3개** — `gromo:selection:configured`·`:counts`·`:pendingCounts`는 코드베이스 전체에 읽기·쓰기 없음 | `types/storage.ts:52-54` | 온보딩 picker 결과가 JS 쪽에 전혀 기록되지 않아 설정 화면과 상태를 공유하지 못함 |
 | 4 | **`step_index` 상수가 실제 순서와 불일치** | §5 표 | GA4 퍼널을 `step_index`로 정의하면 순서가 뒤집힌다. `step_viewed` 속성 ID는 **프로덕션 미배포**라 콘솔에서 `step` 세분화가 아직 불가 |
 | 5 | **GA4 퍼널 사고 이력** — 더 이상 발행되지 않는 `shock` 이벤트를 닫힌 퍼널 단계로 잡아 100% 이탈로 보였고 2026-07-30 수정 | — | 퍼널 정의는 `analyticsEvents.ts`에 실재하는 이벤트만 사용 |
-| 6 | **재개 불가** — 수집 데이터가 인메모리라 강제종료 시 전부 소실 | `OnboardingFlow.tsx:66` | 스텝 11개를 처음부터. 권한·모니터 등록만 남는 비대칭 상태 |
+| 6 | **재개 불가** — 수집 데이터가 인메모리라 강제종료 시 전부 소실 | `OnboardingFlow.tsx:66` | 조건부 스텝 포함 최대 12개를 처음부터. 권한·모니터 등록만 남는 비대칭 상태 |
 | 7 | **`UserContext.goalSecondsRef`가 `initialGoalSeconds`로 초기화되지 않음** — `useRef(3 * 3600)` 하드코딩 | `@/store/UserContext.tsx:60` | 현재 이 ref를 읽는 코드가 없어 무해하나, 소비처가 생기면 온보딩 목표와 무관한 3시간을 즉시 반환한다 |
 | 8 | **'나중에 할게요' = 거부** — 둘 다 `screenTimeGranted=false` | `ScreenTimePermissionStep.tsx:163-166` | 서버 `PATCH screen-time-permission`도 구분 못 함 |
-| 9 | **`SubjectCompareStep` 막대가 목업** — `BARS`/`SUBJECTS` 하드코딩, 파일 내 `TODO: 통계 연동 후 실데이터` | `SubjectCompareStep.tsx:17-24` | 로그인 전 화면이라 실데이터가 불가능한 구조적 제약. 설득 목적엔 충분하나 "A과목" 라벨이 그대로 노출 |
+| 9 | **`SubjectCompareStep` 결과가 예시 데이터** — 42분 집중과 보상·리그 변화를 정적으로 표시 | `SubjectCompareStep.tsx` | 로그인 전 화면이라 개인 실데이터를 쓸 수 없는 구조적 제약 |
 | 10 | **기존 계정 수집값 무통보 폐기** | `App.tsx:342-382` | 재로그인 유저가 다시 고른 목표·과목·직군이 조용히 사라진다 |
 | 11 | **`E2E_PREFILL`이 코드에 상주** | `GoalSettingStep.tsx:26-27` | 운영 빌드엔 `EXPO_PUBLIC_E2E`가 없어 무해하지만, 플래그가 잘못 주입되면 목표 잠금이 통째로 풀린다 |
 
@@ -304,7 +305,7 @@ if (viewedStepsRef.current.has(step)) return;
 ## 7. 앞으로 변할 방향
 
 - **W번호 제거**: 주석의 `W1~W15`와 `analyticsEvents.ts`의 `step_index` 리터럴을 걷어내고 `OnboardingStepName`을 유일한 스텝 식별자로 남긴다.
-- **고아 파일 처분**: 되살릴 스텝(자가 추측·알림 권한)과 지울 스텝(랭킹·핸드폰 관리·시작 히어로)을 갈라 결정한다. 되살린다면 `types.ts`의 죽은 필드가 함께 살아난다.
+- **보류 파일 처분**: 되살릴 스텝(자가 추측·전날 사용시간·알림 권한)과 지울 스텝(랭킹·핸드폰 관리·시작 히어로)을 갈라 결정한다. 되살린다면 `types.ts`의 죽은 필드가 함께 살아난다.
 - **재개(resume)**: `{index, data}` 스냅샷을 AsyncStorage에 두는 방식. 스텝 층은 무변경 — 단 `screenTimeGranted`는 복원이 아니라 `getAuthorizationStatus()` 재조회로 갱신해야 한다.
 - **`selection` 키 부활 또는 삭제**: picker 결과를 JS에 기록하면 설정 화면의 "측정 대상 설정됨" 표시와 온보딩이 같은 진실을 본다.
 

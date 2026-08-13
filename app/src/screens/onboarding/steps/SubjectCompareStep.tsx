@@ -24,6 +24,7 @@ export default function SubjectCompareStep({ onNext }: StepProps) {
     <StepScaffold
       testID="onboarding.step.subjectCompare"
       center
+      scrollable
       title={'오늘의 집중이\n내일의 기록이 돼요'}
       ctaLabel="그로모 시작하기"
       onCta={onNext}

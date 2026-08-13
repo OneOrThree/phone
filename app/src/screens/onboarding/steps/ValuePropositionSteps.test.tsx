@@ -25,18 +25,24 @@ describe('온보딩 가치 제안 화면', () => {
   test('방해 앱 차단을 지원하지 않는 플랫폼에는 집중 목표를 안내한다', async () => {
     Object.defineProperty(Platform, 'OS', { value: 'android' });
 
-    await render(<ProblemEmpathyStep {...stepProps} />);
+    const { container } = await render(<ProblemEmpathyStep {...stepProps} />);
 
     expect(screen.getByText('집중 목표')).toBeOnTheScreen();
     expect(screen.queryByText('방해 앱 차단')).not.toBeOnTheScreen();
+    expect(
+      container.queryAll((node) => node.props.scrollEnabled === true, { includeSelf: true }),
+    ).toHaveLength(1);
   });
 
-  test('완료 시간과 시간조각 보상이 같은 분 단위로 표시된다', async () => {
-    await render(<SubjectCompareStep {...stepProps} />);
+  test('완료 시간과 시간조각 보상이 같은 분 단위이며 작은 화면에서 스크롤된다', async () => {
+    const { container } = await render(<SubjectCompareStep {...stepProps} />);
 
     expect(screen.getByText('42분 완료')).toBeOnTheScreen();
     expect(screen.getByText('+42')).toBeOnTheScreen();
     expect(screen.queryByText('+20')).not.toBeOnTheScreen();
+    expect(
+      container.queryAll((node) => node.props.scrollEnabled === true, { includeSelf: true }),
+    ).toHaveLength(1);
   });
 
   test('함께 집중 화면은 작은 기기에서도 본문을 스크롤할 수 있다', async () => {

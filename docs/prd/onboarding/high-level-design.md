@@ -71,13 +71,12 @@ flowchart TD
     D1 -->|예| S4B["4′ subject_edit (subStep)"] --> S5
     D1 -->|아니오| S5["5 screentime_permission"]
     S5 --> D2{"screenTimeGranted === false"}
-    D2 -->|"거부 · '나중에'"| S6A["6a screentime_denied"]
-    D2 -->|"허용 · 미결정"| S6B["6b yesterday_screentime"]
-    S6A -.->|"재허용 시 같은 인덱스에서 교체"| S6B
-    S6A --> S7
-    S6B --> S7["7 goal_setting"]
-    S7 --> S8["8 character_intro"] --> S9["9 cutout_experience"] --> S10["10 nickname"]
-    S10 --> FIN
+    D2 -->|"거부 · '나중에'"| S6A["screentime_denied"]
+    D2 -->|"허용"| S6["goal_setting"]
+    S6A -.->|"재허용 시 denied 제거"| S6
+    S6A -->|"이대로 계속"| S6
+    S6 --> S7["character_intro"] --> S8["cutout_experience"] --> S9["nickname"]
+    S9 --> FIN
 ```
 
 ### 3.1 동적 분기 두 개
@@ -85,13 +84,13 @@ flowchart TD
 | 분기 | 조건 | 성질 |
 |---|---|---|
 | `subject_edit` 삽입 | `data.subjects.length > 0` | **삽입형** — 노드가 하나 늘어난다. `subStep:true`라 진행바 칸 수에는 안 들어간다 |
-| `denied` ↔ `yesterday` | `data.screenTimeGranted === false` | **교체형** — 같은 인덱스의 컴포넌트만 바뀐다. 거부 화면에서 재허용하면 `onNext` 없이 자동 교체 |
+| `screentime_denied` 삽입 | `data.screenTimeGranted === false` | **삽입형** — 거부일 때만 권한과 목표 사이에 들어간다. 재허용하면 노드가 빠지고 같은 인덱스가 `goal_setting`을 가리킨다 |
 
 `sequence`는 `useMemo([data.subjects, data.screenTimeGranted])`로 재계산된다 — 분기 입력이 바뀌면 배열이 새로 만들어지고 현재 `index`가 가리키는 노드가 달라진다. 이 "인덱스는 그대로, 노드는 교체" 패턴 때문에 계측 dedup을 **인덱스가 아니라 스텝 이름**으로 한다.
 
 ### 3.2 진행바 — 로그인을 기준으로 두 구간
 
-로그인 **전**은 `current=index · total=loginIndex(3칸)`, 로그인 **후**는 `current`=지금까지 지난 non-subStep 수 −1 · `total`=로그인 이후 non-subStep 수(7칸). 로그인 노드 자체는 전체화면이라 진행바가 없다. 두 구간을 각각 0부터 다시 채운다. `subject_edit`이 끼어도 칸 수가 흔들리지 않는 이유는 `isSubStep` 필터로 세지 않기 때문이다(직전 스텝과 칸을 공유).
+로그인 **전**은 `current=index · total=loginIndex(3칸)`, 로그인 **후**는 `current`=지금까지 지난 non-subStep 수 −1 · `total`=로그인 이후 non-subStep 수다. 승인 경로는 6칸, `screentime_denied`가 삽입되는 거부 경로는 7칸이다. 로그인 노드 자체는 전체화면이라 진행바가 없다. `subject_edit`은 `isSubStep` 필터로 세지 않아 직전 스텝과 칸을 공유한다.
 
 ### 3.3 뒤로가기
 
@@ -117,7 +116,7 @@ flowchart TB
         C4["ScreenTimeGuideOverlay.tsx + useGuideDismissal"]
     end
     subgraph L3["③ 스텝 — steps/"]
-        S["13개 활성 + 5개 보류"]
+        S["12개 활성 + 6개 보류"]
     end
     L1 -->|"StepProps 계약"| L3
     L3 -->|"레이아웃 위임"| L2
@@ -194,7 +193,7 @@ sequenceDiagram
 - **재개(resume) 도입 시**: 컨트롤 층이 `{index, data}`를 AsyncStorage에 스냅샷하는 방식이 자연스럽다. 스텝 층은 손댈 필요가 없다 — `StepProps` 계약이 이미 순수하기 때문. 단 `screenTimeGranted`처럼 이미 부수효과가 난 값은 복원이 아니라 **재조회**해야 한다.
 - **안드로이드 스크린타임 M2 이후**: 현재 `presentAppPicker`/`promoteSelection`은 iOS 전용이라 안드로이드는 전체 앱 측정이 기본이다. picker가 붙으면 권한 스텝의 안드로이드 분기가 iOS 경로로 수렴한다.
 - **푸시 권한 편입**: `NotificationPermissionStep`을 시퀀스에 넣으면 `notificationGranted`가 살아나고, `PushGate`는 "이미 승인된 권한의 토큰 등록"만 하게 된다.
-- **보류 스텝 정리**: 5개 고아 파일을 되살리거나 지운다. `yesterday_screentime`의 "추측과 얼마나 달랐나요?" 문구는 `UsageGuessStep` 복귀를 전제로 남아 있다.
+- **보류 스텝 정리**: 6개 고아 파일(`YesterdayScreenTimeStep` 포함)을 되살리거나 지운다.
 - **온보딩 전용 로그인 화면 분리**: 현재 `LoginScreen`이 `isOnboarding` 플래그로 계측만 갈라 쓴다. 온보딩 전용 문구·진행바가 필요해지면 분리 지점이다.
 
 ---

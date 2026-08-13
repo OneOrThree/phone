@@ -16,6 +16,7 @@ export default function ProblemEmpathyStep({ onNext }: StepProps) {
     <StepScaffold
       testID="onboarding.step.problem"
       center
+      scrollable
       title={'오늘 할 일만 고르면\n집중이 바로 시작돼요'}
       ctaLabel="다음"
       onCta={onNext}
