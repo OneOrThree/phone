@@ -31,6 +31,16 @@ const GLIDE = [0.3, 1.15, 0.5, 1] as const; // 얕은 오버슛 — 이동거리
 //    키워드를 쓰면 .fn(Easing.out(Easing.quad))과 다른 커브가 되어 쌍 계약이 깨진다.
 const OUT_QUAD = [0.25, 0.46, 0.45, 0.94] as const;
 
+/**
+ * 표준 커브의 제어점 — **워클릿 안에서 이징을 만들 때만** 쓴다.
+ *
+ * `M.curve.*.fn`(= `Easing.bezier()` 결과)은 클래스 인스턴스라 워클릿의 UI 런타임으로
+ * 복사되지 않는다. 워클릿에서 참조하면 렌더가 "[Worklets] Cannot copy value of type
+ * `CubicBezierEasing`"으로 죽는다 — 워클릿 안에서는 이 제어점으로 `Easing.bezierFn`을
+ * 직접 만들어 쓴다(사용례: screens/league/rankSwap.ts).
+ */
+export const STANDARD_POINTS = STANDARD;
+
 export const M = {
   // duration 사다리 — 값을 새로 발명하지 않고 이미 튜닝된 값을 칸으로 승격했다.
   dur: {

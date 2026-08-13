@@ -1,10 +1,11 @@
 import {
+  Easing,
   withSequence,
   withSpring,
   withTiming,
   type LayoutAnimationFunction,
 } from 'react-native-reanimated';
-import { M } from '@/constants/motion';
+import { M, STANDARD_POINTS } from '@/constants/motion';
 
 // 리그 순위 재정렬 트랜지션 (GROMO-1381).
 // 타이밍 정본은 시안 docs/prd/motion/ui.html 의 `swapWithAbove` — 문서 산문과 어긋나면 시안이 맞다.
@@ -240,8 +241,22 @@ const LATERAL = 9;
 /** 나갔다 돌아오는 한쪽 구간. 왕복 합이 base(350)라 스왑 간격 300ms 호흡과 겹쳐 흐른다. */
 const ARC_MS = M.dur.base / 2;
 
+// ⚠️ **워클릿 안에서 `M.…`을 읽지 않는다.** 워클릿의 클로저 캡처는 식별자 단위라, `M.dur.base`
+//    하나만 읽어도 `M` 객체 **전체**가 UI 런타임으로 복사된다 — 그 안의 `M.curve.*.fn`
+//    (`Easing.bezier()`가 만든 CubicBezierEasing 인스턴스)은 복사 대상이 아니라 그 자리에서
+//    "[Worklets] Cannot copy value of type `CubicBezierEasing`" 렌더 에러로 죽는다.
+//    화면이 통째로 하얗게 멈춘다(GROMO-1381 도입 이후 리그에 4위 이하 행이 처음 생긴 시점에
+//    드러났다 — 그 전엔 이 워클릿을 다는 행 자체가 렌더된 적이 없다).
+//    그래서 워클릿이 쓰는 값은 **복사 가능한 원시값·평범한 객체로 미리 뽑고**, 이징은 워클릿
+//    **안에서** `Easing.bezierFn`(워클릿 함수)으로 만든다.
+const BASE_MS = M.dur.base;
+const SWAP_SPRING = { ...M.spring.snappy };
+const SWAP_REDUCE = M.never;
+const { bezierFn } = Easing;
+
 export const rankSwap: LayoutAnimationFunction = (values) => {
   'worklet';
+  const standard = bezierFn(...STANDARD_POINTS);
   // 위로 올라가는 행이면 왼쪽(-), 밀려나는 행이면 오른쪽(+)으로 비껴간다.
   const dy = values.targetOriginY - values.currentOriginY;
   const amp = dy < 0 ? -LATERAL : LATERAL;
@@ -257,32 +272,32 @@ export const rankSwap: LayoutAnimationFunction = (values) => {
       originX:
         dy === 0
           ? withTiming(values.targetOriginX, {
-              duration: M.dur.base,
-              easing: M.curve.standard.fn,
-              reduceMotion: M.never,
+              duration: BASE_MS,
+              easing: standard,
+              reduceMotion: SWAP_REDUCE,
             })
           : withSequence(
               withTiming(values.targetOriginX + amp, {
                 duration: ARC_MS,
-                easing: M.curve.standard.fn,
-                reduceMotion: M.never,
+                easing: standard,
+                reduceMotion: SWAP_REDUCE,
               }),
               withTiming(values.targetOriginX, {
                 duration: ARC_MS,
-                easing: M.curve.standard.fn,
-                reduceMotion: M.never,
+                easing: standard,
+                reduceMotion: SWAP_REDUCE,
               }),
             ),
-      originY: withSpring(values.targetOriginY, M.spring.snappy),
+      originY: withSpring(values.targetOriginY, SWAP_SPRING),
       width: withTiming(values.targetWidth, {
-        duration: M.dur.base,
-        easing: M.curve.standard.fn,
-        reduceMotion: M.never,
+        duration: BASE_MS,
+        easing: standard,
+        reduceMotion: SWAP_REDUCE,
       }),
       height: withTiming(values.targetHeight, {
-        duration: M.dur.base,
-        easing: M.curve.standard.fn,
-        reduceMotion: M.never,
+        duration: BASE_MS,
+        easing: standard,
+        reduceMotion: SWAP_REDUCE,
       }),
     },
   };
