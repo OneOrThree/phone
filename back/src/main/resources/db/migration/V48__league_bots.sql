@@ -1672,7 +1672,11 @@ FROM (
            u.nickname,
            d.day::date AS day,
            g.n,
-           plan.block_minutes,
+           -- 마지막 블록이 정수 나눗셈의 나머지를 흡수한다. 균등 분할만 하면 하루 합계가
+           -- 일평균보다 최대 몇 분 모자라고, 그 손실이 주간 합계에 쌓인다 (코드리뷰 반영).
+           CASE WHEN g.n < plan.blocks THEN plan.block_minutes
+                ELSE plan.minutes - (plan.blocks - 1) * plan.block_minutes
+           END AS block_minutes,
            -- 성향의 시작 시각에서 출발하되, 그날 소요가 자정을 넘지 않도록 필요하면 앞당긴다.
            -- 자정을 넘기면 집계는 시작일에 전량 귀속하는데 /stats/by-category 는 날짜 경계로
            -- 클리핑해 읽어, 같은 날의 총합과 과목별 합이 어긋난다 (코드리뷰 반영).
@@ -1696,12 +1700,14 @@ FROM (
     CROSS JOIN LATERAL (
         SELECT sized.blocks,
                sized.block_minutes,
-               -- 성향 시작 시각과 "자정 23시까지 다 끝나는 시작 시각" 중 이른 쪽
+               sized.minutes,
+               -- 성향 시작 시각과 "자정 23시까지 다 끝나는 시작 시각" 중 이른 쪽.
+               -- 소요는 집중분(minutes) + 블록 사이 휴식이다.
                GREATEST(0, LEAST(sized.preferred_start,
-                                 23 * 60 - (sized.blocks * sized.block_minutes
-                                            + (sized.blocks - 1) * 35))) AS start_minute
+                                 23 * 60 - (sized.minutes + (sized.blocks - 1) * 35))) AS start_minute
         FROM (
-            SELECT GREATEST(1, ceil(daily.minutes / 80.0)::int) AS blocks,
+            SELECT daily.minutes,
+                   GREATEST(1, ceil(daily.minutes / 80.0)::int) AS blocks,
                    GREATEST(15, (daily.minutes / GREATEST(1, ceil(daily.minutes / 80.0)::int))::int)
                        AS block_minutes,
                    (CASE p.chronotype
@@ -1710,10 +1716,12 @@ FROM (
                         WHEN 'AFTERNOON' THEN 13
                         ELSE 21
                     END) * 60 AS preferred_start
-            FROM (SELECT (p.weekly_minutes / p.active_days
-                              * (80 + ('x' || substr(md5(u.nickname || d.day::date::text), 1, 2))::bit(8)::int
-                                      * 40 / 255)
-                              / 100) AS minutes) daily
+            -- 하루 몫은 일평균 그대로 쓴다. 여기에 일별 난수를 곱하면 그 변동이 주 단위로
+            -- 정규화되지 않아(시뮬레이터의 dayFactor 와 달리) 배포 요일에 따라 주간 합계가
+            -- 유지 구간을 벗어난다 (코드리뷰 반영). 변동을 빼면 시드 합계는 정확히
+            -- 일평균 × 시드된 활동일수 가 되고, 나머지 날은 시뮬레이터가 주간 목표에
+            -- 수렴하도록 채우므로 둘을 합치면 주간 목표에 맞는다.
+            FROM (SELECT (p.weekly_minutes / p.active_days) AS minutes) daily
         ) sized
     ) plan
     CROSS JOIN LATERAL generate_series(1, plan.blocks) AS g(n)
@@ -1753,23 +1761,37 @@ ON CONFLICT (user_id, date) DO NOTHING;
 --
 -- 스트릭 자격일은 그날 누적 집중 10분(600초) 이상이다(UserStreakService.STREAK_MIN_SECONDS).
 -- 연속 구간은 gaps-and-islands — 날짜에서 행 번호를 빼면 같은 구간이 같은 값이 된다.
+--
+-- 현재 스트릭과 최장 스트릭은 따로 센다. 현재 구간 길이를 최장에도 그대로 넣으면, 이번 주에
+-- 더 긴 구간이 앞서 있었을 때 최장 기록이 줄어든다 (코드리뷰 반영).
 INSERT INTO user_streaks (user_id, streak_count, longest_streak_count, last_session_date, updated_at)
-SELECT island.user_id, island.days, island.days, island.last_day, now()
+SELECT summary.user_id,
+       COALESCE(summary.current_days, 0),
+       summary.longest_days,
+       summary.last_qualified_day,
+       now()
 FROM (
-    SELECT marked.user_id,
-           count(*)::int AS days,
-           max(marked.date) AS last_day
+    SELECT island.user_id,
+           max(island.days) AS longest_days,
+           -- 오늘(또는 어제)까지 이어진 구간만 '현재' 스트릭이다. 없으면 0.
+           max(island.days) FILTER (
+               WHERE island.last_day >= (now() AT TIME ZONE 'Asia/Seoul')::date - 1) AS current_days,
+           max(island.last_day) AS last_qualified_day
     FROM (
-        SELECT d.user_id,
-               d.date,
-               d.date - (row_number() OVER (PARTITION BY d.user_id ORDER BY d.date))::int AS island_key
-        FROM daily_focus_stats d
-        JOIN users u ON u.id = d.user_id
-        WHERE u.is_bot AND d.total_focus_seconds >= 600
-    ) marked
-    GROUP BY marked.user_id, marked.island_key
-) island
--- 오늘(또는 어제)까지 이어진 구간만 '현재' 스트릭이다. 중간에 끊긴 옛 구간은 버린다.
-WHERE island.last_day >= (now() AT TIME ZONE 'Asia/Seoul')::date - 1
+        SELECT marked.user_id,
+               count(*)::int AS days,
+               max(marked.date) AS last_day
+        FROM (
+            SELECT d.user_id,
+                   d.date,
+                   d.date - (row_number() OVER (PARTITION BY d.user_id ORDER BY d.date))::int AS island_key
+            FROM daily_focus_stats d
+            JOIN users u ON u.id = d.user_id
+            WHERE u.is_bot AND d.total_focus_seconds >= 600
+        ) marked
+        GROUP BY marked.user_id, marked.island_key
+    ) island
+    GROUP BY island.user_id
+) summary
 ON CONFLICT (user_id) DO NOTHING;
 
