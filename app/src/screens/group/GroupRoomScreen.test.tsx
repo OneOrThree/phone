@@ -76,6 +76,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logGroupInviteShared: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupChallengeJoined: jest.fn(),
   logGroupRoomViewed: jest.fn(),
   logGroupChallengeResultShown: jest.fn(),
   logGroupChallengeResultClosed: jest.fn(),

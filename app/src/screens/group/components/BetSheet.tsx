@@ -30,6 +30,7 @@ import {
   logCurrencyInsufficient,
   logGroupBetCreated,
   logGroupBetJoined,
+  logGroupChallengeJoined,
 } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { useToast } from '@/store/ToastContext';
@@ -367,6 +368,11 @@ export default function BetSheet({
         }
         logGroupBetJoined({
           stake: amount,
+          mission_type: challenge.missionType,
+          mission_category: challenge.missionCategory,
+        });
+        logGroupChallengeJoined({
+          session_count: 1,
           mission_type: challenge.missionType,
           mission_category: challenge.missionCategory,
         });

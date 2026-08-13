@@ -11,7 +11,7 @@ import {
 } from '@/services/groupApi';
 import { getAuthSessionGeneration } from '@/services/api';
 import { promptSessionExpired, USER_NOT_FOUND } from '@/services/sessionErrors';
-import { logGroupBetJoined } from '@/services/analyticsEvents';
+import { logGroupBetJoined, logGroupChallengeJoined } from '@/services/analyticsEvents';
 import { useCoins } from '@/store/CoinContext';
 import { todayStrKst } from '@/utils/localDate';
 import type { MissionCategory, MissionType } from '@/types/dto/group';
@@ -129,6 +129,11 @@ export default function JoinNextSheet({
       // 지표에 남아야 한다.
       logGroupBetJoined({
         stake: joined.stake ?? stake,
+        session_count: 1,
+        mission_type: missionType,
+        mission_category: missionCategory,
+      });
+      logGroupChallengeJoined({
         session_count: 1,
         mission_type: missionType,
         mission_category: missionCategory,

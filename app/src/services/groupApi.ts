@@ -5,7 +5,11 @@
 // 내기 2종은 3차(docs/app/group-bet-plan.md §2, 계약 정본은 docs/back/group-bet-plan.md §2).
 import axios from 'axios';
 import { api } from '@/services/api';
-import { logGroupChallengeDeleted, type GroupJoinMethod } from '@/services/analyticsEvents';
+import {
+  logGroupChallengeDeleted,
+  logGroupChallengeSettled,
+  type GroupJoinMethod,
+} from '@/services/analyticsEvents';
 import { todayStrKst } from '@/utils/localDate';
 import type {
   ChallengeDeletionPreviewResponse,
@@ -35,6 +39,9 @@ import type {
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
 } from '@/types/dto/group';
+
+// 같은 정산 결과를 화면 재조회마다 반복 발행하지 않는다. sessionId는 서버가 부여한 회차 키다.
+const reportedChallengeSettlementIds = new Set<string>();
 
 // ── 신설 서버 에러코드(계약 §2 — 앱이 code 문자열로 분기) ────────────────────────
 // 화면 switch가 흩어 쓰는 리터럴의 오타를 막으려고 상수로 못 박는다(신설분만 —
@@ -344,7 +351,15 @@ export async function getMyChallengeResults(page?: {
     // undefined 값 키는 axios가 직렬화하지 않는다 — 생략 시 서버 기본(최근 30일·10건)을 탄다.
     { params: { since: page?.since, limit: page?.limit } },
   );
-  return Array.isArray(data?.results) ? data.results : [];
+  const results = Array.isArray(data?.results) ? data.results : [];
+  for (const result of results) {
+    if (reportedChallengeSettlementIds.has(result.sessionId)) continue;
+    if (result.status !== 'OPEN' && result.status !== 'UNUSED') {
+      reportedChallengeSettlementIds.add(result.sessionId);
+      logGroupChallengeSettled?.({ status: result.status });
+    }
+  }
+  return results;
 }
 
 // GET /api/v1/me/bet-sessions?status=OPEN — 내가 참가비를 건 진행 중 회차(그룹 무관, N43).

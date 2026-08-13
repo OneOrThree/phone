@@ -115,6 +115,7 @@ export function logFocusSessionStarted(p: {
   mode: FocusMode;
   goal_minutes?: number;
   entry_source: FocusEntrySource;
+  subject_key?: string;
   interaction_id?: string;
 }): void {
   track('focus_session_started', p);
@@ -145,6 +146,35 @@ export function logFocusSessionCompleted(p: {
 // ('system_back' — 안드로이드 시스템 back 등). 정지 버튼 종료는 completed로 계측(GROMO-1004).
 export function logFocusSessionAbandoned(p: { elapsed_seconds: number; reason: string }): void {
   track('focus_session_abandoned', p);
+}
+
+export type DistractionAppCategory =
+  | 'social'
+  | 'messenger'
+  | 'short_video'
+  | 'video'
+  | 'game'
+  | 'browser'
+  | 'other';
+
+// 집중 중 앱을 벗어났다가 돌아온 사실 — 앱 이름·번들 ID는 보내지 않는다.
+export function logFocusDistractionDetected(p: {
+  reason: 'app_backgrounded' | 'leave_timeout';
+  app_category: DistractionAppCategory;
+  blocked: boolean;
+  returned_to_focus: boolean;
+}): void {
+  track('focus_distraction_detected', p);
+}
+
+// 과목 ID는 로컬 생성값·서버 식별자일 수 있으므로 원문 대신 안정적인 비식별 키로 보낸다.
+export function subjectKeyOf(subjectId?: string): string | undefined {
+  if (!subjectId) return undefined;
+  let hash = 7;
+  for (let i = 0; i < subjectId.length; i += 1) {
+    hash = (hash * 31 + subjectId.charCodeAt(i)) % 2147483647;
+  }
+  return `s_${hash.toString(16)}`;
 }
 
 // 라이브 마커 시작 실패(GROMO-1214) — POST /focus-session/start가 실패해 마커 없이 흘러간 세션.
@@ -623,6 +653,13 @@ export function logGroupBetJoined(
 ): void {
   track('group_bet_joined', p);
 }
+
+// 챌린지 참여 확정 — 내기 참여(group_bet_joined)와 별도로 챌린지 참여 퍼널을 집계한다.
+export function logGroupChallengeJoined(
+  p: { session_count?: number } & ChallengeMissionParams,
+): void {
+  track('group_challenge_joined', p);
+}
 // 내기 취소(개설자 단독·OPEN) 성공 — participants_count는 취소 시점 참가자 수(계약상 항상 1이어야
 // 하지만, 서버 가드가 바뀌어도 지표가 사실을 말하게 실측값을 싣는다).
 export function logGroupBetCanceled(p: { stake: number; participants_count: number }): void {
@@ -670,6 +707,11 @@ export function logGroupChallengeResultClosed(p: { dwell_ms: number }): void {
   track('group_challenge_result_closed', p);
 }
 
+export type GroupChallengeSettlementStatus = 'SETTLED' | 'FORFEITED' | 'VOIDED' | 'REFUNDED';
+export function logGroupChallengeSettled(p: { status: GroupChallengeSettlementStatus }): void {
+  track('group_challenge_settled', p);
+}
+
 // 정산 결과/창 종료 푸시 탭 → 앱 진입(계약 §2 계측 표 push_opened).
 // 기존 notification_opened는 소문자 4종(poke/report/challenge/rank_change) 전용이라 이 두 타입을
 // 세지 못한다 — 타입 집합이 겹치지 않아 이중 집계 없이 별도 이벤트로 계약에 고정됐다.
@@ -684,6 +726,17 @@ export function logPushOpened(p: { type: PushOpenedType }): void {
 // is_final: 창 종료 후 최종 보고 여부(false = 창 진행 중 중간 보고).
 export function logScreentimeWindowReported(p: { minutes: number; is_final: boolean }): void {
   track('screentime_window_reported', p);
+}
+
+// 하루 사용량 최종 집계 후 목표 달성 여부를 평가한다. 중간 사용량 보고와 분리한다.
+export function logScreentimeGoalEvaluated(p: {
+  goal_met: boolean;
+  actual_seconds: number;
+  target_seconds: number;
+  window_date: string;
+  is_final: boolean;
+}): void {
+  track('screentime_goal_evaluated', p);
 }
 
 // 구 바이너리 가드(getUsageBucketEvents 미지원)에 걸려 창 사용분 업로드를 전체 스킵할 때 —
@@ -741,6 +794,10 @@ export function logMainTabSelected(p: { tab: MainTab; from_tab: MainTab }): void
 
 export function logScreenViewed(p: { screen_name: string; entry_source: string }): void {
   track('screen_viewed', p);
+}
+
+export function logScreenExited(p: { screen_name: string; dwell_seconds: number }): void {
+  track('screen_exited', p);
 }
 
 export function logUiActionTapped(p: {

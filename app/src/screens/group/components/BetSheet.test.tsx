@@ -42,6 +42,7 @@ jest.mock('@/services/analyticsEvents', () => ({
   logCurrencyInsufficient: jest.fn(),
   logGroupBetCreated: jest.fn(),
   logGroupBetJoined: jest.fn(),
+  logGroupChallengeJoined: jest.fn(),
   logGroupChallengeDeleted: jest.fn(),
 }));
 

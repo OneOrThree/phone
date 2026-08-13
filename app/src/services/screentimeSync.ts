@@ -15,6 +15,7 @@ import {
   schedulePendingScreenTimeCelebration,
 } from '@/services/screentimeCelebration';
 import {
+  logScreentimeGoalEvaluated,
   logScreentimeWindowReported,
   logScreentimeWindowUnsupported,
 } from '@/services/analyticsEvents';
@@ -449,6 +450,15 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
           reportedAt: localNoonInstant(yesterday),
           isFinal: true, // 어제분 마감 — 최종 보고(서버가 achieved 신뢰·395 발사)
         });
+        if (yesterdayGoalSeconds > 0) {
+          logScreentimeGoalEvaluated({
+            goal_met: achieved,
+            actual_seconds: finalMinutes * 60,
+            target_seconds: yesterdayGoalSeconds,
+            window_date: yesterday,
+            is_final: true,
+          });
+        }
         // 마감도 동기화의 일종 — 설정 화면 '마지막 동기화' 표시를 갱신한다.
         await AsyncStorage.setItem(STORAGE_KEYS.screentimeLastSyncedDate, today);
         // 달성이면 어제 달성 축하 예약(GROMO-629) — 오늘 첫 홈 진입에 1회. 판정이 곧 버킷 기준이라
@@ -532,6 +542,13 @@ async function syncDailyScreenTimeUsage(userId: string, goalSeconds: number): Pr
         screenTimeGoalAchieved: true,
         reportedAt: localNoonInstant(last.date),
         isFinal: true, // 밀린 과거분 확정 — 최종 보고
+      });
+      logScreentimeGoalEvaluated({
+        goal_met: true,
+        actual_seconds: last.minutes * 60,
+        target_seconds: goalSeconds,
+        window_date: last.date,
+        is_final: true,
       });
     }
     await AsyncStorage.removeItem(STORAGE_KEYS.screentimeSyncState);

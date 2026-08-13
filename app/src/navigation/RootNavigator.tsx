@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -46,7 +47,7 @@ import CharacterCreateRoute from '@/screens/character/CharacterCreateRoute';
 import CharacterSelectScreen from '@/screens/character/CharacterSelectScreen';
 import { TabBar } from '@/components/TabBar';
 import { initAnalytics } from '@/services/analytics';
-import { logAppMainViewed, logScreenViewed } from '@/services/analyticsEvents';
+import { logAppMainViewed, logScreenExited, logScreenViewed } from '@/services/analyticsEvents';
 import { startDatadogNavigationTracking } from '@/services/datadog';
 import type { V2RootStackParamList } from '@/navigation/types';
 import { navigationRef, flushPendingDeepLink } from '@/navigation/navigationRef';
@@ -78,6 +79,21 @@ function MainTabs() {
 
 export function RootNavigator() {
   const { isGuest } = useUser();
+  const screenVisitRef = useRef<{ screen_name: string; entered_at: number } | null>(null);
+
+  function enterScreen(screenName: string): void {
+    screenVisitRef.current = { screen_name: screenName, entered_at: Date.now() };
+    logScreenViewed({ screen_name: screenName, entry_source: 'navigation' });
+  }
+
+  function exitScreen(): void {
+    const visit = screenVisitRef.current;
+    if (!visit) return;
+    logScreenExited({
+      screen_name: visit.screen_name,
+      dwell_seconds: Math.max(0, Math.round((Date.now() - visit.entered_at) / 1000)),
+    });
+  }
   // 외부 링크 수신은 이 컴포넌트가 하지 않는다 — 인증된 user가 있을 때만 렌더되는 트리라
   // 로그인 전에 도착한 초대 링크를 놓친다. 구독은 App.tsx 루트의 <DeepLinkGate/>가 맡고,
   // 여기서는 컨테이너 준비 후 버퍼를 흘려보내는 일(onReady)만 한다(§6-6).
@@ -93,9 +109,7 @@ export function RootNavigator() {
           initial_tab: 'home',
         });
         const initialRoute = navigationRef.getCurrentRoute();
-        if (initialRoute) {
-          logScreenViewed({ screen_name: initialRoute.name, entry_source: 'navigation' });
-        }
+        if (initialRoute) enterScreen(initialRoute.name);
         // Datadog RUM 화면 추적(GROMO-928) — 화면 전환을 RUM 뷰로 기록. 키 미설정 시 no-op.
         startDatadogNavigationTracking();
         // 앱 종료 상태에서 알림으로 실행된 경우 — 버퍼된 딥링크를 컨테이너 준비 후 처리.
@@ -103,7 +117,13 @@ export function RootNavigator() {
       }}
       onStateChange={() => {
         const route = navigationRef.getCurrentRoute();
-        if (route) logScreenViewed({ screen_name: route.name, entry_source: 'navigation' });
+        if (!route) return;
+        if (screenVisitRef.current?.screen_name !== route.name) {
+          exitScreen();
+          enterScreen(route.name);
+        } else {
+          logScreenViewed({ screen_name: route.name, entry_source: 'navigation' });
+        }
       }}
     >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
