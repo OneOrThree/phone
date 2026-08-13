@@ -72,7 +72,7 @@ export function logOnboardingPermissionResulted(p: { granted: boolean }): void {
   track('onboarding_permission_resulted', { step_index: 10, ...p });
 }
 
-// W11 전날 스크린타임 요약 노출 (has_data: 실제 사용량 확보 여부)
+// W11 스크린타임 설정 결과 도달 (has_data: 권한 승인으로 측정 가능한지 여부)
 export function logOnboardingScreentimeViewed(p: { has_data: boolean }): void {
   track('onboarding_screentime_viewed', { step_index: 11, ...p });
 }

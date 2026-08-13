@@ -96,7 +96,8 @@ import {
 //               그룹 탭의 첫 화면이라 미전달(백버튼 없음)이 정상이다.
 //
 // 렌더는 SafeAreaView 없이 컨텐츠만 — 탭 셸(SafeAreaView·배경)은 GroupScreen이 감싼다.
-// 빈 배열은 다루지 않는다: 0건은 GroupScreen이 빈 상태로 가로채므로 여기 오지 않는다.
+// 빈 배열이면 헤더와 그룹 찾기 카드 한 장을 그대로 렌더한다. 0건도 목록 화면을 유지해야
+// 그룹 수에 따라 탭의 시작 화면이 바뀌지 않는다.
 
 const SIDE_PEEK = 24;
 const CARD_GAP = 12;
@@ -379,7 +380,9 @@ export default function GroupListScreen({
   const reorderBusy = holdingGroupId !== null || draggingGroupId !== null;
   const [deckLayoutReady, setDeckLayoutReady] = useState(false);
   const [activeAnchorGroupId, setActiveAnchorGroupId] = useState<string | null>(null);
-  const guideManaged = typeof userId === 'string';
+  // 카드가 없으면 안내할 대상도 없다. userId만으로 guide를 잠그면 0건의 유일한 찾기 카드가
+  // guide 판정을 영원히 기다리며 입력 불가가 된다.
+  const guideManaged = typeof userId === 'string' && groups.length > 0;
   const [guideInputReady, setGuideInputReady] = useState(!guideManaged);
   const [guideQueued, setGuideQueued] = useState(false);
   const [guideVisible, setGuideVisible] = useState(false);
@@ -451,6 +454,7 @@ export default function GroupListScreen({
   const activeIdentityRef = useRef<string | null>(null);
   const activeIndexRef = useRef(0);
   const previousDeckOrderKeyRef = useRef(deckOrderKey);
+  const previousGroupCountRef = useRef(orderedGroups.length);
   const previousSnapIntervalRef = useRef(snapInterval);
   const hydratedUserRef = useRef<string | null>(null);
   const orderedGroupsRef = useRef(orderedGroups);
@@ -583,8 +587,8 @@ export default function GroupListScreen({
     wasScreenFocusedRef.current = isScreenFocused;
   }, [isScreenFocused]);
 
-  // 새로고침이 끝나기 전에 이 화면이 사라질 수 있다(그룹이 1건이 되면 GroupScreen이 그룹방으로
-  // 갈아끼운다) — 언마운트 뒤 setState를 막는다.
+  // 새로고침 중 다른 화면으로 이동하거나 계정 전환으로 이 화면이 사라질 수 있다 —
+  // 언마운트 뒤 setState를 막는다.
   useEffect(() => {
     guideVisibleRef.current = guideVisible;
   }, [guideVisible]);
@@ -828,19 +832,25 @@ export default function GroupListScreen({
   // 회전·폭 변경·서버 순서 변경 뒤에도 index가 아니라 stable groupId로 같은 페이지를 찾는다.
   useLayoutEffect(() => {
     if (!hydrated) return;
+    const previousGroupCount = previousGroupCountRef.current;
     const orderChanged = previousDeckOrderKeyRef.current !== deckOrderKey;
     const intervalChanged = previousSnapIntervalRef.current !== snapInterval;
     const hydrationIdentity = userId ?? 'anonymous';
     const firstHydrationForUser = hydratedUserRef.current !== hydrationIdentity;
     hydratedUserRef.current = hydrationIdentity;
+    previousGroupCountRef.current = orderedGroups.length;
     previousDeckOrderKeyRef.current = deckOrderKey;
     previousSnapIntervalRef.current = snapInterval;
     if (!firstHydrationForUser && !orderChanged && !intervalChanged) return;
     // 로컬 순서를 읽기 전 서버 첫 카드를 활성화하지 않는다. 첫 안정 프레임은 reconciled
     // 순서의 0번을 기준으로 잡아, 저장된 [B,A]에서 잠깐 A를 보였다가 B로 점프하지 않는다.
-    const identity = firstHydrationForUser
-      ? (orderedGroups[0]?.groupId ?? null)
-      : activeIdentityRef.current;
+    // 0건에서는 null identity가 유일한 찾기 카드를 뜻한다. 첫 가입 뒤 이 null을 그대로
+    // 복원하면 새 그룹이 아니라 끝 카드로 이동하므로 0→1 경계에서는 첫 그룹을 선택한다.
+    const gainedFirstGroup = previousGroupCount === 0 && orderedGroups.length > 0;
+    const identity =
+      firstHydrationForUser || gainedFirstGroup
+        ? (orderedGroups[0]?.groupId ?? null)
+        : activeIdentityRef.current;
     const next =
       identity === null
         ? orderedGroups.length
@@ -1577,11 +1587,14 @@ export default function GroupListScreen({
                   <View
                     style={[
                       s.cardStage,
+                      orderedGroups.length > 0 ? s.findMoreStageAfterCard : s.findMoreStageFirst,
                       {
-                        marginLeft: CARD_GAP,
+                        // 그룹 카드 뒤 footer일 때만 separator 간격을 둔다. 0건에서는 이 카드가
+                        // 첫 카드이므로 SIDE_PEEK만 적용해야 좌우 여백이 대칭이다.
                         height: cardHeight + GROUP_CARD_FLIP_SAFE_INSET * 2,
                       },
                     ]}
+                    testID="group.deck.findMoreStage"
                     accessibilityElementsHidden={renderedActiveIndex !== orderedGroups.length}
                     importantForAccessibility={
                       renderedActiveIndex === orderedGroups.length ? 'auto' : 'no-hide-descendants'
@@ -1865,6 +1878,8 @@ const s = StyleSheet.create({
 
   listContent: { paddingBottom: T.space.md },
   cardStage: { justifyContent: 'center' },
+  findMoreStageFirst: { marginLeft: 0 },
+  findMoreStageAfterCard: { marginLeft: CARD_GAP },
   deckSkeleton: {
     flexDirection: 'row',
     gap: CARD_GAP,
