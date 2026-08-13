@@ -37,21 +37,20 @@ mindmap
 |---|---|---|---|---|
 | 0 | `problem_empathy` | `ProblemEmpathyStep.tsx` | — (설득) | — |
 | 1 | `together_effect` | `TogetherEffectStep.tsx` | — (설득) | — |
-| 2 | `subject_compare` | `SubjectCompareStep.tsx` | — (설득, 막대는 하드코딩 목업 `:18-24`) | — |
+| 2 | `subject_compare` | `SubjectCompareStep.tsx` | — (설득, 집중 결과·보상 예시) | — |
 | 3 | `login` | `LoginScreen.tsx` | `LoginResult`(토큰·isNewUser) | **AsyncStorage에 세션 저장**(auth.ts `postAuthSave`) |
 | 4 | `focus_category` | `FocusCategoryStep.tsx` | `focusCategory`, `subjects` | `GET /occupations`·`GET /tag/defaults` 조회 |
 | 4′ | `subject_edit` *(조건부)* | `SubjectEditStep.tsx` | — (읽기 전용 확인) | — |
 | 5 | `screentime_permission` | `ScreenTimePermissionStep.tsx` | `screenTimeGranted`, `screenTimeSelectionConfigured` | **FamilyControls 승인 · picker · 버킷 모니터 등록** |
 | 6a | `screentime_denied` *(거부)* | `ScreenTimeDeniedStep.tsx` | `screenTimeGranted`(재요청 시 true로 전환) | 재요청 · 설정 딥링크 |
-| 6b | `yesterday_screentime` *(허용)* | `YesterdayScreenTimeStep.tsx` | — (네이티브 리포트 표시만) | — |
-| 7 | `goal_setting` | `GoalSettingStep.tsx` | `dailyFocusMinutes`, `usageGoalMinutes` | — |
-| 8 | `character_intro` | `CharacterIntroStep.tsx` | — (캐릭터 첫 노출) | — |
-| 9 | `cutout_experience` | `CutoutStep.tsx` | `cutoutCharacterUri` | **캐릭터 이미지 파일 저장**(`file://`) |
-| 10 | `nickname` | `NicknameStep.tsx` | `nickname` | `GET /users/nickname/check` 실시간 조회 |
+| 6/7 | `goal_setting` | `GoalSettingStep.tsx` | `dailyFocusMinutes`, `usageGoalMinutes` | 승인 경로 스크린타임 퍼널 계측 |
+| 7/8 | `character_intro` | `CharacterIntroStep.tsx` | — (캐릭터 첫 노출) | — |
+| 8/9 | `cutout_experience` | `CutoutStep.tsx` | `cutoutCharacterUri`(선택) | 생성 시 캐릭터 이미지 파일 저장(`file://`), 항상 건너뛰기 가능 |
+| 9/10 | `nickname` | `NicknameStep.tsx` | `nickname` | `GET /users/nickname/check` 실시간 조회 |
 
 - 순서 정본은 `OnboardingFlow.tsx:108-134`. 코드 주석과 계측 상수에 남은 **W1~W15 번호는 V3 이전 시안 번호**로 실제 순서와 일치하지 않는다(§7).
 - `subject_edit`은 `data.subjects.length > 0`일 때만 삽입되고, 진행바 칸 수에서는 제외된다(`subStep`).
-- 6a/6b는 같은 인덱스를 `data.screenTimeGranted === false`로 갈라 쓰는 **교체형 분기**다. 거부 화면에서 권한을 다시 허용하면 `onNext` 없이 같은 자리가 6b로 바뀐다.
+- `screentime_denied`는 `data.screenTimeGranted === false`일 때만 권한과 목표 사이에 삽입된다. 거부 화면에서 권한을 다시 허용하면 `onNext` 없이 노드가 빠지고 같은 인덱스에서 `goal_setting`으로 전환된다.
 
 ---
 
@@ -106,6 +105,8 @@ flowchart LR
     DEN -->|"다시 허용하기"| REQ
     DEN -->|"설정 폴백 후 복귀"| REQ
     PICK --> DONE["screenTimeGranted=true<br/>측정 시작"]
+    DONE --> GOAL["goal_setting 직행"]
+    DEN -->|"이대로 계속"| GOAL
     PUSH["푸시 권한"] -.->|"온보딩에서 요청하지 않음"| AFTER["온보딩 완료 후 PushGate"]
 ```
 
