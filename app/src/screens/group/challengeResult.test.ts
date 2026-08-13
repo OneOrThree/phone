@@ -109,6 +109,37 @@ describe('pickChallengeResults — /me/challenge-results → 후보', () => {
     expect(pickChallengeResults([entry({ challengeEnded: true })])).toHaveLength(1);
   });
 
+  // 미션 스냅샷(GROMO-1583) — 모달의 FOCUS 창 관용치 고지가 이 4필드로 조건을 세운다.
+  // 여기서 떨어지면 모달은 스냅샷을 영영 못 받고 고지 조건이 서지 않는다(PR #566이 만든 갭).
+  test('미션 스냅샷 4필드를 후보로 옮긴다', () => {
+    const [out] = pickChallengeResults([
+      entry({
+        missionCategory: 'FOCUS',
+        missionType: 'TIME_WINDOW',
+        windowStart: '06:00',
+        windowEnd: '08:00',
+      }),
+    ]);
+    expect(out).toMatchObject({
+      missionCategory: 'FOCUS',
+      missionType: 'TIME_WINDOW',
+      windowStart: '06:00',
+      windowEnd: '08:00',
+    });
+  });
+
+  // 나중에 붙은 additive 필드라 구서버 응답엔 통째로 없다(undefined) — 창형이 아닌 회차의
+  // null과 같은 '모른다'로 접어, 소비자가 두 가지 없음을 구분하지 않게 한다.
+  test('미션 스냅샷이 없는 구서버 응답은 null로 접는다', () => {
+    const [out] = pickChallengeResults([entry()]);
+    expect(out).toMatchObject({
+      missionCategory: null,
+      missionType: null,
+      windowStart: null,
+      windowEnd: null,
+    });
+  });
+
   test('sessionDate 내림차순 정렬 — 최근 것부터, 동률은 서버 순서 유지', () => {
     const out = pickChallengeResults([
       entry({ sessionId: 's-old', sessionDate: '2026-07-29' }),

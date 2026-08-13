@@ -27,6 +27,7 @@ import { T, withAlpha } from '@/constants/theme';
 import type { ChallengeResultCandidate, ChallengeResultMember } from '../challengeResult';
 import {
   UNMEASURED,
+  WINDOW_FOCUS_TOLERANCE_NOTICE,
   progressFraction,
   progressFractionA11y,
   unmeasuredA11y,
@@ -56,6 +57,19 @@ const HEADLINE = {
     imageLabel: '판정이 확정되지 않은 캐릭터',
     caption: 'CHALLENGE RESULT',
     title: '결과를 판정하지 못했어요',
+  },
+  // 몰수(FORFEITED) — 서버가 이 상태를 붙이는 조건 **자체가** "달성자 0명"이다
+  // (GroupBetPayoutCalculator:74 `winners.isEmpty() ? FORFEITED : SETTLED`, 전원 achieved=false).
+  // 그래서 내 판정(myAchieved)이 아니라 **회차 상태 축**으로 말한다 — 아래 정산 문구
+  // "아무도 달성하지 못해 적립금 N코인이 사라졌어요"와 **같은 사실**을 세워야 하기 때문이다.
+  // 예전엔 헤드라인만 승패 축이라, myAchieved가 null(부분 정산 실패)인 몰수 회차에서
+  // "결과를 판정하지 못했어요"(미판정)와 "아무도 달성하지 못해…"(확정)가 한 화면에 동시에
+  // 떴다 — 미판정과 확정 서술이 서로를 부정한다(GROMO-1581).
+  forfeited: {
+    image: require('@/assets/character_sensitive.png'),
+    imageLabel: '아무도 달성하지 못해 아쉬워하는 캐릭터',
+    caption: 'CHALLENGE RESULT',
+    title: '아무도 달성하지 못했어요',
   },
   // 무산·환불 — 승패가 아니라 돈이 제자리로 돌아간 결말. 승패 캐릭터를 세우면 거짓말이 된다.
   voided: {
@@ -117,6 +131,60 @@ export function settlementNotice(result: ChallengeResultCandidate): string | nul
       return `내 정산 ${delta > 0 ? '+' : ''}${delta}코인`;
     }
   }
+}
+
+// 헤드라인 선택 — **정산 문구(settlementNotice)와 같은 축**으로 갈린다. 두 함수가 나란히
+// 같은 switch 모양인 것이 이 화면의 계약이다: 상태로 결말이 정해지는 회차(무산·환불·몰수)는
+// 상태 축, 실제로 승패가 갈린 회차(SETTLED)만 내 판정(myAchieved) 축.
+//
+// 이 짝이 어긋나면 헤드라인과 정산 문구가 한 화면에서 서로를 부정한다 — GROMO-1581이 잡은
+// 결함이 정확히 그것이었다(정산 문구엔 FORFEITED 분기가 있는데 헤드라인엔 없었다).
+// 새 status를 추가할 때는 **두 함수를 함께** 고친다.
+function pickHeadline(result: ChallengeResultCandidate): (typeof HEADLINE)[keyof typeof HEADLINE] {
+  switch (result.status) {
+    case 'VOIDED':
+      return HEADLINE.voided;
+    case 'REFUNDED':
+      return HEADLINE.refunded;
+    case 'FORFEITED':
+      return HEADLINE.forfeited;
+    default:
+      return result.myAchieved === true
+        ? HEADLINE.achieved
+        : result.myAchieved === false
+          ? HEADLINE.failed
+          : HEADLINE.pending;
+  }
+}
+
+// 창형 집중(FOCUS × TIME_WINDOW)만 판정에 5분 관용치가 있다 — 55/60분인 사람이 달성 명단에
+// 서는 것이 모순으로 읽히지 않게 명단(숫자)보다 먼저 판정 규칙을 알린다(GROMO-1217).
+// 조건·문구는 형제 화면과 **동일**하다: LastBetResultSheet(`:182-185`) ·
+// challengeHistoryView.showToleranceNotice — GROMO-1207이 "결과 모달과 동일 문구·조건"으로 못박았다.
+//
+// '실측 분이 실제로 그려질 때만'이 세 번째 조건인 이유는 형제와 같다 — 숫자가 하나도 없으면
+// 모순으로 읽힐 대상이 없다.
+//
+// ⚠️ `showRoster`는 **네 번째 조건이 아니라 세 번째 조건의 이 화면 몫**이다. 형제 시트는 명단을
+// 항상 그려서 "실측 분 존재" 하나로 끝나지만, 이 화면은 무산·환불에서 **명단 자체를 그리지
+// 않는다**(IA §4.3 — 판정이 아니라 환불이 사건의 본체다). 그 회차에도 서버는 `results`에
+// 실측 분을 실어 보내므로, 상태를 안 보면 **화면에 숫자가 하나도 없는데 "5분 모자라도 달성"만
+// 뜨는** 고지가 선다 — 형제 조건이 막으려던 바로 그 오신호다. 조건 수가 아니라 "그려지는 숫자가
+// 있을 때만"이라는 규칙이 같은 것이다.
+//
+// 미션 메타가 없는 구서버 응답은 첫 두 조건에서 그냥 서지 않아 고지만 빠진다.
+export function showToleranceNotice(
+  result: ChallengeResultCandidate,
+  showRoster: boolean,
+): boolean {
+  if (!showRoster) return false;
+  return (
+    result.missionType === 'TIME_WINDOW' &&
+    result.missionCategory === 'FOCUS' &&
+    [...result.achievers, ...result.failed, ...result.pending].some(
+      (m) => typeof m.progressMinutes === 'number',
+    )
+  );
 }
 
 // iOS 유휴 넘침 단서(코덱스 리뷰 P2) — iOS 세로 인디케이터는 **스크롤 중에만** 보이고
@@ -227,20 +295,12 @@ export interface ChallengeResultModalProps {
 }
 
 export default function ChallengeResultModal({ result, onClose }: ChallengeResultModalProps) {
-  // 무산·환불은 승패 축이 아니다 — myAchieved로 갈리는 헤드라인은 SETTLED·FORFEITED만 쓴다.
-  const headline =
-    result.status === 'VOIDED'
-      ? HEADLINE.voided
-      : result.status === 'REFUNDED'
-        ? HEADLINE.refunded
-        : result.myAchieved === true
-          ? HEADLINE.achieved
-          : result.myAchieved === false
-            ? HEADLINE.failed
-            : HEADLINE.pending;
+  // 무산·환불·몰수는 승패 축이 아니다 — myAchieved로 갈리는 헤드라인은 SETTLED만 쓴다.
+  const headline = pickHeadline(result);
   // 무산·환불은 명단을 그리지 않는다 — 판정이 아니라 환불이 사건의 본체다(IA §4.3 문구 표).
   const showRoster = result.status !== 'VOIDED' && result.status !== 'REFUNDED';
   const notice = settlementNotice(result);
+  const toleranceNotice = showToleranceNotice(result, showRoster);
 
   // 명단 넘침의 유휴 단서 — ref 인스턴스의 flashScrollIndicators를 조건 로직(팩토리)에 넘긴다.
   const listRef = useRef<ScrollView>(null);
@@ -314,6 +374,15 @@ export default function ChallengeResultModal({ result, onClose }: ChallengeResul
                 말한다. 문구에 '회차'를 쓰지 않는다(IA §6.3 — 날짜가 이미 그 하루를 표현한다). */}
             <Text style={s.label}>{result.groupName}</Text>
             <Text style={s.date}>{monthDay(result.date)} 결과</Text>
+
+            {/* 창형 집중의 5분 관용치 고지 — 명단(숫자)보다 **먼저** 세운다. 명단 안(스크롤)에
+                넣으면 잘려서 안 보이는 사용자가 55/60분을 달성 옆에서 모순으로 읽는다.
+                형제 화면(LastBetResultSheet·챌린지 내역)의 자리·문구·조건과 같다(GROMO-1207). */}
+            {toleranceNotice && (
+              <Text style={s.toleranceNotice} testID="group.challengeResult.toleranceNotice">
+                {WINDOW_FOCUS_TOLERANCE_NOTICE}
+              </Text>
+            )}
 
             {/* 명단 — 3상(달성·미달성·미판정)을 뭉개지 않고, 손익까지 함께 적는다(정산 통지).
                 넘침을 숨기지 않도록 인디케이터를 켜고(iOS는 다크 배경이라 white, Android는 잠깐
@@ -411,6 +480,15 @@ const s = StyleSheet.create({
 
   label: { ...T.text.subtitle, color: T.night.cream, textAlign: 'center' },
   date: { ...T.text.caption, color: T.night.muted, marginTop: 2, marginBottom: T.space.lg },
+
+  // 판정 규칙 고지 — 명단 직전 고정 한 줄(LastBetResultSheet.toleranceNotice와 같은 역할).
+  // 이 화면은 다크 배경이라 색만 야간 팔레트의 보조 톤(night.muted)을 쓴다.
+  toleranceNotice: {
+    ...T.text.caption,
+    color: T.night.muted,
+    textAlign: 'center',
+    marginBottom: T.space.sm,
+  },
 
   lists: { alignSelf: 'stretch', flexGrow: 0, maxHeight: 220 },
   section: { alignItems: 'center', marginBottom: T.space.md },

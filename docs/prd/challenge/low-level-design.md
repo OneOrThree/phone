@@ -300,10 +300,38 @@ dev는 forward-only로 리셋하면 되지만 **prod에 그런 행이 있으면 
 > **`GET /me/challenge-results`** 에서 가져온다 — 최신 1건으로 모달을 만들면 ① 내가 참가 안 한
 > 최신 회차가 그 앞의 내 결과를 가리고 ② 앱을 안 연 사이 정산된 내 회차 여럿이 1건으로 접히며,
 > 무엇보다 ③ 카드 조회는 그룹 멤버십을 검증하므로 **탈퇴자가 자기 결과를 못 본다**.
-> 1회 가드는 앱 로컬 seen set(`{userId}:{sessionId}`)이 담당하고 서버는 seen 상태를 모른다.
-> **최근 30일·최대 10건 초과분은 버린다**(수용). 30일 경계는 앱 seen 마커 프루닝(60일 — IA §8)보다
-> **짧아야 한다**: 마커 수명보다 오래된 회차를 계속 실어주면 프루닝된 회차가 이미 본 모달로
-> 재생된다.
+>
+> **1회 가드의 정본은 서버 확인 표시(ack)다 (N58).** 앱 로컬 seen 마커는 정본이 아니라
+> **ack 요청이 실패한 창을 메우는 보완재**로 잔류한다 — 기기를 바꾸거나 앱을 지우면 로컬 마커가
+> 통째로 사라져 이미 본 결과가 전부 재생되고, 두 기기를 쓰면 각 기기가 같은 결과를 한 번씩
+> 보여준다. 마커는 "서버가 아직 모르는 사이 같은 결과가 두 번 뜨는 것"만 막는다.
+>
+> 표시 시점은 **모달이 뜬 순간**이다(닫을 때가 아니다 — 계약 §1). 닫을 때 표시하면 모달이 떠
+> 있는 사이의 재조회(당겨서 새로고침)가 같은 회차를 큐에 다시 넣는다.
+>
+> **선례는 리그다** — 같은 문제를 이미 이 모양으로 풀었다:
+> `LeagueWeeklyResult.acknowledgedAt`(`:63-64`) · `LeagueWeeklyResultRepository.acknowledge`
+> (`:73-89`)의 **`acknowledged_at IS NULL` 조건부 원자적 UPDATE**(`:87` — 중복·동시 호출에도 최초
+> 1회만 세팅. 멱등·선점이고, 대상 없음/이미 확인은 0행 no-op) · `LeagueController`(`:117-128`).
+> 리그가 `weekStartAt`을 실어 보내 "그 사이 배치가 넣은 새 결과를 삼키지 않게" 한 것과 같은
+> 이유로, 여기서도 **GET으로 받은 그 `sessionId`** 를 대상으로 한다.
+> 제안 엔드포인트: `POST /me/challenge-results/{sessionId}/ack`.
+>
+> ⚠️ **범위 구분 — 지금 코드는 여전히 로컬 마커만 쓴다.** 위 ack는 **GROMO-1577이 구현**한다.
+> 이 티켓(1583)이 건드린 것은 미션 스냅샷 4필드와 모달 문구뿐이고, `challengeResult.ts`의
+> 가드는 그대로 AsyncStorage 마커(`{userId}:{sessionId}`, IA §8)다. 이 문단은 **설계 정본이지
+> 현재 구현 서술이 아니다.**
+>
+> **`limit`은 최대 10건이고, 30일은 「조회 윈도우」다 — 보존 기간이 아니다.**
+> `GroupBetQueryService.RESULTS_WINDOW`(`:65`)는 `Instant.now().minus(RESULTS_WINDOW)`로 만든
+> **쿼리 하한**(`effectiveSince`, `:133-137`)일 뿐이고, 회차·참가자 행을 지우는 프룬 잡은 **없다**
+> (`GroupBetScheduler`의 스케줄 3건은 재시도·무산·회차 생성뿐). 즉 **행은 영구 보존되고 30일보다
+> 오래된 회차가 큐에 안 실릴 뿐**이다. 서버 javadoc이 이 상수를 "보존 창"이라 부르는 것도 같은
+> 오해를 부르는 표현이라 함께 정정 대상이다.
+>
+> 그래서 **"30일 경계가 로컬 마커 프루닝(60일)보다 짧아야 재생이 없다"는 종전 설명은 폐기한다.**
+> 재생을 막는 것은 두 수명의 대소 관계가 아니라 **서버 ack**다 — 마커가 프루닝돼도 ack된 회차는
+> 애초에 큐에 실리지 않는다. 두 수명 비교는 로컬 마커가 유일한 가드였을 때의 임시 방편이었다.
 
 > **`activeToday` / `nextSessionAt` 계약**: 둘은 **배타가 아니라 보완**이다.
 > `nextSessionAt`은 항상 **오늘을 제외한** 다음 활성일을 가리킨다(`RepeatSchedule.next()`).
@@ -675,13 +703,23 @@ SCREEN_TIME은 작을수록 이기는 지표라 그대로 부당 승리·지급�
     "voidReason": null, "goalMinutes": 90,
                                          // voidReason — VOIDED: INSUFFICIENT_PARTICIPANTS | CHALLENGE_DELETED
                                          // REFUNDED: REFUND_DEADLINE (N55) · 그 외 null
+    "missionCategory": "FOCUS", "missionType": "TIME_WINDOW",   // 미션 스냅샷 (회차 박제값)
+    "windowStart": "06:00", "windowEnd": "08:00",               // 창형만 — DURATION 은 둘 다 null
     "myAchieved": true, "myPayout": 45,
     "results": [{ "userId": "uuid", "nickname": "민지", "achieved": true, "payout": 45, "progressMinutes": 102 }]
 }] }
 ```
 
 - 조건: **내가 참가자**인 정산 완료 회차. **그룹 멤버십과 챌린지 ACTIVE/ENDED를 보지 않는다** —
-  탈퇴자·종료 챌린지도 실린다. 최근 30일·최대 10건(§D3).
+  탈퇴자·종료 챌린지도 실린다. 최근 30일·최대 10건(§D3) — **30일은 조회 윈도우이지 보존 기간이
+  아니다**(쿼리 하한일 뿐 행은 지워지지 않는다 — 근거는 위 카드 응답(`GET /groups/{groupId}/challenges`)
+  주석의 「1회 가드」 문단).
+- **미션 스냅샷 4필드(`missionCategory`·`missionType`·`windowStart`·`windowEnd`)는 결과 모달의
+  FOCUS 창 5분 관용치 고지 판단용**이다(GROMO-1415·1583). 없으면 모달이 조건 분기를 세울 수
+  없어, 55/60분인 참가자가 달성 명단에 뜨는데 아무 설명이 없다 — GROMO-1207이 "관용치 안내는
+  결과 모달과 동일 문구·조건"으로 못박은 그 조건이다. 값은 회차 행의 비정규화 컬럼이라 챌린지가
+  종료·삭제돼도 남는다(새 조인 없음). **앱은 이 4개를 선택 필드로 읽는다** — 나중에 붙은
+  additive 필드라 구서버 응답에는 통째로 없고, 그때는 조건이 서지 않아 고지만 빠진다.
 - **단 삭제된 챌린지(`deleted_at IS NOT NULL`)의 회차는 제외**한다 (FR-44-4·N48). 삭제 환불은
   **`BET_VOID_REFUND` 푸시**가 알리는 것으로 이미 정해져 있고, 모달까지 띄우면 같은 사건을 두
   경로로 통지하게 된다. "챌린지 상태 무관"은 **ENDED**에 대한 말이지 삭제까지 포함하지 않는다 —
@@ -1631,7 +1669,7 @@ classDiagram
 | `ChallengeComposeSheet.tsx` | 만들기 폼 | **요일 선택 추가** (기본값 없음) |
 | `BetJoinSheet.tsx` | 회차 참여 | 개설 모드 제거 · 하루형 진행분 공개 · "이번 주 전부" · **다음 활성일 단건 예약(`join-next`)** — 미래 회차라 진행분·경고 블록은 숨긴다 |
 | `ChallengeDeleteSheet.tsx` | 삭제 확인 | **신설** — 진행 중이면 경고 단계 1개 추가(수치 노출), 아니면 1단계. 버튼 `삭제`/`그만두기` |
-| `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — `GET /me/challenge-results`(N53) 응답을 로컬 seen set(`{userId}:{sessionId}`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다** |
+| `challengeResult.ts` | 결과 모달 후보 선정 | **전면 단순화** — `GET /me/challenge-results`(N53) 응답을 로컬 seen set(`{userId}:{sessionId}`)으로 필터. 날짜 역산이 사라지고, 자정 걸침 창 자체가 없어져 그 분기도 **만들지 않는다**. ⚠️ 이 로컬 마커는 **현재 구현**이고, 1회 가드의 정본은 서버 ack다(N58 · §2.1 「1회 가드」 문단) — ack 배선은 GROMO-1577 |
 | `progressFormat.ts` | 3상 표기 · 관용치 문구 | 유지 |
 | `pendingFocusUploads.ts` | 업로드 재시도 큐 | **사일런트 푸시 수신 시 flush 추가** |
 | `push.ts` | 푸시 수신·딥링크 라우팅 | **신규 타입 배선 필요** — 현재 `groupId`로 딥링크를 합성하는 분기가 `CHALLENGE_WINDOW_END` 하나뿐이라, `CHALLENGE_*`·`BET_WON`·`BET_RESULT`·**`BET_VOID_REFUND`** 를 탭해도 그룹방으로 못 간다. 서버가 `link`를 안 싣는 계약이므로(IA §푸시) **앱에서 `data.groupId` → 그룹방 라우팅**을 추가한다 |
