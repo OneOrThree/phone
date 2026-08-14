@@ -37,8 +37,34 @@ export function subscribeChallengeResultGate(
   };
 }
 
+// ── 반대 방향 채널: 방 → 호스트 「다시 조회해라」 ──────────────────────────────
+// 결과 모달의 소유자가 루트로 옮겨 가며 **방과 호스트의 재조회 계기가 갈렸다.** 그래서 방의
+// 오류 화면에서 사용자가 「다시 시도」를 눌러도 호스트는 아무것도 하지 않는다.
+//
+// 이게 왜 갇힘이 되는가: 탈퇴 사용자가 결과 푸시로 방에 들어왔는데 `getMyChallengeResults()`가
+// 실패하면 gate는 'unknown'으로 남고(D1 — '없다'로 말하지 않는다) 방은 이탈을 유예한다. 제한적
+// 재조회(30초×5회)까지 다 실패한 뒤 네트워크가 회복되면, **사용자가 버튼을 아무리 눌러도**
+// 화면을 벗어나거나 새 푸시가 올 때까지 아무 일도 일어나지 않는다 — 그 결과를 못 본 채 방에 갇힌다.
+//
+// ⚠️ 이 신호는 **사용자가 명시적으로 요청한 재시도**에만 붙인다(다시 시도 버튼·당겨서 새로고침).
+//    포커스 복귀 같은 화면 내부 사건에 붙이면 정본이 정한 재조회 계기 셋을 도로 무너뜨린다.
+type RefreshListener = () => void;
+const refreshListeners = new Set<RefreshListener>();
+
+export function requestChallengeResultRefresh(): void {
+  Array.from(refreshListeners).forEach((listener) => listener());
+}
+
+export function subscribeChallengeResultRefresh(listener: RefreshListener): () => void {
+  refreshListeners.add(listener);
+  return () => {
+    refreshListeners.delete(listener);
+  };
+}
+
 /** Jest에서 앱 프로세스 경계를 재현하기 위한 테스트 전용 reset. */
 export function resetChallengeResultGateForTests(): void {
   state = 'unknown';
   listeners.clear();
+  refreshListeners.clear();
 }

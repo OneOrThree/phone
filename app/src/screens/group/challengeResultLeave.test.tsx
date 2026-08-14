@@ -237,6 +237,30 @@ describe('탈퇴자(MEMBER_ONLY)의 결과 소비 후 이탈', () => {
     expect(screen.queryByTestId('group.challengeResult')).toBeNull();
   });
 
+  // ⚠️ 소유자가 루트로 옮겨 가며 **방과 호스트의 재조회 계기가 갈렸다.** 결과 조회가 실패해
+  //    gate가 'unknown'으로 굳으면 방은 이탈을 유예한 채 오류 화면을 세우는데, 그 화면의
+  //    「다시 시도」가 호스트를 안 깨우면 사용자가 버튼을 아무리 눌러도 아무 일도 없다 —
+  //    제한적 재조회(30초×5회)까지 끝난 뒤라면 그 사용자는 결과를 못 본 채 방에 갇힌다.
+  test('「다시 시도」를 누르면 결과 조회도 다시 나간다', async () => {
+    memberOnly();
+    mockGetMyChallengeResults.mockRejectedValue(new Error('network'));
+
+    await renderRoom();
+    expect(onLeft).not.toHaveBeenCalled();
+    const callsBeforeRetry = mockGetMyChallengeResults.mock.calls.length;
+
+    // 네트워크가 회복됐고 사용자가 버튼을 누른다.
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await act(async () => {
+      fireEvent.press(screen.getByText('다시 시도'));
+    });
+    await act(async () => {});
+
+    expect(mockGetMyChallengeResults.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
+    // 그리고 그 결과가 실제로 화면에 닿는다 — 갇힘이 풀린다.
+    expect(await screen.findByTestId('group.challengeResult')).toBeOnTheScreen();
+  });
+
   test('결과를 "모르는" 동안에는 나가지 않는다 — 0건이 확정된 뒤에야 나간다', async () => {
     // '모르겠다'와 '없다'를 같은 값으로 말하면, 다른 소속 그룹이 없는 탈퇴자는 정산 결과를
     // 영영 못 본다(challengeResult.ts의 null 계약 D1이 지키려는 바로 그 경로).

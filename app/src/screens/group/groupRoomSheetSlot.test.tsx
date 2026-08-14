@@ -77,6 +77,10 @@ const gateResults: Record<string, 'pending' | 'granted' | 'denied'> = {};
 let reportOpen: ((challengeId: string, open: boolean) => void) | null = null;
 // 카드가 사라진다고 알리는 콜백 — 실제 카드의 언마운트 정리에 해당한다.
 let reportGone: ((challengeId: string) => void) | null = null;
+// 카드별 요청 트리거 — 프레스 이벤트를 거치지 않고 **같은 tick 안에서** 요청을 겹치게 할 때 쓴다.
+const requestSlotFor: Record<string, () => Promise<boolean>> = {};
+// 승인받으면 곧바로 열림을 보고할 것인가(실제 카드의 openSheet()에 해당).
+let mockAutoOpenOnGrant = false;
 jest.mock('./components/ChallengeCard', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable } = require('react-native');
   return function MockCard({
@@ -92,6 +96,17 @@ jest.mock('./components/ChallengeCard', () => {
   }) {
     reportOpen = onSheetVisibilityChange ?? null;
     reportGone = onAbandonSheetSlot ?? null;
+    requestSlotFor[card.id] = () => {
+      gateResult = 'pending';
+      gateResults[card.id] = 'pending';
+      return (onRequestSheetSlot?.(card.id) ?? Promise.resolve(true)).then((granted) => {
+        gateResult = granted ? 'granted' : 'denied';
+        gateResults[card.id] = granted ? 'granted' : 'denied';
+        // 실제 카드는 승인을 받으면 **그 자리에서** 시트를 열고 부모에 보고한다.
+        if (granted && mockAutoOpenOnGrant) onSheetVisibilityChange?.(card.id, true);
+        return granted;
+      });
+    };
     return (
       <RNTouchable
         testID={`card.asyncSheet.open.${card.id}`}
@@ -206,6 +221,8 @@ beforeEach(async () => {
   Object.keys(gateResults).forEach((key) => delete gateResults[key]);
   reportOpen = null;
   reportGone = null;
+  mockAutoOpenOnGrant = false;
+  Object.keys(requestSlotFor).forEach((key) => delete requestSlotFor[key]);
   resetChallengeResultGateForTests();
   mockGetGroupDetail.mockResolvedValue(detail());
   mockGetAnnouncements.mockResolvedValue([]);
@@ -390,6 +407,31 @@ test('취소로 대기가 비면 등록도 풀린다 — 아무도 다시 요청
   await act(async () => {});
 
   await waitFor(() => expect(statuses[statuses.length - 1]).toBe('granted'));
+});
+
+// ⚠️ 직렬화의 가드는 둘인데 **갱신 시점이 다르다**: 진행 중 승인은 ref(즉시), 열림 여부는
+//    state(다음 렌더). 열림 보고에서 승인 ref를 즉시 비우면 그 사이가 뚫린다 —
+//    첫 카드의 열림이 **커밋되기 전에** 두 번째 요청이 들어오면 두 가드를 모두 통과해
+//    RN Modal 두 개가 함께 마운트된다. 순차 테스트로는 이 창이 안 덮인다.
+test('첫 카드의 열림이 커밋되기 전에 다음 요청이 와도 승인은 하나뿐이다', async () => {
+  mockGetChallenges.mockResolvedValue([challenge('c1'), challenge('c2')]);
+  await render(tree(false));
+  await act(async () => {});
+  // 실제 카드처럼 승인받는 즉시 열림을 보고한다.
+  mockAutoOpenOnGrant = true;
+
+  await act(async () => {
+    // 첫 카드의 열림 보고 **직후**(= 그 setState가 아직 커밋되기 전) 두 번째 카드의
+    // 프리플라이트가 끝나 요청한다. `.then` 체인이라 같은 마이크로태스크 줄에 붙는다.
+    // ⚠️ 여기서 `await`로 기다리면 안 된다 — act 콜백이 끝나야 React가 커밋하므로 교착된다.
+    requestSlotFor.c1().then(() => {
+      requestSlotFor.c2();
+    });
+  });
+  await act(async () => {});
+
+  expect(gateResults.c1).toBe('granted');
+  expect(gateResults.c2).toBe('pending');
 });
 
 test('가릴 것이 없으면 곧바로 승인한다 — 평소 경로에 지연을 넣지 않는다', async () => {

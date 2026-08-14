@@ -50,7 +50,11 @@ import type { V2RootStackParamList } from '@/navigation/types';
 import { buildInviteShareMessage } from './inviteShare';
 import { fmtNoticeDate } from './noticeDate';
 import { settledSignatureOf } from './lastSettledView';
-import { getChallengeResultGate, subscribeChallengeResultGate } from './challengeResultGate';
+import {
+  getChallengeResultGate,
+  requestChallengeResultRefresh,
+  subscribeChallengeResultGate,
+} from './challengeResultGate';
 import BetSheet from './components/BetSheet';
 import ChallengeCard, { type BetSheetMode } from './components/ChallengeCard';
 import ChallengeComposeSheet from './components/ChallengeComposeSheet';
@@ -368,6 +372,16 @@ export default function GroupRoomScreen({
     if (sheetGrantInFlightRef.current !== null) return;
     setSheetSlotRequested(false);
   }, [sheetSlotRequested, sheetOpen, sheetWaiterRevision]);
+
+  // 승인 마무리 — **열림이 실제로 커밋된 뒤에만** 진행 중 승인을 푼다(위 onCardSheetVisibilityChange
+  // 주석). 이 시점에는 `sheetOpen`도 이미 true라, 다음 요청은 그 시트가 닫힐 때까지 계속 막힌다.
+  useEffect(() => {
+    const holder = sheetGrantInFlightRef.current;
+    if (holder === null) return;
+    if (!sheetOpenCardIds.includes(holder)) return;
+    sheetGrantInFlightRef.current = null;
+    bumpSheetWaiters();
+  }, [sheetOpenCardIds, bumpSheetWaiters]);
 
   // ⚠️ **한 요청씩 직렬화한다.** slot이 granted라는 이유로 모든 대기자를 한꺼번에 깨우면,
   //    서로 다른 카드의 프리플라이트가 겹치거나 이미 열린 시트가 있는 상태에서 늦은 응답이
@@ -700,9 +714,22 @@ export default function GroupRoomScreen({
   // 진행 중 다른 조회(포그라운드 복귀·삭제 후 재조회 등)가 끼어들어 seq가 밀리는 순간
   // 내릴 주체가 사라져 스피너가 영구히 돈다. 늦게 끝난 요청이 내려도 사용자 피해는 없다.
   const onRefresh = useCallback(() => {
+    // 사용자가 **명시적으로** 요청한 재시도다 — 결과 호스트도 함께 깨운다(아래 onRetry 주석).
+    requestChallengeResultRefresh();
     setRefreshing(true);
     load().finally(() => setRefreshing(false));
   }, [load]);
+
+  // 오류 화면·배너의 「다시 시도」 — 이 화면만 다시 조회하면 부족하다.
+  // ⚠️ 결과 모달의 소유자가 루트 호스트로 옮겨 가며 **방과 호스트의 재조회 계기가 갈렸다.**
+  //    결과 조회가 실패해 gate가 'unknown'으로 굳으면 이 방은 이탈을 유예한 채 오류 화면을
+  //    세우는데, 그 상태에서 버튼을 눌러도 호스트는 아무것도 하지 않는다 — 탈퇴자는 자기
+  //    정산 결과를 못 본 채 방에 갇힌다. 그래서 재시도 신호를 함께 보낸다.
+  //    포커스 복귀 같은 화면 내부 사건에는 붙이지 않는다(정본이 정한 재조회 계기 셋을 지킨다).
+  const onRetry = useCallback(() => {
+    requestChallengeResultRefresh();
+    reload();
+  }, [reload]);
 
   // 시트가 그릴 챌린지 — **살아 있는 배열에서 파생**한다(F2). 배경 재조회가 반영된 최신 팟·참가자다.
   const betChallenge =
@@ -735,20 +762,22 @@ export default function GroupRoomScreen({
   // 정리 이펙트가 렌더마다 재등록되며 false를 흘려, 시트가 떠 있는데도 열림이 취소된다.
   const onCardSheetVisibilityChange = useCallback(
     (challengeId: string, open: boolean) => {
-      // 승인 한 건이 열림으로 마무리됐다 — 다음 요청을 받을 수 있다(다만 이 시트가 닫혀야 실제로
-      // 승인된다 — sheetOpen 조건). `sheetSlotRequested` 해제는 위 "요청 해제" 이펙트가 한 곳에서
-      // 판단한다: 여기서 따로 내리면 조건이 둘로 갈려 빈 등록이 남는 창이 다시 생긴다.
-      if (open && sheetGrantInFlightRef.current === challengeId) {
-        sheetGrantInFlightRef.current = null;
-        bumpSheetWaiters();
-      }
+      // ⚠️ 여기서 `sheetGrantInFlightRef`를 비우지 않는다. 비우면 가드 둘의 갱신 시점이 어긋난다:
+      //    이 ref는 **즉시** 바뀌는데 `sheetOpenRef`는 **다음 렌더까지 여전히 false**다. 그 사이에
+      //    다른 카드의 프리플라이트가 끝나 요청하면 grantOneSheetWaiter가 두 가드를 모두 통과해
+      //    **RN Modal 두 개가 함께 마운트**된다. 그래서 진행 중 승인은 **열림 상태가 실제로
+      //    커밋될 때까지** 유지하고, 아래 이펙트가 커밋을 확인한 뒤에 푼다.
+      // `sheetSlotRequested` 해제도 여기서 하지 않는다 — 위 "요청 해제" 이펙트가 한 곳에서
+      // 판단한다(조건이 둘로 갈리면 빈 등록이 남는 창이 다시 생긴다).
       setSheetOpenCardIds((prev) => {
         const had = prev.includes(challengeId);
         if (had === open) return prev; // 같은 값 재보고는 리렌더를 만들지 않는다
         return open ? [...prev, challengeId] : prev.filter((id) => id !== challengeId);
       });
     },
-    [bumpSheetWaiters],
+    // 의존성 없음이 의도다 — 카드의 정리 이펙트가 이 신원에 매달려 있어, 바뀌면 렌더마다
+    // 재등록되며 false를 흘린다(시트가 떠 있는데 열림이 취소된다).
+    [],
   );
 
   // 내 권한 판정 — 상세 응답에 내 role이 없어 멤버 목록에서 직접 계산한다(§6-4).
@@ -987,7 +1016,7 @@ export default function GroupRoomScreen({
         <View style={s.center}>
           <Text style={s.errorTitle}>그룹을 불러오지 못했어요</Text>
           <Text style={s.errorDesc}>잠시 후 다시 시도해 주세요.</Text>
-          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={reload}>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onRetry}>
             <Text style={s.retryText}>다시 시도</Text>
           </TouchableOpacity>
         </View>
@@ -1041,7 +1070,7 @@ export default function GroupRoomScreen({
         {error && !!detail && (
           <View style={s.banner}>
             <Text style={s.bannerText}>최신 정보를 불러오지 못했어요</Text>
-            <TouchableOpacity onPress={reload} hitSlop={12} activeOpacity={0.7}>
+            <TouchableOpacity onPress={onRetry} hitSlop={12} activeOpacity={0.7}>
               <Text style={s.bannerRetry}>다시 시도</Text>
             </TouchableOpacity>
           </View>

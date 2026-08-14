@@ -60,7 +60,7 @@ import {
   pickChallengeResults,
   type ChallengeResultCandidate,
 } from './challengeResult';
-import { setChallengeResultGate } from './challengeResultGate';
+import { setChallengeResultGate, subscribeChallengeResultRefresh } from './challengeResultGate';
 import {
   ackChallengeResult,
   claimChallengeResult,
@@ -491,6 +491,19 @@ export default function ChallengeResultHost() {
   useEffect(
     () =>
       subscribeBetResultPush(() => {
+        if (!inFlowRef.current) return;
+        load();
+      }),
+    [load],
+  );
+
+  // 화면이 올린 **명시적 재시도**(그룹방 오류 화면의 '다시 시도' · 당겨서 새로고침).
+  // 소유자가 루트로 옮겨 가며 방과 호스트의 재조회 계기가 갈렸다 — 이 구독이 없으면 조회가
+  // 실패해 gate가 'unknown'으로 굳은 뒤, 사용자가 버튼을 아무리 눌러도 결과가 다시 조회되지
+  // 않아 탈퇴자가 그 결과를 못 본 채 방에 갇힌다(challengeResultGate 파일 주석).
+  useEffect(
+    () =>
+      subscribeChallengeResultRefresh(() => {
         if (!inFlowRef.current) return;
         load();
       }),
