@@ -1122,7 +1122,7 @@ MQ + DLQ 기반 실패 격리와 운영자 알림은 **후속 티켓 GROMO-1256*
 | S13 | 창 사용분 보고에 `measured_at` 저장 (역전 보고 무시) | N34 · **GROMO-1407** |
 | S14 | `notification_sent_logs` 확장 — `kind` · `subject_id` · `status` · `claimed_at` | N41 · **GROMO-1417** |
 | S15 | 활성 챌린지 부분 유니크 **완화** — 하루형만 `(group_id, category)` 로 남기고 창형은 복수 허용 | FR-3 · **GROMO-1422** |
-| S16 | `group_challenge_bet_participants`에 **`acknowledged_at`** 추가 — 결과 모달 확인 표시. 리그 `league_weekly_results.acknowledged_at`과 같은 모양 | **N58** · **GROMO-1577** |
+| S16 | `group_challenge_bet_participants`에 **`acknowledged_at`** 추가 + **표시 선점(claim) 상태**(선점 기기·만료 시각) — 확인과 선점은 다른 상태다(IA §4.3) — 결과 모달 확인 표시. 리그 `league_weekly_results.acknowledged_at`과 같은 모양 | **N58** · **GROMO-1577** |
 
 ### 9.2 백엔드
 
@@ -1143,7 +1143,7 @@ MQ + DLQ 기반 실패 격리와 운영자 알림은 **후속 티켓 GROMO-1256*
 | P2 | B16 | **내기 끄기 경로 제거 (N26)** — `bet.enabled`를 `false`로 되돌리는 엔드포인트·서비스 메서드가 있으면 삭제하고, 새로 만들지 않는다. 끄기는 삭제(무효화 + 전원 환불)와 결과가 같으므로 경로를 두 개 둘 이유가 없다 · **GROMO-1426** |
 | P2 | B11 | 분산 락 (ShedLock) — 기존 티켓 565 · **GROMO-1283** |
 | P3 | B12 | 챌린지·내기 전용 컨트롤러 분리 (기존 H1 갭) · **GROMO-1284** |
-| P1 | B17 | **결과 확인 표시(ack) API** — `GET /me/challenge-results`에 `acknowledged` 병기 + `POST /me/challenge-results/{sessionId}/ack`. `acknowledged_at IS NULL` **조건부 원자 UPDATE**라 중복·동시 호출에 멱등(리그 `LeagueWeeklyResultRepository:73-87` 선례) · **GROMO-1577** |
+| P1 | B17 | **결과 확인 표시(ack) API** **+ 표시 선점 API** — 선점은 만료가 있고, 실패 응답은 **만료 시각**을 돌려준다(앱이 폴링 없이 그 시점 1회만 다시 시도한다). — `GET /me/challenge-results`에 `acknowledged` 병기 + `POST /me/challenge-results/{sessionId}/ack`. `acknowledged_at IS NULL` **조건부 원자 UPDATE**라 중복·동시 호출에 멱등(리그 `LeagueWeeklyResultRepository:73-87` 선례) · **GROMO-1577** |
 | P3 | B13 | 좀비 **서술** 정리 — 죽은 코드를 광고하는 주석·OpenAPI 3곳 · **GROMO-1285**. ⚠️ `refundedCount`는 좀비가 아니다(N21·GROMO-1411이 되살렸다) · `BET_FOCUS_ONLY` **상수**는 의도적 잔존(구앱 계약) — **둘 다 지우면 사고다** |
 
 > **B15 상세 — 이건 신규 구현이 아니라 「되돌리기」다.** 자정 걸침은 지금까지 *허용*이 전제였고,
@@ -1184,7 +1184,7 @@ MQ + DLQ 기반 실패 격리와 운영자 알림은 **후속 티켓 GROMO-1256*
 | **P1** | A10 | **버튼 문구 `참여 취소` (N27)** — 카드 내기 영역의 `취소` 미니 버튼, 카운트다운 버튼(`참여 취소 4:37`). 시트를 닫는 버튼은 그대로 `닫기`/`그만두기`다 · **GROMO-1427** |
 | P2 | A11 | **내기 켜기/끄기 토글 제거 (N26)** — 챌린지 상세·설정·`⋯` 메뉴에 토글이 있으면 없앤다. 켤지 여부는 **생성 시트 안에서만** 정한다. 생성 시트에 "만든 뒤에는 끌 수 없어요" 고지를 붙인다 · **GROMO-1428** |
 | **P1** | A12 | **결과 모달 트리거를 화면에서 사건으로 (N56)** — 그룹방 전용 렌더를 걷고 그룹 탭 랜딩(카드 덱)·결과 푸시 착지에서도 같은 큐가 열리게 배선. 카드 덱에서 여는 것은 **읽기 전용 결과 모달 하나뿐**이다(N57) · **GROMO-1578**. **오버레이 소유자를 그룹 탭 셸로 올리는 것과 소속 0개 랜딩 지원은 후속 GROMO-1575·1576** (HLD §1) |
-| P1 | A13 | **가드를 서버 ack으로 (N58)** — 모달이 뜬 순간 `POST .../ack`, 로컬 seen 마커는 ack 실패 창 보완재로 잔류. ack 실패 시 **재노출 없이 ack만 재시도**(리그 R21과 같은 규율) · **GROMO-1577** |
+| P1 | A13 | **가드를 서버 ack으로 (N58)** — **선점 → 노출 → ack** 순서이며, 선점 실패 시 응답의 만료 시각에 **1회 재조회를 예약**한다(그 계기가 없으면 선점 기기가 노출 전에 죽었을 때 패배 기기가 포커스된 채로 영영 다시 시도하지 못한다). — 모달이 뜬 순간 `POST .../ack`, 로컬 seen 마커는 ack 실패 창 보완재로 잔류. ack 실패 시 **재노출 없이 ack만 재시도**(리그 R21과 같은 규율) · **GROMO-1577** |
 | — | ~~A8~~ | ~~결과 모달이 자정 걸침 창을 다루도록~~ — **불필요해졌다.** 자정 걸침 창이 금지되면서(N25) `challengeResult.ts`에 그 분기를 만들 이유가 사라졌다. 기존 F2 갭은 "구현"이 아니라 **"구현하지 않음"** 으로 닫힌다 |
 | — | ~~수정 화면~~ | **만들지 않는다** (N5) |
 | — | ~~내기 끄기 화면~~ | **만들지 않는다** (N26) |
