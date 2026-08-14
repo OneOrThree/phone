@@ -31,6 +31,23 @@ export function consumeRefundPushIntent(groupId: string): boolean {
   return matched;
 }
 
+// 보관함(NotificationsScreen)에서 저장된 알림을 다시 열 때도 같은 표식을 세운다.
+//
+// **왜 여기도 필요한가**: 보관함 항목 탭은 `navigateToDeepLink(n.link)`를 직접 부르므로 푸시 계층의
+// navigateFromPush를 거치지 않는다. 그래서 표식 없이 링크만 흘러가고, 비멤버가 보관함에서
+// `BET_VOID_REFUND`를 다시 열면 `refund=1`은 읽혀도 안내가 서지 않아 **1579가 고치려던 착지
+// 실패가 이 경로에만 그대로 남는다**(codex 리뷰).
+//
+// **왜 보관함 출처는 믿어도 되는가**: 이 레코드는 앱이 받은 푸시를 저장한 것이다(services/push.ts의
+// saveToInbox). 외부 앱이 여기에 쓸 수 없으므로, URL 표식을 그대로 믿는 것과 달리 위조 경로가 없다.
+// 링크도 저장 시점에 linkFromData가 만든 것이라 `g=<groupId>`를 갖고 있다.
+export function markRefundIntentFromInbox(type: string | null, link: string): void {
+  if (type !== 'BET_VOID_REFUND') return;
+  const matched = /[?&]g=([^&#]+)/.exec(link);
+  if (matched === null) return;
+  markRefundPushIntent(decodeURIComponent(matched[1]));
+}
+
 // 테스트 전용 — 모듈 스코프 상태가 케이스 사이에 새지 않게 한다.
 export function resetRefundPushIntent(): void {
   pendingGroupId = null;
