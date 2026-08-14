@@ -93,6 +93,7 @@ public class ChallengeResultAckService {
 
     /** 최초 획득 — 비어 있거나 리스가 만료된 선점을, <b>이미 결과가 된 회차에 한해</b> 가져온다. */
     private ChallengeResultClaimResponse acquireClaim(UUID userId, UUID sessionId) {
+        lockParticipantRow(userId, sessionId);
         UUID token = Generators.timeBasedEpochRandomGenerator().generate();
         int claimed = groupChallengeBetParticipantRepository.claimDisplay(
                 sessionId, userId, token, DISPLAY_CLAIM_LEASE.toSeconds(),
@@ -116,6 +117,7 @@ public class ChallengeResultAckService {
      * 앱이 든 토큰이 영구히 낡은 값이 되어 ack 까지 막힌다.
      */
     private ChallengeResultClaimResponse renewClaim(UUID userId, UUID sessionId, UUID currentToken) {
+        lockParticipantRow(userId, sessionId);
         int renewed = groupChallengeBetParticipantRepository.renewDisplayClaim(
                 sessionId, userId, currentToken, GroupBetStatus.RESULT_STATUS_NAMES);
         if (renewed == 1) {
@@ -151,6 +153,16 @@ public class ChallengeResultAckService {
         }
         // 남은 리스는 DB 가 계산해 준 값이다 — 여기서 Instant.now() 를 섞으면 시계 축이 다시 갈린다.
         throw new ChallengeResultClaimHeldException(state.getRetryAfterMs());
+    }
+
+    /**
+     * 조건부 UPDATE <b>앞에</b> 참가 행 잠금을 잡는다 — 리스 시각이 "잠금을 기다린 뒤"의 벽시각으로
+     * 찍히게 하는 유일한 방법이다. Postgres 는 UPDATE 의 SET 식을 잠금 대기 <b>전에</b> 계산하므로
+     * {@code clock_timestamp()} 만으로는 대기 시간만큼 과거로 찍힌다(리포지토리 주석의 실측).
+     * 행이 없으면 아무것도 잠그지 않고 지나간다 — 뒤따르는 UPDATE 가 0행으로 같은 결론을 낸다.
+     */
+    private void lockParticipantRow(UUID userId, UUID sessionId) {
+        groupChallengeBetParticipantRepository.lockForDisplayClaim(sessionId, userId);
     }
 
     private Optional<ClaimStateView> readClaimState(UUID userId, UUID sessionId) {

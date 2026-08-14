@@ -118,7 +118,8 @@ public interface GroupChallengeBetParticipantRepository
             + "c.deleted_at AS \"challengeDeletedAt\", "
             + "CASE WHEN p.display_claimed_at IS NULL THEN 0 ELSE "
             + "GREATEST(0, LEAST(:leaseSeconds * 1000, CAST(EXTRACT(EPOCH FROM "
-            + "(p.display_claimed_at + make_interval(secs => :leaseSeconds) - now())) * 1000 AS bigint))) "
+            + "(p.display_claimed_at + make_interval(secs => :leaseSeconds) - clock_timestamp())) "
+            + "* 1000 AS bigint))) "
             + "END AS \"retryAfterMs\" "
             + "FROM group_challenge_bet_participants p "
             + "JOIN group_challenge_bet_sessions s ON s.id = p.session_id "
@@ -145,6 +146,30 @@ public interface GroupChallengeBetParticipantRepository
     }
 
     /**
+     * 선점 대상 참가 행을 <b>먼저 잠근다</b>(GROMO-1577) — 조건부 UPDATE 바로 앞에 둔다.
+     *
+     * <p><b>{@code clock_timestamp()} 만으로는 부족하다.</b> Postgres 는 UPDATE 의 {@code SET} 식을
+     * <b>행 잠금을 기다리기 전에</b> 계산한다(대기는 그 뒤 {@code heap_update} 안에서 일어나고, 단순
+     * 잠금 대기는 EvalPlanQual 재계산을 부르지 않는다). 그래서 잠금을 1초 기다린 선점은 리스가
+     * <b>1초 과거로</b> 찍힌다 — 실측으로 확인했다(스탬프가 잠금 해제 시각보다 정확히 대기 시간만큼
+     * 이르다). 그러면 남이 그만큼 일찍 만료로 보고 회수해 두 기기가 함께 렌더한다.
+     *
+     * <p>잠금을 먼저 잡으면 이어지는 UPDATE 는 더 기다릴 것이 없어 {@code clock_timestamp()} 가 곧
+     * "지금"이다. 같은 트랜잭션 안에서 잠금을 쥔 채 CAS 하므로 원자성도 오히려 더 분명해진다
+     * (호출측 서비스 메서드가 {@code @Transactional} 이라 두 문장이 한 트랜잭션이다).
+     *
+     * <p>ack 에는 이 잠금을 두지 않는다 — {@code acknowledged_at} 은 <b>기록</b>이지 만료 판정의
+     * 기준축이 아니라, 몇 밀리초 이르게 찍혀도 아무것도 깨지지 않는다.
+     *
+     * @return 잠근 참가 행 id — 비어 있으면 그 회차의 내 참가 행이 없다(후속 UPDATE 도 0행)
+     */
+    @Query(value = "SELECT p.id FROM group_challenge_bet_participants p "
+            + "WHERE p.session_id = :sessionId AND p.user_id = :userId FOR UPDATE", nativeQuery = true)
+    Optional<UUID> lockForDisplayClaim(
+            @Param("sessionId") UUID sessionId,
+            @Param("userId") UUID userId);
+
+    /**
      * 결과 표시 <b>선점</b>(lease) 획득·회수 — 조건부 원자 UPDATE 하나로 "비어 있음"과 "만료된 남의
      * 선점 회수"를 함께 집는다(GROMO-1577 · B17). 알림 클레임의
      * {@code NotificationSentLogRepository.reclaimExpired} 와 같은 모양이다.
@@ -166,12 +191,23 @@ public interface GroupChallengeBetParticipantRepository
      * 챌린지의 결과를 캐시된 sessionId 로 선점해 그대로 노출한다. 삭제해도 기존 정산 회차는 남으므로
      * 실제로 성립하는 경합이다.
      *
-     * <p><b>리스의 시계는 DB 다</b>({@code now()}) — 기록도 만료 비교도 한 시계에서 한다. 각
-     * 인스턴스의 {@code Instant.now()} 로 찍고 비교하면, 시계가 빠른 인스턴스가 느린 인스턴스의
-     * <b>방금 만든 선점을 이미 만료로 보고 즉시 회수</b>한다. 그러면 렌더 직전 재검증을 통과한 뒤에도
-     * 다른 기기가 재선점해 중복 노출이 난다 — ShedLock 이 {@code usingDbTime()} 을 쓰는 것과 같은
-     * 이유다("인스턴스 간 시계가 어긋나면 락이 조기 만료되거나 영원히 잡혀 있는 것처럼 보인다").
+     * <p><b>리스의 시계는 DB 다</b> — 기록도 만료 비교도 한 시계에서 한다. 각 인스턴스의
+     * {@code Instant.now()} 로 찍고 비교하면, 시계가 빠른 인스턴스가 느린 인스턴스의 <b>방금 만든
+     * 선점을 이미 만료로 보고 즉시 회수</b>한다. 그러면 렌더 직전 재검증을 통과한 뒤에도 다른 기기가
+     * 재선점해 중복 노출이 난다 — ShedLock 이 {@code usingDbTime()} 을 쓰는 것과 같은 이유다
+     * ("인스턴스 간 시계가 어긋나면 락이 조기 만료되거나 영원히 잡혀 있는 것처럼 보인다").
      * 그래서 이 세 UPDATE 는 <b>네이티브</b>다 — JPQL 로는 DB 함수와 interval 연산을 표현할 수 없다.
+     *
+     * <p>⚠️ <b>{@code now()} 가 아니라 {@code clock_timestamp()} 다.</b> Postgres 의 {@code now()} 는
+     * {@code transaction_timestamp()} 라 <b>트랜잭션 시작 시각으로 고정</b>된다 — 참가 행 잠금을 기다린
+     * 뒤 이 UPDATE 가 돌면 선점이 <b>대기한 시간만큼 과거로</b> 찍히고 만료 비교도 낡은 시각으로 한다.
+     * 대기가 리스(2분)에 근접하면 재검증에 성공한 직후에도 남이 만료로 보고 회수해 두 기기가 함께
+     * 렌더한다. {@code clock_timestamp()} 는 <b>실행 순간</b>의 벽시각이라 그 창이 없다.
+     * (같은 함정의 애플리케이션 판이 이 클래스 이전 판의 {@code Instant.now()} 였다.)
+     *
+     * <p>⚠️ <b>V49 마이그레이션의 {@code now()} 는 그대로 두는 것이 맞다</b> — 거기서는 세 문장이
+     * <b>같은 값</b>(마이그레이션 시작 시각)을 봐야 백필·tombstone·종결의 술어가 갈리지 않는다.
+     * 두 곳의 선택은 <b>서로 다른 이유로 각각 옳다</b> — 한쪽에 맞춰 통일하면 다른 쪽이 깨진다.
      *
      * @param leaseSeconds 리스 수명(초) — 만료 컷오프는 {@code now() − leaseSeconds} 로 <b>DB 가</b> 뺀다
      * @param statuses     결과로 치는 회차 상태 이름
@@ -184,11 +220,11 @@ public interface GroupChallengeBetParticipantRepository
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query(value = "UPDATE group_challenge_bet_participants p "
-            + "SET display_claimed_at = now(), display_claim_token = :token "
+            + "SET display_claimed_at = clock_timestamp(), display_claim_token = :token "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
             + "AND p.acknowledged_at IS NULL "
             + "AND (p.display_claimed_at IS NULL "
-            + "OR p.display_claimed_at < now() - make_interval(secs => :leaseSeconds)) "
+            + "OR p.display_claimed_at < clock_timestamp() - make_interval(secs => :leaseSeconds)) "
             + "AND EXISTS (SELECT 1 FROM group_challenge_bet_sessions s "
             + "JOIN group_challenges c ON c.id = s.challenge_id "
             + "WHERE s.id = p.session_id AND s.status IN (:statuses) "
@@ -226,7 +262,7 @@ public interface GroupChallengeBetParticipantRepository
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query(value = "UPDATE group_challenge_bet_participants p "
-            + "SET display_claimed_at = now() "
+            + "SET display_claimed_at = clock_timestamp() "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
             + "AND p.acknowledged_at IS NULL "
             + "AND p.display_claim_token = :token "
@@ -266,7 +302,8 @@ public interface GroupChallengeBetParticipantRepository
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query(value = "UPDATE group_challenge_bet_participants p "
-            + "SET acknowledged_at = now(), display_claimed_at = NULL, display_claim_token = NULL "
+            + "SET acknowledged_at = clock_timestamp(), "
+            + "display_claimed_at = NULL, display_claim_token = NULL "
             + "WHERE p.session_id = :sessionId AND p.user_id = :userId "
             + "AND p.acknowledged_at IS NULL "
             + "AND p.display_claim_token = :token "

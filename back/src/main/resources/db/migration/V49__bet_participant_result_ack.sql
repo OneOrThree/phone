@@ -36,6 +36,12 @@ ALTER TABLE public.group_challenge_bet_participants
 --   · 기준은 now() — Flyway 는 마이그레이션 1개를 <b>한 트랜잭션</b>으로 감싸므로 이 파일의 세
 --     문장에서 now() 는 전부 같은 값(마이그레이션 시작 시각)이다. 세 술어가 같은 기준이어야
 --     한쪽으로 새지 않는다.
+--   · ⚠️ 여기서는 clock_timestamp() 로 바꾸면 안 된다. now() 가 트랜잭션 시작으로 <b>고정</b>되는
+--     성질이 곧 요구사항이다 — 문장마다 시각이 흐르면 백필·tombstone·종결의 경계가 미세하게
+--     어긋나 그 틈에 커밋된 정산이 "확인은 됐는데 푸시는 남는" 상태가 된다.
+--     반대로 런타임 선점(GroupChallengeBetParticipantRepository)은 clock_timestamp() 가 맞다:
+--     거기서는 행 잠금을 기다린 뒤 실행돼 트랜잭션 시작 시각이 이미 낡아 있다.
+--     두 선택은 서로 다른 이유로 각각 옳다 — 한쪽에 맞춰 통일하지 말 것.
 --   · settled_at 이 비어 있는 행은 제외된다(비교가 NULL) — 결과 조회도 settled_at 하한으로 거르므로
 --     애초에 큐에 없고, 안전한 방향(못 본 결과를 잃지 않는 쪽)이다.
 UPDATE public.group_challenge_bet_participants p

@@ -241,6 +241,44 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("행 락을 기다린 선점은 대기 시간만큼 과거로 찍히지 않는다 — now() 가 아니라 clock_timestamp()")
+    void claimStampIsExecutionTimeNotTransactionStart() throws Exception {
+        GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
+        joinSettled(session, me);
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        CountDownLatch claimStarted = new CountDownLatch(1);
+
+        // 참가 행을 잠근 채 1초 붙잡는다 — 선점 UPDATE 가 그만큼 기다리게 만든다.
+        CompletableFuture<Instant> blocker = CompletableFuture.supplyAsync(() ->
+                transactionTemplate.execute(status -> {
+                    jdbcTemplate.queryForObject("SELECT 1 FROM group_challenge_bet_participants"
+                            + " WHERE session_id = ? AND user_id = ? FOR UPDATE",
+                            Integer.class, session.getId(), me.getId());
+                    lockHeld.countDown();
+                    try {
+                        claimStarted.await(10, TimeUnit.SECONDS);
+                        Thread.sleep(1_000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return dbNow();   // 락을 놓기 직전의 벽시각
+                }));
+        assertThat(lockHeld.await(10, TimeUnit.SECONDS)).isTrue();
+
+        CompletableFuture<Void> claimer = CompletableFuture.runAsync(() -> {
+            claimStarted.countDown();
+            claim(session);   // 트랜잭션은 지금 시작하지만 UPDATE 는 락이 풀린 뒤에야 돈다
+        });
+        Instant lockReleasedAt = blocker.get(30, TimeUnit.SECONDS);
+        claimer.get(30, TimeUnit.SECONDS);
+
+        assertThat(displayClaimedAt(session))
+                .as("now() 는 트랜잭션 시작 시각이라 대기한 1초만큼 과거로 찍힌다 —"
+                        + " 그러면 남이 그만큼 일찍 만료로 보고 회수해 두 기기가 함께 렌더한다")
+                .isAfter(lockReleasedAt);
+    }
+
+    @Test
     @DisplayName("리스 시각은 DB 시계로 찍힌다 — 호출자가 준 시각이 아니다(인스턴스 간 시계 어긋남 차단)")
     void leaseIsStampedWithDatabaseClock() {
         GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
@@ -641,8 +679,13 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                 (double) by.toSeconds(), session.getId(), me.getId());
     }
 
+    /**
+     * DB 벽시각 — {@code now()} 가 아니라 {@code clock_timestamp()} 다. {@code now()} 는 트랜잭션 시작
+     * 시각이라, 트랜잭션을 열어 둔 채 읽으면(락을 쥔 스레드가 그렇게 읽는다) 실제 경과를 못 본다.
+     */
     private Instant dbNow() {
-        OffsetDateTime now = jdbcTemplate.queryForObject("SELECT now()", OffsetDateTime.class);
+        OffsetDateTime now =
+                jdbcTemplate.queryForObject("SELECT clock_timestamp()", OffsetDateTime.class);
         return now == null ? null : now.toInstant();
     }
 
