@@ -22,6 +22,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.notification.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.domain.NotificationSentLog;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
+import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.user.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -82,6 +83,8 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
     GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Autowired
     NotificationSentLogRepository notificationSentLogRepository;
+    @Autowired
+    BetEventNotificationService betEventNotificationService;
     @Autowired
     UserRepository userRepository;
 
@@ -352,6 +355,33 @@ class ChallengeResultAckIntegrationTest extends IntegrationTestBase {
                 .isEqualTo(NotificationSendStatus.PENDING);
         assertThat(statusOf(untouched)).as("확인하지 않은 회차의 알림은 그대로 나가야 한다")
                 .isEqualTo(NotificationSendStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("ack 뒤에 도착한 알림 클레임도 막힌다 — 리스너가 AFTER_COMMIT·@Async 라 ack 이 먼저 끝날 수 있다")
+    void lateNotificationClaimIsSuppressedAfterAck() {
+        GroupChallengeBetSession session = settledSession(TODAY.minusDays(1));
+        joinSettled(session, me);
+
+        // 클레임이 아직 하나도 없는 상태에서 사용자가 조회로 먼저 보고 확인한다.
+        ackFully(session);
+
+        // 그제야 리스너가 도착한다 — 프로덕션 배선(notifySessionClosed)을 그대로 부른다.
+        // 15분 재훑기도 같은 claimEvent 를 타므로 억제 지점이 동일하다(전역 스캔이라 여기서는
+        // 부르지 않는다 — 다른 테스트 데이터까지 훑어 발송을 시도한다).
+        betEventNotificationService.notifySessionClosed(session.getId(), NOW.plusSeconds(5));
+
+        NotificationSentLog row = notificationSentLogRepository
+                .findByUserIdAndKindAndSubjectId(
+                        me.getId(), NotificationSentLog.TYPE_BET_RESULT, session.getId())
+                .orElseThrow();
+        notificationRows.add(row.getId());
+        assertThat(row.getStatus())
+                .as("PENDING 이면 flush 가 그대로 발송한다 — 이미 본 결과의 푸시가 뒤늦게 도착한다")
+                .isEqualTo(NotificationSendStatus.SENT);
+        assertThat(notificationSentLogRepository.findByStatus(NotificationSendStatus.PENDING))
+                .extracting(NotificationSentLog::getSubjectId)
+                .doesNotContain(session.getId());
     }
 
     // ── 조회 병기 ───────────────────────────────────────────────────────

@@ -183,9 +183,11 @@ public class ChallengeResultAckService {
             throw new GroupException(isResult(state)
                     ? GroupErrorCode.RESULT_CLAIM_STALE : GroupErrorCode.RESULT_NOT_SETTLED);
         }
-        // 확인한 결과의 미발송 푸시 클레임을 함께 닫는다(B17) — 안 닫으면 이미 본 결과의 푸시가
-        // 묶음 슬롯이 닫힌 뒤나 조용한 시간 이월 뒤에 도착한다.
-        betEventNotificationService.consumeResultClaimOnAck(userId, sessionId, now);
+        // 확인한 결과의 푸시를 억제한다(B17) — 이미 있는 미발송 클레임을 닫고, 아직 없으면
+        // tombstone 을 남겨 나중에 오는 클레임까지 막는다. 클레임을 만드는 리스너가
+        // AFTER_COMMIT + @Async 라 ack 이 먼저 끝날 수 있어, "지금 있는 것"만 닫으면 순서가
+        // 뒤집힌 경우에 이미 본 결과의 푸시가 그대로 나간다.
+        betEventNotificationService.suppressResultPushOnAck(userId, sessionId, now);
     }
 
     /**
