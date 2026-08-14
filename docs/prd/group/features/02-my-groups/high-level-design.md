@@ -76,11 +76,16 @@ flowchart TB
     DECK -->|"기준점 · 면 · 스크롤"| GUIDE
 ```
 
-상위 그룹 화면이 route·계정·목록·overlay queue를 소유하고, 덱과 카드는 표시 상태와 사용자 의도를 위임받는다. 카드 한 장의 실패가 화면 전체나 다른 카드의 상태를 소유하지 않는다.
+상위 그룹 화면이 route·계정·목록을 소유하고, 덱과 카드는 표시 상태와 사용자 의도를 위임받는다.
+
+> ⚠️ **overlay queue의 slot 조정자는 root로 올라간다**(challenge N56 · HLD §1). 결과 모달이
+> `GroupScreen` 아래가 아니라 root 오버레이 계층 소유가 되면서, 이 화면이 queue를 들고 있으면
+> **`GroupRoom`이 push되는 순간 그 focus가 끝나 결과 모달이 slot을 영영 못 받는다.** 조정자는
+> root에 두고 이 화면은 **자기 안내(첫 안내 등)의 eligibility만** 판정한다 — 구현은 GROMO-1575·1576. 카드 한 장의 실패가 화면 전체나 다른 카드의 상태를 소유하지 않는다.
 
 | 책임 영역              | 소유하는 것                                                                                          | 소유하지 않는 것               |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------ |
-| 그룹 화면              | 인증 계정, 성공한 전체 목록, route, 화면 공유 cache, 안내 queue                                      | 카드 제스처·face 내부 상태     |
+| 그룹 화면              | 인증 계정, 성공한 전체 목록, route, 화면 공유 cache, **자기 안내의 eligibility**(slot 조정자는 root — 위 주)                                      | 카드 제스처·face 내부 상태     |
 | 카드 덱                | active `groupId`, page, face, drag 가장자리 및 popover 이동의 page 전환, 순서 변경, 마지막 찾기 카드 | 멤버십·서버 권한               |
 | 카드                   | 앞·뒷면 렌더, 영역별 loading/ready/error, CTA 의도 전달                                              | 전체 방 데이터·집중 세션 결과  |
 | 원격 adapter           | 기존 API 조합, keyed cache, retry·late-response guard                                                | 새 도메인 정책·서버 필드       |
@@ -206,7 +211,7 @@ flowchart TD
 | 상세·공지·하위 기능 요약 | 카드 데이터 adapter       | `groupId + KST date` 또는 `groupId`; 영역별 독립 상태 |
 | 현재 집중 상태           | 그룹 화면 공유 adapter    | `userId + KST date`; refresh cycle당 in-flight 1회    |
 | 카드 순서·내 카드 아이콘 | 계정별 로컬 store         | 성공한 전체 소속 목록과 reconcile; 서버 쓰기 없음     |
-| 안내 진행·완료           | 그룹 화면의 overlay queue | 기기 완료 key + 현재 session 가드                     |
+| 안내 진행·완료           | **root의 overlay slot**(그룹 화면은 eligibility만) | 기기 완료 key + 현재 session 가드                     |
 | 방 복귀 맥락             | 그룹 화면                 | 출발 `groupId`·face·focus; index는 보조 위치          |
 
 상태 전이, 저장 race, 늦은 응답 폐기, 복귀 fallback은 [LLD](./low-level-design.md)가 실행 정본이다. HLD에서는 같은 상태를 타입·Map·hook 이름으로 다시 정의하지 않는다.
