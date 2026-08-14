@@ -7,6 +7,7 @@ import { parseInviteLink } from '@/utils/inviteLink';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
 import { getMyGroups } from '@/services/groupApi';
 import { requestCoinRefresh } from '@/store/coinRefreshSignal';
+import { consumeRefundPushIntent } from '@/services/refundPushIntent';
 import {
   clearPendingDirectGroupEntry,
   clearPendingGroupEntry,
@@ -304,7 +305,11 @@ async function pushGroupRoom(
     // 빠지므로(N48 필터) 탈퇴자는 "보여줄 결과 0건"으로 판정돼 즉시 목록으로 되돌려졌다.
     // 이 표식이 있으면 방이 튕기지 않고 환불 안내를 세운다. challengeId와 **같은 이유로**
     // 없을 때도 키를 싣는다(파라미터 얕은 병합 — 다음 진입에 표식이 새어 들어가지 않게).
-    refundNotice: refundPush ? true : undefined,
+    // ⚠️ URL의 `refund=1`**만으로는 세우지 않는다**(codex 사전 게이트 P2). 이 화면은 "참가비가
+    //    환불됐어요"라는 금융 사실을 쓰는데, 그 표식은 외부 앱이 연 gromo:// 링크에도 실릴 수
+    //    있다. 푸시 계층이 남긴 앱 내부 표식(refundPushIntent — groupId까지 대조하는 1회용)을
+    //    함께 소비해야 참이 된다. 잔액 재조회는 위 refund=1만으로 계속 태운다(서버가 정본).
+    refundNotice: refundPush && consumeRefundPushIntent(groupId) ? true : undefined,
     entrySource: 'unknown',
     interactionId: undefined,
     interactionAcceptedAt: undefined,

@@ -12,6 +12,7 @@ import {
   setGroupInviteListener,
 } from './navigationRef';
 import { logInviteLinkOpened } from '@/services/analyticsEvents';
+import { markRefundPushIntent, resetRefundPushIntent } from '@/services/refundPushIntent';
 import {
   clearPendingDirectGroupEntry,
   clearPendingGroupEntry,
@@ -59,6 +60,7 @@ async function flushAsync() {
 }
 
 const GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const OTHER_GROUP_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d99';
 const SLUG = 'ab23cd45';
 const UNKNOWN_ATTRIBUTION = {
   entrySource: 'unknown',
@@ -78,6 +80,7 @@ beforeEach(() => {
   navigate.mockImplementation(() => {});
   clearPendingInvite();
   setGroupInviteListener(inviteListener);
+  resetRefundPushIntent(); // 모듈 스코프 1회용 표식이 케이스 사이에 새지 않게 한다
 });
 
 afterEach(() => {
@@ -516,17 +519,68 @@ describe('그룹 딥링크(챌린지 종료 푸시)', () => {
       navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
       await flushAsync();
 
+      // 잔액 재조회는 URL 표식만으로 태운다 — 서버가 정본이라 위조돼도 무해하고,
+      // 오히려 최신 잔액을 받는 쪽이 안전하다.
       expect(mockRequestCoinRefresh).toHaveBeenCalledTimes(1);
-      // 목적지는 결과성 푸시와 동일하다 — 잔액 갱신이 라우팅을 바꾸지 않는다.
-      // 다만 **환불 착지라는 사실은 방까지 전달한다**(GROMO-1579): 삭제·무산 환불 회차는
-      // 결과 큐에서 빠지므로(N48), 이 표식이 없으면 탈퇴자에게 "보여줄 결과 0건"이 되어
-      // 방이 즉시 onLeft로 목록에 되돌려 놓는다 — 알림을 눌렀는데 목록으로 튕기는 그 결함이다.
+      // 목적지도 결과성 푸시와 동일하다 — 잔액 갱신이 라우팅을 바꾸지 않는다.
+      // 다만 **환불 안내 표식은 서지 않는다**: 아래 위조 방어 테스트 참고.
       expect(navigate).toHaveBeenLastCalledWith('GroupRoom', {
         groupId: GROUP_ID,
         challengeId: undefined,
-        refundNotice: true,
+        refundNotice: undefined,
         ...UNKNOWN_ATTRIBUTION,
       });
+    });
+
+    // 환불 안내 화면은 "참가비가 환불됐어요"라는 **금융 사실**을 쓴다. 그런데 refund=1은
+    // gromo:// URL에 실려 있고 DeepLinkGate는 OS가 준 URL을 그대로 넘기므로, 외부 앱이 유효한
+    // 그룹 UUID와 함께 같은 링크를 열 수 있다(codex 사전 게이트 P2). 그래서 URL 표식은
+    // 라우팅 힌트로만 쓰고, 푸시가 그 링크를 만들었다는 사실은 앱 안 표식으로 따로 받는다.
+    test('외부 딥링크의 refund 표식만으로는 환불 안내를 세우지 않는다', async () => {
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith(
+        'GroupRoom',
+        expect.objectContaining({ refundNotice: undefined }),
+      );
+    });
+
+    test('푸시가 남긴 표식이 있으면 환불 안내를 세운다', async () => {
+      markRefundPushIntent(GROUP_ID);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith(
+        'GroupRoom',
+        expect.objectContaining({ refundNotice: true }),
+      );
+    });
+
+    // 표식을 세운 뒤 다른 방을 열 수도 있다 — 대상이 어긋나면 소비하지 않고 버린다.
+    test('표식의 그룹과 다른 방으로 들어가면 안내를 세우지 않는다', async () => {
+      markRefundPushIntent(OTHER_GROUP_ID);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith(
+        'GroupRoom',
+        expect.objectContaining({ refundNotice: undefined }),
+      );
+    });
+
+    // 1회용이다 — 남겨 두면 푸시와 무관한 다음 재진입이 물려받아 안내가 다시 뜬다.
+    test('표식은 1회만 쓰인다', async () => {
+      markRefundPushIntent(GROUP_ID);
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
+      await flushAsync();
+      navigateToDeepLink(`gromo://group?g=${GROUP_ID}&result=1&refund=1`);
+      await flushAsync();
+
+      expect(navigate).toHaveBeenLastCalledWith(
+        'GroupRoom',
+        expect.objectContaining({ refundNotice: undefined }),
+      );
     });
 
     // 표식은 **환불 푸시에만** 실린다 — 라우트 파라미터는 얕게 병합되므로(types.ts GroupRoom

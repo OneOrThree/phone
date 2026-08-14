@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { api } from '@/services/api';
 import { addToInbox } from '@/services/notificationInbox';
 import { notifyBetResultPush } from '@/services/betResultSignal';
+import { markRefundPushIntent } from '@/services/refundPushIntent';
 import { navigateToDeepLink } from '@/navigation/navigationRef';
 import { isSilentFlush, runSilentFlush } from '@/services/pushBackground';
 import {
@@ -136,6 +137,25 @@ function withPushFlags(link: string, raw: string | null): string {
   const base = hashAt === -1 ? link : link.slice(0, hashAt);
   const fragment = hashAt === -1 ? '' : link.slice(hashAt);
   return `${base}${base.includes('?') ? '&' : '?'}${flags.join('&')}${fragment}`;
+}
+
+// 푸시가 만든 딥링크로 이동한다 — 세 진입점(백그라운드 배너 탭 · 포그라운드 로컬 알림 탭 ·
+// 종료 상태 콜드스타트)이 같은 규칙을 쓴다.
+//
+// 링크 이동 전에 환불 푸시 표식을 남기는 이유(codex 사전 게이트 P2): 환불 안내 화면은 "참가비가
+// 환불됐어요"라는 **금융 사실**을 쓴다. 그런데 그 화면을 세우는 `refund=1`은 `gromo://` URL에
+// 실려 있고 DeepLinkGate는 OS가 준 URL을 그대로 넘기므로, 외부 앱이 유효한 그룹 UUID와 함께 같은
+// 링크를 열면 **실제 환불이 없었는데 그 문장이 뜬다.** 그래서 URL 표식은 라우팅 힌트로만 쓰고,
+// '푸시가 이 링크를 만들었다'는 사실은 앱 안에서만 도는 표식으로 따로 넘긴다(refundPushIntent).
+// 잔액 재조회(`requestCoinRefresh`)는 표식만으로 계속 태운다 — 서버가 정본이라 위조돼도 무해하다.
+function navigateFromPush(data?: Record<string, unknown>): void {
+  const link = linkFromData(data);
+  if (link === null) return;
+  if (rawTypeFromData(data) === 'BET_VOID_REFUND') {
+    const groupId = data?.groupId;
+    if (typeof groupId === 'string') markRefundPushIntent(groupId);
+  }
+  navigateToDeepLink(link);
 }
 
 // 정산 결과/창 종료 푸시 타입(계약 §2 push_opened) — 그 외는 null(이벤트 생략).
@@ -269,15 +289,13 @@ export function setupPushListeners(): () => void {
       if (type) logNotificationOpened({ type }); // 백그라운드 탭으로 앱 복귀
       const opened = pushOpenedTypeFromData(msg?.data);
       if (opened) logPushOpened({ type: opened }); // 정산 결과/창 종료 푸시(계약 §2)
-      const link = linkFromData(msg?.data);
-      if (link) navigateToDeepLink(link);
+      navigateFromPush(msg?.data);
     }),
   );
 
   // 포그라운드에서 표시한 로컬 알림을 탭 → 딥링크
   const responseSub = Notifications.addNotificationResponseReceivedListener((resp) => {
-    const link = linkFromData(resp.notification.request.content.data);
-    if (link) navigateToDeepLink(link);
+    navigateFromPush(resp.notification.request.content.data);
   });
   unsubscribers.push(() => responseSub.remove());
 
@@ -295,8 +313,7 @@ export async function handleInitialNotification(): Promise<void> {
     if (type) logNotificationOpened({ type }); // 종료 상태에서 탭으로 콜드스타트
     const opened = pushOpenedTypeFromData(msg?.data);
     if (opened) logPushOpened({ type: opened }); // 정산 결과/창 종료 푸시(계약 §2)
-    const link = linkFromData(msg?.data);
-    if (link) navigateToDeepLink(link);
+    navigateFromPush(msg?.data);
   } catch {
     // 초기 알림 조회 실패는 무시 — 딥링크가 없을 뿐.
   }

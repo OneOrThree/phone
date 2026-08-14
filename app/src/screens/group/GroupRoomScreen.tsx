@@ -515,6 +515,12 @@ export default function GroupRoomScreen({
       // 최신 상세 성공은 현재 멤버십을 다시 증명한다. 앞선 실패에서 결과 모달 뒤 이탈을
       // 예약했더라도 낡은 예약으로 방을 나가지 않게 해제한다.
       pendingLeaveRef.current = false;
+      // 환불 안내 래치도 같은 근거로 푼다(codex 사전 게이트 P2). 이 래치는 groupId가 바뀔 때만
+      // 풀렸는데, 다른 기기에서 같은 그룹에 재가입한 뒤 포그라운드로 돌아오거나 같은 라우트가
+      // 결과 푸시로 갱신되면 상세 조회가 성공해도 조기 반환이 계속 환불 안내를 그렸다.
+      // 멤버십이 다시 증명된 순간 그 안내는 사실이 아니다 — 방을 열 수 있는 사람에게
+      // "이 그룹에 속해 있지 않아 방을 열 수 없어요"를 계속 보여주게 된다.
+      setRefundBlocked(false);
       setDetail(resolvedDetail);
       loadedDateRef.current = date;
       // 그룹방이 실제로 보여진(상세 로드 성공) 순간 방문을 계측한다 — route episode당 1회.
