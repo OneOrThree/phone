@@ -20,6 +20,11 @@ import { getAuthSessionGeneration, triggerLogout } from '@/services/api';
 import type { GroupDetailResponse } from '@/types/dto/group';
 import { STORAGE_KEYS } from '@/types/storage';
 import {
+  OVERLAY_PRIORITY,
+  OverlaySlotProvider,
+  useOverlayMaxPriority,
+} from '@/store/OverlaySlotContext';
+import {
   __resetGroupCardEmojiQueueForTest,
   preservePendingGroupCardEmoji,
 } from './groupCardEmojiStore';
@@ -271,6 +276,38 @@ describe('관리 진입 — 올바른 라우트·파라미터로 navigate', () =
       fireEvent.press(screen.getByTestId('group.settings.noticePermission'));
     });
     expect(mockNavigate).toHaveBeenCalledWith('GroupNoticePermission', { groupId: GROUP_ID });
+  });
+});
+
+// ⚠️ 이 확인 카드는 **우리 트리 안의 RN Modal**이다 — 조정자가 원래 덮어야 할 대상인데
+//    등록이 빠져 있었다. 등록하지 않으면 카드가 열린 채로 루트의 결과 모달이 함께 마운트되고,
+//    사용자는 못 본 결과에 seen/ack이 남는다.
+describe('나가기 확인 카드의 조정자 등록', () => {
+  function PriorityProbe({ onValue }: { onValue: (value: number) => void }) {
+    onValue(useOverlayMaxPriority());
+    return null;
+  }
+
+  test('확인 카드가 떠 있는 동안 자리를 점유하고, 닫으면 반납한다', async () => {
+    const values: number[] = [];
+    await render(
+      <OverlaySlotProvider>
+        <GroupSettingsScreen />
+        <PriorityProbe onValue={(v) => values.push(v)} />
+      </OverlaySlotProvider>,
+    );
+    await screen.findByTestId('group.settings.leave');
+    expect(values[values.length - 1]).toBe(-1);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave'));
+    });
+    expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('group.settings.leave.confirm.secondary'));
+    });
+    expect(values[values.length - 1]).toBe(-1);
   });
 });
 

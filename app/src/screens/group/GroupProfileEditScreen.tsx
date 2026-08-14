@@ -166,9 +166,12 @@ export default function GroupProfileEditScreen() {
     } catch (e) {
       // 정원을 현재 인원 미만으로 줄인 경우 — 사유를 그대로 알려준다(§3-2 code 분기).
       if (groupErrorCode(e) === 'MAX_MEMBERS_TOO_SMALL') {
-        showAlert('정원을 줄일 수 없어요', '현재 멤버 수보다 적게 정할 수 없어요.');
+        // ⚠️ `await` 뒤에 여는 Alert다 — 여는 시점을 응답이 정하므로 기다리는 사이
+        //    결과 모달이 먼저 노출될 수 있다. 그러면 이 Alert가 그 **위를** 덮어,
+        //    사용자는 못 봤는데 seen/ack은 이미 찍힌 상태가 된다. 승인을 받고 띄운다.
+        await showAlert.afterSlot('정원을 줄일 수 없어요', '현재 멤버 수보다 적게 정할 수 없어요.');
       } else {
-        showAlert('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
+        await showAlert.afterSlot('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       setSaving(false);

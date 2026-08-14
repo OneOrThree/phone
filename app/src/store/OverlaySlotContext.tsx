@@ -93,6 +93,14 @@ interface OverlaySlotRegistration {
 interface OverlaySlotActions {
   request: (id: string, priority: number) => void;
   release: (id: string) => void;
+  /**
+   * 요청하고 **승인될 때까지 기다린다**. `false`면 승인 전에 요청이 접혔다는 뜻이다(언마운트 등).
+   *
+   * ⚠️ `await` 뒤에 여는 오버레이(실패 Alert · 공유 시트)는 이것을 써야 한다. 그 자리는 여는
+   *    시점을 응답이 정하므로, 기다리는 사이 결과 모달이 먼저 노출될 수 있고 그러면 우리가
+   *    그 **위를** 덮는다 — 사용자는 못 봤는데 seen/ack은 이미 찍힌 상태가 된다.
+   */
+  acquire: (id: string, priority: number) => Promise<boolean>;
 }
 
 // 두 컨텍스트로 나눈 이유: 동작(request/release)은 **신원이 고정**돼야 한다. 보유자와 한 객체로
@@ -123,6 +131,15 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
   // 등록 즉시(동기) 갱신되는 최고 우선순위 — state는 마이크로태스크 뒤에 따라온다.
   // 양보 판단(결과 호스트의 `yieldsSlot`)은 **이 값**을 봐야 한 박자도 늦지 않는다.
   const liveMaxPriorityRef = useRef(-1);
+  // 승인을 기다리는 명령형 요청들 — 보유자가 되면 true로, 요청이 접히면 false로 깨운다.
+  const acquireWaitersRef = useRef<{ id: string; resolve: (granted: boolean) => void }[]>([]);
+  const settleAcquireWaiters = useCallback((id: string, granted: boolean) => {
+    const waiters = acquireWaitersRef.current;
+    const matched = waiters.filter((waiter) => waiter.id === id);
+    if (matched.length === 0) return;
+    acquireWaitersRef.current = waiters.filter((waiter) => waiter.id !== id);
+    matched.forEach((waiter) => waiter.resolve(granted));
+  }, []);
   const seqRef = useRef(0);
   // 보유자는 렌더에 쓰이므로 state이고, 판정은 이펙트 안에서 즉시 이뤄지므로 ref 사본도 둔다.
   // ⚠️ 초기값에도 **살아 있는 값을 읽는 함수**를 심는다. 기본 EMPTY_STATE의 것은 항상 -1이라,
@@ -172,7 +189,8 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
     const next = { holderId: nextHolder, maxPriority, liveMaxPriority: readLiveMaxPriority };
     stateRef.current = next;
     setState(next);
-  }, [readLiveMaxPriority]);
+    if (nextHolder !== null) settleAcquireWaiters(nextHolder, true);
+  }, [readLiveMaxPriority, settleAcquireWaiters]);
 
   // ⚠️ 판정은 **한 커밋의 등록을 모두 모은 뒤** 한 번만 한다(마이크로태스크로 미룬다).
   //    등록은 각 소비자의 이펙트에서 일어나고 이펙트는 트리 순서대로 도는데, 등록될 때마다
@@ -205,6 +223,8 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
 
   const release = useCallback(
     (id: string) => {
+      // 승인 전에 접힌 요청은 기다리던 쪽에 그 사실을 알린다 — 안 그러면 영원히 매달린다.
+      settleAcquireWaiters(id, false);
       if (!registryRef.current.delete(id)) return;
       liveMaxPriorityRef.current = Array.from(registryRef.current.values()).reduce(
         (max, entry) => (entry.priority > max ? entry.priority : max),
@@ -212,10 +232,24 @@ export function OverlaySlotProvider({ children }: { children: ReactNode }) {
       );
       settle();
     },
-    [settle],
+    [settle, settleAcquireWaiters],
   );
 
-  const actions = useMemo<OverlaySlotActions>(() => ({ request, release }), [request, release]);
+  const acquire = useCallback(
+    (id: string, priority: number) => {
+      request(id, priority);
+      if (stateRef.current.holderId === id) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        acquireWaitersRef.current.push({ id, resolve });
+      });
+    },
+    [request],
+  );
+
+  const actions = useMemo<OverlaySlotActions>(
+    () => ({ request, release, acquire }),
+    [request, release, acquire],
+  );
 
   return (
     <OverlaySlotActionsContext.Provider value={actions}>

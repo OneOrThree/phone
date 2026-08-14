@@ -15,6 +15,7 @@ import { T } from '@/constants/theme';
 import { useOverlayAlert } from '@/store/useOverlayAlert';
 import { Skeleton, SkeletonGroup } from '@/components/Skeleton';
 import ConfirmCardModal from '@/components/ConfirmCardModal';
+import { useOverlayBlocker } from '@/store/OverlaySlotContext';
 import { useUser } from '@/store/UserContext';
 import { useToast } from '@/store/ToastContext';
 import { getAuthSessionGeneration } from '@/services/api';
@@ -110,6 +111,8 @@ export default function GroupOwnerTransferScreen() {
   const [submitting, setSubmitting] = useState(false);
   // 위임 확인 카드(GROMO-1251) — 네이티브 2버튼 Alert에서 이관.
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 위임 확인 카드도 RN Modal이다 — 위 GroupSettingsScreen과 같은 근거로 등록한다.
+  useOverlayBlocker('groupOwnerTransfer.confirm', confirmOpen);
 
   // 마운트 시 1회(재시도 시 재호출) — 멤버 목록만 있으면 되므로 date 없이 부른다(오늘 집중분은 안 쓴다).
   const load = useCallback(async () => {

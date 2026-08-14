@@ -817,7 +817,9 @@ export default function GroupRoomScreen({
       showAlert('초대 링크를 만들지 못했어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
-    overlayActions?.request(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet);
+    // ⚠️ 요청만 하고 넘어가면 안 된다 — 기다리는 사이 결과 모달이 먼저 노출되면
+    //    공유 시트가 그 위를 덮어 사용자가 못 본 결과에 seen/ack이 남는다.
+    if ((await overlayActions?.acquire(SHARE_SLOT_ID, OVERLAY_PRIORITY.sheet)) === false) return;
     try {
       const result = await Share.share({
         message: buildInviteShareMessage(name, invite.url),

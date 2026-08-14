@@ -22,7 +22,7 @@
 //    결과가 먼저 slot을 쥘 수 있으므로 **승인을 받고 띄워야** 한다. 그 경로는 호출부가
 //    `onRequestSheetSlot` 같은 승인 게이트를 직접 태운다(ChallengeCard의 삭제 확인).
 //    판단 기준은 OverlaySlotContext 헤더의 A/B 문단과 같다: **여는 시점이 동기인가.**
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, type AlertButton } from 'react-native';
 import { OVERLAY_PRIORITY, useOverlaySlotActions } from './OverlaySlotContext';
 
@@ -34,7 +34,15 @@ import { OVERLAY_PRIORITY, useOverlaySlotActions } from './OverlaySlotContext';
  *
  * @param id 조정자에 등록할 이름 — 화면마다 다르게 준다(같은 이름이 겹치면 서로를 덮는다).
  */
-export function useOverlayAlert(id: string): typeof Alert.alert {
+export function useOverlayAlert(id: string): typeof Alert.alert & {
+  /** `await` 뒤에 여는 Alert 전용 — 승인을 받고 띄운다(아래 showAfterSlot 주석). */
+  afterSlot: (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    options?: Parameters<typeof Alert.alert>[3],
+  ) => Promise<void>;
+} {
   // ⚠️ 점유는 **명령형**이다. state로 잡으면 `setState → 렌더 → layout effect` 순서라
   //    `Alert.alert()`이 이미 떠 있는 뒤에 등록된다 — 그 창이 정확히 이 배치가 반복해서
   //    물린 자리다. 그래서 **여는 줄 바로 앞에서** 동기로 잡는다.
@@ -56,8 +64,13 @@ export function useOverlayAlert(id: string): typeof Alert.alert {
     [id],
   );
 
-  return useCallback(
-    (title, message, buttons, options) => {
+  const show: typeof Alert.alert = useCallback(
+    (
+      title: string,
+      message?: string,
+      buttons?: AlertButton[],
+      options?: Parameters<typeof Alert.alert>[3],
+    ) => {
       openCountRef.current += 1;
       actionsRef.current?.request(id, OVERLAY_PRIORITY.sheet);
       let released = false;
@@ -89,4 +102,30 @@ export function useOverlayAlert(id: string): typeof Alert.alert {
     },
     [id],
   );
+
+  // ── 비동기 변형 ──────────────────────────────────────────────────────────
+  // `await` 뒤(요청 실패 등)에 여는 Alert는 **승인을 받고** 띄운다. 여는 시점을 응답이 정하므로
+  // 기다리는 사이 결과 모달이 먼저 노출될 수 있고, 그러면 우리가 그 **위를** 덮는다 —
+  // 사용자는 못 봤는데 seen/ack은 이미 찍힌 상태가 된다.
+  // 승인 전에 화면이 사라지면(false) 띄우지 않는다 — 떠난 화면의 Alert가 새 화면 위로 뜨지 않게.
+  const showAfterSlot = useCallback(
+    async (
+      title: string,
+      message?: string,
+      buttons?: AlertButton[],
+      options?: Parameters<typeof Alert.alert>[3],
+    ): Promise<void> => {
+      const slotActions = actionsRef.current;
+      if (slotActions !== null) {
+        openCountRef.current += 1;
+        const granted = await slotActions.acquire(id, OVERLAY_PRIORITY.sheet);
+        openCountRef.current = Math.max(0, openCountRef.current - 1);
+        if (!granted) return;
+      }
+      show(title, message, buttons, options);
+    },
+    [id, show],
+  );
+
+  return useMemo(() => Object.assign(show, { afterSlot: showAfterSlot }), [show, showAfterSlot]);
 }

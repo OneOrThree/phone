@@ -11,6 +11,7 @@ import {
   OverlaySlotProvider,
   useOverlayLiveMaxPriority,
   useOverlayMaxPriority,
+  useOverlaySlotActions,
 } from './OverlaySlotContext';
 import { useOverlayAlert } from './useOverlayAlert';
 
@@ -25,8 +26,15 @@ function PriorityProbe({ onValue }: { onValue: (value: number) => void }) {
 
 // 렌더를 기다리지 않고 **지금 이 순간** 등록 상태를 읽는 통로 — 동기 점유를 확인할 때 쓴다.
 let liveMaxPriority: () => number = () => -1;
+// 테스트가 임의의 오버레이로 자리를 쥐는 통로 — 돌려받은 함수를 부르면 반납한다.
+let holdSlot: (id: string, priority: number) => () => void = () => () => undefined;
 function LiveProbe() {
   liveMaxPriority = useOverlayLiveMaxPriority();
+  const actions = useOverlaySlotActions();
+  holdSlot = (id, priority) => {
+    actions?.request(id, priority);
+    return () => actions?.release(id);
+  };
   return null;
 }
 
@@ -114,6 +122,46 @@ test('호출부가 준 onDismiss도 함께 불린다', async () => {
   });
   expect(onDismiss).toHaveBeenCalledTimes(1);
   expect(latest()).toBe(-1);
+});
+
+// ⚠️ `await` 뒤에 여는 Alert는 다르다 — 여는 시점을 응답이 정하므로, 기다리는 사이 결과 모달이
+//    먼저 노출될 수 있다. 그러면 이 Alert가 그 **위를** 덮어, 사용자는 못 봤는데 seen/ack은
+//    이미 찍힌 상태가 된다. 그래서 동기 변형과 달리 **승인을 받고** 띄운다.
+describe('비동기 변형(afterSlot)', () => {
+  test('다른 오버레이가 자리를 쥐고 있으면 띄우지 않고 기다린다', async () => {
+    // 결과 모달이 먼저 자리를 쥔 상태를 만든다.
+    let holder: (() => void) | null = null;
+    await act(async () => {
+      holder = holdSlot('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+
+    let done = false;
+    await act(async () => {
+      showAlert?.afterSlot('저장하지 못했어요', '잠시 후 다시 시도해 주세요.').then(() => {
+        done = true;
+      });
+    });
+
+    // 승인 전이라 아직 안 뜬다.
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(done).toBe(false);
+
+    // 보유자가 놓으면 그때 뜬다 — 사용자의 통보가 증발하지 않는다.
+    await act(async () => {
+      holder?.();
+    });
+    await act(async () => {});
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(done).toBe(true);
+  });
+
+  test('가릴 것이 없으면 곧바로 띄운다', async () => {
+    await act(async () => {
+      await showAlert?.afterSlot('저장하지 못했어요', '잠시 후 다시 시도해 주세요.');
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 test('Alert가 떠 있는 동안 sheet 우선순위로 자리를 점유한다', async () => {

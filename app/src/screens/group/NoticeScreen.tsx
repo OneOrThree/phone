@@ -189,7 +189,8 @@ export default function NoticeScreen() {
             // 남고, 사용자는 당겨서 새로고침하기 전까지 같은 카드를 계속 열어 지우려 든다.
             // (그룹 자체가 사라진 404여도 재조회가 '사라진 그룹이에요.'로 화면을 맞춰 준다.)
             if (groupErrorCode(e) === 'NOT_FOUND') fetchNotices();
-            showAlert('삭제 실패', deleteErrorMessage(e));
+            // ⚠️ `await` 뒤에 여는 Alert다 — 승인을 받고 띄운다(useOverlayAlert.afterSlot 주석).
+            await showAlert.afterSlot('삭제 실패', deleteErrorMessage(e));
           }
         },
       },
