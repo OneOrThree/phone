@@ -2966,6 +2966,32 @@ describe('시트 열림 보고 (GROMO-1578)', () => {
     expect(onSheetVisibilityChange).toHaveBeenLastCalledWith(CHALLENGE_ID, false);
   });
 
+  // 이펙트만으로는 늦다(codex 사전 게이트 P2). 시트의 네이티브 Modal은 여는 커밋에 이미
+  // 마운트되는데 열림 보고 이펙트는 그 커밋이 끝난 **뒤에** 돈다 — 그 사이에 부모의 결과 큐가
+  // 채워지면(BET_RESULT 포그라운드 재조회, GROMO-1580) 두 Modal이 같은 프레임에 뜬다.
+  // 그래서 여는 핸들러가 openSheet()로 먼저 보고한다. 그 호출이 빠지면 열림 보고가 이펙트 1회로
+  // 줄어 아래 단언이 깨진다 — 이 테스트가 지키는 것은 "보고가 오는가"가 아니라 "언제 오는가"다.
+  test('시트를 여는 이벤트에서 먼저 보고한다 — 이펙트를 기다리지 않는다', async () => {
+    const onSheetVisibilityChange = jest.fn();
+    await render(
+      <ChallengeCard
+        challenge={challenge({ bet: null, lastSettledBet: lastSettledBet() })}
+        isOwner={false}
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    onSheetVisibilityChange.mockClear();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.last.${CHALLENGE_ID}`));
+    });
+
+    const openReports = onSheetVisibilityChange.mock.calls.filter(([, open]) => open === true);
+    expect(openReports.length).toBeGreaterThanOrEqual(2); // 핸들러 1 + 이펙트 1
+  });
+
   test('다음 활성일 예약 시트도 같은 보고를 한다', async () => {
     const onSheetVisibilityChange = jest.fn();
     await render(

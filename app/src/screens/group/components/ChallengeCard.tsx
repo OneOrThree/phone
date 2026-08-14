@@ -672,12 +672,23 @@ export default function ChallengeCard({
   }, []);
   const cachedGroupId = challengeGroupId(challenge.id);
 
+  // 시트를 여는 그 이벤트에서 부모에 먼저 알린다(GROMO-1578 · codex 사전 게이트 P2).
+  // 아래 useEffect는 커밋 **뒤에** 돌아서, 시트가 마운트되는 커밋에 결과 큐가 채워지면 두 네이티브
+  // Modal이 같은 프레임에 뜬다. 여는 이벤트에서 부모 setState를 같은 배치에 넣으면 결과 모달이
+  // 내려가는 것과 시트가 뜨는 것이 한 커밋에 함께 처리돼 그 창이 사라진다.
+  // 낙관 보고다 — 열림 조건(참가비·날짜·캐시)이 실제로는 거짓일 수 있는데, 그러면 위 이펙트가
+  // 곧바로 false로 정정한다. 어긋나는 한 커밋 동안은 **결과 모달을 미루는 쪽**으로 틀린다.
+  function openSheet() {
+    onSheetVisibilityChange?.(challenge.id, true);
+  }
+
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
       Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
+    openSheet();
     setBetV2Sheet('next');
   }
 
@@ -711,6 +722,7 @@ export default function ChallengeCard({
         onBetChanged?.();
         return;
       }
+      openSheet();
       setWeekSheetDates(targets);
     } catch {
       // 예약 현황을 모른 채 열면 이미 낸 날의 참가비까지 합계에 싣는다 — 열지 않는다.
@@ -1010,6 +1022,7 @@ export default function ChallengeCard({
       const fresh = await getChallengeDeletionPreview(cachedGroupId, challenge.id);
       if (seq !== deleteSeqRef.current) return; // 사용자가 그 사이 다른 동작을 했다 — 폐기.
       if (fresh.openSessions.length > 0) {
+        openSheet();
         setDeletePreview(fresh);
         Alert.alert('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');
         return;
@@ -1044,7 +1057,14 @@ export default function ChallengeCard({
       // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
       Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', [
         { text: '그만두기', style: 'cancel' },
-        { text: '삭제', style: 'destructive', onPress: () => setDeletePreview(preview) },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: () => {
+            openSheet();
+            setDeletePreview(preview);
+          },
+        },
       ]);
     } catch {
       Alert.alert('삭제 영향을 확인하지 못했어요', '잠시 후 다시 시도해 주세요.');
@@ -1127,6 +1147,12 @@ export default function ChallengeCard({
     lastResultSheetOpen || joinNextSheetOpen || joinWeekSheetOpen || deleteSheetOpen;
 
   // 열림이 갈릴 때마다 부모에 올린다 — 부모는 이 값이 참인 동안 결과 모달을 미룬다.
+  // ⚠️ **이 이펙트만으로는 늦다**(codex 사전 게이트 P2). 이펙트는 렌더가 커밋된 **뒤에** 도는데
+  //    시트의 네이티브 Modal은 그 커밋에 이미 마운트된다. 같은 커밋에 부모의 결과 큐가 채워지면
+  //    두 Modal이 함께 떠서, 이 배타 조건이 막으려던 딤 중첩이 그 한 프레임 동안 재현된다.
+  //    그 창은 BET_RESULT 포그라운드 재조회(GROMO-1580)가 "화면에 머무는 중에도 큐가 채워지는"
+  //    경로를 만들면서 실제로 넓어졌다. 그래서 **여는 순간**에도 openSheet()로 따로 보고한다.
+  //    이 이펙트는 닫힘 보고와 안전망으로 남는다 — 낙관 보고가 어긋나면 여기서 정정된다.
   useEffect(() => {
     onSheetVisibilityChange?.(challenge.id, anySheetOpen);
   }, [onSheetVisibilityChange, challenge.id, anySheetOpen]);
@@ -1506,7 +1532,10 @@ export default function ChallengeCard({
       {betSupported && lastBet !== null && (
         <TouchableOpacity
           activeOpacity={0.7}
-          onPress={() => setLastBetView({ kind: 'last' })}
+          onPress={() => {
+            openSheet();
+            setLastBetView({ kind: 'last' });
+          }}
           hitSlop={8}
           accessibilityRole="button"
           testID={`group.bet.last.${challenge.id}`}

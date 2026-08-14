@@ -960,8 +960,12 @@ export default function GroupRoomScreen({
   // 있었는지'와 '돈은 어떻게 됐는지'뿐이다.
   // 왜 '그룹을 불러오지 못했어요'가 아닌가: 그룹은 멀쩡하고 조회도 성공했다 — 내가 멤버가
   // 아닐 뿐이다. 재시도를 권하면 영원히 같은 실패를 반복하게 된다.
-  // 문구는 사유를 특정하지 않는다 — 링크의 refund=1은 삭제 환불과 무산 환불을 구분하지 않고,
-  // voidReason은 앱까지 오지 않는다(합성 링크가 싣지 않는다). 모르는 것을 지어내지 않는다.
+  // 문구는 사유를 특정하지 않는다 — refund=1은 사유를 구분하지 않고 voidReason은 앱까지 오지
+  // 않는다. 그리고 `BET_VOID_REFUND`가 싣는 사유는 셋이다(N48): 챌린지 삭제 · 인원 미달 무산 ·
+  // 24시간 정산 지연 자동 전원 환불(`REFUND_DEADLINE`, N55).
+  // ⚠️ 그래서 "진행되지 않은 회차"라고 쓸 수 없다(codex 사전 게이트 P2) — 24시간 지연 환불은
+  //    회차가 **정상적으로 진행된 뒤**의 환불이라 그 사용자에겐 사실과 반대가 된다. 세 사유
+  //    모두에 참인 것은 '참가비가 돌아왔다'와 '잔액에 반영됐다' 둘뿐이고, 그 둘만 말한다.
   // 잔액은 이미 다시 받았다 — 딥링크 처리(navigationRef)가 refund=1에서 requestCoinRefresh를
   // 태운다. 나가기는 사용자가 누를 때만 한다(자동 이탈이 이 티켓의 결함이었다).
   if (refundBlocked) {
@@ -971,7 +975,7 @@ export default function GroupRoomScreen({
         <View style={s.center}>
           <Text style={s.errorTitle}>참가비가 환불됐어요</Text>
           <Text style={s.errorDesc}>
-            진행되지 않은 회차의 참가비를 돌려드렸어요.{'\n'}잔액에 이미 반영했어요.
+            걸었던 참가비를 돌려드렸어요.{'\n'}잔액에 이미 반영했어요.
           </Text>
           <Text style={s.errorDesc}>지금은 이 그룹에 속해 있지 않아 방을 열 수 없어요.</Text>
           <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onLeft}>
