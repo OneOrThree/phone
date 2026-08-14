@@ -24,6 +24,7 @@ import { logGroupBetCanceled, logGroupBetJoined } from '@/services/analyticsEven
 import {
   OVERLAY_PRIORITY,
   OverlaySlotProvider,
+  useOverlayMaxPriority,
   useOverlaySlotActions,
 } from '@/store/OverlaySlotContext';
 import { todayStrKst } from '@/utils/localDate';
@@ -1053,7 +1054,13 @@ describe('지난 기록 더보기 → 히스토리 push', () => {
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
+    expect(alertSpy).toHaveBeenCalledWith(
+      '기록을 열 수 없어요',
+      '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });
 
@@ -1198,6 +1205,110 @@ describe('참가 철회', () => {
     expect(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`)).toBeOnTheScreen();
   });
 
+  // ── 이 카드의 Alert 전체가 자리를 쥔다(GROMO-1576) ──────────────────────────
+  // ⚠️ **이 배치가 이 결함의 발생 조건을 만들었다.** 예전엔 결과 모달이 GroupRoomScreen 소유라
+  //    방 진입 1회에만 떴고, 카드 Alert가 떠 있는 중에 결과가 도착할 경로가 사실상 없었다.
+  //    소유자를 루트로 옮기고 제한적 재조회(30초×5회)·BET_RESULT 포그라운드 재조회를 붙이면서
+  //    **화면에 머무는 중에도 결과가 도착**하게 됐다.
+  // 치환이 기계적이라 자리마다 잠그지 않는다 — 동기·비동기 **대표 하나씩**만 본다.
+  test('확인창이 떠 있는 동안에는 결과 모달이 자리를 얻지 못한다(동기 경로 대표)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    const values: number[] = [];
+    function Probe() {
+      values.push(useOverlayMaxPriority());
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+        <Probe />
+        {joinedCard()}
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+    expect(values[values.length - 1]).toBe(-1);
+
+    // 참여 취소 확인창을 띄운다 — 탭 핸들러에서 곧바로 뜨는 동기 경로다.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
+    });
+    // 이 등록이 서 있는 동안 결과 호스트는 스스로 물러난다(yieldsSlot이 보는 값이 이것이다).
+    expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+    // 결과가 지금 도착해도 자리를 못 얻는다 — 확인창 아래에서 마운트되지 않는다.
+    let granted: boolean | null = null;
+    await act(async () => {
+      slotActions?.acquire('test:result', OVERLAY_PRIORITY.challengeResult).then((ok) => {
+        granted = ok;
+      });
+    });
+    await act(async () => {});
+    expect(granted).toBeNull();
+
+    // 사용자가 확인창을 닫으면 그때 자리가 넘어간다.
+    const buttons = alertSpy.mock.calls[0][2];
+    await act(async () => {
+      buttons?.find((b) => b.text === '아니요')?.onPress?.();
+    });
+    await act(async () => {});
+    expect(granted).toBe(true);
+    alertSpy.mockRestore();
+  });
+
+  // 비동기 대표 — `await` 뒤에 뜨는 실패 통보는 **승인을 받고** 띄운다(afterSlot).
+  test('철회 실패 통보는 결과 모달이 자리를 놓을 때까지 뜨지 않는다(비동기 경로 대표)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockLeaveBet.mockRejectedValue(new Error('network'));
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    await render(
+      <OverlaySlotProvider>
+        <Grab />
+        {joinedCard()}
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    // 결과 모달이 먼저 자리를 쥔 상태를 만든다.
+    await act(async () => {
+      slotActions?.request('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`group.bet.leave.${CHALLENGE_ID}`));
+    });
+    const confirmButtons = alertSpy.mock.calls[0][2];
+    alertSpy.mockClear();
+    await act(async () => {
+      confirmButtons?.find((b) => b.text === '참여 취소')?.onPress?.();
+    });
+    await act(async () => {});
+
+    // 요청은 실패했지만 통보는 아직 뜨지 않는다 — 결과 모달 위를 덮지 않는다.
+    expect(mockLeaveBet).toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // 결과 모달이 닫히면 그때 뜬다 — 통보가 증발하지도 않는다.
+    await act(async () => {
+      slotActions?.release('test:result');
+    });
+    await act(async () => {});
+    expect(alertSpy).toHaveBeenCalledWith(
+      '참여 취소를 못 했어요',
+      '잠시 후 다시 시도해 주세요.',
+      expect.anything(),
+      expect.anything(),
+    );
+    alertSpy.mockRestore();
+  });
+
   test('확인 Alert를 거쳐 철회 API를 부르고, 남은 인원이 있으면 참가 진입점이 되살아난다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     await renderJoined(); // 참가자 3명
@@ -1207,9 +1318,11 @@ describe('참가 철회', () => {
     });
     // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
     expect(mockLeaveBet).not.toHaveBeenCalled();
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 취소',
       '참가비 30코인을 돌려받고 내기에서 빠질까요?',
+      expect.anything(),
       expect.anything(),
     );
 
@@ -1387,9 +1500,12 @@ describe('참가 철회', () => {
       buttons?.find((b) => b.text === '참여 취소')?.onPress?.();
     });
 
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
     expect(alertSpy).toHaveBeenLastCalledWith(
       '참여 취소를 못 했어요',
       '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
+      expect.anything(),
+      expect.anything(),
     );
     expect(mockToastShow).not.toHaveBeenCalled();
   });
@@ -1520,9 +1636,11 @@ describe('당일 단독 개설자 취소 carve-out', () => {
     // 확인 전에는 아무것도 하지 않는다 — 돈이 걸린 동작이라 한 겹 거친다.
     // 제목·CTA는 「참여 취소」(N27)이되, 질문은 '내기를 닫을까요' 그대로다 — 단독 참가자라
     // 내 참여를 무르면 내기 자체가 닫히고, 그 결과는 물음에서 지우면 안 된다.
+    // 카드의 모든 Alert가 useOverlayAlert를 지난다 — 버튼·onDismiss가 채워진다(GROMO-1576).
     expect(alertSpy).toHaveBeenCalledWith(
       '참여 취소',
       '참가비 30코인을 돌려받고 내기를 닫을까요?',
+      expect.anything(),
       expect.anything(),
     );
 

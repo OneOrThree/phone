@@ -297,14 +297,24 @@ export default function ChallengeCard({
   // prop이 아니라 groupApi의 조회 캐시(challengeGroupId)에서 역참조한다.
   const { refresh: refreshCoins } = useCoins();
   const { show } = useToast();
-  // ── 게이트를 타는 함수의 **실패 경로** 전용 Alert(GROMO-1576) ──────────────────
-  // 아래 세 함수(openWeekSheet · confirmDelete · confirmDeleteZeroFinal)는 조회를 기다렸다
-  // 시트를 열기 때문에 성공 경로가 `claimSheetSlot()`을 지난다. 그런데 **실패 경로는 그냥
-  // 뚫려 있었다** — 기다리는 사이 결과 모달이 먼저 자리를 얻어 노출된 뒤 요청이 실패하면,
-  // `catch`의 Alert가 그 위를 즉시 덮어 사용자가 못 본 회차에 seen/ack이 남는다.
-  // 성공 경로에 게이트를 단 함수는 **실패 경로도 탄다** — 그 비대칭만 닫는다.
-  // ⚠️ 이 카드의 나머지 raw Alert(참여 실패·취소 실패 등, 성공 경로에도 게이트가 없던 것)는
-  //    그대로 둔다. 여기서 열거를 시작하지 않는다 — 그 부류는 별도 후속이다.
+  // ── 이 카드가 띄우는 **모든** Alert의 입구(GROMO-1576) ─────────────────────────
+  // 네이티브 Alert는 RN Modal **위에** 뜬다. 그래서 이 카드의 Alert가 떠 있는 동안 결과 모달이
+  // 마운트되면, 사용자는 아무것도 못 봤는데 그 회차에 seen 마커와 ack이 나간다(둘 다 렌더 커밋
+  // 시점에 찍힌다). 그 상태로 앱이 종료되면 정산 통지가 영구 유실된다.
+  //
+  // ⚠️ **왜 이 배치에서 함께 닫는가** — 예전엔 결과 모달이 GroupRoomScreen 소유라 **방 진입
+  //    1회**에만 떴고, 카드 Alert가 떠 있는 중에 결과가 도착할 경로가 사실상 없었다. 이 배치가
+  //    소유자를 루트로 옮기고 **제한적 재조회(30초×5회)**와 **BET_RESULT 포그라운드 재조회**를
+  //    붙이면서, **화면에 머무는 중에도 결과가 도착**하게 됐다 — 발생 조건을 우리가 만들었다.
+  //    "원래 있던 것"이 아니라 "이 PR이 창을 넓힌 것"이라 여기서 닫는다.
+  //
+  // 쓰는 법은 조정자 헤더의 A/B 축과 같다 — **여는 시점이 동기인가**로 갈린다.
+  //   · 탭 핸들러에서 곧바로 뜨는 것(확인창·즉시 실패) → `showGatedAlert(...)` 동기.
+  //   · `await` 뒤에 뜨는 실패 통보 → `showGatedAlert.afterSlot(...)`. 여는 시점을 응답이
+  //     정하므로 기다리는 사이 결과가 먼저 노출될 수 있고, 그러면 그 **위를** 덮는다.
+  // ⚠️ 단 **이미 자기 쪽이 자리를 쥐고 있으면 기다리지 않는다**(GroupCreateScreen에서 세운
+  //    예외). 이 카드에서는 시트를 연 뒤 얹히는 Alert가 그 경우이고, 그쪽은 별도 입구인
+  //    `alertOverCardSlot`이 맡는다(등록 유지까지 함께).
   // ⚠️ id에 챌린지를 실는다. 한 방에 카드가 여럿이라 고정 문자열을 쓰면 서로의 등록을 덮는다.
   const showGatedAlert = useOverlayAlert(`group.card.alert:${challenge.id}`);
   const [leaveBusy, setLeaveBusy] = useState(false);
@@ -333,7 +343,7 @@ export default function ChallengeCard({
     const groupId = challengeGroupId(challenge.id);
     if (groupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·취소와 같은 공통 문구 결.
-      Alert.alert('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert('기록을 열 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     // 그룹 축 내역 화면(GROMO-1277)으로 간다 — 이 진입점은 **이 챌린지만** 보는 필터다
@@ -348,7 +358,7 @@ export default function ChallengeCard({
       // 집중과 같은 뜻으로 읽힌다(codex 리뷰). 카드 본문 문구는 캡션이 맡으므로 그대로 둔다.
       challengeLabel: missionLabel(challenge, { direction: true }) ?? categoryLabel(challenge),
     });
-  }, [lastBetView, challenge, navigation]);
+  }, [lastBetView, challenge, navigation, showGatedAlert]);
 
   const label = missionLabel(challenge);
   const progress = challenge.memberProgress;
@@ -816,7 +826,7 @@ export default function ChallengeCard({
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
-      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     openSheet();
@@ -829,7 +839,7 @@ export default function ChallengeCard({
   // 뺀 집합으로만 시트를 연다 — 화면이 보여주는 돈과 실제 나갈 돈이 어긋나면 안 된다(N15).
   async function openWeekSheet() {
     if (cachedGroupId === null) {
-      Alert.alert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
+      showGatedAlert('참여할 수 없어요', '잠시 후 다시 시도해 주세요.');
       return;
     }
     if (weekOpenLock.current) return; // 조회가 도는 동안의 연타 방지(leaveLock 관행)
@@ -919,7 +929,7 @@ export default function ChallengeCard({
           onBetChanged?.();
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -971,7 +981,7 @@ export default function ChallengeCard({
           onBetChanged?.();
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -980,7 +990,7 @@ export default function ChallengeCard({
   }
 
   function confirmLeaveToday(sessionId: string, stake: number) {
-    Alert.alert('참여 취소', `참가비 ${stake}코인을 돌려받고 오늘 참여를 취소할까요?`, [
+    showGatedAlert('참여 취소', `참가비 ${stake}코인을 돌려받고 오늘 참여를 취소할까요?`, [
       { text: '아니요', style: 'cancel' },
       { text: '참여 취소', style: 'destructive', onPress: () => doLeaveToday(sessionId) },
     ]);
@@ -989,7 +999,7 @@ export default function ChallengeCard({
   // 확인 한 겹 — 버튼 문구는 「참여 취소」다(N27 — 돈이 걸린 행동이라 무엇을 취소하는지 드러낸다).
   function confirmLeaveNext(stake: number) {
     if (nextDate === null) return;
-    Alert.alert(
+    showGatedAlert(
       '참여 취소',
       `${fmtMonthDayDow(nextDate)} 참여를 취소하고 참가비 ${stake}코인을 돌려받을까요?`,
       [
@@ -1034,7 +1044,7 @@ export default function ChallengeCard({
           break;
         // ❌ 유지 — '화면을 새로고침해 주세요'는 사용자 조치를 요구한다(정책 D19).
         case BET_NOT_JOINED:
-          Alert.alert(
+          showGatedAlert.afterSlot(
             '참여 취소를 못 했어요',
             '참가 중인 내기가 아니에요. 화면을 새로고침해 주세요.',
           );
@@ -1043,7 +1053,7 @@ export default function ChallengeCard({
           show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -1056,7 +1066,7 @@ export default function ChallengeCard({
   // v2 경로와 다른 동사를 쓰면 유저에겐 서로 다른 두 기능으로 읽힌다.
   function confirmLeaveBet() {
     if (!leavable || bet === null) return;
-    Alert.alert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
+    showGatedAlert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기에서 빠질까요?`, [
       { text: '아니요', style: 'cancel' },
       {
         text: '참여 취소',
@@ -1096,7 +1106,7 @@ export default function ChallengeCard({
           show({ message: '이미 정산됐거나 닫힌 내기라 참여 취소를 못 했어요', tone: 'error' });
           break;
         default:
-          Alert.alert('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
+          showGatedAlert.afterSlot('참여 취소를 못 했어요', '잠시 후 다시 시도해 주세요.');
       }
     } finally {
       leaveLock.current = false;
@@ -1108,7 +1118,7 @@ export default function ChallengeCard({
   // 단독 참가자라 내 참여를 무르면 내기 자체가 닫힌다 — 그 결과를 묻는 문장에서 지우면 안 된다.
   function confirmCancelBet() {
     if (!cancelable || bet === null) return;
-    Alert.alert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
+    showGatedAlert('참여 취소', `참가비 ${bet.stake}코인을 돌려받고 내기를 닫을까요?`, [
       { text: '아니요', style: 'cancel' },
       {
         text: '참여 취소',
@@ -1175,7 +1185,7 @@ export default function ChallengeCard({
       alertOverCardSlot('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons, { onDismiss: finish });
       return;
     }
-    Alert.alert('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons);
+    showGatedAlert('챌린지 삭제', '이 챌린지를 삭제할까요?', buttons);
   }
 
   // 0건 프리뷰의 확정 — 다시 받아 새 참여가 생겼는지 본다.
