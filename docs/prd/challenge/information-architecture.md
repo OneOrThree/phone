@@ -19,7 +19,8 @@ flowchart TB
         A["전체"]
     end
 
-    G --> GL["GroupScreen<br/>내 그룹 / 찾기"]
+    G --> SHELL["root 오버레이 계층<br/>결과 모달 소유 (N56)<br/>활성 조건: 그룹 흐름 focus"]
+    SHELL --> GL["GroupScreen<br/>내 그룹 덱 / 찾기 · 소속 0개 빈 상태"]
     GL --> GR["GroupRoomScreen<br/>그룹방 — 챌린지의 집"]
 
     GR --> S1["멤버 리더보드 섹션"]
@@ -40,7 +41,7 @@ flowchart TB
     M3 -.시트.-> SH2["BetJoinSheet<br/>(회차 참여)"]
     M4 -.시트.-> SH3["LastSessionResultSheet"]
     M5 -.시트.-> SH5["ChallengeDeleteSheet<br/>(진행 중이면 경고 1단계 추가)"]
-    GR -.모달.-> SH4["ChallengeResultModal<br/>(자동 노출 · 1회 가드)"]
+    SHELL -.모달.-> SH4["ChallengeResultModal<br/>(미확인 결과가 있으면 · 서버 ack)"]
     SH3 ==stack push==> SH7
     B2 ==stack push==> SH7["GroupChallengeHistoryScreen<br/>(그룹 단위 · challengeId 필터)"]
 
@@ -51,7 +52,11 @@ flowchart TB
 
 **핵심 원칙: 챌린지는 거의 전용 화면을 갖지 않는다.**
 상호작용이 그룹방 안의 **카드 + 바텀시트**로 끝나고, 결과 확인조차 화면 이동 없이 모달/시트로
-처리된다. **stack push는 한 곳뿐**이다 — 「그룹 챌린지 내역」. 무한 스크롤 목록이라 시트에
+처리된다. **단 `ChallengeResultModal`만 그룹방 밖에 산다** — 렌더·큐 소유자가 그룹방도 그룹 탭 셸도 아니라
+**root 오버레이 계층**이라(`GroupRoom`이 root Stack sibling이다) 카드 덱·그룹방·**소속 0개 빈
+상태** 어디가 활성이든 같은 큐가 그 위에 뜬다(N56 · §4.3). 「그룹 흐름 focus」는 수명 조건이다.
+그룹방에 매달아 두면 카드 덱만 보고 나가는 사용자와 **그룹방에 못 들어가는 탈퇴자**가 자기 결과를
+못 본다. **stack push는 한 곳뿐**이다 — 「그룹 챌린지 내역」. 무한 스크롤 목록이라 시트에
 담을 수 없다(`SheetShell`이 ScrollView를 두르고 있어 시트 내 FlatList는 중첩 스크롤 문제가 있다).
 챌린지별 이력도 **같은 화면에 `challengeId` 필터를 걸어** 들어간다 — 화면을 둘로 나눌 이유가 없다.
 
@@ -60,9 +65,13 @@ flowchart TB
 ## 2. 화면 계층 (Screen Hierarchy)
 
 ```
-그룹 탭
-└── GroupScreen                       내 그룹 목록 · 찾기 진입
-    └── GroupRoomScreen               그룹방 (챌린지의 유일한 컨테이너)
+root 오버레이 계층                     ← 결과 모달의 렌더·큐 소유자 (N56)
+                                        (「그룹 흐름 focus」는 수명 조건이지 렌더 위치가 아니다)
+├── ChallengeResultModal              미확인 정산 결과 · 순차 큐 · 서버 ack
+│                                     ※ 아래 어느 화면이 활성이든 그 위에 뜬다
+│                                       (카드 덱 · 그룹방 · 소속 0개 빈 상태)
+└── GroupScreen                       내 그룹 덱 · 찾기 진입 · 소속 0개 빈 상태
+    └── GroupRoomScreen               그룹방 (챌린지 카드·시트의 컨테이너)
         ├── [섹션] 멤버 리더보드
         ├── [섹션] 공지
         └── [섹션] 챌린지               ← 이 문서의 대상
@@ -76,12 +85,12 @@ flowchart TB
             ├── [버튼] 챌린지 만들기     OWNER 전용 → ChallengeComposeSheet
             └── [링크] 챌린지 내역       → GroupChallengeHistoryScreen
 
-        오버레이 (스택 이동 없음)
+        오버레이 (스택 이동 없음 · 그룹방 소유)
         ├── ChallengeComposeSheet      만들기 폼 (요일 선택 포함)
         ├── BetJoinSheet               회차 참여 (하루형은 진행분 공개)
         ├── LastSessionResultSheet     지난 회차 인별 결과
-        ├── ChallengeDeleteSheet       삭제 확인 — 진행 중이면 경고 단계가 하나 더 (§2.5)
-        └── ChallengeResultModal       회차 결과 (진입 시 자동 · 1회)
+        └── ChallengeDeleteSheet       삭제 확인 — 진행 중이면 경고 단계가 하나 더 (§2.5)
+        ※ ChallengeResultModal은 여기 없다 — root 오버레이 계층 소유다(위 참조 · N56)
 
         스택 화면 (하나뿐)
         └── GroupChallengeHistoryScreen  회차 내역 — 무한 스크롤
@@ -368,63 +377,220 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    E1["탭: 그룹"] --> GR
+    E1["탭: 그룹"] -->|"소속 1개 이상"| GD
     E2["묶음 푸시: 오늘 챌린지 N개"] -->|"딥링크 groupId"| GR
-    E3["묶음 푸시: 결과 N건"] -->|"groupId"| GRM
+    E3["묶음 푸시: 결과 N건"] -->|"groupId + result=1<br/>멤버십 게이트 우회"| GR
     E4["푸시: 승리 확정"] -->|"groupId + challengeId"| GR
     E5["푸시: CHALLENGE_CREATED"] -->|"groupId"| GR
     E6["초대 링크"] --> GJ["그룹 참여"] --> GR
     E7["사일런트 푸시"] -.->|"화면 이동 없음<br/>업로드 큐 flush"| BG["백그라운드"]
 
+    GD["그룹 탭 랜딩<br/>(내 그룹 카드 덱)"] --> GR
     GR["GroupRoomScreen"]
-    GRM["GroupRoomScreen<br/>+ 결과 모달 자동 오픈"]
-    GRM --> GR
+    GZ["소속 0개 빈 상태<br/>(전원 탈퇴)"]
+    GD -.->|"미확인 결과가 있으면"| RM
+    GR -.->|"미확인 결과가 있으면"| RM
+    GZ -.->|"미확인 결과가 있으면"| RM
+    E1 -->|"소속 0개"| GZ
+    RM["결과 모달<br/>(root 오버레이 계층이 얹는다)"]
 ```
+
+> **결과 모달은 특정 화면에 매이지 않는다 (N56).** 그룹 3차 이후 그룹 탭 랜딩은 그룹방이 아니라
+> **카드 덱**이라, 모달을 그룹방에만 두면 카드 덱만 보고 나가는 사용자와 **그룹방에 못 들어가는
+> 탈퇴자**가 자기 결과를 못 본다. 위 그림의 점선은 "화면 이동"이 아니라 **도달한 화면 위에 열린다**는
+> 뜻이고, **얹는 주체는 개별 화면도 그룹 탭 셸도 아니라 root 오버레이 계층**이다(HLD §1) — `GroupRoom`이
+> root Stack sibling이라 탭 화면이 그리면 방 위에 못 뜬다. 「그룹 흐름 focus」는 수명 조건이다. **소속 0개 빈 상태(`GZ`)까지
+> 점선이 닿는 것이 핵심** — 모든 그룹에서 탈퇴하면 카드가 0장이라, 이 화면을 빼면 결과 푸시를
+> 열지 않는 한 자기 결과를 볼 인앱 경로가 사라진다.
 
 ### 4.2 알림 → 화면 라우팅
 
-| `data.type` | 페이로드 | 도착 | 승패 |
-|---|---|---|---|
-| `CHALLENGE_CREATED` | `groupId` | 그룹방 (모달 없음 — 결과가 아직 없다) | — |
-| `CHALLENGE_SESSION_OPEN` | `groupId` (+ 회차 요약 N건) | 그룹방 | — |
-| `CHALLENGE_SESSION_END` | `groupId` + 대표 `challengeId` | 그룹방 + 결과 모달 | ❌ |
-| `BET_WON` | `groupId` + `challengeId` | 그룹방 | ✅ |
-| `BET_RESULT` | `groupId` (+ 결과 요약 N건) | 그룹방 + 결과 모달 | ✅ |
-| `BET_VOID_REFUND` | `groupId` + `voidReason` *(단건은 `challengeId` 추가 — 묶음 규칙 §4.2)* | 그룹방 | ✅ |
-| *(사일런트)* | `content-available` / data-only | **없음** — 큐 flush 전용 | — |
+**서버가 실제로 보내는 타입만 싣는다.** `data.type`은 발송 서비스가 쓰는 `NotificationSentLog`
+상수 문자열 그대로이고, `link`는 서버가 채우는 경우와 비우는 경우가 갈린다.
 
-> **앱 배선이 있어야 이 표가 성립한다.** 서버는 `link`를 싣지 않고 `groupId`만 주는데, 현재
-> `push.ts`는 **`CHALLENGE_WINDOW_END` 한 타입에만** `groupId` → 그룹방 딥링크를 합성한다.
-> 위 타입들을 같은 방식으로 배선하지 않으면 **탭해도 아무 데도 안 간다** (LLD §6.2 앱 파일 표).
+| `data.type` | `data` 키 | 서버 `link` | 도착 | 승패 |
+|---|---|---|---|---|
+| `CHALLENGE_CREATED` | `type` · `groupId` | **채움** `gromo://group?g=…` | 그룹방 (모달 없음 — 결과가 아직 없다) | — |
+| `CHALLENGE_SESSION_OPEN` | `type` · `groupId` *(단건만 `challengeId`)* | **null** | 그룹방 — 앱이 `groupId`로 합성 | — |
+| `CHALLENGE_WINDOW_END` (창형 종료) | `type` · `groupId` · `challengeId` | **채움** `gromo://group?g=…&challenge=…` | 착지 화면 (미확인 결과가 있으면 그 위에 결과 모달 — N56) | ❌ |
+| `CHALLENGE_ENDED` (일 목표형 하루 마감) | `type` · `groupId` · `challengeId` | **채움** (창형과 같은 형태) | 착지 화면 (미확인 결과가 있으면 그 위에 결과 모달 — N56) | ❌ |
+| `BET_WON` | `type` · `groupId` · `challengeId` | **null** | 그룹방 — 앱이 `groupId`로 합성 | ✅ |
+| `BET_RESULT` | `type` · `groupId` *(단건만 `challengeId`)* | **채움** `gromo://group?g=…` | 착지 화면 (미확인 결과가 있으면 그 위에 결과 모달 — N56) | ✅ |
+| `BET_VOID_REFUND` | `type` · `groupId` · `voidReason`? *(단건만 `challengeId`)* | **null** | 그룹방 — 앱이 `groupId`로 합성. **이 푸시의 수신은 재조회 계기가 아니다** (N48 — 이중 통지). ⚠️ **단 「모달이 안 뜬다」는 보장은 삭제 환불에서만 성립한다** — 아래 참조 | ✅ |
+| *(사일런트 — `data.type` **없음**)* | `silent=flush` · `groupId` | **null** | **없음** — 큐 flush 전용 | — |
 
-**묶음 발송의 페이로드 규칙**: 여러 챌린지가 한 푸시에 묶이면 `challengeId` 대신 요약 배열을
-싣고, 딥링크는 그룹방까지만 보낸다. 특정 챌린지로 스크롤하지 않는다 — 어느 것을 고를지
-서버가 정할 근거가 없다.
+> ⚠️ **`BET_VOID_REFUND`의 「모달 미노출」은 수신을 계기에서 빼는 것만으로 보장되지 않는다.**
+> 그 푸시를 **그룹 흐름 밖에서 탭하면 `GroupRoom` 진입 자체가 §4.3의 셸 활성화 계기**이고, 앱
+> 필터는 **`voidReason === 'CHALLENGE_DELETED'` 하나만** 거른다(`challengeResult.ts:107`). 즉
+> **`INSUFFICIENT_PARTICIPANTS`·`REFUND_DEADLINE` 무효 회차는 큐에 그대로 들어와 착지 즉시
+> 모달이 열린다.** 보장이 자동으로 성립하는 것은 **쿼리·앱 양쪽에서 이미 빠지는 삭제 환불뿐이다.**
+>
+> **GROMO-1577이 둘 중 하나를 정한다** — ⓐ **보장을 삭제 환불로 한정**하고 나머지 두 사유는
+> **모달이 열리는 것을 정상 동작으로 받아들인다**(환불 알림은 사실을, 모달은 회차 결과를 말하므로
+> 이중이 아니라고 볼 여지가 있다 — 그렇게 정하면 N48의 적용 범위를 좁히는 것이므로 결정문에
+> 남긴다). ⓑ **방금 통지한 결과를 진입 조회에서 억제하는 계약**을 만든다(무엇을 키로 억제할지·
+> 얼마나 억제할지를 함께 정해야 하고, 억제 창을 잘못 잡으면 **결과를 영영 못 보게 된다**).
+>
+> **`CHALLENGE_SESSION_END`는 존재하지 않는 타입이다.** `back/` 전체 grep 0건 — 이전 판의 이 행은
+> 서버에 없는 문자열을 문서가 지어낸 것이었다. 실제 종료 알림은 **`CHALLENGE_WINDOW_END`**(창형,
+> `ChallengeWindowEndNotificationService`)와 **`CHALLENGE_ENDED`**(일 목표형,
+> `ChallengeDurationEndNotificationService`) **둘**이고, 같은 사건인데 문자열을 나눠 둔 이유는
+> **앱의 레거시 딥링크 폴백이 창형 문자열에 걸려 있어서**다(구 바이너리 호환 — 각 서비스 클래스
+> 주석에 명시). 통합하려면 앱 배선이 먼저다.
+
+> **`link`는 "서버가 안 준다"가 아니라 타입마다 갈린다.** 종료 2종은
+> `ChallengeEndPushDispatcher.compose`가 `resultDeepLink(groupId, challengeId)`로
+> `gromo://group?g=…&challenge=…`를 **채워서** 보내고, `CHALLENGE_CREATED`·`BET_RESULT`는
+> `gromo://group?g=…`를 채운다. **비우는 것은 `CHALLENGE_SESSION_OPEN`·`BET_WON`·
+> `BET_VOID_REFUND`뿐**이고, 이 셋은 앱이 `data.groupId`로 딥링크를 합성해야 착지한다.
+> 합성이 없으면 **탭해도 아무 데도 안 간다** (LLD §6.2 앱 파일 표).
+
+> **사일런트 푸시에는 `data.type`이 없다 — 판정 키는 `data.silent === 'flush'`다.**
+> `SilentFlushPushService`가 보내는 payload는 `{silent: 'flush', groupId}` 둘뿐이고
+> `PushMessage.silent()`가 title·link를 비워 FCM에서 notification 블록이 빠진다(iOS
+> `content-available`). **`BET_SILENT_FLUSH`는 payload 값이 아니라 `notification_sent_logs`의
+> 클레임 타입**(회차당 1회 발송을 선점하는 축)이다. 두 축을 섞어 `data.type === 'BET_SILENT_FLUSH'`
+> 로 수신기를 만들면 **큐 flush가 한 번도 실행되지 않는다** — 앱의 판정도
+> `isSilentFlush(data) = data?.silent === 'flush'` 하나다.
+
+**묶음 발송의 페이로드 규칙**: 여러 건이 한 푸시에 묶이면 **`challengeId`를 아예 빼고**(요약
+배열도 싣지 않는다) 딥링크는 그룹방까지만 보낸다. 특정 챌린지로 스크롤하지 않는다 — 어느 것을
+고를지 서버가 정할 근거가 없다.
+
+> **예외 하나 — 종료 알림(`CHALLENGE_WINDOW_END`·`CHALLENGE_ENDED`)은 묶여도 대표 `challengeId`를
+> 싣는다.** `ChallengeEndPushDispatcher.dispatchChunk`가 `compose(pending[0], …)`로 첫 항목을 대표로
+> 삼고, `compose`는 그 id와 `…&challenge=…` 링크를 항상 채운다. 즉 위 일반 규칙과 다르게 동작한다.
+> 이 예외를 없애려면 서버를 바꿔야 하므로, 여기서는 **현행 동작을 사실대로 적는다** — 문서가
+> "묶음엔 id가 없다"고 단정하면 앱이 실제로 오는 대표 id 라우팅을 잘못 해석한다. 같은 원리로 `BET_VOID_REFUND` 묶음의 `voidReason`은 **사유가
+전부 같을 때만** 실린다.
 
 ### 4.3 결과 모달 — 언제, 무엇을, 몇 개
 
-**한 줄 정의: 그룹방에 들어왔을 때, 내가 돈을 걸었던 회차 중 아직 결과를 안 본 것을 최신순으로
-하나씩 보여준다.**
+**한 줄 정의: 내가 돈을 걸었던 회차 중 아직 확인하지 않은 결과가 있으면, 도달한 화면 위에
+최신순으로 하나씩 보여준다.** 트리거는 화면이 아니라 **사건**이다 (N56).
 
 | 축 | 규칙 |
 |---|---|
-| **트리거** | 그룹방 `load()` 1회. 포그라운드 복귀로 재조회돼도 가드가 막는다 |
+| **트리거** | **미확인 결과 1건 이상.** 그룹 탭 랜딩(카드 덱)·그룹방·결과 푸시 착지 — 어디로 도달했든 그 화면 위에 연다. 화면 좌표에 매지 않는다 (N56) |
+| **소유자** | **root 오버레이 계층**이 렌더와 큐를 소유한다 — `GroupScreen`은 `MainTabs` 안의 탭이고 `GroupRoom`은 root Stack의 sibling이라(`RootNavigator.tsx`), **탭 화면이 그리면 방이 push된 동안 그 위에 못 뜬다**(뒤에 남아 보이지 않은 채 ack된다). **「그룹 흐름 focus」는 수명 조건일 뿐 렌더 위치가 아니다.** 화면이 바뀌어도 큐는 살아 있다 (HLD §1 · 구현은 후속 GROMO-1575·1576) |
+| **소속 0개** | **빈 상태 화면 위에도 띄운다.** 카드가 0장이라고 조회를 끄지 않는다 — 전원 탈퇴자의 유일한 인앱 경로다 |
+| **재조회 계기** | ① 셸 활성화 ② **앱 포그라운드 복귀** ③ **`BET_RESULT` 푸시 수신**. 큐 소진은 종단이 아니다 — 탈퇴해도 시작된 회차는 정산 대상이라(C8·FR-40·N19) 결과가 나중에 새로 생긴다. **폴링 없음**, `BET_VOID_REFUND`는 계기 아님(N48 이중 통지) |
 | **대상** | `GET /me/challenge-results` 응답 전부 (참가자 스코프 — N53) |
-| **데이터** | **오늘 조회 1건**. 날짜를 따로 부르지 않는다 |
+| **데이터** | **조회 1건** — `GET /me/challenge-results`. 날짜를 따로 부르지 않고 카드 조회에도 기대지 않는다 |
 | **순서** | `sessionDate` 내림차순 → 동률이면 챌린지 `startedAt` 순. 최근 것부터 |
 | **개수** | 순차 큐. 하나 닫으면 다음이 뜬다 |
-| **1회 가드** | `gromo:sessionResult:{userId}:{sessionId}` — **계정별** 세션 id 기준 (§8과 동일 키. 한 기기 두 계정이 같은 회차에 참가할 수 있다) |
+| **1회 가드** | **서버 `acknowledged`가 정본** — 모달이 뜬 순간 `ack`. 로컬 `gromo:sessionResult:{userId}:{sessionId}`는 **ack 실패 창**에서 같은 모달의 반복을 막는 보완재로 잔류 (N58 · §8) |
 
 ```mermaid
 flowchart TB
-    L["그룹방 load()"] --> Q["getChallenges(gid, 오늘) — 1건"]
-    Q --> P["GET /me/challenge-results 응답"]
-    P --> F2{"이미 봤나?<br/>AsyncStorage 가드"}
-    F2 -->|예| X2["제외"]
+    L["결과 도착 신호<br/>(카드 덱 · 그룹방 · 푸시 착지)"] --> P["GET /me/challenge-results 응답"]
+    P --> F1{"서버 acknowledged?"}
+    F1 -->|예| X1["제외"]
+    F1 -->|아니오| F2{"로컬 마커 있나?<br/>ack 실패 창 보완"}
+    F2 -->|예| X2["제외 + **ack 재시도 예약**"]
     F2 -->|아니오| Q2["큐에 추가"]
     Q2 --> S["sessionDate 내림차순 정렬"]
-    S --> M["ChallengeResultModal 순차 노출"]
+    S --> SLOT{"오버레이 slot 확보<br/>(group IA overlay queue)"}
+    SLOT -->|"대기"| X5["slot 날 때까지 보류<br/>claim 하지 않는다"]
+    SLOT -->|"확보"| C{"표시 선점(lease)<br/>만료 있음"}
+    C -->|"성공"| V{"렌더 직전<br/>활성 claim 재검증"}
+    V -->|"유효 + lease를 렌더·ack 구간까지 원자 갱신"| M["ChallengeResultModal 순차 노출"]
+    V -->|"만료·다른 기기가 재선점"| X4["내 선점 폐기<br/>큐 판정을 처음부터"]
+    C -->|"실패(다른 기기가 표시 중)"| X3["이번엔 건너뛴다<br/>lease 만료 후 다시 후보"]
+    M --> A["노출 **후** 확인 처리<br/>POST .../ack + 로컬 마커"]
+    A -.->|"ack 실패"| R["재노출 없이 ack만 재시도"]
 ```
+
+**표시 선점과 확인 처리는 다른 것이다 — 하나로 합치면 어느 쪽으로도 샌다.**
+
+같은 계정의 두 기기가 동시에 조회하면 둘 다 `acknowledged=false`를 받는다. 여기서 두 갈래가 다
+틀리다.
+- **노출 먼저, ack 나중**이면 `acknowledged_at IS NULL` 원자 UPDATE가 **쓰기 하나만 막을 뿐 이미 뜬
+  모달 둘을 되돌리지 못한다** — 서버 가드를 두고도 결과가 두 번 보인다.
+- **ack 먼저, 노출 나중**이면 CAS 성공 직후 앱이 죽거나 백그라운드로 가거나 다른 오버레이에 막혀
+  렌더가 중단될 때 **서버에는 확인된 것으로 남아 어느 기기에서도 다시 못 본다.** ack는 되돌릴 수
+  없으므로 이쪽이 더 나쁘다.
+
+그래서 **선점과 확인을 분리한다.**
+1. **표시 선점(lease)** — 만료가 있는 점유다. 성공한 기기만 렌더하고, 실패한 기기는 "다른 기기가
+   지금 표시 중"이므로 **이번 회차만 건너뛴다**(영구 제외가 아니다 — lease가 만료되면 다시 후보다).
+2. **확인 처리(ack)** — **노출이 실제로 일어난 뒤**에 한다. 렌더가 중단되면 lease만 만료되고
+   `acknowledged_at`은 비어 있어, 다음 조회에서 그 결과가 살아 돌아온다.
+
+**표시 slot을 먼저 잡고 나서 claim한다.** 결과 모달은 group IA가 규정한 **blocking overlay**이고
+(my-groups IA — 첫 안내와 겹치지 않게 같은 focus의 overlay queue가 slot을 직렬화한다), root가
+소유한다고 해서 그 큐 **밖에서 도는 것이 아니다.** slot을 못 받은 상태에서 claim하면 코치마크가 열린
+동안 `BET_RESULT`가 도착했을 때 **가려진 채 선점·ack될 수 있다** — 화면에 안 보이는데 서버에는
+"확인함"이 남는 그 실패다. 그래서 순서는 **slot 확보 → 선점 → 검증 → 노출 → ack**다.
+
+**선점 성공은 시간이 지나면 무효가 된다 — 렌더 직전에 다시 확인한다.**
+A가 선점에 성공한 직후 OS에 정지돼 렌더 전에 멈추고, lease가 만료된 뒤 B가 재선점했다고 하자.
+A가 깨어나 **최초 성공 응답만 믿고** 모달을 띄우면 **두 기기가 모두 렌더한다** — 그 뒤의
+`acknowledged_at IS NULL`은 이미 뜬 모달을 되돌리지 못한다.
+그래서 선점 응답에 **claim 토큰(또는 버전)** 을 실어 주고, **렌더 직전에 그 토큰이 아직 활성인지
+확인한다.** 만료된 claimant는 재개 시 **자기 선점을 폐기하고** 큐 판정을 처음부터 다시 한다.
+
+⚠️ **검증만으로는 TOCTOU가 남는다.** 검증 응답을 받은 뒤 실제 `Modal`이 마운트되기까지도 시간이
+있어, 그 사이 앱이 잠시 멈추면 lease가 만료되고 다른 기기가 재선점할 수 있다. 그래서 **검증
+연산에서 lease를 렌더·ack에 충분한 기간까지 원자적으로 갱신한다** — 검증과 연장은 한 번의 쓰기다.
+
+**먼저, ack가 성공한 경우의 중복은 수용 대상이 아니라 막아야 할 결함이다.**
+두 기기가 함께 `acknowledged=false`를 조회한 뒤 A가 `claim → 노출 → ack`를 끝내도, **B의 메모리에는
+미확인 DTO가 남아** 나중에 claim API를 부를 수 있다. 그때 서버가 ack 여부를 안 보면 B는 **유효한 새
+claim을 받아 같은 결과를 다시 띄운다** — 네트워크가 정상이고 ack도 성공했는데 중복이 난다.
+그래서 **claim 획득과 렌더 전 재검증은 둘 다 `acknowledged_at IS NULL`을 같은 원자 연산에서
+요구하고, ack는 남아 있는 claim을 종결한다**(policy B17). 아래에서 수용하는 것은 **ack가 실패했을
+때의 좁은 창**이지, ack가 성공한 뒤의 중복이 아니다.
+
+**그렇게 해도 완전히 막을 수는 없다 — 어느 실패를 수용할지 정한다.**
+A가 모달을 실제로 띄우고 로컬 마커까지 남겼는데 `POST .../ack`가 서버에 닿지 않은 채 앱이 죽고
+lease가 만료되면, B는 `acknowledged=false`와 자기 기기의 마커 부재를 보고 재선점해 **같은 결과를
+다시 띄운다.** ack 재시도는 나중의 서버 수렴만 보장할 뿐 그 구간을 못 막는다. 네트워크 단절·강제
+종료에서 **"노출 유실 없음"과 "기기 간 정확히 1회"는 동시에 성립하지 않는다.**
+
+> **수용하는 쪽: 기기 간 중복 노출. 막는 쪽: 유실.**
+> 결과 모달은 정보 전달이지 되돌릴 수 없는 행동이 아니다 — 두 번 보는 것은 성가시지만 **못 보는
+> 것은 회복되지 않는다.** 그리고 이 기능의 존재 이유가 N53·C8·GROMO-1415의 "탈퇴자도 자기 결과를
+> 본다"이므로, 유실을 감수하는 선택은 목적 자체를 지운다.
+> 같은 기기의 중복은 로컬 마커가 이미 막고, 기기 간 중복은 **ack 실패 + lease 만료 + 다른 기기
+> 활성**이 겹쳐야 나는 좁은 창이다. ack 미확정 동안 claim은 **A가 재시도하는 세션 안에서만** 유지하고
+> 그 상한을 넘으면 해제한다 — 무한히 붙들면 A가 죽었을 때 B가 영영 못 본다.
+
+로컬 마커는 ②와 같은 순간에 기록한다 — ack 실패 창의 보완재라는 역할은 그대로다.
+> **소유자는 「그룹 탭 셸」이 아니라 「root 오버레이 계층」이다 — 네비게이션 구조가 그렇다.**
+> `GroupScreen`은 `MainTabs` 안의 탭이고 `GroupRoom`은 **root `Stack.Navigator`의 sibling**이다
+> (`RootNavigator.tsx`). 즉 `GroupScreen`이 그리는 모달은 `GroupRoom`이 push된 동안 **그 위에 뜰 수
+> 없다** — `방 전체 보기`나 결과 푸시로 방에 들어가면 결과를 못 보거나 뒤에서 ack된다.
+> 그래서 **오버레이는 root 계층이 소유하고**, 그 활성 조건만 **그룹 흐름 focus**로 묶는다.
+> 소유(어디에 그리나)와 수명(언제 도나)은 다른 축이다 — 앞선 판이 둘을 「셸」 하나로 뭉쳤다.
+
+**선점에 실패한 기기에는 다시 열 계기가 필요하다.** 재조회 계기 셋(셸 활성화·포그라운드 복귀·
+`BET_RESULT` 수신)에는 "lease 만료"가 없다. 선점한 기기가 **노출 전에 죽으면** 패배 기기는 포커스된
+채로 영영 다시 시도하지 못한다 — 그러면 두 기기 모두 결과를 못 본 채로 남는다.
+그래서 **선점 실패 응답이 상대 지연(`retryAfterMs`)을 돌려주고, 앱은 그만큼 뒤에 1회 재조회를
+예약한다**(폴링이 아니다 — 정해진 한 시점이다). **절대 만료 시각이 아니다** — 기기 시계로 해석하면
+빠른 기기는 살아 있는 lease를 즉시 다시 요청해 1회 기회를 소진하고 느린 기기는 만료 후에도 한참
+안 띄운다(policy B17·A13과 같은 계약).
+
+**단 그 예약도 ②·③과 같은 focus 수명에 묶는다.** 그러지 않으면 다른 탭으로 이탈한 뒤에도 타이머가
+실행돼 **숨은 화면이 선점·노출·ack까지 해버린다** — ②·③에 focus 제한을 건 이유가 그대로 무너진다.
+blur 시에는 타이머를 취소하고 **다음 그룹 흐름 focus에서 다시 판단**한다.
+
+**lease의 수명·저장 위치·엔드포인트 형태는 GROMO-1577이 정한다.** 여기서 정하는 것은 "선점과
+확인이 서로 다른 상태이고, 노출이 그 사이에 오며, 선점 실패에는 만료 기반 재시도가 따른다"는
+순서와 분리 원칙이다. 저장도 `acknowledged_at`과 **분리한다** — 만료로 풀려야 하는 값과 되돌릴 수
+없는 값을 한 컬럼에 담지 않는다.
+
+**로컬 마커로 제외할 때도 ack를 다시 시도한다.** 최초 ack가 실패한 뒤 앱이 종료되면, 다음 조회에서
+`acknowledged=false` + 로컬 마커 존재로 이 분기에 들어와 **제외만 하고 서버에는 영영 미확인이 남는다.**
+그러면 미확인 배지가 사라지지 않고, 기기를 바꾸거나 재설치하면 그 결과가 다시 뜬다 — N58이 없애려던
+상태 그대로다. 이 분기에서 재시도를 예약하고, 재시도 수명은 **그 세션 안**으로 한정한다(실패가
+영구화되면 조회마다 요청이 쌓인다).
+
+**두 개의 가드가 서로를 보완한다 (N58).** 서버 `acknowledged`는 **기기가 바뀌어도 유지**되지만
+ack 요청이 실패하면 갱신되지 않는다. 로컬 마커는 그 실패 창에서 같은 모달이 반복되는 것을 막는다.
+ack은 `acknowledged_at IS NULL` 조건부 원자 UPDATE라 중복·동시 호출이 안전하다 — 리그가 같은
+구조를 이미 쓴다([리그 HLD](../league/high-level-design.md)).
 
 **날짜 조회가 사라졌다.** 기존 설계는 "오늘 + 직전 회차일" **2건**을 불렀는데, 요일 반복에서는
 **챌린지마다 직전 회차일이 다르다** — 월수금 챌린지와 화목 챌린지가 공존하면 수요일 기준
@@ -458,13 +624,14 @@ flowchart TB
 - **내가 참가하지 않은 회차** — 남의 결과로 화면을 막지 않는다. 그룹 전체 달성 현황은
   카드에서 상시 보인다
 - **내기가 꺼진 챌린지** — 참가 회차가 없으니 응답에 안 나온다
-- **이미 본 회차** — 세션 id 가드
+- **이미 확인한 회차** — 서버 `acknowledged`(정본) 또는 로컬 세션 id 마커(보완재)
 - **삭제된 챌린지의 회차** — 챌린지가 목록에서 빠져 응답에 없다. 삭제 시점의 환불은
   **푸시로 알린다**(모달 범위 밖)
 
 > **가드 키가 `{cid}:{date}`에서 `{sessionId}`로 바뀐다.** 회차가 1급 개체가 되면서 세션 id가
 > 유일 식별자다. **값은 `sessionDate`**(`'YYYY-MM-DD'`, KST)이고, 정리는 **마커를 기록할 때**
-> 60일 지난 키를 함께 prune한다 (§8).
+> 60일 지난 키를 함께 prune한다 (§8). **N58 이후 이 마커는 정본이 아니라 보완재다** — 기기 교체·
+> 재설치로 마커가 사라져도 서버 `acknowledged`가 재생을 막는다.
 
 ---
 
@@ -492,11 +659,20 @@ flowchart LR
         D2["POST /groups/{gid}/challenges/{cid}/join-week<br/>(이번 주 남은 회차 전부)"]
         D3["DELETE /groups/{gid}/sessions/{sid}/participation"]
     end
+    subgraph me["참가자 스코프 (그룹 멤버십 무관 — N53)"]
+        F1["GET /me/challenge-results<br/>(정산 완료 · 최근 30일 · 최대 10건)"]
+        F2["GET /me/bet-sessions"]
+        F3["POST /me/challenge-results/{sid}/ack<br/>(확인 처리 · 멱등 — N58)"]
+    end
     subgraph batch["배치 (관리자 키)"]
         E1["POST /groups/sessions/settle"]
         E2["POST /groups/sessions/notify"]
     end
 ```
+
+> **참가자 스코프 경로는 그룹 멤버십을 검증하지 않는다.** 그래야 **탈퇴자도 자기 정산 결과를
+> 본다**(N53). 결과 모달의 트리거·가드가 화면·기기에 매이지 않는 것(N56·N58)도 같은 축이다 —
+> 데이터·화면·기기 세 축이 모두 열려야 "탈퇴한 참가자도 자기 결과를 본다"가 성립한다.
 
 > **창 사용분 보고는 앱이 조용히 버려지는 경우를 알아야 한다 (LLD §2.2).** 서버는 자격·시각
 > 게이트에 걸린 보고를 에러가 아니라 **204로 무시**하므로, 204를 "저장됨"으로 낙관 반영하면 안 된다.
@@ -509,6 +685,7 @@ flowchart LR
 |---|---|
 | 챌린지 조회·생성·종료·삭제·창 보고 | `GroupChallengeController` (**신설** — `GroupController`에서 분리) |
 | 회차 참여·취소·이력 | `GroupBetController` |
+| 참가자 스코프 조회·결과 확인(ack) | `GroupBetQueryController` (그룹 멤버십 검증 없음 — N53 · N58) |
 | 정산·알림 수동 트리거 | `GroupBetBatchController` / `GroupNotificationBatchController` |
 
 **사라지는 엔드포인트**
@@ -596,20 +773,23 @@ flowchart TB
         SV1["챌린지 목록·요일·진행률·판정"]
         SV2["내기 설정·회차 상태·참가자·적립금"]
         SV3["코인 잔액·원장"]
+        SV4["결과 확인 여부 (acknowledged)"]
     end
     subgraph parent["GroupRoomScreen (부모)"]
         P1["challenges 응답 state"]
         P2["시트 열림/모드"]
         P3["sessionLocked (재조회 중 잠금)"]
-        P4["결과 모달 큐"]
         P5["참여·취소 API 호출"]
+    end
+    subgraph shell["root 오버레이 계층 (N56) — 활성 조건만 그룹 흐름 focus"]
+        P4["결과 모달 큐<br/>+ 서버 acknowledged"]
     end
     subgraph card["ChallengeCard (자식)"]
         K1["표현만 담당"]
         K2["콜백으로 부모에 위임"]
     end
     subgraph device["기기"]
-        D1["AsyncStorage: 결과 모달 1회 가드"]
+        D1["AsyncStorage: 결과 모달 가드 보완재<br/>(정본은 서버 acknowledged — N58)"]
         D2["AsyncStorage: 창 보고 이력"]
         D3["네이티브 사용량 버킷 타임라인 (2일)"]
         D4["pendingFocusUploads 큐"]
@@ -630,6 +810,12 @@ flowchart TB
 - **잔액의 정본은 CoinContext**다. 시트를 열 때·성공 후 매번 서버에서 다시 받는다.
   표기는 **`참가비 30 · 내 잔액 240`** 까지만 — 차감 후 값(`→ 210`)은 쓰지 않는다 (N46).
   "이번 주 전부" 예약은 총액(`stake × 남은 회차`)을 잔액과 대조해 버튼을 잠근다.
+- **결과 모달 큐(P4)의 렌더·소유자는 「root 오버레이 계층」이다 (N56).** 「그룹방」도 「지금 도달한
+  화면」도 「그룹 탭 셸」도 아니다 — `GroupRoom`이 root Stack sibling이라 탭 계층이 그리면 방 위에 못 뜬다.
+  화면은 큐를 소유하지 않는다 — root 계층이 들고 있고 어느 화면이 활성이든 그 위에 얹는다. 그룹방은
+  그 화면 중 하나일 뿐이고, 그룹 탭 랜딩(카드 덱)과 결과 푸시 착지도 같은 큐를 연다. 큐의
+  **내용·순서·확인 여부**는 화면과 무관하게 §4.3이 정본이며, **확인 여부의 정본은 서버**다(N58) —
+  기기(D1)가 들고 있는 것은 ack 실패 창을 덮는 보완재뿐이다.
 
 ---
 
@@ -637,7 +823,7 @@ flowchart TB
 
 | 키 | 형태 | 수명 | 용도 |
 |---|---|---|---|
-| `gromo:sessionResult:{userId}:{sessionId}` | `sessionDate` (`'YYYY-MM-DD'`, KST) | **60일**. **마커를 기록하는 시점**에 컷오프(오늘 − 60일)보다 오래된 키를 함께 prune한다 — 서버 큐(`/me/challenge-results`)가 **최근 30일** 경계라 마커가 항상 더 오래 산다. 30일 prune이면 주 1회 챌린지에서 마커가 먼저 지워진 회차가 **이미 본 모달로 재생**된다 | 결과 모달 1회 노출 가드. **키에 `userId`를 넣는다** — 한 기기에서 두 계정이 같은 그룹 회차에 참가하면, 세션 id만으로 키를 잡을 경우 A가 본 결과가 B에게도 스킵된다(반대로 계정 전환 때 싹 지우면 A로 돌아왔을 때 재생된다) |
+| `gromo:sessionResult:{userId}:{sessionId}` | `sessionDate` (`'YYYY-MM-DD'`, KST) | **60일**. **마커를 기록하는 시점**에 컷오프(오늘 − 60일)보다 오래된 키를 함께 prune한다 — 서버 결과 큐(`/me/challenge-results`)의 **조회 창이 최근 30일**이라 마커가 항상 더 오래 산다. 30일 prune이면 ack이 실패한 채로 주 1회 챌린지를 돌 때 마커가 먼저 지워진 회차가 **이미 본 모달로 재생**된다 | 결과 모달 1회 노출 가드의 **보완재** — 정본은 서버 `acknowledged`다 (N58). 이 마커가 혼자 막는 구간은 **ack 요청이 실패한 창**뿐이다. **키에 `userId`를 넣는다** — 한 기기에서 두 계정이 같은 그룹 회차에 참가하면, 세션 id만으로 키를 잡을 경우 A가 본 결과가 B에게도 스킵된다(반대로 계정 전환 때 싹 지우면 A로 돌아왔을 때 재생된다) |
 | `gromo:screentime:windowReports` | `{userId, finals[], last{}}` | 어제 기준 prune | 창 보고 중복 방지 + 최종 1회 보장 |
 | `gromo:screentime:bucketMonitorRegistered` | `userId` | — | 버킷 모니터 소유자 확인 |
 | `gromo:focus:pendingUploads` | `[{userId, body}]` | 최대 50건 | 집중 세션 업로드 재시도 큐 (사일런트 푸시가 flush) |
