@@ -71,7 +71,7 @@ const CHALLENGE_END_TYPES = new Set(['CHALLENGE_WINDOW_END', 'CHALLENGE_ENDED'])
 // ⚠️ 종료 푸시(CHALLENGE_WINDOW_END·CHALLENGE_ENDED)는 여기 넣지 않는다 — 정산 **전**에 오는
 // 그룹 스코프 공지라 참가자 스코프 사건(정산 결과·환불)이 근거인 이 우회의 대상이 아니다.
 // (구 'CHALLENGE_SESSION_END' 항목은 서버에 없는 타입이라 한 번도 발화한 적이 없다 — N02.)
-const RESULT_PUSH_TYPES = new Set(['BET_WON', 'BET_RESULT', 'BET_VOID_REFUND']);
+export const RESULT_PUSH_TYPES = new Set(['BET_WON', 'BET_RESULT', 'BET_VOID_REFUND']);
 
 // 잔액 재조회가 **이 푸시로 열린 경로에서만** 성립하는 타입(codex 리뷰 P2). 삭제 환불은
 // 앱이 살아 있어도 잔액을 갱신할 통로가 하나도 없다: 삭제된 챌린지는 결과 모달 대상에서
@@ -81,7 +81,15 @@ const RESULT_PUSH_TYPES = new Set(['BET_WON', 'BET_RESULT', 'BET_VOID_REFUND']);
 // 그래서 딥링크에 refund=1 표식을 실어 navigationRef가 잔액 재조회를 태우게 한다
 // (서버 payload 계약은 그대로 — 앱 내부 URL 스킴에만 붙는 표식이다).
 // 다른 결과성 타입은 결과 모달(refreshCoins)·서명 변화가 이미 잡으므로 붙이지 않는다.
-const REFUND_PUSH_TYPES = new Set(['BET_VOID_REFUND']);
+//
+// ⚠️ **이 집합은 RESULT_PUSH_TYPES의 부분집합이어야 한다**(@claude 리뷰). 환불 안내의 출처
+//    표식(refundPushIntent)은 markRefundPushIntent → consumeRefundPushIntent가 **같은 틱에
+//    동기로** 이어질 때만 안전한데, 그 동기성은 `result=1`이 함께 붙어 pushGroupRoom이
+//    `await getMyGroups()`를 건너뛰는 데서 온다(navigationRef의 멤버십 게이트 우회).
+//    여기에 RESULT_PUSH_TYPES에 없는 타입을 넣으면 그 await가 끼어들어, 그 사이 도착한 다른
+//    그룹의 환불 푸시가 표식을 가로챌 수 있다 — **지금 안전한 것은 우연이지 강제가 아니었다.**
+//    push.test.ts가 이 포함 관계를 테스트로 잠근다.
+export const REFUND_PUSH_TYPES = new Set(['BET_VOID_REFUND']);
 
 // 서버 payload의 data.link(예: 'gromo://league')에서 딥링크 문자열을 뽑는다. **link가 있으면 그
 // 경로를 쓰고 앱 표식만 덧붙이며**(withPushFlags — N06), 없으면 타입별로 합성한다

@@ -308,6 +308,30 @@ describe('link가 실린 결과성 푸시의 표식(GROMO-1580 ③)', () => {
 
     expect(mockNavigateToDeepLink).toHaveBeenCalledWith('gromo://league');
   });
+
+  // 프래그먼트가 붙은 링크 — 표식은 **# 앞**에 들어가야 한다. 뒤에 붙이면 프래그먼트의 일부가
+  // 되어 navigationRef의 표식 판정(정규식)이 못 읽고, 멤버십 게이트 우회가 조용히 죽는다.
+  test('프래그먼트가 붙어 있어도 표식은 그 앞에 들어간다', () => {
+    setupPushListeners();
+    openedHandler?.(message({ type: 'BET_RESULT', link: `${SERVER_LINK}#section` }));
+
+    expect(mockNavigateToDeepLink).toHaveBeenCalledWith(`${SERVER_LINK}&result=1#section`);
+  });
+});
+
+// 환불 안내의 출처 표식(refundPushIntent)은 mark → consume이 **같은 틱에 동기로** 이어질 때만
+// 안전하다. 그 동기성은 result=1이 함께 붙어 pushGroupRoom이 `await getMyGroups()`를 건너뛰는
+// 데서 온다 — 즉 REFUND ⊆ RESULT 라는 포함 관계가 그 안전성의 전제다(@claude 리뷰).
+// 관계가 깨지면 await가 끼어들어 다른 그룹의 환불 푸시가 표식을 가로챌 수 있는데, 그건 코드를
+// 읽어서는 드러나지 않는다. 여기서 잠근다.
+describe('표식 집합의 포함 관계', () => {
+  test('REFUND_PUSH_TYPES 는 RESULT_PUSH_TYPES 의 부분집합이다', () => {
+    // 테스트 파일 상단의 동명 상수는 픽스처 복사본이라 비교해도 의미가 없다 — **실물**을 읽는다.
+    const { RESULT_PUSH_TYPES: actualResult, REFUND_PUSH_TYPES: actualRefund } =
+      jest.requireActual<typeof import('@/services/push')>('@/services/push');
+    const refundOnly = [...actualRefund].filter((t) => !actualResult.has(t));
+    expect(refundOnly).toEqual([]);
+  });
 });
 
 // ── 포그라운드 정산 결과 수신 → 화면 재조회 신호(GROMO-1580 ④) ──
