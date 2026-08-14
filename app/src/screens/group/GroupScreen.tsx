@@ -425,13 +425,21 @@ export default function GroupScreen() {
   // 화면이 떠 있는가 — 승인을 기다리던 공유 요청이 뒤늦게 성사됐을 때의 판단 근거.
   const screenFocusedRef = useRef(isScreenFocused);
   screenFocusedRef.current = isScreenFocused;
-  // 화면을 벗어나거나 사라지면 대기 중인 공유 요청을 접는다.
+  // 공유 시트가 **실제로 떠 있는** 구간 표식 — 승인 대기(접어야 할 것)와 표시 중(유지해야 할
+  // 것)을 가른다. 네이티브 시트는 화면이 blur돼도 사용자 앞에 그대로 남기 때문이다.
+  const shareSheetOpenRef = useRef(false);
+  // 화면을 벗어나거나 사라지면 **대기 중인** 공유 요청을 접는다.
+  // ⚠️ 이미 떠 있는 시트의 자리는 유지한다 — 여기서 반납하면 결과 호스트가 그 시트 **뒤에서**
+  //    모달을 마운트해 사용자가 못 본 회차에 seen/ack이 찍힌다. 반납 주체는 화면이 아니라
+  //    시트 자신이다(Share.share는 어떻게 끝나든 settle되므로 아래 finally가 반드시 돈다).
   useEffect(() => {
     if (isScreenFocused) return;
+    if (shareSheetOpenRef.current) return;
     overlayActions?.release(SHARE_SLOT_ID);
   }, [isScreenFocused, overlayActions]);
   useEffect(
     () => () => {
+      if (shareSheetOpenRef.current) return;
       overlayActionsRef.current?.release(SHARE_SLOT_ID);
     },
     [],
@@ -461,6 +469,8 @@ export default function GroupScreen() {
         overlayActions?.release(SHARE_SLOT_ID);
         return;
       }
+      // 이 순간부터 자리를 쥐고 있는 것은 **화면이 아니라 시트**다(위 이펙트 주석).
+      shareSheetOpenRef.current = true;
       try {
         const result = await Share.share({
           message: buildInviteShareMessage(groupName, issuedInvite.url),
@@ -476,6 +486,7 @@ export default function GroupScreen() {
       } catch {
         // 공유 시트를 띄우지 못한 경우 화면 상태는 그대로 유지한다.
       } finally {
+        shareSheetOpenRef.current = false;
         overlayActions?.release(SHARE_SLOT_ID);
       }
     },

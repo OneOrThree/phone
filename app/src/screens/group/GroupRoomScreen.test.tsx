@@ -1910,6 +1910,44 @@ describe('초대 링크 공유', () => {
     await waitFor(() => expect(values[values.length - 1]).toBe(-1));
   });
 
+  // ⚠️ 명령형 쌍의 같은 결함이 여기에도 있었다 — 정리 이펙트가 **승인 대기**와 **표시 중**을
+  //    한꺼번에 반납했다. 네이티브 공유 시트는 화면이 blur돼도(푸시·딥링크로 다른 화면이
+  //    쌓여도) 사용자 앞에 그대로 남는데, 그때 자리를 놓으면 결과 호스트가 그 시트 **뒤에서**
+  //    모달을 마운트해 사용자가 못 본 회차에 seen/ack이 찍힌다.
+  //    ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 시트가 끝나면 반납되는 것까지 함께 본다.
+  test('공유 시트가 떠 있으면 화면이 blur돼도 자리를 유지하고, 시트가 끝나면 반납한다', async () => {
+    mockGetGroupDetail.mockResolvedValue(detail());
+    mockGetAnnouncements.mockResolvedValue([]);
+    const values: number[] = [];
+    let releaseShare: (value: { action: string }) => void = () => undefined;
+    jest.spyOn(Share, 'share').mockReturnValue(
+      new Promise((resolve) => {
+        releaseShare = resolve as (value: { action: string }) => void;
+      }) as ReturnType<typeof Share.share>,
+    );
+
+    await render(
+      <OverlaySlotProvider>
+        <GroupRoomScreen groupId={GROUP_ID} onLeft={onLeft} />
+        <BlockerProbe onValue={(v) => values.push(v)} />
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    await press('초대');
+    await waitFor(() => expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet));
+
+    // 푸시·딥링크로 다른 화면이 위에 쌓였다 — 시트는 사용자 앞에 그대로다.
+    await blur();
+    expect(values[values.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+
+    // 시트가 닫히면 그때 반납된다 — 영구 점유가 아니다.
+    await act(async () => {
+      releaseShare({ action: Share.dismissedAction });
+    });
+    await waitFor(() => expect(values[values.length - 1]).toBe(-1));
+  });
+
   // ⚠️ `await` 뒤에 여는 Alert다 — 결과 모달은 **노출된 뒤에는 양보하지 않으므로**, 그냥 띄우면
   //    이 Alert가 그 위를 덮고 사용자는 못 읽은 채 확인 처리된다. 승인을 받고 띄워야 한다.
   test('발급 실패 Alert는 다른 오버레이가 자리를 놓을 때까지 뜨지 않는다', async () => {

@@ -730,6 +730,23 @@ export default function ChallengeCard({
     onAbandonSheetSlot?.(challenge.id);
   }
 
+  // ── 명령형 승인의 소유자 표식(GROMO-1576) ──────────────────────────────────
+  // 승인을 받은 뒤 **네이티브 확인 Alert가 자리를 쥐고 있는 구간**이라는 뜻이다. 이 구간은
+  // 카드의 생명주기와 어긋난다 — Alert가 떠 있는 동안 BET_RESULT 재조회로 챌린지가 목록에서
+  // 빠지면 카드는 언마운트되지만 **Alert는 사용자 앞에 그대로 남는다.** 그때 언마운트 정리가
+  // 자리를 반납하면 결과 호스트가 그 Alert **뒤에서** 모달을 마운트하고, 사용자가 못 본 회차에
+  // seen/ack이 찍힌다. 그래서 이 표식이 서 있는 동안에는 언마운트가 반납하지 않는다.
+  // (승인 **대기** 중인 요청은 반대로 언마운트에서 취소해야 한다 — 그 둘을 가르는 것이 이 표식이다.
+  //  useOverlayAlert가 openCount/pendingCancels로 가른 것과 같은 모양.)
+  const alertHoldsSlotRef = useRef(false);
+  const cardUnmountedRef = useRef(false);
+  useEffect(
+    () => () => {
+      cardUnmountedRef.current = true;
+    },
+    [],
+  );
+
   function openJoinNextSheet() {
     if (cachedGroupId === null) {
       // 캐시 미적중(이론상 앱 재시작 직후뿐) — 철회·히스토리와 같은 공통 문구 결.
@@ -1125,21 +1142,35 @@ export default function ChallengeCard({
       //    이 배치에서 같은 뿌리가 네 번째다 — 코치마크 · 비동기 시트 · 비활성 구간 · 그리고
       //    이 Alert. OS 얼럿 일반은 앱이 막을 수 없지만, **우리가 띄우는 것**은 막을 수 있다.
       if (!(await claimSheetSlot())) return;
+      // 이 순간부터 자리를 쥐고 있는 것은 **카드가 아니라 이 Alert**다(아래 finishConfirm).
+      alertHoldsSlotRef.current = true;
+      // 확인 Alert가 닫히는 **모든 경로**의 단일 출구. 경로가 넷이라(그만두기 · 삭제 ·
+      // onDismiss · 카드 언마운트) 각자 반납을 적으면 한 곳을 빠뜨린다 — 실제로 빠뜨렸다.
+      const finishConfirm = (proceed: boolean) => {
+        if (!alertHoldsSlotRef.current) return; // 한 Alert당 한 번만
+        alertHoldsSlotRef.current = false;
+        // ⚠️ 카드가 이미 사라졌으면 **열림을 보고하면 안 된다.** 부모의 열림 집합에 죽은
+        //    challengeId가 들어가고 그것을 false로 되돌릴 카드가 없어, 방을 떠날 때까지
+        //    결과 모달이 영영 못 뜬다(부모 sheetOpenCardIds 주석의 바로 그 사고).
+        if (!proceed || cardUnmountedRef.current) {
+          releaseSheetSlot();
+          return;
+        }
+        openSheet();
+        setDeletePreview(preview);
+      };
       // 물러나는 버튼은 위 1단계 확인과 같은 `그만두기`다(policy §A8).
       Alert.alert(
         '챌린지 삭제',
         '이 챌린지를 삭제할까요?',
         [
           // 물러나면 확보한 자리를 즉시 돌려준다 — 안 그러면 이 화면을 나갈 때까지 자리가 잠긴다.
-          { text: '그만두기', style: 'cancel', onPress: releaseSheetSlot },
+          { text: '그만두기', style: 'cancel', onPress: () => finishConfirm(false) },
           {
             text: '삭제',
             style: 'destructive',
             // 이미 승인을 쥐고 있으므로 곧바로 연다(부모는 열림 보고로 승인을 마무리한다).
-            onPress: () => {
-              openSheet();
-              setDeletePreview(preview);
-            },
+            onPress: () => finishConfirm(true),
           },
         ],
         // ⚠️ **버튼을 안 거치고 닫히는 경로**가 있다. Android의 DialogModule은 새 Alert를 띄우며
@@ -1148,7 +1179,7 @@ export default function ChallengeCard({
         //    때까지 결과 모달과 다른 카드 시트가 전부 막힌다. useOverlayAlert가 같은 이유로
         //    이미 하는 처리를, 이 raw Alert에도 그대로 넣는다.
         //    (`삭제`를 눌러 닫힌 경우에는 안 불린다 — RN이 버튼 콜백과 배타로 처리한다.)
-        { onDismiss: releaseSheetSlot },
+        { onDismiss: () => finishConfirm(false) },
       );
     } catch {
       // 성공 경로가 claimSheetSlot()을 지나므로 이 실패 경로도 승인을 받고 띄운다(위 훅 주석).
@@ -1251,7 +1282,11 @@ export default function ChallengeCard({
   useEffect(() => {
     return () => {
       onSheetVisibilityChange?.(challenge.id, false);
-      // 승인 대기 중이던 비동기 시트 요청도 함께 접는다(위 onAbandonSheetSlot 주석).
+      // ⚠️ **표시 중인 확인 Alert가 쥔 자리는 유지한다.** 반납 주체는 카드가 아니라 Alert다
+      //    (위 alertHoldsSlotRef 주석). 카드가 사라져도 Alert는 남아 있고, 사용자가 그것을
+      //    닫는 순간 finishConfirm이 반납한다 — 영구 점유가 아니다.
+      if (alertHoldsSlotRef.current) return;
+      // 승인 대기 중이던 비동기 시트 요청은 접는다(위 onAbandonSheetSlot 주석).
       onAbandonSheetSlot?.(challenge.id);
     };
   }, [onSheetVisibilityChange, onAbandonSheetSlot, challenge.id]);

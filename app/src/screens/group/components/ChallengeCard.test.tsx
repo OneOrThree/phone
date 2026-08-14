@@ -3369,6 +3369,84 @@ describe('진행 중 삭제 2단계 (GROMO-1425)', () => {
     expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
   });
 
+  // ⚠️ 확인 Alert가 떠 있는 동안 BET_RESULT 재조회로 챌린지가 목록에서 빠지면 **카드는
+  //    언마운트되지만 네이티브 Alert는 사용자 앞에 그대로 남는다.** 그때 언마운트 정리가
+  //    자리를 반납하면 결과 호스트가 그 Alert **뒤에서** 모달을 마운트하고, 사용자가 못 본
+  //    회차에 seen/ack이 찍힌다. 반납 주체는 카드가 아니라 Alert다.
+  //    ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 한 테스트에서 본다.
+  test('Alert가 떠 있는 채 카드가 사라져도 자리는 유지되고, 닫으면 그때 반납된다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+
+    const view = await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+      />,
+    );
+    await pressDeleteX();
+    const buttons = lastAlertButtons(alertSpy);
+
+    // 재조회에서 이 챌린지가 빠졌다 — 카드만 사라지고 Alert는 남아 있다.
+    await act(async () => {
+      view.unmount();
+    });
+    expect(onAbandonSheetSlot).not.toHaveBeenCalled();
+
+    // 사용자가 그 Alert를 닫으면 그때 반납된다.
+    await act(async () => {
+      buttons?.find((b) => b.text === '그만두기')?.onPress?.();
+    });
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
+  // ⚠️ 카드가 사라진 뒤의 `삭제`는 **열림을 보고하면 안 된다.** 부모의 열림 집합에 죽은
+  //    challengeId가 들어가면 그것을 false로 되돌릴 카드가 없어, 방을 떠날 때까지 결과 모달이
+  //    영영 못 뜬다(부모 sheetOpenCardIds 주석의 바로 그 사고). 자리 유지가 만든 새 창이다.
+  test('카드가 사라진 뒤 삭제를 눌러도 열림을 보고하지 않고 반납한다', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockGetDeletionPreview.mockResolvedValue({
+      openSessions: [{ sessionDate: '2026-08-01', participantCount: 3, pot: 90 }],
+      totalRefund: 90,
+    });
+    const onAbandonSheetSlot = jest.fn();
+    const onSheetVisibilityChange = jest.fn();
+
+    const view = await render(
+      <ChallengeCard
+        challenge={challenge(v2Over)}
+        isOwner
+        onDelete={onDelete}
+        onOpenBet={onOpenBet}
+        onRequestSheetSlot={async () => true}
+        onAbandonSheetSlot={onAbandonSheetSlot}
+        onSheetVisibilityChange={onSheetVisibilityChange}
+      />,
+    );
+    await pressDeleteX();
+    const buttons = lastAlertButtons(alertSpy);
+
+    await act(async () => {
+      view.unmount();
+    });
+    onSheetVisibilityChange.mockClear();
+
+    await act(async () => {
+      buttons?.find((b) => b.text === '삭제')?.onPress?.();
+    });
+
+    expect(onSheetVisibilityChange).not.toHaveBeenCalledWith(CHALLENGE_ID, true);
+    expect(onAbandonSheetSlot).toHaveBeenCalledWith(CHALLENGE_ID);
+  });
+
   test('참가비가 걸린 날이 있으면 1단계 뒤 수치 경고 시트를 거쳐야 삭제된다', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockGetDeletionPreview.mockResolvedValue({

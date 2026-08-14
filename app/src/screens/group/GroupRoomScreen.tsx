@@ -331,6 +331,9 @@ export default function GroupRoomScreen({
   // 된다"가 되지 않는다.
   // 공유 시트처럼 **명령형으로 여는** 네이티브 오버레이가 자리를 잡을 때 쓴다.
   const overlayActions = useOverlaySlotActions();
+  // 공유 시트가 **실제로 떠 있는** 구간 표식 — 승인 대기(접어야 할 것)와 표시 중(유지해야 할
+  // 것)을 가른다. 네이티브 시트는 화면이 blur돼도 남으므로 두 축을 같이 다루면 안 된다.
+  const shareSheetOpenRef = useRef(false);
   const overlayActionsRef = useRef(overlayActions);
   overlayActionsRef.current = overlayActions;
   const sheetOpen = betSheet !== null || composeOpen || sheetOpenCardIds.length > 0;
@@ -709,8 +712,13 @@ export default function GroupRoomScreen({
         sheetGrantInFlightRef.current = null;
         settleSheetSlotWaiters(false);
         setSheetSlotRequested(false);
-        // 승인을 기다리던 공유 요청도 접는다 — 떠난 화면의 시트가 새 화면 위로 뜨지 않게.
-        overlayActionsRef.current?.release(SHARE_SLOT_ID);
+        // 승인을 **기다리던** 공유 요청은 접는다 — 떠난 화면의 시트가 새 화면 위로 뜨지 않게.
+        // ⚠️ 반대로 **이미 떠 있는** 공유 시트의 자리는 유지한다. 네이티브 시트는 이 화면이
+        //    blur돼도(푸시·딥링크로 다른 화면이 쌓여도) 사용자 앞에 그대로 남아 있어서,
+        //    여기서 반납하면 결과 호스트가 그 시트 **뒤에서** 모달을 마운트하고 사용자가
+        //    못 본 회차에 seen/ack이 찍힌다. 반납 주체는 화면이 아니라 시트 자신이다 —
+        //    Share.share는 어떻게 끝나든 settle되므로 아래 finally가 반드시 돈다.
+        if (!shareSheetOpenRef.current) overlayActionsRef.current?.release(SHARE_SLOT_ID);
       };
     }, [reload, interactionId, settleSheetSlotWaiters, leaveRoom]),
   );
@@ -882,6 +890,8 @@ export default function GroupRoomScreen({
       overlayActions?.release(SHARE_SLOT_ID);
       return;
     }
+    // 이 순간부터 자리를 쥐고 있는 것은 **화면이 아니라 시트**다(위 정리 함수 주석).
+    shareSheetOpenRef.current = true;
     try {
       const result = await Share.share({
         message: buildInviteShareMessage(name, invite.url),
@@ -900,6 +910,7 @@ export default function GroupRoomScreen({
     } catch {
       // 공유 시트를 못 띄운 경우 — 사용자에게 알릴 것이 없어 조용히 무시한다.
     } finally {
+      shareSheetOpenRef.current = false;
       overlayActions?.release(SHARE_SLOT_ID);
     }
   }, [groupId, name, overlayActions, showAlert]);
