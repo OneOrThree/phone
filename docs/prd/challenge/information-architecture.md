@@ -19,7 +19,8 @@ flowchart TB
         A["전체"]
     end
 
-    G --> GL["GroupScreen<br/>내 그룹 / 찾기"]
+    G --> SHELL["그룹 탭 셸<br/>결과 모달 오버레이 소유 (N56)"]
+    SHELL --> GL["GroupScreen<br/>내 그룹 덱 / 찾기 · 소속 0개 빈 상태"]
     GL --> GR["GroupRoomScreen<br/>그룹방 — 챌린지의 집"]
 
     GR --> S1["멤버 리더보드 섹션"]
@@ -40,7 +41,7 @@ flowchart TB
     M3 -.시트.-> SH2["BetJoinSheet<br/>(회차 참여)"]
     M4 -.시트.-> SH3["LastSessionResultSheet"]
     M5 -.시트.-> SH5["ChallengeDeleteSheet<br/>(진행 중이면 경고 1단계 추가)"]
-    GR -.모달.-> SH4["ChallengeResultModal<br/>(자동 노출 · 1회 가드)"]
+    SHELL -.모달.-> SH4["ChallengeResultModal<br/>(미확인 결과가 있으면 · 서버 ack)"]
     SH3 ==stack push==> SH7
     B2 ==stack push==> SH7["GroupChallengeHistoryScreen<br/>(그룹 단위 · challengeId 필터)"]
 
@@ -51,7 +52,10 @@ flowchart TB
 
 **핵심 원칙: 챌린지는 거의 전용 화면을 갖지 않는다.**
 상호작용이 그룹방 안의 **카드 + 바텀시트**로 끝나고, 결과 확인조차 화면 이동 없이 모달/시트로
-처리된다. **stack push는 한 곳뿐**이다 — 「그룹 챌린지 내역」. 무한 스크롤 목록이라 시트에
+처리된다. **단 `ChallengeResultModal`만 그룹방 밖에 산다** — 소유자가 그룹방이 아니라 **그룹 탭
+셸**이라 카드 덱·그룹방·**소속 0개 빈 상태** 어디가 활성이든 같은 큐가 그 위에 뜬다(N56 · §4.3).
+그룹방에 매달아 두면 카드 덱만 보고 나가는 사용자와 **그룹방에 못 들어가는 탈퇴자**가 자기 결과를
+못 본다. **stack push는 한 곳뿐**이다 — 「그룹 챌린지 내역」. 무한 스크롤 목록이라 시트에
 담을 수 없다(`SheetShell`이 ScrollView를 두르고 있어 시트 내 FlatList는 중첩 스크롤 문제가 있다).
 챌린지별 이력도 **같은 화면에 `challengeId` 필터를 걸어** 들어간다 — 화면을 둘로 나눌 이유가 없다.
 
@@ -60,9 +64,12 @@ flowchart TB
 ## 2. 화면 계층 (Screen Hierarchy)
 
 ```
-그룹 탭
-└── GroupScreen                       내 그룹 목록 · 찾기 진입
-    └── GroupRoomScreen               그룹방 (챌린지의 유일한 컨테이너)
+그룹 탭 셸                             ← 결과 모달 오버레이의 소유자 (N56)
+├── ChallengeResultModal              미확인 정산 결과 · 순차 큐 · 서버 ack
+│                                     ※ 아래 어느 화면이 활성이든 그 위에 뜬다
+│                                       (카드 덱 · 그룹방 · 소속 0개 빈 상태)
+└── GroupScreen                       내 그룹 덱 · 찾기 진입 · 소속 0개 빈 상태
+    └── GroupRoomScreen               그룹방 (챌린지 카드·시트의 컨테이너)
         ├── [섹션] 멤버 리더보드
         ├── [섹션] 공지
         └── [섹션] 챌린지               ← 이 문서의 대상
@@ -76,12 +83,12 @@ flowchart TB
             ├── [버튼] 챌린지 만들기     OWNER 전용 → ChallengeComposeSheet
             └── [링크] 챌린지 내역       → GroupChallengeHistoryScreen
 
-        오버레이 (스택 이동 없음)
+        오버레이 (스택 이동 없음 · 그룹방 소유)
         ├── ChallengeComposeSheet      만들기 폼 (요일 선택 포함)
         ├── BetJoinSheet               회차 참여 (하루형은 진행분 공개)
         ├── LastSessionResultSheet     지난 회차 인별 결과
-        ├── ChallengeDeleteSheet       삭제 확인 — 진행 중이면 경고 단계가 하나 더 (§2.5)
-        └── ChallengeResultModal       회차 결과 (진입 시 자동 · 1회)
+        └── ChallengeDeleteSheet       삭제 확인 — 진행 중이면 경고 단계가 하나 더 (§2.5)
+        ※ ChallengeResultModal은 여기 없다 — 셸 소유다(위 참조 · N56)
 
         스택 화면 (하나뿐)
         └── GroupChallengeHistoryScreen  회차 내역 — 무한 스크롤
@@ -445,7 +452,8 @@ flowchart LR
 |---|---|
 | **트리거** | **미확인 결과 1건 이상.** 그룹 탭 랜딩(카드 덱)·그룹방·결과 푸시 착지 — 어디로 도달했든 그 화면 위에 연다. 화면 좌표에 매지 않는다 (N56) |
 | **소유자** | **그룹 탭 셸** — 개별 화면이 아니라 셸이 오버레이를 얹는다. 화면이 바뀌어도 큐는 살아 있다 (HLD §1 · 구현은 후속 GROMO-1575·1576) |
-| **소속 0개** | **빈 상태 화면 위에도 띄운다.** 카드가 0장이라고 조회를 끄지 않는다 — 전원 탈퇴자의 유일한 인앱 경로다. 수명은 큐 소진(전건 ack)까지 |
+| **소속 0개** | **빈 상태 화면 위에도 띄운다.** 카드가 0장이라고 조회를 끄지 않는다 — 전원 탈퇴자의 유일한 인앱 경로다 |
+| **재조회 계기** | ① 셸 활성화 ② **앱 포그라운드 복귀** ③ **`BET_RESULT` 푸시 수신**. 큐 소진은 종단이 아니다 — 탈퇴해도 시작된 회차는 정산 대상이라(C8·FR-40·N19) 결과가 나중에 새로 생긴다. **폴링 없음**, `BET_VOID_REFUND`는 계기 아님(N48 이중 통지) |
 | **대상** | `GET /me/challenge-results` 응답 전부 (참가자 스코프 — N53) |
 | **데이터** | **조회 1건** — `GET /me/challenge-results`. 날짜를 따로 부르지 않고 카드 조회에도 기대지 않는다 |
 | **순서** | `sessionDate` 내림차순 → 동률이면 챌린지 `startedAt` 순. 최근 것부터 |
