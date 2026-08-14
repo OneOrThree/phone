@@ -298,16 +298,26 @@ export default function GroupRoomScreen({
   //    찍힌다 — 사용자가 인지한 시점이 아니다). 그래서 그 시트들은 아래 requestCardSheetSlot로
   //    승인을 받고 연다. 동기로 열리는 시트는 종전대로 등록만 한다.
 
+  // 지금 **실제로 떠 있는** 시트가 있는가. slot 보유 여부와 다르다 — slot은 이 화면 전체가
+  // 공유하는 하나뿐이라, 그것이 granted라는 사실만으로는 "지금 새 시트를 하나 더 열어도
+  // 된다"가 되지 않는다.
+  const sheetOpen = betSheet !== null || composeOpen || sheetOpenCardIds.length > 0;
+
   const [sheetSlotRequested, setSheetSlotRequested] = useState(false);
   const sheetSlot = useOverlaySlot('groupRoom:sheet', {
     priority: OVERLAY_PRIORITY.sheet,
-    active: betSheet !== null || composeOpen || sheetOpenCardIds.length > 0 || sheetSlotRequested,
+    active: sheetOpen || sheetSlotRequested,
   });
 
-  // 승인을 기다리는 카드들 — 승인되면 true로, 화면을 벗어나면 false로 깨운다.
+  // 승인을 기다리는 카드들 — **한 번에 한 요청만** 깨운다(아래 grantOneSheetWaiter).
   const sheetSlotWaitersRef = useRef<((granted: boolean) => void)[]>([]);
   const sheetSlotRef = useRef(sheetSlot);
   sheetSlotRef.current = sheetSlot;
+  const sheetOpenRef = useRef(sheetOpen);
+  sheetOpenRef.current = sheetOpen;
+  // 승인은 했는데 아직 열림 보고가 오지 않은 요청이 있는가 — 그 사이에 다음 요청을 승인하면
+  // 두 시트가 함께 마운트된다.
+  const sheetGrantInFlightRef = useRef(false);
 
   const settleSheetSlotWaiters = useCallback((granted: boolean) => {
     const waiters = sheetSlotWaitersRef.current;
@@ -316,27 +326,42 @@ export default function GroupRoomScreen({
     waiters.forEach((resolve) => resolve(granted));
   }, []);
 
+  // ⚠️ **한 요청씩 직렬화한다.** slot이 granted라는 이유로 모든 대기자를 한꺼번에 깨우면,
+  //    서로 다른 카드의 프리플라이트가 겹치거나 이미 열린 시트가 있는 상태에서 늦은 응답이
+  //    도착했을 때 RN Modal이 여럿 함께 마운트된다. 승인 조건은 셋이다:
+  //    slot 보유 · **실제로 떠 있는 시트 없음** · 앞선 승인이 열림으로 마무리됨.
+  const grantOneSheetWaiter = useCallback(() => {
+    if (sheetGrantInFlightRef.current) return;
+    if (sheetOpenRef.current) return;
+    if (sheetSlotRef.current !== 'granted') return;
+    const next = sheetSlotWaitersRef.current.shift();
+    if (next === undefined) return;
+    sheetGrantInFlightRef.current = true;
+    next(true);
+  }, []);
+
   useEffect(() => {
-    if (sheetSlot !== 'granted') return;
-    settleSheetSlotWaiters(true);
-  }, [sheetSlot, settleSheetSlotWaiters]);
+    grantOneSheetWaiter();
+  }, [sheetSlot, sheetOpen, grantOneSheetWaiter]);
 
   // 화면을 벗어나거나 언마운트되면 대기를 접는다 — 안 그러면 결과 모달이 닫히는 순간
   // **이미 떠난 화면의** 시트가 새 화면 위로 뜬다(시트는 RN Modal이라 라우트를 넘어 보인다).
   useEffect(
     () => () => {
+      sheetGrantInFlightRef.current = false;
       settleSheetSlotWaiters(false);
     },
     [settleSheetSlotWaiters],
   );
 
   const requestCardSheetSlot = useCallback(() => {
-    if (sheetSlotRef.current === 'granted') return Promise.resolve(true);
     setSheetSlotRequested(true);
     return new Promise<boolean>((resolve) => {
       sheetSlotWaitersRef.current.push(resolve);
+      // 지금 바로 가능한 경우를 위해 한 번 본다 — 이펙트를 기다리며 한 프레임 늦추지 않는다.
+      grantOneSheetWaiter();
     });
-  }, []);
+  }, [grantOneSheetWaiter]);
 
   // 이 화면이 지금 그리고 있는 그룹. 이미 스택에 있는 'GroupRoom' 라우트로 다시 navigate 하면
   // (React Navigation이 params만 병합해) **같은 인스턴스를 재사용**해 groupId만 갈아 끼운다
@@ -563,6 +588,7 @@ export default function GroupRoomScreen({
         invalidateCardInteraction(interactionId);
         // 승인 대기 중인 카드 시트를 접는다 — 이 화면을 떠난 뒤 승인이 떨어지면
         // 그 시트가 **새 화면 위로** 뜬다(RN Modal은 라우트를 넘어 보인다).
+        sheetGrantInFlightRef.current = false;
         settleSheetSlotWaiters(false);
         setSheetSlotRequested(false);
       };
@@ -654,7 +680,14 @@ export default function GroupRoomScreen({
   const onCardSheetVisibilityChange = useCallback((challengeId: string, open: boolean) => {
     // 요청이 실제 열림으로 바뀌었다 — 같은 호출에서 함께 갱신해야 두 state가 한 배치로 묶여
     // `active`가 한 프레임도 false로 내려가지 않는다(내려가면 그 틈에 결과가 slot을 가져간다).
-    if (open) setSheetSlotRequested(false);
+    // 승인 한 건이 열림으로 마무리됐으므로 다음 요청을 받을 수 있다 — 다만 이 시트가 닫혀야
+    // 실제로 승인된다(sheetOpen 조건).
+    if (open) {
+      sheetGrantInFlightRef.current = false;
+      // ⚠️ 아직 기다리는 요청이 남아 있으면 등록을 유지한다 — 여기서 내리면 이 시트가 닫히는
+      //    순간 slot까지 함께 풀려, 남은 요청은 승인 조건(slot 보유)을 영영 못 채운다.
+      if (sheetSlotWaitersRef.current.length === 0) setSheetSlotRequested(false);
+    }
     setSheetOpenCardIds((prev) => {
       const had = prev.includes(challengeId);
       if (had === open) return prev; // 같은 값 재보고는 리렌더를 만들지 않는다

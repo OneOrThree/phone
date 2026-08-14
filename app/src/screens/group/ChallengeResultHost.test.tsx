@@ -57,6 +57,13 @@ const { logGroupChallengeResultShown, logGroupChallengeResultClosed } = jest.req
   '@/services/analyticsEvents',
 );
 
+// 인증 세대 — 계정(토큰) 교체를 테스트가 직접 굴린다. ack 복구가 이 값을 캡처해 재검증한다.
+jest.mock('@/services/api', () => ({
+  ...jest.requireActual('@/services/api'),
+  getAuthSessionGeneration: jest.fn(() => 1),
+}));
+const mockAuthGeneration = jest.requireMock('@/services/api').getAuthSessionGeneration as jest.Mock;
+
 jest.mock('@/services/groupApi', () => ({
   ...jest.requireActual('@/services/groupApi'),
   getMyChallengeResults: jest.fn(),
@@ -211,6 +218,7 @@ beforeEach(async () => {
   mockAck.mockResolvedValue(true);
   mockPendingAck.mockResolvedValue([]);
   mockReconcileAck.mockResolvedValue(true);
+  mockAuthGeneration.mockReturnValue(1);
 });
 
 describe('그룹 흐름 라우트에서만 연다', () => {
@@ -461,6 +469,34 @@ describe('선점·재검증·확인 배선(claim → verify → 노출 → ack)'
     }
   });
 
+  // ⚠️ 호스트의 수명 조건은 **그룹 흐름 focus**다. 선점 재시도 타이머가 흐름 밖에서 깨어나면
+  //    거기서 load()가 나가 큐와 **모듈 전역** gate를 되살리고, 아래에 남은 탈퇴 유예 GroupRoom이
+  //    그 'none'을 보고 goBack()으로 지금 보고 있는 화면을 팝한다.
+  test('선점 재시도 대기 중 그룹 흐름을 벗어나면 재조회를 쏘지 않는다', async () => {
+    jest.useFakeTimers();
+    try {
+      mockClaim.mockResolvedValue({ ok: false, retryAfterMs: 1_000 });
+      mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+      await renderHost({ initialRoute: '그룹' });
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(1);
+
+      // 지연 시간 안에 사용자가 그룹 흐름을 벗어났다.
+      await navigate('홈');
+      const callsOnLeave = mockGetMyChallengeResults.mock.calls.length;
+
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      await act(async () => {});
+
+      // 흐름 밖에서는 아무것도 쏘지 않는다 — gate도 그대로다.
+      expect(mockGetMyChallengeResults).toHaveBeenCalledTimes(callsOnLeave);
+      expect(getChallengeResultGate()).toBe('unknown');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('ack가 실패하면 **모달을 다시 띄우지 않고** ack만 재시도한다(N51)', async () => {
     // 재시도 지연(5초)을 실제로 기다리지 않으려고 이 테스트만 가짜 타이머로 돈다.
     jest.useFakeTimers();
@@ -508,6 +544,34 @@ describe('ack 복구', () => {
     // 그러나 서버 확인은 다시 시도한다.
     await waitFor(() => expect(mockPendingAck).toHaveBeenCalledWith('me', expect.any(Array)));
     await waitFor(() => expect(mockReconcileAck).toHaveBeenCalledWith('s1'));
+  });
+
+  // ⚠️ 대상 선정은 **이전 계정의 로컬 마커**로 하고, 실행은 **현재 전역 토큰**으로 나간다.
+  //    그 사이 계정이 갈리면 새 계정이 아직 보지 않은 결과를 claim·ack 해 버린다 — 그 사용자는
+  //    자기 결과를 영영 못 본다. 같은 회차에 두 계정이 참가하는 것은 실제로 가능하다(가드 키가
+  //    계정 스코프인 이유가 그것이다).
+  //    지금은 대역이 no-op이라 증상이 안 보이므로 **호출 여부**로 잠근다.
+  test('대상 선정과 실행 사이에 계정이 바뀌면 복구를 실행하지 않는다', async () => {
+    let releasePending: (entries: { sessionId: string }[]) => void = () => undefined;
+    mockPendingAck.mockReturnValue(
+      new Promise<{ sessionId: string }[]>((resolve) => {
+        releasePending = resolve;
+      }),
+    );
+    mockGetMyChallengeResults.mockResolvedValue([resultEntry()]);
+    await renderHost();
+    await waitFor(() => expect(mockPendingAck).toHaveBeenCalledTimes(1));
+
+    // 대상 목록이 도착하기 전에 계정이 갈렸다(토큰 교체 = 인증 세대 증가).
+    mockAuthGeneration.mockReturnValue(2);
+
+    await act(async () => {
+      releasePending([{ sessionId: 's1' }]);
+    });
+    await act(async () => {});
+
+    // 이전 계정의 마커로 고른 대상을 **현재 계정의 토큰으로** 보내지 않는다.
+    expect(mockReconcileAck).not.toHaveBeenCalled();
   });
 
   test('복구가 실패해도 화면에 영향이 없다 — 조용한 수렴이다', async () => {

@@ -1044,8 +1044,10 @@ export default function ChallengeCard({
       if (seq !== deleteSeqRef.current) return; // 사용자가 그 사이 다른 동작을 했다 — 폐기.
       if (fresh.openSessions.length > 0) {
         // 프리플라이트가 끝난 지금이 실제로 여는 시점이다(위 openWeekSheet와 같은 근거).
+        // ⚠️ 승인을 받으면 **반드시 연다** — 부모는 승인 한 건이 열림으로 마무리되기를 기다렸다
+        //    다음 요청을 받으므로(직렬화), 여기서 조용히 빠져나가면 그 자리가 막힌다.
+        //    승인 대기 중 다른 삭제 동작이 끼어들 수는 없다(deleteLock이 잡고 있다).
         if (!(await claimSheetSlot())) return;
-        if (seq !== deleteSeqRef.current) return; // 승인을 기다리는 사이 다른 동작이 끼어들었다
         openSheet();
         setDeletePreview(fresh);
         Alert.alert('걸린 돈이 생겼어요', '방금 참여한 사람이 있어요. 내용을 확인해 주세요.');

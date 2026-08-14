@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useUser } from '@/store/UserContext';
 import { useCoins } from '@/store/CoinContext';
+import { getAuthSessionGeneration } from '@/services/api';
 import { getMyChallengeResults } from '@/services/groupApi';
 import { subscribeBetResultPush } from '@/services/betResultSignal';
 import {
@@ -97,14 +98,27 @@ const NOT_IN_FLOW: GroupFlowRouteState = {
 
 // 이전 실행에서 ack가 끝내 실패한 회차를 조용히 수렴시킨다(N51). 노출 경로와 완전히 분리돼
 // 있어 실패해도 화면에 아무 영향이 없다 — 다음 조회가 같은 대상을 다시 집어 온다.
+//
+// ⚠️ **대상 선정과 실행 사이에 계정이 바뀌면 실행하지 않는다.** 선정은 이전 `userId`의 로컬
+//    마커로 하는데(가드 키가 계정 스코프인 이유가 바로 이것이다 — 한 기기 두 계정이 같은 회차에
+//    참가할 수 있다), 실행은 **현재 전역 토큰**으로 나간다. 그 사이 계정이 갈리면 새 계정이
+//    **아직 보지 않은 결과를 claim·ack** 해 버리고, 그 사용자는 자기 결과를 영영 못 본다.
+// ⚠️ 지금은 대역이 no-op이라 증상이 보이지 않는다 — 통합(W3) 후에 터진다. 배선을 미리 옳게 둔다.
 async function reconcilePendingAcks(
   userId: string,
   candidates: ChallengeResultCandidate[],
+  isCurrentAccount: () => boolean,
 ): Promise<void> {
   try {
     const pending = await pendingAckChallengeResults(userId, candidates);
+    if (!isCurrentAccount()) return;
     await Promise.all(
-      pending.map((entry) => reconcileChallengeResultAck(entry.sessionId).catch(() => false)),
+      pending.map((entry) =>
+        // 각 실행 직전에도 다시 확인한다 — 목록이 길면 그 사이에도 갈릴 수 있다.
+        isCurrentAccount()
+          ? reconcileChallengeResultAck(entry.sessionId).catch(() => false)
+          : Promise.resolve(false),
+      ),
     );
   } catch {
     // 조용한 복구다 — 실패는 다음 조회로 미룬다.
@@ -154,19 +168,34 @@ export default function ChallengeResultHost() {
   // 동시에 본다 — ②가 만든 재검증 단계도 **비활성 구간을 건너뛴 응답에는 무의미**하다.
   // (같은 모양의 세대 가드가 groupApi.getMyChallengeResults의 requestGeneration에도 있다.)
   const activityGenRef = useRef(0);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // 타이머는 **수명이 다른 두 종류**라 통에 나눠 담는다.
+  //  · 선점 재시도 — 호스트의 수명 조건(그룹 흐름 focus)에 묶인다. 흐름을 벗어나면 취소한다:
+  //    그러지 않으면 **흐름 밖에서** load()가 나가 큐와 모듈 전역 gate를 되살리고, 아래에 남은
+  //    탈퇴 유예 GroupRoom이 그 'none'을 보고 goBack()으로 지금 보고 있는 화면을 팝한다.
+  //  · ack 재시도 — 흐름과 무관하다(N51). 서버 확인은 화면을 떠나도 끝나야 한다.
+  const claimTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const ackTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mountedRef = useRef(true);
+  const clearClaimTimers = useCallback(() => {
+    claimTimersRef.current.forEach(clearTimeout);
+    claimTimersRef.current = [];
+  }, []);
   useEffect(
     () => () => {
       mountedRef.current = false;
-      timersRef.current.forEach(clearTimeout);
-      timersRef.current = [];
+      claimTimersRef.current.forEach(clearTimeout);
+      claimTimersRef.current = [];
+      ackTimersRef.current.forEach(clearTimeout);
+      ackTimersRef.current = [];
     },
     [],
   );
 
   const queueRef = useRef<ChallengeResultCandidate[]>([]);
   const seqRef = useRef(0);
+  // 지금 이 호스트가 아는 계정 — 비동기 콜백이 렌더 클로저 대신 읽는다.
+  const userIdRef = useRef<string | null>(userId ?? null);
+  userIdRef.current = userId ?? null;
   const inFlowRef = useRef(flow.inFlow);
   inFlowRef.current = flow.inFlow;
   // 지금 떠 있는 모달의 노출 시각·키 — dwell_ms 계산과 노출 1회 판정용.
@@ -221,6 +250,8 @@ export default function ChallengeResultHost() {
   //   ② 낡은 claim을 **재검증 없이 재사용**해 이미 확인한 모달을 다시 띄운다.
   useEffect(() => {
     if (flow.inFlow) return;
+    // 예약된 선점 재시도를 먼저 끊는다 — 흐름 밖에서 load()가 나가면 큐와 전역 gate가 되살아난다.
+    clearClaimTimers();
     focusKeyRef.current = null;
     focusPendingRef.current = null;
     queueRef.current = [];
@@ -232,7 +263,7 @@ export default function ChallengeResultHost() {
     // '없다'가 아니라 '모른다'다 — 우리가 로컬 상태를 버렸을 뿐 서버 사실은 그대로다.
     // ('none'으로 말하면 그룹방의 탈퇴 유예가 근거 없이 풀린다.)
     setChallengeResultGate('unknown');
-  }, [flow.inFlow]);
+  }, [flow.inFlow, clearClaimTimers]);
 
   // ── 현재 라우트 추적 ──
   // 루트에 있어 useIsFocused를 못 쓴다. navigationRef의 'state' 이벤트로 대신한다.
@@ -310,7 +341,13 @@ export default function ChallengeResultHost() {
     // 열리지 않고, 서버에는 영원히 미확인으로 남는다(그 회차의 푸시 클레임도 안 닫힌다).
     // 그래서 거르기 **전**에 "마커는 있는데 서버는 미확인"인 것을 골라 ack만 다시 보낸다.
     // 재노출은 하지 않는다 — 이미 본 것이 확실하다. 실패·예외는 삼킨다(다음 조회가 또 집는다).
-    reconcilePendingAcks(userId, candidates).catch(() => undefined);
+    // 계정 신원을 여기서 고정한다 — 인증 세대(토큰 교체)와 이 호스트가 아는 userId 둘 다 본다.
+    const authGeneration = getAuthSessionGeneration();
+    reconcilePendingAcks(
+      userId,
+      candidates,
+      () => getAuthSessionGeneration() === authGeneration && userIdRef.current === userId,
+    ).catch(() => undefined);
 
     let next: ChallengeResultCandidate[] = [];
     if (candidates.length > 0) {
@@ -505,13 +542,15 @@ export default function ChallengeResultHost() {
             ? base * CLAIM_BACKOFF_FACTOR
             : base;
         const timer = setTimeout(() => {
-          if (!mountedRef.current) return;
+          // 흐름 밖이면 아무것도 쏘지 않는다 — 호스트의 수명 조건은 그룹 흐름 focus다.
+          // (이탈 시 타이머를 취소하지만, 이 검사가 마지막 방어선이다.)
+          if (!mountedRef.current || !inFlowRef.current) return;
           loadRef.current().finally(() => {
-            if (!mountedRef.current) return;
+            if (!mountedRef.current || !inFlowRef.current) return;
             setClaimTick((tick) => tick + 1);
           });
         }, delay);
-        timersRef.current.push(timer);
+        claimTimersRef.current.push(timer);
       });
     return () => {
       canceled = true;
@@ -528,7 +567,7 @@ export default function ChallengeResultHost() {
       .then((done) => {
         if (done || !mountedRef.current || attempt + 1 >= ACK_MAX_ATTEMPTS) return;
         const timer = setTimeout(() => runAck(sessionId, token, attempt + 1), ACK_RETRY_MS);
-        timersRef.current.push(timer);
+        ackTimersRef.current.push(timer);
       });
   }, []);
 

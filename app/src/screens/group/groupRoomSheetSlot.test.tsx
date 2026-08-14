@@ -71,20 +71,31 @@ jest.mock('@/services/groupApi', () => ({
 // 지키는지는 카드 자신의 테스트가 본다. 스텁이 하는 일은 카드의 `await 뒤` 시점을 재현하는 것:
 // 버튼을 누르면 게이트를 부르고, 돌아온 답을 화면에 적는다.
 let gateResult: 'pending' | 'granted' | 'denied' | 'idle' = 'idle';
+// 카드별 게이트 결과 — 직렬화 검증(서로 다른 카드의 프리플라이트가 겹치는 경우)에 쓴다.
+const gateResults: Record<string, 'pending' | 'granted' | 'denied'> = {};
+// 승인받은 카드가 "열었다"고 부모에 보고하는 콜백 — 실제 카드의 openSheet()에 해당한다.
+let reportOpen: ((challengeId: string, open: boolean) => void) | null = null;
 jest.mock('./components/ChallengeCard', () => {
   const { Text: RNText, TouchableOpacity: RNTouchable } = require('react-native');
   return function MockCard({
+    challenge: card,
     onRequestSheetSlot,
+    onSheetVisibilityChange,
   }: {
+    challenge: { id: string };
     onRequestSheetSlot?: () => Promise<boolean>;
+    onSheetVisibilityChange?: (challengeId: string, open: boolean) => void;
   }) {
+    reportOpen = onSheetVisibilityChange ?? null;
     return (
       <RNTouchable
-        testID="card.asyncSheet.open"
+        testID={`card.asyncSheet.open.${card.id}`}
         onPress={() => {
           gateResult = 'pending';
+          gateResults[card.id] = 'pending';
           onRequestSheetSlot?.().then((granted) => {
             gateResult = granted ? 'granted' : 'denied';
+            gateResults[card.id] = granted ? 'granted' : 'denied';
           });
         }}
       >
@@ -123,9 +134,9 @@ function detail(): GroupDetailResponse {
   };
 }
 
-function challenge(): GroupChallengeResponse {
+function challenge(id = 'c1'): GroupChallengeResponse {
   return {
-    id: 'c1',
+    id,
     missionType: 'DURATION',
     missionCategory: 'FOCUS',
     durationMinutes: 60,
@@ -157,9 +168,9 @@ function tree(holderActive: boolean) {
   );
 }
 
-async function openAsyncSheet() {
+async function openAsyncSheet(challengeId = 'c1') {
   await act(async () => {
-    fireEvent.press(screen.getByTestId('card.asyncSheet.open'));
+    fireEvent.press(screen.getByTestId(`card.asyncSheet.open.${challengeId}`));
   });
   await act(async () => {});
 }
@@ -178,6 +189,8 @@ beforeEach(async () => {
   jest.clearAllMocks();
   mockFocusEntries.length = 0;
   gateResult = 'idle';
+  Object.keys(gateResults).forEach((key) => delete gateResults[key]);
+  reportOpen = null;
   resetChallengeResultGateForTests();
   mockGetGroupDetail.mockResolvedValue(detail());
   mockGetAnnouncements.mockResolvedValue([]);
@@ -187,7 +200,7 @@ beforeEach(async () => {
 test('보유자가 놓을 때까지 승인하지 않는다 — 놓으면 그때 승인한다', async () => {
   const view = await render(tree(true));
   await act(async () => {});
-  expect(screen.getByTestId('card.asyncSheet.open')).toBeOnTheScreen();
+  expect(screen.getByTestId('card.asyncSheet.open.c1')).toBeOnTheScreen();
 
   await openAsyncSheet();
   // 결과가 slot을 쥐고 있다 — 카드는 시트를 마운트할 수 없다.
@@ -211,6 +224,61 @@ test('화면을 벗어나면 대기를 거절로 깨운다 — 떠난 화면의 
   await blur();
 
   await waitFor(() => expect(gateResult).toBe('denied'));
+});
+
+// ⚠️ 공유 slot이 granted라는 사실만으로 **모든** 요청을 승인하면, 서로 다른 카드의 비동기
+//    프리플라이트가 겹쳤을 때 RN Modal이 여럿 함께 마운트된다. 승인은 한 요청씩이어야 한다.
+test('여러 카드가 동시에 요청해도 한 번에 하나만 승인한다', async () => {
+  mockGetChallenges.mockResolvedValue([challenge('c1'), challenge('c2')]);
+  await render(tree(false));
+  await act(async () => {});
+
+  // 두 카드의 프리플라이트가 거의 동시에 끝났다.
+  await openAsyncSheet('c1');
+  await openAsyncSheet('c2');
+
+  // 한 쪽만 승인됐다 — 나머지는 계속 기다린다.
+  const granted = Object.values(gateResults).filter((v) => v === 'granted');
+  expect(granted).toHaveLength(1);
+  expect(Object.values(gateResults).filter((v) => v === 'pending')).toHaveLength(1);
+
+  // 승인받은 쪽이 실제로 열었다고 보고해도 — 그 시트가 떠 있는 동안은 다음 차례가 오지 않는다.
+  const openedId = Object.keys(gateResults).find((id) => gateResults[id] === 'granted');
+  await act(async () => {
+    reportOpen?.(openedId as string, true);
+  });
+  await act(async () => {});
+  expect(Object.values(gateResults).filter((v) => v === 'granted')).toHaveLength(1);
+
+  // 그 시트가 닫히면 그때 다음 요청이 승인된다.
+  await act(async () => {
+    reportOpen?.(openedId as string, false);
+  });
+  await act(async () => {});
+  await waitFor(() =>
+    expect(Object.values(gateResults).filter((v) => v === 'granted')).toHaveLength(2),
+  );
+});
+
+// 동기로 열린 시트(내기·만들기·지난 결과)가 이미 떠 있으면, 비동기 요청은 그것이 닫힐 때까지
+// 기다린다 — slot은 그 시트 때문에 이미 granted지만 "하나 더 열어도 된다"는 뜻이 아니다.
+test('이미 떠 있는 시트가 있으면 승인하지 않는다', async () => {
+  await render(tree(false));
+  await act(async () => {});
+
+  // 카드가 동기 시트를 열었다고 보고한다(실제 카드의 지난 결과 시트에 해당).
+  await act(async () => {
+    reportOpen?.('c1', true);
+  });
+  await act(async () => {});
+
+  await openAsyncSheet('c1');
+  expect(gateResults.c1).toBe('pending');
+
+  await act(async () => {
+    reportOpen?.('c1', false);
+  });
+  await waitFor(() => expect(gateResults.c1).toBe('granted'));
 });
 
 test('가릴 것이 없으면 곧바로 승인한다 — 평소 경로에 지연을 넣지 않는다', async () => {
