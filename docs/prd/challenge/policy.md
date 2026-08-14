@@ -1134,7 +1134,7 @@ MQ + DLQ 기반 실패 격리와 운영자 알림은 **후속 티켓 GROMO-1256*
 | S13 | 창 사용분 보고에 `measured_at` 저장 (역전 보고 무시) | N34 · **GROMO-1407** |
 | S14 | `notification_sent_logs` 확장 — `kind` · `subject_id` · `status` · `claimed_at` | N41 · **GROMO-1417** |
 | S15 | 활성 챌린지 부분 유니크 **완화** — 하루형만 `(group_id, category)` 로 남기고 창형은 복수 허용 | FR-3 · **GROMO-1422** |
-| S16 | `group_challenge_bet_participants`에 **`acknowledged_at`** 추가 + **표시 선점(claim) 상태**(선점 기기·만료 시각·**claim 토큰/버전**) — 확인과 선점은 다른 상태다(IA §4.3) — 결과 모달 확인 표시. 리그 `league_weekly_results.acknowledged_at`과 같은 모양 | **N58** · **GROMO-1577** |
+| S16 | `group_challenge_bet_participants`에 **`acknowledged_at`** 추가 + **표시 선점(claim) 상태**(선점 기기·만료 시각·**claim 토큰/버전**). ⚠️ **기존 행의 초기값 정책이 필요하다** — 단순 nullable 로 배포하면 과거 30일 결과가 전부 미확인이 되어 **재설치·새 기기 사용자가 이미 본 것을 최대 10건 다시 본다**(N58이 막으려던 재생이 배포 직후 그대로). 반대로 전부 ack 로 백필하면 **아직 못 본 결과를 유실한다.** 배포 시각 이전 행의 재노출을 수용할지·컷오프로 백필할지·기존 로컬 마커를 서버로 수렴시킬지를 GROMO-1577이 정한다 — 확인과 선점은 다른 상태다(IA §4.3) — 결과 모달 확인 표시. 리그 `league_weekly_results.acknowledged_at`과 같은 모양 | **N58** · **GROMO-1577** |
 
 ### 9.2 백엔드
 
@@ -1155,7 +1155,7 @@ MQ + DLQ 기반 실패 격리와 운영자 알림은 **후속 티켓 GROMO-1256*
 | P2 | B16 | **내기 끄기 경로 제거 (N26)** — `bet.enabled`를 `false`로 되돌리는 엔드포인트·서비스 메서드가 있으면 삭제하고, 새로 만들지 않는다. 끄기는 삭제(무효화 + 전원 환불)와 결과가 같으므로 경로를 두 개 둘 이유가 없다 · **GROMO-1426** |
 | P2 | B11 | 분산 락 (ShedLock) — 기존 티켓 565 · **GROMO-1283** |
 | P3 | B12 | 챌린지·내기 전용 컨트롤러 분리 (기존 H1 갭) · **GROMO-1284** |
-| P1 | B17 | **결과 확인 표시(ack) API** **+ 표시 선점 API** — 선점은 만료가 있고, 실패 응답은 **만료 시각**을 돌려준다(앱이 폴링 없이 그 시점 1회만 다시 시도한다). 성공 응답에는 **claim 토큰(버전)** 을 실어 앱이 **렌더 직전에 활성 여부를 재검증**할 수 있게 한다. — `GET /me/challenge-results`에 `acknowledged` 병기 + `POST /me/challenge-results/{sessionId}/ack`. `acknowledged_at IS NULL` **조건부 원자 UPDATE**라 중복·동시 호출에 멱등(리그 `LeagueWeeklyResultRepository:73-87` 선례) · **GROMO-1577** |
+| P1 | B17 | **결과 확인 표시(ack) API** **+ 표시 선점 API** — 선점은 만료가 있고, 실패 응답은 **상대 지연(`retryAfterMs`)** 을 돌려준다(앱이 폴링 없이 그 시점 1회만 다시 시도한다). ⚠️ **절대 만료 시각을 기기 시계로 해석하면 안 된다** — 기기가 서버보다 빠르면 아직 살아 있는 lease 를 즉시 다시 요청해 1회 기회를 소진하고, 느리면 만료 후에도 한참 결과를 안 띄운다. 조기 재실패 시에는 **갱신된 기준으로 다시 예약**한다. 성공 응답에는 **claim 토큰(버전)** 을 실어 앱이 **렌더 직전에 활성 여부를 재검증**할 수 있게 한다. — `GET /me/challenge-results`에 `acknowledged` 병기 + `POST /me/challenge-results/{sessionId}/ack`. `acknowledged_at IS NULL` **조건부 원자 UPDATE**라 중복·동시 호출에 멱등(리그 `LeagueWeeklyResultRepository:73-87` 선례) · **GROMO-1577** |
 | P3 | B13 | 좀비 **서술** 정리 — 죽은 코드를 광고하는 주석·OpenAPI 3곳 · **GROMO-1285**. ⚠️ `refundedCount`는 좀비가 아니다(N21·GROMO-1411이 되살렸다) · `BET_FOCUS_ONLY` **상수**는 의도적 잔존(구앱 계약) — **둘 다 지우면 사고다** |
 
 > **B15 상세 — 이건 신규 구현이 아니라 「되돌리기」다.** 자정 걸침은 지금까지 *허용*이 전제였고,
