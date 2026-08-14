@@ -24,6 +24,7 @@
 //    판단 기준은 OverlaySlotContext 헤더의 A/B 문단과 같다: **여는 시점이 동기인가.**
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, type AlertButton } from 'react-native';
+import { readCurrentRouteKey, subscribeCurrentRoute } from '@/navigation/navigationRef';
 import { OVERLAY_PRIORITY, useOverlaySlotActions } from './OverlaySlotContext';
 
 /**
@@ -50,18 +51,36 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
   // 떠 있는 Alert 수. 카운트인 이유: 실패 통보가 겹쳐 뜨는 경우(요청 둘이 각각 실패)
   // 하나를 닫았다고 나머지가 떠 있는데 자리를 놓으면 안 된다.
   const openCountRef = useRef(0);
+  // 승인을 기다리는 afterSlot 요청들의 취소 손잡이. **떠 있는 Alert와 별도로** 센다 —
+  // 언마운트·blur가 접어야 할 것은 이쪽뿐이다(아래 두 주석).
+  const pendingCancelsRef = useRef(new Set<() => void>());
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
-  // 화면이 사라지면 남은 점유를 접는다 — Alert만 떠 있고 화면이 없는 상태가 자리를 잠근다.
+  // 떠 있는 Alert가 없을 때만 등록을 접는다 — 대기 요청을 접는 모든 경로가 이걸 쓴다.
+  const releaseIfIdle = useCallback(() => {
+    if (openCountRef.current === 0) actionsRef.current?.release(id);
+  }, [id]);
+
+  // ── 화면이 사라질 때 ────────────────────────────────────────────────────────
+  // ⚠️ **떠 있는 Alert의 자리는 유지한다.** `showAlert(...)` 직후 `goBack()`을 부르는 화면이
+  //    있는데(GroupOwnerTransferScreen의 실패 경로), 네이티브 Alert는 화면이 언마운트돼도
+  //    그대로 떠 있다. 여기서 자리를 반납하면 그 **Alert 뒤에서** 결과 호스트가 모달을 마운트하고
+  //    사용자가 못 본 회차에 seen/ack이 찍힌다 — 이 배치가 반복해서 물린 바로 그 결함이다.
+  //    그래서 반납 주체를 화면에서 **Alert 자신**으로 옮긴다: 버튼 또는 onDismiss가 반납한다.
+  //    영구 점유가 되지 않는 근거 — (a) 버튼을 안 넘기면 우리가 `확인` 하나를 넣으므로 닫힘
+  //    콜백이 **항상** 존재하고, (b) `onDismiss`도 항상 이어 Android의 dismissExisting까지 받고,
+  //    (c) 네이티브 Alert는 사용자가 닫아야만 사라진다(바깥 탭으로 닫히지 않는다).
+  //    앱이 죽어 콜백이 영영 안 오는 경우는 프로세스와 함께 자리도 사라져 문제가 되지 않는다.
+  //    반면 **승인 대기 중인 요청은 취소한다** — 떠난 화면의 Alert가 새 화면 위로 뜨면 안 된다.
   useEffect(
     () => () => {
-      if (openCountRef.current > 0) {
-        openCountRef.current = 0;
-        actionsRef.current?.release(id);
-      }
+      const cancels = Array.from(pendingCancelsRef.current);
+      pendingCancelsRef.current.clear();
+      cancels.forEach((cancel) => cancel());
+      releaseIfIdle();
     },
-    [id],
+    [releaseIfIdle],
   );
 
   const show: typeof Alert.alert = useCallback(
@@ -107,7 +126,13 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
   // `await` 뒤(요청 실패 등)에 여는 Alert는 **승인을 받고** 띄운다. 여는 시점을 응답이 정하므로
   // 기다리는 사이 결과 모달이 먼저 노출될 수 있고, 그러면 우리가 그 **위를** 덮는다 —
   // 사용자는 못 봤는데 seen/ack은 이미 찍힌 상태가 된다.
-  // 승인 전에 화면이 사라지면(false) 띄우지 않는다 — 떠난 화면의 Alert가 새 화면 위로 뜨지 않게.
+  // 승인 전에 화면이 사라지면(언마운트) 띄우지 않는다 — 떠난 화면의 Alert가 새 화면 위로 뜨지 않게.
+  // ⚠️ 그런데 **native-stack은 위로 화면이 쌓여도 아래 화면을 언마운트하지 않는다.** 대기 도중
+  //    푸시·딥링크가 새 화면을 push하면 이 훅의 정리 함수는 돌지 않고, 나중에 자리가 풀리면
+  //    **이미 떠난 화면의 실패 Alert가 지금 화면 위에** 뜬다. 공유 시트에서 호출부마다 막았던
+  //    것과 같은 결함이라, 여기서는 수단 자신이 막는다 — 요청 시점의 **라우트 키**를 들고 있다가
+  //    (push마다 새로 발급된다) 달라지면 대기를 취소한다. 승인과 이동이 같은 틱에 겹칠 수 있어
+  //    띄우기 **직전에 한 번 더** 본다.
   const showAfterSlot = useCallback(
     async (
       title: string,
@@ -116,15 +141,39 @@ export function useOverlayAlert(id: string): typeof Alert.alert & {
       options?: Parameters<typeof Alert.alert>[3],
     ): Promise<void> => {
       const slotActions = actionsRef.current;
-      if (slotActions !== null) {
-        openCountRef.current += 1;
-        const granted = await slotActions.acquire(id, OVERLAY_PRIORITY.sheet);
-        openCountRef.current = Math.max(0, openCountRef.current - 1);
-        if (!granted) return;
+      if (slotActions === null) {
+        show(title, message, buttons, options);
+        return;
       }
-      show(title, message, buttons, options);
+      let canceled = false;
+      const cancel = () => {
+        canceled = true;
+        // ⚠️ 대기만 접는다 — 같은 id로 **떠 있는** Alert가 쥔 자리는 건드리지 않는다.
+        releaseIfIdle();
+      };
+      pendingCancelsRef.current.add(cancel);
+      const routeAtRequest = readCurrentRouteKey();
+      const unsubscribe = subscribeCurrentRoute(() => {
+        if (canceled || readCurrentRouteKey() === routeAtRequest) return;
+        cancel();
+      });
+      try {
+        const granted = await slotActions.acquire(id, OVERLAY_PRIORITY.sheet);
+        if (canceled || !granted) {
+          if (granted) releaseIfIdle();
+          return;
+        }
+        if (readCurrentRouteKey() !== routeAtRequest) {
+          releaseIfIdle();
+          return;
+        }
+        show(title, message, buttons, options);
+      } finally {
+        unsubscribe();
+        pendingCancelsRef.current.delete(cancel);
+      }
     },
-    [id, show],
+    [id, releaseIfIdle, show],
   );
 
   return useMemo(() => Object.assign(show, { afterSlot: showAfterSlot }), [show, showAfterSlot]);

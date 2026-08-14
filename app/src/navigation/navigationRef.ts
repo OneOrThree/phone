@@ -37,6 +37,13 @@ export function readCurrentRoute(): CurrentRouteSnapshot | null {
   return { name: route.name, params: route.params as Record<string, unknown> | undefined };
 }
 
+// 라우트의 **키**는 이름·파라미터와 달리 push마다 새로 발급돼, 같은 화면을 한 번 더 쌓아도
+// 달라진다. "요청한 그 화면이 아직 맨 위인가"를 판정하는 데는 이 값이 정확하다(useOverlayAlert).
+export function readCurrentRouteKey(): string | null {
+  if (!navigationRef.isReady()) return null;
+  return navigationRef.getCurrentRoute?.()?.key ?? null;
+}
+
 export function subscribeCurrentRoute(listener: () => void): () => void {
   return navigationRef.addListener('state', listener);
 }

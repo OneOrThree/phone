@@ -30,6 +30,9 @@ const mockRoute: { params: { groupId: string; source: 'settings' | 'withdraw' | 
   params: { groupId: GROUP_ID, source: 'settings' },
 };
 jest.mock('@react-navigation/native', () => ({
+  // 실제 모듈을 깔고 필요한 것만 덮는다 — navigationRef가 createNavigationContainerRef를
+  // 모듈 로드 시점에 부르기 때문에, 빠뜨리면 이 화면을 import하는 것만으로 스위트가 죽는다.
+  ...jest.requireActual('@react-navigation/native'),
   useNavigation: () => mockNavigation,
   useRoute: () => mockRoute,
 }));

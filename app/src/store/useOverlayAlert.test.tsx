@@ -4,8 +4,11 @@
 // 그래서 마지막은 수단으로 닫았다 — 여기서 보는 것은 "이 헬퍼를 통과한 Alert는 떠 있는 동안
 // 결과 모달이 마운트되지 못하게 한다"는 **한 가지 성질**이다. 호출부가 그 헬퍼를 쓰는지는
 // 각 화면 테스트가 Alert 호출 형태로 확인한다.
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { act, render } from '@testing-library/react-native';
 import { Alert, type AlertButton } from 'react-native';
+import { navigationRef } from '@/navigation/navigationRef';
 import {
   OVERLAY_PRIORITY,
   OverlaySlotProvider,
@@ -162,6 +165,62 @@ describe('비동기 변형(afterSlot)', () => {
     });
     expect(alertSpy).toHaveBeenCalledTimes(1);
   });
+
+  // ⚠️ native-stack은 **위로 화면이 쌓여도 아래 화면을 언마운트하지 않는다.** 그래서 언마운트
+  //    정리만으로는 이 경우를 못 잡는다 — 대기 도중 푸시·딥링크가 새 화면을 push하면, 나중에
+  //    자리가 풀릴 때 **이미 떠난 화면의 실패 통보가 지금 화면 위로** 뜬다.
+  test('대기 도중 다른 화면이 위로 쌓이면 그 대기를 취소한다', async () => {
+    const Stack = createNativeStackNavigator();
+    let slotActions: ReturnType<typeof useOverlaySlotActions> = null;
+    function Grab() {
+      slotActions = useOverlaySlotActions();
+      return null;
+    }
+    function Blank() {
+      return null;
+    }
+    const view = await render(
+      <OverlaySlotProvider>
+        <Grab />
+        <NavigationContainer ref={navigationRef}>
+          <Stack.Navigator initialRouteName="A" screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="A" component={AlertOwner} />
+            <Stack.Screen name="B" component={Blank} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </OverlaySlotProvider>,
+    );
+    await act(async () => {});
+
+    // 결과 모달이 먼저 자리를 쥔 상태에서 A의 실패 통보가 승인을 기다린다.
+    await act(async () => {
+      slotActions?.request('test:result', OVERLAY_PRIORITY.challengeResult);
+    });
+    let done = false;
+    await act(async () => {
+      showAlert?.afterSlot('저장하지 못했어요', '잠시 후 다시 시도해 주세요.').then(() => {
+        done = true;
+      });
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(done).toBe(false);
+
+    // 푸시를 타고 B가 위로 쌓인다 — A는 언마운트되지 않고 blur로 남는다.
+    await act(async () => {
+      (navigationRef.navigate as unknown as (name: string) => void)('B');
+    });
+    await act(async () => {});
+    expect(done).toBe(true); // 매달려 있지 않고 접힌다
+
+    // 자리가 풀려도 떠난 화면의 통보는 뜨지 않는다.
+    await act(async () => {
+      slotActions?.release('test:result');
+    });
+    await act(async () => {});
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    view.unmount();
+  });
 });
 
 test('Alert가 떠 있는 동안 sheet 우선순위로 자리를 점유한다', async () => {
@@ -241,4 +300,48 @@ test('겹쳐 뜬 Alert는 마지막 하나가 닫혀야 반납한다', async () 
     second[0].onPress?.();
   });
   expect(latest()).toBe(-1);
+});
+
+// ⚠️ `showAlert(...)` 직후 `goBack()`을 부르는 화면이 있다(GroupOwnerTransferScreen의 실패 경로).
+//    네이티브 Alert는 화면이 언마운트돼도 **그대로 떠 있다.** 언마운트에서 자리를 반납하면
+//    그 Alert **뒤에서** 결과 모달이 마운트돼, 사용자가 못 본 회차에 seen/ack이 찍힌다.
+//    ⚠️ 유지만 단정하면 영구 점유를 못 잡는다 — 닫으면 반납되는 것까지 한 테스트에서 본다.
+test('화면이 사라져도 떠 있는 Alert의 자리는 유지되고, 닫으면 그때 반납된다', async () => {
+  const seen: number[] = [];
+  function Seen() {
+    seen.push(useOverlayMaxPriority());
+    return null;
+  }
+  function Tree({ owner }: { owner: boolean }) {
+    return (
+      <OverlaySlotProvider>
+        {owner ? <AlertOwner /> : null}
+        <Seen />
+      </OverlaySlotProvider>
+    );
+  }
+  const view = await render(<Tree owner />);
+  await act(async () => {});
+
+  await act(async () => {
+    showAlert?.('양도하지 못했어요', '잠시 후 다시 시도해 주세요.');
+  });
+  const buttons = lastButtons(alertSpy);
+  expect(seen[seen.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 통보 직후 goBack() — 화면만 사라지고 Alert는 사용자 앞에 그대로 있다.
+  await act(async () => {
+    view.rerender(<Tree owner={false} />);
+  });
+  await act(async () => {});
+  expect(seen[seen.length - 1]).toBe(OVERLAY_PRIORITY.sheet);
+
+  // 반납 주체는 화면이 아니라 Alert 자신이다 — 사용자가 닫으면 그때 풀린다.
+  await act(async () => {
+    buttons[0].onPress?.();
+  });
+  await act(async () => {});
+  expect(seen[seen.length - 1]).toBe(-1);
+
+  view.unmount();
 });
